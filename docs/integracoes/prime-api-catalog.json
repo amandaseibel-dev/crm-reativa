@@ -41,7 +41,7 @@
       "limitations": [
         "124 portadores no total; só 166 e 195 são carteira da Reativa por decisão da gestão (165 e 202 são judiciais, fora de escopo)"
       ],
-      "last_verified_at": "2026-09-15"
+      "last_verified_at": "2026-09-28"
     },
     {
       "resource": "students_search",
@@ -215,14 +215,14 @@
         "documentNumber": "string, 13 dígitos — documento interno ULBRA; para mensalidade: base(9)=010+contrato + sequência(4)=parcela fracionária (ex. terminado em 990 = parcela 9,9); para acordo: 0+5+acordo(6)+parcela(4)",
         "carrier": "{ id, name } — o portador DO TÍTULO (não do aluno); decide se ainda está em cobrança",
         "dueDate": "date — vencimento",
-        "paymentDate": "date — presente em ~100% das linhas do portador 195, inclusive títulos que o CRM mantém ABERTO; NÃO É PROVA DE PAGAMENTO isolada (ver limitations)",
+        "paymentDate": "date — MEDIDO 2026-09-28: preenchido em 100% das linhas de TODO portador, não só do 195. No espelho prime_extrato, 0 de 302.477 linhas do portador 95 têm paymentDate nulo, INCLUSIVE os 19.795 títulos que ainda vão vencer. NÃO É PROVA DE PAGAMENTO em nenhum portador (ver limitations)",
         "grossAmount": "decimal — o principal (a mensalidade original)",
         "discountAmount": "decimal",
         "penaltyAmount": "decimal — observado 0 em todas as linhas de acordo testadas",
         "interestAmount": "decimal ou null — observado null em todas as linhas de acordo testadas",
         "honorariumAmount": "decimal",
         "netAmount": "decimal — soma dos anteriores",
-        "paidAmount": "decimal — dívida corrigida na data da consulta, NÃO é caixa (pode superar o valor pago real; ver docs/integracoes/prime-mapa-fontes-verdade.md)",
+        "paidAmount": "decimal — dívida corrigida / valor de tabela na data da consulta, NÃO é caixa. MEDIDO 2026-09-28 no portador 95: aparece como o DOBRO EXATO do principal em título vencido e MAIOR que o principal em título a vencer (3.852 de 19.705 a vencer com paidAmount > grossAmount). Nunca somar como recebimento",
         "isAgreementInstallment": "boolean — existe no schema mas medido `false` em 388.446 linhas / 17.211 alunos (2026-09-09) e reconfirmado em 1.327 linhas / 53 alunos (2026-09-15); nunca observado true"
       },
       "source_of_truth_for": [
@@ -238,9 +238,13 @@
         "paymentDate sozinho NÃO distingue negociado de aberto (regra testada e invalidada em 2026-09-01 — ver memória portador-195-com-data-igual-e-negociacao)",
         "isAgreementInstallment nunca vem true: não usar para achar parcela de acordo",
         "carrier 166 (convênio de acordo) NUNCA aparece numa linha de extrato, mesmo para acordo ATIVO com parcela em aberto conhecida (medido em 67 alunos / 1.625 linhas)",
-        "carrierId como filtro deste endpoint é ignorado silenciosamente"
+        "carrierId como filtro deste endpoint é ignorado silenciosamente",
+        "MEDIDO AO VIVO 2026-09-28 (GET /students/{registration} via Edge Function prime-acordo): o objeto de financialStatement tem EXATAMENTE 13 campos — documentNumber, dueDate, grossAmount, discountAmount, penaltyAmount, interestAmount, honorariumAmount, netAmount, paymentDate, paidAmount, boleto, isAgreementInstallment, carrier. NENHUM campo de situação, status, saldo em aberto ou evento de pagamento.",
+        "Consequência: não existe, na superfície testada com a chave atual, forma de saber pela API se um título está pago, em aberto, cancelado ou renegociado. Movimento só é observável comparando duas consultas — e redução de saldo mistura pagamento, cancelamento, bolsa e renegociação.",
+        "PROVA COM VARIÁVEL INDEPENDENTE, 2026-09-28: o relatório de inadimplência da ULBRA do próprio dia diz quem está EM ABERTO. Cruzando 120 linhas dele com o espelho: 101 títulos comprovadamente em aberto; DESSES, 101 tinham paymentDate preenchido, 19 com data POSTERIOR ao vencimento, 61 tinham paidAmount IGUAL ao netAmount e 27 tinham paidAmount MENOR que o netAmount. Ou seja, as assinaturas que alguém leria como 'pagou' aparecem em massa em títulos abertos. Nenhum dos 13 campos separa aberto de pago.",
+        "Comparação entre grupos (mesmos alunos, 2026-09-28): EM ABERTO (101 títulos) x mensalidades de jul/ago do mesmo aluno (24) x títulos futuros (315). Nenhum campo separa os grupos: paymentDate nulo = 0 nos três; isAgreementInstallment = false nos três; portador = 95 nos três. Nos futuros, paymentDate <= vencimento em 315 de 315 — é data de processamento."
       ],
-      "last_verified_at": "2026-09-18"
+      "last_verified_at": "2026-09-28"
     },
     {
       "resource": "agreements",
@@ -297,14 +301,16 @@
       "/docs",
       "/health"
     ],
-    "nota": "48 rotas candidatas testadas em 15/09/2026 com o número de um acordo real conhecido (71903) — todas 404, nenhuma 405 (405 indicaria rota existente com método errado; 404 uniforme não distingue 'rota não existe' de 'rota existe mas não aceita GET nesta forma')."
+    "nota": "48 rotas candidatas testadas em 15/09/2026 com o número de um acordo real conhecido (71903) — todas 404, nenhuma 405 (405 indicaria rota existente com método errado; 404 uniforme não distingue 'rota não existe' de 'rota existe mas não aceita GET nesta forma').",
+    "nota_2026_09_28": "Reconferido em 28/09/2026 para a frente PREVENTIVO: as rotas de pagamento/título (/payments, /titles, /bills, /installments, /students/{reg}/titles) continuam sendo as testadas em 15/09 e nenhuma delas respondeu. Também foi verificado que NÃO existe outra integração autorizada com essa informação: `public.pagamentos` (9.584 linhas, extrato Santander da Reativa) tem `titulo_numero` de 5 dígitos, que é o NÚMERO DO ACORDO da Reativa — estruturalmente incapaz de carregar pagamento de mensalidade do portador 95."
   },
   "edge_functions": {
     "no_repositorio": [
-      "prime-sync",
+      "prev-sincronizar",
       "prime-cadastro",
+      "prime-diagnostico",
       "prime-portador",
-      "prime-diagnostico"
+      "prime-sync"
     ],
     "somente_producao_agora_versionadas_neste_commit": [
       "prime-acordo",

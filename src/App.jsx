@@ -4,13 +4,13 @@ import {
   LayoutDashboard, Zap, Folder, Calendar, User, Phone, Heart,
   DollarSign, CreditCard, CheckCircle2, FileStack, Lock,
   BarChart3, Clock, Contact, LayoutPanelTop, Clock3, Database, Link2, TrendingUp,
-  Upload, Users, Settings, UserCircle, ClipboardList,
+  Upload, Users, Settings, UserCircle, ClipboardList, ShieldCheck,
 } from "lucide-react";
 const ICONES_MENU = {
   LayoutDashboard, Zap, Folder, Calendar, User, Phone, Heart,
   DollarSign, CreditCard, CheckCircle2, FileStack, Lock,
   BarChart3, Clock, Contact, LayoutPanelTop, Clock3, Database, Link2, TrendingUp,
-  Upload, Users, Settings, UserCircle, ClipboardList,
+  Upload, Users, Settings, UserCircle, ClipboardList, ShieldCheck,
 };
 import { supabase } from "./services/supabase";
 import usePolling from "./utils/polling";
@@ -81,6 +81,7 @@ const SaudeDaBase = lazy(() => import("./pages/SaudeDaBase"));
 const SaudeCompletaCarteira = lazy(() => import("./pages/SaudeCompletaCarteira"));
 const RevisaoPrime = lazy(() => import("./pages/RevisaoPrime"));
 const TvElogios = lazy(() => import("./pages/TvElogios"));
+const Preventivo = lazy(() => import("./pages/Preventivo"));
 import AvisoTemplateNovo from "./components/AvisoTemplateNovo";
 import AvisosPopup from "./components/AvisosPopup";
 import TourNovidades from "./components/TourNovidades";
@@ -187,6 +188,7 @@ function podeAcessar(perfil, rota) {
       "/base-analitica",
       "/termos-adm",
       "/borderos",
+      "/preventivo",
       "/vincular-operadores",
       "/importacoes",
       "/usuarios",
@@ -338,7 +340,10 @@ function RotaProtegida({ usuario, rota, children }) {
   // Borderôs e Importações: SOMENTE Amanda (regra operacional definitiva).
   // Fernanda, Amanda ADM, operadores e demais perfis ficam bloqueados aqui;
   // o backend tambem trava (importar_acordos exige app_pode_borderos_importacoes).
-  if (["/borderos","/importacoes","/importar-acordos","/importar-recuperacao"].includes(rota)) {
+  // Preventivo: SOMENTE Amanda da gestão. O banco recusa de novo em toda RPC e
+  // na RLS de toda tabela `prev_` (public.preventivo_e_gestao) -- isto aqui só
+  // evita abrir uma tela que voltaria vazia.
+  if (["/borderos","/importacoes","/importar-acordos","/importar-recuperacao","/preventivo"].includes(rota)) {
     const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
     if (email !== "amanda.seibel@aelbra.com.br") {
       return <Navigate to="/" replace />;
@@ -688,6 +693,7 @@ export default function App() {
     { rota: "/relatorios", label: "Relatórios", icone: "TrendingUp", secao: "Gestão" },
     { rota: "/relatorios-2026-1-sem-negociacao", label: "Jan–Jun/2026 sem negociação", icone: "TrendingUp", secao: "Gestão" },
      { rota: "/acordos-duplicados", label: "Acordos duplicados", icone: "Copy", secao: "Gestão" }, { rota: "/ferramentas", label: "Ferramentas", icone: "FileStack", secao: "Gestão" }, 
+    { rota: "/preventivo", label: "Preventivo", icone: "ShieldCheck", secao: "Gestão" },
     { rota: "/avisos", label: "Central de Avisos", icone: "Bell", secao: "Configurações" },
     { rota: "/usuarios", label: "Usuários", icone: "Users", secao: "Configurações" },
     { rota: "/configuracoes", label: "🛡️ Auditoria e Segurança", icone: "Settings", secao: "Configurações" },
@@ -700,6 +706,12 @@ export default function App() {
     if (item.rota === "/dre") {
       const em = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return (em === "amanda.seibel@aelbra.com.br" || perfil === "diretoria") && perfil !== "operador";
+    }
+    // Preventivo: só a Amanda da gestão vê o item. A rota e o banco travam de
+    // novo -- este filtro é só para o menu não mostrar o que não abre.
+    if (item.rota === "/preventivo") {
+      const em = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return em === "amanda.seibel@aelbra.com.br" && perfil !== "operador";
     }
     if (item.rota === "/fechamento-remuneracao") {
       const em = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
@@ -1031,6 +1043,14 @@ export default function App() {
               element={
                 <RotaProtegida usuario={usuario} rota="/borderos">
                   <Borderos />
+                </RotaProtegida>
+              }
+            />
+            <Route
+              path="/preventivo"
+              element={
+                <RotaProtegida usuario={usuario} rota="/preventivo">
+                  <Preventivo />
                 </RotaProtegida>
               }
             />
