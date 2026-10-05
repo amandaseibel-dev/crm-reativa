@@ -400,6 +400,7 @@ function TelaAniversarioDestaque({ snap }) {
 }
 
 // 10) Playlist ReATIVA ---------------------------------------------------------
+// eslint-disable-next-line react-refresh/only-export-components
 function TelaPlaylistReativa({ snap }) {
   const itens = snap?.playlist_reativa || [];
   if (itens.length === 0) return <Tela titulo="Playlist ReATIVA" icone="🎵"><Vazio>Nenhuma música adicionada nesta atualização.</Vazio></Tela>;
@@ -429,6 +430,7 @@ function TelaPlaylistReativa({ snap }) {
 }
 
 // 11) Próximos eventos do Portal ---------------------------------------------
+// eslint-disable-next-line react-refresh/only-export-components
 function TelaEventosPortal({ snap }) {
   const eventos = snap?.eventos_portal || [];
   if (eventos.length === 0) return <Tela titulo="Próximos Eventos" icone="📅"><Vazio>Nenhum evento futuro cadastrado.</Vazio></Tela>;
