@@ -1,23 +1,15 @@
 -- Preventivo: os tres UPDATE da importacao passam a ter WHERE.
 --
--- POR QUE. O papel da API traz `safeupdate` pre-carregada
--- (pg_db_role_setting: authenticator -> session_preload_libraries =
--- 'supautils, safeupdate'), e ela age em TODA instrucao da sessao, inclusive
--- dentro de PL/pgSQL. Os tres UPDATE sobre a tabela temporaria `_prev_in`
--- nao tinham WHERE, e a previa morria antes de qualquer leitura:
---
---   2026-10-05 12:24:43 UTC e 12:24:54 UTC
---   POST /rest/v1/rpc/preventivo_lote_previa -> 400
---   ERROR 21000: UPDATE requires a WHERE clause
---   CONTEXT: update _prev_in set celular_aluno = ... email_aluno = ...
---            preventivo_lote_processar(uuid,jsonb,boolean,uuid) linha 42
---            preventivo_lote_previa(uuid,jsonb) linha 3
---
+-- POR QUE. A previa da importacao falhava antes de ler qualquer coisa: o
+-- banco recusa UPDATE sem WHERE, e os tres UPDATE sobre a tabela temporaria
+-- `_prev_in`, em `preventivo_lote_processar`, nao tinham. A recusa vale para
+-- toda instrucao, inclusive dentro de PL/pgSQL, e o erro era o 21000 --
+-- "UPDATE requires a WHERE clause" -- no primeiro dos tres.
 -- `preventivo_lote_confirmar` nunca chegou a rodar.
 --
--- O QUE ESTA MIGRATION NAO FAZ. Nao desliga `safeupdate`, nao mexe em
--- `statement_timeout`, nao usa `WHERE true` e nao altera regra nenhuma da
--- importacao. Cada WHERE e a condicao real daquele UPDATE:
+-- O QUE ESTA MIGRATION NAO FAZ. Nao mexe em nenhuma protecao nem limite do
+-- banco, nao usa `WHERE true` e nao altera regra nenhuma da importacao. Cada
+-- WHERE e a condicao real daquele UPDATE:
 --
 --   1. contato: so as linhas com exatamente um telefone OU um e-mail. Nas
 --      outras o CASE gravaria NULL sobre coluna recem-criada (ja NULL).
