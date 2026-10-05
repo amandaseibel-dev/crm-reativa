@@ -193,8 +193,18 @@ describe("curtidas em elogio", () => {
 
   it("o total acumula entre semanas -- nao e contagem semanal", async () => {
     const e = await H.criarElogio(db, { texto: "Curtivel" });
-    await H.curtir(db, H.LUANA,    e, "2026-08-10T12:00:00Z", "elogio");
-    await H.curtir(db, H.MAURICIO, e, "2026-09-30T12:00:00Z", "elogio");
+
+    // Datas ANCORADAS na semana corrente, nunca fixas: a semana da equipe e
+    // [segunda 00:00, segunda seguinte 00:00) em America/Sao_Paulo, e uma data
+    // fixa escrita como "desta semana" envelhece na primeira virada de semana.
+    // A antiga vem da propria portal_semana_sp(), tres semanas atras; a desta
+    // semana e now(), que esta dentro da janela em qualquer dia que o CI rode.
+    const inicioSemana = new Date(
+      (await db.query("select public.portal_semana_sp() as s")).rows[0].s).getTime();
+    const semanaAntiga = new Date(inicioSemana - 21 * 864e5 + 12 * 36e5).toISOString();
+
+    await H.curtir(db, H.LUANA,    e, semanaAntiga, "elogio");
+    await H.curtir(db, H.MAURICIO, e, null,         "elogio");
 
     expect(await H.curtidasTotais(db, H.LUANA, "elogio"))
       .toEqual([{ alvo_id: e, curtidas: 2, eu_curti: true }]);
@@ -203,6 +213,18 @@ describe("curtidas em elogio", () => {
     expect((await H.comoUsuario(db, H.LUANA, () =>
       db.query("select curtidas_semana from public.portal_curtidas_da_semana('elogio')"))).rows)
       .toEqual([{ curtidas_semana: 1 }]);
+
+    // E a contagem e POR semana: pedindo a semana da curtida antiga, a conta
+    // devolve aquela, nao a desta semana. Vale em qualquer data de execucao.
+    expect((await H.comoUsuario(db, H.LUANA, () =>
+      db.query("select curtidas_semana from public.portal_curtidas_da_semana('elogio', public.portal_semana_sp($1::timestamptz))",
+               [semanaAntiga]))).rows)
+      .toEqual([{ curtidas_semana: 1 }]);
+
+    // A antiga esta mesmo numa semana anterior -- a ancoragem nunca as junta.
+    const semanaDaAntiga = new Date(
+      (await db.query("select public.portal_semana_sp($1::timestamptz) as s", [semanaAntiga])).rows[0].s).getTime();
+    expect(semanaDaAntiga).toBeLessThan(inicioSemana);
   });
 
   it("nao existe ranking de operador: o mural nao soma curtida por pessoa", async () => {
