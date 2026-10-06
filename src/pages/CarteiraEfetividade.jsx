@@ -150,23 +150,17 @@ export default function CarteiraEfetividade() {
       { rotulo: "Convertido", valor: f.efetividade, cor: AZUL },
       { rotulo: "Em aberto sem negociação", valor: f.inadimplencia, cor: VERMELHO },
       { rotulo: "Em conferência", valor: f.em_validacao, cor: AMBAR },
-      { rotulo: "Ajuste acadêmico", valor: f.academico, cor: CINZA },
+      // Desde 06/10/2026 esta faixa carrega duas coisas: o ajuste acadêmico de
+      // sempre e a cobrança encerrada administrativamente, que o classificador
+      // põe em FORA_DA_BASE e que antes não entrava em faixa nenhuma — por isso
+      // as barras não fechavam 100% da base. É a mesma regra que a visão das
+      // seis linhas aplica na linha "Cancelado". O rótulo diz as duas; a
+      // decomposição vem em `academico_detalhe`, para auditoria.
+      { rotulo: "Encerrado / ajuste acadêmico", valor: f.academico, cor: CINZA },
     ];
     referenciaRotulo = "da carteira congelada";
-    // As quatro faixas acima são 100% da base SÓ quando não há título fora
-    // delas. Desde que os indicadores passaram a ler ao vivo (06/10/2026),
-    // existe título "encerrado administrativamente", que o classificador põe em
-    // FORA_DA_BASE e que nenhuma das quatro cobre. Declarar o resíduo custa uma
-    // frase; omiti-lo faria a tela chamar 99,48% de 100%. Não é conta nova — o
-    // valor vem pronto da RPC, em `faixas_fora_da_base`.
-    const fora = Number(consolidada.faixas_fora_da_base?.valor || 0);
     rodape = "Carteira de " + moeda(base) + " · congelada em " + data(consolidada.base?.congelada_em)
-           + " · fotografia de " + data(consolidada.gerado_em)
-           + (fora > 0
-                ? " · fora das quatro faixas: " + moeda(fora) + " em "
-                  + num(consolidada.faixas_fora_da_base?.titulos)
-                  + " títulos encerrados administrativamente"
-                : "");
+           + " · fotografia de " + data(consolidada.gerado_em);
   }
 
   if (safra === "2026/2" && vigente) {

@@ -29,30 +29,47 @@
 -- `carteira_2026_1_classificar()` sozinho leva 1.719 ms. Nao e de graca: a tela
 -- passa a esperar ~3 s onde hoje espera a leitura de uma linha.
 --
--- ============================== O RISCO ADMITIDO ==============================
--- AS QUATRO FAIXAS DEIXAM DE SOMAR A BASE. Medido em 06/10/2026:
+-- ================== FORA_DA_BASE ENTRA COMO COBRANCA ENCERRADA ==============
+-- O PROBLEMA QUE APARECEU AO LIGAR O AO VIVO. Medido em 06/10/2026:
 --
 --   snapshot de 11/09  soma das 4 faixas = 21.752.304,72  base = 21.752.304,72
---                      diferenca 0,00  -- fechava exato
---   ao vivo em 06/10   soma das 4 faixas = 21.597.852,13  base = 21.710.447,29
---                      diferenca 112.595,16  -- NAO fecha
+--                      diferenca 0,00
+--   ao vivo, sem tratar o residuo
+--                      soma das 4 faixas = 21.597.852,13  base = 21.710.447,29
+--                      diferenca 112.595,16  -- NAO fechava
 --
--- A diferenca e exatamente a faixa FORA_DA_BASE do classificador: 15 titulos /
+-- A diferenca era exatamente a faixa FORA_DA_BASE do classificador: 15 titulos /
 -- R$ 112.595,16, "encerrado administrativamente / fora da base". Em 11/09 esse
--- conjunto era vazio, entao as quatro faixas fechavam por acidente do dado, nao
--- por construcao -- o payload nunca teve uma quinta faixa para esse residuo.
--- A tela declara "da carteira congelada" como 100% das barras, e passaria a
--- declarar 99,48% chamando de 100%.
+-- conjunto era VAZIO, entao as quatro faixas fechavam por acidente do dado e nao
+-- por construcao -- o payload nunca teve destino para esse residuo. A tela
+-- declara as barras como 100% da carteira, e declararia 99,48% como 100%.
 --
--- ESTA MIGRATION NAO RESOLVE ISSO DE PROPOSITO. Dar destino ao residuo seria
--- mudar a regra de calculo validada em 11/09 -- criar faixa, mover para
--- em_validacao ou tirar do denominador, cada opcao com efeito proprio sobre os
--- percentuais que a Diretoria ja leu. A decisao e da gestao; aqui o residuo fica
--- EXPOSTO em `faixas_fora_da_base`, que e chave NOVA e nao altera nenhuma das
--- existentes, para que a diferenca seja visivel em vez de silenciosa.
+-- DECISAO DA GESTAO (06/10/2026): tratar FORA_DA_BASE como COBRANCA CANCELADA,
+-- a mesma regra que `carteira_safra_situacoes()` ja aplica -- la o titulo
+-- FORA_DA_BASE alimenta a linha "Cancelado" e por isso aquela visao fecha com
+-- diferenca 0,00. Sem criar quinta faixa.
 --
--- `carteira_safra_situacoes()` (PR #604) nao tem esse problema porque mapeia
--- FORA_DA_BASE para a linha "Cancelado" e por isso fecha com diferenca 0,00.
+-- POR QUE ELE ENTRA EM `academico` E NAO EM OUTRA. As quatro faixas sao
+-- efetividade, inadimplencia, em_validacao e academico; NENHUMA se chama
+-- "Cancelado", e a gestao pediu para nao criar faixa nova. Das quatro, a unica
+-- cujo significado e "o titulo saiu do universo de cobranca, e isso nao e
+-- resultado de cobranca" e `academico` -- ela ja carrega a sub_faixa
+-- "Baixa/Ajuste academico". Cobranca encerrada administrativamente e o mesmo
+-- tipo de evento: saida do universo, nao conversao nem inadimplencia. Somar em
+-- efetividade inflaria conversao; somar em inadimplencia afirmaria divida que
+-- ninguem vai cobrar; em_validacao diria que esta em conferencia, e nao esta --
+-- a decisao ja foi tomada. A tela acompanha: a barra passa de "Ajuste
+-- academico" para "Encerrado / ajuste academico".
+--
+-- SOMA EXATA, SEM DUPLA CONTAGEM. CONFERIDO em 06/10/2026: as 15 linhas
+-- FORA_DA_BASE tem ef_pago, ef_negociado, ef_convertido, em_validacao,
+-- academico, inadimplencia e recuperacao_financeira TODOS em 0,00 -- elas
+-- entravam em `base.valor` pelo valor_original e em nenhuma faixa. Por isso
+-- somar `valor_original` em `academico` e exato.
+--
+-- NENHUMA OUTRA REGRA MUDA: efetividade, inadimplencia, em_validacao,
+-- composicao, recuperacao (inclusive o caixa fora do CRM), cpfs e
+-- titulos_inadimplentes seguem com as expressoes de 11/09, verbatim.
 --
 -- O QUE NAO MUDA: `carteira_2026_1_snapshot` continua existindo, com a linha de
 -- 11/09 intacta e com `recalcular` ainda podendo gravar novas; `base.congelada_em`
@@ -147,14 +164,20 @@ begin
       'efetividade',   round(sum(ef_pago + ef_negociado + ef_convertido),2),
       'inadimplencia', round(sum(inadimplencia),2),
       'em_validacao',  round(sum(em_validacao),2),
-      'academico',     round(sum(academico),2)
+      -- Cobranca encerrada administrativamente (FORA_DA_BASE) entra aqui, por
+      -- decisao da gestao de 06/10/2026 -- mesma regra da linha "Cancelado" de
+      -- carteira_safra_situacoes(). As 15 linhas FORA_DA_BASE tem 0,00 em TODAS
+      -- as colunas de metrica, entao a soma e exata e nao ha dupla contagem.
+      -- E o que faz as quatro faixas voltarem a fechar 100% de base.valor.
+      'academico',     round(sum(academico)
+                             + sum(case when faixa = 'FORA_DA_BASE' then valor_original else 0 end), 2)
     ),
-    -- CHAVE NOVA: o residuo que as quatro faixas NAO cobrem. Ver o cabecalho.
-    -- Nao entra em faixa nenhuma e nao muda nenhum numero existente -- so deixa
-    -- de ser invisivel.
-    'faixas_fora_da_base', jsonb_build_object(
-      'valor',   round(sum(case when faixa = 'FORA_DA_BASE' then valor_original else 0 end),2),
-      'titulos', count(*) filter (where faixa = 'FORA_DA_BASE')
+    -- Decomposicao de `academico`, para auditoria. NAO e faixa: a soma das duas
+    -- partes e exatamente a faixa acima, e nenhuma das duas aparece como barra.
+    'academico_detalhe', jsonb_build_object(
+      'ajuste_academico',          round(sum(academico),2),
+      'encerrado_administrativo',  round(sum(case when faixa = 'FORA_DA_BASE' then valor_original else 0 end),2),
+      'titulos_encerrados',        count(*) filter (where faixa = 'FORA_DA_BASE')
     ),
     -- composicao POR VALOR: o titulo de acordo parcial divide-se entre pago e negociado
     'composicao', jsonb_build_array(
@@ -198,11 +221,13 @@ end; $function$;
 
 comment on function public.carteira_2026_1_payload() is
   'Monta o payload de indicadores de 2026/1 AO VIVO, sem escrever. Expressoes '
-  'copiadas verbatim de carteira_2026_1_recalcular(); a unica diferenca e `_c` ser '
-  'CTE materializada em vez de temp table, o que permite STABLE. MEDIDO em '
-  '06/10/2026: 3.112 ms, com o classificador rodando uma vez. ATENCAO: as quatro '
-  'faixas NAO somam base.valor quando existe titulo FORA_DA_BASE -- o residuo sai '
-  'em `faixas_fora_da_base` e nao tem destino definido (decisao da gestao).';
+  'copiadas verbatim de carteira_2026_1_recalcular(); as unicas diferencas sao '
+  '`_c` ser CTE materializada em vez de temp table (o que permite STABLE) e o '
+  'titulo FORA_DA_BASE entrar na faixa `academico` como cobranca encerrada '
+  'administrativamente, por decisao da gestao de 06/10/2026 -- mesma regra da '
+  'linha "Cancelado" de carteira_safra_situacoes(). Com isso as QUATRO faixas '
+  'somam exatamente base.valor. A decomposicao de `academico` sai em '
+  '`academico_detalhe`. MEDIDO em 06/10/2026: 3.112 ms, classificador uma vez.';
 
 revoke all on function public.carteira_2026_1_payload() from public, anon;
 grant execute on function public.carteira_2026_1_payload() to authenticated;
