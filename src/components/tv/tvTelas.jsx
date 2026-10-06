@@ -627,7 +627,7 @@ export const CATALOGO_TELAS = [
     descricao: "Tela dedicada da meta: % atingido no anel, realizado, falta, dias úteis restantes e necessário por dia útil.",
     temConteudo: (s) => Number(s?.mes?.meta_empresa || 0) > 0 },
   { id: "metas", nome: "Metas", Comp: TelaMetas, ativa: false, grupo: "operacao",
-    descricao: "Cards de metas (empresa, magic, marco histórico).",
+    descricao: "Cards de metas (empresa, superar o mês passado, marco histórico).",
     temConteudo: (s) => (s?.metas || []).length > 0 },
   { id: "premiacao", nome: "Premiação", Comp: TelaPremiacao, ativa: false, grupo: "operacao",
     descricao: "Faixas de comissão do mês (M1 a M4).",
