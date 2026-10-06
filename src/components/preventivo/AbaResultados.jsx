@@ -56,13 +56,20 @@ export default function AbaResultados({ carteira }) {
   const [res, setRes] = useState(null);
   const [situacao, setSituacao] = useState(null);
   const [porContexto, setPorContexto] = useState(null);
+  const [periodo, setPeriodo] = useState({ de: "", ate: "" });
   const [erro, setErro] = useState("");
 
   const buscar = useCallback(() => Promise.all([
     supabase.rpc("preventivo_resultados", { p_carteira_id: carteira.id }),
     supabase.rpc("preventivo_sinc_situacao", { p_carteira_id: carteira.id }),
-    supabase.rpc("preventivo_resultados_por_contexto", { p_carteira_id: carteira.id }),
-  ]), [carteira.id]);
+    // Período vazio = sem limite daquele lado. O corte é pela data de criação
+    // da ação, não pelo vencimento do título.
+    supabase.rpc("preventivo_resultados_por_contexto", {
+      p_carteira_id: carteira.id,
+      p_de: periodo.de || null,
+      p_ate: periodo.ate || null,
+    }),
+  ]), [carteira.id, periodo.de, periodo.ate]);
 
   const aplicar = useCallback(([r, s, c]) => {
     if (r.error) { setErro(r.error.message); return; }
@@ -118,7 +125,7 @@ export default function AbaResultados({ carteira }) {
         <Cartao rotulo="Nunca consultados no Prime" valor={t.sem_sinc} />
       </div>
 
-      <PorContexto dados={porContexto} />
+      <PorContexto dados={porContexto} periodo={periodo} setPeriodo={setPeriodo} />
 
       {/* O número que a gestão mais quer é o que a fonte não dá. Está escrito. */}
       <div style={{ ...S.card, padding: 20, marginTop: 18, borderLeft: "4px solid var(--rv-ambar-borda)" }}>
@@ -261,45 +268,84 @@ function Cartao({ rotulo, valor }) {
   );
 }
 
-// Resultado por etapa da jornada. A palavra é REGULARIZADO: nunca "pago",
-// nunca "recuperado". A definição viaja junto, vinda do banco.
-function PorContexto({ dados }) {
+// Resultado por etapa da jornada e por canal, com corte opcional de período.
+// A palavra é REGULARIZADO: nunca "pago", nunca "recuperado". A definição vem
+// do banco e viaja junto.
+function PorContexto({ dados, periodo, setPeriodo }) {
   if (!dados) return null;
-  const chaves = Object.keys(dados);
-  if (chaves.length === 0) return null;
-  const definicao = dados[chaves[0]]?.definicao;
+  const contextos = dados.contextos || {};
+  const chaves = Object.keys(contextos);
 
   return (
     <div style={{ ...S.card, padding: 20, marginTop: 18 }}>
-      <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Resultado por contexto</h2>
-      <p style={{ ...S.muted, marginTop: 6, fontSize: 12.5 }}>{definicao}</p>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between" }}>
+        <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Resultado por contexto e canal</h2>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div>
+            <label style={{ ...S.muted, display: "block", fontSize: 11, fontWeight: 700 }}>Ações criadas de</label>
+            <input type="date" style={{ ...S.input, minWidth: 0 }} value={periodo.de}
+                   onChange={(e) => setPeriodo({ ...periodo, de: e.target.value })} />
+          </div>
+          <div>
+            <label style={{ ...S.muted, display: "block", fontSize: 11, fontWeight: 700 }}>até</label>
+            <input type="date" style={{ ...S.input, minWidth: 0 }} value={periodo.ate}
+                   onChange={(e) => setPeriodo({ ...periodo, ate: e.target.value })} />
+          </div>
+          {(periodo.de || periodo.ate) && (
+            <button style={S.btnGhost} onClick={() => setPeriodo({ de: "", ate: "" })}>
+              Limpar período
+            </button>
+          )}
+        </div>
+      </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12, marginTop: 14 }}>
-        {chaves.map((k) => {
-          const d = dados[k];
-          return (
+      <p style={{ ...S.muted, marginTop: 6, fontSize: 12.5 }}>{dados.definicao}</p>
+
+      {chaves.length === 0 ? (
+        <p style={{ ...S.muted, marginTop: 12 }}>
+          Nenhuma ação no período escolhido.
+        </p>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12, marginTop: 14 }}>
+          {chaves.map((k) => (
             <div key={k} style={{ ...S.card, padding: 16 }}>
               <div style={{ ...S.cardNome, fontSize: 14 }}>{CONTEXTOS[k] || k}</div>
-              <Linha rotulo="Ações" valor={d.acoes} />
-              <Linha rotulo="Com envio confirmado" valor={d.acoes_com_envio_confirmado} />
-              <Linha rotulo="Alunos acionados" valor={d.alunos_acionados} />
-              <Linha rotulo="Títulos acionados" valor={d.titulos_acionados} />
-              <Linha rotulo="Valor acionado" valor={moeda(d.valor_acionado)} />
-              <Linha rotulo="Continuam em aberto" valor={d.continuam_em_aberto} />
-              <Linha rotulo="Regularizados entre remessas" valor={d.regularizados_entre_remessas} />
-              <Linha rotulo="Valor regularizado" valor={moeda(d.valor_regularizado)} />
-              <Linha rotulo="Taxa de regularização"
-                     valor={d.taxa_regularizacao === null ? "—" : `${d.taxa_regularizacao}%`} />
-              {d.aguardando_proxima_remessa > 0 && (
-                <p style={{ ...S.muted, marginTop: 8, fontSize: 11.5 }}>
-                  {d.aguardando_proxima_remessa} ação(ões) ainda sem remessa seguinte para comparar.
-                </p>
-              )}
+              <Metricas d={contextos[k]} />
+              {Object.entries(contextos[k].canais || {}).map(([canal, m]) => (
+                <details key={canal} style={{ marginTop: 10 }}>
+                  <summary style={{ ...S.muted, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
+                    {canal === "WHATSAPP" ? "WhatsApp" : "E-mail"} · {m.acoes} ação(ões)
+                  </summary>
+                  <Metricas d={m} />
+                </details>
+              ))}
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
+  );
+}
+
+function Metricas({ d }) {
+  return (
+    <>
+      <Linha rotulo="Ações" valor={d.acoes} />
+      <Linha rotulo="Com envio confirmado" valor={d.acoes_com_envio_confirmado} />
+      <Linha rotulo="Alunos acionados" valor={d.alunos_acionados} />
+      <Linha rotulo="Títulos acionados" valor={d.titulos_acionados} />
+      <Linha rotulo="Valor acionado" valor={moeda(d.valor_acionado)} />
+      <Linha rotulo="Continuam em aberto" valor={d.continuam_em_aberto} />
+      <Linha rotulo="Regularizados entre remessas" valor={d.regularizados_entre_remessas} />
+      <Linha rotulo="Valor regularizado" valor={moeda(d.valor_regularizado)} />
+      <Linha rotulo="Taxa de regularização"
+             valor={d.taxa_regularizacao === null ? "—" : `${d.taxa_regularizacao}%`} />
+      {d.aguardando_proxima_remessa > 0 && (
+        <p style={{ ...S.muted, marginTop: 8, fontSize: 11.5 }}>
+          {d.aguardando_proxima_remessa} ação(ões) ainda sem remessa seguinte para comparar.
+        </p>
+      )}
+    </>
   );
 }
 

@@ -96,6 +96,10 @@ describe("Preventivo — contexto da ação", () => {
     `select public.preventivo_lote_confirmar($1::uuid, $2, 'rel.csv', '{}'::jsonb, null, $3::jsonb)`,
     [carteira, nome, JSON.stringify(linhas)]);
 
+  const relatorio = (de = null, ate = null) => um(db,
+    `select public.preventivo_resultados_por_contexto($1::uuid, $2::date, $3::date)`,
+    [carteira, de, ate]);
+
   const preparar = (nome, canal, contexto) => um(db,
     `select public.preventivo_acao_preparar_v2($1::uuid, $2, $3, '{}'::jsonb, $4)`,
     [carteira, nome, canal, contexto]);
@@ -193,40 +197,143 @@ describe("Preventivo — contexto da ação", () => {
     await preparar("A", "WHATSAPP", "PROXIMO_VENCIMENTO");
     await um(db, `select public.preventivo_acao_preparar($1::uuid, 'Antiga', 'EMAIL', '{}'::jsonb)`, [carteira]);
 
-    const r = await um(db, `select public.preventivo_resultados_por_contexto($1::uuid)`, [carteira]);
-    expect(Object.keys(r).sort()).toEqual(["PROXIMO_VENCIMENTO", "SEM_CONTEXTO"]);
-    expect(r.PROXIMO_VENCIMENTO.acoes).toBe(1);
-    expect(r.SEM_CONTEXTO.acoes).toBe(1);
-    expect(r.PROXIMO_VENCIMENTO.titulos_acionados).toBeGreaterThan(0);
+    const r = await relatorio();
+    expect(Object.keys(r.contextos).sort()).toEqual(["PROXIMO_VENCIMENTO", "SEM_CONTEXTO"]);
+    expect(r.contextos.PROXIMO_VENCIMENTO.acoes).toBe(1);
+    expect(r.contextos.SEM_CONTEXTO.acoes).toBe(1);
+    expect(r.contextos.PROXIMO_VENCIMENTO.titulos_acionados).toBeGreaterThan(0);
+  });
+
+  it("separa por contexto E por canal dentro do contexto", async () => {
+    await importar("R1", [t("2026000001", 4), t("2026000002", 6), t("2026000003", 7), t("2026000004", 8)]);
+    await preparar("wpp 1", "WHATSAPP", "BOLETO_VENCIDO");
+    await preparar("wpp 2", "WHATSAPP", "BOLETO_VENCIDO");
+    await preparar("mail 1", "EMAIL", "BOLETO_VENCIDO");
+    await preparar("outro ctx", "WHATSAPP", "PROXIMO_VENCIMENTO");
+
+    const r = await relatorio();
+    const bv = r.contextos.BOLETO_VENCIDO;
+    expect(bv.acoes).toBe(3);                          // total do contexto
+    expect(Object.keys(bv.canais).sort()).toEqual(["EMAIL", "WHATSAPP"]);
+    expect(bv.canais.WHATSAPP.acoes).toBe(2);
+    expect(bv.canais.EMAIL.acoes).toBe(1);
+    // o total do contexto é a soma dos canais
+    expect(bv.canais.WHATSAPP.acoes + bv.canais.EMAIL.acoes).toBe(bv.acoes);
+    // e o outro contexto não se mistura
+    expect(r.contextos.PROXIMO_VENCIMENTO.acoes).toBe(1);
+    expect(Object.keys(r.contextos.PROXIMO_VENCIMENTO.canais)).toEqual(["WHATSAPP"]);
+  });
+
+  it("o filtro de período corta pela data de criação da ação", async () => {
+    await importar("R1", [t("2026000001", 4), t("2026000002", 6)]);
+    const dentro = await preparar("Dentro", "WHATSAPP", "BOLETO_VENCIDO");
+    const fora = await preparar("Fora", "EMAIL", "PROXIMO_VENCIMENTO");
+    // empurra uma delas para o passado, direto na tabela
+    await db.exec(`update public.prev_acao set criada_em = '2026-09-01 10:00-03'
+                    where id = '${fora.id}'`);
+
+    const hoje = await um(db, `select public.preventivo_hoje()::text`);
+
+    const soHoje = await relatorio(hoje, hoje);
+    expect(Object.keys(soHoje.contextos)).toEqual(["BOLETO_VENCIDO"]);
+    expect(soHoje.periodo).toEqual({ de: hoje, ate: hoje });
+
+    const soSetembro = await relatorio("2026-09-01", "2026-09-30");
+    expect(Object.keys(soSetembro.contextos)).toEqual(["PROXIMO_VENCIMENTO"]);
+
+    const tudo = await relatorio();
+    expect(Object.keys(tudo.contextos).sort()).toEqual(["BOLETO_VENCIDO", "PROXIMO_VENCIMENTO"]);
+    expect(tudo.periodo).toEqual({ de: null, ate: null });
+    expect(dentro.id).toBeTruthy();
+  });
+
+  it("um dos lados do período pode ficar aberto", async () => {
+    await importar("R1", [t("2026000001", 4), t("2026000002", 6)]);
+    const velha = await preparar("Velha", "WHATSAPP", "BOLETO_VENCIDO");
+    await preparar("Nova", "EMAIL", "PROXIMO_VENCIMENTO");
+    await db.exec(`update public.prev_acao set criada_em = '2026-09-01 10:00-03' where id = '${velha.id}'`);
+
+    const daquiPraFrente = await relatorio("2026-10-01", null);
+    expect(Object.keys(daquiPraFrente.contextos)).toEqual(["PROXIMO_VENCIMENTO"]);
+
+    const ateSetembro = await relatorio(null, "2026-09-30");
+    expect(Object.keys(ateSetembro.contextos)).toEqual(["BOLETO_VENCIDO"]);
+  });
+
+  it("período invertido é recusado", async () => {
+    await expect(relatorio("2026-10-31", "2026-10-01")).rejects.toThrow(/Período inválido/i);
+  });
+
+  it("período que não pega nada devolve contextos vazio, não erro", async () => {
+    await importar("R1", [t("2026000001", 4)]);
+    await preparar("A", "WHATSAPP", "BOLETO_VENCIDO");
+    const r = await relatorio("2020-01-01", "2020-12-31");
+    expect(r.contextos).toEqual({});
+    expect(r.definicao).toMatch(/NÃO é pagamento confirmado/);
   });
 
   it("o relatório NUNCA chama regularização de pagamento ou recuperação", async () => {
     await importar("R1", [t("2026000001", 4)]);
     await preparar("A", "WHATSAPP", "PROXIMO_VENCIMENTO");
-    const r = await um(db, `select public.preventivo_resultados_por_contexto($1::uuid)`, [carteira]);
+    const r = await relatorio();
     const texto = JSON.stringify(r).toLowerCase();
 
     expect(texto).toContain("regularizado");
     expect(texto).not.toMatch(/"pago"|valor_pago|recebido|valor_recuperado|recuperado_/);
-    expect(r.PROXIMO_VENCIMENTO.definicao).toMatch(/NÃO é pagamento confirmado/);
-    expect(r.PROXIMO_VENCIMENTO.definicao).toMatch(/NÃO é valor recuperado/);
+    expect(r.definicao).toMatch(/NÃO é pagamento confirmado/);
+    expect(r.definicao).toMatch(/NÃO é valor recuperado/);
+  });
+
+  it("o resultado por ação individual continua igual ao que já existia", async () => {
+    await importar("R1", [t("2026000001", 4), t("2026000002", 6)]);
+    const a = await preparar("A", "WHATSAPP", "BOLETO_VENCIDO");
+    const r = await um(db, `select public.preventivo_acao_resultado($1::uuid)`, [a.id]);
+
+    // a forma que a aba Ações já consome, intacta
+    for (const k of ["acao", "remessa", "remessa_seguinte", "alunos_acionados",
+                     "titulos_acionados", "valor_acionado", "continuam_em_aberto",
+                     "regularizados_entre_remessas", "valor_regularizado",
+                     "taxa_regularizacao", "aguardando_proxima_remessa", "definicao"]) {
+      expect(Object.keys(r)).toContain(k);
+    }
+    expect(r.acao).toBe(a.id);
+    expect(r.aguardando_proxima_remessa).toBe(true);   // só há uma remessa
+    expect(r.titulos_acionados).toBe(2);
+    expect(r.definicao).toMatch(/NÃO é pagamento confirmado/);
+  });
+
+  it("o agregado por contexto é a soma dos resultados por ação", async () => {
+    await importar("R1", [t("2026000001", 4), t("2026000002", 6), t("2026000003", 7)]);
+    const a1 = await preparar("A1", "WHATSAPP", "BOLETO_VENCIDO");
+    const a2 = await preparar("A2", "EMAIL", "BOLETO_VENCIDO");
+
+    const r1 = await um(db, `select public.preventivo_acao_resultado($1::uuid)`, [a1.id]);
+    const r2 = await um(db, `select public.preventivo_acao_resultado($1::uuid)`, [a2.id]);
+    const r = await relatorio();
+    const bv = r.contextos.BOLETO_VENCIDO;
+
+    expect(bv.titulos_acionados).toBe(r1.titulos_acionados + r2.titulos_acionados);
+    expect(Number(bv.valor_acionado)).toBe(Number(r1.valor_acionado) + Number(r2.valor_acionado));
+    expect(bv.canais.WHATSAPP.titulos_acionados).toBe(r1.titulos_acionados);
+    expect(bv.canais.EMAIL.titulos_acionados).toBe(r2.titulos_acionados);
+    // sem remessa seguinte, a taxa não é inventada
+    expect(bv.taxa_regularizacao).toBe(null);
+    expect(bv.aguardando_proxima_remessa).toBe(2);
   });
 
   it("a ação cancelada fica fora do relatório", async () => {
     await importar("R1", [t("2026000001", 4)]);
     const a = await preparar("A", "WHATSAPP", "PROXIMO_VENCIMENTO");
     await um(db, `select public.preventivo_acao_marcar($1::uuid, 'CANCELADA')`, [a.id]);
-    const r = await um(db, `select public.preventivo_resultados_por_contexto($1::uuid)`, [carteira]);
-    expect(r).toEqual({});
+    const r = await relatorio();
+    expect(r.contextos).toEqual({});
   });
 
   it("as duas portas novas continuam fechadas para quem não é gestão", async () => {
     await importar("R1", [t("2026000001", 4)]);
     await db.exec(`update public._jwt set email = '${OUTRA}'`);
     await expect(preparar("Da outra", "WHATSAPP", "PROXIMO_VENCIMENTO")).rejects.toThrow(/gestão/i);
-    await expect(
-      um(db, `select public.preventivo_resultados_por_contexto($1::uuid)`, [carteira])
-    ).rejects.toThrow(/gestão/i);
+    await expect(relatorio()).rejects.toThrow(/gestão/i);
     await db.exec(`update public._jwt set email = '${GESTAO}'`);
   });
 });

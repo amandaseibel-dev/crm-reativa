@@ -148,12 +148,47 @@ end;
 $$;
 
 -- -----------------------------------------------------------------------------
--- 4. RELATORIO POR CONTEXTO
+-- 4. RELATORIO POR CONTEXTO, POR CANAL E POR PERIODO
 -- -----------------------------------------------------------------------------
--- Agrupa por contexto os MESMOS numeros que `preventivo_acao_resultado` ja
--- produz por acao -- nao reimplementa a comparacao entre remessas. Acao antiga
--- cai no balde SEM_CONTEXTO.
-create or replace function public.preventivo_resultados_por_contexto(p_carteira_id uuid)
+-- Agrupa os MESMOS numeros que `preventivo_acao_resultado` ja produz por acao
+-- -- nao reimplementa a comparacao entre remessas. Acao antiga cai no balde
+-- SEM_CONTEXTO. `contexto` e `canal` sao eixos independentes: o retorno traz
+-- o total do contexto E a quebra por canal dentro dele.
+--
+-- O agregador vive numa funcao propria para a conta existir UMA vez, usada
+-- pelo total do contexto e pela quebra por canal. Ela recebe os resultados
+-- como ARGUMENTO e nao le nada do banco -- por isso NAO e security definer.
+create or replace function public.preventivo_contexto_metricas(p_itens jsonb)
+returns jsonb
+language sql
+immutable
+set search_path to 'public'
+as $$
+  with x as (select j from jsonb_array_elements(coalesce(p_itens, '[]'::jsonb)) as e(j))
+  select jsonb_build_object(
+    'acoes', count(*),
+    'acoes_com_envio_confirmado', count(*) filter (where (j->>'envio_confirmado') = 'true'),
+    'alunos_acionados',  coalesce(sum((j->>'alunos_acionados')::int), 0),
+    'titulos_acionados', coalesce(sum((j->>'titulos_acionados')::int), 0),
+    'valor_acionado',    coalesce(sum((j->>'valor_acionado')::numeric), 0),
+    'continuam_em_aberto',          coalesce(sum((j->>'continuam_em_aberto')::int), 0),
+    'regularizados_entre_remessas', coalesce(sum((j->>'regularizados_entre_remessas')::int), 0),
+    'valor_regularizado',           coalesce(sum((j->>'valor_regularizado')::numeric), 0),
+    'aguardando_proxima_remessa', count(*) filter (where (j->>'aguardando_proxima_remessa')::boolean),
+    -- A taxa so considera as acoes que JA tem remessa seguinte para comparar.
+    -- Somar no denominador acao sem comparacao rebaixaria a taxa por nada.
+    'taxa_regularizacao', case
+      when coalesce(sum((j->>'titulos_acionados')::int) filter (
+             where (j->>'regularizados_entre_remessas') is not null), 0) = 0 then null
+      else round(
+        coalesce(sum((j->>'regularizados_entre_remessas')::int), 0)::numeric
+        / sum((j->>'titulos_acionados')::int) filter (
+            where (j->>'regularizados_entre_remessas') is not null) * 100, 1) end
+  ) from x;
+$$;
+
+create or replace function public.preventivo_resultados_por_contexto(
+  p_carteira_id uuid, p_de date default null, p_ate date default null)
 returns jsonb
 language plpgsql
 security definer
@@ -164,38 +199,41 @@ begin
   if not public.preventivo_e_gestao() then
     raise exception 'Preventivo: acesso restrito à gestão.' using errcode = '42501';
   end if;
+  if p_de is not null and p_ate is not null and p_ate < p_de then
+    raise exception 'Período inválido: "até" é anterior a "de".' using errcode = '22023';
+  end if;
 
-  select coalesce(jsonb_object_agg(k, linha), '{}'::jsonb) into v
-  from (
-    select coalesce(a.contexto, 'SEM_CONTEXTO') as k,
-           jsonb_build_object(
-             'acoes', count(*),
-             'acoes_com_envio_confirmado', count(*) filter (where a.envio_confirmado_em is not null),
-             'alunos_acionados',  coalesce(sum((r.j->>'alunos_acionados')::int), 0),
-             'titulos_acionados', coalesce(sum((r.j->>'titulos_acionados')::int), 0),
-             'valor_acionado',    coalesce(sum((r.j->>'valor_acionado')::numeric), 0),
-             'continuam_em_aberto',          coalesce(sum((r.j->>'continuam_em_aberto')::int), 0),
-             'regularizados_entre_remessas', coalesce(sum((r.j->>'regularizados_entre_remessas')::int), 0),
-             'valor_regularizado',           coalesce(sum((r.j->>'valor_regularizado')::numeric), 0),
-             'aguardando_proxima_remessa', count(*) filter (where (r.j->>'aguardando_proxima_remessa')::boolean),
-             'taxa_regularizacao', case
-               when coalesce(sum((r.j->>'titulos_acionados')::int) filter (
-                      where (r.j->>'regularizados_entre_remessas') is not null), 0) = 0 then null
-               else round(
-                 coalesce(sum((r.j->>'regularizados_entre_remessas')::int), 0)::numeric
-                 / nullif(sum((r.j->>'titulos_acionados')::int) filter (
-                     where (r.j->>'regularizados_entre_remessas') is not null), 0) * 100, 1) end,
-             'definicao', 'Regularizado entre remessas = o título acionado não voltou no '
-                       || 'relatório de inadimplência seguinte. NÃO é pagamento confirmado '
-                       || 'e NÃO é valor recuperado. Some por pagamento, cancelamento, '
-                       || 'bolsa, renegociação ou por não entrar no recorte do relatório.'
-           ) as linha
+  with base as (
+    -- O periodo corta pela DATA DE CRIACAO da acao, em America/Sao_Paulo, e os
+    -- dois limites sao inclusivos. Nulo em um lado = sem limite daquele lado.
+    select coalesce(a.contexto, 'SEM_CONTEXTO') as ctx,
+           a.canal,
+           r.j || jsonb_build_object('envio_confirmado', a.envio_confirmado_em is not null) as j
       from public.prev_acao a
       cross join lateral (select public.preventivo_acao_resultado(a.id) as j) r
      where a.carteira_id = p_carteira_id
        and a.cancelada_em is null
-     group by 1
-  ) q;
+       and (p_de  is null or (a.criada_em at time zone 'America/Sao_Paulo')::date >= p_de)
+       and (p_ate is null or (a.criada_em at time zone 'America/Sao_Paulo')::date <= p_ate)
+  ), por_canal as (
+    select ctx, canal, public.preventivo_contexto_metricas(jsonb_agg(j)) as m
+      from base group by 1, 2
+  ), por_ctx as (
+    select ctx, public.preventivo_contexto_metricas(jsonb_agg(j)) as m
+      from base group by 1
+  )
+  select jsonb_build_object(
+    'periodo', jsonb_build_object('de', p_de, 'ate', p_ate),
+    'definicao', 'Regularizado entre remessas = o título acionado não voltou no '
+              || 'relatório de inadimplência seguinte. NÃO é pagamento confirmado '
+              || 'e NÃO é valor recuperado. Some por pagamento, cancelamento, '
+              || 'bolsa, renegociação ou por não entrar no recorte do relatório.',
+    'contextos', coalesce((
+      select jsonb_object_agg(c.ctx, c.m || jsonb_build_object(
+               'canais', (select jsonb_object_agg(k.canal, k.m)
+                            from por_canal k where k.ctx = c.ctx)))
+        from por_ctx c), '{}'::jsonb)
+  ) into v;
 
   return v;
 end;
@@ -208,6 +246,8 @@ $$;
 -- `public`, o que inclui `anon`. O portao de gestao mora dentro de cada uma,
 -- mas a porta tambem se fecha aqui.
 revoke all on function public.preventivo_acao_preparar_v2(uuid, text, text, jsonb, text) from public, anon;
-revoke all on function public.preventivo_resultados_por_contexto(uuid) from public, anon;
+revoke all on function public.preventivo_resultados_por_contexto(uuid, date, date) from public, anon;
+revoke all on function public.preventivo_contexto_metricas(jsonb) from public, anon;
 grant execute on function public.preventivo_acao_preparar_v2(uuid, text, text, jsonb, text) to authenticated;
-grant execute on function public.preventivo_resultados_por_contexto(uuid) to authenticated;
+grant execute on function public.preventivo_resultados_por_contexto(uuid, date, date) to authenticated;
+grant execute on function public.preventivo_contexto_metricas(jsonb) to authenticated;
