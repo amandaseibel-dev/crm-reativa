@@ -46,7 +46,12 @@ export default function SeisLinhasDaSafra({ ano, semestre = null }) {
       setErroPerfil("");
       const [a, b] = await Promise.all([
         supabase.rpc("carteira_safra_situacoes", { p_ano: ano, p_semestre: semestre }),
-        supabase.rpc("carteira_academico_perfil", { p_ano: ano, p_semestre: semestre }),
+        // LE O SNAPSHOT, nao reconstroi. `carteira_academico_perfil` refaz o
+        // universo a cada abertura e em 2024 estoura o teto de 8s do papel
+        // `authenticated` -- medido 3 vezes em 06/10/2026, e foi assim que o
+        // bloco sumia. O snapshot guarda o jsonb que a propria funcao devolve,
+        // entao categoria e contagem sao as mesmas.
+        supabase.rpc("carteira_academico_perfil_ler", { p_ano: ano, p_semestre: semestre }),
       ]);
       if (!ativo) return;
       if (a.error) setErro(a.error.message);
@@ -68,6 +73,9 @@ export default function SeisLinhasDaSafra({ ano, semestre = null }) {
   const det = dados?.pendente_detalhe || {};
   const status = (perfil?.importacao?.situacoes || [])
     .map((x) => ({ status: x.situacao, alunos: x.alunos }));
+  // Fotografia ainda nao tirada: e diferente de "nao ha categorias", e a tela
+  // tem de dizer qual dos dois e.
+  const semSnapshot = Boolean(perfil?.sem_snapshot);
   const historica = dados?.natureza === "COBERTURA_HISTORICA";
 
   return (
@@ -87,6 +95,12 @@ export default function SeisLinhasDaSafra({ ano, semestre = null }) {
           </span>
         </div>
         <SeisLinhas s={s} />
+        {semSnapshot ? (
+          <p style={{ ...S.rodape, color: "var(--rv-ambar-texto)" }}>
+            <strong>Alunos por status ainda não tem fotografia deste período.</strong> A lista é recalculada
+            pela rotina diária; assim que ela rodar, o bloco aparece. As seis linhas acima não dependem dela.
+          </p>
+        ) : null}
         {erroPerfil ? (
           <p style={{ ...S.rodape, color: "var(--rv-vermelho-texto)" }}>
             <strong>Alunos por status não carregou:</strong> {erroPerfil}. As seis linhas acima não dependem
@@ -100,6 +114,10 @@ export default function SeisLinhasDaSafra({ ano, semestre = null }) {
               + dataCurta(perfil.importacao.atualizado_em) + ". Não é consulta de hoje ao Prime: "
               + "a consulta viva responde \"ainda não consultado\" para a quase totalidade destes alunos, "
               + "e por isso não é ela que alimenta esta lista."
+              + (perfil?.snapshot?.gerado_em
+                  ? " Fotografia desta lista tirada em " + dataCurta(perfil.snapshot.gerado_em)
+                    + " — a tela lê dela, em vez de recalcular o universo a cada abertura."
+                  : "")
             : null}
         />
       </div>
