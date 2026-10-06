@@ -90,18 +90,20 @@ describe("TV — tela Meta do Mês (render)", () => {
     expect(screen.getByText(/de 21 dias úteis no mês/)).toBeTruthy();
   });
 
-  it("rodapé traz Meta do mês e Meta excelente (meta + 50%), derivada da meta", () => {
-    desenhar({ mes: mes({ meta_empresa: 122000 }) });
+  it("rodapé traz a meta piso da competência, direto do snapshot", () => {
+    desenhar({ mes: mes({ meta_empresa: 122400 }) });
     expect(screen.getByText("Meta do mês")).toBeTruthy();
-    expect(screen.getByText(/R\$ 122\.000/)).toBeTruthy();
-    expect(screen.getByText("Meta excelente")).toBeTruthy();
-    expect(screen.getByText(/R\$ 183\.000/)).toBeTruthy(); // 122.000 x 1,5
-    expect(screen.getByText(/meta \+50%/)).toBeTruthy();
+    expect(screen.getByText(/R\$ 122\.400/)).toBeTruthy();
   });
 
-  it("meta excelente acompanha a meta cadastrada (nenhum valor fixo no código)", () => {
-    desenhar({ mes: mes({ meta_empresa: 450000 }) });
-    expect(screen.getByText(/R\$ 675\.000/)).toBeTruthy(); // 450.000 x 1,5
+  it("a tela é SÓ da meta piso: nada de Magic Number nem de múltiplo da meta", () => {
+    // A regra meta x 1,5 saiu em 06/10/2026. Com piso 122.400 ela produziria
+    // 183.600; o Magic real de outubro é 142.800 e mora na tela própria.
+    desenhar({ mes: mes({ meta_empresa: 122400 }) });
+    expect(screen.queryByText(/Meta excelente/i)).toBeNull();
+    expect(screen.queryByText(/Magic/i)).toBeNull();
+    expect(screen.queryByText(/\+50%/)).toBeNull();
+    expect(screen.queryByText(/R\$ 183\.600/)).toBeNull();
   });
 
   it("mostra a projeção de fechamento quando o snapshot a trouxe", () => {

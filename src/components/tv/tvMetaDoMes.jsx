@@ -18,9 +18,10 @@ import { Tela, IndicadorCard, AnelProgresso, RaioReativa, moeda, num, statusMeta
 //   • dias úteis       -> mes.dias_uteis_restantes (generate_series sem sáb/dom)
 //   • projeção         -> mes.proj_honorarios      (ritmo por dia útil transcorrido)
 //
-// "Meta excelente" é a regra de superação que a TV já aplica no Magic Number:
-// meta da competência + 50%. Derivada da meta cadastrada, nunca digitada.
-const FATOR_META_EXCELENTE = 1.5;
+// ESTA TELA É SÓ DA META PISO. O Magic Number tem valor próprio por competência
+// (magic_number_mensal) e tela própria — ver tvMagicNumber.jsx. Nenhum fator
+// multiplica a meta aqui: em outubro/2026 o piso é R$ 122.400,00 e o Magic é
+// R$ 142.800,00, uma relação que nenhum fator fixo reproduz.
 
 export default function TelaMetaDoMes({ snap }) {
   const m = snap?.mes || {};
@@ -40,7 +41,6 @@ export default function TelaMetaDoMes({ snap }) {
   const atingida = m.meta_atingida === true;
   const duRest = Number(m.dias_uteis_restantes ?? 0);
   const nec = m.necessidade_diaria;
-  const excelente = Math.round(meta * FATOR_META_EXCELENTE);
   // Projeção só entra quando o snapshot trouxe o número (ritmo do mês). Ausente
   // ou zero => o rodapé simplesmente não cita projeção, em vez de exibir R$ 0.
   const proj = Number(m.proj_honorarios || 0);
@@ -80,8 +80,6 @@ export default function TelaMetaDoMes({ snap }) {
 
       <div style={rodapeMeta}>
         <span><strong style={{ color: T.texto }}>Meta do mês</strong> {moeda(meta)}</span>
-        <span style={sep}>·</span>
-        <span><strong style={{ color: T.texto }}>Meta excelente</strong> {moeda(excelente)} <em style={{ fontStyle: "normal", color: T.textoMudo }}>(meta +50%)</em></span>
         {proj > 0 && (
           <>
             <span style={sep}>·</span>
