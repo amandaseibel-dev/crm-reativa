@@ -60,23 +60,31 @@ export default function AbaAcoes({ carteira }) {
   const [situacao, setSituacao] = useState(null);
   const [erro, setErro] = useState("");
   const [nova, setNova] = useState({ nome: "", canal: "WHATSAPP", contexto: "", venc_de: "", venc_ate: "", usarPrimeiroEmail: false });
+  // Registro de ação feita FORA do CRM: o disparo já aconteceu, aqui só se
+  // guarda o que foi feito. O público é a remessa inteira, porque o arquivo
+  // enviado É a lista.
+  const [externa, setExterna] = useState({ aberto: false, lote: "", nome: "", canal: "EMAIL", contexto: "", enviada_em: "" });
+  const [remessas, setRemessas] = useState([]);
   const [ocupado, setOcupado] = useState("");
   const [aberta, setAberta] = useState(null);
 
   const buscar = useCallback(async () => {
-    const [a, s] = await Promise.all([
+    const [a, s, r] = await Promise.all([
       supabase.rpc("preventivo_acoes", { p_carteira_id: carteira.id }),
       supabase.rpc("preventivo_sinc_situacao", { p_carteira_id: carteira.id }),
+      supabase.rpc("preventivo_remessas", { p_carteira_id: carteira.id }),
     ]);
+
     // O resultado de cada ação depende da remessa SEGUINTE, então vem por ação.
     const comResultado = await Promise.all((a.data || []).map(async (x) => {
       const { data } = await supabase.rpc("preventivo_acao_resultado", { p_acao_id: x.id });
       return { ...x, resultado: data };
     }));
-    return [{ ...a, data: comResultado }, s];
+    return [{ ...a, data: comResultado }, s, r];
   }, [carteira.id]);
 
-  const aplicar = useCallback(([a, s]) => {
+  const aplicar = useCallback(([a, s, r]) => {
+    if (r && !r.error) setRemessas(r.data || []);
     if (a.error) { setErro(a.error.message); setAcoes([]); } else { setErro(""); setAcoes(a.data || []); }
     if (!s.error) setSituacao(s.data);
   }, []);
@@ -108,6 +116,26 @@ export default function AbaAcoes({ carteira }) {
     setOcupado("");
     if (error) { setErro(error.message); return; }
     setNova({ ...nova, nome: "" });
+    await carregar();
+    setAberta(data.id);
+  }
+
+  async function registrarExterna(e) {
+    e.preventDefault();
+    const { lote, nome, canal, contexto, enviada_em } = externa;
+    if (!lote) { setErro("Escolha a remessa que foi enviada."); return; }
+    if (!nome.trim()) { setErro("Dê um nome à ação."); return; }
+    if (!contexto) { setErro("Escolha o contexto da ação."); return; }
+    if (!enviada_em) { setErro("Informe a data e hora do envio."); return; }
+    setOcupado("externa"); setErro("");
+    const { data, error } = await supabase.rpc("preventivo_acao_externa_registrar", {
+      p_carteira_id: carteira.id, p_lote_id: lote, p_nome: nome.trim(),
+      p_canal: canal, p_contexto: contexto,
+      p_enviada_em: new Date(enviada_em).toISOString(),
+    });
+    setOcupado("");
+    if (error) { setErro(error.message); return; }
+    setExterna({ aberto: false, lote: "", nome: "", canal: "EMAIL", contexto: "", enviada_em: "" });
     await carregar();
     setAberta(data.id);
   }
@@ -197,6 +225,70 @@ export default function AbaAcoes({ carteira }) {
         </form>
       </div>
 
+      {/* REGISTRO DO QUE FOI FEITO FORA DO CRM. Não dispara nada: grava canal,
+          contexto, data real e o público — que é a remessa inteira, porque o
+          arquivo enviado É a lista. */}
+      <div style={{ ...S.card, padding: 20, marginTop: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Ação feita fora do CRM</h2>
+          <button style={S.btnGhost}
+                  onClick={() => setExterna({ ...externa, aberto: !externa.aberto })}>
+            {externa.aberto ? "Fechar" : "Registrar envio já realizado"}
+          </button>
+        </div>
+        <p style={{ ...S.muted, marginTop: 6, fontSize: 12.5 }}>
+          Para o disparo que saiu por e-mail ou WhatsApp fora daqui. Nada é enviado:
+          o módulo apenas <strong>registra</strong> o que já aconteceu, com a data real,
+          e passa a acompanhar o resultado nas remessas seguintes. A ação fica marcada
+          como <strong>enviada fora do CRM</strong>.
+        </p>
+
+        {externa.aberto && (
+          <form onSubmit={registrarExterna}
+                style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", marginTop: 14 }}>
+            <div>
+              <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>Remessa enviada *</label>
+              <select style={S.select} value={externa.lote}
+                      onChange={(e) => setExterna({ ...externa, lote: e.target.value })}>
+                <option value="">— escolha —</option>
+                {remessas.map((r) => (
+                  <option key={r.id} value={r.id}>{r.nome}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>Nome da ação *</label>
+              <input style={S.input} value={externa.nome} placeholder="Ex.: E-mail de sexta"
+                     onChange={(e) => setExterna({ ...externa, nome: e.target.value })} />
+            </div>
+            <div>
+              <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>Canal *</label>
+              <select style={S.select} value={externa.canal}
+                      onChange={(e) => setExterna({ ...externa, canal: e.target.value })}>
+                <option value="EMAIL">E-mail</option>
+                <option value="WHATSAPP">WhatsApp</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>Contexto *</label>
+              <select style={S.select} value={externa.contexto}
+                      onChange={(e) => setExterna({ ...externa, contexto: e.target.value })}>
+                <option value="">— escolha —</option>
+                {Object.entries(CONTEXTOS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>Enviada em *</label>
+              <input type="datetime-local" style={{ ...S.input, minWidth: 0 }} value={externa.enviada_em}
+                     onChange={(e) => setExterna({ ...externa, enviada_em: e.target.value })} />
+            </div>
+            <button type="submit" disabled={ocupado === "externa"} style={S.btnGhost}>
+              {ocupado === "externa" ? "Registrando…" : "Registrar ação"}
+            </button>
+          </form>
+        )}
+      </div>
+
       <div style={{ ...S.cards, marginTop: 16 }}>
         {acoes === null ? <p style={S.muted}>Carregando…</p>
           : acoes.length === 0 ? (
@@ -210,6 +302,12 @@ export default function AbaAcoes({ carteira }) {
                   <span style={S.cardNome}>{a.nome}</span>
                   <span style={S.cardCpf}>{a.canal === "WHATSAPP" ? "WhatsApp" : "E-mail"}</span>
                   <span style={S.cardCpf}>{CONTEXTOS[a.contexto] || "Sem contexto"}</span>
+                  {a.origem === "EXTERNA" && (
+                    <span style={{ ...S.cardCpf, background: "var(--rv-ambar-fundo)",
+                                   border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)" }}>
+                      Enviada fora do CRM
+                    </span>
+                  )}
                   <span style={S.contadorValor}>{ESTADOS[a.estado]}</span>
                 </div>
                 <div style={S.cardHeadDir}>

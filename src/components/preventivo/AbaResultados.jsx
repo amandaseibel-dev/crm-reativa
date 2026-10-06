@@ -19,6 +19,7 @@ import { S } from "../../ui/estilosFila";
 import { moeda, dataCurta, dataHora } from "../../utils/preventivoFormato";
 import { AvisoAtualizacao } from "./AbaCarteira";
 import { GraficoPorAcao, GraficoPorContextoCanal } from "./GraficosEfetividade";
+import EvolucaoDaCarteira from "./EvolucaoDaCarteira";
 import { csv } from "../../utils/preventivo";
 
 const ROTULO_ALTERACAO = {
@@ -58,6 +59,7 @@ export default function AbaResultados({ carteira }) {
   const [situacao, setSituacao] = useState(null);
   const [porContexto, setPorContexto] = useState(null);
   const [porAcao, setPorAcao] = useState(null);
+  const [evolucao, setEvolucao] = useState(null);
   const [periodo, setPeriodo] = useState({ de: "", ate: "" });
   const [erro, setErro] = useState("");
 
@@ -76,9 +78,13 @@ export default function AbaResultados({ carteira }) {
       p_de: periodo.de || null,
       p_ate: periodo.ate || null,
     }),
+    // A evolução é a carteira inteira, por data de extração — não entra no
+    // filtro de período das ações, porque ela é a linha do tempo da base.
+    supabase.rpc("preventivo_evolucao", { p_carteira_id: carteira.id }),
   ]), [carteira.id, periodo.de, periodo.ate]);
 
-  const aplicar = useCallback(([r, s, c, a]) => {
+  const aplicar = useCallback(([r, s, c, a, ev]) => {
+    if (ev && !ev.error) setEvolucao(ev.data);
     if (r.error) { setErro(r.error.message); return; }
     setErro(""); setRes(r.data);
     if (!s.error) setSituacao(s.data);
@@ -132,6 +138,8 @@ export default function AbaResultados({ carteira }) {
         <Cartao rotulo="Fora da janela (histórico)" valor={t.fora_da_janela} />
         <Cartao rotulo="Nunca consultados no Prime" valor={t.sem_sinc} />
       </div>
+
+      <EvolucaoDaCarteira dados={evolucao} />
 
       <PorAcao linhas={porAcao} periodo={periodo} setPeriodo={setPeriodo}
                definicao={porContexto?.definicao} />
