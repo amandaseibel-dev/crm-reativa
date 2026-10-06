@@ -207,54 +207,126 @@ vieram de `supabase db push`, que conecta direto no Postgres e faz o `insert` em
 arquivo traz. **Preservar a versão exige escrever a linha do histórico à mão** —
 é isso que o `push` faz por baixo.
 
-### O fluxo que elimina o drift na origem
+### A regra que manda, antes de qualquer fluxo
 
-**Aplicar primeiro, nomear depois, mesclar por último.** Em vez de escolher um
-timestamp na hora de escrever o arquivo e descobrir depois que produção usou
-outro, o arquivo nasce com nome provisório e recebe o número **que produção
-registrou**, ainda dentro do PR:
+> **Produção nunca pode receber antecipadamente uma migration que torne a `main`
+> vigente incompatível.**
+
+Tudo abaixo é subordinado a isso. Eliminar o drift é desejável; **nunca** ao
+preço de deixar o banco à frente do código que está no ar. Em dúvida sobre qual
+fluxo se aplica, é o fluxo seguro — a dúvida já é a resposta.
+
+### Fluxo A — sem drift (exceção, não padrão)
+
+**Permitido somente quando TODAS as condições valem:**
+
+* DDL **retrocompatível**: o código hoje em produção continua funcionando com o
+  banco depois da aplicação;
+* **isolada**: não depende de outra migration nem de ordem com nada;
+* **zero DML** — nenhum `insert`, `update`, `delete`, `truncate` de nível
+  superior;
+* **nenhuma alteração destrutiva**: sem `drop` de tabela, coluna, constraint ou
+  índice em uso, sem estreitar tipo, sem revogar permissão de quem usa hoje;
+* **não altera contrato nem assinatura**: nenhuma função ganha, perde ou troca
+  parâmetro, tipo de retorno ou chave de retorno que algum consumidor já leia;
+* **não depende de código ainda não publicado**: nada do que a migration cria
+  precisa de front ou back que não esteja em produção.
+
+Falhando **uma** dessas, é Fluxo B. Função nova, usada só por código que ainda
+vai subir, é o caso típico de A — o banco ganha um objeto que ninguém chama
+ainda, e nada existente muda de forma.
+
+**Passos, na ordem:**
 
 1. escrever a migration e abrir o PR normalmente;
-2. com o PR aprovado e os checks verdes, **ainda sem mesclar**, conferir em
-   leitura que a versão não existe e que o md5 do texto a enviar bate com o
-   arquivo;
-3. aplicar por `apply_migration`, **uma vez**;
-4. ler a versão que produção atribuiu:
+2. **todos os checks verdes** e **autorização explícita da gestão** para aplicar
+   antes do merge — não se presume, se pede;
+3. conferir em leitura que a versão não existe e que o md5 do texto exato a
+   enviar bate com o arquivo;
+4. aplicar por `apply_migration`, **uma única vez**;
+5. capturar a versão atribuída:
    `select version from supabase_migrations.schema_migrations where name = '<name>'`;
-5. renomear o arquivo para esse número, com o mesmo `name`, e empurrar;
-6. conferir que o md5 do arquivo renomeado segue igual ao dos `statements`;
-7. mesclar.
+6. renomear o arquivo para esse número, mantendo o mesmo `name`, e empurrar;
+7. conferir que o md5 do arquivo renomeado segue idêntico ao dos `statements`;
+8. **rodada completa de CI de novo**, no SHA renomeado — o passo 6 muda o
+   conteúdo do PR, e o verde do passo 2 não vale mais;
+9. mesclar.
 
-Resultado: repo e `schema_migrations` saem com a **mesma versão**, e não nasce
-linha de ledger de drift — o ledger volta a registrar só o que de fato merece
-registro.
+Resultado: repo e `schema_migrations` com a **mesma versão**, e nenhuma linha de
+ledger de drift.
 
 **Por que renomear aqui não contradiz o “Não renomear” da seção das 22
 duplicadas.** Lá o alvo são versões **antigas, já no histórico do repositório**:
 renomear criaria um terceiro número que nunca existiu nem no repo nem em
-produção. Aqui o arquivo **ainda não está em `main`** — para o git ele é um
-arquivo novo, adicionado já com o nome final, e a catraca `I3-MIGRATION-RENOMEADA`
-só dispara em arquivo que **já existia no branch base**. São casos opostos.
+produção. Aqui o arquivo **ainda não está em `main`** — para o git é arquivo novo
+adicionado já com o nome final, e a catraca `I3-MIGRATION-RENOMEADA` só dispara
+em arquivo que **já existia no branch base**. São casos opostos.
 
-**O custo honesto:** a aplicação passa a acontecer **antes** do merge. Quem
-aprova o PR precisa saber que o banco já mudou quando o merge entra, e uma
-aplicação que falha significa PR que não mescla. É a inversão que paga a
-eliminação do drift.
+**O custo:** entre o passo 4 e o passo 9 o banco está à frente do código no ar.
+É justamente por isso que A exige retrocompatibilidade — nessa janela a `main`
+vigente tem de continuar funcionando sozinha.
+
+### Fluxo B — seguro, e é o padrão
+
+**Obrigatório** sempre que houver qualquer um:
+
+* **DML** — dado de produção sendo escrito, corrigido ou apagado;
+* **mudança destrutiva** — `drop`, estreitamento de tipo, revogação de
+  permissão em uso;
+* **alteração de contrato ou assinatura** — parâmetro, tipo de retorno ou chave
+  de retorno que algum consumidor já lê;
+* **dependência simultânea de frontend e backend** — a migration só faz sentido
+  com código que ainda não está publicado, ou o código novo só funciona com a
+  migration.
+
+**Passos, na ordem:**
+
+1. escrever a migration e abrir o PR normalmente;
+2. checks verdes;
+3. **mesclar**;
+4. **esperar o deploy de produção ficar `READY`**;
+5. aplicar por `apply_migration`, uma única vez, **aceitando o timestamp que o
+   mecanismo gerar** — não tentar forçar o número;
+6. validar em leitura: registro único, md5 igual ao arquivo, objetos criados,
+   invariantes do domínio;
+7. **registrar o drift no ledger**, em PR próprio, nos termos de #611 e #614.
+
+A linha de ledger aqui **não é dívida**: é o preço declarado de manter o código
+no ar sempre compatível com o banco. Entre perder a igualdade de número e
+arriscar incompatibilidade em produção, perde-se o número.
+
+### Como escolher, em uma pergunta
+
+> Se esta migration entrar agora e o merge **não** acontecer, a `main` que está
+> no ar continua funcionando?
+
+**Sim** e as outras condições de A valem → Fluxo A, com autorização.
+**Não**, ou qualquer dúvida → Fluxo B.
+
+### Continua vetado, nos dois fluxos
+
+`supabase db push` · `supabase db pull` · `supabase migration repair` ·
+**escrita manual em `supabase_migrations.schema_migrations`**.
+
+O `insert` à mão preservaria a versão e a ordem “mesclar depois aplicar”, e foi
+considerado — mas escreve o histórico fora de qualquer ferramenta, e forma errada
+na linha quebra o CLI depois. Fica vetado junto com os três comandos.
 
 ### Opções descartadas, e por quê
 
 | opção | por que não |
 |---|---|
 | passar a versão na API | **impossível**: nenhuma das três rotas aceita `version` |
-| `supabase db push` | preserva a versão, mas é vetado aqui — o checkout está linked na **produção** e o binário não está instalado (`supabase` fora do PATH, conferido em 06/10) |
-| `migration repair` | vetado pela gestão; e não executa SQL, só marca versão |
+| `supabase db push` | preserva a versão, mas é vetado — o checkout está linked na **produção** e o binário não está instalado (`supabase` fora do PATH, conferido em 06/10) |
+| `migration repair` | vetado; e não executa SQL, só marca versão |
 | `PATCH` na versão registrada | muda `name` e `rollback`, **não a versão** |
-| `insert` na mão em `schema_migrations` junto do DDL | funcionaria e preservaria a ordem “mesclar depois aplicar”, mas escreve o histórico à mão fora de qualquer ferramenta — se a forma da linha sair errada, o CLI quebra depois. Só com decisão explícita da gestão |
-| seguir como está | cada migration nova custa uma linha de ledger de drift; já são três |
+| `insert` na mão em `schema_migrations` junto do DDL | vetado — escreve o histórico fora de ferramenta; forma errada quebra o CLI depois |
+| Fluxo A como regra universal | **recusado**: deixaria o banco à frente do código no ar também em migration destrutiva, com DML ou que muda contrato |
+| seguir só com B, sempre | aceitável e seguro; custa uma linha de ledger por migration. A existe para o caso em que esse custo não se justifica |
 
-### Como validar que a próxima nasce com o mesmo número
+### Como validar que a próxima nasce com o mesmo número (Fluxo A)
 
-Depois do passo 5 do fluxo, antes de mesclar:
+Depois do passo 6, antes de mesclar:
 
 ```bash
 V=$(ls supabase/migrations/*_<name>.sql | sed -E 's|.*/([0-9]{14}).*|\1|')
@@ -269,3 +341,6 @@ select version, name, md5(array_to_string(statements, E'\n')) as md5_prod
 
 Os dois `version` iguais e os dois md5 iguais: sem drift, e **nenhuma linha de
 ledger a escrever**. Qualquer divergência: para e registra, como em #611 e #614.
+
+No Fluxo B a validação é a mesma **menos** a igualdade de `version` — ali o
+número divergente é esperado, e é ele que vai para o ledger.
