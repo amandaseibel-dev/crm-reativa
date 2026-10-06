@@ -321,7 +321,7 @@ function comPerfil(ano) {
     if (nome === "carteira_2026_1_indicadores") return Promise.resolve({ data: CONSOLIDADA });
     if (nome === "carteira_saldo_historico_por_ano") return Promise.resolve({ data: POR_ANO });
     if (nome === "carteira_safra_situacoes") return Promise.resolve({ data: SITUACOES });
-    if (nome === "carteira_academico_perfil") return Promise.resolve({ data: PERFIL[args?.p_ano ?? ano] ?? null });
+    if (nome === "carteira_academico_perfil_ler") return Promise.resolve({ data: PERFIL[args?.p_ano ?? ano] ?? null });
     return Promise.resolve({ data: null });
   };
 }
@@ -365,7 +365,7 @@ describe("Efetividade — Alunos por status em toda safra", () => {
       if (nome === "carteira_2026_1_indicadores") return Promise.resolve({ data: CONSOLIDADA });
       if (nome === "carteira_saldo_historico_por_ano") return Promise.resolve({ data: POR_ANO });
       if (nome === "carteira_safra_situacoes") return Promise.resolve({ data: SITUACOES });
-      if (nome === "carteira_academico_perfil")
+      if (nome === "carteira_academico_perfil_ler")
         return Promise.resolve({ error: { message: "canceling statement due to statement timeout" } });
       return Promise.resolve({ data: null });
     });
