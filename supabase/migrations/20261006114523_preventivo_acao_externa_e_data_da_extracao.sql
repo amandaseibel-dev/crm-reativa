@@ -116,7 +116,7 @@ as $$
 declare
   v_acao uuid; v_ctx text := upper(btrim(coalesce(p_contexto, '')));
   v_canal text := upper(btrim(coalesce(p_canal, ''))); v_extraido timestamptz;
-  v_lista text[]; v_fora int := 0; v_publico text;
+  v_lista text[]; v_fora text[] := '{}'; v_publico text;
 begin
   if not public.preventivo_e_gestao() then
     raise exception 'Preventivo: acesso restrito à gestão.' using errcode = '42501';
@@ -159,8 +159,10 @@ begin
   end if;
   v_publico := case when v_lista is null then 'remessa_inteira' else 'lista_informada' end;
 
+  -- Quem foi informado e NAO esta na remessa volta nominalmente, para quem
+  -- registrou conferir -- contar quantos sao nao diz QUAIS sao.
   if v_lista is not null then
-    select count(*) into v_fora from (
+    select coalesce(array_agg(m order by m), '{}') into v_fora from (
       select m from unnest(v_lista) m
        except
       select t.matricula_prime
@@ -175,7 +177,7 @@ begin
   values (p_carteira_id, p_lote_id, btrim(p_nome), v_canal, v_ctx,
           jsonb_build_object('lote_id', p_lote_id, 'publico', v_publico,
                              'matriculas_informadas', coalesce(array_length(v_lista, 1), 0),
-                             'fora_da_remessa', v_fora),
+                             'fora_da_remessa', coalesce(array_length(v_fora, 1), 0)),
           'ENVIO_CONFIRMADO', 'EXTERNA',
           lower(coalesce(auth.jwt() ->> 'email', 'sistema')),
           p_enviada_em, p_enviada_em)
@@ -194,7 +196,10 @@ begin
     raise exception 'Nenhuma das matrículas informadas está nesta remessa.' using errcode = '22023';
   end if;
 
-  return public.preventivo_acao_resumo(v_acao) || jsonb_build_object('fora_da_remessa', v_fora);
+  return public.preventivo_acao_resumo(v_acao) || jsonb_build_object(
+    'fora_da_remessa', to_jsonb(v_fora),
+    'fora_da_remessa_qtd', coalesce(array_length(v_fora, 1), 0),
+    'matriculas_informadas', coalesce(array_length(v_lista, 1), 0));
 end;
 $$;
 

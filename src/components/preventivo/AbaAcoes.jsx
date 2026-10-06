@@ -66,6 +66,10 @@ export default function AbaAcoes({ carteira }) {
   const [externa, setExterna] = useState({ aberto: false, lote: "", nome: "", canal: "EMAIL",
                                            contexto: "", enviada_em: "", publico: "", matriculas: "" });
   const [remessas, setRemessas] = useState([]);
+  // Retorno do último registro externo: quantos entraram e QUAIS matrículas
+  // ficaram de fora por não estarem na remessa. Ignorar isso em silêncio
+  // deixaria a gestão achar que a lista inteira foi acionada.
+  const [reciboExterna, setReciboExterna] = useState(null);
   const [ocupado, setOcupado] = useState("");
   const [aberta, setAberta] = useState(null);
 
@@ -137,7 +141,7 @@ export default function AbaAcoes({ carteira }) {
     if (publico === "lista" && lista.length === 0) {
       setErro("Cole as matrículas que receberam."); return;
     }
-    setOcupado("externa"); setErro("");
+    setOcupado("externa"); setErro(""); setReciboExterna(null);
     const { data, error } = await supabase.rpc("preventivo_acao_externa_registrar", {
       p_carteira_id: carteira.id, p_lote_id: lote, p_nome: nome.trim(),
       p_canal: canal, p_contexto: contexto,
@@ -149,6 +153,12 @@ export default function AbaAcoes({ carteira }) {
     if (error) { setErro(error.message); return; }
     setExterna({ aberto: false, lote: "", nome: "", canal: "EMAIL", contexto: "",
                  enviada_em: "", publico: "", matriculas: "" });
+    setReciboExterna({
+      nome: data.nome,
+      incluidos: data.incluidos,
+      informadas: data.matriculas_informadas ?? null,
+      fora: data.fora_da_remessa || [],
+    });
     await carregar();
     setAberta(data.id);
   }
@@ -255,6 +265,34 @@ export default function AbaAcoes({ carteira }) {
           e passa a acompanhar o resultado nas remessas seguintes. A ação fica marcada
           como <strong>enviada fora do CRM</strong>.
         </p>
+
+        {reciboExterna && (
+          <div style={{ ...S.card, padding: 14, marginTop: 12,
+                        borderLeft: `4px solid var(--rv-${reciboExterna.fora.length ? "ambar" : "azul"}-borda)` }}>
+            <strong style={{ fontSize: 13 }}>
+              “{reciboExterna.nome}” registrada — {reciboExterna.incluidos} título(s) acionado(s)
+              {reciboExterna.informadas !== null && reciboExterna.informadas > 0
+                ? ` de ${reciboExterna.informadas} matrícula(s) informada(s)`
+                : " (remessa inteira)"}.
+            </strong>
+            {reciboExterna.fora.length > 0 && (
+              <>
+                <p style={{ ...S.muted, marginTop: 6, fontSize: 12 }}>
+                  {reciboExterna.fora.length} matrícula(s) <strong>não estavam nesta remessa</strong> e
+                  ficaram de fora do acompanhamento. Confira — pode ser erro de digitação ou
+                  aluno que já havia saído da base:
+                </p>
+                <div style={{ marginTop: 6, fontFamily: "ui-monospace, monospace", fontSize: 12,
+                              maxHeight: 120, overflowY: "auto" }}>
+                  {reciboExterna.fora.join(", ")}
+                </div>
+              </>
+            )}
+            <button style={{ ...S.btnGhost, marginTop: 10 }} onClick={() => setReciboExterna(null)}>
+              Fechar
+            </button>
+          </div>
+        )}
 
         {externa.aberto && (
           <form onSubmit={registrarExterna}

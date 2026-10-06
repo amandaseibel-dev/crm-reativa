@@ -357,9 +357,12 @@ describe("Preventivo — ação externa e data da extração", () => {
   it("matrícula informada que não está na remessa é ignorada e reportada", async () => {
     const f1 = await importar("F1", [t("2026000001")], "2026-10-02 09:00-03");
     const a = await registrar(f1.lote_id, "X", "EMAIL", "PROXIMO_VENCIMENTO",
-                              "2026-10-02 10:00-03", ["2026000001", "9999999999"]);
+                              "2026-10-02 10:00-03", ["2026000001", "9999999999", "8888888888"]);
     expect(a.incluidos).toBe(1);
-    expect(a.fora_da_remessa).toBe(1);
+    expect(a.matriculas_informadas).toBe(3);
+    expect(a.fora_da_remessa_qtd).toBe(2);
+    // volta QUAIS são, não só quantas
+    expect(a.fora_da_remessa).toEqual(["8888888888", "9999999999"]);
 
     await expect(registrar(f1.lote_id, "Y", "EMAIL", "PROXIMO_VENCIMENTO",
                            "2026-10-02 10:00-03", ["9999999999"]))
