@@ -157,3 +157,115 @@ select count(*) total,
 ls supabase/migrations/*.sql | sed -E 's|.*/([0-9]{14}).*|\1|' | sort -u | wc -l
 cat supabase/.temp/linked-project.json
 ```
+
+## Por que a versão de produção nunca bate com o nome do arquivo
+
+Medido em 06/10/2026, depois de o drift acontecer três vezes seguidas e render
+três linhas de ledger (PRs #603, #611 e #614). A seção acima já separava
+`enviadas_por_arquivo` de `aplicadas_por_mcp`; aqui está **por que** a segunda
+coluna existe, com a causa provada em vez de inferida.
+
+### Causa raiz: a API não tem campo de versão
+
+O `apply_migration` do MCP chama a Management API da Supabase. Conferido no
+OpenAPI oficial (`https://api.supabase.com/api/v1-json`) em 06/10/2026:
+
+| rota | corpo aceito | obrigatório |
+|---|---|---|
+| `POST /v1/projects/{ref}/database/migrations` | `query`, `name`, `rollback` | `query` |
+| `PUT /v1/projects/{ref}/database/migrations` | `query`, `name`, `rollback` | `query` |
+| `PATCH /v1/projects/{ref}/database/migrations/{version}` | `name`, `rollback` | — |
+
+**Nenhuma das três aceita `version`.** O servidor atribui a versão a partir do
+relógio dele no instante da chamada, e o nome do arquivo nunca é transmitido: o
+`name` do corpo é texto livre e vai para `schema_migrations.name`, não para a
+versão. O `PATCH` consegue mudar `name` e `rollback` de uma versão já registrada
+— **não a versão**, e não executa SQL.
+
+Logo o drift **não é descuido de quem aplica: é estrutural do caminho de
+aplicação.** Duas confirmações de 06/10, com a versão igual ao horário UTC da
+chamada, ao segundo:
+
+| arquivo no repo | versão em produção | PR |
+|---|---|---|
+| `20261005204500_carteira_safra_situacoes` | `20261006094254` | #604, ledger #611 |
+| `20261006120000_carteira_2026_1_indicadores_ao_vivo` | `20261006123312` | #612, ledger #614 |
+
+Nos dois o md5 dos `statements` é idêntico ao do arquivo sem o newline final —
+**o conteúdo nunca foi o problema, só o número.**
+
+### O único caminho que preserva a versão
+
+Das 1.518 versões registradas, **9 terminam em `0000`** e todas as 9 têm arquivo
+em `supabase/migrations/` com o mesmo número: o lote do WhatsApp de 17–19/08 mais
+`rls_tabelas_backup` de 26/07. Duas delas têm `created_by` e `statements` nulos;
+as outras sete têm os dois preenchidos — CLI de versões diferentes.
+
+Como a API não tem campo de versão, essas nove **não** passaram por ela. Elas
+vieram de `supabase db push`, que conecta direto no Postgres e faz o `insert` em
+`supabase_migrations.schema_migrations` por conta própria, com a versão que o
+arquivo traz. **Preservar a versão exige escrever a linha do histórico à mão** —
+é isso que o `push` faz por baixo.
+
+### O fluxo que elimina o drift na origem
+
+**Aplicar primeiro, nomear depois, mesclar por último.** Em vez de escolher um
+timestamp na hora de escrever o arquivo e descobrir depois que produção usou
+outro, o arquivo nasce com nome provisório e recebe o número **que produção
+registrou**, ainda dentro do PR:
+
+1. escrever a migration e abrir o PR normalmente;
+2. com o PR aprovado e os checks verdes, **ainda sem mesclar**, conferir em
+   leitura que a versão não existe e que o md5 do texto a enviar bate com o
+   arquivo;
+3. aplicar por `apply_migration`, **uma vez**;
+4. ler a versão que produção atribuiu:
+   `select version from supabase_migrations.schema_migrations where name = '<name>'`;
+5. renomear o arquivo para esse número, com o mesmo `name`, e empurrar;
+6. conferir que o md5 do arquivo renomeado segue igual ao dos `statements`;
+7. mesclar.
+
+Resultado: repo e `schema_migrations` saem com a **mesma versão**, e não nasce
+linha de ledger de drift — o ledger volta a registrar só o que de fato merece
+registro.
+
+**Por que renomear aqui não contradiz o “Não renomear” da seção das 22
+duplicadas.** Lá o alvo são versões **antigas, já no histórico do repositório**:
+renomear criaria um terceiro número que nunca existiu nem no repo nem em
+produção. Aqui o arquivo **ainda não está em `main`** — para o git ele é um
+arquivo novo, adicionado já com o nome final, e a catraca `I3-MIGRATION-RENOMEADA`
+só dispara em arquivo que **já existia no branch base**. São casos opostos.
+
+**O custo honesto:** a aplicação passa a acontecer **antes** do merge. Quem
+aprova o PR precisa saber que o banco já mudou quando o merge entra, e uma
+aplicação que falha significa PR que não mescla. É a inversão que paga a
+eliminação do drift.
+
+### Opções descartadas, e por quê
+
+| opção | por que não |
+|---|---|
+| passar a versão na API | **impossível**: nenhuma das três rotas aceita `version` |
+| `supabase db push` | preserva a versão, mas é vetado aqui — o checkout está linked na **produção** e o binário não está instalado (`supabase` fora do PATH, conferido em 06/10) |
+| `migration repair` | vetado pela gestão; e não executa SQL, só marca versão |
+| `PATCH` na versão registrada | muda `name` e `rollback`, **não a versão** |
+| `insert` na mão em `schema_migrations` junto do DDL | funcionaria e preservaria a ordem “mesclar depois aplicar”, mas escreve o histórico à mão fora de qualquer ferramenta — se a forma da linha sair errada, o CLI quebra depois. Só com decisão explícita da gestão |
+| seguir como está | cada migration nova custa uma linha de ledger de drift; já são três |
+
+### Como validar que a próxima nasce com o mesmo número
+
+Depois do passo 5 do fluxo, antes de mesclar:
+
+```bash
+V=$(ls supabase/migrations/*_<name>.sql | sed -E 's|.*/([0-9]{14}).*|\1|')
+echo "versao do arquivo: $V"
+perl -0pe 's/\n\z//' supabase/migrations/${V}_<name>.sql | md5 -q
+```
+
+```sql
+select version, name, md5(array_to_string(statements, E'\n')) as md5_prod
+  from supabase_migrations.schema_migrations where name = '<name>';
+```
+
+Os dois `version` iguais e os dois md5 iguais: sem drift, e **nenhuma linha de
+ledger a escrever**. Qualquer divergência: para e registra, como em #611 e #614.
