@@ -226,3 +226,72 @@ describe("Efetividade — nomenclatura do Consolidado em 2026/2", () => {
   });
 });
 
+// Desde 06/10/2026 os indicadores de 2026/1 leem AO VIVO, e aí aparece título em
+// FORA_DA_BASE — cobrança encerrada administrativamente, que antes não entrava em
+// faixa nenhuma e fazia as barras somarem 99,48% da base sendo declaradas 100%.
+// Por decisão da gestão esse valor entra na faixa `academico`, mesma regra da
+// linha "Cancelado" da visão das seis linhas. Os números abaixo são os MEDIDOS em
+// produção em 06/10: academico 39.462,21 de ajuste + 112.595,16 de encerrado.
+const VIVO_2026_1 = {
+  base: { valor: 21710447.29, cpfs: 5250, titulos: 14979, congelada_em: "2026-09-11" },
+  faixas: {
+    efetividade: 11615720.75,
+    inadimplencia: 9134866.22,
+    em_validacao: 807802.95,
+    academico: 152057.37,
+  },
+  academico_detalhe: {
+    ajuste_academico: 39462.21,
+    encerrado_administrativo: 112595.16,
+    titulos_encerrados: 15,
+  },
+  recuperacao: { total: 6896336.45 },
+  gerado_em: "2026-10-06",
+  fonte: "ao vivo",
+};
+
+describe("Efetividade — 2026/1 ao vivo, com as quatro faixas fechando", () => {
+  function comVivo(dados = VIVO_2026_1) {
+    rpcMock.mockReset();
+    rpcMock.mockImplementation((nome) => {
+      if (nome === "carteira_2026_1_indicadores") return Promise.resolve({ data: dados });
+      if (nome === "carteira_saldo_historico_por_ano") return Promise.resolve({ data: POR_ANO });
+      return Promise.resolve({ data: null });
+    });
+  }
+
+  // A invariante é a razão de ser desta mudança, então ela é asserida sobre os
+  // mesmos números que a tela recebe — não sobre o texto renderizado.
+  it("as quatro faixas somam exatamente base.valor", () => {
+    const f = VIVO_2026_1.faixas;
+    const soma = f.efetividade + f.inadimplencia + f.em_validacao + f.academico;
+    expect(Number(soma.toFixed(2))).toBe(VIVO_2026_1.base.valor);
+  });
+
+  it("a faixa academico é a soma do ajuste acadêmico e do encerrado administrativo", () => {
+    const d = VIVO_2026_1.academico_detalhe;
+    expect(Number((d.ajuste_academico + d.encerrado_administrativo).toFixed(2)))
+      .toBe(VIVO_2026_1.faixas.academico);
+  });
+
+  it("a barra declara as duas coisas que a faixa carrega", async () => {
+    comVivo();
+    await abrir();
+    expect(screen.getByText("Encerrado / ajuste acadêmico")).toBeTruthy();
+    expect(screen.queryByText("Ajuste acadêmico")).toBeNull();
+  });
+
+  it("não sobra ressalva técnica no rodapé", async () => {
+    comVivo();
+    await abrir();
+    expect(screen.queryByText(/fora das quatro faixas/)).toBeNull();
+    expect(screen.queryByText(/FORA_DA_BASE/)).toBeNull();
+    expect(screen.getByText(/congelada em/)).toBeTruthy();
+  });
+
+  it("RPC antiga, sem academico_detalhe, não quebra a tela", async () => {
+    comVivo({ ...VIVO_2026_1, academico_detalhe: undefined });
+    await abrir();
+    expect(screen.getByText("Encerrado / ajuste acadêmico")).toBeTruthy();
+  });
+});

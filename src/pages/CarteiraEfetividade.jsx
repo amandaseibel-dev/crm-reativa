@@ -150,7 +150,13 @@ export default function CarteiraEfetividade() {
       { rotulo: "Convertido", valor: f.efetividade, cor: AZUL },
       { rotulo: "Em aberto sem negociação", valor: f.inadimplencia, cor: VERMELHO },
       { rotulo: "Em conferência", valor: f.em_validacao, cor: AMBAR },
-      { rotulo: "Ajuste acadêmico", valor: f.academico, cor: CINZA },
+      // Desde 06/10/2026 esta faixa carrega duas coisas: o ajuste acadêmico de
+      // sempre e a cobrança encerrada administrativamente, que o classificador
+      // põe em FORA_DA_BASE e que antes não entrava em faixa nenhuma — por isso
+      // as barras não fechavam 100% da base. É a mesma regra que a visão das
+      // seis linhas aplica na linha "Cancelado". O rótulo diz as duas; a
+      // decomposição vem em `academico_detalhe`, para auditoria.
+      { rotulo: "Encerrado / ajuste acadêmico", valor: f.academico, cor: CINZA },
     ];
     referenciaRotulo = "da carteira congelada";
     rodape = "Carteira de " + moeda(base) + " · congelada em " + data(consolidada.base?.congelada_em)
