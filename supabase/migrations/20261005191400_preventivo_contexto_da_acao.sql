@@ -148,6 +148,120 @@ end;
 $$;
 
 -- -----------------------------------------------------------------------------
+-- 3B. RESULTADO DA ACAO: tres metricas novas, nenhuma chave removida
+-- -----------------------------------------------------------------------------
+-- Mesma funcao da migration 20260928201351, ADITIVA. Tudo que a aba Acoes ja
+-- consome continua com o mesmo nome e o mesmo valor -- inclusive
+-- `taxa_regularizacao`, que e a taxa por TITULOS e NAO foi renomeada. Entram:
+--
+--   alunos_regularizados        -- aluno com NENHUM titulo de volta na remessa
+--                                  seguinte. Decisao da gestao: aluno com dois
+--                                  titulos que regulariza um e nao o outro NAO
+--                                  conta como regularizado.
+--   taxa_regularizacao_alunos   -- alunos_regularizados / alunos_acionados
+--   taxa_regularizacao_valor    -- valor_regularizado  / valor_acionado
+--
+-- Continua valendo: sem remessa seguinte, TUDO que e resultado volta nulo e
+-- `aguardando_proxima_remessa` fica true. Nada e estimado.
+create or replace function public.preventivo_acao_resultado(p_acao_id uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path to 'public'
+as $$
+declare
+  v jsonb; v_lote uuid; v_carteira uuid; v_criado timestamptz; v_seguinte uuid;
+  v_titulos int; v_regularizados int; v_ancora timestamptz; v_seguinte_em timestamptz;
+  v_alunos int; v_alunos_reg int; v_valor numeric; v_valor_reg numeric;
+begin
+  if not public.preventivo_e_gestao() then
+    raise exception 'Preventivo: acesso restrito à gestão.' using errcode = '42501';
+  end if;
+
+  select a.lote_id, a.carteira_id into v_lote, v_carteira
+    from public.prev_acao a where a.id = p_acao_id;
+  if v_lote is null then
+    return jsonb_build_object('acao', p_acao_id, 'sem_remessa', true,
+      'observacao', 'Ação sem remessa vinculada: não há o que comparar.');
+  end if;
+
+  -- A COMPARACAO E SEMPRE COM A PROXIMA REMESSA VALIDA APOS A ACAO -- nunca
+  -- com uma remessa futura qualquer, e nunca com uma que entrou ANTES da acao
+  -- existir. "Valida" = status CONFIRMADO; remessa CANCELADA nao serve de
+  -- regua. A ancora e o mais recente entre a remessa da acao e a criacao da
+  -- acao: se outra remessa entrou no intervalo, ela nao pode medir uma
+  -- comunicacao que ainda nao havia sido montada.
+  select l.criado_em into v_criado from public.prev_lote l where l.id = v_lote;
+  select greatest(v_criado, a.criada_em) into v_ancora
+    from public.prev_acao a where a.id = p_acao_id;
+
+  select l.id, l.criado_em into v_seguinte, v_seguinte_em
+    from public.prev_lote l
+   where l.carteira_id = v_carteira and l.status = 'CONFIRMADO'
+     and l.criado_em > v_ancora
+   order by l.criado_em limit 1;
+
+  select count(*), count(distinct d.matricula) into v_titulos, v_alunos
+    from public.prev_acao_destinatario d where d.acao_id = p_acao_id and d.incluido;
+
+  select count(*) into v_regularizados
+    from public.prev_acao_destinatario d
+   where d.acao_id = p_acao_id and d.incluido and v_seguinte is not null
+     and not exists (select 1 from public.prev_titulo_lote n
+                      where n.lote_id = v_seguinte and n.titulo_id = d.titulo_id);
+
+  -- ALUNO regularizado: NENHUM titulo dele voltou. Agrupa por matricula e
+  -- exige que a contagem de titulos de volta seja zero.
+  select count(*) into v_alunos_reg from (
+    select d.matricula
+      from public.prev_acao_destinatario d
+     where d.acao_id = p_acao_id and d.incluido and v_seguinte is not null
+     group by d.matricula
+    having count(*) filter (where exists (
+             select 1 from public.prev_titulo_lote n
+              where n.lote_id = v_seguinte and n.titulo_id = d.titulo_id)) = 0
+  ) x;
+
+  select coalesce(sum(tl.saldo_na_remessa), 0) into v_valor
+    from public.prev_acao_destinatario d
+    join public.prev_titulo_lote tl on tl.titulo_id = d.titulo_id and tl.lote_id = v_lote
+   where d.acao_id = p_acao_id and d.incluido;
+
+  select coalesce(sum(tl.saldo_na_remessa), 0) into v_valor_reg
+    from public.prev_acao_destinatario d
+    join public.prev_titulo_lote tl on tl.titulo_id = d.titulo_id and tl.lote_id = v_lote
+   where d.acao_id = p_acao_id and d.incluido and v_seguinte is not null
+     and not exists (select 1 from public.prev_titulo_lote n
+                      where n.lote_id = v_seguinte and n.titulo_id = d.titulo_id);
+
+  select jsonb_build_object(
+    'acao', p_acao_id,
+    'remessa', v_lote,
+    'remessa_seguinte', v_seguinte,
+    'remessa_seguinte_em', v_seguinte_em,
+    'comparado_a_partir_de', v_ancora,
+    'alunos_acionados', v_alunos,
+    'titulos_acionados', v_titulos,
+    'valor_acionado', v_valor,
+    'continuam_em_aberto', case when v_seguinte is null then null else v_titulos - v_regularizados end,
+    'regularizados_entre_remessas', case when v_seguinte is null then null else v_regularizados end,
+    'alunos_regularizados', case when v_seguinte is null then null else v_alunos_reg end,
+    'valor_regularizado', case when v_seguinte is null then null else v_valor_reg end,
+    'taxa_regularizacao', case when v_seguinte is null or v_titulos = 0 then null
+                               else round((v_regularizados::numeric / v_titulos) * 100, 1) end,
+    'taxa_regularizacao_alunos', case when v_seguinte is null or v_alunos = 0 then null
+                               else round((v_alunos_reg::numeric / v_alunos) * 100, 1) end,
+    'taxa_regularizacao_valor', case when v_seguinte is null or v_valor = 0 then null
+                               else round((v_valor_reg / v_valor) * 100, 1) end,
+    'aguardando_proxima_remessa', (v_seguinte is null),
+    'definicao', 'Apareceu na remessa = em aberto. Recebeu ação = acionado. NÃO apareceu na PRÓXIMA REMESSA VÁLIDA depois da ação = regularizado. Continuou aparecendo = continua em aberto. Regularizado NÃO é pagamento confirmado: some por pagamento, cancelamento, bolsa, renegociação ou por não entrar no recorte do relatório. O valor usa o saldo do título NA REMESSA em que ele foi acionado. Aluno regularizado = NENHUM título dele voltou.'
+  ) into v;
+  return v;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
 -- 4. RELATORIO POR CONTEXTO, POR CANAL E POR PERIODO
 -- -----------------------------------------------------------------------------
 -- Agrupa os MESMOS numeros que `preventivo_acao_resultado` ja produz por acao
@@ -240,6 +354,61 @@ end;
 $$;
 
 -- -----------------------------------------------------------------------------
+-- 4B. LISTA POR ACAO: a visao principal da aba Resultados
+-- -----------------------------------------------------------------------------
+-- Uma linha por acao, em ordem de criacao, com as nove metricas que a gestao
+-- pediu mais nome, canal, contexto, estado, datas e remessa. Nao reimplementa
+-- nada: cada linha e o proprio `preventivo_acao_resultado`. O corte de periodo
+-- e o mesmo do relatorio por contexto -- data de CRIACAO da acao, em
+-- America/Sao_Paulo, limites inclusivos.
+--
+-- Acao CANCELADA aparece, com o estado escrito, porque faz parte do historico.
+-- Quem nao quiser ve-la filtra na tela.
+create or replace function public.preventivo_resultados_por_acao(
+  p_carteira_id uuid, p_de date default null, p_ate date default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare v jsonb;
+begin
+  if not public.preventivo_e_gestao() then
+    raise exception 'Preventivo: acesso restrito à gestão.' using errcode = '42501';
+  end if;
+  if p_de is not null and p_ate is not null and p_ate < p_de then
+    raise exception 'Período inválido: "até" é anterior a "de".' using errcode = '22023';
+  end if;
+
+  select coalesce(jsonb_agg(linha order by criada_em), '[]'::jsonb) into v
+  from (
+    select a.criada_em,
+           jsonb_build_object(
+             'id', a.id,
+             'nome', a.nome,
+             'canal', a.canal,
+             'contexto', coalesce(a.contexto, 'SEM_CONTEXTO'),
+             'estado', a.estado,
+             'criada_em', a.criada_em,
+             'criada_por', a.criada_por,
+             'exportada_em', a.exportada_em,
+             'envio_confirmado_em', a.envio_confirmado_em,
+             'cancelada_em', a.cancelada_em,
+             'remessa', a.lote_id,
+             'remessa_nome', (select l.nome from public.prev_lote l where l.id = a.lote_id)
+           ) || r.j as linha
+      from public.prev_acao a
+      cross join lateral (select public.preventivo_acao_resultado(a.id) as j) r
+     where a.carteira_id = p_carteira_id
+       and (p_de  is null or (a.criada_em at time zone 'America/Sao_Paulo')::date >= p_de)
+       and (p_ate is null or (a.criada_em at time zone 'America/Sao_Paulo')::date <= p_ate)
+  ) q;
+
+  return v;
+end;
+$$;
+
+-- -----------------------------------------------------------------------------
 -- 5. PRIVILEGIOS
 -- -----------------------------------------------------------------------------
 -- Funcao nova NAO herda os grants da tabela: ela nasce com EXECUTE para
@@ -248,6 +417,8 @@ $$;
 revoke all on function public.preventivo_acao_preparar_v2(uuid, text, text, jsonb, text) from public, anon;
 revoke all on function public.preventivo_resultados_por_contexto(uuid, date, date) from public, anon;
 revoke all on function public.preventivo_contexto_metricas(jsonb) from public, anon;
+revoke all on function public.preventivo_resultados_por_acao(uuid, date, date) from public, anon;
 grant execute on function public.preventivo_acao_preparar_v2(uuid, text, text, jsonb, text) to authenticated;
 grant execute on function public.preventivo_resultados_por_contexto(uuid, date, date) to authenticated;
 grant execute on function public.preventivo_contexto_metricas(jsonb) to authenticated;
+grant execute on function public.preventivo_resultados_por_acao(uuid, date, date) to authenticated;
