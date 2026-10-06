@@ -18,6 +18,7 @@ import { supabase } from "../../services/supabase";
 import { S } from "../../ui/estilosFila";
 import { moeda, dataCurta, dataHora } from "../../utils/preventivoFormato";
 import { AvisoAtualizacao } from "./AbaCarteira";
+import { GraficoPorAcao, GraficoPorContextoCanal } from "./GraficosEfetividade";
 import { csv } from "../../utils/preventivo";
 
 const ROTULO_ALTERACAO = {
@@ -134,6 +135,11 @@ export default function AbaResultados({ carteira }) {
 
       <PorAcao linhas={porAcao} periodo={periodo} setPeriodo={setPeriodo}
                definicao={porContexto?.definicao} />
+
+      {/* Os gráficos leem as MESMAS linhas da tabela acima, já filtradas pelo
+          período — não há segunda consulta nem segunda verdade. */}
+      <GraficoPorAcao linhas={porAcao} />
+      <GraficoPorContextoCanal linhas={porAcao} />
 
       <PorContexto dados={porContexto} />
 

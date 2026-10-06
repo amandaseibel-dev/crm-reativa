@@ -202,7 +202,104 @@ const LOTES = [
     resumo: {}, titulos: 2, recusas: 0 },
 ];
 
+// Linhas de EXEMPLO para a tabela e os dois gráficos novos. Inclui de
+// propósito um caso medido por WhatsApp, um por e-mail, um de outro contexto e
+// DOIS sem régua -- um sem envio confirmado e um sem remessa seguinte -- para o
+// preview mostrar o estado vazio em vez de 0%.
+const POR_ACAO = [
+  { id: "a-1", nome: "Lembrete D-3 outubro", canal: "WHATSAPP", contexto: "PROXIMO_VENCIMENTO",
+    estado: "ENVIO_CONFIRMADO", criada_em: new Date(Date.now() - 6 * 864e5).toISOString(),
+    criada_por: "amanda.seibel@aelbra.com.br", remessa_nome: "Remessa 01/10",
+    alunos_acionados: 1840, alunos_regularizados: 712, titulos_acionados: 1902,
+    regularizados_entre_remessas: 735, valor_acionado: "1284300.50",
+    valor_regularizado: "492118.33", taxa_regularizacao: 38.6,
+    taxa_regularizacao_alunos: 38.7, taxa_regularizacao_valor: 38.3,
+    aguardando_envio_confirmado: false, aguardando_proxima_remessa: false },
+  { id: "a-2", nome: "Boleto vencido — 1ª cobrança", canal: "WHATSAPP", contexto: "BOLETO_VENCIDO",
+    estado: "ENVIO_CONFIRMADO", criada_em: new Date(Date.now() - 4 * 864e5).toISOString(),
+    criada_por: "amanda.seibel@aelbra.com.br", remessa_nome: "Remessa 03/10",
+    alunos_acionados: 2460, alunos_regularizados: 517, titulos_acionados: 2602,
+    regularizados_entre_remessas: 548, valor_acionado: "2104877.10",
+    valor_regularizado: "402118.44", taxa_regularizacao: 21.1,
+    taxa_regularizacao_alunos: 21.0, taxa_regularizacao_valor: 19.1,
+    aguardando_envio_confirmado: false, aguardando_proxima_remessa: false },
+  { id: "a-3", nome: "Boleto vencido — e-mail", canal: "EMAIL", contexto: "BOLETO_VENCIDO",
+    estado: "ENVIO_CONFIRMADO", criada_em: new Date(Date.now() - 3 * 864e5).toISOString(),
+    criada_por: "amanda.seibel@aelbra.com.br", remessa_nome: "Remessa 03/10",
+    alunos_acionados: 724, alunos_regularizados: 88, titulos_acionados: 741,
+    regularizados_entre_remessas: 90, valor_acionado: "508214.00",
+    valor_regularizado: "54118.90", taxa_regularizacao: 12.1,
+    taxa_regularizacao_alunos: 12.2, taxa_regularizacao_valor: 10.6,
+    aguardando_envio_confirmado: false, aguardando_proxima_remessa: false },
+  { id: "a-4", nome: "Mensalidade de outubro", canal: "WHATSAPP", contexto: "BOLETO_VENCIDO",
+    estado: "PREPARADA", criada_em: new Date().toISOString(),
+    criada_por: "amanda.seibel@aelbra.com.br", remessa_nome: "Remessa 08/10",
+    alunos_acionados: 8312, alunos_regularizados: null, titulos_acionados: 8312,
+    regularizados_entre_remessas: null, valor_acionado: "14427824.20",
+    valor_regularizado: null, taxa_regularizacao: null,
+    taxa_regularizacao_alunos: null, taxa_regularizacao_valor: null,
+    aguardando_envio_confirmado: true, aguardando_proxima_remessa: false },
+  { id: "a-5", nome: "Próximo ao vencimento — e-mail", canal: "EMAIL", contexto: "PROXIMO_VENCIMENTO",
+    estado: "ENVIO_CONFIRMADO", criada_em: new Date(Date.now() - 864e5).toISOString(),
+    criada_por: "amanda.seibel@aelbra.com.br", remessa_nome: "Remessa 08/10",
+    alunos_acionados: 611, alunos_regularizados: null, titulos_acionados: 611,
+    regularizados_entre_remessas: null, valor_acionado: "402118.00",
+    valor_regularizado: null, taxa_regularizacao: null,
+    taxa_regularizacao_alunos: null, taxa_regularizacao_valor: null,
+    aguardando_envio_confirmado: false, aguardando_proxima_remessa: true },
+];
+
+const DEFINICAO = "Apareceu na remessa = em aberto. Recebeu ação = acionado. "
+  + "NÃO apareceu na PRÓXIMA REMESSA VÁLIDA depois do ENVIO CONFIRMADO = regularizado. "
+  + "Regularizado NÃO é pagamento confirmado.";
+
 const RESPOSTAS = {
+  preventivo_resultados_por_acao: () => POR_ACAO,
+  preventivo_resultados_por_contexto: () => ({
+    periodo: { de: null, ate: null },
+    definicao: DEFINICAO,
+    contextos: {
+      BOLETO_VENCIDO: {
+        acoes: 3, acoes_com_envio_confirmado: 2, alunos_acionados: 11496,
+        titulos_acionados: 11655, valor_acionado: 17040915.3,
+        regularizados_entre_remessas: 638, valor_regularizado: 456237.34,
+        continuam_em_aberto: 2705, taxa_regularizacao: 19.1,
+        aguardando_proxima_remessa: 0, aguardando_envio_confirmado: 1,
+        canais: {
+          WHATSAPP: { acoes: 2, acoes_com_envio_confirmado: 1, alunos_acionados: 10772,
+            titulos_acionados: 10914, valor_acionado: 16532692.3,
+            regularizados_entre_remessas: 548, valor_regularizado: 402118.44,
+            continuam_em_aberto: 2054, taxa_regularizacao: 21.1,
+            aguardando_proxima_remessa: 0, aguardando_envio_confirmado: 1 },
+          EMAIL: { acoes: 1, acoes_com_envio_confirmado: 1, alunos_acionados: 724,
+            titulos_acionados: 741, valor_acionado: 508214,
+            regularizados_entre_remessas: 90, valor_regularizado: 54118.9,
+            continuam_em_aberto: 651, taxa_regularizacao: 12.1,
+            aguardando_proxima_remessa: 0, aguardando_envio_confirmado: 0 },
+        },
+      },
+      PROXIMO_VENCIMENTO: {
+        acoes: 2, acoes_com_envio_confirmado: 2, alunos_acionados: 2451,
+        titulos_acionados: 2513, valor_acionado: 1686418.5,
+        regularizados_entre_remessas: 735, valor_regularizado: 492118.33,
+        continuam_em_aberto: 1167, taxa_regularizacao: 38.6,
+        aguardando_proxima_remessa: 1, aguardando_envio_confirmado: 0,
+        canais: {
+          WHATSAPP: { acoes: 1, acoes_com_envio_confirmado: 1, alunos_acionados: 1840,
+            titulos_acionados: 1902, valor_acionado: 1284300.5,
+            regularizados_entre_remessas: 735, valor_regularizado: 492118.33,
+            continuam_em_aberto: 1167, taxa_regularizacao: 38.6,
+            aguardando_proxima_remessa: 0, aguardando_envio_confirmado: 0 },
+          EMAIL: { acoes: 1, acoes_com_envio_confirmado: 1, alunos_acionados: 611,
+            titulos_acionados: 611, valor_acionado: 402118,
+            regularizados_entre_remessas: 0, valor_regularizado: 0,
+            continuam_em_aberto: 0, taxa_regularizacao: null,
+            aguardando_proxima_remessa: 1, aguardando_envio_confirmado: 0 },
+        },
+      },
+    },
+  }),
+
   preventivo_carteiras: () => [CARTEIRA],
   preventivo_titulos: (a) => {
     let l = TITULOS;
