@@ -429,6 +429,45 @@ function TelaPlaylistReativa({ snap }) {
   );
 }
 
+// 12) Dicas de abordagem ------------------------------------------------------
+// O backend ja montava `dicas` no snapshot -- 8 itens com titulo, texto e
+// categoria -- e NENHUMA tela lia essa chave. O dado existia e nunca aparecia.
+// Rotaciona pelo numero da atualizacao para nao mostrar sempre as mesmas.
+// eslint-disable-next-line react-refresh/only-export-components
+function TelaDicas({ snap }) {
+  const itens = snap?.dicas || [];
+  if (itens.length === 0) return <Tela titulo="Dicas de Abordagem" icone="💡"><Vazio>Nenhuma dica cadastrada.</Vazio></Tela>;
+  // A cada atualizacao do snapshot a vitrine anda: com 8 dicas e 3 por vez,
+  // todas passam pela TV em vez de so as tres primeiras.
+  const giro = Number(snap?.versao ?? snap?.dados?.versao ?? 0) || 0;
+  const inicio = itens.length > 0 ? (giro * 3) % itens.length : 0;
+  const mostra = Array.from({ length: Math.min(3, itens.length) }, (_, i) => itens[(inicio + i) % itens.length]);
+  const destaque = mostra[0];
+  const demais = mostra.slice(1);
+  return (
+    <Tela titulo="Dicas de Abordagem" icone="💡">
+      <MensagemInstitucional
+        badge={destaque.categoria || "Dica"}
+        titulo={destaque.titulo}
+        texto={destaque.texto}
+      />
+      {demais.length > 0 && (
+        <div style={{ display: "flex", gap: "1.4vw", justifyContent: "center", width: "88%", flexWrap: "nowrap" }}>
+          {demais.map((d, i) => (
+            <div key={d.id || i} style={{ ...layout.card, flex: "1 1 0", minWidth: 0, alignItems: "flex-start", gap: "0.7vh" }}>
+              <span style={{ fontSize: fs(10, 1, 20), fontWeight: 900, letterSpacing: "0.12em", color: T.textoMudo }}>
+                {(d.categoria || "DICA").toUpperCase()}
+              </span>
+              <strong style={{ fontSize: fs(17, 2, 46), color: T.texto, lineHeight: 1.1 }}>{d.titulo}</strong>
+              <span style={{ fontSize: fs(12, 1.3, 28), color: T.textoSuave, fontWeight: 700, lineHeight: 1.25 }}>{d.texto}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Tela>
+  );
+}
+
 // 11) Próximos eventos do Portal ---------------------------------------------
 // eslint-disable-next-line react-refresh/only-export-components
 function TelaEventosPortal({ snap }) {
@@ -642,6 +681,9 @@ export const CATALOGO_TELAS = [
   { id: "eventos_portal", nome: "Próximos Eventos", Comp: TelaEventosPortal, ativa: true, grupo: "comunicacao",
     descricao: "Eventos futuros cadastrados na Visão Geral do Portal.",
     temConteudo: (s) => (s?.eventos_portal || []).length > 0 },
+  { id: "dicas", nome: "Dicas de Abordagem", Comp: TelaDicas, ativa: true, grupo: "comunicacao",
+    descricao: "Dicas de sondagem e negociação já cadastradas. Gira a cada atualização para todas aparecerem.",
+    temConteudo: (s) => (s?.dicas || []).length > 0 },
   // --- estrutura pronta, EM CONSTRUÇÃO (mostram apenas "Em breve") ---
   { id: "hall", nome: "Hall da Fama", Comp: TelaHallFama, ativa: false, grupo: "construcao", placeholder: true,
     descricao: "Em construção — ainda sem conteúdo real.", temConteudo: sempre },
