@@ -80,16 +80,21 @@ describe("semana de calendário — segunda inicia, domingo fecha", () => {
     await db.close();
   });
 
-  it("FUSO: v_hoje (São Paulo) e current_date (UTC) podem cair em semanas diferentes", async () => {
+  it("FUSO: v_hoje (São Paulo) e current_date (UTC) caem em semanas diferentes na virada", async () => {
     const db = await PGlite.create();
-    // Segunda 05/10 00:30 em Sao Paulo = domingo 04/10 03:30 UTC.
-    // Pelo relogio do servidor ainda e a semana velha; em SP ja virou.
+    // 05/10 02:30 UTC = 04/10 23:30 em Sao Paulo (UTC-3).
+    // Pelo relogio do SERVIDOR ja e segunda e a semana virou; em SP ainda e
+    // domingo. Usar `current_date` adiantaria a virada em ~3h para a equipe.
+    //
+    // Os dois lados levam `at time zone` EXPLICITO: sem isso o cast depende do
+    // TimeZone da sessao e o teste passa na maquina (BRT) e quebra no CI (UTC).
     const r = await db.query(`
-      select date_trunc('week', (timestamptz '2026-10-05 03:30:00+00'
+      select date_trunc('week', (timestamptz '2026-10-05 02:30:00+00'
                at time zone 'America/Sao_Paulo')::date)::date::text as semana_sao_paulo,
-             date_trunc('week', (timestamptz '2026-10-05 00:30:00+00')::date)::date::text as semana_utc`);
-    expect(r.rows[0].semana_sao_paulo).toBe("2026-10-05"); // ja e a semana nova
-    expect(r.rows[0].semana_utc).toBe("2026-09-28");       // servidor ainda na velha
+             date_trunc('week', (timestamptz '2026-10-05 02:30:00+00'
+               at time zone 'UTC')::date)::date::text               as semana_servidor`);
+    expect(r.rows[0].semana_sao_paulo).toBe("2026-09-28"); // em SP ainda e a semana velha
+    expect(r.rows[0].semana_servidor).toBe("2026-10-05");  // no servidor ja virou
     await db.close();
   });
 });
