@@ -428,10 +428,17 @@ function PorAcao({ linhas, periodo, setPeriodo, definicao }) {
         </div>
       )}
 
-      {linhas.some((l) => l.aguardando_proxima_remessa) && (
+      {linhas.some((l) => l.aguardando_envio_confirmado) && (
         <p style={{ ...S.muted, marginTop: 10, fontSize: 11.5 }}>
-          As linhas com “—” ainda não têm remessa seguinte para comparar. Nada é estimado:
-          o resultado aparece depois da próxima importação.
+          Ação sem <strong>envio confirmado</strong> não tem régua: a efetividade conta a
+          partir do envio, não da montagem do público. Registre o envio na aba Ações.
+        </p>
+      )}
+
+      {linhas.some((l) => l.aguardando_proxima_remessa) && (
+        <p style={{ ...S.muted, marginTop: 6, fontSize: 11.5 }}>
+          As linhas com “—” tiveram envio confirmado mas ainda não têm remessa posterior
+          para comparar. Nada é estimado: o resultado aparece depois da próxima importação.
         </p>
       )}
     </div>

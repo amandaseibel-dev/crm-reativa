@@ -186,21 +186,25 @@ begin
       'observacao', 'Ação sem remessa vinculada: não há o que comparar.');
   end if;
 
-  -- A COMPARACAO E SEMPRE COM A PROXIMA REMESSA VALIDA APOS A ACAO -- nunca
-  -- com uma remessa futura qualquer, e nunca com uma que entrou ANTES da acao
-  -- existir. "Valida" = status CONFIRMADO; remessa CANCELADA nao serve de
-  -- regua. A ancora e o mais recente entre a remessa da acao e a criacao da
-  -- acao: se outra remessa entrou no intervalo, ela nao pode medir uma
-  -- comunicacao que ainda nao havia sido montada.
+  -- A ANCORA OFICIAL DA EFETIVIDADE E `envio_confirmado_em`, decisao da gestao.
+  -- Nao e a criacao da acao: montar o publico nao comunica nada ao aluno, e
+  -- medir dali atribuiria a acao um efeito que ela ainda nao podia ter tido.
+  --
+  -- A regua e a PRIMEIRA remessa `CONFIRMADO` POSTERIOR ao envio confirmado --
+  -- nunca uma futura qualquer, nunca uma que entrou antes do envio, e nunca
+  -- uma CANCELADA. Sem envio confirmado NAO HA REGUA: o resultado fica
+  -- aguardando envio e nada e estimado.
   select l.criado_em into v_criado from public.prev_lote l where l.id = v_lote;
-  select greatest(v_criado, a.criada_em) into v_ancora
+  select a.envio_confirmado_em into v_ancora
     from public.prev_acao a where a.id = p_acao_id;
 
-  select l.id, l.criado_em into v_seguinte, v_seguinte_em
-    from public.prev_lote l
-   where l.carteira_id = v_carteira and l.status = 'CONFIRMADO'
-     and l.criado_em > v_ancora
-   order by l.criado_em limit 1;
+  if v_ancora is not null then
+    select l.id, l.criado_em into v_seguinte, v_seguinte_em
+      from public.prev_lote l
+     where l.carteira_id = v_carteira and l.status = 'CONFIRMADO'
+       and l.criado_em > v_ancora
+     order by l.criado_em limit 1;
+  end if;
 
   select count(*), count(distinct d.matricula) into v_titulos, v_alunos
     from public.prev_acao_destinatario d where d.acao_id = p_acao_id and d.incluido;
@@ -241,6 +245,7 @@ begin
     'remessa_seguinte', v_seguinte,
     'remessa_seguinte_em', v_seguinte_em,
     'comparado_a_partir_de', v_ancora,
+    'aguardando_envio_confirmado', (v_ancora is null),
     'alunos_acionados', v_alunos,
     'titulos_acionados', v_titulos,
     'valor_acionado', v_valor,
@@ -254,8 +259,8 @@ begin
                                else round((v_alunos_reg::numeric / v_alunos) * 100, 1) end,
     'taxa_regularizacao_valor', case when v_seguinte is null or v_valor = 0 then null
                                else round((v_valor_reg / v_valor) * 100, 1) end,
-    'aguardando_proxima_remessa', (v_seguinte is null),
-    'definicao', 'Apareceu na remessa = em aberto. Recebeu ação = acionado. NÃO apareceu na PRÓXIMA REMESSA VÁLIDA depois da ação = regularizado. Continuou aparecendo = continua em aberto. Regularizado NÃO é pagamento confirmado: some por pagamento, cancelamento, bolsa, renegociação ou por não entrar no recorte do relatório. O valor usa o saldo do título NA REMESSA em que ele foi acionado. Aluno regularizado = NENHUM título dele voltou.'
+    'aguardando_proxima_remessa', (v_ancora is not null and v_seguinte is null),
+    'definicao', 'Apareceu na remessa = em aberto. Recebeu ação = acionado. NÃO apareceu na PRÓXIMA REMESSA VÁLIDA depois do ENVIO CONFIRMADO = regularizado. Continuou aparecendo = continua em aberto. Regularizado NÃO é pagamento confirmado: some por pagamento, cancelamento, bolsa, renegociação ou por não entrar no recorte do relatório. O valor usa o saldo do título NA REMESSA em que ele foi acionado. Aluno regularizado = NENHUM título dele voltou.'
   ) into v;
   return v;
 end;
@@ -289,6 +294,7 @@ as $$
     'regularizados_entre_remessas', coalesce(sum((j->>'regularizados_entre_remessas')::int), 0),
     'valor_regularizado',           coalesce(sum((j->>'valor_regularizado')::numeric), 0),
     'aguardando_proxima_remessa', count(*) filter (where (j->>'aguardando_proxima_remessa')::boolean),
+    'aguardando_envio_confirmado', count(*) filter (where (j->>'aguardando_envio_confirmado')::boolean),
     -- A taxa so considera as acoes que JA tem remessa seguinte para comparar.
     -- Somar no denominador acao sem comparacao rebaixaria a taxa por nada.
     'taxa_regularizacao', case

@@ -96,6 +96,18 @@ describe("Preventivo — contexto da ação", () => {
     `select public.preventivo_lote_confirmar($1::uuid, $2, 'rel.csv', '{}'::jsonb, null, $3::jsonb)`,
     [carteira, nome, JSON.stringify(linhas)]);
 
+  // A âncora oficial é o ENVIO CONFIRMADO. A máquina de estados é obrigatória:
+  // PREPARADA -> EXPORTADA -> ENVIO_CONFIRMADO.
+  const confirmarEnvio = async (id) => {
+    await um(db, `select public.preventivo_acao_marcar($1::uuid, 'EXPORTADA')`, [id]);
+    await um(db, `select public.preventivo_acao_marcar($1::uuid, 'ENVIO_CONFIRMADO')`, [id]);
+    // A régua é ESTRITAMENTE posterior ao envio, de propósito: remessa gerada
+    // no mesmo instante da comunicação não pode medi-la. Aqui dentro o banco é
+    // rápido o bastante para os dois caírem no mesmo timestamp, então o teste
+    // separa os instantes de forma explícita em vez de depender da sorte.
+    await db.query(`select pg_sleep(0.02)`);
+  };
+
   const porAcao = (de = null, ate = null) => um(db,
     `select public.preventivo_resultados_por_acao($1::uuid, $2::date, $3::date)`,
     [carteira, de, ate]);
@@ -301,7 +313,7 @@ describe("Preventivo — contexto da ação", () => {
       expect(Object.keys(r)).toContain(k);
     }
     expect(r.acao).toBe(a.id);
-    expect(r.aguardando_proxima_remessa).toBe(true);   // só há uma remessa
+    expect(r.aguardando_envio_confirmado).toBe(true);  // envio não confirmado
     expect(r.titulos_acionados).toBe(2);
     expect(r.definicao).toMatch(/NÃO é pagamento confirmado/);
   });
@@ -322,7 +334,8 @@ describe("Preventivo — contexto da ação", () => {
     expect(bv.canais.EMAIL.titulos_acionados).toBe(r2.titulos_acionados);
     // sem remessa seguinte, a taxa não é inventada
     expect(bv.taxa_regularizacao).toBe(null);
-    expect(bv.aguardando_proxima_remessa).toBe(2);
+    expect(bv.aguardando_envio_confirmado).toBe(2);
+    expect(bv.aguardando_proxima_remessa).toBe(0);
   });
 
   it("a lista por ação traz as nove métricas, uma linha por ação", async () => {
@@ -352,16 +365,35 @@ describe("Preventivo — contexto da ação", () => {
     expect(lista[1].contexto).toBe("PROXIMO_VENCIMENTO");
   });
 
-  it("sem remessa seguinte, nenhuma taxa é inventada", async () => {
+  it("sem ENVIO CONFIRMADO não há régua: aguarda envio e nada é estimado", async () => {
     await importar("R1", [t("2026000001", 4)]);
-    await preparar("A", "WHATSAPP", "BOLETO_VENCIDO");
+    const a = await preparar("A", "WHATSAPP", "BOLETO_VENCIDO");
+    // uma remessa posterior existe, mas o envio não foi confirmado
+    await importar("R2", []);
+
     const [l] = await porAcao();
-    expect(l.aguardando_proxima_remessa).toBe(true);
+    expect(l.aguardando_envio_confirmado).toBe(true);
+    expect(l.aguardando_proxima_remessa).toBe(false);   // o que falta é o envio
+    expect(l.comparado_a_partir_de).toBe(null);
+    expect(l.remessa_seguinte).toBe(null);
     expect(l.alunos_regularizados).toBe(null);
     expect(l.valor_regularizado).toBe(null);
     expect(l.taxa_regularizacao_alunos).toBe(null);
     expect(l.taxa_regularizacao).toBe(null);
     expect(l.taxa_regularizacao_valor).toBe(null);
+    expect(a.id).toBeTruthy();
+  });
+
+  it("com envio confirmado e sem remessa depois, aguarda a próxima remessa", async () => {
+    await importar("R1", [t("2026000001", 4)]);
+    const a = await preparar("A", "WHATSAPP", "BOLETO_VENCIDO");
+    await confirmarEnvio(a.id);
+
+    const [l] = await porAcao();
+    expect(l.aguardando_envio_confirmado).toBe(false);
+    expect(l.aguardando_proxima_remessa).toBe(true);
+    expect(l.comparado_a_partir_de).not.toBe(null);
+    expect(l.alunos_regularizados).toBe(null);
   });
 
   it("aluno só é regularizado quando NENHUM título dele volta", async () => {
@@ -378,6 +410,7 @@ describe("Preventivo — contexto da ação", () => {
     expect(antes[0].alunos_acionados).toBe(2);
     expect(antes[0].titulos_acionados).toBe(2);   // 1 título por aluno no público
 
+    await confirmarEnvio(a.id);
     // a remessa seguinte traz de volta só UM título do aluno 1
     await importar("R2", [{ ...t("2026000001", 4, 100), vencimento_origem: "2026-01-05" }]);
 
@@ -396,8 +429,9 @@ describe("Preventivo — contexto da ação", () => {
   it("compara com a PRÓXIMA remessa válida depois da ação, não com qualquer futura", async () => {
     await importar("R1", [t("2026000001", 4, 100), t("2026000002", 5, 200)]);
     const a = await preparar("A", "WHATSAPP", "BOLETO_VENCIDO");
+    await confirmarEnvio(a.id);
 
-    // R2 é a próxima válida: traz o aluno 1 de volta, o 2 não
+    // R2 é a próxima válida depois do envio: traz o aluno 1 de volta, o 2 não
     await importar("R2", [t("2026000001", 4, 100)]);
     // R3 vem depois e traz os dois de volta — NÃO deve ser a régua
     await importar("R3", [t("2026000001", 4, 100), t("2026000002", 5, 200)]);
@@ -412,7 +446,8 @@ describe("Preventivo — contexto da ação", () => {
 
   it("remessa CANCELADA não serve de régua", async () => {
     await importar("R1", [t("2026000001", 4, 100), t("2026000002", 5, 200)]);
-    await preparar("A", "WHATSAPP", "BOLETO_VENCIDO");
+    const aa = await preparar("A", "WHATSAPP", "BOLETO_VENCIDO");
+    await confirmarEnvio(aa.id);
 
     const r2 = await importar("R2 cancelada", [t("2026000001", 4, 100), t("2026000002", 5, 200)]);
     await db.exec(`update public.prev_lote set status = 'CANCELADO' where id = '${r2.lote_id}'`);
@@ -430,25 +465,27 @@ describe("Preventivo — contexto da ação", () => {
     expect(comRegua.alunos_regularizados).toBe(1);
   });
 
-  it("remessa que entrou ANTES da ação não mede a ação", async () => {
-    // R1 -> R2 importadas, e só depois a ação é montada sobre a R1.
-    // A régua tem de ser uma remessa POSTERIOR À AÇÃO, não a R2.
+  it("remessa que entrou ANTES do envio confirmado não mede a ação", async () => {
+    // R1 -> ação -> R2 -> envio confirmado -> R3.
+    // A régua tem de ser a R3: a R2 é anterior ao envio.
     await importar("R1", [t("2026000001", 4, 100)]);
     const r1 = await um(db, `select id from public.prev_lote where nome = 'R1'`);
-    await importar("R2", [t("2026000001", 4, 100)]);
-
     const a = await um(db,
       `select public.preventivo_acao_preparar_v2($1::uuid, 'Sobre a R1', 'WHATSAPP',
          jsonb_build_object('lote_id', $2::text), 'BOLETO_VENCIDO')`, [carteira, r1]);
     expect(a.filtros.lote_id).toBe(r1);
 
+    await importar("R2", [t("2026000001", 4, 100)]);   // antes do envio
+    await confirmarEnvio(a.id);
+    await importar("R3", []);                          // depois do envio
+
     const [l] = await porAcao();
+    const r3 = await um(db, `select id from public.prev_lote where nome = 'R3'`);
     expect(l.remessa).toBe(r1);
-    // a R2 é anterior à ação: não serve de régua
-    expect(l.aguardando_proxima_remessa).toBe(true);
-    expect(l.alunos_regularizados).toBe(null);
+    expect(l.remessa_seguinte).toBe(r3);               // não a R2
     expect(new Date(l.comparado_a_partir_de).getTime())
       .toBeGreaterThanOrEqual(new Date(l.criada_em).getTime());
+    expect(l.alunos_regularizados).toBe(1);            // sumiu na R3
   });
 
   it("a lista por ação respeita o período e a ação cancelada aparece com o estado", async () => {
