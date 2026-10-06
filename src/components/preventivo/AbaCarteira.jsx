@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../../services/supabase";
 import { S } from "../../ui/estilosFila";
+import { rodarSincronizacao } from "./sincronizacao";
 import { moeda, dataCurta, dataHora } from "../../utils/preventivoFormato";
 import { frescorDaAtualizacao } from "../../utils/preventivo";
 
@@ -90,27 +91,27 @@ export default function AbaCarteira({ carteira }) {
     return () => { vivo = false; };
   }, [buscar, aplicar]);
 
-  // "Atualizar agora": chama a Edge Function até ela dizer que acabou. A trava
-  // contra execução simultânea está no banco — dois cliques não viram dois
-  // ciclos.
-  async function atualizarAgora() {
+  // Chama a Edge Function até ela dizer que acabou. A trava contra execução
+  // simultânea está no banco — dois cliques não viram dois ciclos.
+  //
+  // `sincId` nulo abre um ciclo novo; com id, RETOMA aquele, de onde parou.
+  // Quem garante que ninguém é consultado duas vezes é `preventivo_sinc_alvos`,
+  // que só entrega quem ainda não foi coletado.
+  async function atualizarAgora(sincId = null) {
     setErro(""); setAtualizando(true);
     try {
-      let sincId = null;
-      for (let volta = 0; volta < 40; volta++) {
-        const { data, error } = await supabase.functions.invoke("prev-sincronizar", {
-          body: sincId ? { sinc_id: sincId } : { carteira_id: carteira.id, origem: "manual" },
-        });
-        if (error) throw error;
-        sincId = data?.sinc_id;
-        if (data?.concluido) break;
-      }
+      await rodarSincronizacao(
+        (body) => supabase.functions.invoke("prev-sincronizar", { body }),
+        { carteiraId: carteira.id, sincId },
+      );
     } catch (e) {
       setErro("Não consegui concluir a atualização com o Prime agora. Os valores anteriores continuam válidos. " + (e?.message || ""));
     }
     setAtualizando(false);
     await carregar();
   }
+
+  const emAndamento = situacao?.em_andamento || null;
 
   return (
     <div>
@@ -135,9 +136,16 @@ export default function AbaCarteira({ carteira }) {
                 onChange={(e) => setFiltros({ ...filtros, vinculo: e.target.value })}>
           {VINCULOS.map((m) => <option key={m.id} value={m.id}>{m.rotulo}</option>)}
         </select>
-        <button onClick={atualizarAgora} disabled={atualizando} style={S.btnGhost}>
+        <button onClick={() => atualizarAgora()} disabled={atualizando} style={S.btnGhost}>
           {atualizando ? "Consultando o Prime…" : "Atualizar dados"}
         </button>
+        {/* Só aparece com ciclo parado no meio. Retomar é sempre mais barato que
+            recomeçar: o que já foi consultado não volta para a fila. */}
+        {emAndamento && !atualizando && (
+          <button onClick={() => atualizarAgora(emAndamento.id)} style={S.btnGhost}>
+            Continuar atualização ({emAndamento.consultados} de {emAndamento.alvos})
+          </button>
+        )}
       </div>
 
       {erro ? <div style={S.erroBox}>{erro}</div> : null}

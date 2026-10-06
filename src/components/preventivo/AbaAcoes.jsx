@@ -34,6 +34,13 @@ const ROTULO_VINCULO = {
   PENDENTE: "ainda não consultado no Prime",
 };
 
+// A etapa da jornada que a ação endereça. Eixo SEPARADO do canal: qualquer
+// combinação é válida. Rótulo livre não entra aqui — o campo é tipado no banco.
+const CONTEXTOS = {
+  PROXIMO_VENCIMENTO: "Próximo ao vencimento",
+  BOLETO_VENCIDO: "Boleto vencido",
+};
+
 const ESTADOS = {
   PREPARADA: "Preparada",
   EXPORTADA: "Exportada",
@@ -52,24 +59,37 @@ export default function AbaAcoes({ carteira }) {
   const [acoes, setAcoes] = useState(null);
   const [situacao, setSituacao] = useState(null);
   const [erro, setErro] = useState("");
-  const [nova, setNova] = useState({ nome: "", canal: "WHATSAPP", venc_de: "", venc_ate: "", usarPrimeiroEmail: false });
+  const [nova, setNova] = useState({ nome: "", canal: "WHATSAPP", contexto: "", venc_de: "", venc_ate: "", usarPrimeiroEmail: false });
+  // Registro de ação feita FORA do CRM: o disparo já aconteceu, aqui só se
+  // guarda o que foi feito. O público é a remessa inteira, porque o arquivo
+  // enviado É a lista.
+  const [externa, setExterna] = useState({ aberto: false, lote: "", nome: "", canal: "EMAIL",
+                                           contexto: "", enviada_em: "", publico: "", matriculas: "" });
+  const [remessas, setRemessas] = useState([]);
+  // Retorno do último registro externo: quantos entraram e QUAIS matrículas
+  // ficaram de fora por não estarem na remessa. Ignorar isso em silêncio
+  // deixaria a gestão achar que a lista inteira foi acionada.
+  const [reciboExterna, setReciboExterna] = useState(null);
   const [ocupado, setOcupado] = useState("");
   const [aberta, setAberta] = useState(null);
 
   const buscar = useCallback(async () => {
-    const [a, s] = await Promise.all([
+    const [a, s, r] = await Promise.all([
       supabase.rpc("preventivo_acoes", { p_carteira_id: carteira.id }),
       supabase.rpc("preventivo_sinc_situacao", { p_carteira_id: carteira.id }),
+      supabase.rpc("preventivo_remessas", { p_carteira_id: carteira.id }),
     ]);
+
     // O resultado de cada ação depende da remessa SEGUINTE, então vem por ação.
     const comResultado = await Promise.all((a.data || []).map(async (x) => {
       const { data } = await supabase.rpc("preventivo_acao_resultado", { p_acao_id: x.id });
       return { ...x, resultado: data };
     }));
-    return [{ ...a, data: comResultado }, s];
+    return [{ ...a, data: comResultado }, s, r];
   }, [carteira.id]);
 
-  const aplicar = useCallback(([a, s]) => {
+  const aplicar = useCallback(([a, s, r]) => {
+    if (r && !r.error) setRemessas(r.data || []);
     if (a.error) { setErro(a.error.message); setAcoes([]); } else { setErro(""); setAcoes(a.data || []); }
     if (!s.error) setSituacao(s.data);
   }, []);
@@ -85,18 +105,60 @@ export default function AbaAcoes({ carteira }) {
   async function preparar(e) {
     e.preventDefault();
     if (!nova.nome.trim()) { setErro("Dê um nome à ação."); return; }
+    // Contexto é campo tipado e obrigatório: é o que permite medir resultado
+    // por etapa da jornada. Nada é deduzido do nome da ação.
+    if (!nova.contexto) { setErro("Escolha o contexto da ação."); return; }
     setOcupado("preparar"); setErro("");
     const filtros = {};
     if (nova.venc_de) filtros.venc_de = nova.venc_de;
     if (nova.venc_ate) filtros.venc_ate = nova.venc_ate;
     // A escolha fica registrada na própria ação — não é um padrão escondido.
     if (nova.canal === "EMAIL" && nova.usarPrimeiroEmail) filtros.usar_primeiro_email = true;
-    const { data, error } = await supabase.rpc("preventivo_acao_preparar", {
+    const { data, error } = await supabase.rpc("preventivo_acao_preparar_v2", {
       p_carteira_id: carteira.id, p_nome: nova.nome.trim(), p_canal: nova.canal, p_filtros: filtros,
+      p_contexto: nova.contexto,
     });
     setOcupado("");
     if (error) { setErro(error.message); return; }
     setNova({ ...nova, nome: "" });
+    await carregar();
+    setAberta(data.id);
+  }
+
+  async function registrarExterna(e) {
+    e.preventDefault();
+    const { lote, nome, canal, contexto, enviada_em, publico, matriculas } = externa;
+    if (!lote) { setErro("Escolha a remessa que foi enviada."); return; }
+    if (!nome.trim()) { setErro("Dê um nome à ação."); return; }
+    if (!contexto) { setErro("Escolha o contexto da ação."); return; }
+    if (!enviada_em) { setErro("Informe a data e hora do envio."); return; }
+    if (!publico) { setErro("Diga quem recebeu: a remessa inteira ou uma lista."); return; }
+    // A lista vem como texto colado — uma matrícula por linha, vírgula ou ponto
+    // e vírgula. Nada é presumido: sem lista, é preciso declarar a remessa inteira.
+    const lista = publico === "lista"
+      ? matriculas.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean)
+      : null;
+    if (publico === "lista" && lista.length === 0) {
+      setErro("Cole as matrículas que receberam."); return;
+    }
+    setOcupado("externa"); setErro(""); setReciboExterna(null);
+    const { data, error } = await supabase.rpc("preventivo_acao_externa_registrar", {
+      p_carteira_id: carteira.id, p_lote_id: lote, p_nome: nome.trim(),
+      p_canal: canal, p_contexto: contexto,
+      p_enviada_em: new Date(enviada_em).toISOString(),
+      p_matriculas: lista,
+      p_remessa_inteira: publico === "remessa",
+    });
+    setOcupado("");
+    if (error) { setErro(error.message); return; }
+    setExterna({ aberto: false, lote: "", nome: "", canal: "EMAIL", contexto: "",
+                 enviada_em: "", publico: "", matriculas: "" });
+    setReciboExterna({
+      nome: data.nome,
+      incluidos: data.incluidos,
+      informadas: data.matriculas_informadas ?? null,
+      fora: data.fora_da_remessa || [],
+    });
     await carregar();
     setAberta(data.id);
   }
@@ -155,6 +217,14 @@ export default function AbaAcoes({ carteira }) {
             </select>
           </div>
           <div>
+            <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>Contexto *</label>
+            <select style={S.select} value={nova.contexto}
+                    onChange={(e) => setNova({ ...nova, contexto: e.target.value })}>
+              <option value="">— escolha —</option>
+              {Object.entries(CONTEXTOS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </div>
+          <div>
             <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>Vencimento de</label>
             <input type="date" style={{ ...S.input, minWidth: 0 }} value={nova.venc_de}
                    onChange={(e) => setNova({ ...nova, venc_de: e.target.value })} />
@@ -171,10 +241,130 @@ export default function AbaAcoes({ carteira }) {
               usar o primeiro e-mail quando a linha trouxer mais de um
             </label>
           )}
-          <button type="submit" disabled={ocupado === "preparar"} style={S.btnGhost}>
+          <button type="submit" disabled={ocupado === "preparar" || !nova.contexto}
+                  style={{ ...S.btnGhost, opacity: nova.contexto ? 1 : 0.5 }}>
             {ocupado === "preparar" ? "Montando…" : "Revisar elegibilidade"}
           </button>
         </form>
+      </div>
+
+      {/* REGISTRO DO QUE FOI FEITO FORA DO CRM. Não dispara nada: grava canal,
+          contexto, data real e o público — que é a remessa inteira, porque o
+          arquivo enviado É a lista. */}
+      <div style={{ ...S.card, padding: 20, marginTop: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Ação feita fora do CRM</h2>
+          <button style={S.btnGhost}
+                  onClick={() => setExterna({ ...externa, aberto: !externa.aberto })}>
+            {externa.aberto ? "Fechar" : "Registrar envio já realizado"}
+          </button>
+        </div>
+        <p style={{ ...S.muted, marginTop: 6, fontSize: 12.5 }}>
+          Para o disparo que saiu por e-mail ou WhatsApp fora daqui. Nada é enviado:
+          o módulo apenas <strong>registra</strong> o que já aconteceu, com a data real,
+          e passa a acompanhar o resultado nas remessas seguintes. A ação fica marcada
+          como <strong>enviada fora do CRM</strong>.
+        </p>
+
+        {reciboExterna && (
+          <div style={{ ...S.card, padding: 14, marginTop: 12,
+                        borderLeft: `4px solid var(--rv-${reciboExterna.fora.length ? "ambar" : "azul"}-borda)` }}>
+            <strong style={{ fontSize: 13 }}>
+              “{reciboExterna.nome}” registrada — {reciboExterna.incluidos} título(s) acionado(s)
+              {reciboExterna.informadas !== null && reciboExterna.informadas > 0
+                ? ` de ${reciboExterna.informadas} matrícula(s) informada(s)`
+                : " (remessa inteira)"}.
+            </strong>
+            {reciboExterna.fora.length > 0 && (
+              <>
+                <p style={{ ...S.muted, marginTop: 6, fontSize: 12 }}>
+                  {reciboExterna.fora.length} matrícula(s) <strong>não estavam nesta remessa</strong> e
+                  ficaram de fora do acompanhamento. Confira — pode ser erro de digitação ou
+                  aluno que já havia saído da base:
+                </p>
+                <div style={{ marginTop: 6, fontFamily: "ui-monospace, monospace", fontSize: 12,
+                              maxHeight: 120, overflowY: "auto" }}>
+                  {reciboExterna.fora.join(", ")}
+                </div>
+              </>
+            )}
+            <button style={{ ...S.btnGhost, marginTop: 10 }} onClick={() => setReciboExterna(null)}>
+              Fechar
+            </button>
+          </div>
+        )}
+
+        {externa.aberto && (
+          <form onSubmit={registrarExterna}
+                style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", marginTop: 14 }}>
+            <div>
+              <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>Remessa enviada *</label>
+              <select style={S.select} value={externa.lote}
+                      onChange={(e) => setExterna({ ...externa, lote: e.target.value })}>
+                <option value="">— escolha —</option>
+                {remessas.map((r) => (
+                  <option key={r.id} value={r.id}>{r.nome}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>Nome da ação *</label>
+              <input style={S.input} value={externa.nome} placeholder="Ex.: E-mail de sexta"
+                     onChange={(e) => setExterna({ ...externa, nome: e.target.value })} />
+            </div>
+            <div>
+              <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>Canal *</label>
+              <select style={S.select} value={externa.canal}
+                      onChange={(e) => setExterna({ ...externa, canal: e.target.value })}>
+                <option value="EMAIL">E-mail</option>
+                <option value="WHATSAPP">WhatsApp</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>Contexto *</label>
+              <select style={S.select} value={externa.contexto}
+                      onChange={(e) => setExterna({ ...externa, contexto: e.target.value })}>
+                <option value="">— escolha —</option>
+                {Object.entries(CONTEXTOS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>Enviada em *</label>
+              <input type="datetime-local" style={{ ...S.input, minWidth: 0 }} value={externa.enviada_em}
+                     onChange={(e) => setExterna({ ...externa, enviada_em: e.target.value })} />
+            </div>
+            <div style={{ flexBasis: "100%" }}>
+              <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>Quem recebeu *</label>
+              <select style={{ ...S.select, minWidth: 280 }} value={externa.publico}
+                      onChange={(e) => setExterna({ ...externa, publico: e.target.value })}>
+                <option value="">— escolha —</option>
+                <option value="remessa">A remessa inteira recebeu</option>
+                <option value="lista">Só parte dela — vou colar as matrículas</option>
+              </select>
+              <p style={{ ...S.muted, marginTop: 6, fontSize: 11.5 }}>
+                Nada é presumido: se o envio não cobriu a remessa toda, informe a lista —
+                senão o resultado da ação seria medido sobre gente que não recebeu.
+              </p>
+            </div>
+            {externa.publico === "lista" && (
+              <div style={{ flexBasis: "100%" }}>
+                <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>
+                  Matrículas que receberam
+                </label>
+                <textarea style={{ ...S.input, width: "100%", minHeight: 90, fontFamily: "ui-monospace, monospace" }}
+                          value={externa.matriculas} placeholder="uma por linha, ou separadas por vírgula"
+                          onChange={(e) => setExterna({ ...externa, matriculas: e.target.value })} />
+                <p style={{ ...S.muted, marginTop: 4, fontSize: 11.5 }}>
+                  Matrícula que não estiver nesta remessa é ignorada e reportada — não se
+                  inventa título que a foto não tinha.
+                </p>
+              </div>
+            )}
+            <button type="submit" disabled={ocupado === "externa"} style={S.btnGhost}>
+              {ocupado === "externa" ? "Registrando…" : "Registrar ação"}
+            </button>
+          </form>
+        )}
       </div>
 
       <div style={{ ...S.cards, marginTop: 16 }}>
@@ -189,6 +379,13 @@ export default function AbaAcoes({ carteira }) {
                 <div style={S.cardHeadInfo}>
                   <span style={S.cardNome}>{a.nome}</span>
                   <span style={S.cardCpf}>{a.canal === "WHATSAPP" ? "WhatsApp" : "E-mail"}</span>
+                  <span style={S.cardCpf}>{CONTEXTOS[a.contexto] || "Sem contexto"}</span>
+                  {a.origem === "EXTERNA" && (
+                    <span style={{ ...S.cardCpf, background: "var(--rv-ambar-fundo)",
+                                   border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)" }}>
+                      Enviada fora do CRM
+                    </span>
+                  )}
                   <span style={S.contadorValor}>{ESTADOS[a.estado]}</span>
                 </div>
                 <div style={S.cardHeadDir}>
@@ -219,6 +416,17 @@ export default function AbaAcoes({ carteira }) {
                 {a.exportada_em ? <span>Exportada em {dataHora(a.exportada_em)}</span> : null}
                 {a.envio_confirmado_em ? <span>Envio confirmado em {dataHora(a.envio_confirmado_em)}</span> : null}
               </div>
+
+              {a.conferencia_contexto?.divergentes > 0 && (
+                <div style={{ padding: "0 16px 12px" }}>
+                  <div style={{ ...S.erroBox, marginBottom: 0 }}>
+                    Conferência: {a.conferencia_contexto.divergentes} de{" "}
+                    {a.conferencia_contexto.titulos_incluidos}{" "}
+                    {a.conferencia_contexto.rotulo_divergencia}. Isto não impede nada —
+                    é só para o rótulo da ação não contradizer a lista.
+                  </div>
+                </div>
+              )}
 
               {a.resultado && <ResultadoDaAcao r={a.resultado} />}
 

@@ -16,8 +16,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../../services/supabase";
 import { S } from "../../ui/estilosFila";
-import { moeda, dataCurta } from "../../utils/preventivoFormato";
+import { moeda, dataCurta, dataHora } from "../../utils/preventivoFormato";
 import { AvisoAtualizacao } from "./AbaCarteira";
+import { GraficoPorAcao, GraficoPorContextoCanal } from "./GraficosEfetividade";
+import EvolucaoDaCarteira from "./EvolucaoDaCarteira";
 import { csv } from "../../utils/preventivo";
 
 const ROTULO_ALTERACAO = {
@@ -45,20 +47,49 @@ function baixar(nome, conteudo) {
   URL.revokeObjectURL(url);
 }
 
+// A etapa da jornada. Mesmos rótulos da aba Ações — o eixo é o mesmo.
+const CONTEXTOS = {
+  PROXIMO_VENCIMENTO: "Próximo ao vencimento",
+  BOLETO_VENCIDO: "Boleto vencido",
+  SEM_CONTEXTO: "Sem contexto (antes do campo existir)",
+};
+
 export default function AbaResultados({ carteira }) {
   const [res, setRes] = useState(null);
   const [situacao, setSituacao] = useState(null);
+  const [porContexto, setPorContexto] = useState(null);
+  const [porAcao, setPorAcao] = useState(null);
+  const [evolucao, setEvolucao] = useState(null);
+  const [periodo, setPeriodo] = useState({ de: "", ate: "" });
   const [erro, setErro] = useState("");
 
   const buscar = useCallback(() => Promise.all([
     supabase.rpc("preventivo_resultados", { p_carteira_id: carteira.id }),
     supabase.rpc("preventivo_sinc_situacao", { p_carteira_id: carteira.id }),
-  ]), [carteira.id]);
+    // Período vazio = sem limite daquele lado. O corte é pela data de criação
+    // da ação, não pelo vencimento do título.
+    supabase.rpc("preventivo_resultados_por_contexto", {
+      p_carteira_id: carteira.id,
+      p_de: periodo.de || null,
+      p_ate: periodo.ate || null,
+    }),
+    supabase.rpc("preventivo_resultados_por_acao", {
+      p_carteira_id: carteira.id,
+      p_de: periodo.de || null,
+      p_ate: periodo.ate || null,
+    }),
+    // A evolução é a carteira inteira, por data de extração — não entra no
+    // filtro de período das ações, porque ela é a linha do tempo da base.
+    supabase.rpc("preventivo_evolucao", { p_carteira_id: carteira.id }),
+  ]), [carteira.id, periodo.de, periodo.ate]);
 
-  const aplicar = useCallback(([r, s]) => {
+  const aplicar = useCallback(([r, s, c, a, ev]) => {
+    if (ev && !ev.error) setEvolucao(ev.data);
     if (r.error) { setErro(r.error.message); return; }
     setErro(""); setRes(r.data);
     if (!s.error) setSituacao(s.data);
+    if (!c.error) setPorContexto(c.data);
+    if (!a.error) setPorAcao(a.data);
   }, []);
 
   useEffect(() => {
@@ -107,6 +138,18 @@ export default function AbaResultados({ carteira }) {
         <Cartao rotulo="Fora da janela (histórico)" valor={t.fora_da_janela} />
         <Cartao rotulo="Nunca consultados no Prime" valor={t.sem_sinc} />
       </div>
+
+      <EvolucaoDaCarteira dados={evolucao} />
+
+      <PorAcao linhas={porAcao} periodo={periodo} setPeriodo={setPeriodo}
+               definicao={porContexto?.definicao} />
+
+      {/* Os gráficos leem as MESMAS linhas da tabela acima, já filtradas pelo
+          período — não há segunda consulta nem segunda verdade. */}
+      <GraficoPorAcao linhas={porAcao} />
+      <GraficoPorContextoCanal linhas={porAcao} />
+
+      <PorContexto dados={porContexto} />
 
       {/* O número que a gestão mais quer é o que a fonte não dá. Está escrito. */}
       <div style={{ ...S.card, padding: 20, marginTop: 18, borderLeft: "4px solid var(--rv-ambar-borda)" }}>
@@ -248,3 +291,172 @@ function Cartao({ rotulo, valor }) {
     </div>
   );
 }
+
+// Resultado por etapa da jornada e por canal, com corte opcional de período.
+// A palavra é REGULARIZADO: nunca "pago", nunca "recuperado". A definição vem
+// do banco e viaja junto.
+function PorContexto({ dados }) {
+  if (!dados) return null;
+  const contextos = dados.contextos || {};
+  const chaves = Object.keys(contextos);
+
+  return (
+    <div style={{ ...S.card, padding: 20, marginTop: 18 }}>
+      <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Resumo por contexto e canal</h2>
+      <p style={{ ...S.muted, marginTop: 6, fontSize: 12.5 }}>
+        Comparação entre etapas da jornada. O detalhe de cada ação está acima.
+      </p>
+
+      {chaves.length === 0 ? (
+        <p style={{ ...S.muted, marginTop: 12 }}>
+          Nenhuma ação no período escolhido.
+        </p>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12, marginTop: 14 }}>
+          {chaves.map((k) => (
+            <div key={k} style={{ ...S.card, padding: 16 }}>
+              <div style={{ ...S.cardNome, fontSize: 14 }}>{CONTEXTOS[k] || k}</div>
+              <Metricas d={contextos[k]} />
+              {Object.entries(contextos[k].canais || {}).map(([canal, m]) => (
+                <details key={canal} style={{ marginTop: 10 }}>
+                  <summary style={{ ...S.muted, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
+                    {canal === "WHATSAPP" ? "WhatsApp" : "E-mail"} · {m.acoes} ação(ões)
+                  </summary>
+                  <Metricas d={m} />
+                </details>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Metricas({ d }) {
+  return (
+    <>
+      <Linha rotulo="Ações" valor={d.acoes} />
+      <Linha rotulo="Com envio confirmado" valor={d.acoes_com_envio_confirmado} />
+      <Linha rotulo="Alunos acionados" valor={d.alunos_acionados} />
+      <Linha rotulo="Títulos acionados" valor={d.titulos_acionados} />
+      <Linha rotulo="Valor acionado" valor={moeda(d.valor_acionado)} />
+      <Linha rotulo="Continuam em aberto" valor={d.continuam_em_aberto} />
+      <Linha rotulo="Regularizados entre remessas" valor={d.regularizados_entre_remessas} />
+      <Linha rotulo="Valor regularizado" valor={moeda(d.valor_regularizado)} />
+      <Linha rotulo="Taxa de regularização"
+             valor={d.taxa_regularizacao === null ? "—" : `${d.taxa_regularizacao}%`} />
+      {d.aguardando_proxima_remessa > 0 && (
+        <p style={{ ...S.muted, marginTop: 8, fontSize: 11.5 }}>
+          {d.aguardando_proxima_remessa} ação(ões) ainda sem remessa seguinte para comparar.
+        </p>
+      )}
+    </>
+  );
+}
+
+function Linha({ rotulo, valor }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 6, fontSize: 12.5 }}>
+      <span style={S.muted}>{rotulo}</span>
+      <strong>{valor ?? "—"}</strong>
+    </div>
+  );
+}
+
+// EFETIVIDADE AÇÃO POR AÇÃO — a visão principal. Cada linha é o próprio
+// `preventivo_acao_resultado`, com as nove métricas que a gestão pediu.
+// Aluno regularizado = NENHUM título dele voltou na remessa seguinte.
+function PorAcao({ linhas, periodo, setPeriodo, definicao }) {
+  if (!linhas) return null;
+
+  return (
+    <div style={{ ...S.card, padding: 20, marginTop: 18 }}>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between" }}>
+        <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Efetividade ação por ação</h2>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div>
+            <label style={{ ...S.muted, display: "block", fontSize: 11, fontWeight: 700 }}>Ações criadas de</label>
+            <input type="date" style={{ ...S.input, minWidth: 0 }} value={periodo.de}
+                   onChange={(e) => setPeriodo({ ...periodo, de: e.target.value })} />
+          </div>
+          <div>
+            <label style={{ ...S.muted, display: "block", fontSize: 11, fontWeight: 700 }}>até</label>
+            <input type="date" style={{ ...S.input, minWidth: 0 }} value={periodo.ate}
+                   onChange={(e) => setPeriodo({ ...periodo, ate: e.target.value })} />
+          </div>
+          {(periodo.de || periodo.ate) && (
+            <button style={S.btnGhost} onClick={() => setPeriodo({ de: "", ate: "" })}>
+              Limpar período
+            </button>
+          )}
+        </div>
+      </div>
+
+      {definicao ? <p style={{ ...S.muted, marginTop: 6, fontSize: 12.5 }}>{definicao}</p> : null}
+
+      {linhas.length === 0 ? (
+        <p style={{ ...S.muted, marginTop: 12 }}>Nenhuma ação no período escolhido.</p>
+      ) : (
+        <div style={{ overflowX: "auto", marginTop: 14 }}>
+          <table style={S.tabela}>
+            <thead>
+              <tr>
+                <th style={S.th}>Ação</th>
+                <th style={S.th}>Canal</th>
+                <th style={S.th}>Contexto</th>
+                <th style={S.th}>Estado</th>
+                <th style={S.th}>Criada</th>
+                <th style={S.thNum}>Alunos acionados</th>
+                <th style={S.thNum}>Alunos regularizados</th>
+                <th style={S.thNum}>Taxa por alunos</th>
+                <th style={S.thNum}>Títulos acionados</th>
+                <th style={S.thNum}>Títulos regularizados</th>
+                <th style={S.thNum}>Taxa por títulos</th>
+                <th style={S.thNum}>Valor acionado</th>
+                <th style={S.thNum}>Valor regularizado</th>
+                <th style={S.thNum}>Taxa por valor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {linhas.map((l) => (
+                <tr key={l.id}>
+                  <td style={S.td}>{l.nome}</td>
+                  <td style={S.td}>{l.canal === "WHATSAPP" ? "WhatsApp" : "E-mail"}</td>
+                  <td style={S.td}>{CONTEXTOS[l.contexto] || l.contexto}</td>
+                  <td style={S.td}>{l.estado}</td>
+                  <td style={S.td}>{dataHora(l.criada_em)}</td>
+                  <td style={S.td}>{l.alunos_acionados}</td>
+                  <td style={S.td}>{l.alunos_regularizados ?? "—"}</td>
+                  <td style={S.td}>{pct(l.taxa_regularizacao_alunos)}</td>
+                  <td style={S.td}>{l.titulos_acionados}</td>
+                  <td style={S.td}>{l.regularizados_entre_remessas ?? "—"}</td>
+                  <td style={S.td}>{pct(l.taxa_regularizacao)}</td>
+                  <td style={S.td}>{moeda(l.valor_acionado)}</td>
+                  <td style={S.td}>{l.valor_regularizado === null ? "—" : moeda(l.valor_regularizado)}</td>
+                  <td style={S.td}>{pct(l.taxa_regularizacao_valor)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {linhas.some((l) => l.aguardando_envio_confirmado) && (
+        <p style={{ ...S.muted, marginTop: 10, fontSize: 11.5 }}>
+          Ação sem <strong>envio confirmado</strong> não tem régua: a efetividade conta a
+          partir do envio, não da montagem do público. Registre o envio na aba Ações.
+        </p>
+      )}
+
+      {linhas.some((l) => l.aguardando_proxima_remessa) && (
+        <p style={{ ...S.muted, marginTop: 6, fontSize: 11.5 }}>
+          As linhas com “—” tiveram envio confirmado mas ainda não têm remessa posterior
+          para comparar. Nada é estimado: o resultado aparece depois da próxima importação.
+        </p>
+      )}
+    </div>
+  );
+}
+
+const pct = (v) => (v === null || v === undefined ? "—" : `${v}%`);

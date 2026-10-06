@@ -399,6 +399,110 @@ function TelaAniversarioDestaque({ snap }) {
   );
 }
 
+// 10) Playlist ReATIVA ---------------------------------------------------------
+// eslint-disable-next-line react-refresh/only-export-components
+function TelaPlaylistReativa({ snap }) {
+  const itens = snap?.playlist_reativa || [];
+  if (itens.length === 0) return <Tela titulo="Playlist ReATIVA" icone="🎵"><Vazio>Nenhuma música adicionada nesta atualização.</Vazio></Tela>;
+  const atual = itens[0];
+  const proximas = itens.slice(1, 4);
+  return (
+    <Tela titulo="Playlist ReATIVA" icone="🎵">
+      <MensagemInstitucional
+        badge="Música da vez"
+        titulo={atual.titulo}
+        texto={`${atual.artista} · escolhida por ${atual.adicionado_por || "Equipe ReATIVA"}`}
+      />
+      {proximas.length > 0 && (
+        <div style={{ display: "flex", gap: "1.4vw", justifyContent: "center", width: "88%", flexWrap: "nowrap" }}>
+          {proximas.map((m, i) => (
+            <div key={m.id || i} style={{ ...layout.card, flex: "1 1 0", minWidth: 0, alignItems: "flex-start", gap: "0.7vh" }}>
+              <span style={{ fontSize: fs(10, 1, 20), fontWeight: 900, letterSpacing: "0.12em", color: T.textoMudo }}>PLAYLIST</span>
+              <strong style={{ fontSize: fs(17, 2, 46), color: T.texto, lineHeight: 1.1 }}>{m.titulo}</strong>
+              <span style={{ fontSize: fs(12, 1.3, 28), color: T.textoSuave, fontWeight: 700 }}>{m.artista}</span>
+              <span style={{ fontSize: fs(10, 1.05, 22), color: T.textoMudo }}>Por {m.adicionado_por || "Equipe"}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Tela>
+  );
+}
+
+// 12) Dicas de abordagem ------------------------------------------------------
+// O backend ja montava `dicas` no snapshot -- 8 itens com titulo, texto e
+// categoria -- e NENHUMA tela lia essa chave. O dado existia e nunca aparecia.
+// Rotaciona pelo numero da atualizacao para nao mostrar sempre as mesmas.
+// eslint-disable-next-line react-refresh/only-export-components
+function TelaDicas({ snap }) {
+  const itens = snap?.dicas || [];
+  if (itens.length === 0) return <Tela titulo="Dicas de Abordagem" icone="💡"><Vazio>Nenhuma dica cadastrada.</Vazio></Tela>;
+  // A cada atualizacao do snapshot a vitrine anda: com 8 dicas e 3 por vez,
+  // todas passam pela TV em vez de so as tres primeiras.
+  const giro = Number(snap?.versao ?? snap?.dados?.versao ?? 0) || 0;
+  const inicio = itens.length > 0 ? (giro * 3) % itens.length : 0;
+  const mostra = Array.from({ length: Math.min(3, itens.length) }, (_, i) => itens[(inicio + i) % itens.length]);
+  const destaque = mostra[0];
+  const demais = mostra.slice(1);
+  return (
+    <Tela titulo="Dicas de Abordagem" icone="💡">
+      <MensagemInstitucional
+        badge={destaque.categoria || "Dica"}
+        titulo={destaque.titulo}
+        texto={destaque.texto}
+      />
+      {demais.length > 0 && (
+        <div style={{ display: "flex", gap: "1.4vw", justifyContent: "center", width: "88%", flexWrap: "nowrap" }}>
+          {demais.map((d, i) => (
+            <div key={d.id || i} style={{ ...layout.card, flex: "1 1 0", minWidth: 0, alignItems: "flex-start", gap: "0.7vh" }}>
+              <span style={{ fontSize: fs(10, 1, 20), fontWeight: 900, letterSpacing: "0.12em", color: T.textoMudo }}>
+                {(d.categoria || "DICA").toUpperCase()}
+              </span>
+              <strong style={{ fontSize: fs(17, 2, 46), color: T.texto, lineHeight: 1.1 }}>{d.titulo}</strong>
+              <span style={{ fontSize: fs(12, 1.3, 28), color: T.textoSuave, fontWeight: 700, lineHeight: 1.25 }}>{d.texto}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Tela>
+  );
+}
+
+// 11) Próximos eventos do Portal ---------------------------------------------
+// eslint-disable-next-line react-refresh/only-export-components
+function TelaEventosPortal({ snap }) {
+  const eventos = snap?.eventos_portal || [];
+  if (eventos.length === 0) return <Tela titulo="Próximos Eventos" icone="📅"><Vazio>Nenhum evento futuro cadastrado.</Vazio></Tela>;
+
+  const fmt = (iso) => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleString("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+      day: "2-digit", month: "2-digit",
+      hour: "2-digit", minute: "2-digit",
+    });
+  };
+
+  return (
+    <Tela titulo="Próximos Eventos" icone="📅">
+      <div style={{ display: "grid", gridTemplateColumns: eventos.length > 3 ? "1fr 1fr" : "1fr", gap: "1.4vh 1.5vw", width: "88%" }}>
+        {eventos.slice(0, 6).map((e, i) => (
+          <div key={e.id || i} style={{ ...layout.card, display: "flex", flexDirection: "row", alignItems: "center", gap: "1.4vw" }}>
+            <div style={{ fontSize: fs(14, 1.5, 34), fontWeight: 900, color: T.azulClaro, minWidth: "8.5vw", fontVariantNumeric: "tabular-nums" }}>
+              {fmt(e.inicio_em)}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.3vh", minWidth: 0 }}>
+              <strong style={{ fontSize: fs(16, 1.8, 42), color: T.texto, lineHeight: 1.1 }}>{e.titulo}</strong>
+              <span style={{ fontSize: fs(10, 1.05, 22), color: T.textoMudo, fontWeight: 700 }}>{e.categoria || "Operação"}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Tela>
+  );
+}
+
 // --- Telas mantidas no código, DESATIVADAS até etapas futuras ---
 function TelaHallFama({ snap }) {
   return <Tela titulo="Hall da Fama" icone="👑"><Vazio>Em breve.</Vazio></Tela>;
@@ -571,6 +675,15 @@ export const CATALOGO_TELAS = [
   { id: "avisos", nome: "Avisos", Comp: TelaAvisos, ativa: true, grupo: "comunicacao",
     descricao: "Recados e avisos — editados na seção \"Mensagem / Avisos\" abaixo.",
     temConteudo: (s) => (s?.avisos || []).length > 0 },
+  { id: "playlist_reativa", nome: "Playlist ReATIVA", Comp: TelaPlaylistReativa, ativa: true, grupo: "pessoas",
+    descricao: "Música da vez e últimas escolhas da equipe. Não exibe indicadores financeiros individuais.",
+    temConteudo: (s) => (s?.playlist_reativa || []).length > 0 },
+  { id: "eventos_portal", nome: "Próximos Eventos", Comp: TelaEventosPortal, ativa: true, grupo: "comunicacao",
+    descricao: "Eventos futuros cadastrados na Visão Geral do Portal.",
+    temConteudo: (s) => (s?.eventos_portal || []).length > 0 },
+  { id: "dicas", nome: "Dicas de Abordagem", Comp: TelaDicas, ativa: true, grupo: "comunicacao",
+    descricao: "Dicas de sondagem e negociação já cadastradas. Gira a cada atualização para todas aparecerem.",
+    temConteudo: (s) => (s?.dicas || []).length > 0 },
   // --- estrutura pronta, EM CONSTRUÇÃO (mostram apenas "Em breve") ---
   { id: "hall", nome: "Hall da Fama", Comp: TelaHallFama, ativa: false, grupo: "construcao", placeholder: true,
     descricao: "Em construção — ainda sem conteúdo real.", temConteudo: sempre },

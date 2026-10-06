@@ -19,3 +19,13 @@ export function dataHora(d) {
   if (!d) return "—";
   return new Date(d).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
 }
+
+// `datetime-local` fala HORA LOCAL. `toISOString().slice(0,16)` devolve UTC e,
+// em Brasília (UTC-3), joga o campo 3 horas para a frente -- uma extração das
+// 21h de ontem viraria 00h de hoje, mudando o DIA e, com ele, a ordem das
+// remessas. Aqui o valor é montado a partir dos componentes locais.
+export function agoraLocalParaInput(d = new Date()) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+       + `T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
