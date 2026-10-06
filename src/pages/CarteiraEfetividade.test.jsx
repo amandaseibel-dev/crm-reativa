@@ -295,3 +295,84 @@ describe("Efetividade — 2026/1 ao vivo, com as quatro faixas fechando", () => 
     expect(screen.getByText("Encerrado / ajuste acadêmico")).toBeTruthy();
   });
 });
+
+// Categorias REAIS de producao (carteira_academico_perfil), medidas em
+// 06/10/2026. So os rotulos e as contagens -- e o que a tela mostra.
+const PERFIL = {
+  "2024": { importacao: { atualizado_em: "2026-08-04T15:19:51Z", situacoes: [
+    { situacao: "(sem situação importada)", alunos: 806 }, { situacao: "Término do Contrato", alunos: 382 },
+    { situacao: "Desvinculado", alunos: 245 }, { situacao: "Formado", alunos: 152 }] } },
+  "2025": { importacao: { atualizado_em: "2026-08-04T15:20:56Z", situacoes: [
+    { situacao: "Término do Contrato", alunos: 1692 }, { situacao: "Cancelado", alunos: 441 },
+    { situacao: "Trancado", alunos: 346 }, { situacao: "Formado", alunos: 233 }] } },
+  "2026": { importacao: { atualizado_em: "2026-08-04T15:21:17Z", situacoes: [
+    { situacao: "Aguardando Matrícula", alunos: 1416 }, { situacao: "Cancelado", alunos: 320 }] } },
+};
+const SITUACOES = {
+  natureza: "CARTEIRA_CONSOLIDADA", fonte: "ao vivo", gerado_em: "2026-10-06",
+  situacoes: { entrou: { alunos: 9, titulos: 9, valor: 1000 }, pago: { alunos: 1, titulos: 1, valor: 400 },
+    negociado: { alunos: 1, titulos: 1, valor: 0 }, cancelado: { alunos: 1, titulos: 1, valor: 0 },
+    em_aberto: { alunos: 1, titulos: 1, valor: 500 }, pendente: { alunos: 1, titulos: 1, valor: 100 } },
+  pendente_detalhe: {}, conferencia: { fecha: true, entrou: 1000, soma_das_linhas: 1000, diferenca: 0 },
+};
+
+function comPerfil(ano) {
+  return (nome, args) => {
+    if (nome === "carteira_2026_1_indicadores") return Promise.resolve({ data: CONSOLIDADA });
+    if (nome === "carteira_saldo_historico_por_ano") return Promise.resolve({ data: POR_ANO });
+    if (nome === "carteira_safra_situacoes") return Promise.resolve({ data: SITUACOES });
+    if (nome === "carteira_academico_perfil") return Promise.resolve({ data: PERFIL[args?.p_ano ?? ano] ?? null });
+    return Promise.resolve({ data: null });
+  };
+}
+
+describe("Efetividade — Alunos por status em toda safra", () => {
+  it("2026/1 mostra o bloco UMA vez — a lista acadêmica antiga saiu da página", async () => {
+    rpcMock.mockImplementation(comPerfil("2026"));
+    await abrir();
+    expect(screen.getAllByText("Alunos por status")).toHaveLength(1);
+    // O titulo do bloco legado nao existe mais em lugar nenhum.
+    expect(screen.queryByText("Perfil dos alunos")).toBeNull();
+    expect(screen.queryByText(/Informação acadêmica não disponível/)).toBeNull();
+  });
+
+  it("2024 mostra Alunos por status com as categorias da base", async () => {
+    rpcMock.mockImplementation(comPerfil("2024"));
+    await abrir();
+    await irPara("2024");
+    expect(screen.getAllByText("Alunos por status")).toHaveLength(1);
+    expect(screen.getByText("Desvinculado")).toBeTruthy();
+    expect(screen.getByText("Formado")).toBeTruthy();
+  });
+
+  it("2025 mostra Alunos por status com as categorias da base", async () => {
+    rpcMock.mockImplementation(comPerfil("2025"));
+    await abrir();
+    await irPara("2025");
+    expect(screen.getAllByText("Alunos por status")).toHaveLength(1);
+    expect(screen.getByText("Término do Contrato")).toBeTruthy();
+  });
+
+  it("2024 e 2025 mantêm o saldo por curso, que não é duplicata de nada", async () => {
+    rpcMock.mockImplementation(comPerfil("2024"));
+    await abrir();
+    await irPara("2024");
+    expect(screen.getByText("Saldo em aberto por curso")).toBeTruthy();
+  });
+
+  it("se a consulta acadêmica falhar, a tela DIZ — não some em silêncio", async () => {
+    rpcMock.mockImplementation((nome) => {
+      if (nome === "carteira_2026_1_indicadores") return Promise.resolve({ data: CONSOLIDADA });
+      if (nome === "carteira_saldo_historico_por_ano") return Promise.resolve({ data: POR_ANO });
+      if (nome === "carteira_safra_situacoes") return Promise.resolve({ data: SITUACOES });
+      if (nome === "carteira_academico_perfil")
+        return Promise.resolve({ error: { message: "canceling statement due to statement timeout" } });
+      return Promise.resolve({ data: null });
+    });
+    await abrir();
+    expect(screen.getByText(/Alunos por status não carregou/)).toBeTruthy();
+    expect(screen.getByText(/statement timeout/)).toBeTruthy();
+    // as seis linhas continuam de pe
+    expect(screen.getByText("As seis linhas da safra")).toBeTruthy();
+  });
+});
