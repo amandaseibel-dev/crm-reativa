@@ -19,7 +19,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../services/supabase";
 import { S } from "../../ui/estilosFila";
-import { moeda, dataHora } from "../../utils/preventivoFormato";
+import { moeda, dataHora, agoraLocalParaInput } from "../../utils/preventivoFormato";
 import {
   CAMPOS, sugerirMapeamento, camposObrigatoriosFaltando, linhaParaRegistro,
   decodificar, lerCsv,
@@ -48,6 +48,10 @@ export default function AbaImportacoes({ carteira, aoImportar, onIr }) {
   const [linhas, setLinhas] = useState([]);
   const [mapa, setMapa] = useState({});
   const [nomeLote, setNomeLote] = useState("");
+  // Quando o relatório foi EXTRAÍDO, não quando está sendo importado. É esta
+  // data que ordena as remessas — permite subir uma foto de dias atrás sem
+  // inverter a história. Começa em hoje, que é o caso comum.
+  const [extraidoEm, setExtraidoEm] = useState(() => agoraLocalParaInput());
   const [previa, setPrevia] = useState(null);
   const [ocupado, setOcupado] = useState("");
   const [remessas, setRemessas] = useState([]);
@@ -123,13 +127,14 @@ export default function AbaImportacoes({ carteira, aoImportar, onIr }) {
 
   async function confirmar() {
     setErro(""); setOcupado("confirmar");
-    const { data, error } = await supabase.rpc("preventivo_lote_confirmar", {
+    const { data, error } = await supabase.rpc("preventivo_lote_confirmar_v2", {
       p_carteira_id: carteira.id,
       p_nome: nomeLote.trim(),
       p_arquivo: arquivo,
       p_mapeamento: mapa,
       p_conteudo_hash: null,
       p_linhas: registros,
+      p_extraido_em: new Date(extraidoEm).toISOString(),
     });
     setOcupado("");
     if (error) { setErro(error.message); return; }
@@ -198,6 +203,17 @@ export default function AbaImportacoes({ carteira, aoImportar, onIr }) {
             </p>
             <input style={{ ...S.input, marginTop: 10 }} value={nomeLote}
                    onChange={(e) => setNomeLote(e.target.value)} placeholder="Ex.: Remessa 01/10" />
+
+            <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700, marginTop: 14 }}>
+              Data e hora da extração *
+            </label>
+            <input type="datetime-local" style={{ ...S.input, marginTop: 6 }} value={extraidoEm}
+                   onChange={(e) => setExtraidoEm(e.target.value)} />
+            <p style={{ ...S.muted, marginTop: 6, fontSize: 11.5 }}>
+              Quando o relatório foi <strong>gerado na origem</strong> — não agora. É esta data
+              que coloca a remessa na ordem certa e define qual é a seguinte de cada ação.
+              Subindo uma foto de dias atrás, informe a data dela.
+            </p>
           </div>
 
           <div style={{ ...S.card, padding: 20 }}>
@@ -287,7 +303,7 @@ export default function AbaImportacoes({ carteira, aoImportar, onIr }) {
           )}
 
           {!previa.confirmado ? (
-            <button onClick={confirmar} disabled={ocupado === "confirmar" || !nomeLote.trim()}
+            <button onClick={confirmar} disabled={ocupado === "confirmar" || !nomeLote.trim() || !extraidoEm}
                     style={{ ...S.btnGhost, marginTop: 18 }}>
               {ocupado === "confirmar" ? "Importando…" : "Confirmar importação"}
             </button>
