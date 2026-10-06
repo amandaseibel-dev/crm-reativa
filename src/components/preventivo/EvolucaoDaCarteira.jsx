@@ -9,6 +9,14 @@
 // A PALAVRA É "SAIU DA BASE". Sem confirmação de pagamento na fonte, o título
 // que deixa de aparecer no relatório seguinte saiu — pode ter sido pagamento,
 // cancelamento, bolsa, renegociação ou mudança de recorte.
+//
+// TRÊS COISAS QUE A TELA NÃO PODE ESCONDER:
+//   1. o que ficou FORA DO RECORTE (origem de outra competência) — continua na
+//      carteira e na ação, mas não entra em indicador nenhum;
+//   2. "entradas" com três nomes distintos, porque são três números diferentes:
+//      na série, ainda presentes e as que já saíram;
+//   3. ação cuja sequência com a remessa não está provada aparece PENDENTE —
+//      não "0", que leria como "ninguém saiu".
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid, LabelList,
@@ -107,8 +115,11 @@ export default function EvolucaoDaCarteira({ dados }) {
         <Cartao rotulo="Saldo ainda aberto" valor={moeda(c.saldo_ainda_aberto)}
                 sub={`${c.titulos_ainda_abertos ?? 0} títulos · ${dataCurta(c.ultima_extracao)}`} />
         <Cartao rotulo="Saíram da base" valor={c.saiu_da_base_titulos ?? 0}
-                sub={`${moeda(c.saiu_da_base_valor)}${c.entraram_depois ? ` · ${c.entraram_depois} entraram depois` : ""}`} />
+                sub={moeda(c.saiu_da_base_valor)} />
       </div>
+
+      <Entradas cards={c} />
+      <ForaDoRecorte fora={dados.fora_do_recorte} />
 
       <p style={{ ...S.muted, marginTop: 10, fontSize: 12 }}>{dados.definicao}</p>
 
@@ -147,6 +158,60 @@ export default function EvolucaoDaCarteira({ dados }) {
       </div>
 
       <HistoricoDasAcoes acoes={dados.acoes || []} />
+    </div>
+  );
+}
+
+// AS TRÊS ENTRADAS. Elas vinham sob um nome só e por isso apareciam dois
+// números diferentes para a mesma série. São grandezas distintas: a primeira
+// conta tudo que apareceu depois da primeira foto; a segunda, quanto disso
+// ainda está em aberto; a terceira, o que entrou e já saiu. A soma das duas
+// últimas é a primeira — a tela mostra isso explicitamente.
+function Entradas({ cards }) {
+  const serie = cards.entradas_na_serie;
+  if (!serie) return null;
+  return (
+    <div style={{ ...S.card, padding: 16, marginTop: 12 }}>
+      <div style={{ ...S.muted, fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+        Entradas depois da primeira foto
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 24, marginTop: 8, alignItems: "baseline" }}>
+        <Entrada n={serie} rot="entraram na série" forte />
+        <span style={{ ...S.muted, fontSize: 18 }}>=</span>
+        <Entrada n={cards.entradas_ainda_presentes} rot="ainda presentes na última foto" />
+        <span style={{ ...S.muted, fontSize: 18 }}>+</span>
+        <Entrada n={cards.entradas_que_sairam} rot="entraram e já saíram" />
+      </div>
+    </div>
+  );
+}
+
+function Entrada({ n, rot, forte }) {
+  return (
+    <div>
+      <div style={{ fontSize: forte ? 22 : 19, fontWeight: forte ? 800 : 700 }}>{n ?? 0}</div>
+      <div style={{ ...S.muted, fontSize: 11.5 }}>{rot}</div>
+    </div>
+  );
+}
+
+// FORA DO RECORTE: títulos com vencimento de ORIGEM de outra competência. Eles
+// entraram antes da regra existir e não são apagados — só deixam de contar.
+// A tela diz quantos são, quanto valem e quais matrículas, para conferência.
+function ForaDoRecorte({ fora }) {
+  if (!fora || !fora.titulos) return null;
+  return (
+    <div style={{ ...S.card, padding: 14, marginTop: 12, borderLeft: "3px solid var(--rv-grafico-2)" }}>
+      <div style={{ fontWeight: 700, fontSize: 13 }}>
+        {fora.titulos} {fora.titulos === 1 ? "título fora do recorte" : "títulos fora do recorte"}
+        {" · "}{moeda(fora.valor)}
+      </div>
+      <div style={{ ...S.muted, fontSize: 12, marginTop: 4 }}>{fora.observacao}</div>
+      {fora.matriculas?.length ? (
+        <div style={{ ...S.muted, fontSize: 12, marginTop: 4 }}>
+          Matrículas: <strong>{fora.matriculas.join(", ")}</strong>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -195,13 +260,17 @@ function HistoricoDasAcoes({ acoes }) {
                   <td style={S.td}>{CANAIS[a.canal] || a.canal}</td>
                   <td style={S.td}>{CONTEXTOS[a.contexto] || "—"}</td>
                   <td style={S.td}>{a.origem === "EXTERNA" ? "Fora do CRM" : "Módulo"}</td>
-                  <td style={S.td}>{a.enviada_em ? dataHora(a.enviada_em) : "—"}</td>
+                  <td style={S.td}>
+                    {a.enviada_em
+                      ? (a.envio_precisao === "DATA" ? dataCurta(a.enviada_em) : dataHora(a.enviada_em))
+                      : "—"}
+                  </td>
                   <td style={S.td}>{a.remessa_nome}</td>
                   <td style={S.td}>{a.publico === "lista_informada" ? "Lista" : "Remessa inteira"}</td>
                   <td style={S.td}>{a.base_titulos}</td>
                   <td style={S.td}>{moeda(a.base_saldo)}</td>
                   <td style={S.td}>{a.atualizacoes_depois}</td>
-                  <td style={S.td}>{a.saiu_titulos ?? "—"}</td>
+                  <td style={S.td}>{a.saiu_titulos ?? (a.sequencia_nao_comprovada ? "pendente" : "—")}</td>
                   <td style={S.td}>{a.saiu_valor === null ? "—" : moeda(a.saiu_valor)}</td>
                   <td style={S.td}>{a.em_aberto ?? "—"}</td>
                   <td style={S.td}>{a.taxa_titulos === null ? "—" : `${a.taxa_titulos}%`}</td>
@@ -211,6 +280,20 @@ function HistoricoDasAcoes({ acoes }) {
             </tbody>
           </table>
         </div>
+      )}
+      {acoes.some((a) => a.sequencia_nao_comprovada) && (
+        <p style={{ ...S.muted, marginTop: 10, fontSize: 11.5 }}>
+          <strong>Pendente</strong> = a única remessa candidata é do <strong>mesmo dia</strong> do
+          envio e falta hora comprovada de um dos dois lados. Sem saber o que veio antes, o
+          resultado não é calculado — e muito menos arredondado para zero. A próxima remessa
+          resolve.
+        </p>
+      )}
+      {acoes.some((a) => a.base_fora_do_recorte > 0) && (
+        <p style={{ ...S.muted, marginTop: 6, fontSize: 11.5 }}>
+          Algumas ações incluem títulos fora do recorte. Eles continuam registrados como
+          destinatários, mas não entram nas colunas acima.
+        </p>
       )}
       {acoes.some((a) => a.sem_envio_confirmado) && (
         <p style={{ ...S.muted, marginTop: 10, fontSize: 11.5 }}>

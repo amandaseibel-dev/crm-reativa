@@ -63,8 +63,11 @@ export default function AbaAcoes({ carteira }) {
   // Registro de ação feita FORA do CRM: o disparo já aconteceu, aqui só se
   // guarda o que foi feito. O público é a remessa inteira, porque o arquivo
   // enviado É a lista.
+  // `hora_conhecida: false` registra DATA só. Nenhum horário é inventado — e a
+  // consequência é assumida: uma foto do mesmo dia não prova que veio depois.
   const [externa, setExterna] = useState({ aberto: false, lote: "", nome: "", canal: "EMAIL",
-                                           contexto: "", enviada_em: "", publico: "", matriculas: "" });
+                                           contexto: "", enviada_em: "", publico: "", matriculas: "",
+                                           hora_conhecida: true });
   const [remessas, setRemessas] = useState([]);
   // Retorno do último registro externo: quantos entraram e QUAIS matrículas
   // ficaram de fora por não estarem na remessa. Ignorar isso em silêncio
@@ -145,14 +148,16 @@ export default function AbaAcoes({ carteira }) {
     const { data, error } = await supabase.rpc("preventivo_acao_externa_registrar", {
       p_carteira_id: carteira.id, p_lote_id: lote, p_nome: nome.trim(),
       p_canal: canal, p_contexto: contexto,
-      p_enviada_em: new Date(enviada_em).toISOString(),
+      p_enviada_em: new Date(
+        externa.hora_conhecida ? enviada_em : `${enviada_em.slice(0, 10)}T00:00`).toISOString(),
       p_matriculas: lista,
       p_remessa_inteira: publico === "remessa",
+      p_envio_precisao: externa.hora_conhecida ? "DATA_E_HORA" : "DATA",
     });
     setOcupado("");
     if (error) { setErro(error.message); return; }
     setExterna({ aberto: false, lote: "", nome: "", canal: "EMAIL", contexto: "",
-                 enviada_em: "", publico: "", matriculas: "" });
+                 enviada_em: "", publico: "", matriculas: "", hora_conhecida: true });
     setReciboExterna({
       nome: data.nome,
       incluidos: data.incluidos,
@@ -329,9 +334,28 @@ export default function AbaAcoes({ carteira }) {
               </select>
             </div>
             <div>
-              <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>Enviada em *</label>
-              <input type="datetime-local" style={{ ...S.input, minWidth: 0 }} value={externa.enviada_em}
-                     onChange={(e) => setExterna({ ...externa, enviada_em: e.target.value })} />
+              <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>
+                {externa.hora_conhecida ? "Enviada em *" : "Enviada no dia *"}
+              </label>
+              <input type={externa.hora_conhecida ? "datetime-local" : "date"}
+                     style={{ ...S.input, minWidth: 0 }}
+                     value={externa.hora_conhecida
+                       ? externa.enviada_em : externa.enviada_em.slice(0, 10)}
+                     onChange={(e) => setExterna({
+                       ...externa,
+                       enviada_em: externa.hora_conhecida ? e.target.value : `${e.target.value}T00:00`,
+                     })} />
+              <label style={{ display: "flex", gap: 6, alignItems: "flex-start", marginTop: 8, fontSize: 12 }}>
+                <input type="checkbox" checked={!externa.hora_conhecida} style={{ marginTop: 3 }}
+                       onChange={(e) => setExterna({ ...externa, hora_conhecida: !e.target.checked })} />
+                <span>
+                  Não sei a hora, só o dia
+                  <span style={{ ...S.muted, display: "block", fontSize: 11.5, maxWidth: 320 }}>
+                    O resultado só é calculado quando houver uma remessa que comprovadamente
+                    veio depois. Foto do mesmo dia sem hora deixa a ação pendente.
+                  </span>
+                </span>
+              </label>
             </div>
             <div style={{ flexBasis: "100%" }}>
               <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>Quem recebeu *</label>

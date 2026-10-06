@@ -31,6 +31,7 @@ const MIGRATIONS = [
   "supabase/migrations/20261005124732_preventivo_update_com_where.sql",
   "supabase/migrations/20261005191400_preventivo_contexto_da_acao.sql",
   "supabase/migrations/20261006114523_preventivo_acao_externa_e_data_da_extracao.sql",
+  "supabase/migrations/20261006165832_preventivo_recorte_e_precisao_da_extracao.sql",
 ].map(ler);
 
 const TABELAS = [
@@ -294,7 +295,7 @@ describe("Preventivo — ação externa e data da extração", () => {
     expect(e.cards.titulos_ainda_abertos).toBe(3);        // mesmo total!
     expect(e.cards.saiu_da_base_titulos).toBe(2);         // e NÃO 3 - 3 = 0
     expect(Number(e.cards.saiu_da_base_valor)).toBe(500); // 200 + 300, saldo da PRIMEIRA
-    expect(e.cards.entraram_depois).toBe(2);
+    expect(e.cards.entradas_na_serie).toBe(2);
   });
 
   it("REENTRADA: título que saiu e voltou não conta como saída", async () => {

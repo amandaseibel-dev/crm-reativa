@@ -52,6 +52,10 @@ export default function AbaImportacoes({ carteira, aoImportar, onIr }) {
   // data que ordena as remessas — permite subir uma foto de dias atrás sem
   // inverter a história. Começa em hoje, que é o caso comum.
   const [extraidoEm, setExtraidoEm] = useState(() => agoraLocalParaInput());
+  // Só a data é conhecida em relatório antigo. Nesse caso NÃO se inventa hora:
+  // a ordem entre fotos do mesmo dia é declarada aqui, por quem subiu.
+  const [horaConhecida, setHoraConhecida] = useState(true);
+  const [ordemNoDia, setOrdemNoDia] = useState(1);
   const [previa, setPrevia] = useState(null);
   const [ocupado, setOcupado] = useState("");
   const [remessas, setRemessas] = useState([]);
@@ -134,7 +138,9 @@ export default function AbaImportacoes({ carteira, aoImportar, onIr }) {
       p_mapeamento: mapa,
       p_conteudo_hash: null,
       p_linhas: registros,
-      p_extraido_em: new Date(extraidoEm).toISOString(),
+      p_extraido_em: new Date(horaConhecida ? extraidoEm : `${extraidoEm.slice(0, 10)}T00:00`).toISOString(),
+      p_precisao: horaConhecida ? "DATA_E_HORA" : "DATA",
+      p_ordem_no_dia: Number(ordemNoDia) || 1,
     });
     setOcupado("");
     if (error) { setErro(error.message); return; }
@@ -205,15 +211,46 @@ export default function AbaImportacoes({ carteira, aoImportar, onIr }) {
                    onChange={(e) => setNomeLote(e.target.value)} placeholder="Ex.: Remessa 01/10" />
 
             <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700, marginTop: 14 }}>
-              Data e hora da extração *
+              {horaConhecida ? "Data e hora da extração *" : "Data da extração *"}
             </label>
-            <input type="datetime-local" style={{ ...S.input, marginTop: 6 }} value={extraidoEm}
-                   onChange={(e) => setExtraidoEm(e.target.value)} />
+            <input type={horaConhecida ? "datetime-local" : "date"}
+                   style={{ ...S.input, marginTop: 6 }}
+                   value={horaConhecida ? extraidoEm : extraidoEm.slice(0, 10)}
+                   onChange={(e) => setExtraidoEm(
+                     horaConhecida ? e.target.value : `${e.target.value}T00:00`)} />
             <p style={{ ...S.muted, marginTop: 6, fontSize: 11.5 }}>
               Quando o relatório foi <strong>gerado na origem</strong> — não agora. É esta data
               que coloca a remessa na ordem certa e define qual é a seguinte de cada ação.
               Subindo uma foto de dias atrás, informe a data dela.
             </p>
+
+            <label style={{ display: "flex", gap: 8, alignItems: "flex-start", marginTop: 12, fontSize: 12.5 }}>
+              <input type="checkbox" checked={!horaConhecida} style={{ marginTop: 3 }}
+                     onChange={(e) => setHoraConhecida(!e.target.checked)} />
+              <span>
+                <strong>Não sei a hora</strong>, só o dia.
+                <span style={{ ...S.muted, display: "block", fontSize: 11.5 }}>
+                  Nenhum horário é inventado. Sem hora, a remessa não serve para provar que veio
+                  depois de um envio do mesmo dia — e o resultado daquela ação fica pendente até
+                  a foto seguinte.
+                </span>
+              </span>
+            </label>
+
+            {!horaConhecida && (
+              <div style={{ marginTop: 10 }}>
+                <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>
+                  Ordem no dia *
+                </label>
+                <input type="number" min={1} step={1} style={{ ...S.input, marginTop: 6, maxWidth: 120 }}
+                       value={ordemNoDia}
+                       onChange={(e) => setOrdemNoDia(e.target.value)} />
+                <p style={{ ...S.muted, marginTop: 6, fontSize: 11.5 }}>
+                  1 = primeira foto do dia, 2 = a seguinte, e assim por diante. É isto que
+                  ordena duas extrações do mesmo dia, no lugar de um horário presumido.
+                </p>
+              </div>
+            )}
           </div>
 
           <div style={{ ...S.card, padding: 20 }}>
