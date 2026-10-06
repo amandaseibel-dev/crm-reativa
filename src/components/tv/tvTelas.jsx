@@ -1,9 +1,10 @@
 import {
-  Tela, IndicadorCard, CardMeta, Ranking, DestaqueOperador,
+  Tela, IndicadorCard, Ranking, DestaqueOperador,
   MensagemInstitucional, Aviso, Treinamento, Conquista,
   moeda, num, statusRitmo, T, fs, layout,
 } from "./tvUI";
 import TelaMetaDoMes from "./tvMetaDoMes";
+import TelaMetas from "./tvMetas";
 import TelaMagicNumber from "./tvMagicNumber";
 
 // =============================================================================
@@ -91,20 +92,6 @@ function TelaResultadoMes({ snap }) {
         <IndicadorCard rotulo="Necessário por dia útil" valor={necTxt} tom={m.meta_atingida ? "verde" : "ambar"} />
       </div>
       <Vazio>{m.estimativa_aviso || "Projeção estimada com base no ritmo atual."}</Vazio>
-    </Tela>
-  );
-}
-
-// 3) Metas --------------------------------------------------------------------
-function TelaMetas({ snap }) {
-  // So a meta do mes. O "Marco historico" e um acumulado de R$ 3 mi, ja batido
-  // (113%), que nao traz referencia do mes e confundia quem assistia.
-  // Decisao da gestao em 11/09/2026.
-  const metas = (snap?.metas || []).filter((m) => m?.id !== "marco");
-  return (
-    <Tela titulo="Metas" icone="🎯">
-      {metas.length === 0 ? <Vazio>Sem registro no snapshot atual.</Vazio>
-        : metas.map((meta) => <CardMeta key={meta.id} meta={meta} />)}
     </Tela>
   );
 }
@@ -627,7 +614,7 @@ export const CATALOGO_TELAS = [
     descricao: "Tela dedicada da meta: % atingido no anel, realizado, falta, dias úteis restantes e necessário por dia útil.",
     temConteudo: (s) => Number(s?.mes?.meta_empresa || 0) > 0 },
   { id: "metas", nome: "Metas", Comp: TelaMetas, ativa: false, grupo: "operacao",
-    descricao: "Cards de metas (empresa, superar o mês passado, marco histórico).",
+    descricao: "Meta do mês no anel (meta, realizado, % e falta) e as demais metas numa faixa compacta.",
     temConteudo: (s) => (s?.metas || []).length > 0 },
   { id: "premiacao", nome: "Premiação", Comp: TelaPremiacao, ativa: false, grupo: "operacao",
     descricao: "Faixas de comissão do mês (M1 a M4).",
