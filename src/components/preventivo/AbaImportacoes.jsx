@@ -19,7 +19,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../services/supabase";
 import { S } from "../../ui/estilosFila";
-import { moeda, dataHora } from "../../utils/preventivoFormato";
+import { moeda, dataHora, agoraLocalParaInput } from "../../utils/preventivoFormato";
 import {
   CAMPOS, sugerirMapeamento, camposObrigatoriosFaltando, linhaParaRegistro,
   decodificar, lerCsv,
@@ -51,7 +51,7 @@ export default function AbaImportacoes({ carteira, aoImportar, onIr }) {
   // Quando o relatório foi EXTRAÍDO, não quando está sendo importado. É esta
   // data que ordena as remessas — permite subir uma foto de dias atrás sem
   // inverter a história. Começa em hoje, que é o caso comum.
-  const [extraidoEm, setExtraidoEm] = useState(() => new Date().toISOString().slice(0, 16));
+  const [extraidoEm, setExtraidoEm] = useState(() => agoraLocalParaInput());
   const [previa, setPrevia] = useState(null);
   const [ocupado, setOcupado] = useState("");
   const [remessas, setRemessas] = useState([]);

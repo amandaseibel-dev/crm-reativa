@@ -92,9 +92,10 @@ describe("Preventivo — ação externa e data da extração", () => {
     `select public.preventivo_lote_confirmar_v2($1::uuid, $2, 'rel.csv', '{}'::jsonb, null, $3::jsonb, $4::timestamptz)`,
     [carteira, nome, JSON.stringify(linhas), extraidoEm]);
 
-  const registrar = (lote, nome, canal, contexto, enviadaEm) => um(db,
-    `select public.preventivo_acao_externa_registrar($1::uuid, $2::uuid, $3, $4, $5, $6::timestamptz)`,
-    [carteira, lote, nome, canal, contexto, enviadaEm]);
+  // `matriculas` null = declara que o envio cobriu a remessa inteira.
+  const registrar = (lote, nome, canal, contexto, enviadaEm, matriculas = null) => um(db,
+    `select public.preventivo_acao_externa_registrar($1::uuid, $2::uuid, $3, $4, $5, $6::timestamptz, $7::text[], $8::boolean)`,
+    [carteira, lote, nome, canal, contexto, enviadaEm, matriculas, matriculas === null]);
 
   const evolucao = () => um(db, `select public.preventivo_evolucao($1::uuid)`, [carteira]);
 
@@ -205,8 +206,9 @@ describe("Preventivo — ação externa e data da extração", () => {
     expect(e.pontos[1].saiu_da_base_titulos).toBe(1);
     expect(Number(e.pontos[1].saiu_da_base_valor)).toBe(300);
     expect(e.pontos[2].saiu_da_base_titulos).toBe(1);
-    expect(e.pontos[0].acoes).toHaveLength(1);
-    expect(e.pontos[0].acoes[0].origem).toBe("EXTERNA");
+    expect(e.acoes).toHaveLength(1);
+    expect(e.acoes[0].origem).toBe("EXTERNA");
+    expect(e.acoes[0].remessa_nome).toBe("Sexta");
   });
 
   it("os cards comparam a primeira com a última remessa, sem somar ações", async () => {
@@ -275,6 +277,120 @@ describe("Preventivo — ação externa e data da extração", () => {
     expect(l.rows[0].v).toBe("2026-10-05");
     expect(l.rows[0].o).toBe("2026-10-01");
     expect(r.linhas_aceitas).toBe(1);
+  });
+
+  it("ENTRADAS NOVAS: o card não subtrai totais, compara título a título", async () => {
+    // 3 na primeira, 2 saem, 2 novos entram -> total final 3.
+    // Subtrair totais daria 0 saídas. A conta certa é 2.
+    await importar("F1", [t("2026000001", 100), t("2026000002", 200), t("2026000003", 300)], "2026-10-02 09:00-03");
+    await importar("F2", [
+      t("2026000001", 100),
+      t("2026000010", 400),   // novo
+      t("2026000011", 500),   // novo
+    ], "2026-10-06 09:00-03");
+
+    const e = await evolucao();
+    expect(e.cards.titulos_inicial).toBe(3);
+    expect(e.cards.titulos_ainda_abertos).toBe(3);        // mesmo total!
+    expect(e.cards.saiu_da_base_titulos).toBe(2);         // e NÃO 3 - 3 = 0
+    expect(Number(e.cards.saiu_da_base_valor)).toBe(500); // 200 + 300, saldo da PRIMEIRA
+    expect(e.cards.entraram_depois).toBe(2);
+  });
+
+  it("REENTRADA: título que saiu e voltou não conta como saída", async () => {
+    await importar("F1", [t("2026000001", 100), t("2026000002", 200)], "2026-10-02 09:00-03");
+    const a = await registrar(
+      (await db.query(`select id from public.prev_lote where nome='F1'`)).rows[0].id,
+      "Ação", "EMAIL", "PROXIMO_VENCIMENTO", "2026-10-02 10:00-03");
+
+    await importar("F2", [t("2026000001", 100)], "2026-10-03 09:00-03");          // o 002 some
+    await importar("F3", [t("2026000001", 100), t("2026000002", 200)], "2026-10-04 09:00-03"); // volta
+
+    const e = await evolucao();
+    // o ponto do meio registra a saída daquele intervalo...
+    expect(e.pontos[1].saiu_da_base_titulos).toBe(1);
+    expect(e.pontos[2].entraram).toBe(1);
+    // ...mas o acumulado da AÇÃO compara com a ÚLTIMA foto: ninguém saiu
+    const ac = e.acoes.find((x) => x.id === a.id);
+    expect(ac.atualizacoes_depois).toBe(2);
+    expect(ac.saiu_titulos).toBe(0);
+    expect(ac.em_aberto).toBe(2);
+    expect(ac.taxa_titulos).toBe(0);
+    // e o card também não conta o que voltou
+    expect(e.cards.saiu_da_base_titulos).toBe(0);
+  });
+
+  it("PÚBLICO PARCIAL: a ação acompanha só quem recebeu", async () => {
+    const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 200), t("2026000003", 300)], "2026-10-02 09:00-03");
+    // só dois receberam
+    const a = await registrar(f1.lote_id, "Parcial", "EMAIL", "PROXIMO_VENCIMENTO",
+                              "2026-10-02 10:00-03", ["2026000001", "2026000002"]);
+    expect(a.incluidos).toBe(2);
+    expect(a.filtros.publico).toBe("lista_informada");
+
+    // some um de quem recebeu e um de quem NÃO recebeu
+    await importar("F2", [t("2026000001", 100)], "2026-10-03 09:00-03");
+
+    const ac = (await evolucao()).acoes.find((x) => x.id === a.id);
+    expect(ac.base_titulos).toBe(2);              // base é o público, não a remessa
+    expect(ac.saiu_titulos).toBe(1);              // só o 002, que recebeu
+    expect(Number(ac.saiu_valor)).toBe(200);      // o 300 não entra: não foi acionado
+    expect(ac.taxa_titulos).toBe(50.0);
+  });
+
+  it("não dá para registrar sem dizer quem recebeu", async () => {
+    const f1 = await importar("F1", [t("2026000001")], "2026-10-02 09:00-03");
+    await expect(um(db,
+      `select public.preventivo_acao_externa_registrar($1::uuid, $2::uuid, 'X', 'EMAIL',
+         'PROXIMO_VENCIMENTO', $3::timestamptz, null, false)`,
+      [carteira, f1.lote_id, "2026-10-02 10:00-03"])).rejects.toThrow(/Informe quem recebeu/i);
+  });
+
+  it("lista e remessa inteira ao mesmo tempo é recusado", async () => {
+    const f1 = await importar("F1", [t("2026000001")], "2026-10-02 09:00-03");
+    await expect(um(db,
+      `select public.preventivo_acao_externa_registrar($1::uuid, $2::uuid, 'X', 'EMAIL',
+         'PROXIMO_VENCIMENTO', $3::timestamptz, array['2026000001'], true)`,
+      [carteira, f1.lote_id, "2026-10-02 10:00-03"])).rejects.toThrow(/Escolha um/i);
+  });
+
+  it("matrícula informada que não está na remessa é ignorada e reportada", async () => {
+    const f1 = await importar("F1", [t("2026000001")], "2026-10-02 09:00-03");
+    const a = await registrar(f1.lote_id, "X", "EMAIL", "PROXIMO_VENCIMENTO",
+                              "2026-10-02 10:00-03", ["2026000001", "9999999999"]);
+    expect(a.incluidos).toBe(1);
+    expect(a.fora_da_remessa).toBe(1);
+
+    await expect(registrar(f1.lote_id, "Y", "EMAIL", "PROXIMO_VENCIMENTO",
+                           "2026-10-02 10:00-03", ["9999999999"]))
+      .rejects.toThrow(/Nenhuma das matrículas/i);
+  });
+
+  it("ação SEM envio confirmado não ganha resultado — fica nula, não zero", async () => {
+    const f1 = await importar("F1", [t("2026000001"), t("2026000002")], "2026-10-02 09:00-03");
+    // ação do módulo, preparada e nunca enviada
+    const prep = await um(db,
+      `select public.preventivo_acao_preparar_v2($1::uuid, 'Preparada', 'WHATSAPP', '{}'::jsonb, 'PROXIMO_VENCIMENTO')`,
+      [carteira]);
+    await importar("F2", [t("2026000001")], "2026-10-03 09:00-03");
+
+    const ac = (await evolucao()).acoes.find((x) => x.id === prep.id);
+    expect(ac.sem_envio_confirmado).toBe(true);
+    expect(ac.atualizacoes_depois).toBe(0);
+    expect(ac.saiu_titulos).toBe(null);
+    expect(ac.taxa_titulos).toBe(null);
+    expect(ac.em_aberto).toBe(null);
+    expect(f1.lote_id).toBeTruthy();
+  });
+
+  it("remessa anterior ao envio não entra no acompanhamento da ação", async () => {
+    const f1 = await importar("F1", [t("2026000001"), t("2026000002")], "2026-10-02 09:00-03");
+    await importar("F2", [t("2026000001")], "2026-10-03 09:00-03");   // antes do envio
+    const a = await registrar(f1.lote_id, "Depois", "EMAIL", "BOLETO_VENCIDO", "2026-10-04 10:00-03");
+
+    const ac = (await evolucao()).acoes.find((x) => x.id === a.id);
+    expect(ac.atualizacoes_depois).toBe(0);     // a F2 é anterior ao envio
+    expect(ac.saiu_titulos).toBe(null);
   });
 
   it("a palavra é SAIU DA BASE e não há promessa de pagamento", async () => {

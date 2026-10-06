@@ -70,16 +70,6 @@ function TooltipPonto({ active, payload }) {
         </>
       )}
       {d.entraram ? <Par rot="Entraram" val={d.entraram} /> : null}
-      {d.acoes?.length ? (
-        <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid var(--rv-borda-suave)" }}>
-          {d.acoes.map((a) => (
-            <div key={a.id} style={{ fontSize: 11.5 }}>
-              {CANAIS[a.canal] || a.canal} · {CONTEXTOS[a.contexto] || "sem contexto"}
-              {a.origem === "EXTERNA" ? " · fora do CRM" : ""}
-            </div>
-          ))}
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -117,7 +107,7 @@ export default function EvolucaoDaCarteira({ dados }) {
         <Cartao rotulo="Saldo ainda aberto" valor={moeda(c.saldo_ainda_aberto)}
                 sub={`${c.titulos_ainda_abertos ?? 0} títulos · ${dataCurta(c.ultima_extracao)}`} />
         <Cartao rotulo="Saíram da base" valor={c.saiu_da_base_titulos ?? 0}
-                sub={moeda(c.saiu_da_base_valor)} />
+                sub={`${moeda(c.saiu_da_base_valor)}${c.entraram_depois ? ` · ${c.entraram_depois} entraram depois` : ""}`} />
       </div>
 
       <p style={{ ...S.muted, marginTop: 10, fontSize: 12 }}>{dados.definicao}</p>
@@ -156,42 +146,25 @@ export default function EvolucaoDaCarteira({ dados }) {
         </div>
       </div>
 
-      <HistoricoDasAcoes pontos={pontos} />
+      <HistoricoDasAcoes acoes={dados.acoes || []} />
     </div>
   );
 }
 
-// HISTÓRICO: cada ação com o que aconteceu nas remessas SEGUINTES, acumulado.
-// O acumulado é por ação — não se somam ações diferentes, porque elas podem
-// conter os mesmos títulos.
-function HistoricoDasAcoes({ pontos }) {
-  const linhas = [];
-  pontos.forEach((p, idx) => {
-    (p.acoes || []).forEach((a) => {
-      const seguintes = pontos.slice(idx + 1);
-      const saiuTit = seguintes.reduce((s, x) => s + (x.saiu_da_base_titulos || 0), 0);
-      const saiuVal = seguintes.reduce((s, x) => s + Number(x.saiu_da_base_valor || 0), 0);
-      linhas.push({
-        ...a,
-        remessa: p.nome,
-        base_titulos: p.titulos,
-        base_saldo: p.saldo,
-        atualizacoes: seguintes.length,
-        saiu_titulos: seguintes.length ? saiuTit : null,
-        saiu_valor: seguintes.length ? saiuVal : null,
-        aberto_agora: seguintes.length ? seguintes[seguintes.length - 1].titulos : p.titulos,
-      });
-    });
-  });
-
+// HISTÓRICO: cada ação com o que aconteceu com O PÚBLICO DELA nas remessas
+// extraídas depois do envio. O cálculo vem do banco, comparando com a ÚLTIMA
+// dessas remessas — assim o título que saiu e voltou aparece como aberto, e
+// ninguém é contado duas vezes. Saídas gerais da carteira NÃO entram aqui.
+function HistoricoDasAcoes({ acoes }) {
   return (
     <div style={{ ...S.card, padding: 20, marginTop: 16 }}>
       <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Histórico das ações</h2>
       <p style={{ ...S.muted, marginTop: 6, fontSize: 12.5 }}>
-        O acompanhamento é por ação, acumulado nas atualizações seguintes. Ações
-        diferentes <strong>não são somadas</strong> — elas podem conter os mesmos títulos.
+        Cada linha acompanha <strong>só os títulos que aquela ação incluiu</strong>, comparados
+        com a última remessa extraída depois do envio. Ações diferentes não são somadas —
+        elas podem conter os mesmos títulos.
       </p>
-      {linhas.length === 0 ? (
+      {acoes.length === 0 ? (
         <p style={{ ...S.muted, marginTop: 12 }}>Nenhuma ação registrada ainda.</p>
       ) : (
         <div style={{ overflowX: "auto", marginTop: 12 }}>
@@ -204,38 +177,50 @@ function HistoricoDasAcoes({ pontos }) {
                 <th style={S.th}>Origem</th>
                 <th style={S.th}>Enviada em</th>
                 <th style={S.th}>Remessa</th>
-                <th style={S.thNum}>Base (títulos)</th>
-                <th style={S.thNum}>Base (saldo)</th>
-                <th style={S.thNum}>Atualizações depois</th>
-                <th style={S.thNum}>Saíram da base</th>
+                <th style={S.th}>Público</th>
+                <th style={S.thNum}>Acionados</th>
+                <th style={S.thNum}>Saldo acionado</th>
+                <th style={S.thNum}>Atualizações</th>
+                <th style={S.thNum}>Saíram</th>
                 <th style={S.thNum}>Valor que saiu</th>
-                <th style={S.thNum}>Em aberto hoje</th>
+                <th style={S.thNum}>Em aberto</th>
+                <th style={S.thNum}>% títulos</th>
+                <th style={S.thNum}>% valor</th>
               </tr>
             </thead>
             <tbody>
-              {linhas.map((l) => (
-                <tr key={l.id}>
-                  <td style={S.td}>{l.nome}</td>
-                  <td style={S.td}>{CANAIS[l.canal] || l.canal}</td>
-                  <td style={S.td}>{CONTEXTOS[l.contexto] || "—"}</td>
-                  <td style={S.td}>{l.origem === "EXTERNA" ? "Fora do CRM" : "Módulo"}</td>
-                  <td style={S.td}>{l.enviada_em ? dataHora(l.enviada_em) : "—"}</td>
-                  <td style={S.td}>{l.remessa}</td>
-                  <td style={S.td}>{l.base_titulos}</td>
-                  <td style={S.td}>{moeda(l.base_saldo)}</td>
-                  <td style={S.td}>{l.atualizacoes}</td>
-                  <td style={S.td}>{l.saiu_titulos ?? "—"}</td>
-                  <td style={S.td}>{l.saiu_valor === null ? "—" : moeda(l.saiu_valor)}</td>
-                  <td style={S.td}>{l.aberto_agora}</td>
+              {acoes.map((a) => (
+                <tr key={a.id}>
+                  <td style={S.td}>{a.nome}</td>
+                  <td style={S.td}>{CANAIS[a.canal] || a.canal}</td>
+                  <td style={S.td}>{CONTEXTOS[a.contexto] || "—"}</td>
+                  <td style={S.td}>{a.origem === "EXTERNA" ? "Fora do CRM" : "Módulo"}</td>
+                  <td style={S.td}>{a.enviada_em ? dataHora(a.enviada_em) : "—"}</td>
+                  <td style={S.td}>{a.remessa_nome}</td>
+                  <td style={S.td}>{a.publico === "lista_informada" ? "Lista" : "Remessa inteira"}</td>
+                  <td style={S.td}>{a.base_titulos}</td>
+                  <td style={S.td}>{moeda(a.base_saldo)}</td>
+                  <td style={S.td}>{a.atualizacoes_depois}</td>
+                  <td style={S.td}>{a.saiu_titulos ?? "—"}</td>
+                  <td style={S.td}>{a.saiu_valor === null ? "—" : moeda(a.saiu_valor)}</td>
+                  <td style={S.td}>{a.em_aberto ?? "—"}</td>
+                  <td style={S.td}>{a.taxa_titulos === null ? "—" : `${a.taxa_titulos}%`}</td>
+                  <td style={S.td}>{a.taxa_valor === null ? "—" : `${a.taxa_valor}%`}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-      {linhas.some((l) => l.atualizacoes === 0) && (
+      {acoes.some((a) => a.sem_envio_confirmado) && (
         <p style={{ ...S.muted, marginTop: 10, fontSize: 11.5 }}>
-          As linhas com “—” ainda não têm remessa posterior para comparar. Nada é estimado.
+          Ação sem <strong>envio confirmado</strong> não tem resultado: a conta começa no envio.
+        </p>
+      )}
+      {acoes.some((a) => !a.sem_envio_confirmado && a.atualizacoes_depois === 0) && (
+        <p style={{ ...S.muted, marginTop: 6, fontSize: 11.5 }}>
+          As linhas com “—” tiveram envio, mas ainda não há remessa extraída depois dele.
+          Nada é estimado.
         </p>
       )}
     </div>

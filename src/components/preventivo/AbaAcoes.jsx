@@ -63,7 +63,8 @@ export default function AbaAcoes({ carteira }) {
   // Registro de ação feita FORA do CRM: o disparo já aconteceu, aqui só se
   // guarda o que foi feito. O público é a remessa inteira, porque o arquivo
   // enviado É a lista.
-  const [externa, setExterna] = useState({ aberto: false, lote: "", nome: "", canal: "EMAIL", contexto: "", enviada_em: "" });
+  const [externa, setExterna] = useState({ aberto: false, lote: "", nome: "", canal: "EMAIL",
+                                           contexto: "", enviada_em: "", publico: "", matriculas: "" });
   const [remessas, setRemessas] = useState([]);
   const [ocupado, setOcupado] = useState("");
   const [aberta, setAberta] = useState(null);
@@ -122,20 +123,32 @@ export default function AbaAcoes({ carteira }) {
 
   async function registrarExterna(e) {
     e.preventDefault();
-    const { lote, nome, canal, contexto, enviada_em } = externa;
+    const { lote, nome, canal, contexto, enviada_em, publico, matriculas } = externa;
     if (!lote) { setErro("Escolha a remessa que foi enviada."); return; }
     if (!nome.trim()) { setErro("Dê um nome à ação."); return; }
     if (!contexto) { setErro("Escolha o contexto da ação."); return; }
     if (!enviada_em) { setErro("Informe a data e hora do envio."); return; }
+    if (!publico) { setErro("Diga quem recebeu: a remessa inteira ou uma lista."); return; }
+    // A lista vem como texto colado — uma matrícula por linha, vírgula ou ponto
+    // e vírgula. Nada é presumido: sem lista, é preciso declarar a remessa inteira.
+    const lista = publico === "lista"
+      ? matriculas.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean)
+      : null;
+    if (publico === "lista" && lista.length === 0) {
+      setErro("Cole as matrículas que receberam."); return;
+    }
     setOcupado("externa"); setErro("");
     const { data, error } = await supabase.rpc("preventivo_acao_externa_registrar", {
       p_carteira_id: carteira.id, p_lote_id: lote, p_nome: nome.trim(),
       p_canal: canal, p_contexto: contexto,
       p_enviada_em: new Date(enviada_em).toISOString(),
+      p_matriculas: lista,
+      p_remessa_inteira: publico === "remessa",
     });
     setOcupado("");
     if (error) { setErro(error.message); return; }
-    setExterna({ aberto: false, lote: "", nome: "", canal: "EMAIL", contexto: "", enviada_em: "" });
+    setExterna({ aberto: false, lote: "", nome: "", canal: "EMAIL", contexto: "",
+                 enviada_em: "", publico: "", matriculas: "" });
     await carregar();
     setAberta(data.id);
   }
@@ -282,6 +295,33 @@ export default function AbaAcoes({ carteira }) {
               <input type="datetime-local" style={{ ...S.input, minWidth: 0 }} value={externa.enviada_em}
                      onChange={(e) => setExterna({ ...externa, enviada_em: e.target.value })} />
             </div>
+            <div style={{ flexBasis: "100%" }}>
+              <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>Quem recebeu *</label>
+              <select style={{ ...S.select, minWidth: 280 }} value={externa.publico}
+                      onChange={(e) => setExterna({ ...externa, publico: e.target.value })}>
+                <option value="">— escolha —</option>
+                <option value="remessa">A remessa inteira recebeu</option>
+                <option value="lista">Só parte dela — vou colar as matrículas</option>
+              </select>
+              <p style={{ ...S.muted, marginTop: 6, fontSize: 11.5 }}>
+                Nada é presumido: se o envio não cobriu a remessa toda, informe a lista —
+                senão o resultado da ação seria medido sobre gente que não recebeu.
+              </p>
+            </div>
+            {externa.publico === "lista" && (
+              <div style={{ flexBasis: "100%" }}>
+                <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>
+                  Matrículas que receberam
+                </label>
+                <textarea style={{ ...S.input, width: "100%", minHeight: 90, fontFamily: "ui-monospace, monospace" }}
+                          value={externa.matriculas} placeholder="uma por linha, ou separadas por vírgula"
+                          onChange={(e) => setExterna({ ...externa, matriculas: e.target.value })} />
+                <p style={{ ...S.muted, marginTop: 4, fontSize: 11.5 }}>
+                  Matrícula que não estiver nesta remessa é ignorada e reportada — não se
+                  inventa título que a foto não tinha.
+                </p>
+              </div>
+            )}
             <button type="submit" disabled={ocupado === "externa"} style={S.btnGhost}>
               {ocupado === "externa" ? "Registrando…" : "Registrar ação"}
             </button>

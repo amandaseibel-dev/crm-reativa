@@ -97,12 +97,17 @@ $$;
 -- -----------------------------------------------------------------------------
 -- 4. REGISTRAR ACAO FEITA FORA DO CRM
 -- -----------------------------------------------------------------------------
--- O publico e a REMESSA inteira: o arquivo enviado e a lista. Por isso o
--- registro nao recalcula elegibilidade -- quem recebeu, recebeu, e inventar
--- um recorte agora seria reescrever o que aconteceu.
+-- O PUBLICO NAO E PRESUMIDO. Quem registra ou informa a lista de matriculas
+-- que recebeu (`p_matriculas`), ou declara explicitamente que o envio cobriu a
+-- remessa inteira (`p_remessa_inteira`). Assumir que todo mundo da remessa foi
+-- acionado inflaria a base da acao e, com ela, o resultado.
+--
+-- Matricula informada que nao esta na remessa e IGNORADA e devolvida em
+-- `fora_da_remessa`: nao se inventa titulo que a foto nao tinha.
 create or replace function public.preventivo_acao_externa_registrar(
   p_carteira_id uuid, p_lote_id uuid, p_nome text, p_canal text,
-  p_contexto text, p_enviada_em timestamptz)
+  p_contexto text, p_enviada_em timestamptz,
+  p_matriculas text[] default null, p_remessa_inteira boolean default false)
 returns jsonb
 language plpgsql
 security definer
@@ -111,6 +116,7 @@ as $$
 declare
   v_acao uuid; v_ctx text := upper(btrim(coalesce(p_contexto, '')));
   v_canal text := upper(btrim(coalesce(p_canal, ''))); v_extraido timestamptz;
+  v_lista text[]; v_fora int := 0; v_publico text;
 begin
   if not public.preventivo_e_gestao() then
     raise exception 'Preventivo: acesso restrito à gestão.' using errcode = '42501';
@@ -136,32 +142,59 @@ begin
   if v_extraido is null then
     raise exception 'Remessa não encontrada nesta carteira.' using errcode = '22023';
   end if;
-  -- Nao se envia uma lista antes de ela existir.
   if p_enviada_em < v_extraido then
     raise exception 'O envio (%) é anterior à extração da remessa (%).', p_enviada_em, v_extraido
       using errcode = '22023';
+  end if;
+
+  -- O publico: lista informada OU confirmacao explicita da remessa inteira.
+  v_lista := (select array_agg(distinct btrim(m)) from unnest(coalesce(p_matriculas, '{}')) m
+               where btrim(coalesce(m, '')) <> '');
+  if v_lista is null and not coalesce(p_remessa_inteira, false) then
+    raise exception 'Informe quem recebeu: a lista de matrículas, ou confirme que o envio cobriu a remessa inteira.'
+      using errcode = '22023';
+  end if;
+  if v_lista is not null and coalesce(p_remessa_inteira, false) then
+    raise exception 'Escolha um: a lista de matrículas OU a remessa inteira.' using errcode = '22023';
+  end if;
+  v_publico := case when v_lista is null then 'remessa_inteira' else 'lista_informada' end;
+
+  if v_lista is not null then
+    select count(*) into v_fora from (
+      select m from unnest(v_lista) m
+       except
+      select t.matricula_prime
+        from public.prev_titulo t
+        join public.prev_titulo_lote tl on tl.titulo_id = t.id and tl.lote_id = p_lote_id
+       where t.carteira_id = p_carteira_id) x;
   end if;
 
   insert into public.prev_acao (carteira_id, lote_id, nome, canal, contexto, filtros,
                                 estado, origem, criada_por,
                                 exportada_em, envio_confirmado_em)
   values (p_carteira_id, p_lote_id, btrim(p_nome), v_canal, v_ctx,
-          jsonb_build_object('lote_id', p_lote_id, 'publico', 'remessa_inteira'),
+          jsonb_build_object('lote_id', p_lote_id, 'publico', v_publico,
+                             'matriculas_informadas', coalesce(array_length(v_lista, 1), 0),
+                             'fora_da_remessa', v_fora),
           'ENVIO_CONFIRMADO', 'EXTERNA',
           lower(coalesce(auth.jwt() ->> 'email', 'sistema')),
           p_enviada_em, p_enviada_em)
   returning id into v_acao;
 
-  -- O publico e a remessa inteira, sem recorte.
   insert into public.prev_acao_destinatario (acao_id, titulo_id, matricula, aluno_nome, contato, incluido, motivo)
   select v_acao, t.id, t.matricula_prime, t.aluno_nome,
          case when v_canal = 'WHATSAPP' then t.celular_aluno else t.email_aluno end,
          true, null
     from public.prev_titulo t
     join public.prev_titulo_lote tl on tl.titulo_id = t.id and tl.lote_id = p_lote_id
-   where t.carteira_id = p_carteira_id;
+   where t.carteira_id = p_carteira_id
+     and (v_lista is null or t.matricula_prime = any(v_lista));
 
-  return public.preventivo_acao_resumo(v_acao);
+  if (select count(*) from public.prev_acao_destinatario where acao_id = v_acao) = 0 then
+    raise exception 'Nenhuma das matrículas informadas está nesta remessa.' using errcode = '22023';
+  end if;
+
+  return public.preventivo_acao_resumo(v_acao) || jsonb_build_object('fora_da_remessa', v_fora);
 end;
 $$;
 
@@ -465,22 +498,37 @@ end;
 $$;
 
 -- -----------------------------------------------------------------------------
--- 6. EVOLUCAO DA CARTEIRA -- cards e os dois graficos
+-- 6. EVOLUCAO DA CARTEIRA -- cards, os dois graficos e o historico
 -- -----------------------------------------------------------------------------
--- Uma linha por remessa, na ordem da extracao. Os cards sao a primeira e a
--- ultima linha; os graficos sao a serie inteira. NAO soma resultado de acoes:
--- cada ponto e a foto daquela data, e titulo nenhum e contado duas vezes.
+-- CARDS POR IDENTIDADE, NAO POR SUBTRACAO. "Saiu da base" compara os TITULOS
+-- da primeira foto com os da ultima, e soma o saldo que eles tinham NA
+-- PRIMEIRA. Subtrair totais (13.968 - 6.278 = 7.690) erra, porque ignora as
+-- entradas que apareceram no meio -- a conta certa, nas quatro fotos de
+-- outubro, da 7.828 titulos.
+--
+-- ACOMPANHAMENTO POR ACAO: olha SO os titulos que a acao realmente incluiu, e
+-- so as remessas extraidas DEPOIS do envio confirmado. Compara com a ULTIMA
+-- delas, o que resolve reentrada sem contar ninguem duas vezes: titulo que
+-- saiu e voltou esta presente na ultima foto, logo NAO saiu. Acao sem envio
+-- confirmado nao tem resultado -- fica nula, nunca zero.
 create or replace function public.preventivo_evolucao(p_carteira_id uuid)
 returns jsonb
 language plpgsql
 security definer
 set search_path to 'public'
 as $$
-declare v jsonb;
+declare v jsonb; v_primeiro uuid; v_ultimo uuid;
 begin
   if not public.preventivo_e_gestao() then
     raise exception 'Preventivo: acesso restrito à gestão.' using errcode = '42501';
   end if;
+
+  select id into v_primeiro from public.prev_lote
+   where carteira_id = p_carteira_id and status = 'CONFIRMADO'
+   order by extraido_em limit 1;
+  select id into v_ultimo from public.prev_lote
+   where carteira_id = p_carteira_id and status = 'CONFIRMADO'
+   order by extraido_em desc limit 1;
 
   with remessas as (
     select l.id, l.nome, l.extraido_em,
@@ -498,10 +546,9 @@ begin
               from public.prev_titulo_lote tl where tl.lote_id = r.id) as saldo
       from remessas r
   ), com_anterior as (
-    select f.*, lag(f.id) over (order by f.extraido_em) as anterior
-      from foto f
+    select f.*, lag(f.id) over (order by f.extraido_em) as anterior from foto f
   ), linhas as (
-    select c.id, c.nome, c.extraido_em, c.ordem, c.titulos, c.alunos, c.saldo, c.anterior,
+    select c.*,
            case when c.anterior is null then null else (
              select count(*) from public.prev_titulo_lote a
               where a.lote_id = c.anterior
@@ -518,41 +565,117 @@ begin
                 and not exists (select 1 from public.prev_titulo_lote a
                                  where a.lote_id = c.anterior and a.titulo_id = b.titulo_id)) end as entraram
       from com_anterior c
+  ), acoes as (
+    -- Uma linha por acao, com acompanhamento sobre o PUBLICO DELA.
+    select a.id, a.nome, a.canal, a.contexto, a.origem, a.lote_id,
+           a.envio_confirmado_em, a.filtros->>'publico' as publico,
+           (select count(*) from public.prev_acao_destinatario d
+             where d.acao_id = a.id and d.incluido) as base_titulos,
+           (select count(distinct d.matricula) from public.prev_acao_destinatario d
+             where d.acao_id = a.id and d.incluido) as base_alunos,
+           (select coalesce(sum(tl.saldo_na_remessa), 0)
+              from public.prev_acao_destinatario d
+              join public.prev_titulo_lote tl on tl.titulo_id = d.titulo_id and tl.lote_id = a.lote_id
+             where d.acao_id = a.id and d.incluido) as base_saldo,
+           (select count(*) from public.prev_lote l
+             where l.carteira_id = p_carteira_id and l.status = 'CONFIRMADO'
+               and a.envio_confirmado_em is not null
+               and l.extraido_em > a.envio_confirmado_em) as atualizacoes,
+           (select l.id from public.prev_lote l
+             where l.carteira_id = p_carteira_id and l.status = 'CONFIRMADO'
+               and a.envio_confirmado_em is not null
+               and l.extraido_em > a.envio_confirmado_em
+             order by l.extraido_em desc limit 1) as ultima_depois
+      from public.prev_acao a
+     where a.carteira_id = p_carteira_id and a.cancelada_em is null
+  ), acoes_m as (
+    select ac.*,
+           case when ac.ultima_depois is null then null else (
+             select count(*) from public.prev_acao_destinatario d
+              where d.acao_id = ac.id and d.incluido
+                and not exists (select 1 from public.prev_titulo_lote n
+                                 where n.lote_id = ac.ultima_depois and n.titulo_id = d.titulo_id)) end as saiu_titulos,
+           case when ac.ultima_depois is null then null else (
+             select coalesce(sum(tl.saldo_na_remessa), 0)
+               from public.prev_acao_destinatario d
+               join public.prev_titulo_lote tl on tl.titulo_id = d.titulo_id and tl.lote_id = ac.lote_id
+              where d.acao_id = ac.id and d.incluido
+                and not exists (select 1 from public.prev_titulo_lote n
+                                 where n.lote_id = ac.ultima_depois and n.titulo_id = d.titulo_id)) end as saiu_valor,
+           case when ac.ultima_depois is null then null else (
+             select count(*) from (
+               select d.matricula from public.prev_acao_destinatario d
+                where d.acao_id = ac.id and d.incluido
+                group by d.matricula
+               having count(*) filter (where exists (
+                        select 1 from public.prev_titulo_lote n
+                         where n.lote_id = ac.ultima_depois and n.titulo_id = d.titulo_id)) = 0) y) end as saiu_alunos
+      from acoes ac
   )
   select jsonb_build_object(
     'pontos', coalesce((select jsonb_agg(jsonb_build_object(
         'remessa', l.id, 'nome', l.nome, 'extraido_em', l.extraido_em, 'ordem', l.ordem,
         'titulos', l.titulos, 'alunos', l.alunos, 'saldo', l.saldo,
         'saiu_da_base_titulos', l.saiu_titulos, 'saiu_da_base_valor', l.saiu_valor,
-        'entraram', l.entraram,
-        'acoes', (select coalesce(jsonb_agg(jsonb_build_object(
-                      'id', a.id, 'nome', a.nome, 'canal', a.canal, 'contexto', a.contexto,
-                      'origem', a.origem, 'enviada_em', a.envio_confirmado_em)), '[]'::jsonb)
-                    from public.prev_acao a
-                   where a.lote_id = l.id and a.cancelada_em is null)
+        'entraram', l.entraram
       ) order by l.ordem) from linhas l), '[]'::jsonb),
-    'cards', (
-      select jsonb_build_object(
-        'alunos_acionados', (
-          select count(distinct d.matricula) from public.prev_acao_destinatario d
-            join public.prev_acao a on a.id = d.acao_id
-           where a.carteira_id = p_carteira_id and a.cancelada_em is null
-             and a.envio_confirmado_em is not null and d.incluido),
-        'saldo_inicial', (select saldo from linhas order by ordem limit 1),
-        'titulos_inicial', (select titulos from linhas order by ordem limit 1),
-        'saldo_ainda_aberto', (select saldo from linhas order by ordem desc limit 1),
-        'titulos_ainda_abertos', (select titulos from linhas order by ordem desc limit 1),
-        'saiu_da_base_titulos', greatest(coalesce((select titulos from linhas order by ordem limit 1), 0)
-                                       - coalesce((select titulos from linhas order by ordem desc limit 1), 0), 0),
-        'saiu_da_base_valor', greatest(coalesce((select saldo from linhas order by ordem limit 1), 0)
-                                     - coalesce((select saldo from linhas order by ordem desc limit 1), 0), 0),
-        'primeira_extracao', (select extraido_em from linhas order by ordem limit 1),
-        'ultima_extracao', (select extraido_em from linhas order by ordem desc limit 1),
-        'remessas', (select count(*) from linhas))),
-    'definicao', 'SAIU DA BASE = o título deixou de aparecer no relatório seguinte. '
-              || 'NÃO é pagamento confirmado. Os cards comparam a PRIMEIRA e a ÚLTIMA '
-              || 'remessa da carteira: nenhum título é contado duas vezes, e resultados '
-              || 'de ações diferentes não são somados.'
+    'acoes', coalesce((select jsonb_agg(jsonb_build_object(
+        'id', m.id, 'nome', m.nome, 'canal', m.canal, 'contexto', m.contexto,
+        'origem', m.origem, 'publico', m.publico, 'remessa', m.lote_id,
+        'remessa_nome', (select l.nome from public.prev_lote l where l.id = m.lote_id),
+        'enviada_em', m.envio_confirmado_em,
+        'base_titulos', m.base_titulos, 'base_alunos', m.base_alunos, 'base_saldo', m.base_saldo,
+        'atualizacoes_depois', m.atualizacoes,
+        'comparado_com', m.ultima_depois,
+        'saiu_titulos', m.saiu_titulos, 'saiu_alunos', m.saiu_alunos, 'saiu_valor', m.saiu_valor,
+        'em_aberto', case when m.ultima_depois is null then null
+                          else m.base_titulos - m.saiu_titulos end,
+        'taxa_titulos', case when m.ultima_depois is null or m.base_titulos = 0 then null
+                             else round((m.saiu_titulos::numeric / m.base_titulos) * 100, 1) end,
+        'taxa_alunos', case when m.ultima_depois is null or m.base_alunos = 0 then null
+                            else round((m.saiu_alunos::numeric / m.base_alunos) * 100, 1) end,
+        'taxa_valor', case when m.ultima_depois is null or m.base_saldo = 0 then null
+                           else round((m.saiu_valor / m.base_saldo) * 100, 1) end,
+        'sem_envio_confirmado', (m.envio_confirmado_em is null)
+      ) order by m.envio_confirmado_em nulls last) from acoes_m m), '[]'::jsonb),
+    'cards', jsonb_build_object(
+      'alunos_acionados', (
+        select count(distinct d.matricula) from public.prev_acao_destinatario d
+          join public.prev_acao a on a.id = d.acao_id
+         where a.carteira_id = p_carteira_id and a.cancelada_em is null
+           and a.envio_confirmado_em is not null and d.incluido),
+      'saldo_inicial', (select coalesce(sum(saldo_na_remessa), 0)
+                          from public.prev_titulo_lote where lote_id = v_primeiro),
+      'titulos_inicial', (select count(*) from public.prev_titulo_lote where lote_id = v_primeiro),
+      'saldo_ainda_aberto', (select coalesce(sum(saldo_na_remessa), 0)
+                               from public.prev_titulo_lote where lote_id = v_ultimo),
+      'titulos_ainda_abertos', (select count(*) from public.prev_titulo_lote where lote_id = v_ultimo),
+      -- POR IDENTIDADE: titulo da primeira foto ausente na ultima, com o saldo
+      -- que ele tinha na primeira.
+      'saiu_da_base_titulos', case when v_primeiro = v_ultimo then 0 else (
+        select count(*) from public.prev_titulo_lote a
+         where a.lote_id = v_primeiro
+           and not exists (select 1 from public.prev_titulo_lote b
+                            where b.lote_id = v_ultimo and b.titulo_id = a.titulo_id)) end,
+      'saiu_da_base_valor', case when v_primeiro = v_ultimo then 0 else (
+        select coalesce(sum(a.saldo_na_remessa), 0) from public.prev_titulo_lote a
+         where a.lote_id = v_primeiro
+           and not exists (select 1 from public.prev_titulo_lote b
+                            where b.lote_id = v_ultimo and b.titulo_id = a.titulo_id)) end,
+      'entraram_depois', case when v_primeiro = v_ultimo then 0 else (
+        select count(*) from public.prev_titulo_lote b
+         where b.lote_id = v_ultimo
+           and not exists (select 1 from public.prev_titulo_lote a
+                            where a.lote_id = v_primeiro and a.titulo_id = b.titulo_id)) end,
+      'primeira_extracao', (select extraido_em from public.prev_lote where id = v_primeiro),
+      'ultima_extracao', (select extraido_em from public.prev_lote where id = v_ultimo),
+      'remessas', (select count(*) from linhas)),
+    'definicao', 'SAIU DA BASE = o título estava na primeira foto e não está na última. '
+              || 'NÃO é pagamento confirmado. Os cards comparam TÍTULO A TÍTULO, não '
+              || 'subtraem totais -- quem entrou depois não mascara quem saiu. No '
+              || 'histórico, cada ação é acompanhada só sobre o público dela, contra a '
+              || 'última remessa extraída após o envio: título que saiu e voltou está '
+              || 'presente, logo não conta como saída.'
   ) into v;
   return v;
 end;
@@ -562,8 +685,8 @@ $$;
 -- 7. PRIVILEGIOS
 -- -----------------------------------------------------------------------------
 revoke all on function public.preventivo_lote_confirmar_v2(uuid, text, text, jsonb, text, jsonb, timestamptz) from public, anon;
-revoke all on function public.preventivo_acao_externa_registrar(uuid, uuid, text, text, text, timestamptz) from public, anon;
+revoke all on function public.preventivo_acao_externa_registrar(uuid, uuid, text, text, text, timestamptz, text[], boolean) from public, anon;
 revoke all on function public.preventivo_evolucao(uuid) from public, anon;
 grant execute on function public.preventivo_lote_confirmar_v2(uuid, text, text, jsonb, text, jsonb, timestamptz) to authenticated;
-grant execute on function public.preventivo_acao_externa_registrar(uuid, uuid, text, text, text, timestamptz) to authenticated;
+grant execute on function public.preventivo_acao_externa_registrar(uuid, uuid, text, text, text, timestamptz, text[], boolean) to authenticated;
 grant execute on function public.preventivo_evolucao(uuid) to authenticated;
