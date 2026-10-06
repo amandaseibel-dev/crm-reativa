@@ -67,7 +67,6 @@ export default function CarteiraEfetividade() {
   // safras têm só o consolidado.
   const [vista, setVista] = useState("consolidado");
   const [consolidada, setConsolidada] = useState(null);
-  const [academico, setAcademico] = useState(null);
   const [vigente, setVigente] = useState(null);
   const [contexto, setContexto] = useState(null);
   const [historico, setHistorico] = useState(null);
@@ -84,21 +83,23 @@ export default function CarteiraEfetividade() {
       const quem = sessao?.user?.email || "";
       if (!ativo) return;
       if (!podeVerIndicadores(quem)) { setEmail(quem); setCarregando(false); return; }
-      const [a, b, c, e, f] = await Promise.all([
+      const [indicadores2026_1, negociacoes, contexto2026_2, historicoPorAno] = await Promise.all([
         supabase.rpc("carteira_2026_1_indicadores"),
-        supabase.rpc("carteira_2026_1_academico"),
         supabase.rpc("carteira_2026_2_negociacoes"),
         supabase.rpc("carteira_2026_2_contexto"),
         supabase.rpc("carteira_saldo_historico_por_ano"),
       ]);
       if (!ativo) return;
-      const primeiro = [a, b, c, e, f].find((r) => r.error);
+      // Nomes em vez de a/b/c/e/f: a lista encolheu quando
+      // `carteira_2026_1_academico` saiu, e com letras posicionais um retorno
+      // passaria calado para o estado errado.
+      const respostas = [indicadores2026_1, negociacoes, contexto2026_2, historicoPorAno];
+      const primeiro = respostas.find((r) => r.error);
       if (primeiro) setErro(primeiro.error.message);
-      setConsolidada(a.data?.vazio ? null : a.data);
-      setAcademico(b.data || null);
-      setVigente(c.data || null);
-      setContexto(e.data || null);
-      setHistorico(f.data || null);
+      setConsolidada(indicadores2026_1.data?.vazio ? null : indicadores2026_1.data);
+      setVigente(negociacoes.data || null);
+      setContexto(contexto2026_2.data || null);
+      setHistorico(historicoPorAno.data || null);
       setEmail(quem);
       setCarregando(false);
     })();
@@ -226,10 +227,8 @@ export default function CarteiraEfetividade() {
            + data(historico?.prime_coletado_em);
   }
 
-  // perfil dos alunos: só existe para 2026/1 (a coleta acadêmica cobre a carteira em aberto dessa safra).
-  // Em 2024/2025 o mesmo lugar mostra de que curso vem o saldo em aberto.
-  const perfil = safra === "2026/1" ? (academico?.categorias || []) : null;
-  const perfilTotal = Number(academico?.total?.cpfs || 0);
+  // De que curso vem o saldo em aberto — só 2024/2025. A situação acadêmica
+  // de qualquer safra mora em "Alunos por status", dentro de SeisLinhasDaSafra.
   const cursos = hist ? (hist.cursos || []) : null;
   const cursosTotal = Number(hist?.aberto?.valor || 0);
 
@@ -370,16 +369,20 @@ export default function CarteiraEfetividade() {
             </div>
           </section>
 
-          {/* 3. PERFIL DOS ALUNOS (2026/1) ou, em 2024/2025, de que curso vem o saldo em aberto */}
+          {/* 3. DE QUE CURSO VEM O SALDO EM ABERTO — só 2024/2025.
+              Em 2026/1 esta seção mostrava "Perfil dos alunos", que é a MESMA
+              situação acadêmica que `SeisLinhasDaSafra` já desenha em "Alunos
+              por status" logo acima: o mesmo conteúdo duas vezes, com dois
+              títulos. Ficou o bloco novo, que vale para toda safra. */}
+          {cursos ? (
           <section style={S.cartao}>
             <div style={S.cartaoCabecalho}>
-              <h2 style={S.h2}>{cursos ? "Saldo em aberto por curso" : "Perfil dos alunos"}</h2>
+              <h2 style={S.h2}>Saldo em aberto por curso</h2>
               {cursos && cursosTotal > 0 ? (
                 <span style={S.cartaoApoio}>% do saldo em aberto · {moeda(cursosTotal)}</span>
               ) : null}
             </div>
-            {cursos ? (
-              cursos.length > 0 ? (
+            {cursos.length > 0 ? (
                 <div>
                   {cursos.map((c) => {
                     const share = cursosTotal > 0 ? (Number(c.valor || 0) / cursosTotal) * 100 : 0;
@@ -412,34 +415,9 @@ export default function CarteiraEfetividade() {
                 </div>
               ) : (
                 <p style={{ ...S.discreto, marginTop: 8 }}>Sem saldo em aberto neste ano</p>
-              )
-            ) : perfil && perfil.length > 0 ? (
-              <div>
-                {perfil.map((c) => (
-                  <div key={c.categoria} style={S.linha}>
-                    <div style={S.linhaTopo}>
-                      <span style={S.linhaRotulo}>
-                        <span style={{ ...S.ponto, background: AZUL }} />{c.categoria}
-                      </span>
-                      <strong style={S.linhaValor}>{num(c.cpfs)} alunos</strong>
-                      <span style={{ ...S.linhaPct, color: AZUL }}>
-                        {Number(c.pct_cpfs).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%
-                      </span>
-                    </div>
-                    <div style={S.trilho}>
-                      <div style={{ ...S.barraPreenchida, width: Math.min(Number(c.pct_cpfs), 100) + "%",
-                                    minWidth: Number(c.cpfs || 0) > 0 ? 4 : 0, background: AZUL }} />
-                    </div>
-                  </div>
-                ))}
-                <p style={{ ...S.discreto, marginTop: 10 }}>
-                  {num(perfilTotal)} alunos com pendência nesta carteira. Situação acadêmica do Prime.
-                </p>
-              </div>
-            ) : (
-              <p style={{ ...S.discreto, marginTop: 8 }}>Informação acadêmica não disponível para este período</p>
-            )}
+              )}
           </section>
+          ) : null}
 
         </>
       )}
