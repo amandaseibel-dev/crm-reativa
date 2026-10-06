@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 // =============================================================================
 // TV ReATIVA — DESIGN SYSTEM (Etapa 2)
@@ -245,6 +245,69 @@ export function CardMeta({ meta }) {
       <div style={{ display: "flex", gap: "2vw", flexWrap: "wrap", fontSize: fs(13, 1.3, 28), fontWeight: 700, color: T.texto }}>
         <span>Falta <strong style={{ color: cor }}>{moeda(meta.restante)}</strong></span>
         {meta.ritmo_necessario != null && <span style={{ color: T.textoSuave }}>Precisa {moeda(meta.ritmo_necessario)}/dia útil</span>}
+      </div>
+    </div>
+  );
+}
+
+// Raio ReATIVA — símbolo da marca em forma de raio azul. Puro SVG inline (sem
+// arquivo, sem requisição): escala sem perder nitidez em Full HD e 4K. O id do
+// gradiente é único por instância para não colidir quando houver dois na tela.
+export function RaioReativa({ tamanho = fs(26, 3.0, 72), titulo = "ReATIVA" }) {
+  const id = useId().replace(/:/g, "");
+  return (
+    <svg viewBox="0 0 24 24" role="img" aria-label={titulo}
+      style={{ width: tamanho, height: tamanho, display: "block", filter: "drop-shadow(0 0 18px rgba(59,130,246,0.75))", flex: "0 0 auto" }}>
+      <defs>
+        <linearGradient id={`raio-${id}`} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor={T.azulClaro} />
+          <stop offset="55%" stopColor={T.azul} />
+          <stop offset="100%" stopColor="#1d4ed8" />
+        </linearGradient>
+      </defs>
+      <path d="M13.9 1.6 4.6 13.1a.7.7 0 0 0 .55 1.14h4.04l-1.2 8.03a.7.7 0 0 0 1.25.52l9.2-11.46a.7.7 0 0 0-.55-1.14h-4.03l1.2-8.04a.7.7 0 0 0-1.25-.52Z"
+        fill={`url(#raio-${id})`} stroke="rgba(125,211,252,0.55)" strokeWidth="0.5" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// Anel de progresso — círculo grande com o % no centro, para leitura à
+// distância. `pct` NUNCA é limitado no texto (115% continua 115%); só o arco
+// para em 100% para não dar duas voltas. Nunca depende só de cor: o rótulo
+// textual do status acompanha sempre.
+// `status` ({ label, cor }) permite trocar a régua: statusMeta é percentual
+// puro e no começo do mês acusa "Abaixo do ritmo" em quem está adiantado;
+// quem tem projeção na mão passa statusRitmo e o selo fica honesto.
+export function AnelProgresso({ pct, rotulo = "da meta", status, children, tamanho = "min(46vh, 32vw)" }) {
+  const id = useId().replace(/:/g, "");
+  const st = status || statusMeta(pct);
+  const arco = Math.max(0, Math.min(100, Number(pct || 0)));
+  const r = 86;                       // raio do círculo no viewBox 200x200
+  const volta = 2 * Math.PI * r;
+  const pctTxt = pct == null ? "—" : `${Math.round(Number(pct))}%`;
+  return (
+    <div style={{ position: "relative", width: tamanho, height: tamanho, flex: "0 0 auto" }}>
+      <svg viewBox="0 0 200 200" style={{ width: "100%", height: "100%", transform: "rotate(-90deg)" }} aria-hidden="true">
+        <defs>
+          <linearGradient id={`anel-${id}`} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor={T.azul} />
+            <stop offset="100%" stopColor={st.cor} />
+          </linearGradient>
+        </defs>
+        <circle cx="100" cy="100" r={r} fill="none" stroke="rgba(15,23,42,0.75)" strokeWidth="17" />
+        <circle cx="100" cy="100" r={r} fill="none" stroke="rgba(148,163,184,0.18)" strokeWidth="17" />
+        <circle cx="100" cy="100" r={r} fill="none" stroke={`url(#anel-${id})`} strokeWidth="17" strokeLinecap="round"
+          strokeDasharray={`${(volta * arco) / 100} ${volta}`}
+          style={{ transition: "stroke-dasharray .8s ease", filter: "drop-shadow(0 0 14px rgba(59,130,246,0.55))" }} />
+      </svg>
+      <div style={{
+        position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center", gap: "0.4vh", textAlign: "center",
+      }}>
+        {children}
+        <span style={{ fontSize: fs(42, 6.2, 150), fontWeight: 900, lineHeight: 0.95, color: st.cor, letterSpacing: "-0.02em" }}>{pctTxt}</span>
+        <span style={{ fontSize: fs(12, 1.2, 28), fontWeight: 800, color: T.textoSuave, textTransform: "uppercase", letterSpacing: "0.14em" }}>{rotulo}</span>
+        <span style={{ ...s.selo, color: st.cor, borderColor: st.cor, marginTop: "0.4vh" }}>{st.label}</span>
       </div>
     </div>
   );

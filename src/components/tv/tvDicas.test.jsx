@@ -99,6 +99,7 @@ describe("TV — tela de Dicas de Abordagem", () => {
       expect(ids).toContain(antiga);
     }
     expect(ids).toContain("dicas");
-    expect(ids.length).toBe(21);
+    // 22 desde 06/10/2026: entrou o slide dedicado "meta_do_mes".
+    expect(ids.length).toBe(22);
   });
 });

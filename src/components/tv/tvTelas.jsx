@@ -3,6 +3,7 @@ import {
   MensagemInstitucional, Aviso, Treinamento, Conquista,
   moeda, num, statusRitmo, T, fs, layout,
 } from "./tvUI";
+import TelaMetaDoMes from "./tvMetaDoMes";
 
 // =============================================================================
 // TV ReATIVA — TELAS (Etapa 3: regras detalhadas)
@@ -641,6 +642,9 @@ export const CATALOGO_TELAS = [
   { id: "resultado", nome: "Resultado do Mês", Comp: TelaResultadoMes, ativa: true, grupo: "operacao",
     descricao: "Acumulado do mês, projeção de fechamento e ritmo necessário.",
     temConteudo: (s) => !!s?.mes },
+  { id: "meta_do_mes", nome: "Meta do Mês", Comp: TelaMetaDoMes, ativa: true, grupo: "operacao",
+    descricao: "Tela dedicada da meta: % atingido no anel, realizado, falta, dias úteis restantes e necessário por dia útil.",
+    temConteudo: (s) => Number(s?.mes?.meta_empresa || 0) > 0 },
   { id: "metas", nome: "Metas", Comp: TelaMetas, ativa: false, grupo: "operacao",
     descricao: "Cards de metas (empresa, magic, marco histórico).",
     temConteudo: (s) => (s?.metas || []).length > 0 },
