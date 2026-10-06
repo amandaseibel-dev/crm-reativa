@@ -20,7 +20,17 @@ vi.mock("../components/BotaoAtualizar", () => ({
 }));
 let propsPenetracao = null;
 vi.mock("../components/PenetracaoPorAno", () => ({ default: (p) => { propsPenetracao = p; return null; } }));
-vi.mock("xlsx", () => ({ utils: { json_to_sheet: () => ({}), book_new: () => ({}), book_append_sheet: () => {} }, writeFile: () => {} }));
+// Guarda as linhas que a tela mandou para a planilha: é o que prova o conteúdo
+// exportado sem precisar abrir um .xlsx de verdade.
+let linhasPlanilha = null;
+vi.mock("xlsx", () => ({
+  utils: {
+    json_to_sheet: (linhas) => { linhasPlanilha = linhas; return {}; },
+    book_new: () => ({}),
+    book_append_sheet: () => {},
+  },
+  writeFile: () => {},
+}));
 
 import AcoesMassivas from "./AcoesMassivas";
 
@@ -51,6 +61,8 @@ let resumoExtra = {};
 let regExtra = {};
 let lotes = [];
 let concluirExtra = {};
+let lotesWhats = [];
+let emailDoLote = null;
 
 beforeEach(() => {
   previaExtra = { prime_extrato_em: "2026-09-05" };
@@ -58,6 +70,9 @@ beforeEach(() => {
   regExtra = {};
   lotes = [];
   concluirExtra = {};
+  lotesWhats = [];
+  emailDoLote = null;
+  linhasPlanilha = null;
   rpcMock.mockReset();
   rpcMock.mockImplementation(async (nome, args) => {
     if (nome === "acoes_massivas_filtros") {
@@ -113,6 +128,24 @@ beforeEach(() => {
       };
     }
     if (nome === "acoes_massivas_lotes_pendentes") return { data: lotes };
+    if (nome === "acoes_massivas_lotes_whatsapp") return { data: lotesWhats };
+    if (nome === "acoes_massivas_exportar_emails_do_lote") {
+      if (emailDoLote?.erro) return { data: null, error: new Error(emailDoLote.erro) };
+      return {
+        data: {
+          lote_id: "lote-email-1",
+          lote_origem_id: args.p_lote_id,
+          arquivo: args.p_arquivo,
+          total_lote_whatsapp: 10,
+          com_email: 7,
+          sem_email: 3,
+          registrados: 7,
+          contatos: [{ aluno_id: "a1", nome: "Ana", email: "a@x.com" }],
+          ids_excluidos: [],
+          ...(emailDoLote || {}),
+        },
+      };
+    }
     if (nome === "acoes_massivas_concluir_lote") {
       return { data: { lote_id: args.p_lote_id, registrados: 3, ...concluirExtra } };
     }
@@ -800,5 +833,141 @@ describe("Ações Massivas — o rótulo diz qual titularidade é", () => {
     const linha = within(tabela).getByText("cobranca03@teste.local").closest("tr");
     // alunos 3 · casos 3 · acordos 2 · de outro dono 1 · caso em outra mão 1
     expect(linha.textContent).toMatch(/3.*3.*2.*1.*1/);
+  });
+});
+
+// E-MAIL DO LOTE DE WHATSAPP. O que se prova aqui: o recorte sai do LOTE (um
+// p_lote_id, nada de filtro refeito nem de "Acionados hoje"), a tela mostra
+// quantos daquele lote têm e-mail antes de clicar, a ação pede confirmação
+// explícita, a planilha leva nome + e-mail, e um lote que já derivou e-mail não
+// oferece o botão de novo.
+describe("Ações Massivas — e-mail a partir de um lote de WhatsApp", () => {
+  const LOTE_WHATS = {
+    id: "lote-wa-1",
+    arquivo: "acao-massiva-whatsapp-2026-10-06.xlsx",
+    operador_email: null,
+    operador_nome: null,
+    tipo_cobranca: "MENSALIDADES",
+    total: 10,
+    com_email: 7,
+    sem_email: 3,
+    exportado_em: "2026-10-06T12:00:00Z",
+    exportado_por_email: "gestao@reativa",
+    email_lote_id: null,
+    email_exportado_em: null,
+  };
+  const painel = () => screen.getByTestId("lotes-whatsapp-email");
+  const chamadas = (nome) => rpcMock.mock.calls.filter(([n]) => n === nome);
+
+  async function abrirConfirmacao() {
+    await act(async () => {
+      fireEvent.click(within(painel()).getByRole("button", { name: /Exportar e-mails deste lote/ }));
+    });
+  }
+
+  it("sem lote de WhatsApp recente, o painel não aparece", async () => {
+    await montar();
+    expect(screen.queryByTestId("lotes-whatsapp-email")).toBeNull();
+  });
+
+  it("mostra o lote com o total, quantos têm e-mail e quantos não têm", async () => {
+    lotesWhats = [LOTE_WHATS];
+    await montar();
+    const linha = within(painel()).getByText(LOTE_WHATS.arquivo).closest("tr");
+    expect(within(linha).getByText("10")).toBeTruthy();
+    expect(within(linha).getByText("7")).toBeTruthy();
+    expect(within(linha).getByText("3")).toBeTruthy();
+  });
+
+  it("não exporta no primeiro clique: pede confirmação dizendo o que vai registrar", async () => {
+    lotesWhats = [LOTE_WHATS];
+    await montar();
+    await abrirConfirmacao();
+    expect(within(painel()).getByText(/Gera a planilha de e-mail com 7 aluno\(s\)/)).toBeTruthy();
+    expect(within(painel()).getByText(/3 sem e-mail válido ficam fora/)).toBeTruthy();
+    expect(chamadas("acoes_massivas_exportar_emails_do_lote")).toHaveLength(0);
+  });
+
+  it("confirmado, chama o banco só com o id do lote — sem refazer filtro", async () => {
+    lotesWhats = [LOTE_WHATS];
+    await montar();
+    await abrirConfirmacao();
+    await act(async () => {
+      fireEvent.click(within(painel()).getByRole("button", { name: /Sim, exportar e registrar/ }));
+    });
+    const [, args] = chamadas("acoes_massivas_exportar_emails_do_lote").at(-1);
+    expect(args.p_lote_id).toBe("lote-wa-1");
+    expect(args.p_arquivo).toMatch(/^acao-massiva-email-do-lote-whatsapp-\d{4}-\d{2}-\d{2}\.xlsx$/);
+    // Nada de prévia nem de exportação normal foi acionado por este caminho.
+    expect(chamadas("acoes_massivas_previa")).toHaveLength(0);
+    expect(chamadas("acoes_massivas_exportar")).toHaveLength(0);
+  });
+
+  it("conta na mensagem o que saiu, o que foi registrado e o que ficou fora por e-mail", async () => {
+    lotesWhats = [LOTE_WHATS];
+    await montar();
+    await abrirConfirmacao();
+    await act(async () => {
+      fireEvent.click(within(painel()).getByRole("button", { name: /Sim, exportar e registrar/ }));
+    });
+    expect(screen.getByText(/7 de 10 aluno\(s\) com e-mail válido e 7 registrado\(s\)/)).toBeTruthy();
+    expect(screen.getByText(/3 ficaram fora por não ter e-mail válido/)).toBeTruthy();
+    expect(screen.getByText(/lote de WhatsApp não foi alterado/)).toBeTruthy();
+  });
+
+  it("nenhum com e-mail: diz que nada foi exportado nem registrado", async () => {
+    lotesWhats = [LOTE_WHATS];
+    emailDoLote = { lote_id: null, com_email: 0, sem_email: 10, registrados: 0, contatos: [] };
+    await montar();
+    await abrirConfirmacao();
+    await act(async () => {
+      fireEvent.click(within(painel()).getByRole("button", { name: /Sim, exportar e registrar/ }));
+    });
+    expect(screen.getByText(/Nenhum dos 10 aluno\(s\) do lote de WhatsApp tem e-mail válido/)).toBeTruthy();
+  });
+
+  it("lote sem ninguém com e-mail não oferece a exportação", async () => {
+    lotesWhats = [{ ...LOTE_WHATS, com_email: 0, sem_email: 10 }];
+    await montar();
+    expect(within(painel()).getByRole("button", { name: /Exportar e-mails deste lote/ }).disabled).toBe(true);
+  });
+
+  it("lote que já derivou e-mail não oferece o botão de novo", async () => {
+    lotesWhats = [{ ...LOTE_WHATS, email_lote_id: "lote-email-1", email_exportado_em: "2026-10-06T15:00:00Z" }];
+    await montar();
+    expect(within(painel()).queryByRole("button", { name: /Exportar e-mails deste lote/ })).toBeNull();
+    expect(within(painel()).getByText(/E-mail já exportado deste lote/)).toBeTruthy();
+  });
+
+  it("erro do banco aparece na tela e não vira sucesso", async () => {
+    lotesWhats = [LOTE_WHATS];
+    emailDoLote = { erro: "Este lote de WhatsApp ja gerou a acao de e-mail" };
+    await montar();
+    await abrirConfirmacao();
+    await act(async () => {
+      fireEvent.click(within(painel()).getByRole("button", { name: /Sim, exportar e registrar/ }));
+    });
+    expect(screen.getByText(/Erro ao exportar e-mails do lote/)).toBeTruthy();
+    expect(screen.queryByText(/com e-mail válido e/)).toBeNull();
+  });
+
+  it("a planilha leva nome e e-mail dos alunos do lote", async () => {
+    lotesWhats = [LOTE_WHATS];
+    emailDoLote = {
+      contatos: [
+        { aluno_id: "a1", nome: "Ana", email: " ana@x.com " },
+        { aluno_id: "a2", nome: "Bia", email: "bia@x.com" },
+      ],
+      com_email: 2, sem_email: 8, registrados: 2,
+    };
+    await montar();
+    await abrirConfirmacao();
+    await act(async () => {
+      fireEvent.click(within(painel()).getByRole("button", { name: /Sim, exportar e registrar/ }));
+    });
+    expect(linhasPlanilha).toEqual([
+      { "Nome do aluno": "Ana", "E-mail": "ana@x.com" },
+      { "Nome do aluno": "Bia", "E-mail": "bia@x.com" },
+    ]);
   });
 });
