@@ -9,7 +9,11 @@
 //   3. remessa sem hora comprovada ordena por (data, ordem no dia), nunca por
 //      um horário inventado;
 //   4. quando a foto é do MESMO dia do envio e falta hora comprovada de algum
-//      lado, o resultado da ação fica PENDENTE — nulo, não zero.
+//      lado, o resultado da ação fica PENDENTE — nulo, não zero;
+//   5. o que já existia antes desta migration nasce NAO_COMPROVADA: o horário
+//      do upload segue gravado, mas não vale como hora de extração;
+//   6. o DIA é o de America/Sao_Paulo — a resposta não muda se a sessão que
+//      consulta está em UTC ou em Brasília.
 //
 // NENHUM DADO REAL.
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
@@ -23,6 +27,8 @@ const ler = (p) => readFileSync(resolve(AQUI, "..", "..", p), "utf8");
 const GESTAO = "amanda.seibel@aelbra.com.br";
 const OUTRA = "cobranca07@aelbra.com.br";
 
+const MIG_RECORTE = "supabase/migrations/20261006165832_preventivo_recorte_e_precisao_da_extracao.sql";
+
 const MIGRATIONS = [
   "supabase/migrations/20260928143743_preventivo_estrutura.sql",
   "supabase/migrations/20260928143843_preventivo_importacao.sql",
@@ -31,7 +37,7 @@ const MIGRATIONS = [
   "supabase/migrations/20261005124732_preventivo_update_com_where.sql",
   "supabase/migrations/20261005191400_preventivo_contexto_da_acao.sql",
   "supabase/migrations/20261006114523_preventivo_acao_externa_e_data_da_extracao.sql",
-  "supabase/migrations/20261006165832_preventivo_recorte_e_precisao_da_extracao.sql",
+  MIG_RECORTE,
 ].map(ler);
 
 const TABELAS = [
@@ -277,7 +283,116 @@ describe("Preventivo — recorte dos indicadores e precisão da extração", () 
                            "2026-10-04 00:00-03", null, "DATA")).rejects.toThrow(/anterior/i);
   });
 
-  // --- 5. PORTÃO --------------------------------------------------------
+  // --- 5. O QUE JÁ EXISTIA NÃO VIRA CERTEZA -----------------------------
+
+  it("remessa e ação anteriores à migration ficam NAO_COMPROVADA, com o horário intacto", async () => {
+    // reconstrói o estado de antes: coluna ausente, linha já gravada.
+    await db.exec(`
+      alter table public.prev_lote  drop column extraido_precisao;
+      alter table public.prev_acao  drop column envio_precisao;`);
+    const r = await um(db,
+      `select public.preventivo_lote_confirmar($1::uuid, 'Antiga', 'rel.csv', '{}'::jsonb, null, $2::jsonb)`,
+      [carteira, JSON.stringify([t("2026000001")])]);
+    const antes = await um(db,
+      `select extraido_em from public.prev_lote where id = $1::uuid`, [r.lote_id]);
+
+    // reaplica só o trecho da migration que cria as colunas
+    await db.exec(ler(MIG_RECORTE));
+
+    const depois = await db.query(
+      `select extraido_em, extraido_precisao from public.prev_lote where id = $1::uuid`,
+      [r.lote_id]);
+    // o horário NÃO foi tocado...
+    expect(new Date(depois.rows[0].extraido_em).getTime())
+      .toBe(new Date(antes).getTime());
+    // ...e não foi promovido a hora comprovada
+    expect(depois.rows[0].extraido_precisao).toBe("NAO_COMPROVADA");
+  });
+
+  it("NAO_COMPROVADA não prova sequência dentro do mesmo dia", async () => {
+    const r = await importar("Foto", [t("2026000001"), t("2026000002")], "2026-10-05 09:00-03");
+    // força o estado herdado: horário gravado, precisão não comprovada
+    await db.exec(`update public.prev_lote set extraido_precisao = 'NAO_COMPROVADA'`);
+    const a = await registrar(r.lote_id, "Envio", "EMAIL", "BOLETO_VENCIDO",
+                              "2026-10-05 08:00-03");
+    await importar("Mesmo dia", [t("2026000001")], "2026-10-05 15:00-03");
+    await db.exec(`update public.prev_lote set extraido_precisao = 'NAO_COMPROVADA'
+                    where nome = 'Mesmo dia'`);
+
+    const res = await resultado(a.id);
+    expect(res.sequencia_nao_comprovada).toBe(true);
+    expect(res.saiu_da_base).toBeNull();
+  });
+
+  // --- 6. O DIA É O DE SÃO PAULO ---------------------------------------
+
+  // 05/10 23:30 em Brasília é 06/10 02:30 em UTC. Com `::date` cru numa sessão
+  // UTC, a foto cairia no dia SEGUINTE ao envio das 22h e passaria a "provar"
+  // a sequência — uma virada de dia que só existe no fuso de quem consulta.
+  it("a virada do dia é a de Brasília, e a resposta não muda com o fuso da sessão", async () => {
+    const manha = await importar("Manhã", [t("2026000001"), t("2026000002")],
+                                 "2026-10-05 00:00-03", "DATA", 1);
+    const a = await registrar(manha.lote_id, "Envio das 22h", "WHATSAPP", "BOLETO_VENCIDO",
+                              "2026-10-05 22:00-03", null, "DATA");
+    // 23h30 de Brasília — ainda 05/10 lá, já 06/10 em UTC
+    await importar("Noite", [t("2026000001")], "2026-10-05 23:30-03", "DATA", 2);
+
+    const porFuso = {};
+    for (const tz of ["UTC", "America/Sao_Paulo"]) {
+      await db.exec(`set time zone '${tz}'`);
+      const res = await resultado(a.id);
+      const ev = (await evolucao()).acoes.find((x) => x.id === a.id);
+      porFuso[tz] = {
+        pendente: res.sequencia_nao_comprovada,
+        saiu: res.saiu_da_base,
+        seguinte: res.remessa_seguinte,
+        evPendente: ev.sequencia_nao_comprovada,
+        ordem: (await evolucao()).pontos.map((x) => x.remessa).join(","),
+      };
+    }
+    await db.exec(`set time zone 'UTC'`);
+
+    // os dois fusos enxergam o MESMO dia, logo a MESMA resposta
+    expect(porFuso.UTC).toEqual(porFuso["America/Sao_Paulo"]);
+    // e a resposta é: mesmo dia sem hora comprovada → pendente
+    expect(porFuso.UTC.pendente).toBe(true);
+    expect(porFuso.UTC.saiu).toBeNull();
+    expect(porFuso.UTC.seguinte).toBeNull();
+  });
+
+  it("o dia anterior continua provando a sequência nos dois fusos", async () => {
+    const r = await importar("Ontem", [t("2026000001"), t("2026000002")],
+                             "2026-10-05 00:00-03", "DATA", 1);
+    const a = await registrar(r.lote_id, "Envio", "WHATSAPP", "BOLETO_VENCIDO",
+                              "2026-10-05 22:00-03", null, "DATA");
+    // 00h30 de 06/10 em Brasília — dia seguinte nos dois fusos
+    await importar("Hoje", [t("2026000001")], "2026-10-06 00:30-03", "DATA", 1);
+
+    for (const tz of ["UTC", "America/Sao_Paulo"]) {
+      await db.exec(`set time zone '${tz}'`);
+      const res = await resultado(a.id);
+      expect(res.remessa_seguinte).not.toBeNull();
+      expect(res.saiu_da_base).toBe(1);
+    }
+    await db.exec(`set time zone 'UTC'`);
+  });
+
+  it("a comparação entre remessas usa o dia de Brasília para achar a anterior", async () => {
+    const cedo = await importar("Cedo", [t("2026000001"), t("2026000002")],
+                                "2026-10-05 08:00-03", "DATA", 1);
+    const tarde = await importar("Tarde", [t("2026000001")],
+                                 "2026-10-05 23:30-03", "DATA", 2);
+    for (const tz of ["UTC", "America/Sao_Paulo"]) {
+      await db.exec(`set time zone '${tz}'`);
+      const c = await um(db, `select public.preventivo_remessa_comparar($1::uuid)`, [tarde.lote_id]);
+      // mesmo dia em São Paulo: a ordem no dia é que decide quem veio antes
+      expect(c.remessa_anterior).toBe(cedo.lote_id);
+      expect(c.saiu_da_base.titulos).toBe(1);
+    }
+    await db.exec(`set time zone 'UTC'`);
+  });
+
+  // --- 7. PORTÃO --------------------------------------------------------
 
   it("quem não é da gestão não lê nem registra", async () => {
     const r = await importar("Foto", [t("2026000001")], "2026-10-05 15:00-03");

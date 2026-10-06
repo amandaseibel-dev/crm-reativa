@@ -34,6 +34,12 @@ const CONTEXTOS = {
 };
 const CANAIS = { WHATSAPP: "WhatsApp", EMAIL: "E-mail" };
 
+// A hora só é exibida quando alguém declarou que ela é a da extração (ou a do
+// envio). "DATA" e "NAO_COMPROVADA" caem no mesmo lugar: mostrar um horário que
+// ninguém mediu dá à tela uma precisão que o dado não tem.
+const quando = (ts, precisao) =>
+  precisao === "DATA_E_HORA" ? dataHora(ts) : dataCurta(ts);
+
 const compacto = (v) => {
   const n = Number(v || 0);
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
@@ -66,7 +72,8 @@ function TooltipPonto({ active, payload }) {
     <div style={caixa}>
       <div style={{ fontWeight: 800 }}>{d.nome}</div>
       <div style={{ ...S.muted, fontSize: 11.5, marginBottom: 6 }}>
-        extraído em {dataHora(d.extraido_em)}
+        extraído em {quando(d.extraido_em, d.extraido_precisao)}
+        {d.extraido_precisao !== "DATA_E_HORA" && ` · ${d.ordem_no_dia}ª do dia`}
       </div>
       <Par rot="Títulos em aberto" val={d.titulos} />
       <Par rot="Alunos" val={d.alunos} />
@@ -261,9 +268,7 @@ function HistoricoDasAcoes({ acoes }) {
                   <td style={S.td}>{CONTEXTOS[a.contexto] || "—"}</td>
                   <td style={S.td}>{a.origem === "EXTERNA" ? "Fora do CRM" : "Módulo"}</td>
                   <td style={S.td}>
-                    {a.enviada_em
-                      ? (a.envio_precisao === "DATA" ? dataCurta(a.enviada_em) : dataHora(a.enviada_em))
-                      : "—"}
+                    {a.enviada_em ? quando(a.enviada_em, a.envio_precisao) : "—"}
                   </td>
                   <td style={S.td}>{a.remessa_nome}</td>
                   <td style={S.td}>{a.publico === "lista_informada" ? "Lista" : "Remessa inteira"}</td>
@@ -280,6 +285,13 @@ function HistoricoDasAcoes({ acoes }) {
             </tbody>
           </table>
         </div>
+      )}
+      {acoes.some((a) => a.envio_precisao === "NAO_COMPROVADA") && (
+        <p style={{ ...S.muted, marginTop: 10, fontSize: 11.5 }}>
+          Ações registradas antes desta versão não têm hora de envio comprovada — o horário
+          gravado é o do cadastro, não o do disparo. Ele continua guardado, mas não é usado
+          para decidir o que veio antes.
+        </p>
       )}
       {acoes.some((a) => a.sequencia_nao_comprovada) && (
         <p style={{ ...S.muted, marginTop: 10, fontSize: 11.5 }}>

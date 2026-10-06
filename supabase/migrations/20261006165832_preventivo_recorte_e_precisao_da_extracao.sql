@@ -19,9 +19,30 @@
 --      entradas_que_sairam      -- entraram e ja sairam              (13)
 --
 -- 3. DATA SEM HORA INVENTADA. Relatorio antigo nao tem hora comprovada. A
---    remessa passa a declarar `extraido_precisao` (DATA ou DATA_E_HORA) e, nas
---    de mesma data, uma `ordem_no_dia` EXPLICITA. A ordenacao usa
---    (data, ordem_no_dia) -- nunca um horario de fachada.
+--    remessa passa a declarar `extraido_precisao` e, nas de mesma data, uma
+--    `ordem_no_dia` EXPLICITA. A ordenacao usa (data, ordem_no_dia) -- nunca
+--    um horario de fachada.
+--
+--    SAO TRES VALORES, nao dois, porque o que ja estava gravado nao se encaixa
+--    em nenhum dos outros:
+--      DATA_E_HORA    -- quem importou declarou que a hora e a da extracao
+--      DATA           -- so o dia e conhecido; a hora gravada nao vale nada
+--      NAO_COMPROVADA -- o que ja existia antes desta migration
+--
+--    NAO_COMPROVADA e o ponto delicado. O `extraido_em` dessas linhas veio de
+--    `criado_em` -- o momento do UPLOAD. Dizer que upload e extracao sao a
+--    mesma coisa seria uma afirmacao que ninguem fez e que nao da para checar.
+--    Entao o horario original fica EXATAMENTE como esta, intocado, e a
+--    precisao apenas registra que ele nao foi comprovado. Para efeito de prova
+--    de sequencia, NAO_COMPROVADA vale o mesmo que DATA: nao prova nada dentro
+--    do dia. Quem souber a hora de verdade corrige a linha; ate la o modulo
+--    prefere ficar pendente a inventar uma certeza.
+--
+--    O DIA E O DE SAO PAULO. Toda comparacao e toda ordenacao convertem o
+--    timestamptz para o dia em America/Sao_Paulo. Com `::date` cru o resultado
+--    dependeria do timezone da sessao: uma foto das 23h30 de 05/10 (BRT) cai
+--    em 06/10 numa sessao UTC, e aquela virada de dia FALSA passaria a
+--    "provar" que a foto veio depois de um envio das 22h do dia 05.
 --
 --    CONSEQUENCIA ASSUMIDA: se a remessa e o envio caem no MESMO DIA e a hora
 --    de algum dos dois nao e comprovada, nao da para afirmar que a foto veio
@@ -29,16 +50,36 @@
 --    com `sequencia_nao_comprovada` -- em vez de ser calculado no escuro.
 
 -- -----------------------------------------------------------------------------
+-- 0. O DIA DA OPERACAO
+-- -----------------------------------------------------------------------------
+-- A operacao e em Porto Alegre e o relatorio sai no horario de Brasilia. O dia
+-- de um instante e o dia EM America/Sao_Paulo -- nunca `::date` cru, que
+-- devolve o dia em UTC quando a sessao esta em UTC (o CI esta).
+create or replace function public.preventivo_dia(p timestamptz)
+returns date
+language sql
+stable
+set search_path to 'public'
+as $$ select (p at time zone 'America/Sao_Paulo')::date $$;
+
+comment on function public.preventivo_dia(timestamptz) is
+  'Dia de um instante no fuso da operacao (America/Sao_Paulo). Existe para que '
+  'a comparacao entre remessa e envio nao mude de resultado conforme o timezone '
+  'da sessao que faz a consulta.';
+
+-- -----------------------------------------------------------------------------
 -- 1. PRECISAO E ORDEM EXPLICITA NA REMESSA
 -- -----------------------------------------------------------------------------
 alter table public.prev_lote add column if not exists extraido_precisao text;
-update public.prev_lote set extraido_precisao = 'DATA_E_HORA' where extraido_precisao is null;
+-- O horario ja gravado NAO e tocado. So se registra que ele nunca foi
+-- comprovado como hora de extracao -- ele veio do upload.
+update public.prev_lote set extraido_precisao = 'NAO_COMPROVADA' where extraido_precisao is null;
 alter table public.prev_lote alter column extraido_precisao set default 'DATA_E_HORA';
 alter table public.prev_lote alter column extraido_precisao set not null;
 
 alter table public.prev_lote drop constraint if exists prev_lote_extraido_precisao_check;
 alter table public.prev_lote add constraint prev_lote_extraido_precisao_check
-  check (extraido_precisao in ('DATA', 'DATA_E_HORA'));
+  check (extraido_precisao in ('DATA', 'DATA_E_HORA', 'NAO_COMPROVADA'));
 
 alter table public.prev_lote add column if not exists ordem_no_dia int;
 update public.prev_lote set ordem_no_dia = 1 where ordem_no_dia is null;
@@ -50,15 +91,21 @@ alter table public.prev_lote add constraint prev_lote_ordem_no_dia_check
   check (ordem_no_dia >= 1);
 
 comment on column public.prev_lote.extraido_precisao is
-  'DATA_E_HORA = o horario de `extraido_em` e comprovado. DATA = so o dia e '
-  'conhecido; a hora gravada NAO deve ser lida nem exibida, e a ordem entre '
-  'fotos do mesmo dia vem de `ordem_no_dia`.';
+  'DATA_E_HORA = quem importou declarou que o horario de `extraido_em` e o da '
+  'extracao. DATA = so o dia e conhecido; a hora gravada NAO deve ser lida nem '
+  'exibida. NAO_COMPROVADA = remessa anterior a esta migration: o horario e o '
+  'do upload e segue gravado como estava, mas ninguem afirmou que e o da '
+  'extracao. Para prova de sequencia, NAO_COMPROVADA vale o mesmo que DATA. '
+  'Em qualquer um dos dois, a ordem entre fotos do mesmo dia vem de '
+  '`ordem_no_dia`.';
 comment on column public.prev_lote.ordem_no_dia is
   'Ordem explicita entre remessas extraidas no MESMO dia, 1 = primeira. Existe '
   'para nao precisar inventar horario quando so se conhece a data.';
 
--- A remessa que ja existia foi importada no mesmo instante da extracao, entao
--- o horario dela E comprovado -- fica DATA_E_HORA, como o default acima.
+-- A remessa que ja existia fica NAO_COMPROVADA: o horario dela continua
+-- gravado, intacto, mas e o do upload. Afirmar que upload e extracao
+-- coincidem seria inventar um fato -- e justamente o que esta migration
+-- existe para nao fazer.
 
 create index if not exists prev_lote_ordem_idx
   on public.prev_lote (carteira_id, extraido_em, ordem_no_dia);
@@ -67,18 +114,21 @@ create index if not exists prev_lote_ordem_idx
 -- 2. PRECISAO DO ENVIO NA ACAO
 -- -----------------------------------------------------------------------------
 alter table public.prev_acao add column if not exists envio_precisao text;
-update public.prev_acao set envio_precisao = 'DATA_E_HORA' where envio_precisao is null;
+-- Mesma regra: o que ja estava gravado continua gravado, sem virar certeza.
+update public.prev_acao set envio_precisao = 'NAO_COMPROVADA' where envio_precisao is null;
 alter table public.prev_acao alter column envio_precisao set default 'DATA_E_HORA';
 alter table public.prev_acao alter column envio_precisao set not null;
 
 alter table public.prev_acao drop constraint if exists prev_acao_envio_precisao_check;
 alter table public.prev_acao add constraint prev_acao_envio_precisao_check
-  check (envio_precisao in ('DATA', 'DATA_E_HORA'));
+  check (envio_precisao in ('DATA', 'DATA_E_HORA', 'NAO_COMPROVADA'));
 
 comment on column public.prev_acao.envio_precisao is
-  'DATA_E_HORA = a hora do envio e comprovada. DATA = so o dia; a hora gravada '
-  'nao deve ser exibida, e a comparacao com uma remessa do MESMO dia fica '
-  'pendente em vez de ser decidida por um horario que ninguem mediu.';
+  'DATA_E_HORA = a hora do envio foi declarada por quem registrou. DATA = so o '
+  'dia. NAO_COMPROVADA = acao anterior a esta migration. Em DATA e em '
+  'NAO_COMPROVADA a hora gravada nao deve ser exibida, e a comparacao com uma '
+  'remessa do MESMO dia fica pendente, em vez de decidida por um horario que '
+  'ninguem mediu.';
 
 -- -----------------------------------------------------------------------------
 -- 3. REGISTRAR ACAO EXTERNA COM PRECISAO
@@ -133,11 +183,13 @@ begin
   if v_extraido is null then
     raise exception 'Remessa não encontrada nesta carteira.' using errcode = '22023';
   end if;
-  -- Sem hora comprovada dos dois lados, so o DIA pode ser cobrado.
-  if (v_prec = 'DATA' or v_lote_prec = 'DATA') then
-    if p_enviada_em::date < v_extraido::date then
+  -- Sem hora comprovada dos DOIS lados, so o DIA pode ser cobrado -- e o dia
+  -- e o de Sao Paulo, nao o da sessao. NAO_COMPROVADA conta como sem hora.
+  if (v_prec <> 'DATA_E_HORA' or v_lote_prec <> 'DATA_E_HORA') then
+    if public.preventivo_dia(p_enviada_em) < public.preventivo_dia(v_extraido) then
       raise exception 'O envio (%) é anterior à extração da remessa (%).',
-        p_enviada_em::date, v_extraido::date using errcode = '22023';
+        public.preventivo_dia(p_enviada_em), public.preventivo_dia(v_extraido)
+        using errcode = '22023';
     end if;
   elsif p_enviada_em < v_extraido then
     raise exception 'O envio (%) é anterior à extração da remessa (%).', p_enviada_em, v_extraido
@@ -283,10 +335,10 @@ begin
 
   select id into v_primeiro from public.prev_lote
    where carteira_id = p_carteira_id and status = 'CONFIRMADO'
-   order by extraido_em::date, ordem_no_dia, extraido_em limit 1;
+   order by public.preventivo_dia(extraido_em), ordem_no_dia, extraido_em limit 1;
   select id into v_ultimo from public.prev_lote
    where carteira_id = p_carteira_id and status = 'CONFIRMADO'
-   order by extraido_em::date desc, ordem_no_dia desc, extraido_em desc limit 1;
+   order by public.preventivo_dia(extraido_em) desc, ordem_no_dia desc, extraido_em desc limit 1;
 
   with carteira as (select venc_de, venc_ate from public.prev_carteira where id = p_carteira_id),
   -- O RECORTE: titulo da carteira cuja origem cabe no periodo dela.
@@ -304,7 +356,8 @@ begin
        and (t.vencimento_origem < c.venc_de or t.vencimento_origem > c.venc_ate)
   ), remessas as (
     select l.id, l.nome, l.extraido_em, l.extraido_precisao, l.ordem_no_dia,
-           row_number() over (order by l.extraido_em::date, l.ordem_no_dia, l.extraido_em) as ordem
+           row_number() over (order by public.preventivo_dia(l.extraido_em),
+                              l.ordem_no_dia, l.extraido_em) as ordem
       from public.prev_lote l
      where l.carteira_id = p_carteira_id and l.status = 'CONFIRMADO'
   ), tl as (
@@ -360,24 +413,25 @@ begin
       (select l.id from public.prev_lote l
         where l.carteira_id = p_carteira_id and l.status = 'CONFIRMADO'
           and ac.envio_confirmado_em is not null
-          and (l.extraido_em::date > ac.envio_confirmado_em::date
-               or (l.extraido_em::date = ac.envio_confirmado_em::date
+          and (public.preventivo_dia(l.extraido_em) > public.preventivo_dia(ac.envio_confirmado_em)
+               or (public.preventivo_dia(l.extraido_em) = public.preventivo_dia(ac.envio_confirmado_em)
                    and l.extraido_precisao = 'DATA_E_HORA' and ac.envio_precisao = 'DATA_E_HORA'
                    and l.extraido_em > ac.envio_confirmado_em))
-        order by l.extraido_em::date desc, l.ordem_no_dia desc limit 1) as ultima_depois,
+        order by public.preventivo_dia(l.extraido_em) desc, l.ordem_no_dia desc limit 1) as ultima_depois,
       (select count(*) from public.prev_lote l
         where l.carteira_id = p_carteira_id and l.status = 'CONFIRMADO'
           and ac.envio_confirmado_em is not null
-          and (l.extraido_em::date > ac.envio_confirmado_em::date
-               or (l.extraido_em::date = ac.envio_confirmado_em::date
+          and (public.preventivo_dia(l.extraido_em) > public.preventivo_dia(ac.envio_confirmado_em)
+               or (public.preventivo_dia(l.extraido_em) = public.preventivo_dia(ac.envio_confirmado_em)
                    and l.extraido_precisao = 'DATA_E_HORA' and ac.envio_precisao = 'DATA_E_HORA'
                    and l.extraido_em > ac.envio_confirmado_em))) as atualizacoes,
       -- Existe foto no MESMO dia que so nao pode ser usada por falta de hora?
       (select count(*) > 0 from public.prev_lote l
         where l.carteira_id = p_carteira_id and l.status = 'CONFIRMADO'
           and ac.envio_confirmado_em is not null
-          and l.extraido_em::date = ac.envio_confirmado_em::date
-          and (l.extraido_precisao = 'DATA' or ac.envio_precisao = 'DATA')) as sequencia_nao_comprovada
+          and public.preventivo_dia(l.extraido_em) = public.preventivo_dia(ac.envio_confirmado_em)
+          and (l.extraido_precisao <> 'DATA_E_HORA'
+               or ac.envio_precisao <> 'DATA_E_HORA')) as sequencia_nao_comprovada
       from acoes ac
   ), acoes_m as (
     select ac.*,
@@ -497,21 +551,23 @@ language plpgsql
 security definer
 set search_path to 'public'
 as $$
-declare v jsonb; v_carteira uuid; v_anterior uuid; v_quando timestamptz; v_ordem int;
+declare v jsonb; v_carteira uuid; v_anterior uuid; v_quando timestamptz;
+        v_ordem int; v_dia date;
 begin
   if not public.preventivo_e_gestao() then
     raise exception 'Preventivo: acesso restrito à gestão.' using errcode = '42501';
   end if;
   select carteira_id, extraido_em, ordem_no_dia into v_carteira, v_quando, v_ordem
     from public.prev_lote where id = p_lote_id;
+  v_dia := public.preventivo_dia(v_quando);
   if v_carteira is null then
     raise exception 'Remessa não encontrada.' using errcode = '22023';
   end if;
 
   select id into v_anterior from public.prev_lote
    where carteira_id = v_carteira and status = 'CONFIRMADO'
-     and (extraido_em::date, ordem_no_dia) < (v_quando::date, v_ordem)
-   order by extraido_em::date desc, ordem_no_dia desc limit 1;
+     and (public.preventivo_dia(extraido_em), ordem_no_dia) < (v_dia, v_ordem)
+   order by public.preventivo_dia(extraido_em) desc, ordem_no_dia desc limit 1;
 
   if v_anterior is null then
     return jsonb_build_object('remessa', p_lote_id, 'remessa_anterior', null,
@@ -598,6 +654,7 @@ declare
   v_titulos int; v_saiu int; v_ancora timestamptz; v_seguinte_em timestamptz;
   v_alunos int; v_alunos_saiu int; v_valor numeric; v_valor_saiu numeric;
   v_origem text; v_prec text; v_pendente boolean := false; v_fora int;
+  v_dia_ancora date;
 begin
   if not public.preventivo_e_gestao() then
     raise exception 'Preventivo: acesso restrito à gestão.' using errcode = '42501';
@@ -612,20 +669,21 @@ begin
   end if;
 
   if v_ancora is not null then
+    v_dia_ancora := public.preventivo_dia(v_ancora);
     select l.id, l.extraido_em into v_seguinte, v_seguinte_em
       from public.prev_lote l
      where l.carteira_id = v_carteira and l.status = 'CONFIRMADO'
-       and (l.extraido_em::date > v_ancora::date
-            or (l.extraido_em::date = v_ancora::date
+       and (public.preventivo_dia(l.extraido_em) > v_dia_ancora
+            or (public.preventivo_dia(l.extraido_em) = v_dia_ancora
                 and l.extraido_precisao = 'DATA_E_HORA' and v_prec = 'DATA_E_HORA'
                 and l.extraido_em > v_ancora))
-     order by l.extraido_em::date, l.ordem_no_dia limit 1;
+     order by public.preventivo_dia(l.extraido_em), l.ordem_no_dia limit 1;
 
     -- Existe foto no mesmo dia que ficou de fora SO por falta de hora?
     select count(*) > 0 into v_pendente from public.prev_lote l
      where l.carteira_id = v_carteira and l.status = 'CONFIRMADO'
-       and l.extraido_em::date = v_ancora::date
-       and (l.extraido_precisao = 'DATA' or v_prec = 'DATA');
+       and public.preventivo_dia(l.extraido_em) = v_dia_ancora
+       and (l.extraido_precisao <> 'DATA_E_HORA' or v_prec <> 'DATA_E_HORA');
   end if;
 
   select count(*), count(distinct d.matricula) into v_titulos, v_alunos
@@ -733,6 +791,8 @@ $$;
 revoke all on function public.preventivo_lote_confirmar_v2(uuid, text, text, jsonb, text, jsonb, timestamptz, text, int) from public, anon;
 revoke all on function public.preventivo_acao_externa_registrar(uuid, uuid, text, text, text, timestamptz, text[], boolean, text) from public, anon;
 revoke all on function public.preventivo_no_recorte(uuid) from public, anon;
+revoke all on function public.preventivo_dia(timestamptz) from public, anon;
 grant execute on function public.preventivo_lote_confirmar_v2(uuid, text, text, jsonb, text, jsonb, timestamptz, text, int) to authenticated;
 grant execute on function public.preventivo_acao_externa_registrar(uuid, uuid, text, text, text, timestamptz, text[], boolean, text) to authenticated;
 grant execute on function public.preventivo_no_recorte(uuid) to authenticated;
+grant execute on function public.preventivo_dia(timestamptz) to authenticated;
