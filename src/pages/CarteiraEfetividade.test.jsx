@@ -226,3 +226,40 @@ describe("Efetividade — nomenclatura do Consolidado em 2026/2", () => {
   });
 });
 
+
+// Desde 06/10/2026 os indicadores de 2026/1 leem AO VIVO, e aí aparece título
+// em FORA_DA_BASE, que nenhuma das quatro faixas cobre. Medido no dia: 15
+// títulos / R$ 112.595,16, ou 0,52% da base. A tela precisa declarar isso, ou
+// passa a chamar 99,48% de 100%.
+describe("Efetividade — resíduo fora das quatro faixas em 2026/1", () => {
+  function comResiduo(fora) {
+    rpcMock.mockReset();
+    rpcMock.mockImplementation((nome) => {
+      if (nome === "carteira_2026_1_indicadores") {
+        return Promise.resolve({ data: fora === null ? CONSOLIDADA : { ...CONSOLIDADA, faixas_fora_da_base: fora } });
+      }
+      if (nome === "carteira_saldo_historico_por_ano") return Promise.resolve({ data: POR_ANO });
+      return Promise.resolve({ data: null });
+    });
+  }
+
+  it("declara o valor e a quantidade quando existe título fora das faixas", async () => {
+    comResiduo({ valor: 112595.16, titulos: 15 });
+    await abrir();
+    expect(screen.getByText(/fora das quatro faixas: R\$ 112\.595,16 em 15 títulos encerrados administrativamente/))
+      .toBeTruthy();
+  });
+
+  it("sem resíduo, não polui o rodapé com a ressalva", async () => {
+    comResiduo({ valor: 0, titulos: 0 });
+    await abrir();
+    expect(screen.queryByText(/fora das quatro faixas/)).toBeNull();
+  });
+
+  it("RPC antiga, sem a chave nova, não quebra a tela nem inventa a ressalva", async () => {
+    comResiduo(null);
+    await abrir();
+    expect(screen.queryByText(/fora das quatro faixas/)).toBeNull();
+    expect(screen.getByText(/congelada em/)).toBeTruthy();
+  });
+});
