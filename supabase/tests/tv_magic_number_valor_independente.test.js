@@ -12,11 +12,16 @@
 //   5. o nome "Magic Number" não sobra em lugar nenhum da função de cálculo.
 //
 // NENHUM DADO REAL — os valores são os combinados pela gestão para out/2026.
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+
+// Subir uma instância pglite do zero passa dos 5 s padrão do vitest nesta
+// máquina, e três casos precisam de banco próprio. Mesmo ajuste dos demais
+// testes de banco do repositório.
+vi.setConfig({ testTimeout: 180000, hookTimeout: 600000 });
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const ler = (p) => readFileSync(resolve(AQUI, "..", "..", p), "utf8");
