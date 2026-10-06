@@ -199,9 +199,12 @@ describe("curtidas em elogio", () => {
     expect(await H.curtidasTotais(db, H.LUANA, "elogio"))
       .toEqual([{ alvo_id: e, curtidas: 2, eu_curti: true }]);
 
-    // A versao semanal do A2 veria so a desta semana -- por isso as duas existem.
+    // A versao semanal do A2 veria so a daquela semana -- por isso as duas
+    // existem. A semana vai EXPLICITA: sem o parametro a funcao usaria a semana
+    // corrente da maquina que roda o teste, e o caso passaria so na semana de
+    // 28/09/2026 -- que foi quando ele nasceu.
     expect((await H.comoUsuario(db, H.LUANA, () =>
-      db.query("select curtidas_semana from public.portal_curtidas_da_semana('elogio')"))).rows)
+      db.query("select curtidas_semana from public.portal_curtidas_da_semana('elogio', '2026-09-28')"))).rows)
       .toEqual([{ curtidas_semana: 1 }]);
   });
 

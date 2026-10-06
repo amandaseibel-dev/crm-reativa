@@ -63,9 +63,37 @@ export function alternarLocal(mapa, alvoId) {
   return novo;
 }
 
-export function mensagemErroCurtida(erro, jaCurtida) {
+// UMA CURTIDA POR OPERADOR POR SEMANA (playlist).
+//
+// A regra e do banco: indice unico (e-mail, semana) em portal_curtidas, criado
+// pela migration 20261006190651. Aqui fica so o que a tela precisa para nao
+// oferecer um clique que o banco vai recusar.
+//
+// Vale apenas para MODO_SEMANA. Elogio e ideia (MODO_TOTAL) sao reconhecimento
+// que acumula: la a pessoa curte quantos alvos quiser, um de cada.
+export const AVISO_UMA_POR_SEMANA =
+  "Você tem 1 curtida por semana na playlist. Retire a curtida da música que você já curtiu para curtir outra.";
+
+// Em qual alvo esta a minha curtida desta semana -- ou null se ainda esta livre.
+// `eu_curti` vindo de portal_curtidas_da_semana ja e DA SEMANA consultada.
+export function curtidaDaSemanaEm(mapa) {
+  for (const [alvoId, dados] of mapa || []) if (dados?.euCurti) return alvoId;
+  return null;
+}
+
+// Posso clicar no coracao deste alvo? Sim se a curtida da semana ainda esta
+// livre, ou se ela esta justamente neste alvo (clicar ali e RETIRAR).
+export function podeCurtir(mapa, alvoId, modo = MODO_SEMANA) {
+  if (modo !== MODO_SEMANA) return true;
+  const gasta = curtidaDaSemanaEm(mapa);
+  return gasta === null || gasta === alvoId;
+}
+
+export function mensagemErroCurtida(erro, jaCurtida, modo = null) {
   if (!erro) return null;
-  if (erro.code === "23505") return "Você já curtiu.";
+  if (erro.code === "23505") {
+    return modo === MODO_SEMANA ? AVISO_UMA_POR_SEMANA : "Você já curtiu.";
+  }
   if (erro.code === "42501") return "Sua conta não tem permissão para curtir. Avise a gestão.";
   if (estruturaAusente(erro)) return "As curtidas ainda não estão ativadas no banco. Avise a gestão.";
   return `Não foi possível ${jaCurtida ? "retirar a curtida" : "curtir"}. Código: ${erro.code || "sem código"}.`;

@@ -22,6 +22,7 @@ export const ROLL = (n) => lerRepo(`supabase/rollbacks/${n}.rollback.sql`);
 export const CRIACAO = "20260929152500_portal_visao_geral_interativa";
 export const A1 = "20260930143806_portal_playlist_limite_tres_musicas";
 export const A2 = "20260930164843_portal_curtidas_e_musica_da_semana";
+export const A2C = "20261006190651_portal_curtida_unica_por_semana";
 
 export const AMANDA = "amanda.seibel@aelbra.com.br";   // gestao
 export const FERNANDA = "cobranca04@aelbra.com.br";    // gestao
@@ -114,6 +115,11 @@ export async function resetar(db) {
 export async function aplicarA2(db) {
   await db.exec(MIG(A2));
   await db.exec("grant select, insert, delete on public.portal_curtidas to authenticated;");
+}
+
+// A2c -- uma curtida por operador por semana na playlist. Vem depois do A2.
+export async function aplicarA2c(db) {
+  await db.exec(MIG(A2C));
 }
 
 // Curtir como a propria pessoa, com RLS ligada.

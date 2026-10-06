@@ -4,7 +4,7 @@ import { nomeOperadorPorEmail } from "../../utils/operadores";
 import {
   LIMITE_MUSICAS, ERRO_LIMITE, extrairYoutubeId, mesmaPessoa, contarAtivasDe, linkDoYoutube,
 } from "./playlist";
-import { curtidasDe } from "./curtidas";
+import { curtidasDe, curtidaDaSemanaEm, AVISO_UMA_POR_SEMANA } from "./curtidas";
 
 const VAZIO = { titulo: "", artista: "", link: "" };
 const VISIVEIS = 6;
@@ -136,6 +136,12 @@ export default function PlaylistReativa({ usuario, curtidas, Card, CabecalhoCard
 
   const lista = mostrarTodas ? playlist : playlist.slice(0, VISIVEIS);
 
+  // UMA curtida por operador por semana: qual musica recebeu a minha, se alguma.
+  // `null` significa que a curtida da semana ainda esta livre.
+  const minhaCurtidaSemana = curtidas?.disponivel ? curtidaDaSemanaEm(curtidas.mapa) : null;
+  const curtidaDaSemanaGasta = minhaCurtidaSemana !== null;
+  const musicaQueEuCurti = playlist.find((m) => m.id === minhaCurtidaSemana) || null;
+
   return (
     <Card style={S.playlistCard}>
       <CabecalhoCard
@@ -161,6 +167,13 @@ export default function PlaylistReativa({ usuario, curtidas, Card, CabecalhoCard
             ? `Você já atingiu o limite de ${LIMITE_MUSICAS} músicas. Remova uma para liberar uma vaga.`
             : `Você ainda pode incluir ${vagas} ${vagas === 1 ? "música" : "músicas"}. Remover uma libera a vaga na hora.`}
         </span>
+        {curtidas?.disponivel && (
+          <span style={S.mutedPequeno}>
+            {curtidaDaSemanaGasta
+              ? `Sua curtida desta semana está em “${musicaQueEuCurti?.titulo ?? "uma música da playlist"}”. Retire a curtida para votar em outra.`
+              : "Você tem 1 curtida por semana: escolha a música que vai disputar o destaque."}
+          </span>
+        )}
       </div>
 
       {aberto && (
@@ -192,18 +205,33 @@ export default function PlaylistReativa({ usuario, curtidas, Card, CabecalhoCard
                 </div>
               </a>
               <div style={S.musicaAcoes}>
-                {curtidas?.disponivel && (
-                  <button
-                    type="button"
-                    onClick={() => curtidas.alternar(item.id, email)}
-                    disabled={curtidas.ocupado === item.id}
-                    aria-pressed={curtidasDe(curtidas.mapa, item.id).euCurti}
-                    title={curtidasDe(curtidas.mapa, item.id).euCurti ? "Retirar minha curtida" : "Curtir esta música"}
-                    style={{ ...S.botaoCurtir, ...(curtidasDe(curtidas.mapa, item.id).euCurti ? S.botaoCurtirAtivo : null) }}
-                  >
-                    {curtidasDe(curtidas.mapa, item.id).euCurti ? "❤️" : "🤍"} {curtidasDe(curtidas.mapa, item.id).curtidas}
-                  </button>
-                )}
+                {curtidas?.disponivel && (() => {
+                  const c = curtidasDe(curtidas.mapa, item.id);
+                  // Curtida da semana ja gasta em OUTRA musica: o coracao desta
+                  // fica desligado, com o motivo no title. A trava de verdade e
+                  // o indice unico do banco.
+                  const bloqueado = !c.euCurti && curtidaDaSemanaGasta;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => curtidas.alternar(item.id, email)}
+                      disabled={curtidas.ocupado === item.id || bloqueado}
+                      aria-pressed={c.euCurti}
+                      title={
+                        bloqueado ? AVISO_UMA_POR_SEMANA
+                          : c.euCurti ? "Retirar minha curtida"
+                            : "Curtir esta música -- você tem 1 curtida por semana"
+                      }
+                      style={{
+                        ...S.botaoCurtir,
+                        ...(c.euCurti ? S.botaoCurtirAtivo : null),
+                        ...(bloqueado ? S.botaoCurtirDesligado : null),
+                      }}
+                    >
+                      {c.euCurti ? "❤️" : "🤍"} {c.curtidas}
+                    </button>
+                  );
+                })()}
                 {minha && (
                   <>
                     <button type="button" onClick={() => abrirEdicao(item)} style={S.botaoAcaoMusica}>Editar</button>
