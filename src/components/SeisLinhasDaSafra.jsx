@@ -26,6 +26,12 @@ import { S, moeda, num, dataCurta } from "./situacoesDaSafraFormato";
 export default function SeisLinhasDaSafra({ ano, semestre = null }) {
   const [dados, setDados] = useState(null);
   const [perfil, setPerfil] = useState(null);
+  // O erro do perfil é guardado À PARTE do erro das seis linhas: se a consulta
+  // acadêmica falhar, as seis linhas continuam valendo e só o bloco de status
+  // fica sem dado. Sem este estado a falha era ENGOLIDA -- `perfil` virava null
+  // e "Alunos por status" sumia da tela sem dizer por quê, que é exatamente
+  // como o bloco desapareceu em 2024/2025.
+  const [erroPerfil, setErroPerfil] = useState("");
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(true);
 
@@ -37,6 +43,7 @@ export default function SeisLinhasDaSafra({ ano, semestre = null }) {
     (async () => {
       setCarregando(true);
       setErro("");
+      setErroPerfil("");
       const [a, b] = await Promise.all([
         supabase.rpc("carteira_safra_situacoes", { p_ano: ano, p_semestre: semestre }),
         supabase.rpc("carteira_academico_perfil", { p_ano: ano, p_semestre: semestre }),
@@ -44,6 +51,7 @@ export default function SeisLinhasDaSafra({ ano, semestre = null }) {
       if (!ativo) return;
       if (a.error) setErro(a.error.message);
       setDados(a.data || null);
+      setErroPerfil(b.error ? (b.error.message || "falha ao consultar") : "");
       setPerfil(b.error ? null : (b.data || null));
       setCarregando(false);
     })();
@@ -79,6 +87,12 @@ export default function SeisLinhasDaSafra({ ano, semestre = null }) {
           </span>
         </div>
         <SeisLinhas s={s} />
+        {erroPerfil ? (
+          <p style={{ ...S.rodape, color: "var(--rv-vermelho-texto)" }}>
+            <strong>Alunos por status não carregou:</strong> {erroPerfil}. As seis linhas acima não dependem
+            dessa consulta e seguem válidas.
+          </p>
+        ) : null}
         <AlunosPorStatus
           lista={status}
           rodape={perfil?.importacao?.atualizado_em

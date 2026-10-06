@@ -259,6 +259,16 @@ export default function AcoesMassivas() {
   // Lote + ação ("CONFIRMAR" | "DESCARTAR") aguardando o "sim" explícito.
   const [acaoLote, setAcaoLote] = useState(null);
   const [concluindoLote, setConcluindoLote] = useState(false);
+  // Lotes de WhatsApp recentes, com quantos daqueles alunos têm e-mail válido.
+  // Base do "Exportar e-mails deste lote": o recorte sai dos aluno_ids gravados
+  // no lote, não de refazer filtro nem de "Acionados hoje".
+  const [lotesWhats, setLotesWhats] = useState([]);
+  // Lote de WhatsApp aguardando o "sim" explícito para derivar o e-mail.
+  const [loteEmailConfirmar, setLoteEmailConfirmar] = useState(null);
+  const [derivandoEmail, setDerivandoEmail] = useState(false);
+  // Planilha do lote derivado, para o fallback de download (o bloco da prévia
+  // só existe quando há prévia na tela, e este fluxo não passa por prévia).
+  const [relatorioEmailLote, setRelatorioEmailLote] = useState(null);
 
   // SOB DEMANDA: o painel analítico (saúde/retornos/por dia/elegíveis) não
   // carrega sozinho. Só roda no clique de Atualizar painel. A busca e a geração
@@ -301,12 +311,18 @@ export default function AcoesMassivas() {
       setOpcoesBordero(bords || []);
       const { data: lotes } = await supabase.rpc("acoes_massivas_lotes_pendentes");
       setLotesPendentes(Array.isArray(lotes) ? lotes : []);
+      await carregarLotesWhats();
     })();
   }, []);
 
   async function carregarLotesPendentes() {
     const { data: lotes } = await supabase.rpc("acoes_massivas_lotes_pendentes");
     setLotesPendentes(Array.isArray(lotes) ? lotes : []);
+  }
+
+  async function carregarLotesWhats() {
+    const { data } = await supabase.rpc("acoes_massivas_lotes_whatsapp", { p_dias: 7 });
+    setLotesWhats(Array.isArray(data) ? data : []);
   }
 
   async function carregarSaude() {
@@ -595,6 +611,66 @@ export default function AcoesMassivas() {
       setErro("Erro ao exportar planilha: " + (e.message || "tente novamente"));
     } finally {
       setGerando(false);
+    }
+  }
+
+  // E-MAIL DO LOTE DE WHATSAPP. Recorte exato: o banco usa os aluno_ids
+  // GRAVADOS no lote e tira só quem não tem e-mail válido. Não refaz filtro,
+  // não depende de "Acionados hoje" e não encosta no lote de WhatsApp — a ação
+  // nova nasce como um lote próprio de canal E-mail.
+  async function exportarEmailsDoLote(lote) {
+    setDerivandoEmail(true);
+    setErro("");
+    setSucesso("");
+    try {
+      const nomeArquivo = `acao-massiva-email-do-lote-whatsapp-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      const { data: res, error } = await supabase.rpc("acoes_massivas_exportar_emails_do_lote", {
+        p_lote_id: lote.id,
+        p_arquivo: nomeArquivo,
+      });
+      if (error) throw error;
+
+      const contatos = res?.contatos || [];
+      const total = Number(res?.total_lote_whatsapp || 0);
+      const comEmail = Number(res?.com_email || 0);
+      const semEmail = Number(res?.sem_email || 0);
+      const registrados = Number(res?.registrados || 0);
+
+      if (contatos.length > 0) {
+        const relGerado = {
+          linhas: contatos.map((c) => ({
+            "Nome do aluno": c.nome,
+            "E-mail": (c.email || "").trim(),
+          })),
+          nomeArquivo: res?.arquivo || nomeArquivo,
+        };
+        setRelatorioEmailLote(relGerado);
+        try {
+          baixarPlanilha(relGerado);
+        } catch (e) {
+          console.warn("Download automático falhou; use o botão Baixar planilha.", e);
+        }
+      }
+
+      const semEmailTexto = semEmail > 0
+        ? ` ${semEmail} ficaram fora por não ter e-mail válido no cadastro.`
+        : "";
+      if (comEmail === 0) {
+        setSucesso(
+          `Nenhum dos ${total} aluno(s) do lote de WhatsApp tem e-mail válido: nada foi exportado nem registrado.`
+        );
+      } else {
+        setSucesso(
+          `Planilha de e-mail gerada a partir do lote de WhatsApp: ${comEmail} de ${total} aluno(s) com e-mail válido e ${registrados} registrado(s) no CRM como ação massiva de e-mail.${semEmailTexto} O lote de WhatsApp não foi alterado. O disparo é externo; se o download não abriu, use o botão “Baixar planilha novamente” abaixo.`
+        );
+      }
+      carregarLotesWhats();
+    } catch (e) {
+      console.error("Erro ao exportar e-mails do lote de WhatsApp:", e);
+      setErro("Erro ao exportar e-mails do lote: " + (e.message || "tente novamente"));
+    } finally {
+      setLoteEmailConfirmar(null);
+      setDerivandoEmail(false);
     }
   }
 
@@ -1167,6 +1243,106 @@ export default function AcoesMassivas() {
           {carregando ? "Buscando..." : "Buscar prévia"}
         </button>
       </div>
+
+      {lotesWhats.length > 0 && (
+        <div style={estilos.card} data-testid="lotes-whatsapp-email">
+          <h3 style={{ margin: "0 0 4px", fontFamily: FONTE_TITULO, fontSize: 15, fontWeight: 800 }}>
+            E-mail a partir de um lote de WhatsApp
+          </h3>
+          <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--rv-texto-fraco)" }}>
+            Alcançar por e-mail <strong>exatamente</strong> os alunos de um lote de WhatsApp já exportado. O
+            recorte sai dos alunos gravados no lote — não é preciso refazer filtro nem usar “Acionados hoje”.
+            O único corte é quem não tem e-mail válido no cadastro. O lote de WhatsApp não é alterado: a ação
+            nova nasce como um lote próprio de canal E-mail, com o registro no histórico de cada aluno.
+          </p>
+          <div style={{ overflowX: "auto" }}>
+            <table style={estilos.tabela}>
+              <thead>
+                <tr>
+                  <th style={estilos.th}>Planilha (WhatsApp)</th>
+                  <th style={estilos.th}>Carteira</th>
+                  <th style={estilos.th}>Tipo de cobrança</th>
+                  <th style={estilos.thNum}>Alunos</th>
+                  <th style={estilos.thNum}>Com e-mail</th>
+                  <th style={estilos.thNum}>Sem e-mail</th>
+                  <th style={estilos.th}>Exportada</th>
+                  <th style={estilos.th}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {lotesWhats.map((l) => (
+                  <tr key={l.id}>
+                    <td style={estilos.td}>{l.arquivo || "—"}</td>
+                    <td style={estilos.td}>{l.operador_email ? (l.operador_nome || l.operador_email) : "Base livre"}</td>
+                    <td style={estilos.td}>{rotuloTipoCobranca(l.tipo_cobranca)}</td>
+                    <td style={estilos.tdNum}>{l.total}</td>
+                    <td style={estilos.tdNum}>{l.com_email}</td>
+                    <td style={estilos.tdNum}>{l.sem_email}</td>
+                    <td style={estilos.td}>
+                      {new Date(l.exportado_em).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+                      <div style={{ color: "var(--rv-texto-fraco)", fontSize: 11 }}>{l.exportado_por_email}</div>
+                    </td>
+                    <td style={estilos.td}>
+                      {l.email_lote_id ? (
+                        <span style={{ fontSize: 12, color: "var(--rv-texto-fraco)" }}>
+                          E-mail já exportado deste lote em{" "}
+                          {new Date(l.email_exportado_em).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+                        </span>
+                      ) : loteEmailConfirmar === l.id ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6, maxWidth: 360 }}>
+                          <span style={{ fontSize: 12, color: "var(--rv-texto)" }}>
+                            {`Gera a planilha de e-mail com ${l.com_email} aluno(s) deste lote e registra a ação massiva de e-mail no histórico de cada um — conta como último acionamento. ${l.sem_email} sem e-mail válido ficam fora. Não altera responsável, não cria retorno e não mexe no lote de WhatsApp. O disparo continua sendo externo.`}
+                          </span>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button
+                              style={estilos.botaoGerar}
+                              disabled={derivandoEmail}
+                              onClick={() => exportarEmailsDoLote(l)}
+                            >
+                              {derivandoEmail ? "Exportando..." : "Sim, exportar e registrar"}
+                            </button>
+                            <button
+                              style={estilos.botaoSecundario}
+                              disabled={derivandoEmail}
+                              onClick={() => setLoteEmailConfirmar(null)}
+                            >
+                              Voltar
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          style={estilos.botaoGerar}
+                          disabled={l.com_email === 0}
+                          title={l.com_email === 0 ? "Nenhum aluno deste lote tem e-mail válido" : undefined}
+                          onClick={() => setLoteEmailConfirmar(l.id)}
+                        >
+                          📧 Exportar e-mails deste lote
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {relatorioEmailLote && relatorioEmailLote.linhas?.length > 0 && (
+            <div style={{ marginTop: 12, padding: "12px 14px", border: "1px solid #1e6b3a", borderRadius: 12, background: "#0e2318", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <div style={{ color: "#bbf7d0", fontSize: 13 }}>
+                Planilha de e-mail com <strong>{relatorioEmailLote.linhas.length}</strong> aluno(s) pronta
+                (<span style={{ color: "var(--rv-texto-fraco)" }}>{relatorioEmailLote.nomeArquivo}</span>).
+                {" "}Se o download não abriu sozinho, clique aqui:
+              </div>
+              <button
+                style={{ ...estilos.botaoGerar, background: "#16a34a" }}
+                onClick={() => baixarPlanilha(relatorioEmailLote)}
+              >
+                ⬇️ Baixar planilha novamente
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {lotesPendentes.length > 0 && (
         <div style={estilos.card}>
