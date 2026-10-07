@@ -21,6 +21,22 @@
 //   7. o dry-run (padrao) nao escreve NADA e ainda assim devolve os numeros;
 //   8. idempotencia -- aplicar de novo nao quita nada a mais;
 //   9. o rollback devolve o mecanismo ao estado anterior.
+// SUPERSEDIDO EM PARTE por 20261007211500_parcela_devolvida_suspensa.
+//
+// Este arquivo testa a migration 20261007143000 ISOLADA -- que é o estado
+// aplicado em produção em 07/10/2026 19:30 UTC. Nele a parcela vai para `PAGO`,
+// e as asserções abaixo continuam verdadeiras PARA ESSA MIGRATION.
+//
+// A regra aprovada pela gestão no mesmo dia mudou isso: `PAGO` só com pagamento
+// real, e antecipação passa a marcar a parcela como `DEVOLVIDA`. Quem quer o
+// comportamento FINAL deve ler
+// `supabase/tests/parcela_devolvida_suspensa_comportamento.test.js`, que aplica
+// as três migrations na ordem e prova o desfecho correto.
+//
+// Este teste NÃO foi reescrito de propósito: ele é a prova do que foi aplicado
+// em produção, e apagar isso apagaria a rastreabilidade de um passo que
+// realmente aconteceu.
+
 import { describe, it, expect, beforeAll } from "vitest";
 import * as H from "./fixtures/confirmacao_d2/harness.js";
 

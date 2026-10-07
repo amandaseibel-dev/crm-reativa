@@ -70,6 +70,13 @@ const STATUS_FINALIZACAO = [
   // Esta e a unica das quatro com desfecho financeiro (encerra o saldo e quita
   // a parcela nossa), por isso entra tambem em STATUS_BLOQUEADOS_ACIONAMENTO.
   "ANTECIPACAO_SEMESTRE",
+  // Confirmação de alegação pela unidade (gestão, 07/10/2026): é o DESFECHO da
+  // alegação, e tem efeito financeiro -- devolve a parcela. A alegação original
+  // (ALEGA_FIES etc.) continua aberta ao operador, porque ela só encaminha para
+  // a ADM apurar. Estas três entram também em STATUS_BLOQUEADOS_ACIONAMENTO.
+  "ALEGA_FIES_CONFIRMADO",
+  "ALEGA_CREDIES_CONFIRMADO",
+  "ALEGA_FINANCIAMENTO_CONFIRMADO",
   "CANCELAMENTO_COBRANCA",
   "SUSPENSAO_COBRANCA",
   "JURIDICO",
@@ -109,6 +116,10 @@ const STATUS_BLOQUEADOS_ACIONAMENTO = [
   // em destaque (que e o MOTIVO que a RPC cobra) e protege a ficha de quem
   // nao e gestao depois de aplicada.
   "ANTECIPACAO_SEMESTRE",
+  // + 07/10/2026: devolvem parcela, logo são decisão de gestão.
+  "ALEGA_FIES_CONFIRMADO",
+  "ALEGA_CREDIES_CONFIRMADO",
+  "ALEGA_FINANCIAMENTO_CONFIRMADO",
 ];
 const STATUS_BLOQUEADOS_LABEL = {
   ELOGIO_ATENDIMENTO: "Elogio de atendimento",
@@ -117,6 +128,9 @@ const STATUS_BLOQUEADOS_LABEL = {
   JURIDICO: "Jurídico",
   QUITADO_MANUAL: "Quitado",
   ANTECIPACAO_SEMESTRE: "Antecipação de semestre",
+  ALEGA_FIES_CONFIRMADO: "FIES confirmado pela unidade",
+  ALEGA_CREDIES_CONFIRMADO: "CREDIES confirmado pela unidade",
+  ALEGA_FINANCIAMENTO_CONFIRMADO: "Financiamento confirmado pela unidade",
 };
 // Mapa TABULACAO -> BLOCO expansivel que deve abrir automaticamente ao
 // selecionar a tabulacao. Usa os CODIGOS estaveis de STATUS_FINALIZACAO
@@ -1728,7 +1742,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                     </div>
                     <div style={colStatus}>
                       <span style={badgeSituacaoA}>
-                        {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", ACORDO_FECHADO: "Acordo fechado", LEMBRETE_PARCELA: "Lembrete de parcela feito", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro", ALEGA_FIES: "Alega FIES", ALEGA_CREDIES: "Alega CREDIES", ALEGA_FINANCIAMENTO: "Alega financiamento", ANTECIPACAO_SEMESTRE: "Antecipação de semestre" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
+                        {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", ACORDO_FECHADO: "Acordo fechado", LEMBRETE_PARCELA: "Lembrete de parcela feito", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro", ALEGA_FIES: "Alega FIES", ALEGA_CREDIES: "Alega CREDIES", ALEGA_FINANCIAMENTO: "Alega financiamento", ANTECIPACAO_SEMESTRE: "Antecipação de semestre", ALEGA_FIES_CONFIRMADO: "FIES confirmado pela unidade", ALEGA_CREDIES_CONFIRMADO: "CREDIES confirmado pela unidade", ALEGA_FINANCIAMENTO_CONFIRMADO: "Financiamento confirmado pela unidade" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
                       </span>
                       <div style={subCelA}>
                         Últ. contato: {formatarDataHora(aluno.data_ultimo_acionamento)}
@@ -2260,7 +2274,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                       podeVerTudo(usuarioLogado?.email)
                   ).map((status) => (
                     <option key={status} value={status}>
-                      {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", ACORDO_FECHADO: "Acordo fechado", LEMBRETE_PARCELA: "Lembrete de parcela feito", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro", ALEGA_FIES: "Alega FIES", ALEGA_CREDIES: "Alega CREDIES", ALEGA_FINANCIAMENTO: "Alega financiamento", ANTECIPACAO_SEMESTRE: "Antecipação de semestre" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
+                      {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", ACORDO_FECHADO: "Acordo fechado", LEMBRETE_PARCELA: "Lembrete de parcela feito", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro", ALEGA_FIES: "Alega FIES", ALEGA_CREDIES: "Alega CREDIES", ALEGA_FINANCIAMENTO: "Alega financiamento", ANTECIPACAO_SEMESTRE: "Antecipação de semestre", ALEGA_FIES_CONFIRMADO: "FIES confirmado pela unidade", ALEGA_CREDIES_CONFIRMADO: "CREDIES confirmado pela unidade", ALEGA_FINANCIAMENTO_CONFIRMADO: "Financiamento confirmado pela unidade" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
                     </option>
                   ))}
                 </select>
