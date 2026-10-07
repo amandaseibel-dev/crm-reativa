@@ -28,8 +28,34 @@ const CENARIOS = {
   sem_meta: { ...BASE, meta_empresa: 0, meta_pct: null, meta_falta: null },
 };
 
+// snap.metas no formato de _tv_meta_obj(). O slide "Metas" lê daqui.
+const METAS = {
+  andamento: [
+    { id: "empresa", nome: "Meta da empresa", tipo: "mensal", alvo: 122400, realizado: 70000,
+      pct: 57.2, restante: 52400, excedente: 0, atingida: false, situacao: "No ritmo", ritmo_necessario: 2911 },
+    { id: "superar_mes_anterior", nome: "Superar o mês passado", tipo: "mensal", alvo: 98000, realizado: 70000,
+      pct: 71.4, restante: 28000, excedente: 0, atingida: false, situacao: "Atenção", ritmo_necessario: 1556 },
+    { id: "marco", nome: "Marco histórico", tipo: "total", alvo: 3000000, realizado: 3400000,
+      pct: 113.3, restante: 0, excedente: 400000, atingida: true, situacao: "Meta atingida", ritmo_necessario: null },
+  ],
+  batida: [
+    { id: "empresa", nome: "Meta da empresa", tipo: "mensal", alvo: 122400, realizado: 150000,
+      pct: 122.5, restante: 0, excedente: 27600, atingida: true, situacao: "Meta atingida",
+      ritmo_necessario: null, data_atingimento: "28/10/2026" },
+    { id: "superar_mes_anterior", nome: "Superar o mês passado", tipo: "mensal", alvo: 98000, realizado: 150000,
+      pct: 153.1, restante: 0, excedente: 52000, atingida: true, situacao: "Meta atingida", ritmo_necessario: null },
+  ],
+  atrasado: [
+    { id: "empresa", nome: "Meta da empresa", tipo: "mensal", alvo: 122400, realizado: 31000,
+      pct: 25.3, restante: 91400, excedente: 0, atingida: false, situacao: "Abaixo do ritmo", ritmo_necessario: 15233 },
+    { id: "superar_mes_anterior", nome: "Superar o mês passado", tipo: "mensal", alvo: 98000, realizado: 31000,
+      pct: 31.6, restante: 67000, excedente: 0, atingida: false, situacao: "Abaixo do ritmo", ritmo_necessario: 11167 },
+  ],
+};
+
 const snap = {
   mes: CENARIOS[CENARIO] || BASE,
+  metas: METAS[CENARIO] || METAS.andamento,
   // chave mesclada por tv_snapshot_atualizar a partir de magic_number_mensal
   magic: CENARIO === "sem_magic" ? null : { mes_referencia: "2026-10", valor: 142800 },
 };
