@@ -79,7 +79,7 @@ const PERFIL_2024 = {
 function responder(safra, perfil) {
   rpcMock.mockImplementation((nome) => {
     if (nome === "carteira_safra_situacoes") return Promise.resolve({ data: safra, error: null });
-    if (nome === "carteira_academico_perfil") return Promise.resolve({ data: perfil, error: null });
+    if (nome === "carteira_academico_perfil_ler") return Promise.resolve({ data: perfil, error: null });
     return Promise.resolve({ data: null, error: null });
   });
 }
@@ -95,7 +95,7 @@ describe("As seis linhas da safra", () => {
   it("pede a RPC da safra com ano e semestre, e o perfil acadêmico do mesmo recorte", async () => {
     await montar({ ano: "2026", semestre: "1" });
     expect(rpcMock).toHaveBeenCalledWith("carteira_safra_situacoes", { p_ano: "2026", p_semestre: "1" });
-    expect(rpcMock).toHaveBeenCalledWith("carteira_academico_perfil", { p_ano: "2026", p_semestre: "1" });
+    expect(rpcMock).toHaveBeenCalledWith("carteira_academico_perfil_ler", { p_ano: "2026", p_semestre: "1" });
   });
 
   it("desenha as seis linhas na ordem da gestão", async () => {
@@ -197,5 +197,31 @@ describe("As seis linhas da safra", () => {
     await montar();
     expect(screen.queryByText(/\b1 alunos\b/)).toBeNull();
     expect(screen.queryByText(/\b1 títulos\b/)).toBeNull();
+  });
+});
+
+describe("Alunos por status vem do snapshot", () => {
+  it("lê carteira_academico_perfil_ler, nunca a função que reconstrói o universo", async () => {
+    await montar();
+    const nomes = rpcMock.mock.calls.map((c) => c[0]);
+    expect(nomes).toContain("carteira_academico_perfil_ler");
+    // a funcao cara nao pode ser chamada pela tela -- foi ela que estourava os 8s
+    expect(nomes).not.toContain("carteira_academico_perfil");
+    expect(nomes).not.toContain("carteira_academico_universo");
+  });
+
+  it("mostra a data da fotografia, para a lista não parecer de hoje", async () => {
+    responder(SAFRA_2024, { ...PERFIL_2024, snapshot: { gerado_em: "2026-10-06T20:15:00Z" } });
+    await montar();
+    expect(screen.getByText(/Fotografia desta lista tirada em 06\/10\/2026/)).toBeTruthy();
+  });
+
+  it("sem fotografia, DIZ que falta — não mostra lista vazia", async () => {
+    responder(SAFRA_2024, { sem_snapshot: true, recorte: "2024" });
+    await montar();
+    expect(screen.getByText(/ainda não tem fotografia deste período/)).toBeTruthy();
+    expect(screen.queryByText("Alunos por status")).toBeNull();
+    // as seis linhas seguem de pe: elas nao dependem desta consulta
+    expect(screen.getByText("As seis linhas da safra")).toBeTruthy();
   });
 });
