@@ -68,8 +68,18 @@ create table if not exists public.tv_config (
 );
 create table if not exists public.portal_playlist (
   id uuid primary key default gen_random_uuid(), titulo text, artista text,
-  adicionado_por text, criado_em timestamptz default now(), ativo boolean default true
+  adicionado_por text, adicionado_por_email text,
+  criado_em timestamptz default now(), ativo boolean default true
 );
+-- Simula o estado REAL de produção em 07/10/2026: a migration da saída da Olga
+-- (20261007093518) já entrou, então tv_snapshot_atualizar já filtra a playlist.
+-- É exatamente a ordem que um CREATE OR REPLACE desta migration apagaria.
+create table if not exists public.tv_equipe_oculta (
+  email text primary key, nome text not null,
+  oculto_desde date not null default current_date, motivo text
+);
+insert into public.tv_equipe_oculta (email, nome)
+values ('cobranca03@aelbra.com.br', 'OLGA') on conflict do nothing;
 create table if not exists public.portal_eventos (
   id uuid primary key default gen_random_uuid(), titulo text,
   inicio_em timestamptz, categoria text, ativo boolean default true
@@ -117,6 +127,44 @@ begin
       public._tv_meta_hist('Meta da empresa', 450000, v_hon),
       public._tv_meta_hist('Magic Number', 500000, v_hon),
       public._tv_meta_hist('Marco de R$ 3 milhões', 3000000, v_hon_total))));
+end;
+$function$;
+
+-- Stub de tv_snapshot_atualizar no formato de producao: tem a ancora do
+-- v_ms (uma unica vez) e JA carrega o filtro da Olga na playlist. O patch
+-- ancorado tem de inserir a chave magic SEM derruba-lo.
+create or replace function public.tv_snapshot_atualizar()
+returns jsonb language plpgsql security definer set search_path to 'public'
+set statement_timeout to '30s' as $function$
+declare
+  v_t0 timestamptz; v_now timestamptz; v_ms int; v_payload jsonb; v_versao bigint;
+begin
+  insert into public.tv_snapshot (id) values (true) on conflict (id) do nothing;
+  v_t0 := clock_timestamp();
+  v_now := now();
+
+  v_payload := public.tv_snapshot_calcular();
+
+  v_payload := v_payload || jsonb_build_object(
+    'playlist_reativa',
+    coalesce((
+      select jsonb_agg(to_jsonb(x) order by x.criado_em desc)
+      from (
+        select id, titulo, artista, adicionado_por, criado_em
+        from public.portal_playlist where ativo = true and lower(coalesce(adicionado_por_email,'')) not in (select email from public.tv_equipe_oculta)
+        order by criado_em desc
+        limit 6
+      ) x
+    ), '[]'::jsonb));
+
+    v_ms := round(extract(milliseconds from clock_timestamp() - v_t0));
+
+  update public.tv_snapshot
+     set versao = versao + 1, payload = v_payload, status = 'ok',
+         gerado_em = v_now, duracao_ms = v_ms, erro_resumo = null
+   where id = true returning versao into v_versao;
+
+  return jsonb_build_object('status','ok','versao',v_versao);
 end;
 $function$;
 `;
@@ -280,5 +328,45 @@ describe("o nome \"Magic Number\" só nomeia o valor próprio", () => {
       as $f$ select jsonb_build_object('mes', jsonb_build_object('honorarios', 1)) $f$;`);
     await expect(b.exec(MIGRATION_NOME)).rejects.toThrow(/ancora/i);
     await b.close();
+  });
+});
+
+describe("ordem de aplicação — a chave magic não derruba a saída da Olga", () => {
+  // DEFEITO QUE ISTO PREVINE: a primeira versão desta migration reescrevia
+  // tv_snapshot_atualizar inteira. Como 20261007093518 (tv_equipe_oculta) entrou
+  // em produção ANTES, a reescrita apagaria o filtro da playlist e o nome de
+  // quem saiu da equipe voltaria ao telão sem ninguém perceber.
+  it("depois da migration, a função tem as DUAS coisas", async () => {
+    const r = await db.query(`
+      select pg_get_functiondef(p.oid) src from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname='public' and p.proname='tv_snapshot_atualizar'`);
+    const src = r.rows[0].src;
+    expect(src).toContain("magic_number_mensal");   // o que esta migration traz
+    expect(src).toContain("tv_equipe_oculta");      // o que ela NÃO pode derrubar
+  });
+
+  it("na prática: o payload traz magic e a playlist segue sem quem saiu", async () => {
+    const mes = await competencia(db);
+    await db.query(
+      `insert into public.magic_number_mensal(mes_referencia, valor) values ($1, 142800)
+       on conflict (mes_referencia) do update set valor = excluded.valor`, [mes]);
+    await db.query(`insert into public.portal_playlist (titulo, artista, adicionado_por, adicionado_por_email)
+      values ('Musica da Olga','A','OLGA','cobranca03@aelbra.com.br'),
+             ('Musica do Joao','B','JOAO','cobranca10@aelbra.com.br')`);
+
+    const p = await atualizar(db);
+    expect(Number(p.magic.valor)).toBe(142800);
+    expect(JSON.stringify(p.playlist_reativa).toUpperCase()).not.toContain("OLGA");
+    expect(JSON.stringify(p.playlist_reativa).toUpperCase()).toContain("JOAO");
+  });
+
+  it("rodar a migration de novo não duplica a chave nem mexe no filtro", async () => {
+    const def = async () => (await db.query(`
+      select pg_get_functiondef(p.oid) src from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+       where n.nspname='public' and p.proname='tv_snapshot_atualizar'`)).rows[0].src;
+    const antes = await def();
+    await db.exec(MIGRATION_TABELA);
+    expect(await def()).toBe(antes);
   });
 });
