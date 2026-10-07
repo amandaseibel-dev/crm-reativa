@@ -17,7 +17,10 @@
 //   7. UMA ordenação só para todas as funções: duas fotos com hora conhecida
 //      no mesmo dia nascem ambas com ordem_no_dia = 1 (o default da tela, que
 //      nem pergunta a ordem quando a hora é conhecida) e mesmo assim precisam
-//      ser reconhecidas como consecutivas, pelo horário DECLARADO.
+//      ser reconhecidas como consecutivas, pelo horário DECLARADO;
+//   8. ORDENAR NÃO É COMPROVAR: o desempate por faixa de precisão ou por id
+//      serve só para enfileirar a tela. Onde a ordem saiu dele, a comparação
+//      fica pendente em vez de devolver número.
 //
 // NENHUM DADO REAL.
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
@@ -419,6 +422,7 @@ describe("Preventivo — recorte dos indicadores e precisão da extração", () 
     const c = await um(db, `select public.preventivo_remessa_comparar($1::uuid)`, [tarde.lote_id]);
     expect(c.primeira_remessa).toBe(false);
     expect(c.remessa_anterior).toBe(manha.lote_id);
+    expect(c.sequencia_nao_comprovada).toBe(false);   // hora DECLARADA nos dois
     expect(c.saiu_da_base.titulos).toBe(1);
     expect(c.continua_em_aberto.titulos).toBe(2);
 
@@ -434,6 +438,7 @@ describe("Preventivo — recorte dos indicadores e precisão da extração", () 
     expect(e.cards.titulos_inicial).toBe(3);
     expect(e.cards.titulos_ainda_abertos).toBe(2);
     expect(e.cards.saiu_da_base_titulos).toBe(1);
+    expect(e.cards.ordem_ambigua).toBe(false);
   });
 
   it("as três funções concordam sobre qual remessa vem depois do envio", async () => {
@@ -454,21 +459,82 @@ describe("Preventivo — recorte dos indicadores e precisão da extração", () 
     expect(res.sequencia_nao_comprovada).toBe(false);
   });
 
-  it("hora comprovada vem antes de hora ausente no mesmo dia e ordem", async () => {
-    // mesma ordem_no_dia = 1: quem declarou hora vem primeiro, e a sem hora
-    // NÃO é posta antes por um horário que ninguém afirmou.
+  // --- 8. ORDENAR NÃO É COMPROVAR ---------------------------------------
+
+  it("ordem arbitrária serve para EXIBIR; a comparação fica pendente", async () => {
+    // Mesmo dia, mesma ordem_no_dia = 1, e só uma tem hora. A fila da tela
+    // põe a com hora primeiro — mas isso é desempate por faixa de precisão,
+    // não prova. Ninguém sabe qual relatório saiu antes.
     const comHora = await importar("Com hora", [t("2026000001"), t("2026000002")],
                                    "2026-10-05 09:00-03");
     const semHora = await importar("Sem hora", [t("2026000001")],
                                    "2026-10-05 00:00-03", "DATA", 1);
 
+    // EXIBIR: a ordem existe e é estável
     const e = await evolucao();
     expect(e.pontos.map((x) => x.remessa)).toEqual([comHora.lote_id, semHora.lote_id]);
+    expect(e.cards.ordem_ambigua).toBe(true);
+
+    // AFIRMAR: não. O delta entre os dois pontos é nulo, não zero.
+    expect(e.pontos[1].sequencia_nao_comprovada).toBe(true);
+    expect(e.pontos[1].saiu_da_base_titulos).toBeNull();
+    expect(e.pontos[1].saiu_da_base_valor).toBeNull();
+    expect(e.pontos[1].entraram).toBeNull();
+
+    // e a comparação devolve pendente, com a anterior só para referência
     const c = await um(db, `select public.preventivo_remessa_comparar($1::uuid)`, [semHora.lote_id]);
+    expect(c.sequencia_nao_comprovada).toBe(true);
+    expect(c.primeira_remessa).toBe(false);
     expect(c.remessa_anterior).toBe(comHora.lote_id);
+    expect(c.saiu_da_base).toBeNull();
+    expect(c.continua_em_aberto).toBeNull();
+    expect(c.novos_na_remessa).toBeNull();
+    expect(c.observacao).toMatch(/arbitr/i);
   });
 
-  // --- 8. PORTÃO --------------------------------------------------------
+  it("duas fotos no mesmo dia, nenhuma com hora e a MESMA ordem: pendente", async () => {
+    const a = await importar("A", [t("2026000001"), t("2026000002")], "2026-10-05 00:00-03", "DATA", 1);
+    const b = await importar("B", [t("2026000001")], "2026-10-05 00:00-03", "DATA", 1);
+
+    // a fila é a ordem de REGISTRO — estável, e não um sorteio de uuid
+    const e0 = await evolucao();
+    expect(e0.pontos.map((x) => x.remessa)).toEqual([a.lote_id, b.lote_id]);
+
+    const c = await um(db, `select public.preventivo_remessa_comparar($1::uuid)`, [b.lote_id]);
+    expect(c.remessa_anterior).toBe(a.lote_id);
+    expect(c.sequencia_nao_comprovada).toBe(true);
+    expect(c.saiu_da_base).toBeNull();
+
+    const e = await evolucao();
+    expect(e.cards.ordem_ambigua).toBe(true);
+    expect(e.pontos[1].saiu_da_base_titulos).toBeNull();
+  });
+
+  it("declarar a ordem no dia resolve a ambiguidade", async () => {
+    const a = await importar("A", [t("2026000001"), t("2026000002")], "2026-10-05 00:00-03", "DATA", 1);
+    const b = await importar("B", [t("2026000001")], "2026-10-05 00:00-03", "DATA", 2);
+
+    const c = await um(db, `select public.preventivo_remessa_comparar($1::uuid)`, [b.lote_id]);
+    expect(c.sequencia_nao_comprovada).toBe(false);
+    expect(c.remessa_anterior).toBe(a.lote_id);
+    expect(c.saiu_da_base.titulos).toBe(1);
+
+    const e = await evolucao();
+    expect(e.cards.ordem_ambigua).toBe(false);
+    expect(e.pontos[1].saiu_da_base_titulos).toBe(1);
+  });
+
+  it("dias diferentes nunca são ambíguos, mesmo sem hora nenhuma", async () => {
+    await importar("Ontem", [t("2026000001"), t("2026000002")], "2026-10-05 00:00-03", "DATA", 1);
+    const hoje = await importar("Hoje", [t("2026000001")], "2026-10-06 00:00-03", "DATA", 1);
+
+    const c = await um(db, `select public.preventivo_remessa_comparar($1::uuid)`, [hoje.lote_id]);
+    expect(c.sequencia_nao_comprovada).toBe(false);
+    expect(c.saiu_da_base.titulos).toBe(1);
+    expect((await evolucao()).cards.ordem_ambigua).toBe(false);
+  });
+
+  // --- 9. PORTÃO --------------------------------------------------------
 
   it("quem não é da gestão não lê nem registra", async () => {
     const r = await importar("Foto", [t("2026000001")], "2026-10-05 15:00-03");

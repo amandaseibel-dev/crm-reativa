@@ -89,22 +89,30 @@ comment on function public.preventivo_dia(timestamptz) is
 --      tem, e entre duas comprovadas o horario declarado desempata -- isso nao
 --      e desempate silencioso: a hora so e usada quando alguem afirmou que ela
 --      e a da extracao;
---   4. se nem isso resolve, o `id`. E arbitrario, e e assumido como
---      arbitrario: duas fotos sem hora comprovada e com a MESMA ordem no dia
---      nao tem ordem conhecida. O `id` so garante que a resposta nao mude
---      entre duas consultas; nao se afirma que uma veio antes da outra. Para
---      efeito de PROVA de sequencia contra um envio, esse par continua
---      valendo nada -- quem decide isso e a regra de precisao, nao a ordem.
+--   4. se nem isso resolve, a ORDEM DE REGISTRO (`criado_em`, e o `id` so
+--      para o empate exato, que na pratica nao acontece). E arbitraria como
+--      cronologia da EXTRACAO e e assumida como tal -- duas fotos sem hora
+--      comprovada e com a mesma ordem no dia nao tem ordem conhecida. Serve
+--      so para a fila da tela nao mudar entre duas consultas.
+--
+--      NAO usar `id` sozinho aqui: uuid e aleatorio, entao a foto subida
+--      depois apareceria antes em metade dos casos e ate a escolha de
+--      "primeira remessa" viraria sorteio. `criado_em` e um fato real e
+--      monotonico -- a ordem em que entraram no sistema. Ele NAO e usado para
+--      afirmar nada: quem responde isso e
+--      preventivo_sequencia_comprovada(), e para esse par ela diz nao.
 do $$ begin
   if not exists (select 1 from pg_type where typname = 'preventivo_ordem_remessa'
                    and typnamespace = 'public'::regnamespace) then
     create type public.preventivo_ordem_remessa as (
-      dia date, ordem_no_dia int, hora_rank int, hora timestamptz, desempate uuid);
+      dia date, ordem_no_dia int, hora_rank int, hora timestamptz,
+      registrado_em timestamptz, desempate uuid);
   end if;
 end $$;
 
 create or replace function public.preventivo_ordem(
-  p_extraido_em timestamptz, p_precisao text, p_ordem_no_dia int, p_id uuid)
+  p_extraido_em timestamptz, p_precisao text, p_ordem_no_dia int,
+  p_criado_em timestamptz, p_id uuid)
 returns public.preventivo_ordem_remessa
 language sql
 stable
@@ -118,16 +126,64 @@ as $$
     case when p_precisao = 'DATA_E_HORA' then 0 else 1 end,
     case when p_precisao = 'DATA_E_HORA' then p_extraido_em
          else '-infinity'::timestamptz end,
+    p_criado_em,
     p_id
   )::public.preventivo_ordem_remessa
 $$;
 
-comment on function public.preventivo_ordem(timestamptz, text, int, uuid) is
+-- ORDENAR NAO E COMPROVAR. A chave acima sempre devolve UMA ordem, porque a
+-- tela precisa enfileirar os pontos de algum jeito. Mas dois dos criterios
+-- dela -- a faixa de precisao (hora comprovada antes de hora ausente) e o
+-- `id` -- sao ARBITRARIOS: servem so para a resposta nao mudar entre duas
+-- consultas. Nenhum dos dois prova que uma foto veio antes da outra.
+--
+-- Esta funcao responde a pergunta separada: a sequencia entre duas remessas
+-- esta COMPROVADA? So em tres situacoes:
+--
+--   1. sao de dias diferentes -- o dia basta;
+--   2. mesmo dia, mas com `ordem_no_dia` DECLARADA diferente -- alguem disse
+--      qual veio primeiro;
+--   3. mesmo dia e mesma ordem, mas as DUAS com hora comprovada e horarios
+--      diferentes -- e o caso das fotos das 09h e das 15h, que a tela cria
+--      sozinha porque nem pergunta a ordem quando a hora e conhecida.
+--
+-- Fora disso a ordem exibida veio de um desempate arbitrario, e quem consome
+-- precisa saber disso: a comparacao fica PENDENTE em vez de devolver numeros
+-- que ninguem pode defender.
+create or replace function public.preventivo_sequencia_comprovada(
+  p_a_em timestamptz, p_a_prec text, p_a_ordem int,
+  p_b_em timestamptz, p_b_prec text, p_b_ordem int)
+returns boolean
+language sql
+stable
+set search_path to 'public'
+as $$
+  select case
+    when public.preventivo_dia(p_a_em) <> public.preventivo_dia(p_b_em) then true
+    when coalesce(p_a_ordem, 1) <> coalesce(p_b_ordem, 1)              then true
+    when p_a_prec = 'DATA_E_HORA' and p_b_prec = 'DATA_E_HORA'
+     and p_a_em <> p_b_em                                              then true
+    else false
+  end
+$$;
+
+comment on function public.preventivo_sequencia_comprovada(timestamptz, text, int, timestamptz, text, int) is
+  'A sequencia entre duas remessas esta comprovada? Dia diferente, ou ordem no '
+  'dia declarada diferente, ou as duas com hora comprovada e horarios '
+  'distintos. Caso contrario a ordem exibida veio de desempate arbitrario '
+  '(faixa de precisao ou id) e nao sustenta nenhuma afirmacao.';
+
+comment on function public.preventivo_ordem(timestamptz, text, int, timestamptz, uuid) is
   'Chave unica de ordenacao das remessas: (dia em Sao Paulo, ordem_no_dia, '
-  'hora comprovada antes de hora ausente, horario declarado, id). Todas as '
-  'funcoes de leitura ordenam e comparam por ela, para que nao haja duas '
-  'respostas diferentes para a mesma pergunta. Horario NAO comprovado nunca '
-  'entra no desempate.';
+  'hora comprovada antes de hora ausente, horario declarado, ordem de '
+  'registro, id). Todas as '
+  'funcoes de leitura ordenam por ela, para que nao haja duas respostas '
+  'diferentes para a mesma pergunta. Horario NAO comprovado nunca entra no '
+  'desempate. ATENCAO: ordenar nao e comprovar -- a faixa de precisao e a '
+  'ordem de registro sao desempates ARBITRARIOS, so para EXIBIR. Antes de '
+  'afirmar que uma '
+  'remessa veio depois da outra, perguntar a '
+  'preventivo_sequencia_comprovada().';
 
 -- -----------------------------------------------------------------------------
 -- 1. PRECISAO E ORDEM EXPLICITA NA REMESSA
@@ -397,10 +453,10 @@ begin
 
   select id into v_primeiro from public.prev_lote
    where carteira_id = p_carteira_id and status = 'CONFIRMADO'
-   order by public.preventivo_ordem(extraido_em, extraido_precisao, ordem_no_dia, id) limit 1;
+   order by public.preventivo_ordem(extraido_em, extraido_precisao, ordem_no_dia, criado_em, id) limit 1;
   select id into v_ultimo from public.prev_lote
    where carteira_id = p_carteira_id and status = 'CONFIRMADO'
-   order by public.preventivo_ordem(extraido_em, extraido_precisao, ordem_no_dia, id) desc limit 1;
+   order by public.preventivo_ordem(extraido_em, extraido_precisao, ordem_no_dia, criado_em, id) desc limit 1;
 
   with carteira as (select venc_de, venc_ate from public.prev_carteira where id = p_carteira_id),
   -- O RECORTE: titulo da carteira cuja origem cabe no periodo dela.
@@ -417,8 +473,8 @@ begin
        and t.vencimento_origem is not null
        and (t.vencimento_origem < c.venc_de or t.vencimento_origem > c.venc_ate)
   ), remessas as (
-    select l.id, l.nome, l.extraido_em, l.extraido_precisao, l.ordem_no_dia,
-           row_number() over (order by public.preventivo_ordem(l.extraido_em, l.extraido_precisao, l.ordem_no_dia, l.id)) as ordem
+    select l.id, l.nome, l.extraido_em, l.extraido_precisao, l.ordem_no_dia, l.criado_em,
+           row_number() over (order by public.preventivo_ordem(l.extraido_em, l.extraido_precisao, l.ordem_no_dia, l.criado_em, l.id)) as ordem
       from public.prev_lote l
      where l.carteira_id = p_carteira_id and l.status = 'CONFIRMADO'
   ), tl as (
@@ -434,19 +490,34 @@ begin
            (select coalesce(sum(saldo_na_remessa), 0) from tl where tl.lote_id = r.id) as saldo
       from remessas r
   ), com_anterior as (
-    select f.*, lag(f.id) over (order by f.ordem) as anterior from foto f
+    -- `anterior` e o vizinho NA EXIBICAO. Se a ordem entre os dois saiu de um
+    -- desempate arbitrario, o delta entre eles nao vale -- e `par_comprovado`
+    -- diz isso, para o numero virar nulo em vez de virar afirmacao.
+    select f.*,
+           lag(f.id)                over (order by f.ordem) as anterior,
+           lag(f.extraido_em)       over (order by f.ordem) as ant_em,
+           lag(f.extraido_precisao) over (order by f.ordem) as ant_prec,
+           lag(f.ordem_no_dia)      over (order by f.ordem) as ant_ordem
+      from foto f
+  ), com_prova as (
+    select c.*,
+           case when c.anterior is null then null
+                else public.preventivo_sequencia_comprovada(
+                       c.ant_em, c.ant_prec, c.ant_ordem,
+                       c.extraido_em, c.extraido_precisao, c.ordem_no_dia) end as par_comprovado
+      from com_anterior c
   ), linhas as (
     select c.*,
-           case when c.anterior is null then null else (
+           case when c.anterior is null or not c.par_comprovado then null else (
              select count(*) from tl a where a.lote_id = c.anterior
                and not exists (select 1 from tl b where b.lote_id = c.id and b.titulo_id = a.titulo_id)) end as saiu_titulos,
-           case when c.anterior is null then null else (
+           case when c.anterior is null or not c.par_comprovado then null else (
              select coalesce(sum(a.saldo_na_remessa), 0) from tl a where a.lote_id = c.anterior
                and not exists (select 1 from tl b where b.lote_id = c.id and b.titulo_id = a.titulo_id)) end as saiu_valor,
-           case when c.anterior is null then null else (
+           case when c.anterior is null or not c.par_comprovado then null else (
              select count(*) from tl b where b.lote_id = c.id
                and not exists (select 1 from tl a where a.lote_id = c.anterior and a.titulo_id = b.titulo_id)) end as entraram
-      from com_anterior c
+      from com_prova c
   ), acoes as (
     select a.id, a.nome, a.canal, a.contexto, a.origem, a.lote_id, a.estado,
            a.envio_confirmado_em, a.envio_precisao, a.filtros->>'publico' as publico,
@@ -478,7 +549,7 @@ begin
                or (public.preventivo_dia(l.extraido_em) = public.preventivo_dia(ac.envio_confirmado_em)
                    and l.extraido_precisao = 'DATA_E_HORA' and ac.envio_precisao = 'DATA_E_HORA'
                    and l.extraido_em > ac.envio_confirmado_em))
-        order by public.preventivo_ordem(l.extraido_em, l.extraido_precisao, l.ordem_no_dia, l.id) desc limit 1) as ultima_depois,
+        order by public.preventivo_ordem(l.extraido_em, l.extraido_precisao, l.ordem_no_dia, l.criado_em, l.id) desc limit 1) as ultima_depois,
       (select count(*) from public.prev_lote l
         where l.carteira_id = p_carteira_id and l.status = 'CONFIRMADO'
           and ac.envio_confirmado_em is not null
@@ -524,7 +595,8 @@ begin
         'ordem', l.ordem,
         'titulos', l.titulos, 'alunos', l.alunos, 'saldo', l.saldo,
         'saiu_da_base_titulos', l.saiu_titulos, 'saiu_da_base_valor', l.saiu_valor,
-        'entraram', l.entraram
+        'entraram', l.entraram,
+        'sequencia_nao_comprovada', (l.anterior is not null and not l.par_comprovado)
       ) order by l.ordem) from linhas l), '[]'::jsonb),
     'acoes', coalesce((select jsonb_agg(jsonb_build_object(
         'id', m.id, 'nome', m.nome, 'canal', m.canal, 'contexto', m.contexto,
@@ -579,7 +651,12 @@ begin
       'primeira_precisao', (select extraido_precisao from public.prev_lote where id = v_primeiro),
       'ultima_extracao', (select extraido_em from public.prev_lote where id = v_ultimo),
       'ultima_precisao', (select extraido_precisao from public.prev_lote where id = v_ultimo),
-      'remessas', (select count(*) from linhas)),
+      'remessas', (select count(*) from linhas),
+      -- Se algum par vizinho tem ordem arbitraria, a propria escolha de
+      -- "primeira" e "ultima" foto pode ter saido do desempate. Os cards
+      -- continuam sendo exibidos, mas a tela precisa dizer que ha ambiguidade.
+      'ordem_ambigua', (select bool_or(l.anterior is not null and not l.par_comprovado)
+                          from linhas l)),
     'fora_do_recorte', jsonb_build_object(
       'motivo', 'ORIGEM_FORA_DO_PERIODO',
       'titulos', (select count(*) from fora),
@@ -593,7 +670,10 @@ begin
               || 'ENTRADAS NA SÉRIE = apareceram depois da primeira foto; ENTRADAS AINDA '
               || 'PRESENTES = dessas, as que estão na última; ENTRADAS QUE SAÍRAM = a '
               || 'diferença. Ação cuja remessa seguinte está no MESMO dia do envio, sem '
-              || 'hora comprovada dos dois lados, fica com resultado PENDENTE.'
+              || 'hora comprovada dos dois lados, fica com resultado PENDENTE. Intervalo '
+              || 'entre duas fotos cuja ordem saiu de desempate arbitrário também fica '
+              || 'pendente: a ordem exibida serve para enfileirar a tela, não para afirmar '
+              || 'o que saiu da base.'
   ) into v;
   return v;
 end;
@@ -614,28 +694,56 @@ set search_path to 'public'
 as $$
 declare v jsonb; v_carteira uuid; v_anterior uuid; v_quando timestamptz;
         v_ordem int; v_prec text; v_chave public.preventivo_ordem_remessa;
+        v_ant_em timestamptz; v_ant_prec text; v_ant_ordem int; v_comprovada boolean;
+        v_criado timestamptz;
 begin
   if not public.preventivo_e_gestao() then
     raise exception 'Preventivo: acesso restrito à gestão.' using errcode = '42501';
   end if;
-  select carteira_id, extraido_em, ordem_no_dia, extraido_precisao
-    into v_carteira, v_quando, v_ordem, v_prec
+  select carteira_id, extraido_em, ordem_no_dia, extraido_precisao, criado_em
+    into v_carteira, v_quando, v_ordem, v_prec, v_criado
     from public.prev_lote where id = p_lote_id;
-  v_chave := public.preventivo_ordem(v_quando, v_prec, v_ordem, p_lote_id);
+  v_chave := public.preventivo_ordem(v_quando, v_prec, v_ordem, v_criado, p_lote_id);
   if v_carteira is null then
     raise exception 'Remessa não encontrada.' using errcode = '22023';
   end if;
 
   select id into v_anterior from public.prev_lote
    where carteira_id = v_carteira and status = 'CONFIRMADO'
-     and public.preventivo_ordem(extraido_em, extraido_precisao, ordem_no_dia, id) < v_chave
-   order by public.preventivo_ordem(extraido_em, extraido_precisao, ordem_no_dia, id) desc
+     and public.preventivo_ordem(extraido_em, extraido_precisao, ordem_no_dia, criado_em, id) < v_chave
+   order by public.preventivo_ordem(extraido_em, extraido_precisao, ordem_no_dia, criado_em, id) desc
    limit 1;
 
   if v_anterior is null then
     return jsonb_build_object('remessa', p_lote_id, 'remessa_anterior', null,
-      'primeira_remessa', true,
+      'primeira_remessa', true, 'sequencia_nao_comprovada', false,
       'observacao', 'Primeira remessa da carteira: não há anterior para comparar.');
+  end if;
+
+  -- A remessa anterior PARA EXIBIR já foi escolhida. Agora a outra pergunta:
+  -- essa ordem está comprovada, ou saiu de um desempate arbitrário?
+  select extraido_em, extraido_precisao, ordem_no_dia
+    into v_ant_em, v_ant_prec, v_ant_ordem
+    from public.prev_lote where id = v_anterior;
+  v_comprovada := public.preventivo_sequencia_comprovada(
+    v_ant_em, v_ant_prec, v_ant_ordem, v_quando, v_prec, v_ordem);
+
+  if not v_comprovada then
+    return jsonb_build_object(
+      'remessa', p_lote_id,
+      'remessa_anterior', v_anterior,
+      'primeira_remessa', false,
+      'sequencia_nao_comprovada', true,
+      'continua_em_aberto', null,
+      'saiu_da_base', null,
+      'regularizados_entre_remessas', null,
+      'novos_na_remessa', null,
+      'observacao', 'As duas remessas são do mesmo dia e não há como provar qual '
+                 || 'veio primeiro: ou falta hora comprovada em uma delas, ou as '
+                 || 'duas têm a mesma ordem no dia. A ordem exibida saiu de um '
+                 || 'desempate arbitrário, que serve para enfileirar a tela e não '
+                 || 'para afirmar o que saiu da base. Informe a ordem no dia, ou '
+                 || 'a hora de extração, e a comparação passa a valer.');
   end if;
 
   with dentro as (
@@ -659,6 +767,7 @@ begin
     'remessa', p_lote_id,
     'remessa_anterior', v_anterior,
     'primeira_remessa', false,
+    'sequencia_nao_comprovada', false,
     'continua_em_aberto', (
       select jsonb_build_object('titulos', count(*), 'valor', coalesce(sum(ant.saldo_na_remessa), 0))
         from dentro ant
@@ -740,7 +849,7 @@ begin
             or (public.preventivo_dia(l.extraido_em) = v_dia_ancora
                 and l.extraido_precisao = 'DATA_E_HORA' and v_prec = 'DATA_E_HORA'
                 and l.extraido_em > v_ancora))
-     order by public.preventivo_ordem(l.extraido_em, l.extraido_precisao, l.ordem_no_dia, l.id) limit 1;
+     order by public.preventivo_ordem(l.extraido_em, l.extraido_precisao, l.ordem_no_dia, l.criado_em, l.id) limit 1;
 
     -- Existe foto no mesmo dia que ficou de fora SO por falta de hora?
     select count(*) > 0 into v_pendente from public.prev_lote l
@@ -855,9 +964,11 @@ revoke all on function public.preventivo_lote_confirmar_v2(uuid, text, text, jso
 revoke all on function public.preventivo_acao_externa_registrar(uuid, uuid, text, text, text, timestamptz, text[], boolean, text) from public, anon;
 revoke all on function public.preventivo_no_recorte(uuid) from public, anon;
 revoke all on function public.preventivo_dia(timestamptz) from public, anon;
-revoke all on function public.preventivo_ordem(timestamptz, text, int, uuid) from public, anon;
+revoke all on function public.preventivo_ordem(timestamptz, text, int, timestamptz, uuid) from public, anon;
+revoke all on function public.preventivo_sequencia_comprovada(timestamptz, text, int, timestamptz, text, int) from public, anon;
 grant execute on function public.preventivo_lote_confirmar_v2(uuid, text, text, jsonb, text, jsonb, timestamptz, text, int) to authenticated;
 grant execute on function public.preventivo_acao_externa_registrar(uuid, uuid, text, text, text, timestamptz, text[], boolean, text) to authenticated;
 grant execute on function public.preventivo_no_recorte(uuid) to authenticated;
 grant execute on function public.preventivo_dia(timestamptz) to authenticated;
-grant execute on function public.preventivo_ordem(timestamptz, text, int, uuid) to authenticated;
+grant execute on function public.preventivo_ordem(timestamptz, text, int, timestamptz, uuid) to authenticated;
+grant execute on function public.preventivo_sequencia_comprovada(timestamptz, text, int, timestamptz, text, int) to authenticated;

@@ -81,13 +81,22 @@ function TooltipPonto({ active, payload }) {
       <Par rot="Títulos em aberto" val={d.titulos} />
       <Par rot="Alunos" val={d.alunos} />
       <Par rot="Saldo" val={moeda(d.saldo)} />
-      {d.saiu_da_base_titulos !== null && (
+      {d.sequencia_nao_comprovada ? (
+        <div style={{ marginTop: 6, fontSize: 11.5, color: "var(--rv-texto-fraco)", maxWidth: 240 }}>
+          Sem ordem comprovada em relação à foto anterior: o que saiu entre as duas fica
+          pendente.
+        </div>
+      ) : (
         <>
-          <Par rot="Saíram desde a anterior" val={d.saiu_da_base_titulos} />
-          <Par rot="Valor que saiu" val={moeda(d.saiu_da_base_valor)} />
+          {d.saiu_da_base_titulos !== null && (
+            <>
+              <Par rot="Saíram desde a anterior" val={d.saiu_da_base_titulos} />
+              <Par rot="Valor que saiu" val={moeda(d.saiu_da_base_valor)} />
+            </>
+          )}
+          {d.entraram ? <Par rot="Entraram" val={d.entraram} /> : null}
         </>
       )}
-      {d.entraram ? <Par rot="Entraram" val={d.entraram} /> : null}
     </div>
   );
 }
@@ -138,6 +147,7 @@ export default function EvolucaoDaCarteira({ dados }) {
                 sub={moeda(c.saiu_da_base_valor)} />
       </div>
 
+      <OrdemAmbigua ativa={c.ordem_ambigua} />
       <Entradas cards={c} />
       <ForaDoRecorte fora={dados.fora_do_recorte} />
 
@@ -178,6 +188,25 @@ export default function EvolucaoDaCarteira({ dados }) {
       </div>
 
       <HistoricoDasAcoes acoes={dados.acoes || []} />
+    </div>
+  );
+}
+
+// A ordem da fila é sempre estável, mas nem sempre comprovada. Quando saiu de
+// um desempate arbitrário, a tela diz — senão os cards passariam a impressão
+// de que a série tem uma cronologia que ninguém verificou.
+function OrdemAmbigua({ ativa }) {
+  if (!ativa) return null;
+  return (
+    <div style={{ ...S.card, padding: 14, marginTop: 12, borderLeft: "3px solid var(--rv-grafico-2)" }}>
+      <div style={{ fontWeight: 700, fontSize: 13 }}>Ordem entre duas fotos do mesmo dia não comprovada</div>
+      <div style={{ ...S.muted, fontSize: 12, marginTop: 4 }}>
+        Duas remessas do mesmo dia não têm como ser ordenadas com certeza: falta a hora de
+        extração em uma delas, ou as duas têm a mesma ordem no dia. Elas aparecem na tela
+        numa ordem estável, mas o que saiu da base <strong>entre elas</strong> fica pendente —
+        e os cards de início e fim da série podem depender dessa escolha. Informar a ordem no
+        dia, ou a hora de extração, resolve.
+      </div>
     </div>
   );
 }
