@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, act, cleanup, within } from "@testing-library/react";
+import { render, screen, act, cleanup, within, fireEvent } from "@testing-library/react";
 
 const rpcMock = vi.fn();
 vi.mock("../services/supabase", () => ({ supabase: { rpc: (...a) => rpcMock(...a) } }));
@@ -8,129 +8,225 @@ vi.mock("../services/supabase", () => ({ supabase: { rpc: (...a) => rpcMock(...a
 import StatusAcademicoPorSafra from "./StatusAcademicoPorSafra";
 
 // Números INVENTADOS. Rótulo não é dado de aluno e fica o da base — é ele que o
-// card tem de casar entre safras. Contagem real de aluno não entra em arquivo
-// versionado.
+// card tem de casar entre safras. Contagem, título e saldo reais de produção não
+// entram em arquivo versionado.
 //
-// Os valores são escolhidos para exercitar o card: categoria que só existe numa
-// safra, categoria com fatia minúscula, e totais fáceis de conferir de cabeça.
-const P2024 = { importacao: { situacoes: [
-  { situacao: "(sem situação importada)", alunos: 400 },
-  { situacao: "Término do Contrato", alunos: 300 },
-  { situacao: "Desvinculado", alunos: 200 },
-  { situacao: "Entrada via Reabertura", alunos: 100 },
-]}, snapshot: { gerado_em: "2026-10-06T20:33:46Z" } };
+// Os valores exercitam o card de propósito: categoria que só existe numa safra,
+// fatia minúscula, cobertura incompleta grande em 2024 e pequena em 2025, e
+// totais fáceis de conferir de cabeça (saldo de cada safra soma 1.000,00).
+const L = (situacao, alunos, titulos, saldo, pct) => ({ situacao, alunos, titulos, saldo, pct });
+const FONTE = { fonte: "Relatório de inadimplência (importação)", atualizado_em: "2026-08-04T15:21:17Z" };
+const FOTO = { gerado_em: "2026-10-07T13:00:00Z", duracao_ms: 900 };
 
-const P2025 = { importacao: { situacoes: [
-  { situacao: "Término do Contrato", alunos: 600 },
-  { situacao: "Cancelado", alunos: 300 },
-  { situacao: "Desvinculado", alunos: 98 },
-  { situacao: "TRANSFERENCIA DE CURRICULOS", alunos: 2 },
-]}, snapshot: { gerado_em: "2026-10-06T20:33:46Z" } };
+const S2024 = {
+  recorte: "2024",
+  total: { alunos: 100, titulos: 400, saldo: 1000.0 },
+  linhas: [
+    L("(sem situação importada)", 50, 200, 530.0, 53.0),
+    L("Término do Contrato", 30, 120, 300.0, 30.0),
+    L("Entrada via Reabertura", 20, 80, 170.0, 17.0),
+  ],
+  fonte_academica: FONTE, snapshot: FOTO, conferencia: { saldo: 1000.0, alunos: 100, titulos: 400 },
+};
 
-const P2026 = { importacao: { situacoes: [
-  { situacao: "Aguardando Matrícula", alunos: 500 },
-  { situacao: "Cancelado", alunos: 300 },
-  { situacao: "Término do Contrato", alunos: 200 },
-]}, snapshot: { gerado_em: "2026-10-06T20:33:46Z" } };
+const S2025 = {
+  recorte: "2025",
+  total: { alunos: 200, titulos: 810, saldo: 1000.0 },
+  linhas: [
+    L("Término do Contrato", 150, 610, 700.0, 70.0),
+    L("Matriculado Curso Normal", 30, 120, 250.0, 25.0),
+    L("Aguardando Matrícula", 19, 79, 49.98, 5.0),
+    L("(sem situação importada)", 1, 1, 0.02, 0.002),
+  ],
+  fonte_academica: FONTE, snapshot: FOTO, conferencia: { saldo: 1000.0, alunos: 200, titulos: 810 },
+};
 
-function responder(p24 = P2024, p25 = P2025, p26 = P2026) {
-  rpcMock.mockImplementation((nome, args) => {
-    if (nome !== "carteira_academico_perfil_ler") return Promise.resolve({ data: null, error: null });
-    if (args.p_ano === "2024") return Promise.resolve({ data: p24, error: null });
-    if (args.p_ano === "2025") return Promise.resolve({ data: p25, error: null });
-    return Promise.resolve({ data: p26, error: null });
+const S2026 = {
+  recorte: "2026/1",
+  total: { alunos: 300, titulos: 900, saldo: 1000.0 },
+  linhas: [
+    L("Aguardando Matrícula", 250, 750, 800.0, 80.0),
+    L("Término do Contrato", 50, 150, 200.0, 20.0),
+  ],
+  fonte_academica: FONTE, snapshot: FOTO, conferencia: null,
+};
+
+function responder(safras = [S2024, S2025, S2026]) {
+  rpcMock.mockImplementation((nome) => {
+    if (nome !== "carteira_academico_saldo_ler") return Promise.resolve({ data: null, error: null });
+    return Promise.resolve({ data: { lido_em: "2026-10-07T13:05:00Z", safras }, error: null });
   });
 }
-const montar = async () => { await act(async () => { render(<StatusAcademicoPorSafra />); }); };
+
+async function montar() {
+  await act(async () => { render(<StatusAcademicoPorSafra />); });
+}
+
+const linhaDe = (nome) => screen.getByText(nome).closest("tr");
 
 beforeEach(() => { rpcMock.mockReset(); responder(); });
-afterEach(cleanup);
+afterEach(() => cleanup());
 
-function linha(status) {
-  return screen.getByText(status).closest("tr");
-}
-
-describe("Status acadêmico por safra", () => {
-  it("lê os três snapshots e nunca a função que reconstrói o universo", async () => {
+describe("as quatro métricas por status", () => {
+  it("UMA chamada só, sem reconstruir o universo", async () => {
     await montar();
-    const nomes = rpcMock.mock.calls.map((c) => c[0]);
-    expect(nomes.filter((n) => n === "carteira_academico_perfil_ler")).toHaveLength(3);
-    expect(nomes).not.toContain("carteira_academico_perfil");
-    expect(nomes).not.toContain("carteira_academico_universo");
+    expect(rpcMock).toHaveBeenCalledTimes(1);
+    expect(rpcMock.mock.calls[0][0]).toBe("carteira_academico_saldo_ler");
+    const chamadas = rpcMock.mock.calls.map((c) => c[0]);
+    expect(chamadas).not.toContain("carteira_academico_universo");
+    expect(chamadas).not.toContain("carteira_academico_perfil");
   });
 
-  it("tem uma coluna por safra e as três no cabeçalho", async () => {
+  it("mostra alunos, títulos, saldo e % de cada status, por safra", async () => {
     await montar();
-    for (const r of ["2024", "2025", "2026/1"]) {
-      expect(screen.getByRole("columnheader", { name: r })).toBeTruthy();
+    // Término do Contrato existe nas três: 2024, 2025 e 2026/1 em sequência
+    const celulas = within(linhaDe("Término do Contrato")).getAllByRole("cell")
+      .map((c) => c.textContent);
+    expect(celulas).toEqual([
+      "Término do Contrato",
+      "30", "120", "300,00", "30,00%",
+      "150", "610", "700,00", "70,00%",
+      "50", "150", "200,00", "20,00%",
+    ]);
+  });
+
+  it("categoria que não existe na safra aparece '—', nunca somada a outra", async () => {
+    await montar();
+    const celulas = within(linhaDe("Entrada via Reabertura")).getAllByRole("cell")
+      .map((c) => c.textContent);
+    // existe só em 2024; as outras oito células são travessão
+    expect(celulas.slice(1, 5)).toEqual(["20", "80", "170,00", "17,00%"]);
+    expect(celulas.slice(5)).toEqual(Array(8).fill("—"));
+  });
+
+  it("Matriculado Curso Normal e Aguardando Matrícula são linhas separadas", async () => {
+    await montar();
+    expect(linhaDe("Matriculado Curso Normal")).not.toBe(linhaDe("Aguardando Matrícula"));
+    expect(within(linhaDe("Matriculado Curso Normal")).getAllByRole("cell")[5].textContent).toBe("30");
+    expect(within(linhaDe("Aguardando Matrícula")).getAllByRole("cell")[5].textContent).toBe("19");
+  });
+
+  it("fatia diminuta não vira 0,00%", async () => {
+    await montar();
+    const celulas = within(linhaDe("(sem situação importada)")).getAllByRole("cell")
+      .map((c) => c.textContent);
+    expect(celulas[8]).toBe("<0,1%"); // 2025: 0,002%
+  });
+});
+
+describe("fechamento dos totais", () => {
+  it("o total da safra é o que as linhas somam, e cada coluna fecha em 100%", async () => {
+    await montar();
+    const rodape = within(screen.getByText("Total da safra").closest("tr"));
+    expect(rodape.getAllByRole("cell").map((c) => c.textContent)).toEqual([
+      "Total da safra",
+      "100", "400", "1.000,00", "100,00%",
+      "200", "810", "1.000,00", "100,00%",
+      "300", "900", "1.000,00", "100,00%",
+    ]);
+  });
+
+  it("NÃO existe total das três safras", async () => {
+    await montar();
+    // A tabela é o que a diretoria lê como número; o rodapé pode EXPLICAR que o
+    // total das três não existe, mas célula nenhuma pode trazê-lo.
+    const tabela = within(screen.getByRole("table"));
+    expect(tabela.queryByText(/total geral/i)).toBeNull();
+    expect(tabela.queryByText(/tr[êe]s safras/i)).toBeNull();
+    // 100 + 200 + 300 alunos, 400 + 800 + 900 títulos e 3.000,00 de saldo não
+    // aparecem em célula alguma
+    for (const somado of ["600", "2.110", "3.000,00"]) {
+      expect(tabela.queryByText(somado)).toBeNull();
     }
+    // o rodapé de total tem exatamente uma coluna por safra, nunca uma extra
+    const rodape = within(screen.getByText("Total da safra").closest("tr"));
+    expect(rodape.getAllByRole("cell")).toHaveLength(1 + 3 * 4);
+    expect(screen.getByText(/não se somam entre si/i)).toBeTruthy();
   });
 
-  it("casa categoria por rótulo exato, em todas as safras em que ela existe", async () => {
+  it("avisa quando a safra não fecha com a fonte oficial", async () => {
+    responder([{ ...S2024, conferencia: { saldo: 999.0, alunos: 100, titulos: 400 } }]);
     await montar();
-    // "Término do Contrato" existe nas três
-    const l = within(linha("Término do Contrato"));
-    expect(l.getByText("300")).toBeTruthy();    // 2024
-    expect(l.getByText("600")).toBeTruthy();    // 2025
-    expect(l.getByText("200")).toBeTruthy();    // 2026/1
+    expect(screen.getByText(/Confer[êe]ncia com a fonte oficial/i).textContent)
+      .toMatch(/1\.000,00 aqui e R\$ 999,00/);
   });
 
-  it("categoria ausente numa safra vira travessão, e não some nem vira outra", async () => {
+  it("silencia a conferência quando fecha", async () => {
     await montar();
-    // "Entrada via Reabertura" só existe em 2024: 1 aluno, e "—" nas outras duas
-    const l = within(linha("Entrada via Reabertura"));
-    expect(l.getByText("100")).toBeTruthy();
-    expect(l.getAllByText("—").length).toBeGreaterThanOrEqual(4); // 2 colunas x (alunos + %)
-    // e a categoria exclusiva de 2025 continua existindo como linha propria
-    expect(screen.getByText("TRANSFERENCIA DE CURRICULOS")).toBeTruthy();
+    expect(screen.queryByText(/Confer[êe]ncia com a fonte oficial/i)).toBeNull();
+  });
+});
+
+describe("cobertura incompleta fica à mostra", () => {
+  it("avisa o percentual do saldo sem situação acadêmica na safra em que pesa", async () => {
+    await montar();
+    const aviso = screen.getByText(/do saldo está sem situação acadêmica importada/i);
+    expect(aviso.textContent).toMatch(/2024:/);
+    expect(aviso.textContent).toMatch(/53,00%/);
+    expect(aviso.textContent).toMatch(/50 de 100 alunos/);
+    expect(aviso.textContent).toMatch(/R\$ 530,00/);
   });
 
-  it("o percentual é sobre o total DAQUELA safra", async () => {
+  it("não avisa quando a ausência é pequena — a linha da tabela já conta", async () => {
     await montar();
-    // 2024: 400 de 1.000
-    expect(within(linha("(sem situação importada)")).getByText("40,0%")).toBeTruthy();  // 400 de 1.000
-    // 2025: 600 de 1.000
-    expect(within(linha("Término do Contrato")).getByText("60,0%")).toBeTruthy();
+    const avisos = screen.queryAllByText(/do saldo está sem situação acadêmica importada/i);
+    expect(avisos).toHaveLength(1); // só 2024; 2025 tem 0,002%
+    expect(avisos[0].textContent).not.toMatch(/2025:/);
   });
 
-  it("tem linha final de Total, uma por safra, somando as categorias daquela safra", async () => {
+  it("(sem situação importada) continua linha REAL da tabela, marcada", async () => {
     await montar();
-    const total = within(screen.getByText("Total de alunos").closest("tr"));
-    expect(total.getAllByText("1.000")).toHaveLength(3);   // as tres safras somam 1.000 na fixture
-    expect(total.getAllByText("100%")).toHaveLength(3);
+    const tr = linhaDe("(sem situação importada)");
+    expect(tr).toBeTruthy();
+    expect(within(tr).getByText(/cobertura incompleta/i)).toBeTruthy();
+    expect(within(tr).getAllByRole("cell")[1].textContent).toBe("50");
   });
 
-  it("categoria com aluno de verdade nunca aparece como 0%", async () => {
+  it("não redistribui nem esconde: a linha entra no total", async () => {
     await montar();
-    // 2 de 1.000 em 2025 = 0,2%, nao 0%
-    expect(within(linha("TRANSFERENCIA DE CURRICULOS")).getByText("0,2%")).toBeTruthy();
-    // e um caso abaixo de 0,05% vira "<0,1%", nunca "0%"
-    responder(P2024, { importacao: { situacoes: [
-      { situacao: "Término do Contrato", alunos: 5000 }, { situacao: "Falecido", alunos: 1 }] } }, P2026);
-    cleanup();
+    expect(screen.getByText(/não foi redistribuída nem omitida/i)).toBeTruthy();
+  });
+});
+
+describe("procedência do dado", () => {
+  it("diz a data da importação acadêmica", async () => {
     await montar();
-    expect(within(linha("Falecido")).getByText("<0,1%")).toBeTruthy();
+    expect(screen.getByText(/relatório de inadimplência/i).textContent)
+      .toMatch(/importado em 04\/08\/2026/);
   });
 
-  it("não inventa agrupamento: cada rótulo da base é uma linha", async () => {
+  it("diz quando o cruzamento com o saldo foi tirado e que 2026 /1 se move", async () => {
     await montar();
-    expect(screen.queryByText("Outros")).toBeNull();
-    expect(screen.queryByText(/Evadido/)).toBeNull();
-    // "(sem situação importada)" é categoria da base e aparece com o rótulo dela
-    expect(screen.getByText("(sem situação importada)")).toBeTruthy();
+    expect(screen.getByText(/Cruzamento com o saldo tirado em/i).textContent)
+      .toMatch(/07\/10\/2026/);
+    expect(screen.getByText(/carteira viva e se move ao longo do dia/i)).toBeTruthy();
+  });
+});
+
+describe("densidade e falhas", () => {
+  it("o botão reduz para saldo e % e volta", async () => {
+    await montar();
+    expect(within(linhaDe("Término do Contrato")).getAllByRole("cell")).toHaveLength(13);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /só saldo/i })); });
+    const celulas = within(linhaDe("Término do Contrato")).getAllByRole("cell").map((c) => c.textContent);
+    expect(celulas).toEqual(["Término do Contrato", "300,00", "30,00%", "700,00", "70,00%",
+                             "200,00", "20,00%"]);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /mostrar alunos e títulos/i }));
+    });
+    expect(within(linhaDe("Término do Contrato")).getAllByRole("cell")).toHaveLength(13);
   });
 
-  it("safra sem fotografia aparece como travessão e é avisada", async () => {
-    responder(P2024, { sem_snapshot: true, recorte: "2025" }, P2026);
+  it("falha da RPC aparece, não vira tabela vazia", async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { message: "canceling statement due to timeout" } });
     await montar();
-    expect(screen.getByText(/Sem fotografia ainda: 2025/)).toBeTruthy();
-    const total = within(screen.getByText("Total de alunos").closest("tr"));
-    expect(total.getAllByText("100%")).toHaveLength(2);
+    expect(screen.getByText(/Não foi possível cruzar status e saldo/i).textContent)
+      .toMatch(/canceling statement/);
   });
 
-  it("erro da RPC aparece, não vira tabela vazia", async () => {
-    rpcMock.mockImplementation(() => Promise.resolve({ error: { message: "Acesso negado." } }));
+  it("sem fotografia alguma, diz isso em vez de ficar em branco", async () => {
+    responder([]);
     await montar();
-    expect(screen.getByText(/Acesso negado/)).toBeTruthy();
+    expect(screen.getByText(/Nenhuma safra tem fotografia do cruzamento ainda/i)).toBeTruthy();
   });
 });
