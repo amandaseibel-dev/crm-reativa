@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, act, cleanup, within } from "@testing-library/react";
 
 // O que se prova aqui é o ENQUADRAMENTO de 2024/2025: ano inteiro (sem seletor
 // de semestre), saldo em aberto da régua ajustada, o balde 166 em linha própria
@@ -67,6 +67,13 @@ async function abrir() {
   await act(async () => { render(<CarteiraEfetividade />); });
 }
 
+// O card "Status acadêmico por safra" repete, na mesma página, os rótulos das
+// categorias e os nomes das safras. Estas asserções são sobre o bloco "Alunos
+// por status" das seis linhas, então a busca passa a ser DENTRO dele.
+function blocoSeisLinhas() {
+  return screen.getByText("As seis linhas da safra").closest("section");
+}
+
 async function irPara(ano) {
   await act(async () => { fireEvent.click(screen.getByRole("button", { name: ano })); });
 }
@@ -75,7 +82,7 @@ describe("Efetividade — 2024 e 2025 por ano", () => {
   it("2026 continua com o seletor de semestre", async () => {
     await abrir();
     expect(screen.getByRole("button", { name: "1º semestre" })).toBeTruthy();
-    expect(screen.getByText("2026/1")).toBeTruthy();
+    expect(screen.getAllByText("2026/1").length).toBeGreaterThanOrEqual(1);
   });
 
   it("2024 esconde o semestre e mostra o ano inteiro", async () => {
@@ -121,7 +128,7 @@ describe("Efetividade — 2024 e 2025 por ano", () => {
     await irPara("2024");
     await irPara("2026");
     expect(screen.getByRole("button", { name: "2º semestre" })).toBeTruthy();
-    expect(screen.getByText("2026/1")).toBeTruthy();
+    expect(screen.getAllByText("2026/1").length).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -341,8 +348,8 @@ describe("Efetividade — Alunos por status em toda safra", () => {
     await abrir();
     await irPara("2024");
     expect(screen.getAllByText("Alunos por status")).toHaveLength(1);
-    expect(screen.getByText("Desvinculado")).toBeTruthy();
-    expect(screen.getByText("Formado")).toBeTruthy();
+    expect(within(blocoSeisLinhas()).getByText("Desvinculado")).toBeTruthy();
+    expect(within(blocoSeisLinhas()).getByText("Formado")).toBeTruthy();
   });
 
   it("2025 mostra Alunos por status com as categorias da base", async () => {
@@ -350,7 +357,7 @@ describe("Efetividade — Alunos por status em toda safra", () => {
     await abrir();
     await irPara("2025");
     expect(screen.getAllByText("Alunos por status")).toHaveLength(1);
-    expect(screen.getByText("Término do Contrato")).toBeTruthy();
+    expect(within(blocoSeisLinhas()).getByText("Término do Contrato")).toBeTruthy();
   });
 
   it("2024 e 2025 mantêm o saldo por curso, que não é duplicata de nada", async () => {
@@ -371,7 +378,7 @@ describe("Efetividade — Alunos por status em toda safra", () => {
     });
     await abrir();
     expect(screen.getByText(/Alunos por status não carregou/)).toBeTruthy();
-    expect(screen.getByText(/statement timeout/)).toBeTruthy();
+    expect(within(blocoSeisLinhas()).getByText(/statement timeout/)).toBeTruthy();
     // as seis linhas continuam de pe
     expect(screen.getByText("As seis linhas da safra")).toBeTruthy();
   });
