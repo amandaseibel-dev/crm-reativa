@@ -47,9 +47,19 @@
 --   * `_encerramento_so_gestao` passa a listar `ANTECIPACAO_SEMESTRE` junto de
 --     cancelamento/suspensao/juridico: o operador recebe mensagem dizendo a quem
 --     pedir, no lugar de uma tabulacao que "funciona pela metade".
--- O front hoje nao le `somente_gestao` (ver src/utils/tabulacoes.js), entao a
--- opcao continua aparecendo no select e o banco recusa -- e exatamente o que
--- `CANCELAMENTO_COBRANCA` ja faz hoje.
+-- O front NAO le `somente_gestao` (ver src/utils/tabulacoes.js): essa coluna e
+-- governanca no catalogo, nao controle de tela. Quem esconde tabulacao de gestao
+-- do operador e o array `STATUS_BLOQUEADOS_ACIONAMENTO` + `podeVerTudo`, em
+-- Aluno.jsx -- outro mecanismo. `ANTECIPACAO_SEMESTRE` entra nele no commit que
+-- acompanha esta migration, junto de cancelamento/suspensao/juridico.
+--
+-- E A TABULACAO NUNCA APARECEU NA TELA, desde 10/09/2026. O `<select>` nao vem
+-- do catalogo: a fonte real e o array `STATUS_FINALIZACAO`, duplicado em 5
+-- arquivos, e nenhuma das 5 copias tinha as quatro tabulacoes de ALEGACAO. Era
+-- isso que o dicionario media como "0 usos" -- ninguem usou porque ninguem
+-- CONSEGUIA usar. Por isso esta migration sozinha nao faz a opcao aparecer:
+-- ela instala o desfecho, e o commit de front liga a opcao na Ficha e na
+-- Minha Carteira.
 --
 -- ROLLBACK: supabase/rollbacks/20261007143000_antecipacao_semestre_quita_responsabilidade.rollback.sql
 
