@@ -66,11 +66,24 @@ begin
              l.extraido_em, l.extraido_precisao, l.ordem_no_dia, l.criado_em, l.id)) as ordem
       from public.prev_lote l
      where l.carteira_id = p_carteira_id and l.status = 'CONFIRMADO'
-  ), pontos as (
+  ), fotos as (
     select r.*,
            (select count(*) from tl where tl.lote_id = r.id) as titulos,
            (select coalesce(sum(saldo_na_remessa), 0) from tl where tl.lote_id = r.id) as saldo
       from remessas r
+  ), pontos as (
+    -- ORDENAR NAO E COMPROVAR -- a mesma protecao das demais funcoes. Os
+    -- cards saem da PRIMEIRA e da ULTIMA foto; se a ordem entre duas vizinhas
+    -- veio de desempate arbitrario, a propria escolha de primeira e ultima
+    -- pode ter saido do desempate, e a tela precisa dizer isso.
+    select f.*,
+           case when lag(f.id) over (order by f.ordem) is null then null
+                else public.preventivo_sequencia_comprovada(
+                       lag(f.extraido_em)       over (order by f.ordem),
+                       lag(f.extraido_precisao) over (order by f.ordem),
+                       lag(f.ordem_no_dia)      over (order by f.ordem),
+                       f.extraido_em, f.extraido_precisao, f.ordem_no_dia) end as par_comprovado
+      from fotos f
   ), acoes as (
     select a.id, a.nome, a.canal, a.contexto, a.origem, a.estado, a.lote_id,
            a.envio_confirmado_em, a.envio_precisao,
@@ -169,7 +182,9 @@ begin
           join public.prev_acao_destinatario d on d.acao_id = a.id and d.incluido
           join dentro dd on dd.id = d.titulo_id
          where a.carteira_id = p_carteira_id and a.cancelada_em is null),
-      'remessas', (select count(*) from pontos)),
+      'remessas', (select count(*) from pontos),
+      'ordem_ambigua', coalesce((select bool_or(p.par_comprovado is not null and not p.par_comprovado)
+                                   from pontos p), false)),
     'pontos', coalesce((select jsonb_agg(jsonb_build_object(
         'remessa', p.id, 'nome', p.nome, 'quando', p.extraido_em,
         'precisao', p.extraido_precisao, 'ordem_no_dia', p.ordem_no_dia, 'ordem', p.ordem,
@@ -196,7 +211,10 @@ begin
         'sem_envio_confirmado', (k.envio_confirmado_em is null),
         'aguardando_remessa', (k.envio_confirmado_em is not null and k.depois_id is null
                                and not k.mesmo_dia_sem_hora),
-        'sequencia_nao_comprovada', k.mesmo_dia_sem_hora
+        -- SO PENDE QUANDO NAO HA REGUA. Existindo remessa comprovadamente
+        -- posterior, a foto sem hora do mesmo dia nao atrapalha nada: a
+        -- comparacao e feita contra a posterior, e o resultado vale.
+        'sequencia_nao_comprovada', (k.depois_id is null and k.mesmo_dia_sem_hora)
       ) order by k.envio_confirmado_em nulls last) from conta k), '[]'::jsonb),
     'definicao',
       'SAIU DA BASE = o título estava numa foto do relatório e não está na seguinte. '
@@ -274,6 +292,47 @@ begin
   novo := replace(corpo, ancora, troca);
   if novo = corpo then
     raise exception 'preventivo_acao_resultado: substituição não mudou o corpo.';
+  end if;
+  execute novo;
+end $$;
+
+
+-- -----------------------------------------------------------------------------
+-- O MESMO EXAGERO NAS DUAS FUNCOES ANTIGAS
+-- -----------------------------------------------------------------------------
+-- `sequencia_nao_comprovada` era levantada so por existir foto sem hora no
+-- mesmo dia do envio -- mesmo quando JA HAVIA remessa comprovadamente
+-- posterior. Nesse caso a comparacao e feita contra a posterior e o resultado
+-- vale; a foto ambigua nao atrapalha. A marca passa a valer apenas quando nao
+-- ha regua nenhuma. Os numeros nao mudam: so a marca deixa de assustar.
+do $$
+declare corpo text; novo text; ancora text; troca text;
+begin
+  corpo := pg_get_functiondef('public.preventivo_acao_resultado(uuid)'::regprocedure);
+  ancora := E'    ''sequencia_nao_comprovada'', coalesce(v_pendente, false),';
+  troca  := E'    ''sequencia_nao_comprovada'', (v_seguinte is null and coalesce(v_pendente, false)),';
+  if position(ancora in corpo) = 0 then
+    raise exception 'preventivo_acao_resultado: âncora da marca não encontrada; nada foi alterado.';
+  end if;
+  novo := replace(corpo, ancora, troca);
+  if novo = corpo then
+    raise exception 'preventivo_acao_resultado: substituição não mudou o corpo.';
+  end if;
+  execute novo;
+end $$;
+
+do $$
+declare corpo text; novo text; ancora text; troca text;
+begin
+  corpo := pg_get_functiondef('public.preventivo_evolucao(uuid)'::regprocedure);
+  ancora := E'        ''sequencia_nao_comprovada'', m.sequencia_nao_comprovada,';
+  troca  := E'        ''sequencia_nao_comprovada'', (m.ultima_depois is null and m.sequencia_nao_comprovada),';
+  if position(ancora in corpo) = 0 then
+    raise exception 'preventivo_evolucao: âncora da marca não encontrada; nada foi alterado.';
+  end if;
+  novo := replace(corpo, ancora, troca);
+  if novo = corpo then
+    raise exception 'preventivo_evolucao: substituição não mudou o corpo.';
   end if;
   execute novo;
 end $$;

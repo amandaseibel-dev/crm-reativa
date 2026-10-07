@@ -107,6 +107,8 @@ export default function PainelPreventivo({ dados }) {
                 sub={`${c.hoje?.titulos ?? 0} títulos · ${dataCurta(c.hoje?.quando)}`} />
       </div>
 
+      <OrdemAmbigua ativa={c.ordem_ambigua} />
+
       <p style={{ ...S.muted, marginTop: 10, fontSize: 12.5, maxWidth: 880 }}>
         <strong>Saíram da base</strong> é movimento observado entre a primeira e a última foto
         do relatório — <strong>não é pagamento confirmado</strong>. A fonte não separa pagamento
@@ -152,6 +154,25 @@ export default function PainelPreventivo({ dados }) {
       </div>
 
       <HistoricoPorAcao acoes={dados.acoes || []} definicao={dados.definicao} />
+    </div>
+  );
+}
+
+// Os cards saem da PRIMEIRA e da ÚLTIMA foto. Se a ordem entre duas fotos
+// vizinhas não está provada, a própria escolha de primeira e última pode ter
+// vindo do desempate — e quem lê precisa saber antes de usar o número.
+function OrdemAmbigua({ ativa }) {
+  if (!ativa) return null;
+  return (
+    <div style={{ ...S.card, padding: 14, marginTop: 12, borderLeft: "3px solid var(--rv-grafico-2)", borderRadius: 0 }}>
+      <div style={{ fontWeight: 700, fontSize: 13 }}>
+        Duas fotos do mesmo dia sem ordem comprovada
+      </div>
+      <div style={{ ...S.muted, fontSize: 12, marginTop: 4, maxWidth: 880 }}>
+        Falta a hora de extração em uma delas, ou as duas têm a mesma ordem no dia. Elas
+        aparecem numa ordem estável, mas os cards de início e fim podem depender dessa
+        escolha. Informar a ordem no dia, ou a hora, resolve.
+      </div>
     </div>
   );
 }

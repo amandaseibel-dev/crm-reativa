@@ -7,7 +7,11 @@
 //      "saiu" — confundir os dois seria chamar encargo de recuperação;
 //   4. alunos acionados conta cada aluno UMA vez, e é nulo (não zero) enquanto
 //      nenhum envio estiver confirmado;
-//   5. ação sem régua comprovada não inventa resultado.
+//   5. ação sem régua comprovada não inventa resultado;
+//   6. a proteção de ordem ambígua vale também aqui: se duas fotos vizinhas
+//      não têm ordem provada, os cards avisam;
+//   7. foto ambígua do mesmo dia NÃO mantém a ação pendente quando já existe
+//      remessa posterior válida — nesse caso a comparação é contra a posterior.
 //
 // NENHUM DADO REAL.
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
@@ -86,10 +90,10 @@ describe("Preventivo — painel objetivo", () => {
       `select public.preventivo_carteira_criar('Out', null, '2026-10-01'::date, '2026-10-31'::date)`);
   });
 
-  const importar = (nome, linhas, dia, ordem = 1) => um(db,
+  const importar = (nome, linhas, dia, ordem = 1, prec = "DATA", hora = "00:00") => um(db,
     `select public.preventivo_lote_confirmar_v2($1::uuid, $2, 'rel.csv', '{}'::jsonb, null,
-            $3::jsonb, $4::timestamptz, 'DATA', $5::int)`,
-    [carteira, nome, JSON.stringify(linhas), `${dia} 00:00-03`, ordem]);
+            $3::jsonb, $4::timestamptz, $5, $6::int)`,
+    [carteira, nome, JSON.stringify(linhas), `${dia} ${hora}-03`, prec, ordem]);
 
   const registrar = (lote, nome, canal, em) => um(db,
     `select public.preventivo_acao_externa_registrar($1::uuid, $2::uuid, $3, $4,
@@ -198,6 +202,60 @@ describe("Preventivo — painel objetivo", () => {
     expect(d).toMatch(/NÃO pagamento confirmado/i);
     expect(d).toMatch(/NÃO é recuperação/i);
     expect(d).not.toMatch(/\brecuperad/i);
+  });
+
+  it("ordem ambígua entre duas fotos é avisada nos cards", async () => {
+    // mesmo dia, mesma ordem no dia, nenhuma com hora: a fila existe, a prova não
+    await importar("A", [t("2026000001", 100), t("2026000002", 200)], "2026-10-05", 1);
+    await importar("B", [t("2026000001", 100)], "2026-10-05", 1);
+    const p = await painel();
+    expect(p.cards.ordem_ambigua).toBe(true);
+  });
+
+  it("declarar a ordem no dia tira o aviso", async () => {
+    await importar("A", [t("2026000001", 100), t("2026000002", 200)], "2026-10-05", 1);
+    await importar("B", [t("2026000001", 100)], "2026-10-05", 2);
+    const p = await painel();
+    expect(p.cards.ordem_ambigua).toBe(false);
+    expect(p.cards.saiu.titulos).toBe(1);
+  });
+
+  it("dias diferentes nunca deixam a ordem ambígua", async () => {
+    await importar("F1", [t("2026000001", 100), t("2026000002", 200)], "2026-10-02");
+    await importar("F2", [t("2026000001", 100)], "2026-10-06");
+    expect((await painel()).cards.ordem_ambigua).toBe(false);
+  });
+
+  it("foto ambígua do mesmo dia NÃO mantém a ação pendente se há remessa posterior", async () => {
+    const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 200)], "2026-10-02");
+    const a = await registrar(f1.lote_id, "Envio de 02/10", "EMAIL", "2026-10-02");
+    // outra foto no MESMO dia do envio, sem hora: sozinha, deixaria pendente
+    await importar("F1b", [t("2026000001", 100), t("2026000002", 200)], "2026-10-02", 2);
+    // mas existe uma posterior, e é contra ela que se compara
+    await importar("F2", [t("2026000001", 100)], "2026-10-06");
+
+    const ac = (await painel()).acoes.find((x) => x.id === a.id);
+    expect(ac.sequencia_nao_comprovada).toBe(false);
+    expect(ac.saiu.titulos).toBe(1);
+    expect(Number(ac.saiu.valor)).toBe(200);
+
+    // e as duas funções antigas concordam
+    const r = await um(db, `select public.preventivo_acao_resultado($1::uuid)`, [a.id]);
+    expect(r.sequencia_nao_comprovada).toBe(false);
+    expect(r.saiu_da_base).toBe(1);
+    const ev = (await um(db, `select public.preventivo_evolucao($1::uuid)`, [carteira]))
+      .acoes.find((x) => x.id === a.id);
+    expect(ev.sequencia_nao_comprovada).toBe(false);
+  });
+
+  it("sem remessa posterior, a foto ambígua do mesmo dia mantém a pendência", async () => {
+    const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 200)], "2026-10-02");
+    const a = await registrar(f1.lote_id, "Envio", "EMAIL", "2026-10-02");
+    await importar("F1b", [t("2026000001", 100)], "2026-10-02", 2);
+
+    const ac = (await painel()).acoes.find((x) => x.id === a.id);
+    expect(ac.sequencia_nao_comprovada).toBe(true);
+    expect(ac.saiu.titulos).toBeNull();
   });
 
   it("quem não é da gestão não lê o painel", async () => {
