@@ -157,3 +157,190 @@ select count(*) total,
 ls supabase/migrations/*.sql | sed -E 's|.*/([0-9]{14}).*|\1|' | sort -u | wc -l
 cat supabase/.temp/linked-project.json
 ```
+
+## Por que a versão de produção nunca bate com o nome do arquivo
+
+Medido em 06/10/2026, depois de o drift acontecer três vezes seguidas e render
+três linhas de ledger (PRs #603, #611 e #614). A seção acima já separava
+`enviadas_por_arquivo` de `aplicadas_por_mcp`; aqui está **por que** a segunda
+coluna existe, com a causa provada em vez de inferida.
+
+### Causa raiz: a API não tem campo de versão
+
+O `apply_migration` do MCP chama a Management API da Supabase. Conferido no
+OpenAPI oficial (`https://api.supabase.com/api/v1-json`) em 06/10/2026:
+
+| rota | corpo aceito | obrigatório |
+|---|---|---|
+| `POST /v1/projects/{ref}/database/migrations` | `query`, `name`, `rollback` | `query` |
+| `PUT /v1/projects/{ref}/database/migrations` | `query`, `name`, `rollback` | `query` |
+| `PATCH /v1/projects/{ref}/database/migrations/{version}` | `name`, `rollback` | — |
+
+**Nenhuma das três aceita `version`.** O servidor atribui a versão a partir do
+relógio dele no instante da chamada, e o nome do arquivo nunca é transmitido: o
+`name` do corpo é texto livre e vai para `schema_migrations.name`, não para a
+versão. O `PATCH` consegue mudar `name` e `rollback` de uma versão já registrada
+— **não a versão**, e não executa SQL.
+
+Logo o drift **não é descuido de quem aplica: é estrutural do caminho de
+aplicação.** Duas confirmações de 06/10, com a versão igual ao horário UTC da
+chamada, ao segundo:
+
+| arquivo no repo | versão em produção | PR |
+|---|---|---|
+| `20261005204500_carteira_safra_situacoes` | `20261006094254` | #604, ledger #611 |
+| `20261006120000_carteira_2026_1_indicadores_ao_vivo` | `20261006123312` | #612, ledger #614 |
+
+Nos dois o md5 dos `statements` é idêntico ao do arquivo sem o newline final —
+**o conteúdo nunca foi o problema, só o número.**
+
+### O único caminho que preserva a versão
+
+Das 1.518 versões registradas, **9 terminam em `0000`** e todas as 9 têm arquivo
+em `supabase/migrations/` com o mesmo número: o lote do WhatsApp de 17–19/08 mais
+`rls_tabelas_backup` de 26/07. Duas delas têm `created_by` e `statements` nulos;
+as outras sete têm os dois preenchidos — CLI de versões diferentes.
+
+Como a API não tem campo de versão, essas nove **não** passaram por ela. Elas
+vieram de `supabase db push`, que conecta direto no Postgres e faz o `insert` em
+`supabase_migrations.schema_migrations` por conta própria, com a versão que o
+arquivo traz. **Preservar a versão exige escrever a linha do histórico à mão** —
+é isso que o `push` faz por baixo.
+
+### A regra que manda, antes de qualquer fluxo
+
+> **Produção nunca pode receber antecipadamente uma migration que torne a `main`
+> vigente incompatível.**
+
+Tudo abaixo é subordinado a isso. Eliminar o drift é desejável; **nunca** ao
+preço de deixar o banco à frente do código que está no ar. Em dúvida sobre qual
+fluxo se aplica, é o fluxo seguro — a dúvida já é a resposta.
+
+### Fluxo A — sem drift (exceção, não padrão)
+
+**Permitido somente quando TODAS as condições valem:**
+
+* DDL **retrocompatível**: o código hoje em produção continua funcionando com o
+  banco depois da aplicação;
+* **isolada**: não depende de outra migration nem de ordem com nada;
+* **zero DML** — nenhum `insert`, `update`, `delete`, `truncate` de nível
+  superior;
+* **nenhuma alteração destrutiva**: sem `drop` de tabela, coluna, constraint ou
+  índice em uso, sem estreitar tipo, sem revogar permissão de quem usa hoje;
+* **não altera contrato nem assinatura**: nenhuma função ganha, perde ou troca
+  parâmetro, tipo de retorno ou chave de retorno que algum consumidor já leia;
+* **não depende de código ainda não publicado**: nada do que a migration cria
+  precisa de front ou back que não esteja em produção.
+
+Falhando **uma** dessas, é Fluxo B. Função nova, usada só por código que ainda
+vai subir, é o caso típico de A — o banco ganha um objeto que ninguém chama
+ainda, e nada existente muda de forma.
+
+**Passos, na ordem:**
+
+1. escrever a migration e abrir o PR normalmente;
+2. **todos os checks verdes** e **autorização explícita da gestão** para aplicar
+   antes do merge — não se presume, se pede;
+3. conferir em leitura que a versão não existe e que o md5 do texto exato a
+   enviar bate com o arquivo;
+4. aplicar por `apply_migration`, **uma única vez**;
+5. capturar a versão atribuída:
+   `select version from supabase_migrations.schema_migrations where name = '<name>'`;
+6. renomear o arquivo para esse número, mantendo o mesmo `name`, e empurrar;
+7. conferir que o md5 do arquivo renomeado segue idêntico ao dos `statements`;
+8. **rodada completa de CI de novo**, no SHA renomeado — o passo 6 muda o
+   conteúdo do PR, e o verde do passo 2 não vale mais;
+9. mesclar.
+
+Resultado: repo e `schema_migrations` com a **mesma versão**, e nenhuma linha de
+ledger de drift.
+
+**Por que renomear aqui não contradiz o “Não renomear” da seção das 22
+duplicadas.** Lá o alvo são versões **antigas, já no histórico do repositório**:
+renomear criaria um terceiro número que nunca existiu nem no repo nem em
+produção. Aqui o arquivo **ainda não está em `main`** — para o git é arquivo novo
+adicionado já com o nome final, e a catraca `I3-MIGRATION-RENOMEADA` só dispara
+em arquivo que **já existia no branch base**. São casos opostos.
+
+**O custo:** entre o passo 4 e o passo 9 o banco está à frente do código no ar.
+É justamente por isso que A exige retrocompatibilidade — nessa janela a `main`
+vigente tem de continuar funcionando sozinha.
+
+### Fluxo B — seguro, e é o padrão
+
+**Obrigatório** sempre que houver qualquer um:
+
+* **DML** — dado de produção sendo escrito, corrigido ou apagado;
+* **mudança destrutiva** — `drop`, estreitamento de tipo, revogação de
+  permissão em uso;
+* **alteração de contrato ou assinatura** — parâmetro, tipo de retorno ou chave
+  de retorno que algum consumidor já lê;
+* **dependência simultânea de frontend e backend** — a migration só faz sentido
+  com código que ainda não está publicado, ou o código novo só funciona com a
+  migration.
+
+**Passos, na ordem:**
+
+1. escrever a migration e abrir o PR normalmente;
+2. checks verdes;
+3. **mesclar**;
+4. **esperar o deploy de produção ficar `READY`**;
+5. aplicar por `apply_migration`, uma única vez, **aceitando o timestamp que o
+   mecanismo gerar** — não tentar forçar o número;
+6. validar em leitura: registro único, md5 igual ao arquivo, objetos criados,
+   invariantes do domínio;
+7. **registrar o drift no ledger**, em PR próprio, nos termos de #611 e #614.
+
+A linha de ledger aqui **não é dívida**: é o preço declarado de manter o código
+no ar sempre compatível com o banco. Entre perder a igualdade de número e
+arriscar incompatibilidade em produção, perde-se o número.
+
+### Como escolher, em uma pergunta
+
+> Se esta migration entrar agora e o merge **não** acontecer, a `main` que está
+> no ar continua funcionando?
+
+**Sim** e as outras condições de A valem → Fluxo A, com autorização.
+**Não**, ou qualquer dúvida → Fluxo B.
+
+### Continua vetado, nos dois fluxos
+
+`supabase db push` · `supabase db pull` · `supabase migration repair` ·
+**escrita manual em `supabase_migrations.schema_migrations`**.
+
+O `insert` à mão preservaria a versão e a ordem “mesclar depois aplicar”, e foi
+considerado — mas escreve o histórico fora de qualquer ferramenta, e forma errada
+na linha quebra o CLI depois. Fica vetado junto com os três comandos.
+
+### Opções descartadas, e por quê
+
+| opção | por que não |
+|---|---|
+| passar a versão na API | **impossível**: nenhuma das três rotas aceita `version` |
+| `supabase db push` | preserva a versão, mas é vetado — o checkout está linked na **produção** e o binário não está instalado (`supabase` fora do PATH, conferido em 06/10) |
+| `migration repair` | vetado; e não executa SQL, só marca versão |
+| `PATCH` na versão registrada | muda `name` e `rollback`, **não a versão** |
+| `insert` na mão em `schema_migrations` junto do DDL | vetado — escreve o histórico fora de ferramenta; forma errada quebra o CLI depois |
+| Fluxo A como regra universal | **recusado**: deixaria o banco à frente do código no ar também em migration destrutiva, com DML ou que muda contrato |
+| seguir só com B, sempre | aceitável e seguro; custa uma linha de ledger por migration. A existe para o caso em que esse custo não se justifica |
+
+### Como validar que a próxima nasce com o mesmo número (Fluxo A)
+
+Depois do passo 6, antes de mesclar:
+
+```bash
+V=$(ls supabase/migrations/*_<name>.sql | sed -E 's|.*/([0-9]{14}).*|\1|')
+echo "versao do arquivo: $V"
+perl -0pe 's/\n\z//' supabase/migrations/${V}_<name>.sql | md5 -q
+```
+
+```sql
+select version, name, md5(array_to_string(statements, E'\n')) as md5_prod
+  from supabase_migrations.schema_migrations where name = '<name>';
+```
+
+Os dois `version` iguais e os dois md5 iguais: sem drift, e **nenhuma linha de
+ledger a escrever**. Qualquer divergência: para e registra, como em #611 e #614.
+
+No Fluxo B a validação é a mesma **menos** a igualdade de `version` — ali o
+número divergente é esperado, e é ele que vai para o ledger.
