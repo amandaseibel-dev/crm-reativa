@@ -124,7 +124,7 @@ describe("Preventivo — painel objetivo", () => {
     //   002 saiu; 004 entrou; 001 subiu 30 -> ajuste +30
     const f1 = await importar("F1",
       [t("2026000001", 100), t("2026000002", 200), t("2026000003", 300)], "2026-10-02");
-    const a = await registrar(f1.lote_id, "Envio de 02/10", "WHATSAPP", "2026-10-02");
+    await registrar(f1.lote_id, "Envio de 02/10", "WHATSAPP", "2026-10-02");
     await importar("F2",
       [t("2026000001", 130), t("2026000003", 300), t("2026000004", 50)], "2026-10-06");
 
@@ -148,7 +148,7 @@ describe("Preventivo — painel objetivo", () => {
 
   it("queda de saldo de quem FICOU vira ajuste, nunca saída", async () => {
     const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 200)], "2026-10-02");
-    const a = await registrar(f1.lote_id, "Envio", "EMAIL", "2026-10-02");
+    await registrar(f1.lote_id, "Envio", "EMAIL", "2026-10-02");
     // ninguém sai; o 001 cai de 100 para 40 (pagamento parcial, ou o que for)
     await importar("F2", [t("2026000001", 40), t("2026000002", 200)], "2026-10-06");
 
@@ -174,7 +174,7 @@ describe("Preventivo — painel objetivo", () => {
   });
 
   it("sem envio confirmado, alunos acionados é NULO — não zero", async () => {
-    const f1 = await importar("F1", [t("2026000001", 100)], "2026-10-02");
+    await importar("F1", [t("2026000001", 100)], "2026-10-02");
     await um(db, `select public.preventivo_acao_preparar_v2($1::uuid, 'Preparada', 'WHATSAPP',
                     '{}'::jsonb, 'BOLETO_VENCIDO')`, [carteira]);
     const p = await painel();
@@ -185,7 +185,7 @@ describe("Preventivo — painel objetivo", () => {
 
   it("ação sem remessa comprovadamente posterior não inventa resultado", async () => {
     const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 200)], "2026-10-02");
-    const a = await registrar(f1.lote_id, "Envio", "WHATSAPP", "2026-10-02");
+    await registrar(f1.lote_id, "Envio", "WHATSAPP", "2026-10-02");
     const p = await painel();           // nenhuma foto depois ainda
     const ac = p.acoes[0];
     expect(ac.saiu.titulos).toBeNull();
