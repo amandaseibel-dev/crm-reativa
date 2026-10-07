@@ -4,7 +4,7 @@ import { supabase } from "../services/supabase";
 // IMPLEMENTACAO UNICA, compartilhada com Borderos.jsx. Hash diferente para o
 // mesmo arquivo quebraria a idempotencia entre os dois fluxos em silencio --
 // por isso nao ha copia local. Coberto por src/utils/hashArquivo.test.js.
-import { hashArquivo } from "../utils/hashArquivo";
+import { hashArquivo, hashValido } from "../utils/hashArquivo";
 import { TIPOS_DE_ESCOPO, escopoTipoPermitido, motivoDoBloqueio, scopeKeyRelatorio }
   from "../utils/escopoExtracao";
 
@@ -181,6 +181,26 @@ export default function ImportacaoAcordos() {
       setErro("Declare o portador da extracao.");
       return;
     }
+    // ===== HASH OBRIGATORIO, ANTES DE QUALQUER GRAVACAO =====================
+    // Esta trava fica DEPOIS das declaracoes e ANTES do `setImportando` e do
+    // primeiro `importar_acordos` de proposito: nenhuma linha financeira e
+    // gravada sem identidade do arquivo.
+    //
+    // Antes disto o fluxo dependia do `catch` da trilha: sem hash, o financeiro
+    // rodava e a captura morria com um aviso. Em 06/10 17:11 uma importacao
+    // concluiu sem gerar escopo (9 de 10 pos-deploy tinham escopo), e nao da
+    // para saber pelo banco se foi reaproveitamento ou captura perdida.
+    //
+    // O hash e calculado no `analisar`, ao escolher o arquivo. Se faltar aqui, o
+    // `crypto.subtle` falhou (contexto nao seguro) ou o arquivo nao foi lido --
+    // e nos dois casos a importacao NAO comeca.
+    if (!hashValido(arquivoHash)) {
+      setErro("Nao foi possivel calcular a identidade do arquivo (SHA-256). " +
+        "A importacao NAO foi iniciada: nada foi gravado. " +
+        "Selecione o arquivo de novo; se persistir, confira se a pagina esta em HTTPS.");
+      return;
+    }
+    // ========================================================================
     setImportando(true); setErro(""); setResultado(null);
     const importacaoId = crypto.randomUUID();
     const BATCH = 1200;
