@@ -5,6 +5,7 @@ import EfetividadePorVencimento from "../components/EfetividadePorVencimento";
 import EfetividadeCompetencias from "../components/EfetividadeCompetencias";
 import SeisLinhasDaSafra from "../components/SeisLinhasDaSafra";
 import StatusAcademicoPorSafra from "../components/StatusAcademicoPorSafra";
+import CasosPendentes from "../components/CasosPendentes";
 
 // EFETIVIDADE DA COBRANÇA — visão executiva, um layout só para toda safra.
 //
@@ -342,6 +343,11 @@ export default function CarteiraEfetividade() {
               Fora de 2026/2 de proposito: aquela safra nao tem perfil academico,
               e o card compara exatamente as tres que tem fotografia. */}
           {safra !== "2026/2" ? <StatusAcademicoPorSafra /> : null}
+
+          {/* 1d. CASOS AINDA PENDENTES — indicador operacional da carteira
+              inteira, nao por safra. Aparece em qualquer recorte de proposito:
+              o numero e o mesmo, e o cabecalho diz isso. */}
+          <CasosPendentes />
 
           {/* 2. SITUAÇÃO DA CARTEIRA — sempre barras simples, nunca tabela */}
           <section style={S.cartao}>
