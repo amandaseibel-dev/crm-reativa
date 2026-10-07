@@ -53,11 +53,15 @@ const momento = (v) =>
 //     Em aberto, Efetividade — e carrega SOB DEMANDA: são três consultas ao
 //     vivo, e abri-las em toda visita custaria caro sem ninguém ter pedido.
 //
-// ATUALIZAÇÃO DOS DADOS. O financeiro é lido ao vivo: ao abrir a tela, ao trocar
-// de safra, ao trocar de visão e ao clicar em "Atualizar dados" (o contador
-// `recarga`, que é dependência de todas as consultas). Não há polling nem
-// realtime — atualizar é refazer a consulta nesses pontos. O status acadêmico é
-// fotografia da importação e só muda quando a importação muda; a tela sempre diz
+// ATUALIZAÇÃO DOS DADOS. O financeiro vem de FOTOGRAFIA, não ao vivo: calcular
+// ao vivo não cabe no teto de 8 s do papel `authenticated`
+// (`carteira_2026_1_classificar()` sozinha leva 8.125 ms medidos). A tela relê a
+// fotografia ao abrir, ao trocar de safra, ao trocar de visão e no botão
+// "Atualizar dados" — e sempre mostra de quando ela é. Quando uma ação do CRM
+// mexeu em algo depois dela, a tela diz "Atualização pendente" em vez de deixar
+// o número antigo passar por dado de agora; a reconstrução acontece fora da
+// requisição, no cron de 5 minutos. Não há polling nem realtime. O status
+// acadêmico é fotografia da importação e só muda quando a importação muda; a tela sempre diz
 // a data.
 //
 // O que muda entre 2024, 2025, 2026/1 e 2026/2 é o DADO e o CONCEITO do
@@ -133,16 +137,29 @@ export default function CarteiraEfetividade() {
   // filho, que o recebem por prop. É o que o botão "Atualizar dados" faz.
   const [recarga, setRecarga] = useState(0);
   const [atualizando, setAtualizando] = useState(false);
+  // `pedido` é só o reconhecimento de que a fila recebeu — nunca é exibido como
+  // se o número já tivesse mudado.
+  const [pedido, setPedido] = useState(false);
 
-  // "Atualizar dados" REFAZ a fotografia do recorte na tela e só depois relê.
-  // `carteira_efetividade_snapshot_recalcular` declara o próprio
-  // `statement_timeout`, então ela não é cortada pelo teto de 8 s do papel —
-  // é por isso que a gestão consegue disparar isso do navegador. Quem não é
-  // gestão não recalcula: a leitura segue valendo, com a data à vista.
+  // "Atualizar dados" faz, nesta ordem: RELÊ a fotografia e, se ela estiver
+  // marcada como desatualizada, PEDE a reconstrução — que acontece fora desta
+  // requisição, no cron de 5 minutos.
+  //
+  // O botão NUNCA roda a consulta pesada. `carteira_2026_1_classificar()` leva
+  // 8.125 ms medidos e o teto do papel `authenticated` é 8 s: chamar o
+  // recálculo daqui seria pedir para ser cortado no meio. `pedir_atualizacao`
+  // só marca três linhas e volta.
   async function atualizar() {
     setAtualizando(true);
     const recorte = ano === "2026" ? ano + "/" + sem : ano;
-    await supabase.rpc("carteira_efetividade_snapshot_recalcular", { p_recorte: recorte });
+    // 1. relê primeiro: pode ser que a reconstrução já tenha acontecido
+    const { data } = await supabase.rpc("carteira_efetividade_ler",
+      { p_bloco: "situacoes", p_ano: ano, p_semestre: ano === "2026" ? sem : null });
+    // 2. só pede se continuar desatualizada depois da releitura
+    if (data?.snapshot?.desatualizada) {
+      await supabase.rpc("carteira_efetividade_pedir_atualizacao", { p_recorte: recorte });
+      setPedido(true);
+    }
     setAtualizando(false);
     setRecarga((n) => n + 1);
   }
@@ -289,13 +306,15 @@ export default function CarteiraEfetividade() {
 
   if (safra === "2026/1" && consolidada) {
     // `carteira_2026_1_indicadores` continua sendo chamada, mas SÓ pelo
-    // contexto do rodapé — a data de congelamento e a da fotografia. Os valores
-    // dela não aparecem como indicador: quem publica carteira, recuperado e
-    // aberto é `carteira_safra_situacoes`, ao vivo, e dois números de universo
-    // na mesma tela seriam a duplicação que este redesenho veio remover.
+    // contexto do rodapé — a data de congelamento e a da fotografia DELA. Os
+    // valores dela não aparecem como indicador: quem publica carteira,
+    // recuperado e aberto é `carteira_safra_situacoes`, e dois números de
+    // universo na mesma tela seriam a duplicação que este redesenho veio
+    // remover. São DUAS fotografias diferentes, e o rodapé não pode deixar
+    // parecer que os indicadores saem desta.
     rodape = "Carteira congelada em " + data(consolidada.base?.congelada_em)
            + " · fotografia de referência de " + data(consolidada.gerado_em)
-           + " · os valores acima são lidos ao vivo, não desta fotografia";
+           + " · os indicadores acima vêm de outra fotografia, datada acima";
   }
 
   if (safra === "2026/2" && vigente) {
@@ -384,19 +403,27 @@ export default function CarteiraEfetividade() {
             O botão REFAZ a fotografia do recorte e só depois relê — é o único
             ponto da tela que recalcula o universo. */}
         <button onClick={atualizar} disabled={atualizando}
-                title="Recalcula a fotografia financeira desta safra e relê. Leva alguns segundos: o universo é recomputado do zero. O status acadêmico é da importação e não muda aqui."
+                title="Relê os números desta safra e, se houver movimentação posterior, pede a reconstrução — que acontece em segundo plano, em até 5 minutos. O status acadêmico é da importação e não muda aqui."
                 style={{ ...S.selo, marginLeft: "auto",
                          ...(atualizando ? { opacity: 0.6, cursor: "progress" } : null) }}>
-          {atualizando ? "↻ Recalculando…" : "↻ Atualizar dados"}
+          {atualizando ? "↻ Relendo…" : "↻ Atualizar dados"}
         </button>
-        {/* A leitura desta tela NÃO é ao vivo — é fotografia. Então ela diz de
-            quando é, sempre, sem o leitor precisar perguntar. */}
+        {/* A leitura desta tela NÃO é ao vivo — é fotografia. Ela diz de quando
+            é, sempre; e quando há mudança posterior, diz isso também, em vez de
+            deixar o número antigo passar por dado de agora. */}
         {momento(situacoes?.snapshot?.gerado_em) ? (
           <span style={{ ...S.apoio, width: "100%", textAlign: "right" }}>
-            Números financeiros calculados em {momento(situacoes.snapshot.gerado_em)}
-            {situacoes.snapshot.duracao_ms
-              ? ` · ${(situacoes.snapshot.duracao_ms / 1000).toLocaleString("pt-BR",
-                  { maximumFractionDigits: 1 })} s de cálculo` : ""}
+            Dados atualizados em {momento(situacoes.snapshot.gerado_em)}
+            {situacoes.snapshot.desatualizada ? (
+              <strong style={{ color: "var(--rv-ambar-texto)" }}>
+                {" · "}Atualização pendente
+                {momento(situacoes.snapshot.invalidada_em)
+                  ? ` — houve movimentação às ${momento(situacoes.snapshot.invalidada_em).slice(-5)}`
+                  : ""}
+              </strong>
+            ) : null}
+            {pedido && situacoes.snapshot.desatualizada
+              ? " · atualização solicitada, entra em até 5 minutos" : ""}
           </span>
         ) : null}
       </header>

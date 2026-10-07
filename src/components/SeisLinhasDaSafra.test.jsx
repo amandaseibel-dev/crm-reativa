@@ -87,9 +87,13 @@ describe("As seis linhas da safra", () => {
     expect(screen.getByText(/saldo residual/)).toBeTruthy();
   });
 
-  it("em 2026/1 avisa que os números são ao vivo, e não repete o aviso histórico", () => {
+  it("em 2026/1 diz que os números são de fotografia — nunca que são de agora", () => {
     montar({ ano: "2026", semestre: "1", dados: SAFRA_2026_1 });
-    expect(screen.getByText(/Números ao vivo/)).toBeTruthy();
+    // Calcular esta safra ao vivo não cabe no teto de 8 s, então o rodapé não
+    // pode prometer "ao vivo". Prometer frescor que não existe é pior do que
+    // dizer a data.
+    expect(screen.getByText(/Números de fotografia, não de agora/)).toBeTruthy();
+    expect(screen.queryByText(/ao vivo/i)).toBeNull();
     expect(screen.queryByText(/carteira original/)).toBeNull();
   });
 

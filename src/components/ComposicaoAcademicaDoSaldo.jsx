@@ -164,8 +164,8 @@ export default function ComposicaoAcademicaDoSaldo({ ano, semestre = null, recar
         {fonte
           ? "Vem do relatório acadêmico importado em " + dataCurta(fonte) + "."
           : "A base não registra a data da importação para este recorte."}{" "}
-        Os valores financeiros, ao contrário, são lidos ao vivo a cada abertura da tela e a cada “Atualizar
-        dados”. As categorias são as que a base tem — não há “Evadido” entre elas.
+        Os valores financeiros vêm da mesma fotografia das seis linhas, tirada em segundo plano — a data
+        está no cabeçalho da página. As categorias são as que a base tem — não há “Evadido” entre elas.
       </p>
       {conf ? (
         <p style={S.rodape}>

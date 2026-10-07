@@ -22,6 +22,10 @@ import FilaUnicaConfirmacao from "./FilaUnicaConfirmacao";
 const RESUMO_2024 = {
   recorte: "2024",
   gerado_em: "2026-10-07T19:30:00Z",
+  // A CONTAGEM vem da camada de desempenho: calcular ao vivo nao cabe no teto de
+  // 8 s. A LISTA, nao -- ela e o registro que a fila trata.
+  snapshot: { gerado_em: "2026-10-07T19:30:00Z", bloco: "pendencias",
+              desatualizada: false, invalidada_em: null, invalidada_por: null },
   contagens_somaveis: true,
   total: { alunos: 19, titulos: 52, valor: 39686.19 },
   motivos: [
@@ -65,6 +69,15 @@ const ITEM_SEM_LASTRO = {
 
 const txt = (el) => el.textContent.replace(/\u00a0/g, " ");
 
+// Um caso DECIDÍVEL para o resolvedor real: sem isto ele não desenha botão, e
+// não há como puxar o fio do `onResolvido`.
+const DECIDIVEL = [{
+  titulo_id: "tttttttt-0000-4000-8000-000000000001", documento: "4445066", valor: 3987.54,
+  vencimento: "2024-03-10", efeito: "VIRA_PAGO", efeito_texto: "Vincular quita o título",
+  acordo_id: "ac-1", acordo_numero: "4691", exige_motivo: true, dias_pendente: 16,
+  pode_seguir_pagamento: true,
+}];
+
 function responder({ resumo = RESUMO_2024, itens = [ITEM_CONFIRMACAO], emConfirmacao = [] } = {}) {
   rpcMock.mockImplementation((nome, args) => {
     // O resumo vem da camada de desempenho; a LISTA segue ao vivo.
@@ -78,6 +91,15 @@ function responder({ resumo = RESUMO_2024, itens = [ITEM_CONFIRMACAO], emConfirm
     return Promise.resolve({ data: null, error: null });
   });
 }
+
+// Resolve o primeiro caso pelo componente REAL — nada de dublê, porque há
+// teste aqui que exige justamente que o resolvedor seja o de produção.
+// "Rejeitar" é o único botão que existe para qualquer item, e o motivo passa
+// pelo `window.prompt` que o fluxo de EM_CONFIRMACAO sempre pediu.
+const resolverPrimeiro = () => {
+  window.prompt = () => "motivo de teste com tamanho suficiente para a auditoria";
+  return fireEvent.click(screen.getAllByRole("button", { name: "Rejeitar" })[0]);
+};
 
 const montar = (busca = "?ano=2024&motivo=em_confirmacao") =>
   act(async () => {
@@ -193,6 +215,49 @@ describe("Fila Única — o que ela declara ser", () => {
     await montar();
     expect(screen.getByText(/Esta fila não substitui nenhuma outra/)).toBeTruthy();
     expect(screen.getAllByText(/Conferência Prime/).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("a contagem se declara fotografia, e a lista NÃO", async () => {
+    await montar();
+    // o <strong> carrega só a data; o resto do parágrafo é o pai
+    const r = screen.getByText(/Contagem de/).closest("p");
+    expect(r.textContent).toMatch(/lista de casos é ao vivo/);
+    expect(r.textContent).toMatch(/em até 5 minutos/);
+  });
+
+  it("resolver tira o caso da fila NA HORA, sem refazer a lista", async () => {
+    responder({ emConfirmacao: DECIDIVEL });
+    await montar();
+    const antes = rpcMock.mock.calls.filter((c) => c[0] === "carteira_pendencias_itens").length;
+    expect(screen.queryByText(ITEM_CONFIRMACAO.aluno_nome)).toBeTruthy();
+
+    await act(async () => { await resolverPrimeiro(); });
+
+    // saiu da tela
+    expect(screen.queryByText(ITEM_CONFIRMACAO.aluno_nome)).toBeNull();
+    // e NÃO refez a lista: a fotografia do resumo ainda não foi reconstruída,
+    // então refazer traria o caso de volta
+    expect(rpcMock.mock.calls.filter((c) => c[0] === "carteira_pendencias_itens").length)
+      .toBe(antes);
+  });
+
+  it("resolver PEDE a reconstrução da fotografia, e não a executa", async () => {
+    responder({ emConfirmacao: DECIDIVEL });
+    await montar();
+    await act(async () => { await resolverPrimeiro(); });
+    expect(rpcMock).toHaveBeenCalledWith("carteira_efetividade_pedir_atualizacao",
+      { p_recorte: "2024" });
+    const nomes = rpcMock.mock.calls.map((c) => c[0]);
+    expect(nomes).not.toContain("carteira_efetividade_snapshot_recalcular");
+    expect(nomes).not.toContain("carteira_efetividade_atender_pedidos");
+  });
+
+  it("explica por que a contagem ainda não acompanhou", async () => {
+    responder({ emConfirmacao: DECIDIVEL });
+    await montar();
+    await act(async () => { await resolverPrimeiro(); });
+    expect(screen.getByText(/resolvido agora/)).toBeTruthy();
+    expect(screen.getByText(/contagem atualiza em até 5 min/)).toBeTruthy();
   });
 
   it("erro na contagem aparece, sem derrubar a lista", async () => {

@@ -41,6 +41,14 @@ import { S, moeda, dataCurta } from "./situacoesDaSafraFormato";
 // continua aqui, no mesmo lugar e com o mesmo valor; o que mudou é onde ela é
 // aberta.
 
+// A RPC oficial rotula o próprio retorno como "... ao vivo" — verdade sobre o
+// momento em que ELA roda, mas não sobre o que a tela mostra: a tela lê a
+// fotografia que o cron tirou. Mantenho o nome da fonte e tiro a promessa de
+// frescor, que agora quem dá é o "Dados atualizados em" do cabeçalho.
+const fonteSemAoVivo = (f) =>
+  typeof f === "string" ? f.replace(/,?\s*ao vivo\s*$/i, "") : f;
+
+
 export default function SeisLinhasDaSafra({ ano, semestre = null, dados, erro = "", carregando = false }) {
   if (carregando) return <p style={S.discreto}>Somando as seis linhas de {rotulo(ano, semestre)}…</p>;
   if (erro) return <p style={S.erro}>Não foi possível carregar as seis linhas: {erro}</p>;
@@ -55,7 +63,7 @@ export default function SeisLinhasDaSafra({ ano, semestre = null, dados, erro = 
     <section style={{ marginTop: 18 }}>
       <div style={S.cabecalho}>
         <h2 style={S.h2}>As seis linhas da safra</h2>
-        <span style={S.apoio}>{rotulo(ano, semestre)} · {dados?.fonte}</span>
+        <span style={S.apoio}>{rotulo(ano, semestre)} · {fonteSemAoVivo(dados?.fonte)}</span>
       </div>
 
       <AvisoConferencia conferencia={conf} />
@@ -82,9 +90,10 @@ export default function SeisLinhasDaSafra({ ano, semestre = null, dados, erro = 
         </p>
       ) : (
         <p style={S.rodape}>
-          <strong>Números ao vivo.</strong> Esta safra é recalculada a cada abertura da tela e a cada
-          “Atualizar dados”, título a título — por isso dois carregamentos no mesmo dia podem diferir se
-          houver cobrança acontecendo no intervalo.
+          <strong>Números de fotografia, não de agora.</strong> Esta safra é recalculada título a
+          título, o que não cabe no limite de 8 s de uma consulta — então o cálculo acontece em segundo
+          plano e a tela lê o resultado. O cabeçalho diz de quando ele é, e avisa quando houve
+          movimentação depois.
         </p>
       )}
 

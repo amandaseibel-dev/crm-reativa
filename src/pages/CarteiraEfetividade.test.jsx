@@ -114,11 +114,21 @@ const CONTEXTO = {
   remessas: 7, primeira_remessa: "2026-07-02", ultima_remessa: "2026-08-14",
 };
 
+// A fotografia e o estado dela. `snapshot` acompanha o payload porque a tela tem
+// de dizer de quando o numero e -- e, quando houve movimentacao depois, dizer
+// isso em vez de deixar o antigo passar por dado de agora.
+const EM_DIA = { gerado_em: "2026-10-07T20:40:00Z", duracao_ms: 41000,
+                 bloco: "situacoes", desatualizada: false,
+                 invalidada_em: null, invalidada_por: null };
+const PENDENTE = { ...EM_DIA, desatualizada: true,
+                   invalidada_em: "2026-10-07T20:52:00Z", invalidada_por: "pagamentos" };
+
 // A tela lê os tres blocos financeiros por UMA funcao -- a camada de
 // desempenho -- e escolhe pelo `p_bloco`. As chaves logicas abaixo seguem sendo
 // as mesmas; muda so o caminho. O payload que a camada devolve e o retorno
 // VERBATIM da funcao oficial, por isso as fixtures nao mudaram de forma.
-const BLOCO = { situacoes: SITUACOES, academico: COMPOSICAO, pendencias: PENDENCIAS };
+const BLOCO = { situacoes: { ...SITUACOES, snapshot: EM_DIA },
+                academico: COMPOSICAO, pendencias: PENDENCIAS };
 
 const PADRAO = {
   carteira_2026_1_indicadores: CONSOLIDADA,
@@ -126,7 +136,8 @@ const PADRAO = {
   casos_pendentes_contar: CASOS_PENDENTES,
   carteira_2026_2_negociacoes: NEGOCIACOES,
   carteira_2026_2_contexto: CONTEXTO,
-  carteira_efetividade_snapshot_recalcular: { gerado_em: "2026-10-07T21:00:00Z", recortes: [] },
+  carteira_efetividade_pedir_atualizacao: { pedido_em: "2026-10-07T21:00:00Z", marcadas: 3,
+                                            reconstroi_em_ate_minutos: 5 },
 };
 
 function responder(mapa = {}) {
@@ -277,10 +288,13 @@ describe("Efetividade — blocos 3 e 4, e o que só existe em certas safras", ()
     expect(screen.getByText(/exposição por CPF/)).toBeTruthy();
   });
 
-  it("em 2026/1 o rodapé diz que os valores são ao vivo, não da fotografia", async () => {
+  it("em 2026/1 o rodapé não deixa parecer que os indicadores saem da fotografia de referência", async () => {
     await abrir();
-    expect(screen.getByText(/Carteira congelada em 11\/09\/2026/)).toBeTruthy();
-    expect(screen.getByText(/lidos ao vivo, não desta fotografia/)).toBeTruthy();
+    const r = txt(screen.getByText(/Carteira congelada em/));
+    expect(r).toMatch(/fotografia de referência de/);
+    expect(r).toMatch(/vêm de outra fotografia/);
+    // o rodapé NÃO pode mais prometer "ao vivo": os valores são de fotografia
+    expect(r).not.toMatch(/ao vivo/);
   });
 });
 
@@ -335,6 +349,59 @@ describe("Efetividade — política de atualização", () => {
       { p_bloco: "academico", p_ano: "2024", p_semestre: null });
     expect(rpcMock).toHaveBeenCalledWith("carteira_efetividade_ler",
       { p_bloco: "pendencias", p_ano: "2024", p_semestre: null });
+  });
+
+  it("a tela diz de quando é o número, com dia e hora", async () => {
+    await abrir();
+    // NÃO asserir a hora renderizada: esta máquina é BRT e o CI é UTC, e o
+    // mesmo instante sai com hora diferente nos dois. Asserta a FORMA.
+    expect(txt(screen.getByText(/Dados atualizados em/)))
+      .toMatch(/^Dados atualizados em \d{2}\/\d{2}\/\d{4},? \d{2}:\d{2}/);
+  });
+
+  it("não se apresenta como dado ao vivo", async () => {
+    await abrir();
+    expect(screen.queryByText(/lid[oa]s? ao vivo/i)).toBeNull();
+  });
+
+  it("quando houve movimentação depois, diz “Atualização pendente”", async () => {
+    responder({ __blocos: { situacoes: { ...SITUACOES, snapshot: PENDENTE } } });
+    await abrir();
+    expect(screen.getByText(/Atualização pendente/)).toBeTruthy();
+  });
+
+  it("fotografia em dia NÃO mostra “Atualização pendente”", async () => {
+    await abrir();
+    expect(screen.queryByText(/Atualização pendente/)).toBeNull();
+  });
+
+  it("o botão NUNCA roda a consulta pesada dentro da requisição", async () => {
+    responder({ __blocos: { situacoes: { ...SITUACOES, snapshot: PENDENTE } } });
+    await abrir();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Atualizar dados/ })); });
+    const nomes = rpcMock.mock.calls.map((c) => c[0]);
+    expect(nomes).not.toContain("carteira_efetividade_snapshot_recalcular");
+    expect(nomes).not.toContain("carteira_efetividade_atender_pedidos");
+    expect(nomes).not.toContain("carteira_safra_situacoes");
+  });
+
+  it("o botão relê PRIMEIRO e só pede se continuar desatualizada", async () => {
+    responder({ __blocos: { situacoes: { ...SITUACOES, snapshot: PENDENTE } } });
+    await abrir();
+    const antes = lidos("situacoes");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Atualizar dados/ })); });
+    // releu
+    expect(lidos("situacoes")).toBeGreaterThan(antes);
+    // e pediu, porque a releitura veio desatualizada
+    expect(rpcMock).toHaveBeenCalledWith("carteira_efetividade_pedir_atualizacao",
+      { p_recorte: "2026/1" });
+  });
+
+  it("fotografia em dia: o botão relê e NÃO pede nada", async () => {
+    await abrir();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Atualizar dados/ })); });
+    const nomes = rpcMock.mock.calls.map((c) => c[0]);
+    expect(nomes).not.toContain("carteira_efetividade_pedir_atualizacao");
   });
 
   it("não há polling: sem interação, nada é consultado de novo", async () => {

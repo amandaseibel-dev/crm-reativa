@@ -66,6 +66,9 @@ export default function FilaUnicaConfirmacao() {
   const [resumo, setResumo] = useState(null);
   const [erroResumo, setErroResumo] = useState("");
   const [itens, setItens] = useState(null);
+  // Quantos saíram da fila nesta sessão de trabalho. Serve para a tela explicar
+  // por que a contagem do resumo ainda não acompanhou.
+  const [resolvidosAgora, setResolvidosAgora] = useState(0);
   const [erroItens, setErroItens] = useState("");
   const [carregandoItens, setCarregandoItens] = useState(false);
   const [pagina, setPagina] = useState(0);
@@ -121,6 +124,24 @@ export default function FilaUnicaConfirmacao() {
     (async () => { if (ativo) await buscarItens(); })();
     return () => { ativo = false; };
   }, [buscarItens, recarga]);
+
+  // RESOLVIDO. Duas coisas, nesta ordem, e nenhuma delas espera o cron:
+  //
+  //  1. o caso sai da fila AGORA. A ação já respondeu com sucesso, então manter
+  //     a linha na tela é mostrar trabalho que não existe mais. Tiro pelo
+  //     titulo_id, que é a chave da linha — não refaço a consulta, porque a
+  //     fotografia do resumo ainda não foi reconstruída e voltaria igual.
+  //
+  //  2. peço a reconstrução da fotografia afetada. O pedido é leve (marca três
+  //     linhas); quem reconstrói é o cron de 5 minutos, fora desta requisição.
+  //     A Efetividade passa a dizer "Atualização pendente" até lá, em vez de
+  //     apresentar o número velho como se fosse de agora.
+  async function resolvido(item) {
+    setItens((atual) => (atual || []).filter((x) => x.titulo_id !== item.titulo_id));
+    setResolvidosAgora((n) => n + 1);
+    const recorte = safraUrl.semestre ? safraUrl.ano + "/" + safraUrl.semestre : safraUrl.ano;
+    await supabase.rpc("carteira_efetividade_pedir_atualizacao", { p_recorte: recorte });
+  }
 
   function trocarSafra(s) {
     // Trocar de safra zera a pagina e solta o motivo: nem todo motivo existe em
@@ -207,6 +228,15 @@ export default function FilaUnicaConfirmacao() {
           ) : (
             <span style={E.seloAviso}>sem ação automática segura</span>
           )}
+          {/* A LISTA já tirou os resolvidos; a CONTAGEM acima vem da fotografia,
+              que o cron reconstrói em até 5 minutos. Dizer isso é o que impede a
+              pessoa de achar que a resolução não pegou. */}
+          {resolvidosAgora ? (
+            <span style={E.seloAviso}>
+              {num(resolvidosAgora)} {resolvidosAgora === 1 ? "resolvido" : "resolvidos"} agora ·
+              contagem atualiza em até 5 min
+            </span>
+          ) : null}
         </div>
       ) : null}
 
@@ -278,7 +308,7 @@ export default function FilaUnicaConfirmacao() {
                       <ResolverEmConfirmacao
                         alunoId={i.aluno_id}
                         tituloId={i.titulo_id}
-                        onResolvido={() => setRecarga((v) => v + 1)}
+                        onResolvido={() => resolvido(i)}
                       />
                     </div>
                   ) : (
@@ -318,10 +348,15 @@ export default function FilaUnicaConfirmacao() {
         outras pendências que compõem o número da Efetividade. Resolver um caso aqui o resolve lá, e
         vice-versa.
       </p>
-      {resumo?.gerado_em ? (
+      {resumo?.snapshot?.gerado_em ? (
         <p style={S.rodape}>
-          Contagem lida ao vivo em {dataCurta(resumo.gerado_em)}. Depois de cada resolução a fila refaz a
-          contagem e a lista, sem recarregar a aplicação.
+          <strong>Contagem de {dataCurta(resumo.snapshot.gerado_em)}
+          {resumo.snapshot.desatualizada ? " · atualização pendente" : ""}.</strong>{" "}
+          Ela vem de fotografia, porque calcular ao vivo não cabe no limite de 8 s da consulta. A{" "}
+          <strong>lista de casos é ao vivo</strong> e o caso resolvido sai dela na hora — é a contagem
+          que espera a reconstrução, em até 5 minutos. Movimentação que entra por fora do CRM
+          (pagamento conciliado direto na Prime, ajuste acadêmico) não dispara reconstrução e aparece
+          na rede de segurança horária, às :40.
         </p>
       ) : null}
     </div>

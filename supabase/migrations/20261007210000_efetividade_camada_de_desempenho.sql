@@ -57,6 +57,11 @@ create table if not exists public.carteira_efetividade_snapshot (
   payload     jsonb       not null,            -- o retorno VERBATIM da funcao oficial
   gerado_em   timestamptz not null default now(),
   duracao_ms  integer,
+  -- A MARCA DE DESATUALIZADA. Nulo = fotografia em dia. Quem marca e o gatilho
+  -- de statement da migration 20261007230000; quem limpa e o proprio recalculo,
+  -- no `on conflict` abaixo.
+  invalidada_em  timestamptz,
+  invalidada_por text,
   primary key (recorte, bloco),
   constraint carteira_efetividade_snapshot_bloco_ck
     check (bloco in ('situacoes', 'academico', 'pendencias'))
@@ -147,7 +152,10 @@ begin
       from (values ('situacoes', v_sit), ('academico', v_aca), ('pendencias', v_pen)) b(bloco, payload)
     on conflict (recorte, bloco) do update
       set ano = excluded.ano, semestre = excluded.semestre, payload = excluded.payload,
-          gerado_em = excluded.gerado_em, duracao_ms = excluded.duracao_ms;
+          gerado_em = excluded.gerado_em, duracao_ms = excluded.duracao_ms,
+          -- fotografia nova nasce em dia: a marca que pediu esta reconstrucao
+          -- morre aqui, nao antes -- se o recalculo abortar, a marca fica.
+          invalidada_em = null, invalidada_por = null;
 
     v_feitos := v_feitos || jsonb_build_object(
       'recorte', r.recorte,
@@ -192,8 +200,14 @@ begin
 
   v_recorte := case when p_ano = '2026' then p_ano || '/' || coalesce(p_semestre, '1') else p_ano end;
 
+  -- `desatualizada` e `invalidada_em` vao JUNTO do payload: a tela nao pode
+  -- apresentar fotografia antiga como se fosse dado ao vivo, e para dizer
+  -- "Atualizacao pendente" ela precisa saber disso na mesma leitura.
   select s.payload || jsonb_build_object('snapshot', jsonb_build_object(
-           'gerado_em', s.gerado_em, 'duracao_ms', s.duracao_ms, 'bloco', s.bloco))
+           'gerado_em', s.gerado_em, 'duracao_ms', s.duracao_ms, 'bloco', s.bloco,
+           'desatualizada', (s.invalidada_em is not null),
+           'invalidada_em', s.invalidada_em,
+           'invalidada_por', s.invalidada_por))
     into v_out
     from public.carteira_efetividade_snapshot s
    where s.recorte = v_recorte and s.bloco = p_bloco;
@@ -211,10 +225,7 @@ grant execute on function public.carteira_efetividade_ler(text, text, text) to a
 -- --------------------------------------------------- 4. primeira fotografia
 select public.carteira_efetividade_snapshot_recalcular();
 
--- ------------------------------------------------------------------ 5. rotina
--- De 20 em 20 minutos: a carteira muda durante o dia porque os operadores
--- trabalham, e uma fotografia diaria envelheceria visivelmente entre as 8h e as
--- 18h. Roda como `postgres`, que nao tem teto de statement.
-select cron.schedule('carteira_efetividade_snapshot_recalcular', '*/20 * * * *',
-                     $cron$select public.carteira_efetividade_snapshot_recalcular();$cron$)
- where not exists (select 1 from cron.job where jobname = 'carteira_efetividade_snapshot_recalcular');
+-- ------------------------------------------------------------- 5. as rotinas
+-- Nao nascem aqui. A politica de atualizacao -- gatilho que marca, cron de 5
+-- minutos que atende e rede de seguranca horaria as :40 -- e toda da migration
+-- 20261007230000, para este arquivo ficar so com a camada em si.
