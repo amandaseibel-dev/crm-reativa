@@ -4,6 +4,7 @@ import { Carregando } from "../ui/estados";
 import EfetividadePorVencimento from "../components/EfetividadePorVencimento";
 import EfetividadeCompetencias from "../components/EfetividadeCompetencias";
 import SeisLinhasDaSafra from "../components/SeisLinhasDaSafra";
+import StatusAcademicoPorSafra from "../components/StatusAcademicoPorSafra";
 
 // EFETIVIDADE DA COBRANÇA — visão executiva, um layout só para toda safra.
 //
@@ -336,6 +337,11 @@ export default function CarteiraEfetividade() {
               05/10/2026: a Diretoria encontra as mesmas seis linhas em toda
               safra, em vez de um recorte conceitual diferente por período. */}
           <SeisLinhasDaSafra ano={ano} semestre={ano === "2026" ? sem : null} />
+
+          {/* 1c. STATUS ACADEMICO POR SAFRA — 2024, 2025 e 2026/1 lado a lado.
+              Fora de 2026/2 de proposito: aquela safra nao tem perfil academico,
+              e o card compara exatamente as tres que tem fotografia. */}
+          {safra !== "2026/2" ? <StatusAcademicoPorSafra /> : null}
 
           {/* 2. SITUAÇÃO DA CARTEIRA — sempre barras simples, nunca tabela */}
           <section style={S.cartao}>

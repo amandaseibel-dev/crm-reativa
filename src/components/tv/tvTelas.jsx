@@ -1,8 +1,10 @@
 import {
-  Tela, IndicadorCard, CardMeta, MetaCard, Ranking, DestaqueOperador,
+  Tela, IndicadorCard, CardMeta, Ranking, DestaqueOperador,
   MensagemInstitucional, Aviso, Treinamento, Conquista,
   moeda, num, statusRitmo, T, fs, layout,
 } from "./tvUI";
+import TelaMetaDoMes from "./tvMetaDoMes";
+import TelaMagicNumber from "./tvMagicNumber";
 
 // =============================================================================
 // TV ReATIVA — TELAS (Etapa 3: regras detalhadas)
@@ -303,26 +305,6 @@ function TelaAcionamentosDia({ snap }) {
     <Tela titulo="Acionamentos do Dia — Top 3" icone="📞">
       <Ranking titulo="Quem mais acionou hoje" podio
         itens={top.map((o) => ({ nome: o.nome, valor: `${num(o.qtd)} acion.` }))} />
-    </Tela>
-  );
-}
-
-// 7d) Magic Number — meta de superação = 150% da meta de honorários ----------
-//     Calculado no cliente a partir de mes.meta_empresa (não precisa backend).
-function TelaMagicNumber({ snap }) {
-  const m = snap?.mes || {};
-  const meta = Number(m.meta_empresa || 0);
-  if (!meta) return <Tela titulo="Magic Number" icone="✨"><Vazio>Meta não cadastrada nesta atualização.</Vazio></Tela>;
-  const alvo = Math.round(meta * 1.5);
-  const real = Number(m.honorarios || 0);
-  const pct = alvo > 0 ? (real / alvo) * 100 : null;
-  const falta = Math.max(0, alvo - real);
-  const detalhe = real >= alvo
-    ? "Magic batido! Superação total da meta 🚀"
-    : `Faltam ${moeda(falta)} para o Magic (150% da meta)`;
-  return (
-    <Tela titulo="Magic Number" icone="✨">
-      <MetaCard titulo="Magic Number — 150% da meta" valor={moeda(real)} alvo={moeda(alvo)} pct={pct} detalhe={detalhe} />
     </Tela>
   );
 }
@@ -641,8 +623,11 @@ export const CATALOGO_TELAS = [
   { id: "resultado", nome: "Resultado do Mês", Comp: TelaResultadoMes, ativa: true, grupo: "operacao",
     descricao: "Acumulado do mês, projeção de fechamento e ritmo necessário.",
     temConteudo: (s) => !!s?.mes },
+  { id: "meta_do_mes", nome: "Meta do Mês", Comp: TelaMetaDoMes, ativa: true, grupo: "operacao",
+    descricao: "Tela dedicada da meta: % atingido no anel, realizado, falta, dias úteis restantes e necessário por dia útil.",
+    temConteudo: (s) => Number(s?.mes?.meta_empresa || 0) > 0 },
   { id: "metas", nome: "Metas", Comp: TelaMetas, ativa: false, grupo: "operacao",
-    descricao: "Cards de metas (empresa, magic, marco histórico).",
+    descricao: "Cards de metas (empresa, superar o mês passado, marco histórico).",
     temConteudo: (s) => (s?.metas || []).length > 0 },
   { id: "premiacao", nome: "Premiação", Comp: TelaPremiacao, ativa: false, grupo: "operacao",
     descricao: "Faixas de comissão do mês (M1 a M4).",
@@ -660,9 +645,12 @@ export const CATALOGO_TELAS = [
   { id: "aniversariantes", nome: "Aniversariantes", Comp: TelaAniversariantes, ativa: true, grupo: "pessoas",
     descricao: "Aniversariantes do mês (ou do dia, com destaque).",
     temConteudo: (s) => (s?.aniversariantes || []).length > 0 || (s?.aniversariantes_hoje || []).length > 0 },
+  // O alvo deixou de ser meta x 1,5 em 06/10/2026: virou valor próprio da
+  // competência (magic_number_mensal). Sem valor cadastrado, o slide some do
+  // rodízio em vez de mostrar um número derivado da meta.
   { id: "magic_number", nome: "Magic Number", Comp: TelaMagicNumber, ativa: true, grupo: "operacao",
-    descricao: "Meta de superação = 150% da meta de honorários.",
-    temConteudo: (s) => Number(s?.mes?.meta_empresa || 0) > 0 },
+    descricao: "Magic Number da competência: valor próprio, com o mesmo realizado de honorários da meta do mês.",
+    temConteudo: (s) => Number(s?.magic?.valor || 0) > 0 },
   { id: "destaque_semana", nome: "Destaque da Semana", Comp: TelaDestaqueSemana, ativa: true, grupo: "operacao",
     descricao: "Campeão da semana por pagamentos únicos (com vice e 3º).",
     temConteudo: (s) => (s?.dados?.ranking_semana || []).length > 0 },
