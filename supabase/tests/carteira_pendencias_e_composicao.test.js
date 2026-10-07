@@ -29,8 +29,8 @@
 // Dados fictícios. Bancada: fixtures/carteira_pendencias/bancada.js
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
-  montar, aluno, titulo, classificado, composicao, pendencias, itens, seisLinhas,
-  comoPapel, voltarDono, portao, q1, ROLL, NOVA,
+  montar, aluno, titulo, tituloHistorico, classificado, composicao, pendencias, itens,
+  seisLinhas, recalcular, ler, itensLer, comoPapel, voltarDono, portao, q1, ROLL, NOVA, AJUSTES,
 } from "./fixtures/carteira_pendencias/bancada.js";
 
 vi.setConfig({ testTimeout: 60000, hookTimeout: 60000 });
@@ -73,38 +73,28 @@ describe("as migrations aplicam e as funções existem", () => {
 
 describe("a composição por status acadêmico fecha", () => {
   it("fecha ao centavo em valor, em títulos e em alunos", async () => {
-    const formado = await aluno(db, { nome: "FORMADA", situacao: "Formado" });
-    const trancado = await aluno(db, { nome: "TRANCADO", situacao: "Trancado" });
-    await titulo(db, { alunoId: formado, valor: 1234.56 });
-    await titulo(db, { alunoId: formado, valor: 765.44 });
-    await titulo(db, { alunoId: trancado, valor: 1000.01 });
+    const formado = await aluno(db, { nome: "FORMADA", cpf: "11100000001", situacao: "Formado" });
+    const trancado = await aluno(db, { nome: "TRANCADO", cpf: "11100000002", situacao: "Trancado" });
+    await tituloHistorico(db, { alunoId: formado, saldo: 1234.56 });
+    await tituloHistorico(db, { alunoId: formado, saldo: 765.44 });
+    await tituloHistorico(db, { alunoId: trancado, saldo: 1000.01 });
 
     const c = await composicao(db, "2024");
     expect(c.conferencia.fecha).toBe(true);
     expect(cent(c.conferencia.diferenca)).toBe(0);
     expect(cent(c.total.valor)).toBe(3000.01);
     expect(c.conferencia.titulos_total).toBe(c.conferencia.titulos_soma);
-    // aluno tem UM status, então a soma por linha fecha o total de alunos
+    expect(c.conferencia.alunos_total).toBe(c.conferencia.alunos_soma);
+    // CPF tem UM status, então a soma por linha fecha o total de alunos
     const alunos = c.linhas.reduce((s, l) => s + Number(l.alunos), 0);
     expect(alunos).toBe(c.total.alunos);
   });
 
-  it("é o MESMO saldo em aberto que as seis linhas publicam, ao centavo", async () => {
-    const a = await aluno(db, { situacao: "Formado" });
-    await titulo(db, { alunoId: a, valor: 4321.99 });
-    await titulo(db, { alunoId: a, valor: 55.01 });
-
-    const seis = await seisLinhas(db, "2024");
-    const c = await composicao(db, "2024");
-    expect(cent(c.total.valor)).toBe(cent(seis.situacoes.em_aberto.valor));
-    expect(c.total.titulos).toBe(seis.situacoes.em_aberto.titulos);
-  });
-
   it("aluno sem situação importada entra como categoria, nunca descartado", async () => {
-    const com = await aluno(db, { situacao: "Formado" });
-    const sem = await aluno(db, { nome: "SEM SITUACAO", situacao: null });
-    await titulo(db, { alunoId: com, valor: 1000 });
-    await titulo(db, { alunoId: sem, valor: 3000 });
+    const com = await aluno(db, { cpf: "11100000003", situacao: "Formado" });
+    const sem = await aluno(db, { nome: "SEM SITUACAO", cpf: "11100000004", situacao: null });
+    await tituloHistorico(db, { alunoId: com, saldo: 1000 });
+    await tituloHistorico(db, { alunoId: sem, saldo: 3000 });
 
     const c = await composicao(db, "2024");
     const linha = c.linhas.find((l) => l.status === "(sem situação importada)");
@@ -116,10 +106,10 @@ describe("a composição por status acadêmico fecha", () => {
   });
 
   it("não agrupa categorias parecidas nem cria “Outros”", async () => {
-    const a1 = await aluno(db, { situacao: "Aguardando Matrícula" });
-    const a2 = await aluno(db, { situacao: "Matriculado Curso Normal" });
-    await titulo(db, { alunoId: a1, valor: 100 });
-    await titulo(db, { alunoId: a2, valor: 200 });
+    const a1 = await aluno(db, { cpf: "11100000005", situacao: "Aguardando Matrícula" });
+    const a2 = await aluno(db, { cpf: "11100000006", situacao: "Matriculado Curso Normal" });
+    await tituloHistorico(db, { alunoId: a1, saldo: 100 });
+    await tituloHistorico(db, { alunoId: a2, saldo: 200 });
 
     const c = await composicao(db, "2024");
     const nomes = c.linhas.map((l) => l.status).sort();
@@ -128,8 +118,9 @@ describe("a composição por status acadêmico fecha", () => {
   });
 
   it("devolve a data da importação acadêmica — é fotografia, não consulta de hoje", async () => {
-    const a = await aluno(db, { situacao: "Formado", importadoEm: "2026-08-04T15:19:51Z" });
-    await titulo(db, { alunoId: a, valor: 100 });
+    const a = await aluno(db, { cpf: "11100000007", situacao: "Formado",
+                                importadoEm: "2026-08-04T15:19:51Z" });
+    await tituloHistorico(db, { alunoId: a, saldo: 100 });
     const c = await composicao(db, "2024");
     expect(String(c.fonte_academica.importacao_atualizada_em)).toContain("2026-08-04");
   });
@@ -321,6 +312,8 @@ describe("permissão: o portão fecha as três funções", () => {
 
 describe("o rollback devolve o banco ao estado anterior", () => {
   it("derruba as cinco funções e deixa as seis linhas de pé", async () => {
+    // Os dois rollbacks, na ordem inversa da aplicação.
+    await db.exec(ROLL(AJUSTES));
     await db.exec(ROLL(NOVA));
     const r = await q1(db, `select count(*)::int n from pg_proc p
       join pg_namespace n on n.oid = p.pronamespace
@@ -329,8 +322,235 @@ describe("o rollback devolve o banco ao estado anterior", () => {
                          'carteira_pendencias_por_motivo','carteira_pendencias_itens',
                          'carteira_pendencia_rotulo','carteira_pendencia_acao')`);
     expect(r.n).toBe(0);
+    // a camada de leitura e a rotina também saem
+    const camada = await q1(db, `select
+        (select count(*)::int from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname = 'public'
+            and p.proname in ('carteira_efetividade_recalcular','carteira_efetividade_ler',
+                              'carteira_pendencias_itens_ler')) f,
+        (select count(*)::int from cron.job where jobname = 'carteira_efetividade_hora') j,
+        (select count(*)::int from information_schema.tables
+          where table_schema = 'public'
+            and table_name in ('carteira_efetividade_snapshot','carteira_pendencias_item_snapshot')) t`);
+    expect(camada.f).toBe(0);
+    expect(camada.j).toBe(0);
+    expect(camada.t).toBe(0);
     // `carteira_safra_situacoes` não foi tocada e continua respondendo
     const seis = await seisLinhas(db, "2024");
     expect(seis.conferencia).toBeTruthy();
+  });
+});
+
+// ===========================================================================
+// AJUSTES DE 07/10/2026 -- a regua historica e a camada de leitura
+// ===========================================================================
+//
+// A REGUA. `carteira_saldo_historico_por_ano()` e funcao de producao sem
+// arquivo no repositorio, entao ela nao pode ser aplicada no PGlite. O que se
+// prova aqui e a SEMANTICA da regua, por construcao: as cinco exclusoes
+// disparam, as tres contagens sao as daquela funcao (CPF, linha, saldo) e a
+// composicao fecha em valor, titulos E alunos. A IGUALDADE com a funcao de
+// producao esta provada pela medicao de 07/10/2026, que devolveu 1.975 / 6.366 /
+// R$ 3.674.539,61 em 2024 e 2.880 / 10.467 / R$ 6.212.645,40 em 2025 --
+// identicos, ao centavo, ao bloco `aberto` dela.
+describe("a regua historica oficial em 2024/2025", () => {
+  it("conta alunos por CPF, titulos por linha e valor por saldo", async () => {
+    // Dois titulos do MESMO CPF: 1 aluno, 2 titulos.
+    const a = await aluno(db, { cpf: "11122233344", situacao: "Formado" });
+    await tituloHistorico(db, { alunoId: a, saldo: 1000.55 });
+    await tituloHistorico(db, { alunoId: a, saldo: 2000.45 });
+
+    const c = await composicao(db, "2024");
+    expect(c.total.alunos).toBe(1);
+    expect(c.total.titulos).toBe(2);
+    expect(cent(c.total.valor)).toBe(3001.00);
+    expect(c.regua).toBe("carteira_saldo_historico_por_ano().aberto");
+  });
+
+  it("fecha em valor, titulos E alunos -- as tres", async () => {
+    const f = await aluno(db, { cpf: "11111111111", situacao: "Formado" });
+    const t = await aluno(db, { cpf: "22222222222", situacao: "Trancado" });
+    const s = await aluno(db, { cpf: "33333333333", situacao: null });
+    await tituloHistorico(db, { alunoId: f, saldo: 100.01 });
+    await tituloHistorico(db, { alunoId: f, saldo: 200.02 });
+    await tituloHistorico(db, { alunoId: t, saldo: 300.03 });
+    await tituloHistorico(db, { alunoId: s, saldo: 400.04 });
+
+    const c = await composicao(db, "2024");
+    expect(c.conferencia.fecha).toBe(true);
+    expect(cent(c.conferencia.diferenca)).toBe(0);
+    expect(c.conferencia.titulos_total).toBe(c.conferencia.titulos_soma);
+    expect(c.conferencia.alunos_total).toBe(c.conferencia.alunos_soma);
+    expect(c.total.alunos).toBe(3);
+    expect(c.total.titulos).toBe(4);
+    expect(cent(c.total.valor)).toBe(1000.10);
+    // e o aluno sem situacao continua sendo categoria, nao descarte
+    expect(c.linhas.find((l) => l.status === "(sem situação importada)").valor).toBeTruthy();
+  });
+
+  it("as cinco exclusoes da regua disparam", async () => {
+    const base = await aluno(db, { cpf: "99999999999", situacao: "Formado" });
+    await tituloHistorico(db, { alunoId: base, saldo: 500 });   // entra
+
+    // 1. portador diferente de 195
+    const p = await aluno(db, { cpf: "10000000001", situacao: "Formado" });
+    await tituloHistorico(db, { alunoId: p, saldo: 700, portador: 166 });
+
+    // 2. liquidado na Prime mais de 30 dias apos o vencimento
+    const l = await aluno(db, { cpf: "10000000002", situacao: "Formado" });
+    await tituloHistorico(db, { alunoId: l, saldo: 700, vencimento: "2024-03-10",
+                                liquidadoEm: "2024-05-30" });
+
+    // 3. CPF no portador 166 SEM acordo ativo no CRM
+    const m = await aluno(db, { cpf: "10000000003", situacao: "Formado" });
+    await tituloHistorico(db, { alunoId: m, saldo: 700 });
+    await db.query("insert into public.prime_portador_membro (portador, cpf) values (166, $1)",
+                   ["10000000003"]);
+
+    // 4. confirmacao de pagamento pendente
+    const cf = await aluno(db, { cpf: "10000000004", situacao: "Formado" });
+    await tituloHistorico(db, { alunoId: cf, saldo: 700 });
+    await db.query(`insert into public.solicitacoes_confirmacao_pagamento (aluno_id, status)
+                    values ($1, 'AGUARDANDO_CONFIRMACAO')`, [cf]);
+
+    // 5. caso cancelado / juridico
+    const cx = await aluno(db, { cpf: "10000000005", situacao: "Formado" });
+    await tituloHistorico(db, { alunoId: cx, saldo: 700 });
+    await db.query(`insert into public.casos (aluno_id, status_atual) values ($1, 'JURIDICO')`, [cx]);
+
+    // 6. aluno cujos pagamentos desde julho/2026 cobrem todo o aberto dele
+    const pg = await aluno(db, { cpf: "10000000006", situacao: "Formado" });
+    await tituloHistorico(db, { alunoId: pg, saldo: 700 });
+    await db.query(`insert into public.pagamentos (aluno_id, valor_pago, data_pagamento)
+                    values ($1, 1000, date '2026-08-01')`, [pg]);
+
+    const c = await composicao(db, "2024");
+    // so o titulo base sobrou
+    expect(c.total.titulos).toBe(1);
+    expect(cent(c.total.valor)).toBe(500);
+  });
+
+  it("CPF no portador 166 COM acordo ativo volta a contar", async () => {
+    const m = await aluno(db, { cpf: "20000000001", situacao: "Formado" });
+    await tituloHistorico(db, { alunoId: m, saldo: 800 });
+    await db.query("insert into public.prime_portador_membro (portador, cpf) values (166, $1)",
+                   ["20000000001"]);
+    await db.query("insert into public.acordos (status, aluno_id) values ('ATIVO', $1)", [m]);
+
+    const c = await composicao(db, "2024");
+    expect(cent(c.total.valor)).toBe(800);
+  });
+
+  it("NAO e mais a regua das seis linhas: as duas convivem com valores diferentes", async () => {
+    // Um titulo que as seis linhas contam em "em aberto" mas a regua oficial
+    // exclui: portador diferente de 195.
+    const a = await aluno(db, { cpf: "30000000001", situacao: "Formado" });
+    await tituloHistorico(db, { alunoId: a, saldo: 900, portador: 166 });
+
+    const seis = await seisLinhas(db, "2024");
+    const c = await composicao(db, "2024");
+    expect(Number(seis.situacoes.em_aberto?.valor || 0)).toBeGreaterThan(0);
+    expect(cent(c.total.valor)).toBe(0);
+    // e a composicao segue fechando consigo mesma
+    expect(c.conferencia.fecha).toBe(true);
+  });
+});
+
+describe("a camada rapida de leitura", () => {
+  it("antes do recalculo a leitura DIZ que nao ha fotografia", async () => {
+    const r = await ler(db, "composicao_academica", "2024");
+    expect(r.sem_snapshot).toBe(true);
+    expect(r.recorte).toBe("2024");
+  });
+
+  it("depois do recalculo a leitura devolve o payload e o gerado_em", async () => {
+    const a = await aluno(db, { cpf: "40000000001", situacao: "Formado" });
+    await tituloHistorico(db, { alunoId: a, saldo: 1234.56 });
+    await tituloHistorico(db, { alunoId: a, saldo: 100, situacao: "EM_CONFIRMACAO" });
+    await recalcular(db, "2024");
+
+    const comp = await ler(db, "composicao_academica", "2024");
+    expect(comp.sem_snapshot).toBeUndefined();
+    expect(cent(comp.total.valor)).toBe(1234.56);
+    expect(comp.snapshot.gerado_em).toBeTruthy();
+    expect(comp.snapshot.bloco).toBe("composicao_academica");
+
+    const seis = await ler(db, "seis_linhas", "2024");
+    expect(seis.conferencia.fecha).toBe(true);
+
+    const pend = await ler(db, "pendencias_por_motivo", "2024");
+    expect(pend.motivos.map((m) => m.chave)).toContain("em_confirmacao");
+  });
+
+  it("bloco desconhecido e recusado -- a tela nao inventa bloco", async () => {
+    await expect(ler(db, "editar_valor", "2024")).rejects.toThrow(/Bloco desconhecido/);
+  });
+
+  it("a fila pagina da fotografia, com o total do motivo", async () => {
+    const a = await aluno(db, { cpf: "50000000001", situacao: "Formado" });
+    for (const v of [300, 200, 100]) {
+      await tituloHistorico(db, { alunoId: a, saldo: v, situacao: "EM_CONFIRMACAO" });
+    }
+    await recalcular(db, "2024");
+
+    const p1 = await itensLer(db, "em_confirmacao", "2024", null, 2, 0);
+    expect(p1.length).toBe(2);
+    // ordem estavel: maior valor primeiro
+    expect(cent(p1[0].valor)).toBe(300);
+    // o total do motivo vem na propria linha, sem segunda consulta
+    expect(Number(p1[0].total_no_motivo)).toBe(3);
+    const p2 = await itensLer(db, "em_confirmacao", "2024", null, 2, 2);
+    expect(p2.length).toBe(1);
+  });
+
+  it("fotografia que NAO fecha e descartada, sem apagar a boa", async () => {
+    const a = await aluno(db, { cpf: "60000000001", situacao: "Formado" });
+    await tituloHistorico(db, { alunoId: a, saldo: 500 });
+    await recalcular(db, "2024");
+    const bom = await ler(db, "composicao_academica", "2024");
+    expect(cent(bom.total.valor)).toBe(500);
+
+    // arranca a conferencia da funcao: passa a devolver `fecha: false`
+    await db.exec(`
+      create or replace function public.carteira_em_aberto_por_status_academico(
+        p_ano text, p_semestre text default null)
+      returns jsonb language sql stable as $$
+        select jsonb_build_object('recorte', p_ano,
+                                  'total', jsonb_build_object('alunos',1,'titulos',1,'valor',9999),
+                                  'linhas', '[]'::jsonb,
+                                  'conferencia', jsonb_build_object('fecha', false, 'diferenca', 9999))
+      $$;`);
+    await recalcular(db, "2024");
+
+    const depois = await ler(db, "composicao_academica", "2024");
+    // a fotografia boa ficou: 500, nao 9999
+    expect(cent(depois.total.valor)).toBe(500);
+  });
+
+  it("a rotina horaria e agendada, e o recalculo nao e alcancavel por anon", async () => {
+    const job = await q1(db, "select jobname, schedule from cron.job where jobname = $1",
+                         ["carteira_efetividade_hora"]);
+    expect(job.schedule).toBe("40 * * * *");
+
+    const r = await q1(db, `select count(*)::int n from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname in ('carteira_efetividade_recalcular','carteira_efetividade_ler',
+                         'carteira_pendencias_itens_ler')
+       and has_function_privilege('anon', p.oid, 'execute')`);
+    expect(r.n).toBe(0);
+  });
+
+  it("como `authenticated` a LEITURA funciona", async () => {
+    const a = await aluno(db, { cpf: "70000000001", situacao: "Formado" });
+    await tituloHistorico(db, { alunoId: a, saldo: 640 });
+    await recalcular(db, "2024");
+    await comoPapel(db, "authenticated");
+    try {
+      const c = await ler(db, "composicao_academica", "2024");
+      expect(cent(c.total.valor)).toBe(640);
+    } finally {
+      await voltarDono(db);
+    }
   });
 });

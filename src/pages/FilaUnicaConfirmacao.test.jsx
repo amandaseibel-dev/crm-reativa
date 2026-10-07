@@ -22,6 +22,7 @@ import FilaUnicaConfirmacao from "./FilaUnicaConfirmacao";
 const RESUMO_2024 = {
   recorte: "2024",
   gerado_em: "2026-10-07T19:30:00Z",
+  snapshot: { gerado_em: "2026-10-07T23:40:00Z", duracao_ms: 1800, bloco: "pendencias_por_motivo" },
   contagens_somaveis: true,
   total: { alunos: 19, titulos: 52, valor: 39686.19 },
   motivos: [
@@ -67,8 +68,8 @@ const txt = (el) => el.textContent.replace(/\u00a0/g, " ");
 
 function responder({ resumo = RESUMO_2024, itens = [ITEM_CONFIRMACAO], emConfirmacao = [] } = {}) {
   rpcMock.mockImplementation((nome, args) => {
-    if (nome === "carteira_pendencias_por_motivo") return Promise.resolve({ data: resumo, error: null });
-    if (nome === "carteira_pendencias_itens") {
+    if (nome === "carteira_efetividade_ler") return Promise.resolve({ data: resumo, error: null });
+    if (nome === "carteira_pendencias_itens_ler") {
       return Promise.resolve({ data: itens.filter((i) => i.motivo === args.p_motivo), error: null });
     }
     // RPCs do fluxo EXISTENTE de EM_CONFIRMACAO, usadas por ResolverEmConfirmacao
@@ -91,10 +92,14 @@ afterEach(() => cleanup());
 describe("Fila Única — o registro individual", () => {
   it("lê o motivo e a safra da URL, que é como a Efetividade entrega o caso", async () => {
     await montar();
-    expect(rpcMock).toHaveBeenCalledWith("carteira_pendencias_por_motivo",
-      { p_ano: "2024", p_semestre: null });
-    expect(rpcMock).toHaveBeenCalledWith("carteira_pendencias_itens",
+    expect(rpcMock).toHaveBeenCalledWith("carteira_efetividade_ler",
+      { p_bloco: "pendencias_por_motivo", p_ano: "2024", p_semestre: null });
+    expect(rpcMock).toHaveBeenCalledWith("carteira_pendencias_itens_ler",
       expect.objectContaining({ p_motivo: "em_confirmacao", p_ano: "2024", p_semestre: null }));
+    // as consultas pesadas não são alcançadas pela fila
+    const nomes = rpcMock.mock.calls.map((c) => c[0]);
+    expect(nomes).not.toContain("carteira_pendencias_por_motivo");
+    expect(nomes).not.toContain("carteira_pendencias_itens");
   });
 
   it("mostra tudo o que a gestão precisa para identificar o caso", async () => {
@@ -114,7 +119,7 @@ describe("Fila Única — o registro individual", () => {
 
   it("paginação pede limite e deslocamento — nunca a base inteira", async () => {
     await montar();
-    const chamada = rpcMock.mock.calls.find((c) => c[0] === "carteira_pendencias_itens")[1];
+    const chamada = rpcMock.mock.calls.find((c) => c[0] === "carteira_pendencias_itens_ler")[1];
     expect(chamada.p_limite).toBeLessThanOrEqual(500);
     expect(chamada.p_offset).toBe(0);
   });
@@ -166,11 +171,11 @@ describe("Fila Única — submotivo sem ação segura", () => {
 describe("Fila Única — atualização sem reload", () => {
   it("“Atualizar dados” refaz a contagem e a lista", async () => {
     await montar();
-    const antes = rpcMock.mock.calls.filter((c) => c[0] === "carteira_pendencias_itens").length;
+    const antes = rpcMock.mock.calls.filter((c) => c[0] === "carteira_pendencias_itens_ler").length;
     await act(async () => { fireEvent.click(screen.getByText("Atualizar dados")); });
-    const depois = rpcMock.mock.calls.filter((c) => c[0] === "carteira_pendencias_itens").length;
+    const depois = rpcMock.mock.calls.filter((c) => c[0] === "carteira_pendencias_itens_ler").length;
     expect(depois).toBeGreaterThan(antes);
-    const contagens = rpcMock.mock.calls.filter((c) => c[0] === "carteira_pendencias_por_motivo").length;
+    const contagens = rpcMock.mock.calls.filter((c) => c[0] === "carteira_efetividade_ler").length;
     expect(contagens).toBeGreaterThan(1);
   });
 
@@ -181,7 +186,7 @@ describe("Fila Única — atualização sem reload", () => {
       fireEvent.click(screen.getByRole("button", { name: /Pago sem lastro/ }));
     });
     const ultima = [...rpcMock.mock.calls].reverse()
-      .find((c) => c[0] === "carteira_pendencias_itens")[1];
+      .find((c) => c[0] === "carteira_pendencias_itens_ler")[1];
     expect(ultima.p_motivo).toBe("pago_sem_lastro");
     expect(ultima.p_offset).toBe(0);
   });
@@ -196,7 +201,7 @@ describe("Fila Única — o que ela declara ser", () => {
 
   it("erro na contagem aparece, sem derrubar a lista", async () => {
     rpcMock.mockImplementation((nome) =>
-      nome === "carteira_pendencias_por_motivo"
+      nome === "carteira_efetividade_ler"
         ? Promise.resolve({ data: null, error: { message: "Acesso negado." } })
         : Promise.resolve({ data: [], error: null }));
     await montar();

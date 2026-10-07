@@ -48,11 +48,22 @@ beforeEach(() => { rpcMock.mockReset(); responder(); });
 afterEach(() => cleanup());
 
 describe("Comparativo entre safras", () => {
-  it("reaproveita carteira_safra_situacoes — não cria RPC nova para comparar", async () => {
+  it("lê a MESMA fotografia do resumo — não cria RPC nova nem chama a pesada", async () => {
     await montar();
     const nomes = [...new Set(rpcMock.mock.calls.map((c) => c[0]))];
-    expect(nomes).toEqual(["carteira_safra_situacoes"]);
+    expect(nomes).toEqual(["carteira_efetividade_ler"]);
     expect(rpcMock).toHaveBeenCalledTimes(3);
+    // três chamadas vivas eram três timeouts: 34,6 s medidos em 2026/1
+    expect(rpcMock.mock.calls.every((c) => c[1].p_bloco === "seis_linhas")).toBe(true);
+  });
+
+  it("safra sem fotografia aparece como travessão, nunca como R$ 0,00", async () => {
+    responder({ ...PADRAO, "2025": { data: { sem_snapshot: true }, error: null } });
+    await montar();
+    const linha = screen.getByText("2025").closest("tr");
+    expect(txt(linha)).toContain("—");
+    expect(txt(linha)).not.toContain("R$ 0,00");
+    expect(screen.getByText(/Sem fotografia ainda: 2025/)).toBeTruthy();
   });
 
   it("tem exatamente as cinco colunas executivas, e nenhuma composição acadêmica", async () => {

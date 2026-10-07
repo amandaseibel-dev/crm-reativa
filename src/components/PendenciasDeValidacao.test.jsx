@@ -68,10 +68,23 @@ beforeEach(() => { rpcMock.mockReset(); navegarMock.mockReset(); responder(P_202
 afterEach(() => cleanup());
 
 describe("Pendências de validação", () => {
-  it("pede a RPC de motivos com o recorte", async () => {
+  it("lê a camada rápida, nunca a consulta pesada", async () => {
     await montar({ ano: "2026", semestre: "1" });
-    expect(rpcMock).toHaveBeenCalledWith("carteira_pendencias_por_motivo",
-      { p_ano: "2026", p_semestre: "1" });
+    expect(rpcMock).toHaveBeenCalledWith("carteira_efetividade_ler",
+      { p_bloco: "pendencias_por_motivo", p_ano: "2026", p_semestre: "1" });
+    // a consulta viva passa por carteira_2026_1_classificar (~21 s medidos) e o
+    // teto do papel da aplicação é 8 s: a tela não pode alcançá-la
+    const nomes = rpcMock.mock.calls.map((c) => c[0]);
+    expect(nomes).not.toContain("carteira_pendencias_por_motivo");
+  });
+
+  it("sem fotografia, DIZ que falta — não finge que não há pendência", async () => {
+    responder({ sem_snapshot: true, recorte: "2024", bloco: "pendencias_por_motivo" });
+    await montar();
+    expect(screen.getByText(/ainda não tem fotografia de 2024/)).toBeTruthy();
+    expect(screen.getByText(/A rotina da hora reconstrói/)).toBeTruthy();
+    // e a tabela não é desenhada: lista vazia confundiria com "nada pendente"
+    expect(screen.queryByText("Total pendente")).toBeNull();
   });
 
   it("abre o total por motivo real, com alunos, títulos, valor e percentual", async () => {

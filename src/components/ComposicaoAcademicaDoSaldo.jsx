@@ -1,5 +1,3 @@
-import { useEffect, useState } from "react";
-import { supabase } from "../services/supabase";
 import { S, moeda, num, dataCurta } from "./situacoesDaSafraFormato";
 
 // QUEM COMPOE O SALDO EM ABERTO — composicao FINANCEIRA por status academico.
@@ -26,9 +24,24 @@ import { S, moeda, num, dataCurta } from "./situacoesDaSafraFormato";
 // ganha um aviso proprio quando pesa no saldo.
 //
 // A SITUACAO ACADEMICA E FOTOGRAFIA. O rodape sempre diz a data da importacao
-// que alimenta estes status — nunca sugere consulta ao Prime de hoje. O dado
-// FINANCEIRO, ao contrario, e lido ao vivo a cada abertura e a cada "Atualizar
-// dados" (e o que `recarga` provoca).
+// que alimenta estes status — nunca sugere consulta ao Prime de hoje.
+//
+// A REGUA (ajuste de 07/10/2026). Em 2024/2025 este bloco decompoe o SALDO EM
+// ABERTO ATUAL pela regua historica oficial — a mesma de
+// `carteira_saldo_historico_por_ano().aberto` —, e NAO o balde "em aberto" das
+// seis linhas, que e mais amplo (R$ 4,99 mi contra R$ 3,67 mi em 2024, medido
+// em producao). As duas reguas respondem perguntas diferentes e as duas valem;
+// a tela diz qual e qual e nao tenta iguala-las:
+//   Universo recebido     -> regua das seis linhas (o que entrou em cobranca)
+//   Saldo em aberto atual -> regua historica oficial (exposicao de hoje)
+//   este bloco            -> decomposicao do saldo em aberto atual
+//
+// NAO BUSCA NADA. O payload vem da pagina, que o le de
+// `carteira_efetividade_ler('composicao_academica', ...)` — fotografia, nao a
+// consulta viva: em 2026/1 a consulta viva custa ~21 s e o teto do papel
+// `authenticated` e 8 s. O MESMO payload alimenta o indicador "Saldo em aberto
+// atual" do resumo, no topo da pagina, para o cartao e a tabela nunca
+// divergirem.
 
 const pct = (parte, todo) => {
   if (!(Number(todo) > 0)) return "—";
@@ -42,29 +55,7 @@ const pct = (parte, todo) => {
 
 const SEM_SITUACAO = "(sem situação importada)";
 
-export default function ComposicaoAcademicaDoSaldo({ ano, semestre = null, recarga = 0 }) {
-  const [dados, setDados] = useState(null);
-  const [erro, setErro] = useState("");
-  const [carregando, setCarregando] = useState(true);
-
-  useEffect(() => {
-    let ativo = true;
-    // O reset entra DENTRO da funcao assincrona: setState no corpo do efeito
-    // cascateia render e a regra `react-hooks/set-state-in-effect` reprova na
-    // catraca do lint.
-    (async () => {
-      setCarregando(true);
-      setErro("");
-      const { data, error } = await supabase.rpc("carteira_em_aberto_por_status_academico",
-        { p_ano: ano, p_semestre: semestre });
-      if (!ativo) return;
-      if (error) { setErro(error.message || "falha ao consultar"); setDados(null); }
-      else { setDados(data || null); }
-      setCarregando(false);
-    })();
-    return () => { ativo = false; };
-  }, [ano, semestre, recarga]);
-
+export default function ComposicaoAcademicaDoSaldo({ dados, erro = "", carregando = false }) {
   if (carregando) return <p style={S.discreto}>Compondo o saldo em aberto por status acadêmico…</p>;
   if (erro) {
     return (
@@ -75,6 +66,22 @@ export default function ComposicaoAcademicaDoSaldo({ ano, semestre = null, recar
     );
   }
   if (!dados) return null;
+  // Fotografia ainda não tirada é diferente de "não há composição", e a tela
+  // tem de dizer qual dos dois é.
+  if (dados.sem_snapshot) {
+    return (
+      <section style={{ marginTop: 22 }}>
+        <div style={S.cabecalho}>
+          <h2 style={S.h2}>Quem compõe o saldo em aberto</h2>
+        </div>
+        <p style={{ ...S.rodape, color: "var(--rv-ambar-texto)" }}>
+          <strong>Este bloco ainda não tem fotografia de {dados.recorte}.</strong> A rotina da hora
+          reconstrói; assim que ela rodar, a composição aparece. Os demais blocos desta tela não dependem
+          dela.
+        </p>
+      </section>
+    );
+  }
 
   const linhas = dados.linhas || [];
   const total = dados.total || {};
@@ -93,6 +100,7 @@ export default function ComposicaoAcademicaDoSaldo({ ano, semestre = null, recar
         <h2 style={S.h2}>Quem compõe o saldo em aberto</h2>
         <span style={S.apoio}>
           {linhas.length} {linhas.length === 1 ? "status" : "status"} · {moeda(base)}
+          {dados.regua ? " · régua: " + dados.regua : ""}
         </span>
       </div>
 
@@ -153,21 +161,38 @@ export default function ComposicaoAcademicaDoSaldo({ ano, semestre = null, recar
         saldo fecham com o total; as de alunos também, porque um aluno tem um status só.{" "}
         {dados.universo_em_aberto === "inadimplencia + em_validacao"
           ? "Em 2026/1 o universo em aberto inclui o que está em validação, pela regra da safra."
-          : "O universo é o saldo sem acordo ativo — o mesmo da linha “Em aberto” das seis linhas."}
+          : "O universo é o Saldo em aberto atual, pela régua histórica oficial — a mesma de "
+            + "“carteira_saldo_historico_por_ano”. Não é o balde “Em aberto” das seis linhas, que é mais "
+            + "amplo: ele mede o saldo sem acordo ativo sobre tudo o que entrou em cobrança, enquanto a "
+            + "régua oficial mede a exposição de hoje e exclui o que não é mais cobrável por nós "
+            + "(outro portador, liquidado na Prime após o vencimento, CPF no portador 166 sem acordo "
+            + "ativo, confirmação pendente, caso cancelado ou jurídico, e aluno cujos pagamentos desde "
+            + "julho/2026 já cobrem todo o aberto). As duas valem; esta tela não as iguala."}
       </p>
       <p style={S.rodape}>
         <strong>O status acadêmico é fotografia, não consulta de hoje.</strong>{" "}
         {fonte
           ? "Vem do relatório acadêmico importado em " + dataCurta(fonte) + "."
           : "A base não registra a data da importação para este recorte."}{" "}
-        Os valores financeiros, ao contrário, são lidos ao vivo a cada abertura da tela e a cada “Atualizar
-        dados”. As categorias são as que a base tem — não há “Evadido” entre elas.
+        As categorias são as que a base tem — não há “Evadido” entre elas.
+      </p>
+      <p style={S.rodape}>
+        <strong>Esta composição é lida de fotografia.</strong>{" "}
+        {dados.snapshot?.gerado_em
+          ? "Reconstruída em " + dataCurta(dados.snapshot.gerado_em) + " pela rotina da hora."
+          : "A rotina da hora reconstrói."}{" "}
+        O cálculo ao vivo custa acima do teto de 8s do papel da aplicação em 2026/1, então ele roda fora da
+        requisição da tela — a fonte viva segue sendo a origem da verdade, e “Atualizar dados” refaz a
+        leitura da fotografia disponível, sem disparar reconstrução pesada.
       </p>
       {conf ? (
         <p style={S.rodape}>
           Conferência da composição: {moeda(conf.total_valor)} de saldo em aberto contra{" "}
           {moeda(conf.soma_das_linhas)} somados nos status — diferença de {moeda(conf.diferenca)}.{" "}
-          {num(conf.titulos_total)} títulos no total contra {num(conf.titulos_soma)} somados nas linhas.
+          {num(conf.titulos_total)} títulos no total contra {num(conf.titulos_soma)} somados nas linhas
+          {conf.alunos_total != null
+            ? ", e " + num(conf.alunos_total) + " alunos contra " + num(conf.alunos_soma) + " somados"
+            : ""}.
           Medida a cada chamada; conta e registra, não corrige.
         </p>
       ) : null}

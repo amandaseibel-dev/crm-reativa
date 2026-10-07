@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
-import { S, moeda, num } from "./situacoesDaSafraFormato";
+import { S, moeda, num, dataCurta } from "./situacoesDaSafraFormato";
 
 // PENDENCIAS DE VALIDACAO — o resumo. O tratamento e na Fila Unica.
 //
@@ -22,6 +22,12 @@ import { S, moeda, num } from "./situacoesDaSafraFormato";
 //
 // SUBMOTIVO SEM ACAO SEGURA APARECE MESMO ASSIM, marcado como tal. Esconde-lo
 // faria o total nao fechar; inventar uma acao generica para ele seria pior.
+//
+// LE FOTOGRAFIA, nao a consulta viva (ajuste de 07/10/2026). Em 2026/1 a
+// consulta viva passa por `carteira_2026_1_classificar`, medida em ~21 s em
+// producao, e o teto do papel `authenticated` e 8 s. `carteira_efetividade_ler`
+// devolve o resultado pronto; quem reconstroi e a rotina da hora, fora da
+// requisicao. A fonte viva segue sendo a origem da verdade.
 
 export default function PendenciasDeValidacao({ ano, semestre = null, recarga = 0 }) {
   const navegar = useNavigate();
@@ -34,8 +40,8 @@ export default function PendenciasDeValidacao({ ano, semestre = null, recarga = 
     (async () => {
       setCarregando(true);
       setErro("");
-      const { data, error } = await supabase.rpc("carteira_pendencias_por_motivo",
-        { p_ano: ano, p_semestre: semestre });
+      const { data, error } = await supabase.rpc("carteira_efetividade_ler",
+        { p_bloco: "pendencias_por_motivo", p_ano: ano, p_semestre: semestre });
       if (!ativo) return;
       if (error) { setErro(error.message || "falha ao consultar"); setDados(null); }
       else { setDados(data || null); }
@@ -54,6 +60,21 @@ export default function PendenciasDeValidacao({ ano, semestre = null, recarga = 
     );
   }
   if (!dados) return null;
+  // Fotografia ainda nao tirada e diferente de "nao ha pendencia", e a tela tem
+  // de dizer qual dos dois e -- lista vazia confundiria os dois casos.
+  if (dados.sem_snapshot) {
+    return (
+      <section style={{ marginTop: 22 }}>
+        <div style={S.cabecalho}>
+          <h2 style={S.h2}>Pendências de validação</h2>
+        </div>
+        <p style={{ ...S.rodape, color: "var(--rv-ambar-texto)" }}>
+          <strong>Este bloco ainda não tem fotografia de {dados.recorte}.</strong> A rotina da hora
+          reconstrói; assim que ela rodar, as pendências aparecem.
+        </p>
+      </section>
+    );
+  }
 
   const motivos = dados.motivos || [];
   const total = dados.total || {};
@@ -152,6 +173,12 @@ export default function PendenciasDeValidacao({ ano, semestre = null, recarga = 
         {somaveis
           ? "Nesta safra cada título cai em um motivo só, então as contagens também somam."
           : "Nesta safra o mesmo título pode ter valor em mais de um motivo, então as contagens de aluno e de título não devem ser somadas entre motivos — por isso o total delas aparece como “—”."}
+      </p>
+      <p style={S.rodape}>
+        <strong>Lido de fotografia</strong>{dados.snapshot?.gerado_em
+          ? ", reconstruída em " + dataCurta(dados.snapshot.gerado_em) + " pela rotina da hora"
+          : ""}. O cálculo ao vivo passa do teto de 8s em 2026/1, então roda fora da requisição da tela;
+        “Atualizar dados” refaz a leitura, sem disparar reconstrução pesada.
       </p>
       <p style={S.rodape}>
         <strong>Esta tela é análise, não tratamento.</strong> Nenhum caso é corrigido aqui: cada motivo leva

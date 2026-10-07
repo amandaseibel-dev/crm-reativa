@@ -30,9 +30,18 @@ import { S, moeda, num, dataCurta } from "../components/situacoesDaSafraFormato"
 // o que nao se pode fazer.
 //
 // REFETCH DEPOIS DA RESOLUCAO. Resolvido um caso, a tela refaz a contagem por
-// motivo E a pagina de itens — sem reload da aplicacao. A Efetividade refaz as
-// proprias consultas na proxima abertura ou no "Atualizar dados", porque as
-// consultas financeiras sao ao vivo.
+// motivo E a pagina de itens — sem reload da aplicacao.
+//
+// LE FOTOGRAFIA (ajuste de 07/10/2026). A contagem vem de
+// `carteira_efetividade_ler` e os itens de `carteira_pendencias_itens_ler`, que
+// e uma leitura indexada da tabela de fotografia. A consulta viva de 2026/1
+// passa por `carteira_2026_1_classificar`, medida em ~21 s em producao, e o
+// teto do papel `authenticated` e 8 s — a fila nao podia depender dela.
+//
+// CONSEQUENCIA QUE A TELA DIZ: resolver um caso o resolve na origem na hora (as
+// RPCs da Conferencia Prime sao as mesmas), mas a CONTAGEM e a LISTA desta fila
+// so deixam de mostra-lo na proxima reconstrucao da rotina. O rodape declara a
+// data da fotografia, para ninguem ler a lista como estado ao vivo.
 
 const SAFRAS = [
   { chave: "2024",   ano: "2024", semestre: null, rotulo: "2024" },
@@ -77,6 +86,7 @@ export default function FilaUnicaConfirmacao() {
   // nasceria novo a cada render e faria o `useMemo` do motivo recalcular
   // sempre (a catraca do lint aponta exatamente isso).
   const motivos = useMemo(() => resumo?.motivos || [], [resumo]);
+  const semFotografia = Boolean(resumo?.sem_snapshot);
   // Motivo efetivo: o da URL, se existir nesta safra; senao o de maior valor.
   const motivo = useMemo(() => {
     if (motivoUrl && motivos.some((m) => m.chave === motivoUrl)) return motivoUrl;
@@ -89,8 +99,8 @@ export default function FilaUnicaConfirmacao() {
     let ativo = true;
     (async () => {
       setErroResumo("");
-      const { data, error } = await supabase.rpc("carteira_pendencias_por_motivo",
-        { p_ano: safraUrl.ano, p_semestre: safraUrl.semestre });
+      const { data, error } = await supabase.rpc("carteira_efetividade_ler",
+        { p_bloco: "pendencias_por_motivo", p_ano: safraUrl.ano, p_semestre: safraUrl.semestre });
       if (!ativo) return;
       if (error) { setErroResumo(error.message || "falha ao consultar"); setResumo(null); }
       else setResumo(data || null);
@@ -103,7 +113,7 @@ export default function FilaUnicaConfirmacao() {
     if (!motivo) return;
     setCarregandoItens(true);
     setErroItens("");
-    const { data, error } = await supabase.rpc("carteira_pendencias_itens", {
+    const { data, error } = await supabase.rpc("carteira_pendencias_itens_ler", {
       p_motivo: motivo, p_ano: safraUrl.ano, p_semestre: safraUrl.semestre,
       p_limite: POR_PAGINA, p_offset: pagina * POR_PAGINA,
     });
@@ -189,6 +199,13 @@ export default function FilaUnicaConfirmacao() {
       </div>
 
       {erroResumo ? <p style={S.erro}>Não foi possível contar as pendências: {erroResumo}</p> : null}
+
+      {semFotografia ? (
+        <p style={{ ...S.rodape, color: "var(--rv-ambar-texto)" }}>
+          <strong>Esta safra ainda não tem fotografia das pendências.</strong> A rotina da hora reconstrói;
+          assim que ela rodar, a fila aparece. Isto é diferente de “nenhuma pendência”.
+        </p>
+      ) : null}
 
       {motivoAtual ? (
         <div style={E.cabecalhoMotivo}>
@@ -314,10 +331,12 @@ export default function FilaUnicaConfirmacao() {
         outras pendências que compõem o número da Efetividade. Resolver um caso aqui o resolve lá, e
         vice-versa.
       </p>
-      {resumo?.gerado_em ? (
+      {resumo?.snapshot?.gerado_em ? (
         <p style={S.rodape}>
-          Contagem lida ao vivo em {dataCurta(resumo.gerado_em)}. Depois de cada resolução a fila refaz a
-          contagem e a lista, sem recarregar a aplicação.
+          <strong>Fotografia de {dataCurta(resumo.snapshot.gerado_em)}</strong>, reconstruída pela rotina da
+          hora fora da requisição desta tela — o cálculo ao vivo passa do teto de 8s em 2026/1. Depois de
+          cada resolução a fila refaz a leitura, sem recarregar a aplicação; o caso resolvido sai da origem
+          na hora e sai desta lista na próxima reconstrução.
         </p>
       ) : null}
     </div>

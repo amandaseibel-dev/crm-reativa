@@ -135,6 +135,12 @@ export default function CarteiraEfetividade() {
   const [situacoes, setSituacoes] = useState(null);
   const [erroSituacoes, setErroSituacoes] = useState("");
   const [carregandoSituacoes, setCarregandoSituacoes] = useState(true);
+  // A composicao academica tambem e buscada AQUI, e nao dentro do bloco: o
+  // total dela e o indicador "Saldo em aberto atual" do resumo. Buscar nos dois
+  // lugares daria dois saldos em aberto na mesma tela.
+  const [composicao, setComposicao] = useState(null);
+  const [erroComposicao, setErroComposicao] = useState("");
+  const [carregandoComposicao, setCarregandoComposicao] = useState(true);
 
   useEffect(() => {
     let ativo = true;
@@ -168,24 +174,46 @@ export default function CarteiraEfetividade() {
     // 2026/2 e o histórico por ano, não só as seis linhas.
   }, [recarga]);
 
-  // As seis linhas da safra selecionada. Efeito próprio porque depende da
-  // escolha de período — e porque uma falha aqui não pode derrubar o resto.
-  // 2026/2 não entra: aquela safra tem caminho próprio (`carteira_2026_2_*`).
+  // Os dois blocos da safra selecionada, lidos da CAMADA RAPIDA.
+  //
+  // POR QUE NAO SAO MAIS AS FUNCOES VIVAS (ajuste de 07/10/2026). Medido em
+  // producao: `carteira_safra_situacoes('2026','1')` custa 34,6 s e ESTOURA o
+  // `statement_timeout` de 8 s do papel `authenticated` -- o cartao das seis
+  // linhas de 2026/1 ja falhava antes deste PR. `carteira_efetividade_ler`
+  // devolve a fotografia pronta em uma leitura indexada; quem reconstroi e a
+  // rotina da hora, fora da requisicao. A fonte viva segue sendo a origem da
+  // verdade, e nenhuma regra financeira mudou: o recalculo chama as MESMAS
+  // funcoes.
+  //
+  // Efeito proprio porque depende da escolha de periodo -- e porque a falha de
+  // um bloco nao pode derrubar o outro nem o resto da pagina.
+  // 2026/2 nao entra: aquela safra tem caminho proprio (`carteira_2026_2_*`).
   useEffect(() => {
     let ativo = true;
     (async () => {
       if (ano === "2026" && sem === "2") {
         setSituacoes(null); setErroSituacoes(""); setCarregandoSituacoes(false);
+        setComposicao(null); setErroComposicao(""); setCarregandoComposicao(false);
         return;
       }
       setCarregandoSituacoes(true);
+      setCarregandoComposicao(true);
       setErroSituacoes("");
-      const { data, error } = await supabase.rpc("carteira_safra_situacoes",
-        { p_ano: ano, p_semestre: ano === "2026" ? sem : null });
+      setErroComposicao("");
+      const p_semestre = ano === "2026" ? sem : null;
+      const [seis, comp] = await Promise.all([
+        supabase.rpc("carteira_efetividade_ler",
+          { p_bloco: "seis_linhas", p_ano: ano, p_semestre }),
+        supabase.rpc("carteira_efetividade_ler",
+          { p_bloco: "composicao_academica", p_ano: ano, p_semestre }),
+      ]);
       if (!ativo) return;
-      if (error) { setErroSituacoes(error.message || "falha ao consultar"); setSituacoes(null); }
-      else setSituacoes(data || null);
+      if (seis.error) { setErroSituacoes(seis.error.message || "falha ao consultar"); setSituacoes(null); }
+      else setSituacoes(seis.data || null);
+      if (comp.error) { setErroComposicao(comp.error.message || "falha ao consultar"); setComposicao(null); }
+      else setComposicao(comp.data || null);
       setCarregandoSituacoes(false);
+      setCarregandoComposicao(false);
     })();
     return () => { ativo = false; };
   }, [ano, sem, recarga]);
@@ -232,18 +260,40 @@ export default function CarteiraEfetividade() {
   // RPC já devolveu prontos. É exatamente a mesma participação que as seis
   // linhas desenham na barra de cada situação, pelo mesmo helper. Nenhum valor
   // financeiro é recomposto, somado ou ajustado no navegador.
-  function indicadoresDaSafra(s) {
+  // AS DUAS REGUAS, DECLARADAS (ajuste de 07/10/2026). "Universo recebido" e
+  // "Recuperado" sao a regua das SEIS LINHAS -- o que entrou em cobranca e o
+  // que foi recuperado dele. "Saldo em aberto atual" e a regua HISTORICA
+  // OFICIAL, a mesma de `carteira_saldo_historico_por_ano().aberto`, e vem do
+  // bloco de composicao -- que e exatamente o que o bloco 3 decompoe por status
+  // academico.
+  //
+  // As duas nao se igualam, de proposito: em 2024 a regua das seis linhas da
+  // R$ 4,99 mi de aberto e a oficial da R$ 3,67 mi, porque a oficial exclui o
+  // que nao e mais cobravel por nos (outro portador, liquidado na Prime,
+  // portador 166 sem acordo, confirmacao pendente, caso cancelado, aluno ja
+  // coberto por pagamentos). Sao duas perguntas diferentes, as duas validadas,
+  // e a tela diz qual e qual em vez de forcar um numero so.
+  //
+  // A efetividade segue sendo recuperado / universo recebido -- as duas pontas
+  // da MESMA regua. Dividir o recuperado de uma regua pelo aberto da outra
+  // seria a conta errada.
+  function indicadoresDaSafra(s, comp) {
     const entrou = Number(s.entrou?.valor || 0);
     const pago = Number(s.pago?.valor || 0);
-    const aberto = Number(s.em_aberto?.valor || 0);
+    const temOficial = comp && !comp.sem_snapshot && comp.total;
+    const aberto = temOficial ? Number(comp.total.valor || 0) : null;
     return [
       { rotulo: "Universo recebido", valor: moedaCurta(entrou),
         apoio: num(s.entrou?.alunos) + " alunos · " + num(s.entrou?.titulos) + " títulos",
         cor: "var(--rv-tinta)" },
       { rotulo: "Recuperado", valor: moedaCurta(pago),
         apoio: pctTexto(pago, entrou, 1) + " do universo recebido", cor: VERDE },
-      { rotulo: "Em aberto", valor: moedaCurta(aberto),
-        apoio: pctTexto(aberto, entrou, 1) + " do universo recebido", cor: VERMELHO },
+      { rotulo: "Saldo em aberto atual",
+        valor: temOficial ? moedaCurta(aberto) : "—",
+        apoio: temOficial
+          ? num(comp.total.alunos) + " alunos · " + num(comp.total.titulos) + " títulos"
+          : "sem fotografia ainda",
+        cor: VERMELHO },
       { rotulo: "Efetividade", valor: pctTexto(pago, entrou, 1),
         apoio: "recuperado ÷ universo recebido", cor: AZUL },
     ];
@@ -251,7 +301,7 @@ export default function CarteiraEfetividade() {
 
   if (safra !== "2026/2" && situacoes?.situacoes) {
     referencia = Number(situacoes.situacoes.entrou?.valor || 0);
-    indicadores = indicadoresDaSafra(situacoes.situacoes);
+    indicadores = indicadoresDaSafra(situacoes.situacoes, composicao);
     // `situacao` fica vazio de propósito fora de 2026/2: as barras de
     // "Situação da carteira" diziam o mesmo que as seis linhas. Ver o cabeçalho
     // do arquivo.
@@ -451,6 +501,17 @@ export default function CarteiraEfetividade() {
           </div>
           )}
           {rodape ? <p style={S.rodapeDiscreto}>{rodape}</p> : null}
+          {/* As duas reguas, ditas no lugar onde os dois numeros se encontram. */}
+          {safra !== "2026/2" && indicadores.length > 0 ? (
+            <p style={S.rodapeDiscreto}>
+              <strong>Duas réguas, de propósito.</strong> <em>Universo recebido</em> e{" "}
+              <em>Recuperado</em> são a régua da carteira — o que entrou em cobrança e o que foi
+              recuperado dele —, e é dela que sai a efetividade. <em>Saldo em aberto atual</em> é a régua
+              histórica oficial: a exposição de hoje, já sem o que não é mais cobrável por nós. Por isso os
+              dois não se somam nem se subtraem, e é o saldo em aberto atual que o bloco “Quem compõe o
+              saldo em aberto” decompõe por status acadêmico.
+            </p>
+          ) : null}
 
           {/* BLOCO 2. SITUAÇÃO FINANCEIRA — "as seis linhas da safra" — Entrou, Pago, Negociado,
               Cancelado, Em aberto e Pendente, no mesmo desenho de 2026/2. O
@@ -467,8 +528,8 @@ export default function CarteiraEfetividade() {
               não tem fonte acadêmica equivalente, e a própria RPC recusa o
               recorte em vez de devolver uma lista vazia. */}
           {safra !== "2026/2" ? (
-            <ComposicaoAcademicaDoSaldo ano={ano} semestre={ano === "2026" ? sem : null}
-                                        recarga={recarga} />
+            <ComposicaoAcademicaDoSaldo dados={composicao} erro={erroComposicao}
+                                        carregando={carregandoComposicao} />
           ) : null}
 
           {/* BLOCO 4. PENDÊNCIAS DE VALIDAÇÃO — por que o pendente está

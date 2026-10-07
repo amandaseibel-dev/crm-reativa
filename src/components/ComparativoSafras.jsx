@@ -15,10 +15,14 @@ import { S, moeda } from "./situacoesDaSafraFormato";
 // saldo ja desenha para a safra selecionada. Comparar as tres safras continua
 // valendo; comparar a composicao academica inteira das tres, nao.
 //
-// REAPROVEITA `carteira_safra_situacoes`, a MESMA RPC do resumo da carteira e
-// das seis linhas — tres chamadas, uma por safra. Nenhuma RPC nova foi criada
-// para este bloco, e por vir da mesma fonte a linha da safra selecionada e
-// identica, ao centavo, ao resumo do topo da pagina.
+// LE A MESMA FOTOGRAFIA do resumo da carteira e das seis linhas, pelo bloco
+// `seis_linhas` de `carteira_efetividade_ler` — tres leituras, uma por safra.
+// Nenhuma RPC nova foi criada para este bloco, e por vir da mesma fonte a linha
+// da safra selecionada e identica, ao centavo, ao resumo do topo da pagina.
+//
+// Antes chamava `carteira_safra_situacoes` ao vivo, tres vezes. Medido em
+// producao em 07/10/2026: aquela funcao custa 34,6 s em 2026/1 e estoura o teto
+// de 8 s do papel `authenticated` — tres chamadas vivas eram tres timeouts.
 //
 // 2026/2 FICA FORA. Aquele semestre esta em curso e nao tem inadimplencia por
 // desenho (ha titulo a vencer): nao existe "em aberto" nem efetividade
@@ -50,8 +54,8 @@ export default function ComparativoSafras({ selecionada = null, recarga = 0 }) {
       setCarregando(true);
       setErro("");
       const rs = await Promise.all(
-        SAFRAS.map((s) => supabase.rpc("carteira_safra_situacoes",
-          { p_ano: s.ano, p_semestre: s.semestre })));
+        SAFRAS.map((s) => supabase.rpc("carteira_efetividade_ler",
+          { p_bloco: "seis_linhas", p_ano: s.ano, p_semestre: s.semestre })));
       if (!ativo) return;
       const falhou = rs.find((r) => r.error);
       if (falhou) { setErro(falhou.error.message || "falha ao consultar"); setCarregando(false); return; }
@@ -59,6 +63,7 @@ export default function ComparativoSafras({ selecionada = null, recarga = 0 }) {
         const sit = rs[i].data?.situacoes || {};
         return {
           ...s,
+          semSnapshot: Boolean(rs[i].data?.sem_snapshot),
           entrou: Number(sit.entrou?.valor || 0),
           pago: Number(sit.pago?.valor || 0),
           em_aberto: Number(sit.em_aberto?.valor || 0),
@@ -109,10 +114,12 @@ export default function ComparativoSafras({ selecionada = null, recarga = 0 }) {
                     {l.rotulo}
                     {aqui ? <span style={E.selo}>em análise acima</span> : null}
                   </td>
-                  <td style={E.tdValor}>{moeda(l.entrou)}</td>
-                  <td style={E.tdValor}>{moeda(l.pago)}</td>
-                  <td style={E.tdValor}>{moeda(l.em_aberto)}</td>
-                  <td style={E.tdPct}>{pct(l.pago, l.entrou)}</td>
+                  {/* Sem fotografia a linha mostra travessao, nunca R$ 0,00:
+                      zero diria que a safra nao tem carteira, o que e falso. */}
+                  <td style={E.tdValor}>{l.semSnapshot ? "—" : moeda(l.entrou)}</td>
+                  <td style={E.tdValor}>{l.semSnapshot ? "—" : moeda(l.pago)}</td>
+                  <td style={E.tdValor}>{l.semSnapshot ? "—" : moeda(l.em_aberto)}</td>
+                  <td style={E.tdPct}>{l.semSnapshot ? "—" : pct(l.pago, l.entrou)}</td>
                 </tr>
               );
             })}
@@ -124,6 +131,18 @@ export default function ComparativoSafras({ selecionada = null, recarga = 0 }) {
         <strong>Nenhuma coluna se soma entre safras.</strong> Existem CPFs sobrepostos entre períodos — o
         mesmo aluno pode ter mensalidade em 2024 e em 2025 —, então somar alunos de safras diferentes
         contaria pessoas duas vezes. Cada linha é fechada em si.
+      </p>
+      {linhas.some((l) => l.semSnapshot) ? (
+        <p style={{ ...S.rodape, color: "var(--rv-ambar-texto)" }}>
+          Sem fotografia ainda: {linhas.filter((l) => l.semSnapshot).map((l) => l.rotulo).join(", ")}.
+          A rotina da hora reconstrói.
+        </p>
+      ) : null}
+      <p style={S.rodape}>
+        <strong>“Em aberto” nesta tabela é a régua das seis linhas</strong> — saldo sem acordo ativo sobre o
+        universo recebido —, para as três safras serem comparáveis entre si. Não é o “Saldo em aberto atual”
+        da régua histórica oficial, que o bloco de composição decompõe: aquela mede a exposição de hoje e
+        exclui o que não é mais cobrável por nós. As duas valem; esta tela não as iguala.
       </p>
       <p style={S.rodape}>
         Em 2024 e 2025 o universo é o <strong>saldo residual</strong> que ainda estava aberto quando a

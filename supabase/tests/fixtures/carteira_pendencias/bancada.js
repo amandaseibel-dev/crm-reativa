@@ -25,6 +25,7 @@ export const ROLL = (n) => lerRepo(`supabase/rollbacks/${n}.rollback.sql`);
 
 export const SEIS_LINHAS = "20261005204500_carteira_safra_situacoes";
 export const NOVA = "20261007193000_efetividade_composicao_academica_e_pendencias";
+export const AJUSTES = "20261007230000_efetividade_regua_historica_e_camada_de_leitura";
 
 export const q1 = async (db, sql, p = []) => (await db.query(sql, p)).rows[0];
 export const qn = async (db, sql, p = []) => (await db.query(sql, p)).rows;
@@ -60,26 +61,66 @@ create table public.alunos (
 create table public.casos (
   id uuid primary key default gen_random_uuid(),
   aluno_id uuid, operador_email text,
+  status_atual text, status_acionamento text, status_jornada text,
   encerrado_operacional boolean not null default false
 );
 
+-- Dublês do que nao esta em teste aqui.
+create or replace function public.normalizar_status_acionamento(p text) returns text
+language sql immutable as $$ select upper(btrim(coalesce(p, ''))) $$;
+
+create or replace function public.usuario_e_gestao() returns boolean
+language sql stable as $$
+  select coalesce(current_setting('test.gestao', true), 'on') = 'on'
+$$;
+
+create or replace function auth.role() returns text
+language sql stable as $$ select coalesce(nullif(current_setting('test.role', true), ''), 'authenticated') $$;
+
+-- pg_cron nao existe no PGlite; a migration agenda a rotina horaria. O stub
+-- registra a intencao para o teste poder conferir que a rotina foi criada.
+create schema if not exists cron;
+create table cron.job (jobid serial primary key, jobname text, schedule text, command text);
+create or replace function cron.schedule(p_name text, p_sched text, p_cmd text)
+returns bigint language plpgsql as $$
+declare v bigint;
+begin
+  insert into cron.job (jobname, schedule, command) values (p_name, p_sched, p_cmd)
+    returning jobid into v;
+  return v;
+end $$;
+create or replace function cron.unschedule(p_name text)
+returns boolean language plpgsql as $$
+begin delete from cron.job where jobname = p_name; return true; end $$;
+
 create table public.acordos (
   id uuid primary key default gen_random_uuid(),
-  status text
+  status text, aluno_id uuid
 );
 
 create table public.parcelas (
   id uuid primary key default gen_random_uuid(),
-  acordo_id uuid, valor numeric, status text
+  acordo_id uuid, valor numeric, status text, boleto text
 );
 
 create table public.pagamentos (
   id uuid primary key default gen_random_uuid(),
-  titulo_numero text, valor_pago numeric
+  titulo_numero text, valor_pago numeric, aluno_id uuid, data_pagamento date
 );
 
 create table public.prime_titulo_semestre (
-  boleto text, semestre text
+  boleto text, semestre text, carrier_id integer, liquidado_em date, coletado_em timestamptz
+);
+
+-- A regua historica le o extrato e a lista do portador 166.
+create table public.prime_extrato (
+  boleto text, portador integer, liquidado_em date, coletado_em timestamptz
+);
+create table public.prime_portador_membro (
+  portador integer, cpf text
+);
+create table public.solicitacoes_confirmacao_pagamento (
+  id uuid primary key default gen_random_uuid(), aluno_id text, status text
 );
 
 create table public.acordo_titulo_vinculo (
@@ -89,8 +130,14 @@ create table public.acordo_titulo_vinculo (
 create table public.acordos_titulos (
   id uuid primary key default gen_random_uuid(),
   aluno_id uuid,
+  cpf text,
   valor_original numeric,
+  -- A regua historica le o saldo por esta precedencia, nesta ordem.
+  valor_cobranca_ajustado numeric,
+  saldo_corrigido numeric,
+  valor_em_aberto numeric,
   situacao text,
+  status text,
   tipo_boleto text,
   documento text,
   vencimento date,
@@ -118,6 +165,7 @@ export async function montar() {
   await db.exec(ESQUELETO);
   await db.exec(MIG(SEIS_LINHAS));
   await db.exec(MIG(NOVA));
+  await db.exec(MIG(AJUSTES));
   await db.exec("set timezone = 'UTC'");
   return db;
 }
@@ -158,6 +206,27 @@ export async function titulo(db, { alunoId, ano = "2024", valor = 1000, situacao
   return { id, documento: doc };
 }
 
+// Um titulo que a REGUA HISTORICA OFICIAL conta como aberto: situacao ABERTO,
+// status em_aberto, sem acordo, sem vinculo, sem pagamento casado, sem
+// liquidacao, saldo > 0 e portador 195.
+export async function tituloHistorico(db, { alunoId, ano = "2024", saldo = 1000,
+                                            vencimento = "2024-03-10", portador = 195,
+                                            liquidadoEm = null, situacao = "ABERTO",
+                                            status = "em_aberto" } = {}) {
+  const id = uuid(++seq);
+  const doc = String(6000000 + seq);
+  await db.query(
+    `insert into public.acordos_titulos (id, aluno_id, valor_original, saldo_corrigido, situacao,
+                                         status, tipo_boleto, documento, vencimento)
+     values ($1,$2,$3,$3,$4,$5,'Cursos de Graduação Presencial',$6,$7)`,
+    [id, alunoId, saldo, situacao, status, doc, vencimento]);
+  await db.query(
+    `insert into public.prime_titulo_semestre (boleto, semestre, carrier_id, liquidado_em, coletado_em)
+     values ($1,$2,$3,$4, now())`,
+    [doc, ano + "/1", portador, liquidadoEm]);
+  return { id, documento: doc };
+}
+
 export async function classificado(db, { alunoId, valor = 1000, pago = 0, negociado = 0,
                                          inadimplencia = 0, validacao = 0, academico = 0,
                                          convertido = 0, faixa = "INADIMPLENCIA",
@@ -187,3 +256,10 @@ export const itens = (db, motivo, ano, sem = null, limite = 100, offset = 0) =>
      [motivo, ano, sem, limite, offset]);
 export const seisLinhas = (db, ano, sem = null) =>
   q1(db, "select public.carteira_safra_situacoes($1,$2) r", [ano, sem]).then((x) => x.r);
+export const recalcular = (db, recorte = null) =>
+  q1(db, "select public.carteira_efetividade_recalcular($1) r", [recorte]).then((x) => x.r);
+export const ler = (db, bloco, ano, sem = null) =>
+  q1(db, "select public.carteira_efetividade_ler($1,$2,$3) r", [bloco, ano, sem]).then((x) => x.r);
+export const itensLer = (db, motivo, ano, sem = null, limite = 50, offset = 0) =>
+  qn(db, "select * from public.carteira_pendencias_itens_ler($1,$2,$3,$4,$5)",
+     [motivo, ano, sem, limite, offset]);
