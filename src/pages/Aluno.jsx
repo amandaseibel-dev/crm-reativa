@@ -60,6 +60,16 @@ const STATUS_FINALIZACAO = [
   "TERMO_REJEITADO",
   "ACORDO_FECHADO",
   "LEMBRETE_PARCELA",
+  // As quatro tabulacoes de ALEGACAO estao em `public.tabulacoes` desde
+  // 10/09/2026 e NUNCA apareceram aqui: este array e a fonte real do <select>,
+  // e o catalogo do banco nao o governa. Por isso o dicionario media "0 usos" --
+  // ninguem usou porque ninguem CONSEGUIA usar.
+  "ALEGA_FIES",
+  "ALEGA_CREDIES",
+  "ALEGA_FINANCIAMENTO",
+  // Esta e a unica das quatro com desfecho financeiro (encerra o saldo e quita
+  // a parcela nossa), por isso entra tambem em STATUS_BLOQUEADOS_ACIONAMENTO.
+  "ANTECIPACAO_SEMESTRE",
   "CANCELAMENTO_COBRANCA",
   "SUSPENSAO_COBRANCA",
   "JURIDICO",
@@ -93,6 +103,12 @@ const STATUS_BLOQUEADOS_ACIONAMENTO = [
   "SUSPENSAO_COBRANCA",
   "JURIDICO",
   STATUS_QUITADO_MANUAL,
+  // Antecipacao de semestre quita parcela: e decisao de gestao, como as tres
+  // acima. Entrar aqui da de uma vez tres coisas que ela precisa e que este
+  // array ja implementa -- some do <select> do operador, exige a observacao
+  // em destaque (que e o MOTIVO que a RPC cobra) e protege a ficha de quem
+  // nao e gestao depois de aplicada.
+  "ANTECIPACAO_SEMESTRE",
 ];
 const STATUS_BLOQUEADOS_LABEL = {
   ELOGIO_ATENDIMENTO: "Elogio de atendimento",
@@ -100,6 +116,7 @@ const STATUS_BLOQUEADOS_LABEL = {
   SUSPENSAO_COBRANCA: "Suspensão de cobrança",
   JURIDICO: "Jurídico",
   QUITADO_MANUAL: "Quitado",
+  ANTECIPACAO_SEMESTRE: "Antecipação de semestre",
 };
 // Mapa TABULACAO -> BLOCO expansivel que deve abrir automaticamente ao
 // selecionar a tabulacao. Usa os CODIGOS estaveis de STATUS_FINALIZACAO
