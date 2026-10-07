@@ -19,7 +19,7 @@ import { S } from "../../ui/estilosFila";
 import { moeda, dataCurta, dataHora } from "../../utils/preventivoFormato";
 import { AvisoAtualizacao } from "./AbaCarteira";
 import { GraficoPorAcao, GraficoPorContextoCanal } from "./GraficosEfetividade";
-import EvolucaoDaCarteira from "./EvolucaoDaCarteira";
+import PainelPreventivo from "./PainelPreventivo";
 import { csv } from "../../utils/preventivo";
 
 const ROTULO_ALTERACAO = {
@@ -59,7 +59,7 @@ export default function AbaResultados({ carteira }) {
   const [situacao, setSituacao] = useState(null);
   const [porContexto, setPorContexto] = useState(null);
   const [porAcao, setPorAcao] = useState(null);
-  const [evolucao, setEvolucao] = useState(null);
+  const [painel, setPainel] = useState(null);
   const [periodo, setPeriodo] = useState({ de: "", ate: "" });
   const [erro, setErro] = useState("");
 
@@ -80,11 +80,11 @@ export default function AbaResultados({ carteira }) {
     }),
     // A evolução é a carteira inteira, por data de extração — não entra no
     // filtro de período das ações, porque ela é a linha do tempo da base.
-    supabase.rpc("preventivo_evolucao", { p_carteira_id: carteira.id }),
+    supabase.rpc("preventivo_painel", { p_carteira_id: carteira.id }),
   ]), [carteira.id, periodo.de, periodo.ate]);
 
   const aplicar = useCallback(([r, s, c, a, ev]) => {
-    if (ev && !ev.error) setEvolucao(ev.data);
+    if (ev && !ev.error) setPainel(ev.data);
     if (r.error) { setErro(r.error.message); return; }
     setErro(""); setRes(r.data);
     if (!s.error) setSituacao(s.data);
@@ -130,16 +130,20 @@ export default function AbaResultados({ carteira }) {
     <div>
       <AvisoAtualizacao situacao={situacao} />
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 12 }}>
-        <Cartao rotulo="Alunos na carteira" valor={t.alunos} />
-        <Cartao rotulo="Títulos" valor={t.titulos} />
-        <Cartao rotulo="Saldo informado pelo arquivo" valor={moeda(t.saldo_informado)} />
-        <Cartao rotulo="Na janela preventiva" valor={t.na_janela} />
-        <Cartao rotulo="Fora da janela (histórico)" valor={t.fora_da_janela} />
-        <Cartao rotulo="Nunca consultados no Prime" valor={t.sem_sinc} />
-      </div>
+      <PainelPreventivo dados={painel} />
 
-      <EvolucaoDaCarteira dados={evolucao} />
+      {/* TUDO ABAIXO CONTINUA EXISTINDO E CONTINUA CERTO — só sai da frente.
+          São indicadores da FONTE (Prime), não da carteira, e respondem
+          perguntas de operação, não de gestão. Ficam a um clique, recolhidos,
+          porque remover de vez tiraria o acesso a uma conferência que já
+          pegou erro no passado. Os três blocos que a gestão pediu para sumir
+          — janela preventiva, fora da janela e nunca consultado no Prime —
+          esses saíram de vez. */}
+      <details style={{ marginTop: 22 }}>
+        <summary style={{ ...S.muted, cursor: "pointer", fontSize: 12.5, fontWeight: 700 }}>
+          Detalhamento técnico da fonte (Prime)
+        </summary>
+        <div style={{ marginTop: 14 }}>
 
       <PorAcao linhas={porAcao} periodo={periodo} setPeriodo={setPeriodo}
                definicao={porContexto?.definicao} />
@@ -279,6 +283,9 @@ export default function AbaResultados({ carteira }) {
           Exportar quem não teve alteração
         </button>
       </div>
+
+        </div>
+      </details>
     </div>
   );
 }
