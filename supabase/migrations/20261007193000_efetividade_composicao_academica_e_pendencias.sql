@@ -39,9 +39,13 @@
 -- igual a `carteira_safra_situacoes`, e pelo mesmo motivo.
 --
 -- ================================= RECORTES ================================
---   2026/1   universo em aberto = inadimplencia + em_validacao, pela regra
---            especifica da safra (a validacao ainda e exposicao em aberto);
---            fonte `carteira_2026_1_classificar()` AO VIVO.
+--   2026/1   universo em aberto = inadimplencia, IDENTICO ao bucket em_aberto de
+--            `carteira_safra_situacoes`. `em_validacao` NAO entra: a tela trata
+--            Pendente a parte, e incluir a validacao aqui fazia a composicao
+--            divergir da linha "Em aberto" da mesma safra em R$ 805.704,28
+--            (decisao da gestao em 07/10/2026). A validacao continua inteira em
+--            Pendente, por `carteira_pendencias_por_motivo`.
+--            Fonte `carteira_2026_1_classificar()`.
 --   2024/25  universo em aberto = o balde "em aberto" das seis linhas (saldo sem
 --            acordo ativo, fora cancelado/em confirmacao/pago sem lastro);
 --            fonte `acordos_titulos` + serie da Prime, ao vivo.
@@ -189,12 +193,15 @@ begin
   -- ------------------------------------------------------------------ 2026/1
   if v_ano = '2026' and v_sem = '1' then
     with c as (select * from public.carteira_2026_1_classificar()),
-    -- O universo EM ABERTO de 2026/1 inclui a validacao: ela e exposicao ainda
-    -- nao recebida, pela regra especifica desta safra.
+    -- MESMA definicao, coluna por coluna, do balde `em_aberto` de
+    -- `carteira_safra_situacoes` para 2026/1: `inadimplencia` onde ela e
+    -- positiva. Nada de `em_validacao` -- ela e Pendente, nao aberto. E o que
+    -- faz a soma desta composicao ser igual, ao centavo, a linha "Em aberto"
+    -- que a tela mostra logo acima.
     abertos as (
-      select c.aluno_id, c.titulo_id, (c.inadimplencia + c.em_validacao) as valor
+      select c.aluno_id, c.titulo_id, c.inadimplencia as valor
         from c
-       where c.inadimplencia + c.em_validacao > 0
+       where c.inadimplencia > 0
     ),
     -- UMA linha por titulo, e o status e o do aluno DAQUELE titulo. Sem
     -- situacao importada e categoria, nao descarte -- e por isso que a soma
@@ -227,7 +234,7 @@ begin
       'recorte',  '2026/1',
       'natureza', 'CARTEIRA_CONSOLIDADA',
       'fonte',    'carteira_2026_1_classificar() ao vivo',
-      'universo_em_aberto', 'inadimplencia + em_validacao',
+      'universo_em_aberto', 'inadimplencia (identico ao bucket em_aberto de carteira_safra_situacoes)',
       'gerado_em', now(),
       'total', (select jsonb_build_object('alunos', alunos, 'titulos', titulos,
                                           'valor', coalesce(valor, 0)) from tot),
@@ -375,7 +382,8 @@ $function$;
 comment on function public.carteira_em_aberto_por_status_academico(text, text) is
   'Composicao FINANCEIRA do saldo em aberto por situacao academica real, por safra '
   '(2024, 2025, 2026/1). Mesmo universo e mesmas formulas de carteira_safra_situacoes; '
-  'em 2026/1 o aberto inclui em_validacao, pela regra da safra. Cada titulo entra em '
+  'em 2026/1 o aberto e a inadimplencia, sem em_validacao -- que fica em Pendente, para '
+  'a soma desta composicao fechar com a linha "Em aberto" da mesma safra. Cada titulo entra em '
   'UMA linha (o status do seu aluno) e aluno sem situacao cai em "(sem situacao '
   'importada)", nunca descartado -- por isso a soma das linhas e identica ao total, e '
   '`conferencia` mede isso a cada chamada sem corrigir nada. Categorias sao os rotulos '

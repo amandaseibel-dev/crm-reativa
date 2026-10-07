@@ -50,8 +50,8 @@ export default function ComparativoSafras({ selecionada = null, recarga = 0 }) {
       setCarregando(true);
       setErro("");
       const rs = await Promise.all(
-        SAFRAS.map((s) => supabase.rpc("carteira_safra_situacoes",
-          { p_ano: s.ano, p_semestre: s.semestre })));
+        SAFRAS.map((s) => supabase.rpc("carteira_efetividade_ler",
+          { p_bloco: "situacoes", p_ano: s.ano, p_semestre: s.semestre })));
       if (!ativo) return;
       const falhou = rs.find((r) => r.error);
       if (falhou) { setErro(falhou.error.message || "falha ao consultar"); setCarregando(false); return; }

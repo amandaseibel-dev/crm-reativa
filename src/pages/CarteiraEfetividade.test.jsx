@@ -114,24 +114,37 @@ const CONTEXTO = {
   remessas: 7, primeira_remessa: "2026-07-02", ultima_remessa: "2026-08-14",
 };
 
+// A tela lê os tres blocos financeiros por UMA funcao -- a camada de
+// desempenho -- e escolhe pelo `p_bloco`. As chaves logicas abaixo seguem sendo
+// as mesmas; muda so o caminho. O payload que a camada devolve e o retorno
+// VERBATIM da funcao oficial, por isso as fixtures nao mudaram de forma.
+const BLOCO = { situacoes: SITUACOES, academico: COMPOSICAO, pendencias: PENDENCIAS };
+
 const PADRAO = {
   carteira_2026_1_indicadores: CONSOLIDADA,
   carteira_saldo_historico_por_ano: POR_ANO,
-  carteira_safra_situacoes: SITUACOES,
-  carteira_em_aberto_por_status_academico: COMPOSICAO,
-  carteira_pendencias_por_motivo: PENDENCIAS,
   casos_pendentes_contar: CASOS_PENDENTES,
   carteira_2026_2_negociacoes: NEGOCIACOES,
   carteira_2026_2_contexto: CONTEXTO,
+  carteira_efetividade_snapshot_recalcular: { gerado_em: "2026-10-07T21:00:00Z", recortes: [] },
 };
 
 function responder(mapa = {}) {
   const tabela = { ...PADRAO, ...mapa };
-  rpcMock.mockImplementation((nome) =>
-    Promise.resolve(nome in tabela
-      ? (tabela[nome]?.__erro ? { data: null, error: tabela[nome].__erro } : { data: tabela[nome] })
-      : { data: null }));
+  const blocos = { ...BLOCO, ...(mapa.__blocos || {}) };
+  rpcMock.mockImplementation((nome, args) => {
+    const alvo = nome === "carteira_efetividade_ler" ? blocos[args?.p_bloco] : tabela[nome];
+    if (alvo === undefined) return Promise.resolve({ data: null });
+    if (alvo?.__erro) return Promise.resolve({ data: null, error: alvo.__erro });
+    return Promise.resolve({ data: alvo });
+  });
 }
+
+// Conta leituras de um bloco da camada, que e o que antes era "chamadas da RPC
+// oficial" -- a tela nao chama mais as oficiais direto.
+const lidos = (bloco) =>
+  rpcMock.mock.calls.filter((c) => c[0] === "carteira_efetividade_ler"
+                               && c[1]?.p_bloco === bloco).length;
 
 const txt = (el) => el.textContent.replace(/\u00a0/g, " ");
 
@@ -149,7 +162,6 @@ async function irPara(ano) {
 async function ir2026_2() {
   await act(async () => { fireEvent.click(screen.getByRole("button", { name: "2º semestre" })); });
 }
-const chamadas = (nome) => rpcMock.mock.calls.filter((c) => c[0] === nome).length;
 
 // ---------------------------------------------------------------------------
 describe("Efetividade — bloco 1: resumo da carteira, igual em toda safra", () => {
@@ -168,10 +180,10 @@ describe("Efetividade — bloco 1: resumo da carteira, igual em toda safra", () 
 
   it("os quatro vêm de carteira_safra_situacoes — a mesma fonte das seis linhas", async () => {
     await abrir();
-    expect(rpcMock).toHaveBeenCalledWith("carteira_safra_situacoes",
-      { p_ano: "2026", p_semestre: "1" });
+    expect(rpcMock).toHaveBeenCalledWith("carteira_efetividade_ler",
+      { p_bloco: "situacoes", p_ano: "2026", p_semestre: "1" });
     // uma chamada só: o resumo e o cartão compartilham o payload
-    expect(chamadas("carteira_safra_situacoes")).toBe(1);
+    expect(lidos("situacoes")).toBe(1);
   });
 
   it("mostra universo, recuperado e em aberto com alunos e títulos como apoio", async () => {
@@ -236,10 +248,10 @@ describe("Efetividade — blocos 3 e 4, e o que só existe em certas safras", ()
     await abrir();
     expect(screen.getByText("Quem compõe o saldo em aberto")).toBeTruthy();
     expect(screen.getByText("Pendências de validação")).toBeTruthy();
-    expect(rpcMock).toHaveBeenCalledWith("carteira_em_aberto_por_status_academico",
-      { p_ano: "2026", p_semestre: "1" });
-    expect(rpcMock).toHaveBeenCalledWith("carteira_pendencias_por_motivo",
-      { p_ano: "2026", p_semestre: "1" });
+    expect(rpcMock).toHaveBeenCalledWith("carteira_efetividade_ler",
+      { p_bloco: "academico", p_ano: "2026", p_semestre: "1" });
+    expect(rpcMock).toHaveBeenCalledWith("carteira_efetividade_ler",
+      { p_bloco: "pendencias", p_ano: "2026", p_semestre: "1" });
   });
 
   it("2026/2 não recebe composição acadêmica nem pendências por safra", async () => {
@@ -291,7 +303,7 @@ describe("Efetividade — comparativo entre safras, compacto e sob demanda", () 
   it("fechado, não dispara as três consultas", async () => {
     await abrir();
     expect(screen.getByRole("button", { name: /Comparar as safras/ })).toBeTruthy();
-    expect(chamadas("carteira_safra_situacoes")).toBe(1);
+    expect(lidos("situacoes")).toBe(1);
   });
 
   it("aberto, compara com as cinco colunas executivas e nada mais", async () => {
@@ -302,27 +314,27 @@ describe("Efetividade — comparativo entre safras, compacto e sob demanda", () 
     expect(screen.getByText("Comparativo entre safras")).toBeTruthy();
     expect(screen.getByText("Safra")).toBeTruthy();
     // 1 da página + 3 do comparativo
-    expect(chamadas("carteira_safra_situacoes")).toBe(4);
+    expect(lidos("situacoes")).toBe(4);
   });
 });
 
 describe("Efetividade — política de atualização", () => {
   it("“Atualizar dados” refaz as consultas ao vivo, sem recarregar a aplicação", async () => {
     await abrir();
-    const antes = chamadas("carteira_safra_situacoes");
+    const antes = lidos("situacoes");
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Atualizar dados/ })); });
-    expect(chamadas("carteira_safra_situacoes")).toBeGreaterThan(antes);
-    expect(chamadas("carteira_em_aberto_por_status_academico")).toBeGreaterThan(1);
-    expect(chamadas("carteira_pendencias_por_motivo")).toBeGreaterThan(1);
+    expect(lidos("situacoes")).toBeGreaterThan(antes);
+    expect(lidos("academico")).toBeGreaterThan(1);
+    expect(lidos("pendencias")).toBeGreaterThan(1);
   });
 
   it("trocar de safra refaz as consultas daquele recorte", async () => {
     await abrir();
     await irPara("2024");
-    expect(rpcMock).toHaveBeenCalledWith("carteira_safra_situacoes",
-      { p_ano: "2024", p_semestre: null });
-    expect(rpcMock).toHaveBeenCalledWith("carteira_em_aberto_por_status_academico",
-      { p_ano: "2024", p_semestre: null });
+    expect(rpcMock).toHaveBeenCalledWith("carteira_efetividade_ler",
+      { p_bloco: "academico", p_ano: "2024", p_semestre: null });
+    expect(rpcMock).toHaveBeenCalledWith("carteira_efetividade_ler",
+      { p_bloco: "pendencias", p_ano: "2024", p_semestre: null });
   });
 
   it("não há polling: sem interação, nada é consultado de novo", async () => {
@@ -356,7 +368,7 @@ describe("Efetividade — 2024 e 2025 por ano", () => {
   });
 
   it("falha na safra não derruba a página: o aviso sobe e o resto fica", async () => {
-    responder({ carteira_safra_situacoes: { __erro: { message: "statement timeout" } } });
+    responder({ __blocos: { situacoes: { __erro: { message: "statement timeout" } } } });
     await abrir();
     expect(screen.getByText(/Não foi possível carregar as seis linhas: statement timeout/)).toBeTruthy();
     expect(screen.getByText("Casos ainda pendentes")).toBeTruthy();

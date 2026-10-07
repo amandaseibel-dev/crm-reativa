@@ -9,6 +9,11 @@ import PendenciasDeValidacao from "../components/PendenciasDeValidacao";
 import ComparativoSafras from "../components/ComparativoSafras";
 import CasosPendentes from "../components/CasosPendentes";
 
+// Dia E hora: a fotografia financeira é refeita de 20 em 20 minutos, então
+// mostrar só a data faria duas leituras diferentes parecerem a mesma.
+const momento = (v) =>
+  v ? new Date(v).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : null;
+
 // EFETIVIDADE DA COBRANÇA — visão executiva, um layout só para toda safra.
 //
 // ---------------------------------------------------------------------------
@@ -127,6 +132,20 @@ export default function CarteiraEfetividade() {
   // TODA consulta ao vivo desta tela refazer — a da página e a de cada bloco
   // filho, que o recebem por prop. É o que o botão "Atualizar dados" faz.
   const [recarga, setRecarga] = useState(0);
+  const [atualizando, setAtualizando] = useState(false);
+
+  // "Atualizar dados" REFAZ a fotografia do recorte na tela e só depois relê.
+  // `carteira_efetividade_snapshot_recalcular` declara o próprio
+  // `statement_timeout`, então ela não é cortada pelo teto de 8 s do papel —
+  // é por isso que a gestão consegue disparar isso do navegador. Quem não é
+  // gestão não recalcula: a leitura segue valendo, com a data à vista.
+  async function atualizar() {
+    setAtualizando(true);
+    const recorte = ano === "2026" ? ano + "/" + sem : ano;
+    await supabase.rpc("carteira_efetividade_snapshot_recalcular", { p_recorte: recorte });
+    setAtualizando(false);
+    setRecarga((n) => n + 1);
+  }
   const [comparativo, setComparativo] = useState(false);
   // As seis linhas da safra selecionada, buscadas AQUI e não dentro do cartão:
   // o mesmo payload alimenta o resumo executivo do topo e o cartão das seis
@@ -180,8 +199,14 @@ export default function CarteiraEfetividade() {
       }
       setCarregandoSituacoes(true);
       setErroSituacoes("");
-      const { data, error } = await supabase.rpc("carteira_safra_situacoes",
-        { p_ano: ano, p_semestre: ano === "2026" ? sem : null });
+      // LÊ A CAMADA DE DESEMPENHO, não a RPC ao vivo. Medido em 07/10/2026
+      // como `authenticated`: `carteira_2026_1_classificar()` sozinha leva
+      // 8.125 ms e o teto do papel é 8 s — a chamada ao vivo não cabe. O
+      // payload é o retorno VERBATIM de `carteira_safra_situacoes`, então os
+      // números são os mesmos; o que muda é quando foram calculados, e isso o
+      // rodapé mostra.
+      const { data, error } = await supabase.rpc("carteira_efetividade_ler",
+        { p_bloco: "situacoes", p_ano: ano, p_semestre: ano === "2026" ? sem : null });
       if (!ativo) return;
       if (error) { setErroSituacoes(error.message || "falha ao consultar"); setSituacoes(null); }
       else setSituacoes(data || null);
@@ -248,6 +273,10 @@ export default function CarteiraEfetividade() {
         apoio: "recuperado ÷ universo recebido", cor: AZUL },
     ];
   }
+
+  // Sem fotografia a tela precisa DIZER. Bloco vazio é indistinguível de
+  // "não há carteira", e foi assim que um bloco sumiu em 06/10/2026.
+  const semFotografia = Boolean(situacoes?.sem_snapshot);
 
   if (safra !== "2026/2" && situacoes?.situacoes) {
     referencia = Number(situacoes.situacoes.entrou?.valor || 0);
@@ -351,14 +380,25 @@ export default function CarteiraEfetividade() {
           Em construção
         </button>
         {/* ATUALIZAR DADOS. Não há polling nem realtime nesta tela de
-            propósito: o financeiro é lido ao vivo nos pontos definidos — abrir,
-            trocar de safra, trocar de visão e este botão. Ele só incrementa
-            `recarga`, que é dependência de todas as consultas. */}
-        <button onClick={() => setRecarga((v) => v + 1)}
-                title="Refaz as consultas financeiras desta tela, ao vivo. O status acadêmico é fotografia da importação e não muda aqui."
-                style={{ ...S.selo, marginLeft: "auto" }}>
-          ↻ Atualizar dados
+            propósito: abrir, trocar de safra, trocar de visão e este botão.
+            O botão REFAZ a fotografia do recorte e só depois relê — é o único
+            ponto da tela que recalcula o universo. */}
+        <button onClick={atualizar} disabled={atualizando}
+                title="Recalcula a fotografia financeira desta safra e relê. Leva alguns segundos: o universo é recomputado do zero. O status acadêmico é da importação e não muda aqui."
+                style={{ ...S.selo, marginLeft: "auto",
+                         ...(atualizando ? { opacity: 0.6, cursor: "progress" } : null) }}>
+          {atualizando ? "↻ Recalculando…" : "↻ Atualizar dados"}
         </button>
+        {/* A leitura desta tela NÃO é ao vivo — é fotografia. Então ela diz de
+            quando é, sempre, sem o leitor precisar perguntar. */}
+        {momento(situacoes?.snapshot?.gerado_em) ? (
+          <span style={{ ...S.apoio, width: "100%", textAlign: "right" }}>
+            Números financeiros calculados em {momento(situacoes.snapshot.gerado_em)}
+            {situacoes.snapshot.duracao_ms
+              ? ` · ${(situacoes.snapshot.duracao_ms / 1000).toLocaleString("pt-BR",
+                  { maximumFractionDigits: 1 })} s de cálculo` : ""}
+          </span>
+        ) : null}
       </header>
       {obraAberta ? (
         <p style={S.seloTexto}>
@@ -431,6 +471,16 @@ export default function CarteiraEfetividade() {
         </div>
       ) : (
         <>
+          {/* Sem fotografia a tela DIZ, em vez de desenhar blocos vazios que
+              passariam por "não há carteira". A rotina de 20 minutos gera; a
+              gestão também pode forçar pelo botão acima. */}
+          {semFotografia ? (
+            <p style={{ ...S.discreto, marginTop: 24 }}>
+              Ainda não há fotografia financeira de {periodo}. A rotina gera de 20 em 20 minutos —
+              ou use <strong>Atualizar dados</strong> acima para calcular agora.
+            </p>
+          ) : null}
+
           {/* BLOCO 1. RESUMO DA CARTEIRA — mesmo tamanho e mesma posição em
               toda safra. Some quando a consulta da safra falha; os blocos
               abaixo seguem montando, cada um com o próprio aviso de erro. Antes

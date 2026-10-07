@@ -89,8 +89,12 @@ export default function FilaUnicaConfirmacao() {
     let ativo = true;
     (async () => {
       setErroResumo("");
-      const { data, error } = await supabase.rpc("carteira_pendencias_por_motivo",
-        { p_ano: safraUrl.ano, p_semestre: safraUrl.semestre });
+      // O RESUMO vem da camada de desempenho (retorno verbatim de
+      // `carteira_pendencias_por_motivo`). A LISTA individual, abaixo, continua
+      // ao vivo: é o registro que esta fila trata, e trabalhar sobre fotografia
+      // seria abrir caso que talvez já esteja resolvido.
+      const { data, error } = await supabase.rpc("carteira_efetividade_ler",
+        { p_bloco: "pendencias", p_ano: safraUrl.ano, p_semestre: safraUrl.semestre });
       if (!ativo) return;
       if (error) { setErroResumo(error.message || "falha ao consultar"); setResumo(null); }
       else setResumo(data || null);

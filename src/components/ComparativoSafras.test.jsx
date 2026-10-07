@@ -48,10 +48,10 @@ beforeEach(() => { rpcMock.mockReset(); responder(); });
 afterEach(() => cleanup());
 
 describe("Comparativo entre safras", () => {
-  it("reaproveita carteira_safra_situacoes — não cria RPC nova para comparar", async () => {
+  it("reaproveita a camada da Efetividade — não cria RPC nova para comparar", async () => {
     await montar();
     const nomes = [...new Set(rpcMock.mock.calls.map((c) => c[0]))];
-    expect(nomes).toEqual(["carteira_safra_situacoes"]);
+    expect(nomes).toEqual(["carteira_efetividade_ler"]);
     expect(rpcMock).toHaveBeenCalledTimes(3);
   });
 

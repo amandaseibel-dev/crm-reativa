@@ -70,8 +70,8 @@ afterEach(() => cleanup());
 describe("Pendências de validação", () => {
   it("pede a RPC de motivos com o recorte", async () => {
     await montar({ ano: "2026", semestre: "1" });
-    expect(rpcMock).toHaveBeenCalledWith("carteira_pendencias_por_motivo",
-      { p_ano: "2026", p_semestre: "1" });
+    expect(rpcMock).toHaveBeenCalledWith("carteira_efetividade_ler",
+      { p_bloco: "pendencias", p_ano: "2026", p_semestre: "1" });
   });
 
   it("abre o total por motivo real, com alunos, títulos, valor e percentual", async () => {

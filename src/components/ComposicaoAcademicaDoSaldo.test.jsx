@@ -71,8 +71,10 @@ afterEach(() => cleanup());
 describe("Composição do saldo em aberto por status acadêmico", () => {
   it("pede a RPC nova com o recorte, e nenhuma das antigas do bloco quantitativo", async () => {
     await montar({ ano: "2026", semestre: "1" });
-    expect(rpcMock).toHaveBeenCalledWith("carteira_em_aberto_por_status_academico",
-      { p_ano: "2026", p_semestre: "1" });
+    // Lê a CAMADA DE DESEMPENHO, nunca a oficial direto: ao vivo a chamada
+    // reexecuta `carteira_2026_1_classificar` e não cabe no teto de 8 s.
+    expect(rpcMock).toHaveBeenCalledWith("carteira_efetividade_ler",
+      { p_bloco: "academico", p_ano: "2026", p_semestre: "1" });
     const nomes = rpcMock.mock.calls.map((c) => c[0]);
     // a função cara que estourava os 8s não pode ser alcançada pela tela
     expect(nomes).not.toContain("carteira_academico_universo");

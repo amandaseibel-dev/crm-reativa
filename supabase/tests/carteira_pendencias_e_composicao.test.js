@@ -134,14 +134,37 @@ describe("a composição por status acadêmico fecha", () => {
     expect(String(c.fonte_academica.importacao_atualizada_em)).toContain("2026-08-04");
   });
 
-  it("em 2026/1 o universo em aberto inclui a validação, pela regra da safra", async () => {
+  it("em 2026/1 o aberto é a inadimplência; em_validacao NÃO entra", async () => {
+    // Decisão da gestão em 07/10/2026. A tela trata "Pendente" à parte, e
+    // incluir a validação aqui fazia a composição divergir da linha "Em aberto"
+    // da MESMA safra — em produção, R$ 805.704,28. Validação é pendência.
     const a = await aluno(db, { situacao: "Aguardando Matrícula" });
     await classificado(db, { alunoId: a, valor: 1000, inadimplencia: 600, validacao: 400 });
 
     const c = await composicao(db, "2026", "1");
-    expect(c.universo_em_aberto).toBe("inadimplencia + em_validacao");
-    expect(cent(c.total.valor)).toBe(1000);
+    expect(c.universo_em_aberto).toMatch(/^inadimplencia\b/);
+    expect(c.universo_em_aberto).not.toMatch(/em_validacao/);
+    expect(cent(c.total.valor)).toBe(600);
     expect(c.conferencia.fecha).toBe(true);
+  });
+
+  it("em 2026/1 a composição fecha, ao centavo, com o balde em_aberto das seis linhas", async () => {
+    // É esta igualdade que a tela precisa ter: a composição decompõe a linha de
+    // cima. Dois títulos, um deles só com validação — que fica fora dos dois
+    // lados, não só de um.
+    const a = await aluno(db, { situacao: "Formado" });
+    const b2 = await aluno(db, { situacao: "Trancado" });
+    await classificado(db, { alunoId: a,  valor: 1000, inadimplencia: 700, validacao: 300 });
+    await classificado(db, { alunoId: b2, valor: 500,  inadimplencia: 0,   validacao: 500 });
+
+    const c = await composicao(db, "2026", "1");
+    const seis = (await db.query("select public.carteira_safra_situacoes('2026','1') j")).rows[0].j;
+
+    expect(cent(c.total.valor)).toBe(cent(seis.situacoes.em_aberto.valor));
+    expect(c.total.alunos).toBe(seis.situacoes.em_aberto.alunos);
+    expect(c.total.titulos).toBe(seis.situacoes.em_aberto.titulos);
+    // a validação inteira continua existindo, em Pendente
+    expect(cent(seis.pendente_detalhe.em_validacao)).toBe(800);
   });
 
   it("2026/2 é recusado com razão, em vez de devolver vazio", async () => {

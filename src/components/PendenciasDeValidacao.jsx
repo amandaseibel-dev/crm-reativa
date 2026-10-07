@@ -34,8 +34,8 @@ export default function PendenciasDeValidacao({ ano, semestre = null, recarga = 
     (async () => {
       setCarregando(true);
       setErro("");
-      const { data, error } = await supabase.rpc("carteira_pendencias_por_motivo",
-        { p_ano: ano, p_semestre: semestre });
+      const { data, error } = await supabase.rpc("carteira_efetividade_ler",
+        { p_bloco: "pendencias", p_ano: ano, p_semestre: semestre });
       if (!ativo) return;
       if (error) { setErro(error.message || "falha ao consultar"); setDados(null); }
       else { setDados(data || null); }

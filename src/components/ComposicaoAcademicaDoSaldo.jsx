@@ -55,8 +55,12 @@ export default function ComposicaoAcademicaDoSaldo({ ano, semestre = null, recar
     (async () => {
       setCarregando(true);
       setErro("");
-      const { data, error } = await supabase.rpc("carteira_em_aberto_por_status_academico",
-        { p_ano: ano, p_semestre: semestre });
+      // Camada de desempenho: o payload é o retorno VERBATIM de
+      // `carteira_em_aberto_por_status_academico`. Ao vivo esta chamada roda
+      // `carteira_2026_1_classificar()` de novo (8.125 ms medidos em
+      // 07/10/2026) e não cabe no teto de 8 s do papel `authenticated`.
+      const { data, error } = await supabase.rpc("carteira_efetividade_ler",
+        { p_bloco: "academico", p_ano: ano, p_semestre: semestre });
       if (!ativo) return;
       if (error) { setErro(error.message || "falha ao consultar"); setDados(null); }
       else { setDados(data || null); }

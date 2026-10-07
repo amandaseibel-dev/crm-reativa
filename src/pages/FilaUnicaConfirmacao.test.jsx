@@ -67,7 +67,8 @@ const txt = (el) => el.textContent.replace(/\u00a0/g, " ");
 
 function responder({ resumo = RESUMO_2024, itens = [ITEM_CONFIRMACAO], emConfirmacao = [] } = {}) {
   rpcMock.mockImplementation((nome, args) => {
-    if (nome === "carteira_pendencias_por_motivo") return Promise.resolve({ data: resumo, error: null });
+    // O resumo vem da camada de desempenho; a LISTA segue ao vivo.
+    if (nome === "carteira_efetividade_ler") return Promise.resolve({ data: resumo, error: null });
     if (nome === "carteira_pendencias_itens") {
       return Promise.resolve({ data: itens.filter((i) => i.motivo === args.p_motivo), error: null });
     }
@@ -91,8 +92,8 @@ afterEach(() => cleanup());
 describe("Fila Única — o registro individual", () => {
   it("lê o motivo e a safra da URL, que é como a Efetividade entrega o caso", async () => {
     await montar();
-    expect(rpcMock).toHaveBeenCalledWith("carteira_pendencias_por_motivo",
-      { p_ano: "2024", p_semestre: null });
+    expect(rpcMock).toHaveBeenCalledWith("carteira_efetividade_ler",
+      { p_bloco: "pendencias", p_ano: "2024", p_semestre: null });
     expect(rpcMock).toHaveBeenCalledWith("carteira_pendencias_itens",
       expect.objectContaining({ p_motivo: "em_confirmacao", p_ano: "2024", p_semestre: null }));
   });
@@ -170,7 +171,7 @@ describe("Fila Única — atualização sem reload", () => {
     await act(async () => { fireEvent.click(screen.getByText("Atualizar dados")); });
     const depois = rpcMock.mock.calls.filter((c) => c[0] === "carteira_pendencias_itens").length;
     expect(depois).toBeGreaterThan(antes);
-    const contagens = rpcMock.mock.calls.filter((c) => c[0] === "carteira_pendencias_por_motivo").length;
+    const contagens = rpcMock.mock.calls.filter((c) => c[0] === "carteira_efetividade_ler").length;
     expect(contagens).toBeGreaterThan(1);
   });
 
@@ -196,7 +197,7 @@ describe("Fila Única — o que ela declara ser", () => {
 
   it("erro na contagem aparece, sem derrubar a lista", async () => {
     rpcMock.mockImplementation((nome) =>
-      nome === "carteira_pendencias_por_motivo"
+      nome === "carteira_efetividade_ler"
         ? Promise.resolve({ data: null, error: { message: "Acesso negado." } })
         : Promise.resolve({ data: [], error: null }));
     await montar();
