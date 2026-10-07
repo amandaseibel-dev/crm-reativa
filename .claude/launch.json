@@ -65,6 +65,16 @@
         "vite.efetividade.config.js"
       ],
       "port": 5202
+    },
+    {
+      "name": "tv-meta-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--config",
+        "vite.tvmeta.config.js"
+      ],
+      "port": 5203
     }
   ]
 }
