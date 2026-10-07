@@ -4,6 +4,11 @@ import { supabase } from "../services/supabase";
 import ResolverEmConfirmacao from "../components/ResolverEmConfirmacao";
 import { S, moeda, num, dataCurta } from "../components/situacoesDaSafraFormato";
 
+// A politica de atualizacao exige DD/MM/AAAA HH:mm: so a data esconderia se a
+// fotografia e de agora ou de 23 horas atras.
+const dataHora = (v) =>
+  v ? new Date(v).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "—";
+
 // FILA UNICA DE CONFIRMACAO — a tela de TRATAMENTO das pendencias.
 //
 // A Efetividade responde "quanto esta pendente e por que"; aqui se trata. Cada
@@ -29,8 +34,11 @@ import { S, moeda, num, dataCurta } from "../components/situacoesDaSafraFormato"
 // atuar fora da origem do dado, sem historico e sem auditoria — e e exatamente
 // o que nao se pode fazer.
 //
-// REFETCH DEPOIS DA RESOLUCAO. Resolvido um caso, a tela refaz a contagem por
-// motivo E a pagina de itens — sem reload da aplicacao.
+// DEPOIS DA RESOLUCAO (politica de 08/10/2026). Resolvido um caso, a linha sai
+// da lista NA HORA -- com base na resposta da propria acao, que diz o que ainda
+// esta em confirmacao naquele titulo -- e a tela SOLICITA a reconstrucao da
+// fotografia. Nao releia a foto aqui: ela ainda nao foi reconstruida, e reler
+// traria o caso resolvido de volta. Era o que acontecia antes desta politica.
 //
 // LE FOTOGRAFIA (ajuste de 07/10/2026). A contagem vem de
 // `carteira_efetividade_ler` e os itens de `carteira_pendencias_itens_ler`, que
@@ -39,9 +47,11 @@ import { S, moeda, num, dataCurta } from "../components/situacoesDaSafraFormato"
 // teto do papel `authenticated` e 8 s — a fila nao podia depender dela.
 //
 // CONSEQUENCIA QUE A TELA DIZ: resolver um caso o resolve na origem na hora (as
-// RPCs da Conferencia Prime sao as mesmas), mas a CONTAGEM e a LISTA desta fila
-// so deixam de mostra-lo na proxima reconstrucao da rotina. O rodape declara a
-// data da fotografia, para ninguem ler a lista como estado ao vivo.
+// RPCs da Conferencia Prime sao as mesmas) e o retira desta LISTA na hora. A
+// CONTAGEM por motivo vem da fotografia e acompanha na proxima reconstrucao --
+// solicitada automaticamente a cada resolucao, sem esperar a rotina das :40. O
+// rodape declara a data da fotografia e avisa quando ha mudanca posterior a ela,
+// para ninguem ler a lista como estado ao vivo.
 
 const SAFRAS = [
   { chave: "2024",   ano: "2024", semestre: null, rotulo: "2024" },
@@ -81,6 +91,14 @@ export default function FilaUnicaConfirmacao() {
   // Incrementado a cada resolucao e a cada "Atualizar dados": e a dependencia
   // que faz as duas consultas refazerem sem reload da aplicacao.
   const [recarga, setRecarga] = useState(0);
+  // RESOLVIDOS NESTA SESSAO DA TELA. A fotografia so sera reconstruida pelo
+  // dreno, fora desta requisicao; ate la a lista lida continua trazendo o caso
+  // que acabou de ser resolvido na origem. Guardar o `titulo_id` aqui permite
+  // retirar a linha NA HORA, usando a resposta da propria acao -- sem inventar
+  // numero e sem reler a foto velha (reler a traria de volta).
+  const [resolvidos, setResolvidos] = useState(() => new Set());
+  const [avisoResolucao, setAvisoResolucao] = useState("");
+  const [pedindoAtualizacao, setPedindoAtualizacao] = useState(false);
 
   // `useMemo` e não `resumo?.motivos || []` solto: o array literal do fallback
   // nasceria novo a cada render e faria o `useMemo` do motivo recalcular
@@ -93,6 +111,16 @@ export default function FilaUnicaConfirmacao() {
     return motivos[0]?.chave || null;
   }, [motivoUrl, motivos]);
   const motivoAtual = motivos.find((m) => m.chave === motivo) || null;
+
+  // A lista exibida e a da fotografia MENOS o que foi resolvido agora. A
+  // fotografia nao e reescrita pela tela: `itens` continua sendo o que o banco
+  // devolveu, e `itensVisiveis` e a leitura honesta dele neste instante.
+  const itensVisiveis = useMemo(
+    () => (itens || []).filter((i) => !resolvidos.has(i.titulo_id)),
+    [itens, resolvidos]);
+  // Quantos desta pagina sairam por resolucao agora -- o contador do motivo vem
+  // da fotografia e ficaria maior que a lista sem este desconto.
+  const resolvidosNaPagina = (itens || []).length - itensVisiveis.length;
 
   // ---------------------------------------------------------------- resumo
   useEffect(() => {
@@ -128,6 +156,55 @@ export default function FilaUnicaConfirmacao() {
     return () => { ativo = false; };
   }, [buscarItens, recarga]);
 
+  // RESOLVIDO UM CASO. Tres coisas, nesta ordem, e nenhuma delas e reler a
+  // fotografia:
+  //
+  //   1. RETIRA a linha da fila agora. `ResolverEmConfirmacao` devolve o que
+  //      AINDA esta em confirmacao para aquele titulo; lista vazia significa que
+  //      a pendencia daquele titulo acabou -- isso vem da resposta da acao, nao
+  //      de suposicao nossa. Se ainda houver item, o caso continua pendente e a
+  //      linha FICA.
+  //   2. SOLICITA a reconstrucao da fotografia afetada -- barato, volta na hora,
+  //      e o dreno reconstroi fora desta requisicao.
+  //   3. AVISA que a contagem por motivo ainda e a da foto.
+  //
+  // POR QUE NAO `setRecarga` AQUI. Recarregar releria a MESMA fotografia, que
+  // ainda nao foi reconstruida -- e o caso resolvido voltaria para a lista. Era
+  // exatamente o que acontecia antes desta mudanca.
+  // "ATUALIZAR DADOS" -- mesma politica da Efetividade: primeiro RELE a
+  // fotografia; so pede reconstrucao se a leitura disser que ha mudanca
+  // posterior a ela. Nunca chama a funcao pesada (~21 s em 2026/1, teto 8 s).
+  async function atualizarDados() {
+    setAvisoResolucao("");
+    setRecarga((v) => v + 1);
+    if (!resumo?.snapshot?.atualizacao_pendente && !resumo?.sem_snapshot) return;
+    setPedindoAtualizacao(true);
+    const { data: pedido, error } = await supabase.rpc("carteira_efetividade_solicitar_atualizacao");
+    setPedindoAtualizacao(false);
+    setAvisoResolucao(error
+      ? "Não foi possível registrar o pedido de atualização (" + (error.message || "falha")
+        + "). A rotina das :40 continua valendo."
+      : "Atualização solicitada — " + (pedido?.previsao || "sai na próxima reconstrução") + ".");
+  }
+
+  async function aoResolver(titulo_id, aindaEmConfirmacao) {
+    if (Array.isArray(aindaEmConfirmacao) && aindaEmConfirmacao.length > 0) {
+      setAvisoResolucao("Ainda há item em confirmação neste título — a linha continua na fila.");
+      return;
+    }
+    setResolvidos((atual) => {
+      const proximo = new Set(atual);
+      proximo.add(titulo_id);
+      return proximo;
+    });
+    const { error } = await supabase.rpc("carteira_efetividade_solicitar_atualizacao");
+    setAvisoResolucao(error
+      ? "Caso resolvido na origem e retirado desta lista. Não foi possível registrar o pedido de "
+        + "reconstrução (" + (error.message || "falha") + "); a rotina das :40 reconcilia."
+      : "Caso resolvido na origem e retirado desta lista. Reconstrução da fotografia solicitada — "
+        + "a contagem por motivo acima ainda é a da fotografia até ela sair.");
+  }
+
   function trocarSafra(s) {
     // Trocar de safra zera a pagina e solta o motivo: nem todo motivo existe em
     // toda safra, e manter um motivo inexistente deixaria a fila vazia sem
@@ -157,8 +234,8 @@ export default function FilaUnicaConfirmacao() {
           </p>
         </div>
         <div style={E.acoesTopo}>
-          <button type="button" style={E.botaoNeutro} onClick={() => setRecarga((v) => v + 1)}>
-            Atualizar dados
+          <button type="button" style={E.botaoNeutro} onClick={atualizarDados} disabled={pedindoAtualizacao}>
+            {pedindoAtualizacao ? "Solicitando…" : "Atualizar dados"}
           </button>
           <button type="button" style={E.botaoNeutro} onClick={() => navegar("/carteira-2026-1")}>
             ← Efetividade
@@ -234,16 +311,20 @@ export default function FilaUnicaConfirmacao() {
 
       {erroItens ? <p style={S.erro}>Não foi possível listar os casos: {erroItens}</p> : null}
 
+      {avisoResolucao ? <p style={S.discreto}>{avisoResolucao}</p> : null}
+
       {carregandoItens && itens === null ? (
         <p style={S.discreto}>Carregando os casos desta pendência…</p>
-      ) : !itens || !itens.length ? (
+      ) : !itensVisiveis.length ? (
         <p style={S.discreto}>
-          {motivo ? "Nenhum caso nesta pendência." : "Nenhuma pendência nesta safra."}
+          {resolvidosNaPagina > 0
+            ? "Todos os casos desta página foram resolvidos agora. A contagem por motivo acima ainda é a da fotografia."
+            : motivo ? "Nenhum caso nesta pendência." : "Nenhuma pendência nesta safra."}
         </p>
       ) : (
         <>
           <div style={E.lista}>
-            {itens.map((i) => (
+            {itensVisiveis.map((i) => (
               <article key={i.titulo_id} style={E.caso}>
                 <div style={E.casoTopo}>
                   <div style={{ minWidth: 0 }}>
@@ -291,7 +372,7 @@ export default function FilaUnicaConfirmacao() {
                       <ResolverEmConfirmacao
                         alunoId={i.aluno_id}
                         tituloId={i.titulo_id}
-                        onResolvido={() => setRecarga((v) => v + 1)}
+                        onResolvido={(aindaEmConfirmacao) => aoResolver(i.titulo_id, aindaEmConfirmacao)}
                       />
                     </div>
                   ) : (
@@ -333,10 +414,16 @@ export default function FilaUnicaConfirmacao() {
       </p>
       {resumo?.snapshot?.gerado_em ? (
         <p style={S.rodape}>
-          <strong>Fotografia de {dataCurta(resumo.snapshot.gerado_em)}</strong>, reconstruída pela rotina da
-          hora fora da requisição desta tela — o cálculo ao vivo passa do teto de 8s em 2026/1. Depois de
-          cada resolução a fila refaz a leitura, sem recarregar a aplicação; o caso resolvido sai da origem
-          na hora e sai desta lista na próxima reconstrução.
+          <strong>Dados atualizados em {dataHora(resumo.snapshot.gerado_em)}</strong>
+          {resumo.snapshot.atualizacao_pendente ? (
+            <strong style={{ color: "var(--rv-ambar)" }}> · Atualização pendente</strong>
+          ) : null}
+          {" "}— a contagem por motivo vem da fotografia, reconstruída fora da requisição desta tela (o
+          cálculo ao vivo passa do teto de 8s em 2026/1). Resolver um caso o resolve na origem NA HORA e o
+          retira desta lista na hora; a contagem acima acompanha na próxima reconstrução, solicitada
+          automaticamente a cada resolução — não é preciso esperar a rotina das :40. Pagamento ou
+          negociação feitos fora do CRM não disparam pedido: para esses, a rotina das :40 é a reconciliação,
+          com defasagem máxima de até uma hora mais o tempo da reconstrução.
         </p>
       ) : null}
     </div>

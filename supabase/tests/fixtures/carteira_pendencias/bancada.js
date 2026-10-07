@@ -26,6 +26,8 @@ export const ROLL = (n) => lerRepo(`supabase/rollbacks/${n}.rollback.sql`);
 export const SEIS_LINHAS = "20261005204500_carteira_safra_situacoes";
 export const NOVA = "20261007193000_efetividade_composicao_academica_e_pendencias";
 export const AJUSTES = "20261007230000_efetividade_regua_historica_e_camada_de_leitura";
+// A politica de atualizacao: invalidacao por evento + dreno fora da requisicao.
+export const INVALIDACAO = "20261007234000_efetividade_invalidacao_e_reconstrucao_sob_demanda";
 
 export const q1 = async (db, sql, p = []) => (await db.query(sql, p)).rows[0];
 export const qn = async (db, sql, p = []) => (await db.query(sql, p)).rows;
@@ -166,9 +168,23 @@ export async function montar() {
   await db.exec(MIG(SEIS_LINHAS));
   await db.exec(MIG(NOVA));
   await db.exec(MIG(AJUSTES));
+  await db.exec(MIG(INVALIDACAO));
   await db.exec("set timezone = 'UTC'");
   return db;
 }
+
+// ---------------------------------------------------- politica de atualizacao
+export const invalidacoes = (db) =>
+  qn(db, "select recorte, invalidado_em, motivo, origem, pedidos from public.carteira_efetividade_invalidacao order by recorte");
+export const marcarDesatualizado = (db, motivo = "teste", origem = "TESTE") =>
+  db.query("select public.carteira_efetividade_invalidar($1, $2)", [motivo, origem]);
+export const drenar = (db) =>
+  q1(db, "select public.carteira_efetividade_recalcular_pendentes() r").then((r) => r.r);
+export const solicitar = (db) =>
+  q1(db, "select public.carteira_efetividade_solicitar_atualizacao() r").then((r) => r.r);
+export const fotoGeradaEm = (db, bloco, recorte) =>
+  q1(db, "select gerado_em from public.carteira_efetividade_snapshot where bloco=$1 and recorte=$2",
+     [bloco, recorte]).then((r) => r?.gerado_em || null);
 
 export const comoPapel = async (db, papel = "authenticated") => { await db.query(`set role ${papel}`); };
 export const voltarDono = (db) => db.query("reset role");

@@ -48,12 +48,24 @@ import CasosPendentes from "../components/CasosPendentes";
 //     Em aberto, Efetividade — e carrega SOB DEMANDA: são três consultas ao
 //     vivo, e abri-las em toda visita custaria caro sem ninguém ter pedido.
 //
-// ATUALIZAÇÃO DOS DADOS. O financeiro é lido ao vivo: ao abrir a tela, ao trocar
-// de safra, ao trocar de visão e ao clicar em "Atualizar dados" (o contador
-// `recarga`, que é dependência de todas as consultas). Não há polling nem
-// realtime — atualizar é refazer a consulta nesses pontos. O status acadêmico é
-// fotografia da importação e só muda quando a importação muda; a tela sempre diz
-// a data.
+// ATUALIZAÇÃO DOS DADOS (política de 08/10/2026). Parte é lida ao vivo e parte
+// vem de fotografia, e a tela diz qual é qual.
+//
+// Ao vivo, nos pontos definidos (abrir, trocar de safra, trocar de visão,
+// "Atualizar dados" — o contador `recarga`): os indicadores de 2026/2 e o
+// histórico por ano.
+//
+// De FOTOGRAFIA: os blocos agregados (seis linhas, composição, pendências). O
+// cálculo ao vivo de 2026/1 custa ~34,6 s e o teto do papel `authenticated` é
+// 8 s — não cabe na requisição. Quem reconstrói é o dreno de 5 em 5 min (quando
+// alguma ação interna do CRM marcou a fotografia como desatualizada) e a rotina
+// das :40 (rede de segurança, que também reconcilia o que entra por fora do
+// CRM, com defasagem máxima de até uma hora mais o tempo da reconstrução).
+//
+// A tela NUNCA apresenta fotografia antiga como dado ao vivo: declara
+// "Dados atualizados em DD/MM/AAAA HH:mm" e, quando houve mudança depois dela,
+// "Atualização pendente". Não há polling nem realtime — a própria leitura da
+// fotografia já devolve se há pendência.
 //
 // O que muda entre 2024, 2025, 2026/1 e 2026/2 é o DADO e o CONCEITO do
 // período, nunca o desenho da página. Em qualquer safra a Diretoria encontra,
@@ -82,6 +94,10 @@ const moedaCurta = (v) => {
 };
 const num = (v) => Number(v || 0).toLocaleString("pt-BR");
 const data = (v) => (v ? new Date(v.length === 10 ? v + "T12:00:00" : v).toLocaleDateString("pt-BR") : "—");
+// A politica de atualizacao exige DD/MM/AAAA HH:mm: so a data esconderia se a
+// fotografia e de agora ou de 23 horas atras.
+const dataHora = (v) =>
+  v ? new Date(v).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "—";
 const pctTexto = (parte, todo, casas = 2) =>
   Number(todo) > 0
     ? (Number(parte) / Number(todo) * 100).toLocaleString("pt-BR",
@@ -128,6 +144,12 @@ export default function CarteiraEfetividade() {
   // filho, que o recebem por prop. É o que o botão "Atualizar dados" faz.
   const [recarga, setRecarga] = useState(0);
   const [comparativo, setComparativo] = useState(false);
+  // O que a propria leitura da fotografia disse: quando foi gerada e se houve
+  // mudanca DEPOIS dela. Nao e polling -- vem junto com a leitura que a tela
+  // ja fazia. `null` = ainda nao leu.
+  const [fotografia, setFotografia] = useState(null);
+  const [pedindoAtualizacao, setPedindoAtualizacao] = useState(false);
+  const [avisoAtualizacao, setAvisoAtualizacao] = useState("");
   // As seis linhas da safra selecionada, buscadas AQUI e não dentro do cartão:
   // o mesmo payload alimenta o resumo executivo do topo e o cartão das seis
   // linhas. Duas chamadas seriam duas fotografias de instantes diferentes na
@@ -212,11 +234,49 @@ export default function CarteiraEfetividade() {
       else setSituacoes(seis.data || null);
       if (comp.error) { setErroComposicao(comp.error.message || "falha ao consultar"); setComposicao(null); }
       else setComposicao(comp.data || null);
+      // A FOTOGRAFIA SE DECLARA. `carteira_efetividade_ler` devolve
+      // `snapshot.gerado_em` e `snapshot.atualizacao_pendente`; a tela mostra os
+      // dois em vez de apresentar foto antiga como dado ao vivo. Basta UM bloco
+      // pendente para a tela avisar -- os dois saem do mesmo recorte e e o lado
+      // seguro de errar.
+      const metas = [seis.data?.snapshot, comp.data?.snapshot].filter(Boolean);
+      setFotografia(metas.length ? {
+        gerado_em: metas.map((m) => m.gerado_em).filter(Boolean).sort()[0] || null,
+        pendente: metas.some((m) => m.atualizacao_pendente),
+        sem_snapshot: Boolean(seis.data?.sem_snapshot || comp.data?.sem_snapshot),
+      } : { gerado_em: null, pendente: false, sem_snapshot: true });
       setCarregandoSituacoes(false);
       setCarregandoComposicao(false);
     })();
     return () => { ativo = false; };
   }, [ano, sem, recarga]);
+
+  // "ATUALIZAR DADOS" -- a ordem importa e e a da politica.
+  //
+  //   1. RELE a fotografia (incrementa `recarga`, dependencia de toda consulta
+  //      desta tela). Barato, e e o que resolve o caso comum: o dreno ja
+  //      reconstruiu e a tela so nao sabia.
+  //   2. se a leitura anterior disse `pendente`, REGISTRA o pedido de
+  //      reconstrucao -- `carteira_efetividade_solicitar_atualizacao` grava a
+  //      marca e volta na hora.
+  //
+  // O que esta funcao NUNCA faz e chamar `carteira_efetividade_recalcular`: sao
+  // ~60 s nos tres recortes e o teto do papel `authenticated` e 8 s. A
+  // reconstrucao e do dreno, fora desta requisicao.
+  async function atualizarDados() {
+    setAvisoAtualizacao("");
+    setRecarga((v) => v + 1);
+    if (!fotografia?.pendente && !fotografia?.sem_snapshot) return;
+    setPedindoAtualizacao(true);
+    const { data: pedido, error } = await supabase.rpc("carteira_efetividade_solicitar_atualizacao");
+    setPedindoAtualizacao(false);
+    // Falha no pedido nao pode virar silencio: sem aviso a pessoa conclui que
+    // atualizou. O cron das :40 continua sendo a rede.
+    setAvisoAtualizacao(error
+      ? "Não foi possível registrar o pedido de atualização (" + (error.message || "falha") +
+        "). A reconstrução automática das :40 continua valendo."
+      : "Atualização solicitada — " + (pedido?.previsao || "sai na próxima reconstrução") + ".");
+  }
 
   if (carregando) return <Carregando />;
 
@@ -404,15 +464,38 @@ export default function CarteiraEfetividade() {
             propósito: o financeiro é lido ao vivo nos pontos definidos — abrir,
             trocar de safra, trocar de visão e este botão. Ele só incrementa
             `recarga`, que é dependência de todas as consultas. */}
-        <button onClick={() => setRecarga((v) => v + 1)}
-                title="Refaz as consultas financeiras desta tela, ao vivo. O status acadêmico é fotografia da importação e não muda aqui."
+        <button onClick={atualizarDados} disabled={pedindoAtualizacao}
+                title="Relê a fotografia dos indicadores. Se houver mudança posterior a ela, solicita a reconstrução — que roda fora desta tela, nunca no clique."
                 style={{ ...S.selo, marginLeft: "auto" }}>
-          ↻ Atualizar dados
+          {pedindoAtualizacao ? "Solicitando…" : "↻ Atualizar dados"}
         </button>
       </header>
       {obraAberta ? (
         <p style={S.seloTexto}>
           Esta área ainda está em construção e pode receber ajustes de layout, nomenclatura e visualização.
+        </p>
+      ) : null}
+
+      {/* A IDADE DA FOTOGRAFIA, SEMPRE DECLARADA.
+          Os blocos agregados vêm da camada de leitura, não ao vivo (2026/1 ao
+          vivo custa ~34,6 s e estoura o teto de 8 s). Apresentar isso como dado
+          ao vivo seria mentir; então a tela diz quando a fotografia foi gerada
+          e, quando houve mudança depois dela, que há atualização pendente. */}
+      {fotografia ? (
+        <p style={{ ...S.seloTexto, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          {fotografia.sem_snapshot && !fotografia.gerado_em ? (
+            <strong>Sem fotografia ainda — a reconstrução automática ainda não rodou para esta safra.</strong>
+          ) : (
+            <span>Dados atualizados em <strong>{dataHora(fotografia.gerado_em)}</strong></span>
+          )}
+          {fotografia.pendente ? (
+            <span title="Houve pagamento, acordo, baixa, ajuste ou resolução de pendência depois desta fotografia. A reconstrução roda fora da tela."
+                  style={{ padding: "2px 8px", borderRadius: 999, fontWeight: 700,
+                           color: "var(--rv-ambar)", background: "rgba(180,83,9,0.14)" }}>
+              Atualização pendente
+            </span>
+          ) : null}
+          {avisoAtualizacao ? <span>{avisoAtualizacao}</span> : null}
         </p>
       ) : null}
 

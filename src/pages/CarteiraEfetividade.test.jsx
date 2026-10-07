@@ -477,3 +477,90 @@ describe("Efetividade — 2026/2 preservada", () => {
     expect(texto).toContain("Saldo negociado");
   });
 });
+
+// POLITICA DE ATUALIZACAO (08/10/2026). Os blocos agregados vem de fotografia
+// -- 2026/1 ao vivo custa ~34,6 s contra um teto de 8 s. A tela nao pode
+// apresentar isso como dado ao vivo: declara a data E a hora, avisa quando ha
+// mudanca posterior, e o botao jamais roda a consulta pesada.
+describe("Efetividade — política de atualização da fotografia", () => {
+  const comFoto = (extra) => ({
+    seis_linhas: { ...SITUACOES, snapshot: { gerado_em: "2026-10-07T23:40:00Z", ...extra } },
+    composicao_academica: { ...COMPOSICAO, snapshot: { gerado_em: "2026-10-07T23:40:00Z", ...extra } },
+  });
+
+  it("declara “Dados atualizados em” com data E hora", async () => {
+    responder({}, comFoto({ atualizacao_pendente: false }));
+    await abrir();
+    expect(screen.getByText(/Dados atualizados em/)).toBeTruthy();
+    const esperado = new Date("2026-10-07T23:40:00Z")
+      .toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+    expect(txt(document.body)).toContain(esperado);
+  });
+
+  it("avisa “Atualização pendente” quando houve mudança depois da fotografia", async () => {
+    responder({}, comFoto({ atualizacao_pendente: true }));
+    await abrir();
+    expect(screen.getByText("Atualização pendente")).toBeTruthy();
+  });
+
+  it("sem mudança posterior, não inventa pendência", async () => {
+    responder({}, comFoto({ atualizacao_pendente: false }));
+    await abrir();
+    expect(screen.queryByText("Atualização pendente")).toBeNull();
+  });
+
+  it("basta UM bloco pendente para a tela avisar", async () => {
+    responder({}, {
+      seis_linhas: { ...SITUACOES, snapshot: { gerado_em: "2026-10-07T23:40:00Z", atualizacao_pendente: false } },
+      composicao_academica: { ...COMPOSICAO, snapshot: { gerado_em: "2026-10-07T23:40:00Z", atualizacao_pendente: true } },
+    });
+    await abrir();
+    expect(screen.getByText("Atualização pendente")).toBeTruthy();
+  });
+
+  it("“Atualizar dados” relê a fotografia e, havendo pendência, solicita a reconstrução", async () => {
+    responder({}, comFoto({ atualizacao_pendente: true }));
+    await abrir();
+    const antes = rpcMock.mock.calls.filter((c) => c[0] === "carteira_efetividade_ler").length;
+    await act(async () => { fireEvent.click(screen.getByText("↻ Atualizar dados")); });
+    const depois = rpcMock.mock.calls.filter((c) => c[0] === "carteira_efetividade_ler").length;
+    // 1. releu
+    expect(depois).toBeGreaterThan(antes);
+    // 2. pediu
+    expect(rpcMock.mock.calls.map((c) => c[0])).toContain("carteira_efetividade_solicitar_atualizacao");
+  });
+
+  it("“Atualizar dados” NUNCA chama a consulta pesada nem o dreno", async () => {
+    responder({}, comFoto({ atualizacao_pendente: true }));
+    await abrir();
+    await act(async () => { fireEvent.click(screen.getByText("↻ Atualizar dados")); });
+    const nomes = rpcMock.mock.calls.map((c) => c[0]);
+    expect(nomes).not.toContain("carteira_efetividade_recalcular");
+    expect(nomes).not.toContain("carteira_efetividade_recalcular_pendentes");
+    expect(nomes).not.toContain("carteira_safra_situacoes");
+    expect(nomes).not.toContain("carteira_2026_1_classificar");
+  });
+
+  it("sem pendência, “Atualizar dados” só relê e não pede reconstrução à toa", async () => {
+    responder({}, comFoto({ atualizacao_pendente: false }));
+    await abrir();
+    await act(async () => { fireEvent.click(screen.getByText("↻ Atualizar dados")); });
+    expect(rpcMock.mock.calls.map((c) => c[0]))
+      .not.toContain("carteira_efetividade_solicitar_atualizacao");
+  });
+
+  it("sem fotografia nenhuma, diz isso em vez de mostrar bloco vazio", async () => {
+    responder({}, { seis_linhas: { sem_snapshot: true }, composicao_academica: { sem_snapshot: true } });
+    await abrir();
+    expect(screen.getByText(/Sem fotografia ainda/)).toBeTruthy();
+  });
+
+  it("não há polling: sem clique, a leitura não se repete sozinha", async () => {
+    responder({}, comFoto({ atualizacao_pendente: true }));
+    await abrir();
+    const antes = rpcMock.mock.calls.filter((c) => c[0] === "carteira_efetividade_ler").length;
+    await act(async () => { await new Promise((r) => setTimeout(r, 120)); });
+    const depois = rpcMock.mock.calls.filter((c) => c[0] === "carteira_efetividade_ler").length;
+    expect(depois).toBe(antes);
+  });
+});

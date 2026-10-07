@@ -325,6 +325,49 @@ Memória: `rejeicao-de-pagamento-nao-devolvia-para-cobranca`
 
 ---
 
+### A Efetividade e a Fila Única são fotografia, e dizem a idade dela
+
+**O que a tela mostra não é consulta ao vivo.** Os blocos agregados da
+Efetividade e a contagem da Fila Única vêm da tabela
+`carteira_efetividade_snapshot`. Medido em produção em 07/10/2026: o cálculo ao
+vivo de 2026/1 custa ~34,6 s e o teto do papel `authenticated` é 8 s — a
+consulta ao vivo **não cabe na requisição** e falhava antes de existir a
+fotografia. A fonte viva (`carteira_2026_1_classificar` e as demais) continua
+sendo a origem da verdade; a fotografia só a copia, e nenhuma regra financeira
+depende dela.
+
+**Quando a fotografia é refeita** (política de 08/10/2026):
+
+| Gatilho | Prazo |
+|---|---|
+| Ação interna do CRM — pagamento, acordo, baixa, ajuste de valor, resolução de pendência | marca a fotografia como desatualizada na hora; o dreno reconstrói **em até ~5 min** |
+| Botão **Atualizar dados**, havendo pendência | registra o pedido; entra no mesmo dreno |
+| Rotina das **:40** | rede de segurança: reconstrói tudo, marcado ou não |
+
+**A exceção que importa: o que entra por fora do CRM.** Pagamento feito direto
+na ULBRA/Prime, negociação fechada fora do CRM e alteração aplicada por rotina
+administrativa **não disparam evento interno** — não há o que observar. Para
+esses, a reconciliação é a rotina das :40, e a **defasagem máxima é de até uma
+hora mais o tempo da reconstrução (~60 s)**, ou seja até ~61 minutos. Isso não é
+defeito: é o limite de quem não é avisado.
+
+**Por isso a tela nunca apresenta a fotografia como dado ao vivo.** Ela declara
+`Dados atualizados em DD/MM/AAAA HH:mm` e, quando há mudança posterior,
+`Atualização pendente`. Resolver um caso na Fila Única o resolve na origem **na
+hora** e o retira da lista na hora (pela resposta da própria ação); a contagem
+por motivo acompanha na reconstrução seguinte, solicitada automaticamente.
+
+**Não há polling nem realtime.** A própria leitura da fotografia devolve se há
+pendência — a tela não pergunta de novo sozinha.
+
+**Onde vive:** `carteira_efetividade_invalidacao`,
+`carteira_efetividade_invalidar`, `carteira_efetividade_recalcular_pendentes`
+(dreno, `*/5`), `carteira_efetividade_hora` (`:40`),
+`carteira_efetividade_ler` (devolve `gerado_em` e `atualizacao_pendente`),
+`src/pages/CarteiraEfetividade.jsx`, `src/pages/FilaUnicaConfirmacao.jsx`.
+
+---
+
 ## Como se escreve
 
 As onze premissas acima dizem o que o sistema deve fazer. **Estas quatro existem

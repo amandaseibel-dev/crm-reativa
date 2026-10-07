@@ -208,3 +208,109 @@ describe("Fila Única — o que ela declara ser", () => {
     expect(screen.getByText(/Não foi possível contar as pendências: Acesso negado/)).toBeTruthy();
   });
 });
+
+// POLITICA DE ATUALIZACAO (08/10/2026). Antes disso a fila, depois de resolver,
+// RELIA a fotografia -- que ainda nao havia sido reconstruida -- e o caso
+// resolvido voltava para a lista. Estes testes travam o comportamento novo.
+describe("Fila Única — política de atualização da fotografia", () => {
+  const RESOLVIVEL = [{
+    titulo_id: ITEM_CONFIRMACAO.titulo_id, documento: "4445066", valor: 3987.54,
+    vencimento: "2024-03-10", efeito: "VIRA_PAGO", efeito_texto: "Vincular quita o título",
+    acordo_id: "ac-1", acordo_numero: "4691", exige_motivo: true, dias_pendente: 16,
+    pode_seguir_pagamento: true,
+  }];
+
+  it("declara a data E a hora da fotografia, não só o dia", async () => {
+    await montar();
+    // 2026-10-07T23:40:00Z — a hora local precisa aparecer junto da data.
+    expect(screen.getByText(/Dados atualizados em/)).toBeTruthy();
+    const esperado = new Date("2026-10-07T23:40:00Z")
+      .toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+    expect(txt(document.body)).toContain(esperado);
+  });
+
+  it("avisa “Atualização pendente” quando houve mudança depois da fotografia", async () => {
+    responder({ resumo: { ...RESUMO_2024,
+      snapshot: { ...RESUMO_2024.snapshot, atualizacao_pendente: true } } });
+    await montar();
+    expect(screen.getByText(/Atualização pendente/)).toBeTruthy();
+  });
+
+  it("sem mudança posterior, não inventa pendência", async () => {
+    responder({ resumo: { ...RESUMO_2024,
+      snapshot: { ...RESUMO_2024.snapshot, atualizacao_pendente: false } } });
+    await montar();
+    expect(screen.queryByText(/Atualização pendente/)).toBeNull();
+  });
+
+  it("resolvido o caso, a linha sai da lista NA HORA e a reconstrução é solicitada", async () => {
+    responder({ emConfirmacao: RESOLVIVEL });
+    await montar();
+    expect(screen.getByText("ALUNA TESTE ALFA")).toBeTruthy();
+
+    // Resolver pelo fluxo existente. Depois da acao o titulo nao esta mais em
+    // confirmacao -- e isso que a resposta da acao devolve.
+    rpcMock.mockImplementation((nome, args) => {
+      if (nome === "carteira_efetividade_ler") return Promise.resolve({ data: RESUMO_2024, error: null });
+      if (nome === "carteira_pendencias_itens_ler") {
+        // A FOTOGRAFIA AINDA TRAZ O CASO: ela so sera reconstruida pelo dreno.
+        return Promise.resolve({ data: [ITEM_CONFIRMACAO].filter((i) => i.motivo === args.p_motivo), error: null });
+      }
+      if (nome === "conferencia_em_confirmacao_do_aluno") return Promise.resolve({ data: [], error: null });
+      if (nome === "conferencia_acordos_do_aluno") return Promise.resolve({ data: [], error: null });
+      return Promise.resolve({ data: { ok: true, previsao: "no próximo dreno" }, error: null });
+    });
+
+    // O motivo da auditoria e pedido por `window.prompt` (ver utils/emConfirmacao).
+    vi.spyOn(window, "prompt").mockReturnValue("confirmado com a unidade em 07/10");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Vincular/ })); });
+
+    // 1. a linha saiu, apesar de a fotografia ainda traze-la
+    expect(screen.queryByText("ALUNA TESTE ALFA")).toBeNull();
+    // 2. a reconstrucao foi pedida -- e a funcao PESADA nunca foi chamada
+    const nomes = rpcMock.mock.calls.map((c) => c[0]);
+    expect(nomes).toContain("carteira_efetividade_solicitar_atualizacao");
+    expect(nomes).not.toContain("carteira_efetividade_recalcular");
+    expect(nomes).not.toContain("carteira_efetividade_recalcular_pendentes");
+  });
+
+  it("se o título ainda tem item em confirmação, a linha FICA — não some por otimismo", async () => {
+    responder({ emConfirmacao: RESOLVIVEL });
+    await montar();
+    rpcMock.mockImplementation((nome, args) => {
+      if (nome === "carteira_efetividade_ler") return Promise.resolve({ data: RESUMO_2024, error: null });
+      if (nome === "carteira_pendencias_itens_ler") {
+        return Promise.resolve({ data: [ITEM_CONFIRMACAO].filter((i) => i.motivo === args.p_motivo), error: null });
+      }
+      // AINDA pendente depois da acao
+      if (nome === "conferencia_em_confirmacao_do_aluno") return Promise.resolve({ data: RESOLVIVEL, error: null });
+      if (nome === "conferencia_acordos_do_aluno") return Promise.resolve({ data: [], error: null });
+      return Promise.resolve({ data: { ok: true }, error: null });
+    });
+    vi.spyOn(window, "prompt").mockReturnValue("resolucao parcial conferida na unidade");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Vincular/ })); });
+
+    expect(screen.getByText("ALUNA TESTE ALFA")).toBeTruthy();
+    expect(screen.getByText(/Ainda há item em confirmação/)).toBeTruthy();
+  });
+
+  it("“Atualizar dados” relê e, havendo pendência, solicita — sem rodar a consulta pesada", async () => {
+    responder({ resumo: { ...RESUMO_2024,
+      snapshot: { ...RESUMO_2024.snapshot, atualizacao_pendente: true } } });
+    await montar();
+    await act(async () => { fireEvent.click(screen.getByText("Atualizar dados")); });
+    const nomes = rpcMock.mock.calls.map((c) => c[0]);
+    expect(nomes).toContain("carteira_efetividade_solicitar_atualizacao");
+    expect(nomes).not.toContain("carteira_efetividade_recalcular");
+  });
+
+  it("sem pendência, “Atualizar dados” só relê e NÃO pede reconstrução à toa", async () => {
+    responder({ resumo: { ...RESUMO_2024,
+      snapshot: { ...RESUMO_2024.snapshot, atualizacao_pendente: false } } });
+    await montar();
+    await act(async () => { fireEvent.click(screen.getByText("Atualizar dados")); });
+    const nomes = rpcMock.mock.calls.map((c) => c[0]);
+    expect(nomes).not.toContain("carteira_efetividade_solicitar_atualizacao");
+    expect(nomes.filter((n) => n === "carteira_efetividade_ler").length).toBeGreaterThan(1);
+  });
+});
