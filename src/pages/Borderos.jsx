@@ -2,7 +2,7 @@ import { useState } from "react";
 import { naoReabreNoBordero } from "../utils/bordero";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
-import { hashArquivo } from "../utils/hashArquivo";   // MESMA implementacao
+import { hashArquivo, hashValido } from "../utils/hashArquivo";   // MESMA implementacao
 import Dobra from "../ui/blocos";
 
 function limparCpf(valor) {
@@ -112,6 +112,11 @@ export default function Borderos() {
   const [importando, setImportando] = useState(false);
   const [resultado, setResultado] = useState(null);
   const [erro, setErro] = useState("");
+  // O hash passa a ser calculado ao ESCOLHER o arquivo, nao na hora da captura.
+  // Antes era `await hashArquivo(await arquivo.arrayBuffer())` dentro do try da
+  // trilha: se falhasse, a importacao financeira ja estava concluida e a captura
+  // morria no catch. Calculando aqui, a falha aparece ANTES de qualquer gravacao.
+  const [arquivoHash, setArquivoHash] = useState("");
 
   async function selecionarArquivo(e) {
     const arquivoSelecionado = e.target.files?.[0];
@@ -122,8 +127,14 @@ export default function Borderos() {
     setErro("");
     setProcessando(true);
 
+    setArquivoHash("");
+
     try {
       const buffer = await arquivoSelecionado.arrayBuffer();
+      // identidade do arquivo, pre-requisito da importacao (ver trava em
+      // confirmarImportacao). Falha aqui nao interrompe a previa: quem recusa e
+      // a trava, com mensagem propria.
+      try { setArquivoHash(await hashArquivo(buffer)); } catch { setArquivoHash(""); }
       const workbook = XLSX.read(buffer, { type: "array" });
       const primeiraAba = workbook.SheetNames[0];
       const linhasBrutas = XLSX.utils.sheet_to_json(workbook.Sheets[primeiraAba], {
@@ -263,6 +274,24 @@ export default function Borderos() {
 
   async function confirmarImportacao() {
     if (!preview) return;
+
+    // ===== HASH OBRIGATORIO, ANTES DE QUALQUER GRAVACAO =====================
+    // Mesmo contrato da ImportacaoAcordos: sem identidade do arquivo, a
+    // importacao nao comeca. Vem antes do `setImportando` e antes do insert em
+    // `importacoes`, entao nada financeiro e gravado.
+    //
+    // ATENCAO: isto e mais restritivo do que o bordero era. Antes, um bordero
+    // cujo hash nao pudesse ser calculado importava normalmente e so perdia a
+    // trilha. Agora ele e recusado. A troca e deliberada -- um bordero que nao
+    // da para identificar nao da para auditar -- mas e um bloqueio novo num
+    // fluxo que nunca bloqueava.
+    if (!hashValido(arquivoHash)) {
+      setErro("Não foi possível calcular a identidade do arquivo (SHA-256). " +
+        "A importação NÃO foi iniciada: nada foi gravado. " +
+        "Selecione o arquivo de novo; se persistir, confira se a página está em HTTPS.");
+      return;
+    }
+    // ========================================================================
 
     setImportando(true);
     setErro("");
@@ -557,7 +586,8 @@ export default function Borderos() {
           // mesma scope_key, a data E declarada pela gestao.
           p_snapshot_at: new Date().toISOString(),
           p_arquivo_nome: arquivo?.name || null,
-          p_arquivo_hash: await hashArquivo(await arquivo.arrayBuffer()),
+          // hash ja calculado no `selecionarArquivo` e conferido pela trava
+          p_arquivo_hash: arquivoHash,
           p_linhas_arquivo: preview.linhas.length,
           p_linhas: preview.linhas.map((l) => ({
             documento: l.numTitulo,
