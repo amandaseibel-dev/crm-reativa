@@ -1,6 +1,6 @@
 // A2c -- UMA curtida por operador por semana na Playlist ReATIVA.
 //
-// Roda a migration REAL (supabase/migrations/20261006183000_...) e o rollback
+// Roda a migration REAL (supabase/migrations/20261006190651_...) e o rollback
 // REAL num PostgreSQL real (PGlite), em cima do estado real de producao:
 // criacao das tabelas + A1 + A2 + as 3 musicas que existem hoje.
 //
