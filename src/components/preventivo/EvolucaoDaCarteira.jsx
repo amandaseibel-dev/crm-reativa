@@ -37,6 +37,9 @@ const CANAIS = { WHATSAPP: "WhatsApp", EMAIL: "E-mail" };
 // A hora só é exibida quando alguém declarou que ela é a da extração (ou a do
 // envio). "DATA" e "NAO_COMPROVADA" caem no mesmo lugar: mostrar um horário que
 // ninguém mediu dá à tela uma precisão que o dado não tem.
+const horaCurta = (ts) =>
+  new Date(ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
 const quando = (ts, precisao) =>
   precisao === "DATA_E_HORA" ? dataHora(ts) : dataCurta(ts);
 
@@ -99,7 +102,17 @@ function Par({ rot, val }) {
 
 export default function EvolucaoDaCarteira({ dados }) {
   if (!dados) return null;
-  const pontos = (dados.pontos || []).map((p) => ({ ...p, data: dataCurta(p.extraido_em) }));
+  // Duas fotos do mesmo dia dariam dois rótulos "05/10" no eixo. Quando isso
+  // acontece, o rótulo ganha a hora declarada ou, sem hora, a ordem no dia —
+  // a mesma ordem que o banco usou para enfileirar os pontos.
+  const brutos = (dados.pontos || []).map((p) => ({ ...p, data: dataCurta(p.extraido_em) }));
+  const repetida = brutos.reduce((c, p) => ({ ...c, [p.data]: (c[p.data] || 0) + 1 }), {});
+  const pontos = brutos.map((p) => repetida[p.data] < 2 ? p : {
+    ...p,
+    data: p.extraido_precisao === "DATA_E_HORA"
+      ? `${p.data} ${horaCurta(p.extraido_em)}`
+      : `${p.data} (${p.ordem_no_dia}ª)`,
+  });
   const c = dados.cards || {};
 
   if (pontos.length === 0) {

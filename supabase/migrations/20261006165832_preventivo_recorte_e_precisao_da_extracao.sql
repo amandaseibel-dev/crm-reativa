@@ -68,6 +68,68 @@ comment on function public.preventivo_dia(timestamptz) is
   'da sessao que faz a consulta.';
 
 -- -----------------------------------------------------------------------------
+-- 0B. A CHAVE DE ORDENACAO DAS REMESSAS -- UMA SO, PARA TODAS AS FUNCOES
+-- -----------------------------------------------------------------------------
+-- Antes cada funcao ordenava de um jeito e os resultados nao fechavam:
+--
+--   * `preventivo_evolucao` usava (dia, ordem_no_dia, extraido_em). O terceiro
+--     campo DESEMPATAVA EM SILENCIO com um horario que pode nao ser
+--     comprovado -- exatamente o que esta migration existe para nao fazer.
+--   * `preventivo_remessa_comparar` usava so (dia, ordem_no_dia). Duas fotos
+--     com hora conhecida no mesmo dia nascem AMBAS com ordem_no_dia = 1, que e
+--     o default da tela quando a hora e conhecida -- a tela nem pergunta a
+--     ordem nesse caso. Resultado: 09h e 15h do mesmo dia empatavam, a de 15h
+--     nao achava a de 09h como anterior e se dizia "primeira remessa".
+--
+-- A regra unica, agora:
+--
+--   1. o DIA (em Sao Paulo) manda;
+--   2. dentro do dia, a `ordem_no_dia` declarada manda;
+--   3. no mesmo (dia, ordem), quem tem HORA COMPROVADA vem antes de quem nao
+--      tem, e entre duas comprovadas o horario declarado desempata -- isso nao
+--      e desempate silencioso: a hora so e usada quando alguem afirmou que ela
+--      e a da extracao;
+--   4. se nem isso resolve, o `id`. E arbitrario, e e assumido como
+--      arbitrario: duas fotos sem hora comprovada e com a MESMA ordem no dia
+--      nao tem ordem conhecida. O `id` so garante que a resposta nao mude
+--      entre duas consultas; nao se afirma que uma veio antes da outra. Para
+--      efeito de PROVA de sequencia contra um envio, esse par continua
+--      valendo nada -- quem decide isso e a regra de precisao, nao a ordem.
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'preventivo_ordem_remessa'
+                   and typnamespace = 'public'::regnamespace) then
+    create type public.preventivo_ordem_remessa as (
+      dia date, ordem_no_dia int, hora_rank int, hora timestamptz, desempate uuid);
+  end if;
+end $$;
+
+create or replace function public.preventivo_ordem(
+  p_extraido_em timestamptz, p_precisao text, p_ordem_no_dia int, p_id uuid)
+returns public.preventivo_ordem_remessa
+language sql
+stable
+set search_path to 'public'
+as $$
+  select row(
+    public.preventivo_dia(p_extraido_em),
+    coalesce(p_ordem_no_dia, 1),
+    -- 0 = hora declarada, 1 = sem hora. Separar em faixas impede que o
+    -- sentinela abaixo seja comparado contra um horario de verdade.
+    case when p_precisao = 'DATA_E_HORA' then 0 else 1 end,
+    case when p_precisao = 'DATA_E_HORA' then p_extraido_em
+         else '-infinity'::timestamptz end,
+    p_id
+  )::public.preventivo_ordem_remessa
+$$;
+
+comment on function public.preventivo_ordem(timestamptz, text, int, uuid) is
+  'Chave unica de ordenacao das remessas: (dia em Sao Paulo, ordem_no_dia, '
+  'hora comprovada antes de hora ausente, horario declarado, id). Todas as '
+  'funcoes de leitura ordenam e comparam por ela, para que nao haja duas '
+  'respostas diferentes para a mesma pergunta. Horario NAO comprovado nunca '
+  'entra no desempate.';
+
+-- -----------------------------------------------------------------------------
 -- 1. PRECISAO E ORDEM EXPLICITA NA REMESSA
 -- -----------------------------------------------------------------------------
 alter table public.prev_lote add column if not exists extraido_precisao text;
@@ -335,10 +397,10 @@ begin
 
   select id into v_primeiro from public.prev_lote
    where carteira_id = p_carteira_id and status = 'CONFIRMADO'
-   order by public.preventivo_dia(extraido_em), ordem_no_dia, extraido_em limit 1;
+   order by public.preventivo_ordem(extraido_em, extraido_precisao, ordem_no_dia, id) limit 1;
   select id into v_ultimo from public.prev_lote
    where carteira_id = p_carteira_id and status = 'CONFIRMADO'
-   order by public.preventivo_dia(extraido_em) desc, ordem_no_dia desc, extraido_em desc limit 1;
+   order by public.preventivo_ordem(extraido_em, extraido_precisao, ordem_no_dia, id) desc limit 1;
 
   with carteira as (select venc_de, venc_ate from public.prev_carteira where id = p_carteira_id),
   -- O RECORTE: titulo da carteira cuja origem cabe no periodo dela.
@@ -356,8 +418,7 @@ begin
        and (t.vencimento_origem < c.venc_de or t.vencimento_origem > c.venc_ate)
   ), remessas as (
     select l.id, l.nome, l.extraido_em, l.extraido_precisao, l.ordem_no_dia,
-           row_number() over (order by public.preventivo_dia(l.extraido_em),
-                              l.ordem_no_dia, l.extraido_em) as ordem
+           row_number() over (order by public.preventivo_ordem(l.extraido_em, l.extraido_precisao, l.ordem_no_dia, l.id)) as ordem
       from public.prev_lote l
      where l.carteira_id = p_carteira_id and l.status = 'CONFIRMADO'
   ), tl as (
@@ -417,7 +478,7 @@ begin
                or (public.preventivo_dia(l.extraido_em) = public.preventivo_dia(ac.envio_confirmado_em)
                    and l.extraido_precisao = 'DATA_E_HORA' and ac.envio_precisao = 'DATA_E_HORA'
                    and l.extraido_em > ac.envio_confirmado_em))
-        order by public.preventivo_dia(l.extraido_em) desc, l.ordem_no_dia desc limit 1) as ultima_depois,
+        order by public.preventivo_ordem(l.extraido_em, l.extraido_precisao, l.ordem_no_dia, l.id) desc limit 1) as ultima_depois,
       (select count(*) from public.prev_lote l
         where l.carteira_id = p_carteira_id and l.status = 'CONFIRMADO'
           and ac.envio_confirmado_em is not null
@@ -552,22 +613,24 @@ security definer
 set search_path to 'public'
 as $$
 declare v jsonb; v_carteira uuid; v_anterior uuid; v_quando timestamptz;
-        v_ordem int; v_dia date;
+        v_ordem int; v_prec text; v_chave public.preventivo_ordem_remessa;
 begin
   if not public.preventivo_e_gestao() then
     raise exception 'Preventivo: acesso restrito à gestão.' using errcode = '42501';
   end if;
-  select carteira_id, extraido_em, ordem_no_dia into v_carteira, v_quando, v_ordem
+  select carteira_id, extraido_em, ordem_no_dia, extraido_precisao
+    into v_carteira, v_quando, v_ordem, v_prec
     from public.prev_lote where id = p_lote_id;
-  v_dia := public.preventivo_dia(v_quando);
+  v_chave := public.preventivo_ordem(v_quando, v_prec, v_ordem, p_lote_id);
   if v_carteira is null then
     raise exception 'Remessa não encontrada.' using errcode = '22023';
   end if;
 
   select id into v_anterior from public.prev_lote
    where carteira_id = v_carteira and status = 'CONFIRMADO'
-     and (public.preventivo_dia(extraido_em), ordem_no_dia) < (v_dia, v_ordem)
-   order by public.preventivo_dia(extraido_em) desc, ordem_no_dia desc limit 1;
+     and public.preventivo_ordem(extraido_em, extraido_precisao, ordem_no_dia, id) < v_chave
+   order by public.preventivo_ordem(extraido_em, extraido_precisao, ordem_no_dia, id) desc
+   limit 1;
 
   if v_anterior is null then
     return jsonb_build_object('remessa', p_lote_id, 'remessa_anterior', null,
@@ -677,7 +740,7 @@ begin
             or (public.preventivo_dia(l.extraido_em) = v_dia_ancora
                 and l.extraido_precisao = 'DATA_E_HORA' and v_prec = 'DATA_E_HORA'
                 and l.extraido_em > v_ancora))
-     order by public.preventivo_dia(l.extraido_em), l.ordem_no_dia limit 1;
+     order by public.preventivo_ordem(l.extraido_em, l.extraido_precisao, l.ordem_no_dia, l.id) limit 1;
 
     -- Existe foto no mesmo dia que ficou de fora SO por falta de hora?
     select count(*) > 0 into v_pendente from public.prev_lote l
@@ -792,7 +855,9 @@ revoke all on function public.preventivo_lote_confirmar_v2(uuid, text, text, jso
 revoke all on function public.preventivo_acao_externa_registrar(uuid, uuid, text, text, text, timestamptz, text[], boolean, text) from public, anon;
 revoke all on function public.preventivo_no_recorte(uuid) from public, anon;
 revoke all on function public.preventivo_dia(timestamptz) from public, anon;
+revoke all on function public.preventivo_ordem(timestamptz, text, int, uuid) from public, anon;
 grant execute on function public.preventivo_lote_confirmar_v2(uuid, text, text, jsonb, text, jsonb, timestamptz, text, int) to authenticated;
 grant execute on function public.preventivo_acao_externa_registrar(uuid, uuid, text, text, text, timestamptz, text[], boolean, text) to authenticated;
 grant execute on function public.preventivo_no_recorte(uuid) to authenticated;
 grant execute on function public.preventivo_dia(timestamptz) to authenticated;
+grant execute on function public.preventivo_ordem(timestamptz, text, int, uuid) to authenticated;

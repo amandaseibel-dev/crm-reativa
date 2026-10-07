@@ -86,16 +86,36 @@ bolsa, renegociação ou mudança do recorte na origem. Enquanto a conferência 
 o Prime não existir para esses títulos, o módulo diz **saiu da base**, e nunca
 "pago" ou "recuperado".
 
-## 4. O que ainda falta para carregar
+## 4. O que ainda falta — duas etapas SEPARADAS
 
-Perguntas em aberto, que a carga não deve inventar:
+As duas não dependem uma da outra, e nenhuma delas destrava a outra.
 
-1. **Mesmo escopo nos quatro relatórios** (item 1). É o bloqueio principal:
-   sem ele, "saiu da base" não se sustenta.
-2. **Contexto de cada ação.** A ação já registrada ("Mensalidade de outubro",
+### Etapa A — importar as quatro fotos
+
+**Depende só de uma coisa:** a confirmação do item 1, de que os quatro
+relatórios foram extraídos com os **mesmos parâmetros**.
+
+Com essa confirmação, as quatro fotos podem ser importadas e a série de saldo
+e títulos em aberto já fica de pé. Nenhuma ação precisa ser conhecida para
+isso: a evolução da carteira entre remessas não depende de quem foi acionado.
+
+As fotos sem hora comprovada entram com precisão `DATA` e a **ordem no dia**
+declarada por quem importa — F2 é a 1ª de 05/10 e F3 é a 2ª.
+
+### Etapa B — registrar as três ações externas
+
+**Depende de duas coisas, e só delas:**
+
+1. **Contexto de cada ação.** A ação já registrada ("Mensalidade de outubro",
    05/10) é `BOLETO_VENCIDO`. As outras duas precisam da definição da gestão.
-3. **Público de cada ação.** Para cada envio: cobriu a remessa inteira ou uma
+2. **Público de cada ação.** Para cada envio: cobriu a remessa inteira ou uma
    lista? Sem isso, o resultado seria medido sobre gente que não recebeu.
-4. **Hora dos envios.** Onde a hora não for comprovada, o envio é registrado
-   com precisão `DATA` — e o resultado contra uma foto do **mesmo dia** fica
-   pendente, por desenho. A foto seguinte resolve.
+
+A **hora dos envios** não bloqueia o registro: onde ela não for comprovada, a
+ação é registrada com precisão `DATA`. A consequência é conhecida — o
+resultado contra uma foto do **mesmo dia** fica pendente, e a foto seguinte
+resolve.
+
+Se a Etapa A for feita e a B não, a carteira já tem histórico e gráficos; o
+que falta é a atribuição de resultado por ação. O caminho inverso não existe:
+sem as fotos não há contra o que medir ação nenhuma.

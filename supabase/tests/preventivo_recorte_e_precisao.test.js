@@ -13,7 +13,11 @@
 //   5. o que já existia antes desta migration nasce NAO_COMPROVADA: o horário
 //      do upload segue gravado, mas não vale como hora de extração;
 //   6. o DIA é o de America/Sao_Paulo — a resposta não muda se a sessão que
-//      consulta está em UTC ou em Brasília.
+//      consulta está em UTC ou em Brasília;
+//   7. UMA ordenação só para todas as funções: duas fotos com hora conhecida
+//      no mesmo dia nascem ambas com ordem_no_dia = 1 (o default da tela, que
+//      nem pergunta a ordem quando a hora é conhecida) e mesmo assim precisam
+//      ser reconhecidas como consecutivas, pelo horário DECLARADO.
 //
 // NENHUM DADO REAL.
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
@@ -392,7 +396,79 @@ describe("Preventivo — recorte dos indicadores e precisão da extração", () 
     await db.exec(`set time zone 'UTC'`);
   });
 
-  // --- 7. PORTÃO --------------------------------------------------------
+  // --- 7. UMA ORDENAÇÃO SÓ PARA TODAS AS FUNÇÕES -----------------------
+
+  // O caso que estava quebrado: a tela não pergunta a ordem no dia quando a
+  // hora é conhecida, então as duas fotos nascem com ordem_no_dia = 1. A
+  // comparação olhava só (dia, ordem) e empatava — a de 15h não achava a de
+  // 09h e se declarava "primeira remessa". `importar` aqui é chamado com os
+  // valores PADRÃO da tela de propósito.
+  it("duas fotos DATA_E_HORA no mesmo dia, 09h e 15h, com os padrões da tela", async () => {
+    const manha = await importar("Manhã", [t("2026000001"), t("2026000002"), t("2026000003")],
+                                 "2026-10-05 09:00-03");
+    const tarde = await importar("Tarde", [t("2026000001"), t("2026000002")],
+                                 "2026-10-05 15:00-03");
+
+    // as duas nasceram com o mesmo ordem_no_dia — é esse o cenário
+    const ordens = await db.query(
+      `select ordem_no_dia, extraido_precisao from public.prev_lote order by extraido_em`);
+    expect(ordens.rows.map((r) => r.ordem_no_dia)).toEqual([1, 1]);
+    expect(ordens.rows.map((r) => r.extraido_precisao)).toEqual(["DATA_E_HORA", "DATA_E_HORA"]);
+
+    // comparar: a de 15h reconhece a de 09h como anterior
+    const c = await um(db, `select public.preventivo_remessa_comparar($1::uuid)`, [tarde.lote_id]);
+    expect(c.primeira_remessa).toBe(false);
+    expect(c.remessa_anterior).toBe(manha.lote_id);
+    expect(c.saiu_da_base.titulos).toBe(1);
+    expect(c.continua_em_aberto.titulos).toBe(2);
+
+    // ...e a de 09h é que é a primeira
+    const c2 = await um(db, `select public.preventivo_remessa_comparar($1::uuid)`, [manha.lote_id]);
+    expect(c2.primeira_remessa).toBe(true);
+
+    // evolução: a MESMA ordem, e os cards batem com a comparação
+    const e = await evolucao();
+    expect(e.pontos.map((x) => x.remessa)).toEqual([manha.lote_id, tarde.lote_id]);
+    expect(e.pontos.map((x) => x.ordem)).toEqual([1, 2]);
+    expect(e.pontos[1].saiu_da_base_titulos).toBe(c.saiu_da_base.titulos);
+    expect(e.cards.titulos_inicial).toBe(3);
+    expect(e.cards.titulos_ainda_abertos).toBe(2);
+    expect(e.cards.saiu_da_base_titulos).toBe(1);
+  });
+
+  it("as três funções concordam sobre qual remessa vem depois do envio", async () => {
+    const manha = await importar("Manhã", [t("2026000001"), t("2026000002")],
+                                 "2026-10-05 09:00-03");
+    const a = await registrar(manha.lote_id, "E-mail das 10h", "EMAIL", "BOLETO_VENCIDO",
+                              "2026-10-05 10:00-03");
+    const tarde = await importar("Tarde", [t("2026000001")], "2026-10-05 15:00-03");
+
+    const res = await resultado(a.id);
+    const ev = (await evolucao()).acoes.find((x) => x.id === a.id);
+    // acao_resultado escolhe a PRIMEIRA depois; evolucao, a ÚLTIMA. Com duas
+    // remessas e só uma depois do envio, as duas têm que apontar a mesma.
+    expect(res.remessa_seguinte).toBe(tarde.lote_id);
+    expect(ev.comparado_com).toBe(tarde.lote_id);
+    expect(res.saiu_da_base).toBe(ev.saiu_titulos);
+    expect(res.saiu_da_base).toBe(1);
+    expect(res.sequencia_nao_comprovada).toBe(false);
+  });
+
+  it("hora comprovada vem antes de hora ausente no mesmo dia e ordem", async () => {
+    // mesma ordem_no_dia = 1: quem declarou hora vem primeiro, e a sem hora
+    // NÃO é posta antes por um horário que ninguém afirmou.
+    const comHora = await importar("Com hora", [t("2026000001"), t("2026000002")],
+                                   "2026-10-05 09:00-03");
+    const semHora = await importar("Sem hora", [t("2026000001")],
+                                   "2026-10-05 00:00-03", "DATA", 1);
+
+    const e = await evolucao();
+    expect(e.pontos.map((x) => x.remessa)).toEqual([comHora.lote_id, semHora.lote_id]);
+    const c = await um(db, `select public.preventivo_remessa_comparar($1::uuid)`, [semHora.lote_id]);
+    expect(c.remessa_anterior).toBe(comHora.lote_id);
+  });
+
+  // --- 8. PORTÃO --------------------------------------------------------
 
   it("quem não é da gestão não lê nem registra", async () => {
     const r = await importar("Foto", [t("2026000001")], "2026-10-05 15:00-03");
