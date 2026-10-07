@@ -269,8 +269,9 @@ acordo a que estão penduradas:
 
 Como o boleto **não está duplicado**, o acordo `ATIVO` não tem essa parcela no
 CRM: ela está pendurada em outro acordo. Se a extração trouxer esses 46 em aberto,
-o CRM tenderá a classificá-los como fora do universo ou como excesso — quando são
-do universo e o erro é do CRM.
+o CRM tenderá a classificá-los como fora do universo ou como excesso. Se o Prime
+confirmar o vínculo e a situação em aberto desses boletos, a divergência será
+atribuída ao CRM.
 
 **São hipóteses de vínculo errado, não vínculos errados confirmados.** A
 confirmação só vem da tela do Prime, acordo a acordo. Estar em acordo `QUITADO`
