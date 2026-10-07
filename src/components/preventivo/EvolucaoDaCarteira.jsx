@@ -9,6 +9,14 @@
 // A PALAVRA É "SAIU DA BASE". Sem confirmação de pagamento na fonte, o título
 // que deixa de aparecer no relatório seguinte saiu — pode ter sido pagamento,
 // cancelamento, bolsa, renegociação ou mudança de recorte.
+//
+// TRÊS COISAS QUE A TELA NÃO PODE ESCONDER:
+//   1. o que ficou FORA DO RECORTE (origem de outra competência) — continua na
+//      carteira e na ação, mas não entra em indicador nenhum;
+//   2. "entradas" com três nomes distintos, porque são três números diferentes:
+//      na série, ainda presentes e as que já saíram;
+//   3. ação cuja sequência com a remessa não está provada aparece PENDENTE —
+//      não "0", que leria como "ninguém saiu".
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid, LabelList,
@@ -25,6 +33,15 @@ const CONTEXTOS = {
   BOLETO_VENCIDO: "Boleto vencido",
 };
 const CANAIS = { WHATSAPP: "WhatsApp", EMAIL: "E-mail" };
+
+// A hora só é exibida quando alguém declarou que ela é a da extração (ou a do
+// envio). "DATA" e "NAO_COMPROVADA" caem no mesmo lugar: mostrar um horário que
+// ninguém mediu dá à tela uma precisão que o dado não tem.
+const horaCurta = (ts) =>
+  new Date(ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+const quando = (ts, precisao) =>
+  precisao === "DATA_E_HORA" ? dataHora(ts) : dataCurta(ts);
 
 const compacto = (v) => {
   const n = Number(v || 0);
@@ -58,18 +75,28 @@ function TooltipPonto({ active, payload }) {
     <div style={caixa}>
       <div style={{ fontWeight: 800 }}>{d.nome}</div>
       <div style={{ ...S.muted, fontSize: 11.5, marginBottom: 6 }}>
-        extraído em {dataHora(d.extraido_em)}
+        extraído em {quando(d.extraido_em, d.extraido_precisao)}
+        {d.extraido_precisao !== "DATA_E_HORA" && ` · ${d.ordem_no_dia}ª do dia`}
       </div>
       <Par rot="Títulos em aberto" val={d.titulos} />
       <Par rot="Alunos" val={d.alunos} />
       <Par rot="Saldo" val={moeda(d.saldo)} />
-      {d.saiu_da_base_titulos !== null && (
+      {d.sequencia_nao_comprovada ? (
+        <div style={{ marginTop: 6, fontSize: 11.5, color: "var(--rv-texto-fraco)", maxWidth: 240 }}>
+          Sem ordem comprovada em relação à foto anterior: o que saiu entre as duas fica
+          pendente.
+        </div>
+      ) : (
         <>
-          <Par rot="Saíram desde a anterior" val={d.saiu_da_base_titulos} />
-          <Par rot="Valor que saiu" val={moeda(d.saiu_da_base_valor)} />
+          {d.saiu_da_base_titulos !== null && (
+            <>
+              <Par rot="Saíram desde a anterior" val={d.saiu_da_base_titulos} />
+              <Par rot="Valor que saiu" val={moeda(d.saiu_da_base_valor)} />
+            </>
+          )}
+          {d.entraram ? <Par rot="Entraram" val={d.entraram} /> : null}
         </>
       )}
-      {d.entraram ? <Par rot="Entraram" val={d.entraram} /> : null}
     </div>
   );
 }
@@ -84,7 +111,17 @@ function Par({ rot, val }) {
 
 export default function EvolucaoDaCarteira({ dados }) {
   if (!dados) return null;
-  const pontos = (dados.pontos || []).map((p) => ({ ...p, data: dataCurta(p.extraido_em) }));
+  // Duas fotos do mesmo dia dariam dois rótulos "05/10" no eixo. Quando isso
+  // acontece, o rótulo ganha a hora declarada ou, sem hora, a ordem no dia —
+  // a mesma ordem que o banco usou para enfileirar os pontos.
+  const brutos = (dados.pontos || []).map((p) => ({ ...p, data: dataCurta(p.extraido_em) }));
+  const repetida = brutos.reduce((c, p) => ({ ...c, [p.data]: (c[p.data] || 0) + 1 }), {});
+  const pontos = brutos.map((p) => repetida[p.data] < 2 ? p : {
+    ...p,
+    data: p.extraido_precisao === "DATA_E_HORA"
+      ? `${p.data} ${horaCurta(p.extraido_em)}`
+      : `${p.data} (${p.ordem_no_dia}ª)`,
+  });
   const c = dados.cards || {};
 
   if (pontos.length === 0) {
@@ -107,8 +144,12 @@ export default function EvolucaoDaCarteira({ dados }) {
         <Cartao rotulo="Saldo ainda aberto" valor={moeda(c.saldo_ainda_aberto)}
                 sub={`${c.titulos_ainda_abertos ?? 0} títulos · ${dataCurta(c.ultima_extracao)}`} />
         <Cartao rotulo="Saíram da base" valor={c.saiu_da_base_titulos ?? 0}
-                sub={`${moeda(c.saiu_da_base_valor)}${c.entraram_depois ? ` · ${c.entraram_depois} entraram depois` : ""}`} />
+                sub={moeda(c.saiu_da_base_valor)} />
       </div>
+
+      <OrdemAmbigua ativa={c.ordem_ambigua} />
+      <Entradas cards={c} />
+      <ForaDoRecorte fora={dados.fora_do_recorte} />
 
       <p style={{ ...S.muted, marginTop: 10, fontSize: 12 }}>{dados.definicao}</p>
 
@@ -147,6 +188,79 @@ export default function EvolucaoDaCarteira({ dados }) {
       </div>
 
       <HistoricoDasAcoes acoes={dados.acoes || []} />
+    </div>
+  );
+}
+
+// A ordem da fila é sempre estável, mas nem sempre comprovada. Quando saiu de
+// um desempate arbitrário, a tela diz — senão os cards passariam a impressão
+// de que a série tem uma cronologia que ninguém verificou.
+function OrdemAmbigua({ ativa }) {
+  if (!ativa) return null;
+  return (
+    <div style={{ ...S.card, padding: 14, marginTop: 12, borderLeft: "3px solid var(--rv-grafico-2)" }}>
+      <div style={{ fontWeight: 700, fontSize: 13 }}>Ordem entre duas fotos do mesmo dia não comprovada</div>
+      <div style={{ ...S.muted, fontSize: 12, marginTop: 4 }}>
+        Duas remessas do mesmo dia não têm como ser ordenadas com certeza: falta a hora de
+        extração em uma delas, ou as duas têm a mesma ordem no dia. Elas aparecem na tela
+        numa ordem estável, mas o que saiu da base <strong>entre elas</strong> fica pendente —
+        e os cards de início e fim da série podem depender dessa escolha. Informar a ordem no
+        dia, ou a hora de extração, resolve.
+      </div>
+    </div>
+  );
+}
+
+// AS TRÊS ENTRADAS. Elas vinham sob um nome só e por isso apareciam dois
+// números diferentes para a mesma série. São grandezas distintas: a primeira
+// conta tudo que apareceu depois da primeira foto; a segunda, quanto disso
+// ainda está em aberto; a terceira, o que entrou e já saiu. A soma das duas
+// últimas é a primeira — a tela mostra isso explicitamente.
+function Entradas({ cards }) {
+  const serie = cards.entradas_na_serie;
+  if (!serie) return null;
+  return (
+    <div style={{ ...S.card, padding: 16, marginTop: 12 }}>
+      <div style={{ ...S.muted, fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+        Entradas depois da primeira foto
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 24, marginTop: 8, alignItems: "baseline" }}>
+        <Entrada n={serie} rot="entraram na série" forte />
+        <span style={{ ...S.muted, fontSize: 18 }}>=</span>
+        <Entrada n={cards.entradas_ainda_presentes} rot="ainda presentes na última foto" />
+        <span style={{ ...S.muted, fontSize: 18 }}>+</span>
+        <Entrada n={cards.entradas_que_sairam} rot="entraram e já saíram" />
+      </div>
+    </div>
+  );
+}
+
+function Entrada({ n, rot, forte }) {
+  return (
+    <div>
+      <div style={{ fontSize: forte ? 22 : 19, fontWeight: forte ? 800 : 700 }}>{n ?? 0}</div>
+      <div style={{ ...S.muted, fontSize: 11.5 }}>{rot}</div>
+    </div>
+  );
+}
+
+// FORA DO RECORTE: títulos com vencimento de ORIGEM de outra competência. Eles
+// entraram antes da regra existir e não são apagados — só deixam de contar.
+// A tela diz quantos são, quanto valem e quais matrículas, para conferência.
+function ForaDoRecorte({ fora }) {
+  if (!fora || !fora.titulos) return null;
+  return (
+    <div style={{ ...S.card, padding: 14, marginTop: 12, borderLeft: "3px solid var(--rv-grafico-2)" }}>
+      <div style={{ fontWeight: 700, fontSize: 13 }}>
+        {fora.titulos} {fora.titulos === 1 ? "título fora do recorte" : "títulos fora do recorte"}
+        {" · "}{moeda(fora.valor)}
+      </div>
+      <div style={{ ...S.muted, fontSize: 12, marginTop: 4 }}>{fora.observacao}</div>
+      {fora.matriculas?.length ? (
+        <div style={{ ...S.muted, fontSize: 12, marginTop: 4 }}>
+          Matrículas: <strong>{fora.matriculas.join(", ")}</strong>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -195,13 +309,15 @@ function HistoricoDasAcoes({ acoes }) {
                   <td style={S.td}>{CANAIS[a.canal] || a.canal}</td>
                   <td style={S.td}>{CONTEXTOS[a.contexto] || "—"}</td>
                   <td style={S.td}>{a.origem === "EXTERNA" ? "Fora do CRM" : "Módulo"}</td>
-                  <td style={S.td}>{a.enviada_em ? dataHora(a.enviada_em) : "—"}</td>
+                  <td style={S.td}>
+                    {a.enviada_em ? quando(a.enviada_em, a.envio_precisao) : "—"}
+                  </td>
                   <td style={S.td}>{a.remessa_nome}</td>
                   <td style={S.td}>{a.publico === "lista_informada" ? "Lista" : "Remessa inteira"}</td>
                   <td style={S.td}>{a.base_titulos}</td>
                   <td style={S.td}>{moeda(a.base_saldo)}</td>
                   <td style={S.td}>{a.atualizacoes_depois}</td>
-                  <td style={S.td}>{a.saiu_titulos ?? "—"}</td>
+                  <td style={S.td}>{a.saiu_titulos ?? (a.sequencia_nao_comprovada ? "pendente" : "—")}</td>
                   <td style={S.td}>{a.saiu_valor === null ? "—" : moeda(a.saiu_valor)}</td>
                   <td style={S.td}>{a.em_aberto ?? "—"}</td>
                   <td style={S.td}>{a.taxa_titulos === null ? "—" : `${a.taxa_titulos}%`}</td>
@@ -211,6 +327,27 @@ function HistoricoDasAcoes({ acoes }) {
             </tbody>
           </table>
         </div>
+      )}
+      {acoes.some((a) => a.envio_precisao === "NAO_COMPROVADA") && (
+        <p style={{ ...S.muted, marginTop: 10, fontSize: 11.5 }}>
+          Ações registradas antes desta versão não têm hora de envio comprovada — o horário
+          gravado é o do cadastro, não o do disparo. Ele continua guardado, mas não é usado
+          para decidir o que veio antes.
+        </p>
+      )}
+      {acoes.some((a) => a.sequencia_nao_comprovada) && (
+        <p style={{ ...S.muted, marginTop: 10, fontSize: 11.5 }}>
+          <strong>Pendente</strong> = a única remessa candidata é do <strong>mesmo dia</strong> do
+          envio e falta hora comprovada de um dos dois lados. Sem saber o que veio antes, o
+          resultado não é calculado — e muito menos arredondado para zero. A próxima remessa
+          resolve.
+        </p>
+      )}
+      {acoes.some((a) => a.base_fora_do_recorte > 0) && (
+        <p style={{ ...S.muted, marginTop: 6, fontSize: 11.5 }}>
+          Algumas ações incluem títulos fora do recorte. Eles continuam registrados como
+          destinatários, mas não entram nas colunas acima.
+        </p>
       )}
       {acoes.some((a) => a.sem_envio_confirmado) && (
         <p style={{ ...S.muted, marginTop: 10, fontSize: 11.5 }}>
