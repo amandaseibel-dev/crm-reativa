@@ -4,10 +4,56 @@ import { Carregando } from "../ui/estados";
 import EfetividadePorVencimento from "../components/EfetividadePorVencimento";
 import EfetividadeCompetencias from "../components/EfetividadeCompetencias";
 import SeisLinhasDaSafra from "../components/SeisLinhasDaSafra";
-import StatusAcademicoPorSafra from "../components/StatusAcademicoPorSafra";
+import ComposicaoAcademicaDoSaldo from "../components/ComposicaoAcademicaDoSaldo";
+import PendenciasDeValidacao from "../components/PendenciasDeValidacao";
+import ComparativoSafras from "../components/ComparativoSafras";
 import CasosPendentes from "../components/CasosPendentes";
 
 // EFETIVIDADE DA COBRANÇA — visão executiva, um layout só para toda safra.
+//
+// ---------------------------------------------------------------------------
+// A PÁGINA EM QUATRO BLOCOS (redesenho pedido pela gestão em 07/10/2026)
+//
+//   1. RESUMO DA CARTEIRA ..... Universo recebido → Recuperado → Em aberto →
+//                               Efetividade, nessa ordem de leitura, com alunos
+//                               e títulos como apoio.
+//   2. SITUAÇÃO FINANCEIRA .... as cinco classes (Pago, Negociado, Em aberto,
+//                               Pendente, Cancelado) sobre o universo — as seis
+//                               linhas, intocadas.
+//   3. COMPOSIÇÃO DO ABERTO ... quem compõe o saldo, por situação acadêmica
+//                               real, com alunos, títulos, saldo e percentual.
+//   4. PENDÊNCIAS ............. por que o pendente está pendente, por motivo
+//                               real, com caminho para a Fila Única.
+//
+// A Efetividade é tela de ANÁLISE. O tratamento caso a caso é na Fila Única de
+// Confirmação — nenhum caso é corrigido aqui.
+//
+// O QUE SAIU POR DUPLICAÇÃO, e para onde foi:
+//   • "Situação da carteira" (as barras de Convertido / Em aberto sem
+//     negociação / Em conferência / Encerrado, em 2026/1; e as quatro linhas
+//     históricas em 2024/2025) contava a MESMA história das seis linhas, com
+//     outros rótulos e outra régua. Ficaram as seis linhas, que valem para toda
+//     safra. Em 2026/2 o bloco PERMANECE: lá ele mostra os estados do acordo
+//     (Quitado / Regular / Em atraso / Quebrado / Cancelado), que é conceito
+//     diferente e não tem equivalente nas seis linhas.
+//   • Os quatro indicadores por natureza de período (um conjunto em 2026/1,
+//     outro em 2024/2025) viraram UM conjunto só, igual em toda safra, lido da
+//     mesma fonte das seis linhas — por isso o topo e o cartão não podem
+//     divergir.
+//   • "Alunos por status" (dentro das seis linhas) e o card "Status acadêmico
+//     por safra" listavam as mesmas categorias da mesma importação. Os dois
+//     saíram; entrou a composição financeira do bloco 3, que traz o que os dois
+//     traziam e o saldo, que faltava.
+//   • O comparativo entre safras ficou compacto — Safra, Universo, Recuperado,
+//     Em aberto, Efetividade — e carrega SOB DEMANDA: são três consultas ao
+//     vivo, e abri-las em toda visita custaria caro sem ninguém ter pedido.
+//
+// ATUALIZAÇÃO DOS DADOS. O financeiro é lido ao vivo: ao abrir a tela, ao trocar
+// de safra, ao trocar de visão e ao clicar em "Atualizar dados" (o contador
+// `recarga`, que é dependência de todas as consultas). Não há polling nem
+// realtime — atualizar é refazer a consulta nesses pontos. O status acadêmico é
+// fotografia da importação e só muda quando a importação muda; a tela sempre diz
+// a data.
 //
 // O que muda entre 2024, 2025, 2026/1 e 2026/2 é o DADO e o CONCEITO do
 // período, nunca o desenho da página. Em qualquer safra a Diretoria encontra,
@@ -77,6 +123,18 @@ export default function CarteiraEfetividade() {
   const [metodologia, setMetodologia] = useState(false);
   const [obraAberta, setObraAberta] = useState(false);
   const [email, setEmail] = useState(null);
+  // `recarga` é a dependência única da política de atualização: incrementar faz
+  // TODA consulta ao vivo desta tela refazer — a da página e a de cada bloco
+  // filho, que o recebem por prop. É o que o botão "Atualizar dados" faz.
+  const [recarga, setRecarga] = useState(0);
+  const [comparativo, setComparativo] = useState(false);
+  // As seis linhas da safra selecionada, buscadas AQUI e não dentro do cartão:
+  // o mesmo payload alimenta o resumo executivo do topo e o cartão das seis
+  // linhas. Duas chamadas seriam duas fotografias de instantes diferentes na
+  // mesma tela — e uma consulta ao vivo cara, repetida à toa.
+  const [situacoes, setSituacoes] = useState(null);
+  const [erroSituacoes, setErroSituacoes] = useState("");
+  const [carregandoSituacoes, setCarregandoSituacoes] = useState(true);
 
   useEffect(() => {
     let ativo = true;
@@ -106,7 +164,31 @@ export default function CarteiraEfetividade() {
       setCarregando(false);
     })();
     return () => { ativo = false; };
-  }, []);
+    // `recarga` entra na lista: "Atualizar dados" também refaz o contexto de
+    // 2026/2 e o histórico por ano, não só as seis linhas.
+  }, [recarga]);
+
+  // As seis linhas da safra selecionada. Efeito próprio porque depende da
+  // escolha de período — e porque uma falha aqui não pode derrubar o resto.
+  // 2026/2 não entra: aquela safra tem caminho próprio (`carteira_2026_2_*`).
+  useEffect(() => {
+    let ativo = true;
+    (async () => {
+      if (ano === "2026" && sem === "2") {
+        setSituacoes(null); setErroSituacoes(""); setCarregandoSituacoes(false);
+        return;
+      }
+      setCarregandoSituacoes(true);
+      setErroSituacoes("");
+      const { data, error } = await supabase.rpc("carteira_safra_situacoes",
+        { p_ano: ano, p_semestre: ano === "2026" ? sem : null });
+      if (!ativo) return;
+      if (error) { setErroSituacoes(error.message || "falha ao consultar"); setSituacoes(null); }
+      else setSituacoes(data || null);
+      setCarregandoSituacoes(false);
+    })();
+    return () => { ativo = false; };
+  }, [ano, sem, recarga]);
 
   if (carregando) return <Carregando />;
 
@@ -139,31 +221,52 @@ export default function CarteiraEfetividade() {
   // evita a leitura errada de um percentual sem denominador declarado.
   let referenciaRotulo = "";
 
+  // -------------------------------------------------- BLOCO 1, EM TODA SAFRA
+  // Um conjunto só de indicadores, lido da MESMA fonte das seis linhas, na
+  // ordem de leitura que a gestão pediu: Universo recebido → Recuperado →
+  // Em aberto → Efetividade. Antes havia um conjunto por natureza de período
+  // (quatro rótulos em 2026/1, outros quatro em 2024/2025) e os mesmos valores
+  // reapareciam mais abaixo com outros nomes.
+  //
+  // A ÚNICA CONTA DO FRONT AQUI é o share — `parte ÷ todo` sobre números que a
+  // RPC já devolveu prontos. É exatamente a mesma participação que as seis
+  // linhas desenham na barra de cada situação, pelo mesmo helper. Nenhum valor
+  // financeiro é recomposto, somado ou ajustado no navegador.
+  function indicadoresDaSafra(s) {
+    const entrou = Number(s.entrou?.valor || 0);
+    const pago = Number(s.pago?.valor || 0);
+    const aberto = Number(s.em_aberto?.valor || 0);
+    return [
+      { rotulo: "Universo recebido", valor: moedaCurta(entrou),
+        apoio: num(s.entrou?.alunos) + " alunos · " + num(s.entrou?.titulos) + " títulos",
+        cor: "var(--rv-tinta)" },
+      { rotulo: "Recuperado", valor: moedaCurta(pago),
+        apoio: pctTexto(pago, entrou, 1) + " do universo recebido", cor: VERDE },
+      { rotulo: "Em aberto", valor: moedaCurta(aberto),
+        apoio: pctTexto(aberto, entrou, 1) + " do universo recebido", cor: VERMELHO },
+      { rotulo: "Efetividade", valor: pctTexto(pago, entrou, 1),
+        apoio: "recuperado ÷ universo recebido", cor: AZUL },
+    ];
+  }
+
+  if (safra !== "2026/2" && situacoes?.situacoes) {
+    referencia = Number(situacoes.situacoes.entrou?.valor || 0);
+    indicadores = indicadoresDaSafra(situacoes.situacoes);
+    // `situacao` fica vazio de propósito fora de 2026/2: as barras de
+    // "Situação da carteira" diziam o mesmo que as seis linhas. Ver o cabeçalho
+    // do arquivo.
+    situacao = [];
+  }
+
   if (safra === "2026/1" && consolidada) {
-    const base = Number(consolidada.base?.valor || 0);
-    const f = consolidada.faixas || {};
-    referencia = base;
-    indicadores = [
-      { rotulo: "Carteira convertida", valor: moedaCurta(f.efetividade), apoio: pctTexto(f.efetividade, base), cor: AZUL },
-      { rotulo: "Valor recebido", valor: moedaCurta(consolidada.recuperacao?.total), apoio: pctTexto(consolidada.recuperacao?.total, base), cor: VERDE },
-      { rotulo: "Alunos da carteira", valor: num(consolidada.base?.cpfs) + " alunos", apoio: num(consolidada.base?.titulos) + " títulos", cor: "var(--rv-tinta)" },
-      { rotulo: "Em aberto sem negociação", valor: moedaCurta(f.inadimplencia), apoio: pctTexto(f.inadimplencia, base), cor: VERMELHO },
-    ];
-    situacao = [
-      { rotulo: "Convertido", valor: f.efetividade, cor: AZUL },
-      { rotulo: "Em aberto sem negociação", valor: f.inadimplencia, cor: VERMELHO },
-      { rotulo: "Em conferência", valor: f.em_validacao, cor: AMBAR },
-      // Desde 06/10/2026 esta faixa carrega duas coisas: o ajuste acadêmico de
-      // sempre e a cobrança encerrada administrativamente, que o classificador
-      // põe em FORA_DA_BASE e que antes não entrava em faixa nenhuma — por isso
-      // as barras não fechavam 100% da base. É a mesma regra que a visão das
-      // seis linhas aplica na linha "Cancelado". O rótulo diz as duas; a
-      // decomposição vem em `academico_detalhe`, para auditoria.
-      { rotulo: "Encerrado / ajuste acadêmico", valor: f.academico, cor: CINZA },
-    ];
-    referenciaRotulo = "da carteira congelada";
-    rodape = "Carteira de " + moeda(base) + " · congelada em " + data(consolidada.base?.congelada_em)
-           + " · fotografia de " + data(consolidada.gerado_em);
+    // `carteira_2026_1_indicadores` continua sendo chamada, mas SÓ pelo
+    // contexto do rodapé — a data de congelamento e a da fotografia. Os valores
+    // dela não aparecem como indicador: quem publica carteira, recuperado e
+    // aberto é `carteira_safra_situacoes`, ao vivo, e dois números de universo
+    // na mesma tela seriam a duplicação que este redesenho veio remover.
+    rodape = "Carteira congelada em " + data(consolidada.base?.congelada_em)
+           + " · fotografia de referência de " + data(consolidada.gerado_em)
+           + " · os valores acima são lidos ao vivo, não desta fotografia";
   }
 
   if (safra === "2026/2" && vigente) {
@@ -208,25 +311,26 @@ export default function CarteiraEfetividade() {
 
   const hist = ano !== "2026" ? (historico?.anos || []).find((x) => x.ano === ano) : null;
   if (hist) {
-    const aberto = hist.aberto || {}, carteira = hist.carteira || {};
-    referencia = Number(carteira.valor_original || 0);
-    indicadores = [
-      { rotulo: "Saldo em aberto", valor: moedaCurta(aberto.valor), apoio: num(aberto.mensalidades) + " mensalidades", cor: VERMELHO },
-      { rotulo: "Alunos com saldo em aberto", valor: num(aberto.alunos) + " alunos", apoio: "sem repetir aluno no ano", cor: "var(--rv-tinta)" },
-      { rotulo: "Negociado desde jul/2026", valor: moedaCurta(hist.negociado), apoio: "conversão comprovada", cor: AZUL },
-      { rotulo: "Recebido desde jul/2026", valor: moedaCurta(hist.recebido), apoio: "dinheiro recebido", cor: VERDE },
-    ];
-    situacao = [
-      { rotulo: "Negociado desde julho", valor: hist.negociado, cor: AZUL },
-      { rotulo: "Recebido desde julho", valor: hist.recebido, cor: VERDE },
-      { rotulo: "Saldo em aberto (mensalidade original)", valor: aberto.valor, cor: VERMELHO },
-      { rotulo: "Negociado direto com a Ulbra, a confirmar", valor: hist.ulbra_166?.valor, cor: AMBAR },
-    ];
-    referenciaRotulo = "da carteira residual do ano";
+    const carteira = hist.carteira || {};
+    // Mesma decisão de 2026/1: `carteira_saldo_historico_por_ano` continua
+    // sendo lida, mas agora pelo CONTEXTO (quando a carteira entrou em
+    // cobrança, quando a Prime foi coletada) e pela composição por curso lá
+    // embaixo. Os quatro indicadores do ano saíram: diziam, com outros
+    // rótulos, o que o resumo único já diz — e por régua diferente, o que fazia
+    // o mesmo "em aberto" aparecer com dois valores na mesma página.
+    //
+    // "Negociado direto com a Ulbra, a confirmar" saiu das barras junto com o
+    // bloco "Situação da carteira". Ele não foi perdido: é exposição por CPF,
+    // não por título, e continua descrito na metodologia — virar barra ao lado
+    // de valores por título era justamente o que confundia a régua.
     rodape = "Carteira residual do ano: " + moeda(carteira.valor_original) + " · " + num(carteira.titulos)
            + " títulos · " + num(carteira.cpfs) + " alunos · entrada em cobrança de " + data(carteira.entrada_de)
            + " a " + data(carteira.entrada_ate) + " · situação na Prime coletada em "
-           + data(historico?.prime_coletado_em);
+           + data(historico?.prime_coletado_em)
+           + (Number(hist.ulbra_166?.valor) > 0
+                ? " · negociado direto com a Ulbra, a confirmar: " + moeda(hist.ulbra_166.valor)
+                  + " em " + num(hist.ulbra_166.mensalidades) + " mensalidades (exposição por CPF)"
+                : "");
   }
 
   // De que curso vem o saldo em aberto — só 2024/2025. A situação acadêmica
@@ -245,6 +349,15 @@ export default function CarteiraEfetividade() {
                 title="Esta área ainda está em construção e pode receber ajustes de layout, nomenclatura e visualização."
                 style={S.selo}>
           Em construção
+        </button>
+        {/* ATUALIZAR DADOS. Não há polling nem realtime nesta tela de
+            propósito: o financeiro é lido ao vivo nos pontos definidos — abrir,
+            trocar de safra, trocar de visão e este botão. Ele só incrementa
+            `recarga`, que é dependência de todas as consultas. */}
+        <button onClick={() => setRecarga((v) => v + 1)}
+                title="Refaz as consultas financeiras desta tela, ao vivo. O status acadêmico é fotografia da importação e não muda aqui."
+                style={{ ...S.selo, marginLeft: "auto" }}>
+          ↻ Atualizar dados
         </button>
       </header>
       {obraAberta ? (
@@ -316,11 +429,16 @@ export default function CarteiraEfetividade() {
         <div style={{ marginTop: 18 }}>
           <EfetividadePorVencimento />
         </div>
-      ) : indicadores.length === 0 ? (
-        <p style={{ ...S.discreto, marginTop: 24 }}>Sem dados para {periodo}.</p>
       ) : (
         <>
-          {/* 1. QUATRO INDICADORES — mesmo tamanho e mesma posição em toda safra */}
+          {/* BLOCO 1. RESUMO DA CARTEIRA — mesmo tamanho e mesma posição em
+              toda safra. Some quando a consulta da safra falha; os blocos
+              abaixo seguem montando, cada um com o próprio aviso de erro. Antes
+              uma falha aqui trocava a página inteira por "Sem dados", e quem
+              lia não sabia se não havia dado ou se a consulta tinha caído. */}
+          {indicadores.length === 0 ? (
+            <p style={{ ...S.discreto, marginTop: 24 }}>Sem dados para {periodo}.</p>
+          ) : (
           <div style={S.linhaIndicadores}>
             {indicadores.map((i) => (
               <div key={i.rotulo} style={S.indicador}>
@@ -331,25 +449,42 @@ export default function CarteiraEfetividade() {
               </div>
             ))}
           </div>
+          )}
           {rodape ? <p style={S.rodapeDiscreto}>{rodape}</p> : null}
 
-          {/* 1b. AS SEIS LINHAS — Entrou, Pago, Negociado, Cancelado, Em aberto
-              e Pendente, no mesmo desenho de 2026/2. Pedido da gestão em
-              05/10/2026: a Diretoria encontra as mesmas seis linhas em toda
-              safra, em vez de um recorte conceitual diferente por período. */}
-          <SeisLinhasDaSafra ano={ano} semestre={ano === "2026" ? sem : null} />
+          {/* BLOCO 2. SITUAÇÃO FINANCEIRA — "as seis linhas da safra" — Entrou, Pago, Negociado,
+              Cancelado, Em aberto e Pendente, no mesmo desenho de 2026/2. O
+              payload é o mesmo que alimenta o bloco 1 acima: a página busca uma
+              vez e passa para os dois, para o topo e o cartão nunca divergirem. */}
+          {safra !== "2026/2" ? (
+            <SeisLinhasDaSafra ano={ano} semestre={ano === "2026" ? sem : null}
+                               dados={situacoes} erro={erroSituacoes}
+                               carregando={carregandoSituacoes} />
+          ) : null}
 
-          {/* 1c. STATUS ACADEMICO POR SAFRA — 2024, 2025 e 2026/1 lado a lado.
-              Fora de 2026/2 de proposito: aquela safra nao tem perfil academico,
-              e o card compara exatamente as tres que tem fotografia. */}
-          {safra !== "2026/2" ? <StatusAcademicoPorSafra /> : null}
+          {/* BLOCO 3. QUEM COMPÕE O SALDO EM ABERTO — composição financeira por
+              situação acadêmica real. Fora de 2026/2 de propósito: aquela safra
+              não tem fonte acadêmica equivalente, e a própria RPC recusa o
+              recorte em vez de devolver uma lista vazia. */}
+          {safra !== "2026/2" ? (
+            <ComposicaoAcademicaDoSaldo ano={ano} semestre={ano === "2026" ? sem : null}
+                                        recarga={recarga} />
+          ) : null}
 
-          {/* 1d. CASOS AINDA PENDENTES — indicador operacional da carteira
-              inteira, nao por safra. Aparece em qualquer recorte de proposito:
-              o numero e o mesmo, e o cabecalho diz isso. */}
-          <CasosPendentes />
+          {/* BLOCO 4. PENDÊNCIAS DE VALIDAÇÃO — por que o pendente está
+              pendente, por motivo real, com caminho para a Fila Única. */}
+          {safra !== "2026/2" ? (
+            <PendenciasDeValidacao ano={ano} semestre={ano === "2026" ? sem : null}
+                                   recarga={recarga} />
+          ) : null}
 
-          {/* 2. SITUAÇÃO DA CARTEIRA — sempre barras simples, nunca tabela */}
+          {/* SITUAÇÃO DA CARTEIRA — barras simples, nunca tabela. Só sobrevive
+              onde `situacao` tem linha, e hoje isso é SÓ 2026/2: ali as barras
+              são os estados do acordo (Quitado / Regular / Em atraso /
+              Quebrado / Cancelado), conceito que não tem equivalente nas seis
+              linhas. Nas outras safras elas contavam a mesma história das seis
+              linhas com outros rótulos, e por isso saíram. */}
+          {situacao.length > 0 ? (
           <section style={S.cartao}>
             <div style={S.cartaoCabecalho}>
               <h2 style={S.h2}>{tituloSituacao}</h2>
@@ -380,6 +515,7 @@ export default function CarteiraEfetividade() {
               })}
             </div>
           </section>
+          ) : null}
 
           {/* 3. DE QUE CURSO VEM O SALDO EM ABERTO — só 2024/2025.
               Em 2026/1 esta seção mostrava "Perfil dos alunos", que é a MESMA
@@ -431,8 +567,37 @@ export default function CarteiraEfetividade() {
           </section>
           ) : null}
 
+          {/* COMPARATIVO ENTRE SAFRAS — compacto e SOB DEMANDA. São três
+              consultas ao vivo; abri-las em toda visita custaria caro sem
+              ninguém ter pedido a comparação. Fechado, a página não as dispara. */}
+          <div style={{ marginTop: 22 }}>
+            <button onClick={() => setComparativo((v) => !v)} aria-expanded={comparativo}
+                    style={S.linkMetodologia}>
+              <span aria-hidden="true">{comparativo ? "▾" : "▸"}</span>
+              {comparativo ? "Ocultar comparativo entre safras" : "Comparar as safras"}
+            </button>
+            {comparativo ? (
+              <ComparativoSafras selecionada={safra === "2026/1" ? "2026/1" : ano} recarga={recarga} />
+            ) : null}
+          </div>
+
         </>
       )}
+
+      {/* ÁREA GLOBAL — fora da análise por safra, de propósito.
+          "Casos ainda pendentes" é indicador da CARTEIRA INTEIRA: sem nenhum
+          pagamento OU com acordo ativo a receber, descontada a sobreposição.
+          Não é recorte de 2024, 2025 ou 2026 e não se soma a nenhum número de
+          safra — por isso mora aqui embaixo, separado por uma régua, com o
+          cabeçalho dizendo a que se refere. */}
+      <div style={S.areaGlobal}>
+        <span style={S.areaGlobalRotulo}>Visão operacional da carteira inteira</span>
+        <p style={S.discreto}>
+          O que vem abaixo <strong>não é da safra selecionada</strong>: é a carteira operacional de hoje,
+          inteira. Não se soma nem se compara com os blocos acima.
+        </p>
+        <CasosPendentes />
+      </div>
 
       {/* 4. METODOLOGIA — tudo o que é técnico mora aqui, e vale para as duas
           visões de 2026/2: consolidado e por competência. */}
@@ -620,4 +785,11 @@ const S = {
              boxShadow: "var(--rv-sombra)", border: "1px solid var(--rv-borda-suave)",
              display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 12 },
   erro: { color: "var(--rv-vermelho-texto)", fontSize: 13, marginTop: 14 },
+
+  // A régua que separa a análise por safra da visão operacional global. É
+  // visual de propósito: os dois universos não se somam, e a tela precisa
+  // dizer isso antes do número, não depois.
+  areaGlobal: { marginTop: 34, paddingTop: 20, borderTop: "2px solid var(--rv-borda-suave)" },
+  areaGlobalRotulo: { display: "block", fontSize: 11, fontWeight: 700, letterSpacing: "0.07em",
+                      textTransform: "uppercase", color: "var(--rv-texto-fraco)", marginBottom: 6 },
 };

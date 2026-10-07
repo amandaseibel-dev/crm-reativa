@@ -22,18 +22,38 @@ import {
 
 // Entrou é a régua do cartão: é o 100% das barras e o denominador dos
 // percentuais. Por isso vem inteiro em cima, e não como mais uma linha.
-export function SeisLinhas({ s, composicao }) {
+//
+// `entrouCompacto` existe por causa da Efetividade redesenhada (07/10/2026):
+// lá o mesmo "Entrou" já é o primeiro indicador do resumo executivo, no topo da
+// página, com o mesmo valor e os mesmos alunos e títulos. Repeti-lo em corpo 24
+// logo abaixo é mostrar o mesmo número duas vezes com dois nomes — exatamente o
+// que o redesenho veio remover. Compacto, ele continua DECLARANDO a régua das
+// barras (sem denominador declarado, percentual não se lê) sem ser manchete
+// pela segunda vez.
+//
+// Em 2026/2 (`EfetividadePorVencimento`) nada muda: lá não há resumo executivo
+// acima, e o Entrou de cada mês é a manchete do cartão daquele mês.
+export function SeisLinhas({ s, composicao, entrouCompacto = false }) {
   const entrou = s.entrou || vazio();
   const base = Number(entrou.valor || 0);
   return (
     <>
-      <div style={S.entrou}>
-        <span style={S.entrouRotulo}>Entrou</span>
-        <strong style={S.entrouValor}>{moeda(entrou.valor)}</strong>
-        <span style={S.entrouApoio}>
-          {plural(entrou.alunos, "aluno", "alunos")} · {plural(entrou.titulos, "título", "títulos")}
-        </span>
-      </div>
+      {entrouCompacto ? (
+        <div style={S.entrouCompacto}>
+          <span style={S.entrouRotulo}>Entrou</span>
+          <span style={S.entrouCompactoValor}>
+            {moeda(entrou.valor)} — é a régua das barras abaixo (100%)
+          </span>
+        </div>
+      ) : (
+        <div style={S.entrou}>
+          <span style={S.entrouRotulo}>Entrou</span>
+          <strong style={S.entrouValor}>{moeda(entrou.valor)}</strong>
+          <span style={S.entrouApoio}>
+            {plural(entrou.alunos, "aluno", "alunos")} · {plural(entrou.titulos, "título", "títulos")}
+          </span>
+        </div>
+      )}
       <div>
         {SITUACOES.map((c) => (
           <Linha key={c.k} cfg={c} d={s[c.k] || vazio()} base={base}
