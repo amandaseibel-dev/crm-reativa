@@ -7,18 +7,114 @@ Medido em 2026-10-06 sobre os arquivos originais. **Remedido em 2026-10-08**
 diretamente nos quatro CSV, o que corrigiu uma afirmação deste documento e
 acrescentou os itens 1b e 1c.
 
-> **ESTADO REAL EM 08/10/2026, conferido em produção (só leitura).** A versão
-> anterior dizia "nada aqui foi importado nem registrado". **F3 está
-> importada**: `prev_lote` tem uma linha, arquivo
-> `relatorio_inadimplencia (17) whatsapp.csv` — o gêmeo byte a byte de F3 —,
-> status `CONFIRMADO`, criada em 05/10/2026 18:10 UTC, com 10.762 títulos
-> vinculados. Ela entrou pelo fluxo normal do módulo, **antes** desta
-> conferência.
+> **ESTADO REAL, conferido em produção em 08/10/2026 (só leitura).** As
+> versões anteriores deste bloco estão superadas: a primeira dizia "nada aqui
+> foi importado nem registrado"; a segunda dizia que **F1, F2 e F4 seguiam não
+> importadas** e que não havia ação externa. **As quatro fotos estão
+> importadas** e **há três ações externas registradas.**
 >
-> **F1, F2 e F4 seguem não importadas.** E **nenhuma ação externa foi
-> registrada**: `prev_acao` tem uma única linha, `origem = 'MODULO'`, estado
-> `PREPARADA`, nunca exportada nem confirmada como enviada — zero linhas com
-> `origem = 'EXTERNA'`.
+> | | |
+> |---|---|
+> | `prev_lote` | **4 lotes**, os quatro em `CONFIRMADO` |
+> | `prev_acao` | **4 ações**, das quais **3 com `origem = 'EXTERNA'`** |
+> | `prev_titulo` | **14.122** registros |
+>
+> O detalhamento medido de cada lote e de cada ação está no **item 0** abaixo.
+> Este documento **não afirma** quem autorizou a importação, nem que ela foi
+> autorizada, nem que o escopo dos relatórios foi confirmado — ver o item 0.4.
+
+## 0. Estado medido em 08/10/2026 — o que está no banco
+
+Tudo nesta seção é leitura de produção, sem escrita. Nenhuma linha aqui atribui
+causa, autoria ou autorização: descreve o que está gravado.
+
+### 0.1 Os quatro lotes
+
+| Lote (`nome`) | `arquivo_nome` | `status` | criado em (UTC) | `extraido_em` | precisão | ordem no dia | títulos |
+|---|---|---|---|---|---|---:|---:|
+| `relatorio_inadimplencia (17) whatsapp` | `relatorio_inadimplencia (17) whatsapp.csv` | `CONFIRMADO` | 05/10 18:10 | 05/10 18:10 | `DATA` | **2** | 10.762 |
+| `F1 — 02/10 (coorte 05/10)` | `F1-02-10-coorte.csv` | `CONFIRMADO` | 07/10 11:14 | 02/10 03:00 | `DATA` | 1 | 13.968 |
+| `F2 — 05/10 manhã` | `F2-05-10-manha.csv` | `CONFIRMADO` | 07/10 11:15 | 05/10 03:00 | `DATA` | 1 | 11.947 |
+| `F4 — 06/10` | `F4-06-10.csv` | `CONFIRMADO` | 07/10 11:18 | 06/10 03:00 | `DATA` | 1 | 6.278 |
+
+Contabilidade do importador, por lote:
+
+| Lote | lidas | aceitas | recusadas | motivos |
+|---|---:|---:|---:|---|
+| F3 | 10.797 | 10.762 | 35 | 34 `DUPLICADA_NO_ARQUIVO` · 1 `SEM_NOME` |
+| F1 | 14.016 | 13.968 | 48 | 44 `DUPLICADA_NO_ARQUIVO` · 4 `ORIGEM_FORA_DO_PERIODO` |
+| F2 | 11.993 | 11.947 | 46 | 41 `DUPLICADA_NO_ARQUIVO` · 4 `ORIGEM_FORA_DO_PERIODO` · 1 `SEM_NOME` |
+| F4 | 6.298 | 6.278 | 20 | 19 `DUPLICADA_NO_ARQUIVO` · 1 `SEM_NOME` |
+
+Quatro observações medidas, sem interpretação:
+
+1. **O lote de F1 não foi carregado do F1 bruto.** O arquivo bruto
+   (`relatorio_inadimplencia_16_2.csv`) tem **14.021** linhas de dados; o lote
+   leu **14.016**. O nome do lote diz "coorte 05/10" e o arquivo é
+   `F1-02-10-coorte.csv`. Entre os arquivos originais existe
+   `relatorio_inadimplencia_16_2__coorte-05-10.csv` com exatamente **14.016**
+   linhas de dados (md5 `4fe58606216bdb70eeec88ed04406f33`), contra o bruto
+   (md5 `1d261bd53f08f9d7e0804bebc2e4fd4c`). **O lote bate com o arquivo de
+   coorte, não com o F1 bruto que o item 1 mede.** As conclusões do item 1b
+   sobre F1 valem para o **bruto**.
+2. **F1 e F2 trouxeram 4 recusas `ORIGEM_FORA_DO_PERIODO` cada** — motivo que
+   não apareceu em F3 nem em F4.
+3. **A linha de F3 mudou** desde a leitura de 07/10: `extraido_precisao` de
+   `NAO_COMPROVADA` para `DATA`, e `ordem_no_dia` de 1 para **2**. O documento
+   previa F2 como 1ª de 05/10 e F3 como 2ª, e é isso que está gravado agora.
+4. **`conteudo_hash` está nulo nos quatro lotes.**
+
+### 0.2 As três ações `origem = 'EXTERNA'`
+
+As três foram criadas em 07/10 13:44 UTC, as três em `ENVIO_CONFIRMADO`, as
+três com `envio_precisao = DATA` e `observacao` **nula**:
+
+| `nome` | canal | contexto | lote | destinatários | envio confirmado (UTC) |
+|---|---|---|---|---:|---|
+| `E-mail de 02/10` | `EMAIL` | `PROXIMO_VENCIMENTO` | `F1-02-10-coorte.csv` | 13.968 | 02/10 03:00 |
+| `E-mail de 05/10 (manhã)` | `EMAIL` | `PROXIMO_VENCIMENTO` | `F2-05-10-manha.csv` | 11.947 | 05/10 03:00 |
+| `WhatsApp de 05/10 (tarde)` | `WHATSAPP` | `BOLETO_VENCIDO` | `relatorio_inadimplencia (17) whatsapp.csv` | 10.762 | 05/10 03:00 |
+
+A quarta ação é a pré-existente `Mensalidade de outubro`, `origem = 'MODULO'`,
+estado `PREPARADA`, nunca exportada nem confirmada.
+
+### 0.3 A migration `20261008122058`
+
+Registrada em produção com `name = preventivo_custo_e_consolidado`, md5
+`5c2be49dfca678068bab059755638980`, **18.599 bytes**. **Só DDL: 9 comandos de
+nível superior e zero DML de topo.** Objetos que ela toca:
+
+- coluna nova `prev_acao.custo_total numeric(14,2)` e a constraint
+  `prev_acao_custo_total_nao_negativo`;
+- função nova `preventivo_acao_custo_definir(uuid, numeric)`, com `revoke` de
+  `public`/`anon` e `grant execute` para `authenticated`;
+- `preventivo_painel(uuid)` substituída.
+
+**Fato medido, sem atribuição de causa nem de ordem:** existe no repositório o
+arquivo `supabase/migrations/20261008112030_preventivo_custo_e_consolidado.sql`
+— **mesmo `name`, versão diferente e conteúdo diferente**: md5
+`4082ab7a4ef08871cbc1893e47773ade`, **20.679 bytes**. Não é o caso de drift
+apenas de timestamp que `DUAS-TRILHAS.md` descreve, em que o md5 coincide; aqui
+os conteúdos divergem. Este documento **não afirma** qual dos dois é anterior,
+nem por que divergem. A versão `20261008122058` **não consta do ledger**.
+
+### 0.4 Autorização — não localizada documentalmente
+
+> **`autorização não localizada documentalmente`**
+
+Procurado, sem resultado:
+
+- **banco** — `audit_log` não cobre as tabelas `prev_*`: zero linhas com
+  `tabela ilike 'prev_%'` desde 07/10. E `observacao` é nula nas quatro ações;
+- **git** — nenhum commit ou documento registra a importação de F1, F2 ou F4;
+  busca por `F1-02-10-coorte`, `F2-05-10-manha` e `F4-06-10` em `docs/` e
+  `supabase/` não retorna nada;
+- **documentação** — as únicas ocorrências de "autoriz" em `docs/preventivo/`
+  tratam de **fonte de dados autorizada**, assunto diferente.
+
+Isso **não** significa que a importação foi indevida: significa que **não há
+registro objetivo dela** nas fontes acima. Quem autorizou, quando e com que
+escopo não está gravado em nenhum lugar que este documento possa citar.
 
 ## 1. O escopo dos quatro relatórios — PENDENTE de confirmação da gestão
 
@@ -245,8 +341,14 @@ aqui libera escrita em produção. Importar uma foto grava em `prev_lote`,
 `prev_titulo`, `prev_titulo_lote` e `prev_carteira`, e essa é decisão de
 gestão, não conclusão de análise.
 
-**F1, F2 e F4 só serão importadas após autorização explícita da gestão** — por
-foto, não em bloco, e com o registro de quem autorizou.
+**Estado em 08/10/2026:** as quatro fotos **já estão importadas** — ver o item
+0.1. Esta subseção fica como registro do critério técnico que foi medido, não
+como previsão. A **autorização não está localizada documentalmente** (item
+0.4), e este documento não afirma que ela existiu nem que não existiu: afirma
+que não há registro objetivo dela.
+
+O que segue valendo como regra para a próxima foto: **importar grava em
+produção**, e viabilidade técnica continua não sendo autorização.
 
 **A2 — interpretação de "saiu da base": BLOQUEADA ATÉ A CONFIRMAÇÃO DO
 ESCOPO.** A confirmação continua
