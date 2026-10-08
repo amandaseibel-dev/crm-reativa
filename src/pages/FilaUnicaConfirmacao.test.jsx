@@ -4,7 +4,24 @@ import { render, screen, act, cleanup, fireEvent } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom";
 
 const rpcMock = vi.fn();
-vi.mock("../services/supabase", () => ({ supabase: { rpc: (...a) => rpcMock(...a) } }));
+// Quem esta logado decide se o botao de decisao aparece -- a MESMA regra da
+// ficha (`podeGerirFinanceiro`). Por padrao, gestao financeira.
+let emailLogado = "cobranca07@aelbra.com.br";
+vi.mock("../services/supabase", () => ({
+  supabase: {
+    rpc: (...a) => rpcMock(...a),
+    auth: { getUser: () => Promise.resolve({ data: { user: { email: emailLogado } }, error: null }) },
+  },
+}));
+// A ficha EMBUTIDA e a de verdade (`src/pages/Aluno.jsx`); aqui ela e trocada
+// por um marcador, como os outros testes da casa fazem (CasosSemValor,
+// ConfirmacoesSemValor), para o teste medir a FILA e nao montar a ficha inteira.
+// O marcador declara qual aluno recebeu -- e isso que prova que a ficha certa
+// abriu.
+vi.mock("./Aluno", () => ({
+  default: ({ fichaEmbedId }) => <div data-testid="ficha-embutida">{"ficha:" + fichaEmbedId}</div>,
+}));
+vi.mock("../ui/cards", () => ({ modalBox: {} }));
 
 import FilaUnicaConfirmacao from "./FilaUnicaConfirmacao";
 
@@ -86,7 +103,7 @@ const montar = (busca = "?ano=2024&motivo=em_confirmacao") =>
     </MemoryRouter>);
   });
 
-beforeEach(() => { rpcMock.mockReset(); responder(); });
+beforeEach(() => { rpcMock.mockReset(); emailLogado = "cobranca07@aelbra.com.br"; responder(); });
 afterEach(() => cleanup());
 
 describe("Fila Única — o registro individual", () => {
@@ -312,5 +329,152 @@ describe("Fila Única — política de atualização da fotografia", () => {
     const nomes = rpcMock.mock.calls.map((c) => c[0]);
     expect(nomes).not.toContain("carteira_efetividade_solicitar_atualizacao");
     expect(nomes.filter((n) => n === "carteira_efetividade_ler").length).toBeGreaterThan(1);
+  });
+});
+
+// AS DUAS FALHAS RELATADAS EM 08/10/2026
+//   1. "ao clicar no aluno, a ficha nao abre na tela" -- o nome nao era
+//      controle nenhum, e o unico caminho NAVEGAVA para fora da fila;
+//   2. "os botoes de correcao/decisao nao aparecem ou nao funcionam" -- em 81
+//      dos 92 casos resolviveis de producao o aluno tem outro titulo em
+//      confirmacao, e a fila lia a resposta da acao (que cobre o ALUNO) como se
+//      fosse do titulo da linha: recusava-se a tirar a linha e dizia que ainda
+//      havia item naquele titulo, depois de a RPC JA ter executado a decisao.
+describe("Fila Única — a ficha abre na própria tela", () => {
+  it("clicar no nome do aluno abre a ficha embutida, sem sair da fila", async () => {
+    await montar();
+    expect(screen.queryByTestId("ficha-embutida")).toBeNull();
+    await act(async () => { fireEvent.click(screen.getByText("ALUNA TESTE ALFA")); });
+    expect(screen.getByTestId("ficha-embutida").textContent)
+      .toBe("ficha:" + ITEM_CONFIRMACAO.aluno_id);
+    // a fila continua montada por tras -- nao houve navegacao
+    expect(screen.getByText("Fila Única de Confirmação")).toBeTruthy();
+  });
+
+  it("o nome do aluno é um controle de verdade, não texto morto", async () => {
+    await montar();
+    expect(screen.getByRole("button", { name: "ALUNA TESTE ALFA" })).toBeTruthy();
+  });
+
+  it("“Abrir ficha do aluno” abre a MESMA ficha embutida", async () => {
+    await montar();
+    await act(async () => { fireEvent.click(screen.getByText("Abrir ficha do aluno")); });
+    expect(screen.getByTestId("ficha-embutida").textContent)
+      .toBe("ficha:" + ITEM_CONFIRMACAO.aluno_id);
+  });
+
+  it("fechar a ficha relê a fila, sem recarregar a aplicação", async () => {
+    await montar();
+    await act(async () => { fireEvent.click(screen.getByText("ALUNA TESTE ALFA")); });
+    const antes = rpcMock.mock.calls.filter((c) => c[0] === "carteira_pendencias_itens_ler").length;
+    await act(async () => { fireEvent.click(screen.getByText("Fechar ✕")); });
+    expect(screen.queryByTestId("ficha-embutida")).toBeNull();
+    const depois = rpcMock.mock.calls.filter((c) => c[0] === "carteira_pendencias_itens_ler").length;
+    expect(depois).toBeGreaterThan(antes);
+    // e nunca a consulta pesada
+    expect(rpcMock.mock.calls.map((c) => c[0])).not.toContain("carteira_pendencias_itens");
+  });
+
+  it("a ficha é a do CRM, não uma segunda ficha da fila", async () => {
+    await montar();
+    await act(async () => { fireEvent.click(screen.getByText("ALUNA TESTE ALFA")); });
+    // nenhuma RPC de ficha propria: quem carrega o aluno e o modulo da ficha
+    expect(rpcMock.mock.calls.map((c) => c[0]).some((n) => /fila_unica|ficha_fila/.test(n)))
+      .toBe(false);
+  });
+});
+
+describe("Fila Única — o título resolvido não espera os irmãos", () => {
+  const OUTRO_TITULO = {
+    titulo_id: "tttttttt-0000-4000-8000-000000000099", documento: "9990001", valor: 820.0,
+    vencimento: "2024-08-10", efeito: "VIRA_PAGO", efeito_texto: "Vincular quita o título",
+    acordo_id: "ac-9", acordo_numero: "5100", exige_motivo: true, dias_pendente: 40,
+    pode_seguir_pagamento: true,
+  };
+  const DESTE_TITULO = { ...OUTRO_TITULO, titulo_id: ITEM_CONFIRMACAO.titulo_id,
+                         documento: "4445066", valor: 3987.54 };
+
+  it("resolvido o título da linha, ela sai mesmo com outro título do aluno pendente", async () => {
+    responder({ emConfirmacao: [DESTE_TITULO, OUTRO_TITULO] });
+    await montar();
+    expect(screen.getByText("ALUNA TESTE ALFA")).toBeTruthy();
+
+    rpcMock.mockImplementation((nome, args) => {
+      if (nome === "carteira_efetividade_ler") return Promise.resolve({ data: RESUMO_2024, error: null });
+      if (nome === "carteira_pendencias_itens_ler") {
+        return Promise.resolve({ data: [ITEM_CONFIRMACAO].filter((i) => i.motivo === args.p_motivo), error: null });
+      }
+      // Depois da acao o titulo DA LINHA saiu; o irmao continua pendente.
+      if (nome === "conferencia_em_confirmacao_do_aluno") return Promise.resolve({ data: [OUTRO_TITULO], error: null });
+      if (nome === "conferencia_acordos_do_aluno") return Promise.resolve({ data: [], error: null });
+      return Promise.resolve({ data: { ok: true, previsao: "no próximo dreno" }, error: null });
+    });
+    vi.spyOn(window, "prompt").mockReturnValue("pagamento conferido com a unidade");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Vincular e quitar acordo 5100/ }));
+    });
+
+    expect(screen.queryByText("ALUNA TESTE ALFA")).toBeNull();
+    expect(screen.queryByText(/Ainda há item em confirmação/)).toBeNull();
+    expect(rpcMock.mock.calls.map((c) => c[0]))
+      .toContain("carteira_efetividade_solicitar_atualizacao");
+  });
+});
+
+describe("Fila Única — onde estão os casos com botão", () => {
+  it("a safra que tem resolução por caso é marcada no seletor", async () => {
+    await montar();
+    const botao = screen.getByRole("button", { name: /^2024/ });
+    expect(txt(botao)).toContain("resolvíveis");
+  });
+
+  it("safra sem nenhum motivo resolvível não ganha marca — e a tela diz onde eles estão", async () => {
+    rpcMock.mockImplementation((nome, args) => {
+      if (nome === "carteira_efetividade_ler") {
+        // 2026/1 so tem motivos sem acao; 2024 tem em_confirmacao.
+        if (args.p_ano === "2026") {
+          return Promise.resolve({ data: { ...RESUMO_2024, recorte: "2026/1", motivos: [
+            { chave: "em_validacao", rotulo: "Em validação",
+              acao: "SEM_ACAO_AUTOMATICA_SEGURA", alunos: 900, titulos: 1043, valor: 10 },
+          ] }, error: null });
+        }
+        return Promise.resolve({ data: RESUMO_2024, error: null });
+      }
+      if (nome === "carteira_pendencias_itens_ler") return Promise.resolve({ data: [], error: null });
+      return Promise.resolve({ data: [], error: null });
+    });
+    await montar("?ano=2026&semestre=1&motivo=em_validacao");
+    expect(txt(screen.getByRole("button", { name: /^2026/ }))).not.toContain("resolvíveis");
+    expect(screen.getByText(/Com resolução por caso hoje/)).toBeTruthy();
+    expect(txt(screen.getByText(/Com resolução por caso hoje/))).toContain("2024");
+  });
+});
+
+describe("Fila Única — só a gestão financeira decide", () => {
+  const RESOLVIVEL_AQUI = [{
+    titulo_id: ITEM_CONFIRMACAO.titulo_id, documento: "4445066", valor: 3987.54,
+    vencimento: "2024-03-10", efeito: "VIRA_PAGO", efeito_texto: "Vincular quita o título",
+    acordo_id: "ac-1", acordo_numero: "4691", exige_motivo: true, dias_pendente: 16,
+    pode_seguir_pagamento: true,
+  }];
+
+  it("para a gestão financeira, os botões do caso aparecem", async () => {
+    responder({ emConfirmacao: RESOLVIVEL_AQUI });
+    await montar();
+    expect(screen.getByRole("button", { name: /Vincular e quitar acordo 4691/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Rejeitar" })).toBeTruthy();
+  });
+
+  it("para quem não é gestão financeira, o caso aparece SEM botão de decisão", async () => {
+    emailLogado = "cobranca03@aelbra.com.br";
+    responder({ emConfirmacao: RESOLVIVEL_AQUI });
+    await montar();
+    // o caso continua visível, com o efeito que o banco calculou
+    expect(screen.getByText(/Vincular quita o título/)).toBeTruthy();
+    // mas nenhuma decisão é oferecida — e a tela diz de quem ela é
+    expect(screen.queryByRole("button", { name: /Vincular e quitar/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Rejeitar" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Seguir pagamento" })).toBeNull();
+    expect(screen.getByText(/A decisão é da gestão financeira/)).toBeTruthy();
   });
 });
