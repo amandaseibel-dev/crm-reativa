@@ -1,12 +1,20 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, act, cleanup } from "@testing-library/react";
-
-const rpcMock = vi.fn();
-vi.mock("../services/supabase", () => ({ supabase: { rpc: (...a) => rpcMock(...a) } }));
+import { describe, it, expect, afterEach } from "vitest";
+import { render, screen, cleanup } from "@testing-library/react";
 
 import SeisLinhasDaSafra from "./SeisLinhasDaSafra";
 
+// DESDE 07/10/2026 ESTE COMPONENTE NÃO BUSCA NADA. Quem chama
+// `carteira_safra_situacoes` é a página, uma vez, e passa o MESMO payload para
+// o resumo executivo do topo e para este cartão — era a única forma de os dois
+// não poderem divergir na mesma tela. Por isso o teste não dubla mais o
+// supabase: ele entrega o payload por prop, que é o contrato real agora.
+//
+// "Alunos por status" saiu daqui (virou a composição financeira por status
+// acadêmico, em ComposicaoAcademicaDoSaldo) e a abertura do Pendente também
+// (virou PendenciasDeValidacao). Os testes dessas duas coisas moram nos
+// arquivos daqueles componentes; aqui ficou o que é das seis linhas.
+//
 // Os números abaixo são os MEDIDOS em produção em 05/10/2026, não inventados:
 // 2024 fecha em R$ 5.159.080,84 e o Pendente dele é R$ 14.401,19 em confirmação
 // mais R$ 25.285,00 de "PAGO sem lastro".
@@ -41,187 +49,99 @@ const SAFRA_2026_1 = {
     pendente:  { alunos: 1159, titulos: 2414, valor: 1793976.23 },
   },
   conferencia: { entrou: 21710447.29, soma_das_linhas: 21710447.29, diferenca: 0, fecha: true },
-  pendente_detalhe: {
-    convertido_origem_comprovada: 946711.07, em_validacao: 807802.95,
-    ajuste_academico: 39462.21, pago_sem_lastro: 0,
-  },
 };
 
-const PERFIL_2024 = {
-  recorte: "2024",
-  total_alunos: 1976,
-  // `grupos` é a consulta viva ao Prime e está praticamente vazia — a tela NÃO
-  // deve usá-la. Vem no mock de propósito, para o teste provar isso.
-  grupos: [{ grupo: "Ainda não consultados", alunos: 1950, pct: 98.7 }],
-  importacao: {
-    fonte: "Relatório de inadimplência (importação)",
-    atualizado_em: "2026-08-04T15:19:51Z",
-    situacoes: [
-      { situacao: "(sem situação importada)", alunos: 806 },
-      { situacao: "Término do Contrato", alunos: 382 },
-      { situacao: "Desvinculado", alunos: 245 },
-      { situacao: "Formado", alunos: 152 },
-      { situacao: "Cancelado", alunos: 151 },
-      { situacao: "Trancado", alunos: 139 },
-      { situacao: "Trancamento Institucional", alunos: 86 },
-      { situacao: "Reopção de Curso", alunos: 5 },
-      { situacao: "Matriculado Curso Normal", alunos: 3 },
-      { situacao: "Saída por Transferência", alunos: 2 },
-      { situacao: "Entrada via Reabertura", alunos: 1 },
-      { situacao: "Falecido", alunos: 1 },
-      { situacao: "Cancelamento Institucional", alunos: 1 },
-      { situacao: "Mudança de Campus", alunos: 1 },
-      { situacao: "Aguardando Matrícula", alunos: 1 },
-    ],
-  },
-};
+const montar = (props) =>
+  render(<SeisLinhasDaSafra ano="2024" semestre={null} dados={SAFRA_2024} {...props} />);
 
-function responder(safra, perfil) {
-  rpcMock.mockImplementation((nome) => {
-    if (nome === "carteira_safra_situacoes") return Promise.resolve({ data: safra, error: null });
-    if (nome === "carteira_academico_perfil_ler") return Promise.resolve({ data: perfil, error: null });
-    return Promise.resolve({ data: null, error: null });
-  });
-}
-
-async function montar(props = { ano: "2024", semestre: null }) {
-  await act(async () => { render(<SeisLinhasDaSafra {...props} />); });
-}
-
-beforeEach(() => { rpcMock.mockReset(); responder(SAFRA_2024, PERFIL_2024); });
 afterEach(() => cleanup());
 
 describe("As seis linhas da safra", () => {
-  it("pede a RPC da safra com ano e semestre, e o perfil acadêmico do mesmo recorte", async () => {
-    await montar({ ano: "2026", semestre: "1" });
-    expect(rpcMock).toHaveBeenCalledWith("carteira_safra_situacoes", { p_ano: "2026", p_semestre: "1" });
-    expect(rpcMock).toHaveBeenCalledWith("carteira_academico_perfil_ler", { p_ano: "2026", p_semestre: "1" });
-  });
-
-  it("desenha as seis linhas na ordem da gestão", async () => {
-    await montar();
-    // "Cancelado" é rótulo de linha E categoria de status acadêmico na mesma
-    // tela, então aqui a conferência é por quantidade mínima, não por unicidade.
-    for (const r of ["Entrou", "Pago", "Negociado", "Em aberto", "Pendente de classificação"]) {
-      expect(screen.getByText(r)).toBeTruthy();
+  it("desenha as seis linhas na ordem da gestão", () => {
+    montar();
+    // `getAllByText`: alguns rótulos de linha aparecem também no texto de
+    // apoio de outra linha ("Pago", "Negociado"). O que se prova aqui é que as
+    // seis existem e na ordem, não que a string é única na tela.
+    const rotulos = ["Entrou", "Pago", "Negociado", "Cancelado", "Em aberto",
+                     "Pendente de classificação"];
+    for (const r of rotulos) {
+      expect(screen.getAllByText(r).length).toBeGreaterThanOrEqual(1);
     }
-    expect(screen.getAllByText("Cancelado").length).toBeGreaterThanOrEqual(1);
+    const texto = document.body.textContent;
+    const posicoes = rotulos.map((r) => texto.indexOf(r));
+    expect(posicoes).toEqual([...posicoes].sort((a, b) => a - b));
   });
 
-  it("mostra os valores medidos de 2024 sem recompor nada", async () => {
-    await montar();
-    expect(screen.getByText("R$ 5.159.080,84")).toBeTruthy();
+  it("mostra os valores medidos de 2024 sem recompor nada", () => {
+    montar();
+    // O Entrou vem compacto aqui: o valor é a régua declarada das barras, e a
+    // manchete dele é o indicador "Universo recebido" no topo da página.
+    expect(screen.getByText(/R\$ 5\.159\.080,84 — é a régua das barras/)).toBeTruthy();
     expect(screen.getByText("R$ 31.369,29")).toBeTruthy();
     expect(screen.getByText("R$ 4.995.634,73")).toBeTruthy();
   });
 
-  it("lista alunos por status pelas categorias REAIS da base, não pela consulta viva", async () => {
-    await montar();
-    expect(screen.getByText("Alunos por status")).toBeTruthy();
-    expect(screen.getByText("Formado")).toBeTruthy();
-    expect(screen.getByText("Trancado")).toBeTruthy();
-    expect(screen.getByText("Desvinculado")).toBeTruthy();
-    // `grupos` (a consulta viva) NÃO alimenta a lista
-    expect(screen.queryByText("Ainda não consultados")).toBeNull();
-  });
-
-  it("não inventa a categoria Evadido, e diz que ela não existe", async () => {
-    await montar();
-    expect(screen.queryByText("Evadido")).toBeNull();
-    expect(screen.getByText(/não há .Evadido. entre elas/)).toBeTruthy();
-  });
-
-  it("datando a importação, não finge que o status é de hoje", async () => {
-    await montar();
-    expect(screen.getByText(/importado em 04\/08\/2026/)).toBeTruthy();
-  });
-
-  it("abre o Pendente de 2024 e nomeia o PAGO sem lastro em vez de somá-lo em Pago", async () => {
-    await montar();
-    expect(screen.getByText(/marcado como PAGO sem lastro nenhum/)).toBeTruthy();
-    expect(screen.getByText(/R\$ 25\.285,00/)).toBeTruthy();
-    expect(screen.getByText(/R\$ 14\.401,19/)).toBeTruthy();
-  });
-
-  it("em 2024/2025 avisa que Entrou é saldo residual, não a carteira original", async () => {
-    await montar();
+  it("em 2024/2025 avisa que Entrou é saldo residual, não a carteira original", () => {
+    montar();
     expect(screen.getByText(/não é a carteira original/)).toBeTruthy();
     expect(screen.getByText(/saldo residual/)).toBeTruthy();
   });
 
-  it("em 2026/1 abre a conversão de origem comprovada e avisa que é ao vivo", async () => {
-    responder(SAFRA_2026_1, { ...PERFIL_2024, importacao: { ...PERFIL_2024.importacao, situacoes: [] } });
-    await montar({ ano: "2026", semestre: "1" });
-    expect(screen.getByText(/conversão com origem comprovada/)).toBeTruthy();
-    expect(screen.getByText(/R\$ 946\.711,07/)).toBeTruthy();
-    expect(screen.getByText(/não vem do snapshot de 11\/09\/2026/)).toBeTruthy();
+  it("em 2026/1 avisa que os números são ao vivo, e não repete o aviso histórico", () => {
+    montar({ ano: "2026", semestre: "1", dados: SAFRA_2026_1 });
+    expect(screen.getByText(/Números ao vivo/)).toBeTruthy();
     expect(screen.queryByText(/carteira original/)).toBeNull();
   });
 
-  it("mostra a conferência da invariante com a diferença, mesmo quando fecha", async () => {
-    await montar();
+  it("mostra a conferência da invariante com a diferença, mesmo quando fecha", () => {
+    montar();
     expect(screen.getByText(/Conferência da invariante/)).toBeTruthy();
     expect(screen.getByText(/diferença de R\$ 0,00/)).toBeTruthy();
   });
 
-  it("quando a invariante NÃO fecha, avisa e não ajusta número nenhum", async () => {
-    responder({
+  it("quando a invariante NÃO fecha, avisa e não ajusta número nenhum", () => {
+    montar({ dados: {
       ...SAFRA_2024,
       conferencia: { entrou: 5159080.84, soma_das_linhas: 5159068.50, diferenca: 12.34, fecha: false },
-    }, PERFIL_2024);
-    await montar();
+    } });
     expect(screen.getByText(/difere de Entrou em R\$ 12,34/)).toBeTruthy();
     // o Entrou segue exibido como veio, sem correção
-    expect(screen.getByText("R$ 5.159.080,84")).toBeTruthy();
+    expect(screen.getAllByText(/R\$ 5\.159\.080,84/).length).toBeGreaterThanOrEqual(1);
   });
 
-  it("avisa que contagem de aluno não soma entre linhas", async () => {
-    await montar();
+  it("avisa que contagem de aluno não soma entre linhas", () => {
+    montar();
     expect(screen.getByText(/não devem ser somadas/)).toBeTruthy();
   });
 
-  it("erro da RPC aparece na tela em vez de cartão vazio", async () => {
-    rpcMock.mockImplementation((nome) =>
-      nome === "carteira_safra_situacoes"
-        ? Promise.resolve({ data: null, error: { message: "Acesso negado." } })
-        : Promise.resolve({ data: null, error: null }));
-    await montar();
+  it("aponta onde o Pendente é aberto, em vez de abri-lo aqui de novo", () => {
+    montar();
+    expect(screen.getByText(/Pendências de validação/)).toBeTruthy();
+    // a abertura em frase corrida saiu: ela virou tabela no bloco próprio
+    expect(screen.queryByText(/marcado como PAGO sem lastro nenhum/)).toBeNull();
+  });
+
+  it("a lista acadêmica quantitativa não mora mais aqui", () => {
+    montar();
+    expect(screen.queryByText("Alunos por status")).toBeNull();
+  });
+
+  it("erro vindo da página aparece na tela em vez de cartão vazio", () => {
+    montar({ dados: null, erro: "Acesso negado." });
     expect(screen.getByText(/Não foi possível carregar as seis linhas: Acesso negado./)).toBeTruthy();
   });
 
-  it("singular quando é um só", async () => {
-    responder({
+  it("enquanto a página busca, diz que está somando", () => {
+    montar({ dados: null, carregando: true });
+    expect(screen.getByText(/Somando as seis linhas de 2024/)).toBeTruthy();
+  });
+
+  it("singular quando é um só", () => {
+    montar({ dados: {
       ...SAFRA_2024,
       situacoes: { ...SAFRA_2024.situacoes, cancelado: { alunos: 1, titulos: 1, valor: 10 } },
-    }, PERFIL_2024);
-    await montar();
+    } });
     expect(screen.queryByText(/\b1 alunos\b/)).toBeNull();
     expect(screen.queryByText(/\b1 títulos\b/)).toBeNull();
-  });
-});
-
-describe("Alunos por status vem do snapshot", () => {
-  it("lê carteira_academico_perfil_ler, nunca a função que reconstrói o universo", async () => {
-    await montar();
-    const nomes = rpcMock.mock.calls.map((c) => c[0]);
-    expect(nomes).toContain("carteira_academico_perfil_ler");
-    // a funcao cara nao pode ser chamada pela tela -- foi ela que estourava os 8s
-    expect(nomes).not.toContain("carteira_academico_perfil");
-    expect(nomes).not.toContain("carteira_academico_universo");
-  });
-
-  it("mostra a data da fotografia, para a lista não parecer de hoje", async () => {
-    responder(SAFRA_2024, { ...PERFIL_2024, snapshot: { gerado_em: "2026-10-06T20:15:00Z" } });
-    await montar();
-    expect(screen.getByText(/Fotografia desta lista tirada em 06\/10\/2026/)).toBeTruthy();
-  });
-
-  it("sem fotografia, DIZ que falta — não mostra lista vazia", async () => {
-    responder(SAFRA_2024, { sem_snapshot: true, recorte: "2024" });
-    await montar();
-    expect(screen.getByText(/ainda não tem fotografia deste período/)).toBeTruthy();
-    expect(screen.queryByText("Alunos por status")).toBeNull();
-    // as seis linhas seguem de pe: elas nao dependem desta consulta
-    expect(screen.getByText("As seis linhas da safra")).toBeTruthy();
   });
 });

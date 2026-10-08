@@ -20,6 +20,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../services/supabase";
 import { S } from "../../ui/estilosFila";
 import { moeda, dataHora, agoraLocalParaInput } from "../../utils/preventivoFormato";
+import RegistrarEnvioExterno from "./RegistrarEnvioExterno";
 import {
   CAMPOS, sugerirMapeamento, camposObrigatoriosFaltando, linhaParaRegistro,
   decodificar, lerCsv,
@@ -38,7 +39,7 @@ const MOTIVOS = {
   DOCUMENTO_EM_OUTRA_MATRICULA: "o mesmo título já está em outra matrícula nesta carteira",
 };
 
-export default function AbaImportacoes({ carteira, aoImportar, onIr }) {
+export default function AbaImportacoes({ carteira, aoImportar }) {
   // o estado já nasce certo quando a biblioteca veio de outra tela — evita
   // um setState síncrono dentro do efeito só para descobrir isso.
   const [libOk, setLibOk] = useState(() => typeof window !== "undefined" && !!window.XLSX);
@@ -60,8 +61,6 @@ export default function AbaImportacoes({ carteira, aoImportar, onIr }) {
   const [ocupado, setOcupado] = useState("");
   const [remessas, setRemessas] = useState([]);
   const [remessaNova, setRemessaNova] = useState(null);
-  const [atualizando, setAtualizando] = useState(false);
-  const [situacao, setSituacao] = useState(null);
 
   useEffect(() => {
     if (window.XLSX) return;
@@ -74,13 +73,9 @@ export default function AbaImportacoes({ carteira, aoImportar, onIr }) {
 
   useEffect(() => {
     let vivo = true;
-    Promise.all([
-      supabase.rpc("preventivo_remessas", { p_carteira_id: carteira.id }),
-      supabase.rpc("preventivo_sinc_situacao", { p_carteira_id: carteira.id }),
-    ]).then(([r, s2]) => {
+    supabase.rpc("preventivo_remessas", { p_carteira_id: carteira.id }).then((r) => {
       if (!vivo) return;
       setRemessas(r.data || []);
-      if (!s2.error) setSituacao(s2.data);
     });
     return () => { vivo = false; };
   }, [carteira.id, previa]);
@@ -152,32 +147,6 @@ export default function AbaImportacoes({ carteira, aoImportar, onIr }) {
     }
   }
 
-  // ATUALIZAR DADOS. Só quando a gestão pede — não existe cron, por decisão.
-  // Não chama nada de pagamento: consulta o Prime e registra alteração de
-  // valor na fonte.
-  async function atualizarDados() {
-    setErro(""); setAtualizando(true);
-    try {
-      let sincId = null;
-      for (let volta = 0; volta < 40; volta++) {
-        const { data, error } = await supabase.functions.invoke("prev-sincronizar", {
-          body: sincId ? { sinc_id: sincId } : { carteira_id: carteira.id, origem: "manual" },
-        });
-        if (error) throw error;
-        sincId = data?.sinc_id;
-        if (data?.concluido) break;
-      }
-    } catch (e) {
-      setErro("Não consegui concluir a atualização com o Prime agora. Os valores anteriores continuam válidos. " + (e?.message || ""));
-    }
-    setAtualizando(false);
-    const [{ data: s2 }, { data: r }] = await Promise.all([
-      supabase.rpc("preventivo_sinc_situacao", { p_carteira_id: carteira.id }),
-      supabase.rpc("preventivo_remessas", { p_carteira_id: carteira.id }),
-    ]);
-    setSituacao(s2); setRemessas(r || []);
-  }
-
   return (
     <div style={S.cards}>
       {erro ? <div style={S.erroBox}>{erro}</div> : null}
@@ -191,8 +160,9 @@ export default function AbaImportacoes({ carteira, aoImportar, onIr }) {
           com nome e telefone não é carteira financeira.
           <br />
           O relatório de inadimplência da ULBRA <strong>não traz identificador de título</strong>.
-          Sem ele, cada linha é ligada ao Prime por matrícula + vencimento atual; onde houver
-          mais de um candidato, o título fica pendente em vez de ser ligado no chute.
+          Sem ele, a identidade do título dentro da carteira é matrícula + vencimento atual +
+          vencimento de origem — é o que o relatório real traz para distinguir dois títulos do
+          mesmo aluno.
         </p>
         <input type="file" accept=".xlsx,.xls,.csv" disabled={!libOk} onChange={aoEscolher}
                style={{ marginTop: 12 }} />
@@ -346,16 +316,17 @@ export default function AbaImportacoes({ carteira, aoImportar, onIr }) {
             </button>
           ) : (
             <p style={{ ...S.muted, marginTop: 16 }}>
-              Pronto. O próximo passo é a aba <strong>Resultados</strong>, para atualizar
-              a situação financeira com o Prime.
+              Pronto. A remessa entrou. Registre abaixo o envio, se ele já foi feito, e
+              acompanhe a redução na aba <strong>Resultados</strong>.
             </p>
           )}
         </div>
       )}
 
-      {remessaNova && <ResumoDaRemessa remessa={remessaNova} situacao={situacao}
-                                        atualizando={atualizando}
-                                        onAtualizar={atualizarDados} onIr={onIr} />}
+      {remessaNova && <ResumoDaRemessa remessa={remessaNova} />}
+
+      <RegistrarEnvioExterno carteira={carteira} remessas={remessas}
+                             aoRegistrar={() => aoImportar?.()} />
 
       <div style={{ ...S.card, padding: 20 }}>
         <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Histórico de remessas</h2>
@@ -436,8 +407,7 @@ function CartaoRemessa({ r }) {
 }
 
 // O RESUMO DA REMESSA. É onde o trabalho continua depois de importar.
-function ResumoDaRemessa({ remessa, situacao, atualizando, onAtualizar, onIr }) {
-  const completa = situacao?.ultima_completa;
+function ResumoDaRemessa({ remessa }) {
   return (
     <div style={{ ...S.card, padding: 20, borderLeft: "4px solid var(--rv-azul)" }}>
       <h2 style={{ ...S.cardNome, fontSize: 17, margin: 0 }}>Remessa {remessa.nome}</h2>
@@ -452,32 +422,6 @@ function ResumoDaRemessa({ remessa, situacao, atualizando, onAtualizar, onIr }) 
         <Numero rotulo="WhatsApp disponível" valor={remessa.whatsapp_disponivel} />
         <Numero rotulo="E-mail disponível" valor={remessa.email_disponivel} />
         <Numero rotulo="Registros para revisão" valor={remessa.para_revisao} />
-      </div>
-
-      <div style={{ ...S.barra, marginTop: 18 }}>
-        <button style={S.btnGhost} disabled={atualizando} onClick={onAtualizar}>
-          {atualizando ? "Consultando o Prime…" : "Atualizar dados"}
-        </button>
-        <button style={S.btnGhost} onClick={() => onIr?.("acoes")}>Gerar WhatsApp</button>
-        <button style={S.btnGhost} onClick={() => onIr?.("acoes")}>Gerar E-mail</button>
-      </div>
-
-      <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px dashed var(--rv-borda)" }}>
-        <div style={{ ...S.muted, fontSize: 12.5 }}>
-          {completa
-            ? `Última atualização: ${dataHora(completa.concluido_em)} — ${completa.consultados} de ${completa.alvos} alunos consultados.`
-            : "Ainda não foi feita nenhuma atualização com o Prime."}
-        </div>
-        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 6, ...S.muted, fontSize: 12.5 }}>
-          <span>Localizados no Prime: <strong>{remessa.localizados ?? "—"}</strong></span>
-          <span>Precisam de revisão: <strong>{remessa.precisam_revisao ?? "—"}</strong></span>
-          <span>Tiveram alteração de valor na fonte: <strong>{remessa.com_alteracao ?? "—"}</strong></span>
-        </div>
-        <p style={{ ...S.muted, marginTop: 8, fontSize: 12 }}>
-          A atualização é manual, por decisão: não existe rotina automática. Ela lê o
-          Prime e registra <strong>alteração do valor do título na fonte</strong> — não
-          registra pagamento, porque a fonte não informa pagamento.
-        </p>
       </div>
     </div>
   );

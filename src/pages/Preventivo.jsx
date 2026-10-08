@@ -16,9 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { S } from "../ui/estilosFila";
-import AbaCarteira from "../components/preventivo/AbaCarteira";
 import AbaImportacoes from "../components/preventivo/AbaImportacoes";
-import AbaAcoes from "../components/preventivo/AbaAcoes";
 import AbaResultados from "../components/preventivo/AbaResultados";
 import { moeda, dataCurta } from "../utils/preventivoFormato";
 
@@ -29,8 +27,6 @@ import { moeda, dataCurta } from "../utils/preventivoFormato";
 // continuam existindo no banco — só não aparecem aqui.
 const ABAS = [
   { id: "importacoes", rotulo: "Remessas" },
-  { id: "carteira", rotulo: "Títulos" },
-  { id: "acoes", rotulo: "Ações" },
   { id: "resultados", rotulo: "Resultados" },
 ];
 
@@ -163,9 +159,7 @@ export default function Preventivo() {
 
           {carteira ? (
             <>
-              {aba === "carteira" && <AbaCarteira carteira={carteira} onIr={irPara} />}
-              {aba === "importacoes" && <AbaImportacoes carteira={carteira} aoImportar={carregar} onIr={irPara} />}
-              {aba === "acoes" && <AbaAcoes carteira={carteira} />}
+              {aba === "importacoes" && <AbaImportacoes carteira={carteira} aoImportar={carregar} />}
               {aba === "resultados" && <AbaResultados carteira={carteira} />}
             </>
           ) : null}
