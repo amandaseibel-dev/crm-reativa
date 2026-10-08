@@ -109,10 +109,6 @@ const dinheiro = (d) =>
   H.q1(d, `select (select count(*) from public.pagamentos) pag,
                   (select count(*) from public.baixas_pagamento) baixas,
                   (select coalesce(sum(valor_honorario),0) from public.pagamentos) honor`);
-const acordo = (d) =>
-  H.q1(d, `select status, saldo from public.acordos where aluno_id = $1 and status <> 'QUITADO' or aluno_id = $1
-            order by criado_em desc limit 1`, [H.ALUNO_A]);
-
 describe("fundação parcela_viva — tem de ser NEUTRA", () => {
   let db, antes, depois;
 
@@ -180,6 +176,20 @@ describe("a regra em si — DEVOLVIDA", () => {
     r = (await H.q1(db, `select public.parcela_efeito_sem_pagamento_aplicar($1,$2,'CANCELAMENTO_COBRANCA',false) r`,
       [H.ALUNO_A, MOTIVO])).r;
   }, TIMEOUT);
+
+  it("o retorno do motor descreve o que ele fez", async () => {
+    // O payload é contrato da função -- quem chama (gatilho, ficha, rotina) se
+    // orienta por ele. Sem esta asserção o número devolvido podia divergir do
+    // que foi escrito e nenhum teste veria.
+    expect(r.ok).toBe(true);
+    expect(r.dry_run).toBe(false);
+    expect(r.efeito).toBe("DEVOLVIDA");
+    expect(r.definitivo).toBe(true);
+    expect(r.origem).toBe("CANCELAMENTO_COBRANCA");
+    expect(r.parcelas_afetadas_qtd).toBe(2);
+    expect(Number(r.titulos_encerrados_valor)).toBe(1200);
+    expect(Number(r.saldo_depois)).toBe(0);
+  });
 
   it("a parcela fica DEVOLVIDA — nunca PAGO (regra 1)", async () => {
     const p = await parcelas(db);
