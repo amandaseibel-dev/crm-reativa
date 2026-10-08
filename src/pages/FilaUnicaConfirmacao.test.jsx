@@ -478,3 +478,92 @@ describe("Fila Única — só a gestão financeira decide", () => {
     expect(screen.getByText(/A decisão é da gestão financeira/)).toBeTruthy();
   });
 });
+
+// ENTRAR ONDE HA O QUE FAZER (08/10/2026). Amanda: "fila unica de confirmacao
+// nao tem um botao". A tela abria SEMPRE em 2026/1 -- a safra corrente -- e em
+// 2026/1 nenhum motivo tem resolucao por caso. Quem entrava pelo menu caia na
+// unica safra sem botao possivel.
+describe("Fila Única — a entrada cai onde há caso a tratar", () => {
+  const RESUMO = (recorte, motivos) => ({
+    ...RESUMO_2024, recorte, motivos,
+    snapshot: { ...RESUMO_2024.snapshot },
+  });
+  const SEM_ACAO = (chave, titulos) => ({
+    chave, rotulo: chave, acao: "SEM_ACAO_AUTOMATICA_SEGURA",
+    alunos: titulos, titulos, valor: titulos * 10,
+  });
+  const COM_ACAO = (titulos) => ({
+    chave: "em_confirmacao", rotulo: "Em confirmação de pagamento",
+    acao: "CONFERENCIA_PRIME", alunos: titulos, titulos, valor: titulos * 100,
+  });
+
+  // O retrato de producao de 08/10/2026: resolvivel so em 2024 (15) e 2025 (77);
+  // 2026/1 e a corrente e tem 2.399 titulos, nenhum com acao.
+  function comoProducao({ resolvivel2026 = 0 } = {}) {
+    rpcMock.mockImplementation((nome, args) => {
+      if (nome === "carteira_efetividade_ler") {
+        if (args.p_ano === "2024") return Promise.resolve({ data: RESUMO("2024", [SEM_ACAO("pago_sem_lastro", 41), COM_ACAO(15)]), error: null });
+        if (args.p_ano === "2025") return Promise.resolve({ data: RESUMO("2025", [SEM_ACAO("pago_sem_lastro", 289), COM_ACAO(77)]), error: null });
+        return Promise.resolve({ data: RESUMO("2026/1", [
+          SEM_ACAO("convertido_origem_comprovada", 1321), SEM_ACAO("em_validacao", 1043),
+          ...(resolvivel2026 ? [COM_ACAO(resolvivel2026)] : []),
+        ]), error: null });
+      }
+      if (nome === "carteira_pendencias_itens_ler") return Promise.resolve({ data: [], error: null });
+      return Promise.resolve({ data: [], error: null });
+    });
+  }
+  const safrasPedidas = () => rpcMock.mock.calls
+    .filter((c) => c[0] === "carteira_pendencias_itens_ler")
+    .map((c) => c[1].p_ano + (c[1].p_semestre ? "/" + c[1].p_semestre : ""));
+
+  it("sem parâmetro na URL, abre na safra com MAIS casos resolvíveis", async () => {
+    comoProducao();
+    await montar("");
+    // 2025 tem 77 resolvíveis contra 15 de 2024 e nenhum de 2026/1
+    expect(screen.getByRole("button", { name: /^2025/ }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: /^2026/ }).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("e cai no motivo que TEM botão, não no de maior valor", async () => {
+    comoProducao();
+    await montar("");
+    // em 2025 o de maior valor é pago_sem_lastro (289), que não tem ação
+    expect(screen.getByRole("button", { name: /Em confirmação de pagamento/ })
+      .getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("resolve pela Conferência Prime")).toBeTruthy();
+    expect(safrasPedidas()).toEqual(["2025"]);
+  });
+
+  it("não gasta a consulta ao vivo de 2026/1 para jogar fora", async () => {
+    comoProducao();
+    await montar("");
+    // nenhuma busca de itens em 2026/1 (que passa de 8s ao vivo)
+    expect(safrasPedidas()).not.toContain("2026/1");
+  });
+
+  it("se 2026/1 passar a ter caso resolvível, a tela abre nela sozinha", async () => {
+    comoProducao({ resolvivel2026: 900 });
+    await montar("");
+    expect(screen.getByRole("button", { name: /^2026/ }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("nenhuma safra com caso resolvível: volta a abrir na corrente", async () => {
+    rpcMock.mockImplementation((nome) => {
+      if (nome === "carteira_efetividade_ler") {
+        return Promise.resolve({ data: RESUMO("x", [SEM_ACAO("em_validacao", 1043)]), error: null });
+      }
+      return Promise.resolve({ data: [], error: null });
+    });
+    await montar("");
+    expect(screen.getByRole("button", { name: /^2026/ }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("a URL manda: link da Efetividade leva à safra que aponta, mesmo sem botão", async () => {
+    comoProducao();
+    await montar("?ano=2026&semestre=1&motivo=em_validacao");
+    expect(screen.getByRole("button", { name: /^2026/ }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("sem ação automática segura")).toBeTruthy();
+    expect(safrasPedidas()).toEqual(["2026/1"]);
+  });
+});
