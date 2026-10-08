@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
-import { EFEITO_VINCULA, motivoSugerido, pedirMotivo } from "../utils/emConfirmacao";
+import {
+  EFEITO_VINCULA, CLASSES_HUMANAS, motivoSugerido, pedirMotivo,
+} from "../utils/emConfirmacao";
 
 // RESOLVER O TITULO QUE ESTA "EM CONFIRMACAO", ONDE ELE APARECE.
 //
@@ -55,6 +57,20 @@ export default function ResolverEmConfirmacao({
   // pessoa marcou; sem marcacao, vale a sugestao.
   const [acordos, setAcordos] = useState([]);
   const [escolha, setEscolha] = useState({});
+  // A CLASSE HUMANA — "o que apareceu no Prime".
+  //
+  // Amanda, 08/10/2026: "esta aparecendo apenas Rejeitar". Estava certo para
+  // 84% da fila: medido em producao, 541 dos 641 titulos nao tem NENHUM acordo
+  // que a trava aceite, entao Vincular nao podia aparecer. O que faltava nao
+  // era um botao escondido — eram as DUAS decisoes da Conferencia Prime que
+  // esta tela nunca ofereceu: registrar a classe e encerrar administrativamente.
+  //
+  // `classe_humana` nao vem de `conferencia_em_confirmacao_do_aluno`. Vem de
+  // `prime_conferencia_ficha`, que ja existe e e por titulo. Ela tem portao
+  // proprio (`usuario_e_gestao`), mais estreito que o `podeDecidir` da tela:
+  // se o portao recusar, as duas decisoes simplesmente nao aparecem — quem
+  // decide quem pode e o servidor, nao uma lista de e-mails aqui.
+  const [classes, setClasses] = useState({});
 
   // `buscar` nao mexe em estado: quem guarda e o efeito (com a trava `vivo`,
   // porque na ficha este bloco monta e desmonta a cada troca de aba) e o
@@ -77,9 +93,20 @@ export default function ResolverEmConfirmacao({
       // saida do titulo.
       const { data } = await supabase.rpc("conferencia_acordos_do_aluno", { p_aluno_id: alunoId });
       if (vivo) setAcordos(data || []);
+      // Uma ficha por titulo em confirmacao. O erro 42501 (portao da gestao) e
+      // esperado e silencioso: sem ficha, sem botao de gestao.
+      const alvo = tituloId
+        ? (r.itens || []).filter((x) => String(x.titulo_id) === String(tituloId))
+        : (r.itens || []);
+      const mapa = {};
+      for (const it of alvo) {
+        const f = await supabase.rpc("prime_conferencia_ficha", { p_titulo_id: it.titulo_id });
+        if (!f.error && f.data) mapa[it.titulo_id] = f.data.classe_humana || "";
+      }
+      if (vivo) setClasses(mapa);
     })();
     return () => { vivo = false; };
-  }, [alunoId, buscar]);
+  }, [alunoId, buscar, tituloId]);
 
   // O acordo que vale para este titulo: o marcado pela pessoa ou, na ausencia,
   // o sugerido pela deteccao.
@@ -105,6 +132,33 @@ export default function ResolverEmConfirmacao({
         motivo = pedirMotivo(pergunta, undefined, motivoSugerido(item, alvo));
         if (!motivo) return;
       } else if (!window.confirm(pergunta)) return;
+    } else if (acao === "CLASSIFICAR") {
+      // A classe vem de um prompt com a lista, porque o banco recusa qualquer
+      // valor fora das sete (CLASSE_INVALIDA) e a observacao e obrigatoria.
+      const menu = CLASSES_HUMANAS.map((c, i) => `${i + 1}. ${c.rotulo}`).join("\n");
+      const escolhido = window.prompt(
+        `O que apareceu no Prime para o boleto ${item.documento} (${moeda(item.valor)})?\n\n${menu}\n\nDigite o número:`,
+        "");
+      if (escolhido === null) return;
+      const idx = Number(String(escolhido).trim()) - 1;
+      const classe = CLASSES_HUMANAS[idx];
+      if (!classe) { alert("Escolha um número de 1 a " + CLASSES_HUMANAS.length + "."); return; }
+      motivo = pedirMotivo(
+        `Registrar "${classe.rotulo}" para o boleto ${item.documento}.\n\nIsto não decide o título: só grava o que a gestão viu no Prime, com seu nome e a data.\n\nO que apareceu lá?`,
+        undefined, `${classe.rotulo.toLowerCase()} conferido no Prime para o boleto ${item.documento}`);
+      if (!motivo) return;
+      setDecidindo(item.titulo_id);
+      try {
+        const r = await supabase.rpc("prime_conferencia_classificar_humano",
+          { p_titulo_id: item.titulo_id, p_classe: classe.valor, p_obs: motivo });
+        if (r.error) throw r.error;
+        setClasses((c) => ({ ...c, [item.titulo_id]: classe.valor }));
+      } catch (e) {
+        alert("Não foi possível registrar: " + (e?.message || String(e)));
+      } finally {
+        setDecidindo(null);
+      }
+      return;
     } else if (acao === "SEGUIR") {
       motivo = pedirMotivo(
         `O boleto ${item.documento} volta ao fluxo oficial de pagamento e sai desta fila; o motor conclui. Nada é marcado pago aqui.\n\nPor que este pagamento é deste título?`);
@@ -152,6 +206,10 @@ export default function ResolverEmConfirmacao({
     <div>
       {lista.map((item) => {
         const ocupado = decidindo === item.titulo_id;
+        // `undefined` = ficha ainda nao respondeu ou o portao da gestao recusou.
+        // String vazia = respondeu e o titulo ainda nao tem classe.
+        const classeCarregada = Object.prototype.hasOwnProperty.call(classes, item.titulo_id);
+        const classeAtual = classes[item.titulo_id] || "";
         // O acordo que vale agora e o efeito DELE -- nao o da sugestao.
         const alvo = acordoDe(item);
         const efeitoAtual = alvo?.efeito || item.efeito;
@@ -225,6 +283,28 @@ export default function ResolverEmConfirmacao({
                     Seguir pagamento
                   </button>
                 ) : null}
+                {/* REGISTRAR A CLASSE. Só aparece quando `prime_conferencia_ficha`
+                    respondeu — ou seja, quando o portão da gestão deixou. Não
+                    decide o título: grava o que a gestão viu no Prime, e é
+                    pré-requisito do encerramento administrativo. */}
+                {classeCarregada ? (
+                  <button type="button" style={estilos.btnNeutro} disabled={!!decidindo}
+                    onClick={() => decidir(item, "CLASSIFICAR")}
+                    title="Grava o que apareceu no Prime, com seu nome e a data. Não muda o título.">
+                    {classeAtual
+                      ? `Classe: ${rotuloClasse(classeAtual)} — trocar`
+                      : "Registrar o que apareceu no Prime"}
+                  </button>
+                ) : null}
+                {/* ENCERRAMENTO: FORA, POR DECISÃO DA GESTÃO (08/10/2026).
+                    `prime_conferencia_encerrar_administrativo` leva o título
+                    para CANCELADA. A regra aprovada é outra: cancelamento de
+                    cobrança, suspensão, FIES/bolsa e demais encerramentos sem
+                    recuperação da ReATIVA devem ZERAR O SALDO e ficar
+                    DEVOLVIDO. Enquanto não houver caminho pronto para isso, a
+                    tela não oferece a ação — oferecer o CANCELADA seria gravar
+                    o estado errado com um clique. A classificação continua,
+                    porque ela não decide nada: só registra o que foi visto. */}
                 <button type="button" style={estilos.btnNeutro} disabled={!!decidindo}
                   onClick={() => decidir(item, "REJEITAR")}
                   title="A liquidação não vale: o título volta a ser cobrado, em aberto.">
@@ -237,6 +317,10 @@ export default function ResolverEmConfirmacao({
       })}
     </div>
   );
+}
+
+function rotuloClasse(valor) {
+  return CLASSES_HUMANAS.find((c) => c.valor === valor)?.rotulo || valor;
 }
 
 const estilos = {
