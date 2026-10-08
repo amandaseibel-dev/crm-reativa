@@ -151,11 +151,24 @@ export default function TriagemConfirmacaoPendente({ recarga = 0 }) {
                   {g.chave === "OUTRO_BLOQUEIO" ? (
                     <span style={E.cardApoio}>
                       {num(d.com_status_bloqueio)} com status de suspensão/cancelamento/jurídico ·{" "}
-                      {num(d.com_caso_encerrado)} com caso encerrado · {num(d.sem_operador)} sem operador ·{" "}
-                      {num(d.com_nao_acionar)} marcados “não acionar”. Os motivos se sobrepõem e não somam.
+                      {num(d.com_caso_encerrado)} com caso encerrado · {num(d.com_nao_acionar)} marcados
+                      “não acionar”. Os motivos se sobrepõem e não somam.
                     </span>
                   ) : null}
                   <span style={E.cardAjuda}>{g.ajuda}</span>
+                  {/* `sem_operador` NAO entra na composicao acima: neste grupo
+                      ele e tautologico (o grupo E "sem caso livre com
+                      operador", entao o campo volta o tamanho do grupo).
+                      Medido em producao em 08/10/2026: dos 33, so 7 nao tem
+                      operador nenhum -- 26 tem operador e o caso esta bloqueado
+                      por status. Exibi-lo como "sem operador" apontava a causa
+                      errada. */}
+                  {g.chave === "OUTRO_BLOQUEIO" ? (
+                    <span style={E.cardApoio}>
+                      Nenhum deles tem caso livre com operador — é isso que define o grupo. A causa
+                      pode ser o status do caso, o encerramento ou a ausência de operador.
+                    </span>
+                  ) : null}
                 </>
               ) : (
                 <span style={E.cardAjuda}>{g.vazio}</span>

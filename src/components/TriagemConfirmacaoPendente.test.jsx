@@ -67,9 +67,20 @@ describe("Triagem da fila de confirmação", () => {
   it("abre a composição do bloqueio e avisa que os motivos não somam", async () => {
     await montar();
     const card = screen.getByText("Tem outro bloqueio").closest("article");
-    expect(card.textContent).toContain("24");
-    expect(card.textContent).toContain("7");
+    expect(card.textContent).toContain("24");   // status de bloqueio
+    expect(card.textContent).toContain("4");    // caso encerrado
     expect(card.textContent).toMatch(/se sobrepõem e não somam/);
+  });
+
+  it("não exibe `sem_operador` como causa: no grupo ele é tautológico", async () => {
+    await montar();
+    const card = screen.getByText("Tem outro bloqueio").closest("article");
+    // Medido em produção: o campo volta 33 num grupo de 33, mas só 7 não têm
+    // operador nenhum. Exibi-lo como causa apontava para o lugar errado.
+    // A causa "sem operador" segue listada na explicação do grupo, o que é
+    // correto; o que não pode voltar é a CONTAGEM tautológica ao lado dela.
+    expect(card.textContent).not.toMatch(/33 sem operador/);
+    expect(card.textContent).toMatch(/Nenhum deles tem caso livre com operador/);
   });
 
   it("faz a conferência de disponibilidade dos elegíveis", async () => {
