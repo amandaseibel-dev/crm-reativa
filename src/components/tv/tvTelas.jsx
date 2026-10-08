@@ -55,7 +55,7 @@ function TelaHoje({ snap }) {
   ].filter((x) => x.d && x.d.operador);
   return (
     <Tela titulo="Hoje na Operação">
-      <div style={heroi}>
+      <div style={heroiCheio}>
         <div style={heroiRotulo}>Recuperado hoje</div>
         <div style={heroiValor}>{moeda(h.recuperado)}</div>
         <div style={heroiSatelites}>
@@ -201,7 +201,7 @@ function TelaRankings({ snap }) {
   return (
     <Tela titulo="Rankings e Destaques">
       {lider && (
-        <div style={heroi}>
+        <div style={heroiCheio}>
           <div style={heroiRotulo}>Melhor recuperador do mês</div>
           <div style={{ ...heroiValor, color: T.verde }}>{lider}</div>
           {top3.length > 1 && (
@@ -806,35 +806,46 @@ const heroi = {
   display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
   gap: "0.6vh", textAlign: "center", flex: "0 0 auto",
 };
+// O conteúdo de Tela é centralizado com gap fixo: com dois blocos de altura
+// própria, sobrava faixa vazia em cima e embaixo no telão 1600x900. Aqui o
+// herói CRESCE para ocupar o que sobra (flex 1) e a faixa de destaques fica
+// logo abaixo — nada é adicionado nem recalculado, só redistribuído.
+const heroiCheio = {
+  ...heroi, flex: "3 1 0", width: "100%", justifyContent: "center", gap: "1.1vh", minHeight: 0,
+};
 const heroiRotulo = {
-  fontSize: fs(13, 1.35, 30), fontWeight: 800, color: T.textoMudo,
+  fontSize: fs(14, 1.5, 34), fontWeight: 800, color: T.textoMudo,
   textTransform: "uppercase", letterSpacing: "0.14em",
 };
 const heroiValor = {
-  fontSize: fs(40, 5.6, 140), fontWeight: 900, lineHeight: 0.98, color: T.verde,
+  fontSize: fs(52, 8.4, 214), fontWeight: 900, lineHeight: 0.95, color: T.verde,
   letterSpacing: "-0.02em", whiteSpace: "nowrap", textShadow: "0 0 40px rgba(34,197,94,0.28)",
 };
 const heroiSatelites = {
   display: "flex", alignItems: "baseline", justifyContent: "center", flexWrap: "wrap",
-  gap: "0.8vw", fontSize: fs(14, 1.5, 34), fontWeight: 600, color: T.textoSuave, marginTop: "0.4vh",
+  gap: "0.8vw", fontSize: fs(15, 1.65, 38), fontWeight: 600, color: T.textoSuave, marginTop: "0.6vh",
 };
 const sepPonto = { color: "rgba(148,163,184,0.5)", padding: "0 0.4vw" };
+// A faixa divide a altura com o herói (3:2) em vez de ficar só com a altura do
+// próprio texto: era daí que vinha a tira preta entre os dois blocos no telão.
 const faixaDestaques = {
   display: "flex", gap: "clamp(10px, 1.4vw, 28px)", justifyContent: "center",
-  width: "min(88vw, 1600px)", flex: "0 0 auto", flexWrap: "nowrap",
+  alignItems: "stretch", width: "min(88vw, 1600px)", flex: "2 1 0", minHeight: 0,
+  maxHeight: "30vh", flexWrap: "nowrap",
 };
 const cardDestaque = {
   background: "rgba(148,163,184,0.10)", border: "1px solid rgba(148,163,184,0.22)",
-  borderRadius: 18, padding: "1.1vh 1.4vw", display: "flex", flexDirection: "column",
-  gap: "0.3vh", flex: "1 1 0", minWidth: 0, alignItems: "center", textAlign: "center",
+  borderRadius: 18, padding: "2.6vh 1.4vw", display: "flex", flexDirection: "column",
+  gap: "0.6vh", flex: "1 1 0", minWidth: 0, alignItems: "center", justifyContent: "center",
+  textAlign: "center",
   boxShadow: "0 10px 40px rgba(2,6,23,0.35)", boxSizing: "border-box",
 };
 const cardDestaqueRotulo = {
-  fontSize: fs(11, 1.05, 24), fontWeight: 800, color: T.textoMudo,
+  fontSize: fs(12, 1.15, 26), fontWeight: 800, color: T.textoMudo,
   textTransform: "uppercase", letterSpacing: "0.1em",
 };
 const cardDestaqueNome = {
-  fontSize: fs(17, 1.9, 44), fontWeight: 900, color: T.texto,
+  fontSize: fs(19, 2.2, 52), fontWeight: 900, color: T.texto,
   whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%",
 };
-const cardDestaqueValor = { fontSize: fs(13, 1.35, 30), fontWeight: 700, color: T.azulClaro };
+const cardDestaqueValor = { fontSize: fs(14, 1.5, 34), fontWeight: 700, color: T.azulClaro };
