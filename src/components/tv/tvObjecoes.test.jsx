@@ -15,13 +15,21 @@ import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import { CATALOGO_TELAS } from "./tvTelas";
 import { OBJECOES } from "../../conteudo/objecoesNegociacao";
+import { indiceDaObjecao } from "./tvRodizioObjecao";
 
 afterEach(cleanup);
+
+// Data FIXA em todo render: a objeção exibida depende do dia, e sem fixar a data
+// a suíte passaria hoje e quebraria amanhã. As propriedades do rodízio em si
+// (não repetir, cobrir tudo, mudar de dia) vivem em tvRodizioObjecao.test.js;
+// aqui só se confere que a TELA obedece ao índice que o módulo devolve.
+const DIA = new Date(2026, 9, 8);
+const esperado = (g) => OBJECOES[indiceDaObjecao(g, OBJECOES.length, DIA)];
 
 const tela = (id) => CATALOGO_TELAS.find((t) => t.id === id);
 const desenhar = (id, props) => {
   const { Comp } = tela(id);
-  return render(<Comp {...props} />);
+  return render(<Comp hoje={DIA} {...props} />);
 };
 
 describe("conteúdo compartilhado com o Portal", () => {
@@ -62,19 +70,19 @@ describe("TV — Quebras de Objeção (render)", () => {
   it("mostra a fala do aluno e a resposta principal", () => {
     desenhar("objecoes", { indiceGiro: 0 });
     expect(screen.getByText("O aluno diz")).toBeTruthy();
-    expect(screen.getByText(`“${OBJECOES[0].pergunta}”`)).toBeTruthy();
+    expect(screen.getByText(`“${esperado(0).pergunta}”`)).toBeTruthy();
     expect(screen.getByText("Responda assim")).toBeTruthy();
-    expect(screen.getByText(OBJECOES[0].principal)).toBeTruthy();
+    expect(screen.getByText(esperado(0).principal)).toBeTruthy();
   });
 
   it("uma objeção por volta — o giro anda e não repete", () => {
     const { unmount } = desenhar("objecoes", { indiceGiro: 0 });
-    expect(screen.getByText(`“${OBJECOES[0].pergunta}”`)).toBeTruthy();
+    expect(screen.getByText(`“${esperado(0).pergunta}”`)).toBeTruthy();
     unmount();
 
-    desenhar("objecoes", { indiceGiro: 7 });
-    expect(screen.getByText(`“${OBJECOES[7].pergunta}”`)).toBeTruthy();
-    expect(screen.queryByText(`“${OBJECOES[0].pergunta}”`)).toBeNull();
+    desenhar("objecoes", { indiceGiro: 1 });
+    expect(screen.getByText(`“${esperado(1).pergunta}”`)).toBeTruthy();
+    expect(screen.queryByText(`“${esperado(0).pergunta}”`)).toBeNull();
   });
 
   it("todas as 35 aparecem ao longo das voltas", () => {
@@ -89,7 +97,7 @@ describe("TV — Quebras de Objeção (render)", () => {
 
   it("o giro dá a volta sem estourar a lista", () => {
     desenhar("objecoes", { indiceGiro: OBJECOES.length });
-    expect(screen.getByText(`“${OBJECOES[0].pergunta}”`)).toBeTruthy();
+    expect(screen.getByText(`“${esperado(0).pergunta}”`)).toBeTruthy();
   });
 
   it("giro ausente ou inválido não quebra a tela", () => {
@@ -100,30 +108,39 @@ describe("TV — Quebras de Objeção (render)", () => {
     }
   });
 
+  // O giro que cai numa objeção específica deixou de ser o índice dela: agora é
+  // preciso PROCURAR a volta cujo índice bate. É isso que o rodízio faz.
+  const giroQueMostra = (pred) => {
+    for (let g = 0; g < OBJECOES.length; g++) if (pred(esperado(g))) return g;
+    throw new Error("nenhuma volta mostra uma objeção com esse perfil");
+  };
+
   it("mostra a resposta firme quando existe", () => {
-    const i = OBJECOES.findIndex((o) => o.firme);
-    desenhar("objecoes", { indiceGiro: i });
+    const g = giroQueMostra((o) => o.firme);
+    desenhar("objecoes", { indiceGiro: g });
     expect(screen.getByText("Se insistir")).toBeTruthy();
-    expect(screen.getByText(OBJECOES[i].firme)).toBeTruthy();
+    expect(screen.getByText(esperado(g).firme)).toBeTruthy();
   });
 
   it("sem resposta firme, cai na alternativa", () => {
-    const i = OBJECOES.findIndex((o) => !o.firme && o.alternativa);
-    desenhar("objecoes", { indiceGiro: i });
+    const g = giroQueMostra((o) => !o.firme && o.alternativa);
+    desenhar("objecoes", { indiceGiro: g });
     expect(screen.getByText("Ou")).toBeTruthy();
-    expect(screen.getByText(OBJECOES[i].alternativa)).toBeTruthy();
+    expect(screen.getByText(esperado(g).alternativa)).toBeTruthy();
     expect(screen.queryByText("Se insistir")).toBeNull();
   });
 
   it("objetivo e atenção ficam no Portal, não no telão", () => {
     desenhar("objecoes", { indiceGiro: 0 });
-    expect(screen.queryByText(OBJECOES[0].objetivo)).toBeNull();
-    expect(screen.queryByText(OBJECOES[0].atencao)).toBeNull();
+    expect(screen.queryByText(esperado(0).objetivo)).toBeNull();
+    expect(screen.queryByText(esperado(0).atencao)).toBeNull();
   });
 
-  it("diz em que ponto da lista está", () => {
-    desenhar("objecoes", { indiceGiro: 4 });
-    expect(screen.getByText(/Objeção 5 de 35/)).toBeTruthy();
+  it("diz em que ponto da lista está, seguindo o rodízio e não o giro", () => {
+    const g = 4;
+    const pos = indiceDaObjecao(g, OBJECOES.length, DIA);
+    desenhar("objecoes", { indiceGiro: g });
+    expect(screen.getByText(new RegExp(`Objeção ${pos + 1} de 35`))).toBeTruthy();
   });
 });
 
