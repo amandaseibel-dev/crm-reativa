@@ -18,10 +18,12 @@
 --      pega o que esta marcado e reconstroi. Roda como `postgres`, sem teto de
 --      statement. Nunca e chamado pelo clique: o botao da tela so MARCA.
 --
---   3. REDE DE SEGURANCA (horaria, as :40). Reconstroi os tres recortes sem
+--   3. REDE DE SEGURANCA (de 20 em 20 minutos). Reconstroi os tres recortes sem
 --      perguntar se houve evento. E ela que cobre o que entra por FORA do CRM --
 --      pagamento conciliado direto na Prime, ajuste feito no sistema academico --
---      porque nada dentro daqui dispara gatilho nesses casos.
+--      porque nada dentro daqui dispara gatilho nesses casos. Decisao da gestao
+--      em 08/10/2026: fica em 20 minutos, nao horaria, para o movimento externo
+--      ter defasagem de 20 e nao de 60.
 --
 -- POR QUE GATILHO DE STATEMENT E NAO DE LINHA: `job 38` derrubou o Postgres em
 -- 24/09/2026 por trabalho por linha em tabela quente. Gatilho de statement custa
@@ -176,12 +178,12 @@ revoke all on function public.carteira_efetividade_atender_pedidos() from public
 grant execute on function public.carteira_efetividade_atender_pedidos() to service_role;
 
 -- ------------------------------------------------------------------ 5. as duas rotinas
--- A rede de seguranca passa a ser HORARIA, as :40. Era de 20 em 20 minutos; com
--- o gatilho marcando e o cron de 5 minutos atendendo, a fotografia deixa de
--- depender dela para o que acontece DENTRO do CRM. O preco e que o movimento
--- que entra por FORA -- pagamento conciliado na Prime, ajuste academico -- passa
--- a ter defasagem de ate 60 minutos, contra os 20 de antes.
-select cron.schedule('carteira_efetividade_rede_de_seguranca', '40 * * * *',
+-- A rede de seguranca roda de 20 em 20 minutos. Com o gatilho marcando e o cron
+-- de 5 minutos atendendo, a fotografia nao depende dela para o que acontece
+-- DENTRO do CRM; ela existe para o que entra por FORA -- pagamento conciliado na
+-- Prime, ajuste academico -- que nao dispara gatilho nenhum. Dai o intervalo
+-- curto: 20 minutos e a defasagem maxima desse movimento.
+select cron.schedule('carteira_efetividade_rede_de_seguranca', '*/20 * * * *',
                      $cron$select public.carteira_efetividade_snapshot_recalcular();$cron$)
  where not exists (select 1 from cron.job where jobname = 'carteira_efetividade_rede_de_seguranca');
 

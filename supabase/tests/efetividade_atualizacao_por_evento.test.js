@@ -14,7 +14,7 @@
 //    fica e o próximo ciclo tenta de novo;
 //  - a leitura diz `desatualizada`, para a tela nunca apresentar fotografia
 //    antiga como dado ao vivo;
-//  - a rede de segurança é horária às :40 e o atendedor roda de 5 em 5 minutos;
+//  - a rede de segurança roda de 20 em 20 minutos, igual ao atendedor de 5;
 //  - nenhuma regra financeira neste arquivo.
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
@@ -232,11 +232,11 @@ describe("a marca sobrevive ao recálculo que falha", () => {
 });
 
 describe("as rotinas e o que elas cobrem", () => {
-  it("rede de segurança horária às :40 e atendedor de 5 em 5 minutos", async () => {
+  it("rede de segurança de 20 em 20 minutos e atendedor de 5 em 5 minutos", async () => {
     const { rows } = await db.query("select jobname, schedule from cron.job order by jobname");
     expect(rows).toEqual([
       { jobname: "carteira_efetividade_atender_pedidos", schedule: "*/5 * * * *" },
-      { jobname: "carteira_efetividade_rede_de_seguranca", schedule: "40 * * * *" },
+      { jobname: "carteira_efetividade_rede_de_seguranca", schedule: "*/20 * * * *" },
     ]);
   });
 

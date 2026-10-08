@@ -356,7 +356,7 @@ export default function FilaUnicaConfirmacao() {
           <strong>lista de casos é ao vivo</strong> e o caso resolvido sai dela na hora — é a contagem
           que espera a reconstrução, em até 5 minutos. Movimentação que entra por fora do CRM
           (pagamento conciliado direto na Prime, ajuste acadêmico) não dispara reconstrução e aparece
-          na rede de segurança horária, às :40.
+          na rede de segurança, que roda de 20 em 20 minutos.
         </p>
       ) : null}
     </div>

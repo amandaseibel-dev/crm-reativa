@@ -223,7 +223,11 @@ revoke all on function public.carteira_efetividade_ler(text, text, text) from pu
 grant execute on function public.carteira_efetividade_ler(text, text, text) to authenticated, service_role;
 
 -- --------------------------------------------------- 4. primeira fotografia
-select public.carteira_efetividade_snapshot_recalcular();
+-- NAO sai daqui. Reconstruir os tres recortes leva dezenas de segundos, e uma
+-- migration que fica pendurada nisso pode ser cortada pelo cliente no meio --
+-- deixando metade aplicada. A fotografia e gerada por uma chamada explicita
+-- depois de aplicar, e de todo jeito a rede de seguranca de 20 minutos a geraria
+-- sozinha. Enquanto nao existir, a leitura devolve `sem_snapshot` e a tela diz.
 
 -- ------------------------------------------------------------- 5. as rotinas
 -- Nao nascem aqui. A politica de atualizacao -- gatilho que marca, cron de 5
