@@ -230,14 +230,26 @@ As duas não dependem uma da outra, e nenhuma delas destrava a outra.
 como um bloco único que dependia da confirmação de escopo. Ela se divide em
 duas, e **só a segunda está bloqueada**:
 
-**A1 — importar como fotos independentes: LIBERADO.** F1, F2 e F4 podem ser
-importadas como fotos independentes sem a confirmação de escopo. Cada foto é um
-retrato autossuficiente do que estava em aberto naquela extração, e tudo que se
-mede **dentro** dela — total, saldo, distribuição por unidade, situação
-acadêmica — vale por si. A identidade de cada arquivo está provada por md5, e o
-importador recusa e contabiliza linha inválida e duplicada por conta própria.
+**A1 — importação como fotos independentes: TECNICAMENTE POSSÍVEL, PENDENTE DE
+AUTORIZAÇÃO DA GESTÃO.**
 
-**A2 — a série "saiu da base": BLOQUEADA.** A confirmação de escopo continua
+O que a medição prova: **cada foto pode ser armazenada e analisada
+individualmente**, sem a confirmação de escopo. Cada uma é um retrato
+autossuficiente do que estava em aberto naquela extração, e tudo que se mede
+**dentro** dela — total, saldo, distribuição por unidade, situação acadêmica —
+vale por si. A identidade de cada arquivo está provada por md5, e o importador
+recusa e contabiliza linha inválida e duplicada por conta própria.
+
+O que a medição **não** faz: **viabilidade técnica não é autorização.** Nada
+aqui libera escrita em produção. Importar uma foto grava em `prev_lote`,
+`prev_titulo`, `prev_titulo_lote` e `prev_carteira`, e essa é decisão de
+gestão, não conclusão de análise.
+
+**F1, F2 e F4 só serão importadas após autorização explícita da gestão** — por
+foto, não em bloco, e com o registro de quem autorizou.
+
+**A2 — interpretação de "saiu da base": BLOQUEADA ATÉ A CONFIRMAÇÃO DO
+ESCOPO.** A confirmação continua
 obrigatória para ler a **diferença entre fotos** como movimento da carteira. É
 a conclusão do item 1c: ausência entre fotos não é regularização enquanto o
 escopo não for confirmado, e os números do item 2 abaixo seguem valendo apenas
