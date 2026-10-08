@@ -5,6 +5,7 @@ import {
 } from "./tvUI";
 import TelaMetaDoMes from "./tvMetaDoMes";
 import TelaMetas from "./tvMetas";
+import TelaAcordosHoje from "./tvAcordosHoje";
 import TelaMagicNumber from "./tvMagicNumber";
 
 // =============================================================================
@@ -622,6 +623,11 @@ export const CATALOGO_TELAS = [
   { id: "julho", nome: "Julho Histórico", Comp: TelaJulhoHistorico, ativa: true, grupo: "comunicacao",
     descricao: "Reconhecimento das metas batidas em julho (ativável em tv_config).",
     temConteudo: (s) => s?.julho_historico?.ativo === true },
+  // Fica VISÍVEL mesmo zerada (decisão da gestão em 08/10/2026): dia sem acordo
+  // é informação. Por isso temConteudo é `sempre` — a própria tela trata o zero.
+  { id: "acordos_hoje", nome: "Acordos de Hoje", Comp: TelaAcordosHoje, ativa: true, grupo: "operacao",
+    descricao: "Acordos fechados hoje, quantos já converteram em pagamento, valor pago e ranking por operador.",
+    temConteudo: sempre },
   { id: "rankings", nome: "Rankings e Destaques", Comp: TelaRankings, ativa: true, grupo: "operacao",
     descricao: "Melhores do dia/mês, mais pagamentos e maior pagamento único.",
     temConteudo: (s) => {

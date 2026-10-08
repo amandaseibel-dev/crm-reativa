@@ -1,11 +1,18 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act, cleanup, within } from "@testing-library/react";
+import { render, screen, fireEvent, act, cleanup } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 
-// O que se prova aqui é o ENQUADRAMENTO de 2024/2025: ano inteiro (sem seletor
-// de semestre), saldo em aberto da régua ajustada, o balde 166 em linha própria
-// e a composição por curso. Nenhuma conta acontece no front — os valores vêm
-// prontos da RPC, então o dublê devolve exatamente o payload de produção.
+// O que se prova aqui é o ENQUADRAMENTO da Efetividade redesenhada (07/10/2026):
+// quatro blocos, um conjunto único de indicadores em toda safra, e NENHUMA
+// informação repetida em cards diferentes. Nenhuma conta acontece no front —
+// os valores vêm prontos das RPCs, então o dublê devolve o payload como ele é.
+//
+// A página virou a dona de `carteira_safra_situacoes`: o MESMO payload alimenta
+// o resumo executivo do topo e o cartão das seis linhas, e é por isso que os
+// dois não podem divergir. Os blocos novos (composição acadêmica, pendências
+// por motivo, comparativo) têm teste próprio nos arquivos deles; aqui se prova
+// que a página os monta no lugar certo e que os antigos saíram.
 const rpcMock = vi.fn();
 vi.mock("../services/supabase", () => ({
   supabase: {
@@ -46,37 +53,335 @@ const POR_ANO = {
   sem_semestre: { alunos: 191, mensalidades: 486, valor: 81464.89 },
 };
 
+// Medido em produção em 06/10/2026 e mantido como está: a tela só usa este
+// payload para o CONTEXTO do rodapé (congelamento e fotografia de referência).
+// Os indicadores vêm de `carteira_safra_situacoes`, ao vivo.
 const CONSOLIDADA = {
-  base: { valor: 21752304.72, cpfs: 5253, titulos: 14988, congelada_em: "2026-09-11" },
-  faixas: { efetividade: 11218629.14, inadimplencia: 9742154.54, em_validacao: 965660.93, academico: 38940.39 },
-  recuperacao: { total: 6510891.25 },
-  gerado_em: "2026-09-17",
+  base: { valor: 21710447.29, cpfs: 5250, titulos: 14979, congelada_em: "2026-09-11" },
+  faixas: { efetividade: 11615720.75, inadimplencia: 9134866.22,
+            em_validacao: 807802.95, academico: 152057.37 },
+  recuperacao: { total: 6896336.45 },
+  gerado_em: "2026-10-06",
 };
 
-beforeEach(() => {
-  rpcMock.mockReset();
-  rpcMock.mockImplementation((nome) => {
-    if (nome === "carteira_2026_1_indicadores") return Promise.resolve({ data: CONSOLIDADA });
-    if (nome === "carteira_saldo_historico_por_ano") return Promise.resolve({ data: POR_ANO });
-    return Promise.resolve({ data: null });
+// Valores validados de 2026/1: 2.522 alunos, 7.810 títulos e R$ 9.931.064,45 de
+// saldo em aberto (inadimplência + em validação).
+const SITUACOES = {
+  recorte: "2026/1", natureza: "CARTEIRA_CONSOLIDADA",
+  fonte: "carteira_2026_1_classificar() ao vivo", gerado_em: "2026-10-07T19:30:00Z",
+  situacoes: {
+    entrou:    { alunos: 5250, titulos: 14979, valor: 21710447.29 },
+    pago:      { alunos: 1826, titulos: 5068, valor: 6896336.45 },
+    negociado: { alunos: 944, titulos: 2961, valor: 4662443.01 },
+    cancelado: { alunos: 3, titulos: 15, valor: 112595.16 },
+    em_aberto: { alunos: 2522, titulos: 7810, valor: 9931064.45 },
+    pendente:  { alunos: 1159, titulos: 2414, valor: 1793976.23 },
+  },
+  conferencia: { entrou: 21710447.29, soma_das_linhas: 21710447.29, diferenca: 0, fecha: true },
+  pendente_detalhe: {},
+};
+
+// Medido em producao em 07/10/2026: 2.517 alunos / 7.802 titulos /
+// R$ 9.876.066,41, fechando 0,00 em valor, 0 em titulos e 0 em alunos.
+const COMPOSICAO = {
+  recorte: "2026/1", universo_em_aberto: "inadimplencia + em_validacao",
+  regua: "classificacao da safra 2026/1",
+  snapshot: { gerado_em: "2026-10-07T23:40:00Z", duracao_ms: 21312, bloco: "composicao_academica" },
+  total: { alunos: 2517, titulos: 7802, valor: 9876066.41 },
+  linhas: [{ status: "Aguardando Matrícula", alunos: 2517, titulos: 7802, valor: 9876066.41 }],
+  conferencia: { total_valor: 9876066.41, soma_das_linhas: 9876066.41, diferenca: 0,
+                 fecha: true, titulos_total: 7802, titulos_soma: 7802,
+                 alunos_total: 2517, alunos_soma: 2517 },
+  fonte_academica: { importacao_atualizada_em: "2026-08-04T15:19:51Z" },
+};
+
+const PENDENCIAS = {
+  recorte: "2026/1", contagens_somaveis: false,
+  total: { alunos: 1159, titulos: 2414, valor: 1793976.23 },
+  motivos: [{ chave: "em_validacao", rotulo: "Em validação",
+              acao: "SEM_ACAO_AUTOMATICA_SEGURA", alunos: 500, titulos: 1000, valor: 807802.95 }],
+  conferencia: { total_valor: 1793976.23, soma_das_linhas: 1793976.23, diferenca: 0, fecha: true },
+};
+
+const CASOS_PENDENTES = {
+  casos_no_escopo: 12859, sem_pagamento: 11494, com_acordo_aberto: 2117,
+  nos_dois: 972, pendentes: 12639,
+};
+
+const NEGOCIACOES = {
+  gerado_em: "2026-09-29",
+  total: { negociado: 453987.04, recebido: 120000, saldo: 333987.04,
+           titulos: 268, cpfs: 246, acordos: 250 },
+  estados: [{ estado: "Regular", negociado: 300000 }],
+};
+const CONTEXTO = {
+  carteira_valor: 5127980.01, carteira_titulos: 2522, carteira_cpfs: 1900,
+  remessas: 7, primeira_remessa: "2026-07-02", ultima_remessa: "2026-08-14",
+};
+
+// A tela le os tres blocos agregados por `carteira_efetividade_ler(bloco, ...)`
+// -- fotografia, nunca a consulta viva. O dublê responde por BLOCO, que e o
+// contrato real.
+const BLOCOS = {
+  seis_linhas: SITUACOES,
+  composicao_academica: COMPOSICAO,
+  pendencias_por_motivo: PENDENCIAS,
+};
+
+const PADRAO = {
+  carteira_2026_1_indicadores: CONSOLIDADA,
+  carteira_saldo_historico_por_ano: POR_ANO,
+  casos_pendentes_contar: CASOS_PENDENTES,
+  carteira_2026_2_negociacoes: NEGOCIACOES,
+  carteira_2026_2_contexto: CONTEXTO,
+};
+
+function responder(mapa = {}, blocos = {}) {
+  const tabela = { ...PADRAO, ...mapa };
+  const tb = { ...BLOCOS, ...blocos };
+  rpcMock.mockImplementation((nome, args) => {
+    if (nome === "carteira_efetividade_ler") {
+      const v = tb[args.p_bloco];
+      if (v?.__erro) return Promise.resolve({ data: null, error: v.__erro });
+      return Promise.resolve({ data: v ?? { sem_snapshot: true } });
+    }
+    return Promise.resolve(nome in tabela
+      ? (tabela[nome]?.__erro ? { data: null, error: tabela[nome].__erro } : { data: tabela[nome] })
+      : { data: null });
   });
-});
+}
+
+const txt = (el) => el.textContent.replace(/\u00a0/g, " ");
+
+beforeEach(() => { rpcMock.mockReset(); responder(); });
 afterEach(() => cleanup());
 
 async function abrir() {
-  await act(async () => { render(<CarteiraEfetividade />); });
+  await act(async () => {
+    render(<MemoryRouter><CarteiraEfetividade /></MemoryRouter>);
+  });
 }
-
-// O card "Status acadêmico por safra" repete, na mesma página, os rótulos das
-// categorias e os nomes das safras. Estas asserções são sobre o bloco "Alunos
-// por status" das seis linhas, então a busca passa a ser DENTRO dele.
-function blocoSeisLinhas() {
-  return screen.getByText("As seis linhas da safra").closest("section");
-}
-
 async function irPara(ano) {
   await act(async () => { fireEvent.click(screen.getByRole("button", { name: ano })); });
 }
+async function ir2026_2() {
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "2º semestre" })); });
+}
+const bloco = (b) => rpcMock.mock.calls
+  .filter((c) => c[0] === "carteira_efetividade_ler" && c[1].p_bloco === b).length;
+
+// ---------------------------------------------------------------------------
+describe("Efetividade — bloco 1: resumo da carteira, igual em toda safra", () => {
+  it("tem os quatro indicadores na ordem de leitura pedida", async () => {
+    await abrir();
+    const rotulos = ["Universo recebido", "Recuperado", "Saldo em aberto atual", "Efetividade"];
+    for (const r of rotulos) expect(screen.getAllByText(r).length).toBeGreaterThanOrEqual(1);
+    // A ordem é conferida DENTRO da grade de indicadores, não no corpo inteiro:
+    // "Efetividade" também é o título da página, e começaria na posição 0.
+    // "Universo recebido" aparece tambem no rodape que declara as duas reguas;
+    // a grade e a do PRIMEIRO, que e o cartao do indicador.
+    const grade = screen.getAllByText("Universo recebido")[0].closest("div").parentElement;
+    const texto = grade.textContent;
+    const pos = rotulos.map((r) => texto.indexOf(r));
+    expect(pos.every((p) => p >= 0)).toBe(true);
+    expect(pos).toEqual([...pos].sort((a, b) => a - b));
+  });
+
+  it("lê a camada rápida, uma vez por bloco, e nunca a consulta pesada", async () => {
+    await abrir();
+    expect(rpcMock).toHaveBeenCalledWith("carteira_efetividade_ler",
+      { p_bloco: "seis_linhas", p_ano: "2026", p_semestre: "1" });
+    expect(rpcMock).toHaveBeenCalledWith("carteira_efetividade_ler",
+      { p_bloco: "composicao_academica", p_ano: "2026", p_semestre: "1" });
+    // uma leitura por bloco: resumo e cartão compartilham o payload
+    expect(bloco("seis_linhas")).toBe(1);
+    expect(bloco("composicao_academica")).toBe(1);
+    // as funções vivas custam 34,6 s e 21,3 s medidos; o teto do papel é 8 s
+    const nomes = rpcMock.mock.calls.map((c) => c[0]);
+    expect(nomes).not.toContain("carteira_safra_situacoes");
+    expect(nomes).not.toContain("carteira_em_aberto_por_status_academico");
+    expect(nomes).not.toContain("carteira_pendencias_por_motivo");
+  });
+
+  it("o saldo em aberto do resumo é o da régua oficial, o mesmo que o bloco 3 decompõe", async () => {
+    await abrir();
+    // 9.876.066,41 vem da composição, não do em_aberto das seis linhas (9.125.042,63)
+    expect(screen.getAllByText("R$ 9,88 mi").length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText("R$ 9,13 mi")).toBeNull();
+    expect(screen.getByText("2.517 alunos · 7.802 títulos")).toBeTruthy();
+    expect(screen.getByText(/Duas réguas, de propósito/)).toBeTruthy();
+  });
+
+  it("mostra universo e recuperado com alunos e títulos como apoio", async () => {
+    await abrir();
+    expect(screen.getByText("R$ 21,71 mi")).toBeTruthy();
+    expect(screen.getByText("5.250 alunos · 14.979 títulos")).toBeTruthy();
+  });
+
+  it("a efetividade é o recuperado sobre o universo recebido, e declara a conta", async () => {
+    await abrir();
+    // 6.896.336,45 / 21.710.447,29 = 31,8%
+    expect(screen.getAllByText("31,8%").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("recuperado ÷ universo recebido")).toBeTruthy();
+  });
+
+  it("em 2024 o mesmo conjunto aparece, sem rótulo diferente por natureza de período", async () => {
+    await abrir();
+    await irPara("2024");
+    expect(screen.getAllByText("Universo recebido").length).toBeGreaterThanOrEqual(1);
+    // os rótulos antigos, específicos de cada período, não voltam
+    expect(screen.queryByText("Carteira convertida")).toBeNull();
+    expect(screen.queryByText("Valor recebido")).toBeNull();
+    expect(screen.queryByText("Alunos com saldo em aberto")).toBeNull();
+    expect(screen.queryByText("Negociado desde jul/2026")).toBeNull();
+    expect(screen.queryByText("Recebido desde jul/2026")).toBeNull();
+    expect(screen.queryByText("Carteira convertida")).toBeNull();
+  });
+});
+
+describe("Efetividade — o que saiu por duplicação", () => {
+  it("as barras de “Situação da carteira” sumiram fora de 2026/2", async () => {
+    await abrir();
+    expect(screen.queryByText("Situação da carteira")).toBeNull();
+    expect(screen.queryByText("Convertido")).toBeNull();
+    expect(screen.queryByText("Em aberto sem negociação")).toBeNull();
+    expect(screen.queryByText("Encerrado / ajuste acadêmico")).toBeNull();
+  });
+
+  it("a lista acadêmica quantitativa saiu dos DOIS lugares em que aparecia", async () => {
+    await abrir();
+    expect(screen.queryByText("Alunos por status")).toBeNull();
+    expect(screen.queryByText("Status acadêmico por safra")).toBeNull();
+    expect(screen.queryByText("Perfil dos alunos")).toBeNull();
+  });
+
+  it("a RPC do snapshot acadêmico não é mais chamada pela página", async () => {
+    await abrir();
+    const nomes = rpcMock.mock.calls.map((c) => c[0]);
+    expect(nomes).not.toContain("carteira_academico_perfil_ler");
+  });
+
+  it("em 2026/2 as barras PERMANECEM: ali elas são os estados do acordo", async () => {
+    await abrir();
+    await ir2026_2();
+    expect(screen.getByText("Situação da carteira")).toBeTruthy();
+    expect(screen.getByText("Regular")).toBeTruthy();
+  });
+});
+
+describe("Efetividade — blocos 3 e 4, e o que só existe em certas safras", () => {
+  it("monta a composição acadêmica e as pendências por motivo na safra selecionada", async () => {
+    await abrir();
+    expect(screen.getByText("Quem compõe o saldo em aberto")).toBeTruthy();
+    expect(screen.getByText("Pendências de validação")).toBeTruthy();
+    expect(bloco("composicao_academica")).toBe(1);
+    expect(rpcMock).toHaveBeenCalledWith("carteira_efetividade_ler",
+      { p_bloco: "pendencias_por_motivo", p_ano: "2026", p_semestre: "1" });
+  });
+
+  it("bloco sem fotografia DIZ que falta, sem derrubar os outros", async () => {
+    responder({}, { composicao_academica: { sem_snapshot: true, recorte: "2026/1",
+                                            bloco: "composicao_academica" } });
+    await abrir();
+    expect(screen.getByText(/ainda não tem fotografia de 2026\/1/)).toBeTruthy();
+    // o resumo continua, com o saldo em aberto como travessão
+    expect(screen.getByText("sem fotografia ainda")).toBeTruthy();
+    expect(screen.getByText("As seis linhas da safra")).toBeTruthy();
+  });
+
+  it("2026/2 não recebe composição acadêmica nem pendências por safra", async () => {
+    await abrir();
+    await ir2026_2();
+    expect(screen.queryByText("Quem compõe o saldo em aberto")).toBeNull();
+    expect(screen.queryByText("Pendências de validação")).toBeNull();
+    expect(screen.queryByText("As seis linhas da safra")).toBeNull();
+  });
+
+  it("2024 e 2025 mantêm o saldo por curso, que não é duplicata de nada", async () => {
+    await abrir();
+    await irPara("2024");
+    expect(screen.getByRole("heading", { name: "Saldo em aberto por curso" })).toBeTruthy();
+    expect(screen.getByText("Graduação Presencial")).toBeTruthy();
+  });
+
+  it("o contexto do ano vira rodapé, incluindo o balde 166 como exposição por CPF", async () => {
+    await abrir();
+    await irPara("2024");
+    expect(screen.getByText(/Carteira residual do ano/)).toBeTruthy();
+    expect(screen.getByText(/negociado direto com a Ulbra, a confirmar/)).toBeTruthy();
+    expect(screen.getByText(/exposição por CPF/)).toBeTruthy();
+  });
+
+  it("em 2026/1 o rodapé diz que os valores são ao vivo, não da fotografia", async () => {
+    await abrir();
+    expect(screen.getByText(/Carteira congelada em 11\/09\/2026/)).toBeTruthy();
+    expect(screen.getByText(/lidos ao vivo, não desta fotografia/)).toBeTruthy();
+  });
+});
+
+describe("Efetividade — visão global, separada da safra", () => {
+  it("“Casos ainda pendentes” fica numa área própria, declarada como carteira inteira", async () => {
+    await abrir();
+    expect(screen.getByText("Visão operacional da carteira inteira")).toBeTruthy();
+    expect(screen.getByText(/não é da safra selecionada/)).toBeTruthy();
+    expect(screen.getByText("Casos ainda pendentes")).toBeTruthy();
+  });
+
+  it("o número global não é fixo no código: vem da RPC", async () => {
+    responder({ casos_pendentes_contar: { ...CASOS_PENDENTES, pendentes: 4242 } });
+    await abrir();
+    expect(screen.getByText("4.242")).toBeTruthy();
+  });
+});
+
+describe("Efetividade — comparativo entre safras, compacto e sob demanda", () => {
+  it("fechado, não dispara as três consultas", async () => {
+    await abrir();
+    expect(screen.getByRole("button", { name: /Comparar as safras/ })).toBeTruthy();
+    expect(bloco("seis_linhas")).toBe(1);
+  });
+
+  it("aberto, compara com as cinco colunas executivas e nada mais", async () => {
+    await abrir();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Comparar as safras/ }));
+    });
+    expect(screen.getByText("Comparativo entre safras")).toBeTruthy();
+    expect(screen.getByText("Safra")).toBeTruthy();
+    // 1 da página + 3 do comparativo
+    expect(bloco("seis_linhas")).toBe(4);
+  });
+});
+
+describe("Efetividade — política de atualização", () => {
+  it("“Atualizar dados” refaz a LEITURA, sem disparar reconstrução pesada", async () => {
+    await abrir();
+    const antes = bloco("seis_linhas");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Atualizar dados/ })); });
+    expect(bloco("seis_linhas")).toBeGreaterThan(antes);
+    expect(bloco("composicao_academica")).toBeGreaterThan(1);
+    expect(bloco("pendencias_por_motivo")).toBeGreaterThan(1);
+    // o recalculo pesado NUNCA é chamado pela tela
+    const nomes = rpcMock.mock.calls.map((c) => c[0]);
+    expect(nomes).not.toContain("carteira_efetividade_recalcular");
+  });
+
+  it("trocar de safra refaz a leitura daquele recorte", async () => {
+    await abrir();
+    await irPara("2024");
+    expect(rpcMock).toHaveBeenCalledWith("carteira_efetividade_ler",
+      { p_bloco: "seis_linhas", p_ano: "2024", p_semestre: null });
+    expect(rpcMock).toHaveBeenCalledWith("carteira_efetividade_ler",
+      { p_bloco: "composicao_academica", p_ano: "2024", p_semestre: null });
+  });
+
+  it("não há polling: sem interação, nada é consultado de novo", async () => {
+    await abrir();
+    const antes = rpcMock.mock.calls.length;
+    await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+    expect(rpcMock.mock.calls.length).toBe(antes);
+  });
+});
 
 describe("Efetividade — 2024 e 2025 por ano", () => {
   it("2026 continua com o seletor de semestre", async () => {
@@ -89,38 +394,8 @@ describe("Efetividade — 2024 e 2025 por ano", () => {
     await abrir();
     await irPara("2024");
     expect(screen.queryByRole("button", { name: "1º semestre" })).toBeNull();
-    // "2024" aparece no botão do ano e no rótulo do período; aqui interessa o rótulo.
-    expect(screen.getByText((_, el) => el?.tagName === "STRONG" && el.textContent === "2024")).toBeTruthy();
     expect(screen.getByText("· Cobertura histórica")).toBeTruthy();
     expect(screen.getByText(/os dois semestres são lidos juntos/)).toBeTruthy();
-  });
-
-  it("2024 mostra o saldo em aberto ajustado, os alunos e o balde 166", async () => {
-    await abrir();
-    await irPara("2024");
-    expect(screen.getByText("Saldo em aberto")).toBeTruthy();
-    expect(screen.getByText("R$ 3,71 mi")).toBeTruthy();
-    expect(screen.getByText("6.411 mensalidades")).toBeTruthy();
-    expect(screen.getByText("1.991 alunos")).toBeTruthy();
-    expect(screen.getByText("Negociado direto com a Ulbra, a confirmar")).toBeTruthy();
-    expect(screen.getByText("R$ 613.246,31")).toBeTruthy();
-  });
-
-  it("2024 troca o perfil acadêmico pela composição por curso", async () => {
-    await abrir();
-    await irPara("2024");
-    expect(screen.getByRole("heading", { name: "Saldo em aberto por curso" })).toBeTruthy();
-    expect(screen.getByText("Graduação Presencial")).toBeTruthy();
-    expect(screen.getByText("Pós-Graduação (Lato Sensu)")).toBeTruthy();
-    expect(screen.getByText(/486 mensalidades/)).toBeTruthy();
-  });
-
-  it("2025 tem números próprios", async () => {
-    await abrir();
-    await irPara("2025");
-    expect(screen.getByText("R$ 6,31 mi")).toBeTruthy();
-    expect(screen.getByText("2.967 alunos")).toBeTruthy();
-    expect(screen.getByText("10.710 mensalidades")).toBeTruthy();
   });
 
   it("volta para 2026 e o semestre reaparece", async () => {
@@ -128,19 +403,21 @@ describe("Efetividade — 2024 e 2025 por ano", () => {
     await irPara("2024");
     await irPara("2026");
     expect(screen.getByRole("button", { name: "2º semestre" })).toBeTruthy();
-    expect(screen.getAllByText("2026/1").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("falha na safra não derruba a página: o aviso sobe e o resto fica", async () => {
+    responder({}, { seis_linhas: { __erro: { message: "statement timeout" } } });
+    await abrir();
+    expect(screen.getByText(/Não foi possível carregar as seis linhas: statement timeout/)).toBeTruthy();
+    expect(screen.getByText("Casos ainda pendentes")).toBeTruthy();
   });
 });
 
 // O alternador de visão existe SÓ em 2026/2: é a safra em curso. O conteúdo da
 // visão por competência tem teste próprio em
 // src/components/EfetividadeCompetencias.test.jsx.
-describe("Efetividade — alternador de visão de 2026/2", () => {
-  async function ir2026_2() {
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "2º semestre" })); });
-  }
-
-  it("2026/1 não oferece a visão por borderô", async () => {
+describe("Efetividade — 2026/2 preservada", () => {
+  it("2026/1 não oferece a visão por competência", async () => {
     await abrir();
     expect(screen.queryByRole("button", { name: "Por competência" })).toBeNull();
   });
@@ -148,8 +425,7 @@ describe("Efetividade — alternador de visão de 2026/2", () => {
   it("2026/2 oferece Consolidado e Por competência, começando no consolidado", async () => {
     await abrir();
     await ir2026_2();
-    const consolidado = screen.getByRole("button", { name: "Consolidado" });
-    expect(consolidado.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Consolidado" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByRole("button", { name: "Por competência" }).getAttribute("aria-pressed")).toBe("false");
   });
 
@@ -166,220 +442,125 @@ describe("Efetividade — alternador de visão de 2026/2", () => {
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Por competência" })); });
     expect(screen.getByRole("button", { name: /Ver metodologia/ })).toBeTruthy();
   });
-});
-
-// ---------------------------------------------------------------------------
-// NOMENCLATURA DO CONSOLIDADO
-//
-// "268 títulos negociados" era verdade e ainda assim confundia: a outra visão
-// da mesma tela conta 2.522 mensalidades, e nada dizia que uma é recorte da
-// outra (o Consolidado tem um INNER JOIN em acordo; é subconjunto perfeito).
-// O que estes testes travam é que a base apareça, e que ela venha da CONSULTA
-// -- numero fixo aqui passaria despercebido para sempre.
-// ---------------------------------------------------------------------------
-const NEGOCIACOES = {
-  gerado_em: "2026-09-29",
-  total: { negociado: 453987.04, recebido: 120000, saldo: 333987.04,
-           titulos: 268, cpfs: 246, acordos: 250 },
-  estados: [{ estado: "Regular", negociado: 300000 }],
-};
-const CONTEXTO = {
-  carteira_valor: 5127980.01, carteira_titulos: 2522, carteira_cpfs: 1900,
-  remessas: 7, primeira_remessa: "2026-07-02", ultima_remessa: "2026-08-14",
-};
-
-describe("Efetividade — nomenclatura do Consolidado em 2026/2", () => {
-  function comConsolidado(contexto = CONTEXTO) {
-    rpcMock.mockImplementation((nome) => {
-      if (nome === "carteira_2026_1_indicadores") return Promise.resolve({ data: CONSOLIDADA });
-      if (nome === "carteira_saldo_historico_por_ano") return Promise.resolve({ data: POR_ANO });
-      if (nome === "carteira_2026_2_negociacoes") return Promise.resolve({ data: NEGOCIACOES });
-      if (nome === "carteira_2026_2_contexto") return Promise.resolve({ data: contexto });
-      return Promise.resolve({ data: null });
-    });
-  }
-  async function ir2026_2() {
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "2º semestre" })); });
-  }
 
   it("declara a base: mensalidades com acordo, de quantas da carteira", async () => {
-    comConsolidado();
     await abrir();
     await ir2026_2();
     expect(screen.getByText("Mensalidades com acordo: 268 de 2.522 da carteira")).toBeTruthy();
-    // e o texto antigo, que não dizia de quantas, não volta
     expect(screen.queryByText("268 títulos negociados")).toBeNull();
   });
 
   it("os dois números vêm das consultas, não do código", async () => {
-    comConsolidado({ ...CONTEXTO, carteira_titulos: 3111 });
-    rpcMock.mockImplementation(((anterior) => (nome) => {
-      if (nome === "carteira_2026_2_negociacoes") {
-        return Promise.resolve({ data: { ...NEGOCIACOES, total: { ...NEGOCIACOES.total, titulos: 401 } } });
-      }
-      return anterior(nome);
-    })(rpcMock.getMockImplementation()));
+    responder({
+      carteira_2026_2_negociacoes: { ...NEGOCIACOES, total: { ...NEGOCIACOES.total, titulos: 401 } },
+      carteira_2026_2_contexto: { ...CONTEXTO, carteira_titulos: 3111 },
+    });
     await abrir();
     await ir2026_2();
     expect(screen.getByText("Mensalidades com acordo: 401 de 3.111 da carteira")).toBeTruthy();
   });
 
   it("sem o contexto carregado, some a base em vez de mostrar 'de 0'", async () => {
-    comConsolidado(null);
+    responder({ carteira_2026_2_contexto: null });
     await abrir();
     await ir2026_2();
     expect(screen.getByText("Mensalidades com acordo: 268")).toBeTruthy();
     expect(screen.queryByText(/de 0 da carteira/)).toBeNull();
   });
-});
 
-// Desde 06/10/2026 os indicadores de 2026/1 leem AO VIVO, e aí aparece título em
-// FORA_DA_BASE — cobrança encerrada administrativamente, que antes não entrava em
-// faixa nenhuma e fazia as barras somarem 99,48% da base sendo declaradas 100%.
-// Por decisão da gestão esse valor entra na faixa `academico`, mesma regra da
-// linha "Cancelado" da visão das seis linhas. Os números abaixo são os MEDIDOS em
-// produção em 06/10: academico 39.462,21 de ajuste + 112.595,16 de encerrado.
-const VIVO_2026_1 = {
-  base: { valor: 21710447.29, cpfs: 5250, titulos: 14979, congelada_em: "2026-09-11" },
-  faixas: {
-    efetividade: 11615720.75,
-    inadimplencia: 9134866.22,
-    em_validacao: 807802.95,
-    academico: 152057.37,
-  },
-  academico_detalhe: {
-    ajuste_academico: 39462.21,
-    encerrado_administrativo: 112595.16,
-    titulos_encerrados: 15,
-  },
-  recuperacao: { total: 6896336.45 },
-  gerado_em: "2026-10-06",
-  fonte: "ao vivo",
-};
-
-describe("Efetividade — 2026/1 ao vivo, com as quatro faixas fechando", () => {
-  function comVivo(dados = VIVO_2026_1) {
-    rpcMock.mockReset();
-    rpcMock.mockImplementation((nome) => {
-      if (nome === "carteira_2026_1_indicadores") return Promise.resolve({ data: dados });
-      if (nome === "carteira_saldo_historico_por_ano") return Promise.resolve({ data: POR_ANO });
-      return Promise.resolve({ data: null });
-    });
-  }
-
-  // A invariante é a razão de ser desta mudança, então ela é asserida sobre os
-  // mesmos números que a tela recebe — não sobre o texto renderizado.
-  it("as quatro faixas somam exatamente base.valor", () => {
-    const f = VIVO_2026_1.faixas;
-    const soma = f.efetividade + f.inadimplencia + f.em_validacao + f.academico;
-    expect(Number(soma.toFixed(2))).toBe(VIVO_2026_1.base.valor);
-  });
-
-  it("a faixa academico é a soma do ajuste acadêmico e do encerrado administrativo", () => {
-    const d = VIVO_2026_1.academico_detalhe;
-    expect(Number((d.ajuste_academico + d.encerrado_administrativo).toFixed(2)))
-      .toBe(VIVO_2026_1.faixas.academico);
-  });
-
-  it("a barra declara as duas coisas que a faixa carrega", async () => {
-    comVivo();
+  it("os quatro indicadores de 2026/2 seguem os da safra vigente, intocados", async () => {
     await abrir();
-    expect(screen.getByText("Encerrado / ajuste acadêmico")).toBeTruthy();
-    expect(screen.queryByText("Ajuste acadêmico")).toBeNull();
-  });
-
-  it("não sobra ressalva técnica no rodapé", async () => {
-    comVivo();
-    await abrir();
-    expect(screen.queryByText(/fora das quatro faixas/)).toBeNull();
-    expect(screen.queryByText(/FORA_DA_BASE/)).toBeNull();
-    expect(screen.getByText(/congelada em/)).toBeTruthy();
-  });
-
-  it("RPC antiga, sem academico_detalhe, não quebra a tela", async () => {
-    comVivo({ ...VIVO_2026_1, academico_detalhe: undefined });
-    await abrir();
-    expect(screen.getByText("Encerrado / ajuste acadêmico")).toBeTruthy();
+    await ir2026_2();
+    const texto = txt(document.body);
+    expect(texto).toContain("Valor negociado");
+    expect(texto).toContain("Alunos negociados");
+    expect(texto).toContain("Saldo negociado");
   });
 });
 
-// Categorias REAIS de producao (carteira_academico_perfil), medidas em
-// 06/10/2026. So os rotulos e as contagens -- e o que a tela mostra.
-const PERFIL = {
-  "2024": { importacao: { atualizado_em: "2026-08-04T15:19:51Z", situacoes: [
-    { situacao: "(sem situação importada)", alunos: 806 }, { situacao: "Término do Contrato", alunos: 382 },
-    { situacao: "Desvinculado", alunos: 245 }, { situacao: "Formado", alunos: 152 }] } },
-  "2025": { importacao: { atualizado_em: "2026-08-04T15:20:56Z", situacoes: [
-    { situacao: "Término do Contrato", alunos: 1692 }, { situacao: "Cancelado", alunos: 441 },
-    { situacao: "Trancado", alunos: 346 }, { situacao: "Formado", alunos: 233 }] } },
-  "2026": { importacao: { atualizado_em: "2026-08-04T15:21:17Z", situacoes: [
-    { situacao: "Aguardando Matrícula", alunos: 1416 }, { situacao: "Cancelado", alunos: 320 }] } },
-};
-const SITUACOES = {
-  natureza: "CARTEIRA_CONSOLIDADA", fonte: "ao vivo", gerado_em: "2026-10-06",
-  situacoes: { entrou: { alunos: 9, titulos: 9, valor: 1000 }, pago: { alunos: 1, titulos: 1, valor: 400 },
-    negociado: { alunos: 1, titulos: 1, valor: 0 }, cancelado: { alunos: 1, titulos: 1, valor: 0 },
-    em_aberto: { alunos: 1, titulos: 1, valor: 500 }, pendente: { alunos: 1, titulos: 1, valor: 100 } },
-  pendente_detalhe: {}, conferencia: { fecha: true, entrou: 1000, soma_das_linhas: 1000, diferenca: 0 },
-};
-
-function comPerfil(ano) {
-  return (nome, args) => {
-    if (nome === "carteira_2026_1_indicadores") return Promise.resolve({ data: CONSOLIDADA });
-    if (nome === "carteira_saldo_historico_por_ano") return Promise.resolve({ data: POR_ANO });
-    if (nome === "carteira_safra_situacoes") return Promise.resolve({ data: SITUACOES });
-    if (nome === "carteira_academico_perfil_ler") return Promise.resolve({ data: PERFIL[args?.p_ano ?? ano] ?? null });
-    return Promise.resolve({ data: null });
-  };
-}
-
-describe("Efetividade — Alunos por status em toda safra", () => {
-  it("2026/1 mostra o bloco UMA vez — a lista acadêmica antiga saiu da página", async () => {
-    rpcMock.mockImplementation(comPerfil("2026"));
-    await abrir();
-    expect(screen.getAllByText("Alunos por status")).toHaveLength(1);
-    // O titulo do bloco legado nao existe mais em lugar nenhum.
-    expect(screen.queryByText("Perfil dos alunos")).toBeNull();
-    expect(screen.queryByText(/Informação acadêmica não disponível/)).toBeNull();
+// POLITICA DE ATUALIZACAO (08/10/2026). Os blocos agregados vem de fotografia
+// -- 2026/1 ao vivo custa ~34,6 s contra um teto de 8 s. A tela nao pode
+// apresentar isso como dado ao vivo: declara a data E a hora, avisa quando ha
+// mudanca posterior, e o botao jamais roda a consulta pesada.
+describe("Efetividade — política de atualização da fotografia", () => {
+  const comFoto = (extra) => ({
+    seis_linhas: { ...SITUACOES, snapshot: { gerado_em: "2026-10-07T23:40:00Z", ...extra } },
+    composicao_academica: { ...COMPOSICAO, snapshot: { gerado_em: "2026-10-07T23:40:00Z", ...extra } },
   });
 
-  it("2024 mostra Alunos por status com as categorias da base", async () => {
-    rpcMock.mockImplementation(comPerfil("2024"));
+  it("declara “Dados atualizados em” com data E hora", async () => {
+    responder({}, comFoto({ atualizacao_pendente: false }));
     await abrir();
-    await irPara("2024");
-    expect(screen.getAllByText("Alunos por status")).toHaveLength(1);
-    expect(within(blocoSeisLinhas()).getByText("Desvinculado")).toBeTruthy();
-    expect(within(blocoSeisLinhas()).getByText("Formado")).toBeTruthy();
+    expect(screen.getByText(/Dados atualizados em/)).toBeTruthy();
+    const esperado = new Date("2026-10-07T23:40:00Z")
+      .toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+    expect(txt(document.body)).toContain(esperado);
   });
 
-  it("2025 mostra Alunos por status com as categorias da base", async () => {
-    rpcMock.mockImplementation(comPerfil("2025"));
+  it("avisa “Atualização pendente” quando houve mudança depois da fotografia", async () => {
+    responder({}, comFoto({ atualizacao_pendente: true }));
     await abrir();
-    await irPara("2025");
-    expect(screen.getAllByText("Alunos por status")).toHaveLength(1);
-    expect(within(blocoSeisLinhas()).getByText("Término do Contrato")).toBeTruthy();
+    expect(screen.getByText("Atualização pendente")).toBeTruthy();
   });
 
-  it("2024 e 2025 mantêm o saldo por curso, que não é duplicata de nada", async () => {
-    rpcMock.mockImplementation(comPerfil("2024"));
+  it("sem mudança posterior, não inventa pendência", async () => {
+    responder({}, comFoto({ atualizacao_pendente: false }));
     await abrir();
-    await irPara("2024");
-    expect(screen.getByText("Saldo em aberto por curso")).toBeTruthy();
+    expect(screen.queryByText("Atualização pendente")).toBeNull();
   });
 
-  it("se a consulta acadêmica falhar, a tela DIZ — não some em silêncio", async () => {
-    rpcMock.mockImplementation((nome) => {
-      if (nome === "carteira_2026_1_indicadores") return Promise.resolve({ data: CONSOLIDADA });
-      if (nome === "carteira_saldo_historico_por_ano") return Promise.resolve({ data: POR_ANO });
-      if (nome === "carteira_safra_situacoes") return Promise.resolve({ data: SITUACOES });
-      if (nome === "carteira_academico_perfil_ler")
-        return Promise.resolve({ error: { message: "canceling statement due to statement timeout" } });
-      return Promise.resolve({ data: null });
+  it("basta UM bloco pendente para a tela avisar", async () => {
+    responder({}, {
+      seis_linhas: { ...SITUACOES, snapshot: { gerado_em: "2026-10-07T23:40:00Z", atualizacao_pendente: false } },
+      composicao_academica: { ...COMPOSICAO, snapshot: { gerado_em: "2026-10-07T23:40:00Z", atualizacao_pendente: true } },
     });
     await abrir();
-    expect(screen.getByText(/Alunos por status não carregou/)).toBeTruthy();
-    expect(within(blocoSeisLinhas()).getByText(/statement timeout/)).toBeTruthy();
-    // as seis linhas continuam de pe
-    expect(screen.getByText("As seis linhas da safra")).toBeTruthy();
+    expect(screen.getByText("Atualização pendente")).toBeTruthy();
+  });
+
+  it("“Atualizar dados” relê a fotografia e, havendo pendência, solicita a reconstrução", async () => {
+    responder({}, comFoto({ atualizacao_pendente: true }));
+    await abrir();
+    const antes = rpcMock.mock.calls.filter((c) => c[0] === "carteira_efetividade_ler").length;
+    await act(async () => { fireEvent.click(screen.getByText("↻ Atualizar dados")); });
+    const depois = rpcMock.mock.calls.filter((c) => c[0] === "carteira_efetividade_ler").length;
+    // 1. releu
+    expect(depois).toBeGreaterThan(antes);
+    // 2. pediu
+    expect(rpcMock.mock.calls.map((c) => c[0])).toContain("carteira_efetividade_solicitar_atualizacao");
+  });
+
+  it("“Atualizar dados” NUNCA chama a consulta pesada nem o dreno", async () => {
+    responder({}, comFoto({ atualizacao_pendente: true }));
+    await abrir();
+    await act(async () => { fireEvent.click(screen.getByText("↻ Atualizar dados")); });
+    const nomes = rpcMock.mock.calls.map((c) => c[0]);
+    expect(nomes).not.toContain("carteira_efetividade_recalcular");
+    expect(nomes).not.toContain("carteira_efetividade_recalcular_pendentes");
+    expect(nomes).not.toContain("carteira_safra_situacoes");
+    expect(nomes).not.toContain("carteira_2026_1_classificar");
+  });
+
+  it("sem pendência, “Atualizar dados” só relê e não pede reconstrução à toa", async () => {
+    responder({}, comFoto({ atualizacao_pendente: false }));
+    await abrir();
+    await act(async () => { fireEvent.click(screen.getByText("↻ Atualizar dados")); });
+    expect(rpcMock.mock.calls.map((c) => c[0]))
+      .not.toContain("carteira_efetividade_solicitar_atualizacao");
+  });
+
+  it("sem fotografia nenhuma, diz isso em vez de mostrar bloco vazio", async () => {
+    responder({}, { seis_linhas: { sem_snapshot: true }, composicao_academica: { sem_snapshot: true } });
+    await abrir();
+    expect(screen.getByText(/Sem fotografia ainda/)).toBeTruthy();
+  });
+
+  it("não há polling: sem clique, a leitura não se repete sozinha", async () => {
+    responder({}, comFoto({ atualizacao_pendente: true }));
+    await abrir();
+    const antes = rpcMock.mock.calls.filter((c) => c[0] === "carteira_efetividade_ler").length;
+    await act(async () => { await new Promise((r) => setTimeout(r, 120)); });
+    const depois = rpcMock.mock.calls.filter((c) => c[0] === "carteira_efetividade_ler").length;
+    expect(depois).toBe(antes);
   });
 });

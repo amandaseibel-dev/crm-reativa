@@ -72,6 +72,7 @@ const FechamentoRemuneracao = lazy(() => import("./pages/FechamentoRemuneracao")
 const ImportarRecuperacao = lazy(() => import("./pages/ImportarRecuperacao")); const ImportacaoAcordos = lazy(() => import("./pages/ImportacaoAcordos")); const FilaAcordosConfirmar = lazy(() => import("./pages/FilaAcordosConfirmar")); const Ferramentas = lazy(() => import("./pages/Ferramentas")); const ImportarAcademico = lazy(() => import("./pages/ImportarAcademico"));
 const ExecutivoRecuperacao = lazy(() => import("./pages/ExecutivoRecuperacao"));
 const CarteiraEfetividade = lazy(() => import("./pages/CarteiraEfetividade"));
+const FilaUnicaConfirmacao = lazy(() => import("./pages/FilaUnicaConfirmacao"));
 const MeuDashboard = lazy(() => import("./pages/MeuDashboard"));
 const ElogiosAtendimento = lazy(() => import("./pages/ElogiosAtendimento"));
 const ExportarContatos = lazy(() => import("./pages/ExportarContatos"));
@@ -644,6 +645,7 @@ export default function App() {
   const menuBase = [
   { rota: "/executivo", label: "📊 Visão Executiva" },
     { rota: "/carteira-2026-1", label: "🎯 Efetividade" },
+    { rota: "/fila-unica-confirmacao", label: "🧾 Fila Única de Confirmação", icone: "ClipboardList", secao: "Financeiro" },
     { rota: "/dre", label: "DRE (gerência)" },
     { rota: "/fechamento-remuneracao", label: "💰 Fechamento de Remuneração", secao: "Gestão" },
     {
@@ -1171,6 +1173,10 @@ export default function App() {
               <Route path="/historico-recuperacao" element={<HistoricoRecuperacao />} />
         <Route path="/executivo" element={<ExecutivoRecuperacao />} />
         <Route path="/carteira-2026-1" element={<CarteiraEfetividade />} />
+        {/* A Fila Unica e o par da Efetividade: la se analisa, aqui se trata.
+            Mesma porta de acesso, de proposito -- quem pode ver o numero
+            pendente e quem pode tratar o caso que o compoe. */}
+        <Route path="/fila-unica-confirmacao" element={<FilaUnicaConfirmacao />} />
               <Route path="/saude-da-base" element={<SaudeDaBase />} />
               <Route path="/saude-completa-carteira" element={<SaudeCompletaCarteira />} />
               <Route path="/revisao-prime" element={<RevisaoPrime />} />
