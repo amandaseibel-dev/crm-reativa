@@ -1,12 +1,26 @@
 // O PAINEL QUE A GESTÃO LÊ SEM TRADUTOR.
 //
-// Três perguntas, três cards: quanto a carteira tinha quando começamos, quanto
-// saiu, quanto está em aberto hoje. Depois a série por data e o que aconteceu
-// depois de cada ação.
+// A VISÃO PRINCIPAL responde três perguntas e para: quanto a carteira tinha
+// quando começamos, quanto ela caiu de lá para cá, e quanto ainda está em
+// aberto. Embaixo, a linha do tempo: o que mudou entre uma foto e a seguinte,
+// com as ações do período ao lado.
 //
-// A PALAVRA É "SAIU DA BASE" — movimento observado entre duas fotos do
-// relatório. Não é pagamento confirmado, e nada aqui insinua que seja: a fonte
-// não distingue pagamento de cancelamento, bolsa ou renegociação.
+// POR QUE A REDUÇÃO AQUI É A LÍQUIDA (saldo inicial − saldo da última foto) e
+// não a soma do que "saiu": entre duas fotos também ENTRA título novo e muda o
+// valor de quem fica. Só a líquida fecha com o saldo que a operação enxerga
+// hoje. A decomposição — saiu, entradas, ajuste — continua visível em cada
+// intervalo, para que a conta possa ser conferida em vez de aceita.
+//
+// OS INTERVALOS NÃO SE SOBREPÕEM, e por isso somam. Já os resultados por
+// público se sobrepõem (a mesma pessoa é acionada por dois canais) e por isso
+// vivem em "Ver detalhes", junto do consolidado que conta cada título uma vez.
+//
+// A PALAVRA É "REDUÇÃO OBSERVADA" — movimento entre duas fotos do relatório.
+// Não é pagamento confirmado, não é recuperação comprovada, e o percentual em
+// aberto NÃO é inadimplência geral da instituição: é o que resta desta
+// carteira. A fonte não distingue pagamento de cancelamento, bolsa ou
+// renegociação, e a ordem das remessas nunca vira horário inventado nem prova
+// de que a redução veio de uma ação.
 //
 // O AJUSTE DE SALDO existe porque a conta precisa fechar. Entre duas fotos,
 // quem FICA também muda de valor — encargo que correu, pagamento parcial,
@@ -71,12 +85,17 @@ function Dica({ active, payload }) {
   );
 }
 
-export default function PainelPreventivo({ dados, aoMudarCusto }) {
+export default function PainelPreventivo({ dados, intervalos, aoMudarCusto }) {
   if (!dados) return null;
   const c = dados.cards || {};
   const brutos = dados.pontos || [];
   const si = Number(c.inicio?.saldo || 0);
-  const pctInicial = si > 0 ? Number(c.saiu?.valor || 0) / si * 100 : null;
+  const sh = Number(c.hoje?.saldo || 0);
+  // REDUÇÃO LÍQUIDA: o que a carteira perdeu de ponta a ponta, já com entradas
+  // e ajustes dentro. É a única leitura que fecha com o saldo de hoje.
+  const liquida = si - sh;
+  const pctLiquida = si > 0 ? liquida / si * 100 : null;
+  const pctAberto = si > 0 ? sh / si * 100 : null;
 
   if (brutos.length === 0) {
     return (
@@ -102,20 +121,27 @@ export default function PainelPreventivo({ dados, aoMudarCusto }) {
         <Cartao rotulo="Carteira inicial"
                 valor={moeda(c.inicio?.saldo)}
                 sub={`${c.inicio?.titulos ?? 0} títulos · ${dataCurta(c.inicio?.quando)}`} />
-        <Cartao rotulo="Redução observada"
-                valor={moeda(c.saiu?.valor)}
-                sub={`${c.saiu?.titulos ?? 0} títulos${pctInicial !== null ? ` · ${pct(pctInicial)} do saldo` : ""}`} />
-        <Cartao rotulo="Saldo restante"
+        <Cartao rotulo="Redução líquida da carteira"
+                valor={moeda(liquida)}
+                sub={`${pctLiquida !== null ? `${pct(pctLiquida)} do saldo inicial · ` : ""}`
+                     + `${(c.inicio?.titulos ?? 0) - (c.hoje?.titulos ?? 0)} títulos a menos`} />
+        <Cartao rotulo="Saldo ainda em aberto"
                 valor={moeda(c.hoje?.saldo)}
-                sub={`${c.hoje?.titulos ?? 0} títulos · ${dataCurta(c.hoje?.quando)}`} />
+                sub={`${c.hoje?.titulos ?? 0} títulos`
+                     + `${pctAberto !== null ? ` · ${pct(pctAberto)} do saldo inicial` : ""}`} />
       </div>
 
       <OrdemAmbigua ativa={c.ordem_ambigua} />
 
+      <div style={{ ...S.muted, fontSize: 12.5, marginTop: 8 }}>
+        Atualizado pelo relatório de <strong>{dataCurta(c.hoje?.quando)}</strong>.
+      </div>
+
       <p style={{ ...S.muted, marginTop: 10, fontSize: 12.5, maxWidth: 880 }}>
-        <strong>Redução observada</strong> é movimento observado entre a primeira e a última foto
-        do relatório — <strong>não é pagamento confirmado</strong>. A fonte não separa pagamento
-        de cancelamento, bolsa ou renegociação.
+        <strong>Redução observada</strong> entre a primeira e a última foto do relatório —
+        <strong> não é pagamento confirmado nem recuperação comprovada</strong>. A fonte não
+        separa pagamento de cancelamento, bolsa ou renegociação. O percentual em aberto é o
+        que resta <em>desta carteira</em>, e não a inadimplência geral.
         {c.alunos_acionados !== null && c.alunos_acionados !== undefined
           ? <> Alunos acionados até aqui: <strong>{c.alunos_acionados}</strong>, contando cada
               aluno uma vez só.</>
@@ -138,26 +164,142 @@ export default function PainelPreventivo({ dados, aoMudarCusto }) {
         </div>
       </div>
 
+      <LinhaDoTempo intervalos={intervalos} />
+
+      <Detalhes rotulo="Ver detalhes por público e consolidado">
+        <div style={{ ...S.card, padding: 20 }}>
+          <h3 style={{ ...S.cardNome, fontSize: 15, margin: 0 }}>Títulos em aberto por data</h3>
+          <div style={{ height: 250, marginTop: 12 }}>
+            <ResponsiveContainer>
+              <BarChart data={pontos} margin={{ top: 18, right: 16, left: 4, bottom: 4 }}>
+                <CartesianGrid vertical={false} stroke="var(--rv-borda-suave)" strokeDasharray="3 3" />
+                <XAxis dataKey="rotulo" tick={EIXO} />
+                <YAxis tick={EIXO} tickFormatter={compacto} />
+                <Tooltip content={<Dica />} cursor={{ fill: "var(--rv-borda-suave)", opacity: 0.35 }} />
+                <Bar dataKey="titulos" fill={COR_2} radius={[4, 4, 0, 0]} barSize={46}>
+                  <LabelList dataKey="titulos" position="top"
+                             style={{ fontSize: 11.5, fill: "var(--rv-tinta)" }} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <HistoricoPorAcao acoes={dados.acoes || []} consolidado={dados.acoes_consolidado}
+                          definicao={dados.definicao} aoMudarCusto={aoMudarCusto} />
+      </Detalhes>
+    </div>
+  );
+}
+
+// "Ver detalhes" é um <details> de verdade: fecha por padrão, abre com teclado
+// e não precisa de estado. O que mora aqui é o que NÃO soma — resultado por
+// público, que se sobrepõe — e o consolidado que corrige essa sobreposição.
+function Detalhes({ rotulo, children }) {
+  return (
+    <details style={{ marginTop: 18 }}>
+      <summary style={{ cursor: "pointer", fontSize: 13.5, fontWeight: 700,
+                        color: "var(--rv-tinta)", padding: "6px 0" }}>
+        {rotulo}
+      </summary>
+      <div style={{ marginTop: 12 }}>{children}</div>
+    </details>
+  );
+}
+
+// A LINHA DO TEMPO, por INTERVALO entre remessas consecutivas.
+//
+// Cada linha cobre um período e só um: os intervalos são disjuntos, então os
+// líquidos somam e fecham com a redução do topo. As ações aparecem ao lado do
+// período em que caíram — ao lado, não como causa: a fonte não diz por que o
+// título saiu, e duas ações no mesmo intervalo não se dividem o resultado.
+function LinhaDoTempo({ intervalos }) {
+  if (!intervalos) return null;
+  if (intervalos.length === 0) {
+    return (
       <div style={{ ...S.card, padding: 20, marginTop: 16 }}>
-        <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Títulos em aberto por data</h2>
-        <div style={{ height: 250, marginTop: 12 }}>
-          <ResponsiveContainer>
-            <BarChart data={pontos} margin={{ top: 18, right: 16, left: 4, bottom: 4 }}>
-              <CartesianGrid vertical={false} stroke="var(--rv-borda-suave)" strokeDasharray="3 3" />
-              <XAxis dataKey="rotulo" tick={EIXO} />
-              <YAxis tick={EIXO} tickFormatter={compacto} />
-              <Tooltip content={<Dica />} cursor={{ fill: "var(--rv-borda-suave)", opacity: 0.35 }} />
-              <Bar dataKey="titulos" fill={COR_2} radius={[4, 4, 0, 0]} barSize={46}>
-                <LabelList dataKey="titulos" position="top"
-                           style={{ fontSize: 11.5, fill: "var(--rv-tinta)" }} />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+        <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Linha do tempo</h2>
+        <p style={{ ...S.muted, fontSize: 12.5, marginTop: 8, marginBottom: 0 }}>
+          Só há uma remessa até aqui. A linha do tempo começa na segunda, quando existe um
+          período para comparar.
+        </p>
+      </div>
+    );
+  }
+
+  const q = (x, prec) => (prec === "DATA_E_HORA" ? `${dataCurta(x)} ${hora(x)}` : dataCurta(x));
+
+  return (
+    <div style={{ ...S.card, padding: 20, marginTop: 16 }}>
+      <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Linha do tempo</h2>
+      <p style={{ ...S.muted, fontSize: 12.5, marginTop: 6, maxWidth: 900 }}>
+        Um período por linha, sem sobreposição — por isso os líquidos somam e fecham com a
+        redução do topo. As ações listadas aconteceram <strong>dentro</strong> do período;
+        isso não atribui a redução a elas.
+      </p>
+
+      <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
+        {intervalos.map((i) => <Intervalo key={`${i.de?.remessa}-${i.ate?.remessa}`} i={i} q={q} />)}
+      </div>
+    </div>
+  );
+}
+
+function Intervalo({ i, q }) {
+  const liquido = Number(i.liquido || 0);
+  const caiu = liquido <= 0;
+  return (
+    <div style={{ border: "1px solid var(--rv-borda)", borderRadius: 10, padding: "12px 14px" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "baseline",
+                    justifyContent: "space-between" }}>
+        <div>
+          <div style={{ fontSize: 13.5, fontWeight: 700 }}>
+            {q(i.de?.quando, i.de?.precisao)} → {q(i.ate?.quando, i.ate?.precisao)}
+          </div>
+          <div style={{ ...S.muted, fontSize: 11.5, marginTop: 2 }}>
+            {i.de?.nome} → {i.ate?.nome}
+          </div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: 20, fontWeight: 800 }}>
+            {caiu ? "−" : "+"}{moeda(Math.abs(liquido)).replace("R$", "R$")}
+          </div>
+          <div style={{ ...S.muted, fontSize: 11.5 }}>
+            {i.pct_saldo === null || i.pct_saldo === undefined
+              ? "variação líquida no período"
+              : `${pct(Math.abs(Number(i.pct_saldo)))} do saldo no início do período`}
+          </div>
         </div>
       </div>
 
-      <HistoricoPorAcao acoes={dados.acoes || []} consolidado={dados.acoes_consolidado}
-                        definicao={dados.definicao} aoMudarCusto={aoMudarCusto} />
+      <div style={{ ...S.muted, fontSize: 11.5, marginTop: 8 }}>
+        {moeda(i.antes?.saldo)} ({i.antes?.titulos} títulos) → {moeda(i.depois?.saldo)}{" "}
+        ({i.depois?.titulos} títulos) · saíram {i.saiu?.titulos} ({moeda(i.saiu?.valor)}) ·
+        {" "}entraram {i.entradas?.titulos} ({moeda(i.entradas?.valor)}) · ajuste de saldo{" "}
+        {moeda(i.ajuste)}
+      </div>
+
+      {i.ordem_comprovada === false && (
+        <div style={{ ...S.muted, fontSize: 11.5, marginTop: 6 }}>
+          Fotos do mesmo dia sem hora comprovada: a ordem entre elas não está provada.
+        </div>
+      )}
+
+      {i.acoes?.length > 0 && (
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px dashed var(--rv-borda)",
+                      display: "grid", gap: 6 }}>
+          {i.acoes.map((a) => (
+            <div key={a.id} style={{ fontSize: 12.5 }}>
+              <strong>{a.nome}</strong>
+              <span style={S.muted}>
+                {" · "}{CANAIS[a.canal] || a.canal}
+                {" · "}{q(a.quando, a.precisao)}
+                {" · "}{a.custo_informado ? `custo ${moeda(a.custo_total)}` : "custo não informado"}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

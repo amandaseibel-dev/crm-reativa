@@ -12,7 +12,9 @@
 //      não têm ordem provada, os cards avisam;
 //   7. foto ambígua do mesmo dia NÃO mantém a ação pendente quando já existe
 //      remessa posterior válida — nesse caso a comparação é contra a posterior;
-//   8. o histórico sai pela ordem da EXTRAÇÃO, não pela hora da importação.
+//   8. o histórico sai pela ordem da EXTRAÇÃO, não pela hora da importação;
+//   9. a linha do tempo por INTERVALO fecha: a soma dos líquidos é exatamente
+//      saldo final − saldo inicial, e cada ação cai em um intervalo só.
 //
 // NENHUM DADO REAL.
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
@@ -39,6 +41,7 @@ const MIGRATIONS = [
   "supabase/migrations/20261008110805_preventivo_reducao_por_acao.sql",
   "supabase/migrations/20261008112030_preventivo_custo_e_consolidado.sql",
   "supabase/migrations/20261008143000_preventivo_remessas_ordem_canonica.sql",
+  "supabase/migrations/20261008160000_preventivo_intervalos_entre_remessas.sql",
 ].map(ler);
 
 const TABELAS = [
@@ -412,5 +415,81 @@ describe("Preventivo — painel objetivo", () => {
     expect(lista.map((r) => r.nome)).toEqual([
       "F4 — 06/10", "F3 — 05/10 tarde", "F2 — 05/10 manhã", "F1 — 02/10",
     ]);
+  });
+
+  // ---- A LINHA DO TEMPO POR INTERVALO ----
+  //
+  // A diferença para as linhas por ação: aqui os períodos são DISJUNTOS, então
+  // a conta fecha. É o que a leitura gerencial precisa e o que a tabela por
+  // ação nunca pôde dar, porque os públicos se sobrepõem.
+  const intervalos = () => um(db, `select public.preventivo_intervalos($1::uuid)`, [carteira]);
+
+  it("em cada intervalo, antes − saiu + entradas + ajuste = depois", async () => {
+    await importar("F1", [t("2026000001", 100), t("2026000002", 200)], "2026-10-02");
+    // o 002 sai, o 001 sobe de 100 para 130 (encargo), e entra o 003
+    await importar("F2", [t("2026000001", 130), t("2026000003", 50)], "2026-10-06");
+
+    const [i] = await intervalos();
+    expect(Number(i.antes.saldo)).toBe(300);
+    expect(Number(i.depois.saldo)).toBe(180);
+    expect(Number(i.saiu.valor)).toBe(200);
+    expect(Number(i.entradas.valor)).toBe(50);
+    expect(Number(i.ajuste)).toBe(30);
+    expect(Number(i.liquido)).toBe(-120);
+    // a identidade, escrita como a tela a usa
+    expect(Number(i.antes.saldo) - Number(i.saiu.valor)
+           + Number(i.entradas.valor) + Number(i.ajuste)).toBe(Number(i.depois.saldo));
+    expect(Number(i.antes.saldo) + Number(i.liquido)).toBe(Number(i.depois.saldo));
+  });
+
+  it("a soma dos líquidos é o saldo final menos o inicial", async () => {
+    await importar("F1", [t("2026000001", 100), t("2026000002", 200)], "2026-10-02");
+    await importar("F2", [t("2026000001", 100), t("2026000004", 70)], "2026-10-04");
+    await importar("F3", [t("2026000004", 70)], "2026-10-06");
+
+    const lista = await intervalos();
+    expect(lista).toHaveLength(2);               // 3 fotos = 2 intervalos
+    const soma = lista.reduce((a, i) => a + Number(i.liquido), 0);
+    const c = (await painel()).cards;
+    expect(soma).toBe(Number(c.hoje.saldo) - Number(c.inicio.saldo));
+  });
+
+  it("cada ação cai em um intervalo só, o que termina na primeira foto posterior", async () => {
+    const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 200)], "2026-10-02");
+    await registrar(f1.lote_id, "E-mail de 02/10", "EMAIL", "2026-10-02");
+    const f2 = await importar("F2", [t("2026000001", 100), t("2026000002", 200)], "2026-10-04");
+    await registrar(f2.lote_id, "WhatsApp de 04/10", "WHATSAPP", "2026-10-04");
+    await importar("F3", [t("2026000001", 100)], "2026-10-06");
+
+    const lista = await intervalos();
+    expect(lista.map((i) => i.acoes.map((a) => a.nome))).toEqual([
+      ["E-mail de 02/10"], ["WhatsApp de 04/10"],
+    ]);
+    // nenhuma ação aparece em dois intervalos
+    const todas = lista.flatMap((i) => i.acoes.map((a) => a.id));
+    expect(new Set(todas).size).toBe(todas.length);
+  });
+
+  it("o custo informado viaja junto com a ação, e ausência não vira zero", async () => {
+    const f1 = await importar("F1", [t("2026000001", 100)], "2026-10-02");
+    const a1 = await registrar(f1.lote_id, "WhatsApp de 02/10", "WHATSAPP", "2026-10-02");
+    await importar("F2", [t("2026000001", 100)], "2026-10-06");
+
+    let [i] = await intervalos();
+    expect(i.acoes[0].custo_informado).toBe(false);
+    expect(i.acoes[0].custo_total).toBe(null);
+
+    await um(db, `select public.preventivo_acao_custo_definir($1::uuid, 0)`, [a1.id]);
+    [i] = await intervalos();
+    expect(i.acoes[0].custo_informado).toBe(true);
+    expect(Number(i.acoes[0].custo_total)).toBe(0);
+  });
+
+  it("duas fotos do mesmo dia sem hora: o intervalo avisa em vez de fingir sequência", async () => {
+    await importar("F1", [t("2026000001", 100)], "2026-10-05", 1);
+    await importar("F2", [t("2026000001", 100)], "2026-10-05", 1);
+
+    const [i] = await intervalos();
+    expect(i.ordem_comprovada).toBe(false);
   });
 });
