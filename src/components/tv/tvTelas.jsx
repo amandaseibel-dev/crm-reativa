@@ -5,6 +5,7 @@ import {
 } from "./tvUI";
 import TelaMetaDoMes from "./tvMetaDoMes";
 import TelaMetas from "./tvMetas";
+import TelaObjecoes from "./tvObjecoes";
 import TelaMagicNumber from "./tvMagicNumber";
 
 // =============================================================================
@@ -403,12 +404,16 @@ function TelaPlaylistReativa({ snap }) {
 // categoria -- e NENHUMA tela lia essa chave. O dado existia e nunca aparecia.
 // Rotaciona pelo numero da atualizacao para nao mostrar sempre as mesmas.
 // eslint-disable-next-line react-refresh/only-export-components
-function TelaDicas({ snap }) {
+function TelaDicas({ snap, indiceGiro = 0 }) {
   const itens = snap?.dicas || [];
   if (itens.length === 0) return <Tela titulo="Dicas de Abordagem" icone="💡"><Vazio>Nenhuma dica cadastrada.</Vazio></Tela>;
   // A cada atualizacao do snapshot a vitrine anda: com 8 dicas e 3 por vez,
   // todas passam pela TV em vez de so as tres primeiras.
-  const giro = Number(snap?.versao ?? snap?.dados?.versao ?? 0) || 0;
+  // `indiceGiro` é o contador de voltas do carrossel, que o orquestrador passa
+  // para todo slide. Antes isto lia `snap.versao`, que NÃO existe no payload: a
+  // versão é coluna da tabela e a TV guarda só `data.payload`. O giro era
+  // sempre 0 e só as 3 primeiras dicas iam ao ar — as outras 5 nunca.
+  const giro = Math.abs(Math.trunc(Number(indiceGiro) || 0));
   const inicio = itens.length > 0 ? (giro * 3) % itens.length : 0;
   const mostra = Array.from({ length: Math.min(3, itens.length) }, (_, i) => itens[(inicio + i) % itens.length]);
   const destaque = mostra[0];
@@ -659,6 +664,9 @@ export const CATALOGO_TELAS = [
   { id: "dicas", nome: "Dicas de Abordagem", Comp: TelaDicas, ativa: true, grupo: "comunicacao",
     descricao: "Dicas de sondagem e negociação já cadastradas. Gira a cada atualização para todas aparecerem.",
     temConteudo: (s) => (s?.dicas || []).length > 0 },
+  { id: "objecoes", nome: "Quebras de Objeção", Comp: TelaObjecoes, ativa: true, grupo: "comunicacao",
+    descricao: "Uma quebra de objeção por volta do rodízio — o mesmo conteúdo do Portal Operacional.",
+    temConteudo: sempre },
   // --- estrutura pronta, EM CONSTRUÇÃO (mostram apenas "Em breve") ---
   { id: "hall", nome: "Hall da Fama", Comp: TelaHallFama, ativa: false, grupo: "construcao", placeholder: true,
     descricao: "Em construção — ainda sem conteúdo real.", temConteudo: sempre },
