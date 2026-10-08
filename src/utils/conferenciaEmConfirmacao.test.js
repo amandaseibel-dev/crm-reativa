@@ -1,9 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import {
-  EFEITO_VINCULA, CLASSES_HUMANAS, CLASSES_ADMINISTRATIVAS,
-} from "./emConfirmacao";
+import { EFEITO_VINCULA, CLASSES_HUMANAS } from "./emConfirmacao";
 
 // GUARDA DA CONFIRMACAO DE PAGAMENTO QUE RESOLVE O TITULO EM CONFIRMACAO.
 //
@@ -188,36 +186,19 @@ describe("classe humana — as 7 que o banco aceita", () => {
   });
 });
 
-describe("encerramento administrativo — só as duas classes", () => {
-  it("aceita cancelamento/estorno e isenção/FIES/bolsa", () => {
-    expect(CLASSES_ADMINISTRATIVAS.has("CANCELAMENTO_ESTORNO")).toBe(true);
-    expect(CLASSES_ADMINISTRATIVAS.has("ISENCAO_FIES_BOLSA")).toBe(true);
-  });
-
-  it("recusa as outras cinco — a RPC levanta CLASSE_NAO_ADMINISTRATIVA", () => {
-    for (const c of CLASSES_HUMANAS) {
-      if (c.valor === "CANCELAMENTO_ESTORNO" || c.valor === "ISENCAO_FIES_BOLSA") continue;
-      expect(CLASSES_ADMINISTRATIVAS.has(c.valor)).toBe(false);
-    }
-  });
-
-  it("sem classe nenhuma não encerra — a RPC levanta SEM_CLASSE_HUMANA", () => {
-    expect(CLASSES_ADMINISTRATIVAS.has("")).toBe(false);
-    expect(CLASSES_ADMINISTRATIVAS.has(undefined)).toBe(false);
-    expect(CLASSES_ADMINISTRATIVAS.has(null)).toBe(false);
-  });
-
-  it("é um subconjunto das classes válidas — não inventa valor", () => {
-    const validas = new Set(CLASSES_HUMANAS.map((c) => c.valor));
-    for (const a of CLASSES_ADMINISTRATIVAS) expect(validas.has(a)).toBe(true);
-  });
-});
-
+// O ENCERRAMENTO FICOU DE FORA (decisao da gestao, 08/10/2026).
+//
+// `prime_conferencia_encerrar_administrativo` leva o titulo para CANCELADA, e a
+// regra aprovada e outra: cancelamento de cobranca, suspensao, FIES/bolsa e
+// demais encerramentos sem recuperacao devem ZERAR O SALDO e ficar DEVOLVIDO.
+// Medido em producao: nao existe estado DEVOLVIDO para titulo -- so para
+// parcela, e com zero linhas. Ate existir, a tela so classifica.
 describe("as duas listas não se confundem com a do vínculo", () => {
   it("EFEITO_VINCULA continua só com os dois efeitos de acordo", () => {
     // Guarda contra alguém juntar as listas: efeito de acordo e classe humana
     // são coisas diferentes, decididas por RPCs diferentes.
     expect([...EFEITO_VINCULA].sort()).toEqual(["VIRA_NEGOCIADO", "VIRA_PAGO"]);
-    for (const e of EFEITO_VINCULA) expect(CLASSES_ADMINISTRATIVAS.has(e)).toBe(false);
+    const classes = new Set(CLASSES_HUMANAS.map((c) => c.valor));
+    for (const e of EFEITO_VINCULA) expect(classes.has(e)).toBe(false);
   });
 });

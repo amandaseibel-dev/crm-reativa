@@ -72,10 +72,3 @@ export const CLASSES_HUMANAS = [
   { valor: "SUBSTITUICAO_TITULO", rotulo: "Substituição de título" },
   { valor: "INCONCLUSIVO", rotulo: "Inconclusivo" },
 ];
-
-// AS DUAS QUE ENCERRAM ADMINISTRATIVAMENTE.
-//
-// `prime_conferencia_encerrar_administrativo` recusa qualquer outra com
-// CLASSE_NAO_ADMINISTRATIVA. Oferecer o botao fora destas duas seria prometer o
-// que o backend nega -- o mesmo motivo pelo qual EFEITO_VINCULA existe.
-export const CLASSES_ADMINISTRATIVAS = new Set(["CANCELAMENTO_ESTORNO", "ISENCAO_FIES_BOLSA"]);

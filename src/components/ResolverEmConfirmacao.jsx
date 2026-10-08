@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import {
-  EFEITO_VINCULA, CLASSES_HUMANAS, CLASSES_ADMINISTRATIVAS, motivoSugerido, pedirMotivo,
+  EFEITO_VINCULA, CLASSES_HUMANAS, motivoSugerido, pedirMotivo,
 } from "../utils/emConfirmacao";
 
 // RESOLVER O TITULO QUE ESTA "EM CONFIRMACAO", ONDE ELE APARECE.
@@ -159,12 +159,6 @@ export default function ResolverEmConfirmacao({
         setDecidindo(null);
       }
       return;
-    } else if (acao === "ENCERRAR") {
-      motivo = pedirMotivo(
-        `ENCERRAR ADMINISTRATIVAMENTE o boleto ${item.documento} (${moeda(item.valor)}).\n\n` +
-        "O título passa a CANCELADA e sai da cobrança. Não vira pago e não cria acordo, parcela nem pagamento — o banco recusa a operação se qualquer um desses nascer.\n\n" +
-        "Por que este título não deve mais ser cobrado?");
-      if (!motivo) return;
     } else if (acao === "SEGUIR") {
       motivo = pedirMotivo(
         `O boleto ${item.documento} volta ao fluxo oficial de pagamento e sai desta fila; o motor conclui. Nada é marcado pago aqui.\n\nPor que este pagamento é deste título?`);
@@ -182,9 +176,6 @@ export default function ResolverEmConfirmacao({
           { p_titulo_id: item.titulo_id,
             p_acordo_id: acordoDe(item)?.acordo_id || item.acordo_id,
             p_observacao: motivo });
-      } else if (acao === "ENCERRAR") {
-        r = await supabase.rpc("prime_conferencia_encerrar_administrativo",
-          { p_titulo_id: item.titulo_id, p_observacao: motivo });
       } else if (acao === "SEGUIR") {
         r = await supabase.rpc("prime_conferencia_seguir_pagamento",
           { p_titulo_id: item.titulo_id, p_pagamento_id: item.pagamento_id, p_motivo: motivo });
@@ -305,17 +296,15 @@ export default function ResolverEmConfirmacao({
                       : "Registrar o que apareceu no Prime"}
                   </button>
                 ) : null}
-                {/* ENCERRAR ADMINISTRATIVAMENTE. `prime_conferencia_encerrar_administrativo`
-                    recusa sem classe (SEM_CLASSE_HUMANA) e recusa classe que
-                    não seja cancelamento/estorno ou isenção/FIES/bolsa
-                    (CLASSE_NAO_ADMINISTRATIVA). A mesma condição aqui. */}
-                {CLASSES_ADMINISTRATIVAS.has(classeAtual) ? (
-                  <button type="button" style={estilos.btnEncerrar} disabled={!!decidindo}
-                    onClick={() => decidir(item, "ENCERRAR")}
-                    title="O título passa a CANCELADA e sai da cobrança. Não vira pago.">
-                    Encerrar administrativamente
-                  </button>
-                ) : null}
+                {/* ENCERRAMENTO: FORA, POR DECISÃO DA GESTÃO (08/10/2026).
+                    `prime_conferencia_encerrar_administrativo` leva o título
+                    para CANCELADA. A regra aprovada é outra: cancelamento de
+                    cobrança, suspensão, FIES/bolsa e demais encerramentos sem
+                    recuperação da ReATIVA devem ZERAR O SALDO e ficar
+                    DEVOLVIDO. Enquanto não houver caminho pronto para isso, a
+                    tela não oferece a ação — oferecer o CANCELADA seria gravar
+                    o estado errado com um clique. A classificação continua,
+                    porque ela não decide nada: só registra o que foi visto. */}
                 <button type="button" style={estilos.btnNeutro} disabled={!!decidindo}
                   onClick={() => decidir(item, "REJEITAR")}
                   title="A liquidação não vale: o título volta a ser cobrado, em aberto.">
@@ -335,11 +324,6 @@ function rotuloClasse(valor) {
 }
 
 const estilos = {
-  btnEncerrar: {
-    background: "var(--rv-superficie)", color: "var(--rv-ambar-texto)",
-    border: "1px solid var(--rv-ambar-borda)", borderRadius: 8,
-    padding: "5px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer",
-  },
   aviso: { fontSize: 11.5, color: "var(--rv-texto-suave)" },
   item: {
     display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap",
