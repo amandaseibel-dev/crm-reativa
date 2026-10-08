@@ -214,7 +214,11 @@ begin
     select b.titulo_id,
            (array_agg(b.saldo_na_remessa order by b.envio_confirmado_em))[1] as saldo_primeiro,
            max(b.envio_confirmado_em) as ultimo_envio,
-           (array_remove(array_agg(b.ultima_depois_id order by b.envio_confirmado_em desc), null))[1] as regua
+           -- A REGUA E A DO ULTIMO ACIONAMENTO, inclusive quando ela e NULL.
+           -- Nao usar array_remove aqui: se o envio mais recente ainda nao tem
+           -- remessa posterior, o titulo esta PENDENTE -- cair na regua de um
+           -- envio antigo daria um veredito que ignora o envio mais novo.
+           (array_agg(b.ultima_depois_id order by b.envio_confirmado_em desc))[1] as regua
       from base b
      where b.envio_confirmado_em is not null
      group by b.titulo_id

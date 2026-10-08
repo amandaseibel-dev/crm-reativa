@@ -215,6 +215,10 @@ begin
                               else round(100.0 * k.saiu_titulos / k.antes_titulos, 1) end,
           'pct_valor', case when k.saiu_valor is null or k.antes_saldo = 0 then null
                             else round(100.0 * k.saiu_valor / k.antes_saldo, 1) end),
+        -- COMPATIBILIDADE: o painel que esta no ar le `saiu`. Ele fica, com o
+        -- mesmo conteudo de `reducao`, desde ESTA migration -- senao a tela
+        -- quebraria na janela entre aplicar e subir o deploy.
+        'saiu', jsonb_build_object('titulos', k.saiu_titulos, 'valor', k.saiu_valor),
         'entradas', jsonb_build_object('titulos', k.entradas_titulos, 'valor', k.entradas_valor),
         'ajuste_saldo', k.ajuste_saldo,
         'depois', jsonb_build_object(

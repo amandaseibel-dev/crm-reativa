@@ -334,6 +334,24 @@ describe("Preventivo — painel objetivo", () => {
     expect(c.reducao_pct_valor).toBeNull();
   });
 
+  it("último acionamento SEM remessa posterior deixa o título pendente", async () => {
+    // O título é acionado duas vezes. O primeiro envio tem foto depois; o
+    // segundo, não. O veredito tem de seguir o ENVIO MAIS NOVO — pendente —,
+    // e não cair na régua do envio antigo.
+    const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 300)], "2026-10-02");
+    await registrar(f1.lote_id, "E-mail", "EMAIL", "2026-10-02");
+    const f2 = await importar("F2", [t("2026000001", 100), t("2026000002", 300)], "2026-10-03");
+    await registrar(f2.lote_id, "WhatsApp", "WHATSAPP", "2026-10-03");
+    // nenhuma foto depois do WhatsApp
+
+    const c = (await painel()).acoes_consolidado;
+    expect(c.pendentes_titulos).toBe(2);
+    expect(c.com_regua_titulos).toBe(0);
+    expect(c.reducao_titulos).toBeNull();
+    expect(c.reducao_valor).toBeNull();
+    expect(c.reducao_pct_valor).toBeNull();
+  });
+
   it("compatibilidade: `saiu` continua ao lado de `reducao`", async () => {
     const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 300)], "2026-10-02");
     const a = await registrar(f1.lote_id, "E-mail", "EMAIL", "2026-10-02");
