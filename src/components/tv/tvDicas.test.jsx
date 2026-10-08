@@ -104,8 +104,9 @@ describe("TV — tela de Dicas de Abordagem", () => {
       expect(ids).toContain(antiga);
     }
     expect(ids).toContain("dicas");
-    // 23 desde 08/10/2026: entrou "objecoes" (quebras de objeção do Portal).
+    // 24 desde 08/10/2026: entraram "acordos_hoje" e "objecoes".
+    expect(ids).toContain("acordos_hoje");
     expect(ids).toContain("objecoes");
-    expect(ids.length).toBe(23);
+    expect(ids.length).toBe(24);
   });
 });

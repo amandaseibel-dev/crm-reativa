@@ -253,6 +253,54 @@ const DEFINICAO = "Apareceu na remessa = em aberto. Recebeu ação = acionado. "
   + "NÃO apareceu na PRÓXIMA REMESSA VÁLIDA depois do ENVIO CONFIRMADO = regularizado. "
   + "Regularizado NÃO é pagamento confirmado.";
 
+
+// ---- PAINEL E LINHA DO TEMPO (dados INVENTADOS, só para ver a tela) ----
+const PAINEL = {
+  cards: {
+    inicio: { titulos: 13968, saldo: 24363782.56, quando: "2026-10-02T03:00:00+00:00", precisao: "DATA" },
+    saiu: { titulos: 7828, valor: 16399073.06 },
+    hoje: { titulos: 6278, saldo: 8104278.12, quando: "2026-10-06T03:00:00+00:00", precisao: "DATA" },
+    alunos_acionados: 14068, remessas: 4, ordem_ambigua: false,
+  },
+  acoes_consolidado: {
+    base_titulos: 14068, base_saldo: 24483840.64, pendentes_titulos: 0, pendentes_saldo: 0,
+    com_regua_titulos: 14068, reducao_titulos: 7841, reducao_valor: 16423902.38,
+    reducao_pct_titulos: 55.7, reducao_pct_valor: 67.1, custo_total: 2400,
+    observacao: "Cada título conta uma vez só, com o saldo do primeiro acionamento.",
+  },
+  pontos: [
+    { remessa: "l-1", nome: "F1 — 02/10", quando: "2026-10-02T03:00:00+00:00", precisao: "DATA", ordem_no_dia: 1, ordem: 1, titulos: 13968, saldo: 24363782.56 },
+    { remessa: "l-2", nome: "F2 — 05/10 manhã", quando: "2026-10-05T03:00:00+00:00", precisao: "DATA", ordem_no_dia: 1, ordem: 2, titulos: 11947, saldo: 20203179.94 },
+    { remessa: "l-3", nome: "F3 — 05/10 tarde", quando: "2026-10-05T03:00:00+00:00", precisao: "DATA", ordem_no_dia: 2, ordem: 3, titulos: 10759, saldo: 18137532.27 },
+    { remessa: "l-4", nome: "F4 — 06/10", quando: "2026-10-06T03:00:00+00:00", precisao: "DATA", ordem_no_dia: 1, ordem: 4, titulos: 6278, saldo: 8104278.12 },
+  ],
+  acoes: [
+    { id: "a-1", nome: "E-mail de 02/10", canal: "EMAIL", contexto: "PROXIMO_VENCIMENTO", origem: "EXTERNA", estado: "ENVIADA", publico: "remessa_inteira", quando: "2026-10-02T03:00:00+00:00", precisao: "DATA", periodo: { de_nome: "F1 — 02/10", de_quando: "2026-10-02T03:00:00+00:00", de_precisao: "DATA", ate_nome: "F2 — 05/10 manhã", ate_quando: "2026-10-05T03:00:00+00:00", ate_precisao: "DATA" }, antes: { titulos: 13968, saldo: 24363782.56, alunos: 13968 }, reducao: { titulos: 2121, valor: 4248050.67, pct_titulos: 15.2, pct_valor: 17.4 }, saiu: { titulos: 2121, valor: 4248050.67 }, custo: { informado: false, total: null, por_aluno: null }, entradas: { titulos: 100, valor: 87448.05 }, ajuste_saldo: 0, depois: { titulos: 11947, saldo: 20203179.94 }, sem_envio_confirmado: false, aguardando_remessa: false, sequencia_nao_comprovada: false },
+    { id: "a-2", nome: "E-mail de 05/10 (manhã)", canal: "EMAIL", contexto: "PROXIMO_VENCIMENTO", origem: "EXTERNA", estado: "ENVIADA", publico: "remessa_inteira", quando: "2026-10-05T03:00:00+00:00", precisao: "DATA", periodo: { de_nome: "F2 — 05/10 manhã", de_quando: "2026-10-05T03:00:00+00:00", de_precisao: "DATA", ate_nome: "F4 — 06/10", ate_quando: "2026-10-06T03:00:00+00:00", ate_precisao: "DATA" }, antes: { titulos: 11947, saldo: 20203179.94, alunos: 11947 }, reducao: { titulos: 5720, valor: 12163612.46, pct_titulos: 47.9, pct_valor: 60.2 }, saiu: { titulos: 5720, valor: 12163612.46 }, custo: { informado: false, total: null, por_aluno: null }, entradas: { titulos: 51, valor: 64710.64 }, ajuste_saldo: 0, depois: { titulos: 6278, saldo: 8104278.12 }, sem_envio_confirmado: false, aguardando_remessa: false, sequencia_nao_comprovada: false },
+    { id: "a-3", nome: "WhatsApp de 05/10 (tarde)", canal: "WHATSAPP", contexto: "BOLETO_VENCIDO", origem: "EXTERNA", estado: "ENVIADA", publico: "remessa_inteira", quando: "2026-10-05T03:00:00+00:00", precisao: "DATA", periodo: { de_nome: "F3 — 05/10 tarde", de_quando: "2026-10-05T03:00:00+00:00", de_precisao: "DATA", ate_nome: "F4 — 06/10", ate_quando: "2026-10-06T03:00:00+00:00", ate_precisao: "DATA" }, antes: { titulos: 10759, saldo: 18137532.27, alunos: 10759 }, reducao: { titulos: 4532, valor: 10097140.99, pct_titulos: 42.1, pct_valor: 55.7 }, saiu: { titulos: 4532, valor: 10097140.99 }, custo: { informado: true, total: 2400, por_aluno: 0.22 }, entradas: { titulos: 51, valor: 64710.64 }, ajuste_saldo: 0, depois: { titulos: 6278, saldo: 8104278.12 }, sem_envio_confirmado: false, aguardando_remessa: false, sequencia_nao_comprovada: false },
+    { id: "a-4", nome: "Mensalidade de outubro", canal: "WHATSAPP", contexto: "PROXIMO_VENCIMENTO", origem: "CRM", estado: "PREPARADA", publico: "remessa_inteira", quando: null, precisao: null, periodo: {}, antes: { titulos: 8309, saldo: 14426544.69, alunos: 8309 }, reducao: { titulos: null, valor: null, pct_titulos: null, pct_valor: null }, saiu: { titulos: null, valor: null }, custo: { informado: false, total: null, por_aluno: null }, entradas: { titulos: null, valor: null }, ajuste_saldo: null, depois: { titulos: null, saldo: null }, sem_envio_confirmado: true, aguardando_remessa: false, sequencia_nao_comprovada: false },
+  ],
+  definicao: "REDUÇÃO OBSERVADA APÓS A AÇÃO = o título estava na foto de onde o envio saiu e não está na primeira foto comprovadamente posterior. Movimento observado, NÃO pagamento confirmado. CUSTO não entra em conta nenhuma da carteira.",
+};
+
+const INTERVALOS = [
+  { ordem: 1, de: PAINEL.pontos[0], ate: PAINEL.pontos[1], ordem_comprovada: true,
+    antes: { titulos: 13968, saldo: 24363782.56 }, depois: { titulos: 11947, saldo: 20203179.94 },
+    saiu: { titulos: 2121, valor: 4248050.67 }, entradas: { titulos: 100, valor: 87448.05 },
+    ajuste: 0, liquido: -4160602.62, liquido_titulos: -2021, pct_saldo: -17.1,
+    acoes: [{ id: "a-1", nome: "E-mail de 02/10", canal: "EMAIL", contexto: "PROXIMO_VENCIMENTO", quando: "2026-10-02T03:00:00+00:00", precisao: "DATA", custo_informado: false, custo_total: null }] },
+  { ordem: 2, de: PAINEL.pontos[1], ate: PAINEL.pontos[2], ordem_comprovada: true,
+    antes: { titulos: 11947, saldo: 20203179.94 }, depois: { titulos: 10759, saldo: 18137532.27 },
+    saiu: { titulos: 1188, valor: 2065647.67 }, entradas: { titulos: 0, valor: 0 },
+    ajuste: 0, liquido: -2065647.67, liquido_titulos: -1188, pct_saldo: -10.2,
+    acoes: [{ id: "a-2", nome: "E-mail de 05/10 (manhã)", canal: "EMAIL", contexto: "PROXIMO_VENCIMENTO", quando: "2026-10-05T03:00:00+00:00", precisao: "DATA", custo_informado: false, custo_total: null }] },
+  { ordem: 3, de: PAINEL.pontos[2], ate: PAINEL.pontos[3], ordem_comprovada: true,
+    antes: { titulos: 10759, saldo: 18137532.27 }, depois: { titulos: 6278, saldo: 8104278.12 },
+    saiu: { titulos: 4532, valor: 10097140.99 }, entradas: { titulos: 51, valor: 64710.64 },
+    ajuste: -824.8, liquido: -10033254.15, liquido_titulos: -4481, pct_saldo: -55.3,
+    acoes: [{ id: "a-3", nome: "WhatsApp de 05/10 (tarde)", canal: "WHATSAPP", contexto: "BOLETO_VENCIDO", quando: "2026-10-05T03:00:00+00:00", precisao: "DATA", custo_informado: true, custo_total: 2400 }] },
+];
+
 const RESPOSTAS = {
   preventivo_resultados_por_acao: () => POR_ACAO,
   preventivo_resultados_por_contexto: () => ({
@@ -314,6 +362,9 @@ const RESPOSTAS = {
   preventivo_resultados: () => RESULTADOS,
   preventivo_acoes: () => ACOES,
   preventivo_lotes: () => LOTES,
+  preventivo_painel: () => PAINEL,
+  preventivo_intervalos: () => INTERVALOS,
+  preventivo_acao_custo_definir: (a) => ({ acao: a?.p_acao_id, custo_total: a?.p_custo, informado: a?.p_custo !== null }),
   preventivo_remessas: () => REMESSAS,
   preventivo_remessa_resumo: (a) => REMESSAS.find((r) => r.id === a?.p_lote_id) || REMESSAS[0],
   preventivo_remessa_comparar: (a) => (REMESSAS.find((r) => r.id === a?.p_lote_id) || REMESSAS[0]).comparacao,

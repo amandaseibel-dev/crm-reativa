@@ -1,0 +1,197 @@
+// @vitest-environment jsdom
+//
+// ACORDOS DE HOJE — a tela só repete o que o snapshot calculou.
+//
+// As duas definições vivem na migration 20261008120000 e foram medidas em
+// produção antes de existir código. O que estes casos protegem é que a TELA não
+// invente nenhuma delas: nem a taxa, nem o "ainda sem pagamento", nem o que
+// fazer quando o dia começou e não há acordo.
+//
+// Os fixtures usam valores em que recalcular daria OUTRO resultado, então
+// qualquer conta que nasça aqui quebra a suíte.
+import { describe, it, expect, afterEach } from "vitest";
+import { render, screen, cleanup } from "@testing-library/react";
+import { CATALOGO_TELAS } from "./tvTelas";
+
+afterEach(cleanup);
+
+const tela = () => CATALOGO_TELAS.find((t) => t.id === "acordos_hoje");
+const desenhar = (snap) => {
+  const { Comp } = tela();
+  return render(<Comp snap={snap} />);
+};
+
+// Formato exato que tv_snapshot_atualizar entrega.
+const DIA = (extra = {}) => ({
+  acordos_hoje: {
+    data: "2026-10-08",
+    fechados: 12, convertidos: 5, valor_pago: 8430, taxa_pct: 41.7,
+    ranking: [
+      // Números escolhidos para NÃO colidirem com 12 / 5 / 7 do cabeçalho:
+      // assim cada asserção abaixo aponta para um elemento só.
+      { operador: "Allan", fechados: 6, convertidos: 3, valor_pago: 3100 },
+      { operador: "Rafaella", fechados: 4, convertidos: 2, valor_pago: 2900 },
+      { operador: "Nataly", fechados: 2, convertidos: 1, valor_pago: 1430 },
+      { operador: "Mauricio", fechados: 1, convertidos: 0, valor_pago: 0 },
+    ],
+    ...extra,
+  },
+});
+
+describe("TV — Acordos de Hoje (catálogo)", () => {
+  it("existe, está ligada e é de operação", () => {
+    const t = tela();
+    expect(t).toBeTruthy();
+    expect(t.nome).toBe("Acordos de Hoje");
+    expect(t.ativa).toBe(true);
+    expect(t.grupo).toBe("operacao");
+  });
+
+  it("fica visível mesmo sem acordo — dia zerado é informação", () => {
+    const { temConteudo } = tela();
+    expect(temConteudo({})).toBe(true);
+    expect(temConteudo({ acordos_hoje: { fechados: 0 } })).toBe(true);
+    expect(temConteudo(null)).toBe(true);
+  });
+});
+
+describe("TV — Acordos de Hoje (render)", () => {
+  it("mostra fechados, convertidos, valor e o que falta", () => {
+    desenhar(DIA());
+    expect(screen.getByText("Acordos fechados hoje")).toBeTruthy();
+    expect(screen.getByText("12")).toBeTruthy();
+    expect(screen.getByText("Já com pagamento")).toBeTruthy();
+    expect(screen.getByText("5")).toBeTruthy();
+    expect(screen.getByText("Valor pago")).toBeTruthy();
+    expect(screen.getByText("R$ 8.430")).toBeTruthy();
+    expect(screen.getByText("Ainda sem pagamento")).toBeTruthy();
+    expect(screen.getByText("7")).toBeTruthy(); // 12 - 5
+  });
+
+  it("a taxa é a do snapshot — a tela não divide convertidos por fechados", () => {
+    // 5/12 = 41,7%. O fixture manda 60 de propósito: se recalculasse, daria 42.
+    desenhar(DIA({ taxa_pct: 60 }));
+    expect(screen.getByText("60%")).toBeTruthy();
+    expect(screen.queryByText("42%")).toBeNull();
+    // Exato, não regex: "com pagamento" é o rótulo do anel e "Já com pagamento"
+    // é o card — um regex casaria os dois.
+    expect(screen.getByText("com pagamento")).toBeTruthy();
+    expect(screen.getByText("Já com pagamento")).toBeTruthy();
+  });
+
+  it("o ranking vem do snapshot, com os três números por operador", () => {
+    desenhar(DIA());
+    expect(screen.getByText("Allan")).toBeTruthy();
+    expect(screen.getByText("Rafaella")).toBeTruthy();
+    expect(screen.getByText("R$ 3.100")).toBeTruthy();
+    expect(screen.getAllByText("fechados").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("convertidos").length).toBeGreaterThan(0);
+  });
+
+  // Antes a tela cortava em 4. Em produção, 08/10, seis linhas vieram no
+  // ranking e dois operadores que fecharam acordo simplesmente não existiam no
+  // telão. Quem fechou aparece; o que se adapta é o tamanho do card.
+  it("mostra TODOS os operadores que fecharam, sem corte", () => {
+    const muitos = Array.from({ length: 8 }, (_, i) => ({
+      operador: `Op${i}`, fechados: 8 - i, convertidos: 1, valor_pago: 100 + i,
+    }));
+    desenhar(DIA({ ranking: muitos }));
+    for (let i = 0; i < 8; i++) {
+      expect(screen.getByText(`Op${i}`)).toBeTruthy();
+    }
+  });
+});
+
+// SEM RESPONSÁVEL — o snapshot agrupa os acordos sem dono sob esse rótulo. Ele
+// é um balde, não uma pessoa: no ranking parecia um operador chamado "Sem
+// responsável" competindo com a equipe. Sai do ranking e vira aviso, mas
+// continua dentro dos TOTAIS, que são números sem nome.
+describe("TV — Acordos de Hoje (sem responsável)", () => {
+  const COM_BALDE = (qtd) => DIA({
+    ranking: [
+      { operador: "Allan", fechados: 6, convertidos: 3, valor_pago: 3100 },
+      { operador: "Sem responsável", fechados: qtd, convertidos: 0, valor_pago: 0 },
+    ],
+  });
+
+  it("não aparece como operador do ranking", () => {
+    desenhar(COM_BALDE(1));
+    expect(screen.getByText("Allan")).toBeTruthy();
+    expect(screen.queryByText("Sem responsável")).toBeNull();
+  });
+
+  it("vira aviso discreto, no singular", () => {
+    desenhar(COM_BALDE(1));
+    expect(screen.getByText(/1 acordo sem responsável/)).toBeTruthy();
+  });
+
+  it("concorda no plural", () => {
+    desenhar(COM_BALDE(3));
+    expect(screen.getByText(/3 acordos sem responsável/)).toBeTruthy();
+  });
+
+  it("os totais do cabeçalho continuam contando os sem dono", () => {
+    // O fixture manda fechados: 12 no topo e 6+1 no ranking. A tela mostra o
+    // total do snapshot, que já soma o balde — não a soma do ranking.
+    desenhar(COM_BALDE(1));
+    expect(screen.getByText("12")).toBeTruthy();
+  });
+
+  it("sem balde nenhum, não existe aviso", () => {
+    desenhar(DIA());
+    expect(screen.queryByText(/sem responsável/i)).toBeNull();
+  });
+});
+
+describe("TV — Acordos de Hoje (o dia que ainda não começou)", () => {
+  it("sem acordo nenhum, convida em vez de mostrar 0%", () => {
+    desenhar({ acordos_hoje: { data: "2026-10-08", fechados: 0, convertidos: 0, valor_pago: 0, taxa_pct: null, ranking: [] } });
+    expect(screen.getByText(/Nenhum acordo fechado hoje ainda/)).toBeTruthy();
+    expect(screen.queryByText("0%")).toBeNull();
+    expect(screen.queryByText("Acordos fechados hoje")).toBeNull();
+  });
+
+  it("snapshot sem a chave não derruba a tela", () => {
+    expect(() => desenhar({})).not.toThrow();
+    expect(screen.getByText(/Nenhum acordo fechado hoje ainda/)).toBeTruthy();
+  });
+
+  it("taxa nula com acordos fechados não vira 0% enganoso", () => {
+    desenhar(DIA({ taxa_pct: null, convertidos: 0, valor_pago: 0 }));
+    expect(screen.getByText("—")).toBeTruthy();
+  });
+});
+
+describe("TV — Acordos de Hoje (vocabulário)", () => {
+  it("nunca diz que o acordo foi pago ou quitado — só que teve pagamento", () => {
+    desenhar(DIA());
+    const txt = document.body.textContent.toLowerCase();
+    expect(txt).not.toContain("quitad");
+    expect(txt).not.toContain("liquidad");
+    // "pagos" isolado sugeriria acordo fechado em pagamento; o rótulo é outro.
+    expect(screen.queryByText("pagos")).toBeNull();
+    expect(screen.getByText("Já com pagamento")).toBeTruthy();
+    expect(screen.getAllByText("convertidos").length).toBeGreaterThan(0);
+  });
+});
+
+describe("TV — Acordos de Hoje (bordas)", () => {
+  it("todos convertidos: o card do que falta vai a zero", () => {
+    // Sem ranking para a asserção do zero apontar um elemento só.
+    desenhar(DIA({ fechados: 4, convertidos: 4, taxa_pct: 100, ranking: [] }));
+    expect(screen.getByText("100%")).toBeTruthy();
+    expect(screen.getAllByText("4")).toHaveLength(2);  // fechados e convertidos
+    expect(screen.getByText("0")).toBeTruthy();        // ainda sem pagamento
+  });
+
+  it("ranking ausente não quebra a tela", () => {
+    expect(() => desenhar(DIA({ ranking: undefined }))).not.toThrow();
+    expect(screen.getByText("Acordos fechados hoje")).toBeTruthy();
+  });
+
+  it("operador sem conversão aparece com zero, não some", () => {
+    desenhar(DIA());
+    expect(screen.getByText("Mauricio")).toBeTruthy();
+    expect(screen.getByText("R$ 0")).toBeTruthy();  // valor dele, só ele tem zero
+  });
+});

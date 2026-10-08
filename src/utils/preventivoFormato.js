@@ -29,3 +29,13 @@ export function agoraLocalParaInput(d = new Date()) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
        + `T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
+
+// Percentual no padrao brasileiro: virgula decimal, uma casa, e "—" quando o
+// numero nao existe. Sem isto a tela mistura "R$ 4.248.050,67" com "17.4%" na
+// MESMA linha -- o mesmo separador significando coisas diferentes.
+export function pct(v) {
+  if (v === null || v === undefined || v === "") return "—";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  return `${n.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+}

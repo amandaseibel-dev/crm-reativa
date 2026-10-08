@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
 import { hashArquivo, hashValido } from "../utils/hashArquivo";   // MESMA implementacao
 import Dobra from "../ui/blocos";
+import { parcelaViva } from "../utils/parcelaStatus";
 
 function limparCpf(valor) {
   const digitos = String(valor || "").replace(/\D/g, "");
@@ -517,7 +518,7 @@ export default function Borderos() {
 
                 const saldoPorAcordo = {};
                 (parcelasAcordos || []).forEach((p) => {
-                  if (p.status !== "PAGO" && p.status !== "CANCELADA") {
+                  if (parcelaViva(p.status)) {
                     saldoPorAcordo[p.acordo_id] =
                       (saldoPorAcordo[p.acordo_id] || 0) + Number(p.valor || 0);
                   }

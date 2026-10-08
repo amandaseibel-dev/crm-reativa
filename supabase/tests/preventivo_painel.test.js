@@ -11,7 +11,10 @@
 //   6. a proteção de ordem ambígua vale também aqui: se duas fotos vizinhas
 //      não têm ordem provada, os cards avisam;
 //   7. foto ambígua do mesmo dia NÃO mantém a ação pendente quando já existe
-//      remessa posterior válida — nesse caso a comparação é contra a posterior.
+//      remessa posterior válida — nesse caso a comparação é contra a posterior;
+//   8. o histórico sai pela ordem da EXTRAÇÃO, não pela hora da importação;
+//   9. a linha do tempo por INTERVALO fecha: a soma dos líquidos é exatamente
+//      saldo final − saldo inicial, e cada ação cai em um intervalo só.
 //
 // NENHUM DADO REAL.
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
@@ -35,6 +38,10 @@ const MIGRATIONS = [
   "supabase/migrations/20261006114523_preventivo_acao_externa_e_data_da_extracao.sql",
   "supabase/migrations/20261006165832_preventivo_recorte_e_precisao_da_extracao.sql",
   "supabase/migrations/20261007113426_preventivo_painel_objetivo.sql",
+  "supabase/migrations/20261008110805_preventivo_reducao_por_acao.sql",
+  "supabase/migrations/20261008112030_preventivo_custo_e_consolidado.sql",
+  "supabase/migrations/20261008143000_preventivo_remessas_ordem_canonica.sql",
+  "supabase/migrations/20261008160000_preventivo_intervalos_entre_remessas.sql",
 ].map(ler);
 
 const TABELAS = [
@@ -131,8 +138,8 @@ describe("Preventivo — painel objetivo", () => {
     const [ac] = (await painel()).acoes;
     expect(ac.antes.titulos).toBe(3);
     expect(Number(ac.antes.saldo)).toBe(600);
-    expect(ac.saiu.titulos).toBe(1);
-    expect(Number(ac.saiu.valor)).toBe(200);
+    expect(ac.reducao.titulos).toBe(1);
+    expect(Number(ac.reducao.valor)).toBe(200);
     expect(ac.entradas.titulos).toBe(1);
     expect(Number(ac.entradas.valor)).toBe(50);
     expect(Number(ac.ajuste_saldo)).toBe(30);
@@ -140,10 +147,10 @@ describe("Preventivo — painel objetivo", () => {
     expect(Number(ac.depois.saldo)).toBe(480);
 
     // A IDENTIDADE, explicitamente
-    expect(Number(ac.antes.saldo) - Number(ac.saiu.valor)
+    expect(Number(ac.antes.saldo) - Number(ac.reducao.valor)
          + Number(ac.entradas.valor) + Number(ac.ajuste_saldo))
       .toBe(Number(ac.depois.saldo));
-    expect(ac.antes.titulos - ac.saiu.titulos + ac.entradas.titulos).toBe(ac.depois.titulos);
+    expect(ac.antes.titulos - ac.reducao.titulos + ac.entradas.titulos).toBe(ac.depois.titulos);
   });
 
   it("queda de saldo de quem FICOU vira ajuste, nunca saída", async () => {
@@ -153,12 +160,12 @@ describe("Preventivo — painel objetivo", () => {
     await importar("F2", [t("2026000001", 40), t("2026000002", 200)], "2026-10-06");
 
     const [ac] = (await painel()).acoes;
-    expect(ac.saiu.titulos).toBe(0);
-    expect(Number(ac.saiu.valor)).toBe(0);
+    expect(ac.reducao.titulos).toBe(0);
+    expect(Number(ac.reducao.valor)).toBe(0);
     expect(Number(ac.ajuste_saldo)).toBe(-60);
     expect(Number(ac.depois.saldo)).toBe(240);
     // os R$ 60 NÃO viraram "saiu"
-    expect(Number(ac.saiu.valor)).not.toBe(60);
+    expect(Number(ac.reducao.valor)).not.toBe(60);
   });
 
   it("alunos acionados conta cada aluno uma vez só", async () => {
@@ -180,7 +187,7 @@ describe("Preventivo — painel objetivo", () => {
     const p = await painel();
     expect(p.cards.alunos_acionados).toBeNull();
     expect(p.acoes[0].sem_envio_confirmado).toBe(true);
-    expect(p.acoes[0].saiu.titulos).toBeNull();
+    expect(p.acoes[0].reducao.titulos).toBeNull();
   });
 
   it("ação sem remessa comprovadamente posterior não inventa resultado", async () => {
@@ -188,7 +195,7 @@ describe("Preventivo — painel objetivo", () => {
     await registrar(f1.lote_id, "Envio", "WHATSAPP", "2026-10-02");
     const p = await painel();           // nenhuma foto depois ainda
     const ac = p.acoes[0];
-    expect(ac.saiu.titulos).toBeNull();
+    expect(ac.reducao.titulos).toBeNull();
     expect(ac.entradas.titulos).toBeNull();
     expect(ac.ajuste_saldo).toBeNull();
     expect(ac.depois.titulos).toBeNull();
@@ -236,8 +243,8 @@ describe("Preventivo — painel objetivo", () => {
 
     const ac = (await painel()).acoes.find((x) => x.id === a.id);
     expect(ac.sequencia_nao_comprovada).toBe(false);
-    expect(ac.saiu.titulos).toBe(1);
-    expect(Number(ac.saiu.valor)).toBe(200);
+    expect(ac.reducao.titulos).toBe(1);
+    expect(Number(ac.reducao.valor)).toBe(200);
 
     // e as duas funções antigas concordam
     const r = await um(db, `select public.preventivo_acao_resultado($1::uuid)`, [a.id]);
@@ -255,12 +262,234 @@ describe("Preventivo — painel objetivo", () => {
 
     const ac = (await painel()).acoes.find((x) => x.id === a.id);
     expect(ac.sequencia_nao_comprovada).toBe(true);
-    expect(ac.saiu.titulos).toBeNull();
+    expect(ac.reducao.titulos).toBeNull();
+  });
+
+  it("redução por ação traz valor, percentual, títulos e período comparado", async () => {
+    const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 300)], "2026-10-02");
+    const a = await registrar(f1.lote_id, "E-mail", "EMAIL", "2026-10-02");
+    await importar("F2", [t("2026000001", 100)], "2026-10-06");
+
+    const ac = (await painel()).acoes.find((x) => x.id === a.id);
+    expect(ac.reducao.titulos).toBe(1);
+    expect(Number(ac.reducao.valor)).toBe(300);
+    expect(Number(ac.reducao.pct_titulos)).toBe(50);     // 1 de 2
+    expect(Number(ac.reducao.pct_valor)).toBe(75);       // 300 de 400
+    expect(ac.periodo.de_nome).toBe("F1");
+    expect(ac.periodo.ate_nome).toBe("F2");
+    expect(ac.periodo.ate_quando).toBeTruthy();
+  });
+
+  it("o consolidado conta cada título UMA vez, e não é a soma das linhas", async () => {
+    // os mesmos 2 títulos acionados por dois canais; 1 sai
+    const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 300)], "2026-10-02");
+    await registrar(f1.lote_id, "E-mail", "EMAIL", "2026-10-02");
+    await registrar(f1.lote_id, "WhatsApp", "WHATSAPP", "2026-10-02");
+    await importar("F2", [t("2026000001", 100)], "2026-10-06");
+
+    const p = await painel();
+    const somaDasLinhas = p.acoes.reduce((t2, x) => t2 + Number(x.reducao.valor || 0), 0);
+    expect(somaDasLinhas).toBe(600);                       // 300 + 300 -> dobra
+    expect(Number(p.acoes_consolidado.reducao_valor)).toBe(300);   // conta uma vez
+    expect(p.acoes_consolidado.reducao_titulos).toBe(1);
+    expect(p.acoes_consolidado.base_titulos).toBe(2);
+    expect(Number(p.acoes_consolidado.base_saldo)).toBe(400);
+    expect(Number(p.acoes_consolidado.reducao_pct_valor)).toBe(75);
+  });
+
+  it("REENTRADA: título que saiu e voltou não conta como redução", async () => {
+    // F1 aciona 001 e 002.  F2 (depois do e-mail): 002 sumiu.
+    // WhatsApp em F2.  F3: o 002 VOLTOU.
+    const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 300)], "2026-10-02");
+    await registrar(f1.lote_id, "E-mail", "EMAIL", "2026-10-02");
+    const f2 = await importar("F2", [t("2026000001", 100)], "2026-10-03");
+    await registrar(f2.lote_id, "WhatsApp", "WHATSAPP", "2026-10-03");
+    await importar("F3", [t("2026000001", 100), t("2026000002", 300)], "2026-10-06");
+
+    const p = await painel();
+    // o e-mail, olhando só a foto seguinte dele, viu o 002 sair
+    const email = p.acoes.find((x) => x.nome === "E-mail");
+    expect(email.reducao.titulos).toBe(1);
+    // mas no consolidado o 002 voltou, então NÃO é redução
+    expect(p.acoes_consolidado.reducao_titulos).toBe(0);
+    expect(Number(p.acoes_consolidado.reducao_valor)).toBe(0);
+    expect(p.acoes_consolidado.base_titulos).toBe(2);
+  });
+
+  it("consolidado usa o saldo do PRIMEIRO acionamento", async () => {
+    const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 300)], "2026-10-02");
+    await registrar(f1.lote_id, "E-mail", "EMAIL", "2026-10-02");
+    // o 002 sobe de 300 para 500 na F2, e é acionado de novo
+    const f2 = await importar("F2", [t("2026000001", 100), t("2026000002", 500)], "2026-10-03");
+    await registrar(f2.lote_id, "WhatsApp", "WHATSAPP", "2026-10-03");
+    await importar("F3", [t("2026000001", 100)], "2026-10-06");
+
+    const c = (await painel()).acoes_consolidado;
+    expect(c.reducao_titulos).toBe(1);
+    expect(Number(c.reducao_valor)).toBe(300);   // o do primeiro acionamento, não 500
+  });
+
+  it("PENDENTE não vira zero no consolidado", async () => {
+    const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 300)], "2026-10-02");
+    await registrar(f1.lote_id, "E-mail", "EMAIL", "2026-10-02");
+    const c = (await painel()).acoes_consolidado;   // nenhuma foto depois
+    expect(c.pendentes_titulos).toBe(2);
+    expect(c.com_regua_titulos).toBe(0);
+    expect(c.reducao_titulos).toBeNull();
+    expect(c.reducao_pct_valor).toBeNull();
+  });
+
+  it("último acionamento SEM remessa posterior deixa o título pendente", async () => {
+    // O título é acionado duas vezes. O primeiro envio tem foto depois; o
+    // segundo, não. O veredito tem de seguir o ENVIO MAIS NOVO — pendente —,
+    // e não cair na régua do envio antigo.
+    const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 300)], "2026-10-02");
+    await registrar(f1.lote_id, "E-mail", "EMAIL", "2026-10-02");
+    const f2 = await importar("F2", [t("2026000001", 100), t("2026000002", 300)], "2026-10-03");
+    await registrar(f2.lote_id, "WhatsApp", "WHATSAPP", "2026-10-03");
+    // nenhuma foto depois do WhatsApp
+
+    const c = (await painel()).acoes_consolidado;
+    expect(c.pendentes_titulos).toBe(2);
+    expect(c.com_regua_titulos).toBe(0);
+    expect(c.reducao_titulos).toBeNull();
+    expect(c.reducao_valor).toBeNull();
+    expect(c.reducao_pct_valor).toBeNull();
+  });
+
+  it("compatibilidade: `saiu` continua ao lado de `reducao`", async () => {
+    const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 300)], "2026-10-02");
+    const a = await registrar(f1.lote_id, "E-mail", "EMAIL", "2026-10-02");
+    await importar("F2", [t("2026000001", 100)], "2026-10-06");
+    const ac = (await painel()).acoes.find((x) => x.id === a.id);
+    expect(ac.saiu.titulos).toBe(ac.reducao.titulos);
+    expect(Number(ac.saiu.valor)).toBe(Number(ac.reducao.valor));
+  });
+
+  it("custo: nulo é não informado, zero é zero, negativo é recusado", async () => {
+    const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 300)], "2026-10-02");
+    const a = await registrar(f1.lote_id, "WhatsApp", "WHATSAPP", "2026-10-02");
+
+    let ac = (await painel()).acoes.find((x) => x.id === a.id);
+    expect(ac.custo.informado).toBe(false);
+    expect(ac.custo.total).toBeNull();
+    expect(ac.custo.por_aluno).toBeNull();
+
+    await um(db, `select public.preventivo_acao_custo_definir($1::uuid, 0)`, [a.id]);
+    ac = (await painel()).acoes.find((x) => x.id === a.id);
+    expect(ac.custo.informado).toBe(true);
+    expect(Number(ac.custo.total)).toBe(0);
+    expect(Number(ac.custo.por_aluno)).toBe(0);
+
+    await um(db, `select public.preventivo_acao_custo_definir($1::uuid, 120)`, [a.id]);
+    ac = (await painel()).acoes.find((x) => x.id === a.id);
+    expect(Number(ac.custo.total)).toBe(120);
+    expect(Number(ac.custo.por_aluno)).toBe(60);   // 2 alunos distintos
+
+    await expect(um(db, `select public.preventivo_acao_custo_definir($1::uuid, -1)`, [a.id]))
+      .rejects.toThrow(/negativ/i);
+
+    await um(db, `select public.preventivo_acao_custo_definir($1::uuid, null)`, [a.id]);
+    ac = (await painel()).acoes.find((x) => x.id === a.id);
+    expect(ac.custo.informado).toBe(false);
   });
 
   it("quem não é da gestão não lê o painel", async () => {
     await importar("F1", [t("2026000001", 100)], "2026-10-02");
     await db.exec(`update public._jwt set email = '${OUTRA}'`);
     await expect(painel()).rejects.toThrow(/gest/i);
+  });
+
+  // A tela diz "da mais nova para a mais antiga". Quando a lista era ordenada
+  // por `criado_em`, uma foto antiga importada por último subia para o topo —
+  // foi o que aconteceu em produção com a foto de 05/10 (tarde), importada
+  // dois dias antes das outras e exibida abaixo da foto de 02/10.
+  it("o histórico sai pela ordem da extração, não pela da importação", async () => {
+    // importadas FORA de ordem de propósito: 05/10 primeiro, 02/10 depois
+    await importar("F3 — 05/10 tarde", [t("2026000001", 100)], "2026-10-05", 2);
+    await importar("F1 — 02/10", [t("2026000001", 100)], "2026-10-02");
+    await importar("F4 — 06/10", [t("2026000001", 100)], "2026-10-06");
+    await importar("F2 — 05/10 manhã", [t("2026000001", 100)], "2026-10-05", 1);
+
+    const lista = await um(db, `select public.preventivo_remessas($1::uuid)`, [carteira]);
+    expect(lista.map((r) => r.nome)).toEqual([
+      "F4 — 06/10", "F3 — 05/10 tarde", "F2 — 05/10 manhã", "F1 — 02/10",
+    ]);
+  });
+
+  // ---- A LINHA DO TEMPO POR INTERVALO ----
+  //
+  // A diferença para as linhas por ação: aqui os períodos são DISJUNTOS, então
+  // a conta fecha. É o que a leitura gerencial precisa e o que a tabela por
+  // ação nunca pôde dar, porque os públicos se sobrepõem.
+  const intervalos = () => um(db, `select public.preventivo_intervalos($1::uuid)`, [carteira]);
+
+  it("em cada intervalo, antes − saiu + entradas + ajuste = depois", async () => {
+    await importar("F1", [t("2026000001", 100), t("2026000002", 200)], "2026-10-02");
+    // o 002 sai, o 001 sobe de 100 para 130 (encargo), e entra o 003
+    await importar("F2", [t("2026000001", 130), t("2026000003", 50)], "2026-10-06");
+
+    const [i] = await intervalos();
+    expect(Number(i.antes.saldo)).toBe(300);
+    expect(Number(i.depois.saldo)).toBe(180);
+    expect(Number(i.saiu.valor)).toBe(200);
+    expect(Number(i.entradas.valor)).toBe(50);
+    expect(Number(i.ajuste)).toBe(30);
+    expect(Number(i.liquido)).toBe(-120);
+    // a identidade, escrita como a tela a usa
+    expect(Number(i.antes.saldo) - Number(i.saiu.valor)
+           + Number(i.entradas.valor) + Number(i.ajuste)).toBe(Number(i.depois.saldo));
+    expect(Number(i.antes.saldo) + Number(i.liquido)).toBe(Number(i.depois.saldo));
+  });
+
+  it("a soma dos líquidos é o saldo final menos o inicial", async () => {
+    await importar("F1", [t("2026000001", 100), t("2026000002", 200)], "2026-10-02");
+    await importar("F2", [t("2026000001", 100), t("2026000004", 70)], "2026-10-04");
+    await importar("F3", [t("2026000004", 70)], "2026-10-06");
+
+    const lista = await intervalos();
+    expect(lista).toHaveLength(2);               // 3 fotos = 2 intervalos
+    const soma = lista.reduce((a, i) => a + Number(i.liquido), 0);
+    const c = (await painel()).cards;
+    expect(soma).toBe(Number(c.hoje.saldo) - Number(c.inicio.saldo));
+  });
+
+  it("cada ação cai em um intervalo só, o que termina na primeira foto posterior", async () => {
+    const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 200)], "2026-10-02");
+    await registrar(f1.lote_id, "E-mail de 02/10", "EMAIL", "2026-10-02");
+    const f2 = await importar("F2", [t("2026000001", 100), t("2026000002", 200)], "2026-10-04");
+    await registrar(f2.lote_id, "WhatsApp de 04/10", "WHATSAPP", "2026-10-04");
+    await importar("F3", [t("2026000001", 100)], "2026-10-06");
+
+    const lista = await intervalos();
+    expect(lista.map((i) => i.acoes.map((a) => a.nome))).toEqual([
+      ["E-mail de 02/10"], ["WhatsApp de 04/10"],
+    ]);
+    // nenhuma ação aparece em dois intervalos
+    const todas = lista.flatMap((i) => i.acoes.map((a) => a.id));
+    expect(new Set(todas).size).toBe(todas.length);
+  });
+
+  it("o custo informado viaja junto com a ação, e ausência não vira zero", async () => {
+    const f1 = await importar("F1", [t("2026000001", 100)], "2026-10-02");
+    const a1 = await registrar(f1.lote_id, "WhatsApp de 02/10", "WHATSAPP", "2026-10-02");
+    await importar("F2", [t("2026000001", 100)], "2026-10-06");
+
+    let [i] = await intervalos();
+    expect(i.acoes[0].custo_informado).toBe(false);
+    expect(i.acoes[0].custo_total).toBe(null);
+
+    await um(db, `select public.preventivo_acao_custo_definir($1::uuid, 0)`, [a1.id]);
+    [i] = await intervalos();
+    expect(i.acoes[0].custo_informado).toBe(true);
+    expect(Number(i.acoes[0].custo_total)).toBe(0);
+  });
+
+  it("duas fotos do mesmo dia sem hora: o intervalo avisa em vez de fingir sequência", async () => {
+    await importar("F1", [t("2026000001", 100)], "2026-10-05", 1);
+    await importar("F2", [t("2026000001", 100)], "2026-10-05", 1);
+
+    const [i] = await intervalos();
+    expect(i.ordem_comprovada).toBe(false);
   });
 });

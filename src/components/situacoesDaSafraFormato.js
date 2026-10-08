@@ -63,6 +63,13 @@ export const S = {
                  fontFamily: "'Sora', Inter, sans-serif", fontVariantNumeric: "tabular-nums" },
   entrouApoio: { fontSize: 12, color: "var(--rv-texto-suave)", fontVariantNumeric: "tabular-nums" },
 
+  // A régua declarada em uma linha, para quando o mesmo "Entrou" já é manchete
+  // em outro bloco da mesma página (ver `entrouCompacto` em SituacoesDaSafra).
+  entrouCompacto: { display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap",
+                    padding: "10px 0 8px" },
+  entrouCompactoValor: { fontSize: 13, fontWeight: 700, color: "var(--rv-texto-suave)",
+                         fontVariantNumeric: "tabular-nums" },
+
   linha: { padding: "9px 0" },
   linhaTopo: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto auto", alignItems: "baseline",
                columnGap: 10 },

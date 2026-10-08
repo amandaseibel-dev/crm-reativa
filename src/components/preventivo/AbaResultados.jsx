@@ -1,469 +1,58 @@
 // Aba Resultados do Preventivo.
 //
-// A honestidade desta tela é a parte mais importante dela. A API do Prime não
-// entrega evento de recebimento, data de recebimento nem valor em aberto — os
-// 13 campos do extrato foram conferidos ao vivo em 28/09/2026 e nenhum deles
-// informa situação.
+// A tela responde três perguntas e para por aí: quanto a carteira tinha quando
+// começamos, quanto ela caiu de lá para cá, e quanto ainda está em aberto.
+// Depois, a linha do tempo por período. O resultado por público e o
+// consolidado ficam em "Ver detalhes", porque se sobrepõem e não somam.
 //
-// O que medimos é ALTERAÇÃO DO VALOR DO TÍTULO NA FONTE (`netAmount`). Uma
-// queda desse valor pode vir de um recebimento, mas também de cancelamento,
-// bolsa ou renegociação — e a API não diz qual.
+// A FONTE É O RELATÓRIO IMPORTADO, e só ele. Nada aqui consulta o Prime: a
+// comparação é entre fotos do próprio relatório, que é o que a operação tem em
+// mãos todo dia. Os objetos de sincronização continuam no banco e nos outros
+// módulos — apenas não aparecem nesta aba.
 //
-// Por isso "valor recebido" aparece como indisponível, com o motivo, em vez de
-// ser preenchido com a queda do valor na fonte. Trocar um pelo outro
-// transformaria cancelamento em recuperação — é o mesmo erro que já custou caro
-// na cobrança.
+// A PALAVRA É "REDUÇÃO DO SALDO APÓS A AÇÃO". Movimento observado entre duas
+// fotos. Não é pagamento confirmado: o título sumiu do relatório, e a fonte não
+// diz por quê.
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../../services/supabase";
 import { S } from "../../ui/estilosFila";
-import { moeda, dataCurta, dataHora } from "../../utils/preventivoFormato";
-import { AvisoAtualizacao } from "./AbaCarteira";
-import { GraficoPorAcao, GraficoPorContextoCanal } from "./GraficosEfetividade";
 import PainelPreventivo from "./PainelPreventivo";
-import { csv } from "../../utils/preventivo";
-
-const ROTULO_ALTERACAO = {
-  VALOR_FONTE_ZEROU: "O valor do título zerou na fonte",
-  VALOR_FONTE_CAIU: "O valor do título caiu na fonte",
-  VALOR_FONTE_SUBIU: "O valor do título subiu na fonte (encargo)",
-  MUDANCA_DE_PORTADOR: "Mudou de portador",
-  AUSENTE_NO_EXTRATO: "Sumiu do extrato",
-  RETORNO_AO_EXTRATO: "Voltou ao extrato",
-  VINCULO_AMBIGUO: "Mais de um candidato no Prime",
-  VINCULO_RESOLVIDO: "Vínculo com o Prime resolvido",
-};
-
-const ROTULO_VINCULO = {
-  UNICO: "Com vínculo único no Prime",
-  AMBIGUO: "Ambíguo (mais de um candidato)",
-  NAO_ENCONTRADO: "Não encontrado no Prime",
-  PENDENTE: "Ainda não consultado",
-};
-
-function baixar(nome, conteudo) {
-  const url = URL.createObjectURL(new Blob(["﻿" + conteudo], { type: "text/csv;charset=utf-8" }));
-  const a = document.createElement("a");
-  a.href = url; a.download = nome; a.click();
-  URL.revokeObjectURL(url);
-}
-
-// A etapa da jornada. Mesmos rótulos da aba Ações — o eixo é o mesmo.
-const CONTEXTOS = {
-  PROXIMO_VENCIMENTO: "Próximo ao vencimento",
-  BOLETO_VENCIDO: "Boleto vencido",
-  SEM_CONTEXTO: "Sem contexto (antes do campo existir)",
-};
 
 export default function AbaResultados({ carteira }) {
-  const [res, setRes] = useState(null);
-  const [situacao, setSituacao] = useState(null);
-  const [porContexto, setPorContexto] = useState(null);
-  const [porAcao, setPorAcao] = useState(null);
   const [painel, setPainel] = useState(null);
-  const [periodo, setPeriodo] = useState({ de: "", ate: "" });
+  const [intervalos, setIntervalos] = useState(null);
   const [erro, setErro] = useState("");
 
+  // Duas leituras: o painel (resultado por público, que se sobrepõe) e os
+  // intervalos entre remessas consecutivas (que não se sobrepõem e somam).
   const buscar = useCallback(() => Promise.all([
-    supabase.rpc("preventivo_resultados", { p_carteira_id: carteira.id }),
-    supabase.rpc("preventivo_sinc_situacao", { p_carteira_id: carteira.id }),
-    // Período vazio = sem limite daquele lado. O corte é pela data de criação
-    // da ação, não pelo vencimento do título.
-    supabase.rpc("preventivo_resultados_por_contexto", {
-      p_carteira_id: carteira.id,
-      p_de: periodo.de || null,
-      p_ate: periodo.ate || null,
-    }),
-    supabase.rpc("preventivo_resultados_por_acao", {
-      p_carteira_id: carteira.id,
-      p_de: periodo.de || null,
-      p_ate: periodo.ate || null,
-    }),
-    // A evolução é a carteira inteira, por data de extração — não entra no
-    // filtro de período das ações, porque ela é a linha do tempo da base.
     supabase.rpc("preventivo_painel", { p_carteira_id: carteira.id }),
-  ]), [carteira.id, periodo.de, periodo.ate]);
-
-  const aplicar = useCallback(([r, s, c, a, ev]) => {
-    if (ev && !ev.error) setPainel(ev.data);
-    if (r.error) { setErro(r.error.message); return; }
-    setErro(""); setRes(r.data);
-    if (!s.error) setSituacao(s.data);
-    if (!c.error) setPorContexto(c.data);
-    if (!a.error) setPorAcao(a.data);
-  }, []);
+    supabase.rpc("preventivo_intervalos", { p_carteira_id: carteira.id }),
+  ]), [carteira.id]);
 
   useEffect(() => {
     let vivo = true;
-    buscar().then((r) => { if (vivo) aplicar(r); });
-    return () => { vivo = false; };
-  }, [buscar, aplicar]);
-
-  async function exportar(alteracao, nome) {
-    const { data, error } = await supabase.rpc("preventivo_titulos", {
-      p_carteira_id: carteira.id, p_alteracao: alteracao, p_limite: 5000,
+    buscar().then(([p, i]) => {
+      if (!vivo) return;
+      if (p.error || i.error) { setErro((p.error || i.error).message); return; }
+      setErro(""); setPainel(p.data); setIntervalos(i.data);
     });
-    if (error) { setErro(error.message); return; }
-    baixar(nome, csv(data || [], [
-      { rotulo: "aluno", valor: (l) => l.aluno },
-      { rotulo: "matricula", valor: (l) => l.matricula },
-      { rotulo: "titulo", valor: (l) => l.documento },
-      { rotulo: "competencia", valor: (l) => l.competencia },
-      { rotulo: "vencimento", valor: (l) => l.vencimento },
-      { rotulo: "venc_origem", valor: (l) => l.vencimento_origem },
-      { rotulo: "saldo_informado_pelo_arquivo", valor: (l) => l.saldo_informado },
-      { rotulo: "valor_na_fonte", valor: (l) => l.valor_fonte },
-      { rotulo: "vinculo_com_o_prime", valor: (l) => l.vinculo },
-      { rotulo: "situacao_origem", valor: (l) => l.situacao_origem },
-      { rotulo: "lote", valor: (l) => l.lote },
-    ]));
+    return () => { vivo = false; };
+  }, [buscar]);
+
+  async function definirCusto(acaoId, custo) {
+    const { error } = await supabase.rpc("preventivo_acao_custo_definir", {
+      p_acao_id: acaoId, p_custo: custo,
+    });
+    if (error) { setErro(error.message); return false; }
+    const [p, i] = await buscar();
+    if (p.data) setPainel(p.data);
+    if (i.data) setIntervalos(i.data);
+    return true;
   }
 
   if (erro) return <div style={S.erroBox}>{erro}</div>;
-  if (!res) return <p style={S.muted}>Carregando…</p>;
+  if (!painel) return <p style={S.muted}>Carregando…</p>;
 
-  const t = res.totais;
-  const c = res.conferencia;
-  const fechamento = Number(c.valor_na_fonte_no_primeiro_ciclo) - Number(c.queda_registrada)
-    + Number(c.alta_registrada) - Number(c.valor_na_fonte_agora);
-
-  return (
-    <div>
-      <AvisoAtualizacao situacao={situacao} />
-
-      <PainelPreventivo dados={painel} />
-
-      {/* TUDO ABAIXO CONTINUA EXISTINDO E CONTINUA CERTO — só sai da frente.
-          São indicadores da FONTE (Prime), não da carteira, e respondem
-          perguntas de operação, não de gestão. Ficam a um clique, recolhidos,
-          porque remover de vez tiraria o acesso a uma conferência que já
-          pegou erro no passado. Os três blocos que a gestão pediu para sumir
-          — janela preventiva, fora da janela e nunca consultado no Prime —
-          esses saíram de vez. */}
-      <details style={{ marginTop: 22 }}>
-        <summary style={{ ...S.muted, cursor: "pointer", fontSize: 12.5, fontWeight: 700 }}>
-          Detalhamento técnico da fonte (Prime)
-        </summary>
-        <div style={{ marginTop: 14 }}>
-
-      <PorAcao linhas={porAcao} periodo={periodo} setPeriodo={setPeriodo}
-               definicao={porContexto?.definicao} />
-
-      {/* Os gráficos leem as MESMAS linhas da tabela acima, já filtradas pelo
-          período — não há segunda consulta nem segunda verdade. */}
-      <GraficoPorAcao linhas={porAcao} />
-      <GraficoPorContextoCanal linhas={porAcao} />
-
-      <PorContexto dados={porContexto} />
-
-      {/* O número que a gestão mais quer é o que a fonte não dá. Está escrito. */}
-      <div style={{ ...S.card, padding: 20, marginTop: 18, borderLeft: "4px solid var(--rv-ambar-borda)" }}>
-        <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>
-          Confirmação de pagamento: não disponível pela fonte
-        </h2>
-        <p style={{ ...S.muted, marginTop: 8, maxWidth: 860 }}>{res.recebido.motivo}</p>
-        <p style={{ ...S.muted, marginTop: 8, maxWidth: 860 }}>
-          O que está medido abaixo é <strong>alteração do valor do título na fonte</strong>{" "}
-          (<code>netAmount</code>). Isso <strong>não é saldo em aberto</strong> e{" "}
-          <strong>não é dinheiro recebido</strong>: a queda pode vir de pagamento, mas também
-          de cancelamento, bolsa ou renegociação.
-        </p>
-      </div>
-
-      <div style={{ ...S.card, padding: 20, marginTop: 14 }}>
-        <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>
-          De quantos títulos o Prime consegue falar
-        </h2>
-        <p style={{ ...S.muted, marginTop: 6, maxWidth: 860 }}>
-          O relatório da ULBRA não traz identificador de título, então o vínculo é resolvido
-          por matrícula + vencimento atual. Onde há mais de um candidato, o título fica
-          pendente — nada é escolhido por suposição.
-        </p>
-        <table style={{ ...S.tabela, marginTop: 12 }}>
-          <thead><tr><th style={S.th}>Vínculo com o Prime</th><th style={S.thNum}>Títulos</th></tr></thead>
-          <tbody>
-            {Object.entries(res.vinculo || {}).map(([k, n]) => (
-              <tr key={k}>
-                <td style={S.td}>{ROTULO_VINCULO[k] || k}</td>
-                <td style={S.tdNum}>{n}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div style={{ ...S.card, padding: 20, marginTop: 14 }}>
-        <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Alteração de valor na fonte, por tipo</h2>
-        <table style={{ ...S.tabela, marginTop: 12 }}>
-          <thead><tr>
-            <th style={S.th}>O que foi observado</th><th style={S.thNum}>Títulos</th><th style={S.thNum}>Valor</th>
-          </tr></thead>
-          <tbody>
-            {Object.keys(res.alteracoes || {}).length === 0 ? (
-              <tr><td style={S.td} colSpan={3}>
-                Nenhuma alteração ainda. O primeiro ciclo é só a foto inicial — alteração
-                aparece a partir do segundo.
-              </td></tr>
-            ) : Object.entries(res.alteracoes).map(([tipo, m]) => (
-              <tr key={tipo}>
-                <td style={S.td}>{ROTULO_ALTERACAO[tipo] || tipo}</td>
-                <td style={S.tdNum}>{m.titulos}</td>
-                <td style={S.tdNum}>
-                  {["MUDANCA_DE_PORTADOR", "AUSENTE_NO_EXTRATO", "RETORNO_AO_EXTRATO",
-                    "VINCULO_AMBIGUO", "VINCULO_RESOLVIDO"].includes(tipo) ? "—" : moeda(m.valor)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div style={{ ...S.card, padding: 20, marginTop: 14 }}>
-        <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>A conferência fecha</h2>
-        <p style={{ ...S.muted, marginTop: 6 }}>
-          Só entram os títulos com vínculo único. É uma conferência do que a FONTE diz,
-          não um demonstrativo financeiro.
-        </p>
-        <table style={{ ...S.tabela, marginTop: 12 }}>
-          <tbody>
-            <tr><td style={S.td}>Valor na fonte no primeiro ciclo</td>
-                <td style={S.tdNum}>{moeda(c.valor_na_fonte_no_primeiro_ciclo)}</td></tr>
-            <tr><td style={S.td}>− Quedas registradas</td><td style={S.tdNum}>{moeda(c.queda_registrada)}</td></tr>
-            <tr><td style={S.td}>+ Altas registradas</td><td style={S.tdNum}>{moeda(c.alta_registrada)}</td></tr>
-            <tr><td style={{ ...S.td, fontWeight: 800 }}>= Valor na fonte agora</td>
-                <td style={{ ...S.tdNum, fontWeight: 800 }}>{moeda(c.valor_na_fonte_agora)}</td></tr>
-            <tr>
-              <td style={S.td}>Diferença</td>
-              <td style={{ ...S.tdNum, color: Math.abs(fechamento) < 0.01 ? "var(--rv-verde-escuro)" : "var(--rv-erro)" }}>
-                {moeda(fechamento)}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <p style={{ ...S.muted, marginTop: 10 }}>
-          Saldo informado pelo arquivo na entrada: <strong>{moeda(t.saldo_informado)}</strong>,
-          para vencimentos de {dataCurta(res.carteira?.venc_de)} a {dataCurta(res.carteira?.venc_ate)}.
-          Esse número e o valor na fonte <strong>não se somam nem se subtraem</strong>: vêm de
-          fontes diferentes, com definições diferentes.
-        </p>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 12, marginTop: 14 }}>
-        <Cartao rotulo="Alunos com algum título que caiu" valor={res.alunos.com_alguma_queda} />
-        <Cartao rotulo="Alunos com todos os títulos zerados na fonte" valor={res.alunos.com_todos_zerados} />
-        <Cartao rotulo="Alunos sem nenhuma alteração" valor={res.alunos.sem_alteracao} />
-      </div>
-
-      {res.por_dia?.length > 0 && (
-        <div style={{ ...S.card, padding: 20, marginTop: 14 }}>
-          <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Queda de valor na fonte, por dia</h2>
-          <table style={{ ...S.tabela, marginTop: 12 }}>
-            <thead><tr><th style={S.th}>Dia</th><th style={S.thNum}>Títulos</th><th style={S.thNum}>Valor</th></tr></thead>
-            <tbody>
-              {res.por_dia.map((d) => (
-                <tr key={d.dia}>
-                  <td style={S.td}>{dataCurta(d.dia)}</td>
-                  <td style={S.tdNum}>{d.titulos}</td>
-                  <td style={S.tdNum}>{moeda(d.valor)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p style={{ ...S.muted, marginTop: 8, fontSize: 12 }}>
-            O dia é o da <strong>observação</strong>, não o de um pagamento: a fonte não informa
-            data de pagamento.
-          </p>
-        </div>
-      )}
-
-      <div style={{ ...S.barra, marginTop: 16 }}>
-        <button style={S.btnGhost} onClick={() => exportar("caiu", "preventivo-valor-caiu.csv")}>
-          Exportar quem teve queda de valor
-        </button>
-        <button style={S.btnGhost} onClick={() => exportar("sem_alteracao", "preventivo-sem-alteracao.csv")}>
-          Exportar quem não teve alteração
-        </button>
-      </div>
-
-        </div>
-      </details>
-    </div>
-  );
+  return <PainelPreventivo dados={painel} intervalos={intervalos} aoMudarCusto={definirCusto} />;
 }
-
-function Cartao({ rotulo, valor }) {
-  return (
-    <div style={{ background: "var(--rv-superficie)", border: "1px solid var(--rv-borda)", borderRadius: 12, padding: "14px 16px" }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--rv-texto-fraco)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{rotulo}</div>
-      <div style={{ fontSize: 20, fontWeight: 800, color: "var(--rv-tinta)", marginTop: 4 }}>{valor ?? 0}</div>
-    </div>
-  );
-}
-
-// Resultado por etapa da jornada e por canal, com corte opcional de período.
-// A palavra é REGULARIZADO: nunca "pago", nunca "recuperado". A definição vem
-// do banco e viaja junto.
-function PorContexto({ dados }) {
-  if (!dados) return null;
-  const contextos = dados.contextos || {};
-  const chaves = Object.keys(contextos);
-
-  return (
-    <div style={{ ...S.card, padding: 20, marginTop: 18 }}>
-      <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Resumo por contexto e canal</h2>
-      <p style={{ ...S.muted, marginTop: 6, fontSize: 12.5 }}>
-        Comparação entre etapas da jornada. O detalhe de cada ação está acima.
-      </p>
-
-      {chaves.length === 0 ? (
-        <p style={{ ...S.muted, marginTop: 12 }}>
-          Nenhuma ação no período escolhido.
-        </p>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12, marginTop: 14 }}>
-          {chaves.map((k) => (
-            <div key={k} style={{ ...S.card, padding: 16 }}>
-              <div style={{ ...S.cardNome, fontSize: 14 }}>{CONTEXTOS[k] || k}</div>
-              <Metricas d={contextos[k]} />
-              {Object.entries(contextos[k].canais || {}).map(([canal, m]) => (
-                <details key={canal} style={{ marginTop: 10 }}>
-                  <summary style={{ ...S.muted, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
-                    {canal === "WHATSAPP" ? "WhatsApp" : "E-mail"} · {m.acoes} ação(ões)
-                  </summary>
-                  <Metricas d={m} />
-                </details>
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Metricas({ d }) {
-  return (
-    <>
-      <Linha rotulo="Ações" valor={d.acoes} />
-      <Linha rotulo="Com envio confirmado" valor={d.acoes_com_envio_confirmado} />
-      <Linha rotulo="Alunos acionados" valor={d.alunos_acionados} />
-      <Linha rotulo="Títulos acionados" valor={d.titulos_acionados} />
-      <Linha rotulo="Valor acionado" valor={moeda(d.valor_acionado)} />
-      <Linha rotulo="Continuam em aberto" valor={d.continuam_em_aberto} />
-      <Linha rotulo="Regularizados entre remessas" valor={d.regularizados_entre_remessas} />
-      <Linha rotulo="Valor regularizado" valor={moeda(d.valor_regularizado)} />
-      <Linha rotulo="Taxa de regularização"
-             valor={d.taxa_regularizacao === null ? "—" : `${d.taxa_regularizacao}%`} />
-      {d.aguardando_proxima_remessa > 0 && (
-        <p style={{ ...S.muted, marginTop: 8, fontSize: 11.5 }}>
-          {d.aguardando_proxima_remessa} ação(ões) ainda sem remessa seguinte para comparar.
-        </p>
-      )}
-    </>
-  );
-}
-
-function Linha({ rotulo, valor }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 6, fontSize: 12.5 }}>
-      <span style={S.muted}>{rotulo}</span>
-      <strong>{valor ?? "—"}</strong>
-    </div>
-  );
-}
-
-// EFETIVIDADE AÇÃO POR AÇÃO — a visão principal. Cada linha é o próprio
-// `preventivo_acao_resultado`, com as nove métricas que a gestão pediu.
-// Aluno regularizado = NENHUM título dele voltou na remessa seguinte.
-function PorAcao({ linhas, periodo, setPeriodo, definicao }) {
-  if (!linhas) return null;
-
-  return (
-    <div style={{ ...S.card, padding: 20, marginTop: 18 }}>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between" }}>
-        <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Efetividade ação por ação</h2>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <div>
-            <label style={{ ...S.muted, display: "block", fontSize: 11, fontWeight: 700 }}>Ações criadas de</label>
-            <input type="date" style={{ ...S.input, minWidth: 0 }} value={periodo.de}
-                   onChange={(e) => setPeriodo({ ...periodo, de: e.target.value })} />
-          </div>
-          <div>
-            <label style={{ ...S.muted, display: "block", fontSize: 11, fontWeight: 700 }}>até</label>
-            <input type="date" style={{ ...S.input, minWidth: 0 }} value={periodo.ate}
-                   onChange={(e) => setPeriodo({ ...periodo, ate: e.target.value })} />
-          </div>
-          {(periodo.de || periodo.ate) && (
-            <button style={S.btnGhost} onClick={() => setPeriodo({ de: "", ate: "" })}>
-              Limpar período
-            </button>
-          )}
-        </div>
-      </div>
-
-      {definicao ? <p style={{ ...S.muted, marginTop: 6, fontSize: 12.5 }}>{definicao}</p> : null}
-
-      {linhas.length === 0 ? (
-        <p style={{ ...S.muted, marginTop: 12 }}>Nenhuma ação no período escolhido.</p>
-      ) : (
-        <div style={{ overflowX: "auto", marginTop: 14 }}>
-          <table style={S.tabela}>
-            <thead>
-              <tr>
-                <th style={S.th}>Ação</th>
-                <th style={S.th}>Canal</th>
-                <th style={S.th}>Contexto</th>
-                <th style={S.th}>Estado</th>
-                <th style={S.th}>Criada</th>
-                <th style={S.thNum}>Alunos acionados</th>
-                <th style={S.thNum}>Alunos regularizados</th>
-                <th style={S.thNum}>Taxa por alunos</th>
-                <th style={S.thNum}>Títulos acionados</th>
-                <th style={S.thNum}>Títulos regularizados</th>
-                <th style={S.thNum}>Taxa por títulos</th>
-                <th style={S.thNum}>Valor acionado</th>
-                <th style={S.thNum}>Valor regularizado</th>
-                <th style={S.thNum}>Taxa por valor</th>
-              </tr>
-            </thead>
-            <tbody>
-              {linhas.map((l) => (
-                <tr key={l.id}>
-                  <td style={S.td}>{l.nome}</td>
-                  <td style={S.td}>{l.canal === "WHATSAPP" ? "WhatsApp" : "E-mail"}</td>
-                  <td style={S.td}>{CONTEXTOS[l.contexto] || l.contexto}</td>
-                  <td style={S.td}>{l.estado}</td>
-                  <td style={S.td}>{dataHora(l.criada_em)}</td>
-                  <td style={S.td}>{l.alunos_acionados}</td>
-                  <td style={S.td}>{l.alunos_regularizados ?? "—"}</td>
-                  <td style={S.td}>{pct(l.taxa_regularizacao_alunos)}</td>
-                  <td style={S.td}>{l.titulos_acionados}</td>
-                  <td style={S.td}>{l.regularizados_entre_remessas ?? "—"}</td>
-                  <td style={S.td}>{pct(l.taxa_regularizacao)}</td>
-                  <td style={S.td}>{moeda(l.valor_acionado)}</td>
-                  <td style={S.td}>{l.valor_regularizado === null ? "—" : moeda(l.valor_regularizado)}</td>
-                  <td style={S.td}>{pct(l.taxa_regularizacao_valor)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {linhas.some((l) => l.aguardando_envio_confirmado) && (
-        <p style={{ ...S.muted, marginTop: 10, fontSize: 11.5 }}>
-          Ação sem <strong>envio confirmado</strong> não tem régua: a efetividade conta a
-          partir do envio, não da montagem do público. Registre o envio na aba Ações.
-        </p>
-      )}
-
-      {linhas.some((l) => l.aguardando_proxima_remessa) && (
-        <p style={{ ...S.muted, marginTop: 6, fontSize: 11.5 }}>
-          As linhas com “—” tiveram envio confirmado mas ainda não têm remessa posterior
-          para comparar. Nada é estimado: o resultado aparece depois da próxima importação.
-        </p>
-      )}
-    </div>
-  );
-}
-
-const pct = (v) => (v === null || v === undefined ? "—" : `${v}%`);

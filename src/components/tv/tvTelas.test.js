@@ -6,7 +6,9 @@ import { telasVisiveis, telasParaAdmin, CATALOGO_TELAS } from "./tvTelas";
 function snapBase(extra = {}) {
   return {
     hoje: {},
-    mes: { meta_empresa: 450000 },
+    // dias_uteis_restantes: 3 põe o mês na reta final, onde o Magic Number
+    // (sazonal desde 08/10/2026) entra no rodízio.
+    mes: { meta_empresa: 450000, dias_uteis_restantes: 3 },
     // magic deixou de ser meta x 1,5 em 06/10/2026: agora o slide só aparece
     // com valor próprio da competência (magic_number_mensal).
     magic: { mes_referencia: "2026-10", valor: 142800 },

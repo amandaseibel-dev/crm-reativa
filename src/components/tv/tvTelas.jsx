@@ -1,10 +1,9 @@
 import {
-  Tela, IndicadorCard, Ranking, DestaqueOperador,
-  MensagemInstitucional, Aviso, Treinamento, Conquista,
-  moeda, num, statusRitmo, T, fs, layout,
+  Tela, IndicadorCard, Ranking, MensagemInstitucional, Aviso, moeda, num, T, fs, layout,
 } from "./tvUI";
 import TelaMetaDoMes from "./tvMetaDoMes";
 import TelaMetas from "./tvMetas";
+import TelaAcordosHoje from "./tvAcordosHoje";
 import TelaObjecoes from "./tvObjecoes";
 import TelaMagicNumber from "./tvMagicNumber";
 
@@ -17,7 +16,6 @@ import TelaMagicNumber from "./tvMagicNumber";
 // =============================================================================
 
 const linha = layout.linhaCards;
-const SR = "Sem registro"; // rótulo padrão p/ indicador inexistente
 
 // Destaque de aniversário só aparece NO DIA exato (data local do painel, sem
 // consultar o banco). data no formato 'YYYY-MM-DD'. Fora do dia → oculto.
@@ -42,28 +40,42 @@ function TelaHoje({ snap }) {
   const h = snap?.hoje || {};
   if (h.sem_pagamentos) {
     return (
-      <Tela titulo="Hoje na Operação" icone="⚡">
+      <Tela titulo="Hoje na Operação">
         <Vazio>Ainda não há pagamentos confirmados no snapshot atual.</Vazio>
       </Tela>
     );
   }
-  const mp = h.maior_pagamento;
-  const tr = h.top_recuperador;
-  const tq = h.top_qtd;
+  // HIERARQUIA, que o modelo antigo não tinha: cinco cards do mesmo tamanho
+  // obrigavam quem assiste a procurar o número que importa. O recuperado do dia
+  // vira herói; honorários e pagamentos viram satélites; os três destaques de
+  // operador descem para uma faixa compacta.
+  const destaques = [
+    { rot: "Maior pagamento", d: h.maior_pagamento, val: (x) => moeda(x.valor) },
+    { rot: "Maior valor recuperado", d: h.top_recuperador, val: (x) => moeda(x.valor) },
+    { rot: "Mais pagamentos", d: h.top_qtd, val: (x) => `${num(x.qtd)} pagamentos` },
+  ].filter((x) => x.d && x.d.operador);
   return (
-    <Tela titulo="Hoje na Operação" icone="⚡">
-      <div style={linha}>
-        <IndicadorCard rotulo="Recuperado hoje" valor={moeda(h.recuperado)} tom="verde" grande />
-        <IndicadorCard rotulo="Honorários hoje" valor={moeda(h.honorarios)} tom="azul" grande />
+    <Tela titulo="Hoje na Operação">
+      <div style={heroiCheio}>
+        <div style={heroiRotulo}>Recuperado hoje</div>
+        <div style={heroiValor}>{moeda(h.recuperado)}</div>
+        <div style={heroiSatelites}>
+          <span><strong style={{ color: T.azulClaro }}>{moeda(h.honorarios)}</strong> em honorários</span>
+          <span style={sepPonto}>·</span>
+          <span><strong style={{ color: T.texto }}>{num(h.pagamentos_confirmados)}</strong> pagamentos confirmados</span>
+        </div>
       </div>
-      <div style={linha}>
-        <IndicadorCard rotulo="Pagamentos confirmados hoje" valor={num(h.pagamentos_confirmados)} tom="ambar" />
-        <DestaqueOperador rotulo="Maior pagamento do dia" nome={mp ? mp.operador : SR} valor={mp ? moeda(mp.valor) : null} icone="💰" />
-      </div>
-      <div style={linha}>
-        <DestaqueOperador rotulo="Maior valor recuperado hoje" nome={tr ? tr.operador : SR} valor={tr ? moeda(tr.valor) : null} icone="⭐" />
-        <DestaqueOperador rotulo="Mais pagamentos confirmados hoje" nome={tq ? tq.operador : SR} valor={tq ? `${num(tq.qtd)} pagamentos` : null} icone="🎯" />
-      </div>
+      {destaques.length > 0 && (
+        <div style={faixaDestaques}>
+          {destaques.map((x) => (
+            <div key={x.rot} style={cardDestaque}>
+              <div style={cardDestaqueRotulo}>{x.rot}</div>
+              <div style={cardDestaqueNome}>{x.d.operador}</div>
+              <div style={cardDestaqueValor}>{x.val(x.d)}</div>
+            </div>
+          ))}
+        </div>
+      )}
     </Tela>
   );
 }
@@ -78,7 +90,7 @@ function TelaResultadoMes({ snap }) {
       ? "Sem dias úteis restantes."
       : `${moeda(m.necessidade_diaria)}/dia útil`;
   return (
-    <Tela titulo="Resultado do Mês" icone="📊">
+    <Tela titulo="Resultado do Mês">
       <div style={linha}>
         <IndicadorCard rotulo="Recuperado no mês" valor={moeda(m.recuperado)} tom="verde" grande />
         <IndicadorCard rotulo="Honorários no mês" valor={moeda(m.honorarios)} tom="azul" grande />
@@ -102,11 +114,11 @@ function TelaPremiacao({ snap }) {
   const p = snap?.premiacao || {};
   const faixas = p.faixas || [];
   if (faixas.length === 0) {
-    return <Tela titulo="Premiação" icone="🏅"><Vazio>Sem faixas cadastradas nesta atualização.</Vazio></Tela>;
+    return <Tela titulo="Premiação"><Vazio>Sem faixas cadastradas nesta atualização.</Vazio></Tela>;
   }
   const cores = [T.ambar, T.azulClaro, "#a78bfa", "#fb923c"]; // M1..M4
   return (
-    <Tela titulo="Premiação do Mês" icone="🏅">
+    <Tela titulo="Premiação do Mês">
       <div style={{ fontSize: fs(15, 1.6, 40), fontWeight: 800, color: T.textoSuave, textAlign: "center", maxWidth: "82vw", lineHeight: 1.25 }}>
         Você premia <span style={{ color: T.ambar }}>desde o primeiro pagamento</span>. Quanto mais alto o honorário do mês, maior o percentual.
       </div>
@@ -149,10 +161,10 @@ function TelaPremiacao({ snap }) {
 // 4) Julho Histórico (ativável por tv_config) ---------------------------------
 function TelaJulhoHistorico({ snap }) {
   const j = snap?.julho_historico;
-  if (!j?.ativo) return <Tela titulo="Julho Histórico" icone="🏅"><Vazio>Reconhecimento indisponível nesta atualização.</Vazio></Tela>;
+  if (!j?.ativo) return <Tela titulo="Julho Histórico"><Vazio>Reconhecimento indisponível nesta atualização.</Vazio></Tela>;
   const metas = j.metas || [];
   return (
-    <Tela titulo={j.titulo || "Julho Histórico"} icone="🏅">
+    <Tela titulo={j.titulo || "Julho Histórico"}>
       <div style={{ fontSize: fs(18, 2.2, 52), fontWeight: 800, color: T.texto, textAlign: "center", maxWidth: "80vw", lineHeight: 1.2 }}>
         {j.texto_principal}
       </div>
@@ -176,15 +188,46 @@ function TelaRankings({ snap }) {
   const r = snap?.rankings || {};
   const top3 = r.top3_mes || [];
   const mpm = r.maior_pagamento_mes;
+  // Antes: quatro destaques soltos e um pódio, cinco blocos competindo. Agora o
+  // líder do mês é o herói e o resto desce para a faixa.
+  const lider = r.melhor_mes?.operador || top3[0]?.operador;
+  const resto = [
+    r.melhor_dia?.operador && { rot: "Melhor do dia", nome: r.melhor_dia.operador, val: null },
+    r.mais_pagos_dia?.operador && { rot: "Mais pagamentos hoje", nome: r.mais_pagos_dia.operador, val: `${num(r.mais_pagos_dia.qtd)} pagamentos` },
+    mpm && { rot: "Maior pagamento do mês", nome: mpm.operador, val: moeda(mpm.valor) },
+  ].filter(Boolean);
+  if (!lider && resto.length === 0) {
+    return <Tela titulo="Rankings e Destaques"><Vazio>Sem registro no snapshot atual.</Vazio></Tela>;
+  }
   return (
-    <Tela titulo="Rankings e Destaques" icone="🏆">
-      <div style={linha}>
-        {r.melhor_dia?.operador && <DestaqueOperador rotulo="Melhor recuperador do dia" nome={r.melhor_dia.operador} icone="🌟" />}
-        {r.melhor_mes?.operador && <DestaqueOperador rotulo="Melhor recuperador do mês" nome={r.melhor_mes.operador} icone="👑" />}
-        {r.mais_pagos_dia?.operador && <DestaqueOperador rotulo="Mais pagamentos confirmados hoje" nome={r.mais_pagos_dia.operador} valor={`${num(r.mais_pagos_dia.qtd)} pagamentos`} icone="🎯" />}
-        {mpm && <DestaqueOperador rotulo="Maior pagamento único do mês" nome={mpm.operador} valor={moeda(mpm.valor)} icone="💰" />}
-      </div>
-      {top3.length > 0 && <Ranking titulo="Top 3 do mês por valor recuperado" itens={top3.map((o) => ({ nome: o.operador }))} podio />}
+    <Tela titulo="Rankings e Destaques">
+      {lider && (
+        <div style={heroiCheio}>
+          <div style={heroiRotulo}>Melhor recuperador do mês</div>
+          <div style={{ ...heroiValor, color: T.verde }}>{lider}</div>
+          {top3.length > 1 && (
+            <div style={heroiSatelites}>
+              {top3.slice(1, 3).map((o, i) => (
+                <span key={o.operador}>
+                  {i > 0 && <span style={sepPonto}>·</span>}
+                  <strong style={{ color: T.textoSuave }}>{i === 0 ? "2º" : "3º"}</strong> {o.operador}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {resto.length > 0 && (
+        <div style={faixaDestaques}>
+          {resto.map((x) => (
+            <div key={x.rot} style={cardDestaque}>
+              <div style={cardDestaqueRotulo}>{x.rot}</div>
+              <div style={cardDestaqueNome}>{x.nome}</div>
+              {x.val && <div style={cardDestaqueValor}>{x.val}</div>}
+            </div>
+          ))}
+        </div>
+      )}
     </Tela>
   );
 }
@@ -201,7 +244,7 @@ function TelaAniversariantes({ snap }) {
       : nomes.slice(0, -1).join(", ") + " e " + nomes[nomes.length - 1];
     const msg = `Hoje é dia de celebrar o(a) ${nomeTxt}. Parabéns pelo seu aniversário. Desejamos um novo ciclo de saúde, realizações e boas conquistas.`;
     return (
-      <Tela titulo="Aniversário de Hoje" icone="🎉">
+      <Tela titulo="Aniversário de Hoje">
         <div style={{ fontSize: fs(34, 4.4, 96), lineHeight: 1 }}>🎂</div>
         <div style={{ fontSize: fs(26, 3.4, 80), fontWeight: 900, color: T.texto, textAlign: "center" }}>
           {nomeTxt}
@@ -212,7 +255,7 @@ function TelaAniversariantes({ snap }) {
   }
   const aniv = snap?.aniversariantes || [];
   return (
-    <Tela titulo="Aniversariantes do Mês" icone="🎂">
+    <Tela titulo="Aniversariantes do Mês">
       <MensagemInstitucional badge="Aniversariantes" titulo="Parabéns aos aniversariantes do mês"
         texto="Desejamos um novo ciclo de boas conquistas." />
       <div style={{ display: "flex", flexWrap: "wrap", gap: "2vh 3vw", justifyContent: "center", width: "84%" }}>
@@ -230,17 +273,32 @@ function TelaAniversariantes({ snap }) {
 // 7) Avisos (um aviso por tela; gira entre os ativos por ciclo) ---------------
 function TelaAvisos({ snap, indiceGiro = 0 }) {
   const avisos = snap?.avisos || [];
-  if (avisos.length === 0) return <Tela titulo="Avisos" icone="📣"><Vazio>Sem aviso ativo nesta atualização.</Vazio></Tela>;
+  if (avisos.length === 0) return <Tela titulo="Avisos"><Vazio>Sem aviso ativo nesta atualização.</Vazio></Tela>;
   const a = avisos[indiceGiro % avisos.length];
   const nivel = a.prioridade >= 2 ? "critico" : a.prioridade === 1 ? "atencao" : "info";
   return (
-    <Tela titulo="Avisos" icone="📣">
+    <Tela titulo="Avisos">
       <Aviso nivel={nivel} titulo={a.titulo || "Comunicado"} texto={a.mensagem} />
     </Tela>
   );
 }
 
 // 7b) Destaque da semana — campeão da semana por pagamentos únicos -----------
+// Período REAL da apuração da semana, para a tela dizer o que está medindo.
+// A janela do indicador é `date_trunc('week', hoje)` no banco, que no PostgreSQL
+// cai sempre na SEGUNDA, até agora. Aqui a segunda é recalculada da data local
+// do telão — o payload não carrega a borda da janela, e trazer isso exigiria
+// mexer no SQL, que está fora do escopo desta frente.
+function periodoDaSemana(hoje = new Date()) {
+  const seg = new Date(hoje);
+  seg.setDate(hoje.getDate() - ((hoje.getDay() + 6) % 7));
+  const dia = (d) => String(d.getDate()).padStart(2, "0");
+  const mes = (d) => d.toLocaleDateString("pt-BR", { month: "long" });
+  return seg.getMonth() === hoje.getMonth()
+    ? `${dia(seg)} a ${dia(hoje)} de ${mes(hoje)}`
+    : `${dia(seg)} de ${mes(seg)} a ${dia(hoje)} de ${mes(hoje)}`;
+}
+
 function TelaDestaqueSemana({ snap }) {
   // Por VALOR, nao por quantidade. Ate 11/09/2026 esta tela coroava quem tinha
   // MAIS PAGAMENTOS e a tela seguinte ("Melhor do mes") coroava quem trazia
@@ -249,13 +307,12 @@ function TelaDestaqueSemana({ snap }) {
   // "deveria ser por dinheiro que traz".
   // Cai na chave antiga se o snapshot ainda for anterior a esta mudanca.
   const semana = snap?.ranking_semana_valor || snap?.dados?.ranking_semana || [];
-  if (semana.length === 0) return <Tela titulo="Destaque da Semana" icone="⭐"><Vazio>Sem dados da semana.</Vazio></Tela>;
+  if (semana.length === 0) return <Tela titulo="Destaque da Semana"><Vazio>Sem dados da semana.</Vazio></Tela>;
   const campeao = semana[0];
   const vice = semana.slice(1, 3);
   const porValor = campeao.valor != null;
   return (
-    <Tela titulo="Destaque da Semana" icone="⭐">
-      <div style={{ fontSize: fs(30, 3.8, 90) }}>⭐</div>
+    <Tela titulo="Destaque da Semana">
       <div style={{ fontSize: fs(32, 4, 100), fontWeight: 900, color: T.verde, textAlign: "center", lineHeight: 1 }}>{campeao.operador}</div>
       {porValor && (
         <div style={{ fontSize: fs(26, 3.4, 78), fontWeight: 900, color: T.ambar, lineHeight: 1,
@@ -266,11 +323,14 @@ function TelaDestaqueSemana({ snap }) {
       <div style={{ fontSize: fs(14, 1.5, 34), fontWeight: 700, color: T.textoMudo, textTransform: "uppercase", letterSpacing: "0.08em" }}>
         {porValor ? "Maior valor recuperado na semana" : "Mais pagamentos únicos da semana"}
       </div>
+      <div style={{ fontSize: fs(12, 1.25, 28), fontWeight: 700, color: T.textoSuave }}>
+        Apuração: {periodoDaSemana()}
+      </div>
       {vice.length > 0 && (
         <div style={{ display: "flex", gap: "3vw", marginTop: "1vh" }}>
           {vice.map((o, i) => (
             <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.2vh" }}>
-              <span style={{ fontSize: fs(13, 1.3, 28), fontWeight: 800, color: T.textoMudo }}>{i === 0 ? "🥈" : "🥉"}</span>
+              <span style={{ fontSize: fs(13, 1.3, 28), fontWeight: 800, color: T.textoMudo }}>{i === 0 ? "2º" : "3º"}</span>
               <span style={{ fontSize: fs(16, 1.7, 44), fontWeight: 800, color: T.textoSuave }}>{o.operador}</span>
               {o.valor != null && (
                 <span style={{ fontSize: fs(12, 1.25, 26), fontWeight: 700, color: T.textoMudo, fontVariantNumeric: "tabular-nums" }}>
@@ -288,9 +348,9 @@ function TelaDestaqueSemana({ snap }) {
 // 7c) Acionamentos do dia — Top 3 com as quantidades -------------------------
 function TelaAcionamentosDia({ snap }) {
   const top = snap?.rank?.top_dia || [];
-  if (top.length === 0) return <Tela titulo="Acionamentos do Dia" icone="📞"><Vazio>Sem acionamentos registrados hoje.</Vazio></Tela>;
+  if (top.length === 0) return <Tela titulo="Acionamentos do Dia"><Vazio>Sem acionamentos registrados hoje.</Vazio></Tela>;
   return (
-    <Tela titulo="Acionamentos do Dia — Top 3" icone="📞">
+    <Tela titulo="Acionamentos do Dia — Top 3">
       <Ranking titulo="Quem mais acionou hoje" podio
         itens={top.map((o) => ({ nome: o.nome, valor: `${num(o.qtd)} acion.` }))} />
     </Tela>
@@ -302,9 +362,9 @@ function TelaAcionamentosDia({ snap }) {
 //    — quem foi elogiado e quando. O print fica na aprovação; a TV celebra o nome.
 function TelaElogios({ snap }) {
   const elogios = snap?.elogios || [];
-  if (elogios.length === 0) return <Tela titulo="Elogios" icone="💙"><Vazio>Sem elogio aprovado nesta atualização.</Vazio></Tela>;
+  if (elogios.length === 0) return <Tela titulo="Elogios"><Vazio>Sem elogio aprovado nesta atualização.</Vazio></Tela>;
   return (
-    <Tela titulo="Elogios ao Atendimento" icone="💙">
+    <Tela titulo="Elogios ao Atendimento">
       <MensagemInstitucional badge="Reconhecimento" titulo="Elogio de quem foi bem atendido"
         texto="Cada elogio é um cliente que saiu satisfeito. Parabéns a quem fez acontecer." />
       <div style={{ display: "flex", flexWrap: "wrap", gap: "2vh 2vw", justifyContent: "center", width: "84%" }}>
@@ -328,7 +388,7 @@ function TelaAniversarioDestaque({ snap }) {
   if (!d) return null;
   const ouro = "linear-gradient(100deg,#fde68a,#fbbf24 45%,#f59e0b)";
   return (
-    <Tela titulo="Aniversário de Hoje" icone="🎉">
+    <Tela titulo="Aniversário de Hoje">
       <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", gap: "5vw",
         width: "90%", padding: "2vh 2vw", borderRadius: "3vh", overflow: "hidden",
         background: "radial-gradient(60% 90% at 50% 0%, rgba(251,191,36,0.16), transparent 70%), radial-gradient(50% 80% at 90% 100%, rgba(244,114,182,0.14), transparent 70%)" }}>
@@ -373,11 +433,11 @@ function TelaAniversarioDestaque({ snap }) {
 // eslint-disable-next-line react-refresh/only-export-components
 function TelaPlaylistReativa({ snap }) {
   const itens = snap?.playlist_reativa || [];
-  if (itens.length === 0) return <Tela titulo="Playlist ReATIVA" icone="🎵"><Vazio>Nenhuma música adicionada nesta atualização.</Vazio></Tela>;
+  if (itens.length === 0) return <Tela titulo="Playlist ReATIVA"><Vazio>Nenhuma música adicionada nesta atualização.</Vazio></Tela>;
   const atual = itens[0];
   const proximas = itens.slice(1, 4);
   return (
-    <Tela titulo="Playlist ReATIVA" icone="🎵">
+    <Tela titulo="Playlist ReATIVA">
       <MensagemInstitucional
         badge="Música da vez"
         titulo={atual.titulo}
@@ -406,7 +466,7 @@ function TelaPlaylistReativa({ snap }) {
 // eslint-disable-next-line react-refresh/only-export-components
 function TelaDicas({ snap, indiceGiro = 0 }) {
   const itens = snap?.dicas || [];
-  if (itens.length === 0) return <Tela titulo="Dicas de Abordagem" icone="💡"><Vazio>Nenhuma dica cadastrada.</Vazio></Tela>;
+  if (itens.length === 0) return <Tela titulo="Dicas de Abordagem"><Vazio>Nenhuma dica cadastrada.</Vazio></Tela>;
   // A cada atualizacao do snapshot a vitrine anda: com 8 dicas e 3 por vez,
   // todas passam pela TV em vez de so as tres primeiras.
   // `indiceGiro` é o contador de voltas do carrossel, que o orquestrador passa
@@ -419,7 +479,7 @@ function TelaDicas({ snap, indiceGiro = 0 }) {
   const destaque = mostra[0];
   const demais = mostra.slice(1);
   return (
-    <Tela titulo="Dicas de Abordagem" icone="💡">
+    <Tela titulo="Dicas de Abordagem">
       <MensagemInstitucional
         badge={destaque.categoria || "Dica"}
         titulo={destaque.titulo}
@@ -446,7 +506,7 @@ function TelaDicas({ snap, indiceGiro = 0 }) {
 // eslint-disable-next-line react-refresh/only-export-components
 function TelaEventosPortal({ snap }) {
   const eventos = snap?.eventos_portal || [];
-  if (eventos.length === 0) return <Tela titulo="Próximos Eventos" icone="📅"><Vazio>Nenhum evento futuro cadastrado.</Vazio></Tela>;
+  if (eventos.length === 0) return <Tela titulo="Próximos Eventos"><Vazio>Nenhum evento futuro cadastrado.</Vazio></Tela>;
 
   const fmt = (iso) => {
     const d = new Date(iso);
@@ -459,7 +519,7 @@ function TelaEventosPortal({ snap }) {
   };
 
   return (
-    <Tela titulo="Próximos Eventos" icone="📅">
+    <Tela titulo="Próximos Eventos">
       <div style={{ display: "grid", gridTemplateColumns: eventos.length > 3 ? "1fr 1fr" : "1fr", gap: "1.4vh 1.5vw", width: "88%" }}>
         {eventos.slice(0, 6).map((e, i) => (
           <div key={e.id || i} style={{ ...layout.card, display: "flex", flexDirection: "row", alignItems: "center", gap: "1.4vw" }}>
@@ -479,23 +539,23 @@ function TelaEventosPortal({ snap }) {
 
 // --- Telas mantidas no código, DESATIVADAS até etapas futuras ---
 function TelaHallFama({ snap }) {
-  return <Tela titulo="Hall da Fama" icone="👑"><Vazio>Em breve.</Vazio></Tela>;
+  return <Tela titulo="Hall da Fama"><Vazio>Em breve.</Vazio></Tela>;
 }
 function TelaTreinamento() {
-  return <Tela titulo="Treinamento" icone="🎓"><Vazio>Em breve.</Vazio></Tela>;
+  return <Tela titulo="Treinamento"><Vazio>Em breve.</Vazio></Tela>;
 }
 function TelaReconhecimento() {
-  return <Tela titulo="Reconhecimento" icone="💙"><Vazio>Em breve.</Vazio></Tela>;
+  return <Tela titulo="Reconhecimento"><Vazio>Em breve.</Vazio></Tela>;
 }
 function TelaFechamento({ snap }) {
-  return <Tela titulo="Modo Fechamento" icone="🏁"><Vazio>Em breve.</Vazio></Tela>;
+  return <Tela titulo="Modo Fechamento"><Vazio>Em breve.</Vazio></Tela>;
 }
 
 // 8) Imagem pronta (arte/cartaz subido no painel) ----------------------------
 // A URL pública vem gravada no próprio item (resolvida no upload) — a TV não
 // consulta o Storage nem o banco. A imagem ocupa o palco inteiro, sem cortar.
 function TelaImagem({ imagem }) {
-  if (!imagem?.url) return <Tela titulo="Imagem" icone="🖼️"><Vazio>Imagem indisponível.</Vazio></Tela>;
+  if (!imagem?.url) return <Tela titulo="Imagem"><Vazio>Imagem indisponível.</Vazio></Tela>;
   return (
     <Tela titulo={imagem.legenda || ""} icone={imagem.legenda ? "🖼️" : ""}>
       <img src={imagem.url} alt={imagem.legenda || imagem.nome || "Imagem"}
@@ -569,7 +629,7 @@ function TelaComparativoAno({ snap }) {
   return (
     // centralizado={false}: a grade precisa esticar na largura toda, senao as
     // duas colunas encolhem para o conteudo e os numeros perdem tamanho.
-    <Tela titulo={titulo} icone="📈" centralizado={false}>
+    <Tela titulo={titulo} centralizado={false}>
       <div style={est.periodo}>{c.periodo} · mesmo período</div>
       <div style={est.metricas}>
         <BarraAnoAno rotulo="Recuperado" dados={rec} />
@@ -627,6 +687,11 @@ export const CATALOGO_TELAS = [
   { id: "julho", nome: "Julho Histórico", Comp: TelaJulhoHistorico, ativa: true, grupo: "comunicacao",
     descricao: "Reconhecimento das metas batidas em julho (ativável em tv_config).",
     temConteudo: (s) => s?.julho_historico?.ativo === true },
+  // Fica VISÍVEL mesmo zerada (decisão da gestão em 08/10/2026): dia sem acordo
+  // é informação. Por isso temConteudo é `sempre` — a própria tela trata o zero.
+  { id: "acordos_hoje", nome: "Acordos de Hoje", Comp: TelaAcordosHoje, ativa: true, grupo: "operacao",
+    descricao: "Acordos fechados hoje, quantos já converteram em pagamento, valor pago e ranking por operador.",
+    temConteudo: sempre },
   { id: "rankings", nome: "Rankings e Destaques", Comp: TelaRankings, ativa: true, grupo: "operacao",
     descricao: "Melhores do dia/mês, mais pagamentos e maior pagamento único.",
     temConteudo: (s) => {
@@ -640,9 +705,14 @@ export const CATALOGO_TELAS = [
   // O alvo deixou de ser meta x 1,5 em 06/10/2026: virou valor próprio da
   // competência (magic_number_mensal). Sem valor cadastrado, o slide some do
   // rodízio em vez de mostrar um número derivado da meta.
+  // SAZONAL desde 08/10/2026: o Magic Number usa o MESMO realizado da Meta do
+  // Mês e só muda o alvo -- as duas seguidas no rodízio passavam a sensação de
+  // ver o número duas vezes. Ele entra na reta final, quando a superação está
+  // de fato em jogo: 5 dias úteis ou menos até o fim do mês.
   { id: "magic_number", nome: "Magic Number", Comp: TelaMagicNumber, ativa: true, grupo: "operacao",
-    descricao: "Magic Number da competência: valor próprio, com o mesmo realizado de honorários da meta do mês.",
-    temConteudo: (s) => Number(s?.magic?.valor || 0) > 0 },
+    descricao: "Magic Number da competência. Entra no rodízio na reta final do mês (5 dias úteis ou menos).",
+    temConteudo: (s) => Number(s?.magic?.valor || 0) > 0
+      && Number(s?.mes?.dias_uteis_restantes ?? 99) <= 5 },
   { id: "destaque_semana", nome: "Destaque da Semana", Comp: TelaDestaqueSemana, ativa: true, grupo: "operacao",
     descricao: "Campeão da semana por pagamentos únicos (com vice e 3º).",
     temConteudo: (s) => (s?.dados?.ranking_semana || []).length > 0 },
@@ -737,3 +807,53 @@ export function telasParaAdmin(snap, cfg, imagens) {
     })
     .sort((a, b) => a.ordem - b.ordem);
 }
+
+// ---- estilos da modernização visual (08/10/2026) ---------------------------
+// Um número-herói e satélites discretos, em vez de cards do mesmo peso.
+const heroi = {
+  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+  gap: "0.6vh", textAlign: "center", flex: "0 0 auto",
+};
+// O conteúdo de Tela é centralizado com gap fixo: com dois blocos de altura
+// própria, sobrava faixa vazia em cima e embaixo no telão 1600x900. Aqui o
+// herói CRESCE para ocupar o que sobra (flex 1) e a faixa de destaques fica
+// logo abaixo — nada é adicionado nem recalculado, só redistribuído.
+const heroiCheio = {
+  ...heroi, flex: "3 1 0", width: "100%", justifyContent: "center", gap: "1.1vh", minHeight: 0,
+};
+const heroiRotulo = {
+  fontSize: fs(14, 1.5, 34), fontWeight: 800, color: T.textoMudo,
+  textTransform: "uppercase", letterSpacing: "0.14em",
+};
+const heroiValor = {
+  fontSize: fs(52, 8.4, 214), fontWeight: 900, lineHeight: 0.95, color: T.verde,
+  letterSpacing: "-0.02em", whiteSpace: "nowrap", textShadow: "0 0 40px rgba(34,197,94,0.28)",
+};
+const heroiSatelites = {
+  display: "flex", alignItems: "baseline", justifyContent: "center", flexWrap: "wrap",
+  gap: "0.8vw", fontSize: fs(15, 1.65, 38), fontWeight: 600, color: T.textoSuave, marginTop: "0.6vh",
+};
+const sepPonto = { color: "rgba(148,163,184,0.5)", padding: "0 0.4vw" };
+// A faixa divide a altura com o herói (3:2) em vez de ficar só com a altura do
+// próprio texto: era daí que vinha a tira preta entre os dois blocos no telão.
+const faixaDestaques = {
+  display: "flex", gap: "clamp(10px, 1.4vw, 28px)", justifyContent: "center",
+  alignItems: "stretch", width: "min(88vw, 1600px)", flex: "2 1 0", minHeight: 0,
+  maxHeight: "30vh", flexWrap: "nowrap",
+};
+const cardDestaque = {
+  background: "rgba(148,163,184,0.10)", border: "1px solid rgba(148,163,184,0.22)",
+  borderRadius: 18, padding: "2.6vh 1.4vw", display: "flex", flexDirection: "column",
+  gap: "0.6vh", flex: "1 1 0", minWidth: 0, alignItems: "center", justifyContent: "center",
+  textAlign: "center",
+  boxShadow: "0 10px 40px rgba(2,6,23,0.35)", boxSizing: "border-box",
+};
+const cardDestaqueRotulo = {
+  fontSize: fs(12, 1.15, 26), fontWeight: 800, color: T.textoMudo,
+  textTransform: "uppercase", letterSpacing: "0.1em",
+};
+const cardDestaqueNome = {
+  fontSize: fs(19, 2.2, 52), fontWeight: 900, color: T.texto,
+  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%",
+};
+const cardDestaqueValor = { fontSize: fs(14, 1.5, 34), fontWeight: 700, color: T.azulClaro };
