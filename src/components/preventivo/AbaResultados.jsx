@@ -40,9 +40,9 @@ export default function AbaResultados({ carteira }) {
     return () => { vivo = false; };
   }, [buscar]);
 
-  async function definirCusto(acaoId, custo) {
+  async function definirCusto(acaoId, custo, moeda) {
     const { error } = await supabase.rpc("preventivo_acao_custo_definir", {
-      p_acao_id: acaoId, p_custo: custo,
+      p_acao_id: acaoId, p_custo: custo, p_moeda: moeda ?? null,
     });
     if (error) { setErro(error.message); return false; }
     const [p, i] = await buscar();
