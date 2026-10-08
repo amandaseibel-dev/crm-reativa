@@ -101,11 +101,13 @@ export default function FilaUnicaConfirmacao() {
 
   // A safra e o motivo vem da URL: e assim que a Efetividade "entrega" o caso
   // aqui, e e o que faz o link ser compartilhavel e o botao voltar funcionar.
-  const safraUrl = useMemo(() => {
+  // A URL manda sempre: e assim que a Efetividade entrega um caso aqui, e e o
+  // que faz o link ser compartilhavel. `null` quando a URL nao nomeia safra --
+  // ai quem decide e `safraPadrao`, abaixo.
+  const safraDaUrl = useMemo(() => {
     const ano = params.get("ano");
     const semestre = params.get("semestre");
-    const achada = SAFRAS.find((s) => s.ano === ano && (s.semestre || null) === (semestre || null));
-    return achada || SAFRAS[2];
+    return SAFRAS.find((s) => s.ano === ano && (s.semestre || null) === (semestre || null)) || null;
   }, [params]);
   const motivoUrl = params.get("motivo") || null;
 
@@ -149,15 +151,51 @@ export default function FilaUnicaConfirmacao() {
   }, []);
   const podeDecidir = podeGerirFinanceiro(emailLogado || "");
 
+  // ENTRAR ONDE HA O QUE FAZER (correcao de 08/10/2026).
+  //
+  // Amanda, 08/10/2026: "fila unica de confirmacao nao tem um botao". Tinha
+  // causa: a tela abria SEMPRE em 2026/1 -- a safra corrente -- e em 2026/1
+  // nenhum motivo tem resolucao por caso (convertido_origem_comprovada,
+  // em_validacao e ajuste_academico sao todos SEM_ACAO_AUTOMATICA_SEGURA).
+  // Quem entrava pelo menu caia, portanto, na unica safra onde botao de decisao
+  // nao existe, e a tela parecia quebrada.
+  //
+  // A entrada passa a ser DERIVADA DO DADO: a safra com mais titulos de
+  // resolucao por caso, pelo catalogo em SQL (`carteira_pendencia_acao`). Nao e
+  // regra nova e nao e numero escrito aqui -- se amanha 2026/1 ganhar um motivo
+  // resolvivel, a tela abre nele sozinha; se nenhuma safra tiver, volta a abrir
+  // na corrente, porque ai nao ha onde entrar melhor.
+  //
+  // A URL continua tendo prioridade absoluta: link da Efetividade, link
+  // compartilhado e o botao voltar levam exatamente onde apontam, mesmo que
+  // seja uma safra sem botao.
+  const safraPadrao = useMemo(() => {
+    const comAcao = SAFRAS
+      .filter((s) => Number(resolviveisPorSafra[s.chave] || 0) > 0)
+      .sort((a, b) => Number(resolviveisPorSafra[b.chave]) - Number(resolviveisPorSafra[a.chave]));
+    return comAcao[0] || SAFRAS[2];
+  }, [resolviveisPorSafra]);
+  // Enquanto a URL nao nomeia safra E as contagens nao chegaram, NAO ha safra:
+  // as duas consultas esperam. Isso nao e zelo estetico -- `carteira_pendencias
+  // _itens_ler` em 2026/1 cai na consulta ao vivo (~21 s, teto de 8 s), e
+  // buscar 2026/1 para trocar logo depois gastaria justamente a mais caras das
+  // consultas para jogar o resultado fora.
+  const contagensProntas = Object.keys(resolviveisPorSafra).length > 0;
+  const safraUrl = safraDaUrl || (contagensProntas ? safraPadrao : null);
+
   // `useMemo` e não `resumo?.motivos || []` solto: o array literal do fallback
   // nasceria novo a cada render e faria o `useMemo` do motivo recalcular
   // sempre (a catraca do lint aponta exatamente isso).
   const motivos = useMemo(() => resumo?.motivos || [], [resumo]);
   const semFotografia = Boolean(resumo?.sem_snapshot);
-  // Motivo efetivo: o da URL, se existir nesta safra; senao o de maior valor.
+  // Motivo efetivo: o da URL, se existir nesta safra. Sem URL, o que TEM
+  // resolucao por caso -- entrar na safra certa e cair no motivo sem botao
+  // (`pago_sem_lastro` tem 289 titulos em 2025 e nenhuma acao) deixaria a tela
+  // igualmente sem botao. Nenhum motivo resolvivel: o de maior valor, como antes.
   const motivo = useMemo(() => {
     if (motivoUrl && motivos.some((m) => m.chave === motivoUrl)) return motivoUrl;
-    return motivos[0]?.chave || null;
+    const comAcao = motivos.find((m) => m.acao === "CONFERENCIA_PRIME");
+    return (comAcao || motivos[0])?.chave || null;
   }, [motivoUrl, motivos]);
   const motivoAtual = motivos.find((m) => m.chave === motivo) || null;
 
@@ -174,6 +212,7 @@ export default function FilaUnicaConfirmacao() {
   // ---------------------------------------------------------------- resumo
   useEffect(() => {
     let ativo = true;
+    if (!safraUrl) return undefined;
     (async () => {
       setErroResumo("");
       const { data, error } = await supabase.rpc("carteira_efetividade_ler",
@@ -208,7 +247,7 @@ export default function FilaUnicaConfirmacao() {
 
   // ----------------------------------------------------------------- itens
   const buscarItens = useCallback(async () => {
-    if (!motivo) return;
+    if (!motivo || !safraUrl) return;
     setCarregandoItens(true);
     setErroItens("");
     const { data, error } = await supabase.rpc("carteira_pendencias_itens_ler", {
@@ -299,6 +338,7 @@ export default function FilaUnicaConfirmacao() {
 
   function trocarMotivo(chave) {
     setPagina(0);
+    if (!safraUrl) return;
     const q = { ano: safraUrl.ano, ...(safraUrl.semestre ? { semestre: safraUrl.semestre } : {}), motivo: chave };
     setParams(new URLSearchParams(q));
   }
@@ -332,11 +372,11 @@ export default function FilaUnicaConfirmacao() {
           <div style={E.grupo} role="group" aria-label="Safra">
             {SAFRAS.map((s) => (
               <button key={s.chave} type="button" onClick={() => trocarSafra(s)}
-                      aria-pressed={s.chave === safraUrl.chave}
+                      aria-pressed={s.chave === safraUrl?.chave}
                       title={resolviveisPorSafra[s.chave] > 0
                         ? resolviveisPorSafra[s.chave] + " título(s) com resolução por caso nesta safra"
                         : "Nesta safra nenhum motivo tem resolução por caso: a fila mostra motivo e evidência para análise humana"}
-                      style={{ ...E.opcao, ...(s.chave === safraUrl.chave ? E.opcaoAtiva : null) }}>
+                      style={{ ...E.opcao, ...(s.chave === safraUrl?.chave ? E.opcaoAtiva : null) }}>
                 {s.rotulo}
                 {resolviveisPorSafra[s.chave] > 0 ? (
                   <span style={E.selinhoSafra}>{num(resolviveisPorSafra[s.chave])} resolvíveis</span>
@@ -379,7 +419,7 @@ export default function FilaUnicaConfirmacao() {
           <span style={E.motivoApoio}>
             {num(motivoAtual.alunos)} {Number(motivoAtual.alunos) === 1 ? "aluno" : "alunos"} ·{" "}
             {num(motivoAtual.titulos)} {Number(motivoAtual.titulos) === 1 ? "título" : "títulos"} ·{" "}
-            {moeda(motivoAtual.valor)} · safra {safraUrl.rotulo}
+            {moeda(motivoAtual.valor)} · safra {safraUrl?.rotulo}
           </span>
           {temAcao ? (
             <span style={E.seloOk}>resolve pela Conferência Prime</span>
@@ -397,7 +437,7 @@ export default function FilaUnicaConfirmacao() {
           abrir a ficha do aluno e tratar na origem correta.
           {(() => {
             const outras = SAFRAS
-              .filter((s) => s.chave !== safraUrl.chave && resolviveisPorSafra[s.chave] > 0);
+              .filter((s) => s.chave !== safraUrl?.chave && resolviveisPorSafra[s.chave] > 0);
             if (!outras.length) return null;
             return (
               <>
@@ -413,7 +453,9 @@ export default function FilaUnicaConfirmacao() {
 
       {avisoResolucao ? <p style={S.discreto}>{avisoResolucao}</p> : null}
 
-      {carregandoItens && itens === null ? (
+      {!safraUrl ? (
+        <p style={S.discreto}>Abrindo na safra que tem caso a tratar…</p>
+      ) : carregandoItens && itens === null ? (
         <p style={S.discreto}>Carregando os casos desta pendência…</p>
       ) : !itensVisiveis.length ? (
         <p style={S.discreto}>
