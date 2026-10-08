@@ -21,7 +21,7 @@ const CONTEXTOS = {
 
 const VAZIO = {
   aberto: false, lote: "", nome: "", canal: "EMAIL", contexto: "",
-  enviada_em: "", publico: "", matriculas: "", hora_conhecida: true,
+  enviada_em: "", publico: "", matriculas: "", hora_conhecida: true, custo: "",
 };
 
 export default function RegistrarEnvioExterno({ carteira, remessas = [], aoRegistrar }) {
@@ -46,6 +46,15 @@ export default function RegistrarEnvioExterno({ carteira, remessas = [], aoRegis
       setErro("Cole as matrículas que receberam."); return;
     }
 
+    // Custo e OPCIONAL. Vazio = nao informado; 0 = informado como zero. Sao
+    // estados diferentes, e a tela de Resultados mostra cada um com palavra
+    // propria. Negativo e recusado aqui e no banco.
+    const txt = String(f.custo).trim();
+    const custo = txt === "" ? null : Number(txt.replace(",", "."));
+    if (custo !== null && (Number.isNaN(custo) || custo < 0)) {
+      setErro("O custo não pode ser negativo. Deixe em branco se não for informar."); return;
+    }
+
     setOcupado(true); setErro(""); setRecibo(null);
     const { data, error } = await supabase.rpc("preventivo_acao_externa_registrar", {
       p_carteira_id: carteira.id,
@@ -61,6 +70,9 @@ export default function RegistrarEnvioExterno({ carteira, remessas = [], aoRegis
     });
     setOcupado(false);
     if (error) { setErro(error.message); return; }
+    if (custo !== null && data?.id) {
+      await supabase.rpc("preventivo_acao_custo_definir", { p_acao_id: data.id, p_custo: custo });
+    }
     setF(VAZIO);
     setRecibo({
       nome: data.nome,
@@ -169,6 +181,20 @@ export default function RegistrarEnvioExterno({ carteira, remessas = [], aoRegis
             <p style={{ ...S.muted, marginTop: 6, fontSize: 11.5 }}>
               Nada é presumido: se o envio não cobriu a remessa toda, informe a lista — senão o
               resultado seria medido sobre gente que não recebeu.
+            </p>
+          </div>
+
+          <div>
+            <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>
+              Custo total da ação (R$)
+            </label>
+            <input type="number" min="0" step="0.01" style={{ ...S.input, maxWidth: 180 }}
+                   value={f.custo} placeholder="opcional"
+                   onChange={(e) => campo("custo", e.target.value)} />
+            <p style={{ ...S.muted, marginTop: 6, fontSize: 11.5, maxWidth: 320 }}>
+              Pode ficar em branco e ser informado depois, na aba Resultados. Em branco é
+              <strong> não informado</strong>; zero é <strong>zero</strong>. O custo aparece ao
+              lado do resultado e não entra em nenhuma conta da carteira.
             </p>
           </div>
 

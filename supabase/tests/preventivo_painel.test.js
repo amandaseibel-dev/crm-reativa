@@ -36,6 +36,7 @@ const MIGRATIONS = [
   "supabase/migrations/20261006165832_preventivo_recorte_e_precisao_da_extracao.sql",
   "supabase/migrations/20261007113426_preventivo_painel_objetivo.sql",
   "supabase/migrations/20261008110805_preventivo_reducao_por_acao.sql",
+  "supabase/migrations/20261008112030_preventivo_custo_e_consolidado.sql",
 ].map(ler);
 
 const TABELAS = [
@@ -289,6 +290,85 @@ describe("Preventivo — painel objetivo", () => {
     expect(p.acoes_consolidado.base_titulos).toBe(2);
     expect(Number(p.acoes_consolidado.base_saldo)).toBe(400);
     expect(Number(p.acoes_consolidado.reducao_pct_valor)).toBe(75);
+  });
+
+  it("REENTRADA: título que saiu e voltou não conta como redução", async () => {
+    // F1 aciona 001 e 002.  F2 (depois do e-mail): 002 sumiu.
+    // WhatsApp em F2.  F3: o 002 VOLTOU.
+    const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 300)], "2026-10-02");
+    await registrar(f1.lote_id, "E-mail", "EMAIL", "2026-10-02");
+    const f2 = await importar("F2", [t("2026000001", 100)], "2026-10-03");
+    await registrar(f2.lote_id, "WhatsApp", "WHATSAPP", "2026-10-03");
+    await importar("F3", [t("2026000001", 100), t("2026000002", 300)], "2026-10-06");
+
+    const p = await painel();
+    // o e-mail, olhando só a foto seguinte dele, viu o 002 sair
+    const email = p.acoes.find((x) => x.nome === "E-mail");
+    expect(email.reducao.titulos).toBe(1);
+    // mas no consolidado o 002 voltou, então NÃO é redução
+    expect(p.acoes_consolidado.reducao_titulos).toBe(0);
+    expect(Number(p.acoes_consolidado.reducao_valor)).toBe(0);
+    expect(p.acoes_consolidado.base_titulos).toBe(2);
+  });
+
+  it("consolidado usa o saldo do PRIMEIRO acionamento", async () => {
+    const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 300)], "2026-10-02");
+    await registrar(f1.lote_id, "E-mail", "EMAIL", "2026-10-02");
+    // o 002 sobe de 300 para 500 na F2, e é acionado de novo
+    const f2 = await importar("F2", [t("2026000001", 100), t("2026000002", 500)], "2026-10-03");
+    await registrar(f2.lote_id, "WhatsApp", "WHATSAPP", "2026-10-03");
+    await importar("F3", [t("2026000001", 100)], "2026-10-06");
+
+    const c = (await painel()).acoes_consolidado;
+    expect(c.reducao_titulos).toBe(1);
+    expect(Number(c.reducao_valor)).toBe(300);   // o do primeiro acionamento, não 500
+  });
+
+  it("PENDENTE não vira zero no consolidado", async () => {
+    const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 300)], "2026-10-02");
+    await registrar(f1.lote_id, "E-mail", "EMAIL", "2026-10-02");
+    const c = (await painel()).acoes_consolidado;   // nenhuma foto depois
+    expect(c.pendentes_titulos).toBe(2);
+    expect(c.com_regua_titulos).toBe(0);
+    expect(c.reducao_titulos).toBeNull();
+    expect(c.reducao_pct_valor).toBeNull();
+  });
+
+  it("compatibilidade: `saiu` continua ao lado de `reducao`", async () => {
+    const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 300)], "2026-10-02");
+    const a = await registrar(f1.lote_id, "E-mail", "EMAIL", "2026-10-02");
+    await importar("F2", [t("2026000001", 100)], "2026-10-06");
+    const ac = (await painel()).acoes.find((x) => x.id === a.id);
+    expect(ac.saiu.titulos).toBe(ac.reducao.titulos);
+    expect(Number(ac.saiu.valor)).toBe(Number(ac.reducao.valor));
+  });
+
+  it("custo: nulo é não informado, zero é zero, negativo é recusado", async () => {
+    const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 300)], "2026-10-02");
+    const a = await registrar(f1.lote_id, "WhatsApp", "WHATSAPP", "2026-10-02");
+
+    let ac = (await painel()).acoes.find((x) => x.id === a.id);
+    expect(ac.custo.informado).toBe(false);
+    expect(ac.custo.total).toBeNull();
+    expect(ac.custo.por_aluno).toBeNull();
+
+    await um(db, `select public.preventivo_acao_custo_definir($1::uuid, 0)`, [a.id]);
+    ac = (await painel()).acoes.find((x) => x.id === a.id);
+    expect(ac.custo.informado).toBe(true);
+    expect(Number(ac.custo.total)).toBe(0);
+    expect(Number(ac.custo.por_aluno)).toBe(0);
+
+    await um(db, `select public.preventivo_acao_custo_definir($1::uuid, 120)`, [a.id]);
+    ac = (await painel()).acoes.find((x) => x.id === a.id);
+    expect(Number(ac.custo.total)).toBe(120);
+    expect(Number(ac.custo.por_aluno)).toBe(60);   // 2 alunos distintos
+
+    await expect(um(db, `select public.preventivo_acao_custo_definir($1::uuid, -1)`, [a.id]))
+      .rejects.toThrow(/negativ/i);
+
+    await um(db, `select public.preventivo_acao_custo_definir($1::uuid, null)`, [a.id]);
+    ac = (await painel()).acoes.find((x) => x.id === a.id);
+    expect(ac.custo.informado).toBe(false);
   });
 
   it("quem não é da gestão não lê o painel", async () => {

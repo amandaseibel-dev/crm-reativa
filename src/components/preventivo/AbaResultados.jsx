@@ -35,8 +35,18 @@ export default function AbaResultados({ carteira }) {
     return () => { vivo = false; };
   }, [buscar]);
 
+  async function definirCusto(acaoId, custo) {
+    const { error } = await supabase.rpc("preventivo_acao_custo_definir", {
+      p_acao_id: acaoId, p_custo: custo,
+    });
+    if (error) { setErro(error.message); return false; }
+    const { data } = await buscar();
+    if (data) setPainel(data);
+    return true;
+  }
+
   if (erro) return <div style={S.erroBox}>{erro}</div>;
   if (!painel) return <p style={S.muted}>Carregando…</p>;
 
-  return <PainelPreventivo dados={painel} />;
+  return <PainelPreventivo dados={painel} aoMudarCusto={definirCusto} />;
 }
