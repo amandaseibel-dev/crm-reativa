@@ -73,7 +73,10 @@ describe("TV — Acordos de Hoje (render)", () => {
     desenhar(DIA({ taxa_pct: 60 }));
     expect(screen.getByText("60%")).toBeTruthy();
     expect(screen.queryByText("42%")).toBeNull();
-    expect(screen.getByText(/já pagaram/i)).toBeTruthy();
+    // Exato, não regex: "com pagamento" é o rótulo do anel e "Já com pagamento"
+    // é o card — um regex casaria os dois.
+    expect(screen.getByText("com pagamento")).toBeTruthy();
+    expect(screen.getByText("Já com pagamento")).toBeTruthy();
   });
 
   it("o ranking vem do snapshot, com os três números por operador", () => {
@@ -82,7 +85,7 @@ describe("TV — Acordos de Hoje (render)", () => {
     expect(screen.getByText("Rafaella")).toBeTruthy();
     expect(screen.getByText("R$ 3.100")).toBeTruthy();
     expect(screen.getAllByText("fechados").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("pagos").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("convertidos").length).toBeGreaterThan(0);
   });
 
   it("mostra no máximo 4 operadores, para caber de longe", () => {
@@ -112,6 +115,19 @@ describe("TV — Acordos de Hoje (o dia que ainda não começou)", () => {
   it("taxa nula com acordos fechados não vira 0% enganoso", () => {
     desenhar(DIA({ taxa_pct: null, convertidos: 0, valor_pago: 0 }));
     expect(screen.getByText("—")).toBeTruthy();
+  });
+});
+
+describe("TV — Acordos de Hoje (vocabulário)", () => {
+  it("nunca diz que o acordo foi pago ou quitado — só que teve pagamento", () => {
+    desenhar(DIA());
+    const txt = document.body.textContent.toLowerCase();
+    expect(txt).not.toContain("quitad");
+    expect(txt).not.toContain("liquidad");
+    // "pagos" isolado sugeriria acordo fechado em pagamento; o rótulo é outro.
+    expect(screen.queryByText("pagos")).toBeNull();
+    expect(screen.getByText("Já com pagamento")).toBeTruthy();
+    expect(screen.getAllByText("convertidos").length).toBeGreaterThan(0);
   });
 });
 

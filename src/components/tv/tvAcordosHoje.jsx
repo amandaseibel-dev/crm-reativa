@@ -21,6 +21,11 @@ import { Tela, IndicadorCard, AnelProgresso, RaioReativa, moeda, num, statusMeta
 //
 // A tela fica visível mesmo zerada (decisão da gestão): dia sem acordo é
 // informação, não ausência de informação.
+//
+// VOCABULÁRIO, de propósito: "com pagamento" e "convertidos", nunca "pagos" ou
+// "quitados". Um acordo com pagamento recebeu DINHEIRO de alguma parcela — não
+// quer dizer que esteja liquidado. Confundir os dois no telão viraria número
+// inflado na cabeça de quem assiste.
 // =============================================================================
 
 export default function TelaAcordosHoje({ snap }) {
@@ -51,7 +56,7 @@ export default function TelaAcordosHoje({ snap }) {
   return (
     <Tela titulo="Acordos de Hoje" icone="🤝">
       <div style={corpo}>
-        <AnelProgresso pct={taxa} rotulo="já pagaram" status={status} tamanho={ALTURA_BLOCO}>
+        <AnelProgresso pct={taxa} rotulo="com pagamento" status={status} tamanho={ALTURA_BLOCO}>
           <RaioReativa tamanho={fs(28, 3.2, 72)} />
         </AnelProgresso>
 
@@ -73,7 +78,7 @@ export default function TelaAcordosHoje({ snap }) {
                 <span style={numeroOp}>{num(r.fechados)}</span>
                 <span style={rotuloOp}>fechados</span>
                 <span style={{ ...numeroOp, color: T.verde }}>{num(r.convertidos)}</span>
-                <span style={rotuloOp}>pagos</span>
+                <span style={rotuloOp}>convertidos</span>
               </div>
               <div style={valorOp}>{moeda(r.valor_pago)}</div>
             </div>
