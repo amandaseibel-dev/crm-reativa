@@ -1,4 +1,4 @@
-// BACKFILL do histórico — migration REAL 20261008090000 + rollback REAL, sobre
+// BACKFILL do histórico — migration REAL 20261008130000 + rollback REAL, sobre
 // a fixture de produção `confirmacao_d2` (dados FICTÍCIOS).
 //
 // É o único arquivo desta frente que escreve em dado histórico, e por isso o
@@ -22,7 +22,7 @@ import { PORTAO_BLOQUEIO_ADMINISTRATIVO } from "./fixtures/portao_bloqueio_admin
 const M_ANTECIP = "20261007143000_antecipacao_semestre_quita_responsabilidade";
 const M_FUND = "20261007210000_parcela_viva_fonte_unica";
 const M_REGRA = "20261007211500_parcela_devolvida_suspensa";
-const M_BACKFILL = "20261008090000_backfill_devolvida_suspensa_historico";
+const M_BACKFILL = "20261008130000_backfill_devolvida_suspensa_historico";
 
 const TIMEOUT = 120000;
 
@@ -158,7 +158,7 @@ describe("backfill do histórico", () => {
                                 from public.acordos_titulos where id = $1`, [TIT_B]);
     expect(t.situacao).toBe("CANCELADA");
     expect(t.origem_encerramento).toBe("CANCELAMENTO_COBRANCA");
-    expect(t.origem_encerramento_ref).toMatch(/^backfill:backfill_20261008090000:/);
+    expect(t.origem_encerramento_ref).toMatch(/^backfill:backfill_20261008130000:/);
     // encerramento administrativo não é liquidação
     expect(t.origem_liquidacao).toBeNull();
   });
@@ -183,7 +183,7 @@ describe("backfill do histórico", () => {
 
   it("guarda a linha inteira em backup antes de escrever", async () => {
     const b = await H.qn(db, `select tabela, count(*)::int c from public._backup_backfill_efeito_sem_pagamento
-                               where lote = 'backfill_20261008090000' group by 1 order by 1`);
+                               where lote = 'backfill_20261008130000' group by 1 order by 1`);
     expect(b).toEqual([
       { tabela: "acordos_titulos", c: 1 },
       { tabela: "parcelas", c: 2 },

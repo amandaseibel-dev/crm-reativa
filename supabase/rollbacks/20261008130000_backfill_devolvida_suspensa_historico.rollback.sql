@@ -1,17 +1,17 @@
--- ROLLBACK do backfill 20261008090000.
+-- ROLLBACK do backfill 20261008130000.
 --
 -- Este e o unico rollback desta frente que REVERTE DADO, e ele pode, porque o
 -- backfill guardou a linha inteira em jsonb antes de escrever. PITR nao esta
 -- habilitado neste projeto: a reversao e por id exato a partir do backup, nunca
 -- por restore.
 --
--- Reverte SO as linhas do lote `backfill_20261008090000`. Nao toca em nada que
+-- Reverte SO as linhas do lote `backfill_20261008130000`. Nao toca em nada que
 -- a tabulacao ao vivo tenha marcado depois -- quem veio pelo gatilho tem
 -- `efeito_sem_pagamento_por` com e-mail de gestao, nao a marca do backfill.
 
 do $reverter$
 declare
-  c_lote text := 'backfill_20261008090000';
+  c_lote text := 'backfill_20261008130000';
   v_parc int := 0; v_tit int := 0; v_n int;
 begin
   select count(*) into v_n
@@ -84,6 +84,6 @@ begin
 
   -- O BACKUP FICA. Ele e a evidencia de que o lote existiu e de qual era o
   -- estado anterior. Para remove-lo, depois de conferir a reversao:
-  --   delete from public._backup_backfill_efeito_sem_pagamento where lote = 'backfill_20261008090000';
+  --   delete from public._backup_backfill_efeito_sem_pagamento where lote = 'backfill_20261008130000';
 end
 $reverter$;

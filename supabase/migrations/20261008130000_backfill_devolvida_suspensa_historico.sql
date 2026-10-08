@@ -5,7 +5,18 @@
 -- parcelas elegiveis"). As migrations anteriores foram PROSPECTIVAS de
 -- proposito; este arquivo e o unico que toca dado historico.
 --
--- DEPENDE de 20261007210000 (parcela_viva) e 20261007211500 (a regra).
+-- DEPENDE de 20261007210000 (parcela_viva) e 20261007211500 (a regra), e tem de
+-- rodar DEPOIS de 20261008103000 (suspensao fora do saldo cobravel).
+--
+-- POR QUE A VERSAO E 20261008130000, e nao a 090000 que este arquivo tinha. O
+-- Supabase aplica por ORDEM DE VERSAO. Com 090000 o backfill rodaria ANTES da
+-- 103000, e a ordem segura e o contrario: este e o unico arquivo que escreve
+-- dado historico, e ele so deve rodar com o mecanismo inteiro no ar e conferido.
+-- Depender de alguem aplicar fora de ordem na mao seria deixar a garantia na
+-- memoria de quem executa. A versao nova e posterior a tudo que estava na main
+-- em 08/10/2026 (a maior era 20261008120000), entao a ordem vem do proprio
+-- versionamento. O arquivo NUNCA foi aplicado, logo renomear nao cria divergencia
+-- com `schema_migrations`.
 --
 -- O QUE FOI MEDIDO EM PRODUCAO EM 08/10/2026, e e o universo elegivel:
 --
@@ -46,7 +57,7 @@
 -- rollback nao pode ser restore: a reversao e por id exato a partir da tabela
 -- de backup criada aqui, que guarda a linha inteira em jsonb.
 --
--- ROLLBACK: supabase/rollbacks/20261008090000_backfill_devolvida_suspensa_historico.rollback.sql
+-- ROLLBACK: supabase/rollbacks/20261008130000_backfill_devolvida_suspensa_historico.rollback.sql
 
 -- ---------------------------------------------------------------------------
 -- 1. BACKUP
@@ -76,7 +87,7 @@ comment on table public._backup_backfill_efeito_sem_pagamento is
 -- ---------------------------------------------------------------------------
 do $backfill$
 declare
-  c_lote text := 'backfill_20261008090000';
+  c_lote text := 'backfill_20261008130000';
   -- OS NUMEROS ESPERADOS SAO OS MEDIDOS EM PRODUCAO EM 08/10/2026, e vem de GUC
   -- com esses valores como PADRAO. Em producao ninguem seta o GUC, entao a
   -- trava e exatamente a medicao. O teste de comportamento sobrepoe com o

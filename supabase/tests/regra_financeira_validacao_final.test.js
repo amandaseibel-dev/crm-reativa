@@ -24,7 +24,7 @@ const MIGS = [
   "20261007211500_parcela_devolvida_suspensa",
   "20261008103000_suspensao_fora_do_saldo_cobravel",
 ];
-const M_BACKFILL = "20261008090000_backfill_devolvida_suspensa_historico";
+const M_BACKFILL = "20261008130000_backfill_devolvida_suspensa_historico";
 const TIMEOUT = 120000;
 const TIT = "11111111-1111-4111-8111-111111111111";
 
@@ -308,8 +308,10 @@ describe("escopo: os 7 painéis de estoque ficam fora deste PR", () => {
     // exclusão de carona, e é isso que esta lista impede.
     expect(comPortao.sort()).toEqual([
       "20261007211500_parcela_devolvida_suspensa",
-      "20261008090000_backfill_devolvida_suspensa_historico",
       "20261008103000_suspensao_fora_do_saldo_cobravel",
+      // o backfill passou a ser 130000 para rodar DEPOIS da 103000 -- a ordem
+      // desta lista é a alfabética do `.sort()`, e por isso ele vem por último
+      "20261008130000_backfill_devolvida_suspensa_historico",
     ]);
 
     // e na migration da exclusão, o portão aparece SÓ dentro de
