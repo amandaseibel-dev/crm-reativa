@@ -554,3 +554,85 @@ describe("a camada rapida de leitura", () => {
     }
   });
 });
+
+// ===========================================================================
+// CORRECAO DE 08/10/2026 -- uma passada por recorte, lista individual ao vivo
+// ===========================================================================
+//
+// O QUE QUEBROU EM PRODUCAO: o recalculo populava `carteira_pendencias_item_snapshot`
+// chamando `carteira_pendencias_itens` uma vez POR MOTIVO, via `cross join lateral`.
+// Cada chamada re-derivava o agregado de 400.693 linhas de `prime_titulo_semestre`.
+// A reconstrucao estourava o teto de 2 min em TODOS os caminhos -- dentro da
+// migration, manual e no cron -- e o dreno falharia a cada 5 min indefinidamente.
+describe("o recalculo deriva o universo uma vez por recorte", () => {
+  it("nao fotografa mais a lista individual: a tabela de itens fica vazia", async () => {
+    const a = await aluno(db, { cpf: "90000000001", situacao: "Formado" });
+    await tituloHistorico(db, { alunoId: a, saldo: 400 });
+    await tituloHistorico(db, { alunoId: a, saldo: 100, situacao: "EM_CONFIRMACAO" });
+
+    await recalcular(db, "2024");
+
+    // Os blocos agregados foram gravados...
+    const comp = await ler(db, "composicao_academica", "2024");
+    expect(cent(comp.total.valor)).toBe(400);
+    // ...e a tabela de itens NAO foi tocada. Era ela que multiplicava passadas.
+    const itens = await q1(db,
+      "select count(*)::int n from public.carteira_pendencias_item_snapshot");
+    expect(itens.n).toBe(0);
+  });
+
+  it("a Fila Unica le a lista AO VIVO, mesmo sem fotografia de itens", async () => {
+    const a = await aluno(db, { cpf: "90000000002", situacao: "Formado" });
+    for (const v of [300, 200, 100]) {
+      await tituloHistorico(db, { alunoId: a, saldo: v, situacao: "EM_CONFIRMACAO" });
+    }
+    await recalcular(db, "2024");
+
+    const p1 = await itensLer(db, "em_confirmacao", "2024", null, 2, 0);
+    expect(p1.length).toBe(2);
+    // ordem estavel: maior valor primeiro, como antes
+    expect(cent(p1[0].valor)).toBe(300);
+    // `gerado_em` passa a ser o instante da LEITURA, nao de uma foto antiga
+    expect(new Date(p1[0].gerado_em).getTime()).toBeGreaterThan(Date.now() - 60000);
+    // e o total do motivo vem do bloco agregado, nao do tamanho da pagina
+    expect(Number(p1[0].total_no_motivo)).toBe(3);
+    const p2 = await itensLer(db, "em_confirmacao", "2024", null, 2, 2);
+    expect(p2.length).toBe(1);
+  });
+
+  it("a lista ao vivo reflete resolucao na hora -- sem esperar reconstrucao", async () => {
+    const a = await aluno(db, { cpf: "90000000003", situacao: "Formado" });
+    const t = await tituloHistorico(db, { alunoId: a, saldo: 150, situacao: "EM_CONFIRMACAO" });
+    await recalcular(db, "2024");
+    expect((await itensLer(db, "em_confirmacao", "2024")).length).toBe(1);
+
+    // O caso e resolvido na origem (situacao deixa de ser EM_CONFIRMACAO).
+    await db.query("update public.acordos_titulos set situacao = 'ABERTO', status = 'em_aberto' where id = $1",
+                   [t.id]);
+
+    // Sem nenhum recalculo, a fila JA nao o oferece -- era isso que a fotografia
+    // de itens impedia: ela ofereceria para tratamento um caso ja resolvido.
+    expect((await itensLer(db, "em_confirmacao", "2024")).length).toBe(0);
+  });
+
+  it("a REGUA HISTORICA de 2024/2025 nao foi tocada pela correcao", async () => {
+    const a = await aluno(db, { cpf: "90000000004", situacao: "Formado" });
+    await tituloHistorico(db, { alunoId: a, saldo: 500 });
+    // portador diferente de 195 continua FORA da regua oficial
+    const outro = await aluno(db, { cpf: "90000000005", situacao: "Formado" });
+    await tituloHistorico(db, { alunoId: outro, saldo: 900, portador: 166 });
+
+    const c = await composicao(db, "2024");
+    expect(c.regua).toBe("carteira_saldo_historico_por_ano().aberto");
+    expect(cent(c.total.valor)).toBe(500);
+    expect(c.conferencia.fecha).toBe(true);
+  });
+
+  // O LOCK CONCORRENTE NAO E TESTADO AQUI, de proposito.
+  // `pg_try_advisory_xact_lock` e re-entrante para a MESMA sessao: ele protege
+  // contra OUTRA conexao disparando o recalculo ao mesmo tempo. O PGlite roda
+  // numa conexao unica, entao qualquer teste daqui passaria por construcao e
+  // nao provaria nada -- afirmaria proteger o que nao foi exercitado. A guarda
+  // esta no corpo da funcao (`if not pg_try_advisory_xact_lock(...) then
+  // return ja_em_andamento`) e so se prova com duas sessoes reais.
+});

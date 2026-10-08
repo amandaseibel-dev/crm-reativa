@@ -26,6 +26,7 @@ export const ROLL = (n) => lerRepo(`supabase/rollbacks/${n}.rollback.sql`);
 export const SEIS_LINHAS = "20261005204500_carteira_safra_situacoes";
 export const NOVA = "20261007193000_efetividade_composicao_academica_e_pendencias";
 export const AJUSTES = "20261007230000_efetividade_regua_historica_e_camada_de_leitura";
+export const UMA_PASSADA = "20261008113000_efetividade_recalculo_uma_passada_por_recorte";
 // A politica de atualizacao: invalidacao por evento + dreno fora da requisicao.
 export const INVALIDACAO = "20261007234000_efetividade_invalidacao_e_reconstrucao_sob_demanda";
 
@@ -169,6 +170,7 @@ export async function montar() {
   await db.exec(MIG(NOVA));
   await db.exec(MIG(AJUSTES));
   await db.exec(MIG(INVALIDACAO));
+  await db.exec(MIG(UMA_PASSADA));
   await db.exec("set timezone = 'UTC'");
   return db;
 }
