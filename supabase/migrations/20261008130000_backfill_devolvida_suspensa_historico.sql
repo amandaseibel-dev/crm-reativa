@@ -20,25 +20,13 @@
 --
 -- O QUE FOI MEDIDO EM PRODUCAO EM 08/10/2026, e e o universo elegivel:
 --
--- APLICADO EM PRODUCAO EM 08/10/2026 15:26 UTC. Os numeros abaixo sao os da
--- RECONFERENCIA de 15:24:37, nao os da primeira medicao (12:34). A diferenca, e
--- por que ela existiu, esta no bloco 2.2.
---
---   CANCELAMENTO_COBRANCA -- 23 alunos
+--   CANCELAMENTO_COBRANCA -- 22 alunos
 --     parcelas vivas ....... 0
---     titulos no saldo ..... 19, R$ 133.089,35              -> ENCERRAR
+--     titulos no saldo ..... 17, R$ 130.904,96              -> ENCERRAR
 --
 --   SUSPENSAO_COBRANCA -- 118 alunos
 --     parcelas vivas ....... 13, R$ 258.951,51              -> SUSPENSA
 --     titulos no saldo ..... 186 (63 alunos), R$ 462.909,38 -> NAO TOCAR
---
--- A TRAVA EXATA FEZ O TRABALHO DELA. A primeira tentativa, as 15:09 UTC, ABORTOU
--- com 19 titulos / R$ 133.089,35 contra os 17 / R$ 130.904,96 medidos as 12:34.
--- A divergencia foi EXPLICADA antes de prosseguir, nao contornada: o aluno
--- d4a40b82-c0b2-46f9-ac64-3de28bb4dfeb foi tabulado como CANCELAMENTO_COBRANCA
--- as 13:00:23 UTC -- entre as duas medicoes -- e trouxe dois titulos que JA
--- existiam (3943203, 05/11/25, R$ 1.092,19 e 3943204, 05/12/25, R$ 1.092,20),
--- somando exatamente os R$ 2.184,39 da diferenca. Nenhum titulo novo foi criado.
 --
 -- Os numeros sao do PORTAO CANONICO (`aluno_bloqueio_administrativo`), que le
 -- aluno E caso. Lendo so `alunos`, como a primeira versao deste arquivo fazia,
@@ -107,8 +95,8 @@ declare
   -- que nao da para testar e pior que um com trava configuravel.
   c_esp_parc_qtd int := coalesce(nullif(current_setting('backfill.esperado_parcelas_qtd', true),'')::int, 13);
   c_esp_parc_val numeric := coalesce(nullif(current_setting('backfill.esperado_parcelas_valor', true),'')::numeric, 258951.51);
-  c_esp_tit_qtd  int := coalesce(nullif(current_setting('backfill.esperado_titulos_qtd', true),'')::int, 19);
-  c_esp_tit_val  numeric := coalesce(nullif(current_setting('backfill.esperado_titulos_valor', true),'')::numeric, 133089.35);
+  c_esp_tit_qtd  int := coalesce(nullif(current_setting('backfill.esperado_titulos_qtd', true),'')::int, 17);
+  c_esp_tit_val  numeric := coalesce(nullif(current_setting('backfill.esperado_titulos_valor', true),'')::numeric, 130904.96);
   v_parc_qtd int := 0;  v_parc_val numeric := 0;
   v_tit_qtd  int := 0;  v_tit_val  numeric := 0;
   v_ja int;
