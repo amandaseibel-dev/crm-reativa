@@ -1,10 +1,24 @@
 # Carga histórica de outubro/2026 — conferência antes de gravar
 
-Documento de **conferência**, não de execução. Nada aqui foi importado nem
-registrado. Ele existe para que a decisão de carregar as quatro fotos seja
-tomada sobre medida, e não sobre lembrança.
+Documento de **conferência**, não de execução. Ele existe para que a decisão de
+carregar as fotos seja tomada sobre medida, e não sobre lembrança.
 
-Medido em 2026-10-06 sobre os arquivos originais, antes de qualquer importação.
+Medido em 2026-10-06 sobre os arquivos originais. **Remedido em 2026-10-08**
+diretamente nos quatro CSV, o que corrigiu uma afirmação deste documento e
+acrescentou os itens 1b e 1c.
+
+> **ESTADO REAL EM 08/10/2026, conferido em produção (só leitura).** A versão
+> anterior dizia "nada aqui foi importado nem registrado". **F3 está
+> importada**: `prev_lote` tem uma linha, arquivo
+> `relatorio_inadimplencia (17) whatsapp.csv` — o gêmeo byte a byte de F3 —,
+> status `CONFIRMADO`, criada em 05/10/2026 18:10 UTC, com 10.762 títulos
+> vinculados. Ela entrou pelo fluxo normal do módulo, **antes** desta
+> conferência.
+>
+> **F1, F2 e F4 seguem não importadas.** E **nenhuma ação externa foi
+> registrada**: `prev_acao` tem uma única linha, `origem = 'MODULO'`, estado
+> `PREPARADA`, nunca exportada nem confirmada como enviada — zero linhas com
+> `origem = 'EXTERNA'`.
 
 ## 1. O escopo dos quatro relatórios — PENDENTE de confirmação da gestão
 
@@ -37,16 +51,44 @@ deixaria marca no preenchimento de contato:
 - recorte por **unidade, curso, campus ou faixa de saldo**, decidido na origem;
 - um público montado **fora do relatório** e depois exportado;
 - parâmetro diferente na extração que nada tem a ver com canal (data de corte,
-  situação acadêmica, tipo de boleto) — as colunas `Situação Acadêmica` e
-  `Tipo de Boleto` vêm **vazias nos quatro arquivos**, então não dá para
-  conferir por elas.
+  situação acadêmica, tipo de boleto).
 
 O nome do arquivo sugere que descreve **o que foi feito com ele depois**, e não
 um filtro aplicado na extração — mas isso é leitura do nome, não medição.
 
+> **CORREÇÃO DE 08/10/2026.** A versão anterior deste documento afirmava que as
+> colunas `Situação Acadêmica` e `Tipo de Boleto` vinham **vazias nos quatro
+> arquivos**, e usava isso como razão para não ser possível conferir o escopo
+> por elas. **Está errado.** Medido linha a linha nos quatro CSV originais, as
+> duas colunas estão **preenchidas em 100% das linhas de dados**:
+>
+> | Foto | `Situação Acadêmica` | `Tipo de Boleto` |
+> |---|---:|---:|
+> | F1 | 14.020 / 14.020 | 14.020 / 14.020 |
+> | F2 | 11.992 / 11.992 | 11.992 / 11.992 |
+> | F3 | 10.796 / 10.796 | 10.796 / 10.796 |
+> | F4 | 6.297 / 6.297 | 6.297 / 6.297 |
+>
+> (Cada arquivo tem **uma** linha final em branco, que é o que separa estes
+> números da contagem de linhas da tabela do item 1.)
+>
+> A consequência é que a conferência por esses campos **é possível** — e, feita,
+> ela não confirma o escopo: aponta divergência. Ver a subseção abaixo.
+
 **Pendente:** confirmação da gestão de que os quatro relatórios foram extraídos
 com os **mesmos parâmetros**. Sem ela, a ausência de um aluno entre duas fotos
 não pode ser lida como saída da base.
+
+Com a medição de 08/10 (item 1b), a pergunta ficou mais específica — são três,
+e as três são para quem extraiu os relatórios:
+
+1. **Houve filtro por `Situação Acadêmica`?** F1 traz 2 categorias e F4 traz 6.
+   Se não houve filtro, a diferença é da base — mas isso precisa ser afirmado
+   por quem extraiu, não inferido por quem lê.
+2. **Houve filtro por `Escola`, `Estabelecimento`, `Curso` ou `Processo`?** F4
+   tem 2 Escolas que F3 não tem, sendo 42% menor.
+3. **F1 saiu de outra versão do relatório?** O template de 18 colunas, com
+   `Turno` e `Turma` presentes e 100% vazios, é objetivo.
 
 F1 traz duas colunas a mais (`Turma` e `Turno`) — template mais largo. Isso
 mostra que **pelo menos um parâmetro de extração mudou entre F1 e as demais**,
@@ -55,7 +97,99 @@ cabeçalho idêntico entre si.
 
 Observação de arquivo: `relatorio_inadimplencia (17) whatsapp.csv` é
 **byte a byte igual** a `relatorio_inadimplencia_17_whatsapp.csv` (mesmo md5).
-São quatro fotos distintas, não cinco.
+São quatro fotos distintas, não cinco. **Reconferido em 08/10/2026:** md5
+`5d03b0aa17b78993a1ea573b926da6ba` nos dois.
+
+### 1b. Conferência pelos campos que existem — medida em 08/10/2026
+
+Com as duas colunas preenchidas, a conferência saiu do campo da suposição. Ela
+**não confirma** que o escopo é o mesmo; ela mostra divergência.
+
+**`Situação Acadêmica` — o conjunto de categorias difere por foto:**
+
+| Foto | categorias | quais |
+|---|---:|---|
+| F1 | **2** | Cancelado · Matriculado Curso Normal |
+| F2 | **5** | as 2 acima · Reopção de Curso · Saída por Transferência · Trancado |
+| F3 | **5** | as mesmas 5 de F2 |
+| F4 | **6** | as 5 acima · Aguardando Matrícula |
+
+O desenho é o inverso do que amostragem explicaria: **F1 é o maior arquivo
+(14.021 linhas) e tem a menor variedade (2 categorias)**; F4 é o menor (6.298) e
+tem a maior (6). Amostra maior tende a mostrar mais categorias, não menos. Isso
+é indício forte de que a extração de F1 teve parâmetro diferente — mas **não é
+prova**, porque a base muda entre 02/10 e 06/10 e nenhum campo registra *por
+que* a linha entrou.
+
+**`Dt Vcto`:** F2, F3 e F4 trazem exclusivamente `05/10/2026`. F1 traz
+`05/10/2026` em 14.016 linhas, mais 2 em `01/10/2026` e 2 em `08/10/2026` — uma
+janela marginalmente mais larga, de 4 linhas.
+
+**Nenhuma foto é subconjunto puro de outra.** Medido por matrícula (`Código`),
+todos os seis pares têm linhas exclusivas **dos dois lados**:
+
+| Par | só no 1º | só no 2º | comum |
+|---|---:|---:|---:|
+| F1 (13.973) × F2 (11.951) | 2.123 | 101 | 11.850 |
+| F1 × F3 (10.762) | 3.311 | 100 | 10.662 |
+| F1 × F4 (6.279) | 7.833 | 139 | 6.140 |
+| F2 × F3 | 1.190 | 1 | 10.761 |
+| F2 × F4 | 5.724 | 52 | 6.227 |
+| F3 × F4 | 4.535 | 52 | 6.227 |
+
+Os números do item 2 abaixo usam identidade de **título**
+(`matrícula + Dt Vcto + Vcto Origem`); estes usam **matrícula**. Daí as
+pequenas diferenças (2.126 × 2.123, 4.536 × 4.535): são chaves distintas
+medindo a mesma coisa em granularidades distintas, não contradição.
+
+**F4 contém categorias que F3 não tem**, apesar de ser 42% menor:
+
+- **Escola:** 2 ausentes em F3 — `ADMINISTRACAO`, `ODONTOLOGIA`
+- **Curso:** 5 ausentes em F3 — `FISIOTERAPIA NOT`, `IMPLANTODONTIA`,
+  `MBA EM ENGENHARIA DE SOFTWARE FULL STACK COM I.A`, `PROTESE DENTARIA`,
+  `PSICOPEDAGOGIA INSTITUCIONAL E CLINICA`
+- **Processo:** 3 ausentes em F3 — `10842`, `34200`, `34214`
+
+Um subconjunto puro de F3 não poderia trazer Escola que F3 não tem. Somado às
+52 matrículas exclusivas de F4, a leitura mais provável é que **F4 não é a mesma
+população encolhida** — é população diferente, por recorte ou por entrada nova.
+Qual das duas, os arquivos não dizem.
+
+**O núcleo comum das quatro fotos: 6.140 matrículas.** A cobertura é muito
+desigual, e é isso que torna o núcleo a única base de comparação segura:
+
+| Foto | núcleo / total | cobertura |
+|---|---|---:|
+| F1 | 6.140 / 13.973 | 43,9% |
+| F2 | 6.140 / 11.951 | 51,4% |
+| F3 | 6.140 / 10.762 | 57,1% |
+| F4 | 6.140 / 6.279 | **97,8%** |
+
+Dentro do núcleo a série é comparável, porque a presença nas quatro remove a
+dúvida de escopo — soma de `Saldo Atualizado`: F1 R$ 7.984.986,23 · F2
+R$ 7.972.788,29 · F3 R$ 7.971.268,70 · F4 R$ 8.108.910,32.
+
+### 1c. O que vale e o que não vale, enquanto o escopo não for confirmado
+
+**Pode ser usado:**
+
+- qualquer medida **dentro** de uma única foto — total, distribuição, saldo por
+  unidade;
+- **presença**: uma matrícula aparecer numa foto prova que estava naquela
+  extração;
+- comparação restrita à **interseção** de duas fotos, ou ao **núcleo** das
+  quatro.
+
+**NÃO pode ser usado — e isto não é mais dúvida, é medição:**
+
+> **Ausência entre duas fotos NÃO pode ser interpretada como regularização**
+> enquanto o escopo de extração não for confirmado.
+
+As relações de conjunto acima mostram entrada e saída **nos dois sentidos em
+todos os seis pares**, e F4 traz Escola, Curso e Processo que F3 não tem. Uma
+coorte que apenas encolhe por regularização não produz esse padrão. Ler
+"sumiu da foto" como "pagou" ou "regularizou" atribuiria à cobrança um efeito
+que o dado não sustenta.
 
 ## 2. O que a série diz — se o escopo for o mesmo
 
@@ -92,12 +226,26 @@ As duas não dependem uma da outra, e nenhuma delas destrava a outra.
 
 ### Etapa A — importar as quatro fotos
 
-**Depende só de uma coisa:** a confirmação do item 1, de que os quatro
-relatórios foram extraídos com os **mesmos parâmetros**.
+**Revisto em 08/10/2026, depois da medição do item 1b.** A Etapa A era descrita
+como um bloco único que dependia da confirmação de escopo. Ela se divide em
+duas, e **só a segunda está bloqueada**:
 
-Com essa confirmação, as quatro fotos podem ser importadas e a série de saldo
-e títulos em aberto já fica de pé. Nenhuma ação precisa ser conhecida para
-isso: a evolução da carteira entre remessas não depende de quem foi acionado.
+**A1 — importar como fotos independentes: LIBERADO.** F1, F2 e F4 podem ser
+importadas como fotos independentes sem a confirmação de escopo. Cada foto é um
+retrato autossuficiente do que estava em aberto naquela extração, e tudo que se
+mede **dentro** dela — total, saldo, distribuição por unidade, situação
+acadêmica — vale por si. A identidade de cada arquivo está provada por md5, e o
+importador recusa e contabiliza linha inválida e duplicada por conta própria.
+
+**A2 — a série "saiu da base": BLOQUEADA.** A confirmação de escopo continua
+obrigatória para ler a **diferença entre fotos** como movimento da carteira. É
+a conclusão do item 1c: ausência entre fotos não é regularização enquanto o
+escopo não for confirmado, e os números do item 2 abaixo seguem valendo apenas
+**sob a hipótese** de escopo igual. Fora do núcleo de 6.140 matrículas, nenhuma
+afirmação de "saiu" se sustenta hoje.
+
+Nenhuma ação precisa ser conhecida para a A1: a evolução da carteira entre
+remessas não depende de quem foi acionado.
 
 As fotos sem hora comprovada entram com precisão `DATA` e a **ordem no dia**
 declarada por quem importa — F2 é a 1ª de 05/10 e F3 é a 2ª.
