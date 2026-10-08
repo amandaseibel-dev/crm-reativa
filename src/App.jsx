@@ -48,6 +48,9 @@ const Borderos = lazy(() => import("./pages/Borderos"));
 const ConsultaFinanceira = lazy(() => import("./pages/ConsultaFinanceira"));
 const VincularBaseOperacional = lazy(() => import("./pages/VincularBaseOperacional"));
 import { registrarLoginSeNecessario, registrarLogout } from "./utils/ponto";
+// A Fila Unica de Confirmacao usa a MESMA regra de gestao financeira que a
+// ficha do aluno ja aplica para decidir sobre titulo em confirmacao.
+import { podeGerirFinanceiro } from "./utils/operadores";
 const PainelAdm = lazy(() => import("./pages/PainelAdm"));
 const FinanceiroHub = lazy(() => import("./pages/FinanceiroHub"));
 const CentralPagamentos = lazy(() => import("./components/CentralPagamentos"));
@@ -288,6 +291,22 @@ const EMAILS_PODE_GERIR_USUARIOS = [
 ];
 function RotaProtegida({ usuario, rota, children }) {
   const perfil = usuario?.perfil?.perfil;
+  // FILA UNICA DE CONFIRMACAO: o acesso e exatamente `podeGerirFinanceiro` --
+  // a MESMA regra que decide quem pode resolver o titulo em confirmacao na
+  // ficha do aluno (`FinanceiroAluno`) e dentro da propria fila. Nao e perfil
+  // novo nem regra paralela: quem nao pode decidir nada ali tambem nao precisa
+  // da tela, e as RPCs por tras dela (`usuario_e_gestao()`) ja recusam.
+  //
+  // Vem ANTES do gate por perfil de proposito: a rota nao esta -- e nao deve
+  // estar -- nas listas de `permissoes`, que sao por perfil. Ate aqui isso
+  // fazia `podeAcessar` devolver `undefined` e o item sumir do menu para todo
+  // mundo; a tela so era alcancavel pelo link da Efetividade.
+  if (rota === "/fila-unica-confirmacao") {
+    const emailFila = String(usuario?.perfil?.email || usuario?.auth?.email || "")
+      .toLowerCase().trim();
+    if (!podeGerirFinanceiro(emailFila)) return <Navigate to="/" replace />;
+    return children;
+  }
   if (!podeAcessar(perfil, rota)) {
     return <Navigate to="/" replace />;
   }
@@ -764,6 +783,10 @@ export default function App() {
       const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       if (!EMAILS_PODE_GERIR_USUARIOS.includes(email)) return false;
     }
+    if (item.rota === "/fila-unica-confirmacao") {
+      const emFu = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return podeGerirFinanceiro(emFu);
+    }
     if (item.rota === "/termos-adm") {
       const emVt = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emVt);
@@ -1176,7 +1199,10 @@ export default function App() {
         {/* A Fila Unica e o par da Efetividade: la se analisa, aqui se trata.
             Mesma porta de acesso, de proposito -- quem pode ver o numero
             pendente e quem pode tratar o caso que o compoe. */}
-        <Route path="/fila-unica-confirmacao" element={<FilaUnicaConfirmacao />} />
+        <Route path="/fila-unica-confirmacao" element={
+          <RotaProtegida usuario={usuario} rota="/fila-unica-confirmacao">
+            <FilaUnicaConfirmacao />
+          </RotaProtegida>} />
               <Route path="/saude-da-base" element={<SaudeDaBase />} />
               <Route path="/saude-completa-carteira" element={<SaudeCompletaCarteira />} />
               <Route path="/revisao-prime" element={<RevisaoPrime />} />
