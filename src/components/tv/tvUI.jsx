@@ -115,15 +115,24 @@ export function Cabecalho({ tela }) {
 }
 
 // Rodapé: origem do dado (último snapshot) + posição no carrossel -------------
+// SLOGAN fixo da TV, no canto inferior esquerdo. Fica permanente e discreto:
+// não compete com o número da tela, mas assina todas elas.
+export const SLOGAN = "Mais ritmo. Mais resultado. Mais ReATIVA.";
+
 export function Rodape({ geradoEm, indice, total }) {
   return (
     <footer style={s.rod}>
-      <span style={{ fontSize: fs(11, 1.0, 22), color: T.textoSuave, fontWeight: 600 }}>
+      <span style={{ fontSize: fs(11, 1.0, 22), color: T.azulClaro, fontWeight: 800,
+                     letterSpacing: "0.04em", whiteSpace: "nowrap", flex: "0 0 auto" }}>
+        {SLOGAN}
+      </span>
+      <span style={{ fontSize: fs(11, 1.0, 22), color: T.textoSuave, fontWeight: 600,
+                     textAlign: "center", flex: "1 1 auto" }}>
         {geradoEm
           ? `Dados atualizados em ${fmtData(geradoEm)} às ${fmtHora(geradoEm)}. Correspondem à última atualização da projeção.`
           : "Aguardando a primeira atualização da projeção."}
       </span>
-      <span style={{ display: "flex", gap: "0.7vw", alignItems: "center" }}>
+      <span style={{ display: "flex", gap: "0.7vw", alignItems: "center", flex: "0 0 auto" }}>
         {Array.from({ length: total || 0 }).map((_, i) => (
           <span key={i} style={{ width: fs(6, 0.6, 14), height: fs(6, 0.6, 14), borderRadius: "50%", background: i === indice ? T.azul : "rgba(148,163,184,0.35)", transition: "background .3s" }} />
         ))}
@@ -133,12 +142,16 @@ export function Rodape({ geradoEm, indice, total }) {
 }
 
 // Layout de tela: título grande + área de conteúdo (usado por todas as telas) -
-export function Tela({ titulo, icone, children, centralizado = true }) {
+// O RAIO é a marca de título de TODA tela da TV. Antes cada uma trazia um
+// emoji próprio (🤝 💡 🏆 ⚡ 🎯), que destoava de um telão executivo e não
+// construía identidade nenhuma. O prop `icone` continua aceito e IGNORADO, para
+// não quebrar chamada antiga enquanto as telas são limpas.
+export function Tela({ titulo, children, centralizado = true }) {
   return (
     <section style={s.tela}>
       {titulo && (
         <div style={s.telaTitulo}>
-          {icone && <span style={{ fontSize: fs(22, 2.2, 52) }}>{icone}</span>}
+          <RaioReativa tamanho={fs(20, 2.0, 46)} />
           <span>{titulo}</span>
         </div>
       )}
@@ -278,7 +291,10 @@ export function RaioReativa({ tamanho = fs(26, 3.0, 72), titulo = "ReATIVA" }) {
 // `status` ({ label, cor }) permite trocar a régua: statusMeta é percentual
 // puro e no começo do mês acusa "Abaixo do ritmo" em quem está adiantado;
 // quem tem projeção na mão passa statusRitmo e o selo fica honesto.
-export function AnelProgresso({ pct, rotulo = "da meta", status, children, tamanho = "min(46vh, 32vw)" }) {
+// `semSelo` tira o rótulo de julgamento do anel. Serve para indicador que não
+// deve classificar desempenho — "Acordos de Hoje" às 9h da manhã não está
+// "Abaixo do ritmo", o dia apenas começou.
+export function AnelProgresso({ pct, rotulo = "da meta", status, children, semSelo = false, tamanho = "min(46vh, 32vw)" }) {
   const id = useId().replace(/:/g, "");
   const st = status || statusMeta(pct);
   const arco = Math.max(0, Math.min(100, Number(pct || 0)));
@@ -307,7 +323,7 @@ export function AnelProgresso({ pct, rotulo = "da meta", status, children, taman
         {children}
         <span style={{ fontSize: fs(42, 6.2, 150), fontWeight: 900, lineHeight: 0.95, color: st.cor, letterSpacing: "-0.02em" }}>{pctTxt}</span>
         <span style={{ fontSize: fs(12, 1.2, 28), fontWeight: 800, color: T.textoSuave, textTransform: "uppercase", letterSpacing: "0.14em" }}>{rotulo}</span>
-        <span style={{ ...s.selo, color: st.cor, borderColor: st.cor, marginTop: "0.4vh" }}>{st.label}</span>
+        {!semSelo && <span style={{ ...s.selo, color: st.cor, borderColor: st.cor, marginTop: "0.4vh" }}>{st.label}</span>}
       </div>
     </div>
   );

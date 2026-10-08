@@ -29,7 +29,7 @@ export default function TelaMetaDoMes({ snap }) {
   // Sem meta cadastrada no mês não há percentual honesto: avisa, não mostra 0%.
   if (!meta) {
     return (
-      <Tela titulo="Meta do Mês" icone="⚡">
+      <Tela titulo="Meta do Mês">
         <div style={vazio}>Meta de honorário do mês não cadastrada nesta atualização.</div>
       </Tela>
     );
@@ -60,7 +60,7 @@ export default function TelaMetaDoMes({ snap }) {
       : moeda(nec);
 
   return (
-    <Tela titulo="Meta do Mês" icone="⚡">
+    <Tela titulo="Meta do Mês">
       <div style={corpo}>
         <AnelProgresso pct={pct} rotulo="da meta do mês" status={status} tamanho={ALTURA_BLOCO}>
           <RaioReativa tamanho={fs(30, 3.4, 78)} />

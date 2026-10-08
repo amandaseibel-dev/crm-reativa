@@ -41,7 +41,7 @@ export default function TelaAcordosHoje({ snap }) {
   // um "0%" que parece desempenho ruim quando na verdade o dia mal começou.
   if (fechados === 0) {
     return (
-      <Tela titulo="Acordos de Hoje" icone="🤝">
+      <Tela titulo="Acordos de Hoje">
         <div style={vazioBloco}>
           <RaioReativa tamanho={fs(34, 4.0, 92)} />
           <div style={vazioTitulo}>Nenhum acordo fechado hoje ainda</div>
@@ -51,12 +51,17 @@ export default function TelaAcordosHoje({ snap }) {
     );
   }
 
+  // SEM selo de julgamento (decisão da gestão em 08/10/2026): às 9h da manhã,
+  // com 3 acordos e nenhum convertido, o telão dizia "Abaixo do ritmo" em
+  // vermelho. O número está certo; o julgamento não — o dia mal começou e
+  // pagamento de acordo raramente entra na mesma hora. A taxa fica informativa;
+  // `status` segue só para a COR do arco, sem rótulo.
   const status = statusMeta(taxa);
 
   return (
-    <Tela titulo="Acordos de Hoje" icone="🤝">
+    <Tela titulo="Acordos de Hoje">
       <div style={corpo}>
-        <AnelProgresso pct={taxa} rotulo="com pagamento" status={status} tamanho={ALTURA_BLOCO}>
+        <AnelProgresso pct={taxa} rotulo="com pagamento" status={status} semSelo tamanho={ALTURA_BLOCO}>
           <RaioReativa tamanho={fs(28, 3.2, 72)} />
         </AnelProgresso>
 
