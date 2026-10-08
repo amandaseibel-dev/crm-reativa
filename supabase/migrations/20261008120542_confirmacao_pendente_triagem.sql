@@ -57,7 +57,7 @@
 --   rejeicao ............................. o titulo volta a ser cobrado
 -- A funcao NAO escolhe decisao para ninguem: ela diz o que sobra depois.
 --
--- Reversivel: supabase/rollbacks/20261008120000_confirmacao_pendente_triagem.rollback.sql
+-- Reversivel: supabase/rollbacks/20261008120542_confirmacao_pendente_triagem.rollback.sql
 
 create or replace function public.confirmacao_pendente_triagem()
 returns jsonb

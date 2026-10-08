@@ -1,4 +1,4 @@
--- ROLLBACK de 20261008120000_confirmacao_pendente_triagem.sql
+-- ROLLBACK de 20261008120542_confirmacao_pendente_triagem.sql
 --
 -- A migration e SO DDL e SO LEITURA: uma funcao nova, nenhuma tabela, nenhum
 -- gatilho, nenhum dado escrito. Nao ha dado a restaurar.
