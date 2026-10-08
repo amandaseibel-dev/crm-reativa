@@ -39,3 +39,24 @@ export function pct(v) {
   if (!Number.isFinite(n)) return "—";
   return `${n.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 }
+
+// DINHEIRO COM MOEDA DECLARADA. O custo da ação pode ter sido pago em real ou
+// em dólar, e escrever "R$" num valor em dólar não é detalhe de formatação: é
+// afirmar um fato falso sobre dinheiro, que depois vira comparação errada com
+// o saldo da carteira.
+//
+// Moeda NULA não vira real. Devolve o número sem símbolo, e quem chama diz
+// "moeda não informada" — não presumir é o ponto.
+const SIMBOLO = { BRL: "R$", USD: "US$" };
+
+export function moedaEm(v, m) {
+  if (v === null || v === undefined) return "—";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  const texto = n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const s = SIMBOLO[m];
+  return s ? `${s} ${texto}` : texto;
+}
+
+// O rótulo que acompanha um valor sem moeda declarada.
+export const SEM_MOEDA = "moeda não informada";

@@ -14,7 +14,9 @@
 //      remessa posterior válida — nesse caso a comparação é contra a posterior;
 //   8. o histórico sai pela ordem da EXTRAÇÃO, não pela hora da importação;
 //   9. a linha do tempo por INTERVALO fecha: a soma dos líquidos é exatamente
-//      saldo final − saldo inicial, e cada ação cai em um intervalo só.
+//      saldo final − saldo inicial, e cada ação cai em um intervalo só;
+//  10. o custo tem MOEDA (BRL/USD), nunca presumida, e os totais saem
+//      separados por moeda — somar BRL com USD seria inventar câmbio.
 //
 // NENHUM DADO REAL.
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
@@ -42,6 +44,7 @@ const MIGRATIONS = [
   "supabase/migrations/20261008112030_preventivo_custo_e_consolidado.sql",
   "supabase/migrations/20261008143000_preventivo_remessas_ordem_canonica.sql",
   "supabase/migrations/20261008160000_preventivo_intervalos_entre_remessas.sql",
+  "supabase/migrations/20261008170000_preventivo_custo_com_moeda.sql",
 ].map(ler);
 
 const TABELAS = [
@@ -491,5 +494,81 @@ describe("Preventivo — painel objetivo", () => {
 
     const [i] = await intervalos();
     expect(i.ordem_comprovada).toBe(false);
+  });
+
+  // ---- MOEDA DO CUSTO ----
+  const custo = (acao, valor, moeda = null) => um(db,
+    `select public.preventivo_acao_custo_definir($1::uuid, $2::numeric, $3)`,
+    [acao, valor, moeda]);
+
+  it("grava BRL e USD, e devolve a moeda nas duas leituras", async () => {
+    const f1 = await importar("F1", [t("2026000001", 100)], "2026-10-02");
+    const real = await registrar(f1.lote_id, "E-mail", "EMAIL", "2026-10-02");
+    const dolar = await registrar(f1.lote_id, "WhatsApp", "WHATSAPP", "2026-10-02");
+    await importar("F2", [t("2026000001", 100)], "2026-10-06");
+
+    await custo(real.id, 120.5, "BRL");
+    await custo(dolar.id, 595.38, "USD");
+
+    const porNome = Object.fromEntries((await painel()).acoes.map((a) => [a.nome, a.custo]));
+    expect(porNome["E-mail"]).toMatchObject({ informado: true, moeda: "BRL" });
+    expect(Number(porNome["E-mail"].total)).toBe(120.5);
+    expect(porNome["WhatsApp"]).toMatchObject({ informado: true, moeda: "USD" });
+    expect(Number(porNome["WhatsApp"].total)).toBe(595.38);
+
+    const [i] = await intervalos();
+    const na = Object.fromEntries(i.acoes.map((a) => [a.nome, a]));
+    expect(na["WhatsApp"].custo_moeda).toBe("USD");
+    expect(na["E-mail"].custo_moeda).toBe("BRL");
+  });
+
+  it("o consolidado separa por moeda e NÃO soma BRL com USD", async () => {
+    const f1 = await importar("F1", [t("2026000001", 100)], "2026-10-02");
+    const a = await registrar(f1.lote_id, "A", "EMAIL", "2026-10-02");
+    const b = await registrar(f1.lote_id, "B", "WHATSAPP", "2026-10-02");
+    await importar("F2", [t("2026000001", 100)], "2026-10-06");
+    await custo(a.id, 10, "BRL");
+    await custo(b.id, 20, "USD");
+
+    const porMoeda = (await painel()).acoes_consolidado.custos_por_moeda;
+    expect(porMoeda).toEqual([
+      { moeda: "BRL", total: 10 }, { moeda: "USD", total: 20 },
+    ]);
+  });
+
+  it("custo sem moeda NÃO vira real: fica como não informada", async () => {
+    const f1 = await importar("F1", [t("2026000001", 100)], "2026-10-02");
+    const a = await registrar(f1.lote_id, "A", "EMAIL", "2026-10-02");
+    await importar("F2", [t("2026000001", 100)], "2026-10-06");
+    await custo(a.id, 33);                       // valor sem moeda
+
+    const [ac] = (await painel()).acoes;
+    expect(ac.custo.informado).toBe(true);
+    expect(ac.custo.moeda).toBe(null);
+    expect((await painel()).acoes_consolidado.custos_por_moeda)
+      .toEqual([{ moeda: "NAO_INFORMADA", total: 33 }]);
+  });
+
+  it("moeda nula PRESERVA a que já estava; limpar o valor limpa a moeda", async () => {
+    const f1 = await importar("F1", [t("2026000001", 100)], "2026-10-02");
+    const a = await registrar(f1.lote_id, "A", "WHATSAPP", "2026-10-02");
+    await importar("F2", [t("2026000001", 100)], "2026-10-06");
+
+    await custo(a.id, 595.38, "USD");
+    await custo(a.id, 600);                      // só o valor — a tela antiga faz isto
+    let ac = (await painel()).acoes[0];
+    expect(ac.custo.moeda).toBe("USD");
+    expect(Number(ac.custo.total)).toBe(600);
+
+    await custo(a.id, null);                     // limpar
+    ac = (await painel()).acoes[0];
+    expect(ac.custo.informado).toBe(false);
+    expect(ac.custo.moeda).toBe(null);
+  });
+
+  it("moeda fora da lista é recusada", async () => {
+    const f1 = await importar("F1", [t("2026000001", 100)], "2026-10-02");
+    const a = await registrar(f1.lote_id, "A", "EMAIL", "2026-10-02");
+    await expect(custo(a.id, 10, "EUR")).rejects.toThrow(/Moeda inválida/);
   });
 });

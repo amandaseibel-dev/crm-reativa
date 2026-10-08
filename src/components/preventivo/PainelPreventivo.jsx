@@ -33,7 +33,7 @@ import {
   CartesianGrid, LabelList,
 } from "recharts";
 import { S } from "../../ui/estilosFila";
-import { moeda, dataCurta, pct } from "../../utils/preventivoFormato";
+import { moeda, dataCurta, pct, moedaEm, SEM_MOEDA } from "../../utils/preventivoFormato";
 
 const COR_1 = "var(--rv-grafico-1)";
 const COR_2 = "var(--rv-grafico-2)";
@@ -294,7 +294,10 @@ function Intervalo({ i, q }) {
               <span style={S.muted}>
                 {" · "}{CANAIS[a.canal] || a.canal}
                 {" · "}{q(a.quando, a.precisao)}
-                {" · "}{a.custo_informado ? `custo ${moeda(a.custo_total)}` : "custo não informado"}
+                {" · "}{a.custo_informado
+                  ? `custo ${moedaEm(a.custo_total, a.custo_moeda)}`
+                    + (a.custo_moeda ? "" : ` (${SEM_MOEDA})`)
+                  : "custo não informado"}
               </span>
             </div>
           ))}
@@ -423,12 +426,18 @@ function HistoricoPorAcao({ acoes, consolidado, definicao, aoMudarCusto }) {
                     {consolidado.reducao_pct_titulos !== null ? ` · ${pct(consolidado.reducao_pct_titulos)}` : ""}
                   </div>
                 </div>
-                {consolidado.custo_total !== null && consolidado.custo_total !== undefined && (
-                  <div>
-                    <div style={{ fontSize: 19, fontWeight: 700 }}>{moeda(consolidado.custo_total)}</div>
-                    <div style={{ ...S.muted, fontSize: 11.5 }}>custo informado</div>
+                {/* UM BLOCO POR MOEDA. Somar BRL com USD num número só seria
+                    inventar câmbio — e esconder o erro dentro do total. */}
+                {(consolidado.custos_por_moeda || []).map((c) => (
+                  <div key={c.moeda}>
+                    <div style={{ fontSize: 19, fontWeight: 700 }}>
+                      {moedaEm(c.total, c.moeda === "NAO_INFORMADA" ? null : c.moeda)}
+                    </div>
+                    <div style={{ ...S.muted, fontSize: 11.5 }}>
+                      custo informado{c.moeda === "NAO_INFORMADA" ? ` (${SEM_MOEDA})` : ""}
+                    </div>
                   </div>
-                )}
+                ))}
               </div>
               {consolidado.pendentes_titulos > 0 && (
                 <div style={{ ...S.muted, fontSize: 11.5, marginTop: 6 }}>
@@ -505,6 +514,7 @@ function CartaoAcao({ a, pendente, n, m, q, aoMudarCusto }) {
 function Custo({ a, aoMudar }) {
   const [edit, setEdit] = useState(false);
   const [v, setV] = useState(a.custo?.total ?? "");
+  const [m, setM] = useState(a.custo?.moeda ?? "BRL");
   const [erro, setErro] = useState("");
   const alunos = a.antes?.alunos ?? 0;
 
@@ -515,7 +525,7 @@ function Custo({ a, aoMudar }) {
       setErro("Informe um valor igual ou maior que zero, ou deixe em branco."); return;
     }
     setErro("");
-    const ok = await aoMudar?.(a.id, num);
+    const ok = await aoMudar?.(a.id, num, num === null ? null : m);
     if (ok) setEdit(false);
   }
 
@@ -526,10 +536,11 @@ function Custo({ a, aoMudar }) {
           <div style={{ ...S.muted, fontSize: 12 }}>
             {a.custo?.informado ? (
               <>
-                Custo <strong>{moeda(a.custo.total)}</strong>
+                Custo <strong>{moedaEm(a.custo.total, a.custo.moeda)}</strong>
+                {a.custo.moeda ? null : <> ({SEM_MOEDA})</>}
                 {a.custo.por_aluno !== null && a.custo.por_aluno !== undefined
-                  ? <> · <strong>{moeda(a.custo.por_aluno)}</strong> por aluno acionado
-                      ({alunos} alunos)</>
+                  ? <> · <strong>{moedaEm(a.custo.por_aluno, a.custo.moeda)}</strong> por aluno
+                      acionado ({alunos} alunos)</>
                   : null}
               </>
             ) : "Custo não informado"}
@@ -541,9 +552,14 @@ function Custo({ a, aoMudar }) {
         </div>
       ) : (
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <input type="number" min="0" step="0.01" value={v} placeholder="Custo total (R$)"
-                 style={{ ...S.input, maxWidth: 160 }}
+          <input type="number" min="0" step="0.01" value={v} placeholder="Custo total"
+                 style={{ ...S.input, maxWidth: 140 }}
                  onChange={(e) => setV(e.target.value)} />
+          <select value={m} style={{ ...S.input, maxWidth: 110 }}
+                  onChange={(e) => setM(e.target.value)}>
+            <option value="BRL">R$ (BRL)</option>
+            <option value="USD">US$ (USD)</option>
+          </select>
           <button style={{ ...S.btnGhost, padding: "4px 12px" }} onClick={salvar}>Salvar</button>
           <button style={{ ...S.btnGhost, padding: "4px 12px" }}
                   onClick={() => { setEdit(false); setErro(""); }}>Cancelar</button>
