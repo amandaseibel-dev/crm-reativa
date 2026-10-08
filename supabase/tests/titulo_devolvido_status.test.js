@@ -285,7 +285,12 @@ describe("4. o rótulo não apodrece para CANCELADA", () => {
   }, TIMEOUT);
 });
 
-describe("5. suspensão não toca o título — a dívida fica", () => {
+// NOTA: isto vale para a cadeia DESTE arquivo, que para na 20261008190000.
+// A 20261008192000 passou a marcar o título como SUSPENSO, por pedido da
+// gestão -- ver supabase/tests/titulo_suspenso_status.test.js. O caso aqui
+// continua provando o que a 190000 faz: a devolução mexe no título e a
+// suspensão, naquele desenho, não.
+describe("5. suspensão não toca o título — a dívida fica (desenho da 190000)", () => {
   it("SUSPENSAO_COBRANCA deixa o título como estava", async () => {
     const db = await montar();
     await db.query(`update public.alunos set status_jornada = 'SUSPENSAO_COBRANCA' where id = $1`, [H.ALUNO_A]);

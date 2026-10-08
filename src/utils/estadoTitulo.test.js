@@ -148,3 +148,44 @@ describe("estado da mensalidade: DEVOLVIDO", () => {
     expect(estadoDoTitulo(t({ situacao: "PAGO", status: "devolvido" }))).toBe(ESTADO.PAGO);
   });
 });
+
+// SUSPENSO -- o único estado terminal que VOLTA.
+//
+// Sai da conta como DEVOLVIDO e CANCELADA, mas por motivo oposto: a dívida
+// continua sendo nossa e a cobrança apenas parou. O rótulo tem de dizer isso,
+// senão o operador lê "suspensa" como desfecho e para de acompanhar.
+describe("estado da mensalidade: SUSPENSO", () => {
+  it("fica fora da conta, com rótulo que fala de cobrança e não de desfecho", () => {
+    for (const x of [
+      t({ situacao: "SUSPENSO", status: "suspenso" }),
+      t({ situacao: "SUSPENSO", status: "em_aberto" }), // coerência ainda não rodou
+      t({ situacao: "ABERTO", status: "suspenso" }),
+    ]) {
+      expect(estadoDoTitulo(x)).toBe(ESTADO.SUSPENSO);
+      expect(contaComoAberta(x)).toBe(false);
+      expect(precisaDeSaida(x)).toBe(false); // a saída é levantar a suspensão
+    }
+    expect(rotuloDoTitulo(t({ situacao: "SUSPENSO", status: "suspenso" })))
+      .toBe("Cobrança suspensa");
+  });
+
+  it("não se confunde com devolvida nem com cancelada", () => {
+    const s = t({ situacao: "SUSPENSO", status: "suspenso" });
+    const d = t({ situacao: "DEVOLVIDO", status: "devolvido" });
+    const c = t({ situacao: "CANCELADA", status: "cancelada" });
+    const rotulos = new Set([rotuloDoTitulo(s), rotuloDoTitulo(d), rotuloDoTitulo(c)]);
+    expect(rotulos.size).toBe(3);
+    expect(new Set([estadoDoTitulo(s), estadoDoTitulo(d), estadoDoTitulo(c)]).size).toBe(3);
+  });
+
+  it("não é lido como pagamento nem recuperação", () => {
+    const s = t({ situacao: "SUSPENSO", status: "suspenso" });
+    expect(estadoDoTitulo(s)).not.toBe(ESTADO.PAGO);
+    expect(rotuloDoTitulo(s)).not.toMatch(/quitad|recupera/i);
+  });
+
+  it("pagamento real vence a suspensão", () => {
+    expect(estadoDoTitulo(t({ situacao: "SUSPENSO", status: "quitada" }))).toBe(ESTADO.PAGO);
+    expect(estadoDoTitulo(t({ situacao: "PAGO", status: "suspenso" }))).toBe(ESTADO.PAGO);
+  });
+});

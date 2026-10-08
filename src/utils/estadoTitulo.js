@@ -11,6 +11,11 @@
 // o React ainda precisa decidir sozinho -- qual etiqueta mostrar e quantas
 // mensalidades estao abertas -- para que esse espelho seja um so, e testavel.
 //
+// + 08/10/2026 (noite): SUSPENSO entrou junto. A gestão pediu que a suspensão
+// marque a mensalidade, e aceitou a consequência: o título sai também do saldo
+// registrado. É o único dos estados terminais que VOLTA -- `suspensao_*` guarda
+// o estado anterior e a reativação restaura dali.
+//
 // + 08/10/2026: DEVOLVIDO entrou. O motor de tabulacao sem pagamento gravava
 // CANCELADA para os dois casos, e CANCELADA ja significava outra coisa -- saida
 // administrativa pela Conferencia Prime. Agora sao 2 rotulos para 2 causas, e os
@@ -26,6 +31,7 @@ export const ESTADO = Object.freeze({
   PAGO: "PAGO",
   DUPLICADA: "DUPLICADA",
   DEVOLVIDO: "DEVOLVIDO",
+  SUSPENSO: "SUSPENSO",
   CANCELADA: "CANCELADA",
   EM_CONFIRMACAO: "EM_CONFIRMACAO",
   NEGOCIADO: "NEGOCIADO",
@@ -36,6 +42,7 @@ const ROTULO = Object.freeze({
   PAGO: "Quitada",
   DUPLICADA: "Fora da conta",
   DEVOLVIDO: "Devolvida sem recuperação",
+  SUSPENSO: "Cobrança suspensa",
   CANCELADA: "Cancelada",
   EM_CONFIRMACAO: "Em confirmação",
   NEGOCIADO: "Negociado",
@@ -57,6 +64,10 @@ export function estadoDoTitulo(t) {
   // gestao devolveu a divida sem recuperacao nossa; cancelado saiu porque nao
   // era nossa (encerramento pela Conferencia Prime).
   if (sit(t) === "DEVOLVIDO" || st(t) === "devolvido") return ESTADO.DEVOLVIDO;
+  // SUSPENSO sai da conta como os outros, mas é o único REVERSÍVEL: a dívida
+  // continua nossa e volta sozinha quando a gestão levanta a suspensão. Por
+  // isso o rótulo fala de cobrança, não de desfecho.
+  if (sit(t) === "SUSPENSO" || st(t) === "suspenso") return ESTADO.SUSPENSO;
   if (sit(t) === "CANCELADA" || st(t) === "cancelada") return ESTADO.CANCELADA;
   if (sit(t) === "EM_CONFIRMACAO") return ESTADO.EM_CONFIRMACAO;
   if (st(t) === "vinculada" || sit(t) === "NEGOCIADO" || !!t?.acordo_id) return ESTADO.NEGOCIADO;
