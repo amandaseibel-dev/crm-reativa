@@ -327,6 +327,29 @@ describe("Efetividade — visão global, separada da safra", () => {
     expect(screen.getByText("Casos ainda pendentes")).toBeTruthy();
   });
 
+  it("aparece EM DESTAQUE: antes dos blocos por safra, não no fim da página", async () => {
+    await abrir();
+    const texto = document.body.textContent;
+    // Estava no fim, abaixo do comparativo e da metodologia, e na prática
+    // ninguém o via. O que se trava aqui é a POSIÇÃO: acima do resumo da safra.
+    expect(texto.indexOf("Casos ainda pendentes"))
+      .toBeLessThan(texto.indexOf("As seis linhas da safra"));
+    expect(texto.indexOf("Casos ainda pendentes"))
+      .toBeLessThan(texto.indexOf("Quem compõe o saldo em aberto"));
+    expect(texto.indexOf("Casos ainda pendentes"))
+      .toBeLessThan(texto.indexOf("Ver metodologia"));
+  });
+
+  it("o número global aparece também em 2026/2, onde não há bloco por safra", async () => {
+    await abrir();
+    await ir2026_2();
+    // Fica fora de todo condicional de visão de propósito: o número é o mesmo
+    // em qualquer recorte.
+    expect(screen.getByText("Casos ainda pendentes")).toBeTruthy();
+    // o total do dublê padrão, para provar que o card tem dado em 2026/2 também
+    expect(screen.getByText("12.639")).toBeTruthy();
+  });
+
   it("o número global não é fixo no código: vem da RPC", async () => {
     responder({ casos_pendentes_contar: { ...CASOS_PENDENTES, pendentes: 4242 } });
     await abrir();
