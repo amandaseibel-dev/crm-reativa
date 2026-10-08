@@ -33,7 +33,15 @@ export default function TelaAcordosHoje({ snap }) {
   const fechados = Number(a.fechados || 0);
   const convertidos = Number(a.convertidos || 0);
   const valor = Number(a.valor_pago || 0);
-  const ranking = Array.isArray(a.ranking) ? a.ranking : [];
+  const rankingBruto = Array.isArray(a.ranking) ? a.ranking : [];
+  // "Sem responsável" não é operador: no telão ele aparecia como se fosse uma
+  // pessoa no ranking, e ninguém é acionado por isso. Sai da disputa e vira um
+  // aviso discreto. Os acordos dele CONTINUAM nos totais — o número de cima não
+  // muda, só a lista de nomes.
+  const SEM_DONO = "Sem responsável";
+  const ranking = rankingBruto.filter((r) => r.operador !== SEM_DONO);
+  const semDono = rankingBruto.find((r) => r.operador === SEM_DONO);
+  const semDonoQtd = Number(semDono?.fechados || 0);
   // `taxa_pct` vem null quando não houve acordo — não é zero, é "não se aplica".
   const taxa = a.taxa_pct == null ? null : Number(a.taxa_pct);
 
@@ -75,19 +83,30 @@ export default function TelaAcordosHoje({ snap }) {
       </div>
 
       {ranking.length > 0 && (
-        <div style={faixa}>
-          {ranking.slice(0, 4).map((r) => (
+        <div style={faixa(ranking.length)}>
+          {ranking.map((r) => (
             <div key={r.operador} style={cardOp}>
-              <div style={nomeOp}>{r.operador}</div>
+              <div style={nomeOp(ranking.length)}>{r.operador}</div>
               <div style={linhaOp}>
-                <span style={numeroOp}>{num(r.fechados)}</span>
-                <span style={rotuloOp}>fechados</span>
-                <span style={{ ...numeroOp, color: T.verde }}>{num(r.convertidos)}</span>
-                <span style={rotuloOp}>convertidos</span>
+                <div style={parOp}>
+                  <div style={numeroOp(ranking.length)}>{num(r.fechados)}</div>
+                  <div style={rotuloOp(ranking.length)}>fechados</div>
+                </div>
+                <div style={parOp}>
+                  <div style={{ ...numeroOp(ranking.length), color: T.verde }}>{num(r.convertidos)}</div>
+                  <div style={rotuloOp(ranking.length)}>convertidos</div>
+                </div>
               </div>
-              <div style={valorOp}>{moeda(r.valor_pago)}</div>
+              <div style={valorOp(ranking.length)}>{moeda(r.valor_pago)}</div>
             </div>
           ))}
+        </div>
+      )}
+
+      {semDonoQtd > 0 && (
+        <div style={avisoSemDono}>
+          {num(semDonoQtd)} {semDonoQtd === 1 ? "acordo sem responsável" : "acordos sem responsável"}
+          <span style={avisoSemDonoNota}> · conta no total, fora do ranking</span>
         </div>
       )}
     </Tela>
@@ -103,27 +122,52 @@ const grade = {
   display: "grid", gridTemplateColumns: "1fr 1fr", gap: "clamp(8px, 1.2vw, 22px)",
   flex: "1 1 auto", maxWidth: "58vw", minWidth: 0,
 };
-const faixa = {
-  display: "flex", gap: "clamp(10px, 1.4vw, 28px)", justifyContent: "center",
-  width: "min(88vw, 1600px)", flex: "0 0 auto", flexWrap: "nowrap",
-};
+// GRADE ADAPTATIVA. Antes a faixa era uma linha só com corte em 4 operadores —
+// num dia cheio, quem fechou acordo ficava de fora do telão. Agora entram
+// todos: até 5 numa linha; de 6 em diante quebra em duas, para o card não
+// virar um risco ilegível a quatro metros.
+const colunas = (n) => (n <= 5 ? n : Math.ceil(n / 2));
+const faixa = (n) => ({
+  display: "grid", gridTemplateColumns: `repeat(${colunas(n)}, minmax(0, 1fr))`,
+  gap: "clamp(8px, 1.1vw, 22px)", justifyContent: "center",
+  width: "min(92vw, 1700px)", flex: "0 0 auto",
+});
+// Com duas linhas sobra menos altura por card: a tipografia encolhe junto, em
+// vez de estourar o bloco.
+const denso = (n) => n > 5;
 const cardOp = {
   background: "rgba(148,163,184,0.10)", border: "1px solid rgba(148,163,184,0.22)",
   borderRadius: 18, padding: "1.2vh 1.4vw", display: "flex", flexDirection: "column",
   gap: "0.5vh", flex: "1 1 0", minWidth: 0, alignItems: "center", textAlign: "center",
   boxShadow: "0 10px 40px rgba(2,6,23,0.35)", boxSizing: "border-box",
 };
-const nomeOp = {
-  fontSize: fs(13, 1.35, 30), fontWeight: 800, color: T.texto,
+const nomeOp = (n) => ({
+  fontSize: denso(n) ? fs(12, 1.2, 26) : fs(13, 1.35, 30), fontWeight: 800, color: T.texto,
   whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%",
+});
+// Os dois pares empilham número sobre rótulo. Em linha única eles estouravam o
+// card assim que a faixa passava de quatro colunas: o "CONVERTIDOS" do último
+// operador saía cortado em 1600x900.
+const linhaOp = {
+  display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.6vw",
+  width: "100%", alignItems: "end",
 };
-const linhaOp = { display: "flex", alignItems: "baseline", gap: "0.5vw", flexWrap: "nowrap" };
-const numeroOp = { fontSize: fs(20, 2.3, 52), fontWeight: 900, lineHeight: 1, color: T.azulClaro };
-const rotuloOp = {
-  fontSize: fs(10, 1.0, 22), fontWeight: 700, color: T.textoMudo,
-  textTransform: "uppercase", letterSpacing: "0.08em",
+const parOp = { display: "flex", flexDirection: "column", alignItems: "center", gap: "0.1vh", minWidth: 0 };
+const numeroOp = (n) => ({
+  fontSize: denso(n) ? fs(17, 1.9, 42) : fs(20, 2.3, 52),
+  fontWeight: 900, lineHeight: 1, color: T.azulClaro,
+});
+const rotuloOp = (n) => ({
+  fontSize: denso(n) ? fs(9, 0.9, 19) : fs(10, 1.0, 22), fontWeight: 700, color: T.textoMudo,
+  textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap",
+});
+const valorOp = (n) => ({
+  fontSize: denso(n) ? fs(12, 1.2, 26) : fs(13, 1.35, 30), fontWeight: 700, color: T.textoSuave,
+});
+const avisoSemDono = {
+  fontSize: fs(12, 1.2, 26), fontWeight: 700, color: T.ambar, flex: "0 0 auto",
 };
-const valorOp = { fontSize: fs(13, 1.35, 30), fontWeight: 700, color: T.textoSuave };
+const avisoSemDonoNota = { color: T.textoSuave, fontWeight: 600 };
 const vazioBloco = {
   display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
   gap: "1.4vh", textAlign: "center",
