@@ -179,6 +179,17 @@ const CANAL_FORA = {
   sync_inicial_em: null, aguardando_qr: true,
 };
 
+// Número APOSENTADO pela gestão (08/10/2026: o Cobrança saiu e só o Comercial
+// ficou). O `conexao_status` e o `aguardando_qr` vêm de propósito no estado
+// VELHO, de antes de sair do ar: é esse resíduo que fazia a Central oferecer
+// "Ver QR Code" e "Reconectar" para um número que ninguém quer de volta.
+const CANAL_DESATIVADO = {
+  id: "c9", apelido: "Cobrança", display_phone_number: "+55 51 9999-9999",
+  sessao_chave: "cobranca",
+  ativo: false, conexao_status: "PAREAMENTO_NECESSARIO", online: false,
+  sync_inicial_em: new Date().toISOString(), aguardando_qr: true,
+};
+
 function conversa(extra = {}) {
   return {
     id: "k1",
@@ -908,6 +919,89 @@ describe("Central WhatsApp — gestão", () => {
     await screen.findByText("Central WhatsApp");
     expect(screen.queryByRole("button", { name: "Desconectar" })).toBeNull();
     expect(screen.getByRole("button", { name: "Reconectar" })).toBeDefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // NÚMERO APOSENTADO
+  //
+  // POR QUE ESTE BLOCO EXISTE: desativar um número em "Números" tirava ele da
+  // lista de envio, mas a barra de status continuava oferecendo "Reconectar" e
+  // "Ver QR Code" para ele — os dois caminhos que trazem o número de volta ao
+  // ar. Quem aposenta um número não quer convite para ressuscitá-lo.
+  //
+  // O que fica de pé: o histórico, a linha na barra e o "Desvincular" — é por
+  // ele que se solta o aparelho de um número recém-desativado.
+  // -------------------------------------------------------------------------
+  it("número desativado não oferece Reconectar nem Ver QR Code", async () => {
+    servico.gestao = true;
+    servico.canais = [CANAL_DESATIVADO];
+    render(<CentralWhatsApp />);
+    await screen.findByText("Central WhatsApp");
+    expect(screen.queryByRole("button", { name: "Reconectar" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ver QR Code" })).toBeNull();
+  });
+
+  it("número desativado aparece como Desativado, não como queda a resolver", async () => {
+    // O `conexao_status` guardado é informação velha: foi escrita antes de o
+    // número sair do ar. Mostrá-la como estado de agora manda a gestão correr
+    // atrás de uma queda que não existe.
+    servico.gestao = true;
+    servico.canais = [CANAL_DESATIVADO];
+    render(<CentralWhatsApp />);
+    expect(await screen.findByText("Desativado")).toBeDefined();
+    expect(screen.queryByText("Precisa ler o QR de novo")).toBeNull();
+  });
+
+  it("número desativado continua podendo ser desvinculado", async () => {
+    // Aposentar e desvincular são passos distintos, e nesta ordem: é por aqui
+    // que o aparelho se solta depois de o número sair do ar.
+    servico.gestao = true;
+    servico.canais = [CANAL_DESATIVADO];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByRole("button", { name: "Desvincular" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar desvincular" }));
+    await waitFor(() => expect(servico.comandos).toEqual([{ canalId: "c9", comando: "logout" }]));
+  });
+
+  it("o Comercial segue com Reconectar e QR ao lado de um número aposentado", async () => {
+    // A trava não pode valer para o número que ficou: aposentar um não pode
+    // tirar da gestão o controle do outro.
+    servico.gestao = true;
+    servico.canais = [CANAL_DESATIVADO, CANAL_FORA];
+    render(<CentralWhatsApp />);
+    await screen.findByText("Central WhatsApp");
+    expect(screen.getByRole("button", { name: "Reconectar" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Ver QR Code" })).toBeDefined();
+  });
+
+  it("número aposentado não acende o alerta de canal fora do ar", async () => {
+    servico.gestao = true;
+    servico.canais = [CANAL_DESATIVADO, CANAL_ONLINE];
+    render(<CentralWhatsApp />);
+    await screen.findByText("Central WhatsApp");
+    // Com o único número restante conectado, nada está pendente de conserto.
+    expect(screen.queryByText("Precisa ler o QR de novo")).toBeNull();
+    expect(screen.getByText("Conectado")).toBeDefined();
+  });
+
+  it("conversa de número aposentado fica legível, mas sem prometer volta", async () => {
+    // O histórico é preservado — a conversa abre e as mensagens aparecem. O que
+    // muda é o aviso: "está fora do ar... enquanto ele não voltar" mandaria o
+    // operador esperar por algo que não vai acontecer.
+    servico.gestao = false;
+    servico.canais = [CANAL_DESATIVADO];
+    servico.conversas = [conversa({ canal_id: "c9", canal_apelido: "Cobrança", nao_lidas: 0 })];
+    // Texto diferente da prévia da conversa: a prévia também é renderizada na
+    // lista, e um texto repetido casaria duas vezes sem provar nada.
+    servico.mensagens = [
+      { id: "m1", direcao: "ENTRADA", texto: "Mandei o comprovante ontem",
+        timestamp_wa: new Date().toISOString() },
+    ];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Fulano"));
+    expect(await screen.findByText(/foi desativado/)).toBeDefined();
+    expect(screen.getByText("Mandei o comprovante ontem")).toBeDefined();
+    expect(screen.queryByText(/enquanto ele não voltar/)).toBeNull();
   });
 
   it("desvincular nunca sai em um clique só", async () => {
