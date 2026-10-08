@@ -2,7 +2,7 @@
 // Em Brasília (UTC-3) isso empurrava o campo 3 horas para a frente — e, à
 // noite, mudava o DIA, que é justamente o que ordena as remessas.
 import { describe, it, expect } from "vitest";
-import { agoraLocalParaInput, pct } from "./preventivoFormato";
+import { agoraLocalParaInput, pct, moedaEm } from "./preventivoFormato";
 
 describe("data inicial do campo de extração", () => {
   it("devolve a hora LOCAL, não a UTC", () => {
@@ -53,5 +53,28 @@ describe("percentual em pt-BR", () => {
 
   it("separa milhar quando passa de cem", () => {
     expect(pct(1234.5)).toBe("1.234,5%");
+  });
+});
+
+// O custo do WhatsApp de 05/10 foi pago em dólar. Escrever "R$" nele seria
+// afirmar um fato falso sobre dinheiro.
+describe("dinheiro com moeda declarada", () => {
+  it("usa o símbolo de cada moeda", () => {
+    expect(moedaEm(595.38, "USD")).toBe("US$ 595,38");
+    expect(moedaEm(120.5, "BRL")).toBe("R$ 120,50");
+  });
+
+  it("moeda não informada NÃO vira real: sai sem símbolo", () => {
+    expect(moedaEm(33, null)).toBe("33,00");
+    expect(moedaEm(33, undefined)).toBe("33,00");
+  });
+
+  it("zero é zero, e ausência de valor é travessão", () => {
+    expect(moedaEm(0, "USD")).toBe("US$ 0,00");
+    expect(moedaEm(null, "USD")).toBe("—");
+  });
+
+  it("separa milhar em pt-BR", () => {
+    expect(moedaEm(1234567.8, "USD")).toBe("US$ 1.234.567,80");
   });
 });
