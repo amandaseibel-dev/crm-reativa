@@ -35,6 +35,7 @@ const MIGRATIONS = [
   "supabase/migrations/20261006114523_preventivo_acao_externa_e_data_da_extracao.sql",
   "supabase/migrations/20261006165832_preventivo_recorte_e_precisao_da_extracao.sql",
   "supabase/migrations/20261007113426_preventivo_painel_objetivo.sql",
+  "supabase/migrations/20261008110805_preventivo_reducao_por_acao.sql",
 ].map(ler);
 
 const TABELAS = [
@@ -131,8 +132,8 @@ describe("Preventivo — painel objetivo", () => {
     const [ac] = (await painel()).acoes;
     expect(ac.antes.titulos).toBe(3);
     expect(Number(ac.antes.saldo)).toBe(600);
-    expect(ac.saiu.titulos).toBe(1);
-    expect(Number(ac.saiu.valor)).toBe(200);
+    expect(ac.reducao.titulos).toBe(1);
+    expect(Number(ac.reducao.valor)).toBe(200);
     expect(ac.entradas.titulos).toBe(1);
     expect(Number(ac.entradas.valor)).toBe(50);
     expect(Number(ac.ajuste_saldo)).toBe(30);
@@ -140,10 +141,10 @@ describe("Preventivo — painel objetivo", () => {
     expect(Number(ac.depois.saldo)).toBe(480);
 
     // A IDENTIDADE, explicitamente
-    expect(Number(ac.antes.saldo) - Number(ac.saiu.valor)
+    expect(Number(ac.antes.saldo) - Number(ac.reducao.valor)
          + Number(ac.entradas.valor) + Number(ac.ajuste_saldo))
       .toBe(Number(ac.depois.saldo));
-    expect(ac.antes.titulos - ac.saiu.titulos + ac.entradas.titulos).toBe(ac.depois.titulos);
+    expect(ac.antes.titulos - ac.reducao.titulos + ac.entradas.titulos).toBe(ac.depois.titulos);
   });
 
   it("queda de saldo de quem FICOU vira ajuste, nunca saída", async () => {
@@ -153,12 +154,12 @@ describe("Preventivo — painel objetivo", () => {
     await importar("F2", [t("2026000001", 40), t("2026000002", 200)], "2026-10-06");
 
     const [ac] = (await painel()).acoes;
-    expect(ac.saiu.titulos).toBe(0);
-    expect(Number(ac.saiu.valor)).toBe(0);
+    expect(ac.reducao.titulos).toBe(0);
+    expect(Number(ac.reducao.valor)).toBe(0);
     expect(Number(ac.ajuste_saldo)).toBe(-60);
     expect(Number(ac.depois.saldo)).toBe(240);
     // os R$ 60 NÃO viraram "saiu"
-    expect(Number(ac.saiu.valor)).not.toBe(60);
+    expect(Number(ac.reducao.valor)).not.toBe(60);
   });
 
   it("alunos acionados conta cada aluno uma vez só", async () => {
@@ -180,7 +181,7 @@ describe("Preventivo — painel objetivo", () => {
     const p = await painel();
     expect(p.cards.alunos_acionados).toBeNull();
     expect(p.acoes[0].sem_envio_confirmado).toBe(true);
-    expect(p.acoes[0].saiu.titulos).toBeNull();
+    expect(p.acoes[0].reducao.titulos).toBeNull();
   });
 
   it("ação sem remessa comprovadamente posterior não inventa resultado", async () => {
@@ -188,7 +189,7 @@ describe("Preventivo — painel objetivo", () => {
     await registrar(f1.lote_id, "Envio", "WHATSAPP", "2026-10-02");
     const p = await painel();           // nenhuma foto depois ainda
     const ac = p.acoes[0];
-    expect(ac.saiu.titulos).toBeNull();
+    expect(ac.reducao.titulos).toBeNull();
     expect(ac.entradas.titulos).toBeNull();
     expect(ac.ajuste_saldo).toBeNull();
     expect(ac.depois.titulos).toBeNull();
@@ -236,8 +237,8 @@ describe("Preventivo — painel objetivo", () => {
 
     const ac = (await painel()).acoes.find((x) => x.id === a.id);
     expect(ac.sequencia_nao_comprovada).toBe(false);
-    expect(ac.saiu.titulos).toBe(1);
-    expect(Number(ac.saiu.valor)).toBe(200);
+    expect(ac.reducao.titulos).toBe(1);
+    expect(Number(ac.reducao.valor)).toBe(200);
 
     // e as duas funções antigas concordam
     const r = await um(db, `select public.preventivo_acao_resultado($1::uuid)`, [a.id]);
@@ -255,7 +256,39 @@ describe("Preventivo — painel objetivo", () => {
 
     const ac = (await painel()).acoes.find((x) => x.id === a.id);
     expect(ac.sequencia_nao_comprovada).toBe(true);
-    expect(ac.saiu.titulos).toBeNull();
+    expect(ac.reducao.titulos).toBeNull();
+  });
+
+  it("redução por ação traz valor, percentual, títulos e período comparado", async () => {
+    const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 300)], "2026-10-02");
+    const a = await registrar(f1.lote_id, "E-mail", "EMAIL", "2026-10-02");
+    await importar("F2", [t("2026000001", 100)], "2026-10-06");
+
+    const ac = (await painel()).acoes.find((x) => x.id === a.id);
+    expect(ac.reducao.titulos).toBe(1);
+    expect(Number(ac.reducao.valor)).toBe(300);
+    expect(Number(ac.reducao.pct_titulos)).toBe(50);     // 1 de 2
+    expect(Number(ac.reducao.pct_valor)).toBe(75);       // 300 de 400
+    expect(ac.periodo.de_nome).toBe("F1");
+    expect(ac.periodo.ate_nome).toBe("F2");
+    expect(ac.periodo.ate_quando).toBeTruthy();
+  });
+
+  it("o consolidado conta cada título UMA vez, e não é a soma das linhas", async () => {
+    // os mesmos 2 títulos acionados por dois canais; 1 sai
+    const f1 = await importar("F1", [t("2026000001", 100), t("2026000002", 300)], "2026-10-02");
+    await registrar(f1.lote_id, "E-mail", "EMAIL", "2026-10-02");
+    await registrar(f1.lote_id, "WhatsApp", "WHATSAPP", "2026-10-02");
+    await importar("F2", [t("2026000001", 100)], "2026-10-06");
+
+    const p = await painel();
+    const somaDasLinhas = p.acoes.reduce((t2, x) => t2 + Number(x.reducao.valor || 0), 0);
+    expect(somaDasLinhas).toBe(600);                       // 300 + 300 -> dobra
+    expect(Number(p.acoes_consolidado.reducao_valor)).toBe(300);   // conta uma vez
+    expect(p.acoes_consolidado.reducao_titulos).toBe(1);
+    expect(p.acoes_consolidado.base_titulos).toBe(2);
+    expect(Number(p.acoes_consolidado.base_saldo)).toBe(400);
+    expect(Number(p.acoes_consolidado.reducao_pct_valor)).toBe(75);
   });
 
   it("quem não é da gestão não lê o painel", async () => {

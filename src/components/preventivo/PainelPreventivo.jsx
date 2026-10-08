@@ -74,6 +74,8 @@ export default function PainelPreventivo({ dados }) {
   if (!dados) return null;
   const c = dados.cards || {};
   const brutos = dados.pontos || [];
+  const si = Number(c.inicio?.saldo || 0);
+  const pctInicial = si > 0 ? (Number(c.saiu?.valor || 0) / si * 100).toFixed(1) : null;
 
   if (brutos.length === 0) {
     return (
@@ -96,13 +98,13 @@ export default function PainelPreventivo({ dados }) {
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 12 }}>
-        <Cartao rotulo="Total da carteira quando iniciamos"
+        <Cartao rotulo="Carteira inicial"
                 valor={moeda(c.inicio?.saldo)}
                 sub={`${c.inicio?.titulos ?? 0} títulos · ${dataCurta(c.inicio?.quando)}`} />
-        <Cartao rotulo="Saíram da base"
-                valor={c.saiu?.titulos ?? 0}
-                sub={moeda(c.saiu?.valor)} />
-        <Cartao rotulo="Saldo em aberto hoje"
+        <Cartao rotulo="Redução observada"
+                valor={moeda(c.saiu?.valor)}
+                sub={`${c.saiu?.titulos ?? 0} títulos${pctInicial ? ` · ${pctInicial}% do saldo` : ""}`} />
+        <Cartao rotulo="Saldo restante"
                 valor={moeda(c.hoje?.saldo)}
                 sub={`${c.hoje?.titulos ?? 0} títulos · ${dataCurta(c.hoje?.quando)}`} />
       </div>
@@ -110,7 +112,7 @@ export default function PainelPreventivo({ dados }) {
       <OrdemAmbigua ativa={c.ordem_ambigua} />
 
       <p style={{ ...S.muted, marginTop: 10, fontSize: 12.5, maxWidth: 880 }}>
-        <strong>Saíram da base</strong> é movimento observado entre a primeira e a última foto
+        <strong>Redução observada</strong> é movimento observado entre a primeira e a última foto
         do relatório — <strong>não é pagamento confirmado</strong>. A fonte não separa pagamento
         de cancelamento, bolsa ou renegociação.
         {c.alunos_acionados !== null && c.alunos_acionados !== undefined
@@ -153,7 +155,8 @@ export default function PainelPreventivo({ dados }) {
         </div>
       </div>
 
-      <HistoricoPorAcao acoes={dados.acoes || []} definicao={dados.definicao} />
+      <HistoricoPorAcao acoes={dados.acoes || []} consolidado={dados.acoes_consolidado}
+                        definicao={dados.definicao} />
     </div>
   );
 }
@@ -177,45 +180,54 @@ function OrdemAmbigua({ ativa }) {
   );
 }
 
-// O que aconteceu DEPOIS de cada ação, com a conta fechando na horizontal:
-// antes − saiu + entradas + ajuste = depois.
-function HistoricoPorAcao({ acoes, definicao }) {
+// REDUÇÃO DO SALDO APÓS A AÇÃO.
+//
+// Cada linha compara a foto de onde o envio saiu com a primeira foto
+// comprovadamente posterior — e o período fica escrito, para ninguém precisar
+// adivinhar o que "depois" significa naquela linha.
+//
+// AS LINHAS NÃO SE SOMAM. A mesma pessoa pode ter sido acionada por e-mail e
+// por WhatsApp, e o título sai uma vez só. Por isso o consolidado vem do banco,
+// contando cada título uma vez, em vez de ser a soma da coluna.
+function HistoricoPorAcao({ acoes, consolidado, definicao }) {
   const temAjuste = acoes.some((a) => Number(a.ajuste_saldo || 0) !== 0);
+  const n = (v) => (v === null || v === undefined ? "—" : v);
+  const m = (v) => (v === null || v === undefined ? "—" : moeda(v));
+  const pct = (v) => (v === null || v === undefined ? "—" : `${v}%`);
+  const q = (x, prec) => (prec === "DATA_E_HORA" ? `${dataCurta(x)} ${hora(x)}` : dataCurta(x));
+
   return (
     <div style={{ ...S.card, padding: 20, marginTop: 16 }}>
-      <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>O que mudou depois de cada ação</h2>
-      <p style={{ ...S.muted, marginTop: 6, fontSize: 12.5, maxWidth: 880 }}>
-        Cada linha compara a foto de onde o envio saiu com a primeira foto seguinte. Ações
-        diferentes não se somam — elas podem conter os mesmos títulos.
+      <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Redução do saldo após a ação</h2>
+      <p style={{ ...S.muted, marginTop: 6, fontSize: 12.5, maxWidth: 900 }}>
+        Cada linha olha só os títulos que aquele envio incluiu, entre as duas fotos do período.
       </p>
 
       {acoes.length === 0 ? (
-        <p style={{ ...S.muted, marginTop: 12 }}>Nenhuma ação registrada ainda.</p>
+        <p style={{ ...S.muted, marginTop: 12 }}>Nenhum envio registrado ainda.</p>
       ) : (
         <div style={{ overflowX: "auto", marginTop: 12 }}>
           <table style={S.tabela}>
             <thead>
               <tr>
                 <th style={S.th}>Ação</th>
-                <th style={S.th}>Data</th>
                 <th style={S.th}>Canal</th>
-                <th style={S.thNum}>Títulos antes</th>
+                <th style={S.th}>Período comparado</th>
+                <th style={S.thNum}>Base</th>
                 <th style={S.thNum}>Saldo antes</th>
-                <th style={S.thNum}>Saíram</th>
-                <th style={S.thNum}>Valor que saiu</th>
-                <th style={S.thNum}>Entradas</th>
-                {temAjuste && <th style={S.thNum}>Ajuste de saldo</th>}
-                <th style={S.thNum}>Títulos depois</th>
+                <th style={S.thNum}>Redução R$</th>
+                <th style={S.thNum}>Redução %</th>
+                <th style={S.thNum}>Títulos</th>
+                <th style={S.thNum}>% títulos</th>
+                {temAjuste && <th style={S.thNum}>Ajuste</th>}
                 <th style={S.thNum}>Saldo depois</th>
               </tr>
             </thead>
             <tbody>
               {acoes.map((a) => {
-                const pend = a.sem_envio_confirmado ? "sem envio confirmado"
-                  : a.sequencia_nao_comprovada ? "ordem não comprovada"
-                  : a.aguardando_remessa ? "aguardando a próxima remessa" : null;
-                const n = (v) => (v === null || v === undefined ? "—" : v);
-                const m = (v) => (v === null || v === undefined ? "—" : moeda(v));
+                const pend = Boolean(a.sem_envio_confirmado || a.sequencia_nao_comprovada
+                                     || a.aguardando_remessa);
+                const p = a.periodo || {};
                 return (
                   <tr key={a.id}>
                     <td style={S.td}>
@@ -224,21 +236,53 @@ function HistoricoPorAcao({ acoes, definicao }) {
                         <span style={{ ...S.muted, fontSize: 11, display: "block" }}>fora do CRM</span>
                       )}
                     </td>
-                    <td style={S.td}>{a.quando ? dataCurta(a.quando) : "—"}</td>
                     <td style={S.td}>{CANAIS[a.canal] || a.canal}</td>
+                    <td style={S.td}>
+                      {p.ate_quando
+                        ? `${q(p.de_quando, p.de_precisao)} → ${q(p.ate_quando, p.ate_precisao)}`
+                        : "—"}
+                    </td>
                     <td style={S.tdNum}>{n(a.antes?.titulos)}</td>
                     <td style={S.tdNum}>{m(a.antes?.saldo)}</td>
-                    <td style={S.tdNum}>{pend ? "—" : n(a.saiu?.titulos)}</td>
-                    <td style={S.tdNum}>{pend ? "—" : m(a.saiu?.valor)}</td>
-                    <td style={S.tdNum}>{pend ? "—" : n(a.entradas?.titulos)}</td>
+                    <td style={S.tdNum}>{pend ? "—" : m(a.reducao?.valor)}</td>
+                    <td style={S.tdNum}>{pend ? "—" : pct(a.reducao?.pct_valor)}</td>
+                    <td style={S.tdNum}>{pend ? "—" : n(a.reducao?.titulos)}</td>
+                    <td style={S.tdNum}>{pend ? "—" : pct(a.reducao?.pct_titulos)}</td>
                     {temAjuste && <td style={S.tdNum}>{pend ? "—" : m(a.ajuste_saldo)}</td>}
-                    <td style={S.tdNum}>{pend ? "—" : n(a.depois?.titulos)}</td>
                     <td style={S.tdNum}>{pend ? "—" : m(a.depois?.saldo)}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {consolidado && consolidado.reducao_titulos !== null
+        && consolidado.reducao_titulos !== undefined && (
+        <div style={{ ...S.card, padding: 16, marginTop: 14, borderLeft: "3px solid var(--rv-grafico-1)", borderRadius: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 13 }}>
+            Redução atribuível ao conjunto das ações, sem dupla contagem
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 24, marginTop: 8, alignItems: "baseline" }}>
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 800 }}>{moeda(consolidado.reducao_valor)}</div>
+              <div style={{ ...S.muted, fontSize: 11.5 }}>
+                de {moeda(consolidado.base_saldo)} acionados
+                {consolidado.reducao_pct_valor !== null ? ` · ${consolidado.reducao_pct_valor}%` : ""}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 19, fontWeight: 700 }}>{consolidado.reducao_titulos}</div>
+              <div style={{ ...S.muted, fontSize: 11.5 }}>
+                de {consolidado.base_titulos} títulos
+                {consolidado.reducao_pct_titulos !== null ? ` · ${consolidado.reducao_pct_titulos}%` : ""}
+              </div>
+            </div>
+          </div>
+          <div style={{ ...S.muted, fontSize: 11.5, marginTop: 8, maxWidth: 880 }}>
+            {consolidado.observacao}
+          </div>
         </div>
       )}
 
@@ -260,13 +304,13 @@ function HistoricoPorAcao({ acoes, definicao }) {
         </p>
       )}
       {temAjuste && (
-        <p style={{ ...S.muted, marginTop: 6, fontSize: 11.5, maxWidth: 880 }}>
-          <strong>Ajuste de saldo</strong> é a variação de valor dos títulos que continuam nas
-          duas fotos — encargo, pagamento parcial, renegociação. Ele existe para a conta fechar
-          e <strong>não é recuperação</strong>: a fonte não informa o motivo.
+        <p style={{ ...S.muted, marginTop: 6, fontSize: 11.5, maxWidth: 900 }}>
+          <strong>Ajuste</strong> é a variação de valor dos títulos que continuam nas duas
+          fotos — encargo, pagamento parcial, renegociação. Existe para a conta fechar e{" "}
+          <strong>não é recuperação</strong>.
         </p>
       )}
-      <p style={{ ...S.muted, marginTop: 10, fontSize: 11.5, maxWidth: 880 }}>{definicao}</p>
+      <p style={{ ...S.muted, marginTop: 10, fontSize: 11.5, maxWidth: 900 }}>{definicao}</p>
     </div>
   );
 }
