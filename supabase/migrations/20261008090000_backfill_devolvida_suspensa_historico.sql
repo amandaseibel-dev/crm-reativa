@@ -9,13 +9,17 @@
 --
 -- O QUE FOI MEDIDO EM PRODUCAO EM 08/10/2026, e e o universo elegivel:
 --
---   CANCELAMENTO_COBRANCA -- 21 alunos
+--   CANCELAMENTO_COBRANCA -- 22 alunos
 --     parcelas vivas ....... 0
---     titulos no saldo ..... 16 (14 alunos), R$ 130.344,11  -> ENCERRAR
+--     titulos no saldo ..... 17, R$ 130.904,96              -> ENCERRAR
 --
---   SUSPENSAO_COBRANCA -- 113 alunos
---     parcelas vivas ....... 10 (2 alunos), R$ 245.587,32   -> SUSPENSA
---     titulos no saldo ..... 185 (62 alunos), R$ 462.348,53 -> NAO TOCAR
+--   SUSPENSAO_COBRANCA -- 118 alunos
+--     parcelas vivas ....... 13, R$ 258.951,51              -> SUSPENSA
+--     titulos no saldo ..... 186 (63 alunos), R$ 462.909,38 -> NAO TOCAR
+--
+-- Os numeros sao do PORTAO CANONICO (`aluno_bloqueio_administrativo`), que le
+-- aluno E caso. Lendo so `alunos`, como a primeira versao deste arquivo fazia,
+-- o universo vinha 6 alunos e 3 parcelas (R$ 13.364,19) menor.
 --
 --   ANTECIPACAO_SEMESTRE -- 0 alunos. Nada a fazer.
 --
@@ -78,10 +82,10 @@ declare
   -- trava e exatamente a medicao. O teste de comportamento sobrepoe com o
   -- universo da fixture -- sem isso o backfill seria INTESTAVEL, e um backfill
   -- que nao da para testar e pior que um com trava configuravel.
-  c_esp_parc_qtd int := coalesce(nullif(current_setting('backfill.esperado_parcelas_qtd', true),'')::int, 10);
-  c_esp_parc_val numeric := coalesce(nullif(current_setting('backfill.esperado_parcelas_valor', true),'')::numeric, 245587.32);
-  c_esp_tit_qtd  int := coalesce(nullif(current_setting('backfill.esperado_titulos_qtd', true),'')::int, 16);
-  c_esp_tit_val  numeric := coalesce(nullif(current_setting('backfill.esperado_titulos_valor', true),'')::numeric, 130344.11);
+  c_esp_parc_qtd int := coalesce(nullif(current_setting('backfill.esperado_parcelas_qtd', true),'')::int, 13);
+  c_esp_parc_val numeric := coalesce(nullif(current_setting('backfill.esperado_parcelas_valor', true),'')::numeric, 258951.51);
+  c_esp_tit_qtd  int := coalesce(nullif(current_setting('backfill.esperado_titulos_qtd', true),'')::int, 17);
+  c_esp_tit_val  numeric := coalesce(nullif(current_setting('backfill.esperado_titulos_valor', true),'')::numeric, 130904.96);
   v_parc_qtd int := 0;  v_parc_val numeric := 0;
   v_tit_qtd  int := 0;  v_tit_val  numeric := 0;
   v_ja int;
@@ -95,31 +99,49 @@ begin
   end if;
 
   -- ---- 2.1 universo, resolvido UMA vez e congelado -----------------------
+  -- O ALVO VEM DO PORTAO CANONICO, nao de `alunos.status_jornada`.
+  --
+  -- A primeira versao deste backfill lia so `alunos`, e ficava 3 parcelas
+  -- (R$ 13.364,19) menor: `aluno_bloqueio_administrativo` tambem le `casos`, e
+  -- ha aluno cuja suspensao esta carimbada na ficha e nao no aluno. Universo
+  -- medido em 08/10/2026: 118 suspensos + 22 cancelados = 140 alunos, contra
+  -- 113 + 21 = 134 pela leitura estreita.
+  --
+  -- JURIDICO e NAO_ACIONAR_EXPLICITO FICAM DE FORA de proposito: o portao
+  -- tambem os devolve, mas a gestao listou SEIS tabulacoes em 07/10/2026 e
+  -- juridico nao e uma delas. Alargar aqui seria decidir no lugar dela.
+  --
+  -- Aluno ao mesmo tempo suspenso e cancelado conta como SUSPENSO -- o portao
+  -- devolve suspensao primeiro, e suspensao e o tratamento REVERSIVEL dos dois.
+  create temporary table _bf_alvo on commit drop as
+  select al.id as aluno_id,
+         case when public.aluno_bloqueio_administrativo(al.id)
+                   in ('SUSPENSAO_COBRANCA','CANCELAMENTO_COBRANCA')
+                then public.aluno_bloqueio_administrativo(al.id)
+              when coalesce(nullif(al.status_jornada,''), al.status_atual) = 'ANTECIPACAO_SEMESTRE'
+                then 'ANTECIPACAO_SEMESTRE' end as origem
+    from public.alunos al;
+  delete from _bf_alvo where origem is null;
+
   create temporary table _bf_parcelas on commit drop as
-  select p.id as parcela_id, al.id as aluno_id,
-         case when coalesce(nullif(al.status_jornada,''), al.status_atual) = 'SUSPENSAO_COBRANCA'
-              then 'SUSPENSA' else 'DEVOLVIDA' end as efeito,
-         coalesce(nullif(al.status_jornada,''), al.status_atual) as origem,
-         coalesce(p.valor,0) as valor
-    from public.alunos al
-    join public.acordos a on a.aluno_id = al.id
+  select p.id as parcela_id, v.aluno_id,
+         case when v.origem = 'SUSPENSAO_COBRANCA' then 'SUSPENSA' else 'DEVOLVIDA' end as efeito,
+         v.origem, coalesce(p.valor,0) as valor
+    from _bf_alvo v
+    join public.acordos a on a.aluno_id = v.aluno_id
     join public.parcelas p on p.acordo_id = a.id
-   where coalesce(nullif(al.status_jornada,''), al.status_atual)
-         in ('CANCELAMENTO_COBRANCA','SUSPENSAO_COBRANCA','ANTECIPACAO_SEMESTRE')
-     and upper(coalesce(a.status,'')) not in ('CANCELADO','CANCELADA')
+   where upper(coalesce(a.status,'')) not in ('CANCELADO','CANCELADA')
      and public.parcela_viva(p.status)
      -- renegociada conta a mesma divida em outro acordo
      and upper(coalesce(p.status,'')) <> 'RENEGOCIADA';
 
   create temporary table _bf_titulos on commit drop as
-  select t.id as titulo_id, al.id as aluno_id,
-         coalesce(nullif(al.status_jornada,''), al.status_atual) as origem,
+  select t.id as titulo_id, v.aluno_id, v.origem,
          coalesce(t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0) as valor
-    from public.alunos al
-    join public.acordos_titulos t on t.aluno_id = al.id
-   where coalesce(nullif(al.status_jornada,''), al.status_atual)
+    from _bf_alvo v
+    join public.acordos_titulos t on t.aluno_id = v.aluno_id
          -- SUSPENSAO fica de fora: a divida continua existindo
-         in ('CANCELAMENTO_COBRANCA','ANTECIPACAO_SEMESTRE')
+   where v.origem in ('CANCELAMENTO_COBRANCA','ANTECIPACAO_SEMESTRE')
      and upper(coalesce(t.situacao,'')) in ('ABERTO','NEGOCIADO')
      and coalesce(lower(t.status),'') <> 'quitada'
      and t.origem_encerramento is null

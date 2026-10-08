@@ -745,11 +745,20 @@ begin
 
   -- O aluno volta para a fila. `nao_acionar` sai, o status volta a neutro e o
   -- motor decide situacao, criticidade e retorno -- em vez de a funcao chutar.
+  --
+  -- `status_acionamento` recebe 'CONTATAR', NAO null. O gatilho
+  -- `_acionamento_nao_volta_para_nulo` restaura o valor antigo quando alguem
+  -- tenta anular esse campo ("acionamento e fato consumado"), e por isso a
+  -- primeira versao desta funcao deixava 'SUSPENSAO_COBRANCA' gravado no aluno.
+  -- Consequencia medida pelo teste: `aluno_bloqueio_administrativo` continuava
+  -- devolvendo SUSPENSAO_COBRANCA, o saldo cobravel ficava em ZERO e a
+  -- suspensao era, na pratica, IRREVERSIVEL. Valor real contorna o gatilho sem
+  -- precisar desliga-lo.
   update public.casos
      set nao_acionar = false,
          status_atual = 'CONTATAR',
          status_jornada = null,
-         status_acionamento = null,
+         status_acionamento = 'CONTATAR',
          status_financeiro = 'EM_ABERTO',
          situacao_operacional = null,
          caso_atualizado_por = coalesce(nullif(v_email,''), 'sistema'),
@@ -759,9 +768,17 @@ begin
   update public.alunos
      set status_atual = 'CONTATAR',
          status_jornada = null,
-         status_acionamento = null,
+         status_acionamento = 'CONTATAR',
          situacao_operacional = null
    where id = p_aluno_id;
+
+  -- A SUSPENSAO TEM DE TER CAIDO DE VERDADE. Sem esta conferencia, uma
+  -- reativacao que nao reativa devolve `ok: true` e o saldo segue fora da
+  -- cobranca -- erro silencioso, que e o pior tipo aqui.
+  if public.aluno_bloqueio_administrativo(p_aluno_id) = 'SUSPENSAO_COBRANCA' then
+    raise exception 'Reativação não levantou a suspensão: o portão ainda bloqueia o aluno %. Nada foi confirmado.', p_aluno_id
+      using errcode = 'P0001';
+  end if;
 
   v_recalc := public.recalcular_situacao_aluno(p_aluno_id, 'suspensao_reativada');
 

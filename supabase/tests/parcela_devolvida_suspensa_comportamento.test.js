@@ -21,6 +21,7 @@
 // pagamento real, devolver um acordo inteiro afirmaria recuperação em cascata.
 import { describe, it, expect, beforeAll } from "vitest";
 import * as H from "./fixtures/confirmacao_d2/harness.js";
+import { PORTAO_BLOQUEIO_ADMINISTRATIVO } from "./fixtures/portao_bloqueio_administrativo.js";
 
 const M_ANTECIP = "20261007143000_antecipacao_semestre_quita_responsabilidade";
 const M_FUND = "20261007210000_parcela_viva_fonte_unica";
@@ -85,6 +86,9 @@ const MOTIVO = "unidade Canoas confirmou em 06/10/2026";
 async function montar() {
   const db = await H.montarProd();
   await db.exec(ROLES);
+  // `suspensao_cobranca_reativar` confere o portão canônico antes de
+  // confirmar a reativação; a fixture não o traz
+  await db.exec(PORTAO_BLOQUEIO_ADMINISTRATIVO);
   await db.exec(CATALOGO);
   await db.exec(TITULO(TIT_ID, "9900001"));
   await db.exec(H.MIG(M_ANTECIP));
@@ -115,6 +119,9 @@ describe("fundação parcela_viva — tem de ser NEUTRA", () => {
   beforeAll(async () => {
     db = await H.montarProd();
     await db.exec(ROLES);
+  // `suspensao_cobranca_reativar` confere o portão canônico antes de
+  // confirmar a reativação; a fixture não o traz
+  await db.exec(PORTAO_BLOQUEIO_ADMINISTRATIVO);
     await db.exec(CATALOGO);
     await db.exec(TITULO(TIT_ID, "9900001"));
     await db.exec(H.MIG(M_ANTECIP));

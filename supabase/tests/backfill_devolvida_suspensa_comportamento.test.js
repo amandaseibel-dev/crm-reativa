@@ -17,6 +17,7 @@
 //   6. é idempotente, e o rollback devolve o estado anterior pelo snapshot.
 import { describe, it, expect, beforeAll } from "vitest";
 import * as H from "./fixtures/confirmacao_d2/harness.js";
+import { PORTAO_BLOQUEIO_ADMINISTRATIVO } from "./fixtures/portao_bloqueio_administrativo.js";
 
 const M_ANTECIP = "20261007143000_antecipacao_semestre_quita_responsabilidade";
 const M_FUND = "20261007210000_parcela_viva_fonte_unica";
@@ -91,6 +92,9 @@ select set_config('backfill.esperado_titulos_valor','800.00', false);`;
 async function montar({ comEsperado = true } = {}) {
   const db = await H.montarProd();
   await db.exec(ROLES);
+  // o portão canônico não vem na fixture; é dele que sai o universo do
+  // backfill e a exclusão do saldo cobrável
+  await db.exec(PORTAO_BLOQUEIO_ADMINISTRATIVO);
   await db.exec(CATALOGO);
   await db.exec(H.MIG(M_ANTECIP));
   await db.exec(H.MIG(M_FUND));
