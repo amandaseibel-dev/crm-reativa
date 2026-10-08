@@ -552,6 +552,33 @@ export default function CarteiraEfetividade() {
         </div>
       </div>
 
+      {/* ÁREA GLOBAL — EM DESTAQUE, e fora da análise por safra.
+          "Casos ainda pendentes" é indicador da CARTEIRA INTEIRA: caso sem
+          nenhum pagamento registrado OU com acordo ativo ainda a receber, união
+          sem contar o mesmo caso duas vezes. A regra é a de
+          `casos_pendentes_contar()` e nenhuma conta acontece aqui.
+
+          POR QUE SUBIU PARA O TOPO (08/10/2026). Ele estava no fim da página,
+          abaixo do comparativo e da metodologia, e na prática ninguém o via --
+          a gestão o reportou como ausente. Subiu para cá, acima dos blocos por
+          safra, porque é o número que responde "quanto ainda há para trabalhar
+          hoje" e isso não depende de qual safra está selecionada.
+
+          FICA FORA DE TODO CONDICIONAL DE VISÃO, de propósito: o número é o
+          mesmo em 2024, 2025, 2026/1 e nas três visões de 2026/2, e por isso
+          aparece em todas. A régua e o rótulo continuam dizendo que ele NÃO é da
+          safra selecionada e não se soma a nenhum número dos blocos abaixo --
+          era essa separação que o lugar antigo garantia pela distância, e que
+          agora é garantida pelo texto. */}
+      <div style={S.areaGlobal}>
+        <span style={S.areaGlobalRotulo}>Visão operacional da carteira inteira</span>
+        <CasosPendentes />
+        <p style={S.discreto}>
+          Este número <strong>não é da safra selecionada</strong>: é a carteira operacional de hoje,
+          inteira. Não se soma nem se compara com os blocos por safra abaixo.
+        </p>
+      </div>
+
       {erro ? <p style={S.erro}>{erro}</p> : null}
 
       {safra === "2026/2" && vista === "competencia" ? (
@@ -727,21 +754,6 @@ export default function CarteiraEfetividade() {
 
         </>
       )}
-
-      {/* ÁREA GLOBAL — fora da análise por safra, de propósito.
-          "Casos ainda pendentes" é indicador da CARTEIRA INTEIRA: sem nenhum
-          pagamento OU com acordo ativo a receber, descontada a sobreposição.
-          Não é recorte de 2024, 2025 ou 2026 e não se soma a nenhum número de
-          safra — por isso mora aqui embaixo, separado por uma régua, com o
-          cabeçalho dizendo a que se refere. */}
-      <div style={S.areaGlobal}>
-        <span style={S.areaGlobalRotulo}>Visão operacional da carteira inteira</span>
-        <p style={S.discreto}>
-          O que vem abaixo <strong>não é da safra selecionada</strong>: é a carteira operacional de hoje,
-          inteira. Não se soma nem se compara com os blocos acima.
-        </p>
-        <CasosPendentes />
-      </div>
 
       {/* 4. METODOLOGIA — tudo o que é técnico mora aqui, e vale para as duas
           visões de 2026/2: consolidado e por competência. */}
@@ -933,7 +945,7 @@ const S = {
   // A régua que separa a análise por safra da visão operacional global. É
   // visual de propósito: os dois universos não se somam, e a tela precisa
   // dizer isso antes do número, não depois.
-  areaGlobal: { marginTop: 34, paddingTop: 20, borderTop: "2px solid var(--rv-borda-suave)" },
+  areaGlobal: { marginTop: 18, paddingBottom: 18, borderBottom: "2px solid var(--rv-borda-suave)" },
   areaGlobalRotulo: { display: "block", fontSize: 11, fontWeight: 700, letterSpacing: "0.07em",
                       textTransform: "uppercase", color: "var(--rv-texto-fraco)", marginBottom: 6 },
 };
