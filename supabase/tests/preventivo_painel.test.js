@@ -11,7 +11,8 @@
 //   6. a proteção de ordem ambígua vale também aqui: se duas fotos vizinhas
 //      não têm ordem provada, os cards avisam;
 //   7. foto ambígua do mesmo dia NÃO mantém a ação pendente quando já existe
-//      remessa posterior válida — nesse caso a comparação é contra a posterior.
+//      remessa posterior válida — nesse caso a comparação é contra a posterior;
+//   8. o histórico sai pela ordem da EXTRAÇÃO, não pela hora da importação.
 //
 // NENHUM DADO REAL.
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
@@ -37,6 +38,7 @@ const MIGRATIONS = [
   "supabase/migrations/20261007113426_preventivo_painel_objetivo.sql",
   "supabase/migrations/20261008110805_preventivo_reducao_por_acao.sql",
   "supabase/migrations/20261008112030_preventivo_custo_e_consolidado.sql",
+  "supabase/migrations/20261008143000_preventivo_remessas_ordem_canonica.sql",
 ].map(ler);
 
 const TABELAS = [
@@ -393,5 +395,22 @@ describe("Preventivo — painel objetivo", () => {
     await importar("F1", [t("2026000001", 100)], "2026-10-02");
     await db.exec(`update public._jwt set email = '${OUTRA}'`);
     await expect(painel()).rejects.toThrow(/gest/i);
+  });
+
+  // A tela diz "da mais nova para a mais antiga". Quando a lista era ordenada
+  // por `criado_em`, uma foto antiga importada por último subia para o topo —
+  // foi o que aconteceu em produção com a foto de 05/10 (tarde), importada
+  // dois dias antes das outras e exibida abaixo da foto de 02/10.
+  it("o histórico sai pela ordem da extração, não pela da importação", async () => {
+    // importadas FORA de ordem de propósito: 05/10 primeiro, 02/10 depois
+    await importar("F3 — 05/10 tarde", [t("2026000001", 100)], "2026-10-05", 2);
+    await importar("F1 — 02/10", [t("2026000001", 100)], "2026-10-02");
+    await importar("F4 — 06/10", [t("2026000001", 100)], "2026-10-06");
+    await importar("F2 — 05/10 manhã", [t("2026000001", 100)], "2026-10-05", 1);
+
+    const lista = await um(db, `select public.preventivo_remessas($1::uuid)`, [carteira]);
+    expect(lista.map((r) => r.nome)).toEqual([
+      "F4 — 06/10", "F3 — 05/10 tarde", "F2 — 05/10 manhã", "F1 — 02/10",
+    ]);
   });
 });

@@ -19,7 +19,7 @@ import {
   CartesianGrid, LabelList,
 } from "recharts";
 import { S } from "../../ui/estilosFila";
-import { moeda, dataCurta } from "../../utils/preventivoFormato";
+import { moeda, dataCurta, pct } from "../../utils/preventivoFormato";
 
 const COR_1 = "var(--rv-grafico-1)";
 const COR_2 = "var(--rv-grafico-2)";
@@ -76,7 +76,7 @@ export default function PainelPreventivo({ dados, aoMudarCusto }) {
   const c = dados.cards || {};
   const brutos = dados.pontos || [];
   const si = Number(c.inicio?.saldo || 0);
-  const pctInicial = si > 0 ? (Number(c.saiu?.valor || 0) / si * 100).toFixed(1) : null;
+  const pctInicial = si > 0 ? Number(c.saiu?.valor || 0) / si * 100 : null;
 
   if (brutos.length === 0) {
     return (
@@ -104,7 +104,7 @@ export default function PainelPreventivo({ dados, aoMudarCusto }) {
                 sub={`${c.inicio?.titulos ?? 0} títulos · ${dataCurta(c.inicio?.quando)}`} />
         <Cartao rotulo="Redução observada"
                 valor={moeda(c.saiu?.valor)}
-                sub={`${c.saiu?.titulos ?? 0} títulos${pctInicial ? ` · ${pctInicial}% do saldo` : ""}`} />
+                sub={`${c.saiu?.titulos ?? 0} títulos${pctInicial !== null ? ` · ${pct(pctInicial)} do saldo` : ""}`} />
         <Cartao rotulo="Saldo restante"
                 valor={moeda(c.hoje?.saldo)}
                 sub={`${c.hoje?.titulos ?? 0} títulos · ${dataCurta(c.hoje?.quando)}`} />
@@ -204,7 +204,9 @@ function HistoricoPorAcao({ acoes, consolidado, definicao, aoMudarCusto }) {
   const barras = acoes
     .filter((a) => !pendente(a) && a.reducao?.valor !== null && a.reducao?.valor !== undefined)
     .map((a) => ({
-      rotulo: a.nome.length > 22 ? `${a.nome.slice(0, 21)}…` : a.nome,
+      // Nome INTEIRO: as barras são horizontais justamente para que
+      // "E-mail de 05/10 (manhã)" caiba sem virar "E-mail de 05/10 (manh…".
+      rotulo: a.nome,
       valor: Number(a.reducao.valor), pct: Number(a.reducao.pct_valor ?? 0),
       titulos: a.reducao.titulos, nome: a.nome,
     }));
@@ -231,15 +233,16 @@ function HistoricoPorAcao({ acoes, consolidado, definicao, aoMudarCusto }) {
       {barras.length > 0 && (
         <div style={{ ...S.card, padding: 20, marginTop: 16 }}>
           <h3 style={{ ...S.cardNome, fontSize: 14, margin: 0 }}>Redução por ação, em reais</h3>
-          <div style={{ height: 230, marginTop: 12 }}>
+          <div style={{ height: Math.max(150, barras.length * 54 + 44), marginTop: 12 }}>
             <ResponsiveContainer>
-              <BarChart data={barras} margin={{ top: 18, right: 16, left: 4, bottom: 4 }}>
-                <CartesianGrid vertical={false} stroke="var(--rv-borda-suave)" strokeDasharray="3 3" />
-                <XAxis dataKey="rotulo" tick={EIXO} />
-                <YAxis tick={EIXO} tickFormatter={compacto} />
+              <BarChart layout="vertical" data={barras}
+                        margin={{ top: 8, right: 58, left: 4, bottom: 4 }}>
+                <CartesianGrid horizontal={false} stroke="var(--rv-borda-suave)" strokeDasharray="3 3" />
+                <XAxis type="number" tick={EIXO} tickFormatter={compacto} />
+                <YAxis type="category" dataKey="rotulo" tick={EIXO} width={200} interval={0} />
                 <Tooltip content={<DicaBarra />} cursor={{ fill: "var(--rv-borda-suave)", opacity: 0.35 }} />
-                <Bar dataKey="valor" fill={COR_1} radius={[4, 4, 0, 0]} barSize={56}>
-                  <LabelList dataKey="pct" position="top" formatter={(v) => `${v}%`}
+                <Bar dataKey="valor" fill={COR_1} radius={[0, 4, 4, 0]} barSize={26}>
+                  <LabelList dataKey="pct" position="right" formatter={pct}
                              style={{ fontSize: 11.5, fill: "var(--rv-tinta)" }} />
                 </Bar>
               </BarChart>
@@ -268,14 +271,14 @@ function HistoricoPorAcao({ acoes, consolidado, definicao, aoMudarCusto }) {
                   <div style={{ fontSize: 22, fontWeight: 800 }}>{moeda(consolidado.reducao_valor)}</div>
                   <div style={{ ...S.muted, fontSize: 11.5 }}>
                     de {moeda(consolidado.base_saldo)} acionados
-                    {consolidado.reducao_pct_valor !== null ? ` · ${consolidado.reducao_pct_valor}%` : ""}
+                    {consolidado.reducao_pct_valor !== null ? ` · ${pct(consolidado.reducao_pct_valor)}` : ""}
                   </div>
                 </div>
                 <div>
                   <div style={{ fontSize: 19, fontWeight: 700 }}>{consolidado.reducao_titulos}</div>
                   <div style={{ ...S.muted, fontSize: 11.5 }}>
                     de {consolidado.com_regua_titulos} títulos comparáveis
-                    {consolidado.reducao_pct_titulos !== null ? ` · ${consolidado.reducao_pct_titulos}%` : ""}
+                    {consolidado.reducao_pct_titulos !== null ? ` · ${pct(consolidado.reducao_pct_titulos)}` : ""}
                   </div>
                 </div>
                 {consolidado.custo_total !== null && consolidado.custo_total !== undefined && (
@@ -310,7 +313,7 @@ function DicaBarra({ active, payload }) {
   return (
     <div style={caixa}>
       <div style={{ fontWeight: 800 }}>{d.nome}</div>
-      <div style={{ marginTop: 4 }}>{moeda(d.valor)} · {d.pct}%</div>
+      <div style={{ marginTop: 4 }}>{moeda(d.valor)} · {pct(d.pct)}</div>
       <div style={{ ...S.muted, fontSize: 11.5 }}>{d.titulos} títulos</div>
     </div>
   );
@@ -344,10 +347,10 @@ function CartaoAcao({ a, pendente, n, m, q, aoMudarCusto }) {
           <div style={{ fontSize: 26, fontWeight: 800, marginTop: 12 }}>{m(a.reducao?.valor)}</div>
           <div style={{ ...S.muted, fontSize: 12.5, marginTop: 2 }}>
             {a.reducao?.pct_valor !== null && a.reducao?.pct_valor !== undefined
-              ? `${a.reducao.pct_valor}% do saldo acionado` : "—"}
+              ? `${pct(a.reducao.pct_valor)} do saldo acionado` : "—"}
             {" · "}{n(a.reducao?.titulos)} de {n(a.antes?.titulos)} títulos
             {a.reducao?.pct_titulos !== null && a.reducao?.pct_titulos !== undefined
-              ? ` (${a.reducao.pct_titulos}%)` : ""}
+              ? ` (${pct(a.reducao.pct_titulos)})` : ""}
           </div>
         </>
       )}

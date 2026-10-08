@@ -2,7 +2,7 @@
 // Em Brasília (UTC-3) isso empurrava o campo 3 horas para a frente — e, à
 // noite, mudava o DIA, que é justamente o que ordena as remessas.
 import { describe, it, expect } from "vitest";
-import { agoraLocalParaInput } from "./preventivoFormato";
+import { agoraLocalParaInput, pct } from "./preventivoFormato";
 
 describe("data inicial do campo de extração", () => {
   it("devolve a hora LOCAL, não a UTC", () => {
@@ -28,5 +28,30 @@ describe("data inicial do campo de extração", () => {
   it("o valor volta ao instante certo quando reconvertido", () => {
     const d = new Date(2026, 9, 6, 21, 30, 0);
     expect(new Date(agoraLocalParaInput(d)).getTime()).toBe(d.getTime());
+  });
+});
+
+// A tela mostra "R$ 4.248.050,67 · 17,4%" na mesma linha: o separador decimal
+// precisa ser o mesmo nos dois.
+describe("percentual em pt-BR", () => {
+  it("usa vírgula decimal e sempre uma casa", () => {
+    expect(pct(17.4)).toBe("17,4%");
+    expect(pct(60)).toBe("60,0%");
+    expect(pct("55.7")).toBe("55,7%");
+  });
+
+  it("zero é zero, e não vira travessão", () => {
+    expect(pct(0)).toBe("0,0%");
+  });
+
+  it("sem número não inventa valor", () => {
+    expect(pct(null)).toBe("—");
+    expect(pct(undefined)).toBe("—");
+    expect(pct("")).toBe("—");
+    expect(pct("tanto faz")).toBe("—");
+  });
+
+  it("separa milhar quando passa de cem", () => {
+    expect(pct(1234.5)).toBe("1.234,5%");
   });
 });
