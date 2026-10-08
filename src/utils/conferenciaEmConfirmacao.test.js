@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import {
+  EFEITO_VINCULA, CLASSES_HUMANAS, CLASSES_ADMINISTRATIVAS,
+} from "./emConfirmacao";
 
 // GUARDA DA CONFIRMACAO DE PAGAMENTO QUE RESOLVE O TITULO EM CONFIRMACAO.
 //
@@ -154,5 +157,67 @@ describe("Confirmacao de Pagamento resolve o titulo em confirmacao", () => {
     }
     // so ABERTO conta
     expect(estadoUtil).toMatch(/estadoDoTitulo\(t\) === ESTADO\.ABERTO/);
+  });
+});
+
+// AS DUAS DECISOES QUE A FILA UNICA NAO OFERECIA (08/10/2026).
+//
+// Amanda: "esta aparecendo apenas Rejeitar". Medido em producao antes de
+// escrever codigo: 641 titulos em confirmacao, e em 541 deles NENHUM acordo
+// passa na trava — Rejeitar era mesmo a unica saida possivel. O que faltava
+// eram `prime_conferencia_classificar_humano` e
+// `prime_conferencia_encerrar_administrativo`, que ja existiam na Conferencia
+// Prime e nunca apareceram aqui.
+//
+// Estes casos travam as CONDICOES, copiadas das guardas das proprias RPCs: um
+// botao so pode aparecer onde o backend nao recusa.
+describe("classe humana — as 7 que o banco aceita", () => {
+  it("são exatamente as de prime_conferencia_classificar_humano", () => {
+    // Fora desta lista a RPC levanta CLASSE_INVALIDA.
+    expect(CLASSES_HUMANAS.map((c) => c.valor)).toEqual([
+      "PAGAMENTO_REAL", "ACORDO", "LIQUIDACAO_INSTITUCIONAL", "CANCELAMENTO_ESTORNO",
+      "ISENCAO_FIES_BOLSA", "SUBSTITUICAO_TITULO", "INCONCLUSIVO",
+    ]);
+  });
+
+  it("toda classe tem rótulo legível, para o telão da decisão não mostrar constante", () => {
+    for (const c of CLASSES_HUMANAS) {
+      expect(c.rotulo.length).toBeGreaterThan(3);
+      expect(c.rotulo).not.toBe(c.valor);
+    }
+  });
+});
+
+describe("encerramento administrativo — só as duas classes", () => {
+  it("aceita cancelamento/estorno e isenção/FIES/bolsa", () => {
+    expect(CLASSES_ADMINISTRATIVAS.has("CANCELAMENTO_ESTORNO")).toBe(true);
+    expect(CLASSES_ADMINISTRATIVAS.has("ISENCAO_FIES_BOLSA")).toBe(true);
+  });
+
+  it("recusa as outras cinco — a RPC levanta CLASSE_NAO_ADMINISTRATIVA", () => {
+    for (const c of CLASSES_HUMANAS) {
+      if (c.valor === "CANCELAMENTO_ESTORNO" || c.valor === "ISENCAO_FIES_BOLSA") continue;
+      expect(CLASSES_ADMINISTRATIVAS.has(c.valor)).toBe(false);
+    }
+  });
+
+  it("sem classe nenhuma não encerra — a RPC levanta SEM_CLASSE_HUMANA", () => {
+    expect(CLASSES_ADMINISTRATIVAS.has("")).toBe(false);
+    expect(CLASSES_ADMINISTRATIVAS.has(undefined)).toBe(false);
+    expect(CLASSES_ADMINISTRATIVAS.has(null)).toBe(false);
+  });
+
+  it("é um subconjunto das classes válidas — não inventa valor", () => {
+    const validas = new Set(CLASSES_HUMANAS.map((c) => c.valor));
+    for (const a of CLASSES_ADMINISTRATIVAS) expect(validas.has(a)).toBe(true);
+  });
+});
+
+describe("as duas listas não se confundem com a do vínculo", () => {
+  it("EFEITO_VINCULA continua só com os dois efeitos de acordo", () => {
+    // Guarda contra alguém juntar as listas: efeito de acordo e classe humana
+    // são coisas diferentes, decididas por RPCs diferentes.
+    expect([...EFEITO_VINCULA].sort()).toEqual(["VIRA_NEGOCIADO", "VIRA_PAGO"]);
+    for (const e of EFEITO_VINCULA) expect(CLASSES_ADMINISTRATIVAS.has(e)).toBe(false);
   });
 });

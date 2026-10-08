@@ -57,3 +57,25 @@ export function motivoSugerido(item, acordo) {
     `${item?.documento || "?"} (${dinheiro(item?.valor)})`
   );
 }
+
+// AS CLASSES DO "O QUE APARECEU NO PRIME".
+//
+// Copiadas de `prime_conferencia_classificar_humano`, que recusa qualquer outro
+// valor com CLASSE_INVALIDA. A lista existe aqui para a tela montar o select;
+// quem valida continua sendo o banco.
+export const CLASSES_HUMANAS = [
+  { valor: "PAGAMENTO_REAL", rotulo: "Pagamento real" },
+  { valor: "ACORDO", rotulo: "Acordo" },
+  { valor: "LIQUIDACAO_INSTITUCIONAL", rotulo: "Liquidação institucional" },
+  { valor: "CANCELAMENTO_ESTORNO", rotulo: "Cancelamento / estorno" },
+  { valor: "ISENCAO_FIES_BOLSA", rotulo: "Isenção, FIES ou bolsa" },
+  { valor: "SUBSTITUICAO_TITULO", rotulo: "Substituição de título" },
+  { valor: "INCONCLUSIVO", rotulo: "Inconclusivo" },
+];
+
+// AS DUAS QUE ENCERRAM ADMINISTRATIVAMENTE.
+//
+// `prime_conferencia_encerrar_administrativo` recusa qualquer outra com
+// CLASSE_NAO_ADMINISTRATIVA. Oferecer o botao fora destas duas seria prometer o
+// que o backend nega -- o mesmo motivo pelo qual EFEITO_VINCULA existe.
+export const CLASSES_ADMINISTRATIVAS = new Set(["CANCELAMENTO_ESTORNO", "ISENCAO_FIES_BOLSA"]);
