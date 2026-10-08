@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
+import TriagemConfirmacaoPendente from "../components/TriagemConfirmacaoPendente";
 import { Carregando } from "../ui/estados";
 import { urlComprovanteLink, abrirDocumento } from "../utils/documentoFinanceiro";
 import Alunos from "./Aluno";
@@ -171,6 +172,9 @@ export default function FilaConfirmacaoPagamento() {
   // a pilha na frente, sem nada dizendo que a pilha tinha encolhido -- por isso
   // a sensacao de andar em circulos. Nao era ritmo, era falta de placar.
   const [placar, setPlacar] = useState(null);
+  // Sobe a cada "Atualizar": e a dependencia que faz a triagem reler junto
+  // com a fila, sem ela ter botao proprio.
+  const [recarregou, setRecarregou] = useState(0);
   // Copiar o nome do aluno direto do card: e o que ela cola na busca do Prime
   // para conferir o pagamento. Sem isso, seleciona com o mouse e erra pedaco do
   // nome (Amanda, 27/08/2026).
@@ -991,7 +995,10 @@ export default function FilaConfirmacaoPagamento() {
               <h1 style={A.titulo}>Fila de confirmação de pagamento</h1>
               <p style={A.sub}>Pagamentos informados pela operação para confirmar e baixar.</p>
             </div>
-            <button type="button" style={A.btnGhost} onClick={carregarSolicitacoes}>Atualizar</button>
+            <button type="button" style={A.btnGhost}
+                    onClick={() => { carregarSolicitacoes(); setRecarregou((v) => v + 1); }}>
+              Atualizar
+            </button>
           </div>
 
           {placar && (placar.fechadas > 0 || placar.novas > 0) && (
@@ -1006,6 +1013,13 @@ export default function FilaConfirmacaoPagamento() {
               )}
             </div>
           )}
+
+          {/* TRIAGEM — o que cada decisão vai produzir, antes de decidir.
+              Painel SÓ LEITURA: não libera aluno, não remove suspensão,
+              cancelamento nem "não acionar", não redistribui. Quem decide são
+              as ações desta aba, uma a uma, com as travas delas. Recarrega
+              junto com a fila (`recarregou` sobe no "Atualizar"). */}
+          <TriagemConfirmacaoPendente recarga={recarregou} />
 
           <div style={A.barra}>
             <select style={A.select} value={filtro} onChange={(e) => { setFiltro(e.target.value); setQuantosCards(CARDS_POR_VEZ); }}>
