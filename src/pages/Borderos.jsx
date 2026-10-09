@@ -1,10 +1,9 @@
 import { useState } from "react";
-import { naoReabreNoBordero } from "../utils/bordero";
+import { motivoDeNaoTocar } from "../utils/bordero";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
 import { hashArquivo, hashValido } from "../utils/hashArquivo";   // MESMA implementacao
 import Dobra from "../ui/blocos";
-import { parcelaViva } from "../utils/parcelaStatus";
 
 function limparCpf(valor) {
   const digitos = String(valor || "").replace(/\D/g, "");
@@ -96,11 +95,23 @@ async function inserirEmLotes(tabela, registros) {
   return { dados, erro: null };
 }
 
-async function upsertEmLotes(tabela, registros, onConflict) {
+// 08/10/2026: era `upsertEmLotes` e fazia ON CONFLICT DO UPDATE. Virou
+// insert-only (`ignoreDuplicates: true` => ON CONFLICT DO NOTHING) porque o
+// borderô passou a só INCLUIR documento ausente. O nome mudou junto de
+// propósito: uma função chamada `upsert` que não faz upsert é uma armadilha.
+//
+// CONSEQUÊNCIA DESTA MUDANÇA, que a gestão precisa saber: reimportar um borderô
+// deixa de corrigir valor/vencimento de título que já existe. Era o único efeito
+// útil do upsert, e é também o que reabria NEGOCIADO. Correção de valor de
+// título existente continua possível pela ficha (ajuste de valor, que tem
+// trilha própria em `titulo_valor_ajuste_historico`), nunca por reimportação.
+async function inserirIgnorandoExistentesEmLotes(tabela, registros, onConflict) {
   if (registros.length === 0) return { erro: null };
   const lotes = dividirEmLotes(registros, TAMANHO_LOTE_GRAVACAO);
   for (const lote of lotes) {
-    const { error } = await supabase.from(tabela).upsert(lote, { onConflict });
+    const { error } = await supabase
+      .from(tabela)
+      .upsert(lote, { onConflict, ignoreDuplicates: true });
     if (error) return { erro: error };
   }
   return { erro: null };
@@ -180,7 +191,9 @@ export default function Borderos() {
         "acordos_titulos",
         "documento",
         titulos,
-        "documento, situacao"
+        // 08/10/2026: `status` entrou junto. Conferir só `situacao` deixava
+        // passar linha já liquidada -- a base tem título `VENCIDA`/`quitada`.
+        "documento, situacao, status"
       );
 
       const mapaAlunosPorCpf = {};
@@ -231,6 +244,7 @@ export default function Borderos() {
           origemMatch: porCpf ? "cpf" : porNome ? "nome" : "novo",
           jaExiste: Boolean(mapaTitulos[linha.numTitulo]),
           situacaoAtual: mapaTitulos[linha.numTitulo]?.situacao || null,
+          statusAtual: mapaTitulos[linha.numTitulo]?.status || null,
         };
       });
 
@@ -328,7 +342,7 @@ export default function Borderos() {
       // ===== CONTRATO (nao mover) ==========================================
       // A captura de presenca deve permanecer ANTES de qualquer filtro
       // operacional do importador -- aqui, especificamente, antes de
-      // `naoReabreNoBordero`. Nao ha teste automatizado que proteja esta
+      // `motivoDeNaoTocar`. Nao ha teste automatizado que proteja esta
       // ordem: a garantia e a posicao no codigo. Mover e silencioso.
       // =====================================================================
 
@@ -386,10 +400,17 @@ export default function Borderos() {
       const registrosTitulos = [];
 
       for (const linha of preview.linhas) {
-        // PAGO nao reabre; EM_CONFIRMACAO (Conferencia Prime) e CANCELADA
-        // (encerramento administrativo) tambem nao -- o banco recusaria de
-        // qualquer jeito, mas nem se tenta.
-        if (linha.jaExiste && naoReabreNoBordero(linha.situacaoAtual)) {
+        // ===== 08/10/2026: TITULO QUE JA EXISTE NUNCA E TOCADO ==============
+        // Pedido da gestao: "inserir apenas documentos ausentes, sem atualizar
+        // existentes". Antes, so PAGO / EM_CONFIRMACAO / CANCELADA eram
+        // pulados, e o `upsert` reabria todo o resto -- inclusive NEGOCIADO,
+        // que nenhum gatilho de banco protege.
+        //
+        // `motivoDeNaoTocar` devolve o porque (situacao terminal, status
+        // terminal, ou simplesmente "ja existe") para a tela poder dizer.
+        // ===================================================================
+        const motivoIgnorar = motivoDeNaoTocar(linha);
+        if (motivoIgnorar) {
           ignorados += 1;
           continue;
         }
@@ -417,7 +438,7 @@ export default function Borderos() {
       let atualizados = 0;
 
       if (registrosTitulos.length > 0) {
-        const { erro: erroTitulos } = await upsertEmLotes(
+        const { erro: erroTitulos } = await inserirIgnorandoExistentesEmLotes(
           "acordos_titulos",
           registrosTitulos,
           "documento"
@@ -426,16 +447,39 @@ export default function Borderos() {
         if (erroTitulos) {
           setErro("Erro ao gravar os títulos: " + erroTitulos.message);
         } else {
-          const existentesSet = new Set(
-            preview.linhas.filter((l) => l.jaExiste).map((l) => l.numTitulo)
-          );
-          inseridos = registrosTitulos.filter((r) => !existentesSet.has(r.documento)).length;
-          atualizados = registrosTitulos.filter((r) => existentesSet.has(r.documento)).length;
+          // `registrosTitulos` já não contém nenhum título existente (todos
+          // caíram no `motivoDeNaoTocar` acima), então tudo que foi gravado é
+          // inserção. `atualizados` fica 0 por construção, e continua exposto
+          // na tela para deixar explícito que a importação não atualiza.
+          inseridos = registrosTitulos.length;
+          atualizados = 0;
 
-          // Reativa alunos que estavam quitados (ficha amarela) e voltaram a
-          // ter título em aberto neste bordero -- eles saem do "quitado",
-          // retornam pra fila ativa (CONTATAR) E têm o saldo restaurado (a
-          // quitação manual havia zerado títulos, parcelas e acordo).
+          // ===== 08/10/2026: SEPARADO EM DOIS ===========================
+          // Este bloco fazia TRÊS coisas de uma vez, e só a primeira é fila:
+          //
+          //   1. tirava o aluno de QUITADO/QUITADO_MANUAL e devolvia para
+          //      CONTATAR  -> MANTIDO. É promessa explícita do produto, dita
+          //      ao operador em dois lugares ("Só volta se subir um título
+          //      novo dele em algum borderô"), e agora ela fica ainda mais
+          //      exata: com o importador insert-only, só dispara quando
+          //      entra título REALMENTE novo.
+          //
+          //   2. restaurava o saldo de títulos `quitada` com motivo "quitado
+          //      manualmente"                              -> DESLIGADO
+          //   3. devolvia parcela PAGO sem data para A_VENCER e REATIVAVA o
+          //      acordo QUITADO                            -> DESLIGADO
+          //
+          // 2 e 3 são exatamente o que a gestão proibiu em 08/10/2026: "não
+          // reative parcelas negociadas, pagas, quitadas, suspensas,
+          // canceladas, devolvidas ou encerradas, incluindo acordos e
+          // vínculos financeiros". Ficam no código atrás de um interruptor
+          // desligado, não apagados: religar é decisão de negócio.
+          //
+          // Dívida nova de aluno quitado continua entrando como título e
+          // continua trazendo a ficha para a fila. O que não acontece mais é
+          // o CRM desfazer sozinho uma quitação e reabrir o acordo.
+          // ==============================================================
+          const RESTAURAR_QUITACAO_NO_BORDERO = false;
           const idsAlunosComTitulo = [
             ...new Set(registrosTitulos.map((r) => r.aluno_id)),
           ];
@@ -465,6 +509,11 @@ export default function Borderos() {
                 })
                 .in("id", idsQuitados);
 
+              // 2) e 3) DESLIGADAS em 08/10/2026 (ver o bloco acima). Desfazer
+              // uma quitação e reabrir acordo é reativação de registro
+              // financeiro, não movimento de fila — e a trava do banco
+              // (migration 20261008120000) recusaria a 2) de qualquer jeito.
+              if (RESTAURAR_QUITACAO_NO_BORDERO) {
               // 2) Restaura o saldo dos títulos que a quitação manual zerou
               // (reconhecidos pelo motivo_ajuste). Não toca em títulos pagos
               // de verdade nem em vinculados a acordo ativo.
@@ -518,7 +567,7 @@ export default function Borderos() {
 
                 const saldoPorAcordo = {};
                 (parcelasAcordos || []).forEach((p) => {
-                  if (parcelaViva(p.status)) {
+                  if (p.status !== "PAGO" && p.status !== "CANCELADA") {
                     saldoPorAcordo[p.acordo_id] =
                       (saldoPorAcordo[p.acordo_id] || 0) + Number(p.valor || 0);
                   }
@@ -534,6 +583,7 @@ export default function Borderos() {
                   }
                 }
               }
+              }   // fim do if (RESTAURAR_QUITACAO_NO_BORDERO)
             }
           }
         }
@@ -558,10 +608,10 @@ export default function Borderos() {
       // importacao concluida.
       //
       // O QUE A CAPTURA PRECISA MANTER, e mantem: TODAS as linhas do arquivo,
-      // inclusive as que o laco acima pula via
-      // `naoReabreNoBordero(linha.situacaoAtual)` (PAGO, EM_CONFIRMACAO,
-      // CANCELADA) e as sem aluno resolvido. Se a trilha repetisse o filtro do
-      // importador, a ausencia medida seria artefato nosso, nao do arquivo.
+      // inclusive as que o laco acima pula via `motivoDeNaoTocar(linha)` --
+      // que a partir de 08/10/2026 e TODO titulo ja existente, nao so os
+      // terminais -- e as sem aluno resolvido. Se a trilha repetisse o filtro
+      // do importador, a ausencia medida seria artefato nosso, nao do arquivo.
       // =====================================================================
       try {
         await supabase.rpc("registrar_presenca_extracao", {
