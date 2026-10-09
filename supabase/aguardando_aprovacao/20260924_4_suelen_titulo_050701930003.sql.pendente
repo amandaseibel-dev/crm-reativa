@@ -1,0 +1,331 @@
+-- ============================================================================
+-- 4/4 -- CASO SUELEN ROSSI MACHADO, titulo 050701930003 -- TRATADO SEPARADO
+-- ============================================================================
+-- NAO APLICAR SEM APROVACAO. Nao entra nos arquivos 2 e 3 de proposito:
+-- nao e da familia deles. Nao esta PAGO nem tem acordo QUITADO.
+--
+-- ---------------------------------------------------------------------------
+-- DIAGNOSTICO
+-- ---------------------------------------------------------------------------
+-- titulo  caa99e1e-4f70-48c6-9a37-0993e75fa306
+-- aluna   Suelen Rossi Machado, CPF 012.669.650-09
+-- doc     050701930003 | tipo_boleto 'Acordo' | venc 28/10/2026
+-- valor   valor_original 428,72 | valor_em_aberto 428,72 | saldo_corrigido NULO
+-- estado  situacao NEGOCIADO / status vinculada
+--
+-- As duas representacoes do vinculo discordam:
+--   acordos_titulos.acordo_id   -> 1e904398-... = acordo 3528, ATIVO
+--   acordo_titulo_vinculo       -> 2d310307-... = acordo 3609, CANCELADO
+--
+-- QUAL E A FONTE OFICIAL: o acordo 3528. Prova, sem depender de data nem de
+-- valor isolado:
+--
+--  (a) O DOCUMENTO E O BOLETO DE UMA PARCELA DO 3528. O documento do titulo e
+--      050701930003 = '0' + '50701930003'. E `parcelas.boleto` = 50701930003 e
+--      a PARCELA 2 do acordo 3528: R$ 428,72, vencimento 28/10/2026, A_VENCER.
+--      Numero do boleto, valor e vencimento batem os tres. (O padrao
+--      "titulo = '0' + boleto da parcela" ja esta documentado em
+--      docs/PREMISSAS.md.)
+--
+--  (b) O 3609 E DUPLICATA DO 3528, E MORREU NO MESMO DIA. Mesmo valor_total
+--      (R$ 1.714,89), mesmas 4 parcelas. 3528 criado 25/08; 3609 criado 27/08
+--      13:31 e CANCELADO 27/08 14:47 -- 1h16 depois. Todas as 4 parcelas do
+--      3609 estao CANCELADA e nenhuma tem boleto pago.
+--
+--  (c) O DINHEIRO ESTA NO 3528: entrada de R$ 1.000,00 paga em 25/08 e
+--      parcela 1 de R$ 428,72 paga em 08/09. O 3609 nao recebeu nada.
+--
+-- COMO O VINCULO FICOU PRESO NO ACORDO ERRADO (audit_log do titulo):
+--   31/08 22:29  rotina vincula ao 3609 -- que ja estava cancelado desde 27/08
+--   01/09 00:07  rotina devolve para ABERTO
+--   01/09 17:24  rotina vincula ao 3528 pela COLUNA acordo_id, com o motivo
+--                "titulo do proprio acordo que ficou solto na importacao de
+--                 31/08 e contava por fora, ao lado das parcelas do mesmo acordo"
+--   09/09 12:26  rotina devolve para ABERTO
+--   10/09 14:44  amanda.seibel vincula de novo ao 3528 (NEGOCIADO/vinculada)
+-- A linha em `acordo_titulo_vinculo` nunca saiu do 3609. A coluna andou; a
+-- tabela de vinculo ficou parada.
+--
+-- O ESTRAGO DE HOJE -- DIVIDA EM DOBRO NA FICHA DA SUELEN:
+-- `aluno_saldo_pendente_detalhe` classifica o titulo como "negociado orfao"
+-- (NEGOCIADO sem vinculo vivo, porque o unico vinculo aponta para acordo
+-- CANCELADO) e soma R$ 428,72; e soma tambem a parcela 2 do 3528, R$ 428,72,
+-- que e A MESMA DIVIDA. E o unico caso de dupla contagem achado na base em
+-- 24/09/2026 (os outros 16 "negociado orfao" sao de acordo cancelado de
+-- verdade, onde a divida volta por decisao de 22/09).
+--
+-- ---------------------------------------------------------------------------
+-- DUAS OPCOES -- NENHUMA ESCOLHIDA, NENHUMA EXECUTAVEL NESTE ARQUIVO
+-- ---------------------------------------------------------------------------
+-- As duas desfazem a dupla contagem. Elas diferem no que deixam para tras.
+--
+--                     | OPCAO 1: mover o vinculo p/ 3528 | OPCAO 2: marcar DUPLICADA
+-- --------------------+----------------------------------+--------------------------
+-- PARCELA             | nenhuma parcela alterada. A       | identico: nenhuma parcela
+--                     | parcela 2 do 3528 segue A_VENCER, | alterada.
+--                     | R$ 428,72, venc 28/10.            |
+-- --------------------+----------------------------------+--------------------------
+-- SALDO               | -R$ 428,72. O titulo deixa de ser | -R$ 428,72. DUPLICADA nao
+--                     | "negociado orfao" (passa a ter    | entra no filtro
+--                     | vinculo vivo) e sai da conta; a   | `situacao in (ABERTO,
+--                     | divida fica so na parcela.        | NEGOCIADO)` das duas
+--                     |                                   | funcoes de saldo.
+-- --------------------+----------------------------------+--------------------------
+-- VINCULO             | a linha de `acordo_titulo_vinculo`| a linha CONTINUA apontando
+--                     | passa a apontar para o 3528. As   | para o 3609 cancelado. A
+--                     | duas representacoes (coluna e     | divergencia coluna x tabela
+--                     | tabela) ficam iguais.             | permanece na base.
+-- --------------------+----------------------------------+--------------------------
+-- EXIBICAO NO CRM     | tag "Negociado" + a linha         | tag "Fora da conta", fundo
+-- (FinanceiroAluno)   | "Vinculada ao acordo R$ 1.714,89  | neutro. Some da leitura de
+--                     | em 4x -- nao somada de novo no    | divida da ficha.
+--                     | total". Continua na lista de      |
+--                     | mensalidades.                     |
+-- --------------------+----------------------------------+--------------------------
+-- COMPOSICAO DO       | o boleto da parcela aparece ao    | o titulo sai da composicao;
+-- ACORDO              | lado das parcelas do mesmo acordo | quem le o acordo ve so as
+--                     | -- que e exatamente o que a       | 5 parcelas, sem o boleto
+--                     | rotina de 01/09 registrou como    | repetido.
+--                     | problema no motivo do titulo.     |
+-- --------------------+----------------------------------+--------------------------
+-- O QUE FICA SEM      | o titulo segue marcado            | a divergencia de vinculo
+-- RESOLVER            | `tipo_boleto = 'Acordo'` dentro   | (3609 cancelado) fica de pe
+--                     | da lista de mensalidades.         | e pode reaparecer em outra
+--                     |                                   | rotina que leia o vinculo.
+-- --------------------+----------------------------------+--------------------------
+-- REVERSAO            | trivial: mover o vinculo de volta | trivial: restaurar situacao
+--                     | (rollback pronto).                | (rollback pronto).
+--
+-- As duas podem ser combinadas (mover o vinculo E marcar DUPLICADA), o que
+-- resolveria os dois residuos -- tambem e uma decisao sua.
+--
+-- NESTE ARQUIVO SO O BLOCO DE CONFERENCIA (100% SELECT) E EXECUTAVEL. Os dois
+-- blocos de correcao estao comentados e so devem ser descomentados depois da
+-- sua decisao.
+--
+-- ROLLBACK: 20260924_4_suelen_..._rollback.sql (mesma pasta)
+-- ============================================================================
+
+begin;
+
+-- ---------------------------------------------------------------------------
+-- 1) CONFERENCIA (100% SELECT) -- o caso ainda esta como foi diagnosticado?
+-- ---------------------------------------------------------------------------
+do $$
+declare v_falha int; v_txt text;
+begin
+  -- 1.1 o titulo existe e esta no estado diagnosticado
+  select count(*) into v_falha from public.acordos_titulos t
+   where t.id = 'caa99e1e-4f70-48c6-9a37-0993e75fa306'
+     and t.documento = '050701930003'
+     and coalesce(t.tipo_boleto,'') = 'Acordo'
+     and upper(coalesce(t.situacao,'')) = 'NEGOCIADO'
+     and lower(coalesce(t.status,'')) = 'vinculada'
+     and t.acordo_id = '1e904398-dc1c-459c-956b-fdce05248f97'
+     and t.origem_liquidacao is null
+     and t.origem_encerramento is null
+     and round(coalesce(t.valor_em_aberto,0),2) = 428.72;
+  if v_falha <> 1 then
+    raise exception 'ABORTA: o titulo nao esta no estado diagnosticado (encontrei % linha(s))', v_falha;
+  end if;
+
+  -- 1.2 existe exatamente um vinculo, e ele aponta para o 3609 cancelado
+  select count(*) into v_falha from public.acordo_titulo_vinculo v
+   where v.titulo_id = 'caa99e1e-4f70-48c6-9a37-0993e75fa306';
+  if v_falha <> 1 then
+    raise exception 'ABORTA: esperava 1 linha de vinculo, achei %', v_falha;
+  end if;
+
+  select count(*) into v_falha from public.acordo_titulo_vinculo v
+   where v.titulo_id = 'caa99e1e-4f70-48c6-9a37-0993e75fa306'
+     and v.acordo_id = '2d310307-b610-45ab-9d02-2713cde83ad7'
+     and coalesce(v.ativo, true);
+  if v_falha <> 1 then
+    raise exception 'ABORTA: o vinculo ativo nao aponta mais para o acordo 3609';
+  end if;
+
+  -- 1.3 o 3609 continua CANCELADO e sem nenhuma parcela viva ou paga
+  select count(*) into v_falha from public.acordos a
+   where a.id = '2d310307-b610-45ab-9d02-2713cde83ad7' and upper(coalesce(a.status,'')) = 'CANCELADO';
+  if v_falha <> 1 then
+    raise exception 'ABORTA: o acordo 3609 nao esta mais CANCELADO';
+  end if;
+
+  select count(*) into v_falha from public.parcelas p
+   where p.acordo_id = '2d310307-b610-45ab-9d02-2713cde83ad7'
+     and upper(coalesce(p.status,'')) <> 'CANCELADA';
+  if v_falha > 0 then
+    raise exception 'ABORTA: o acordo 3609 tem % parcela(s) fora de CANCELADA', v_falha;
+  end if;
+
+  -- 1.4 o 3528 continua ATIVO
+  select count(*) into v_falha from public.acordos a
+   where a.id = '1e904398-dc1c-459c-956b-fdce05248f97' and upper(coalesce(a.status,'')) = 'ATIVO';
+  if v_falha <> 1 then
+    raise exception 'ABORTA: o acordo 3528 nao esta mais ATIVO';
+  end if;
+
+  -- 1.5 A PROVA: existe no 3528 a parcela cujo boleto e o documento do titulo
+  --     sem o zero da frente, com o mesmo valor e o mesmo vencimento
+  select count(*) into v_falha from public.parcelas p
+   where p.acordo_id = '1e904398-dc1c-459c-956b-fdce05248f97'
+     and regexp_replace(coalesce(p.boleto,''), '\D', '', 'g')
+         = ltrim(regexp_replace('050701930003', '\D', '', 'g'), '0')
+     and round(coalesce(p.valor,0),2) = 428.72
+     and p.vencimento = date '2026-10-28';
+  if v_falha <> 1 then
+    raise exception 'ABORTA: nao achei no acordo 3528 a parcela com boleto 50701930003, R$ 428,72, venc 28/10/2026 (achei %)', v_falha;
+  end if;
+
+  raise notice 'GUARDS OK: caso identico ao diagnostico de 24/09/2026';
+end $$;
+
+commit;
+
+-- ============================================================================
+-- OPCAO 1 -- MOVER O VINCULO PARA O ACORDO 3528
+-- COMENTADA. So descomentar apos a decisao. Inclui backup, correcao e validacao.
+-- ============================================================================
+
+-- ---------------------------------------------------------------------------
+-- 2) BACKUP
+-- ---------------------------------------------------------------------------
+-- create table if not exists public._backup_saneamento_suelen_20260924 (
+--   titulo_id uuid primary key,
+--   registro_anterior jsonb not null,
+--   vinculos_anteriores jsonb not null,
+--   acordo_id_anterior uuid,
+--   situacao_anterior text,
+--   status_anterior text,
+--   origem_liquidacao_anterior text,
+--   origem_encerramento_anterior text,
+--   motivo_ajuste_anterior text,
+--   motivo_correcao text not null,
+--   feito_em timestamptz not null default now()
+-- );
+--
+-- insert into public._backup_saneamento_suelen_20260924 (
+--   titulo_id, registro_anterior, vinculos_anteriores, acordo_id_anterior,
+--   situacao_anterior, status_anterior, origem_liquidacao_anterior,
+--   origem_encerramento_anterior, motivo_ajuste_anterior, motivo_correcao)
+-- select t.id, to_jsonb(t),
+--        coalesce((select jsonb_agg(to_jsonb(v)) from public.acordo_titulo_vinculo v where v.titulo_id = t.id), '[]'::jsonb),
+--        t.acordo_id, t.situacao, t.status, t.origem_liquidacao, t.origem_encerramento, t.motivo_ajuste,
+--        'Suelen 24/09/2026 (opcao 1): vinculo preso no acordo 3609, duplicata cancelada em 27/08. Movido para o 3528, dono real do boleto 50701930003 (parcela 2). Desfaz a unica dupla contagem da base: R$ 428,72 que contavam como mensalidade orfa e como parcela.'
+--   from public.acordos_titulos t
+--  where t.id = 'caa99e1e-4f70-48c6-9a37-0993e75fa306'
+-- on conflict (titulo_id) do nothing;
+--
+-- ---------------------------------------------------------------------------
+-- 3) A CORRECAO (OPCAO 1) -- o vinculo passa a apontar para o acordo certo
+--    O gatilho `trg_titulo_situacao_por_vinculo` chama `titulo_reavaliar`
+--    sozinho e reescreve situacao/status/acordo_id a partir do vinculo novo.
+-- ---------------------------------------------------------------------------
+-- update public.acordo_titulo_vinculo v
+--    set acordo_id = '1e904398-dc1c-459c-956b-fdce05248f97'
+--  where v.titulo_id = 'caa99e1e-4f70-48c6-9a37-0993e75fa306'
+--    and v.acordo_id = '2d310307-b610-45ab-9d02-2713cde83ad7';
+--
+-- update public.acordos_titulos t
+--    set motivo_ajuste = coalesce(t.motivo_ajuste,'')
+--          || case when coalesce(t.motivo_ajuste,'') = '' then '' else ' | ' end
+--          || 'vinculo corrigido em 24/09/2026: apontava para o acordo 3609, '
+--          || 'duplicata cancelada em 27/08; o dono real deste boleto e o acordo '
+--          || '3528, onde ele e a parcela 2 (boleto 50701930003, R$ 428,72, '
+--          || 'venc 28/10/2026). Enquanto apontava para o acordo cancelado, esta '
+--          || 'divida contava duas vezes no saldo da aluna.',
+--        atualizado_em = now()
+--  where t.id = 'caa99e1e-4f70-48c6-9a37-0993e75fa306';
+--
+-- ---------------------------------------------------------------------------
+-- 4) VALIDACAO
+-- ---------------------------------------------------------------------------
+-- do $$
+-- declare v_falha int; v_orfaos int; v_valor numeric;
+-- begin
+--   -- 4.1 o vinculo agora aponta para o 3528 e esta ativo
+--   select count(*) into v_falha from public.acordo_titulo_vinculo v
+--    where v.titulo_id = 'caa99e1e-4f70-48c6-9a37-0993e75fa306'
+--      and v.acordo_id = '1e904398-dc1c-459c-956b-fdce05248f97'
+--      and coalesce(v.ativo, true);
+--   if v_falha <> 1 then
+--     raise exception 'ABORTA: o vinculo nao ficou no acordo 3528';
+--   end if;
+--
+--   -- 4.2 o titulo segue NEGOCIADO/vinculada (o acordo 3528 tem parcela viva,
+--   --     entao o motor nao pode te-lo quitado)
+--   select count(*) into v_falha from public.acordos_titulos t
+--    where t.id = 'caa99e1e-4f70-48c6-9a37-0993e75fa306'
+--      and upper(coalesce(t.situacao,'')) = 'NEGOCIADO'
+--      and lower(coalesce(t.status,'')) = 'vinculada'
+--      and t.acordo_id = '1e904398-dc1c-459c-956b-fdce05248f97';
+--   if v_falha <> 1 then
+--     raise exception 'ABORTA: o titulo nao ficou NEGOCIADO/vinculada no acordo 3528';
+--   end if;
+--
+--   -- 4.3 valor intacto
+--   select count(*) into v_falha from public.acordos_titulos t
+--    where t.id = 'caa99e1e-4f70-48c6-9a37-0993e75fa306'
+--      and round(coalesce(t.valor_em_aberto,0),2) = 428.72
+--      and round(coalesce(t.valor_original,0),2) = 428.72;
+--   if v_falha <> 1 then
+--     raise exception 'ABORTA: o valor do titulo mudou';
+--   end if;
+--
+--   -- 4.4 A DOBRA ACABOU: o titulo nao e mais "negociado orfao"
+--   select count(*) into v_falha
+--     from public.acordos_titulos t
+--    where t.id = 'caa99e1e-4f70-48c6-9a37-0993e75fa306'
+--      and not exists (select 1 from public.acordo_titulo_vinculo v
+--                       join public.acordos a on a.id = v.acordo_id
+--                      where v.titulo_id = t.id and coalesce(v.ativo, true)
+--                        and upper(coalesce(a.status,'')) not in ('CANCELADO','CANCELADA'));
+--   if v_falha > 0 then
+--     raise exception 'ABORTA: o titulo continua orfao -- a dobra nao foi desfeita';
+--   end if;
+--
+--   -- 4.5 as 5 parcelas do 3528 continuam como estavam (2 PAGO, 3 A_VENCER)
+--   select count(*) into v_falha from public.parcelas p
+--    where p.acordo_id = '1e904398-dc1c-459c-956b-fdce05248f97'
+--      and upper(coalesce(p.status,'')) not in ('PAGO','A_VENCER');
+--   if v_falha > 0 then
+--     raise exception 'ABORTA: % parcela(s) do 3528 sairam de PAGO/A_VENCER', v_falha;
+--   end if;
+--
+--   select count(*) into v_falha from public.parcelas p
+--    where p.acordo_id = '1e904398-dc1c-459c-956b-fdce05248f97' and upper(coalesce(p.status,'')) = 'PAGO';
+--   if v_falha <> 2 then
+--     raise exception 'ABORTA: o 3528 deveria ter 2 parcelas PAGO, tem %', v_falha;
+--   end if;
+--
+--   -- 4.6 nenhum acordo mudou de status
+--   select count(*) into v_falha from public.acordos a
+--    where (a.id = '1e904398-dc1c-459c-956b-fdce05248f97' and upper(coalesce(a.status,'')) <> 'ATIVO')
+--       or (a.id = '2d310307-b610-45ab-9d02-2713cde83ad7' and upper(coalesce(a.status,'')) <> 'CANCELADO');
+--   if v_falha > 0 then
+--     raise exception 'ABORTA: algum dos dois acordos mudou de status';
+--   end if;
+--
+--   raise notice 'VALIDACAO OK: vinculo no 3528, titulo NEGOCIADO/vinculada, dobra de R$ 428,72 desfeita, parcelas e acordos intactos';
+-- end $$;
+--
+-- commit;
+
+-- ============================================================================
+-- OPCAO 2 -- NAO EXECUTAR SEM DECISAO EXPRESSA
+-- ============================================================================
+-- Marca o titulo como DUPLICADA: ele nao e mensalidade, e o boleto da parcela
+-- 2 do acordo 3528, importado solto em 31/08. Roda DEPOIS da opcao 1 (o
+-- vinculo ja alinhado) ou sozinha.
+--
+-- begin;
+-- update public.acordos_titulos t
+--    set situacao = 'DUPLICADA',
+--        motivo_ajuste = coalesce(t.motivo_ajuste,'')
+--          || case when coalesce(t.motivo_ajuste,'') = '' then '' else ' | ' end
+--          || 'marcada DUPLICADA em 24/09/2026: nao e mensalidade, e o boleto '
+--          || '50701930003 da parcela 2 do acordo 3528, importado solto',
+--        atualizado_em = now()
+--  where t.id = 'caa99e1e-4f70-48c6-9a37-0993e75fa306'
+--    and coalesce(t.tipo_boleto,'') = 'Acordo';
+-- commit;
