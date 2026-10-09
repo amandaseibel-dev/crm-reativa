@@ -1,0 +1,85 @@
+-- ROLLBACK de 20261009080652_devolucao_unificada_no_desfecho.sql
+--
+-- LEIA ANTES. Este rollback desfaz o COMPORTAMENTO, nao o HISTORICO.
+--
+-- 1. NAO derrube `acordos_titulos.devolucao_situacao_anterior`. Ela e o unico
+--    registro de onde cada titulo devolvido veio, e e por ela que
+--    `suspensao_cobranca_reativar` restaura. Apagada, uma reativacao futura
+--    passa a chutar o destino do titulo.
+--
+-- 2. NAO volte a CHECK `acordos_titulos_devolvido_tem_marca` para a versao que
+--    exigia SO `devolucao_origem`: foi exatamente essa exigencia que derrubou as
+--    cinco tabulacoes definitivas em 08/10/2026. Se precisar aperta-la, faca
+--    DEPOIS de conferir que todo titulo DEVOLVIDO tem `devolucao_origem`:
+--      select count(*) from public.acordos_titulos
+--       where upper(coalesce(situacao,'')) = 'DEVOLVIDO' and devolucao_origem is null;
+--
+-- 3. Voltar ao estado de 08/10/2026 RESTAURA A QUEBRA (duas copias da regra e a
+--    CHECK incompativel com uma delas). Isto aqui e um caminho de emergencia,
+--    nao um alvo desejavel.
+
+-- ---------------------------------------------------------------------------
+-- A. O gatilho novo
+-- ---------------------------------------------------------------------------
+-- Derrubar isto deixa o titulo DEVOLVIDO sem protecao propria: com
+-- `origem_encerramento` nulo, `_titulo_encerrado_administrativo_protegido` nao
+-- o cobre, e qualquer rotina de recalculo em lote volta a poder reabri-lo.
+drop trigger if exists trg_titulo_devolvido_terminal on public.acordos_titulos;
+drop function if exists public._titulo_devolvido_e_terminal();
+
+-- ---------------------------------------------------------------------------
+-- B. O predicado unico
+-- ---------------------------------------------------------------------------
+-- `parcela_efeito_sem_pagamento_aplicar` DEPENDE desta funcao. Derrube-a so
+-- junto com a restauracao do corpo antigo do motor (item C) -- na ordem
+-- inversa, o motor fica chamando funcao que nao existe e TODA tabulacao de
+-- desfecho passa a abortar.
+drop function if exists public.titulos_devolviveis_por_desfecho(uuid, boolean);
+
+-- ---------------------------------------------------------------------------
+-- C. Os corpos anteriores
+-- ---------------------------------------------------------------------------
+-- `parcela_efeito_sem_pagamento_aplicar`, `titulo_devolver_da_confirmacao` e
+-- `suspensao_cobranca_reativar` voltam ao texto que estava em producao em
+-- 09/10/2026 08:00, registrado byte a byte em
+--   supabase/ledger/2026-10/20261009080652__NOTA.md
+-- Reaplique de la. Copiar uma segunda versao do mesmo corpo para dentro deste
+-- arquivo criaria duas verdades para a mesma funcao -- o erro que
+-- DUAS-TRILHAS.md manda evitar, e a causa raiz desta rodada.
+
+-- ---------------------------------------------------------------------------
+-- D. DADOS -- NAO roda junto. Decisao da gestao.
+-- ---------------------------------------------------------------------------
+-- Restaura os titulos devolvidos por esta rodada. As DUAS marcas sao
+-- obrigatorias na sessao: sair de DEVOLVIDO e entrar em EM_CONFIRMACAO sao
+-- recusados sem `conferencia_prime.decisao = on`.
+--
+-- begin;
+--   select set_config('conferencia_prime.decisao','on',true);
+--   update public.acordos_titulos
+--      set situacao = coalesce(nullif(devolucao_situacao_anterior,''), 'EM_CONFIRMACAO'),
+--          status = case coalesce(nullif(devolucao_situacao_anterior,''), 'EM_CONFIRMACAO')
+--                     when 'ABERTO' then 'em_aberto'
+--                     when 'NEGOCIADO' then 'vinculada'
+--                     else 'em_confirmacao' end,
+--          devolucao_origem = null, devolucao_ref = null, devolucao_em = null,
+--          devolucao_por = null, devolucao_situacao_anterior = null,
+--          motivo_ajuste = coalesce(motivo_ajuste,'')
+--            || ' | devolucao revertida pelo rollback de 20261009080652',
+--          atualizado_em = now()
+--    where upper(coalesce(situacao,'')) = 'DEVOLVIDO'
+--      and devolucao_em >= timestamptz '2026-10-09 00:00:00-03';
+--   select set_config('conferencia_prime.decisao','off',true);
+--   update public.prime_conferencia_decisao
+--      set decisao = 'PENDENTE', decidido_por = null, decidido_em = null,
+--          motivo = 'reaberta pelo rollback de 20261009080652'
+--    where decisao = 'DEVOLVIDO'
+--      and titulo_id in (select id from public.acordos_titulos
+--                         where upper(coalesce(situacao,'')) = 'EM_CONFIRMACAO');
+--   -- confira ANTES de confirmar:
+--   select count(*) as devolvidos_restantes from public.acordos_titulos
+--    where upper(coalesce(situacao,'')) = 'DEVOLVIDO';
+--   select count(*) as pendencia_orfa from public.prime_conferencia_decisao d
+--     join public.acordos_titulos t on t.id = d.titulo_id
+--    where d.decisao = 'PENDENTE' and upper(coalesce(t.situacao,'')) <> 'EM_CONFIRMACAO';
+-- commit;
