@@ -20,8 +20,12 @@
 -- de quitacao. A secao 3 foi ajustada em 09/10/2026 -- QUITADO, QUITADO_MANUAL,
 -- `casos.encerrado_operacional` e `casos.quitado_em` sairam de PROTEGIDA, que
 -- passa a significar so DECISAO DE NAO COBRAR (juridico, suspensao,
--- cancelamento, `cancelado_em`, `nao_acionar`). O porque esta escrito no CASE
--- da secao 3, onde a regra e lida.
+-- cancelamento, `nao_acionar`). O porque esta escrito no CASE da secao 3,
+-- onde a regra e lida.
+--
+-- CORRIGIDO EM 09/10/2026 contra o schema REAL de producao: a secao 3 testava
+-- `casos.cancelado_em`, coluna que NAO EXISTE. Detalhe e as seis colunas
+-- validadas estao no proprio CASE.
 --
 -- ----------------------------------------------------------------------------
 -- O DEFEITO QUE ISTO FECHA (auditoria de 08/10/2026, docs/SIMULACAO-*)
@@ -307,11 +311,38 @@ begin
            --   JURIDICO, SUSPENSAO_COBRANCA, CANCELAMENTO_COBRANCA,
            --   COBRANCA_CANCELADA -- decisao da gestao de nao cobrar este
            --       aluno. Nao e caso tratado: e caso que nao se cobra.
-           --   `casos.cancelado_em` -- cancelamento definitivo.
            --   `casos.nao_acionar`  -- trava explicita da gestao. E por ela
            --       que a ANTECIPACAO DE SEMESTRE segue protegida:
            --       `antecipacao_semestre_aplicar` grava `nao_acionar = true`.
            --       Mesma trava que `casos_reabrir_com_divida` respeita.
+           --   os quatro `casos.status_*` com CANCEL/JURIDIC/SUSPENS -- e
+           --       assim que o cancelamento definitivo existe de verdade.
+           --
+           -- CORRECAO DE 09/10/2026, MEDIDA EM PRODUCAO.
+           -- A versao anterior testava `casos.cancelado_em is not null`.
+           -- **ESSA COLUNA NAO EXISTE.** Lido no schema de producao
+           -- (`ahattpqrjmhkzsmnbdzs`) em 09/10/2026: `casos` tem
+           -- `encerrado_operacional`, `nao_acionar`, `quitado_em` e os cinco
+           -- `status_*` (acionamento, atual, financeiro, jornada, termo) --
+           -- e nenhuma coluna com "cancel" no nome. A migration teria
+           -- abortado na aplicacao com 42703, e ninguem veria antes da hora:
+           -- a fixture de teste CRIAVA `cancelado_em`, entao o teste provava
+           -- um schema que nao e o de producao. A fixture foi corrigida junto.
+           --
+           -- O cancelamento definitivo mora nos `status_*` do caso -- e a
+           -- mesma leitura que `casos_reabrir_com_divida` faz com
+           -- `normalizar_status_acionamento` contra `v_bloq`. Aqui o teste e
+           -- por substring porque a base guarda as duas grafias
+           -- ("CANCELAMENTO COBRANCA" e "CANCELAMENTO_COBRANCA") e o
+           -- feminino/masculino ("CANCELADA"/"CANCELADO").
+           --
+           -- Validado no mesmo dia, em producao:
+           --   casos.cancelado_em ................. NAO EXISTE
+           --   casos.encerrado_operacional ........ existe
+           --   casos.nao_acionar .................. existe
+           --   casos.quitado_em ................... existe
+           --   alunos.status_acionamento .......... existe
+           --   acordos_titulos.valor_cobranca_ajustado ... existe
            -- ---------------------------------------------------------------
            when array[ replace(upper(coalesce(a.status_atual,'')),' ','_'),
                        replace(upper(coalesce(a.status_jornada,'')),' ','_'),
@@ -321,8 +352,12 @@ begin
                                                                    then 'PROTEGIDA'
            when exists (select 1 from public.casos c
                          where c.aluno_id = a.id
-                           and (c.cancelado_em is not null
-                                or coalesce(c.nao_acionar,false)))  then 'PROTEGIDA'
+                           and (coalesce(c.nao_acionar, false)
+                                or upper(concat_ws(' ', c.status_atual,
+                                                        c.status_acionamento,
+                                                        c.status_financeiro,
+                                                        c.status_jornada))
+                                    ~ 'CANCEL|JURIDIC|SUSPENS'))    then 'PROTEGIDA'
            else 'AUSENTE_ELEGIVEL'
          end as grupo
     from _origem o
@@ -387,8 +422,9 @@ comment on function public.mensalidades_ausentes_inserir(jsonb,text,boolean) is
   'Linha sem CPF, com CPF que nao resolve aluno, com boleto de ACORDO ou com '
   'chave de 6/13 digitos fica em DIVERGENTE e nao entra. PROTEGIDA e decisao '
   'de NAO COBRAR -- juridico, suspensao, cancelamento de cobranca, '
-  'casos.cancelado_em e casos.nao_acionar (por onde a antecipacao de semestre '
-  'entra). Historico de quitacao NAO protege: mensalidade nova de aluno '
+  'casos.nao_acionar (por onde a antecipacao de semestre entra) e os '
+  'casos.status_* com CANCEL/JURIDIC/SUSPENS. '
+  'Historico de quitacao NAO protege: mensalidade nova de aluno '
   'quitado entra e vai para a cobranca (regra da gestao de 08/10/2026).';
 
 revoke all on function public.mensalidades_ausentes_inserir(jsonb,text,boolean) from public, anon;

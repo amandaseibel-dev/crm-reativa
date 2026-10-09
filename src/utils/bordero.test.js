@@ -126,9 +126,15 @@ describe("gatilho do banco: importação não reativa, motor legítimo continua"
       create table public.alunos (
         id uuid primary key default gen_random_uuid(), cpf text, status_atual text,
         status_jornada text, status_acionamento text);
+      -- Schema REAL de produção, lido em 09/10/2026 (ahattpqrjmhkzsmnbdzs).
+      -- NÃO existe cancelado_em — a fixture anterior inventava essa coluna, e
+      -- com isso o teste passava enquanto a migration abortaria na aplicação
+      -- com 42703. O cancelamento definitivo mora nos status_*.
       create table public.casos (
         id uuid primary key default gen_random_uuid(), aluno_id uuid, quitado_em date,
-        encerrado_operacional boolean, cancelado_em date, nao_acionar boolean);
+        encerrado_operacional boolean, nao_acionar boolean,
+        status_atual text, status_acionamento text,
+        status_financeiro text, status_jornada text, status_termo text);
 
       create function public.extracao_documento_norm(p_documento text) returns text
         language sql immutable as $$ select nullif(ltrim(coalesce(p_documento,''),'0'),'') $$;
@@ -342,12 +348,13 @@ describe("gatilho do banco: importação não reativa, motor legítimo continua"
         ('bbbbbbbb-0000-0000-0000-000000000003','2026-07-01', false),
         ('bbbbbbbb-0000-0000-0000-000000000004', null,        true);
       -- 8 e 9: decisão de não cobrar, registrada no caso. Ficam fora.
-      --   8 = cancelamento definitivo;
+      --   8 = cancelamento definitivo, que mora no status do caso — não em
+      --       uma coluna cancelado_em, que não existe em produção;
       --   9 = antecipação de semestre, que é o que antecipacao_semestre_aplicar
       --       grava (nao_acionar = true).
-      insert into public.casos (aluno_id, cancelado_em, nao_acionar) values
-        ('bbbbbbbb-0000-0000-0000-000000000008','2026-08-01', false),
-        ('bbbbbbbb-0000-0000-0000-000000000009', null,        true);
+      insert into public.casos (aluno_id, status_atual, nao_acionar) values
+        ('bbbbbbbb-0000-0000-0000-000000000008','CANCELAMENTO COBRANCA', false),
+        ('bbbbbbbb-0000-0000-0000-000000000009', null,                   true);
     `);
 
     const linha = (doc, cpf) =>
@@ -360,7 +367,7 @@ describe("gatilho do banco: importação não reativa, motor legítimo continua"
       linha("5000005", "10000000005"), // JURIDICO              -> fora
       linha("5000006", "10000000006"), // SUSPENSAO_COBRANCA    -> fora
       linha("5000007", "10000000007"), // CANCELAMENTO_COBRANCA -> fora
-      linha("5000008", "10000000008"), // caso.cancelado_em     -> fora
+      linha("5000008", "10000000008"), // caso CANCELAMENTO      -> fora
       linha("5000009", "10000000009"), // caso.nao_acionar      -> fora
     ]);
 
