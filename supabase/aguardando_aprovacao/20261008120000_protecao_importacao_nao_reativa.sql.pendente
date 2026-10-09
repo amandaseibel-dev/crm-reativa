@@ -1,0 +1,438 @@
+-- ============================================================================
+-- IMPORTACAO NAO REATIVA E NAO ATUALIZA TITULO EXISTENTE
+-- 08/10/2026 · NAO APLICAR SEM AUTORIZACAO EXPLICITA DA GESTAO.
+--
+-- Pedido da gestao em 08/10/2026:
+--   "A intencao e exclusivamente incluir parcelas de mensalidades que realmente
+--    nao existem no CRM. Nao atualizar valores, vencimentos, responsaveis,
+--    status ou qualquer registro existente."
+--   "impedir reativacao de parcelas negociadas, pagas, quitadas, suspensas,
+--    canceladas, devolvidas ou encerradas, incluindo acordos e vinculos
+--    financeiros."
+--
+-- PRECISADO PELA GESTAO EM 08/10/2026, depois da remessa de setembro:
+--   "a parcela ja negociada e paga nao volta, quando entra uma nova parcela
+--    precisamos trabalhar ela"
+--
+-- A primeira versao desta migration tratava as duas frases como uma. Nao sao:
+-- "nao reativar" vale para divida ANTIGA (a secao 2 e o insert-only da tela);
+-- mensalidade NOVA tem de entrar e ser cobrada, mesmo de aluno com historico
+-- de quitacao. A secao 3 foi ajustada em 09/10/2026 -- QUITADO, QUITADO_MANUAL,
+-- `casos.encerrado_operacional` e `casos.quitado_em` sairam de PROTEGIDA, que
+-- passa a significar so DECISAO DE NAO COBRAR (juridico, suspensao,
+-- cancelamento, `cancelado_em`, `nao_acionar`). O porque esta escrito no CASE
+-- da secao 3, onde a regra e lida.
+--
+-- ----------------------------------------------------------------------------
+-- O DEFEITO QUE ISTO FECHA (auditoria de 08/10/2026, docs/SIMULACAO-*)
+--
+-- Borderos.jsx grava titulo por `upsert(..., onConflict: 'documento')` com
+-- `situacao: 'ABERTO'` fixo. A trava da tela (src/utils/bordero.js) cobre
+-- apenas PAGO, EM_CONFIRMACAO e CANCELADA. **NEGOCIADO nao esta na lista.**
+--
+-- E no banco nenhum dos tres gatilhos existentes cobre NEGOCIADO:
+--   trg_titulo_em_confirmacao_protegido          -> old.situacao='EM_CONFIRMACAO'
+--   trg_titulo_encerrado_administrativo_protegido-> old.origem_encerramento not null
+--   trg_titulo_liquidado_na_origem_e_terminal    -> old.origem_liquidacao='PRIME_LIQUIDACAO_OFICIAL'
+--
+-- Pior: `trg_titulo_normaliza_vinculo_incoerente` (20260825230000) ve
+-- `vinculada` + `ABERTO` sem vinculo ativo e zera o status para `em_aberto` --
+-- COMPLETANDO o apagamento da negociacao em vez de impedi-lo.
+--
+-- ----------------------------------------------------------------------------
+-- POR QUE A TRAVA E POR ASSINATURA DO IMPORTADOR, E NAO POR SITUACAO TERMINAL
+--
+-- NEGOCIADO -> ABERTO e um caminho LEGITIMO em producao: `titulo_reavaliar`
+-- devolve a mensalidade quando o acordo e cancelado sem nenhum pagamento na
+-- cadeia (migration 20260925123852, EM PROD; 19 titulos / R$ 8.457,59
+-- corrigidos em 25/09). Uma trava terminal generica cegaria essa regra.
+--
+-- Tambem nao da para usar a polaridade `v_oficial` dos gatilhos existentes (GUC
+-- que o chamador legitimo acende): seriam necessarios 17+ chamadores na
+-- allowlist, e esquecer um quebra producao em silencio.
+--
+-- A trava identifica O IMPORTADOR por duas marcas, e nao mexe em mais ninguem:
+--
+--   1. `reativa.importando` = 'on'  -- GUC TRANSACIONAL que `importar_acordos`
+--      JA acende hoje (20260917200000) e que a RPC nova tambem acende.
+--      Forjavel? Sim -- e inofensivo: acender esta chave so deixa a protecao
+--      MAIS restritiva para quem a acendeu. Nao ha ganho em forjar.
+--
+--   2. a UPDATE reescreve `importacao_id` de titulo que JA existe.
+--      MEDIDO em 08/10/2026: nenhuma migration e nenhuma tela atualiza
+--      `importacao_id` de titulo existente (`grep` em 974 migrations e em
+--      src/: zero ocorrencia). O unico caminho que faz isso e o `upsert` do
+--      bordero. Esta marca pega o importador mesmo se a correcao da tela for
+--      revertida.
+--
+-- Fora dessas duas marcas o gatilho faz `return new` e e inerte.
+--
+-- ----------------------------------------------------------------------------
+-- O QUE ESTA MIGRATION NAO FAZ
+--   . nao altera nenhum titulo, parcela, acordo, vinculo, caso ou aluno
+--   . nao faz backfill, nao da baixa, nao encerra nada
+--   . nao mexe em titulo_reavaliar, no motor de baixa, na Conferencia Prime,
+--     em vw_aluno_saldo_cobravel, Saude da Carteira, Calibragem, acoes
+--     massivas, fidelizacao, responsavel, retornos nem historico
+--   . nao revoga EXECUTE de authenticated em funcao nenhuma (o controle e
+--     portao interno -- ver memoria `restringir-a-gestao-e-portao-interno`)
+--
+-- ROLLBACK: 20261008120000_protecao_importacao_nao_reativa.rollback.sql
+-- ============================================================================
+
+begin;
+
+-- ---------------------------------------------------------------------------
+-- 0. PRE-CONDICAO: a chave normalizada nao pode ja estar duplicada.
+--    Medido em 01/10/2026: ltrim por zero a esquerda nao colide em
+--    acordos_titulos (47.949 = 47.949). Se mudou desde entao, ABORTA aqui com
+--    mensagem clara em vez de falhar obscuro no CREATE INDEX.
+-- ---------------------------------------------------------------------------
+do $pre$
+declare v_dup bigint;
+begin
+  select count(*) - count(distinct public.extracao_documento_norm(documento))
+    into v_dup
+    from public.acordos_titulos
+   where documento is not null;
+  if v_dup <> 0 then
+    raise exception
+      'ABORTADO: % documento(s) colidem sob extracao_documento_norm. O indice unico normalizado nao pode ser criado antes de sanear essas linhas.', v_dup;
+  end if;
+end $pre$;
+
+-- ---------------------------------------------------------------------------
+-- 1. INDICE UNICO NORMALIZADO
+--    Fecha a brecha do zero a esquerda: hoje `acordos_titulos_documento_key`
+--    trata '04039712' e '4039712' como chaves diferentes, e o importador casa
+--    por `ltrim`. O indice torna a repeticao segura NO BANCO, nao so no WHERE
+--    da aplicacao.
+--    `extracao_documento_norm` e IMMUTABLE exatamente para permitir isto --
+--    ver o COMMENT dela em 20261001183516.
+-- ---------------------------------------------------------------------------
+create unique index if not exists ux_acordos_titulos_documento_norm
+  on public.acordos_titulos (public.extracao_documento_norm(documento))
+  where documento is not null;
+
+-- ---------------------------------------------------------------------------
+-- 2. GATILHO: importacao nunca reativa nem atualiza titulo existente
+-- ---------------------------------------------------------------------------
+create or replace function public._titulo_importacao_nao_reativa()
+ returns trigger
+ language plpgsql
+ set search_path to 'public'
+as $fn$
+declare
+  -- marca 1: a importacao se declara (GUC transacional, ja usada por importar_acordos)
+  v_importando boolean :=
+    coalesce(current_setting('reativa.importando', true), 'off') = 'on';
+  -- marca 2: assinatura do upsert do bordero -- reescrever o lote de um titulo que ja existe
+  v_reescreve_lote boolean :=
+    new.importacao_id is distinct from old.importacao_id;
+  v_motivo text;
+begin
+  -- Fora das duas marcas, este gatilho e inerte. titulo_reavaliar, o motor de
+  -- baixa, a Conferencia Prime, a ficha e as telas passam por aqui sem efeito.
+  if not (v_importando or v_reescreve_lote) then
+    return new;
+  end if;
+
+  -- Por que a lista e esta: sao os estados que a gestao nomeou em 08/10/2026,
+  -- traduzidos para o schema. `suspensa` NAO e estado de titulo -- vive em
+  -- alunos.status_* (JURIDICO / SUSPENSAO_COBRANCA / CANCELAMENTO_COBRANCA) e
+  -- por isso e barrada na RPC (secao 3), nao aqui.
+  select case
+    when upper(coalesce(old.situacao,'')) in
+         ('NEGOCIADO','PAGO','QUITADO','QUITADA','CANCELADA','CANCELADO',
+          'EM_CONFIRMACAO','DEVOLVIDA','DEVOLVIDO')
+      then 'situacao=' || upper(old.situacao)
+    when lower(coalesce(old.status,'')) in ('quitada','cancelada','devolvida')
+      then 'status=' || lower(old.status)
+    when old.origem_liquidacao  is not null then 'origem_liquidacao'
+    when old.origem_encerramento is not null then 'origem_encerramento'
+    -- "incluindo acordos e vinculos financeiros":
+    when old.acordo_id is not null then 'vinculado ao acordo ' || old.acordo_id::text
+    when exists (select 1 from public.acordo_titulo_vinculo v
+                  where v.titulo_id = old.id and coalesce(v.ativo, true))
+      then 'vinculo financeiro ativo'
+  end into v_motivo;
+
+  if v_motivo is not null then
+    -- COAGE de volta em vez de levantar excecao -- a mesma escolha de
+    -- trg_titulo_liquidado_na_origem_e_terminal, para nao derrubar um lote
+    -- inteiro por causa de uma linha.
+    insert into public.auditoria (usuario, acao, tabela_afetada, registro_id, detalhes)
+    values ('sistema', 'TITULO_IMPORTACAO_REATIVACAO_RECUSADA', 'acordos_titulos', old.id,
+            jsonb_build_object(
+              'documento', old.documento, 'motivo', v_motivo,
+              'de_situacao', old.situacao, 'de_status', old.status,
+              'tentou_situacao', new.situacao, 'tentou_status', new.status,
+              'tentou_valor_original', new.valor_original,
+              'tentou_saldo_corrigido', new.saldo_corrigido,
+              'tentou_vencimento', new.vencimento,
+              'tentou_aluno_id', new.aluno_id,
+              'tentou_importacao_id', new.importacao_id,
+              'marca', case when v_importando then 'guc' else 'importacao_id' end));
+  end if;
+
+  -- A importacao NUNCA atualiza titulo existente -- protegido ou nao.
+  -- A UPDATE vira no-op completa: valor, vencimento, dono, lote e status
+  -- ficam como estavam. Isto e literalmente o que foi pedido, e e o que
+  -- preserva historico, provencia (`importacao_id`) e indicadores.
+  new := old;
+  return new;
+end;
+$fn$;
+
+comment on function public._titulo_importacao_nao_reativa() is
+  'Importacao de titulo nunca reativa nem atualiza titulo que ja existe. '
+  'Identifica o importador por duas marcas: a GUC transacional '
+  'reativa.importando (que importar_acordos ja acende) ou a reescrita de '
+  'importacao_id de titulo existente (assinatura do upsert do bordero; medido '
+  'em 08/10/2026 como exclusiva dele). Fora dessas marcas e inerte -- em '
+  'especial NAO cega titulo_reavaliar, que legitimamente devolve mensalidade '
+  'NEGOCIADO para ABERTO quando o acordo e cancelado sem pagamento na cadeia '
+  '(20260925123852, EM PROD). Coage em vez de abortar, para nao derrubar lote.';
+
+revoke all on function public._titulo_importacao_nao_reativa() from public, anon;
+
+-- BEFORE UPDATE apenas. INSERT de documento ausente e exatamente o que se
+-- quer permitir, e a unicidade dele ja e garantida pela secao 1.
+drop trigger if exists trg_titulo_importacao_nao_reativa on public.acordos_titulos;
+create trigger trg_titulo_importacao_nao_reativa
+  before update on public.acordos_titulos
+  for each row execute function public._titulo_importacao_nao_reativa();
+
+-- ---------------------------------------------------------------------------
+-- 3. RPC: inserir SO mensalidade ausente. Idempotente e segura para repetir.
+--
+--    Diferenca essencial em relacao ao bordero: **so INSERT.** Nenhum UPDATE
+--    de titulo, nenhuma criacao de aluno, nenhuma criacao de acordo, nenhuma
+--    escrita em fila, caso, parcela, vinculo, responsavel ou historico.
+-- ---------------------------------------------------------------------------
+create or replace function public.mensalidades_ausentes_inserir(
+  p_linhas  jsonb,
+  p_lote    text,
+  p_dry_run boolean default true
+) returns jsonb
+ language plpgsql
+ security definer
+ set search_path to 'public'
+ set statement_timeout to '120000'
+as $fn$
+declare
+  v_usuario text;
+  v_ja int := 0; v_prot int := 0; v_ausente int := 0; v_div int := 0; v_ins int := 0;
+  v_valor_ausente numeric := 0;
+begin
+  -- Portao INTERNO. Nao se revoga EXECUTE de authenticated: a tela da propria
+  -- gestao precisa chamar (memoria `restringir-a-gestao-e-portao-interno`).
+  if not public.app_pode_borderos_importacoes() then
+    raise exception 'SEM_PERMISSAO_IMPORTACAO_BORDERO' using errcode = '42501';
+  end if;
+  if coalesce(btrim(p_lote),'') = '' then
+    raise exception 'LOTE_OBRIGATORIO: o lote identifica a execucao para rollback por id.'
+      using errcode = '22023';
+  end if;
+
+  -- Declara a importacao para o gatilho da secao 2. Transacional.
+  perform set_config('reativa.importando', 'on', true);
+  v_usuario := coalesce(nullif(auth.jwt() ->> 'email',''), 'sistema');
+
+  create temp table _origem on commit drop as
+  select distinct on (documento) *
+    from (
+      select btrim(l->>'documento')                                as documento,
+             public.extracao_documento_norm(btrim(l->>'documento')) as k,
+             regexp_replace(coalesce(l->>'cpf',''),'\D','','g')     as cpf,
+             nullif(l->>'valor','')::numeric                       as valor,
+             nullif(l->>'venc','')::date                           as venc,
+             nullif(btrim(l->>'curso'),'')                         as curso
+        from jsonb_array_elements(coalesce(p_linhas,'[]'::jsonb)) l
+    ) z
+   where coalesce(documento,'') <> ''
+   order by documento, valor desc nulls last;
+
+  create temp table _cls on commit drop as
+  with t as (
+    select public.extracao_documento_norm(t.documento) as k, t.aluno_id,
+           upper(coalesce(t.situacao,'')) as situacao, lower(coalesce(t.status,'')) as status
+      from public.acordos_titulos t where t.documento is not null
+  ), p as (
+    select public.extracao_documento_norm(pa.boleto) as k, pa.acordo_id
+      from public.parcelas pa where pa.boleto is not null
+  )
+  -- EXISTENCIA SE TESTA PELA CHAVE QUE CASOU (`t.k` / `p.k`), nunca por coluna
+  -- anulavel: `acordos_titulos.aluno_id` e `parcelas.acordo_id` podem ser NULL
+  -- num titulo que existe, e testar por elas classificava titulo presente como
+  -- ausente -- o que faria a RPC inserir duplicata. Pego pelo teste de
+  -- src/utils/bordero.test.js em 08/10/2026.
+  select o.*,
+         (t.k is not null or p.k is not null) as existe,
+         a.id as aluno_id,
+         case
+           -- divergente: chave ou aluno nao identificaveis com seguranca
+           when o.documento !~ '^[0-9]{6,13}$'                     then 'DIVERGENTE'
+           when length(o.documento) in (6,13)                      then 'DIVERGENTE'
+           when o.documento ~ '^0?5[0-9]{10}$'                     then 'DIVERGENTE'  -- boleto de ACORDO
+           when t.k is not null or p.k is not null                  then 'JA_EXISTENTE'
+           when o.cpf = '' or a.id is null                         then 'DIVERGENTE'
+           -- ---------------------------------------------------------------
+           -- PROTEGIDA = DECISAO DE NAO COBRAR, nao "caso tratado".
+           --
+           -- REGRA DA GESTAO, 08/10/2026: "a parcela ja negociada e paga nao
+           -- volta, quando entra uma nova parcela precisamos trabalhar ela".
+           -- Sao dois lados diferentes, e a versao de 08/10 os confundia:
+           --
+           --   nao reativar divida ANTIGA -> secao 2 (o gatilho) e o
+           --       insert-only da tela. Esta RPC nunca faz UPDATE, so INSERT:
+           --       ela nao tem como reativar nada.
+           --   mensalidade NOVA           -> entra e vai para a cobranca,
+           --       ainda que o aluno tenha historico de quitacao. A quitacao
+           --       valeu para a divida de ENTAO, nao para a que nasceu depois
+           --       -- mesmo raciocinio de
+           --       `_reabrir_encerramento_com_mensalidade_nova`.
+           --
+           -- SAIRAM DA LISTA (09/10/2026): QUITADO, QUITADO_MANUAL,
+           -- `casos.encerrado_operacional` e `casos.quitado_em`. Eram eles que
+           -- faziam a RPC DESCARTAR em silencio a mensalidade de setembro de
+           -- quem ja havia quitado o que devia antes -- divida real que
+           -- ninguem cobraria.
+           --   `encerrado_operacional` sai sem perda de protecao: ele e
+           --   derivado dos status, e juridico/suspensao/cancelamento seguem
+           --   barrados pelo array abaixo. O que ele acrescentava era o
+           --   quitado -- exatamente o caso que a gestao quer trabalhar.
+           --
+           -- CONTINUA BARRADO, e por que:
+           --   JURIDICO, SUSPENSAO_COBRANCA, CANCELAMENTO_COBRANCA,
+           --   COBRANCA_CANCELADA -- decisao da gestao de nao cobrar este
+           --       aluno. Nao e caso tratado: e caso que nao se cobra.
+           --   `casos.cancelado_em` -- cancelamento definitivo.
+           --   `casos.nao_acionar`  -- trava explicita da gestao. E por ela
+           --       que a ANTECIPACAO DE SEMESTRE segue protegida:
+           --       `antecipacao_semestre_aplicar` grava `nao_acionar = true`.
+           --       Mesma trava que `casos_reabrir_com_divida` respeita.
+           -- ---------------------------------------------------------------
+           when array[ replace(upper(coalesce(a.status_atual,'')),' ','_'),
+                       replace(upper(coalesce(a.status_jornada,'')),' ','_'),
+                       replace(upper(coalesce(a.status_acionamento,'')),' ','_') ]
+                && array['JURIDICO','SUSPENSAO_COBRANCA','CANCELAMENTO_COBRANCA',
+                         'COBRANCA_CANCELADA']
+                                                                   then 'PROTEGIDA'
+           when exists (select 1 from public.casos c
+                         where c.aluno_id = a.id
+                           and (c.cancelado_em is not null
+                                or coalesce(c.nao_acionar,false)))  then 'PROTEGIDA'
+           else 'AUSENTE_ELEGIVEL'
+         end as grupo
+    from _origem o
+    left join t on t.k = o.k
+    left join p on p.k = o.k
+    left join public.alunos a
+           on o.cpf <> '' and regexp_replace(coalesce(a.cpf,''),'\D','','g') = o.cpf;
+
+  select count(*) filter (where grupo='JA_EXISTENTE'),
+         count(*) filter (where grupo='PROTEGIDA'),
+         count(*) filter (where grupo='AUSENTE_ELEGIVEL'),
+         count(*) filter (where grupo='DIVERGENTE'),
+         round(coalesce(sum(valor) filter (where grupo='AUSENTE_ELEGIVEL'),0),2)
+    into v_ja, v_prot, v_ausente, v_div, v_valor_ausente
+    from _cls;
+
+  if not p_dry_run then
+    -- SO INSERT. `where not exists` + o indice unico da secao 1 fazem a
+    -- repeticao inserir 0 na segunda vez.
+    insert into public.acordos_titulos
+      (aluno_id, cpf, documento, vencimento, valor_original, valor_em_aberto,
+       saldo_corrigido, situacao, status, tipo_boleto, importacao_id, observacao)
+    select c.aluno_id, c.cpf, c.documento, c.venc, c.valor, c.valor,
+           -- saldo_corrigido nasce junto: sem ele o titulo fica invisivel para
+           -- as cinco rotinas que leem coalesce(saldo_corrigido,0). E o que o
+           -- bordero e o importar_acordos ja fazem.
+           c.valor, 'ABERTO', 'em_aberto', c.curso, null,
+           'Mensalidade ausente incluida pelo lote ' || p_lote
+      from _cls c
+     where c.grupo = 'AUSENTE_ELEGIVEL'
+       and not exists (
+             select 1 from public.acordos_titulos t
+              where public.extracao_documento_norm(t.documento) = c.k)
+       and not exists (
+             select 1 from public.parcelas pa
+              where public.extracao_documento_norm(pa.boleto) = c.k);
+    get diagnostics v_ins = row_count;
+
+    insert into public.auditoria (usuario, acao, tabela_afetada, detalhes)
+    values (v_usuario, 'MENSALIDADES_AUSENTES_INSERIDAS', 'acordos_titulos',
+            jsonb_build_object('lote', p_lote, 'inseridos', v_ins,
+                               'ja_existente', v_ja, 'protegida', v_prot,
+                               'ausente_elegivel', v_ausente, 'divergente', v_div));
+  end if;
+
+  return jsonb_build_object(
+    'dry_run', p_dry_run, 'lote', p_lote,
+    'linhas', (select count(*) from _origem),
+    'ja_existente', v_ja, 'protegida', v_prot,
+    'ausente_elegivel', v_ausente, 'divergente', v_div,
+    'valor_ausente_elegivel', v_valor_ausente,
+    'inseridos', v_ins);
+end;
+$fn$;
+
+comment on function public.mensalidades_ausentes_inserir(jsonb,text,boolean) is
+  'Inclui SO mensalidade cuja chave normalizada nao existe nem em '
+  'acordos_titulos nem em parcelas. Somente INSERT: nao atualiza titulo, nao '
+  'cria aluno nem acordo, nao escreve em fila, caso, parcela, vinculo, '
+  'responsavel, fidelizacao, retorno ou historico. p_dry_run = true por '
+  'default. Idempotente: repetir insere 0 (ux_acordos_titulos_documento_norm). '
+  'Linha sem CPF, com CPF que nao resolve aluno, com boleto de ACORDO ou com '
+  'chave de 6/13 digitos fica em DIVERGENTE e nao entra. PROTEGIDA e decisao '
+  'de NAO COBRAR -- juridico, suspensao, cancelamento de cobranca, '
+  'casos.cancelado_em e casos.nao_acionar (por onde a antecipacao de semestre '
+  'entra). Historico de quitacao NAO protege: mensalidade nova de aluno '
+  'quitado entra e vai para a cobranca (regra da gestao de 08/10/2026).';
+
+revoke all on function public.mensalidades_ausentes_inserir(jsonb,text,boolean) from public, anon;
+grant execute on function public.mensalidades_ausentes_inserir(jsonb,text,boolean) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 4. PROVA. Qualquer divergencia aborta a migration inteira.
+-- ---------------------------------------------------------------------------
+do $prova$
+begin
+  -- 4.1 o gatilho existe e e BEFORE UPDATE
+  if not exists (
+    select 1 from pg_trigger g
+     where g.tgrelid = 'public.acordos_titulos'::regclass
+       and g.tgname = 'trg_titulo_importacao_nao_reativa'
+       and not g.tgisinternal) then
+    raise exception 'PROVA: gatilho trg_titulo_importacao_nao_reativa nao foi criado';
+  end if;
+
+  -- 4.2 o indice unico normalizado existe
+  if not exists (select 1 from pg_class where relname = 'ux_acordos_titulos_documento_norm') then
+    raise exception 'PROVA: indice ux_acordos_titulos_documento_norm nao foi criado';
+  end if;
+
+  -- 4.3 os tres gatilhos que JA existiam seguem intactos
+  if (select count(*) from pg_trigger g
+       where g.tgrelid = 'public.acordos_titulos'::regclass and not g.tgisinternal
+         and g.tgname in ('trg_titulo_em_confirmacao_protegido',
+                          'trg_titulo_encerrado_administrativo_protegido',
+                          'trg_titulo_liquidado_na_origem_e_terminal')) <> 3 then
+    raise exception 'PROVA: um dos tres gatilhos de protecao preexistentes desapareceu';
+  end if;
+
+  -- 4.4 anon nao recebeu nada
+  if has_function_privilege('anon', 'public.mensalidades_ausentes_inserir(jsonb,text,boolean)', 'EXECUTE') then
+    raise exception 'PROVA: anon pode executar mensalidades_ausentes_inserir';
+  end if;
+
+  -- 4.5 nenhum titulo foi tocado por esta migration
+  if exists (select 1 from public.auditoria
+              where acao = 'TITULO_IMPORTACAO_REATIVACAO_RECUSADA'
+                and created_at > now() - interval '1 minute') then
+    raise exception 'PROVA: a migration disparou a trava -- algo escreveu titulo durante ela';
+  end if;
+end $prova$;
+
+commit;
