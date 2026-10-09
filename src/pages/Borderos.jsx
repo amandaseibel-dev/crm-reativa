@@ -480,6 +480,15 @@ export default function Borderos() {
           // o CRM desfazer sozinho uma quitação e reabrir o acordo.
           // ==============================================================
           const RESTAURAR_QUITACAO_NO_BORDERO = false;
+          // COBERTURA PENDENTE (09/10/2026) -- ver
+          // docs/SIMULACAO-REIMPORTACAO-PARCELAS-AUSENTES-2026-10-08.md §9.
+          //
+          // A fonte É `registrosTitulos`, e isso não é detalhe: com o
+          // importador insert-only ele contém SÓ título novo, então só aluno
+          // que recebeu parcela nova volta para CONTATAR. Trocar por
+          // `preview.linhas` levaria de volta para a fila o aluno quitado que
+          // não recebeu nada novo -- o defeito de 08/10/2026 -- e NENHUM teste
+          // cairia: não existe teste integrado desta tela.
           const idsAlunosComTitulo = [
             ...new Set(registrosTitulos.map((r) => r.aluno_id)),
           ];

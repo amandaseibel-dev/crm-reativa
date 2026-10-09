@@ -415,3 +415,47 @@ vermelhos em `.claude/worktrees/` são a cópia do worktree, que o CI não enxer
 | 4 | **Decisão:** a RPC hoje **não cria aluno**. Linha cujo CPF não resolve aluno existente cai em `DIVERGENTE` e não entra. O borderô criava aluno novo. Se você quiser que a inclusão crie a ficha, é mudança de escopo e eu preciso do seu OK. | você |
 | 5 | **Decisão:** `RESTAURAR_QUITACAO_NO_BORDERO` ficou `false`. Se algum dia a quitação manual precisar ser desfeita por reimportação, religar é decisão sua — hoje o caminho correto é a ficha. | você |
 | 6 | **Ledger** das duas versões, se a migration for aplicada (convenção do projeto: versão que já existe na base ganha linha no `INDICE.tsv` com arquivo `-`, nunca cópia). | eu, depois do OK |
+| 7 | **Cobertura pendente: teste integrado de `Borderos.jsx`** — ver §9. Registrada em 09/10/2026, escopo não ampliado agora por decisão da gestão. | eu, quando a gestão liberar |
+
+---
+
+## 9. Cobertura pendente — o fluxo de importação da tela
+
+**Registrado em 09/10/2026, a pedido da gestão, sem ampliar o escopo agora.**
+
+`src/pages/Borderos.jsx` **não tem arquivo de teste**. Isso é anterior às
+mudanças de 08–09/10/2026 e não foi introduzido por elas, mas passa a importar
+mais agora, porque duas garantias que a gestão pediu por escrito dependem desse
+arquivo:
+
+1. **título antigo não é tocado** — garantido por `motivoDeNaoTocar`, que
+   recusa toda linha com `jaExiste: true`, inclusive `ABERTO`;
+2. **parcela realmente nova devolve o aluno quitado para a cobrança** — o bloco
+   que grava `CONTATAR` percorre apenas `registrosTitulos`, que com o
+   importador insert-only contém somente título novo.
+
+**O que está coberto hoje.** As duas pontas da cadeia, em
+`src/utils/bordero.js` + `src/utils/bordero.test.js` (14 testes, 6 contra banco
+real em PGlite): `motivoDeNaoTocar` recusa existente e aceita novo; o gatilho da
+seção 2 recusa `UPDATE` de título existente durante importação; e
+`mensalidades_ausentes_inserir` insere mensalidade nova de aluno `QUITADO` /
+`QUITADO_MANUAL` e mantém fora jurídico, suspensão, cancelamento,
+`casos.cancelado_em` e `casos.nao_acionar`.
+
+**O que NÃO está coberto.** O meio da cadeia, dentro do componente: que
+`registrosTitulos` de fato só receba título novo depois do laço de filtragem, e
+que `idsAlunosComTitulo` derive dele — ou seja, que um aluno quitado **sem**
+parcela nova no lote não seja levado a `CONTATAR`. Hoje isso é garantia
+**estrutural** (posição no código), não garantia **testada**. O próprio arquivo
+já avisa, em comentário, que a ordem das etapas não tem teste que a proteja.
+
+**Por que não foi feito agora.** Um teste do fluxo exigiria mock da cadeia do
+query builder do Supabase (`from().upsert()`, `.select().in()`, `.update().in()`)
+e do parse da planilha. As outras telas testadas da casa mockam apenas
+`supabase.rpc`, que é bem mais simples — não há helper reaproveitável para esse
+caso. É trabalho real e merece escopo próprio.
+
+**Risco enquanto não houver.** Uma edição futura que mova o laço de filtragem,
+ou que monte `idsAlunosComTitulo` a partir de `preview.linhas` em vez de
+`registrosTitulos`, volta a devolver para a fila aluno quitado que não recebeu
+nada novo — exatamente o defeito de 08/10/2026 — e nenhum teste cairia.
