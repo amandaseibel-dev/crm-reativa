@@ -10,6 +10,19 @@
 --    canceladas, devolvidas ou encerradas, incluindo acordos e vinculos
 --    financeiros."
 --
+-- PRECISADO PELA GESTAO EM 08/10/2026, depois da remessa de setembro:
+--   "a parcela ja negociada e paga nao volta, quando entra uma nova parcela
+--    precisamos trabalhar ela"
+--
+-- A primeira versao desta migration tratava as duas frases como uma. Nao sao:
+-- "nao reativar" vale para divida ANTIGA (a secao 2 e o insert-only da tela);
+-- mensalidade NOVA tem de entrar e ser cobrada, mesmo de aluno com historico
+-- de quitacao. A secao 3 foi ajustada em 09/10/2026 -- QUITADO, QUITADO_MANUAL,
+-- `casos.encerrado_operacional` e `casos.quitado_em` sairam de PROTEGIDA, que
+-- passa a significar so DECISAO DE NAO COBRAR (juridico, suspensao,
+-- cancelamento, `cancelado_em`, `nao_acionar`). O porque esta escrito no CASE
+-- da secao 3, onde a regra e lida.
+--
 -- ----------------------------------------------------------------------------
 -- O DEFEITO QUE ISTO FECHA (auditoria de 08/10/2026, docs/SIMULACAO-*)
 --
@@ -264,18 +277,51 @@ begin
            when o.documento ~ '^0?5[0-9]{10}$'                     then 'DIVERGENTE'  -- boleto de ACORDO
            when t.k is not null or p.k is not null                  then 'JA_EXISTENTE'
            when o.cpf = '' or a.id is null                         then 'DIVERGENTE'
-           -- protegida pelo lado do aluno/caso. `suspensa` entra aqui.
+           -- ---------------------------------------------------------------
+           -- PROTEGIDA = DECISAO DE NAO COBRAR, nao "caso tratado".
+           --
+           -- REGRA DA GESTAO, 08/10/2026: "a parcela ja negociada e paga nao
+           -- volta, quando entra uma nova parcela precisamos trabalhar ela".
+           -- Sao dois lados diferentes, e a versao de 08/10 os confundia:
+           --
+           --   nao reativar divida ANTIGA -> secao 2 (o gatilho) e o
+           --       insert-only da tela. Esta RPC nunca faz UPDATE, so INSERT:
+           --       ela nao tem como reativar nada.
+           --   mensalidade NOVA           -> entra e vai para a cobranca,
+           --       ainda que o aluno tenha historico de quitacao. A quitacao
+           --       valeu para a divida de ENTAO, nao para a que nasceu depois
+           --       -- mesmo raciocinio de
+           --       `_reabrir_encerramento_com_mensalidade_nova`.
+           --
+           -- SAIRAM DA LISTA (09/10/2026): QUITADO, QUITADO_MANUAL,
+           -- `casos.encerrado_operacional` e `casos.quitado_em`. Eram eles que
+           -- faziam a RPC DESCARTAR em silencio a mensalidade de setembro de
+           -- quem ja havia quitado o que devia antes -- divida real que
+           -- ninguem cobraria.
+           --   `encerrado_operacional` sai sem perda de protecao: ele e
+           --   derivado dos status, e juridico/suspensao/cancelamento seguem
+           --   barrados pelo array abaixo. O que ele acrescentava era o
+           --   quitado -- exatamente o caso que a gestao quer trabalhar.
+           --
+           -- CONTINUA BARRADO, e por que:
+           --   JURIDICO, SUSPENSAO_COBRANCA, CANCELAMENTO_COBRANCA,
+           --   COBRANCA_CANCELADA -- decisao da gestao de nao cobrar este
+           --       aluno. Nao e caso tratado: e caso que nao se cobra.
+           --   `casos.cancelado_em` -- cancelamento definitivo.
+           --   `casos.nao_acionar`  -- trava explicita da gestao. E por ela
+           --       que a ANTECIPACAO DE SEMESTRE segue protegida:
+           --       `antecipacao_semestre_aplicar` grava `nao_acionar = true`.
+           --       Mesma trava que `casos_reabrir_com_divida` respeita.
+           -- ---------------------------------------------------------------
            when array[ replace(upper(coalesce(a.status_atual,'')),' ','_'),
                        replace(upper(coalesce(a.status_jornada,'')),' ','_'),
                        replace(upper(coalesce(a.status_acionamento,'')),' ','_') ]
                 && array['JURIDICO','SUSPENSAO_COBRANCA','CANCELAMENTO_COBRANCA',
-                         'COBRANCA_CANCELADA','QUITADO','QUITADO_MANUAL']
+                         'COBRANCA_CANCELADA']
                                                                    then 'PROTEGIDA'
            when exists (select 1 from public.casos c
                          where c.aluno_id = a.id
-                           and (coalesce(c.encerrado_operacional,false)
-                                or c.quitado_em is not null
-                                or c.cancelado_em is not null
+                           and (c.cancelado_em is not null
                                 or coalesce(c.nao_acionar,false)))  then 'PROTEGIDA'
            else 'AUSENTE_ELEGIVEL'
          end as grupo
@@ -339,7 +385,11 @@ comment on function public.mensalidades_ausentes_inserir(jsonb,text,boolean) is
   'responsavel, fidelizacao, retorno ou historico. p_dry_run = true por '
   'default. Idempotente: repetir insere 0 (ux_acordos_titulos_documento_norm). '
   'Linha sem CPF, com CPF que nao resolve aluno, com boleto de ACORDO ou com '
-  'chave de 6/13 digitos fica em DIVERGENTE e nao entra.';
+  'chave de 6/13 digitos fica em DIVERGENTE e nao entra. PROTEGIDA e decisao '
+  'de NAO COBRAR -- juridico, suspensao, cancelamento de cobranca, '
+  'casos.cancelado_em e casos.nao_acionar (por onde a antecipacao de semestre '
+  'entra). Historico de quitacao NAO protege: mensalidade nova de aluno '
+  'quitado entra e vai para a cobranca (regra da gestao de 08/10/2026).';
 
 revoke all on function public.mensalidades_ausentes_inserir(jsonb,text,boolean) from public, anon;
 grant execute on function public.mensalidades_ausentes_inserir(jsonb,text,boolean) to authenticated;

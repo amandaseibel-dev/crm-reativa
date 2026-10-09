@@ -283,4 +283,80 @@ describe("gatilho do banco: importação não reativa, motor legítimo continua"
       db.exec(`insert into public.acordos_titulos (documento, situacao) values ('04039712','ABERTO');`)
     ).rejects.toThrow(/ux_acordos_titulos_documento_norm|duplicate key/i);
   });
+
+  // -------------------------------------------------------------------------
+  // PROTEGIDA é decisão de NÃO COBRAR, não "caso tratado".
+  //
+  // Amanda, 08/10/2026: "quando entra uma nova parcela precisamos trabalhar
+  // ela". Até 09/10 a RPC tratava QUITADO, QUITADO_MANUAL,
+  // `casos.encerrado_operacional` e `casos.quitado_em` como protegidos — e
+  // descartava em silêncio a mensalidade nova desses alunos. Dívida real que
+  // ninguém cobraria.
+  //
+  // Este teste trava os DOIS lados de uma vez: se alguém devolver quitado para
+  // a lista, a primeira metade cai; se alguém tirar jurídico, suspensão,
+  // cancelamento ou `nao_acionar`, a segunda cai.
+  // -------------------------------------------------------------------------
+  it("mensalidade nova de aluno quitado ENTRA; quem a gestão decidiu não cobrar fica fora", async () => {
+    const db = await banco();
+    await db.exec(`
+      insert into public.alunos (id, cpf, status_atual, status_jornada) values
+        ('bbbbbbbb-0000-0000-0000-000000000001','10000000001','Novo caso','QUITADO'),
+        ('bbbbbbbb-0000-0000-0000-000000000002','10000000002','Novo caso','QUITADO_MANUAL'),
+        ('bbbbbbbb-0000-0000-0000-000000000003','10000000003','Novo caso','Em cobranca'),
+        ('bbbbbbbb-0000-0000-0000-000000000004','10000000004','Novo caso','Em cobranca'),
+        ('bbbbbbbb-0000-0000-0000-000000000005','10000000005','JURIDICO','JURIDICO'),
+        ('bbbbbbbb-0000-0000-0000-000000000006','10000000006','Novo caso','SUSPENSAO_COBRANCA'),
+        ('bbbbbbbb-0000-0000-0000-000000000007','10000000007','Novo caso','CANCELAMENTO_COBRANCA'),
+        ('bbbbbbbb-0000-0000-0000-000000000008','10000000008','Novo caso','Em cobranca'),
+        ('bbbbbbbb-0000-0000-0000-000000000009','10000000009','Novo caso','Em cobranca');
+      -- 3 e 4: quitação registrada no CASO, não no status. Também entram.
+      insert into public.casos (aluno_id, quitado_em, encerrado_operacional) values
+        ('bbbbbbbb-0000-0000-0000-000000000003','2026-07-01', false),
+        ('bbbbbbbb-0000-0000-0000-000000000004', null,        true);
+      -- 8 e 9: decisão de não cobrar, registrada no caso. Ficam fora.
+      --   8 = cancelamento definitivo;
+      --   9 = antecipação de semestre, que é o que antecipacao_semestre_aplicar
+      --       grava (nao_acionar = true).
+      insert into public.casos (aluno_id, cancelado_em, nao_acionar) values
+        ('bbbbbbbb-0000-0000-0000-000000000008','2026-08-01', false),
+        ('bbbbbbbb-0000-0000-0000-000000000009', null,        true);
+    `);
+
+    const linha = (doc, cpf) =>
+      ({ documento: doc, cpf, valor: 500, venc: "2026-09-10", curso: "G" });
+    const linhas = JSON.stringify([
+      linha("5000001", "10000000001"), // QUITADO               -> entra
+      linha("5000002", "10000000002"), // QUITADO_MANUAL        -> entra
+      linha("5000003", "10000000003"), // caso.quitado_em       -> entra
+      linha("5000004", "10000000004"), // encerrado_operacional -> entra
+      linha("5000005", "10000000005"), // JURIDICO              -> fora
+      linha("5000006", "10000000006"), // SUSPENSAO_COBRANCA    -> fora
+      linha("5000007", "10000000007"), // CANCELAMENTO_COBRANCA -> fora
+      linha("5000008", "10000000008"), // caso.cancelado_em     -> fora
+      linha("5000009", "10000000009"), // caso.nao_acionar      -> fora
+    ]);
+
+    const seco = await db.query(
+      `select public.mensalidades_ausentes_inserir($1::jsonb, 'lote-protegida', true) as r`, [linhas]);
+    expect(seco.rows[0].r).toMatchObject({
+      ausente_elegivel: 4, protegida: 5, divergente: 0, ja_existente: 0,
+    });
+
+    await db.query(
+      `select public.mensalidades_ausentes_inserir($1::jsonb, 'lote-protegida', false) as r`, [linhas]);
+
+    const { rows: entraram } = await db.query(
+      `select documento from public.acordos_titulos
+        where documento like '50000%' order by documento`);
+    expect(entraram.map((r) => r.documento)).toEqual(
+      ["5000001", "5000002", "5000003", "5000004"]);
+
+    // E o que entrou entra COBRÁVEL: ABERTO/em_aberto com saldo. Sem saldo o
+    // título nasce invisível para as rotinas que leem coalesce(saldo_corrigido,0).
+    const { rows: novo } = await db.query(
+      `select situacao, status, saldo_corrigido::float8 as saldo
+         from public.acordos_titulos where documento='5000001'`);
+    expect(novo[0]).toMatchObject({ situacao: "ABERTO", status: "em_aberto", saldo: 500 });
+  });
 });
