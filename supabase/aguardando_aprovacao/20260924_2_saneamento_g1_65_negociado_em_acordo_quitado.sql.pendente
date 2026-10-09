@@ -1,0 +1,423 @@
+-- ============================================================================
+-- 2/4 -- SANEAMENTO G1: 65 mensalidades NEGOCIADO cujo acordo ja esta QUITADO
+-- ============================================================================
+-- NAO APLICAR SEM APROVACAO. Rodar DEPOIS do arquivo 1 (estrutural), para que
+-- a quitacao ja nasca com `quitacao_origem = 'ACORDO'` gravada.
+--
+-- POPULACAO (medida em producao 24/09/2026):
+--   65 titulos | 44 acordos | 44 alunos | R$ 41.642,41
+--   estado atual  : situacao NEGOCIADO / status vinculada  (65 de 65)
+--   estado esperado: situacao PAGO / status quitada, mesmo acordo_id
+--
+-- POR QUE ESTAO ASSIM: os vinculos foram criados em lote em 09/09 (62) e 12/09
+-- (3), DEPOIS de o acordo ja ter virado QUITADO (42 dos 44 viraram entre 31/08
+-- e 09/09). Sem uma nova virada de status, `_titulo_quita_com_o_acordo` nunca
+-- mais dispara -- ele e `after update of status on acordos`. Ninguem reavaliou
+-- desde entao.
+--
+-- POR QUE PODEM VIRAR PAGO: os 44 acordos estao quitados DE VERDADE -- 58
+-- parcelas, todas PAGO, zero parcela fora de (PAGO, CANCELADA, RENEGOCIADA),
+-- que e exatamente o predicado que `titulo_reavaliar` usa para decidir
+-- "quitado de verdade". Nao e regra nova: e o motor oficial rodando num
+-- registro que ele nunca visitou.
+--
+-- NAO USA UPDATE PROPRIO. Chama `public.titulo_reavaliar(id)` titulo a titulo.
+-- Se o motor mudar de opiniao sobre algum, o resultado muda junto -- e a
+-- validacao no fim acusa.
+--
+-- EFEITO NO SALDO: NENHUM. Mensalidade NEGOCIADO com vinculo vivo ja esta fora
+-- do saldo (`aluno_saldo_pendente_detalhe` e `saude_carteira_panorama` excluem
+-- por NOT EXISTS de vinculo vivo); PAGO tambem esta fora. O que muda e o
+-- rotulo na ficha e a classificacao em `carteira_2026_1_classificar`, onde
+-- situacao = 'PAGO' passa a contar como EFETIVIDADE -- que e o objetivo.
+--
+-- ROLLBACK: 20260924_2_saneamento_g1_..._rollback.sql (mesma pasta)
+-- ============================================================================
+
+begin;
+
+-- ---------------------------------------------------------------------------
+-- 0) A LISTA. Fechada, conferida por ID em 24/09/2026.
+-- ---------------------------------------------------------------------------
+create temporary table _g1_lista (
+  titulo_id uuid primary key,
+  acordo_id uuid not null,
+  valor_esperado numeric not null
+) on commit drop;
+
+insert into _g1_lista (titulo_id, acordo_id, valor_esperado) values
+  ('0006089c-282e-4f0a-b7a7-531c0cf9aa0e'::uuid, '4a59b6ca-05dc-4abe-b54b-5c211e9b19cb'::uuid, 1580.13::numeric),
+  ('0c1eeeb5-e438-4f81-8942-61d3a2287469'::uuid, 'abd01ddf-d625-47fe-884d-d069d60e7d1b'::uuid, 1456.72::numeric),
+  ('0f01f0e6-f9b2-40ce-95c7-8b1043e71bfa'::uuid, 'f84a7009-66ed-4f46-a0b8-43d427ec4f76'::uuid, 1018.08::numeric),
+  ('0f59706a-84e6-4545-b26c-eaea6eb7d734'::uuid, 'a30fa2b2-dce6-4438-9810-5262c680dfa8'::uuid, 893.47::numeric),
+  ('0fe36595-b9f3-40a6-bfe8-3f2fb4e9a817'::uuid, 'f586a0e5-eaeb-4efb-8c9f-1f23881b9f63'::uuid, 303.15::numeric),
+  ('10564937-e926-45d1-aaf2-e1939a0bb189'::uuid, '8aacacc2-3ca6-4dba-bd85-9ec8c00f560a'::uuid, 489.82::numeric),
+  ('1a237a72-4075-4832-ba18-86c54312c80d'::uuid, '38f937dd-86a4-4ddc-905f-582ab4db8657'::uuid, 264.60::numeric),
+  ('1da4360e-8c24-4118-8056-3f159e7f3293'::uuid, '572ed188-6eed-4bd9-b82c-1a758868ab82'::uuid, 1275.55::numeric),
+  ('1fd0807c-24a5-4862-b0ce-79b6797a1ca2'::uuid, '8aacacc2-3ca6-4dba-bd85-9ec8c00f560a'::uuid, 489.82::numeric),
+  ('21a866b2-b6e5-4c61-a4a9-0b3faf64be8c'::uuid, 'a7edbcdb-26ad-49f5-87f3-6dd195224911'::uuid, 147.00::numeric),
+  ('2586640c-4e7b-4382-8055-252abef5893f'::uuid, '2f9e7b6f-db9f-4651-a36f-fb67e8e09c70'::uuid, 791.82::numeric),
+  ('25da8600-cfbe-4c3b-b980-5d2749ac9781'::uuid, '5c079523-8936-4a06-983a-5b9c7914859d'::uuid, 139.60::numeric),
+  ('26fe77fb-a08d-40e4-9c5b-20f90b022d31'::uuid, '59a2361b-db8b-4b03-a8fc-add966a75670'::uuid, 912.36::numeric),
+  ('2d3965d8-0d7c-434c-bf01-712397a6880e'::uuid, '890fb423-5793-4b38-9b98-ba3302c83d3e'::uuid, 317.39::numeric),
+  ('2e8f2b3d-c532-49f5-8aba-e8b556acda70'::uuid, '8aacacc2-3ca6-4dba-bd85-9ec8c00f560a'::uuid, 489.81::numeric),
+  ('39c476bc-f786-4720-8598-2279264f6c06'::uuid, 'a7edbcdb-26ad-49f5-87f3-6dd195224911'::uuid, 147.00::numeric),
+  ('3a02226d-a080-4ed6-8503-f4ab935d2599'::uuid, 'd276955d-cf2d-4b44-9c24-8349bb394d55'::uuid, 234.62::numeric),
+  ('40ec6075-34cd-49fb-ab98-755ba2778246'::uuid, '0e45365e-f916-490b-ba90-406b60c12ce5'::uuid, 498.71::numeric),
+  ('483de1b4-6a9d-45a8-8a72-55d91d6fefba'::uuid, '48604ba3-2feb-4fd7-a7fd-02ae945f0cae'::uuid, 1890.37::numeric),
+  ('48661e38-ffa8-4508-90f5-cdbd12894864'::uuid, '415eb5ae-1e90-4ec5-a302-c7fbc0066e5f'::uuid, 727.45::numeric),
+  ('4ac6285d-04bc-4b4c-a54e-543804027c3e'::uuid, '02e733be-6ff4-4931-a92d-aa5c5e15594f'::uuid, 189.99::numeric),
+  ('53f4cf2a-041b-4c26-9123-78c76add54f0'::uuid, '48604ba3-2feb-4fd7-a7fd-02ae945f0cae'::uuid, 1890.44::numeric),
+  ('54e4ba8f-8330-45c6-8d89-b0b1d0a7041d'::uuid, '0e45365e-f916-490b-ba90-406b60c12ce5'::uuid, 498.72::numeric),
+  ('5a3bb547-5db5-4f1f-8364-35c35af4b119'::uuid, '24c8c961-fed8-4428-be0d-adf91912fc4b'::uuid, 567.87::numeric),
+  ('5be8459f-11f5-438d-b84c-568cd95aede8'::uuid, 'da66a41f-d3a2-4129-9cfc-daf567a04222'::uuid, 537.47::numeric),
+  ('5ed310dd-8370-4224-aed3-f33113b3fc9b'::uuid, '0e45365e-f916-490b-ba90-406b60c12ce5'::uuid, 498.71::numeric),
+  ('61822e34-f234-4c22-a64e-dbc2e6cb23ba'::uuid, '88b8ce04-ae2a-4494-b780-400c158ab016'::uuid, 473.67::numeric),
+  ('646517ce-a74d-4989-b0f8-841c3824d13e'::uuid, '890fb423-5793-4b38-9b98-ba3302c83d3e'::uuid, 317.32::numeric),
+  ('6a8bf064-2f1c-4e28-9888-1d011ab08c36'::uuid, '24c8c961-fed8-4428-be0d-adf91912fc4b'::uuid, 567.86::numeric),
+  ('6dc01051-c594-459c-aaac-dbeee21e844c'::uuid, '59a2361b-db8b-4b03-a8fc-add966a75670'::uuid, 912.36::numeric),
+  ('77cd71c5-f84a-4a50-b052-90fddcb471f2'::uuid, 'fba48d39-0b01-4fd7-b81c-895c4f2bbdf6'::uuid, 811.99::numeric),
+  ('81448ae0-8af9-4e86-b074-68d6a9b57f19'::uuid, '9f58a891-8b5b-4798-a99c-f75ae7b5e764'::uuid, 1014.81::numeric),
+  ('82636187-151d-4e56-8b9d-438f28532a64'::uuid, '1916c690-343b-4b2a-a113-8eefb03efd7c'::uuid, 982.62::numeric),
+  ('83f1e613-9315-4009-9396-b9ce98d583ea'::uuid, '8d8324b8-aeeb-41a7-b7b7-1dcc129079c5'::uuid, 226.23::numeric),
+  ('8434cf0a-00db-462a-80f6-ea571871a8c1'::uuid, '83d10286-432d-44bf-966c-659acfa4ef0b'::uuid, 719.38::numeric),
+  ('8cf2e65b-5f5d-42a3-9afd-52ada728412b'::uuid, '8bd02b29-fcb9-4b23-8388-0c73920be001'::uuid, 490.25::numeric),
+  ('8e1c4e98-9ac2-431c-ae38-d8d1f15a86f7'::uuid, '2888ab8e-4ebb-42fc-a9cd-765a476479dc'::uuid, 732.47::numeric),
+  ('94432b91-1ee0-4b61-9444-2ead35c233dc'::uuid, 'e2931f8c-323a-45ec-84e4-f6c4e64fe587'::uuid, 179.22::numeric),
+  ('9eb81d72-e57d-4fb6-a1f4-5d57771aa96f'::uuid, '02e733be-6ff4-4931-a92d-aa5c5e15594f'::uuid, 190.00::numeric),
+  ('aa98b9b6-7792-41f4-837a-ddf0092309dd'::uuid, 'aafb3ad7-df29-4379-8c30-1804b8e99cbf'::uuid, 119.33::numeric),
+  ('aaee5441-f5a6-4791-aac8-7461c54cb494'::uuid, '68c6a483-83eb-40af-8b6f-17d612d89b5a'::uuid, 509.60::numeric),
+  ('ab5765ca-b498-43e8-859d-e7b39246a7a8'::uuid, 'da66a41f-d3a2-4129-9cfc-daf567a04222'::uuid, 537.47::numeric),
+  ('b1bb897c-1127-4bed-b2ca-50b34d1dd542'::uuid, '8e5bfb1f-fadc-4f41-a514-a77776bde7e9'::uuid, 540.96::numeric),
+  ('b40cc4d3-7267-48f4-9099-27fc81d24041'::uuid, '9db067ab-d6fa-4abb-86b1-ca0abc4437ba'::uuid, 537.84::numeric),
+  ('b5f78ecb-ba61-422b-a4d3-0976e2b86c15'::uuid, 'f89ee5fe-c8ae-4ae8-8458-6b06f547e63d'::uuid, 783.38::numeric),
+  ('b964152f-9f8f-4cef-9026-19595cd1d3e4'::uuid, 'c3262517-8e59-4c30-bff2-3a1a9d41f106'::uuid, 284.21::numeric),
+  ('bdc5e3ca-9da4-4e0d-a4e7-efde269b10ea'::uuid, 'b2a4efe5-dadb-47da-badc-be9bdd18403a'::uuid, 2084.86::numeric),
+  ('bf63ace7-6606-4f10-abe4-0de5e75b52bf'::uuid, '890fb423-5793-4b38-9b98-ba3302c83d3e'::uuid, 317.39::numeric),
+  ('c78f0d31-1878-432e-9580-6d4b20418700'::uuid, '0e45365e-f916-490b-ba90-406b60c12ce5'::uuid, 498.71::numeric),
+  ('c826a12f-6e40-4750-a002-312cdc0d23ec'::uuid, '91627780-69b6-478d-b9af-a09a4dc4313b'::uuid, 1112.40::numeric),
+  ('c98c4304-2d23-474f-a6d9-bf2157fca56d'::uuid, 'fba48d39-0b01-4fd7-b81c-895c4f2bbdf6'::uuid, 812.01::numeric),
+  ('c9c0ebe7-d97e-436b-afe2-a3c374c3dca6'::uuid, '8aacacc2-3ca6-4dba-bd85-9ec8c00f560a'::uuid, 489.82::numeric),
+  ('d4df8f46-25b3-4df6-b378-0320786180db'::uuid, '8e5bfb1f-fadc-4f41-a514-a77776bde7e9'::uuid, 540.96::numeric),
+  ('debd6fba-4e2c-44eb-9fd8-ae7a6839c251'::uuid, '97b673b8-8c12-4769-965e-200471c1fefc'::uuid, 124.09::numeric),
+  ('e328f6fa-d2aa-458c-848f-033162d6ee73'::uuid, 'da66a41f-d3a2-4129-9cfc-daf567a04222'::uuid, 537.48::numeric),
+  ('e34877a6-2807-49f3-b9f4-31e20c2494e0'::uuid, 'b874159a-d945-4afd-8ec2-6f6d97826f45'::uuid, 1196.53::numeric),
+  ('e354fa4e-d966-4b22-8554-c24b1547777a'::uuid, '18072a3b-387a-473a-8402-7f587f150e6c'::uuid, 928.96::numeric),
+  ('e49fe707-e462-4762-992b-d765f419ba45'::uuid, '9a54c619-4fea-4973-87d2-463f3990a5a7'::uuid, 473.67::numeric),
+  ('e54d3db5-418c-4b18-9e74-2ece444c9054'::uuid, '501eda2f-740a-430f-9783-e829a06bc7a0'::uuid, 157.37::numeric),
+  ('ec45b0e6-5995-4d5c-93d9-c0629acda097'::uuid, 'fb5e0eea-920b-49c0-a71a-6238f751375c'::uuid, 330.37::numeric),
+  ('ec51303a-7504-4fa2-ad09-16efe3668322'::uuid, 'a7edbcdb-26ad-49f5-87f3-6dd195224911'::uuid, 147.00::numeric),
+  ('ec92dfdc-6c7d-463b-bb01-fc0f2953978d'::uuid, '9db067ab-d6fa-4abb-86b1-ca0abc4437ba'::uuid, 537.82::numeric),
+  ('ed527f0a-7e83-4bb0-8abe-881b5a180169'::uuid, 'fb5e0eea-920b-49c0-a71a-6238f751375c'::uuid, 330.37::numeric),
+  ('f9bf89c6-9392-4537-80ac-ff7fca55d5fa'::uuid, '8e5bfb1f-fadc-4f41-a514-a77776bde7e9'::uuid, 540.96::numeric),
+  ('fff1a6f6-cd2f-4b97-a6be-b1d73428b8ca'::uuid, '58733753-613f-4984-b722-469bba90df64'::uuid, 1300.00::numeric);
+
+-- ---------------------------------------------------------------------------
+-- 1) GUARDS. Qualquer divergencia entre o que foi validado e o que esta no
+--    banco AGORA aborta a transacao inteira.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_qtd int; v_soma numeric; v_falha int; v_txt text;
+begin
+  -- 1.1 a lista chegou inteira
+  select count(*) into v_qtd from _g1_lista;
+  if v_qtd <> 65 then
+    raise exception 'ABORTA: lista com % linhas, esperado 65', v_qtd;
+  end if;
+
+  -- 1.2 todo titulo da lista existe
+  select count(*) into v_falha from _g1_lista l
+   where not exists (select 1 from public.acordos_titulos t where t.id = l.titulo_id);
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) da lista nao existem mais', v_falha;
+  end if;
+
+  -- 1.3 estado anterior esperado: NEGOCIADO / vinculada
+  select count(*) into v_falha
+    from _g1_lista l join public.acordos_titulos t on t.id = l.titulo_id
+   where upper(coalesce(t.situacao,'')) <> 'NEGOCIADO'
+      or lower(coalesce(t.status,'')) <> 'vinculada';
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) nao estao mais NEGOCIADO/vinculada', v_falha;
+  end if;
+
+  -- 1.4 acordo_id ainda e o mesmo da validacao
+  select count(*) into v_falha
+    from _g1_lista l join public.acordos_titulos t on t.id = l.titulo_id
+   where t.acordo_id is distinct from l.acordo_id;
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) trocaram de acordo desde a validacao', v_falha;
+  end if;
+
+  -- 1.5 vinculo vivo apontando para o MESMO acordo
+  select count(*) into v_falha
+    from _g1_lista l
+   where not exists (select 1 from public.acordo_titulo_vinculo v
+                      where v.titulo_id = l.titulo_id and v.acordo_id = l.acordo_id
+                        and coalesce(v.ativo, true));
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) perderam o vinculo ativo com o acordo', v_falha;
+  end if;
+
+  -- 1.6 o acordo continua QUITADO
+  select count(*) into v_falha
+    from (select distinct acordo_id from _g1_lista) x
+    join public.acordos a on a.id = x.acordo_id
+   where upper(coalesce(a.status,'')) <> 'QUITADO';
+  if v_falha > 0 then
+    raise exception 'ABORTA: % acordo(s) nao estao mais QUITADO', v_falha;
+  end if;
+
+  -- 1.7 quitado DE VERDADE: nenhuma parcela viva (mesmo predicado de titulo_reavaliar)
+  select count(*) into v_falha
+    from (select distinct acordo_id from _g1_lista) x
+   where exists (select 1 from public.parcelas p
+                  where p.acordo_id = x.acordo_id
+                    and upper(coalesce(p.status,'')) not in ('PAGO','CANCELADA','RENEGOCIADA'));
+  if v_falha > 0 then
+    raise exception 'ABORTA: % acordo(s) voltaram a ter parcela viva', v_falha;
+  end if;
+
+  -- 1.8 nenhum e o boleto do proprio acordo
+  select count(*) into v_falha
+    from _g1_lista l join public.acordos_titulos t on t.id = l.titulo_id
+   where coalesce(t.tipo_boleto,'') = 'Acordo';
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) sao boleto do proprio acordo', v_falha;
+  end if;
+
+  -- 1.9 nenhuma marca terminal que os gatilhos de protecao fossem sequestrar
+  select count(*) into v_falha
+    from _g1_lista l join public.acordos_titulos t on t.id = l.titulo_id
+   where t.origem_liquidacao is not null or t.origem_encerramento is not null;
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) ganharam origem_liquidacao/origem_encerramento', v_falha;
+  end if;
+
+  -- 1.10 soma financeira identica a validada
+  select round(sum(coalesce(t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0)), 2)
+    into v_soma
+    from _g1_lista l join public.acordos_titulos t on t.id = l.titulo_id;
+  if v_soma <> 41642.41 then
+    raise exception 'ABORTA: soma % diferente da validada 41642.41', v_soma;
+  end if;
+
+  -- 1.11 valor por titulo identico ao validado
+  select count(*) into v_falha
+    from _g1_lista l join public.acordos_titulos t on t.id = l.titulo_id
+   where round(coalesce(t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0), 2)
+         <> round(l.valor_esperado, 2);
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) mudaram de valor desde a validacao', v_falha;
+  end if;
+
+  raise notice 'GUARDS OK: 65 titulos, R$ 41.642,41, 44 acordos QUITADO sem parcela viva';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 2) BACKUP POR ID -- registro completo antes, vinculos, acordo, motivo
+-- ---------------------------------------------------------------------------
+create table if not exists public._backup_saneamento_g1_20260924 (
+  titulo_id uuid primary key,
+  registro_anterior jsonb not null,
+  vinculos_anteriores jsonb not null,
+  acordo_id uuid,
+  acordo_numero text,
+  acordo_status_no_backup text,
+  situacao_anterior text,
+  status_anterior text,
+  acordo_id_anterior uuid,
+  origem_liquidacao_anterior text,
+  origem_liquidacao_ref_anterior text,
+  origem_liquidacao_em_anterior timestamptz,
+  origem_encerramento_anterior text,
+  quitacao_origem_anterior text,
+  quitacao_origem_acordo_id_anterior uuid,
+  motivo_ajuste_anterior text,
+  motivo_correcao text not null,
+  feito_em timestamptz not null default now()
+);
+
+insert into public._backup_saneamento_g1_20260924 (
+  titulo_id, registro_anterior, vinculos_anteriores, acordo_id, acordo_numero,
+  acordo_status_no_backup, situacao_anterior, status_anterior, acordo_id_anterior,
+  origem_liquidacao_anterior, origem_liquidacao_ref_anterior, origem_liquidacao_em_anterior,
+  origem_encerramento_anterior, quitacao_origem_anterior, quitacao_origem_acordo_id_anterior,
+  motivo_ajuste_anterior, motivo_correcao)
+select t.id, to_jsonb(t),
+       coalesce((select jsonb_agg(to_jsonb(v)) from public.acordo_titulo_vinculo v where v.titulo_id = t.id), '[]'::jsonb),
+       a.id, a.numero_acordo::text, a.status,
+       t.situacao, t.status, t.acordo_id,
+       t.origem_liquidacao, t.origem_liquidacao_ref, t.origem_liquidacao_em,
+       t.origem_encerramento, t.quitacao_origem, t.quitacao_origem_acordo_id,
+       t.motivo_ajuste,
+       'G1 24/09/2026: mensalidade NEGOCIADO em acordo QUITADO de verdade (todas as parcelas PAGO). Reavaliada pelo motor oficial titulo_reavaliar para PAGO/quitada.'
+  from _g1_lista l
+  join public.acordos_titulos t on t.id = l.titulo_id
+  join public.acordos a on a.id = l.acordo_id
+on conflict (titulo_id) do nothing;
+
+do $$
+declare v_qtd int;
+begin
+  select count(*) into v_qtd from public._backup_saneamento_g1_20260924;
+  if v_qtd <> 65 then
+    raise exception 'ABORTA: backup com % linhas, esperado 65', v_qtd;
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 3) A CORRECAO -- motor oficial, um titulo por vez
+-- ---------------------------------------------------------------------------
+do $$
+declare v_id uuid; v_n int := 0;
+begin
+  for v_id in select titulo_id from _g1_lista order by titulo_id loop
+    perform public.titulo_reavaliar(v_id);
+    v_n := v_n + 1;
+  end loop;
+  raise notice 'titulo_reavaliar executado em % titulos', v_n;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 4) VALIDACAO AUTOMATICA -- se nao ficou como esperado, a transacao cai
+-- ---------------------------------------------------------------------------
+do $$
+declare v_falha int; v_ok int;
+begin
+  -- 4.1 os 65 ficaram PAGO/quitada
+  select count(*) into v_ok
+    from _g1_lista l join public.acordos_titulos t on t.id = l.titulo_id
+   where upper(coalesce(t.situacao,'')) = 'PAGO' and lower(coalesce(t.status,'')) = 'quitada';
+  if v_ok <> 65 then
+    raise exception 'ABORTA: % de 65 ficaram PAGO/quitada', v_ok;
+  end if;
+
+  -- 4.2 continuam vinculados ao MESMO acordo, na coluna e na tabela de vinculo
+  select count(*) into v_falha
+    from _g1_lista l join public.acordos_titulos t on t.id = l.titulo_id
+   where t.acordo_id is distinct from l.acordo_id;
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) perderam o acordo_id', v_falha;
+  end if;
+
+  select count(*) into v_falha
+    from _g1_lista l
+   where not exists (select 1 from public.acordo_titulo_vinculo v
+                      where v.titulo_id = l.titulo_id and v.acordo_id = l.acordo_id
+                        and coalesce(v.ativo, true));
+  if v_falha > 0 then
+    raise exception 'ABORTA: % vinculo(s) sumiram', v_falha;
+  end if;
+
+  -- 4.3 proveniencia gravada (so vale se o arquivo 1 ja tiver sido aplicado)
+  if exists (select 1 from information_schema.columns
+              where table_schema='public' and table_name='acordos_titulos'
+                and column_name='quitacao_origem') then
+    select count(*) into v_falha
+      from _g1_lista l join public.acordos_titulos t on t.id = l.titulo_id
+     where coalesce(t.quitacao_origem,'') <> 'ACORDO'
+        or t.quitacao_origem_acordo_id is distinct from l.acordo_id;
+    if v_falha > 0 then
+      raise exception 'ABORTA: % titulo(s) sem proveniencia ACORDO gravada (o arquivo 1 rodou?)', v_falha;
+    end if;
+  end if;
+
+  -- 4.4 nenhum valor foi mexido
+  select count(*) into v_falha
+    from _g1_lista l join public.acordos_titulos t on t.id = l.titulo_id
+   where round(coalesce(t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0), 2)
+         <> round(l.valor_esperado, 2);
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) tiveram valor alterado', v_falha;
+  end if;
+
+  -- 4.5 nenhuma parcela dos 44 acordos foi tocada
+  select count(*) into v_falha
+    from (select distinct acordo_id from _g1_lista) x
+    join public.parcelas p on p.acordo_id = x.acordo_id
+   where upper(coalesce(p.status,'')) <> 'PAGO';
+  if v_falha > 0 then
+    raise exception 'ABORTA: % parcela(s) deixaram de estar PAGO', v_falha;
+  end if;
+
+  -- 4.6 nenhum acordo mudou de status
+  select count(*) into v_falha
+    from (select distinct acordo_id from _g1_lista) x
+    join public.acordos a on a.id = x.acordo_id
+   where upper(coalesce(a.status,'')) <> 'QUITADO';
+  if v_falha > 0 then
+    raise exception 'ABORTA: % acordo(s) mudaram de status', v_falha;
+  end if;
+
+  raise notice 'VALIDACAO OK: 65 PAGO/quitada, vinculos e valores intactos, parcelas e acordos inalterados';
+end $$;
+
+
+-- ---------------------------------------------------------------------------
+-- 5) FOTOGRAFIA DO ESTADO DEIXADO -- o que o rollback vai conferir depois
+-- ---------------------------------------------------------------------------
+-- Sem isto, o rollback so consegue perguntar "o titulo esta no estado que eu
+-- esperava deixar?", e essa pergunta e fraca: outra coisa pode ter reescrito o
+-- registro e chegado no mesmo par (situacao, status) com motivo, acordo ou
+-- proveniencia diferentes -- e o rollback sobrescreveria por cima.
+--
+-- Aqui, ainda DENTRO da transacao da correcao, gravamos:
+--   . o registro inteiro depois (`registro_pos`) e cada campo que o rollback
+--     vai sobrescrever (`*_pos`);
+--   . a MARCA-D'AGUA do audit_log (`audit_log_id_pos`): o maior audit_log.id
+--     deste titulo neste instante. Os eventos da propria correcao ja estao
+--     gravados, entao qualquer id MAIOR que este veio depois de nos.
+--
+-- O rollback exige os dois: igualdade campo a campo E ausencia de evento
+-- posterior relevante. Se `audit_log_id_pos` vier nulo, ele aborta inteiro em
+-- vez de cair no teste fraco.
+alter table public._backup_saneamento_g1_20260924
+  add column if not exists registro_pos jsonb,
+  add column if not exists situacao_pos text,
+  add column if not exists status_pos text,
+  add column if not exists acordo_id_pos uuid,
+  add column if not exists motivo_ajuste_pos text,
+  add column if not exists quitacao_origem_pos text,
+  add column if not exists quitacao_origem_acordo_id_pos uuid,
+  add column if not exists quitacao_origem_em_pos timestamptz,
+  add column if not exists origem_liquidacao_pos text,
+  add column if not exists origem_encerramento_pos text,
+  add column if not exists saldo_corrigido_pos numeric,
+  add column if not exists valor_em_aberto_pos numeric,
+  add column if not exists audit_log_id_pos bigint,
+  add column if not exists fotografado_em timestamptz;
+
+update public._backup_saneamento_g1_20260924 b
+   set registro_pos = to_jsonb(t),
+       situacao_pos = t.situacao,
+       status_pos = t.status,
+       acordo_id_pos = t.acordo_id,
+       motivo_ajuste_pos = t.motivo_ajuste,
+       quitacao_origem_pos = t.quitacao_origem,
+       quitacao_origem_acordo_id_pos = t.quitacao_origem_acordo_id,
+       quitacao_origem_em_pos = t.quitacao_origem_em,
+       origem_liquidacao_pos = t.origem_liquidacao,
+       origem_encerramento_pos = t.origem_encerramento,
+       saldo_corrigido_pos = t.saldo_corrigido,
+       valor_em_aberto_pos = t.valor_em_aberto,
+       audit_log_id_pos = (
+         select max(l.id) from public.audit_log l
+          where l.tabela = 'acordos_titulos' and l.registro_id = t.id::text),
+       fotografado_em = now()
+  from public.acordos_titulos t
+ where t.id = b.titulo_id;
+
+do $$
+declare v_sem int;
+begin
+  select count(*) into v_sem from public._backup_saneamento_g1_20260924
+   where registro_pos is null or audit_log_id_pos is null;
+  if v_sem > 0 then
+    raise exception 'ABORTA: % linha(s) do backup ficaram sem fotografia posterior -- o rollback nao teria com o que comparar', v_sem;
+  end if;
+  raise notice 'fotografia posterior gravada para % titulo(s)', (select count(*) from public._backup_saneamento_g1_20260924);
+end $$;
+
+commit;
