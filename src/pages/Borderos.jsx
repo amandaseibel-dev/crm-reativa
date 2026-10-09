@@ -490,6 +490,38 @@ export default function Borderos() {
           inseridos = registrosTitulos.length;
           atualizados = 0;
 
+          // ===== SALDO DO ALUNO, DEPOIS DE GRAVAR O TÍTULO ==============
+          // Medido em 09/10/2026: 485 alunos tinham título cobrável em aberto
+          // e `alunos.saldo_total` NULO -- R$ 692.047,04 de dívida que existia
+          // em `acordos_titulos` e não aparecia no campo que a carteira, as
+          // filas e os indicadores leem. A causa: `acordos_titulos` não tinha
+          // gatilho de recálculo (todas as outras tabelas financeiras têm) e a
+          // virada diária varre `from casos` -- quem não tem caso nunca era
+          // alcançado.
+          //
+          // O gatilho de instrução da migration 20261009210000 enfileira os
+          // alunos em `recalculo_saldo_pendente`; aqui a fila é drenada no
+          // mesmo ato da importação, para o saldo já estar certo quando a
+          // operadora abrir a tela. A fila é durável: se isto falhar, o
+          // pendente continua registrado e a próxima chamada processa.
+          //
+          // FAIL-SOFT de propósito: recalcular saldo é campo derivado. Se
+          // quebrar, a importação -- que é o ato financeiro -- não cai por
+          // causa disso.
+          try {
+            let restantes = Infinity;
+            // teto de voltas: um borderô tem ~2.000 alunos; 10 x 500 cobre
+            // com folga e impede laço infinito se o RPC parar de drenar.
+            for (let volta = 0; volta < 10 && restantes > 0; volta += 1) {
+              const { data: dreno, error: erroDreno } = await supabase.rpc(
+                "recalculo_saldo_pendente_processar",
+                { p_limite: 500, p_lote: `bordero_${preview.numeroBordero || "sn"}` }
+              );
+              if (erroDreno) break;
+              restantes = Number(dreno?.restantes ?? 0);
+            }
+          } catch { /* campo derivado; ver o comentário acima */ }
+
           // ===== 08/10/2026: SEPARADO EM DOIS ===========================
           // Este bloco fazia TRÊS coisas de uma vez, e só a primeira é fila:
           //
