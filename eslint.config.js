@@ -18,4 +18,13 @@ export default defineConfig([
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
   },
+  // O gateway do WhatsApp roda em Node, não no browser: `process` e `Buffer`
+  // são globais legítimos ali. Sem este bloco o eslint os acusa de `no-undef`,
+  // e cada arquivo Node novo entrava na catraca do lint como regressão.
+  {
+    files: ['services/**/*.js'],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
 ])
