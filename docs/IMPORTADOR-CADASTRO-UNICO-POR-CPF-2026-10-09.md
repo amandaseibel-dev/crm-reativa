@@ -107,7 +107,58 @@ e os testes provam que:
 As duas metades estão testadas juntas porque é a soma delas que dá a garantia:
 `fichasParaCriar` não cria cadastro, e `motivoDeNaoTocar` recusa o título.
 
-## Consolidação das 33 fichas: proposta, não aplicada
+## Consolidação das 33 fichas: APLICADA em 09/10/2026
+
+**Aplicada em produção**, versão registrada **`20261009192930`**
+(`supabase/migrations/20261009192930_consolidar_19_fichas_duplicadas_vazias_bordero_723.sql`,
+rollback em `supabase/rollbacks/`). Autorização expressa da gestão na mesma
+data, restrita a essa exclusão. 19 fichas vazias apagadas, 14 mantidas.
+
+Conferido antes e depois, por leitura independente das travas:
+
+| | antes | depois |
+|---|---|---|
+| fichas dos 14 CPFs | 33 | **14** (cada CPF com exatamente 1) |
+| as 19 vazias | existiam | **0** |
+| títulos | 33 | **33** |
+| valor | R$ 82.550,86 | **R$ 82.550,86** |
+| títulos órfãos | 0 | **0** |
+| movimentações | 17 | **17** |
+| solicitação financeira aberta | 1 | **1** (intacta) |
+| fichas com responsável | 1 | **1** |
+| saldo somado | 2.694,02 | 2.694,02 (não tocado, de propósito) |
+
+`audit_log`: 19 linhas `alunos/DELETE`, exatamente os 19 ids. Backup:
+`_backup_alunos_dup_bordero723_20261009` (33 fichas) e
+`_backup_shadow_dup_bordero723_20261009` (76 linhas), ambas com RLS deny-all e
+sem grant. CPFs com mais de uma ficha na base inteira: **39 → 25** — o restante
+é legado anterior a este borderô.
+
+### A trava corrigida antes de aplicar
+
+A auditoria *shadow* roda a cada 6 horas (00:40, 06:40, 12:40, 18:40) e grava 19
+linhas por rodada, uma por ficha: eram 57 (execuções 71–73) quando o arquivo
+nasceu e **76** (execução 74) na hora de aplicar. O portão tinha número fixo e
+teria recusado a execução por causa do relógio, não dos dados. Passou a exigir a
+**forma**, que não depende de quando se aplica: backup igual à tabela viva,
+contagem múltipla de 19, 19 linhas por rodada, e **toda** linha
+`SALDO_ZERO_DEFINITIVO` com `saldo_diagnostico = 0`. A última é a que vale:
+qualquer linha que falasse de saldo faria o portão recusar, independentemente da
+contagem. O rollback perdeu o literal pela mesma razão — o número certo é o que
+o backup guardou.
+
+## Inconsistência registrada para correção separada
+
+**13 das 14 fichas principais têm `saldo_total` nulo** apesar de carregarem
+**R$ 79.856,84** em títulos abertos. Só uma tem saldo calculado (R$ 2.694,02 — a
+que está em atendimento). O borderô gravou os títulos e não recalculou o saldo
+dessas fichas, então esses 13 alunos provavelmente não aparecem em carteira,
+fila e indicadores, com dívida existindo. **Nenhuma frente desta data mexeu em
+saldo**, por decisão da gestão. É uma frente própria: descobrir por que a
+importação não dispara o recálculo de situação para a ficha que recebe os
+títulos.
+
+## O texto da proposta, antes de ser aplicada
 
 `supabase/aguardando_aprovacao/20261009190000_consolidar_19_fichas_duplicadas_bordero_723.sql`
 (com rollback ao lado) apaga as **19 fichas vazias** e mantém as 14 que têm a

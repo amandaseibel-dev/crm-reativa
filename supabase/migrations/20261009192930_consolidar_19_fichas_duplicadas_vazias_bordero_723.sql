@@ -1,4 +1,6 @@
--- NAO APLICAR sem autorizacao expressa da Amanda.
+-- APLICADA EM PRODUCAO em 09/10/2026, versao registrada 20261009192930.
+-- Autorizacao expressa da Amanda na mesma data: "Autorizo exclusivamente essa
+-- exclusao."
 --
 -- CONSOLIDACAO das fichas duplicadas VAZIAS que o bordero 723 criou em
 -- 08/10/2026 19:18 (importacao_id 817bb231, 2.155 linhas). Mesmo desenho e
@@ -36,16 +38,43 @@
 -- As 19 fichas que saem: saldo nulo/0,00, valor_em_aberto 0,00, status
 -- CONTATAR, sem caso, acordo, titulo, pagamento, contato, atendimento ou
 -- confirmacao. Varredura em TODAS as tabelas BASE de public com coluna
--- aluno_id: zero linhas, exceto elegibilidade_shadow_divergencia (57 linhas =
--- 19 x 3 execucoes, SALDO_ZERO_DEFINITIVO, saldo_diagnostico 0,00).
+-- aluno_id: zero linhas, exceto elegibilidade_shadow_divergencia.
+--
+-- POR QUE A CONTAGEM SHADOW E DINAMICA. A auditoria shadow roda a cada 6 horas
+-- (00:40, 06:40, 12:40, 18:40) e grava 19 linhas novas por rodada -- uma por
+-- ficha. Eram 57 (execucoes 71-73) quando este arquivo nasceu e 76 (execucao
+-- 74) horas depois. Qualquer numero fixo aqui vira falso alarme: o portao
+-- recusaria a execucao por causa do relogio, nao por causa dos dados. Entao o
+-- que se exige e a FORMA, que nao depende de quando se aplica:
+--   * o backup tem exatamente as mesmas linhas que a tabela viva;
+--   * a contagem e multiplo de 19 -- toda rodada viu as 19 fichas, nenhuma
+--     ficha aparece em rodada que as outras nao viram;
+--   * cada rodada tem exatamente 19 linhas, uma por ficha;
+--   * TODA linha e SALDO_ZERO_DEFINITIVO com saldo_diagnostico = 0.
+-- Na aplicacao real eram 76 linhas (execucoes 71-74), e os quatro testes
+-- passaram.
+-- A ultima e a que importa de verdade: uma linha de divergencia que falasse de
+-- saldo faria o portao recusar, independentemente da contagem.
 --
 -- O LIMITE DA AMANDA E O PORTAO DESTE ARQUIVO: "nao podemos apagar alunos com
 -- divida". O item 2 aborta a transacao inteira se qualquer ficha da lista
 -- tiver saldo, valor em aberto ou UMA linha em qualquer tabela viva.
 --
--- Aplicar por apply_migration, copiando para supabase/migrations/ com
--- timestamp real no momento da aplicacao (ver docs/RUNBOOK-MIGRATIONS.md).
--- Rollback ao lado, recria as 19 fichas com o MESMO id.
+-- CONFERIDO ANTES E DEPOIS (leitura independente das travas):
+--   fichas dos 14 CPFs      33 -> 14   (cada CPF com exatamente 1)
+--   as 19 vazias            existiam -> 0
+--   titulos                 33 -> 33
+--   valor                   R$ 82.550,86 -> R$ 82.550,86
+--   titulos orfaos          0 -> 0
+--   movimentacoes           17 -> 17
+--   solicitacao financeira  1 -> 1      (aberta, intacta)
+--   fichas com responsavel  1 -> 1
+--   saldo somado            2.694,02 -> 2.694,02  (nao tocado, de proposito)
+--   audit_log alunos/DELETE 19 linhas, os 19 ids esperados
+--   backup                  33 fichas e 76 linhas shadow
+--   CPFs com mais de uma ficha na base inteira: 39 -> 25 (o resto e legado)
+--
+-- Rollback em supabase/rollbacks/, recria as 19 fichas com o MESMO id.
 
 -- As 19 fichas vazias, por id. Comentario nenhum: id nao e dado pessoal, nome
 -- e CPF seriam.
@@ -106,6 +135,8 @@ declare
   v_vazias text[];
   r record;
   v int;
+  v_shadow_backup int;
+  v_shadow_vivo int;
   v_valor numeric;
 begin
   select array_agg(id::text) into v_vazias from _vazias_bordero723;
@@ -124,9 +155,32 @@ begin
     raise exception 'ABORTADO: esperava 33 fichas no backup, encontrei %. Refaca o censo.', v;
   end if;
 
-  select count(*) into v from public._backup_shadow_dup_bordero723_20261009;
-  if v <> 57 then
-    raise exception 'ABORTADO: esperava 57 linhas shadow no backup, encontrei %.', v;
+  -- backup shadow: forma, nao contagem fixa (ver cabecalho)
+  select count(*) into v_shadow_backup from public._backup_shadow_dup_bordero723_20261009;
+  select count(*) into v_shadow_vivo
+    from public.elegibilidade_shadow_divergencia e
+   where e.aluno_id::text = any (v_vazias);
+  if v_shadow_backup <> v_shadow_vivo then
+    raise exception 'ABORTADO: backup shadow tem % linhas e a tabela viva tem %. Refaca o backup.',
+      v_shadow_backup, v_shadow_vivo;
+  end if;
+  if v_shadow_backup = 0 or v_shadow_backup % 19 <> 0 then
+    raise exception 'ABORTADO: % linhas shadow nao e multiplo de 19 (uma por ficha por rodada).',
+      v_shadow_backup;
+  end if;
+  select count(*) into v
+    from (select execucao_id, count(*) n
+            from public._backup_shadow_dup_bordero723_20261009
+           group by 1 having count(*) <> 19) s;
+  if v > 0 then
+    raise exception 'ABORTADO: % rodada(s) shadow nao tem exatamente 19 linhas.', v;
+  end if;
+  select count(*) into v
+    from public._backup_shadow_dup_bordero723_20261009
+   where coalesce(motivo_novo,'') <> 'SALDO_ZERO_DEFINITIVO'
+      or coalesce(saldo_diagnostico,0) <> 0;
+  if v > 0 then
+    raise exception 'ABORTADO: % linha(s) shadow falam de saldo ou de outro motivo. Pare e investigue.', v;
   end if;
 
   -- 2.1 as 19 existem e todas tem CPF
