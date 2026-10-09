@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import {
   EFEITO_VINCULA, CLASSES_HUMANAS, motivoSugerido, pedirMotivo,
+  podeEncerrarAdministrativo,
 } from "../utils/emConfirmacao";
 
 // RESOLVER O TITULO QUE ESTA "EM CONFIRMACAO", ONDE ELE APARECE.
@@ -159,6 +160,17 @@ export default function ResolverEmConfirmacao({
         setDecidindo(null);
       }
       return;
+    } else if (acao === "ENCERRAR") {
+      // ENCERRAMENTO SEM RECUPERAÇÃO. Desde 09/10/2026 o título vai para
+      // DEVOLVIDO, não CANCELADA: o saldo cobrável zera, a dívida continua
+      // registrada e nada vira pagamento. O texto diz isso antes do clique,
+      // porque é irreversível pela tela — a trava do banco recusa reabrir.
+      motivo = pedirMotivo(
+        `Encerrar o boleto ${item.documento} (${moeda(item.valor)}) sem recuperação da ReATIVA.\n\n` +
+        "O título fica DEVOLVIDO: sai do saldo cobrável e sai desta fila. A dívida " +
+        "continua registrada no histórico, e NADA é marcado como pago, acordo ou " +
+        "recuperação.\n\nO que a instituição confirmou?");
+      if (!motivo) return;
     } else if (acao === "SEGUIR") {
       motivo = pedirMotivo(
         `O boleto ${item.documento} volta ao fluxo oficial de pagamento e sai desta fila; o motor conclui. Nada é marcado pago aqui.\n\nPor que este pagamento é deste título?`);
@@ -176,6 +188,9 @@ export default function ResolverEmConfirmacao({
           { p_titulo_id: item.titulo_id,
             p_acordo_id: acordoDe(item)?.acordo_id || item.acordo_id,
             p_observacao: motivo });
+      } else if (acao === "ENCERRAR") {
+        r = await supabase.rpc("prime_conferencia_encerrar_administrativo",
+          { p_titulo_id: item.titulo_id, p_observacao: motivo });
       } else if (acao === "SEGUIR") {
         r = await supabase.rpc("prime_conferencia_seguir_pagamento",
           { p_titulo_id: item.titulo_id, p_pagamento_id: item.pagamento_id, p_motivo: motivo });
@@ -296,15 +311,23 @@ export default function ResolverEmConfirmacao({
                       : "Registrar o que apareceu no Prime"}
                   </button>
                 ) : null}
-                {/* ENCERRAMENTO: FORA, POR DECISÃO DA GESTÃO (08/10/2026).
-                    `prime_conferencia_encerrar_administrativo` leva o título
-                    para CANCELADA. A regra aprovada é outra: cancelamento de
-                    cobrança, suspensão, FIES/bolsa e demais encerramentos sem
-                    recuperação da ReATIVA devem ZERAR O SALDO e ficar
-                    DEVOLVIDO. Enquanto não houver caminho pronto para isso, a
-                    tela não oferece a ação — oferecer o CANCELADA seria gravar
-                    o estado errado com um clique. A classificação continua,
-                    porque ela não decide nada: só registra o que foi visto. */}
+                {/* ENCERRAMENTO, DE VOLTA (09/10/2026). Saiu em 08/10 porque
+                    gravava CANCELADA, que é o estado errado para quem encerra
+                    sem recuperação. Com DEVOLVIDO em produção, a ação volta —
+                    e agora o título zera o saldo cobrável, mantém a dívida no
+                    histórico e sai desta fila.
+
+                    As DUAS condições são as da própria RPC: classe humana
+                    registrada (senão SEM_CLASSE_HUMANA) e classe entre as duas
+                    administrativas (senão CLASSE_NAO_ADMINISTRATIVA). O botão
+                    aparece só onde o backend aceita. */}
+                {classeCarregada && podeEncerrarAdministrativo(classeAtual) ? (
+                  <button type="button" style={estilos.btnNeutro} disabled={!!decidindo}
+                    onClick={() => decidir(item, "ENCERRAR")}
+                    title="O título fica DEVOLVIDO: sai do saldo cobrável e desta fila. A dívida segue registrada e nada é marcado como pago.">
+                    Encerrar sem recuperação
+                  </button>
+                ) : null}
                 <button type="button" style={estilos.btnNeutro} disabled={!!decidindo}
                   onClick={() => decidir(item, "REJEITAR")}
                   title="A liquidação não vale: o título volta a ser cobrado, em aberto.">

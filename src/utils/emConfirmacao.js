@@ -72,3 +72,17 @@ export const CLASSES_HUMANAS = [
   { valor: "SUBSTITUICAO_TITULO", rotulo: "Substituição de título" },
   { valor: "INCONCLUSIVO", rotulo: "Inconclusivo" },
 ];
+
+// QUEM PODE SER ENCERRADO ADMINISTRATIVAMENTE.
+//
+// Copiado da guarda de `prime_conferencia_encerrar_administrativo`, que recusa
+// com CLASSE_NAO_ADMINISTRATIVA qualquer outra classe. Oferecer o botao fora
+// destas duas seria prometer o que o backend nega.
+//
+// E a classe HUMANA e pre-requisito: sem ela a RPC recusa com SEM_CLASSE_HUMANA.
+// Por isso o botao so aparece depois de "Registrar o que apareceu no Prime".
+export const CLASSES_ENCERRAMENTO = new Set(["CANCELAMENTO_ESTORNO", "ISENCAO_FIES_BOLSA"]);
+
+export function podeEncerrarAdministrativo(classe) {
+  return CLASSES_ENCERRAMENTO.has(String(classe || ""));
+}
