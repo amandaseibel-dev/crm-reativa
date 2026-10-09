@@ -81,12 +81,33 @@ describe("estado da mensalidade", () => {
     expect(rotuloDoTitulo(t({ situacao: "PAGO" }))).toBe("Quitada");
   });
 
+  it("DEVOLVIDO: fora da conta, sem rotulo de aberto e sem saida a pedir", () => {
+    // 08-09/10/2026: a tabulacao de desfecho tira a mensalidade da cobranca e a
+    // deixa DEVOLVIDO/devolvido, sem recuperacao da ReATIVA. Quem decide a volta
+    // e `suspensao_cobranca_reativar` (so na suspensao), nao a tela -- por isso
+    // nao entra em PRECISA_DE_SAIDA.
+    for (const x of [
+      t({ situacao: "DEVOLVIDO", status: "devolvido" }),
+      t({ situacao: "DEVOLVIDO", status: "em_confirmacao" }), // gatilho ainda nao coagiu
+      t({ situacao: "EM_CONFIRMACAO", status: "devolvido" }), // so o status
+      t({ situacao: "devolvido", status: "DEVOLVIDO" }),      // caixa invertida
+    ]) {
+      expect(estadoDoTitulo(x)).toBe(ESTADO.DEVOLVIDO);
+      expect(rotuloDoTitulo(x)).not.toBe("Em aberto");
+      expect(contaComoAberta(x)).toBe(false);
+      expect(precisaDeSaida(x)).toBe(false);
+    }
+    expect(rotuloDoTitulo(t({ situacao: "DEVOLVIDO" }))).toBe("Devolvida");
+  });
+
   it("a ordem dos testes e a regra: terminal antes de negociado", () => {
     // Foi exatamente isto que fazia o cancelado virar "Em aberto": ele nao
     // tinha ramo e caia no fim da cadeia.
     expect(estadoDoTitulo(t({ situacao: "CANCELADA", acordo_id: "a1" }))).toBe(ESTADO.CANCELADA);
     expect(estadoDoTitulo(t({ situacao: "DUPLICADA", acordo_id: "a1" }))).toBe(ESTADO.DUPLICADA);
     expect(estadoDoTitulo(t({ situacao: "EM_CONFIRMACAO", acordo_id: "a1" }))).toBe(ESTADO.EM_CONFIRMACAO);
+    // o mesmo erro, agora para DEVOLVIDO: com acordo_id ele cairia em NEGOCIADO
+    expect(estadoDoTitulo(t({ situacao: "DEVOLVIDO", acordo_id: "a1" }))).toBe(ESTADO.DEVOLVIDO);
   });
 
   it("campo ausente ou nulo nao vira divida por acidente", () => {

@@ -8,6 +8,11 @@ describe("borderô não reabre título terminal", () => {
     expect(naoReabreNoBordero("PAGO")).toBe(true);
     expect(naoReabreNoBordero("EM_CONFIRMACAO")).toBe(true);
   });
+  it("DEVOLVIDO também nunca reabre: o desfecho encerrou sem recuperação da ReATIVA", () => {
+    expect(naoReabreNoBordero("DEVOLVIDO")).toBe(true);
+    expect(naoReabreNoBordero("devolvido")).toBe(true);
+    expect(SITUACOES_QUE_NAO_REABREM).toContain("DEVOLVIDO");
+  });
   it("ABERTO, NEGOCIADO, DUPLICADA e título novo seguem o fluxo normal do borderô", () => {
     expect(naoReabreNoBordero("ABERTO")).toBe(false);
     expect(naoReabreNoBordero("NEGOCIADO")).toBe(false);
