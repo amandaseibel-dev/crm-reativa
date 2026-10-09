@@ -1,15 +1,21 @@
 import { useState } from "react";
-import { motivoDeNaoTocar } from "../utils/bordero";
+import {
+  motivoDeNaoTocar,
+  chaveCpf,
+  indexarAlunosPorCpf,
+  fichasParaCriar,
+  alunoDaLinha,
+} from "../utils/bordero";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
 import { hashArquivo, hashValido } from "../utils/hashArquivo";   // MESMA implementacao
 import Dobra from "../ui/blocos";
 
-function limparCpf(valor) {
-  const digitos = String(valor || "").replace(/\D/g, "");
-  if (!digitos) return null;
-  return digitos.padStart(11, "0");
-}
+// Fonte unica da chave de identidade: `chaveCpf` em utils/bordero.js, a mesma
+// usada para indexar cadastro existente, para deduplicar o lote e para resolver
+// o aluno de cada linha. Antes esta funcao era uma segunda implementacao local
+// -- duas copias da regra de identidade e meio caminho para divergirem.
+const limparCpf = chaveCpf;
 
 function parseValor(valor) {
   if (typeof valor === "number") return valor;
@@ -196,10 +202,11 @@ export default function Borderos() {
         "documento, situacao, status"
       );
 
-      const mapaAlunosPorCpf = {};
-      for (const aluno of alunosEncontrados) {
-        mapaAlunosPorCpf[aluno.cpf] = aluno;
-      }
+      // Indexa por `chaveCpf` dos DOIS lados. Comparar o CPF normalizado do
+      // arquivo com a coluna `alunos.cpf` crua deixava de achar ficha gravada
+      // com mascara ou sem zero a esquerda (42 fichas assim em 09/10/2026) --
+      // e o importador criava outra para quem ja existia.
+      const mapaAlunosPorCpf = indexarAlunosPorCpf(alunosEncontrados);
 
       const mapaTitulos = {};
       for (const titulo of titulosExistentes) {
@@ -211,7 +218,7 @@ export default function Borderos() {
       const nomesParaTentar = [
         ...new Set(
           linhas
-            .filter((l) => !(l.cpfLimpo && mapaAlunosPorCpf[l.cpfLimpo]))
+            .filter((l) => !(chaveCpf(l.cpfLimpo) && mapaAlunosPorCpf[chaveCpf(l.cpfLimpo)]))
             .map((l) => String(l.nome || "").trim())
             .filter(Boolean)
         ),
@@ -232,7 +239,9 @@ export default function Borderos() {
       }
 
       const linhasComStatus = linhas.map((linha) => {
-        const porCpf = linha.cpfLimpo ? mapaAlunosPorCpf[linha.cpfLimpo] : null;
+        const porCpf = chaveCpf(linha.cpfLimpo)
+          ? mapaAlunosPorCpf[chaveCpf(linha.cpfLimpo)]
+          : null;
         const porNome = !porCpf
           ? mapaAlunosPorNome[String(linha.nome || "").trim().toLowerCase()]
           : null;
@@ -346,38 +355,64 @@ export default function Borderos() {
       // ordem: a garantia e a posicao no codigo. Mover e silencioso.
       // =====================================================================
 
-      // 1) Cria em lote (uma chamada só) os alunos que não bateram nem por
-      // CPF nem por nome, em vez de um insert por linha.
+      // 1) Cria os alunos que não bateram nem por CPF nem por nome --
+      // ===== UM CADASTRO POR CPF, nunca um por linha ======================
+      // O borderô tem uma linha por TÍTULO. Antes isto era
+      // `preview.linhas.filter((l) => !l.aluno).map(...)`, e quem devia 6
+      // mensalidades ganhava 6 fichas: 14 CPFs e 33 fichas no borderô 723 de
+      // 08/10/2026. `fichasParaCriar` colapsa o lote por `chaveCpf`.
+      // ===================================================================
+      const { registros: fichasPorCpf, linhasSemCpf } = fichasParaCriar(preview.linhas);
+
+      // Linha sem CPF continua EXATAMENTE como antes: uma ficha por linha.
+      // Mudar isto agora (recusar a linha) derrubaria no chão o título que hoje
+      // é gravado, e a quarentena da regra 4 de docs/PADRAO_CADASTRO.md não
+      // existe. Esta importação muda UMA coisa: duplicata por CPF. O que a tela
+      // ganha aqui é só a contagem, para a gestão ver o tamanho do débito.
+      const fichasSemCpf = linhasSemCpf.map((l) => ({
+        nome: l.nome,
+        cpf: null,
+        email: l.email,
+        telefone: l.telefone,
+        curso: l.curso,
+        unidade: l.unidade,
+        status_jornada: "CONTATAR",
+        status_atual: "CONTATAR",
+      }));
+
+      // Os sem CPF vão DEPOIS dos por-CPF no mesmo lote: o `insert ...
+      // returning` devolve na ordem de inserção, e é isso que permite ligar
+      // cada linha sem CPF à ficha que nasceu dela, sem chutar por nome.
+      // (Antes, todas as linhas sem CPF caíam na ÚLTIMA ficha sem CPF criada,
+      // porque a chave do mapa era o `null` virando a string "null" --
+      // títulos de pessoas diferentes na mesma ficha.)
+      const fichasNovas = [...fichasPorCpf, ...fichasSemCpf];
       const linhasSemAluno = preview.linhas.filter((l) => !l.aluno);
       let alunosNovosPorCpf = {};
+      let alunosCriados = 0;
+      const alunoPorLinhaSemCpf = new Map();
 
-      if (linhasSemAluno.length > 0) {
+      if (fichasNovas.length > 0) {
         const { dados: novosAlunos, erro: erroNovos } = await inserirEmLotes(
           "alunos",
-          linhasSemAluno.map((l) => ({
-            nome: l.nome,
-            cpf: l.cpfLimpo,
-            email: l.email,
-            telefone: l.telefone,
-            curso: l.curso,
-            unidade: l.unidade,
-            status_jornada: "CONTATAR",
-            status_atual: "CONTATAR",
-          }))
+          fichasNovas
         );
 
         if (erroNovos) {
           nomesNaoEncontrados.push(...linhasSemAluno.map((l) => l.nome));
           ignorados += linhasSemAluno.length;
         } else {
-          for (const aluno of novosAlunos) {
-            alunosNovosPorCpf[aluno.cpf] = aluno;
-          }
-          nomesCriados.push(...linhasSemAluno.map((l) => l.nome));
+          alunosNovosPorCpf = indexarAlunosPorCpf(novosAlunos);
+          alunosCriados = novosAlunos.length;
+          nomesCriados.push(...novosAlunos.map((a) => a.nome));
+
+          novosAlunos.slice(fichasPorCpf.length).forEach((aluno, i) => {
+            if (linhasSemCpf[i]) alunoPorLinhaSemCpf.set(linhasSemCpf[i], aluno);
+          });
         }
       }
 
-      const alunosCriados = Object.keys(alunosNovosPorCpf).length;
+      const linhasSemCpfCount = linhasSemCpf.length;
 
       // 2) Completa telefone/email/curso/unidade só de quem já existia e
       // estava com algum desses campos vazio — em paralelo, não em fila.
@@ -415,7 +450,8 @@ export default function Borderos() {
           continue;
         }
 
-        const aluno = linha.aluno || alunosNovosPorCpf[linha.cpfLimpo];
+        const aluno =
+          alunoDaLinha(linha, alunosNovosPorCpf) || alunoPorLinhaSemCpf.get(linha) || null;
         if (!aluno) {
           ignorados += 1;
           continue;
@@ -480,15 +516,6 @@ export default function Borderos() {
           // o CRM desfazer sozinho uma quitação e reabrir o acordo.
           // ==============================================================
           const RESTAURAR_QUITACAO_NO_BORDERO = false;
-          // COBERTURA PENDENTE (09/10/2026) -- ver
-          // docs/SIMULACAO-REIMPORTACAO-PARCELAS-AUSENTES-2026-10-08.md §9.
-          //
-          // A fonte É `registrosTitulos`, e isso não é detalhe: com o
-          // importador insert-only ele contém SÓ título novo, então só aluno
-          // que recebeu parcela nova volta para CONTATAR. Trocar por
-          // `preview.linhas` levaria de volta para a fila o aluno quitado que
-          // não recebeu nada novo -- o defeito de 08/10/2026 -- e NENHUM teste
-          // cairia: não existe teste integrado desta tela.
           const idsAlunosComTitulo = [
             ...new Set(registrosTitulos.map((r) => r.aluno_id)),
           ];
@@ -668,7 +695,11 @@ export default function Borderos() {
         });
       } catch { /* presenca e auditoria paralela; nao derruba a importacao */ }
 
-      setResultado({ inseridos, atualizados, ignorados, alunosCriados, nomesCriados, nomesNaoEncontrados });
+      setResultado({
+        inseridos, atualizados, ignorados, alunosCriados, nomesCriados,
+        nomesNaoEncontrados,
+        linhasSemCpf: linhasSemCpfCount,
+      });
       setPreview(null);
       setArquivo(null);
     } catch (err) {
@@ -702,6 +733,15 @@ export default function Borderos() {
             {resultado.alunosCriados} alunos novos cadastrados, {resultado.ignorados}{" "}
             ignorados (já pagos).
           </p>
+
+          {resultado.linhasSemCpf > 0 && (
+            <p style={{ margin: "6px 0 0" }}>
+              <strong>{resultado.linhasSemCpf}</strong> linha(s) vieram sem CPF. Sem
+              CPF não existe correspondência segura: cada uma virou um cadastro
+              próprio e pode ser a mesma pessoa de outra linha. Confira essas
+              fichas antes de acionar.
+            </p>
+          )}
 
           {resultado.nomesCriados?.length > 0 && (
             <Dobra
