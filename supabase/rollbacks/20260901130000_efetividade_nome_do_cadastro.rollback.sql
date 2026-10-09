@@ -1,0 +1,6 @@
+-- Rollback de 20260901130000: as RPCs voltam a escolher o nome com max().
+-- ATENCAO: isso reintroduz o rotulo errado (linha da Olga como RAFAELLA).
+-- Ver o arquivo da migration para a versao anterior integral de cada funcao;
+-- para reverter, restaurar de um backup do schema ou reaplicar as migrations
+-- 20260730233000_calibragem_efetividade.sql e
+-- 20260822100000_calibragem_efetividade_carteira.sql (nessa ordem).
