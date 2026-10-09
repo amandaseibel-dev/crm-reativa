@@ -1,8 +1,10 @@
 -- ROLLBACK de 20261009190000_consolidar_19_fichas_duplicadas_bordero_723.sql
 --
 -- Recria as 19 fichas vazias com o MESMO id, a partir do backup, e devolve as
--- 57 linhas de auditoria shadow. As 14 fichas que ficaram nao foram alteradas
--- pela ida, logo nao sao tocadas aqui.
+-- linhas de auditoria shadow que o backup guardou -- quantas forem: a shadow
+-- roda a cada 6 horas e cresce 19 linhas por rodada, entao nada aqui usa
+-- contagem fixa. As 14 fichas que ficaram nao foram alteradas pela ida, logo
+-- nao sao tocadas aqui.
 --
 -- SEM DADO PESSOAL NESTE ARQUIVO (repositorio publico, §7 da premissa de
 -- seguranca): as fichas aparecem por `id`, e o conjunto de CPFs e derivado do
@@ -39,7 +41,7 @@ begin
   $f$, v_cols);
 end $$;
 
--- 2. Devolve as 57 linhas de elegibilidade_shadow_divergencia.
+-- 2. Devolve as linhas de elegibilidade_shadow_divergencia guardadas no backup.
 insert into public.elegibilidade_shadow_divergencia
   (execucao_id, aluno_id, regra_antiga_elegivel, regra_nova_elegivel, motivo_antigo,
    motivo_novo, tipo_divergencia, regra_provocadora, fila, operador, em_fila,
@@ -50,10 +52,14 @@ select b.execucao_id, b.aluno_id, b.regra_antiga_elegivel, b.regra_nova_elegivel
   from public._backup_shadow_dup_bordero723_20261009 b
 on conflict (execucao_id, aluno_id) do nothing;
 
--- 3. Confere: 33 fichas de volta e as 57 linhas shadow no lugar.
+-- 3. Confere: 33 fichas de volta e TODAS as linhas shadow do backup no lugar.
+--    Contagem dinamica: a auditoria shadow roda a cada 6 horas e cresce 19
+--    linhas por rodada, entao o numero certo e "o que o backup guardou", nunca
+--    um literal.
 do $$
-declare v_fichas int; v_shadow int;
+declare v_fichas int; v_shadow int; v_esperado int;
 begin
+  select count(*) into v_esperado from public._backup_shadow_dup_bordero723_20261009;
   select count(*) into v_fichas from public.alunos a
    where regexp_replace(coalesce(a.cpf,''),'\D','','g') in (
      select distinct regexp_replace(coalesce(b.cpf,''),'\D','','g')
@@ -62,7 +68,8 @@ begin
   select count(*) into v_shadow from public.elegibilidade_shadow_divergencia e
    where exists (select 1 from public._backup_shadow_dup_bordero723_20261009 b
                   where b.execucao_id = e.execucao_id and b.aluno_id = e.aluno_id);
-  if v_fichas <> 33 or v_shadow <> 57 then
-    raise exception 'ROLLBACK INCOMPLETO: fichas=% shadow=% (esperado 33 e 57).', v_fichas, v_shadow;
+  if v_fichas <> 33 or v_shadow <> v_esperado then
+    raise exception 'ROLLBACK INCOMPLETO: fichas=% shadow=% (esperado 33 e %).',
+      v_fichas, v_shadow, v_esperado;
   end if;
 end $$;
