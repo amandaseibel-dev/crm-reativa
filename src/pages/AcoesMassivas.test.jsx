@@ -971,3 +971,114 @@ describe("Ações Massivas — e-mail a partir de um lote de WhatsApp", () => {
     ]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// ATALHOS DE SELEÇÃO. Pedido da gestão: poder pegar todos os responsáveis de
+// uma vez, sem marcar um a um, em cada uma das duas dimensões — e voltar atrás
+// sem desmarcar um a um. A marcação individual continua existindo, e nada do
+// recorte muda: o banco segue recebendo a RELAÇÃO NOMINAL, nunca um 'todos'
+// genérico que desligaria o recorte.
+describe("Ações Massivas — Selecionar todos / Limpar seleção por dimensão", () => {
+  const ultimaChamada = (nome) => rpcMock.mock.calls.filter(([n]) => n === nome).at(-1)[1];
+  const todosDaFicha = RESPONSAVEIS.map((o) => o.email);
+  const todosDeAcordo = RESPONSAVEIS.filter((o) => o.acordos > 0).map((o) => o.email);
+  const marcadosEm = (testId) =>
+    within(screen.getByTestId(testId)).getAllByRole("checkbox").filter((c) => c.checked)
+      .map((c) => c.id.replace(`${testId}-`, ""));
+  const clicar = (id) => fireEvent.click(document.getElementById(id));
+
+  it("“Selecionar todos” da ficha marca TODOS os responsáveis daquela lista", async () => {
+    await montar({ responsavel: null, tipo: null });
+    clicar("resp-caso-selecionar-todos");
+    // cobre as cinco classes, inclusive a fila livre, a Olga desligada, a
+    // gestão e a Carteira Geral — ninguém fica de fora
+    expect(marcadosEm("resp-caso").sort()).toEqual([...todosDaFicha].sort());
+    expect(marcadosEm("resp-caso")).toHaveLength(5);
+  });
+
+  it("manda a relação nominal ao banco, não um 'todos' genérico, e sem repetir e-mail", async () => {
+    await montar({ responsavel: null, tipo: null });
+    clicar("resp-caso-selecionar-todos");
+    await escolherTipo("MENSALIDADES");
+    await buscar();
+    const enviado = ultimaChamada("acoes_massivas_previa").p_operador_email;
+    expect(enviado).toBe(`CASO:${todosDaFicha.join("|")}`);
+    expect(enviado).not.toMatch(/(^|:)todos(\||;|$)/i);
+    const nomes = enviado.replace(/^CASO:/, "").split("|");
+    expect(new Set(nomes).size).toBe(nomes.length); // nenhum e-mail duplicado
+  });
+
+  it("os dois lados são independentes: marcar todos num não toca no outro", async () => {
+    await montar({ responsavel: null, tipo: "ACORDOS_VENCIDOS", donoAcordo: null });
+    clicar("resp-caso-selecionar-todos");
+    expect(marcadosEm("resp-caso")).toHaveLength(5);
+    expect(marcadosEm("resp-acordo")).toHaveLength(0); // a outra dimensão intacta
+
+    clicar("resp-acordo-selecionar-todos");
+    expect(marcadosEm("resp-acordo").sort()).toEqual([...todosDeAcordo].sort());
+    expect(marcadosEm("resp-caso")).toHaveLength(5); // e esta segue intacta
+
+    clicar("resp-caso-limpar-selecao");
+    expect(marcadosEm("resp-caso")).toHaveLength(0);
+    expect(marcadosEm("resp-acordo")).toHaveLength(todosDeAcordo.length);
+  });
+
+  it("com as duas listas cheias, a prévia leva CASO e ACORDO na mesma chamada", async () => {
+    await montar({ responsavel: null, tipo: "MENSALIDADES_E_ACORDOS", donoAcordo: null });
+    clicar("resp-caso-selecionar-todos");
+    clicar("resp-acordo-selecionar-todos");
+    await buscar();
+    expect(ultimaChamada("acoes_massivas_previa").p_operador_email)
+      .toBe(`CASO:${todosDaFicha.join("|")};ACORDO:${todosDeAcordo.join("|")}`);
+  });
+
+  it("“Limpar seleção” na ficha volta a barrar a prévia: recorte explícito segue obrigatório", async () => {
+    await montar();
+    clicar("resp-caso-limpar-selecao");
+    const antes = rpcMock.mock.calls.length;
+    await buscar();
+    expect(rpcMock.mock.calls.length).toBe(antes); // nem foi ao banco
+    expect(screen.getByText(/Escolha ao menos um responsável pelo caso/)).toBeTruthy();
+  });
+
+  it("a marcação individual continua funcionando depois dos atalhos", async () => {
+    await montar({ responsavel: null, tipo: null });
+    clicar("resp-caso-selecionar-todos");
+    clicar("resp-caso-cobranca03@teste.local"); // desmarca só a Olga
+    expect(marcadosEm("resp-caso")).toHaveLength(4);
+    expect(marcadosEm("resp-caso")).not.toContain("cobranca03@teste.local");
+    clicar("resp-caso-cobranca03@teste.local"); // e volta
+    expect(marcadosEm("resp-caso")).toHaveLength(5);
+  });
+
+  it("usar os atalhos limpa a prévia na tela, como qualquer mudança de recorte", async () => {
+    await montar();
+    await buscar();
+    expect(screen.getByRole("button", { name: /Exportar planilha/ })).toBeTruthy();
+    const antes = rpcMock.mock.calls.length;
+    clicar("resp-caso-selecionar-todos");
+    expect(screen.queryByRole("button", { name: /Exportar planilha/ })).toBeNull();
+    expect(rpcMock.mock.calls.length).toBe(antes); // nada foi escrito
+  });
+
+  it("em “Somente mensalidades” os atalhos de acordo ficam desabilitados, como a lista", async () => {
+    await montar({ tipo: "MENSALIDADES" });
+    expect(document.getElementById("resp-acordo-selecionar-todos").disabled).toBe(true);
+    expect(document.getElementById("resp-acordo-limpar-selecao").disabled).toBe(true);
+  });
+
+  it("“Selecionar todos” desabilita quando já está tudo marcado; “Limpar” quando não há nada", async () => {
+    await montar({ responsavel: null, tipo: null });
+    expect(document.getElementById("resp-caso-limpar-selecao").disabled).toBe(true);
+    clicar("resp-caso-selecionar-todos");
+    expect(document.getElementById("resp-caso-selecionar-todos").disabled).toBe(true);
+    expect(document.getElementById("resp-caso-limpar-selecao").disabled).toBe(false);
+  });
+
+  it("a lista de marcação não ganhou nenhuma opção 'todos' dentro dela", async () => {
+    await montar({ responsavel: null, tipo: null });
+    // o atalho é um botão FORA da caixa; a caixa segue só com gente nominal
+    expect(screen.getByTestId("resp-caso").textContent).not.toMatch(/todos/i);
+    expect(within(screen.getByTestId("resp-caso")).getAllByRole("checkbox")).toHaveLength(5);
+  });
+});
