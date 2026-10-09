@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../../services/supabase";
 import {
-  ALVO_PLAYLIST, MODO_SEMANA, RPC_POR_MODO,
-  indexarCurtidas, alternarLocal, estruturaAusente, mensagemErroCurtida,
+  ALVO_PLAYLIST, MODO_SEMANA, RPC_POR_MODO, AVISO_UMA_POR_SEMANA,
+  indexarCurtidas, alternarLocal, estruturaAusente, mensagemErroCurtida, podeCurtir,
 } from "./curtidas";
 
 // Curtidas de um tipo de alvo, na semana corrente (a janela e calculada no banco,
@@ -59,6 +59,15 @@ export default function useCurtidas(alvoTipo = ALVO_PLAYLIST, modo = MODO_SEMANA
     }
     const jaCurtida = mapa.get(alvoId)?.euCurti === true;
 
+    // No modo semana a curtida e UMA por operador. A tela ja desabilita os
+    // outros coracoes; este aviso cobre o caminho de quem chegou aqui por outra
+    // aba (o mapa local ficou velho) -- melhor que o 23505 cru do banco.
+    if (!jaCurtida && !podeCurtir(mapa, alvoId, modo)) {
+      alert(AVISO_UMA_POR_SEMANA);
+      await recarregar();
+      return;
+    }
+
     setOcupado(alvoId);
     setMapa((m) => alternarLocal(m, alvoId)); // resposta imediata na tela
 
@@ -69,11 +78,11 @@ export default function useCurtidas(alvoTipo = ALVO_PLAYLIST, modo = MODO_SEMANA
     if (error) {
       console.error(jaCurtida ? "Erro ao retirar curtida:" : "Erro ao curtir:", error);
       if (estruturaAusente(error)) setDisponivel(false);
-      else alert(mensagemErroCurtida(error, jaCurtida));
+      else alert(mensagemErroCurtida(error, jaCurtida, modo));
     }
     // Recarrega sempre: confirma o otimismo ou desfaz o que nao valeu.
     await recarregar();
-  }, [mapa, alvoTipo, recarregar]);
+  }, [mapa, alvoTipo, modo, recarregar]);
 
   return { mapa, disponivel, ocupado, alternar, recarregar };
 }

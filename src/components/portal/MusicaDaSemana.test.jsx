@@ -10,7 +10,10 @@ const rpcMock = vi.fn();
 vi.mock("../../services/supabase", () => ({ supabase: { rpc: (...a) => rpcMock(...a) } }));
 
 import MusicaDaSemana, { SEM_VENCEDORA } from "./MusicaDaSemana";
-import { rotuloCurtidas, estruturaAusente, indexarCurtidas, curtidasDe, alternarLocal, mensagemErroCurtida } from "./curtidas";
+import {
+  rotuloCurtidas, estruturaAusente, indexarCurtidas, curtidasDe, alternarLocal, mensagemErroCurtida,
+  curtidaDaSemanaEm, podeCurtir, AVISO_UMA_POR_SEMANA, MODO_SEMANA, MODO_TOTAL,
+} from "./curtidas";
 
 afterEach(cleanup);
 
@@ -62,6 +65,44 @@ describe("helpers de curtidas", () => {
     expect(mensagemErroCurtida({ code: "42501" })).toContain("permissão");
     expect(mensagemErroCurtida({ code: "42P01" })).toContain("ainda não estão ativadas");
     expect(mensagemErroCurtida(null)).toBeNull();
+  });
+
+  // A2c -- uma curtida por operador por semana na playlist.
+  it("curtidaDaSemanaEm aponta o alvo que recebeu a minha curtida, ou null", () => {
+    const livre = indexarCurtidas([
+      { alvo_id: "a", curtidas_semana: 3, eu_curti: false },
+      { alvo_id: "b", curtidas_semana: 1, eu_curti: false },
+    ]);
+    expect(curtidaDaSemanaEm(livre)).toBeNull();
+    expect(curtidaDaSemanaEm(new Map())).toBeNull();
+    expect(curtidaDaSemanaEm(null)).toBeNull();
+
+    const gasta = indexarCurtidas([
+      { alvo_id: "a", curtidas_semana: 3, eu_curti: false },
+      { alvo_id: "b", curtidas_semana: 1, eu_curti: true },
+    ]);
+    expect(curtidaDaSemanaEm(gasta)).toBe("b");
+  });
+
+  it("podeCurtir: livre libera todos; gasta libera so o alvo curtido (para retirar)", () => {
+    const livre = indexarCurtidas([{ alvo_id: "a", curtidas_semana: 0, eu_curti: false }]);
+    expect(podeCurtir(livre, "a")).toBe(true);
+    expect(podeCurtir(livre, "b")).toBe(true);
+
+    const gasta = indexarCurtidas([
+      { alvo_id: "a", curtidas_semana: 1, eu_curti: true },
+      { alvo_id: "b", curtidas_semana: 2, eu_curti: false },
+    ]);
+    expect(podeCurtir(gasta, "a")).toBe(true);
+    expect(podeCurtir(gasta, "b")).toBe(false);
+
+    // Elogio e ideia acumulam: a regra semanal nao vale para eles.
+    expect(podeCurtir(gasta, "b", MODO_TOTAL)).toBe(true);
+  });
+
+  it("no modo semana, 23505 explica a regra em vez de dizer so 'ja curtiu'", () => {
+    expect(mensagemErroCurtida({ code: "23505" }, false, MODO_SEMANA)).toBe(AVISO_UMA_POR_SEMANA);
+    expect(mensagemErroCurtida({ code: "23505" }, false, MODO_TOTAL)).toBe("Você já curtiu.");
   });
 });
 
