@@ -15,8 +15,14 @@
 //                      arrisca cobrar em dobro (o acordo já tem as parcelas);
 //   QUITADO/QUITADA -- liquidada;
 //   CANCELADO       -- grafia masculina presente na base;
-//   DEVOLVIDA/DEVOLVIDO -- baixa devolvida: o desfecho é administrativo e
-//                      pertence ao financeiro, não ao importador.
+//   DEVOLVIDA/DEVOLVIDO -- a tabulação de desfecho tirou a mensalidade da
+//                      cobrança sem recuperação da ReATIVA. O desfecho é
+//                      administrativo e pertence ao financeiro, não ao
+//                      importador. O banco já recusa a reabertura
+//                      (`trg_titulo_devolvido_terminal`, #662), mas sem o nome
+//                      aqui o importador contaria o título como "atualizado"
+//                      enquanto o gatilho o restaurava em silêncio -- a tela
+//                      afirmaria uma coisa e o banco teria feito outra.
 //
 // "Suspensa" NÃO é situação de título: vive em `alunos.status_*`
 // (SUSPENSAO_COBRANCA / JURIDICO / CANCELAMENTO_COBRANCA). A proteção desse caso

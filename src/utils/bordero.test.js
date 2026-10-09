@@ -23,6 +23,33 @@ describe("borderô não reabre título terminal", () => {
     expect(naoReabreNoBordero("EM_CONFIRMACAO")).toBe(true);
   });
 
+  // Vindo do #662 (09/10/2026), preservado.
+  it("DEVOLVIDO também nunca reabre: o desfecho encerrou sem recuperação da ReATIVA", () => {
+    expect(naoReabreNoBordero("DEVOLVIDO")).toBe(true);
+    expect(naoReabreNoBordero("devolvido")).toBe(true);
+    expect(SITUACOES_QUE_NAO_REABREM).toContain("DEVOLVIDO");
+  });
+
+  // Também do #662, com UMA assertiva corrigida no merge de 09/10/2026.
+  //
+  // Lá NEGOCIADO seguia "o fluxo normal do borderô" porque o upsert ainda
+  // atualizava título existente. Agora não: a gestão pediu que "a parcela já
+  // negociada e paga não volta", NEGOCIADO entrou em
+  // SITUACOES_QUE_NAO_REABREM, e a assertiva passa a ser `true`. ABERTO e
+  // DUPLICADA continuam `false` -- não são terminais.
+  //
+  // Vale lembrar por que a lista não é a única defesa: com o importador
+  // insert-only, `motivoDeNaoTocar` recusa QUALQUER título existente, mesmo
+  // ABERTO. A lista serve para NOMEAR o motivo na tela e para o gatilho do
+  // banco, não para decidir sozinha se atualiza.
+  it("ABERTO e DUPLICADA seguem o fluxo normal; NEGOCIADO não reabre mais", () => {
+    expect(naoReabreNoBordero("ABERTO")).toBe(false);
+    expect(naoReabreNoBordero("DUPLICADA")).toBe(false);
+    expect(naoReabreNoBordero(null)).toBe(false);
+    expect(naoReabreNoBordero("NEGOCIADO")).toBe(true);
+    expect(SITUACOES_QUE_NAO_REABREM).toContain("CANCELADA");
+  });
+
   // O defeito de 08/10/2026: NEGOCIADO ficava de fora e era reaberto.
   it("NEGOCIADO não reabre — era o buraco que o upsert explorava", () => {
     expect(naoReabreNoBordero("NEGOCIADO")).toBe(true);
