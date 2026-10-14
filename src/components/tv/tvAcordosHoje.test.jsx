@@ -62,7 +62,8 @@ describe("TV — Acordos de Hoje (render)", () => {
     expect(screen.getByText("12")).toBeTruthy();
     expect(screen.getByText("Já com pagamento")).toBeTruthy();
     expect(screen.getByText("5")).toBeTruthy();
-    expect(screen.getByText("Valor pago")).toBeTruthy();
+    // dito BRUTO: nao e honorario. O ranking da tela segue por quantidade.
+    expect(screen.getByText("Valor bruto recuperado")).toBeTruthy();
     expect(screen.getByText("R$ 8.430")).toBeTruthy();
     expect(screen.getByText("Ainda sem pagamento")).toBeTruthy();
     expect(screen.getByText("7")).toBeTruthy(); // 12 - 5

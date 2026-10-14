@@ -45,22 +45,41 @@ function TelaHoje({ snap }) {
       </Tela>
     );
   }
-  // HIERARQUIA, que o modelo antigo não tinha: cinco cards do mesmo tamanho
-  // obrigavam quem assiste a procurar o número que importa. O recuperado do dia
-  // vira herói; honorários e pagamentos viram satélites; os três destaques de
-  // operador descem para uma faixa compacta.
+  // HIERARQUIA. O herói do dia é o HONORÁRIO EFETIVAMENTE RECEBIDO — é o que
+  // remunera a operação e é a mesma base da meta do mês, da projeção e da
+  // premiação (soma de `valor_honorario` dos pagamentos confirmados). O valor
+  // bruto pago pelo aluno continua na tela, como satélite e DITO bruto: ele é
+  // dinheiro do cliente, não receita nossa.
+  //
+  // Os destaques de operador seguem o mesmo critério: honorário recebido, não
+  // valor recuperado. `rank.top_hon_dia` já vem pronto do snapshot (top 3 por
+  // soma de honorário do dia, com a allowlist de operadores aplicada) — nada é
+  // recalculado aqui.
+  //
+  // NUNCA se estima honorário por percentual: quando o snapshot ainda não traz
+  // `maior_pagamento.honorario` (fotografia antiga, antes de 20261014), o card
+  // simplesmente não aparece, em vez de mostrar o bruto com rótulo de honorário.
+  const mp = h.maior_pagamento;
+  const topHon = (snap?.rank?.top_hon_dia || [])[0];
   const destaques = [
-    { rot: "Maior pagamento", d: h.maior_pagamento, val: (x) => moeda(x.valor) },
-    { rot: "Maior valor recuperado", d: h.top_recuperador, val: (x) => moeda(x.valor) },
-    { rot: "Mais pagamentos", d: h.top_qtd, val: (x) => `${num(x.qtd)} pagamentos` },
-  ].filter((x) => x.d && x.d.operador);
+    mp && mp.operador && mp.honorario != null && {
+      rot: "Maior honorário num pagamento", nome: mp.operador,
+      val: moeda(mp.honorario), sub: `${moeda(mp.valor)} brutos`,
+    },
+    topHon && topHon.nome && {
+      rot: "Maior honorário do dia", nome: topHon.nome, val: moeda(topHon.valor),
+    },
+    h.top_qtd?.operador && {
+      rot: "Mais pagamentos", nome: h.top_qtd.operador, val: `${num(h.top_qtd.qtd)} pagamentos`,
+    },
+  ].filter(Boolean);
   return (
     <Tela titulo="Hoje na Operação">
       <div style={heroiCheio}>
-        <div style={heroiRotulo}>Recuperado hoje</div>
-        <div style={heroiValor}>{moeda(h.recuperado)}</div>
+        <div style={heroiRotulo}>Honorários recebidos hoje</div>
+        <div style={heroiValor}>{moeda(h.honorarios)}</div>
         <div style={heroiSatelites}>
-          <span><strong style={{ color: T.azulClaro }}>{moeda(h.honorarios)}</strong> em honorários</span>
+          <span><strong style={{ color: T.azulClaro }}>{moeda(h.recuperado)}</strong> brutos recuperados</span>
           <span style={sepPonto}>·</span>
           <span><strong style={{ color: T.texto }}>{num(h.pagamentos_confirmados)}</strong> pagamentos confirmados</span>
         </div>
@@ -70,8 +89,9 @@ function TelaHoje({ snap }) {
           {destaques.map((x) => (
             <div key={x.rot} style={cardDestaque}>
               <div style={cardDestaqueRotulo}>{x.rot}</div>
-              <div style={cardDestaqueNome}>{x.d.operador}</div>
-              <div style={cardDestaqueValor}>{x.val(x.d)}</div>
+              <div style={cardDestaqueNome}>{x.nome}</div>
+              <div style={cardDestaqueValor}>{x.val}</div>
+              {x.sub && <div style={cardDestaqueSub}>{x.sub}</div>}
             </div>
           ))}
         </div>
@@ -84,6 +104,13 @@ function TelaHoje({ snap }) {
 function TelaResultadoMes({ snap }) {
   const m = snap?.mes || {};
   const cmp = m.comparacao || {};
+  // Média diária em HONORÁRIO, não em bruto recuperado. O snapshot passa a
+  // entregar `media_diaria_honorarios` (20261014); `media_diaria` continua
+  // existindo e continua sendo o bruto — por isso ela NÃO serve de fallback
+  // aqui. Sem o campo novo, o card diz que não há registro.
+  const mediaHonTxt = m.media_diaria_honorarios == null
+    ? "Sem registro"
+    : moeda(m.media_diaria_honorarios);
   const necTxt = m.meta_atingida
     ? "Meta já atingida."
     : m.necessidade_diaria == null
@@ -92,12 +119,14 @@ function TelaResultadoMes({ snap }) {
   return (
     <Tela titulo="Resultado do Mês">
       <div style={linha}>
-        <IndicadorCard rotulo="Recuperado no mês" valor={moeda(m.recuperado)} tom="verde" grande />
-        <IndicadorCard rotulo="Honorários no mês" valor={moeda(m.honorarios)} tom="azul" grande />
+        <IndicadorCard rotulo="Honorários recebidos no mês" valor={moeda(m.honorarios)} tom="verde" grande
+                       sub="Base da meta, da projeção e da premiação" />
+        <IndicadorCard rotulo="Bruto recuperado no mês" valor={moeda(m.recuperado)} tom="azul" />
       </div>
       <div style={linha}>
         <IndicadorCard rotulo="Pagamentos confirmados no mês" valor={num(m.pagamentos_confirmados)} tom="ambar" />
-        <IndicadorCard rotulo="Média diária de recuperação" valor={moeda(m.media_diaria)} tom="azul" />
+        <IndicadorCard rotulo="Média diária de honorários" valor={mediaHonTxt} tom="azul"
+                       sub={m.media_diaria == null ? undefined : `${moeda(m.media_diaria)} de bruto recuperado`} />
         <IndicadorCard rotulo="Projeção de fechamento (honorários)" valor={moeda(m.proj_honorarios)} tom="verde" />
       </div>
       <div style={linha}>
@@ -190,11 +219,32 @@ function TelaRankings({ snap }) {
   const mpm = r.maior_pagamento_mes;
   // Antes: quatro destaques soltos e um pódio, cinco blocos competindo. Agora o
   // líder do mês é o herói e o resto desce para a faixa.
+  //
+  // O CRITÉRIO é o honorário recebido atribuído ao operador, não o valor
+  // recuperado. A ordenação vem pronta do snapshot (20261014) — aqui só se lê.
+  //
+  // `rankings.base === "honorario"` é o MARCADOR que o snapshot passou a emitir.
+  // Ele existe por causa da janela entre o deploy desta tela e a aplicação da
+  // migration: nela, a tela nova lê um snapshot VELHO, ainda ordenado por bruto.
+  // Sem o marcador os rótulos anunciariam honorário mostrando o campeão por
+  // bruto. Com ele, "honorário" só é dito quando o número É honorário; no
+  // snapshot velho o valor é identificado como bruto. Nada é inferido do
+  // formato dos dados.
+  const porHon = r.base === "honorario";
   const lider = r.melhor_mes?.operador || top3[0]?.operador;
+  const liderHon = porHon ? (r.melhor_mes?.honorario ?? top3[0]?.honorario) : null;
   const resto = [
-    r.melhor_dia?.operador && { rot: "Melhor do dia", nome: r.melhor_dia.operador, val: null },
-    r.mais_pagos_dia?.operador && { rot: "Mais pagamentos hoje", nome: r.mais_pagos_dia.operador, val: `${num(r.mais_pagos_dia.qtd)} pagamentos` },
-    mpm && { rot: "Maior pagamento do mês", nome: mpm.operador, val: moeda(mpm.valor) },
+    r.melhor_dia?.operador && {
+      rot: porHon ? "Melhor em honorários hoje" : "Melhor do dia por valor bruto",
+      nome: r.melhor_dia.operador,
+      val: porHon && r.melhor_dia.honorario != null ? moeda(r.melhor_dia.honorario) : null, sub: null },
+    r.mais_pagos_dia?.operador && { rot: "Mais pagamentos hoje", nome: r.mais_pagos_dia.operador,
+      val: `${num(r.mais_pagos_dia.qtd)} pagamentos`, sub: null },
+    mpm && (porHon && mpm.honorario != null
+      ? { rot: "Maior honorário num pagamento", nome: mpm.operador,
+          val: moeda(mpm.honorario), sub: `${moeda(mpm.valor)} brutos` }
+      : { rot: "Maior pagamento do mês (valor bruto)", nome: mpm.operador,
+          val: moeda(mpm.valor), sub: null }),
   ].filter(Boolean);
   if (!lider && resto.length === 0) {
     return <Tela titulo="Rankings e Destaques"><Vazio>Sem registro no snapshot atual.</Vazio></Tela>;
@@ -203,14 +253,20 @@ function TelaRankings({ snap }) {
     <Tela titulo="Rankings e Destaques">
       {lider && (
         <div style={heroiCheio}>
-          <div style={heroiRotulo}>Melhor recuperador do mês</div>
+          <div style={heroiRotulo}>{porHon ? "Maior honorário recebido no mês" : "Melhor do mês por valor bruto"}</div>
           <div style={{ ...heroiValor, color: T.verde }}>{lider}</div>
+          {liderHon != null && (
+            <div style={heroiSatelites}>
+              <span><strong style={{ color: T.azulClaro }}>{moeda(liderHon)}</strong> em honorários</span>
+            </div>
+          )}
           {top3.length > 1 && (
             <div style={heroiSatelites}>
               {top3.slice(1, 3).map((o, i) => (
                 <span key={o.operador}>
                   {i > 0 && <span style={sepPonto}>·</span>}
                   <strong style={{ color: T.textoSuave }}>{i === 0 ? "2º" : "3º"}</strong> {o.operador}
+                  {o.honorario != null && ` — ${moeda(o.honorario)}`}
                 </span>
               ))}
             </div>
@@ -224,6 +280,7 @@ function TelaRankings({ snap }) {
               <div style={cardDestaqueRotulo}>{x.rot}</div>
               <div style={cardDestaqueNome}>{x.nome}</div>
               {x.val && <div style={cardDestaqueValor}>{x.val}</div>}
+              {x.sub && <div style={cardDestaqueSub}>{x.sub}</div>}
             </div>
           ))}
         </div>
@@ -310,7 +367,24 @@ function TelaDestaqueSemana({ snap }) {
   if (semana.length === 0) return <Tela titulo="Destaque da Semana"><Vazio>Sem dados da semana.</Vazio></Tela>;
   const campeao = semana[0];
   const vice = semana.slice(1, 3);
+  // TRÊS ESTADOS POSSÍVEIS, e cada um tem o seu rótulo. O que NUNCA pode
+  // acontecer é anunciar honorário mostrando outro número — daí o marcador
+  // `base`, que o snapshot passou a emitir em cada item (migration 20261014113000):
+  //
+  //   base === 'honorario'  -> honorário recebido na semana (snapshot novo)
+  //   valor sem base        -> valor BRUTO (snapshot velho, ainda ordenado por
+  //                            valor_pago) — e o rótulo diz bruto
+  //   sem valor             -> fallback `dados.ranking_semana`, por quantidade
+  //
+  // Os três vêm de UM array só: campeão, vice e 3º são sempre do mesmo critério,
+  // nunca misturados.
+  const porHonorario = campeao.base === "honorario" && campeao.valor != null;
   const porValor = campeao.valor != null;
+  const rotuloCriterio = porHonorario
+    ? "Maior honorário recebido na semana"
+    : porValor
+      ? "Maior valor bruto recuperado na semana"
+      : "Mais pagamentos únicos da semana";
   return (
     <Tela titulo="Destaque da Semana">
       <div style={{ fontSize: fs(32, 4, 100), fontWeight: 900, color: T.verde, textAlign: "center", lineHeight: 1 }}>{campeao.operador}</div>
@@ -321,7 +395,7 @@ function TelaDestaqueSemana({ snap }) {
         </div>
       )}
       <div style={{ fontSize: fs(14, 1.5, 34), fontWeight: 700, color: T.textoMudo, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-        {porValor ? "Maior valor recuperado na semana" : "Mais pagamentos únicos da semana"}
+        {rotuloCriterio}
       </div>
       <div style={{ fontSize: fs(12, 1.25, 28), fontWeight: 700, color: T.textoSuave }}>
         Apuração: {periodoDaSemana()}
@@ -667,7 +741,7 @@ const est = {
 
 export const CATALOGO_TELAS = [
   { id: "hoje", nome: "Hoje na Operação", Comp: TelaHoje, ativa: true, grupo: "operacao",
-    descricao: "Indicadores do dia: recuperado, honorários e destaques de operadores.",
+    descricao: "Honorários recebidos hoje em destaque, bruto recuperado como apoio e destaques de operadores por honorário.",
     temConteudo: (s) => !!s?.hoje },
   { id: "comparativo_ano", nome: "Mês vs. ano passado", Comp: TelaComparativoAno, ativa: true, grupo: "operacao",
     descricao: "Recuperado e honorários do mês contra o mesmo período do ano anterior.",
@@ -857,3 +931,6 @@ const cardDestaqueNome = {
   whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%",
 };
 const cardDestaqueValor = { fontSize: fs(14, 1.5, 34), fontWeight: 700, color: T.azulClaro };
+// Linha secundária do card: o valor BRUTO ao lado do honorário. Fica
+// deliberadamente menor e apagada — é contexto, não é o indicador.
+const cardDestaqueSub = { fontSize: fs(11, 1.1, 24), fontWeight: 600, color: T.textoMudo };

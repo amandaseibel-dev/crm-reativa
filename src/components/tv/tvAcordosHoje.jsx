@@ -76,7 +76,7 @@ export default function TelaAcordosHoje({ snap }) {
         <div style={grade}>
           <IndicadorCard rotulo="Acordos fechados hoje" valor={num(fechados)} tom="azul" />
           <IndicadorCard rotulo="Já com pagamento" valor={num(convertidos)} tom="verde" />
-          <IndicadorCard rotulo="Valor pago" valor={moeda(valor)} tom="verde" />
+          <IndicadorCard rotulo="Valor bruto recuperado" valor={moeda(valor)} tom="azul" />
           <IndicadorCard rotulo="Ainda sem pagamento" valor={num(Math.max(0, fechados - convertidos))}
             tom={convertidos >= fechados ? "verde" : "ambar"} />
         </div>
@@ -97,7 +97,12 @@ export default function TelaAcordosHoje({ snap }) {
                   <div style={rotuloOp(ranking.length)}>convertidos</div>
                 </div>
               </div>
+              {/* Dito BRUTO de propósito: é o valor pago nas parcelas desses
+                  acordos, não o honorário que fica para nós. O ranking desta
+                  tela continua por QUANTIDADE de acordos fechados — nenhum
+                  cálculo de conversão muda aqui. */}
               <div style={valorOp(ranking.length)}>{moeda(r.valor_pago)}</div>
+              <div style={rotuloOp(ranking.length)}>valor bruto recuperado</div>
             </div>
           ))}
         </div>
