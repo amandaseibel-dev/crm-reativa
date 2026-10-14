@@ -47,7 +47,7 @@ function TelaHoje({ snap }) {
   }
   // HIERARQUIA, que o modelo antigo não tinha: cinco cards do mesmo tamanho
   // obrigavam quem assiste a procurar o número que importa. O recuperado do dia
-  // vira herói; honorários e pagamentos viram satélites; os três destaques de
+  // passa a ser secundário; honorários viram herói; os três destaques de
   // operador descem para uma faixa compacta.
   const destaques = [
     { rot: "Maior pagamento", d: h.maior_pagamento, val: (x) => moeda(x.valor) },
@@ -57,10 +57,10 @@ function TelaHoje({ snap }) {
   return (
     <Tela titulo="Hoje na Operação">
       <div style={heroiCheio}>
-        <div style={heroiRotulo}>Recuperado hoje</div>
-        <div style={heroiValor}>{moeda(h.recuperado)}</div>
+        <div style={heroiRotulo}>Honorários recebidos hoje</div>
+        <div style={heroiValor}>{moeda(h.honorarios)}</div>
         <div style={heroiSatelites}>
-          <span><strong style={{ color: T.azulClaro }}>{moeda(h.honorarios)}</strong> em honorários</span>
+          <span><strong style={{ color: T.azulClaro }}>{moeda(h.recuperado)}</strong> em valor bruto recuperado</span>
           <span style={sepPonto}>·</span>
           <span><strong style={{ color: T.texto }}>{num(h.pagamentos_confirmados)}</strong> pagamentos confirmados</span>
         </div>
@@ -92,12 +92,12 @@ function TelaResultadoMes({ snap }) {
   return (
     <Tela titulo="Resultado do Mês">
       <div style={linha}>
-        <IndicadorCard rotulo="Recuperado no mês" valor={moeda(m.recuperado)} tom="verde" grande />
-        <IndicadorCard rotulo="Honorários no mês" valor={moeda(m.honorarios)} tom="azul" grande />
+        <IndicadorCard rotulo="Honorários recebidos no mês" valor={moeda(m.honorarios)} tom="verde" grande />
+        <IndicadorCard rotulo="Valor bruto recuperado no mês" valor={moeda(m.recuperado)} tom="azul" />
       </div>
       <div style={linha}>
         <IndicadorCard rotulo="Pagamentos confirmados no mês" valor={num(m.pagamentos_confirmados)} tom="ambar" />
-        <IndicadorCard rotulo="Média diária de recuperação" valor={moeda(m.media_diaria)} tom="azul" />
+        <IndicadorCard rotulo="Média diária de valor bruto recuperado" valor={moeda(m.media_diaria)} tom="azul" />
         <IndicadorCard rotulo="Projeção de fechamento (honorários)" valor={moeda(m.proj_honorarios)} tom="verde" />
       </div>
       <div style={linha}>
