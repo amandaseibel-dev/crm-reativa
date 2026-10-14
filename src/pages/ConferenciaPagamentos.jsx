@@ -78,6 +78,7 @@ export default function ConferenciaPagamentos() {
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [faixa, setFaixa] = useState(0);
+  const [filtrosAvancados, setFiltrosAvancados] = useState(false);
   const [tipoDivida, setTipoDivida] = useState(null);
   const [mes, setMes] = useState(MES_PADRAO);
   const [de, setDe] = useState("");
@@ -365,12 +366,9 @@ export default function ConferenciaPagamentos() {
         <div>
           <h1 style={S.titulo}>Confirmação de Pagamento</h1>
           <p style={S.sub}>
-            Pagamento que <b>ainda não foi conferido</b>, e as baixas do período,
-            uma linha por pessoa. Entrou, baixado e saldo lado a lado.
-            O extrato do Santander define quem pagou. Quem já está zerado sai da lista — já foi conferido.
-            Decidir aqui carimba os pagamentos daquela pessoa, e a fila diminui. Quem pagou
-            <b> depois de ter sido quitado</b> vem primeiro — dinheiro novo depois de uma quitação
-            total pede um olhar.
+            Confira os pagamentos do extrato. Valores e datas são apresentados automaticamente.
+            Use <b>Confirmar</b> quando o registro estiver correto; <b>Já tratado</b> se a baixa já foi realizada.
+            Pagamentos sem vínculo ou com divergência exigem análise antes da decisão.
           </p>
         </div>
         <button type="button" onClick={carregar} style={S.btnGhost} disabled={carregando}>
@@ -378,7 +376,7 @@ export default function ConferenciaPagamentos() {
         </button>
       </div>
 
-      <div style={faixas}>
+      <div style={{ ...faixas, alignItems: "center" }}>
         <span style={rotuloGrupo}>Período</span>
         {MESES.map((m) => (
           <button
@@ -390,18 +388,18 @@ export default function ConferenciaPagamentos() {
             {m.rotulo}
           </button>
         ))}
-        <input type="date" value={de} onChange={(e) => setDe(e.target.value)}
-               style={inputData} title="Pagamentos a partir desta data" />
-        <span style={{ fontSize: 12, color: "var(--rv-texto-fraco)" }}>até</span>
+        {filtrosAvancados ? <input type="date" value={de} onChange={(e) => setDe(e.target.value)}
+               style={inputData} title="Pagamentos a partir desta data" /> : null}
+        {filtrosAvancados ? <span style={{ fontSize: 12, color: "var(--rv-texto-fraco)" }}>até</span> : null}
         <input type="date" value={ate} onChange={(e) => setAte(e.target.value)}
-               style={inputData} title="Pagamentos até esta data, ela inclusive" />
+               style={inputData} title="Pagamentos até esta data, ela inclusive" /> : null}
         {(de || ate) ? (
           <button type="button" style={chipFaixa} onClick={() => { setDe(""); setAte(""); }}>limpar datas</button>
         ) : null}
       </div>
 
       <div style={faixas}>
-        <span style={rotuloGrupo}>Dívida</span>
+        <span style={rotuloGrupo}>Situação</span>
         {TIPOS.map((t) => (
           <button
             key={t.rotulo} type="button" onClick={() => setTipoDivida(t.chave)}
@@ -412,8 +410,12 @@ export default function ConferenciaPagamentos() {
             {t.rotulo}
           </button>
         ))}
-        <span style={rotuloGrupo}>Valor pago</span>
-        {FAIXAS.map((f) => (
+        <button type="button" style={chipFaixa} aria-expanded={filtrosAvancados}
+          onClick={() => setFiltrosAvancados((v) => !v)}>
+          {filtrosAvancados ? "Ocultar filtros" : "Mais filtros"}
+        </button>
+        {filtrosAvancados ? <span style={rotuloGrupo}>Valor pago</span> : null}
+        {filtrosAvancados ? FAIXAS.map((f) => (
           <button
             key={f.min} type="button" onClick={() => setFaixa(f.min)}
             style={{ ...chipFaixa, ...(f.min === faixa ? chipFaixaOn : null) }}
@@ -422,10 +424,10 @@ export default function ConferenciaPagamentos() {
           >
             {f.rotulo}
           </button>
-        ))}
-        <span style={dicaTeclado}>
+        )) : null}
+        {filtrosAvancados ? <span style={dicaTeclado}>
           <b>J/K</b> anda · <b>F</b> feito · <b>T</b> já tratado · <b>V</b> vincula · <b>Enter</b> ficha · <b>/</b> busca
-        </span>
+        </span> : null}
       </div>
 
       <div style={S.barra}>
@@ -619,7 +621,7 @@ export default function ConferenciaPagamentos() {
                     ) : conf ? (
                       <div style={caixaConf}>
                         <span style={txtConf}>
-                          Registrar <b>{moeda(l.entrou)}</b> como conferido?
+                          Confirmar <b>{moeda(l.entrou)}</b> do extrato? Verifique antes se o pagamento corresponde à dívida correta.
                           {Number(l.saldo_aberto) > 0.005 ? (
                             <> Restam <b>{moeda(l.saldo_aberto)}</b> — segue na cobrança.</>
                           ) : (
@@ -641,7 +643,7 @@ export default function ConferenciaPagamentos() {
                         <button type="button" style={ocupado === chave ? S.btnBusy : S.btnConf}
                           disabled={ocupado === chave}
                           onClick={() => setConfirmando({ chave, acao: "FEITO" })}
-                          title="Registra a baixa do extrato e marca como conferido. NÃO zera dívida: quem ainda deve segue na cobrança, e quem já zerou quita sozinho. (F)">Feito</button>
+                          title="Registra a baixa do extrato e marca como conferido. NÃO zera dívida: quem ainda deve segue na cobrança, e quem já zerou quita sozinho. (F)">Confirmar</button>
                         <button type="button" style={btnJaTratado}
                           disabled={ocupado === chave}
                           onClick={() => setConfirmando({ chave, acao: "JA_TRATADO", motivo: "" })}
