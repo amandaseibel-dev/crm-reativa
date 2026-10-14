@@ -69,7 +69,7 @@ export default function TelaMetaDoMes({ snap }) {
         <div style={grade}>
           {/* `grande` não entra: ele fixa minWidth 30vw e duas colunas assim
               estouram a área segura da TV. O anel já é o número-herói. */}
-          <IndicadorCard rotulo="Realizado" valor={moeda(realizado)} tom="verde" />
+          <IndicadorCard rotulo="Honorários recebidos" valor={moeda(realizado)} tom="verde" />
           <IndicadorCard rotulo="Falta para a meta" valor={faltaTxt} tom={atingida ? "verde" : "ambar"} />
           <IndicadorCard rotulo="Dias úteis restantes" valor={num(duRest)}
             sub={m.dias_uteis_mes == null ? undefined : `de ${num(m.dias_uteis_mes)} dias úteis no mês`} tom="azul" />
