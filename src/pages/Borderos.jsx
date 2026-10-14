@@ -1,15 +1,21 @@
 import { useState } from "react";
-import { naoReabreNoBordero } from "../utils/bordero";
+import {
+  motivoDeNaoTocar,
+  chaveCpf,
+  indexarAlunosPorCpf,
+  fichasParaCriar,
+  alunoDaLinha,
+} from "../utils/bordero";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
 import { hashArquivo, hashValido } from "../utils/hashArquivo";   // MESMA implementacao
 import Dobra from "../ui/blocos";
 
-function limparCpf(valor) {
-  const digitos = String(valor || "").replace(/\D/g, "");
-  if (!digitos) return null;
-  return digitos.padStart(11, "0");
-}
+// Fonte unica da chave de identidade: `chaveCpf` em utils/bordero.js, a mesma
+// usada para indexar cadastro existente, para deduplicar o lote e para resolver
+// o aluno de cada linha. Antes esta funcao era uma segunda implementacao local
+// -- duas copias da regra de identidade e meio caminho para divergirem.
+const limparCpf = chaveCpf;
 
 function parseValor(valor) {
   if (typeof valor === "number") return valor;
@@ -95,11 +101,23 @@ async function inserirEmLotes(tabela, registros) {
   return { dados, erro: null };
 }
 
-async function upsertEmLotes(tabela, registros, onConflict) {
+// 08/10/2026: era `upsertEmLotes` e fazia ON CONFLICT DO UPDATE. Virou
+// insert-only (`ignoreDuplicates: true` => ON CONFLICT DO NOTHING) porque o
+// borderô passou a só INCLUIR documento ausente. O nome mudou junto de
+// propósito: uma função chamada `upsert` que não faz upsert é uma armadilha.
+//
+// CONSEQUÊNCIA DESTA MUDANÇA, que a gestão precisa saber: reimportar um borderô
+// deixa de corrigir valor/vencimento de título que já existe. Era o único efeito
+// útil do upsert, e é também o que reabria NEGOCIADO. Correção de valor de
+// título existente continua possível pela ficha (ajuste de valor, que tem
+// trilha própria em `titulo_valor_ajuste_historico`), nunca por reimportação.
+async function inserirIgnorandoExistentesEmLotes(tabela, registros, onConflict) {
   if (registros.length === 0) return { erro: null };
   const lotes = dividirEmLotes(registros, TAMANHO_LOTE_GRAVACAO);
   for (const lote of lotes) {
-    const { error } = await supabase.from(tabela).upsert(lote, { onConflict });
+    const { error } = await supabase
+      .from(tabela)
+      .upsert(lote, { onConflict, ignoreDuplicates: true });
     if (error) return { erro: error };
   }
   return { erro: null };
@@ -179,13 +197,16 @@ export default function Borderos() {
         "acordos_titulos",
         "documento",
         titulos,
-        "documento, situacao"
+        // 08/10/2026: `status` entrou junto. Conferir só `situacao` deixava
+        // passar linha já liquidada -- a base tem título `VENCIDA`/`quitada`.
+        "documento, situacao, status"
       );
 
-      const mapaAlunosPorCpf = {};
-      for (const aluno of alunosEncontrados) {
-        mapaAlunosPorCpf[aluno.cpf] = aluno;
-      }
+      // Indexa por `chaveCpf` dos DOIS lados. Comparar o CPF normalizado do
+      // arquivo com a coluna `alunos.cpf` crua deixava de achar ficha gravada
+      // com mascara ou sem zero a esquerda (42 fichas assim em 09/10/2026) --
+      // e o importador criava outra para quem ja existia.
+      const mapaAlunosPorCpf = indexarAlunosPorCpf(alunosEncontrados);
 
       const mapaTitulos = {};
       for (const titulo of titulosExistentes) {
@@ -197,7 +218,7 @@ export default function Borderos() {
       const nomesParaTentar = [
         ...new Set(
           linhas
-            .filter((l) => !(l.cpfLimpo && mapaAlunosPorCpf[l.cpfLimpo]))
+            .filter((l) => !(chaveCpf(l.cpfLimpo) && mapaAlunosPorCpf[chaveCpf(l.cpfLimpo)]))
             .map((l) => String(l.nome || "").trim())
             .filter(Boolean)
         ),
@@ -218,7 +239,9 @@ export default function Borderos() {
       }
 
       const linhasComStatus = linhas.map((linha) => {
-        const porCpf = linha.cpfLimpo ? mapaAlunosPorCpf[linha.cpfLimpo] : null;
+        const porCpf = chaveCpf(linha.cpfLimpo)
+          ? mapaAlunosPorCpf[chaveCpf(linha.cpfLimpo)]
+          : null;
         const porNome = !porCpf
           ? mapaAlunosPorNome[String(linha.nome || "").trim().toLowerCase()]
           : null;
@@ -230,6 +253,7 @@ export default function Borderos() {
           origemMatch: porCpf ? "cpf" : porNome ? "nome" : "novo",
           jaExiste: Boolean(mapaTitulos[linha.numTitulo]),
           situacaoAtual: mapaTitulos[linha.numTitulo]?.situacao || null,
+          statusAtual: mapaTitulos[linha.numTitulo]?.status || null,
         };
       });
 
@@ -327,42 +351,68 @@ export default function Borderos() {
       // ===== CONTRATO (nao mover) ==========================================
       // A captura de presenca deve permanecer ANTES de qualquer filtro
       // operacional do importador -- aqui, especificamente, antes de
-      // `naoReabreNoBordero`. Nao ha teste automatizado que proteja esta
+      // `motivoDeNaoTocar`. Nao ha teste automatizado que proteja esta
       // ordem: a garantia e a posicao no codigo. Mover e silencioso.
       // =====================================================================
 
-      // 1) Cria em lote (uma chamada só) os alunos que não bateram nem por
-      // CPF nem por nome, em vez de um insert por linha.
+      // 1) Cria os alunos que não bateram nem por CPF nem por nome --
+      // ===== UM CADASTRO POR CPF, nunca um por linha ======================
+      // O borderô tem uma linha por TÍTULO. Antes isto era
+      // `preview.linhas.filter((l) => !l.aluno).map(...)`, e quem devia 6
+      // mensalidades ganhava 6 fichas: 14 CPFs e 33 fichas no borderô 723 de
+      // 08/10/2026. `fichasParaCriar` colapsa o lote por `chaveCpf`.
+      // ===================================================================
+      const { registros: fichasPorCpf, linhasSemCpf } = fichasParaCriar(preview.linhas);
+
+      // Linha sem CPF continua EXATAMENTE como antes: uma ficha por linha.
+      // Mudar isto agora (recusar a linha) derrubaria no chão o título que hoje
+      // é gravado, e a quarentena da regra 4 de docs/PADRAO_CADASTRO.md não
+      // existe. Esta importação muda UMA coisa: duplicata por CPF. O que a tela
+      // ganha aqui é só a contagem, para a gestão ver o tamanho do débito.
+      const fichasSemCpf = linhasSemCpf.map((l) => ({
+        nome: l.nome,
+        cpf: null,
+        email: l.email,
+        telefone: l.telefone,
+        curso: l.curso,
+        unidade: l.unidade,
+        status_jornada: "CONTATAR",
+        status_atual: "CONTATAR",
+      }));
+
+      // Os sem CPF vão DEPOIS dos por-CPF no mesmo lote: o `insert ...
+      // returning` devolve na ordem de inserção, e é isso que permite ligar
+      // cada linha sem CPF à ficha que nasceu dela, sem chutar por nome.
+      // (Antes, todas as linhas sem CPF caíam na ÚLTIMA ficha sem CPF criada,
+      // porque a chave do mapa era o `null` virando a string "null" --
+      // títulos de pessoas diferentes na mesma ficha.)
+      const fichasNovas = [...fichasPorCpf, ...fichasSemCpf];
       const linhasSemAluno = preview.linhas.filter((l) => !l.aluno);
       let alunosNovosPorCpf = {};
+      let alunosCriados = 0;
+      const alunoPorLinhaSemCpf = new Map();
 
-      if (linhasSemAluno.length > 0) {
+      if (fichasNovas.length > 0) {
         const { dados: novosAlunos, erro: erroNovos } = await inserirEmLotes(
           "alunos",
-          linhasSemAluno.map((l) => ({
-            nome: l.nome,
-            cpf: l.cpfLimpo,
-            email: l.email,
-            telefone: l.telefone,
-            curso: l.curso,
-            unidade: l.unidade,
-            status_jornada: "CONTATAR",
-            status_atual: "CONTATAR",
-          }))
+          fichasNovas
         );
 
         if (erroNovos) {
           nomesNaoEncontrados.push(...linhasSemAluno.map((l) => l.nome));
           ignorados += linhasSemAluno.length;
         } else {
-          for (const aluno of novosAlunos) {
-            alunosNovosPorCpf[aluno.cpf] = aluno;
-          }
-          nomesCriados.push(...linhasSemAluno.map((l) => l.nome));
+          alunosNovosPorCpf = indexarAlunosPorCpf(novosAlunos);
+          alunosCriados = novosAlunos.length;
+          nomesCriados.push(...novosAlunos.map((a) => a.nome));
+
+          novosAlunos.slice(fichasPorCpf.length).forEach((aluno, i) => {
+            if (linhasSemCpf[i]) alunoPorLinhaSemCpf.set(linhasSemCpf[i], aluno);
+          });
         }
       }
 
-      const alunosCriados = Object.keys(alunosNovosPorCpf).length;
+      const linhasSemCpfCount = linhasSemCpf.length;
 
       // 2) Completa telefone/email/curso/unidade só de quem já existia e
       // estava com algum desses campos vazio — em paralelo, não em fila.
@@ -385,15 +435,23 @@ export default function Borderos() {
       const registrosTitulos = [];
 
       for (const linha of preview.linhas) {
-        // PAGO nao reabre; EM_CONFIRMACAO (Conferencia Prime) e CANCELADA
-        // (encerramento administrativo) tambem nao -- o banco recusaria de
-        // qualquer jeito, mas nem se tenta.
-        if (linha.jaExiste && naoReabreNoBordero(linha.situacaoAtual)) {
+        // ===== 08/10/2026: TITULO QUE JA EXISTE NUNCA E TOCADO ==============
+        // Pedido da gestao: "inserir apenas documentos ausentes, sem atualizar
+        // existentes". Antes, so PAGO / EM_CONFIRMACAO / CANCELADA eram
+        // pulados, e o `upsert` reabria todo o resto -- inclusive NEGOCIADO,
+        // que nenhum gatilho de banco protege.
+        //
+        // `motivoDeNaoTocar` devolve o porque (situacao terminal, status
+        // terminal, ou simplesmente "ja existe") para a tela poder dizer.
+        // ===================================================================
+        const motivoIgnorar = motivoDeNaoTocar(linha);
+        if (motivoIgnorar) {
           ignorados += 1;
           continue;
         }
 
-        const aluno = linha.aluno || alunosNovosPorCpf[linha.cpfLimpo];
+        const aluno =
+          alunoDaLinha(linha, alunosNovosPorCpf) || alunoPorLinhaSemCpf.get(linha) || null;
         if (!aluno) {
           ignorados += 1;
           continue;
@@ -416,7 +474,7 @@ export default function Borderos() {
       let atualizados = 0;
 
       if (registrosTitulos.length > 0) {
-        const { erro: erroTitulos } = await upsertEmLotes(
+        const { erro: erroTitulos } = await inserirIgnorandoExistentesEmLotes(
           "acordos_titulos",
           registrosTitulos,
           "documento"
@@ -425,16 +483,71 @@ export default function Borderos() {
         if (erroTitulos) {
           setErro("Erro ao gravar os títulos: " + erroTitulos.message);
         } else {
-          const existentesSet = new Set(
-            preview.linhas.filter((l) => l.jaExiste).map((l) => l.numTitulo)
-          );
-          inseridos = registrosTitulos.filter((r) => !existentesSet.has(r.documento)).length;
-          atualizados = registrosTitulos.filter((r) => existentesSet.has(r.documento)).length;
+          // `registrosTitulos` já não contém nenhum título existente (todos
+          // caíram no `motivoDeNaoTocar` acima), então tudo que foi gravado é
+          // inserção. `atualizados` fica 0 por construção, e continua exposto
+          // na tela para deixar explícito que a importação não atualiza.
+          inseridos = registrosTitulos.length;
+          atualizados = 0;
 
-          // Reativa alunos que estavam quitados (ficha amarela) e voltaram a
-          // ter título em aberto neste bordero -- eles saem do "quitado",
-          // retornam pra fila ativa (CONTATAR) E têm o saldo restaurado (a
-          // quitação manual havia zerado títulos, parcelas e acordo).
+          // ===== SALDO DO ALUNO, DEPOIS DE GRAVAR O TÍTULO ==============
+          // Medido em 09/10/2026: 485 alunos tinham título cobrável em aberto
+          // e `alunos.saldo_total` NULO -- R$ 692.047,04 de dívida que existia
+          // em `acordos_titulos` e não aparecia no campo que a carteira, as
+          // filas e os indicadores leem. A causa: `acordos_titulos` não tinha
+          // gatilho de recálculo (todas as outras tabelas financeiras têm) e a
+          // virada diária varre `from casos` -- quem não tem caso nunca era
+          // alcançado.
+          //
+          // O gatilho de instrução da migration 20261009210000 enfileira os
+          // alunos em `recalculo_saldo_pendente`; aqui a fila é drenada no
+          // mesmo ato da importação, para o saldo já estar certo quando a
+          // operadora abrir a tela. A fila é durável: se isto falhar, o
+          // pendente continua registrado e a próxima chamada processa.
+          //
+          // FAIL-SOFT de propósito: recalcular saldo é campo derivado. Se
+          // quebrar, a importação -- que é o ato financeiro -- não cai por
+          // causa disso.
+          try {
+            let restantes = Infinity;
+            // teto de voltas: um borderô tem ~2.000 alunos; 10 x 500 cobre
+            // com folga e impede laço infinito se o RPC parar de drenar.
+            for (let volta = 0; volta < 10 && restantes > 0; volta += 1) {
+              const { data: dreno, error: erroDreno } = await supabase.rpc(
+                "recalculo_saldo_pendente_processar",
+                { p_limite: 500, p_lote: `bordero_${preview.numeroBordero || "sn"}` }
+              );
+              if (erroDreno) break;
+              restantes = Number(dreno?.restantes ?? 0);
+            }
+          } catch { /* campo derivado; ver o comentário acima */ }
+
+          // ===== 08/10/2026: SEPARADO EM DOIS ===========================
+          // Este bloco fazia TRÊS coisas de uma vez, e só a primeira é fila:
+          //
+          //   1. tirava o aluno de QUITADO/QUITADO_MANUAL e devolvia para
+          //      CONTATAR  -> MANTIDO. É promessa explícita do produto, dita
+          //      ao operador em dois lugares ("Só volta se subir um título
+          //      novo dele em algum borderô"), e agora ela fica ainda mais
+          //      exata: com o importador insert-only, só dispara quando
+          //      entra título REALMENTE novo.
+          //
+          //   2. restaurava o saldo de títulos `quitada` com motivo "quitado
+          //      manualmente"                              -> DESLIGADO
+          //   3. devolvia parcela PAGO sem data para A_VENCER e REATIVAVA o
+          //      acordo QUITADO                            -> DESLIGADO
+          //
+          // 2 e 3 são exatamente o que a gestão proibiu em 08/10/2026: "não
+          // reative parcelas negociadas, pagas, quitadas, suspensas,
+          // canceladas, devolvidas ou encerradas, incluindo acordos e
+          // vínculos financeiros". Ficam no código atrás de um interruptor
+          // desligado, não apagados: religar é decisão de negócio.
+          //
+          // Dívida nova de aluno quitado continua entrando como título e
+          // continua trazendo a ficha para a fila. O que não acontece mais é
+          // o CRM desfazer sozinho uma quitação e reabrir o acordo.
+          // ==============================================================
+          const RESTAURAR_QUITACAO_NO_BORDERO = false;
           const idsAlunosComTitulo = [
             ...new Set(registrosTitulos.map((r) => r.aluno_id)),
           ];
@@ -464,6 +577,11 @@ export default function Borderos() {
                 })
                 .in("id", idsQuitados);
 
+              // 2) e 3) DESLIGADAS em 08/10/2026 (ver o bloco acima). Desfazer
+              // uma quitação e reabrir acordo é reativação de registro
+              // financeiro, não movimento de fila — e a trava do banco
+              // (migration 20261008120000) recusaria a 2) de qualquer jeito.
+              if (RESTAURAR_QUITACAO_NO_BORDERO) {
               // 2) Restaura o saldo dos títulos que a quitação manual zerou
               // (reconhecidos pelo motivo_ajuste). Não toca em títulos pagos
               // de verdade nem em vinculados a acordo ativo.
@@ -533,6 +651,7 @@ export default function Borderos() {
                   }
                 }
               }
+              }   // fim do if (RESTAURAR_QUITACAO_NO_BORDERO)
             }
           }
         }
@@ -557,10 +676,10 @@ export default function Borderos() {
       // importacao concluida.
       //
       // O QUE A CAPTURA PRECISA MANTER, e mantem: TODAS as linhas do arquivo,
-      // inclusive as que o laco acima pula via
-      // `naoReabreNoBordero(linha.situacaoAtual)` (PAGO, EM_CONFIRMACAO,
-      // CANCELADA) e as sem aluno resolvido. Se a trilha repetisse o filtro do
-      // importador, a ausencia medida seria artefato nosso, nao do arquivo.
+      // inclusive as que o laco acima pula via `motivoDeNaoTocar(linha)` --
+      // que a partir de 08/10/2026 e TODO titulo ja existente, nao so os
+      // terminais -- e as sem aluno resolvido. Se a trilha repetisse o filtro
+      // do importador, a ausencia medida seria artefato nosso, nao do arquivo.
       // =====================================================================
       try {
         await supabase.rpc("registrar_presenca_extracao", {
@@ -608,7 +727,11 @@ export default function Borderos() {
         });
       } catch { /* presenca e auditoria paralela; nao derruba a importacao */ }
 
-      setResultado({ inseridos, atualizados, ignorados, alunosCriados, nomesCriados, nomesNaoEncontrados });
+      setResultado({
+        inseridos, atualizados, ignorados, alunosCriados, nomesCriados,
+        nomesNaoEncontrados,
+        linhasSemCpf: linhasSemCpfCount,
+      });
       setPreview(null);
       setArquivo(null);
     } catch (err) {
@@ -642,6 +765,15 @@ export default function Borderos() {
             {resultado.alunosCriados} alunos novos cadastrados, {resultado.ignorados}{" "}
             ignorados (já pagos).
           </p>
+
+          {resultado.linhasSemCpf > 0 && (
+            <p style={{ margin: "6px 0 0" }}>
+              <strong>{resultado.linhasSemCpf}</strong> linha(s) vieram sem CPF. Sem
+              CPF não existe correspondência segura: cada uma virou um cadastro
+              próprio e pode ser a mesma pessoa de outra linha. Confira essas
+              fichas antes de acionar.
+            </p>
+          )}
 
           {resultado.nomesCriados?.length > 0 && (
             <Dobra

@@ -2,7 +2,7 @@
 // Em Brasília (UTC-3) isso empurrava o campo 3 horas para a frente — e, à
 // noite, mudava o DIA, que é justamente o que ordena as remessas.
 import { describe, it, expect } from "vitest";
-import { agoraLocalParaInput } from "./preventivoFormato";
+import { agoraLocalParaInput, pct, moedaEm, qtd } from "./preventivoFormato";
 
 describe("data inicial do campo de extração", () => {
   it("devolve a hora LOCAL, não a UTC", () => {
@@ -28,5 +28,71 @@ describe("data inicial do campo de extração", () => {
   it("o valor volta ao instante certo quando reconvertido", () => {
     const d = new Date(2026, 9, 6, 21, 30, 0);
     expect(new Date(agoraLocalParaInput(d)).getTime()).toBe(d.getTime());
+  });
+});
+
+// A tela mostra "R$ 4.248.050,67 · 17,4%" na mesma linha: o separador decimal
+// precisa ser o mesmo nos dois.
+describe("percentual em pt-BR", () => {
+  it("usa vírgula decimal e sempre uma casa", () => {
+    expect(pct(17.4)).toBe("17,4%");
+    expect(pct(60)).toBe("60,0%");
+    expect(pct("55.7")).toBe("55,7%");
+  });
+
+  it("zero é zero, e não vira travessão", () => {
+    expect(pct(0)).toBe("0,0%");
+  });
+
+  it("sem número não inventa valor", () => {
+    expect(pct(null)).toBe("—");
+    expect(pct(undefined)).toBe("—");
+    expect(pct("")).toBe("—");
+    expect(pct("tanto faz")).toBe("—");
+  });
+
+  it("separa milhar quando passa de cem", () => {
+    expect(pct(1234.5)).toBe("1.234,5%");
+  });
+});
+
+// O custo do WhatsApp de 05/10 foi pago em dólar. Escrever "R$" nele seria
+// afirmar um fato falso sobre dinheiro.
+describe("dinheiro com moeda declarada", () => {
+  it("usa o símbolo de cada moeda", () => {
+    expect(moedaEm(595.38, "USD")).toBe("US$ 595,38");
+    expect(moedaEm(120.5, "BRL")).toBe("R$ 120,50");
+  });
+
+  it("moeda não informada NÃO vira real: sai sem símbolo", () => {
+    expect(moedaEm(33, null)).toBe("33,00");
+    expect(moedaEm(33, undefined)).toBe("33,00");
+  });
+
+  it("zero é zero, e ausência de valor é travessão", () => {
+    expect(moedaEm(0, "USD")).toBe("US$ 0,00");
+    expect(moedaEm(null, "USD")).toBe("—");
+  });
+
+  it("separa milhar em pt-BR", () => {
+    expect(moedaEm(1234567.8, "USD")).toBe("US$ 1.234.567,80");
+  });
+});
+
+describe("quantidade com separador de milhar", () => {
+  it("separa o milhar", () => {
+    expect(qtd(13968)).toBe("13.968");
+    expect(qtd(7690)).toBe("7.690");
+    expect(qtd(6278)).toBe("6.278");
+  });
+
+  it("abaixo de mil fica sem ponto, e zero é zero", () => {
+    expect(qtd(999)).toBe("999");
+    expect(qtd(0)).toBe("0");
+  });
+
+  it("sem número não inventa quantidade", () => {
+    expect(qtd(null)).toBe("—");
+    expect(qtd(undefined)).toBe("—");
   });
 });

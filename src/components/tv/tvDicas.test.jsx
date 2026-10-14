@@ -30,9 +30,14 @@ const DICAS = [
 ];
 
 const tela = () => CATALOGO_TELAS.find((t) => t.id === "dicas");
-const desenhar = (snap) => {
+// ATENÇÃO (08/10/2026): antes este arquivo passava `versao` DENTRO do snap e
+// ficava verde — mas o payload real NÃO tem `versao` (ela é coluna da tabela e
+// a TV guarda só `data.payload`), então em produção o giro era sempre 0 e só as
+// 3 primeiras dicas iam ao ar. O giro agora vem de `indiceGiro`, que o
+// orquestrador já passa a todo slide, e é assim que o teste tem de exercitar.
+const desenhar = (snap, indiceGiro = 0) => {
   const { Comp } = tela();
-  return render(<Comp snap={snap} />);
+  return render(<Comp snap={snap} indiceGiro={indiceGiro} />);
 };
 
 describe("TV — tela de Dicas de Abordagem", () => {
@@ -44,7 +49,7 @@ describe("TV — tela de Dicas de Abordagem", () => {
   });
 
   it("desenha as dicas que vêm do snapshot", () => {
-    desenhar({ dicas: DICAS, versao: 0 });
+    desenhar({ dicas: DICAS }, 0);
     expect(screen.getByText("Entenda a situação")).toBeTruthy();
     expect(screen.getByText(/O que fez a mensalidade ficar em aberto/)).toBeTruthy();
     // a categoria vira o rotulo do destaque
@@ -54,13 +59,13 @@ describe("TV — tela de Dicas de Abordagem", () => {
   it("mostra três por vez e gira a cada atualização, para todas aparecerem", () => {
     // 8 dicas, 3 por vez: versao 0 -> itens 1-3; versao 1 -> itens 4-6. Sem
     // sobreposicao, entao todas passam pela TV em vez de so as tres primeiras.
-    const { unmount } = desenhar({ dicas: DICAS, versao: 0 });
+    const { unmount } = desenhar({ dicas: DICAS }, 0);
     expect(screen.getByText("Entenda a situação")).toBeTruthy();
     expect(screen.getByText("Pergunte o quanto cabe")).toBeTruthy();
     expect(screen.queryByText("Registre a tratativa")).toBeNull();
     unmount();
 
-    desenhar({ dicas: DICAS, versao: 1 });
+    desenhar({ dicas: DICAS }, 1);
     expect(screen.getByText("Registre a tratativa")).toBeTruthy();
     expect(screen.getByText("Ofereça caminho")).toBeTruthy();
     expect(screen.queryByText("Entenda a situação")).toBeNull();
@@ -68,16 +73,16 @@ describe("TV — tela de Dicas de Abordagem", () => {
 
   it("o giro nunca estoura a lista", () => {
     // versao alta e lista curta: ainda assim desenha sem quebrar
-    expect(() => desenhar({ dicas: DICAS.slice(0, 2), versao: 999 })).not.toThrow();
+    expect(() => desenhar({ dicas: DICAS.slice(0, 2) }, 999)).not.toThrow();
   });
 
   it("sem dicas, diz que não há — não quebra nem some do rodízio", () => {
-    desenhar({ dicas: [], versao: 3 });
+    desenhar({ dicas: [] }, 3);
     expect(screen.getByText(/Nenhuma dica cadastrada/)).toBeTruthy();
   });
 
   it("snapshot sem a chave `dicas` não derruba a tela", () => {
-    expect(() => desenhar({ versao: 1 })).not.toThrow();
+    expect(() => desenhar({}, 1)).not.toThrow();
     expect(screen.getByText(/Nenhuma dica cadastrada/)).toBeTruthy();
   });
 
@@ -99,8 +104,9 @@ describe("TV — tela de Dicas de Abordagem", () => {
       expect(ids).toContain(antiga);
     }
     expect(ids).toContain("dicas");
-    // 23 desde 08/10/2026: entrou "acordos_hoje".
+    // 24 desde 08/10/2026: entraram "acordos_hoje" e "objecoes".
     expect(ids).toContain("acordos_hoje");
-    expect(ids.length).toBe(23);
+    expect(ids).toContain("objecoes");
+    expect(ids.length).toBe(24);
   });
 });

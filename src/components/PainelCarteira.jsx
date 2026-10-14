@@ -57,6 +57,7 @@ import {
 } from "../utils/tabulacoes";
 import VisaoGeralCarteira from "./VisaoGeralCarteira";
 import VisaoGestao360 from "./VisaoGestao360";
+import { parcelaViva } from "../utils/parcelaStatus";
 
 /*
   PainelCarteira
@@ -111,6 +112,23 @@ const STATUS_FINALIZACAO = [
   "TERMO_REJEITADO",
   "ACORDO_FECHADO",
   "LEMBRETE_PARCELA",
+  // As quatro tabulacoes de ALEGACAO estao em `public.tabulacoes` desde
+  // 10/09/2026 e NUNCA apareceram aqui: este array e a fonte real do <select>,
+  // e o catalogo do banco nao o governa. Por isso o dicionario media "0 usos" --
+  // ninguem usou porque ninguem CONSEGUIA usar.
+  "ALEGA_FIES",
+  "ALEGA_CREDIES",
+  "ALEGA_FINANCIAMENTO",
+  // Esta e a unica das quatro com desfecho financeiro (encerra o saldo e quita
+  // a parcela nossa), por isso entra tambem em STATUS_BLOQUEADOS_ACIONAMENTO.
+  "ANTECIPACAO_SEMESTRE",
+  // Confirmação de alegação pela unidade (gestão, 07/10/2026): é o DESFECHO da
+  // alegação, e tem efeito financeiro -- devolve a parcela. A alegação original
+  // (ALEGA_FIES etc.) continua aberta ao operador, porque ela só encaminha para
+  // a ADM apurar. Estas três entram também em STATUS_BLOQUEADOS_ACIONAMENTO.
+  "ALEGA_FIES_CONFIRMADO",
+  "ALEGA_CREDIES_CONFIRMADO",
+  "ALEGA_FINANCIAMENTO_CONFIRMADO",
   "CANCELAMENTO_COBRANCA",
   "SUSPENSAO_COBRANCA",
   "JURIDICO",
@@ -1163,7 +1181,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       const setAtrasado = new Set();
       const setQuebrado = new Set();
       for (const p of parcelas) {
-        if (p.status === "PAGO") continue;
+        if (!parcelaViva(p.status)) continue;
         const ac = acordoById.get(p.acordo_id);
         if (!ac || ac.status !== "ATIVO" || !ac.aluno_id) continue;
         const d = diasAtraso(p.vencimento, hoje);
@@ -3804,7 +3822,14 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                       <label style={S.label}>Tabular atendimento (status)</label>
                       <select style={S.select} value={statusNovo} onChange={(e) => setStatusNovo(e.target.value)}>
                         <option value="">Selecione o status...</option>
-                        {STATUS_FINALIZACAO.map((s) => (
+                        {STATUS_FINALIZACAO.filter(
+                          // Antecipacao de semestre quita parcela: so gestao
+                          // escolhe. O banco tambem recusa (_encerramento_so_gestao),
+                          // mas deixar a opcao visivel para o operador seria
+                          // oferecer um caminho que termina em erro.
+                          (s) => !["ANTECIPACAO_SEMESTRE","ALEGA_FIES_CONFIRMADO",
+                                 "ALEGA_CREDIES_CONFIRMADO","ALEGA_FINANCIAMENTO_CONFIRMADO"].includes(s) || veTudo
+                        ).map((s) => (
                           <option key={s} value={s}>{labelStatus(s)}</option>
                         ))}
                       </select>

@@ -20,6 +20,7 @@ export const ESTADO = Object.freeze({
   PAGO: "PAGO",
   DUPLICADA: "DUPLICADA",
   CANCELADA: "CANCELADA",
+  DEVOLVIDO: "DEVOLVIDO",
   EM_CONFIRMACAO: "EM_CONFIRMACAO",
   NEGOCIADO: "NEGOCIADO",
   ABERTO: "ABERTO",
@@ -29,6 +30,7 @@ const ROTULO = Object.freeze({
   PAGO: "Quitada",
   DUPLICADA: "Fora da conta",
   CANCELADA: "Cancelada",
+  DEVOLVIDO: "Devolvida",
   EM_CONFIRMACAO: "Em confirmação",
   NEGOCIADO: "Negociado",
   ABERTO: "Em aberto",
@@ -45,6 +47,13 @@ export function estadoDoTitulo(t) {
   if (sit(t) === "PAGO" || st(t) === "quitada") return ESTADO.PAGO;
   if (sit(t) === "DUPLICADA") return ESTADO.DUPLICADA;
   if (sit(t) === "CANCELADA" || st(t) === "cancelada") return ESTADO.CANCELADA;
+  // DEVOLVIDO antes de EM_CONFIRMACAO e antes do fim da cadeia. A tabulação de
+  // desfecho (antecipação, FIES/CREDIES/financiamento confirmado, cancelamento
+  // definitivo, suspensão) tira a mensalidade da cobrança em 08-09/10/2026, e
+  // sem este teste ela cairia no `return ESTADO.ABERTO` do fim -- aparecendo
+  // como "Em aberto" e entrando na contagem de mensalidades abertas, o mesmo
+  // erro que CANCELADA cometia antes desta função existir.
+  if (sit(t) === "DEVOLVIDO" || st(t) === "devolvido") return ESTADO.DEVOLVIDO;
   if (sit(t) === "EM_CONFIRMACAO") return ESTADO.EM_CONFIRMACAO;
   if (st(t) === "vinculada" || sit(t) === "NEGOCIADO" || !!t?.acordo_id) return ESTADO.NEGOCIADO;
   return ESTADO.ABERTO;

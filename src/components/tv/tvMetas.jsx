@@ -32,7 +32,7 @@ export default function TelaMetas({ snap }) {
 
   if (!principal) {
     return (
-      <Tela titulo="Metas" icone="🎯">
+      <Tela titulo="Metas">
         <div style={vazio}>Sem registro no snapshot atual.</div>
       </Tela>
     );
@@ -47,7 +47,7 @@ export default function TelaMetas({ snap }) {
   const status = { label: principal.situacao, cor: corSituacao(principal.situacao) };
 
   return (
-    <Tela titulo="Metas" icone="🎯">
+    <Tela titulo="Metas">
       <div style={corpo}>
         <AnelProgresso pct={pct} rotulo={principal.nome} status={status} tamanho={ALTURA_BLOCO}>
           <RaioReativa tamanho={fs(30, 3.4, 78)} />

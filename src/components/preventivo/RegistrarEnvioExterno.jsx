@@ -22,6 +22,7 @@ const CONTEXTOS = {
 const VAZIO = {
   aberto: false, lote: "", nome: "", canal: "EMAIL", contexto: "",
   enviada_em: "", publico: "", matriculas: "", hora_conhecida: true, custo: "",
+  custo_moeda: "BRL",
 };
 
 export default function RegistrarEnvioExterno({ carteira, remessas = [], aoRegistrar }) {
@@ -71,7 +72,9 @@ export default function RegistrarEnvioExterno({ carteira, remessas = [], aoRegis
     setOcupado(false);
     if (error) { setErro(error.message); return; }
     if (custo !== null && data?.id) {
-      await supabase.rpc("preventivo_acao_custo_definir", { p_acao_id: data.id, p_custo: custo });
+      await supabase.rpc("preventivo_acao_custo_definir", {
+        p_acao_id: data.id, p_custo: custo, p_moeda: f.custo_moeda,
+      });
     }
     setF(VAZIO);
     setRecibo({
@@ -186,11 +189,20 @@ export default function RegistrarEnvioExterno({ carteira, remessas = [], aoRegis
 
           <div>
             <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>
-              Custo total da ação (R$)
+              Custo total da ação
             </label>
-            <input type="number" min="0" step="0.01" style={{ ...S.input, maxWidth: 180 }}
-                   value={f.custo} placeholder="opcional"
-                   onChange={(e) => campo("custo", e.target.value)} />
+            {/* A MOEDA VAI JUNTO. Houve envio pago em dólar: escrever "R$" nele
+                seria afirmar um fato falso sobre dinheiro. */}
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input type="number" min="0" step="0.01" style={{ ...S.input, maxWidth: 160 }}
+                     value={f.custo} placeholder="opcional"
+                     onChange={(e) => campo("custo", e.target.value)} />
+              <select value={f.custo_moeda} style={{ ...S.input, maxWidth: 120 }}
+                      onChange={(e) => campo("custo_moeda", e.target.value)}>
+                <option value="BRL">R$ (BRL)</option>
+                <option value="USD">US$ (USD)</option>
+              </select>
+            </div>
             <p style={{ ...S.muted, marginTop: 6, fontSize: 11.5, maxWidth: 320 }}>
               Pode ficar em branco e ser informado depois, na aba Resultados. Em branco é
               <strong> não informado</strong>; zero é <strong>zero</strong>. O custo aparece ao

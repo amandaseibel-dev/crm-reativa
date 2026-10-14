@@ -28,7 +28,7 @@ export default function TelaMagicNumber({ snap }) {
   // Competência sem Magic Number cadastrado: avisa em vez de derivar da meta.
   if (!alvo) {
     return (
-      <Tela titulo="Magic Number" icone="⚡">
+      <Tela titulo="Magic Number">
         <div style={vazio}>Magic Number não cadastrado para esta competência.</div>
       </Tela>
     );
@@ -49,7 +49,7 @@ export default function TelaMagicNumber({ snap }) {
   const status = atingido ? statusMeta(pct) : proj > 0 ? statusRitmo(proj, alvo) : undefined;
 
   return (
-    <Tela titulo="Magic Number" icone="⚡">
+    <Tela titulo="Magic Number">
       <div style={corpo}>
         <AnelProgresso pct={pct} rotulo="do Magic Number" status={status} tamanho={ALTURA_BLOCO}>
           <RaioReativa tamanho={fs(30, 3.4, 78)} />

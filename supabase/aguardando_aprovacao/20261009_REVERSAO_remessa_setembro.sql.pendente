@@ -1,0 +1,414 @@
+-- ============================================================================
+-- REVERSAO DA REMESSA DE SETEMBRO
+-- 09/10/2026 · NAO APLICAR SEM AUTORIZACAO EXPLICITA DA GESTAO.
+--
+-- Pedido da gestao em 08/10/2026: "Reverter tudo" -- os casos que a remessa de
+-- inclusao da parcela de setembro devolveu para a fila por engano.
+--
+-- ESCOPO, pela regra que a gestao deu: "a parcela ja negociada e paga nao
+-- volta, quando entra uma nova parcela precisamos trabalhar ela".
+--
+--   REVERTE  titulo que JA EXISTIA antes da remessa e foi reaberto por ela
+--            (`created_at` < `criado_em` do lote), e o aluno que voltou para a
+--            fila SO por causa disso.
+--   NAO TOCA titulo realmente novo, nem o caso que foi para a fila por causa
+--            dele. Esse e o comportamento pedido, nao o defeito.
+--
+-- ---------------------------------------------------------------------------
+-- ESTADO: ESCRITA NAO VALIDADA CONTRA PRODUCAO.
+--
+-- Esta funcao foi escrita a partir do codigo e das migrations do repositorio,
+-- sem leitura de producao -- nao houve acesso ao projeto `ahattpqrjmhkzsmnbdzs`.
+-- Por isso:
+--   * `p_dry_run` e TRUE por padrao e so conta, nunca escreve;
+--   * a escrita exige `p_esperado_titulos` e `p_esperado_alunos` iguais aos
+--     numeros do BLOCO A e do BLOCO C2 de
+--     `20261009_MEDICAO_remessa_setembro_o_que_voltou.sql`. Divergencia aborta.
+--   * a TRAVA confere, antes e depois, o tamanho de `pagamentos`,
+--     `baixas_pagamento`, `acordo_titulo_vinculo` e `honorarios`. Qualquer
+--     mudanca aborta a transacao inteira.
+--
+-- ORDEM OBRIGATORIA
+--   1. rodar a MEDICAO inteira e guardar a saida (BLOCO G e a foto global);
+--   2. `select * from public.reversao_remessa_reverter('<lote>', true);`
+--      e conferir se os numeros batem com a MEDICAO -- sao dois codigos
+--      independentes lendo a mesma regra;
+--   3. so entao `p_dry_run => false`, com os dois `p_esperado_*` preenchidos;
+--   4. rodar o BLOCO G de novo e comparar.
+--
+-- ---------------------------------------------------------------------------
+-- O QUE ESTA FUNCAO NAO FAZ, DE PROPOSITO
+--   . nao insere nem apaga titulo, parcela, acordo, vinculo, caso ou aluno
+--   . nao escreve em pagamentos, baixas_pagamento ou honorarios -- nao houve
+--     dinheiro envolvido na reversao de um movimento de fila
+--   . nao reverte `importacao_id` de titulo cuja origem anterior o audit_log
+--     nao guardou: essa origem esta perdida e a funcao devolve a contagem em
+--     `origem_perdida` em vez de inventar um valor
+--   . nao mexe em caso reaberto por `casos_reabrir_com_divida` nem pelos
+--     gatilhos de divida nova: esses reabriram por SALDO, e o saldo volta ao
+--     lugar quando os titulos deste lote voltam. Rodar a MEDICAO (BLOCO E)
+--     depois da reversao para conferir que a populacao zerou.
+--
+-- ROLLBACK: 20261009_REVERSAO_remessa_setembro.rollback.sql
+-- ============================================================================
+
+begin;
+
+create or replace function public.reversao_remessa_reverter(
+  p_lote               uuid,
+  p_dry_run            boolean default true,
+  p_esperado_titulos   integer default null,
+  p_esperado_alunos    integer default null
+) returns jsonb
+ language plpgsql
+ security definer
+ set search_path to 'public'
+ set statement_timeout to '180s'
+as $fn$
+declare
+  v_lote_em        timestamptz;
+  v_tit            integer := 0;
+  v_tit_sem_audit  integer := 0;
+  v_alunos         integer := 0;
+  v_quit_manual    integer := 0;
+  v_parcelas       integer := 0;
+  v_acordos        integer := 0;
+  v_origem_perdida integer := 0;
+  -- TRAVA: nada financeiro pode mudar de tamanho
+  v_pg_antes  bigint; v_pg_depois  bigint;
+  v_bx_antes  bigint; v_bx_depois  bigint;
+  v_vin_antes bigint; v_vin_depois bigint;
+  v_hon_antes bigint; v_hon_depois bigint;
+begin
+  if not public.usuario_e_gestao() then
+    raise exception 'Acesso negado: somente gestao financeira.' using errcode = '42501';
+  end if;
+
+  select i.criado_em into v_lote_em from public.importacoes i where i.id = p_lote;
+  if v_lote_em is null then
+    raise exception 'LOTE_INEXISTENTE: nao existe importacao com id %.', p_lote
+      using errcode = '22023';
+  end if;
+
+  select count(*) into v_pg_antes  from public.pagamentos;
+  select count(*) into v_bx_antes  from public.baixas_pagamento;
+  select count(*) into v_vin_antes from public.acordo_titulo_vinculo;
+  select count(*) into v_hon_antes from public.honorarios;
+
+  -- -------------------------------------------------------------------------
+  -- 1. O UNIVERSO. Titulo que existia ANTES e carrega o lote da remessa.
+  --    A foto anterior e a PRIMEIRA update do titulo na janela do lote: e a
+  --    que o upsert causou, antes de qualquer gatilho reagir.
+  -- -------------------------------------------------------------------------
+  create temp table _rev_titulos on commit drop as
+  with tocados as (
+    select t.id, t.situacao, t.status, t.saldo_corrigido, t.valor_original,
+           t.valor_em_aberto, t.vencimento, t.importacao_id, t.aluno_id,
+           t.motivo_ajuste
+      from public.acordos_titulos t
+     where t.importacao_id = p_lote
+       and t.created_at < v_lote_em
+  ),
+  antes as (
+    select distinct on (a.registro_id)
+           a.registro_id,
+           a.dados_antes
+      from public.audit_log a
+     where a.tabela = 'acordos_titulos'
+       and a.operacao = 'UPDATE'
+       and a.criado_em >= v_lote_em - interval '5 minutes'
+       and a.registro_id in (select id::text from tocados)
+     order by a.registro_id, a.criado_em asc
+  )
+  select t.*,
+         an.dados_antes,
+         an.dados_antes ->> 'situacao'                      as situacao_antes,
+         an.dados_antes ->> 'status'                        as status_antes,
+         (an.dados_antes ->> 'saldo_corrigido')::numeric    as saldo_antes,
+         (an.dados_antes ->> 'valor_original')::numeric     as valor_original_antes,
+         (an.dados_antes ->> 'valor_em_aberto')::numeric    as valor_em_aberto_antes,
+         (an.dados_antes ->> 'vencimento')::date            as vencimento_antes,
+         nullif(an.dados_antes ->> 'importacao_id','')::uuid as importacao_id_antes,
+         (an.dados_antes is null)                           as sem_audit
+    from tocados t
+    left join antes an on an.registro_id = t.id::text;
+
+  select count(*) filter (where not sem_audit),
+         count(*) filter (where sem_audit),
+         count(*) filter (where not sem_audit and importacao_id_antes is null)
+    into v_tit, v_tit_sem_audit, v_origem_perdida
+    from _rev_titulos;
+
+  -- -------------------------------------------------------------------------
+  -- 2. OS ALUNOS do grupo C2: voltaram para CONTATAR e NAO tinham parcela nova.
+  -- -------------------------------------------------------------------------
+  create temp table _rev_alunos on commit drop as
+  with por_aluno as (
+    select t.aluno_id,
+           count(*) filter (where t.created_at >= v_lote_em) as novos,
+           count(*) filter (where t.created_at <  v_lote_em) as reabertos
+      from public.acordos_titulos t
+     where t.importacao_id = p_lote and t.aluno_id is not null
+     group by t.aluno_id
+  ),
+  quitado_antes as (
+    select distinct on (a.registro_id)
+           a.registro_id::uuid                     as aluno_id,
+           a.dados_antes ->> 'status_jornada'      as status_jornada_antes,
+           a.dados_antes ->> 'status_atual'        as status_atual_antes,
+           a.dados_antes ->> 'status_acionamento'  as status_acionamento_antes,
+           a.dados_antes ->> 'proxima_acao'        as proxima_acao_antes
+      from public.audit_log a
+     where a.tabela = 'alunos'
+       and a.operacao = 'UPDATE'
+       and a.criado_em >= v_lote_em - interval '5 minutes'
+       and upper(coalesce(a.dados_antes  ->> 'status_jornada','')) in ('QUITADO','QUITADO_MANUAL')
+       and upper(coalesce(a.dados_depois ->> 'status_jornada','')) = 'CONTATAR'
+     order by a.registro_id, a.criado_em asc
+  )
+  select q.*, p.reabertos
+    from por_aluno p
+    join quitado_antes q on q.aluno_id = p.aluno_id
+   where p.novos = 0;
+
+  select count(*) into v_alunos from _rev_alunos;
+
+  -- -------------------------------------------------------------------------
+  -- 3. QUITACAO MANUAL DESFEITA pela remessa (blocos 2 e 3 do Borderos.jsx,
+  --    que em producao estao LIGADOS).
+  --
+  --    ESCOPO: a janela do audit_log NAO basta como filtro. Outras funcoes
+  --    escrevem nos mesmos cinco minutos (o cron de :35, o motor de baixa, a
+  --    Conferencia Prime), e reverter o que elas fizeram seria desfazer
+  --    trabalho legitimo. Por isso cada populacao e amarrada ao LOTE:
+  --      titulo  -> `importacao_id = p_lote`
+  --      parcela -> pertence a acordo de aluno que tem titulo deste lote
+  --      acordo  -> acordo de aluno que tem titulo deste lote
+  --    `_alunos_do_lote` e essa amarra, e vale para as tres.
+  -- -------------------------------------------------------------------------
+  create temp table _alunos_do_lote on commit drop as
+  select distinct t.aluno_id
+    from public.acordos_titulos t
+   where t.importacao_id = p_lote and t.aluno_id is not null;
+
+  create temp table _rev_quit on commit drop as
+  select distinct on (a.registro_id)
+         a.registro_id::uuid                             as titulo_id,
+         a.dados_antes ->> 'situacao'                    as situacao_antes,
+         a.dados_antes ->> 'status'                      as status_antes,
+         (a.dados_antes ->> 'saldo_corrigido')::numeric  as saldo_antes
+    from public.audit_log a
+    join public.acordos_titulos t on t.id::text = a.registro_id
+   where a.tabela = 'acordos_titulos' and a.operacao = 'UPDATE'
+     and a.criado_em >= v_lote_em - interval '5 minutes'
+     and t.importacao_id = p_lote
+     and lower(coalesce(a.dados_antes ->> 'status','')) = 'quitada'
+     and coalesce(a.dados_antes ->> 'motivo_ajuste','') ilike '%quitado manualmente%'
+   order by a.registro_id, a.criado_em asc;
+
+  create temp table _rev_parcelas on commit drop as
+  select distinct on (a.registro_id)
+         a.registro_id::uuid                   as parcela_id,
+         a.dados_antes ->> 'status'            as status_antes,
+         nullif(a.dados_antes ->> 'pago_em','')::timestamptz as pago_em_antes
+    from public.audit_log a
+    join public.parcelas p  on p.id::text = a.registro_id
+    join public.acordos  ac on ac.id = p.acordo_id
+    join _alunos_do_lote dl on dl.aluno_id = ac.aluno_id
+   where a.tabela = 'parcelas' and a.operacao = 'UPDATE'
+     and a.criado_em >= v_lote_em - interval '5 minutes'
+     and upper(coalesce(a.dados_antes  ->> 'status','')) = 'PAGO'
+     and upper(coalesce(a.dados_depois ->> 'status','')) = 'A_VENCER'
+   order by a.registro_id, a.criado_em asc;
+
+  create temp table _rev_acordos on commit drop as
+  select distinct on (a.registro_id)
+         a.registro_id::uuid        as acordo_id,
+         a.dados_antes ->> 'status' as status_antes
+    from public.audit_log a
+    join public.acordos  ac on ac.id::text = a.registro_id
+    join _alunos_do_lote dl on dl.aluno_id = ac.aluno_id
+   where a.tabela = 'acordos' and a.operacao = 'UPDATE'
+     and a.criado_em >= v_lote_em - interval '5 minutes'
+     and upper(coalesce(a.dados_antes  ->> 'status','')) = 'QUITADO'
+     and upper(coalesce(a.dados_depois ->> 'status','')) <> 'QUITADO'
+   order by a.registro_id, a.criado_em asc;
+
+  select count(*) into v_quit_manual from _rev_quit;
+  select count(*) into v_parcelas    from _rev_parcelas;
+  select count(*) into v_acordos     from _rev_acordos;
+
+  -- -------------------------------------------------------------------------
+  -- 4. DRY RUN: devolve a conta e sai sem escrever.
+  -- -------------------------------------------------------------------------
+  if p_dry_run then
+    return jsonb_build_object(
+      'dry_run', true, 'lote', p_lote, 'lote_em', v_lote_em,
+      'titulos_a_reverter', v_tit,
+      'titulos_sem_foto_no_audit_log', v_tit_sem_audit,
+      'alunos_a_reverter', v_alunos,
+      'titulos_quitacao_manual', v_quit_manual,
+      'parcelas_a_devolver_para_pago', v_parcelas,
+      'acordos_a_voltar_para_quitado', v_acordos,
+      'origem_importacao_perdida', v_origem_perdida,
+      'aviso', 'Nada foi escrito. Confira contra a MEDICAO antes de rodar com p_dry_run => false.');
+  end if;
+
+  -- -------------------------------------------------------------------------
+  -- 5. PORTAO DA ESCRITA: os numeros da medicao sao obrigatorios e tem de bater.
+  -- -------------------------------------------------------------------------
+  if p_esperado_titulos is null or p_esperado_alunos is null then
+    raise exception 'MEDICAO_OBRIGATORIA: informe p_esperado_titulos e p_esperado_alunos com os numeros do BLOCO A e do BLOCO C2 da medicao.'
+      using errcode = '22023';
+  end if;
+  if v_tit <> p_esperado_titulos then
+    raise exception 'DIVERGENCIA_TITULOS: a funcao encontrou % titulo(s), a medicao disse %. Nada foi escrito.',
+      v_tit, p_esperado_titulos;
+  end if;
+  if v_alunos <> p_esperado_alunos then
+    raise exception 'DIVERGENCIA_ALUNOS: a funcao encontrou % aluno(s), a medicao disse %. Nada foi escrito.',
+      v_alunos, p_esperado_alunos;
+  end if;
+  if v_tit_sem_audit > 0 then
+    raise exception 'SEM_FOTO_ANTERIOR: % titulo(s) deste lote nao tem `dados_antes` no audit_log. Nao existe estado anterior para restaurar e esta funcao nao adivinha. Trate-os pela ficha, um a um.',
+      v_tit_sem_audit;
+  end if;
+
+  -- -------------------------------------------------------------------------
+  -- 6. BACKUP antes de qualquer escrita. E a fonte do rollback.
+  -- -------------------------------------------------------------------------
+  create table if not exists public._backup_reversao_remessa_20261009 (
+    lote uuid, tabela text, registro_id uuid,
+    dados_agora jsonb, dados_restaurados jsonb,
+    revertido_em timestamptz default now(), revertido_por text
+  );
+
+  insert into public._backup_reversao_remessa_20261009
+    (lote, tabela, registro_id, dados_agora, dados_restaurados, revertido_por)
+  select p_lote, 'acordos_titulos', r.id,
+         jsonb_build_object('situacao', r.situacao, 'status', r.status,
+           'saldo_corrigido', r.saldo_corrigido, 'valor_original', r.valor_original,
+           'valor_em_aberto', r.valor_em_aberto, 'vencimento', r.vencimento,
+           'importacao_id', r.importacao_id),
+         r.dados_antes,
+         coalesce(nullif(auth.jwt() ->> 'email',''), 'sistema')
+    from _rev_titulos r where not r.sem_audit;
+
+  insert into public._backup_reversao_remessa_20261009
+    (lote, tabela, registro_id, dados_agora, dados_restaurados, revertido_por)
+  select p_lote, 'alunos', al.id,
+         jsonb_build_object('status_jornada', al.status_jornada,
+           'status_atual', al.status_atual, 'status_acionamento', al.status_acionamento,
+           'proxima_acao', al.proxima_acao),
+         jsonb_build_object('status_jornada', a.status_jornada_antes,
+           'status_atual', a.status_atual_antes, 'status_acionamento', a.status_acionamento_antes,
+           'proxima_acao', a.proxima_acao_antes),
+         coalesce(nullif(auth.jwt() ->> 'email',''), 'sistema')
+    from _rev_alunos a join public.alunos al on al.id = a.aluno_id;
+
+  -- -------------------------------------------------------------------------
+  -- 7. A REVERSAO. Situacao e status voltam JUNTOS: separa-los deixaria o
+  --    titulo incoerente e `trg_titulo_normaliza_vinculo_incoerente` zeraria o
+  --    status de novo -- o mesmo defeito, por outro caminho.
+  -- -------------------------------------------------------------------------
+  update public.acordos_titulos t
+     set situacao        = r.situacao_antes,
+         status          = r.status_antes,
+         saldo_corrigido = r.saldo_antes,
+         valor_original  = coalesce(r.valor_original_antes, t.valor_original),
+         valor_em_aberto = r.valor_em_aberto_antes,
+         vencimento      = coalesce(r.vencimento_antes, t.vencimento),
+         -- origem perdida fica como esta: inventar lote e pior que nao ter.
+         importacao_id   = coalesce(r.importacao_id_antes, t.importacao_id),
+         atualizado_em   = now()
+    from _rev_titulos r
+   where t.id = r.id and not r.sem_audit;
+
+  update public.acordos_titulos t
+     set situacao = q.situacao_antes,
+         status   = q.status_antes,
+         saldo_corrigido = q.saldo_antes,
+         atualizado_em = now()
+    from _rev_quit q
+   where t.id = q.titulo_id;
+
+  update public.parcelas p
+     set status  = pa.status_antes,
+         pago_em = pa.pago_em_antes
+    from _rev_parcelas pa
+   where p.id = pa.parcela_id;
+
+  update public.acordos ac
+     set status = a.status_antes
+    from _rev_acordos a
+   where ac.id = a.acordo_id;
+
+  update public.alunos al
+     set status_jornada     = a.status_jornada_antes,
+         status_atual       = a.status_atual_antes,
+         status_acionamento = a.status_acionamento_antes,
+         proxima_acao       = a.proxima_acao_antes
+    from _rev_alunos a
+   where al.id = a.aluno_id;
+
+  -- O caso acompanha o aluno: sem isso a ficha diz quitado e a fila continua
+  -- mostrando o caso.
+  update public.casos c
+     set status_jornada = a.status_jornada_antes,
+         status_atual   = a.status_atual_antes,
+         caso_atualizado_por = 'sistema_reversao_remessa_20261009',
+         caso_atualizado_em  = now()
+    from _rev_alunos a
+   where c.aluno_id = a.aluno_id;
+
+  -- -------------------------------------------------------------------------
+  -- 8. HISTORICO. A reversao aparece na ficha com nome proprio -- o operador
+  --    tem de poder ver por que o aluno saiu da fila de novo.
+  -- -------------------------------------------------------------------------
+  insert into public.aluno_movimentacoes
+    (aluno_id, tipo, descricao, status_anterior, status_novo,
+     registrado_por_nome, registrado_por_email, registrado_em)
+  select a.aluno_id::text, 'REVERSAO_REMESSA',
+         'A remessa de inclusao da parcela de setembro reabriu ' || a.reabertos
+         || ' titulo(s) que ja existiam e devolveu este aluno para a fila. '
+         || 'Nenhuma parcela nova entrou para ele, entao a volta foi indevida: '
+         || 'status restaurado para "' || coalesce(a.status_jornada_antes,'(sem)') || '".',
+         'CONTATAR', coalesce(a.status_jornada_antes,'(sem)'),
+         'Sistema', 'sistema_reversao_remessa',
+         now()
+    from _rev_alunos a;
+
+  -- -------------------------------------------------------------------------
+  -- 9. TRAVA. Nada financeiro pode ter mudado de tamanho.
+  -- -------------------------------------------------------------------------
+  select count(*) into v_pg_depois  from public.pagamentos;
+  select count(*) into v_bx_depois  from public.baixas_pagamento;
+  select count(*) into v_vin_depois from public.acordo_titulo_vinculo;
+  select count(*) into v_hon_depois from public.honorarios;
+
+  if v_pg_antes <> v_pg_depois or v_bx_antes <> v_bx_depois
+     or v_vin_antes <> v_vin_depois or v_hon_antes <> v_hon_depois then
+    raise exception 'TRAVA: a reversao mexeu em registro financeiro. pagamentos %->%, baixas %->%, vinculos %->%, honorarios %->%. Transacao abortada.',
+      v_pg_antes, v_pg_depois, v_bx_antes, v_bx_depois,
+      v_vin_antes, v_vin_depois, v_hon_antes, v_hon_depois;
+  end if;
+
+  return jsonb_build_object(
+    'dry_run', false, 'lote', p_lote, 'lote_em', v_lote_em,
+    'titulos_revertidos', v_tit,
+    'alunos_revertidos', v_alunos,
+    'titulos_quitacao_manual_revertidos', v_quit_manual,
+    'parcelas_devolvidas_para_pago', v_parcelas,
+    'acordos_de_volta_para_quitado', v_acordos,
+    'origem_importacao_nao_recuperada', v_origem_perdida,
+    'backup', '_backup_reversao_remessa_20261009');
+end;
+$fn$;
+
+comment on function public.reversao_remessa_reverter(uuid, boolean, integer, integer) is
+  'Reverte o que a remessa de inclusao da parcela de setembro reabriu: titulo que JA EXISTIA e voltou para ABERTO, e aluno que voltou para CONTATAR sem ter recebido nenhuma parcela nova. Nao toca titulo realmente novo nem o caso que entrou na fila por causa dele -- esse e o comportamento pedido. p_dry_run = true por padrao; a escrita exige os numeros da medicao e aborta se divergirem. Backup em _backup_reversao_remessa_20261009.';
+
+revoke all on function public.reversao_remessa_reverter(uuid, boolean, integer, integer) from public, anon;
+grant execute on function public.reversao_remessa_reverter(uuid, boolean, integer, integer) to authenticated, service_role;
+
+commit;

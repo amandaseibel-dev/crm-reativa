@@ -45,6 +45,9 @@ export const MAPA_SITUACAO = {
   ALEGA_CREDIES: "Alega CREDIES",
   ALEGA_FINANCIAMENTO: "Alega financiamento",
   ANTECIPACAO_SEMESTRE: "Antecipação de semestre",
+  ALEGA_FIES_CONFIRMADO: "FIES confirmado pela unidade",
+  ALEGA_CREDIES_CONFIRMADO: "CREDIES confirmado pela unidade",
+  ALEGA_FINANCIAMENTO_CONFIRMADO: "Financiamento confirmado pela unidade",
   AGUARDAR_RETORNO_UNIDADE: "Aguardar retorno da unidade",
 };
 

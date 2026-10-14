@@ -9,6 +9,7 @@ import { podeGerirFinanceiro, nomeOperadorPorEmail, OPERADORES_POR_EMAIL } from 
 // lancamento chamam a MESMA funcao. Ver o comentario de src/utils/lancarAcordo.js:
 // caminho proprio foi como nasceram 88 acordos duplicados na mao.
 import { lancarAcordo, gerarParcelas as gerarParcelasAcordo } from "../utils/lancarAcordo";
+import { parcelaViva } from "../utils/parcelaStatus";
 // Valor cobravel ajustado: a formula e a permissao moram em um lugar so.
 // Ver src/utils/ajusteValor.js -- o backend continua sendo quem recusa.
 import {
@@ -168,7 +169,8 @@ function grupoEncerrado(acordo, parcelas) {
 function maiorAtrasoAcordo(acordo, parcelas) {
   let maior = -99999;
   (parcelas || []).forEach((p) => {
-    if (p.status === "PAGO" || p.status === "CANCELADA") return;
+    // parcelaViva: DEVOLVIDA/SUSPENSA também não contam atraso -- saíram do cobrável
+    if (!parcelaViva(p.status)) return;
     const d = diasAtraso(p.vencimento);
     if (d > maior) maior = d;
   });
@@ -663,11 +665,11 @@ export default function FinanceiroAluno({ aluno }) {
     );
     setParcelasPorAcordo((atual) => {
       const doAcordo = atual[acordo.id] || [];
-      const abertas = doAcordo.filter((p) => p.status !== "PAGO" && p.status !== "CANCELADA");
+      const abertas = doAcordo.filter((p) => parcelaViva(p.status));
       const base = abertas.reduce((soma, p) => soma + Number(p.valor || 0), 0);
       let acumulado = 0;
       const novas = doAcordo.map((p) => {
-        if (p.status === "PAGO" || p.status === "CANCELADA") return p;
+        if (!parcelaViva(p.status)) return p;
         const ultima = abertas[abertas.length - 1]?.id === p.id;
         const quota = ultima
           ? Number((totalGravado - acumulado).toFixed(2))
@@ -1222,7 +1224,7 @@ export default function FinanceiroAluno({ aluno }) {
   const acordosVinculaveis = acordos.filter((a) => a.status === "ATIVO" || a.status === "QUITADO");
   const parcelasEmAberto = acordosNaoCancelados
     .flatMap((a) => parcelasPorAcordo[a.id] || [])
-    .filter((p) => p.status !== "PAGO" && p.status !== "CANCELADA");
+    .filter((p) => parcelaViva(p.status));
   const valorAcordos = parcelasEmAberto.reduce((soma, p) => soma + Number(p.valor || 0), 0);
 
   // Valor de honorários: soma dos honorários das parcelas em aberto (mesmo
@@ -1290,7 +1292,7 @@ export default function FinanceiroAluno({ aluno }) {
   ).length;
   const parcelasVencidas = acordosNaoCancelados
     .flatMap((a) => parcelasPorAcordo[a.id] || [])
-    .filter((p) => p.status !== "PAGO" && p.status !== "CANCELADA"
+    .filter((p) => parcelaViva(p.status)
       && String(p.vencimento || "").slice(0, 10) < hojeStr).length;
 
   // Mensalidades que a regra `titulo_superado_por_acordo` tirou da conta. Vem
@@ -2250,7 +2252,7 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, titulos = [], podeBaixar, ba
         )}
         {ativos.map((acordo) => {
           const parcelas = parcelasPorAcordo[acordo.id] || [];
-          const parcelasAbertas = parcelas.filter((p) => p.status !== "PAGO" && p.status !== "CANCELADA");
+          const parcelasAbertas = parcelas.filter((p) => parcelaViva(p.status));
           const totalAcordoAberto = parcelasAbertas.reduce((soma, p) => soma + Number(p.valor || 0), 0);
           const chave = statusAcordo(acordo, parcelas);
           const cor = CORES_STATUS[chave];

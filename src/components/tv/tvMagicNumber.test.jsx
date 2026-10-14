@@ -54,12 +54,26 @@ describe("TV — Magic Number (catálogo)", () => {
 
   it("temConteudo exige o valor cadastrado — a meta sozinha não libera o slide", () => {
     const { temConteudo } = tela();
-    expect(temConteudo({ magic: { valor: 142800 } })).toBe(true);
-    expect(temConteudo({ magic: { valor: 0 } })).toBe(false);
-    expect(temConteudo({ magic: null })).toBe(false);
+    const reta = { dias_uteis_restantes: 3 };
+    expect(temConteudo({ magic: { valor: 142800 }, mes: reta })).toBe(true);
+    expect(temConteudo({ magic: { valor: 0 }, mes: reta })).toBe(false);
+    expect(temConteudo({ magic: null, mes: reta })).toBe(false);
     // o caso que importa: meta cadastrada e Magic ausente NÃO mostra o slide
-    expect(temConteudo({ mes: { meta_empresa: 122400 } })).toBe(false);
+    expect(temConteudo({ mes: { meta_empresa: 122400, ...reta } })).toBe(false);
     expect(temConteudo({})).toBe(false);
+  });
+
+  it("é SAZONAL: só entra na reta final do mês", () => {
+    // Decisão de 08/10/2026: ele usa o mesmo realizado da Meta do Mês e só muda
+    // o alvo. Girar o mês inteiro ao lado dela fazia parecer o mesmo número.
+    const { temConteudo } = tela();
+    const magic = { valor: 142800 };
+    expect(temConteudo({ magic, mes: { dias_uteis_restantes: 5 } })).toBe(true);
+    expect(temConteudo({ magic, mes: { dias_uteis_restantes: 0 } })).toBe(true);
+    expect(temConteudo({ magic, mes: { dias_uteis_restantes: 6 } })).toBe(false);
+    expect(temConteudo({ magic, mes: { dias_uteis_restantes: 17 } })).toBe(false);
+    // sem o campo no snapshot, não arrisca: fica fora.
+    expect(temConteudo({ magic, mes: {} })).toBe(false);
   });
 });
 

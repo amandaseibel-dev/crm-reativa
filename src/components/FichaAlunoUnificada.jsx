@@ -5,6 +5,7 @@ import AlterarOperadorResponsavel from "./AlterarOperadorResponsavel";
 import EmailAlunoUnificado from "./EmailAlunoUnificado";
 import TelefonesAluno from "./TelefonesAluno";
 import RelatorioAcionamentosBtn from "./RelatorioAcionamentosBtn";
+import { parcelaViva } from "../utils/parcelaStatus";
 
 /*
   FichaAlunoUnificada
@@ -179,7 +180,8 @@ export default function FichaAlunoUnificada({
   const totais = useMemo(() => {
     const honorarios = acordos.reduce((s, a) => s + (Number(a.honorarios_valor) || 0), 0);
     const pagas = parcelas.filter((p) => p.status === "PAGO");
-    const aVencer = parcelas.filter((p) => p.status !== "PAGO");
+    // DEVOLVIDA/SUSPENSA não são "a vencer": saíram do cobrável sem pagamento
+    const aVencer = parcelas.filter((p) => parcelaViva(p.status));
     return {
       honorarios,
       totalPago: pagas.reduce((s, p) => s + (Number(p.valor) || 0), 0),

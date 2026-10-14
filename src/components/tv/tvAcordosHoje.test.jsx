@@ -88,14 +88,58 @@ describe("TV — Acordos de Hoje (render)", () => {
     expect(screen.getAllByText("convertidos").length).toBeGreaterThan(0);
   });
 
-  it("mostra no máximo 4 operadores, para caber de longe", () => {
+  // Antes a tela cortava em 4. Em produção, 08/10, seis linhas vieram no
+  // ranking e dois operadores que fecharam acordo simplesmente não existiam no
+  // telão. Quem fechou aparece; o que se adapta é o tamanho do card.
+  it("mostra TODOS os operadores que fecharam, sem corte", () => {
     const muitos = Array.from({ length: 8 }, (_, i) => ({
-      operador: `Op${i}`, fechados: 8 - i, convertidos: 1, valor_pago: 100,
+      operador: `Op${i}`, fechados: 8 - i, convertidos: 1, valor_pago: 100 + i,
     }));
     desenhar(DIA({ ranking: muitos }));
-    expect(screen.getByText("Op0")).toBeTruthy();
-    expect(screen.getByText("Op3")).toBeTruthy();
-    expect(screen.queryByText("Op4")).toBeNull();
+    for (let i = 0; i < 8; i++) {
+      expect(screen.getByText(`Op${i}`)).toBeTruthy();
+    }
+  });
+});
+
+// SEM RESPONSÁVEL — o snapshot agrupa os acordos sem dono sob esse rótulo. Ele
+// é um balde, não uma pessoa: no ranking parecia um operador chamado "Sem
+// responsável" competindo com a equipe. Sai do ranking e vira aviso, mas
+// continua dentro dos TOTAIS, que são números sem nome.
+describe("TV — Acordos de Hoje (sem responsável)", () => {
+  const COM_BALDE = (qtd) => DIA({
+    ranking: [
+      { operador: "Allan", fechados: 6, convertidos: 3, valor_pago: 3100 },
+      { operador: "Sem responsável", fechados: qtd, convertidos: 0, valor_pago: 0 },
+    ],
+  });
+
+  it("não aparece como operador do ranking", () => {
+    desenhar(COM_BALDE(1));
+    expect(screen.getByText("Allan")).toBeTruthy();
+    expect(screen.queryByText("Sem responsável")).toBeNull();
+  });
+
+  it("vira aviso discreto, no singular", () => {
+    desenhar(COM_BALDE(1));
+    expect(screen.getByText(/1 acordo sem responsável/)).toBeTruthy();
+  });
+
+  it("concorda no plural", () => {
+    desenhar(COM_BALDE(3));
+    expect(screen.getByText(/3 acordos sem responsável/)).toBeTruthy();
+  });
+
+  it("os totais do cabeçalho continuam contando os sem dono", () => {
+    // O fixture manda fechados: 12 no topo e 6+1 no ranking. A tela mostra o
+    // total do snapshot, que já soma o balde — não a soma do ranking.
+    desenhar(COM_BALDE(1));
+    expect(screen.getByText("12")).toBeTruthy();
+  });
+
+  it("sem balde nenhum, não existe aviso", () => {
+    desenhar(DIA());
+    expect(screen.queryByText(/sem responsável/i)).toBeNull();
   });
 });
 
