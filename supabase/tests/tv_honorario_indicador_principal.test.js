@@ -200,6 +200,57 @@ describe("o rollback devolve a funcao ao formato antigo", () => {
   });
 });
 
+describe("a pre-validacao somente-leitura responde certo nos dois estados", () => {
+  // supabase/audits/tv_honorario_prevalidacao_20261014.sql e o que vai rodar em
+  // producao antes de aplicar. Ele carrega as ancoras em copia, para poder ser
+  // colado num SQL editor sem o repositorio a mao -- e por isso tem de ser
+  // exercitado: uma copia defasada daria "AUSENTE" num banco saudavel e
+  // pararia a aplicacao sem motivo.
+  const AUDIT = () => readFileSync(resolve(RAIZ, "supabase", "audits", "tv_honorario_prevalidacao_20261014.sql"), "utf8");
+
+  const preparar = async (aplicar) => {
+    const db = new PGlite();
+    await db.exec(ESQUELETO);
+    const etapa3 = ler(ETAPA3);
+    const i = etapa3.indexOf("create or replace function public._tv_meta_obj(");
+    await db.exec(etapa3.slice(i, etapa3.indexOf("revoke all on function public._tv_meta_obj")));
+    await db.exec(fonteBase);
+    if (aplicar) await db.exec(ler(ESTA));
+    return db;
+  };
+  // O arquivo tem um SELECT e, depois, comentarios. `query` roda uma instrucao:
+  // corta no primeiro ponto-e-virgula de fim de instrucao.
+  const consulta = () => AUDIT().slice(0, AUDIT().indexOf("order by ordem;") + "order by ordem;".length);
+
+  it("antes de aplicar: as tres ancoras OK e o resumo PRONTO PARA APLICAR", async () => {
+    const db = await preparar(false);
+    const r = (await db.query(consulta())).rows;
+    expect(r.filter((x) => x.veredito.startsWith("OK"))).toHaveLength(3);
+    expect(r.find((x) => x.ordem === "resumo").veredito).toBe("PRONTO PARA APLICAR");
+    await db.close();
+  });
+
+  it("depois de aplicar: as tres dizem JA APLICADO e o resumo segue liberado", async () => {
+    const db = await preparar(true);
+    const r = (await db.query(consulta())).rows;
+    expect(r.filter((x) => x.veredito.startsWith("JA APLICADO"))).toHaveLength(3);
+    expect(r.find((x) => x.ordem === "resumo").veredito).toBe("PRONTO PARA APLICAR");
+    await db.close();
+  });
+
+  it("corpo divergente: acusa AUSENTE e manda NAO APLICAR", async () => {
+    const db = await preparar(false);
+    // simula o que a pre-validacao existe para pegar: alguem patchou a funcao
+    // por outra frente e a ancora nao existe mais com aquele texto.
+    const src = (await db.query("select pg_get_functiondef(p.oid) d from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='tv_snapshot_calcular'")).rows[0].d;
+    await db.exec(src.replace("'media_diaria', v_media_dia, 'projecao_fechamento', v_proj_fech,", "'media_diaria', v_media_dia,\n    'projecao_fechamento', v_proj_fech,"));
+    const r = (await db.query(consulta())).rows;
+    expect(r.find((x) => x.nome === "media_diaria_honorarios").veredito).toMatch(/^AUSENTE/);
+    expect(r.find((x) => x.ordem === "resumo").veredito).toBe("NAO APLICAR - ver as linhas acima");
+    await db.close();
+  });
+});
+
 describe("compatibilidade com o corpo VIVO (estatica)", () => {
   // As ancoras do patch sao lidas do proprio arquivo da migration, nos blocos
   // `v_de text := $a$...$a$`. Nao ha lista duplicada para sair de sincronia.
