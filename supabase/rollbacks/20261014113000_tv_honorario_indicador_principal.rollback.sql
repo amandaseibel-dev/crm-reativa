@@ -2,7 +2,7 @@
 -- ROLLBACK de 20261014113000 — o telão volta a medir o valor BRUTO recuperado.
 -- ============================================================================
 -- Mesma técnica da migration, na direção inversa: lê o corpo VIVO de
--- tv_snapshot_calcular() com pg_get_functiondef, desfaz só os quatro trechos e
+-- tv_snapshot_calcular() com pg_get_functiondef, desfaz só os três trechos e
 -- aborta se a âncora não aparecer exatamente uma vez.
 --
 -- O que volta ao que era:
@@ -30,8 +30,10 @@ begin;
 do $patch$
 declare
   v_src text; v_novo text; v_n int;
-  v_de   text := $a$      from (select op_norm op, round(sum(valor_honorario)) vl from unif where data_pagamento >= date_trunc('week', v_hoje)::date and lower(operador_email) = any(v_ops) group by op_norm having sum(valor_honorario) > 0 order by sum(valor_honorario) desc limit 8) r),$a$;
-  v_para text := $a$      from (select op_norm op, round(sum(valor_pago)) vl from unif where data_pagamento >= date_trunc('week', v_hoje)::date and lower(operador_email) = any(v_ops) group by op_norm order by sum(valor_pago) desc limit 8) r),$a$;
+  v_de   text := $a$'ranking_semana_valor', (select coalesce(jsonb_agg(jsonb_build_object('operador', op, 'valor', vl, 'base', 'honorario') order by vl desc), '[]'::jsonb)
+      from (select op_norm op, round(sum(valor_honorario)) vl from unif where data_pagamento >= date_trunc('week', v_hoje)::date and lower(operador_email) = any(v_ops) group by op_norm having sum(valor_honorario) > 0 order by sum(valor_honorario) desc limit 8) r),$a$;
+  v_para text := $a$'ranking_semana_valor', (select coalesce(jsonb_agg(jsonb_build_object('operador', op, 'valor', vl) order by vl desc), '[]'::jsonb)
+      from (select op_norm op, round(sum(valor_pago)) vl from unif where data_pagamento >= date_trunc('week', v_hoje)::date and lower(operador_email) = any(v_ops) group by op_norm order by sum(valor_pago) desc limit 8) r),$a$;
 begin
   select pg_get_functiondef(p.oid) into v_src
     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -90,6 +92,7 @@ do $patch$
 declare
   v_src text; v_novo text; v_n int;
   v_de   text := $a$  v_rankings := jsonb_build_object(
+    'base', 'honorario',
     'melhor_dia', (select jsonb_build_object('operador', op, 'honorario', h) from (
         select upper(btrim(coalesce(nullif(operador_nome,''),operador_email))) op,
                round(sum(valor_honorario))::bigint h, count(*) q

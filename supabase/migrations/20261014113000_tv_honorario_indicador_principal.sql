@@ -25,6 +25,15 @@
 --                                 exclui quem não trouxe honorário. O Destaque
 --                                 da Semana deixa de coroar por bruto.
 --
+-- MARCADOR DE BASE, e por que ele existe. `rankings.base` e `item.base` passam a
+-- valer 'honorario'. Nem `rankings.melhor_mes` nem os itens da semana diziam, no
+-- payload, SOBRE QUE BASE foram ordenados -- e entre o deploy da tela e a
+-- aplicação desta migration existe uma janela em que a tela nova lê um snapshot
+-- VELHO, ordenado por bruto. Sem o marcador, a tela anunciaria "honorário"
+-- mostrando o campeão por bruto. Com ele, a tela só diz honorário quando o
+-- número É honorário; no snapshot velho ela identifica o valor como bruto. A
+-- presença da chave é o sinal -- nada é inferido.
+--
 -- INTEGRIDADE, item por item do pedido:
 --   • fonte única `public.pagamentos` — a tabela de pagamento CONFIRMADO. O
 --     snapshot nunca leu negociação/acordo em aberto nem parcela a vencer, e
@@ -117,6 +126,7 @@ declare
         from public.pagamentos where date_trunc('month',data_pagamento)=date_trunc('month',current_date) and lower(operador_email) = any(v_ops)
         order by valor_pago desc nulls last limit 1));$a$;
   v_para text := $a$  v_rankings := jsonb_build_object(
+    'base', 'honorario',
     'melhor_dia', (select jsonb_build_object('operador', op, 'honorario', h) from (
         select upper(btrim(coalesce(nullif(operador_nome,''),operador_email))) op,
                round(sum(valor_honorario))::bigint h, count(*) q
@@ -150,7 +160,8 @@ begin
     raise exception 'tv_snapshot_calcular() nao existe neste banco.';
   end if;
 
-  if position(v_para in v_src) > 0 or position($j$'melhor_dia', (select jsonb_build_object('operador', op, 'honorario', h)$j$ in v_src) > 0 then
+  if position(v_para in v_src) > 0 or position($j$v_rankings := jsonb_build_object(
+    'base', 'honorario',$j$ in v_src) > 0 then
     raise notice 'v_rankings: já aplicado; nada a fazer.';
     return;
   end if;
@@ -215,8 +226,10 @@ $patch$;
 do $patch$
 declare
   v_src text; v_novo text; v_n int;
-  v_de   text := $a$      from (select op_norm op, round(sum(valor_pago)) vl from unif where data_pagamento >= date_trunc('week', v_hoje)::date and lower(operador_email) = any(v_ops) group by op_norm order by sum(valor_pago) desc limit 8) r),$a$;
-  v_para text := $a$      from (select op_norm op, round(sum(valor_honorario)) vl from unif where data_pagamento >= date_trunc('week', v_hoje)::date and lower(operador_email) = any(v_ops) group by op_norm having sum(valor_honorario) > 0 order by sum(valor_honorario) desc limit 8) r),$a$;
+  v_de   text := $a$'ranking_semana_valor', (select coalesce(jsonb_agg(jsonb_build_object('operador', op, 'valor', vl) order by vl desc), '[]'::jsonb)
+      from (select op_norm op, round(sum(valor_pago)) vl from unif where data_pagamento >= date_trunc('week', v_hoje)::date and lower(operador_email) = any(v_ops) group by op_norm order by sum(valor_pago) desc limit 8) r),$a$;
+  v_para text := $a$'ranking_semana_valor', (select coalesce(jsonb_agg(jsonb_build_object('operador', op, 'valor', vl, 'base', 'honorario') order by vl desc), '[]'::jsonb)
+      from (select op_norm op, round(sum(valor_honorario)) vl from unif where data_pagamento >= date_trunc('week', v_hoje)::date and lower(operador_email) = any(v_ops) group by op_norm having sum(valor_honorario) > 0 order by sum(valor_honorario) desc limit 8) r),$a$;
 begin
   select pg_get_functiondef(p.oid) into v_src
     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -225,7 +238,7 @@ begin
     raise exception 'tv_snapshot_calcular() nao existe neste banco.';
   end if;
 
-  if position(v_para in v_src) > 0 or position($j$round(sum(valor_honorario)) vl from unif$j$ in v_src) > 0 then
+  if position(v_para in v_src) > 0 or position($j$'valor', vl, 'base', 'honorario'$j$ in v_src) > 0 then
     raise notice 'ranking_semana_valor: já em honorário; nada a fazer.';
     return;
   end if;

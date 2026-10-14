@@ -161,6 +161,10 @@ describe("rankings — criterio e honorario recebido por operador", () => {
     expect(payload.rankings.maior_pagamento_mes).toMatchObject({ operador: "NATALY", honorario: 10000, valor: 50000 });
   });
 
+  it("o payload DIZ sobre que base ordenou (rankings.base), para a tela nao ter de inferir", () => {
+    expect(payload.rankings.base).toBe("honorario");
+  });
+
   it("mais pagamentos do dia continua sendo por QUANTIDADE, como era", () => {
     expect(payload.rankings.mais_pagos_dia).toEqual({ operador: "JOAO", qtd: 3 });
   });
@@ -171,8 +175,8 @@ describe("Destaque da Semana — campeao por honorario, nao por bruto", () => {
     // mesma inversao do ranking do mes: por bruto JOAO ganharia; por honorario,
     // NATALY. E o DIRETO, maior bruto do dia, nao pode ser coroado.
     expect(payload.ranking_semana_valor).toEqual([
-      { operador: "NATALY", valor: 12000 },
-      { operador: "JOAO", valor: 7500 },
+      { operador: "NATALY", valor: 12000, base: "honorario" },
+      { operador: "JOAO", valor: 7500, base: "honorario" },
     ]);
     expect(JSON.stringify(payload.ranking_semana_valor)).not.toContain("DIRETO");
   });
@@ -228,6 +232,8 @@ describe("o rollback devolve a funcao ao formato antigo", () => {
     expect(p.mes.media_diaria).not.toBeUndefined(); // a de bruto nunca saiu
     // o Destaque da Semana volta a coroar por bruto
     expect(p.ranking_semana_valor).toEqual([{ operador: "NATALY", valor: 50000 }]);
+    // e o marcador DESAPARECE junto: a tela volta a identificar o valor como bruto
+    expect(p.rankings.base).toBeUndefined();
     await db.close();
   });
 });

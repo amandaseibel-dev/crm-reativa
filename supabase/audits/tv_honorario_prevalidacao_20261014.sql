@@ -66,7 +66,8 @@ ancoras(ordem, nome, de, marca_aplicado) as (
 
     (2, 'v_rankings',
      $a$    'melhor_dia', (select jsonb_build_object('operador', op) from ($a$,
-     $b$'melhor_dia', (select jsonb_build_object('operador', op, 'honorario', h)$b$),
+     $b$v_rankings := jsonb_build_object(
+    'base', 'honorario',$b$),
 
     (3, 'media_diaria_honorarios',
      $a$    'media_diaria', v_media_dia, 'projecao_fechamento', v_proj_fech,$a$,
@@ -82,8 +83,9 @@ ancoras(ordem, nome, de, marca_aplicado) as (
     --     from pg_proc p join pg_namespace n on n.oid=p.pronamespace
     --    where n.nspname='public' and p.proname='tv_snapshot_calcular';
     (4, 'ranking_semana_valor',
-     $a$      from (select op_norm op, round(sum(valor_pago)) vl from unif where data_pagamento >= date_trunc('week', v_hoje)::date and lower(operador_email) = any(v_ops) group by op_norm order by sum(valor_pago) desc limit 8) r),$a$,
-     $b$round(sum(valor_honorario)) vl from unif$b$)
+     $a$'ranking_semana_valor', (select coalesce(jsonb_agg(jsonb_build_object('operador', op, 'valor', vl) order by vl desc), '[]'::jsonb)
+      from (select op_norm op, round(sum(valor_pago)) vl from unif where data_pagamento >= date_trunc('week', v_hoje)::date and lower(operador_email) = any(v_ops) group by op_norm order by sum(valor_pago) desc limit 8) r),$a$,
+     $b$'valor', vl, 'base', 'honorario'$b$)
 ),
 medido as (
   select a.ordem, a.nome,

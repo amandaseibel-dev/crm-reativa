@@ -140,6 +140,7 @@ describe("Meta do Mês — o realizado é dito honorário", () => {
 function snapRankings(extra = {}) {
   return {
     rankings: {
+      base: "honorario",
       melhor_mes: { operador: "NATALY", honorario: 60000 },
       melhor_dia: { operador: "JOAO", honorario: 3000 },
       mais_pagos_dia: { operador: "OLGA", qtd: 9 },
@@ -183,5 +184,58 @@ describe("Rankings — o critério é honorário recebido", () => {
     expect(screen.queryByText("R$ 70.000 brutos")).toBeNull();
     // o resto da tela segue de pé
     expect(screen.getByText("Maior honorário recebido no mês")).toBeTruthy();
+  });
+});
+
+// A JANELA DA TRANSIÇÃO. Entre o deploy desta tela e a aplicação da migration, a
+// tela NOVA lê um snapshot VELHO: ordenado por bruto e sem o marcador `base`.
+// Nenhum rótulo pode dizer honorário nesse estado. É o que estes casos travam.
+describe("transição deploy→migration: nada de bruto vestido de honorário", () => {
+  // snapshot velho: ordenado por valor_pago, sem `base` e sem `honorario`
+  const velho = {
+    rankings: {
+      melhor_mes: { operador: "QUEM_TEM_BRUTO" },
+      melhor_dia: { operador: "QUEM_TEM_BRUTO" },
+      mais_pagos_dia: { operador: "OLGA", qtd: 9 },
+      top3_mes: [{ operador: "QUEM_TEM_BRUTO" }, { operador: "OUTRO" }],
+      maior_pagamento_mes: { operador: "QUEM_TEM_BRUTO", valor: 70000 },
+    },
+  };
+
+  it("Rankings: o herói é dito 'por valor bruto', nunca honorário", () => {
+    desenhar("rankings", velho);
+    expect(screen.getByText("Melhor do mês por valor bruto")).toBeTruthy();
+    expect(screen.queryByText("Maior honorário recebido no mês")).toBeNull();
+  });
+
+  it("Rankings: melhor do dia e maior pagamento também são ditos bruto", () => {
+    desenhar("rankings", velho);
+    expect(screen.getByText("Melhor do dia por valor bruto")).toBeTruthy();
+    expect(screen.getByText("Maior pagamento do mês (valor bruto)")).toBeTruthy();
+    expect(screen.getByText("R$ 70.000")).toBeTruthy();
+    expect(screen.queryByText("Maior honorário num pagamento")).toBeNull();
+  });
+
+  it("Rankings: a palavra 'honorário' não aparece em NENHUM lugar da tela", () => {
+    const { container } = desenhar("rankings", velho);
+    expect(container.textContent.toLowerCase()).not.toContain("honorário");
+  });
+
+  it("Destaque da Semana: snapshot velho (valor sem base) é dito valor bruto", () => {
+    desenhar("destaque_semana", { ranking_semana_valor: [{ operador: "QUEM_TEM_BRUTO", valor: 90000 }] });
+    expect(screen.getByText("Maior valor bruto recuperado na semana")).toBeTruthy();
+    expect(screen.queryByText("Maior honorário recebido na semana")).toBeNull();
+  });
+
+  it("Destaque da Semana: snapshot novo (com base) é dito honorário", () => {
+    desenhar("destaque_semana", { ranking_semana_valor: [{ operador: "NATALY", valor: 12000, base: "honorario" }] });
+    expect(screen.getByText("Maior honorário recebido na semana")).toBeTruthy();
+    expect(screen.getByText("R$ 12.000")).toBeTruthy();
+  });
+
+  it("Destaque da Semana: fallback por quantidade segue dizendo quantidade", () => {
+    desenhar("destaque_semana", { dados: { ranking_semana: [{ operador: "OLGA", pagos: 22 }] } });
+    expect(screen.getByText("Mais pagamentos únicos da semana")).toBeTruthy();
+    expect(screen.queryByText(/honorário/i)).toBeNull();
   });
 });
