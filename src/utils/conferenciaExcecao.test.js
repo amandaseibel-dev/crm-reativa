@@ -32,6 +32,30 @@ describe("conferência: um clique x análise", () => {
     expect(excecoesDaLinha(l)[0].chave).toBe("SEM_VINCULO");
   });
 
+  it("cadastro vinculado sem CPF é exceção: identidade vem antes do dinheiro", () => {
+    expect(excecoesDaLinha({ ...NORMAL, cpf: null }).map((x) => x.chave)).toContain("SEM_CPF");
+    expect(excecoesDaLinha({ ...NORMAL, cpf: "   " }).map((x) => x.chave)).toContain("SEM_CPF");
+    expect(excecoesDaLinha({ ...NORMAL, cpf: "111.222.333-44" }).map((x) => x.chave)).not.toContain("SEM_CPF");
+  });
+
+  it("sem data de pagamento é exceção: a trava da RPC compara aluno, data e valor", () => {
+    // com data nula a RPC compara NULL = NULL, nunca casa, e cada clique cria
+    // uma baixa nova. E o caso de baixa em dobro mais silencioso que existe.
+    expect(excecoesDaLinha({ ...NORMAL, ultimo_pagamento: null }).map((x) => x.chave)).toContain("SEM_DATA");
+  });
+
+  it("baixa prévia na janela é exceção mesmo quando a soma bate", () => {
+    // duas baixas de 250 somam os 500 que entraram: a soma "confere", mas a
+    // trava da RPC procura UMA baixa de 500 na mesma data e nao acha nenhuma.
+    const l = { ...NORMAL, entrou: 500, baixado: 500 };
+    expect(excecoesDaLinha(l).map((x) => x.chave)).toContain("JA_TEM_BAIXA");
+    expect(ehExcecao(l)).toBe(true);
+  });
+
+  it("nada no extrato e nada baixado é exceção: a RPC recusa valor zero", () => {
+    expect(excecoesDaLinha({ ...NORMAL, entrou: 0, baixado: 0 }).map((x) => x.chave)).toContain("SEM_VALOR");
+  });
+
   it("baixa sem lastro no extrato é exceção", () => {
     const l = { ...NORMAL, entrou: 0, baixado: 300 };
     expect(excecoesDaLinha(l).map((x) => x.chave)).toContain("SEM_LASTRO");
@@ -42,9 +66,10 @@ describe("conferência: um clique x análise", () => {
     expect(excecoesDaLinha(l).map((x) => x.chave)).toContain("DIVERGE");
   });
 
-  it("diferença de centavos não vira divergência", () => {
+  it("diferença de centavos não vira divergência -- mas a baixa prévia ainda barra", () => {
     const l = { ...NORMAL, entrou: 500, baixado: 500.04 };
     expect(excecoesDaLinha(l).map((x) => x.chave)).not.toContain("DIVERGE");
+    expect(excecoesDaLinha(l).map((x) => x.chave)).toContain("JA_TEM_BAIXA");
   });
 
   it("pagamento depois da quitação é exceção", () => {

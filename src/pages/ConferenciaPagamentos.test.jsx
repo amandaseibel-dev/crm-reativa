@@ -9,7 +9,9 @@
 //   4. a análise é informativa: abrir não chama RPC nenhuma;
 //   5. "Já tratado" continua exigindo motivo, mas os casos comuns são um clique
 //      -- e esse caminho NUNCA chama a baixa do extrato;
-//   6. nome, CPF, responsável, valor e data aparecem prontos na tela.
+//   6. nome, CPF, responsável, valor e data aparecem prontos na tela;
+//   7. o clique único exige identidade (CPF) e nenhuma baixa prévia na janela;
+//   8. o Desfazer diz, ANTES do clique, que não estorna a baixa.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act, cleanup } from "@testing-library/react";
 
@@ -88,6 +90,36 @@ describe("Confirmação de Pagamento", () => {
 
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Confirmar mesmo assim" })); });
     expect(chamadas("conferencia_baixar_do_extrato")).toHaveLength(1);
+  });
+
+  it("cadastro sem CPF não confirma em um clique", async () => {
+    await montar([{ ...BASE, cpf: null }]);
+    expect(screen.queryByRole("button", { name: "Confirmar" })).toBeNull();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Resolver divergência" })); });
+    expect(screen.getByText(/sem CPF/)).toBeTruthy();
+  });
+
+  it("baixa prévia na janela não confirma em um clique, mesmo com a soma batendo", async () => {
+    await montar([{ ...BASE, entrou: 500, baixado: 500, qtd_baixas: 2 }]);
+    expect(screen.queryByRole("button", { name: "Confirmar" })).toBeNull();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Resolver divergência" })); });
+    expect(screen.getByText(/já existe baixa nesta janela/)).toBeTruthy();
+    expect(chamadas("conferencia_baixar_do_extrato")).toHaveLength(0);
+  });
+
+  it("o aviso do Desfazer diz que a baixa não é estornada antes do clique", async () => {
+    await montar([BASE]);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Confirmar" })); });
+    expect(screen.getByText(/não estorna a baixa/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Voltar à fila/ })).toBeTruthy();
+  });
+
+  it("o carimbo Já tratado não repete esse aviso: ele não criou baixa", async () => {
+    await montar([BASE]);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Já tratado" })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Cartão baixado no Prime" })); });
+    expect(screen.getByText(/nenhuma baixa foi criada/)).toBeTruthy();
+    expect(screen.queryByText(/não estorna a baixa/)).toBeNull();
   });
 
   it("baixa diferente do extrato também pede análise", async () => {

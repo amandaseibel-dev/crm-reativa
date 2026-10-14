@@ -20,24 +20,52 @@ export function excecoesDaLinha(l) {
   const saldo = Number(linha.saldo_aberto || 0);
   const fora = [];
 
+  // IDENTIDADE PRIMEIRO. Sem dono, achar o dono vem antes de qualquer decisao
+  // -- e nao ha o que somar a essa lista.
   if (linha.tipo === "SEM_VINCULO" || !linha.aluno_id) {
-    fora.push({ chave: "SEM_VINCULO", texto: "pagamento sem vínculo: precisa achar o dono antes" });
+    fora.push({ chave: "SEM_VINCULO", texto: "pagamento sem v\u00ednculo: precisa achar o dono antes" });
     return fora;
+  }
+  // Vinculado mas sem CPF na ficha: o pagamento esta ligado a um cadastro que
+  // nao tem a chave de identidade. Esta base ja pagou uma migration inteira de
+  // fusao por cadastro repetido -- aqui se olha antes de registrar dinheiro.
+  if (!String(linha.cpf || "").replace(/\D/g, "")) {
+    fora.push({ chave: "SEM_CPF", texto: "o cadastro vinculado est\u00e1 sem CPF: confirme a identidade" });
   }
   if (saldo <= 0.005) {
     fora.push({ chave: "QUITARIA", texto: "sem saldo em aberto: confirmar aqui deixa o caso quitar" });
+  }
+  // A IDEMPOTENCIA DA BAIXA DEPENDE DA DATA. `conferencia_baixar_do_extrato` so
+  // ignora baixa repetida quando aluno, data E valor batem. Com data nula, a
+  // comparacao e NULL = NULL: nunca casa, e cada clique cria uma baixa nova.
+  if (!linha.ultimo_pagamento) {
+    fora.push({ chave: "SEM_DATA", texto: "sem data de pagamento: a trava contra baixa repetida n\u00e3o funciona" });
+  }
+  // A RPC recusa valor <= 0; melhor explicar aqui do que mostrar erro de banco.
+  if (entrou <= 0.005 && baixado <= 0.005) {
+    fora.push({ chave: "SEM_VALOR", texto: "nada entrou no extrato nesta janela" });
   }
   if (entrou <= 0.005 && baixado > 0.005) {
     fora.push({ chave: "SEM_LASTRO", texto: "baixa registrada sem pagamento correspondente no extrato" });
   }
   if (entrou > 0.005 && baixado > 0.005 && Math.abs(entrou - baixado) > 0.05) {
-    fora.push({ chave: "DIVERGE", texto: "o valor baixado não é o valor que entrou" });
+    fora.push({ chave: "DIVERGE", texto: "o valor baixado n\u00e3o \u00e9 o valor que entrou" });
+  }
+  // BAIXA JA EXISTENTE = RISCO DE BAIXA EM DOBRO, mesmo quando a soma bate.
+  // `baixado` aqui e a SOMA das baixas da janela e `p_valor` e a SOMA dos
+  // pagamentos: duas baixas de 250 em datas diferentes somam os 500 que
+  // entraram, a soma "confere", e a trava da RPC -- que compara UMA baixa de
+  // mesma data e mesmo valor -- nao casa com nenhuma delas. Um clique ali
+  // criaria uma terceira baixa, de 500. Entao qualquer baixa previa na janela
+  // tira a linha do clique unico, divergente ou nao.
+  if (entrou > 0.005 && baixado > 0.005 && Math.abs(entrou - baixado) <= 0.05) {
+    fora.push({ chave: "JA_TEM_BAIXA", texto: "j\u00e1 existe baixa nesta janela: confira antes de registrar outra" });
   }
   if (linha.quitado_em && linha.ultimo_pagamento && linha.ultimo_pagamento > linha.quitado_em) {
-    fora.push({ chave: "DEPOIS_DE_QUITAR", texto: "o pagamento entrou depois da quitação" });
+    fora.push({ chave: "DEPOIS_DE_QUITAR", texto: "o pagamento entrou depois da quita\u00e7\u00e3o" });
   }
   if (Number(linha.em_confirmacao || 0) > 0.005) {
-    fora.push({ chave: "EM_CONFIRMACAO", texto: "mensalidade em confirmação ainda esperando decisão" });
+    fora.push({ chave: "EM_CONFIRMACAO", texto: "mensalidade em confirma\u00e7\u00e3o ainda esperando decis\u00e3o" });
   }
   return fora;
 }

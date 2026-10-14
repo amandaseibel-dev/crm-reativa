@@ -268,7 +268,7 @@ export default function ConferenciaPagamentos() {
     // So o "Feito" cria baixa. O carimbo "ja tratado" nao mexeu em dinheiro
     // nenhum, entao desfazer ele nao deixa ponta solta a avisar.
     if (acao === "CONFIRMADO") {
-      alert("Voltou para a fila. A baixa em si NÃO foi estornada — se for o caso, desfaça pelo fluxo do Financeiro.");
+      alert("Voltou para a fila. A baixa em si NÃO foi estornada — o estorno é pelo fluxo do Financeiro.");
     }
   }, [desfazer]);
 
@@ -768,8 +768,19 @@ export default function ConferenciaPagamentos() {
             <b>{desfazer.linha.nome}</b> — {desfazer.acao === "JA_TRATADO"
               ? "carimbado como já tratado (nenhuma baixa foi criada)."
               : "baixa registrada e conferido."}
+            {desfazer.acao === "CONFIRMADO" ? (
+              <div style={avisoDesfazer}>
+                Desfazer devolve a pessoa à fila, mas <b>não estorna a baixa</b> —
+                o estorno é pelo fluxo do Financeiro.
+              </div>
+            ) : null}
           </span>
-          <button type="button" style={btnDesfazer} onClick={desfazerAgora}>Desfazer (U)</button>
+          <button type="button" style={btnDesfazer} onClick={desfazerAgora}
+            title={desfazer.acao === "CONFIRMADO"
+              ? "Devolve a pessoa à fila. NÃO estorna a baixa registrada."
+              : "Devolve a pessoa à fila. Nenhuma baixa foi criada."}>
+            {desfazer.acao === "CONFIRMADO" ? "Voltar à fila (U)" : "Desfazer (U)"}
+          </button>
         </div>
       ) : null}
 
@@ -897,6 +908,11 @@ const toast = {
   background: "#0f172a", color: "#fff", borderRadius: 12, padding: "11px 16px",
   display: "flex", gap: 14, alignItems: "center", fontSize: 13,
   boxShadow: "0 10px 30px rgba(15,23,42,.35)", zIndex: 200, maxWidth: "92vw",
+};
+// Amarelo no escuro do toast: o limite do desfazer tem de ser lido ANTES do
+// clique, nao no alerta que vinha depois dele.
+const avisoDesfazer = {
+  fontSize: 11.5, color: "#fde68a", marginTop: 3, maxWidth: 360, fontWeight: 600,
 };
 const btnDesfazer = {
   background: "#facc15", color: "var(--rv-tinta)", border: "none", borderRadius: 8,
