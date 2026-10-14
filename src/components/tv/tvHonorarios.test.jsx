@@ -110,9 +110,15 @@ describe("Resultado do Mês — honorário na frente do bruto", () => {
     expect(screen.queryByText("R$ 98.000")).toBeNull();
   });
 
+  it("a média de bruto continua visível, como linha secundária e dita bruto", () => {
+    desenhar("resultado", snapMes());
+    expect(screen.getByText("R$ 98.000 de bruto recuperado")).toBeTruthy();
+  });
+
   it("snapshot antigo: 'Sem registro' em vez de reaproveitar a média de bruto", () => {
     desenhar("resultado", snapMes({ media_diaria_honorarios: null }));
     expect(screen.getByText("Sem registro")).toBeTruthy();
+    // o bruto segue na linha secundária; o que NÃO pode é virar o valor do card
     expect(screen.queryByText("R$ 98.000")).toBeNull();
   });
 
@@ -120,6 +126,14 @@ describe("Resultado do Mês — honorário na frente do bruto", () => {
     desenhar("resultado", snapMes());
     expect(screen.getByText("R$ 5.000/dia útil")).toBeTruthy();
     expect(screen.getByText("Projeção de fechamento (honorários)")).toBeTruthy();
+  });
+});
+
+describe("Meta do Mês — o realizado é dito honorário", () => {
+  it("o card do realizado diz 'Honorários recebidos', não 'Realizado'", () => {
+    desenhar("meta_do_mes", snapMes({ meta_pct: 70, meta_falta: 60000 }));
+    expect(screen.getByText("Honorários recebidos")).toBeTruthy();
+    expect(screen.queryByText("Realizado")).toBeNull();
   });
 });
 

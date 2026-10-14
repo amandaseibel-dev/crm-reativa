@@ -125,7 +125,8 @@ function TelaResultadoMes({ snap }) {
       </div>
       <div style={linha}>
         <IndicadorCard rotulo="Pagamentos confirmados no mês" valor={num(m.pagamentos_confirmados)} tom="ambar" />
-        <IndicadorCard rotulo="Média diária de honorários" valor={mediaHonTxt} tom="azul" />
+        <IndicadorCard rotulo="Média diária de honorários" valor={mediaHonTxt} tom="azul"
+                       sub={m.media_diaria == null ? undefined : `${moeda(m.media_diaria)} de bruto recuperado`} />
         <IndicadorCard rotulo="Projeção de fechamento (honorários)" valor={moeda(m.proj_honorarios)} tom="verde" />
       </div>
       <div style={linha}>

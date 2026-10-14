@@ -68,7 +68,7 @@ describe("TV — tela Meta do Mês (render)", () => {
 
   it("mostra realizado, falta, dias úteis restantes e necessário por dia útil", () => {
     desenhar({ mes: mes() });
-    expect(screen.getByText("Realizado")).toBeTruthy();
+    expect(screen.getByText("Honorários recebidos")).toBeTruthy();
     expect(screen.getByText("R$ 70.000")).toBeTruthy();
 
     expect(screen.getByText("Falta para a meta")).toBeTruthy();
