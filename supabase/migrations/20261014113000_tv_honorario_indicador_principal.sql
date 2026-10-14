@@ -21,6 +21,9 @@
 --   rankings.melhor_mes         idem, + 'honorario' no objeto
 --   rankings.top3_mes           idem, + 'honorario' em cada item
 --   rankings.maior_pagamento_mes + 'honorario', ordenado por honorário
+--   ranking_semana_valor        passa a somar honorário (era valor_pago), e
+--                                 exclui quem não trouxe honorário. O Destaque
+--                                 da Semana deixa de coroar por bruto.
 --
 -- INTEGRIDADE, item por item do pedido:
 --   • fonte única `public.pagamentos` — a tabela de pagamento CONFIRMADO. O
@@ -185,6 +188,59 @@ begin
   v_n := (length(v_src) - length(replace(v_src, v_de, ''))) / length(v_de);
   if v_n <> 1 then
     raise exception 'ancora media_diaria_honorarios encontrada % vez(es) (esperado 1). Nada foi alterado.', v_n;
+  end if;
+
+  v_novo := replace(v_src, v_de, v_para);
+  execute v_novo;
+end
+$patch$;
+
+-- 4) Destaque da Semana: o campeao passa a ser por honorario recebido
+--    Decisao da gestao em 14/10/2026. Em 11/09 (20260911160000) o critERio havia
+--    saido da QUANTIDADE de pagamentos para o VALOR BRUTO -- "deveria ser por
+--    dinheiro que traz". Agora vai um passo adiante, para o dinheiro que fica:
+--    honorario recebido. O layout da tela nao muda; muda quem e coroado.
+--
+--    ANCORA DE OUTRA PROCEDENCIA. Este trecho nao esta em 20260811220000: foi
+--    INSERIDO no corpo vivo por 20261006110000 (o indicador `ranking_semana_valor`
+--    nasceu ali, e 20261006200000 so o promoveu ao topo do payload sem tocar no
+--    calculo). Por isso a ancora e o texto daquela migration, nao o do arquivo
+--    da definicao completa -- e por isso o teste do repositorio monta a funcao
+--    pela CADEIA real (20260811220000 -> 20261006110000 -> 20261006200000) antes
+--    de aplicar este patch.
+--
+--    Quem nao trouxe honorario sai da disputa (`having sum(valor_honorario) > 0`),
+--    igual aos outros rankings: pagamento direto sem honorario nosso nao coroa
+--    ninguem. Ele segue somando no bruto, que e o que ele e.
+do $patch$
+declare
+  v_src text; v_novo text; v_n int;
+  v_de   text := $a$      from (select op_norm op, round(sum(valor_pago)) vl from unif where data_pagamento >= date_trunc('week', v_hoje)::date and lower(operador_email) = any(v_ops) group by op_norm order by sum(valor_pago) desc limit 8) r),$a$;
+  v_para text := $a$      from (select op_norm op, round(sum(valor_honorario)) vl from unif where data_pagamento >= date_trunc('week', v_hoje)::date and lower(operador_email) = any(v_ops) group by op_norm having sum(valor_honorario) > 0 order by sum(valor_honorario) desc limit 8) r),$a$;
+begin
+  select pg_get_functiondef(p.oid) into v_src
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'tv_snapshot_calcular' limit 1;
+  if v_src is null then
+    raise exception 'tv_snapshot_calcular() nao existe neste banco.';
+  end if;
+
+  if position(v_para in v_src) > 0 or position($j$round(sum(valor_honorario)) vl from unif$j$ in v_src) > 0 then
+    raise notice 'ranking_semana_valor: já em honorário; nada a fazer.';
+    return;
+  end if;
+
+  -- Se o indicador da semana nem existe neste banco (20261006110000 nao
+  -- aplicada), nao ha o que trocar -- e nao e erro: a tela cai no fallback por
+  -- quantidade, como fazia antes daquela migration.
+  if position('ranking_semana_valor' in v_src) = 0 then
+    raise notice 'ranking_semana_valor nao existe neste banco; nada a fazer.';
+    return;
+  end if;
+
+  v_n := (length(v_src) - length(replace(v_src, v_de, ''))) / length(v_de);
+  if v_n <> 1 then
+    raise exception 'ancora ranking_semana_valor encontrada % vez(es) (esperado 1). Nada foi alterado.', v_n;
   end if;
 
   v_novo := replace(v_src, v_de, v_para);

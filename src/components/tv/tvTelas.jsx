@@ -354,6 +354,11 @@ function TelaDestaqueSemana({ snap }) {
   if (semana.length === 0) return <Tela titulo="Destaque da Semana"><Vazio>Sem dados da semana.</Vazio></Tela>;
   const campeao = semana[0];
   const vice = semana.slice(1, 3);
+  // `valor` passou a ser HONORÁRIO recebido na semana, por operador (migration
+  // 20261014113000). O layout é o mesmo; o critério não é. Sem a chave
+  // `ranking_semana_valor` no snapshot, cai no fallback por quantidade de
+  // pagamentos — e o rótulo muda com ele, nunca anuncia honorário mostrando
+  // outra coisa.
   const porValor = campeao.valor != null;
   return (
     <Tela titulo="Destaque da Semana">
@@ -365,7 +370,7 @@ function TelaDestaqueSemana({ snap }) {
         </div>
       )}
       <div style={{ fontSize: fs(14, 1.5, 34), fontWeight: 700, color: T.textoMudo, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-        {porValor ? "Maior valor recuperado na semana" : "Mais pagamentos únicos da semana"}
+        {porValor ? "Maior honorário recebido na semana" : "Mais pagamentos únicos da semana"}
       </div>
       <div style={{ fontSize: fs(12, 1.25, 28), fontWeight: 700, color: T.textoSuave }}>
         Apuração: {periodoDaSemana()}

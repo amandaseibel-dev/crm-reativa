@@ -31,6 +31,20 @@ const BASE = "20260811220000_tv_magic_number_comparativo_mes_anterior";
 const ESTA = "20261014113000_tv_honorario_indicador_principal";
 const ETAPA3 = "20260731170000_tv_snapshot_etapa3";
 
+// A CADEIA, na ordem em que producao recebeu. Nao e capricho: a 4a ancora do
+// patch (o sub-select da semana) NAO EXISTE em 20260811220000 -- ela foi
+// inserida no corpo vivo por 20261006110000. Montar a funcao so pela definicao
+// completa deixaria essa ancora sem texto para casar, e o teste passaria sem
+// exercitar o bloco 4.
+//
+// Ficam de fora, e por que: 20261006152000 e 20261006161500 patcham
+// tv_snapshot_atualizar() ou renomeiam rotulos de meta, nao tocam nenhuma
+// ancora; 20261007103000 tem um bloco que exige tv_snapshot_atualizar() viva e
+// levantaria excecao aqui -- e o que ela muda (v_ops, filtro de elogios) nao
+// cruza com o patch. O describe estatico no fim cobre justamente isso: nenhuma
+// migration posterior pode ter tocado as ancoras.
+const CADEIA = [BASE, "20261006110000_tv_maior_valor_semana_calendario", "20261006200000_tv_ranking_semana_valor_no_topo"];
+
 // Esqueleto minimo do que a funcao LE. Nao e o schema de producao: e o
 // suficiente para a funcao compilar e rodar. Tipos permissivos de proposito --
 // o que esta sob teste e o SQL da migration, nao o DDL do projeto.
@@ -75,18 +89,22 @@ const HOJE = [
 
 let payload, fonteBase;
 
-beforeAll(async () => {
-  fonteBase = ler(BASE);
+// Banco descartavel com a funcao montada pela CADEIA real. `aplicar` decide se
+// a migration sob teste entra -- pelo seu proprio mecanismo ancorado.
+async function montar(aplicar = true) {
   const db = new PGlite();
   await db.exec(ESQUELETO);
-  // helpers de meta (mesmo texto versionado) + a definicao completa da funcao
   const etapa3 = ler(ETAPA3);
   const i = etapa3.indexOf("create or replace function public._tv_meta_obj(");
   await db.exec(etapa3.slice(i, etapa3.indexOf("revoke all on function public._tv_meta_obj")));
-  await db.exec(fonteBase);
+  for (const m of CADEIA) await db.exec(ler(m));
+  if (aplicar) await db.exec(ler(ESTA));
+  return db;
+}
 
-  // A MIGRATION SOB TESTE, pelo seu proprio mecanismo ancorado.
-  await db.exec(ler(ESTA));
+beforeAll(async () => {
+  fonteBase = ler(BASE);
+  const db = await montar(true);
 
   await db.query("insert into public.metas_projecao (mes_referencia, meta_honorario) values (to_char(current_date,'YYYY-MM'), 200000)");
   for (const [nome, email, pago, hon] of HOJE) {
@@ -148,6 +166,30 @@ describe("rankings — criterio e honorario recebido por operador", () => {
   });
 });
 
+describe("Destaque da Semana — campeao por honorario, nao por bruto", () => {
+  it("ranking_semana_valor soma honorario e exclui quem nao trouxe honorario", () => {
+    // mesma inversao do ranking do mes: por bruto JOAO ganharia; por honorario,
+    // NATALY. E o DIRETO, maior bruto do dia, nao pode ser coroado.
+    expect(payload.ranking_semana_valor).toEqual([
+      { operador: "NATALY", valor: 12000 },
+      { operador: "JOAO", valor: 7500 },
+    ]);
+    expect(JSON.stringify(payload.ranking_semana_valor)).not.toContain("DIRETO");
+  });
+
+  it("a chave dentro de `dados` acompanha (a tela le o topo, mas as duas existem)", () => {
+    expect(payload.dados.ranking_semana_valor).toEqual(payload.ranking_semana_valor);
+  });
+
+  it("ranking_semana (por QUANTIDADE) nao foi tocado: segue contando pagamentos", () => {
+    expect(payload.dados.ranking_semana).toEqual([
+      { operador: "JOAO", pagos: 3 },
+      { operador: "NATALY", pagos: 2 },
+      { operador: "DIRETO", pagos: 1 },
+    ]);
+  });
+});
+
 describe("mes.media_diaria_honorarios — chave nova, a de bruto intocada", () => {
   it("as duas chaves coexistem e sao numeros diferentes", () => {
     const du = payload.mes.dias_uteis_transcorridos;
@@ -165,13 +207,7 @@ describe("mes.media_diaria_honorarios — chave nova, a de bruto intocada", () =
 
 describe("aplicar duas vezes e inofensivo", () => {
   it("a segunda aplicacao nao erra e nao muda o payload", async () => {
-    const db = new PGlite();
-    await db.exec(ESQUELETO);
-    const etapa3 = ler(ETAPA3);
-    const i = etapa3.indexOf("create or replace function public._tv_meta_obj(");
-    await db.exec(etapa3.slice(i, etapa3.indexOf("revoke all on function public._tv_meta_obj")));
-    await db.exec(fonteBase);
-    await db.exec(ler(ESTA));
+    const db = await montar(true);
     const um = (await db.query("select pg_get_functiondef(p.oid) d from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='tv_snapshot_calcular'")).rows[0].d;
     await db.exec(ler(ESTA)); // de novo
     const dois = (await db.query("select pg_get_functiondef(p.oid) d from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='tv_snapshot_calcular'")).rows[0].d;
@@ -181,14 +217,8 @@ describe("aplicar duas vezes e inofensivo", () => {
 });
 
 describe("o rollback devolve a funcao ao formato antigo", () => {
-  it("desfaz as tres chaves e a funcao volta a rodar", async () => {
-    const db = new PGlite();
-    await db.exec(ESQUELETO);
-    const etapa3 = ler(ETAPA3);
-    const i = etapa3.indexOf("create or replace function public._tv_meta_obj(");
-    await db.exec(etapa3.slice(i, etapa3.indexOf("revoke all on function public._tv_meta_obj")));
-    await db.exec(fonteBase);
-    await db.exec(ler(ESTA));
+  it("desfaz as quatro mudancas e a funcao volta a rodar", async () => {
+    const db = await montar(true);
     await db.exec(readFileSync(resolve(RAIZ, "supabase", "rollbacks", `${ESTA}.rollback.sql`), "utf8"));
     await db.query("insert into public.pagamentos (data_pagamento, valor_pago, valor_honorario, operador_nome, operador_email) values (current_date, 50000, 10000, 'NATALY', 'cobranca05@aelbra.com.br')");
     const p = (await db.query("select public.tv_snapshot_calcular() p")).rows[0].p;
@@ -196,6 +226,8 @@ describe("o rollback devolve a funcao ao formato antigo", () => {
     expect(p.mes.media_diaria_honorarios).toBeUndefined();
     expect(p.rankings.melhor_mes).toEqual({ operador: "NATALY" });
     expect(p.mes.media_diaria).not.toBeUndefined(); // a de bruto nunca saiu
+    // o Destaque da Semana volta a coroar por bruto
+    expect(p.ranking_semana_valor).toEqual([{ operador: "NATALY", valor: 50000 }]);
     await db.close();
   });
 });
@@ -208,32 +240,23 @@ describe("a pre-validacao somente-leitura responde certo nos dois estados", () =
   // pararia a aplicacao sem motivo.
   const AUDIT = () => readFileSync(resolve(RAIZ, "supabase", "audits", "tv_honorario_prevalidacao_20261014.sql"), "utf8");
 
-  const preparar = async (aplicar) => {
-    const db = new PGlite();
-    await db.exec(ESQUELETO);
-    const etapa3 = ler(ETAPA3);
-    const i = etapa3.indexOf("create or replace function public._tv_meta_obj(");
-    await db.exec(etapa3.slice(i, etapa3.indexOf("revoke all on function public._tv_meta_obj")));
-    await db.exec(fonteBase);
-    if (aplicar) await db.exec(ler(ESTA));
-    return db;
-  };
+  const preparar = (aplicar) => montar(aplicar);
   // O arquivo tem um SELECT e, depois, comentarios. `query` roda uma instrucao:
   // corta no primeiro ponto-e-virgula de fim de instrucao.
   const consulta = () => AUDIT().slice(0, AUDIT().indexOf("order by ordem;") + "order by ordem;".length);
 
-  it("antes de aplicar: as tres ancoras OK e o resumo PRONTO PARA APLICAR", async () => {
+  it("antes de aplicar: as quatro ancoras OK e o resumo PRONTO PARA APLICAR", async () => {
     const db = await preparar(false);
     const r = (await db.query(consulta())).rows;
-    expect(r.filter((x) => x.veredito.startsWith("OK"))).toHaveLength(3);
+    expect(r.filter((x) => x.veredito.startsWith("OK"))).toHaveLength(4);
     expect(r.find((x) => x.ordem === "resumo").veredito).toBe("PRONTO PARA APLICAR");
     await db.close();
   });
 
-  it("depois de aplicar: as tres dizem JA APLICADO e o resumo segue liberado", async () => {
+  it("depois de aplicar: as quatro dizem JA APLICADO e o resumo segue liberado", async () => {
     const db = await preparar(true);
     const r = (await db.query(consulta())).rows;
-    expect(r.filter((x) => x.veredito.startsWith("JA APLICADO"))).toHaveLength(3);
+    expect(r.filter((x) => x.veredito.startsWith("JA APLICADO"))).toHaveLength(4);
     expect(r.find((x) => x.ordem === "resumo").veredito).toBe("PRONTO PARA APLICAR");
     await db.close();
   });
@@ -256,13 +279,22 @@ describe("compatibilidade com o corpo VIVO (estatica)", () => {
   // `v_de text := $a$...$a$`. Nao ha lista duplicada para sair de sincronia.
   const ancoras = [...ler(ESTA).matchAll(/ {2}v_de {3}text := \$a\$([\s\S]*?)\$a\$;\n/g)].map((m) => m[1]);
 
-  it("sao tres ancoras, e cada uma aparece exatamente uma vez no texto versionado", () => {
-    expect(ancoras).toHaveLength(3);
-    for (const a of ancoras) {
+  it("sao quatro ancoras; as tres da definicao completa aparecem uma vez nela", () => {
+    expect(ancoras).toHaveLength(4);
+    // a 4a vem de 20261006110000 (ver CADEIA) e nao esta no texto da definicao
+    // completa -- quem prova que ela casa e o bloco 4 rodando nos casos acima,
+    // que abortaria se a ancora nao fosse unica.
+    for (const a of ancoras.slice(0, 3)) {
       expect(fonteBase.split(a).length - 1, `ancora:\n${a.slice(0, 80)}`).toBe(1);
     }
   });
 
+  // NOTA sobre a 4a ancora: a migration que a ESTABELECEU (20261006110000) e
+  // posterior a BASE e portanto entra na varredura abaixo. Ela nao casa por
+  // texto literal porque guarda o trecho em forma ESCAPADA (aspas dobradas,
+  // dentro de um literal SQL). O caso nao e uma brecha: quem prova que a ancora
+  // casa com o corpo vivo e o bloco 4 rodando nos casos acima, sobre a funcao
+  // montada pela CADEIA real -- ele aborta se a ancora nao for unica.
   it("nenhuma migration POSTERIOR a 20260811220000 tocou nessas ancoras", () => {
     // Se alguma tocou, o corpo vivo divergiu do versionado e o patch casaria
     // com o texto errado -- ou (pior) com nada, abortando so em producao.

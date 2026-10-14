@@ -4,7 +4,7 @@
 -- Para rodar em produção ANTES de aplicar a migration, quando o projeto Supabase
 -- estiver disponível. Responde a uma única pergunta:
 --
---     as três âncoras do patch casam com o corpo VIVO de tv_snapshot_calcular()?
+--     as quatro âncoras do patch casam com o corpo VIVO de tv_snapshot_calcular()?
 --
 -- POR QUE ISSO É A ÚNICA COISA QUE FALTA CONFERIR. O resto já está provado fora
 -- de produção, em Postgres descartável, por
@@ -24,7 +24,7 @@
 --
 -- COMO LER O RESULTADO. Uma linha por âncora, com `ocorrencias` e `veredito`:
 --
---   OK — ancora unica, patch pode ser aplicado   → os 3 assim: segue a aplicação
+--   OK — ancora unica, patch pode ser aplicado   → as 4 assim: segue a aplicação
 --   JA APLICADO (nada a fazer)                   → o patch já está em produção
 --   AUSENTE - corpo vivo divergiu                → PARE. O corpo mudou; a âncora
 --                                                  precisa ser refeita a partir
@@ -46,7 +46,7 @@ with vivo as (
    where n.nspname = 'public' and p.proname = 'tv_snapshot_calcular'
    limit 1
 ),
--- As três âncoras, em cópia. Texto literal de propósito: este arquivo tem de
+-- As quatro âncoras, em cópia. Texto literal de propósito: este arquivo tem de
 -- poder ser colado num SQL editor sozinho, sem o repositório à mão. Cópia
 -- defasada daria "AUSENTE" num banco saudável e pararia a aplicação sem motivo,
 -- então ela é EXERCITADA: o teste
@@ -70,7 +70,20 @@ ancoras(ordem, nome, de, marca_aplicado) as (
 
     (3, 'media_diaria_honorarios',
      $a$    'media_diaria', v_media_dia, 'projecao_fechamento', v_proj_fech,$a$,
-     $b$'media_diaria_honorarios'$b$)
+     $b$'media_diaria_honorarios'$b$),
+
+    -- A 4a ancora tem OUTRA PROCEDENCIA: este trecho nao esta em 20260811220000,
+    -- foi inserido no corpo vivo por 20261006110000. Se aquela migration nao
+    -- estiver aplicada neste banco, o indicador da semana nem existe e a linha
+    -- sai como 'AUSENTE' -- nesse caso especifico NAO e impedimento: o bloco 4
+    -- da migration reconhece a situacao e nao faz nada (a tela cai no fallback
+    -- por quantidade, como antes daquela migration). Confira com:
+    --   select position('ranking_semana_valor' in pg_get_functiondef(p.oid)) > 0
+    --     from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+    --    where n.nspname='public' and p.proname='tv_snapshot_calcular';
+    (4, 'ranking_semana_valor',
+     $a$      from (select op_norm op, round(sum(valor_pago)) vl from unif where data_pagamento >= date_trunc('week', v_hoje)::date and lower(operador_email) = any(v_ops) group by op_norm order by sum(valor_pago) desc limit 8) r),$a$,
+     $b$round(sum(valor_honorario)) vl from unif$b$)
 ),
 medido as (
   select a.ordem, a.nome,
@@ -90,7 +103,7 @@ veredito as (
 select ordem::text as ordem, nome, ocorrencias::text as ocorrencias, veredito from veredito
 union all
 select 'resumo', '—', '—',
-       case when count(*) filter (where veredito like 'OK%' or veredito like 'JA APLICADO%') = 3
+       case when count(*) filter (where veredito like 'OK%' or veredito like 'JA APLICADO%') = 4
             then 'PRONTO PARA APLICAR'
             else 'NAO APLICAR - ver as linhas acima' end
   from veredito

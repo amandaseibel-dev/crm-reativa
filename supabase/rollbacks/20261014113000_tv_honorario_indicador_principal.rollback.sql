@@ -2,7 +2,7 @@
 -- ROLLBACK de 20261014113000 — o telão volta a medir o valor BRUTO recuperado.
 -- ============================================================================
 -- Mesma técnica da migration, na direção inversa: lê o corpo VIVO de
--- tv_snapshot_calcular() com pg_get_functiondef, desfaz só os três trechos e
+-- tv_snapshot_calcular() com pg_get_functiondef, desfaz só os quatro trechos e
 -- aborta se a âncora não aparecer exatamente uma vez.
 --
 -- O que volta ao que era:
@@ -11,6 +11,8 @@
 --   rankings.top3_mes           idem
 --   rankings.maior_pagamento_mes perde 'honorario'
 --   mes.media_diaria_honorarios deixa de ser emitido
+--   ranking_semana_valor        volta a somar valor_pago, e o Destaque da
+--                               Semana volta a coroar por bruto
 --
 -- NENHUM DADO É TOCADO nos dois sentidos: pagamentos, acordos, títulos, metas e
 -- os snapshots já gravados ficam exatamente como estão. Isto só reescreve a
@@ -23,6 +25,35 @@
 -- ============================================================================
 
 begin;
+
+-- ranking_semana_valor
+do $patch$
+declare
+  v_src text; v_novo text; v_n int;
+  v_de   text := $a$      from (select op_norm op, round(sum(valor_honorario)) vl from unif where data_pagamento >= date_trunc('week', v_hoje)::date and lower(operador_email) = any(v_ops) group by op_norm having sum(valor_honorario) > 0 order by sum(valor_honorario) desc limit 8) r),$a$;
+  v_para text := $a$      from (select op_norm op, round(sum(valor_pago)) vl from unif where data_pagamento >= date_trunc('week', v_hoje)::date and lower(operador_email) = any(v_ops) group by op_norm order by sum(valor_pago) desc limit 8) r),$a$;
+begin
+  select pg_get_functiondef(p.oid) into v_src
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'tv_snapshot_calcular' limit 1;
+  if v_src is null then
+    raise exception 'tv_snapshot_calcular() nao existe neste banco.';
+  end if;
+
+  if position(v_para in v_src) > 0 then
+    raise notice 'ranking_semana_valor: já estava no formato antigo; nada a fazer.';
+    return;
+  end if;
+
+  v_n := (length(v_src) - length(replace(v_src, v_de, ''))) / length(v_de);
+  if v_n <> 1 then
+    raise exception 'ancora ranking_semana_valor encontrada % vez(es) (esperado 1). Nada foi alterado.', v_n;
+  end if;
+
+  v_novo := replace(v_src, v_de, v_para);
+  execute v_novo;
+end
+$patch$;
 
 -- media_diaria_honorarios
 do $patch$
