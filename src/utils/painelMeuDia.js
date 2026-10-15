@@ -25,7 +25,7 @@
 // ele cobre so o segundo dia anterior ao vencimento (20 linhas pendentes na
 // medicao). Aqui ele entra como MARCA (`tem_alerta`) na parcela que ja tem
 // alerta aberto, para o operador saber que aquele caso tambem esta na rotina.
-import { diasParaData, nomeAluno } from "./carteiraFila";
+import { diasParaData, nomeAluno, valorAbertoDe } from "./carteiraFila";
 import { ordenarAlertas } from "./alertasParcela";
 // `parcela ainda cobravel` tem dono: src/utils/parcelaStatus.js, que espelha
 // public.parcela_viva(). Este arquivo nao reescreve a regra -- so a usa.
@@ -40,7 +40,12 @@ export const JANELA_RETORNOS_DIAS = 6;
 // Retornos que o operador marcou, de hoje ate hoje + `dias` (0 = so hoje).
 // Confirmados continuam na lista, marcados, para o operador ver o que ja tratou
 // -- quem conta pendencia usa `retornosPendentes`.
-export function retornosAgendados(casos, hoje, dias = 0) {
+// `finAlunos` e o consolidado por aluno que a carteira ja calcula (o mesmo que
+// a linha da fila mostra). Sem ele a linha caia em `alunos.valor_em_aberto`,
+// que em producao esta ZERADO na maioria dos casos -- em 15/10/2026 o bloco
+// mostrava "R$ 0,00" em todos os retornos de dois operadores conferidos na
+// tela. `valorAbertoDe` e a mesma funcao da fila: um numero so no sistema.
+export function retornosAgendados(casos, hoje, dias = 0, finAlunos = {}) {
   const inicio = String(hoje || "").slice(0, 10);
   if (!inicio) return [];
   const limite = Number.isFinite(Number(dias)) ? Number(dias) : 0;
@@ -59,7 +64,7 @@ export function retornosAgendados(casos, hoje, dias = 0) {
       data: String(a.data_retorno).slice(0, 10),
       hora_retorno: a.hora_retorno ? String(a.hora_retorno).slice(0, 5) : "",
       prioritario: Boolean(a.retorno_prioritario),
-      valor_em_aberto: Number(a.valor_em_aberto || 0),
+      valor_em_aberto: valorAbertoDe(a, finAlunos),
       responsavel_email: a.responsavel_atual_email || "",
       tratado: Boolean(a.retorno_confirmado_em),
     }))
