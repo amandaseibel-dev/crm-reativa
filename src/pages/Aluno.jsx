@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { podeVerTudo } from "../utils/operadores";
+import { temAjusteValor } from "../utils/ajusteValor";
 import { rotuloStatusComSaldo, rotuloStatus } from "../utils/rotulosStatus";
 import FinalizacaoTermo from "../components/FinalizacaoTermo";
 import jsPDF from "jspdf";
@@ -274,6 +275,11 @@ function corSituacaoAcordo(sit) {
 // Financeiro usam -- se divergir daqui, a ficha passa a contar diferente do
 // resto do sistema sem ninguem perceber.
 function valorTitulo(t) {
+  // Ajuste cobravel na FRENTE -- a mesma precedencia dos leitores de backend
+  // (`coalesce(valor_cobranca_ajustado, ...)`, migration 20260914100000). A
+  // ordem da regra-base abaixo fica EXATAMENTE como estava: unificar isso muda
+  // numero na tela e e decisao da gestao, nao deste patch.
+  if (temAjusteValor(t)) return Number(t.valor_cobranca_ajustado);
   return Number(t?.saldo_corrigido ?? t?.valor_em_aberto ?? t?.valor_original ?? 0);
 }
 
@@ -499,13 +505,16 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
         // com as parcelas do acordo. O total geral nao muda.
         const { data } = await supabase
           .from("acordos_titulos")
-          .select("aluno_id,status,situacao,acordo_id,valor_em_aberto,saldo_corrigido,valor_original")
+          .select("aluno_id,status,situacao,acordo_id,valor_em_aberto,saldo_corrigido,valor_original,valor_cobranca_ajustado")
           .in("aluno_id", lote)
           .in("status", ["em_aberto", "vinculada"]);
         for (const t of data || []) {
           const id = String(t.aluno_id);
           if (!fin[id]) continue;
-          const v = Number(t.valor_em_aberto ?? t.saldo_corrigido ?? t.valor_original ?? 0);
+          // Ajuste cobravel na frente; sem ajuste, a regra desta soma como estava.
+          const v = temAjusteValor(t)
+            ? Number(t.valor_cobranca_ajustado)
+            : Number(t.valor_em_aberto ?? t.saldo_corrigido ?? t.valor_original ?? 0);
           const negociada =
             t.status === "vinculada" || t.situacao === "NEGOCIADO" || !!t.acordo_id;
           if (negociada) {
@@ -804,7 +813,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     if (lista.length) {
       const idsAcordos = lista.map((a) => a.id);
       const COLUNAS =
-        "id,acordo_id,documento,vencimento,competencia,situacao,valor_original,valor_em_aberto,saldo_corrigido,vinculado_em,vinculado_por";
+        "id,acordo_id,documento,vencimento,competencia,situacao,valor_original,valor_em_aberto,saldo_corrigido,valor_cobranca_ajustado,vinculado_em,vinculado_por";
 
       // O VINCULO MORA EM DOIS LUGARES, e os dois valem.
       //
