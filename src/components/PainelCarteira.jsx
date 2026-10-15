@@ -1245,14 +1245,42 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
 
       // Bloco "Meu dia": boleto de acordo ATIVO vencendo de hoje ate hoje+5.
       // Mesmas parcelas ja carregadas acima -- so recorte, sem ida ao banco.
-      setBoletosAVencer(
-        boletosProximosDoVencimento(parcelas, {
-          acordoById,
-          alunoById: alunoInfo,
-          hoje,
-          dias: JANELA_BOLETOS_DIAS,
-        })
-      );
+      const boletosDaJanela = boletosProximosDoVencimento(parcelas, {
+        acordoById,
+        alunoById: alunoInfo,
+        hoje,
+        dias: JANELA_BOLETOS_DIAS,
+      });
+
+      // O mapa de nomes vem da CARTEIRA, e o acordo pode ser de aluno que nao
+      // esta nela -- os "somente acordos" que a propria tela ja separa. Em
+      // producao (15/10/2026) a fila de um operador mostrava "Aluno" em todas
+      // as linhas por causa disso, e boleto sem nome nao serve para ligar.
+      // Busca so os que faltam, por id, em lote.
+      const semNome = [...new Set(
+        boletosDaJanela.filter((b) => !alunoInfo.has(String(b.aluno_id))).map((b) => String(b.aluno_id))
+      )].filter((id) => UUID_RE.test(id));
+      if (semNome.length > 0) {
+        try {
+          const nomes = new Map();
+          for (let i = 0; i < semNome.length; i += 300) {
+            const { data } = await supabase
+              .from("alunos")
+              .select("id,nome,nome_aluno")
+              .in("id", semNome.slice(i, i + 300));
+            (data || []).forEach((a) => nomes.set(String(a.id), a));
+          }
+          boletosDaJanela.forEach((b) => {
+            const al = nomes.get(String(b.aluno_id));
+            if (al) b.aluno_nome = nomeAluno(al) !== "Aluno sem nome" ? nomeAluno(al) : (al.nome || b.aluno_nome);
+          });
+        } catch (e) {
+          // Sem o nome a linha ainda serve (acordo, parcela, valor, boleto):
+          // nao vale derrubar o carregamento da carteira por causa dele.
+          console.error("Nomes dos boletos a vencer:", e);
+        }
+      }
+      setBoletosAVencer(boletosDaJanela);
 
       setKpis({
         ativos: ativosCanonico ?? listaAtiva.length,
@@ -2659,8 +2687,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // agendados a mao (medido 15/10/2026), e misturar os dois devolve centenas
   // de linhas.
   const retornosDaSemana = useMemo(
-    () => retornosAgendados(casos, hojeLocalBR(), JANELA_RETORNOS_DIAS),
-    [casos]
+    () => retornosAgendados(casos, hojeLocalBR(), JANELA_RETORNOS_DIAS, finAlunos),
+    [casos, finAlunos]
   );
   // Relogio da tela. 30s e suficiente: o aviso e "esta na hora", nao cronometro.
   useEffect(() => {

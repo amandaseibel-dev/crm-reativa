@@ -212,3 +212,32 @@ describe("boletos proximos do vencimento", () => {
     expect(fimDaJanela(HOJE, 2)).toBe("2026-10-17");
   });
 });
+
+// Defeitos vistos NA TELA em 15/10/2026, com a frente ja em producao:
+// todo retorno mostrava "R$ 0,00" e os boletos de um operador mostravam
+// "Aluno" no lugar do nome. Os dois passaram pelo preview porque la os dados
+// ficticios tinham valor e nome preenchidos.
+describe("valor do retorno vem do consolidado da carteira", () => {
+  const comZero = {
+    id: "a1",
+    nome_aluno: "Aluna Um",
+    data_retorno: HOJE,
+    retorno_origem: "OPERADOR",
+    valor_em_aberto: 0, // e assim que esta em producao na maioria dos casos
+  };
+
+  it("usa o total consolidado quando o caso tem detalhe", () => {
+    const fin = { a1: { temDetalhe: true, total: 2480.9 } };
+    expect(retornosAgendados([comZero], HOJE, 0, fin)[0].valor_em_aberto).toBe(2480.9);
+  });
+
+  it("sem consolidado, cai no valor do proprio caso (comportamento antigo)", () => {
+    expect(retornosAgendados([{ ...comZero, valor_em_aberto: 55 }], HOJE, 0)[0].valor_em_aberto).toBe(55);
+    expect(retornosAgendados([comZero], HOJE, 0, {})[0].valor_em_aberto).toBe(0);
+  });
+
+  it("detalhe sem total valido nao vira NaN na tela", () => {
+    const fin = { a1: { temDetalhe: true, total: null } };
+    expect(retornosAgendados([comZero], HOJE, 0, fin)[0].valor_em_aberto).toBe(0);
+  });
+});
