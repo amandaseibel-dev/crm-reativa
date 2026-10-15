@@ -75,6 +75,16 @@
         "vite.tvmeta.config.js"
       ],
       "port": 5203
+    },
+    {
+      "name": "meu-dia-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--config",
+        "vite.meudia.config.js"
+      ],
+      "port": 5204
     }
   ]
 }
