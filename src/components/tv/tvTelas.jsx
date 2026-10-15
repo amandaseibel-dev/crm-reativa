@@ -59,15 +59,23 @@ function TelaHoje({ snap }) {
   // NUNCA se estima honorário por percentual: quando o snapshot ainda não traz
   // `maior_pagamento.honorario` (fotografia antiga, antes de 20261014), o card
   // simplesmente não aparece, em vez de mostrar o bruto com rótulo de honorário.
+  // VALOR INDIVIDUAL DE COLEGA NÃO VAI AO TELÃO. Reconhecimento é por NOME e
+  // POSIÇÃO; quanto cada pessoa trouxe é informação dela e da gestão, não da
+  // sala inteira — nem num card pequeno, nem como linha secundária. O critério
+  // continua sendo honorário recebido (é o rótulo que diz isso) e a ordem
+  // continua vindo pronta do snapshot; só o número de cada um sai da tela.
+  //
+  // O que CONTINUA aparecendo: os totais da operação (honorários do dia, bruto
+  // recuperado, pagamentos confirmados) — esses são da casa, não de ninguém —
+  // e contagens por pessoa que não são dinheiro, como "quantos pagamentos".
   const mp = h.maior_pagamento;
   const topHon = (snap?.rank?.top_hon_dia || [])[0];
   const destaques = [
     mp && mp.operador && mp.honorario != null && {
-      rot: "Maior honorário num pagamento", nome: mp.operador,
-      val: moeda(mp.honorario), sub: `${moeda(mp.valor)} brutos`,
+      rot: "Maior honorário num pagamento", nome: mp.operador, val: null,
     },
     topHon && topHon.nome && {
-      rot: "Maior honorário do dia", nome: topHon.nome, val: moeda(topHon.valor),
+      rot: "Maior honorário do dia", nome: topHon.nome, val: null,
     },
     h.top_qtd?.operador && {
       rot: "Mais pagamentos", nome: h.top_qtd.operador, val: `${num(h.top_qtd.qtd)} pagamentos`,
@@ -90,8 +98,7 @@ function TelaHoje({ snap }) {
             <div key={x.rot} style={cardDestaque}>
               <div style={cardDestaqueRotulo}>{x.rot}</div>
               <div style={cardDestaqueNome}>{x.nome}</div>
-              <div style={cardDestaqueValor}>{x.val}</div>
-              {x.sub && <div style={cardDestaqueSub}>{x.sub}</div>}
+              {x.val && <div style={cardDestaqueValor}>{x.val}</div>}
             </div>
           ))}
         </div>
@@ -231,20 +238,18 @@ function TelaRankings({ snap }) {
   // snapshot velho o valor é identificado como bruto. Nada é inferido do
   // formato dos dados.
   const porHon = r.base === "honorario";
+  // Nenhum valor individual: pódio é nome e posição. Ver o comentário em
+  // TelaHoje. O marcador `base` segue decidindo só o RÓTULO (honorário x bruto),
+  // porque o critério tem de ser dito com honestidade mesmo sem o número.
   const lider = r.melhor_mes?.operador || top3[0]?.operador;
-  const liderHon = porHon ? (r.melhor_mes?.honorario ?? top3[0]?.honorario) : null;
   const resto = [
     r.melhor_dia?.operador && {
       rot: porHon ? "Melhor em honorários hoje" : "Melhor do dia por valor bruto",
-      nome: r.melhor_dia.operador,
-      val: porHon && r.melhor_dia.honorario != null ? moeda(r.melhor_dia.honorario) : null, sub: null },
+      nome: r.melhor_dia.operador, val: null },
     r.mais_pagos_dia?.operador && { rot: "Mais pagamentos hoje", nome: r.mais_pagos_dia.operador,
-      val: `${num(r.mais_pagos_dia.qtd)} pagamentos`, sub: null },
-    mpm && (porHon && mpm.honorario != null
-      ? { rot: "Maior honorário num pagamento", nome: mpm.operador,
-          val: moeda(mpm.honorario), sub: `${moeda(mpm.valor)} brutos` }
-      : { rot: "Maior pagamento do mês (valor bruto)", nome: mpm.operador,
-          val: moeda(mpm.valor), sub: null }),
+      val: `${num(r.mais_pagos_dia.qtd)} pagamentos` },
+    mpm && { rot: porHon ? "Maior honorário num pagamento" : "Maior pagamento do mês (valor bruto)",
+      nome: mpm.operador, val: null },
   ].filter(Boolean);
   if (!lider && resto.length === 0) {
     return <Tela titulo="Rankings e Destaques"><Vazio>Sem registro no snapshot atual.</Vazio></Tela>;
@@ -255,18 +260,12 @@ function TelaRankings({ snap }) {
         <div style={heroiCheio}>
           <div style={heroiRotulo}>{porHon ? "Maior honorário recebido no mês" : "Melhor do mês por valor bruto"}</div>
           <div style={{ ...heroiValor, color: T.verde }}>{lider}</div>
-          {liderHon != null && (
-            <div style={heroiSatelites}>
-              <span><strong style={{ color: T.azulClaro }}>{moeda(liderHon)}</strong> em honorários</span>
-            </div>
-          )}
           {top3.length > 1 && (
             <div style={heroiSatelites}>
               {top3.slice(1, 3).map((o, i) => (
                 <span key={o.operador}>
                   {i > 0 && <span style={sepPonto}>·</span>}
                   <strong style={{ color: T.textoSuave }}>{i === 0 ? "2º" : "3º"}</strong> {o.operador}
-                  {o.honorario != null && ` — ${moeda(o.honorario)}`}
                 </span>
               ))}
             </div>
@@ -280,7 +279,6 @@ function TelaRankings({ snap }) {
               <div style={cardDestaqueRotulo}>{x.rot}</div>
               <div style={cardDestaqueNome}>{x.nome}</div>
               {x.val && <div style={cardDestaqueValor}>{x.val}</div>}
-              {x.sub && <div style={cardDestaqueSub}>{x.sub}</div>}
             </div>
           ))}
         </div>
@@ -388,12 +386,6 @@ function TelaDestaqueSemana({ snap }) {
   return (
     <Tela titulo="Destaque da Semana">
       <div style={{ fontSize: fs(32, 4, 100), fontWeight: 900, color: T.verde, textAlign: "center", lineHeight: 1 }}>{campeao.operador}</div>
-      {porValor && (
-        <div style={{ fontSize: fs(26, 3.4, 78), fontWeight: 900, color: T.ambar, lineHeight: 1,
-                      fontVariantNumeric: "tabular-nums", textShadow: "0 0 34px rgba(251,191,36,0.26)" }}>
-          {moeda(campeao.valor)}
-        </div>
-      )}
       <div style={{ fontSize: fs(14, 1.5, 34), fontWeight: 700, color: T.textoMudo, textTransform: "uppercase", letterSpacing: "0.08em" }}>
         {rotuloCriterio}
       </div>
@@ -406,11 +398,6 @@ function TelaDestaqueSemana({ snap }) {
             <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.2vh" }}>
               <span style={{ fontSize: fs(13, 1.3, 28), fontWeight: 800, color: T.textoMudo }}>{i === 0 ? "2º" : "3º"}</span>
               <span style={{ fontSize: fs(16, 1.7, 44), fontWeight: 800, color: T.textoSuave }}>{o.operador}</span>
-              {o.valor != null && (
-                <span style={{ fontSize: fs(12, 1.25, 26), fontWeight: 700, color: T.textoMudo, fontVariantNumeric: "tabular-nums" }}>
-                  {moeda(o.valor)}
-                </span>
-              )}
             </div>
           ))}
         </div>
@@ -931,6 +918,3 @@ const cardDestaqueNome = {
   whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%",
 };
 const cardDestaqueValor = { fontSize: fs(14, 1.5, 34), fontWeight: 700, color: T.azulClaro };
-// Linha secundária do card: o valor BRUTO ao lado do honorário. Fica
-// deliberadamente menor e apagada — é contexto, não é o indicador.
-const cardDestaqueSub = { fontSize: fs(11, 1.1, 24), fontWeight: 600, color: T.textoMudo };

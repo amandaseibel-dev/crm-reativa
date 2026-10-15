@@ -48,12 +48,13 @@ describe("Hoje na Operação — honorário é o herói", () => {
     expect(screen.queryByText("Recuperado hoje")).toBeNull();
   });
 
-  it("o maior pagamento do dia mostra o honorário recebido, com o bruto como linha secundária", () => {
+  it("o maior pagamento do dia aparece pelo NOME, sem o valor de honorário", () => {
     desenhar("hoje", snapHoje());
     expect(screen.getByText("Maior honorário num pagamento")).toBeTruthy();
     expect(screen.getByText("NATALY")).toBeTruthy();
-    expect(screen.getByText("R$ 8.000")).toBeTruthy();
-    expect(screen.getByText("R$ 40.000 brutos")).toBeTruthy();
+    // valor individual de colega não vai ao telão: nem o honorário, nem o bruto
+    expect(screen.queryByText("R$ 8.000")).toBeNull();
+    expect(screen.queryByText("R$ 40.000 brutos")).toBeNull();
   });
 
   it("o destaque de operador vem do honorário do dia (rank.top_hon_dia), não do valor recuperado", () => {
@@ -61,6 +62,7 @@ describe("Hoje na Operação — honorário é o herói", () => {
     expect(screen.getByText("Maior honorário do dia")).toBeTruthy();
     expect(screen.getByText("Nataly")).toBeTruthy();
     expect(screen.queryByText("QUEM_SO_TEM_BRUTO")).toBeNull();
+    expect(screen.queryByText("R$ 9.000")).toBeNull(); // o honorário dela não aparece
   });
 
   it("snapshot antigo (sem honorário no pagamento): o card SOME — não mostra o bruto no lugar", () => {
@@ -156,34 +158,35 @@ function snapRankings(extra = {}) {
 }
 
 describe("Rankings — o critério é honorário recebido", () => {
-  it("o herói é o maior honorário do mês, com o valor de honorário ao lado", () => {
+  it("o herói é o maior honorário do mês — nome e rótulo, sem valor", () => {
     desenhar("rankings", snapRankings());
     expect(screen.getByText("Maior honorário recebido no mês")).toBeTruthy();
-    expect(screen.getByText("R$ 60.000")).toBeTruthy();
+    // NATALY aparece no herói E no card do maior pagamento — por isso getAllBy
+    expect(screen.getAllByText("NATALY").length).toBeGreaterThan(0);
+    expect(screen.queryByText("R$ 60.000")).toBeNull();
     expect(screen.queryByText("Melhor recuperador do mês")).toBeNull();
   });
 
-  it("2º e 3º lugares trazem o honorário de cada um", () => {
+  it("2º e 3º aparecem por posição e nome, sem o honorário de cada um", () => {
     desenhar("rankings", snapRankings());
-    expect(screen.getByText(/R\$ 21\.000/)).toBeTruthy();
-    expect(screen.getByText(/R\$ 12\.000/)).toBeTruthy();
+    expect(screen.getByText("2º")).toBeTruthy();
+    expect(screen.getByText("3º")).toBeTruthy();
+    expect(screen.queryByText(/R\$ 21\.000/)).toBeNull();
+    expect(screen.queryByText(/R\$ 12\.000/)).toBeNull();
   });
 
-  it("o melhor do dia é por honorário e o maior pagamento do mês mostra honorário + bruto", () => {
+  it("melhor do dia e maior pagamento do mês: rótulo de honorário, nenhum valor", () => {
     desenhar("rankings", snapRankings());
     expect(screen.getByText("Melhor em honorários hoje")).toBeTruthy();
-    expect(screen.getByText("R$ 3.000")).toBeTruthy();
     expect(screen.getByText("Maior honorário num pagamento")).toBeTruthy();
-    expect(screen.getByText("R$ 14.000")).toBeTruthy();
-    expect(screen.getByText("R$ 70.000 brutos")).toBeTruthy();
+    for (const v of ["R$ 3.000", "R$ 14.000", "R$ 70.000 brutos"]) {
+      expect(screen.queryByText(v), v).toBeNull();
+    }
   });
 
-  it("snapshot antigo: sem honorário no pagamento, o card do maior pagamento não aparece", () => {
-    desenhar("rankings", snapRankings({ maior_pagamento_mes: { operador: "NATALY", valor: 70000 } }));
-    expect(screen.queryByText("Maior honorário num pagamento")).toBeNull();
-    expect(screen.queryByText("R$ 70.000 brutos")).toBeNull();
-    // o resto da tela segue de pé
-    expect(screen.getByText("Maior honorário recebido no mês")).toBeTruthy();
+  it("A TELA INTEIRA não tem cifrão: nenhum valor individual escapa", () => {
+    const { container } = desenhar("rankings", snapRankings());
+    expect(container.textContent).not.toContain("R$");
   });
 });
 
@@ -208,12 +211,13 @@ describe("transição deploy→migration: nada de bruto vestido de honorário", 
     expect(screen.queryByText("Maior honorário recebido no mês")).toBeNull();
   });
 
-  it("Rankings: melhor do dia e maior pagamento também são ditos bruto", () => {
+  it("Rankings: melhor do dia e maior pagamento também são ditos bruto, e sem valor", () => {
     desenhar("rankings", velho);
     expect(screen.getByText("Melhor do dia por valor bruto")).toBeTruthy();
     expect(screen.getByText("Maior pagamento do mês (valor bruto)")).toBeTruthy();
-    expect(screen.getByText("R$ 70.000")).toBeTruthy();
     expect(screen.queryByText("Maior honorário num pagamento")).toBeNull();
+    // nem no estado antigo o valor individual aparece
+    expect(screen.queryByText("R$ 70.000")).toBeNull();
   });
 
   it("Rankings: a palavra 'honorário' não aparece em NENHUM lugar da tela", () => {
@@ -227,10 +231,14 @@ describe("transição deploy→migration: nada de bruto vestido de honorário", 
     expect(screen.queryByText("Maior honorário recebido na semana")).toBeNull();
   });
 
-  it("Destaque da Semana: snapshot novo (com base) é dito honorário", () => {
-    desenhar("destaque_semana", { ranking_semana_valor: [{ operador: "NATALY", valor: 12000, base: "honorario" }] });
+  it("Destaque da Semana: snapshot novo (com base) é dito honorário, sem valor", () => {
+    const { container } = desenhar("destaque_semana",
+      { ranking_semana_valor: [{ operador: "NATALY", valor: 12000, base: "honorario" },
+                               { operador: "JOAO", valor: 7500, base: "honorario" }] });
     expect(screen.getByText("Maior honorário recebido na semana")).toBeTruthy();
-    expect(screen.getByText("R$ 12.000")).toBeTruthy();
+    expect(screen.getByText("NATALY")).toBeTruthy();
+    expect(screen.getByText("JOAO")).toBeTruthy();   // 2º segue aparecendo
+    expect(container.textContent).not.toContain("R$"); // nenhum valor, de ninguém
   });
 
   it("Destaque da Semana: fallback por quantidade segue dizendo quantidade", () => {
