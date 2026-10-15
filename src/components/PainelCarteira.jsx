@@ -4,6 +4,13 @@ import { buscarTudo } from "../utils/paginado";
 import { carregarIndicadoresCarteira, TEXTO_APOIO } from "../utils/carteiraAcionada";
 import AlertasParcelaAcordo from "./AlertasParcelaAcordo";
 import PainelMeuDia from "./PainelMeuDia";
+import AvisoRetornoNaHora from "./AvisoRetornoNaHora";
+import {
+  chaveSilenciados,
+  horaAgoraLocal,
+  retornoParaAvisar,
+  somarMinutos,
+} from "../utils/alarmeRetorno";
 import { normalizarAlertas } from "../utils/alertasParcela";
 import {
   JANELA_BOLETOS_DIAS,
@@ -668,6 +675,24 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const [detalheFinanceiro, setDetalheFinanceiro] = useState(null); // { tipo, titulo }
   const [mostrarAgenda, setMostrarAgenda] = useState(false); // painel Agenda (retornos) embutido
   const [confirmandoRetorno, setConfirmandoRetorno] = useState(null); // aluno_id em confirmacao
+  // Aviso na hora do retorno. `horaAgora` anda sozinha de 30 em 30 segundos --
+  // a tela do operador fica aberta o dia inteiro, entao sem relogio proprio o
+  // aviso so apareceria no proximo carregamento. `silenciados` guarda
+  // aluno_id -> hora em que pode voltar a avisar ("" = nao volta hoje), e vive
+  // tambem no navegador para o F5 nao trazer de volta o que ele ja tratou.
+  const [horaAgora, setHoraAgora] = useState(() => horaAgoraLocal());
+  // Lido na inicializacao, nao num efeito: setState dentro de efeito dispara
+  // render em cascata. Chave por dia -- o que o operador dispensou ontem nao
+  // cala o retorno de hoje. Navegador sem storage (aba anonima, cookie
+  // bloqueado) apenas nao lembra entre recargas; a tela segue funcionando.
+  const [silenciados, setSilenciados] = useState(() => {
+    try {
+      const bruto = window.localStorage.getItem(chaveSilenciados(hojeLocalBR()));
+      return bruto ? new Map(Object.entries(JSON.parse(bruto) || {})) : new Map();
+    } catch {
+      return new Map();
+    }
+  });
   // Arquivo de quitados (SO GESTAO): casos com quitacao real registrada
   // (quitado_em). Read-only, fora da fila operacional. Etapa 2 do tratamento
   // de quitados -- ver [[quitados-blindagem-fila-e-arquivo]].
@@ -2606,10 +2631,40 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     () => retornosAgendados(casos, hojeLocalBR(), JANELA_RETORNOS_DIAS),
     [casos]
   );
+  // Relogio da tela. 30s e suficiente: o aviso e "esta na hora", nao cronometro.
+  useEffect(() => {
+    const t = setInterval(() => setHoraAgora(horaAgoraLocal()), 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  function silenciarRetorno(alunoId, voltaEm) {
+    setSilenciados((atual) => {
+      const novo = new Map(atual);
+      novo.set(String(alunoId), voltaEm || "");
+      try {
+        window.localStorage.setItem(chaveSilenciados(hojeLocalBR()), JSON.stringify(Object.fromEntries(novo)));
+      } catch {
+        /* sem storage: vale so nesta sessao da tela */
+      }
+      return novo;
+    });
+  }
+
   const retornoAutomaticoHoje = useMemo(
     () => contarRetornoAutomaticoHoje(kpis.retornosHoje, retornosDoDia(retornosDaSemana, hojeLocalBR())),
     [kpis.retornosHoje, retornosDaSemana]
   );
+  // O retorno que deve estar na tela agora.
+  // Duas guardas de proposito: a gestao olhando a carteira de outra pessoa nao
+  // recebe o aviso dela (seria ruido sobre trabalho que nao e seu), e nada
+  // aparece por cima de uma ficha aberta -- interromper um atendimento com
+  // modal no meio da tela e pior do que esperar ele fechar.
+  const retornoDaHora = useMemo(() => {
+    if (veTudo) return null;
+    if (alunoModal) return null;
+    return retornoParaAvisar(retornosDaSemana, { hoje: hojeLocalBR(), horaAgora, silenciados });
+  }, [veTudo, alunoModal, retornosDaSemana, horaAgora, silenciados]);
+
   // Marca com 🔔 o boleto que tambem tem alerta D-2 aberto na rotina do cron.
   const boletosDoDia = useMemo(() => {
     const comAlerta = new Set(normalizarAlertas(alertasParcela).map((a) => String(a.parcela_id)));
@@ -2944,6 +2999,24 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
               retornar hoje e o boleto que esta vencendo. Antes as duas coisas
               existiam atras de um clique (card Agenda) ou so como filtro
               (Foco do Dia, D+2). */}
+          {/* Chegou a hora combinada: a caixa aparece no centro com o nome do
+              aluno e abre a ficha, que e por onde o contato comeca. */}
+          <AvisoRetornoNaHora
+            retorno={retornoDaHora}
+            horaAgora={horaAgora}
+            ocupado={confirmandoRetorno === retornoDaHora?.id}
+            onAbrirFicha={(r) => {
+              // Quem abriu a ficha vai tratar ali: o aviso nao volta hoje.
+              silenciarRetorno(r.id, "");
+              abrirFichaDoMeuDia(r);
+            }}
+            onLembrarDepois={(r, minutos) => silenciarRetorno(r.id, somarMinutos(horaAgora, minutos))}
+            onMarcarFeito={(r) => {
+              silenciarRetorno(r.id, "");
+              confirmarRetornoAgenda(r.id, true);
+            }}
+          />
+
           <PainelMeuDia
             hoje={hojeLocalBR()}
             retornos={retornosDaSemana}
@@ -3947,12 +4020,23 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                   {!confirmacaoPendente && (
                     <>
                       <label style={S.label}>Agendar retorno</label>
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <input type="date" style={{ ...S.input, flex: 1 }} value={retornoData} onChange={(e) => setRetornoData(e.target.value)} />
-                        <input type="time" style={{ ...S.input, width: 120 }} value={retornoHora} onChange={(e) => setRetornoHora(e.target.value)} />
+                      {/* A hora sempre esteve aqui e estava vazia em 13.293 de
+                          13.293 registros: era uma caixinha de 120px sem nome
+                          ao lado da data. Agora cada campo tem rotulo e a hora
+                          diz o que faz -- e ela que liga o aviso na tela. */}
+                      <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                        <div style={{ flex: 1 }}>
+                          <span style={S.subRotuloCampo}>Data</span>
+                          <input type="date" style={{ ...S.input, width: "100%" }} value={retornoData} onChange={(e) => setRetornoData(e.target.value)} />
+                        </div>
+                        <div style={{ width: 150 }}>
+                          <span style={S.subRotuloCampo}>Hora — avisa você</span>
+                          <input type="time" style={{ ...S.input, width: "100%" }} value={retornoHora} onChange={(e) => setRetornoHora(e.target.value)} />
+                        </div>
                       </div>
                       <div style={S.lembreteDica}>
-                        Sem data, o retorno segue a regra da tabulacao (acima). Data digitada e compromisso seu e aparece na Agenda.
+                        Sem data, o retorno segue a regra da tabulacao (acima). Data digitada e compromisso seu e aparece em "Meu dia".
+                        Com hora, a tela abre um aviso com o nome do aluno quando der o horario.
                       </div>
                     </>
                   )}
@@ -4371,6 +4455,7 @@ const S = {
   lembreteBox: { marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: "var(--rv-verde-ok-fundo)", border: "1px solid var(--rv-verde-ok-borda)" },
   lembreteTitulo: { fontSize: 13, fontWeight: 800, color: "var(--rv-verde-ok-texto)" },
   lembreteTexto: { fontSize: 13, color: "var(--rv-verde-ok-texto)", marginTop: 4 },
+  subRotuloCampo: { display: "block", fontSize: 11, fontWeight: 700, color: "var(--rv-texto-suave)", marginBottom: 3 },
   lembreteDica: { fontSize: 11, color: "var(--rv-verde-ok-texto)", marginTop: 6 },
   btnPrimario: { background: "#1e40af", color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
   btnSecundario: { background: "var(--rv-fundo-suave)", color: "var(--rv-texto)", border: "none", borderRadius: 10, padding: "10px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" },

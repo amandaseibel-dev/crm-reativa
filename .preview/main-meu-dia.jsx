@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import PainelMeuDia from "/src/components/PainelMeuDia.jsx";
+import AvisoRetornoNaHora from "/src/components/AvisoRetornoNaHora.jsx";
+import { retornoParaAvisar, somarMinutos } from "/src/utils/alarmeRetorno.js";
 import { JANELA_RETORNOS_DIAS, boletosProximosDoVencimento, contarRetornoAutomaticoHoje, retornosAgendados, retornosDoDia } from "/src/utils/painelMeuDia.js";
 
 // Revisão visual do bloco "Meu dia". O componente é puro, então o preview
@@ -17,7 +19,7 @@ const CASOS = [
   { id: "a2", nome_aluno: "Bruno Henrique Alves", telefone: "(51) 99777-2020", valor_em_aberto: 860.0, data_retorno: HOJE, retorno_origem: "OPERADOR", hora_retorno: "11:00", responsavel_atual_email: "cobranca06@aelbra.com.br" },
   { id: "a3", nome_aluno: "Carla Souza Lima", telefone: "(51) 99666-3030", valor_em_aberto: 15320.45, data_retorno: HOJE, retorno_origem: "OPERADOR", hora_retorno: "14:30", responsavel_atual_email: "cobranca06@aelbra.com.br" },
   { id: "a4", nome_aluno: "Diego Martins", telefone: "(51) 99555-4040", valor_em_aberto: 1190.3, data_retorno: HOJE, retorno_origem: "OPERADOR", hora_retorno: "16:45", retorno_confirmado_em: "2026-10-15T13:02:00Z", responsavel_atual_email: "cobranca06@aelbra.com.br" },
-  { id: "a5", nome_aluno: "Elisa Prado", telefone: "(51) 99444-5050", valor_em_aberto: 3905.12, data_retorno: HOJE, retorno_origem: "OPERADOR", responsavel_atual_email: "cobranca06@aelbra.com.br" },
+  { id: "a5", nome_aluno: "Elisa Prado", telefone: "(51) 99444-5050", valor_em_aberto: 3905.12, data_retorno: HOJE, retorno_origem: "OPERADOR", hora_retorno: "15:10", responsavel_atual_email: "cobranca06@aelbra.com.br" },
   // Resto da semana: so aparece quando o operador pede "Semana".
   { id: "a6", nome_aluno: "Felipe Barcellos", telefone: "(51) 99333-6060", valor_em_aberto: 740.0, data_retorno: "2026-10-16", retorno_origem: "OPERADOR", hora_retorno: "10:00", responsavel_atual_email: "cobranca06@aelbra.com.br" },
   { id: "a7", nome_aluno: "Gisele Amaral", telefone: "(51) 99222-7070", valor_em_aberto: 5120.88, data_retorno: "2026-10-16", retorno_origem: "OPERADOR", responsavel_atual_email: "cobranca06@aelbra.com.br" },
@@ -54,6 +56,10 @@ function Harness() {
   const [gestao, setGestao] = useState(false);
   // Harness: guarda a escolha do check por id (true = feito, false = desmarcado).
   const [marcados, setMarcados] = useState({});
+  // Relógio do harness: a hora é um controle, para dar para ver a caixa de
+  // aviso aparecer sem esperar a hora real chegar.
+  const [horaAgora, setHoraAgora] = useState("14:35");
+  const [silenciados, setSilenciados] = useState(new Map());
   const lista = retornos.map((r) => (r.id in marcados ? { ...r, tratado: marcados[r.id] } : r));
   return (
     <>
@@ -63,8 +69,18 @@ function Harness() {
         <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <input type="checkbox" checked={gestao} onChange={(e) => setGestao(e.target.checked)} /> visão da gestão (mostra responsável)
         </label>
+        <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          relógio: <input type="time" value={horaAgora} onChange={(e) => setHoraAgora(e.target.value)} style={{ padding: "2px 4px" }} />
+        </label>
         <span style={{ opacity: 0.7 }}>dados fictícios</span>
       </div>
+      <AvisoRetornoNaHora
+        retorno={retornoParaAvisar(lista, { hoje: HOJE, horaAgora, silenciados })}
+        horaAgora={horaAgora}
+        onAbrirFicha={(r) => { setSilenciados((m) => new Map(m).set(String(r.id), "")); window.alert(`Abriria a ficha de ${r.nome}`); }}
+        onLembrarDepois={(r, min) => setSilenciados((m) => new Map(m).set(String(r.id), somarMinutos(horaAgora, min)))}
+        onMarcarFeito={(r) => { setSilenciados((m) => new Map(m).set(String(r.id), "")); setMarcados((x) => ({ ...x, [r.id]: true })); }}
+      />
       <div style={{ padding: 20, maxWidth: 1180 }}>
         <PainelMeuDia
           hoje={HOJE}
