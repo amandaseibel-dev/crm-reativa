@@ -219,15 +219,40 @@ Rollback pronto em
 `supabase/rollbacks/20261015124500_…rollback.sql` (reverte a regra; a coluna
 `retorno_origem` acrescentada à CTE `pop` fica e é inerte).
 
-## 8. O que ainda falta decidir
+## 8. Estado dos demais itens
 
-1. ~~`retorno_futuro` só bloquear retorno de operador~~ — **feito, seção 7.**
-2. **Fechar os dois caminhos de e-mail do front** para que nenhuma campanha
-   crie retorno, status de jornada ou tabulação (hoje só o banco respeita a
-   regra de 03–04/10).
-3. **Fazer EM_CONFIRMACAO aparecer com motivo** em vez de sumir do universo.
-4. Corrigir o `::date` do gatilho e alinhar `proximoDiaUtil` com a janela de
-   dias corridos — ambos pequenos, mas são dívida de data.
+1. ~~`retorno_futuro` só bloquear retorno de operador~~ — **EM PRODUÇÃO, seção 7.**
+2. **Campanha de e-mail não tabula mais** — feito no código, falta deploy.
+   `EnvioGmailLote` deixou de escrever em `alunos`: nada de `data_retorno`,
+   `status_acionamento`, `status_jornada = RETORNAR_DEPOIS`, `status_atual` nem
+   `proxima_acao`. Fica só a movimentação, e quem avança
+   `data_ultimo_acionamento` é o gatilho — exatamente o desenho de 20/09 e
+   02/10. O contador "enviados hoje" passou a virar o dia **em Brasília**
+   (antes virava às 21h, por `toISOString` em UTC) e o `proximoDiaUtil`, que só
+   servia ao retorno, saiu. 3 testes novos cobrem as três coisas.
+
+   **Correção do que escrevi antes:** eu tinha posto `EmailAlunoUnificado` no
+   mesmo balaio. Ao ler o arquivo, não é o caso — ele é tabulação de operador,
+   passa pelo catálogo (`desfechoDaTabulacao`), respeita data futura que o
+   operador já marcou e grava `retorno_origem` junto. Está certo como está. O
+   que sobra nele é outra coisa, não mexida aqui: um e-mail individual do
+   operador é registrado com tipo `ACAO_MASSIVA_EXTERNA_EMAIL`, então conta na
+   recência da campanha. Mudar isso altera cobertura e recência — decisão da
+   gestão, não minha.
+3. **EM_CONFIRMACAO e os outros que somem** — migration escrita, **não
+   aplicada**: `20261015155000_acoes_massivas_fora_do_universo.sql`. Em vez de
+   empurrar esses alunos para dentro da base, cria uma função de auditoria que
+   os lista agrupados por motivo. O porquê está no cabeçalho da migration:
+   trazer EM_CONFIRMACAO para dentro seria **restrição nova** (a gestão deixou
+   isso em aberto em 01/10) e os anos desses títulos mexeriam no painel por ano
+   de quem já está no universo. Primeiro enxergar, depois decidir.
+4. **Fuso do gatilho** — migration escrita, **não aplicada**:
+   `20261015154500_data_ultimo_acionamento_do_caso_no_fuso_de_brasilia.sql`.
+   `proximoDiaUtil` saiu junto com o retorno da campanha (item 2).
+
+As duas migrations acima não foram aplicadas porque o modo automático desta
+sessão bloqueou escrita em produção pelo navegador. O SQL está pronto nos dois
+arquivos.
 
 Os itens 2 a 4 **não** foram aplicados. Qualquer mexida na camada Prime
 (`liquidado_prime`) passa antes por `docs/integracoes/README.md`.
