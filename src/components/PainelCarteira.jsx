@@ -3,7 +3,16 @@ import { supabase } from "../services/supabase";
 import { buscarTudo } from "../utils/paginado";
 import { carregarIndicadoresCarteira, TEXTO_APOIO } from "../utils/carteiraAcionada";
 import AlertasParcelaAcordo from "./AlertasParcelaAcordo";
+import PainelMeuDia from "./PainelMeuDia";
 import { normalizarAlertas } from "../utils/alertasParcela";
+import {
+  JANELA_BOLETOS_DIAS,
+  JANELA_RETORNOS_DIAS,
+  boletosProximosDoVencimento,
+  contarRetornoAutomaticoHoje,
+  retornosAgendados,
+  retornosDoDia,
+} from "../utils/painelMeuDia";
 import {
   // Recorte da fila e regra do acionamento guiado -- ver src/utils/carteiraFila.js.
   // Sairam deste arquivo para poder ser testados (bug do guiado, 12/09/2026).
@@ -623,6 +632,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const [resumoCpf, setResumoCpf] = useState(null);
   // D-2 de parcela de acordo: fonte unica = RPC acordo_alertas_do_operador (tabela acordo_alertas_parcela). So leitura.
   const [alertasParcela, setAlertasParcela] = useState([]);
+  // Boletos de acordo que vencem de hoje ate hoje + JANELA_BOLETOS_DIAS, para o
+  // bloco "Meu dia". Derivado das parcelas que esta tela ja carrega -- nenhuma
+  // consulta nova. O alerta D-2 continua sendo o alerta; aqui e a janela toda.
+  const [boletosAVencer, setBoletosAVencer] = useState([]);
 
   const [kpis, setKpis] = useState({
     ativos: 0,
@@ -1122,7 +1135,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       const acordos = await buscarTudo((de, ate) => {
         let q = supabase
           .from("acordos")
-          .select("id,cpf,aluno_id,operador_responsavel_email,status")
+          // numero_acordo entra para o bloco "Meu dia" poder dizer qual acordo
+          // e a parcela que vence ("Acordo #71903 · parcela 3").
+          .select("id,cpf,aluno_id,numero_acordo,operador_responsavel_email,status")
           .order("id", { ascending: true })
           .range(de, ate);
         if (alvo) q = q.eq("operador_responsavel_email", alvo);
@@ -1139,7 +1154,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         const parte = await buscarTudo((de, ate) =>
           supabase
             .from("parcelas")
-            .select("acordo_id,numero,status,vencimento,pago_em,valor,honorarios")
+            // id/boleto/boleto_confiavel: o bloco "Meu dia" lista a parcela a
+            // vencer com o numero do boleto (so quando a importacao marcou como
+            // confiavel) e usa o id como chave da linha.
+            .select("id,acordo_id,numero,status,vencimento,pago_em,valor,honorarios,boleto,boleto_confiavel")
             .in("acordo_id", bloco)
             .order("id", { ascending: true })
             .range(de, ate)
@@ -1196,6 +1214,17 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         atrasado: [...setAtrasado],
         quebrado: [...setQuebrado],
       });
+
+      // Bloco "Meu dia": boleto de acordo ATIVO vencendo de hoje ate hoje+5.
+      // Mesmas parcelas ja carregadas acima -- so recorte, sem ida ao banco.
+      setBoletosAVencer(
+        boletosProximosDoVencimento(parcelas, {
+          acordoById,
+          alunoById: alunoInfo,
+          hoje,
+          dias: JANELA_BOLETOS_DIAS,
+        })
+      );
 
       setKpis({
         ativos: ativosCanonico ?? listaAtiva.length,
@@ -2567,6 +2596,44 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // Carteira compacta (sugestao da operacao 2026-08-08): so os cards que a
   // operacao de fato usa. "Sem acionamento" + "proximos de perder" viraram um
   // unico card focado na janela critica (9-11 dias). A Agenda entra como card.
+  // Bloco "Meu dia" (topo da tela inicial do operador).
+  // Retornos: so os que o OPERADOR agendou, de hoje ate o fim da semana a
+  // frente -- a tela abre em "Hoje" e a semana fica atras do botao. O prazo
+  // automatico da tabulacao fica como contador: sao 6.051 num dia contra 157
+  // agendados a mao (medido 15/10/2026), e misturar os dois devolve centenas
+  // de linhas.
+  const retornosDaSemana = useMemo(
+    () => retornosAgendados(casos, hojeLocalBR(), JANELA_RETORNOS_DIAS),
+    [casos]
+  );
+  const retornoAutomaticoHoje = useMemo(
+    () => contarRetornoAutomaticoHoje(kpis.retornosHoje, retornosDoDia(retornosDaSemana, hojeLocalBR())),
+    [kpis.retornosHoje, retornosDaSemana]
+  );
+  // Marca com 🔔 o boleto que tambem tem alerta D-2 aberto na rotina do cron.
+  const boletosDoDia = useMemo(() => {
+    const comAlerta = new Set(normalizarAlertas(alertasParcela).map((a) => String(a.parcela_id)));
+    if (comAlerta.size === 0) return boletosAVencer;
+    return boletosAVencer.map((b) => ({ ...b, tem_alerta: comAlerta.has(String(b.parcela_id)) }));
+  }, [boletosAVencer, alertasParcela]);
+
+  // Alerta D-2 que o bloco "Meu dia" nao mostra (parcela fora da janela de 5
+  // dias -- na pratica a que venceu e cujo alerta a rotina nao resolveu).
+  const alertasForaDaJanela = useMemo(() => {
+    const naJanela = new Set(boletosAVencer.map((b) => String(b.parcela_id)));
+    return normalizarAlertas(alertasParcela).filter((a) => !naJanela.has(String(a.parcela_id)));
+  }, [alertasParcela, boletosAVencer]);
+
+  // Abre a ficha a partir de uma linha do bloco "Meu dia". Quem saiu da fila
+  // (quitado, em confirmacao) nao esta em `casos`: abre pelo id, com o nome que
+  // a propria linha ja traz, em vez de nao fazer nada no clique.
+  function abrirFichaDoMeuDia(item) {
+    const id = String(item?.aluno_id || item?.id || "");
+    const nome = item?.aluno_nome || item?.nome || "";
+    const naFila = casos.find((c) => String(c.id) === id);
+    abrirModal(naFila || { id, nome_aluno: nome, nome });
+  }
+
   const kpiCards = [
     { id: "ativos", rot: "Casos ativos", val: kpis.ativos, cor: "var(--rv-azul)", icone: "📁" },
     // Duas frentes de trabalho diferentes, que ate aqui apareciam somadas em
@@ -2873,6 +2940,23 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             </div>
           )}
 
+          {/* Primeira coisa que o operador ve ao entrar: o que ele prometeu
+              retornar hoje e o boleto que esta vencendo. Antes as duas coisas
+              existiam atras de um clique (card Agenda) ou so como filtro
+              (Foco do Dia, D+2). */}
+          <PainelMeuDia
+            hoje={hojeLocalBR()}
+            retornos={retornosDaSemana}
+            retornoAutomaticoHoje={retornoAutomaticoHoje}
+            boletos={boletosDoDia}
+            janelaDias={JANELA_BOLETOS_DIAS}
+            mostrarResponsavel={veTudo && operadorFiltro === "TODOS"}
+            confirmandoRetornoId={confirmandoRetorno}
+            onAbrirFicha={abrirFichaDoMeuDia}
+            onConfirmarRetorno={(id, confirmar) => confirmarRetornoAgenda(id, confirmar)}
+            onVerRetornosNaFila={() => onKpiClick("retornosHoje")}
+          />
+
           {!veTudo && desempenho && (
             <div style={S.desWrap}>
               <div style={S.desHeader}>Meu desempenho operacional</div>
@@ -2967,10 +3051,15 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             })}
           </div>
 
+          {/* O alerta D-2 que JA aparece no bloco "Meu dia" nao se repete aqui
+              (lá ele vem marcado com 🔔). Sobra o alerta ainda aberto que caiu
+              fora da janela -- tipicamente parcela que venceu e a rotina do
+              cron nao resolveu. Sem isto ele desapareceria da tela. */}
           <AlertasParcelaAcordo
-            alertas={alertasParcela}
+            alertas={alertasForaDaJanela}
+            titulo="🔔 Alerta de parcela de acordo ainda aberto"
             mostrarResponsavel={veTudo}
-            onAbrirFicha={(al) => abrirModal(casos.find((c) => String(c.id) === String(al.aluno_id)) || { id: al.aluno_id, nome_aluno: al.aluno_nome, nome: al.aluno_nome })}
+            onAbrirFicha={abrirFichaDoMeuDia}
           />
 
           {mostrarAgenda && (
