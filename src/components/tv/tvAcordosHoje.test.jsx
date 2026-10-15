@@ -80,13 +80,27 @@ describe("TV — Acordos de Hoje (render)", () => {
     expect(screen.getByText("Já com pagamento")).toBeTruthy();
   });
 
-  it("o ranking vem do snapshot, com os três números por operador", () => {
+  it("o ranking vem do snapshot: nomes e contagens, SEM o valor de cada um", () => {
     desenhar(DIA());
     expect(screen.getByText("Allan")).toBeTruthy();
     expect(screen.getByText("Rafaella")).toBeTruthy();
-    expect(screen.getByText("R$ 3.100")).toBeTruthy();
     expect(screen.getAllByText("fechados").length).toBeGreaterThan(0);
     expect(screen.getAllByText("convertidos").length).toBeGreaterThan(0);
+    // valor individual de colega não vai ao telão
+    expect(screen.queryByText("R$ 3.100")).toBeNull();
+  });
+
+  it("nenhum valor individual na tela — só o total da operação", () => {
+    const { container } = desenhar(DIA());
+    // o total agregado fica; o de cada operador, não. Os quatro do ranking:
+    for (const v of ["R$ 3.100", "R$ 2.900", "R$ 1.430", "R$ 0"]) {
+      expect(screen.queryByText(v), `valor individual na tela: ${v}`).toBeNull();
+    }
+    expect(screen.getByText("Valor bruto recuperado")).toBeTruthy();
+    // \u00a0: moeda() usa o formato pt-BR, que separa "R$" do número com espaço
+    // NÃO-QUEBRÁVEL. getByText normaliza isso; textContent cru, não.
+    const texto = container.textContent.replace(/\u00a0/g, " ");
+    expect(texto).toContain("R$ 8.430"); // total da operação, esse fica
   });
 
   // Antes a tela cortava em 4. Em produção, 08/10, seis linhas vieram no
@@ -190,9 +204,11 @@ describe("TV — Acordos de Hoje (bordas)", () => {
     expect(screen.getByText("Acordos fechados hoje")).toBeTruthy();
   });
 
-  it("operador sem conversão aparece com zero, não some", () => {
+  it("operador sem conversão continua aparecendo pelo NOME, não some", () => {
     desenhar(DIA());
     expect(screen.getByText("Mauricio")).toBeTruthy();
-    expect(screen.getByText("R$ 0")).toBeTruthy();  // valor dele, só ele tem zero
+    // antes a prova era o "R$ 0" dele; o valor individual saiu do telão, então
+    // o que se afirma agora é que a PESSOA não desaparece do ranking.
+    expect(screen.queryByText("R$ 0")).toBeNull();
   });
 });
