@@ -353,7 +353,7 @@ const KPIS_FILTRAVEIS = new Set([
 const KPIS_ESPECIAIS = new Set(["quitados", "recebidosMes", "acordosQuebrados"]);
 
 const COLUNAS_ALUNO =
-  "id,nome,nome_aluno,cpf,telefone,email,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,situacao_operacional,saldo_vencido,saldo_total,proxima_acao,data_ultimo_acionamento,ultimo_contato,data_retorno,retorno_origem,hora_retorno,retorno_confirmado_em,responsavel_atual_nome,responsavel_atual_email,observacao,unidade,curso,processo_numero,semestre_divida";
+  "id,nome,nome_aluno,cpf,telefone,email,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,situacao_operacional,saldo_vencido,saldo_total,proxima_acao,data_ultimo_acionamento,ultimo_contato,data_retorno,retorno_origem,hora_retorno,retorno_prioritario,retorno_confirmado_em,responsavel_atual_nome,responsavel_atual_email,observacao,unidade,curso,processo_numero,semestre_divida";
 
 // Rotulo amigavel da situacao operacional (recalcular_situacao_aluno).
 const SITUACAO_OPERACIONAL_LABEL = {
@@ -866,6 +866,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const [resumoConversa, setResumoConversa] = useState("");
   const [retornoData, setRetornoData] = useState("");
   const [retornoHora, setRetornoHora] = useState("");
+  // Prioridade do retorno: escolha humana, separada da criticidade financeira
+  // (nivel_criticidade, que o backend recalcula) e do prazo (data_retorno).
+  const [retornoPrioritario, setRetornoPrioritario] = useState(false);
   const [observacao, setObservacao] = useState("");
 
   // Acoes inline dentro da Tabulacao (link/termo/financeiro/pagamento).
@@ -1537,6 +1540,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     setResumoConversa("");
     setRetornoData(retornoAgendadoPeloOperador(a));
     setRetornoHora(retornoAgendadoPeloOperador(a) ? (a.hora_retorno || "") : "");
+    setRetornoPrioritario(retornoAgendadoPeloOperador(a) ? Boolean(a.retorno_prioritario) : false);
     setObservacao(a.observacao || "");
     carregarDadosModal(a.id, a.cpf);
 
@@ -1756,7 +1760,13 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       if (desfecho.data_retorno) {
         camposAluno.data_retorno = desfecho.data_retorno;
         camposAluno.retorno_origem = desfecho.retorno_origem;
-        if (desfecho.motivo === "AUTOMATICA") camposAluno.hora_retorno = null;
+        if (desfecho.motivo === "AUTOMATICA") {
+          // O prazo automatico da tabulacao substituiu o compromisso que o
+          // operador tinha marcado: hora e prioridade iam junto com ele.
+          // Motivo MANTIDA preserva os dois, porque a data dele continua.
+          camposAluno.hora_retorno = null;
+          camposAluno.retorno_prioritario = false;
+        }
       }
       const textoRetorno = desfecho.data_retorno ? ` Retorno: ${formatarData(desfecho.data_retorno)}.` : "";
 
@@ -1967,6 +1977,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       setStatusNovo(statusTabulavel(row.status_atual));
       setRetornoData(retornoAgendadoPeloOperador(row));
       setRetornoHora(retornoAgendadoPeloOperador(row) ? (row.hora_retorno || "") : "");
+      setRetornoPrioritario(retornoAgendadoPeloOperador(row) ? Boolean(row.retorno_prioritario) : false);
       // Atualiza a linha correspondente na carteira sem recarregar tudo.
       setCasos((prev) => prev.map((c) => (c.id === id ? { ...c, ...row } : c)));
     }
@@ -2014,6 +2025,13 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         atualizacaoAluno.data_retorno = desfecho.data_retorno;
         atualizacaoAluno.retorno_origem = desfecho.retorno_origem;
         atualizacaoAluno.hora_retorno = desfecho.motivo === "DIGITADA" ? (retornoHora || null) : null;
+        // Prioridade pertence ao compromisso do operador: so vale no retorno
+        // que ele mesmo marcou. Prazo automatico da tabulacao nunca nasce
+        // prioritario, senao a fila inteira subiria junto.
+        atualizacaoAluno.retorno_prioritario = desfecho.motivo === "DIGITADA" ? Boolean(retornoPrioritario) : false;
+      } else {
+        // Tabulou sem agendar retorno: nao ha compromisso, nao ha prioridade.
+        atualizacaoAluno.retorno_prioritario = false;
       }
       if (observacao !== (a.observacao || "")) {
         atualizacaoAluno.observacao = observacao;
@@ -2339,8 +2357,21 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         p_confirmar: confirmar,
       });
       if (error) throw error;
+      // Tratado deixa de ser prioridade: senao o caso resolvido continuaria
+      // ocupando o topo da fila ate a proxima tabulacao.
+      if (confirmar) {
+        try {
+          await supabase.from("alunos").update({ retorno_prioritario: false }).eq("id", alunoId);
+        } catch {
+          /* a marca cai na proxima tabulacao; nao e motivo para falhar a confirmacao */
+        }
+      }
       setCasos((prev) =>
-        prev.map((c) => (String(c.id) === String(alunoId) ? { ...c, retorno_confirmado_em: data || null } : c))
+        prev.map((c) =>
+          String(c.id) === String(alunoId)
+            ? { ...c, retorno_confirmado_em: data || null, retorno_prioritario: confirmar ? false : c.retorno_prioritario }
+            : c
+        )
       );
     } catch (e) {
       alert("Não foi possível confirmar o retorno: " + (e?.message || e));
@@ -4034,6 +4065,18 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                           <input type="time" style={{ ...S.input, width: "100%" }} value={retornoHora} onChange={(e) => setRetornoHora(e.target.value)} />
                         </div>
                       </div>
+                      <label style={S.caixaPrioridade} title="O caso vem primeiro na sua fila e no topo de Meu dia">
+                        <input
+                          type="checkbox"
+                          checked={retornoPrioritario}
+                          onChange={(e) => setRetornoPrioritario(e.target.checked)}
+                          disabled={!retornoData}
+                        />
+                        <span>
+                          ⭐ Prioridade — este retorno vem primeiro na fila
+                          {!retornoData ? " (precisa de data)" : ""}
+                        </span>
+                      </label>
                       <div style={S.lembreteDica}>
                         Sem data, o retorno segue a regra da tabulacao (acima). Data digitada e compromisso seu e aparece em "Meu dia".
                         Com hora, a tela abre um aviso com o nome do aluno quando der o horario.
@@ -4455,6 +4498,7 @@ const S = {
   lembreteBox: { marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: "var(--rv-verde-ok-fundo)", border: "1px solid var(--rv-verde-ok-borda)" },
   lembreteTitulo: { fontSize: 13, fontWeight: 800, color: "var(--rv-verde-ok-texto)" },
   lembreteTexto: { fontSize: 13, color: "var(--rv-verde-ok-texto)", marginTop: 4 },
+  caixaPrioridade: { display: "flex", alignItems: "center", gap: 8, margin: "8px 0 2px", fontSize: 12.5, fontWeight: 700, color: "var(--rv-ambar-texto)", cursor: "pointer" },
   subRotuloCampo: { display: "block", fontSize: 11, fontWeight: 700, color: "var(--rv-texto-suave)", marginBottom: 3 },
   lembreteDica: { fontSize: 11, color: "var(--rv-verde-ok-texto)", marginTop: 6 },
   btnPrimario: { background: "#1e40af", color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" },

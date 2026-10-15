@@ -382,6 +382,17 @@ export function filtrarCasos(entrada) {
 }
 
 // `ordenarCasos` responde SO "em que ordem". Nao filtra nada e nunca troca a
+// PRIORIDADE MARCADA PELO OPERADOR (`alunos.retorno_prioritario`, 15/10/2026).
+// Vale quando o retorno ESTA DEVIDO (hoje ou atrasado): marcar prioridade num
+// retorno de sexta nao pode ocupar o topo da fila na segunda anterior. Sem
+// data de retorno nao ha o que priorizar -- a marca pertence ao compromisso,
+// nao ao caso.
+export function retornoPrioritarioDevido(a, hoje = hojeLocalBR()) {
+  if (!a?.retorno_prioritario) return false;
+  const ret = a?.data_retorno ? String(a.data_retorno).slice(0, 10) : "";
+  return Boolean(ret) && ret <= String(hoje).slice(0, 10);
+}
+
 // ordenacao escolhida pela operadora.
 export function ordenarCasos(lista, entrada) {
   const {
@@ -406,6 +417,7 @@ export function ordenarCasos(lista, entrada) {
     return t === null ? Infinity : -t;
   };
   const valor = (a) => valorAbertoDe(a, finAlunos);
+  const rankPrioridade = (a) => (retornoPrioritarioDevido(a, hoje) ? 0 : 1);
   const arr = [...(lista || [])];
 
   if (ordenacao === "inteligente") {
@@ -431,7 +443,10 @@ export function ordenarCasos(lista, entrada) {
       const d = diasSemContato(a, agoraMs);
       return d === null ? 9999 : d;
     };
+    // A prioridade marcada pelo operador vem ANTES do selo de prazo: e a unica
+    // forma de uma pessoa dizer "este aqui primeiro" para a fila automatica.
     arr.sort((a, b) =>
+      (rankPrioridade(a) - rankPrioridade(b)) ||
       (faixa(a) - faixa(b)) ||
       (rankSemestre(a) - rankSemestre(b)) ||
       (critRank(a) - critRank(b)) ||
@@ -448,6 +463,7 @@ export function ordenarCasos(lista, entrada) {
       return ret && ret <= hoje ? 0 : 1;
     };
     arr.sort((a, b) =>
+      (rankPrioridade(a) - rankPrioridade(b)) ||
       (retornoDevido(a) - retornoDevido(b)) ||
       (critRank(a) - critRank(b)) ||
       (keyDias(b) - keyDias(a)) ||
