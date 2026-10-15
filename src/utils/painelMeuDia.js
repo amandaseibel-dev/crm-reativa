@@ -58,6 +58,7 @@ export function retornosAgendados(casos, hoje, dias = 0) {
       telefone: a.telefone || "",
       data: String(a.data_retorno).slice(0, 10),
       hora_retorno: a.hora_retorno ? String(a.hora_retorno).slice(0, 5) : "",
+      prioritario: Boolean(a.retorno_prioritario),
       valor_em_aberto: Number(a.valor_em_aberto || 0),
       responsavel_email: a.responsavel_atual_email || "",
       tratado: Boolean(a.retorno_confirmado_em),
@@ -65,6 +66,10 @@ export function retornosAgendados(casos, hoje, dias = 0) {
     .sort(
       (x, y) =>
         String(x.data).localeCompare(String(y.data)) ||
+        // Dentro do dia, o que o operador marcou como prioritario vem primeiro;
+        // depois a hora combinada. A ordem ENTRE dias nunca muda: prioridade
+        // nao faz o retorno de quinta aparecer antes do de hoje.
+        Number(Boolean(y.prioritario)) - Number(Boolean(x.prioritario)) ||
         String(x.hora_retorno || "99:99").localeCompare(String(y.hora_retorno || "99:99")) ||
         String(x.nome || "").localeCompare(String(y.nome || ""), "pt-BR")
     );

@@ -79,6 +79,7 @@ const S = {
   meta: { fontSize: 11.5, color: "var(--rv-texto-suave)", marginTop: 1 },
   chip: { fontSize: 11, fontWeight: 800, color: "var(--rv-roxo)", background: "rgba(124,58,237,0.12)", borderRadius: 5, padding: "1px 6px", whiteSpace: "nowrap" },
   chipHoje: { fontSize: 11, fontWeight: 800, color: "var(--rv-vermelho)", background: "var(--rv-vermelho-fundo)", borderRadius: 5, padding: "1px 6px", whiteSpace: "nowrap" },
+  chipPrioridade: { fontSize: 11, fontWeight: 800, color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)", borderRadius: 5, padding: "1px 6px", whiteSpace: "nowrap" },
   chipOk: { fontSize: 11, fontWeight: 800, color: "var(--rv-verde-ok-texto)", background: "var(--rv-verde-ok-fundo)", borderRadius: 5, padding: "1px 6px", whiteSpace: "nowrap" },
   check: {
     border: "1px solid var(--rv-borda)",
@@ -120,6 +121,11 @@ function LinhaRetorno({ item, mostrarResponsavel, onAbrirFicha, confirmandoRetor
     <div style={{ ...S.item, ...(item.tratado ? S.itemTratado : {}) }} data-testid="meu-dia-retorno-item">
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={S.linha1}>
+          {item.prioritario && (
+            <span style={S.chipPrioridade} title="Marcado como prioritário na tabulação">
+              ⭐ prioridade
+            </span>
+          )}
           {item.hora_retorno ? <span style={S.chip}>{item.hora_retorno}</span> : null}
           <button type="button" style={S.nome} onClick={() => onAbrirFicha && onAbrirFicha(item)} title="Abrir ficha do aluno">
             {item.nome}
