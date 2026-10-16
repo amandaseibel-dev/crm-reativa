@@ -239,20 +239,64 @@ Rollback pronto em
    operador é registrado com tipo `ACAO_MASSIVA_EXTERNA_EMAIL`, então conta na
    recência da campanha. Mudar isso altera cobertura e recência — decisão da
    gestão, não minha.
-3. **EM_CONFIRMACAO e os outros que somem** — migration escrita, **não
-   aplicada**: `20261015155000_acoes_massivas_fora_do_universo.sql`. Em vez de
-   empurrar esses alunos para dentro da base, cria uma função de auditoria que
-   os lista agrupados por motivo. O porquê está no cabeçalho da migration:
-   trazer EM_CONFIRMACAO para dentro seria **restrição nova** (a gestão deixou
-   isso em aberto em 01/10) e os anos desses títulos mexeriam no painel por ano
-   de quem já está no universo. Primeiro enxergar, depois decidir.
-4. **Fuso do gatilho** — migration escrita, **não aplicada**:
+3. **EM_CONFIRMACAO e os outros que somem** — **EM PRODUÇÃO em 16/10**,
+   `20261015155000_acoes_massivas_fora_do_universo.sql`. Em vez de empurrar
+   esses alunos para dentro da base, cria uma função de auditoria que os lista
+   agrupados por motivo. O porquê está no cabeçalho da migration: trazer
+   EM_CONFIRMACAO para dentro seria **restrição nova** (a gestão deixou isso em
+   aberto em 01/10) e os anos desses títulos mexeriam no painel por ano de quem
+   já está no universo. Primeiro enxergar, depois decidir.
+4. **Fuso do gatilho** — **EM PRODUÇÃO em 16/10**,
    `20261015154500_data_ultimo_acionamento_do_caso_no_fuso_de_brasilia.sql`.
    `proximoDiaUtil` saiu junto com o retorno da campanha (item 2).
 
-As duas migrations acima não foram aplicadas porque o modo automático desta
-sessão bloqueou escrita em produção pelo navegador. O SQL está pronto nos dois
-arquivos.
+## 9. Aplicação de 16/10 e o estado de hoje
+
+| migration | prova |
+|---|---|
+| `20261015154500` | 2 ocorrências trocadas, nenhum `new.registrado_em::date` cru restante, guarda dos tipos massivos intacta, gatilho em `aluno_movimentacoes` ativo (`tgenabled = O`). md5 da função → `400a73f7cf8402fab2f171ebe9e65c0a` |
+| `20261015155000` | função criada e executada; ACL `postgres=X ; authenticated=X ; service_role=X` — sem `public`, sem `anon`, com portão interno de gestão |
+
+Ambas registradas em `schema_migrations`.
+
+**`acoes_massivas_fora_do_universo()` em 16/10:**
+
+| motivo | alunos | títulos | valor |
+|---|---:|---:|---:|
+| SITUACAO_CANCELADA | 94 | 316 | R$ 2.804.153,87 |
+| SITUACAO_EM_CONFIRMACAO | 226 | 385 | R$ 358.760,97 |
+| SITUACAO_DEVOLVIDO | 7 | 15 | R$ 42.490,03 |
+| BOLETO_DE_ACORDO | 24 | 26 | R$ 17.728,80 |
+| SITUACAO_DUPLICADA | 4 | 4 | R$ 1.798,79 |
+
+Reconcilia com a medição de 15/10: os 22 `NEGOCIADO` + 1 `ABERTO` + 1
+`DUPLICADA` com `tipo_boleto = 'Acordo'` agora caem todos em
+`BOLETO_DE_ACORDO` (24), e `DUPLICADA` fica só com as mensalidades (4).
+
+**O universo hoje — e um aviso importante.** A leitura de 16/10 com o mesmo
+filtro traz **um motivo que não existia ontem**:
+
+| motivo | alunos | valor |
+|---|---:|---:|
+| DISPONÍVEL | 8.465 | R$ 17.214.448 |
+| **giro_fidelizado** | **3.299** | R$ 5.273.954 |
+| acao_massiva_recente | 712 | R$ 401.742 |
+| encerrado_operacional | 416 | R$ 133.489 |
+| contato_indisponivel | 395 | R$ 492.611 |
+| liquidado_prime | 258 | R$ 545.454 |
+| confirmacao_pendente | 197 | R$ 1.261.634 |
+| fora_tipo_cobranca | 121 | R$ 470.270 |
+| retorno_futuro | 80 | R$ 120.834 |
+
+`giro_fidelizado` **não é meu**: veio da migration `20261016115142
+giro_carteiras_2026_1_2026_2`, aplicada por outra frente hoje às 11:51 UTC na
+mesma função. Conferido que a minha regra continua viva no corpo atual
+(`like 'OPERADOR%'` presente; md5 agora `425a3961a1479ac91f0a6e00218bc66c`).
+
+**Não atribua os 8.465 disponíveis à correção do retorno.** Três coisas se
+somam hoje: a regra nova, o fim natural da janela de 10 dias da campanha de
+06/10 (por isso `acao_massiva_recente` caiu de 5.954 para 712) e o giro de
+outra frente. O efeito isolado da minha mudança é o medido na seção 7.
 
 Os itens 2 a 4 **não** foram aplicados. Qualquer mexida na camada Prime
 (`liquidado_prime`) passa antes por `docs/integracoes/README.md`.
