@@ -36,3 +36,7 @@ dist-ssr
 # aluno e de titulo reais -- nunca vai para o repositorio. A fixture versionada
 # (.preview/dados-efetividade.js) e 100% sintetica.
 .preview/*.local.js
+
+# Estado por projeto do plugin ReATIVA One: escopo da frente de trabalho.
+# Nao versionado por desenho, e NUNCA guarda credencial.
+.claude/reativa-one.local.md
