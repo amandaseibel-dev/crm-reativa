@@ -6,6 +6,7 @@ import TelaMetas from "./tvMetas";
 import TelaAcordosHoje from "./tvAcordosHoje";
 import TelaObjecoes from "./tvObjecoes";
 import TelaMagicNumber from "./tvMagicNumber";
+import TvV3Comparativo from "./TvV3Comparativo";
 
 // =============================================================================
 // TV ReATIVA — TELAS (Etapa 3: regras detalhadas)
@@ -730,7 +731,7 @@ export const CATALOGO_TELAS = [
   { id: "hoje", nome: "Hoje na Operação", Comp: TelaHoje, ativa: true, grupo: "operacao",
     descricao: "Honorários recebidos hoje em destaque, bruto recuperado como apoio e destaques de operadores por honorário.",
     temConteudo: (s) => !!s?.hoje },
-  { id: "comparativo_ano", nome: "Mês vs. ano passado", Comp: TelaComparativoAno, ativa: true, grupo: "operacao",
+  { id: "comparativo_ano", nome: "Mês vs. ano passado", Comp: TvV3Comparativo, ativa: true, grupo: "operacao",
     descricao: "Recuperado e honorários do mês contra o mesmo período do ano anterior.",
     temConteudo: (s) => !!s?.comparativo_ano },
   { id: "resultado", nome: "Resultado do Mês", Comp: TelaResultadoMes, ativa: true, grupo: "operacao",
