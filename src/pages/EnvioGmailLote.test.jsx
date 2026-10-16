@@ -14,6 +14,7 @@ import { render, screen, act, cleanup, fireEvent } from "@testing-library/react"
 
 const insertMock = vi.fn();
 const alunosTocado = vi.fn();
+const rpcMock = vi.fn();
 
 const TEMPLATES = [
   {
@@ -33,7 +34,7 @@ vi.mock("../services/supabase", () => ({
         data: { user: { email: "cobranca03@aelbra.com.br", user_metadata: { nome: "Olga" } } },
       }),
     },
-    rpc: async () => ({ data: CANDIDATOS }),
+    rpc: async (nome, args) => { rpcMock(nome, args); return { data: CANDIDATOS }; },
     from: (tabela) => {
       if (tabela === "email_templates") {
         return { select: () => ({ eq: () => ({ order: async () => ({ data: TEMPLATES }) }) }) };
@@ -61,6 +62,7 @@ import EnvioGmailLote from "./EnvioGmailLote";
 beforeEach(() => {
   insertMock.mockClear();
   alunosTocado.mockClear();
+  rpcMock.mockClear();
   gteRecebido = null;
   window.open = vi.fn();
   Object.defineProperty(window.navigator, "clipboard", {
@@ -99,6 +101,18 @@ describe("Envio pelo Gmail em lote", () => {
     for (const campo of ["data_retorno", "status_jornada", "status_atual", "status_acionamento", "proxima_acao"]) {
       expect(linha[campo]).toBeUndefined();
     }
+  });
+
+  // A fila desta tela nao passa pelo universo, entao nao herda a recencia por
+  // canal. Tirar a escrita de data_retorno (o que esta tela fazia de errado)
+  // levaria junto o unico freio de repeticao que ela tinha -- por isso o
+  // cooldown precisa vir explicito na chamada.
+  it("pede a fila com cooldown de 10 dias, nao com null", async () => {
+    await montar();
+    expect(rpcMock).toHaveBeenCalledWith("buscar_candidatos_acoes_massivas", expect.anything());
+    const [, args] = rpcMock.mock.calls[0];
+    expect(args.p_dias_minimo_sem_contato).toBe(10);
+    expect(args.p_apenas_nunca_acionado).toBe(false);
   });
 
   it("conta os enviados do dia pela virada de Brasilia, nao pela de UTC", async () => {

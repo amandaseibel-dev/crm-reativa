@@ -8,6 +8,15 @@ import { Carregando } from "../ui/estados";
 
 const FONTE = "'Sora', 'Inter', system-ui, sans-serif";
 
+// Cooldown por aluno desta tela, em dias. A fila daqui NAO passa por
+// acoes_massivas_universo: ela chama buscar_candidatos_acoes_massivas, que nao
+// conhece canal nem recencia. O unico freio temporal que existia era o
+// `data_retorno` que a propria tela gravava -- e que ela deixou de gravar,
+// porque criava "retorno agendado" que ninguem agendou. Sem este parametro o
+// mesmo aluno poderia voltar a fila no dia seguinte. 10 dias e a mesma janela
+// da recencia da acao massiva.
+const DIAS_SEM_CONTATO = 10;
+
 function moeda(v) {
   return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -64,7 +73,7 @@ export default function EnvioGmailLote() {
     const { data } = await supabase.rpc("buscar_candidatos_acoes_massivas", {
       p_ano_vencimento: null,
       p_limite: 300,
-      p_dias_minimo_sem_contato: null,
+      p_dias_minimo_sem_contato: DIAS_SEM_CONTATO,
       p_apenas_nunca_acionado: false,
     });
     const comEmail = (data || [])
