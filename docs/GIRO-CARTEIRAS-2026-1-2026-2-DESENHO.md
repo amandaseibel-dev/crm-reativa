@@ -1,13 +1,17 @@
 # Giro total das carteiras 2026/1 e 2026/2 — desenho (16/10/2026)
 
-**Estado: DESENHO + SIMULAÇÃO MEDIDA. Nada foi aplicado em produção.** Este
-documento é o levantamento estrutural e as decisões que precisam da sua palavra
-antes de qualquer execução.
-
-**A simulação já rodou** (16/10/2026, somente SELECT, pelo SQL Editor de
-produção). Resultados, relatório por operador e o que não é distribuído:
+**Estado: EXECUTADO EM PRODUÇÃO em 16/10/2026.** Este documento é o
+levantamento estrutural e as 7 decisões que a gestão tomou — todas fechadas e
+aplicadas. Fica como o registro do **porquê** de cada escolha; o **resultado**
+está em
 [`GIRO-CARTEIRAS-2026-1-2026-2-SIMULACAO.md`](GIRO-CARTEIRAS-2026-1-2026-2-SIMULACAO.md).
-As decisões 1 a 4 abaixo estão atualizadas com o que a medição mostrou.
+
+O que foi para produção, na ordem: PR #682 mesclado na `main` (`b5b08d65`);
+migration aplicada por `apply_migration` e registrada na versão
+`20261016115142`; teto geral da carteira de 500 para 700; simulação
+`437f434b-e781-4357-a5ef-3fcd8e9d4770` aprovada e executada em 27 lotes —
+3.808 CPFs, 544 por operador, R$ 11.497.538,75, 3.922 casos fidelizados até
+26/10/2026, nenhum dado financeiro alterado.
 
 ---
 
@@ -218,7 +222,7 @@ automático dos 10 dias — por desenho, porque foi pedido preservar o responsá
 Se a intenção for que voltem ao rodízio em algum momento, isso precisa de uma
 decisão a mais; hoje a saída é alguém assumir.
 
-## 5. O que será escrito na execução (quando autorizada)
+## 5. O que a execução escreveu
 
 * `casos.operador_email`, `operador_nome`, `operador` — o responsável.
 * `casos.operador_mensalidade_email`, `_nome`, `mensalidade_girada_em` — a
@@ -240,15 +244,34 @@ Nada de acordo, pagamento, baixa, termo ou valor financeiro é tocado.
 Sem PITR no projeto (restrição conhecida), a reversão é essa — por id exato,
 não restore.
 
-## 6. Ordem de execução proposta
+## 6. Ordem de execução — como foi, de fato
 
-1. ~~Restaurar a leitura de produção.~~ **Feito** (SQL Editor, 16/10).
-2. ~~Rodar a simulação.~~ **Feito** — resultados em
-   [`GIRO-CARTEIRAS-2026-1-2026-2-SIMULACAO.md`](GIRO-CARTEIRAS-2026-1-2026-2-SIMULACAO.md).
-3. **Pendente: você decide 1 a 4 e aprova os números.**
-4. Só então: migration (reativação do giro + universo novo + fidelização
-   especial), simulação gravada como RASCUNHO em `calibragem_simulacoes`,
-   aprovação, execução em lotes.
+1. ~~Restaurar a leitura de produção.~~ **Feito** — exigiu reautorizar o
+   conector na organização Reativa One; a concessão em uso era a da
+   organização pessoal, que não enxerga o projeto de produção.
+2. ~~Rodar a simulação de leitura.~~ **Feito** (SQL Editor, somente SELECT).
+3. ~~Gestão decide as 7 decisões.~~ **Feito** em 16/10.
+4. ~~PR, checks e merge.~~ **Feito** — PR #682, 4 checks verdes, merge
+   `b5b08d65`.
+5. ~~Migration por `apply_migration`.~~ **Feito** — versão `20261016115142`,
+   com o drift de numeração declarado no ledger.
+6. ~~Simulação definitiva, aprovação e execução em lotes.~~ **Feito** —
+   `437f434b-e781-4357-a5ef-3fcd8e9d4770`, 27 lotes, 3.818 movidos e 104
+   pulados (causa e correção na seção 6 do documento de resultados).
+7. ~~Conferência.~~ **Feito** — responsáveis, saldos, fidelização, bloqueio das
+   massivas, sincronia caso↔ficha e ausência de alteração financeira.
 
-Nenhum merge, nenhuma migration e nenhuma alteração em produção antes da sua
-autorização expressa.
+## 7. O que ficou aprendido para o próximo giro
+
+* **Ficha irmã não é caso pulado por acaso.** Mover a primeira ficha de um
+  aluno propaga o responsável para as outras pelo gatilho de sincronia; o
+  executor então vê o dono já diferente do previsto e pula. Foram 104 casos.
+  O responsável fica certo, mas a marca de fidelização não é gravada — e é a
+  marca que segura o caso contra as rotinas automáticas. Ou o executor passa a
+  completar esses casos, ou toda execução precisa do `UPDATE` de marca depois.
+* **A versão registrada nunca é o número do arquivo.** `apply_migration`
+  carimba o próprio timestamp. Já é o quinto caso documentado; o ledger existe
+  para declarar isso em vez de tentar renumerar.
+* **O teto é parte do desenho, não detalhe.** Uma carteira alvo maior que o
+  teto se desfaz sozinha na primeira troca de dono. Conferir o teto contra o
+  resultado da simulação antes de executar virou guarda dentro do executor.

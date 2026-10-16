@@ -1,89 +1,105 @@
-# Giro total das carteiras 2026/1 e 2026/2 — SIMULAÇÃO (16/10/2026)
+# Giro total das carteiras 2026/1 e 2026/2 — EXECUTADO (16/10/2026)
 
-**Somente leitura.** Medido em produção (`ahattpqrjmhkzsmnbdzs`, projeto Reativa
-One) pelo SQL Editor, em 16/10/2026. **Nada foi escrito: nenhuma migration,
-nenhum caso movido, nenhuma simulação gravada em `calibragem_simulacoes`.**
+**Executado em produção** (`ahattpqrjmhkzsmnbdzs`, projeto Reativa One) em
+16/10/2026, com autorização da gestão a cada etapa. Migration registrada na
+versão `20261016115142`; simulação `437f434b-e781-4357-a5ef-3fcd8e9d4770`
+aprovada e executada às 12:05:45 UTC em 27 lotes de 150.
+
+Os números deste documento são os da **execução conferida**, não os da
+simulação de leitura feita de manhã — a base andou entre uma e outra, e a
+seção 7 registra a diferença.
 
 Desenho e decisões: [`GIRO-CARTEIRAS-2026-1-2026-2-DESENHO.md`](GIRO-CARTEIRAS-2026-1-2026-2-DESENHO.md).
 Consultas reproduzíveis: [`analises/2026-10-16-giro-carteiras-simulacao.sql`](analises/2026-10-16-giro-carteiras-simulacao.sql).
+Conferência pós-execução: [`analises/2026-10-16-giro-conferencia-pos-execucao.sql`](analises/2026-10-16-giro-conferencia-pos-execucao.sql).
 
 ---
 
-## 1. Relatório por operador
+## 1. Relatório por operador (executado)
 
 Distribuição em **duas passadas com prioridade 2026/2**, decidida pela gestão em
-16/10 (o porquê e as alternativas descartadas estão na seção 4.5).
+16/10 (o porquê e as alternativas descartadas estão na seção 4.5). A tabela
+abaixo foi lida da base **depois** do giro, não da simulação.
 
-| Operador | CPFs 2026/1 | CPFs 2026/2 | CPFs únicos | Títulos | Saldo 2026/1 | Saldo 2026/2 | Consolidado | Desvio 2026/2 | Desvio total |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Allan | 286 | 268 | 544 | 1.266 | 1.004.109,69 | 645.540,95 | 1.649.650,64 | −0,11% | +0,23% |
-| Diego | 285 | 268 | 544 | 1.300 | 995.568,03 | 641.981,82 | 1.637.549,85 | −0,66% | −0,50% |
-| João | 286 | 268 | 544 | 1.318 | 993.145,47 | 645.018,31 | 1.638.163,78 | −0,19% | −0,47% |
-| Luana | 282 | 269 | 544 | 1.329 | 1.002.821,01 | 650.664,12 | 1.653.485,13 | +0,68% | +0,47% |
-| Mauricio | 280 | 269 | 543 | 1.318 | 1.009.855,18 | 651.709,59 | 1.661.564,77 | +0,84% | +0,96% |
-| Nataly | 284 | 268 | 544 | 1.255 | 993.181,47 | 644.830,13 | 1.638.011,60 | −0,22% | −0,47% |
-| Rafaella | 285 | 268 | 544 | 1.305 | 998.275,61 | 644.085,17 | 1.642.360,78 | −0,34% | −0,21% |
-| **Total** | **1.988** | **1.878** | **3.807** | **9.091** | **6.996.956,46** | **4.523.830,09** | **11.520.786,55** | | |
+| Operador | CPFs 2026/1 | CPFs 2026/2 | CPFs únicos | Títulos | Saldo 2026/1 | Saldo 2026/2 | Consolidado | Ativos / teto 700 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Allan | 285 | 268 | 544 | 1.311 | 993.042,73 | 642.411,21 | 1.635.453,94 | 624 |
+| Diego | 285 | 268 | 544 | 1.323 | 998.015,42 | 638.626,80 | 1.636.642,22 | 639 |
+| João | 282 | 269 | 544 | 1.258 | 992.836,61 | 642.133,46 | 1.634.970,07 | 602 |
+| Luana | 281 | 269 | 544 | 1.323 | 1.009.824,38 | 648.107,24 | 1.657.931,62 | 570 |
+| Mauricio | 283 | 269 | 544 | 1.305 | 1.002.997,50 | 647.321,63 | 1.650.319,13 | 605 |
+| Nataly | 282 | 269 | 544 | 1.284 | 994.881,12 | 641.765,34 | 1.636.646,46 | 592 |
+| Rafaella | 289 | 268 | 544 | 1.287 | 1.004.243,55 | 641.331,76 | 1.645.575,31 | 610 |
+| **Total** | **1.987** | **1.880** | **3.808** | **9.091** | **6.995.841,31** | **4.501.697,44** | **11.497.538,75** | |
 
-As colunas por semestre somam 3.866, e não 3.807, porque **59 CPFs devem nos
+As colunas por semestre somam 3.867, e não 3.808, porque **59 CPFs devem nos
 dois semestres** e contam nas duas colunas — continuando com **um** operador só.
+
+A carteira lida da base depois do giro bate com a simulação aprovada operador a
+operador, centavo a centavo. A última coluna é a carteira **ativa** — a conta
+que o gatilho de teto faz —, toda ela abaixo dos 700.
 
 ## 2. Números pedidos
 
 | | |
 |---|---|
-| CPFs únicos redistribuídos | **3.807** |
+| CPFs únicos redistribuídos | **3.808** |
 | Títulos | **9.091** |
-| Saldo total da carteira redistribuída | **R$ 11.520.786,55** |
+| Saldo total da carteira redistribuída | **R$ 11.497.538,75** |
 | Operadores | **7** |
-| Média de CPFs por operador | **543,9** |
-| Média de saldo por operador | **R$ 1.645.826,65** |
-| Diferença entre maior e menor quantidade de CPFs | **1** (544 × 543) |
+| CPFs por operador | **544** — todos |
+| Média de saldo por operador | **R$ 1.642.505,54** |
+| Diferença entre maior e menor quantidade de CPFs | **0** |
 | Diferença de CPFs de 2026/2 | **1** (269 × 268) |
-| Diferença financeira de **2026/2** | **R$ 9.727,77** — **1,49%** |
-| Diferença financeira de 2026/1 | **R$ 16.709,71** — **1,65%** |
-| Diferença financeira **consolidada** | **R$ 24.014,92** — **1,45%** |
-| CPFs que mudam de operador | 3.660 — **a re-medir** |
-| CPFs que permanecem com o mesmo responsável | 147 — **a re-medir** |
+| Diferença financeira de **2026/2** | **1,46%** |
+| Diferença financeira de 2026/1 | **1,68%** |
+| Diferença financeira **consolidada** | **R$ 22.961,55** — **1,38%** |
+| CPFs vindos do pool (sem operador antes) | **2.646** |
+| CPFs que trocaram de operador | **1.019** |
+| CPFs que ficaram com o mesmo responsável | **143** |
 
-Os dois últimos foram medidos na distribuição anterior (serpentina única). A
-troca para duas passadas muda quem recebe o quê, então esses dois números
-precisam sair da simulação definitiva, gravada por `giro_2026_10_simular`. Os
-demais já são da distribuição nova. 2.644 dos 3.807 CPFs não têm operador hoje,
-então a maior parte do "muda de operador" continua sendo entrada de pool, não
-troca entre operadores.
+O giro é menos uma redistribuição e mais uma ocupação: **2.646 dos 3.808 CPFs
+não tinham operador nenhum**. Troca real entre operadores foram 1.019.
 
 **Conferência de fechamento:** a soma das sete carteiras é exatamente
-R$ 11.520.786,55 e 3.807 CPFs — igual ao total elegível. Nenhum CPF aparece em
-dois operadores (0). As três somas (CPFs, títulos, saldo) fecham linha a linha.
+R$ 11.497.538,75 e 3.808 CPFs — igual ao total elegível. Nenhum CPF em dois
+operadores (0), nenhum caso em duplicidade (0), `soma_fecha` verdadeiro. As
+três somas (CPFs, títulos, saldo) fecham linha a linha.
 
 ## 3. O que NÃO é distribuído, e por quê
 
-Universo total de mensalidades em aberto das competências 2026/1 e 2026/2:
-**5.568 alunos, 12.147 títulos, R$ 18.099.144,99.**
+Universo total de mensalidades em aberto das competências 2026/1 e 2026/2, **no
+instante da execução**: **5.566 alunos, 12.145 títulos, R$ 18.097.695,99.**
 
-| Situação | Alunos/CPFs | Títulos | Saldo R$ | Por quê |
-|---|---:|---:|---:|---|
-| **Distribuído** | 3.807 | 9.091 | 11.520.786,55 | — |
-| Acordo ativo | 1.040 | 1.961 | 4.724.081,83 | tem parcela de acordo em aberto; mover entra em conflito com a regra "o dono do acordo é o responsável" e o pedido é não alterar acordos |
-| Sem ficha no CRM | 513 | 540 | 741.082,78 | o título existe, o aluno não tem caso no CRM — não há responsável a atribuir |
-| Caso protegido ou encerrado | 208 | 555 | 1.113.193,83 | negociação em curso, link vivo, termo, confirmação de pagamento, `nao_acionar`, Carteira Geral ou caso já encerrado |
-| **Total fora** | **1.761** | **3.056** | **6.578.358,44** | |
+| Situação | Alunos/CPFs | Por quê |
+|---|---:|---|
+| **Distribuído** | **3.808** | — |
+| Acordo ativo | 1.038 | tem parcela de acordo em aberto; mover entra em conflito com a regra "o dono do acordo é o responsável" e o pedido é não alterar acordos |
+| Sem ficha no CRM | 512 | o título existe, o aluno não tem caso no CRM — não há responsável a atribuir |
+| Caso protegido ou encerrado | 208 | negociação em curso, link vivo, termo, confirmação de pagamento, `nao_acionar`, Carteira Geral ou caso já encerrado |
+| **Total fora** | **1.758** | |
 
-3.807 + 1.040 + 513 + 208 = 5.568 ✓ · 9.091 + 1.961 + 540 + 555 = 12.147 ✓ ·
-11.520.786,55 + 4.724.081,83 + 741.082,78 + 1.113.193,83 = 18.099.144,99 ✓
+3.808 + 1.038 + 512 + 208 = 5.566 ✓. Dos títulos, 9.091 foram distribuídos
+(R$ 11.497.538,75); os 3.054 restantes, R$ 6.600.157,24, ficaram de fora.
+
+A quebra de títulos e saldo **por motivo** não é dada aqui de propósito: a
+simulação guarda só a contagem de alunos por motivo, e qualquer releitura
+posterior já é outra foto. Uma leitura poucos minutos depois do giro, por
+exemplo, devolveu 3.807 distribuídos e R$ 11.484.557,27 — a base de cobrança
+anda o tempo todo. Vale a contagem do instante da execução, que é a que a
+simulação registrou.
 
 ## 4. Três coisas que a medição mostrou e que mudam a leitura do giro
 
-### 4.1. Dois terços da carteira 2026 hoje não têm dono
+### 4.1. Dois terços da carteira 2026 não tinham dono
 
-Dos 3.807 CPFs elegíveis, **2.644 (69,5%) estão sem operador neste momento** —
-o giro não os tira de ninguém, ele os **coloca em alguém**. A conta dos 3.660
-que "mudam de operador" se decompõe assim:
+Dos 3.808 CPFs elegíveis, **2.646 (69,5%) estavam sem operador** —
+o giro não os tirou de ninguém, ele os **colocou em alguém**. A conta se
+decompõe assim:
 
-* 2.644 saem do pool para um operador (entrada, não troca);
-* 1.016 trocam de um operador ativo para outro;
-* 147 permanecem onde já estavam.
+* 2.646 saíram do pool para um operador (entrada, não troca);
+* 1.019 trocaram de um operador ativo para outro;
+* 143 permaneceram onde já estavam.
 
 ### 4.2. O semestre por Prime e por vencimento discordam em 1.232 títulos
 
@@ -235,7 +251,51 @@ gestão, não de algoritmo.
   outros 715 pertencem a e-mails fora dos 7 operadores (Carteira Geral,
   gestão), e o giro não os toca.
 
-## 6. Limites declarados desta simulação
+## 6. A execução, e os 104 casos que ficaram para trás
+
+**Simulação `437f434b-e781-4357-a5ef-3fcd8e9d4770`**, gravada RASCUNHO às
+11:55 UTC, aprovada por amanda.seibel@aelbra.com.br e executada às 12:05:45
+UTC em 27 lotes de 150. Antes de aprovar, a revalidação mostrou as 3.922
+movimentações ainda coerentes com a base: zero casos com dono diferente do
+previsto, zero desaparecidos.
+
+| | |
+|---|---|
+| Casos previstos | 3.922 |
+| Movidos | **3.818** |
+| Pulados | **104** |
+
+**Por que 104 foram pulados.** Quando um aluno tem mais de uma ficha, mover a
+primeira dispara `trg_sync_alunos_apos_casos` → a ficha recebe o responsável
+novo → o gatilho de volta propaga esse responsável para as **outras fichas do
+mesmo aluno**. Quando o lote chegava na ficha irmã, o executor comparava o dono
+atual com o previsto, via que já era outro e pulava — corretamente, porque essa
+comparação é justamente a trava contra mover caso que mudou de mão no meio do
+caminho.
+
+Conferido, caso a caso: os 104 **já estavam com o operador pretendido** (zero
+com outro dono), todos com uma ficha irmã movida no mesmo aluno, 99 alunos
+distintos. Nenhum ficou sem responsável.
+
+**O que faltou neles, e a correção.** O responsável estava certo, mas a marca
+`giro_fidelizacao_ate` não foi gravada — ela só é escrita pelo `UPDATE` do
+executor, que não rodou para eles. Efeito medido: 3 dos 104 já estavam fora da
+janela de 10 dias e poderiam voltar ao pool na manhã seguinte. O bloqueio de
+ações massivas não era afetado, porque ele olha o **aluno** e todos os 104
+tinham irmã marcada.
+
+A correção, autorizada à parte, foi um `UPDATE` que gravou **só a marca** nos
+104, com três condições: pertencer aos pulados daquela simulação, já estar com
+o operador previsto e ainda não ter marca. Nenhum responsável foi tocado.
+Depois dela: 3.922 de 3.922 casos protegidos até 26/10, 0 responsáveis
+divergentes, 0 casos sem dono, 544 CPFs por operador, 0 acordos/parcelas/
+títulos alterados e 0 divergências entre caso e ficha.
+
+**Para um próximo giro:** vale o executor gravar a marca também nas fichas
+irmãs do mesmo aluno, ou reconhecer que "dono já é o previsto" não é motivo
+para pular — é motivo para completar. Hoje ele trata os dois casos como um só.
+
+## 7. Limites declarados
 
 * O saldo é o do título em aberto (`coalesce(saldo_corrigido, valor_em_aberto,
   valor_original)`), a mesma fórmula da view `calibragem_saldo_aluno`. Não é o
