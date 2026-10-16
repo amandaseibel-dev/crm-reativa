@@ -44,6 +44,7 @@
       "mcp__claude_ai_Supabase__rebase_branch",
       "mcp__3e1f85b1-8c91-4d44-b207-0f452630cdc0__confirm_cost",
       "mcp__claude_ai_Supabase__confirm_cost",
+      "mcp__claude_ai_Supabase__create_edge_function_secret",
 
       "mcp__3572527a-3079-4f3a-a531-07b308fdc6b2__create_deployment",
       "mcp__claude_ai_Vercel__create_deployment",
@@ -79,6 +80,8 @@
       "mcp__claude_ai_Vercel__approve_rolling_release_stage",
       "mcp__3572527a-3079-4f3a-a531-07b308fdc6b2__complete_rolling_release",
       "mcp__claude_ai_Vercel__complete_rolling_release",
+      "mcp__3572527a-3079-4f3a-a531-07b308fdc6b2__create_project",
+      "mcp__claude_ai_Vercel__create_project",
       "Bash(vercel:*)",
       "Bash(vercel *)",
       "Bash(npx vercel:*)",
