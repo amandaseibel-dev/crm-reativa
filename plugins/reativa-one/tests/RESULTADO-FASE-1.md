@@ -179,3 +179,53 @@ navegador. Exposição prática: baixa.
 **Não foram removidas**, porque mexer nelas é mexer no arquivo pessoal e não
 versionado, e o pedido 3 limita a alteração ao necessário. Fica registrado como
 higiene a fazer com você no teclado.
+
+---
+
+## 6. Preservação, medida antes e depois (pedido 7)
+
+Tudo medido no mesmo worktree, sobre a base limpa (`14fac396`) e depois do PR.
+
+| Medida | Antes | Depois | |
+|---|---|---|---|
+| Catraca do lint | 473 erros herdados | **473** | estável, não piorou |
+| Arquivos de teste coletados | 233 | **233** | igual |
+| Casos de teste coletados | 4.265 | **4.265** | igual |
+| `npm run build` | — | **✓ built in 4.71s** | |
+| Catraca das migrations | — | **✓ 0 migrations novas, nada piorou** | base `14fac396`, 740 versões no índice |
+| **CI do PR #683** | — | **4 checks, 0 falhando, `MERGEABLE/CLEAN`** | runner dedicado |
+
+Diff contra a merge-base: **24 arquivos, 1.748 inserções, 0 remoções**. Nada em
+`src/`, `supabase/`, `docs/`, `scripts/`, `.github/`, `package.json`,
+`vitest.config.js` ou `eslint.config.js`.
+
+Os scripts do plugin são `.sh` e `.mjs`; o `eslint.config.js` cobre
+`**/*.{js,jsx}` e não os alcança — por isso a catraca do lint não se move. O
+autoteste se chama `.autoteste.mjs`, e não `.test.mjs`, para o `vitest` da raiz
+não coletá-lo: é o que mantém a contagem de testes idêntica.
+
+### A suíte local falhou 4 testes, e por que isso NÃO é regressão
+
+Na rodada completa local: `4 failed | 4260 passed | 1 skipped`, em 3 arquivos.
+Todas as falhas são **timeout** (`Test timed out in 5000ms`,
+`Hook timed out in 10000ms`), não asserção.
+
+Três medições que separam flutuação de defeito:
+
+1. **O teste que falha muda de rodada para rodada.** Na primeira foi
+   `H3. fora de producao a lista de 10/09 nao existe`; na segunda, no mesmo
+   arquivo, foi `A. acordo cancelado com divida volta a ser elegivel`. Defeito
+   determinístico não troca de lugar.
+2. **Isolado, passa.** `acordo_cancelado_nao_cancela_cobranca.test.js` sozinho:
+   **16 de 16, em 21,87s**. Os outros dois arquivos: 66 passados.
+3. **Este PR não toca nenhum deles.** `git diff --name-only <merge-base> HEAD`
+   filtrado por `supabase/tests|supabase/migrations|src/` devolve **0**
+   arquivos. As entradas dos testes são byte a byte as da base.
+
+Causa: a suíte rodou **concorrendo com o lint e o build** na mesma máquina —
+8.643s de tempo de teste contra 1.773s de parede. É a mesma armadilha já
+registrada no projeto (worker local sem limite, falha falsa por CPU).
+
+**Status honesto: a suíte completa local é NÃO COMPROVADA por esta sessão** —
+nunca obtive uma rodada completa sem disputa de CPU. O verde com autoridade é o
+CI do PR, em runner dedicado: **4 checks, 0 falhando**.
