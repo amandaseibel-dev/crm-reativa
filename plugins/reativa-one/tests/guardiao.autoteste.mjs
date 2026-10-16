@@ -15,7 +15,7 @@
 // Saída: 0 = todos os casos como esperado; 1 = algum caso divergiu.
 // ============================================================================
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -160,6 +160,18 @@ const casos = [
 
   // ---- excesso conhecido e aceito (documentado, não escondido)
   ["B63", "NEGA", "eco inofensivo que CITA db push (nega por excesso)", bash("echo 'lembrete: supabase db push e proibido'")],
+
+  // ---- C01-C07: o nome que a CLI dá aos conectores do claude.ai
+  // (mcp__claude_ai_<Nome>__<ferramenta>); no app desktop o prefixo é o id em
+  // UUID. São os mesmos casos de B39-B47. Os dois nomes foram confirmados em
+  // sessão real da CLI (teste L1, tests/L1-roteiro.md).
+  ["C01", "NEGA", "apply_migration (prefixo claude_ai_)", mcp("mcp__claude_ai_Supabase__apply_migration", { name: "x", query: "select 1" })],
+  ["C02", "NEGA", "deploy_edge_function (prefixo claude_ai_)", mcp("mcp__claude_ai_Supabase__deploy_edge_function", { name: "f" })],
+  ["C03", "NEGA", "merge_branch (prefixo claude_ai_)", mcp("mcp__claude_ai_Supabase__merge_branch")],
+  ["C04", "NEGA", "Vercel create_deployment (prefixo claude_ai_)", mcp("mcp__claude_ai_Vercel__create_deployment")],
+  ["C05", "NEGA", "execute_sql com UPDATE (prefixo claude_ai_)", mcp("mcp__claude_ai_Supabase__execute_sql", { query: "update alunos set saldo_total = 0" })],
+  ["C06", "PASSA", "list_migrations (prefixo claude_ai_)", mcp("mcp__claude_ai_Supabase__list_migrations")],
+  ["C07", "PASSA", "execute_sql com SELECT (prefixo claude_ai_)", mcp("mcp__claude_ai_Supabase__execute_sql", { query: "select count(*) from alunos" })],
 ];
 
 // ---------------------------------------------------------------------------
@@ -170,6 +182,50 @@ for (const [id, esperado, descricao, payload] of casos) {
   const regra = (r.motivo.match(/\[([^\]]+)\]/) || [, ""])[1];
   resultados.push({ id, descricao, esperado, obtido, ok: obtido === esperado, regra, motivo: r.motivo });
 }
+
+
+// ---------------------------------------------------------------------------
+// S01-S02: estáticos, sobre .claude/settings.json (Camada 0). Não rodam o hook:
+// leem o arquivo. Existem porque a Camada 0 casa por nome EXATO de ferramenta, e
+// o mesmo conector tem dois nomes (UUID no app desktop, claude_ai_<Nome> na CLI).
+// ---------------------------------------------------------------------------
+// Nome na CLI de cada conector cujo id em UUID aparece em settings.json.
+const NOME_NA_CLI = {
+  "3e1f85b1-8c91-4d44-b207-0f452630cdc0": "Supabase",
+  "3572527a-3079-4f3a-a531-07b308fdc6b2": "Vercel",
+};
+
+function estatico(id, descricao, verificar) {
+  let erro = "";
+  try { erro = verificar() || ""; } catch (e) { erro = `exceção: ${e.message}`; }
+  resultados.push({
+    id, descricao, esperado: "OK", obtido: erro ? "FALHA" : "OK",
+    ok: !erro, regra: "camada0", motivo: erro,
+  });
+}
+const lerSettings = () => JSON.parse(readFileSync(join(RAIZ, ".claude", "settings.json"), "utf8"));
+
+estatico("S01", "settings.json é JSON válido e tem deny e ask", () => {
+  const p = lerSettings().permissions || {};
+  return Array.isArray(p.deny) && Array.isArray(p.ask) ? "" : "falta permissions.deny ou permissions.ask";
+});
+
+estatico("S02", "toda regra mcp__<UUID>__x tem o par mcp__claude_ai_<Nome>__x na mesma lista, e vice-versa", () => {
+  const p = lerSettings().permissions;
+  const faltas = [];
+  for (const lista of ["deny", "ask"]) {
+    const regras = new Set(p[lista]);
+    for (const [uuid, nome] of Object.entries(NOME_NA_CLI)) {
+      const pre = `mcp__${uuid}`;
+      const preCli = `mcp__claude_ai_${nome}`;
+      for (const r of regras) {
+        if (r.startsWith(pre) && !regras.has(preCli + r.slice(pre.length))) faltas.push(`${lista}: falta o par claude_ai_ de ${r}`);
+        if (r.startsWith(preCli) && !regras.has(pre + r.slice(preCli.length))) faltas.push(`${lista}: falta o par UUID de ${r}`);
+      }
+    }
+  }
+  return faltas.join("; ");
+});
 
 for (const dir of temporarios) {
   try { rmSync(dir, { recursive: true, force: true }); } catch { /* fixture descartável */ }

@@ -229,3 +229,56 @@ registrada no projeto (worker local sem limite, falha falsa por CPU).
 **Status honesto: a suíte completa local é NÃO COMPROVADA por esta sessão** —
 nunca obtive uma rodada completa sem disputa de CPU. O verde com autoridade é o
 CI do PR, em runner dedicado: **4 checks, 0 falhando**.
+
+## 7. Nomes de conector na CLI (`claude_ai_*`) — 16/10/2026
+
+**Problema comprovado.** As regras da Camada 0 para Supabase e Vercel usavam o id
+em UUID do app desktop. Na linha de comando o conector chama-se
+`claude_ai_<Nome>`. Antes da correção, `.claude/settings.json` tinha **0**
+entradas com `claude_ai_` e 29 com UUID. A Camada 1 (hook) já cobria os dois
+nomes, pois casa por sufixo, mas só existe com o plugin ativo.
+
+**Correção (commits separados de `settings.json`).** 12 linhas do Supabase e 17
+do Vercel adicionadas, **0 removidas**: `deny` 90 → 118, `ask` 78 → 79,
+`allow` 0 → 0.
+
+**Autoteste: 72 de 72 como esperado, 0 divergente.** Os 63 casos anteriores
+seguem iguais. Novos: C01–C07 (hook com o prefixo da CLI), S01 (JSON válido) e
+S02 (todo par UUID/`claude_ai_` existe nas duas formas, para Supabase e Vercel).
+
+**Controle negativo do S02:** removida temporariamente uma regra
+`claude_ai_Supabase__pause_project`, o S02 falhou com "falta o par claude_ai_ de
+…pause_project"; o arquivo foi restaurado. O teste detecta a deriva.
+
+### L1 — casamento real das regras na CLI (executado)
+
+Método: `tests/L1-roteiro.md`. Duas pastas isoladas, uma com o `settings.json`
+**antes** (só UUID) e outra **depois**; sessão da CLI com os conectores do
+claude.ai ligados; a única ferramenta chamada foi `ToolSearch` (lista nomes, não
+executa nada). Nenhuma ferramenta de escrita foi chamada.
+
+| ferramenta (prefixo `claude_ai_`) | antes | depois |
+|---|---|---|
+| Supabase `apply_migration`, `deploy_edge_function`, `create_project`, `create_branch`, `merge_branch`, `pause_project` | presente | **ausente** |
+| Vercel `create_deployment`, `request_promote`, `update_project`, `create_project_env`, `put_firewall_config`, `pause_project`, `unpause_project`, `update_project_protection_bypass` | presente | **ausente** |
+| Supabase `execute_sql` (regra em `ask`) | presente | presente (por desenho) |
+| Supabase `list_tables`, `get_advisors`, `list_projects` e Vercel `list_projects` (leitura) | presente | presente |
+
+Conclusões: (1) o nome da CLI é `claude_ai_Supabase` / `claude_ai_Vercel`
+(confirmado em lista real de ferramentas); (2) as regras com UUID **não** removiam
+as ferramentas na CLI; (3) as regras novas removem as ferramentas de escrita
+listadas. As linhas "ausente → presente" de ferramentas de leitura em buscas
+isoladas são ruído do limite de resultados da busca, não efeito das regras.
+
+### NÃO COMPROVADO (e isto não é aprovação)
+
+| O que | Por que não dá daqui | Como provar |
+|---|---|---|
+| **`execute_sql` em `ask` exige aprovação** | Nas sentinelas J1–J13 do laboratório nenhuma pergunta apareceu; a causa não foi isolada. O L1 mostra só que a ferramenta continua disponível | Repetir as sentinelas em sessão interativa no modo padrão |
+| Ferramentas MCP de escrita negadas (F1–F11) | As ferramentas não existiam na sessão do laboratório | Repetir com as ferramentas registradas |
+| Cobertura completa das ferramentas de escrita dos conectores | O L1 só verificou as ferramentas já listadas nas regras. Achados fora das regras: Supabase `create_edge_function_secret` e Vercel `create_project` estão disponíveis | Decisão de incluir (apenas endurece) |
+| Variável `ENABLE_CLAUDEAI_MCP_SERVERS=true` usada no L1 | Não conferida na documentação oficial | Documentação ou nova rodada sem a variável |
+
+**A Camada 0 não é declarada plenamente segura** enquanto `execute_sql` depender
+de `ask` não demonstrado. Esta correção só **endurece**; não amplia nenhuma
+permissão.

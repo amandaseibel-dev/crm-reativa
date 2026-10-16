@@ -34,6 +34,26 @@ Perde-se conveniência (comandos, agentes, escopo), não proteção.
 
 ---
 
+### Dois nomes para o mesmo conector
+
+A Camada 0 casa por **nome exato** da ferramenta. O mesmo conector do claude.ai
+tem dois nomes: o id em UUID no app desktop (`mcp__3e1f85b1-…__apply_migration`)
+e `mcp__claude_ai_<Nome>__<ferramenta>` na linha de comando
+(`mcp__claude_ai_Supabase__apply_migration`). Por isso cada regra do Supabase
+existe nas duas formas. O hook (Camada 1) casa pelo **sufixo** e cobre as duas,
+mas só vale com o plugin ativo.
+
+- O teste `S02` do autoteste falha se uma forma existir sem a outra.
+- Supabase e Vercel têm os dois nomes (nomes da CLI confirmados no teste L1:
+  `tests/L1-roteiro.md`).
+- Se o nome de exibição do conector mudar, a Camada 0 deixa de casar e só o hook
+  protege. Refazer a lista e o `S02` quando isso acontecer.
+- **Limitação conhecida:** `execute_sql` está em `ask`, e a exigência de
+  aprovação nunca foi demonstrada. A Camada 0 não é declarada plenamente segura
+  enquanto isso valer.
+
+---
+
 ## O que o Guardião bloqueia, e por onde
 
 Casado por **sufixo** do nome da ferramenta de MCP, não pelo id do conector:
@@ -85,7 +105,7 @@ assim que o arquivo existe no projeto, porque é lido pelo próprio Claude Code.
 ### Provar que está de pé
 
 1. `node plugins/reativa-one/tests/guardiao.autoteste.mjs` — prova a Camada 1
-   (63 casos, nada executado contra produção).
+   (72 casos, nada executado contra produção).
 2. Sentinelas da Camada 0, inofensivas por desenho:
 
    | Tentar | Esperado |
@@ -159,7 +179,7 @@ estão em negação pura.
 | `/reativa-one:mapa` | qual arquivo manda no assunto, e só o trecho que importa |
 | `/reativa-one:corrigir` | correção pontual pelo subagente `desenvolvedor` |
 | `/reativa-one:checar` | auditoria do diff pelo subagente `guardiao` |
-| `/reativa-one:autoteste` | roda os 63 casos de bloqueio |
+| `/reativa-one:autoteste` | roda os 72 casos (bloqueios e verificações da Camada 0) |
 
 ## Estrutura
 
