@@ -238,13 +238,16 @@ em UUID do app desktop. Na linha de comando o conector chama-se
 entradas com `claude_ai_` e 29 com UUID. A Camada 1 (hook) já cobria os dois
 nomes, pois casa por sufixo, mas só existe com o plugin ativo.
 
-**Correção (commits separados de `settings.json`).** 12 linhas do Supabase e 17
-do Vercel adicionadas, **0 removidas**: `deny` 90 → 118, `ask` 78 → 79,
+**Correção (commits separados de `settings.json`).** 12 linhas do Supabase, 17 do
+Vercel e, depois do L1, 3 (`create_edge_function_secret` da CLI e `create_project`
+do Vercel nos dois nomes), **0 removidas**: `deny` 90 → 121, `ask` 78 → 79,
 `allow` 0 → 0.
 
-**Autoteste: 72 de 72 como esperado, 0 divergente.** Os 63 casos anteriores
-seguem iguais. Novos: C01–C07 (hook com o prefixo da CLI), S01 (JSON válido) e
-S02 (todo par UUID/`claude_ai_` existe nas duas formas, para Supabase e Vercel).
+**Autoteste: 75 de 75 como esperado, 0 divergente.** Os 63 casos anteriores
+seguem iguais. Novos: C01–C09 (hook com o prefixo da CLI e `create_project` do
+Vercel), S01 (JSON válido), S02 (todo par UUID/`claude_ai_` existe nas duas
+formas, com a exceção declarada das ferramentas só da CLI) e S03 (as ferramentas
+achadas no L1 estão em `deny`).
 
 **Controle negativo do S02:** removida temporariamente uma regra
 `claude_ai_Supabase__pause_project`, o S02 falhou com "falta o par claude_ai_ de
@@ -276,8 +279,23 @@ isoladas são ruído do limite de resultados da busca, não efeito das regras.
 |---|---|---|
 | **`execute_sql` em `ask` exige aprovação** | Nas sentinelas J1–J13 do laboratório nenhuma pergunta apareceu; a causa não foi isolada. O L1 mostra só que a ferramenta continua disponível | Repetir as sentinelas em sessão interativa no modo padrão |
 | Ferramentas MCP de escrita negadas (F1–F11) | As ferramentas não existiam na sessão do laboratório | Repetir com as ferramentas registradas |
-| Cobertura completa das ferramentas de escrita dos conectores | O L1 só verificou as ferramentas já listadas nas regras. Achados fora das regras: Supabase `create_edge_function_secret` e Vercel `create_project` estão disponíveis | Decisão de incluir (apenas endurece) |
+| Cobertura completa das ferramentas de escrita dos conectores | O L1 verificou só as ferramentas das regras e as duas achadas depois. Outras ferramentas de escrita dos conectores podem existir fora das regras (o Vercel expõe muitas) | Enumeração dedicada, fora do escopo desta correção |
 | Variável `ENABLE_CLAUDEAI_MCP_SERVERS=true` usada no L1 | Não conferida na documentação oficial | Documentação ou nova rodada sem a variável |
+
+### Complemento do L1 (as duas ferramentas achadas)
+
+Mesmo método, só `ToolSearch`: `create_edge_function_secret` (Supabase) e
+`create_project` (Vercel) estavam **presentes** com as regras antigas e ficaram
+**ausentes** com as novas. `execute_sql`, `list_tables` e `list_projects`
+continuam disponíveis.
+
+**Limitação do hook:** o Guardião barra `create_project` do Vercel (pela suffix, com
+o rótulo M1, que fala em banco), mas **não barra** `create_edge_function_secret`.
+Essa ferramenta é negada só pela Camada 0. Incluí-la na lista M1 do hook é
+decisão pendente.
+
+**Sessões de análise** não devem depender do `ask` de `execute_sql`: o README
+exige desligar o conector Supabase completo nelas.
 
 **A Camada 0 não é declarada plenamente segura** enquanto `execute_sql` depender
 de `ask` não demonstrado. Esta correção só **endurece**; não amplia nenhuma

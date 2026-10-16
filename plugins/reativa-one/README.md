@@ -48,9 +48,34 @@ mas só vale com o plugin ativo.
   `tests/L1-roteiro.md`).
 - Se o nome de exibição do conector mudar, a Camada 0 deixa de casar e só o hook
   protege. Refazer a lista e o `S02` quando isso acontecer.
+- Ferramentas só da CLI: `create_edge_function_secret` (Supabase) não consta da
+  lista do conector no app desktop e por isso só tem a regra `claude_ai_Supabase`
+  (exceção declarada no teste S02).
 - **Limitação conhecida:** `execute_sql` está em `ask`, e a exigência de
   aprovação nunca foi demonstrada. A Camada 0 não é declarada plenamente segura
-  enquanto isso valer.
+  enquanto isso valer. O hook (Camada 1) também **não** barra
+  `create_edge_function_secret`; quem a nega é só a Camada 0.
+
+### Sessões de análise: desligar o conector Supabase completo
+
+A Camada 0 vale para todas as sessões e mantém `execute_sql` em `ask` para
+preservar o uso administrativo autorizado. Como o `ask` não foi demonstrado
+como exigência de aprovação (J1–J13), **ele não é a proteção das sessões de
+análise ou auditoria**. Essas sessões devem ser abertas **sem o conector
+Supabase completo** e usar somente o conector de leitura (`supabase-leitura`,
+com `read_only=true`):
+
+- **CLI:** pasta própria com `.claude/settings.json` contendo
+  `"disableClaudeAiConnectors": true` (nenhum conector do claude.ai é carregado
+  ali; `claude mcp list` mostra só o servidor do projeto) e `deny` do conector
+  completo nos dois formatos de nome.
+- **App desktop:** desativar o conector Supabase completo para a sessão.
+- **Agentes** (Guardião, Desenvolvedor, futuro Analista de Banco): `tools:`
+  fechado, sem Bash nem escrita onde não couber.
+
+A configuração de referência (`supabase-leitura-isolado`) ainda **não está
+versionada** neste repositório. Ela não protege dados pessoais: o papel de leitura
+enxerga também o schema `auth`; isso só um papel PostgreSQL dedicado resolve.
 
 ---
 
@@ -105,7 +130,7 @@ assim que o arquivo existe no projeto, porque é lido pelo próprio Claude Code.
 ### Provar que está de pé
 
 1. `node plugins/reativa-one/tests/guardiao.autoteste.mjs` — prova a Camada 1
-   (72 casos, nada executado contra produção).
+   (75 casos, nada executado contra produção).
 2. Sentinelas da Camada 0, inofensivas por desenho:
 
    | Tentar | Esperado |
@@ -179,7 +204,7 @@ estão em negação pura.
 | `/reativa-one:mapa` | qual arquivo manda no assunto, e só o trecho que importa |
 | `/reativa-one:corrigir` | correção pontual pelo subagente `desenvolvedor` |
 | `/reativa-one:checar` | auditoria do diff pelo subagente `guardiao` |
-| `/reativa-one:autoteste` | roda os 72 casos (bloqueios e verificações da Camada 0) |
+| `/reativa-one:autoteste` | roda os 75 casos (bloqueios e verificações da Camada 0) |
 
 ## Estrutura
 

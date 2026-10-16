@@ -172,6 +172,8 @@ const casos = [
   ["C05", "NEGA", "execute_sql com UPDATE (prefixo claude_ai_)", mcp("mcp__claude_ai_Supabase__execute_sql", { query: "update alunos set saldo_total = 0" })],
   ["C06", "PASSA", "list_migrations (prefixo claude_ai_)", mcp("mcp__claude_ai_Supabase__list_migrations")],
   ["C07", "PASSA", "execute_sql com SELECT (prefixo claude_ai_)", mcp("mcp__claude_ai_Supabase__execute_sql", { query: "select count(*) from alunos" })],
+  ["C08", "NEGA", "Vercel create_project (prefixo claude_ai_)", mcp("mcp__claude_ai_Vercel__create_project")],
+  ["C09", "NEGA", "Vercel create_project (id em UUID do app desktop)", mcp("mcp__3572527a-3079-4f3a-a531-07b308fdc6b2__create_project")],
 ];
 
 // ---------------------------------------------------------------------------
@@ -194,6 +196,11 @@ const NOME_NA_CLI = {
   "3e1f85b1-8c91-4d44-b207-0f452630cdc0": "Supabase",
   "3572527a-3079-4f3a-a531-07b308fdc6b2": "Vercel",
 };
+
+// Ferramentas de escrita que só existem no conector da CLI: não constam da lista
+// do conector no app desktop, então NÃO têm par em UUID (inventar um id seria
+// criar regra para ferramenta que não existe). Achado do teste L1.
+const SO_NA_CLI = new Set(["mcp__claude_ai_Supabase__create_edge_function_secret"]);
 
 function estatico(id, descricao, verificar) {
   let erro = "";
@@ -220,12 +227,27 @@ estatico("S02", "toda regra mcp__<UUID>__x tem o par mcp__claude_ai_<Nome>__x na
       const preCli = `mcp__claude_ai_${nome}`;
       for (const r of regras) {
         if (r.startsWith(pre) && !regras.has(preCli + r.slice(pre.length))) faltas.push(`${lista}: falta o par claude_ai_ de ${r}`);
-        if (r.startsWith(preCli) && !regras.has(pre + r.slice(preCli.length))) faltas.push(`${lista}: falta o par UUID de ${r}`);
+        if (r.startsWith(preCli) && !SO_NA_CLI.has(r) && !regras.has(pre + r.slice(preCli.length))) faltas.push(`${lista}: falta o par UUID de ${r}`);
       }
     }
   }
   return faltas.join("; ");
 });
+
+estatico("S03", "create_edge_function_secret (Supabase) e create_project (Vercel) estão em deny, com os nomes reais", () => {
+  const deny = new Set(lerSettings().permissions.deny);
+  const exigidas = [
+    "mcp__claude_ai_Supabase__create_edge_function_secret",
+    "mcp__claude_ai_Vercel__create_project",
+    "mcp__3572527a-3079-4f3a-a531-07b308fdc6b2__create_project",
+  ];
+  const faltam = exigidas.filter((r) => !deny.has(r));
+  return faltam.length ? `faltam em deny: ${faltam.join(", ")}` : "";
+});
+
+// Limitação conhecida (não é teste): o hook (Camada 1) NÃO barra
+// mcp__claude_ai_Supabase__create_edge_function_secret — a suffix dela não está na
+// lista M1. Quem a nega é só a Camada 0 (S03). Está registrado em RESULTADO-FASE-1.md.
 
 for (const dir of temporarios) {
   try { rmSync(dir, { recursive: true, force: true }); } catch { /* fixture descartável */ }
