@@ -19,9 +19,14 @@ describe("PainelCarteira: D-2 vem so do alerta novo", () => {
     expect(SRC).not.toMatch(/lembreteParcelaDevido/);
     expect(SRC).not.toMatch(/\?\s*"LEMBRETE_PARCELA"\s*:/);
     expect(SRC).toMatch(/setStatusNovo\(statusTabulavel\(a\.status_atual\)\);/);
+    // Desde 15/10/2026 o card e o bloco "Meu dia" abrem a ficha pela mesma
+    // funcao; ela so abre o modal -- nao grava, nao escolhe status.
     const card = SRC.slice(SRC.indexOf("<AlertasParcelaAcordo"), SRC.indexOf("<AlertasParcelaAcordo") + 700);
-    expect(card).toMatch(/abrirModal\(/);
+    expect(card).toMatch(/onAbrirFicha=\{abrirFichaDoMeuDia\}/);
     expect(card).not.toMatch(/setStatusNovo|LEMBRETE_PARCELA|supabase\.(from|rpc)/);
+    const abrirFicha = SRC.slice(SRC.indexOf("function abrirFichaDoMeuDia"), SRC.indexOf("function abrirFichaDoMeuDia") + 500);
+    expect(abrirFicha).toMatch(/abrirModal\(/);
+    expect(abrirFicha).not.toMatch(/setStatusNovo|LEMBRETE_PARCELA|supabase\.(from|rpc)|\.update\(|\.insert\(/);
   });
   it("nao cria status LEMBRETE_PARCELA novo nem ACORDO_FECHADO para o alerta", () => {
     const trecho = SRC.slice(SRC.indexOf("carregarAlertasParcela"), SRC.indexOf("carregarAlertasParcela") + 400);

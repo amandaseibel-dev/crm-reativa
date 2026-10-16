@@ -78,7 +78,15 @@ describe("ACL das funcoes do D-2 (menor privilegio)", () => {
 describe("A-M: geracao, resolucao e idempotencia", () => {
   it("A) parcela futura (> D-2): nenhum alerta", async () => {
     const db = await novo(); const { ac } = await mk(db, { nome: "Teste A", resp: "op1@x", parcelas: [{ venc: D }] });
-    expect((await gerar(db, "2026-10-10")).criados).toBe(0);
+    // `criados` conta a rodada INTEIRA, inclusive os acordos da fixture -- e a
+    // fixture tem as datas deslocadas para o dia da execucao (harness.deslocamento()),
+    // enquanto a data de sonda aqui e absoluta. Em 14/10/2026 as duas coisas se
+    // cruzaram: uma parcela da fixture vencendo em current_date-2 tem data de
+    // alerta em current_date-4 = 2026-10-10, e o total virou 1. Nada mudou na
+    // regra -- o numero global nunca foi o que este caso afirma.
+    // O que se afirma agora: a rodada ACONTECEU, na data e com o parametro
+    // certos, e o acordo EM TESTE nao gerou alerta.
+    expect(await gerar(db, "2026-10-10")).toMatchObject({ hoje: "2026-10-10", dias: 2, modo: "CORRIDO" });
     expect(await alertas(db, ac)).toHaveLength(0);
     await db.close();
   });

@@ -60,3 +60,12 @@ export function moedaEm(v, m) {
 
 // O rótulo que acompanha um valor sem moeda declarada.
 export const SEM_MOEDA = "moeda não informada";
+
+// Quantidade com separador de milhar. "13968 títulos" obriga quem lê a contar
+// casas; "13.968 títulos" não.
+export function qtd(v) {
+  if (v === null || v === undefined) return "—";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  return n.toLocaleString("pt-BR");
+}

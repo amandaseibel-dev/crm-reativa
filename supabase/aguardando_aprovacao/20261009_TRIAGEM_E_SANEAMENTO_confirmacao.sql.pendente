@@ -1,0 +1,445 @@
+-- TRIAGEM POR EVIDENCIA DOS PENDENTE `C_SEM_PROVA`, E O SANEAMENTO QUE ELA AUTORIZA.
+--
+-- NAO APLICADO. Roda em PREVIA por default: sem `set_config('saneamento.aplicar','on')`
+-- a transacao INTEIRA aborta no fim, de proposito, depois de imprimir a triagem.
+--
+-- Regra 4 da gestao (09/10/2026): "Reavalie os 22 titulos de 08/10 e os 301
+-- casos anteriores, separando pagamentos comprovados de entradas indevidas. Nao
+-- devolva titulos a cobranca sem validar as evidencias."
+--
+-- ESTE ARQUIVO SUBSTITUI a versao anterior (`20261009_SANEAMENTO_retirar_da_confirmacao_0810`),
+-- que devolvia os 22 EM BLOCO. A triagem mostrou que aquilo estava errado: 2
+-- dos 22 tem pagamento comprovado e 20 tem evidencia a validar. **Nenhum dos 22
+-- pode ser devolvido a cobranca.**
+--
+-- ====================================================================
+-- A TRIAGEM -- quatro classes, precedencia fixa, so a ultima e devolvida
+-- ====================================================================
+--
+-- Universo: `prime_conferencia_decisao` com `decisao = 'PENDENTE'`,
+-- `subgrupo = 'C_SEM_PROVA'` e titulo hoje em `EM_CONFIRMACAO`.
+-- Medido em producao em 09/10/2026 (leitura): **301** titulos, dos quais 22 na
+-- janela de 08/10 (>= 2026-10-08 03:00 UTC) e 279 anteriores.
+--
+-- A evidencia NAO e reinventada aqui: vem de `prime_liquidacao_evidencias`, a
+-- funcao oficial do projeto, com UMA correcao medida (o rateio, abaixo).
+--
+-- 1 PAGAMENTO_COMPROVADO -- pagamento em `public.pagamentos` (fonte Santander,
+--   a unica que `docs/integracoes/prime-mapa-fontes-verdade.md` aceita como
+--   caixa), `status_conciliacao = 'BAIXADO'`, dentro de +-10 dias da
+--   liquidacao, cuja base (`valor_pago / 1,08`) cobre >= 95% da SOMA dos
+--   titulos que reivindicam O MESMO pagamento.
+--
+--   O RATEIO E A CORRECAO QUE ESTA TRIAGEM ACRESCENTA, e ela muda o resultado.
+--   `pagamento_cobre_o_titulo` da funcao oficial e por TITULO: o pagamento
+--   9e6de3ff (base R$ 950,16) aparecia como prova dos QUATRO titulos 761248 a
+--   761251, que somam R$ 2.388,27 -- um pagamento nao paga quatro parcelas.
+--   Com o rateio, so o pagamento 6f4bf6a3 (base R$ 492,93 contra dois titulos
+--   que somam R$ 445,25) prova de fato, e os quatro do 9e6de3ff caem para a
+--   classe 3.
+--   => FICA fora da cobranca (regra 2). Esta classe e PROMOVIDA a
+--      `A_PAGAMENTO_COMPROVADO`, para a fila parar de chamar de "sem prova" o
+--      que tem prova -- e para `prime_liquidacao_reavaliar_pendentes` nao
+--      reavaliar como C.
+--
+-- 2 ACORDO_COMPROVADO -- composicao documental de acordo ATIVO/QUITADO, ou
+--   vinculo ativo. => FICA. Rota B preservada (regra 3). Medido: 0 casos.
+--
+-- 3 EVIDENCIA_A_VALIDAR -- qualquer sinal que uma pessoa precisa olhar:
+--   pagamento proximo que nao cobre (ou compartilhado), acordo candidato a
+--   +-30 dias sem composicao, CPF do extrato divergente do CPF da ficha,
+--   acordo cancelado no historico do aluno, ou `liquidado_em` posterior a
+--   coleta. => FICA NA FILA, para decisao humana. NUNCA devolvido por script.
+--
+-- 4 SEM_EVIDENCIA -- nada do acima. Unica classe que o saneamento pode
+--   devolver a cobranca.
+--
+-- RESULTADO DA TRIAGEM EM PRODUCAO (09/10/2026, leitura):
+--
+--   | janela        | classe                  | qtd |        valor | alunos |
+--   |---------------|-------------------------|----:|-------------:|-------:|
+--   | 08/10 (22)    | 1 PAGAMENTO_COMPROVADO  |   2 |    R$ 445,25 |      1 |
+--   | 08/10 (22)    | 3 EVIDENCIA_A_VALIDAR   |  20 | R$ 12.777,84 |      8 |
+--   | 08/10 (22)    | 4 SEM_EVIDENCIA         |   0 |         R$ 0 |      0 |
+--   | anteriores    | 1 PAGAMENTO_COMPROVADO  |   1 |    R$ 329,28 |      1 |
+--   | anteriores    | 3 EVIDENCIA_A_VALIDAR   | 111 | R$ 71.584,47 |     61 |
+--   | anteriores    | 4 SEM_EVIDENCIA         | 167 | R$218.308,72 |    123 |
+--
+-- Portanto, com a janela default (08/10): **0 titulos devolvidos**, 2
+-- promovidos. Alcancar os 167 antigos exige ligar `saneamento.janela_toda`
+-- explicitamente -- e e decisao da gestao, com outra medicao.
+--
+-- ====================================================================
+-- AS TRES ACOES, CADA UMA COM SEU PORTAO
+-- ====================================================================
+--   `saneamento.aplicar`      'on' -> grava (default: previa, desfaz tudo)
+--   `saneamento.promover`     'on' -> classe 1 vira A_PAGAMENTO_COMPROVADO
+--                                     (default 'on': protege, nao devolve nada)
+--   `saneamento.devolver`     'on' -> classe 4 volta a cobranca (default 'off')
+--   `saneamento.janela_toda`  'on' -> inclui os anteriores a 08/10 (default 'off')
+--
+-- O que NENHUMA acao faz, e as TRAVAS que recusam a transacao inteira:
+--   T1. nao toca titulo com marca de pagamento/encerramento
+--       (`origem_liquidacao`, `origem_encerramento`, `status='quitada'`,
+--       `PAGO`/`CANCELADA`);
+--   T2. nao devolve classe 1, 2 ou 3 -- so a classe 4;
+--   T3. nao insere/altera/remove nada em `pagamentos`, `baixas_pagamento`,
+--       `acordo_titulo_vinculo`, `parcelas`, `acordos` nem
+--       `solicitacoes_confirmacao_pagamento` (a Fila Confirmacao de Pagamento
+--       nao e tocada);
+--   T4. a soma de honorarios nao muda;
+--   T5. qtd e valor de cada acao tem de bater com a medicao (GUC abaixo);
+--   T6. a promocao nao tira nenhum titulo de EM_CONFIRMACAO nem de PENDENTE.
+--
+-- BACKUP / DESFAZER: `_backup_triagem_confirmacao_20261009` guarda a linha
+-- inteira do titulo e da decisao em jsonb, lote `triagem_20261009180000`.
+-- PITR nao esta habilitado neste projeto: a tabela de backup E o caminho de
+-- volta. O desfazer esta no fim deste arquivo.
+--
+-- ORDEM: aplicar a migration 20261009180000 ANTES. Sem ela o cron `:50` segue
+-- mandando titulo em aberto para a fila.
+
+begin;
+
+-- Portoes e travas. Quem ja tiver posto o GUC antes (remedicao, ou o teste) tem
+-- precedencia -- foi a licao do backfill de 08/10, em que `current_setting`
+-- venceu o default escrito no corpo.
+select set_config('saneamento.promover',
+                  coalesce(nullif(current_setting('saneamento.promover', true),''), 'on'), false);
+select set_config('saneamento.devolver',
+                  coalesce(nullif(current_setting('saneamento.devolver', true),''), 'off'), false);
+select set_config('saneamento.janela_toda',
+                  coalesce(nullif(current_setting('saneamento.janela_toda', true),''), 'off'), false);
+select set_config('saneamento.esperado_promover',
+                  coalesce(nullif(current_setting('saneamento.esperado_promover', true),''), '2'), false);
+select set_config('saneamento.esperado_devolver',
+                  coalesce(nullif(current_setting('saneamento.esperado_devolver', true),''), '0'), false);
+
+-- ===== 0. FOTO DE ANTES =====================================================
+create temp table _tri_antes on commit drop as
+select (select count(*) from public.pagamentos) pag,
+       (select count(*) from public.parcelas) parc,
+       (select count(*) from public.acordos) ac,
+       (select count(*) from public.acordo_titulo_vinculo) vinc,
+       (select count(*) from public.baixas_pagamento) baixas,
+       (select count(*) from public.solicitacoes_confirmacao_pagamento) sol,
+       (select count(*) from public.solicitacoes_confirmacao_pagamento
+         where status in ('AGUARDANDO_CONFIRMACAO','PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO')) sol_abertas,
+       (select coalesce(round(sum(valor_honorario),2),0) from public.pagamentos) honorarios,
+       (select count(*) from public.acordos_titulos where upper(coalesce(situacao,''))='EM_CONFIRMACAO') em_conf,
+       (select count(*) from public.acordos_titulos where upper(coalesce(situacao,''))='PAGO') pagos,
+       (select count(*) from public.acordos_titulos where upper(coalesce(situacao,''))='CANCELADA') canceladas,
+       (select count(*) from public.prime_conferencia_decisao where decisao='PENDENTE') pendentes;
+
+-- ===== 1. A TRIAGEM (so leitura) ============================================
+create temp table _tri_ev on commit drop as
+select d.titulo_id, d.aluno_id, d.documento, d.valor,
+       coalesce(nullif(d.situacao_anterior,''), 'ABERTO')   as situacao_volta,
+       coalesce(nullif(d.status_anterior,''),  'em_aberto') as status_volta,
+       (d.detectado_em >= '2026-10-08 03:00:00+00') as janela_0810,
+       public.prime_liquidacao_evidencias(d.titulo_id) as e
+  from public.prime_conferencia_decisao d
+  join public.acordos_titulos t on t.id = d.titulo_id
+ where d.decisao = 'PENDENTE'
+   and d.subgrupo = 'C_SEM_PROVA'
+   and upper(coalesce(t.situacao,'')) = 'EM_CONFIRMACAO';
+
+create temp table _tri_base on commit drop as
+select v.*,
+       (v.e->>'pagamento_candidato_id')::uuid                              as pag_id,
+       coalesce((v.e->>'pagamento_cobre_o_titulo')::boolean, false)        as cobre_isolado,
+       ((v.e ? 'acordo_composicao') or (v.e ? 'vinculo_ativo'))            as acordo_comprovado,
+       (v.e ? 'acordo_candidato')                                         as acordo_candidato,
+       coalesce((v.e->'prime'->>'cpf_confere')::boolean, true)             as cpf_ok,
+       coalesce((v.e->>'acordo_cancelado_no_historico')::boolean, false)   as acordo_cancelado,
+       coalesce((v.e->'prime'->>'liquidado_depois_da_coleta')::boolean, false) as liq_pos_coleta
+  from _tri_ev v;
+
+-- O rateio: um pagamento reivindicado por N titulos so prova o grupo se cobrir
+-- a SOMA deles.
+create temp table _tri_rateio on commit drop as
+select b.pag_id,
+       count(*)                            as titulos_no_pagamento,
+       round(sum(b.valor),2)               as soma_titulos,
+       round(max(p.valor_pago)/1.08, 2)    as base_pagamento,
+       (round(max(p.valor_pago)/1.08,2) >= 0.95*sum(b.valor)) as cobre_o_grupo,
+       bool_and(p.status_conciliacao = 'BAIXADO')             as baixado
+  from _tri_base b
+  join public.pagamentos p on p.id = b.pag_id
+ where b.pag_id is not null and b.cobre_isolado
+ group by b.pag_id;
+
+create temp table _tri_classe on commit drop as
+select b.*,
+       r.base_pagamento, r.soma_titulos, r.titulos_no_pagamento,
+       case
+         when b.cobre_isolado and coalesce(r.cobre_o_grupo,false) and coalesce(r.baixado,false)
+           then '1_PAGAMENTO_COMPROVADO'
+         when b.acordo_comprovado then '2_ACORDO_COMPROVADO'
+         when b.pag_id is not null or b.acordo_candidato or not b.cpf_ok
+           or b.acordo_cancelado or b.liq_pos_coleta then '3_EVIDENCIA_A_VALIDAR'
+         else '4_SEM_EVIDENCIA'
+       end as classe
+  from _tri_base b
+  left join _tri_rateio r on r.pag_id = b.pag_id;
+
+-- O que cada ação alcança, depois do recorte de janela.
+create temp table _tri_promover on commit drop as
+select * from _tri_classe
+ where classe = '1_PAGAMENTO_COMPROVADO'
+   and (janela_0810 or current_setting('saneamento.janela_toda') = 'on');
+
+create temp table _tri_devolver on commit drop as
+select * from _tri_classe
+ where classe = '4_SEM_EVIDENCIA'
+   and (janela_0810 or current_setting('saneamento.janela_toda') = 'on');
+
+do $$
+declare r record;
+begin
+  raise notice '=== TRIAGEM (301 esperados no universo) ===';
+  for r in select janela_0810, classe, count(*) qtd, round(sum(valor),2) valor, count(distinct aluno_id) alunos
+             from _tri_classe group by 1,2 order by 1 desc, 2 loop
+    raise notice 'janela_0810=% | % | % titulos | R$ % | % alunos', r.janela_0810, r.classe, r.qtd, r.valor, r.alunos;
+  end loop;
+  raise notice '=== ACOES: promover=% (%), devolver=% (%) ===',
+    current_setting('saneamento.promover'), (select count(*) from _tri_promover),
+    current_setting('saneamento.devolver'), (select count(*) from _tri_devolver);
+end $$;
+
+-- ===== 2. AS TRAVAS DE ENTRADA ==============================================
+do $$
+declare v_prom int; v_dev int;
+begin
+  -- As travas conferem o que a rodada VAI FAZER, nao o tamanho do universo:
+  -- com a acao desligada, o esperado e zero. O tamanho do universo esta no
+  -- NOTICE da triagem, acima, para quem for decidir ligar.
+  select count(*) into v_prom from _tri_promover;
+  select count(*) into v_dev  from _tri_devolver;
+  if current_setting('saneamento.promover') <> 'on' then v_prom := 0; end if;
+  if current_setting('saneamento.devolver')  <> 'on' then v_dev  := 0; end if;
+
+  -- T5
+  if v_prom <> current_setting('saneamento.esperado_promover')::int then
+    raise exception 'TRAVA T5: % a promover, esperado %', v_prom, current_setting('saneamento.esperado_promover');
+  end if;
+  if v_dev <> current_setting('saneamento.esperado_devolver')::int then
+    raise exception 'TRAVA T5: % a devolver, esperado %', v_dev, current_setting('saneamento.esperado_devolver');
+  end if;
+
+  -- T2: a lista de devolucao nao pode conter nada alem da classe 4
+  if exists (select 1 from _tri_devolver where classe <> '4_SEM_EVIDENCIA') then
+    raise exception 'TRAVA T2: a devolucao alcancou titulo com evidencia';
+  end if;
+  if exists (select 1 from _tri_devolver d join _tri_classe c on c.titulo_id = d.titulo_id
+              where c.pag_id is not null or c.acordo_comprovado or c.acordo_candidato
+                 or not c.cpf_ok or c.acordo_cancelado or c.liq_pos_coleta) then
+    raise exception 'TRAVA T2: titulo da devolucao tem evidencia registrada';
+  end if;
+
+  -- T1: `to_jsonb(t)` em vez das colunas diretas porque a fixture dos testes
+  -- (18/09) nao tem `origem_encerramento`; em producao as duas existem.
+  if exists (select 1 from _tri_classe a join public.acordos_titulos t on t.id = a.titulo_id
+              where nullif(to_jsonb(t)->>'origem_liquidacao','') is not null
+                 or nullif(to_jsonb(t)->>'origem_encerramento','') is not null
+                 or lower(coalesce(t.status,'')) = 'quitada'
+                 or upper(coalesce(t.situacao,'')) in ('PAGO','CANCELADA')) then
+    raise exception 'TRAVA T1: ha titulo com marca de pagamento/encerramento no universo';
+  end if;
+end $$;
+
+-- ===== 3. BACKUP ============================================================
+create table if not exists public._backup_triagem_confirmacao_20261009 (
+  id        bigint generated always as identity primary key,
+  lote      text not null,
+  acao      text not null,
+  titulo_id uuid not null,
+  classe    text not null,
+  titulo    jsonb not null,
+  decisao   jsonb not null,
+  criado_em timestamptz not null default now()
+);
+alter table public._backup_triagem_confirmacao_20261009 enable row level security;
+revoke all on table public._backup_triagem_confirmacao_20261009 from public, anon, authenticated;
+
+insert into public._backup_triagem_confirmacao_20261009 (lote, acao, titulo_id, classe, titulo, decisao)
+select 'triagem_20261009180000', 'PROMOVER', a.titulo_id, a.classe, to_jsonb(t), to_jsonb(d)
+  from _tri_promover a
+  join public.acordos_titulos t on t.id = a.titulo_id
+  join public.prime_conferencia_decisao d on d.titulo_id = a.titulo_id
+ where current_setting('saneamento.promover') = 'on';
+
+insert into public._backup_triagem_confirmacao_20261009 (lote, acao, titulo_id, classe, titulo, decisao)
+select 'triagem_20261009180000', 'DEVOLVER', a.titulo_id, a.classe, to_jsonb(t), to_jsonb(d)
+  from _tri_devolver a
+  join public.acordos_titulos t on t.id = a.titulo_id
+  join public.prime_conferencia_decisao d on d.titulo_id = a.titulo_id
+ where current_setting('saneamento.devolver') = 'on';
+
+-- ===== 4. ACAO 1: PROMOVER O PAGAMENTO COMPROVADO (regra 2) =================
+-- O titulo CONTINUA EM_CONFIRMACAO e PENDENTE -- protegido da cobranca. Muda
+-- so a classificacao, para a fila sugerir "seguir o pagamento" em vez de
+-- tratar como sem prova.
+do $$
+declare a record; v_n int := 0;
+begin
+  if current_setting('saneamento.promover') <> 'on' then return; end if;
+  for a in select * from _tri_promover loop
+    update public.prime_conferencia_decisao
+       set subgrupo = 'A_PAGAMENTO_COMPROVADO',
+           evidencia = a.e || jsonb_build_object(
+             'classificacao', 'PAGAMENTO_COMPROVADO', 'nivel_evidencia', 'FINANCEIRA',
+             'motivo', 'triagem 09/10/2026: pagamento BAIXADO no Santander cobre a soma dos titulos que o reivindicam',
+             'rateio', jsonb_build_object('pagamento_id', a.pag_id, 'base_pagamento', a.base_pagamento,
+                                          'soma_titulos', a.soma_titulos, 'titulos_no_pagamento', a.titulos_no_pagamento),
+             'triado_em', now()),
+           detectado_em = detectado_em
+     where titulo_id = a.titulo_id and decisao = 'PENDENTE';
+
+    insert into public.prime_liquidacao_classificacao
+      (titulo_id, aluno_id, documento, evidencia_chave, classificacao, nivel_evidencia, motivo, evidencia,
+       origem_decisao, decidido_por, resultado_titulo, pagamento_id)
+    values (a.titulo_id, a.aluno_id, a.documento, a.e->>'evidencia_chave',
+            'PAGAMENTO_COMPROVADO', 'FINANCEIRA',
+            'triagem 09/10/2026: pagamento BAIXADO cobre a soma dos titulos; titulo permanece protegido em EM_CONFIRMACAO',
+            a.e, 'GESTAO', 'triagem@gestao', 'EM_CONFIRMACAO', a.pag_id)
+    on conflict do nothing;
+    v_n := v_n + 1;
+  end loop;
+  raise notice 'promovidos a A_PAGAMENTO_COMPROVADO (seguem protegidos): %', v_n;
+end $$;
+
+-- ===== 5. ACAO 2: DEVOLVER SO A CLASSE 4 ====================================
+-- Mesmo caminho oficial de `prime_liquidacao_reavaliar_pendentes` na reversao
+-- da Prime. Com a janela default esta acao alcanca ZERO titulos.
+do $$
+declare a record; v_n int := 0;
+begin
+  if current_setting('saneamento.devolver') <> 'on' then return; end if;
+  for a in select * from _tri_devolver loop
+    perform set_config('conferencia_prime.decisao', 'on', true);
+    update public.acordos_titulos
+       set situacao = a.situacao_volta, status = a.status_volta, atualizado_em = now()
+     where id = a.titulo_id and upper(coalesce(situacao,'')) = 'EM_CONFIRMACAO';
+    perform set_config('conferencia_prime.decisao', 'off', true);
+
+    if (select upper(coalesce(situacao,'')) from public.acordos_titulos where id = a.titulo_id) = 'EM_CONFIRMACAO' then
+      raise exception 'o titulo % continuou EM_CONFIRMACAO -- o gatilho recusou a escrita', a.titulo_id;
+    end if;
+
+    update public.prime_conferencia_decisao
+       set decisao = 'REJEITADO',
+           motivo = 'SEM_EVIDENCIA_DE_PAGAMENTO: triagem de 09/10/2026 nao achou pagamento, acordo, vinculo nem divergencia; entrou pela liquidacao da Prime sem comprovacao',
+           decidido_por = 'triagem@gestao', decidido_em = now()
+     where titulo_id = a.titulo_id;
+
+    insert into public.prime_liquidacao_classificacao
+      (titulo_id, aluno_id, documento, evidencia_chave, classificacao, nivel_evidencia, motivo, evidencia,
+       origem_decisao, decidido_por, resultado_titulo)
+    values (a.titulo_id, a.aluno_id, a.documento, a.e->>'evidencia_chave',
+            'PRIME_ORIGEM_NAO_COMPROVADA', 'NENHUMA',
+            'triagem 09/10/2026: sem evidencia nenhuma; o titulo voltou para a cobranca sem baixa',
+            a.e, 'GESTAO', 'triagem@gestao', a.situacao_volta)
+    on conflict do nothing;
+
+    insert into public.aluno_movimentacoes
+      (aluno_id, tipo, descricao, status_anterior, status_novo, registrado_por_nome, registrado_por_email,
+       registrado_em, valor_movimentacao)
+    values (a.aluno_id::text, 'TITULO_CONFIRMACAO_REJEITADA',
+            'Titulo ' || coalesce(a.documento,'?') || ' voltou para a cobranca: entrou em confirmacao pela liquidacao da Prime sem comprovacao e a triagem nao achou pagamento, acordo nem divergencia. Nada foi baixado; o valor foi mantido.',
+            'EM_CONFIRMACAO', a.situacao_volta, 'Sistema', 'triagem@gestao', now(), round(a.valor,2));
+
+    if a.aluno_id is not null then
+      perform public.recalcular_situacao_aluno(a.aluno_id, 'triagem_confirmacao_20261009');
+    end if;
+    v_n := v_n + 1;
+  end loop;
+  raise notice 'devolvidos a cobranca (classe 4, sem evidencia): %', v_n;
+end $$;
+
+-- ===== 6. TRAVAS DO FIM =====================================================
+do $$
+declare b record; v_prom int; v_dev int;
+begin
+  select * into b from _tri_antes;
+  select count(*) into v_prom from _tri_promover;
+  select count(*) into v_dev  from _tri_devolver;
+  if current_setting('saneamento.promover') <> 'on' then v_prom := 0; end if;
+  if current_setting('saneamento.devolver')  <> 'on' then v_dev  := 0; end if;
+
+  -- T3
+  if (select count(*) from public.pagamentos) <> b.pag
+     or (select count(*) from public.baixas_pagamento) <> b.baixas
+     or (select count(*) from public.acordo_titulo_vinculo) <> b.vinc
+     or (select count(*) from public.parcelas) <> b.parc
+     or (select count(*) from public.acordos) <> b.ac
+     or (select count(*) from public.solicitacoes_confirmacao_pagamento) <> b.sol
+     or (select count(*) from public.solicitacoes_confirmacao_pagamento
+          where status in ('AGUARDANDO_CONFIRMACAO','PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO')) <> b.sol_abertas then
+    raise exception 'TRAVA T3: tocou pagamento, baixa, vinculo, parcela, acordo ou a Fila Confirmacao de Pagamento';
+  end if;
+
+  -- T4
+  if (select coalesce(round(sum(valor_honorario),2),0) from public.pagamentos) <> b.honorarios then
+    raise exception 'TRAVA T4: a soma de honorarios mudou';
+  end if;
+
+  -- T1 sobre o resultado: nada virou PAGO nem CANCELADA
+  if (select count(*) from public.acordos_titulos where upper(coalesce(situacao,''))='PAGO') <> b.pagos
+     or (select count(*) from public.acordos_titulos where upper(coalesce(situacao,''))='CANCELADA') <> b.canceladas then
+    raise exception 'TRAVA T1: titulo virou PAGO ou CANCELADA -- esta triagem nao quita nem encerra nada';
+  end if;
+
+  -- o efeito exato: so a devolucao tira de EM_CONFIRMACAO/PENDENTE
+  if (select count(*) from public.acordos_titulos where upper(coalesce(situacao,''))='EM_CONFIRMACAO') <> b.em_conf - v_dev then
+    raise exception 'EM_CONFIRMACAO nao caiu exatamente % titulos', v_dev;
+  end if;
+  if (select count(*) from public.prime_conferencia_decisao where decisao='PENDENTE') <> b.pendentes - v_dev then
+    raise exception 'PENDENTE nao caiu exatamente % decisoes', v_dev;
+  end if;
+
+  -- T6: a promocao nao pode ter tirado ninguem da fila
+  if exists (select 1 from _tri_promover a
+              join public.prime_conferencia_decisao d on d.titulo_id = a.titulo_id
+             where d.decisao <> 'PENDENTE')
+     and current_setting('saneamento.promover') = 'on' then
+    raise exception 'TRAVA T6: a promocao tirou titulo da fila';
+  end if;
+  if exists (select 1 from _tri_promover a
+              join public.acordos_titulos t on t.id = a.titulo_id
+             where upper(coalesce(t.situacao,'')) <> 'EM_CONFIRMACAO')
+     and current_setting('saneamento.promover') = 'on' then
+    raise exception 'TRAVA T6: a promocao tirou titulo de EM_CONFIRMACAO';
+  end if;
+end $$;
+
+-- ===== 7. PORTAO DA PREVIA ==================================================
+do $$
+begin
+  if coalesce(current_setting('saneamento.aplicar', true), 'off') <> 'on' then
+    raise exception 'PREVIA_SEM_ESCRITA: triagem impressa, travas conferidas e transacao desfeita. Para aplicar: select set_config(''saneamento.aplicar'',''on'',false);';
+  end if;
+end $$;
+
+commit;
+
+-- ===========================================================================
+-- DESFAZER (depois de aplicado) -- revisar antes de rodar:
+--
+-- begin;
+-- -- a devolucao
+-- select set_config('conferencia_prime.decisao','on',true);
+-- update public.acordos_titulos t
+--    set situacao = (b.titulo->>'situacao'), status = (b.titulo->>'status'), atualizado_em = now()
+--   from public._backup_triagem_confirmacao_20261009 b
+--  where b.lote = 'triagem_20261009180000' and b.acao = 'DEVOLVER' and t.id = b.titulo_id;
+-- select set_config('conferencia_prime.decisao','off',true);
+-- -- a decisao (vale para as duas acoes)
+-- update public.prime_conferencia_decisao d
+--    set decisao = (b.decisao->>'decisao'), motivo = (b.decisao->>'motivo'),
+--        subgrupo = (b.decisao->>'subgrupo'), evidencia = (b.decisao->'evidencia'),
+--        decidido_por = (b.decisao->>'decidido_por'),
+--        decidido_em = nullif(b.decisao->>'decidido_em','')::timestamptz
+--   from public._backup_triagem_confirmacao_20261009 b
+--  where b.lote = 'triagem_20261009180000' and d.titulo_id = b.titulo_id;
+-- commit;

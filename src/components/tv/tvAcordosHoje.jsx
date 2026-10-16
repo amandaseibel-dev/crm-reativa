@@ -76,7 +76,7 @@ export default function TelaAcordosHoje({ snap }) {
         <div style={grade}>
           <IndicadorCard rotulo="Acordos fechados hoje" valor={num(fechados)} tom="azul" />
           <IndicadorCard rotulo="Já com pagamento" valor={num(convertidos)} tom="verde" />
-          <IndicadorCard rotulo="Valor pago" valor={moeda(valor)} tom="verde" />
+          <IndicadorCard rotulo="Valor bruto recuperado" valor={moeda(valor)} tom="azul" />
           <IndicadorCard rotulo="Ainda sem pagamento" valor={num(Math.max(0, fechados - convertidos))}
             tom={convertidos >= fechados ? "verde" : "ambar"} />
         </div>
@@ -97,7 +97,11 @@ export default function TelaAcordosHoje({ snap }) {
                   <div style={rotuloOp(ranking.length)}>convertidos</div>
                 </div>
               </div>
-              <div style={valorOp(ranking.length)}>{moeda(r.valor_pago)}</div>
+              {/* O valor que CADA pessoa trouxe saiu do telão: valor individual
+                  de colega não vai à sala. Ficam as contagens — fechados e
+                  convertidos —, que são atividade, não dinheiro de ninguém. O
+                  total da operação segue no card "Valor bruto recuperado" acima,
+                  e nenhum cálculo de conversão muda. */}
             </div>
           ))}
         </div>
@@ -160,9 +164,6 @@ const numeroOp = (n) => ({
 const rotuloOp = (n) => ({
   fontSize: denso(n) ? fs(9, 0.9, 19) : fs(10, 1.0, 22), fontWeight: 700, color: T.textoMudo,
   textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap",
-});
-const valorOp = (n) => ({
-  fontSize: denso(n) ? fs(12, 1.2, 26) : fs(13, 1.35, 30), fontWeight: 700, color: T.textoSuave,
 });
 const avisoSemDono = {
   fontSize: fs(12, 1.2, 26), fontWeight: 700, color: T.ambar, flex: "0 0 auto",

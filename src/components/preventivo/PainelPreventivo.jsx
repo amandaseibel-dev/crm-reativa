@@ -1,9 +1,17 @@
 // O PAINEL QUE A GESTÃO LÊ SEM TRADUTOR.
 //
-// A VISÃO PRINCIPAL responde três perguntas e para: quanto a carteira tinha
-// quando começamos, quanto ela caiu de lá para cá, e quanto ainda está em
-// aberto. Embaixo, a linha do tempo: o que mudou entre uma foto e a seguinte,
-// com as ações do período ao lado.
+// A VISÃO PRINCIPAL é UMA CONTA, escrita como conta:
+//
+//     saldo inicial − redução no período = saldo ainda em aberto
+//
+// Embaixo dela, só a lista do que foi feito: data, canal e custo. Mais nada.
+// Tudo que é desdobramento — gráficos, intervalos, decomposição e resultado
+// por público — vai para "Ver detalhes", fechado por padrão.
+//
+// POR QUE NADA DE RESULTADO NA VISÃO PRINCIPAL: resultado por público se
+// sobrepõe (a mesma pessoa é acionada por dois canais) e, lado a lado com a
+// conta, convida a somar o que não soma. A conta fecha; as linhas por público
+// não. Misturar as duas numa tela só é como o erro nasce.
 //
 // POR QUE A REDUÇÃO AQUI É A LÍQUIDA (saldo inicial − saldo da última foto) e
 // não a soma do que "saiu": entre duas fotos também ENTRA título novo e muda o
@@ -33,7 +41,7 @@ import {
   CartesianGrid, LabelList,
 } from "recharts";
 import { S } from "../../ui/estilosFila";
-import { moeda, dataCurta, pct, moedaEm, SEM_MOEDA } from "../../utils/preventivoFormato";
+import { moeda, dataCurta, pct, moedaEm, qtd, SEM_MOEDA } from "../../utils/preventivoFormato";
 
 const COR_1 = "var(--rv-grafico-1)";
 const COR_2 = "var(--rv-grafico-2)";
@@ -49,18 +57,6 @@ const compacto = (v) => {
 
 const hora = (ts) =>
   new Date(ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-
-function Cartao({ rotulo, valor, sub }) {
-  return (
-    <div style={{ background: "var(--rv-superficie)", border: "1px solid var(--rv-borda)", borderRadius: 12, padding: "16px 18px" }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--rv-texto-fraco)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-        {rotulo}
-      </div>
-      <div style={{ fontSize: 24, fontWeight: 800, color: "var(--rv-tinta)", marginTop: 6 }}>{valor}</div>
-      {sub ? <div style={{ ...S.muted, fontSize: 12, marginTop: 3 }}>{sub}</div> : null}
-    </div>
-  );
-}
 
 const caixa = {
   background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)",
@@ -117,25 +113,12 @@ export default function PainelPreventivo({ dados, intervalos, aoMudarCusto }) {
 
   return (
     <div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 12 }}>
-        <Cartao rotulo="Carteira inicial"
-                valor={moeda(c.inicio?.saldo)}
-                sub={`${c.inicio?.titulos ?? 0} títulos · ${dataCurta(c.inicio?.quando)}`} />
-        <Cartao rotulo="Redução líquida da carteira"
-                valor={moeda(liquida)}
-                sub={`${pctLiquida !== null ? `${pct(pctLiquida)} do saldo inicial · ` : ""}`
-                     + `${(c.inicio?.titulos ?? 0) - (c.hoje?.titulos ?? 0)} títulos a menos`} />
-        <Cartao rotulo="Saldo ainda em aberto"
-                valor={moeda(c.hoje?.saldo)}
-                sub={`${c.hoje?.titulos ?? 0} títulos`
-                     + `${pctAberto !== null ? ` · ${pct(pctAberto)} do saldo inicial` : ""}`} />
-      </div>
+      <ContaPrincipal inicial={si} reducao={liquida} aberto={sh}
+                      pctReducao={pctLiquida} pctAberto={pctAberto}
+                      quando={c.hoje?.quando}
+                      titulosInicio={c.inicio?.titulos} titulosHoje={c.hoje?.titulos} />
 
       <OrdemAmbigua ativa={c.ordem_ambigua} />
-
-      <div style={{ ...S.muted, fontSize: 12.5, marginTop: 8 }}>
-        Atualizado pelo relatório de <strong>{dataCurta(c.hoje?.quando)}</strong>.
-      </div>
 
       <p style={{ ...S.muted, marginTop: 10, fontSize: 12.5, maxWidth: 880 }}>
         <strong>Redução observada</strong> entre a primeira e a última foto do relatório —
@@ -148,26 +131,26 @@ export default function PainelPreventivo({ dados, intervalos, aoMudarCusto }) {
           : <> Nenhum envio confirmado ainda — por isso não há alunos acionados a contar.</>}
       </p>
 
-      <div style={{ ...S.card, padding: 20, marginTop: 16 }}>
-        <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Saldo em aberto por data</h2>
-        <div style={{ height: 250, marginTop: 12 }}>
-          <ResponsiveContainer>
-            <LineChart data={pontos} margin={{ top: 16, right: 16, left: 4, bottom: 4 }}>
-              <CartesianGrid vertical={false} stroke="var(--rv-borda-suave)" strokeDasharray="3 3" />
-              <XAxis dataKey="rotulo" tick={EIXO} />
-              <YAxis tick={EIXO} tickFormatter={compacto} />
-              <Tooltip content={<Dica />} />
-              <Line type="monotone" dataKey="saldo" stroke={COR_1} strokeWidth={2}
-                    dot={{ r: 4, fill: COR_1 }} activeDot={{ r: 6 }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+      <AcoesRealizadas acoes={dados.acoes || []} aoMudarCusto={aoMudarCusto} />
 
-      <LinhaDoTempo intervalos={intervalos} />
-
-      <Detalhes rotulo="Ver detalhes por público e consolidado">
+      <Detalhes rotulo="Ver detalhes: gráficos, períodos e resultado por público">
         <div style={{ ...S.card, padding: 20 }}>
+          <h3 style={{ ...S.cardNome, fontSize: 15, margin: 0 }}>Saldo em aberto por data</h3>
+          <div style={{ height: 250, marginTop: 12 }}>
+            <ResponsiveContainer>
+              <LineChart data={pontos} margin={{ top: 16, right: 16, left: 4, bottom: 4 }}>
+                <CartesianGrid vertical={false} stroke="var(--rv-borda-suave)" strokeDasharray="3 3" />
+                <XAxis dataKey="rotulo" tick={EIXO} />
+                <YAxis tick={EIXO} tickFormatter={compacto} />
+                <Tooltip content={<Dica />} />
+                <Line type="monotone" dataKey="saldo" stroke={COR_1} strokeWidth={2}
+                      dot={{ r: 4, fill: COR_1 }} activeDot={{ r: 6 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div style={{ ...S.card, padding: 20, marginTop: 16 }}>
           <h3 style={{ ...S.cardNome, fontSize: 15, margin: 0 }}>Títulos em aberto por data</h3>
           <div style={{ height: 250, marginTop: 12 }}>
             <ResponsiveContainer>
@@ -185,9 +168,158 @@ export default function PainelPreventivo({ dados, intervalos, aoMudarCusto }) {
           </div>
         </div>
 
+        <LinhaDoTempo intervalos={intervalos} />
+
         <HistoricoPorAcao acoes={dados.acoes || []} consolidado={dados.acoes_consolidado}
                           definicao={dados.definicao} aoMudarCusto={aoMudarCusto} />
       </Detalhes>
+    </div>
+  );
+}
+
+
+// A CONTA, escrita como conta. Três parcelas e dois sinais, na ordem em que se
+// lê: o que havia, o que saiu, o que sobrou. Nenhum valor é fixo — todos vêm
+// do painel, que por sua vez vem das fotos do relatório.
+function ContaPrincipal({ inicial, reducao, aberto, pctReducao, pctAberto, quando,
+                          titulosInicio, titulosHoje }) {
+  return (
+    <div style={{ ...S.card, padding: "22px 20px" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: 16 }}>
+        <Parcela rotulo="Saldo inicial" valor={moeda(inicial)}
+                 sub={`${qtd(titulosInicio ?? 0)} títulos`} />
+        <Sinal>−</Sinal>
+        {/* "a menos NO SALDO TOTAL": é a diferença entre a primeira e a última
+            foto, já com entradas dentro. Não é título pago nem título que saiu
+            por identidade — a fonte não diz por que cada um sumiu. */}
+        <Parcela rotulo="Redução no período" valor={moeda(reducao)}
+                 sub={`${qtd((titulosInicio ?? 0) - (titulosHoje ?? 0))} títulos a menos no saldo total`}
+                 forte />
+        <Sinal>=</Sinal>
+        <Parcela rotulo="Saldo ainda em aberto" valor={moeda(aberto)}
+                 sub={`${qtd(titulosHoje ?? 0)} títulos`} />
+      </div>
+
+      <div style={{ ...S.muted, fontSize: 12.5, marginTop: 14 }}>
+        {pctReducao === null ? null : <><strong>{pct(pctReducao)}</strong> de redução · </>}
+        {pctAberto === null ? null : <><strong>{pct(pctAberto)}</strong> restante · </>}
+        Atualizado pelo relatório de <strong>{dataCurta(quando)}</strong>.
+      </div>
+    </div>
+  );
+}
+
+function Parcela({ rotulo, valor, sub, forte }) {
+  return (
+    <div style={{ minWidth: 190 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--rv-texto-fraco)",
+                    textTransform: "uppercase", letterSpacing: "0.04em" }}>
+        {rotulo}
+      </div>
+      <div style={{ fontSize: 27, fontWeight: 800, marginTop: 6,
+                    color: forte ? "var(--rv-grafico-1)" : "var(--rv-tinta)" }}>
+        {valor}
+      </div>
+      {sub ? <div style={{ ...S.muted, fontSize: 12, marginTop: 3 }}>{sub}</div> : null}
+    </div>
+  );
+}
+
+const Sinal = ({ children }) => (
+  <div style={{ fontSize: 26, fontWeight: 700, color: "var(--rv-texto-fraco)",
+                paddingBottom: 18 }} aria-hidden="true">
+    {children}
+  </div>
+);
+
+// O QUE FOI FEITO. Só as ações realizadas — envio confirmado —, com data,
+// canal e custo. Sem resultado nenhum aqui: resultado por público se sobrepõe
+// e, colado na conta, convidaria a somar o que não soma. Ele está em
+// "Ver detalhes", com o consolidado que conta cada título uma vez.
+function AcoesRealizadas({ acoes, aoMudarCusto }) {
+  const feitas = acoes.filter((a) => !a.sem_envio_confirmado);
+  const q = (x, prec) => (prec === "DATA_E_HORA" ? `${dataCurta(x)} ${hora(x)}` : dataCurta(x));
+
+  return (
+    <div style={{ ...S.card, padding: 20, marginTop: 16 }}>
+      <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Ações realizadas</h2>
+      {feitas.length === 0 ? (
+        <p style={{ ...S.muted, fontSize: 12.5, marginTop: 8, marginBottom: 0 }}>
+          Nenhum envio confirmado ainda.
+        </p>
+      ) : (
+        <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+          {feitas.map((a) => (
+            <div key={a.id} style={{ display: "flex", flexWrap: "wrap", gap: 10,
+                                     alignItems: "baseline", justifyContent: "space-between",
+                                     border: "1px solid var(--rv-borda)", borderRadius: 10,
+                                     padding: "10px 14px" }}>
+              <div>
+                <div style={{ fontSize: 13.5, fontWeight: 700 }}>{a.nome}</div>
+                <div style={{ ...S.muted, fontSize: 11.5, marginTop: 2 }}>
+                  {q(a.quando, a.precisao)} · {CANAIS[a.canal] || a.canal}
+                  {a.origem === "EXTERNA" ? " · fora do CRM" : ""}
+                </div>
+              </div>
+              <CustoCurto a={a} aoMudar={aoMudarCusto} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// O custo na lista: valor na moeda certa e um botão para informar ou corrigir.
+// Moeda não declarada sai sem símbolo e dizendo isso — presumir real seria
+// afirmar um fato sobre dinheiro que ninguém informou.
+function CustoCurto({ a, aoMudar }) {
+  const [edit, setEdit] = useState(false);
+  const [v, setV] = useState(a.custo?.total ?? "");
+  const [m, setM] = useState(a.custo?.moeda ?? "BRL");
+  const [erro, setErro] = useState("");
+
+  async function salvar() {
+    const txt = String(v).trim();
+    const num = txt === "" ? null : Number(txt.replace(",", "."));
+    if (num !== null && (Number.isNaN(num) || num < 0)) {
+      setErro("Informe um valor igual ou maior que zero, ou deixe em branco."); return;
+    }
+    setErro("");
+    const ok = await aoMudar?.(a.id, num, num === null ? null : m);
+    if (ok) setEdit(false);
+  }
+
+  if (edit) {
+    return (
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <input type="number" min="0" step="0.01" value={v} placeholder="Custo total"
+               style={{ ...S.input, maxWidth: 130 }} onChange={(e) => setV(e.target.value)} />
+        <select value={m} style={{ ...S.input, maxWidth: 110 }}
+                onChange={(e) => setM(e.target.value)}>
+          <option value="BRL">R$ (BRL)</option>
+          <option value="USD">US$ (USD)</option>
+        </select>
+        <button style={{ ...S.btnGhost, padding: "4px 12px" }} onClick={salvar}>Salvar</button>
+        <button style={{ ...S.btnGhost, padding: "4px 12px" }}
+                onClick={() => { setEdit(false); setErro(""); }}>Cancelar</button>
+        {erro && <span style={{ color: "var(--rv-erro)", fontSize: 11.5 }}>{erro}</span>}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+      <div style={{ ...S.muted, fontSize: 12.5 }}>
+        {a.custo?.informado ? (
+          <>Custo <strong>{moedaEm(a.custo.total, a.custo.moeda)}</strong>
+            {a.custo.moeda ? null : <> · {SEM_MOEDA}</>}</>
+        ) : "Custo não informado"}
+      </div>
+      <button style={{ ...S.btnGhost, padding: "2px 10px", fontSize: 12 }}
+              onClick={() => { setV(a.custo?.total ?? ""); setM(a.custo?.moeda ?? "BRL"); setEdit(true); }}>
+        {a.custo?.informado ? "Editar" : "Informar"}
+      </button>
     </div>
   );
 }
@@ -296,7 +428,7 @@ function Intervalo({ i, q }) {
                 {" · "}{q(a.quando, a.precisao)}
                 {" · "}{a.custo_informado
                   ? `custo ${moedaEm(a.custo_total, a.custo_moeda)}`
-                    + (a.custo_moeda ? "" : ` (${SEM_MOEDA})`)
+                    + (a.custo_moeda ? "" : ` · ${SEM_MOEDA}`)
                   : "custo não informado"}
               </span>
             </div>
@@ -434,7 +566,7 @@ function HistoricoPorAcao({ acoes, consolidado, definicao, aoMudarCusto }) {
                       {moedaEm(c.total, c.moeda === "NAO_INFORMADA" ? null : c.moeda)}
                     </div>
                     <div style={{ ...S.muted, fontSize: 11.5 }}>
-                      custo informado{c.moeda === "NAO_INFORMADA" ? ` (${SEM_MOEDA})` : ""}
+                      custo informado{c.moeda === "NAO_INFORMADA" ? ` · ${SEM_MOEDA}` : ""}
                     </div>
                   </div>
                 ))}
@@ -537,7 +669,7 @@ function Custo({ a, aoMudar }) {
             {a.custo?.informado ? (
               <>
                 Custo <strong>{moedaEm(a.custo.total, a.custo.moeda)}</strong>
-                {a.custo.moeda ? null : <> ({SEM_MOEDA})</>}
+                {a.custo.moeda ? null : <> · {SEM_MOEDA}</>}
                 {a.custo.por_aluno !== null && a.custo.por_aluno !== undefined
                   ? <> · <strong>{moedaEm(a.custo.por_aluno, a.custo.moeda)}</strong> por aluno
                       acionado ({alunos} alunos)</>

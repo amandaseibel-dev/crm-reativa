@@ -2,7 +2,7 @@
 // Em Brasília (UTC-3) isso empurrava o campo 3 horas para a frente — e, à
 // noite, mudava o DIA, que é justamente o que ordena as remessas.
 import { describe, it, expect } from "vitest";
-import { agoraLocalParaInput, pct, moedaEm } from "./preventivoFormato";
+import { agoraLocalParaInput, pct, moedaEm, qtd } from "./preventivoFormato";
 
 describe("data inicial do campo de extração", () => {
   it("devolve a hora LOCAL, não a UTC", () => {
@@ -76,5 +76,23 @@ describe("dinheiro com moeda declarada", () => {
 
   it("separa milhar em pt-BR", () => {
     expect(moedaEm(1234567.8, "USD")).toBe("US$ 1.234.567,80");
+  });
+});
+
+describe("quantidade com separador de milhar", () => {
+  it("separa o milhar", () => {
+    expect(qtd(13968)).toBe("13.968");
+    expect(qtd(7690)).toBe("7.690");
+    expect(qtd(6278)).toBe("6.278");
+  });
+
+  it("abaixo de mil fica sem ponto, e zero é zero", () => {
+    expect(qtd(999)).toBe("999");
+    expect(qtd(0)).toBe("0");
+  });
+
+  it("sem número não inventa quantidade", () => {
+    expect(qtd(null)).toBe("—");
+    expect(qtd(undefined)).toBe("—");
   });
 });

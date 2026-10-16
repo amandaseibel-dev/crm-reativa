@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { EFEITO_VINCULA, CLASSES_HUMANAS } from "./emConfirmacao";
 
 // GUARDA DA CONFIRMACAO DE PAGAMENTO QUE RESOLVE O TITULO EM CONFIRMACAO.
 //
@@ -154,5 +155,50 @@ describe("Confirmacao de Pagamento resolve o titulo em confirmacao", () => {
     }
     // so ABERTO conta
     expect(estadoUtil).toMatch(/estadoDoTitulo\(t\) === ESTADO\.ABERTO/);
+  });
+});
+
+// AS DUAS DECISOES QUE A FILA UNICA NAO OFERECIA (08/10/2026).
+//
+// Amanda: "esta aparecendo apenas Rejeitar". Medido em producao antes de
+// escrever codigo: 641 titulos em confirmacao, e em 541 deles NENHUM acordo
+// passa na trava — Rejeitar era mesmo a unica saida possivel. O que faltava
+// eram `prime_conferencia_classificar_humano` e
+// `prime_conferencia_encerrar_administrativo`, que ja existiam na Conferencia
+// Prime e nunca apareceram aqui.
+//
+// Estes casos travam as CONDICOES, copiadas das guardas das proprias RPCs: um
+// botao so pode aparecer onde o backend nao recusa.
+describe("classe humana — as 7 que o banco aceita", () => {
+  it("são exatamente as de prime_conferencia_classificar_humano", () => {
+    // Fora desta lista a RPC levanta CLASSE_INVALIDA.
+    expect(CLASSES_HUMANAS.map((c) => c.valor)).toEqual([
+      "PAGAMENTO_REAL", "ACORDO", "LIQUIDACAO_INSTITUCIONAL", "CANCELAMENTO_ESTORNO",
+      "ISENCAO_FIES_BOLSA", "SUBSTITUICAO_TITULO", "INCONCLUSIVO",
+    ]);
+  });
+
+  it("toda classe tem rótulo legível, para o telão da decisão não mostrar constante", () => {
+    for (const c of CLASSES_HUMANAS) {
+      expect(c.rotulo.length).toBeGreaterThan(3);
+      expect(c.rotulo).not.toBe(c.valor);
+    }
+  });
+});
+
+// O ENCERRAMENTO FICOU DE FORA (decisao da gestao, 08/10/2026).
+//
+// `prime_conferencia_encerrar_administrativo` leva o titulo para CANCELADA, e a
+// regra aprovada e outra: cancelamento de cobranca, suspensao, FIES/bolsa e
+// demais encerramentos sem recuperacao devem ZERAR O SALDO e ficar DEVOLVIDO.
+// Medido em producao: nao existe estado DEVOLVIDO para titulo -- so para
+// parcela, e com zero linhas. Ate existir, a tela so classifica.
+describe("as duas listas não se confundem com a do vínculo", () => {
+  it("EFEITO_VINCULA continua só com os dois efeitos de acordo", () => {
+    // Guarda contra alguém juntar as listas: efeito de acordo e classe humana
+    // são coisas diferentes, decididas por RPCs diferentes.
+    expect([...EFEITO_VINCULA].sort()).toEqual(["VIRA_NEGOCIADO", "VIRA_PAGO"]);
+    const classes = new Set(CLASSES_HUMANAS.map((c) => c.valor));
+    for (const e of EFEITO_VINCULA) expect(classes.has(e)).toBe(false);
   });
 });

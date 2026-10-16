@@ -11,12 +11,14 @@ const S = {
   botao: { border: "1px solid var(--rv-borda)", borderRadius: 8, padding: "6px 10px", background: "var(--rv-fundo)", color: "var(--rv-texto)", cursor: "pointer", fontWeight: 700 },
 };
 
-export default function AlertasParcelaAcordo({ alertas, onAbrirFicha, mostrarResponsavel = false }) {
+// `titulo` existe porque a mesma lista serve a dois recortes: o D-2 classico
+// e, desde 15/10/2026, so o alerta que o bloco "Meu dia" nao mostra.
+export default function AlertasParcelaAcordo({ alertas, onAbrirFicha, mostrarResponsavel = false, titulo }) {
   const lista = ordenarAlertas(alertas);
   if (lista.length === 0) return null;
   return (
     <section style={S.painel} aria-label="Parcela de acordo próxima do vencimento" data-testid="alertas-parcela-acordo">
-      <h3 style={S.titulo}>🔔 Parcela de acordo próxima do vencimento ({lista.length})</h3>
+      <h3 style={S.titulo}>{titulo || "🔔 Parcela de acordo próxima do vencimento"} ({lista.length})</h3>
       {lista.map((a) => (
         <div key={chaveAlerta(a)} style={S.item} data-testid="alerta-parcela-item">
           <div style={{ minWidth: 0, flex: 1 }}>

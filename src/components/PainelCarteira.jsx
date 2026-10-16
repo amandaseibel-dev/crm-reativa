@@ -3,7 +3,23 @@ import { supabase } from "../services/supabase";
 import { buscarTudo } from "../utils/paginado";
 import { carregarIndicadoresCarteira, TEXTO_APOIO } from "../utils/carteiraAcionada";
 import AlertasParcelaAcordo from "./AlertasParcelaAcordo";
+import PainelMeuDia from "./PainelMeuDia";
+import AvisoRetornoNaHora from "./AvisoRetornoNaHora";
+import {
+  chaveSilenciados,
+  horaAgoraLocal,
+  retornoParaAvisar,
+  somarMinutos,
+} from "../utils/alarmeRetorno";
 import { normalizarAlertas } from "../utils/alertasParcela";
+import {
+  JANELA_BOLETOS_DIAS,
+  JANELA_RETORNOS_DIAS,
+  boletosProximosDoVencimento,
+  contarRetornoAutomaticoHoje,
+  retornosAgendados,
+  retornosDoDia,
+} from "../utils/painelMeuDia";
 import {
   // Recorte da fila e regra do acionamento guiado -- ver src/utils/carteiraFila.js.
   // Sairam deste arquivo para poder ser testados (bug do guiado, 12/09/2026).
@@ -337,7 +353,7 @@ const KPIS_FILTRAVEIS = new Set([
 const KPIS_ESPECIAIS = new Set(["quitados", "recebidosMes", "acordosQuebrados"]);
 
 const COLUNAS_ALUNO =
-  "id,nome,nome_aluno,cpf,telefone,email,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,situacao_operacional,saldo_vencido,saldo_total,proxima_acao,data_ultimo_acionamento,ultimo_contato,data_retorno,retorno_origem,hora_retorno,retorno_confirmado_em,responsavel_atual_nome,responsavel_atual_email,observacao,unidade,curso,processo_numero,semestre_divida";
+  "id,nome,nome_aluno,cpf,telefone,email,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,situacao_operacional,saldo_vencido,saldo_total,proxima_acao,data_ultimo_acionamento,ultimo_contato,data_retorno,retorno_origem,hora_retorno,retorno_prioritario,retorno_confirmado_em,responsavel_atual_nome,responsavel_atual_email,observacao,unidade,curso,processo_numero,semestre_divida";
 
 // Rotulo amigavel da situacao operacional (recalcular_situacao_aluno).
 const SITUACAO_OPERACIONAL_LABEL = {
@@ -623,6 +639,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const [resumoCpf, setResumoCpf] = useState(null);
   // D-2 de parcela de acordo: fonte unica = RPC acordo_alertas_do_operador (tabela acordo_alertas_parcela). So leitura.
   const [alertasParcela, setAlertasParcela] = useState([]);
+  // Boletos de acordo que vencem de hoje ate hoje + JANELA_BOLETOS_DIAS, para o
+  // bloco "Meu dia". Derivado das parcelas que esta tela ja carrega -- nenhuma
+  // consulta nova. O alerta D-2 continua sendo o alerta; aqui e a janela toda.
+  const [boletosAVencer, setBoletosAVencer] = useState([]);
 
   const [kpis, setKpis] = useState({
     ativos: 0,
@@ -655,6 +675,24 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const [detalheFinanceiro, setDetalheFinanceiro] = useState(null); // { tipo, titulo }
   const [mostrarAgenda, setMostrarAgenda] = useState(false); // painel Agenda (retornos) embutido
   const [confirmandoRetorno, setConfirmandoRetorno] = useState(null); // aluno_id em confirmacao
+  // Aviso na hora do retorno. `horaAgora` anda sozinha de 30 em 30 segundos --
+  // a tela do operador fica aberta o dia inteiro, entao sem relogio proprio o
+  // aviso so apareceria no proximo carregamento. `silenciados` guarda
+  // aluno_id -> hora em que pode voltar a avisar ("" = nao volta hoje), e vive
+  // tambem no navegador para o F5 nao trazer de volta o que ele ja tratou.
+  const [horaAgora, setHoraAgora] = useState(() => horaAgoraLocal());
+  // Lido na inicializacao, nao num efeito: setState dentro de efeito dispara
+  // render em cascata. Chave por dia -- o que o operador dispensou ontem nao
+  // cala o retorno de hoje. Navegador sem storage (aba anonima, cookie
+  // bloqueado) apenas nao lembra entre recargas; a tela segue funcionando.
+  const [silenciados, setSilenciados] = useState(() => {
+    try {
+      const bruto = window.localStorage.getItem(chaveSilenciados(hojeLocalBR()));
+      return bruto ? new Map(Object.entries(JSON.parse(bruto) || {})) : new Map();
+    } catch {
+      return new Map();
+    }
+  });
   // Arquivo de quitados (SO GESTAO): casos com quitacao real registrada
   // (quitado_em). Read-only, fora da fila operacional. Etapa 2 do tratamento
   // de quitados -- ver [[quitados-blindagem-fila-e-arquivo]].
@@ -828,6 +866,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const [resumoConversa, setResumoConversa] = useState("");
   const [retornoData, setRetornoData] = useState("");
   const [retornoHora, setRetornoHora] = useState("");
+  // Prioridade do retorno: escolha humana, separada da criticidade financeira
+  // (nivel_criticidade, que o backend recalcula) e do prazo (data_retorno).
+  const [retornoPrioritario, setRetornoPrioritario] = useState(false);
   const [observacao, setObservacao] = useState("");
 
   // Acoes inline dentro da Tabulacao (link/termo/financeiro/pagamento).
@@ -1122,7 +1163,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       const acordos = await buscarTudo((de, ate) => {
         let q = supabase
           .from("acordos")
-          .select("id,cpf,aluno_id,operador_responsavel_email,status")
+          // numero_acordo entra para o bloco "Meu dia" poder dizer qual acordo
+          // e a parcela que vence ("Acordo #71903 · parcela 3").
+          .select("id,cpf,aluno_id,numero_acordo,operador_responsavel_email,status")
           .order("id", { ascending: true })
           .range(de, ate);
         if (alvo) q = q.eq("operador_responsavel_email", alvo);
@@ -1139,7 +1182,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         const parte = await buscarTudo((de, ate) =>
           supabase
             .from("parcelas")
-            .select("acordo_id,numero,status,vencimento,pago_em,valor,honorarios")
+            // id/boleto/boleto_confiavel: o bloco "Meu dia" lista a parcela a
+            // vencer com o numero do boleto (so quando a importacao marcou como
+            // confiavel) e usa o id como chave da linha.
+            .select("id,acordo_id,numero,status,vencimento,pago_em,valor,honorarios,boleto,boleto_confiavel")
             .in("acordo_id", bloco)
             .order("id", { ascending: true })
             .range(de, ate)
@@ -1196,6 +1242,45 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         atrasado: [...setAtrasado],
         quebrado: [...setQuebrado],
       });
+
+      // Bloco "Meu dia": boleto de acordo ATIVO vencendo de hoje ate hoje+5.
+      // Mesmas parcelas ja carregadas acima -- so recorte, sem ida ao banco.
+      const boletosDaJanela = boletosProximosDoVencimento(parcelas, {
+        acordoById,
+        alunoById: alunoInfo,
+        hoje,
+        dias: JANELA_BOLETOS_DIAS,
+      });
+
+      // O mapa de nomes vem da CARTEIRA, e o acordo pode ser de aluno que nao
+      // esta nela -- os "somente acordos" que a propria tela ja separa. Em
+      // producao (15/10/2026) a fila de um operador mostrava "Aluno" em todas
+      // as linhas por causa disso, e boleto sem nome nao serve para ligar.
+      // Busca so os que faltam, por id, em lote.
+      const semNome = [...new Set(
+        boletosDaJanela.filter((b) => !alunoInfo.has(String(b.aluno_id))).map((b) => String(b.aluno_id))
+      )].filter((id) => UUID_RE.test(id));
+      if (semNome.length > 0) {
+        try {
+          const nomes = new Map();
+          for (let i = 0; i < semNome.length; i += 300) {
+            const { data } = await supabase
+              .from("alunos")
+              .select("id,nome,nome_aluno")
+              .in("id", semNome.slice(i, i + 300));
+            (data || []).forEach((a) => nomes.set(String(a.id), a));
+          }
+          boletosDaJanela.forEach((b) => {
+            const al = nomes.get(String(b.aluno_id));
+            if (al) b.aluno_nome = nomeAluno(al) !== "Aluno sem nome" ? nomeAluno(al) : (al.nome || b.aluno_nome);
+          });
+        } catch (e) {
+          // Sem o nome a linha ainda serve (acordo, parcela, valor, boleto):
+          // nao vale derrubar o carregamento da carteira por causa dele.
+          console.error("Nomes dos boletos a vencer:", e);
+        }
+      }
+      setBoletosAVencer(boletosDaJanela);
 
       setKpis({
         ativos: ativosCanonico ?? listaAtiva.length,
@@ -1483,6 +1568,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     setResumoConversa("");
     setRetornoData(retornoAgendadoPeloOperador(a));
     setRetornoHora(retornoAgendadoPeloOperador(a) ? (a.hora_retorno || "") : "");
+    setRetornoPrioritario(retornoAgendadoPeloOperador(a) ? Boolean(a.retorno_prioritario) : false);
     setObservacao(a.observacao || "");
     carregarDadosModal(a.id, a.cpf);
 
@@ -1702,7 +1788,13 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       if (desfecho.data_retorno) {
         camposAluno.data_retorno = desfecho.data_retorno;
         camposAluno.retorno_origem = desfecho.retorno_origem;
-        if (desfecho.motivo === "AUTOMATICA") camposAluno.hora_retorno = null;
+        if (desfecho.motivo === "AUTOMATICA") {
+          // O prazo automatico da tabulacao substituiu o compromisso que o
+          // operador tinha marcado: hora e prioridade iam junto com ele.
+          // Motivo MANTIDA preserva os dois, porque a data dele continua.
+          camposAluno.hora_retorno = null;
+          camposAluno.retorno_prioritario = false;
+        }
       }
       const textoRetorno = desfecho.data_retorno ? ` Retorno: ${formatarData(desfecho.data_retorno)}.` : "";
 
@@ -1913,6 +2005,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       setStatusNovo(statusTabulavel(row.status_atual));
       setRetornoData(retornoAgendadoPeloOperador(row));
       setRetornoHora(retornoAgendadoPeloOperador(row) ? (row.hora_retorno || "") : "");
+      setRetornoPrioritario(retornoAgendadoPeloOperador(row) ? Boolean(row.retorno_prioritario) : false);
       // Atualiza a linha correspondente na carteira sem recarregar tudo.
       setCasos((prev) => prev.map((c) => (c.id === id ? { ...c, ...row } : c)));
     }
@@ -1960,6 +2053,13 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         atualizacaoAluno.data_retorno = desfecho.data_retorno;
         atualizacaoAluno.retorno_origem = desfecho.retorno_origem;
         atualizacaoAluno.hora_retorno = desfecho.motivo === "DIGITADA" ? (retornoHora || null) : null;
+        // Prioridade pertence ao compromisso do operador: so vale no retorno
+        // que ele mesmo marcou. Prazo automatico da tabulacao nunca nasce
+        // prioritario, senao a fila inteira subiria junto.
+        atualizacaoAluno.retorno_prioritario = desfecho.motivo === "DIGITADA" ? Boolean(retornoPrioritario) : false;
+      } else {
+        // Tabulou sem agendar retorno: nao ha compromisso, nao ha prioridade.
+        atualizacaoAluno.retorno_prioritario = false;
       }
       if (observacao !== (a.observacao || "")) {
         atualizacaoAluno.observacao = observacao;
@@ -2285,8 +2385,21 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         p_confirmar: confirmar,
       });
       if (error) throw error;
+      // Tratado deixa de ser prioridade: senao o caso resolvido continuaria
+      // ocupando o topo da fila ate a proxima tabulacao.
+      if (confirmar) {
+        try {
+          await supabase.from("alunos").update({ retorno_prioritario: false }).eq("id", alunoId);
+        } catch {
+          /* a marca cai na proxima tabulacao; nao e motivo para falhar a confirmacao */
+        }
+      }
       setCasos((prev) =>
-        prev.map((c) => (String(c.id) === String(alunoId) ? { ...c, retorno_confirmado_em: data || null } : c))
+        prev.map((c) =>
+          String(c.id) === String(alunoId)
+            ? { ...c, retorno_confirmado_em: data || null, retorno_prioritario: confirmar ? false : c.retorno_prioritario }
+            : c
+        )
       );
     } catch (e) {
       alert("Não foi possível confirmar o retorno: " + (e?.message || e));
@@ -2567,6 +2680,74 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // Carteira compacta (sugestao da operacao 2026-08-08): so os cards que a
   // operacao de fato usa. "Sem acionamento" + "proximos de perder" viraram um
   // unico card focado na janela critica (9-11 dias). A Agenda entra como card.
+  // Bloco "Meu dia" (topo da tela inicial do operador).
+  // Retornos: so os que o OPERADOR agendou, de hoje ate o fim da semana a
+  // frente -- a tela abre em "Hoje" e a semana fica atras do botao. O prazo
+  // automatico da tabulacao fica como contador: sao 6.051 num dia contra 157
+  // agendados a mao (medido 15/10/2026), e misturar os dois devolve centenas
+  // de linhas.
+  const retornosDaSemana = useMemo(
+    () => retornosAgendados(casos, hojeLocalBR(), JANELA_RETORNOS_DIAS, finAlunos),
+    [casos, finAlunos]
+  );
+  // Relogio da tela. 30s e suficiente: o aviso e "esta na hora", nao cronometro.
+  useEffect(() => {
+    const t = setInterval(() => setHoraAgora(horaAgoraLocal()), 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  function silenciarRetorno(alunoId, voltaEm) {
+    setSilenciados((atual) => {
+      const novo = new Map(atual);
+      novo.set(String(alunoId), voltaEm || "");
+      try {
+        window.localStorage.setItem(chaveSilenciados(hojeLocalBR()), JSON.stringify(Object.fromEntries(novo)));
+      } catch {
+        /* sem storage: vale so nesta sessao da tela */
+      }
+      return novo;
+    });
+  }
+
+  const retornoAutomaticoHoje = useMemo(
+    () => contarRetornoAutomaticoHoje(kpis.retornosHoje, retornosDoDia(retornosDaSemana, hojeLocalBR())),
+    [kpis.retornosHoje, retornosDaSemana]
+  );
+  // O retorno que deve estar na tela agora.
+  // Duas guardas de proposito: a gestao olhando a carteira de outra pessoa nao
+  // recebe o aviso dela (seria ruido sobre trabalho que nao e seu), e nada
+  // aparece por cima de uma ficha aberta -- interromper um atendimento com
+  // modal no meio da tela e pior do que esperar ele fechar.
+  const retornoDaHora = useMemo(() => {
+    if (veTudo) return null;
+    if (alunoModal) return null;
+    return retornoParaAvisar(retornosDaSemana, { hoje: hojeLocalBR(), horaAgora, silenciados });
+  }, [veTudo, alunoModal, retornosDaSemana, horaAgora, silenciados]);
+
+  // Marca com 🔔 o boleto que tambem tem alerta D-2 aberto na rotina do cron.
+  const boletosDoDia = useMemo(() => {
+    const comAlerta = new Set(normalizarAlertas(alertasParcela).map((a) => String(a.parcela_id)));
+    if (comAlerta.size === 0) return boletosAVencer;
+    return boletosAVencer.map((b) => ({ ...b, tem_alerta: comAlerta.has(String(b.parcela_id)) }));
+  }, [boletosAVencer, alertasParcela]);
+
+  // Alerta D-2 que o bloco "Meu dia" nao mostra (parcela fora da janela de 5
+  // dias -- na pratica a que venceu e cujo alerta a rotina nao resolveu).
+  const alertasForaDaJanela = useMemo(() => {
+    const naJanela = new Set(boletosAVencer.map((b) => String(b.parcela_id)));
+    return normalizarAlertas(alertasParcela).filter((a) => !naJanela.has(String(a.parcela_id)));
+  }, [alertasParcela, boletosAVencer]);
+
+  // Abre a ficha a partir de uma linha do bloco "Meu dia". Quem saiu da fila
+  // (quitado, em confirmacao) nao esta em `casos`: abre pelo id, com o nome que
+  // a propria linha ja traz, em vez de nao fazer nada no clique.
+  function abrirFichaDoMeuDia(item) {
+    const id = String(item?.aluno_id || item?.id || "");
+    const nome = item?.aluno_nome || item?.nome || "";
+    const naFila = casos.find((c) => String(c.id) === id);
+    abrirModal(naFila || { id, nome_aluno: nome, nome });
+  }
+
   const kpiCards = [
     { id: "ativos", rot: "Casos ativos", val: kpis.ativos, cor: "var(--rv-azul)", icone: "📁" },
     // Duas frentes de trabalho diferentes, que ate aqui apareciam somadas em
@@ -2873,6 +3054,41 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             </div>
           )}
 
+          {/* Primeira coisa que o operador ve ao entrar: o que ele prometeu
+              retornar hoje e o boleto que esta vencendo. Antes as duas coisas
+              existiam atras de um clique (card Agenda) ou so como filtro
+              (Foco do Dia, D+2). */}
+          {/* Chegou a hora combinada: a caixa aparece no centro com o nome do
+              aluno e abre a ficha, que e por onde o contato comeca. */}
+          <AvisoRetornoNaHora
+            retorno={retornoDaHora}
+            horaAgora={horaAgora}
+            ocupado={confirmandoRetorno === retornoDaHora?.id}
+            onAbrirFicha={(r) => {
+              // Quem abriu a ficha vai tratar ali: o aviso nao volta hoje.
+              silenciarRetorno(r.id, "");
+              abrirFichaDoMeuDia(r);
+            }}
+            onLembrarDepois={(r, minutos) => silenciarRetorno(r.id, somarMinutos(horaAgora, minutos))}
+            onMarcarFeito={(r) => {
+              silenciarRetorno(r.id, "");
+              confirmarRetornoAgenda(r.id, true);
+            }}
+          />
+
+          <PainelMeuDia
+            hoje={hojeLocalBR()}
+            retornos={retornosDaSemana}
+            retornoAutomaticoHoje={retornoAutomaticoHoje}
+            boletos={boletosDoDia}
+            janelaDias={JANELA_BOLETOS_DIAS}
+            mostrarResponsavel={veTudo && operadorFiltro === "TODOS"}
+            confirmandoRetornoId={confirmandoRetorno}
+            onAbrirFicha={abrirFichaDoMeuDia}
+            onConfirmarRetorno={(id, confirmar) => confirmarRetornoAgenda(id, confirmar)}
+            onVerRetornosNaFila={() => onKpiClick("retornosHoje")}
+          />
+
           {!veTudo && desempenho && (
             <div style={S.desWrap}>
               <div style={S.desHeader}>Meu desempenho operacional</div>
@@ -2967,10 +3183,15 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             })}
           </div>
 
+          {/* O alerta D-2 que JA aparece no bloco "Meu dia" nao se repete aqui
+              (lá ele vem marcado com 🔔). Sobra o alerta ainda aberto que caiu
+              fora da janela -- tipicamente parcela que venceu e a rotina do
+              cron nao resolveu. Sem isto ele desapareceria da tela. */}
           <AlertasParcelaAcordo
-            alertas={alertasParcela}
+            alertas={alertasForaDaJanela}
+            titulo="🔔 Alerta de parcela de acordo ainda aberto"
             mostrarResponsavel={veTudo}
-            onAbrirFicha={(al) => abrirModal(casos.find((c) => String(c.id) === String(al.aluno_id)) || { id: al.aluno_id, nome_aluno: al.aluno_nome, nome: al.aluno_nome })}
+            onAbrirFicha={abrirFichaDoMeuDia}
           />
 
           {mostrarAgenda && (
@@ -3858,12 +4079,35 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                   {!confirmacaoPendente && (
                     <>
                       <label style={S.label}>Agendar retorno</label>
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <input type="date" style={{ ...S.input, flex: 1 }} value={retornoData} onChange={(e) => setRetornoData(e.target.value)} />
-                        <input type="time" style={{ ...S.input, width: 120 }} value={retornoHora} onChange={(e) => setRetornoHora(e.target.value)} />
+                      {/* A hora sempre esteve aqui e estava vazia em 13.293 de
+                          13.293 registros: era uma caixinha de 120px sem nome
+                          ao lado da data. Agora cada campo tem rotulo e a hora
+                          diz o que faz -- e ela que liga o aviso na tela. */}
+                      <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                        <div style={{ flex: 1 }}>
+                          <span style={S.subRotuloCampo}>Data</span>
+                          <input type="date" style={{ ...S.input, width: "100%" }} value={retornoData} onChange={(e) => setRetornoData(e.target.value)} />
+                        </div>
+                        <div style={{ width: 150 }}>
+                          <span style={S.subRotuloCampo}>Hora — avisa você</span>
+                          <input type="time" style={{ ...S.input, width: "100%" }} value={retornoHora} onChange={(e) => setRetornoHora(e.target.value)} />
+                        </div>
                       </div>
+                      <label style={S.caixaPrioridade} title="O caso vem primeiro na sua fila e no topo de Meu dia">
+                        <input
+                          type="checkbox"
+                          checked={retornoPrioritario}
+                          onChange={(e) => setRetornoPrioritario(e.target.checked)}
+                          disabled={!retornoData}
+                        />
+                        <span>
+                          ⭐ Prioridade — este retorno vem primeiro na fila
+                          {!retornoData ? " (precisa de data)" : ""}
+                        </span>
+                      </label>
                       <div style={S.lembreteDica}>
-                        Sem data, o retorno segue a regra da tabulacao (acima). Data digitada e compromisso seu e aparece na Agenda.
+                        Sem data, o retorno segue a regra da tabulacao (acima). Data digitada e compromisso seu e aparece em "Meu dia".
+                        Com hora, a tela abre um aviso com o nome do aluno quando der o horario.
                       </div>
                     </>
                   )}
@@ -4282,6 +4526,8 @@ const S = {
   lembreteBox: { marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: "var(--rv-verde-ok-fundo)", border: "1px solid var(--rv-verde-ok-borda)" },
   lembreteTitulo: { fontSize: 13, fontWeight: 800, color: "var(--rv-verde-ok-texto)" },
   lembreteTexto: { fontSize: 13, color: "var(--rv-verde-ok-texto)", marginTop: 4 },
+  caixaPrioridade: { display: "flex", alignItems: "center", gap: 8, margin: "8px 0 2px", fontSize: 12.5, fontWeight: 700, color: "var(--rv-ambar-texto)", cursor: "pointer" },
+  subRotuloCampo: { display: "block", fontSize: 11, fontWeight: 700, color: "var(--rv-texto-suave)", marginBottom: 3 },
   lembreteDica: { fontSize: 11, color: "var(--rv-verde-ok-texto)", marginTop: 6 },
   btnPrimario: { background: "#1e40af", color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
   btnSecundario: { background: "var(--rv-fundo-suave)", color: "var(--rv-texto)", border: "none", borderRadius: 10, padding: "10px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
