@@ -2,8 +2,12 @@
 // Nao altera cadastro, baixa, status, fila ou acordo. Integracao com banco e etapa posterior.
 // Os nomes dos alunos nunca sao utilizados como chave. Ausencia/ambiguidade => revisao humana.
 
-const somenteDigitos = (v) => typeof v === "string" || typeof v === "number"
-  ? String(v).replace(/\D/g, "") : "";
+const somenteDigitos = (v) => {
+  if (typeof v !== "string" && typeof v !== "number") return "";
+  const texto = String(v).trim();
+  // Nao transformar lixo alfanumerico em numero valido por retirar letras.
+  return /^[0-9 .-]+$/.test(texto) ? texto.replace(/[^0-9]/g, "") : "";
+};
 const numeroCanonico = (v) => {
   const d = somenteDigitos(v);
   return d ? d.replace(/^0+(?=\d)/, "") : "";
