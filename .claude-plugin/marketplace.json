@@ -1,0 +1,13 @@
+{
+  "name": "reativa",
+  "owner": {
+    "name": "CRM ReATIVA"
+  },
+  "plugins": [
+    {
+      "name": "reativa-one",
+      "source": "./plugins/reativa-one",
+      "description": "Guardião e Desenvolvedor do CRM ReATIVA (Fase 1)."
+    }
+  ]
+}
