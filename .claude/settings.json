@@ -1,4 +1,10 @@
 {
+  "maxEffortLevel": "high",
+
+  "env": {
+    "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"
+  },
+
   "permissions": {
     "deny": [
       "Bash(supabase db push:*)",

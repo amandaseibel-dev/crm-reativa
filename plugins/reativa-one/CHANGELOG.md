@@ -1,5 +1,40 @@
 # ReATIVA One — registro de versões
 
+## 1.1.0 — 2026-10-17 (política de economia de token)
+
+Não muda nenhuma regra de bloqueio: as 121 entradas de `deny` e as 79 de `ask`
+da Camada 0 ficam **byte a byte** como estavam, e `hooks/guardiao.sh` não é
+tocado. Também **não muda o modelo padrão da sessão principal** — isso é
+escolha da gestão.
+
+- **Camada 0** (`.claude/settings.json`): duas chaves novas.
+  `maxEffortLevel: "high"` é teto, não trava — clampa `/effort`, `/model`,
+  `--effort` e `CLAUDE_CODE_EFFORT_LEVEL`, e entre arquivos de settings vence o
+  menor valor. `env.CLAUDE_CODE_SUBAGENT_MODEL: "sonnet"` é o **padrão** de
+  subagente; o `model:` de cada agente continua vencendo, e por isso
+  `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` não é usado: ele rebaixaria o `guardiao`.
+- **Skill `economia-de-tokens`**: critério objetivo de modelo (`haiku` para
+  saída de script, `sonnet` como padrão, modelo da sessão só para banco,
+  segurança, dinheiro, fila, Prime/ULBRA e auditoria de PR), de esforço e de
+  quantos subagentes cabem. Sem `allowed-tools`, de propósito: política
+  consultada no meio de uma correção não pode tirar ferramenta de quem corrige.
+- **Frontmatter** em 7 arquivos: `ambiente`/`escopo` em `haiku · low`,
+  `mapa`/`autoteste` em `sonnet · low`, `corrigir` em `medium`,
+  `desenvolvedor` passa de `inherit` para `sonnet · medium`, `guardiao`
+  **mantém** `inherit` e ganha `effort: high` — auditoria de RLS/grant é onde
+  errar custa mais que o token.
+- **`CLAUDE.md`**: três linhas de orientação, o único canal que está sempre em
+  contexto no instante em que se decide abrir agente ou ler arquivo.
+- **`hooks/marco.sh`** em `PreCompact` e `SessionEnd`: grava evento, gatilho,
+  branch, HEAD, escopo e contagem de arquivos por área em
+  `.claude/reativa-one.marcos.local.md` (não versionado). Não bloqueia
+  (`exit 0` em todo caminho), não imprime nada e não guarda conteúdo — do
+  payload só saem dois rótulos de vocabulário fechado; o resto vira
+  `indeterminado`.
+- Não altera `ci.yml`, `package.json`, `src/`, `supabase/`, `docs/` nem
+  `scripts/`. A única linha fora de `plugins/`, `.claude/` e `CLAUDE.md` é a
+  segunda entrada de `.gitignore`, para o arquivo de marcos.
+
 ## Não lançado — 2026-10-16 (correção dos nomes de conector na CLI)
 
 Sem mudança de versão. Teste L1 executado: ver `tests/L1-roteiro.md`.

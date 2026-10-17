@@ -1,7 +1,7 @@
 {
   "name": "reativa-one",
-  "version": "1.0.0",
-  "description": "Guardião e Desenvolvedor do CRM ReATIVA (Fase 1). O Guardião bloqueia no instante da chamada o que reescreve produção, publica, mescla, mexe na branch principal, edita o ledger, despeja segredo ou sai do escopo declarado — em Bash, Edit/Write, MCPs, terminal do app e navegador. O Desenvolvedor faz correção pontual dentro de escopo declarado e para quando a correção exigir regra nova no banco. Nenhuma regra de negócio é duplicada aqui: as skills apontam para docs/ do próprio repositório.",
+  "version": "1.1.0",
+  "description": "Guardião e Desenvolvedor do CRM ReATIVA (Fase 1). O Guardião bloqueia no instante da chamada o que reescreve produção, publica, mescla, mexe na branch principal, edita o ledger, despeja segredo ou sai do escopo declarado — em Bash, Edit/Write, MCPs, terminal do app e navegador. O Desenvolvedor faz correção pontual dentro de escopo declarado e para quando a correção exigir regra nova no banco. Nenhuma regra de negócio é duplicada aqui: as skills apontam para docs/ do próprio repositório. Carrega também a política de economia de token: teto de esforço e modelo padrão de subagente na camada versionada, critério objetivo de modelo/esforço/agentes na skill, e marco de estado antes de resumir ou limpar a sessão.",
   "author": {
     "name": "CRM ReATIVA"
   },

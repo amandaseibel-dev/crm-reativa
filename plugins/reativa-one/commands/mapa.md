@@ -1,6 +1,8 @@
 ---
 description: Diz qual arquivo do repositório manda no assunto pedido, e abre só o trecho que importa
 allowed-tools: ["Read", "Grep", "Glob"]
+model: sonnet
+effort: low
 ---
 
 Assunto: $ARGUMENTS

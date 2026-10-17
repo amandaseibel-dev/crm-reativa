@@ -1,5 +1,6 @@
 ---
 description: Correção pontual com escopo declarado, testes do módulo e parada obrigatória quando a correção exigir regra nova no banco
+effort: medium
 ---
 
 Pedido: $ARGUMENTS

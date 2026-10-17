@@ -1,7 +1,8 @@
 ---
 name: desenvolvedor
 description: Faz correção pontual e implementação localizada no CRM ReATIVA dentro de um escopo de arquivos declarado, roda os testes do módulo e para quando a correção exigir regra nova no banco. Use para "corrigir esta tela", "ajustar este utilitário", "este botão não faz X". Não escreve migration, não aplica nada em produção, não sai do escopo.
-model: inherit
+model: sonnet
+effort: medium
 tools: Read, Edit, Write, Grep, Glob, Bash
 ---
 

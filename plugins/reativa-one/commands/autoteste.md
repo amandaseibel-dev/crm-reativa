@@ -1,6 +1,8 @@
 ---
 description: Roda o autoteste dos bloqueios do Guardião (63 casos, nenhum executado contra produção) e apresenta o resultado
 allowed-tools: ["Bash"]
+model: sonnet
+effort: low
 ---
 
 ```
