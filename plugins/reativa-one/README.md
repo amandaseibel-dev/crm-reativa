@@ -14,7 +14,8 @@ para `docs/` do repositório. Regra escrita duas vezes é regra que divergiu.
 
 ```
 CAMADA 0  .claude/settings.json   VERSIONADO · independe deste plugin
-          deny + ask. Sobrevive a: plugin desativado, plugin removido,
+          deny + ask, mais o teto de esforço e o modelo padrão de
+          subagente. Sobrevive a: plugin desativado, plugin removido,
           hook com defeito, hook em timeout, sessão nova, outra máquina
           que faça git pull.
 CAMADA 1  plugins/reativa-one/hooks/guardiao.sh
@@ -187,6 +188,66 @@ porque `deny` e `ask` vencem `allow`.
 
 ---
 
+## Economia de token
+
+**Menor consumo que preserve qualidade, segurança e precisão.** A política vive
+em três lugares, pelo mesmo critério das três camadas: o que precisa valer
+sempre não mora no plugin.
+
+| Onde | O que faz | Sobrevive ao plugin desligado? |
+|---|---|---|
+| `.claude/settings.json` | `maxEffortLevel: "high"` (teto) e `env.CLAUDE_CODE_SUBAGENT_MODEL: "sonnet"` (padrão de subagente) | **sim** |
+| `CLAUDE.md` | três linhas de orientação, sempre em contexto | **sim** |
+| `skills/economia-de-tokens/` | o critério objetivo de modelo, esforço e número de agentes | não |
+| `commands/*.md` e `agents/*.md` | `model:`/`effort:` por invocação — a parte determinística | não |
+
+O teto é **teto, não trava**: `low`, `medium` e `high` seguem livres; `xhigh` e
+`max` passam a exigir edição de arquivo versionado. `maxEffortLevel` clampa
+`/effort`, `/model`, `--effort` e `CLAUDE_CODE_EFFORT_LEVEL`, e entre arquivos
+de settings vence o **menor** valor. Nenhum arquivo deste plugin pede `max`:
+seria clampado, e política que se contradiz na própria pasta é ruído.
+
+`CLAUDE_CODE_SUBAGENT_MODEL` é **padrão**, não imposição: o `model:` de cada
+agente continua vencendo — é o que mantém o `guardiao` em `inherit`. Por isso
+`CLAUDE_CODE_SUBAGENT_MODEL_FORCE` **não** é usado aqui: ele ignoraria o
+frontmatter e rebaixaria a auditoria junto com a busca.
+
+**O modelo da sessão principal não é mexido** por esta fase. Modelo e esforço
+da sessão são escolha da gestão; o que o plugin governa é subagente, comando e
+disciplina de leitura.
+
+### Marco antes de resumir ou limpar
+
+`hooks/marco.sh` roda em `PreCompact` e `SessionEnd` e grava uma linha em
+`.claude/reativa-one.marcos.local.md`: evento, gatilho, branch, HEAD, escopo
+declarado e **contagem** de arquivos alterados por área.
+
+- **Não bloqueia** — `exit 0` em todo caminho, inclusive de erro. Compactar é o
+  que mantém sessão longa viva.
+- **Não guarda conteúdo** — do payload do hook só saem dois rótulos de
+  vocabulário fechado (evento e gatilho); qualquer outro valor vira
+  `indeterminado`. Sem nome, CPF, valor, segredo, caminho absoluto da máquina
+  ou trecho de conversa. Caminho de arquivo não entra: só o diretório de
+  primeiro nível.
+- **Não imprime nada** — marco não custa contexto.
+- **Não é fonte.** Vale a regra de ouro: hook em timeout não roda, então
+  decisão vira ledger, doc ou PR no momento em que é tomada.
+
+### Provar a economia
+
+| Verificar | Como | Falha se |
+|---|---|---|
+| settings válido | `claude doctor` na raiz | aponta chave inválida |
+| teto de esforço | `/effort max` num `claude` interativo | `max` é aceito |
+| padrão de subagente | `echo "${CLAUDE_CODE_SUBAGENT_MODEL:-vazio}"` | vem vazio |
+| gasto por modelo | `/usage` (= `/cost`, `/stats`) depois de uma tarefa com subagente | subagente gastou no modelo forte |
+| skill carregada | `/skills` lista `economia-de-tokens` | sessão não foi reaberta |
+| marco | `/hooks` mostra `PreCompact` e `SessionEnd`; `/compact` grava linha `manual`, `/clear` grava `clear` | arquivo não ganha linha |
+
+`/hooks` e `/config` são diálogos de terminal: rode num `claude` interativo.
+
+---
+
 ## Estado por projeto
 
 `.claude/reativa-one.local.md` guarda o escopo declarado da frente. Não é
@@ -197,14 +258,14 @@ estão em negação pura.
 
 ## Comandos
 
-| Comando | Para que |
-|---|---|
-| `/reativa-one:ambiente` | PROD × STAGING × projeto realmente ligado, branch, freios |
-| `/reativa-one:escopo` | declara/mostra os arquivos que esta frente pode editar |
-| `/reativa-one:mapa` | qual arquivo manda no assunto, e só o trecho que importa |
-| `/reativa-one:corrigir` | correção pontual pelo subagente `desenvolvedor` |
-| `/reativa-one:checar` | auditoria do diff pelo subagente `guardiao` |
-| `/reativa-one:autoteste` | roda os 75 casos (bloqueios e verificações da Camada 0) |
+| Comando | Para que | Modelo · esforço |
+|---|---|---|
+| `/reativa-one:ambiente` | PROD × STAGING × projeto realmente ligado, branch, freios | haiku · low |
+| `/reativa-one:escopo` | declara/mostra os arquivos que esta frente pode editar | haiku · low |
+| `/reativa-one:mapa` | qual arquivo manda no assunto, e só o trecho que importa | sonnet · low |
+| `/reativa-one:corrigir` | correção pontual pelo subagente `desenvolvedor` | agente: sonnet · medium |
+| `/reativa-one:checar` | auditoria do diff pelo subagente `guardiao` | agente: `inherit` · high |
+| `/reativa-one:autoteste` | roda os 75 casos (bloqueios e verificações da Camada 0) | sonnet · low |
 
 ## Estrutura
 
@@ -213,9 +274,9 @@ plugins/reativa-one/
 ├── .claude-plugin/plugin.json
 ├── README.md · CHANGELOG.md
 ├── agents/      guardiao.md · desenvolvedor.md
-├── skills/      fontes-de-verdade/ · seguranca-rls/
+├── skills/      fontes-de-verdade/ · seguranca-rls/ · economia-de-tokens/
 ├── commands/    6 comandos
-├── hooks/       hooks.json · guardiao.sh · aviso-final.sh
+├── hooks/       hooks.json · guardiao.sh · aviso-final.sh · marco.sh
 ├── scripts/     ambiente.sh · escopo.sh · integracoes-cinco.sh
 └── tests/       guardiao.autoteste.mjs
 ```

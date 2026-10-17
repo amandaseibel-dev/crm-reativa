@@ -2,6 +2,7 @@
 name: guardiao
 description: Audita uma alteração do CRM ReATIVA contra as premissas, a premissa de segurança e o checklist de deploy do próprio repositório, e devolve APROVADO ou REPROVADO com o bloco de conclusão preenchido. Use antes de abrir PR, depois de mexer em RPC/RLS/grant/view/trigger, ou quando precisar saber se uma mudança amplia acesso. Não edita, não aplica, não publica — é o revisor, não o freio.
 model: inherit
+effort: high
 tools: Read, Grep, Glob, Bash
 ---
 

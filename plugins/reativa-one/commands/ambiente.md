@@ -1,6 +1,8 @@
 ---
 description: Mostra PROD x STAGING, o projeto realmente ligado a este checkout, a branch e o estado dos freios
 allowed-tools: ["Bash"]
+model: haiku
+effort: low
 ---
 
 Rode e apresente a saída, sem interpretar além dela:

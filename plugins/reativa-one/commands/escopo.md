@@ -1,6 +1,8 @@
 ---
 description: Declara (ou mostra) os arquivos que esta frente pode editar — o Guardião recusa Edit/Write fora disso
 allowed-tools: ["Bash"]
+model: haiku
+effort: low
 ---
 
 Argumento: um ou mais globs relativos à raiz do repositório. Sem argumento,
