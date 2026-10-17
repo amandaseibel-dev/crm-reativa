@@ -28,6 +28,10 @@ export function identificarVinculoF1b({ pagamento, acordos = [], parcelas = [] }
     return resposta("REVISAO", "ALUNO_NAO_IDENTIFICADO");
   }
   const aluno = identidade(pagamento.aluno_id);
+  const informadoInvalido = (v) => v != null && String(v).trim() !== "" && somenteDigitos(v) === "";
+  if (informadoInvalido(pagamento.titulo_numero) || informadoInvalido(pagamento.numero_parcela_completo)) {
+    return resposta("REVISAO", "IDENTIFICADOR_INVALIDO");
+  }
   const numeroAcordo = numeroCanonico(pagamento.titulo_numero);
   const boleto = numeroCanonico(pagamento.numero_parcela_completo);
   if (!numeroAcordo && !boleto) return resposta("REVISAO", "SEM_IDENTIFICADOR_FINANCEIRO");
