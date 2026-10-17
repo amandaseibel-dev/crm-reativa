@@ -37,6 +37,10 @@ describe("F1.b: somente candidatos determinísticos, sem baixa", () => {
   it("boleto duplicado bloqueia", () => {
     expect(identificar({ pagamento: pg, acordos: [acordo], parcelas: [parcela, { ...parcela, id: "p2" }] }).motivo).toBe("BOLETO_AMBIGUO");
   });
+  it("nao transforma letras de identificador invalido em correspondencia", () => {
+    const r = identificar({ pagamento: { ...pg, titulo_numero: "XXX1234" }, acordos: [acordo], parcelas: [parcela] });
+    expect(r.situacao).toBe("REVISAO");
+  });
   it("vínculo por número do acordo sem boleto não confirma parcela", () => {
     const r = identificar({ pagamento: { aluno_id: "u1", titulo_numero: "1234" }, acordos: [acordo] });
     expect(r).toMatchObject({ situacao: "CANDIDATO_DETERMINISTICO", acordo_id: "a1", parcela_id: null, baixa_confirmada: false });
