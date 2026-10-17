@@ -127,9 +127,7 @@
       "Read(./.env.prod.local)",
 
       "Edit(./.claude/settings.local.json)",
-      "Write(./.claude/settings.local.json)",
       "Edit(./supabase/ledger/**)",
-      "Write(./supabase/ledger/**)",
 
       "Bash(echo SENTINELA_DENY_DOISPONTOS:*)",
       "Bash(echo SENTINELA_DENY_ESPACO *)",
@@ -215,11 +213,8 @@
       "mcp__scheduled-tasks__run_scheduled_task",
 
       "Edit(./.claude/settings.json)",
-      "Write(./.claude/settings.json)",
       "Edit(./plugins/reativa-one/hooks/**)",
-      "Write(./plugins/reativa-one/hooks/**)",
       "Edit(./.github/workflows/**)",
-      "Write(./.github/workflows/**)",
 
       "Bash(echo SENTINELA_ASK_DOISPONTOS:*)",
       "Bash(echo SENTINELA_ASK_ESPACO *)"
