@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { carregarTabulacoes, desfechoDaTabulacao } from "../utils/tabulacoes";
 import { buscarTudo } from "../utils/paginado";
+import { temAjusteValor } from "../utils/ajusteValor";
 import { SITUACAO_FORA_DA_FILA_OPERACIONAL } from "../utils/carteiraFila";
 import {
   carregarIdsEmConfirmacao,
@@ -290,7 +291,7 @@ export default function FilaOperador() {
 
     const { data, error } = await supabase
       .from("acordos_titulos")
-      .select("cpf, saldo_corrigido, valor_original, situacao, status, acordo_id")
+      .select("cpf, saldo_corrigido, valor_cobranca_ajustado, valor_original, situacao, status, acordo_id")
       .in("cpf", cpfsUnicos);
 
     if (error) {
@@ -314,7 +315,10 @@ export default function FilaOperador() {
     (data || []).forEach((titulo) => {
       if (titulo.situacao === "PAGO") return;
       if (String(titulo.status || "").toLowerCase() === "quitada") return;
-      const valor = Number(titulo.saldo_corrigido ?? titulo.valor_original ?? 0);
+      // Ajuste cobravel na frente; sem ajuste, a regra desta soma como estava.
+      const valor = temAjusteValor(titulo)
+        ? Number(titulo.valor_cobranca_ajustado)
+        : Number(titulo.saldo_corrigido ?? titulo.valor_original ?? 0);
       const negociada =
         titulo.status === "vinculada" || titulo.situacao === "NEGOCIADO" || !!titulo.acordo_id;
       const atual = mapa[titulo.cpf] || { total: 0, negociado: 0 };
