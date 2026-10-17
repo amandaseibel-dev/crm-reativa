@@ -39,7 +39,7 @@ describe("F1.b: somente candidatos determinísticos, sem baixa", () => {
   });
   it("nao transforma letras de identificador invalido em correspondencia", () => {
     const r = identificar({ pagamento: { ...pg, titulo_numero: "XXX1234" }, acordos: [acordo], parcelas: [parcela] });
-    expect(r.situacao).toBe("REVISAO");
+    expect(r).toMatchObject({ situacao: "REVISAO", motivo: "IDENTIFICADOR_INVALIDO" });
   });
   it("vínculo por número do acordo sem boleto não confirma parcela", () => {
     const r = identificar({ pagamento: { aluno_id: "u1", titulo_numero: "1234" }, acordos: [acordo] });
