@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import usePolling from "../utils/polling";
 import { nomeOperadorPorEmail } from "../utils/operadores";
@@ -14,18 +14,42 @@ function primeiroNome(nome) {
   return String(nome || "").split(" ")[0];
 }
 
-export default function FilaReceptivo({ usuarioLogado }) {
+// `variante`:
+//   "coluna" (padrao) -- a caixa vertical de sempre, na aba Receptivo da Carteira.
+//   "barra"           -- a MESMA fila na horizontal, para morar no topo da fila
+//                        da Central WhatsApp. Muda so a forma: os dados, a
+//                        ordem, os RPCs e o contador do dia sao exatamente os
+//                        mesmos -- nada zera e nada e recontado aqui.
+export default function FilaReceptivo({ usuarioLogado, variante = "coluna" }) {
   const [linhas, setLinhas] = useState([]);
   const [perfis, setPerfis] = useState({});
   const [marcando, setMarcando] = useState(false);
   const [operadoresReceptivo, setOperadoresReceptivo] = useState([]);
+  // So a variante "barra": a fila inteira fica fechada numa gaveta. Em cima
+  // da fila de conversas o que importa e quem esta na vez -- a lista toda
+  // so aparece quando alguem precisa marcar atendimento de outro.
+  const [filaAberta, setFilaAberta] = useState(false);
   // Guarda SÍNCRONA contra clique duplo: setMarcando (estado React) só
   // desabilita o botão no próximo render, deixando uma janela para 2 cliques
   // rápidos dispararem 2 RPCs concorrentes na mesma linha. A ref bloqueia na
   // hora, antes de qualquer await.
   const emAcaoRef = useRef(false);
 
-  const email = usuarioLogado?.email || "";
+  // A Carteira passa o usuario por prop; a Central WhatsApp nao tem esse
+  // objeto em maos. Quando a prop falta, o e-mail vem da propria sessao --
+  // sem isso a barra nao saberia quem e "voce" e esconderia os botoes.
+  const [emailSessao, setEmailSessao] = useState("");
+  useEffect(() => {
+    if (usuarioLogado?.email) return undefined;
+    let vivo = true;
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      if (vivo) setEmailSessao(data?.user?.email || "");
+    })();
+    return () => { vivo = false; };
+  }, [usuarioLogado?.email]);
+
+  const email = usuarioLogado?.email || emailSessao;
   const ehParticipante = operadoresReceptivo.includes(email);
 
   async function buscarFila() {
@@ -142,6 +166,141 @@ export default function FilaReceptivo({ usuarioLogado }) {
       {marcando ? "..." : euEstouEmPausa ? "▶️ Voltar da pausa" : "⏸️ Pausar"}
     </button>
   );
+
+  // ----------------------------------------------------------------------
+  // VARIANTE "BARRA": a mesma fila deitada, para o topo da Central WhatsApp.
+  //
+  // Lê e escreve exatamente o que a caixa vertical lê e escreve. A ordem é a
+  // da regra de sempre (menos atendimentos primeiro; empate vai para quem
+  // atendeu há mais tempo) e o "Marcar" chama o MESMO RPC — o contador do dia
+  // continua sendo do banco, ninguém zera nada pela tela.
+  // ----------------------------------------------------------------------
+  if (variante === "barra") {
+    const naVez = ordem[0] || null;
+    const minhaVez = Boolean(naVez && naVez.email === email);
+    const depois = ordem.slice(1, 4);
+    const resto = Math.max(0, ordem.length - 4);
+
+    const botaoPausaCompacto = ehParticipante ? (
+      <button
+        type="button"
+        onClick={() => alternarPausa(!euEstouEmPausa)}
+        disabled={marcando}
+        style={euEstouEmPausa ? B.botaoLeveAtivo : B.botaoLeve}
+        title={euEstouEmPausa ? "Voltar da pausa" : "Entrar em pausa"}
+      >
+        {euEstouEmPausa ? "▶️ Voltar" : "⏸️ Pausar"}
+      </button>
+    ) : null;
+
+    return (
+      <div style={B.envoltorio}>
+        <div style={B.barra}>
+          <span style={B.tituloBarra}>📞 Receptivo</span>
+          <span style={ordem.length ? B.online : B.offline}>
+            <span style={ordem.length ? B.pontoVerde : B.pontoCinza} />
+            {ordem.length} online
+          </span>
+
+          {naVez ? (
+            <span style={B.naVez}>
+              <span style={B.naVezRotulo}>na vez</span>
+              <AvatarFoto
+                usuarioId={perfis[naVez.email]?.id}
+                nome={nomeExibicao(naVez)}
+                tamanho={22}
+              />
+              <strong style={B.naVezNome}>{nomeExibicao(naVez)}</strong>
+              <span style={B.naVezContador}>{naVez.atendimentos_hoje} hoje</span>
+            </span>
+          ) : (
+            <span style={B.vazioBarra}>
+              {euEstouEmPausa
+                ? "Você está em pausa — fora da vez."
+                : "Ninguém online no receptivo agora."}
+            </span>
+          )}
+
+          {depois.length ? (
+            <span style={B.depois}>
+              depois: {depois.map((l) => nomeExibicao(l)).join(" · ")}
+              {resto > 0 ? ` +${resto}` : ""}
+            </span>
+          ) : null}
+
+          <span style={B.espacador} />
+
+          {minhaVez ? <span style={B.suaVez}>é a sua vez</span> : null}
+          {ehParticipante ? (
+            <button
+              type="button"
+              onClick={() => marcarAtendido(email)}
+              disabled={marcando}
+              style={B.botaoAtendi}
+            >
+              {marcando ? "Registrando..." : "✅ Atendi"}
+            </button>
+          ) : null}
+          {botaoPausaCompacto}
+          {ordem.length ? (
+            <button
+              type="button"
+              onClick={() => setFilaAberta((v) => !v)}
+              style={B.botaoLeve}
+              aria-expanded={filaAberta}
+              title="Ver a fila inteira e marcar atendimento de outro operador"
+            >
+              {filaAberta ? "Fechar fila ▴" : `Fila (${ordem.length}) ▾`}
+            </button>
+          ) : null}
+        </div>
+
+        {/* A gaveta: a fila inteira, com o Marcar de cada um. Fechada por
+            padrao -- quem so quer saber de quem e a vez nao ve nada disso. */}
+        {filaAberta && ordem.length ? (
+          <div style={B.gaveta}>
+            {ordem.map((linha, indice) => {
+              const eu = linha.email === email;
+              const primeiro = indice === 0;
+              return (
+                <div
+                  key={linha.email}
+                  style={{
+                    ...B.chip,
+                    ...(primeiro ? B.chipVez : {}),
+                    ...(eu ? B.chipEu : {}),
+                  }}
+                >
+                  <span style={{ ...B.posicao, ...(primeiro ? B.posicaoVez : {}) }}>
+                    {indice + 1}
+                  </span>
+                  <AvatarFoto
+                    usuarioId={perfis[linha.email]?.id}
+                    nome={nomeExibicao(linha)}
+                    tamanho={24}
+                  />
+                  <span style={B.chipNome}>
+                    {nomeExibicao(linha)}
+                    {eu ? " (você)" : ""}
+                  </span>
+                  <span style={B.chipContador}>{linha.atendimentos_hoje} hoje</span>
+                  <button
+                    type="button"
+                    onClick={() => marcarAtendido(linha.email)}
+                    disabled={marcando}
+                    style={B.chipBotao}
+                    title={`Marcar um atendimento para ${nomeExibicao(linha)}`}
+                  >
+                    ✅
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   // Sem ninguém online: mantém a caixa (pra não empurrar a tela) e, se eu
   // sou participante, o botão de pausa continua acessível.
@@ -431,5 +590,181 @@ const estilos = {
     fontWeight: 600,
     cursor: "pointer",
     whiteSpace: "nowrap",
+  },
+};
+
+// Estilos da variante "barra". Separados dos de cima de proposito: a caixa
+// vertical da Carteira nao muda em nada.
+//
+// A regra aqui e NAO COMPETIR COM A FILA DE CONVERSAS: a barra ocupa UMA linha
+// discreta, mostra quem esta na vez e os proximos em texto, e guarda a lista
+// inteira (com o Marcar de cada um) numa gaveta fechada.
+const B = {
+  envoltorio: {
+    marginBottom: 12,
+  },
+  barra: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "7px 12px",
+    borderRadius: 10,
+    border: `1px solid ${BORDA_SUAVE}`,
+    background: "var(--rv-fundo-cartao)",
+    flexWrap: "wrap",
+  },
+  tituloBarra: {
+    fontSize: 12.5,
+    fontWeight: 700,
+    color: "var(--rv-texto-suave)",
+    whiteSpace: "nowrap",
+  },
+  online: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    fontSize: 11,
+    fontWeight: 600,
+    color: "var(--rv-verde-ok)",
+    whiteSpace: "nowrap",
+  },
+  offline: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    fontSize: 11,
+    fontWeight: 600,
+    color: "var(--rv-texto-fraco)",
+    whiteSpace: "nowrap",
+  },
+  pontoVerde: {
+    width: 7, height: 7, borderRadius: "50%", background: "#16a34a", display: "inline-block",
+  },
+  pontoCinza: {
+    width: 7, height: 7, borderRadius: "50%", background: "var(--rv-texto-fraco)", display: "inline-block",
+  },
+  naVez: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 7,
+    padding: "3px 10px 3px 4px",
+    borderRadius: 999,
+    background: "var(--rv-verde-ok-fundo)",
+    border: "1px solid var(--rv-verde-ok-borda)",
+    whiteSpace: "nowrap",
+  },
+  naVezRotulo: {
+    fontSize: 9.5,
+    fontWeight: 700,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    color: "var(--rv-verde-ok)",
+    paddingLeft: 6,
+  },
+  naVezNome: {
+    fontSize: 13,
+    fontWeight: 700,
+    color: "var(--rv-tinta)",
+  },
+  naVezContador: {
+    fontSize: 11,
+    color: "var(--rv-verde-ok-texto)",
+  },
+  depois: {
+    fontSize: 11.5,
+    color: "var(--rv-texto-fraco)",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    minWidth: 0,
+  },
+  espacador: { flex: 1, minWidth: 8 },
+  suaVez: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: "var(--rv-verde-ok)",
+    whiteSpace: "nowrap",
+  },
+  botaoAtendi: {
+    background: "#16a34a",
+    color: "#fff",
+    border: "none",
+    borderRadius: 8,
+    padding: "6px 12px",
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  botaoLeve: {
+    padding: "5px 10px",
+    borderRadius: 8,
+    border: `1px solid ${BORDA}`,
+    background: "var(--rv-superficie)",
+    color: "var(--rv-texto-suave)",
+    fontSize: 11.5,
+    fontWeight: 600,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  botaoLeveAtivo: {
+    padding: "5px 10px",
+    borderRadius: 8,
+    border: "1px solid var(--rv-ambar-borda)",
+    background: "var(--rv-ambar-fundo)",
+    color: "var(--rv-ambar-texto)",
+    fontSize: 11.5,
+    fontWeight: 600,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  vazioBarra: {
+    fontSize: 12,
+    color: "var(--rv-texto-fraco)",
+  },
+  // ---- gaveta (fechada por padrao) ----
+  gaveta: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 7,
+    marginTop: 7,
+    padding: "9px 10px",
+    borderRadius: 10,
+    border: `1px solid ${BORDA_SUAVE}`,
+    background: "var(--rv-superficie)",
+  },
+  chip: {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    padding: "4px 6px 4px 5px",
+    borderRadius: 999,
+    border: `1px solid ${BORDA_SUAVE}`,
+    background: "var(--rv-superficie)",
+  },
+  chipVez: {
+    border: "1px solid var(--rv-verde-ok-borda)",
+    background: "var(--rv-verde-ok-fundo)",
+  },
+  chipEu: { boxShadow: "inset 0 0 0 1px var(--rv-borda-forte)" },
+  posicao: {
+    width: 19, height: 19, borderRadius: "50%",
+    background: "var(--rv-fundo-suave)", color: "var(--rv-texto-suave)",
+    fontSize: 10.5, fontWeight: 700,
+    display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+  },
+  posicaoVez: { background: "#16a34a", color: "#fff" },
+  chipNome: {
+    fontSize: 12.5, fontWeight: 600, color: "var(--rv-tinta)", whiteSpace: "nowrap",
+  },
+  chipContador: {
+    fontSize: 11, color: "var(--rv-texto-fraco)", whiteSpace: "nowrap",
+  },
+  chipBotao: {
+    border: `1px solid ${BORDA_SUAVE}`,
+    background: "var(--rv-superficie)",
+    borderRadius: 999,
+    width: 24, height: 24, fontSize: 11, lineHeight: 1,
+    cursor: "pointer", flexShrink: 0, padding: 0,
   },
 };
