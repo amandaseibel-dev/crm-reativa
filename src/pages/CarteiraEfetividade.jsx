@@ -263,18 +263,52 @@ export default function CarteiraEfetividade() {
   // O que esta funcao NUNCA faz e chamar `carteira_efetividade_recalcular`: sao
   // ~60 s nos tres recortes e o teto do papel `authenticated` e 8 s. A
   // reconstrucao e do dreno, fora desta requisicao.
+  //
+  // DUAS CORRECOES DE 08/10/2026.
+  //
+  // 1. O BOTAO NAO DAVA RETORNO NENHUM no caso comum. Com a fotografia em dia
+  //    -- que e o normal, agora que a rede automatica e de 20 min -- ele
+  //    incrementava `recarga`, caia no `return` e nao dizia nada: nenhum aviso,
+  //    nenhum numero diferente na tela. Clicar e nao ver nada acontecer e
+  //    indistinguivel de botao quebrado. Agora ele SEMPRE responde, inclusive
+  //    para dizer "ja esta atualizado, e esta e a hora da foto".
+  //
+  // 2. A DECISAO USAVA ESTADO VELHO. `fotografia` e o resultado da leitura
+  //    ANTERIOR: `setRecarga` apenas agenda a releitura, e o `if` logo abaixo
+  //    rodava antes de ela chegar. Depois de uma resolucao, a marca de
+  //    "atualizacao pendente" podia existir no banco e o botao nao registrar
+  //    pedido nenhum. Agora a decisao vem de uma leitura FRESCA do bloco, feita
+  //    aqui -- leitura por chave primaria da tabela de fotografia, barata.
+  //
+  // O que esta funcao continua NUNCA fazendo e chamar
+  // `carteira_efetividade_recalcular`.
   async function atualizarDados() {
     setAvisoAtualizacao("");
     setRecarga((v) => v + 1);
-    if (!fotografia?.pendente && !fotografia?.sem_snapshot) return;
     setPedindoAtualizacao(true);
+    const p_semestre = ano === "2026" ? sem : null;
+    const { data: agora, error: erroLeitura } = await supabase.rpc("carteira_efetividade_ler",
+      { p_bloco: "seis_linhas", p_ano: ano, p_semestre });
+    if (erroLeitura) {
+      setPedindoAtualizacao(false);
+      setAvisoAtualizacao("Não foi possível reler a fotografia (" + (erroLeitura.message || "falha")
+        + "). A reconstrução automática de 20 em 20 minutos continua valendo.");
+      return;
+    }
+    const precisa = Boolean(agora?.sem_snapshot || agora?.snapshot?.atualizacao_pendente);
+    if (!precisa) {
+      setPedindoAtualizacao(false);
+      setAvisoAtualizacao("Dados já estão atualizados — fotografia de "
+        + dataHora(agora?.snapshot?.gerado_em) + ". Nada a reconstruir.");
+      return;
+    }
     const { data: pedido, error } = await supabase.rpc("carteira_efetividade_solicitar_atualizacao");
     setPedindoAtualizacao(false);
     // Falha no pedido nao pode virar silencio: sem aviso a pessoa conclui que
-    // atualizou. O cron das :40 continua sendo a rede.
+    // atualizou. A rede automatica de 20 min continua sendo o fallback.
     setAvisoAtualizacao(error
       ? "Não foi possível registrar o pedido de atualização (" + (error.message || "falha") +
-        "). A reconstrução automática das :40 continua valendo."
+        "). A reconstrução automática de 20 em 20 minutos continua valendo."
       : "Atualização solicitada — " + (pedido?.previsao || "sai na próxima reconstrução") + ".");
   }
 

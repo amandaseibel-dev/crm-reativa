@@ -80,6 +80,48 @@ const dataHora = (v) =>
 // rodape declara a data da fotografia e avisa quando ha mudanca posterior a ela,
 // para ninguem ler a lista como estado ao vivo.
 
+// A FILA GANHOU INICIO, ANALISE E ENCERRAMENTO (08/10/2026). Antes ela listava
+// e resolvia, mas nao tinha ESTADO: caso ja analisado e caso nunca aberto eram
+// identicos na tela, "resolvido" vivia so num Set desta aba (`resolvidos`) e
+// sumia no F5, e nao havia registro de quem encerrou, quando nem por que.
+//
+// O fluxo e o minimo que fecha o ciclo, e mora no banco:
+//
+//   PENDENTE (ausencia de linha) -> EM ANALISE -> FINALIZADO
+//
+// e o encerramento tem tres desfechos, nenhum deles automatico:
+//
+//   VALIDADO_SEM_PENDENCIA .. divida zerada e situacao conferida
+//   RESOLVIDO ............... problema corrigido na origem
+//   REJEITADO ............... solicitacao indevida; justificativa OBRIGATORIA
+//
+// O QUE A DECISAO NAO FAZ: nao baixa titulo, nao zera saldo, nao cria nem
+// cancela acordo e nao lanca pagamento. `carteira_pendencia_tratar` escreve
+// APENAS em `carteira_pendencia_tratamento` e pede a reconstrucao da
+// fotografia. Quem corrige o dado continua sendo o fluxo oficial de cada tipo
+// -- em `em_confirmacao`, `ResolverEmConfirmacao` / Conferencia Prime, logo
+// abaixo e intocado. Encerrar aqui REGISTRA uma conferencia que ja aconteceu
+// la; nao a substitui.
+//
+// O ENCERRADO SAI DA FILA ATIVA E FICA NO HISTORICO. A exclusao e feita em SQL,
+// antes do `limit` -- filtrar no cliente deixaria a pagina de 50 mostrando 43 e
+// a paginacao mentindo. `Historico` e a MESMA funcao com
+// `p_incluir_finalizados`, nao uma segunda consulta.
+
+const DESFECHOS = [
+  { chave: "VALIDADO_SEM_PENDENCIA", rotulo: "Validado, sem pendências",
+    ajuda: "Dívida zerada e situação conferida: não havia o que corrigir.",
+    exigeMotivo: false },
+  { chave: "RESOLVIDO", rotulo: "Resolvido",
+    ajuda: "O problema foi corrigido na origem e este caso pode sair da fila.",
+    exigeMotivo: false },
+  { chave: "REJEITADO", rotulo: "Rejeitado",
+    ajuda: "A solicitação era indevida. Exige justificativa, que fica registrada.",
+    exigeMotivo: true },
+];
+
+const ROTULO_DESFECHO = Object.fromEntries(DESFECHOS.map((d) => [d.chave, d.rotulo]));
+
 const SAFRAS = [
   { chave: "2024",   ano: "2024", semestre: null, rotulo: "2024" },
   { chave: "2025",   ano: "2025", semestre: null, rotulo: "2025" },
@@ -110,6 +152,10 @@ export default function FilaUnicaConfirmacao() {
     return SAFRAS.find((s) => s.ano === ano && (s.semestre || null) === (semestre || null)) || null;
   }, [params]);
   const motivoUrl = params.get("motivo") || null;
+  // O recorte (fila ativa / historico) mora na URL junto de safra e motivo: e o
+  // que faz voltar da ficha, compartilhar o link e usar o botao voltar do
+  // navegador cairem exatamente onde a pessoa estava.
+  const verHistorico = params.get("estado") === "historico";
 
   const [resumo, setResumo] = useState(null);
   const [erroResumo, setErroResumo] = useState("");
@@ -127,6 +173,8 @@ export default function FilaUnicaConfirmacao() {
   // numero e sem reler a foto velha (reler a traria de volta).
   const [resolvidos, setResolvidos] = useState(() => new Set());
   const [avisoResolucao, setAvisoResolucao] = useState("");
+  // Titulo cuja decisao esta em voo, para o botao nao ser clicado duas vezes.
+  const [tratando, setTratando] = useState(null);
   const [pedindoAtualizacao, setPedindoAtualizacao] = useState(false);
   // Ficha embutida: guarda o aluno cuja ficha esta aberta sobre a fila.
   const [fichaId, setFichaId] = useState(null);
@@ -202,9 +250,11 @@ export default function FilaUnicaConfirmacao() {
   // A lista exibida e a da fotografia MENOS o que foi resolvido agora. A
   // fotografia nao e reescrita pela tela: `itens` continua sendo o que o banco
   // devolveu, e `itensVisiveis` e a leitura honesta dele neste instante.
+  // No HISTORICO o filtro de `resolvidos` nao se aplica: la o caso encerrado e
+  // justamente o que se quer ver.
   const itensVisiveis = useMemo(
-    () => (itens || []).filter((i) => !resolvidos.has(i.titulo_id)),
-    [itens, resolvidos]);
+    () => (itens || []).filter((i) => verHistorico || !resolvidos.has(i.titulo_id)),
+    [itens, resolvidos, verHistorico]);
   // Quantos desta pagina sairam por resolucao agora -- o contador do motivo vem
   // da fotografia e ficaria maior que a lista sem este desconto.
   const resolvidosNaPagina = (itens || []).length - itensVisiveis.length;
@@ -253,11 +303,12 @@ export default function FilaUnicaConfirmacao() {
     const { data, error } = await supabase.rpc("carteira_pendencias_itens_ler", {
       p_motivo: motivo, p_ano: safraUrl.ano, p_semestre: safraUrl.semestre,
       p_limite: POR_PAGINA, p_offset: pagina * POR_PAGINA,
+      p_incluir_finalizados: verHistorico,
     });
     if (error) { setErroItens(error.message || "falha ao consultar"); setItens([]); }
     else setItens(data || []);
     setCarregandoItens(false);
-  }, [motivo, safraUrl, pagina]);
+  }, [motivo, safraUrl, pagina, verHistorico]);
 
   useEffect(() => {
     let ativo = true;
@@ -320,6 +371,73 @@ export default function FilaUnicaConfirmacao() {
         + "a contagem por motivo acima ainda é a da fotografia até ela sair.");
   }
 
+  // TRATAR O CASO -- a unica escrita que esta tela faz, e ela nao e de dinheiro.
+  //
+  // `carteira_pendencia_tratar` grava estado, desfecho, justificativa, quem e
+  // quando em `carteira_pendencia_tratamento`, e nada mais: nenhum saldo,
+  // acordo, pagamento, parcela ou titulo e tocado. Em FINALIZADO ela tambem
+  // pede a reconstrucao da fotografia, porque o contador por motivo vem dela.
+  //
+  // POR QUE A LINHA SAI NA HORA E NAO POR RELEITURA: a lista e lida ao vivo e ja
+  // exclui finalizado em SQL, mas a releitura custa a consulta pesada da safra.
+  // Retirar pelo `resolvidos` usa a resposta da propria acao -- o mesmo
+  // mecanismo que a resolucao pela Conferencia Prime ja usa aqui.
+  async function tratar(item, estado, desfecho) {
+    const regra = DESFECHOS.find((d) => d.chave === desfecho);
+    let justificativa = null;
+    if (regra?.exigeMotivo) {
+      justificativa = window.prompt(
+        "Rejeitar declara a solicitação indevida, e a justificativa fica registrada com o seu "
+        + "e-mail.\n\nPor que esta pendência é indevida?");
+      // Cancelar o prompt e desistir, nao rejeitar sem motivo.
+      if (justificativa === null) return;
+      if (!String(justificativa).trim()) {
+        setAvisoResolucao("Rejeitar exige justificativa — nada foi registrado.");
+        return;
+      }
+    }
+    setAvisoResolucao("");
+    setTratando(item.titulo_id);
+    const { data, error } = await supabase.rpc("carteira_pendencia_tratar", {
+      p_titulo_id: item.titulo_id,
+      p_motivo: item.motivo,
+      p_recorte: safraUrl?.rotulo,
+      p_estado: estado,
+      p_desfecho: desfecho || null,
+      p_justificativa: justificativa,
+    });
+    setTratando(null);
+    if (error) {
+      setAvisoResolucao("Não foi possível registrar a decisão (" + (error.message || "falha")
+        + "). Nada foi alterado.");
+      return;
+    }
+    if (estado === "FINALIZADO") {
+      setResolvidos((atual) => {
+        const proximo = new Set(atual);
+        proximo.add(item.titulo_id);
+        return proximo;
+      });
+      setAvisoResolucao("Caso finalizado como \u201c" + (ROTULO_DESFECHO[desfecho] || desfecho)
+        + "\u201d por " + (data?.finalizado_por || "você")
+        + " — saiu da fila ativa e ficou no histórico. A contagem por motivo acompanha na "
+        + "próxima reconstrução.");
+    } else if (estado === "EM_ANALISE") {
+      setAvisoResolucao(data?.reaberto_em
+        ? "Caso reaberto: voltou para a fila ativa, e o encerramento anterior ficou registrado."
+        : "Caso marcado como em análise.");
+      setRecarga((v) => v + 1);
+      setResolvidos((atual) => {
+        const proximo = new Set(atual);
+        proximo.delete(item.titulo_id);
+        return proximo;
+      });
+    } else {
+      setAvisoResolucao("Caso devolvido para pendente.");
+      setRecarga((v) => v + 1);
+    }
+  }
+
   // Fechar a ficha rele a fila. Reler e seguro aqui: `resolvidos` continua
   // filtrando o que foi resolvido nesta sessao da tela, entao nada ressuscita.
   function fecharFicha() {
@@ -332,14 +450,24 @@ export default function FilaUnicaConfirmacao() {
     // toda safra, e manter um motivo inexistente deixaria a fila vazia sem
     // dizer por que.
     setPagina(0);
-    const q = { ano: s.ano, ...(s.semestre ? { semestre: s.semestre } : {}) };
+    const q = { ano: s.ano, ...(s.semestre ? { semestre: s.semestre } : {}),
+                ...(verHistorico ? { estado: "historico" } : {}) };
     setParams(new URLSearchParams(q));
   }
 
   function trocarMotivo(chave) {
     setPagina(0);
     if (!safraUrl) return;
-    const q = { ano: safraUrl.ano, ...(safraUrl.semestre ? { semestre: safraUrl.semestre } : {}), motivo: chave };
+    const q = { ano: safraUrl.ano, ...(safraUrl.semestre ? { semestre: safraUrl.semestre } : {}),
+                motivo: chave, ...(verHistorico ? { estado: "historico" } : {}) };
+    setParams(new URLSearchParams(q));
+  }
+
+  function verRecorte(historico) {
+    setPagina(0);
+    if (!safraUrl) return;
+    const q = { ano: safraUrl.ano, ...(safraUrl.semestre ? { semestre: safraUrl.semestre } : {}),
+                ...(motivo ? { motivo } : {}), ...(historico ? { estado: "historico" } : {}) };
     setParams(new URLSearchParams(q));
   }
 
@@ -402,6 +530,21 @@ export default function FilaUnicaConfirmacao() {
             </div>
           </div>
         ) : null}
+        <div style={E.filtroBloco}>
+          <span style={E.filtroRotulo}>Situação</span>
+          <div style={E.grupo} role="group" aria-label="Situação do tratamento">
+            <button type="button" onClick={() => verRecorte(false)} aria-pressed={!verHistorico}
+                    title="Casos que ainda precisam de tratamento"
+                    style={{ ...E.opcao, ...(!verHistorico ? E.opcaoAtiva : null) }}>
+              Fila ativa
+            </button>
+            <button type="button" onClick={() => verRecorte(true)} aria-pressed={verHistorico}
+                    title="Casos já finalizados, com desfecho, responsável e data"
+                    style={{ ...E.opcao, ...(verHistorico ? E.opcaoAtiva : null) }}>
+              Histórico
+            </button>
+          </div>
+        </div>
       </div>
 
       {erroResumo ? <p style={S.erro}>Não foi possível contar as pendências: {erroResumo}</p> : null}
@@ -459,8 +602,10 @@ export default function FilaUnicaConfirmacao() {
         <p style={S.discreto}>Carregando os casos desta pendência…</p>
       ) : !itensVisiveis.length ? (
         <p style={S.discreto}>
-          {resolvidosNaPagina > 0
-            ? "Todos os casos desta página foram resolvidos agora. A contagem por motivo acima ainda é a da fotografia."
+          {verHistorico
+            ? "Nenhum caso finalizado nesta pendência ainda. O que for encerrado na fila ativa aparece aqui, com desfecho, responsável e data."
+            : resolvidosNaPagina > 0
+            ? "Todos os casos desta página foram tratados agora. A contagem por motivo acima ainda é a da fotografia."
             : motivo ? "Nenhum caso nesta pendência." : "Nenhuma pendência nesta safra."}
         </p>
       ) : (
@@ -507,6 +652,20 @@ export default function FilaUnicaConfirmacao() {
                   <span style={E.evidenciaRotulo}>Evidência disponível:</span> {i.evidencia}
                 </p>
 
+                {/* O TRATAMENTO SE DECLARA. Sem linha no banco o caso e
+                    PENDENTE e nao ha nada a mostrar -- dizer "pendente" em
+                    todas as linhas seria ruido. */}
+                {i.tratamento_estado === "FINALIZADO" ? (
+                  <p style={E.tratamentoFechado}>
+                    <strong>Finalizado como “{ROTULO_DESFECHO[i.tratamento_desfecho] || i.tratamento_desfecho}”</strong>
+                    {" "}por {i.tratamento_por || "—"} em {dataHora(i.tratamento_em)}.
+                    {i.tratamento_justificativa ? <> Motivo: “{i.tratamento_justificativa}”.</> : null}
+                  </p>
+                ) : i.tratamento_estado === "EM_ANALISE" ? (
+                  <p style={E.tratamentoAberto}><strong>Em análise.</strong> Já foi aberto por alguém e
+                  continua na fila ativa até ser finalizado.</p>
+                ) : null}
+
                 <div style={E.casoAcoes}>
                   {/* AÇÃO NECESSÁRIA. Em confirmação de pagamento reaproveita o
                       fluxo existente, inteiro: o componente consulta
@@ -530,6 +689,41 @@ export default function FilaUnicaConfirmacao() {
                     Abrir ficha do aluno
                   </button>
                 </div>
+
+                {/* ENCERRAMENTO. Fica DEPOIS da acao de origem de proposito: em
+                    `em_confirmacao` o certo e resolver pela Conferencia Prime, e
+                    isto aqui e o registro de quem conferiu. Para os motivos sem
+                    acao automatica segura, e o unico encerramento possivel -- e
+                    por isso a fila tinha caso que nunca saia. */}
+                {podeDecidir ? (
+                  <div style={E.encerrar}>
+                    {i.tratamento_estado === "FINALIZADO" ? (
+                      <button type="button" style={E.botaoNeutro} disabled={tratando === i.titulo_id}
+                              onClick={() => tratar(i, "EM_ANALISE")}
+                              title="Devolve o caso para a fila ativa; o encerramento anterior fica registrado">
+                        {tratando === i.titulo_id ? "Reabrindo…" : "Reabrir análise"}
+                      </button>
+                    ) : (
+                      <>
+                        <span style={E.encerrarRotulo}>Encerrar este caso:</span>
+                        {i.tratamento_estado !== "EM_ANALISE" ? (
+                          <button type="button" style={E.botaoNeutro} disabled={tratando === i.titulo_id}
+                                  onClick={() => tratar(i, "EM_ANALISE")}
+                                  title="Marca que o caso está sendo analisado, sem encerrá-lo">
+                            Em análise
+                          </button>
+                        ) : null}
+                        {DESFECHOS.map((d) => (
+                          <button key={d.chave} type="button" style={E.botaoDecisao}
+                                  disabled={tratando === i.titulo_id} title={d.ajuda}
+                                  onClick={() => tratar(i, "FINALIZADO", d.chave)}>
+                            {tratando === i.titulo_id ? "Registrando…" : d.rotulo}
+                          </button>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                ) : null}
               </article>
             ))}
           </div>
@@ -656,6 +850,19 @@ const E = {
   evidencia: { fontSize: 12, color: "var(--rv-texto-suave)", lineHeight: 1.55,
                margin: "12px 0 0", paddingTop: 10, borderTop: "1px solid var(--rv-borda-suave)" },
   evidenciaRotulo: { fontWeight: 800, color: "var(--rv-texto)" },
+
+  tratamentoFechado: { fontSize: 12, color: "var(--rv-texto-suave)", lineHeight: 1.55,
+                       margin: "10px 0 0", padding: "8px 10px", borderRadius: 10,
+                       background: "var(--rv-fundo-suave)" },
+  tratamentoAberto: { fontSize: 12, color: "var(--rv-ambar-texto)", lineHeight: 1.55,
+                      margin: "10px 0 0" },
+  encerrar: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 10,
+              paddingTop: 10, borderTop: "1px solid var(--rv-borda-suave)" },
+  encerrarRotulo: { fontSize: 10.5, fontWeight: 700, letterSpacing: "0.05em",
+                    textTransform: "uppercase", color: "var(--rv-texto-fraco)" },
+  botaoDecisao: { background: "var(--rv-superficie)", color: "var(--rv-texto)",
+                  border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "6px 12px",
+                  fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
 
   casoAcoes: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 10 },
   resolver: { flex: "1 1 320px", minWidth: 0 },
