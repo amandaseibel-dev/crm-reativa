@@ -1,0 +1,21 @@
+-- ROLLBACK da F1.a (versao 20261017170411).
+--
+-- A migration criou UMA funcao STABLE que nao escreve em lugar nenhum, entao nao
+-- ha linha de dado a reverter: desfazer e simplesmente remover a funcao.
+--
+-- Nenhum consumidor em producao no momento da aplicacao (17/10/2026): a classe
+-- ainda nao aparece em tela nenhuma -- levar a classificacao para a tela da fila
+-- toca `ConferenciaPagamentos.jsx`, arquivo do PR #673, ainda aberto. Antes de
+-- rodar este rollback, conferir que isso continua verdade:
+--
+--   grep -rn "confirmacao_classificar_por_evidencia" src/ api/ supabase/functions/
+--
+--   select p.proname
+--     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+--    where n.nspname = 'public'
+--      and pg_get_functiondef(p.oid) ilike '%confirmacao_classificar_por_evidencia%'
+--      and p.proname <> 'confirmacao_classificar_por_evidencia';
+--
+-- Com consumidor vivo, remover a funcao derruba a tela -- nesse caso, nao rodar.
+
+drop function if exists public.confirmacao_classificar_por_evidencia(boolean);
