@@ -10,7 +10,7 @@
 - `ConferenciaPagamentos.jsx` pertence também à PR #673 aberta; não mexer antes de decidir a ordem.
 
 ## Contrato da próxima integração
-1. A origem deve ser o **pagamento individual** importado, com identidade do aluno já comprovada; não selecionar aluno por nome.
+1. A origem deve ser o **pagamento individual** importado, com identidade do aluno já comprovada; não selecionar aluno por nome. O adaptador agora exige `identidadeComprovada === true`, que só pode ser fornecido por uma verificação independente e documentada (nunca pelo `aluno_id` vinculado por nome); até haver esta prova, retorna `IDENTIDADE_NAO_COMPROVADA` e não oferece candidato.
 2. Resolver o conjunto de pagamentos da confirmação **pela relação gravada existente**, quando disponível. Para legado sem prova, encaminhar à fila de revisão; não preencher retroativamente por aluno/data/nome.
 3. Para cada pagamento, avaliar identificadores explícitos e consistência do acordo, aluno e parcela; qualquer conflito, duplicidade, dado malformado, valor inconsistente ou ausência de prova vai para **revisão manual**, com motivo identificável.
 4. Se a prova é apenas número do acordo, o resultado é candidato a **acordo**, sem inferir parcela. Se existe boleto exato, só produzir candidato a parcela depois de comprovar unicidade e titularidade.
