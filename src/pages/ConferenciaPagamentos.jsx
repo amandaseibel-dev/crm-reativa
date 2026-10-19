@@ -28,6 +28,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { S } from "../ui/estilosFila";
+import FilaParcelaCancelada from "../components/FilaParcelaCancelada";
 import { listarMeses } from "../utils/mesesConferencia";
 import Aluno from "./Aluno";
 import ResolverEmConfirmacao from "../components/ResolverEmConfirmacao";
@@ -455,6 +456,10 @@ export default function ConferenciaPagamentos() {
       ) : null}
 
       {erro ? <div style={S.erroBox}>{erro}</div> : null}
+
+      {/* Fila de excecoes SOMENTE LEITURA: pagamento do extrato identificado em parcela
+          CANCELADA ou em acordo CANCELADO. Fica fechada por padrao e nao altera nada. */}
+      <FilaParcelaCancelada />
       {!carregando && visiveis.length === 0 ? <p style={S.muted}>Nada pendente de conferência.</p> : null}
 
       <div style={{ overflowX: "auto" }}>
