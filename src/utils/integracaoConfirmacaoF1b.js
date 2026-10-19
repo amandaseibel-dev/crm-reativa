@@ -2,6 +2,7 @@
 // Função pura. Quem a chamar deve obter as linhas com permissões de gestão.
 // NENHUMA associação por aluno/nome/data/valor é usada para descobrir pagamentos.
 import { identificarVinculoF1b } from "./vinculoFinanceiroF1b";
+import { comprovarIdentidadeF1b } from "./comprovarIdentidadeF1b";
 
 const rev = (motivo, extra = {}) => ({ situacao: "REVISAO", motivo, ...extra });
 
@@ -11,11 +12,12 @@ export function analisarConfirmacaoF1b({
   pagamentos = [],
   acordos = [],
   parcelas = [],
-  // A origem deve ter verificado a identidade por chave confiavel, nunca somente por nome.
-  identidadeComprovada = false,
+  alunos = [],
+  primeContratos = [],
 } = {}) {
   if (!confirmacao?.id || !confirmacao?.aluno_id) return rev("CONFIRMACAO_SEM_IDENTIDADE");
-  if (identidadeComprovada !== true) return rev("IDENTIDADE_NAO_COMPROVADA");
+  const alunosDaConfirmacao = alunos.filter(a => String(a.id) === String(confirmacao.aluno_id));
+  if (alunosDaConfirmacao.length !== 1) return rev("IDENTIDADE_NAO_COMPROVADA");
   const id = String(confirmacao.id);
   const vinculos = vinculosGravados.filter(v => String(v.confirmacao_id) === id);
   if (!vinculos.length) return rev("SEM_VINCULO_GRAVADO");
@@ -32,6 +34,8 @@ export function analisarConfirmacaoF1b({
     if (String(pagamento.aluno_id ?? "") !== String(confirmacao.aluno_id)) {
       return rev("IDENTIDADE_DIVERGENTE");
     }
+    const prova = comprovarIdentidadeF1b({ pagamento, aluno: alunosDaConfirmacao[0], primeContratos });
+    if (!prova.comprovada) return rev("IDENTIDADE_NAO_COMPROVADA", { motivo_identidade: prova.motivo });
     const resultado = identificarVinculoF1b({ pagamento, acordos, parcelas });
     resultados.push({ pagamento_id: pagamentoId, ...resultado });
   }
