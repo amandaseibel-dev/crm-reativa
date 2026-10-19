@@ -19,10 +19,19 @@ const identidade = (v) => v == null ? "" : String(v).trim();
 const unico = (itens) => itens.length === 1 ? itens[0] : null;
 const resposta = (situacao, motivo, extra = {}) => ({ situacao, motivo, ...extra });
 
+// Parcela que o CRM tirou da vida normal NAO vira candidato determinístico, mesmo
+// com identificador exato. Medido em 19/10/2026 na fila aberta: dos 185 pagamentos
+// que o motor promovia, 4 apontavam parcela fora de cobrança (3 CANCELADA, 1
+// SUSPENSA), R$ 46.478,84 -- apresentados como "candidato identificado" sem que
+// ninguém visse o status. O motor não escreve, mas quem lê a tela age.
+// ALLOWLIST, não denylist: um status novo no catálogo cai em revisão por padrão,
+// em vez de entrar como cobrável por omissão.
+const STATUS_EM_COBRANCA = new Set(["PAGO", "A_VENCER", "VENCIDA"]);
+
 /**
  * Recebe registros ja obtidos de fontes autorizadas, nunca faz queries ou escritas.
  * Entrada: pagamento {aluno_id, titulo_numero, numero_parcela_completo},
- *          acordos [{id, aluno_id, numero_ulbra}], parcelas [{id, acordo_id, boleto}].
+ *          acordos [{id, aluno_id, numero_ulbra}], parcelas [{id, acordo_id, boleto, status}].
  * titulo_numero: numero do acordo no arquivo Santander, nao prova de baixa.
  * boleto: chave exata da parcela, conferida no contexto do acordo/aluno.
  */
@@ -70,6 +79,20 @@ export function identificarVinculoF1b({ pagamento, acordos = [], parcelas = [] }
   }
   const acordo = acordoPorNumero || acordoDaParcela;
   if (!acordo) return resposta("REVISAO", "ACORDO_NAO_PROVADO");
+  if (parcela) {
+    const status = String(parcela.status ?? "").trim().toUpperCase();
+    // Status nao carregado tambem reprova: nao da para afirmar que a parcela esta
+    // em cobranca sem ter lido o campo. Motivo SEPARADO para que um `select` que
+    // esqueceu a coluna seja diagnosticavel, em vez de virar "fora de cobranca".
+    if (!status) {
+      return resposta("REVISAO", "PARCELA_SEM_STATUS",
+        { acordo_id: acordo.id, parcela_id: parcela.id, status_parcela: parcela.status ?? null });
+    }
+    if (!STATUS_EM_COBRANCA.has(status)) {
+      return resposta("REVISAO", "PARCELA_FORA_DE_COBRANCA",
+        { acordo_id: acordo.id, parcela_id: parcela.id, status_parcela: parcela.status });
+    }
+  }
   return resposta("CANDIDATO_DETERMINISTICO", "IDENTIFICADOR_EXATO_E_ALUNO_CONFERIDO", {
     aluno_id: aluno,
     acordo_id: acordo.id,

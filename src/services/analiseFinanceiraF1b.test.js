@@ -39,7 +39,7 @@ const TABELAS = {
   alunos: [{ id: "u1", cpf: "12345678909" }],
   prime_contratos: [{ registration: "2026002333", cpf: "12345678909" }],
   acordos: [{ id: "a1", aluno_id: "u1", numero_ulbra: "1234" }],
-  parcelas: [{ id: "p1", acordo_id: "a1", boleto: "789" }],
+  parcelas: [{ id: "p1", acordo_id: "a1", boleto: "789", status: "PAGO" }],
 };
 
 describe("F1.b: leitura no CRM pelo resolver do banco", () => {

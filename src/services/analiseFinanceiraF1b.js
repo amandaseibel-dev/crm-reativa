@@ -97,7 +97,7 @@ export async function analisarConfirmacaoF1bNoCRM(client, confirmacaoId) {
       ? await buscar(client.from("acordos").select("id,aluno_id,numero_ulbra").in("numero_ulbra", numeros))
       : [];
     const parcelas = boletos.length
-      ? await buscar(client.from("parcelas").select("id,acordo_id,boleto").in("boleto", boletos))
+      ? await buscar(client.from("parcelas").select("id,acordo_id,boleto,status").in("boleto", boletos))
       : [];
     // Consulta também os acordos pai das parcelas (para preservar titularidade).
     const pais = [...new Set(parcelas.map(x => x.acordo_id).filter(Boolean))];
