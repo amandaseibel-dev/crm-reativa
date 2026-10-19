@@ -25,7 +25,7 @@ describe("F1.b adaptador somente leitura para vínculo gravado", () => {
     expect(analisar({ ...base, vinculosGravados: [] }).motivo).toBe("SEM_VINCULO_GRAVADO");
   });
   it("identidade divergente interrompe todo o conjunto", () => {
-    expect(analisar({ ...base, pagamentos: [{ ...pagamentos[0], aluno_id: "u2" }] }).motivo).toBe("IDENTIDADE_DIVERGENTE");
+    expect(analisar({ ...base, pagamentos: [{ ...base.pagamentos[0], aluno_id: "u2" }] }).motivo).toBe("IDENTIDADE_DIVERGENTE");
   });
   it("vínculo repetido não conta pagamento duas vezes", () => {
     expect(analisar({ ...base, vinculosGravados: [...vinculosGravados, ...vinculosGravados] }).motivo).toBe("RELACAO_DE_PAGAMENTOS_INVALIDA");
@@ -43,7 +43,7 @@ describe("F1.b adaptador somente leitura para vínculo gravado", () => {
   it("duas linhas com valor correto exigem ambas identificadas", () => {
     const r = analisar({ ...base,
       vinculosGravados: [...vinculosGravados, { confirmacao_id: "c1", pagamento_id: "g2" }],
-      pagamentos: [...pagamentos, { id: "g2", aluno_id: "u1", valor_pago: 20, titulo_numero: "9999" }],
+      pagamentos: [...base.pagamentos, { id: "g2", aluno_id: "u1", matricula: "2026002333", valor_pago: 20, titulo_numero: "9999" }],
       confirmacao: { ...confirmacao, valor_informado: 120 },
     });
     expect(r.motivo).toBe("CONJUNTO_COM_EXCECAO");
