@@ -11,8 +11,11 @@ export function analisarConfirmacaoF1b({
   pagamentos = [],
   acordos = [],
   parcelas = [],
+  // A origem deve ter verificado a identidade por chave confiavel, nunca somente por nome.
+  identidadeComprovada = false,
 } = {}) {
   if (!confirmacao?.id || !confirmacao?.aluno_id) return rev("CONFIRMACAO_SEM_IDENTIDADE");
+  if (identidadeComprovada !== true) return rev("IDENTIDADE_NAO_COMPROVADA");
   const id = String(confirmacao.id);
   const vinculos = vinculosGravados.filter(v => String(v.confirmacao_id) === id);
   if (!vinculos.length) return rev("SEM_VINCULO_GRAVADO");
