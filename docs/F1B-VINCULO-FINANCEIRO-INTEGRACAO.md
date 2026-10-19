@@ -178,8 +178,9 @@ por clique — não há problema de desempenho a resolver aqui.
 # Preparo da migration do resolver — 19/10/2026
 
 Autorizado por Amanda em 19/10/2026 **para preparar**, não para aplicar nem
-mesclar. Migration escrita: `20261019120000_f1b_resolver_porta_de_gestao.sql`.
-**Não aplicada.**
+mesclar. Migration: `20261019140131_f1b_resolver_porta_de_gestao.sql` (nome original
+`20261019120000`, renomeado para a versão que o `apply_migration` carimbou).
+**APLICADA em 19/10/2026 — ver a última seção deste documento.**
 
 ## O desenho mudou: envelope, não portão dentro do resolver
 
@@ -300,3 +301,93 @@ rotas **não têm o mesmo peso** e nenhuma delas é prova de pagamento:
 (legado)". Conjunto com proveniências misturadas vai para revisão
 (`PROVAS_MISTURADAS`) em vez de eleger uma. O veredito do resolver, quando ele
 não resolve, é repassado com o texto dele (`motivo_resolver`).
+
+---
+
+# APLICADA EM PRODUÇÃO — 19/10/2026, versão `20261019140131`
+
+Autorizada por Amanda em 19/10/2026 para aplicar **exclusivamente** esta
+migration. **PR #692 segue sem merge.** Nenhuma outra migration foi aplicada.
+
+**Versão ≠ nome do arquivo original.** O `apply_migration` carimba a versão pela
+hora da aplicação: pedi `20261019120000` e produção registrou
+**`20261019140131`**. O arquivo foi **renomeado** para a versão carimbada, com o
+conteúdo intacto (md5 `336f37c37464e9a6c88e3b8601e2d139`, 3.653 bytes), para que
+arquivo e produção não divirjam — mesma correção feita na F1.a. Ver
+[[ledger-versao-com-migration-e-arquivo-traco]].
+
+## Pré-voo (antes de aplicar)
+
+O arquivo no commit validado no CI (`cb3e7e1e`) é byte a byte igual ao aplicado:
+md5 `336f37c37464e9a6c88e3b8601e2d139`. São **6 comandos SQL**, e **todos os 6
+nomeiam `confirmacao_pagamentos_resolver_gestao`**, a função nova:
+`create or replace function`, `comment on function`, `revoke all ... from public, anon`,
+e três `grant execute` (authenticated, service_role). Nenhum comando nomeia
+`pagamentos`, `parcelas`, `acordos`, saldo ou status; nenhum `insert/update/delete`;
+o resolver original aparece **só como leitura dentro do corpo**.
+
+## Verificação depois de aplicar (somente leitura)
+
+| ponto | esperado | medido | |
+|---|---|---|---|
+| migration registrada | — | `20261019140131 / f1b_resolver_porta_de_gestao` | ✓ |
+| função nova existe | 1 | 1 | ✓ |
+| propriedades | `STABLE`, `SECURITY DEFINER`, `search_path=public` | `s secdef=true cfg=search_path=public` | ✓ |
+| grants da função nova | authenticated + postgres + service_role, **sem** public/anon | `authenticated:EXECUTE,postgres:EXECUTE,service_role:EXECUTE` | ✓ |
+| comentário | preservado | preservado | ✓ |
+| **corpo real em produção** | portão + repasse, nada mais | confere linha a linha | ✓ |
+| **o portão funciona** | 42501 para sessão sem JWT de gestão | `42501: somente a gestao pode resolver...` | ✓ |
+| **md5 do resolver original** | `f9ed8548789684bd2ebe20e0894e8f89` | idêntico | ✓ |
+| **grants do resolver original** | `postgres:EXECUTE,service_role:EXECUTE` | idêntico (segue **sem** authenticated) | ✓ |
+
+### Nenhuma alteração financeira — 10 invariantes, antes × depois
+
+| invariante | antes | depois |
+|---|---|---|
+| `pagamentos` (n / soma) | 10.527 / 13.513.074,51 | **igual** |
+| `parcelas` (n / soma) | 16.471 / 23.582.660,08 | **igual** |
+| `acordos` (n) | 4.704 | **igual** |
+| `baixas_pagamento` (n / soma) | 3.720 / 6.203.270,95 | **igual** |
+| `parcelas` por status | A_VENCER=3404 CANCELADA=1579 PAGO=6029 RENEGOCIADA=6 SUSPENSA=16 VENCIDA=5437 | **igual** |
+| `acordos` por status | ATIVO=2375 CANCELADO=651 QUITADO=1678 | **igual** |
+| confirmações `AGUARDANDO_CONFIRMACAO` | 274 | **igual** |
+| confirmações `PAGAMENTO_CONFIRMADO` | 4.045 | **igual** |
+| `solicitacao_confirmacao_pagamentos` (n) | 998 | **igual** |
+| md5 + grants do resolver | ver acima | **igual** |
+
+### Cobertura: 168 e 106, sem diferença a explicar
+
+| desfecho | confirmações |
+|---|---:|
+| `CANDIDATOS_IDENTIFICADOS` | **168** |
+| `CONJUNTO_COM_EXCECAO` | 83 |
+| `RESOLVER_SEM_VINCULO` | 16 |
+| `RESOLVER_AMBIGUO` | 7 |
+| `VALORES_NAO_CONFEREM` | 0 |
+| **fila aberta** | **274** |
+
+**106 para conferência manual** (83 + 16 + 7), exatamente como simulado antes de
+aplicar. Vale registrar que a base andou entre a primeira medição e esta
+(`pagamentos` 10.524 → 10.527, `parcelas` 16.467 → 16.471, `acordos` 4.701 →
+4.704, vínculo gravado 995 → 998, pela importação diária), e o 168/106 **não
+mudou** — o que é esperado, porque o novo entra como pagamento sem confirmação
+aberta correspondente ainda.
+
+### Os 7 excepcionais seguem para análise manual
+
+Intactos: **7 pagamentos, R$ 48.674,92**, nenhum tocado. Três estão em parcela
+**CANCELADA**, somando **R$ 43.488,29** — dinheiro que entrou para parcela que o
+CRM cancelou, e o maior é um só (acordo 71398, R$ 42.373,80, boleto
+50713980001). Os outros quatro: acordos 70820 e 66483 em `A_VENCER` com valor
+exato, 47746 em `SUSPENSA` pagando menos que a parcela, 63061 em `VENCIDA`
+pagando um pouco mais (juros).
+
+## O que NÃO foi feito
+
+PR #692 **sem merge**; nenhuma outra migration; nenhuma escrita de dado; o painel
+`DiagnosticoF1b` só chega à tela quando a PR for mesclada (hoje ela mescla limpo
+com a #673).
+
+**Rollback**, se preciso: `drop function if exists
+public.confirmacao_pagamentos_resolver_gestao(uuid);` — nada mais a restaurar,
+porque nenhum objeto preexistente foi modificado.
