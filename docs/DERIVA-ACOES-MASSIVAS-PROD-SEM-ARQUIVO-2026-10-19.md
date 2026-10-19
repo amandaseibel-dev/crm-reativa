@@ -40,7 +40,7 @@ comando. Logo **o SQL não é recuperável do registro** — o corpo vivo é a �
 | Objeto vivo em produção | md5 / chars em prod | Estado na main | Natureza da diferença |
 |---|---|---|---|
 | `registrar_acao_massiva(text[],text,text,text,text,text,uuid,jsonb)` | `633a4ebe` / 6.774 (após 19/10) | reproduzido byte a byte pelo arquivo desta branch | **nenhuma** — provado no teste |
-| `acoes_massivas_universo(jsonb)` | `f49209f6` / 13.970 | cadeia dá `3c1fa046` / 13.598 | **comportamento**: lê `responsaveis_caso`, `responsaveis_acordo` e `retorno_origem` |
+| `acoes_massivas_universo(jsonb)` | `f49209f6` / 13.970 | **capturado byte a byte** em `supabase/audits/acoes_massivas_universo_corpo_vivo_producao_20261019.sql` | **comportamento**: lê `responsaveis_caso`, `responsaveis_acordo` e `retorno_origem` |
 | `fn_atualizar_ultimo_acionamento()` | `e1bfc393` / 987 | `20261003083400` grava `new.registrado_em::date` | **comportamento**: prod usa `(... at time zone 'America/Sao_Paulo')::date` |
 | `acoes_massivas_fora_do_universo()` | `c2c7514c` / 1.075 | **não existe em arquivo nenhum** | função nova, leitura pura (auditoria) |
 | `fn_sync_acionamento_alunos_para_casos()` | `ea3034d6` / 456 | `20260806190000` | **nenhuma** — md5 do corpo do arquivo medido depois e igual ao vivo |
@@ -115,3 +115,66 @@ Pendente, e depende de autorização: as linhas de ledger das 3 versões de 15/1
 e, se ela quiser fechar o universo byte a byte, capturar o `pg_get_functiondef` dele.
 
 Nada foi aplicado, reaplicado, revertido ou migrado.
+
+## 7. Fechamento de 19/10 (segunda rodada, autorizada)
+
+### 7.1 O corpo do universo está capturado byte a byte
+
+`supabase/audits/acoes_massivas_universo_corpo_vivo_producao_20261019.sql` tem a
+definição inteira lida de produção: `prosrc` **md5 f49209f6 / 13.970 chars**,
+definição completa **md5 425a3961 / 14.609 chars / 276 linhas**.
+
+Capturado em 5 pedaços por faixa de linha, cada um conferido pelo seu próprio md5
+antes de juntar, e só então o md5 do conjunto. Foi esse método que pegou o único
+erro que cometi na transcrição — uma barra invertida dobrada em `'\D'` —, num
+pedaço específico, em vez de deixar passar em silêncio.
+
+### 7.2 Correção: a "lacuna de 41 caracteres" não existia
+
+Eu havia escrito que a diferença entre o repo e produção neste objeto era de
+"41 caracteres e 5 linhas, formatação e um comentário". **Estava errado.** Aquilo
+veio de contagem de caracteres sobre uma reconstrução que misturava o arquivo
+local `por_lado` (que não é o que roda) com a cadeia da main sem a migration do
+giro. Com o corpo vivo em mãos, o `diff` mostra implementações **diferentes**, não
+formatação.
+
+### 7.3 O arquivo local `por_lado` NÃO foi versionado, e está provado por quê
+
+| arquivo local (não aplicado) | produção (vivo) |
+|---|---|
+| chaves `responsaveis_mensalidade` / `responsaveis_acordo` | chaves `responsaveis_caso` / `responsaveis_acordo` |
+| helper `acoes_massivas_normalizar_responsaveis(...)` | parsing inline com `jsonb_array_elements_text` |
+| `v_rm` / `v_multi` / `v_pref`, CTE `respac` | `v_rc` / `v_ra`, CTE `parc_dono` |
+| sentinelas `'todos'` e `'livres'` | sentinela `'sem_responsavel'` |
+| **não** tem `giro_fidelizado` | tem `f_giro` e `giro_fidelizado` |
+
+E o helper **não existe em produção** (conferido: 0 funções com esse nome). A tela
+da main manda `responsaveis_caso`, isto é, acompanha produção. Versioná-lo
+colocaria no repo uma função que divergiria de produção na primeira reaplicação.
+
+O motivo `giro_fidelizado`, esse sim, já está versionado: veio de
+`20261016190000_giro_carteiras_2026_1_2026_2.sql`, que está na main.
+
+### 7.4 Risco UTC/Brasília e a proteção que foi posta
+
+**O risco.** `casos.data_ultimo_acionamento` governa fidelização de 10 dias,
+"nunca acionado" e cobertura. Produção grava o dia de `America/Sao_Paulo`
+(2 ocorrências, no `SET` e no `WHERE`); o arquivo `20261003083400` do repo grava
+`new.registrado_em::date`, em **UTC**. Perto da virada do dia os dois divergem, e
+reaplicar o arquivo antigo faria o campo regredir — silenciosamente, porque nada
+no sistema reclama de uma data um dia menor.
+
+**A proteção posta agora**, em
+`supabase/tests/deriva_corpos_vivos_20261019_integridade.test.js`:
+
+1. o estado correto está registrado no repo e o teste confere o md5 dele e as
+   **2 ocorrências** do fuso;
+2. qualquer migration **a partir de** `20261015154500` que redefina
+   `fn_atualizar_ultimo_acionamento` tem de conter `America/Sao_Paulo`, senão o CI
+   quebra;
+3. o teste exige que o risco continue documentado e que o arquivo de 03/10 apareça
+   na lista de quem define o gatilho — para ninguém tratar a regressão como teórica.
+
+**O que NÃO foi feito, de propósito:** não reescrevi o arquivo histórico de 03/10.
+Ele é o registro do que foi aplicado naquele dia; reescrever histórico esconderia
+a deriva em vez de documentá-la. E nada foi aplicado em produção.

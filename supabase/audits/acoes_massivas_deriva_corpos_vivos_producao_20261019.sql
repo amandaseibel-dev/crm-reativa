@@ -107,43 +107,23 @@ AS $function$ declare v_sistema boolean := (auth.role() = 'service_role') or (au
 -- -----------------------------------------------------------------------------
 -- 3. acoes_massivas_universo(jsonb)   md5=f49209f6358dc9b0c22199c455d6d87d  chars=13970
 -- -----------------------------------------------------------------------------
--- CORPO NAO TRANSCRITO AQUI, DE PROPOSITO, e a razao esta medida:
+-- Versao 20261015124500. CORPO CAPTURADO BYTE A BYTE em arquivo proprio:
+--   supabase/audits/acoes_massivas_universo_corpo_vivo_producao_20261019.sql
+-- (definicao inteira: md5=425a3961a1479ac91f0a6e00218bc66c, 14.609 chars, 276 linhas).
 --
---   cadeia de migrations da main .................. 3c1fa046 / 13.598 chars
---   + 20261006113000_acoes_massivas_responsaveis_por_lado.sql
---     (arquivo que existe SO na arvore de trabalho local, fora do Git)
---     ............................................. 75e2517e / 13.852 chars
---   + os 2 patches de 20261015124500 (abaixo) ..... eb60bb84 / 13.929 chars
---   producao ...................................... f49209f6 / 13.970 chars
---
--- Sobram 41 caracteres e 5 linhas, e produção tem 1 linha de comentario A MAIS
--- (269 linhas / 25 de comentario contra 274 / 24 da reconstrucao). Ou seja: a
--- deriva restante e de FORMATACAO E COMENTARIO, nao de regra -- os marcadores de
--- comportamento batem exatamente nas duas versoes: 1 ocorrencia de 'OPERADOR' e
--- 2 de 'retorno_origem'.
---
--- Transcrever 13.970 caracteres a mao teria risco de erro maior que o valor do
--- registro, e o md5 esta travado no teste de integridade de qualquer forma.
--- Para fechar byte a byte: capturar pg_get_functiondef direto de producao.
---
--- O QUE 20261015124500 MUDOU, linha a linha (medido pelo diff da reconstrucao):
---
---   CTE pop, antes:
---     select a.id, b.anos, a.responsavel_atual_email as resp, a.data_retorno,
---   depois:
---     select a.id, b.anos, a.responsavel_atual_email as resp, a.data_retorno, a.retorno_origem,
---
---   motivo f_ret, antes:
---            (k.data_retorno is not null and k.data_retorno > v_hoje) as f_ret,
---   depois:
---            (k.data_retorno is not null and k.data_retorno > v_hoje and upper(coalesce(k.retorno_origem, '')) like 'OPERADOR%') as f_ret,
---
+-- O que 20261015124500 mudou, linha a linha:
+--   CTE pop ..... passou a ler a.retorno_origem
+--   motivo f_ret  passou a exigir upper(coalesce(k.retorno_origem,'')) like 'OPERADOR%'
 -- EFEITO, e importa para a tabulacao de 19/10: retorno futuro de origem
 -- AUTOMATICO deixou de esconder aluno da massiva; so o agendado pelo OPERADOR
 -- bloqueia. Quem segura a janela da campanha e a recencia por canal.
--- COMMENT em producao diz exatamente isso.
+--
+-- CORRECAO: a versao anterior deste registro dizia que a diferenca contra o
+-- repo era "41 caracteres e 5 linhas de formatacao". Estava ERRADO -- era
+-- contagem de caracteres sobre uma reconstrucao montada com o arquivo local
+-- 20261006113000_acoes_massivas_responsaveis_por_lado.sql, que NAO e o que
+-- roda. O diff real esta no arquivo do corpo vivo. Ver tambem a secao 6.
 
--- -----------------------------------------------------------------------------
 -- 4. fn_sync_acionamento_alunos_para_casos()   md5=ea3034d6bfc5b7b0dcd58f9c257efa8e  chars=456
 -- -----------------------------------------------------------------------------
 -- SEM DERIVA, conferido por md5: o corpo vivo e identico ao do arquivo
@@ -173,3 +153,24 @@ AS $function$ declare v_sistema boolean := (auth.role() = 'service_role') or (au
 --                      'fn_sync_acionamento_alunos_para_casos',
 --                      'registrar_acao_massiva')
 --  order by 1;
+
+-- -----------------------------------------------------------------------------
+-- 6. 20261006113000_acoes_massivas_responsaveis_por_lado.sql -- NAO VERSIONADO
+-- -----------------------------------------------------------------------------
+-- Esse arquivo existe SO na arvore de trabalho local, fora do Git, e foi
+-- verificado contra a funcao viva em 19/10/2026. CONCLUSAO: NAO reproduz o
+-- comportamento de producao, entao NAO foi versionado.
+--
+-- Provas, nao impressao:
+--   * usa as chaves responsaveis_mensalidade / responsaveis_acordo; producao usa
+--     responsaveis_caso / responsaveis_acordo, e a TELA da main manda
+--     responsaveis_caso (AcoesMassivas.jsx) -- a tela acompanha producao;
+--   * depende do helper public.acoes_massivas_normalizar_responsaveis(...), que
+--     NAO EXISTE em producao (conferido: 0 funcoes com esse nome);
+--   * nao tem o motivo giro_fidelizado nem o flag f_giro, que producao tem;
+--   * estruturas diferentes: v_rm/v_multi/v_pref e CTE respac contra v_rc/v_ra e
+--     CTE parc_dono.
+--
+-- Versiona-lo colocaria no repo uma funcao que divergiria de producao na
+-- primeira reaplicacao. Quem quiser aquela implementacao tem de decidir
+-- aplica-la de verdade -- e isso e mudanca em producao, nao regularizacao.
