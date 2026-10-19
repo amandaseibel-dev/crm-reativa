@@ -23,6 +23,9 @@ describe("F1.b: prova independente de identidade", () => {
   it("CPF Prime divergente bloqueia", () => {
     expect(prova({ ...dados, aluno: { ...aluno, cpf: "99999999999" } }).motivo).toBe("CPF_DIVERGENTE");
   });
+  it("matricula com letras nao pode virar identificador valido removendo caracteres", () => {
+    expect(prova({ ...dados, pagamento: { ...pagamento, matricula: "abc2026002333" } }).comprovada).toBe(false);
+  });
   it("sem aluno identificado bloqueia", () => {
     expect(prova({ ...dados, pagamento: { ...pagamento, aluno_id: null } }).comprovada).toBe(false);
   });
