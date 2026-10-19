@@ -30,8 +30,8 @@ import { supabase } from "../services/supabase";
 import { S } from "../ui/estilosFila";
 import { listarMeses } from "../utils/mesesConferencia";
 import Aluno from "./Aluno";
-import ResolverEmConfirmacao from "../components/ResolverEmConfirmacao";
 import DiagnosticoF1b from "../components/DiagnosticoF1b";
+import ResolverEmConfirmacao from "../components/ResolverEmConfirmacao";
 
 const moeda = (v) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const curta = (d) => (d ? String(d).slice(0, 10).split("-").reverse().join("/") : "-");
