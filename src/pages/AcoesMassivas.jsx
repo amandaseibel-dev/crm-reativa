@@ -515,7 +515,10 @@ export default function AcoesMassivas() {
   // EXPORTAR NÃO É CONTATO REALIZADO. O disparo acontece numa ferramenta
   // externa; baixar a planilha não muda nada no aluno (tabulação, retorno,
   // fidelização, acionamento). O banco revalida, devolve os contatos e guarda um
-  // LOTE de auditoria. O registro só acontece em "Confirmar ação realizada".
+  // LOTE de auditoria. Desde 02/10 a própria exportação REGISTRA e já fecha o
+  // lote (confirmado_em = now()), então não existe mais etapa de confirmar: o
+  // painel de lotes pendentes só aparece para lotes antigos ainda abertos.
+  // Desde 19/10 esse registro também TABULA o caso, com retorno em 10 dias.
   async function exportarPlanilha() {
     if (!resultados || resultados.length === 0) return;
 
@@ -602,7 +605,7 @@ export default function AcoesMassivas() {
         setSucesso(`Nenhum aluno na planilha.${sufixoExcluidos}`);
       } else {
         setSucesso(
-          `Planilha exportada com ${selecionados} aluno(s) selecionados e ${registrados} registrado(s) no CRM como ação massiva, com data, hora e canal no histórico de cada aluno. Esses registros contam como último acionamento. Se o download não abriu, use o botão “Baixar planilha novamente” abaixo.${sufixoExcluidos}`
+          `Planilha exportada com ${selecionados} aluno(s) selecionados e ${registrados} registrado(s) no CRM como ação massiva, com data, hora e canal no histórico de cada aluno. Esses registros contam como último acionamento e tabulam o caso, com retorno agendado para 10 dias. Se o download não abriu, use o botão “Baixar planilha novamente” abaixo.${sufixoExcluidos}`
         );
       }
       carregarLotesPendentes();
@@ -704,7 +707,7 @@ export default function AcoesMassivas() {
           ...outrosMotivos,
         ].filter(([n]) => n > 0).map(([n, t]) => ` ${n} caso(s) ${t} e não foram registrados.`).join("");
         setSucesso(
-          `Ação confirmada: ${registrados} aluno(s) registrados como ação massiva e contados na cobertura. Responsável, fidelização e retorno dos alunos não foram alterados.${partes}`
+          `Ação confirmada: ${registrados} aluno(s) registrados como ação massiva e contados na cobertura, tabulados com retorno em 10 dias. O responsável dos alunos não foi alterado.${partes}`
         );
         carregarPorDia();
       }
@@ -1226,7 +1229,7 @@ export default function AcoesMassivas() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginTop: 12 }}>
             {[
               ["Selecionados", resumoLote.selecionados.toLocaleString("pt-BR"), "Saíram na planilha.", false],
-              ["Registrados no CRM", resumoLote.registrados.toLocaleString("pt-BR"), "No histórico do aluno, com data, hora e canal.", false],
+              ["Registrados no CRM", resumoLote.registrados.toLocaleString("pt-BR"), "No histórico do aluno, com data, hora e canal, e tabulados com retorno em 10 dias.", false],
               ["Excluídos na revalidação", resumoLote.excluidos.toLocaleString("pt-BR"), "Saíram do universo entre a prévia e o registro.", false],
               ["Enviados", "não disponível", "A ferramenta de disparo é externa e não devolve confirmação de entrega.", true],
               ["Falhas de envio", "não disponível", "Sem retorno técnico da mensageria, não há como medir.", true],
