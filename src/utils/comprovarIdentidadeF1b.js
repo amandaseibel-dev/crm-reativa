@@ -1,7 +1,10 @@
 // F1.b: prova de identidade pela matricula do arquivo Santander -> Prime -> CPF -> aluno CRM.
 // Recebe dados ja carregados de fontes autorizadas. Sem consultas, gravacoes ou PII no retorno.
-const digitos = (v) => typeof v === "string" || typeof v === "number" ? String(v).replace(/\D/g, "") : "";
-const unico = (rows) => rows.length === 1 ? rows[0] : null;
+const digitos = (v) => {
+  if (typeof v !== "string" && typeof v !== "number") return "";
+  const raw = String(v).trim();
+  return /^[0-9 .-]+$/.test(raw) ? raw.replace(/[^0-9]/g, "") : "";
+};
 const bloqueio = (motivo) => ({ comprovada: false, motivo });
 
 export function comprovarIdentidadeF1b({ pagamento, aluno, primeContratos = [] } = {}) {
