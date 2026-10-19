@@ -43,7 +43,7 @@ comando. Logo **o SQL não é recuperável do registro** — o corpo vivo é a �
 | `acoes_massivas_universo(jsonb)` | `f49209f6` / 13.970 | cadeia dá `3c1fa046` / 13.598 | **comportamento**: lê `responsaveis_caso`, `responsaveis_acordo` e `retorno_origem` |
 | `fn_atualizar_ultimo_acionamento()` | `e1bfc393` / 987 | `20261003083400` grava `new.registrado_em::date` | **comportamento**: prod usa `(... at time zone 'America/Sao_Paulo')::date` |
 | `acoes_massivas_fora_do_universo()` | `c2c7514c` / 1.075 | **não existe em arquivo nenhum** | função nova, leitura pura (auditoria) |
-| `fn_sync_acionamento_alunos_para_casos()` | `ea3034d6` / 456 | `20260806190000` já usa `America/Sao_Paulo` | provavelmente igual — **md5 do arquivo não medido** |
+| `fn_sync_acionamento_alunos_para_casos()` | `ea3034d6` / 456 | `20260806190000` | **nenhuma** — md5 do corpo do arquivo medido depois e igual ao vivo |
 
 ### O risco concreto, e é um só
 
@@ -81,7 +81,7 @@ A regra: **não se reescreve em produção o que já está certo em produção**
 
 - não roda migration, backfill, merge ou qualquer escrita em produção;
 - não reescreve nenhuma das 4 funções vivas;
-- não mexe no `fn_sync_acionamento_alunos_para_casos` antes de medir o md5 do arquivo;
+- não mexe no `fn_sync_acionamento_alunos_para_casos`: medido depois, não tem deriva;
 - não toca em nenhuma outra frente do CRM.
 
 ## 5. Como foi medido
@@ -91,3 +91,27 @@ A regra: **não se reescreve em produção o que já está certo em produção**
 - cadeia do repo: bancada PGlite de `supabase/tests/fixtures/acoes_massivas_universo/`
   em worktree limpo de `origin/main`, sem os arquivos não versionados da árvore local;
 - diferença de `registrar_acao_massiva`: `diff` entre os dois `pg_get_functiondef`.
+
+## 6. Estado da regularização (19/10, autorizada por ela)
+
+Feito, e tudo somente leitura:
+
+- **`supabase/audits/acoes_massivas_deriva_corpos_vivos_producao_20261019.sql`** — registro
+  documental com os corpos vivos de `fn_atualizar_ultimo_acionamento` e
+  `acoes_massivas_fora_do_universo` transcritos **byte a byte** (md5 conferido), a
+  identidade de `acoes_massivas_universo` sem o corpo e a razão medida disso, e as
+  anotações de que `fn_sync_acionamento_alunos_para_casos` e `registrar_acao_massiva`
+  não têm deriva. O arquivo abre com uma guarda que **aborta** se alguém o executar
+  inteiro, e diz NÃO REAPLICAR no cabeçalho.
+- **`supabase/tests/deriva_corpos_vivos_20261019_integridade.test.js`** — 11 casos que
+  conferem, a cada CI, que cada corpo transcrito ainda bate com o md5 e o tamanho de
+  produção, que a guarda vem antes do primeiro `CREATE`, que a lacuna do universo está
+  registrada com os números medidos e que nenhum corpo transcrito encosta em
+  `status_jornada`.
+
+Pendente, e depende de autorização: as linhas de ledger das 3 versões de 15/10
+(`supabase/ledger/**` está no `deny`), versionar o
+`20261006113000_acoes_massivas_responsaveis_por_lado.sql` que existe só na árvore local,
+e, se ela quiser fechar o universo byte a byte, capturar o `pg_get_functiondef` dele.
+
+Nada foi aplicado, reaplicado, revertido ou migrado.
