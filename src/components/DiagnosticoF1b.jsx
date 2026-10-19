@@ -4,6 +4,16 @@ import { analisarConfirmacaoF1bNoCRM } from "../services/analiseFinanceiraF1b";
 
 const curta = (d) => (d ? String(d).slice(0, 10).split("-").reverse().join("/") : "-");
 
+// As duas rotas de `confirmacao_pagamentos_resolver` NAO tem o mesmo peso e a tela
+// nunca deve apresenta-las como iguais: as duas ancoram identidade no NOME do aluno,
+// e nenhuma delas e prova de pagamento. Quem prova identidade e a ponte
+// Santander -> Prime -> CPF, aplicada por cima. Por isso o rotulo diz de onde veio.
+const PROVA = {
+  VINCULO_GRAVADO: "vínculo gravado na importação",
+  CHAVE_MESMA_TRANSACAO: "reconstruído pela transação do import (legado)",
+  NAO_DECLARADA: "origem não declarada",
+};
+
 // Painel de diagnostico a pedido da gestao. So leitura; nao aprova baixas ou modifica fila.
 // Busca confirmacoes pelo ID do aluno exclusivamente para ENCONTRAR as linhas a examinar;
 // o motor exige vinculo por pagamento e CPF via Prime para recomendar qualquer candidato.
@@ -30,7 +40,8 @@ export default function DiagnosticoF1b({ alunoId }) {
       for (const c of data) {
         const analise = await analisarConfirmacaoF1bNoCRM(supabase, c.id);
         resultados.push({ id: c.id, data: c.data_pagamento, situacao: analise.situacao,
-          motivo: analise.motivo, qtd: analise.resultados?.length ?? 0 });
+          motivo: analise.motivo, motivo_resolver: analise.motivo_resolver ?? null,
+          prova: analise.prova_do_conjunto ?? null, qtd: analise.resultados?.length ?? 0 });
       }
       setItens(resultados);
     } catch {
@@ -56,6 +67,8 @@ export default function DiagnosticoF1b({ alunoId }) {
                 {curta(x.data)}{" · "}
                 {x.situacao === "CANDIDATOS_IDENTIFICADOS" ? "Candidato identificado" : "Revisão necessária"}
                 {" · "}{x.motivo} {x.qtd ? `· ${x.qtd} pagamento(s)` : ""}
+                {x.prova ? <div style={{ paddingLeft: 12 }}>origem do conjunto: {PROVA[x.prova] ?? x.prova}</div> : null}
+                {x.motivo_resolver ? <div style={{ paddingLeft: 12 }}>{x.motivo_resolver}</div> : null}
               </div>
             )) : <div>Nenhuma confirmação pendente acessível.</div>}
         </div>
