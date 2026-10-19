@@ -8,7 +8,10 @@ const somenteDigitos = (v) => {
   // Nao transformar lixo alfanumerico em numero valido por retirar letras.
   return /^[0-9 .-]+$/.test(texto) ? texto.replace(/[^0-9]/g, "") : "";
 };
-const numeroCanonico = (v) => {
+// Exportada porque quem PRE-FILTRA as linhas no banco tem de canonizar igual ao
+// motor: um pre-filtro que normaliza diferente esconde a linha que o motor
+// consideraria igual, e o resultado vira "nao encontrado" em vez de candidato.
+export const numeroCanonico = (v) => {
   const d = somenteDigitos(v);
   return d ? d.replace(/^0+(?=\d)/, "") : "";
 };
