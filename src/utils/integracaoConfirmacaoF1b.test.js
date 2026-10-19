@@ -6,12 +6,14 @@ const vinculosGravados = [{ confirmacao_id: "c1", pagamento_id: "g1" }];
 const pagamentos = [{ id: "g1", aluno_id: "u1", valor_pago: 100, titulo_numero: "1234", numero_parcela_completo: "789" }];
 const acordos = [{ id: "a1", aluno_id: "u1", numero_ulbra: "1234" }];
 const parcelas = [{ id: "p1", acordo_id: "a1", boleto: "789" }];
-const base = { confirmacao, vinculosGravados, pagamentos, acordos, parcelas, identidadeComprovada: true };
+const alunos = [{ id: "u1", cpf: "12345678909" }];
+const primeContratos = [{ registration: "2026002333", cpf: "12345678909" }];
+const base = { confirmacao, vinculosGravados, pagamentos: pagamentos.map(p => ({ ...p, matricula: "2026002333" })), acordos, parcelas, alunos, primeContratos };
 
 describe("F1.b adaptador somente leitura para vínculo gravado", () => {
   it("aluno ligado apenas pelo nome nao e prova suficiente", () => {
-    expect(analisar({ ...base, identidadeComprovada: false }).motivo).toBe("IDENTIDADE_NAO_COMPROVADA");
-    expect(analisar({ ...base, identidadeComprovada: undefined }).motivo).toBe("IDENTIDADE_NAO_COMPROVADA");
+    expect(analisar({ ...base, primeContratos: [] }).motivo).toBe("IDENTIDADE_NAO_COMPROVADA");
+    expect(analisar({ ...base, alunos: [] }).motivo).toBe("IDENTIDADE_NAO_COMPROVADA");
   });
   it("aceita somente conjunto gravado e coerente", () => {
     const r = analisar(base);
