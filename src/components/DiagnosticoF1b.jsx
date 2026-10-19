@@ -14,6 +14,39 @@ const PROVA = {
   NAO_DECLARADA: "origem não declarada",
 };
 
+// O motor recusa parcela/acordo fora de cobranca, mas o painel jogava `resultados`
+// fora e mostrava so "Revisao necessaria · CONJUNTO_COM_EXCECAO" -- o operador via
+// que precisava revisar e nao via POR QUE. Aqui o motivo de cada pagamento vira
+// frase, com o status que causou a recusa, porque e ele que diz o que fazer.
+const MOTIVO_DO_PAGAMENTO = {
+  PARCELA_FORA_DE_COBRANCA: "a parcela está fora de cobrança",
+  ACORDO_FORA_DE_COBRANCA: "o acordo está fora de cobrança",
+  PARCELA_SEM_STATUS: "o status da parcela não foi carregado",
+  ACORDO_SEM_STATUS: "o status do acordo não foi carregado",
+  ACORDO_NAO_ENCONTRADO: "o número do acordo não existe no CRM (pagamento de mensalidade)",
+  ACORDO_AMBIGUO: "mais de um acordo reivindica esse número",
+  BOLETO_NAO_ENCONTRADO: "o boleto não existe em nenhuma parcela",
+  BOLETO_AMBIGUO: "mais de uma parcela reivindica esse boleto",
+  IDENTIFICADORES_CONTRADITORIOS: "acordo e boleto apontam acordos diferentes",
+  IDENTIDADE_DIVERGENTE: "o pagamento é de outro aluno",
+  PARCELA_FORA_DO_ALUNO: "a parcela é de outro aluno",
+  SEM_IDENTIFICADOR_FINANCEIRO: "o pagamento não traz acordo nem boleto",
+  IDENTIFICADOR_INVALIDO: "o identificador do pagamento é inválido",
+  ACORDO_NAO_PROVADO: "não há acordo provado para esse pagamento",
+};
+
+// So as excecoes interessam: o que virou candidato nao precisa de explicacao, e
+// repetir linha boa esconderia a ruim.
+function excecoes(resultados) {
+  return (Array.isArray(resultados) ? resultados : [])
+    .filter(r => r?.situacao !== "CANDIDATO_DETERMINISTICO")
+    .map(r => {
+      const base = MOTIVO_DO_PAGAMENTO[r?.motivo] ?? r?.motivo ?? "motivo não informado";
+      const st = r?.status_parcela ?? r?.status_acordo ?? null;
+      return st ? `${base} (${st})` : base;
+    });
+}
+
 // Painel de diagnostico a pedido da gestao. So leitura; nao aprova baixas ou modifica fila.
 // Busca confirmacoes pelo ID do aluno exclusivamente para ENCONTRAR as linhas a examinar;
 // o motor exige vinculo por pagamento e CPF via Prime para recomendar qualquer candidato.
@@ -41,7 +74,9 @@ export default function DiagnosticoF1b({ alunoId }) {
         const analise = await analisarConfirmacaoF1bNoCRM(supabase, c.id);
         resultados.push({ id: c.id, data: c.data_pagamento, situacao: analise.situacao,
           motivo: analise.motivo, motivo_resolver: analise.motivo_resolver ?? null,
-          prova: analise.prova_do_conjunto ?? null, qtd: analise.resultados?.length ?? 0 });
+          motivo_identidade: analise.motivo_identidade ?? null,
+          prova: analise.prova_do_conjunto ?? null, qtd: analise.resultados?.length ?? 0,
+          excecoes: excecoes(analise.resultados) });
       }
       setItens(resultados);
     } catch {
@@ -65,10 +100,17 @@ export default function DiagnosticoF1b({ alunoId }) {
             itens.length ? itens.map(x => (
               <div key={x.id}>
                 {curta(x.data)}{" · "}
-                {x.situacao === "CANDIDATOS_IDENTIFICADOS" ? "Candidato identificado" : "Revisão necessária"}
+                {x.situacao === "CANDIDATOS_IDENTIFICADOS"
+                  ? "Candidato identificado — não é pagamento confirmado nem baixa autorizada"
+                  : "Revisão necessária"}
                 {" · "}{x.motivo} {x.qtd ? `· ${x.qtd} pagamento(s)` : ""}
                 {x.prova ? <div style={{ paddingLeft: 12 }}>origem do conjunto: {PROVA[x.prova] ?? x.prova}</div> : null}
+                {x.motivo_identidade ? <div style={{ paddingLeft: 12 }}>identidade: {x.motivo_identidade}</div> : null}
                 {x.motivo_resolver ? <div style={{ paddingLeft: 12 }}>{x.motivo_resolver}</div> : null}
+                {/* POR QUE precisa de revisao, pagamento por pagamento. */}
+                {x.excecoes.map((e, i) => (
+                  <div key={i} style={{ paddingLeft: 12 }}>⚠ {e}</div>
+                ))}
               </div>
             )) : <div>Nenhuma confirmação pendente acessível.</div>}
         </div>

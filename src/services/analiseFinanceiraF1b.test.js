@@ -7,7 +7,7 @@ import { analisarConfirmacaoF1bNoCRM } from "./analiseFinanceiraF1b";
 function clienteFake({ gestao = true, tabelas = {}, resolver = null, espiao = [] } = {}) {
   const construir = (nome) => {
     const q = {
-      select: () => q,
+      select: (cols) => { espiao.push({ nome, coluna: "select", valores: cols }); return q; },
       eq: () => q,
       in: (coluna, valores) => { espiao.push({ nome, coluna, valores }); return q; },
       order: () => q,
@@ -38,7 +38,7 @@ const TABELAS = {
                  valor_pago: 100, titulo_numero: "1234", numero_parcela_completo: "789" }],
   alunos: [{ id: "u1", cpf: "12345678909" }],
   prime_contratos: [{ registration: "2026002333", cpf: "12345678909" }],
-  acordos: [{ id: "a1", aluno_id: "u1", numero_ulbra: "1234" }],
+  acordos: [{ id: "a1", aluno_id: "u1", numero_ulbra: "1234", status: "ATIVO" }],
   parcelas: [{ id: "p1", acordo_id: "a1", boleto: "789", status: "PAGO" }],
 };
 
@@ -143,5 +143,33 @@ describe("F1.b: leitura no CRM pelo resolver do banco", () => {
     const r = await analisarConfirmacaoF1bNoCRM(
       clienteFake({ tabelas: { ...TABELAS, solicitacoes_confirmacao_pagamento: [] } }), "c1");
     expect(r.motivo).toBe("CONFIRMACAO_INACESSIVEL");
+  });
+
+  it("le o status de parcelas E de acordos: sem a coluna o motor reprovaria", async () => {
+    const espiao = [];
+    await analisarConfirmacaoF1bNoCRM(clienteFake({ tabelas: TABELAS, espiao }), "c1");
+    const colsDe = (nome) => espiao.filter(x => x.nome === nome && x.coluna === "select")
+      .map(x => String(x.valores));
+    expect(colsDe("parcelas").every(c => c.includes("status"))).toBe(true);
+    expect(colsDe("acordos").every(c => c.includes("status"))).toBe(true);
+    expect(colsDe("acordos").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("acordo CANCELADO no banco nao vira candidato pela tela", async () => {
+    const tabelas = { ...TABELAS,
+      acordos: [{ ...TABELAS.acordos[0], status: "CANCELADO" }] };
+    const r = await analisarConfirmacaoF1bNoCRM(clienteFake({ tabelas }), "c1");
+    expect(r.situacao).toBe("REVISAO");
+    expect(r.motivo).toBe("CONJUNTO_COM_EXCECAO");
+    expect(r.resultados[0]).toMatchObject({
+      motivo: "ACORDO_FORA_DE_COBRANCA", status_acordo: "CANCELADO" });
+  });
+
+  it("parcela CANCELADA no banco nao vira candidato pela tela", async () => {
+    const tabelas = { ...TABELAS,
+      parcelas: [{ ...TABELAS.parcelas[0], status: "CANCELADA" }] };
+    const r = await analisarConfirmacaoF1bNoCRM(clienteFake({ tabelas }), "c1");
+    expect(r.resultados[0]).toMatchObject({
+      motivo: "PARCELA_FORA_DE_COBRANCA", status_parcela: "CANCELADA" });
   });
 });

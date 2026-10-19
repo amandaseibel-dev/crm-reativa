@@ -28,10 +28,18 @@ const resposta = (situacao, motivo, extra = {}) => ({ situacao, motivo, ...extra
 // em vez de entrar como cobrável por omissão.
 const STATUS_EM_COBRANCA = new Set(["PAGO", "A_VENCER", "VENCIDA"]);
 
+// O mesmo raciocinio no nivel do ACORDO, que o portao da parcela nao alcanca: a
+// parcela pode estar num status da allowlist DENTRO de um acordo cancelado. Medido
+// em 19/10/2026: na fila aberta isso nao acontece hoje (0 casos), mas no universo
+// todo ha 13 pagamentos nessa forma -- 12 em parcela PAGO e 1 em parcela VENCIDA,
+// as duas dentro de acordo CANCELADO. Fechado antes de aparecer na fila.
+// QUITADO entra: acordo pago ate o fim e destino legitimo de pagamento.
+const ACORDO_EM_COBRANCA = new Set(["ATIVO", "QUITADO"]);
+
 /**
  * Recebe registros ja obtidos de fontes autorizadas, nunca faz queries ou escritas.
  * Entrada: pagamento {aluno_id, titulo_numero, numero_parcela_completo},
- *          acordos [{id, aluno_id, numero_ulbra}], parcelas [{id, acordo_id, boleto, status}].
+ *          acordos [{id, aluno_id, numero_ulbra, status}], parcelas [{id, acordo_id, boleto, status}].
  * titulo_numero: numero do acordo no arquivo Santander, nao prova de baixa.
  * boleto: chave exata da parcela, conferida no contexto do acordo/aluno.
  */
@@ -79,6 +87,17 @@ export function identificarVinculoF1b({ pagamento, acordos = [], parcelas = [] }
   }
   const acordo = acordoPorNumero || acordoDaParcela;
   if (!acordo) return resposta("REVISAO", "ACORDO_NAO_PROVADO");
+  const statusAcordo = String(acordo.status ?? "").trim().toUpperCase();
+  // Mesma regra do portao da parcela, e pelo mesmo motivo: status nao carregado
+  // reprova com motivo SEPARADO, para `select` sem a coluna ser diagnosticavel.
+  if (!statusAcordo) {
+    return resposta("REVISAO", "ACORDO_SEM_STATUS",
+      { acordo_id: acordo.id, parcela_id: parcela?.id ?? null, status_acordo: acordo.status ?? null });
+  }
+  if (!ACORDO_EM_COBRANCA.has(statusAcordo)) {
+    return resposta("REVISAO", "ACORDO_FORA_DE_COBRANCA",
+      { acordo_id: acordo.id, parcela_id: parcela?.id ?? null, status_acordo: acordo.status });
+  }
   if (parcela) {
     const status = String(parcela.status ?? "").trim().toUpperCase();
     // Status nao carregado tambem reprova: nao da para afirmar que a parcela esta

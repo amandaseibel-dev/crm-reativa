@@ -94,7 +94,7 @@ export async function analisarConfirmacaoF1bNoCRM(client, confirmacaoId) {
     const boletos = formas(pagamentos.map(p => p.numero_parcela_completo));
     // Ausencia de chave significa revisao no motor, nao assumir acordo por aluno.
     const acordos = numeros.length
-      ? await buscar(client.from("acordos").select("id,aluno_id,numero_ulbra").in("numero_ulbra", numeros))
+      ? await buscar(client.from("acordos").select("id,aluno_id,numero_ulbra,status").in("numero_ulbra", numeros))
       : [];
     const parcelas = boletos.length
       ? await buscar(client.from("parcelas").select("id,acordo_id,boleto,status").in("boleto", boletos))
@@ -102,7 +102,7 @@ export async function analisarConfirmacaoF1bNoCRM(client, confirmacaoId) {
     // Consulta também os acordos pai das parcelas (para preservar titularidade).
     const pais = [...new Set(parcelas.map(x => x.acordo_id).filter(Boolean))];
     if (pais.length) {
-      const extras = await buscar(client.from("acordos").select("id,aluno_id,numero_ulbra").in("id", pais));
+      const extras = await buscar(client.from("acordos").select("id,aluno_id,numero_ulbra,status").in("id", pais));
       for (const x of extras) if (!acordos.some(a => a.id === x.id)) acordos.push(x);
     }
     // A soma contra `valor_informado` e conferida DE NOVO no motor, em JS, depois de o
