@@ -55,7 +55,7 @@
 -- anon, nunca revoke de `authenticated`** -- revogar de authenticated derrubaria
 -- a tela para a propria gestao, erro ja cometido e registrado.
 --
--- Reversivel: supabase/rollbacks/20261020184623_*.rollback.sql
+-- Reversivel: supabase/rollbacks/20261020223151_*.rollback.sql
 
 -- Fecha PUBLIC (a heranca) e anon (o papel sem login) de forma explicita. Os
 -- dois: PUBLIC porque e de onde vem o acesso, e anon por clareza de intencao --

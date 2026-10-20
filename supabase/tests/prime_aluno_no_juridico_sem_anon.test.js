@@ -1,7 +1,7 @@
 // P1 · SITUAÇÃO JURÍDICA POR CPF NÃO RESPONDE SEM LOGIN — teste de permissão.
 //
 // Roda a MIGRATION REAL
-// (supabase/migrations/20261020184623_prime_aluno_no_juridico_fecha_anon.sql) e o
+// (supabase/migrations/20261020223151_prime_aluno_no_juridico_fecha_anon.sql) e o
 // ROLLBACK REAL num PostgreSQL real (PGlite).
 //
 // A bancada é mínima de propósito: a correção é de PRIVILÉGIO, não de regra.
@@ -31,8 +31,8 @@ vi.setConfig({ testTimeout: 60000, hookTimeout: 120000 });
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const ler = (p) => readFileSync(resolve(AQUI, "..", "..", p), "utf8");
 
-const MIGRATION = ler("supabase/migrations/20261020184623_prime_aluno_no_juridico_fecha_anon.sql");
-const ROLLBACK = ler("supabase/rollbacks/20261020184623_prime_aluno_no_juridico_fecha_anon.rollback.sql");
+const MIGRATION = ler("supabase/migrations/20261020223151_prime_aluno_no_juridico_fecha_anon.sql");
+const ROLLBACK = ler("supabase/rollbacks/20261020223151_prime_aluno_no_juridico_fecha_anon.rollback.sql");
 
 const MD5_PROD = "7066bc7660854bf34ac45b95b032f65b";
 const CPF_NO_JURIDICO = "98765432100";

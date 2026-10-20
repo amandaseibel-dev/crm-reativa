@@ -1,4 +1,4 @@
--- ROLLBACK de 20261020184623_prime_aluno_no_juridico_fecha_anon.sql
+-- ROLLBACK de 20261020223151_prime_aluno_no_juridico_fecha_anon.sql
 --
 -- SO PRIVILEGIO. Nenhuma funcao substituida, nenhuma tabela, nenhum gatilho,
 -- nenhum dado -- nao ha dado a restaurar. Devolve exatamente os grants que
