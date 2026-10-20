@@ -8,7 +8,7 @@
     "secret_location": "Supabase Vault, segredo 'prime_api_key' — lido só por service_role, via RPC prime_api_key_backend() ou prime_chave_api() (duas RPCs equivalentes, ver gaps)",
     "never": "a chave nunca chega ao navegador, nunca é logada, nunca aparece em resposta de Edge Function"
   },
-  "last_verified_at": "2026-09-28",
+  "last_verified_at": "2026-10-20",
   "resources": [
     {
       "resource": "carriers",
@@ -207,7 +207,7 @@
           "name": "carrierId",
           "type": "int",
           "required": false,
-          "behavior": "IGNORADO neste endpoint — resposta idêntica com ou sem o parâmetro (medido)"
+          "behavior": "IGNORADO neste endpoint — resposta idêntica com ou sem o parâmetro. RECONFERIDO 2026-10-20 na matrícula 232005643 (48 títulos, zero do portador 166): os dois corpos comparados inteiros, em JSON canônico, deram idênticos"
         }
       ],
       "response_fields": {
@@ -242,9 +242,10 @@
         "MEDIDO AO VIVO 2026-09-28 (GET /students/{registration} via Edge Function prime-acordo): o objeto de financialStatement tem EXATAMENTE 13 campos — documentNumber, dueDate, grossAmount, discountAmount, penaltyAmount, interestAmount, honorariumAmount, netAmount, paymentDate, paidAmount, boleto, isAgreementInstallment, carrier. NENHUM campo de situação, status, saldo em aberto ou evento de pagamento.",
         "Consequência: não existe, na superfície testada com a chave atual, forma de saber pela API se um título está pago, em aberto, cancelado ou renegociado. Movimento só é observável comparando duas consultas — e redução de saldo mistura pagamento, cancelamento, bolsa e renegociação.",
         "PROVA COM VARIÁVEL INDEPENDENTE, 2026-09-28: o relatório de inadimplência da ULBRA do próprio dia diz quem está EM ABERTO. Cruzando 120 linhas dele com o espelho: 101 títulos comprovadamente em aberto; DESSES, 101 tinham paymentDate preenchido, 19 com data POSTERIOR ao vencimento, 61 tinham paidAmount IGUAL ao netAmount e 27 tinham paidAmount MENOR que o netAmount. Ou seja, as assinaturas que alguém leria como 'pagou' aparecem em massa em títulos abertos. Nenhum dos 13 campos separa aberto de pago.",
-        "Comparação entre grupos (mesmos alunos, 2026-09-28): EM ABERTO (101 títulos) x mensalidades de jul/ago do mesmo aluno (24) x títulos futuros (315). Nenhum campo separa os grupos: paymentDate nulo = 0 nos três; isAgreementInstallment = false nos três; portador = 95 nos três. Nos futuros, paymentDate <= vencimento em 315 de 315 — é data de processamento."
+        "Comparação entre grupos (mesmos alunos, 2026-09-28): EM ABERTO (101 títulos) x mensalidades de jul/ago do mesmo aluno (24) x títulos futuros (315). Nenhum campo separa os grupos: paymentDate nulo = 0 nos três; isAgreementInstallment = false nos três; portador = 95 nos três. Nos futuros, paymentDate <= vencimento em 315 de 315 — é data de processamento.",
+        "RECONFERIDO 2026-10-20 pela tela /diagnostico-prime (PR #709), com a sessão da gestão: matrícula 232005643, aluno filiado ao 166 e com acordo 5629 ATIVO no CRM — 48 títulos no extrato, NENHUM do portador 166, e ?carrierId=166 devolveu resposta idêntica. Terceira população independente (09/09, 15/09, 20/10). Não repetir a varredura."
       ],
-      "last_verified_at": "2026-09-28"
+      "last_verified_at": "2026-10-20"
     },
     {
       "resource": "agreements",
@@ -273,9 +274,10 @@
       "fallback": "NENHUM ENCONTRADO ainda pela API. A estrutura é visível na TELA do Prime (confirmado 2026-09-15 no acordo 71903), mas a rota/URL estruturada que a tela consome não foi identificada. Ver docs/PREMISSAS.md Premissa 19 e 20, e docs/integracoes/README.md seção 'Estrutura financeira dos acordos'.",
       "limitations": [
         "200 com totalItems:0 é resposta válida da API, não erro — e foi medida inclusive para acordo confirmado como ATIVO na tela do Prime no mesmo instante em que a chamada foi feita (2026-09-15). Isto prova que é limite de ESCOPO da superfície pública, não ausência do dado em algum lugar da ULBRA.",
-        "NÃO ESCREVER 'a informação não existe'. Escrever: 'não foi exposta pela superfície de integração testada com a X-API-Key atual.'"
+        "NÃO ESCREVER 'a informação não existe'. Escrever: 'não foi exposta pela superfície de integração testada com a X-API-Key atual.'",
+        "RECONFERIDO 2026-10-20 (matrícula 232005643, acordo 5629 ATIVO no CRM, 12 parcelas): /agreements devolveu zero itens e o composto /students/232005643 trouxe agreements vazio no mesmo instante. Continua sendo limite de ESCOPO da superfície pública, não ausência do acordo."
       ],
-      "last_verified_at": "2026-09-15"
+      "last_verified_at": "2026-10-20"
     }
   ],
   "rotas_testadas_sem_sucesso": {

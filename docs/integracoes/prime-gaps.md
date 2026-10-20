@@ -63,7 +63,58 @@ Confirmado por leitura direta do schema de produção (`information_schema`) e
 migration em produção. Registrado como item de prioridade alta no backlog
 técnico (ver `docs/BACKLOG-TECNICO.md`).
 
+## Origem do relatório de pagamentos do convênio 0272047 (portador 166)
+
+**Pergunta da gestão, 2026-10-20:** qual é a origem técnica do relatório de
+pagamentos do portador 166 (SANTANDER REATIVA, convênio 0272047) que a gestão
+exporta e importa na Projeção?
+
+**O que o CRM já sabe do arquivo.** O leitor é `normalizarLinhaSantander`, em
+`src/pages/ProjecaoHoraHora.jsx`. Não há cabeçalho de verdade; as colunas são
+fixas por posição: A instituição · B `matrícula - nome do aluno` · C título
+(número do acordo) · D operador (`NOME.SOBRENOME`) · E código convênio+título
+(`5`+acordo(6)+parcela(4)) · F convênio · G vencimento · H valor original ·
+I honorário · J data de pagamento · K valor pago.
+
+**O que essas colunas dizem sobre a origem.** Quatro delas não podem vir de um
+retorno bancário: `instituição`, `matrícula + nome do aluno`, `honorário` e,
+sobretudo, `operador` no formato de login da operação — banco não conhece o
+operador que fechou o acordo nem o honorário da assessoria. A origem é,
+portanto, um **relatório do lado ULBRA/Prime** sobre os recebimentos do convênio
+0272047, não um arquivo de retorno do Santander. A linha "matrícula do arquivo
+Santander" de [`prime-mapa-identificadores.md`](prime-mapa-identificadores.md)
+descreve o CONTEÚDO do arquivo, não a sua origem.
+
+**Existe equivalente na API? NÃO, na superfície testada — e isso já estava
+medido.** O catálogo tem seis recursos de leitura e nenhum de relatório ou
+recebimento. Em 2026-09-15 foram testados 48 caminhos candidatos (`/agreements`,
+`/negotiations`, `/installments`, `/titles`, `/documents`, `/billings`,
+`/renegotiations`, `/payment-plans`, `/carriers/{id}/titles`, variantes com
+`?registration=`, `?includeInstallments=`, `?expand=`, `?detail=full`, prefixos
+`/v1` e `/v2`): **todos 404, sem um único 405** — e 405 é o que indicaria rota
+existente com outro verbo. `swagger`, `openapi` e `docs` também 404. A única
+superfície do 166 que responde é a **filiação** (`/students?carrierId=166`,
+26.825 alunos), que não tem dimensão financeira nenhuma.
+
+**O limite da integração, escrito do jeito certo:** o recebimento do convênio
+0272047 **não foi exposto pela superfície de integração testada com a X-API-Key
+atual**. O dado chega à ReATIVA todos os dias — pelo arquivo, não pela API. E o
+arquivo já é importado: ele vira `pagamentos`, com `titulo_numero` (acordo) e
+`numero_parcela_completo` (`5`+acordo+parcela, padrão verificado em 9.086
+pagamentos sem exceção).
+
 ## A resposta à prioridade imediata
+
+> **Reconferido em 2026-10-20, e o resultado não mudou.** Os quatro testes
+> do portador 166 foram rodados na matrícula `232005643` (aluno filiado ao
+> 166, acordo 5629 **ATIVO** no CRM, 12 parcelas) pela tela
+> `/diagnostico-prime` — com a sessão da própria gestão, sem ninguém
+> manusear token: (1) `financial-statement` → 48 títulos, **zero do 166**;
+> (2) `financial-statement?carrierId=166` → **resposta idêntica**, comparada
+> corpo inteiro em JSON canônico; (3) `agreements` → **zero itens**;
+> (4) composto `/students/232005643` → campo `agreements` **vazio**.
+> Não repetir estes quatro testes nem varrer alunos: a pergunta está
+> respondida por três populações independentes (09/09, 15/09 e 20/10).
 
 **Onde está a estrutura financeira dos acordos: NÃO foi localizada por
 nenhuma rota da API Prime/ULBRA testada até hoje**, e a superfície foi
