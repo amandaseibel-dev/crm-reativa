@@ -2,14 +2,16 @@
 //
 // O que estes testes travam, na ordem do risco:
 //
-//   1. a migration NAO SUBSTITUI funcao que ja existe -- e a propriedade que faz dela
-//      segura para producao. O teste cria uma funcao com corpo DIFERENTE antes de rodar
-//      e exige que o corpo continue o mesmo depois;
-//   2. num banco NOVO ela cria as 5 funcoes com o md5 EXATO capturado de producao em
+//   1. a migration ABORTA quando o que existe em producao diverge do baseline, ANTES
+//      de aplicar qualquer DDL -- um baseline que nao corresponde a producao e pior
+//      que nenhum, porque passa a ser citado como se correspondesse;
+//   2. objeto PREEXISTENTE nao tem comentario, RLS, policy nem grant tocados -- nem
+//      para reafirmar o que ja vale. E a propriedade que torna a migration no-op
+//      integral em producao;
+//   3. num banco NOVO ela cria as 5 funcoes com o md5 EXATO capturado de producao em
 //      20/10/2026 -- se o texto versionado nao reproduz o de producao, o baseline nao
 //      vale nada e o teste falha;
-//   3. rodar duas vezes e no-op;
-//   4. tabelas, indices, RLS, policies e grants nascem como em producao.
+//   4. rodar duas vezes e no-op.
 //
 // NENHUM DADO REAL: as unicas linhas inseridas sao de fila, ficticias.
 import { describe, it, expect, beforeEach } from "vitest";
@@ -41,9 +43,6 @@ async function um(db, sql) {
 // tira a dependencia do tipo sem enfraquecer a asercao.
 const n = async (db, sql) => Number(await um(db, sql));
 
-// Bancada minima: so o que a migration precisa para resolver nomes na criacao.
-// `auth`, `vault` e `net` NAO sao necessarios -- corpos plpgsql nao sao resolvidos
-// na criacao -- mas `usuario_e_gestao` e, porque a POLICY o referencia.
 async function novoBanco() {
   const db = new PGlite();
   await db.exec(`
@@ -55,65 +54,112 @@ async function novoBanco() {
   return db;
 }
 
+// Cria as tabelas com a MESMA FORMA do baseline, mas sem comentario, sem RLS, sem
+// policy e sem grant -- e assim que elas estao em producao hoje (relacl tem
+// authenticated=r, que replicamos, e comentario nenhum).
+async function tabelasComoEmProducao(db) {
+  await db.exec(`
+    create table public.prime_extrato (
+      matricula text not null, boleto text not null, cpf text, vencimento date,
+      liquidado_em date, valor_liquido numeric, valor_pago numeric, honorario numeric,
+      de_acordo boolean, portador integer, portador_nome text,
+      coletado_em timestamptz not null default now(), valor_bruto numeric,
+      desconto numeric, multa numeric, juros numeric,
+      constraint prime_extrato_pkey primary key (matricula, boleto));
+    create index ix_prime_extrato_boleto on public.prime_extrato using btree (boleto);
+    create index ix_prime_extrato_boleto_ltrim on public.prime_extrato using btree (ltrim(boleto,'0'::text));
+    create index ix_prime_extrato_boleto_mat on public.prime_extrato using btree (boleto, matricula);
+    create index ix_prime_extrato_negociacao on public.prime_extrato using btree (matricula, portador, liquidado_em)
+      where ((portador = 195) and (liquidado_em is not null));
+    create table public.prime_extrato_fila (
+      matricula text not null, cpf text, motivo text, tentativas integer not null default 0,
+      ultimo_erro text, coletado_em timestamptz, criado_em timestamptz not null default now(),
+      constraint prime_extrato_fila_pkey primary key (matricula));
+    grant select on table public.prime_extrato to authenticated;
+    grant select on table public.prime_extrato_fila to authenticated;
+  `);
+}
+
 describe("versionar o subsistema prime_extrato", () => {
   let db;
   beforeEach(async () => { db = await novoBanco(); });
 
-  it("NAO SUBSTITUI funcao que ja existe -- a propriedade que a torna segura", async () => {
-    // simula producao: a funcao ja existe, com corpo proprio
+  // ---- 1. aborta quando diverge -------------------------------------------
+  it("ABORTA quando uma funcao existente diverge do baseline", async () => {
     await db.exec(`
       create function public.prime_extrato_reenfileirar() returns integer
         language plpgsql security definer set search_path to 'public'
       as $$ begin return 42; end $$;`);
-    const antes = await um(db, `select md5(pg_get_functiondef('public.prime_extrato_reenfileirar()'::regprocedure))`);
-
-    await db.exec(MIGRATION);
-
-    const depois = await um(db, `select md5(pg_get_functiondef('public.prime_extrato_reenfileirar()'::regprocedure))`);
-    expect(depois).toBe(antes);
-    // e o corpo segue sendo o de "producao", nao o versionado
-    expect(await um(db, `select public.prime_extrato_reenfileirar()`)).toBe(42);
+    await expect(db.exec(MIGRATION)).rejects.toThrow(/BASELINE INCOMPATIVEL/i);
   });
 
-  it("NAO SUBSTITUI nenhuma das cinco, mesmo com todas pre-existentes e diferentes", async () => {
+  it("a mensagem do aborto diz QUAL objeto divergiu e os dois md5", async () => {
     await db.exec(`
-      create function public.prime_chave_api() returns text language sql as $$ select 'OUTRO' $$;
-      create function public.prime_extrato_ok(p text) returns void language sql as $$ select $$;
-      create function public.prime_extrato_falhou(a text, b text) returns void language sql as $$ select $$;
-      create function public.prime_extrato_reenfileirar() returns integer language sql as $$ select 7 $$;
-      create function public.prime_extrato_mutirao() returns bigint language sql as $$ select 9::bigint $$;`);
-    const antes = await db.query(`select p.proname, md5(pg_get_functiondef(p.oid)) m
-      from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-      where n.nspname='public' and p.proname like 'prime_%' order by 1`);
+      create function public.prime_chave_api() returns text language sql as $$ select 'OUTRO' $$;`);
+    await expect(db.exec(MIGRATION)).rejects.toThrow(/prime_chave_api\(\).*86eae3185b21c18277ebf6a6174ca0b9/s);
+  });
+
+  it("ABORTA quando uma tabela existente tem forma diferente", async () => {
+    await db.exec(`create table public.prime_extrato (matricula text, boleto text)`);
+    await expect(db.exec(MIGRATION)).rejects.toThrow(/prime_extrato: producao tem 2 colunas/i);
+  });
+
+  it("quando aborta, NADA e aplicado", async () => {
+    await db.exec(`
+      create function public.prime_extrato_ok(p text) returns void language sql as $$ select $$;`);
+    await expect(db.exec(MIGRATION)).rejects.toThrow(/BASELINE INCOMPATIVEL/i);
+    // o `begin` da migration fica aberto e abortado apos a excecao; encerrar a
+    // transacao e o que um cliente real faz, e e o proprio rollback que prova
+    // que nada do PASSO 3 em diante chegou a existir.
+    await db.exec("rollback").catch(() => {});
+    // nenhuma tabela e nenhuma das outras funcoes foi criada
+    expect(await um(db, `select to_regclass('public.prime_extrato') is null`)).toBe(true);
+    expect(await um(db, `select to_regprocedure('public.prime_chave_api()') is null`)).toBe(true);
+    // e a funcao que existia continua a mesma
+    expect(await um(db, `select prosrc from pg_proc where proname='prime_extrato_ok'`)).toBe(" select ");
+  });
+
+  // ---- 2. nao toca em objeto preexistente ---------------------------------
+  it("tabela PREEXISTENTE nao recebe comentario, RLS nem policy", async () => {
+    await tabelasComoEmProducao(db);
     await db.exec(MIGRATION);
-    const depois = await db.query(`select p.proname, md5(pg_get_functiondef(p.oid)) m
-      from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-      where n.nspname='public' and p.proname like 'prime_%' order by 1`);
+    for (const t of ["prime_extrato", "prime_extrato_fila"]) {
+      expect(await um(db, `select obj_description('public.${t}'::regclass,'pg_class')`), t).toBeNull();
+      expect(await um(db, `select relrowsecurity from pg_class c join pg_namespace nn on nn.oid=c.relnamespace
+                            where nn.nspname='public' and c.relname='${t}'`), t).toBe(false);
+    }
+    expect(await n(db, `select count(*) from pg_policies where tablename like 'prime_extrato%'`)).toBe(0);
+  });
+
+  it("tabela PREEXISTENTE nao tem o ACL alterado", async () => {
+    await tabelasComoEmProducao(db);
+    const antes = await db.query(`select c.relname, c.relacl::text from pg_class c
+      join pg_namespace nn on nn.oid=c.relnamespace
+      where nn.nspname='public' and c.relname like 'prime_extrato%' order by 1`);
+    await db.exec(MIGRATION);
+    const depois = await db.query(`select c.relname, c.relacl::text from pg_class c
+      join pg_namespace nn on nn.oid=c.relnamespace
+      where nn.nspname='public' and c.relname like 'prime_extrato%' order by 1`);
     expect(depois.rows).toEqual(antes.rows);
   });
 
-  it("em banco NOVO cria as cinco com o md5 EXATO de producao", async () => {
+  it("com as tabelas preexistentes, a migration ainda cria as funcoes que faltam", async () => {
+    await tabelasComoEmProducao(db);
     await db.exec(MIGRATION);
     for (const [assinatura, md5] of Object.entries(MD5_PRODUCAO)) {
-      const atual = await um(db, `select md5(pg_get_functiondef('${assinatura}'::regprocedure))`);
-      expect(atual, assinatura).toBe(md5);
+      expect(await um(db, `select md5(pg_get_functiondef('${assinatura}'::regprocedure))`), assinatura).toBe(md5);
     }
   });
 
-  it("rodar duas vezes e no-op", async () => {
+  // ---- 3. banco novo -------------------------------------------------------
+  it("em banco NOVO cria as cinco com o md5 EXATO de producao", async () => {
     await db.exec(MIGRATION);
-    const antes = await db.query(`select p.proname, md5(pg_get_functiondef(p.oid)) m
-      from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-      where n.nspname='public' and p.proname like 'prime_extrato%' or p.proname='prime_chave_api' order by 1`);
-    await db.exec(MIGRATION);
-    const depois = await db.query(`select p.proname, md5(pg_get_functiondef(p.oid)) m
-      from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-      where n.nspname='public' and p.proname like 'prime_extrato%' or p.proname='prime_chave_api' order by 1`);
-    expect(depois.rows).toEqual(antes.rows);
-    expect(await n(db, `select count(*) from pg_policies where tablename like 'prime_extrato%'`)).toBe(2);
+    for (const [assinatura, md5] of Object.entries(MD5_PRODUCAO)) {
+      expect(await um(db, `select md5(pg_get_functiondef('${assinatura}'::regprocedure))`), assinatura).toBe(md5);
+    }
   });
 
-  it("as tabelas nascem com as colunas, chaves e indices de producao", async () => {
+  it("em banco NOVO as tabelas nascem com colunas, PK e os 5 indices", async () => {
     await db.exec(MIGRATION);
     expect(await n(db, `select count(*) from information_schema.columns
                          where table_schema='public' and table_name='prime_extrato'`)).toBe(16);
@@ -125,17 +171,16 @@ describe("versionar o subsistema prime_extrato", () => {
       "ix_prime_extrato_boleto", "ix_prime_extrato_boleto_ltrim", "ix_prime_extrato_boleto_mat",
       "ix_prime_extrato_negociacao", "prime_extrato_pkey",
     ]);
-    // a chave composta e (matricula, boleto), como em producao
     await db.exec(`insert into public.prime_extrato (matricula, boleto) values ('111','222')`);
     await expect(db.exec(`insert into public.prime_extrato (matricula, boleto) values ('111','222')`))
       .rejects.toThrow(/duplicate key|prime_extrato_pkey/i);
   });
 
-  it("RLS ligada e policy so de leitura para a gestao", async () => {
+  it("em banco NOVO: RLS ligada, policy so de leitura para a gestao", async () => {
     await db.exec(MIGRATION);
     for (const t of ["prime_extrato", "prime_extrato_fila"]) {
-      expect(await um(db, `select relrowsecurity from pg_class c join pg_namespace n on n.oid=c.relnamespace
-                            where n.nspname='public' and c.relname='${t}'`), t).toBe(true);
+      expect(await um(db, `select relrowsecurity from pg_class c join pg_namespace nn on nn.oid=c.relnamespace
+                            where nn.nspname='public' and c.relname='${t}'`), t).toBe(true);
     }
     const pol = await db.query(`select tablename, policyname, cmd from pg_policies
       where schemaname='public' and tablename like 'prime_extrato%' order by 1`);
@@ -145,7 +190,7 @@ describe("versionar o subsistema prime_extrato", () => {
     ]);
   });
 
-  it("authenticated so le; anon nao le; TRUNCATE nao vai para authenticated", async () => {
+  it("em banco NOVO: authenticated so le; anon nao le; TRUNCATE nao vai para authenticated", async () => {
     await db.exec(MIGRATION);
     for (const t of ["prime_extrato", "prime_extrato_fila"]) {
       expect(await um(db, `select has_table_privilege('authenticated','public.${t}','SELECT')`), t).toBe(true);
@@ -165,6 +210,35 @@ describe("versionar o subsistema prime_extrato", () => {
     }
   });
 
+  // ---- 4. idempotencia -----------------------------------------------------
+  it("rodar duas vezes e no-op, inclusive no ACL e no comentario", async () => {
+    await db.exec(MIGRATION);
+    const antes = await db.query(`
+      select c.relname obj, c.relacl::text acl, c.relrowsecurity rls,
+             obj_description(c.oid,'pg_class') com
+        from pg_class c join pg_namespace nn on nn.oid=c.relnamespace
+       where nn.nspname='public' and c.relname like 'prime_extrato%' order by 1`);
+    const fAntes = await db.query(`select p.proname, md5(pg_get_functiondef(p.oid)) m, p.proacl::text
+      from pg_proc p join pg_namespace nn on nn.oid=p.pronamespace
+      where nn.nspname='public' and (p.proname like 'prime_extrato%' or p.proname='prime_chave_api') order by 1`);
+
+    await db.exec(MIGRATION);
+
+    const depois = await db.query(`
+      select c.relname obj, c.relacl::text acl, c.relrowsecurity rls,
+             obj_description(c.oid,'pg_class') com
+        from pg_class c join pg_namespace nn on nn.oid=c.relnamespace
+       where nn.nspname='public' and c.relname like 'prime_extrato%' order by 1`);
+    const fDepois = await db.query(`select p.proname, md5(pg_get_functiondef(p.oid)) m, p.proacl::text
+      from pg_proc p join pg_namespace nn on nn.oid=p.pronamespace
+      where nn.nspname='public' and (p.proname like 'prime_extrato%' or p.proname='prime_chave_api') order by 1`);
+
+    expect(depois.rows).toEqual(antes.rows);
+    expect(fDepois.rows).toEqual(fAntes.rows);
+    expect(await n(db, `select count(*) from pg_policies where tablename like 'prime_extrato%'`)).toBe(2);
+  });
+
+  // ---- comportamento das funcoes ------------------------------------------
   it("a rotina da fila funciona: enfileira so quem tem aluno na base, e e idempotente", async () => {
     await db.exec(MIGRATION);
     await db.exec(`
@@ -174,7 +248,6 @@ describe("versionar o subsistema prime_extrato", () => {
     expect(await um(db, `select public.prime_extrato_reenfileirar()`)).toBe(1);
     const fila = await db.query(`select matricula, motivo, tentativas from public.prime_extrato_fila`);
     expect(fila.rows).toEqual([{ matricula: "2024001", motivo: "atualizacao semanal", tentativas: 0 }]);
-    // rodar de novo nao duplica: a PK e a matricula, e o on conflict reabre a coleta
     await db.exec(`update public.prime_extrato_fila set coletado_em = now(), tentativas = 2`);
     expect(await um(db, `select public.prime_extrato_reenfileirar()`)).toBe(1);
     expect(await n(db, `select count(*) from public.prime_extrato_fila`)).toBe(1);
@@ -193,11 +266,20 @@ describe("versionar o subsistema prime_extrato", () => {
     expect(r.rows[1]).toMatchObject({ matricula: "B", tentativas: 0, ultimo_erro: null, coletado: true });
   });
 
-  it("a migration nao cria cron nem toca em segredo do Vault", async () => {
+  // ---- o que a migration nao pode conter ----------------------------------
+  it("a migration nao cria cron, nao toca no Vault e nao escreve em tabela de negocio", async () => {
     expect(MIGRATION).not.toMatch(/cron\.schedule/i);
     expect(MIGRATION).not.toMatch(/insert\s+into\s+vault/i);
     expect(MIGRATION).not.toMatch(/vault\.create_secret/i);
-    // e nao escreve em tabela de negocio
     expect(MIGRATION).not.toMatch(/\b(insert into|update|delete from)\s+public\.(pagamentos|parcelas|acordos|baixas_pagamento|alunos|casos)\b/i);
+  });
+
+  it("nenhum COMMENT, GRANT, REVOKE, ALTER ou POLICY fora de bloco condicional", async () => {
+    // tira comentarios de linha e o corpo dos blocos DO (que ja sao condicionais)
+    const semComentario = MIGRATION.split("\n").filter(l => !l.trim().startsWith("--")).join("\n");
+    const foraDeDo = semComentario.replace(/do \$\$[\s\S]*?\$\$;/g, "");
+    for (const proibido of [/comment\s+on/i, /\bgrant\b/i, /\brevoke\b/i, /alter\s+table/i, /create\s+policy/i]) {
+      expect(foraDeDo, String(proibido)).not.toMatch(proibido);
+    }
   });
 });

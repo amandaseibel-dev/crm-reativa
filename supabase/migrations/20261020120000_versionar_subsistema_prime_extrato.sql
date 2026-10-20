@@ -1,30 +1,45 @@
--- VERSIONAR O SUBSISTEMA prime_extrato -- BASELINE, NAO ALTERA PRODUCAO.
+-- VERSIONAR O SUBSISTEMA prime_extrato -- BASELINE, NO-OP INTEGRAL EM PRODUCAO.
 --
--- O QUE E ISTO: `docs/integracoes/prime-gaps.md` marca como VERMELHO (drift, nao gap de
--- dado) que `prime_chave_api()`, `prime_extrato` e `prime_extrato_fila` existem em
--- producao SEM migration, e que a rotina que alimenta `prime_extrato_fila` "nao foi
--- localizada em src/ nem nas Edge Functions do repo". Esta migration versiona esse
--- subsistema e fecha o item -- a rotina E `prime_extrato_reenfileirar()`, chamada pelo
--- cron `prime_extrato_reenfileirar_semanal`; nao estava em src/ nem nas Edge Functions
+-- O QUE E ISTO: `docs/integracoes/prime-gaps.md` marcava como VERMELHO que
+-- `prime_chave_api()`, `prime_extrato` e `prime_extrato_fila` existem em producao SEM
+-- migration, e que a rotina que alimenta `prime_extrato_fila` "nao foi localizada em
+-- src/ nem nas Edge Functions". Esta migration versiona o subsistema e fecha os dois --
+-- a rotina E `prime_extrato_reenfileirar()`, chamada pelo cron
+-- `prime_extrato_reenfileirar_semanal`; nao estava em src/ nem nas Edge Functions
 -- porque e funcao SQL agendada no pg_cron, e tambem nao tinha migration.
 --
--- A REGRA QUE GOVERNA CADA LINHA DAQUI: nao recriar, nao substituir e nao alterar objeto
--- de producao que ja funciona. Por isso:
+-- ===========================================================================
+-- CORRECAO DE 20/10/2026, PEDIDA PELA GESTAO
 --
---   * TABELAS e INDICES usam `if not exists` -- em producao viram no-op;
---   * POLICIES sao criadas so quando ausentes (checagem em pg_policies);
---   * GRANTS sao idempotentes por natureza (conceder o que ja existe nao muda nada);
---   * FUNCOES usam CREATE CONDICIONAL (`to_regprocedure(...) is null`), NUNCA
---     `create or replace` solto. Esta e a diferenca que importa: `create or replace`
---     SUBSTITUIRIA o corpo em producao, e um unico byte diferente no texto que eu
---     capturei mudaria comportamento. Com o create condicional, em producao nada e
---     tocado; num banco novo, o objeto nasce igual.
+-- A primeira versao desta migration NAO era no-op integral, ao contrario do que o
+-- cabecalho afirmava. Conferido objeto a objeto contra producao:
 --
--- VERIFICACAO EM VEZ DE CONFIANCA: ao final, um bloco compara o md5 de
--- `pg_get_functiondef` de cada funcao existente com o md5 capturado de producao em
--- 20/10/2026 e emite NOTICE quando divergir. E NOTICE, nao EXCEPTION, de proposito:
--- divergencia e informacao para a proxima revisao, e abortar o apply por causa dela
--- deixaria o repositorio sem baseline -- que e exatamente o problema que estamos fechando.
+--   COMMENT ON TABLE  -> ALTERAVA. As duas tabelas estao SEM COMENTARIO em producao,
+--                        e o comando teria adicionado um. E mudanca de catalogo em
+--                        objeto existente. CORRIGIDO: so comenta a tabela que ESTA
+--                        MIGRATION criou.
+--   ENABLE RLS        -> ja ligada (`relrowsecurity = true`); efeito nulo, mas pega
+--                        ACCESS EXCLUSIVE numa tabela de 412 mil linhas. CORRIGIDO:
+--                        so executa para a tabela que esta migration criou.
+--   GRANT/REVOKE      -> conferidos no ACL BRUTO (`relacl`/`proacl`), nao pelo
+--                        information_schema, que esconde PUBLIC:
+--                          relacl = postgres=arwdDxtm | service_role=arwdDxtm |
+--                                   authenticated=r      -> sem anon, sem PUBLIC
+--                          proacl = postgres=X | service_role=X
+--                                   -> PUBLIC NAO tem EXECUTE (o default ja fora
+--                                      revogado), logo o REVOKE seria no-op
+--                        Eram no-op de fato, mas foram igualmente condicionados:
+--                        objeto preexistente nao tem permissao tocada, nem para
+--                        reafirmar o que ja vale.
+--   CREATE POLICY     -> ja era condicional. Mantido.
+--   CREATE TABLE/INDEX-> `if not exists`. Mantido.
+--
+-- E a verificacao de divergencia virou EXCECAO QUE ABORTA, e roda ANTES de tudo.
+-- Na versao anterior era NOTICE, com o argumento de que abortar deixaria o
+-- repositorio sem baseline. O argumento estava errado: um baseline que NAO
+-- corresponde a producao e pior do que nenhum, porque passa a ser citado como se
+-- correspondesse. Se divergir, nada e aplicado e a mensagem diz o que divergiu.
+-- ===========================================================================
 --
 -- md5(pg_get_functiondef) capturados em producao em 20/10/2026:
 --   prime_chave_api()                 86eae3185b21c18277ebf6a6174ca0b9   408 bytes
@@ -41,20 +56,84 @@
 --     operacional, nao estrutura, e recria-los arriscaria duplicar job vivo.
 --     Ficam REGISTRADOS aqui, nao executados.
 --   * NAO toca em segredo do Vault. `prime_chave_api()` apenas LE
---     `vault.decrypted_secrets` pelo nome `prime_api_key`; a migration nao cria, nao
---     altera e nao expoe segredo nenhum.
+--     `vault.decrypted_secrets` pelo nome `prime_api_key`.
 --   * NAO versiona os outros 28 objetos `prime*` sem migration (piloto academico,
---     portador 202, sync de cadastro). Sao drift real e estao listados em
---     `docs/integracoes/prime-gaps.md`, mas sao outro subsistema -- entram em PR propria.
+--     portador 202, syncs de cadastro). Estao listados em `prime-gaps.md`; PR propria.
 --   * NAO da baixa, nao move dinheiro, nao altera registro de aluno, nao mexe no lote
 --     bloqueado de 109 confirmacoes.
 --
--- ROLLBACK: nenhum, por desenho. Em producao esta migration e no-op integral; nao ha o
--- que desfazer. Num banco novo, o rollback seria dropar o que ela criou, e isso esta em
--- `supabase/rollbacks/`.
+-- ROLLBACK: nenhum necessario em producao -- la ela e no-op integral. Num banco novo,
+-- dropar o que foi criado; ver `supabase/rollbacks/`.
 begin;
 
--- ---------------------------------------------------------------- tabelas
+-- ===========================================================================
+-- PASSO 1 -- VERIFICACAO QUE ABORTA, ANTES DE QUALQUER DDL
+-- ===========================================================================
+do $$
+declare
+  esperado jsonb := jsonb_build_object(
+    'public.prime_chave_api()',               '86eae3185b21c18277ebf6a6174ca0b9',
+    'public.prime_extrato_falhou(text,text)', '777f8cd526b0e29c343fdc31e527de1e',
+    'public.prime_extrato_mutirao()',         '6146ead7b9385fc757a764e92724c08b',
+    'public.prime_extrato_ok(text)',          '959e534c11cad2e98897f5d4aaf730e3',
+    'public.prime_extrato_reenfileirar()',    '6d098afc9cccaf2c19f1183c74b16ef2');
+  chave text; atual text; problemas text := '';
+  cols int; idx int;
+begin
+  -- 1a. funcoes que ja existem precisam bater BYTE A BYTE com o baseline
+  for chave in select jsonb_object_keys(esperado) loop
+    if to_regprocedure(chave) is not null then
+      select md5(pg_get_functiondef(to_regprocedure(chave))) into atual;
+      if atual is distinct from (esperado->>chave) then
+        problemas := problemas || format(E'\n  - %s: producao tem md5 %s, baseline espera %s',
+                                         chave, atual, esperado->>chave);
+      end if;
+    end if;
+  end loop;
+
+  -- 1b. tabelas que ja existem precisam ter a forma do baseline
+  if to_regclass('public.prime_extrato') is not null then
+    select count(*) into cols from information_schema.columns
+      where table_schema='public' and table_name='prime_extrato';
+    if cols <> 16 then
+      problemas := problemas || format(E'\n  - prime_extrato: producao tem %s colunas, baseline espera 16', cols);
+    end if;
+    select count(*) into idx from pg_indexes
+      where schemaname='public' and tablename='prime_extrato'
+        and indexname in ('ix_prime_extrato_boleto','ix_prime_extrato_boleto_ltrim',
+                          'ix_prime_extrato_boleto_mat','ix_prime_extrato_negociacao',
+                          'prime_extrato_pkey');
+    if idx <> 5 then
+      problemas := problemas || format(E'\n  - prime_extrato: %s dos 5 indices do baseline presentes', idx);
+    end if;
+  end if;
+
+  if to_regclass('public.prime_extrato_fila') is not null then
+    select count(*) into cols from information_schema.columns
+      where table_schema='public' and table_name='prime_extrato_fila';
+    if cols <> 7 then
+      problemas := problemas || format(E'\n  - prime_extrato_fila: producao tem %s colunas, baseline espera 7', cols);
+    end if;
+  end if;
+
+  if problemas <> '' then
+    raise exception E'BASELINE INCOMPATIVEL COM PRODUCAO -- nada foi aplicado.%s\n\nCorrija o baseline no repositorio (nao a producao) antes de aplicar.', problemas
+      using errcode = 'data_exception';
+  end if;
+end $$;
+
+-- ===========================================================================
+-- PASSO 2 -- registrar o que JA EXISTIA, antes de criar qualquer coisa.
+-- E este registro que permite nao encostar em objeto preexistente mais adiante.
+-- ===========================================================================
+create temporary table _prime_pre_estado on commit drop as
+select 'prime_extrato'::text  obj, to_regclass('public.prime_extrato')      is not null existia
+union all
+select 'prime_extrato_fila',       to_regclass('public.prime_extrato_fila') is not null;
+
+-- ===========================================================================
+-- PASSO 3 -- tabelas e indices (`if not exists`: no-op quando ja existem)
+-- ===========================================================================
 create table if not exists public.prime_extrato (
   matricula     text not null,
   boleto        text not null,
@@ -75,9 +154,6 @@ create table if not exists public.prime_extrato (
   constraint prime_extrato_pkey primary key (matricula, boleto)
 );
 
-comment on table public.prime_extrato is
-  'Espelho do extrato financeiro da Prime, decomposto. Alimentado pela Edge Function prime-extrato a partir de GET /students/{registration}. valor_pago e paidAmount da Prime -- DIVIDA CORRIGIDA, nunca caixa recebido; liquidado_em e paymentDate -- NUNCA confirma pagamento sozinho (vem preenchido ate em titulo a vencer). Ver docs/integracoes/prime-mapa-fontes-verdade.md.';
-
 create index if not exists ix_prime_extrato_boleto       on public.prime_extrato using btree (boleto);
 create index if not exists ix_prime_extrato_boleto_ltrim on public.prime_extrato using btree (ltrim(boleto, '0'::text));
 create index if not exists ix_prime_extrato_boleto_mat   on public.prime_extrato using btree (boleto, matricula);
@@ -95,46 +171,50 @@ create table if not exists public.prime_extrato_fila (
   constraint prime_extrato_fila_pkey primary key (matricula)
 );
 
-comment on table public.prime_extrato_fila is
-  'Fila de matriculas a coletar no espelho do extrato. Alimentada por prime_extrato_reenfileirar() (cron semanal) e drenada por prime_extrato_mutirao().';
-
--- ------------------------------------------------------------------- RLS
-alter table public.prime_extrato      enable row level security;
-alter table public.prime_extrato_fila enable row level security;
-
+-- ===========================================================================
+-- PASSO 4 -- comentario, RLS, policy e grants: SO para a tabela que ESTA
+-- migration criou. Tabela preexistente nao tem catalogo nem permissao tocados.
+-- ===========================================================================
 do $$
+declare t text; nasceu_aqui boolean;
 begin
-  if not exists (select 1 from pg_policies
-                  where schemaname='public' and tablename='prime_extrato'
-                    and policyname='prime_extrato_gestao') then
-    create policy prime_extrato_gestao on public.prime_extrato
-      for select to authenticated using (public.usuario_e_gestao());
-  end if;
-  if not exists (select 1 from pg_policies
-                  where schemaname='public' and tablename='prime_extrato_fila'
-                    and policyname='prime_fila_gestao') then
-    create policy prime_fila_gestao on public.prime_extrato_fila
-      for select to authenticated using (public.usuario_e_gestao());
-  end if;
+  foreach t in array array['prime_extrato','prime_extrato_fila'] loop
+    select not existia into nasceu_aqui from _prime_pre_estado where obj = t;
+    if not nasceu_aqui then
+      raise notice 'prime_extrato: % ja existia -- comentario, RLS, policy e grants NAO foram tocados.', t;
+      continue;
+    end if;
+
+    if t = 'prime_extrato' then
+      execute $c$comment on table public.prime_extrato is
+        'Espelho do extrato financeiro da Prime, decomposto. Alimentado pela Edge Function prime-extrato a partir de GET /students/{registration}. valor_pago e paidAmount da Prime -- DIVIDA CORRIGIDA, nunca caixa recebido; liquidado_em e paymentDate -- NUNCA confirma pagamento sozinho (vem preenchido ate em titulo a vencer). Ver docs/integracoes/prime-mapa-fontes-verdade.md.'$c$;
+      execute 'alter table public.prime_extrato enable row level security';
+      execute 'create policy prime_extrato_gestao on public.prime_extrato
+                 for select to authenticated using (public.usuario_e_gestao())';
+    else
+      execute $c$comment on table public.prime_extrato_fila is
+        'Fila de matriculas a coletar no espelho do extrato. Alimentada por prime_extrato_reenfileirar() (cron semanal) e drenada por prime_extrato_mutirao().'$c$;
+      execute 'alter table public.prime_extrato_fila enable row level security';
+      execute 'create policy prime_fila_gestao on public.prime_extrato_fila
+                 for select to authenticated using (public.usuario_e_gestao())';
+    end if;
+
+    -- Espelha o ACL de producao: authenticated=r (so leitura, e a RLS exige gestao);
+    -- service_role com escrita; anon e PUBLIC sem nada.
+    execute format('revoke all on table public.%I from anon', t);
+    execute format('grant select on table public.%I to authenticated', t);
+    execute format('grant select, insert, update, delete, truncate, references, trigger
+                      on table public.%I to service_role', t);
+  end loop;
 end $$;
 
--- ---------------------------------------------------------------- grants
--- Espelha o que ja vale em producao: authenticated so le (e a RLS acima exige gestao);
--- escrita e do service_role, que e quem a Edge Function usa. TRUNCATE NAO vai para
--- authenticated -- tabela nova herda privilegios do schema, e aqui isso e explicito.
-revoke all on table public.prime_extrato      from anon;
-revoke all on table public.prime_extrato_fila from anon;
-grant select on table public.prime_extrato      to authenticated;
-grant select on table public.prime_extrato_fila to authenticated;
-grant select, insert, update, delete, truncate, references, trigger on table public.prime_extrato      to service_role;
-grant select, insert, update, delete, truncate, references, trigger on table public.prime_extrato_fila to service_role;
-
--- --------------------------------------------------------------- funcoes
--- Create CONDICIONAL: em producao, nenhum destes blocos executa.
+-- ===========================================================================
+-- PASSO 5 -- funcoes: create CONDICIONAL, e grants so para a que nasceu aqui.
 --
 -- O texto de cada funcao e EXATAMENTE o que `pg_get_functiondef` emite em producao,
 -- alinhado a esquerda. Indentar aqui mudaria o `prosrc` e, com ele, o md5 -- o teste
--- `em banco NOVO cria as cinco com o md5 EXATO de producao` existe para pegar isso.
+-- "em banco NOVO cria as cinco com o md5 EXATO de producao" existe para pegar isso.
+-- ===========================================================================
 do $$
 begin
 
@@ -156,6 +236,8 @@ begin
 end;
 $function$
 $f$;
+    execute 'revoke all on function public.prime_chave_api() from public, anon, authenticated';
+    execute 'grant execute on function public.prime_chave_api() to service_role';
   end if;
 
   if to_regprocedure('public.prime_extrato_ok(text)') is null then
@@ -171,6 +253,8 @@ AS $function$
    where matricula = p_matricula;
 $function$
 $f$;
+    execute 'revoke all on function public.prime_extrato_ok(text) from public, anon, authenticated';
+    execute 'grant execute on function public.prime_extrato_ok(text) to service_role';
   end if;
 
   if to_regprocedure('public.prime_extrato_falhou(text,text)') is null then
@@ -186,6 +270,8 @@ AS $function$
    where matricula = p_matricula;
 $function$
 $f$;
+    execute 'revoke all on function public.prime_extrato_falhou(text,text) from public, anon, authenticated';
+    execute 'grant execute on function public.prime_extrato_falhou(text,text) to service_role';
   end if;
 
   -- A ROTINA QUE ALIMENTA A FILA -- o item que estava VERMELHO em prime-gaps.md.
@@ -220,6 +306,8 @@ begin
 end;
 $function$
 $f$;
+    execute 'revoke all on function public.prime_extrato_reenfileirar() from public, anon, authenticated';
+    execute 'grant execute on function public.prime_extrato_reenfileirar() to service_role';
   end if;
 
   if to_regprocedure('public.prime_extrato_mutirao()') is null then
@@ -251,51 +339,10 @@ begin
 end;
 $function$
 $f$;
+    execute 'revoke all on function public.prime_extrato_mutirao() from public, anon, authenticated';
+    execute 'grant execute on function public.prime_extrato_mutirao() to service_role';
   end if;
 
-end $$;
-
--- Grants das funcoes: funcao nova herda EXECUTE para PUBLIC pelo default do Postgres.
--- Em producao estas cinco sao service_role/postgres apenas -- nenhuma e chamada pelo
--- front. Revogar e conceder aqui deixa o banco novo igual ao de producao.
-revoke all on function public.prime_chave_api()                       from public, anon, authenticated;
-revoke all on function public.prime_extrato_ok(text)                  from public, anon, authenticated;
-revoke all on function public.prime_extrato_falhou(text,text)         from public, anon, authenticated;
-revoke all on function public.prime_extrato_reenfileirar()            from public, anon, authenticated;
-revoke all on function public.prime_extrato_mutirao()                 from public, anon, authenticated;
-grant execute on function public.prime_chave_api()                    to service_role;
-grant execute on function public.prime_extrato_ok(text)               to service_role;
-grant execute on function public.prime_extrato_falhou(text,text)      to service_role;
-grant execute on function public.prime_extrato_reenfileirar()         to service_role;
-grant execute on function public.prime_extrato_mutirao()              to service_role;
-
--- ----------------------------------------------------- verificacao (NOTICE)
-do $$
-declare
-  r record;
-  esperado jsonb := jsonb_build_object(
-    'public.prime_chave_api()',               '86eae3185b21c18277ebf6a6174ca0b9',
-    'public.prime_extrato_falhou(text,text)', '777f8cd526b0e29c343fdc31e527de1e',
-    'public.prime_extrato_mutirao()',         '6146ead7b9385fc757a764e92724c08b',
-    'public.prime_extrato_ok(text)',          '959e534c11cad2e98897f5d4aaf730e3',
-    'public.prime_extrato_reenfileirar()',    '6d098afc9cccaf2c19f1183c74b16ef2');
-  chave text; atual text; divergentes int := 0;
-begin
-  for chave in select jsonb_object_keys(esperado) loop
-    if to_regprocedure(chave) is not null then
-      select md5(pg_get_functiondef(to_regprocedure(chave))) into atual;
-      if atual is distinct from (esperado->>chave) then
-        divergentes := divergentes + 1;
-        raise notice 'DIVERGENCIA: % tem md5 % e o versionado espera %',
-          chave, atual, (esperado->>chave);
-      end if;
-    end if;
-  end loop;
-  if divergentes = 0 then
-    raise notice 'prime_extrato: as 5 funcoes conferem byte a byte com o versionado.';
-  else
-    raise notice 'prime_extrato: % funcao(oes) divergem do versionado -- revisar antes de confiar no baseline.', divergentes;
-  end if;
 end $$;
 
 commit;
