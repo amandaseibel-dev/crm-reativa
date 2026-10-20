@@ -5,7 +5,7 @@ Esta PR entrega **uma** correção e documenta a decisão sobre a outra.
 
 | | nesta PR |
 |---|---|
-| **Correção B** — o dreno para de descartar pedido que não atendeu | **implementada**, com migration **não aplicada** |
+| **Correção B** — o dreno para de descartar pedido que não atendeu | **implementada e APLICADA em produção** em 20/10/2026 20:43:56 UTC, versão `20261020204356` — ver seção 7 |
 | **Mudança A** — não recalcular os três recortes a cada escrita | **não implementada**; a verificação pedida está abaixo e o resultado foi *mantenha os três* |
 | **Alternativa segura de redução de carga** | **proposta por escrito**, não implementada |
 | **Fase C** — reescrever as consultas pesadas | fora do escopo, por diretriz |
@@ -156,7 +156,7 @@ de atualização — e preserva a garantia de ≤5 min para o recorte operaciona
 
 ## 5. Rollback
 
-`supabase/rollbacks/20261020160509_efetividade_dreno_nao_descarta_pedido_adiado.rollback.sql`
+`supabase/rollbacks/20261020204356_efetividade_dreno_nao_descarta_pedido_adiado.rollback.sql`
 devolve o corpo anterior **palavra por palavra**, copiado de
 `20261007234000`. É só DDL, uma função; nenhum dado é alterado em nenhum dos
 sentidos, nenhum agendamento precisa ser mexido para reverter. Dois testes
@@ -171,3 +171,83 @@ O agendamento **versionado** de `carteira_efetividade_hora` é `40 * * * *`
 `3 * * * *` — e estava em `*/20 * * * *` antes de 20/10. A deriva entre repo e
 produção é **anterior** a esta PR e não é tocada aqui: mexer nela é assunto de
 ledger, não desta correção.
+
+---
+
+## 7. Aplicação em produção e a regularização da versão
+
+**Aplicada em 2026-10-20 20:43:56 UTC**, por `apply_migration`, com autorização
+expressa da gestão para este passo e somente para ele.
+
+### 7.1 Conferência antes de aplicar
+
+| conferência | resultado |
+|---|---|
+| versão em `schema_migrations` | **ausente** |
+| md5 normalizado do corpo vivo | `de216dbfbb3529975c7633bbc21e4292` — igual ao aprovado na revisão da PR |
+| corpo vivo já continha `adiados` | **não** |
+| jobs 69 / 70 | `*/5 * * * *` e `3 * * * *`, ambos `active` |
+| dreno em execução | **não** — última às 20:40:00, `succeeded` |
+| fila de pedidos | vazia |
+
+### 7.2 Conferência depois de aplicar
+
+| conferência | resultado |
+|---|---|
+| corpo vivo contém `adiados` | **sim** |
+| corpo vivo lê o retorno (`v_r := public.carteira_efetividade_recalcular`) | **sim** |
+| `perform public.carteira_efetividade_recalcular` (o defeito) | **removido** |
+| comentário da função | preservado pelo `apply_migration` |
+| jobs 69 / 70 | intactos |
+| **primeiro tick do job 69 depois da aplicação** | **20:45:00.126 UTC, `succeeded`, 0,01 s** |
+| falhas do job 69 desde a aplicação | **0** |
+
+O primeiro tick rodou com a fila vazia, então devolveu `adiados: []` — que é o
+caminho novo exercitado sem erro, exatamente o que a verificação pedia.
+
+### 7.3 A deriva de número, e por que o arquivo foi renomeado
+
+**`apply_migration` não aceita número de versão: ele carimba o próprio
+timestamp.** Esta migration foi escrita como `20261020160509` e produção
+registrou **`20261020204356`**.
+
+É o mesmo mecanismo já documentado no ledger em `20261007093130`,
+`20261007111401`, `20261007111415` e `20261016115142`, com causa raiz em
+`supabase/ledger/DUAS-TRILHAS.md`.
+
+**Regularizado pelo caminho bom, o da F1.a (`20261017170411`): o arquivo do
+repositório foi RENOMEADO para a versão que produção carimbou.** Mudaram apenas
+o nome dos dois arquivos e as referências a eles — migration, rollback,
+`bancada.js` e este documento. **O SQL não foi tocado**, e a prova é o md5:
+
+| | md5 do corpo da função (`prosrc`) | bytes |
+|---|---|---|
+| produção | `4f86e1b74df4d9307e5c4d480a1bdfda` | 2.130 |
+| arquivo do repositório | `4f86e1b74df4d9307e5c4d480a1bdfda` | 2.130 |
+
+**Idênticos, byte a byte, sem normalizar nada.**
+
+O statement guardado em `schema_migrations` tem md5
+`dd8b06c34dae0fed71b4fb4899c89a49` e 5.548 bytes, em 1 statement. Ele difere do
+arquivo apenas nos comentários de cabeçalho que citavam o número antigo — a
+diferença é de texto, não de efeito, e o md5 do corpo acima é a prova.
+
+Reconferir com:
+
+```sql
+select md5(array_to_string(statements, E'\n')),
+       octet_length(array_to_string(statements, E'\n'))
+  from supabase_migrations.schema_migrations where version = '20261020204356';
+```
+
+### 7.4 Regra que fica
+
+**Toda migration aplicada por `apply_migration` tem de ser renomeada para a
+versão que produção carimbou, antes do merge.** Sem isso, a main entra com um
+número que não existe em produção — foi assim que a deriva de versões cresceu.
+A migration não é reaplicada: só o arquivo muda de nome.
+
+### 7.5 O que segue sem aplicar
+
+Nada mais desta frente. O merge da PR depende de autorização própria, e a
+fase C (reescrever as consultas pesadas) segue fora de escopo.

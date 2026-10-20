@@ -30,7 +30,7 @@ export const UMA_PASSADA = "20261008113000_efetividade_recalculo_uma_passada_por
 // A politica de atualizacao: invalidacao por evento + dreno fora da requisicao.
 export const INVALIDACAO = "20261007234000_efetividade_invalidacao_e_reconstrucao_sob_demanda";
 // O dreno passa a LER o retorno do recalculo: pedido nao atendido nao e apagado.
-export const PEDIDO_ADIADO = "20261020160509_efetividade_dreno_nao_descarta_pedido_adiado";
+export const PEDIDO_ADIADO = "20261020204356_efetividade_dreno_nao_descarta_pedido_adiado";
 
 export const q1 = async (db, sql, p = []) => (await db.query(sql, p)).rows[0];
 export const qn = async (db, sql, p = []) => (await db.query(sql, p)).rows;

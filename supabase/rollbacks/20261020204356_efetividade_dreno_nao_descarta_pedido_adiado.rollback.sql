@@ -1,4 +1,4 @@
--- ROLLBACK de 20261020160509_efetividade_dreno_nao_descarta_pedido_adiado.sql
+-- ROLLBACK de 20261020204356_efetividade_dreno_nao_descarta_pedido_adiado.sql
 --
 -- SO DDL, SO uma funcao substituida. Nenhuma tabela criada ou derrubada, nenhum
 -- gatilho tocado, nenhum agendamento mexido, nenhum dado escrito -- nao ha dado

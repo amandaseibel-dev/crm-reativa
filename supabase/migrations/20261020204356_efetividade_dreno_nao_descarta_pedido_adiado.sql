@@ -50,7 +50,7 @@
 --  * `ok` segue sendo "nenhum erro". Pedido adiado NAO e erro -- e trabalho
 --    pendente, e por isso ganhou chave propria em vez de entrar em `erros`.
 --
--- Reversivel: supabase/rollbacks/20261020160509_*.rollback.sql devolve o corpo
+-- Reversivel: supabase/rollbacks/20261020204356_*.rollback.sql devolve o corpo
 -- anterior, palavra por palavra. Nenhum dado e alterado em nenhum dos sentidos.
 
 create or replace function public.carteira_efetividade_recalcular_pendentes()
