@@ -32,25 +32,31 @@ async function mk(db, { statusAluno = "ACORDO_EM_DIA", naoAcionar = false, parce
 }
 const gerar = async (db, hoje) => (await db.query("select public.acordo_alertas_gerar($1::date,null,null) j", [hoje])).rows[0].j;
 const al = async (db, ac) => (await db.query("select numero_parcela n, vencimento::text v, data_alerta::text da, resolucao res from acordo_alertas_parcela where acordo_id=$1 order by criado_em, id", [ac])).rows;
+// O `criados` do retorno é um contador GLOBAL: soma também os alertas dos acordos do
+// fixture, cujas datas o harness desliza para o dia da execução (DIA0 + deslocamento).
+// O que estes testes afirmam é quantos alertas nasceram nos acordos QUE ELES criaram,
+// então a contagem é o delta por acordo — que não depende do calendário real.
+const cont = async (db, acs) => (await db.query("select count(*)::int n from acordo_alertas_parcela where acordo_id = any($1)", [acs])).rows[0].n;
+const gerarN = async (db, hoje, ...acs) => { const antes = await cont(db, acs); await gerar(db, hoje); return (await cont(db, acs)) - antes; };
 
 describe("D-2 exato", () => {
   it("1) D-2 exato gera (data_alerta = vencimento - 2 corridos)", async () => {
     const db = await novo(); const a = await mk(db);
-    expect((await gerar(db, "2026-10-17")).criados).toBe(1);
+    expect(await gerarN(db, "2026-10-17", a.ac)).toBe(1);
     expect(await al(db, a.ac)).toEqual([{ n: 1, v: VENC, da: "2026-10-17", res: null }]);
     await db.close();
   });
   it("2) D-1 nao gera, 3) vence hoje nao gera, 4) vencida nao gera; 3 dias antes tambem nao (dia perdido nao e recuperado)", async () => {
     for (const hoje of ["2026-10-16", "2026-10-18", "2026-10-19", "2026-10-20", "2026-10-25"]) {
       const db = await novo(); const a = await mk(db);
-      expect([hoje, (await gerar(db, hoje)).criados, await al(db, a.ac)]).toEqual([hoje, 0, []]);
+      expect([hoje, await gerarN(db, hoje, a.ac), await al(db, a.ac)]).toEqual([hoje, 0, []]);
       await db.close();
     }
   });
   it("controle: SEM o patch (janela acumulada) o D-1 e o vence-hoje geravam", async () => {
     for (const hoje of ["2026-10-18", "2026-10-19"]) {
       const db = await novo(PRE); const a = await mk(db);
-      expect([hoje, (await gerar(db, hoje)).criados, (await al(db, a.ac)).length]).toEqual([hoje, 1, 1]);
+      expect([hoje, await gerarN(db, hoje, a.ac), (await al(db, a.ac)).length]).toEqual([hoje, 1, 1]);
       await db.close();
     }
   });
@@ -58,7 +64,7 @@ describe("D-2 exato", () => {
     const db = await novo(); const a = await mk(db);
     await gerar(db, "2026-10-17");
     const antes = await al(db, a.ac);
-    expect((await gerar(db, "2026-10-17")).criados).toBe(0);
+    expect(await gerarN(db, "2026-10-17", a.ac)).toBe(0);
     expect(await al(db, a.ac)).toEqual(antes);
     await gerar(db, "2026-10-18"); expect(await al(db, a.ac)).toEqual(antes); // segue aberto em D-1
     await gerar(db, "2026-10-20"); expect((await al(db, a.ac))[0].res).toBe("VENCIDA"); // resolucao inalterada
@@ -67,7 +73,7 @@ describe("D-2 exato", () => {
   it("6) bloqueado em D-2 nao gera (#444 preservado): status e nao_acionar", async () => {
     const db = await novo();
     const a = await mk(db, { statusAluno: "SUSPENSAO_COBRANCA" }), b = await mk(db, { naoAcionar: true }), c = await mk(db);
-    expect((await gerar(db, "2026-10-17")).criados).toBe(1);
+    expect(await gerarN(db, "2026-10-17", a.ac, b.ac, c.ac)).toBe(1);
     expect(await al(db, a.ac)).toEqual([]); expect(await al(db, b.ac)).toEqual([]); expect((await al(db, c.ac)).length).toBe(1);
     await db.close();
   });
@@ -76,7 +82,7 @@ describe("D-2 exato", () => {
     const v = await mk(db, { parcelas: [{ venc: "2026-10-01", status: "VENCIDA" }, { venc: VENC }] });
     const p = await mk(db, { parcelas: [{ venc: VENC, status: "PAGO" }, { venc: "2026-11-19" }] });
     const ok = await mk(db);
-    expect((await gerar(db, "2026-10-17")).criados).toBe(1);
+    expect(await gerarN(db, "2026-10-17", v.ac, p.ac, ok.ac)).toBe(1);
     expect(await al(db, v.ac)).toEqual([]); expect(await al(db, p.ac)).toEqual([]); expect((await al(db, ok.ac)).length).toBe(1);
     await db.close();
   });
