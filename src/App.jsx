@@ -84,6 +84,7 @@ const HistoricoRecuperacao = lazy(() => import("./pages/HistoricoRecuperacao"));
 const SaudeDaBase = lazy(() => import("./pages/SaudeDaBase"));
 const SaudeCompletaCarteira = lazy(() => import("./pages/SaudeCompletaCarteira"));
 const RevisaoPrime = lazy(() => import("./pages/RevisaoPrime"));
+const DiagnosticoPrime = lazy(() => import("./pages/DiagnosticoPrime"));
 const TvElogios = lazy(() => import("./pages/TvElogios"));
 const Preventivo = lazy(() => import("./pages/Preventivo"));
 import AvisoTemplateNovo from "./components/AvisoTemplateNovo";
@@ -180,6 +181,11 @@ function podeAcessar(perfil, rota) {
   if (rota === "/leads-whatsapp") return true;
   if (rota === "/tv-mensagem") return perfil !== "operador"; // escrita ainda restrita pela RLS
   if (rota === "/minhas-solicitacoes") return true; if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/a-entrar") return true; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/acordos-duplicados") return perfil !== "operador"; if (rota === "/acordos-sem-vinculo") return perfil !== "operador"; if (rota === "/pagamentos-sem-aluno") return perfil !== "operador"; if (rota === "/quitacao-sugerida") return perfil !== "operador"; if (rota === "/conferencia-prime") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador"; if (rota === "/acordos-operador") return perfil !== "operador";
+  // Diagnóstico Prime: a rota só barra operador; quem decide de verdade é
+  // `usuario_e_gestao()` -- conferido pela própria tela (para não oferecer
+  // botão que daria 403) e, de novo, pelo portão da Edge Function `prime-sonda`
+  // no servidor. Nenhuma lista de e-mail nova aqui.
+  if (rota === "/diagnostico-prime") return perfil !== "operador";
   const permissoes = {
     gerencia: [
       "/",
@@ -703,6 +709,7 @@ export default function App() {
     { rota: "/saude-da-base", label: "Saúde da Base", icone: "CheckCircle2", secao: "Gestão" },
     { rota: "/saude-completa-carteira", label: "Saúde Completa da Carteira", icone: "Activity", secao: "Gestão" },
     { rota: "/revisao-prime", label: "Revisão Prime × CRM", icone: "GitCompare", secao: "Gestão" },
+    { rota: "/diagnostico-prime", label: "Diagnóstico Prime", icone: "Activity", secao: "Gestão" },
     // Fila de exceção do vínculo de pagamento. Desde 12/09/2026 o nome não
     // preenche mais aluno_id sozinho, então o que não tem identificador
     // financeiro cai aqui e PRECISA de decisão humana. Sem item de menu a fila
@@ -1206,6 +1213,7 @@ export default function App() {
               <Route path="/saude-da-base" element={<SaudeDaBase />} />
               <Route path="/saude-completa-carteira" element={<SaudeCompletaCarteira />} />
               <Route path="/revisao-prime" element={<RevisaoPrime />} />
+              <Route path="/diagnostico-prime" element={<DiagnosticoPrime />} />
               <Route path="/acordos-operador" element={<RotaProtegida usuario={usuario} rota="/acordos-operador"><AcordosPorOperador /></RotaProtegida>} />
               <Route path="/log-nivelamento" element={<LogNivelamento />} />
               <Route path="/sugestoes-recebidas" element={<SugestoesRecebidas />} />
