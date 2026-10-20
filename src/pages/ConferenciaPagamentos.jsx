@@ -32,6 +32,7 @@ import { listarMeses } from "../utils/mesesConferencia";
 import Aluno from "./Aluno";
 import DiagnosticoF1b from "../components/DiagnosticoF1b";
 import ResolverEmConfirmacao from "../components/ResolverEmConfirmacao";
+import CentralFinanceiraIndicadores from "../components/CentralFinanceiraIndicadores";
 
 const moeda = (v) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const curta = (d) => (d ? String(d).slice(0, 10).split("-").reverse().join("/") : "-");
@@ -378,6 +379,15 @@ export default function ConferenciaPagamentos() {
           {carregando ? "Carregando…" : "Atualizar"}
         </button>
       </div>
+
+      {/* CENTRAL FINANCEIRA -- os dois indicadores, somente leitura.
+          Entra aqui, e nao como aba nova do Financeiro, pela regra que a
+          Amanda ja deu sobre esta tela: "tudo que tiver de confirmacao deveria
+          aparecer na aba de confirmacao e nao em outro lugar, vai confundir
+          tudo". Nasce fechado para nao empurrar a fila para baixo, e so
+          aparece para os tres e-mails da gestao financeira -- o portao mora
+          dentro do componente, junto do motivo. */}
+      <CentralFinanceiraIndicadores />
 
       <div style={faixas}>
         <span style={rotuloGrupo}>Período</span>
