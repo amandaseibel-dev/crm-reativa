@@ -32,6 +32,30 @@ function rotuloTipoCobranca(valor) {
   return TIPOS_COBRANCA.find((t) => t.valor === valor)?.rotulo || valor;
 }
 
+// Por que um lote registrou menos alunos do que saíram na planilha. O motivo é
+// do próprio lote (gravado no registro), não um cálculo da tela: registrar
+// reavalia a elegibilidade e quem deixou de estar disponível fica de fora.
+const ROTULO_EXCLUSAO_LOTE = {
+  acionados_apos_exportacao: "já acionados depois da exportação",
+  confirmacao_pagamento: "em confirmação de pagamento",
+  liquidados_prime: "liquidados no Prime",
+  outro_operador: "fora da carteira do operador do lote",
+  fora_do_tipo_cobranca: "fora do tipo de cobrança do lote",
+};
+function textoExclusoesDoLote(lote) {
+  const partes = Object.entries(lote?.excluidos || {})
+    .map(([codigo, n]) => [Number(n || 0), ROTULO_EXCLUSAO_LOTE[codigo] || codigo])
+    .concat(
+      Object.entries(lote?.excluidos_por_motivo || {}).map(([codigo, n]) => [
+        Number(n || 0),
+        rotuloMotivo(codigo).toLowerCase(),
+      ])
+    )
+    .filter(([n]) => n > 0)
+    .map(([n, texto]) => `${n} ${texto}`);
+  return partes.length ? partes.join(" · ") : "";
+}
+
 // Filtro de acionamento (valores do banco). "Não acionados no mês" é o principal.
 const OPCOES_ACIONAMENTO = [
   { valor: "TODOS", rotulo: "Todos" },
@@ -249,9 +273,11 @@ export default function AcoesMassivas() {
   // download automático seja bloqueado pelo navegador (perda de "user gesture"
   // após os awaits do registrar — comum no Safari).
   const [relatorioPronto, setRelatorioPronto] = useState(null); // { linhas, nomeArquivo }
-  // Planilhas exportadas que ainda não foram confirmadas nem descartadas. Ficam
-  // no banco: o disparo externo pode levar horas e a página pode recarregar.
-  const [lotesPendentes, setLotesPendentes] = useState([]);
+  // Lotes exportados recentemente, JÁ REGISTRADOS ou não, mais todo lote que
+  // ficou pendente (sem recorte de data). Desde 02/10 quem registra é o clique
+  // de Exportar, então o normal é não haver pendente nenhum — e o painel existe
+  // para MOSTRAR o registro que aconteceu, não só para cobrar confirmação.
+  const [lotesRegistro, setLotesRegistro] = useState([]);
   // Resultado do último lote, com os números SEPARADOS. "Selecionados" nunca é
   // sinônimo de "enviados": o disparo é externo e não devolve confirmação de
   // entrega, então Enviados e Falhas ficam explicitamente indisponíveis.
@@ -309,15 +335,21 @@ export default function AcoesMassivas() {
       });
       const { data: bords } = await supabase.rpc("acoes_massivas_borderos");
       setOpcoesBordero(bords || []);
-      const { data: lotes } = await supabase.rpc("acoes_massivas_lotes_pendentes");
-      setLotesPendentes(Array.isArray(lotes) ? lotes : []);
+      await carregarLotesRegistro();
       await carregarLotesWhats();
     })();
   }, []);
 
-  async function carregarLotesPendentes() {
-    const { data: lotes } = await supabase.rpc("acoes_massivas_lotes_pendentes");
-    setLotesPendentes(Array.isArray(lotes) ? lotes : []);
+  async function carregarLotesRegistro() {
+    const { data, error } = await supabase.rpc("acoes_massivas_lotes_registro", { p_dias: 7 });
+    if (!error && Array.isArray(data)) {
+      setLotesRegistro(data);
+      return;
+    }
+    // Enquanto a função do painel não estiver no banco, cai na antiga: ela só
+    // conhece pendentes. Melhor um painel incompleto do que a tela sem painel.
+    const { data: pend } = await supabase.rpc("acoes_massivas_lotes_pendentes");
+    setLotesRegistro((Array.isArray(pend) ? pend : []).map((l) => ({ ...l, situacao: "PENDENTE" })));
   }
 
   async function carregarLotesWhats() {
@@ -515,7 +547,10 @@ export default function AcoesMassivas() {
   // EXPORTAR NÃO É CONTATO REALIZADO. O disparo acontece numa ferramenta
   // externa; baixar a planilha não muda nada no aluno (tabulação, retorno,
   // fidelização, acionamento). O banco revalida, devolve os contatos e guarda um
-  // LOTE de auditoria. O registro só acontece em "Confirmar ação realizada".
+  // LOTE de auditoria. Desde 02/10 a própria exportação REGISTRA e já fecha o
+  // lote (confirmado_em = now()), então não existe mais etapa de confirmar: o
+  // painel de lotes pendentes só aparece para lotes antigos ainda abertos.
+  // Desde 19/10 esse registro também TABULA o caso, com retorno em 10 dias.
   async function exportarPlanilha() {
     if (!resultados || resultados.length === 0) return;
 
@@ -602,10 +637,10 @@ export default function AcoesMassivas() {
         setSucesso(`Nenhum aluno na planilha.${sufixoExcluidos}`);
       } else {
         setSucesso(
-          `Planilha exportada com ${selecionados} aluno(s) selecionados e ${registrados} registrado(s) no CRM como ação massiva, com data, hora e canal no histórico de cada aluno. Esses registros contam como último acionamento. Se o download não abriu, use o botão “Baixar planilha novamente” abaixo.${sufixoExcluidos}`
+          `Planilha exportada com ${selecionados} aluno(s) selecionados e ${registrados} registrado(s) no CRM como ação massiva, com data, hora e canal no histórico de cada aluno. Esses registros contam como último acionamento e tabulam o caso, com retorno agendado para 10 dias. Se o download não abriu, use o botão “Baixar planilha novamente” abaixo.${sufixoExcluidos}`
         );
       }
-      carregarLotesPendentes();
+      carregarLotesRegistro();
     } catch (e) {
       console.error("Erro ao exportar planilha da ação massiva:", e);
       setErro("Erro ao exportar planilha: " + (e.message || "tente novamente"));
@@ -704,7 +739,7 @@ export default function AcoesMassivas() {
           ...outrosMotivos,
         ].filter(([n]) => n > 0).map(([n, t]) => ` ${n} caso(s) ${t} e não foram registrados.`).join("");
         setSucesso(
-          `Ação confirmada: ${registrados} aluno(s) registrados como ação massiva e contados na cobertura. Responsável, fidelização e retorno dos alunos não foram alterados.${partes}`
+          `Ação confirmada: ${registrados} aluno(s) registrados como ação massiva e contados na cobertura, tabulados com retorno em 10 dias. O responsável dos alunos não foi alterado.${partes}`
         );
         carregarPorDia();
       }
@@ -714,7 +749,38 @@ export default function AcoesMassivas() {
     } finally {
       setAcaoLote(null);
       setConcluindoLote(false);
-      carregarLotesPendentes();
+      carregarLotesRegistro();
+    }
+  }
+
+  // Relê o registro de um lote JÁ registrado, para a gestão conferir sem
+  // depender da memória da tela. Não grava nada: para lote com confirmado_em,
+  // acoes_massivas_concluir_lote devolve o resultado guardado e sai
+  // (ja_registrado=true, movimentacoes_criadas=0) antes de qualquer escrita.
+  async function conferirRegistro(lote) {
+    setConcluindoLote(true);
+    setErro("");
+    setSucesso("");
+    try {
+      const { data: res, error } = await supabase.rpc("acoes_massivas_concluir_lote", {
+        p_lote_id: lote.id,
+        p_acao: "CONFIRMAR",
+      });
+      if (error) throw error;
+      const registrados = Number(res?.registrados || 0);
+      const quando = lote.confirmado_em
+        ? new Date(lote.confirmado_em).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
+        : "—";
+      setSucesso(
+        `Conferido: ${registrados} de ${lote.total} aluno(s) deste lote estão registrados, desde ${quando}. ` +
+        `Nada foi gravado agora (${Number(res?.movimentacoes_criadas || 0)} movimentação nova).`
+      );
+    } catch (e) {
+      console.error("Erro ao conferir o registro do lote:", e);
+      setErro("Erro ao conferir o registro: " + (e.message || "tente novamente"));
+    } finally {
+      setConcluindoLote(false);
+      carregarLotesRegistro();
     }
   }
 
@@ -1226,7 +1292,7 @@ export default function AcoesMassivas() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginTop: 12 }}>
             {[
               ["Selecionados", resumoLote.selecionados.toLocaleString("pt-BR"), "Saíram na planilha.", false],
-              ["Registrados no CRM", resumoLote.registrados.toLocaleString("pt-BR"), "No histórico do aluno, com data, hora e canal.", false],
+              ["Registrados no CRM", resumoLote.registrados.toLocaleString("pt-BR"), "No histórico do aluno, com data, hora e canal, e tabulados com retorno em 10 dias.", false],
               ["Excluídos na revalidação", resumoLote.excluidos.toLocaleString("pt-BR"), "Saíram do universo entre a prévia e o registro.", false],
               ["Enviados", "não disponível", "A ferramenta de disparo é externa e não devolve confirmação de entrega.", true],
               ["Falhas de envio", "não disponível", "Sem retorno técnico da mensageria, não há como medir.", true],
@@ -1344,15 +1410,17 @@ export default function AcoesMassivas() {
         </div>
       )}
 
-      {lotesPendentes.length > 0 && (
+      {lotesRegistro.length > 0 && (
         <div style={estilos.card}>
           <h3 style={{ margin: "0 0 4px", fontFamily: FONTE_TITULO, fontSize: 15, fontWeight: 800 }}>
-            Planilhas pendentes de registro
+            Registro das ações massivas
           </h3>
           <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--rv-texto-fraco)" }}>
-            Lotes do fluxo antigo, exportados antes do registro automático: saíram na planilha mas ainda não
-            foram registrados no histórico dos alunos. Pendente de <strong>registro</strong>, não de envio — o
-            CRM não sabe se o disparo aconteceu. Registre se a ação foi realizada; descarte se não foi.
+            As planilhas dos últimos 7 dias e o que o CRM registrou em cada uma. O registro acontece no
+            próprio clique de <strong>Exportar</strong>: o lote já sai registrado no histórico dos alunos e
+            não há nada a confirmar depois. Os botões de <strong>Confirmar</strong> e <strong>Descartar</strong>{" "}
+            aparecem só em lote que ficou <strong>pendente</strong> — aí o CRM não sabe se o disparo aconteceu.
+            Registrar nunca altera responsável nem renova fidelização.
           </p>
           <div style={{ overflowX: "auto" }}>
             <table style={estilos.tabela}>
@@ -1364,11 +1432,17 @@ export default function AcoesMassivas() {
                   <th style={estilos.th}>Tipo de cobrança</th>
                   <th style={estilos.thNum}>Alunos</th>
                   <th style={estilos.th}>Exportada</th>
+                  <th style={estilos.th}>Registro</th>
                   <th style={estilos.th}></th>
                 </tr>
               </thead>
               <tbody>
-                {lotesPendentes.map((l) => (
+                {lotesRegistro.map((l) => {
+                  const registrados = Number(
+                    l.registrados_efetivos ?? l.registrados ?? 0
+                  );
+                  const forade = textoExclusoesDoLote(l);
+                  return (
                   <tr key={l.id}>
                     <td style={estilos.td}>{l.arquivo || "—"}</td>
                     <td style={estilos.td}>{l.canal === "EMAIL" ? "E-mail" : "WhatsApp"}</td>
@@ -1380,11 +1454,54 @@ export default function AcoesMassivas() {
                       <div style={{ color: "var(--rv-texto-fraco)", fontSize: 11 }}>{l.exportado_por_email}</div>
                     </td>
                     <td style={estilos.td}>
-                      {acaoLote?.id === l.id ? (
+                      {l.situacao === "DESCARTADO" ? (
+                        <span style={{ fontSize: 12.5 }}>
+                          🚫 Descartado — nada registrado
+                          <div style={{ color: "var(--rv-texto-fraco)", fontSize: 11 }}>
+                            {new Date(l.descartado_em).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+                          </div>
+                        </span>
+                      ) : l.situacao === "PENDENTE" ? (
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--rv-ambar-texto)" }}>
+                          ⏳ Pendente de registro
+                          <div style={{ fontWeight: 400, color: "var(--rv-texto-fraco)", fontSize: 11 }}>
+                            saiu na planilha, não entrou no histórico
+                          </div>
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 12.5, fontWeight: 700 }}>
+                          ✅ Registrado — {registrados} de {l.total}
+                          <div style={{ fontWeight: 400, color: "var(--rv-texto-fraco)", fontSize: 11 }}>
+                            {l.confirmado_em
+                              ? new Date(l.confirmado_em).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
+                              : "—"}
+                            {l.registro_automatico ? " · no clique de Exportar" : " · confirmado na tela"}
+                          </div>
+                          {forade && (
+                            <div style={{ fontWeight: 400, color: "var(--rv-texto-fraco)", fontSize: 11 }}>
+                              Fora: {forade}
+                            </div>
+                          )}
+                        </span>
+                      )}
+                    </td>
+                    <td style={estilos.td}>
+                      {l.situacao === "DESCARTADO" ? (
+                        "—"
+                      ) : l.situacao === "REGISTRADO" ? (
+                        <button
+                          style={estilos.botaoSecundario}
+                          disabled={concluindoLote}
+                          onClick={() => conferirRegistro(l)}
+                          title="Relê o registro guardado deste lote. Não grava nada."
+                        >
+                          Conferir registro
+                        </button>
+                      ) : acaoLote?.id === l.id ? (
                         <div style={{ display: "flex", flexDirection: "column", gap: 6, maxWidth: 360 }}>
                           <span style={{ fontSize: 12, color: "var(--rv-texto)" }}>
                             {acaoLote.acao === "CONFIRMAR"
-                              ? `Confirme só se o disparo já foi concluído. Os ${l.total} aluno(s) passam a contar como acionados na cobertura e ficam registrados no histórico do lote. Não altera responsável, não cria retorno e não renova fidelização. Quem foi acionado por um operador depois da exportação, ou deixou de estar disponível, fica de fora.`
+                              ? `Confirme só se o disparo já foi concluído. Os ${l.total} aluno(s) passam a contar como acionados na cobertura e ficam registrados no histórico do lote, tabulados com retorno em 10 dias. Não altera responsável e não renova fidelização. Quem foi acionado por um operador depois da exportação, ou deixou de estar disponível, fica de fora.`
                               : "Descartar: a planilha não foi enviada. Nada é registrado nos alunos."}
                           </span>
                           <div style={{ display: "flex", gap: 6 }}>
@@ -1412,7 +1529,8 @@ export default function AcoesMassivas() {
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

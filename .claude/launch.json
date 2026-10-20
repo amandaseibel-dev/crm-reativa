@@ -85,6 +85,16 @@
         "vite.meudia.config.js"
       ],
       "port": 5204
+    },
+    {
+      "name": "massivas-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--config",
+        "vite.massivas.config.js"
+      ],
+      "port": 5204
     }
   ]
 }
