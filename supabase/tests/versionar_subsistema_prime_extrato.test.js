@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const MIGRATION = readFileSync(
-  resolve(AQUI, "..", "..", "supabase/migrations/20261020120000_versionar_subsistema_prime_extrato.sql"),
+  resolve(AQUI, "..", "..", "supabase/migrations/20261020122217_versionar_subsistema_prime_extrato.sql"),
   "utf8");
 
 // md5(pg_get_functiondef) medidos em producao em 20/10/2026. Estao TAMBEM no cabecalho
