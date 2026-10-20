@@ -67,6 +67,52 @@ describe("nenhum caminho de escrita", () => {
   });
 });
 
+describe("nesta versão não há como exibir resposta bruta", () => {
+  it("não existe checkbox, <pre> nem impressão do corpo da resposta", () => {
+    for (const proibido of [/type="checkbox"/, /<pre/, /JSON\.stringify\(\s*(r\.)?corpo/, /identificável/i]) {
+      expect(TELA).not.toMatch(proibido);
+    }
+  });
+
+  it("o corpo nunca entra no estado da tela", () => {
+    // `setResultados` só recebe `resultado`/`feitos`/planos -- nunca `corpo`.
+    expect(TELA).not.toMatch(/setResultados\([^)]*corpo/);
+    expect(TELA).not.toMatch(/useState\([^)]*corpo/);
+    // e o corpo só é lido por quem calcula o veredito
+    const usos = [...TELA.matchAll(/corpos?\b/g)].length;
+    expect(usos).toBeGreaterThan(0); // existe, como variável local
+    expect(TELA).toMatch(/respostasIdenticas\(corpos\.t1, corpos\.t2\)/);
+  });
+});
+
+describe("as travas de chamada não são cosméticas", () => {
+  it("os valores de produção são os do código, não os do teste", () => {
+    expect(TELA).toMatch(/const PAUSA_PADRAO_MS = 900;/);
+    expect(TELA).toMatch(/const JANELA_PADRAO_MS = 30000;/);
+    expect(TELA).toMatch(/pausaEntreChamadasMs = PAUSA_PADRAO_MS/);
+    expect(TELA).toMatch(/janelaRepeticaoMs = JANELA_PADRAO_MS/);
+  });
+
+  it("a trava de simultaneidade é um ref, não só o `disabled` do botão", () => {
+    expect(TELA).toMatch(/const emCurso = useRef\(false\)/);
+    // os dois disparadores saem cedo se já houver chamada no ar
+    expect([...TELA.matchAll(/if \(emCurso\.current\) return;/g)].length).toBe(2);
+    // e sempre destravam, mesmo se a chamada estourar
+    expect([...TELA.matchAll(/emCurso\.current = false;/g)].length).toBe(2);
+    expect([...TELA.matchAll(/\} finally \{/g)].length).toBe(2);
+  });
+
+  it("a janela é conferida ANTES de invocar a sonda", () => {
+    // dentro de `consultar`, não no comentário de cabeçalho
+    const corpoDaFuncao = TELA.slice(TELA.indexOf("const consultar = useCallback"));
+    const janela = corpoDaFuncao.search(/Date\.now\(\) - quando < janelaRepeticaoMs/);
+    const chamada = corpoDaFuncao.search(/supabase\.functions\.invoke/);
+    expect(janela).toBeGreaterThan(-1);
+    expect(chamada).toBeGreaterThan(-1);
+    expect(janela).toBeLessThan(chamada);
+  });
+});
+
 describe("a Edge Function não foi tocada por esta entrega", () => {
   const INDEX = readFileSync(resolve(AQUI, "../../supabase/functions/prime-sonda/index.ts"), "utf8");
   it("continua sendo GET e continua exigindo o portão", () => {

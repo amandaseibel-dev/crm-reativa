@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { S as A } from "../ui/estilosFila";
 import {
@@ -47,8 +47,13 @@ import {
 // O QUE A TELA MOSTRA, E O QUE ELA NÃO MOSTRA. Ver o cabeçalho de
 // src/utils/primeSonda.js: a `forma` que a sonda devolve sem `cru` carrega
 // VALOR de escalar curto (nome, CPF), então ela nunca é exibida. O padrão é
-// contagem e nome de campo. Conteúdo identificável só aparece com o botão
-// ligado de propósito, com aviso.
+// contagem e nome de campo. NESTA PRIMEIRA VERSÃO não existe opção de ver
+// resposta bruta: o corpo da resposta nunca entra no estado da tela nem é
+// desenhado em lugar nenhum.
+//
+// DUAS TRAVAS DE CHAMADA, porque a chave da ULBRA é uma só: uma consulta por
+// vez (ref, não só o `disabled` do botão), pausa entre as quatro, e o mesmo
+// caminho não repete dentro da janela. Ver as constantes abaixo.
 //
 // A PERGUNTA DOS QUATRO TESTES. `docs/integracoes/prime-api.md` já documenta,
 // medido, que `carrierId` é ignorado no extrato e que `agreements` sempre voltou
@@ -131,7 +136,25 @@ function Agregado({ ag }) {
   );
 }
 
-function Cartao({ r, mostrarIdentificavel }) {
+// A COMPARAÇÃO É O OBJETIVO DA TELA. `null` quando falta resposta de um dos dois
+// lados: duas falhas não são duas respostas iguais. Recebe os corpos, devolve o
+// veredito -- e é o único lugar da tela por onde os corpos passam.
+function vereditoDeUmTeste(resultados, corpos) {
+  const t1 = resultados.find((r) => r.chave === "t1");
+  const t2 = resultados.find((r) => r.chave === "t2");
+  if (!t1 || !t2) return null;
+  if (t1.estado !== "ok" || t2.estado !== "ok") {
+    return { iguais: null, diferencas: [], texto: "não se sabe — uma das duas consultas não respondeu" };
+  }
+  const iguais = respostasIdenticas(corpos.t1, corpos.t2);
+  return {
+    iguais,
+    diferencas: iguais === false ? diferencasDeAgregado(t1.agregado, t2.agregado) : [],
+    texto: iguais === null ? "não se sabe" : iguais ? "sim" : "não",
+  };
+}
+
+function Cartao({ r }) {
   return (
     <div style={E.cartao}>
       <div style={E.cartaoTopo}>
@@ -152,27 +175,51 @@ function Cartao({ r, mostrarIdentificavel }) {
           dados quando o gateway respondeu 2xx -- não há como ser outro. */}
       {r.estado === "ok" && <Linha rotulo="resposta da sonda" valor="HTTP 2xx (respondeu)" />}
       {r.estado === "ok" && <Agregado ag={r.agregado} />}
-      {r.estado === "ok" && mostrarIdentificavel && (
-        <div style={E.bloco}>
-          <span style={E.rotuloAviso}>conteúdo da resposta — contém dado pessoal</span>
-          <pre style={E.cru}>{JSON.stringify(r.corpo, null, 2)}</pre>
-        </div>
-      )}
     </div>
   );
 }
 
-export default function DiagnosticoPrime() {
+// DUAS TRAVAS DE CHAMADA, porque a chave da ULBRA é uma só e é compartilhada
+// com as rotinas de produção (o mutirão do `prime_extrato`, entre outras). Um
+// painel de diagnóstico que deixe alguém martelar o botão vira fonte de carga
+// na API de quem nos atende.
+//
+//   PAUSA  -- espera entre uma chamada e a seguinte dentro dos quatro testes.
+//             As quatro já eram em sequência; agora também são espaçadas.
+//   JANELA -- o MESMO caminho não vai duas vezes dentro deste intervalo. Repetir
+//             a mesma leitura em segundos não produz informação nova: o que
+//             produz é pico na ULBRA.
+//
+// Ficam como props só para o teste poder encurtar a espera -- os valores padrão
+// são os que a tela usa em produção, e nenhum caller passa outra coisa.
+const PAUSA_PADRAO_MS = 900;
+const JANELA_PADRAO_MS = 30000;
+
+export default function DiagnosticoPrime({
+  pausaEntreChamadasMs = PAUSA_PADRAO_MS,
+  janelaRepeticaoMs = JANELA_PADRAO_MS,
+}) {
   // null = ainda não se sabe. Erro ao perguntar fecha a porta: na dúvida, não
   // oferecer um botão que terminaria em 403.
   const [ehGestao, setEhGestao] = useState(null);
   const [formaChave, setFormaChave] = useState("financial_statement");
   const [matricula, setMatricula] = useState(MATRICULA_PADRAO);
   const [query, setQuery] = useState("");
-  const [mostrarIdentificavel, setMostrarIdentificavel] = useState(false);
   const [resultados, setResultados] = useState([]);
   const [ocupado, setOcupado] = useState(false);
   const [avisoQuatro, setAvisoQuatro] = useState("");
+  // A comparação 1×2 é CALCULADA na hora em que as duas respostas chegam, e o
+  // que fica guardado é o veredito -- nunca os corpos. Ver o comentário de
+  // `consultar`.
+  const [comparacao, setComparacao] = useState(null);
+
+  // TRAVA DE SIMULTANEIDADE. `disabled` no botão não basta: ele cobre o clique,
+  // não uma segunda chamada disparada por qualquer outro caminho. A trava real
+  // é esta, e ela é um ref de propósito -- precisa valer no mesmo instante, sem
+  // esperar re-render.
+  const emCurso = useRef(false);
+  // Quando cada caminho foi consultado pela última vez, para a JANELA.
+  const ultimaPorCaminho = useRef(new Map());
 
   useEffect(() => {
     let vivo = true;
@@ -187,14 +234,33 @@ export default function DiagnosticoPrime() {
   const caminhoAtual = montarCaminho({ forma: formaChave, matricula, query });
   const recusaAtual = motivoDaRecusa({ forma: formaChave, matricula, query });
 
-  // UMA chamada à sonda. `cru: true` NÃO é descuido: contar por portador e
-  // comparar duas respostas exige o conteúdo. O conteúdo fica na memória desta
-  // tela e só é desenhado se alguém ligar o botão do aviso — ver o cabeçalho de
-  // src/utils/primeSonda.js.
+  // UMA chamada à sonda.
+  //
+  // `cru: true` NÃO é descuido: contar por portador e comparar duas respostas
+  // exige o conteúdo. Mas o conteúdo NUNCA entra no estado da tela -- ele vive
+  // como variável local aqui e no laço dos quatro testes, o tempo de virar
+  // contagem (`agregarResposta`) e veredito (`respostasIdenticas`), e some. Esta
+  // primeira versão não tem botão, opção escondida nem caminho nenhum para
+  // exibir resposta bruta ou dado pessoal: o que a tela sabe desenhar é
+  // agregado. Por isso o retorno é { resultado, corpo } -- só `resultado` vai
+  // para `setResultados`.
   const consultar = useCallback(async (caminho, rotulo, chave) => {
+    const recusa = (erro) => ({ resultado: { chave, rotulo, caminho, estado: "recusado", erro }, corpo: null });
+    const resposta = (r) => ({ resultado: r, corpo: null });
     if (!caminhoPermitido(caminho)) {
-      return { chave, rotulo, caminho, estado: "recusado", erro: `caminho fora da lista permitida (${caminho})` };
+      return recusa(`caminho fora da lista permitida (${caminho})`);
     }
+    // JANELA: o mesmo caminho não repete em segundos. Não é cosmética -- é a
+    // trava que impede transformar o painel em gerador de carga na ULBRA.
+    const quando = ultimaPorCaminho.current.get(caminho);
+    if (quando && Date.now() - quando < janelaRepeticaoMs) {
+      const faltam = Math.ceil((janelaRepeticaoMs - (Date.now() - quando)) / 1000);
+      return recusa(
+        `essa mesma consulta acabou de ser feita — espere ${faltam}s para repetir. ` +
+        "A chave da ULBRA é uma só e é compartilhada com as rotinas de produção.",
+      );
+    }
+    ultimaPorCaminho.current.set(caminho, Date.now());
     try {
       // A SESSÃO VIAJA SOZINHA. O cliente de ../services/supabase anexa a
       // sessão de quem está logado; nada é lido do navegador nem montado aqui.
@@ -203,70 +269,82 @@ export default function DiagnosticoPrime() {
       });
       if (error) {
         const st = error?.context?.status;
-        return {
+        return resposta({
           chave, rotulo, caminho, estado: "erro",
           erro: `A sonda recusou ou falhou${st ? ` (HTTP ${st})` : ""}: ${error?.message || "erro sem mensagem"}`,
-        };
+        });
       }
       if (data?.erro) {
-        return { chave, rotulo, caminho, estado: "erro", erro: `A sonda respondeu ${data.erro}` };
+        return resposta({ chave, rotulo, caminho, estado: "erro", erro: `A sonda respondeu ${data.erro}` });
       }
-      return { chave, rotulo, caminho, estado: "ok", agregado: agregarResposta(data), corpo: data?.cru ?? null };
+      // O corpo sai daqui separado do resultado, e quem chama decide o que
+      // fazer com ele -- nunca guardá-lo.
+      return {
+        resultado: { chave, rotulo, caminho, estado: "ok", agregado: agregarResposta(data) },
+        corpo: data?.cru ?? null,
+      };
     } catch (e) {
-      return { chave, rotulo, caminho, estado: "erro", erro: `Não foi possível consultar: ${e?.message || String(e)}` };
+      return resposta({ chave, rotulo, caminho, estado: "erro", erro: `Não foi possível consultar: ${e?.message || String(e)}` });
     }
-  }, []);
+  }, [janelaRepeticaoMs]);
 
   async function consultarUm() {
+    // Trava de simultaneidade: nada começa enquanto outra chamada está no ar.
+    if (emCurso.current) return;
     setAvisoQuatro("");
+    setComparacao(null);
+    const rotulo = forma?.rotulo || "caminho";
     if (recusaAtual) {
-      setResultados([{ chave: "um", rotulo: forma?.rotulo || "caminho", caminho: caminhoAtual, estado: "recusado", erro: recusaAtual }]);
+      setResultados([{ chave: "um", rotulo, caminho: caminhoAtual, estado: "recusado", erro: recusaAtual }]);
       return;
     }
+    emCurso.current = true;
     setOcupado(true);
-    setResultados([{ chave: "um", rotulo: forma?.rotulo || "caminho", caminho: caminhoAtual, estado: "ocupado" }]);
-    const r = await consultar(caminhoAtual, forma?.rotulo || "caminho", "um");
-    setResultados([r]);
-    setOcupado(false);
+    setResultados([{ chave: "um", rotulo, caminho: caminhoAtual, estado: "ocupado" }]);
+    try {
+      const { resultado } = await consultar(caminhoAtual, rotulo, "um");
+      setResultados([resultado]);
+    } finally {
+      emCurso.current = false;
+      setOcupado(false);
+    }
   }
 
-  // OS QUATRO TESTES, EM SEQUÊNCIA. Em sequência de propósito: são leituras na
-  // API da ULBRA com a mesma chave, e disparar as quatro juntas só serviria
-  // para a ULBRA ver um pico. Cada resposta aparece assim que chega.
+  // OS QUATRO TESTES, EM SEQUÊNCIA E ESPAÇADOS. Em sequência de propósito: são
+  // leituras na API da ULBRA com a mesma chave, e disparar as quatro juntas só
+  // serviria para a ULBRA ver um pico. A pausa entre elas é pelo mesmo motivo.
+  // Cada resposta aparece assim que chega.
   async function rodarOsQuatro() {
+    if (emCurso.current) return;
     const m = String(matricula || "").trim();
     if (!m) { setAvisoQuatro("Informe a matrícula (registration) antes de rodar os quatro testes."); return; }
     setAvisoQuatro("");
+    setComparacao(null);
+    emCurso.current = true;
     setOcupado(true);
     const planos = osQuatroCaminhos(m);
     setResultados(planos.map((p) => ({ ...p, estado: "ocupado" })));
     const feitos = [];
-    for (const p of planos) {
-      const r = await consultar(p.caminho, p.rotulo, p.chave);
-      feitos.push(r);
-      // Mostra o que já voltou e mantém os próximos como "consultando".
-      setResultados([...feitos, ...planos.slice(feitos.length).map((x) => ({ ...x, estado: "ocupado" }))]);
+    // Os corpos vivem AQUI, numa variável local da função, só para virar
+    // veredito no fim. Nunca vão para o estado da tela.
+    const corpos = {};
+    try {
+      for (const p of planos) {
+        if (feitos.length > 0 && pausaEntreChamadasMs > 0) {
+          await new Promise((segue) => setTimeout(segue, pausaEntreChamadasMs));
+        }
+        const { resultado, corpo } = await consultar(p.caminho, p.rotulo, p.chave);
+        feitos.push(resultado);
+        corpos[p.chave] = corpo;
+        // Mostra o que já voltou e mantém os próximos como "consultando".
+        setResultados([...feitos, ...planos.slice(feitos.length).map((x) => ({ ...x, estado: "ocupado" }))]);
+      }
+      setComparacao(vereditoDeUmTeste(feitos, corpos));
+    } finally {
+      emCurso.current = false;
+      setOcupado(false);
     }
-    setOcupado(false);
   }
-
-  // A COMPARAÇÃO É O OBJETIVO DA TELA. `null` quando falta resposta de um dos
-  // dois lados: duas falhas não são duas respostas iguais.
-  const comparacao = useMemo(() => {
-    const t1 = resultados.find((r) => r.chave === "t1");
-    const t2 = resultados.find((r) => r.chave === "t2");
-    if (!t1 || !t2) return null;
-    if (t1.estado !== "ok" || t2.estado !== "ok") {
-      return { sabe: false, texto: "não se sabe — uma das duas consultas não respondeu" };
-    }
-    const iguais = respostasIdenticas(t1.corpo, t2.corpo);
-    return {
-      sabe: iguais !== null,
-      iguais,
-      diferencas: iguais === false ? diferencasDeAgregado(t1.agregado, t2.agregado) : [],
-      texto: iguais === null ? "não se sabe" : iguais ? "sim" : "não",
-    };
-  }, [resultados]);
 
   if (ehGestao === null) {
     return (
@@ -304,10 +382,11 @@ export default function DiagnosticoPrime() {
       </div>
 
       <div style={E.nota}>
-        <b>O resultado vem agregado.</b> A tela mostra contagens e nomes de
-        campo — nunca o valor dos campos, porque a resposta da ULBRA traz nome e
-        CPF. O conteúdo chega ao navegador (é a sua sessão consultando), e o que
-        esta tela garante é que ele não aparece na página sem alguém pedir.
+        <b>Só resultado agregado.</b> A tela mostra contagens e nomes de campo —
+        nunca o valor dos campos, porque a resposta da ULBRA traz nome e CPF.
+        Nesta primeira versão <b>não existe opção de ver resposta bruta</b>: o
+        conteúdo é usado para contar e comparar, e some em seguida — não fica
+        guardado nem desenhado em lugar nenhum.
         <br />
         <b>O que já está documentado</b> em <code>docs/integracoes/prime-api.md</code>:
         no extrato, <code>carrierId</code> foi medido como <i>ignorado</i>
@@ -369,25 +448,16 @@ export default function DiagnosticoPrime() {
           <button type="button" onClick={rodarOsQuatro} disabled={ocupado} style={{ ...A.btnGhost, ...(ocupado ? A.btnBusy : null) }}>
             Rodar os quatro testes
           </button>
-          <label style={E.toggle}>
-            <input
-              type="checkbox"
-              checked={mostrarIdentificavel}
-              onChange={(e) => setMostrarIdentificavel(e.target.checked)}
-            />
-            ver conteúdo identificável
-          </label>
         </div>
         {avisoQuatro && <p style={E.recusa}>{avisoQuatro}</p>}
-        {mostrarIdentificavel && (
-          <p style={E.alerta}>
-            <b>Atenção:</b> com esta opção ligada a tela exibe o conteúdo da
-            resposta, que inclui <b>dado pessoal</b> (nome, CPF, valores do
-            aluno). Desligue antes de compartilhar a tela ou tirar print.
-          </p>
-        )}
         <p style={E.permitidos}>
           Caminhos permitidos pelo portão do servidor: {PERMITIDOS_LEGIVEL.join(" · ")}
+          <br />
+          Uma consulta por vez, com{" "}
+          {(pausaEntreChamadasMs / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}s
+          entre as quatro, e o mesmo caminho não repete antes de{" "}
+          {Math.round(janelaRepeticaoMs / 1000)}s — a chave da ULBRA é uma só e é
+          compartilhada com as rotinas de produção.
         </p>
       </div>
 
@@ -414,7 +484,7 @@ export default function DiagnosticoPrime() {
       {resultados.length > 0 && (
         <div style={E.grade}>
           {resultados.map((r) => (
-            <Cartao key={r.chave} r={r} mostrarIdentificavel={mostrarIdentificavel} />
+            <Cartao key={r.chave} r={r} />
           ))}
         </div>
       )}
@@ -433,18 +503,12 @@ const E = {
   },
   campo: { display: "flex", flexDirection: "column", gap: 4 },
   rotulo: { fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--rv-texto-fraco)" },
-  rotuloAviso: { fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--rv-vermelho-texto)" },
   valor: { fontSize: 13, color: "var(--rv-texto-forte)" },
   valorDestaque: { fontSize: 13, fontWeight: 800, color: "var(--rv-tinta)" },
   previa: { margin: "8px 0 0", fontSize: 12.5, color: "var(--rv-texto)" },
   legenda: { color: "var(--rv-texto-fraco)" },
   codigo: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, color: "var(--rv-tinta)", wordBreak: "break-all" },
   acoes: { display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 12 },
-  toggle: { display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, color: "var(--rv-texto-forte)", cursor: "pointer" },
-  alerta: {
-    margin: "10px 0 0", padding: "8px 12px", borderRadius: 8, fontSize: 12.5,
-    background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho-texto)", border: "1px solid var(--rv-vermelho-borda)",
-  },
   recusa: {
     margin: "8px 0 0", padding: "8px 12px", borderRadius: 8, fontSize: 12.5,
     background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)", border: "1px solid var(--rv-ambar-borda)",
@@ -472,11 +536,6 @@ const E = {
   lista: { margin: 0, paddingLeft: 18, fontSize: 12.5, color: "var(--rv-texto-forte)" },
   item: { marginBottom: 2 },
   itemDestaque: { marginBottom: 2, fontWeight: 800, color: "var(--rv-roxo-texto)" },
-  cru: {
-    margin: 0, padding: "8px 10px", borderRadius: 8, maxHeight: 320, overflow: "auto",
-    fontSize: 11, lineHeight: 1.45, background: "var(--rv-fundo-suave)", border: "1px solid var(--rv-vermelho-borda)",
-    color: "var(--rv-tinta)", whiteSpace: "pre-wrap", wordBreak: "break-all",
-  },
   mudo: { margin: 0, fontSize: 12.5, color: "var(--rv-texto-fraco)" },
   falha: {
     margin: 0, padding: "8px 12px", borderRadius: 8, fontSize: 12.5,

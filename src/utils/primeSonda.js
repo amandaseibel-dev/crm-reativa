@@ -22,11 +22,11 @@
 //
 // E O CONTEÚDO CHEGA AO NAVEGADOR DE TODO JEITO — isto precisa estar escrito.
 // Contar por portador e comparar duas respostas exige o conteúdo inteiro, então
-// a tela pede `cru: true` e agrega aqui, na memória. A proteção é de
-// APRESENTAÇÃO: a tela não exibe o conteúdo sem que alguém ligue um botão com
-// aviso. Quem abre o painel é gestão, com sessão própria, consultando a API que
-// a gestão já pode consultar — o que esta camada impede é o dado pessoal
-// aparecer na tela (e em print, e em gravação de reunião) sem ninguém pedir.
+// a tela pede `cru: true`. O que ela NÃO faz é guardá-lo ou desenhá-lo: o corpo
+// vive como variável local o tempo de virar contagem e veredito, e some. Esta
+// primeira versão não tem botão, opção escondida nem caminho nenhum para exibir
+// resposta bruta — o que a tela sabe desenhar é agregado, e é por isso que o
+// dado pessoal não aparece em print nem em tela compartilhada.
 //
 // FONTE OFICIAL: docs/integracoes/ (regra do CLAUDE.md). O que esta tela vai
 // conferir já está documentado em `prime-api.md`:

@@ -3,9 +3,9 @@
 // Painel de diagnóstico da integração Prime -- a TELA.
 //
 // O que estes testes prendem, em ordem de gravidade:
-//   1. PRIVACIDADE: com o botão desligado, nada identificável aparece na
-//      página. Nem valor de item, nem a `forma` que a sonda devolve (ela traz
-//      valor de escalar curto -- nome e CPF). Ligado, a tela AVISA antes;
+//   1. PRIVACIDADE: nada identificável aparece na página, e NÃO EXISTE opção de
+//      ver resposta bruta nesta versão -- nem valor de item, nem a `forma` que
+//      a sonda devolve (ela traz valor de escalar curto: nome e CPF);
 //   2. a sonda é chamada por `supabase.functions.invoke`, com a sessão que o
 //      cliente anexa sozinho -- a tela não lê, não monta e não guarda
 //      credencial nenhuma (conferido lendo o próprio arquivo);
@@ -13,7 +13,10 @@
 //   4. os quatro testes rodam exatamente os quatro caminhos pedidos, em ordem,
 //      e a comparação 1×2 é explícita;
 //   5. quem não é gestão não recebe botão nenhum, e nenhuma chamada sai;
-//   6. a tela não tem nenhum caminho de escrita.
+//   6. a tela não tem nenhum caminho de escrita;
+//   7. as duas travas de chamada: uma consulta por vez, e o mesmo caminho não
+//      repete dentro da janela -- a chave da ULBRA é compartilhada com as
+//      rotinas de produção.
 //
 // A API de verdade NUNCA é chamada: o cliente Supabase é dublado.
 // Datas das fixtures são fixas (máquina em BRT, CI em UTC).
@@ -88,7 +91,7 @@ afterEach(() => cleanup());
 describe("quem entra", () => {
   it("quem NÃO é gestão não vê botão e nada é chamado", async () => {
     comGestao(false);
-    render(<DiagnosticoPrime />);
+    render(<DiagnosticoPrime pausaEntreChamadasMs={0} />);
     expect(await screen.findByText(/restrita à gestão/i)).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
     expect(invoke).not.toHaveBeenCalled();
@@ -96,14 +99,14 @@ describe("quem entra", () => {
 
   it("erro ao perguntar quem é fecha a porta, em vez de oferecer 403", async () => {
     rpc.mockImplementation(async () => ({ data: null, error: { message: "falhou" } }));
-    render(<DiagnosticoPrime />);
+    render(<DiagnosticoPrime pausaEntreChamadasMs={0} />);
     expect(await screen.findByText(/restrita à gestão/i)).toBeTruthy();
     expect(invoke).not.toHaveBeenCalled();
   });
 
   it("gestão vê os dois botões", async () => {
     comGestao(true);
-    render(<DiagnosticoPrime />);
+    render(<DiagnosticoPrime pausaEntreChamadasMs={0} />);
     expect(await screen.findByRole("button", { name: /Consultar este caminho/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Rodar os quatro testes/i })).toBeTruthy();
     expect(invoke).not.toHaveBeenCalled(); // abrir a tela não consulta nada
@@ -114,7 +117,7 @@ describe("o caminho sai do seletor, não de texto livre", () => {
   it("monta a partir da forma escolhida, da matrícula e da query", async () => {
     comGestao(true);
     invoke.mockImplementation(async (_fn, { body }) => respostaDaSonda(body.caminho, EXTRATO));
-    render(<DiagnosticoPrime />);
+    render(<DiagnosticoPrime pausaEntreChamadasMs={0} />);
     await screen.findByRole("button", { name: /Consultar este caminho/i });
 
     fireEvent.change(screen.getByLabelText("matrícula"), { target: { value: MATRICULA } });
@@ -132,7 +135,7 @@ describe("o caminho sai do seletor, não de texto livre", () => {
   it("troca de forma troca o caminho (agreements, sem query)", async () => {
     comGestao(true);
     invoke.mockImplementation(async (_fn, { body }) => respostaDaSonda(body.caminho, { items: [], totalItems: 0 }));
-    render(<DiagnosticoPrime />);
+    render(<DiagnosticoPrime pausaEntreChamadasMs={0} />);
     await screen.findByRole("button", { name: /Consultar este caminho/i });
 
     fireEvent.change(screen.getByLabelText("forma do caminho"), { target: { value: "agreements" } });
@@ -143,7 +146,7 @@ describe("o caminho sai do seletor, não de texto livre", () => {
 
   it("caminho fora da allowlist NÃO sai: a tela recusa antes", async () => {
     comGestao(true);
-    render(<DiagnosticoPrime />);
+    render(<DiagnosticoPrime pausaEntreChamadasMs={0} />);
     await screen.findByRole("button", { name: /Consultar este caminho/i });
 
     // o composto não aceita query string -- o padrão do servidor é `^/students/{reg}$`
@@ -158,7 +161,7 @@ describe("o caminho sai do seletor, não de texto livre", () => {
 
   it("matrícula vazia não dispara os quatro testes", async () => {
     comGestao(true);
-    render(<DiagnosticoPrime />);
+    render(<DiagnosticoPrime pausaEntreChamadasMs={0} />);
     await screen.findByRole("button", { name: /Rodar os quatro testes/i });
     fireEvent.click(screen.getByRole("button", { name: /Rodar os quatro testes/i }));
     await waitFor(() => expect(texto()).toMatch(/Informe a matrícula/i));
@@ -170,7 +173,7 @@ describe("o resultado vem agregado -- requisito de privacidade", () => {
   async function consultarExtrato() {
     comGestao(true);
     invoke.mockImplementation(async (_fn, { body }) => respostaDaSonda(body.caminho, EXTRATO));
-    render(<DiagnosticoPrime />);
+    render(<DiagnosticoPrime pausaEntreChamadasMs={0} />);
     await screen.findByRole("button", { name: /Consultar este caminho/i });
     fireEvent.change(screen.getByLabelText("matrícula"), { target: { value: MATRICULA } });
     fireEvent.click(screen.getByRole("button", { name: /Consultar este caminho/i }));
@@ -204,25 +207,17 @@ describe("o resultado vem agregado -- requisito de privacidade", () => {
     }
   });
 
-  it("o botão começa DESLIGADO", async () => {
+  it("NÃO existe opção de ver resposta bruta nesta versão", async () => {
     await consultarExtrato();
-    expect(screen.getByRole("checkbox").checked).toBe(false);
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(texto()).not.toMatch(/ver conteúdo identificável/i);
+    expect(texto()).not.toMatch(/dado pessoal/i); // nem o aviso, porque nem a opção existe
+    expect(document.querySelector("pre")).toBeNull();
   });
 
-  it("LIGADO, avisa que exibe dado pessoal -- e só então exibe", async () => {
+  it("a tela diz, na cara, que só mostra agregado", async () => {
     await consultarExtrato();
-    fireEvent.click(screen.getByRole("checkbox"));
-    await waitFor(() => expect(texto()).toMatch(/contém dado pessoal|inclui.*dado pessoal/i));
-    expect(texto()).toMatch(/Desligue antes de compartilhar a tela/i);
-    expect(texto()).toContain("4039712"); // agora sim, por decisão explícita
-  });
-
-  it("desligar de novo esconde o conteúdo", async () => {
-    await consultarExtrato();
-    fireEvent.click(screen.getByRole("checkbox"));
-    await waitFor(() => expect(texto()).toContain("4039712"));
-    fireEvent.click(screen.getByRole("checkbox"));
-    await waitFor(() => expect(texto()).not.toContain("4039712"));
+    expect(texto()).toMatch(/não existe opção de ver resposta bruta/i);
   });
 });
 
@@ -230,7 +225,7 @@ describe("os quatro testes e a comparação 1 × 2", () => {
   async function rodarOsQuatro(porCaminho) {
     comGestao(true);
     invoke.mockImplementation(async (_fn, { body }) => respostaDaSonda(body.caminho, porCaminho(body.caminho)));
-    render(<DiagnosticoPrime />);
+    render(<DiagnosticoPrime pausaEntreChamadasMs={0} />);
     await screen.findByRole("button", { name: /Rodar os quatro testes/i });
     fireEvent.change(screen.getByLabelText("matrícula"), { target: { value: MATRICULA } });
     fireEvent.click(screen.getByRole("button", { name: /Rodar os quatro testes/i }));
@@ -288,7 +283,7 @@ describe("os quatro testes e a comparação 1 × 2", () => {
       }
       return respostaDaSonda(body.caminho, MESMA_COISA(body.caminho));
     });
-    render(<DiagnosticoPrime />);
+    render(<DiagnosticoPrime pausaEntreChamadasMs={0} />);
     await screen.findByRole("button", { name: /Rodar os quatro testes/i });
     fireEvent.change(screen.getByLabelText("matrícula"), { target: { value: MATRICULA } });
     fireEvent.click(screen.getByRole("button", { name: /Rodar os quatro testes/i }));
@@ -307,11 +302,102 @@ describe("os quatro testes e a comparação 1 × 2", () => {
   });
 });
 
+describe("travas de chamada -- a chave da ULBRA é uma só", () => {
+  it("uma consulta por vez: clicar de novo com a primeira no ar não dispara outra", async () => {
+    comGestao(true);
+    let libera;
+    invoke.mockImplementation((_fn, { body }) => new Promise((resolve) => {
+      libera = () => resolve(respostaDaSonda(body.caminho, EXTRATO));
+    }));
+    render(<DiagnosticoPrime pausaEntreChamadasMs={0} />);
+    await screen.findByRole("button", { name: /Consultar este caminho/i });
+    fireEvent.change(screen.getByLabelText("matrícula"), { target: { value: MATRICULA } });
+
+    const botao = screen.getByRole("button", { name: /Consultar este caminho/i });
+    fireEvent.click(botao);
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    // a primeira ainda está no ar: nem o mesmo botão nem o dos quatro testes
+    // podem abrir uma segunda chamada
+    fireEvent.click(botao);
+    fireEvent.click(screen.getByRole("button", { name: /Rodar os quatro testes/i }));
+    expect(invoke).toHaveBeenCalledTimes(1);
+    libera();
+    await waitFor(() => expect(texto()).toMatch(/status da Prime/i));
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("o mesmo caminho não repete dentro da janela -- e a recusa não chama a sonda", async () => {
+    comGestao(true);
+    invoke.mockImplementation(async (_fn, { body }) => respostaDaSonda(body.caminho, EXTRATO));
+    render(<DiagnosticoPrime pausaEntreChamadasMs={0} />);
+    await screen.findByRole("button", { name: /Consultar este caminho/i });
+    fireEvent.change(screen.getByLabelText("matrícula"), { target: { value: MATRICULA } });
+
+    fireEvent.click(screen.getByRole("button", { name: /Consultar este caminho/i }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: /Consultar este caminho/i }));
+    await waitFor(() => expect(texto()).toMatch(/acabou de ser feita/i));
+    expect(invoke).toHaveBeenCalledTimes(1); // a segunda não saiu
+    expect(texto()).toMatch(/chave da ULBRA/i);
+  });
+
+  it("caminho DIFERENTE não é barrado pela janela", async () => {
+    comGestao(true);
+    invoke.mockImplementation(async (_fn, { body }) => respostaDaSonda(body.caminho, EXTRATO));
+    render(<DiagnosticoPrime pausaEntreChamadasMs={0} />);
+    await screen.findByRole("button", { name: /Consultar este caminho/i });
+    fireEvent.change(screen.getByLabelText("matrícula"), { target: { value: MATRICULA } });
+    fireEvent.click(screen.getByRole("button", { name: /Consultar este caminho/i }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText("forma do caminho"), { target: { value: "agreements" } });
+    fireEvent.click(screen.getByRole("button", { name: /Consultar este caminho/i }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
+    expect(caminhosChamados()).toEqual([
+      "/students/232005643/financial-statement",
+      "/students/232005643/agreements",
+    ]);
+  });
+
+  it("repetir os quatro testes em seguida é recusado nas quatro, sem chamar a sonda", async () => {
+    comGestao(true);
+    invoke.mockImplementation(async (_fn, { body }) => respostaDaSonda(body.caminho, EXTRATO));
+    render(<DiagnosticoPrime pausaEntreChamadasMs={0} />);
+    await screen.findByRole("button", { name: /Rodar os quatro testes/i });
+    fireEvent.change(screen.getByLabelText("matrícula"), { target: { value: MATRICULA } });
+    fireEvent.click(screen.getByRole("button", { name: /Rodar os quatro testes/i }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(texto()).toMatch(/idênticas/i));
+
+    fireEvent.click(screen.getByRole("button", { name: /Rodar os quatro testes/i }));
+    await waitFor(() => expect(texto()).toMatch(/acabou de ser feita/i));
+    expect(invoke).toHaveBeenCalledTimes(4); // nenhuma chamada nova
+  });
+
+  it("as quatro chamadas são espaçadas pela pausa", async () => {
+    comGestao(true);
+    const instantes = [];
+    invoke.mockImplementation(async (_fn, { body }) => {
+      instantes.push(Date.now());
+      return respostaDaSonda(body.caminho, EXTRATO);
+    });
+    const PAUSA = 120;
+    render(<DiagnosticoPrime pausaEntreChamadasMs={PAUSA} />);
+    await screen.findByRole("button", { name: /Rodar os quatro testes/i });
+    fireEvent.change(screen.getByLabelText("matrícula"), { target: { value: MATRICULA } });
+    fireEvent.click(screen.getByRole("button", { name: /Rodar os quatro testes/i }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(4), { timeout: 4000 });
+    // três intervalos entre as quatro; a máquina só pode ser mais lenta, nunca
+    // mais rápida que a pausa -- por isso a asserção é piso, não igualdade
+    expect(instantes[3] - instantes[0]).toBeGreaterThanOrEqual(PAUSA * 2);
+  });
+});
+
 describe("em execução, a tela não escreve nada", () => {
   it("nenhuma tabela é tocada e a única RPC é o portão", async () => {
     comGestao(true);
     invoke.mockImplementation(async (_fn, { body }) => respostaDaSonda(body.caminho, EXTRATO));
-    render(<DiagnosticoPrime />);
+    render(<DiagnosticoPrime pausaEntreChamadasMs={0} />);
     await screen.findByRole("button", { name: /Rodar os quatro testes/i });
     fireEvent.change(screen.getByLabelText("matrícula"), { target: { value: MATRICULA } });
     fireEvent.click(screen.getByRole("button", { name: /Rodar os quatro testes/i }));
