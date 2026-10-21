@@ -52,10 +52,35 @@ describe("PainelCarteira: bloco Meu dia", () => {
     expect(bloco).toMatch(/onConfirmarRetorno=\{\(id, confirmar\) => confirmarRetornoAgenda\(id, confirmar\)\}/);
   });
 
-  it("o alerta D-2 nao se repete: o painel antigo so recebe o que ficou fora da janela", () => {
-    const card = SRC.slice(SRC.indexOf("<AlertasParcelaAcordo"), SRC.indexOf("<AlertasParcelaAcordo") + 400);
-    expect(card).toMatch(/alertas=\{alertasForaDaJanela\}/);
+  it("o alerta D-2 nao se repete: os cards so recebem o que ficou fora da janela", () => {
+    // A garantia e a mesma de sempre -- o que o "Meu dia" ja mostra nao volta
+    // nos cards. Desde 21/10/2026 a lista de fora da janela e PARTIDA em duas
+    // (a vencer x vencida), porque a M2 trouxe ~144 vencidas por operador e um
+    // card so deixava a tela longa demais. As duas derivam de alertasForaDaJanela,
+    // entao a garantia continua valendo por construcao.
     expect(SRC).toMatch(/const alertasForaDaJanela = useMemo\(/);
+    expect(SRC).toMatch(/naJanela\.has\(String\(a\.parcela_id\)\)/);
+
+    const aVencer = SRC.slice(SRC.indexOf("const alertasAVencerFora"), SRC.indexOf("const alertasAVencerFora") + 220);
+    const vencidos = SRC.slice(SRC.indexOf("const alertasVencidos"), SRC.indexOf("const alertasVencidos") + 220);
+    expect(aVencer).toMatch(/alertasForaDaJanela\.filter/);
+    expect(vencidos).toMatch(/alertasForaDaJanela\.filter/);
+
+    // Particao por SINAL de dias_restantes: disjunta e exaustiva.
+    expect(aVencer).toMatch(/Number\(a\.dias_restantes\) >= 0/);
+    expect(vencidos).toMatch(/Number\(a\.dias_restantes\) < 0/);
+
+    // Os dois cards sao alimentados pelas duas listas, e nenhum recebe a lista
+    // inteira de novo.
+    expect(SRC).toMatch(/alertas=\{alertasAVencerFora\}/);
+    expect(SRC).toMatch(/alertas=\{alertasVencidos\}/);
+    expect(SRC).not.toMatch(/alertas=\{alertasForaDaJanela\}/);
+
+    // So o card das VENCIDAS abre compacto: o de "a vencer" e curto por
+    // natureza e nao precisa de teto.
+    const cardVencidas = SRC.slice(SRC.indexOf("alertas={alertasVencidos}"), SRC.indexOf("alertas={alertasVencidos}") + 300);
+    expect(cardVencidas).toMatch(/limite=\{LIMITE_ALERTA_VENCIDO\}/);
+    expect(SRC).toMatch(/const LIMITE_ALERTA_VENCIDO = \d+;/);
   });
 });
 

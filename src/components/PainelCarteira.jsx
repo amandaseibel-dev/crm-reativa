@@ -75,6 +75,12 @@ import VisaoGeralCarteira from "./VisaoGeralCarteira";
 import VisaoGestao360 from "./VisaoGestao360";
 import { parcelaViva } from "../utils/parcelaStatus";
 
+// Quantas parcelas VENCIDAS o card mostra antes de pedir "ver todas". A M2
+// trouxe ~144 por operador; abrir as 144 de uma vez e o que deixava a tela
+// comprida. Cinco cabe na primeira tela e ja da o recorte mais urgente -- a
+// contagem e o total continuam visiveis no cabecalho do card.
+const LIMITE_ALERTA_VENCIDO = 5;
+
 /*
   PainelCarteira
   --------------
@@ -2731,12 +2737,25 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     return boletosAVencer.map((b) => ({ ...b, tem_alerta: comAlerta.has(String(b.parcela_id)) }));
   }, [boletosAVencer, alertasParcela]);
 
-  // Alerta D-2 que o bloco "Meu dia" nao mostra (parcela fora da janela de 5
-  // dias -- na pratica a que venceu e cujo alerta a rotina nao resolveu).
+  // Alerta de parcela que o bloco "Meu dia" nao mostra (parcela fora da janela
+  // de 5 dias). Desde a M2 (20261021092408) isto tem DUAS naturezas muito
+  // diferentes de volume e de urgencia, e por isso vira duas listas:
+  //   - a vencer: dias_restantes >= 0, fora da janela de 5 dias. Poucas.
+  //   - VENCIDAS: dias_restantes < 0, ate 30 dias. Medido: ~144 por operador.
+  // Juntas num card so, as vencidas enterravam o resto da tela.
   const alertasForaDaJanela = useMemo(() => {
     const naJanela = new Set(boletosAVencer.map((b) => String(b.parcela_id)));
     return normalizarAlertas(alertasParcela).filter((a) => !naJanela.has(String(a.parcela_id)));
   }, [alertasParcela, boletosAVencer]);
+
+  const alertasAVencerFora = useMemo(
+    () => alertasForaDaJanela.filter((a) => Number(a.dias_restantes) >= 0),
+    [alertasForaDaJanela],
+  );
+  const alertasVencidos = useMemo(
+    () => alertasForaDaJanela.filter((a) => Number(a.dias_restantes) < 0),
+    [alertasForaDaJanela],
+  );
 
   // Abre a ficha a partir de uma linha do bloco "Meu dia". Quem saiu da fila
   // (quitado, em confirmacao) nao esta em `casos`: abre pelo id, com o nome que
@@ -3089,6 +3108,30 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             onVerRetornosNaFila={() => onKpiClick("retornosHoje")}
           />
 
+          {/* Ordem da primeira tela: retorno vencido e de hoje (Meu dia, acima)
+              e, logo em seguida, o financeiro urgente. Antes isto ficava abaixo
+              do desempenho e de duas linhas de KPI -- o operador rolava para
+              achar o que era mais urgente.
+
+              O D-2 que JA aparece no "Meu dia" nao se repete aqui (la ele vem
+              marcado com 🔔). Os dois recortes ficam SEPARADOS de proposito:
+              "a vencer" pede contato preventivo, "vencida" pede cobranca. */}
+          <AlertasParcelaAcordo
+            alertas={alertasAVencerFora}
+            titulo="🔔 Parcela de acordo a vencer"
+            mostrarResponsavel={veTudo}
+            onAbrirFicha={abrirFichaDoMeuDia}
+          />
+
+          <AlertasParcelaAcordo
+            alertas={alertasVencidos}
+            titulo="⏰ Parcela de acordo vencida (até 30 dias)"
+            mostrarResponsavel={veTudo}
+            onAbrirFicha={abrirFichaDoMeuDia}
+            limite={LIMITE_ALERTA_VENCIDO}
+            rotuloExpandir="Ver todas as vencidas"
+          />
+
           {!veTudo && desempenho && (
             <div style={S.desWrap}>
               <div style={S.desHeader}>Meu desempenho operacional</div>
@@ -3182,17 +3225,6 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
               );
             })}
           </div>
-
-          {/* O alerta D-2 que JA aparece no bloco "Meu dia" nao se repete aqui
-              (lá ele vem marcado com 🔔). Sobra o alerta ainda aberto que caiu
-              fora da janela -- tipicamente parcela que venceu e a rotina do
-              cron nao resolveu. Sem isto ele desapareceria da tela. */}
-          <AlertasParcelaAcordo
-            alertas={alertasForaDaJanela}
-            titulo="🔔 Alerta de parcela de acordo ainda aberto"
-            mostrarResponsavel={veTudo}
-            onAbrirFicha={abrirFichaDoMeuDia}
-          />
 
           {mostrarAgenda && (
             <div style={S.agendaPainel}>
@@ -4440,9 +4472,9 @@ const S = {
   receptivoWrap: { display: "flex", flexDirection: "column", gap: 12, maxWidth: 720 },
   receptivoInfo: { background: "var(--rv-superficie)", border: `1px solid ${COR_BORDA}`, borderRadius: 14, padding: "12px 16px", fontSize: 12.5, color: "var(--rv-texto-fraco)", lineHeight: 1.55 },
 
-  desWrap: { background: "linear-gradient(180deg, var(--rv-superficie) 0%, var(--rv-fundo-cartao) 100%)", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 16, padding: "16px 18px", marginBottom: 18, boxShadow: SOMBRA_CARD },
-  desHeader: { fontSize: 11.5, fontWeight: 800, color: "var(--rv-texto-suave)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 12 },
-  desRow: { display: "flex", flexWrap: "wrap", gap: 10, alignItems: "stretch" },
+  desWrap: { background: "linear-gradient(180deg, var(--rv-superficie) 0%, var(--rv-fundo-cartao) 100%)", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 14, padding: "11px 14px", marginBottom: 12, boxShadow: SOMBRA_CARD },
+  desHeader: { fontSize: 11, fontWeight: 800, color: "var(--rv-texto-suave)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 7 },
+  desRow: { display: "flex", flexWrap: "wrap", gap: 8, alignItems: "stretch" },
   desItem: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, background: "var(--rv-fundo-cartao)", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 12, padding: "11px 16px", cursor: "pointer", minWidth: 128, textAlign: "left", transition: "border-color 0.14s ease, background 0.14s ease" },
   desItemAtivo: { borderColor: "#1e40af", background: "var(--rv-azul-fundo)", boxShadow: "0 0 0 2px rgba(15,157,107,0.14)" },
   desItemInfo: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, background: "transparent", borderRadius: 12, padding: "11px 16px", minWidth: 128 },
@@ -4457,12 +4489,12 @@ const S = {
   acionadaPct: { fontSize: 11.5, color: "var(--rv-texto-fraco)" },
   acionadaApoio: { margin: "14px 0 0 0", fontSize: 11.5, lineHeight: 1.5, color: "var(--rv-texto-fraco)" },
 
-  kpiGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(172px, 1fr))", gap: 14, marginBottom: 22 },
-  kpiCard: { background: "var(--rv-superficie)", borderRadius: 16, padding: "16px 18px", border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: SOMBRA_CARD, cursor: "pointer" },
-  kpiIconChip: { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 10, fontSize: 15, marginBottom: 12 },
+  kpiGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(158px, 1fr))", gap: 10, marginBottom: 14 },
+  kpiCard: { background: "var(--rv-superficie)", borderRadius: 14, padding: "11px 13px", border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: SOMBRA_CARD, cursor: "pointer" },
+  kpiIconChip: { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 26, height: 26, borderRadius: 9, fontSize: 13, marginBottom: 6 },
   kpiPulso: { width: 9, height: 9, borderRadius: "50%", background: "#dc2626", animation: "pc-pulso 1.8s ease-in-out infinite", marginTop: 2 },
-  kpiRot: { margin: "0 0 6px 0", fontSize: 11.5, color: "var(--rv-texto-fraco)", fontWeight: 600, lineHeight: 1.35 },
-  kpiVal: { margin: 0, fontSize: 25, fontWeight: 800, letterSpacing: "-0.02em", fontFamily: FONTE_TITULO },
+  kpiRot: { margin: "0 0 2px 0", fontSize: 11, color: "var(--rv-texto-fraco)", fontWeight: 600, lineHeight: 1.3 },
+  kpiVal: { margin: 0, fontSize: 21, fontWeight: 800, letterSpacing: "-0.02em", fontFamily: FONTE_TITULO, lineHeight: 1.15 },
 
   painelTabela: { background: "var(--rv-superficie)", borderRadius: 18, padding: 20, border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: SOMBRA_CARD },
   filtros: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18, alignItems: "center" },
