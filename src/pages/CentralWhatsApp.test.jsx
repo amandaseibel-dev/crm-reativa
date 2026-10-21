@@ -355,8 +355,14 @@ describe("Central WhatsApp", () => {
       conversa({ id: "k2", ultima_mensagem_previa: "outra conversa" }),
     ];
     render(<CentralWhatsApp />);
+    // CORRIDA, medida em 21/10/2026 (derrubou o CI). "Maria" aparece em DOIS
+    // lugares alimentados por buscas INDEPENDENTES: o <option> do filtro de
+    // operadores (listarOperadores) e o <span> da linha da conversa
+    // (listarConversas). Entao findByText("Maria") pode resolver pelo filtro
+    // antes de a lista de conversas existir, e um getByText sincrono logo
+    // depois nao acha "sem responsavel". Cada texto espera o seu.
     expect(await screen.findByText("Maria")).toBeDefined();
-    expect(screen.getByText("sem responsável")).toBeDefined();
+    expect(await screen.findByText("sem responsável")).toBeDefined();
   });
 
   it("libera o campo de resposta quando o número está no ar", async () => {
