@@ -23,7 +23,9 @@ do $$
 begin
   if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon; end if;
   if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated; end if;
-  if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role; end if;
+  -- BYPASSRLS como em producao (pg_roles.rolbypassrls = true, conferido em 21/10):
+  -- sem isto a bancada nao reproduziria a leitura do service_role com RLS ligado.
+  if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role bypassrls; end if;
 end $$;
 
 create table if not exists public.alunos (
@@ -168,4 +170,127 @@ create or replace function public.parcelas_amarrar_boleto()
 returns jsonb language plpgsql volatile as $$
 begin
   raise exception 'CANARIO: parcelas_amarrar_boleto foi chamada pela rodada incremental';
+end; $$;
+
+-- ===========================================================================
+-- SEGUNDA CAMADA — o que as migrations corretivas de 21/10 precisam exercitar.
+-- ===========================================================================
+
+-- Tabelas financeiras que o dublê SUJO vai tentar escrever. A prova de que a
+-- prévia não as toca exige que elas existam e tenham conteúdo.
+create table if not exists public.parcelas (
+  id uuid primary key, acordo_id uuid, numero int, valor numeric,
+  vencimento date, status text, pago_em date
+);
+create table if not exists public.acordos (
+  id uuid primary key, aluno_id uuid, status text, saldo numeric
+);
+create table if not exists public.auditoria (
+  id bigserial primary key, usuario text, acao text, tabela_afetada text,
+  registro_id text, detalhes jsonb, criado_em timestamptz default now()
+);
+create table if not exists public.baixas_pagamento (
+  id uuid primary key, aluno_id uuid, valor_pago numeric,
+  status_baixa text, baixado_em timestamptz, baixado_por_email text
+);
+
+-- Onde o GATILHO deixa rastro. É assim que se prova que efeito indireto
+-- também é desfeito pela prévia.
+create table if not exists public._efeito_indireto (
+  n bigserial primary key, pagamento_id uuid, em timestamptz default clock_timestamp()
+);
+
+create or replace function public._trg_efeito_indireto()
+returns trigger language plpgsql as $$
+begin
+  insert into public._efeito_indireto (pagamento_id) values (NEW.id);
+  return NEW;
+end; $$;
+
+drop trigger if exists trg_efeito_indireto on public.pagamentos;
+create trigger trg_efeito_indireto
+  after update on public.pagamentos
+  for each row execute function public._trg_efeito_indireto();
+
+-- CORPO EXATO DE PRODUÇÃO. É o portão da política de RLS do monitor.
+CREATE OR REPLACE FUNCTION public.usuario_e_gestao()
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select lower(coalesce(auth.jwt()->>'email','')) in (
+    'amanda.seibel@aelbra.com.br',
+    'cobranca04@aelbra.com.br',
+    'cobranca07@aelbra.com.br'
+  );
+$function$;
+
+-- O RLS real da trilha de monitoramento: UMA política, só SELECT, só gestão.
+alter table public.fluxo_pagamentos_execucoes enable row level security;
+drop policy if exists fluxo_exec_gestao on public.fluxo_pagamentos_execucoes;
+create policy fluxo_exec_gestao on public.fluxo_pagamentos_execucoes
+  for select to authenticated
+  using (public.usuario_e_gestao());
+
+-- O default do schema public, que é a CAUSA do defeito corrigido: toda tabela
+-- e view nova herda arwdDxtm para authenticated. Sem isto a bancada não
+-- reproduziria o problema e o teste passaria por vacuidade.
+grant all on public.fluxo_pagamentos_execucoes to authenticated, service_role;
+alter default privileges in schema public grant all on tables to authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- DUBLÊ SUJO: escreve em TUDO o que pode, de propósito. Serve para provar que
+-- a prévia desfaz, em vez de provar que o motor é educado.
+-- ---------------------------------------------------------------------------
+create table if not exists public._dub_sujo (ligado boolean);
+
+create or replace function public.pagamento_conciliar_um(p_pagamento_id uuid, p_aplicar boolean)
+returns jsonb language plpgsql volatile as $$
+declare d record;
+begin
+  insert into public._dub_chamadas (pagamento_id, aplicar) values (p_pagamento_id, p_aplicar);
+  select * into d from public._dub_motor where pagamento_id = p_pagamento_id;
+  if d.dorme_ms is not null and d.dorme_ms > 0 then
+    perform pg_sleep(d.dorme_ms / 1000.0);
+  end if;
+  if d.levanta is not null then
+    raise exception '%', d.levanta;
+  end if;
+
+  -- MODO SUJO: ignora p_aplicar e escreve em seis tabelas, inclusive
+  -- financeiras, e dispara o gatilho de `pagamentos`.
+  if exists (select 1 from public._dub_sujo where ligado) then
+    update public.pagamentos set status_conciliacao = 'SUJO_ESCREVEU',
+                                 conciliacao_motivo = 'o dublê sujo passou por aqui'
+     where id = p_pagamento_id;
+    update public.parcelas set status = 'PAGO', pago_em = current_date;
+    update public.acordos set status = 'QUITADO', saldo = 0;
+    insert into public.auditoria (usuario, acao, tabela_afetada, registro_id)
+      values ('dublê sujo','ESCRITA_INDEVIDA','pagamentos', p_pagamento_id::text);
+    insert into public.baixas_pagamento (id, aluno_id, valor_pago, status_baixa, baixado_em, baixado_por_email)
+      values (gen_random_uuid(), null, 1, 'BAIXADO', now(), 'dublê sujo')
+      on conflict do nothing;
+    insert into public.fila_pagamento_sem_vinculo (pagamento_id, motivo)
+      values (p_pagamento_id, 'enfileirado pelo dublê sujo');
+    update public.fila_pagamento_sem_vinculo
+       set quantidade_tentativas = coalesce(quantidade_tentativas,0) + 1,
+           ultima_tentativa_em = now()
+     where pagamento_id = p_pagamento_id and decisao is null;
+    return jsonb_build_object('status', coalesce(d.status,'AGUARDANDO_ACORDO'),
+                              'baixou', coalesce(d.baixou,false));
+  end if;
+
+  if p_aplicar then
+    update public.pagamentos
+       set status_conciliacao = coalesce(d.status, 'AGUARDANDO_ACORDO'),
+           conciliacao_em = now()
+     where id = p_pagamento_id;
+    update public.fila_pagamento_sem_vinculo
+       set quantidade_tentativas = coalesce(quantidade_tentativas,0) + 1,
+           ultima_tentativa_em = now()
+     where pagamento_id = p_pagamento_id and decisao is null;
+  end if;
+  return jsonb_build_object('status', coalesce(d.status,'AGUARDANDO_ACORDO'),
+                            'baixou', coalesce(d.baixou,false));
 end; $$;

@@ -40,6 +40,9 @@ const BANCADA = ler("supabase/tests/fixtures/fluxo_incremental_prod_20261021.sql
 const MD5 = JSON.parse(ler("supabase/tests/fixtures/fluxo_incremental_prod_20261021.md5.json"));
 const MIGRATION = ler("supabase/migrations/20261021195950_fluxo_pagamentos_incremental.sql");
 const ROLLBACK = ler("supabase/rollbacks/20261021195950_fluxo_pagamentos_incremental.rollback.sql");
+const MIG_PERM = ler("supabase/migrations/20261021213000_vw_fluxo_monitor_fecha_escrita.sql");
+const RB_PERM = ler("supabase/rollbacks/20261021213000_vw_fluxo_monitor_fecha_escrita.rollback.sql");
+const MIG_PREVIA = ler("supabase/migrations/20261021213500_fluxo_incremental_previa_sem_escrita.sql");
 
 const GESTAO = "amanda.seibel@aelbra.com.br";
 const OPERADOR = "cobranca05@aelbra.com.br";
@@ -88,7 +91,7 @@ async function pag(db, n, o = {}) {
     [U(n), motorStatus, baixou, levanta, dormeMs]);
 }
 
-async function construir(comMigration = true) {
+async function construir(estagio = "base") {
   const db = new PGlite();
   await db.exec(BANCADA);
 
@@ -102,21 +105,30 @@ async function construir(comMigration = true) {
   }
 
   await como(db, GESTAO);
-  if (comMigration) await db.exec(MIGRATION);
+  if (estagio !== "sem") await db.exec(MIGRATION);
+  if (estagio === "final") {
+    await db.exec(MIG_PERM);
+    await db.exec(MIG_PREVIA);
+  }
   return db;
 }
 
-let COM, SEM;
+let COM, SEM, FINAL;
 beforeAll(async () => {
-  const a = await construir(true);
+  const a = await construir("base");
   COM = await a.dumpDataDir();
   await a.close();
-  const b = await construir(false);
+  const b = await construir("sem");
   SEM = await b.dumpDataDir();
   await b.close();
+  const c = await construir("final");
+  FINAL = await c.dumpDataDir();
+  await c.close();
 });
-const abrir = async (comMigration = true) => {
-  const db = new PGlite({ loadDataDir: comMigration ? COM : SEM });
+const DADOS = { base: () => COM, sem: () => SEM, final: () => FINAL };
+const abrir = async (estagio = "base") => {
+  const e = typeof estagio === "boolean" ? (estagio ? "base" : "sem") : estagio;
+  const db = new PGlite({ loadDataDir: DADOS[e]() });
   await como(db, GESTAO);
   return db;
 };
@@ -401,12 +413,14 @@ describe("MONITORAMENTO", () => {
 
   it("a view não é legível por anon", async () => {
     const db = await abrir();
-    const r = await q1(db,
-      `select coalesce(array_to_string(c.relacl,'|'),'(default)') acl
-         from pg_class c join pg_namespace n on n.oid=c.relnamespace
-        where n.nspname='public' and c.relname='vw_fluxo_pagamentos_monitor'`);
-    expect(r.acl).not.toMatch(/\banon=/);
-    expect(r.acl).toContain("authenticated=r");
+    // Privilégio EFETIVO, que é o que vale: `anon` não alcança a view.
+    // O excesso de privilégio de `authenticated` neste estágio é o defeito
+    // tratado em "MONITOR: escrita fechada e leitura preservada".
+    const r = await q1(db, `select
+        has_table_privilege('anon','public.vw_fluxo_pagamentos_monitor','select') anon_le,
+        has_table_privilege('authenticated','public.vw_fluxo_pagamentos_monitor','select') auth_le`);
+    expect(r.anon_le).toBe(false);
+    expect(r.auth_le).toBe(true);
     await db.close();
   });
 });
@@ -446,6 +460,274 @@ describe("a migration e o rollback", () => {
     await db.exec(MIGRATION);
     await pag(db, 1);
     expect((await rodar(db)).processados).toBe(1);
+    await db.close();
+  });
+});
+
+// ===========================================================================
+// CORREÇÃO 1 — a view de monitoramento fecha a escrita.
+// ===========================================================================
+describe("MONITOR: escrita fechada e leitura preservada", () => {
+  // Privilégio EFETIVO, não o que a migration pediu: é has_table_privilege
+  // que diz a verdade depois da herança do schema.
+  const efetivo = async (db, papel, obj) =>
+    await q1(db, `select
+        has_table_privilege($1,$2,'select') s,
+        has_table_privilege($1,$2,'insert') i,
+        has_table_privilege($1,$2,'update') u,
+        has_table_privilege($1,$2,'delete') d,
+        has_table_privilege($1,$2,'truncate') t`, [papel, obj]);
+
+  it("ANTES da correção o defeito existe — a bancada reproduz o problema", async () => {
+    const db = await abrir("base");
+    const v = await efetivo(db, "authenticated", "public.vw_fluxo_pagamentos_monitor");
+    // é isto que a correção precisa apagar
+    expect(v.d).toBe(true);
+    expect(v.u).toBe(true);
+    expect((await q1(db, `select pg_relation_is_updatable('public.vw_fluxo_pagamentos_monitor'::regclass, true) b`)).b)
+      .toBe(28);
+    await db.close();
+  });
+
+  it("DEPOIS: authenticated só lê a view — nada de insert, update, delete, truncate", async () => {
+    const db = await abrir("final");
+    const v = await efetivo(db, "authenticated", "public.vw_fluxo_pagamentos_monitor");
+    expect(v.s).toBe(true);
+    expect([v.i, v.u, v.d, v.t]).toEqual([false, false, false, false]);
+    await db.close();
+  });
+
+  it("DEPOIS: authenticated só lê a TABELA BASE — a porta direta também fecha", async () => {
+    const db = await abrir("final");
+    const t = await efetivo(db, "authenticated", "public.fluxo_pagamentos_execucoes");
+    expect(t.s).toBe(true);
+    expect([t.i, t.u, t.d, t.t]).toEqual([false, false, false, false]);
+    await db.close();
+  });
+
+  it("DEPOIS: anon não alcança nem a view nem a tabela", async () => {
+    const db = await abrir("final");
+    const v = await efetivo(db, "anon", "public.vw_fluxo_pagamentos_monitor");
+    const t = await efetivo(db, "anon", "public.fluxo_pagamentos_execucoes");
+    expect([v.s, v.i, v.u, v.d, v.t]).toEqual([false, false, false, false, false]);
+    expect([t.s, t.i, t.u, t.d, t.t]).toEqual([false, false, false, false, false]);
+    await db.close();
+  });
+
+  it("DEPOIS: service_role continua lendo (ele bypassa RLS)", async () => {
+    const db = await abrir("final");
+    const v = await efetivo(db, "service_role", "public.vw_fluxo_pagamentos_monitor");
+    expect(v.s).toBe(true);
+    expect((await q1(db, `select rolbypassrls b from pg_roles where rolname='service_role'`)).b).toBe(true);
+    await db.close();
+  });
+
+  it("DEPOIS: security_invoker está LIGADO na view", async () => {
+    const db = await abrir("final");
+    const r = await q1(db,
+      `select coalesce(array_to_string(c.reloptions,','),'(sem)') op
+         from pg_class c join pg_namespace n on n.oid=c.relnamespace
+        where n.nspname='public' and c.relname='vw_fluxo_pagamentos_monitor'`);
+    expect(r.op).toMatch(/security_invoker=(true|on)/);
+    await db.close();
+  });
+
+  it("DELETE pela view é RECUSADO para authenticated", async () => {
+    const db = await abrir("final");
+    await pag(db, 1);
+    await rodar(db, { lote: 1 });
+    expect((await q1(db, `select count(*)::int n from public.fluxo_pagamentos_execucoes`)).n).toBe(1);
+
+    await db.exec("set role authenticated");
+    await expect(db.query(`delete from public.vw_fluxo_pagamentos_monitor`))
+      .rejects.toThrow(/permission denied|permissão/i);
+    await expect(db.query(`delete from public.fluxo_pagamentos_execucoes`))
+      .rejects.toThrow(/permission denied|permissão/i);
+    await db.exec("reset role");
+
+    expect((await q1(db, `select count(*)::int n from public.fluxo_pagamentos_execucoes`)).n).toBe(1);
+    await db.close();
+  });
+
+  it("a gestão logada LÊ pela view; operador logado vê ZERO linhas (é o RLS)", async () => {
+    const db = await abrir("final");
+    await pag(db, 1);
+    await rodar(db, { lote: 1 });
+
+    await db.exec("set role authenticated");
+    await como(db, GESTAO);
+    const daGestao = await qn(db, `select rodou_em from public.vw_fluxo_pagamentos_monitor`);
+    await como(db, OPERADOR);
+    const doOperador = await qn(db, `select rodou_em from public.vw_fluxo_pagamentos_monitor`);
+    await db.exec("reset role");
+    await como(db, GESTAO);
+
+    expect(daGestao).toHaveLength(1);
+    expect(doOperador).toHaveLength(0); // sem erro: RLS filtra, não recusa
+    await db.close();
+  });
+
+  it("a rodada (SECURITY DEFINER) continua gravando o monitoramento com o RLS ligado", async () => {
+    const db = await abrir("final");
+    await pag(db, 1);
+    const r = await rodar(db, { lote: 1 });
+    expect(r.processados).toBe(1);
+    expect((await q1(db, `select count(*)::int n from public.fluxo_pagamentos_execucoes`)).n).toBe(1);
+    await db.close();
+  });
+
+  it("o rollback das permissões devolve o estado anterior", async () => {
+    const db = await abrir("final");
+    await db.exec(RB_PERM);
+    const v = await q1(db, `select
+        has_table_privilege('authenticated','public.vw_fluxo_pagamentos_monitor','delete') d,
+        coalesce(array_to_string(c.reloptions,','),'(sem)') op
+      from pg_class c join pg_namespace n on n.oid=c.relnamespace
+      where n.nspname='public' and c.relname='vw_fluxo_pagamentos_monitor'`);
+    expect(v.d).toBe(true);
+    expect(v.op).toMatch(/security_invoker=(false|off)|^\(sem\)$/);
+    await db.close();
+  });
+});
+
+// ===========================================================================
+// CORREÇÃO 2 — a prévia não escreve, e isso é GARANTIA do banco.
+// ===========================================================================
+describe("PRÉVIA: subtransação sempre revertida", () => {
+  // Digital de LINHA INTEIRA, não só de status_conciliacao. Qualquer coluna
+  // que mude em qualquer das seis tabelas muda o hash.
+  const digitalFinanceira = async (db) => await q1(db, `select
+      md5(coalesce((select string_agg(p::text, '|' order by p.id) from public.pagamentos p),'')) pagamentos,
+      md5(coalesce((select string_agg(x::text, '|' order by x.id) from public.parcelas x),'')) parcelas,
+      md5(coalesce((select string_agg(a::text, '|' order by a.id) from public.acordos a),'')) acordos,
+      md5(coalesce((select string_agg(b::text, '|' order by b.id) from public.baixas_pagamento b),'')) baixas,
+      md5(coalesce((select string_agg(u::text, '|' order by u.id) from public.auditoria u),'')) auditoria,
+      md5(coalesce((select string_agg(f::text, '|' order by f.id) from public.fila_pagamento_sem_vinculo f),'')) fila,
+      (select count(*)::int from public.pagamentos) n_pag,
+      (select count(*)::int from public.parcelas) n_parc,
+      (select count(*)::int from public.acordos) n_ac,
+      (select count(*)::int from public.baixas_pagamento) n_baixas,
+      (select count(*)::int from public.auditoria) n_aud,
+      (select count(*)::int from public.fila_pagamento_sem_vinculo) n_fila,
+      (select count(*)::int from public._efeito_indireto) n_gatilho`);
+
+  // Monta um cenário com conteúdo nas seis tabelas e o dublê SUJO ligado.
+  async function cenarioSujo(db) {
+    for (let n = 1; n <= 3; n++) await pag(db, n, { motorStatus: "BAIXADO", baixou: true });
+    await db.query(`insert into public.parcelas (id, acordo_id, numero, valor, vencimento, status)
+                    values ($1,$2,1,500,'2026-10-10','A_VENCER')`, [U(7001), U(7101)]);
+    await db.query(`insert into public.acordos (id, aluno_id, status, saldo)
+                    values ($1,$2,'ATIVO',500)`, [U(7101), U(901)]);
+    await db.query(`insert into public.baixas_pagamento (id, aluno_id, valor_pago, status_baixa)
+                    values ($1,$2,500,'AGUARDANDO')`, [U(7201), U(901)]);
+    await db.query(`insert into public.auditoria (usuario, acao) values ('setup','SETUP')`);
+    await db.query(`insert into public._dub_sujo (ligado) values (true)`);
+  }
+
+  it("SENSIBILIDADE: com o dublê sujo, o modo APLICADO muda tudo — o teste detecta escrita", async () => {
+    const db = await abrir("final");
+    await cenarioSujo(db);
+    const antes = await digitalFinanceira(db);
+    await rodar(db, { lote: 3, aplicar: true });
+    const depois = await digitalFinanceira(db);
+    // Se o teste não detectasse escrita, o caso seguinte não valeria nada.
+    expect(depois.pagamentos).not.toBe(antes.pagamentos);
+    expect(depois.parcelas).not.toBe(antes.parcelas);
+    expect(depois.acordos).not.toBe(antes.acordos);
+    expect(depois.auditoria).not.toBe(antes.auditoria);
+    expect(depois.fila).not.toBe(antes.fila);
+    expect(depois.n_gatilho).toBeGreaterThan(antes.n_gatilho);
+    await db.close();
+  });
+
+  it("A PROVA: na prévia, o MESMO dublê sujo não deixa UMA linha para trás", async () => {
+    const db = await abrir("final");
+    await cenarioSujo(db);
+    const antes = await digitalFinanceira(db);
+
+    const r = await rodar(db, { lote: 3, aplicar: false });
+    const depois = await digitalFinanceira(db);
+
+    // seis tabelas, linha inteira, e as contagens
+    expect(depois.pagamentos).toBe(antes.pagamentos);
+    expect(depois.parcelas).toBe(antes.parcelas);
+    expect(depois.acordos).toBe(antes.acordos);
+    expect(depois.baixas).toBe(antes.baixas);
+    expect(depois.auditoria).toBe(antes.auditoria);
+    expect(depois.fila).toBe(antes.fila);
+    expect(depois.n_pag).toBe(antes.n_pag);
+    expect(depois.n_parc).toBe(antes.n_parc);
+    expect(depois.n_ac).toBe(antes.n_ac);
+    expect(depois.n_baixas).toBe(antes.n_baixas);
+    expect(depois.n_aud).toBe(antes.n_aud);
+    expect(depois.n_fila).toBe(antes.n_fila);
+    // EFEITO INDIRETO: o gatilho de `pagamentos` também foi desfeito
+    expect(depois.n_gatilho).toBe(antes.n_gatilho);
+
+    // e a prévia ainda informa o que teria acontecido
+    expect(r.modo).toBe("previa");
+    expect(r.previa_revertida).toBe(true);
+    expect(r.processados).toBe(3);
+    await db.close();
+  });
+
+  it("o RESULTADO do motor sobrevive à reversão (variável de PL/pgSQL não é transacional)", async () => {
+    const db = await abrir("final");
+    await cenarioSujo(db);
+    const r = await rodar(db, { lote: 3, aplicar: false });
+    // o dublê devolveu status BAIXADO e baixou=true; a contagem veio dele
+    expect(r.por_status.BAIXADO).toBe(3);
+    expect(r.baixados).toBe(3);
+    // ...e nada disso virou escrita
+    expect((await q1(db, `select count(*)::int n from public.pagamentos
+                           where status_conciliacao='SUJO_ESCREVEU'`)).n).toBe(0);
+    await db.close();
+  });
+
+  it("a ÚNICA escrita que sobra na prévia é o registro de monitoramento", async () => {
+    const db = await abrir("final");
+    await cenarioSujo(db);
+    const execAntes = (await q1(db, `select count(*)::int n from public.fluxo_pagamentos_execucoes`)).n;
+    await rodar(db, { lote: 3, aplicar: false });
+    const m = await q1(db, `select * from public.vw_fluxo_pagamentos_monitor limit 1`);
+    expect((await q1(db, `select count(*)::int n from public.fluxo_pagamentos_execucoes`)).n)
+      .toBe(execAntes + 1);
+    expect(m.situacao).toBe("previa");
+    expect(m.processados).toBe(3);
+    await db.close();
+  });
+
+  it("na prévia o indicador gerencial nunca é tocado, mesmo com baixados > 0", async () => {
+    const db = await abrir("final");
+    await cenarioSujo(db);
+    const r = await rodar(db, { lote: 3, aplicar: false });
+    expect(r.baixados).toBe(3);
+    expect(r.indicadores).toBe("nao_precisou");
+    expect((await q1(db, `select count(*)::int n from public._dub_indicadores`)).n).toBe(0);
+    await db.close();
+  });
+
+  it("erro REAL do motor na prévia é contado como erro, não confundido com a reversão", async () => {
+    const db = await abrir("final");
+    await pag(db, 1, { levanta: "falha de verdade" });
+    await pag(db, 2);
+    const r = await rodar(db, { lote: 2, aplicar: false });
+    expect(r.erros).toBe(1);
+    expect(r.primeiro_erro).toMatch(/falha de verdade/);
+    expect(r.processados).toBe(1);
+    await db.close();
+  });
+
+  it("o modo aplicado segue funcionando igual depois da correção", async () => {
+    const db = await abrir("final");
+    for (let n = 1; n <= 4; n++) await pag(db, n, { motorStatus: "BAIXADO", baixou: true });
+    const r = await rodar(db, { lote: 4, aplicar: true });
+    expect(r.processados).toBe(4);
+    expect(r.baixados).toBe(4);
+    expect(r.previa_revertida).toBe(false);
+    expect(r.indicadores).toBe("atualizado");
+    expect((await q1(db, `select count(*)::int n from public.pagamentos
+                           where status_conciliacao='BAIXADO'`)).n).toBe(4);
     await db.close();
   });
 });
