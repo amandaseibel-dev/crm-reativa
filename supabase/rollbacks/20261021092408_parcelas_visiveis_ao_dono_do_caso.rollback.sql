@@ -1,4 +1,4 @@
--- ROLLBACK de 20261020173531_parcelas_visiveis_ao_dono_do_caso.sql
+-- ROLLBACK de 20261021092408_parcelas_visiveis_ao_dono_do_caso.sql
 --
 -- SO DDL, SO duas funcoes de LEITURA. Nenhuma tabela, nenhum gatilho, nenhum
 -- dado -- nao ha dado a restaurar, porque a migration nao escreveu nada. Os

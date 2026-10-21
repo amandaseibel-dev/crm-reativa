@@ -1,7 +1,7 @@
 // PARCELA DE ACORDO VISÍVEL PARA O DONO DO CASO -- teste de comportamento.
 //
 // Roda a MIGRATION REAL
-// (supabase/migrations/20261020173531_parcelas_visiveis_ao_dono_do_caso.sql) e o
+// (supabase/migrations/20261021092408_parcelas_visiveis_ao_dono_do_caso.sql) e o
 // ROLLBACK REAL num PostgreSQL real (PGlite), sobre duas fixtures com o texto
 // EXATO de producao, cada corpo conferido por md5 do `prosrc`:
 //
@@ -43,8 +43,8 @@ const FIXTURE = ler("supabase/tests/fixtures/fidelizacao_por_dono_prod_20260930.
 const MD5_BASE = JSON.parse(ler("supabase/tests/fixtures/fidelizacao_por_dono_prod_20260930.md5.json"));
 const COMPLEMENTO = ler("supabase/tests/fixtures/parcelas_visiveis_prod_20261020.sql");
 const MD5_COMPL = JSON.parse(ler("supabase/tests/fixtures/parcelas_visiveis_prod_20261020.md5.json"));
-const MIGRATION = ler("supabase/migrations/20261020173531_parcelas_visiveis_ao_dono_do_caso.sql");
-const ROLLBACK = ler("supabase/rollbacks/20261020173531_parcelas_visiveis_ao_dono_do_caso.rollback.sql");
+const MIGRATION = ler("supabase/migrations/20261021092408_parcelas_visiveis_ao_dono_do_caso.sql");
+const ROLLBACK = ler("supabase/rollbacks/20261021092408_parcelas_visiveis_ao_dono_do_caso.rollback.sql");
 
 const DONO_CASO = "cobranca05@aelbra.com.br";   // LUANA -- o responsavel operacional
 const DONO_ACORDO = "cobranca06@aelbra.com.br"; // MAURICIO -- quem fechou a negociacao
