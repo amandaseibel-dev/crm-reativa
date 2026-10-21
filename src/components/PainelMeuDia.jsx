@@ -14,6 +14,7 @@
 // "Semana", agrupada por dia -- a tela abre sempre em "Hoje".
 import { useState } from "react";
 import { formatarDataBR, formatarValorBRL, rotuloDiasRestantes, chaveAlerta } from "../utils/alertasParcela";
+import { situacaoAcionamento } from "../utils/acionamentoAlerta";
 import {
   JANELA_BOLETOS_DIAS,
   agruparRetornosPorDia,
@@ -143,6 +144,7 @@ function LinhaRetorno({ item, mostrarResponsavel, onAbrirFicha, confirmandoRetor
 }
 
 export default function PainelMeuDia({
+  acionamentoPorAluno = null,
   hoje,
   retornos = [],
   retornoAutomaticoHoje = 0,
@@ -275,6 +277,20 @@ export default function PainelMeuDia({
                   {b.boleto ? ` · boleto ${b.boleto}` : ""}
                   {mostrarResponsavel && b.responsavel_email ? ` · ${b.responsavel_email}` : ""}
                 </div>
+                {/* Situacao do acionamento do ALUNO -- nunca da parcela. Nao ha
+                    registro que ligue contato a parcela; ver o cabecalho de
+                    utils/acionamentoAlerta.js. Aqui a parcela ainda VAI vencer,
+                    entao o que interessa e se ja houve aviso preventivo. */}
+                {acionamentoPorAluno && (
+                  <div style={S.meta} data-testid="meu-dia-boleto-acionamento">
+                    {situacaoAcionamento({
+                      dua: acionamentoPorAluno.get?.(String(b.aluno_id))?.dua,
+                      vencimento: b.vencimento,
+                      hoje,
+                      temCaso: Boolean(acionamentoPorAluno.get?.(String(b.aluno_id))),
+                    }).texto}
+                  </div>
+                )}
               </div>
             </div>
           ))

@@ -19,8 +19,11 @@ describe("AlertasParcelaAcordo", () => {
     expect(item.textContent).toMatch(/Aluna Teste/);
     expect(item.textContent).toMatch(/Acordo #10 · parcela 4/);
     expect(item.textContent).toMatch(/665,98/);
-    expect(item.textContent).toMatch(/19\/10\/2026/);
     expect(item.textContent).toMatch(/vence em 2 dias/);
+    // A data completa saiu do texto corrido e virou `title` da coluna de
+    // vencimento: a linha mostra "vence em 2 dias" (regra 4 -- vencimento OU
+    // dias de atraso), e a data exata continua a um passar de mouse.
+    expect(item.querySelector('[title="vencimento 19/10/2026"]')).toBeTruthy();
     expect(item.textContent).toMatch(/cobranca06@aelbra.com.br/);
     fireEvent.click(screen.getByText("Abrir ficha"));
     expect(abrir).toHaveBeenCalledWith(expect.objectContaining({ aluno_id: "a1" }));
@@ -92,5 +95,61 @@ describe("AlertasParcelaAcordo: resumo compacto e expansao", () => {
     render(<AlertasParcelaAcordo alertas={muitos(30)} onAbrirFicha={abrir} limite={3} />);
     fireEvent.click(screen.getAllByText("Abrir ficha")[0]);
     expect(abrir).toHaveBeenCalledWith(expect.objectContaining({ aluno_id: expect.any(String) }));
+  });
+});
+
+// Situacao de acionamento na linha (21/10/2026). O rotulo fala do ALUNO: nao ha
+// registro que ligue contato a parcela.
+describe("AlertasParcelaAcordo: situacao do acionamento", () => {
+  const HOJE = "2026-10-21";
+  const venc = (o) => A({ vencimento: "2026-10-15", dias_restantes: -6, ...o });
+
+  it("mostra o selo com o texto da situacao", () => {
+    const idx = new Map([["a1", { dua: "2026-10-18", temCaso: true }]]);
+    render(<AlertasParcelaAcordo alertas={[venc()]} onAbrirFicha={() => {}} acionamentoPorAluno={idx} hoje={HOJE} />);
+    expect(screen.getByTestId("alerta-parcela-acionamento").textContent).toBe("Acionado há 3 dias · após o vencimento");
+  });
+
+  it("aluno sem caso na fila recebe a indicacao NEUTRA, nao um palpite", () => {
+    render(<AlertasParcelaAcordo alertas={[venc()]} onAbrirFicha={() => {}} acionamentoPorAluno={new Map()} hoje={HOJE} />);
+    const t = screen.getByTestId("alerta-parcela-acionamento").textContent;
+    expect(t).toBe("Sem aviso específico identificado");
+    expect(t).not.toMatch(/Acionado/);
+  });
+
+  it("caso sem data => Nao acionado", () => {
+    const idx = new Map([["a1", { dua: null, temCaso: true }]]);
+    render(<AlertasParcelaAcordo alertas={[venc()]} onAbrirFicha={() => {}} acionamentoPorAluno={idx} hoje={HOJE} />);
+    expect(screen.getByTestId("alerta-parcela-acionamento").textContent).toBe("Não acionado");
+  });
+
+  it("sem o indice, a linha NAO inventa selo nenhum", () => {
+    render(<AlertasParcelaAcordo alertas={[venc()]} onAbrirFicha={() => {}} hoje={HOJE} />);
+    expect(screen.queryByTestId("alerta-parcela-acionamento")).toBeNull();
+  });
+
+  it("no recorte compacto, quem nao tem aviso comprovado aparece primeiro", () => {
+    const alertas = [
+      venc({ aluno_id: "ok", aluno_nome: "Ja acionado depois", acordo_id: "c1", parcela_id: "p1" }),
+      venc({ aluno_id: "nunca", aluno_nome: "Nunca acionado", acordo_id: "c2", parcela_id: "p2" }),
+    ];
+    const idx = new Map([
+      ["ok", { dua: "2026-10-18", temCaso: true }],
+      ["nunca", { dua: null, temCaso: true }],
+    ]);
+    render(<AlertasParcelaAcordo alertas={alertas} onAbrirFicha={() => {}} acionamentoPorAluno={idx} hoje={HOJE} limite={1} />);
+    const itens = screen.getAllByTestId("alerta-parcela-item");
+    expect(itens).toHaveLength(1);
+    expect(itens[0].textContent).toMatch(/Nunca acionado/);
+  });
+
+  it("a linha mostra os quatro dados da regra: nome, atraso, valor e situacao", () => {
+    const idx = new Map([["a1", { dua: "2026-10-18", temCaso: true }]]);
+    render(<AlertasParcelaAcordo alertas={[venc()]} onAbrirFicha={() => {}} acionamentoPorAluno={idx} hoje={HOJE} />);
+    const t = screen.getByTestId("alerta-parcela-item").textContent;
+    expect(t).toMatch(/Aluna Teste/);
+    expect(t).toMatch(/6 dias de atraso/);
+    expect(t).toMatch(/665,98/);
+    expect(t).toMatch(/Acionado há 3 dias · após o vencimento/);
   });
 });

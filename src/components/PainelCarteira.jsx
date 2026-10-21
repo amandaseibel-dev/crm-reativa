@@ -12,6 +12,7 @@ import {
   somarMinutos,
 } from "../utils/alarmeRetorno";
 import { normalizarAlertas } from "../utils/alertasParcela";
+import { indiceAcionamento } from "../utils/acionamentoAlerta";
 import {
   JANELA_BOLETOS_DIAS,
   JANELA_RETORNOS_DIAS,
@@ -2752,6 +2753,12 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     () => alertasForaDaJanela.filter((a) => Number(a.dias_restantes) >= 0),
     [alertasForaDaJanela],
   );
+  // Situacao de acionamento por aluno, a partir da fila ja carregada. NAO
+  // consulta nada: usa `casos`, que a tela ja tem em memoria. Ver o cabecalho
+  // de utils/acionamentoAlerta.js para o que existe (e o que NAO existe) como
+  // prova de contato.
+  const acionamentoPorAluno = useMemo(() => indiceAcionamento(casos), [casos]);
+
   const alertasVencidos = useMemo(
     () => alertasForaDaJanela.filter((a) => Number(a.dias_restantes) < 0),
     [alertasForaDaJanela],
@@ -3106,6 +3113,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             onAbrirFicha={abrirFichaDoMeuDia}
             onConfirmarRetorno={(id, confirmar) => confirmarRetornoAgenda(id, confirmar)}
             onVerRetornosNaFila={() => onKpiClick("retornosHoje")}
+            acionamentoPorAluno={acionamentoPorAluno}
           />
 
           {/* Ordem da primeira tela: retorno vencido e de hoje (Meu dia, acima)
@@ -3121,6 +3129,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             titulo="🔔 Parcela de acordo a vencer"
             mostrarResponsavel={veTudo}
             onAbrirFicha={abrirFichaDoMeuDia}
+            acionamentoPorAluno={acionamentoPorAluno}
+            hoje={hojeLocalBR()}
+            limite={LIMITE_ALERTA_VENCIDO}
           />
 
           <AlertasParcelaAcordo
@@ -3130,6 +3141,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             onAbrirFicha={abrirFichaDoMeuDia}
             limite={LIMITE_ALERTA_VENCIDO}
             rotuloExpandir="Ver todas as vencidas"
+            acionamentoPorAluno={acionamentoPorAluno}
+            hoje={hojeLocalBR()}
           />
 
           {!veTudo && desempenho && (
