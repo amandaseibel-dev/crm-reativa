@@ -29,10 +29,15 @@
 // parcelas vencidas: 684 com acionamento APÓS, 170 só ANTES, 74 no próprio dia,
 // 71 hoje e 23 sem caso.
 
-export const SEM_AVISO = "Sem aviso específico identificado";
-export const NAO_ACIONADO = "Não acionado";
+export const SEM_REGISTRO = "Sem registro";
 
-// Buckets de prioridade: quanto MENOR, mais em evidência no recorte compacto.
+// Contexto que acompanha o indicador. Existe porque o texto curto, sozinho,
+// poderia ser lido como "esta parcela foi avisada" -- e isso nao se sabe.
+export const CONTEXTO =
+  "Último acionamento registrado do aluno. Não comprova aviso desta parcela: " +
+  "o CRM não guarda contato por parcela.";
+
+// Buckets de prioridade: quanto MENOR, mais em evidencia no recorte compacto.
 // Nao contraria a prioridade operacional ja estabelecida (dias_restantes) --
 // ela continua ordenando DENTRO de cada bucket.
 export const PRIORIDADE = {
@@ -51,32 +56,42 @@ function diasEntre(de, ate) {
 }
 
 export function textoDias(n) {
-  if (n === 0) return "hoje";
-  if (n === 1) return "há 1 dia";
-  return `há ${n} dias`;
+  if (n === 0) return "Hoje";
+  if (n === 1) return "Há 1 dia";
+  return `Há ${n} dias`;
 }
 
+function dataBR(iso) {
+  const p = String(iso || "").slice(0, 10).split("-");
+  return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : "";
+}
+
+// UM indicador por linha. `curto` e o que aparece; `detalhe` e o contexto
+// acessivel (title + aria-label), onde entra o antes/apos -- que e comparacao
+// de datas, verificavel, e por isso pode ser afirmado.
+//
 // `temCaso` false = o alerta existe mas nenhum caso do aluno esta sob operador,
 // entao nao ha nem de onde ler a data. Medido: 23 das 1.022.
 export function situacaoAcionamento({ dua, vencimento, hoje, temCaso = true } = {}) {
-  if (!temCaso) return { texto: SEM_AVISO, prioridade: PRIORIDADE.SEM_CASO, acionado: false };
-  if (!dua) return { texto: NAO_ACIONADO, prioridade: PRIORIDADE.NAO_ACIONADO, acionado: false };
+  const semRegistro = (motivo) => ({
+    curto: SEM_REGISTRO, detalhe: `${CONTEXTO} ${motivo}`,
+    prioridade: temCaso ? PRIORIDADE.NAO_ACIONADO : PRIORIDADE.SEM_CASO, acionado: false,
+  });
+  if (!temCaso) return semRegistro("Nenhum caso deste aluno está com operador.");
+  if (!dua) return semRegistro("O caso não tem data de acionamento registrada.");
 
   const dias = diasEntre(dua, hoje);
-  if (dias === null || dias < 0) {
-    // Data futura ou ilegivel: nao da para afirmar nada sem presumir.
-    return { texto: SEM_AVISO, prioridade: PRIORIDADE.SEM_CASO, acionado: false };
-  }
-  const base = dias === 0 ? "Acionado hoje" : `Acionado ${textoDias(dias)}`;
+  if (dias === null || dias < 0) return semRegistro("A data registrada não é utilizável.");
 
+  const curto = textoDias(dias);
+  const quando = `Registrado em ${dataBR(dua)}.`;
   const d = String(dua).slice(0, 10);
   const v = String(vencimento || "").slice(0, 10);
-  if (!v) return { texto: base, prioridade: PRIORIDADE.ACIONADO, acionado: true };
 
-  if (d < v) return { texto: `${base} · antes do vencimento`, prioridade: PRIORIDADE.SO_ANTES, acionado: true };
-  if (d > v) return { texto: `${base} · após o vencimento`, prioridade: PRIORIDADE.ACIONADO, acionado: true };
-  // Mesmo dia: nao da para dizer se foi antes ou depois de vencer.
-  return { texto: base, prioridade: PRIORIDADE.NO_DIA, acionado: true };
+  if (!v) return { curto, detalhe: `${CONTEXTO} ${quando}`, prioridade: PRIORIDADE.ACIONADO, acionado: true };
+  if (d < v) return { curto, detalhe: `${CONTEXTO} ${quando} Foi ANTES do vencimento (${dataBR(v)}).`, prioridade: PRIORIDADE.SO_ANTES, acionado: true };
+  if (d > v) return { curto, detalhe: `${CONTEXTO} ${quando} Foi APÓS o vencimento (${dataBR(v)}).`, prioridade: PRIORIDADE.ACIONADO, acionado: true };
+  return { curto, detalhe: `${CONTEXTO} ${quando} Foi no próprio dia do vencimento.`, prioridade: PRIORIDADE.NO_DIA, acionado: true };
 }
 
 // Dias de atraso para a linha de uma parcela VENCIDA. `dias_restantes` ja vem

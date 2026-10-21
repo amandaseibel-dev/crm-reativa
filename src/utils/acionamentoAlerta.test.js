@@ -1,69 +1,80 @@
 // Regras de apresentacao da situacao de acionamento. Funcoes PURAS.
 //
-// O ponto que estes testes protegem: o rotulo fala do ALUNO, nunca da parcela.
-// Nenhuma tabela de contato carrega parcela_id (conferido em producao em
-// 21/10/2026), entao afirmar "esta parcela foi avisada" seria presumir.
+// O ponto que estes testes protegem: o indicador fala do ALUNO, nunca da
+// parcela. Nenhuma tabela de contato carrega parcela_id (conferido em producao
+// em 21/10/2026), entao afirmar "esta parcela foi avisada" seria presumir.
 import { describe, it, expect } from "vitest";
 import {
   situacaoAcionamento, textoDias, textoVencimento, indiceAcionamento,
-  ordenarPorAcionamento, PRIORIDADE, SEM_AVISO, NAO_ACIONADO,
+  ordenarPorAcionamento, PRIORIDADE, SEM_REGISTRO, CONTEXTO,
 } from "./acionamentoAlerta";
 
 const HOJE = "2026-10-21";
 
-describe("situacaoAcionamento: so afirma o que esta registrado", () => {
-  it("sem caso sob operador nao ha de onde ler a data: indicacao NEUTRA", () => {
-    const s = situacaoAcionamento({ dua: null, vencimento: "2026-10-10", hoje: HOJE, temCaso: false });
-    expect(s.texto).toBe(SEM_AVISO);
-    expect(s.acionado).toBe(false);
-    expect(s.prioridade).toBe(PRIORIDADE.SEM_CASO);
+describe("situacaoAcionamento: texto curto, ressalva no contexto", () => {
+  it("o contexto SEMPRE diz que e do aluno e que nao comprova a parcela", () => {
+    for (const caso of [
+      { dua: null, temCaso: false },
+      { dua: null, temCaso: true },
+      { dua: "2026-10-18", temCaso: true },
+    ]) {
+      const s = situacaoAcionamento({ ...caso, vencimento: "2026-10-15", hoje: HOJE });
+      expect(s.detalhe).toContain(CONTEXTO);
+      expect(s.detalhe).toMatch(/Não comprova aviso desta parcela/);
+    }
   });
 
-  it("caso sem data de acionamento => Nao acionado", () => {
-    const s = situacaoAcionamento({ dua: null, vencimento: "2026-10-10", hoje: HOJE });
-    expect(s.texto).toBe(NAO_ACIONADO);
-    expect(s.prioridade).toBe(PRIORIDADE.NAO_ACIONADO);
+  it("so tres textos curtos existem: Hoje, Ha X dias, Sem registro", () => {
+    expect(situacaoAcionamento({ dua: HOJE, vencimento: "2026-10-15", hoje: HOJE }).curto).toBe("Hoje");
+    expect(situacaoAcionamento({ dua: "2026-10-18", vencimento: "2026-10-15", hoje: HOJE }).curto).toBe("Há 3 dias");
+    expect(situacaoAcionamento({ dua: null, hoje: HOJE }).curto).toBe(SEM_REGISTRO);
+    expect(situacaoAcionamento({ dua: null, hoje: HOJE, temCaso: false }).curto).toBe(SEM_REGISTRO);
   });
 
-  it("acionado hoje", () => {
-    expect(situacaoAcionamento({ dua: HOJE, vencimento: "2026-10-10", hoje: HOJE }).texto)
-      .toBe("Acionado hoje · após o vencimento");
+  it("sem caso e sem data dao o MESMO texto curto, e motivos diferentes no contexto", () => {
+    const semCaso = situacaoAcionamento({ dua: null, hoje: HOJE, temCaso: false });
+    const semData = situacaoAcionamento({ dua: null, hoje: HOJE, temCaso: true });
+    expect(semCaso.curto).toBe(semData.curto);
+    expect(semCaso.detalhe).toMatch(/Nenhum caso deste aluno está com operador/);
+    expect(semData.detalhe).toMatch(/não tem data de acionamento registrada/);
+    // Sem caso e pior: aparece antes no recorte compacto.
+    expect(semCaso.prioridade).toBeLessThan(semData.prioridade);
   });
 
-  it("acionado ANTES do vencimento: aviso preventivo nao substitui o de depois", () => {
-    const s = situacaoAcionamento({ dua: "2026-10-08", vencimento: "2026-10-15", hoje: HOJE });
-    expect(s.texto).toBe("Acionado há 13 dias · antes do vencimento");
-    // Fica em EVIDENCIA: so houve preventivo, o pos-vencimento nao aconteceu.
-    expect(s.prioridade).toBe(PRIORIDADE.SO_ANTES);
+  it("o antes/apos vai para o CONTEXTO, nao para um segundo selo", () => {
+    const antes = situacaoAcionamento({ dua: "2026-10-08", vencimento: "2026-10-15", hoje: HOJE });
+    expect(antes.curto).toBe("Há 13 dias");
+    expect(antes.curto).not.toMatch(/antes|após/);
+    expect(antes.detalhe).toMatch(/Foi ANTES do vencimento \(15\/10\/2026\)/);
+    expect(antes.prioridade).toBe(PRIORIDADE.SO_ANTES);
+
+    const apos = situacaoAcionamento({ dua: "2026-10-18", vencimento: "2026-10-15", hoje: HOJE });
+    expect(apos.detalhe).toMatch(/Foi APÓS o vencimento \(15\/10\/2026\)/);
+    expect(apos.prioridade).toBe(PRIORIDADE.ACIONADO);
   });
 
-  it("acionado APOS o vencimento", () => {
-    const s = situacaoAcionamento({ dua: "2026-10-18", vencimento: "2026-10-15", hoje: HOJE });
-    expect(s.texto).toBe("Acionado há 3 dias · após o vencimento");
-    expect(s.prioridade).toBe(PRIORIDADE.ACIONADO);
-  });
-
-  it("acionado NO DIA do vencimento: nao afirma antes nem depois", () => {
+  it("no proprio dia do vencimento nao afirma antes nem depois", () => {
     const s = situacaoAcionamento({ dua: "2026-10-15", vencimento: "2026-10-15", hoje: HOJE });
-    expect(s.texto).toBe("Acionado há 6 dias");
-    expect(s.texto).not.toMatch(/antes|após/);
+    expect(s.detalhe).toMatch(/no próprio dia do vencimento/);
+    expect(s.detalhe).not.toMatch(/ANTES|APÓS/);
     expect(s.prioridade).toBe(PRIORIDADE.NO_DIA);
   });
 
-  it("data futura ou ilegivel nao vira afirmacao: cai no neutro", () => {
-    expect(situacaoAcionamento({ dua: "2026-12-01", vencimento: "2026-10-15", hoje: HOJE }).texto).toBe(SEM_AVISO);
-    expect(situacaoAcionamento({ dua: "nao-e-data", vencimento: "2026-10-15", hoje: HOJE }).texto).toBe(SEM_AVISO);
+  it("data futura ou ilegivel nao vira afirmacao", () => {
+    expect(situacaoAcionamento({ dua: "2026-12-01", vencimento: "2026-10-15", hoje: HOJE }).curto).toBe(SEM_REGISTRO);
+    expect(situacaoAcionamento({ dua: "nao-e-data", vencimento: "2026-10-15", hoje: HOJE }).curto).toBe(SEM_REGISTRO);
   });
 
-  it("sem vencimento conhecido, nao inventa o sufixo", () => {
+  it("sem vencimento conhecido, o contexto nao inventa a comparacao", () => {
     const s = situacaoAcionamento({ dua: "2026-10-18", vencimento: null, hoje: HOJE });
-    expect(s.texto).toBe("Acionado há 3 dias");
+    expect(s.curto).toBe("Há 3 dias");
+    expect(s.detalhe).not.toMatch(/ANTES|APÓS|vencimento \(/);
   });
 
   it("um dia no singular", () => {
-    expect(textoDias(1)).toBe("há 1 dia");
-    expect(textoDias(0)).toBe("hoje");
-    expect(textoDias(9)).toBe("há 9 dias");
+    expect(textoDias(1)).toBe("Há 1 dia");
+    expect(textoDias(0)).toBe("Hoje");
+    expect(textoDias(9)).toBe("Há 9 dias");
   });
 });
 

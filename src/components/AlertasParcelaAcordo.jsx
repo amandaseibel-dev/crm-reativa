@@ -33,7 +33,10 @@ const S = {
   col: { fontSize: 12, color: "var(--rv-texto-suave)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   valor: { fontSize: 12.5, fontWeight: 700, color: "var(--rv-texto)", textAlign: "right" },
   ref: { fontSize: 11, color: "var(--rv-texto-fraco)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  selo: { fontSize: 11.5, fontWeight: 700, borderRadius: 999, padding: "2px 8px", display: "inline-block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  // Indicador DISCRETO: um ponto colorido e o texto curto. Pill cheia em toda
+  // linha vira ruido quando sao cinco linhas empilhadas.
+  selo: { fontSize: 11.5, color: "var(--rv-texto-suave)", display: "inline-flex", alignItems: "center", gap: 5, maxWidth: "100%", whiteSpace: "nowrap", cursor: "help" },
+  ponto: { width: 7, height: 7, borderRadius: 999, flex: "0 0 auto" },
   botao: { border: "1px solid var(--rv-borda)", borderRadius: 8, padding: "5px 9px", background: "var(--rv-fundo)", color: "var(--rv-texto)", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" },
   verTodas: { marginTop: 6, border: "1px dashed var(--rv-borda)", borderRadius: 8, padding: "6px 10px", background: "transparent", color: "var(--rv-azul-texto)", cursor: "pointer", fontWeight: 700, fontSize: 12.5, width: "100%" },
 };
@@ -115,19 +118,21 @@ export default function AlertasParcelaAcordo({
           <div className="apa-valor" style={S.valor}>{formatarValorBRL(a.valor)}</div>
           {/* Sem o indice a tela NAO consultou nada -- entao nao afirma nada,
               nem o neutro: "sem aviso identificado" sugeriria que procuramos. */}
+          {/* UM indicador por linha. O antes/apos nao vira um segundo selo: vai
+              no contexto acessivel (title + aria-label), que e onde cabe a
+              ressalva de que isto e o ultimo acionamento do ALUNO. */}
           <div className="apa-selo" style={{ minWidth: 0 }}>
             {acionamentoPorAluno && (() => {
               const info = acionamentoPorAluno.get ? acionamentoPorAluno.get(String(a.aluno_id)) : null;
               const s = situacaoAcionamento({ dua: info?.dua, vencimento: a.vencimento, hoje, temCaso: Boolean(info) });
               const cor =
-                s.prioridade <= PRIORIDADE.NAO_ACIONADO
-                  ? { background: "var(--rv-vermelho-fundo, #fee2e2)", color: "var(--rv-vermelho, #b91c1c)" }
-                  : s.prioridade === PRIORIDADE.SO_ANTES
-                    ? { background: "var(--rv-ambar-fundo, #fef3c7)", color: "var(--rv-ambar-texto, #92400e)" }
-                    : { background: "var(--rv-fundo-cartao, #f1f5f9)", color: "var(--rv-texto-suave, #475569)" };
+                s.prioridade <= PRIORIDADE.NAO_ACIONADO ? "var(--rv-vermelho, #b91c1c)"
+                : s.prioridade === PRIORIDADE.SO_ANTES ? "var(--rv-ambar-texto, #b45309)"
+                : "var(--rv-borda, #cbd5e1)";
               return (
-                <span style={{ ...S.selo, ...cor }} title={s.texto} data-testid="alerta-parcela-acionamento">
-                  {s.texto}
+                <span style={S.selo} title={s.detalhe} aria-label={s.detalhe} data-testid="alerta-parcela-acionamento">
+                  <span style={{ ...S.ponto, background: cor }} aria-hidden="true" />
+                  {s.curto}
                 </span>
               );
             })()}

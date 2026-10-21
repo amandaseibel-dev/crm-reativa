@@ -281,16 +281,15 @@ export default function PainelMeuDia({
                     registro que ligue contato a parcela; ver o cabecalho de
                     utils/acionamentoAlerta.js. Aqui a parcela ainda VAI vencer,
                     entao o que interessa e se ja houve aviso preventivo. */}
-                {acionamentoPorAluno && (
-                  <div style={S.meta} data-testid="meu-dia-boleto-acionamento">
-                    {situacaoAcionamento({
-                      dua: acionamentoPorAluno.get?.(String(b.aluno_id))?.dua,
-                      vencimento: b.vencimento,
-                      hoje,
-                      temCaso: Boolean(acionamentoPorAluno.get?.(String(b.aluno_id))),
-                    }).texto}
-                  </div>
-                )}
+                {acionamentoPorAluno && (() => {
+                  const info = acionamentoPorAluno.get?.(String(b.aluno_id));
+                  const s = situacaoAcionamento({ dua: info?.dua, vencimento: b.vencimento, hoje, temCaso: Boolean(info) });
+                  return (
+                    <div style={{ ...S.meta, cursor: "help" }} title={s.detalhe} aria-label={s.detalhe} data-testid="meu-dia-boleto-acionamento">
+                      último acionamento: {s.curto}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           ))

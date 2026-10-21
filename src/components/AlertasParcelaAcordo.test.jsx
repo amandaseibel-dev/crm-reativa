@@ -98,32 +98,45 @@ describe("AlertasParcelaAcordo: resumo compacto e expansao", () => {
   });
 });
 
-// Situacao de acionamento na linha (21/10/2026). O rotulo fala do ALUNO: nao ha
-// registro que ligue contato a parcela.
+// Situacao de acionamento na linha (21/10/2026). UM indicador discreto: texto
+// curto na tela, ressalva no contexto acessivel.
 describe("AlertasParcelaAcordo: situacao do acionamento", () => {
   const HOJE = "2026-10-21";
   const venc = (o) => A({ vencimento: "2026-10-15", dias_restantes: -6, ...o });
+  const selo = () => screen.getByTestId("alerta-parcela-acionamento");
 
-  it("mostra o selo com o texto da situacao", () => {
+  it("mostra o texto CURTO na tela", () => {
     const idx = new Map([["a1", { dua: "2026-10-18", temCaso: true }]]);
     render(<AlertasParcelaAcordo alertas={[venc()]} onAbrirFicha={() => {}} acionamentoPorAluno={idx} hoje={HOJE} />);
-    expect(screen.getByTestId("alerta-parcela-acionamento").textContent).toBe("Acionado há 3 dias · após o vencimento");
+    expect(selo().textContent).toBe("Há 3 dias");
   });
 
-  it("aluno sem caso na fila recebe a indicacao NEUTRA, nao um palpite", () => {
-    render(<AlertasParcelaAcordo alertas={[venc()]} onAbrirFicha={() => {}} acionamentoPorAluno={new Map()} hoje={HOJE} />);
-    const t = screen.getByTestId("alerta-parcela-acionamento").textContent;
-    expect(t).toBe("Sem aviso específico identificado");
-    expect(t).not.toMatch(/Acionado/);
-  });
-
-  it("caso sem data => Nao acionado", () => {
-    const idx = new Map([["a1", { dua: null, temCaso: true }]]);
+  it("a ressalva vai no contexto acessivel, em title E aria-label", () => {
+    const idx = new Map([["a1", { dua: "2026-10-18", temCaso: true }]]);
     render(<AlertasParcelaAcordo alertas={[venc()]} onAbrirFicha={() => {}} acionamentoPorAluno={idx} hoje={HOJE} />);
-    expect(screen.getByTestId("alerta-parcela-acionamento").textContent).toBe("Não acionado");
+    const e = selo();
+    expect(e.getAttribute("title")).toMatch(/Não comprova aviso desta parcela/);
+    expect(e.getAttribute("aria-label")).toBe(e.getAttribute("title"));
+    expect(e.getAttribute("title")).toMatch(/Foi APÓS o vencimento/);
   });
 
-  it("sem o indice, a linha NAO inventa selo nenhum", () => {
+  it("UM indicador por linha, nunca dois", () => {
+    const idx = new Map([["a1", { dua: "2026-10-08", temCaso: true }]]);
+    render(<AlertasParcelaAcordo alertas={[venc()]} onAbrirFicha={() => {}} acionamentoPorAluno={idx} hoje={HOJE} />);
+    expect(screen.getAllByTestId("alerta-parcela-acionamento")).toHaveLength(1);
+    // O antes/apos NAO aparece como texto na linha.
+    expect(screen.getByTestId("alerta-parcela-item").textContent).not.toMatch(/antes do vencimento|após o vencimento/);
+  });
+
+  it("sem caso e sem data dao o mesmo texto curto", () => {
+    render(<AlertasParcelaAcordo alertas={[venc()]} onAbrirFicha={() => {}} acionamentoPorAluno={new Map()} hoje={HOJE} />);
+    expect(selo().textContent).toBe("Sem registro");
+    cleanup();
+    render(<AlertasParcelaAcordo alertas={[venc()]} onAbrirFicha={() => {}} acionamentoPorAluno={new Map([["a1", { dua: null, temCaso: true }]])} hoje={HOJE} />);
+    expect(selo().textContent).toBe("Sem registro");
+  });
+
+  it("sem o indice, a linha NAO inventa indicador nenhum", () => {
     render(<AlertasParcelaAcordo alertas={[venc()]} onAbrirFicha={() => {}} hoje={HOJE} />);
     expect(screen.queryByTestId("alerta-parcela-acionamento")).toBeNull();
   });
@@ -143,13 +156,13 @@ describe("AlertasParcelaAcordo: situacao do acionamento", () => {
     expect(itens[0].textContent).toMatch(/Nunca acionado/);
   });
 
-  it("a linha mostra os quatro dados da regra: nome, atraso, valor e situacao", () => {
+  it("a linha mostra os QUATRO dados da regra, e so eles", () => {
     const idx = new Map([["a1", { dua: "2026-10-18", temCaso: true }]]);
     render(<AlertasParcelaAcordo alertas={[venc()]} onAbrirFicha={() => {}} acionamentoPorAluno={idx} hoje={HOJE} />);
     const t = screen.getByTestId("alerta-parcela-item").textContent;
-    expect(t).toMatch(/Aluna Teste/);
-    expect(t).toMatch(/6 dias de atraso/);
-    expect(t).toMatch(/665,98/);
-    expect(t).toMatch(/Acionado há 3 dias · após o vencimento/);
+    expect(t).toMatch(/Aluna Teste/);        // nome
+    expect(t).toMatch(/6 dias de atraso/);   // vencimento/atraso
+    expect(t).toMatch(/665,98/);             // valor
+    expect(t).toMatch(/Há 3 dias/);          // indicador
   });
 });
