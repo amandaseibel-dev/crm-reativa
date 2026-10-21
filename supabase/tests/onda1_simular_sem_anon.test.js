@@ -1,7 +1,7 @@
 // ONDA 1 · a simulação não responde sem login — teste de PERMISSÃO.
 //
 // Roda a MIGRATION REAL
-// (supabase/migrations/20261021190000_onda1_simular_fecha_anon.sql) e o
+// (supabase/migrations/20261021180155_onda1_simular_fecha_anon.sql) e o
 // ROLLBACK REAL num PostgreSQL real (PGlite).
 //
 // A correção é de PRIVILÉGIO, não de regra: a bancada é mínima de propósito.
@@ -32,8 +32,8 @@ const BASE = ler("supabase/tests/fixtures/fidelizacao_por_dono_prod_20260930.sql
 const M3 = ler("supabase/tests/fixtures/nivelamento_m3_prod_20261021.sql");
 const COMPL = ler("supabase/tests/fixtures/onda1_prod_20261021.sql");
 const FUNCAO = ler("supabase/migrations/20261021172255_onda1_simular.sql");
-const MIGRATION = ler("supabase/migrations/20261021190000_onda1_simular_fecha_anon.sql");
-const ROLLBACK = ler("supabase/rollbacks/20261021190000_onda1_simular_fecha_anon.rollback.sql");
+const MIGRATION = ler("supabase/migrations/20261021180155_onda1_simular_fecha_anon.sql");
+const ROLLBACK = ler("supabase/rollbacks/20261021180155_onda1_simular_fecha_anon.rollback.sql");
 
 const ext = { unaccent, pg_trgm, uuid_ossp };
 const q1 = async (db, sql, p = []) => (await db.query(sql, p)).rows[0];

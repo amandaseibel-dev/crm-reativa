@@ -1,4 +1,4 @@
--- ROLLBACK de 20261021190000_onda1_simular_fecha_anon.sql
+-- ROLLBACK de 20261021180155_onda1_simular_fecha_anon.sql
 --
 -- O QUE REVERTER REINTRODUZ, EM LETRAS MAIÚSCULAS:
 --
