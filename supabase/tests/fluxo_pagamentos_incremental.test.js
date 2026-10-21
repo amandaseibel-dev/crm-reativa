@@ -1,6 +1,6 @@
 // FLUXO DE PAGAMENTOS · RODADA INCREMENTAL — num PostgreSQL real (PGlite).
 //
-// Roda a MIGRATION REAL (supabase/migrations/20261021210000_*.sql) e o ROLLBACK
+// Roda a MIGRATION REAL (supabase/migrations/20261021195950_*.sql) e o ROLLBACK
 // REAL.
 //
 // ESCOPO DECLARADO, para não haver dúvida sobre o que está provado:
@@ -38,8 +38,8 @@ const ler = (p) => readFileSync(resolve(AQUI, "..", "..", p), "utf8");
 
 const BANCADA = ler("supabase/tests/fixtures/fluxo_incremental_prod_20261021.sql");
 const MD5 = JSON.parse(ler("supabase/tests/fixtures/fluxo_incremental_prod_20261021.md5.json"));
-const MIGRATION = ler("supabase/migrations/20261021210000_fluxo_pagamentos_incremental.sql");
-const ROLLBACK = ler("supabase/rollbacks/20261021210000_fluxo_pagamentos_incremental.rollback.sql");
+const MIGRATION = ler("supabase/migrations/20261021195950_fluxo_pagamentos_incremental.sql");
+const ROLLBACK = ler("supabase/rollbacks/20261021195950_fluxo_pagamentos_incremental.rollback.sql");
 
 const GESTAO = "amanda.seibel@aelbra.com.br";
 const OPERADOR = "cobranca05@aelbra.com.br";

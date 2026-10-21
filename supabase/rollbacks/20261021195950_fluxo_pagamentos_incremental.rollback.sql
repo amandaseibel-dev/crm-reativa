@@ -1,4 +1,4 @@
--- ROLLBACK de 20261021210000_fluxo_pagamentos_incremental.sql
+-- ROLLBACK de 20261021195950_fluxo_pagamentos_incremental.sql
 --
 -- O QUE FAZ:     apaga a função `fluxo_pagamentos_incremental` e a view
 --                `vw_fluxo_pagamentos_monitor`.
