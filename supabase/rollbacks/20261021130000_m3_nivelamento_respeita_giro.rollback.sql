@@ -39,6 +39,10 @@ $novo$     -- M3 REVERTIDA por decisao expressa da gestao: o nivelamento voltou 
      -- desprotegido nesta funcao ate que a M3 seja reaplicada.
      and true$novo$, 1);
 
--- Devolve tambem o comentario ao estado anterior: a funcao NAO tinha comentario
--- antes desta migration.
-comment on function public.nivelamento_automatico_gestao(integer, boolean, text[]) is null;
+-- Devolve o comentario ao texto EXATO que producao tinha antes desta migration
+-- (md5 553bb078eb33a0540194bce96b618681, 250 caracteres, conferido em
+-- 21/10/2026). A versao anterior deste arquivo punha `is null` aqui, afirmando
+-- que a funcao nao tinha comentario -- ela TEM, e reverter teria APAGADO o
+-- comentario existente. Corrigido antes de aplicar.
+comment on function public.nivelamento_automatico_gestao(integer, boolean, text[]) is
+  'Tira da base da gestão todo caso com débito vencido há mais de N dias (parcela de acordo ou mensalidade) e distribui para os operadores, dando mais para quem tem menos. p_aplicar=false simula. Roda diariamente pelo cron nivelamento_automatico_gestao.';

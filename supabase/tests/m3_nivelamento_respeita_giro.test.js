@@ -436,14 +436,24 @@ describe("idempotência e rollback", () => {
     await db.close();
   });
 
-  it("o rollback tira o comentário e deixa escrito que a M3 foi revertida", async () => {
+  it("o rollback DEVOLVE o comentário de produção e deixa escrito que a M3 foi revertida", async () => {
+    // A funcao TEM comentario em producao (md5 553bb078eb33a0540194bce96b618681,
+    // 250 caracteres, conferido em 21/10/2026). A primeira versao deste rollback
+    // punha `is null` aqui e teria APAGADO esse comentario -- defeito pego antes
+    // de aplicar, nao depois.
     const db = await comM3();
+    const antes = (await q1(db,
+      `select obj_description(p.oid,'pg_proc') c from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='nivelamento_automatico_gestao'`)).c;
     await db.exec(ROLLBACK);
     const { c, src } = await q1(db,
       `select obj_description(p.oid,'pg_proc') c, p.prosrc src
          from pg_proc p join pg_namespace n on n.oid=p.pronamespace
         where n.nspname='public' and p.proname='nivelamento_automatico_gestao'`);
-    expect(c).toBeNull();
+    expect(c).not.toBeNull();
+    expect(c).not.toBe(antes);
+    expect(c).toMatch(/Tira da base da gestão/);
+    expect(c).not.toMatch(/caso_em_giro_fidelizacao/);
     expect(src).toMatch(/M3 REVERTIDA/);
     await db.close();
   });
