@@ -1,6 +1,6 @@
 // ONDA 1 · SIMULAÇÃO DO LOTE A — comportamento, num PostgreSQL real (PGlite).
 //
-// Roda a MIGRATION REAL (supabase/migrations/20261021180000_onda1_simular.sql)
+// Roda a MIGRATION REAL (supabase/migrations/20261021172255_onda1_simular.sql)
 // e o ROLLBACK REAL sobre corpos EXATOS de produção, cada um conferido por
 // `md5(prosrc)`.
 //
@@ -39,8 +39,8 @@ const M3 = ler("supabase/tests/fixtures/nivelamento_m3_prod_20261021.sql");
 const MD5_M3 = JSON.parse(ler("supabase/tests/fixtures/nivelamento_m3_prod_20261021.md5.json"));
 const COMPL = ler("supabase/tests/fixtures/onda1_prod_20261021.sql");
 const MD5_COMPL = JSON.parse(ler("supabase/tests/fixtures/onda1_prod_20261021.md5.json"));
-const MIGRATION = ler("supabase/migrations/20261021180000_onda1_simular.sql");
-const ROLLBACK = ler("supabase/rollbacks/20261021180000_onda1_simular.rollback.sql");
+const MIGRATION = ler("supabase/migrations/20261021172255_onda1_simular.sql");
+const ROLLBACK = ler("supabase/rollbacks/20261021172255_onda1_simular.rollback.sql");
 
 const GESTAO = "amanda.seibel@aelbra.com.br";
 const OP = ["cobranca05@aelbra.com.br", "cobranca06@aelbra.com.br", "cobranca08@aelbra.com.br"];

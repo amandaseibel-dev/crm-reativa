@@ -1,0 +1,28 @@
+-- ROLLBACK de 20261021190000_onda1_simular_fecha_anon.sql
+--
+-- O QUE REVERTER REINTRODUZ, EM LETRAS MAIÚSCULAS:
+--
+--   DEVOLVE A `onda1_simular` A ALCANCE DE QUEM NÃO FEZ LOGIN. A função é
+--   SECURITY DEFINER; com EXECUTE para PUBLIC ela volta a ser publicada pelo
+--   PostgREST e a poder ser chamada com a chave publicável do front, que viaja
+--   no bundle por desenho.
+--
+--   O dado continuaria protegido pelo portão interno `calibragem_e_gestao()`,
+--   que recusa com 42501 -- mas a porta volta a existir, e ela fica de novo
+--   fora do padrão das três funções irmãs, onde `anon` não alcança.
+--
+-- Por isso este rollback só deve ser usado com decisão expressa e motivo
+-- declarado.
+--
+-- ESTADO ANTERIOR, conferido em 21/10/2026 logo depois de aplicar a
+-- 20261021172255:
+--
+--   acl: =X/postgres|postgres=X/postgres|authenticated=X/postgres|service_role=X/postgres
+--
+-- O `=X` inicial é o PUBLIC que esta reversão repõe. `authenticated` e
+-- `service_role` já estavam lá e continuam -- a reversão não mexe neles.
+--
+-- ZERO DML: nenhuma linha de dado a reverter. O corpo da função não é tocado
+-- nem na ida nem na volta.
+
+grant execute on function public.onda1_simular(jsonb) to public;
