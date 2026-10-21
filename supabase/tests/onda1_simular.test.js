@@ -377,6 +377,34 @@ describe("teto, unicidade e permissão", () => {
     expect(r.universo.lote_a_elegivel).toBe(1);
     expect(r.fora_da_onda.confirmacao_financeira_aberta).toBe(1);
     expect(r.incluir_confirmacao_aberta).toBe(false);
+    // Fica IDENTIFICADO para reavaliacao quando a pendencia fechar.
+    expect(r.retidos_confirmacao).toHaveLength(1);
+    expect(r.retidos_confirmacao[0].aluno_id).toBe(U(253));
+    expect(Number(r.retidos_confirmacao[0].solicitacoes_abertas)).toBe(1);
+    expect(r.retidos_confirmacao[0].cpf).toMatch(/^\*\*\*\d{3}$/);  // CPF mascarado
+    await db.close();
+  });
+
+  it("um aluno com MAIS DE UMA solicitação aberta conta como UM retido", async () => {
+    const db = await abrir();
+    await aluno(db, 255, { dono: CG });
+    await db.query(
+      `insert into public.solicitacoes_confirmacao_pagamento (id, aluno_id, status) values
+         ($1,$3,'AGUARDANDO_CONFIRMACAO'),
+         ($2,$3,'PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO')`,
+      [U(255001), U(255002), U(255)]);
+    const r = await simular(db);
+    expect(r.fora_da_onda.confirmacao_financeira_aberta).toBe(1);   // UM aluno
+    expect(r.retidos_confirmacao).toHaveLength(1);
+    expect(Number(r.retidos_confirmacao[0].solicitacoes_abertas)).toBe(2); // duas solicitacoes
+    await db.close();
+  });
+
+  it("sem retidos, a lista vem vazia e não some do resultado", async () => {
+    const db = await abrir();
+    await aluno(db, 256, { dono: CG });
+    const r = await simular(db);
+    expect(r.retidos_confirmacao).toEqual([]);
     await db.close();
   });
 

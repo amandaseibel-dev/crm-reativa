@@ -326,6 +326,26 @@ begin
                                and exists (select 1 from _caso c where c.aluno_id = a.aluno_id and c.confirmacao_aberta)),
       'com_acordo_ativo_INCLUIDOS', (select count(*) from _elegivel e where e.sac > 0)),
     'incluir_confirmacao_aberta', v_inc_conf,
+    -- Os retidos pela confirmacao financeira ficam IDENTIFICADOS, para a gestao
+    -- reavaliar quando a pendencia fechar. Nao ha liberacao automatica: enquanto
+    -- a solicitacao estiver aberta eles continuam fora, e a proxima simulacao os
+    -- traz de volta sozinha se a pendencia tiver sido resolvida. Um aluno pode
+    -- ter mais de uma solicitacao aberta -- por isso a contagem vem junto.
+    'retidos_confirmacao', (select coalesce(jsonb_agg(jsonb_build_object(
+          'aluno_id', x.aluno_id, 'cpf', public.mask_cpf(x.cpf), 'nome', x.nome,
+          'solicitacoes_abertas', x.n) order by x.nome),'[]')
+       from (select a.aluno_id,
+                    (select min(c.cpf)  from _caso c where c.aluno_id = a.aluno_id) cpf,
+                    (select min(c.nome) from _caso c where c.aluno_id = a.aluno_id) nome,
+                    (select count(*) from public.solicitacoes_confirmacao_pagamento s
+                      where s.aluno_id = a.aluno_id::text
+                        and s.status in ('AGUARDANDO_CONFIRMACAO','PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO')) n
+               from _aluno a
+              where not exists (select 1 from _caso c where c.aluno_id = a.aluno_id and c.dono_ativo)
+                and exists (select 1 from _caso c where c.aluno_id = a.aluno_id)
+                and not exists (select 1 from _caso c where c.aluno_id = a.aluno_id
+                                  and (c.encerrado or c.nao_acionar or c.marca_viva))
+                and exists (select 1 from _caso c where c.aluno_id = a.aluno_id and c.confirmacao_aberta)) x),
     'antes', (select coalesce(jsonb_agg(jsonb_build_object(
                 'op_email', op_email, 'op_nome', op_nome, 'casos_ativos', ativos_antes,
                 'teto', teto, 'folga', teto - ativos_antes) order by op_nome),'[]') from _carga),
