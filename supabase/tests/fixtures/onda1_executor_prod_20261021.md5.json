@@ -1,0 +1,14 @@
+{
+  "public.calibragem_auditoria_append_only": "12278240ce5d1786ea4c7bd0a930effa",
+  "public.calibragem_aprovar_simulacao": "fc184da1d95d937be058a67b76774358",
+  "public.nome_do_operador": "8f8738dd17902f48ca897674d9e1fb9c",
+  "public.caso_dentro_prazo_fidelizacao": "f519301f9f54fdc057565c54068f134c",
+  "public.tipo_fechamento_caso": "d422a11e42a477dad901f34a7b23ffa6",
+  "internal.matricula_em_fidelizacao": "455a1ff88ec1cffa04f3a2343963fa3a",
+  "public.casos_set_encerrado_operacional": "6fd02f124e1b9e2ba8012c1b751406bb",
+  "public.giro_limpar_marca_ao_trocar_dono": "b2c32e05b6d3cfbb76a1a686f0688d2b",
+  "public._nome_do_operador_no_caso": "eeb95272b1fb43a5d97736033b1ac948",
+  "public.trg_impor_teto_operador": "3d01bbd194b76dc8455e9dd47d395cca",
+  "public.trg_repor_caso_operador": "03477cc4d987923e8776c34ff2d72614",
+  "public._caso_nao_duplica_aluno": "46d97824acb1c3c17b5ec7aa1b33d506"
+}
