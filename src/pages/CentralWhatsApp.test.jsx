@@ -355,8 +355,21 @@ describe("Central WhatsApp", () => {
       conversa({ id: "k2", ultima_mensagem_previa: "outra conversa" }),
     ];
     render(<CentralWhatsApp />);
-    expect(await screen.findByText("Maria")).toBeDefined();
-    expect(screen.getByText("sem responsável")).toBeDefined();
+    // DUAS CAUSAS DE INTERMITENCIA, as duas medidas em 21/10/2026.
+    // 1) ESPERA: o caso esperava um texto com findByText e cobrava o outro com
+    //    getByText SINCRONO. Os dois vem de buscas diferentes, entao o primeiro
+    //    pode estar na tela antes do segundo -- foi o que derrubou o CI.
+    // 2) AMBIGUIDADE: no documento inteiro os dois textos aparecem DUAS vezes.
+    //    "Maria" e tambem um <option> do filtro de operadores
+    //    (listarOperadores) e "sem responsavel" e tambem um tile do painel de
+    //    resumo (carregarResumo). findByText singular lanca "found multiple
+    //    elements" se os dois renderizarem -- intermitencia de sinal oposto.
+    // Cada etiqueta passa a ser esperada e cobrada DENTRO da sua propria linha,
+    // pelo papel acessivel da linha (button) e pela previa, que as distingue.
+    const linhaDaMaria = await screen.findByRole("button", { name: /Oi, quero negociar/ });
+    const linhaSemDono = await screen.findByRole("button", { name: /outra conversa/ });
+    expect(within(linhaDaMaria).getByText("Maria")).toBeDefined();
+    expect(within(linhaSemDono).getByText("sem responsável")).toBeDefined();
   });
 
   it("libera o campo de resposta quando o número está no ar", async () => {
