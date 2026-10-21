@@ -40,9 +40,9 @@ const BANCADA = ler("supabase/tests/fixtures/fluxo_incremental_prod_20261021.sql
 const MD5 = JSON.parse(ler("supabase/tests/fixtures/fluxo_incremental_prod_20261021.md5.json"));
 const MIGRATION = ler("supabase/migrations/20261021195950_fluxo_pagamentos_incremental.sql");
 const ROLLBACK = ler("supabase/rollbacks/20261021195950_fluxo_pagamentos_incremental.rollback.sql");
-const MIG_PERM = ler("supabase/migrations/20261021213000_vw_fluxo_monitor_fecha_escrita.sql");
-const RB_PERM = ler("supabase/rollbacks/20261021213000_vw_fluxo_monitor_fecha_escrita.rollback.sql");
-const MIG_PREVIA = ler("supabase/migrations/20261021213500_fluxo_incremental_previa_sem_escrita.sql");
+const MIG_PERM = ler("supabase/migrations/20261021210208_vw_fluxo_monitor_fecha_escrita.sql");
+const RB_PERM = ler("supabase/rollbacks/20261021210208_vw_fluxo_monitor_fecha_escrita.rollback.sql");
+const MIG_PREVIA = ler("supabase/migrations/20261021210416_fluxo_incremental_previa_sem_escrita.sql");
 
 const GESTAO = "amanda.seibel@aelbra.com.br";
 const OPERADOR = "cobranca05@aelbra.com.br";

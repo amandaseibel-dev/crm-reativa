@@ -1,4 +1,4 @@
--- ROLLBACK de 20261021213000_vw_fluxo_monitor_fecha_escrita.sql
+-- ROLLBACK de 20261021210208_vw_fluxo_monitor_fecha_escrita.sql
 --
 -- O QUE REVERTER REINTRODUZ, EM LETRAS MAIÚSCULAS:
 --

@@ -1,4 +1,4 @@
--- ROLLBACK de 20261021213500_fluxo_incremental_previa_sem_escrita.sql
+-- ROLLBACK de 20261021210416_fluxo_incremental_previa_sem_escrita.sql
 --
 -- O QUE REVERTER REINTRODUZ, EM LETRAS MAIÚSCULAS:
 --
