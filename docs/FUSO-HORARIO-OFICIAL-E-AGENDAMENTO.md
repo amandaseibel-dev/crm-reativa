@@ -113,7 +113,7 @@ lote**, não a lógica.
 
 ## 5. A configuração definitiva, preparada em 21/10/2026
 
-Preparada na migration `20261021220000_fluxo_pagamentos_agendar_brasilia.sql`,
+Preparada na migration `20261021224000_fluxo_pagamentos_agendar_brasilia.sql`,
 **não aplicada**. Três jobs:
 
 | job | cron (UTC) | Brasília | chamada |
@@ -155,7 +155,7 @@ Medido: **385 linhas com o mesmo instante** (15:34 BRT), porque um lote de
 importação tocou todas de uma vez. Bastava importar um arquivo por dia para a
 janela de 24 h nunca abrir.
 
-Corrigido na `20261021215000`: a espera saiu do `where` e virou o **primeiro
+Corrigido na `20261021223117`: a espera saiu do `where` e virou o **primeiro
 critério do `order by`**. O veterano recém-tentado vai para o fim da fila, nunca
 para fora. O anti-giro-em-falso passa a ser o **teto de lote**: 25 por rodada em
 vez de 386. Vazão: 386 pendentes × 17 disparos/dia ÷ 25 = 425 avaliações/dia,

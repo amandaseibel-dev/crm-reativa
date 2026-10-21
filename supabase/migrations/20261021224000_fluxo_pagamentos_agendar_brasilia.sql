@@ -54,7 +54,7 @@
 --                         enfrenta o acumulado da noite. O teto duro da função
 --                         é 120s, e ela confere o prazo a CADA pagamento.
 --   p_tentativas_max = 8  a partir daí o pendente é DESPRIORIZADO (vai para o
---   p_espera_horas = 24   fim da fila), nunca excluído -- ver 20261021215000.
+--   p_espera_horas = 24   fim da fila), nunca excluído -- ver 20261021223117.
 --
 -- As demais proteções já estão na função e não dependem do agendamento: trava
 -- `pg_try_advisory_xact_lock` (rodada ocupada sai, não enfileira), guarda
@@ -64,7 +64,7 @@
 -- REGRAS FINANCEIRAS PRESERVADAS: nada aqui altera o motor. Quem decide se
 -- baixa, e com que evidência, continua sendo `pagamento_conciliar_um`.
 --
--- Reversível: supabase/rollbacks/20261021220000_*.rollback.sql
+-- Reversível: supabase/rollbacks/20261021224000_*.rollback.sql
 
 -- Guarda: os dois agendamentos nunca coexistem.
 do $$
