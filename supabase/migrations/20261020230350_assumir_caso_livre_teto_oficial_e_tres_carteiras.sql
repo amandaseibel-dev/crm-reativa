@@ -49,7 +49,7 @@
 -- Cada patch confere a contagem da ancora e recusa se a funcao tiver mudado, e e
 -- idempotente pelo texto NOVO. Nenhuma reescrita cega de corpo.
 --
--- Reversivel: supabase/rollbacks/20261020172053_*.rollback.sql
+-- Reversivel: supabase/rollbacks/20261020230350_*.rollback.sql
 
 -- ===========================================================================
 -- 1. DECLARE -- duas variaveis novas

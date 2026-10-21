@@ -1,4 +1,4 @@
--- ROLLBACK de 20261020172053_assumir_caso_livre_teto_oficial_e_tres_carteiras.sql
+-- ROLLBACK de 20261020230350_assumir_caso_livre_teto_oficial_e_tres_carteiras.sql
 --
 -- SO DDL, SO uma funcao. Nenhuma tabela, nenhum gatilho, nenhum agendamento,
 -- nenhum dado -- nao ha dado a restaurar. O corpo abaixo e o que estava em

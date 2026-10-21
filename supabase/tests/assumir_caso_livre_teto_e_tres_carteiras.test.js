@@ -1,7 +1,7 @@
 // ASSUMIR ATENDIMENTO: teto oficial e as tres carteiras -- teste de comportamento.
 //
 // Roda a MIGRATION REAL
-// (supabase/migrations/20261020172053_assumir_caso_livre_teto_oficial_e_tres_carteiras.sql)
+// (supabase/migrations/20261020230350_assumir_caso_livre_teto_oficial_e_tres_carteiras.sql)
 // e o ROLLBACK REAL num PostgreSQL real (PGlite), sobre duas fixtures com o
 // texto EXATO de producao, cada corpo conferido por md5 do `prosrc`:
 //
@@ -46,8 +46,8 @@ const FIXTURE = ler("supabase/tests/fixtures/fidelizacao_por_dono_prod_20260930.
 const MD5_BASE = JSON.parse(ler("supabase/tests/fixtures/fidelizacao_por_dono_prod_20260930.md5.json"));
 const COMPLEMENTO = ler("supabase/tests/fixtures/assumir_caso_livre_prod_20261020.sql");
 const MD5_COMPL = JSON.parse(ler("supabase/tests/fixtures/assumir_caso_livre_prod_20261020.md5.json"));
-const MIGRATION = ler("supabase/migrations/20261020172053_assumir_caso_livre_teto_oficial_e_tres_carteiras.sql");
-const ROLLBACK = ler("supabase/rollbacks/20261020172053_assumir_caso_livre_teto_oficial_e_tres_carteiras.rollback.sql");
+const MIGRATION = ler("supabase/migrations/20261020230350_assumir_caso_livre_teto_oficial_e_tres_carteiras.sql");
+const ROLLBACK = ler("supabase/rollbacks/20261020230350_assumir_caso_livre_teto_oficial_e_tres_carteiras.rollback.sql");
 
 // Operadores ATIVOS; CG, OLGA e GESTAO sao as tres carteiras de livre assuncao.
 const LUANA = "cobranca05@aelbra.com.br";
