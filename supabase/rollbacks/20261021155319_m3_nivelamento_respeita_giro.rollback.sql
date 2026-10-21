@@ -1,4 +1,4 @@
--- ROLLBACK de 20261021130000_m3_nivelamento_respeita_giro.sql
+-- ROLLBACK de 20261021155319_m3_nivelamento_respeita_giro.sql
 --
 -- O QUE REVERTER REINTRODUZ, EM LETRAS MAIÚSCULAS:
 --

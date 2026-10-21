@@ -1,7 +1,7 @@
 // M3 · O NIVELAMENTO AUTOMÁTICO RESPEITA A MARCA DE GIRO — regressão.
 //
 // Roda a MIGRATION REAL
-// (supabase/migrations/20261021130000_m3_nivelamento_respeita_giro.sql) e o
+// (supabase/migrations/20261021155319_m3_nivelamento_respeita_giro.sql) e o
 // ROLLBACK REAL num PostgreSQL real (PGlite), sobre os corpos EXATOS de
 // produção de 21/10/2026, cada um conferido por md5(prosrc).
 //
@@ -35,8 +35,8 @@ const FIXTURE = ler("supabase/tests/fixtures/fidelizacao_por_dono_prod_20260930.
 const MD5_BASE = JSON.parse(ler("supabase/tests/fixtures/fidelizacao_por_dono_prod_20260930.md5.json"));
 const COMPLEMENTO = ler("supabase/tests/fixtures/nivelamento_m3_prod_20261021.sql");
 const MD5_COMPL = JSON.parse(ler("supabase/tests/fixtures/nivelamento_m3_prod_20261021.md5.json"));
-const MIGRATION = ler("supabase/migrations/20261021130000_m3_nivelamento_respeita_giro.sql");
-const ROLLBACK = ler("supabase/rollbacks/20261021130000_m3_nivelamento_respeita_giro.rollback.sql");
+const MIGRATION = ler("supabase/migrations/20261021155319_m3_nivelamento_respeita_giro.sql");
+const ROLLBACK = ler("supabase/rollbacks/20261021155319_m3_nivelamento_respeita_giro.rollback.sql");
 
 const MD5_PROD_ALVO = "f058f92912052301694ae481681e3975";
 
