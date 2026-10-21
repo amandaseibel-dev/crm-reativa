@@ -135,6 +135,43 @@ a evidência que ela deveria produzir não existe. **Não corrigido aqui** —
 é achado de arquitetura, e mexer nisso toca o motor de conciliação, que estava
 fora do escopo desta rodada.
 
+### Remedida em 2026-10-21, e a causa apareceu
+
+A tabela cresceu de 182 para **655 linhas** (386 sem decisão da gestão) e
+`consulta_estrutura_resultado` segue **NULL em 655 de 655**. Duas medições novas
+explicam por quê:
+
+| medida | valor |
+|---|---|
+| `consulta_portador_em` nos 296 pagamentos `AGUARDANDO_ACORDO` que esperam a consulta | **NULL em 296 de 296** |
+| `auditoria` com `acao='ACORDO_ENCONTRADO_NA_API'` | **0 linhas** |
+| etapa `consulta_portador` em `fluxo_pagamentos_config` | **`ligado = false`** |
+| `fluxo_pagamentos_rodar` chama `conciliacao_reprocessar` (único caminho até a consulta)? | **não** |
+
+**A consulta nunca rodou uma única vez** — não é que a API tenha respondido
+"não tem". Os dois leitores de `consulta_portador`
+(`conciliacao_reprocessar`, `conciliacao_consultar_portador_pendentes`) nunca
+foram alcançados pela rodada horária, porque `fluxo_pagamentos_rodar` não os
+chama; e a própria etapa está desligada.
+
+Portanto o ramo NULL não é falha de gravação: é ausência de chamada. O defeito
+de instrumentação acima permanece válido, mas a causa raiz é de **fiação**, não
+de recorder.
+
+Consequência para quem for religar a automação: **não presuma que a consulta
+resolveria os 296**. O que falta neles é a estrutura do acordo, classificada
+🔴 VERMELHO nesta mesma página (`/agreements` responde vazio, 48 rotas
+candidatas testadas). Medido no mesmo dia: dos 296, **zero são à vista**, então
+`recuperar_acordo_avista` também não os alcança. Eles dependem de o acordo
+entrar no CRM — importação do relatório ou registro da gestão — não de uma
+consulta à API.
+
+Também medido: `quantidade_tentativas` chega a **241** numa linha, com média
+**54,1**, e **386 de 386** linhas sem decisão foram tentadas nas últimas 24h
+mesmo com o cron horário desligado desde 24/09 — a rota de importação também
+aciona o motor. Reavaliar casos sem saída a cada rodada é o que empurra
+pagamento novo para o fim da fila.
+
 ## Fontes de payload histórico: todas fechadas
 
 Procurei payload guardado de resposta da Prime, em qualquer lugar do ambiente:
