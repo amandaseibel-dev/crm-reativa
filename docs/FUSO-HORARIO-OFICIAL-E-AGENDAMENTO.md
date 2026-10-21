@@ -113,7 +113,7 @@ lote**, não a lógica.
 
 ## 5. A configuração definitiva, preparada em 21/10/2026
 
-Preparada na migration `20261021224000_fluxo_pagamentos_agendar_brasilia.sql`,
+Preparada na migration `20261021225805_fluxo_pagamentos_agendar_brasilia.sql`,
 **não aplicada**. Três jobs:
 
 | job | cron (UTC) | Brasília | chamada |

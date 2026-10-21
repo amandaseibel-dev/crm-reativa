@@ -44,7 +44,7 @@ const MIG_PERM = ler("supabase/migrations/20261021210208_vw_fluxo_monitor_fecha_
 const RB_PERM = ler("supabase/rollbacks/20261021210208_vw_fluxo_monitor_fecha_escrita.rollback.sql");
 const MIG_PREVIA = ler("supabase/migrations/20261021210416_fluxo_incremental_previa_sem_escrita.sql");
 const MIG_ESPERA = ler("supabase/migrations/20261021223117_fluxo_incremental_espera_nao_exclui.sql");
-const MIG_CRON = ler("supabase/migrations/20261021224000_fluxo_pagamentos_agendar_brasilia.sql");
+const MIG_CRON = ler("supabase/migrations/20261021225805_fluxo_pagamentos_agendar_brasilia.sql");
 
 const GESTAO = "amanda.seibel@aelbra.com.br";
 const OPERADOR = "cobranca05@aelbra.com.br";

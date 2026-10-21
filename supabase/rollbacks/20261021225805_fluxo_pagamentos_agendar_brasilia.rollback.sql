@@ -1,4 +1,4 @@
--- ROLLBACK de 20261021224000_fluxo_pagamentos_agendar_brasilia.sql
+-- ROLLBACK de 20261021225805_fluxo_pagamentos_agendar_brasilia.sql
 --
 -- DESAGENDA os três jobs da rodada incremental. A automação horária PARA.
 --
