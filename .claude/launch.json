@@ -95,6 +95,16 @@
         "vite.massivas.config.js"
       ],
       "port": 5204
+    },
+    {
+      "name": "alertas-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--config",
+        "vite.alertas.config.js"
+      ],
+      "port": 5205
     }
   ]
 }
