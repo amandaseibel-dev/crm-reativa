@@ -43,6 +43,8 @@ const ROLLBACK = ler("supabase/rollbacks/20261021195950_fluxo_pagamentos_increme
 const MIG_PERM = ler("supabase/migrations/20261021210208_vw_fluxo_monitor_fecha_escrita.sql");
 const RB_PERM = ler("supabase/rollbacks/20261021210208_vw_fluxo_monitor_fecha_escrita.rollback.sql");
 const MIG_PREVIA = ler("supabase/migrations/20261021210416_fluxo_incremental_previa_sem_escrita.sql");
+const MIG_ESPERA = ler("supabase/migrations/20261021215000_fluxo_incremental_espera_nao_exclui.sql");
+const MIG_CRON = ler("supabase/migrations/20261021220000_fluxo_pagamentos_agendar_brasilia.sql");
 
 const GESTAO = "amanda.seibel@aelbra.com.br";
 const OPERADOR = "cobranca05@aelbra.com.br";
@@ -106,14 +108,15 @@ async function construir(estagio = "base") {
 
   await como(db, GESTAO);
   if (estagio !== "sem") await db.exec(MIGRATION);
-  if (estagio === "final") {
+  if (estagio === "final" || estagio === "espera") {
     await db.exec(MIG_PERM);
     await db.exec(MIG_PREVIA);
   }
+  if (estagio === "espera") await db.exec(MIG_ESPERA);
   return db;
 }
 
-let COM, SEM, FINAL;
+let COM, SEM, FINAL, ESPERA;
 beforeAll(async () => {
   const a = await construir("base");
   COM = await a.dumpDataDir();
@@ -124,8 +127,11 @@ beforeAll(async () => {
   const c = await construir("final");
   FINAL = await c.dumpDataDir();
   await c.close();
+  const d = await construir("espera");
+  ESPERA = await d.dumpDataDir();
+  await d.close();
 });
-const DADOS = { base: () => COM, sem: () => SEM, final: () => FINAL };
+const DADOS = { base: () => COM, sem: () => SEM, final: () => FINAL, espera: () => ESPERA };
 const abrir = async (estagio = "base") => {
   const e = typeof estagio === "boolean" ? (estagio ? "base" : "sem") : estagio;
   const db = new PGlite({ loadDataDir: DADOS[e]() });
@@ -728,6 +734,148 @@ describe("PRÉVIA: subtransação sempre revertida", () => {
     expect(r.indicadores).toBe("atualizado");
     expect((await q1(db, `select count(*)::int n from public.pagamentos
                            where status_conciliacao='BAIXADO'`)).n).toBe(4);
+    await db.close();
+  });
+});
+
+// ===========================================================================
+// CORREÇÃO 3 — a espera DESPRIORIZA, nunca exclui.
+// ===========================================================================
+describe("ESPERA: ninguém fica invisível", () => {
+  // Veterano: muitas tentativas E tentado agora. É o perfil dos 365 de
+  // produção, cujo `ultima_tentativa_em` um lote de importação havia acabado
+  // de reescrever.
+  async function cenario(db) {
+    await pag(db, 1, { tentativas: 241, ultimaTentativaHorasAtras: 1 });
+    await pag(db, 2, { tentativas: 90, ultimaTentativaHorasAtras: 1 });
+    await pag(db, 3, { tentativas: 2, ultimaTentativaHorasAtras: 1 });  // "novo"
+  }
+
+  // NOTA: estes casos rodam em modo APLICADO de propósito. Na prévia, a
+  // escrita do próprio dublê (`_dub_chamadas`) é revertida junto com tudo o
+  // mais -- é a correção da prévia funcionando -- então a ordem de chamada só é
+  // observável com p_aplicar => true. O dublê devolve AGUARDANDO_ACORDO, logo
+  // nada baixa e a composição da fila não muda.
+  it("ANTES da correção o defeito existe: veterano recém-tentado é EXCLUÍDO", async () => {
+    const db = await abrir("final");
+    await cenario(db);
+    const r = await rodar(db, { lote: 25, aplicar: true });
+    // só o de 2 tentativas entra; os dois veteranos ficam invisíveis
+    expect(r.processados).toBe(1);
+    const vistos = (await qn(db, `select distinct pagamento_id from public._dub_chamadas`))
+      .map((x) => x.pagamento_id);
+    expect(vistos).toEqual([U(3)]);
+    await db.close();
+  });
+
+  it("DEPOIS: os três entram, e o novo vem PRIMEIRO", async () => {
+    const db = await abrir("espera");
+    await cenario(db);
+    const r = await rodar(db, { lote: 25, aplicar: true });
+    expect(r.processados).toBe(3);
+    const ordem = (await qn(db, `select pagamento_id from public._dub_chamadas order by n`))
+      .map((x) => x.pagamento_id);
+    expect(ordem[0]).toBe(U(3));          // menos tentativas primeiro
+    expect(ordem.slice(1).sort()).toEqual([U(1), U(2)].sort());
+    await db.close();
+  });
+
+  it("DEPOIS: com o lote cheio, o veterano vai para o FIM e não rouba a vaga do novo", async () => {
+    const db = await abrir("espera");
+    // 3 veteranos recém-tentados + 2 novos, lote 2: só os novos devem passar
+    await pag(db, 1, { tentativas: 241, ultimaTentativaHorasAtras: 1 });
+    await pag(db, 2, { tentativas: 150, ultimaTentativaHorasAtras: 1 });
+    await pag(db, 3, { tentativas: 99, ultimaTentativaHorasAtras: 1 });
+    await pag(db, 4, { tentativas: 1, ultimaTentativaHorasAtras: 2 });
+    await pag(db, 5, { tentativas: 0 });
+    const r = await rodar(db, { lote: 2, aplicar: true });
+    expect(r.processados).toBe(2);
+    const vistos = (await qn(db, `select pagamento_id from public._dub_chamadas order by n`))
+      .map((x) => x.pagamento_id);
+    expect(vistos).toEqual([U(5), U(4)]); // nunca tentado, depois 1 tentativa
+    await db.close();
+  });
+
+  it("DEPOIS: nenhum elegível fica de fora -- 30 pendentes em rodadas de 25 cobrem os 30", async () => {
+    const db = await abrir("espera");
+    for (let n = 1; n <= 30; n++) {
+      await pag(db, n, { tentativas: 50 + n, ultimaTentativaHorasAtras: 1,
+                         motorStatus: "BAIXADO", baixou: true });
+    }
+    const r1 = await rodar(db, { lote: 25 });
+    const r2 = await rodar(db, { lote: 25 });
+    expect(r1.processados).toBe(25);
+    expect(r2.processados).toBe(5);
+    const c = await q1(db, `select count(*)::int total, count(distinct pagamento_id)::int unicos
+                              from public._dub_chamadas`);
+    expect(c.total).toBe(30);
+    expect(c.unicos).toBe(30);   // nenhum repetido, nenhum esquecido
+    expect(r2.pendentes).toBe(0);
+    await db.close();
+  });
+
+  it("o gatilho de produção reproduz a causa: QUALQUER update renova ultima_tentativa_em", async () => {
+    const db = await abrir("espera");
+    await pag(db, 1, { tentativas: 5, ultimaTentativaHorasAtras: 48 });
+    await db.exec(`alter table public.fila_pagamento_sem_vinculo
+                   enable trigger trg_fila_pagamento_tentativa`);
+    const antes = await q1(db, `select quantidade_tentativas t, ultima_tentativa_em u
+                                  from public.fila_pagamento_sem_vinculo where pagamento_id=$1`, [U(1)]);
+    // um update que NADA tem a ver com tentativa -- como o de um lote de importação
+    await db.query(`update public.fila_pagamento_sem_vinculo set motivo = 'lote de importacao'
+                     where pagamento_id=$1`, [U(1)]);
+    const depois = await q1(db, `select quantidade_tentativas t, ultima_tentativa_em u
+                                   from public.fila_pagamento_sem_vinculo where pagamento_id=$1`, [U(1)]);
+    expect(depois.t).toBe(antes.t + 1);
+    expect(new Date(depois.u) > new Date(antes.u)).toBe(true);
+    await db.exec(`alter table public.fila_pagamento_sem_vinculo
+                   disable trigger trg_fila_pagamento_tentativa`);
+    await db.close();
+  });
+});
+
+// ===========================================================================
+// A JANELA DA NOITE: conferência sem baixa.
+// ===========================================================================
+describe("CONFERÊNCIA NOTURNA: p_aplicar => false é o modo da janela", () => {
+  it("o job da noite usa p_aplicar => false e os outros dois true", async () => {
+    // Lê a migration de agendamento como texto: é a configuração definitiva.
+    const noite = MIG_CRON.match(/fluxo_pag_conferencia_noite_brt'[\s\S]*?\$\$([\s\S]*?)\$\$/);
+    const consolidado = MIG_CRON.match(/fluxo_pag_consolidado_08h_brt'[\s\S]*?\$\$([\s\S]*?)\$\$/);
+    const horario = MIG_CRON.match(/fluxo_pag_horario_09_20h_brt'[\s\S]*?\$\$([\s\S]*?)\$\$/);
+    expect(noite[1]).toMatch(/,\s*false\)/);
+    expect(consolidado[1]).toMatch(/,\s*true\)/);
+    expect(horario[1]).toMatch(/,\s*true\)/);
+    // lote 25 nos três, como a gestão fixou
+    for (const m of [noite, consolidado, horario]) expect(m[1]).toMatch(/\(25,/);
+  });
+
+  it("as expressões de cron estão em UTC e cobrem as janelas de Brasília", () => {
+    expect(MIG_CRON).toContain("'0 11 * * *'");        // 08:00 BRT
+    expect(MIG_CRON).toContain("'0 12-23 * * *'");     // 09:00-20:00 BRT
+    expect(MIG_CRON).toContain("'30 23,0,1,2 * * *'"); // 20:30-23:30 BRT
+    // a madrugada de Brasília (UTC 03-10) não tem job
+    expect(MIG_CRON).not.toMatch(/'[0-9,*/-]+ (3|4|5|6|7|8|9|10) \* \* \*'/);
+  });
+
+  it("a migration de agendamento RECUSA se o job 38 estiver ativo", () => {
+    expect(MIG_CRON).toMatch(/jobid = 38 and active/);
+    expect(MIG_CRON).toMatch(/RECUSADO/);
+  });
+
+  it("a conferência não avança o contador de tentativas (não empurra ninguém para o fim)", async () => {
+    const db = await abrir("espera");
+    await pag(db, 1, { tentativas: 3, ultimaTentativaHorasAtras: 5 });
+    await db.exec(`alter table public.fila_pagamento_sem_vinculo
+                   enable trigger trg_fila_pagamento_tentativa`);
+    const antes = await q1(db, `select quantidade_tentativas t from public.fila_pagamento_sem_vinculo
+                                 where pagamento_id=$1`, [U(1)]);
+    await rodar(db, { lote: 25, aplicar: false });
+    const depois = await q1(db, `select quantidade_tentativas t from public.fila_pagamento_sem_vinculo
+                                  where pagamento_id=$1`, [U(1)]);
+    expect(depois.t).toBe(antes.t);
+    await db.exec(`alter table public.fila_pagamento_sem_vinculo
+                   disable trigger trg_fila_pagamento_tentativa`);
     await db.close();
   });
 });

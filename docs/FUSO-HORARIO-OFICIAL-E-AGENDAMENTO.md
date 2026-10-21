@@ -111,10 +111,78 @@ lote**, não a lógica.
 
 ---
 
-## 5. O que esta etapa NÃO fez
+## 5. A configuração definitiva, preparada em 21/10/2026
+
+Preparada na migration `20261021220000_fluxo_pagamentos_agendar_brasilia.sql`,
+**não aplicada**. Três jobs:
+
+| job | cron (UTC) | Brasília | chamada |
+|---|---|---|---|
+| `fluxo_pag_consolidado_08h_brt` | `0 11 * * *` | 08:00 | `(25, 45, 8, 24, true)` |
+| `fluxo_pag_horario_09_20h_brt` | `0 12-23 * * *` | 09:00–20:00 | `(25, 20, 8, 24, true)` |
+| `fluxo_pag_conferencia_noite_brt` | `30 23,0,1,2 * * *` | 20:30–23:30 | `(25, 20, 8, 24, **false**)` |
+
+Parâmetros: `(p_lote, p_segundos, p_tentativas_max, p_espera_horas, p_aplicar)`.
+O consolidado das 08h recebe 45 s em vez de 20 porque enfrenta o acumulado da
+noite; o teto duro da função é 120 s, conferido a cada pagamento.
+
+**A janela da noite não baixa.** Ela chama com `p_aplicar => false`, e isso não
+é promessa de comportamento: desde a `20261021210416` a prévia roda o motor em
+subtransação sempre revertida. Para a noite passar a baixar, troque `false` por
+`true` **nesse job**, com autorização específica.
+
+**A migration recusa aplicar** se o job 38 estiver ativo, ou se já existir job
+agendado para a rodada — os dois agendamentos nunca coexistem.
+
+### Validação pré-ativação: um defeito encontrado e corrigido
+
+A gestão pediu para validar que nenhum registro elegível ficasse de fora.
+**Ficaria.** Medido em produção:
+
+| medida | valor |
+|---|---|
+| pendentes sem decisão da gestão | **386** |
+| nunca tentados | **0** |
+| com 1 a 7 tentativas | 21 |
+| com 8 ou mais | **365** |
+| **visíveis** para a rodada, com a espera como exclusão | **21** |
+| **retidos** pela espera | **365** |
+
+E a retenção não expirava de forma confiável: `trg_fila_pagamento_tentativa` é
+BEFORE UPDATE em `fila_pagamento_sem_vinculo` e, para linha pendente, faz
+`ultima_tentativa_em := now()` em **qualquer** update — não só nos da rodada.
+Medido: **385 linhas com o mesmo instante** (15:34 BRT), porque um lote de
+importação tocou todas de uma vez. Bastava importar um arquivo por dia para a
+janela de 24 h nunca abrir.
+
+Corrigido na `20261021215000`: a espera saiu do `where` e virou o **primeiro
+critério do `order by`**. O veterano recém-tentado vai para o fim da fila, nunca
+para fora. O anti-giro-em-falso passa a ser o **teto de lote**: 25 por rodada em
+vez de 386. Vazão: 386 pendentes × 17 disparos/dia ÷ 25 = 425 avaliações/dia,
+pouco mais de uma por pendente — a mesma que a espera pretendia, sem inanição.
+
+### Como os filtros distinguem cada categoria
+
+| categoria | como é distinguida | medido hoje |
+|---|---|---|
+| **pagamento novo** | menos tentativas ⇒ vai primeiro no `order by`. Não há filtro por data | 28 criados nas últimas 24 h |
+| **registro noturno** | a fila **não tem filtro de horário**: o que entra às 02h é elegível na rodada das 08h | 0 criados entre 00h e 07h BRT |
+| **pendência antiga** | ≥ 8 tentativas ⇒ despriorizada, alcançada por rodízio do mais antigo sem tentar | 365 |
+| **concluído** | `status_conciliacao = 'BAIXADO'` sai da fila | 1.262 |
+| **decidido pela gestão** | `fila.decisao is not null` nunca volta sozinho | 269 |
+| **legado pré-14/09** | `status_conciliacao is null` é invisível por decisão | 8.955 |
+
+"Acumular" a madrugada não exige fila própria: a fila é derivada do estado, e há
+teste provando que 30 pendentes em rodadas de 25 cobrem os 30 sem repetir nem
+esquecer nenhum.
+
+## 6. O que esta etapa NÃO fez
 
 - Não agendou nenhum cron.
 - Não alterou o escopo das duas migrations corretivas da PR #722.
 - Não revisou os 24 jobs com hora fixa nem as 140 funções com `::date` cru.
-- Não alterou `vw_fluxo_pagamentos_monitor` — a coluna convertida fica para a
-  etapa de agendamento, junto com o cron.
+- Não agendou nem ativou nenhum dos três jobs: a migration está preparada e
+  **não aplicada**.
+- Não alterou `vw_fluxo_pagamentos_monitor` — a coluna já convertida para
+  Brasília fica para quando o cron for ativado.
+- Não revisou os 24 jobs com hora fixa nem as 140 funções com `::date` cru.

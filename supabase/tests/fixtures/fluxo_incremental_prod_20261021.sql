@@ -294,3 +294,55 @@ begin
   return jsonb_build_object('status', coalesce(d.status,'AGUARDANDO_ACORDO'),
                             'baixou', coalesce(d.baixou,false));
 end; $$;
+
+-- ===========================================================================
+-- TERCEIRA CAMADA — o gatilho que CAUSOU o defeito da espera.
+-- ===========================================================================
+--
+-- CORPO EXATO DE PRODUCAO. Sem ele a bancada nao reproduziria o problema: e
+-- este gatilho que reescreve `ultima_tentativa_em := now()` em QUALQUER update
+-- de linha pendente, inclusive os de um lote de importacao -- e era nesse campo
+-- que a espera por exclusao se apoiava.
+
+CREATE OR REPLACE FUNCTION public._fila_pagamento_tentativa()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+begin
+  if tg_op = 'INSERT' then
+    -- Primeira tentativa: o proprio momento em que o caso foi detectado.
+    new.primeira_tentativa_em := coalesce(new.primeira_tentativa_em, new.detectado_em, now());
+    new.ultima_tentativa_em   := coalesce(new.ultima_tentativa_em, new.detectado_em, now());
+    new.quantidade_tentativas := greatest(coalesce(new.quantidade_tentativas, 1), 1);
+    return new;
+  end if;
+
+  -- A PRIMEIRA TENTATIVA NUNCA E REESCRITA, venha o UPDATE de onde vier.
+  new.primeira_tentativa_em :=
+    coalesce(old.primeira_tentativa_em, old.detectado_em, now());
+
+  if old.decisao is null then
+    -- Linha ainda pendente: este UPDATE E uma nova tentativa de resolucao.
+    -- E por aqui que passa a rodada horaria, e tambem a escrita que marca
+    -- RESOLVIDO_AUTOMATICO -- que e a tentativa que finalmente deu certo.
+    new.ultima_tentativa_em   := now();
+    new.quantidade_tentativas := coalesce(old.quantidade_tentativas, 1) + 1;
+  else
+    -- Ja decidida. Editar observacao depois nao inventa tentativa nova: o
+    -- historico fica congelado para auditoria, como a gestao pediu.
+    new.ultima_tentativa_em   := old.ultima_tentativa_em;
+    new.quantidade_tentativas := old.quantidade_tentativas;
+  end if;
+
+  return new;
+end;
+$function$;
+
+-- Desligado por omissao: os testes que montam cenario precisam gravar
+-- `quantidade_tentativas` e `ultima_tentativa_em` a dedo. Quem quiser o gatilho
+-- vivo liga com `alter table ... enable trigger`.
+drop trigger if exists trg_fila_pagamento_tentativa on public.fila_pagamento_sem_vinculo;
+create trigger trg_fila_pagamento_tentativa
+  before insert or update on public.fila_pagamento_sem_vinculo
+  for each row execute function public._fila_pagamento_tentativa();
+alter table public.fila_pagamento_sem_vinculo disable trigger trg_fila_pagamento_tentativa;
