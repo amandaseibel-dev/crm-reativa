@@ -20,8 +20,23 @@ const alerta = (i, dias) => ({
   dias_restantes: dias,
   responsavel_email: "cobranca05@aelbra.com.br",
 });
-const A_VENCER = [alerta(0, 6)];
+const A_VENCER = [alerta(0, 6), alerta(1001, 4), alerta(1002, 3)];
 const VENCIDAS = Array.from({ length: 143 }, (_, i) => alerta(i + 1, -(1 + (i % 30))));
+
+// Situacao de acionamento nas PROPORCOES medidas em producao em 21/10/2026
+// (1.022 parcelas vencidas): 684 apos o vencimento, 170 so antes, 74 no proprio
+// dia, 71 hoje e 23 sem caso. Nao acionado: ZERO -- todo aluno com caso tem DUA.
+const HOJE = "2026-10-21";
+const dataMenos = (n) => new Date(Date.UTC(2026, 9, 21 - n)).toISOString().slice(0, 10);
+const INDICE = new Map();
+[...A_VENCER, ...VENCIDAS].forEach((a, i) => {
+  const r = i % 100;
+  if (r < 2) return;                                             // 2% sem caso
+  if (r < 9)  { INDICE.set(a.aluno_id, { dua: HOJE, temCaso: true }); return; }          // 7% hoje
+  if (r < 16) { INDICE.set(a.aluno_id, { dua: a.vencimento, temCaso: true }); return; }  // 7% no dia
+  if (r < 33) { INDICE.set(a.aluno_id, { dua: dataMenos(40 + (i % 5)), temCaso: true }); return; } // 17% so antes
+  INDICE.set(a.aluno_id, { dua: dataMenos(1 + (i % 9)), temCaso: true });                // o resto, apos
+});
 
 function Medida({ rotulo, children }) {
   const [h, setH] = useState(null);
@@ -60,12 +75,16 @@ function App() {
         </Medida>
         <Medida rotulo="depois">
           <>
-            <AlertasParcelaAcordo alertas={A_VENCER} titulo="🔔 Parcela de acordo a vencer" onAbrirFicha={() => {}} />
+            <AlertasParcelaAcordo
+              alertas={A_VENCER} titulo="🔔 Parcela de acordo a vencer" limite={5}
+              acionamentoPorAluno={INDICE} hoje={HOJE} onAbrirFicha={() => {}}
+            />
             <AlertasParcelaAcordo
               alertas={VENCIDAS}
               titulo="⏰ Parcela de acordo vencida (até 30 dias)"
               limite={5}
               rotuloExpandir="Ver todas as vencidas"
+              acionamentoPorAluno={INDICE} hoje={HOJE}
               onAbrirFicha={() => {}}
             />
           </>
