@@ -184,3 +184,100 @@ Meu Dia, TV, `PainelCarteira.jsx`, `src/components/projecao/*`.
 2. Bloco 2 (acionamentos por dia): série nova, ou só link para a Efetividade?
 3. `/painel-geral` está órfã do menu. Entra no menu nesta frente, ou fica como
    está?
+
+---
+
+# 7. Decisão da gestão e implementação (22/10/2026)
+
+As três decisões foram aprovadas: **absorver o PainelOperadores**, **série
+diária de acionamentos** e **incluir `/painel-geral` no menu** (este último com
+cinco condições: só o acesso no menu, respeitar as permissões já configuradas,
+não mudar o funcionamento nem os indicadores, não duplicar item e ir na mesma
+PR).
+
+## 7.1 O que foi feito
+
+| Arquivo | O quê |
+|---|---|
+| `src/pages/ProdutividadeOperacional.jsx` | **novo** — a tela, cinco blocos, só leitura |
+| `src/utils/produtividade.js` | **novo** — agregação pura, sem React e sem banco |
+| `src/utils/produtividade.test.js` | **novo** — 32 testes |
+| `src/pages/ProdutividadeOperacional.test.jsx` | **novo** — 14 testes (tela + ligação no `App.jsx`) |
+| `src/pages/PainelOperadores.jsx` | **removido** — absorvido no bloco 1 |
+| `src/App.jsx` | import, `<Route>`, porta em `RotaProtegida`, item de menu, item do Painel Geral, remoção da rota morta |
+| `src/utils/acessoFilaUnicaConfirmacao.test.js` | 1 asserção generalizada (ver 7.4) |
+
+Zero migration, zero RPC nova, zero escrita. A tela não tem um único botão de
+ação.
+
+## 7.2 Quem entra, e por que não é permissão nova
+
+Os três logins de gestão têm **três perfis diferentes** no banco: Amanda é
+`gerencia`, Fernanda é `supervisor`, Amanda ADM é `administrativo` (cada perfil
+com um único usuário ativo). Uma lista por perfil não consegue descrever "a
+gestão" sem abrir para quem não é — então `/produtividade` **não entra** nas
+listas de `permissoes` e é decidida em `RotaProtegida` por `podeVerTudo(email)`,
+chamado só com o e-mail. Isso devolve exatamente esses três, que são os mesmos
+de `public.usuario_e_gestao()` — a função que a RLS de `ponto_operadores` já
+exige para ver a batida dos outros. É o mesmo padrão já documentado no repo para
+a Fila Única de Confirmação (tela por PESSOA, não por perfil), e o item de menu
+usa a mesma regra da porta, senão ele sumiria para todos.
+
+## 7.3 Painel Geral: só o menu, e ele já estava certo
+
+Adicionado **um** item (`secao: "Gestão"`). A rota, a `<Route>`, a tela e as
+duas listas de permissão (gerência e supervisor) ficaram como estavam — há teste
+travando cada uma dessas quatro coisas.
+
+**Por que não liberar para a Amanda ADM:** a própria RPC `painel_geral` só
+aceita `amanda.seibel` e `cobranca04` — a Amanda ADM não está no gate dela e
+receberia "Sem permissão" com a tela vazia. As listas por perfil já a excluíam.
+Mudar isso seria mexer no funcionamento do Painel Geral, que a decisão proibiu;
+se a gestão quiser incluí-la, é alteração na RPC (migration) e vira frente
+própria.
+
+## 7.4 Um teste existente teve de ser generalizado
+
+`acessoFilaUnicaConfirmacao.test.js` exigia a linha de import **literal**
+(`import { podeGerirFinanceiro } from "./utils/operadores"`). Como `podeVerTudo`
+vem do mesmo módulo, a linha passou a ter dois nomes. A asserção virou regex que
+cobra o que ela queria cobrar: que `podeGerirFinanceiro` venha DALI, e não de
+uma lista nova. As outras quatro asserções do arquivo continuam intactas.
+
+## 7.5 Medições novas, feitas durante a implementação
+
+| Fonte | Medição em 22/10/2026 | Efeito na tela |
+|---|---|---|
+| `ponto_operadores.tipo` | `PAUSA_INTERVALO_1` e `_2`: **0 registros na história**. `PAUSA_ALMOCO`: 3, último em 02/07 | As três colunas de pausa viraram **uma** só; três colunas vazias por construção são ruído |
+| LOGIN × LOGOUT | 4.128 × 2.606 no total | parecia metade sem jornada… |
+| dias-operador (30 d) | **229 de 239 com as duas pontas (95,8%)** | …mas não é: o desequilíbrio vem de logins repetidos no mesmo dia. A jornada é mensurável quase sempre |
+| `alunos.data_retorno` | tipo **`date`** | confirma a regra do fuso: converter para `Date` voltaria um dia na coluna inteira |
+| colunas lidas | 21 conferidas em `information_schema` | nenhuma leitura em coluna inexistente |
+
+## 7.6 Verificação
+
+- **46 testes novos** verdes em `TZ=UTC`, `America/Sao_Paulo` e `Asia/Tokyo`
+  (fuso não muda resultado).
+- **Catraca do lint: exit 0**, e o número caiu de 473 para 471 — a remoção da
+  tela morta levou os dois erros dela embora. A linha de base **não** foi
+  regravada (a catraca aceita melhora; baixar o número é decisão separada).
+- **Build**: `vite build` concluiu.
+- **Suíte de front (`src`)**: executada em série, sem falha.
+- `supabase/tests/acordo_cancelado_nao_reabre_mensalidade_comportamento.test.js`
+  falha em 2 casos por **timeout de 5 s** — são os dois `it(...)` daquele
+  arquivo que não recebem timeout explícito, enquanto os vizinhos levam de 14 a
+  77 s contra Postgres real (PGlite). Não é efeito desta frente: o arquivo não
+  foi tocado, roda SQL em Postgres embutido e **não importa nada de `src/`** —
+  os únicos arquivos que esta PR altera. Não cheguei a rodá-lo no commit-base
+  para comparar; a afirmação vem do que o arquivo importa, não de medição.
+- A verificação no navegador exige o login da gestão, que é da Amanda. A tela
+  foi verificada renderizando o componente com fixtures no formato da produção
+  (jsdom) e conferindo número por número.
+
+## 7.7 Risco de conflito, reconferido no fim
+
+| Frente | Estado em 22/10 | Choque |
+|---|---|---|
+| Santander | `ProjecaoHoraHora.jsx`, `supabase/functions/santander-previa/*`, `supabase/config.toml` | nenhum |
+| Meu Dia | branch em `dbb4ad91` (= `origin/main`), worktree limpo | nenhum. A amarra é o campo de retorno cumprido, que ficou deliberadamente fora |
+| Outra frente que adicione rota | `src/App.jsx` | possível, resolve em 1 linha |
