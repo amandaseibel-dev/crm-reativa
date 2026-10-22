@@ -170,6 +170,19 @@ function ProjecaoHoraHoraInner() {
   const [importando, setImportando] = useState(false);
   const [ehRetroativo, setEhRetroativo] = useState(false);
   const [mensagemImportacao, setMensagemImportacao] = useState("");
+  // ENTREGA B -- leitura da planilha NO SERVIDOR, em duas fases.
+  //
+  // COMECA DESLIGADO, e isso nao e timidez: quando esta tela sobe para
+  // producao a Edge Function AINDA NAO ESTA PUBLICADA. Se o caminho novo fosse
+  // o padrao, a importacao quebraria no mesmo instante do deploy. Desligado, o
+  // fluxo de hoje segue intacto e o caminho novo e escolha da gestao, arquivo
+  // por arquivo -- o que tambem permite conferir os dois lado a lado com o
+  // mesmo arquivo antes de confiar nele.
+  const [lerNoServidor, setLerNoServidor] = useState(false);
+  // Digital do conteudo normalizado, devolvida pela previa do servidor. Enquanto
+  // ela existe, a confirmacao vai pelo servidor; nula, vai pelo caminho de hoje.
+  const [digitalServidor, setDigitalServidor] = useState(null);
+  const [lendoNoServidor, setLendoNoServidor] = useState(false);
 
   const [historicoImportacoes, setHistoricoImportacoes] = useState([]);
   const [auditoriaAcoes, setAuditoriaAcoes] = useState([]);
@@ -616,11 +629,62 @@ function ProjecaoHoraHoraInner() {
     }
   }
 
+  // ENTREGA B, fase 1: a previa sai do SERVIDOR. Nao normaliza nada aqui --
+  // chama a Edge Function, que devolve as linhas e a digital do conteudo.
+  // Falha NAO cai em silencio para o caminho do navegador: cair em silencio
+  // esconderia que o caminho novo esta quebrado, e a gestao acharia que
+  // validou o servidor quando validou o navegador. Mostra o erro; desmarcar a
+  // caixa continua a um clique.
+  async function previaPeloServidor(arquivoSelecionado) {
+    setLendoNoServidor(true);
+    setLinhasPreview([]);
+    setDigitalServidor(null);
+    try {
+      const { data: sessao } = await supabase.auth.getSession();
+      const token = sessao?.session?.access_token;
+      if (!token) throw new Error("sessao sem token; entre novamente");
+
+      const corpo = new FormData();
+      corpo.append("arquivo", arquivoSelecionado);
+
+      const resposta = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/santander-previa`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: corpo,
+      });
+      const corpoResposta = await resposta.json().catch(() => ({}));
+      if (!resposta.ok || !corpoResposta?.ok) {
+        throw new Error(corpoResposta?.detalhe || corpoResposta?.erro || `HTTP ${resposta.status}`);
+      }
+
+      setLinhasPreview(corpoResposta.linhas || []);
+      setDigitalServidor(corpoResposta.digital || null);
+      const r = corpoResposta.resumo || {};
+      setMensagemImportacao(
+        `Prévia lida no servidor: ${r.linhas_de_pagamento ?? 0} pagamentos` +
+          (r.descartadas ? `, ${r.descartadas} linha(s) descartada(s)` : "") +
+          (r.sem_operador ? ` — ATENÇÃO: ${r.sem_operador} sem operador` : "")
+      );
+    } catch (e) {
+      setMensagemImportacao(
+        `Falha ao ler no servidor: ${e.message}. ` +
+          `Desmarque "Ler no servidor" para usar a leitura do navegador.`
+      );
+    }
+    setLendoNoServidor(false);
+  }
+
   function selecionarArquivo(evento) {
     const arquivoSelecionado = evento.target.files?.[0];
     if (!arquivoSelecionado) return;
     setArquivo(arquivoSelecionado);
     setMensagemImportacao("");
+    setDigitalServidor(null);
+
+    if (lerNoServidor) {
+      previaPeloServidor(arquivoSelecionado);
+      return;
+    }
 
     const leitor = new FileReader();
     leitor.onload = (e) => {
@@ -665,6 +729,57 @@ function ProjecaoHoraHoraInner() {
     leitor.readAsArrayBuffer(arquivoSelecionado);
   }
 
+  // Chamada da fase 2. Devolve no formato do `supabase.rpc` de proposito.
+  async function importarPeloServidor({ arquivoSelecionado, nomeArquivo, idParaSubstituir, motivoSubstituicao }) {
+    try {
+      const { data: sessao } = await supabase.auth.getSession();
+      const token = sessao?.session?.access_token;
+      if (!token) throw new Error("sessao sem token; entre novamente");
+      if (!arquivoSelecionado) throw new Error("arquivo nao esta mais em memoria; selecione de novo");
+
+      const corpo = new FormData();
+      corpo.append("arquivo", arquivoSelecionado);
+      corpo.append("digital", digitalServidor);
+      corpo.append("mes_referencia", mesReferencia);
+      corpo.append("retroativo", ehRetroativo ? "true" : "false");
+      if (idParaSubstituir) corpo.append("substituir_importacao_id", idParaSubstituir);
+      if (motivoSubstituicao) corpo.append("motivo_substituicao", motivoSubstituicao);
+
+      const resposta = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/santander-importar`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          // Manda o nome EXATO que a checagem de duplicidade usou. Sem isso o
+          // servidor cairia no `File.name`, que pode divergir do fallback
+          // "planilha_diaria" -- e a trava de duplicidade da RPC e por
+          // (competencia, arquivo_nome): nomes diferentes fariam a pre-checagem
+          // olhar uma chave e a gravacao outra.
+          "x-arquivo-nome": nomeArquivo,
+        },
+        body: corpo,
+      });
+      const r = await resposta.json().catch(() => ({}));
+
+      if (!resposta.ok || !r?.ok) {
+        // Arquivo trocado entre conferir e confirmar: dizer isso, nao "erro".
+        if (r?.erro === "DIGITAL_DIVERGENTE") {
+          return {
+            data: null,
+            error: {
+              message:
+                "o arquivo mudou depois da prévia e NADA foi importado. " +
+                "Selecione o arquivo de novo para conferir a prévia atual.",
+            },
+          };
+        }
+        return { data: null, error: { message: r?.detalhe || r?.erro || `HTTP ${resposta.status}` } };
+      }
+      return { data: [{ importacao_id: r.importacao_id, linhas_gravadas: r.linhas_gravadas }], error: null };
+    } catch (e) {
+      return { data: null, error: { message: e.message } };
+    }
+  }
+
   async function confirmarImportacao() {
     if (!linhasPreview.length) return;
     setImportando(true);
@@ -707,15 +822,31 @@ function ProjecaoHoraHoraInner() {
       motivoSubstituicao = prompt("Motivo da substituição (fica registrado na auditoria):") || "Substituição manual";
     }
 
-    const { data, error } = await supabase.rpc("projecao_importar_pagamentos", {
-      p_arquivo_nome: nomeArquivo,
-      p_usuario: usuario?.email || "",
-      p_linhas: linhasPreview,
-      p_mes_referencia: mesReferencia,
-      p_retroativo: ehRetroativo,
-      p_substituir_importacao_id: idParaSubstituir,
-      p_motivo_substituicao: motivoSubstituicao,
-    });
+    // ENTREGA B, fase 2. Com digital do servidor, a confirmacao vai pela Edge
+    // Function: ela rele o arquivo, RECALCULA a digital e so grava se bater.
+    // Nao mandamos `linhasPreview` -- as linhas gravadas sao o parse do
+    // servidor. E a diferenca que importa: hoje quem chama escolhe o que e
+    // gravado e a planilha e so a origem alegada.
+    //
+    // Mesmo formato de retorno dos dois caminhos ({ data, error }), para o
+    // tratamento abaixo ficar identico e nao haver um segundo lugar onde a
+    // mensagem de sucesso possa divergir.
+    const { data, error } = digitalServidor
+      ? await importarPeloServidor({
+          arquivoSelecionado: arquivo,
+          nomeArquivo,
+          idParaSubstituir,
+          motivoSubstituicao,
+        })
+      : await supabase.rpc("projecao_importar_pagamentos", {
+          p_arquivo_nome: nomeArquivo,
+          p_usuario: usuario?.email || "",
+          p_linhas: linhasPreview,
+          p_mes_referencia: mesReferencia,
+          p_retroativo: ehRetroativo,
+          p_substituir_importacao_id: idParaSubstituir,
+          p_motivo_substituicao: motivoSubstituicao,
+        });
 
     if (error) {
       setMensagemImportacao("Erro ao importar: " + error.message);
@@ -728,6 +859,7 @@ function ProjecaoHoraHoraInner() {
       );
       setArquivo(null);
       setLinhasPreview([]);
+      setDigitalServidor(null);
       setEhRetroativo(false);
       setSubstituindoImportacaoId(null);
       carregarSnapshot();
@@ -1781,6 +1913,31 @@ function ProjecaoHoraHoraInner() {
               e.target.value = "";
             }}
           />
+
+          {/* ENTREGA B. Fica ao lado do seletor porque a escolha e por arquivo,
+              e desmarcada por padrao porque a funcao do servidor ainda nao esta
+              publicada -- marcada sem funcao publicada, a previa falha e diz o
+              que fazer, em vez de fingir que leu. */}
+          <label style={estilos.checkboxRetroativo}>
+            <input
+              type="checkbox"
+              checked={lerNoServidor}
+              disabled={lendoNoServidor || importando}
+              onChange={(e) => {
+                setLerNoServidor(e.target.checked);
+                // Trocar de caminho invalida a previa que esta na tela: ela foi
+                // produzida pelo outro lado. Sem limpar, a confirmacao poderia
+                // usar uma conferencia que nao corresponde ao caminho atual.
+                setLinhasPreview([]);
+                setDigitalServidor(null);
+                setArquivo(null);
+                setMensagemImportacao("");
+              }}
+            />
+            Ler no servidor (novo) — a planilha é lida e normalizada no servidor, e a
+            confirmação só grava se o arquivo for o mesmo que você conferiu
+            {lendoNoServidor && " · lendo…"}
+          </label>
 
           <label style={estilos.checkboxRetroativo}>
             <input
