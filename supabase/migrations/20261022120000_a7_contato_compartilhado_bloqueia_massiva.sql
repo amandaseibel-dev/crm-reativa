@@ -138,11 +138,37 @@ comment on view public.vw_contato_compartilhado is
 -- literal "nao e a pessoa". Mas a previa le `alunos.telefone` e `alunos.email`
 -- direto da ficha e nunca consultou `aluno_contatos`, logo invalidar um contato
 -- nao tinha efeito nenhum sobre o envio. Esta view liga o campo ao envio.
+--
+-- A CHAVE DO JOIN PRECISA DO CODIGO DO PAIS REMOVIDO. `aluno_contatos.valor`
+-- guarda telefone com DDI: a tela prefixa '55' ao salvar, e em 22/10/2026 os
+-- 20.440 registros de telefone comecam com '55' (16.895 com 13 digitos, 3.545
+-- com 12). Ja `alunos.telefone` guarda 10 ou 11 digitos, sem DDI. Comparar os
+-- dois crus NUNCA casa -- medido: 0 de 20.440. Com o '55' removido, 14.995
+-- casam com a ficha (o resto sao contatos alternativos, que por desenho nao
+-- sao o da ficha), e no e-mail 12.752 de 12.875.
+--
+-- O '55' sai SO quando o resto fica com 10 ou 11 digitos. O DDD 55 existe no
+-- Rio Grande do Sul (Santa Maria), entao um numero de 11 digitos que comeca
+-- com 55 nao e tocado: 11 - 2 = 9, que nao e 10 nem 11. Isto remove codigo de
+-- pais comprovadamente presente; NAO inventa digito nenhum.
+create or replace function public.contato_tel_sem_ddi(p_bruto text)
+returns text
+language sql
+immutable
+set search_path to 'public'
+as $$
+  select case when d like '55%' and length(d) - 2 in (10, 11) then substring(d, 3) else d end
+    from (select nullif(regexp_replace(coalesce(p_bruto, ''), '\D', '', 'g'), '') as d) q;
+$$;
+
+comment on function public.contato_tel_sem_ddi(text) is
+  'A7: telefone em digitos, sem o DDI 55 que aluno_contatos guarda. Preserva DDD 55 do RS. Nao inventa o nono digito.';
+
 create or replace view public.vw_contato_invalidado as
 select ac.aluno_id,
        case when lower(coalesce(ac.tipo, '')) = 'telefone' then 'TELEFONE' else 'EMAIL' end as canal,
        case when lower(coalesce(ac.tipo, '')) = 'telefone'
-            then nullif(regexp_replace(coalesce(ac.valor, ''), '\D', '', 'g'), '')
+            then public.contato_tel_sem_ddi(ac.valor)
             else nullif(lower(btrim(coalesce(ac.valor, ''))), '')
        end as contato,
        ac.motivo_invalidacao,
@@ -273,131 +299,6 @@ comment on function public.contato_fila_revisao(text, integer) is
   'A7/decisao 5: fila de revisao cadastral dos contatos compartilhados. Administrativo e supervisao apenas. Prioritarios (>= 5 pessoas) primeiro.';
 
 -- ---------------------------------------------------------------------------
--- 8. Operador sinaliza contato incorreto (decisao 4)
--- ---------------------------------------------------------------------------
--- Qualquer operador logado pode SINALIZAR, com motivo obrigatorio e autoria
--- registrada. LIBERAR e exclusivo do Administrativo/supervisao (secao 9).
--- Reaproveita `aluno_contatos`: nao cria tabela nova.
-create or replace function public.contato_sinalizar_incorreto(p_aluno_id uuid,
-                                                              p_canal text,
-                                                              p_motivo text)
-returns jsonb
-language plpgsql
-security definer
-set search_path to 'public'
-as $$
-declare
-  v_autor text := lower(coalesce(auth.jwt() ->> 'email', ''));
-  v_canal text := upper(btrim(coalesce(p_canal, '')));
-  v_motivo text := nullif(btrim(coalesce(p_motivo, '')), '');
-  v_contato text;
-  v_tipo text;
-  v_id uuid;
-begin
-  if v_autor = '' then
-    raise exception 'Acesso negado: sinalizar contato exige sessao autenticada com e-mail.'
-      using errcode = '42501';
-  end if;
-  if v_canal not in ('TELEFONE', 'EMAIL') then
-    raise exception 'Canal invalido: %', p_canal using errcode = '22023';
-  end if;
-  if v_motivo is null then
-    raise exception 'Motivo obrigatorio ao sinalizar contato incorreto.' using errcode = '22023';
-  end if;
-
-  v_tipo := lower(v_canal);
-
-  select n.contato into v_contato
-    from public.vw_contato_normalizado n
-   where n.aluno_id = p_aluno_id and n.canal = v_canal;
-
-  if v_contato is null then
-    raise exception 'Aluno % nao tem contato de % para sinalizar.', p_aluno_id, v_canal
-      using errcode = 'P0002';
-  end if;
-
-  -- decisao 8: preservar historico. Nao apaga nem sobrescreve o contato da
-  -- ficha; marca invalido o registro existente, ou cria o registro da marca.
-  update public.aluno_contatos ac
-     set valido = false,
-         invalidado_em = now(),
-         invalidado_por_email = v_autor,
-         motivo_invalidacao = v_motivo
-   where ac.aluno_id = p_aluno_id
-     and lower(coalesce(ac.tipo, '')) = v_tipo
-     and case when v_tipo = 'telefone'
-              then nullif(regexp_replace(coalesce(ac.valor, ''), '\D', '', 'g'), '')
-              else nullif(lower(btrim(coalesce(ac.valor, ''))), '') end = v_contato
-  returning ac.id into v_id;
-
-  if v_id is null then
-    insert into public.aluno_contatos
-      (aluno_id, tipo, valor, valor_exibicao, origem, principal, valido,
-       invalidado_em, invalidado_por_email, motivo_invalidacao, criado_por_email)
-    values (p_aluno_id, v_tipo, v_contato, v_contato, 'SINALIZACAO_OPERADOR', false, false,
-            now(), v_autor, v_motivo, v_autor)
-    returning id into v_id;
-  end if;
-
-  return jsonb_build_object('ok', true, 'contato_id', v_id, 'canal', v_canal,
-                            'motivo', v_motivo, 'autor', v_autor,
-                            'liberacao', 'exclusiva do Administrativo ou da supervisao');
-end;
-$$;
-
-comment on function public.contato_sinalizar_incorreto(uuid, text, text) is
-  'A7/decisao 4: operador marca contato como incorreto, com motivo e autoria. Passa a bloquear o canal na acao massiva. Liberar e so do Administrativo/supervisao.';
-
--- ---------------------------------------------------------------------------
--- 9. Revalidar / liberar -- Administrativo ou supervisao apenas (decisao 4)
--- ---------------------------------------------------------------------------
-create or replace function public.contato_revalidar(p_contato_id uuid,
-                                                    p_motivo text)
-returns jsonb
-language plpgsql
-security definer
-set search_path to 'public'
-as $$
-declare
-  v_autor text := lower(coalesce(auth.jwt() ->> 'email', ''));
-  v_motivo text := nullif(btrim(coalesce(p_motivo, '')), '');
-  v_aluno uuid;
-  v_tipo text;
-begin
-  if not public.usuario_pode_revalidar_contato() then
-    raise exception 'Acesso negado: revalidar contato e exclusivo do Administrativo ou da supervisao.'
-      using errcode = '42501';
-  end if;
-  if v_motivo is null then
-    raise exception 'Motivo obrigatorio ao revalidar contato.' using errcode = '22023';
-  end if;
-
-  update public.aluno_contatos ac
-     set valido = true,
-         invalidado_em = null,
-         invalidado_por_email = null,
-         -- decisao 8: preserva a trilha. Registra quem liberou e por que, sem
-         -- apagar o motivo anterior.
-         motivo_invalidacao = 'LIBERADO por ' || v_autor || ' em ' ||
-                              to_char(now() at time zone 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI') ||
-                              ': ' || v_motivo ||
-                              ' | anterior: ' || coalesce(ac.motivo_invalidacao, '-')
-   where ac.id = p_contato_id
-  returning ac.aluno_id, ac.tipo into v_aluno, v_tipo;
-
-  if v_aluno is null then
-    raise exception 'Contato % nao encontrado.', p_contato_id using errcode = 'P0002';
-  end if;
-
-  return jsonb_build_object('ok', true, 'contato_id', p_contato_id, 'aluno_id', v_aluno,
-                            'tipo', v_tipo, 'liberado_por', v_autor, 'motivo', v_motivo);
-end;
-$$;
-
-comment on function public.contato_revalidar(uuid, text) is
-  'A7/decisao 4: libera contato invalidado. Exclusivo do Administrativo ou da supervisao. Preserva a trilha do motivo anterior.';
-
--- ---------------------------------------------------------------------------
 -- 10. GRANTS
 -- ---------------------------------------------------------------------------
 -- LICAO JA PAGA NESTE BANCO: toda funcao nova herda EXECUTE de PUBLIC, e foi
@@ -405,15 +306,12 @@ comment on function public.contato_revalidar(uuid, text) is
 -- Por isso cada funcao nova aqui tem o EXECUTE de PUBLIC revogado e o papel
 -- concedido explicitamente.
 revoke all on function public.contato_e_placeholder(text, text) from public;
+revoke all on function public.contato_tel_sem_ddi(text) from public;
 revoke all on function public.usuario_pode_revalidar_contato() from public;
 revoke all on function public.contato_fila_revisao(text, integer) from public;
-revoke all on function public.contato_sinalizar_incorreto(uuid, text, text) from public;
-revoke all on function public.contato_revalidar(uuid, text) from public;
 
 grant execute on function public.usuario_pode_revalidar_contato() to authenticated;
 grant execute on function public.contato_fila_revisao(text, integer) to authenticated;
-grant execute on function public.contato_sinalizar_incorreto(uuid, text, text) to authenticated;
-grant execute on function public.contato_revalidar(uuid, text) to authenticated;
 -- contato_e_placeholder e plumbing interno: fica so para o owner.
 
 -- As views NAO sao concedidas a authenticated, de proposito. Elas expoem
@@ -539,4 +437,66 @@ $ancora$    when 'valor_fora_da_faixa'   then 'Valor em aberto fora da faixa sel
 $novo$    when 'contato_compartilhado' then 'Outra pessoa com dívida usa o mesmo contato — em revisão cadastral'
     when 'contato_invalidado'    then 'Contato marcado como incorreto — liberação pelo Administrativo'
     when 'valor_fora_da_faixa'   then 'Valor em aberto fora da faixa selecionada'$novo$,
+  1);
+
+-- ---------------------------------------------------------------------------
+-- 14. CONSOLIDACAO NAS RPCs QUE JA EXISTEM (decisoes 1, 2 e 3 da gestao)
+-- ---------------------------------------------------------------------------
+-- O A7 nao cria porta nova para invalidar/revalidar contato: a ficha do aluno
+-- (src/components/TelefonesAluno.jsx) ja tem "Invalidar" e "Reativar" sobre
+-- `aluno_contato_invalidar` / `aluno_contato_revalidar`. Duas portas para a
+-- mesma acao e como o portao se burla, entao a regra de autorizacao fica em UM
+-- lugar: `public.usuario_pode_revalidar_contato()`.
+--
+-- O QUE ESTAVA ABERTO. As duas RPCs exigiam apenas `app_usuario_ativo()`, que e
+-- qualquer usuario ativo em `usuarios` -- 7 operadores hoje. Ou seja, qualquer
+-- operador levantava um bloqueio do A7 com um clique na ficha. E
+-- `aluno_contato_revalidar` ainda zerava `motivo_invalidacao`, apagando a
+-- trilha de quem marcou e por que.
+
+-- (14.a) INVALIDAR continua de qualquer operador ativo -- muda so que o motivo
+--        passa a ser OBRIGATORIO (decisao 1). Sem motivo, invalidar um contato
+--        viraria bloqueio sem explicacao, e a fila de revisao nao teria o que
+--        ler.
+select internal.patch_funcao_ancorada(
+  'public', 'aluno_contato_invalidar',
+$ancora$  IF coalesce(auth.role(),'') <> 'service_role' AND NOT public.app_usuario_ativo() THEN
+    RAISE EXCEPTION 'Acesso negado.' USING ERRCODE='42501';
+  END IF;$ancora$,
+$novo$  IF coalesce(auth.role(),'') <> 'service_role' AND NOT public.app_usuario_ativo() THEN
+    RAISE EXCEPTION 'Acesso negado.' USING ERRCODE='42501';
+  END IF;
+
+  -- A7/decisao 1: motivo obrigatorio. O contato invalidado bloqueia o canal na
+  -- acao massiva, e bloqueio sem motivo nao pode ser revisado por ninguem.
+  IF nullif(btrim(coalesce(p_motivo, '')), '') IS NULL THEN
+    RAISE EXCEPTION 'Motivo obrigatorio ao invalidar contato.' USING ERRCODE='22023';
+  END IF;$novo$,
+  1);
+
+-- (14.b) REVALIDAR passa a ser exclusivo do Administrativo e da supervisao
+--        (decisao 1). Operador invalida, mas nao levanta.
+select internal.patch_funcao_ancorada(
+  'public', 'aluno_contato_revalidar',
+$ancora$  IF coalesce(auth.role(),'') <> 'service_role' AND NOT public.app_usuario_ativo() THEN
+    RAISE EXCEPTION 'Acesso negado.' USING ERRCODE='42501';
+  END IF;$ancora$,
+$novo$  IF coalesce(auth.role(),'') <> 'service_role'
+     AND NOT public.usuario_pode_revalidar_contato() THEN
+    RAISE EXCEPTION 'Acesso negado: reativar contato e exclusivo do Administrativo ou da supervisao.'
+      USING ERRCODE='42501';
+  END IF;$novo$,
+  1);
+
+-- (14.c) REVALIDAR para de apagar a trilha (decisao 2). `motivo_invalidacao`
+--        passa a acumular: o motivo anterior fica legivel, com quem reativou e
+--        quando. `invalidado_em` e `invalidado_por_email` continuam zerados --
+--        sao o estado da marca viva, nao o historico dela.
+select internal.patch_funcao_ancorada(
+  'public', 'aluno_contato_revalidar',
+$ancora$     SET valido = true, invalidado_em = null, invalidado_por_email = null, motivo_invalidacao = null$ancora$,
+$novo$     SET valido = true, invalidado_em = null, invalidado_por_email = null,
+         motivo_invalidacao = 'REATIVADO por ' || lower(coalesce(auth.email(), '?')) || ' em '
+           || to_char(now() at time zone 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI')
+           || coalesce(' | antes: ' || motivo_invalidacao, '')$novo$,
   1);

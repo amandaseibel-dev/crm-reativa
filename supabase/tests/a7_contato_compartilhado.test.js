@@ -45,6 +45,94 @@ const ALUNO_CONTATOS = `
     criado_em timestamptz default now(), criado_por_email text);
   create or replace function public.aluno_em_confirmacao_pagamento(p_id text)
   returns text language sql stable as $$ select null::text $$;
+  create or replace function public.app_usuario_ativo()
+  returns boolean language sql stable security definer set search_path to 'public' as $$
+    select exists (select 1 from public.usuarios u
+                    where lower(u.email) = lower(coalesce((auth.jwt() ->> 'email'), ''))
+                      and u.ativo is true)
+  $$;
+  create or replace function public.aluno_contatos_sincronizar(p_aluno_id uuid)
+  returns void language plpgsql security definer set search_path to 'public' as $$
+  begin
+    -- duble reduzido: o que importa para o A7 e que invalidar TIRA o contato
+    -- da ficha, que e o que a funcao de producao faz.
+    update public.alunos a set telefone = (
+      select coalesce(c.valor_exibicao, c.valor) from public.aluno_contatos c
+       where c.aluno_id = a.id and lower(c.tipo) = 'telefone' and c.valido
+       order by c.criado_em, c.id limit 1)
+     where a.id = p_aluno_id
+       and exists (select 1 from public.aluno_contatos c
+                    where c.aluno_id = a.id and lower(c.tipo) = 'telefone');
+    update public.alunos a set email = (
+      select c.valor from public.aluno_contatos c
+       where c.aluno_id = a.id and lower(c.tipo) = 'email' and c.valido
+       order by c.criado_em, c.id limit 1)
+     where a.id = p_aluno_id
+       and exists (select 1 from public.aluno_contatos c
+                    where c.aluno_id = a.id and lower(c.tipo) = 'email');
+  end $$;
+`;
+
+// RPCs REAIS de producao (pg_get_functiondef, 22/10/2026). Entram aqui para que
+// os patches 14.a/14.b/14.c tenham o que ancorar -- se o corpo divergir de
+// producao, `patch_funcao_ancorada` falha e este teste falha.
+const CONTATO_RPCS_PRODUCAO = `
+CREATE OR REPLACE FUNCTION public.aluno_contato_invalidar(p_id uuid, p_motivo text DEFAULT NULL::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_email text := lower(coalesce(auth.email(),''));
+  v_aluno uuid;
+BEGIN
+  IF coalesce(auth.role(),'') <> 'service_role' AND NOT public.app_usuario_ativo() THEN
+    RAISE EXCEPTION 'Acesso negado.' USING ERRCODE='42501';
+  END IF;
+
+  UPDATE public.aluno_contatos
+     SET valido = false, principal = false, invalidado_em = now(),
+         invalidado_por_email = nullif(v_email,''),
+         motivo_invalidacao = nullif(trim(coalesce(p_motivo,'')),'')
+   WHERE id = p_id AND valido
+   RETURNING aluno_id INTO v_aluno;
+
+  IF v_aluno IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'motivo', 'NAO_ENCONTRADO_OU_JA_INVALIDO');
+  END IF;
+
+  PERFORM public.aluno_contatos_sincronizar(v_aluno);
+  RETURN jsonb_build_object('ok', true, 'aluno_id', v_aluno);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.aluno_contato_revalidar(p_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_aluno uuid;
+BEGIN
+  IF coalesce(auth.role(),'') <> 'service_role' AND NOT public.app_usuario_ativo() THEN
+    RAISE EXCEPTION 'Acesso negado.' USING ERRCODE='42501';
+  END IF;
+
+  UPDATE public.aluno_contatos
+     SET valido = true, invalidado_em = null, invalidado_por_email = null, motivo_invalidacao = null
+   WHERE id = p_id AND NOT valido
+   RETURNING aluno_id INTO v_aluno;
+
+  IF v_aluno IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'motivo', 'NAO_ENCONTRADO_OU_JA_VALIDO');
+  END IF;
+
+  PERFORM public.aluno_contatos_sincronizar(v_aluno);
+  RETURN jsonb_build_object('ok', true, 'aluno_id', v_aluno);
+END;
+$function$;
 `;
 
 // PORTA 2, corpo REAL de producao lido por pg_get_functiondef em 22/10/2026.
@@ -102,6 +190,7 @@ const SUP = "fernanda@aelbra.com.br";
 async function banco(opts = {}) {
   const db = await bancadaBase(opts);
   await db.exec(ALUNO_CONTATOS);
+  await db.exec(CONTATO_RPCS_PRODUCAO);
   await db.exec(PORTA2_PRODUCAO);
   await db.exec(MIG_A7);
   await db.query(
@@ -119,6 +208,20 @@ async function mesmoContato(db, ids, { telefone = null, email = null } = {}) {
         set telefone = coalesce($2, telefone), email = coalesce($3, email)
       where id = any($1::uuid[])`,
     [ids, telefone, email]);
+}
+
+/** Insere contato como a tela insere: telefone com o DDI 55 na frente. */
+async function contatoDaFicha(db, alunoId, canal) {
+  const col = canal === "TELEFONE" ? "telefone" : "email";
+  const { rows } = await db.query(`select ${col} v from public.alunos where id = $1`, [alunoId]);
+  const valor = canal === "TELEFONE"
+    ? "55" + String(rows[0].v).replace(/\D/g, "")
+    : rows[0].v;
+  const r = await db.query(
+    `insert into public.aluno_contatos (aluno_id, tipo, valor, valor_exibicao, origem, principal, valido)
+     values ($1, $2, $3, $4, 'TESTE', true, true) returning id`,
+    [alunoId, canal.toLowerCase(), valor, rows[0].v]);
+  return r.rows[0].id;
 }
 
 const porAluno = (rows) => Object.fromEntries(rows.map((r) => [r.aluno_id, r]));
@@ -206,32 +309,65 @@ describe("A7 bloqueio ENTRE LOTES: e estado do cadastro, nao do lote", () => {
 
 // ---------------------------------------------------------------------------
 describe("A7 contatos invalidados: aluno_contatos passa a ter efeito", () => {
-  it("contato marcado invalido tira o canal do envio", async () => {
+  // Caminho 1 -- o do dia a dia. O operador invalida pela ficha; a RPC de
+  // producao chama `aluno_contatos_sincronizar`, que TIRA o contato da ficha.
+  // O bloqueio vem entao do `contato_indisponivel` que ja existia. O que
+  // importa provar e que o aluno SAI do envio.
+  it("operador invalida pela ficha e o canal sai do envio", async () => {
     const db = await banco();
     const [a1, a2] = await alunos(db, 2, {});
-    const { rows } = await db.query(`select email, telefone from public.alunos where id = $1`, [a1]);
+    const id = await contatoDaFicha(db, a1, "EMAIL");
 
+    await comoOperador(db, OP_A);
+    const r = (await db.query(
+      `select public.aluno_contato_invalidar($1::uuid, 'nao e a pessoa') r`, [id])).rows[0].r;
+    expect(r.ok).toBe(true);
+
+    await comoGestao(db);
+    const mail = porAluno(await universo(db, { canal: "EMAIL" }));
+    expect(mail[a1].disponivel).toBe(false);
+    expect(mail[a2].disponivel).toBe(true);
+    // o telefone dele nao foi marcado: segue valendo
+    expect(porAluno(await universo(db, { canal: "WHATSAPP" }))[a1].disponivel).toBe(true);
+  });
+
+  // Caminho 2 -- a rede de seguranca. Quando o contato invalido CONTINUA na
+  // ficha (medido em producao: 554 alunos com saldo tem telefone na ficha sem
+  // registro em `aluno_contatos`, e 1.111 no e-mail), e a view do A7 que
+  // bloqueia, com motivo proprio.
+  it("contato invalido que PERMANECE na ficha bloqueia com motivo proprio", async () => {
+    const db = await banco();
+    const [a1, a2] = await alunos(db, 2, {});
+    const { rows } = await db.query(`select email from public.alunos where id = $1`, [a1]);
+    // sem passar pela RPC: a ficha fica com o valor, o registro nasce invalido
     await db.query(
       `insert into public.aluno_contatos (aluno_id, tipo, valor, valido, motivo_invalidacao)
-       values ($1, 'email', $2, false, 'nao e a pessoa')`,
-      [a1, rows[0].email]);
+       values ($1, 'email', $2, false, 'nao e a pessoa')`, [a1, rows[0].email]);
 
     const mail = porAluno(await universo(db, { canal: "EMAIL" }));
     expect(mail[a1].disponivel).toBe(false);
     expect(mail[a1].motivo).toBe("contato_invalidado");
     expect(mail[a2].disponivel).toBe(true);
-
-    // o telefone dele nao foi marcado: segue valendo
-    expect(porAluno(await universo(db, { canal: "WHATSAPP" }))[a1].disponivel).toBe(true);
   });
 
-  it("contato valido = true nao bloqueia nada", async () => {
+  it("telefone invalido casa com a ficha mesmo guardado com o DDI 55", async () => {
     const db = await banco();
     const [a1] = await alunos(db, 1, {});
-    const { rows } = await db.query(`select email from public.alunos where id = $1`, [a1]);
+    const { rows } = await db.query(`select telefone from public.alunos where id = $1`, [a1]);
+    const comDdi = "55" + String(rows[0].telefone).replace(/\D/g, "");
+    expect(comDdi.length).toBe(13);
     await db.query(
-      `insert into public.aluno_contatos (aluno_id, tipo, valor, valido) values ($1,'email',$2,true)`,
-      [a1, rows[0].email]);
+      `insert into public.aluno_contatos (aluno_id, tipo, valor, valido, motivo_invalidacao)
+       values ($1, 'telefone', $2, false, 'nao e a pessoa')`, [a1, comDdi]);
+    const wpp = porAluno(await universo(db, { canal: "WHATSAPP" }));
+    expect(wpp[a1].disponivel).toBe(false);
+    expect(wpp[a1].motivo).toBe("contato_invalidado");
+  });
+
+  it("contato valido nao bloqueia nada", async () => {
+    const db = await banco();
+    const [a1] = await alunos(db, 1, {});
+    await contatoDaFicha(db, a1, "EMAIL");
     expect(porAluno(await universo(db, { canal: "EMAIL" }))[a1].disponivel).toBe(true);
   });
 
@@ -241,8 +377,7 @@ describe("A7 contatos invalidados: aluno_contatos passa a ter efeito", () => {
     await mesmoContato(db, [a1, a2], { email: "doisdonos@x.local" });
     await db.query(
       `insert into public.aluno_contatos (aluno_id, tipo, valor, valido, motivo_invalidacao)
-       values ($1,'email','doisdonos@x.local',false,'nao e a pessoa')`,
-      [a1]);
+       values ($1,'email','doisdonos@x.local',false,'nao e a pessoa')`, [a1]);
     const mail = porAluno(await universo(db, { canal: "EMAIL" }));
     expect(mail[a1].motivo).toBe("contato_invalidado");
     expect(mail[a2].motivo).toBe("contato_compartilhado");
@@ -250,89 +385,94 @@ describe("A7 contatos invalidados: aluno_contatos passa a ter efeito", () => {
 });
 
 // ---------------------------------------------------------------------------
-describe("A7 permissoes: sinalizar e de todos, liberar e do Administrativo", () => {
-  it("operador sinaliza, e a sinalizacao ja bloqueia o canal", async () => {
+describe("A7 permissoes: operador invalida, Administrativo reativa", () => {
+  it("invalidar exige motivo, no banco", async () => {
     const db = await banco();
     const [a1] = await alunos(db, 1, {});
+    const id = await contatoDaFicha(db, a1, "EMAIL");
     await comoOperador(db, OP_A);
-    const r = (await db.query(
-      `select public.contato_sinalizar_incorreto($1::uuid,'EMAIL','atende outra pessoa') r`, [a1])).rows[0].r;
-    expect(r.ok).toBe(true);
-    expect(r.autor).toBe(OP_A);
-
-    await comoGestao(db);
-    const mail = porAluno(await universo(db, { canal: "EMAIL" }));
-    expect(mail[a1].disponivel).toBe(false);
-    expect(mail[a1].motivo).toBe("contato_invalidado");
-  });
-
-  it("sinalizar exige motivo e canal valido", async () => {
-    const db = await banco();
-    const [a1] = await alunos(db, 1, {});
-    await comoOperador(db, OP_A);
-    await expect(db.query(`select public.contato_sinalizar_incorreto($1::uuid,'EMAIL','   ')`, [a1]))
+    await expect(db.query(`select public.aluno_contato_invalidar($1::uuid, '   ')`, [id]))
       .rejects.toThrow(/Motivo obrigatorio/i);
-    await expect(db.query(`select public.contato_sinalizar_incorreto($1::uuid,'CARTA','x')`, [a1]))
-      .rejects.toThrow(/Canal invalido/i);
+    await expect(db.query(`select public.aluno_contato_invalidar($1::uuid, null)`, [id]))
+      .rejects.toThrow(/Motivo obrigatorio/i);
   });
 
-  it("operador NAO revalida e NAO abre a fila; Administrativo e supervisao sim", async () => {
+  it("OPERADOR NAO reativa -- a porta antiga estava aberta e foi fechada", async () => {
     const db = await banco();
     const [a1] = await alunos(db, 1, {});
+    const id = await contatoDaFicha(db, a1, "EMAIL");
     await comoOperador(db, OP_A);
-    const sinal = (await db.query(
-      `select public.contato_sinalizar_incorreto($1::uuid,'EMAIL','nao e a pessoa') r`, [a1])).rows[0].r;
+    await db.query(`select public.aluno_contato_invalidar($1::uuid, 'nao e a pessoa')`, [id]);
 
-    // operador: barrado nas duas rotas
-    await expect(db.query(`select public.contato_revalidar($1::uuid,'conferi')`, [sinal.contato_id]))
+    await expect(db.query(`select public.aluno_contato_revalidar($1::uuid)`, [id]))
       .rejects.toThrow(/exclusivo do Administrativo ou da supervisao/i);
-    await expect(db.query(`select * from public.contato_fila_revisao()`))
-      .rejects.toThrow(/restrita ao Administrativo e a supervisao/i);
+    // e o contato continua invalido
+    const { rows } = await db.query(`select valido from public.aluno_contatos where id = $1`, [id]);
+    expect(rows[0].valido).toBe(false);
+  });
 
-    // supervisao: abre a fila
-    await comoOperador(db, SUP);
-    expect((await db.query(`select public.usuario_pode_revalidar_contato() p`)).rows[0].p).toBe(true);
-    await db.query(`select * from public.contato_fila_revisao()`);
+  it("Administrativo e supervisao reativam; inativo e desconhecido nao", async () => {
+    const db = await banco();
+    for (const quem of [ADM, SUP]) {
+      await comoOperador(db, quem);
+      expect((await db.query(`select public.usuario_pode_revalidar_contato() p`)).rows[0].p, quem).toBe(true);
+    }
+    await db.query(
+      `insert into public.usuarios (email, nome, perfil, ativo) values ('ex@aelbra.com.br','Ex','administrativo',false)`);
+    for (const quem of [OP_A, "ex@aelbra.com.br", "ninguem@aelbra.com.br"]) {
+      await comoOperador(db, quem);
+      expect((await db.query(`select public.usuario_pode_revalidar_contato() p`)).rows[0].p, quem).toBe(false);
+    }
+  });
 
-    // Administrativo: libera, e o canal volta
+  it("fluxo completo: operador invalida, Administrativo reativa, canal volta", async () => {
+    const db = await banco();
+    const [a1] = await alunos(db, 1, {});
+    const id = await contatoDaFicha(db, a1, "EMAIL");
+
+    await comoOperador(db, OP_A);
+    await db.query(`select public.aluno_contato_invalidar($1::uuid, 'atende a mae')`, [id]);
+    await comoGestao(db);
+    expect(porAluno(await universo(db, { canal: "EMAIL" }))[a1].disponivel).toBe(false);
+
     await comoOperador(db, ADM);
-    const lib = (await db.query(
-      `select public.contato_revalidar($1::uuid,'titular confirmado por telefone') r`,
-      [sinal.contato_id])).rows[0].r;
-    expect(lib.ok).toBe(true);
+    const r = (await db.query(`select public.aluno_contato_revalidar($1::uuid) r`, [id])).rows[0].r;
+    expect(r.ok).toBe(true);
 
     await comoGestao(db);
     expect(porAluno(await universo(db, { canal: "EMAIL" }))[a1].disponivel).toBe(true);
   });
 
-  it("liberar preserva a trilha do motivo anterior e exige motivo", async () => {
+  it("reativar PRESERVA o historico do motivo anterior", async () => {
     const db = await banco();
     const [a1] = await alunos(db, 1, {});
+    const id = await contatoDaFicha(db, a1, "EMAIL");
     await comoOperador(db, OP_A);
-    const sinal = (await db.query(
-      `select public.contato_sinalizar_incorreto($1::uuid,'EMAIL','atende a mae') r`, [a1])).rows[0].r;
+    await db.query(`select public.aluno_contato_invalidar($1::uuid, 'atende a mae')`, [id]);
+
+    const antes = (await db.query(
+      `select invalidado_por_email, motivo_invalidacao from public.aluno_contatos where id = $1`, [id])).rows[0];
+    expect(antes.invalidado_por_email).toBe(OP_A);
+    expect(antes.motivo_invalidacao).toBe("atende a mae");
 
     await comoOperador(db, ADM);
-    await expect(db.query(`select public.contato_revalidar($1::uuid,'  ')`, [sinal.contato_id]))
-      .rejects.toThrow(/Motivo obrigatorio/i);
-    await db.query(`select public.contato_revalidar($1::uuid,'titular confirmado')`, [sinal.contato_id]);
+    await db.query(`select public.aluno_contato_revalidar($1::uuid)`, [id]);
 
-    const { rows } = await db.query(
-      `select valido, motivo_invalidacao from public.aluno_contatos where id = $1`, [sinal.contato_id]);
-    expect(rows[0].valido).toBe(true);
-    expect(rows[0].motivo_invalidacao).toMatch(/LIBERADO por adm@aelbra\.com\.br/);
-    expect(rows[0].motivo_invalidacao).toMatch(/anterior: atende a mae/);
+    const depois = (await db.query(
+      `select valido, motivo_invalidacao from public.aluno_contatos where id = $1`, [id])).rows[0];
+    expect(depois.valido).toBe(true);
+    // a trilha NAO foi apagada: diz quem reativou e qual era o motivo
+    expect(depois.motivo_invalidacao).toMatch(/REATIVADO por adm@aelbra\.com\.br/);
+    expect(depois.motivo_invalidacao).toMatch(/antes: atende a mae/);
   });
 
-  it("usuario inativo com perfil certo NAO libera (guarda devolve falso, nao nulo)", async () => {
+  it("as RPCs duplicadas do A7 nao existem mais", async () => {
     const db = await banco();
-    await db.query(
-      `insert into public.usuarios (email, nome, perfil, ativo) values ('ex@aelbra.com.br','Ex','administrativo',false)`);
-    await comoOperador(db, "ex@aelbra.com.br");
-    expect((await db.query(`select public.usuario_pode_revalidar_contato() p`)).rows[0].p).toBe(false);
-    // e um e-mail que nao existe em usuarios tambem da falso, nao nulo
-    await comoOperador(db, "ninguem@aelbra.com.br");
-    expect((await db.query(`select public.usuario_pode_revalidar_contato() p`)).rows[0].p).toBe(false);
+    const { rows } = await db.query(
+      `select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public'
+          and p.proname in ('contato_sinalizar_incorreto','contato_revalidar')`);
+    expect(rows).toEqual([]);
   });
 });
 
@@ -489,11 +629,21 @@ describe("A7 rollback", () => {
     const db = await banco();
     const [a1, a2] = await alunos(db, 2, {});
     await mesmoContato(db, [a1, a2], { telefone: "(51) 99999-1234" });
-    await comoOperador(db, OP_A);
-    const sinal = (await db.query(
-      `select public.contato_sinalizar_incorreto($1::uuid,'EMAIL','nao e a pessoa') r`, [a1])).rows[0].r;
-    await comoGestao(db);
-    expect(porAluno(await universo(db, { canal: "WHATSAPP" }))[a1].disponivel).toBe(false);
+    // marca invalida que PERMANECE na ficha -- e o bloqueio que e do A7.
+    // De proposito NAO uso `aluno_contato_invalidar` aqui: ela chama
+    // `aluno_contatos_sincronizar`, que TIRA o contato da ficha. Esse efeito e
+    // de producao, nao do A7, e o rollback nao o desfaz (zero DML na volta) --
+    // o aluno continuaria bloqueado por `contato_indisponivel`, que e correto.
+    const { rows: fic } = await db.query(`select email from public.alunos where id = $1`, [a1]);
+    const { rows: ins } = await db.query(
+      `insert into public.aluno_contatos (aluno_id, tipo, valor, valido, invalidado_por_email, motivo_invalidacao)
+       values ($1, 'email', $2, false, $3, 'nao e a pessoa') returning id`,
+      [a1, fic[0].email, OP_A]);
+    const idContato = ins[0].id;
+
+    const antes = porAluno(await universo(db, { canal: "WHATSAPP" }));
+    expect(antes[a1].disponivel).toBe(false);
+    expect(porAluno(await universo(db, { canal: "EMAIL" }))[a1].motivo).toBe("contato_invalidado");
 
     await db.exec(RB_A7);
 
@@ -509,9 +659,17 @@ describe("A7 rollback", () => {
 
     // (c) a marca do operador continua gravada -- o rollback nao apaga dado
     const { rows } = await db.query(
-      `select valido, motivo_invalidacao from public.aluno_contatos where id = $1`, [sinal.contato_id]);
+      `select valido, motivo_invalidacao from public.aluno_contatos where id = $1`, [idContato]);
     expect(rows[0].valido).toBe(false);
     expect(rows[0].motivo_invalidacao).toBe("nao e a pessoa");
+
+    // (c2) o rollback devolve o estado ABERTO de producao: o operador volta a
+    // conseguir reativar. Nao e um estado seguro -- e o anterior ao A7, e esta
+    // declarado no cabecalho do arquivo de rollback.
+    await comoOperador(db, OP_A);
+    const volta = (await db.query(`select public.aluno_contato_revalidar($1::uuid) r`, [idContato])).rows[0].r;
+    expect(volta.ok).toBe(true);
+    await comoGestao(db);
 
     // (d) nenhuma view do A7 sobrou
     const { rows: sobra } = await db.query(

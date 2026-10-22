@@ -88,7 +88,35 @@ $a$
        WHERE b.aluno_id = a.id AND b.canal = 'EMAIL'
     )$a$,
 $b$$b$),
-      -- (3) Rotulos
+      -- (3) Consolidacao nas RPCs existentes -- VOLTA AO ESTADO ABERTO.
+      -- ATENCAO: desfazer 14.b devolve a reativacao de contato a QUALQUER
+      -- operador ativo, e desfazer 14.c volta a APAGAR o motivo. E o estado
+      -- anterior ao A7, nao um estado seguro.
+      ('aluno_contato_invalidar', 1,
+$a$
+
+  -- A7/decisao 1: motivo obrigatorio. O contato invalidado bloqueia o canal na
+  -- acao massiva, e bloqueio sem motivo nao pode ser revisado por ninguem.
+  IF nullif(btrim(coalesce(p_motivo, '')), '') IS NULL THEN
+    RAISE EXCEPTION 'Motivo obrigatorio ao invalidar contato.' USING ERRCODE='22023';
+  END IF;$a$,
+$b$$b$),
+      ('aluno_contato_revalidar', 1,
+$a$  IF coalesce(auth.role(),'') <> 'service_role'
+     AND NOT public.usuario_pode_revalidar_contato() THEN
+    RAISE EXCEPTION 'Acesso negado: reativar contato e exclusivo do Administrativo ou da supervisao.'
+      USING ERRCODE='42501';
+  END IF;$a$,
+$b$  IF coalesce(auth.role(),'') <> 'service_role' AND NOT public.app_usuario_ativo() THEN
+    RAISE EXCEPTION 'Acesso negado.' USING ERRCODE='42501';
+  END IF;$b$),
+      ('aluno_contato_revalidar', 1,
+$a$     SET valido = true, invalidado_em = null, invalidado_por_email = null,
+         motivo_invalidacao = 'REATIVADO por ' || lower(coalesce(auth.email(), '?')) || ' em '
+           || to_char(now() at time zone 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI')
+           || coalesce(' | antes: ' || motivo_invalidacao, '')$a$,
+$b$     SET valido = true, invalidado_em = null, invalidado_por_email = null, motivo_invalidacao = null$b$),
+      -- (4) Rotulos
       ('acoes_massivas_motivo_texto', 1,
 $a$    when 'contato_compartilhado' then 'Outra pessoa com dívida usa o mesmo contato — em revisão cadastral'
     when 'contato_invalidado'    then 'Contato marcado como incorreto — liberação pelo Administrativo'
@@ -123,11 +151,7 @@ $rb$;
 --     referenciam `vw_contato_bloqueio` -- enquanto o patch nao sair, a view
 --     nao pode cair.
 --
---     `contato_sinalizar_incorreto` e `contato_revalidar` caem junto: sem o
---     bloqueio, sinalizar nao teria efeito e passaria a ser um botao que
---     mente. As marcas ja gravadas em `aluno_contatos` ficam.
-drop function if exists public.contato_revalidar(uuid, text);
-drop function if exists public.contato_sinalizar_incorreto(uuid, text, text);
+--     As marcas ja gravadas em `aluno_contatos` FICAM: zero DML na volta.
 drop function if exists public.contato_fila_revisao(text, integer);
 drop function if exists public.usuario_pode_revalidar_contato();
 drop view if exists public.vw_contato_bloqueio;
@@ -135,3 +159,4 @@ drop view if exists public.vw_contato_invalidado;
 drop view if exists public.vw_contato_compartilhado;
 drop view if exists public.vw_contato_normalizado;
 drop function if exists public.contato_e_placeholder(text, text);
+drop function if exists public.contato_tel_sem_ddi(text);
