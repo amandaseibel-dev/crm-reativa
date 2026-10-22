@@ -77,6 +77,12 @@ export default function RevisaoCadastral() {
     (s, f) => s + (f.alunos || []).filter((a) => !a.tem_canal_alternativo).length,
     0,
   );
+  // Quantas fichas começam por conferir um contato que já está cadastrado, em
+  // vez de conferir titularidade do zero. É a separação que a gestão pediu.
+  const aConferir = fila.reduce(
+    (s, f) => s + (f.alunos || []).filter((a) => a.alternativa_potencial).length,
+    0,
+  );
 
   return (
     <div style={S.pagina}>
@@ -85,7 +91,10 @@ export default function RevisaoCadastral() {
         Contatos que aparecem em fichas de <strong>pessoas diferentes</strong>. Enquanto o
         conflito existir, a ação massiva não usa esse canal para nenhuma das fichas — não há
         como saber de quem é o contato. Abra a ficha, confirme a titularidade e invalide o
-        contato que não pertence àquela pessoa.
+        contato que não pertence àquela pessoa.{" "}
+        <strong>Alternativa a conferir</strong> significa que a ficha tem outro contato já
+        cadastrado — ainda assim é preciso confirmar com o aluno de quem ele é: não haver
+        colisão não comprova titularidade.
       </p>
 
       <div style={S.barra}>
@@ -114,6 +123,7 @@ export default function RevisaoCadastral() {
           <span><strong>{pessoas}</strong> fichas envolvidas</span>
           <span><strong>{prioritarios}</strong> prioritários (5 ou mais pessoas)</span>
           <span><strong>{semAlternativo}</strong> fichas sem canal alternativo</span>
+          <span><strong>{aConferir}</strong> com alternativa a conferir</span>
         </div>
       ) : null}
 
@@ -142,6 +152,15 @@ export default function RevisaoCadastral() {
               {(f.alunos || []).map((a) => (
                 <Link key={a.aluno_id} to={`/aluno?id=${a.aluno_id}`} style={S.aluno}>
                   {a.nome || a.aluno_id}
+                  {a.alternativa_potencial ? (
+                    <span
+                      style={S.aConferir}
+                      data-testid="marca-alternativa"
+                      title="Há outro contato cadastrado nesta ficha que talvez sirva. Confirme com o aluno de quem é o contato antes de promover — a ausência de colisão não comprova titularidade."
+                    >
+                      Alternativa a conferir
+                    </span>
+                  ) : null}
                   {a.tem_canal_alternativo ? null : (
                     <span style={S.semCanal} title="Bloquear este canal deixa a ficha sem nenhum canal">
                       sem outro canal
@@ -202,4 +221,8 @@ const S = {
     color: "var(--rv-azul-texto)", textDecoration: "none",
   },
   semCanal: { fontSize: 11, color: "var(--rv-ambar-texto)" },
+  aConferir: {
+    fontSize: 11, padding: "1px 6px", borderRadius: 999,
+    background: "var(--rv-azul-fundo)", color: "var(--rv-azul-texto)", fontWeight: 600,
+  },
 };

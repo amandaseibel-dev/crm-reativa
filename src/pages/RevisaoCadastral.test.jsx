@@ -36,8 +36,10 @@ const FILA = [
     fichas: 5,
     revisao_prioritaria: true,
     alunos: [
-      { aluno_id: "aaa-1", nome: "Ana Souza", tem_canal_alternativo: true },
-      { aluno_id: "aaa-2", nome: "Bruno Lima", tem_canal_alternativo: false },
+      { aluno_id: "aaa-1", nome: "Ana Souza", tem_canal_alternativo: true,
+        alternativa_potencial: true, acao_sugerida: "CONFERIR_E_PROMOVER" },
+      { aluno_id: "aaa-2", nome: "Bruno Lima", tem_canal_alternativo: false,
+        alternativa_potencial: false, acao_sugerida: "CONFERIR_TITULARIDADE" },
     ],
   },
   {
@@ -46,7 +48,8 @@ const FILA = [
     pessoas: 2,
     fichas: 2,
     revisao_prioritaria: false,
-    alunos: [{ aluno_id: "bbb-1", nome: "Carla Dias", tem_canal_alternativo: true }],
+    alunos: [{ aluno_id: "bbb-1", nome: "Carla Dias", tem_canal_alternativo: true,
+               alternativa_potencial: false, acao_sugerida: "CONFERIR_TITULARIDADE" }],
   },
 ];
 
@@ -63,6 +66,7 @@ describe("Revisão Cadastral", () => {
     expect(resumo.textContent).toMatch(/7\s*fichas envolvidas/);   // 5 + 2
     expect(resumo.textContent).toMatch(/1\s*priorit/);
     expect(resumo.textContent).toMatch(/1\s*fichas sem canal alternativo/);
+    expect(resumo.textContent).toMatch(/1\s*com alternativa a conferir/);
 
     const linhas = await screen.findAllByTestId("linha-fila");
     expect(linhas.length).toBe(2);
@@ -113,5 +117,32 @@ describe("Revisão Cadastral", () => {
     resposta = { data: [], error: null };
     montar();
     expect((await screen.findByTestId("vazio")).textContent).toMatch(/Nada a revisar/i);
+  });
+});
+
+describe("Revisão Cadastral — alternativa a conferir", () => {
+  it("marca só quem tem alternativa potencial, e o texto não promete titularidade", async () => {
+    montar();
+    const linhas = await screen.findAllByTestId("linha-fila");
+    const marcas = screen.getAllByTestId("marca-alternativa");
+    expect(marcas.length).toBe(1);
+
+    const ana = within(linhas[0]).getByText(/Ana Souza/).closest("a");
+    expect(within(ana).getByTestId("marca-alternativa").textContent).toBe("Alternativa a conferir");
+    // Bruno não tem alternativa: sem marca
+    const bruno = within(linhas[0]).getByText(/Bruno Lima/).closest("a");
+    expect(within(bruno).queryByTestId("marca-alternativa")).toBeNull();
+
+    // o rótulo e o tooltip dizem CONFERIR, nunca "seguro" nem "pronto"
+    const marca = marcas[0];
+    expect(marca.textContent).toMatch(/conferir/i);
+    expect(marca.textContent).not.toMatch(/segur|pronto|liberad/i);
+    expect(marca.getAttribute("title")).toMatch(/não comprova titularidade/i);
+  });
+
+  it("explica no texto de apoio que ausência de colisão não comprova titularidade", async () => {
+    montar();
+    await screen.findAllByTestId("linha-fila");
+    expect(document.body.textContent).toMatch(/não haver\s+colisão não comprova titularidade/i);
   });
 });
