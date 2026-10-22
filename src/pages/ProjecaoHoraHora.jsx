@@ -40,7 +40,19 @@ function formatarDataCurta(dataISO) {
 // (NOME.SOBRENOME) | E código convênio+título | F convênio | G vencimento
 // da parcela | H valor original | I honorário | J data de pagamento |
 // K valor pago
-function normalizarLinhaSantander(linhaArray) {
+// `export` acrescentado em 22/10/2026 para a Entrega A do caminho Santander:
+// o teste `supabase/functions/santander-previa/planilha.test.js` compara esta
+// funcao com a do servidor, caso a caso. Nenhuma linha do corpo mudou -- a
+// pagina continua chamando exatamente a mesma funcao.
+//
+// O fast refresh reclama de exportar algo que nao e componente e sugere "use
+// um arquivo novo para compartilhar". Nao da: o bundler das Edge Functions nao
+// importa de src/, entao o parser do servidor TEM de ser auto-contido. A
+// duplicacao e imposta pelo deploy, e o teste de equivalencia e o que impede
+// as duas copias de divergirem em silencio. Trocar o aviso por esse teste e
+// proposital; sem o export, o teste viraria uma copia congelada que apodrece.
+// eslint-disable-next-line react-refresh/only-export-components
+export function normalizarLinhaSantander(linhaArray) {
   const [
     ,
     alunoBruto,
