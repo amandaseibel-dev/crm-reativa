@@ -86,6 +86,7 @@ const ExportarContatos = lazy(() => import("./pages/ExportarContatos"));
 const AcoesMassivas = lazy(() => import("./pages/AcoesMassivas"));
 const HistoricoRecuperacao = lazy(() => import("./pages/HistoricoRecuperacao"));
 const SaudeDaBase = lazy(() => import("./pages/SaudeDaBase"));
+const RevisaoCadastral = lazy(() => import("./pages/RevisaoCadastral"));
 const SaudeCompletaCarteira = lazy(() => import("./pages/SaudeCompletaCarteira"));
 const RevisaoPrime = lazy(() => import("./pages/RevisaoPrime"));
 const TvElogios = lazy(() => import("./pages/TvElogios"));
@@ -168,6 +169,12 @@ function podeAcessar(perfil, rota) {
   // diretoria herdaria Calibragem, Tabulações, Ferramentas e afins.
   if (perfil === "diretoria") {
     return DIRETORIA_ROTAS.includes(rota);
+  }
+  // A7: a fila de revisao cadastral de contatos e do Administrativo e da
+  // supervisao. Mesma regra do portao em `usuario_pode_revalidar_contato()`:
+  // se divergir, a tela abre e a RPC recusa.
+  if (rota === "/revisao-cadastral") {
+    return perfil === "administrativo" || perfil === "supervisor" || perfil === "gerencia";
   }
   if (rota === "/calibragem") return perfil !== "operador";
   // Carteira Geral: destino de gestao. Operador nunca entra -- ele so pode
@@ -724,6 +731,7 @@ export default function App() {
     { rota: "/envio-gmail", label: "Envio pelo meu Gmail", icone: "Contact", secao: "Gestão" },
     { rota: "/historico-recuperacao", label: "Histórico da Recuperação", icone: "TrendingUp", secao: "Gestão" },
     { rota: "/saude-da-base", label: "Saúde da Base", icone: "CheckCircle2", secao: "Gestão" },
+    { rota: "/revisao-cadastral", label: "Revisão Cadastral", icone: "CheckCircle2", secao: "Gestão" },
     { rota: "/saude-completa-carteira", label: "Saúde Completa da Carteira", icone: "Activity", secao: "Gestão" },
     { rota: "/revisao-prime", label: "Revisão Prime × CRM", icone: "GitCompare", secao: "Gestão" },
     // Fila de exceção do vínculo de pagamento. Desde 12/09/2026 o nome não
@@ -1251,6 +1259,7 @@ export default function App() {
             <FilaUnicaConfirmacao />
           </RotaProtegida>} />
               <Route path="/saude-da-base" element={<SaudeDaBase />} />
+              <Route path="/revisao-cadastral" element={<RevisaoCadastral />} />
               <Route path="/saude-completa-carteira" element={<SaudeCompletaCarteira />} />
               <Route path="/revisao-prime" element={<RevisaoPrime />} />
               <Route path="/acordos-operador" element={<RotaProtegida usuario={usuario} rota="/acordos-operador"><AcordosPorOperador /></RotaProtegida>} />
