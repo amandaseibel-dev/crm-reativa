@@ -3,6 +3,7 @@ import { supabase } from "../services/supabase";
 import { buscarTudo } from "../utils/paginado";
 import { BotaoMensalidades, LinhaMensalidades } from "./MensalidadesDoAluno";
 import FaixaPrioridadeCarteira from "./FaixaPrioridadeCarteira";
+import { idsPendentesPrimeiroAcionamento, agruparPorAluno } from "../utils/primeiroAcionamento";
 import { carregarIndicadoresCarteira, TEXTO_APOIO } from "../utils/carteiraAcionada";
 import AlertasParcelaAcordo from "./AlertasParcelaAcordo";
 import PainelMeuDia from "./PainelMeuDia";
@@ -1435,20 +1436,61 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
           }
         }
 
-        // Casos ativos/acionaveis sem NENHUMA tabulacao valida (de qualquer
-        // operador). Em lote sobre os alunos da carteira, sem N+1.
+        // PENDENTE DE 1o ACIONAMENTO (22/10/2026): caso da carteira que ainda
+        // nao recebeu tabulacao DO RESPONSAVEL ATUAL desde a atribuicao.
+        //
+        // Antes daqui a regra era "existe QUALQUER tabulacao, de QUALQUER
+        // operador, em QUALQUER data" -- o "Novo" historico, que nunca
+        // reiniciava quando o caso trocava de mao. Medido em producao no mesmo
+        // dia: 294 pelo criterio antigo contra 2.111 reais, porque no giro de
+        // 16/10 3.566 casos mudaram de dono e o acionamento do operador
+        // ANTERIOR seguia contando pelo novo.
+        //
+        // Duas consultas, as duas em lote e PAGINADAS (`.in()` devolve no
+        // maximo 1.000 linhas por resposta e responde 206: com ~7 tabulacoes
+        // por aluno, um lote de 200 ja estourava o teto e alunos voltavam sem
+        // as tabulacoes deles -- aparecendo como pendentes sem ser).
+        // Ambas sao restritas aos e-mails dos responsaveis desta carteira, que
+        // e o unico autor que interessa aqui.
         const idsCarteira = listaAtiva.map((a) => String(a.id));
-        const acionadosSet = new Set();
-        for (let i = 0; i < idsCarteira.length; i += LOTE_IN) {
-          const lote = idsCarteira.slice(i, i + LOTE_IN);
-          const { data } = await supabase
-            .from("aluno_movimentacoes")
-            .select("aluno_id")
-            .in("aluno_id", lote)
-            .in("tipo", TIPOS_ACIONAMENTO);
-          for (const m of data || []) if (m.aluno_id) acionadosSet.add(String(m.aluno_id));
+        const emailsResponsaveis = [...new Set(
+          listaAtiva.map((a) => String(a.responsavel_atual_email || "").trim()).filter(Boolean)
+        )];
+        const tabulacoes = [];
+        const transferencias = [];
+        if (emailsResponsaveis.length) {
+          for (let i = 0; i < idsCarteira.length; i += LOTE_IN) {
+            const lote = idsCarteira.slice(i, i + LOTE_IN);
+            const [tabLote, transfLote] = await Promise.all([
+              buscarTudo((de, ate) =>
+                supabase
+                  .from("aluno_movimentacoes")
+                  .select("aluno_id,registrado_por_email,registrado_em")
+                  .in("aluno_id", lote)
+                  .in("tipo", TIPOS_ACIONAMENTO)
+                  .in("registrado_por_email", emailsResponsaveis)
+                  .order("id", { ascending: true })
+                  .range(de, ate)
+              ),
+              buscarTudo((de, ate) =>
+                supabase
+                  .from("aluno_movimentacoes")
+                  .select("aluno_id,operador_novo_email,operador_anterior_email,registrado_em")
+                  .in("aluno_id", lote)
+                  .in("operador_novo_email", emailsResponsaveis)
+                  .order("id", { ascending: true })
+                  .range(de, ate)
+              ),
+            ]);
+            tabulacoes.push(...tabLote);
+            transferencias.push(...transfLote);
+          }
         }
-        const semPrimeiroLista = idsCarteira.filter((id) => !acionadosSet.has(id));
+        const semPrimeiroLista = idsPendentesPrimeiroAcionamento({
+          casos: listaAtiva,
+          tabulacoesPorAluno: agruparPorAluno(tabulacoes),
+          transferenciasPorAluno: agruparPorAluno(transferencias),
+        });
 
         const diasUteis = diasUteisTranscorridos(hoje);
         const totalMes = setMes.size;
@@ -2358,7 +2400,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
           dados = linhas;
         }
       } else if (kpi === "semPrimeiroAcionamento") {
-        // Casos ativos/acionaveis da carteira sem tabulacao valida (ja na lista).
+        // Pendente de 1o acionamento do responsavel atual. A lista sai da
+        // propria carteira ja carregada -- o indicador nunca mostra caso que
+        // nao esteja na carteira atual do operador.
         const idset = new Set(semPrimeiroIds);
         dados = casos.filter((a) => idset.has(String(a.id)));
       } else if (kpi === "retornosHoje" || kpi === "semAcionamento10") {
@@ -3254,9 +3298,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                   <span style={S.desNum}>{desempenho.acionadosHoje}</span>
                   <span style={S.desRot}>CPFs acionados hoje</span>
                 </button>
-                <button type="button" style={{ ...S.desItem, ...(filtroKpi === "semPrimeiroAcionamento" ? S.desItemAtivo : {}) }} onClick={() => onKpiClick("semPrimeiroAcionamento")} title="Casos ativos sem primeira tabulação">
+                <button type="button" style={{ ...S.desItem, ...(filtroKpi === "semPrimeiroAcionamento" ? S.desItemAtivo : {}) }} onClick={() => onKpiClick("semPrimeiroAcionamento")} title="Casos da sua carteira que ainda não receberam uma tabulação SUA desde que passaram para você. Acionamento do operador anterior não conta.">
                   <span style={S.desNum}>{desempenho.semPrimeiro}</span>
-                  <span style={S.desRot}>Sem 1o acionamento</span>
+                  <span style={S.desRot}>Pendente de 1º acionamento</span>
                 </button>
                 <div style={S.desItemInfo}>
                   <span style={S.desNum}>{desempenho.mediaDia.toFixed(1)}</span>
