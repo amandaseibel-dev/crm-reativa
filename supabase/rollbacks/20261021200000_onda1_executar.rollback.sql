@@ -1,4 +1,4 @@
--- ROLLBACK de 20261021233211_onda1_executar.sql
+-- ROLLBACK de 20261021200000_onda1_executar.sql
 --
 -- O QUE REVERTER FAZ, E O QUE NÃO FAZ:
 --

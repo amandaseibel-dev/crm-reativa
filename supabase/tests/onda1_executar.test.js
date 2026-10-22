@@ -1,6 +1,6 @@
 // ONDA 1 · EXECUTOR CONTROLADO DO LOTE A — num PostgreSQL real (PGlite).
 //
-// Roda a MIGRATION REAL (supabase/migrations/20261021233211_onda1_executar.sql)
+// Roda a MIGRATION REAL (supabase/migrations/20261021200000_onda1_executar.sql)
 // e o ROLLBACK REAL, sobre corpos EXATOS de produção conferidos por md5(prosrc),
 // COM OS GATILHOS DE `casos` ligados. Sem os gatilhos o teste seria teatro: é
 // neles que mora a prova de que nenhum caso já atribuído é liberado e de que a
@@ -43,8 +43,8 @@ const MD5_COMPL = JSON.parse(ler("supabase/tests/fixtures/onda1_prod_20261021.md
 const EXEC_FIX = ler("supabase/tests/fixtures/onda1_executor_prod_20261021.sql");
 const MD5_EXEC = JSON.parse(ler("supabase/tests/fixtures/onda1_executor_prod_20261021.md5.json"));
 const SIMULADOR = ler("supabase/migrations/20261021172255_onda1_simular.sql");
-const MIGRATION = ler("supabase/migrations/20261021233211_onda1_executar.sql");
-const ROLLBACK = ler("supabase/rollbacks/20261021233211_onda1_executar.rollback.sql");
+const MIGRATION = ler("supabase/migrations/20261021200000_onda1_executar.sql");
+const ROLLBACK = ler("supabase/rollbacks/20261021200000_onda1_executar.rollback.sql");
 
 const GESTAO = "amanda.seibel@aelbra.com.br";
 const OP = ["cobranca05@aelbra.com.br", "cobranca06@aelbra.com.br", "cobranca08@aelbra.com.br"];
