@@ -1,5 +1,5 @@
 // IMPORTAÇÃO DA PROJEÇÃO: A ALLOWLIST PASSA A RECUSAR E-MAIL NULO
-// (migration 20261022150000, em PostgreSQL real — PGlite)
+// (migration 20261022131017, em PostgreSQL real — PGlite)
 //
 // Sobre os corpos VIVOS de produção das DUAS sobrecargas de
 // `projecao_importar_pagamentos` (22/10/2026), conferidos por md5(prosrc).
@@ -28,8 +28,8 @@ const AQUI = dirname(fileURLToPath(import.meta.url));
 const ler = (p) => readFileSync(resolve(AQUI, p), "utf8");
 const BANCADA = ler("fixtures/importar_allowlist_prod_20261022.sql");
 const MD5 = JSON.parse(ler("fixtures/importar_allowlist_prod_20261022.md5.json"));
-const MIGRATION = ler("../migrations/20261022150000_importar_recusa_email_nulo.sql");
-const ROLLBACK = ler("../rollbacks/20261022150000_importar_recusa_email_nulo.rollback.sql");
+const MIGRATION = ler("../migrations/20261022131017_importar_recusa_email_nulo.sql");
+const ROLLBACK = ler("../rollbacks/20261022131017_importar_recusa_email_nulo.rollback.sql");
 
 vi.setConfig({ testTimeout: 60000, hookTimeout: 60000 });
 

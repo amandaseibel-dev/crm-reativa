@@ -1,6 +1,6 @@
 -- BANCADA · ALLOWLIST DA IMPORTAÇÃO, PROD 22/10/2026 (as DUAS sobrecargas)
 -- -----------------------------------------------------------------------------
--- Serve à correção 20261022150000. Os dois corpos são os de produção, byte a
+-- Serve à correção 20261022131017 (escrita como 20261022150000; producao carimbou). Os dois corpos são os de produção, byte a
 -- byte -- md5(prosrc) conferido pelo teste contra o .md5.json:
 --   7 args (a tela usa): a0880e5367d19e0a02ef9f71c9447860
 --   4 args (legado):     ea90af29c17787046fcbb61382028f3b
