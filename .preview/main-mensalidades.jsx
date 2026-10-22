@@ -3,6 +3,8 @@
 import { createRoot } from "react-dom/client";
 import { Fragment, useEffect, useState } from "react";
 import { BotaoMensalidades, LinhaMensalidades } from "/src/components/MensalidadesDoAluno.jsx";
+import FaixaPrioridadeCarteira from "/src/components/FaixaPrioridadeCarteira.jsx";
+import { contarPorPrioridade, faixaPrioridade } from "/src/utils/carteiraFila.js";
 
 // Revisao visual do conserto da caixinha "Mensalidades" na Minha Carteira
 // (relato da operacao, 22/10/2026: "nao abre ao clicar").
@@ -57,6 +59,8 @@ const ALUNOS = [
     id: "a1",
     nome: "Ana Clara Ribeiro",
     cpf: "123.456.789-00",
+    nivel_criticidade: "PERDENDO",
+    data_ultimo_acionamento: "2026-10-02",
     itens: [
       mens("70101", "02/2026", "2026-02-10", 892.4, true),
       mens("70102", "03/2026", "2026-03-10", 892.4, true),
@@ -71,6 +75,8 @@ const ALUNOS = [
     id: "a2",
     nome: "Bruno Henrique Alves",
     cpf: "987.654.321-00",
+    nivel_criticidade: "URGENTE",
+    data_ultimo_acionamento: "2026-10-20",
     itens: [mens("71550", "09/2026", "2026-09-05", 1240, true)],
     acordos: 3180.5,
   },
@@ -78,6 +84,8 @@ const ALUNOS = [
     id: "a3",
     nome: "Carla Souza Lima (so acordo)",
     cpf: "456.789.123-00",
+    nivel_criticidade: "ATENCAO",
+    data_ultimo_acionamento: "2026-10-21",
     itens: [],
     acordos: 5400,
   },
@@ -88,6 +96,10 @@ const somar = (itens) => itens.reduce((t, m) => t + m.valor, 0);
 function App() {
   const [abertas, setAbertas] = useState(new Set());
   const [atendimento, setAtendimento] = useState(null);
+  const [faixa, setFaixa] = useState("TODAS");
+  const AGORA = Date.parse("2026-10-22T12:00:00Z");
+  const visiveis = faixa === "TODAS" ? ALUNOS : ALUNOS.filter((a) => faixaPrioridade(a, AGORA) === faixa);
+  const contagens = contarPorPrioridade(ALUNOS, AGORA);
   useEffect(() => { document.title = "Minha Carteira — mensalidades que abrem"; }, []);
 
   const alternar = (id) =>
@@ -122,6 +134,20 @@ function App() {
         {atendimento ? `Atendimento aberto: ${atendimento}` : "Nenhum atendimento aberto ainda."}
       </div>
 
+      <FaixaPrioridadeCarteira
+        contagens={contagens}
+        selecionada={faixa}
+        onSelecionar={setFaixa}
+        cores={{
+          PERDENDO: { bg: "rgba(190,18,60,0.28)", cor: "#7f1d1d" },
+          CRITICO: { bg: "rgba(220,38,38,0.20)", cor: "#991b1b" },
+          URGENTE: { bg: "rgba(234,88,12,0.20)", cor: "#9a3412" },
+          ATENCAO: { bg: "rgba(245,158,11,0.18)", cor: "#92400e" },
+          NOVO: { bg: "rgba(30,58,138,0.18)", cor: "#1e3a8a" },
+          NORMAL: { bg: "rgba(100,116,139,0.16)", cor: "#334155" },
+        }}
+      />
+
       <div style={{ overflowX: "auto", borderRadius: 12, background: "#fff", border: "1px solid #e2e8f0" }}>
         <table className="pc-tabela">
           <thead>
@@ -137,7 +163,7 @@ function App() {
             </tr>
           </thead>
           <tbody>
-            {ALUNOS.map((a) => {
+            {visiveis.map((a) => {
               const total = somar(a.itens);
               const aberto = abertas.has(a.id);
               return (

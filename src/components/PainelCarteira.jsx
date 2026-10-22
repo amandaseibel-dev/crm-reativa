@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { buscarTudo } from "../utils/paginado";
 import { BotaoMensalidades, LinhaMensalidades } from "./MensalidadesDoAluno";
+import FaixaPrioridadeCarteira from "./FaixaPrioridadeCarteira";
 import { carregarIndicadoresCarteira, TEXTO_APOIO } from "../utils/carteiraAcionada";
 import AlertasParcelaAcordo from "./AlertasParcelaAcordo";
 import PainelMeuDia from "./PainelMeuDia";
@@ -46,6 +47,7 @@ import {
   tabulacaoDoAluno,
   critCanon,
   critAlta,
+  contarPorPrioridade,
   semSaldoVencido,
   ehNaoAcionavel,
   SITUACAO_QUITACAO,
@@ -363,7 +365,7 @@ const KPIS_FILTRAVEIS = new Set([
 const KPIS_ESPECIAIS = new Set(["quitados", "recebidosMes", "acordosQuebrados"]);
 
 const COLUNAS_ALUNO =
-  "id,nome,nome_aluno,cpf,telefone,email,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,situacao_operacional,saldo_vencido,saldo_total,proxima_acao,data_ultimo_acionamento,ultimo_contato,data_retorno,retorno_origem,hora_retorno,retorno_prioritario,retorno_confirmado_em,responsavel_atual_nome,responsavel_atual_email,observacao,unidade,curso,processo_numero,semestre_divida";
+  "id,nome,nome_aluno,cpf,matricula,telefone,email,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,situacao_operacional,saldo_vencido,saldo_total,proxima_acao,data_ultimo_acionamento,ultimo_contato,data_retorno,retorno_origem,hora_retorno,retorno_prioritario,retorno_confirmado_em,responsavel_atual_nome,responsavel_atual_email,observacao,unidade,curso,processo_numero,semestre_divida";
 
 // Rotulo amigavel da situacao operacional (recalcular_situacao_aluno).
 const SITUACAO_OPERACIONAL_LABEL = {
@@ -387,6 +389,19 @@ const CRITICIDADE_LABEL = {
   URGENTE: { texto: "Urgente", bg: "rgba(234,88,12,0.20)", cor: "#fdba74", rank: 2 },
   ATENCAO: { texto: "Atenção", bg: "rgba(245,158,11,0.18)", cor: "#fcd34d", rank: 3 },
   NORMAL: { texto: "Normal", bg: "rgba(100,116,139,0.16)", cor: "#cbd5e1", rank: 4 },
+};
+
+// Cores dos chips da faixa de prioridade. Sao as MESMAS do selo da linha, para
+// o chip e o selo do caso nao parecerem duas coisas diferentes. "Novo" nao tem
+// selo de criticidade (e NORMAL nunca acionado): herda o azul que o seloFila
+// ja usa para "Nunca acionado".
+const PRIORIDADE_CHIP = {
+  PERDENDO: CRITICIDADE_LABEL.PERDENDO,
+  CRITICO: CRITICIDADE_LABEL.CRITICO,
+  URGENTE: CRITICIDADE_LABEL.URGENTE,
+  ATENCAO: CRITICIDADE_LABEL.ATENCAO,
+  NOVO: { bg: "rgba(30,58,138,0.28)", cor: "#bfdbfe" },
+  NORMAL: CRITICIDADE_LABEL.NORMAL,
 };
 
 // ---- Fila inteligente ----
@@ -663,6 +678,11 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
 
   const [operadorFiltro, setOperadorFiltro] = useState("TODOS");
   const [casos, setCasos] = useState([]);
+  // Casos DA CARTEIRA que a fila de trabalho nao mostra (quitado, juridico,
+  // cancelado, aguardando baixa, em confirmacao, saldo < R$ 5). Ficam aqui, e
+  // nao em `casos`, para nao entrarem na fila nem nos indicadores: servem so
+  // para a PESQUISA achar o aluno que o operador tem na mao.
+  const [casosForaDaFila, setCasosForaDaFila] = useState([]);
   // Carteira dividida como ela realmente e: divida a cobrar de um lado, acordo a
   // acompanhar do outro. Conta por CPF (pessoa), nao por ficha. Vem da RPC
   // minha_carteira_resumo, que devolve so a carteira de quem esta olhando.
@@ -690,6 +710,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
 
   const [busca, setBusca] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("TODOS");
+  // Classificacao (nivel_criticidade) -- separada do filtro de PRAZO acima.
+  // Ver FAIXAS_PRIORIDADE em utils/carteiraFila.js: sao dois recortes
+  // diferentes que repetiam as mesmas tres palavras.
+  const [filtroPrioridade, setFiltroPrioridade] = useState("TODAS");
   const [filtroTabulacao, setFiltroTabulacao] = useState("TODAS");
   const [filtroKpi, setFiltroKpi] = useState(null);
   const [filtroValorMin, setFiltroValorMin] = useState("");
@@ -1152,6 +1176,12 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       // existentes). Casos continuam no banco para consulta/historico.
       const listaAtiva = todas.filter((a) => !ehQuitado(a) && !ehNaoAcionavel(a, idsEmConfirmacao));
       setCasos(listaAtiva);
+      // O complemento da carteira: o que a fila nao mostra, marcado, para a
+      // pesquisa poder achar e a linha poder dizer por que nao esta na fila.
+      const naFila = new Set(listaAtiva.map((a) => String(a.id)));
+      setCasosForaDaFila(
+        todas.filter((a) => !naFila.has(String(a.id))).map((a) => ({ ...a, _foraDaFila: true }))
+      );
 
       // Contagens por data (usam a mesma base escopada).
       // Pediam .limit(5000) e recebiam 1000 -- o teto da API, que ignora o
@@ -2274,6 +2304,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // promessa, e a lista tem que cumprir ela.
   function limparFiltrosDaBarra() {
     setFiltroStatus("TODOS");
+    setFiltroPrioridade("TODAS");
     setFiltroTabulacao("TODAS");
     setSomenteFixados(false);
     setSomenteFocoDia(false);
@@ -2598,10 +2629,12 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // src/utils/carteiraFila.js, com teste. Aqui so se entrega o estado atual.
   const recorteAtual = {
     casos,
+    casosForaDaFila,
     casosEspeciais,
     filtroKpi,
     busca,
     filtroStatus,
+    filtroPrioridade,
     filtroTabulacao,
     somenteFixados,
     fixados,
@@ -2617,9 +2650,26 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const listaFiltrada = useMemo(
     () => montarListaFiltrada(recorteAtual),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [casos, casosEspeciais, filtroStatus, filtroTabulacao, busca, filtroKpi, ordenacao, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, finAlunos]
+    [casos, casosForaDaFila, casosEspeciais, filtroStatus, filtroPrioridade, filtroTabulacao, busca, filtroKpi, ordenacao, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, finAlunos]
   );
   listaFiltradaRef.current = listaFiltrada;
+
+  // CONTAGEM POR PRIORIDADE -- e a contagem da lista que o clique VAI abrir.
+  // Por isso ela e medida sobre o recorte atual COM o filtro de prioridade
+  // desligado: todos os demais filtros (prazo, tabulacao, valor, card, busca)
+  // continuam valendo, entao clicar numa faixa entrega exatamente o numero
+  // mostrado. Contar sobre `casos` cru daria um numero maior do que a lista
+  // abre, que e o defeito que esta tela ja teve com os cards (card com 89,
+  // lista vazia) e que a operacao leu como "sumiu caso".
+  const contagemPrioridade = useMemo(
+    () => contarPorPrioridade(
+      filtroPrioridade === "TODAS"
+        ? listaFiltrada
+        : montarListaFiltrada({ ...recorteAtual, filtroPrioridade: "TODAS" })
+    ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [listaFiltrada, filtroPrioridade, casos, casosForaDaFila, casosEspeciais, filtroStatus, filtroTabulacao, busca, filtroKpi, ordenacao, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, finAlunos]
+  );
 
   // A GESTAO CONSEGUE ABRIR A FILA DE UM OPERADOR.
   //
@@ -3344,20 +3394,39 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
           )}
 
           <div style={S.painelTabela}>
+            {/* A faixa de classificacao (nivel_criticidade) que a tela nao
+                tinha. A contagem vem pronta daqui -- medida sobre o MESMO
+                recorte que o clique abre. */}
+            <FaixaPrioridadeCarteira
+              contagens={contagemPrioridade}
+              selecionada={filtroPrioridade}
+              onSelecionar={setFiltroPrioridade}
+              cores={PRIORIDADE_CHIP}
+            />
             <div style={S.filtros}>
               <input
                 style={S.inputBusca}
-                placeholder="Pesquisar por CPF, nome ou telefone..."
+                placeholder="Pesquisar por nome, CPF, matrícula ou telefone..."
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
+                title="A pesquisa varre a carteira inteira — inclusive casos que não estão na fila de trabalho (quitado, jurídico, aguardando baixa, em confirmação)."
               />
-              <select style={S.select} value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
-                <option value="TODOS">Todos os status</option>
-                <option value="Novo">Novo</option>
-                <option value="Dentro do prazo">Dentro do prazo</option>
-                <option value="Atencao">Atencao</option>
-                <option value="Critico">Critico</option>
-                <option value="Perdendo o caso">Perdendo o caso</option>
+              {/* Este filtro e de PRAZO (dias sem acionamento), nao de
+                  classificacao -- os rotulos passaram a dizer isso. Os `value`
+                  sao os mesmos de sempre: nenhum recorte mudou aqui. Quem quer
+                  a classificacao do backend usa a faixa de prioridade acima. */}
+              <select
+                style={S.select}
+                value={filtroStatus}
+                onChange={(e) => setFiltroStatus(e.target.value)}
+                title="Prazo desde o último acionamento — não é a classificação de criticidade"
+              >
+                <option value="TODOS">Todos os prazos</option>
+                <option value="Novo">Novo (nunca acionado)</option>
+                <option value="Dentro do prazo">Dentro do prazo (até 7 dias)</option>
+                <option value="Atencao">Atenção de prazo (8 dias)</option>
+                <option value="Critico">Crítico de prazo (9–10 dias)</option>
+                <option value="Perdendo o caso">Perdendo o caso (11+ dias)</option>
                 <option value="Aguardando pgto">Aguardando pgto</option>
                 <option value="Pago parcial">Pago parcial (ainda deve)</option>
                 <option value="A vencer">A vencer (acordo em dia)</option>
@@ -3442,7 +3511,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
               </button>
               <select style={S.select} value={ordenacao} onChange={(e) => setOrdenacao(e.target.value)}>
                 <option value="inteligente">🧠 Fila inteligente</option>
-                <option value="prioridade">Prioridade (o que acionar)</option>
+                <option value="prioridade">Prioridade (Perdendo → Crítico → Urgente → Atenção → Novo → Normal)</option>
                 <option value="sem_contato_desc">Mais antigo sem contato</option>
                 <option value="sem_contato_asc">Mais recente sem contato</option>
                 <option value="valor_desc">Maior valor primeiro</option>
@@ -3765,6 +3834,16 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                           {a.proxima_acao && (
                             <div style={{ ...S.subCel, marginTop: 4, color: "var(--rv-texto-forte)", fontWeight: 600 }}>
                               {a.proxima_acao}
+                            </div>
+                          )}
+                          {/* So aparece na PESQUISA: e um caso da carteira que
+                              a fila de trabalho nao lista (quitado, juridico,
+                              cancelado, aguardando baixa, em confirmacao ou
+                              saldo abaixo de R$ 5). Dizer isso e melhor do que
+                              o aluno simplesmente nao ser encontrado. */}
+                          {a._foraDaFila && (
+                            <div style={S.tagForaDaFila} title="Encontrado pela pesquisa. Este caso é da sua carteira, mas não entra na fila de trabalho pelo status/saldo atual.">
+                              fora da fila de trabalho
                             </div>
                           )}
                         </td>
@@ -4595,6 +4674,7 @@ const S = {
 
   painelTabela: { background: "var(--rv-superficie)", borderRadius: 18, padding: 20, border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: SOMBRA_CARD },
   filtros: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18, alignItems: "center" },
+  tagForaDaFila: { display: "inline-block", marginTop: 4, background: "var(--rv-borda)", color: "var(--rv-texto)", borderRadius: 6, padding: "2px 7px", fontSize: 10.5, fontWeight: 700 },
   inputBusca: { flex: 1, minWidth: 220, padding: "11px 14px", borderRadius: 12, border: `1px solid ${COR_BORDA}`, fontSize: 13, color: "var(--rv-texto-forte)", background: "var(--rv-fundo-cartao)" },
   chipFiltro: { display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", background: "var(--rv-verde-ok-fundo)", color: "var(--rv-azul-texto)", border: "1px solid var(--rv-azul-borda)", borderRadius: 999, padding: "6px 13px", fontSize: 11.5, fontWeight: 700 },
   tabelaWrap: { overflowX: "auto", borderRadius: 12 },
