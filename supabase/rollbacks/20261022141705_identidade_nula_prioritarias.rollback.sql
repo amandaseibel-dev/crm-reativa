@@ -1,4 +1,4 @@
--- ROLLBACK de 20261022170000_identidade_nula_prioritarias
+-- ROLLBACK de 20261022141705_identidade_nula_prioritarias
 -- =============================================================================
 -- Desfaz a correção: devolve às funções a guarda SEM o teste de nulo.
 --

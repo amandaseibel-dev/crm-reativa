@@ -1,5 +1,5 @@
 // IDENTIDADE NULA NAS SETE FUNÇÕES SECURITY DEFINER
-// (migrations 20261022170000 e 20261022170100, em PostgreSQL real — PGlite)
+// (migrations 20261022141705 e 20261022170100, em PostgreSQL real — PGlite)
 //
 // O DEFEITO. `v_email NOT IN (...allowlist...)` com `v_email` NULL avalia para
 // NULL, que não é TRUE: o IF não dispara e a função SEGUE. `v_email` vem de
@@ -38,9 +38,9 @@ const AQUI = dirname(fileURLToPath(import.meta.url));
 const ler = (p) => readFileSync(resolve(AQUI, p), "utf8");
 const BANCADA = ler("fixtures/identidade_nula_prod_20261022.sql");
 const MD5 = JSON.parse(ler("fixtures/identidade_nula_prod_20261022.md5.json"));
-const MIG_A = ler("../migrations/20261022170000_identidade_nula_prioritarias.sql");
+const MIG_A = ler("../migrations/20261022141705_identidade_nula_prioritarias.sql");
 const MIG_B = ler("../migrations/20261022170100_identidade_nula_restantes.sql");
-const ROLL_A = ler("../rollbacks/20261022170000_identidade_nula_prioritarias.rollback.sql");
+const ROLL_A = ler("../rollbacks/20261022141705_identidade_nula_prioritarias.rollback.sql");
 
 vi.setConfig({ testTimeout: 60000, hookTimeout: 60000 });
 
