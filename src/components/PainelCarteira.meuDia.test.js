@@ -102,3 +102,45 @@ describe("PainelCarteira: valor e nome do bloco Meu dia", () => {
     expect(bloco).toMatch(/catch[\s\S]{0,200}console\.error/);
   });
 });
+
+// Fiacao da aba "Atrasados" e do relogio (22/10/2026). O que estas checagens
+// protegem: a melhoria e de TELA -- ela nao pode ter criado consulta, RPC nem
+// escrita nova, e nao pode ter mexido no recorte que ja estava em producao.
+describe("PainelCarteira: aba Atrasados do Meu dia", () => {
+  it("o atraso sai dos MESMOS casos da carteira, sem consulta nova", () => {
+    expect(SRC).toMatch(/retornosAtrasados\(casos, hojeLocalBR\(\), JANELA_ATRASO_DIAS, finAlunos\)/);
+    const memo = SRC.slice(SRC.indexOf("const retornosVencidos = useMemo"), SRC.indexOf("const retornosVencidos = useMemo") + 300);
+    // Mesma dependencia da semana: o consolidado chega depois da primeira
+    // pintura e sem ele a linha ficaria em R$ 0,00.
+    expect(memo).toMatch(/\[casos, finAlunos\]/);
+    expect(memo).not.toMatch(/supabase\.(from|rpc)/);
+    // Nenhuma RPC nova nasceu para esta aba.
+    expect(SRC).not.toMatch(/rpc\("[a-z_]*atrasad[a-z_]*"/);
+  });
+
+  it("o bloco recebe a lista do atraso e o relogio que a tela ja mantinha", () => {
+    const bloco = SRC.slice(SRC.indexOf("<PainelMeuDia"), SRC.indexOf("<PainelMeuDia") + 900);
+    expect(bloco).toMatch(/retornosAtrasados=\{retornosVencidos\}/);
+    expect(bloco).toMatch(/horaAgora=\{horaAgora\}/);
+    // O relogio nao e novo: e o mesmo estado do aviso "esta na hora".
+    expect(SRC).toMatch(/const \[horaAgora, setHoraAgora\] = useState\(\(\) => horaAgoraLocal\(\)\)/);
+  });
+
+  it("a aba nao escreve nada: o unico caminho de escrita segue sendo o check", () => {
+    const util = UTIL.slice(UTIL.indexOf("export function retornosAtrasados"));
+    const corpo = util.slice(0, util.indexOf("\n}") + 2);
+    // Funcao de leitura: nada de supabase, update, insert ou rpc aqui dentro.
+    expect(corpo).not.toMatch(/supabase|update|insert|rpc/);
+    // E o filtro de origem continua valendo, igual a aba de hoje.
+    expect(corpo).toMatch(/startsWith\("OPERADOR"\)/);
+    // Tratado nao volta como pendencia.
+    expect(corpo).toMatch(/if \(a\.retorno_confirmado_em\) return false;/);
+  });
+
+  it("as duas listas de retorno sao disjuntas por construcao", () => {
+    // `retornosAgendados` cobre de hoje para frente (>= 0) e `retornosAtrasados`
+    // so o passado (< 0): ninguem e contado duas vezes na mesma tela.
+    expect(UTIL).toMatch(/distancia >= 0 && distancia <= limite/);
+    expect(UTIL).toMatch(/distancia < 0 && distancia >= -janela/);
+  });
+});
