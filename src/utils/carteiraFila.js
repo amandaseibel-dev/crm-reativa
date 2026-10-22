@@ -227,6 +227,70 @@ export function critAlta(a) {
   return n === "PERDENDO" || n === "CRITICO" || n === "URGENTE";
 }
 
+// FAIXA DE PRIORIDADE -- a classificacao que o operador ve e pede na tela
+// (22/10/2026): "Perdendo o caso -> Critico -> Urgente -> Atencao -> Novo ->
+// Normal".
+//
+// POR QUE ELA PRECISOU EXISTIR. A tela tinha DOIS vocabularios que repetem tres
+// palavras e NAO falam da mesma coisa:
+//
+//   - `seloPrazo`: dias sem acionamento (8 = Atencao, 9-10 = Critico, 11+ =
+//     Perdendo o caso). E o que o filtro "Todos os status" sempre recortou.
+//   - `critCanon`: `alunos.nivel_criticidade`, calculado pelo backend
+//     (recalcular_situacao_aluno) com saldo vencido, dias sem acionamento,
+//     valor, termo pendente e fim de mes. E o que o SELO da linha mostra, e o
+//     unico lugar onde "Urgente" existe.
+//
+// Medido em producao em 22/10/2026, sobre os 6.170 casos ativos das 12
+// carteiras: dos 2.336 casos ATENCAO, ZERO caiam no filtro "Atencao" (2.279
+// apareciam como "Dentro do prazo"); dos 318 CRITICO, so 119 caiam em
+// "Critico"; e os 1.304 URGENTE nao tinham opcao nenhuma. Era por isso que a
+// operacao dizia que os casos classificados "nao aparecem": eles estavam na
+// lista, mas a unica peneira de classificacao da tela perguntava outra coisa.
+//
+// Esta faixa NAO recalcula criticidade -- le `nivel_criticidade` como esta. A
+// unica coisa que ela acrescenta e separar, DENTRO de NORMAL, quem nunca foi
+// acionado ("Novo"), que e a faixa que a gestao pediu entre Atencao e Normal.
+// As seis faixas sao exclusivas e cobrem a carteira inteira: nenhum caso fica
+// sem faixa, nenhum caso aparece em duas.
+export const FAIXAS_PRIORIDADE = ["PERDENDO", "CRITICO", "URGENTE", "ATENCAO", "NOVO", "NORMAL"];
+
+export const PRIORIDADE_LABEL = {
+  PERDENDO: "Perdendo o caso",
+  CRITICO: "Crítico",
+  URGENTE: "Urgente",
+  ATENCAO: "Atenção",
+  NOVO: "Novo",
+  NORMAL: "Normal",
+};
+
+export function faixaPrioridade(a, agoraMs) {
+  const n = critCanon(a);
+  if (n !== "NORMAL") return n;
+  // "Novo" e o mesmo "nunca acionado" que o selo de prazo ja usa -- mesma
+  // funcao, para as duas leituras da tela nao divergirem.
+  return diasSemContato(a, agoraMs) === null ? "NOVO" : "NORMAL";
+}
+
+export function rankPrioridadeFaixa(a, agoraMs) {
+  const i = FAIXAS_PRIORIDADE.indexOf(faixaPrioridade(a, agoraMs));
+  return i === -1 ? FAIXAS_PRIORIDADE.length : i;
+}
+
+// Quantos casos em cada faixa. Recebe a lista JA recortada pelos demais
+// filtros, para o numero do contador ser o numero de linhas que o clique
+// abre -- o card que promete 89 e abre vazio foi um bug real desta tela
+// (Joao, 27/08/2026), e nao vai se repetir por aqui.
+export function contarPorPrioridade(lista, agoraMs) {
+  const fora = { TODOS: 0 };
+  FAIXAS_PRIORIDADE.forEach((f) => { fora[f] = 0; });
+  for (const a of lista || []) {
+    fora.TODOS += 1;
+    fora[faixaPrioridade(a, agoraMs)] += 1;
+  }
+  return fora;
+}
+
 // Prioridade por semestre da divida (regra da gestao, 10/09/2026): o semestre
 // mais recente vem primeiro -- 2026/2 na frente de 2026/1, e assim por diante.
 // Entra ABAIXO da faixa de prazo de proposito: quem esta a 11+ dias sem
@@ -302,10 +366,12 @@ export const ORDENACOES = [
 export function filtrarCasos(entrada) {
   const {
     casos = [],
+    casosForaDaFila = [],
     casosEspeciais = null,
     filtroKpi = null,
     busca = "",
     filtroStatus = "TODOS",
+    filtroPrioridade = "TODAS",
     filtroTabulacao = "TODAS",
     somenteFixados = false,
     fixados = new Set(),
@@ -323,12 +389,25 @@ export function filtrarCasos(entrada) {
   // Com um card selecionado, a lista vem dos registros carregados do
   // indicador; sem card, mostra a carteira normal.
   let l = filtroKpi ? casosEspeciais || [] : casos;
+  // PESQUISAR TEM DE ACHAR. A fila de trabalho exclui, de proposito, quitado,
+  // juridico, cancelado, aguardando baixa, em confirmacao e saldo abaixo de
+  // R$ 5 -- mas eles continuam sendo casos DA CARTEIRA do operador, e ate aqui
+  // nem a busca os encontrava: digitar o nome nao devolvia nada e a tela nao
+  // dizia por que. Com termo digitado, a carteira inteira entra na peneira;
+  // sem termo, a fila de trabalho segue exatamente como era.
+  if (!filtroKpi && busca.trim() && (casosForaDaFila || []).length) {
+    const jaNaLista = new Set(l.map((a) => String(a?.id)));
+    l = l.concat((casosForaDaFila || []).filter((a) => !jaNaLista.has(String(a?.id))));
+  }
   // Quem ja foi acionado hoje sai da lista de trabalho (ja esta feito).
   if (filtroKpi !== "acionadosHoje" && !busca.trim()) {
     l = l.filter((a) => !trabalhadoHoje(a, hoje));
   }
   if (filtroStatus !== "TODOS") {
     l = l.filter((a) => seloPrazo(a, agoraMs) === filtroStatus);
+  }
+  if (filtroPrioridade !== "TODAS") {
+    l = l.filter((a) => faixaPrioridade(a, agoraMs) === filtroPrioridade);
   }
   if (filtroTabulacao !== "TODAS") {
     l = l.filter((a) => tabulacaoDoAluno(a) === filtroTabulacao);
@@ -372,10 +451,20 @@ export function filtrarCasos(entrada) {
   }
   if (busca.trim()) {
     const t = semAcento(busca);
+    // `matricula` entrou em 22/10/2026: a tela dizia pesquisar por "CPF, nome
+    // ou telefone" e a matricula e o numero que a operacao tem em mao quando
+    // o aluno liga. Digitos do CPF tambem casam com o CPF pontuado.
+    const soDigitos = t.replace(/\D/g, "");
     l = l.filter((a) =>
-      [nomeAluno(a), a.cpf, a.telefone, a.responsavel_atual_nome, situacaoLabel(a)]
+      [nomeAluno(a), a.cpf, a.telefone, a.matricula, a.responsavel_atual_nome, situacaoLabel(a)]
         .filter(Boolean)
-        .some((c) => semAcento(c).includes(t))
+        .some((c) => {
+          const campo = semAcento(c);
+          if (campo.includes(t)) return true;
+          if (!soDigitos) return false;
+          const digitosCampo = campo.replace(/\D/g, "");
+          return Boolean(digitosCampo) && digitosCampo.includes(soDigitos);
+        })
     );
   }
   return l;
@@ -455,9 +544,16 @@ export function ordenarCasos(lista, entrada) {
       (valor(b) - valor(a))
     );
   } else if (ordenacao === "prioridade") {
-    // O que acionar primeiro: retorno devido (hoje/atrasado) e maior
-    // criticidade canonica no topo; empate por mais tempo sem contato e maior
-    // saldo.
+    // O que acionar primeiro, na ordem que a gestao pediu em 22/10/2026:
+    //   Perdendo o caso -> Critico -> Urgente -> Atencao -> Novo -> Normal
+    // ... sem passar por cima dos compromissos que ja existiam: a prioridade
+    // MARCADA pelo operador num retorno devido continua em primeiro lugar, e o
+    // retorno devido (hoje/atrasado) continua vindo antes da faixa -- quem
+    // marcou hora com o aluno nao pode cair para o meio da fila porque o caso
+    // e "so" Atencao. Empate por mais tempo sem contato e maior saldo.
+    //
+    // Antes daqui a ordem usava `critRank`, que nao tinha a faixa "Novo": o
+    // nunca acionado se misturava com o NORMAL no fim da lista.
     const retornoDevido = (a) => {
       const ret = a?.data_retorno ? String(a.data_retorno).slice(0, 10) : null;
       return ret && ret <= hoje ? 0 : 1;
@@ -465,7 +561,7 @@ export function ordenarCasos(lista, entrada) {
     arr.sort((a, b) =>
       (rankPrioridade(a) - rankPrioridade(b)) ||
       (retornoDevido(a) - retornoDevido(b)) ||
-      (critRank(a) - critRank(b)) ||
+      (rankPrioridadeFaixa(a, agoraMs) - rankPrioridadeFaixa(b, agoraMs)) ||
       (keyDias(b) - keyDias(a)) ||
       (valor(b) - valor(a))
     );
