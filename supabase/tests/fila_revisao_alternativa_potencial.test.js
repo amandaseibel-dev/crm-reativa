@@ -28,8 +28,8 @@ vi.setConfig({ testTimeout: 180000, hookTimeout: 180000 });
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const ler = (p) => readFileSync(resolve(RAIZ, p), "utf8");
 const MIG_A7 = ler("supabase/migrations/20261022120000_a7_contato_compartilhado_bloqueia_massiva.sql");
-const MIG_FILA = ler("supabase/migrations/20261023090000_fila_revisao_alternativa_potencial.sql");
-const RB_FILA = ler("supabase/rollbacks/20261023090000_fila_revisao_alternativa_potencial.rollback.sql");
+const MIG_FILA = ler("supabase/migrations/20261022230323_fila_revisao_alternativa_potencial.sql");
+const RB_FILA = ler("supabase/rollbacks/20261022230323_fila_revisao_alternativa_potencial.rollback.sql");
 
 // Pecas que a bancada do universo nao tem. Os corpos de
 // `aluno_contato_*` sao os REAIS de producao (pg_get_functiondef, 22/10/2026),
