@@ -319,7 +319,7 @@ describe("migration B: as cinco restantes, no nivel da mecanica", () => {
     }
     // e nenhuma das duas prioritárias, que são da migration A
     expect(MIG_B).not.toContain("projecao_excluir_importacao");
-    expect(MIG_B.match(/^      \('public\./gm)).toHaveLength(5);
+    expect(MIG_B.match(/^ {6}\('public\./gm)).toHaveLength(5);
   });
 
   it("usa a mesma ancora e a mesma troca da A, e as tres travas", () => {
