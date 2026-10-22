@@ -264,3 +264,54 @@ export function linhaTemDado(linha: unknown[] | null | undefined): boolean {
 export function normalizarPlanilha(linhasBrutas: unknown[][]): LinhaNormalizada[] {
   return linhasBrutas.filter(linhaTemDado).map(normalizarLinhaSantander);
 }
+
+// -----------------------------------------------------------------------------
+// IMPRESSÃO DIGITAL DO CONTEÚDO NORMALIZADO
+// -----------------------------------------------------------------------------
+// ENTREGA B. Serve a uma pergunta só: *o que a gestão aprovou na prévia é o que
+// vai ser importado?*
+//
+// NÃO É AUTENTICAÇÃO. Qualquer um pode calcular este hash -- ele não prova quem
+// chamou, prova QUAL CONTEÚDO. Quem autentica é o JWT no gateway e o portão de
+// gestão; quem autoriza a escrita é a RPC, que confere `auth.email()` contra a
+// sua própria allowlist. A digital resolve outra coisa: entre ver a prévia e
+// confirmar, o arquivo pode ter sido trocado -- outro dia, outra remessa, ou
+// simplesmente o seletor de arquivo apontando para o lugar errado. Sem ela, a
+// confirmação importaria o arquivo NOVO com a conferência do ANTIGO.
+//
+// POR QUE AS CHAVES VÃO ORDENADAS, e não numa lista fixa de campos: campo novo
+// no normalizador passa a ser coberto automaticamente. Com lista fixa, alguém
+// acrescenta um campo, esquece de incluir aqui, e a digital deixa de enxergar
+// justamente a parte nova -- falha silenciosa, do tipo pior.
+//
+// A contagem de linhas entra explicitamente no texto assinado: hash de conteúdo
+// mais a quantidade, para que nenhuma reorganização de linhas produza a mesma
+// digital por acidente.
+export function textoParaDigital(linhas: LinhaNormalizada[]): string {
+  const canonica = linhas.map((l) => {
+    const registro = l as unknown as Record<string, unknown>;
+    return Object.keys(registro)
+      .sort()
+      .map((k) => [k, registro[k] ?? null]);
+  });
+  return JSON.stringify({ n: linhas.length, linhas: canonica });
+}
+
+export async function impressaoDigital(linhas: LinhaNormalizada[]): Promise<string> {
+  const bytes = new TextEncoder().encode(textoParaDigital(linhas));
+  const resumo = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(resumo))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+// Comparação de digitais sem ramificar por byte. A digital não é segredo, mas
+// comparar hash com `===` é um hábito que em outro contexto vaza tempo -- e o
+// custo de fazer certo aqui é zero.
+export function digitalConfere(a: string, b: string): boolean {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  if (a.length !== b.length || a.length === 0) return false;
+  let diferenca = 0;
+  for (let i = 0; i < a.length; i++) diferenca |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diferenca === 0;
+}

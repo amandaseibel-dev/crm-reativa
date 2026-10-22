@@ -29,6 +29,7 @@ import * as XLSX from "https://esm.sh/xlsx@0.18.5";
 import {
   LIMITE_BYTES,
   LIMITE_LINHAS,
+  impressaoDigital,
   normalizarPlanilha,
   validarArquivo,
 } from "./planilha.ts";
@@ -170,11 +171,17 @@ Deno.serve(async (req: Request) => {
   const soma = (f: (l: typeof linhas[number]) => number) =>
     Math.round(linhas.reduce((t, l) => t + (f(l) || 0), 0) * 100) / 100;
 
+  // ENTREGA B: a digital do conteúdo normalizado viaja com a prévia para que a
+  // confirmação possa provar que importa EXATAMENTE o que foi conferido aqui.
+  // Calcular não escreve nada -- esta função continua sem gravar.
+  const digital = await impressaoDigital(linhas);
+
   return json({
     ok: true,
     modo: "previa",
     gravou: false,
     via,
+    digital,
     arquivo: { nome, bytes: bytes!.length, formato: veredito.formato },
     resumo: {
       linhas_na_planilha: linhasBrutas.length,
