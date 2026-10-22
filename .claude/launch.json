@@ -105,6 +105,16 @@
         "vite.alertas.config.js"
       ],
       "port": 5205
+    },
+    {
+      "name": "mensalidades-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--config",
+        "vite.mensalidades.config.js"
+      ],
+      "port": 5206
     }
   ]
 }
