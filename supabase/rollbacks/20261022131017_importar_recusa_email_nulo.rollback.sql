@@ -1,4 +1,4 @@
--- ROLLBACK de 20261022150000_importar_recusa_email_nulo
+-- ROLLBACK de 20261022131017_importar_recusa_email_nulo
 -- =============================================================================
 -- Desfaz a correção: devolve às duas sobrecargas de
 -- `projecao_importar_pagamentos` a guarda SEM o teste de nulo.
