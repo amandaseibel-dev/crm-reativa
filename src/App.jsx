@@ -42,7 +42,11 @@ import BotaoManual from "./components/BotaoManual";
 import BotaoSugestao from "./components/BotaoSugestao";
 const FilaFinanceiro = lazy(() => import("./pages/FilaFinanceiro"));
 const FilaConfirmacaoPagamento = lazy(() => import("./pages/FilaConfirmacaoPagamento"));
-const PainelOperadores = lazy(() => import("./pages/PainelOperadores"));
+// PainelOperadores (ponto e pausas) foi ABSORVIDO pela Produtividade
+// Operacional em 22/10/2026: estava importado aqui e sem nenhuma <Route> que o
+// renderizasse -- no repositório e fora do ar. O conteúdo dele é o bloco
+// "Presença × produção" da tela nova, agora cruzado com os acionamentos do dia.
+const ProdutividadeOperacional = lazy(() => import("./pages/ProdutividadeOperacional"));
 const MeuPerfil = lazy(() => import("./pages/MeuPerfil"));
 const Borderos = lazy(() => import("./pages/Borderos"));
 const ConsultaFinanceira = lazy(() => import("./pages/ConsultaFinanceira"));
@@ -50,7 +54,7 @@ const VincularBaseOperacional = lazy(() => import("./pages/VincularBaseOperacion
 import { registrarLoginSeNecessario, registrarLogout } from "./utils/ponto";
 // A Fila Unica de Confirmacao usa a MESMA regra de gestao financeira que a
 // ficha do aluno ja aplica para decidir sobre titulo em confirmacao.
-import { podeGerirFinanceiro } from "./utils/operadores";
+import { podeGerirFinanceiro, podeVerTudo } from "./utils/operadores";
 const PainelAdm = lazy(() => import("./pages/PainelAdm"));
 const FinanceiroHub = lazy(() => import("./pages/FinanceiroHub"));
 const CentralPagamentos = lazy(() => import("./components/CentralPagamentos"));
@@ -205,7 +209,12 @@ function podeAcessar(perfil, rota) {
       "/painel-adm",
       "/painel-geral",
       "/fila-financeiro",
-      "/painel-operadores",
+      // "/painel-operadores" saiu daqui: a tela de ponto virou o primeiro
+      // bloco da Produtividade Operacional. A rota nunca existiu de fato --
+      // estava nesta lista sem <Route> correspondente. E "/produtividade" NÃO
+      // entra nestas listas de propósito: elas são por PERFIL e aquela tela é
+      // por PESSOA (os três logins de gestão têm três perfis diferentes --
+      // gerência, supervisor e administrativo). Ver RotaProtegida.
       "/financeiro-operadores",
       "/meu-perfil",
       "/painel-carteira",
@@ -305,6 +314,20 @@ function RotaProtegida({ usuario, rota, children }) {
     const emailFila = String(usuario?.perfil?.email || usuario?.auth?.email || "")
       .toLowerCase().trim();
     if (!podeGerirFinanceiro(emailFila)) return <Navigate to="/" replace />;
+    return children;
+  }
+  // PRODUTIVIDADE OPERACIONAL: mesmo caso da fila acima -- tela por PESSOA, e
+  // não por perfil. Os três logins de gestão têm três perfis diferentes
+  // (Amanda=gerencia, Fernanda=supervisor, Amanda ADM=administrativo), então
+  // uma lista por perfil não consegue descrever "a gestão" sem abrir para
+  // quem não é. A regra é `podeVerTudo` chamado SÓ com o e-mail, que devolve
+  // exatamente esses três -- os mesmos de `usuario_e_gestao()` no banco, que é
+  // quem a RLS de `ponto_operadores` deixa ver a batida dos outros. Sem
+  // permissão nova: a tela não mostra nada que esses três já não possam ler.
+  if (rota === "/produtividade") {
+    const emailProd = String(usuario?.perfil?.email || usuario?.auth?.email || "")
+      .toLowerCase().trim();
+    if (!podeVerTudo(emailProd)) return <Navigate to="/" replace />;
     return children;
   }
   if (!podeAcessar(perfil, rota)) {
@@ -709,6 +732,14 @@ export default function App() {
     // só acumularia -- a rota existia desde agosto e ninguém a alcançava.
     { rota: "/acordos-operador", label: "Acordos por Operador", icone: "TrendingUp", secao: "Operação" },
     
+    { rota: "/produtividade", label: "Produtividade Operacional", icone: "Activity", secao: "Gestão" },
+    // Painel Geral: a rota, a <Route> e as permissões já existiam desde
+    // sempre; o que faltava era o item de menu, e por isso a tela só era
+    // alcançável digitando a URL. Nada muda dentro dela. Quem vê aqui é quem
+    // `podeAcessar` já liberava -- gerência e supervisor, que são exatamente os
+    // dois e-mails que a RPC `painel_geral` aceita.
+    { rota: "/painel-geral", label: "Painel Geral", icone: "LayoutPanelTop", secao: "Gestão" },
+
     { rota: "/taxa-conversao", label: "Taxa de Conversão", icone: "TrendingUp", secao: "Gestão" },
 
     { rota: "/relatorios", label: "Relatórios", icone: "TrendingUp", secao: "Gestão" },
@@ -786,6 +817,14 @@ export default function App() {
     if (item.rota === "/fila-unica-confirmacao") {
       const emFu = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return podeGerirFinanceiro(emFu);
+    }
+    // Produtividade Operacional: a MESMA regra da porta da rota. Sem isto o
+    // item sumiria para todo mundo, porque a rota não está nas listas por
+    // perfil e `podeAcessar` devolveria undefined (foi o que aconteceu com a
+    // Fila Única de Confirmação, que ficou sem porta de julho a setembro).
+    if (item.rota === "/produtividade") {
+      const emPr = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return podeVerTudo(emPr);
     }
     if (item.rota === "/termos-adm") {
       const emVt = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
@@ -1176,6 +1215,14 @@ export default function App() {
               />
               <Route path="/painel-adm" element={<PainelAdm />} />
               <Route path="/painel-geral" element={<PainelGeral />} />
+              <Route
+                path="/produtividade"
+                element={
+                  <RotaProtegida usuario={usuario} rota="/produtividade">
+                    <ProdutividadeOperacional />
+                  </RotaProtegida>
+                }
+              />
               <Route path="/financeiro-hub" element={<FinanceiroHub usuario={usuario} />} />
         <Route path="/central-pagamentos" element={<CentralPagamentos />} />
               <Route path="/meu-perfil" element={<MeuPerfil />} />

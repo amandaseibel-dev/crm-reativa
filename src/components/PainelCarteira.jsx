@@ -16,9 +16,11 @@ import { indiceAcionamento } from "../utils/acionamentoAlerta";
 import {
   JANELA_BOLETOS_DIAS,
   JANELA_RETORNOS_DIAS,
+  JANELA_ATRASO_DIAS,
   boletosProximosDoVencimento,
   contarRetornoAutomaticoHoje,
   retornosAgendados,
+  retornosAtrasados,
   retornosDoDia,
 } from "../utils/painelMeuDia";
 import {
@@ -2697,6 +2699,15 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     () => retornosAgendados(casos, hojeLocalBR(), JANELA_RETORNOS_DIAS, finAlunos),
     [casos, finAlunos]
   );
+  // Retorno vencido e sem tratamento, dos ultimos JANELA_ATRASO_DIAS dias.
+  // Sai dos MESMOS `casos` da carteira -- nenhuma consulta nova, nenhuma RPC
+  // nova -- e `finAlunos` entra na dependencia pelo mesmo motivo da semana: o
+  // consolidado chega depois da primeira pintura e sem isso a linha ficaria
+  // em R$ 0,00.
+  const retornosVencidos = useMemo(
+    () => retornosAtrasados(casos, hojeLocalBR(), JANELA_ATRASO_DIAS, finAlunos),
+    [casos, finAlunos]
+  );
   // Relogio da tela. 30s e suficiente: o aviso e "esta na hora", nao cronometro.
   useEffect(() => {
     const t = setInterval(() => setHoraAgora(horaAgoraLocal()), 30000);
@@ -3114,6 +3125,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             onConfirmarRetorno={(id, confirmar) => confirmarRetornoAgenda(id, confirmar)}
             onVerRetornosNaFila={() => onKpiClick("retornosHoje")}
             acionamentoPorAluno={acionamentoPorAluno}
+            retornosAtrasados={retornosVencidos}
+            horaAgora={horaAgora}
           />
 
           {/* Ordem da primeira tela: retorno vencido e de hoje (Meu dia, acima)

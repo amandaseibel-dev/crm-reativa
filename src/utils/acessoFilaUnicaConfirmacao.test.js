@@ -24,7 +24,13 @@ const ROTA = "/fila-unica-confirmacao";
 
 describe("Fila Única de Confirmação — quem entra é a gestão financeira", () => {
   it("a regra é a que já existe, não uma lista nova em App.jsx", () => {
-    expect(App).toContain('import { podeGerirFinanceiro } from "./utils/operadores"');
+    // A regra vem de utils/operadores. A linha de import e compartilhada com
+    // outras regras da mesma origem (hoje `podeVerTudo`, da Produtividade
+    // Operacional), entao o que se cobra aqui e que `podeGerirFinanceiro` venha
+    // DALI -- nao que seja o unico nome importado na linha.
+    expect(App).toMatch(
+      /import \{[^}]*\bpodeGerirFinanceiro\b[^}]*\} from "\.\/utils\/operadores"/,
+    );
     // nenhuma lista de e-mails escrita a mao em volta desta rota: cada ponto
     // de decisao dela chama a regra, nao repete a roda de quem pode.
     let de = App.indexOf(ROTA);

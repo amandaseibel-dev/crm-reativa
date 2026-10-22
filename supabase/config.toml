@@ -18,3 +18,17 @@ project_id = "edlzlfbstshojxrudwaa"
 # de rotina e a segunda tranca, nunca a unica.
 [functions.prime-sonda]
 verify_jwt = true
+
+# -----------------------------------------------------------------------------
+# santander-previa -- ENTREGA A do caminho Santander, so leitura
+# -----------------------------------------------------------------------------
+# A planilha do extrato traz nome de aluno, matricula e valor pago. O gateway
+# recusa com 401 qualquer chamada sem JWT valido ANTES de executar uma linha da
+# funcao, e o portao interno dela exige, ALEM disso, token de rotina OU sessao
+# de gestao validada no banco.
+#
+# Escrito aqui de proposito: um `supabase functions deploy santander-previa
+# --no-verify-jwt`, ou uma mudanca futura de padrao do CLI, viraria essa
+# protecao em silencio. Escrita, desliga-la exige um diff que aparece no PR.
+[functions.santander-previa]
+verify_jwt = true
