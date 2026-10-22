@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { buscarTudo } from "../utils/paginado";
+import { BotaoMensalidades, LinhaMensalidades } from "./MensalidadesDoAluno";
 import { carregarIndicadoresCarteira, TEXTO_APOIO } from "../utils/carteiraAcionada";
 import AlertasParcelaAcordo from "./AlertasParcelaAcordo";
 import PainelMeuDia from "./PainelMeuDia";
@@ -483,6 +484,11 @@ async function consolidarFinanceiro(ids, hoje) {
       temAtraso: false,
       temAVencer: false,
       menorVencimento: null, // menor vencimento em aberto (YYYY-MM-DD)
+      // As mensalidades que compoem este total, uma por uma -- e nao so a soma.
+      // Sao as MESMAS linhas que ja vinham desta consulta: o detalhamento da
+      // coluna "Valor aberto" abre sem nenhuma consulta nova, e por construcao
+      // nao pode divergir do numero que a tela mostra.
+      itensMensalidades: [],
       // DONOS DO ACORDO deste aluno (acordos.operador_responsavel_email,
       // normalizado). Set, nao string: aluno pode ter mais de um acordo ATIVO e
       // o `||` anterior guardava um qualquer. `acordoSemResponsavel` e um
@@ -551,7 +557,10 @@ async function consolidarFinanceiro(ids, hoje) {
     const titulos = await buscarTudo((de, ate) =>
       supabase
         .from("acordos_titulos")
-        .select("aluno_id,status,situacao,acordo_id,valor_em_aberto,saldo_corrigido,valor_original,vencimento")
+        // `documento` e `competencia` entram so para o detalhamento da coluna
+        // "Valor aberto" (quais mensalidades formam o total). Mesma consulta,
+        // mesmas linhas, mesmo RLS -- duas colunas a mais, nenhuma ida extra.
+        .select("aluno_id,status,situacao,acordo_id,valor_em_aberto,saldo_corrigido,valor_original,vencimento,documento,competencia")
         .in("aluno_id", lote)
         .in("status", ["em_aberto", "vinculada"])
         .order("id", { ascending: true })
@@ -578,6 +587,18 @@ async function consolidarFinanceiro(ids, hoje) {
       const d = diasAtraso(t.vencimento, hoje);
       if (d !== null && d > 0) fin[id].temAtraso = true;
       else if (d !== null) fin[id].temAVencer = true;
+      // Guarda a linha que acabou de ser somada -- com o MESMO `v`. O painel
+      // de detalhamento nao refaz a conta: ele mostra as parcelas desta soma.
+      // So as nao-negociadas entram, porque sao exatamente as que compoem
+      // `fin[id].mensalidades` (as vinculadas sairam no `continue` acima e
+      // continuam resumidas na linha "Negociadas em acordo").
+      fin[id].itensMensalidades.push({
+        documento: t.documento || null,
+        competencia: t.competencia || null,
+        vencimento: vt,
+        valor: v,
+        vencida: d !== null && d > 0,
+      });
     }
   }
 
@@ -714,6 +735,19 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const [finAlunos, setFinAlunos] = useState({});
   const finAlunosRef = useRef({});
   useEffect(() => { finAlunosRef.current = finAlunos; }, [finAlunos]);
+  // Linhas com o detalhamento das mensalidades aberto. Set, nao um id so: o
+  // operador compara dois alunos lado a lado sem perder o primeiro. Nao filtra
+  // nem reordena nada -- a lista e os filtros seguem como estao.
+  const [mensalidadesAbertas, setMensalidadesAbertas] = useState(new Set());
+  function alternarMensalidades(alunoId) {
+    const chave = String(alunoId);
+    setMensalidadesAbertas((atual) => {
+      const proximo = new Set(atual);
+      if (proximo.has(chave)) proximo.delete(chave);
+      else proximo.add(chave);
+      return proximo;
+    });
+  }
   // Meu desempenho operacional (indicadores pessoais do operador logado).
   const [desempenho, setDesempenho] = useState(null);
   const [acionadosHojeIds, setAcionadosHojeIds] = useState([]);
@@ -3521,9 +3555,14 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                       ? (fa.temAtraso ? "var(--rv-vermelho-texto)" : fa.temAVencer ? "var(--rv-ambar-texto)" : "var(--rv-tinta)")
                       : "var(--rv-tinta)";
                     const feitoHoje = trabalhadoHoje(a);
+                    // Detalhamento das mensalidades: as linhas que o
+                    // consolidado ja trouxe para este aluno (sem consulta nova).
+                    const itensMens = temDet ? (fa.itensMensalidades || []) : [];
+                    const idPainelMens = `pcm-${a.id}`;
+                    const mensAberto = mensalidadesAbertas.has(String(a.id));
                     return (
+                      <Fragment key={a.id}>
                       <tr
-                        key={a.id}
                         title={feitoHoje ? "Ja trabalhado hoje" : undefined}
                         style={{
                           ...S.tr,
@@ -3741,7 +3780,25 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                               <div style={{ ...S.emAbertoTotal, color: corTotal }}>
                                 Em aberto: {formatarMoeda(fa.total)}
                               </div>
-                              <div style={S.emAbertoSub}>Mensalidades: {formatarMoeda(fa.mensalidades)}</div>
+                              {/* A CAIXINHA QUE NAO ABRIA (22/10/2026). Era um
+                                  <div> sem clique: quem apertava em cima dela
+                                  caia no onClick da <tr> e abria o atendimento,
+                                  nunca o detalhamento. Agora e botao, e o
+                                  detalhamento vem na linha de baixo. Sem
+                                  mensalidade nenhuma para abrir, continua texto. */}
+                              {itensMens.length > 0 ? (
+                                <div style={S.emAbertoSub}>
+                                  <BotaoMensalidades
+                                    qtd={itensMens.length}
+                                    valorRotulo={formatarMoeda(fa.mensalidades)}
+                                    aberto={mensAberto}
+                                    idPainel={idPainelMens}
+                                    onAlternar={() => alternarMensalidades(a.id)}
+                                  />
+                                </div>
+                              ) : (
+                                <div style={S.emAbertoSub}>Mensalidades: {formatarMoeda(fa.mensalidades)}</div>
+                              )}
                             <div style={S.emAbertoSub}>Mensalidades (originais): {formatarMoeda(saldoDe(a))}</div>
                             <div style={S.emAbertoSub}>Titulos em aberto: {qtdTitulosDe(a)}</div>
                               <div style={S.emAbertoSub}>Acordos: {formatarMoeda(fa.acordos)}</div>
@@ -3800,6 +3857,20 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                           </button>
                         </td>
                       </tr>
+                      {/* Linha de detalhamento: fora da <tr> do aluno, para
+                          nao herdar o clique que abre o atendimento e para ter
+                          a largura toda (a celula de valor e estreita e
+                          `nowrap`). Colunas do <thead>: 8. */}
+                      {mensAberto && (
+                        <LinhaMensalidades
+                          id={idPainelMens}
+                          colSpan={8}
+                          nome={nomeAluno(a)}
+                          itens={itensMens}
+                          totalRotulo={formatarMoeda(fa.mensalidades)}
+                        />
+                      )}
+                      </Fragment>
                     );
                   })}
                   {listaFiltrada.length === 0 && (
