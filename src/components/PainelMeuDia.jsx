@@ -12,16 +12,39 @@
 // 15/10/2026): uma linha por pessoa, cinco linhas visiveis por coluna, o resto
 // atras de "ver todos". A semana inteira de retornos fica atras do botao
 // "Semana", agrupada por dia -- a tela abre sempre em "Hoje".
+//
+// 22/10/2026 -- cinco melhorias de TELA, sem regra nova (o recorte continua em
+// src/utils/painelMeuDia.js e nada aqui escreve no banco):
+//  1. aba "Atrasados": o retorno agendado que venceu e nao foi tratado. Ele
+//     existia na base e no selo da linha da fila, mas sumia desta visao no dia
+//     seguinte -- a aba so aparece quando ha atraso;
+//  2. a hora combinada que ja passou fica vermelha, usando o relogio de 30s
+//     que a tela ja mantinha para o aviso "esta na hora";
+//  3. o chip do dia, na visao Semana, mostra quantos prioritarios pendentes
+//     aquele dia tem (a ORDEM dos dias nao muda);
+//  4. telefone formatado e clicavel (`tel:`), com o mesmo helper do resto do
+//     sistema;
+//  5. a coluna de retornos ganha contagem de pendentes e total em aberto --
+//     paridade com a coluna de boletos, que ja somava.
 import { useState } from "react";
 import { formatarDataBR, formatarValorBRL, rotuloDiasRestantes, chaveAlerta } from "../utils/alertasParcela";
 import { situacaoAcionamento } from "../utils/acionamentoAlerta";
+// Telefone: `formatarTelefone`/`normalizarE164` (e NAO o par `formatarCadastro`/
+// `normalizarCadastro`) de proposito. O par do cadastro passa por
+// `limparCadastro`, que INSERE o nono digito em numero de 10 digitos -- certo
+// para montar link de WhatsApp, errado para discar: num fixo isso vira outro
+// numero de telefone. Aqui o que esta escrito na tela e exatamente o que o
+// `tel:` disca, e nenhum digito e inventado.
+import { formatarTelefone, normalizarE164 } from "../utils/telefone";
 import {
   JANELA_BOLETOS_DIAS,
   agruparRetornosPorDia,
   fimDaJanela,
+  horaRetornoVencida,
   retornosDoDia,
   retornosPendentes,
   somaBoletos,
+  somaEmAberto,
 } from "../utils/painelMeuDia";
 
 const MOSTRAR_INICIAL = 5;
@@ -81,6 +104,10 @@ const S = {
   chip: { fontSize: 11, fontWeight: 800, color: "var(--rv-roxo)", background: "rgba(124,58,237,0.12)", borderRadius: 5, padding: "1px 6px", whiteSpace: "nowrap" },
   chipHoje: { fontSize: 11, fontWeight: 800, color: "var(--rv-vermelho)", background: "var(--rv-vermelho-fundo)", borderRadius: 5, padding: "1px 6px", whiteSpace: "nowrap" },
   chipPrioridade: { fontSize: 11, fontWeight: 800, color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)", borderRadius: 5, padding: "1px 6px", whiteSpace: "nowrap" },
+  // Hora que ja passou e atraso em dias usam o MESMO vermelho do "vence hoje"
+  // dos boletos: na tela do operador, vermelho quer dizer "isto atrasou".
+  chipAtraso: { fontSize: 11, fontWeight: 800, color: "var(--rv-vermelho)", background: "var(--rv-vermelho-fundo)", borderRadius: 5, padding: "1px 6px", whiteSpace: "nowrap" },
+  telefone: { color: "var(--rv-texto-suave)", textDecoration: "none", fontWeight: 700 },
   chipOk: { fontSize: 11, fontWeight: 800, color: "var(--rv-verde-ok-texto)", background: "var(--rv-verde-ok-fundo)", borderRadius: 5, padding: "1px 6px", whiteSpace: "nowrap" },
   check: {
     border: "1px solid var(--rv-borda)",
@@ -117,7 +144,28 @@ function BotaoCheck({ item, confirmandoRetornoId, onConfirmarRetorno }) {
   );
 }
 
-function LinhaRetorno({ item, mostrarResponsavel, onAbrirFicha, confirmandoRetornoId, onConfirmarRetorno }) {
+// Telefone do aluno pronto para discar. `normalizarE164` devolve "" quando o
+// cadastro nao tem numero aproveitavel (menos de 10 digitos) -- nesse caso a
+// linha mostra o texto cru, sem link, em vez de oferecer uma ligacao que vai
+// cair em lugar nenhum.
+function Telefone({ telefone }) {
+  const bruto = String(telefone || "");
+  if (!bruto) return null;
+  const e164 = normalizarE164(bruto);
+  const visivel = formatarTelefone(bruto);
+  if (!e164) return <>{`${bruto} · `}</>;
+  return (
+    <>
+      <a href={`tel:+${e164}`} style={S.telefone} title="Ligar para este número">
+        {visivel}
+      </a>
+      {" · "}
+    </>
+  );
+}
+
+function LinhaRetorno({ item, mostrarResponsavel, onAbrirFicha, confirmandoRetornoId, onConfirmarRetorno, hoje, horaAgora }) {
+  const horaVencida = horaRetornoVencida(item, { hoje, horaAgora });
   return (
     <div style={{ ...S.item, ...(item.tratado ? S.itemTratado : {}) }} data-testid="meu-dia-retorno-item">
       <div style={{ minWidth: 0, flex: 1 }}>
@@ -127,13 +175,29 @@ function LinhaRetorno({ item, mostrarResponsavel, onAbrirFicha, confirmandoRetor
               ⭐ prioridade
             </span>
           )}
-          {item.hora_retorno ? <span style={S.chip}>{item.hora_retorno}</span> : null}
+          {/* Atraso em DIAS (aba Atrasados) e hora que passou (aba Hoje) nunca
+              aparecem juntos: `horaRetornoVencida` so vale para o dia de hoje,
+              e a linha com `dias_atraso` por definicao nao e de hoje. */}
+          {Number(item.dias_atraso) > 0 && (
+            <span style={S.chipAtraso} data-testid="meu-dia-retorno-atraso" title="Retorno agendado que venceu e segue sem tratamento">
+              ⚠️ {item.dias_atraso}d de atraso
+            </span>
+          )}
+          {item.hora_retorno ? (
+            <span
+              style={horaVencida ? S.chipAtraso : S.chip}
+              data-testid={horaVencida ? "meu-dia-hora-vencida" : undefined}
+              title={horaVencida ? `Hora combinada já passou (agora ${horaAgora})` : "Hora combinada"}
+            >
+              {horaVencida ? `⏰ ${item.hora_retorno}` : item.hora_retorno}
+            </span>
+          ) : null}
           <button type="button" style={S.nome} onClick={() => onAbrirFicha && onAbrirFicha(item)} title="Abrir ficha do aluno">
             {item.nome}
           </button>
         </div>
         <div style={S.meta}>
-          {item.telefone ? `${item.telefone} · ` : ""}
+          <Telefone telefone={item.telefone} />
           {formatarValorBRL(item.valor_em_aberto)}
           {mostrarResponsavel && item.responsavel_email ? ` · ${item.responsavel_email}` : ""}
         </div>
@@ -146,7 +210,9 @@ function LinhaRetorno({ item, mostrarResponsavel, onAbrirFicha, confirmandoRetor
 export default function PainelMeuDia({
   acionamentoPorAluno = null,
   hoje,
+  horaAgora = "",
   retornos = [],
+  retornosAtrasados: atrasados = [],
   retornoAutomaticoHoje = 0,
   boletos = [],
   janelaDias = JANELA_BOLETOS_DIAS,
@@ -156,8 +222,9 @@ export default function PainelMeuDia({
   onConfirmarRetorno,
   onVerRetornosNaFila,
 }) {
-  // A tela sempre abre no dia; a semana e uma escolha de quem esta olhando.
-  const [visaoSemana, setVisaoSemana] = useState(false);
+  // A tela sempre abre no dia; semana e atrasados sao escolha de quem esta
+  // olhando. Tres valores: "hoje" | "semana" | "atrasados".
+  const [visao, setVisao] = useState("hoje");
   const [diaEscolhido, setDiaEscolhido] = useState("");
   const [verTodosRetornos, setVerTodosRetornos] = useState(false);
   const [verTodosBoletos, setVerTodosBoletos] = useState(false);
@@ -165,6 +232,15 @@ export default function PainelMeuDia({
   const doDia = retornosDoDia(retornos, hoje);
   const pendentesDoDia = retornosPendentes(doDia).length;
   const pendentesSemana = retornosPendentes(retornos).length;
+  // `retornosAtrasados` ja chega sem os tratados (ver a funcao): aqui o
+  // tamanho da lista E a contagem de pendentes.
+  const temAtrasados = atrasados.length > 0;
+
+  // A aba "Atrasados" existe so quando ha atraso -- "Atrasados (0)" fixo na
+  // tela seria exatamente a poluicao que a gestao pediu para evitar. Se o
+  // operador tratar o ultimo atrasado com a aba aberta, a aba desaparece e a
+  // visao cai de volta em "Hoje" em vez de ficar numa aba sem dono.
+  const visaoAtiva = visao === "atrasados" && !temAtrasados ? "hoje" : visao;
 
   // Na semana a lista NAO vira um rolo de todos os dias juntos: os dias viram
   // chips com o que falta em cada um e a lista mostra o dia escolhido (o
@@ -172,43 +248,73 @@ export default function PainelMeuDia({
   // sem empurrar a carteira para baixo.
   const grupos = agruparRetornosPorDia(retornos, hoje);
   const diaAtivo = grupos.some((g) => g.data === diaEscolhido) ? diaEscolhido : grupos[0]?.data || "";
-  const listaBase = visaoSemana ? grupos.find((g) => g.data === diaAtivo)?.itens || [] : doDia;
+  const listaBase =
+    visaoAtiva === "atrasados"
+      ? atrasados
+      : visaoAtiva === "semana"
+        ? grupos.find((g) => g.data === diaAtivo)?.itens || []
+        : doDia;
   const visiveis = verTodosRetornos ? listaBase : listaBase.slice(0, MOSTRAR_INICIAL);
+
+  // Contador do titulo e do rodape seguem a aba aberta: o numero na tela
+  // sempre fala da lista que esta logo abaixo dele.
+  const pendentesDaVisao = retornosPendentes(listaBase).length;
+  const emAbertoDaVisao = somaEmAberto(listaBase);
 
   const listaBoletos = verTodosBoletos ? boletos : boletos.slice(0, MOSTRAR_INICIAL);
   const vencemHoje = boletos.filter((b) => Number(b.dias_restantes) === 0).length;
 
-  const propsLinha = { mostrarResponsavel, onAbrirFicha, confirmandoRetornoId, onConfirmarRetorno };
+  const trocarVisao = (destino) => {
+    setVisao(destino);
+    setVerTodosRetornos(false);
+  };
+
+  const propsLinha = { mostrarResponsavel, onAbrirFicha, confirmandoRetornoId, onConfirmarRetorno, hoje, horaAgora };
 
   return (
     <section style={S.grade} aria-label="Meu dia" data-testid="painel-meu-dia">
       <div style={S.coluna} data-testid="meu-dia-retornos">
         <div style={S.topo}>
-          <h3 style={S.titulo}>🗓️ Retornos · {visaoSemana ? pendentesSemana : pendentesDoDia}</h3>
+          <h3 style={S.titulo}>🗓️ Retornos · {pendentesDaVisao}</h3>
           <div style={S.abas} role="tablist" aria-label="Período dos retornos">
             <button
               type="button"
               role="tab"
-              aria-selected={!visaoSemana}
-              style={{ ...S.aba, ...(!visaoSemana ? S.abaAtiva : {}) }}
-              onClick={() => { setVisaoSemana(false); setVerTodosRetornos(false); }}
+              aria-selected={visaoAtiva === "hoje"}
+              style={{ ...S.aba, ...(visaoAtiva === "hoje" ? S.abaAtiva : {}) }}
+              onClick={() => trocarVisao("hoje")}
             >
               Hoje ({pendentesDoDia})
             </button>
             <button
               type="button"
               role="tab"
-              aria-selected={visaoSemana}
-              style={{ ...S.aba, ...(visaoSemana ? S.abaAtiva : {}) }}
-              onClick={() => { setVisaoSemana(true); setVerTodosRetornos(false); }}
+              aria-selected={visaoAtiva === "semana"}
+              style={{ ...S.aba, ...(visaoAtiva === "semana" ? S.abaAtiva : {}) }}
+              onClick={() => trocarVisao("semana")}
             >
               Semana ({pendentesSemana})
             </button>
+            {temAtrasados && (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={visaoAtiva === "atrasados"}
+                data-testid="meu-dia-aba-atrasados"
+                style={{ ...S.aba, ...(visaoAtiva === "atrasados" ? S.abaAtiva : {}), color: "var(--rv-vermelho)" }}
+                onClick={() => trocarVisao("atrasados")}
+              >
+                ⚠️ Atrasados ({atrasados.length})
+              </button>
+            )}
           </div>
         </div>
-        <p style={S.apoio}>Agendados por você · ✓ marca o contato como feito</p>
+        <p style={S.apoio}>
+          Agendados por você
+          {pendentesDaVisao > 0 ? ` · ${pendentesDaVisao} pendente${pendentesDaVisao > 1 ? "s" : ""} · ${formatarValorBRL(emAbertoDaVisao)} em aberto` : ""}
+        </p>
 
-        {visaoSemana && grupos.length > 0 && (
+        {visaoAtiva === "semana" && grupos.length > 0 && (
           <div style={S.dias} role="tablist" aria-label="Dias com retorno">
             {grupos.map((g) => (
               <button
@@ -219,15 +325,26 @@ export default function PainelMeuDia({
                 data-testid="meu-dia-chip-dia"
                 style={{ ...S.diaChip, ...(g.data === diaAtivo ? S.diaChipAtivo : {}) }}
                 onClick={() => { setDiaEscolhido(g.data); setVerTodosRetornos(false); }}
+                title={g.prioritarios > 0 ? `${g.prioritarios} prioritário(s) neste dia` : undefined}
               >
                 {g.rotulo} · {g.pendentes}
+                {/* ⭐ so aparece no dia que TEM prioritario pendente -- o dia
+                    sem prioridade continua com o texto de antes, e a ordem
+                    dos dias segue a do calendario. */}
+                {g.prioritarios > 0 ? ` ⭐${g.prioritarios}` : ""}
               </button>
             ))}
           </div>
         )}
 
         {listaBase.length === 0 ? (
-          <p style={S.vazio}>{visaoSemana ? "Nenhum retorno agendado para os próximos dias." : "Nenhum retorno agendado para hoje."}</p>
+          <p style={S.vazio}>
+            {visaoAtiva === "semana"
+              ? "Nenhum retorno agendado para os próximos dias."
+              : visaoAtiva === "atrasados"
+                ? "Nenhum retorno vencido sem tratamento."
+                : "Nenhum retorno agendado para hoje."}
+          </p>
         ) : (
           visiveis.map((r) => <LinhaRetorno key={r.id} item={r} {...propsLinha} />)
         )}
