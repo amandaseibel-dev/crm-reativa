@@ -9,6 +9,10 @@ const ROTULO_MOTIVO = {
   outro_responsavel: "Fora do responsável selecionado",
   acao_massiva_recente: "Ação massiva recente neste canal",
   contato_indisponivel: "Sem contato válido para o canal",
+  // A7: o texto não expõe o contato nem acusa o aluno — a dificuldade é de
+  // cadastro, não de comportamento.
+  contato_compartilhado: "Outra pessoa com dívida usa o mesmo contato",
+  contato_invalidado: "Contato marcado como incorreto",
   valor_fora_da_faixa: "Valor fora da faixa",
 };
 export const rotuloMotivo = (m) => ROTULO_MOTIVO[m] || m;
