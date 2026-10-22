@@ -1,4 +1,4 @@
--- ROLLBACK de 20261022170100_identidade_nula_restantes
+-- ROLLBACK de 20261022164436_identidade_nula_restantes
 -- =============================================================================
 -- Desfaz a correção: devolve às funções a guarda SEM o teste de nulo.
 --
