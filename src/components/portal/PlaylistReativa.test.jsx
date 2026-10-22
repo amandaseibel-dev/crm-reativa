@@ -315,6 +315,51 @@ describe("coração de curtidas (A2)", () => {
     expect(screen.queryByRole("button", { name: /🤍|❤️/ })).toBeNull();
   });
 
+  it("com a curtida da semana livre, a tela convida a escolher uma música", async () => {
+    montarSupabase([musica(1, OUTRA, "De outra")]);
+    await desenhar(EU, comCurtidas([[1, { curtidas: 2, euCurti: false }]]));
+    expect(screen.getByText(/1 curtida por semana/)).toBeTruthy();
+  });
+
+  it("curtida já gasta: o coração das outras músicas fica desabilitado e explica o motivo", async () => {
+    montarSupabase([musica(1, OUTRA, "A curtida"), musica(2, OUTRA, "A outra")]);
+    const c = comCurtidas([
+      [1, { curtidas: 1, euCurti: true }],
+      [2, { curtidas: 4, euCurti: false }],
+    ]);
+    await desenhar(EU, c);
+
+    const outra = screen.getByRole("button", { name: /🤍 4/ });
+    expect(outra.disabled).toBe(true);
+    expect(outra.title).toContain("1 curtida por semana");
+
+    // A música que recebeu a curtida continua clicável -- clicar ali é RETIRAR.
+    const minha = screen.getByRole("button", { name: /❤️ 1/ });
+    expect(minha.disabled).toBe(false);
+    await act(async () => { fireEvent.click(minha); });
+    expect(c.alternar).toHaveBeenCalledWith(1, EU);
+  });
+
+  it("curtida já gasta: a tela diz em qual música ela está", async () => {
+    montarSupabase([musica(1, OUTRA, "A curtida"), musica(2, OUTRA, "A outra")]);
+    await desenhar(EU, comCurtidas([
+      [1, { curtidas: 1, euCurti: true }],
+      [2, { curtidas: 4, euCurti: false }],
+    ]));
+    expect(screen.getByText(/Sua curtida desta semana está em .*A curtida/)).toBeTruthy();
+  });
+
+  it("clicar no coração de outra música não é possível quando a curtida está gasta", async () => {
+    montarSupabase([musica(1, OUTRA, "A curtida"), musica(2, OUTRA, "A outra")]);
+    const c = comCurtidas([
+      [1, { curtidas: 1, euCurti: true }],
+      [2, { curtidas: 4, euCurti: false }],
+    ]);
+    await desenhar(EU, c);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /🤍 4/ })); });
+    expect(c.alternar).not.toHaveBeenCalled();
+  });
+
   it("remover uma música manda reapurar as curtidas (o destaque pode mudar)", async () => {
     const confirmar = vi.spyOn(window, "confirm").mockReturnValue(true);
     montarSupabase([musica(1, EU, "Minha")]);

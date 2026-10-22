@@ -425,6 +425,7 @@ const S = {
   botaoMiniDesligado: { opacity: .5, cursor: "not-allowed" },
   botaoCurtir: { border: "1px solid var(--rv-borda)", borderRadius: 999, background: "var(--rv-superficie)", color: "var(--rv-tinta)", fontWeight: 800, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit", fontSize: 12, whiteSpace: "nowrap" },
   botaoCurtirAtivo: { borderColor: "var(--rv-azul)", background: "var(--rv-azul-fundo)", color: "var(--rv-azul-texto)" },
+  botaoCurtirDesligado: { opacity: .45, cursor: "not-allowed" },
   semanaFaixa: { margin: "0 0 14px", padding: "16px 18px", borderRadius: 20, border: "1px solid var(--rv-borda)", background: "linear-gradient(135deg, var(--rv-azul-fundo), var(--rv-superficie))", boxShadow: "0 8px 26px rgba(15,23,42,.05)" },
   semanaRotulo: { display: "flex", alignItems: "center", gap: 8, marginBottom: 12 },
   semanaIcone: { fontSize: 18 },
