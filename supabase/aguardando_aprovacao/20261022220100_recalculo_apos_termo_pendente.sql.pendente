@@ -1,0 +1,73 @@
+-- RECALCULO APOS A CORRECAO DO `termo_pendente` -- PREPARADO, NAO EXECUTADO
+-- =============================================================================
+-- Extensao `.sql.pendente` de proposito: este arquivo NAO e migration, NAO roda
+-- em `supabase db push` e NAO deve ser executado junto com a migration
+-- 20261022220000. Ele e o passo DEPOIS, com autorizacao propria.
+--
+-- POR QUE EXISTE. A migration corrige a REGRA; ela nao reescreve rotulo nenhum.
+-- `alunos.nivel_criticidade` e `casos.criticidade` sao derivados: cada caso so
+-- recebe o rotulo novo quando for recalculado. Sem este passo, a carteira fica
+-- MISTA durante horas -- os casos que tiverem algum evento (parcela, acordo,
+-- termo, baixa, confirmacao, acionamento individual) pegam a regra nova na
+-- hora, e o resto so vira na varredura das 06:00 UTC (03:00 de Brasilia).
+-- Medido em 22/10/2026: 623 casos foram recalculados por evento entre 08:55 e
+-- 19:56 UTC do mesmo dia. Carteira mista e exatamente o que a operacao leu como
+-- "muda sozinho depois do F5".
+--
+-- O QUE ELE FAZ: chama a MESMA rotina que o cron 3 chama todo dia as 06:00
+-- (`recalcular_situacao_virada_diaria`). Nao e codigo novo: e a rotina que roda
+-- ha meses, com 12 de 12 execucoes bem-sucedidas nos ultimos 12 dias, entre
+-- 70 s e 95 s cada. `statement_timeout` dela e 240 s, declarado na propria
+-- funcao.
+--
+-- ZERO DML DIRETO: nenhum insert/update/delete escrito aqui. A rotina atualiza
+-- `casos` e `alunos` nos campos derivados que ela ja atualiza todos os dias --
+-- criticidade, situacao_operacional, proxima_acao, saldo_vencido, saldo_total,
+-- data_retorno -- e nao toca em valor de pagamento, acordo, parcela ou baixa.
+--
+-- QUANDO RODAR: depois da migration aplicada e conferida, de preferencia fora
+-- do horario de operacao. Se nao rodar, nada quebra -- a carteira so converge
+-- mais devagar, pela virada da madrugada.
+
+-- ---------------------------------------------------------------------------
+-- 1. FOTO ANTES (guardar o resultado; e a base da comparacao)
+-- ---------------------------------------------------------------------------
+select a.nivel_criticidade,
+       count(*) as casos,
+       round(sum(a.saldo_total)::numeric, 2) as saldo_total,
+       count(*) filter (
+         where a.data_ultimo_acionamento is not null
+           and (current_date - (a.data_ultimo_acionamento at time zone 'America/Sao_Paulo')::date) >= 8
+       ) as com_8_dias_ou_mais
+  from public.alunos a
+  join public.casos c on c.aluno_id = a.id
+ where c.operador_email is not null
+ group by 1
+ order by 2 desc;
+
+-- ---------------------------------------------------------------------------
+-- 2. O RECALCULO
+-- ---------------------------------------------------------------------------
+-- Devolve {'lote', 'alunos_recalculados', 'erros', 'executado_em'}. Um caso com
+-- falha nao interrompe a varredura -- por isso `erros` tem de ser olhado.
+select public.recalcular_situacao_virada_diaria('fix_termo_pendente_20261022');
+
+-- ---------------------------------------------------------------------------
+-- 3. FOTO DEPOIS -- o resultado esperado, medido em leitura em 22/10/2026
+-- ---------------------------------------------------------------------------
+-- PERDENDO  2.116 (inalterado)
+-- CRITICO     249 (-62, que viram URGENTE)
+-- URGENTE     389 (327 que ja eram + 62 vindos de CRITICO)
+-- ATENCAO   1.013 (os que hoje estao URGENTE por causa do peso fantasma)
+-- NORMAL   ~2.581 (+2.557 vindos de ATENCAO)
+-- A conferencia que importa: NENHUM caso com 8 dias ou mais sem acionamento
+-- pode ter descido de faixa. A consulta abaixo tem de voltar VAZIA.
+select a.id, a.nivel_criticidade,
+       (current_date - (a.data_ultimo_acionamento at time zone 'America/Sao_Paulo')::date) as dias_sem_acionamento
+  from public.alunos a
+  join public.casos c on c.aluno_id = a.id
+ where c.operador_email is not null
+   and a.situacao_operacional = 'COBRANCA_VENCIDA'
+   and a.data_ultimo_acionamento is not null
+   and (current_date - (a.data_ultimo_acionamento at time zone 'America/Sao_Paulo')::date) >= 8
+   and a.nivel_criticidade not in ('URGENTE', 'CRITICO', 'PERDENDO');
