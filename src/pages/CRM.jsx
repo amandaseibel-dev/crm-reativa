@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { buscarTudo } from "../utils/paginado";
+import { temAjusteValor } from "../utils/ajusteValor";
 import { emailPorNomeOperador, nomeOperadorPorEmail, podeVerTudo } from "../utils/operadores";
 import { classificarVinculo, ROTULO_VINCULO } from "../utils/carteiraAcionada";
 import { Carregando, Erro } from "../ui/estados";
@@ -513,12 +514,16 @@ export default function CRM() {
       }
       const { data: tit } = await supabase
         .from("acordos_titulos")
-        .select("aluno_id,valor_em_aberto,saldo_corrigido,valor_original")
+        .select("aluno_id,valor_em_aberto,saldo_corrigido,valor_original,valor_cobranca_ajustado")
         .in("aluno_id", lote)
         .eq("status", "em_aberto");
       for (const t of tit || []) {
         const aid = String(t.aluno_id);
-        titPorAluno[aid] = (titPorAluno[aid] || 0) + Number(t.valor_em_aberto ?? t.saldo_corrigido ?? t.valor_original ?? 0);
+        // Ajuste cobravel na frente; sem ajuste, a regra desta soma como estava.
+        const v = temAjusteValor(t)
+          ? Number(t.valor_cobranca_ajustado)
+          : Number(t.valor_em_aberto ?? t.saldo_corrigido ?? t.valor_original ?? 0);
+        titPorAluno[aid] = (titPorAluno[aid] || 0) + v;
       }
     }
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { buscarTudo } from "../utils/paginado";
+import { temAjusteValor } from "../utils/ajusteValor";
 import { carregarIndicadoresCarteira, TEXTO_APOIO } from "../utils/carteiraAcionada";
 import AlertasParcelaAcordo from "./AlertasParcelaAcordo";
 import PainelMeuDia from "./PainelMeuDia";
@@ -549,7 +550,7 @@ async function consolidarFinanceiro(ids, hoje) {
     const titulos = await buscarTudo((de, ate) =>
       supabase
         .from("acordos_titulos")
-        .select("aluno_id,status,situacao,acordo_id,valor_em_aberto,saldo_corrigido,valor_original,vencimento")
+        .select("aluno_id,status,situacao,acordo_id,valor_em_aberto,saldo_corrigido,valor_original,valor_cobranca_ajustado,vencimento")
         .in("aluno_id", lote)
         .in("status", ["em_aberto", "vinculada"])
         .order("id", { ascending: true })
@@ -558,7 +559,10 @@ async function consolidarFinanceiro(ids, hoje) {
     for (const t of titulos) {
       const id = String(t.aluno_id);
       if (!fin[id]) continue;
-      const v = Number(t.valor_em_aberto ?? t.saldo_corrigido ?? t.valor_original ?? 0);
+      // Ajuste cobravel na frente; sem ajuste, a regra desta soma como estava.
+      const v = temAjusteValor(t)
+        ? Number(t.valor_cobranca_ajustado)
+        : Number(t.valor_em_aberto ?? t.saldo_corrigido ?? t.valor_original ?? 0);
       const vt = t.vencimento ? String(t.vencimento).slice(0, 10) : null;
       if (vt && (!fin[id].menorVencimento || vt < fin[id].menorVencimento)) fin[id].menorVencimento = vt;
       // HOTFIX parcela negociada: as vinculadas ficam num balde separado. NAO
