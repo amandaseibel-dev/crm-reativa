@@ -1,6 +1,20 @@
-// Fila assistida: acordo sem vinculo -> evidencia Prime/portador 195 -> SUGESTAO -> a gestao CONFIRMA ou REJEITA.
-// Nada aqui vincula sozinho. "Confirmar vinculo" chama a RPC acordo_vinculo_sugestao_confirmar, que REVALIDA no servidor e so entao usa a
+// Fila assistida: acordo sem vinculo -> evidencia Prime/portador 195 -> SUGESTAO -> a gestao ACEITA ou REJEITA.
+// Nada aqui vincula sozinho. "Aceitar como origem" chama a RPC acordo_vinculo_sugestao_confirmar, que REVALIDA no servidor e so entao usa a
 // RPC oficial vincular_titulos_acordo. "Rejeitar" grava a composicao rejeitada e nao altera nenhum objeto financeiro.
+//
+// O VOCABULARIO MUDOU EM 23/10/2026, e nao e cosmetica. O rotulo antigo
+// ("Confirmar vinculo") prometia mais do que a regra entrega: a decisao da
+// gestao de 12/09/2026 (docs/CLASSIFICACAO-VINCULO-ACORDO-MENSALIDADE.md) fixa o
+// teto em ALTA_CONFIANCA e proibe CONFIRMADO, porque os dois lados do vinculo
+// tem naturezas de prova diferentes -- a mensalidade e escolhida pelo boleto
+// EXATO (prova), o acordo por proximidade de data numa janela de -60/+7
+// (inferencia). Um vinculo nao pode ser mais forte que o seu lado mais fraco.
+//
+// VINCULO NAO E PAGAMENTO. Aceitar a origem nao quita, nao baixa e nao zera
+// valor: em acordo ATIVO a mensalidade vira NEGOCIADO/vinculada e sai do saldo
+// porque as PARCELAS do acordo entram no lugar. E por isso que o servidor passou
+// a exigir acordo ATIVO e parcela viva -- sem parcela viva, a divida sairia da
+// cobranca sem nada substituir.
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { S } from "../ui/estilosFila";
@@ -8,7 +22,7 @@ import { cpfMascarado, dataBR } from "../utils/sugestoesVinculo";
 
 const moeda = (v) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const FILTROS = [
-  { id: "FORTE", rotulo: "Sugestão forte", ajuda: "um único grupo Prime 195 compatível, CPF e documentos conferem, títulos livres e nenhuma concorrência" },
+  { id: "FORTE", rotulo: "Alta confiança", ajuda: "um único grupo Prime 195 compatível, CPF e documentos conferem, títulos livres, nenhuma concorrência, acordo ATIVO e com parcela viva. É o teto da regra: alta confiança, nunca confirmação — o lado do acordo é inferência por data" },
   { id: "REVISAO", rotulo: "Revisão", ajuda: "há evidência Prime 195, mas com ambiguidade (vários grupos ou acordo concorrente): decida na ficha" },
   { id: "SEM_EVIDENCIA", rotulo: "Sem evidência", ajuda: "nenhum grupo Prime 195 plausível para este acordo" },
   { id: "REJEITADAS", rotulo: "Rejeitadas", ajuda: "composições que a gestão já rejeitou; só voltam se a evidência mudar" },
@@ -20,12 +34,17 @@ const MOTIVOS = {
   GRUPO_195_FORA_DA_JANELA: "Há liquidação no 195, mas fora da janela de −60/+7 dias do acordo",
   SEM_GRUPO_195: "Nenhuma liquidação Prime 195 compatível",
   ALUNO_SEM_CPF: "Aluno sem CPF: não dá para conferir o extrato",
+  ACORDO_QUITADO_EXIGE_REVISAO: "Acordo fora de ATIVO: vincular quitaria a mensalidade, e quitação exige pagamento comprovado — só por revisão manual",
+  ACORDO_SEM_PARCELA_VIVA: "Acordo ATIVO sem parcela viva: vincular tiraria a mensalidade do saldo sem nada entrar no lugar",
 };
 const ERROS = {
   SUGESTAO_MUDOU: "A evidência mudou desde que você abriu a fila. Nada foi vinculado; a lista foi atualizada.",
   SUGESTAO_NAO_E_FORTE: "Esta sugestão deixou de ser forte. Nada foi vinculado.",
   ACORDO_NAO_ELEGIVEL: "O acordo não está mais elegível. Nada foi vinculado.",
   VINCULO_RECUSADO: "A regra oficial de vínculo recusou a operação. Nada foi vinculado.",
+  ACORDO_NAO_ATIVO_EXIGE_REVISAO: "Este acordo não está ATIVO. Vincular aqui quitaria a mensalidade, e quitação exige pagamento comprovado — o caminho é a revisão manual. Nada foi vinculado.",
+  ACORDO_SEM_PARCELA_VIVA: "Este acordo não tem parcela viva. Vincular tiraria a mensalidade do saldo sem nada entrar no lugar. Nada foi vinculado.",
+  ACORDO_ATIVO_SEM_PARCELA_VIVA: "Este acordo não tem parcela viva. Vincular tiraria a mensalidade do saldo sem nada entrar no lugar. Nada foi vinculado.",
 };
 
 export default function SugestoesVinculoAcordo({ onAbrirFicha, recarregar = 0 }) {
@@ -62,12 +81,12 @@ export default function SugestoesVinculoAcordo({ onAbrirFicha, recarregar = 0 })
 
   async function confirmar(l) {
     const n = (l.titulos || []).length;
-    if (!window.confirm(`Vincular ${n} mensalidade(s) ao acordo ${l.numero_acordo || ""}? A confirmação revalida a evidência e usa a regra oficial de vínculo.`)) return;
+    if (!window.confirm(`Aceitar ${n} mensalidade(s) como origem do acordo ${l.numero_acordo || ""}?\n\nIsto NÃO quita e NÃO dá baixa: a mensalidade fica NEGOCIADA e sai do saldo porque as parcelas do acordo entram no lugar. O servidor revalida a evidência e usa a regra oficial de vínculo.`)) return;
     setOcupado(l.acordo_id); setMsg(""); setErro("");
     const { data, error } = await supabase.rpc("acordo_vinculo_sugestao_confirmar", { p_acordo_id: l.acordo_id, p_composicao_hash: l.composicao_hash });
     setOcupado(null);
     if (error) setErro(error.message);
-    else if (data && data.ok) setMsg(`Vínculo confirmado: ${(data.titulo_ids || []).length} mensalidade(s) no acordo ${l.numero_acordo || ""}.`);
+    else if (data && data.ok) setMsg(`Origem aceita com alta confiança: ${(data.titulo_ids || []).length} mensalidade(s) negociada(s) no acordo ${l.numero_acordo || ""}. Nada foi quitado nem baixado.`);
     else setErro(ERROS[data && data.erro] || (data && data.erro) || "Não foi possível confirmar.");
     recarregar_(false);
   }
@@ -114,7 +133,7 @@ export default function SugestoesVinculoAcordo({ onAbrirFicha, recarregar = 0 })
                 </div>
                 <div style={S.cardHeadDir}>
                   <span style={{ ...S.chip, ...(forte ? S.chipOk : l.nivel === "REVISAO" ? S.chipPend : S.chipZero) }}>
-                    {forte ? "Sugestão forte" : l.nivel === "REVISAO" ? "Revisão" : "Sem evidência"}
+                    {forte ? "Alta confiança" : l.nivel === "REVISAO" ? "Revisão" : "Sem evidência"}
                   </span>
                   {l.rejeitada ? <span style={{ ...S.chip, ...S.chipRej }}>Rejeitada</span> : null}
                   <button type="button" style={S.btnFicha} onClick={() => onAbrirFicha && onAbrirFicha(l.aluno_id)}>Abrir ficha</button>
@@ -155,7 +174,7 @@ export default function SugestoesVinculoAcordo({ onAbrirFicha, recarregar = 0 })
               ) : null}
               {!l.rejeitada && l.composicao_hash ? (
                 <div style={{ ...S.acoes, padding: "0 16px 12px" }}>
-                  {forte ? <button type="button" style={{ ...S.btnConf, ...(ocupado === l.acordo_id ? S.btnBusy : null) }} disabled={ocupado === l.acordo_id} onClick={() => confirmar(l)}>Confirmar vínculo</button> : null}
+                  {forte ? <button type="button" style={{ ...S.btnConf, ...(ocupado === l.acordo_id ? S.btnBusy : null) }} disabled={ocupado === l.acordo_id} onClick={() => confirmar(l)}>Aceitar como origem</button> : null}
                   <button type="button" style={S.btnRej} disabled={ocupado === l.acordo_id} onClick={() => setRejeitando({ acordo_id: l.acordo_id, motivo: "" })}>Rejeitar sugestão</button>
                 </div>
               ) : null}
