@@ -56,6 +56,14 @@ import {
 import RegistrarAcordoAvista from "../components/RegistrarAcordoAvista";
 import Aluno from "./Aluno";
 import DadosAcademicos from "../components/DadosAcademicos";
+import {
+  resumoPorCategoria,
+  totalDaTriagem,
+  indexarTriagem,
+  pendenciasSoNaTriagem,
+  filtrarPorCategoria,
+  rotuloSubcategoria,
+} from "../utils/filaPagamentoTriagem";
 
 function moeda(v) {
   return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -87,6 +95,13 @@ export default function PagamentosSemAluno() {
   const [nomeCopiado, setNomeCopiado] = useState("");
   const [travas, setTravas] = useState(null);
   const [registrando, setRegistrando] = useState(null);
+  // TRIAGEM (22/10/2026). Classificacao das pendencias em 4 categorias, vinda
+  // inteira do banco (`vw_fila_pagamento_triagem`). A tela nao classifica nada:
+  // conta, filtra e mostra. `triagemErro` existe para a faixa poder dizer
+  // "indisponivel" sem apagar a fila -- ver o tratamento no `carregar`.
+  const [triagem, setTriagem] = useState([]);
+  const [triagemErro, setTriagemErro] = useState("");
+  const [categoria, setCategoria] = useState("TODAS");
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -123,19 +138,74 @@ export default function PagamentosSemAluno() {
     setTravas(mapa);
   }, [mes, todosOsMeses]);
 
+  // A TRIAGEM E UMA LEITURA SEPARADA, DE PROPOSITO.
+  //
+  // Ela NAO passa por `pagamentos_sem_aluno`, e isso e o ponto: aquela RPC
+  // exclui quem tem decisao registrada na fila (`and not exists (... decisao is
+  // not null)`), e sao justamente essas 33 pendencias -- decididas, com status
+  // ainda pendente -- que ninguem ve hoje. O mesmo predicado esta em
+  // `fluxo_pagamentos_incremental`, entao a rodada tambem as pula. Lendo a
+  // triagem por fora, elas voltam para a conferencia sem que a RPC da lista
+  // principal -- compartilhada com outras frentes -- precise ser alterada.
+  //
+  // FALHA AQUI NAO APAGA A FILA. Se a funcao nao existir (rollback aplicado) ou
+  // recusar, a faixa diz "indisponivel" e a lista segue como antes. Faixa some
+  // e fila fica -- nunca o contrario.
+  const carregarTriagem = useCallback(async () => {
+    const { data, error } = await supabase.rpc("fila_pagamento_triagem_ler", {
+      p_categoria: null,
+      p_limite: 2000,
+    });
+    if (error) {
+      setTriagem([]);
+      // O TEXTO CRU DO BANCO NAO VAZA PARA A TELA -- a mesma regra que a lista
+      // principal ja segue logo acima. Alem de nao dizer nada a quem le,
+      // repetir aqui a mensagem que a lista ja mostrou duplica o mesmo erro em
+      // dois lugares. A unica distincao que interessa a quem opera e "a funcao
+      // ainda nao existe no banco" (migration nao aplicada, ou rollback feito)
+      // contra "falhou por outro motivo".
+      const naoPublicada = /does not exist|could not find|schema cache/i.test(error.message || "");
+      setTriagemErro(
+        naoPublicada
+          ? "Triagem ainda não publicada no banco."
+          : "Triagem indisponível nesta carga.",
+      );
+      return;
+    }
+    setTriagemErro("");
+    setTriagem(data || []);
+  }, []);
+
+  useEffect(() => { carregarTriagem(); }, [carregarTriagem]);
+
   useEffect(() => { carregar(); }, [carregar]);
 
   // O filtro passou a ser pelo ESTADO da conciliacao. O motivo por nome
   // (NOME_REPETIDO / SEM_CADASTRO) continua aparecendo na linha, mas nao serve
   // mais de filtro: ele so existe para as linhas sem aluno, e a fila agora tem
   // linhas com aluno.
-  const visiveis = useMemo(
-    () =>
+  const mapaTriagem = useMemo(() => indexarTriagem(triagem), [triagem]);
+  const resumoTriagem = useMemo(() => resumoPorCategoria(triagem), [triagem]);
+  const totalTriagem = useMemo(() => totalDaTriagem(triagem), [triagem]);
+
+  // Os dois filtros se acumulam: a faixa recorta por CATEGORIA (o que se pode
+  // fazer com a pendencia) e o select por ESTADO da conciliacao (o que o motor
+  // disse). Perguntas diferentes, nenhuma substitui a outra.
+  const visiveis = useMemo(() => {
+    const porEstado =
       filtro === "TODOS"
         ? linhas
-        : linhas.filter((l) => (l.status_conciliacao || "SEM_ESTADO") === filtro),
-    [linhas, filtro],
+        : linhas.filter((l) => (l.status_conciliacao || "SEM_ESTADO") === filtro);
+    return filtrarPorCategoria(porEstado, mapaTriagem, categoria);
+  }, [linhas, filtro, mapaTriagem, categoria]);
+
+  // As pendencias que a lista principal nao mostra: decisao registrada e status
+  // ainda pendente. Em producao sao 33 / R$ 83.203,30.
+  const foraDaLista = useMemo(
+    () => pendenciasSoNaTriagem(triagem, linhas),
+    [triagem, linhas],
   );
+
   const porStatus = useMemo(() => contarPorStatus(linhas), [linhas]);
   const total = useMemo(
     () => visiveis.reduce((s, l) => s + Number(l.valor_pago || 0), 0),
@@ -161,10 +231,76 @@ export default function PagamentosSemAluno() {
             como sugestão, e a decisão é sua. {AVISO_PROJECAO}
           </p>
         </div>
-        <button type="button" onClick={carregar} style={S.btnGhost} disabled={carregando}>
+        <button
+          type="button"
+          onClick={() => { carregar(); carregarTriagem(); }}
+          style={S.btnGhost}
+          disabled={carregando}
+        >
           {carregando ? "Carregando…" : "Atualizar"}
         </button>
       </div>
+
+      {/* FAIXA DA TRIAGEM. Cada categoria e um botao de filtro: clicar recorta a
+          lista abaixo. Mostra as quatro sempre, inclusive de contagem zero --
+          esconder a vazia faria a pessoa achar que a categoria nao existe. */}
+      {triagemErro ? (
+        <div style={{ ...S.erroBox, background: "var(--rv-fundo-suave)", color: "var(--rv-texto-suave)", border: "1px solid var(--rv-borda)" }}>
+          {triagemErro} A fila continua listada abaixo, sem a classificação.
+        </div>
+      ) : (
+        <div style={faixaWrap}>
+          <div style={faixaTopo}>
+            <span style={faixaTitulo}>Triagem</span>
+            <span style={faixaResumo}>
+              {totalTriagem.quantidade} pendências · {moeda(totalTriagem.valor)}
+            </span>
+            {categoria !== "TODAS" ? (
+              <button type="button" onClick={() => setCategoria("TODAS")} style={faixaLimpar}>
+                Ver todas ✕
+              </button>
+            ) : null}
+          </div>
+          <div style={faixaCartoes}>
+            {resumoTriagem.map((c) => {
+              const ativo = categoria === c.categoria;
+              return (
+                <button
+                  key={c.categoria}
+                  type="button"
+                  onClick={() => setCategoria(ativo ? "TODAS" : c.categoria)}
+                  title={c.ajuda}
+                  style={{
+                    ...faixaCartao,
+                    ...(tomDoCartao[c.tom] || {}),
+                    ...(ativo ? faixaCartaoAtivo : {}),
+                    opacity: c.quantidade === 0 ? 0.55 : 1,
+                  }}
+                >
+                  <span style={faixaCartaoRotulo}>{c.rotulo}</span>
+                  <span style={faixaCartaoNumero}>{c.quantidade}</span>
+                  <span style={faixaCartaoValor}>{moeda(c.valor)}</span>
+                  {c.etapa ? (
+                    <span style={faixaCartaoEtapa}>etapa: {c.etapa}</span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+          {/* Os submotivos da categoria escolhida. Sem categoria escolhida a
+              faixa fica curta de proposito: detalhe de tudo ao mesmo tempo nao
+              e informacao, e parede. */}
+          {categoria !== "TODAS" ? (
+            <div style={faixaSubmotivos}>
+              {(resumoTriagem.find((c) => c.categoria === categoria)?.submotivos || []).map((s) => (
+                <span key={s.subcategoria} style={faixaSubmotivo}>
+                  {rotuloSubcategoria(s.subcategoria)} · <b>{s.quantidade}</b> · {moeda(s.valor)}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      )}
 
       <div style={S.barra}>
         <input
@@ -201,9 +337,15 @@ export default function PagamentosSemAluno() {
 
       {erro ? <div style={S.erroBox}>{erro}</div> : null}
 
+      {/* "Tudo baixado" so pode ser dito quando NADA esta filtrado. Com um
+          recorte ativo, lista vazia significa "nada NESTE recorte" -- dizer
+          "tudo baixado" ali seria falso, e e o tipo de falso que faz a pessoa
+          fechar a tela. */}
       {!carregando && visiveis.length === 0 ? (
         <p style={S.muted}>
-          Nenhum pagamento pendente de conciliação neste mês. Tudo baixado.
+          {categoria !== "TODAS" || filtro !== "TODOS"
+            ? "Nenhum pagamento neste recorte. Limpe o filtro para ver a fila inteira."
+            : "Nenhum pagamento pendente de conciliação neste mês. Tudo baixado."}
         </p>
       ) : null}
 
@@ -223,6 +365,56 @@ export default function PagamentosSemAluno() {
           />
         ))}
       </div>
+
+      {/* AS PENDENCIAS QUE A LISTA ACIMA NAO MOSTRA.
+          `pagamentos_sem_aluno` exclui quem tem decisao registrada na fila, e
+          `fluxo_pagamentos_incremental` usa o MESMO predicado -- entao estas
+          nao aparecem na tela nem voltam para a rodada. Em producao sao 33
+          (R$ 83.203,30) com status de conciliacao ainda pendente.
+          Bloco SO DE LEITURA: nenhuma acao, porque o que falta aqui e
+          conferencia, nao acao nova. O caminho e abrir a ficha. */}
+      {foraDaLista.length > 0 && (categoria === "TODAS" || categoria === "CONFERENCIA_HUMANA") ? (
+        <div style={foraWrap}>
+          <div style={foraTopo}>
+            <span style={foraTitulo}>
+              {foraDaLista.length} com decisão registrada e ainda pendentes
+            </span>
+            <span style={foraValor}>
+              {moeda(foraDaLista.reduce((s, l) => s + Number(l.valor_pago || 0), 0))}
+            </span>
+          </div>
+          <p style={foraAjuda}>
+            A fila já registrou uma decisão para estas, mas o estado da conciliação do
+            pagamento continua pendente. Elas não aparecem na lista acima e a rodada
+            horária também não as reprocessa — <b>só conferência resolve</b>. Nenhuma ação
+            automática é oferecida aqui.
+          </p>
+          <div style={foraLinhas}>
+            {foraDaLista.map((l) => (
+              <div key={l.pagamento_id} style={foraLinha}>
+                <span style={foraLinhaData}>{dataCurta(l.data_pagamento)}</span>
+                <span style={foraLinhaValor}>{moeda(l.valor_pago)}</span>
+                <span style={foraLinhaChip}>{l.decisao}</span>
+                <span style={foraLinhaBoleto}>{l.boleto || "—"}</span>
+                <span style={foraLinhaMotivo} title={l.motivo || ""}>
+                  {rotuloSubcategoria(l.subcategoria)}
+                </span>
+                {l.aluno_id ? (
+                  <button
+                    type="button"
+                    style={{ ...S.btnGhost, marginLeft: "auto", padding: "4px 10px", fontSize: 12 }}
+                    onClick={() => setFichaId(l.aluno_id)}
+                  >
+                    Abrir ficha
+                  </button>
+                ) : (
+                  <span style={{ ...foraLinhaChip, marginLeft: "auto" }}>sem aluno</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {registrando ? (
         <RegistrarAcordoAvista
@@ -682,3 +874,74 @@ const resultadoLinha = {
   display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12,
   border: "1px solid var(--rv-borda)", borderRadius: 10, padding: "10px 12px", background: "var(--rv-fundo-cartao)",
 };
+
+// ---------------------------------------------------------------------------
+// ESTILOS DA FAIXA DE TRIAGEM. Cor por PAPEL, nunca hex inline -- e o que faz a
+// tela funcionar nos dois temas. O tom de cada categoria diz o que ela pede:
+// verde = da para agir, azul = informativo, ambar = parado esperando decisao,
+// vermelho = divergencia.
+// ---------------------------------------------------------------------------
+const faixaWrap = {
+  border: "1px solid var(--rv-borda)", borderRadius: 12, padding: 12,
+  background: "var(--rv-fundo-cartao)", marginBottom: 14,
+};
+const faixaTopo = { display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" };
+const faixaTitulo = { fontSize: 13, fontWeight: 800, color: "var(--rv-texto)" };
+const faixaResumo = { fontSize: 12.5, fontWeight: 700, color: "var(--rv-texto-suave)" };
+const faixaLimpar = {
+  marginLeft: "auto", fontSize: 12, fontWeight: 700, cursor: "pointer",
+  background: "transparent", color: "var(--rv-texto-suave)",
+  border: "1px solid var(--rv-borda)", borderRadius: 999, padding: "3px 10px",
+};
+const faixaCartoes = {
+  display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10,
+};
+const faixaCartao = {
+  display: "flex", flexDirection: "column", gap: 2, alignItems: "flex-start",
+  textAlign: "left", cursor: "pointer", padding: "9px 12px",
+  border: "1px solid var(--rv-borda)", borderRadius: 10,
+  background: "var(--rv-fundo-suave)", color: "var(--rv-texto)",
+};
+const faixaCartaoAtivo = { borderColor: "var(--rv-borda-forte)", boxShadow: "inset 0 0 0 1px var(--rv-borda-forte)" };
+const faixaCartaoRotulo = { fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.2 };
+const faixaCartaoNumero = { fontSize: 20, fontWeight: 800, lineHeight: 1.1 };
+const faixaCartaoValor = { fontSize: 12, fontWeight: 700, opacity: 0.85 };
+const faixaCartaoEtapa = { fontSize: 10.5, fontWeight: 700, opacity: 0.75, fontFamily: "ui-monospace, monospace" };
+const tomDoCartao = {
+  verde: { background: "var(--rv-verde-ok-fundo)", color: "var(--rv-verde-ok-texto)", borderColor: "var(--rv-verde-ok-borda)" },
+  azul: { background: "var(--rv-roxo-fundo)", color: "var(--rv-roxo-texto)" },
+  ambar: { background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)", borderColor: "var(--rv-ambar-borda)" },
+  vermelho: { background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho-texto)", borderColor: "var(--rv-vermelho-borda)" },
+};
+const faixaSubmotivos = { display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 };
+const faixaSubmotivo = {
+  fontSize: 11.5, fontWeight: 600, color: "var(--rv-texto)",
+  background: "var(--rv-fundo-suave)", border: "1px solid var(--rv-borda)",
+  borderRadius: 999, padding: "3px 10px",
+};
+
+// Bloco das pendencias que a lista principal nao mostra. Vermelho porque e
+// divergencia, e sem nenhum controle de acao: so leitura e a ficha.
+const foraWrap = {
+  border: "1px solid var(--rv-vermelho-borda)", borderRadius: 12, padding: 12,
+  background: "var(--rv-vermelho-fundo)", marginTop: 16,
+};
+const foraTopo = { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" };
+const foraTitulo = { fontSize: 13, fontWeight: 800, color: "var(--rv-vermelho-texto)" };
+const foraValor = { marginLeft: "auto", fontSize: 13, fontWeight: 800, color: "var(--rv-vermelho-texto)" };
+const foraAjuda = { fontSize: 12.5, lineHeight: 1.5, color: "var(--rv-vermelho-texto)", margin: "8px 0 10px" };
+const foraLinhas = { display: "flex", flexDirection: "column", gap: 6 };
+const foraLinha = {
+  display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+  background: "var(--rv-fundo-cartao)", border: "1px solid var(--rv-borda)",
+  borderRadius: 10, padding: "7px 10px",
+};
+const foraLinhaData = { fontSize: 12, fontWeight: 700, color: "var(--rv-texto-suave)" };
+const foraLinhaValor = { fontSize: 13, fontWeight: 800, color: "var(--rv-texto)" };
+const foraLinhaChip = {
+  fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "2px 9px",
+  background: "var(--rv-fundo-suave)", border: "1px solid var(--rv-borda)", color: "var(--rv-texto)",
+  whiteSpace: "nowrap",
+};
+const foraLinhaBoleto = { fontSize: 11.5, fontFamily: "ui-monospace, monospace", color: "var(--rv-texto-suave)" };
+const foraLinhaMotivo = { fontSize: 12, fontWeight: 600, color: "var(--rv-texto)" };

@@ -15,7 +15,7 @@
 //      travou: aluno provado por matrícula + nome com acordo ausente oferece
 //      "Registrar acordo à vista", nunca "Vincular aluno".
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, act, cleanup, within } from "@testing-library/react";
 
 const rpcMock = vi.fn();
 vi.mock("../services/supabase", () => ({ supabase: { rpc: (...a) => rpcMock(...a) } }));
@@ -69,9 +69,24 @@ const LINHA_COM_ALUNO = {
 // Cada RPC responde o que é dela. `pagamentos_trava` diz em que ponto cada
 // "aguardando acordo" travou; por padrão, LINHA é aluno não identificado.
 const TRAVA_P1 = [{ pagamento_id: "p1", trava: "ALUNO_NAO_IDENTIFICADO" }];
-function rotear({ lista = [LINHA], travas = TRAVA_P1, outras = {} } = {}) {
+
+// TRIAGEM (22/10/2026). Leitura separada, porque `pagamentos_sem_aluno` esconde
+// quem tem decisao registrada -- e sao essas que a conferencia precisa ver.
+// Por padrao a triagem vem VAZIA: os testes antigos nao sabem dela e a faixa
+// nao pode mudar o que eles observam.
+function rotear({ lista = [LINHA], travas = TRAVA_P1, triagem = [], outras = {} } = {}) {
   rpcMock.mockImplementation((nome) => {
     if (nome === "pagamentos_sem_aluno") return Promise.resolve({ data: lista, error: null });
+    if (nome === "fila_pagamento_triagem_ler") {
+      if (triagem === "ERRO")
+        return Promise.resolve({ data: null, error: { message: "canceling statement due to statement timeout" } });
+      if (triagem === "AUSENTE")
+        return Promise.resolve({
+          data: null,
+          error: { message: 'Could not find the function public.fila_pagamento_triagem_ler' },
+        });
+      return Promise.resolve({ data: triagem, error: null });
+    }
     if (nome === "pagamentos_trava") {
       if (travas && typeof travas.then === "function") return travas;
       return Promise.resolve(travas === "ERRO"
@@ -400,5 +415,155 @@ describe("conferência manual na própria linha", () => {
                      "pagamento_vincular_aluno", "acordo_avista_registrar"];
     const chamadas = rpcMock.mock.calls.map((c) => c[0]);
     expect(chamadas.some((n) => escrita.includes(n))).toBe(false);
+  });
+});
+
+// ===========================================================================
+// FAIXA DE TRIAGEM (22/10/2026). O que se prova aqui:
+//   1. a faixa conta e soma por categoria, e recorta a lista ao clicar;
+//   2. as pendencias que a lista principal NAO mostra (decisao registrada +
+//      status ainda pendente) aparecem num bloco de conferencia, sem acao;
+//   3. falha na triagem nao apaga a fila, e o texto cru do banco nao vaza.
+// ===========================================================================
+const T_ACIONAVEL = {
+  pagamento_id: "p1",
+  categoria: "ACIONAVEL_ADMINISTRATIVO",
+  subcategoria: "escolher_aluno_sugerido",
+  etapa_desligada: null,
+  acao_sugerida: "ESCOLHER_ALUNO",
+  valor_pago: 536.13,
+  data_pagamento: "2026-07-18",
+  aluno_id: "a9",
+  boleto: "50716220001",
+  decisao: null,
+  motivo: "boleto 50716220001 nao existe em parcelas",
+};
+const T_BLOQUEADA = {
+  pagamento_id: "p9",
+  categoria: "BLOQUEADO_ETAPA_DESATIVADA",
+  subcategoria: "consulta_portador",
+  etapa_desligada: "consulta_portador",
+  acao_sugerida: null,
+  valor_pago: 1000,
+  data_pagamento: "2026-10-01",
+  aluno_id: "a1",
+  boleto: "50700000001",
+  decisao: null,
+  motivo: "a API oficial ainda nao foi consultada para este caso",
+};
+// Esta NAO esta na lista principal: tem decisao registrada. E o caso dos 33.
+const T_DECIDIDA = {
+  pagamento_id: "p33",
+  categoria: "CONFERENCIA_HUMANA",
+  subcategoria: "decidida_mas_ainda_pendente",
+  etapa_desligada: null,
+  acao_sugerida: null,
+  valor_pago: 2521.31,
+  data_pagamento: "2026-09-20",
+  aluno_id: "a33",
+  boleto: "50733330001",
+  decisao: "RESOLVIDO_AUTOMATICO",
+  motivo: "boleto 50733330001 nao existe em parcelas",
+};
+
+describe("faixa de triagem", () => {
+  it("mostra as quatro categorias com contagem e valor", async () => {
+    rotear({ triagem: [T_ACIONAVEL, T_BLOQUEADA, T_DECIDIDA] });
+    await act(async () => { render(<PagamentosSemAluno />); });
+
+    expect(screen.getByText(/^Triagem$/)).toBeTruthy();
+    expect(screen.getByText(/3 pendências/)).toBeTruthy();
+    expect(screen.getByText(/Acionável agora/i)).toBeTruthy();
+    expect(screen.getByText(/Parado por etapa desligada/i)).toBeTruthy();
+    expect(screen.getByText(/Divergência a conferir/i)).toBeTruthy();
+    // A categoria vazia continua na faixa: esconde-la faria parecer inexistente.
+    expect(screen.getByText(/Aguardando o acordo/i)).toBeTruthy();
+    // A etapa que explica a parada e NOMEADA, nao so "bloqueado".
+    expect(screen.getByText(/etapa: consulta_portador/i)).toBeTruthy();
+  });
+
+  it("clicar na categoria recorta a lista; o total nao muda de lugar", async () => {
+    rotear({ lista: [LINHA, LINHA_COM_ALUNO], triagem: [T_ACIONAVEL, T_BLOQUEADA] });
+    await act(async () => { render(<PagamentosSemAluno />); });
+    expect(screen.getByText(/boleto 50716220001 nao existe em parcelas/i)).toBeTruthy();
+
+    // p2 (LINHA_COM_ALUNO) nao esta na triagem: filtrar por categoria o remove.
+    await act(async () => {
+      fireEvent.click(screen.getByTitle(/caminho pronto/i));
+    });
+    expect(screen.getByText(/boleto 50716220001 nao existe em parcelas/i)).toBeTruthy();
+    expect(screen.queryByText(/falta amarrar o boleto 50716630001/i)).toBeNull();
+
+    // E volta ao clicar de novo na mesma categoria.
+    await act(async () => {
+      fireEvent.click(screen.getByTitle(/caminho pronto/i));
+    });
+    expect(screen.getByText(/falta amarrar o boleto 50716630001/i)).toBeTruthy();
+  });
+
+  it("recorte sem resultado NAO diz 'tudo baixado'", async () => {
+    rotear({ lista: [LINHA], triagem: [T_BLOQUEADA] });
+    await act(async () => { render(<PagamentosSemAluno />); });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTitle(/etapa que a gestão desligou/i));
+    });
+    expect(screen.getByText(/nenhum pagamento neste recorte/i)).toBeTruthy();
+    expect(screen.queryByText(/tudo baixado/i)).toBeNull();
+  });
+});
+
+describe("as pendências que a lista principal não mostra", () => {
+  it("decisão registrada e ainda pendente aparece na conferência, com o valor", async () => {
+    rotear({ lista: [LINHA], triagem: [T_ACIONAVEL, T_DECIDIDA] });
+    await act(async () => { render(<PagamentosSemAluno />); });
+
+    const titulo = screen.getByText(/1 com decisão registrada e ainda pendentes/i);
+    expect(titulo).toBeTruthy();
+    // Consulta ESCOPADA no bloco. O mesmo valor aparece tambem no cartao da
+    // faixa, porque com uma pendencia so o total da categoria coincide com ela
+    // -- contar ocorrencias na tela inteira mediria a coincidencia, nao o bloco.
+    const bloco = within(titulo.parentElement.parentElement);
+    expect(bloco.getAllByText(/R\$\s*2\.521,31/).length).toBeGreaterThanOrEqual(1);
+    expect(bloco.getByText("50733330001")).toBeTruthy();
+    expect(screen.getByText("RESOLVIDO_AUTOMATICO")).toBeTruthy();
+    expect(screen.getByText(/a rodada horária também não as reprocessa/i)).toBeTruthy();
+  });
+
+  it("o bloco é só leitura: nenhuma ação além de abrir a ficha", async () => {
+    rotear({ lista: [], triagem: [T_DECIDIDA] });
+    await act(async () => { render(<PagamentosSemAluno />); });
+
+    expect(screen.getByRole("button", { name: /abrir ficha/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /vincular aluno/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /registrar acordo/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^feito$/i })).toBeNull();
+  });
+
+  it("quem já está na lista principal não é repetido no bloco", async () => {
+    // p1 está na lista E na triagem: aparece uma vez, na lista.
+    rotear({ lista: [LINHA], triagem: [T_ACIONAVEL] });
+    await act(async () => { render(<PagamentosSemAluno />); });
+
+    expect(screen.queryByText(/com decisão registrada e ainda pendentes/i)).toBeNull();
+  });
+});
+
+describe("a triagem falha sem derrubar a fila", () => {
+  it("função ainda não publicada: avisa e mantém a lista", async () => {
+    rotear({ lista: [LINHA], triagem: "AUSENTE" });
+    await act(async () => { render(<PagamentosSemAluno />); });
+
+    expect(screen.getByText(/ainda não publicada no banco/i)).toBeTruthy();
+    expect(screen.getByText(/boleto 50716220001 nao existe em parcelas/i)).toBeTruthy();
+  });
+
+  it("erro na triagem não vaza o texto do banco nem some com a fila", async () => {
+    rotear({ lista: [LINHA], triagem: "ERRO" });
+    await act(async () => { render(<PagamentosSemAluno />); });
+
+    expect(screen.getByText(/triagem indisponível nesta carga/i)).toBeTruthy();
+    expect(screen.queryByText(/statement timeout/i)).toBeNull();
+    expect(screen.getByText(/boleto 50716220001 nao existe em parcelas/i)).toBeTruthy();
   });
 });
