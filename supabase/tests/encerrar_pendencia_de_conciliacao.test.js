@@ -139,8 +139,15 @@ describe("a tela oferece a finalização sem prometer correção financeira", ()
   // para os casos ja encerrados por ela -- e por isso os testes da RPC acima
   // seguem valendo. O que esta guarda trava e a superficie da TELA.
   it("chama só as RPCs da fila, e a finalização é pelas duas novas", () => {
+    // 22/10/2026: entra `fila_pagamento_triagem_ler`, a SETIMA e unica adicao
+    // desde 23/09. Ela e LEITURA PURA -- classifica as pendencias em 4
+    // categorias para a faixa da tela, nao grava, nao decide, nao baixa (ha
+    // teste de ausencia de escrita em supabase/tests/fila_pagamento_triagem.test.js).
+    // Esta lista existe para que uma RPC de ESCRITA nao entre nesta tela sem
+    // ninguem notar; por isso a adicao vem com o motivo escrito ao lado, e nao
+    // apenas com o nome acrescentado.
     const rpcs = [...TELA.matchAll(/supabase\.rpc\(\s*"(\w+)"/g)].map((m) => m[1]).sort();
-    expect(rpcs).toEqual(["buscar_aluno", "conciliacao_feito", "conciliacao_rejeitar", "pagamento_vincular_aluno", "pagamentos_sem_aluno", "pagamentos_trava"]);
+    expect(rpcs).toEqual(["buscar_aluno", "conciliacao_feito", "conciliacao_rejeitar", "fila_pagamento_triagem_ler", "pagamento_vincular_aluno", "pagamentos_sem_aluno", "pagamentos_trava"]);
     // a tela nao chama mais a RPC antiga: a troca foi deliberada
     expect(TELA).not.toMatch(/supabase\.rpc\(\s*"conciliacao_encerrar"/);
     // e continua avisando que nao ha correcao financeira -- agora nos dois lados
