@@ -6,6 +6,7 @@ import {
   agruparRetornosPorDia,
   boletosProximosDoVencimento,
   contarRetornoAutomaticoHoje,
+  ehRetornoDoOperador,
   fimDaJanela,
   horaRetornoVencida,
   retornosAgendados,
@@ -13,6 +14,7 @@ import {
   retornosDoDia,
   retornosPendentes,
   rotuloDoDia,
+  separarAgendaPorOrigem,
   somaBoletos,
   somaEmAberto,
 } from "./painelMeuDia";
@@ -400,5 +402,64 @@ describe("hora combinada que ja passou", () => {
   it("meia-noite e 9h nao se confundem: a comparacao e zero-padded", () => {
     expect(horaRetornoVencida(item({ hora_retorno: "09:00" }), { hoje: HOJE, horaAgora: "10:00" })).toBe(true);
     expect(horaRetornoVencida(item({ hora_retorno: "10:00" }), { hoje: HOJE, horaAgora: "09:00" })).toBe(false);
+  });
+});
+
+// P3 (23/10/2026): separar compromisso do operador de prazo da tabulacao.
+describe("origem do retorno", () => {
+  it("OPERADOR, e so o prefixo OPERADOR, e compromisso do operador", () => {
+    expect(ehRetornoDoOperador({ retorno_origem: "OPERADOR" })).toBe(true);
+    // O prefixo existe porque a base tem variacoes ("OPERADOR_RECEPTIVO").
+    expect(ehRetornoDoOperador({ retorno_origem: "OPERADOR_RECEPTIVO" })).toBe(true);
+    expect(ehRetornoDoOperador({ retorno_origem: "AUTOMATICO" })).toBe(false);
+    // Origem nula conta como automatica: em producao (22/10/2026) ha 8 fichas
+    // com data de retorno e origem nula, e nenhuma delas e compromisso provado.
+    expect(ehRetornoDoOperador({ retorno_origem: null })).toBe(false);
+    expect(ehRetornoDoOperador({})).toBe(false);
+    expect(ehRetornoDoOperador(null)).toBe(false);
+    // Minuscula NAO passa -- o dado de producao e maiusculo e o criterio e o
+    // mesmo que as duas funcoes da tela aplicam no proprio filtro.
+    expect(ehRetornoDoOperador({ retorno_origem: "operador" })).toBe(false);
+  });
+
+  it("as tres leituras da origem concordam (guarda contra deriva)", () => {
+    // `retornosAgendados` e `retornosAtrasados` repetem o literal
+    // `startsWith("OPERADOR")` dentro do filtro, e os testes de producao
+    // ancoram nesse literal. Se alguem mudar `ehRetornoDoOperador` e esquecer
+    // as outras duas (ou o contrario), este teste reprova em vez de deixar as
+    // leituras divergirem em silencio.
+    const casos = [
+      { id: "1", retorno_origem: "OPERADOR", data_retorno: HOJE },
+      { id: "2", retorno_origem: "OPERADOR_RECEPTIVO", data_retorno: HOJE },
+      { id: "3", retorno_origem: "AUTOMATICO", data_retorno: HOJE },
+      { id: "4", retorno_origem: null, data_retorno: HOJE },
+      { id: "5", retorno_origem: "operador", data_retorno: HOJE },
+    ];
+    const porPredicado = casos.filter((a) => ehRetornoDoOperador(a)).map((a) => a.id);
+    expect(retornosAgendados(casos, HOJE).map((r) => r.id)).toEqual(porPredicado);
+
+    const ontem = casos.map((a) => ({ ...a, data_retorno: "2026-10-14" }));
+    expect(retornosAtrasados(ontem, HOJE).map((r) => r.id).sort()).toEqual([...porPredicado].sort());
+  });
+
+  it("conta as duas origens sem mexer na lista", () => {
+    const lista = [
+      { retorno_origem: "OPERADOR" },
+      { retorno_origem: "AUTOMATICO" },
+      { retorno_origem: "AUTOMATICO" },
+      { retorno_origem: null },
+    ];
+    expect(separarAgendaPorOrigem(lista)).toEqual({ total: 4, agendados: 1, automaticos: 3 });
+    // O total e sempre a soma das duas pontas: nenhuma linha se perde nem se
+    // conta duas vezes, qualquer que seja a origem.
+    const r = separarAgendaPorOrigem(lista);
+    expect(r.agendados + r.automaticos).toBe(r.total);
+    expect(lista).toHaveLength(4);
+  });
+
+  it("lista vazia ou invalida nao inventa numero", () => {
+    expect(separarAgendaPorOrigem([])).toEqual({ total: 0, agendados: 0, automaticos: 0 });
+    expect(separarAgendaPorOrigem(null)).toEqual({ total: 0, agendados: 0, automaticos: 0 });
+    expect(separarAgendaPorOrigem(undefined)).toEqual({ total: 0, agendados: 0, automaticos: 0 });
   });
 });

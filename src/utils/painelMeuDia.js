@@ -40,6 +40,32 @@ import { parcelaViva } from "./parcelaStatus";
 // Janela do bloco de boletos, em dias corridos a partir de hoje (inclusive).
 export const JANELA_BOLETOS_DIAS = 5;
 
+// DONO DA REGRA DE ORIGEM. "Agendado pelo operador" e `retorno_origem`
+// comecando em "OPERADOR" -- tudo o mais (inclusive origem nula) e prazo
+// automatico da tabulacao. A regra ja valia nesta tela desde 15/10/2026; aqui
+// ela ganha nome para que a Agenda embutida do PainelCarteira possa separar as
+// duas coisas usando exatamente o mesmo criterio, em vez de reescrever o teste.
+//
+// `retornosAgendados` e `retornosAtrasados` repetem o criterio dentro do
+// proprio filtro, de proposito: os testes de producao ancoram no literal para
+// provar que cada funcao filtra por origem. O teste de unidade confere que as
+// tres leituras concordam, entao uma mudanca aqui que esqueca as outras duas
+// reprova no CI em vez de passar calada.
+export function ehRetornoDoOperador(a) {
+  return String(a?.retorno_origem || "").startsWith("OPERADOR");
+}
+
+// Quantos retornos de uma lista sao compromisso do operador e quantos sao
+// prazo de tabulacao. Serve o cabecalho da Agenda embutida, que lista as duas
+// origens juntas: sem o numero separado, "Agenda - retornos (835)" parece
+// contradizer o "Retornos - 0" do bloco logo acima, que conta so os agendados.
+// Nao filtra, nao ordena e nao remove nada da lista -- so conta.
+export function separarAgendaPorOrigem(lista) {
+  const itens = Array.isArray(lista) ? lista : [];
+  const agendados = itens.filter((a) => ehRetornoDoOperador(a)).length;
+  return { total: itens.length, agendados, automaticos: itens.length - agendados };
+}
+
 // Visao semanal dos retornos: hoje + 6 = a semana a frente, inclusive hoje.
 export const JANELA_RETORNOS_DIAS = 6;
 

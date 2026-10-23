@@ -18,17 +18,29 @@ const AQUI = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(resolve(AQUI, "PainelCarteira.jsx"), "utf8");
 const UTIL = readFileSync(resolve(AQUI, "../utils/painelMeuDia.js"), "utf8");
 
+// O elemento <PainelMeuDia ... /> INTEIRO, em vez de uma janela de N chars a
+// partir da abertura. As janelas fixas (800 e 900) funcionavam, mas cada prop
+// nova empurrava as props do fim para fora da janela e reprovava o teste sem
+// que houvesse erro de codigo -- armadilha ja paga em 22/10/2026. Aqui a
+// janela e o proprio elemento: nao ha folga para estourar.
+function elementoMeuDia() {
+  const i = SRC.indexOf("<PainelMeuDia");
+  if (i < 0) return "";
+  const fim = SRC.indexOf("/>", i);
+  return fim < 0 ? SRC.slice(i) : SRC.slice(i, fim + 2);
+}
+
 describe("PainelCarteira: bloco Meu dia", () => {
   it("renderiza o bloco com os retornos do dia e os boletos a vencer", () => {
     expect(SRC).toMatch(/<PainelMeuDia/);
-    const bloco = SRC.slice(SRC.indexOf("<PainelMeuDia"), SRC.indexOf("<PainelMeuDia") + 800);
+    const bloco = elementoMeuDia();
     expect(bloco).toMatch(/retornos=\{retornosDaSemana\}/);
     expect(bloco).toMatch(/boletos=\{boletosDoDia\}/);
     expect(bloco).toMatch(/retornoAutomaticoHoje=\{retornoAutomaticoHoje\}/);
   });
 
   it("os boletos saem das parcelas ja carregadas; a unica consulta e a de nomes que faltam", () => {
-    const bloco = SRC.slice(SRC.indexOf("<PainelMeuDia"), SRC.indexOf("<PainelMeuDia") + 800);
+    const bloco = elementoMeuDia();
     expect(bloco).not.toMatch(/supabase\.(from|rpc)/);
     expect(SRC).toMatch(/const boletosDaJanela = boletosProximosDoVencimento\(parcelas, \{/);
     // A consulta de nomes so existe quando falta nome, e so pede nome.
@@ -46,7 +58,7 @@ describe("PainelCarteira: bloco Meu dia", () => {
 
   it("a visao semanal cabe na mesma carga: a semana sai dos mesmos casos da carteira", () => {
     expect(SRC).toMatch(/retornosAgendados\(casos,/);
-    const bloco = SRC.slice(SRC.indexOf("<PainelMeuDia"), SRC.indexOf("<PainelMeuDia") + 800);
+    const bloco = elementoMeuDia();
     expect(bloco).toMatch(/retornos=\{retornosDaSemana\}/);
     // O check manda o estado desejado: marca e desmarca pelo mesmo caminho.
     expect(bloco).toMatch(/onConfirmarRetorno=\{\(id, confirmar\) => confirmarRetornoAgenda\(id, confirmar\)\}/);
@@ -119,7 +131,7 @@ describe("PainelCarteira: aba Atrasados do Meu dia", () => {
   });
 
   it("o bloco recebe a lista do atraso e o relogio que a tela ja mantinha", () => {
-    const bloco = SRC.slice(SRC.indexOf("<PainelMeuDia"), SRC.indexOf("<PainelMeuDia") + 900);
+    const bloco = elementoMeuDia();
     expect(bloco).toMatch(/retornosAtrasados=\{retornosVencidos\}/);
     expect(bloco).toMatch(/horaAgora=\{horaAgora\}/);
     // O relogio nao e novo: e o mesmo estado do aviso "esta na hora".
@@ -142,5 +154,50 @@ describe("PainelCarteira: aba Atrasados do Meu dia", () => {
     // so o passado (< 0): ninguem e contado duas vezes na mesma tela.
     expect(UTIL).toMatch(/distancia >= 0 && distancia <= limite/);
     expect(UTIL).toMatch(/distancia < 0 && distancia >= -janela/);
+  });
+});
+
+// Fiacao do P1 e do P3 (23/10/2026). As duas melhorias sao de TELA: nao pode
+// nascer consulta, RPC nem escrita, e o recorte que ja esta em producao nao
+// pode mudar.
+describe("PainelCarteira: visao parcial e origem do retorno", () => {
+  it("o bloco recebe a marca de visao parcial exatamente na visao da gestao em TODOS", () => {
+    // A mesma condicao que ja decide `mostrarResponsavel`: a coluna de
+    // retornos vem de `casos`, e `casos` so e truncado quando nao ha operador
+    // escolhido (TETO = alvoEscopo ? 50000 : 3000).
+    expect(elementoMeuDia()).toMatch(/visaoParcial=\{veTudo && operadorFiltro === "TODOS"\}/);
+    expect(SRC).toMatch(/const TETO = alvoEscopo \? 50000 : 3000;/);
+  });
+
+  it("a prop nova nao trouxe consulta nem escrita para dentro do bloco", () => {
+    const bloco = elementoMeuDia();
+    expect(bloco).not.toMatch(/supabase\.(from|rpc)/);
+    expect(bloco).not.toMatch(/update|insert|delete/);
+  });
+
+  it("a Agenda embutida separa agendado de prazo com o criterio do util", () => {
+    // Uma fonte so para a regra de origem: o helper do painelMeuDia.
+    expect(SRC).toMatch(/ehRetornoDoOperador,/);
+    expect(SRC).toMatch(/separarAgendaPorOrigem,/);
+    expect(SRC).toMatch(/const agendaPorOrigem = useMemo\(\(\) => separarAgendaPorOrigem\(agendaPendentes\), \[agendaPendentes\]\)/);
+    // O cabecalho mostra as duas pontas, e o total continua sendo o da lista.
+    expect(SRC).toMatch(/agendaPorOrigem\.agendados/);
+    expect(SRC).toMatch(/agendaPorOrigem\.automaticos/);
+    expect(SRC).toMatch(/Agenda — retornos \(\{agendaPorOrigem\.total\}\)/);
+    // E cada linha diz de onde veio a data.
+    expect(SRC).toMatch(/ehRetornoDoOperador\(a\) \? "agendado" : "prazo automático"/);
+  });
+
+  it("a separacao NAO filtra a lista: a Agenda continua mostrando as duas origens", () => {
+    // `agendaPendentes` e a lista completa do que tem data de retorno. O P3
+    // rotula; nao esconde. Se alguem passar a filtrar aqui, o operador perde
+    // de vista o prazo da tabulacao -- que e a maior parte da lista.
+    const memo = SRC.slice(SRC.indexOf("const agendaPendentes = useMemo"), SRC.indexOf("}, [casos]);", SRC.indexOf("const agendaPendentes = useMemo")));
+    expect(memo).not.toMatch(/retorno_origem/);
+    expect(memo).not.toMatch(/ehRetornoDoOperador/);
+  });
+
+  it("o card conta as duas origens e o rotulo diz isso", () => {
+    expect(SRC).toMatch(/rot: "Agenda \(agendados \+ prazos\)", val: agendaPendentes\.length/);
   });
 });
