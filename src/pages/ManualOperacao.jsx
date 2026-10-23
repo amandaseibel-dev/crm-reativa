@@ -1,12 +1,25 @@
 import { useNavigate } from "react-router-dom";
 
-// 23/10/2026: o botao "Agenda" saiu daqui. Ele apontava para
-// `/agenda-operacional`, rota que NAO existe em App.jsx -- o `path="*"` manda
-// para a home, entao o clique parecia nao fazer nada. A pagina
-// src/pages/AgendaOperacional.jsx continua no repositorio, sem ser importada
-// por ninguem; se a gestao quiser a agenda de calendario de volta, a decisao e
-// criar a rota, nao reativar este botao. A agenda que esta no ar e o bloco
-// "Meu dia" da tela inicial do operador (/painel-carteira).
+// 23/10/2026: sairam daqui os DOIS botoes que apontavam para rota inexistente.
+// Em `App.jsx` todo <Route> tem path literal, e nenhum deles e estes dois; o
+// `path="*"` manda para a home, entao o clique parecia nao fazer nada.
+//
+//  * "Agenda" -> `/agenda-operacional`. A pagina
+//    src/pages/AgendaOperacional.jsx continua no repositorio, sem ser importada
+//    por ninguem. Se a gestao quiser a agenda de calendario de volta, a decisao
+//    e criar a rota, nao reativar o botao. A agenda que esta no ar e o bloco
+//    "Meu dia" da tela inicial do operador (/painel-carteira).
+//  * "Pesquisar Alunos" -> `/alunos-unificados`. Aqui nao ha nem pagina: nao
+//    existe src/pages/AlunosUnificados*, a rota nao aparece em App.jsx (nem em
+//    <Route>, nem no menu, nem na lista de permissoes) e o Sidebar nao a cita.
+//    Nenhuma funcionalidade de pesquisa foi mexida -- a busca de alunos que
+//    FUNCIONA e a rota `/aluno` ("Base", secao Operacao do menu), liberada para
+//    o perfil operador e com campo "Buscar aluno por nome ou CPF". E para la
+//    que este manual passa a apontar.
+//
+// Resta a MESMA rota morta num botao de src/pages/MinhaFilaQuitacao.jsx
+// ("Alunos Unificados", linha ~224). Nao foi tocado porque o autorizado em
+// 23/10/2026 foi so o Manual; o teste de portas desta pasta cobre o Manual.
 export default function ManualOperacao() {
   const navigate = useNavigate();
 
@@ -24,9 +37,6 @@ export default function ManualOperacao() {
         <div style={styles.nav}>
           <button style={styles.botaoClaro} onClick={() => navigate("/minha-fila")}>
             Fila Operacional
-          </button>
-          <button style={styles.botaoClaro} onClick={() => navigate("/alunos-unificados")}>
-            Pesquisar Alunos
           </button>
         </div>
       </div>
@@ -55,9 +65,10 @@ export default function ManualOperacao() {
             <li>chave de unificação.</li>
           </ul>
           <p style={styles.texto}>
-            A pesquisa principal fica em <strong>Alunos Unificados</strong>.
+            A pesquisa principal fica na <strong>Base</strong>, no menu Operação:
+            busca por nome, CPF ou telefone.
           </p>
-          <div style={styles.blocoLink}>/alunos-unificados</div>
+          <div style={styles.blocoLink}>/aluno</div>
         </section>
 
         <section style={styles.card}>
