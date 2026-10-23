@@ -1,3 +1,17 @@
+// ATENCAO -- A REGRA MUDOU DEPOIS DESTE ARQUIVO (08/10/2026, noite).
+//
+// Este arquivo caracteriza a migration 20261008103000 e SEGUE VALIDO para ela:
+// ele carrega a cadeia so ate ali, e naquele desenho a suspensao tirava o
+// titulo do saldo COBRAVEL e o mantinha no REGISTRADO, sem escrever nada.
+//
+// A gestao pediu depois que a suspensao MARQUE a mensalidade como SUSPENSO
+// (20261008192000) e aceitou a consequencia: com o titulo fora de
+// ('ABERTO','NEGOCIADO'), os R$ 462.784,01 saem tambem do saldo registrado.
+// O comportamento novo e provado em supabase/tests/titulo_suspenso_status.test.js.
+//
+// Os dois arquivos nao se contradizem porque cada um roda a cadeia do seu
+// momento -- e e de proposito que este fique como registro do desenho anterior.
+
 // SUSPENSÃO FORA DO SALDO COBRÁVEL — migration REAL 20261008103000 + rollback
 // REAL, sobre a fixture de produção `confirmacao_d2` (dados FICTÍCIOS).
 //
