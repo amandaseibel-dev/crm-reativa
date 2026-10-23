@@ -1,4 +1,4 @@
--- ROLLBACK de 20261023190000_importacao_acordos_rastreabilidade.
+-- ROLLBACK de 20261023203000_importacao_acordos_rastreabilidade.
 --
 -- Desfaz P1, P2 e P3 e devolve `importar_acordos` ao corpo de PRODUCAO de
 -- 23/10/2026 -- md5 d858a3b13b204dcfe29ab41fa192e7c5, embutido aqui verbatim. Nao usa

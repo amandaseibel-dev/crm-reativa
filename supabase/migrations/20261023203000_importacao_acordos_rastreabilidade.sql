@@ -40,7 +40,7 @@
 -- (8.057 caracteres), colhido em 23/10/2026.
 --
 -- Idempotente. Rollback:
---   supabase/rollbacks/20261023190000_importacao_acordos_rastreabilidade.rollback.sql
+--   supabase/rollbacks/20261023203000_importacao_acordos_rastreabilidade.rollback.sql
 
 begin;
 

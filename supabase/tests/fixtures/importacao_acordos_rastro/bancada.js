@@ -23,8 +23,8 @@ const RAIZ = resolve(AQUI, "..", "..", "..", "..");
 const ler = (p) => readFileSync(resolve(RAIZ, p), "utf8");
 const md5 = (s) => createHash("md5").update(s, "utf8").digest("hex");
 
-export const MIGRATION = ler("supabase/migrations/20261023190000_importacao_acordos_rastreabilidade.sql");
-export const ROLLBACK = ler("supabase/rollbacks/20261023190000_importacao_acordos_rastreabilidade.rollback.sql");
+export const MIGRATION = ler("supabase/migrations/20261023203000_importacao_acordos_rastreabilidade.sql");
+export const ROLLBACK = ler("supabase/rollbacks/20261023203000_importacao_acordos_rastreabilidade.rollback.sql");
 
 const PROD = JSON.parse(ler("supabase/tests/fixtures/importacao_acordos_rastro/funcoes_producao.json"));
 
