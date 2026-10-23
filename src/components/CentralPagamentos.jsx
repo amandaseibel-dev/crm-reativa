@@ -4,6 +4,7 @@ import ControleLinksPagamento from "../pages/ControleLinksPagamento";
 import FilaFinanceiro from "../pages/FilaFinanceiro";
 import FilaConfirmacaoPagamento from "../pages/FilaConfirmacaoPagamento";
 import FilaAdmTermos from "../pages/FilaAdmTermos";
+import CentralPagamentosPorArquivo from "./CentralPagamentosPorArquivo";
 
 function num(v) {
   return Number(v || 0).toLocaleString("pt-BR");
@@ -27,12 +28,18 @@ export default function CentralPagamentos() {
     termos: GESTAO.includes(email),
     confirmacao: GESTAO.includes(email),
     baixas: email === "amanda.seibel@aelbra.com.br",
+    // Gestao e Administrativo autorizado -- a MESMA lista das outras abas. O
+    // portao real vive nas RPCs (`importacao_conferencia_*`), que recusam com
+    // 42501 e tambem recusam identidade nula; isto aqui so evita exibir uma aba
+    // que o banco negaria ao abrir.
+    arquivo: GESTAO.includes(email),
   };
   const abas = [
     { chave: "links", rot: "Links", cont: c ? num(c.links_pendentes) : null },
     { chave: "baixas", rot: "Baixas", cont: c ? num(c.baixas_aguardando) : null },
     { chave: "confirmacao", rot: "Confirmação", cont: c ? num(c.confirmacao_aguardando) : null },
     { chave: "termos", rot: "Termos", cont: null },
+    { chave: "arquivo", rot: "Por arquivo", cont: null },
   ].filter((a) => email === "" || podeVer[a.chave]);
 
   useEffect(() => {
@@ -77,6 +84,7 @@ export default function CentralPagamentos() {
         {aba === "baixas" && <FilaFinanceiro />}
         {aba === "confirmacao" && <FilaConfirmacaoPagamento />}
         {aba === "termos" && <FilaAdmTermos />}
+        {aba === "arquivo" && <CentralPagamentosPorArquivo />}
       </div>
     </div>
   );
