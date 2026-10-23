@@ -1,4 +1,4 @@
--- ROLLBACK de 20261023210000_importacao_conferencia_por_arquivo
+-- ROLLBACK de 20261023164204_importacao_conferencia_por_arquivo
 -- =============================================================================
 -- Remove a conferência por arquivo: duas funções de leitura e uma view de
 -- leitura. Nada mais existe para desfazer -- a migration de ida não gravou

@@ -1,6 +1,6 @@
 // CONFERÊNCIA DE PAGAMENTOS POR ARQUIVO — num PostgreSQL real (PGlite).
 //
-// Roda a MIGRATION REAL (20261023210000) e o ROLLBACK REAL sobre a bancada da
+// Roda a MIGRATION REAL (20261023164204) e o ROLLBACK REAL sobre a bancada da
 // rodada incremental (21/10) + a migration da triagem da #737 (20261023000700)
 // + o cenário desta frente.
 //
@@ -36,8 +36,8 @@ const ler = (p) => readFileSync(resolve(AQUI, "..", "..", p), "utf8");
 const BANCADA = ler("supabase/tests/fixtures/fluxo_incremental_prod_20261021.sql");
 const TRIAGEM = ler("supabase/migrations/20261023000700_fila_pagamento_triagem.sql");
 const CENARIO = ler("supabase/tests/fixtures/importacao_conferencia_cenario.sql");
-const MIGRATION = ler("supabase/migrations/20261023210000_importacao_conferencia_por_arquivo.sql");
-const ROLLBACK = ler("supabase/rollbacks/20261023210000_importacao_conferencia_por_arquivo.rollback.sql");
+const MIGRATION = ler("supabase/migrations/20261023164204_importacao_conferencia_por_arquivo.sql");
+const ROLLBACK = ler("supabase/rollbacks/20261023164204_importacao_conferencia_por_arquivo.rollback.sql");
 
 // `begin;`/`commit;` conflitam com o controle de transação do db.exec do PGlite.
 const semTransacao = (sql) => sql.replace(/^\s*begin;\s*$/gim, "").replace(/^\s*commit;\s*$/gim, "");
