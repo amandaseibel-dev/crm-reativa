@@ -168,9 +168,39 @@ const CLASSE_ROTULO = {
   OPERADOR_ATIVO: "",
 };
 
-function ListaResponsaveis({ idPrefixo, itens, marcados, onAlternar, desabilitado, contar }) {
+function ListaResponsaveis({ idPrefixo, itens, marcados, onAlternar, onDefinir, desabilitado, contar }) {
   if (!itens.length) return <span style={estilos.ajudaCampo}>Carregando responsáveis…</span>;
+  // ATALHOS DE SELEÇÃO, um par por lista e independentes entre as duas
+  // dimensões. "Selecionar todos" marca EXPLICITAMENTE cada responsável desta
+  // lista — não é o 'todos' genérico que desliga o recorte: o banco continua
+  // recebendo a relação nominal, e a seleção explícita tem precedência (regra
+  // de 27/09). Por isso ficam FORA da caixa de marcação: a lista em si não
+  // ganha opção nenhuma.
+  const todos = itens.map((o) => o.email);
+  const todosMarcados = todos.every((e) => marcados.has(e));
+  const nenhumMarcado = todos.every((e) => !marcados.has(e));
   return (
+    <>
+    <div style={estilos.acoesSelecao}>
+      <button
+        type="button"
+        id={`${idPrefixo}-selecionar-todos`}
+        style={estilos.acaoSelecao}
+        disabled={desabilitado || todosMarcados}
+        onClick={() => onDefinir(todos)}
+      >
+        Selecionar todos ({todos.length})
+      </button>
+      <button
+        type="button"
+        id={`${idPrefixo}-limpar-selecao`}
+        style={estilos.acaoSelecao}
+        disabled={desabilitado || nenhumMarcado}
+        onClick={() => onDefinir([])}
+      >
+        Limpar seleção
+      </button>
+    </div>
     <div style={estilos.caixaResponsaveis} data-testid={idPrefixo}>
       {itens.map((o) => {
         const n = contar(o);
@@ -192,6 +222,7 @@ function ListaResponsaveis({ idPrefixo, itens, marcados, onAlternar, desabilitad
         );
       })}
     </div>
+    </>
   );
 }
 
@@ -962,6 +993,11 @@ export default function AcoesMassivas() {
                 });
                 limparPrevia();
               }}
+              // Só esta dimensão muda: a do acordo fica como estava.
+              onDefinir={(emails) => {
+                setRespCaso(new Set(emails));
+                limparPrevia();
+              }}
               contar={(o) => o.casos}
             />
             <span style={estilos.ajudaCampo}>
@@ -987,6 +1023,10 @@ export default function AcoesMassivas() {
                   if (n.has(email)) n.delete(email); else n.add(email);
                   return n;
                 });
+                limparPrevia();
+              }}
+              onDefinir={(emails) => {
+                setRespAcordo(new Set(emails));
                 limparPrevia();
               }}
               contar={(o) => o.acordos}
@@ -1942,6 +1982,11 @@ const estilos = {
     cursor: "pointer",
   },
   // a lista de responsáveis: rola, para caber quinze nomes sem empurrar a tela
+  acoesSelecao: { display: "flex", gap: 12, marginBottom: 2 },
+  acaoSelecao: {
+    background: "none", border: "none", padding: 0, cursor: "pointer",
+    color: VERDE, fontSize: 11, fontWeight: 800, textDecoration: "underline",
+  },
   caixaResponsaveis: {
     maxHeight: 176, overflowY: "auto", border: "1px solid var(--rv-borda-suave)",
     borderRadius: 8, padding: "6px 8px", display: "flex", flexDirection: "column", gap: 2,
