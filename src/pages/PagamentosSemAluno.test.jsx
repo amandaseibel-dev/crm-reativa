@@ -14,8 +14,12 @@
 //   6. (16/09/2026) a ação corresponde ao ponto exato em que o pagamento
 //      travou: aluno provado por matrícula + nome com acordo ausente oferece
 //      "Registrar acordo à vista", nunca "Vincular aluno".
+//   7. (23/10/2026) a tela le o recorte por arquivo na URL (`?importacao=`),
+//      entao o harness monta sob <MemoryRouter>. Nenhuma assercao mudou -- so
+//      o involucro, porque `useSearchParams` exige contexto de Router.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act, cleanup, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 
 const rpcMock = vi.fn();
 vi.mock("../services/supabase", () => ({ supabase: { rpc: (...a) => rpcMock(...a) } }));
@@ -106,7 +110,11 @@ afterEach(cleanup);
 
 describe("Fila de pagamentos sem vínculo", () => {
   it("mostra o motivo financeiro e o boleto na própria linha", async () => {
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
     expect(screen.getByText(/por que caiu aqui/i)).toBeTruthy();
     expect(
@@ -121,7 +129,11 @@ describe("Fila de pagamentos sem vínculo", () => {
   // 2026-07, a tela abria dizendo "tudo baixado" havendo pendencia na base.
   // Tela vazia que parece resolvida e pior do que fila cheia.
   it("abre pedindo toda a pendência, não só o mês corrente", async () => {
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
     expect(rpcMock).toHaveBeenCalledWith(
       "pagamentos_sem_aluno",
       expect.objectContaining({ p_todos_os_meses: true }),
@@ -129,7 +141,11 @@ describe("Fila de pagamentos sem vínculo", () => {
   });
 
   it("desmarcar a caixa restringe ao mês escolhido", async () => {
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
     await act(async () => {
       fireEvent.click(screen.getByLabelText(/toda a pendência/i));
     });
@@ -140,7 +156,11 @@ describe("Fila de pagamentos sem vínculo", () => {
   });
 
   it("candidato por nome é sugestão: aparece rotulado, e não vincula sozinho", async () => {
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
     await act(async () => { fireEvent.click(screen.getByText("Vincular aluno")); });
 
     expect(screen.getByText(/1 sugestão por nome/i)).toBeTruthy();
@@ -161,7 +181,11 @@ describe("Fila de pagamentos sem vínculo", () => {
       },
     });
 
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
     await act(async () => { fireEvent.click(screen.getByText("Vincular aluno")); });
     await act(async () => { fireEvent.click(screen.getByText("Vincular")); });
 
@@ -177,7 +201,11 @@ describe("Fila de pagamentos sem vínculo", () => {
 describe("pagamento com aluno identificado que não baixou", () => {
   it("entra na fila, com o estado da conciliação na linha", async () => {
     rotear({ lista: [LINHA_COM_ALUNO], travas: [] });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
     expect(screen.getByText("Aguardando amarração")).toBeTruthy();
     expect(screen.getByText(/falta amarrar o boleto 50716630001/i)).toBeTruthy();
@@ -185,7 +213,11 @@ describe("pagamento com aluno identificado que não baixou", () => {
 
   it("não oferece Vincular aluno: a pendência não se resolve trocando o aluno", async () => {
     rotear({ lista: [LINHA_COM_ALUNO], travas: [] });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
     expect(screen.queryByRole("button", { name: /vincular aluno/i })).toBeNull();
     expect(screen.getByText(/aluno já identificado/i)).toBeTruthy();
@@ -193,14 +225,22 @@ describe("pagamento com aluno identificado que não baixou", () => {
 
   it("a linha com aluno não identificado continua oferecendo Vincular aluno", async () => {
     rotear();
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
     expect(screen.getByRole("button", { name: /vincular aluno/i })).toBeTruthy();
   });
 
   it("nenhum vínculo sai sem clique, mesmo com as duas linhas na tela", async () => {
     rotear({ lista: [LINHA, LINHA_COM_ALUNO] });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
     const chamadas = rpcMock.mock.calls.map(([nome]) => nome);
     expect(chamadas).not.toContain("pagamento_vincular_aluno");
@@ -212,7 +252,11 @@ describe("pagamento com aluno identificado que não baixou", () => {
 describe("a ação corresponde ao ponto em que o pagamento travou", () => {
   it("aluno provado por matrícula + nome e acordo ausente: diz isso e oferece só Registrar acordo à vista", async () => {
     rotear({ travas: [{ pagamento_id: "p1", trava: "ACORDO_AVISTA_AUSENTE" }] });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
     expect(screen.getByText("Aluno identificado · acordo não encontrado")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Registrar acordo à vista" })).toBeTruthy();
@@ -224,7 +268,11 @@ describe("a ação corresponde ao ponto em que o pagamento travou", () => {
 
   it("abrir a ação não grava nada: só abre o registro com o pagamento da linha", async () => {
     rotear({ travas: [{ pagamento_id: "p1", trava: "ACORDO_AVISTA_AUSENTE" }] });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Registrar acordo à vista" })); });
 
     expect(screen.getByText("modal registrar p1")).toBeTruthy();
@@ -234,7 +282,11 @@ describe("a ação corresponde ao ponto em que o pagamento travou", () => {
 
   it("acordo parcelado ausente não tem ação manual", async () => {
     rotear({ travas: [{ pagamento_id: "p1", trava: "ACORDO_PARCELADO_AUSENTE" }] });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
     expect(screen.getByText("Aluno identificado · acordo parcelado não encontrado")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /registrar acordo/i })).toBeNull();
@@ -243,7 +295,11 @@ describe("a ação corresponde ao ponto em que o pagamento travou", () => {
 
   it("ausência não explicada (o 71752) fica fora do fluxo normal: sem ação", async () => {
     rotear({ travas: [{ pagamento_id: "p1", trava: "ACORDO_AVISTA_AUSENCIA_NAO_EXPLICADA" }] });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
     expect(screen.getByText("Aluno identificado · ausência do acordo não explicada")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /registrar acordo/i })).toBeNull();
@@ -262,7 +318,11 @@ describe("a ação corresponde ao ponto em que o pagamento travou", () => {
   ]) {
     it(`${trava}: diz o motivo e não oferece registro nem vínculo`, async () => {
       rotear({ travas: [{ pagamento_id: "p1", trava }] });
-      await act(async () => { render(<PagamentosSemAluno />); });
+      await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
       expect(screen.getByText(rotulo)).toBeTruthy();
       expect(screen.queryByRole("button", { name: /registrar acordo/i })).toBeNull();
@@ -272,7 +332,11 @@ describe("a ação corresponde ao ponto em que o pagamento travou", () => {
 
   it("identidade divergente oferece Vincular aluno", async () => {
     rotear({ travas: [{ pagamento_id: "p1", trava: "IDENTIDADE_DIVERGENTE" }] });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
     expect(screen.getByText("Matrícula e nome divergem · acordo não encontrado")).toBeTruthy();
     expect(screen.getByRole("button", { name: /vincular aluno/i })).toBeTruthy();
@@ -283,7 +347,11 @@ describe("a ação corresponde ao ponto em que o pagamento travou", () => {
     let responderTrava;
     const pendente = new Promise((r) => { responderTrava = r; });
     rotear({ travas: pendente });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
     expect(screen.getByText("Analisando pendência…")).toBeTruthy();
     expect(screen.queryByText("Aguardando acordo")).toBeNull();
@@ -300,7 +368,11 @@ describe("a ação corresponde ao ponto em que o pagamento travou", () => {
 
   it("sem diagnóstico da trava, a linha fica sem ação nenhuma", async () => {
     rotear({ travas: "ERRO" });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
     expect(screen.queryByRole("button", { name: /vincular aluno/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /registrar acordo/i })).toBeNull();
@@ -315,7 +387,11 @@ describe("erro da RPC vira mensagem que a pessoa entende", () => {
       data: null,
       error: { message: "permission denied for function pagamentos_sem_aluno" },
     });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
     expect(screen.getByText(/sua sessão expirou/i)).toBeTruthy();
     // o texto do banco nao pode vazar para a tela
@@ -327,7 +403,11 @@ describe("erro da RPC vira mensagem que a pessoa entende", () => {
       data: null,
       error: { message: "A fila de pagamentos sem vinculo e da gestao financeira." },
     });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
     expect(screen.getByText(/é da gestão financeira/i)).toBeTruthy();
   });
@@ -337,7 +417,11 @@ describe("erro da RPC vira mensagem que a pessoa entende", () => {
       data: null,
       error: { message: "canceling statement due to statement timeout" },
     });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
     expect(screen.getByText(/statement timeout/i)).toBeTruthy();
   });
@@ -379,7 +463,11 @@ const LINHA_CONFERENCIA = {
 describe("conferência manual na própria linha", () => {
   it("mostra acordo identificado, evidências e saldo sem sair da fila", async () => {
     rotear({ lista: [LINHA_CONFERENCIA], travas: [{ pagamento_id: "p9", trava: "ACORDO_PARCELADO_AUSENTE" }] });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
     expect(screen.getByText("acordo 072529")).toBeTruthy();
     expect(screen.getByText(/saldo atual/)).toBeTruthy();
@@ -403,14 +491,22 @@ describe("conferência manual na própria linha", () => {
                 evidencias: { acordo_prefixo: null, parcela_com_este_boleto: false, tentativas: 1 } }],
       travas: [],
     });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
     expect(screen.getByText(/boleto fora do padrão: sem acordo identificável/)).toBeTruthy();
     expect(screen.queryByText("Acordo no CRM")).toBeNull();
   });
 
   it("conferir não chama nenhuma RPC de escrita", async () => {
     rotear({ lista: [LINHA_CONFERENCIA], travas: [] });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
     const escrita = ["conciliacao_feito", "conciliacao_rejeitar", "conciliacao_encerrar",
                      "pagamento_vincular_aluno", "acordo_avista_registrar"];
     const chamadas = rpcMock.mock.calls.map((c) => c[0]);
@@ -469,7 +565,11 @@ const T_DECIDIDA = {
 describe("faixa de triagem", () => {
   it("mostra as quatro categorias com contagem e valor", async () => {
     rotear({ triagem: [T_ACIONAVEL, T_BLOQUEADA, T_DECIDIDA] });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
     expect(screen.getByText(/^Triagem$/)).toBeTruthy();
     expect(screen.getByText(/3 pendências/)).toBeTruthy();
@@ -484,7 +584,11 @@ describe("faixa de triagem", () => {
 
   it("clicar na categoria recorta a lista; o total nao muda de lugar", async () => {
     rotear({ lista: [LINHA, LINHA_COM_ALUNO], triagem: [T_ACIONAVEL, T_BLOQUEADA] });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
     expect(screen.getByText(/boleto 50716220001 nao existe em parcelas/i)).toBeTruthy();
 
     // p2 (LINHA_COM_ALUNO) nao esta na triagem: filtrar por categoria o remove.
@@ -503,7 +607,11 @@ describe("faixa de triagem", () => {
 
   it("recorte sem resultado NAO diz 'tudo baixado'", async () => {
     rotear({ lista: [LINHA], triagem: [T_BLOQUEADA] });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
     await act(async () => {
       fireEvent.click(screen.getByTitle(/etapa que a gestão desligou/i));
@@ -516,7 +624,11 @@ describe("faixa de triagem", () => {
 describe("as pendências que a lista principal não mostra", () => {
   it("decisão registrada e ainda pendente aparece na conferência, com o valor", async () => {
     rotear({ lista: [LINHA], triagem: [T_ACIONAVEL, T_DECIDIDA] });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
     const titulo = screen.getByText(/1 com decisão registrada e ainda pendentes/i);
     expect(titulo).toBeTruthy();
@@ -532,7 +644,11 @@ describe("as pendências que a lista principal não mostra", () => {
 
   it("o bloco é só leitura: nenhuma ação além de abrir a ficha", async () => {
     rotear({ lista: [], triagem: [T_DECIDIDA] });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
     expect(screen.getByRole("button", { name: /abrir ficha/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /vincular aluno/i })).toBeNull();
@@ -543,7 +659,11 @@ describe("as pendências que a lista principal não mostra", () => {
   it("quem já está na lista principal não é repetido no bloco", async () => {
     // p1 está na lista E na triagem: aparece uma vez, na lista.
     rotear({ lista: [LINHA], triagem: [T_ACIONAVEL] });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
     expect(screen.queryByText(/com decisão registrada e ainda pendentes/i)).toBeNull();
   });
@@ -552,7 +672,11 @@ describe("as pendências que a lista principal não mostra", () => {
 describe("a triagem falha sem derrubar a fila", () => {
   it("função ainda não publicada: avisa e mantém a lista", async () => {
     rotear({ lista: [LINHA], triagem: "AUSENTE" });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
     expect(screen.getByText(/ainda não publicada no banco/i)).toBeTruthy();
     expect(screen.getByText(/boleto 50716220001 nao existe em parcelas/i)).toBeTruthy();
@@ -560,7 +684,11 @@ describe("a triagem falha sem derrubar a fila", () => {
 
   it("erro na triagem não vaza o texto do banco nem some com a fila", async () => {
     rotear({ lista: [LINHA], triagem: "ERRO" });
-    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
 
     expect(screen.getByText(/triagem indisponível nesta carga/i)).toBeTruthy();
     expect(screen.queryByText(/statement timeout/i)).toBeNull();

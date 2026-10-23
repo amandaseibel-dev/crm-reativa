@@ -140,6 +140,67 @@ export function pendenciasSoNaTriagem(triagem, linhas) {
 // Filtra a lista principal pela categoria escolhida na faixa. Pagamento que nao
 // esta na triagem (ela pode ter falhado ou estar indisponivel) permanece visivel
 // em "TODAS": filtrar por ausencia de dado esconderia pendencia.
+// DE QUE ARQUIVO VEIO CADA PENDENCIA (23/10/2026).
+//
+// `fila_pagamento_sem_vinculo` ja guarda `importacao_id` e `arquivo_nome`, e em
+// 23/10/2026 as 420 pendencias abertas em producao tinham os dois preenchidos
+// (420/420). O que faltava era a fila mostrar. Aqui nao se infere nada: se o
+// banco nao mandou arquivo, a linha cai num balde proprio e a tela diz isso --
+// chutar o arquivo seria pior do que nao saber.
+//
+// Uma linha por arquivo, da que mais pesa para a que menos pesa. O balde sem
+// arquivo vai sempre por ULTIMO, mesmo que seja o maior: ele nao e um arquivo,
+// e deixa-lo no topo faria a faixa parecer dizer que a maior origem e "nenhuma".
+export const SEM_ARQUIVO = "(sem arquivo registrado)";
+
+export function resumoPorArquivo(triagem) {
+  const porArquivo = new Map();
+  for (const t of triagem || []) {
+    if (!t) continue;
+    const nome = String(t.arquivo_nome || "").trim() || SEM_ARQUIVO;
+    if (!porArquivo.has(nome)) {
+      porArquivo.set(nome, {
+        arquivo_nome: nome,
+        importacao_id: nome === SEM_ARQUIVO ? null : t.importacao_id || null,
+        itens: 0,
+        valor: 0,
+      });
+    }
+    const linha = porArquivo.get(nome);
+    linha.itens += 1;
+    const v = Number(t.valor_pago);
+    if (Number.isFinite(v)) linha.valor += v;
+  }
+  return [...porArquivo.values()].sort((a, b) => {
+    if (a.arquivo_nome === SEM_ARQUIVO) return 1;
+    if (b.arquivo_nome === SEM_ARQUIVO) return -1;
+    if (b.itens !== a.itens) return b.itens - a.itens;
+    return a.arquivo_nome.localeCompare(b.arquivo_nome);
+  });
+}
+
+// O rotulo do recorte quando a fila foi aberta a partir de um arquivo.
+//
+// Devolve null quando nao ha recorte -- e `null` NAO e "nenhum resultado": e
+// "sem filtro", e a tela nao deve mostrar faixa de recorte nesse caso. Quando
+// ha recorte mas nenhuma linha daquele arquivo, o nome vem vazio e a tela diz
+// que o recorte nao tem pendencia, em vez de sugerir que o arquivo nao existe.
+export function recorteDoArquivo(triagem, importacaoId) {
+  const id = String(importacaoId || "").trim();
+  if (!id) return null;
+  const doArquivo = (triagem || []).filter((t) => t && t.importacao_id === id);
+  const nome = doArquivo.find((t) => String(t.arquivo_nome || "").trim())?.arquivo_nome || "";
+  return {
+    importacao_id: id,
+    arquivo_nome: String(nome || "").trim(),
+    itens: doArquivo.length,
+    valor: doArquivo.reduce((soma, t) => {
+      const v = Number(t?.valor_pago);
+      return Number.isFinite(v) ? soma + v : soma;
+    }, 0),
+  };
+}
+
 export function filtrarPorCategoria(linhas, mapaTriagem, categoria) {
   if (!categoria || categoria === "TODAS") return linhas || [];
   return (linhas || []).filter((l) => mapaTriagem.get(l?.pagamento_id)?.categoria === categoria);
