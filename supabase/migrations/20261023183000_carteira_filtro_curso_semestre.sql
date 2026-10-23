@@ -45,8 +45,8 @@
 -- O LADO DO ACORDO entra pela mesma disciplina da Etapa 0 da Efetividade:
 --   a parcela viva de um acordo e atribuida a um semestre SO quando os titulos
 --   daquele acordo apontam para UM semestre unico. Medido na carteira:
---   839 acordos de 2026/1 (R$ 4.855.671,80) e 65 de 2026/2 (R$ 206.585,25)
---   sao atribuiveis; 1.390 acordos (R$ 5.850.714,19) NAO sao -- 1.358 por nao
+--   840 acordos de 2026/1 (R$ 4.926.553,65) e 65 de 2026/2 (R$ 206.585,25)
+--   sao atribuiveis; 1.388 acordos (R$ 5.776.329,30) NAO sao -- 1.356 por nao
 --   ter titulo vinculado, 28 por cobrir 2+ semestres e 4 por titulo sem serie.
 --   O que nao e atribuivel NUNCA e rateado nem chutado: fica de fora do
 --   recorte por semestre e aparece so em "Ambos".
@@ -95,8 +95,18 @@ returns table (
   saldo_2026_1          numeric,
   titulos_2026_2        integer,
   saldo_2026_2          numeric,
+  -- Mensalidade que NAO e de 2026/1 nem de 2026/2. Estas duas colunas existem
+  -- para a linha FECHAR: sem elas, o saldo de 2024/2025 sairia da RPC sem
+  -- aparecer em coluna nenhuma, e somar as colunas nao daria o saldo da ficha.
+  saldo_outros_semestres  numeric,
+  saldo_sem_serie         numeric,
   acordo_saldo_2026_1   numeric,
   acordo_saldo_2026_2   numeric,
+  -- Parcela de acordo atribuivel a um semestre que nao e 2026/1 nem 2026/2:
+  -- R$ 348.556,61 medidos na carteira. Atribuida -- so nao a estes dois.
+  acordo_outros_semestres numeric,
+  -- Parcela que NAO se sabe de que semestre e: acordo sem titulo vinculado,
+  -- com 2+ semestres, ou com titulo sem serie no Prime. NUNCA rateada.
   acordo_indeterminado  numeric
 )
 language plpgsql
@@ -186,19 +196,43 @@ begin
            count(*) filter (where semestre = '2026/1')              n1,
            coalesce(sum(v) filter (where semestre = '2026/1'), 0)   s1,
            count(*) filter (where semestre = '2026/2')              n2,
-           coalesce(sum(v) filter (where semestre = '2026/2'), 0)   s2
+           coalesce(sum(v) filter (where semestre = '2026/2'), 0)   s2,
+           coalesce(sum(v) filter (where semestre is not null
+                                     and semestre not in ('2026/1','2026/2')), 0) s_outros,
+           coalesce(sum(v) filter (where semestre is null), 0)      s_nula
       from tit group by id
   ),
   -- ACORDO: semestre do acordo so quando os titulos dele apontam para UM.
-  acordo_sem as (
-    select ac.id acordo_id,
-           min(s.semestre)             semestre,
-           count(distinct s.semestre)  n_sem,
-           count(*) filter (where s.semestre is null) sem_serie
-      from public.acordos ac
-      join public.acordos_titulos t on t.acordo_id = ac.id
+  --
+  -- O vinculo titulo<->acordo tem DUAS portas, e as duas valem: a direta
+  -- (`acordos_titulos.acordo_id`) e a do mutirao (`acordo_titulo_vinculo`).
+  -- Seguir so a direta joga para "indeterminado" R$ 74.384,89 de parcela que
+  -- TEM semestre conhecido pela segunda porta -- metade dos acordos da base e
+  -- ligada so por ela.
+  --
+  -- As duas portas entram por `union` de listas prontas, NAO por `or` no join:
+  -- `join ... on t.acordo_id = ac.id or exists (...)` e exatamente a forma que
+  -- derrubou o banco em 24/09 (job 38), por gerar o produto das duas tabelas.
+  tit_base as (
+    select t.id titulo_id, t.acordo_id, s.semestre
+      from public.acordos_titulos t
       left join serie s on s.b = regexp_replace(coalesce(t.documento, ''), '[^0-9]', '', 'g')
      where t.situacao <> 'DUPLICADA' and coalesce(t.tipo_boleto, '') <> 'Acordo'
+  ),
+  tit_acordo as (
+    select titulo_id, acordo_id, semestre from tit_base where acordo_id is not null
+    union
+    select b.titulo_id, v.acordo_id, b.semestre
+      from public.acordo_titulo_vinculo v
+      join tit_base b on b.titulo_id = v.titulo_id
+     where coalesce(v.ativo, true)
+  ),
+  acordo_sem as (
+    select acordo_id,
+           min(semestre)             semestre,
+           count(distinct semestre)  n_sem,
+           count(*) filter (where semestre is null) sem_serie
+      from tit_acordo
      group by 1
   ),
   parc as (
@@ -217,6 +251,8 @@ begin
     select aluno_id,
            coalesce(sum(v) filter (where sem = '2026/1'), 0) a1,
            coalesce(sum(v) filter (where sem = '2026/2'), 0) a2,
+           coalesce(sum(v) filter (where sem is not null
+                                     and sem not in ('2026/1','2026/2')), 0) a_outros,
            coalesce(sum(v) filter (where sem is null), 0)    ind
       from parc group by 1
   )
@@ -224,8 +260,9 @@ begin
          g.c1, g.c2,
          coalesce(t.n1, 0)::integer, round(coalesce(t.s1, 0), 2),
          coalesce(t.n2, 0)::integer, round(coalesce(t.s2, 0), 2),
+         round(coalesce(t.s_outros, 0), 2), round(coalesce(t.s_nula, 0), 2),
          round(coalesce(p.a1, 0), 2), round(coalesce(p.a2, 0), 2),
-         round(coalesce(p.ind, 0), 2)
+         round(coalesce(p.a_outros, 0), 2), round(coalesce(p.ind, 0), 2)
     from cart c
     left join curso_ag g on g.id = c.id
     left join tit_ag   t on t.id = c.id
@@ -238,7 +275,10 @@ comment on function public.carteira_curso_semestre_do_operador(text) is
   'saldo/titulos de 2026/1 e 2026/2 por ficha da carteira do operador. '
   'Somente leitura. Parcela de acordo entra num semestre SO quando os titulos '
   'do acordo apontam para um semestre unico; o resto vai para '
-  'acordo_indeterminado e nunca e rateado.';
+  'acordo_indeterminado e nunca e rateado. A LINHA FECHA: mensalidade = '
+  'saldo_2026_1 + saldo_2026_2 + saldo_outros_semestres + saldo_sem_serie; '
+  'acordo = acordo_saldo_2026_1 + acordo_saldo_2026_2 + '
+  'acordo_outros_semestres + acordo_indeterminado. Nada e escondido.';
 
 -- ---------------------------------------------------------------------------
 -- 3) Grants -- explicitos, nunca pelo default do schema

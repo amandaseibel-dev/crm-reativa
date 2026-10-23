@@ -23,6 +23,7 @@ const AGORA = Date.parse("2026-10-23T12:00:00Z");
 //   m3  TROCOU de curso: Medicina em 2026/1, Odontologia em 2026/2
 //   m4  nenhum dos 3 cursos; divida so dentro de acordo de 2026/1
 //   m5  Medicina; divida so em acordo INDETERMINADO (acordo sem titulo)
+//   m6  Medicina; divida real, mas de 2025 -- atribuida a OUTRO semestre
 const MAPA = {
   m1: {
     curso_2026_1: "Medicina", curso_2026_2: "Medicina",
@@ -47,7 +48,16 @@ const MAPA = {
   m5: {
     curso_2026_1: "Medicina", curso_2026_2: "Medicina",
     titulos_2026_1: 0, saldo_2026_1: 0, titulos_2026_2: 0, saldo_2026_2: 0,
-    acordo_saldo_2026_1: 0, acordo_saldo_2026_2: 0, acordo_indeterminado: 7000,
+    saldo_outros_semestres: 0, saldo_sem_serie: 0,
+    acordo_saldo_2026_1: 0, acordo_saldo_2026_2: 0,
+    acordo_outros_semestres: 0, acordo_indeterminado: 7000,
+  },
+  m6: {
+    curso_2026_1: "Medicina", curso_2026_2: "Medicina",
+    titulos_2026_1: 0, saldo_2026_1: 0, titulos_2026_2: 0, saldo_2026_2: 0,
+    saldo_outros_semestres: 3100, saldo_sem_serie: 250,
+    acordo_saldo_2026_1: 0, acordo_saldo_2026_2: 0,
+    acordo_outros_semestres: 1800, acordo_indeterminado: 0,
   },
 };
 
@@ -63,7 +73,7 @@ function aluno(id, extra) {
   };
 }
 
-const CASOS = ["m1", "m2", "m3", "m4", "m5"].map((id) => aluno(id));
+const CASOS = ["m1", "m2", "m3", "m4", "m5", "m6"].map((id) => aluno(id));
 
 function entrada(extra) {
   return {
@@ -90,13 +100,13 @@ describe("Minha Carteira: filtro de curso", () => {
 
   it("com 2026/1 escolhido, vale o curso DA JANELA de 2026/1", () => {
     const s = alunosDoCursoEscolhido(MAPA, "Medicina", "2026/1");
-    expect([...s].sort()).toEqual(["m1", "m3", "m5"]);
+    expect([...s].sort()).toEqual(["m1", "m3", "m5", "m6"]);
   });
 
   it("com 2026/2 escolhido, vale o curso DA JANELA de 2026/2", () => {
     // m3 trocou: em 2026/2 ele e Odontologia, entao sai de Medicina.
     const s = alunosDoCursoEscolhido(MAPA, "Medicina", "2026/2");
-    expect([...s].sort()).toEqual(["m1", "m5"]);
+    expect([...s].sort()).toEqual(["m1", "m5", "m6"]);
     expect(alunosDoCursoEscolhido(MAPA, "Odontologia", "2026/2").has("m3")).toBe(true);
   });
 
@@ -148,15 +158,41 @@ describe("Minha Carteira: filtro de semestre", () => {
   });
 });
 
+describe("Minha Carteira: o que e de OUTRO semestre fica de fora dos dois", () => {
+  // A RPC fecha a linha: mensalidade = 2026/1 + 2026/2 + outros_semestres +
+  // sem_serie, e acordo = 2026/1 + 2026/2 + outros_semestres + indeterminado.
+  // Medido em PROD em 23/10/2026, as duas somas batem com diferenca 0,00 -- e
+  // R$ 3.028.377,13 da carteira vivem nesses baldes de fora. O que este bloco
+  // protege e que eles NUNCA sejam contados como 2026/1 ou 2026/2.
+  it("ficha com divida so de 2025 nao entra em 2026/1 nem em 2026/2", () => {
+    expect(alunosDoSemestreEscolhido(MAPA, "2026/1").has("m6")).toBe(false);
+    expect(alunosDoSemestreEscolhido(MAPA, "2026/2").has("m6")).toBe(false);
+  });
+
+  it("mas ela continua na carteira, visivel em 'Ambos'", () => {
+    expect(ids(montarListaFiltrada(entrada()))).toContain("m6");
+  });
+
+  it("o valor do semestre nao soma outros_semestres, sem_serie nem indeterminado", () => {
+    const f1 = finAlunosDoSemestre({}, MAPA, "2026/1");
+    const f2 = finAlunosDoSemestre({}, MAPA, "2026/2");
+    // m6 tem R$ 5.150 de divida real, toda fora de 2026: zera nos dois.
+    expect(valorAbertoDe({ id: "m6", valor_em_aberto: 0 }, f1)).toBe(0);
+    expect(valorAbertoDe({ id: "m6", valor_em_aberto: 0 }, f2)).toBe(0);
+    // e m5, que deve R$ 7.000 indeterminados, tambem.
+    expect(valorAbertoDe({ id: "m5", valor_em_aberto: 0 }, f1)).toBe(0);
+  });
+});
+
 describe("Minha Carteira: os dois filtros combinados", () => {
   it("combinar curso e semestre pede as DUAS condicoes (interseccao)", () => {
     const l = montarListaFiltrada(entrada({
       alunosDoCurso: alunosDoCursoEscolhido(MAPA, "Medicina", "2026/1"),
       alunosDoSemestre: alunosDoSemestreEscolhido(MAPA, "2026/1"),
     }));
-    // Medicina em 2026/1 = m1, m3, m5; com mensalidade/acordo de 2026/1 = m1,
-    // m3, m4. A interseccao e m1 e m3 -- m5 cai por nao ter divida datada e m4
-    // por nao ser Medicina.
+    // Medicina em 2026/1 = m1, m3, m5, m6; com mensalidade/acordo de 2026/1 =
+    // m1, m3, m4. A interseccao e m1 e m3 -- m5 cai por divida indeterminada,
+    // m6 por divida de outro semestre, e m4 por nao ser Medicina.
     expect(ids(l).sort()).toEqual(["m1", "m3"]);
   });
 
@@ -175,7 +211,7 @@ describe("Minha Carteira: os dois filtros combinados", () => {
       alunosDoSemestre: null,
     }))).sort();
     expect(comNull).toEqual(todos);
-    expect(todos).toEqual(["m1", "m2", "m3", "m4", "m5"]);
+    expect(todos).toEqual(["m1", "m2", "m3", "m4", "m5", "m6"]);
   });
 });
 
