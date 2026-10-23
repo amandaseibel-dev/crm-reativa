@@ -1,5 +1,12 @@
 import { useNavigate } from "react-router-dom";
 
+// 23/10/2026: o botao "Agenda" saiu daqui. Ele apontava para
+// `/agenda-operacional`, rota que NAO existe em App.jsx -- o `path="*"` manda
+// para a home, entao o clique parecia nao fazer nada. A pagina
+// src/pages/AgendaOperacional.jsx continua no repositorio, sem ser importada
+// por ninguem; se a gestao quiser a agenda de calendario de volta, a decisao e
+// criar a rota, nao reativar este botao. A agenda que esta no ar e o bloco
+// "Meu dia" da tela inicial do operador (/painel-carteira).
 export default function ManualOperacao() {
   const navigate = useNavigate();
 
@@ -17,9 +24,6 @@ export default function ManualOperacao() {
         <div style={styles.nav}>
           <button style={styles.botaoClaro} onClick={() => navigate("/minha-fila")}>
             Fila Operacional
-          </button>
-          <button style={styles.botaoClaro} onClick={() => navigate("/agenda-operacional")}>
-            Agenda
           </button>
           <button style={styles.botaoClaro} onClick={() => navigate("/alunos-unificados")}>
             Pesquisar Alunos
@@ -112,7 +116,7 @@ export default function ManualOperacao() {
             <li>mais de 10 dias sem contato;</li>
             <li>sem operador.</li>
           </ul>
-          <div style={styles.blocoLink}>/agenda-operacional</div>
+          <div style={styles.blocoLink}>/painel-carteira (bloco “Meu dia”)</div>
         </section>
 
         <section style={styles.card}>

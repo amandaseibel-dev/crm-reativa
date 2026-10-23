@@ -22,9 +22,11 @@ import {
   JANELA_ATRASO_DIAS,
   boletosProximosDoVencimento,
   contarRetornoAutomaticoHoje,
+  ehRetornoDoOperador,
   retornosAgendados,
   retornosAtrasados,
   retornosDoDia,
+  separarAgendaPorOrigem,
 } from "../utils/painelMeuDia";
 import {
   // Recorte da fila e regra do acionamento guiado -- ver src/utils/carteiraFila.js.
@@ -2814,6 +2816,15 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       });
   }, [casos]);
 
+  // P3 (23/10/2026) -- QUANTOS desta lista sao compromisso e quantos sao prazo.
+  // `agendaPendentes` mistura as duas origens de proposito (e a lista completa
+  // do que tem data), e por isso o card marcava 804-844 por operador enquanto o
+  // bloco "Meu dia", logo acima na mesma tela, marcava 0-163: um conta tudo, o
+  // outro so o agendado. Nenhum numero estava errado; faltava dizer qual era
+  // qual. O criterio de origem e o mesmo de painelMeuDia.js -- nao ha regra
+  // nova aqui, e a lista nao perde nem ganha uma linha.
+  const agendaPorOrigem = useMemo(() => separarAgendaPorOrigem(agendaPendentes), [agendaPendentes]);
+
   // Carteira compacta (sugestao da operacao 2026-08-08): so os cards que a
   // operacao de fato usa. "Sem acionamento" + "proximos de perder" viraram um
   // unico card focado na janela critica (9-11 dias). A Agenda entra como card.
@@ -2920,7 +2931,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     { id: "cpfMensalidade", rot: "CPFs a cobrar (mensalidade)", val: resumoCpf?.cpfs_so_mensalidade ?? "—", cor: "var(--rv-ambar)", icone: "💳" },
     { id: "cpfAcordo", rot: "CPFs com acordo", val: resumoCpf?.cpfs_com_acordo ?? "—", cor: "var(--rv-verde-ok-texto)", icone: "🤝" },
     { id: "proximosPerder", rot: "Sem acionamento (risco de perder)", val: kpis.proximosPerder, cor: "var(--rv-vermelho)", icone: "⚠️", urgente: true },
-    { id: "agenda", rot: "Agenda (retornos)", val: agendaPendentes.length, cor: "var(--rv-roxo)", icone: "🗓️" },
+    // O card conta as DUAS origens; o nome antigo ("Agenda (retornos)") fazia
+    // o numero parecer contradizer o bloco "Meu dia", que conta so o agendado.
+    { id: "agenda", rot: "Agenda (agendados + prazos)", val: agendaPendentes.length, cor: "var(--rv-roxo)", icone: "🗓️" },
     { id: "acordoAVencer", rot: "Acordos a vencer", val: kpis.acordoAVencer, cor: "var(--rv-azul)", icone: "📄" },
     { id: "acordoAtrasado", rot: "Acordos atrasados", val: kpis.acordoAtrasado, cor: "var(--rv-ambar)", icone: "⏰" },
     { id: "acordoQuebrado", rot: "Acordos quebrados", val: kpis.acordoQuebrado, cor: "var(--rv-vermelho)", icone: "💥" },
@@ -3255,6 +3268,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             acionamentoPorAluno={acionamentoPorAluno}
             retornosAtrasados={retornosVencidos}
             horaAgora={horaAgora}
+            visaoParcial={veTudo && operadorFiltro === "TODOS"}
           />
 
           {/* Ordem da primeira tela: retorno vencido e de hoje (Meu dia, acima)
@@ -3383,7 +3397,14 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
           {mostrarAgenda && (
             <div style={S.agendaPainel}>
               <div style={S.agendaHead}>
-                <span style={S.agendaTitulo}>🗓️ Agenda — retornos ({agendaPendentes.length})</span>
+                <span style={S.agendaTitulo}>
+                  🗓️ Agenda — retornos ({agendaPorOrigem.total})
+                  <span style={S.agendaOrigemResumo}>
+                    {" "}
+                    · {agendaPorOrigem.agendados} agendado{agendaPorOrigem.agendados === 1 ? "" : "s"} pelo operador ·{" "}
+                    {agendaPorOrigem.automaticos} prazo{agendaPorOrigem.automaticos === 1 ? "" : "s"} de tabulação
+                  </span>
+                </span>
                 <button type="button" style={S.agendaFechar} onClick={() => setMostrarAgenda(false)}>
                   Fechar ✕
                 </button>
@@ -3417,6 +3438,20 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                               {atrasado ? "⚠️ Atrasado · " : ehHoje ? "Hoje · " : ""}
                               {dataBR}
                               {hora ? ` às ${hora}` : ""}
+                            </span>
+                            {/* De onde veio a data desta linha. Compromisso do
+                                operador e prazo do catalogo pediam o mesmo
+                                tratamento na tela, e nao sao a mesma coisa. */}
+                            <span
+                              style={ehRetornoDoOperador(a) ? S.agendaSeloAgendado : S.agendaSeloAutomatico}
+                              data-testid={ehRetornoDoOperador(a) ? "agenda-selo-agendado" : "agenda-selo-automatico"}
+                              title={
+                                ehRetornoDoOperador(a)
+                                  ? "Retorno que o operador agendou"
+                                  : "Prazo automático da tabulação — não é um compromisso marcado com o aluno"
+                              }
+                            >
+                              {ehRetornoDoOperador(a) ? "agendado" : "prazo automático"}
                             </span>
                           </div>
                         </div>
@@ -4673,7 +4708,11 @@ const S = {
   agendaItemHoje: { border: "1px solid var(--rv-roxo-borda)", background: "var(--rv-roxo-fundo)" },
   agendaItemAtrasado: { border: "1px solid var(--rv-vermelho-borda)", background: "var(--rv-vermelho-fundo)" },
   agendaNome: { background: "none", border: "none", padding: 0, fontSize: 13.5, fontWeight: 700, color: "var(--rv-tinta)", cursor: "pointer", textAlign: "left", textDecoration: "underline", textDecorationColor: "var(--rv-borda-forte)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" },
-  agendaMeta: { fontSize: 11.5, marginTop: 2 },
+  agendaMeta: { fontSize: 11.5, marginTop: 2, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" },
+  // Resumo do cabecalho em peso menor: o total continua sendo o numero grande.
+  agendaOrigemResumo: { fontSize: 11.5, fontWeight: 600, color: "var(--rv-texto-suave)" },
+  agendaSeloAgendado: { fontSize: 10.5, fontWeight: 800, color: "var(--rv-roxo-texto)", background: "var(--rv-roxo-fundo)", border: "1px solid var(--rv-roxo-borda)", borderRadius: 5, padding: "0 5px", whiteSpace: "nowrap" },
+  agendaSeloAutomatico: { fontSize: 10.5, fontWeight: 700, color: "var(--rv-texto-suave)", background: "var(--rv-fundo-suave)", border: "1px solid var(--rv-borda)", borderRadius: 5, padding: "0 5px", whiteSpace: "nowrap" },
   agendaConfirmar: { background: "#7c3aed", color: "#fff", border: "none", borderRadius: 9, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
   cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 22, flexWrap: "wrap" },
   titulo: { margin: 0, marginBottom: 3, color: "var(--rv-tinta)", fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em", fontFamily: FONTE_TITULO },

@@ -241,3 +241,100 @@ describe("PainelMeuDia: hora combinada, prioridade e total", () => {
     expect(screen.queryByTitle("Ligar para este número")).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------
+// P1 (23/10/2026): a visao da gestao em "Todos os operadores" le uma carteira
+// truncada em 3.000 fichas, e em producao (22/10/2026) NENHUM dos 183 retornos
+// agendados do dia caia nessas 3.000. A coluna dizia "0" -- afirmacao falsa.
+describe("PainelMeuDia: visao parcial da gestao", () => {
+  it("troca a lista de retornos por um aviso e nao mostra numero nenhum", () => {
+    render(<PainelMeuDia hoje={HOJE} retornos={[]} retornoAutomaticoHoje={3000} boletos={[]} visaoParcial />);
+    const aviso = screen.getByTestId("meu-dia-retornos-parcial");
+    expect(aviso.textContent).toMatch(/Visão parcial/);
+    expect(aviso.textContent).toMatch(/Escolha um operador/);
+    // O "0" nao volta por outra porta: nem no titulo, nem nas abas, nem como
+    // "nenhum retorno" (que tambem afirmaria algo sobre o que nao foi lido).
+    expect(screen.getByRole("heading", { level: 3, name: /Retornos/ }).textContent).toBe("🗓️ Retornos");
+    expect(screen.queryByRole("tab", { name: /Hoje/ })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /Semana/ })).toBeNull();
+    expect(screen.queryByText(/Nenhum retorno agendado/)).toBeNull();
+    // O contador do automatico sai: ele subtrai esta lista truncada de uma
+    // contagem que bate no MESMO teto, entao o numero nao quer dizer nada.
+    expect(screen.queryByTestId("meu-dia-retorno-automatico")).toBeNull();
+  });
+
+  it("o pedaco de lista que veio na carga truncada nao e exibido como se fosse tudo", () => {
+    render(<PainelMeuDia hoje={HOJE} retornos={[retorno(), retorno({ id: "a2" })]} boletos={[]} visaoParcial />);
+    expect(screen.queryAllByTestId("meu-dia-retorno-item")).toHaveLength(0);
+    expect(screen.queryByText(/Ver todos/)).toBeNull();
+    expect(screen.getByTestId("meu-dia-retornos-parcial")).toBeTruthy();
+  });
+
+  it("a coluna de BOLETOS continua inteira: ela nao tem o teto da carteira", () => {
+    // Os boletos vem de `buscarTudo` sobre acordos/parcelas, paginado ate o
+    // fim -- nao sao escopados pelo teto de 3.000 que trunca `casos`.
+    render(<PainelMeuDia hoje={HOJE} retornos={[]} boletos={[boleto()]} visaoParcial />);
+    expect(screen.getAllByTestId("meu-dia-boleto-item")).toHaveLength(1);
+    expect(screen.getByText(/1 vence\(m\) hoje|Parcela de acordo ativo até/)).toBeTruthy();
+  });
+
+  it("sem a prop, nada muda para o operador comum", () => {
+    render(<PainelMeuDia hoje={HOJE} retornos={[retorno()]} retornoAutomaticoHoje={405} boletos={[]} />);
+    expect(screen.queryByTestId("meu-dia-retornos-parcial")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Hoje (1)" })).toBeTruthy();
+    expect(screen.getAllByTestId("meu-dia-retorno-item")).toHaveLength(1);
+    expect(screen.getByTestId("meu-dia-retorno-automatico")).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------
+// P2 (23/10/2026): dos 183 retornos agendados para 22/10/2026, 141 tinham o
+// MESMO `atualizado_em` (29/06/2026 16h) -- um lote de quatro meses antes que
+// na tela parecia compromisso de hoje. A linha passa a dizer quando o aluno
+// foi acionado pela ultima vez, com o helper que a coluna de boletos ja usava.
+describe("PainelMeuDia: ultimo acionamento na linha do retorno", () => {
+  const indice = (dua) => new Map([["a1", { dua, temCaso: true }]]);
+
+  it("mostra ha quantos dias o aluno foi acionado", () => {
+    render(<PainelMeuDia hoje={HOJE} retornos={[retorno()]} boletos={[]} acionamentoPorAluno={indice("2026-06-29")} />);
+    const linha = screen.getByTestId("meu-dia-retorno-acionamento");
+    expect(linha.textContent).toMatch(/último acionamento: Há 108 dias/);
+    // O texto de apoio e o mesmo do resto do sistema: diz que o registro e do
+    // ALUNO e que nao comprova contato sobre este retorno.
+    expect(linha.getAttribute("title")).toMatch(/Não comprova aviso desta parcela/);
+    expect(linha.getAttribute("title")).toMatch(/Registrado em 29\/06\/2026/);
+  });
+
+  it("acionado hoje aparece como Hoje", () => {
+    render(<PainelMeuDia hoje={HOJE} retornos={[retorno()]} boletos={[]} acionamentoPorAluno={indice(HOJE)} />);
+    expect(screen.getByTestId("meu-dia-retorno-acionamento").textContent).toMatch(/último acionamento: Hoje/);
+  });
+
+  it("sem data e sem caso dizem 'Sem registro', nao uma data inventada", () => {
+    const { unmount } = render(<PainelMeuDia hoje={HOJE} retornos={[retorno()]} boletos={[]} acionamentoPorAluno={indice(null)} />);
+    expect(screen.getByTestId("meu-dia-retorno-acionamento").textContent).toMatch(/Sem registro/);
+    unmount();
+    render(<PainelMeuDia hoje={HOJE} retornos={[retorno()]} boletos={[]} acionamentoPorAluno={new Map()} />);
+    expect(screen.getByTestId("meu-dia-retorno-acionamento").textContent).toMatch(/Sem registro/);
+  });
+
+  it("sem o indice a linha segue como antes, sem campo a mais", () => {
+    render(<PainelMeuDia hoje={HOJE} retornos={[retorno()]} boletos={[]} />);
+    expect(screen.queryByTestId("meu-dia-retorno-acionamento")).toBeNull();
+    expect(screen.getByTestId("meu-dia-retorno-item")).toBeTruthy();
+  });
+
+  it("vale tambem na aba Atrasados, que e onde o retorno velho mora", () => {
+    render(
+      <PainelMeuDia
+        hoje={HOJE}
+        retornos={[]}
+        retornosAtrasados={[atrasado({ id: "a1", aluno_id: "a1" })]}
+        boletos={[]}
+        acionamentoPorAluno={indice("2026-10-01")}
+      />
+    );
+    fireEvent.click(screen.getByTestId("meu-dia-aba-atrasados"));
+    expect(screen.getByTestId("meu-dia-retorno-acionamento").textContent).toMatch(/Há 14 dias/);
+  });
+});

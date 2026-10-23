@@ -26,6 +26,20 @@
 //     sistema;
 //  5. a coluna de retornos ganha contagem de pendentes e total em aberto --
 //     paridade com a coluna de boletos, que ja somava.
+//
+// 23/10/2026 -- duas melhorias de TELA, tambem sem regra nova:
+//  6. `visaoParcial`: na visao da gestao em "Todos os operadores" a coluna de
+//     retornos dizia "0" porque a carteira carrega so 3.000 das 18.435 fichas
+//     (teto de custo da propria consulta) e nenhum dos retornos agendados do
+//     dia caia nessas 3.000 -- medido em producao em 22/10/2026: 0 de 183.
+//     Zero era uma afirmacao falsa; agora a coluna diz que a visao e parcial e
+//     pede um operador. A coluna de BOLETOS nao muda, porque ela nao tem esse
+//     teto (vem de `buscarTudo` sobre acordos/parcelas, paginado ate o fim);
+//  7. `acionamentoPorAluno` passa a alimentar tambem a linha de RETORNO, com o
+//     mesmo "ultimo acionamento" que a coluna de boletos ja mostrava. Motivo
+//     medido: dos 183 retornos agendados para 22/10/2026, 141 compartilham o
+//     mesmo `atualizado_em` (29/06/2026 16h) -- um lote de quatro meses atras
+//     que na tela parecia compromisso de hoje, sem nada que o distinguisse.
 import { useState } from "react";
 import { formatarDataBR, formatarValorBRL, rotuloDiasRestantes, chaveAlerta } from "../utils/alertasParcela";
 import { situacaoAcionamento } from "../utils/acionamentoAlerta";
@@ -124,6 +138,19 @@ const S = {
   },
   checkFeito: { color: "var(--rv-verde-ok-texto)", border: "1px solid var(--rv-verde-ok-texto)", background: "var(--rv-verde-ok-fundo)" },
   vazio: { fontSize: 12, color: "var(--rv-texto-suave)", margin: "8px 0 2px", fontWeight: 600 },
+  // Aviso de visao parcial: mesma familia visual do "vazio", com a borda
+  // ambar que o resto da tela usa para "atencao, leia isto".
+  parcial: {
+    fontSize: 12,
+    color: "var(--rv-ambar-texto)",
+    background: "var(--rv-ambar-fundo)",
+    border: "1px solid var(--rv-ambar-borda)",
+    borderRadius: 8,
+    padding: "8px 10px",
+    margin: "6px 0 2px",
+    fontWeight: 600,
+    lineHeight: 1.35,
+  },
   rodape: { marginTop: 8, paddingTop: 6, borderTop: "1px solid var(--rv-borda)", fontSize: 11.5, color: "var(--rv-texto-suave)", fontWeight: 600, display: "flex", gap: 6, flexWrap: "wrap" },
   link: { background: "none", border: "none", padding: 0, color: "var(--rv-azul)", fontWeight: 800, cursor: "pointer", fontSize: 11.5 },
 };
@@ -164,7 +191,27 @@ function Telefone({ telefone }) {
   );
 }
 
-function LinhaRetorno({ item, mostrarResponsavel, onAbrirFicha, confirmandoRetornoId, onConfirmarRetorno, hoje, horaAgora }) {
+// Ultimo acionamento REGISTRADO do aluno, com o mesmo helper e o mesmo texto
+// de apoio da coluna de boletos -- um indicador so no sistema.
+//
+// Aqui NAO entra `vencimento`: numa linha de retorno nao existe parcela a que
+// comparar, e `situacaoAcionamento` sem vencimento devolve exatamente o que se
+// pode afirmar ("Ha N dias", "Registrado em dd/mm"), sem o antes/apos.
+//
+// O que isto resolve: o retorno de hoje e o retorno de um lote de junho eram
+// indistinguiveis na tela. Nada aqui muda a data, a origem ou a ordem da lista.
+function UltimoAcionamento({ item, acionamentoPorAluno, hoje }) {
+  if (!acionamentoPorAluno) return null;
+  const info = acionamentoPorAluno.get?.(String(item.aluno_id || item.id));
+  const s = situacaoAcionamento({ dua: info?.dua, hoje, temCaso: Boolean(info) });
+  return (
+    <div style={{ ...S.meta, cursor: "help" }} title={s.detalhe} aria-label={s.detalhe} data-testid="meu-dia-retorno-acionamento">
+      último acionamento: {s.curto}
+    </div>
+  );
+}
+
+function LinhaRetorno({ item, mostrarResponsavel, onAbrirFicha, confirmandoRetornoId, onConfirmarRetorno, hoje, horaAgora, acionamentoPorAluno }) {
   const horaVencida = horaRetornoVencida(item, { hoje, horaAgora });
   return (
     <div style={{ ...S.item, ...(item.tratado ? S.itemTratado : {}) }} data-testid="meu-dia-retorno-item">
@@ -201,6 +248,7 @@ function LinhaRetorno({ item, mostrarResponsavel, onAbrirFicha, confirmandoRetor
           {formatarValorBRL(item.valor_em_aberto)}
           {mostrarResponsavel && item.responsavel_email ? ` · ${item.responsavel_email}` : ""}
         </div>
+        <UltimoAcionamento item={item} acionamentoPorAluno={acionamentoPorAluno} hoje={hoje} />
       </div>
       <BotaoCheck item={item} confirmandoRetornoId={confirmandoRetornoId} onConfirmarRetorno={onConfirmarRetorno} />
     </div>
@@ -217,6 +265,10 @@ export default function PainelMeuDia({
   boletos = [],
   janelaDias = JANELA_BOLETOS_DIAS,
   mostrarResponsavel = false,
+  // Visao da gestao em "Todos os operadores": a lista de retornos vem de uma
+  // carteira truncada (ver o item 6 do cabecalho), entao a coluna nao pode
+  // apresentar os seus numeros como se fossem a operacao inteira.
+  visaoParcial = false,
   confirmandoRetornoId = null,
   onAbrirFicha,
   onConfirmarRetorno,
@@ -269,13 +321,17 @@ export default function PainelMeuDia({
     setVerTodosRetornos(false);
   };
 
-  const propsLinha = { mostrarResponsavel, onAbrirFicha, confirmandoRetornoId, onConfirmarRetorno, hoje, horaAgora };
+  const propsLinha = { mostrarResponsavel, onAbrirFicha, confirmandoRetornoId, onConfirmarRetorno, hoje, horaAgora, acionamentoPorAluno };
 
   return (
     <section style={S.grade} aria-label="Meu dia" data-testid="painel-meu-dia">
       <div style={S.coluna} data-testid="meu-dia-retornos">
         <div style={S.topo}>
-          <h3 style={S.titulo}>🗓️ Retornos · {pendentesDaVisao}</h3>
+          {/* Na visao parcial o titulo vai SEM numero: o que a coluna tem nao
+              e a contagem da operacao, e mostra-la seria afirmar um total que
+              nao se conhece. */}
+          <h3 style={S.titulo}>🗓️ Retornos{visaoParcial ? "" : ` · ${pendentesDaVisao}`}</h3>
+          {!visaoParcial && (
           <div style={S.abas} role="tablist" aria-label="Período dos retornos">
             <button
               type="button"
@@ -308,13 +364,22 @@ export default function PainelMeuDia({
               </button>
             )}
           </div>
+          )}
         </div>
-        <p style={S.apoio}>
-          Agendados por você
-          {pendentesDaVisao > 0 ? ` · ${pendentesDaVisao} pendente${pendentesDaVisao > 1 ? "s" : ""} · ${formatarValorBRL(emAbertoDaVisao)} em aberto` : ""}
-        </p>
+        {visaoParcial ? (
+          <p style={S.parcial} data-testid="meu-dia-retornos-parcial">
+            Visão parcial: em “Todos os operadores” a carteira carrega só parte das
+            fichas, então os retornos agendados não cabem nesta soma. Escolha um
+            operador no seletor acima para ver a agenda dele.
+          </p>
+        ) : (
+          <p style={S.apoio}>
+            Agendados por você
+            {pendentesDaVisao > 0 ? ` · ${pendentesDaVisao} pendente${pendentesDaVisao > 1 ? "s" : ""} · ${formatarValorBRL(emAbertoDaVisao)} em aberto` : ""}
+          </p>
+        )}
 
-        {visaoAtiva === "semana" && grupos.length > 0 && (
+        {!visaoParcial && visaoAtiva === "semana" && grupos.length > 0 && (
           <div style={S.dias} role="tablist" aria-label="Dias com retorno">
             {grupos.map((g) => (
               <button
@@ -337,7 +402,9 @@ export default function PainelMeuDia({
           </div>
         )}
 
-        {listaBase.length === 0 ? (
+        {/* Na visao parcial nem a lista nem o "nao ha nada" aparecem: as duas
+            coisas seriam afirmacoes sobre um universo que nao foi carregado. */}
+        {visaoParcial ? null : listaBase.length === 0 ? (
           <p style={S.vazio}>
             {visaoAtiva === "semana"
               ? "Nenhum retorno agendado para os próximos dias."
@@ -349,13 +416,16 @@ export default function PainelMeuDia({
           visiveis.map((r) => <LinhaRetorno key={r.id} item={r} {...propsLinha} />)
         )}
 
-        {listaBase.length > MOSTRAR_INICIAL && (
+        {!visaoParcial && listaBase.length > MOSTRAR_INICIAL && (
           <button type="button" style={{ ...S.link, marginTop: 6 }} onClick={() => setVerTodosRetornos((v) => !v)}>
             {verTodosRetornos ? "Ver menos" : `Ver todos (${listaBase.length})`}
           </button>
         )}
 
-        {retornoAutomaticoHoje > 0 && (
+        {/* `retornoAutomaticoHoje` subtrai esta lista de `kpis.retornosHoje`, e
+            na visao da gestao as DUAS pontas batem no mesmo teto de 3.000 --
+            7.113 retornos de hoje viravam "3.000". Numero assim nao vai a tela. */}
+        {!visaoParcial && retornoAutomaticoHoje > 0 && (
           <div style={S.rodape} data-testid="meu-dia-retorno-automatico">
             <span>+{retornoAutomaticoHoje} com prazo de tabulação vencendo hoje</span>
             <button type="button" style={S.link} onClick={() => onVerRetornosNaFila && onVerRetornosNaFila()}>
