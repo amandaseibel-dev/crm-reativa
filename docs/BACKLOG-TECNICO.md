@@ -225,3 +225,34 @@ select p.proname, has_function_privilege('authenticated', p.oid, 'EXECUTE')
  where p.prosrc like '%set_config%' and p.prosrc like '%reativa.fluxo_pagamentos%'
    and p.prosrc not like '%usuario_e_gestao%';
 ```
+
+## `20261023004500` (#738) BLOQUEADA para aplicação (decidido 24/10/2026)
+
+**Prioridade:** alta se a reserva de orçamento da rodada voltar à pauta ·
+**origem:** Etapa 1 da conciliação inteligente (PR #752).
+
+A migration `20261023004500_fluxo_incremental_reserva_bloqueado.sql` recria
+`fluxo_pagamentos_incremental` com o corpo inteiro e **não** traz o predicado
+`ENCERRADO_SEM_EFEITO_FINANCEIRO` do contador `v_pend`. Aplicada depois de
+`20261024170000_conciliacao_saida_terminal`, ela apaga essa correção em
+silêncio: nada falha, e `pendentes` volta a contar quem já foi encerrado sem
+efeito financeiro.
+
+Não está aplicada em produção (conferido em 24/10/2026: a versão não existe em
+`schema_migrations`, o corpo vivo tem `md5(prosrc) = 11c14ef5…` e
+`position('v_reserva')` = 0). O arquivo **não** pode ser corrigido: está
+mesclado na `main` e a catraca das migrations recusa alterar migration que já
+existe no branch base.
+
+**Enquanto não for aplicada:** nada a fazer. A catraca
+`supabase/tests/contador_pendentes_nao_regride.test.js` declara a #738 como
+BLOQUEADA e reprova qualquer migration posterior que recrie a função sem o
+predicado.
+
+**Quando for aplicada:** promover
+`supabase/propostas/PROPOSTA_contador_pendentes_apos_reserva_738.sql` para
+`supabase/migrations/` com timestamp posterior, aplicar a #738 e depois a
+complementar, e remover a entrada da lista `DECLARADAS` da catraca.
+
+Detalhe completo em `docs/CONCILIACAO-INTELIGENTE-2026-10-24.md`, anexo
+"A #738 fica BLOQUEADA para aplicação em produção".

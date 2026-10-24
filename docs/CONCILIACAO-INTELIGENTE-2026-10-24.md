@@ -299,3 +299,48 @@ resposta a esta transição.
 O recusado é um `RESOLVIDO_AUTOMATICO` sem nenhuma linha de auditoria. A recusa
 é desejada: caso sem procedência é para uma pessoa olhar, não para entrar no
 bolo.
+
+---
+
+# Anexo · A #738 fica BLOQUEADA para aplicação em produção
+
+Decisão da gestão em 24/10/2026, ao autorizar a Etapa 1.
+
+## O que está bloqueado, e por quê
+
+**`supabase/migrations/20261023004500_fluxo_incremental_reserva_bloqueado.sql` (PR #738) não pode ser aplicada em produção** enquanto puder sobrescrever a correção do contador que vem de `20261024170000_conciliacao_saida_terminal.sql`.
+
+Ela faz `create or replace function public.fluxo_pagamentos_incremental` com o **corpo inteiro** e **não traz** o predicado do estado terminal (`grep -c ENCERRADO_SEM_EFEITO_FINANCEIRO` = 0 no arquivo). Aplicada depois da correção, devolve o contador `v_pend` ao estado anterior e `fluxo_pagamentos_execucoes.resultado->>'pendentes'` volta a publicar como pendente quem já foi encerrado sem efeito financeiro — **em silêncio**, porque nada falha.
+
+## O estado real da #738 em produção, medido em 24/10/2026
+
+| Ângulo | Medição |
+|---|---|
+| `schema_migrations`, versão `20261023004500` | **0 registros** |
+| versões parecidas (`%0045%`, nome com "reserva"/"bloqueado") | 6, todas de jul–set/2026 e de outros assuntos |
+| corpo vivo de `fluxo_pagamentos_incremental` | `md5(prosrc) = 11c14ef5bcbc4283357de8ef2d798c5e`, 6.761 caracteres — o corpo pós-`20261021223117` |
+| `position('v_reserva')` no corpo vivo | **0** |
+
+Não está aplicada, e o código vivo não tem nenhum traço da reserva.
+
+## Por que o arquivo dela não foi corrigido
+
+A saída óbvia seria somar o predicado ao arquivo da #738. **A catraca do próprio repositório recusa:** `scripts/ci/catraca-migrations.mjs` reprova com *"migration que já existia no branch base foi modificada"*. O arquivo está mesclado na `main`, portanto é imutável pela régua da casa. Migration histórica não se altera.
+
+## Como o bloqueio é sustentado
+
+| Camada | O que faz |
+|---|---|
+| este registro | a decisão escrita, com a medição que a motiva |
+| `docs/BACKLOG-TECNICO.md` | a pendência, no lugar onde o projeto guarda "não fazer ainda" |
+| `supabase/tests/contador_pendentes_nao_regride.test.js` | a catraca estática: a #738 está declarada como **BLOQUEADA**, e qualquer migration *posterior* à correção que recrie a função **sem** o predicado reprova no CI |
+| `supabase/propostas/PROPOSTA_contador_pendentes_apos_reserva_738.sql` | o desbloqueio, pronto e fora de `migrations/` |
+
+## Como desbloquear, quando a #738 for necessária
+
+1. decidir aplicar a #738;
+2. promover `supabase/propostas/PROPOSTA_contador_pendentes_apos_reserva_738.sql` para `supabase/migrations/<AAAAMMDDHHMMSS>_contador_pendentes_apos_reserva.sql`, com timestamp **posterior** ao instante da aplicação da #738;
+3. aplicar a #738 e, **na sequência**, a complementar;
+4. remover a entrada `20261023004500` da lista `DECLARADAS` da catraca — ela recusa exceção morta, então cobra a limpeza.
+
+A complementar usa a **mesma âncora** da correção, e a âncora existe no corpo da #738 (linha 352 do arquivo dela, idêntica à do corpo vivo). Por isso o patch encaixa nos dois corpos — e por isso aplicar a #738 **antes** de `20261024170000` também seria seguro: nesse caminho a âncora continua lá e a correção se assenta em cima.
