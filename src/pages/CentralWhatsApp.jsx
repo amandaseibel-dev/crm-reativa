@@ -104,6 +104,14 @@ const dinheiro = (v) =>
     ? "—"
     : Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
+// Número aposentado pela gestão (desmarcado em "Números").
+//
+// Compara com `false` de propósito, em vez de usar `!c.ativo`: canal sem o
+// campo preenchido tem de contar como ATIVO. Tratar ausência como desativado
+// esconderia os botões de conexão de todo mundo no dia em que alguma consulta
+// deixasse `ativo` de fora — uma falha que tiraria a Central do ar em silêncio.
+const desativadoDoCanal = (c) => c?.ativo === false;
+
 // ---------------------------------------------------------------------------
 // A CENTRAL NÃO SAI DO LUGAR
 //
@@ -568,6 +576,13 @@ export default function CentralWhatsApp() {
   // O composer fecha por motivo REAL e explicado, nunca em silêncio.
   const bloqueio = useMemo(() => {
     if (!selecionada) return null;
+    // Número aposentado não "volta": dizer que está fora do ar manda o operador
+    // esperar por algo que não vai acontecer, e o rótulo de conexão guardado
+    // chega a pedir QR Code — justamente o que desativar o número encerrou. O
+    // histórico continua aqui para leitura; só o campo de resposta fecha.
+    if (desativadoDoCanal(canalDaConversa)) {
+      return `O número ${canalDaConversa.apelido} foi desativado. Esta conversa fica no histórico, mas não é possível responder por ele — use outro número.`;
+    }
     if (canalDaConversa && !canalDaConversa.online) {
       return `O número ${canalDaConversa.apelido} está ${
         ROTULO_CONEXAO[canalDaConversa.conexao_status] || canalDaConversa.conexao_status
@@ -675,21 +690,45 @@ export default function CentralWhatsApp() {
         ) : (
           canais.map((c) => (
             <div key={c.id} style={S.conexao}>
-              <span style={c.online ? S.pontoOk : S.pontoRuim} />
+              <span style={desativadoDoCanal(c) ? S.pontoDesativado : c.online ? S.pontoOk : S.pontoRuim} />
               <span style={S.conexaoNome}>{c.apelido}</span>
               <span style={S.conexaoNumero}>{c.display_phone_number}</span>
-              <span style={c.online ? S.conexaoStatusOk : S.conexaoStatusRuim}>
-                {c.online ? "Conectado" : ROTULO_CONEXAO[c.conexao_status] || c.conexao_status}
+              {/* Número desativado é número aposentado: o `conexao_status` dele é
+                  informação velha (foi escrita antes de sair do ar) e mostrá-la
+                  como se fosse o estado de agora faz a gestão correr atrás de
+                  uma queda que não existe. */}
+              <span
+                style={
+                  desativadoDoCanal(c)
+                    ? S.conexaoStatusDesativado
+                    : c.online
+                      ? S.conexaoStatusOk
+                      : S.conexaoStatusRuim
+                }
+              >
+                {desativadoDoCanal(c)
+                  ? "Desativado"
+                  : c.online
+                    ? "Conectado"
+                    : ROTULO_CONEXAO[c.conexao_status] || c.conexao_status}
               </span>
-              {!c.sync_inicial_em ? (
+              {!c.sync_inicial_em && !desativadoDoCanal(c) ? (
                 <span style={S.avisoSync}>histórico ainda não importado</span>
               ) : null}
               {gestao ? (
                 <span style={S.conexaoBotoes}>
-                  {c.aguardando_qr ? (
+                  {/* Aposentado não pede QR e não reconecta — é o sentido de
+                      desativar. Oferecer os botões aqui convidaria a ressuscitar
+                      um número tirado do ar de propósito, e `whatsapp-sessao`
+                      recusa `reconectar` nesse caso: o botão só renderia erro.
+                      `Desvincular` fica, porque é por ele que se solta o
+                      aparelho de um número recém-desativado. */}
+                  {c.aguardando_qr && !desativadoDoCanal(c) ? (
                     <button style={S.botaoMini} onClick={() => verQr(c)}>Ver QR Code</button>
                   ) : null}
-                  <button style={S.botaoMini} onClick={() => comando(c, "reconectar")}>Reconectar</button>
+                  {!desativadoDoCanal(c) ? (
+                    <button style={S.botaoMini} onClick={() => comando(c, "reconectar")}>Reconectar</button>
+                  ) : null}
                   {c.online ? (
                     <button style={S.botaoMini} onClick={() => comando(c, "desconectar")}>
                       Desconectar
@@ -1846,9 +1885,13 @@ const S = {
   conexaoNumero: { color: CINZA, fontSize: 12 },
   conexaoStatusOk: { ...etiquetaBase, background: "var(--rv-verde-ok-fundo)", color: "var(--rv-verde-ok-texto)" },
   conexaoStatusRuim: { ...etiquetaBase, background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho-texto)" },
+  // Desativado é neutro, nunca vermelho: vermelho é problema a resolver, e um
+  // número aposentado está exatamente como a gestão quis.
+  conexaoStatusDesativado: { ...etiquetaBase, background: "var(--rv-fundo-suave)", color: CINZA },
   conexaoBotoes: { display: "flex", gap: 6 },
   pontoOk: { width: 8, height: 8, borderRadius: "50%", background: VERDE },
   pontoRuim: { width: 8, height: 8, borderRadius: "50%", background: VERMELHO },
+  pontoDesativado: { width: 8, height: 8, borderRadius: "50%", background: CINZA },
   avisoSync: { ...etiquetaBase, background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)" },
 
   // ---- painel ----
