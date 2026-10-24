@@ -472,9 +472,13 @@ pronto e rodando em duas tabelas do próprio projeto.
 > **A revisão canônica da proposta é a [`A.3` do Anexo A](DIAGNOSTICO-EFETIVIDADE-FINANCEIRA-2026-10-23.md).**
 > Esta tabela só acrescenta o que vem das seções marcadas **[NOVO]** aqui.
 >
-> E **a Etapa 1 já não está pendente**: ela foi construída (migration escrita e
-> testada, **não aplicada**, branch `feat/efetividade-caixa-origem`) e está
-> documentada no Anexo B, que inclusive **corrigiu um número do diagnóstico**.
+> E **a Etapa 1 já não está pendente**: ela foi construída e **mesclada na main**
+> pela [#744](https://github.com/amandaseibel-dev/crm-reativa/pull/744) (squash
+> `587cf612`). A migration
+> `20261023131709_efetividade_caixa_origem.sql` está versionada e testada, e
+> **segue não aplicada em produção** — reconferido na lista de versões aplicadas
+> em 2026-10-24. Está documentada no Anexo B, que inclusive **corrigiu um número
+> do diagnóstico**.
 
 | Etapa | O que estas seções [NOVO] acrescentam |
 |---|---|
