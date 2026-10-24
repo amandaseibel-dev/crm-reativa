@@ -347,6 +347,90 @@ export function valorAbertoDe(a, finAlunos) {
   return Number.isFinite(fb) ? fb : 0;
 }
 
+// ---------------------------------------------------------------------------
+// Curso e semestre (23/10/2026)
+// ---------------------------------------------------------------------------
+//
+// As duas listas que a tela oferece. O dado vem da RPC
+// `carteira_curso_semestre_do_operador`, que devolve uma linha por ficha da
+// carteira com: curso_2026_1, curso_2026_2, titulos/saldo de cada semestre e o
+// saldo de acordo atribuivel a cada semestre (mais o indeterminado, separado).
+//
+// Por que nao sai de `alunos.curso` nem de `alunos.semestre_divida`: medido em
+// 23/10/2026, `alunos.curso` e campo de MODALIDADE (so 14 de 18.435 fichas tem
+// nome de curso) e `alunos.semestre_divida` erra ou nao serve em 17,5% da
+// carteira. A migration da RPC registra os numeros.
+export const CURSOS_CARTEIRA = ["Medicina", "Medicina Veterinária", "Odontologia"];
+export const SEMESTRES_CARTEIRA = ["2026/1", "2026/2"];
+
+// Quais fichas casam o curso escolhido.
+//
+// O curso vem do contrato do Prime da JANELA do semestre -- entao com um
+// semestre escolhido vale o curso DAQUELE semestre. Em "Ambos" vale quem
+// cursou em qualquer uma das duas janelas: quem trocou de curso no meio do ano
+// aparece nos dois recortes, e a tela diz isso em vez de escolher uma linha.
+export function alunosDoCursoEscolhido(mapa, curso, semestre) {
+  const c = String(curso || "").trim();
+  if (!c || c === "TODOS") return null;
+  const sem = String(semestre || "").trim();
+  const out = new Set();
+  for (const [id, linha] of Object.entries(mapa || {})) {
+    const c1 = (linha && linha.curso_2026_1) || null;
+    const c2 = (linha && linha.curso_2026_2) || null;
+    const casa =
+      sem === "2026/1" ? c1 === c
+      : sem === "2026/2" ? c2 === c
+      : c1 === c || c2 === c;
+    if (casa) out.add(String(id));
+  }
+  return out;
+}
+
+// Quais fichas tem divida do semestre escolhido.
+//
+// Mensalidade entra pelo semestre do PROPRIO titulo. Parcela de acordo entra
+// so quando os titulos daquele acordo apontam para um semestre unico -- a RPC
+// ja resolve isso e manda o resto em `acordo_indeterminado`, que NAO entra
+// aqui: nao se sabe de que semestre e, e chutar seria inventar carteira.
+export function alunosDoSemestreEscolhido(mapa, semestre) {
+  const sem = String(semestre || "").trim();
+  if (!SEMESTRES_CARTEIRA.includes(sem)) return null;
+  const um = sem === "2026/1";
+  const out = new Set();
+  for (const [id, linha] of Object.entries(mapa || {})) {
+    const n = Number((linha && (um ? linha.titulos_2026_1 : linha.titulos_2026_2)) || 0);
+    const a = Number((linha && (um ? linha.acordo_saldo_2026_1 : linha.acordo_saldo_2026_2)) || 0);
+    if (n > 0 || a > 0) out.add(String(id));
+  }
+  return out;
+}
+
+// O VALOR do recorte quando um semestre esta escolhido.
+//
+// O pedido foi "exibir somente os valores e titulos do semestre selecionado",
+// e nesta tela o valor exibido, o filtro de valor e a ordenacao por valor saem
+// todos de `valorAbertoDe(a, finAlunos)`. Entao a troca e feita num lugar so:
+// devolve um `finAlunos` com `total` do semestre, e as tres coisas passam a
+// concordar sem mexer em nenhuma delas.
+//
+// Em "Ambos" devolve o proprio `finAlunos`, por identidade -- sem semestre
+// escolhido NADA muda de comportamento. Os demais campos da linha (incluindo
+// `menorVencimento`, que outras partes da tela leem) sao preservados.
+export function finAlunosDoSemestre(finAlunos, mapa, semestre) {
+  const sem = String(semestre || "").trim();
+  if (!SEMESTRES_CARTEIRA.includes(sem)) return finAlunos || {};
+  const um = sem === "2026/1";
+  const out = { ...(finAlunos || {}) };
+  for (const [id, linha] of Object.entries(mapa || {})) {
+    const k = String(id);
+    const total =
+      Number((linha && (um ? linha.saldo_2026_1 : linha.saldo_2026_2)) || 0) +
+      Number((linha && (um ? linha.acordo_saldo_2026_1 : linha.acordo_saldo_2026_2)) || 0);
+    out[k] = { ...(out[k] || {}), temDetalhe: true, total };
+  }
+  return out;
+}
+
 export const ORDENACOES = [
   "inteligente",
   "prioridade",
@@ -381,6 +465,8 @@ export function filtrarCasos(entrada) {
     filtroValorMax = "",
     filtroDiasMinSemContato = "",
     alunosDoAnoVencimento = null,
+    alunosDoCurso = null,
+    alunosDoSemestre = null,
     finAlunos = {},
     hoje = hojeLocalBR(),
     agoraMs = Date.now(),
@@ -448,6 +534,17 @@ export function filtrarCasos(entrada) {
   }
   if (alunosDoAnoVencimento) {
     l = l.filter((a) => alunosDoAnoVencimento.has(a.id));
+  }
+  // CURSO e SEMESTRE (23/10/2026) seguem o mesmo padrao do filtro de ano: um
+  // Set que chega por RPC propria (carteira_curso_semestre_do_operador) e que
+  // vale `null` enquanto nao carregou -- `null` NAO filtra, para a lista nunca
+  // encolher por dado a meio caminho. Os dois se combinam por interseccao:
+  // escolher Medicina + 2026/2 pede as duas condicoes, nao uma ou outra.
+  if (alunosDoCurso) {
+    l = l.filter((a) => alunosDoCurso.has(String(a.id)));
+  }
+  if (alunosDoSemestre) {
+    l = l.filter((a) => alunosDoSemestre.has(String(a.id)));
   }
   if (busca.trim()) {
     const t = semAcento(busca);
@@ -625,6 +722,10 @@ export function montarListaFiltrada(entrada) {
 export function recorteProntoParaGuiado({
   filtroAnoVencimento = "",
   alunosDoAnoVencimento = null,
+  filtroCurso = "TODOS",
+  alunosDoCurso = null,
+  filtroSemestre = "AMBOS",
+  alunosDoSemestre = null,
   filtroKpi = null,
   casosEspeciais = null,
   carregandoEspecial = false,
@@ -632,6 +733,11 @@ export function recorteProntoParaGuiado({
 } = {}) {
   if (carregando) return false;
   if (String(filtroAnoVencimento || "").trim() && alunosDoAnoVencimento === null) return false;
+  // Curso e semestre entram aqui pelo mesmo motivo do ano: com o filtro
+  // escolhido e o Set ainda null, a lista mostra a carteira inteira -- comecar
+  // o guiado ali percorreria fichas que o recorte vai excluir.
+  if (filtroCurso !== "TODOS" && alunosDoCurso === null) return false;
+  if (filtroSemestre !== "AMBOS" && alunosDoSemestre === null) return false;
   if (filtroKpi && (carregandoEspecial || casosEspeciais === null)) return false;
   return true;
 }
