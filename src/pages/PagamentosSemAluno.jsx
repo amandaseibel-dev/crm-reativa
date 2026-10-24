@@ -56,6 +56,7 @@ import {
 import RegistrarAcordoAvista from "../components/RegistrarAcordoAvista";
 import Aluno from "./Aluno";
 import DadosAcademicos from "../components/DadosAcademicos";
+import { useSearchParams } from "react-router-dom";
 import {
   resumoPorCategoria,
   totalDaTriagem,
@@ -63,6 +64,8 @@ import {
   pendenciasSoNaTriagem,
   filtrarPorCategoria,
   rotuloSubcategoria,
+  resumoPorArquivo,
+  recorteDoArquivo,
 } from "../utils/filaPagamentoTriagem";
 
 function moeda(v) {
@@ -101,6 +104,13 @@ export default function PagamentosSemAluno() {
   // "indisponivel" sem apagar a fila -- ver o tratamento no `carregar`.
   const [triagem, setTriagem] = useState([]);
   const [triagemErro, setTriagemErro] = useState("");
+  // RECORTE POR ARQUIVO (23/10/2026). A conferencia "Por arquivo" da Central de
+  // Pagamentos manda para ca com `?importacao=<id>`; esta fila continua sendo a
+  // UNICA que decide. O recorte mora na URL de proposito: o link da conferencia
+  // precisa ser compartilhavel, e voltar para "ver todos os arquivos" nao pode
+  // perder o resto do estado da tela.
+  const [params, setParams] = useSearchParams();
+  const importacaoFiltro = params.get("importacao") || "";
   const [categoria, setCategoria] = useState("TODAS");
 
   const carregar = useCallback(async () => {
@@ -155,6 +165,9 @@ export default function PagamentosSemAluno() {
     const { data, error } = await supabase.rpc("fila_pagamento_triagem_ler", {
       p_categoria: null,
       p_limite: 2000,
+      // `null` quando nao ha recorte: o filtro e opcional no banco, e mandar
+      // string vazia faria a funcao comparar com '' e devolver zero linha.
+      p_importacao_id: importacaoFiltro || null,
     });
     if (error) {
       setTriagem([]);
@@ -174,7 +187,7 @@ export default function PagamentosSemAluno() {
     }
     setTriagemErro("");
     setTriagem(data || []);
-  }, []);
+  }, [importacaoFiltro]);
 
   useEffect(() => { carregarTriagem(); }, [carregarTriagem]);
 
@@ -187,6 +200,11 @@ export default function PagamentosSemAluno() {
   const mapaTriagem = useMemo(() => indexarTriagem(triagem), [triagem]);
   const resumoTriagem = useMemo(() => resumoPorCategoria(triagem), [triagem]);
   const totalTriagem = useMemo(() => totalDaTriagem(triagem), [triagem]);
+  const arquivosDaTriagem = useMemo(() => resumoPorArquivo(triagem), [triagem]);
+  const recorte = useMemo(
+    () => recorteDoArquivo(triagem, importacaoFiltro),
+    [triagem, importacaoFiltro],
+  );
 
   // Os dois filtros se acumulam: a faixa recorta por CATEGORIA (o que se pode
   // fazer com a pendencia) e o select por ESTADO da conciliacao (o que o motor
@@ -240,6 +258,52 @@ export default function PagamentosSemAluno() {
           {carregando ? "Carregando…" : "Atualizar"}
         </button>
       </div>
+
+      {/* DE QUE ARQUIVO VEIO. Quando a fila foi aberta a partir da conferencia
+          "Por arquivo", diz qual arquivo e oferece a saida do recorte. Sem
+          recorte, lista os arquivos de origem das pendencias -- o dado ja
+          estava gravado na fila e ninguem via. */}
+      {!triagemErro && recorte ? (
+        <div style={faixaWrap}>
+          <div style={faixaTopo}>
+            <span style={faixaTitulo}>Arquivo</span>
+            <span style={faixaResumo}>
+              {recorte.arquivo_nome || "arquivo sem nome registrado"} ·{" "}
+              {recorte.itens === 0
+                ? "nenhuma pendência deste arquivo"
+                : `${recorte.itens} pendências · ${moeda(recorte.valor)}`}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                // Tira SO o recorte e preserva o resto da URL: a tela pode ter
+                // outros parametros, e limpar tudo seria perder estado alheio.
+                const proximo = new URLSearchParams(params);
+                proximo.delete("importacao");
+                setParams(proximo, { replace: true });
+              }}
+              style={faixaLimpar}
+            >
+              Ver todos os arquivos ✕
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {!triagemErro && !recorte && arquivosDaTriagem.length > 1 ? (
+        <div style={faixaWrap}>
+          <div style={faixaTopo}>
+            <span style={faixaTitulo}>Arquivos de origem</span>
+            {arquivosDaTriagem.slice(0, 6).map((a) => (
+              <span key={a.arquivo_nome} style={faixaResumo}>
+                {a.arquivo_nome} · {a.itens}
+              </span>
+            ))}
+            {arquivosDaTriagem.length > 6 ? (
+              <span style={faixaResumo}>+{arquivosDaTriagem.length - 6}</span>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       {/* FAIXA DA TRIAGEM. Cada categoria e um botao de filtro: clicar recorta a
           lista abaixo. Mostra as quatro sempre, inclusive de contagem zero --

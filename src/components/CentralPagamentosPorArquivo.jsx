@@ -16,6 +16,7 @@
 // caminho de escrita.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import {
   contagem,
@@ -218,6 +219,22 @@ export default function CentralPagamentosPorArquivo() {
                       {l.fila_de_outro_arquivo && (
                         <span style={S.outro} title="A pendência foi detectada por outro arquivo">outro arquivo</span>
                       )}
+                      {/* ESTA TELA NAO DECIDE. A decisao e uma so, e mora na
+                          fila de pagamentos -- esta e a porta de entrada. O
+                          link leva a MESMA fila ja recortada neste arquivo, em
+                          vez de abrir um botao de conferencia aqui, que seria
+                          um segundo lugar para decidir a mesma coisa.
+                          Aparece so quando ha pendencia ABERTA: linha ja
+                          decidida nao precisa de ninguem. */}
+                      {l.fila_aberta && escolhido && (
+                        <Link
+                          to={`/pagamentos-sem-aluno?importacao=${encodeURIComponent(escolhido)}`}
+                          style={S.irFila}
+                          title="Abrir esta pendência na fila de pagamentos, onde a decisão é registrada"
+                        >
+                          decidir na fila →
+                        </Link>
+                      )}
                     </td>
                     <td style={S.td}>{l.aluno_nome || "—"}</td>
                     <td style={S.td}>{l.matricula || "—"}</td>
@@ -314,5 +331,6 @@ const S = {
   tag: { borderRadius: 999, padding: "2px 9px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" },
   dup: { marginLeft: 6, borderRadius: 999, padding: "2px 7px", fontSize: 10, fontWeight: 700, background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho)" },
   outro: { marginLeft: 6, borderRadius: 999, padding: "2px 7px", fontSize: 10, fontWeight: 700, background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)" },
+  irFila: { marginLeft: 6, borderRadius: 999, padding: "2px 7px", fontSize: 10, fontWeight: 700, background: "var(--rv-azul-fundo, rgba(37,99,235,0.14))", color: "var(--rv-azul-texto, #93c5fd)", textDecoration: "none", whiteSpace: "nowrap" },
   aviso: { fontSize: 13, color: "var(--rv-texto-suave)", padding: "10px 2px" },
 };

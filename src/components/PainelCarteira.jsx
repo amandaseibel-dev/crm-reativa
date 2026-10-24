@@ -37,6 +37,11 @@ import {
   faltamNoSnapshot,
   candidatoSegueValido,
   recorteProntoParaGuiado,
+  alunosDoCursoEscolhido,
+  alunosDoSemestreEscolhido,
+  finAlunosDoSemestre,
+  CURSOS_CARTEIRA,
+  SEMESTRES_CARTEIRA,
   seloPrazo,
   diasParaData,
   nomeAluno,
@@ -718,6 +723,13 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // diferentes que repetiam as mesmas tres palavras.
   const [filtroPrioridade, setFiltroPrioridade] = useState("TODAS");
   const [filtroTabulacao, setFiltroTabulacao] = useState("TODAS");
+  // CURSO e SEMESTRE (23/10/2026). Dois filtros independentes que se combinam.
+  // O dado nao esta na tabela `alunos` -- curso vem do contrato do Prime e
+  // semestre vem da serie do boleto -- entao chega por RPC propria, igual ao
+  // filtro de ano. Ver src/utils/carteiraFila.js e a migration da RPC.
+  const [filtroCurso, setFiltroCurso] = useState("TODOS");
+  const [filtroSemestre, setFiltroSemestre] = useState("AMBOS");
+  const [mapaCursoSemestre, setMapaCursoSemestre] = useState(null);
   const [filtroKpi, setFiltroKpi] = useState(null);
   const [filtroValorMin, setFiltroValorMin] = useState("");
   const [filtroValorMax, setFiltroValorMax] = useState("");
@@ -1038,6 +1050,37 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     })();
     return () => { ativo = false; };
   }, [filtroAnoVencimento]);
+
+  // Curso e semestre: uma leitura por escopo, nao por troca de filtro -- a RPC
+  // devolve as duas dimensoes de uma vez, entao trocar o select nao vai ao
+  // banco. Recarrega quando a gestao troca de operador.
+  useEffect(() => {
+    let ativo = true;
+    (async () => {
+      const alvo = emailEscopo();
+      const { data, error } = await supabase.rpc("carteira_curso_semestre_do_operador", {
+        p_email: alvo || null,
+      });
+      if (!ativo) return;
+      if (error) { setMapaCursoSemestre(null); return; }
+      const mapa = {};
+      for (const linha of data || []) mapa[String(linha.aluno_id)] = linha;
+      setMapaCursoSemestre(mapa);
+    })();
+    return () => { ativo = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email, veTudo, operadorFiltro]);
+
+  // Os conjuntos que o recorte usa. `null` enquanto a RPC nao respondeu, e
+  // `null` NAO filtra -- a lista nunca encolhe por dado a meio caminho.
+  const alunosDoCurso = useMemo(
+    () => (mapaCursoSemestre ? alunosDoCursoEscolhido(mapaCursoSemestre, filtroCurso, filtroSemestre) : null),
+    [mapaCursoSemestre, filtroCurso, filtroSemestre]
+  );
+  const alunosDoSemestre = useMemo(
+    () => (mapaCursoSemestre ? alunosDoSemestreEscolhido(mapaCursoSemestre, filtroSemestre) : null),
+    [mapaCursoSemestre, filtroSemestre]
+  );
 
   const [novosCasosAutomaticos, setNovosCasosAutomaticos] = useState([]);
   const [avisoNovosCasosFechado, setAvisoNovosCasosFechado] = useState(false);
@@ -1739,6 +1782,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const guiadoLiberado = recorteProntoParaGuiado({
     filtroAnoVencimento,
     alunosDoAnoVencimento,
+    filtroCurso,
+    alunosDoCurso,
+    filtroSemestre,
+    alunosDoSemestre,
     filtroKpi,
     casosEspeciais,
     carregandoEspecial,
@@ -2673,6 +2720,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // O RECORTE que a operadora ve. A regra inteira (9 filtros, 6 ordenacoes,
   // re-rank do Foco do Dia e uma linha por pessoa) mora em
   // src/utils/carteiraFila.js, com teste. Aqui so se entrega o estado atual.
+  const finAlunosDoRecorte = useMemo(
+    () => finAlunosDoSemestre(finAlunos, mapaCursoSemestre, filtroSemestre),
+    [finAlunos, mapaCursoSemestre, filtroSemestre]
+  );
   const recorteAtual = {
     casos,
     casosForaDaFila,
@@ -2690,13 +2741,18 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     filtroValorMax,
     filtroDiasMinSemContato,
     alunosDoAnoVencimento,
+    alunosDoCurso,
+    alunosDoSemestre,
     ordenacao,
-    finAlunos,
+    // Com um semestre escolhido, o valor que filtra, ordena e aparece na tela
+    // passa a ser o DAQUELE semestre -- num lugar so, para os tres
+    // concordarem. Em "Ambos" e o proprio `finAlunos`, por identidade.
+    finAlunos: finAlunosDoRecorte,
   };
   const listaFiltrada = useMemo(
     () => montarListaFiltrada(recorteAtual),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [casos, casosForaDaFila, casosEspeciais, filtroStatus, filtroPrioridade, filtroTabulacao, busca, filtroKpi, ordenacao, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, finAlunos]
+    [casos, casosForaDaFila, casosEspeciais, filtroStatus, filtroPrioridade, filtroTabulacao, busca, filtroKpi, ordenacao, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, alunosDoCurso, alunosDoSemestre, finAlunosDoRecorte]
   );
   listaFiltradaRef.current = listaFiltrada;
 
@@ -2714,7 +2770,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         : montarListaFiltrada({ ...recorteAtual, filtroPrioridade: "TODAS" })
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [listaFiltrada, filtroPrioridade, casos, casosForaDaFila, casosEspeciais, filtroStatus, filtroTabulacao, busca, filtroKpi, ordenacao, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, finAlunos]
+    [listaFiltrada, filtroPrioridade, casos, casosForaDaFila, casosEspeciais, filtroStatus, filtroTabulacao, busca, filtroKpi, ordenacao, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, alunosDoCurso, alunosDoSemestre, finAlunosDoRecorte]
   );
 
   // A GESTAO CONSEGUE ABRIR A FILA DE UM OPERADOR.
@@ -3526,6 +3582,42 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                   </optgroup>
                 ))}
               </select>
+              {/* CURSO e SEMESTRE (23/10/2026). Dois filtros independentes que
+                  se combinam por interseccao. Nada aqui muda distribuicao,
+                  fidelizacao, criticidade, retorno ou responsavel: sao recorte
+                  de leitura sobre a carteira que o operador ja tem. */}
+              <select
+                style={S.select}
+                value={filtroCurso}
+                onChange={(e) => setFiltroCurso(e.target.value)}
+                disabled={mapaCursoSemestre === null}
+                title={
+                  mapaCursoSemestre === null
+                    ? "Carregando curso e semestre…"
+                    : "Curso do contrato do Prime. Com um semestre escolhido, vale o curso daquele semestre; em “Ambos”, quem trocou de curso aparece nos dois."
+                }
+              >
+                <option value="TODOS">Todos os cursos</option>
+                {CURSOS_CARTEIRA.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              <select
+                style={S.select}
+                value={filtroSemestre}
+                onChange={(e) => setFiltroSemestre(e.target.value)}
+                disabled={mapaCursoSemestre === null}
+                title={
+                  mapaCursoSemestre === null
+                    ? "Carregando curso e semestre…"
+                    : "Competência do título (série do boleto no Prime). Parcela de acordo entra no semestre só quando o acordo é de um semestre único; o que não é atribuível aparece apenas em “Ambos”."
+                }
+              >
+                <option value="AMBOS">Ambos os semestres</option>
+                {SEMESTRES_CARTEIRA.map((sm) => (
+                  <option key={sm} value={sm}>{sm}</option>
+                ))}
+              </select>
               <input
                 style={{ ...S.select, width: 110 }}
                 placeholder="Valor mín."
@@ -3683,7 +3775,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                     <th style={S.th}>Situacao</th>
                     <th style={S.th}>Ult. contato</th>
                     <th style={S.th}>Prox. contato</th>
-                    <th style={S.thNum}>Valor aberto</th>
+                    <th style={S.thNum}>
+                      {filtroSemestre === "AMBOS" ? "Valor aberto" : `Valor ${filtroSemestre}`}
+                    </th>
                     <th style={S.th}>Status</th>
                     <th style={S.th}>Ação rápida</th>
                   </tr>
@@ -3691,7 +3785,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                 <tbody>
                   {listaFiltrada.map((a) => {
                     const sp = statusPrazo(a);
-                    const fa = finAlunos[String(a.id)];
+                    const fa = finAlunosDoRecorte[String(a.id)];
                     const temDet = !!(fa && fa.temDetalhe);
                     const fallback = Number(a.valor_em_aberto || 0);
                     const respCaso = a.responsavel_atual_nome || nomeOperadorPorEmail(a.responsavel_atual_email);
