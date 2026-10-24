@@ -32,7 +32,7 @@ select jsonb_pretty(jsonb_build_object(
                                      where simulacao_id = '437f434b-e781-4357-a5ef-3fcd8e9d4770'
                                        and operador_anterior_email is distinct from operador_novo_email)),
   'ja_registrados_no_lote',   (select count(*) from public.aluno_movimentacoes
-                                where lote_id = '437f434b-e781-4357-a5ef-3fcd8e9d4770'),
+                                where giro_simulacao_id = '437f434b-e781-4357-a5ef-3fcd8e9d4770'),
   'sincronizacao_do_gatilho', (select count(*) from public.aluno_movimentacoes
                                 where tipo = 'REDISTRIBUICAO_SINCRONIZACAO'
                                   and registrado_em between timestamptz '2026-10-16 11:55:00+00'
@@ -47,40 +47,40 @@ select jsonb_pretty(jsonb_build_object(
 
 -- ---------------------------------------------------------------------------
 -- BLOCO 2 -- DEPOIS. O que o backfill tem de ter produzido.
---   linhas = alunos = 3.665 | um tipo so | lote_id em 100% | data original
+--   linhas = alunos = 3.665 | um tipo so | giro_simulacao_id em 100% | data original
 -- ---------------------------------------------------------------------------
 select jsonb_pretty(jsonb_build_object(
   'linhas_do_lote',      (select count(*) from public.aluno_movimentacoes
-                           where lote_id = '437f434b-e781-4357-a5ef-3fcd8e9d4770'),
+                           where giro_simulacao_id = '437f434b-e781-4357-a5ef-3fcd8e9d4770'),
   'alunos_distintos',    (select count(distinct aluno_id) from public.aluno_movimentacoes
-                           where lote_id = '437f434b-e781-4357-a5ef-3fcd8e9d4770'),
+                           where giro_simulacao_id = '437f434b-e781-4357-a5ef-3fcd8e9d4770'),
   'bate_com_a_auditoria',(select count(distinct aluno_id) from public.calibragem_auditoria
                            where simulacao_id = '437f434b-e781-4357-a5ef-3fcd8e9d4770'
                              and evento = 'MOVIMENTACAO_NIVELAMENTO'
                              and operador_anterior_email is distinct from operador_novo_email
                              and aluno_id is not null)
                         = (select count(*) from public.aluno_movimentacoes
-                            where lote_id = '437f434b-e781-4357-a5ef-3fcd8e9d4770'),
+                            where giro_simulacao_id = '437f434b-e781-4357-a5ef-3fcd8e9d4770'),
   'tipos_usados',        (select jsonb_object_agg(tipo, n) from
                            (select tipo, count(*) n from public.aluno_movimentacoes
-                             where lote_id = '437f434b-e781-4357-a5ef-3fcd8e9d4770'
+                             where giro_simulacao_id = '437f434b-e781-4357-a5ef-3fcd8e9d4770'
                              group by tipo) z),
   'origem_declarada',    (select jsonb_build_object(
                              'veio_do_pool', count(*) filter (where operador_anterior_email is null),
                              'trocou_de_operador', count(*) filter (where operador_anterior_email is not null))
                            from public.aluno_movimentacoes
-                           where lote_id = '437f434b-e781-4357-a5ef-3fcd8e9d4770'),
+                           where giro_simulacao_id = '437f434b-e781-4357-a5ef-3fcd8e9d4770'),
   'sem_responsavel_novo',(select count(*) from public.aluno_movimentacoes
-                           where lote_id = '437f434b-e781-4357-a5ef-3fcd8e9d4770'
+                           where giro_simulacao_id = '437f434b-e781-4357-a5ef-3fcd8e9d4770'
                              and operador_novo_email is null),
   'fora_da_data_do_giro',(select count(*) from public.aluno_movimentacoes
-                           where lote_id = '437f434b-e781-4357-a5ef-3fcd8e9d4770'
+                           where giro_simulacao_id = '437f434b-e781-4357-a5ef-3fcd8e9d4770'
                              and (registrado_em < timestamptz '2026-10-16 11:55:00+00'
                                or registrado_em > timestamptz '2026-10-16 13:00:00+00')),
   'aluno_sem_troca_que_entrou', (select count(*) from public.aluno_movimentacoes m
-                           where m.lote_id = '437f434b-e781-4357-a5ef-3fcd8e9d4770'
+                           where m.giro_simulacao_id = '437f434b-e781-4357-a5ef-3fcd8e9d4770'
                              and not exists (select 1 from public.calibragem_auditoria a
-                                              where a.simulacao_id = m.lote_id and a.aluno_id = m.aluno_id
+                                              where a.simulacao_id = m.giro_simulacao_id and a.aluno_id = m.aluno_id
                                                 and a.operador_anterior_email is distinct from a.operador_novo_email))
 )) as depois;
 
@@ -120,7 +120,7 @@ select jsonb_pretty(jsonb_build_object(
   'alteracao_operador_e_acionamento', public.eh_tipo_acionamento('ALTERACAO_OPERADOR'),
   'alunos_do_lote_com_acionamento_hoje', (select count(*) from public.alunos al
      where al.id in (select aluno_id from public.aluno_movimentacoes
-                      where lote_id = '437f434b-e781-4357-a5ef-3fcd8e9d4770')
+                      where giro_simulacao_id = '437f434b-e781-4357-a5ef-3fcd8e9d4770')
        and al.data_ultimo_acionamento = (now() at time zone 'America/Sao_Paulo')::date),
   'casos_do_giro_fora_da_fidelizacao', (select count(*) from public.casos
      where giro_fidelizacao_ate is not null
