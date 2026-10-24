@@ -52,6 +52,9 @@ de criar fallback, consultar este mapa").
   [prime-mapa-identificadores.md](prime-mapa-identificadores.md#vínculo-acadêmico-curso--campus--turno).
 
 - **"NÃO LOCALIZADA"** (estrutura do acordo) é diferente de **"não existe"**.
+  Reconferido em **2026-10-20** na matrícula `232005643` (acordo ATIVO no
+  CRM): extrato sem nenhuma linha do 166, `?carrierId=166` idêntico ao sem
+  filtro, `agreements` vazio nas duas rotas. Detalhe em `prime-gaps.md`.
   A tela do Prime comprova que o dado existe; o que falta é a rota
   estruturada. Ver a formulação obrigatória em
   [prime-api.md](prime-api.md#agreements--acordos-do-aluno).
