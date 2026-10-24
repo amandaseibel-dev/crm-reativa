@@ -1,0 +1,91 @@
+-- BACKFILL DA SAÍDA TERMINAL — ARQUIVO PENDENTE, NÃO EXECUTADO
+-- =============================================================================
+-- Etapa 1 da conciliação inteligente, PASSO SEPARADO. A migration
+-- 20261024170000 cria o estado e a função; este arquivo é o único que MOVE
+-- pagamento, e exige autorização própria da gestão.
+--
+-- NÃO RODAR JUNTO COM A MIGRATION. A extensão `.pendente` é deliberada: nenhum
+-- pipeline o aplica. Quem executa é a gestão, no SQL Editor, com o olho no
+-- resultado.
+--
+-- O QUE ELE FAZ. Chama `conciliacao_encerrar_sem_efeito_financeiro(id, true)`
+-- um pagamento por vez. Não escreve direto em `pagamentos`: passar pela função
+-- é o que garante que CADA transição refez as três conferências e deixou o
+-- mesmo rastro de auditoria. Um UPDATE em lote seria mais curto e provaria
+-- menos.
+--
+-- O QUE ESPERAR, medido em produção em 24/10/2026:
+--
+--   candidatos (decididos, na janela, sem baixa)      33   R$ 83.203,30
+--     RESOLVIDO_AUTOMATICO                            19   R$ 29.278,47
+--     FEITO                                            9   R$ 50.893,76
+--     ENCERRADO_GESTAO                                 5   R$  3.031,07
+--   com parcela apontando                              0
+--   com auditoria `sem_efeito_financeiro`             32
+--
+--   -> 32 encerrados, 1 RECUSADO por SEM_PROVA_DE_DECISAO_SEM_EFEITO.
+--
+-- O ÚNICO RECUSADO É DE PROPÓSITO. É um `RESOLVIDO_AUTOMATICO` sem nenhuma
+-- linha de auditoria: não há como dizer de que caminho veio a decisão. Caso sem
+-- procedência é para uma pessoa olhar, não para entrar no bolo. Ele aparece no
+-- relatório final com o motivo nomeado.
+--
+-- `pendentes` da rodada: 455 -> 423 (455 menos os 32 encerrados).
+--
+-- REVERSÃO: 20261024170000_backfill_saida_terminal.rollback.sql, que devolve
+-- cada pagamento ao status que a auditoria registra, por id exato. Este projeto
+-- NÃO tem PITR -- a reversão por SQL é a única que existe.
+-- =============================================================================
+
+begin;
+
+-- A porta da função é `usuario_e_gestao()`, que lê `auth.jwt()`. No SQL Editor
+-- não há JWT: a claim é posta aqui, TRANSACIONAL (`true` no terceiro
+-- argumento), e morre com o commit. Trocar o e-mail pelo de quem está
+-- executando -- a autoria vai para a auditoria de cada transição.
+select set_config('request.jwt.claims',
+                  '{"email":"amanda.seibel@aelbra.com.br"}', true);
+
+create temporary table _saida_terminal_lote on commit drop as
+select p.id as pagamento_id,
+       p.status_conciliacao as status_antes,
+       p.valor_pago,
+       f.decisao
+  from public.pagamentos p
+  join public.fila_pagamento_sem_vinculo f on f.pagamento_id = p.id
+ where p.status_conciliacao is not null
+   and p.status_conciliacao <> 'BAIXADO'
+   and p.status_conciliacao <> 'ENCERRADO_SEM_EFEITO_FINANCEIRO'
+   and f.decisao in ('FEITO','RESOLVIDO_AUTOMATICO','ENCERRADO_GESTAO')
+   and f.decidido_em is not null
+ order by f.decidido_em, p.id;
+
+create temporary table _saida_terminal_resultado on commit drop as
+select l.pagamento_id, l.status_antes, l.valor_pago, l.decisao,
+       public.conciliacao_encerrar_sem_efeito_financeiro(l.pagamento_id, true) as retorno
+  from _saida_terminal_lote l;
+
+-- O RELATÓRIO. Ler antes do commit: se não fechar com o esperado, `rollback`.
+select coalesce(retorno ->> 'motivo', retorno ->> 'modo') as desfecho,
+       count(*) as itens,
+       round(sum(valor_pago)::numeric, 2) as valor
+  from _saida_terminal_resultado
+ group by 1
+ order by 2 desc;
+
+select pagamento_id, status_antes, decisao, retorno ->> 'motivo' as recusa
+  from _saida_terminal_resultado
+ where coalesce((retorno ->> 'gravou')::boolean, false) is false
+ order by pagamento_id;
+
+select count(*) filter (where status_conciliacao = 'ENCERRADO_SEM_EFEITO_FINANCEIRO') as terminais,
+       count(*) filter (where status_conciliacao is not null
+                          and status_conciliacao not in ('BAIXADO','ENCERRADO_SEM_EFEITO_FINANCEIRO')) as pendentes_depois
+  from public.pagamentos;
+
+-- Esperado: desfecho CONFIRMADO = 32, SEM_PROVA_DE_DECISAO_SEM_EFEITO = 1,
+-- terminais = 32, pendentes_depois = 423.
+--
+-- COMMIT SÓ DEPOIS DE CONFERIR OS TRÊS RESULTADOS ACIMA.
+-- commit;
+rollback;
