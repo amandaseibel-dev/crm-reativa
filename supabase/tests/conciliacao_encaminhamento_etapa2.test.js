@@ -132,8 +132,14 @@ async function novoBanco() {
       motivo text, observacao text, status_conciliacao text, valor_pago numeric, boleto text,
       subcategoria text, sugestoes jsonb default '[]'::jsonb);
 
+    -- A coluna de data chama-se created_at em producao (conferido no catalogo em
+    -- 26/10/2026), e nao criado_em -- o resto da tabela usa nomes em portugues, e
+    -- e dai que vinha a confusao. A bancada dizia criado_em: divergencia sem
+    -- efeito no comportamento (a migration insere sem nomear essa coluna e
+    -- nenhuma assercao a le), mas bancada que nao espelha o catalogo e a semente
+    -- do proximo 42703.
     create table public.auditoria (id bigserial primary key, usuario text, acao text,
-      tabela_afetada text, registro_id uuid, detalhes jsonb, criado_em timestamptz default now());
+      tabela_afetada text, registro_id uuid, detalhes jsonb, created_at timestamptz default now());
 
     -- O PORTÃO REAL: allowlist de três e-mails, igual à produção.
     create function public.usuario_e_gestao() returns boolean language sql stable

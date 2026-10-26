@@ -27,10 +27,16 @@
 --
 -- COMO ENCONTRAR O QUE PASSOU PELA PORTA, se for preciso reverter:
 --
---   select registro_id, detalhes -> 'passo_2', criado_em
+--   select registro_id, detalhes -> 'passo_2', created_at
 --     from public.auditoria
 --    where acao = 'CONCILIACAO_ENCAMINHAMENTO'
---    order by criado_em;
+--    order by created_at;
+--
+-- A coluna de data de `public.auditoria` chama-se `created_at`. Esta query
+-- dizia `criado_em` e falharia com 42703 em quem a copiasse -- corrigido em
+-- 26/10/2026, depois de conferir o catalogo em producao. O resto da tabela usa
+-- nomes em portugues (`usuario`, `acao`, `tabela_afetada`, `registro_id`,
+-- `detalhes`), e e dai que vinha a confusao.
 --
 -- A tela que chamava estas funções para de funcionar com este rollback, e é o
 -- comportamento certo: botão sem função atrás é pior que botão ausente. O
