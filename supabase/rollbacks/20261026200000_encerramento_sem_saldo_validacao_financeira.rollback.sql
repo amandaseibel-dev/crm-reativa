@@ -99,6 +99,7 @@ $patch$;
 
 -- 4. Sai o que escreve e o que decide.
 drop function if exists public.caso_encerramento_resolver(uuid,text,text);
+drop function if exists public.caso_encerramento_resolver_aluno(uuid,text,text);
 drop function if exists public.caso_encerrado_operacional(uuid,uuid,text,text,text,text,text);
 drop function if exists public._caso_encerrado_operacional_regra(uuid,uuid,text,text,text,text,text);
 drop function if exists public._caso_sem_saldo_conferido(uuid,text);

@@ -511,6 +511,105 @@ describe("escopo aluno: os sete consumidores que passam alunos.*", () => {
   });
 });
 
+// ============================================================ porta do aluno
+describe("porta de saida do escopo ALUNO (os 240 sem saida)", () => {
+  // O retrato dos 240 medidos em producao: o ALUNO carrega o texto e tem divida,
+  // mas o caso dele esta ATIVO -- entao nasce registro de escopo ALUNO e NENHUM
+  // de escopo CASO. Era exatamente esse grupo que `caso_encerramento_resolver`
+  // nao conseguia alcancar: R$ 316.692,09 sem verbo nenhum capaz de decidir.
+  const soAluno = async (db, n) => {
+    const c = await cenario(db, n, {
+      divida: 2000, encerrado: false, statusAtual: "Em cobrança",
+      statusAcionamento: "MENSAGEM_ENVIADA", statusJornada: "Em cobrança",
+      alunoStatus: "SEM_SALDO_EM_ABERTO", alunoJornada: "SEM_SALDO_EM_ABERTO",
+      alunoAcionamento: "SEM_SALDO_EM_ABERTO" });
+    return c;
+  };
+  const predicadoAluno = async (db, aluno) =>
+    (await q1(db, `select public.caso_encerrado_operacional(a.cpf, a.status_atual, a.status_acionamento,
+                          null::text, a.status_jornada) r from public.alunos a where a.id = $1`, [aluno])).r;
+
+  it("o verbo por CASO nao alcanca: e o bloqueio que esta correcao fecha", async () => {
+    const db = await abrir(ANTES);
+    const c = await soAluno(db, 70);
+    await db.exec(MIGRATION);
+    const t = await q(db, `select escopo from public.caso_encerramento_sem_saldo
+                            where aluno_id = $1 order by escopo`, [c.aluno]);
+    expect(t.map((x) => x.escopo)).toEqual(["ALUNO"]); // nenhum registro de CASO
+
+    await como(db, GESTAO);
+    const r = (await q1(db, `select public.caso_encerramento_resolver($1,'MANTER_ENCERRADO',$2) r`,
+      [c.caso, JUST])).r;
+    expect(r).toMatchObject({ ok: false, erro: "SEM_REGISTRO_VIGENTE" });
+  });
+
+  it("o verbo por ALUNO resolve: MANTER renova com autor, data e justificativa", async () => {
+    const db = await abrir(ANTES);
+    const c = await soAluno(db, 71);
+    await db.exec(MIGRATION);
+    await como(db, GESTAO);
+    const r = (await q1(db, `select public.caso_encerramento_resolver_aluno($1,'MANTER_ENCERRADO',$2) r`,
+      [c.aluno, "aluno em tratativa institucional, nao cobrar por ora"])).r;
+    expect(r).toMatchObject({ ok: true, congelamento: "RENOVADO" });
+
+    const t = await q(db, `select classificacao, decidido_por, decidido_em, resolvido_em, resolvido_por
+                             from public.caso_encerramento_sem_saldo
+                            where aluno_id = $1 and escopo = 'ALUNO' order by id`, [c.aluno]);
+    expect(t).toHaveLength(2);
+    expect(t[0].resolvido_por).toBe(GESTAO);
+    expect(t[1]).toMatchObject({ classificacao: "MANTIDO_PELA_GESTAO", decidido_por: GESTAO });
+    expect(t[1].decidido_em).not.toBeNull();
+    expect(await predicadoAluno(db, c.aluno)).toBe(true); // segue congelado
+  });
+
+  it("DEVOLVER retira o congelamento e o predicado de nivel aluno diz a verdade", async () => {
+    const db = await abrir(ANTES);
+    const c = await soAluno(db, 72);
+    await db.exec(MIGRATION);
+    expect(await predicadoAluno(db, c.aluno)).toBe(true);
+
+    await como(db, GESTAO);
+    const r = (await q1(db, `select public.caso_encerramento_resolver_aluno($1,'DEVOLVER_A_COBRANCA',$2) r`,
+      [c.aluno, JUST])).r;
+    expect(r).toMatchObject({ ok: true, congelamento: "RETIRADO" });
+    expect(await predicadoAluno(db, c.aluno)).toBe(false);
+    // e nao reabriu caso nenhum: o caso dele ja estava ativo e segue como estava
+    expect(await q1(db, `select encerrado_operacional e from public.casos where id=$1`, [c.caso]))
+      .toMatchObject({ e: false });
+  });
+
+  it("exige gestao, identidade e justificativa de verdade", async () => {
+    const db = await abrir(ANTES);
+    const c = await soAluno(db, 73);
+    await db.exec(MIGRATION);
+
+    await como(db, OP1);
+    await expect(db.query(`select public.caso_encerramento_resolver_aluno($1,'MANTER_ENCERRADO',$2)`, [c.aluno, JUST]))
+      .rejects.toThrow(/decisao da gestao/);
+    await como(db, null, "service_role");
+    await expect(db.query(`select public.caso_encerramento_resolver_aluno($1,'MANTER_ENCERRADO',$2)`, [c.aluno, JUST]))
+      .rejects.toThrow(/AUTORIA_OBRIGATORIA/);
+    await como(db, GESTAO);
+    await expect(db.query(`select public.caso_encerramento_resolver_aluno($1,'MANTER_ENCERRADO',$2)`, [c.aluno, "curto"]))
+      .rejects.toThrow(/JUSTIFICATIVA_OBRIGATORIA/);
+    await expect(db.query(`select public.caso_encerramento_resolver_aluno($1,'INVENTADA',$2)`, [c.aluno, JUST]))
+      .rejects.toThrow(/DECISAO_INVALIDA/);
+
+    expect(await q(db, `select 1 from public.caso_encerramento_sem_saldo
+                         where aluno_id=$1 and resolvido_em is not null`, [c.aluno])).toHaveLength(0);
+  });
+
+  it("aluno sem registro vigente devolve SEM_REGISTRO_VIGENTE", async () => {
+    const db = await abrir(ANTES);
+    const c = await cenario(db, 74); // sem divida: nao congela
+    await db.exec(MIGRATION);
+    await como(db, GESTAO);
+    const r = (await q1(db, `select public.caso_encerramento_resolver_aluno($1,'MANTER_ENCERRADO',$2) r`,
+      [c.aluno, JUST])).r;
+    expect(r).toMatchObject({ ok: false, erro: "SEM_REGISTRO_VIGENTE" });
+  });
+});
+
 // ============================================================ chave de CPF
 describe("a chave de CPF nao contamina caso ativo do mesmo CPF", () => {
   it("caso ATIVO que compartilha CPF com aluno congelado NAO e congelado", async () => {

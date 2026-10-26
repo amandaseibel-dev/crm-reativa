@@ -327,9 +327,20 @@ grant execute on function public._caso_encerrado_operacional_regra(uuid,uuid,tex
 -- 5. CONGELAMENTO, calculado com o predicado ANTIGO ainda no lugar.
 --
 -- Grava um registro para todo alvo cuja resposta mudaria -- nos DOIS escopos.
--- Por isso a resposta do predicado nao muda para ninguem no dia da aplicacao,
--- e nenhum caso ou aluno fica disponivel para fila, carteira, distribuicao ou
--- acao massiva por causa desta migration.
+--
+-- ALCANCE EXATO, medido, sem arredondar para o lado bonito: a resposta do
+-- predicado continua igual para todos os alvos que a assinatura de 5 argumentos
+-- consegue achar -- isto e, os que tem CPF utilizavel ou chegam pela sobrecarga
+-- de 7 argumentos. Ela MUDA para os 56 casos que nao tem `aluno_id` NEM CPF
+-- utilizavel: o registro deles existe (a chave e `caso_id`), mas a assinatura
+-- de 5 argumentos nao recebe `caso_id` e portanto nao os alcanca. Esses 56
+-- passam a responder "nao encerrado", o que e a regra funcionando -- aluno
+-- indeterminado e situacao nao comprovada --, e NAO ficam disponiveis:
+-- `fila_casos_sem_responsavel` faz INNER JOIN com `alunos`, `assumir_caso_livre`
+-- exige saldo > 0 (e com CPF vazio o saldo sai 0), `acoes_massivas_universo`
+-- monta o universo de `alunos`, e o cron 8 e o reabridor os seguram pela guarda
+-- por `caso_id`. Nenhum caso ou aluno fica disponivel para fila, carteira,
+-- distribuicao ou acao massiva por causa desta migration.
 --
 -- NAO INVENTA INFORMACAO AUSENTE: quem classificou o alvo originalmente e
 -- quando nao consta em registro nenhum (nos 2.895 casos do atalho, zero tem
@@ -589,6 +600,95 @@ end;
 $function$;
 
 grant execute on function public.caso_encerramento_resolver(uuid,text,text) to authenticated, service_role;
+
+-- A PORTA DE SAIDA DO ESCOPO ALUNO.
+--
+-- `caso_encerramento_resolver` acha o registro por `caso_id and escopo = 'CASO'`.
+-- Medido em producao: dos 243 alvos de aluno, so 3 tem um caso que tambem e
+-- alvo de escopo CASO -- os outros 240 (R$ 316.692,09) apareciam em
+-- `caso_encerramento_pendentes` e NENHUMA funcao conseguia resolve-los, nem
+-- manter nem devolver. Isso contradizia a justificativa que a propria migration
+-- grava em cada linha ("a gestao decide caso a caso") em 69% dos registros que
+-- ela cria, e recriava o padrao que esta correcao existe para desfazer: divida
+-- real, fora das filas, sem ninguem capaz de agir.
+--
+-- Devolver aqui NAO reabre caso nenhum: retira o congelamento do ALUNO, e com
+-- isso o aluno volta a ser avaliado pela conferencia financeira nos sete
+-- consumidores que passam `alunos.*`. Quem devolve caso e
+-- `casos_reabrir_com_divida`, com as travas dele.
+create or replace function public.caso_encerramento_resolver_aluno(
+  p_aluno_id      uuid,
+  p_decisao       text,
+  p_justificativa text
+) returns jsonb
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+declare
+  v_email text := lower(coalesce(auth.jwt() ->> 'email', ''));
+  v_just  text := nullif(btrim(coalesce(p_justificativa,'')), '');
+  v_e     public.caso_encerramento_sem_saldo%rowtype;
+  v_a     public.alunos%rowtype;
+  v_saldo numeric;
+begin
+  -- AUTORIA ANTES DE PERMISSAO, mesma regra do verbo de caso.
+  if length(coalesce(v_email,'')) = 0 then
+    raise exception 'AUTORIA_OBRIGATORIA: resolver exige identidade (e-mail no token).' using errcode = '42501';
+  end if;
+  if not coalesce(public.usuario_e_gestao(), false)
+     and coalesce(auth.role(),'') <> 'service_role' then
+    raise exception 'Encerramento por ausencia de saldo e decisao da gestao.' using errcode = '42501';
+  end if;
+  if coalesce(p_decisao,'') not in ('MANTER_ENCERRADO','DEVOLVER_A_COBRANCA') then
+    raise exception 'DECISAO_INVALIDA: use MANTER_ENCERRADO ou DEVOLVER_A_COBRANCA.';
+  end if;
+  if length(coalesce(v_just,'')) < 15 then
+    raise exception 'JUSTIFICATIVA_OBRIGATORIA: diga por que (minimo 15 caracteres).';
+  end if;
+
+  select * into v_a from public.alunos where id = p_aluno_id for update;
+  if not found then
+    raise exception 'ALUNO_NAO_ENCONTRADO';
+  end if;
+
+  select * into v_e from public.caso_encerramento_sem_saldo
+   where aluno_id = p_aluno_id and escopo = 'ALUNO' and resolvido_em is null for update;
+  if not found then
+    return jsonb_build_object('ok', false, 'erro', 'SEM_REGISTRO_VIGENTE', 'aluno_id', p_aluno_id);
+  end if;
+
+  v_saldo := round(coalesce((public.aluno_saldo_pendente_detalhe(p_aluno_id)->>'total')::numeric, 0), 2);
+
+  update public.caso_encerramento_sem_saldo
+     set resolvido_em = now(), resolvido_por = v_email
+   where id = v_e.id;
+
+  if p_decisao = 'MANTER_ENCERRADO' then
+    insert into public.caso_encerramento_sem_saldo
+      (escopo, aluno_id, cpf_congelado, classificacao, saldo_no_momento, estado_anterior,
+       justificativa, decidido_por, decidido_em, origem, evidencia)
+    values ('ALUNO', p_aluno_id, v_e.cpf_congelado, 'MANTIDO_PELA_GESTAO', v_saldo,
+            jsonb_build_object(
+              'status_atual', v_a.status_atual, 'status_acionamento', v_a.status_acionamento,
+              'status_jornada', v_a.status_jornada, 'responsavel_atual_email', v_a.responsavel_atual_email),
+            v_just, v_email, now(), 'GESTAO',
+            jsonb_build_object('registro_anterior', v_e.id, 'classificacao_anterior', v_e.classificacao));
+  end if;
+
+  insert into public.auditoria (usuario, acao, tabela_afetada, registro_id, detalhes)
+  values (v_email, 'ALUNO_ENCERRAMENTO_SEM_SALDO_RESOLVIDO', 'alunos', p_aluno_id,
+          jsonb_build_object('decisao', p_decisao, 'justificativa', v_just,
+                             'classificacao_anterior', v_e.classificacao,
+                             'saldo_no_momento', v_saldo, 'registro', v_e.id));
+
+  return jsonb_build_object('ok', true, 'decisao', p_decisao, 'aluno_id', p_aluno_id,
+                            'saldo_no_momento', v_saldo,
+                            'congelamento', case when p_decisao = 'MANTER_ENCERRADO' then 'RENOVADO' else 'RETIRADO' end);
+end;
+$function$;
+
+grant execute on function public.caso_encerramento_resolver_aluno(uuid,text,text) to authenticated, service_role;
 
 create or replace function public.caso_encerramento_pendentes(p_limite integer default 200)
 returns table(escopo text, caso_id uuid, aluno_id uuid, aluno_nome text, classificacao text,
