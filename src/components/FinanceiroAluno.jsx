@@ -10,6 +10,11 @@ import { podeGerirFinanceiro, nomeOperadorPorEmail, OPERADORES_POR_EMAIL } from 
 // caminho proprio foi como nasceram 88 acordos duplicados na mao.
 import { lancarAcordo, gerarParcelas as gerarParcelasAcordo } from "../utils/lancarAcordo";
 import { parcelaViva } from "../utils/parcelaStatus";
+// O aviso do cancelamento sai do DESFECHO que a RPC devolve, nao de um texto
+// fixo. Ver src/utils/desfechoCancelamento.js: "Acordo cancelado." indistinto
+// fazia o operador concluir que a divida havia voltado a ficar negociavel
+// mesmo quando nenhum vinculo foi tratado.
+import { mensagemCancelamento } from "../utils/desfechoCancelamento";
 // Valor cobravel ajustado: a formula e a permissao moram em um lugar so.
 // Ver src/utils/ajusteValor.js -- o backend continua sendo quem recusa.
 import {
@@ -804,7 +809,7 @@ export default function FinanceiroAluno({ aluno }) {
     // cancela em vez de apagar) e o caso é liberado da carteira ativa. As
     // duas travas de cima (parcela paga / baixa viva) são conferidas de novo
     // no banco, no momento da gravação.
-    const { error: erroCancelar } = await supabase.rpc("cancelar_acordo_ficha", {
+    const { data: desfecho, error: erroCancelar } = await supabase.rpc("cancelar_acordo_ficha", {
       p_acordo_id: acordo.id,
     });
 
@@ -814,7 +819,12 @@ export default function FinanceiroAluno({ aluno }) {
     }
 
     setRecarga((r) => r + 1);
-    alert("Acordo cancelado.");
+    // O texto vem do desfecho medido no banco: cancelamento efetivo, ausencia
+    // de composicao (nenhum vinculo tratado -- nada voltou para em aberto) ou
+    // mensalidade quitada que sobrou presa ao acordo e precisa de conferencia.
+    // Enquanto a migration da E5 nao for aplicada, o retorno nao traz
+    // `desfecho` e o texto cai no "Acordo cancelado." de sempre.
+    alert(mensagemCancelamento(desfecho));
   }
 
   // ---- Montar novo acordo (direto na ficha) ----
