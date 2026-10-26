@@ -41,6 +41,77 @@ negar() {
   exit 2
 }
 
+# ----------------------------------------------------------------------------
+# FASE 2 — BANCO. Libera APENAS Edit/Write/NotebookEdit de migration, e apenas
+# no worktree e na branch que a gestão nomeou em REATIVA_FASE2_BANCO no
+# LANÇAMENTO desta sessão. Consultada em UM lugar só: P3/migration.
+#
+# ESCRITA POR SHELL NÃO É LIBERADA EM NENHUMA HIPÓTESE. R5/migration segue
+# integral, porque o comando não revela o destino da escrita e o CWD vem do
+# payload. Esta função não é chamada de lá.
+#
+# POR QUE VARIÁVEL DE AMBIENTE, e não arquivo: o agente não escreve o ambiente
+# deste processo -- o hook é processo irmão, criado pelo harness, e estado de
+# shell não atravessa chamadas de ferramenta. Posta em arquivo lido pelo
+# lançador (.claude/settings.json), a autorização voltaria a ser forjável; por
+# isso aquele arquivo passou a ser protegido em P2.
+#
+# NÃO libera aplicação: M1, R9, a regra do CLI, R4, R7 e o deny versionado não
+# consultam esta função.
+#
+# FAIL-CLOSED: variável ausente, malformada, git ilegível, caminho
+# indeterminado, destino fora da pasta de migrations = NEGA.
+fase2_liberada() {
+  local alvo="${1:-}" aut="${REATIVA_FASE2_BANCO:-}"
+  [ -n "$alvo" ] && [ -n "$aut" ] || return 1
+  case "$aut" in *'|'*) ;; *) return 1 ;; esac
+  # EXATAMENTE dois campos. `${aut##*|}` pegaria o ÚLTIMO campo e engoliria em
+  # silêncio o do meio de "raiz|lixo|branch", então a checagem é no RESTO.
+  local raiz_aut="${aut%%|*}" br_aut="${aut#*|}"
+  case "$br_aut" in *'|'*) return 1 ;; esac
+  [ -n "$raiz_aut" ] && [ -n "$br_aut" ] || return 1
+
+  # CAMINHO REAL DO ARQUIVO. Resolve link simbólico no diretório que o contém;
+  # o arquivo pode ainda não existir (é uma criação), o diretório tem de existir.
+  local dir
+  dir="$(cd "$(dirname "$alvo")" 2>/dev/null && pwd -P)" || return 1
+
+  git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
+  local raiz br gd gcd
+  raiz="$(cd "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null && pwd -P)" || return 1
+  br="$(git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null)" || return 1
+  [ -n "$raiz" ] && [ -n "$br" ] || return 1
+
+  # SÓ EM WORKTREE VINCULADO, nunca no checkout principal. Num worktree o
+  # git-dir é .git/worktrees/<nome> e difere do git-common-dir; no principal
+  # os dois coincidem. Sem caminho fixo no código.
+  # `--path-format=absolute` É OBRIGATÓRIO: no checkout principal o git devolve
+  # `--git-common-dir` RELATIVO (`../../.git`), e resolvê-lo com `cd` o
+  # interpretaria contra o diretório do PROCESSO DO HOOK, não contra $dir --
+  # fazendo gd != gcd passar espúrio e liberar o checkout de produção.
+  gd="$(git -C "$dir" rev-parse --path-format=absolute --git-dir 2>/dev/null)" || return 1
+  gcd="$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 1
+  [ -n "$gd" ] && [ -n "$gcd" ] || return 1
+  # `cd ""` devolve 0 em bash: os -n acima são o que impede o passe silencioso.
+  gd="$(cd "$gd" 2>/dev/null && pwd -P)" || return 1
+  gcd="$(cd "$gcd" 2>/dev/null && pwd -P)" || return 1
+  [ -n "$gd" ] && [ -n "$gcd" ] && [ "$gd" != "$gcd" ] || return 1
+
+  # DESTINO DENTRO DA PASTA DE MIGRATIONS do próprio worktree, pelo caminho
+  # real: barra `..`, link que escapa e homônimo em outro lugar da árvore.
+  local pasta
+  pasta="$(cd "$raiz/supabase/migrations" 2>/dev/null && pwd -P)" || return 1
+  [ "$dir" = "$pasta" ] || return 1
+
+  # resolve link simbólico também no lado da autorização, antes de comparar
+  local raiz_aut_r
+  raiz_aut_r="$(cd "$raiz_aut" 2>/dev/null && pwd -P)" || return 1
+
+  [ "$br" != "main" ] && [ "$br" != "master" ] || return 1
+
+  [ "$raiz" = "$raiz_aut_r" ] && [ "$br" = "$br_aut" ]
+}
+
 PAYLOAD="$(cat 2>/dev/null)" || PAYLOAD=""
 
 # ----------------------------------------------------------------------------
@@ -220,20 +291,38 @@ avaliar_caminho() {
   local p="$1" origem="$2"
   local rel="${p#"$CWD"/}"
 
+  # TODO PADRÃO TEM O PAR ABSOLUTO. `rel` só fica relativo quando o caminho
+  # começa exatamente com "$CWD/": com caminho absoluto de outro checkout, ou do
+  # mesmo repositório visto de uma subpasta, `rel` segue absoluto e o padrão
+  # relativo sozinho NÃO casa -- a escrita escapava de todas estas regras.
+  # Achado do caso F11 e da auditoria do Guardião de 26/10/2026.
   case "$rel" in
-    supabase/ledger/*)
+    supabase/ledger/*|*/supabase/ledger/*)
       negar "P1/ledger" "[$origem] $rel — o ledger é prova byte a byte; editar quebra o md5." "nenhum" ;;
-    .claude/settings.local.json)
+    .claude/settings.local.json|*/.claude/settings.local.json)
       negar "P2/permissoes" "[$origem] Este arquivo não é versionado: mudança nele é invisível na revisão." "você edita à mão" ;;
-    supabase/migrations/*)
-      negar "P3/migration" "[$origem] Nesta fase nenhum agente escreve migration." "propor o SQL no chat" ;;
-    .git/*)
+    .claude/settings.json|*/.claude/settings.json)
+      # Carrega o deny/ask e o bloco `env` da sessão: alterá-lo é conceder
+      # permissão a si mesmo, inclusive a autorização da Fase 2 de Banco.
+      # Antes só R5/desarme o protegia, e apenas no caminho shell.
+      negar "P2/permissoes-versionadas" \
+        "[$origem] Este arquivo carrega o deny/ask e o ambiente da sessão: alterá-lo é conceder permissão a si mesmo." \
+        "você edita, com revisão em diff" ;;
+    supabase/migrations/*|*/supabase/migrations/*)
+      # O segundo padrão cobre caminho ABSOLUTO fora do $CWD: `rel` continua
+      # absoluto e o padrão relativo sozinho não casava, então uma escrita em
+      # outro worktree escapava de P3 sem nem consultar o portão (achado do
+      # caso F11 do autoteste).
+      fase2_liberada "$p" || negar "P3/migration" \
+        "[$origem] $rel — Fase 2 de Banco não autorizada para este worktree e branch." \
+        "propor o SQL no chat, ou a gestão lançar a sessão com REATIVA_FASE2_BANCO" ;;
+    .git/*|*/.git/*)
       negar "P4/git-interno" "[$origem] Escrita dentro de .git/." "comandos git normais" ;;
   esac
 
   # P5 — nome de migration que a catraca do CI reprovaria (antecipa o erro).
   case "$rel" in
-    supabase/migrations/*__*.sql)
+    supabase/migrations/*__*.sql|*/supabase/migrations/*__*.sql)
       negar "P5/nome-ledger" "[$origem] Arquivo com '__' dentro de migrations/ é padrão de LEDGER; a catraca reprova." "nome <14 dígitos>_<descricao>.sql" ;;
   esac
 

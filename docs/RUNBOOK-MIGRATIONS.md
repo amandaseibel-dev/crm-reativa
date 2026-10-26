@@ -148,3 +148,96 @@ caminho. Autorizar a mudança e destravar a ferramenta são coisas diferentes. Q
 gestão autoriza algo que uma regra técnica ainda barra, o caminho é a própria gestão
 gravar o arquivo ou liberar nominalmente aquela gravação — nunca o agente desarmar a
 regra para cumprir a ordem.
+
+---
+
+## 9. Fase 2 de Banco — desenvolver migration sob autorização nominal
+
+Implementada em 26/10/2026. Substitui o bloqueio total de desenvolvimento por um
+portão estreito, **sem tocar nenhum bloqueio de aplicação**.
+
+### O que ela libera, e só isso
+
+`Write` e `Edit` de migration, no **worktree vinculado** e na **branch** que a gestão
+nomeou. Nada mais.
+
+- **Escrita por shell continua sempre barrada** (`R5/migration`), com a Fase 2 aberta ou
+  fechada: o comando não revela o destino da escrita, e o diretório corrente vem do
+  payload. O portão não é consultado nessa regra.
+- O destino tem de ser, pelo **caminho real resolvido**, a pasta de migrations daquele
+  worktree. Subpasta, `..` que escapa e link simbólico apontando para fora são recusados.
+- `main` e `master` são recusadas mesmo se nomeadas. O **checkout principal** é recusado
+  mesmo se nomeado — a liberação exige worktree vinculado, detectado por o git-dir
+  diferir do git-common-dir, sem caminho fixo no código.
+- Nome com `__` segue reprovado (`P5`), porque é qualidade de nome e não permissão.
+
+### Como autorizar, e por que não é arquivo
+
+A autorização é a variável `REATIVA_FASE2_BANCO`, definida **no lançamento da sessão**,
+com o valor `<raiz-do-worktree>|<branch>`.
+
+Não é arquivo de propósito. O agente não escreve o ambiente do processo do hook — ele é
+processo irmão, criado pelo harness, e estado de shell não atravessa chamadas de
+ferramenta (medido: variável exportada numa chamada vem vazia na seguinte). Um arquivo no
+repositório seria forjável: o detector de escrita por shell não cobre todo interpretador.
+
+**Não coloque a variável em arquivo do repositório.** No bloco `env` do settings.json
+versionado ela voltaria a ser forjável — por isso esse arquivo passou a ser protegido
+contra agentes (`P2/permissoes-versionadas`), fechando um furo que existia antes: só o
+caminho shell o protegia.
+
+Como é por processo, **a autorização não acompanha outra sessão** e cai ao encerrar esta.
+Para revogar antes: encerre a sessão. Executor único sai disso de graça.
+
+### O que ela não muda
+
+`apply_migration`, `db push`, `db reset`, `migration repair`, `migration up`, deploy,
+merge, `git push`, `psql` de produção, escrita no ledger e nas permissões: **todos
+seguem barrados**, com a Fase 2 aberta. São 12 casos do autoteste que provam isso
+justamente com o portão aberto.
+
+O portão é consultado em **um lugar só**, sobre escrita de arquivo. Nenhuma regra de
+execução o chama. Aplicar migration continua exigindo autorização específica da gestão,
+pelo procedimento das seções 6 e 7.
+
+### Limite conhecido, registrado e não escondido
+
+Nenhuma regra de caminho barra `Write`/`Edit` no **próprio arquivo do Guardião**. O
+caminho shell é barrado (`R7/auto-desarme`), o de edição não. A proteção hoje é a revisão
+do diff pela gestão — foi assim que esta própria mudança entrou. Fechar isso exigiria
+decidir como a gestão autoriza uma alteração legítima do hook, e não foi feito aqui.
+
+### Fase 2 não cria agente
+
+O agente de Banco da Fase 2 continua não existindo, e o portão não depende dele: quem
+desenvolve a migration é a sessão executora, sob autorização nominal, com o Guardião e
+este runbook no lugar.
+
+### O que a auditoria do Guardião derrubou, antes de isto entrar
+
+A primeira versão deste portão foi **REPROVADA** pelo Guardião em 26/10/2026, com
+defeitos reproduzidos — não hipóteses. Ficam registrados porque são a razão de o código
+estar como está:
+
+1. **O checkout principal era liberável quando nomeado.** No checkout principal o git
+   devolve `--git-common-dir` **relativo** (`../../.git`), e resolvê-lo com `cd`
+   interpretava o caminho contra o diretório do **processo do hook**, não contra o
+   diretório do arquivo. Bastava o processo rodar de um lugar onde `../../.git` existisse
+   para `git-dir != git-common-dir` passar espúrio. Corrigido com
+   `rev-parse --path-format=absolute`. O teste antigo passava por acidente de diretório:
+   agora o caso varia o diretório do processo de propósito (F29, F30).
+2. **Valor malformado não era negado.** `${aut##*|}` pega o último campo, então
+   `raiz|lixo|branch` passava com o campo do meio engolido em silêncio. A checagem
+   mudou para o resto da cadeia (F31).
+3. **A proteção que sustenta o portão não cobria caminho absoluto.** A regra das
+   permissões só casava o settings versionado por caminho **relativo**: por caminho
+   absoluto, ou visto de uma subpasta, a escrita escapava — e aquele arquivo tem bloco
+   `env`, que é exatamente a porta de injeção da autorização. A mesma lacuna existia nas
+   regras do ledger, do settings local, de `.git/` e do nome de migration, de antes
+   desta mudança. Todas as cinco ganharam o par absoluto (F32–F37).
+4. **`cd ""` devolve 0 em bash.** Toda saída de `git` passou a ser testada com `-n`
+   antes de ser usada.
+
+O limite declarado acima — `Write`/`Edit` no próprio arquivo do Guardião não é barrado
+por regra de caminho — segue aberto e **não** foi corrigido aqui. Na Camada 0 ele está
+em `ask`; o freio é a revisão do diff.
