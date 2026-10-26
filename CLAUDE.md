@@ -29,6 +29,11 @@ aparente, o item 2 diz como resolver.
 8. responder de forma objetiva: resultado, testes, bloqueios **reais** e a
    próxima decisão necessária
 
+**Evolução posterior desta diretriz.** Criar agente ou skill novos é possível
+quando houver **ganho comprovado** e **nenhuma duplicação** do que já existe —
+medido contra o inventário do item 1. O item 5 segue sendo a porta: a
+necessidade é demonstrada antes, e a criação é autorizada, não presumida.
+
 ## Integração Prime/ULBRA
 
 **ANTES DE QUALQUER ALTERAÇÃO, INVESTIGAÇÃO OU IMPLEMENTAÇÃO relacionada ao
