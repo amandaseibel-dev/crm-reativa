@@ -9,13 +9,17 @@ de criar fallback, consultar este mapa").
 | CPF do aluno | Prime | `student_composite` → `registrationData.cpf` | `registration` | SIM |
 | Nome (como a pessoa é chamada) | Prime | `registrationData.socialName` (prioridade) ou `.fullName` | `registration` | SIM — `socialName` primeiro |
 | Telefone / endereço / e-mail | Prime | `registrationData.phones[]` / `.address` / `.email` | `registration` | SIM, só complementa (nunca sobrescreve o que já existe) |
-| Curso, campus, turno, situação acadêmica | Prime | `student_composite` (topo) e `contracts[]` | `registration` | SIM |
-| Contrato vigente (aluno estuda hoje?) | Prime | `contracts[]` sem `cancelledAt` e `validTo >= hoje` | `registration` | SIM |
+| Curso, campus, turno | Prime | `students_search` `items[]` e `contracts[]` do `student_composite` | `registration` | SIM |
+| **Situação acadêmica** (Formado/Trancado/Cancelado/…) | Prime | **`students_search` → `items[].status` — e SÓ aí.** O `student_composite` NÃO traz situação: suas chaves de topo são apenas `registrationData`, `contracts`, `financialStatement`, `agreements` (medido em 6 alunos, 28/09/2026). `contracts[].status` é status de CONTRATO, vocabulário distinto, **nunca substituto** | CPF formatado (o `search` é por CPF/nome) | **CONDICIONAL — o status é por VÍNCULO DE CURSO, não da pessoa. Ver a ressalva abaixo** |
+| Contrato vigente no período (NÃO "o aluno estuda hoje") | Prime | `contracts[]` sem `cancelledAt` e `validTo >= hoje` | `registration` | CONDICIONAL — diz que existe contrato válido no período, e **nada mais**. Não é prova de frequência, de matrícula ativa nem de vínculo acadêmico em curso |
 | Matrícula Prime a partir de CPF/nome | Prime | `students_search` | CPF formatado ou nome | CONDICIONAL — nome nunca decide, só CPF exato |
 | Filiação a um portador (166 ou 195) | Prime | `students_search?carrierId=N` (varredura) ou consulta pontual | CPF | SIM |
+| **Mensalidade corrente: título a vencer e atraso inicial (0–31 dias)** | Prime | `financial_statement` / `student_composite`, linhas com `carrier.id = 95` ("SANTANDER CC 13050976-6 - CONVENIO 272036") | `registration` + `boleto` | SIM para EXISTÊNCIA, vencimento e valor. **NÃO para situação de pagamento** — ver linha abaixo |
+| **Situação do título (pago / em aberto / cancelado) e saldo em aberto** | **NÃO EXPOSTA.** Medido ao vivo em 28/09/2026: `financialStatement` tem 13 campos e nenhum é situação, status ou saldo. `paymentDate` vem preenchido em 100% das linhas, inclusive em título a vencer (0 de 302.477 nulos no portador 95); `paidAmount` é valor de tabela (o dobro exato do principal em vencidos) | — | — | **NÃO.** Redução de saldo entre duas consultas é observável, mas mistura pagamento, cancelamento, bolsa e renegociação — nunca é recebimento por si |
 | Título original (mensalidade) — existência | Prime | `financial_statement` (via `student_composite`) | `registration` | SIM |
 | Título original — boleto (7 díg.) | Prime | `financial_statement[].boleto` | `registration` | SIM — é `acordos_titulos.documento` |
 | Mensalidade liquidada (portador 195) | Prime | `financial_statement[].paymentDate` **+ regra de entrada em prod** (venc.+30, ≠ dia da importação) | `registration` + corte 23:57:13 UTC de 18/09/2026 | CONDICIONAL — nunca `paymentDate` isolado |
+| **Reversão de liquidação (boleto reaberto na Prime)** | **NÃO OBSERVÁVEL pelo espelho.** `prime_extrato` só persiste linha liquidada — medido 26/10/2026: 417.072 linhas, 0 com `liquidado_em` nulo. O espelho não tem estado "reaberto"; no máximo a linha deixa de aparecer, e isso não distingue reversão de coleta incompleta | — | `boleto` (sem zero à esquerda) | **NÃO.** Ausência de linha não é fato e não pode disparar nada com efeito financeiro — ver a ressalva abaixo |
 | Decomposição de valor (principal/multa/juros/honorário) | Prime | `financial_statement[].grossAmount/penaltyAmount/interestAmount/honorariumAmount` | `registration` | SIM |
 | Caixa efetivamente recebido | **Santander** (arquivo/extrato bancário), NUNCA `paidAmount` da Prime | fora da API Prime | boleto / número Ulbra | SIM — Prime `paidAmount` é dívida corrigida, não caixa |
 | **Estrutura do acordo** (parcelas, valor negociado, vencimentos) | **NÃO LOCALIZADA.** Visível na tela do Prime, rota não identificada. Em 22/09 o rastreamento de proveniência esgotou código, banco, logs, payloads e URLs do nosso ambiente — **censo de produção: `/agreements` nunca devolveu lista preenchida** (`auditoria.ACORDO_ENCONTRADO_NA_API` = 0) | — | — | **NÃO — ver Premissas 19/20 e prime-gaps.md § Rastreamento de proveniência** |
@@ -27,6 +31,33 @@ de criar fallback, consultar este mapa").
 | Relatório "Títulos em Aberto" (Santander) | Prime, via exportação manual | fora da API JSON — arquivo | matrícula Santander = `registration` (13/13 confirmado) | NÃO é histórico — só traz quem ainda está em aberto no instante da extração; acordo pago desaparece dele para sempre |
 
 ## Como ler este mapa
+
+- **Contrato vigente não equivale a "aluno estudando".** São coisas distintas: o
+  contrato é o instrumento financeiro do período; a situação acadêmica é o
+  estado do vínculo de curso, e vem de outro campo, de outro endpoint. Na
+  amostra de 28/09/2026 os dois discordam com frequência — há contrato
+  `Confirmado` vigente em vínculo cuja situação é `Formado`, e vínculo com
+  situação `Matriculado Curso Normal` sem contrato vigente. Nenhum dos dois
+  sozinho autoriza dizer que a pessoa está ou não estudando.
+
+- **Situação acadêmica não é atributo da pessoa.** Na amostra de 6 alunos
+  sondada em 28/09/2026, cada linha de `items[]` do `students_search` é um
+  **vínculo de curso** (curso + campus + turno), com status próprio — e os
+  status de uma mesma pessoa divergem entre si. Reduzir os vínculos a um status
+  único por pessoa é perda de informação, não simplificação: escolher "a
+  primeira linha" ou "a mais recente" produz rótulo que a fonte não afirma.
+- **Não foi encontrado identificador estável do vínculo acadêmico nos endpoints
+  e na amostra consultados**, e a chave composta não separa os vínculos. Ver
+  [prime-mapa-identificadores.md](prime-mapa-identificadores.md#vínculo-acadêmico-curso--campus--turno).
+
+- **Ausência no espelho não é informação.** `prime_extrato` guarda só o que está
+  liquidado, então "o boleto não está lá" pode ser reversão real **ou** coleta
+  que não cobriu aquele aluno. Não existe, hoje, registro de abrangência por
+  rodada de coleta que permita separar as duas. Enquanto não existir, **nenhuma
+  regra com efeito financeiro pode ler ausência como reversão** — o erro é
+  silencioso e devolve à cobrança aluno cujo boleto segue liquidado. Evidência e
+  risco em
+  [prime-gaps.md](prime-gaps.md#espelho-prime_extrato-reversão-de-liquidação-não-é-observável--2026-10-26).
 
 - **"NÃO LOCALIZADA"** (estrutura do acordo) é diferente de **"não existe"**.
   A tela do Prime comprova que o dado existe; o que falta é a rota

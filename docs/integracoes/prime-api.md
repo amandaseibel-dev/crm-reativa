@@ -74,7 +74,21 @@ convênio bancário (boleto emitido pelo banco) ou agência de cobrança.
 
 **Limitações conhecidas:** 124 portadores ao todo; só 166 (acordos, "Santander
 ReATIVA convênio 0272047") e 195 (mensalidades, "Reativa Recuperação de
-Crédito") são carteira da Reativa, por decisão da gestão. 165 e 202 são
+Crédito") são carteira da Reativa, por decisão da gestão. O portador **95**
+("SANTANDER CC 13050976-6 - CONVENIO 272036") **não é carteira da Reativa**:
+é onde vive a mensalidade CORRENTE da ULBRA — a que ainda vai vencer e a que
+está em atraso inicial. Medido em 28/09/2026 **no espelho `prime_extrato`**: 302.477 linhas, 17.718
+alunos, 19.795 títulos a vencer e 7.182 com 1 a 31 dias de atraso.
+
+**Abrangência, com a ressalva que importa:** esses números descrevem os 17.744
+alunos que estão na fila do espelho, **não** a base inteira da ULBRA. O
+portador 95 é onde a mensalidade corrente vive, e foi confirmado como o portador
+dos títulos do relatório de inadimplência (de 120 linhas conferidas, 101 tinham
+o aluno no espelho e as 101 casaram com título no portador 95; zero no 195). Mas
+**o portador 95 não é, e não pode virar, um público automático**: a carteira do
+Preventivo é sempre o arquivo que a gestão importa. Aqui ele é informação
+técnica — serve para saber onde procurar o título, nunca para escolher quem
+receberá mensagem. Ver `docs/preventivo/README.md`. 165 e 202 são
 judiciais e ficam fora de escopo por decisão, não por limitação técnica.
 
 **Segurança:** READ ONLY
@@ -109,8 +123,30 @@ em texto livre.
 | `take` | int | não | página; padrão observado 50 |
 | `skip` | int | não | offset |
 
-**Retorno:** `items[]` com `registration`, `name`, `cpf`, `course`, `campus`,
-`shift`, `status`; `totalItems`.
+**Retorno:** `items[]` com `registration`, `name`, `cpf`, `course`, `status`,
+`admissionYear`, `graduated`, `campus`, `shift`; `totalItems`.
+
+**`admissionYear`, `graduated` e `status` foram confirmados em 28/09/2026**
+(amostra de 6 alunos devedores, 35 vínculos). Os dois primeiros não estavam
+documentados aqui, e nenhum dos três está em `ESPEC_STUDENT_SEARCH_ITEM`
+(`src/utils/primeApiContrato.js`), que exige só `registration`, `name` e `cpf`.
+
+**CADA ITEM É UM VÍNCULO DE CURSO, NÃO UMA MATRÍCULA.** Nos 6 alunos da amostra,
+`registration` repetiu-se idêntico em todas as linhas do mesmo aluno: as linhas
+se distinguem por `course`/`campus`/`shift`, não por matrícula. Isto **não**
+autoriza afirmar que uma pessoa tenha sempre uma matrícula só — a amostra é de
+seis; autoriza apenas afirmar que **`items[]` não pode ser lido como lista de
+matrículas**, e que `status` é atributo do vínculo.
+
+**`status` — valores observados** (10, mais `null`): `Formado`, `Trancado`,
+`Cancelado`, `Desvinculado`, `Desistente`, `Reopção de Curso`,
+`Mudança de Campus`, `Matriculado Curso Normal`, `TRANSFERENCIA DE CURRICULOS`,
+`Entrada via Reabertura`. Lista de observação, não de domínio fechado: outros
+valores podem existir fora da amostra.
+
+**`graduated` é variável independente de `status`**, não sinônimo de
+`status == 'Formado'`: na matrícula `201008325` uma linha com
+`status: "Mudança de Campus"` veio com `graduated: true`.
 
 **Exemplo sanitizado:**
 
@@ -134,6 +170,13 @@ uma pessoa está num portador específico.
 - CPF **só é encontrado formatado**. Em dígitos puros, `totalItems: 0` sem
   nenhum sinal de erro — quem não souber disso conclui "não está na Prime"
   quando na verdade é "busquei errado";
+- **`status` vem nulo com frequência: 14 dos 35 vínculos da amostra.** O vínculo
+  `Disciplinas Isoladas` veio nulo nos 6 alunos (e com `admissionYear: 2000`).
+  `campus` e `shift` vieram nulos em 10 dos 35. Ausência de status **não** é
+  ausência de vínculo, e não deve ser preenchida por inferência;
+- **o vínculo não tem identificador.** Nenhum campo de id/código/sequência no
+  item — ver
+  [prime-mapa-identificadores.md](prime-mapa-identificadores.md#vínculo-acadêmico-curso--campus--turno);
 - a **matrícula do CRM não é necessariamente a `registration` do Prime**
   (medido: aluno com matrícula 180 no CRM é `2025001442` na Prime). A matrícula
   do **arquivo Santander**, por outro lado, bateu 13 de 13 com `registration`
@@ -185,6 +228,13 @@ abaixo — os blocos são idênticos, só que compostos num objeto.
 **Fonte de verdade para:** cadastro (telefone, endereço, e-mail, nome social);
 contratos acadêmicos vigentes; extrato financeiro completo de um aluno.
 
+**NÃO é fonte de situação acadêmica.** Medido em 28/09/2026 nos 6 alunos da
+amostra: as chaves de topo do objeto são exatamente `registrationData`,
+`contracts`, `financialStatement` e `agreements` — **nenhum campo de situação**,
+em nenhum dos seis. Situação acadêmica só vem por `students_search`
+(`items[].status`). Versões anteriores deste diretório diziam
+"`student_composite` (topo)"; estava errado.
+
 **Limitações conhecidas:** ver limitações de `financial_statement` e
 `agreements` — valem aqui integralmente. `socialName` deve prevalecer sobre
 `fullName` quando presente (é como o operador chama a pessoa ao telefone).
@@ -210,13 +260,21 @@ tela do Prime no mesmo instante da chamada.
 **Fonte:** Prime/ULBRA · **Finalidade:** mesmo conteúdo do bloco `contracts`
 do composto, isolado.
 
-**Retorno:** igual ao bloco `contracts[]` acima.
+**Retorno:** envelope paginado `{ items[], totalItems, totalPages }` — **não** um
+array nu (confirmado em 28/09/2026; o bloco `contracts[]` do composto, sim, é
+array). Cada item tem `number`, `status`, `type`, `establishment`, `course`,
+`shift`, `referenceSemester`, `validFrom`, `validTo`, `cancelledAt` e
+`cancellationReason`.
+
+`cancellationReason` não estava documentado. Valores observados na amostra:
+`Mudança de Curso`, `Cancelamento`, `Trancamento`, e `null`.
 
 **Fonte de verdade para:** contratos acadêmicos, quando não se quer o
 composto inteiro.
 
-**Limitações conhecidas:** `number` (número de contrato) vem vazio — não serve
-para vincular acordo a contrato.
+**Limitações conhecidas:** `number` (número de contrato) vem **string vazia** —
+confirmado em 111 contratos dos 6 alunos da amostra, sem uma única exceção. Não
+serve para vincular acordo a contrato, nem para identificar vínculo de curso.
 
 **Segurança:** READ ONLY · **Pode automatizar?** SIM · **Fallback:**
 `student_composite` traz o mesmo bloco.
@@ -284,6 +342,36 @@ ver `regra-entrada-prime-liquidado-nao-e-pagamento` e `docs/PREMISSAS.md`);
 decomposição de valor; ponte `boleto` (7 díg.) ↔ `acordos_titulos.documento`.
 
 **Limitações conhecidas:**
+- **NÃO HÁ CAMPO DE SITUAÇÃO — e isso foi provado, não deduzido.** Conferido ao
+  vivo em 28/09/2026 (`GET /students/{registration}`, pela Edge Function
+  `prime-acordo`, que devolve a lista de chaves do bloco): os 13 campos acima
+  são todos os que existem.
+- **A prova usa variável independente**, não o próprio campo (regra de
+  `regra-revisar-duas-vezes-antes-de-aplicar`): o relatório de inadimplência da
+  ULBRA de 28/09/2026 diz, por fora da API, quem está EM ABERTO naquele dia.
+  Cruzando 120 linhas dele com o espelho, 101 títulos ficaram confirmados como
+  ABERTOS. **Desses 101 títulos abertos:** 101 tinham `paymentDate` preenchido,
+  19 com data POSTERIOR ao vencimento, 61 tinham `paidAmount` IGUAL ao
+  `netAmount` e 27 tinham `paidAmount` MENOR que o `netAmount`. As duas
+  assinaturas que qualquer um leria como "pagou" aparecem em massa em títulos
+  que estão abertos;
+- comparando três grupos dos MESMOS alunos no mesmo instante — 101 abertos, 24
+  mensalidades de jul/ago e 315 títulos futuros — **nenhum campo separa os
+  grupos**: `paymentDate` nulo = 0 nos três, `isAgreementInstallment` = false
+  nos três, portador = 95 nos três. Nos futuros, `paymentDate <= dueDate` em
+  315 de 315, o que confirma que é data de processamento;
+  Nenhum diz se o título está pago, em aberto, cancelado ou renegociado, e não
+  há saldo em aberto. Qualquer acompanhamento de pagamento por esta API é
+  comparação entre duas consultas, e **redução de saldo não é sinônimo de
+  dinheiro recebido** — mistura pagamento, cancelamento, bolsa e renegociação;
+- `paymentDate` vem preenchido em **100% das linhas de todo portador**, não só
+  do 195: medido em 28/09/2026 no espelho `prime_extrato`, 0 de 302.477 linhas
+  do portador 95 têm `paymentDate` nulo, **inclusive os 19.795 títulos que
+  ainda vão vencer**. Para um título a vencer, a data vem ANTES do vencimento
+  em 19.705 de 19.705 casos — é data de processamento, não de pagamento;
+- `paidAmount` no portador 95 é **valor de tabela**: aparece como o dobro exato
+  do principal em título vencido e maior que o principal em 3.852 dos 19.705
+  títulos a vencer. Nunca somar como recebimento;
 - `paymentDate` sozinho **não** distingue negociado de aberto — regra testada
   e formalmente invalidada em 2026-09-01 (100% das linhas do portador 195 têm
   `paymentDate`, inclusive as ABERTAS no CRM);
@@ -301,10 +389,47 @@ decomposição de valor; ponte `boleto` (7 díg.) ↔ `acordos_titulos.documento
 com corte de data e travas de corroboração (ver `docs/PREMISSAS.md`).
 `paidAmount` nunca automatiza nada: não é caixa.
 
-**Fallback:** nenhum equivalente para o que este endpoint não cobre (acordo).
+**Fallback:** nenhum. Verificado em 28/09/2026 que **não existe outra
+integração autorizada** com situação de título ou recebimento da mensalidade
+corrente: `public.pagamentos` (9.584 linhas, o extrato Santander da Reativa)
+tem `titulo_numero` de **5 dígitos**, que é o número do ACORDO da Reativa — não
+é boleto de 7 dígitos e não tem como carregar pagamento de título do portador
+95. As rotas `/payments`, `/titles`, `/bills`, `/installments` e
+`/students/{reg}/titles` seguem 404 desde 15/09/2026.
 
 **Não inferir:** presença de `paymentDate` = pagamento. Mesma paymentDate em
-duas linhas = mesmo acordo (regra testada e invalidada).
+duas linhas = mesmo acordo (regra testada e invalidada). **Ausência de um boleto
+no espelho `prime_extrato` = boleto reaberto na Prime** — ver a limitação do
+espelho, logo abaixo.
+
+### Limitação do espelho `prime_extrato` — reversão não é observável (26/10/2026)
+
+O espelho local deste endpoint, `public.prime_extrato`, **só persiste linha
+liquidada**: medido em 26/10/2026, **417.072 linhas e 0 com `liquidado_em`
+nulo**. Consequências que valem para qualquer consumidor:
+
+- **não existe estado "reaberto" no espelho.** Se a ULBRA reverter uma
+  liquidação, o espelho não passa a mostrar o boleto em aberto — na melhor das
+  hipóteses a linha deixa de aparecer numa coleta futura;
+- **ausência de linha é ambígua** e nunca é fato: pode ser reversão real ou
+  coleta incompleta. A coleta é por mutirão em fila (crons 35/40/59/60), sem
+  registro de abrangência por rodada, então não há como distinguir as duas;
+- por isso **nenhuma regra com efeito financeiro pode se apoiar em ausência**.
+  Em 26/10/2026 isso já custa um defeito em produção: a única porta de saída
+  automática da fila de Conferência Prime testa `liquidado_em is null` e é
+  logicamente inalcançável, de modo que um boleto reaberto ficaria fora da
+  cobrança indefinidamente.
+
+**Hipótese ainda não testada:** que a API devolva a linha do boleto reaberto com
+`paymentDate` nulo. Isso **não foi sondado** e não pode ser verificado lendo o
+banco — exige `prime-sonda` contra o endpoint. Se se confirmar, a correção certa
+é no ingestor (passar a persistir a linha não liquidada), não inferir reversão
+por ausência no consumidor.
+
+Evidência completa em
+[prime-gaps.md](prime-gaps.md#espelho-prime_extrato-reversão-de-liquidação-não-é-observável--2026-10-26)
+e em
+[`docs/DIAGNOSTICO-CONFERENCIA-PRIME-2026-10-26.md`](../DIAGNOSTICO-CONFERENCIA-PRIME-2026-10-26.md).
 
 ---
 

@@ -45,6 +45,48 @@ aparece em linha de extrato financeiro**, só na filiação (`students_search
 ?carrierId=166`). Por isso "está no 166" se confirma pela **listagem**, nunca
 pelo extrato.
 
+## Vínculo acadêmico (curso + campus + turno)
+
+**NÃO FOI ENCONTRADO IDENTIFICADOR ESTÁVEL nos endpoints e na amostra
+consultados.** Medido em 28/09/2026 numa amostra de 6
+alunos devedores (35 vínculos, 111 contratos):
+
+| candidato | resultado |
+|---|---|
+| campo de id no item de `students_search` | **nenhum** — as chaves são `registration`, `name`, `cpf`, `course`, `status`, `admissionYear`, `graduated`, `campus`, `shift` |
+| `contracts[].number` | **string vazia em 111 de 111 contratos**, sem exceção |
+| chave composta `course` + `campus` + `shift` | **não separa os vínculos** |
+
+**Por que a chave composta não serve** — três defeitos medidos, cada um
+suficiente para invalidá-la:
+
+1. **Vínculos distintos com a chave idêntica.** Na matrícula `222007757`, três
+   linhas têm `course` "SUPERIOR DE TECNOLOGIA EM COMÉRCIO EXTERIOR", o mesmo
+   campus e o mesmo turno "ENSINO A DISTANCIA", com status
+   `Reopção de Curso`, `Cancelado` e `null`. Nenhuma combinação dos campos
+   disponíveis as distingue.
+2. **Acentuação divide o mesmo curso, e normalizar funde vínculos diferentes.**
+   Na `201008325` convivem "EDUCACAO FISICA - BACHARELADO"
+   (`status: Reopção de Curso`, `graduated: false`) e
+   "EDUCAÇÃO FÍSICA - BACHARELADO" (`status: Mudança de Campus`,
+   `graduated: true`). Sem normalizar, não casam com o contrato; normalizando,
+   **as duas colapsam numa só** e um dos status desaparece.
+3. **Chave incompleta e dado sujo.** `campus` e `shift` vieram nulos em 10 dos
+   35 vínculos, e `shift` aparece como "NOITE..." (com os pontos literais) ao
+   lado de "NOITE" na mesma matrícula `221005273`.
+
+**Consequência para matching contra contrato:** casando por curso normalizado,
+**21 dos 35 vínculos casam com mais de um contrato** (um deles com 34) e **8 não
+casam com nenhum**. Não há, na superfície atual da API, caminho para dizer
+"este vínculo é o do contrato que gerou esta dívida".
+
+**Portanto:** com os endpoints e a amostra consultados, associar situação
+acadêmica ao curso de uma dívida **não é possível com prova**. Não é afirmação
+sobre a API inteira: é o alcance do que foi medido, e um endpoint ou campo ainda
+não sondado pode mudar a conclusão. Quem precisar do dado exibe os vínculos encontrados e
+declara a não identificação — nunca escolhe uma linha, nunca promove o status de
+um curso a status da pessoa, e nunca usa `contracts[].status` como substituto.
+
 ## Regras de matching, por ordem de confiabilidade
 
 1. **CPF exato** (formatado na busca, comparado em dígitos puros no retorno)
@@ -58,6 +100,52 @@ pelo extrato.
    `docs/PREMISSAS.md`) ou como sugestão para revisão humana
 6. **Nome** — nunca vincula nada financeiro; serve só como pista secundária
    com aviso explícito na tela ("nome não é prova")
+7. **Vínculo acadêmico (curso/campus/turno)** — **não é chave**: não separa
+   vínculos distintos (ver a seção acima). Não serve para matching, nem como
+   pista, porque o erro é silencioso: dois vínculos com status diferentes
+   respondem à mesma chave
+
+### A chave `boleto` casa presença, nunca ausência (26/10/2026)
+
+O boleto é chave confiável para **afirmar** que a Prime liquidou um título. Ele
+**não** serve para afirmar o contrário.
+
+No espelho `prime_extrato` o casamento é feito por `ltrim(boleto,'0')` — zero à
+esquerda normalizado dos dois lados. Daí decorre que "o boleto não está no
+espelho" tem **três** causas possíveis, indistinguíveis entre si:
+
+1. a Prime reverteu a liquidação (o caso que se queria detectar);
+2. a coleta não cobriu aquele aluno nesta rodada (a coleta é por mutirão em
+   fila, sem registro de abrangência);
+3. a formatação do boleto divergiu na origem de um jeito que `ltrim` não
+   normaliza (dígito a mais, prefixo, sufixo).
+
+As três produzem exatamente o mesmo sintoma. Por isso **ausência de boleto no
+espelho não é fato e não pode disparar efeito financeiro** — em particular, não
+pode devolver título à cobrança nem tirá-lo dela. O espelho, medido em
+26/10/2026, tem 417.072 linhas e **0** com `liquidado_em` nulo: ele não tem como
+representar "reaberto". Ver
+[prime-gaps.md](prime-gaps.md#espelho-prime_extrato-reversão-de-liquidação-não-é-observável--2026-10-26).
+
+Isto é o mesmo princípio da regra 5 acima, aplicado à ausência: **presença
+exata prova; ausência só levanta pergunta.**
 
 Ver também [prime-mapa-fontes-verdade.md](prime-mapa-fontes-verdade.md) para
 qual identificador vale como fonte de verdade de cada informação.
+
+## Preventivo (frente criada em 28/09/2026)
+
+O Preventivo **não cria identificador novo**. A identidade de um título
+preventivo é `(carteira, registration, documento)`, onde `documento` é o mesmo
+`financial_statement[].boleto` (7 dígitos) ou `documentNumber` (13 dígitos)
+que a Prime devolve — a sincronização casa pelos dois, por igualdade exata.
+
+**Nome do aluno nunca entra na chave**, nem no Preventivo nem em lugar nenhum:
+o nome do extrato é o do PAGADOR e já causou 10 baixas erradas na cobrança em
+08/09/2026 (`regra-baixa-so-pelo-numero-do-titulo-nunca-por-nome`).
+
+A matrícula usada é a `registration` do Prime, que **não** é necessariamente a
+matrícula do CRM — ver a seção de `students_search` em
+[prime-api.md](prime-api.md). Por isso o relatório importado precisa trazer a
+matrícula do Prime (ou a do arquivo Santander, que bateu 13 de 13 com
+`registration` nos casos conferidos), nunca a do CRM.
