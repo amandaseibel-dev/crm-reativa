@@ -54,6 +54,7 @@ import {
   evidenciasDaLinha,
 } from "../utils/conciliacaoPagamento";
 import RegistrarAcordoAvista from "../components/RegistrarAcordoAvista";
+import EncaminharPendencia from "../components/EncaminharPendencia";
 import Aluno from "./Aluno";
 import DadosAcademicos from "../components/DadosAcademicos";
 import { useSearchParams } from "react-router-dom";
@@ -419,6 +420,10 @@ export default function PagamentosSemAluno() {
             key={l.pagamento_id}
             item={l}
             acao={acaoDaLinha(l, travas)}
+            // A ACAO DECLARADA PELA TRIAGEM, para a linha poder oferece-la
+            // (Etapa 2). Vem do mesmo indice que a faixa de categorias usa --
+            // sem segunda consulta e sem classificar nada aqui.
+            triagem={mapaTriagem.get(l.pagamento_id)}
             onRegistrar={() => setRegistrando(l)}
             aberto={abertoId === l.pagamento_id}
             onAbrir={() => setAbertoId(abertoId === l.pagamento_id ? null : l.pagamento_id)}
@@ -514,7 +519,7 @@ export default function PagamentosSemAluno() {
   );
 }
 
-function Linha({ item, acao, onRegistrar, aberto, onAbrir, onVinculado, onVerFicha, onCopiar, nomeCopiado }) {
+function Linha({ item, acao, triagem, onRegistrar, aberto, onAbrir, onVinculado, onVerFicha, onCopiar, nomeCopiado }) {
   const [termo, setTermo] = useState("");
   const [resultados, setResultados] = useState(null);
   const [buscando, setBuscando] = useState(false);
@@ -863,6 +868,12 @@ function Linha({ item, acao, onRegistrar, aberto, onAbrir, onVinculado, onVerFic
           ) : null}
         </div>
       ) : null}
+
+      {/* ENCAMINHAMENTO (26/10/2026, Etapa 2). Aparece SO quando a triagem
+          declarou uma acao que esta tela implementa -- e abre a conferencia
+          antes de qualquer confirmacao. Nenhuma das acoes da baixa, quita,
+          reatribui caso ou altera valor. */}
+      <EncaminharPendencia triagem={triagem} moeda={moeda} onConcluido={onVinculado} />
     </div>
   );
 }
