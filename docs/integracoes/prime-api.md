@@ -397,34 +397,56 @@ tem `titulo_numero` de **5 dígitos**, que é o número do ACORDO da Reativa —
 95. As rotas `/payments`, `/titles`, `/bills`, `/installments` e
 `/students/{reg}/titles` seguem 404 desde 15/09/2026.
 
-**Não inferir:** presença de `paymentDate` = pagamento. Mesma paymentDate em
-duas linhas = mesmo acordo (regra testada e invalidada). **Ausência de um boleto
-no espelho `prime_extrato` = boleto reaberto na Prime** — ver a limitação do
-espelho, logo abaixo.
+**Não inferir:** presença de `paymentDate` = pagamento (o campo vem preenchido
+em 100% das linhas, inclusive em título a vencer — ver abaixo). Mesma
+paymentDate em duas linhas = mesmo acordo (regra testada e invalidada).
+**Ausência de um boleto no espelho `prime_extrato` = boleto reaberto na Prime**
+(é reemissão em 98,2% dos casos medidos). **`paymentDate` nulo = boleto
+reaberto** — esse valor nunca aparece.
 
-### Limitação do espelho `prime_extrato` — reversão não é observável (26/10/2026)
+### `paymentDate` nunca é nulo, e reversão não é observável (26/10/2026)
 
-O espelho local deste endpoint, `public.prime_extrato`, **só persiste linha
-liquidada**: medido em 26/10/2026, **417.072 linhas e 0 com `liquidado_em`
-nulo**. Consequências que valem para qualquer consumidor:
+> ⚠️ **CORREÇÃO, mesma data.** A primeira redação desta seção dizia que o
+> espelho `prime_extrato` "só persiste linha liquidada". **Estava errada.** O
+> ingestor não filtra nada, e a proposta de "corrigir o ingestor para persistir
+> a linha não liquidada" foi **retirada** — não há filtro a remover.
 
-- **não existe estado "reaberto" no espelho.** Se a ULBRA reverter uma
-  liquidação, o espelho não passa a mostrar o boleto em aberto — na melhor das
-  hipóteses a linha deixa de aparecer numa coleta futura;
-- **ausência de linha é ambígua** e nunca é fato: pode ser reversão real ou
-  coleta incompleta. A coleta é por mutirão em fila (crons 35/40/59/60), sem
-  registro de abrangência por rodada, então não há como distinguir as duas;
-- por isso **nenhuma regra com efeito financeiro pode se apoiar em ausência**.
-  Em 26/10/2026 isso já custa um defeito em produção: a única porta de saída
-  automática da fila de Conferência Prime testa `liquidado_em is null` e é
-  logicamente inalcançável, de modo que um boleto reaberto ficaria fora da
-  cobrança indefinidamente.
+**O espelho é cópia não filtrada deste endpoint.** Em
+`supabase/functions/prime-extrato/index.ts`, o ingestor chama
+`/students/{matricula}` (`student_composite`, extrato inteiro sem paginar) e
+aceita **toda linha de `financialStatement` que tenha boleto** — sem filtro de
+liquidação, portador ou situação. E o helper `dia()` (linha 78) **preserva o
+nulo**: campo ausente grava `null`. **Se a API devolvesse `paymentDate` nulo, o
+espelho gravaria nulo.**
 
-**Hipótese ainda não testada:** que a API devolva a linha do boleto reaberto com
-`paymentDate` nulo. Isso **não foi sondado** e não pode ser verificado lendo o
-banco — exige `prime-sonda` contra o endpoint. Se se confirmar, a correção certa
-é no ingestor (passar a persistir a linha não liquidada), não inferir reversão
-por ausência no consumidor.
+**Medido em 26/10/2026 sobre 417.072 linhas, 9 portadores, 18.266 alunos
+(coleta de 24 a 26/10): `paymentDate` nulo = 0.** Incluindo **19.315 títulos a
+vencer no portador 95, todos com `paymentDate` preenchido** — e um título que
+ainda não venceu não pode ter sido pago. Confirma, em escala 1,4× maior e em
+todos os portadores, o que a sondagem de 28/09/2026 mediu no 95.
+
+Consequências para qualquer consumidor:
+
+- **`paymentDate` preenchido não prova pagamento.** Não é limitação do espelho:
+  é o campo que não carrega essa informação;
+- **a API não expressa reabertura neste campo**, e `financialStatement` não tem
+  campo de situação, status ou saldo (13 campos, medidos ao vivo em 28/09/2026);
+- **o espelho nunca remove linha** (`upsert` por `(matricula, boleto)`, sem
+  `delete`), então um boleto que a Prime deixe de devolver mantém a linha antiga
+  com `coletado_em` velho;
+- **ausência de linha é 98,2% reemissão, não reversão:** dos 1.009 boletos cuja
+  linha envelheceu enquanto o aluno era recoletado, **991 têm substituto com o
+  mesmo vencimento e o mesmo `valor_bruto`**. Nenhuma regra com efeito
+  financeiro pode se apoiar em ausência;
+- **o sinal confiável é a substituição**, que é prova positiva: boleto novo com
+  mesmo vencimento e mesmo principal diz que a dívida segue viva. Ação sempre
+  sobre o boleto **novo**.
+
+**Estado da H1** (a API devolver o título revertido com `paymentDate` nulo ou
+outro indicador explícito): **refutada** quanto a `paymentDate`; **inconclusiva**
+quanto a existir campo adicional não mapeado pelo ingestor — isso só se fecha
+com `prime-sonda` (`cru:false`), que exige sessão de gestão. **A sonda não foi
+executada.**
 
 Evidência completa em
 [prime-gaps.md](prime-gaps.md#espelho-prime_extrato-reversão-de-liquidação-não-é-observável--2026-10-26)

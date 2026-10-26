@@ -26,7 +26,7 @@ outra via" (VERMELHO com evidência). Ver a formulação completa em
 | Boleto (7 díg.) ↔ `acordos_titulos.documento` | 🟢 VERDE | Sim | `financial_statement[].boleto` | Sim | nenhum |
 | Decomposição de valor (principal/multa/juros/honorário) | 🟢 VERDE | Sim | `financial_statement[]` | Sim | nenhum |
 | Mensalidade liquidada (portador 195) | 🟡 AMARELO | Parcial | `financial_statement[].paymentDate` | Condicional — só dentro da regra de entrada em prod, nunca `paymentDate` isolado | `paymentDate` não distingue negociado de aberto sozinho |
-| **Reversão de liquidação (boleto que volta a aberto na Prime)** | 🔴 VERMELHO | **Não — não é observável pelo espelho** | `prime_extrato` só persiste linha liquidada | **NÃO** | Medido 26/10/2026: **417.072 linhas, 0 com `liquidado_em` nulo**. O espelho não tem estado "reaberto", e ausência de linha não distingue reversão de coleta incompleta. Ver a seção dedicada abaixo |
+| **Reversão de liquidação (boleto que volta a aberto na Prime)** | 🔴 VERMELHO | **Não — a API não expressa reabertura** | `financial_statement` não tem campo de situação; `paymentDate` nunca é nulo | **NÃO** | Medido 26/10/2026 no espelho **não filtrado**: **417.072 linhas, 0 com `liquidado_em` nulo**, inclusive **19.315 títulos a vencer**. H1 refutada quanto a `paymentDate`, inconclusiva quanto a campo não mapeado. Ausência de linha é 98,2% reemissão (991 de 1.009), não reversão. Ver a seção dedicada abaixo |
 | Caixa efetivamente recebido | 🟡 AMARELO | Parcial (fonte é o Santander, não a Prime) | fora da API | Sim, mas fora desta integração | `paidAmount` da Prime é dívida corrigida, não caixa |
 | **Estrutura financeira do acordo** (parcelas, valor negociado, vencimentos) | 🔴 VERMELHO | **Visível na tela do Prime; rota estruturada NÃO identificada** | `/agreements` responde vazio (48 rotas candidatas testadas, todas 404 exceto essa) | **NÃO** | Comprovadamente não exposta pela superfície pública testada — não é "não existe". Ver Premissa 19/20 |
 | Quem fechou o acordo | 🔴 VERMELHO | Não | sondado por `prime-acordo`, nada encontrado | Não | mesma superfície do gap acima |
@@ -233,12 +233,55 @@ dado.**
 
 Cada um foi medido por consulta direta em produção em 26/10/2026.
 
-1. **O espelho só contém registro liquidado.** `public.prime_extrato` tem
-   **417.072 linhas** e **0 (zero) com `liquidado_em` nulo**. A tabela não tem
-   como representar o estado "boleto reaberto": a ausência de liquidação não é
-   um valor que ela guarde, é uma linha que não existe.
+1. **O espelho não filtra nada; é `paymentDate` que nunca vem nulo.**
+   `public.prime_extrato` tem **417.072 linhas** e **0 (zero) com `liquidado_em`
+   nulo** — mas isso **não** é efeito de filtro no ingestor.
 
-2. **A condição de saída automática da fila é logicamente inalcançável.**
+   > ⚠️ **CORREÇÃO DE 26/10/2026, mesma data.** A primeira redação desta seção
+   > afirmava que o espelho "só persiste linha liquidada". **Estava errado**, e
+   > a correção está registrada aqui em vez de apagada, porque muda a conclusão
+   > técnica: a proposta de "corrigir o ingestor para persistir a linha não
+   > liquidada" **deixou de existir**, já que não há filtro para remover nem
+   > linha nula para persistir.
+
+   O que o código faz, conferido linha a linha em
+   `supabase/functions/prime-extrato/index.ts`:
+
+   - o ingestor chama `/students/{matricula}` (`student_composite`, que devolve
+     o extrato inteiro sem paginar) e **aceita toda linha de
+     `financialStatement` que tenha boleto** — sem nenhum filtro de liquidação,
+     de portador ou de situação (linha 123: `liquidado_em: dia(l.paymentDate)`);
+   - o helper `dia()` **preserva o nulo** (linha 78):
+     `const dia = (v) => { const s = String(v ?? ""); return s.length >= 10 ? s.slice(0,10) : null; }`
+     — campo ausente vira `""`, que tem menos de 10 caracteres, e grava `null`.
+     **Se a API devolvesse `paymentDate` nulo, o espelho gravaria nulo.**
+
+   Logo os zero nulos são **comportamento da API**, medido indiretamente mas com
+   amostra que é praticamente o universo: 417.072 linhas, 9 portadores, 18.266
+   alunos, coleta de 24 a 26/10/2026.
+
+2. **`paymentDate` não é prova de pagamento.** No mesmo espelho não filtrado:
+
+   | Portador | Linhas | `liquidado_em` nulo | A vencer | A vencer **com** data |
+   |---|---:|---:|---:|---:|
+   | 95 | 315.667 | **0** | 19.315 | **19.315** |
+   | 195 | 80.350 | **0** | 1 | 1 |
+   | outros 7 | 21.055 | **0** | 0 | 0 |
+
+   **19.315 títulos a vencer no portador 95 têm `paymentDate` preenchido.** Um
+   título que ainda não venceu não pode ter sido pago. Isto confirma, em escala
+   1,4× maior e agora em **todos** os portadores, o que a sondagem de 28/09/2026
+   já havia medido no 95 (0 de 302.477 nulos) — e vale como regra: **`paymentDate`
+   preenchido não autoriza nenhuma conclusão sobre pagamento.**
+
+3. **O espelho nunca remove linha.** O `upsert` é por `(matricula, boleto)`
+   (`onConflict: "matricula,boleto"`), sem `delete`: 417.072 linhas para 417.072
+   boletos distintos. Um boleto que a Prime deixe de devolver **mantém a linha
+   antiga**, com o `coletado_em` velho. É por isso que o espelho não tem estado
+   "reaberto" — não porque filtre, mas porque a API não expressa reabertura neste
+   campo e a linha antiga sobrevive.
+
+4. **A condição de saída automática da fila é logicamente inalcançável.**
    `public.prime_liquidacao_reavaliar_pendentes()` — chamada ao fim de
    `prime_liquidacao_classificar_novas()`, que roda de hora em hora pelo cron 54
    (`prime_liquidacao_classificar_hora`), com a triagem no cron 55 — tem como
@@ -258,19 +301,19 @@ Cada um foi medido por consulta direta em produção em 26/10/2026.
      e o retorno passa por `jsonb_strip_nulls` — a chave é removida, logo
      `v_ev ? 'prime'` é falso.
 
-3. **O ramo nunca executou.** A classificação `PRIME_REVERTEU_LIQUIDACAO`, que
+5. **O ramo nunca executou.** A classificação `PRIME_REVERTEU_LIQUIDACAO`, que
    só esse ramo escreve, **não aparece em nenhuma linha** de
    `prime_liquidacao_classificacao`. E das **768** decisões já tomadas em
    `prime_conferencia_decisao`, **zero** têm
    `decidido_por = 'prime_liquidacao@rotina'`: há 3 autores, todos humanos
    (`amanda.seibel`, `cobranca07` e um backfill rotulado de 08/10/2026).
 
-4. **Os jobs estão saudáveis — o defeito não é de execução.** Crons 54 e 55:
+6. **Os jobs estão saudáveis — o defeito não é de execução.** Crons 54 e 55:
    **168 execuções cada em 7 dias, 168 `succeeded`, 0 falhas**. A rotina roda,
    classifica (1.161 `PRIME_ORIGEM_NAO_COMPROVADA`, 115 `ACORDO_COMPROVADO`) e
    **nunca tirou uma linha da fila**.
 
-5. **A coleta está fresca, e nenhum boleto da fila foi revertido de fato.** Os
+7. **A coleta está fresca, e nenhum boleto da fila foi revertido de fato.** Os
    507 boletos pendentes do retrato de 16:37:20Z **estão todos no espelho e
    todos ainda liquidados**, com coleta entre 24 e 26/10/2026. Ou seja: o ramo
    morto não está escondendo reversão real conhecida hoje — está garantindo que
@@ -301,19 +344,37 @@ defeito é a porta que não abre, não o estado que não acompanha.**
 Este é o ponto que qualquer correção precisa respeitar, e é uma regra, não uma
 recomendação.
 
-**Ausência de linha no espelho NÃO é prova de reversão.** As duas hipóteses são
-indistinguíveis pelo espelho sozinho:
+**Ausência de linha no espelho NÃO é prova de reversão.** São **três** coisas
+diferentes, e o espelho sozinho não as separa:
 
-| O que ausência pode significar | Ação correta |
-|---|---|
-| a Prime reabriu o boleto (reversão real) | devolver o título à cobrança |
-| a coleta não trouxe aquele aluno/boleto nesta rodada | **não fazer nada** |
+| Fenômeno | O que é | Como aparece no espelho | Ação correta |
+|---|---|---|---|
+| **Boleto reemitido** | a mesma dívida ganha número novo (mesmo vencimento, mesmo principal) | a linha antiga envelhece e **surge outra** com o mesmo `vencimento` e `valor_bruto` | agir sobre o boleto **novo**; o antigo não é reversão |
+| **Ausência no espelho** | a linha não voltou na recoleta do aluno | a linha antiga **permanece**, com `coletado_em` velho | **não fazer nada** — é sintoma, não fato |
+| **Reversão comprovada** | a Prime reabriu o boleto | **não tem forma própria**: o campo que diria isso (`paymentDate`) nunca é nulo | exigiria prova positiva, que hoje não existe |
 
-Trocar a condição morta por `not exists (linha no espelho)` **sem guarda** é
-pior do que o defeito atual: uma coleta parcial, um erro de autenticação, uma
-janela de manutenção da ULBRA ou um lote que falhou devolveriam à cobrança
-alunos cujo boleto segue liquidado — cobrança indevida em massa, que é dano
-externo e de reputação, não só erro de dado.
+**E essa distinção foi medida, não presumida.** Em 26/10/2026, o conjunto dos
+boletos cuja linha envelheceu enquanto o próprio aluno era recoletado:
+
+- **1.009 boletos, 748 alunos** — todos os candidatos possíveis a "ausência";
+- **991 deles (98,2%) têm substituto**: outro boleto do mesmo aluno, na coleta
+  nova, com **mesmo vencimento e mesmo `valor_bruto`**. São **reemissões**;
+- dos **18** restantes, **todos** são do portador 95 e **nenhum** está na nossa
+  cobrança (`acordos_titulos`);
+- **zero dos 1.009 estão no portador 195**, que é o portador da fila de
+  Conferência Prime;
+- apenas **1 dos 1.009** é conhecido em `acordos_titulos`.
+
+**Consequência quantificada:** trocar a condição morta por
+`not exists (linha no espelho)` **sem guarda** devolveria à cobrança **991
+boletos que foram apenas reemitidos** — uma taxa de erro de **98,2%**. Não é
+risco teórico; é número medido. Cobrança indevida nessa escala é dano externo e
+de reputação, não erro de dado.
+
+O inverso também vale e é o achado útil: **substituição é evidência positiva.**
+Boleto novo com mesmo vencimento e mesmo principal diz que a dívida continua
+viva, e diz isso **afirmando**, não por ausência. É o único sinal confiável
+disponível hoje — e aponta para o boleto novo, nunca reabre o antigo.
 
 Agravantes já documentados neste diretório, que tornam a ausência pouco
 confiável como sinal:
@@ -333,43 +394,103 @@ não existir prova de abrangência da extração. O que falta é um registro, po
 rodada de coleta, de qual universo foi pedido, quantas linhas voltaram e se a
 rodada terminou — e esse registro **não existe hoje**.
 
-## HIPÓTESES — NÃO COMPROVADAS
+## H1 — RESULTADO (26/10/2026)
 
-Marcadas como hipóteses de propósito; nenhuma foi medida e nenhuma autoriza
-implementação.
+A H1 perguntava se o `financial_statement` devolve o título cuja liquidação foi
+revertida, em especial com `paymentDate` nulo ou outro indicador explícito de
+reabertura. **Resolvida sem chamar a API**, porque o espelho é cópia não
+filtrada do extrato (fato 1) — a sonda autorizada **não foi executada**, e o
+motivo está registrado abaixo.
 
-- **H1.** Que a API da Prime devolva, em `financial_statement`, a linha do
-  boleto reaberto com `paymentDate` nulo. **Não testado.** O espelho não
-  guardaria essa linha hoje de todo modo (fato 1), então a hipótese só pode ser
-  verificada chamando a API, com `prime-sonda`, não lendo o banco. Se for
-  verdadeira, a correção certa é no **ingestor** (passar a persistir a linha não
-  liquidada), não no consumidor.
+- **H1.a — `paymentDate` nulo como sinal de reabertura: REFUTADA.** O campo
+  **nunca é nulo**: 0 em 417.072 linhas, 9 portadores, incluindo **19.315
+  títulos a vencer** no portador 95 (fatos 1 e 2). Um sinal que não ocorre não
+  pode indicar nada. A refutação é forte porque o ingestor **preservaria** o
+  nulo se existisse (helper `dia()`, linha 78).
+
+- **H1.b — existir outro campo, não mapeado, que indique reabertura:
+  INCONCLUSIVA.** O espelho só guarda os 13 campos que o ingestor mapeia, então
+  **não é possível, pelo banco, afirmar que a API não devolva um campo
+  adicional**. O registro oficial anterior (sondagem ao vivo de 28/09/2026) diz
+  que `financialStatement` tem 13 campos e nenhum é situação, status ou saldo —
+  mas confirmar que nada novo apareceu exige `prime-sonda` com `cru:false`.
+  **Declarada inconclusiva de propósito**, e não refutada.
+
+- **Por que a sonda não foi executada.** O portão da `prime-sonda` exige, além
+  do JWT do gateway, **o token de rotina (segredo de ambiente) ou uma sessão de
+  gestão** (ver `supabase/functions/prime-sonda/portao.ts`). Nenhum dos dois
+  está disponível a uma sessão de leitura do banco, e extrair segredo de
+  ambiente não é caminho aceitável. **Quem tiver sessão de gestão fecha a H1.b
+  em uma chamada.**
+
+- **Não existe caso de reversão conhecido e verificável.** Condição explícita
+  da autorização, e ela se aplica: dos 1.009 candidatos a ausência, 991 são
+  reemissão, os 18 restantes são do portador 95 e fora da cobrança, e **zero**
+  estão no portador 195. Não há o que sondar que provasse reversão — e
+  comportamento de reversão **não se infere de título liquidado**.
+
+## HIPÓTESES AINDA NÃO COMPROVADAS
+
+Nenhuma foi medida e nenhuma autoriza implementação.
+
 - **H2.** Que a ULBRA efetivamente reverta liquidações com alguma frequência.
-  **Não medido** — não há série histórica, justamente porque o espelho não
-  retém o estado anterior. O volume do risco é, por ora, desconhecido.
-- **H3.** Que a coleta semanal cubra 100% dos boletos da carteira. **Não
-  verificado.** É exatamente a lacuna que impede usar ausência como sinal.
+  **Não medido** — não há série histórica, e agora se sabe por quê: o campo que
+  registraria o estado anterior nunca vem nulo, e a linha antiga sobrevive à
+  recoleta (fato 3). No portador 195 **não há uma única ausência observada**, o
+  que é ausência de evidência, não evidência de impossibilidade.
+- **H3.** Que a coleta cubra 100% dos boletos da carteira. **Não verificado.**
+  Continua sendo a lacuna que impede usar ausência como sinal — embora a
+  medição dos 991 mostre que, mesmo com cobertura perfeita, ausência seguiria
+  significando reemissão na grande maioria dos casos.
 
-## CORREÇÕES PROPOSTAS
+## CORREÇÕES PROPOSTAS — revisadas em 26/10/2026 pelo resultado da H1
 
-Ordem deliberada: a proteção vem antes da automação.
+> ⚠️ **O que saiu, e por quê.** A redação anterior desta lista trazia
+> *"preferir corrigir o ingestor (persistir a linha não liquidada)"*. **Essa
+> proposta foi retirada: ela não existe.** O ingestor já aceita todas as linhas
+> e já preservaria o nulo — não há filtro a remover. A ordem de prioridade
+> também mudou, e a justificativa está em cada item.
 
-1. **Não usar ausência como gatilho** enquanto não houver prova de abrangência
-   da coleta. Regra, não preferência.
-2. **Instrumentar a coleta primeiro:** registrar por rodada o universo pedido, o
-   que voltou e se terminou. Sem isso, qualquer detecção de reversão é um palpite
-   com efeito financeiro.
-3. **Preferir corrigir o ingestor** (persistir a linha não liquidada, se H1 se
-   confirmar na sonda) a inferir reversão por ausência no consumidor. A
-   evidência positiva é sempre melhor que a negativa.
-4. **Liberar automaticamente só com prova positiva:** quando a evidência atinge
+1. **Não implementar detecção de reversão por `paymentDate`.** É impossível: o
+   campo nunca é nulo (H1.a refutada). Qualquer regra escrita sobre esse campo
+   é código morto no dia em que nasce.
+
+2. **Não implementar detecção de reversão por ausência.** Agora com número:
+   erraria em **98,2%** dos casos (991 reemissões em 1.009 ausências). Esta é a
+   recomendação mais forte da lista, e é uma proibição, não uma preferência.
+
+3. **Remover ou neutralizar o ramo morto**, em vez de "corrigi-lo". O ramo
+   `(v_ev ? 'prime') and v_liq is null` de
+   `prime_liquidacao_reavaliar_pendentes()` não pode executar e não protege nada
+   observável: no portador 195 não há uma única ausência. Código que não executa
+   é dívida técnica disfarçada de proteção — e, enquanto parecer proteção,
+   impede que alguém escreva a proteção de verdade.
+
+4. **Usar substituição como sinal, porque é prova positiva.** Boleto novo com
+   mesmo vencimento e mesmo `valor_bruto` é detectável hoje, no espelho, sem
+   nenhuma dependência externa — e afirma que a dívida continua viva em vez de
+   inferir a partir do que falta. Qualquer ação se aplica ao boleto **novo**.
+
+5. **Liberar automaticamente só com prova positiva:** quando a evidência atinge
    `A_PAGAMENTO_COMPROVADO` ou `B_ACORDO_COMPROVADO`, aplicar a mesma decisão
    que o fluxo novo já aplicaria a um título novo, com autoria
-   `prime_liquidacao@rotina` e motivo explícito.
-5. **Drenar o estoque legado por causa, com aprovação da gestão**, não por
+   `prime_liquidacao@rotina` e motivo explícito. **Subiu de prioridade:** com a
+   reversão fora do caminho crítico, é aqui que está o ganho real.
+
+6. **Drenar o estoque legado por causa, com aprovação da gestão**, não por
    boleto — e, na dúvida, `REJEITADO`: o título volta a `ABERTO` e volta a ser
    cobrável. O erro reversível é devolver à cobrança; o erro caro é encerrar
-   dívida viva.
+   dívida viva. **Subiu de prioridade** pelo mesmo motivo do item 5.
+
+7. **Instrumentar a cobertura da coleta** — universo pedido, retorno e término
+   por rodada. **Desceu de prioridade:** continua sendo pré-requisito de
+   qualquer regra futura sobre ausência, mas deixou de ser urgente, porque
+   nenhuma regra sobre ausência deve ser escrita (item 2).
+
+8. **Fechar a H1.b** com uma chamada de `prime-sonda` (`cru:false`) a
+   `/students/{registration}/financial-statement`, para listar os campos e
+   confirmar que nada novo apareceu desde 28/09/2026. Precisa de sessão de
+   gestão.
 
 Detalhamento, números e recortes em
 [`docs/DIAGNOSTICO-CONFERENCIA-PRIME-2026-10-26.md`](../DIAGNOSTICO-CONFERENCIA-PRIME-2026-10-26.md).

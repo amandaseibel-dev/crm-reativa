@@ -329,7 +329,7 @@
       "public.prime_chave_api() — duplicata funcional de prime_api_key_backend(), só em produção"
     ],
     "tabelas": [
-      "public.prime_extrato — sem CREATE TABLE nas migrations versionadas; SO PERSISTE LINHA LIQUIDADA (417.072 linhas, 0 com liquidado_em nulo, medido 2026-10-26) — nao representa boleto reaberto",
+      "public.prime_extrato — sem CREATE TABLE nas migrations versionadas; COPIA NAO FILTRADA do financialStatement (aceita toda linha com boleto; o helper dia() preserva null). 417.072 linhas, 0 com liquidado_em nulo porque a API nunca devolve paymentDate nulo, NAO por filtro. upsert por (matricula,boleto), sem delete: nunca remove linha",
       "public.prime_extrato_fila — idem",
       "public.prime_mensalidades_sync — órfã, vazia, zero referências no repositório"
     ],
@@ -413,11 +413,65 @@
     "medido_em": "2026-10-26",
     "escopo": "somente leitura em producao; nada alterado em codigo, SQL ou dado",
     "fatos_comprovados": {
-      "espelho_so_guarda_liquidado": {
+      "espelho_nao_filtra": {
         "tabela": "public.prime_extrato",
         "linhas": 417072,
         "com_liquidado_em_nulo": 0,
-        "consequencia": "a tabela nao tem valor que represente 'boleto reaberto'"
+        "ingestor": "supabase/functions/prime-extrato/index.ts",
+        "endpoint_coletado": "/students/{matricula} (student_composite, extrato inteiro sem paginar)",
+        "filtro_de_liquidacao": false,
+        "helper_dia_preserva_null": "const dia = (v) => { const s = String(v ?? ''); return s.length >= 10 ? s.slice(0,10) : null; }",
+        "conclusao": "os zero nulos sao comportamento da API, nao efeito de filtro"
+      },
+      "paymentdate_nao_e_prova_de_pagamento": {
+        "nulos_totais": 0,
+        "linhas": 417072,
+        "portadores": 9,
+        "alunos": 18266,
+        "coleta": [
+          "2026-10-24",
+          "2026-10-26"
+        ],
+        "por_portador": {
+          "95": {
+            "linhas": 315667,
+            "nulos": 0,
+            "a_vencer": 19315,
+            "a_vencer_com_paymentdate": 19315
+          },
+          "195": {
+            "linhas": 80350,
+            "nulos": 0,
+            "a_vencer": 1,
+            "a_vencer_com_paymentdate": 1
+          },
+          "outros_7": {
+            "linhas": 21055,
+            "nulos": 0
+          }
+        },
+        "prova": "19.315 titulos a vencer no portador 95 tem paymentDate preenchido; titulo que ainda nao venceu nao pode ter sido pago",
+        "confirma": "sondagem de 2026-09-28 no portador 95 (0 de 302.477 nulos), agora em escala 1,4x maior e em todos os portadores"
+      },
+      "espelho_nunca_remove_linha": {
+        "upsert": "onConflict: matricula,boleto",
+        "delete": false,
+        "linhas": 417072,
+        "boletos_distintos": 417072,
+        "consequencia": "boleto que a Prime deixe de devolver mantem a linha antiga, com coletado_em velho"
+      },
+      "ausencia_e_quase_sempre_reemissao": {
+        "candidatos_ausentes": 1009,
+        "alunos": 748,
+        "com_substituto_mesmo_venc_e_valor": 991,
+        "percentual": "98,2%",
+        "restantes": 18,
+        "restantes_portador": 95,
+        "restantes_na_cobranca": 0,
+        "no_portador_195": 0,
+        "conhecidos_na_cobranca": 1,
+        "definicao_de_ausencia": "linha cujo coletado_em e anterior a ultima coleta do proprio aluno",
+        "conclusao": "ausencia significa reemissao em 98,2% dos casos medidos; reversao confirmada: 0"
       },
       "condicao_inalcancavel": {
         "funcao": "public.prime_liquidacao_reavaliar_pendentes()",
@@ -475,16 +529,18 @@
       "se_ignorado": "trocar a condicao morta por 'not exists (linha no espelho)' sem guarda devolveria a cobranca alunos cujo boleto segue liquidado — cobranca indevida em massa"
     },
     "hipoteses_nao_comprovadas": {
-      "H1": "a API devolveria a linha do boleto reaberto com paymentDate nulo — NAO TESTADO; so verificavel por prime-sonda contra o endpoint, nao lendo o banco. Se confirmada, corrigir o INGESTOR, nao inferir por ausencia",
-      "H2": "a ULBRA reverte liquidacoes com alguma frequencia — NAO MEDIDO; nao ha serie historica porque o espelho nao retem o estado anterior. Volume do risco desconhecido",
-      "H3": "a coleta cobre 100% dos boletos da carteira — NAO VERIFICADO; e a lacuna que impede usar ausencia como sinal"
+      "H2": "a ULBRA reverte liquidacoes com alguma frequencia — NAO MEDIDO; agora se sabe por que nao ha serie historica: o campo que registraria o estado anterior nunca vem nulo e a linha antiga sobrevive a recoleta. No portador 195 nao ha uma unica ausencia observada — ausencia de evidencia, nao evidencia de impossibilidade",
+      "H3": "a coleta cobre 100% dos boletos da carteira — NAO VERIFICADO; segue sendo a lacuna que impede usar ausencia como sinal, ainda que a medicao dos 991 mostre que mesmo com cobertura perfeita a ausencia significaria reemissao na maioria dos casos"
     },
     "correcoes_propostas": [
-      "nao usar ausencia como gatilho enquanto nao houver prova de abrangencia da coleta",
-      "instrumentar a coleta primeiro: universo pedido, retorno e termino por rodada",
-      "preferir corrigir o ingestor (persistir linha nao liquidada, se H1 se confirmar) a inferir reversao por ausencia",
-      "liberar automaticamente so com prova positiva (A_PAGAMENTO_COMPROVADO / B_ACORDO_COMPROVADO), autoria prime_liquidacao@rotina e motivo explicito",
-      "drenar o estoque legado por causa com aprovacao da gestao e, na duvida, REJEITADO: o erro reversivel e devolver a cobranca"
+      "NAO implementar deteccao de reversao por paymentDate: o campo nunca e nulo (H1a refutada); qualquer regra sobre ele nasce morta",
+      "NAO implementar deteccao de reversao por ausencia: erraria em 98,2% dos casos (991 reemissoes em 1.009 ausencias). Proibicao, nao preferencia",
+      "remover ou neutralizar o ramo morto de prime_liquidacao_reavaliar_pendentes() em vez de corrigi-lo: nao executa e nao protege nada observavel (zero ausencias no portador 195)",
+      "usar SUBSTITUICAO como sinal, porque e prova positiva: boleto novo com mesmo vencimento e mesmo valor_bruto; acao sobre o boleto NOVO",
+      "liberar automaticamente so com prova positiva (A_PAGAMENTO_COMPROVADO / B_ACORDO_COMPROVADO), autoria prime_liquidacao@rotina e motivo explicito — SUBIU de prioridade",
+      "drenar o estoque legado por causa com aprovacao da gestao e, na duvida, REJEITADO — SUBIU de prioridade",
+      "instrumentar a cobertura da coleta — DESCEU de prioridade: pre-requisito de regra futura sobre ausencia, que nao deve ser escrita",
+      "fechar a H1b com prime-sonda (cru:false) em /students/{registration}/financial-statement; exige sessao de gestao"
     ],
     "ver": [
       "docs/DIAGNOSTICO-CONFERENCIA-PRIME-2026-10-26.md",
@@ -492,6 +548,22 @@
       "docs/integracoes/prime-api.md",
       "docs/integracoes/prime-mapa-fontes-verdade.md",
       "docs/integracoes/prime-mapa-identificadores.md"
-    ]
+    ],
+    "correcao_documental_2026_10_26": {
+      "o_que_estava_errado": "a primeira redacao afirmava que prime_extrato 'so persiste linha liquidada' / 'so guarda registro liquidado'",
+      "o_que_e_correto": "o ingestor (supabase/functions/prime-extrato/index.ts) aceita TODA linha de financialStatement que tenha boleto, sem filtro de liquidacao, portador ou situacao (linha 123); o helper dia() na linha 78 preserva null quando o campo esta ausente",
+      "por_que_importa": "a proposta de 'corrigir o ingestor para persistir a linha nao liquidada' deixou de existir: nao ha filtro a remover nem linha nula a persistir",
+      "o_que_permanece_valido": "a conclusao operacional nao muda: reversao de liquidacao continua nao observavel, e ausencia continua nao servindo de gatilho"
+    },
+    "resultado_h1": {
+      "pergunta": "o financial_statement devolve o titulo cuja liquidacao foi revertida, com paymentDate nulo ou outro indicador explicito de reabertura?",
+      "sonda_executada": false,
+      "por_que_nao_executada": "o portao da prime-sonda exige, alem do JWT do gateway, o token de rotina (segredo de ambiente) ou sessao de gestao (supabase/functions/prime-sonda/portao.ts)",
+      "resolvida_sem_api": "sim, porque o espelho e copia nao filtrada do extrato",
+      "H1a_paymentdate_nulo": "REFUTADA — o campo nunca e nulo (0 em 417.072, incluindo 19.315 a vencer), e o ingestor preservaria o nulo se existisse",
+      "H1b_outro_campo_nao_mapeado": "INCONCLUSIVA — o espelho so guarda os 13 campos que o ingestor mapeia; confirmar que nada novo apareceu exige prime-sonda com cru:false",
+      "caso_de_reversao_conhecido_e_verificavel": "NAO EXISTE — 991 de 1.009 ausencias sao reemissao, os 18 restantes sao do portador 95 e fora da cobranca, e zero estao no portador 195",
+      "regra": "comportamento de reversao nao se infere de titulo liquidado"
+    }
   }
 }

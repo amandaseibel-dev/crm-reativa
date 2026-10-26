@@ -19,7 +19,8 @@ de criar fallback, consultar este mapa").
 | Título original (mensalidade) — existência | Prime | `financial_statement` (via `student_composite`) | `registration` | SIM |
 | Título original — boleto (7 díg.) | Prime | `financial_statement[].boleto` | `registration` | SIM — é `acordos_titulos.documento` |
 | Mensalidade liquidada (portador 195) | Prime | `financial_statement[].paymentDate` **+ regra de entrada em prod** (venc.+30, ≠ dia da importação) | `registration` + corte 23:57:13 UTC de 18/09/2026 | CONDICIONAL — nunca `paymentDate` isolado |
-| **Reversão de liquidação (boleto reaberto na Prime)** | **NÃO OBSERVÁVEL pelo espelho.** `prime_extrato` só persiste linha liquidada — medido 26/10/2026: 417.072 linhas, 0 com `liquidado_em` nulo. O espelho não tem estado "reaberto"; no máximo a linha deixa de aparecer, e isso não distingue reversão de coleta incompleta | — | `boleto` (sem zero à esquerda) | **NÃO.** Ausência de linha não é fato e não pode disparar nada com efeito financeiro — ver a ressalva abaixo |
+| **Reversão de liquidação (boleto reaberto na Prime)** | **NÃO EXPOSTA.** `financialStatement` não tem campo de situação, e `paymentDate` **nunca é nulo** — medido 26/10/2026 no espelho **não filtrado**: 417.072 linhas, 0 nulos, inclusive 19.315 títulos a vencer. Não é limitação do espelho: é o campo que não carrega a informação | — | `boleto` (sem zero à esquerda) | **NÃO.** Ausência de linha é 98,2% reemissão (991 de 1.009 medidos), não reversão — ver a ressalva abaixo |
+| **Dívida reemitida (boleto novo para a mesma dívida)** | Prime, por **comparação dentro do espelho**: boleto novo do mesmo aluno com **mesmo `vencimento` e mesmo `valor_bruto`** de um boleto cuja linha envelheceu | `prime_extrato` | `matricula` + `vencimento` + `valor_bruto` | **SIM, como evidência positiva** — é o único sinal confiável de que a dívida segue viva. Ação sempre sobre o boleto **novo**, nunca reabrindo o antigo |
 | Decomposição de valor (principal/multa/juros/honorário) | Prime | `financial_statement[].grossAmount/penaltyAmount/interestAmount/honorariumAmount` | `registration` | SIM |
 | Caixa efetivamente recebido | **Santander** (arquivo/extrato bancário), NUNCA `paidAmount` da Prime | fora da API Prime | boleto / número Ulbra | SIM — Prime `paidAmount` é dívida corrigida, não caixa |
 | **Estrutura do acordo** (parcelas, valor negociado, vencimentos) | **NÃO LOCALIZADA.** Visível na tela do Prime, rota não identificada. Em 22/09 o rastreamento de proveniência esgotou código, banco, logs, payloads e URLs do nosso ambiente — **censo de produção: `/agreements` nunca devolveu lista preenchida** (`auditoria.ACORDO_ENCONTRADO_NA_API` = 0) | — | — | **NÃO — ver Premissas 19/20 e prime-gaps.md § Rastreamento de proveniência** |
@@ -50,13 +51,16 @@ de criar fallback, consultar este mapa").
   e na amostra consultados**, e a chave composta não separa os vínculos. Ver
   [prime-mapa-identificadores.md](prime-mapa-identificadores.md#vínculo-acadêmico-curso--campus--turno).
 
-- **Ausência no espelho não é informação.** `prime_extrato` guarda só o que está
-  liquidado, então "o boleto não está lá" pode ser reversão real **ou** coleta
-  que não cobriu aquele aluno. Não existe, hoje, registro de abrangência por
-  rodada de coleta que permita separar as duas. Enquanto não existir, **nenhuma
-  regra com efeito financeiro pode ler ausência como reversão** — o erro é
-  silencioso e devolve à cobrança aluno cujo boleto segue liquidado. Evidência e
-  risco em
+- **Ausência no espelho não é informação — e é quase sempre reemissão.**
+  Correção de 26/10/2026 a uma redação anterior deste mapa: o espelho **não**
+  guarda só o que está liquidado. O ingestor aceita toda linha com boleto e o
+  helper `dia()` preserva nulo; o que não ocorre é a API devolver `paymentDate`
+  nulo (0 em 417.072). "O boleto não está lá" tem três causas possíveis —
+  **reemissão**, coleta incompleta ou reversão real — e foi medido: **991 de
+  1.009 ausências (98,2%) são reemissão**, com substituto de mesmo vencimento e
+  mesmo valor. Por isso **nenhuma regra com efeito financeiro pode ler ausência
+  como reversão**: erraria em 98,2% dos casos, devolvendo à cobrança dívida já
+  reemitida sob outro número. Evidência e risco em
   [prime-gaps.md](prime-gaps.md#espelho-prime_extrato-reversão-de-liquidação-não-é-observável--2026-10-26).
 
 - **"NÃO LOCALIZADA"** (estrutura do acordo) é diferente de **"não existe"**.

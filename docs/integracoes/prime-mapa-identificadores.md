@@ -112,20 +112,37 @@ O boleto é chave confiável para **afirmar** que a Prime liquidou um título. E
 
 No espelho `prime_extrato` o casamento é feito por `ltrim(boleto,'0')` — zero à
 esquerda normalizado dos dois lados. Daí decorre que "o boleto não está no
-espelho" tem **três** causas possíveis, indistinguíveis entre si:
+espelho" tem **quatro** causas possíveis, e o sintoma é idêntico nas quatro.
+Medidas em 26/10/2026, nos 1.009 boletos cuja linha envelheceu enquanto o
+próprio aluno era recoletado:
 
-1. a Prime reverteu a liquidação (o caso que se queria detectar);
-2. a coleta não cobriu aquele aluno nesta rodada (a coleta é por mutirão em
-   fila, sem registro de abrangência);
-3. a formatação do boleto divergiu na origem de um jeito que `ltrim` não
-   normaliza (dígito a mais, prefixo, sufixo).
+| # | Causa | Quantos | Como reconhecer |
+|---:|---|---:|---|
+| 1 | **o boleto foi reemitido** — a mesma dívida ganhou número novo | **991 (98,2%)** | existe boleto novo do mesmo aluno com **mesmo `vencimento` e mesmo `valor_bruto`** |
+| 2 | a coleta não cobriu aquele boleto nesta rodada | indeterminado | não há registro de abrangência por rodada |
+| 3 | a formatação do boleto divergiu de um jeito que `ltrim` não normaliza | indeterminado | dígito a mais, prefixo, sufixo |
+| 4 | a Prime reverteu a liquidação (o caso que se queria detectar) | **0 confirmados** | não tem forma própria: `paymentDate` nunca é nulo |
 
-As três produzem exatamente o mesmo sintoma. Por isso **ausência de boleto no
-espelho não é fato e não pode disparar efeito financeiro** — em particular, não
-pode devolver título à cobrança nem tirá-lo dela. O espelho, medido em
-26/10/2026, tem 417.072 linhas e **0** com `liquidado_em` nulo: ele não tem como
-representar "reaberto". Ver
+Os 18 que sobram depois da reemissão são todos do portador 95 e nenhum está em
+`acordos_titulos`; **zero dos 1.009 estão no portador 195**, o da fila de
+Conferência Prime.
+
+Por isso **ausência de boleto no espelho não é fato e não pode disparar efeito
+financeiro** — em particular, não pode devolver título à cobrança nem tirá-lo
+dela: erraria em 98,2% dos casos medidos.
+
+**Correção de 26/10/2026** a uma redação anterior desta seção: o espelho **não**
+"só persiste linha liquidada" — o ingestor aceita toda linha com boleto e o
+helper `dia()` preserva nulo. O que não existe é `paymentDate` nulo vindo da API
+(0 em 417.072 linhas, inclusive 19.315 títulos a vencer). Ver
 [prime-gaps.md](prime-gaps.md#espelho-prime_extrato-reversão-de-liquidação-não-é-observável--2026-10-26).
+
+**A contrapartida positiva, e é a útil:** a **reemissão é chave de continuidade
+da dívida.** `(matricula, vencimento, valor_bruto)` liga o boleto antigo ao
+novo e afirma que a dívida segue viva — afirmando, não por ausência. Não é
+chave de identidade (não identifica unicamente um título), mas é evidência
+positiva de que a cobrança continua devida, e a ação se aplica ao boleto
+**novo**.
 
 Isto é o mesmo princípio da regra 5 acima, aplicado à ausência: **presença
 exata prova; ausência só levanta pergunta.**
