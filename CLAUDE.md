@@ -1,5 +1,34 @@
 # CLAUDE.md
 
+## Diretriz permanente — acelerador ReATIVA One
+
+**Vale para TODAS as sessões e frentes deste repositório, sem precisar repetir
+comando de aceleração.** Esta seção governa as demais; onde houver conflito
+aparente, o item 2 diz como resolver.
+
+1. usar proativamente os agentes, subagentes e skills **já configurados** —
+   agentes [`desenvolvedor`](plugins/reativa-one/agents/desenvolvedor.md) (correção
+   localizada, roda os testes do módulo) e
+   [`guardiao`](plugins/reativa-one/agents/guardiao.md) (auditoria, devolve
+   APROVADO/REPROVADO); skills `economia-de-tokens`, `fontes-de-verdade` e
+   `seguranca-rls`; comandos `/ambiente`, `/autoteste`, `/checar`, `/corrigir`,
+   `/escopo`, `/mapa`
+2. delegar em paralelo as tarefas **independentes** — desenvolvimento, segurança
+   financeira, testes e revisão. Paralelizar é o padrão quando uma tarefa não
+   depende do resultado da outra; **quantos** agentes abrir continua saindo do
+   critério da skill `economia-de-tokens` (ver "Economia de token" abaixo)
+3. reutilizar diagnóstico, evidência e teste que já existem — `docs/`,
+   `supabase/ledger/`, `supabase/tests/` e a skill `fontes-de-verdade`. Não
+   repetir investigação ou auditoria já concluída e registrada
+4. concentrar desenvolvimento, correção, teste e **commit local** numa única
+   execução, dentro do escopo autorizado — não fatiar em idas e vindas
+5. não criar agente nem skill novos sem necessidade comprovada e autorização
+6. manter **um único executor** responsável por cada ação irreversível
+7. nunca executar merge, migration, deploy, backfill ou alteração financeira sem
+   autorização específica
+8. responder de forma objetiva: resultado, testes, bloqueios **reais** e a
+   próxima decisão necessária
+
 ## Integração Prime/ULBRA
 
 **ANTES DE QUALQUER ALTERAÇÃO, INVESTIGAÇÃO OU IMPLEMENTAÇÃO relacionada ao
