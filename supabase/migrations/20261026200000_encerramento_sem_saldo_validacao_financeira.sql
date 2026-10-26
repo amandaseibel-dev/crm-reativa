@@ -647,18 +647,26 @@ begin
     raise exception 'JUSTIFICATIVA_OBRIGATORIA: diga por que (minimo 15 caracteres).';
   end if;
 
-  select * into v_a from public.alunos where id = p_aluno_id for update;
-  if not found then
-    raise exception 'ALUNO_NAO_ENCONTRADO';
-  end if;
-
+  -- O REGISTRO VEM ANTES DO ALUNO, de proposito. `aluno_id` nao tem chave
+  -- estrangeira (a trilha sobrevive a exclusao do aluno, que e o ponto de uma
+  -- trilha), entao exigir que o aluno exista criaria um registro INSOLUVEL:
+  -- aluno apagado = nenhum verbo capaz de resolver, para sempre. Hoje sao 0
+  -- casos apontando para aluno inexistente em producao, mas zero hoje nao e
+  -- zero amanha, e a correcao custa esta ordem invertida.
   select * into v_e from public.caso_encerramento_sem_saldo
    where aluno_id = p_aluno_id and escopo = 'ALUNO' and resolvido_em is null for update;
   if not found then
     return jsonb_build_object('ok', false, 'erro', 'SEM_REGISTRO_VIGENTE', 'aluno_id', p_aluno_id);
   end if;
 
-  v_saldo := round(coalesce((public.aluno_saldo_pendente_detalhe(p_aluno_id)->>'total')::numeric, 0), 2);
+  -- O aluno pode nao existir mais. Nesse caso o registro ainda se resolve; o
+  -- saldo fica NULO, que e a verdade ("nao ha aluno para medir"), em vez de 0.
+  select * into v_a from public.alunos where id = p_aluno_id for update;
+  if found then
+    v_saldo := round(coalesce((public.aluno_saldo_pendente_detalhe(p_aluno_id)->>'total')::numeric, 0), 2);
+  else
+    v_saldo := null;
+  end if;
 
   update public.caso_encerramento_sem_saldo
      set resolvido_em = now(), resolvido_por = v_email

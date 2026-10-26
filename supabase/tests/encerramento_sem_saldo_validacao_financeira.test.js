@@ -599,6 +599,28 @@ describe("porta de saida do escopo ALUNO (os 240 sem saida)", () => {
                          where aluno_id=$1 and resolvido_em is not null`, [c.aluno])).toHaveLength(0);
   });
 
+  it("registro de ALUNO resolve mesmo se o aluno foi apagado -- nao fica insoluvel", async () => {
+    // `aluno_id` nao tem FK: a trilha sobrevive a exclusao do aluno. Se o verbo
+    // exigisse o aluno, o registro ficaria sem saida para sempre.
+    const db = await abrir(ANTES);
+    const c = await soAluno(db, 75);
+    await db.exec(MIGRATION);
+    expect(await q(db, `select 1 from public.caso_encerramento_sem_saldo
+                         where aluno_id=$1 and escopo='ALUNO' and resolvido_em is null`, [c.aluno]))
+      .toHaveLength(1);
+
+    await db.query(`delete from public.casos where aluno_id = $1`, [c.aluno]);
+    await db.query(`delete from public.acordos_titulos where aluno_id = $1`, [c.aluno]);
+    await db.query(`delete from public.alunos where id = $1`, [c.aluno]);
+
+    await como(db, GESTAO);
+    const r = (await q1(db, `select public.caso_encerramento_resolver_aluno($1,'MANTER_ENCERRADO',$2) r`,
+      [c.aluno, "aluno removido da base; congelamento encerrado por limpeza"])).r;
+    expect(r).toMatchObject({ ok: true, congelamento: "RENOVADO" });
+    // saldo NULO, que e a verdade: nao ha aluno para medir
+    expect(r.saldo_no_momento).toBeNull();
+  });
+
   it("aluno sem registro vigente devolve SEM_REGISTRO_VIGENTE", async () => {
     const db = await abrir(ANTES);
     const c = await cenario(db, 74); // sem divida: nao congela
