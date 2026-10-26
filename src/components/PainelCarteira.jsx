@@ -59,6 +59,7 @@ import {
   semSaldoVencido,
   ehNaoAcionavel,
   SITUACAO_QUITACAO,
+  cursoSemestrePedido,
 } from "../utils/carteiraFila";
 import { analiticasSuspensas } from "../config/modoContencao";
 import EmailAlunoUnificado from "./EmailAlunoUnificado";
@@ -730,6 +731,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const [filtroCurso, setFiltroCurso] = useState("TODOS");
   const [filtroSemestre, setFiltroSemestre] = useState("AMBOS");
   const [mapaCursoSemestre, setMapaCursoSemestre] = useState(null);
+  // Escopo a que o mapa lido pertence, e se a leitura esta em voo. Ver o
+  // `useEffect` de curso/semestre: a leitura e SOB DEMANDA desde 26/10/2026.
+  const [escopoCursoSemestreLido, setEscopoCursoSemestreLido] = useState(null);
+  const [cursoSemestreCarregando, setCursoSemestreCarregando] = useState(false);
   const [filtroKpi, setFiltroKpi] = useState(null);
   const [filtroValorMin, setFiltroValorMin] = useState("");
   const [filtroValorMax, setFiltroValorMax] = useState("");
@@ -1051,35 +1056,62 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     return () => { ativo = false; };
   }, [filtroAnoVencimento]);
 
-  // Curso e semestre: uma leitura por escopo, nao por troca de filtro -- a RPC
-  // devolve as duas dimensoes de uma vez, entao trocar o select nao vai ao
-  // banco. Recarrega quando a gestao troca de operador.
+  // Curso e semestre: leitura SOB DEMANDA (26/10/2026, incidente de carga).
+  //
+  // Antes esta RPC saia em TODA abertura de carteira. Ela e a consulta mais
+  // cara da tela -- piso de 3,07 s, media de 4,86 s e ~48 MB de disco
+  // temporario por chamada, contra o teto de 8 s do papel `authenticated` --
+  // e pagava esse custo tambem para o operador que nunca toca no recorte.
+  // Enquanto a lista de casos (media de 83 ms) morria por saturacao, esta era
+  // a maior contribuicao da tela para essa saturacao.
+  //
+  // Agora so vai ao banco quando o operador escolhe de fato um curso ou um
+  // semestre. Segue UMA leitura por ESCOPO: a RPC devolve as duas dimensoes de
+  // uma vez, entao trocar o select depois de carregado nao volta ao banco.
+  const escopoCursoSemestre = `${email || ""}|${veTudo ? "1" : "0"}|${operadorFiltro || ""}`;
+  const pedeCursoSemestre = cursoSemestrePedido(filtroCurso, filtroSemestre);
+
   useEffect(() => {
+    if (!pedeCursoSemestre) return;
+    if (escopoCursoSemestreLido === escopoCursoSemestre) return;
     let ativo = true;
     (async () => {
+      // Dentro da assincrona, antes do primeiro `await`: marca o carregamento
+      // sem chamada sincrona de setState no corpo do efeito.
+      setCursoSemestreCarregando(true);
       const alvo = emailEscopo();
       const { data, error } = await supabase.rpc("carteira_curso_semestre_do_operador", {
         p_email: alvo || null,
       });
       if (!ativo) return;
+      setCursoSemestreCarregando(false);
+      // Falha segue TOLERADA: mapa nulo NAO filtra, e a lista nunca encolhe por
+      // dado a meio caminho. O operador perde o recorte, nunca o atendimento.
       if (error) { setMapaCursoSemestre(null); return; }
       const mapa = {};
       for (const linha of data || []) mapa[String(linha.aluno_id)] = linha;
       setMapaCursoSemestre(mapa);
+      setEscopoCursoSemestreLido(escopoCursoSemestre);
     })();
     return () => { ativo = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [email, veTudo, operadorFiltro]);
+  }, [pedeCursoSemestre, escopoCursoSemestre, escopoCursoSemestreLido]);
+
+  // O mapa so vale para o escopo em que foi lido. Comparar aqui, em vez de
+  // zerar o estado num efeito de invalidacao, fecha a janela em que a gestao
+  // troca de operador e a tela ainda recortaria pela carteira anterior.
+  const mapaCursoSemestreValido =
+    escopoCursoSemestreLido === escopoCursoSemestre ? mapaCursoSemestre : null;
 
   // Os conjuntos que o recorte usa. `null` enquanto a RPC nao respondeu, e
   // `null` NAO filtra -- a lista nunca encolhe por dado a meio caminho.
   const alunosDoCurso = useMemo(
-    () => (mapaCursoSemestre ? alunosDoCursoEscolhido(mapaCursoSemestre, filtroCurso, filtroSemestre) : null),
-    [mapaCursoSemestre, filtroCurso, filtroSemestre]
+    () => (mapaCursoSemestreValido ? alunosDoCursoEscolhido(mapaCursoSemestreValido, filtroCurso, filtroSemestre) : null),
+    [mapaCursoSemestreValido, filtroCurso, filtroSemestre]
   );
   const alunosDoSemestre = useMemo(
-    () => (mapaCursoSemestre ? alunosDoSemestreEscolhido(mapaCursoSemestre, filtroSemestre) : null),
-    [mapaCursoSemestre, filtroSemestre]
+    () => (mapaCursoSemestreValido ? alunosDoSemestreEscolhido(mapaCursoSemestreValido, filtroSemestre) : null),
+    [mapaCursoSemestreValido, filtroSemestre]
   );
 
   const [novosCasosAutomaticos, setNovosCasosAutomaticos] = useState([]);
@@ -2721,8 +2753,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // re-rank do Foco do Dia e uma linha por pessoa) mora em
   // src/utils/carteiraFila.js, com teste. Aqui so se entrega o estado atual.
   const finAlunosDoRecorte = useMemo(
-    () => finAlunosDoSemestre(finAlunos, mapaCursoSemestre, filtroSemestre),
-    [finAlunos, mapaCursoSemestre, filtroSemestre]
+    () => finAlunosDoSemestre(finAlunos, mapaCursoSemestreValido, filtroSemestre),
+    [finAlunos, mapaCursoSemestreValido, filtroSemestre]
   );
   const recorteAtual = {
     casos,
@@ -3590,9 +3622,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                 style={S.select}
                 value={filtroCurso}
                 onChange={(e) => setFiltroCurso(e.target.value)}
-                disabled={mapaCursoSemestre === null}
+                disabled={cursoSemestreCarregando}
                 title={
-                  mapaCursoSemestre === null
+                  cursoSemestreCarregando
                     ? "Carregando curso e semestre…"
                     : "Curso do contrato do Prime. Com um semestre escolhido, vale o curso daquele semestre; em “Ambos”, quem trocou de curso aparece nos dois."
                 }
@@ -3606,9 +3638,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                 style={S.select}
                 value={filtroSemestre}
                 onChange={(e) => setFiltroSemestre(e.target.value)}
-                disabled={mapaCursoSemestre === null}
+                disabled={cursoSemestreCarregando}
                 title={
-                  mapaCursoSemestre === null
+                  cursoSemestreCarregando
                     ? "Carregando curso e semestre…"
                     : "Competência do título (série do boleto no Prime). Parcela de acordo entra no semestre só quando o acordo é de um semestre único; o que não é atribuível aparece apenas em “Ambos”."
                 }

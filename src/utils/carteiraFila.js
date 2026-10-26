@@ -363,6 +363,30 @@ export function valorAbertoDe(a, finAlunos) {
 export const CURSOS_CARTEIRA = ["Medicina", "Medicina Veterinária", "Odontologia"];
 export const SEMESTRES_CARTEIRA = ["2026/1", "2026/2"];
 
+// A leitura de curso/semestre precisa acontecer? (26/10/2026, incidente de carga)
+//
+// A RPC `carteira_curso_semestre_do_operador` e a consulta mais cara da tela.
+// Medido em PROD em 26/10/2026: piso de 3,07 s, media de 4,86 s e ~48 MB de
+// disco temporario POR CHAMADA, contra o teto de 8 s do papel `authenticated`.
+// Ela saia em TODA abertura de carteira, inclusive para quem nunca toca no
+// recorte, e era a maior fonte de saturacao vinda da tela -- ao ponto de
+// derrubar a propria lista de casos, que tem media de 83 ms e so estourava o
+// teto por saturacao.
+//
+// Com os dois filtros no padrao o mapa nao serve para NADA: sem curso escolhido
+// `alunosDoCursoEscolhido` devolve null, sem semestre escolhido
+// `alunosDoSemestreEscolhido` devolve null, e `finAlunosDoSemestre` devolve o
+// proprio `finAlunos` sem olhar o mapa. Entao a leitura so se paga quando o
+// operador escolhe de fato.
+//
+// O teste e por PERTENCIMENTO as listas, nao por `!== "TODOS"`: valor estranho
+// no select nunca dispara a consulta pesada.
+export function cursoSemestrePedido(curso, semestre) {
+  const c = String(curso || "").trim();
+  const s = String(semestre || "").trim();
+  return CURSOS_CARTEIRA.includes(c) || SEMESTRES_CARTEIRA.includes(s);
+}
+
 // Quais fichas casam o curso escolhido.
 //
 // O curso vem do contrato do Prime da JANELA do semestre -- entao com um
