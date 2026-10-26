@@ -1,18 +1,31 @@
 // ENCAMINHAMENTO DA PENDÊNCIA CLASSIFICADA — o vocabulário, fora do JSX.
 //
-// POR QUE EXISTE. `vw_fila_pagamento_triagem` declara uma ação para 89
-// pagamentos (47 CONFERIR_E_ENCERRAR, 42 ESCOLHER_ALUNO, medido em 26/10/2026)
-// e nenhuma tela a oferecia. A Etapa 2 abre essa porta. Aqui mora só o
-// vocabulário e as regras que a tela e os testes têm de ler IGUAIS — nenhuma
-// classificação é decidida neste arquivo: ela é toda do banco, como em
-// `filaPagamentoTriagem.js`.
+// POR QUE EXISTE. `vw_fila_pagamento_triagem` declara `CONFERIR_E_ENCERRAR` para
+// 47 pagamentos (R$ 40.663,34, medido em 26/10/2026) e nenhuma tela a oferecia:
+// a ação aparecia só em teste e na QuitacaoSugerida. A Etapa 2 abre essa porta.
+//
+// ESCOPO: UMA AÇÃO. `ESCOLHER_ALUNO` foi retirada desta etapa por decisão da
+// gestão em 26/10/2026, e não tem caminho nenhum aqui — nem mapa, nem rótulo,
+// nem botão. A razão, para não voltar por esquecimento: a porta dela seria
+// `pagamento_vincular_aluno`, que chama `pagamento_conciliar_um(.., true)` e
+// PODE DAR BAIXA (154 de 212 vínculos manuais terminaram em BAIXADO), e 32 dos
+// 42 casos já têm aluno vinculado — contra a regra de 16/09/2026 que este mesmo
+// projeto escreveu em `podeVincularAluno`.
+//
+// A funcionalidade ANTIGA não mudou: a busca manual de aluno na fila continua
+// como estava, com o próprio aviso e o próprio portão. Esta etapa apenas não
+// abre uma segunda porta para ela.
+//
+// Aqui mora só o vocabulário e as regras que a tela e os testes têm de ler
+// IGUAIS — nenhuma classificação é decidida neste arquivo: ela é toda do banco,
+// como em `filaPagamentoTriagem.js`.
 //
 // A REGRA QUE ORGANIZA TUDO: a tela nunca inventa o que vai acontecer. Ela
 // traduz códigos que a prévia do banco devolveu. Texto montado na tela sobre
 // efeito financeiro é exatamente como se promete o que o banco não faz.
 
-// AS DUAS AÇÕES, e o que cada uma de fato faz. `passos` espelha o array que a
-// prévia devolve: se o banco ganhar um passo e este mapa não, o teste reprova.
+// A AÇÃO DESTA ETAPA. `passos` espelha o array que a prévia devolve: se o banco
+// ganhar um passo e este mapa não, o teste reprova.
 export const ACOES_ENCAMINHAMENTO = {
   CONFERIR_E_ENCERRAR: {
     rotulo: "Conferir e encerrar",
@@ -27,20 +40,6 @@ export const ACOES_ENCAMINHAMENTO = {
       "Não dá baixa, não quita, não altera parcela, acordo, título nem saldo.",
     passos: ["REGISTRAR_DECISAO_RESOLVIDO_AUTOMATICO", "MOVER_PARA_ENCERRADO_SEM_EFEITO_FINANCEIRO"],
     resultado: "PENDENCIA_ENCERRADA_SEM_EFEITO_FINANCEIRO",
-    exigeAluno: false,
-  },
-  ESCOLHER_ALUNO: {
-    rotulo: "Escolher o aluno sugerido",
-    verbo: "Vincular o aluno escolhido",
-    explica:
-      "A fila sugere um ou mais alunos para este pagamento. Vincular diz de quem é o dinheiro " +
-      "que já estava lançado — a conciliação continua, agora com o aluno certo.",
-    aviso:
-      "Grava o vínculo como decisão da gestão e fecha a linha da fila. " +
-      "Não dá baixa, não quita e não altera parcela, acordo, título nem saldo.",
-    passos: ["VINCULAR_ALUNO_ESCOLHIDO"],
-    resultado: "PAGAMENTO_VINCULADO_AO_ALUNO",
-    exigeAluno: true,
   },
 };
 
@@ -51,9 +50,6 @@ export const RESULTADOS = {
   PENDENCIA_ENCERRADA_SEM_EFEITO_FINANCEIRO:
     "a pendência sai da fila e do contador, com o motivo preservado no histórico do arquivo. " +
     "Nenhum dinheiro é movido.",
-  PAGAMENTO_VINCULADO_AO_ALUNO:
-    "o pagamento passa a apontar para o aluno escolhido e a linha sai da fila. " +
-    "O estado da conciliação não muda por isto.",
 };
 
 // AS RECUSAS, uma frase cada. Recusa sem nome é o que faz a pessoa clicar de
@@ -63,17 +59,16 @@ export const MOTIVOS_RECUSA = {
     "este pagamento não está mais na triagem de pendências — atualize a fila.",
   SEM_ACAO_SUGERIDA:
     "a triagem não declara ação para este caso. Ele precisa de conferência caso a caso.",
+  // A recusa dos 42 `ESCOLHER_ALUNO`: a pendência continua visível e esta
+  // interface diz, sem rodeio, que não é ela que resolve o caso.
+  ACAO_FORA_DO_ESCOPO_DESTA_ETAPA:
+    "a triagem declara uma ação que esta tela não executa. Use o caminho próprio dela na fila.",
   ACAO_NAO_IMPLEMENTADA:
     "a triagem declara uma ação que esta tela ainda não oferece.",
   ACAO_DIVERGE_DA_SUGERIDA:
     "a classificação mudou depois que a tela carregou — atualize a fila e confira de novo.",
-  ALUNO_NAO_INFORMADO: "escolha qual aluno antes de confirmar.",
-  ALUNO_FORA_DAS_SUGESTOES:
-    "o aluno escolhido não está entre as sugestões da fila. Para vincular outro, use a busca manual.",
   PASSO_1_RECUSADO:
     "a conferência da parcela já paga não passou em todas as validações.",
-  VINCULO_RECUSADO: "o vínculo do aluno foi recusado pelo banco.",
-  SEM_SUGESTAO_DE_ALUNO: "a fila não tem sugestão de aluno para este pagamento.",
 };
 
 // AS 8 VALIDAÇÕES de `PARCELA_JA_PAGA_CONFERIDA`, com o nome que a prévia usa.
@@ -107,8 +102,9 @@ export function rotuloResultado(codigo) {
 }
 
 // A LINHA TEM ENCAMINHAMENTO? Só quando a triagem declarou uma ação QUE ESTA
-// TELA IMPLEMENTA. A segunda metade é o que impede botão morto: a triagem pode
-// ganhar uma ação nova antes da tela, e nesse caso a linha continua sem botão.
+// ETAPA IMPLEMENTA. A segunda metade é o que mantém `ESCOLHER_ALUNO` (e
+// qualquer ação futura) sem botão: a triagem pode declarar o que quiser, e a
+// linha só ganha porta quando esta etapa souber executá-la.
 //
 // Linha já decidida não tem encaminhamento: ela é o caso dos 33 que a Etapa 1
 // resolve por backfill, com autorização própria — não por esta porta.
@@ -123,12 +119,12 @@ export function podeEncaminhar(triagem) {
 // que o banco vai aceitar. Mesma decisão de `finalizacaoInvalida`.
 //
 // Devolve a frase do impedimento, ou null quando pode confirmar.
-export function impedimentoDoEncaminhamento({ previa, alunoId } = {}) {
+export function impedimentoDoEncaminhamento({ previa } = {}) {
   if (!previa) return "Carregue a prévia antes de confirmar.";
   if (previa.ok === false) return rotuloRecusa(previa.motivo);
 
   const def = ACOES_ENCAMINHAMENTO[previa.acao];
-  if (!def) return rotuloRecusa("ACAO_NAO_IMPLEMENTADA");
+  if (!def) return rotuloRecusa("ACAO_FORA_DO_ESCOPO_DESTA_ETAPA");
 
   if (previa.aprovado !== true) {
     const bloqueios = Array.isArray(previa.bloqueios) ? previa.bloqueios : [];
@@ -141,21 +137,10 @@ export function impedimentoDoEncaminhamento({ previa, alunoId } = {}) {
     return `A prévia não aprovou: ${bloqueios.map(rotuloValidacao).join("; ")}.`;
   }
 
-  if (def.exigeAluno && !alunoId) return rotuloRecusa("ALUNO_NAO_INFORMADO");
-
-  if (def.exigeAluno && alunoId) {
-    const sugestoes = Array.isArray(previa.sugestoes) ? previa.sugestoes : [];
-    if (!sugestoes.some((s) => s && s.aluno_id === alunoId)) {
-      return rotuloRecusa("ALUNO_FORA_DAS_SUGESTOES");
-    }
-  }
-
   return null;
 }
 
 // AS VALIDAÇÕES PARA A TELA, já traduzidas e na ordem que o banco mandou.
-// Prévia sem validações (ESCOLHER_ALUNO não tem) devolve lista vazia, e a tela
-// mostra as sugestões no lugar — não um quadro vazio com título.
 export function validacoesDaPrevia(previa) {
   const lista = Array.isArray(previa?.validacoes) ? previa.validacoes : [];
   return lista
@@ -171,16 +156,16 @@ export function validacoesDaPrevia(previa) {
 // O TEXTO DA CONFIRMAÇÃO. Uma frase, com o que vai acontecer e o que não vai.
 // `moeda` entra por parâmetro porque a formatação é da tela, não desta regra —
 // e porque o teste precisa afirmar o texto sem depender de locale.
-export function textoDaConfirmacao({ previa, alunoNome, moeda } = {}) {
+export function textoDaConfirmacao({ previa, moeda } = {}) {
   const def = ACOES_ENCAMINHAMENTO[previa?.acao];
   if (!def) return "";
   const valor = typeof moeda === "function" ? moeda(previa?.pagamento?.valor_pago) : "";
-  const alvo = def.exigeAluno && alunoNome ? ` ao aluno ${alunoNome}` : "";
-  return `${def.verbo}${alvo}${valor ? ` — pagamento de ${valor}` : ""}? ${def.aviso}`;
+  return `${def.verbo}${valor ? ` — pagamento de ${valor}` : ""}? ${def.aviso}`;
 }
 
 // O QUE A ETAPA 2 NÃO FAZ, dito na tela em voz alta. A fila inteira já carrega
 // `AVISO_PROJECAO`; este aviso é sobre a AÇÃO, não sobre o dinheiro do dia.
 export const ENCAMINHAMENTO_AVISO =
-  "Encaminhar é decisão de conferência: nenhuma destas ações dá baixa, quita, reatribui caso " +
-  "ou altera valor. Toda confirmação fica registrada na auditoria com quem decidiu e quando.";
+  "Encerrar aqui é decisão de conferência: não dá baixa, não quita, não vincula aluno, não " +
+  "reatribui caso e não altera valor. Toda confirmação fica registrada na auditoria com quem " +
+  "decidiu e quando.";

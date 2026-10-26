@@ -1,17 +1,23 @@
 // ENCAMINHAR A PENDÊNCIA CLASSIFICADA — o botão que a triagem já pedia.
 //
-// POR QUE EXISTE. `vw_fila_pagamento_triagem` declara `acao_sugerida` para 89
-// pagamentos e nenhuma tela a oferecia: a ação aparecia só em teste e na
-// QuitacaoSugerida. Medido em 26/10/2026 — 47 CONFERIR_E_ENCERRAR
-// (R$ 40.663,34) e 42 ESCOLHER_ALUNO (R$ 23.469,07).
+// POR QUE EXISTE. `vw_fila_pagamento_triagem` declara `CONFERIR_E_ENCERRAR` para
+// 47 pagamentos (R$ 40.663,34, medido em 26/10/2026) e nenhuma tela a oferecia.
+//
+// ESCOPO: UMA AÇÃO. `ESCOLHER_ALUNO` foi retirada em 26/10/2026 e não tem
+// caminho aqui — este componente não conhece aluno, não tem seleção de aluno e
+// não chama `pagamento_vincular_aluno`. A busca manual de aluno da fila, que já
+// existia em produção, segue intacta em `PagamentosSemAluno.jsx`, com o próprio
+// aviso e o próprio portão; o que esta etapa faz é NÃO abrir uma segunda porta.
 //
 // A REGRA DE OURO DESTE COMPONENTE: dois passos, sempre. Primeiro a PRÉVIA, que
 // o banco devolve e esta tela só traduz; depois a confirmação. Não há caminho
 // em que um clique só grave algo — e a prévia é relida pelo banco na hora de
 // gravar, porque o que a tela mostrou pode ter envelhecido.
 //
-// NENHUMA DESTAS AÇÕES MOVE DINHEIRO. O aviso está em `ENCAMINHAMENTO_AVISO` e
-// aparece dentro do painel, não num tooltip: quem confirma precisa ler.
+// A AÇÃO NÃO MOVE DINHEIRO, e isso é conferido no banco, não prometido aqui: os
+// dois passos são a decisão da fila e uma coluna de controle da conciliação. O
+// aviso está em `ENCAMINHAMENTO_AVISO` e aparece dentro do painel, não num
+// tooltip: quem confirma precisa ler.
 import { useState } from "react";
 import { supabase } from "../services/supabase";
 import { S } from "../ui/estilosFila";
@@ -31,10 +37,10 @@ export default function EncaminharPendencia({ triagem, moeda, onConcluido }) {
   const [carregando, setCarregando] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [msg, setMsg] = useState("");
-  const [alunoId, setAlunoId] = useState("");
 
-  // Linha sem ação implementada não ganha botão. Botão morto é pior que botão
-  // ausente: ele promete e não entrega.
+  // Linha sem ação DESTA etapa não ganha botão. Botão morto é pior que botão
+  // ausente: ele promete e não entrega. É também o que mantém os 42
+  // `ESCOLHER_ALUNO` sem porta nova, sem esconder a pendência da fila.
   if (!podeEncaminhar(triagem)) return null;
 
   const def = ACOES_ENCAMINHAMENTO[triagem.acao_sugerida];
@@ -54,36 +60,27 @@ export default function EncaminharPendencia({ triagem, moeda, onConcluido }) {
       return;
     }
     setPrevia(data || null);
-    // Sugestão única: já vem escolhida, porque obrigar o clique numa lista de um
-    // é cerimônia sem informação. A confirmação ainda é um passo separado.
-    const sugestoes = Array.isArray(data?.sugestoes) ? data.sugestoes : [];
-    if (sugestoes.length === 1 && sugestoes[0]?.aluno_id) setAlunoId(sugestoes[0].aluno_id);
   }
 
   function fechar() {
     setPrevia(null);
-    setAlunoId("");
     setMsg("");
   }
 
   async function confirmar() {
-    const impede = impedimentoDoEncaminhamento({ previa, alunoId: alunoId || null });
+    const impede = impedimentoDoEncaminhamento({ previa });
     if (impede) {
       setMsg(impede);
       return;
     }
 
-    const nome =
-      (Array.isArray(previa.sugestoes) ? previa.sugestoes : []).find((s) => s?.aluno_id === alunoId)
-        ?.aluno_nome || "";
-    if (!window.confirm(textoDaConfirmacao({ previa, alunoNome: nome, moeda }))) return;
+    if (!window.confirm(textoDaConfirmacao({ previa, moeda }))) return;
 
     setSalvando(true);
     setMsg("");
     const { data, error } = await supabase.rpc("conciliacao_encaminhar_confirmar", {
       p_pagamento_id: pagamentoId,
       p_acao: previa.acao,
-      p_aluno_id: alunoId || null,
       p_confirmar: true,
     });
     setSalvando(false);
@@ -121,8 +118,7 @@ export default function EncaminharPendencia({ triagem, moeda, onConcluido }) {
   }
 
   const validacoes = validacoesDaPrevia(previa);
-  const sugestoes = Array.isArray(previa.sugestoes) ? previa.sugestoes : [];
-  const impede = impedimentoDoEncaminhamento({ previa, alunoId: alunoId || null });
+  const impede = impedimentoDoEncaminhamento({ previa });
 
   return (
     <div style={caixa}>
@@ -158,38 +154,6 @@ export default function EncaminharPendencia({ triagem, moeda, onConcluido }) {
               </div>
             ))}
           </div>
-        </div>
-      ) : null}
-
-      {/* AS SUGESTÕES. Oferecidas, nunca aplicadas: o rádio é a escolha
-          explícita da pessoa, e o banco confere o id contra esta mesma lista. */}
-      {def.exigeAluno ? (
-        <div style={bloco}>
-          <span style={rotulo}>
-            {sugestoes.length === 1 ? "1 aluno sugerido pela fila" : `${sugestoes.length} alunos sugeridos pela fila`}
-          </span>
-          {sugestoes.length === 0 ? (
-            <span style={texto}>{rotuloRecusa("SEM_SUGESTAO_DE_ALUNO")}</span>
-          ) : (
-            <div style={grade}>
-              {sugestoes.map((s) => (
-                <label key={s.aluno_id} style={{ ...item, cursor: "pointer" }}>
-                  <input
-                    type="radio"
-                    name={`sug-${pagamentoId}`}
-                    checked={alunoId === s.aluno_id}
-                    onChange={() => setAlunoId(s.aluno_id)}
-                  />
-                  <span style={itemRotulo}>{s.aluno_nome || "(sem nome)"}</span>
-                  <span style={itemDetalhe}>
-                    {[s.cpf ? `CPF ${s.cpf}` : null, s.matricula ? `matrícula ${s.matricula}` : null]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </span>
-                </label>
-              ))}
-            </div>
-          )}
         </div>
       ) : null}
 

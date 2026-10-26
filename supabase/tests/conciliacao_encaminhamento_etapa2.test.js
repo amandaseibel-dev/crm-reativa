@@ -13,24 +13,27 @@
 //   conciliacao_ja_paga_previa              20260917210000 (#405)
 //   conciliacao_ja_paga_encerrar            20260917210000 (#405)
 //   conciliacao_encerrar_sem_efeito_financeiro  20261024170000 (#752, Etapa 1)
+//   conciliacao_encaminhar_acoes            20261026160000 (esta etapa)
 //   conciliacao_encaminhar_previa           20261026160000 (esta etapa)
 //   conciliacao_encaminhar_confirmar        20261026160000 (esta etapa)
 // `usuario_e_gestao` também é o corpo real (allowlist de três e-mails), para o
 // portão ser exercitado e não simulado.
 //
-// O QUE ESTE TESTE NÃO COBRE, dito aqui para ninguém ler mais do que ele prova:
+// `pagamento_vincular_aluno` NÃO EXISTE nesta bancada, e isso é a prova mais
+// forte do corte de escopo de 26/10/2026: se a fachada tentasse chamá-la por
+// qualquer caminho, o teste quebraria com "function does not exist". Na revisão
+// anterior ela estava DUBLADA aqui, e o dublê escondeu justamente o risco que
+// importava -- ele omitia `pagamento_conciliar_um(.., true)`, que toca
+// `baixas_pagamento` e pode dar baixa. A lição ficou: dublê de função que move
+// dinheiro não prova ausência de efeito financeiro; ausência da função, sim.
 //
-//   1. `vw_fila_pagamento_triagem` é um DUBLÊ nesta bancada. A view real tem
-//      ~200 linhas e depende de uma dezena de tabelas; reproduzi-la aqui seria
-//      testar a cópia. O dublê expõe as mesmas colunas que a fachada lê e a
-//      mesma regra que importa para ela: `acao_sugerida` derivada da
-//      subcategoria, e o estado terminal FORA da triagem. A classificação em si
-//      é coberta por `filaPagamentoTriagem.arquivo.test.js` e pelas migrations
-//      #737/#746.
-//   2. `pagamento_vincular_aluno` é um DUBLÊ. Ela é função pré-existente, com
-//      portão próprio, de outra frente -- o que se testa aqui é a FACHADA (o
-//      portão, a conferência do aluno contra as sugestões, a auditoria), não o
-//      vínculo.
+// O QUE ESTE TESTE NÃO COBRE, dito aqui para ninguém ler mais do que ele prova:
+//   `vw_fila_pagamento_triagem` é um DUBLÊ. A view real tem ~200 linhas e
+//   depende de uma dezena de tabelas; reproduzi-la aqui seria testar a cópia. O
+//   dublê expõe as mesmas colunas que a fachada lê e a mesma regra que importa
+//   para ela: `acao_sugerida` derivada da subcategoria, e o estado terminal
+//   FORA da triagem. A classificação em si é coberta por
+//   `filaPagamentoTriagem.arquivo.test.js` e pelas migrations #737/#746.
 //
 // NENHUM DADO REAL.
 globalThis.process.env.TZ = "UTC";
@@ -46,7 +49,8 @@ const ler = (p) => readFileSync(resolve(AQUI, "..", "..", p), "utf8");
 
 const M_JA_PAGA = ler("supabase/migrations/20260917210000_encerrar_pendencia_de_conciliacao.sql");
 const M_TERMINAL = ler("supabase/migrations/20261024170000_conciliacao_saida_terminal.sql");
-const M_ETAPA2 = ler("supabase/migrations/20261026160000_conciliacao_encaminhamento_etapa2.sql");
+const ARQ_ETAPA2 = "supabase/migrations/20261026160000_conciliacao_encaminhamento_etapa2.sql";
+const M_ETAPA2 = ler(ARQ_ETAPA2);
 
 // EXTRAI UMA FUNÇÃO DO ARQUIVO VERSIONADO, do `create` até o fechamento do
 // corpo. Lança quando não acha: extração silenciosa que devolve vazio faria o
@@ -70,7 +74,6 @@ const UUID_PAG2 = "22222222-2222-4222-8222-222222222222";
 const UUID_ACORDO = "33333333-3333-4333-8333-333333333333";
 const UUID_PARCELA = "44444444-4444-4444-8444-444444444444";
 const UUID_ALUNO_A = "55555555-5555-4555-8555-555555555555";
-const UUID_ALUNO_B = "66666666-6666-4666-8666-666666666666";
 const UUID_OUTRA_PARC = "77777777-7777-4777-8777-777777777777";
 
 const GESTAO = "amanda.seibel@aelbra.com.br";
@@ -141,6 +144,9 @@ async function novoBanco() {
 
     -- DUBLÊ da triagem. Mesmas colunas que a fachada lê; a acao vem da
     -- subcategoria, e o ESTADO TERMINAL FICA FORA -- como na view real.
+    -- A subcategoria escolher_aluno_sugerido continua produzindo a acao
+    -- ESCOLHER_ALUNO aqui DE PROPOSITO: e assim que se prova que a fachada a
+    -- recusa, em vez de a classificacao esconder o caso.
     create view public.vw_fila_pagamento_triagem as
       select f.pagamento_id, p.aluno_id, p.data_pagamento, p.valor_pago,
              p.status_conciliacao, null::text as titulo_numero, f.boleto,
@@ -154,29 +160,12 @@ async function novoBanco() {
         from public.fila_pagamento_sem_vinculo f
         join public.pagamentos p on p.id = f.pagamento_id
        where coalesce(p.status_conciliacao,'') <> 'ENCERRADO_SEM_EFEITO_FINANCEIRO';
-
-    -- DUBLÊ do vínculo. Grava o aluno e fecha a linha, como a real; recusa
-    -- aluno inexistente, para o ramo VINCULO_RECUSADO ter caminho.
-    create function public.pagamento_vincular_aluno(p_pagamento_id uuid, p_aluno_id uuid,
-                                                    p_observacao text)
-      returns jsonb language plpgsql security definer set search_path to 'public' as $$
-      begin
-        if not exists (select 1 from public.alunos a where a.id = p_aluno_id) then
-          return jsonb_build_object('ok', false, 'motivo', 'ALUNO_NAO_ENCONTRADO');
-        end if;
-        update public.pagamentos
-           set aluno_id = p_aluno_id, origem_vinculo = 'GESTAO_MANUAL', origem_vinculo_em = now()
-         where id = p_pagamento_id;
-        update public.fila_pagamento_sem_vinculo
-           set decisao = 'FEITO', decidido_por = lower(auth.jwt()->>'email'), decidido_em = now()
-         where pagamento_id = p_pagamento_id and decisao is null;
-        return jsonb_build_object('ok', true, 'aluno_id', p_aluno_id);
-      end; $$;
   `);
 
   await db.exec(extrair(M_JA_PAGA, "conciliacao_ja_paga_previa"));
   await db.exec(extrair(M_JA_PAGA, "conciliacao_ja_paga_encerrar"));
   await db.exec(extrair(M_TERMINAL, "conciliacao_encerrar_sem_efeito_financeiro"));
+  await db.exec(extrair(M_ETAPA2, "conciliacao_encaminhar_acoes"));
   await db.exec(extrair(M_ETAPA2, "conciliacao_encaminhar_previa"));
   await db.exec(extrair(M_ETAPA2, "conciliacao_encaminhar_confirmar"));
 
@@ -206,25 +195,29 @@ async function semearJaPaga(db) {
   `);
 }
 
+// O CASO RETIRADO DO ESCOPO: a triagem o classifica como `ESCOLHER_ALUNO`, com
+// sugestões, e a fachada tem de recusá-lo sem tocar em nada. Reproduz o perfil
+// real dos 42 em produção: todos em AGUARDANDO_ACORDO, e 32 deles JÁ COM aluno.
 async function semearEscolherAluno(db) {
   await db.exec(`
     insert into public.alunos (id, nome, cpf) values
-      ('${UUID_ALUNO_A}', 'MARIA DA SILVA', '00000000191'),
-      ('${UUID_ALUNO_B}', 'MARIA DA SILVA', '00000000272');
+      ('${UUID_ALUNO_A}', 'MARIA DA SILVA', '00000000191');
     insert into public.pagamentos (id, numero_parcela_completo, valor_pago, data_pagamento,
-                                   status_conciliacao)
-      values ('${UUID_PAG2}', '50700010001', 559.00, '2026-09-20', 'SEM_VINCULO');
+                                   status_conciliacao, aluno_id)
+      values ('${UUID_PAG2}', '50700010001', 559.00, '2026-09-20', 'AGUARDANDO_ACORDO',
+              '${UUID_ALUNO_A}');
     insert into public.fila_pagamento_sem_vinculo (pagamento_id, motivo, status_conciliacao,
                                                    valor_pago, boleto, subcategoria, sugestoes)
-      values ('${UUID_PAG2}', 'NOME_REPETIDO: duas fichas com o mesmo nome', 'SEM_VINCULO',
+      values ('${UUID_PAG2}', 'NOME_REPETIDO: duas fichas com o mesmo nome', 'AGUARDANDO_ACORDO',
               559.00, '50700010001', 'escolher_aluno_sugerido',
-              '[{"aluno_id":"${UUID_ALUNO_A}","aluno_nome":"MARIA DA SILVA","cpf":"00000000191"},
-                {"aluno_id":"${UUID_ALUNO_B}","aluno_nome":"MARIA DA SILVA","cpf":"00000000272"}]'::jsonb);
+              '[{"aluno_id":"${UUID_ALUNO_A}","aluno_nome":"MARIA DA SILVA"}]'::jsonb);
   `);
 }
 
-// A FOTOGRAFIA DO DINHEIRO. Se qualquer destas três tabelas mudar, a etapa teve
-// efeito financeiro -- e é exatamente o que ela promete não ter.
+// A FOTOGRAFIA DO DINHEIRO. Se qualquer destas tabelas mudar, a etapa teve
+// efeito financeiro -- e é exatamente o que ela promete não ter. `pagamentos`
+// entra com as colunas financeiras e de vínculo: `status_conciliacao` muda por
+// desenho (é a coluna de controle), o resto não pode mudar.
 async function fotoFinanceira(db) {
   return {
     parcelas: await um(db, `select coalesce(md5(string_agg(t::text, '|' order by t::text)),'vazio')
@@ -233,8 +226,91 @@ async function fotoFinanceira(db) {
                              from (select * from public.acordos) t`),
     baixas: await um(db, `select coalesce(md5(string_agg(t::text, '|' order by t::text)),'vazio')
                             from (select * from public.baixas_pagamento) t`),
+    pagamentos_sem_o_controle: await um(db,
+      `select coalesce(md5(string_agg(t::text, '|' order by t::text)),'vazio') from (
+         select id, numero_parcela_completo, valor_pago, data_pagamento, aluno_id,
+                origem_vinculo, origem_vinculo_ref, dados
+           from public.pagamentos) t`),
   };
 }
+
+describe("Etapa 2 · o corte de escopo está no banco, não só na tela", () => {
+  let db;
+  beforeEach(async () => {
+    db = await novoBanco();
+    await semearJaPaga(db);
+    await semearEscolherAluno(db);
+    await entrarComo(db, GESTAO);
+  });
+
+  it("a allowlist de ações da fachada tem exatamente uma entrada", async () => {
+    expect(await um(db, `select public.conciliacao_encaminhar_acoes()`)).toEqual([
+      "CONFERIR_E_ENCERRAR",
+    ]);
+  });
+
+  // O CASO DOS 42. A triagem o declara, e a fachada recusa com nome próprio.
+  it("ESCOLHER_ALUNO é recusada na prévia, com motivo nomeado", async () => {
+    const r = await um(db, `select public.conciliacao_encaminhar_previa('${UUID_PAG2}')`);
+    expect(r.ok).toBe(false);
+    expect(r.motivo).toBe("ACAO_FORA_DO_ESCOPO_DESTA_ETAPA");
+    expect(r.acao).toBe("ESCOLHER_ALUNO");
+    expect(r.gravou).toBe(false);
+    // A pendência não é escondida: o motivo original volta para a tela mostrar.
+    expect(r.motivo_da_pendencia).toMatch(/NOME_REPETIDO/);
+  });
+
+  it("ESCOLHER_ALUNO é recusada na confirmação e não grava nada", async () => {
+    const antes = await fotoFinanceira(db);
+    const r = await um(db,
+      `select public.conciliacao_encaminhar_confirmar('${UUID_PAG2}','ESCOLHER_ALUNO',true)`);
+
+    expect(r.ok).toBe(false);
+    expect(r.motivo).toBe("ACAO_FORA_DO_ESCOPO_DESTA_ETAPA");
+    expect(r.gravou).toBe(false);
+    expect(await um(db, `select decisao from public.fila_pagamento_sem_vinculo
+                          where pagamento_id='${UUID_PAG2}'`)).toBeNull();
+    expect(await um(db, `select status_conciliacao from public.pagamentos where id='${UUID_PAG2}'`))
+      .toBe("AGUARDANDO_ACORDO");
+    expect(await um(db, `select count(*)::int from public.auditoria`)).toBe(0);
+    expect(await fotoFinanceira(db)).toEqual(antes);
+  });
+
+  // A FRONTEIRA DO ESCOPO É A ASSINATURA. Sem parâmetro de aluno, não há como
+  // esta interface vincular um -- nem por engano, nem por chamada direta.
+  it("a confirmação não aceita aluno: a assinatura de 4 argumentos não existe", async () => {
+    await expect(
+      db.query(`select public.conciliacao_encaminhar_confirmar('${UUID_PAG2}','ESCOLHER_ALUNO',
+                                                               '${UUID_ALUNO_A}'::uuid, true)`)
+    ).rejects.toThrow(/does not exist/i);
+  });
+
+  // `pagamento_vincular_aluno` não existe nesta bancada. Este teste afirma isso
+  // explicitamente: é a premissa que torna os testes acima uma prova, e não uma
+  // observação. Se alguém dublar a função de novo, este teste cai e obriga a
+  // revisar o que os outros estão realmente provando.
+  it("pagamento_vincular_aluno não existe nesta bancada, e nada a procura", async () => {
+    expect(await um(db, `select count(*)::int from pg_proc p
+                           join pg_namespace n on n.oid = p.pronamespace
+                          where n.nspname='public' and p.proname='pagamento_vincular_aluno'`))
+      .toBe(0);
+    // E o corpo vivo das duas funções da fachada não a menciona.
+    expect(await um(db, `select count(*)::int from pg_proc p
+                           join pg_namespace n on n.oid = p.pronamespace
+                          where n.nspname='public'
+                            and p.proname like 'conciliacao_encaminhar%'
+                            and p.prosrc like '%pagamento_vincular_aluno%'`)).toBe(0);
+  });
+
+  it("o arquivo da migration não chama pagamento_vincular_aluno em corpo nenhum", () => {
+    // O nome aparece em COMENTÁRIO (explicando a decisão), e isso é desejável.
+    // O que não pode existir é chamada: `public.pagamento_vincular_aluno(`.
+    expect(M_ETAPA2).not.toMatch(/public\.pagamento_vincular_aluno\s*\(/);
+    expect(M_ETAPA2).not.toMatch(/p_aluno_id/);
+    // E nenhum grant para ela saiu desta migration.
+    expect(M_ETAPA2).not.toMatch(/grant[\s\S]{0,80}pagamento_vincular_aluno/i);
+  });
+});
 
 describe("Etapa 2 · o portão", () => {
   let db;
@@ -253,7 +329,7 @@ describe("Etapa 2 · o portão", () => {
   it("operador não confirma", async () => {
     await entrarComo(db, OPERADOR);
     await expect(
-      db.query(`select public.conciliacao_encaminhar_confirmar('${UUID_PAG}','CONFERIR_E_ENCERRAR',null,true)`)
+      db.query(`select public.conciliacao_encaminhar_confirmar('${UUID_PAG}','CONFERIR_E_ENCERRAR',true)`)
     ).rejects.toThrow(/decisao da gestao/i);
   });
 
@@ -272,6 +348,15 @@ describe("Etapa 2 · o portão", () => {
     const r = await um(db, `select public.conciliacao_encaminhar_previa('${UUID_PAG}')`);
     expect(r.ok).toBe(true);
     expect(r.acao).toBe("CONFERIR_E_ENCERRAR");
+  });
+
+  // O perfil `administrativo` em produção é cobranca07@aelbra.com.br, e ele ESTÁ
+  // na allowlist de `usuario_e_gestao` -- conferido em 26/10/2026. O portão o
+  // aceita sem que a etapa tenha ampliado permissão nenhuma.
+  it("o Administrativo (cobranca07) passa pelo mesmo portão", async () => {
+    await entrarComo(db, "cobranca07@aelbra.com.br");
+    const r = await um(db, `select public.conciliacao_encaminhar_previa('${UUID_PAG}')`);
+    expect(r.ok).toBe(true);
   });
 
   it("o backend (service_role) passa, para a rodada poder usar a mesma porta", async () => {
@@ -307,7 +392,7 @@ describe("Etapa 2 · a prévia não grava", () => {
     const antes = await fotoFinanceira(db);
     await db.query(`select public.conciliacao_encaminhar_previa('${UUID_PAG}')`);
     const sim = await um(db,
-      `select public.conciliacao_encaminhar_confirmar('${UUID_PAG}','CONFERIR_E_ENCERRAR',null,false)`);
+      `select public.conciliacao_encaminhar_confirmar('${UUID_PAG}','CONFERIR_E_ENCERRAR',false)`);
 
     expect(sim.modo).toBe("SIMULACAO");
     expect(sim.gravou).toBe(false);
@@ -345,7 +430,7 @@ describe("Etapa 2 · CONFERIR_E_ENCERRAR", () => {
 
   it("encerra em dois passos: decisão na fila E estado terminal", async () => {
     const r = await um(db,
-      `select public.conciliacao_encaminhar_confirmar('${UUID_PAG}','CONFERIR_E_ENCERRAR',null,true)`);
+      `select public.conciliacao_encaminhar_confirmar('${UUID_PAG}','CONFERIR_E_ENCERRAR',true)`);
 
     expect(r.ok).toBe(true);
     expect(r.modo).toBe("CONFIRMADO");
@@ -359,16 +444,18 @@ describe("Etapa 2 · CONFERIR_E_ENCERRAR", () => {
       .toBe("ENCERRADO_SEM_EFEITO_FINANCEIRO");
   });
 
-  it("não tem efeito financeiro: parcela, acordo e baixa ficam idênticos", async () => {
+  it("não tem efeito financeiro: parcela, acordo, baixa e pagamento ficam idênticos", async () => {
     const antes = await fotoFinanceira(db);
     await db.query(
-      `select public.conciliacao_encaminhar_confirmar('${UUID_PAG}','CONFERIR_E_ENCERRAR',null,true)`);
+      `select public.conciliacao_encaminhar_confirmar('${UUID_PAG}','CONFERIR_E_ENCERRAR',true)`);
+    // Inclui `pagamentos` sem a coluna de controle: valor, data, aluno e
+    // origem do vínculo não podem mudar, e não mudam.
     expect(await fotoFinanceira(db)).toEqual(antes);
   });
 
   it("deixa trilha: auditoria do encaminhamento, com quem decidiu e sem efeito financeiro", async () => {
     await db.query(
-      `select public.conciliacao_encaminhar_confirmar('${UUID_PAG}','CONFERIR_E_ENCERRAR',null,true)`);
+      `select public.conciliacao_encaminhar_confirmar('${UUID_PAG}','CONFERIR_E_ENCERRAR',true)`);
 
     const a = await um(db, `select to_jsonb(t) from (
       select usuario, acao, tabela_afetada, registro_id, detalhes from public.auditoria
@@ -378,6 +465,7 @@ describe("Etapa 2 · CONFERIR_E_ENCERRAR", () => {
     expect(a.detalhes.acao).toBe("CONFERIR_E_ENCERRAR");
     expect(a.detalhes.origem).toBe("FILA_PAGAMENTO_ENCAMINHAMENTO");
     expect(a.detalhes.sem_efeito_financeiro).toBe(true);
+    expect(a.detalhes.passo_2).toBe("ENCERRADO_SEM_EFEITO_FINANCEIRO");
 
     // As auditorias dos dois passos internos continuam lá: a trilha do
     // encaminhamento SOMA à delas, não as substitui.
@@ -402,7 +490,7 @@ describe("Etapa 2 · CONFERIR_E_ENCERRAR", () => {
     expect(previa.aprovado).toBe(true); // a prévia aprova: ela não olha essa parcela
 
     await expect(
-      db.query(`select public.conciliacao_encaminhar_confirmar('${UUID_PAG}','CONFERIR_E_ENCERRAR',null,true)`)
+      db.query(`select public.conciliacao_encaminhar_confirmar('${UUID_PAG}','CONFERIR_E_ENCERRAR',true)`)
     ).rejects.toThrow(/ENCAMINHAMENTO_ABORTADO/);
 
     // NADA GRAVADO. Nem a decisão, nem o estado, nem auditoria.
@@ -415,7 +503,7 @@ describe("Etapa 2 · CONFERIR_E_ENCERRAR", () => {
 
   it("a ação pedida é CONFERIDA contra a sugerida, não obedecida", async () => {
     const r = await um(db,
-      `select public.conciliacao_encaminhar_confirmar('${UUID_PAG}','ESCOLHER_ALUNO','${UUID_ALUNO_A}',true)`);
+      `select public.conciliacao_encaminhar_confirmar('${UUID_PAG}','ESCOLHER_ALUNO',true)`);
     expect(r.ok).toBe(false);
     expect(r.motivo).toBe("ACAO_DIVERGE_DA_SUGERIDA");
     expect(r.acao_sugerida).toBe("CONFERIR_E_ENCERRAR");
@@ -431,7 +519,7 @@ describe("Etapa 2 · CONFERIR_E_ENCERRAR", () => {
         values ('${UUID_PAG2}', '50640530004', 327.10, '2026-09-16', 'REVISAO');
     `);
     const r = await um(db,
-      `select public.conciliacao_encaminhar_confirmar('${UUID_PAG}','CONFERIR_E_ENCERRAR',null,true)`);
+      `select public.conciliacao_encaminhar_confirmar('${UUID_PAG}','CONFERIR_E_ENCERRAR',true)`);
     expect(r.ok).toBe(false);
     expect(r.gravou).toBe(false);
     expect(r.bloqueios).toContain("UNICO_PAGAMENTO_DO_BOLETO");
@@ -444,86 +532,16 @@ describe("Etapa 2 · CONFERIR_E_ENCERRAR", () => {
   // auditoria.
   it("confirmar duas vezes não grava duas vezes", async () => {
     await db.query(
-      `select public.conciliacao_encaminhar_confirmar('${UUID_PAG}','CONFERIR_E_ENCERRAR',null,true)`);
+      `select public.conciliacao_encaminhar_confirmar('${UUID_PAG}','CONFERIR_E_ENCERRAR',true)`);
     const auditorias = await um(db, `select count(*)::int from public.auditoria`);
+    const depoisDa1 = await fotoFinanceira(db);
 
     const r2 = await um(db,
-      `select public.conciliacao_encaminhar_confirmar('${UUID_PAG}','CONFERIR_E_ENCERRAR',null,true)`);
+      `select public.conciliacao_encaminhar_confirmar('${UUID_PAG}','CONFERIR_E_ENCERRAR',true)`);
     expect(r2.ok).toBe(false);
     expect(r2.motivo).toBe("SEM_PENDENCIA_NA_TRIAGEM");
     expect(r2.gravou).toBe(false);
     expect(await um(db, `select count(*)::int from public.auditoria`)).toBe(auditorias);
-  });
-});
-
-describe("Etapa 2 · ESCOLHER_ALUNO", () => {
-  let db;
-  beforeEach(async () => {
-    db = await novoBanco();
-    await semearEscolherAluno(db);
-    await entrarComo(db, GESTAO);
-  });
-
-  it("a prévia devolve as sugestões da fila, e um passo só", async () => {
-    const r = await um(db, `select public.conciliacao_encaminhar_previa('${UUID_PAG2}')`);
-    expect(r.ok).toBe(true);
-    expect(r.acao).toBe("ESCOLHER_ALUNO");
-    expect(r.sugestoes).toHaveLength(2);
-    expect(r.passos).toEqual(["VINCULAR_ALUNO_ESCOLHIDO"]);
-    expect(r.efeito_financeiro).toBe(false);
-  });
-
-  it("sem aluno escolhido, recusa", async () => {
-    const r = await um(db,
-      `select public.conciliacao_encaminhar_confirmar('${UUID_PAG2}','ESCOLHER_ALUNO',null,true)`);
-    expect(r.ok).toBe(false);
-    expect(r.motivo).toBe("ALUNO_NAO_INFORMADO");
-    expect(r.gravou).toBe(false);
-  });
-
-  // A PORTA NÃO É UM VÍNCULO LIVRE. Aceitar id de fora da lista faria desta
-  // ação outra coisa -- a busca manual, que já existe e tem a própria tela.
-  it("aluno fora das sugestões, recusa e não grava", async () => {
-    await db.exec(`insert into public.alunos (id, nome, cpf)
-                     values ('99999999-9999-4999-8999-999999999999','OUTRO ALUNO','11111111111')`);
-    const r = await um(db,
-      `select public.conciliacao_encaminhar_confirmar('${UUID_PAG2}','ESCOLHER_ALUNO',
-                                                      '99999999-9999-4999-8999-999999999999',true)`);
-    expect(r.ok).toBe(false);
-    expect(r.motivo).toBe("ALUNO_FORA_DAS_SUGESTOES");
-    expect(await um(db, `select aluno_id from public.pagamentos where id='${UUID_PAG2}'`)).toBeNull();
-    expect(await um(db, `select count(*)::int from public.auditoria`)).toBe(0);
-  });
-
-  it("aluno da lista: vincula, audita e não toca no dinheiro", async () => {
-    const antes = await fotoFinanceira(db);
-    const r = await um(db,
-      `select public.conciliacao_encaminhar_confirmar('${UUID_PAG2}','ESCOLHER_ALUNO','${UUID_ALUNO_B}',true)`);
-
-    expect(r.ok).toBe(true);
-    expect(r.modo).toBe("CONFIRMADO");
-    expect(r.resultado).toBe("PAGAMENTO_VINCULADO_AO_ALUNO");
-    expect(await um(db, `select aluno_id from public.pagamentos where id='${UUID_PAG2}'`))
-      .toBe(UUID_ALUNO_B);
-
-    // O VÍNCULO NÃO ENCERRA A CONCILIAÇÃO: o estado fica como estava, e a
-    // rodada volta a avaliar o pagamento com o aluno certo.
-    expect(await um(db, `select status_conciliacao from public.pagamentos where id='${UUID_PAG2}'`))
-      .toBe("SEM_VINCULO");
-    expect(await fotoFinanceira(db)).toEqual(antes);
-
-    const a = await um(db, `select to_jsonb(t) from (
-      select usuario, detalhes from public.auditoria where acao='CONCILIACAO_ENCAMINHAMENTO') t`);
-    expect(a.usuario).toBe(GESTAO);
-    expect(a.detalhes.aluno_id).toBe(UUID_ALUNO_B);
-    expect(a.detalhes.sem_efeito_financeiro).toBe(true);
-  });
-
-  it("fila sem sugestão nenhuma não aprova", async () => {
-    await db.exec(`update public.fila_pagamento_sem_vinculo set sugestoes = '[]'::jsonb
-                    where pagamento_id='${UUID_PAG2}'`);
-    const r = await um(db, `select public.conciliacao_encaminhar_previa('${UUID_PAG2}')`);
-    expect(r.aprovado).toBe(false);
-    expect(r.bloqueios).toContain("SEM_SUGESTAO_DE_ALUNO");
+    expect(await fotoFinanceira(db)).toEqual(depoisDa1);
   });
 });

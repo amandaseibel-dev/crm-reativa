@@ -351,3 +351,50 @@ autorizado) afirma que o padrão `5 + acordo(6) + parcela(4)` foi "verificado em
 11,5% não casam com nenhuma — só os 6 dígitos do acordo são confiáveis (99,6%).
 Corrigir o rascunho **antes** de qualquer decisão de enviá-lo, e atualizar os
 cinco arquivos de `docs/integracoes/` na mesma alteração, como o README exige.
+
+## `ESCOLHER_ALUNO` retirada da Etapa 2 (decidido 26/10/2026)
+
+**Prioridade:** média · **origem:** revisão da própria Etapa 2, antes de
+qualquer PR · **efeito financeiro:** existe, e é esse o problema.
+
+A Etapa 2 do encaminhamento ia oferecer duas ações. `ESCOLHER_ALUNO` (42
+pagamentos, R$ 23.469,07) foi **retirada** e vira item próprio. Dois defeitos
+medidos em 26/10/2026, não hipóteses:
+
+**a) A porta daria baixa.** A única função que executaria a ação é
+`pagamento_vincular_aluno`, que chama `pagamento_conciliar_um(p_pagamento_id,
+true)` logo depois de vincular, com `p_aplicar = true`. Essa função tem 24.824
+caracteres, toca `baixas_pagamento`, grava `origem_baixa_ref` e chama
+`recalcular_situacao_aluno`. Medido: dos **212** pagamentos com
+`origem_vinculo = 'GESTAO_MANUAL'`, **154 (R$ 166.312,94) terminaram em
+`BAIXADO`** — 73%. Uma fachada que anunciasse `efeito_financeiro: false` nesse
+caminho estaria mentindo.
+
+**b) 32 dos 42 já têm aluno vinculado.** Os 42 estão todos em
+`AGUARDANDO_ACORDO`, e 32 têm `aluno_id` preenchido. O projeto decidiu o
+contrário em 16/09/2026, e está no código: `podeVincularAluno` devolve
+`!item.tem_aluno`, com o comentário *"oferecer Vincular nessas linhas só daria a
+chance de sobrescrever um vínculo correto"*; e a trava
+`ALUNO_VINCULADO_SEM_PROVA_DUPLA` tem `acao: null` de propósito.
+`pagamento_vincular_aluno` grava `aluno_id` sem bloquear quando já havia aluno —
+ela só registra o anterior no retorno.
+
+**Como o defeito passou desapercebido, para não repetir.** O teste de
+comportamento **dublava** `pagamento_vincular_aluno`, e o dublê omitia a chamada
+a `pagamento_conciliar_um`. O teste "não toca no dinheiro" ficou verde afirmando
+algo que a função real não garante. A lição está escrita no cabeçalho de
+`supabase/tests/conciliacao_encaminhamento_etapa2.test.js`: **dublê de função que
+move dinheiro não prova ausência de efeito financeiro; ausência da função, sim.**
+Na versão final a bancada não tem `pagamento_vincular_aluno`, e um teste afirma
+essa ausência explicitamente.
+
+**O que NÃO mudou.** A busca manual de aluno em `PagamentosSemAluno.jsx`, que já
+chamava `pagamento_vincular_aluno` em produção antes desta frente, segue
+intacta, com o próprio portão e o próprio aviso. A Etapa 2 apenas não abriu uma
+segunda porta para ela. Os 42 continuam visíveis na fila e recebem, desta
+interface, a recusa nomeada `ACAO_FORA_DO_ESCOPO_DESTA_ETAPA`.
+
+**Para retomar**, o item precisa resolver, antes de qualquer tela: se vincular
+aluno pode ou não acionar a baixa pela mesma transação (decisão de negócio, não
+de código); e uma guarda para não sobrescrever vínculo existente, que hoje não
+existe em `pagamento_vincular_aluno`.

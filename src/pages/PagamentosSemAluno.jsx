@@ -869,10 +869,11 @@ function Linha({ item, acao, triagem, onRegistrar, aberto, onAbrir, onVinculado,
         </div>
       ) : null}
 
-      {/* ENCAMINHAMENTO (26/10/2026, Etapa 2). Aparece SO quando a triagem
-          declarou uma acao que esta tela implementa -- e abre a conferencia
-          antes de qualquer confirmacao. Nenhuma das acoes da baixa, quita,
-          reatribui caso ou altera valor. */}
+      {/* ENCAMINHAMENTO (26/10/2026, Etapa 2). Aparece SO em CONFERIR_E_ENCERRAR
+          -- a unica acao desta etapa -- e abre a conferencia antes de qualquer
+          confirmacao. Nao da baixa, nao quita, nao vincula aluno, nao reatribui
+          caso e nao altera valor. A busca manual de aluno acima continua sendo
+          o unico caminho de vinculo, como era antes desta etapa. */}
       <EncaminharPendencia triagem={triagem} moeda={moeda} onConcluido={onVinculado} />
     </div>
   );
