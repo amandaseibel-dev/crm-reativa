@@ -1,0 +1,34 @@
+-- ROLLBACK DA E7 -- `titulo_atribuicao_remover`
+-- =============================================================================
+-- A E7 CRIA uma função que não existia. Não há corpo anterior para devolver:
+-- confirmei em produção em 26/10/2026 que `titulo_atribuicao_remover` não
+-- existe em `pg_proc` (o censo de `%atribuic%` / `%corrig%` / `%vinculo%`
+-- devolveu 22 funções e nenhuma com este nome). Logo o rollback correto é
+-- DERRUBAR a função, e não um `create or replace` de volta.
+--
+-- POR ISSO O ROLLBACK É SEGURO E COMPLETO: a E7 não altera nenhuma função
+-- existente, nenhuma tabela, nenhum gatilho, nenhum CHECK e nenhum grant de
+-- tabela. Derrubar a função devolve o schema ao estado exatamente anterior.
+--
+-- O QUE O ROLLBACK NÃO DESFAZ, E NÃO DEVE DESFAZER
+--
+--   Se a função já tiver sido CONFIRMADA sobre algum título, as escritas dela
+--   ficam: o título em ABERTO, o vínculo com `ativo = false`, a linha em
+--   `mensalidade_reconciliacao_log` (lote `REMOVER_ATRIBUICAO_SEM_LASTRO`) e a
+--   linha em `auditoria`. Isso é deliberado -- apagar o registro de uma decisão
+--   financeira já tomada é pior que a decisão.
+--
+--   Para desfazer um caso específico, o caminho é a cadeia que a E7 preservou,
+--   não este arquivo: reativar o vínculo (`ativo = true`) e deixar
+--   `titulo_reavaliar` decidir de novo. Como a E7 NUNCA apaga a linha do
+--   vínculo, esse caminho de volta existe para todo caso que ela tocou.
+--   A consulta que lista o que ela tocou:
+--
+--     select * from public.mensalidade_reconciliacao_log
+--      where lote = 'REMOVER_ATRIBUICAO_SEM_LASTRO' order by executado_em;
+--
+--   Sem PITR habilitado neste projeto, todo desfazer é por id exato, e é por
+--   isso que o livro de registro acima é a condição de reversibilidade.
+-- =============================================================================
+
+drop function if exists public.titulo_atribuicao_remover(uuid, uuid, text, boolean);
