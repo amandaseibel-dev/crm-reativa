@@ -471,11 +471,13 @@ Nenhuma foi medida e nenhuma autoriza implementação.
    nenhuma dependência externa — e afirma que a dívida continua viva em vez de
    inferir a partir do que falta. Qualquer ação se aplica ao boleto **novo**.
 
-5. **Liberar automaticamente só com prova positiva:** quando a evidência atinge
-   `A_PAGAMENTO_COMPROVADO` ou `B_ACORDO_COMPROVADO`, aplicar a mesma decisão
-   que o fluxo novo já aplicaria a um título novo, com autoria
-   `prime_liquidacao@rotina` e motivo explícito. **Subiu de prioridade:** com a
-   reversão fora do caminho crítico, é aqui que está o ganho real.
+5. **Liberação automática por prova de máquina: NÃO AUTORIZADA.** A redação
+   anterior deste item propunha liberar automaticamente ao atingir
+   `A_PAGAMENTO_COMPROVADO` ou `B_ACORDO_COMPROVADO`, e dizia que isso havia
+   "subido de prioridade". **Retirado por decisão da gestão em 26/10/2026**,
+   depois do backtest das 62 decisões já tomadas sobre linhas com prova de
+   máquina — ver a seção dedicada no fim deste documento. A liberação segue
+   **humana**.
 
 6. **Drenar o estoque legado por causa, com aprovação da gestão**, não por
    boleto — e, na dúvida, `REJEITADO`: o título volta a `ABERTO` e volta a ser
@@ -494,3 +496,119 @@ Nenhuma foi medida e nenhuma autoriza implementação.
 
 Detalhamento, números e recortes em
 [`docs/DIAGNOSTICO-CONFERENCIA-PRIME-2026-10-26.md`](../DIAGNOSTICO-CONFERENCIA-PRIME-2026-10-26.md).
+
+---
+
+# Liberação automática por prova de máquina: NÃO AUTORIZADA — 2026-10-26
+
+Backtest feito ao dimensionar a próxima prioridade da Conferência Prime.
+Somente leitura. **Decisão da gestão: a liberação automática não está
+autorizada** — nem por `A_PAGAMENTO_COMPROVADO`, nem por `A2_COBRE`.
+
+## O universo analisado
+
+Todas as linhas de `prime_conferencia_decisao` que **já foram decididas por um
+humano** e que carregavam subgrupo de prova de máquina
+(`A_PAGAMENTO_COMPROVADO`, `B_ACORDO_COMPROVADO` ou `A2_COBRE`):
+
+| | Linhas | |
+|---|---:|---|
+| **Total decidido com prova de máquina** | **62** | |
+| Humano **concordou** (`VINCULADO` / `CONFIRMADO`) | **58** | 93,5% |
+| Humano **divergiu** (`REJEITADO`) | **4** | **6,5%** — R$ 2.405,00 |
+| Outras decisões | 0 | |
+
+Pendentes com prova de máquina **agora**: **0**. O backtest é histórico; não há
+fila esperando essa decisão hoje.
+
+## A decomposição importa, e desmente a leitura simples
+
+Os 4 divergentes **não são um fenômeno só**. São dois, com padrões distintos, e
+somá-los num único percentual confunde padrões de prova diferentes:
+
+| Padrão | Subgrupo | Casos | Divergentes | Taxa | Motivo humano registrado |
+|---|---|---:|---:|---:|---|
+| **1** | `A2_COBRE` (heurística histórica de cobertura de valor) | 57 | **3** | 5,3% | "não é do mesmo acordo" |
+| **2** | `A_PAGAMENTO_COMPROVADO` (padrão de prova atual) | 5 | **1** | **20%** | "não consta negociação dessa parcela" |
+
+**Padrão 1 — três linhas, 24/09/2026, R$ 2.182,37.** Valores quase idênticos
+(R$ 727,44 / 727,46 / 727,47), coorte de 18/09, 6 dias na fila. Nessas três a
+evidência **não trazia** `pagamento_cobre_o_titulo`, **não trazia**
+`acordo_composicao` e tinha `classificacao` nula. Ou seja: `A2_COBRE` era
+**cobertura de valor**, não vínculo de pagamento comprovado — e é exatamente o
+erro que este diretório já documenta como regra ("proximidade de data + valor
+NUNCA é fonte de verdade sozinha"). O humano disse que o pagamento era de outro
+acordo.
+
+**Padrão 2 — uma linha, R$ 222,63.** Detectada em 09/10 pelo ramo (b)/(c) da
+reavaliação (que reescreve `detectado_em`), decidida em 19/10 — **10 dias na
+fila**. Aqui a evidência trazia `pagamento_cobre_o_titulo = true` e
+`classificacao = PAGAMENTO_COMPROVADO`: é o **padrão de prova atual**, e o
+humano rejeitou mesmo assim.
+
+## O que a divergência NÃO prova
+
+Registro explícito, porque é a leitura errada mais tentadora:
+
+**A divergência, isoladamente, não comprova erro da máquina nem acerto da
+decisão humana.** Nos quatro casos, nenhuma das duas afirmações está validada
+por evidência independente no registro:
+
+- o motivo humano ("não é do mesmo acordo", "não consta negociação dessa
+  parcela") é **plausível e não verificado** — é texto livre, sem apontar o
+  acordo correto nem a fonte consultada;
+- a classificação da máquina é **derivada de regra**, e no padrão 1 a regra era
+  reconhecidamente fraca (cobertura de valor);
+- não existe terceira fonte, no registro, que decida entre as duas.
+
+Portanto o 6,5% **não é taxa de erro da máquina**. É **taxa de desacordo**, e
+desacordo sem árbitro não atribui culpa a nenhum dos lados.
+
+## Os 4 casos: PENDENTES DE VALIDAÇÃO DE EVIDÊNCIA
+
+Classificação formal dos quatro, para que não sejam citados como erro provado
+nem como acerto provado:
+
+> **Status: PENDENTE DE VALIDAÇÃO DE EVIDÊNCIA.** Requerem conferência caso a
+> caso — no padrão 1, qual acordo de fato recebeu o pagamento; no padrão 2, se
+> existe negociação para a parcela. Até que isso seja conferido, nenhum dos
+> quatro conta como evidência a favor ou contra a automação.
+
+Identificados neste diretório apenas por subgrupo, valor e data, **sem nome,
+CPF, matrícula ou número de boleto** — a identificação operacional está no
+banco, não em documentação versionada.
+
+## Consequência para a automação
+
+**A liberação automática por prova de máquina permanece não autorizada.** Vale
+para `A_PAGAMENTO_COMPROVADO` **e** para `A2_COBRE`, e os motivos são
+independentes do percentual:
+
+1. **a direção do erro é a cara.** Uma liberação automática errada tira título
+   da cobrança (`CONFIRMADO`/`VINCULADO`), que é o erro silencioso e difícil de
+   notar — e não o reversível. O princípio já registrado neste diretório se
+   aplica: na dúvida, `REJEITADO`;
+2. **a amostra do padrão atual é de 5 casos.** Não sustenta nem autorização nem
+   proibição estatística — e, justamente por isso, não autoriza automatizar;
+3. **não há fila esperando:** 0 pendentes com prova de máquina hoje. O ganho
+   seria zero agora, e o risco não.
+
+**O que fica no lugar:** a prova de máquina continua sendo **sugestão forte na
+tela**, com a evidência à vista, e a decisão continua expressa e humana. Se a
+automação voltar à mesa, o pré-requisito é validar os 4 casos acima e
+reconstruir o backtest **só** sobre o padrão de prova atual, com amostra que
+sustente a conclusão.
+
+## O que permanece válido dos registros anteriores
+
+Nada do que estava documentado foi invalidado por este achado:
+
+- `paymentDate` nunca é nulo (0 em 417.072) e H1.a segue **refutada**;
+- H1.b segue **inconclusiva**;
+- ausência no espelho segue sendo 98,2% reemissão, e **regra sobre ausência
+  segue proibida**;
+- o ramo morto da reversão segue morto, e segue valendo removê-lo em vez de
+  "corrigi-lo";
+- a drenagem do estoque por causa, com decisão humana, segue sendo a
+  prioridade — e este achado a **reforça**, porque confirma que o julgamento
+  humano é o que distingue os casos.

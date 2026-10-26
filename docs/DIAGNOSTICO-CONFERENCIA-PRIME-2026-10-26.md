@@ -240,17 +240,42 @@ com mesmo vencimento e mesmo `valor_bruto` afirma que a dívida continua viva, �
 detectável hoje no espelho, sem dependência externa — e a ação se aplica ao
 boleto **novo**, nunca reabrindo o antigo.
 
-### E2 — liberar automaticamente o que ganhou prova *(1 função)*
+### E2 — ~~liberar automaticamente o que ganhou prova~~ → **NÃO AUTORIZADA**
 
-Nos ramos (b)/(c), quando a evidência chega a `A_PAGAMENTO_COMPROVADO` (pagamento
-baixado que cobre o título) ou a `B_ACORDO_COMPROVADO` (composição de acordo
-`ATIVO`), aplicar a **mesma decisão que o fluxo novo já aplicaria** a um título
-novo — `CONFIRMADO` ou `VINCULADO` pela rotina — em vez de só trocar o subgrupo.
-Autoria `prime_liquidacao@rotina`, motivo explícito, histórico preservado.
+> ⚠️ **Decisão da gestão, 26/10/2026: a liberação automática não está
+> autorizada** — nem por `A_PAGAMENTO_COMPROVADO`, nem por `A2_COBRE`. A
+> redação anterior propunha que a rotina aplicasse `CONFIRMADO`/`VINCULADO`
+> onde a evidência atingisse prova de máquina, e afirmava que isso "não oculta
+> pendência real". **O backtest não sustentou a afirmação.**
 
-Isto **não oculta pendência real**: só age onde existe prova de máquina do mesmo
-nível que o sistema já aceita sem humano. Hoje isso atinge 0 linhas; o valor é
-impedir que a fila volte a acumular.
+Das **62** linhas com prova de máquina que já foram decididas por um humano:
+**58 concordaram** e **4 divergiram** (6,5%, R$ 2.405,00). A automação teria
+tomado, nesses 4, a decisão oposta à humana — e na direção cara, tirando título
+da cobrança.
+
+Os 4 são **dois padrões**, e somá-los num percentual único confunde padrões de
+prova diferentes:
+
+| Padrão | Subgrupo | Casos | Divergentes | Taxa |
+|---|---|---:|---:|---:|
+| 1 | `A2_COBRE` — heurística de cobertura de **valor** | 57 | 3 | 5,3% |
+| 2 | `A_PAGAMENTO_COMPROVADO` — padrão de prova **atual** | 5 | 1 | 20% |
+
+**E a divergência não prova que a máquina errou.** Nem que o humano acertou: o
+motivo humano é texto livre, plausível e não verificado, a classificação da
+máquina é derivada de regra, e não há terceira fonte no registro. 6,5% é taxa
+de **desacordo**, não de erro. Os 4 ficam formalmente **pendentes de validação
+de evidência** — não contam a favor nem contra a automação até serem conferidos.
+
+**Por que não autorizar, independente do percentual:** a direção do erro é a
+silenciosa (tirar dívida viva da cobrança); a amostra do padrão atual é de 5
+casos; e há **0 pendentes com prova de máquina hoje**, então o ganho seria zero
+agora e o risco não.
+
+**No lugar:** a prova de máquina segue como **sugestão forte na tela**, com a
+evidência à vista, e a decisão segue expressa e humana. Detalhe e critérios de
+reabertura do tema em
+[`prime-gaps.md`](integracoes/prime-gaps.md#liberação-automática-por-prova-de-máquina-não-autorizada--2026-10-26).
 
 ### E3 — decidir o estoque por CAUSA, com aprovação da gestão, não por boleto
 
@@ -362,11 +387,15 @@ Dos 18 que sobram depois da reemissão: todos do portador 95, nenhum em
 
 ## O que isto muda na proposta
 
-A **E1 foi retirada** (ver acima). A prioridade passa a ser a **E2** (liberação
-com prova positiva) e a **E3** (drenar o estoque por causa), porque é lá que
-estão as ~503 linhas paradas há 38 dias. A instrumentação de cobertura da coleta
-desce de prioridade: continua pré-requisito de qualquer regra sobre ausência,
-mas nenhuma regra sobre ausência deve ser escrita.
+A **E1 foi retirada** (ver acima). A instrumentação de cobertura da coleta desce
+de prioridade: continua pré-requisito de qualquer regra sobre ausência, mas
+nenhuma regra sobre ausência deve ser escrita.
+
+> **Nota do mesmo dia, posterior a este adendo:** este trecho dizia que a
+> prioridade passava a ser a **E2** (liberação com prova positiva) e a **E3**. O
+> backtest das 62 decisões derrubou a E2, que a gestão **não autorizou** — ver a
+> E2 acima. **Resta a E3**, drenar o estoque por causa com decisão humana, onde
+> estão as ~490 linhas paradas há 38 dias.
 
 Nenhum CPF, nome ou dado pessoal foi registrado neste documento: todos os
 números são agregados.

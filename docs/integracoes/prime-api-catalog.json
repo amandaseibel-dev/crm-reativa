@@ -537,7 +537,7 @@
       "NAO implementar deteccao de reversao por ausencia: erraria em 98,2% dos casos (991 reemissoes em 1.009 ausencias). Proibicao, nao preferencia",
       "remover ou neutralizar o ramo morto de prime_liquidacao_reavaliar_pendentes() em vez de corrigi-lo: nao executa e nao protege nada observavel (zero ausencias no portador 195)",
       "usar SUBSTITUICAO como sinal, porque e prova positiva: boleto novo com mesmo vencimento e mesmo valor_bruto; acao sobre o boleto NOVO",
-      "liberar automaticamente so com prova positiva (A_PAGAMENTO_COMPROVADO / B_ACORDO_COMPROVADO), autoria prime_liquidacao@rotina e motivo explicito — SUBIU de prioridade",
+      "liberacao automatica por prova de maquina: NAO AUTORIZADA pela gestao em 2026-10-26 (ver liberacao_automatica_nao_autorizada_2026_10_26). A redacao anterior deste item a propunha e dizia que havia subido de prioridade — retirada. A liberacao segue humana",
       "drenar o estoque legado por causa com aprovacao da gestao e, na duvida, REJEITADO — SUBIU de prioridade",
       "instrumentar a cobertura da coleta — DESCEU de prioridade: pre-requisito de regra futura sobre ausencia, que nao deve ser escrita",
       "fechar a H1b com prime-sonda (cru:false) em /students/{registration}/financial-statement; exige sessao de gestao"
@@ -565,5 +565,90 @@
       "caso_de_reversao_conhecido_e_verificavel": "NAO EXISTE — 991 de 1.009 ausencias sao reemissao, os 18 restantes sao do portador 95 e fora da cobranca, e zero estao no portador 195",
       "regra": "comportamento de reversao nao se infere de titulo liquidado"
     }
+  },
+  "liberacao_automatica_nao_autorizada_2026_10_26": {
+    "decisao": "NAO AUTORIZADA — liberacao automatica por prova de maquina, nem por A_PAGAMENTO_COMPROVADO nem por A2_COBRE",
+    "decidido_por": "gestao",
+    "data": "2026-10-26",
+    "base": "backtest das decisoes humanas ja tomadas sobre linhas com subgrupo de prova de maquina; somente leitura",
+    "universo": {
+      "total_decidido_com_prova_de_maquina": 62,
+      "humano_concordou": 58,
+      "humano_divergiu": 4,
+      "taxa_de_desacordo": "6,5%",
+      "valor_divergente": "R$ 2.405,00",
+      "outras_decisoes": 0,
+      "pendentes_com_prova_de_maquina_hoje": 0
+    },
+    "decomposicao": {
+      "padrao_1_A2_COBRE": {
+        "natureza": "heuristica historica de COBERTURA DE VALOR, nao vinculo de pagamento comprovado",
+        "casos": 57,
+        "divergentes": 3,
+        "taxa": "5,3%",
+        "valor_divergente": "R$ 2.182,37",
+        "valores": [
+          "727.47",
+          "727.46",
+          "727.44"
+        ],
+        "data_decisao": "2026-09-24",
+        "coorte": "2026-09-18",
+        "dias_na_fila": 6,
+        "motivo_humano": "nao e do mesmo acordo",
+        "evidencia_na_linha": {
+          "pagamento_cobre_o_titulo": false,
+          "acordo_composicao": false,
+          "classificacao": null
+        },
+        "nota": "coerente com a regra ja documentada: proximidade de data + valor NUNCA e fonte de verdade sozinha"
+      },
+      "padrao_2_A_PAGAMENTO_COMPROVADO": {
+        "natureza": "padrao de prova ATUAL",
+        "casos": 5,
+        "divergentes": 1,
+        "taxa": "20%",
+        "valor_divergente": "R$ 222,63",
+        "detectado": "2026-10-09 (ramo (b)/(c) da reavaliacao, que reescreve detectado_em)",
+        "decidido": "2026-10-19",
+        "dias_na_fila": 10,
+        "motivo_humano": "nao consta negociacao dessa parcela",
+        "evidencia_na_linha": {
+          "pagamento_cobre_o_titulo": true,
+          "classificacao": "PAGAMENTO_COMPROVADO"
+        }
+      }
+    },
+    "o_que_a_divergencia_nao_prova": {
+      "regra": "a divergencia, isoladamente, NAO comprova erro da maquina nem acerto da decisao humana",
+      "motivo_humano": "texto livre, plausivel e NAO verificado: nao aponta o acordo correto nem a fonte consultada",
+      "classificacao_da_maquina": "derivada de regra; no padrao 1 a regra era reconhecidamente fraca (cobertura de valor)",
+      "terceira_fonte": "nao existe no registro quem decida entre as duas",
+      "leitura_correta": "6,5% e taxa de DESACORDO, nao taxa de erro da maquina"
+    },
+    "status_dos_4_casos": {
+      "classificacao": "PENDENTE DE VALIDACAO DE EVIDENCIA",
+      "o_que_falta": "padrao 1: qual acordo de fato recebeu o pagamento. padrao 2: se existe negociacao para a parcela",
+      "uso_permitido": "nenhum dos quatro conta como evidencia a favor ou contra a automacao ate ser conferido",
+      "dados_pessoais": "identificados aqui SO por subgrupo, valor e data — sem nome, CPF, matricula ou numero de boleto"
+    },
+    "por_que_nao_autorizar": [
+      "a direcao do erro e a cara: liberacao automatica errada tira titulo da cobranca (erro silencioso), nao o reversivel. Na duvida, REJEITADO",
+      "a amostra do padrao atual e de 5 casos: nao sustenta autorizacao nem proibicao estatistica, e por isso nao autoriza automatizar",
+      "nao ha fila esperando: 0 pendentes com prova de maquina hoje, entao o ganho seria zero agora e o risco nao"
+    ],
+    "o_que_fica_no_lugar": "a prova de maquina segue como SUGESTAO FORTE na tela, com a evidencia a vista; a decisao segue expressa e humana",
+    "pre_requisito_para_reabrir_o_tema": "validar os 4 casos e reconstruir o backtest SO sobre o padrao de prova atual, com amostra que sustente a conclusao",
+    "permanece_valido": [
+      "paymentDate nunca e nulo (0 em 417.072); H1.a segue REFUTADA",
+      "H1.b segue INCONCLUSIVA",
+      "ausencia no espelho segue 98,2% reemissao; regra sobre ausencia segue PROIBIDA",
+      "o ramo morto da reversao segue morto: remover em vez de corrigir",
+      "drenagem do estoque por causa, com decisao humana, segue sendo a prioridade — este achado a REFORCA"
+    ],
+    "ver": [
+      "docs/integracoes/prime-gaps.md",
+      "docs/DIAGNOSTICO-CONFERENCIA-PRIME-2026-10-26.md"
+    ]
   }
 }
