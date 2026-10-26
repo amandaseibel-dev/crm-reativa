@@ -1,0 +1,37 @@
+-- ROLLBACK de 20261026160000_conciliacao_encaminhamento_etapa2
+-- =============================================================================
+-- O QUE A ETAPA 2 CRIOU: duas funções de fachada, e nada mais. Nenhuma tabela,
+-- nenhuma coluna, nenhum estado novo, nenhum CHECK alterado, nenhuma view
+-- substituída, nenhum grant concedido a terceiros. Por isso o rollback é um
+-- `drop function` de duas linhas, e é completo.
+--
+-- O QUE ESTE ROLLBACK NÃO DESFAZ, e não poderia:
+--
+--   As decisões que a fachada tiver gravado ENQUANTO existia. Elas não são
+--   dela: são de `conciliacao_ja_paga_encerrar` (decisão na fila),
+--   `conciliacao_encerrar_sem_efeito_financeiro` (estado terminal da Etapa 1) e
+--   `pagamento_vincular_aluno` (vínculo), que seguem existindo e são anteriores
+--   a esta migration. Derrubar a fachada fecha a PORTA; não apaga o que passou
+--   por ela -- e apagar seria pior, porque cada passagem tem auditoria e é
+--   decisão humana registrada.
+--
+--   Para reverter um encerramento específico, o caminho é o rollback da Etapa 1
+--   (devolver `status_conciliacao` ao valor em `auditoria.detalhes ->
+--   'estado_anterior'`, por id exato), não este arquivo. Não há PITR neste
+--   projeto: toda reversão é por registro, com backup antes.
+--
+-- COMO ENCONTRAR O QUE PASSOU PELA PORTA, se for preciso reverter:
+--
+--   select registro_id, detalhes -> 'acao', detalhes -> 'passo_2', criado_em
+--     from public.auditoria
+--    where acao = 'CONCILIACAO_ENCAMINHAMENTO'
+--    order by criado_em;
+--
+-- A tela que chamava estas funções para de funcionar com este rollback, e é o
+-- comportamento certo: botão sem função atrás é pior que botão ausente. O
+-- frontend trata a ausência como "encaminhamento indisponível" e continua
+-- mostrando a pendência -- ela não desaparece da fila.
+-- =============================================================================
+
+drop function if exists public.conciliacao_encaminhar_confirmar(uuid, text, uuid, boolean);
+drop function if exists public.conciliacao_encaminhar_previa(uuid);
