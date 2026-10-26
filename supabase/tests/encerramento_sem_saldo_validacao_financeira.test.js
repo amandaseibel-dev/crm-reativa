@@ -374,13 +374,15 @@ describe("congelamento: nada se move no dia da aplicacao", () => {
     expect(mov).toHaveLength(0);
   });
 
-  it("ANTES do congelamento o ciclo acontecia: reabre, recalculo fecha e sobra o rastro", async () => {
-    // Prova de que o teste acima mede o conserto, e nao uma coincidencia: sem a
-    // linha do congelamento no reabridor, ele age e o recalculo desfaz.
+  it("sem a guarda no reabridor, o congelado e SOLTO de verdade", async () => {
+    // Prova de que a guarda do reabridor nao e decorativa. Arrancando so ela, o
+    // caso congelado e reaberto -- e, com a chave de CPF exigindo coincidencia
+    // de status, o recalculo NAO o fecha de volta (os status mudaram, entao o
+    // retrato congelado deixa de falar por ele). Resultado: liberacao real de
+    // um caso que a gestao ainda nao julgou.
     const db = await abrir(ANTES);
     const c = await cenario(db, 28, { divida: 1000 });
     await db.exec(MIGRATION);
-    // arranca so a guarda nova do reabridor, deixando o resto igual
     const def = (await q1(db, `select pg_get_functiondef(p.oid) d from pg_proc p
                                 join pg_namespace n on n.oid=p.pronamespace
                                where n.nspname='public' and p.proname='casos_reabrir_com_divida'`)).d;
@@ -389,11 +391,9 @@ describe("congelamento: nada se move no dia da aplicacao", () => {
     await como(db, GESTAO);
     const n = (await q1(db, `select public.casos_reabrir_com_divida() r`)).r;
     expect(n).toBe(1);
-    expect(await q1(db, `select encerrado_operacional e from public.casos where id=$1`, [c.caso]))
-      .toMatchObject({ e: true }); // o recalculo desfez
-    const mov = await q(db, `select tipo from public.aluno_movimentacoes
-                              where aluno_id = $1 and tipo = 'REABERTURA_DIVIDA_NOVA'`, [c.aluno]);
-    expect(mov).toHaveLength(1); // o rastro enganoso que a guarda nova evita
+    expect(await q1(db, `select encerrado_operacional e, status_atual s from public.casos where id=$1`, [c.caso]))
+      .toMatchObject({ e: false, s: "Em cobrança" });
+    // com a guarda (teste anterior) isso nao acontece: 0 reaberturas
   });
 });
 
@@ -508,6 +508,62 @@ describe("escopo aluno: os sete consumidores que passam alunos.*", () => {
     expect(r).toMatchObject({ ok: true, congelamento: "RETIRADO", congelamento_aluno_retirado: 1 });
     expect(await predicadoAluno(db, c.aluno)).toBe(false);
     expect(await predicado5(db, c)).toBe(false);
+  });
+});
+
+// ============================================================ chave de CPF
+describe("a chave de CPF nao contamina caso ativo do mesmo CPF", () => {
+  it("caso ATIVO que compartilha CPF com aluno congelado NAO e congelado", async () => {
+    // Medido em producao: sem a coincidencia de status, o congelamento de ALUNO
+    // atingiria 243 casos ATIVOS que compartilham o CPF (R$ 319.168,86, 242 com
+    // operador) -- o oposto do objetivo. Dos 243, zero tem os mesmos status do
+    // retrato congelado.
+    const db = await abrir(ANTES);
+    const alvo = await cenario(db, 60, { divida: 1000 });
+    // segundo caso do MESMO CPF, em cobranca normal e ativo
+    const outro = U(200060);
+    await db.query(`insert into public.casos (id,aluno_id,cpf,cpf_limpo,nome,matricula,operador_email,operador_nome,
+                      status_atual,status_acionamento,status_jornada,encerrado_operacional,total_em_aberto)
+                    values ($1,$2,$3,$3,'A60 bis','M60b',$4,'OP','Em cobrança','MENSAGEM_ENVIADA','Em cobrança',false,1000)`,
+                   [outro, alvo.aluno, alvo.cpf, OP1]);
+    const pred = async (id) => (await q1(db, `select public.caso_encerrado_operacional(c.cpf_limpo, c.status_atual,
+                      c.status_acionamento, c.status_financeiro, c.status_jornada) r
+                      from public.casos c where c.id=$1`, [id])).r;
+    expect(await pred(outro)).toBe(false); // ativo antes
+
+    await db.exec(MIGRATION);
+
+    expect(await pred(alvo.caso)).toBe(true);  // o alvo segue congelado
+    expect(await pred(outro)).toBe(false);     // o ativo NAO foi contaminado
+  });
+
+  it("mesmos status e mesmo CPF: o congelamento alcanca, porque e o mesmo retrato", async () => {
+    const db = await abrir(ANTES);
+    const alvo = await cenario(db, 61, { divida: 1000 });
+    const gemeo = U(200061);
+    await db.query(`insert into public.casos (id,aluno_id,cpf,cpf_limpo,nome,matricula,operador_email,operador_nome,
+                      status_atual,status_acionamento,status_jornada,encerrado_operacional,total_em_aberto)
+                    values ($1,$2,$3,$3,'A61 bis','M61b',$4,'OP','SEM_SALDO_EM_ABERTO','SEM_SALDO_EM_ABERTO','SEM_SALDO_EM_ABERTO',true,0)`,
+                   [gemeo, alvo.aluno, alvo.cpf, OP1]);
+    await db.exec(MIGRATION);
+    const pred = async (id) => (await q1(db, `select public.caso_encerrado_operacional(c.cpf_limpo, c.status_atual,
+                      c.status_acionamento, c.status_financeiro, c.status_jornada) r
+                      from public.casos c where c.id=$1`, [id])).r;
+    expect(await pred(gemeo)).toBe(true);
+  });
+
+  it("apagar o caso apaga a linha da trilha em cascata, mas delete direto segue recusado", async () => {
+    const db = await abrir(ANTES);
+    const c = await cenario(db, 62, { divida: 1000 });
+    await db.exec(MIGRATION);
+    expect(await trilha(db, c)).toHaveLength(1);
+
+    await expect(db.query(`delete from public.caso_encerramento_sem_saldo where caso_id=$1`, [c.caso]))
+      .rejects.toThrow(/TRILHA_IMUTAVEL/);
+
+    // o cascade do caso tem de passar, senao o caso congelado nunca mais some
+    await db.query(`delete from public.casos where id=$1`, [c.caso]);
+    expect(await trilha(db, c)).toHaveLength(0);
   });
 });
 

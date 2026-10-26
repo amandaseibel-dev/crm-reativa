@@ -113,6 +113,12 @@ language plpgsql
 as $function$
 begin
   if tg_op = 'DELETE' then
+    -- `caso_id ... on delete cascade`: quando o CASO e apagado, o Postgres
+    -- apaga a linha filha e cai aqui. Recusar isso trancaria o caso para
+    -- sempre. No cascata o pai JA nao existe mais; no delete direto, existe.
+    if old.caso_id is not null and not exists (select 1 from public.casos c where c.id = old.caso_id) then
+      return old;
+    end if;
     raise exception 'TRILHA_IMUTAVEL: a trilha do encerramento por ausencia de saldo nao aceita delete.'
       using errcode = '42501';
   end if;
@@ -172,9 +178,23 @@ as $function$
   select nullif(lpad(regexp_replace(coalesce(p_cpf,''), '\D', '', 'g'), 11, '0'), '00000000000');
 $function$;
 
--- A consulta que o predicado faz. Qualquer um dos tres identificadores serve:
--- o caso, o aluno ou o CPF -- porque a assinatura antiga so recebe CPF.
-create or replace function public._encerramento_congelado(p_aluno_id uuid, p_caso_id uuid, p_cpf text)
+-- A consulta que o predicado faz. Tres portas, e cada uma com o seu limite --
+-- medido, nao suposto:
+--
+--   caso_id  identidade exata, vale sempre;
+--   aluno_id so em chamada de NIVEL ALUNO (`p_caso_id is null`). Um caso ATIVO
+--            do mesmo aluno nao pode herdar o congelamento dele;
+--   CPF      a unica porta que a assinatura de 5 argumentos consegue usar, e
+--            por isso a mais perigosa: ela exige que os QUATRO status da
+--            avaliacao sejam os MESMOS do retrato congelado. Sem essa exigencia,
+--            o congelamento de ALUNO atingiria os casos ATIVOS que compartilham
+--            o CPF -- 243 casos / R$ 319.168,86, 242 com operador, medidos em
+--            producao em 26/10. Dos 243, ZERO tem os mesmos status do retrato,
+--            entao a coincidencia de status separa os dois grupos sem perder
+--            protecao.
+create or replace function public._encerramento_congelado(
+  p_aluno_id uuid, p_caso_id uuid, p_cpf text,
+  p_nat text default null, p_nac text default null, p_nfi text default null, p_njo text default null)
 returns boolean
 language sql
 stable
@@ -184,9 +204,16 @@ as $function$
   select exists (
     select 1 from public.caso_encerramento_sem_saldo e
      where e.resolvido_em is null
-       and (e.caso_id = p_caso_id
-            or e.aluno_id = p_aluno_id
-            or (e.cpf_congelado is not null and e.cpf_congelado = public._cpf11(p_cpf))));
+       and (
+         e.caso_id = p_caso_id
+         or (p_caso_id is null and e.escopo = 'ALUNO' and e.aluno_id = p_aluno_id)
+         or (e.cpf_congelado is not null
+             and e.cpf_congelado = public._cpf11(p_cpf)
+             and public.normalizar_status_acionamento(coalesce(e.estado_anterior->>'status_atual','')) = coalesce(p_nat,'')
+             and public.normalizar_status_acionamento(coalesce(e.estado_anterior->>'status_acionamento','')) = coalesce(p_nac,'')
+             and public.normalizar_status_acionamento(coalesce(e.estado_anterior->>'status_jornada','')) = coalesce(p_njo,'')
+             and (e.escopo = 'ALUNO'
+                  or public.normalizar_status_acionamento(coalesce(e.estado_anterior->>'status_financeiro','')) = coalesce(p_nfi,'')))));
 $function$;
 
 create or replace function public.caso_encerramento_congelado(p_caso_id uuid)
@@ -201,7 +228,7 @@ as $function$
 $function$;
 
 grant execute on function public._cpf11(text) to authenticated, service_role;
-grant execute on function public._encerramento_congelado(uuid,uuid,text) to authenticated, service_role;
+grant execute on function public._encerramento_congelado(uuid,uuid,text,text,text,text,text) to authenticated, service_role;
 grant execute on function public.caso_encerramento_congelado(uuid) to authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
@@ -283,7 +310,7 @@ begin
 
   -- congelamento: a decisao que existia antes da troca fica de pe ate a gestao
   -- resolver. Vale por caso, por aluno ou por CPF.
-  if public._encerramento_congelado(p_aluno_id, p_caso_id, p_cpf) then return true; end if;
+  if public._encerramento_congelado(p_aluno_id, p_caso_id, p_cpf, nat, nac, nfi, njo) then return true; end if;
 
   -- o texto agora precisa de conferencia financeira.
   if (nat = any(quit) or nac = any(quit) or nfi = any(quit) or njo = any(quit))

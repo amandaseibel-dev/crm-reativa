@@ -102,7 +102,7 @@ drop function if exists public.caso_encerramento_resolver(uuid,text,text);
 drop function if exists public.caso_encerrado_operacional(uuid,uuid,text,text,text,text,text);
 drop function if exists public._caso_encerrado_operacional_regra(uuid,uuid,text,text,text,text,text);
 drop function if exists public._caso_sem_saldo_conferido(uuid,text);
-drop function if exists public._encerramento_congelado(uuid,uuid,text);
+drop function if exists public._encerramento_congelado(uuid,uuid,text,text,text,text,text);
 drop function if exists public.caso_encerramento_congelado(uuid);
 drop function if exists public._cpf11(text);
 
