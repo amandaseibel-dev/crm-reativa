@@ -7,6 +7,7 @@ import { supabase } from "../services/supabase";
 import { hashArquivo, hashValido } from "../utils/hashArquivo";
 import { TIPOS_DE_ESCOPO, escopoTipoPermitido, motivoDoBloqueio, scopeKeyRelatorio }
   from "../utils/escopoExtracao";
+import { agruparResumo, rotuloClasse, tituloDoResultado } from "../utils/criticasImportacao";
 
 // Importacao do "Relatorio de Titulos em Aberto" (somente acordos).
 // Le o arquivo no navegador, mostra previa e grava via RPC importar_acordos,
@@ -78,6 +79,14 @@ export default function ImportacaoAcordos() {
   const [presenca, setPresenca] = useState(null);
   const [arquivoHash, setArquivoHash] = useState("");
   const [linhasArquivo, setLinhasArquivo] = useState(0);
+  // ---- P1/P2 (23/10/2026): preservar o arquivo e registrar critica por linha.
+  // `arquivoBruto` guarda o File para subir ao bucket privado -- antes disto o
+  // conteudo so existia dentro do FileReader e morria com a aba.
+  const [arquivoBruto, setArquivoBruto] = useState(null);
+  // linhas que o filtro de documento descarta. Ate 23/10 elas sumiam num
+  // `continue` sem contador: uma importacao que derrubasse 40 linhas saia com
+  // a mesma cara de uma perfeita.
+  const [recusadas, setRecusadas] = useState([]);
 
   async function carregarHistorico() {
     const { data, error } = await supabase.rpc("listar_importacoes_acordos");
@@ -89,9 +98,11 @@ export default function ImportacaoAcordos() {
   function analisar(e) {
     setErro(""); setResultado(null); setResumo(null); setLinhas(null);
     setPresenca(null); setArquivoHash(""); setLinhasArquivo(0);
+    setArquivoBruto(null); setRecusadas([]);
     const file = e.target.files && e.target.files[0];
     if (!file) return;
     setNomeArquivo(file.name);
+    setArquivoBruto(file);
     const reader = new FileReader();
     reader.onload = async (ev) => {
       try {
@@ -102,10 +113,29 @@ export default function ImportacaoAcordos() {
         setLinhasArquivo(rows.length);   // TOTAL de linhas, nao o subconjunto
         const out = [];
         const todas = [];                // J3/I1: presenca, ANTES de filtrar
-        for (const r of rows) {
+        const recusou = [];              // P2: o que este filtro descarta
+        for (let idx = 0; idx < rows.length; idx++) {
+          const r = rows[idx];
           const tipo = String(r["Tipo de Boleto"] || "").trim();
           const doc = soDigitos(r["Documento"]);
-          if (!/^\d{6,}$/.test(doc)) continue;               // ignora linha de total
+          if (!/^\d{6,}$/.test(doc)) {
+            // P2/REJEICAO. Esta e a linha que sumia. Agora vira critica -- mas
+            // SO quando parece registro: tem algo escrito em Documento ou tem
+            // CPF. Linha de total em branco continua sendo descartada em
+            // silencio, senao toda importacao nasceria com rejeicao falsa.
+            const docBruto = String(r["Documento"] ?? "").trim();
+            const cpfBruto = soDigitos(r["CPF Aluno"]);
+            if (docBruto !== "" || cpfBruto !== "") {
+              recusou.push({
+                linha: idx + 2,                 // +2: a linha 1 e o cabecalho
+                documento: docBruto,            // CRU: distingue "TOTAL" de erro de digitacao
+                cpf: cpfBruto,
+                venc: parseData(r["Vcto"]) || "",
+                valor: parseValor(r["A Receber Bruto"]) ?? "",
+              });
+            }
+            continue;
+          }
           // ===== CONTRATO (nao mover) =====================================
           // A captura de presenca deve permanecer ANTES de qualquer filtro
           // operacional do importador. Mover esta linha para depois do
@@ -134,6 +164,7 @@ export default function ImportacaoAcordos() {
           });
         }
         setPresenca(todas);
+        setRecusadas(recusou);
         // TIPOS PRESENTES NO ARQUIVO. Base da restricao da declaracao: a
         // escolha manual deixa de ser a unica fonte do escopo.
         const tipos = [...new Set(todas.map((l) => l.tipo_boleto).filter(Boolean))];
@@ -204,8 +235,63 @@ export default function ImportacaoAcordos() {
     setImportando(true); setErro(""); setResultado(null);
     const importacaoId = crypto.randomUUID();
     const BATCH = 1200;
-    const acc = { alunos_novos: 0, titulos_inseridos: 0, acordos_na_fila: 0, duplicados: 0, pulados: 0, linhasPuladas: 0 };
+    const acc = { alunos_novos: 0, titulos_inseridos: 0, acordos_na_fila: 0, duplicados: 0, pulados: 0, linhasPuladas: 0,
+                  criticasTotal: 0, criticasPorClasse: {}, arquivoPreservado: null, criticasRegistradas: null };
     try {
+      // ---------------------------------------------------------------------
+      // P1 — PRESERVAR O ARQUIVO, antes de importar. Vai primeiro de proposito:
+      // se a importacao falhar no meio, o arquivo que a causou ja esta guardado.
+      //
+      // Falha de armazenamento NAO bloqueia a importacao -- e auditoria, nao
+      // etapa, igual a captura de presenca. Mas tambem nao passa em silencio:
+      // `arquivoPreservado = false` pinta o aviso no resultado.
+      // ---------------------------------------------------------------------
+      let caminhoSalvo = null;
+      if (arquivoBruto) {
+        const seguro = (nomeArquivo || "relatorio.xlsx").replace(/[^A-Za-z0-9._-]/g, "_").slice(-120);
+        const caminho = `acordos/${importacaoId}/${seguro}`;
+        setProgresso("Preservando o arquivo...");
+        try {
+          const { error: errUp } = await supabase.storage
+            .from("importacoes-acordos")
+            .upload(caminho, arquivoBruto, { upsert: false, contentType: arquivoBruto.type || undefined });
+          if (errUp) throw errUp;
+          caminhoSalvo = caminho;
+        } catch {
+          caminhoSalvo = null;      // declarado como nao preservado, nunca suposto
+        }
+      }
+      acc.arquivoPreservado = arquivoBruto ? caminhoSalvo !== null : null;
+      try {
+        await supabase.rpc("registrar_importacao_acordo_arquivo", {
+          p_importacao_id: importacaoId,
+          p_arquivo_path: caminhoSalvo,
+          p_arquivo_sha256: arquivoHash || null,
+          p_arquivo_bytes: arquivoBruto ? arquivoBruto.size : null,
+          p_linhas_arquivo: linhasArquivo || null,
+          p_arquivo_nome: nomeArquivo || null,
+          p_linhas_fora_do_escopo: presenca && linhas ? presenca.length - linhas.length : null,
+        });
+      } catch {
+        acc.arquivoPreservado = false;   // subiu mas nao ficou registrado: vale o mesmo aviso
+      }
+
+      // ---------------------------------------------------------------------
+      // P2 — as linhas que ESTA tela recusou. Ela e a unica que conhece o
+      // numero da linha na planilha; o servidor nunca o ve.
+      // ---------------------------------------------------------------------
+      if (recusadas.length > 0) {
+        setProgresso("Registrando " + recusadas.length + " linha(s) recusada(s)...");
+        try {
+          await supabase.rpc("importacao_acordo_critica_registrar", {
+            p_importacao_id: importacaoId, p_criticas: recusadas,
+          });
+          acc.criticasRegistradas = true;
+        } catch {
+          acc.criticasRegistradas = false;
+        }
+      }
+
       for (let i = 0; i < linhas.length; i += BATCH) {
         const chunk = linhas.slice(i, i + BATCH);
         setProgresso("Gravando " + Math.min(i + BATCH, linhas.length) + " de " + linhas.length + "...");
@@ -220,6 +306,10 @@ export default function ImportacaoAcordos() {
         // Quitados desta semana que a Prime ainda traz com divida: nao entram.
         acc.pulados += (data && data.cpfs_pulados_quitados) || 0;
         acc.linhasPuladas += (data && data.linhas_puladas_quitados) || 0;
+        // P2: o resumo vem do PROPRIO retorno da importacao, e e cumulativo por
+        // lote -- por isso o maximo entre os pedacos, nao a soma.
+        acc.criticasTotal = Math.max(acc.criticasTotal, Number(data && data.criticas_total) || 0);
+        if (data && data.criticas_por_classe) acc.criticasPorClasse = data.criticas_por_classe;
       }
       setResultado({ ...acc, importacaoId });
       setProgresso("");
@@ -458,7 +548,51 @@ export default function ImportacaoAcordos() {
 
       {resultado && (
         <div style={S.cardOk}>
-          <h2 style={S.h2}>Importacao concluida ✅</h2>
+          {/* P2: uma importacao com critica NAO se anuncia como "concluida" e
+              ponto. O titulo muda, e as criticas aparecem antes dos numeros
+              bonitos -- e o que a gestao pediu ao dizer que importacao parcial
+              nao e sucesso sem apresentar suas criticas. */}
+          <h2 style={S.h2} data-testid="titulo-resultado">
+            {tituloDoResultado(resultado.criticasTotal)}
+          </h2>
+
+          {resultado.criticasTotal > 0 && (
+            <div style={S.criticas} data-testid="painel-criticas">
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                O que ficou de fora, por natureza
+              </div>
+              <ul style={S.lista}>
+                {agruparResumo(
+                  Object.entries(resultado.criticasPorClasse || {})
+                    .map(([classe, total]) => ({ classe, motivo_codigo: null, total }))
+                ).map((c) => (
+                  <li key={c.classe}>
+                    <strong>{c.total.toLocaleString("pt-BR")}</strong> — {rotuloClasse(c.classe)}
+                  </li>
+                ))}
+              </ul>
+              <div style={S.obs}>
+                Rejeitada pede alguém olhar o arquivo. Duplicidade e Ignorada por regra
+                são o sistema funcionando — ficam registradas para conferência em
+                <strong> Importações</strong>, não são erro.
+              </div>
+              {resultado.criticasRegistradas === false && (
+                <div style={{ fontWeight: 700 }}>
+                  ⚠️ As linhas recusadas por esta tela NÃO foram registradas. A importação
+                  seguiu, mas essas críticas não ficaram gravadas — reimporte o arquivo
+                  para registrá-las.
+                </div>
+              )}
+            </div>
+          )}
+
+          {resultado.arquivoPreservado === false && (
+            <div style={S.avisoPulado} data-testid="aviso-arquivo">
+              📄 <strong>O arquivo original NÃO foi preservado.</strong> A importação
+              rodou normalmente — guardar o arquivo é auditoria, não etapa — mas não
+              vai ser possível reconferir esta importação contra o arquivo depois.
+            </div>
+          )}
           <ul style={S.lista}>
             <li><strong>{resultado.titulos_inseridos.toLocaleString("pt-BR")}</strong> titulos inseridos</li>
             <li><strong>{resultado.alunos_novos.toLocaleString("pt-BR")}</strong> alunos novos criados</li>
@@ -481,7 +615,10 @@ export default function ImportacaoAcordos() {
               porque ela não refletiu a baixa. Importar traria a dívida de volta.
             </div>
           )}
-          <div style={S.obs}>Lote: {resultado.importacaoId}</div>
+          <div style={S.obs}>
+            Lote: {resultado.importacaoId}
+            {resultado.arquivoPreservado === true && " · arquivo original preservado"}
+          </div>
         </div>
       )}
 
@@ -554,6 +691,8 @@ const S = {
     background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)",
     borderRadius: 10, padding: "12px 14px", fontSize: 13, lineHeight: 1.55, margin: "10px 0",
   },
+  criticas: { background: "var(--rv-amarelo-fundo, #fff8e1)", border: "1px solid var(--rv-amarelo-borda, #ffe082)",
+    color: "var(--rv-amarelo-texto, #6b4e00)", borderRadius: 12, padding: "12px 16px", margin: "12px 0", fontSize: 13.5 },
   erro: { background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", color: "var(--rv-vermelho-texto)", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13.5, fontWeight: 600 },
   lista: { margin: "6px 0 8px", paddingLeft: 18, fontSize: 14, color: "var(--rv-verde-ok-texto)", lineHeight: 1.7 },
   btnGhost: { background: "var(--rv-superficie)", color: "var(--rv-azul-texto)", border: "1px solid var(--rv-roxo-borda)", borderRadius: 9, padding: "7px 14px", fontWeight: 700, fontSize: 13, cursor: "pointer" },
