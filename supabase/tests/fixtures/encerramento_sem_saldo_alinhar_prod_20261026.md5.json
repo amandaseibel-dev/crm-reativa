@@ -1,0 +1,13 @@
+{
+  "public.aluno_saldo_pendente_detalhe": "1f676604ebeba3561eafc6306e187ba2",
+  "public.caso_encerrado_operacional": "adc514c7a018018d866096d8e420d7b3",
+  "public.caso_protegido_redistribuicao": "1c00d3fb6b87d3e1a3e2ab4efa6e59ed",
+  "public.caso_saldo_operacional": "fc9b57fd289278c6afc297feb7745d22",
+  "public.caso_saldo_zerado_real": "1c597b90b51c330493bc579612625bf4",
+  "public.casos_elegiveis_liberacao_fidelizacao": "fb72379bec0573059354843c3f82ddbd",
+  "public.casos_reabrir_com_divida": "63deeb34b039b9260c0d224b73d9ec81",
+  "public.normalizar_status_acionamento": "111639f9c4227e11b2f31fc7204ed64d",
+  "public.parcela_viva": "df5e77b776af5f1360ac0f7d0ec500f2",
+  "public.retirar_zerados_reais_sem_saldo": "b53686492918bde2afc7a6e2c12fc462",
+  "public.saldo_titulos_aberto": "ee0d3a1f54b4785e57e0abd86157342f"
+}
