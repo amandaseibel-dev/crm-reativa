@@ -18,6 +18,122 @@ create table if not exists public.cobranca_nao_reabrir (
   criado_em  timestamptz not null default now()
 );
 
+-- `casos_elegiveis_liberacao_fidelizacao` (cron 8) e suas dependencias nao
+-- estavam na fixture de 18/09, e `caso_protegido_redistribuicao` divergia.
+CREATE OR REPLACE FUNCTION internal.carteira_geral_email()
+ RETURNS text
+ LANGUAGE sql
+ IMMUTABLE
+AS $function$ select 'carteira.geral@reativa.local'::text $function$
+;
+
+CREATE OR REPLACE FUNCTION public.caso_protegido_redistribuicao(p_cpf_limpo text, p_status_acionamento text, p_nao_acionar boolean, p_status_financeiro text DEFAULT NULL::text, p_valor_pago numeric DEFAULT NULL::numeric, p_quitado_em date DEFAULT NULL::date, p_valor_quitado numeric DEFAULT NULL::numeric)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_status_norm text := public.normalizar_status_acionamento(p_status_acionamento);
+  v_status_fin_norm text := public.normalizar_status_acionamento(p_status_financeiro);
+  v_cpf text := lpad(regexp_replace(coalesce(p_cpf_limpo,''), '\D', '', 'g'), 11, '0');
+  bloq text[] := array['CANCELADO','CANCELAMENTO COBRANCA','JURIDICO'];
+  quit text[] := array['PAGO','QUITADO','QUITACAO','QUITADO MANUAL'];
+begin
+  if coalesce(p_nao_acionar, false) then return true; end if;
+
+  if v_status_norm = any(bloq) or v_status_fin_norm = any(bloq) then
+    return true;
+  end if;
+
+  -- Caso cujo unico saldo esta em titulo aguardando a Conferencia Prime: nao
+  -- ocupa vaga (teto, reposicao, nivelamento), nao e redistribuido e nao e
+  -- solto pela fidelizacao -- o responsavel fica para quando houver decisao.
+  -- (o aluno e achado pelo CPF normalizado da ficha -- indice
+  -- idx_alunos_cpf_normalizado; o CPF gravado no titulo pode divergir)
+  if v_cpf <> '00000000000' and v_cpf <> '' and exists (
+       select 1 from public.alunos al
+        where lpad(regexp_replace(coalesce(al.cpf, ''), '\D', '', 'g'), 11, '0') = v_cpf
+          and exists (select 1 from public.acordos_titulos t
+                       where t.aluno_id = al.id
+                         and upper(coalesce(t.situacao,'')) = 'EM_CONFIRMACAO')
+          and public.caso_aguarda_confirmacao_financeira(al.id)) then
+    return true;
+  end if;
+
+  -- CONFIRMACAO FINANCEIRA ABERTA (solicitacoes_confirmacao_pagamento), pelo
+  -- aluno_id da solicitacao -- NAO por solicitacoes.aluno_cpf, que e nulo em
+  -- 345 das 351 abertas. Os dois estados abertos protegem. Sem nome, sem
+  -- aproximacao: aluno pelo CPF normalizado da ficha (mesma chave do bloco acima),
+  -- solicitacao por aluno_id (texto, indexado).
+  if v_cpf <> '00000000000' and v_cpf <> '' and exists (
+       select 1 from public.alunos al
+        where lpad(regexp_replace(coalesce(al.cpf, ''), '\D', '', 'g'), 11, '0') = v_cpf
+          and exists (select 1 from public.solicitacoes_confirmacao_pagamento s
+                       where s.aluno_id = al.id::text
+                         and s.status in ('AGUARDANDO_CONFIRMACAO','PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO'))) then
+    return true;
+  end if;
+
+  if v_cpf = '00000000000' or v_cpf = '' then
+    null;
+  elsif exists (select 1 from public.acordos a where a.cpf = v_cpf and a.status = 'ATIVO')
+     or exists (select 1 from public.baixas_pagamento b where b.aluno_cpf = v_cpf and b.status_baixa = 'AGUARDANDO_BAIXA')
+     -- pagamento em transito: protege sempre
+     or exists (select 1 from public.links_pagamento l where l.aluno_cpf = v_cpf and l.status = 'AGUARDANDO_BAIXA')
+     -- link vivo: protege por um dia
+     or exists (select 1 from public.links_pagamento l
+                 where l.aluno_cpf = v_cpf
+                   and l.status in ('LINK_ENVIADO_AO_ALUNO','LINK_PRONTO_PARA_ENVIO')
+                   and coalesce(l.enviado_ao_aluno_em, l.enviado_em, l.criado_em)::date >= current_date - 1)
+     or exists (select 1 from public.solicitacoes_confirmacao_pagamento s where s.aluno_cpf = v_cpf and s.status = 'AGUARDANDO_CONFIRMACAO')
+  then
+    return true;
+  end if;
+
+  if (v_status_norm = any(quit) or v_status_fin_norm = any(quit)
+      or coalesce(p_valor_pago,0) > 0 or p_quitado_em is not null or coalesce(p_valor_quitado,0) > 0)
+     and public.saldo_titulos_aberto(v_cpf) = 0
+  then
+    return true;
+  end if;
+
+  if v_status_norm in (
+    'ACORDO FECHADO','ACORDO EM ANDAMENTO','EM NEGOCIACAO',
+    'AGUARDANDO PAGAMENTO','AGUARDANDO FINANCEIRO','EMAIL ENVIADO AO FINANCEIRO','E MAIL ENVIADO FINANC',
+    'LINK CARTAO ENVIADO','PAGO PARCIAL','VALORES ENVIADOS','PROPOSTA ENVIADA','PROPOSTA DE EXCECAO',
+    'TERMO ENVIADO','TERMO RECEBIDO','EM TRATATIVA','RETORNO AGENDADO'
+  ) then
+    return true;
+  end if;
+
+  return false;
+end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.casos_elegiveis_liberacao_fidelizacao()
+ RETURNS TABLE(caso_id uuid, aluno_id uuid, operador_email text, operador_nome text, data_ultimo_acionamento date, fidelizado_ate date)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'internal'
+AS $function$
+  select c.id, c.aluno_id, c.operador_email, c.operador_nome,
+    c.data_ultimo_acionamento,
+    case when c.data_ultimo_acionamento is not null then c.data_ultimo_acionamento + 10 end as fidelizado_ate
+  from public.casos c
+  left join public.alunos a on a.id = c.aluno_id
+  where c.operador_email is not null and lower(c.operador_email) <> internal.carteira_geral_email()
+    and not public.caso_protegido_redistribuicao(c.cpf_limpo, c.status_acionamento, c.nao_acionar,
+          c.status_financeiro, c.valor_pago, c.quitado_em, c.valor_quitado)
+    and not public.caso_encerrado_operacional(c.cpf_limpo, c.status_atual, c.status_acionamento,
+          c.status_financeiro, c.status_jornada)
+    and (c.data_ultimo_acionamento is null or c.data_ultimo_acionamento + 10 < current_date)
+    and coalesce(a.responsavel_atual_em, c.caso_atualizado_em, now() - interval '2 days') < now() - interval '1 day'
+  order by c.data_ultimo_acionamento asc nulls first;
+$function$
+;
+
 -- `aluno_saldo_pendente_detalhe` chama esta funcao; a fixture de 18/09 nao a tem.
 CREATE OR REPLACE FUNCTION public.parcela_viva(p_status text)
  RETURNS boolean

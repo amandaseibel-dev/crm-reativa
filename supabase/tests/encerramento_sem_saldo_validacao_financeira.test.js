@@ -61,7 +61,7 @@ async function base() {
   await db.exec(ACORDO_CANCELADO);
   await db.exec(GRUPO_A);
   await db.exec(ALINHAR);
-  // O contrato: a bancada reproduz producao (nove funcoes).
+  // O contrato: a bancada reproduz producao (onze funcoes).
   const { rows } = await db.query(
     `select n.nspname||'.'||p.proname as nome, md5(p.prosrc) as md5
        from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public'`
@@ -152,7 +152,7 @@ const fotoCasos = (db) =>
 
 // ============================================================ a bancada
 describe("a bancada", () => {
-  it("reproduz producao de 26/10/2026 nas nove funcoes do contrato", async () => {
+  it("reproduz producao de 26/10/2026 nas onze funcoes do contrato", async () => {
     const db = await abrir(ANTES);
     for (const [nome, md5] of Object.entries(MD5_ALINHADO)) {
       const r = await q1(db, `select md5(p.prosrc) m from pg_proc p join pg_namespace n on n.oid=p.pronamespace
@@ -181,7 +181,8 @@ describe("a migration", () => {
     // intactas: a conferencia por CPF, a canonica e o reabridor
     expect(await md5("saldo_titulos_aberto")).toBe(MD5_SALDO_CPF);
     expect(await md5("aluno_saldo_pendente_detalhe")).toBe(MD5_CANONICA);
-    expect(await md5("casos_reabrir_com_divida")).toBe(MD5_REABRIR);
+    // o reabridor E alterado de proposito: ganha a guarda do congelamento
+    expect(await md5("casos_reabrir_com_divida")).not.toBe(MD5_REABRIR);
     // nada de dinheiro, nada de caso
     expect(await contarDinheiro(db)).toEqual(dinheiroAntes);
     expect(await fotoCasos(db)).toEqual(casosAntes);
@@ -249,9 +250,11 @@ describe("o texto deixa de valer como prova de saldo zero", () => {
     expect(await predicado5(db, semDivida)).toBe(true);
   });
 
-  it("a sobrecarga canonica acerta onde a conferencia por CPF fica vazia", async () => {
+  it("CPF vazio: as DUAS assinaturas recusam dar saldo zero sem prova", async () => {
     const db = await abrir(DEPOIS);
-    // CPF vazio: `saldo_titulos_aberto` devolve 0 para qualquer divida
+    // Antes, `saldo_titulos_aberto('')` devolvia 0 e o caso passava por "sem
+    // saldo" com divida de R$ 900. Agora CPF vazio nao resolve aluno nenhum e a
+    // conferencia devolve NAO COMPROVADO nas duas assinaturas.
     const aluno = U(5), caso = U(100005);
     await db.query(`insert into public.alunos (id,nome,cpf,matricula,status_atual,status_jornada)
                     values ($1,'Aluno 5','','M5','SEM_SALDO_EM_ABERTO','SEM_SALDO_EM_ABERTO')`, [aluno]);
@@ -264,8 +267,8 @@ describe("o texto deixa de valer como prova de saldo zero", () => {
                     values ($1,'','D5','2026-03-10',900,900,'ABERTO','em_aberto','Mensalidade','2026-01-10')`, [aluno]);
     const c = { caso, aluno };
     expect(await q1(db, `select public.saldo_titulos_aberto('') s`)).toMatchObject({ s: "0" });
-    expect(await predicado5(db, c)).toBe(true);   // a por CPF nao enxerga
-    expect(await predicado7(db, c)).toBe(false);  // a canonica enxerga
+    expect(await predicado5(db, c)).toBe(false);
+    expect(await predicado7(db, c)).toBe(false);
   });
 });
 
@@ -354,28 +357,187 @@ describe("congelamento: nada se move no dia da aplicacao", () => {
     expect(await montar(true)).toEqual([]);
   });
 
-  it("DEFEITO ABERTO: o reabridor ainda age e o recalculo desfaz, deixando rastro enganoso", async () => {
-    // O congelamento vale para o PREDICADO. O reabridor seleciona pelo primeiro
-    // lado do OR (`encerrado_operacional`), que esta fora desta correcao: ele
-    // reabre, e `recalcular_situacao_aluno` -- que le o predicado, agora
-    // congelado -- fecha de novo na mesma passagem. O estado final esta certo,
-    // mas sobra um `REABERTURA_DIVIDA_NOVA` em `aluno_movimentacoes` para um
-    // caso que nao reabriu. Fechar isso exige excluir o congelado tambem na
-    // selecao de `casos_reabrir_com_divida`, o que esta FORA do escopo
-    // autorizado desta correcao e precisa de decisao da gestao.
+  it("o reabridor NAO tenta o congelado: nenhum REABERTURA_DIVIDA_NOVA indevido", async () => {
     const db = await abrir(ANTES);
     const c = await cenario(db, 27, { divida: 1000 });
     await db.exec(MIGRATION);
     await como(db, GESTAO);
     const n = (await q1(db, `select public.casos_reabrir_com_divida() r`)).r;
 
-    expect(n).toBe(1); // ele contou como reaberto
+    expect(n).toBe(0); // nao conta como reaberto
     expect(await q1(db, `select encerrado_operacional e from public.casos where id=$1`, [c.caso]))
-      .toMatchObject({ e: true }); // mas o caso continua fechado -- o congelamento venceu
+      .toMatchObject({ e: true });
     expect(await predicado5(db, c)).toBe(true);
+    // o rastro enganoso nao existe mais
     const mov = await q(db, `select tipo from public.aluno_movimentacoes
                               where aluno_id = $1 and tipo = 'REABERTURA_DIVIDA_NOVA'`, [c.aluno]);
-    expect(mov).toHaveLength(1); // o rastro enganoso que falta resolver
+    expect(mov).toHaveLength(0);
+  });
+
+  it("ANTES do congelamento o ciclo acontecia: reabre, recalculo fecha e sobra o rastro", async () => {
+    // Prova de que o teste acima mede o conserto, e nao uma coincidencia: sem a
+    // linha do congelamento no reabridor, ele age e o recalculo desfaz.
+    const db = await abrir(ANTES);
+    const c = await cenario(db, 28, { divida: 1000 });
+    await db.exec(MIGRATION);
+    // arranca so a guarda nova do reabridor, deixando o resto igual
+    const def = (await q1(db, `select pg_get_functiondef(p.oid) d from pg_proc p
+                                join pg_namespace n on n.oid=p.pronamespace
+                               where n.nspname='public' and p.proname='casos_reabrir_com_divida'`)).d;
+    await db.exec(def.replace("and not public.caso_encerramento_congelado(c.id)", ""));
+
+    await como(db, GESTAO);
+    const n = (await q1(db, `select public.casos_reabrir_com_divida() r`)).r;
+    expect(n).toBe(1);
+    expect(await q1(db, `select encerrado_operacional e from public.casos where id=$1`, [c.caso]))
+      .toMatchObject({ e: true }); // o recalculo desfez
+    const mov = await q(db, `select tipo from public.aluno_movimentacoes
+                              where aluno_id = $1 and tipo = 'REABERTURA_DIVIDA_NOVA'`, [c.aluno]);
+    expect(mov).toHaveLength(1); // o rastro enganoso que a guarda nova evita
+  });
+});
+
+// ============================================================ cron 8
+describe("cron 8: a fidelizacao nao solta quem esta congelado", () => {
+  const elegiveis = (db) => q(db, `select caso_id from public.casos_elegiveis_liberacao_fidelizacao()`);
+
+  it("caso com texto e divida NAO entra na lista, antes nem depois", async () => {
+    for (const [dump, aplicar] of [[ANTES, false], [ANTES, true]]) {
+      const db = await abrir(dump);
+      const c = await cenario(db, 30, { divida: 1000 });
+      if (aplicar) await db.exec(MIGRATION);
+      const lista = (await elegiveis(db)).map((x) => x.caso_id);
+      expect(lista, `aplicar=${aplicar}`).not.toContain(c.caso);
+      await db.close();
+    }
+  });
+
+  it("congelado SEM CPF utilizavel: e a guarda por caso_id que o segura", async () => {
+    // Sem CPF, a consulta do congelamento por CPF nao acha nada e a conferencia
+    // financeira devolve "nao comprovado" -> o predicado diria false e o cron 8
+    // soltaria o caso. Quem o segura e `caso_encerramento_congelado(c.id)`.
+    const db = await abrir(ANTES);
+    const aluno = U(31), caso = U(100031);
+    await db.query(`insert into public.alunos (id,nome,cpf,matricula,status_atual,status_jornada,status_acionamento)
+                    values ($1,'A31','','M31','SEM_SALDO_EM_ABERTO','SEM_SALDO_EM_ABERTO','SEM_SALDO_EM_ABERTO')`, [aluno]);
+    await db.query(`insert into public.casos (id,aluno_id,cpf,cpf_limpo,nome,matricula,operador_email,operador_nome,
+                      status_atual,status_acionamento,status_jornada,encerrado_operacional,nao_acionar,total_em_aberto)
+                    values ($1,$2,'','','A31','M31',$3,'OP','SEM_SALDO_EM_ABERTO','SEM_SALDO_EM_ABERTO','SEM_SALDO_EM_ABERTO',true,false,0)`,
+                   [caso, aluno, OP1]);
+    await db.query(`insert into public.acordos_titulos (aluno_id,cpf,documento,vencimento,valor_original,
+                      saldo_corrigido,situacao,status,tipo_boleto,created_at)
+                    values ($1,'','D31','2026-03-10',900,900,'ABERTO','em_aberto','Mensalidade','2026-01-10')`, [aluno]);
+    await db.exec(MIGRATION);
+
+    // congelado por caso_id (e por aluno_id), nao por CPF
+    expect((await q1(db, `select public.caso_encerramento_congelado($1) c`, [caso])).c).toBe(true);
+    expect((await q1(db, `select public._cpf11('') c`)).c).toBeNull();
+    // o predicado de 5 args, que o cron 8 chama, nao tem como achar o congelamento
+    expect((await q1(db, `select public.caso_encerrado_operacional('', 'SEM_SALDO_EM_ABERTO',
+              'SEM_SALDO_EM_ABERTO', null, 'SEM_SALDO_EM_ABERTO') r`)).r).toBe(false);
+    // e mesmo assim o cron 8 nao o solta
+    expect((await elegiveis(db)).map((x) => x.caso_id)).not.toContain(caso);
+  });
+
+  it("o que o cron 8 ja preservava continua preservado", async () => {
+    const db = await abrir(ANTES);
+    const naoAcionar = await cenario(db, 32, { divida: 1000, naoAcionar: true });
+    const juridico = await cenario(db, 33, { divida: 1000, statusAtual: "JURIDICO" });
+    await db.exec(MIGRATION);
+    const lista = (await elegiveis(db)).map((x) => x.caso_id);
+    expect(lista).not.toContain(naoAcionar.caso);
+    expect(lista).not.toContain(juridico.caso);
+  });
+
+  it("caso em cobranca normal segue elegivel: a guarda nova nao prende quem nao e congelado", async () => {
+    const db = await abrir(ANTES);
+    const c = await cenario(db, 34, {
+      divida: 1000, encerrado: false, statusAtual: "Em cobrança",
+      statusAcionamento: "MENSAGEM_ENVIADA", statusJornada: "Em cobrança",
+      alunoStatus: "Em cobrança", alunoJornada: "Em cobrança", alunoAcionamento: "MENSAGEM_ENVIADA" });
+    const antes = (await elegiveis(db)).map((x) => x.caso_id);
+    await db.exec(MIGRATION);
+    const depois = (await elegiveis(db)).map((x) => x.caso_id);
+    expect(antes).toContain(c.caso);
+    expect(depois).toContain(c.caso); // nao foi congelado, logo nao foi preso
+  });
+});
+
+// ============================================================ escopo ALUNO
+describe("escopo aluno: os sete consumidores que passam alunos.*", () => {
+  const predicadoAluno = async (db, aluno) =>
+    (await q1(db, `select public.caso_encerrado_operacional(a.cpf, a.status_atual, a.status_acionamento,
+                          null::text, a.status_jornada) r from public.alunos a where a.id = $1`, [aluno])).r;
+
+  it("aluno com texto e divida: encerrado ANTES, e segue encerrado DEPOIS pelo congelamento", async () => {
+    const db = await abrir(ANTES);
+    const c = await cenario(db, 40, { divida: 2500 });
+    expect(await predicadoAluno(db, c.aluno)).toBe(true);
+    await db.exec(MIGRATION);
+    expect(await predicadoAluno(db, c.aluno)).toBe(true);
+    const t = await q(db, `select escopo, classificacao from public.caso_encerramento_sem_saldo
+                            where aluno_id = $1 order by escopo`, [c.aluno]);
+    expect(t.map((x) => x.escopo)).toEqual(["ALUNO", "CASO"]);
+    expect(t.find((x) => x.escopo === "ALUNO").classificacao).toBe("ALUNO_LEGADO_NAO_CONFERIDO");
+  });
+
+  it("sem o congelamento, o aluno com divida deixaria de ser encerrado", async () => {
+    const db = await abrir(DEPOIS); // migration aplicada com a base vazia: nada congelado
+    const c = await cenario(db, 41, { divida: 2500 });
+    expect(await predicadoAluno(db, c.aluno)).toBe(false);
+  });
+
+  it("aluno com saldo zero continua encerrado, e nao e congelado", async () => {
+    const db = await abrir(ANTES);
+    const c = await cenario(db, 42); // sem divida
+    await db.exec(MIGRATION);
+    expect(await predicadoAluno(db, c.aluno)).toBe(true);
+    expect(await q(db, `select 1 from public.caso_encerramento_sem_saldo where aluno_id = $1`, [c.aluno]))
+      .toHaveLength(0);
+  });
+
+  it("devolver o caso a cobranca tambem levanta o congelamento do aluno", async () => {
+    const db = await abrir(ANTES);
+    const c = await cenario(db, 43, { divida: 1000 });
+    await db.exec(MIGRATION);
+    expect(await predicadoAluno(db, c.aluno)).toBe(true);
+
+    await como(db, GESTAO);
+    const r = (await q1(db, `select public.caso_encerramento_resolver($1,'DEVOLVER_A_COBRANCA',$2) r`,
+      [c.caso, JUST])).r;
+    expect(r).toMatchObject({ ok: true, congelamento: "RETIRADO", congelamento_aluno_retirado: 1 });
+    expect(await predicadoAluno(db, c.aluno)).toBe(false);
+    expect(await predicado5(db, c)).toBe(false);
+  });
+});
+
+// ============================================================ aluno_id nulo
+describe("aluno indeterminado e situacao NAO COMPROVADA, nunca saldo zero", () => {
+  it("a canonica devolve 0.00 para aluno nulo -- e a conferencia nao cai nessa", async () => {
+    const db = await abrir(DEPOIS);
+    expect(await q1(db, `select (public.aluno_saldo_pendente_detalhe(null)->>'total') t`))
+      .toMatchObject({ t: "0.00" }); // o retorno que enganaria
+    expect((await q1(db, `select public._caso_sem_saldo_conferido(null, null) r`)).r).toBe(false);
+    expect((await q1(db, `select public._caso_sem_saldo_conferido(null, '') r`)).r).toBe(false);
+  });
+
+  it("CPF que nao resolve exatamente um aluno nao vira saldo zero", async () => {
+    const db = await abrir(DEPOIS);
+    // CPF que nao existe em alunos
+    expect((await q1(db, `select public._caso_sem_saldo_conferido(null, '99999999999') r`)).r).toBe(false);
+    // CPF duplicado em dois alunos: ambiguo -> nao comprovado
+    await db.query(`insert into public.alunos (id,nome,cpf,matricula,status_atual,status_jornada)
+                    values ($1,'G1','55555555555','MG1','Em cobrança','Em cobrança'),
+                           ($2,'G2','55555555555','MG2','Em cobrança','Em cobrança')`, [U(50), U(51)]);
+    expect((await q1(db, `select public._caso_sem_saldo_conferido(null, '55555555555') r`)).r).toBe(false);
+  });
+
+  it("CPF que resolve um aluno so usa a canonica dele", async () => {
+    const db = await abrir(DEPOIS);
+    const semDivida = await cenario(db, 52);
+    const comDivida = await cenario(db, 53, { divida: 700 });
+    expect((await q1(db, `select public._caso_sem_saldo_conferido(null, $1) r`, [semDivida.cpf])).r).toBe(true);
+    expect((await q1(db, `select public._caso_sem_saldo_conferido(null, $1) r`, [comDivida.cpf])).r).toBe(false);
   });
 });
 
