@@ -274,4 +274,61 @@ describe("integracao com a migration da regra", () => {
     expect((await q1(db, `select count(*)::int n from public.caso_encerramento_sem_saldo
                            where cpf_congelado = public._cpf11('45645645644')`)).n).toBe(0);
   });
+
+  it("ciclo completo: as duas aplicam em ordem e cada rollback devolve producao", async () => {
+    // A entrega sao DUAS migrations que entram em sequencia (195000 antes de
+    // 200000). Este teste percorre o caminho inteiro -- aplicar as duas,
+    // reverter as duas -- porque e o que acontece de verdade se a aplicacao
+    // precisar ser desfeita, e nenhum dos outros testes cobre a sequencia.
+    const PROD = {
+      caso_encerrado_operacional: "adc514c7a018018d866096d8e420d7b3",
+      casos_elegiveis_liberacao_fidelizacao: "fb72379bec0573059354843c3f82ddbd",
+      casos_reabrir_com_divida: "63deeb34b039b9260c0d224b73d9ec81",
+    };
+    const md5 = async (db, f) => (await q1(db,
+      `select md5(p.prosrc) m from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname=$1
+          and pg_get_function_identity_arguments(p.oid) not like '%p_caso_id%' limit 1`, [f]))?.m;
+
+    const db = abrir(); // ja tem a auditoria (195000) aplicada
+    // alvo real: o texto no caso E no aluno, com divida
+    const aluno = U(80), caso = U(100080), cpf = "78978978977";
+    await db.query(`insert into public.alunos (id,cpf,nome,status_atual,status_jornada,status_acionamento)
+                    values ($1,$2,'A80','SEM_SALDO_EM_ABERTO','SEM_SALDO_EM_ABERTO','SEM_SALDO_EM_ABERTO')`, [aluno, cpf]);
+    await db.query(`insert into public.casos (id,aluno_id,cpf,cpf_limpo,nome,status_atual,status_acionamento,
+                      status_jornada,encerrado_operacional)
+                    values ($1,$2,$3,$3,'A80','SEM_SALDO_EM_ABERTO','SEM_SALDO_EM_ABERTO','SEM_SALDO_EM_ABERTO',true)`,
+                   [caso, aluno, cpf]);
+    await db.query(`insert into public.acordos_titulos (aluno_id,cpf,documento,vencimento,valor_original,
+                      saldo_corrigido,situacao,status,tipo_boleto,created_at)
+                    values ($1,$2,'D80','2026-03-10',3000,3000,'ABERTO','em_aberto','Mensalidade','2026-01-10')`,
+                   [aluno, cpf]);
+    const auditoriaAntes = (await q1(db, `select count(*)::int n from public.casos_encerramento_auditoria`)).n;
+
+    await db.exec(REGRA);
+
+    // congela os DOIS escopos e nao gera ruido na auditoria
+    const cong = await q(db, `select escopo, classificacao from public.caso_encerramento_sem_saldo order by escopo`);
+    expect(cong.map((x) => x.escopo)).toEqual(["ALUNO", "CASO"]);
+    expect((await q1(db, `select count(*)::int n from public.casos_encerramento_auditoria`)).n).toBe(auditoriaAntes);
+    expect((await q1(db, `select public.caso_encerrado_operacional(c.cpf_limpo, c.status_atual,
+              c.status_acionamento, c.status_financeiro, c.status_jornada) r
+              from public.casos c where c.id=$1`, [caso])).r).toBe(true);
+
+    await db.exec(ler("supabase/rollbacks/20261026200000_encerramento_sem_saldo_validacao_financeira.rollback.sql"));
+
+    for (const [f, esperado] of Object.entries(PROD)) {
+      expect(await md5(db, f), f).toBe(esperado);
+    }
+    // a trilha de congelamento e os verbos: uma fica, os outros saem
+    expect((await q1(db, `select count(*)::int n from public.caso_encerramento_sem_saldo`)).n).toBe(2);
+    expect((await q1(db, `select count(*)::int n from pg_proc
+                           where proname like 'caso_encerramento_resolver%'`)).n).toBe(0);
+
+    await db.exec(RB_AUDITORIA);
+
+    expect((await q1(db, `select count(*)::int n from pg_trigger
+                           where tgname='trg_auditar_encerramento_operacional'`)).n).toBe(0);
+    expect((await q1(db, `select to_regclass('public.casos_encerramento_auditoria') r`)).r).not.toBeNull();
+  });
 });
