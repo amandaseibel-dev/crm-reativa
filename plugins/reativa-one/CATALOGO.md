@@ -76,8 +76,15 @@ Todos em **nunca usado** pela mesma causa única: plugin não habilitado.
 
 ## Camada 0 — não depende de plugin
 
-`.claude/settings.json`, versionado: **121 entradas de `deny`** e **79 de `ask`**,
-mais `maxEffortLevel: high` e `env.CLAUDE_CODE_SUBAGENT_MODEL: sonnet`.
+`.claude/settings.json`, versionado: **119 entradas de `deny`** e **76 de `ask`**
+(contadas em 2026-10-26 com `JSON.parse` no próprio arquivo), mais
+`maxEffortLevel: high` e `env.CLAUDE_CODE_SUBAGENT_MODEL: sonnet`.
+
+> O `CHANGELOG.md` 1.1.0 diz "121 entradas de `deny` e 79 de `ask`". O número
+> medido é 119 e 76. A divergência é **anterior** a esta frente: o diff que
+> acrescentou `extraKnownMarketplaces` e `enabledPlugins` tem 10 adições e
+> **0 remoções**, provado por `git diff --numstat`. Nenhuma regra foi removida;
+> o número do CHANGELOG é que está velho.
 
 Sobrevive a plugin desativado, hook com defeito, hook em timeout e sessão nova.
 **Nenhuma proibição absoluta mora só no hook.**
