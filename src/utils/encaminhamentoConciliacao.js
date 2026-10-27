@@ -24,6 +24,8 @@
 // traduz códigos que a prévia do banco devolveu. Texto montado na tela sobre
 // efeito financeiro é exatamente como se promete o que o banco não faz.
 
+import { mascararCpf } from "./mascararCpf";
+
 // A AÇÃO DESTA ETAPA. `passos` espelha o array que a prévia devolve: se o banco
 // ganhar um passo e este mapa não, o teste reprova.
 export const ACOES_ENCAMINHAMENTO = {
@@ -169,3 +171,172 @@ export const ENCAMINHAMENTO_AVISO =
   "Encerrar aqui é decisão de conferência: não dá baixa, não quita, não vincula aluno, não " +
   "reatribui caso e não altera valor. Toda confirmação fica registrada na auditoria com quem " +
   "decidiu e quando.";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RASTREABILIDADE DA PRÉVIA (27/10/2026)
+//
+// POR QUE EXISTE. Na primeira abertura real da prévia em produção, a gestão não
+// conseguia conferir três coisas antes de encerrar: QUEM é o aluno, QUAL é o
+// acordo, e COMO a parcela virou PAGO. O painel mostrava as 8 validações e o
+// resultado, e nada disso.
+//
+// Pior: o texto "por que caiu aqui" vem de `pagamentos.conciliacao_motivo` e diz
+// "nao ha registro de quem baixou". Isso descreve `origem_baixa_ref` estar nulo
+// -- mas o banco TEM registro: `parcelas.observacao` guarda "baixa automatica
+// pelo documento 50662470002 (extrato de 05/08/2026)". Lido sem contexto, o
+// motivo parecia afirmar ausência total de rastro.
+//
+// A REGRA QUE ORGANIZA ESTE BLOCO: o motivo é HISTÓRICO -- o que o motor
+// registrou no dia, e não se reescreve. O que o banco sabe hoje vai AO LADO,
+// rotulado como tal. E o que não existe aparece como pendência de conferência,
+// nunca preenchido por semelhança.
+
+export const NAO_INFORMADO = "não informado — conferir";
+// DOIS SILÊNCIOS DIFERENTES, e a tela não pode misturá-los. "O banco não tem o
+// dado" é conferência para a gestão; "a prévia não manda este campo" é versão
+// de software, e não adianta ninguém abrir a ficha por causa disso.
+export const NAO_DISPONIVEL = "não disponível nesta versão da prévia";
+
+// A chave existir e valer null é o banco dizendo "não tenho". A chave não
+// existir é a fachada ainda não mandar o campo.
+export function ausenciaOuValor(valor, chavePresente) {
+  if (!chavePresente) return NAO_DISPONIVEL;
+  return rotuloOuPendencia(valor);
+}
+export const DIVERGENTE = "divergente — conferir";
+
+// Valor ausente NUNCA vira texto bonito. Mesma decisão de `evidenciasDaLinha`:
+// "item sem resposta não vira linha; ausência de dado não é um fato".
+export function rotuloOuPendencia(valor, { divergente = false } = {}) {
+  if (divergente) return DIVERGENTE;
+  if (valor === null || valor === undefined) return NAO_INFORMADO;
+  const texto = String(valor).trim();
+  return texto === "" ? NAO_INFORMADO : texto;
+}
+
+// CPF: UMA régua só, a do projeto (`src/utils/mascararCpf.js`), que mostra
+// apenas os dois verificadores e aceita valor já mascarado. A versão anterior
+// desta entrega criava uma segunda máscara, com formato próprio e sem tolerar
+// entrada já mascarada -- no dia em que a fachada mascarasse na origem, a tela
+// passaria a dizer "CPF não informado" sobre um dado presente. O "—" daquela
+// função é ausência, e aqui vira pendência de conferência como qualquer outra.
+export const CPF_AUSENTE = "—";
+export function cpfDaPrevia(valor) {
+  const m = mascararCpf(valor);
+  return m === CPF_AUSENTE ? null : m;
+}
+
+// QUEM e QUAL ACORDO. O acordo já vinha na prévia e não era exibido; o aluno
+// depende do bloco `aluno` que a fachada passa a montar. Enquanto ele não vier,
+// a tela diz pendência -- nunca deduz o aluno pelo nome do arquivo.
+export function identificacaoDaPrevia(previa) {
+  const a = previa?.aluno || null;
+  const ac = previa?.acordo || null;
+  // A prévia manda o bloco `aluno`? Sem a chave, é a fachada que ainda não o
+  // alimenta -- e a tela diz isso, em vez de mandar a gestão conferir uma
+  // ausência que não é dela.
+  const temChaveAluno = Boolean(previa) && "aluno" in previa;
+  return {
+    aluno: {
+      nome: ausenciaOuValor(a?.nome, temChaveAluno),
+      cpf: ausenciaOuValor(cpfDaPrevia(a?.cpf), temChaveAluno),
+      alimentado: temChaveAluno,
+      id: a?.id || null,
+      temVinculo: Boolean(a?.id),
+    },
+    acordo: {
+      numero: rotuloOuPendencia(ac?.numero_ulbra),
+      status: rotuloOuPendencia(ac?.status),
+      parcelas: ac?.qtd_parcelas ?? null,
+      id: ac?.id || null,
+    },
+  };
+}
+
+// COMO A PARCELA VIROU PAGO. Tudo medido, nada concluído.
+//
+// O QUE ESTE BLOCO NÃO FAZ MAIS, e por quê (reprovação do Guardião, 27/10/2026).
+// A versão anterior comparava o documento citado na observação com o boleto
+// desta parcela e, quando diferiam, afirmava na tela "de OUTRA parcela deste
+// acordo". Isso era inferência, e usava justamente a convenção que o projeto já
+// derrubou: os 4 dígitos finais do boleto são SEQUÊNCIA DE EMISSÃO da ULBRA, não
+// o número da parcela -- medido em 23/10/2026, nenhuma convenção fixa explica
+// mais de 56,3% das 14.488 parcelas. Documento diferente é compatível com a
+// MESMA parcela reemitida (`docs/TRIAGEM-FILA-PAGAMENTO-2026-10-22.md`, seção
+// dos três casos de divergência de vencimento).
+//
+// Além disso, julgar a origem da baixa aqui violava a Premissa 12 -- "a regra
+// mora no banco, não na tela" (`docs/PREMISSAS.md` §12). Quem pode comparar o
+// segmento do acordo e o histórico de emissão é a prévia, no banco.
+//
+// O que sobrou é leitura: a observação sai integral, o documento aparece como
+// citado, e a diferença entre dois números é apresentada como FATO que pede
+// conferência -- nunca como conclusão sobre qual parcela pagou o quê.
+export function historicoDaBaixa(previa) {
+  const p = previa?.parcela || null;
+  const temChaveObs = Boolean(previa) && "parcela_observacao" in previa;
+  const obs = previa?.parcela_observacao ?? null;
+  // "documento 123", "documento nº 123", "documento no 123" -- a observação é
+  // texto livre do motor e não tem forma garantida.
+  // QUANDO O BANCO MANDAR, O BANCO MANDA. `documento_citado` e
+  // `documento_difere_do_boleto` são a saída desta dívida (Premissa 12): no dia
+  // em que a fachada os trouxer, o parse abaixo deixa de ser consultado e sai.
+  const doDoBanco = previa && "documento_citado" in previa;
+  const doc = doDoBanco ? previa.documento_citado || null : typeof obs === "string"
+    ? (obs.match(/documento\s+(?:n[º°o]\.?\s*)?(\d+)/i) || [])[1] || null
+    : null;
+  // O "boleto apresentado" é SEMPRE o da parcela. Cair no boleto do pagamento
+  // poria dois referentes diferentes sob o mesmo rótulo na tela.
+  const boleto = p?.boleto || null;
+  return {
+    pagoEm: rotuloOuPendencia(p?.pago_em ? String(p.pago_em).slice(0, 10) : null),
+    responsavel: rotuloOuPendencia(p?.confirmado_por_email),
+    // O número como ele aparece no texto. Nenhuma afirmação sobre o que ele é.
+    documento: !doDoBanco && temChaveObs && obs && !doc
+      ? DOCUMENTO_NAO_IDENTIFICADO
+      : ausenciaOuValor(doc, temChaveObs || doDoBanco),
+    // FATO, não veredito: os dois números diferem. `null` quando falta um dos
+    // lados -- a tela não compara o que não tem.
+    // Só dígitos, sem zeros à esquerda: "050662470003" e "50662470003" são o
+    // mesmo boleto escrito de dois jeitos, e isso não é divergência.
+    documentoDifereDoBoleto: doDoBanco
+      ? previa.documento_difere_do_boleto ?? null
+      : doc && boleto
+        ? digitos(doc) !== digitos(boleto)
+        : null,
+    observacao: ausenciaOuValor(obs, temChaveObs),
+    temObservacao: Boolean(obs),
+    origemBaixaRef: rotuloOuPendencia(p?.origem_baixa_ref),
+    parcelaNumero: p?.numero ?? null,
+    parcelaValor: p?.valor ?? null,
+  };
+}
+
+// O TEXTO DO CAMPO DO DOCUMENTO. Descritivo, fechado, e sem conclusão: diz o
+// que se viu (um número citado, que difere do boleto) e pede conferência.
+export const DOCUMENTO_DIFERE =
+  "Documento citado na observação — difere do boleto apresentado; conferir";
+export const DOCUMENTO_CITADO = "Documento citado na observação";
+
+// A observação existe e nenhum número reconhecível saiu dela. É diferente de
+// "não informado": o texto está logo abaixo, integral, para quem lê decidir.
+export const DOCUMENTO_NAO_IDENTIFICADO = "não identificado no texto";
+
+const digitos = (v) => String(v ?? "").replace(/\D/g, "").replace(/^0+/, "");
+
+export function rotuloDocumentoDaBaixa(historico) {
+  if (!historico || historico.documentoDifereDoBoleto !== true) return DOCUMENTO_CITADO;
+  return DOCUMENTO_DIFERE;
+}
+
+// O LIMITE DO ENCERRAMENTO, dito na tela. Encerrar fecha a pendência e não liga
+// este pagamento à parcela que ele pagou: `origem_baixa_ref` fica como está.
+// Gravar esse elo é escrita em `parcelas` -- efeito financeiro, fora desta etapa.
+export const AVISO_ORIGEM_BAIXA_REF =
+  "Encerrar não preenche origem_baixa_ref: o vínculo entre este pagamento e a parcela " +
+  "continua como está. Fechar a pendência não registra quem pagou a parcela.";
+
+// O motivo é histórico e tem dono: foi o motor que o escreveu, no dia. O rótulo
+// existe para ninguém ler aquele texto como veredito sobre o que há no banco hoje.
+export const ROTULO_MOTIVO_HISTORICO = "o que o motor registrou na importação";
+export const ROTULO_EVIDENCIA_ATUAL = "o que o banco guarda hoje sobre esta parcela";
