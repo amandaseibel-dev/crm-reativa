@@ -446,3 +446,40 @@ Guardião.
 mesma lição da rodada anterior, uma camada acima.
 
 Cobertura: casos F78–F84. Total: 159 casos, 159 como esperado.
+
+### Oitava rodada: aprovado com ressalva, e a ressalva fechada
+
+O parecer aprovou o conjunto e apontou **uma** normalização restante: **espaço e tabulação
+nas pontas do caminho**. As duas regras do arquivo de permissões são os únicos padrões de
+**correspondência exata** do hook — todos os outros terminam em `*`, que absorve o espaço.
+Então `settings.json` com um espaço no fim, ou no início, escapava das duas, justamente
+nas regras que sustentam a não-autoconcessão.
+
+Se a gravação atingiria o arquivo real depende de a ferramenta de escrita aparar o
+argumento, o que **não foi comprovado** — e um freio não terceiriza essa premissa.
+Fechado com aparo nas pontas dentro de `normalizar_caminho`, antes de qualquer `case`, e
+casos F85–F88.
+
+Total: 163 casos, 163 como esperado.
+
+## 10. Limites declarados da Fase 2 de Banco
+
+O que **não** está coberto, registrado aqui para não ser descoberto como surpresa:
+
+1. **Hardlink pré-existente** para arquivo protegido é indistinguível do arquivo pelo
+   caminho. Criar um por shell é barrado; um que já exista, não.
+2. **`Write`/`Edit` no próprio arquivo do Guardião** não é barrado por regra de caminho. A
+   garantia é a revisão do diff pela gestão — foi assim que esta série entrou.
+3. **O `R5` é quebra-molas sobre o texto do comando**, não cancela: escapam dele caminho
+   montado em variável, literal partido entre comandos, escritores fora da lista de tokens
+   (`python`, `dd`). O portão que decide é o de `Write`/`Edit`, que resolve caminho real.
+4. **Caminho relativo na segunda passagem** é resolvido contra o diretório do **processo**
+   do hook. Se ele divergir do `cwd` do payload, um `..` relativo escapa — medido, com
+   alcançabilidade não comprovada.
+5. **O `case` do payload indeterminado** é sensível a caixa, e só importa se faltar `jq`.
+6. **Over-block de leitura:** comando de leitura que cite um caminho protegido e traga um
+   token de escrita como palavra isolada (`grep -rn CP <pasta protegida>`) passa a ser
+   barrado. Direção segura; o desvio é usar as ferramentas de leitura em vez do shell.
+
+Nenhum destes seis é regressão: todos ou já existiam, ou são o preço declarado de uma
+proteção nova.

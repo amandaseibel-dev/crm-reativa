@@ -347,6 +347,17 @@ normalizar_caminho() {
   #      produzindo `.claude"/"settings.json`.
   # Sem aspas funciona nas duas versões, e `//` e `/./` não têm glob.
   local s="$1" dois="//" ponto="/./" um="/"
+
+  # APARA ESPAÇO E TABULAÇÃO NAS PONTAS. `P2/permissoes` e
+  # `P2/permissoes-versionadas` são os dois ÚNICOS padrões de correspondência
+  # exata do hook -- todos os outros terminam em `*`, que come o espaço. Medido:
+  # `.claude/settings.json ` com espaço no fim, e com espaço no início, escapavam
+  # dos dois. Nas regras que sustentam a não-autoconcessão. Achado da oitava
+  # auditoria; se a gravação atinge o arquivo real depende de a ferramenta de
+  # escrita aparar o argumento, o que NÃO foi comprovado -- e o freio não
+  # terceiriza essa premissa.
+  while :; do case "$s" in [[:space:]]*) s="${s#?}" ;; *) break ;; esac; done
+  while :; do case "$s" in *[[:space:]]) s="${s%?}" ;; *) break ;; esac; done
   while [ "$s" != "${s//$dois/$um}" ]; do s="${s//$dois/$um}"; done
   while [ "$s" != "${s//$ponto/$um}" ]; do s="${s//$ponto/$um}"; done
   s="${s%/.}"   # final "/."

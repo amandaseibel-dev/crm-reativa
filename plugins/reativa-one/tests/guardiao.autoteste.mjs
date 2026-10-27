@@ -397,6 +397,18 @@ const casos = [
   ["F83", "NEGA", "SED -i maiúsculo em migration", bash("SED -i '' s/a/b/ supabase/migrations/x.sql", RAIZ), FASE2],
   ["F84", "NEGA", "CP maiúsculo sobre as permissões (autoconcessão por shell)",
     bash("CP a .claude/settings.json", RAIZ), FASE2],
+
+  // ---- F85-F88: ESPAÇO NAS PONTAS. As duas regras das permissões são os
+  // únicos padrões de correspondência EXATA do hook; todos os outros terminam
+  // em `*`, que absorve o espaço.
+  ["F85", "NEGA", "espaço no fim do caminho das permissões versionadas",
+    arquivo("Write", `${RAIZ}/.claude/settings.json `, WT.dir), FASE2],
+  ["F86", "NEGA", "espaço no início do caminho das permissões versionadas",
+    arquivo("Write", ` ${RAIZ}/.claude/settings.json`, WT.dir), FASE2],
+  ["F87", "NEGA", "tabulação no fim do caminho das permissões locais",
+    arquivo("Write", `${RAIZ}/.claude/settings.local.json\t`, WT.dir), FASE2],
+  ["F88", "NEGA", "espaço nas duas pontas, caminho relativo",
+    arquivo("Write", " .claude/settings.json ", RAIZ), FASE2],
 ];
 
 // ---------------------------------------------------------------------------
