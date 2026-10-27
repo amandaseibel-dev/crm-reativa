@@ -17,9 +17,26 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readdirSync, statSync } from "node:fs";
 
-vi.mock("../services/supabase", () => ({ supabase: { from: () => ({}) } }));
+// Dublê do banco só para `lerRetornoAtual`: um objeto com a cadeia
+// select/eq/maybeSingle. `respostaDoBanco` é trocada por teste.
+let respostaDoBanco = { data: null, error: null };
+vi.mock("../services/supabase", () => ({
+  supabase: {
+    from: () => ({
+      select: () => ({ eq: () => ({ maybeSingle: async () => respostaDoBanco }) }),
+    }),
+  },
+}));
 
-import { camposDeRetorno, RETORNO_ORIGEM_OPERADOR, RETORNO_ORIGEM_AUTOMATICO } from "./tabulacoes";
+import {
+  camposDeRetorno,
+  camposDeRetornoAutomatico,
+  compromissoFuturoDoOperador,
+  lerRetornoAtual,
+  CAMPOS_RETORNO_LIMPO,
+  RETORNO_ORIGEM_OPERADOR,
+  RETORNO_ORIGEM_AUTOMATICO,
+} from "./tabulacoes";
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const SRC = resolve(AQUI, "..");
@@ -90,23 +107,36 @@ describe("camposDeRetorno -- a regra do carimbo", () => {
   });
 });
 
-describe("os pontos que gravam prazo do sistema carimbam AUTOMATICO", () => {
-  it("lote de e-mail: o prazo da arte entra como AUTOMATICO", () => {
-    const fonte = codigo("pages/EnvioGmailLote.jsx");
-    expect(fonte).toContain("camposDeRetorno(RETORNO_ORIGEM_AUTOMATICO, proximoDiaUtil(tpl?.dias_retorno || 10))");
-    expect(fonte).not.toContain("data_retorno: proximoDiaUtil(");
-  });
+describe("os pontos de prazo do sistema leem a ficha antes de gravar", () => {
+  // Etapa 2 (27/10/2026): os três passam por `camposDeRetornoAutomatico`, que
+  // LÊ `data_retorno`/`retorno_origem` e devolve `{}` quando há compromisso
+  // OPERADOR futuro. Chamar `camposDeRetorno(RETORNO_ORIGEM_AUTOMATICO, ...)`
+  // direto voltaria a sobrescrever o combinado -- por isso a ausência também
+  // é cobrada.
+  const PONTOS_AUTOMATICOS = [
+    { arquivo: "pages/EnvioGmailLote.jsx", chamada: "camposDeRetornoAutomatico(a.id, proximoDiaUtil(tpl?.dias_retorno || 10))", antigo: "data_retorno: proximoDiaUtil(" },
+    { arquivo: "pages/FilaFinanceiro.jsx", chamada: "camposDeRetornoAutomatico(alunoId, daquiA7Dias.toISOString())", antigo: "data_retorno: daquiA7Dias" },
+    { arquivo: "pages/PainelAdm.jsx", chamada: "camposDeRetornoAutomatico(alunoId, daquiA7Dias.toISOString())", antigo: "data_retorno: daquiA7Dias" },
+  ];
 
-  it("fila do financeiro: os +7 dias entram como AUTOMATICO", () => {
-    const fonte = codigo("pages/FilaFinanceiro.jsx");
-    expect(fonte).toContain("camposDeRetorno(RETORNO_ORIGEM_AUTOMATICO, daquiA7Dias.toISOString())");
-    expect(fonte).not.toContain("data_retorno: daquiA7Dias");
-  });
+  for (const ponto of PONTOS_AUTOMATICOS) {
+    it(`${ponto.arquivo}: lê a ficha e deixa o helper decidir`, () => {
+      const fonte = codigo(ponto.arquivo);
+      expect(fonte).toContain(`await ${ponto.chamada}`);
+      expect(fonte).not.toContain(ponto.antigo);
+      expect(fonte).not.toContain("camposDeRetorno(RETORNO_ORIGEM_AUTOMATICO");
+    });
+  }
 
-  it("painel do ADM: os +7 dias entram como AUTOMATICO", () => {
-    const fonte = codigo("pages/PainelAdm.jsx");
-    expect(fonte).toContain("camposDeRetorno(RETORNO_ORIGEM_AUTOMATICO, daquiA7Dias.toISOString())");
-    expect(fonte).not.toContain("data_retorno: daquiA7Dias");
+  it("o status do encaminhamento continua sendo gravado, mesmo sem tocar no retorno", () => {
+    for (const arquivo of ["pages/FilaFinanceiro.jsx", "pages/PainelAdm.jsx"]) {
+      const fonte = codigo(arquivo);
+      expect(fonte, arquivo).toContain("...camposRetorno,");
+      expect(fonte, arquivo).toContain('status_jornada: "Enviado ao financeiro"');
+    }
+    const lote = codigo("pages/EnvioGmailLote.jsx");
+    expect(lote).toContain("...camposRetorno,");
+    expect(lote).toContain('status_jornada: "RETORNAR_DEPOIS"');
   });
 });
 
@@ -131,6 +161,192 @@ describe("os pontos em que o humano digita a data carimbam OPERADOR", () => {
   });
 });
 
+// PRESERVAÇÃO DO COMBINADO (Etapa 2). Datas construídas em horário LOCAL de
+// propósito: `new Date("2026-10-28")` seria lida como UTC e viraria 27/10 à
+// noite no Brasil, o que faria o teste mudar de resultado conforme a hora.
+const HOJE = new Date(2026, 9, 27, 10, 0); // terça, 27/10/2026, 10h local
+const AMANHA = "2026-10-28";
+const ONTEM = "2026-10-26";
+const DAQUI_7 = "2026-11-03T12:00:00.000Z";
+
+describe("prazo automático não passa por cima de compromisso do operador", () => {
+  it("compromisso OPERADOR futuro: não grava NADA de retorno", () => {
+    expect(
+      camposDeRetorno(RETORNO_ORIGEM_AUTOMATICO, DAQUI_7, {
+        retornoAtual: { data: AMANHA, origem: "OPERADOR" },
+        hoje: HOJE,
+      })
+    ).toEqual({});
+  });
+
+  it("preserva data, hora e prioridade por NÃO escrever nenhuma das três", () => {
+    const campos = camposDeRetorno(RETORNO_ORIGEM_AUTOMATICO, DAQUI_7, {
+      retornoAtual: { data: AMANHA, origem: "OPERADOR" },
+      hoje: HOJE,
+    });
+    expect(campos).not.toHaveProperty("data_retorno");
+    expect(campos).not.toHaveProperty("hora_retorno");
+    expect(campos).not.toHaveProperty("retorno_prioritario");
+    expect(campos).not.toHaveProperty("retorno_origem");
+  });
+
+  it("OPERADOR_EM_CONFIRMACAO também é compromisso do operador", () => {
+    expect(
+      camposDeRetorno(RETORNO_ORIGEM_AUTOMATICO, DAQUI_7, {
+        retornoAtual: { data: AMANHA, origem: "OPERADOR_EM_CONFIRMACAO" },
+        hoje: HOJE,
+      })
+    ).toEqual({});
+  });
+
+  it("compromisso VENCIDO não protege: o prazo automático entra e limpa hora e prioridade", () => {
+    expect(
+      camposDeRetorno(RETORNO_ORIGEM_AUTOMATICO, DAQUI_7, {
+        retornoAtual: { data: ONTEM, origem: "OPERADOR" },
+        hoje: HOJE,
+      })
+    ).toEqual({
+      data_retorno: DAQUI_7,
+      retorno_origem: "AUTOMATICO",
+      hora_retorno: null,
+      retorno_prioritario: false,
+    });
+  });
+
+  it("compromisso de HOJE não é futuro -- o dia corrente já é do motor da fila", () => {
+    const campos = camposDeRetorno(RETORNO_ORIGEM_AUTOMATICO, DAQUI_7, {
+      retornoAtual: { data: "2026-10-27", origem: "OPERADOR" },
+      hoje: HOJE,
+    });
+    expect(campos.retorno_origem).toBe("AUTOMATICO");
+  });
+
+  it("retorno AUTOMATICO futuro não protege nada: só o combinado protege", () => {
+    const campos = camposDeRetorno(RETORNO_ORIGEM_AUTOMATICO, DAQUI_7, {
+      retornoAtual: { data: AMANHA, origem: "AUTOMATICO" },
+      hoje: HOJE,
+    });
+    expect(campos.data_retorno).toBe(DAQUI_7);
+  });
+
+  it("sem retornoAtual o comportamento é o de antes -- e é por isso que a leitura é cobrada nos pontos", () => {
+    expect(camposDeRetorno(RETORNO_ORIGEM_AUTOMATICO, DAQUI_7).retorno_origem).toBe("AUTOMATICO");
+  });
+
+  it("data digitada pelo operador SUBSTITUI o combinado anterior: é o novo combinado", () => {
+    const campos = camposDeRetorno(RETORNO_ORIGEM_OPERADOR, "2026-12-01", {
+      retornoAtual: { data: AMANHA, origem: "OPERADOR" },
+      hoje: HOJE,
+    });
+    expect(campos).toEqual({ data_retorno: "2026-12-01", retorno_origem: "OPERADOR" });
+  });
+
+  it("o predicado é um só, e é o mesmo do caso MANTIDA da tabulação", () => {
+    expect(compromissoFuturoDoOperador({ data: AMANHA, origem: "OPERADOR" }, HOJE)).toEqual({ data: AMANHA, origem: "OPERADOR" });
+    expect(compromissoFuturoDoOperador({ data: ONTEM, origem: "OPERADOR" }, HOJE)).toBeNull();
+    expect(compromissoFuturoDoOperador({ data: AMANHA, origem: "AUTOMATICO" }, HOJE)).toBeNull();
+    expect(compromissoFuturoDoOperador(null, HOJE)).toBeNull();
+  });
+});
+
+describe("leitura da ficha: falha FECHA, não abre", () => {
+  it("lê data e origem da ficha", async () => {
+    respostaDoBanco = { data: { data_retorno: AMANHA, retorno_origem: "OPERADOR" }, error: null };
+    await expect(lerRetornoAtual("aluno-1")).resolves.toEqual({ ok: true, retorno: { data: AMANHA, origem: "OPERADOR" } });
+  });
+
+  it("ficha sem retorno é leitura BEM-SUCEDIDA com retorno nulo", async () => {
+    respostaDoBanco = { data: { data_retorno: null, retorno_origem: null }, error: null };
+    const r = await lerRetornoAtual("aluno-1");
+    expect(r.ok).toBe(true);
+    expect(r.retorno).toEqual({ data: null, origem: null });
+  });
+
+  it("erro de leitura: ok=false, e o prazo automático NÃO toca no retorno", async () => {
+    respostaDoBanco = { data: null, error: { message: "timeout" } };
+    expect((await lerRetornoAtual("aluno-1")).ok).toBe(false);
+    await expect(camposDeRetornoAutomatico("aluno-1", DAQUI_7, { hoje: HOJE })).resolves.toEqual({});
+  });
+
+  it("sem id não consulta e não grava retorno", async () => {
+    expect(await lerRetornoAtual(null)).toEqual({ ok: false, retorno: null });
+    await expect(camposDeRetornoAutomatico(null, DAQUI_7, { hoje: HOJE })).resolves.toEqual({});
+  });
+
+  it("com compromisso futuro na ficha, o ponto automático recebe {}", async () => {
+    respostaDoBanco = { data: { data_retorno: AMANHA, retorno_origem: "OPERADOR" }, error: null };
+    await expect(camposDeRetornoAutomatico("aluno-1", DAQUI_7, { hoje: HOJE })).resolves.toEqual({});
+  });
+
+  it("sem compromisso na ficha, o prazo automático entra carimbado", async () => {
+    respostaDoBanco = { data: { data_retorno: null, retorno_origem: null }, error: null };
+    await expect(camposDeRetornoAutomatico("aluno-1", DAQUI_7, { hoje: HOJE })).resolves.toEqual({
+      data_retorno: DAQUI_7,
+      retorno_origem: "AUTOMATICO",
+      hora_retorno: null,
+      retorno_prioritario: false,
+    });
+  });
+});
+
+// SINCRONIZAÇÃO: `alunos` é a fonte, `alunos_unificados` é espelho. O gatilho
+// `trg_sincronizar_alunos_unificados`, em `public.alunos`, copia data, hora e
+// origem para o espelho pela `chave_unificacao` (medido em produção em
+// 27/10/2026: 12.397 de 12.397 linhas com retorno têm origem). Gravar retorno
+// no espelho põe o dado no lugar errado, sem carimbo, e a próxima mudança da
+// ficha desfaz. Nenhuma tela pode voltar a fazer isso.
+const CAMPOS_DE_RETORNO = ["data_retorno", "hora_retorno", "retorno_origem", "retorno_prioritario"];
+
+function updatesNoEspelho(fonte) {
+  const blocos = [];
+  let i = fonte.indexOf('from("alunos_unificados")');
+  while (i !== -1) {
+    const fim = fonte.indexOf(".eq(", i);
+    blocos.push(fonte.slice(i, fim === -1 ? i + 1200 : fim));
+    i = fonte.indexOf('from("alunos_unificados")', i + 1);
+  }
+  return blocos;
+}
+
+describe("sincronização: ninguém grava retorno no espelho", () => {
+  it("nenhum update em alunos_unificados carrega campo de retorno", () => {
+    const culpados = [];
+    for (const p of fontesDoSrc()) {
+      const fonte = semComentario(readFileSync(p, "utf8"));
+      for (const bloco of updatesNoEspelho(fonte)) {
+        if (!bloco.includes(".update(")) continue;
+        for (const campo of CAMPOS_DE_RETORNO) {
+          if (bloco.includes(`${campo}:`)) culpados.push(`${p.slice(SRC.length + 1)} :: ${campo}`);
+        }
+      }
+    }
+    expect(culpados.sort()).toEqual([]);
+  });
+
+  it("a ficha unificada grava o retorno em alunos, pela chave de unificação", () => {
+    const fonte = codigo("components/AgendaAlunoUnificado.jsx");
+    expect(fonte).toContain('.from("alunos")');
+    expect(fonte).toContain("camposDeRetorno(RETORNO_ORIGEM_OPERADOR, form.data_retorno");
+    expect(fonte).toContain('.eq("chave_unificacao", aluno.chave_unificacao)');
+    // Sem data o retorno é apagado com carimbo, não deixado pela metade.
+    expect(fonte).toContain("CAMPOS_RETORNO_LIMPO");
+  });
+
+  it("apagar o retorno derruba também hora, prioridade e origem", () => {
+    expect(CAMPOS_RETORNO_LIMPO).toEqual({
+      data_retorno: null,
+      retorno_origem: null,
+      hora_retorno: null,
+      retorno_prioritario: false,
+    });
+  });
+
+  it("a fila operacional não tem mais o update de retorno no espelho", () => {
+    const fonte = codigo("pages/FilaOperacional.jsx");
+    expect(fonte).not.toContain('from("alunos_unificados")');
+  });
+});
+
 // CATRACA, POR PONTO DE GRAVAÇÃO -- não por arquivo.
 //
 // A primeira versão deste bloco pulava o ARQUIVO inteiro quando ele importava
@@ -152,14 +368,6 @@ describe("os pontos em que o humano digita a data carimbam OPERADOR", () => {
 // contém `data_retorno: dataRetorno || null,`, e com substring uma entrada
 // passava a contar a ocorrência da outra.
 const PONTOS_DECLARADOS = [
-  // --- BLOQUEIO (27/10/2026): `alunos_unificados.retorno_origem` não tem
-  // migration no repositório -- a única `add column ... retorno_origem` é
-  // `20260822120000_acordo_em_dia_lembrete_d2_honra_acionamento.sql:28`, e é de
-  // `public.alunos`. Carimbar às cegas arrisca 42703 na gravação. Os dois
-  // pontos ficam de fora até a coluna ser versionada.
-  { arquivo: "components/AgendaAlunoUnificado.jsx", trecho: "data_retorno: form.data_retorno || null,", vezes: 1, motivo: "BLOQUEIO: coluna retorno_origem de alunos_unificados não versionada" },
-  { arquivo: "pages/FilaOperacional.jsx", trecho: "data_retorno: paraDataLocalBR(retorno),", vezes: 1, motivo: "BLOQUEIO: mesma coluna não versionada (sincronismo com a ficha unificada)" },
-
   // --- Carimbo feito no BANCO, não na tela: a RPC `sistema_assumir_receptivo`
   // grava `retorno_origem = OPERADOR` desde `20260910190000`.
   { arquivo: "pages/BaseReceptiva.jsx", trecho: "p_data_retorno: dataRetorno || null,", vezes: 1, motivo: "a RPC do receptivo carimba OPERADOR no banco" },
@@ -243,7 +451,7 @@ describe("catraca: nenhum ponto novo grava data_retorno sem carimbar a origem", 
     }
   });
 
-  it("os cinco pontos corrigidos saíram da lista: passam pela regra, não por exceção", () => {
+  it("os pontos corrigidos saíram da lista: passam pela regra, não por exceção", () => {
     const porExcecao = new Set(PONTOS_DECLARADOS.map((d) => d.arquivo));
     const achados = pontosEncontrados();
     for (const arquivo of ["pages/EnvioGmailLote.jsx", "pages/FilaFinanceiro.jsx", "pages/PainelAdm.jsx"]) {

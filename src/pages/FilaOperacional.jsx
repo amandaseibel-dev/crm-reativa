@@ -770,41 +770,14 @@ export default function FilaOperador() {
       throw updateError;
     }
 
-    // Sincroniza o retorno com a Agenda Operacional (tabela alunos_unificados),
-    // que é uma base separada da fila. Isso é best-effort: se não achar o CPF
-    // por lá (ex.: aluno cadastrado manualmente e ainda não importado na base
-    // financeira), simplesmente não aparece na agenda, sem travar a fila.
-    if (retorno && statusNovo) {
-      try {
-        const cpfAluno = alunoSelecionado?.cpf || null;
-
-        if (cpfAluno) {
-          const dataRetornoObj = new Date(retorno);
-          const horaRetorno = Number.isNaN(dataRetornoObj.getTime())
-            ? null
-            : dataRetornoObj.toLocaleTimeString("pt-BR", {
-                hour: "2-digit",
-                minute: "2-digit",
-              });
-
-          // BLOQUEIO (27/10/2026): aqui NÃO entra `retorno_origem`. A coluna
-          // não tem migration no repositório para `alunos_unificados` -- a
-          // única `add column ... retorno_origem` é a 20260822120000, de
-          // `public.alunos`. Carimbar às cegas arrisca 42703 na gravação.
-          // Declarado em src/utils/carimboRetorno.test.js (PONTOS_DECLARADOS).
-          await supabase
-            .from("alunos_unificados")
-            .update({
-              data_retorno: paraDataLocalBR(retorno),
-              hora_retorno: horaRetorno,
-              status_jornada: statusNovo,
-            })
-            .eq("cpf_referencia", cpfAluno);
-        }
-      } catch (syncError) {
-        console.warn("Não foi possível sincronizar retorno com a Agenda:", syncError);
-      }
-    }
+    // O RETORNO NÃO SE GRAVA NO ESPELHO (27/10/2026). Havia aqui um update
+    // direto em `alunos_unificados` por `cpf_referencia` para alimentar a
+    // Agenda Operacional. Era redundante e errado: o gatilho
+    // `trg_sincronizar_alunos_unificados`, em `public.alunos`, já copia
+    // `data_retorno`, `hora_retorno` e `retorno_origem` para o espelho pela
+    // `chave_unificacao` -- e a ficha acabou de ser gravada logo acima. Pior,
+    // a hora que este bloco mandava vinha de `new Date(retorno)` sobre uma
+    // data sem hora, ou seja, era o fuso, não um horário combinado.
   }
 
   async function assumirAtendimento() {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import { nomeOperadorPorEmail } from "../utils/operadores";
+import { camposDeRetorno, CAMPOS_RETORNO_LIMPO, RETORNO_ORIGEM_OPERADOR } from "../utils/tabulacoes";
 
 const STATUS = {
   EM_COBRANCA: "Em cobrança",
@@ -90,10 +91,33 @@ export default function AgendaAlunoUnificado({ aluno, onAtualizar }) {
     const operadorEmailFinal = form.operador_email || email;
     const operadorNomeFinal = form.operador_nome || nome;
 
-    // BLOQUEIO (27/10/2026): esta gravação NÃO carimba `retorno_origem` --
-    // a coluna não tem migration no repositório para `alunos_unificados`
-    // (a 20260822120000 é de `public.alunos`), e carimbar às cegas arrisca
-    // 42703. Declarado em src/utils/carimboRetorno.test.js (PONTOS_DECLARADOS).
+    // O RETORNO NÃO SE GRAVA NO ESPELHO (27/10/2026). `alunos_unificados` é
+    // espelho: o gatilho `trg_sincronizar_alunos_unificados`, em
+    // `public.alunos`, copia `data_retorno`, `hora_retorno` e `retorno_origem`
+    // para cá casando por `chave_unificacao` (medido em produção: 12.397 de
+    // 12.397 linhas com retorno têm origem, nenhuma sem). Gravar aqui punha a
+    // data no lugar errado -- sem carimbo de origem e desfeita na próxima
+    // mudança da ficha. Então o retorno vai para `alunos`, pela mesma chave, e
+    // volta pelo gatilho; o resto (prioridade operacional, observação,
+    // operador) é do cadastro unificado e continua aqui.
+    // ATENÇÃO: 176 chaves de unificação têm DUAS fichas em `alunos` (medido em
+    // 27/10/2026, máximo 2). O update por chave atinge as duas de propósito --
+    // é a agenda da PESSOA, não de uma ficha.
+    const camposRetorno = form.data_retorno
+      ? camposDeRetorno(RETORNO_ORIGEM_OPERADOR, form.data_retorno, { hora: form.hora_retorno || null })
+      : CAMPOS_RETORNO_LIMPO;
+
+    const { error: erroRetorno } = await supabase
+      .from("alunos")
+      .update(camposRetorno)
+      .eq("chave_unificacao", aluno.chave_unificacao);
+
+    if (erroRetorno) {
+      setSalvando(false);
+      alert("Erro ao salvar o retorno na ficha do aluno: " + erroRetorno.message);
+      return;
+    }
+
     const { error } = await supabase
       .from("alunos_unificados")
       .update({
@@ -101,8 +125,6 @@ export default function AgendaAlunoUnificado({ aluno, onAtualizar }) {
         operador_email: operadorEmailFinal,
         status_jornada: form.status_jornada || "EM_COBRANCA",
         prioridade_operacional: form.prioridade_operacional || "NORMAL",
-        data_retorno: form.data_retorno || null,
-        hora_retorno: form.hora_retorno || null,
         observacao_operacional: form.observacao_operacional || null,
         ultima_interacao_em: new Date().toISOString(),
         atualizado_em: new Date().toISOString(),

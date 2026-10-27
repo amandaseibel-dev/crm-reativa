@@ -186,17 +186,29 @@ export function descreverPrazo(catalogo, codigo) {
 //   3. senão, a tabulação agenda pelo catálogo, origem AUTOMATICO;
 //   4. tabulação sem prazo -> não mexe em data_retorno (o motor da fila cuida).
 // Devolve `motivo` para a tela explicar o que fez.
+// COMPROMISSO FUTURO DO OPERADOR -- o predicado que diz "aqui tem combinado
+// com o aluno, e ainda não chegou a hora". Uma função só, usada pelo
+// `desfechoDaTabulacao` (caso MANTIDA) e pelo `camposDeRetorno` (prazo
+// automático que não pode passar por cima do combinado). `hoje` é a data
+// LOCAL: comparar com `current_date` em UTC vira retorno vencido às 21h.
+export function compromissoFuturoDoOperador(retornoAtual, hoje = new Date()) {
+  const hojeISO = formatarDataISOLocal(new Date(hoje));
+  const atualData = String(retornoAtual?.data || "").slice(0, 10);
+  const atualOrigem = String(retornoAtual?.origem || "");
+  if (!atualData || !atualOrigem.startsWith("OPERADOR")) return null;
+  if (!(atualData > hojeISO)) return null;
+  return { data: atualData, origem: atualOrigem };
+}
+
 export function desfechoDaTabulacao(catalogo, codigo, { hoje = new Date(), dataDigitada = "", retornoAtual = null } = {}) {
   const proxima_acao = proximaAcaoDeTabulacao(catalogo, codigo);
   const digitada = String(dataDigitada || "").trim();
   if (digitada) {
     return { proxima_acao, data_retorno: digitada, retorno_origem: "OPERADOR", motivo: "DIGITADA" };
   }
-  const hojeISO = formatarDataISOLocal(new Date(hoje));
-  const atualData = String(retornoAtual?.data || "").slice(0, 10);
-  const atualOrigem = String(retornoAtual?.origem || "");
-  if (atualData && atualOrigem.startsWith("OPERADOR") && atualData > hojeISO) {
-    return { proxima_acao, data_retorno: atualData, retorno_origem: atualOrigem, motivo: "MANTIDA" };
+  const mantido = compromissoFuturoDoOperador(retornoAtual, hoje);
+  if (mantido) {
+    return { proxima_acao, data_retorno: mantido.data, retorno_origem: mantido.origem, motivo: "MANTIDA" };
   }
   const automatica = retornoAutomaticoDeTabulacao(catalogo, codigo, hoje);
   if (automatica) {
@@ -227,10 +239,32 @@ export function desfechoDaTabulacao(catalogo, codigo, { hoje = new Date(), dataD
 // que substitui o retorno anterior apaga as duas; a data do operador preserva
 // o que já havia (ou grava o que ele digitou, quando a tela tem os campos).
 // Sem data não se grava nada -- apagar retorno é decisão de quem chama.
+//
+// PRESERVAÇÃO DO COMBINADO (decisão da gestão, 27/10/2026): prazo AUTOMATICO
+// não passa por cima de compromisso OPERADOR com data futura. Quem passa
+// `retornoAtual` ganha a proteção: o helper devolve `{}` e a tela grava só o
+// status, deixando data, hora e prioridade intactas. É o mesmo predicado do
+// caso MANTIDA da tabulação (`compromissoFuturoDoOperador`), não uma régua
+// nova. Sem `retornoAtual` o comportamento é o de antes -- sobrescreve --, e é
+// por isso que a catraca dos testes cobra a leitura nos pontos automáticos.
+// A ORIGEM OPERADOR NÃO É PROTEGIDA CONTRA SI MESMA: operador digitando data
+// nova é o novo combinado, e deve mesmo substituir o anterior.
 export const RETORNO_ORIGEM_OPERADOR = "OPERADOR";
 export const RETORNO_ORIGEM_AUTOMATICO = "AUTOMATICO";
 
-export function camposDeRetorno(origem, data, { hora = null, prioritario = null } = {}) {
+// Apagar o retorno também é decisão com carimbo: sai a data, sai a origem, sai
+// a hora e cai a prioridade (as duas últimas eram do compromisso que acabou).
+// Em `public.alunos` o gatilho `limpar_retorno_origem` ainda é rede de
+// segurança para a origem; mandar os quatro explicitamente é o que faz a tela
+// não depender dela.
+export const CAMPOS_RETORNO_LIMPO = Object.freeze({
+  data_retorno: null,
+  retorno_origem: null,
+  hora_retorno: null,
+  retorno_prioritario: false,
+});
+
+export function camposDeRetorno(origem, data, { hora = null, prioritario = null, retornoAtual = null, hoje = new Date() } = {}) {
   if (origem !== RETORNO_ORIGEM_OPERADOR && origem !== RETORNO_ORIGEM_AUTOMATICO) {
     throw new Error("camposDeRetorno: origem tem que ser OPERADOR ou AUTOMATICO");
   }
@@ -238,6 +272,7 @@ export function camposDeRetorno(origem, data, { hora = null, prioritario = null 
   // conforme a tela); só a checagem de vazio o converte para texto.
   if (data === null || data === undefined || String(data).trim() === "") return {};
   if (origem === RETORNO_ORIGEM_AUTOMATICO) {
+    if (compromissoFuturoDoOperador(retornoAtual, hoje)) return {};
     return {
       data_retorno: data,
       retorno_origem: RETORNO_ORIGEM_AUTOMATICO,
@@ -249,4 +284,33 @@ export function camposDeRetorno(origem, data, { hora = null, prioritario = null 
   if (hora !== null) campos.hora_retorno = hora || null;
   if (prioritario !== null) campos.retorno_prioritario = Boolean(prioritario);
   return campos;
+}
+
+// O prazo automático precisa saber o que já está marcado na ficha antes de
+// gravar. Esta é a única leitura do repositório para isso, para que os três
+// pontos automáticos (lote de e-mail, +7 do financeiro, +7 do ADM) não
+// escrevam cada um a sua consulta.
+//
+// FALHA FECHA, NÃO ABRE: `ok: false` quer dizer "não consegui saber", e quem
+// chama então NÃO toca em `data_retorno`. Perder o prazo de acompanhamento por
+// uma falha de rede é menos grave que apagar um compromisso combinado com o
+// aluno -- e o encaminhamento em si (o status) continua sendo gravado.
+export async function lerRetornoAtual(alunoId) {
+  if (!alunoId) return { ok: false, retorno: null };
+  const { data, error } = await supabase
+    .from("alunos")
+    .select("data_retorno,retorno_origem")
+    .eq("id", alunoId)
+    .maybeSingle();
+  if (error) return { ok: false, retorno: null };
+  return { ok: true, retorno: data ? { data: data.data_retorno, origem: data.retorno_origem } : null };
+}
+
+// Açúcar para os pontos automáticos: lê a ficha e devolve os campos a gravar,
+// já com a preservação do combinado aplicada. `{}` significa "não mexa no
+// retorno" -- por compromisso futuro do operador OU por leitura que falhou.
+export async function camposDeRetornoAutomatico(alunoId, data, { hoje = new Date() } = {}) {
+  const atual = await lerRetornoAtual(alunoId);
+  if (!atual.ok) return {};
+  return camposDeRetorno(RETORNO_ORIGEM_AUTOMATICO, data, { retornoAtual: atual.retorno, hoje });
 }
