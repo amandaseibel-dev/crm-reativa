@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
-import { carregarTabulacoes, desfechoDaTabulacao } from "../utils/tabulacoes";
+import { carregarTabulacoes, desfechoDaTabulacao, camposDeRetorno, RETORNO_ORIGEM_OPERADOR } from "../utils/tabulacoes";
 import { buscarTudo } from "../utils/paginado";
 import { SITUACAO_FORA_DA_FILA_OPERACIONAL } from "../utils/carteiraFila";
 import {
@@ -787,6 +787,11 @@ export default function FilaOperador() {
                 minute: "2-digit",
               });
 
+          // BLOQUEIO (27/10/2026): aqui NÃO entra `retorno_origem`. A coluna
+          // não tem migration no repositório para `alunos_unificados` -- a
+          // única `add column ... retorno_origem` é a 20260822120000, de
+          // `public.alunos`. Carimbar às cegas arrisca 42703 na gravação.
+          // Declarado em src/utils/carimboRetorno.test.js (PONTOS_DECLARADOS).
           await supabase
             .from("alunos_unificados")
             .update({
@@ -1067,7 +1072,10 @@ export default function FilaOperador() {
         return;
       }
       const extraAluno = {};
-      if (novaDataRetornoAlteracao) { extraAluno.data_retorno = paraDataLocalBR(new Date(novaDataRetornoAlteracao).toISOString()); }
+      // A data digitada na troca de responsável é compromisso do operador --
+      // carimba OPERADOR para o "Meu dia" enxergar. Hora e prioridade ficam
+      // como estão: esta tela não tem os dois campos.
+      if (novaDataRetornoAlteracao) { Object.assign(extraAluno, camposDeRetorno(RETORNO_ORIGEM_OPERADOR, paraDataLocalBR(new Date(novaDataRetornoAlteracao).toISOString()))); }
       if (novaTabulacaoAlteracao) { extraAluno.status_jornada = novaTabulacaoAlteracao; extraAluno.status_atual = novaTabulacaoAlteracao; }
       if (Object.keys(extraAluno).length > 0) { await supabase.from("alunos").update(extraAluno).eq("id", alunoSelecionado.id); }
 

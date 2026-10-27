@@ -11,7 +11,7 @@ import DadosAcademicos from "../components/DadosAcademicos";
 import ConfirmarPagamento from "../components/ConfirmarPagamento";
 import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 import EmailAlunoUnificado from "../components/EmailAlunoUnificado";
-import { carregarTabulacoes, desfechoDaTabulacao, retornoEhManual } from "../utils/tabulacoes";
+import { carregarTabulacoes, desfechoDaTabulacao, retornoEhManual, camposDeRetorno, RETORNO_ORIGEM_OPERADOR } from "../utils/tabulacoes";
 import TelefonesAluno from "../components/TelefonesAluno";
 import PainelDesfazer from "../components/PainelDesfazer";
 import Dobra from "../ui/blocos";
@@ -1250,8 +1250,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
         atualizacaoAluno.retorno_origem = desfecho.retorno_origem;
       }
     } else if (retorno) {
-      atualizacaoAluno.data_retorno = paraDataLocalBR(retorno);
-      atualizacaoAluno.retorno_origem = "OPERADOR";
+      Object.assign(atualizacaoAluno, camposDeRetorno(RETORNO_ORIGEM_OPERADOR, paraDataLocalBR(retorno)));
     }
     if (observacaoAluno !== null) {
       atualizacaoAluno.observacao = observacaoAluno;
@@ -1601,7 +1600,10 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
         return;
       }
       const extraAluno = {};
-      if (novaDataRetornoAlteracao) { extraAluno.data_retorno = paraDataLocalBR(new Date(novaDataRetornoAlteracao).toISOString()); }
+      // A data digitada na troca de responsável é compromisso do operador --
+      // carimba OPERADOR para o "Meu dia" enxergar. Hora e prioridade ficam
+      // como estão: esta tela não tem os dois campos.
+      if (novaDataRetornoAlteracao) { Object.assign(extraAluno, camposDeRetorno(RETORNO_ORIGEM_OPERADOR, paraDataLocalBR(new Date(novaDataRetornoAlteracao).toISOString()))); }
       if (novaTabulacaoAlteracao) { extraAluno.status_jornada = novaTabulacaoAlteracao; extraAluno.status_atual = novaTabulacaoAlteracao; }
       if (Object.keys(extraAluno).length > 0) { await supabase.from("alunos").update(extraAluno).eq("id", alunoSelecionado.id); }
       setNovoOperadorEmail("");

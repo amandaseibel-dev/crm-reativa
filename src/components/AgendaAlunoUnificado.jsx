@@ -90,6 +90,10 @@ export default function AgendaAlunoUnificado({ aluno, onAtualizar }) {
     const operadorEmailFinal = form.operador_email || email;
     const operadorNomeFinal = form.operador_nome || nome;
 
+    // BLOQUEIO (27/10/2026): esta gravação NÃO carimba `retorno_origem` --
+    // a coluna não tem migration no repositório para `alunos_unificados`
+    // (a 20260822120000 é de `public.alunos`), e carimbar às cegas arrisca
+    // 42703. Declarado em src/utils/carimboRetorno.test.js (PONTOS_DECLARADOS).
     const { error } = await supabase
       .from("alunos_unificados")
       .update({

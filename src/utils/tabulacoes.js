@@ -204,3 +204,49 @@ export function desfechoDaTabulacao(catalogo, codigo, { hoje = new Date(), dataD
   }
   return { proxima_acao, motivo: "NENHUMA" };
 }
+
+// ---------------------------------------------------------------------------
+// CARIMBO DO RETORNO -- `data_retorno` sem `retorno_origem` é retorno sem dono.
+//
+// `desfechoDaTabulacao`, acima, resolve o caminho da TABULAÇÃO -- o único que
+// consulta o catálogo. Mas nem todo retorno nasce de tabulação: o lote de
+// e-mail agenda pelo prazo da arte, o financeiro e o ADM empurram +7 dias ao
+// encaminhar o caso, e a troca de responsável aceita uma data digitada. Esses
+// pontos gravavam `data_retorno` e deixavam `retorno_origem` como estava --
+// então o prazo de máquina herdava o selo OPERADOR do compromisso anterior (e
+// aparecia no "Meu dia" como compromisso que ninguém marcou), enquanto a data
+// que o operador digitou fora da tabulação nascia AUTOMATICO e não aparecia.
+// Medido em 15 e 22/10/2026: só 3,2% dos 13.293 retornos tinham selo OPERADOR,
+// e 141 dos 183 "retornos de hoje" vinham de um lote de quatro meses antes.
+//
+// Quem chama DECLARA a origem -- aqui não há inferência:
+//   * OPERADOR   -> um humano digitou aquela data naquele atendimento;
+//   * AUTOMATICO -> a data vem de regra ou de prazo do sistema.
+//
+// Hora e prioridade pertencem ao COMPROMISSO, não ao prazo: o prazo automático
+// que substitui o retorno anterior apaga as duas; a data do operador preserva
+// o que já havia (ou grava o que ele digitou, quando a tela tem os campos).
+// Sem data não se grava nada -- apagar retorno é decisão de quem chama.
+export const RETORNO_ORIGEM_OPERADOR = "OPERADOR";
+export const RETORNO_ORIGEM_AUTOMATICO = "AUTOMATICO";
+
+export function camposDeRetorno(origem, data, { hora = null, prioritario = null } = {}) {
+  if (origem !== RETORNO_ORIGEM_OPERADOR && origem !== RETORNO_ORIGEM_AUTOMATICO) {
+    throw new Error("camposDeRetorno: origem tem que ser OPERADOR ou AUTOMATICO");
+  }
+  // O valor da data passa INTACTO (pode ser "YYYY-MM-DD" ou timestamp ISO,
+  // conforme a tela); só a checagem de vazio o converte para texto.
+  if (data === null || data === undefined || String(data).trim() === "") return {};
+  if (origem === RETORNO_ORIGEM_AUTOMATICO) {
+    return {
+      data_retorno: data,
+      retorno_origem: RETORNO_ORIGEM_AUTOMATICO,
+      hora_retorno: null,
+      retorno_prioritario: false,
+    };
+  }
+  const campos = { data_retorno: data, retorno_origem: RETORNO_ORIGEM_OPERADOR };
+  if (hora !== null) campos.hora_retorno = hora || null;
+  if (prioritario !== null) campos.retorno_prioritario = Boolean(prioritario);
+  return campos;
+}

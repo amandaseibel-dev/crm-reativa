@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
+import { camposDeRetorno, RETORNO_ORIGEM_AUTOMATICO } from "../utils/tabulacoes";
 
 // Envio em lote pelo proprio Gmail do usuario, com contador de seguranca
 // diario pra nao bloquear a conta. Um aluno por vez: escolhe a arte, abre o
@@ -107,8 +108,10 @@ export default function EnvioGmailLote() {
 
   async function registrar(a) {
     const agora = new Date().toISOString();
+    // O prazo da arte é regra do sistema, não compromisso: entra como
+    // AUTOMATICO e leva embora a hora e a prioridade do retorno anterior.
     await supabase.from("alunos").update({
-      data_retorno: proximoDiaUtil(tpl?.dias_retorno || 10),
+      ...camposDeRetorno(RETORNO_ORIGEM_AUTOMATICO, proximoDiaUtil(tpl?.dias_retorno || 10)),
       status_acionamento: "Ação massiva externa enviada — aguardando retorno",
       status_jornada: "RETORNAR_DEPOIS",
       status_atual: "RETORNAR_DEPOIS",

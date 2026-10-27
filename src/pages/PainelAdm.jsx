@@ -4,6 +4,7 @@ import { supabase } from "../services/supabase";
 import { buscarTudo } from "../utils/paginado";
 import { urlComprovanteLink, urlTermo, abrirDocumento } from "../utils/documentoFinanceiro";
 import { podeVerTudo } from "../utils/operadores";
+import { camposDeRetorno, RETORNO_ORIGEM_AUTOMATICO } from "../utils/tabulacoes";
 import { intervaloPeriodo, comoInputData, intervaloInvalido } from "../utils/periodo";
 
 const OPERADORES_REATIVA = [
@@ -612,10 +613,12 @@ export default function PainelAdm() {
     const daquiA7Dias = new Date();
     daquiA7Dias.setDate(daquiA7Dias.getDate() + 7);
 
+    // +7 dias é prazo de acompanhamento do sistema, não compromisso com o
+    // aluno: entra como AUTOMATICO e não deixa hora nem prioridade para trás.
     await supabase
       .from("alunos")
       .update({
-        data_retorno: daquiA7Dias.toISOString(),
+        ...camposDeRetorno(RETORNO_ORIGEM_AUTOMATICO, daquiA7Dias.toISOString()),
         status_jornada: "Enviado ao financeiro",
         status_atual: "Enviado ao financeiro",
         status_acionamento: "Enviado ao financeiro",
