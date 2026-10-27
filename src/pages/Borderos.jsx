@@ -5,6 +5,12 @@ import {
   indexarAlunosPorCpf,
   fichasParaCriar,
   alunoDaLinha,
+  cpfConfiavel,
+  motivoDeAnalise,
+  chaveDocumento,
+  variantesDeDocumento,
+  indexarTitulosPorDocumento,
+  colisoesNormalizadasNoLote,
 } from "../utils/bordero";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
@@ -111,16 +117,27 @@ async function inserirEmLotes(tabela, registros) {
 // útil do upsert, e é também o que reabria NEGOCIADO. Correção de valor de
 // título existente continua possível pela ficha (ajuste de valor, que tem
 // trilha própria em `titulo_valor_ajuste_historico`), nunca por reimportação.
+// 27/10/2026: passou a DEVOLVER quantas linhas o banco realmente gravou.
+//
+// Antes a tela reportava `inseridos = registrosTitulos.length` -- o tamanho da
+// INTENÇÃO, não o do resultado. Isso já era frágil (`ignoreDuplicates` pula
+// conflito de `documento`) e virou errado com a guarda `BEFORE INSERT` da
+// migration 20261027120000 §1b, que pula duplicata normalizada: a tela
+// anunciaria linhas que não entraram. O `.select()` depois do upsert devolve só
+// o que foi inserido de fato -- é esse o número honesto.
 async function inserirIgnorandoExistentesEmLotes(tabela, registros, onConflict) {
-  if (registros.length === 0) return { erro: null };
+  if (registros.length === 0) return { gravados: 0, erro: null };
   const lotes = dividirEmLotes(registros, TAMANHO_LOTE_GRAVACAO);
+  let gravados = 0;
   for (const lote of lotes) {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from(tabela)
-      .upsert(lote, { onConflict, ignoreDuplicates: true });
-    if (error) return { erro: error };
+      .upsert(lote, { onConflict, ignoreDuplicates: true })
+      .select("documento");
+    if (error) return { gravados, erro: error };
+    gravados += (data || []).length;
   }
-  return { erro: null };
+  return { gravados, erro: null };
 }
 
 export default function Borderos() {
@@ -193,10 +210,24 @@ export default function Borderos() {
         "id, nome, cpf, email, telefone, curso, unidade"
       );
 
+      // 27/10/2026: a consulta passou a mandar as VARIANTES de zero à esquerda
+      // de cada documento, não só a grafia do arquivo.
+      //
+      // Por quê: `acordos_titulos_documento_key` é UNIQUE sobre o `documento`
+      // CRU, então a base pode guardar '04039712' enquanto o arquivo traz
+      // '4039712'. Consultando só a grafia do arquivo, o título que existe não
+      // era encontrado, `jaExiste` saía `false` e a tela inseria a variante --
+      // duplicando a dívida. O `.in()` do PostgREST compara valor literal e não
+      // aceita filtro por função, então a largura é dada aqui, com limite
+      // declarado em `variantesDeDocumento`.
+      const titulosParaConsultar = [
+        ...new Set(titulos.flatMap((d) => variantesDeDocumento(d))),
+      ];
+
       const titulosExistentes = await buscarEmLotes(
         "acordos_titulos",
         "documento",
-        titulos,
+        titulosParaConsultar,
         // 08/10/2026: `status` entrou junto. Conferir só `situacao` deixava
         // passar linha já liquidada -- a base tem título `VENCIDA`/`quitada`.
         "documento, situacao, status"
@@ -208,10 +239,11 @@ export default function Borderos() {
       // e o importador criava outra para quem ja existia.
       const mapaAlunosPorCpf = indexarAlunosPorCpf(alunosEncontrados);
 
-      const mapaTitulos = {};
-      for (const titulo of titulosExistentes) {
-        mapaTitulos[titulo.documento] = titulo;
-      }
+      // Indexado pela chave NORMALIZADA (mesma regra de
+      // `extracao_documento_norm` no banco), não pelo valor cru da coluna. É
+      // isto que faz um título gravado com zero à esquerda ser reconhecido
+      // como existente em vez de duplicado.
+      const mapaTitulos = indexarTitulosPorDocumento(titulosExistentes);
 
       // Pra quem não bateu por CPF, tenta achar pelo nome antes de decidir
       // criar um cadastro novo.
@@ -242,24 +274,50 @@ export default function Borderos() {
         const porCpf = chaveCpf(linha.cpfLimpo)
           ? mapaAlunosPorCpf[chaveCpf(linha.cpfLimpo)]
           : null;
-        const porNome = !porCpf
-          ? mapaAlunosPorNome[String(linha.nome || "").trim().toLowerCase()]
+        // ===== REGRA 1 da gestão (27/10/2026) =========================
+        // "Não vincular aluno somente pelo nome."
+        //
+        // O nome deixou de RESOLVER o aluno e passou a ser SUGESTÃO. Antes,
+        // CPF que não casava caía no nome e o título ia para o homônimo. O
+        // borderô traz CPF em 100% das linhas, então este caminho era risco
+        // sem benefício -- e o projeto já pagou por casar por nome (10 baixas
+        // erradas em 08/09).
+        //
+        // A consulta por nome CONTINUA, só que para informar: "o CPF não
+        // casou, mas existe cadastro com este nome -- confira". É a diferença
+        // entre separar para análise com contexto e separar no escuro.
+        // ==============================================================
+        const sugestaoPorNome = !porCpf
+          ? mapaAlunosPorNome[String(linha.nome || "").trim().toLowerCase()] || null
           : null;
-        const aluno = porCpf || porNome || null;
+        const aluno = porCpf || null;
 
         return {
           ...linha,
           aluno,
-          origemMatch: porCpf ? "cpf" : porNome ? "nome" : "novo",
-          jaExiste: Boolean(mapaTitulos[linha.numTitulo]),
-          situacaoAtual: mapaTitulos[linha.numTitulo]?.situacao || null,
-          statusAtual: mapaTitulos[linha.numTitulo]?.status || null,
+          sugestaoPorNome,
+          // "novo" = CPF confirmável sem cadastro: entra e cria ficha.
+          // "analise" = sem CPF confirmável: NÃO entra (regra 2).
+          origemMatch: porCpf
+            ? "cpf"
+            : cpfConfiavel(linha.cpfOriginal)
+              ? "novo"
+              : "analise",
+          jaExiste: Boolean(mapaTitulos[chaveDocumento(linha.numTitulo)]),
+          situacaoAtual: mapaTitulos[chaveDocumento(linha.numTitulo)]?.situacao || null,
+          statusAtual: mapaTitulos[chaveDocumento(linha.numTitulo)]?.status || null,
         };
       });
 
+      // Colisões DENTRO do arquivo, sob a chave normalizada: duas grafias do
+      // mesmo boleto, ou a mesma linha repetida. O banco cru não as vê, e sem
+      // isto a segunda grafia entraria como título novo.
+      const colisoesNoArquivo = colisoesNormalizadasNoLote(linhasComStatus);
+
       const encontradosCpf = linhasComStatus.filter((l) => l.origemMatch === "cpf").length;
-      const encontradosNome = linhasComStatus.filter((l) => l.origemMatch === "nome").length;
+      const comSugestaoNome = linhasComStatus.filter((l) => l.sugestaoPorNome).length;
       const novosAlunos = linhasComStatus.filter((l) => l.origemMatch === "novo").length;
+      const emAnalise = linhasComStatus.filter((l) => l.origemMatch === "analise").length;
       const existentes = linhasComStatus.filter((l) => l.jaExiste).length;
 
       const numeroBordero = extrairNumeroBordero(arquivoSelecionado.name);
@@ -281,12 +339,14 @@ export default function Borderos() {
         totais: {
           total: linhasComStatus.length,
           encontradosCpf,
-          encontradosNome,
+          comSugestaoNome,
           novosAlunos,
+          emAnalise,
           existentes,
         },
         numeroBordero,
         jaImportadoAntes: importacoesAnteriores?.[0] || null,
+        colisoesNoArquivo,
       });
     } catch (err) {
       console.error(err);
@@ -344,6 +404,13 @@ export default function Borderos() {
       }
 
       let ignorados = 0;
+      // Preenchido quando o recálculo de saldo não roda ou roda com falha. Vai
+      // para o resultado na tela: fail-soft não pode ser invisível.
+      let avisoSaldo = "";
+      // Linhas que a tela mandou gravar e o banco não gravou. Hoje a causa
+      // conhecida é a guarda de duplicata normalizada (20261027120000 §1b),
+      // que pula a linha e registra TITULO_DUPLICADO_NORMALIZADO_RECUSADO.
+      let recusadosPeloBanco = 0;
       const nomesNaoEncontrados = [];
       const nomesCriados = [];
 
@@ -362,57 +429,45 @@ export default function Borderos() {
       // mensalidades ganhava 6 fichas: 14 CPFs e 33 fichas no borderô 723 de
       // 08/10/2026. `fichasParaCriar` colapsa o lote por `chaveCpf`.
       // ===================================================================
-      const { registros: fichasPorCpf, linhasSemCpf } = fichasParaCriar(preview.linhas);
+      // ===== REGRA 2 da gestão (27/10/2026) ==========================
+      // "Não criar aluno ou título quando o CPF estiver ausente ou não puder
+      // ser confirmado."
+      //
+      // `linhasEmAnalise` são essas. Antes elas viravam uma ficha POR LINHA e o
+      // título ia nela -- dívida com identidade não comprovada, o oposto da
+      // regra 5. Agora não criam nada: são contadas, listadas com o motivo, e
+      // ficam para análise humana.
+      // ===============================================================
+      const { registros: fichasPorCpf, linhasEmAnalise } = fichasParaCriar(preview.linhas);
 
-      // Linha sem CPF continua EXATAMENTE como antes: uma ficha por linha.
-      // Mudar isto agora (recusar a linha) derrubaria no chão o título que hoje
-      // é gravado, e a quarentena da regra 4 de docs/PADRAO_CADASTRO.md não
-      // existe. Esta importação muda UMA coisa: duplicata por CPF. O que a tela
-      // ganha aqui é só a contagem, para a gestão ver o tamanho do débito.
-      const fichasSemCpf = linhasSemCpf.map((l) => ({
-        nome: l.nome,
-        cpf: null,
-        email: l.email,
-        telefone: l.telefone,
-        curso: l.curso,
-        unidade: l.unidade,
-        status_jornada: "CONTATAR",
-        status_atual: "CONTATAR",
-      }));
-
-      // Os sem CPF vão DEPOIS dos por-CPF no mesmo lote: o `insert ...
-      // returning` devolve na ordem de inserção, e é isso que permite ligar
-      // cada linha sem CPF à ficha que nasceu dela, sem chutar por nome.
-      // (Antes, todas as linhas sem CPF caíam na ÚLTIMA ficha sem CPF criada,
-      // porque a chave do mapa era o `null` virando a string "null" --
-      // títulos de pessoas diferentes na mesma ficha.)
-      const fichasNovas = [...fichasPorCpf, ...fichasSemCpf];
-      const linhasSemAluno = preview.linhas.filter((l) => !l.aluno);
+      const fichasNovas = fichasPorCpf;
       let alunosNovosPorCpf = {};
       let alunosCriados = 0;
-      const alunoPorLinhaSemCpf = new Map();
 
       if (fichasNovas.length > 0) {
         const { dados: novosAlunos, erro: erroNovos } = await inserirEmLotes(
           "alunos",
           fichasNovas
         );
-
         if (erroNovos) {
-          nomesNaoEncontrados.push(...linhasSemAluno.map((l) => l.nome));
-          ignorados += linhasSemAluno.length;
+          nomesNaoEncontrados.push(...fichasNovas.map((f) => f.nome));
+          ignorados += fichasNovas.length;
         } else {
           alunosNovosPorCpf = indexarAlunosPorCpf(novosAlunos);
           alunosCriados = novosAlunos.length;
           nomesCriados.push(...novosAlunos.map((a) => a.nome));
-
-          novosAlunos.slice(fichasPorCpf.length).forEach((aluno, i) => {
-            if (linhasSemCpf[i]) alunoPorLinhaSemCpf.set(linhasSemCpf[i], aluno);
-          });
         }
       }
 
-      const linhasSemCpfCount = linhasSemCpf.length;
+      // as linhas em análise entram no relatório com o motivo de cada uma
+      for (const l of linhasEmAnalise) {
+        divergencias.push({
+          documento: String(l.numTitulo || "").trim(),
+          chave: chaveDocumento(l.numTitulo),
+          motivo: motivoDeAnalise(l) || "identidade não comprovada",
+        });
+      }
+      const emAnaliseCount = linhasEmAnalise.length;
 
       // 2) Completa telefone/email/curso/unidade só de quem já existia e
       // estava com algum desses campos vazio — em paralelo, não em fila.
@@ -433,6 +488,12 @@ export default function Borderos() {
       // 3) Grava todos os títulos em uma única chamada (upsert por
       // "documento"), em vez de um insert/update por linha.
       const registrosTitulos = [];
+      // Chaves normalizadas já enfileiradas neste lote. Sem isto, duas grafias
+      // do mesmo boleto no mesmo arquivo ('04039712' e '4039712') passariam as
+      // duas: o `ON CONFLICT (documento)` compara valor CRU e não as vê como
+      // conflito. A primeira entra, a segunda é recusada e REPORTADA.
+      const chavesNoLote = new Set();
+      const divergencias = [];
 
       for (const linha of preview.linhas) {
         // ===== 08/10/2026: TITULO QUE JA EXISTE NUNCA E TOCADO ==============
@@ -451,11 +512,24 @@ export default function Borderos() {
         }
 
         const aluno =
-          alunoDaLinha(linha, alunosNovosPorCpf) || alunoPorLinhaSemCpf.get(linha) || null;
+          alunoDaLinha(linha, alunosNovosPorCpf) || null;
         if (!aluno) {
           ignorados += 1;
           continue;
         }
+
+        // Dedupe pela chave NORMALIZADA, dentro do lote.
+        const chave = chaveDocumento(linha.numTitulo);
+        if (chave && chavesNoLote.has(chave)) {
+          divergencias.push({
+            documento: String(linha.numTitulo).trim(),
+            chave,
+            motivo: "mesma chave normalizada já presente neste lote",
+          });
+          ignorados += 1;
+          continue;
+        }
+        if (chave) chavesNoLote.add(chave);
 
         registrosTitulos.push({
           aluno_id: aluno.id,
@@ -474,20 +548,42 @@ export default function Borderos() {
       let atualizados = 0;
 
       if (registrosTitulos.length > 0) {
-        const { erro: erroTitulos } = await inserirIgnorandoExistentesEmLotes(
+        const { gravados, erro: erroTitulos } = await inserirIgnorandoExistentesEmLotes(
           "acordos_titulos",
           registrosTitulos,
           "documento"
         );
 
         if (erroTitulos) {
-          setErro("Erro ao gravar os títulos: " + erroTitulos.message);
+          // 23505 = unique_violation. O `ignoreDuplicates` só absorve conflito
+          // no índice declarado em `onConflict` ('documento', cru): a violação
+          // de QUALQUER outro índice único vem como erro e derruba o lote de
+          // 500. O índice normalizado É único (20261027120000 §1, exigência da
+          // gestão), e quem impede a tentativa de chegar nele é a guarda
+          // BEFORE INSERT da §1b -- ela pula a linha e registra em auditoria em
+          // vez de deixar o lote cair. Esta mensagem é a terceira camada: se um
+          // 23505 escapar mesmo assim, a causa fica legível em vez de virar
+          // "erro ao gravar" genérico.
+          const ehDuplicata = erroTitulos.code === "23505";
+          setErro(
+            ehDuplicata
+              ? "A gravação parou numa duplicidade de boleto (23505): " +
+                erroTitulos.message +
+                " — nada deste lote de 500 foi gravado. Isso indica duas grafias do mesmo " +
+                "boleto (zero à esquerda). Confira o arquivo antes de reenviar."
+              : "Erro ao gravar os títulos: " + erroTitulos.message
+          );
         } else {
           // `registrosTitulos` já não contém nenhum título existente (todos
           // caíram no `motivoDeNaoTocar` acima), então tudo que foi gravado é
           // inserção. `atualizados` fica 0 por construção, e continua exposto
           // na tela para deixar explícito que a importação não atualiza.
-          inseridos = registrosTitulos.length;
+          // Número do BANCO, não da intenção. A diferença entre o que se
+          // tentou gravar e o que entrou é exatamente a duplicata normalizada
+          // que a guarda BEFORE INSERT pulou -- e ela aparece na tela, abaixo,
+          // em vez de virar linha anunciada que não existe.
+          inseridos = gravados;
+          recusadosPeloBanco = registrosTitulos.length - gravados;
           atualizados = 0;
 
           // ===== SALDO DO ALUNO, DEPOIS DE GRAVAR O TÍTULO ==============
@@ -508,19 +604,30 @@ export default function Borderos() {
           // FAIL-SOFT de propósito: recalcular saldo é campo derivado. Se
           // quebrar, a importação -- que é o ato financeiro -- não cai por
           // causa disso.
-          try {
-            let restantes = Infinity;
-            // teto de voltas: um borderô tem ~2.000 alunos; 10 x 500 cobre
-            // com folga e impede laço infinito se o RPC parar de drenar.
-            for (let volta = 0; volta < 10 && restantes > 0; volta += 1) {
-              const { data: dreno, error: erroDreno } = await supabase.rpc(
-                "recalculo_saldo_pendente_processar",
-                { p_limite: 500, p_lote: `bordero_${preview.numeroBordero || "sn"}` }
-              );
-              if (erroDreno) break;
-              restantes = Number(dreno?.restantes ?? 0);
-            }
-          } catch { /* campo derivado; ver o comentário acima */ }
+          // ===== DECISÃO DA GESTÃO, 27/10/2026 ==========================
+          // "Recálculo de saldos: processamento controlado em lotes, fora da
+          // requisição do navegador."
+          //
+          // O dreno SAIU daqui. Antes, esta tela chamava
+          // `recalculo_saldo_pendente_processar` em até 10 voltas de 500 --
+          // ou seja, até 5.000 recálculos dentro de uma requisição do
+          // navegador, cada um com várias consultas. Era a assinatura dos
+          // incidentes de saturação, e piorava com a fila de todo o sistema:
+          // os gatilhos de instrução enfileiram em QUALQUER escrita de título
+          // (motor de baixa, vinculador, crons), não só na importação -- então
+          // quem importasse um borderô pagava o backlog de todos.
+          //
+          // O que acontece agora: o gatilho de instrução enfileira (uma linha
+          // por lote, barata) e o processamento é lote controlado, fora daqui.
+          // A dívida já está gravada; o saldo é campo derivado.
+          //
+          // POR ISSO O AVISO ABAIXO NÃO É OPCIONAL: sem ele a operadora abriria
+          // a carteira esperando o saldo já certo. Dizer "entra no próximo
+          // lote" é diferente de deixar em silêncio.
+          avisoSaldo =
+            "Os títulos foram gravados. O saldo dos alunos é recalculado em " +
+            "lote controlado, fora desta tela — pode levar alguns minutos para " +
+            "aparecer na carteira. A dívida já está registrada.";
 
           // ===== 08/10/2026: SEPARADO EM DOIS ===========================
           // Este bloco fazia TRÊS coisas de uma vez, e só a primeira é fila:
@@ -580,7 +687,7 @@ export default function Borderos() {
               // 2) e 3) DESLIGADAS em 08/10/2026 (ver o bloco acima). Desfazer
               // uma quitação e reabrir acordo é reativação de registro
               // financeiro, não movimento de fila — e a trava do banco
-              // (migration 20261008120000) recusaria a 2) de qualquer jeito.
+              // (migration 20261027120000) recusaria a 2) de qualquer jeito.
               if (RESTAURAR_QUITACAO_NO_BORDERO) {
               // 2) Restaura o saldo dos títulos que a quitação manual zerou
               // (reconhecidos pelo motivo_ajuste). Não toca em títulos pagos
@@ -730,7 +837,11 @@ export default function Borderos() {
       setResultado({
         inseridos, atualizados, ignorados, alunosCriados, nomesCriados,
         nomesNaoEncontrados,
-        linhasSemCpf: linhasSemCpfCount,
+        emAnalise: emAnaliseCount,
+        avisoSaldo,
+        divergencias,
+        recusadosPeloBanco,
+        colisoesNoArquivo: preview.colisoesNoArquivo || [],
       });
       setPreview(null);
       setArquivo(null);
@@ -747,7 +858,8 @@ export default function Borderos() {
       <h1>Borderôs</h1>
       <p style={{ opacity: 0.75, marginBottom: 20 }}>
         Sobe a planilha de mensalidades/parcelas em aberto. Casa por CPF e não duplica
-        títulos já importados — só atualiza. Nada é gravado até você confirmar.
+        títulos já importados e <strong>não toca</strong> nenhum título que já
+        exista. Nada é gravado até você confirmar.
       </p>
 
       <div style={estilos.caixaUpload}>
@@ -757,21 +869,102 @@ export default function Borderos() {
 
       {erro && <p style={{ color: "#f87171", marginTop: 12 }}>{erro}</p>}
 
+      {/* 27/10/2026: colisao de chave normalizada DENTRO do arquivo, avisada
+          ANTES de confirmar -- e o unico momento em que dá para conferir o
+          arquivo. Duas grafias do mesmo boleto ('04039712' e '4039712') o
+          UNIQUE cru do banco não vê; só a primeira entra. */}
+      {preview?.colisoesNoArquivo?.length > 0 && (
+        <div style={estilos.avisoDuplicado}>
+          <strong>
+            ⚠️ {preview.colisoesNoArquivo.length} boleto(s) repetidos neste arquivo
+          </strong>
+          <ul style={{ margin: "4px 0 0", fontSize: 13 }}>
+            {preview.colisoesNoArquivo.slice(0, 20).map((c, i) => (
+              <li key={i}><code>{c.chave}</code> — {c.motivo}</li>
+            ))}
+          </ul>
+          <p style={{ margin: "4px 0 0", fontSize: 13 }}>
+            Só a primeira linha de cada um entra; as outras são recusadas e
+            listadas no resultado. Confira o arquivo se não era isso que você
+            esperava.
+          </p>
+        </div>
+      )}
+
       {resultado && (
         <div style={estilos.caixaSucesso}>
           <strong>Importação concluída.</strong>
           <p style={{ margin: "6px 0 0" }}>
             {resultado.inseridos} títulos novos, {resultado.atualizados} atualizados,{" "}
             {resultado.alunosCriados} alunos novos cadastrados, {resultado.ignorados}{" "}
-            ignorados (já pagos).
+            ignorados (já existentes nesta base).
           </p>
 
-          {resultado.linhasSemCpf > 0 && (
+          {/* 27/10/2026: o fail-soft do recálculo de saldo deixou de ser mudo.
+              A dívida é gravada de todo modo, mas se o saldo não foi
+              recalculado quem lê a carteira precisa saber. */}
+          {resultado.avisoSaldo && (
+            <p style={{ ...estilos.avisoLinha, color: "#fcd34d" }}>
+              <strong>Saldo:</strong> {resultado.avisoSaldo}
+            </p>
+          )}
+
+          {/* Linhas que o BANCO recusou. Hoje a causa conhecida é a guarda de
+              duplicata normalizada: duas grafias do mesmo boleto (zero à
+              esquerda). Pular sem dizer seria ocultar divergência. */}
+          {resultado.recusadosPeloBanco > 0 && (
+            <p style={{ ...estilos.avisoLinha, color: "#fcd34d" }}>
+              <strong>{resultado.recusadosPeloBanco}</strong> linha(s) foram
+              recusadas pelo banco por já existir o mesmo boleto com outra grafia
+              (zero à esquerda). A dívida não foi duplicada — e cada recusa está
+              registrada na auditoria como{" "}
+              <code>TITULO_DUPLICADO_NORMALIZADO_RECUSADO</code>.
+            </p>
+          )}
+
+          {resultado.divergencias?.length > 0 && (
+            <Dobra
+              tema="escuro"
+              titulo="Divergências do lote"
+              contador={resultado.divergencias.length}
+              estiloSumario={{ color: "#fcd34d" }}
+              style={{ marginTop: 10 }}
+            >
+              <ul style={{ fontSize: 13, opacity: 0.85, marginTop: 6 }}>
+                {resultado.divergencias.map((d, indice) => (
+                  <li key={indice}>
+                    <code>{d.documento}</code> — {d.motivo}
+                  </li>
+                ))}
+              </ul>
+            </Dobra>
+          )}
+
+          {resultado.colisoesNoArquivo?.length > 0 && (
+            <Dobra
+              tema="escuro"
+              titulo="Boletos repetidos no próprio arquivo"
+              contador={resultado.colisoesNoArquivo.length}
+              estiloSumario={{ color: "#fcd34d" }}
+              style={{ marginTop: 10 }}
+            >
+              <ul style={{ fontSize: 13, opacity: 0.85, marginTop: 6 }}>
+                {resultado.colisoesNoArquivo.map((c, indice) => (
+                  <li key={indice}>
+                    <code>{c.chave}</code> — {c.motivo}
+                  </li>
+                ))}
+              </ul>
+            </Dobra>
+          )}
+
+          {resultado.emAnalise > 0 && (
             <p style={{ margin: "6px 0 0" }}>
-              <strong>{resultado.linhasSemCpf}</strong> linha(s) vieram sem CPF. Sem
-              CPF não existe correspondência segura: cada uma virou um cadastro
-              próprio e pode ser a mesma pessoa de outra linha. Confira essas
-              fichas antes de acionar.
+              <strong>{resultado.emAnalise}</strong> linha(s) ficaram em{" "}
+              <strong>ANÁLISE</strong> e <strong>não</strong> geraram cadastro nem
+              título: o CPF está ausente ou não pode ser confirmado. Sem identidade
+              comprovada não se cria dívida — cada uma está listada abaixo com o
+              motivo, para conferência manual.
             </p>
           )}
 
@@ -816,7 +1009,8 @@ export default function Borderos() {
               <p style={{ margin: "4px 0 0", fontSize: 13 }}>
                 Em {new Date(preview.jaImportadoAntes.created_at).toLocaleString("pt-BR")}, por{" "}
                 {preview.jaImportadoAntes.usuario} ({preview.jaImportadoAntes.qtd_registros}{" "}
-                registros). Confirmar de novo não duplica os títulos, só atualiza os valores —
+                registros). Confirmar de novo não duplica nem atualiza nada: título
+                que já existe é ignorado —
                 mas confira se é isso mesmo que você quer antes de continuar.
               </p>
             </div>
@@ -835,9 +1029,9 @@ export default function Borderos() {
             </div>
             <div style={{ ...estilos.cartao, background: "rgba(56,189,248,0.1)" }}>
               <div style={{ ...estilos.numero, color: "#7dd3fc" }}>
-                {preview.totais.encontradosNome}
+                {preview.totais.emAnalise}
               </div>
-              <div style={estilos.label}>Encontrados pelo nome</div>
+              <div style={estilos.label}>Em análise (sem CPF confirmável)</div>
             </div>
             <div style={{ ...estilos.cartao, background: "rgba(251,191,36,0.1)" }}>
               <div style={{ ...estilos.numero, color: "#fcd34d" }}>
@@ -885,14 +1079,21 @@ export default function Borderos() {
                         : "-"}
                     </td>
                     <td style={{ padding: "8px 10px" }}>
-                      {linha.origemMatch === "novo" ? (
-                        <span style={estilos.tagAmarela}>Aluno novo (será criado)</span>
-                      ) : linha.jaExiste ? (
-                        <span style={estilos.tagNeutra}>Já existe (atualiza)</span>
-                      ) : linha.origemMatch === "nome" ? (
-                        <span style={estilos.tagAzul}>Encontrado pelo nome</span>
+                      {linha.jaExiste ? (
+                        <span style={estilos.tagNeutra}>Já existe (não é tocado)</span>
+                      ) : linha.origemMatch === "analise" ? (
+                        <span style={estilos.tagAmarela}>
+                          Em análise — {motivoDeAnalise(linha) || "identidade não comprovada"}
+                        </span>
+                      ) : linha.origemMatch === "novo" ? (
+                        <span style={estilos.tagAzul}>Aluno novo (será criado)</span>
                       ) : (
-                        <span style={estilos.tagVerde}>Encontrado</span>
+                        <span style={estilos.tagVerde}>Encontrado por CPF</span>
+                      )}
+                      {linha.sugestaoPorNome && (
+                        <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2 }}>
+                          existe cadastro com o mesmo nome — não foi vinculado
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -922,6 +1123,8 @@ const estilos = {
     border: "1px dashed rgba(148,163,184,0.4)",
     background: "rgba(148,163,184,0.05)",
   },
+  // margem padrao dos avisos do bloco de resultado (saldo, recusa pelo banco)
+  avisoLinha: { margin: "6px 0 0", fontSize: 13 },
   avisoDuplicado: {
     padding: "12px 16px",
     marginBottom: 16,
