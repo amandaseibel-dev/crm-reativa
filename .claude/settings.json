@@ -1,4 +1,14 @@
 {
+  "extraKnownMarketplaces": {
+    "reativa": {
+      "source": { "source": "directory", "path": "." }
+    }
+  },
+
+  "enabledPlugins": {
+    "reativa-one@reativa": true
+  },
+
   "maxEffortLevel": "high",
 
   "env": {

@@ -86,11 +86,30 @@ async function novoBanco() {
   return db;
 }
 
-beforeAll(async () => { await novoBanco(); });
+// A JANELA PREVENTIVA É RELATIVA A HOJE: `hoje - vencimento <= 31`
+// (`preventivo_limite_dias()`), medido no fuso de São Paulo. Fixture com data
+// ABSOLUTA, portanto, tem prazo de validade: o vencimento 2026-09-25 que estas
+// fixtures usavam fazia 31 dias em 26/10/2026 e 32 em 27/10 — na virada do dia
+// 9 testes caíram sem que nada no Preventivo tivesse mudado.
+//
+// Toda data de fixture é ancorada em `dia(n)`: n dias a partir de hoje. A conta
+// é em UTC de propósito, para o deslocamento não escorregar um dia quando o
+// relógio da máquina está num fuso negativo (é o caso de São Paulo).
+let HOJE = null;
+const dia = (n) => {
+  const d = new Date(`${HOJE}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+
+beforeAll(async () => {
+  const db = await novoBanco();
+  HOJE = await um(db, `select public.preventivo_hoje()::text`);
+});
 
 const entrar = (db, email) => db.exec(`update public._jwt set email = '${email}'`);
 
-async function carteiraCom(db, linhas, { venc_de = "2020-01-01", venc_ate = "2030-12-31", nome = "Carteira teste", lote = "Lote 1" } = {}) {
+async function carteiraCom(db, linhas, { venc_de = dia(-3650), venc_ate = dia(3650), nome = "Carteira teste", lote = "Lote 1" } = {}) {
   const id = await um(db,
     `select public.preventivo_carteira_criar($1, null, $2::date, $3::date)`, [nome, venc_de, venc_ate]);
   const resumo = await um(db,
@@ -106,15 +125,15 @@ async function carteiraCom(db, linhas, { venc_de = "2020-01-01", venc_ate = "203
 const linha = (over = {}) => ({
   matricula: "2026000001", aluno_nome: "Fulana de Tal",
   cpf: "00000000191", competencia: "2026/2",
-  vencimento: "2026-09-25", vencimento_origem: "2026-09-05",
+  vencimento: dia(-5), vencimento_origem: dia(-25),
   valor: "500.00", saldo: "500.00", situacao: "EM ABERTO",
   celular: "(51) 99999-0001", email: "fulana@exemplo.com", ...over,
 });
 
 // Extrato do Prime como a Edge Function entrega: já reduzido aos campos usados.
 const extrato = (over = {}) => ({
-  documento: "9000001", vencimento: "2026-09-25", valor_liquido: "500.00",
-  valor_bruto: "500.00", valor_corrigido: "1000.00", payment_date: "2026-09-20",
+  documento: "9000001", vencimento: dia(-5), valor_liquido: "500.00",
+  valor_bruto: "500.00", valor_corrigido: "1000.00", payment_date: dia(-10),
   portador: "95", portador_nome: "SANTANDER CC", ...over,
 });
 
@@ -155,7 +174,7 @@ describe("Preventivo — importação", () => {
   beforeEach(async () => { db = await novoBanco(); });
 
   it("a prévia não grava nada", async () => {
-    const id = await um(db, `select public.preventivo_carteira_criar('C', null, '2020-01-01'::date, '2030-12-31'::date)`);
+    const id = await um(db, `select public.preventivo_carteira_criar('C', null, $1::date, $2::date)`, [dia(-3650), dia(3650)]);
     const r = await um(db, `select public.preventivo_lote_previa($1::uuid, $2::jsonb)`,
       [id, JSON.stringify([linha()])]);
     expect(r.linhas_aceitas).toBe(1);
@@ -391,9 +410,9 @@ describe("Preventivo — sincronização com o Prime", () => {
 
   it("a alteração é por TÍTULO: um zerar não mexe no outro do mesmo aluno", async () => {
     await um(db, `select public.preventivo_lote_confirmar($1::uuid, 'Lote 2', 'a.xlsx', '{}'::jsonb, null, $2::jsonb)`,
-      [carteira, JSON.stringify([linha({ documento: "9000002", vencimento: "2026-10-25", valor: "400.00", saldo: "400.00" })])]);
-    await ciclo([extrato(), extrato({ documento: "9000002", vencimento: "2026-10-25", valor_liquido: "400.00" })]);
-    await ciclo([extrato({ valor_liquido: "0" }), extrato({ documento: "9000002", vencimento: "2026-10-25", valor_liquido: "400.00" })]);
+      [carteira, JSON.stringify([linha({ documento: "9000002", vencimento: dia(25), valor: "400.00", saldo: "400.00" })])]);
+    await ciclo([extrato(), extrato({ documento: "9000002", vencimento: dia(25), valor_liquido: "400.00" })]);
+    await ciclo([extrato({ valor_liquido: "0" }), extrato({ documento: "9000002", vencimento: dia(25), valor_liquido: "400.00" })]);
     expect(Number(await um(db, `select valor_fonte from public.prev_titulo where documento = '9000002'`))).toBe(400);
     expect(await um(db, `select count(*)::int from public.prev_evento`)).toBe(1);
   });
@@ -611,7 +630,7 @@ describe("Preventivo — vínculo com o título do Prime", () => {
   });
 
   it("nenhum candidato fica NAO_ENCONTRADO, e isso não é pagamento", async () => {
-    await sincronizar([extrato({ documento: "4444444", vencimento: "2027-01-01" })]);
+    await sincronizar([extrato({ documento: "4444444", vencimento: dia(400) })]);
     expect(await um(db, `select vinculo_prime from public.prev_titulo`)).toBe("NAO_ENCONTRADO");
     const res = await um(db, `select public.preventivo_resultados($1::uuid)`, [carteira]);
     expect(res.recebido.valor).toBe(null);
@@ -639,9 +658,7 @@ describe("Preventivo — a janela conta pelo vencimento ATUAL", () => {
   // "Vcto Origem" divergem, 21 tinham o aluno no espelho de produção e 21
   // casaram com o Prime por "Dt Vcto". Nenhuma casou SÓ por "Vcto Origem".
   it("origem velha e vencimento novo: continua na janela", async () => {
-    const hoje = await um(db, `select public.preventivo_hoje()`);
-    const d = (n) => { const x = new Date(hoje); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
-    const { id } = await carteiraCom(db, [linha({ vencimento: d(-3), vencimento_origem: d(-120) })]);
+    const { id } = await carteiraCom(db, [linha({ vencimento: dia(-3), vencimento_origem: dia(-120) })]);
     await um(db, `select public.preventivo_janela_aplicar()`);
     expect(await um(db, `select status from public.prev_titulo`)).toBe("ATIVO");
     const t = await um(db, `select public.preventivo_titulos($1::uuid)`, [id]);
@@ -649,20 +666,16 @@ describe("Preventivo — a janela conta pelo vencimento ATUAL", () => {
   });
 
   it("origem recente e vencimento velho: sai da janela", async () => {
-    const hoje = await um(db, `select public.preventivo_hoje()`);
-    const d = (n) => { const x = new Date(hoje); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
-    await carteiraCom(db, [linha({ vencimento: d(-40), vencimento_origem: d(-5) })]);
+    await carteiraCom(db, [linha({ vencimento: dia(-40), vencimento_origem: dia(-5) })]);
     await um(db, `select public.preventivo_janela_aplicar()`);
     expect(await um(db, `select status from public.prev_titulo`)).toBe("FORA_DA_JANELA");
   });
 
   it("sair da janela não transfere nada: o título continua só no Preventivo", async () => {
-    const hoje = await um(db, `select public.preventivo_hoje()`);
-    const d = (n) => { const x = new Date(hoje); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
     // entra na janela e só depois envelhece: é a passagem de ATIVO para
     // FORA_DA_JANELA que precisa ser inofensiva.
-    const { id } = await carteiraCom(db, [linha({ vencimento: d(-10) })]);
-    await um(db, `update public.prev_titulo set vencimento = $1::date`, [d(-40)]);
+    const { id } = await carteiraCom(db, [linha({ vencimento: dia(-10) })]);
+    await um(db, `update public.prev_titulo set vencimento = $1::date`, [dia(-40)]);
     const antes = await um(db, `select to_jsonb(t) from public.prev_titulo t`);
     await um(db, `select public.preventivo_janela_aplicar()`);
     const depois = await um(db, `select to_jsonb(t) from public.prev_titulo t`);

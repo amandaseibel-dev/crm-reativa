@@ -1,5 +1,52 @@
 # ReATIVA One — registro de versões
 
+## 1.2.0 — 2026-10-26 (habilitação versionada e seleção de recursos)
+
+**O achado que motivou esta versão:** o plugin estava completo no repositório e
+**inerte**. Nenhum `extraKnownMarketplaces` e nenhum `enabledPlugins` existia em
+nenhum arquivo de settings — nem no repo, nem em `~/.claude/settings.json`, que
+só habilita `frontend-design`. Medição nos 368 transcripts do projeto: **zero**
+invocação dos agentes, das skills e dos comandos deste plugin; os únicos
+subagentes com uso são os nativos `Explore` e `general-purpose`. O `CLAUDE.md`
+exigia a skill `economia-de-tokens` desde a 1.1.0 — uma skill que nunca carregou.
+
+- **Habilitação versionada** em `.claude/settings.json`: `extraKnownMarketplaces`
+  (`reativa`, `source: directory`, `path: "."`) e
+  `enabledPlugins` (`reativa-one@reativa: true`). O diff tem **10 adições e 0
+  remoções**, provado por `git diff --numstat`: nenhuma regra de `deny`/`ask`
+  tocada, e o autoteste segue **75 de 75, 0 divergente**.
+- **Skill nova `selecao-de-recursos`**: a terceira perna que faltava. As três se
+  encadeiam — `fontes-de-verdade` diz *o que* manda, `selecao-de-recursos` diz
+  *quem* faz, `economia-de-tokens` diz *quanto* custa. Traz o roteador pedido →
+  recurso, o contrato de coordenação, as quatro condições de paralelismo e a
+  tabela de quem tem a caneta por arquivo.
+- **`CATALOGO.md`**: nome, finalidade, quando usar, disponibilidade e situação de
+  uso de cada recurso, com o comando da medição no próprio arquivo. Registra a
+  sobreposição `guardiao` × `code-review` e por que nenhuma substitui a outra.
+- **`CLAUDE.md`**: seção permanente "Seleção de recursos e paralelismo", cinco
+  itens, no padrão enxuto da seção de economia de token.
+- Corrige `/reativa-one:autoteste`, que anunciava 63 casos — são 75 desde
+  2026-10-16.
+- **Correção de número:** o registro da 1.1.0 abaixo afirma "121 entradas de
+  `deny` e 79 de `ask`". O valor medido no arquivo é **119 e 76**. A divergência
+  é anterior a esta versão e nada foi removido aqui; a afirmação de 1.1.0 é que
+  está velha.
+
+**Limitação declarada, não resolvida:** não foi possível **provar** que a
+habilitação carrega. A documentação exige que a pasta seja confiada no diálogo
+interativo de workspace trust, e não há chave de repositório que o dispense.
+Teste feito em sandbox isolado (cópia do marketplace e do plugin, com e sem
+`git init`): `claude plugin marketplace list` **não** registrou `reativa` em
+nenhum dos dois casos. `claude plugin validate` passa no marketplace e no
+plugin. Enquanto o diálogo não for aceito uma vez no checkout principal, a
+Camada 0 continua valendo e o resto do plugin continua inerte. Também não está
+documentado o literal `path: "."` — se falhar, trocar pelo caminho absoluto do
+checkout.
+
+**Armadilha de worktree (documentada):** o caminho relativo resolve contra o
+checkout **principal**, não contra a worktree. Alteração feita em worktree só
+passa a valer depois de entrar na `main`.
+
 ## 1.1.0 — 2026-10-17 (política de economia de token)
 
 Não muda nenhuma regra de bloqueio: as 121 entradas de `deny` e as 79 de `ask`

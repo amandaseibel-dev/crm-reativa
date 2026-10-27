@@ -116,6 +116,20 @@ depois de `&&`, `;` e `|`).
 O plugin mora no próprio repositório; o marketplace local é
 `.claude-plugin/marketplace.json` na raiz.
 
+**Desde a 1.2.0 a habilitação é versionada.** `.claude/settings.json` traz:
+
+```json
+"extraKnownMarketplaces": { "reativa": { "source": { "source": "directory", "path": "." } } },
+"enabledPlugins": { "reativa-one@reativa": true }
+```
+
+Quem faz `git pull` não precisa instalar nada — **com uma condição**: a pasta
+tem de ser confiada no diálogo de *workspace trust*, que aparece uma vez, em
+sessão interativa. Não existe chave de repositório que o dispense. Até o
+diálogo ser aceito, só a Camada 0 vale e o resto do plugin fica inerte.
+
+Rota manual, ainda válida se a habilitação versionada não pegar neste build:
+
 ```
 /plugin marketplace add .
 /plugin install reativa-one@reativa
@@ -124,6 +138,13 @@ O plugin mora no próprio repositório; o marketplace local é
 `/plugin` é diálogo de terminal: rode num `claude` interativo (no app Claude
 Code, a aba de plugins faz o mesmo). Depois, **reabra a sessão** — hook só
 carrega no início.
+
+**Em worktree o caminho relativo resolve contra o checkout principal**, não
+contra a worktree: alteração feita em worktree só vale depois de entrar na
+`main`.
+
+O que cada recurso faz, quando usar e se está realmente em uso:
+[`CATALOGO.md`](CATALOGO.md).
 
 A Camada 0 **não precisa de instalação**: `.claude/settings.json` passa a valer
 assim que o arquivo existe no projeto, porque é lido pelo próprio Claude Code.
@@ -147,6 +168,21 @@ assim que o arquivo existe no projeto, porque é lido pelo próprio Claude Code.
    É por isso que cada regra crítica está gravada nas duas formas.
 3. `bash plugins/reativa-one/scripts/ambiente.sh` — diz se as duas camadas
    estão presentes em arquivo (presença de arquivo **não** prova hook ativo).
+4. **Provar que a habilitação pegou** — presença das chaves em
+   `.claude/settings.json` não basta:
+
+   | Rodar | Esperado |
+   |---|---|
+   | `claude plugin marketplace list` | lista `reativa` |
+   | `claude plugin list` | lista `reativa-one@reativa` como *enabled* |
+   | `/status`, linha "Setting sources" | cita o settings do projeto |
+   | `/plugin`, aba Errors | vazia |
+
+   Se `reativa` **não** aparecer, o diálogo de confiança não foi aceito (ou
+   `path: "."` não é honrado neste build — trocar pelo caminho absoluto do
+   checkout e repetir). `claude plugin validate .` e
+   `claude plugin validate plugins/reativa-one` conferem os manifestos, mas
+   **não** provam carregamento.
 
 ---
 
