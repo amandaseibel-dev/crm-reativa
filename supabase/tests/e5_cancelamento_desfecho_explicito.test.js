@@ -494,4 +494,37 @@ describe("E5: desfecho do cancelamento", () => {
     await db.exec(E5);
     expect(await md5Corpo(db)).toBe(antes);
   });
+
+  // ---------- guarda de md5 e grants (ressalvas do Guardiao, 27/10) ----------
+
+  it("FALHA FECHADO: corpo diferente do de producao e recusado, e nada e aplicado", async () => {
+    const limpo = await novoBanco({ aplicar: [REGRA_22_09, REGRA_25_09] });
+    // mexe no corpo sem mexer no que a E5 troca: o md5 muda, a marca nao aparece
+    await limpo.exec(
+      "create or replace function public.cancelar_acordo_ficha(p_acordo_id uuid)\n" +
+      "returns jsonb language plpgsql security definer set search_path to 'public' as\n" +
+      "$function$ begin return jsonb_build_object('ok', true, 'outra_coisa', true); end $function$;"
+    );
+    const md5Antes = await md5Corpo(limpo);
+    await expect(limpo.exec(E5)).rejects.toThrow(/E5\/GUARDA: md5 do corpo/);
+    // O `begin` do arquivo deixa a transacao abortada -- que e exatamente o
+    // efeito desejado: nada aplicado. Quem cola no SQL Editor recebe o erro e a
+    // transacao morre com ele; aqui o rollback e so para seguir consultando.
+    await limpo.exec("rollback");
+    expect(await md5Corpo(limpo)).toBe(md5Antes);
+  });
+
+  it("a guarda nao atrapalha a aplicacao legitima: do corpo de producao ela passa", async () => {
+    const limpo = await novoBanco({ aplicar: [REGRA_22_09, REGRA_25_09] });
+    expect(await md5Corpo(limpo)).toBe(MD5_PRODUCAO);
+    await limpo.exec(E5);
+    expect(await md5Corpo(limpo)).not.toBe(MD5_PRODUCAO);
+  });
+
+  it("os grants sao reconfirmados: anon fora, authenticated dentro", async () => {
+    const acl = await um(db,
+      "select coalesce(array_to_string(proacl,','),'(nula)') from pg_proc where proname='cancelar_acordo_ficha'");
+    expect(acl).not.toContain("anon=X");
+    expect(acl).toContain("authenticated=X");
+  });
 });

@@ -88,10 +88,55 @@
 -- `efetividade_caixa_origem` (#744, versao 20261023131709) NAO esta aplicada em
 -- producao e nao e referenciada aqui.
 --
--- IDEMPOTENCIA: `create or replace`. A segunda execucao deixa o mesmo corpo.
+-- IDEMPOTENCIA: `create or replace` dentro de transacao, com guarda de md5
+-- que reconhece a propria marca. A segunda execucao deixa o mesmo corpo.
 -- Rollback em
 -- aguardando_aprovacao/20261026180000_e5_cancelamento_desfecho_explicito.rollback.sql,
 -- que devolve o corpo `130665ad5be7b222b74875ebcc767719`.
+
+-- =====================================================================
+-- ENVELOPE TRANSACIONAL E GUARDA DE md5 -- FALHA FECHADO
+-- =====================================================================
+-- O `create or replace` abaixo reescreve o corpo INTEIRO. Sem guarda ele falha
+-- ABERTO: se producao nao estiver mais no corpo de 26/10/2026, ele sobrescreve
+-- em silencio o que tiver mudado no meio. O teste prova o md5 do ARQUIVO, nao o
+-- do banco no dia da aplicacao -- e e o do banco que decide.
+--
+-- `begin`/`commit` nao e enfeite: sem eles a excecao da guarda nao impediria o
+-- `create or replace` seguinte de rodar. Dentro da transacao, falhar aqui
+-- significa nada aplicado.
+--
+-- IDEMPOTENCIA preservada: se o corpo ja tem a marca da E5, a guarda passa
+-- adiante e o `create or replace` reescreve o mesmo corpo.
+begin;
+
+do $guarda$
+declare
+  v_md5_esperado constant text := '130665ad5be7b222b74875ebcc767719';
+  v_md5          text;
+  v_def          text;
+begin
+  select md5(p.prosrc), pg_get_functiondef(p.oid) into v_md5, v_def
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'cancelar_acordo_ficha'
+     and pg_get_function_identity_arguments(p.oid) = 'p_acordo_id uuid';
+
+  if v_def is null then
+    raise exception 'E5/GUARDA: cancelar_acordo_ficha(p_acordo_id uuid) nao existe';
+  end if;
+
+  if position('-- E5 (26/10/2026): medicao do desfecho.' in v_def) > 0 then
+    raise notice 'E5/GUARDA: ja aplicada; o create or replace deixa o mesmo corpo';
+    return;
+  end if;
+
+  if v_md5 <> v_md5_esperado then
+    raise exception 'E5/GUARDA: md5 do corpo e % e o esperado e % -- producao mudou desde 26/10/2026, nao vou sobrescrever as cegas',
+      v_md5, v_md5_esperado;
+  end if;
+
+  raise notice 'E5/GUARDA: corpo de producao confere, segue a aplicacao';
+end $guarda$;
 
 create or replace function public.cancelar_acordo_ficha(p_acordo_id uuid)
 returns jsonb
@@ -236,3 +281,33 @@ comment on function public.cancelar_acordo_ficha(uuid) is
   '(CANCELAMENTO_EFETIVO / COMPOSICAO_AUSENTE / CONFERENCIA_NECESSARIA) com as '
   'contagens, em vez de ok:true indistinto, e audita quando sobra mensalidade '
   'quitada presa ao acordo cancelado. Nao reabre titulo e nao desfaz pagamento.';
+
+-- =====================================================================
+-- GRANTS RECONFIRMADOS (premissa de seguranca §10 / checklist §C)
+-- =====================================================================
+-- `CREATE OR REPLACE` preserva a ACL de quem ja existia, mas a premissa manda
+-- reconfirmar depois de recriar -- e o Guardiao apontou a ausencia. O portao
+-- real e interno (`crm_usuario_pode_quitar_baixar()` levantando 42501 no corpo),
+-- entao `authenticated` precisa ALCANCAR a funcao para receber a recusa com
+-- mensagem; o grant nao e a autorizacao. `anon` e `public` saem por garantia:
+-- o papel que aplica varia (supabase_admin no SQL Editor) e funcao nova neste
+-- schema pode nascer com EXECUTE para anon.
+--
+-- `if exists` em cada papel porque nem toda bancada de teste cria os tres.
+do $acl$
+declare r text;
+begin
+  execute 'revoke all on function public.cancelar_acordo_ficha(uuid) from public';
+  foreach r in array array['anon'] loop
+    if exists (select 1 from pg_roles where rolname = r) then
+      execute format('revoke all on function public.cancelar_acordo_ficha(uuid) from %I', r);
+    end if;
+  end loop;
+  foreach r in array array['authenticated', 'service_role'] loop
+    if exists (select 1 from pg_roles where rolname = r) then
+      execute format('grant execute on function public.cancelar_acordo_ficha(uuid) to %I', r);
+    end if;
+  end loop;
+end $acl$;
+
+commit;
