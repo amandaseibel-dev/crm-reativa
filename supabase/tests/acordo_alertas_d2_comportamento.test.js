@@ -44,7 +44,15 @@ async function mk(db, { nome, resp = null, respAlu = undefined, status = "ATIVO"
   return { al, ac, ps };
 }
 const gerar = async (db, hoje, dias = null, modo = null) => (await db.query("select public.acordo_alertas_gerar($1::date,$2::int,$3::text) j", [hoje, dias, modo])).rows[0].j;
-const alertas = async (db, ac) => (await db.query(`select numero_parcela n, vencimento::text v, data_alerta::text da, responsavel_email r, resolucao res, (resolvido_em is not null) fechado from acordo_alertas_parcela ${ac ? "where acordo_id=$1" : ""} order by criado_em, id`, ac ? [ac] : [])).rows;
+// `ac` aceita UM id ou uma LISTA de ids. Contar alerta sem filtrar pelo acordo em
+// teste e armadilha: a fixture tem acordos proprios e o harness desloca as datas
+// dela para o dia da execucao (DIA0 = 2026-09-21), enquanto as datas de sonda
+// daqui sao absolutas. Em 14/10/2026 e de novo em 21/10/2026 as duas geometrias
+// se cruzaram e o total global mudou sem que a regra mudasse -- ver o caso A.
+const alertas = async (db, ac) => {
+  const ids = ac === undefined || ac === null ? null : (Array.isArray(ac) ? ac : [ac]);
+  return (await db.query(`select numero_parcela n, vencimento::text v, data_alerta::text da, responsavel_email r, resolucao res, (resolvido_em is not null) fechado from acordo_alertas_parcela ${ids ? "where acordo_id = any($1::uuid[])" : ""} order by criado_em, id`, ids ? [ids] : [])).rows;
+};
 const fixo = (d) => new Date(Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10)));
 const iso = (t) => t.toISOString().slice(0, 10);
 
@@ -154,7 +162,9 @@ describe("A-M: geracao, resolucao e idempotencia", () => {
     await db.query("insert into acordos(id,aluno_id,cpf,status,valor_total,saldo,qtd_parcelas,numero_ulbra,numero_acordo,operador_responsavel_email) select $1,aluno_id,cpf,'ATIVO',500,500,1,'88123',9901,'op2@x' from acordos where id=$2", [U(900, 1), a1.ac]);
     await db.query("insert into parcelas(id,acordo_id,numero,valor,vencimento,status) values ($1,$2,1,100,$3::date,'A_VENCER')", [U(900, 2), U(900, 1), D]);
     await gerar(db, "2026-10-17");
-    const a = await alertas(db);
+    // Os DOIS acordos que este caso criou -- nao o total global, que inclui a
+    // fixture e desliza com o dia da execucao.
+    const a = await alertas(db, [a1.ac, U(900, 1)]);
     expect(a).toHaveLength(2); expect(new Set(a.map((x) => x.r))).toEqual(new Set(["op1@x", "op2@x"]));
     await db.close();
   });
@@ -225,12 +235,18 @@ describe("RPCs de consumo (RLS/JWT)", () => {
     await db.close();
   });
   it("tabela de alertas: operador so le o proprio (RLS) e nao escreve; anon nada", async () => {
-    const db = await novo(); await mk(db, { nome: "Teste Rls", resp: H.OP6, parcelas: [{ venc: D }] }); await gerar(db, "2026-10-17");
+    const db = await novo(); const { ac } = await mk(db, { nome: "Teste Rls", resp: H.OP6, parcelas: [{ venc: D }] }); await gerar(db, "2026-10-17");
     await db.exec("set role authenticated"); await H.como(db, "outro@aelbra.com.br");
     expect((await H.qn(db, "select count(*)::int n from acordo_alertas_parcela"))[0].n).toBe(0);
     await expect(db.query("delete from acordo_alertas_parcela")).rejects.toThrow(/permission denied/i);
     await H.como(db, H.OP6);
-    expect((await H.qn(db, "select count(*)::int n from acordo_alertas_parcela"))[0].n).toBe(1);
+    // H.OP6 e TAMBEM o responsavel de um acordo da fixture, cujas datas deslizam
+    // com o dia da execucao: contar linha nao mede RLS. O que a RLS afirma e que
+    // TUDO o que ele le e dele, e que o alerta em teste esta entre o que ele le.
+    const dele = await H.qn(db, "select acordo_id::text ac, responsavel_email r from acordo_alertas_parcela");
+    expect(dele.length).toBeGreaterThanOrEqual(1);
+    expect(dele.every((x) => x.r === H.OP6)).toBe(true);
+    expect(dele.map((x) => x.ac)).toContain(ac);
     await db.close();
   });
 });

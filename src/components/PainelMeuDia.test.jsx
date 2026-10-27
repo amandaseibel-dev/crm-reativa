@@ -7,6 +7,9 @@ afterEach(cleanup);
 
 const HOJE = "2026-10-15";
 const retorno = (o) => ({ id: "a1", aluno_id: "a1", nome: "Aluna Um", telefone: "51999990000", data: HOJE, hora_retorno: "14:30", valor_em_aberto: 1200.5, responsavel_email: "cobranca06@aelbra.com.br", tratado: false, ...o });
+// Linha ja pronta da aba "Atrasados" -- a forma e a mesma do retorno, com
+// `dias_atraso` a mais (quem monta e `retornosAtrasados`, testada na unidade).
+const atrasado = (o) => ({ id: "x1", aluno_id: "x1", nome: "Aluna Atrasada", telefone: "", data: "2026-10-13", hora_retorno: "10:00", valor_em_aberto: 300, prioritario: false, responsavel_email: "", tratado: false, dias_atraso: 2, ...o });
 const boleto = (o) => ({ aluno_id: "b1", aluno_nome: "Fulana Dois", acordo_id: "c1", numero_acordo: 71903, parcela_id: "p1", numero_parcela: 3, valor: 665.98, vencimento: "2026-10-17", dias_restantes: 2, boleto: "571903000300", responsavel_email: "cobranca06@aelbra.com.br", tem_alerta: false, ...o });
 
 describe("PainelMeuDia", () => {
@@ -63,7 +66,10 @@ describe("PainelMeuDia", () => {
     render(<PainelMeuDia hoje={HOJE} retornos={[retorno()]} boletos={[]} onAbrirFicha={abrir} />);
     const item = screen.getByTestId("meu-dia-retorno-item");
     expect(item.textContent).toMatch(/14:30/);
-    expect(item.textContent).toMatch(/51999990000/);
+    // Formatado pelo helper do sistema, e o que esta escrito e o que o `tel:`
+    // disca -- sem nono digito inventado.
+    expect(item.textContent).toMatch(/\+55 \(51\) 99999-0000/);
+    expect(screen.getByTitle("Ligar para este número").getAttribute("href")).toBe("tel:+5551999990000");
     expect(item.textContent).toMatch(/1\.200,50/);
     fireEvent.click(screen.getByTitle("Abrir ficha do aluno"));
     expect(abrir).toHaveBeenCalledWith(expect.objectContaining({ aluno_id: "a1" }));
@@ -128,5 +134,207 @@ describe("PainelMeuDia", () => {
     expect(screen.getAllByTestId("meu-dia-boleto-item")).toHaveLength(9);
     fireEvent.click(screen.getByText("Ver todos (8)"));
     expect(screen.getAllByTestId("meu-dia-retorno-item")).toHaveLength(8);
+  });
+});
+
+// ---------------------------------------------------------------------
+// As cinco melhorias de tela de 22/10/2026.
+// ---------------------------------------------------------------------
+describe("PainelMeuDia: aba Atrasados", () => {
+  it("a aba so existe quando ha retorno vencido", () => {
+    const { unmount } = render(<PainelMeuDia hoje={HOJE} retornos={[retorno()]} boletos={[]} />);
+    expect(screen.queryByTestId("meu-dia-aba-atrasados")).toBeNull();
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+    unmount();
+
+    render(<PainelMeuDia hoje={HOJE} retornos={[retorno()]} retornosAtrasados={[atrasado()]} boletos={[]} />);
+    expect(screen.getByTestId("meu-dia-aba-atrasados").textContent).toMatch(/Atrasados \(1\)/);
+  });
+
+  it("abre em Hoje mesmo havendo atraso, e o atrasado aparece so na aba dele", () => {
+    render(<PainelMeuDia hoje={HOJE} retornos={[retorno()]} retornosAtrasados={[atrasado()]} boletos={[]} />);
+    // A tela nao muda de aba por conta propria: quem decide e o operador.
+    expect(screen.getByRole("tab", { name: "Hoje (1)" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("Aluna Um")).toBeTruthy();
+    expect(screen.queryByText("Aluna Atrasada")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("meu-dia-aba-atrasados"));
+    expect(screen.getByText("Aluna Atrasada")).toBeTruthy();
+    expect(screen.queryByText("Aluna Um")).toBeNull();
+    expect(screen.getByTestId("meu-dia-retorno-atraso").textContent).toMatch(/2d de atraso/);
+  });
+
+  it("o atrasado tem o mesmo check de contato feito que o retorno de hoje", () => {
+    const confirmar = vi.fn();
+    render(<PainelMeuDia hoje={HOJE} retornos={[]} retornosAtrasados={[atrasado()]} boletos={[]} onConfirmarRetorno={confirmar} />);
+    fireEvent.click(screen.getByTestId("meu-dia-aba-atrasados"));
+    fireEvent.click(screen.getByTitle("Marcar contato como feito"));
+    expect(confirmar).toHaveBeenCalledWith("x1", true);
+  });
+
+  it("tratando o ultimo atrasado a aba sai e a visao volta para Hoje", () => {
+    const { rerender } = render(<PainelMeuDia hoje={HOJE} retornos={[retorno()]} retornosAtrasados={[atrasado()]} boletos={[]} />);
+    fireEvent.click(screen.getByTestId("meu-dia-aba-atrasados"));
+    expect(screen.getByText("Aluna Atrasada")).toBeTruthy();
+    // `retornosAtrasados` ja chega sem os tratados: depois do check a lista
+    // volta vazia do PainelCarteira. A tela nao pode ficar numa aba morta.
+    rerender(<PainelMeuDia hoje={HOJE} retornos={[retorno()]} retornosAtrasados={[]} boletos={[]} />);
+    expect(screen.queryByTestId("meu-dia-aba-atrasados")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Hoje (1)" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("Aluna Um")).toBeTruthy();
+  });
+});
+
+describe("PainelMeuDia: hora combinada, prioridade e total", () => {
+  it("a hora que ja passou fica marcada; a que ainda vem, nao", () => {
+    const { unmount } = render(<PainelMeuDia hoje={HOJE} horaAgora="15:00" retornos={[retorno({ hora_retorno: "14:30" })]} boletos={[]} />);
+    expect(screen.getByTestId("meu-dia-hora-vencida").textContent).toMatch(/14:30/);
+    unmount();
+
+    render(<PainelMeuDia hoje={HOJE} horaAgora="13:00" retornos={[retorno({ hora_retorno: "14:30" })]} boletos={[]} />);
+    expect(screen.queryByTestId("meu-dia-hora-vencida")).toBeNull();
+    expect(screen.getByTestId("meu-dia-retorno-item").textContent).toMatch(/14:30/);
+  });
+
+  it("sem relogio na prop, nada e marcado como hora vencida", () => {
+    render(<PainelMeuDia hoje={HOJE} retornos={[retorno({ hora_retorno: "14:30" })]} boletos={[]} />);
+    expect(screen.queryByTestId("meu-dia-hora-vencida")).toBeNull();
+  });
+
+  it("o chip do dia mostra quantos prioritarios aquele dia tem", () => {
+    render(
+      <PainelMeuDia
+        hoje={HOJE}
+        retornos={[
+          retorno({ prioritario: true }),
+          retorno({ id: "a2", nome: "Aluna Dois", data: "2026-10-16" }),
+        ]}
+        boletos={[]}
+      />
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "Semana (2)" }));
+    // O dia sem prioridade mantem o texto de antes -- so quem tem ganha ⭐.
+    expect(screen.getAllByTestId("meu-dia-chip-dia").map((c) => c.textContent)).toEqual(["Hoje · 1 ⭐1", "Amanhã · 1"]);
+  });
+
+  it("a coluna de retornos informa quantos faltam e quanto esta em aberto", () => {
+    const { unmount } = render(
+      <PainelMeuDia hoje={HOJE} retornos={[retorno(), retorno({ id: "a2", valor_em_aberto: 1000 })]} boletos={[]} />
+    );
+    expect(screen.getByText(/2 pendentes · R\$ 2\.200,50 em aberto/)).toBeTruthy();
+    unmount();
+
+    // Singular, e o tratado nao entra na soma do que falta fazer.
+    render(<PainelMeuDia hoje={HOJE} retornos={[retorno(), retorno({ id: "a2", valor_em_aberto: 1000, tratado: true })]} boletos={[]} />);
+    expect(screen.getByText(/1 pendente · R\$ 1\.200,50 em aberto/)).toBeTruthy();
+    unmount();
+  });
+
+  it("sem pendencia a linha de apoio nao inventa numero", () => {
+    render(<PainelMeuDia hoje={HOJE} retornos={[retorno({ tratado: true })]} boletos={[]} />);
+    expect(screen.getByText("Agendados por você")).toBeTruthy();
+  });
+
+  it("telefone inaproveitavel aparece como texto, sem oferecer ligacao", () => {
+    render(<PainelMeuDia hoje={HOJE} retornos={[retorno({ telefone: "123" })]} boletos={[]} />);
+    expect(screen.getByTestId("meu-dia-retorno-item").textContent).toMatch(/123/);
+    expect(screen.queryByTitle("Ligar para este número")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------
+// P1 (23/10/2026): a visao da gestao em "Todos os operadores" le uma carteira
+// truncada em 3.000 fichas, e em producao (22/10/2026) NENHUM dos 183 retornos
+// agendados do dia caia nessas 3.000. A coluna dizia "0" -- afirmacao falsa.
+describe("PainelMeuDia: visao parcial da gestao", () => {
+  it("troca a lista de retornos por um aviso e nao mostra numero nenhum", () => {
+    render(<PainelMeuDia hoje={HOJE} retornos={[]} retornoAutomaticoHoje={3000} boletos={[]} visaoParcial />);
+    const aviso = screen.getByTestId("meu-dia-retornos-parcial");
+    expect(aviso.textContent).toMatch(/Visão parcial/);
+    expect(aviso.textContent).toMatch(/Escolha um operador/);
+    // O "0" nao volta por outra porta: nem no titulo, nem nas abas, nem como
+    // "nenhum retorno" (que tambem afirmaria algo sobre o que nao foi lido).
+    expect(screen.getByRole("heading", { level: 3, name: /Retornos/ }).textContent).toBe("🗓️ Retornos");
+    expect(screen.queryByRole("tab", { name: /Hoje/ })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /Semana/ })).toBeNull();
+    expect(screen.queryByText(/Nenhum retorno agendado/)).toBeNull();
+    // O contador do automatico sai: ele subtrai esta lista truncada de uma
+    // contagem que bate no MESMO teto, entao o numero nao quer dizer nada.
+    expect(screen.queryByTestId("meu-dia-retorno-automatico")).toBeNull();
+  });
+
+  it("o pedaco de lista que veio na carga truncada nao e exibido como se fosse tudo", () => {
+    render(<PainelMeuDia hoje={HOJE} retornos={[retorno(), retorno({ id: "a2" })]} boletos={[]} visaoParcial />);
+    expect(screen.queryAllByTestId("meu-dia-retorno-item")).toHaveLength(0);
+    expect(screen.queryByText(/Ver todos/)).toBeNull();
+    expect(screen.getByTestId("meu-dia-retornos-parcial")).toBeTruthy();
+  });
+
+  it("a coluna de BOLETOS continua inteira: ela nao tem o teto da carteira", () => {
+    // Os boletos vem de `buscarTudo` sobre acordos/parcelas, paginado ate o
+    // fim -- nao sao escopados pelo teto de 3.000 que trunca `casos`.
+    render(<PainelMeuDia hoje={HOJE} retornos={[]} boletos={[boleto()]} visaoParcial />);
+    expect(screen.getAllByTestId("meu-dia-boleto-item")).toHaveLength(1);
+    expect(screen.getByText(/1 vence\(m\) hoje|Parcela de acordo ativo até/)).toBeTruthy();
+  });
+
+  it("sem a prop, nada muda para o operador comum", () => {
+    render(<PainelMeuDia hoje={HOJE} retornos={[retorno()]} retornoAutomaticoHoje={405} boletos={[]} />);
+    expect(screen.queryByTestId("meu-dia-retornos-parcial")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Hoje (1)" })).toBeTruthy();
+    expect(screen.getAllByTestId("meu-dia-retorno-item")).toHaveLength(1);
+    expect(screen.getByTestId("meu-dia-retorno-automatico")).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------
+// P2 (23/10/2026): dos 183 retornos agendados para 22/10/2026, 141 tinham o
+// MESMO `atualizado_em` (29/06/2026 16h) -- um lote de quatro meses antes que
+// na tela parecia compromisso de hoje. A linha passa a dizer quando o aluno
+// foi acionado pela ultima vez, com o helper que a coluna de boletos ja usava.
+describe("PainelMeuDia: ultimo acionamento na linha do retorno", () => {
+  const indice = (dua) => new Map([["a1", { dua, temCaso: true }]]);
+
+  it("mostra ha quantos dias o aluno foi acionado", () => {
+    render(<PainelMeuDia hoje={HOJE} retornos={[retorno()]} boletos={[]} acionamentoPorAluno={indice("2026-06-29")} />);
+    const linha = screen.getByTestId("meu-dia-retorno-acionamento");
+    expect(linha.textContent).toMatch(/último acionamento: Há 108 dias/);
+    // O texto de apoio e o mesmo do resto do sistema: diz que o registro e do
+    // ALUNO e que nao comprova contato sobre este retorno.
+    expect(linha.getAttribute("title")).toMatch(/Não comprova aviso desta parcela/);
+    expect(linha.getAttribute("title")).toMatch(/Registrado em 29\/06\/2026/);
+  });
+
+  it("acionado hoje aparece como Hoje", () => {
+    render(<PainelMeuDia hoje={HOJE} retornos={[retorno()]} boletos={[]} acionamentoPorAluno={indice(HOJE)} />);
+    expect(screen.getByTestId("meu-dia-retorno-acionamento").textContent).toMatch(/último acionamento: Hoje/);
+  });
+
+  it("sem data e sem caso dizem 'Sem registro', nao uma data inventada", () => {
+    const { unmount } = render(<PainelMeuDia hoje={HOJE} retornos={[retorno()]} boletos={[]} acionamentoPorAluno={indice(null)} />);
+    expect(screen.getByTestId("meu-dia-retorno-acionamento").textContent).toMatch(/Sem registro/);
+    unmount();
+    render(<PainelMeuDia hoje={HOJE} retornos={[retorno()]} boletos={[]} acionamentoPorAluno={new Map()} />);
+    expect(screen.getByTestId("meu-dia-retorno-acionamento").textContent).toMatch(/Sem registro/);
+  });
+
+  it("sem o indice a linha segue como antes, sem campo a mais", () => {
+    render(<PainelMeuDia hoje={HOJE} retornos={[retorno()]} boletos={[]} />);
+    expect(screen.queryByTestId("meu-dia-retorno-acionamento")).toBeNull();
+    expect(screen.getByTestId("meu-dia-retorno-item")).toBeTruthy();
+  });
+
+  it("vale tambem na aba Atrasados, que e onde o retorno velho mora", () => {
+    render(
+      <PainelMeuDia
+        hoje={HOJE}
+        retornos={[]}
+        retornosAtrasados={[atrasado({ id: "a1", aluno_id: "a1" })]}
+        boletos={[]}
+        acionamentoPorAluno={indice("2026-10-01")}
+      />
+    );
+    fireEvent.click(screen.getByTestId("meu-dia-aba-atrasados"));
+    expect(screen.getByTestId("meu-dia-retorno-acionamento").textContent).toMatch(/Há 14 dias/);
   });
 });

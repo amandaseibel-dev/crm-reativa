@@ -71,9 +71,22 @@ const um = async (db, sql, p = []) => {
 // arquivo todos dividiam o mesmo celular, e a trava de contato compartilhado
 // esvaziava o público inteiro — o sistema estava certo, o fixture é que era
 // irreal. Um relatório de verdade tem números diferentes.
+//
+// O vencimento é RELATIVO a hoje: 10 dias de atraso, bem dentro dos 31 que
+// preventivo_limite_dias() permite. Fixo em "2026-09-18" ele atravessava a janela
+// sozinho conforme o calendário andava — em 19/10/2026 dava 31 dias (dentro) e em
+// 20/10 dava 32 (fora), e a suíte ficava vermelha sem nenhuma mudança de código.
+// A data vem do fuso de preventivo_hoje(), America/Sao_Paulo, não do fuso da máquina.
+const VENC_NA_JANELA = (() => {
+  const hojeSP = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+  const d = new Date(`${hojeSP}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 10);
+  return d.toISOString().slice(0, 10);
+})();
+
 const t = (matricula, origem, saldo, over = {}) => ({
   matricula, aluno_nome: `Aluno ${matricula}`,
-  vencimento: "2026-09-18", vencimento_origem: origem,
+  vencimento: VENC_NA_JANELA, vencimento_origem: origem,
   valor: String(saldo), saldo: String(saldo), saldo_atualizado: String(saldo + 10),
   situacao: "EM ABERTO",
   celular: `(51) 9${matricula.slice(-4)}-${matricula.slice(-4)}`,

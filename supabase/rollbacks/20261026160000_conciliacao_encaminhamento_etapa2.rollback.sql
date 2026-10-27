@@ -1,0 +1,49 @@
+-- ROLLBACK de 20261026160000_conciliacao_encaminhamento_etapa2
+-- =============================================================================
+-- O QUE A ETAPA 2 CRIOU: três funções (a allowlist de escopo e as duas de
+-- fachada), e nada mais. Nenhuma tabela, nenhuma coluna, nenhum estado novo,
+-- nenhum CHECK alterado, nenhuma view substituída, nenhum grant concedido a
+-- terceiros. Por isso o rollback é um `drop function` de três linhas, e é
+-- completo.
+--
+-- O QUE ESTE ROLLBACK NÃO DESFAZ, e não poderia:
+--
+--   Os encerramentos que a fachada tiver gravado ENQUANTO existia. Eles não são
+--   dela: são de `conciliacao_ja_paga_encerrar` (decisão na fila) e
+--   `conciliacao_encerrar_sem_efeito_financeiro` (estado terminal da Etapa 1),
+--   que seguem existindo e são anteriores a esta migration. Derrubar a fachada
+--   fecha a PORTA; não apaga o que passou por ela -- e apagar seria pior,
+--   porque cada passagem tem auditoria e é decisão humana registrada.
+--
+--   Para reverter um encerramento específico, o caminho é o rollback da Etapa 1
+--   (devolver `status_conciliacao` ao valor em `auditoria.detalhes ->
+--   'estado_anterior'`, por id exato), não este arquivo. Não há PITR neste
+--   projeto: toda reversão é por registro, com backup antes.
+--
+-- NADA A DESFAZER NO VÍNCULO DE ALUNO. Esta etapa não vincula aluno, não recebe
+-- aluno e não chama `pagamento_vincular_aluno` -- o escopo foi reduzido a
+-- `CONFERIR_E_ENCERRAR` em 26/10/2026. A busca manual de aluno da fila é
+-- anterior a esta migration e independente dela: este rollback não a afeta.
+--
+-- COMO ENCONTRAR O QUE PASSOU PELA PORTA, se for preciso reverter:
+--
+--   select registro_id, detalhes -> 'passo_2', created_at
+--     from public.auditoria
+--    where acao = 'CONCILIACAO_ENCAMINHAMENTO'
+--    order by created_at;
+--
+-- A coluna de data de `public.auditoria` chama-se `created_at`. Esta query
+-- dizia `criado_em` e falharia com 42703 em quem a copiasse -- corrigido em
+-- 26/10/2026, depois de conferir o catalogo em producao. O resto da tabela usa
+-- nomes em portugues (`usuario`, `acao`, `tabela_afetada`, `registro_id`,
+-- `detalhes`), e e dai que vinha a confusao.
+--
+-- A tela que chamava estas funções para de funcionar com este rollback, e é o
+-- comportamento certo: botão sem função atrás é pior que botão ausente. O
+-- frontend trata a ausência como "não foi possível carregar a prévia" e
+-- continua mostrando a pendência -- ela não desaparece da fila.
+-- =============================================================================
+
+drop function if exists public.conciliacao_encaminhar_confirmar(uuid, text, boolean);
+drop function if exists public.conciliacao_encaminhar_previa(uuid);
+drop function if exists public.conciliacao_encaminhar_acoes();

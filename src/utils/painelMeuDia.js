@@ -15,6 +15,12 @@
 //    A tela abre em HOJE e tem a semana (hoje + JANELA_RETORNOS_DIAS) atras de
 //    um toque, agrupada por dia -- pedido da gestao em 15/10/2026, junto com
 //    "nao quero deixar a pagina poluida".
+//    Desde 22/10/2026 existe tambem a aba ATRASADOS (`retornosAtrasados`): o
+//    retorno agendado que venceu e nao foi tratado, de ontem ate
+//    JANELA_ATRASO_DIAS atras. Antes ele simplesmente saia desta visao no dia
+//    seguinte. As duas listas sao disjuntas -- `retornosAgendados` cobre de
+//    hoje para frente, `retornosAtrasados` so o passado -- e nenhuma das duas
+//    escreve nada: data, status, responsavel e confirmacao seguem intocados.
 //
 //  * BOLETO PROXIMO = parcela VIVA de acordo ATIVO com vencimento entre hoje e
 //    hoje + JANELA_BOLETOS_DIAS. Na janela de 5 dias eram 184 parcelas, ~18 por
@@ -30,12 +36,49 @@ import { ordenarAlertas } from "./alertasParcela";
 // `parcela ainda cobravel` tem dono: src/utils/parcelaStatus.js, que espelha
 // public.parcela_viva(). Este arquivo nao reescreve a regra -- so a usa.
 import { parcelaViva } from "./parcelaStatus";
+// A forma de perguntar "isto e combinado do operador?" tem dono:
+// src/utils/retornoOrigem.js, que espelha o `upper(coalesce(...)) like
+// 'OPERADOR%'` do banco. Modulo puro -- nao traz `supabase` para ca.
+import { ehOrigemDoOperador } from "./retornoOrigem";
 
 // Janela do bloco de boletos, em dias corridos a partir de hoje (inclusive).
 export const JANELA_BOLETOS_DIAS = 5;
 
+// DONO DA REGRA DE ORIGEM. "Agendado pelo operador" e `retorno_origem`
+// comecando em "OPERADOR" -- tudo o mais (inclusive origem nula) e prazo
+// automatico da tabulacao. A regra ja valia nesta tela desde 15/10/2026; aqui
+// ela ganha nome para que a Agenda embutida do PainelCarteira possa separar as
+// duas coisas usando exatamente o mesmo criterio, em vez de reescrever o teste.
+//
+// `retornosAgendados` e `retornosAtrasados` repetem o criterio dentro do
+// proprio filtro, de proposito: os testes de producao ancoram no literal para
+// provar que cada funcao filtra por origem. O teste de unidade confere que as
+// tres leituras concordam, entao uma mudanca aqui que esqueca as outras duas
+// reprova no CI em vez de passar calada.
+export function ehRetornoDoOperador(a) {
+  return ehOrigemDoOperador(a?.retorno_origem);
+}
+
+// Quantos retornos de uma lista sao compromisso do operador e quantos sao
+// prazo de tabulacao. Serve o cabecalho da Agenda embutida, que lista as duas
+// origens juntas: sem o numero separado, "Agenda - retornos (835)" parece
+// contradizer o "Retornos - 0" do bloco logo acima, que conta so os agendados.
+// Nao filtra, nao ordena e nao remove nada da lista -- so conta.
+export function separarAgendaPorOrigem(lista) {
+  const itens = Array.isArray(lista) ? lista : [];
+  const agendados = itens.filter((a) => ehRetornoDoOperador(a)).length;
+  return { total: itens.length, agendados, automaticos: itens.length - agendados };
+}
+
 // Visao semanal dos retornos: hoje + 6 = a semana a frente, inclusive hoje.
 export const JANELA_RETORNOS_DIAS = 6;
+
+// Quantos dias para tras a aba "Atrasados" olha. 7 NAO e numero novo: e a
+// mesma janela que a Agenda embutida do PainelCarteira ja usava ("atrasado:
+// some depois de 1 semana"). O retorno que o operador agendou e nao tratou
+// sumia desta visao no dia seguinte -- sobrevivia so atras de um clique no
+// card da Agenda e como selo dentro da linha da fila.
+export const JANELA_ATRASO_DIAS = 7;
 
 // Retornos que o operador marcou, de hoje ate hoje + `dias` (0 = so hoje).
 // Confirmados continuam na lista, marcados, para o operador ver o que ja tratou
@@ -45,6 +88,21 @@ export const JANELA_RETORNOS_DIAS = 6;
 // que em producao esta ZERADO na maioria dos casos -- em 15/10/2026 o bloco
 // mostrava "R$ 0,00" em todos os retornos de dois operadores conferidos na
 // tela. `valorAbertoDe` e a mesma funcao da fila: um numero so no sistema.
+function linhaDeRetorno(a, finAlunos) {
+  return {
+    id: a.id,
+    aluno_id: a.id,
+    nome: nomeAluno(a),
+    telefone: a.telefone || "",
+    data: String(a.data_retorno).slice(0, 10),
+    hora_retorno: a.hora_retorno ? String(a.hora_retorno).slice(0, 5) : "",
+    prioritario: Boolean(a.retorno_prioritario),
+    valor_em_aberto: valorAbertoDe(a, finAlunos),
+    responsavel_email: a.responsavel_atual_email || "",
+    tratado: Boolean(a.retorno_confirmado_em),
+  };
+}
+
 export function retornosAgendados(casos, hoje, dias = 0, finAlunos = {}) {
   const inicio = String(hoje || "").slice(0, 10);
   if (!inicio) return [];
@@ -52,22 +110,11 @@ export function retornosAgendados(casos, hoje, dias = 0, finAlunos = {}) {
   return (Array.isArray(casos) ? casos : [])
     .filter((a) => {
       if (!a || !a.data_retorno) return false;
-      if (!String(a.retorno_origem || "").startsWith("OPERADOR")) return false;
+      if (!ehOrigemDoOperador(a.retorno_origem)) return false;
       const distancia = diasParaData(inicio, a.data_retorno);
       return distancia !== null && distancia >= 0 && distancia <= limite;
     })
-    .map((a) => ({
-      id: a.id,
-      aluno_id: a.id,
-      nome: nomeAluno(a),
-      telefone: a.telefone || "",
-      data: String(a.data_retorno).slice(0, 10),
-      hora_retorno: a.hora_retorno ? String(a.hora_retorno).slice(0, 5) : "",
-      prioritario: Boolean(a.retorno_prioritario),
-      valor_em_aberto: valorAbertoDe(a, finAlunos),
-      responsavel_email: a.responsavel_atual_email || "",
-      tratado: Boolean(a.retorno_confirmado_em),
-    }))
+    .map((a) => linhaDeRetorno(a, finAlunos))
     .sort(
       (x, y) =>
         String(x.data).localeCompare(String(y.data)) ||
@@ -117,6 +164,11 @@ export function agruparRetornosPorDia(retornos, hoje) {
       rotulo: rotuloDoDia(data, hoje),
       itens,
       pendentes: retornosPendentes(itens).length,
+      // Prioritario conta so entre os que faltam tratar: o chip do dia serve
+      // para escolher o dia, e quem ja foi atendido nao pesa nessa escolha.
+      // A ORDEM dos dias nao muda por causa disto -- prioridade nunca faz
+      // quinta aparecer antes de hoje (ver o comentario da ordenacao acima).
+      prioritarios: retornosPendentes(itens).filter((r) => r && r.prioritario).length,
     }));
 }
 
@@ -134,6 +186,69 @@ export function contarRetornoAutomaticoHoje(totalRetornosHoje, agendados) {
   if (!Number.isFinite(total)) return 0;
   const manuais = Array.isArray(agendados) ? agendados.length : 0;
   return Math.max(0, Math.round(total) - manuais);
+}
+
+// Retorno VENCIDO: o que o operador agendou, ainda nao tratou e cuja data ja
+// passou, de ontem ate `dias` atras. Mesmo filtro de origem da aba "Hoje"
+// (so OPERADOR) e mesmo recorte de tempo da Agenda embutida.
+//
+// Por que o tratado NAO entra aqui, ao contrario da aba "Hoje": na aba do dia
+// o confirmado fica na lista, marcado, para o operador ver o que ja fez hoje.
+// Um retorno de cinco dias atras ja tratado nao e trabalho pendente -- seria
+// so poluicao numa aba cujo proposito e exatamente "o que ficou para tras".
+//
+// Esta funcao NAO toca data, status, responsavel nem confirmacao: ela so LE e
+// ordena o que a carteira ja carregou.
+export function retornosAtrasados(casos, hoje, dias = JANELA_ATRASO_DIAS, finAlunos = {}) {
+  const inicio = String(hoje || "").slice(0, 10);
+  if (!inicio) return [];
+  const janela = Number.isFinite(Number(dias)) ? Number(dias) : JANELA_ATRASO_DIAS;
+  return (Array.isArray(casos) ? casos : [])
+    .filter((a) => {
+      if (!a || !a.data_retorno) return false;
+      if (!ehOrigemDoOperador(a.retorno_origem)) return false;
+      if (a.retorno_confirmado_em) return false;
+      const distancia = diasParaData(inicio, a.data_retorno);
+      // Negativo = passado. Hoje (0) e futuro ficam com `retornosAgendados`:
+      // as duas listas sao disjuntas de proposito, ninguem aparece nas duas.
+      return distancia !== null && distancia < 0 && distancia >= -janela;
+    })
+    .map((a) => ({ ...linhaDeRetorno(a, finAlunos), dias_atraso: Math.abs(diasParaData(inicio, a.data_retorno)) }))
+    .sort(
+      (x, y) =>
+        // Mais antigo primeiro: quem espera mais tempo aparece antes. A data
+        // manda, como na visao da semana -- prioridade so desempata DENTRO do
+        // mesmo dia, depois a hora combinada e o nome.
+        String(x.data).localeCompare(String(y.data)) ||
+        Number(Boolean(y.prioritario)) - Number(Boolean(x.prioritario)) ||
+        String(x.hora_retorno || "99:99").localeCompare(String(y.hora_retorno || "99:99")) ||
+        String(x.nome || "").localeCompare(String(y.nome || ""), "pt-BR")
+    );
+}
+
+// Soma do que esta em aberto na lista de retornos que a tela esta mostrando.
+// Conta so os PENDENTES: o valor serve para dimensionar o que falta fazer, e
+// o que ja foi tratado nao faz parte disso. O valor por linha e o mesmo
+// `valorAbertoDe` da fila -- um numero so no sistema, nao uma conta nova.
+export function somaEmAberto(retornos) {
+  return retornosPendentes(retornos).reduce((s, r) => s + Number(r?.valor_em_aberto || 0), 0);
+}
+
+// A hora combinada ja passou? Serve para a linha mostrar que o compromisso
+// ficou para tras DENTRO do dia de hoje -- as 15h, um retorno de 09:00 e um
+// de 17:00 nao podem parecer a mesma coisa.
+//
+// Tres guardas: so vale para o retorno de HOJE (em outro dia a comparacao de
+// hora nao quer dizer nada), so para quem tem hora combinada, e nunca para
+// quem ja foi tratado. `horaAgora` e "HH:MM" -- comparacao de texto resolve
+// porque o formato e de largura fixa e zero-padded.
+export function horaRetornoVencida(retorno, { hoje, horaAgora } = {}) {
+  if (!retorno || retorno.tratado) return false;
+  const hora = String(retorno.hora_retorno || "").slice(0, 5);
+  const agora = String(horaAgora || "").slice(0, 5);
+  if (!/^\d{2}:\d{2}$/.test(hora) || !/^\d{2}:\d{2}$/.test(agora)) return false;
+  if (String(retorno.data || "") !== String(hoje || "").slice(0, 10)) return false;
+  return agora > hora;
 }
 
 // Boletos de acordo a vencer na janela, a partir das parcelas que a carteira ja

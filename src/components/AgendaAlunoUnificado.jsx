@@ -48,8 +48,6 @@ export default function AgendaAlunoUnificado({ aluno, onAtualizar }) {
     operador_email: "",
     status_jornada: "EM_COBRANCA",
     prioridade_operacional: "NORMAL",
-    data_retorno: "",
-    hora_retorno: "",
     observacao_operacional: "",
   });
 
@@ -65,8 +63,6 @@ export default function AgendaAlunoUnificado({ aluno, onAtualizar }) {
       operador_email: aluno.operador_email || "",
       status_jornada: aluno.status_jornada || "EM_COBRANCA",
       prioridade_operacional: aluno.prioridade_operacional || "NORMAL",
-      data_retorno: aluno.data_retorno || "",
-      hora_retorno: aluno.hora_retorno ? String(aluno.hora_retorno).slice(0, 5) : "",
       observacao_operacional: aluno.observacao_operacional || "",
     });
   }, [aluno]);
@@ -90,6 +86,26 @@ export default function AgendaAlunoUnificado({ aluno, onAtualizar }) {
     const operadorEmailFinal = form.operador_email || email;
     const operadorNomeFinal = form.operador_nome || nome;
 
+    // ESTE COMPONENTE NÃO GRAVA RETORNO (27/10/2026). Duas razões:
+    //
+    // 1. `alunos_unificados` é ESPELHO. O gatilho
+    //    `trg_sincronizar_alunos_unificados`, em `public.alunos`, copia
+    //    `data_retorno`, `hora_retorno` e `retorno_origem` para cá casando por
+    //    `chave_unificacao`. Gravar aqui punha a data no lugar errado, sem
+    //    carimbo de origem, e a próxima mudança da ficha desfazia.
+    // 2. A fonte seria `public.alunos` -- mas a agenda é escopada pelo DONO DO
+    //    CASO (`responsavel_atual_email`), e não pelo `operador_email` do
+    //    cadastro unificado; foi essa mistura que tirou a Agenda Operacional do
+    //    ar em 28/08/2026 (`docs/PREMISSAS.md` §11). E uma `chave_unificacao`
+    //    pode ter DUAS fichas em `alunos` (176 chaves, máximo 2, medido em
+    //    27/10/2026), então escrever por chave mexeria em caso de outra pessoa.
+    //
+    // Como este componente não tem nenhum chamador em `src` hoje, a saída
+    // honesta é não ter caminho de escrita de retorno em vez de inventar um que
+    // ninguém exercita. Quem for reativar a tela: escrever em `public.alunos`
+    // pelo `id` da ficha dona do caso, via `camposDeRetorno`, conferindo
+    // quantas linhas foram afetadas. A data e a hora continuam VISÍVEIS no topo
+    // (leitura do espelho), e o formulário não as oferece mais para edição.
     const { error } = await supabase
       .from("alunos_unificados")
       .update({
@@ -97,8 +113,6 @@ export default function AgendaAlunoUnificado({ aluno, onAtualizar }) {
         operador_email: operadorEmailFinal,
         status_jornada: form.status_jornada || "EM_COBRANCA",
         prioridade_operacional: form.prioridade_operacional || "NORMAL",
-        data_retorno: form.data_retorno || null,
-        hora_retorno: form.hora_retorno || null,
         observacao_operacional: form.observacao_operacional || null,
         ultima_interacao_em: new Date().toISOString(),
         atualizado_em: new Date().toISOString(),
@@ -180,19 +194,6 @@ export default function AgendaAlunoUnificado({ aluno, onAtualizar }) {
           <option value="CRITICO">Crítico</option>
         </select>
 
-        <input
-          style={styles.input}
-          type="date"
-          value={form.data_retorno}
-          onChange={(e) => setForm({ ...form, data_retorno: e.target.value })}
-        />
-
-        <input
-          style={styles.input}
-          type="time"
-          value={form.hora_retorno}
-          onChange={(e) => setForm({ ...form, hora_retorno: e.target.value })}
-        />
       </div>
 
       <textarea

@@ -1,16 +1,22 @@
 import { describe, it, expect } from "vitest";
 import {
+  JANELA_ATRASO_DIAS,
   JANELA_BOLETOS_DIAS,
   JANELA_RETORNOS_DIAS,
   agruparRetornosPorDia,
   boletosProximosDoVencimento,
   contarRetornoAutomaticoHoje,
+  ehRetornoDoOperador,
   fimDaJanela,
+  horaRetornoVencida,
   retornosAgendados,
+  retornosAtrasados,
   retornosDoDia,
   retornosPendentes,
   rotuloDoDia,
+  separarAgendaPorOrigem,
   somaBoletos,
+  somaEmAberto,
 } from "./painelMeuDia";
 
 const HOJE = "2026-10-15";
@@ -239,5 +245,231 @@ describe("valor do retorno vem do consolidado da carteira", () => {
   it("detalhe sem total valido nao vira NaN na tela", () => {
     const fin = { a1: { temDetalhe: true, total: null } };
     expect(retornosAgendados([comZero], HOJE, 0, fin)[0].valor_em_aberto).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------
+// Aba "Atrasados" (22/10/2026): o retorno que o operador agendou, venceu e
+// nao foi tratado. O que estas checagens protegem:
+//  1. o filtro OPERADOR continua valendo (prazo automatico nao entra);
+//  2. a janela e de JANELA_ATRASO_DIAS dias, igual a da Agenda embutida;
+//  3. esta lista e a de `retornosAgendados` sao DISJUNTAS -- ninguem aparece
+//     nas duas, e por isso nenhum numero da tela conta a mesma pessoa duas
+//     vezes;
+//  4. o tratado nao volta como pendencia.
+// ---------------------------------------------------------------------
+describe("retornos atrasados", () => {
+  it("entra so o vencido, do operador, ainda sem tratamento", () => {
+    const lista = retornosAtrasados(
+      [
+        caso({ id: "ontem", data_retorno: "2026-10-14" }),
+        caso({ id: "hoje", data_retorno: HOJE }), // hoje e da aba Hoje
+        caso({ id: "amanha", data_retorno: "2026-10-16" }), // futuro: fora
+        caso({ id: "automatico", data_retorno: "2026-10-14", retorno_origem: "AUTOMATICO" }),
+        caso({ id: "tratado", data_retorno: "2026-10-14", retorno_confirmado_em: "2026-10-14T18:00:00Z" }),
+        caso({ id: "sem-data", data_retorno: null }),
+      ],
+      HOJE
+    );
+    expect(lista.map((r) => r.id)).toEqual(["ontem"]);
+    expect(lista[0]).toMatchObject({ dias_atraso: 1, nome: "Aluna Um", tratado: false });
+  });
+
+  it("a janela para no limite: 7 dias atras entra, 8 nao", () => {
+    const lista = retornosAtrasados(
+      [
+        caso({ id: "limite", data_retorno: "2026-10-08" }),
+        caso({ id: "velho", data_retorno: "2026-10-07" }),
+      ],
+      HOJE
+    );
+    expect(lista.map((r) => r.id)).toEqual(["limite"]);
+    expect(lista[0].dias_atraso).toBe(JANELA_ATRASO_DIAS);
+  });
+
+  it("mais antigo primeiro; dentro do mesmo dia o prioritario desempata", () => {
+    const lista = retornosAtrasados(
+      [
+        caso({ id: "novo", data_retorno: "2026-10-14" }),
+        caso({ id: "velho-comum", data_retorno: "2026-10-12", hora_retorno: "09:00" }),
+        caso({ id: "velho-prioritario", data_retorno: "2026-10-12", hora_retorno: "17:00", retorno_prioritario: true }),
+      ],
+      HOJE
+    );
+    // A data manda sobre a prioridade: o prioritario do dia 12 nao pula para
+    // depois do dia 14, e dentro do dia 12 ele vem antes mesmo com hora pior.
+    expect(lista.map((r) => r.id)).toEqual(["velho-prioritario", "velho-comum", "novo"]);
+  });
+
+  it("nenhum caso aparece nas duas listas (atrasados x agendados)", () => {
+    const casos = [
+      caso({ id: "ontem", data_retorno: "2026-10-14" }),
+      caso({ id: "hoje", data_retorno: HOJE }),
+      caso({ id: "quinta", data_retorno: "2026-10-16" }),
+    ];
+    const atrasados = retornosAtrasados(casos, HOJE).map((r) => r.id);
+    const agendados = retornosAgendados(casos, HOJE, JANELA_RETORNOS_DIAS).map((r) => r.id);
+    expect(atrasados).toEqual(["ontem"]);
+    expect(agendados).toEqual(["hoje", "quinta"]);
+    expect(atrasados.filter((id) => agendados.includes(id))).toEqual([]);
+  });
+
+  it("sem hoje valido devolve lista vazia, sem explodir", () => {
+    expect(retornosAtrasados([caso({ data_retorno: "2026-10-14" })], null)).toEqual([]);
+    expect(retornosAtrasados(null, HOJE)).toEqual([]);
+  });
+
+  it("usa o consolidado da carteira no valor, como a aba de hoje", () => {
+    const lista = retornosAtrasados(
+      [caso({ id: "a1", data_retorno: "2026-10-14" })],
+      HOJE,
+      JANELA_ATRASO_DIAS,
+      { a1: { temDetalhe: true, total: 4321.99 } }
+    );
+    expect(lista[0].valor_em_aberto).toBe(4321.99);
+  });
+});
+
+describe("prioritarios no chip do dia", () => {
+  it("conta so o prioritario que ainda falta tratar", () => {
+    const retornos = retornosAgendados(
+      [
+        caso({ id: "p1", retorno_prioritario: true }),
+        caso({ id: "p2", retorno_prioritario: true, retorno_confirmado_em: "2026-10-15T12:00:00Z" }),
+        caso({ id: "comum" }),
+        caso({ id: "amanha", data_retorno: "2026-10-16" }),
+      ],
+      HOJE,
+      JANELA_RETORNOS_DIAS
+    );
+    const grupos = agruparRetornosPorDia(retornos, HOJE);
+    expect(grupos.map((g) => [g.rotulo, g.pendentes, g.prioritarios])).toEqual([
+      ["Hoje", 2, 1],
+      ["Amanhã", 1, 0],
+    ]);
+  });
+
+  it("a ordem dos dias nao muda por causa da prioridade", () => {
+    const retornos = retornosAgendados(
+      [
+        caso({ id: "hoje-comum" }),
+        caso({ id: "amanha-prioritario", data_retorno: "2026-10-16", retorno_prioritario: true }),
+      ],
+      HOJE,
+      JANELA_RETORNOS_DIAS
+    );
+    expect(agruparRetornosPorDia(retornos, HOJE).map((g) => g.data)).toEqual(["2026-10-15", "2026-10-16"]);
+  });
+});
+
+describe("total em aberto da lista mostrada", () => {
+  it("soma so os pendentes", () => {
+    expect(
+      somaEmAberto([
+        { valor_em_aberto: 100.5, tratado: false },
+        { valor_em_aberto: 200, tratado: true },
+        { valor_em_aberto: 50.25, tratado: false },
+      ])
+    ).toBeCloseTo(150.75, 2);
+  });
+
+  it("lista vazia ou valor sujo nao viram NaN", () => {
+    expect(somaEmAberto([])).toBe(0);
+    expect(somaEmAberto(null)).toBe(0);
+    expect(somaEmAberto([{ valor_em_aberto: null, tratado: false }, { tratado: false }])).toBe(0);
+  });
+});
+
+describe("hora combinada que ja passou", () => {
+  const item = (o) => ({ data: HOJE, hora_retorno: "14:30", tratado: false, ...o });
+
+  it("passou da hora, no dia de hoje, com retorno pendente", () => {
+    expect(horaRetornoVencida(item(), { hoje: HOJE, horaAgora: "15:00" })).toBe(true);
+    expect(horaRetornoVencida(item(), { hoje: HOJE, horaAgora: "14:29" })).toBe(false);
+    // Na hora exata o aviso da tela ja cobre; "vencida" e so depois dela.
+    expect(horaRetornoVencida(item(), { hoje: HOJE, horaAgora: "14:30" })).toBe(false);
+  });
+
+  it("nao vale para tratado, sem hora, de outro dia, nem sem relogio", () => {
+    expect(horaRetornoVencida(item({ tratado: true }), { hoje: HOJE, horaAgora: "23:00" })).toBe(false);
+    expect(horaRetornoVencida(item({ hora_retorno: "" }), { hoje: HOJE, horaAgora: "23:00" })).toBe(false);
+    expect(horaRetornoVencida(item({ data: "2026-10-16" }), { hoje: HOJE, horaAgora: "23:00" })).toBe(false);
+    expect(horaRetornoVencida(item(), { hoje: HOJE, horaAgora: "" })).toBe(false);
+    expect(horaRetornoVencida(item(), {})).toBe(false);
+    expect(horaRetornoVencida(null, { hoje: HOJE, horaAgora: "23:00" })).toBe(false);
+  });
+
+  it("meia-noite e 9h nao se confundem: a comparacao e zero-padded", () => {
+    expect(horaRetornoVencida(item({ hora_retorno: "09:00" }), { hoje: HOJE, horaAgora: "10:00" })).toBe(true);
+    expect(horaRetornoVencida(item({ hora_retorno: "10:00" }), { hoje: HOJE, horaAgora: "09:00" })).toBe(false);
+  });
+});
+
+// P3 (23/10/2026): separar compromisso do operador de prazo da tabulacao.
+describe("origem do retorno", () => {
+  it("OPERADOR, e so o prefixo OPERADOR, e compromisso do operador", () => {
+    expect(ehRetornoDoOperador({ retorno_origem: "OPERADOR" })).toBe(true);
+    // O prefixo existe porque a base tem variacoes ("OPERADOR_RECEPTIVO").
+    expect(ehRetornoDoOperador({ retorno_origem: "OPERADOR_RECEPTIVO" })).toBe(true);
+    expect(ehRetornoDoOperador({ retorno_origem: "AUTOMATICO" })).toBe(false);
+    // Origem nula conta como automatica: em producao (22/10/2026) ha 8 fichas
+    // com data de retorno e origem nula, e nenhuma delas e compromisso provado.
+    expect(ehRetornoDoOperador({ retorno_origem: null })).toBe(false);
+    expect(ehRetornoDoOperador({})).toBe(false);
+    expect(ehRetornoDoOperador(null)).toBe(false);
+    // MUDOU EM 27/10/2026, por decisao da gestao. A regra saiu daqui e virou
+    // `ehOrigemDoOperador`, em `src/utils/retornoOrigem.js`, usada pelas QUATRO
+    // leituras do frontend. Ela segue a forma TOLERANTE do banco
+    // (`upper(coalesce(...)) like 'OPERADOR%'`, da migration 20261019132433);
+    // o ramo ACORDO_EM_DIA de `recalcular_situacao_aluno` usa a forma ESTRITA,
+    // sem `upper` -- o banco tem as duas, e alinhar as duas e trabalho de
+    // migration. A tolerante foi escolhida porque falso positivo PRESERVA uma
+    // data e falso negativo APAGA um compromisso.
+    // Medido em producao em 27/10/2026: a coluna tem so 'AUTOMATICO', nulo e
+    // 'OPERADOR', zero fora de caixa alta e zero com espaco -- hoje a escolha
+    // nao muda a resposta para nenhuma ficha.
+    expect(ehRetornoDoOperador({ retorno_origem: "operador" })).toBe(true);
+    expect(ehRetornoDoOperador({ retorno_origem: " Operador " })).toBe(true);
+  });
+
+  it("as tres leituras da origem concordam (guarda contra deriva)", () => {
+    // `retornosAgendados` e `retornosAtrasados` repetem o literal
+    // `startsWith("OPERADOR")` dentro do filtro, e os testes de producao
+    // ancoram nesse literal. Se alguem mudar `ehRetornoDoOperador` e esquecer
+    // as outras duas (ou o contrario), este teste reprova em vez de deixar as
+    // leituras divergirem em silencio.
+    const casos = [
+      { id: "1", retorno_origem: "OPERADOR", data_retorno: HOJE },
+      { id: "2", retorno_origem: "OPERADOR_RECEPTIVO", data_retorno: HOJE },
+      { id: "3", retorno_origem: "AUTOMATICO", data_retorno: HOJE },
+      { id: "4", retorno_origem: null, data_retorno: HOJE },
+      { id: "5", retorno_origem: "operador", data_retorno: HOJE },
+    ];
+    const porPredicado = casos.filter((a) => ehRetornoDoOperador(a)).map((a) => a.id);
+    expect(retornosAgendados(casos, HOJE).map((r) => r.id)).toEqual(porPredicado);
+
+    const ontem = casos.map((a) => ({ ...a, data_retorno: "2026-10-14" }));
+    expect(retornosAtrasados(ontem, HOJE).map((r) => r.id).sort()).toEqual([...porPredicado].sort());
+  });
+
+  it("conta as duas origens sem mexer na lista", () => {
+    const lista = [
+      { retorno_origem: "OPERADOR" },
+      { retorno_origem: "AUTOMATICO" },
+      { retorno_origem: "AUTOMATICO" },
+      { retorno_origem: null },
+    ];
+    expect(separarAgendaPorOrigem(lista)).toEqual({ total: 4, agendados: 1, automaticos: 3 });
+    // O total e sempre a soma das duas pontas: nenhuma linha se perde nem se
+    // conta duas vezes, qualquer que seja a origem.
+    const r = separarAgendaPorOrigem(lista);
+    expect(r.agendados + r.automaticos).toBe(r.total);
+    expect(lista).toHaveLength(4);
+  });
+
+  it("lista vazia ou invalida nao inventa numero", () => {
+    expect(separarAgendaPorOrigem([])).toEqual({ total: 0, agendados: 0, automaticos: 0 });
+    expect(separarAgendaPorOrigem(null)).toEqual({ total: 0, agendados: 0, automaticos: 0 });
+    expect(separarAgendaPorOrigem(undefined)).toEqual({ total: 0, agendados: 0, automaticos: 0 });
   });
 });

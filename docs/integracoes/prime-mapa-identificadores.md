@@ -12,14 +12,84 @@ usar o ID errado já causou dobra de dívida (ver memórias
 | **matrícula do CRM** (`alunos.matricula`) | CRM (import histórico) | variável | Não garantido | Não garantido | **NÃO assumir igual à `registration`** — medido pelo menos 1 caso divergente (CRM 180 = Prime 2025001442) | só via CPF |
 | **matrícula do arquivo Santander** | Santander (relatório da carteira 166) | igual em forma à `registration` | Sim, no arquivo | Sim | **SIM — bate com `registration` em 13 de 13 casos conferidos** | é a mesma coisa que `registration`, evidência direta, não a mesma coisa que a matrícula do CRM |
 | **`documentNumber`** (Prime, mensalidade) | Prime | 13 dígitos: base(9) = `010`+contrato, sequência(4) = parcela fracionária (÷100; terminado em `990` = parcela 9,9) | Sim | Sim | SIM, só dentro do extrato Prime — não existe no CRM | série (prefixo) agrupa parcelas do mesmo contrato |
-| **`documentNumber`** (Prime, acordo) | Prime | 13 dígitos: `0`+`5`+acordo(6)+parcela(4) | Sim | Sim | SIM — decodificação provada (8/8 contra `acordos.numero_ulbra`) | acordo (6 díg. centrais) |
+| **`documentNumber`** (Prime, acordo) | Prime | 13 dígitos: `0`+`5`+acordo(6)+**sequência(4)** | Sim | Sim | **PARCIAL — só os 6 dígitos centrais (acordo).** A validação 8/8 de 22/09/2026 conferiu o acordo contra `acordos.numero_ulbra` e segue valendo (reconferida em 23/10/2026: 13.703 de 13.754 parcelas, 99,6%). Os **4 últimos NÃO servem** para deduzir `parcelas.numero` — ver [limitação medida](#os-4-últimos-dígitos-não-são-parcelasnumero-medido-em-23102026) | acordo (6 díg. centrais) |
 | **`boleto`** (Prime, financial-statement) | Prime | 7 dígitos | Sim | Sim | SIM — **é** `acordos_titulos.documento`, ponte confiável para portador 195 | `acordos_titulos.documento` |
-| **título CRM (boleto de acordo)** | CRM/ULBRA | `5` + acordo(6) + parcela(4) | Sim | Sim | SIM — decodificação provada (8/8), ex. `050308850007` → acordo `30885`, parcela `7` | `acordos.numero_ulbra` |
+| **título CRM (boleto de acordo)** | CRM/ULBRA | 11 dígitos: `5` + acordo(6) + **sequência(4)** | Sim | Sim | **PARCIAL — só o acordo.** `5`+acordo(6) é confiável (ex. `050308850007` → acordo `30885`; 99,6% da base em 23/10/2026). Os **4 últimos NÃO são `parcelas.numero`** e não podem ser tratados como tal por nenhuma convenção fixa — ver [limitação medida](#os-4-últimos-dígitos-não-são-parcelasnumero-medido-em-23102026). Para chegar à parcela, casar o boleto **inteiro** com `parcelas.boleto` | `acordos.numero_ulbra` |
 | **`acordos.numero_ulbra`** | CRM (espelha o Prime) | numérico | Sim | Sim | SIM | boleto de acordo (decodificação acima) |
 | **`pagamentos.titulo_numero`** | Arquivo Santander | já contém o **número do acordo** diretamente | Sim, quando presente | Sim | SIM — não precisa ser derivado do boleto | `acordos.id` (via número) |
 | **`carrier.id`** (portador) | Prime | inteiro pequeno (95, 160, 166, 195, 202, ...) | Sim | Sim | SIM — é a chave, nunca o nome | ver tabela de portadores abaixo |
 | **Nome (qualquer fonte)** | várias | texto livre | **NÃO** — homônimos confirmados (7 pares de CPFs diferentes com o mesmo nome-like em 01/09/2026) | Não | **NUNCA** — nome não vincula, nunca decide vínculo financeiro, é sempre secundário/sugestão | — |
 | **`parcelas.boleto`** (CRM) | CRM | igual ao `boleto` da Prime, sem zero à esquerda (`ltrim`) | Sim (índice único `ux_parcelas_boleto`) | Sim | SIM — é a chave real do vínculo pagamento→parcela | `financial_statement[].boleto` |
+
+## Os 4 últimos dígitos NÃO são `parcelas.numero` (medido em 23/10/2026)
+
+**O que fica valendo do mapeamento anterior.** A validação de 22/09/2026
+("decodificação provada 8/8") conferiu o **número do acordo** contra
+`acordos.numero_ulbra`, e essa parte está confirmada em escala: dos 14.488
+boletos de acordo do CRM com 11 dígitos, os 6 dígitos centrais batem com
+`acordos.numero_ulbra` em **13.703 de 13.754** casos comparáveis — **99,6%**
+(734 boletos ficam fora da comparação porque o acordo tem `numero_ulbra` nulo;
+51 parcelas, em 47 acordos, divergem de fato e estão registradas como gap em
+[`prime-gaps.md`](prime-gaps.md)). **O `5` + acordo(6) continua servindo para
+matching.**
+
+**O que NÃO se sustenta.** Ler os 4 últimos dígitos como `parcelas.numero` era
+uma *interpretação* do formato, não o que aquelas 8 amostras testaram. Medido
+sobre as mesmas 14.488 parcelas, nenhuma convenção fixa explica a maioria:
+
+| Leitura dos 4 últimos dígitos | Casos | % |
+|---|---:|---:|
+| `= parcelas.numero` (0-based) | 7.455 | 51,5% |
+| `= parcelas.numero + 1` (1-based) | 5.254 | 36,3% |
+| `=` posição da parcela por vencimento, 1-based | 8.150 | 56,3% |
+| `=` posição da parcela por `numero`, 1-based | 7.883 | 54,4% |
+| **não casa com nenhuma das quatro** | **1.673** | **11,5%** |
+
+Nenhuma leitura passa de 56,3%, e 11,5% das parcelas não casam com nenhuma
+delas. **Portanto: não derivar parcela do boleto, em nenhuma direção.**
+
+**Por que quebra.** Duas causas medidas, independentes:
+
+1. **A numeração de `parcelas.numero` não é única na base.** Dos 4.831 acordos
+   com parcela, **946 começam em 0** (19,6%), 3.685 começam em 1 e 200 começam
+   em outro valor. A mesma fórmula não pode servir aos três.
+2. **A sequência do boleto avança por emissão, e a parcela pode não ter
+   boleto.** **863 acordos** têm pelo menos uma parcela sem boleto (634 não têm
+   boleto em nenhuma). Quando há lacuna ou reemissão, a sequência e o `numero`
+   deixam de andar juntos.
+
+**O caso que torna isso visível — acordo `63061`** (lido em produção em
+23/10/2026):
+
+| `parcelas.numero` | vencimento | boleto | status |
+|---:|---|---|---|
+| 0 | 03/07/2026 | `50630610001` | PAGO |
+| 1 | 04/08/2026 | `50630610002` | PAGO |
+| 2 | 04/09/2026 | **nulo** | PAGO (`pago_em` 22/10, sem `origem_baixa`) |
+| 3 | 04/10/2026 | `50630610003` | VENCIDA |
+
+`0001` está na parcela `numero` 0 e `0002` na `numero` 1 — não fecha como
+0-based nem como 1-based dentro do **mesmo acordo**. O terceiro boleto emitido
+(`0003`) caiu na parcela 3, pulando a 2, que não tem boleto.
+
+**O que usar.** A chave real do vínculo pagamento → parcela é `parcelas.boleto`
+**inteiro** (índice único `ux_parcelas_boleto`), como a última linha da tabela
+acima já registra. Essa parte não mudou.
+
+**Consequência operacional já observada.** O motor de baixa compara o
+vencimento do arquivo com o da parcela cujo `boleto` casa. Numa reemissão, o
+boleto novo pertence a outra parcela e o vencimento do arquivo continua sendo o
+da parcela antiga — o motor acusa "divergência de vencimento" onde o fato é
+**boleto reemitido**. Os três casos de 22/10/2026 (`63061`, `66483`, `70820`)
+estão classificados como `boleto_reemitido_vencimento_anterior` na triagem da
+PR #737, em conferência humana e **sem ação automática**; dois deles são
+suspeita de pagamento em duplicidade, R$ 1.969,68 somados. Nada foi alterado.
+
+**Não afirmar o inverso como regra.** Esta medição prova que os 4 dígitos
+**não** são `parcelas.numero`. Ela **não** prova que sejam "a sequência de
+emissão da ULBRA": a leitura por posição de vencimento é a que explica mais
+casos (56,3%) e ainda assim deixa 43,7% fora. A semântica exata dos 4 dígitos
+**permanece não determinada** e não deve ser usada para inferência financeira.
 
 ## Portadores (carriers) mapeados
 

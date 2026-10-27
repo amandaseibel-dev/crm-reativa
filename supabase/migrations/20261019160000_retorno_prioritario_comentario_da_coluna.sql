@@ -1,0 +1,48 @@
+-- RETORNO PRIORITARIO: grava o COMENTARIO da coluna, que ficou faltando.
+--
+-- NAO APLICADA. Depende de autorizacao expressa dela.
+--
+-- POR QUE ESTA MIGRATION EXISTE. Em 15/10/2026 a coluna
+-- public.alunos.retorno_prioritario entrou em producao POR FORA do canal de
+-- migrations: a coluna existe (boolean not null default false, posicao 71), mas
+-- nenhuma versao registrada em supabase_migrations.schema_migrations citava
+-- retorno_prioritario. O arquivo 20261015150000_retorno_prioritario.sql ja
+-- existia na main, com DDL idempotente e DUAS instrucoes -- o `alter table` e um
+-- `comment on column`. Medido em 19/10/2026: a parte do `alter table` esta
+-- refletida em producao; a do comentario NAO -- col_description da coluna e null.
+--
+-- A regularizacao escolhida pela gestao em 19/10 foi REPARAR O REGISTRO: registrar
+-- a versao 20261015150000 sem executar DDL, preservando o numero historico. Isso
+-- FECHA aquele arquivo -- um `supabase db push` futuro nunca mais vai executa-lo --
+-- e, por consequencia, o comentario nunca chegaria sozinho. Esta migration e o
+-- unico caminho que sobra para ele.
+--
+-- O QUE ELA FAZ: uma instrucao, `comment on column`. E o MESMO texto do arquivo de
+-- 15/10, extraido dele byte a byte (md5 3092f78547ba2c21be2259ca072a230d, 296
+-- chars) e conferido no teste
+-- supabase/tests/retorno_prioritario_comentario_integridade.test.js -- nao foi
+-- redigitado, justamente para o repo nao passar a ter duas versoes do mesmo texto.
+--
+-- O QUE ELA NAO FAZ, E ISSO E O PONTO:
+--   * NAO recria a coluna, nao toca tipo, nulidade, default nem posicao;
+--   * NAO tem update, delete, drop, indice, funcao, gatilho ou policy;
+--   * NAO altera prioridade de ninguem -- `comment on column` e metadado de
+--     catalogo, invisivel para qualquer consulta de dados;
+--   * NAO muda logica operacional: quem le a marca sao PainelCarteira.jsx,
+--     carteiraFila.js e painelMeuDia.js, e nenhum deles le comentario de coluna;
+--   * nao ha risco de perda de dado -- e, de todo modo, eram 0 de 18.435 linhas
+--     marcadas em 19/10/2026.
+--
+-- IDEMPOTENTE POR NATUREZA: `comment on column` sobrescreve o comentario atual,
+-- seja ele null ou nao. Rodar duas vezes deixa o mesmo estado.
+--
+-- ORDEM: aplicar DEPOIS do reparo do registro de 20261015150000, para que o
+-- historico leia na sequencia certa (a coluna chega, depois o comentario).
+--
+-- NOME DO ARQUIVO: a versao aqui e provisoria. O `apply_migration` estampa a
+-- versao com o horario real de aplicacao -- foi o que aconteceu com a
+-- 20261019132433, cujo arquivo era 20261019093000. Renomear este arquivo para a
+-- versao registrada depois de aplicar.
+
+comment on column public.alunos.retorno_prioritario is
+  'Marcado pelo operador na tabulação: este retorno vem primeiro na fila e no bloco "Meu dia". Não é criticidade financeira (nivel_criticidade) nem prazo (data_retorno) -- é a escolha humana de prioridade. Limpo quando o retorno é tratado.';

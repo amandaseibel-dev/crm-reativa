@@ -116,6 +116,19 @@ export default function EnvioGmailLote() {
   // 20261004103024 tirou do banco, criando "retorno agendado" que nunca
   // ninguem agendou e jogando o aluno para fora das Acoes Massivas.
   // Quem segura a janela da campanha e a recencia por canal, nao o retorno.
+  //
+  // MERGE COM O CARIMBO DO RETORNO (#767): aquele PR passou esta tela a gravar
+  // `...camposDeRetornoAutomatico(...)` no lugar do `data_retorno` cru, para
+  // que todo retorno automatico nascesse carimbado e nao apagasse compromisso
+  // do operador. O proprio comentario de la registrava que a protecao ficava
+  // PARCIAL: como esta tela gravava `status_acionamento` com o prefixo
+  // 'Acao massiva%', o ramo COBRANCA_VENCIDA de `recalcular_situacao_aluno`
+  // reescrevia a data por 10 dias a cada recalculo.
+  // Aqui nao sobra o que carimbar: a campanha deixou de escrever na ficha, e
+  // com isso o prefixo 'Acao massiva%' tambem nao e mais gravado por esta
+  // tela -- ou seja, some justamente o gatilho que tornava aquela protecao
+  // parcial. A regra do #767 continua valendo onde ha escrita de verdade
+  // (FilaFinanceiro, PainelAdm, Aluno, FilaOperacional, AgendaAlunoUnificado).
   async function registrar(a) {
     const agora = new Date().toISOString();
     await supabase.from("aluno_movimentacoes").insert({

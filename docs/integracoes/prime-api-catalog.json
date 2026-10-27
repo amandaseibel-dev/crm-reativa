@@ -212,7 +212,7 @@
       ],
       "response_fields": {
         "boleto": "string, 7 dígitos — é acordos_titulos.documento no CRM (ponte medida e confiável para portador 195)",
-        "documentNumber": "string, 13 dígitos — documento interno ULBRA; para mensalidade: base(9)=010+contrato + sequência(4)=parcela fracionária (ex. terminado em 990 = parcela 9,9); para acordo: 0+5+acordo(6)+parcela(4)",
+        "documentNumber": "string, 13 dígitos — documento interno ULBRA; para mensalidade: base(9)=010+contrato + sequência(4)=parcela fracionária (ex. terminado em 990 = parcela 9,9); para acordo: 0+5+acordo(6)+sequencia(4) -- o acordo (6 digitos centrais) e confiavel (99,6% da base, medido 2026-10-23); os 4 ultimos NAO sao parcelas.numero e nao servem para deduzir parcela (nenhuma convencao fixa explica mais de 56,3% dos casos). Para chegar a parcela, casar o boleto inteiro com parcelas.boleto. Ver prime-mapa-identificadores.md",
         "carrier": "{ id, name } — o portador DO TÍTULO (não do aluno); decide se ainda está em cobrança",
         "dueDate": "date — vencimento",
         "paymentDate": "date — MEDIDO 2026-09-28: preenchido em 100% das linhas de TODO portador, não só do 195. No espelho prime_extrato, 0 de 302.477 linhas do portador 95 têm paymentDate nulo, INCLUSIVE os 19.795 títulos que ainda vão vencer. NÃO É PROVA DE PAGAMENTO em nenhum portador (ver limitations)",

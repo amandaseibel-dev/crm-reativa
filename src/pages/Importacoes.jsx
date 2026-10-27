@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import CriticasImportacaoAcordos from "../components/CriticasImportacaoAcordos";
 
 function formatarData(data) {
   if (!data) return "-";
@@ -173,6 +174,11 @@ export default function Importacoes() {
           </table>
         </div>
       )}
+
+      {/* P3 (23/10/2026): as criticas da importacao de ACORDOS. Secao propria --
+          a tabela acima e de BORDERO e continua intacta, inclusive a RPC que a
+          alimenta (relatorio_importacoes_bordero filtra tipo='BORDERO'). */}
+      <CriticasImportacaoAcordos />
     </div>
   );
 }

@@ -42,6 +42,10 @@ const ROTULO_ORIGEM = {
 };
 
 export default function TelefonesAluno({ aluno }) {
+  // A7: reativar contato e exclusivo do Administrativo e da supervisao. O
+  // portao de verdade esta dentro de `aluno_contato_revalidar`; aqui o botao e
+  // escondido para nao oferecer uma acao que vai ser recusada.
+  const [podeReativar, setPodeReativar] = useState(false);
   const [contatos, setContatos] = useState([]);
   const [carregando, setCarregando] = useState(false);
   const [novoTel, setNovoTel] = useState("");
@@ -95,12 +99,24 @@ export default function TelefonesAluno({ aluno }) {
     carregar();
   }
 
+  useEffect(() => {
+    let vivo = true;
+    supabase.rpc("usuario_pode_revalidar_contato").then(({ data }) => {
+      if (vivo) setPodeReativar(data === true);
+    });
+    return () => { vivo = false; };
+  }, []);
+
   async function invalidar(c) {
     const motivo = window.prompt(
       `Invalidar ${c.tipo === "telefone" ? exibirTelefone(c.valor) : c.valor}?\n\nPor quê? (ex.: não é a pessoa, número não existe)`,
       "",
     );
     if (motivo === null) return;
+    if (!String(motivo).trim()) {
+      setMsg("Motivo obrigatório para invalidar.");
+      return;
+    }
     const { error } = await supabase.rpc("aluno_contato_invalidar", { p_id: c.id, p_motivo: motivo });
     setMsg(error ? "Erro: " + error.message : "Contato invalidado.");
     carregar();
@@ -166,7 +182,13 @@ export default function TelefonesAluno({ aluno }) {
             <span style={S.motivo} title={c.invalidado_por_email || ""}>
               inválido{c.motivo_invalidacao ? ` — ${c.motivo_invalidacao}` : ""}
             </span>
-            <button style={S.botaoLeve} onClick={() => revalidar(c)}>Reativar</button>
+            {podeReativar ? (
+              <button style={S.botaoLeve} onClick={() => revalidar(c)}>Reativar</button>
+            ) : (
+              <span style={S.semPermissao} title="Reativar contato é do Administrativo e da supervisão">
+                reativação: Administrativo
+              </span>
+            )}
           </>
         )}
       </div>
@@ -259,6 +281,7 @@ const S = {
   tagPrincipal: { fontSize: 11, fontWeight: 700, color: "var(--rv-azul-texto)", background: "var(--rv-fundo-suave)", borderRadius: 999, padding: "2px 8px" },
   tagOrigem: { fontSize: 11, color: "var(--rv-texto-suave)", background: "var(--rv-fundo-suave)", borderRadius: 999, padding: "2px 8px" },
   motivo: { fontSize: 12, color: "var(--rv-ambar-texto)" },
+  semPermissao: { fontSize: 11, color: "var(--rv-texto-suave)", fontStyle: "italic" },
   linhaNovo: { display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" },
   inNome: { border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "7px 9px", fontSize: 13, minWidth: 150 },
   inTel: { border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "7px 9px", fontSize: 13, minWidth: 140 },

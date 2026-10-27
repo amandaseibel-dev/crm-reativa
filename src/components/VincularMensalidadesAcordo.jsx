@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import {
+  portaDoDesvinculo, resumoDaCobertura, mensagemDaRecusa, PORTA_ATRIBUICAO_REMOVER,
+} from "../utils/portaDoDesvinculo";
 
 function moeda(v) { return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
 function dataBR(v) { if (!v) return "-"; const p = String(v).slice(0, 10).split("-"); return p.length === 3 ? p[2] + "/" + p[1] + "/" + p[0] : v; }
@@ -64,6 +67,9 @@ export default function VincularMensalidadesAcordo({ alunoId }) {
   const [salvando, setSalvando] = useState(false);
   const [msg, setMsg] = useState("");
   const [bloqueadosServidor, setBloqueadosServidor] = useState([]);
+  // Simulacao da E7 esperando confirmacao da gestao (nunca grava sozinha).
+  const [remocao, setRemocao] = useState(null);
+  const [motivoRemocao, setMotivoRemocao] = useState("");
 
   async function carregar() {
     if (!alunoId) { setCarregando(false); return; }
@@ -74,7 +80,10 @@ export default function VincularMensalidadesAcordo({ alunoId }) {
       // + as ja vinculadas (pra secao de desvincular) + as NEGOCIADAS de acordo
       // ja CANCELADO (candidatas a re-acordo, 22/09/2026: nao reabrem mais
       // sozinhas pra ABERTO, precisam aparecer aqui pra virarem elegiveis).
-      supabase.from("acordos_titulos").select("id, competencia, vencimento, valor_em_aberto, valor_original, saldo_corrigido, situacao, status, acordo_id").eq("aluno_id", alunoId).order("vencimento", { ascending: true }),
+      // `origem_liquidacao` e `origem_encerramento` entram porque a tela decide
+      // por qual porta soltar a mensalidade (ver `portaDoDesvinculo`): a marca
+      // de proveniencia conta tanto quanto o par situacao/status.
+      supabase.from("acordos_titulos").select("id, competencia, vencimento, valor_em_aberto, valor_original, saldo_corrigido, situacao, status, acordo_id, origem_liquidacao, origem_encerramento").eq("aluno_id", alunoId).order("vencimento", { ascending: true }),
     ]);
     const lista = acs || [];
     setAcordos(lista);
@@ -101,6 +110,8 @@ export default function VincularMensalidadesAcordo({ alunoId }) {
     setAcordoSel((prev) => (prev && ativos.some((a) => a.id === prev)) ? prev : (ativos[0] ? ativos[0].id : ""));
     setSel({});
     setBloqueadosServidor([]);
+    setRemocao(null);
+    setMotivoRemocao("");
     setCarregando(false);
   }
   useEffect(() => { carregar(); }, [alunoId]);
@@ -183,12 +194,64 @@ export default function VincularMensalidadesAcordo({ alunoId }) {
     );
     carregar();
   }
+  // DUAS PORTAS (26/10/2026). Soltar mensalidade NEGOCIADO de acordo vivo
+  // continua em `desvincular_titulos_acordo`. Mensalidade que aparece QUITADA
+  // desfaz uma QUITACAO, e isso e outra pergunta: vai para
+  // `titulo_atribuicao_remover` (E7), que comeca em SIMULACAO e exige prova de
+  // que o acordo nao cobriu aquela divida. A regra de qual porta usar esta em
+  // `portaDoDesvinculo`, testada separado.
   async function desvincular(id) {
+    const t = titulos.find((x) => x.id === id);
+    const { porta, motivo } = portaDoDesvinculo(t);
+    if (porta === PORTA_ATRIBUICAO_REMOVER) { await simularRemocao(t, motivo); return; }
+
     setSalvando(true); setMsg("");
     const { data, error } = await supabase.rpc("desvincular_titulos_acordo", { p_titulo_ids: [id] });
     setSalvando(false);
-    if (error || !data || !data.ok) { setMsg("Erro ao desvincular."); return; }
+    // O backend corrigido recusa o que a tela nao deveria ter mandado. Se a
+    // marca chegou defasada aqui, quem manda e a recusa do banco.
+    if (data && data.ok === false && data.erro === "TITULO_QUITADO_USE_ATRIBUICAO_REMOVER") {
+      await simularRemocao(t, null);
+      return;
+    }
+    if (error || !data || !data.ok) {
+      setMsg(/gestao|gestão|diretoria|42501|permission denied/i.test(String(error?.message || ""))
+        ? "Desvincular mensalidade de acordo é decisão da gestão financeira ou da diretoria."
+        : "Erro ao desvincular.");
+      return;
+    }
     setMsg("Parcela desvinculada — voltou pra carteira a cobrar.");
+    carregar();
+  }
+
+  // SIMULACAO: nao grava. Traz a conta de cobertura para a gestao conferir
+  // contra a tela do Prime antes de decidir.
+  async function simularRemocao(t, aviso) {
+    if (!t) return;
+    setSalvando(true); setMsg(""); setRemocao(null); setMotivoRemocao("");
+    const { data, error } = await supabase.rpc("titulo_atribuicao_remover", {
+      p_titulo_id: t.id, p_acordo_id: t.acordo_id, p_motivo: null, p_confirmar: false,
+    });
+    setSalvando(false);
+    if (error || !data || data.ok === false) { setMsg(mensagemDaRecusa(data, error)); return; }
+    setRemocao({ titulo: t, cobertura: data.cobertura, aviso, reabrePeloCron: !!data.caso_reabre_pelo_cron });
+  }
+
+  async function confirmarRemocao() {
+    if (!remocao) return;
+    const motivo = String(motivoRemocao || "").trim();
+    if (!motivo) { setMsg("Escreva o motivo antes de confirmar."); return; }
+    setSalvando(true); setMsg("");
+    const { data, error } = await supabase.rpc("titulo_atribuicao_remover", {
+      p_titulo_id: remocao.titulo.id, p_acordo_id: remocao.titulo.acordo_id,
+      p_motivo: motivo, p_confirmar: true,
+    });
+    setSalvando(false);
+    if (error || !data || data.ok === false) { setMsg(mensagemDaRecusa(data, error)); return; }
+    setRemocao(null); setMotivoRemocao("");
+    setMsg("Atribuição retirada — a mensalidade voltou para a carteira a cobrar"
+      + (data.caso_reabre_pelo_cron
+          ? " e o caso volta para a fila na próxima rodada do sistema." : "."));
     carregar();
   }
 
@@ -306,6 +369,36 @@ export default function VincularMensalidadesAcordo({ alunoId }) {
         </div>
       )}
 
+      {remocao ? (
+        <div style={S.painelRemocao}>
+          <div style={S.subTit}>Retirar esta mensalidade do acordo</div>
+          {remocao.aviso ? <p style={S.avisoRemocao}>{remocao.aviso}</p> : null}
+          <p style={S.contaRemocao}>{resumoDaCobertura(remocao.cobertura)}</p>
+          <p style={S.avisoRemocao}>
+            A mensalidade volta para a carteira a cobrar. O pagamento, o acordo e o histórico
+            do vínculo não são apagados.
+            {remocao.reabrePeloCron
+              ? " O caso deste aluno está encerrado e volta para a fila na próxima rodada do sistema."
+              : ""}
+          </p>
+          <textarea
+            style={S.motivoRemocao}
+            rows={2}
+            placeholder="Motivo (fica registrado na auditoria com o seu nome)"
+            value={motivoRemocao}
+            onChange={(e) => setMotivoRemocao(e.target.value)}
+          />
+          <div style={S.linhaTopo}>
+            <button style={S.btn} onClick={confirmarRemocao} disabled={salvando || !motivoRemocao.trim()}>
+              {salvando ? "..." : "Confirmar e retirar"}
+            </button>
+            <button style={S.btnLink} onClick={() => { setRemocao(null); setMotivoRemocao(""); }} disabled={salvando}>
+              cancelar
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {msg ? <p style={S.msg}>{msg}</p> : null}
     </div>
   );
@@ -335,4 +428,8 @@ const S = {
   tagReAcordo: { fontSize: 10, fontWeight: 700, color: "var(--rv-texto-fraco)", marginLeft: 6, textTransform: "uppercase" },
   vazio: { fontSize: 13, color: "var(--rv-texto-fraco)", margin: "6px 0" },
   msg: { fontSize: 13, color: "var(--rv-verde-ok-texto)", fontWeight: 600, marginTop: 10 },
+  painelRemocao: { marginTop: 14, background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", borderRadius: 10, padding: "12px 14px" },
+  contaRemocao: { margin: "0 0 8px", fontSize: 12.5, color: "var(--rv-texto-forte)", lineHeight: 1.5 },
+  avisoRemocao: { margin: "0 0 8px", fontSize: 12, color: "var(--rv-ambar-texto)", fontWeight: 600, lineHeight: 1.5 },
+  motivoRemocao: { width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--rv-borda-forte)", fontSize: 13, marginBottom: 8, fontFamily: "inherit" },
 };

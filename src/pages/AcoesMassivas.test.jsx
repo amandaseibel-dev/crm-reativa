@@ -60,6 +60,9 @@ let previaExtra = {};
 let resumoExtra = {};
 let regExtra = {};
 let lotes = [];
+// Painel de registro. `null` = função ainda não existe no banco (testa o
+// fallback); lista = o que a função devolve.
+let lotesRegistro = null;
 let concluirExtra = {};
 let lotesWhats = [];
 let emailDoLote = null;
@@ -69,6 +72,7 @@ beforeEach(() => {
   resumoExtra = {};
   regExtra = {};
   lotes = [];
+  lotesRegistro = null;
   concluirExtra = {};
   lotesWhats = [];
   emailDoLote = null;
@@ -126,6 +130,12 @@ beforeEach(() => {
           ...regExtra,
         },
       };
+    }
+    // A tela pede primeiro o painel completo (lote registrado + pendente) e só
+    // cai na lista de pendentes se a função nova não responder.
+    if (nome === "acoes_massivas_lotes_registro") {
+      if (lotesRegistro === null) return { data: null, error: new Error("function does not exist") };
+      return { data: lotesRegistro };
     }
     if (nome === "acoes_massivas_lotes_pendentes") return { data: lotes };
     if (nome === "acoes_massivas_lotes_whatsapp") return { data: lotesWhats };
@@ -467,7 +477,7 @@ describe("Ações Massivas — exportar já registra (02/10); lotes antigos fica
     lotes = [LOTE];
     concluirExtra = { excluidos_acionados_apos_exportacao: 1 };
     await montar();
-    expect(await screen.findByText("Planilhas pendentes de registro")).toBeTruthy();
+    expect(await screen.findByText("Registro das ações massivas")).toBeTruthy();
     expect(within(screen.getByTestId("resp-caso")).getByText(/Olga/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Confirmar ação realizada/ }));
     expect(nomesChamados()).not.toContain("acoes_massivas_concluir_lote");
@@ -495,9 +505,62 @@ describe("Ações Massivas — exportar já registra (02/10); lotes antigos fica
   it("trocar de operador não esconde os lotes pendentes de registro", async () => {
     lotes = [LOTE];
     await montar();
-    await screen.findByText("Planilhas pendentes de registro");
+    await screen.findByText("Registro das ações massivas");
     escolherOperador("cobranca05@teste.local");
-    expect(screen.getByText("Planilhas pendentes de registro")).toBeTruthy();
+    expect(screen.getByText("Registro das ações massivas")).toBeTruthy();
+  });
+
+  // Desde 02/10 o lote nasce registrado no clique de Exportar: o painel existe
+  // sobretudo para MOSTRAR isso. Sem esta prova, a tela poderia voltar a ficar
+  // muda depois de um envio -- que foi a reclamação que originou o painel.
+  const LOTE_REGISTRADO = {
+    ...LOTE, id: "lote-ok", total: 300, registrados: 300, registrados_efetivos: 300,
+    registro_automatico: true, situacao: "REGISTRADO",
+    confirmado_em: "2026-10-19T19:54:17Z", excluidos: {}, excluidos_por_motivo: {},
+  };
+
+  it("lote já registrado aparece como registrado, sem pedir confirmação", async () => {
+    lotesRegistro = [LOTE_REGISTRADO];
+    await montar();
+    await screen.findByText("Registro das ações massivas");
+    expect(screen.getByText(/Registrado — 300 de 300/)).toBeTruthy();
+    expect(screen.getByText(/no clique de Exportar/)).toBeTruthy();
+    // nada a confirmar: o botão do fluxo antigo não aparece neste lote
+    expect(screen.queryByRole("button", { name: /Confirmar ação realizada/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Conferir registro" })).toBeTruthy();
+  });
+
+  it("“Conferir registro” relê o lote e diz que nada foi gravado", async () => {
+    lotesRegistro = [LOTE_REGISTRADO];
+    concluirExtra = { registrados: 300, ja_registrado: true, movimentacoes_criadas: 0 };
+    await montar();
+    await screen.findByText("Registro das ações massivas");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Conferir registro" })); });
+    const c = rpcMock.mock.calls.filter(([n]) => n === "acoes_massivas_concluir_lote").at(-1)[1];
+    expect(c).toEqual({ p_lote_id: "lote-ok", p_acao: "CONFIRMAR" });
+    expect(screen.getByText(/Conferido: 300 de 300 aluno\(s\) deste lote estão registrados/)).toBeTruthy();
+    expect(screen.getByText(/Nada foi gravado agora/)).toBeTruthy();
+  });
+
+  it("quando registrou menos que o total, o painel diz por quê", async () => {
+    lotesRegistro = [{
+      ...LOTE_REGISTRADO, id: "lote-parcial", total: 300, registrados: 81,
+      registrados_efetivos: 81, registro_automatico: false,
+      excluidos: { acionados_apos_exportacao: 219 },
+    }];
+    await montar();
+    await screen.findByText("Registro das ações massivas");
+    expect(screen.getByText(/Registrado — 81 de 300/)).toBeTruthy();
+    expect(screen.getByText(/219 já acionados depois da exportação/)).toBeTruthy();
+  });
+
+  it("sem a função nova no banco, o painel ainda mostra os pendentes", async () => {
+    lotesRegistro = null; // a RPC do painel responde com erro
+    lotes = [LOTE];
+    await montar();
+    await screen.findByText("Registro das ações massivas");
+    expect(screen.getByText(/Pendente de registro/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Confirmar ação realizada/ })).toBeTruthy();
   });
 
   it("escolher operador NÃO aplica “Sem acionamento há” sozinho; o filtro segue opcional", async () => {
@@ -635,7 +698,7 @@ describe("Ações Massivas — filtro Tipo de cobrança", () => {
     ];
     concluirExtra = { excluidos_tipo_cobranca: 2, tipo_cobranca: "ACORDOS_VENCIDOS" };
     await montar();
-    await screen.findByText("Planilhas pendentes de registro");
+    await screen.findByText("Registro das ações massivas");
     expect(screen.getByRole("columnheader", { name: "Tipo de cobrança" })).toBeTruthy();
     expect(screen.getByRole("cell", { name: "Somente acordos vencidos" })).toBeTruthy();
     expect(screen.getByRole("cell", { name: "Sem tipo (tela anterior)" })).toBeTruthy();

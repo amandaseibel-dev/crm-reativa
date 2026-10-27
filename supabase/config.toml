@@ -18,3 +18,37 @@ project_id = "edlzlfbstshojxrudwaa"
 # de rotina e a segunda tranca, nunca a unica.
 [functions.prime-sonda]
 verify_jwt = true
+
+# -----------------------------------------------------------------------------
+# santander-previa -- ENTREGA A do caminho Santander, so leitura
+# -----------------------------------------------------------------------------
+# A planilha do extrato traz nome de aluno, matricula e valor pago. O gateway
+# recusa com 401 qualquer chamada sem JWT valido ANTES de executar uma linha da
+# funcao, e o portao interno dela exige, ALEM disso, token de rotina OU sessao
+# de gestao validada no banco.
+#
+# Escrito aqui de proposito: um `supabase functions deploy santander-previa
+# --no-verify-jwt`, ou uma mudanca futura de padrao do CLI, viraria essa
+# protecao em silencio. Escrita, desliga-la exige um diff que aparece no PR.
+[functions.santander-previa]
+verify_jwt = true
+
+# -----------------------------------------------------------------------------
+# santander-importar -- ENTREGA B, a fase que GRAVA
+# -----------------------------------------------------------------------------
+# Esta e a unica funcao do caminho Santander que escreve. O gateway exige JWT
+# valido e recusa com 401 antes de executar uma linha dela; o portao interno
+# exige sessao de GESTAO; e a RPC chamada confere `auth.email()` contra a sua
+# propria allowlist.
+#
+# A terceira camada tem um limite medido (22/10/2026): sem claim de e-mail no
+# token, a allowlist da RPC NAO barra -- `NULL NOT IN (...)` nao e TRUE e a
+# funcao importa com autoria nula. Por isso as duas primeiras camadas (JWT no
+# gateway e portao de gestao) sao as que de fato restringem, e por isso esta
+# funcao nunca usa chave de servico.
+#
+# Nao ha token de rotina aqui de proposito: importacao grava dinheiro e precisa
+# de pessoa responsavel. Entrada automatica e a Entrega C, com identidade
+# propria e decisao propria, nao um atalho nesta porta.
+[functions.santander-importar]
+verify_jwt = true
