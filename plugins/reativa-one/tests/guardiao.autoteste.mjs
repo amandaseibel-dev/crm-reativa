@@ -350,6 +350,27 @@ const casos = [
   ["F59", "PASSA", "pasta homônima nao protegida segue passando (fronteira do R5)",
     bash("cp supabase/migrations_historicas_nao_comprovadas/x.sql /tmp/", RAIZ), FASE2],
   ["F60", "NEGA", "criar link para a pasta do ledger", bash(`ln -s ${RAIZ}/supabase/ledger /tmp/atalho-ledger`, RAIZ), FASE2],
+
+  // ---- F61-F72: CAIXA (o volume é case-insensitive, então estes caminhos
+  // gravam na pasta real), GLOB no laço de segmentos, e separador depois do
+  // nome da pasta no R5.
+  ["F61", "NEGA", "caixa: MIGRATIONS em worktree não autorizado",
+    arquivo("Write", `${WT_IRMAO.dir}/supabase/MIGRATIONS/20261027000000_x.sql`, WT.dir), FASE2],
+  ["F62", "NEGA", "caixa: SUPABASE/migrations no checkout principal",
+    arquivo("Write", `${WT.base}/SUPABASE/migrations/20261027000000_x.sql`, WT.dir), FASE2],
+  ["F63", "NEGA", "caixa: arquivo de permissões com S maiúsculo",
+    arquivo("Write", `${RAIZ}/.claude/Settings.json`, WT.dir), FASE2],
+  ["F64", "NEGA", "caixa: pasta .Claude", arquivo("Write", `${RAIZ}/.Claude/settings.json`, WT.dir), FASE2],
+  ["F65", "NEGA", "caixa: LEDGER", arquivo("Write", `${RAIZ}/supabase/LEDGER/2026-10/x.sql`, WT.dir), FASE2],
+  ["F66", "NEGA", "caixa no shell: redirecionar para MIGRATIONS", bash("echo x > supabase/MIGRATIONS/x.sql", RAIZ), FASE2],
+  ["F67", "NEGA", "caixa no shell: redirecionar para LEDGER", bash("echo x > supabase/LEDGER/x.sql", RAIZ), FASE2],
+  ["F68", "NEGA", "caixa no shell: desarmar permissões em .Claude", bash("echo '{}' > .Claude/settings.json", RAIZ), FASE2],
+  ["F69", "NEGA", "glob no segmento: * no lugar de uma pasta",
+    arquivo("Write", `${RAIZ}/supabase/*/../migrations/20261027000000_x.sql`, RAIZ), FASE2],
+  ["F70", "NEGA", "glob no segmento: * antes do ledger",
+    arquivo("Write", `${RAIZ}/supabase/*/../ledger/2026-10/x.sql`, RAIZ), FASE2],
+  ["F71", "NEGA", "R5: cd na pasta e redirecionar depois de ;", bash("cd supabase/migrations; cat > x.sql", RAIZ), FASE2],
+  ["F72", "NEGA", "R5: cd no ledger e redirecionar sem espaço", bash("cd supabase/ledger;echo a>b.sql", RAIZ), FASE2],
 ];
 
 // ---------------------------------------------------------------------------

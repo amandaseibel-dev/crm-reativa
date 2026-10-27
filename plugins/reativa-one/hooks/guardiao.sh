@@ -232,20 +232,30 @@ avaliar_comando() {
     # SEM exigir a barra final: `ln -s .../supabase/migrations <atalho>` nomeia a
     # PASTA, não um arquivo dentro dela, e passava -- criando um atalho pelo qual
     # a escrita chegava por caminho canônico. Vale igual para o ledger.
-    if printf '%s' "$e" | grep -Eq 'supabase/ledger($|[/ "'"'"'])'; then
+    # FRONTEIRA = COMPLEMENTO DO NOME, e `-i`. A classe `($|[/ "'])` da tentativa
+    # anterior não cobria `;` nem `>`, então `cd supabase/ledger;echo a>b.sql`
+    # passava -- regressão que eu troquei pelo colateral da pasta homônima.
+    # O complemento cobre qualquer separador; o `_` fora dele é o que preserva
+    # `migrations_historicas_nao_comprovadas`. `-i` porque o volume é
+    # case-insensitive e `supabase/LEDGER/` grava na pasta real.
+    if printf '%s' "$e" | grep -Eiq 'supabase/ledger($|[^_A-Za-z0-9])'; then
       negar "R5/ledger" \
         "[$origem] O ledger é registro byte a byte do que rodou em produção: um comentário nosso muda o md5, que é a própria prova." \
         "nenhum — ledger não se edita"
     fi
-    if printf '%s' "$e" | grep -Eq '\.claude/settings(\.local)?\.json'; then
+    # `-i`: `.Claude/settings.json` e `.claude/Settings.json` são o MESMO arquivo
+    # neste volume, e escapavam.
+    if printf '%s' "$e" | grep -Eiq '\.claude/settings(\.local)?\.json'; then
       negar "R5/desarme" "[$origem] Alterar as permissões da sessão por shell." "você edita, com revisão em diff"
     fi
-    # FRONTEIRA depois do nome, não barra final: sem a barra o padrão pegava
-    # `supabase/migrations_historicas_nao_comprovadas/`, que NÃO é protegida e
-    # existe no repositório -- colateral puro, do tipo que faz alguém desligar a
-    # regra. Com a fronteira, `ln -s .../supabase/migrations <atalho>` (que
-    # nomeia a PASTA) segue barrado, e a pasta homônima volta a passar.
-    if printf '%s' "$e" | grep -Eq 'supabase/migrations($|[/ "'"'"'])'; then
+    # FRONTEIRA = COMPLEMENTO DO NOME, não barra final nem lista de separadores.
+    # Sem a barra o padrão pegava `supabase/migrations_historicas_nao_comprovadas/`,
+    # que NÃO é protegida e existe no repositório; com a lista `($|[/ "'])`,
+    # `cd supabase/migrations; cat > x.sql` escapava. O complemento resolve os
+    # dois: `_` fora da classe preserva a pasta homônima, e `;`, `>`, `|`, `&`
+    # entram. `-i` porque o volume é case-insensitive e `supabase/MIGRATIONS/`
+    # grava na pasta real.
+    if printf '%s' "$e" | grep -Eiq 'supabase/migrations($|[^_A-Za-z0-9])'; then
       negar "R5/migration" \
         "[$origem] Nesta fase nenhum agente escreve migration (o agente de Banco é da Fase 2)." \
         "propor o SQL no chat para você aplicar"
@@ -332,8 +342,17 @@ normalizar_caminho() {
   # DIFERENTE do real. Não é problema: as duas formas são avaliadas, e uma forma
   # a mais só pode NEGAR mais, nunca liberar. O custo é um falso positivo
   # possível (`<link>/../supabase/migrations/x.sql`), na direção segura.
-  local pre="" out="" seg
+  local pre="" out="" seg glob_antes
   case "$s" in /*) pre="/" ;; esac
+
+  # `set -f` É OBRIGATÓRIO: `for seg in $s` sem aspas faz word splitting E
+  # EXPANSÃO DE CAMINHO. Sem isto, `supabase/*/../migrations/x.sql` virava
+  # `supabase/aa/bb/migrations/x.sql` -- o par protegido DESAPARECIA do texto --
+  # e o veredito passava a depender do conteúdo do diretório do processo do hook:
+  # com o diretório vazio o glob não casava e o mesmo payload era negado.
+  # Reproduzido pela quinta auditoria do Guardião.
+  case "$-" in *f*) glob_antes=1 ;; *) glob_antes=0 ;; esac
+  set -f
   local IFS='/'
   for seg in $s; do
     case "$seg" in
@@ -351,6 +370,7 @@ normalizar_caminho() {
       *) out="${out:+$out/}$seg" ;;
     esac
   done
+  [ "$glob_antes" = 0 ] && set +f
   printf '%s' "$pre$out"
 }
 
@@ -398,7 +418,25 @@ caminho_real() {
 # as duas formas são avaliadas, e P6 segue só na textual.
 # Achado da terceira auditoria do Guardião, 26/10/2026.
 regras_de_negacao() {
-  local rel="$1" p="$2" origem="$3"
+  local rel_original="$1" p="$2" origem="$3" rel
+
+  # CASA SEM DISTINGUIR CAIXA. O volume deste projeto é case-INSENSITIVE
+  # (medido: `cd supabase/MIGRATIONS` abre a mesma pasta), então
+  # `supabase/MIGRATIONS/<arquivo>.sql` GRAVA DENTRO da pasta real e escapava de
+  # todos os padrões, que são literais e minúsculos. Um passo, sem preparo, em
+  # qualquer checkout -- inclusive o de produção. A 2ª passagem não salvava:
+  # `pwd -P` não canoniza caixa, então a forma real saía idêntica à textual e a
+  # comparação que dispara a 2ª passagem dava falso.
+  # Defeito PRÉ-EXISTENTE (os padrões sempre foram sensíveis a caixa), achado
+  # pela quinta auditoria do Guardião.
+  #
+  # Num volume case-SENSITIVE uma pasta `supabase/MIGRATIONS` seria outra pasta
+  # e passaria a ser barrada sem necessidade. É over-block na direção segura, de
+  # uma pasta que não existe no repositório -- preferível ao furo.
+  #
+  # A mensagem segue mostrando o caminho ORIGINAL: quem lê precisa ver o que
+  # pediu, não a cópia minúscula.
+  rel="$(printf '%s' "$rel_original" | tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz')"
 
   # TODO PADRÃO TEM O PAR ABSOLUTO. `rel` só fica relativo quando o caminho
   # começa exatamente com "$CWD/": com caminho absoluto de outro checkout, ou do
@@ -407,7 +445,7 @@ regras_de_negacao() {
   # Achado do caso F11 e da auditoria do Guardião de 26/10/2026.
   case "$rel" in
     supabase/ledger/*|*/supabase/ledger/*)
-      negar "P1/ledger" "[$origem] $rel — o ledger é prova byte a byte; editar quebra o md5." "nenhum" ;;
+      negar "P1/ledger" "[$origem] $rel_original — o ledger é prova byte a byte; editar quebra o md5." "nenhum" ;;
     .claude/settings.local.json|*/.claude/settings.local.json)
       negar "P2/permissoes" "[$origem] Este arquivo não é versionado: mudança nele é invisível na revisão." "você edita à mão" ;;
     .claude/settings.json|*/.claude/settings.json)
@@ -423,7 +461,7 @@ regras_de_negacao() {
       # outro worktree escapava de P3 sem nem consultar o portão (achado do
       # caso F11 do autoteste).
       fase2_liberada "$p" || negar "P3/migration" \
-        "[$origem] $rel — Fase 2 de Banco não autorizada para este worktree e branch." \
+        "[$origem] $rel_original — Fase 2 de Banco não autorizada para este worktree e branch." \
         "propor o SQL no chat, ou a gestão lançar a sessão com REATIVA_FASE2_BANCO" ;;
     .git/*|*/.git/*)
       negar "P4/git-interno" "[$origem] Escrita dentro de .git/." "comandos git normais" ;;

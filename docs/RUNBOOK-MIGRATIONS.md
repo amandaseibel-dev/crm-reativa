@@ -348,3 +348,38 @@ arquivo pelo caminho, e nenhuma destas regras o detecta. Criar um por shell é b
 (`R5` pega `ln`); um hardlink pré-existente, não.
 
 Cobertura: casos F54–F60. Total: 135 casos, 135 como esperado.
+
+### Quinta reprovação: caixa, glob e a fronteira que eu errei duas vezes
+
+Três achados, e o primeiro refuta a tese das quatro correções anteriores.
+
+**1. O volume é case-insensitive.** Medido: `cd supabase/MIGRATIONS` abre a mesma pasta.
+Os padrões das regras são literais e minúsculos, então um caminho com a caixa trocada
+**grava dentro da pasta real e escapa de todas elas** — um passo, sem preparo, sem link,
+sem `..`, em qualquer checkout, inclusive o de produção. A segunda passagem não salvava,
+porque `pwd -P` **não canoniza caixa**: a forma real saía idêntica à textual e a
+comparação que dispara a segunda passagem dava falso. Defeito pré-existente, e o mais
+fácil de explorar de todos os cinco pareceres.
+
+Corrigido casando as regras contra uma **cópia minúscula** do caminho, com os padrões já
+minúsculos, e `grep -i` na parte de caminho do `R5`. A mensagem continua mostrando o
+caminho original — quem lê precisa ver o que pediu, não a cópia. Num volume
+case-**sensitive** uma pasta `supabase/MIGRATIONS` seria outra pasta e passaria a ser
+barrada sem necessidade: é over-block na direção segura, de uma pasta que não existe no
+repositório.
+
+**2. O laço de segmentos expandia glob.** `for seg in $s` sem aspas faz word splitting
+**e expansão de caminho**: `supabase/*/../migrations/<arquivo>.sql` virava
+`supabase/aa/bb/migrations/<arquivo>.sql` e **o par protegido desaparecia do texto**.
+Pior, o veredito passava a depender do **conteúdo do diretório do processo do hook** — com
+o diretório vazio o glob não casava e o mesmo pedido era negado. Corrigido com `set -f`
+em volta do laço, restaurando o estado anterior.
+
+**3. A fronteira do `R5`, que eu errei nas duas tentativas.** Primeiro tirei a barra final
+e passei a barrar leitura legítima na pasta homônima. Depois usei a lista
+`($|[/ "'])`, e aí `cd supabase/migrations; cat > x.sql` escapava — troquei um colateral
+por um furo, na porta que o desenho promete "sempre fechada". A classe certa é o
+**complemento do nome**, `($|[^_A-Za-z0-9])`: o `_` fora dela preserva a pasta homônima, e
+`;`, `>`, `|`, `&` entram.
+
+Cobertura: casos F61–F72. Total: 147 casos, 147 como esperado.
