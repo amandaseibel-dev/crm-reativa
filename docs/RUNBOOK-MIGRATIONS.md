@@ -168,7 +168,10 @@ nomeou. Nada mais.
   montado em variável (`V=migrations; echo x > supabase/$V/x.sql`), literal partido entre
   comandos (`cd supabase; cat > migrations/x.sql`), e escritores fora da sua lista de
   tokens (`python3 -c "open(...,'w')"`, `dd of=...`). O auditor contornou o `R5` dezenas
-  de vezes assim, durante estas auditorias, para poder medir.
+  de vezes assim, durante estas auditorias, para poder medir. **Token de escrita em caixa
+  alta** (`CP`, `TEE`, `MV`, `SED -i`) escapava também, até a sétima auditoria: eles ficam
+  no `if` **externo** do `R5`, e normalizar os ramos não serve enquanto o portão que leva
+  até eles não estiver normalizado.
   O `R5` é quebra-molas, não cancela. **O portão de verdade é o de `Write`/`Edit`**, que
   resolve o caminho real e não depende do texto do comando.
 - O destino tem de ser, pelo **caminho real resolvido**, a pasta de migrations daquele
@@ -209,10 +212,18 @@ pelo procedimento das seções 6 e 7.
 
 ### Limite conhecido, registrado e não escondido
 
-Nenhuma regra de caminho barra `Write`/`Edit` no **próprio arquivo do Guardião**. O
-caminho shell é barrado (`R7/auto-desarme`), o de edição não. A proteção hoje é a revisão
-do diff pela gestão — foi assim que esta própria mudança entrou. Fechar isso exigiria
-decidir como a gestão autoriza uma alteração legítima do hook, e não foi feito aqui.
+Nenhuma regra de caminho barra `Write`/`Edit` no **próprio arquivo do Guardião**. A
+proteção hoje é a revisão do diff pela gestão — foi assim que esta própria mudança entrou.
+Fechar isso exigiria decidir como a gestão autoriza uma alteração legítima do hook, e não
+foi feito aqui.
+
+O `R7/auto-desarme` cobre o caminho **shell**, e com as ressalvas do `R5` acima: ele casa
+texto de comando. Duas vezes este documento afirmou que esse caminho estava barrado
+quando não estava — primeiro por caixa no caminho (`HOOKS/`), depois por caixa no token
+(`CP`, `RM`). As duas estão corrigidas e cobertas por teste; a lição é que a afirmação
+sobre o `R7` vale **até o próximo caractere que ninguém normalizou**, e não é garantia
+estrutural. A garantia estrutural de que o hook não é alterado continua sendo a sua
+revisão do diff.
 
 ### Fase 2 não cria agente
 
@@ -417,3 +428,21 @@ lógica no portão. Todas acharam uma **grafia, uma caixa ou uma falha de resolu
 portão nunca viu. Freio que decide por comparação de texto precisa normalizar o texto
 primeiro — e o inventário de normalizações é parte do freio, não um detalhe de
 implementação.
+
+### Sétima reprovação: o portão externo, em caixa original
+
+A sexta rodada corrigiu a caixa do **caminho** em três regras. A sétima mostrou que isso
+não bastava: o `if` **externo** do `R5` — a lista de tokens de escrita que habilita os
+quatro ramos — e o segundo `grep` do `R7` continuavam lendo o comando em caixa original. E
+`TEE`, `CP`, `MV`, `RM` e `SED` executam neste volume.
+
+O efeito é instrutivo: o `-i` que eu havia posto nos ramos **nunca era consultado**,
+porque o `if` que leva até eles não entrava. Passavam `CP` e `TEE` para dentro da pasta de
+migrations, `MV` para dentro do ledger, `SED -i` numa migration, `CP` sobre o arquivo de
+permissões — autoconcessão por shell — e, de novo, `CP` e `RM` sobre o arquivo do
+Guardião.
+
+**Normalizar o ramo não serve se o portão que leva até ele não estiver normalizado.** É a
+mesma lição da rodada anterior, uma camada acima.
+
+Cobertura: casos F78–F84. Total: 159 casos, 159 como esperado.

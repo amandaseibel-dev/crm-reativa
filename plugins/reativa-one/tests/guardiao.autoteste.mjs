@@ -382,6 +382,21 @@ const casos = [
   ["F75", "NEGA", "caixa no R5/git-interno: .GIT", bash("echo x > .GIT/config", RAIZ), FASE2],
   ["F76", "NEGA", "caixa no R6/segredo-arquivo: .ENV", bash("cat .ENV", RAIZ), FASE2],
   ["F77", "PASSA", "arquivo de exemplo segue passando, em qualquer caixa", bash("cat .ENV.example", RAIZ), FASE2],
+
+  // ---- F78-F84: TOKEN DE ESCRITA EM CAIXA ALTA. `TEE`, `CP`, `MV`, `RM` e
+  // `SED` executam neste volume, e eles ficam no portão EXTERNO do R5 e do R7 --
+  // normalizar o ramo não serve se o `if` que leva até ele não estiver
+  // normalizado.
+  ["F78", "NEGA", "CP maiúsculo sobre o arquivo do Guardião (desarme)",
+    bash("CP novo.sh plugins/reativa-one/hooks/guardiao.sh", RAIZ), FASE2],
+  ["F79", "NEGA", "RM maiúsculo sobre o arquivo do Guardião",
+    bash("RM plugins/reativa-one/hooks/guardiao.sh", RAIZ), FASE2],
+  ["F80", "NEGA", "CP maiúsculo para migrations", bash("CP a.sql supabase/migrations/x.sql", RAIZ), FASE2],
+  ["F81", "NEGA", "TEE maiúsculo para migrations", bash("cat a.sql | TEE supabase/migrations/x.sql", RAIZ), FASE2],
+  ["F82", "NEGA", "MV maiúsculo para o ledger", bash("MV a.sql supabase/ledger/x.sql", RAIZ), FASE2],
+  ["F83", "NEGA", "SED -i maiúsculo em migration", bash("SED -i '' s/a/b/ supabase/migrations/x.sql", RAIZ), FASE2],
+  ["F84", "NEGA", "CP maiúsculo sobre as permissões (autoconcessão por shell)",
+    bash("CP a .claude/settings.json", RAIZ), FASE2],
 ];
 
 // ---------------------------------------------------------------------------

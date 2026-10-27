@@ -228,7 +228,14 @@ avaliar_comando() {
   fi
 
   # R5 — escrita por shell em caminho protegido (desvia de Edit/Write).
-  if printf '%s' "$e" | grep -Eq '>>?|(^| )(tee|cp|mv|install|ln|rsync)( |$)|sed +-i|perl +-0?pi'; then
+  #
+  # `-i` AQUI, no portão EXTERNO, e não só nos ramos: `TEE`, `CP`, `MV`, `RM` e
+  # `SED` executam neste volume (medido). Sem o `-i` nesta linha o `if` não
+  # entrava, e o `-i` dos quatro ramos nunca era consultado -- `CP a.sql
+  # supabase/migrations/x.sql` e `CP a .claude/settings.json` passavam. Achado da
+  # sétima auditoria, a segunda sobre caixa: normalizar o ramo não serve se o
+  # portão que leva até ele não estiver normalizado.
+  if printf '%s' "$e" | grep -Eiq '>>?|(^| )(tee|cp|mv|install|ln|rsync)( |$)|sed +-i|perl +-0?pi'; then
     # SEM exigir a barra final: `ln -s .../supabase/migrations <atalho>` nomeia a
     # PASTA, não um arquivo dentro dela, e passava -- criando um atalho pelo qual
     # a escrita chegava por caminho canônico. Vale igual para o ledger.
@@ -291,8 +298,11 @@ avaliar_comando() {
   # carregado. Sobrescrever o hook derruba todas as regras de uma vez -- R1, R9,
   # M1 incluídas. O desarme por shell, que o runbook declarava barrado, estava
   # aberto por uma letra maiúscula. Achado da sexta auditoria.
+  # O SEGUNDO grep TAMBÉM precisa do `-i`: `CP novo.sh <hook>` e `RM <hook>`
+  # passavam, com a caixa do caminho já corrigida. Mesmo furo da rodada
+  # anterior, por outra letra.
   if printf '%s' "$e" | grep -Eiq 'plugins/reativa-one/hooks/' \
-     && printf '%s' "$e" | grep -Eq '>>?|(^| )(tee|cp|mv|rm)( |$)|sed +-i|perl +-0?pi'; then
+     && printf '%s' "$e" | grep -Eiq '>>?|(^| )(tee|cp|mv|rm)( |$)|sed +-i|perl +-0?pi'; then
     negar "R7/auto-desarme" "[$origem] O Guardião não se desarma por linha de comando." "editar com revisão em diff, aprovado por você"
   fi
 
