@@ -241,3 +241,36 @@ estar como está:
 O limite declarado acima — `Write`/`Edit` no próprio arquivo do Guardião não é barrado
 por regra de caminho — segue aberto e **não** foi corrigido aqui. Na Camada 0 ele está
 em `ask`; o freio é a revisão do diff.
+
+### Segunda reprovação: grafia equivalente de caminho
+
+A auditoria seguinte confirmou os quatro defeitos acima corrigidos e **reprovou de novo**,
+por um resíduo da mesma família. Os padrões das regras de caminho são literais e o `*`
+do `case` come barra, então grafias equivalentes do mesmo arquivo escapavam de **todas**
+elas — barra dupla ou `/./` no meio do caminho:
+
+- o arquivo de permissões versionado, relativo e absoluto;
+- o arquivo de permissões local;
+- o ledger;
+- a pasta de migrations — e esta **sem o portão ser consultado**, em qualquer checkout,
+  inclusive o ligado à produção.
+
+Isso refutava a frase "esse arquivo passou a ser protegido contra agentes", e com ela o
+argumento que sustenta a autorização por ambiente: o bloco `env` do arquivo de permissões
+versionado voltava a ser alcançável. A afirmação estava escrita aqui antes de ser
+verdadeira.
+
+Corrigido com `normalizar_caminho`, que colapsa barra dupla e `/./` e tira `./` inicial e
+`/.` final **antes** de qualquer `case`, aplicada ao caminho e ao diretório corrente. A
+normalização é **textual** de propósito: `rel` nasce de tirar o prefixo do diretório
+corrente, e resolver link simbólico em só um dos dois lados tornaria todo caminho
+absoluto, desarmando as regras relativas e o escopo declarado (`P6`). Quem resolve
+caminho real é o portão, com `cd`/`pwd -P`, e essa parte já estava correta.
+
+Duas armadilhas de bash foram medidas nessa correção, as duas no `/bin/bash` 3.2 do
+macOS: em `${s//pat/repl}` o lado da substituição não é desescapado, então uma barra
+invertida escrita ali entra literal; e aspas internas em `${s//"$pat"/"$rep"}` entram no
+texto do resultado. A versão que funciona nas duas edições do bash usa variáveis sem
+aspas, e os padrões de barra não têm caractere de glob.
+
+Cobertura: casos F38–F45 do autoteste. Total: 120 casos, 120 como esperado.

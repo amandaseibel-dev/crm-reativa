@@ -287,9 +287,39 @@ avaliar_comando() {
 # ----------------------------------------------------------------------------
 # REGRAS DE CAMINHO DE ARQUIVO (Edit/Write/NotebookEdit)
 # ----------------------------------------------------------------------------
+# NORMALIZA A GRAFIA DO CAMINHO antes de qualquer `case`. Os padrões são
+# literais e o `*` do case come barra, então grafias equivalentes do MESMO
+# arquivo escapavam de todas as regras de caminho: `.claude//settings.json`,
+# `.claude/./settings.json`, `supabase//ledger/...`, `supabase//migrations/...`
+# -- esta última sem nem consultar o portão da Fase 2, em qualquer checkout.
+# Reproduzido pela auditoria do Guardião em 26/10/2026.
+#
+# Normalização TEXTUAL de propósito, sem resolver link simbólico: `rel` é
+# calculado tirando o prefixo do $CWD, e resolver só um dos dois lados
+# transformaria todo caminho em absoluto, desarmando as regras relativas e o
+# escopo declarado (P6). Quem resolve o caminho real é fase2_liberada, com
+# `cd`/`pwd -P`, e ela já estava correta.
+normalizar_caminho() {
+  # Padrão e substituição vêm de variáveis SEM ASPAS, e isso é deliberado --
+  # duas armadilhas medidas aqui, as duas em bash 3.2 (o /bin/bash do macOS):
+  #   1. `${s//\/\//\/}`: o lado da substituição não é desescapado, então o `\/`
+  #      inseria uma BARRA INVERTIDA literal;
+  #   2. `${s//"$pat"/"$rep"}`: em 3.2 as aspas internas entram no texto,
+  #      produzindo `.claude"/"settings.json`.
+  # Sem aspas funciona nas duas versões, e `//` e `/./` não têm glob.
+  local s="$1" dois="//" ponto="/./" um="/"
+  while [ "$s" != "${s//$dois/$um}" ]; do s="${s//$dois/$um}"; done
+  while [ "$s" != "${s//$ponto/$um}" ]; do s="${s//$ponto/$um}"; done
+  s="${s%/.}"   # final "/."
+  s="${s#./}"   # inicial "./"
+  printf '%s' "$s"
+}
+
 avaliar_caminho() {
-  local p="$1" origem="$2"
-  local rel="${p#"$CWD"/}"
+  local p origem cwd
+  p="$(normalizar_caminho "$1")"; origem="$2"
+  cwd="$(normalizar_caminho "$CWD")"
+  local rel="${p#"$cwd"/}"
 
   # TODO PADRÃO TEM O PAR ABSOLUTO. `rel` só fica relativo quando o caminho
   # começa exatamente com "$CWD/": com caminho absoluto de outro checkout, ou do

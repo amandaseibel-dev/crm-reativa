@@ -277,6 +277,18 @@ const casos = [
   ["F36", "NEGA", ".git/ por caminho absoluto", arquivo("Write", join(RAIZ, ".git", "config"), WT.dir), FASE2],
   ["F37", "NEGA", "P5: nome com __ por caminho absoluto, cwd fora da raiz",
     arquivo("Write", MIG(WT.dir, "20261027000000__ledger.sql"), join(RAIZ, "src")), FASE2],
+
+  // ---- F38-F45: GRAFIA EQUIVALENTE do mesmo caminho. Os padrões do case são
+  // literais e o `*` come barra, então `//` e `/./` escapavam de tudo. Sem
+  // join(), que normalizaria antes de o hook ver.
+  ["F38", "NEGA", "grafia //: settings versionado, relativo", arquivo("Write", ".claude//settings.json"), FASE2],
+  ["F39", "NEGA", "grafia /./: settings versionado, relativo", arquivo("Write", ".claude/./settings.json"), FASE2],
+  ["F40", "NEGA", "grafia //: settings versionado, absoluto", arquivo("Write", `${RAIZ}/.claude//settings.json`, WT.dir), FASE2],
+  ["F41", "NEGA", "grafia /./: settings versionado, absoluto", arquivo("Write", `${RAIZ}/.claude/./settings.json`, WT.dir), FASE2],
+  ["F42", "NEGA", "grafia //: settings local", arquivo("Write", `${RAIZ}/.claude//settings.local.json`, WT.dir), FASE2],
+  ["F43", "NEGA", "grafia //: ledger", arquivo("Write", `${RAIZ}/supabase//ledger/2026-10/x.sql`, WT.dir), FASE2],
+  ["F44", "NEGA", "grafia //: migration em worktree NÃO autorizado", arquivo("Write", `${WT_IRMAO.dir}/supabase//migrations/20261027000000_x.sql`, WT.dir), FASE2],
+  ["F45", "PASSA", "grafia //: migration no worktree autorizado (portão consultado)", arquivo("Write", `${WT.dir}/supabase//migrations/20261027000000_x.sql`, WT.dir), FASE2],
 ];
 
 // ---------------------------------------------------------------------------
