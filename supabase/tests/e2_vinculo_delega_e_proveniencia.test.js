@@ -33,7 +33,7 @@
 // recusa.
 //
 // usuario_e_gestao, usuario_e_diretoria e parcela_viva sao DUBLES.
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 
 // Cada teste levanta a propria instancia PGlite (2-5 s) e alguns levantam
 // duas, para comparar com e sem a migration. O padrao de 5 s do vitest nao
@@ -287,15 +287,30 @@ function trocaMd5(sql, de, para, ondeChamou) {
 function paraBancada(sql, ondeChamou) {
   sql = trocaMd5(sql, MD5_PROD_VINC, md5(corpoDe(DUBLE_VINC)), ondeChamou);
   sql = trocaMd5(sql, MD5_PROD_REAV, md5(corpoDe(DUBLE_REAV)), ondeChamou);
-  sql = trocaMd5(sql, MD5_PROD_DESV, md5(corpoDe(DUBLE_DESV)), ondeChamou);
+  // desvincular_titulos_acordo NAO entra: o bloco 4 saiu da E2 (a contencao e da
+  // #757, ja na main), entao a migration nao carrega mais o md5 dela.
   return sql;
 }
 
 const migrationParaBancada = () => paraBancada(MIGRATION, "migration");
 const rollbackParaBancada  = () => paraBancada(ROLLBACK, "rollback");
 
+// Cada teste abre o seu PGlite e NINGUEM fechava: a suite deixava uma instancia
+// WASM viva por teste. Isso tornava o arquivo intermitente -- rodando sozinho o
+// teste do re-acordo passa sempre, na suite inteira reprovava em 2 de 3 rodadas
+// (e levava o teste do rollback com ele). Fechar no afterEach e o conserto;
+// ver a licao `teste-com-horario-renderizado-quebra-no-ci`: suite que oscila
+// nao prova nada e derruba o CI por motivo que ninguem consegue reproduzir.
+const bancosAbertos = [];
+
+afterEach(async () => {
+  await Promise.all(bancosAbertos.map((db) => db.close().catch(() => {})));
+  bancosAbertos.length = 0;
+});
+
 async function novoBanco({ aplicarE2 = true } = {}) {
   const db = new PGlite();
+  bancosAbertos.push(db);
   await db.exec([
     "create role anon; create role authenticated; create role service_role;",
     "create schema auth;",
@@ -371,7 +386,6 @@ async function bancada(db, { statusAcordo = "QUITADO", teto = 3313.09, mensalida
 }
 
 const comoGestao = (db) => db.exec("set request.jwt.claims = '{\"email\":\"gestao@teste\"}'");
-const comoOperador = (db) => db.exec("set request.jwt.claims = '{\"email\":\"operador@teste\"}'");
 
 async function titulo(db, id) {
   const r = await db.query(
@@ -544,8 +558,17 @@ describe("E2 blocos 2 e 3 -- o vinculador delega e a proveniencia aparece", () =
     const t = await um(db,
       "insert into public.acordos_titulos (aluno_id,documento,valor_original,situacao,status,acordo_id) values ($1,'1',2000,'NEGOCIADO','vinculada',$2) returning id",
       [aluno, b]);
-    await db.query("insert into public.acordo_titulo_vinculo (acordo_id,titulo_id,ativo) values ($1,$2,false)", [a, t]);
-    await db.query("insert into public.acordo_titulo_vinculo (acordo_id,titulo_id,ativo) values ($1,$2,true)", [b, t]);
+    // criado_em EXPLICITO e distinto, e nao e detalhe de arrumacao: a guarda de
+    // 20260925123852 escolhe o acordo da cadeia com
+    // `order by v.criado_em desc nulls last limit 1`. Com os dois vinculos
+    // nascendo no mesmo now() o desempate fica indefinido e a suite virava cara
+    // ou coroa: as vezes a guarda pegava B (CANCELADO -- o caminho certo, que
+    // ve dinheiro na cadeia via A e mantem NEGOCIADO), as vezes A (QUITADO, que
+    // nao esta na lista de status vigiados, cai no "sem acordo vivo, reabre" e
+    // devolve ABERTO). A ordem real do re-acordo e A antes de B, entao B e o
+    // mais recente -- e e isso que a bancada passa a dizer, sem empate.
+    await db.query("insert into public.acordo_titulo_vinculo (acordo_id,titulo_id,ativo,criado_em) values ($1,$2,false,now() - interval '30 days')", [a, t]);
+    await db.query("insert into public.acordo_titulo_vinculo (acordo_id,titulo_id,ativo,criado_em) values ($1,$2,true,now())", [b, t]);
     await db.exec("alter table public.acordo_titulo_vinculo enable trigger trg_titulo_situacao_por_vinculo");
     return t;
   }
@@ -574,50 +597,22 @@ describe("E2 blocos 2 e 3 -- o vinculador delega e a proveniencia aparece", () =
 });
 
 // ===========================================================================
-describe("E2 bloco 4 -- contencao de desvincular_titulos_acordo", () => {
-  it("operador comum e recusado por SEM_PERMISSAO_GESTAO", async () => {
+describe("E2 nao toca desvincular_titulos_acordo (a contencao e da #757)", () => {
+  it("o corpo de desvincular fica byte a byte igual depois da E2", async () => {
     const db = await novoBanco();
-    await comoOperador(db);
-    const { acordo, titulos } = await bancada(db, { statusAcordo: "ATIVO", mensalidades: [100], parcelas: [{ status: "A_VENCER" }] });
-    await db.query("insert into public.acordo_titulo_vinculo (acordo_id,titulo_id) values ($1,$2)", [acordo, titulos[0]]);
-    const r = await um(db, "select public.desvincular_titulos_acordo($1)", [titulos]);
-    expect(r.ok).toBe(false);
-    expect(r.erro).toBe("SEM_PERMISSAO_GESTAO");
+    expect(await um(db, "select md5(prosrc) from pg_proc where proname='desvincular_titulos_acordo'")).toBe(md5(corpoDe(DUBLE_DESV)));
   });
 
-  it("FORMA DO PEDRO: titulo com lastro e recusado por TITULO_COM_LASTRO", async () => {
-    const db = await novoBanco();
-    await comoGestao(db);
-    const { acordo, titulos } = await bancada(db, { teto: 938.21, mensalidades: [826.74] });
-    await db.query([
-      "update public.acordos_titulos set situacao='PAGO', status='quitada', acordo_id=$2,",
-      "  origem_liquidacao='ACORDO_QUITADO' where id=$1",
-    ].join("\n"), [titulos[0], acordo]);
-    const r = await um(db, "select public.desvincular_titulos_acordo($1)", [titulos]);
-    expect(r.ok).toBe(false);
-    expect(r.erro).toBe("TITULO_COM_LASTRO");
-    expect((await titulo(db, titulos[0])).situacao).toBe("PAGO");
+  it("nem a migration nem o rollback carregam o md5 de desvincular", () => {
+    expect(MIGRATION).not.toContain("'" + MD5_PROD_DESV + "'");
+    expect(ROLLBACK).not.toContain("'" + MD5_PROD_DESV + "'");
   });
 
-  it("gestao com titulo sem lastro: DESATIVA o vinculo e NAO apaga a linha", async () => {
+  it("a E2 nao deixa marca de contencao nenhuma no corpo de desvincular", async () => {
     const db = await novoBanco();
-    await comoGestao(db);
-    const { acordo, titulos } = await bancada(db, { statusAcordo: "ATIVO", mensalidades: [100], parcelas: [{ status: "A_VENCER" }] });
-    await db.query("insert into public.acordo_titulo_vinculo (acordo_id,titulo_id) values ($1,$2)", [acordo, titulos[0]]);
-    const r = await um(db, "select public.desvincular_titulos_acordo($1)", [titulos]);
-    expect(r.ok).toBe(true);
-    expect(await um(db, "select count(*)::int from public.acordo_titulo_vinculo where titulo_id = $1", [titulos[0]])).toBe(1);
-    expect(await um(db, "select count(*)::int from public.acordo_titulo_vinculo where titulo_id = $1 and ativo", [titulos[0]])).toBe(0);
-  });
-
-  it("SEM A E2 o DELETE apaga a linha do vinculo (o defeito existe)", async () => {
-    const db = await novoBanco({ aplicarE2: false });
-    await comoOperador(db);
-    const { acordo, titulos } = await bancada(db, { statusAcordo: "ATIVO", mensalidades: [100], parcelas: [{ status: "A_VENCER" }] });
-    await db.query("insert into public.acordo_titulo_vinculo (acordo_id,titulo_id) values ($1,$2)", [acordo, titulos[0]]);
-    const r = await um(db, "select public.desvincular_titulos_acordo($1)", [titulos]);
-    expect(r.ok).toBe(true);
-    expect(await um(db, "select count(*)::int from public.acordo_titulo_vinculo where titulo_id = $1", [titulos[0]])).toBe(0);
+    const def = await um(db, "select pg_get_functiondef(oid) from pg_proc where proname='desvincular_titulos_acordo'");
+    expect(def).not.toContain("SEM_PERMISSAO_GESTAO");
+    expect(def).not.toContain("TITULO_COM_LASTRO");
   });
 });
 
@@ -642,7 +637,6 @@ describe("E2 -- a migration como mecanismo", () => {
     const mutilado = DUBLE_REAV.replace(ANCORA_REAV, "  v_quitado := false;");
     await db.exec(mutilado);
     let sql = trocaMd5(MIGRATION,  MD5_PROD_VINC, md5(corpoDe(DUBLE_VINC)), "ancora");
-    sql     = trocaMd5(sql,        MD5_PROD_DESV, md5(corpoDe(DUBLE_DESV)), "ancora");
     sql     = trocaMd5(sql,        MD5_PROD_REAV, md5(corpoDe(mutilado)),   "ancora");
     await expect(db.exec(sql)).rejects.toThrow(/ancora/);
   });

@@ -94,9 +94,15 @@ select 'FOTO ANTES' as etapa, chave, valor from _ensaio_antes order by chave;
 --      motor, que então NÃO está mais calado;
 --   3. patch ancorado em `titulo_reavaliar`: a quitação passa a exigir cobertura
 --      comprovada, além do status do acordo;
---   4. contenção de `desvincular_titulos_acordo`: portão de gestão, recusa de
---      título com lastro e fim do DELETE em `acordo_titulo_vinculo`.
 --
+-- A CONTENÇÃO DE `desvincular_titulos_acordo` NÃO ESTÁ AQUI. Ela é a
+-- `20261026193000_desvincular_titulos_acordo_seguro.sql.pendente`, da PR #757,
+-- já na main: um `create or replace` do corpo inteiro, sem guarda de md5. Ter
+-- as duas era colisão -- aplicada a #757 primeiro, o md5 esperado por um patch
+-- ancorado daqui não casaria e a transação INTEIRA desta migration abortaria,
+-- levando os blocos 1-3 com ela. Ordem de aplicação: #757 primeiro, esta
+-- depois -- a #757 não toca `vincular_titulos_acordo` nem `titulo_reavaliar`,
+-- então os md5 esperados pelos blocos 2 e 3 seguem válidos.
 -- POR QUE PATCH ANCORADO E NÃO `CREATE OR REPLACE` COM O CORPO INTEIRO:
 -- medido hoje, a árvore do repositório NÃO reproduz produção. O
 -- `titulo_reavaliar` do repositório (último arquivo que o define,
@@ -411,109 +417,6 @@ begin
   raise notice 'E2/BLOCO3: titulo_reavaliar patchado';
 end $$;
 
--- ---------------------------------------------------------------------
--- BLOCO 4 — Contenção de desvincular_titulos_acordo
--- ---------------------------------------------------------------------
--- A funcao de hoje, lida em producao (md5 ebd07b0e, 1.030 caracteres):
---
---   * o portao e `lower(coalesce(auth.email(),'')) = ''` -- QUALQUER pessoa
---     logada passa. Nao ha portao de gestao;
---   * forca `situacao = 'ABERTO'` sem conferir pagamento nenhum. Aplicada ao
---     titulo 4530008 do Pedro Henrique, cobraria de novo R$ 826,74 ja
---     recebidos;
---   * da `DELETE` em `acordo_titulo_vinculo`. Toda a guarda de re-acordo de
---     `titulo_reavaliar` le a cadeia de vinculos, INCLUSIVE linhas inativas --
---     apagar vinculo cega a guarda.
---
--- Chamador unico: src/components/VincularMensalidadesAcordo.jsx:188.
---
--- A contencao NAO reescreve a funcao: acrescenta portao de gestao, recusa
--- titulo com lastro, e troca o DELETE por desativacao.
-do $$
-declare
-  v_md5_esperado constant text := 'ebd07b0ec54e64f9ab685928988cb9a5';
-  v_md5          text;
-  v_def          text;
-  v_novo         text;
-  v_ancora_1     constant text :=
-'  if v_email = '''' then return jsonb_build_object(''ok'',false,''erro'',''NAO_AUTENTICADO''); end if;';
-  v_troca_1      constant text :=
-'  if v_email = '''' then return jsonb_build_object(''ok'',false,''erro'',''NAO_AUTENTICADO''); end if;
-
-  -- E2/CONTENCAO (26/10/2026): PORTAO DE GESTAO. Antes bastava estar logado.
-  if not (coalesce(public.usuario_e_gestao(), false)
-          or coalesce(public.usuario_e_diretoria(), false)) then
-    return jsonb_build_object(''ok'', false, ''erro'', ''SEM_PERMISSAO_GESTAO'');
-  end if;
-
-  -- E2/CONTENCAO: NAO DESVINCULA TITULO COM LASTRO. Titulo com proveniencia de
-  -- liquidacao gravada, ou cujo acordo tem parcela PAGO, foi quitado porque
-  -- dinheiro entrou. Devolve-lo para ABERTO cobra de novo o que ja foi pago --
-  -- e exatamente o caso do titulo 4530008 do Pedro Henrique. Mover atribuicao
-  -- de uma quitacao com lastro e outra porta (titulo_atribuicao_corrigir), que
-  -- mantem o titulo PAGO.
-  if exists (
-    select 1 from public.acordos_titulos t
-     where t.id = any(p_titulo_ids)
-       and (t.origem_liquidacao is not null
-            or exists (select 1 from public.parcelas p
-                        where p.acordo_id = t.acordo_id
-                          and upper(coalesce(p.status,'''')) = ''PAGO''))) then
-    return jsonb_build_object(''ok'', false, ''erro'', ''TITULO_COM_LASTRO'',
-      ''detalhe'', ''ha titulo com proveniencia de liquidacao ou acordo com parcela PAGO; '' ||
-                  ''desvincular devolveria para ABERTO divida ja paga'');
-  end if;';
-  v_ancora_2     constant text :=
-'  delete from public.acordo_titulo_vinculo where titulo_id = any(p_titulo_ids);';
-  v_troca_2      constant text :=
-'  -- E2/CONTENCAO: DESATIVA, NAO APAGA. A cadeia de vinculos -- inclusive as
-  -- linhas inativas -- e o que a guarda de re-acordo de titulo_reavaliar le.
-  -- DELETE cegava essa guarda e perdia a composicao do acordo.
-  update public.acordo_titulo_vinculo
-     set ativo = false
-   where titulo_id = any(p_titulo_ids)
-     and coalesce(ativo, true);';
-begin
-  select md5(p.prosrc), pg_get_functiondef(p.oid) into v_md5, v_def
-    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-   where n.nspname = 'public' and p.proname = 'desvincular_titulos_acordo'
-     and pg_get_function_identity_arguments(p.oid) = 'p_titulo_ids uuid[]';
-
-  if v_def is null then
-    raise exception 'E2/BLOCO4: desvincular_titulos_acordo(uuid[]) nao existe';
-  end if;
-
-  if position('E2/CONTENCAO (26/10/2026): PORTAO DE GESTAO' in v_def) > 0 then
-    raise notice 'E2/BLOCO4: ja aplicado, nada a fazer';
-    return;
-  end if;
-
-  if v_md5 <> v_md5_esperado then
-    raise exception 'E2/BLOCO4: md5 do corpo e % e o esperado e % -- producao mudou desde 26/10/2026, nao vou patchar as cegas',
-      v_md5, v_md5_esperado;
-  end if;
-
-  if position(v_ancora_1 in v_def) = 0 then
-    raise exception 'E2/BLOCO4: ancora 1 (portao de autenticacao) nao encontrada';
-  end if;
-  if position(v_ancora_2 in v_def) = 0 then
-    raise exception 'E2/BLOCO4: ancora 2 (DELETE do vinculo) nao encontrada';
-  end if;
-
-  v_novo := replace(v_def,  v_ancora_1, v_troca_1);
-  v_novo := replace(v_novo, v_ancora_2, v_troca_2);
-
-  if v_novo = v_def then
-    raise exception 'E2/BLOCO4: a troca nao alterou o texto';
-  end if;
-  if position('delete from public.acordo_titulo_vinculo' in v_novo) > 0 then
-    raise exception 'E2/BLOCO4: ainda ha DELETE de vinculo no corpo novo';
-  end if;
-
-  execute v_novo;
-  raise notice 'E2/BLOCO4: desvincular_titulos_acordo contido';
-end $$;
-
 
 -- =====================================================================
 -- VALIDACOES DENTRO DA TRANSACAO
@@ -536,14 +439,14 @@ begin
   if position('-- Ja paga: nada aqui reabre mensalidade quitada.' in v_def) = 0 then v_falhas := v_falhas || 'motor: GUARDA DE PAGO DESAPARECEU; '; end if;
   if position('origem_liquidacao     = coalesce(origem_liquidacao' in v_def) = 0 then v_falhas := v_falhas || 'motor: gravacao de proveniencia ausente; '; end if;
 
-  select pg_get_functiondef(p.oid) into v_def from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+  -- desvincular_titulos_acordo NAO e tocada por esta migration (ver cabecalho:
+  -- a contencao e da #757). Aqui so se confere que ela ficou INTACTA.
+  select md5(p.prosrc) into v_def from pg_proc p join pg_namespace n on n.oid=p.pronamespace
    where n.nspname='public' and p.proname='desvincular_titulos_acordo';
-  if position('SEM_PERMISSAO_GESTAO' in v_def) = 0                          then v_falhas := v_falhas || 'desvincular: portao de gestao ausente; '; end if;
-  if position('TITULO_COM_LASTRO' in v_def) = 0                             then v_falhas := v_falhas || 'desvincular: guarda de lastro ausente; '; end if;
-  if position('delete from public.acordo_titulo_vinculo' in v_def) > 0      then v_falhas := v_falhas || 'desvincular: DELETE ainda presente; '; end if;
+  if v_def <> 'ebd07b0ec54e64f9ab685928988cb9a5'                            then v_falhas := v_falhas || 'desvincular: corpo mudou, e esta migration nao deveria toca-lo; '; end if;
 
   if v_falhas <> '' then raise exception 'V1 FALHOU: %', v_falhas; end if;
-  raise notice 'V1 ok: os tres corpos tem as marcas certas e nenhuma das proibidas';
+  raise notice 'V1 ok: os dois corpos patchados tem as marcas certas, nenhuma das proibidas, e desvincular ficou intacta';
 end $ensaio$;
 
 -- V2 — permissoes das duas funcoes novas
