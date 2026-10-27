@@ -55,6 +55,7 @@ import {
 } from "../utils/conciliacaoPagamento";
 import RegistrarAcordoAvista from "../components/RegistrarAcordoAvista";
 import EncaminharPendencia from "../components/EncaminharPendencia";
+import { podeEncaminhar } from "../utils/encaminhamentoConciliacao";
 import Aluno from "./Aluno";
 import DadosAcademicos from "../components/DadosAcademicos";
 import { useSearchParams } from "react-router-dom";
@@ -65,6 +66,7 @@ import {
   pendenciasSoNaTriagem,
   filtrarPorCategoria,
   rotuloSubcategoria,
+  recorteForaDaLista,
   resumoPorArquivo,
   recorteDoArquivo,
 } from "../utils/filaPagamentoTriagem";
@@ -218,11 +220,36 @@ export default function PagamentosSemAluno() {
     return filtrarPorCategoria(porEstado, mapaTriagem, categoria);
   }, [linhas, filtro, mapaTriagem, categoria]);
 
-  // As pendencias que a lista principal nao mostra: decisao registrada e status
-  // ainda pendente. Em producao sao 33 / R$ 83.203,30.
+  // As pendencias que a lista principal nao mostra.
+  //
+  // O QUE MUDOU EM 27/10/2026, e por que o bloco abaixo precisou mudar junto.
+  // Este calculo foi escrito supondo que aqui so caem as DECIDIDAS -- os 33 com
+  // decisao registrada e status ainda pendente. Nao e o que ele devolve: ele
+  // devolve TUDO que `pagamentos_sem_aluno` nao trouxe, seja qual for o motivo.
+  //
+  // E em 27/10/2026 o motivo passou a ser outro, medido em producao: a RPC da
+  // lista principal leva 13,2 s e o `statement_timeout` de `authenticated` e de
+  // 8 s. Ela estoura, `linhas` fica vazia, e as 470 pendencias inteiras caem
+  // aqui -- enquanto o titulo dizia que todas tinham "decisao registrada" e o
+  // bloco nao oferecia acao nenhuma. Resultado: a acao da Etapa 2 existia no
+  // banco, a triagem a declarava para 89 casos, e NENHUM deles tinha botao.
+  //
+  // A correcao e de tela e e esta: separar o que tem decisao do que nao tem, e
+  // oferecer o encaminhamento a quem a triagem declarou elegivel -- aqui, que e
+  // onde a gestao de fato enxerga a pendencia. O timeout da RPC e defeito de
+  // banco, continua aberto e tem caminho proprio.
   const foraDaLista = useMemo(
     () => pendenciasSoNaTriagem(triagem, linhas),
     [triagem, linhas],
+  );
+
+  // O recorte e as contagens vivem no util, com teste proprio. O bloco respeita
+  // a faixa de categoria escolhida: sem isso, quem clica em "Acionavel agora"
+  // para achar os casos com acao nao ve nada, porque o bloco so aparecia em
+  // TODAS e em CONFERENCIA_HUMANA.
+  const fora = useMemo(
+    () => recorteForaDaLista(foraDaLista, categoria),
+    [foraDaLista, categoria],
   );
 
   const porStatus = useMemo(() => contarPorStatus(linhas), [linhas]);
@@ -442,43 +469,63 @@ export default function PagamentosSemAluno() {
           (R$ 83.203,30) com status de conciliacao ainda pendente.
           Bloco SO DE LEITURA: nenhuma acao, porque o que falta aqui e
           conferencia, nao acao nova. O caminho e abrir a ficha. */}
-      {foraDaLista.length > 0 && (categoria === "TODAS" || categoria === "CONFERENCIA_HUMANA") ? (
+      {fora.quantidade > 0 ? (
         <div style={foraWrap}>
           <div style={foraTopo}>
             <span style={foraTitulo}>
-              {foraDaLista.length} com decisão registrada e ainda pendentes
+              {/* O TITULO DIZ O QUE FOI CONTADO. Antes afirmava que todas tinham
+                  decisao registrada; com a lista principal vazia isso virou uma
+                  afirmacao falsa sobre 470 pendencias. Agora conta as duas
+                  metades, e so fala em decisao quando ha decisao. */}
+              {fora.quantidade} fora da lista acima
+              {fora.comDecisao > 0 ? ` · ${fora.comDecisao} com decisão registrada` : ""}
             </span>
             <span style={foraValor}>
-              {moeda(foraDaLista.reduce((s, l) => s + Number(l.valor_pago || 0), 0))}
+              {moeda(fora.valor)}
             </span>
           </div>
           <p style={foraAjuda}>
-            A fila já registrou uma decisão para estas, mas o estado da conciliação do
-            pagamento continua pendente. Elas não aparecem na lista acima e a rodada
-            horária também não as reprocessa — <b>só conferência resolve</b>. Nenhuma ação
-            automática é oferecida aqui.
+            Estas não aparecem na lista acima. {fora.comDecisao > 0 ? (
+              <>
+                As que já têm decisão registrada continuam com a conciliação pendente, e a
+                rodada horária não as reprocessa — <b>só conferência resolve</b>.{" "}
+              </>
+            ) : null}
+            Onde a triagem declara uma ação, ela é oferecida aqui mesmo; nos demais casos o
+            caminho é abrir a ficha.
           </p>
           <div style={foraLinhas}>
-            {foraDaLista.map((l) => (
-              <div key={l.pagamento_id} style={foraLinha}>
-                <span style={foraLinhaData}>{dataCurta(l.data_pagamento)}</span>
-                <span style={foraLinhaValor}>{moeda(l.valor_pago)}</span>
-                <span style={foraLinhaChip}>{l.decisao}</span>
-                <span style={foraLinhaBoleto}>{l.boleto || "—"}</span>
-                <span style={foraLinhaMotivo} title={l.motivo || ""}>
-                  {rotuloSubcategoria(l.subcategoria)}
-                </span>
-                {l.aluno_id ? (
-                  <button
-                    type="button"
-                    style={{ ...S.btnGhost, marginLeft: "auto", padding: "4px 10px", fontSize: 12 }}
-                    onClick={() => setFichaId(l.aluno_id)}
-                  >
-                    Abrir ficha
-                  </button>
-                ) : (
-                  <span style={{ ...foraLinhaChip, marginLeft: "auto" }}>sem aluno</span>
-                )}
+            {fora.itens.map((l) => (
+              <div key={l.pagamento_id} style={foraItem}>
+                <div style={foraLinha}>
+                  <span style={foraLinhaData}>{dataCurta(l.data_pagamento)}</span>
+                  <span style={foraLinhaValor}>{moeda(l.valor_pago)}</span>
+                  {/* Sem decisao o chip vinha vazio e parecia defeito de tela. */}
+                  <span style={foraLinhaChip}>{l.decisao || "sem decisão"}</span>
+                  <span style={foraLinhaBoleto}>{l.boleto || "—"}</span>
+                  <span style={foraLinhaMotivo} title={l.motivo || ""}>
+                    {rotuloSubcategoria(l.subcategoria)}
+                  </span>
+                  {l.aluno_id ? (
+                    <button
+                      type="button"
+                      style={{ ...S.btnGhost, marginLeft: "auto", padding: "4px 10px", fontSize: 12 }}
+                      onClick={() => setFichaId(l.aluno_id)}
+                    >
+                      Abrir ficha
+                    </button>
+                  ) : (
+                    <span style={{ ...foraLinhaChip, marginLeft: "auto" }}>sem aluno</span>
+                  )}
+                </div>
+                {/* O ENCAMINHAMENTO, para quem a triagem declarou elegivel. O
+                    componente decide sozinho se aparece (`podeEncaminhar`), abre
+                    a previa antes de qualquer confirmacao e carrega o portao de
+                    gestao do banco -- nada disso muda aqui. O `podeEncaminhar`
+                    em volta e so para nao criar um wrapper vazio por linha. */}
+                {podeEncaminhar(l) ? (
+                  <EncaminharPendencia triagem={l} moeda={moeda} onConcluido={carregar} />
+                ) : null}
               </div>
             ))}
           </div>
@@ -1007,6 +1054,13 @@ const foraTitulo = { fontSize: 13, fontWeight: 800, color: "var(--rv-vermelho-te
 const foraValor = { marginLeft: "auto", fontSize: 13, fontWeight: 800, color: "var(--rv-vermelho-texto)" };
 const foraAjuda = { fontSize: 12.5, lineHeight: 1.5, color: "var(--rv-vermelho-texto)", margin: "8px 0 10px" };
 const foraLinhas = { display: "flex", flexDirection: "column", gap: 6 };
+// Envolve a linha e o painel de encaminhamento, para os dois ficarem juntos
+// como um item so quando o painel abre.
+const foraItem = {
+  display: "flex", flexDirection: "column",
+  background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)",
+  borderRadius: 10, overflow: "hidden",
+};
 const foraLinha = {
   display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
   background: "var(--rv-fundo-cartao)", border: "1px solid var(--rv-borda)",

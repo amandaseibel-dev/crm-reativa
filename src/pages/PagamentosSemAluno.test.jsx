@@ -521,6 +521,23 @@ describe("conferência manual na própria linha", () => {
 //      status ainda pendente) aparecem num bloco de conferencia, sem acao;
 //   3. falha na triagem nao apaga a fila, e o texto cru do banco nao vaza.
 // ===========================================================================
+// O caso que a Etapa 2 resolve: a triagem declara CONFERIR_E_ENCERRAR e nao ha
+// decisao. Em producao sao 47 (R$ 40.663,34), e ate 27/10/2026 nenhum deles
+// tinha botao, porque a lista principal vinha vazia pelo timeout da RPC.
+const T_CONFERIR = {
+  pagamento_id: "p9",
+  categoria: "ACIONAVEL_ADMINISTRATIVO",
+  subcategoria: "ja_paga_conferir_e_encerrar",
+  etapa_desligada: null,
+  acao_sugerida: "CONFERIR_E_ENCERRAR",
+  valor_pago: 126.18,
+  data_pagamento: "2026-10-05",
+  aluno_id: "a9",
+  boleto: "50662470003",
+  decisao: null,
+  motivo: "a parcela 2 do boleto 50662470003 ja estava PAGO antes deste pagamento",
+};
+
 const T_ACIONAVEL = {
   pagamento_id: "p1",
   categoria: "ACIONAVEL_ADMINISTRATIVO",
@@ -630,7 +647,7 @@ describe("as pendências que a lista principal não mostra", () => {
       </MemoryRouter>,
     ); });
 
-    const titulo = screen.getByText(/1 com decisão registrada e ainda pendentes/i);
+    const titulo = screen.getByText(/1 fora da lista acima · 1 com decisão registrada/i);
     expect(titulo).toBeTruthy();
     // Consulta ESCOPADA no bloco. O mesmo valor aparece tambem no cartao da
     // faixa, porque com uma pendencia so o total da categoria coincide com ela
@@ -639,7 +656,7 @@ describe("as pendências que a lista principal não mostra", () => {
     expect(bloco.getAllByText(/R\$\s*2\.521,31/).length).toBeGreaterThanOrEqual(1);
     expect(bloco.getByText("50733330001")).toBeTruthy();
     expect(screen.getByText("RESOLVIDO_AUTOMATICO")).toBeTruthy();
-    expect(screen.getByText(/a rodada horária também não as reprocessa/i)).toBeTruthy();
+    expect(screen.getByText(/a rodada horária não as reprocessa/i)).toBeTruthy();
   });
 
   it("o bloco é só leitura: nenhuma ação além de abrir a ficha", async () => {
@@ -656,6 +673,36 @@ describe("as pendências que a lista principal não mostra", () => {
     expect(screen.queryByRole("button", { name: /^feito$/i })).toBeNull();
   });
 
+  // A CORRECAO DE 27/10/2026, no nivel da tela. Com a lista principal vazia --
+  // que e o que o timeout de 8 s da RPC produz em producao -- o caso acionavel
+  // cai neste bloco, e aqui ele PRECISA ter o botao. Antes nao tinha: o
+  // componente so era montado dentro do card da lista principal.
+  it("com a lista principal vazia, o caso acionável ganha o botão de encerrar", async () => {
+    rotear({ lista: [], triagem: [T_CONFERIR] });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
+
+    expect(screen.getByRole("button", { name: /conferir e encerrar/i })).toBeTruthy();
+    // E a previa e um passo separado: o botao de confirmar so existe depois.
+    expect(screen.queryByRole("button", { name: /encerrar a pendência/i })).toBeNull();
+  });
+
+  // ESCOLHER_ALUNO saiu do escopo em 26/10/2026 e nao volta por este caminho.
+  it("ESCOLHER_ALUNO aparece no bloco e continua sem botão de encaminhamento", async () => {
+    rotear({ lista: [], triagem: [T_ACIONAVEL] });
+    await act(async () => { render(
+      <MemoryRouter>
+        <PagamentosSemAluno />
+      </MemoryRouter>,
+    ); });
+
+    expect(screen.getByText(/1 fora da lista acima/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /conferir e encerrar/i })).toBeNull();
+  });
+
   it("quem já está na lista principal não é repetido no bloco", async () => {
     // p1 está na lista E na triagem: aparece uma vez, na lista.
     rotear({ lista: [LINHA], triagem: [T_ACIONAVEL] });
@@ -665,7 +712,7 @@ describe("as pendências que a lista principal não mostra", () => {
       </MemoryRouter>,
     ); });
 
-    expect(screen.queryByText(/com decisão registrada e ainda pendentes/i)).toBeNull();
+    expect(screen.queryByText(/fora da lista acima/i)).toBeNull();
   });
 });
 

@@ -205,3 +205,31 @@ export function filtrarPorCategoria(linhas, mapaTriagem, categoria) {
   if (!categoria || categoria === "TODAS") return linhas || [];
   return (linhas || []).filter((l) => mapaTriagem.get(l?.pagamento_id)?.categoria === categoria);
 }
+
+// O RECORTE DO BLOCO "fora da lista acima" (27/10/2026).
+//
+// POR QUE EXISTE. `pendenciasSoNaTriagem` devolve tudo que a lista principal
+// nao trouxe -- nao so as decididas. Quando `pagamentos_sem_aluno` estoura o
+// `statement_timeout` de 8 s (medido em producao: 13,2 s), `linhas` fica vazia
+// e TODA a pendencia cai nesse bloco. O titulo entao afirmava que as 470 tinham
+// "decisao registrada", o que e falso, e o bloco nao oferecia acao nenhuma --
+// deixando sem botao os casos que a triagem declara acionaveis.
+//
+// Esta funcao e so o recorte e a contagem: nao classifica nada e nao decide
+// quem ganha botao (isso e de `podeEncaminhar`, no vocabulario do
+// encaminhamento). Fica aqui, fora do JSX, para ter teste sem montar tela.
+export function recorteForaDaLista(foraDaLista, categoria) {
+  const todas = Array.isArray(foraDaLista) ? foraDaLista.filter(Boolean) : [];
+  // Categoria ausente ou "TODAS" nao filtra. Filtrar por ausencia de dado
+  // esconderia pendencia -- mesma regra de `filtrarPorCategoria`.
+  const itens =
+    !categoria || categoria === "TODAS"
+      ? todas
+      : todas.filter((l) => l.categoria === categoria);
+  return {
+    itens,
+    quantidade: itens.length,
+    comDecisao: itens.filter((l) => l.decisao).length,
+    valor: soma(itens),
+  };
+}
