@@ -1,0 +1,402 @@
+-- ============================================================================
+-- RPC DE REIMPORTACAO: inserir SO a mensalidade ausente
+-- 27/10/2026 · NAO APLICAR. **TRES DECISOES DE DADO EM ABERTO.**
+--
+-- Saiu de `20261027120000_protecao_importacao_nao_reativa` nesta data, depois
+-- da 5a revisao do Guardiao. Nao e protecao: e o VEICULO da frente A (a
+-- reimportacao das parcelas ausentes). Nada em `src/` a chama hoje.
+--
+-- ----------------------------------------------------------------------------
+-- AS TRES DECISOES DE DADO FORAM TOMADAS PELA GESTAO EM 27/10/2026, e estao
+-- implementadas no corpo. Textual:
+--
+--   1. "CPF associado a multiplos aluno_id: nao escolher automaticamente;
+--      separar para analise."   -> grupo CPF_AMBIGUO. `aluno_id` fica NULO
+--      quando o CPF resolve mais de um aluno, a linha NAO entra e aparece na
+--      previa. A agregacao em `al` tambem corrige o defeito medido na 5a
+--      revisao: o join por CPF multiplicava a linha e inflava a previa (uma
+--      linha de R$ 900 virava R$ 1.800).
+--
+--   2. "Valores divergentes entre grafias do documento: classificar como
+--      DIVERGENTE."             -> `divergencia_de_valor`. Grafias da mesma
+--      chave com valor OU vencimento diferente vao inteiras para DIVERGENTE,
+--      nao entram, e aparecem. Antes, `order by valor desc` escolhia o maior e
+--      descartava o outro sem rastro.
+--
+--   3. "Documento composto somente por zeros: rejeitar o registro."
+--                               -> sai em `_bruto`, antes de classificar, e e
+--      contado em `rejeitado_documento_invalido`.
+--
+-- A PREVIA PASSOU A FECHAR POR SOMA, e isso e asserido dentro da funcao: se os
+-- grupos nao somarem com as linhas classificadas, ela ABORTA antes de qualquer
+-- escrita -- inclusive em dry-run. Era apontamento da 5a revisao, e previa que
+-- nao se confere nao serve como instrumento de autorizacao.
+--
+-- O retorno agora traz `linhas_arquivo` (total do arquivo) E
+-- `linhas_classificadas` (o que sobrou), porque reportar so um deles foi o
+-- defeito que fez arquivo truncado passar por completo.
+--
+-- ----------------------------------------------------------------------------
+-- O QUE JA ESTA CERTO AQUI, conferido na 5a revisao:
+--   . portao interno `app_pode_borderos_importacoes()` com errcode 42501;
+--   . `security definer` + `set search_path to 'public'`;
+--   . `revoke all ... from public, anon` e `grant execute` so a `authenticated`;
+--   . `p_dry_run = true` por default;
+--   . dedupe de `_origem` pela chave NORMALIZADA (corrigido em 27/10, 4a
+--     revisao: era por grafia crua e abortava a carga inteira);
+--   . os dois `not exists` normalizados contra `acordos_titulos` e `parcelas`;
+--   . so INSERT -- nao atualiza titulo, nao cria aluno, nao cria acordo.
+--
+-- DEPENDENCIA: a protecao `20261027120000` deve estar aplicada ANTES desta --
+-- e dela que vem o indice unico normalizado e a guarda de insercao.
+--
+-- ROLLBACK: 20261027120001_mensalidades_ausentes_inserir.rollback.sql
+-- ============================================================================
+
+begin;
+
+set local lock_timeout = '3s';
+
+-- ---------------------------------------------------------------------------
+-- 3. RPC: inserir SO mensalidade ausente. Idempotente e segura para repetir.
+--
+--    Diferenca essencial em relacao ao bordero: **so INSERT.** Nenhum UPDATE
+--    de titulo, nenhuma criacao de aluno, nenhuma criacao de acordo, nenhuma
+--    escrita em fila, caso, parcela, vinculo, responsavel ou historico.
+-- ---------------------------------------------------------------------------
+create or replace function public.mensalidades_ausentes_inserir(
+  p_linhas  jsonb,
+  p_lote    text,
+  p_dry_run boolean default true
+) returns jsonb
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $fn$
+declare
+  -- `set statement_timeout` SAIU da assinatura em 27/10/2026: ele NAO rearma o
+  -- relogio da instrucao em curso (memoria `proconfig-statement-timeout-nao-rearma`),
+  -- entao era falsa seguranca -- o mesmo apontamento que a migration de B1
+  -- aceitou. O teto real e o do chamador.
+  v_usuario text;
+  v_ja int := 0; v_prot int := 0; v_ausente int := 0; v_div int := 0; v_ins int := 0;
+  v_valor_ausente numeric := 0;
+  -- decisoes da gestao de 27/10/2026 (ver cabecalho)
+  v_cpf_amb int := 0;          -- CPF em mais de um aluno: separa para analise
+  v_rejeitado int := 0;        -- documento so-zeros: rejeitado na origem
+  v_linhas_arquivo int := 0;   -- total do ARQUIVO, antes de qualquer colapso
+begin
+  -- Portao INTERNO. Nao se revoga EXECUTE de authenticated: a tela da propria
+  -- gestao precisa chamar (memoria `restringir-a-gestao-e-portao-interno`).
+  if not public.app_pode_borderos_importacoes() then
+    raise exception 'SEM_PERMISSAO_IMPORTACAO_BORDERO' using errcode = '42501';
+  end if;
+  if coalesce(btrim(p_lote),'') = '' then
+    raise exception 'LOTE_OBRIGATORIO: o lote identifica a execucao para rollback por id.'
+      using errcode = '22023';
+  end if;
+
+  -- Declara a importacao para o gatilho da secao 2. Transacional.
+  perform set_config('reativa.importando', 'on', true);
+  v_usuario := coalesce(nullif(auth.jwt() ->> 'email',''), 'sistema');
+
+  -- ===== DEDUPE PELA CHAVE NORMALIZADA (corrigido em 27/10/2026) =========
+  -- Era `distinct on (documento)` -- grafia CRUA. Com isso, duas grafias da
+  -- MESMA chave normalizada no MESMO arquivo ('04039712' e '4039712')
+  -- sobreviviam as duas: os dois `not exists` abaixo consultam o estado
+  -- COMITADO, nenhuma das duas existe na base, as duas passam, e o `insert`
+  -- unico disparava a guarda da secao 1b na segunda linha -- com a GUC acesa,
+  -- levantando e abortando a carga INTEIRA. MEDIDO em PGlite na 4a revisao do
+  -- Guardiao: `p_dry_run => true` prometia 2 inseridos e `false` entregava 0 +
+  -- erro, perdendo tambem a linha legitima.
+  --
+  -- Deduplicar por `k` fecha isso na origem: dentro de uma carga, uma chave
+  -- normalizada aparece UMA vez. Entao esta RPC nunca alcanca o ramo do
+  -- `raise`, e a previa (`p_dry_run`) volta a prever a execucao -- que e o
+  -- instrumento de seguranca da gestao, nao um detalhe.
+  -- ======================================================================
+  -- ======================================================================
+  -- DECISOES DA GESTAO DE 27/10/2026, implementadas aqui
+  --
+  -- (3) DOCUMENTO SO-ZEROS E REJEITADO. `extracao_documento_norm` devolve NULL
+  --     para '0000000' (e `nullif(ltrim(doc,'0'),'')`). Antes, `distinct on`
+  --     tratava os NULL como iguais, um deles sobrevivia e o filtro
+  --     `^[0-9]{6,13}$` o aceitava -- virava titulo que NUNCA poderia ser
+  --     baixado. Agora sai na origem e e CONTADO.
+  --
+  -- (2) MESMA CHAVE COM VALOR OU VENCIMENTO DIFERENTE E DIVERGENTE. Antes
+  --     `order by k, valor desc` escolhia o MAIOR e descartava o outro sem
+  --     rastro -- resolvia divergencia do arquivo para cima, inflando divida
+  --     (contra `cobranca-trabalha-com-exatos`). Agora o grupo inteiro vai para
+  --     DIVERGENTE, nao entra, e APARECE na previa. Grafias diferentes com
+  --     valor E vencimento identicos seguem colapsando: ai nao ha divergencia,
+  --     so repeticao.
+  -- ======================================================================
+  create temp table _bruto on commit drop as
+  select btrim(l->>'documento')                                as documento,
+         public.extracao_documento_norm(btrim(l->>'documento')) as k,
+         regexp_replace(coalesce(l->>'cpf',''),'\D','','g')     as cpf,
+         nullif(l->>'valor','')::numeric                       as valor,
+         nullif(l->>'venc','')::date                           as venc,
+         nullif(btrim(l->>'curso'),'')                         as curso
+    from jsonb_array_elements(coalesce(p_linhas,'[]'::jsonb)) l;
+
+  select count(*),
+         count(*) filter (where coalesce(documento,'') = '' or k is null)
+    into v_linhas_arquivo, v_rejeitado
+    from _bruto;
+
+  create temp table _origem on commit drop as
+  with g as (
+    select k,
+           count(*)                  as linhas_da_chave,
+           count(distinct documento) as grafias,
+           -- NULL conta: `count(distinct valor)` ignoraria a linha sem valor e
+           -- deixaria passar divergencia entre "100" e "vazio".
+           count(distinct coalesce(valor::text,'~') || '|' || coalesce(venc::text,'~'))
+                                     as combinacoes
+      from _bruto
+     where coalesce(documento,'') <> '' and k is not null
+     group by k
+  )
+  select distinct on (b.k)
+         b.*, g.grafias, g.linhas_da_chave,
+         (g.combinacoes > 1) as divergencia_de_valor
+    from _bruto b
+    join g on g.k = b.k
+   where coalesce(b.documento,'') <> '' and b.k is not null
+   -- desempate DETERMINISTICO pela grafia, nao pelo valor: quando o grupo
+   -- sobrevive, valor e vencimento sao identicos e a grafia e indiferente.
+   order by b.k, b.documento;
+
+  create temp table _cls on commit drop as
+  with t as (
+    select public.extracao_documento_norm(t.documento) as k, t.aluno_id,
+           upper(coalesce(t.situacao,'')) as situacao, lower(coalesce(t.status,'')) as status
+      from public.acordos_titulos t where t.documento is not null
+  ), p as (
+    select public.extracao_documento_norm(pa.boleto) as k, pa.acordo_id
+      from public.parcelas pa where pa.boleto is not null
+  ), al as (
+    -- (1) DECISAO DA GESTAO: CPF em mais de um aluno_id NAO se escolhe
+    --     automaticamente -- separa para analise.
+    --
+    --     Agregar ANTES do join resolve DUAS coisas de uma vez. A obvia e a
+    --     decisao. A outra e um defeito medido na 5a revisao: `left join
+    --     public.alunos` por CPF MULTIPLICAVA a linha, porque nao existe
+    --     indice unico em `alunos.cpf` (17 CPFs duplicados medidos em
+    --     02/09/2026). Uma linha de arquivo de R$ 900 virava previa de
+    --     R$ 1.800 e a execucao perdia a carga com 23505. Agregado, cada CPF
+    --     da UMA linha, e a previa volta a fechar por soma.
+    select regexp_replace(coalesce(cpf,''),'\D','','g') as cpf_n,
+           count(*) as qtd_alunos,
+           -- `min(uuid)` NAO EXISTE em Postgres (armadilha registrada na
+           -- memoria do projeto, e eu repeti). Com qtd_alunos = 1 ha um
+           -- elemento so; o `order by` e por determinismo.
+           (array_agg(id order by id))[1] as aluno_unico,
+           -- os status viajam junto porque o ramo PROTEGIDA abaixo precisa
+           -- deles; so sao lidos quando qtd_alunos = 1, pelo mesmo
+           -- `order by id`, para o conjunto ser coerente com `aluno_unico`.
+           (array_agg(status_atual      order by id))[1] as status_atual,
+           (array_agg(status_jornada    order by id))[1] as status_jornada,
+           (array_agg(status_acionamento order by id))[1] as status_acionamento
+      from public.alunos
+     where regexp_replace(coalesce(cpf,''),'\D','','g') <> ''
+     group by 1
+  )
+  -- EXISTENCIA SE TESTA PELA CHAVE QUE CASOU (`t.k` / `p.k`), nunca por coluna
+  -- anulavel: `acordos_titulos.aluno_id` e `parcelas.acordo_id` podem ser NULL
+  -- num titulo que existe, e testar por elas classificava titulo presente como
+  -- ausente -- o que faria a RPC inserir duplicata. Pego pelo teste de
+  -- src/utils/bordero.test.js em 08/10/2026.
+  select o.*,
+         (t.k is not null or p.k is not null) as existe,
+         -- NUNCA escolhe entre dois: com CPF ambiguo, aluno_id fica NULO e a
+         -- linha cai em CPF_AMBIGUO logo abaixo.
+         case when al.qtd_alunos = 1 then al.aluno_unico end as aluno_id,
+         case
+           -- divergente: chave ou aluno nao identificaveis com seguranca
+           when o.documento !~ '^[0-9]{6,13}$'                     then 'DIVERGENTE'
+           when length(o.documento) in (6,13)                      then 'DIVERGENTE'
+           when o.documento ~ '^0?5[0-9]{10}$'                     then 'DIVERGENTE'  -- boleto de ACORDO
+           -- (2) grafias da mesma chave com valor/vencimento diferente
+           when o.divergencia_de_valor                              then 'DIVERGENTE'
+           when t.k is not null or p.k is not null                  then 'JA_EXISTENTE'
+           -- (1) CPF em mais de um aluno: separado para analise, nao entra
+           when al.qtd_alunos > 1                                   then 'CPF_AMBIGUO'
+           when o.cpf = '' or al.qtd_alunos is null                 then 'DIVERGENTE'
+           -- ---------------------------------------------------------------
+           -- PROTEGIDA = DECISAO DE NAO COBRAR, nao "caso tratado".
+           --
+           -- REGRA DA GESTAO, 08/10/2026: "a parcela ja negociada e paga nao
+           -- volta, quando entra uma nova parcela precisamos trabalhar ela".
+           -- Sao dois lados diferentes, e a versao de 08/10 os confundia:
+           --
+           --   nao reativar divida ANTIGA -> secao 2 (o gatilho) e o
+           --       insert-only da tela. Esta RPC nunca faz UPDATE, so INSERT:
+           --       ela nao tem como reativar nada.
+           --   mensalidade NOVA           -> entra e vai para a cobranca,
+           --       ainda que o aluno tenha historico de quitacao. A quitacao
+           --       valeu para a divida de ENTAO, nao para a que nasceu depois
+           --       -- mesmo raciocinio de
+           --       `_reabrir_encerramento_com_mensalidade_nova`.
+           --
+           -- SAIRAM DA LISTA (09/10/2026): QUITADO, QUITADO_MANUAL,
+           -- `casos.encerrado_operacional` e `casos.quitado_em`. Eram eles que
+           -- faziam a RPC DESCARTAR em silencio a mensalidade de setembro de
+           -- quem ja havia quitado o que devia antes -- divida real que
+           -- ninguem cobraria.
+           --   `encerrado_operacional` sai sem perda de protecao: ele e
+           --   derivado dos status, e juridico/suspensao/cancelamento seguem
+           --   barrados pelo array abaixo. O que ele acrescentava era o
+           --   quitado -- exatamente o caso que a gestao quer trabalhar.
+           --
+           -- CONTINUA BARRADO, e por que:
+           --   JURIDICO, SUSPENSAO_COBRANCA, CANCELAMENTO_COBRANCA,
+           --   COBRANCA_CANCELADA -- decisao da gestao de nao cobrar este
+           --       aluno. Nao e caso tratado: e caso que nao se cobra.
+           --   `casos.nao_acionar`  -- trava explicita da gestao. E por ela
+           --       que a ANTECIPACAO DE SEMESTRE segue protegida:
+           --       `antecipacao_semestre_aplicar` grava `nao_acionar = true`.
+           --       Mesma trava que `casos_reabrir_com_divida` respeita.
+           --   os quatro `casos.status_*` com CANCEL/JURIDIC/SUSPENS -- e
+           --       assim que o cancelamento definitivo existe de verdade.
+           --
+           -- CORRECAO DE 09/10/2026, MEDIDA EM PRODUCAO.
+           -- A versao anterior testava `casos.cancelado_em is not null`.
+           -- **ESSA COLUNA NAO EXISTE.** Lido no schema de producao
+           -- (`ahattpqrjmhkzsmnbdzs`) em 09/10/2026: `casos` tem
+           -- `encerrado_operacional`, `nao_acionar`, `quitado_em` e os cinco
+           -- `status_*` (acionamento, atual, financeiro, jornada, termo) --
+           -- e nenhuma coluna com "cancel" no nome. A migration teria
+           -- abortado na aplicacao com 42703, e ninguem veria antes da hora:
+           -- a fixture de teste CRIAVA `cancelado_em`, entao o teste provava
+           -- um schema que nao e o de producao. A fixture foi corrigida junto.
+           --
+           -- O cancelamento definitivo mora nos `status_*` do caso -- e a
+           -- mesma leitura que `casos_reabrir_com_divida` faz com
+           -- `normalizar_status_acionamento` contra `v_bloq`. Aqui o teste e
+           -- por substring porque a base guarda as duas grafias
+           -- ("CANCELAMENTO COBRANCA" e "CANCELAMENTO_COBRANCA") e o
+           -- feminino/masculino ("CANCELADA"/"CANCELADO").
+           --
+           -- Validado no mesmo dia, em producao:
+           --   casos.cancelado_em ................. NAO EXISTE
+           --   casos.encerrado_operacional ........ existe
+           --   casos.nao_acionar .................. existe
+           --   casos.quitado_em ................... existe
+           --   alunos.status_acionamento .......... existe
+           --   acordos_titulos.valor_cobranca_ajustado ... existe
+           -- ---------------------------------------------------------------
+           when array[ replace(upper(coalesce(al.status_atual,'')),' ','_'),
+                       replace(upper(coalesce(al.status_jornada,'')),' ','_'),
+                       replace(upper(coalesce(al.status_acionamento,'')),' ','_') ]
+                && array['JURIDICO','SUSPENSAO_COBRANCA','CANCELAMENTO_COBRANCA',
+                         'COBRANCA_CANCELADA']
+                                                                   then 'PROTEGIDA'
+           when exists (select 1 from public.casos c
+                         where c.aluno_id = al.aluno_unico
+                           and (coalesce(c.nao_acionar, false)
+                                or upper(concat_ws(' ', c.status_atual,
+                                                        c.status_acionamento,
+                                                        c.status_financeiro,
+                                                        c.status_jornada))
+                                    ~ 'CANCEL|JURIDIC|SUSPENS'))    then 'PROTEGIDA'
+           else 'AUSENTE_ELEGIVEL'
+         end as grupo
+    from _origem o
+    left join t on t.k = o.k
+    left join p on p.k = o.k
+    left join al on o.cpf <> '' and al.cpf_n = o.cpf;
+
+  select count(*) filter (where grupo='JA_EXISTENTE'),
+         count(*) filter (where grupo='PROTEGIDA'),
+         count(*) filter (where grupo='AUSENTE_ELEGIVEL'),
+         count(*) filter (where grupo='DIVERGENTE'),
+         count(*) filter (where grupo='CPF_AMBIGUO'),
+         round(coalesce(sum(valor) filter (where grupo='AUSENTE_ELEGIVEL'),0),2)
+    into v_ja, v_prot, v_ausente, v_div, v_cpf_amb, v_valor_ausente
+    from _cls;
+
+  -- A PREVIA TEM DE FECHAR POR SOMA. Era apontamento da 5a revisao: os grupos
+  -- nao somavam com `linhas`, e previa que nao e conferivel nao serve como
+  -- instrumento de autorizacao. Agora:
+  --   linhas_arquivo = rejeitado + colapsado_em_repeticao + (soma dos grupos)
+  -- e esta conta e ASSERIDA aqui -- divergencia aborta antes de qualquer
+  -- escrita, mesmo em dry-run.
+  if (select count(*) from _cls) <> (v_ja + v_prot + v_ausente + v_div + v_cpf_amb) then
+    raise exception 'PREVIA INCOERENTE: os grupos nao somam com as linhas classificadas. Nada foi gravado.'
+      using errcode = '22023';
+  end if;
+
+  if not p_dry_run then
+    -- SO INSERT. Os dois `where not exists` abaixo comparam pela chave
+    -- NORMALIZADA; somados ao indice unico da secao 1 e a guarda da secao 1b,
+    -- fazem a repeticao inserir 0 na segunda vez.
+    insert into public.acordos_titulos
+      (aluno_id, cpf, documento, vencimento, valor_original, valor_em_aberto,
+       saldo_corrigido, situacao, status, tipo_boleto, importacao_id, observacao)
+    select c.aluno_id, c.cpf, c.documento, c.venc, c.valor, c.valor,
+           -- saldo_corrigido nasce junto: sem ele o titulo fica invisivel para
+           -- as cinco rotinas que leem coalesce(saldo_corrigido,0). E o que o
+           -- bordero e o importar_acordos ja fazem.
+           c.valor, 'ABERTO', 'em_aberto', c.curso, null,
+           'Mensalidade ausente incluida pelo lote ' || p_lote
+      from _cls c
+     where c.grupo = 'AUSENTE_ELEGIVEL'
+       and not exists (
+             select 1 from public.acordos_titulos t
+              where public.extracao_documento_norm(t.documento) = c.k)
+       and not exists (
+             select 1 from public.parcelas pa
+              where public.extracao_documento_norm(pa.boleto) = c.k);
+    get diagnostics v_ins = row_count;
+
+    insert into public.auditoria (usuario, acao, tabela_afetada, detalhes)
+    values (v_usuario, 'MENSALIDADES_AUSENTES_INSERIDAS', 'acordos_titulos',
+            jsonb_build_object('lote', p_lote, 'inseridos', v_ins,
+                               'ja_existente', v_ja, 'protegida', v_prot,
+                               'ausente_elegivel', v_ausente, 'divergente', v_div,
+                               'cpf_ambiguo', v_cpf_amb,
+                               'rejeitado_documento_invalido', v_rejeitado,
+                               'linhas_arquivo', v_linhas_arquivo));
+  end if;
+
+  return jsonb_build_object(
+    'dry_run', p_dry_run, 'lote', p_lote,
+    -- `linhas_arquivo` e o total do ARQUIVO; `linhas_classificadas` e o que
+    -- sobrou depois de rejeitar so-zeros e colapsar repeticao identica. Os dois
+    -- aparecem de proposito: reportar so um deles foi o defeito que fez um
+    -- arquivo truncado passar por completo.
+    'linhas_arquivo', v_linhas_arquivo,
+    'rejeitado_documento_invalido', v_rejeitado,
+    'linhas_classificadas', (select count(*) from _cls),
+    'colapsado_repeticao_identica',
+        v_linhas_arquivo - v_rejeitado - (select count(*) from _cls),
+    'ja_existente', v_ja, 'protegida', v_prot,
+    'ausente_elegivel', v_ausente, 'divergente', v_div,
+    'cpf_ambiguo', v_cpf_amb,
+    'valor_ausente_elegivel', v_valor_ausente,
+    'inseridos', v_ins);
+end;
+$fn$;
+
+comment on function public.mensalidades_ausentes_inserir(jsonb,text,boolean) is
+  'Inclui SO mensalidade cuja chave normalizada nao existe nem em '
+  'acordos_titulos nem em parcelas. Somente INSERT: nao atualiza titulo, nao '
+  'cria aluno nem acordo, nao escreve em fila, caso, parcela, vinculo, '
+  'responsavel, fidelizacao, retorno ou historico. p_dry_run = true por '
+  'default. Idempotente: repetir insere 0 (dois not exists sobre '
+  'extracao_documento_norm, mais ux_acordos_titulos_documento_norm). '
+  'Linha sem CPF, com CPF que nao resolve aluno, com boleto de ACORDO ou com '
+  'chave de 6/13 digitos fica em DIVERGENTE e nao entra. PROTEGIDA e decisao '
+  'de NAO COBRAR -- juridico, suspensao, cancelamento de cobranca, '
+  'casos.nao_acionar (por onde a antecipacao de semestre entra) e os '
+  'casos.status_* com CANCEL/JURIDIC/SUSPENS. '
+  'Historico de quitacao NAO protege: mensalidade nova de aluno '
+  'quitado entra e vai para a cobranca (regra da gestao de 08/10/2026).';
+
+revoke all on function public.mensalidades_ausentes_inserir(jsonb,text,boolean) from public, anon;
+grant execute on function public.mensalidades_ausentes_inserir(jsonb,text,boolean) to authenticated;
+
+commit;

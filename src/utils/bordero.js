@@ -62,6 +62,108 @@ export function motivoDeNaoTocar({ jaExiste, situacaoAtual, statusAtual }) {
 }
 
 // ---------------------------------------------------------------------------
+// CHAVE NORMALIZADA DO DOCUMENTO (boleto)
+// ---------------------------------------------------------------------------
+//
+// 27/10/2026. Espelha EXATAMENTE a `extracao_documento_norm()` do banco
+// (`nullif(ltrim(documento,'0'),'')`, ver 20261001183516): só o zero à esquerda
+// sai, nada mais. Duas implementações da mesma regra em linguagens diferentes é
+// meio caminho para divergirem, então a regra é uma linha e o teste compara as
+// duas contra os mesmos casos.
+//
+// POR QUE ISTO EXISTE. O banco tem `acordos_titulos_documento_key` UNIQUE sobre
+// o `documento` **cru**: para ele, '04039712' e '4039712' são chaves
+// diferentes. Os importadores, porém, casam por `ltrim`. Então a tela podia
+// olhar o valor cru, não achar o título que existe, e inserir a variante —
+// duplicando a dívida. Medido em 01/10/2026 a base estava limpa (47.949
+// documentos, 0 colisão sob normalização), mas isso é uma foto, não uma
+// garantia sobre o próximo arquivo.
+//
+// A partir daqui a tela compara, deduplica e decide SEMPRE por esta chave.
+export function chaveDocumento(valor) {
+  const texto = String(valor ?? "").trim();
+  const semZeros = texto.replace(/^0+/, "");
+  return semZeros === "" ? null : semZeros;
+}
+
+// Variantes a consultar no banco para um documento do arquivo.
+//
+// O problema que isto resolve: o `.in()` do PostgREST compara valor LITERAL, e
+// não existe filtro por função. Se o arquivo traz '4039712' e a base guarda
+// '04039712', a consulta pelo valor do arquivo **não acha** o título que
+// existe, e o pré-filtro deixa passar uma duplicata. O contrário também vale.
+//
+// Não há como enumerar todas as variantes (zeros à esquerda são infinitos),
+// então o limite é declarado e pequeno: a forma do arquivo, a forma sem zeros,
+// e até MAX_ZEROS zeros à frente. A taxonomia medida em 01/10/2026 tem boletos
+// de 6, 7, 12, 13 e 20 dígitos — três zeros cobrem a diferença entre todas as
+// faixas vizinhas com folga.
+//
+// RESÍDUO ASSUMIDO, e por isso a colisão também é reportada: uma base com mais
+// de três zeros à esquerda escaparia daqui. Nenhum caso assim existe hoje
+// (0 colisão em 47.949), e o censo da migration 20261027120000 volta a medir
+// isso a cada aplicação.
+const MAX_ZEROS_DE_BUSCA = 3;
+
+export function variantesDeDocumento(valor) {
+  const texto = String(valor ?? "").trim();
+  if (!texto) return [];
+  const base = chaveDocumento(texto);
+  if (!base) return [texto];
+  const fora = new Set([texto, base]);
+  for (let i = 1; i <= MAX_ZEROS_DE_BUSCA; i += 1) fora.add("0".repeat(i) + base);
+  return [...fora];
+}
+
+// Indexa títulos existentes pela chave NORMALIZADA, não pelo valor cru.
+// Primeiro a ganhar fica: se a base tiver duas grafias do mesmo boleto (hoje
+// não tem), a tela trata as duas como "já existe" e não insere nenhuma — que é
+// o lado seguro do erro.
+export function indexarTitulosPorDocumento(titulos) {
+  const mapa = {};
+  for (const titulo of titulos || []) {
+    const chave = chaveDocumento(titulo?.documento);
+    if (!chave) continue;
+    if (!mapa[chave]) mapa[chave] = titulo;
+  }
+  return mapa;
+}
+
+// Linhas do PRÓPRIO arquivo que colidem entre si sob a chave normalizada.
+//
+// É divergência de verdade: duas grafias do mesmo boleto na mesma remessa. A
+// primeira entra, as outras são recusadas — e **aparecem**, com o motivo. A
+// exigência da gestão em 27/10/2026 foi "sem introduzir duplicidades nem
+// ocultar divergências": recusar sem dizer seria ocultar.
+export function colisoesNormalizadasNoLote(linhas) {
+  const porChave = new Map();
+  for (const linha of linhas || []) {
+    const chave = chaveDocumento(linha?.numTitulo);
+    if (!chave) continue;
+    if (!porChave.has(chave)) porChave.set(chave, []);
+    porChave.get(chave).push(linha);
+  }
+  const colisoes = [];
+  for (const [chave, grupo] of porChave) {
+    const grafias = [...new Set(grupo.map((l) => String(l.numTitulo).trim()))];
+    // Mesma grafia repetida é linha duplicada no arquivo; grafias diferentes
+    // sob a mesma chave é a colisão que o banco cru não vê. Os dois casos
+    // interessam, e o motivo distingue.
+    if (grupo.length > 1) {
+      colisoes.push({
+        chave,
+        grafias,
+        linhas: grupo,
+        motivo: grafias.length > 1
+          ? `mesmo boleto com ${grafias.length} grafias no arquivo (${grafias.join(", ")})`
+          : `linha repetida ${grupo.length}x no arquivo`,
+      });
+    }
+  }
+  return colisoes;
+}
+
+// ---------------------------------------------------------------------------
 // CADASTRO ÚNICO POR CPF NO IMPORTADOR
 // ---------------------------------------------------------------------------
 //
@@ -102,6 +204,54 @@ export function chaveCpf(valor) {
   return digitos.padStart(11, "0");
 }
 
+// ---------------------------------------------------------------------------
+// CPF CONFIRMÁVEL — decisão da gestão de 27/10/2026, regra 2:
+// "Não criar aluno ou título quando o CPF estiver ausente ou não puder ser
+// confirmado."
+//
+// O CRITÉRIO, e por que não é "exatamente 11 dígitos": o Excel come o zero à
+// esquerda. Um CPF que começa com 0 chega ao arquivo com 10 dígitos, e é
+// exatamente para isso que `chaveCpf` faz `padStart(11,'0')` — comportamento
+// estabelecido e medido neste projeto (42 fichas gravadas com máscara ou com
+// contagem diferente de 11, em 09/10/2026). Exigir 11 crus rejeitaria aluno
+// legítimo, o oposto do objetivo.
+//
+// Então: 9 a 11 dígitos é RECUPERÁVEL por padding e vale como confirmado.
+// Rejeita o que não dá para confirmar de jeito nenhum:
+//   · ausente, ou sem dígito nenhum;
+//   · menos de 9 dígitos — não há padding que invente o que falta;
+//   · mais de 11 — CNPJ ou lixo; não é CPF de aluno e não se chuta;
+//   · todos os dígitos iguais (00000000000, 11111111111) — preenchimento
+//     de formulário, não identidade.
+//
+// NÃO valida o dígito verificador de propósito: o borderô vem da ULBRA, e um
+// CPF que o Prime aceitou não é nosso para recusar. O que se recusa aqui é o
+// que não IDENTIFICA, não o que é inválido na regra do CPF.
+export function cpfConfiavel(valor) {
+  const digitos = String(valor ?? "").replace(/\D/g, "");
+  if (digitos.length < 9 || digitos.length > 11) return false;
+  if (/^(\d)\1+$/.test(digitos)) return false;
+  return true;
+}
+
+// Por que a linha vai para ANÁLISE em vez de virar dívida. Um lugar só, para a
+// tela e o teste dizerem a mesma coisa (regra 5 da gestão: "se houver
+// duplicidade ou dúvida de vínculo, separar para análise, sem criar dívida").
+export function motivoDeAnalise({ cpfOriginal, aluno, sugestaoPorNome }) {
+  if (aluno) return null;                       // identidade comprovada por CPF
+  const digitos = String(cpfOriginal ?? "").replace(/\D/g, "");
+  if (!digitos) return "linha sem CPF";
+  if (!cpfConfiavel(cpfOriginal)) {
+    return `CPF não confirmável (${digitos.length} dígitos)`;
+  }
+  // CPF confiável e sem cadastro: NÃO é análise -- é aluno novo, e entra.
+  // Este ramo só é alcançado se quem chamou já decidiu que não vai criar ficha.
+  if (sugestaoPorNome) {
+    return "CPF não casou, mas existe cadastro com o mesmo nome — conferir";
+  }
+  return null;
+}
+
 // Indexa cadastros existentes por `chaveCpf`, não pelo valor cru da coluna.
 // É o que faz uma ficha gravada sem o zero à esquerda, ou com máscara, ser
 // reaproveitada em vez de duplicada.
@@ -124,21 +274,31 @@ export function indexarAlunosPorCpf(alunos) {
 // Devolve:
 //   registros     -> o que inserir em `alunos` (um por CPF distinto, na ordem
 //                    da primeira aparição)
-//   linhasSemCpf  -> linhas sem dígito de CPF. NÃO entram em `registros`: sem
-//                    CPF não há correspondência segura. Ficam aqui para a tela
-//                    contar e avisar (ver o débito no fim deste bloco).
+//   linhasEmAnalise -> linhas cujo CPF está ausente ou NÃO é confirmável.
+//                    **NÃO entram em `registros` e não geram título.** Regra 2
+//                    da gestão (27/10/2026). Antes, linha sem CPF virava uma
+//                    ficha POR LINHA e o título ia nela — criava dívida com
+//                    identidade não comprovada.
 //   cpfsNovos     -> as chaves que serão criadas, para conferência no teste
 export function fichasParaCriar(linhas) {
   const registros = [];
-  const linhasSemCpf = [];
+  const linhasEmAnalise = [];
   const vistos = new Set();
 
   for (const linha of linhas || []) {
     if (linha?.aluno) continue; // já existe cadastro: reutiliza, não cria
 
+    // Regra 2: sem CPF confirmável não se cria ficha nem título. O valor
+    // conferido é o ORIGINAL do arquivo, não `cpfLimpo` -- este último já passou
+    // por `padStart`, que esconde justamente a contagem de dígitos.
+    if (!cpfConfiavel(linha?.cpfOriginal ?? linha?.cpfLimpo)) {
+      linhasEmAnalise.push(linha);
+      continue;
+    }
+
     const chave = chaveCpf(linha?.cpfLimpo ?? linha?.cpfOriginal);
     if (!chave) {
-      linhasSemCpf.push(linha);
+      linhasEmAnalise.push(linha);
       continue;
     }
     if (vistos.has(chave)) continue; // outra linha do MESMO aluno
@@ -156,7 +316,7 @@ export function fichasParaCriar(linhas) {
     });
   }
 
-  return { registros, linhasSemCpf, cpfsNovos: [...vistos] };
+  return { registros, linhasEmAnalise, cpfsNovos: [...vistos] };
 }
 
 // Resolve o aluno de uma linha: o que o preview achou, ou o que acabou de ser
