@@ -371,6 +371,17 @@ const casos = [
     arquivo("Write", `${RAIZ}/supabase/*/../ledger/2026-10/x.sql`, RAIZ), FASE2],
   ["F71", "NEGA", "R5: cd na pasta e redirecionar depois de ;", bash("cd supabase/migrations; cat > x.sql", RAIZ), FASE2],
   ["F72", "NEGA", "R5: cd no ledger e redirecionar sem espaço", bash("cd supabase/ledger;echo a>b.sql", RAIZ), FASE2],
+
+  // ---- F73-F77: as três últimas checagens de caminho sensíveis a caixa. A do
+  // R7 é a mais grave: atinge o arquivo do hook EM VIGOR, e sobrescrevê-lo
+  // derruba todas as regras de uma vez.
+  ["F73", "NEGA", "caixa no R7: HOOKS maiúsculo no caminho do Guardião",
+    bash("echo x > plugins/reativa-one/HOOKS/guardiao.sh", RAIZ), FASE2],
+  ["F74", "NEGA", "caixa no R7: Plugins maiúsculo",
+    bash("echo x > Plugins/reativa-one/hooks/guardiao.sh", RAIZ), FASE2],
+  ["F75", "NEGA", "caixa no R5/git-interno: .GIT", bash("echo x > .GIT/config", RAIZ), FASE2],
+  ["F76", "NEGA", "caixa no R6/segredo-arquivo: .ENV", bash("cat .ENV", RAIZ), FASE2],
+  ["F77", "PASSA", "arquivo de exemplo segue passando, em qualquer caixa", bash("cat .ENV.example", RAIZ), FASE2],
 ];
 
 // ---------------------------------------------------------------------------

@@ -260,7 +260,8 @@ avaliar_comando() {
         "[$origem] Nesta fase nenhum agente escreve migration (o agente de Banco é da Fase 2)." \
         "propor o SQL no chat para você aplicar"
     fi
-    if printf '%s' "$e" | grep -Eq '(^| )\.git/|/\.git/'; then
+    # `-i`: `.GIT/config` é o mesmo arquivo neste volume (medido) e escapava.
+    if printf '%s' "$e" | grep -Eiq '(^| )\.git/|/\.git/'; then
       negar "R5/git-interno" "[$origem] Escrita direta dentro de .git/." "comandos git normais"
     fi
   fi
@@ -272,15 +273,25 @@ avaliar_comando() {
   # Os arquivos de EXEMPLO não têm valor e são rastreados no git: tira-os da
   # inspeção antes de procurar por .env, senão `cat .env.example` é barrado à
   # toa — e regra que incomoda sem motivo é regra que alguém desliga.
+  # Sobre a cópia MINÚSCULA (`$el`), não sobre `$e`: `cat .ENV` lê o mesmo
+  # arquivo neste volume e escapava. E a isenção tem de ser casada na mesma
+  # caixa, senão `.ENV.example` deixa de ser reconhecido como exemplo e passa a
+  # ser barrado à toa -- foi o que o caso F77 pegou.
   local sem_exemplo
-  sem_exemplo="$(printf '%s' "$e" | sed -E 's/\.env\.(example|sample|template|dist)//g')"
+  sem_exemplo="$(printf '%s' "$el" | sed -E 's/\.env\.(example|sample|template|dist)//g')"
   if printf '%s' "$sem_exemplo" | grep -Eq '\.env(\.|$| )' \
      && printf '%s' "$el" | grep -Eq '(^| )(cat|less|more|head|tail|awk|sed|grep|sort|strings|xxd|od|base64|cp|scp|curl|tee)( |$)'; then
     negar "R6/segredo-arquivo" "[$origem] Leitura/cópia de arquivo .env — tem credencial de produção." "usar .env.example, que não tem valor"
   fi
 
   # R7 — escrita no próprio Guardião por shell.
-  if printf '%s' "$e" | grep -Eq 'plugins/reativa-one/hooks/' \
+  #
+  # `-i` É O MAIS IMPORTANTE DOS TRÊS: `plugins/reativa-one/HOOKS/guardiao.sh` é
+  # o MESMO arquivo neste volume, inclusive no checkout de onde o plugin ativo é
+  # carregado. Sobrescrever o hook derruba todas as regras de uma vez -- R1, R9,
+  # M1 incluídas. O desarme por shell, que o runbook declarava barrado, estava
+  # aberto por uma letra maiúscula. Achado da sexta auditoria.
+  if printf '%s' "$e" | grep -Eiq 'plugins/reativa-one/hooks/' \
      && printf '%s' "$e" | grep -Eq '>>?|(^| )(tee|cp|mv|rm)( |$)|sed +-i|perl +-0?pi'; then
     negar "R7/auto-desarme" "[$origem] O Guardião não se desarma por linha de comando." "editar com revisão em diff, aprovado por você"
   fi

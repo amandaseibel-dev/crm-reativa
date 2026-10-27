@@ -161,9 +161,16 @@ portão estreito, **sem tocar nenhum bloqueio de aplicação**.
 `Write` e `Edit` de migration, no **worktree vinculado** e na **branch** que a gestão
 nomeou. Nada mais.
 
-- **Escrita por shell continua sempre barrada** (`R5/migration`), com a Fase 2 aberta ou
-  fechada: o comando não revela o destino da escrita, e o diretório corrente vem do
-  payload. O portão não é consultado nessa regra.
+- **A Fase 2 nunca libera escrita por shell**: `R5/migration` não consulta o portão, com a
+  Fase 2 aberta ou fechada. Mas **"não libera" não é o mesmo que "barra sempre"**, e a
+  versão anterior deste texto afirmava a segunda coisa, que é falsa. O `R5` casa padrões
+  no **texto do comando**, então escapam dele, por desenho e não por defeito: caminho
+  montado em variável (`V=migrations; echo x > supabase/$V/x.sql`), literal partido entre
+  comandos (`cd supabase; cat > migrations/x.sql`), e escritores fora da sua lista de
+  tokens (`python3 -c "open(...,'w')"`, `dd of=...`). O auditor contornou o `R5` dezenas
+  de vezes assim, durante estas auditorias, para poder medir.
+  O `R5` é quebra-molas, não cancela. **O portão de verdade é o de `Write`/`Edit`**, que
+  resolve o caminho real e não depende do texto do comando.
 - O destino tem de ser, pelo **caminho real resolvido**, a pasta de migrations daquele
   worktree. Subpasta, `..` que escapa e link simbólico apontando para fora são recusados.
 - `main` e `master` são recusadas mesmo se nomeadas. O **checkout principal** é recusado
@@ -383,3 +390,30 @@ por um furo, na porta que o desenho promete "sempre fechada". A classe certa é 
 `;`, `>`, `|`, `&` entram.
 
 Cobertura: casos F61–F72. Total: 147 casos, 147 como esperado.
+
+### Sexta reprovação: caixa em mais três regras, e uma delas protegia o próprio hook
+
+A correção de caixa da rodada anterior cobriu as regras de caminho e três ramos do `R5`, e
+**deixou três checagens de fora** — as que ainda liam o comando em caixa original:
+
+1. **`R7/auto-desarme`, a mais grave.** `plugins/reativa-one/HOOKS/guardiao.sh` é o mesmo
+   arquivo neste volume, **inclusive no checkout de onde o plugin ativo é carregado**.
+   Sobrescrever o hook derruba todas as regras de uma vez — `R1`, `R9`, `M1` incluídas. O
+   desarme por shell, que a seção acima declarava barrado, estava aberto por uma letra
+   maiúscula;
+2. **`R5/git-interno`**: `.GIT/config` escapava pelo shell (o lado `Write`/`Edit` já
+   negava);
+3. **`R6/segredo-arquivo`**: `cat .ENV` escapava. Latente, porque o arquivo de ambiente
+   não existe em nenhum dos checkouts — mas a regra não pode depender disso.
+
+As três passaram a ler a cópia minúscula. E a isenção dos arquivos de exemplo teve de ir
+para a mesma caixa: senão `.ENV.example` deixa de ser reconhecido como exemplo e passa a
+ser barrado à toa — foi o que o caso F77 pegou, logo depois de eu corrigir as outras três.
+
+Cobertura: casos F73–F77. Total: 152 casos, 152 como esperado.
+
+**Padrão das seis reprovações, para quem vier depois:** nenhuma delas achou um erro de
+lógica no portão. Todas acharam uma **grafia, uma caixa ou uma falha de resolução** que o
+portão nunca viu. Freio que decide por comparação de texto precisa normalizar o texto
+primeiro — e o inventário de normalizações é parte do freio, não um detalhe de
+implementação.
