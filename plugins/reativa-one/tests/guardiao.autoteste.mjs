@@ -99,6 +99,10 @@ function atalhoPara(destino) {
 for (const d of [WT.dir, WT_IRMAO.dir, WT.base]) mkdirSync(join(d, "supabase", "functions"), { recursive: true });
 mkdirSync(join(WT.dir, ".claude", "worktrees"), { recursive: true });
 
+// link cujo ÚLTIMO componente é o arquivo protegido: só resolver o diretório
+// não revela o destino
+const LINK_PARA_SETTINGS = atalhoPara(join(RAIZ, ".claude", "settings.json"));
+
 const ATALHO_WT = atalhoPara(join(WT.dir, "supabase", "migrations"));
 const ATALHO_IRMAO = atalhoPara(join(WT_IRMAO.dir, "supabase", "migrations"));
 const ATALHO_BASE = atalhoPara(MIG_DIR_BASE);
@@ -251,8 +255,12 @@ const casos = [
 
   // Destino fora da pasta de migrations, e links simbólicos
   ["F12", "NEGA", "Fase 2: subpasta dentro de migrations", arquivo("Write", MIG(WT.dir, "sub/x.sql"), WT.dir), FASE2],
-  // sem join(): path.join normalizaria o `..` antes de o hook ver o caminho
-  ["F13", "NEGA", "Fase 2: .. escapando da pasta de migrations", arquivo("Write", `${WT.dir}/supabase/migrations/../../x.sql`, WT.dir), FASE2],
+  // sem join(): path.join normalizaria o `..` antes de o hook ver o caminho.
+  // PASSA, e é o resultado certo: o destino real é `<worktree>/x.sql`, arquivo
+  // comum, não uma migration. Enquanto o `..` não era resolvido isto NEGAVA,
+  // casando o glob no caminho não resolvido -- negava pelo motivo errado. É o
+  // único ponto em que resolver o caminho bloqueia MENOS do que antes.
+  ["F13", "PASSA", "Fase 2: .. saindo da pasta de migrations vai para arquivo comum", arquivo("Write", `${WT.dir}/supabase/migrations/../../x.sql`, WT.dir), FASE2],
   ["F14", "NEGA", "Fase 2: link dentro de migrations apontando para fora", arquivo("Write", join(FUGA, "x.sql"), WT.dir), FASE2],
   ["F15", "NEGA", "Fase 2: raiz informada por link que resolve para outro worktree", arquivo("Write", MIG(WT.dir), WT.dir), { REATIVA_FASE2_BANCO: `${LINK_OUTRO}|${BR2}` }],
 
@@ -326,6 +334,22 @@ const casos = [
     arquivo("Write", join(ATALHO_WT, "20261027000000_x.sql"), WT.dir), FASE2],
   ["F53", "NEGA", "criar o link para a pasta de migrations (sem barra final)",
     bash(`ln -s ${WT.dir}/supabase/migrations /tmp/atalho-qualquer`, WT.dir), FASE2],
+
+  // ---- F54-F60: a 2ª passagem FALHAVA ABERTA quando não resolvia o caminho.
+  // Agora `..` é colapsado no texto, sem tocar o disco.
+  ["F54", "NEGA", "componente começando com -, que derrubava dirname/basename",
+    arquivo("Write", `-x/../supabase/functions/../migrations/20261027000000_x.sql`, WT_IRMAO.dir), FASE2],
+  ["F55", "NEGA", "pasta intermediária INEXISTENTE + ..",
+    arquivo("Write", `${WT_IRMAO.dir}/supabase/zz_nao_existe/../migrations/20261027000000_x.sql`, WT.dir), FASE2],
+  ["F56", "NEGA", "pasta inexistente + .. no arquivo de permissões",
+    arquivo("Write", `${WT.dir}/.claude/zz_nao_existe/../settings.json`, WT.dir), FASE2],
+  ["F57", "NEGA", "pasta inexistente + .. no ledger",
+    arquivo("Write", `${RAIZ}/supabase/zz_nao_existe/../ledger/2026-10/x.sql`, WT.dir), FASE2],
+  ["F58", "NEGA", "link cujo ÚLTIMO componente aponta para o arquivo de permissões",
+    arquivo("Write", LINK_PARA_SETTINGS, WT.dir), FASE2],
+  ["F59", "PASSA", "pasta homônima nao protegida segue passando (fronteira do R5)",
+    bash("cp supabase/migrations_historicas_nao_comprovadas/x.sql /tmp/", RAIZ), FASE2],
+  ["F60", "NEGA", "criar link para a pasta do ledger", bash(`ln -s ${RAIZ}/supabase/ledger /tmp/atalho-ledger`, RAIZ), FASE2],
 ];
 
 // ---------------------------------------------------------------------------

@@ -305,3 +305,46 @@ Cobertura: casos F46–F53. Total: 128 casos, 128 como esperado.
 uma classe de evasão de caminho. Só fecha quem **resolve o caminho** antes de decidir.
 As duas primeiras correções foram sintomáticas e por isso cada auditoria achou a grafia
 seguinte.
+
+### Quarta reprovação: a segunda passagem falhava ABERTA
+
+O defeito mais sério das quatro, porque contrariava a doutrina escrita no próprio hook —
+*"região guardada: indeterminado = nega"*. A segunda passagem só corria quando o caminho
+real resolvia; quando não resolvia, era **pulada em silêncio** e a escrita passava:
+
+- **componente começando com `-`**: `dirname` e `basename` do macOS tratam o nome como
+  opção, devolvem vazio, e `-x/../supabase/functions/../migrations/<arquivo>.sql` —
+  relativo, com todos os componentes existentes, resolvendo de verdade para a pasta de
+  migrations — **passava**. O preparo (`mkdir -- -y`) não é barrado por regra nenhuma;
+- **pasta intermediária inexistente**: `supabase/zz/../migrations/<arquivo>.sql` passava
+  porque a resolução falhava. O comentário do código afirmava "e aí não há escrita
+  possível tampouco" — afirmação que eu **não havia provado**, e que a semântica do
+  `mkdir -p` contradiz;
+- **último componente não resolvido**: só o diretório era resolvido, então `Write` num
+  link que aponta para o arquivo protegido escapava.
+
+Corrigido assim:
+
+1. `..` passou a ser colapsado **por segmento, no texto**, sem tocar o disco — não há
+   como falhar, é string. Isto fecha as duas primeiras vias independentemente de o
+   caminho existir;
+2. `dirname --` e `basename --`, para a ferramenta não morrer com nome iniciado por `-`;
+3. o último componente é seguido quando for link (até 10 níveis).
+
+**Efeito colateral declarado, na direção de bloquear menos:** com o `..` resolvido, um
+caminho que sai da pasta de migrations por `../..` e termina num arquivo comum passou a
+**passar**, e isso é o resultado certo. Enquanto o `..` não era resolvido, isso negava
+casando o glob no caminho não resolvido, ou seja, negava pelo motivo errado. É o único
+ponto em que resolver o caminho bloqueia menos do que antes.
+
+**Também declarado:** a fronteira do `R5` substituiu a tentativa anterior de simplesmente
+tirar a barra final, que passou a barrar comandos de leitura legítimos sobre
+`supabase/migrations_historicas_nao_comprovadas/` — pasta que não é protegida e existe no
+repositório. Pelo princípio do próprio hook, "regra que incomoda sem motivo é regra que
+alguém desliga".
+
+**Limite que permanece:** um **hardlink** para arquivo protegido é indistinguível do
+arquivo pelo caminho, e nenhuma destas regras o detecta. Criar um por shell é barrado
+(`R5` pega `ln`); um hardlink pré-existente, não.
+
+Cobertura: casos F54–F60. Total: 135 casos, 135 como esperado.

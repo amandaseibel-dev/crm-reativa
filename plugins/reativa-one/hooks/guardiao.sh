@@ -232,7 +232,7 @@ avaliar_comando() {
     # SEM exigir a barra final: `ln -s .../supabase/migrations <atalho>` nomeia a
     # PASTA, não um arquivo dentro dela, e passava -- criando um atalho pelo qual
     # a escrita chegava por caminho canônico. Vale igual para o ledger.
-    if printf '%s' "$e" | grep -Eq 'supabase/ledger'; then
+    if printf '%s' "$e" | grep -Eq 'supabase/ledger($|[/ "'"'"'])'; then
       negar "R5/ledger" \
         "[$origem] O ledger é registro byte a byte do que rodou em produção: um comentário nosso muda o md5, que é a própria prova." \
         "nenhum — ledger não se edita"
@@ -240,7 +240,12 @@ avaliar_comando() {
     if printf '%s' "$e" | grep -Eq '\.claude/settings(\.local)?\.json'; then
       negar "R5/desarme" "[$origem] Alterar as permissões da sessão por shell." "você edita, com revisão em diff"
     fi
-    if printf '%s' "$e" | grep -Eq 'supabase/migrations'; then
+    # FRONTEIRA depois do nome, não barra final: sem a barra o padrão pegava
+    # `supabase/migrations_historicas_nao_comprovadas/`, que NÃO é protegida e
+    # existe no repositório -- colateral puro, do tipo que faz alguém desligar a
+    # regra. Com a fronteira, `ln -s .../supabase/migrations <atalho>` (que
+    # nomeia a PASTA) segue barrado, e a pasta homônima volta a passar.
+    if printf '%s' "$e" | grep -Eq 'supabase/migrations($|[/ "'"'"'])'; then
       negar "R5/migration" \
         "[$origem] Nesta fase nenhum agente escreve migration (o agente de Banco é da Fase 2)." \
         "propor o SQL no chat para você aplicar"
@@ -315,17 +320,66 @@ normalizar_caminho() {
   while [ "$s" != "${s//$ponto/$um}" ]; do s="${s//$ponto/$um}"; done
   s="${s%/.}"   # final "/."
   s="${s#./}"   # inicial "./"
-  printf '%s' "$s"
+
+  # COLAPSA `..` POR SEGMENTO, sem tocar o sistema de arquivos. É isto que
+  # fecha `-x/../supabase/functions/../migrations/...` e
+  # `supabase/zz_inexistente/../migrations/...`: a resolução pelo disco falhava
+  # (nome começando com `-`, ou diretório que ainda não existe) e a 2ª passagem
+  # era pulada EM SILÊNCIO -- falha aberta, contra a doutrina da linha 134
+  # ("indeterminado = nega"). Aqui não há como falhar: é texto.
+  #
+  # Com link simbólico no meio, colapsar `..` textualmente dá um caminho
+  # DIFERENTE do real. Não é problema: as duas formas são avaliadas, e uma forma
+  # a mais só pode NEGAR mais, nunca liberar. O custo é um falso positivo
+  # possível (`<link>/../supabase/migrations/x.sql`), na direção segura.
+  local pre="" out="" seg
+  case "$s" in /*) pre="/" ;; esac
+  local IFS='/'
+  for seg in $s; do
+    case "$seg" in
+      ''|.) ;;
+      ..)
+        if [ -z "$out" ] || [ "$out" = ".." ] || [ "${out##*/}" = ".." ]; then
+          out="${out:+$out/}.."
+        else
+          case "$out" in
+            */*) out="${out%/*}" ;;
+            *)   out="" ;;
+          esac
+        fi
+        ;;
+      *) out="${out:+$out/}$seg" ;;
+    esac
+  done
+  printf '%s' "$pre$out"
 }
 
 # CAMINHO REAL do arquivo: resolve link simbólico e `..` de verdade, pedindo ao
 # sistema de arquivos. O arquivo pode não existir ainda (é uma criação), o
 # diretório tem de existir. Vazio quando não há como resolver.
 caminho_real() {
-  local p="$1" dir base
-  dir="$(cd "$(dirname "$p")" 2>/dev/null && pwd -P)" || return 0
+  local p="$1" dir base n=0 alvo
+  # `--` É OBRIGATÓRIO: dirname/basename do macOS tratam um nome que começa com
+  # `-` como opção ("illegal option"), devolvem vazio e a 2ª passagem morria em
+  # silêncio -- a via `-x/../.../migrations/...`, reproduzida pela auditoria.
+  # O colapso textual de `..` já cobre essa via; isto conserta a ferramenta.
+  #
+  # ÚLTIMO COMPONENTE: se ele mesmo for link, segue o link. Sem isto, `Write`
+  # num link que aponta para o arquivo protegido escapava, porque só o
+  # diretório era resolvido.
+  while [ -L "$p" ] && [ "$n" -lt 10 ]; do
+    alvo="$(readlink -- "$p" 2>/dev/null)" || break
+    [ -n "$alvo" ] || break
+    case "$alvo" in
+      /*) p="$alvo" ;;
+      *)  p="$(dirname -- "$p" 2>/dev/null)/$alvo" ;;
+    esac
+    n=$((n + 1))
+  done
+  dir="$(cd "$(dirname -- "$p" 2>/dev/null)" 2>/dev/null && pwd -P)" || return 0
   [ -n "$dir" ] || return 0
-  base="$(basename "$p")"
+  base="$(basename -- "$p" 2>/dev/null)"
+  [ -n "$base" ] || return 0
   printf '%s' "${dir%/}/$base"
 }
 
