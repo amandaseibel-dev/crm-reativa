@@ -56,11 +56,72 @@ const EM_MAIN = repo("main");
 const EM_TRABALHO = repo("trabalho");
 const COM_ESCOPO = repo("trabalho", { escopo: ["src/utils/*", "src/utils/**"] });
 
+// worktree VINCULADO: a Fase 2 de Banco só libera nele, nunca no checkout
+// principal (lá o git-dir coincide com o git-common-dir).
+function worktree(branch, base = repo("trabalho")) {
+  const dir = join(tmpdir(), `guardiao-wt-${Math.random().toString(36).slice(2, 10)}`);
+  execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "worktree", "add", "-q", "-b", branch, dir], {
+    cwd: base,
+    stdio: "ignore",
+  });
+  temporarios.push(dir);
+  mkdirSync(join(dir, "supabase", "migrations"), { recursive: true });
+  return { dir, base };
+}
+
+const BR2 = "fase2/trabalho";
+const WT = worktree(BR2);
+const WT_IRMAO = worktree("fase2/outra", WT.base); // mesmo repositório, outro worktree
+const WT_MAIN = worktree("main"); // worktree cuja branch É main
+const AUT = `${WT.dir}|${BR2}`; // caminho NÃO resolvido (tmpdir é link simbólico)
+const MIG = (wt, nome = "20261027000000_x.sql") => join(wt, "supabase", "migrations", nome);
+// pasta de migrations do CHECKOUT PRINCIPAL do repositório descartável: dela,
+// `../../.git` existe -- era o cwd que fazia o portão passar espúrio.
+const MIG_DIR_BASE = join(WT.base, "supabase", "migrations");
+mkdirSync(MIG_DIR_BASE, { recursive: true });
+const FASE2 = { REATIVA_FASE2_BANCO: AUT };
+
+// link simbólico DENTRO da pasta de migrations, apontando para fora dela
+const FUGA = join(WT.dir, "supabase", "migrations", "fuga");
+execFileSync("ln", ["-s", tmpdir(), FUGA], { stdio: "ignore" });
+
+// LINKS para pastas de migrations: a escrita chega por caminho canônico, sem
+// nenhuma grafia degenerada -- só o caminho real revela o destino.
+mkdirSync(join(WT_IRMAO.dir, "supabase", "migrations"), { recursive: true });
+function atalhoPara(destino) {
+  const l = join(tmpdir(), `guardiao-atalho-${Math.random().toString(36).slice(2, 10)}`);
+  execFileSync("ln", ["-s", destino, l], { stdio: "ignore" });
+  temporarios.push(l);
+  return l;
+}
+// pastas intermediárias REAIS, para que o `..` tenha o que resolver -- é assim
+// nos checkouts de verdade, onde `supabase/functions` existe
+for (const d of [WT.dir, WT_IRMAO.dir, WT.base]) mkdirSync(join(d, "supabase", "functions"), { recursive: true });
+mkdirSync(join(WT.dir, ".claude", "worktrees"), { recursive: true });
+
+// link cujo ÚLTIMO componente é o arquivo protegido: só resolver o diretório
+// não revela o destino
+const LINK_PARA_SETTINGS = atalhoPara(join(RAIZ, ".claude", "settings.json"));
+
+const ATALHO_WT = atalhoPara(join(WT.dir, "supabase", "migrations"));
+const ATALHO_IRMAO = atalhoPara(join(WT_IRMAO.dir, "supabase", "migrations"));
+const ATALHO_BASE = atalhoPara(MIG_DIR_BASE);
+
+// raiz autorizada informada por link que resolve para OUTRO lugar
+const LINK_OUTRO = join(tmpdir(), `guardiao-link-${Math.random().toString(36).slice(2, 10)}`);
+execFileSync("ln", ["-s", WT_IRMAO.dir, LINK_OUTRO], { stdio: "ignore" });
+temporarios.push(LINK_OUTRO);
+
 // ---------------------------------------------------------------------------
-function chamar(payload) {
+// cwdProc: diretório do PROCESSO DO HOOK, que não é o `.cwd` do payload. A
+// auditoria de 26/10/2026 mostrou que caminho relativo devolvido pelo git era
+// resolvido contra ele; os casos F29-F30 travam esse defeito.
+function chamar(payload, env, cwdProc) {
   const r = spawnSync("bash", [HOOK], {
     input: typeof payload === "string" ? payload : JSON.stringify(payload),
     encoding: "utf8",
+    env: { ...process.env, REATIVA_FASE2_BANCO: "", ...(env || {}) },
+    ...(cwdProc ? { cwd: cwdProc } : {}),
   });
   return { code: r.status, motivo: (r.stderr || "").trim(), saida: (r.stdout || "").trim() };
 }
@@ -174,12 +235,186 @@ const casos = [
   ["C07", "PASSA", "execute_sql com SELECT (prefixo claude_ai_)", mcp("mcp__claude_ai_Supabase__execute_sql", { query: "select count(*) from alunos" })],
   ["C08", "NEGA", "Vercel create_project (prefixo claude_ai_)", mcp("mcp__claude_ai_Vercel__create_project")],
   ["C09", "NEGA", "Vercel create_project (id em UUID do app desktop)", mcp("mcp__3572527a-3079-4f3a-a531-07b308fdc6b2__create_project")],
+
+  // ---- F01-F26: FASE 2 DE BANCO. O portão libera SÓ Write/Edit de migration,
+  // no worktree vinculado e na branch nomeados em REATIVA_FASE2_BANCO.
+  // Autorização ausente ou malformada
+  ["F01", "NEGA", "Fase 2: sem a variável", arquivo("Write", MIG(WT.dir), WT.dir)],
+  ["F02", "NEGA", "Fase 2: variável vazia", arquivo("Write", MIG(WT.dir), WT.dir), { REATIVA_FASE2_BANCO: "" }],
+  ["F03", "NEGA", "Fase 2: valor sem o separador |", arquivo("Write", MIG(WT.dir), WT.dir), { REATIVA_FASE2_BANCO: WT.dir }],
+  ["F04", "NEGA", "Fase 2: só a raiz", arquivo("Write", MIG(WT.dir), WT.dir), { REATIVA_FASE2_BANCO: `${WT.dir}|` }],
+  ["F05", "NEGA", "Fase 2: só a branch", arquivo("Write", MIG(WT.dir), WT.dir), { REATIVA_FASE2_BANCO: `|${BR2}` }],
+  ["F06", "NEGA", "Fase 2: raiz inexistente", arquivo("Write", MIG(WT.dir), WT.dir), { REATIVA_FASE2_BANCO: `/nao/existe|${BR2}` }],
+  ["F07", "NEGA", "Fase 2: branch errada", arquivo("Write", MIG(WT.dir), WT.dir), { REATIVA_FASE2_BANCO: `${WT.dir}|outra` }],
+
+  // Escrita fora do worktree autorizado
+  ["F08", "NEGA", "Fase 2: worktree irmão do mesmo repositório", arquivo("Write", MIG(WT_IRMAO.dir), WT_IRMAO.dir), FASE2],
+  ["F09", "NEGA", "Fase 2: branch main, mesmo nomeada", arquivo("Write", MIG(WT_MAIN.dir), WT_MAIN.dir), { REATIVA_FASE2_BANCO: `${WT_MAIN.dir}|main` }],
+  ["F10", "NEGA", "Fase 2: checkout principal, mesmo nomeado", arquivo("Write", MIG(WT.base), WT.base), { REATIVA_FASE2_BANCO: `${WT.base}|trabalho` }],
+  ["F11", "NEGA", "Fase 2: .cwd autorizado, arquivo em OUTRO worktree", arquivo("Write", MIG(WT_IRMAO.dir), WT.dir), FASE2],
+
+  // Destino fora da pasta de migrations, e links simbólicos
+  ["F12", "NEGA", "Fase 2: subpasta dentro de migrations", arquivo("Write", MIG(WT.dir, "sub/x.sql"), WT.dir), FASE2],
+  // sem join(): path.join normalizaria o `..` antes de o hook ver o caminho.
+  // PASSA, e é o resultado certo: o destino real é `<worktree>/x.sql`, arquivo
+  // comum, não uma migration. Enquanto o `..` não era resolvido isto NEGAVA,
+  // casando o glob no caminho não resolvido -- negava pelo motivo errado. É o
+  // único ponto em que resolver o caminho bloqueia MENOS do que antes.
+  ["F13", "PASSA", "Fase 2: .. saindo da pasta de migrations vai para arquivo comum", arquivo("Write", `${WT.dir}/supabase/migrations/../../x.sql`, WT.dir), FASE2],
+  ["F14", "NEGA", "Fase 2: link dentro de migrations apontando para fora", arquivo("Write", join(FUGA, "x.sql"), WT.dir), FASE2],
+  ["F15", "NEGA", "Fase 2: raiz informada por link que resolve para outro worktree", arquivo("Write", MIG(WT.dir), WT.dir), { REATIVA_FASE2_BANCO: `${LINK_OUTRO}|${BR2}` }],
+
+  // Autoconcessão
+  ["F16", "NEGA", "Fase 2 aberta: Write em .claude/settings.json (deny/ask e env)", arquivo("Write", ".claude/settings.json"), FASE2],
+  ["F17", "NEGA", "Fase 2 aberta: Edit em .claude/settings.json", arquivo("Edit", ".claude/settings.json"), FASE2],
+  ["F18", "NEGA", "Fase 2 aberta: Write em settings.local.json", arquivo("Write", ".claude/settings.local.json"), FASE2],
+  ["F19", "NEGA", "Fase 2 aberta: desarmar settings por shell", bash("echo '{}' > .claude/settings.json"), FASE2],
+
+  // Shell segue barrado com a Fase 2 ABERTA (R5/migration integral)
+  ["F20", "NEGA", "Fase 2 aberta: cat > migration (shell)", bash("cat > supabase/migrations/x.sql", WT.dir), FASE2],
+  ["F21", "NEGA", "Fase 2 aberta: tee em migration", bash("echo x | tee supabase/migrations/x.sql", WT.dir), FASE2],
+  ["F22", "NEGA", "Fase 2 aberta: sed -i em migration", bash("sed -i '' s/a/b/ supabase/migrations/x.sql", WT.dir), FASE2],
+
+  // Produção segue barrada com a Fase 2 ABERTA
+  ["F23", "NEGA", "Fase 2 aberta: apply_migration", mcp("mcp__3e1f85b1-8c91-4d44-b207-0f452630cdc0__apply_migration", { name: "x", query: "select 1" }), FASE2],
+  ["F24", "NEGA", "Fase 2 aberta: db push", bash("npx supabase db push --linked", WT.dir), FASE2],
+  ["F25", "NEGA", "Fase 2 aberta: escrita no ledger", arquivo("Write", "supabase/ledger/2026-10/x.sql"), FASE2],
+
+  // Positivos
+  ["F26", "PASSA", "Fase 2: Write de migration no worktree e branch autorizados", arquivo("Write", MIG(WT.dir), WT.dir), FASE2],
+  ["F27", "PASSA", "Fase 2: Edit de migration no worktree autorizado", arquivo("Edit", MIG(WT.dir), WT.dir), FASE2],
+  ["F28", "NEGA", "Fase 2 aberta: nome com __ segue reprovado (P5)", arquivo("Write", MIG(WT.dir, "20261027000000__ledger.sql"), WT.dir), FASE2],
+
+  // ---- F29-F36: defeitos achados pela auditoria do Guardião em 26/10/2026.
+  // O cwd do PROCESSO DO HOOK é o 6º campo e é o que trava a classe (a).
+  ["F29", "NEGA", "checkout principal nomeado, cwd do hook onde ../../.git existe",
+    arquivo("Write", MIG(WT.base), WT.base), { REATIVA_FASE2_BANCO: `${WT.base}|trabalho` }, MIG_DIR_BASE],
+  ["F30", "NEGA", "worktree autorizado, cwd do hook onde ../../.git existe",
+    arquivo("Write", MIG(WT.dir), WT.dir), { REATIVA_FASE2_BANCO: `${WT.base}|trabalho` }, MIG_DIR_BASE],
+  ["F31", "NEGA", "valor com separador a mais: raiz|lixo|branch",
+    arquivo("Write", MIG(WT.dir), WT.dir), { REATIVA_FASE2_BANCO: `${WT.dir}|lixo|${BR2}` }],
+  ["F32", "NEGA", "autoconcessão por caminho ABSOLUTO em settings.json versionado",
+    arquivo("Write", join(RAIZ, ".claude", "settings.json"), WT.dir), FASE2],
+  ["F33", "NEGA", "settings.json do mesmo repositório visto de uma subpasta",
+    arquivo("Write", join(RAIZ, ".claude", "settings.json"), join(RAIZ, "src")), FASE2],
+  ["F34", "NEGA", "settings.local.json por caminho absoluto",
+    arquivo("Write", join(RAIZ, ".claude", "settings.local.json"), WT.dir), FASE2],
+  ["F35", "NEGA", "ledger por caminho absoluto", arquivo("Write", join(RAIZ, "supabase", "ledger", "2026-10", "x.sql"), WT.dir), FASE2],
+  ["F36", "NEGA", ".git/ por caminho absoluto", arquivo("Write", join(RAIZ, ".git", "config"), WT.dir), FASE2],
+  ["F37", "NEGA", "P5: nome com __ por caminho absoluto, cwd fora da raiz",
+    arquivo("Write", MIG(WT.dir, "20261027000000__ledger.sql"), join(RAIZ, "src")), FASE2],
+
+  // ---- F38-F45: GRAFIA EQUIVALENTE do mesmo caminho. Os padrões do case são
+  // literais e o `*` come barra, então `//` e `/./` escapavam de tudo. Sem
+  // join(), que normalizaria antes de o hook ver.
+  ["F38", "NEGA", "grafia //: settings versionado, relativo", arquivo("Write", ".claude//settings.json"), FASE2],
+  ["F39", "NEGA", "grafia /./: settings versionado, relativo", arquivo("Write", ".claude/./settings.json"), FASE2],
+  ["F40", "NEGA", "grafia //: settings versionado, absoluto", arquivo("Write", `${RAIZ}/.claude//settings.json`, WT.dir), FASE2],
+  ["F41", "NEGA", "grafia /./: settings versionado, absoluto", arquivo("Write", `${RAIZ}/.claude/./settings.json`, WT.dir), FASE2],
+  ["F42", "NEGA", "grafia //: settings local", arquivo("Write", `${RAIZ}/.claude//settings.local.json`, WT.dir), FASE2],
+  ["F43", "NEGA", "grafia //: ledger", arquivo("Write", `${RAIZ}/supabase//ledger/2026-10/x.sql`, WT.dir), FASE2],
+  ["F44", "NEGA", "grafia //: migration em worktree NÃO autorizado", arquivo("Write", `${WT_IRMAO.dir}/supabase//migrations/20261027000000_x.sql`, WT.dir), FASE2],
+  ["F45", "PASSA", "grafia //: migration no worktree autorizado (portão consultado)", arquivo("Write", `${WT.dir}/supabase//migrations/20261027000000_x.sql`, WT.dir), FASE2],
+
+  // ---- F46-F53: `..` no meio e LINK SIMBÓLICO. A normalização textual não
+  // resolve nenhum dos dois, e os padrões são literais: as regras passaram a
+  // ser avaliadas também contra o caminho REAL.
+  ["F46", "NEGA", ".. no meio: migration em worktree NÃO autorizado",
+    arquivo("Write", `${WT_IRMAO.dir}/supabase/functions/../migrations/20261027000000_x.sql`, WT.dir), FASE2],
+  ["F47", "NEGA", ".. no meio: migration no checkout principal",
+    arquivo("Write", `${WT.base}/supabase/functions/../migrations/20261027000000_x.sql`, WT.dir), FASE2],
+  ["F48", "NEGA", ".. no meio: ledger", arquivo("Write", `${RAIZ}/supabase/functions/../ledger/2026-10/x.sql`, WT.dir), FASE2],
+  ["F49", "NEGA", ".. no meio: arquivo de permissões versionado",
+    arquivo("Write", `${WT.dir}/.claude/worktrees/../settings.json`, WT.dir), FASE2],
+  ["F50", "NEGA", "link para a pasta de migrations de worktree NÃO autorizado, caminho canônico",
+    arquivo("Write", join(ATALHO_IRMAO, "20261027000000_x.sql"), WT.dir), FASE2],
+  ["F51", "NEGA", "link para a pasta de migrations do checkout principal",
+    arquivo("Write", join(ATALHO_BASE, "20261027000000_x.sql"), WT.dir), FASE2],
+  ["F52", "PASSA", "link para a pasta de migrations do worktree AUTORIZADO (portão consultado)",
+    arquivo("Write", join(ATALHO_WT, "20261027000000_x.sql"), WT.dir), FASE2],
+  ["F53", "NEGA", "criar o link para a pasta de migrations (sem barra final)",
+    bash(`ln -s ${WT.dir}/supabase/migrations /tmp/atalho-qualquer`, WT.dir), FASE2],
+
+  // ---- F54-F60: a 2ª passagem FALHAVA ABERTA quando não resolvia o caminho.
+  // Agora `..` é colapsado no texto, sem tocar o disco.
+  ["F54", "NEGA", "componente começando com -, que derrubava dirname/basename",
+    arquivo("Write", `-x/../supabase/functions/../migrations/20261027000000_x.sql`, WT_IRMAO.dir), FASE2],
+  ["F55", "NEGA", "pasta intermediária INEXISTENTE + ..",
+    arquivo("Write", `${WT_IRMAO.dir}/supabase/zz_nao_existe/../migrations/20261027000000_x.sql`, WT.dir), FASE2],
+  ["F56", "NEGA", "pasta inexistente + .. no arquivo de permissões",
+    arquivo("Write", `${WT.dir}/.claude/zz_nao_existe/../settings.json`, WT.dir), FASE2],
+  ["F57", "NEGA", "pasta inexistente + .. no ledger",
+    arquivo("Write", `${RAIZ}/supabase/zz_nao_existe/../ledger/2026-10/x.sql`, WT.dir), FASE2],
+  ["F58", "NEGA", "link cujo ÚLTIMO componente aponta para o arquivo de permissões",
+    arquivo("Write", LINK_PARA_SETTINGS, WT.dir), FASE2],
+  ["F59", "PASSA", "pasta homônima nao protegida segue passando (fronteira do R5)",
+    bash("cp supabase/migrations_historicas_nao_comprovadas/x.sql /tmp/", RAIZ), FASE2],
+  ["F60", "NEGA", "criar link para a pasta do ledger", bash(`ln -s ${RAIZ}/supabase/ledger /tmp/atalho-ledger`, RAIZ), FASE2],
+
+  // ---- F61-F72: CAIXA (o volume é case-insensitive, então estes caminhos
+  // gravam na pasta real), GLOB no laço de segmentos, e separador depois do
+  // nome da pasta no R5.
+  ["F61", "NEGA", "caixa: MIGRATIONS em worktree não autorizado",
+    arquivo("Write", `${WT_IRMAO.dir}/supabase/MIGRATIONS/20261027000000_x.sql`, WT.dir), FASE2],
+  ["F62", "NEGA", "caixa: SUPABASE/migrations no checkout principal",
+    arquivo("Write", `${WT.base}/SUPABASE/migrations/20261027000000_x.sql`, WT.dir), FASE2],
+  ["F63", "NEGA", "caixa: arquivo de permissões com S maiúsculo",
+    arquivo("Write", `${RAIZ}/.claude/Settings.json`, WT.dir), FASE2],
+  ["F64", "NEGA", "caixa: pasta .Claude", arquivo("Write", `${RAIZ}/.Claude/settings.json`, WT.dir), FASE2],
+  ["F65", "NEGA", "caixa: LEDGER", arquivo("Write", `${RAIZ}/supabase/LEDGER/2026-10/x.sql`, WT.dir), FASE2],
+  ["F66", "NEGA", "caixa no shell: redirecionar para MIGRATIONS", bash("echo x > supabase/MIGRATIONS/x.sql", RAIZ), FASE2],
+  ["F67", "NEGA", "caixa no shell: redirecionar para LEDGER", bash("echo x > supabase/LEDGER/x.sql", RAIZ), FASE2],
+  ["F68", "NEGA", "caixa no shell: desarmar permissões em .Claude", bash("echo '{}' > .Claude/settings.json", RAIZ), FASE2],
+  ["F69", "NEGA", "glob no segmento: * no lugar de uma pasta",
+    arquivo("Write", `${RAIZ}/supabase/*/../migrations/20261027000000_x.sql`, RAIZ), FASE2],
+  ["F70", "NEGA", "glob no segmento: * antes do ledger",
+    arquivo("Write", `${RAIZ}/supabase/*/../ledger/2026-10/x.sql`, RAIZ), FASE2],
+  ["F71", "NEGA", "R5: cd na pasta e redirecionar depois de ;", bash("cd supabase/migrations; cat > x.sql", RAIZ), FASE2],
+  ["F72", "NEGA", "R5: cd no ledger e redirecionar sem espaço", bash("cd supabase/ledger;echo a>b.sql", RAIZ), FASE2],
+
+  // ---- F73-F77: as três últimas checagens de caminho sensíveis a caixa. A do
+  // R7 é a mais grave: atinge o arquivo do hook EM VIGOR, e sobrescrevê-lo
+  // derruba todas as regras de uma vez.
+  ["F73", "NEGA", "caixa no R7: HOOKS maiúsculo no caminho do Guardião",
+    bash("echo x > plugins/reativa-one/HOOKS/guardiao.sh", RAIZ), FASE2],
+  ["F74", "NEGA", "caixa no R7: Plugins maiúsculo",
+    bash("echo x > Plugins/reativa-one/hooks/guardiao.sh", RAIZ), FASE2],
+  ["F75", "NEGA", "caixa no R5/git-interno: .GIT", bash("echo x > .GIT/config", RAIZ), FASE2],
+  ["F76", "NEGA", "caixa no R6/segredo-arquivo: .ENV", bash("cat .ENV", RAIZ), FASE2],
+  ["F77", "PASSA", "arquivo de exemplo segue passando, em qualquer caixa", bash("cat .ENV.example", RAIZ), FASE2],
+
+  // ---- F78-F84: TOKEN DE ESCRITA EM CAIXA ALTA. `TEE`, `CP`, `MV`, `RM` e
+  // `SED` executam neste volume, e eles ficam no portão EXTERNO do R5 e do R7 --
+  // normalizar o ramo não serve se o `if` que leva até ele não estiver
+  // normalizado.
+  ["F78", "NEGA", "CP maiúsculo sobre o arquivo do Guardião (desarme)",
+    bash("CP novo.sh plugins/reativa-one/hooks/guardiao.sh", RAIZ), FASE2],
+  ["F79", "NEGA", "RM maiúsculo sobre o arquivo do Guardião",
+    bash("RM plugins/reativa-one/hooks/guardiao.sh", RAIZ), FASE2],
+  ["F80", "NEGA", "CP maiúsculo para migrations", bash("CP a.sql supabase/migrations/x.sql", RAIZ), FASE2],
+  ["F81", "NEGA", "TEE maiúsculo para migrations", bash("cat a.sql | TEE supabase/migrations/x.sql", RAIZ), FASE2],
+  ["F82", "NEGA", "MV maiúsculo para o ledger", bash("MV a.sql supabase/ledger/x.sql", RAIZ), FASE2],
+  ["F83", "NEGA", "SED -i maiúsculo em migration", bash("SED -i '' s/a/b/ supabase/migrations/x.sql", RAIZ), FASE2],
+  ["F84", "NEGA", "CP maiúsculo sobre as permissões (autoconcessão por shell)",
+    bash("CP a .claude/settings.json", RAIZ), FASE2],
+
+  // ---- F85-F88: ESPAÇO NAS PONTAS. As duas regras das permissões são os
+  // únicos padrões de correspondência EXATA do hook; todos os outros terminam
+  // em `*`, que absorve o espaço.
+  ["F85", "NEGA", "espaço no fim do caminho das permissões versionadas",
+    arquivo("Write", `${RAIZ}/.claude/settings.json `, WT.dir), FASE2],
+  ["F86", "NEGA", "espaço no início do caminho das permissões versionadas",
+    arquivo("Write", ` ${RAIZ}/.claude/settings.json`, WT.dir), FASE2],
+  ["F87", "NEGA", "tabulação no fim do caminho das permissões locais",
+    arquivo("Write", `${RAIZ}/.claude/settings.local.json\t`, WT.dir), FASE2],
+  ["F88", "NEGA", "espaço nas duas pontas, caminho relativo",
+    arquivo("Write", " .claude/settings.json ", RAIZ), FASE2],
 ];
 
 // ---------------------------------------------------------------------------
 const resultados = [];
-for (const [id, esperado, descricao, payload] of casos) {
-  const r = chamar(payload);
+for (const [id, esperado, descricao, payload, env, cwdProc] of casos) {
+  const r = chamar(payload, env, cwdProc);
   const obtido = r.code === 2 ? "NEGA" : r.code === 0 ? "PASSA" : `ERRO(${r.code})`;
   const regra = (r.motivo.match(/\[([^\]]+)\]/) || [, ""])[1];
   resultados.push({ id, descricao, esperado, obtido, ok: obtido === esperado, regra, motivo: r.motivo });
