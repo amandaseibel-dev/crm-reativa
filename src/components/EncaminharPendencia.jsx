@@ -23,7 +23,13 @@ import { supabase } from "../services/supabase";
 import { S } from "../ui/estilosFila";
 import {
   ACOES_ENCAMINHAMENTO,
+  AVISO_ORIGEM_BAIXA_REF,
   ENCAMINHAMENTO_AVISO,
+  ROTULO_EVIDENCIA_ATUAL,
+  ROTULO_MOTIVO_HISTORICO,
+  historicoDaBaixa,
+  identificacaoDaPrevia,
+  rotuloDocumentoDaBaixa,
   impedimentoDoEncaminhamento,
   podeEncaminhar,
   rotuloRecusa,
@@ -119,6 +125,8 @@ export default function EncaminharPendencia({ triagem, moeda, onConcluido }) {
 
   const validacoes = validacoesDaPrevia(previa);
   const impede = impedimentoDoEncaminhamento({ previa });
+  const ident = identificacaoDaPrevia(previa);
+  const baixa = historicoDaBaixa(previa);
 
   return (
     <div style={caixa}>
@@ -133,11 +141,73 @@ export default function EncaminharPendencia({ triagem, moeda, onConcluido }) {
         </button>
       </div>
 
-      {/* O MOTIVO DA PENDÊNCIA, como o banco o escreveu. Ele explica por que a
-          linha existe, e continua visível ao lado do que vai acontecer. */}
+      {/* QUEM E QUAL ACORDO. Sem isto, a gestão decidia sobre um boleto e um
+          valor, sem saber de quem era a dívida. O acordo já vinha na prévia e
+          não era exibido; o aluno vem do bloco que a fachada monta. Falta
+          qualquer um dos dois -> "não informado — conferir", nunca deduzido. */}
       <div style={bloco}>
-        <span style={rotulo}>por que caiu aqui</span>
+        <span style={rotulo}>identificação</span>
+        <div style={grade}>
+          <div style={item}>
+            <span style={itemRotulo}>Aluno</span>
+            <span style={ident.aluno.temVinculo ? itemDetalhe : itemPendencia}>
+              {ident.aluno.nome}
+              {ident.aluno.temVinculo ? ` · CPF ${ident.aluno.cpf}` : ""}
+            </span>
+          </div>
+          <div style={item}>
+            <span style={itemRotulo}>Acordo</span>
+            <span style={itemDetalhe}>
+              {ident.acordo.numero} · {ident.acordo.status}
+              {ident.acordo.parcelas ? ` · ${ident.acordo.parcelas} parcelas` : ""}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* O MOTIVO É HISTÓRICO, e tem dono: foi o motor que o escreveu, na
+          importação. Fica com rótulo próprio para ninguém o ler como veredito
+          sobre o que existe no banco hoje -- ele diz "nao ha registro de quem
+          baixou" querendo dizer que `origem_baixa_ref` está nula. */}
+      <div style={bloco}>
+        <span style={rotulo}>{ROTULO_MOTIVO_HISTORICO}</span>
         <span style={texto}>{previa.motivo_da_pendencia || "—"}</span>
+      </div>
+
+      {/* O QUE O BANCO GUARDA HOJE, ao lado do motivo e sem o contradizer. É
+          aqui que aparece o documento que de fato baixou a parcela. */}
+      <div style={bloco}>
+        <span style={rotulo}>{ROTULO_EVIDENCIA_ATUAL}</span>
+        <div style={grade}>
+          <div style={item}>
+            <span style={itemRotulo}>Baixada em</span>
+            <span style={itemDetalhe}>{baixa.pagoEm}</span>
+          </div>
+          <div style={item}>
+            <span style={itemRotulo}>Confirmada por</span>
+            <span style={itemDetalhe}>{baixa.responsavel}</span>
+          </div>
+          {/* DESCRITIVO, nunca conclusivo. Documento diferente do boleto é
+              compatível com a MESMA parcela reemitida -- os 4 dígitos finais
+              são sequência de emissão, não número de parcela. Quem pode julgar
+              a origem é a prévia, no banco; a tela mostra e pede conferência. */}
+          <div style={item}>
+            <span style={itemRotulo}>{rotuloDocumentoDaBaixa(baixa)}</span>
+            <span style={baixa.documentoDifereDoBoleto === true ? itemPendencia : itemDetalhe}>
+              {baixa.documento}
+            </span>
+          </div>
+          <div style={item}>
+            <span style={itemRotulo}>Referência da baixa</span>
+            <span style={itemPendencia}>{baixa.origemBaixaRef}</span>
+          </div>
+          {baixa.temObservacao ? (
+            <div style={item}>
+              <span style={itemRotulo}>Observação da parcela</span>
+              <span style={itemDetalhe}>{baixa.observacao}</span>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       {/* AS VALIDAÇÕES, uma linha cada, com o detalhe que o banco mediu. É a
@@ -169,6 +239,10 @@ export default function EncaminharPendencia({ triagem, moeda, onConcluido }) {
           </span>
         ) : null}
       </div>
+
+      {/* O LIMITE, dito antes de confirmar: encerrar fecha a pendência e NÃO
+          liga este pagamento à parcela que ele pagou. */}
+      <div style={avisoRef}>{AVISO_ORIGEM_BAIXA_REF}</div>
 
       <div style={avisoBox}>{ENCAMINHAMENTO_AVISO}</div>
 
@@ -212,6 +286,18 @@ const grade = { display: "flex", flexDirection: "column", gap: 3 };
 const item = { display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" };
 const itemRotulo = { fontSize: 12.5, fontWeight: 700, color: "var(--rv-tinta)" };
 const itemDetalhe = { fontSize: 11.5, color: "var(--rv-texto-suave)" };
+// Pendência de conferência: cor própria, para "não informado" não passar por
+// dado. Âmbar, nunca vermelho: aqui não há erro apontado, há conferência pedida.
+const itemPendencia = { fontSize: 11.5, fontWeight: 700, color: "var(--rv-ambar-texto)" };
+const avisoRef = {
+  fontSize: 11.5,
+  fontWeight: 600,
+  color: "var(--rv-ambar-texto)",
+  background: "var(--rv-ambar-fundo)",
+  border: "1px solid var(--rv-ambar-borda)",
+  borderRadius: 8,
+  padding: "7px 10px",
+};
 const marcaOk = { fontWeight: 800, color: "var(--rv-verde-ok-texto)" };
 const marcaFalta = { fontWeight: 800, color: "var(--rv-vermelho-texto)" };
 const linhaAcoes = { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" };
