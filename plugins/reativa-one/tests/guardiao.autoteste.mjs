@@ -85,6 +85,24 @@ const FASE2 = { REATIVA_FASE2_BANCO: AUT };
 const FUGA = join(WT.dir, "supabase", "migrations", "fuga");
 execFileSync("ln", ["-s", tmpdir(), FUGA], { stdio: "ignore" });
 
+// LINKS para pastas de migrations: a escrita chega por caminho canônico, sem
+// nenhuma grafia degenerada -- só o caminho real revela o destino.
+mkdirSync(join(WT_IRMAO.dir, "supabase", "migrations"), { recursive: true });
+function atalhoPara(destino) {
+  const l = join(tmpdir(), `guardiao-atalho-${Math.random().toString(36).slice(2, 10)}`);
+  execFileSync("ln", ["-s", destino, l], { stdio: "ignore" });
+  temporarios.push(l);
+  return l;
+}
+// pastas intermediárias REAIS, para que o `..` tenha o que resolver -- é assim
+// nos checkouts de verdade, onde `supabase/functions` existe
+for (const d of [WT.dir, WT_IRMAO.dir, WT.base]) mkdirSync(join(d, "supabase", "functions"), { recursive: true });
+mkdirSync(join(WT.dir, ".claude", "worktrees"), { recursive: true });
+
+const ATALHO_WT = atalhoPara(join(WT.dir, "supabase", "migrations"));
+const ATALHO_IRMAO = atalhoPara(join(WT_IRMAO.dir, "supabase", "migrations"));
+const ATALHO_BASE = atalhoPara(MIG_DIR_BASE);
+
 // raiz autorizada informada por link que resolve para OUTRO lugar
 const LINK_OUTRO = join(tmpdir(), `guardiao-link-${Math.random().toString(36).slice(2, 10)}`);
 execFileSync("ln", ["-s", WT_IRMAO.dir, LINK_OUTRO], { stdio: "ignore" });
@@ -289,6 +307,25 @@ const casos = [
   ["F43", "NEGA", "grafia //: ledger", arquivo("Write", `${RAIZ}/supabase//ledger/2026-10/x.sql`, WT.dir), FASE2],
   ["F44", "NEGA", "grafia //: migration em worktree NÃO autorizado", arquivo("Write", `${WT_IRMAO.dir}/supabase//migrations/20261027000000_x.sql`, WT.dir), FASE2],
   ["F45", "PASSA", "grafia //: migration no worktree autorizado (portão consultado)", arquivo("Write", `${WT.dir}/supabase//migrations/20261027000000_x.sql`, WT.dir), FASE2],
+
+  // ---- F46-F53: `..` no meio e LINK SIMBÓLICO. A normalização textual não
+  // resolve nenhum dos dois, e os padrões são literais: as regras passaram a
+  // ser avaliadas também contra o caminho REAL.
+  ["F46", "NEGA", ".. no meio: migration em worktree NÃO autorizado",
+    arquivo("Write", `${WT_IRMAO.dir}/supabase/functions/../migrations/20261027000000_x.sql`, WT.dir), FASE2],
+  ["F47", "NEGA", ".. no meio: migration no checkout principal",
+    arquivo("Write", `${WT.base}/supabase/functions/../migrations/20261027000000_x.sql`, WT.dir), FASE2],
+  ["F48", "NEGA", ".. no meio: ledger", arquivo("Write", `${RAIZ}/supabase/functions/../ledger/2026-10/x.sql`, WT.dir), FASE2],
+  ["F49", "NEGA", ".. no meio: arquivo de permissões versionado",
+    arquivo("Write", `${WT.dir}/.claude/worktrees/../settings.json`, WT.dir), FASE2],
+  ["F50", "NEGA", "link para a pasta de migrations de worktree NÃO autorizado, caminho canônico",
+    arquivo("Write", join(ATALHO_IRMAO, "20261027000000_x.sql"), WT.dir), FASE2],
+  ["F51", "NEGA", "link para a pasta de migrations do checkout principal",
+    arquivo("Write", join(ATALHO_BASE, "20261027000000_x.sql"), WT.dir), FASE2],
+  ["F52", "PASSA", "link para a pasta de migrations do worktree AUTORIZADO (portão consultado)",
+    arquivo("Write", join(ATALHO_WT, "20261027000000_x.sql"), WT.dir), FASE2],
+  ["F53", "NEGA", "criar o link para a pasta de migrations (sem barra final)",
+    bash(`ln -s ${WT.dir}/supabase/migrations /tmp/atalho-qualquer`, WT.dir), FASE2],
 ];
 
 // ---------------------------------------------------------------------------

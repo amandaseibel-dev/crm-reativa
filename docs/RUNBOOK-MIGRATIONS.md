@@ -274,3 +274,34 @@ texto do resultado. A versão que funciona nas duas edições do bash usa variá
 aspas, e os padrões de barra não têm caractere de glob.
 
 Cobertura: casos F38–F45 do autoteste. Total: 120 casos, 120 como esperado.
+
+### Terceira reprovação: `..` no meio e link simbólico
+
+A normalização textual fechou barra dupla e `/./`, mas não resolve `..` nem link
+simbólico — e os padrões das regras são literais. Escapavam de todas elas:
+
+- `supabase/functions/../migrations/<arquivo>.sql` — **um passo, sem preparo**, em
+  qualquer checkout, inclusive o ligado à produção, porque a pasta `functions` existe e o
+  caminho resolve. O portão da Fase 2 não era nem consultado. O mesmo para o ledger;
+- um **link simbólico** para a pasta de migrations: a escrita chega por caminho
+  **canônico**, sem nenhuma grafia degenerada. E o `R5` deixava **criar** o link, porque
+  exigia a barra final no padrão e `ln -s .../supabase/migrations <atalho>` nomeia a
+  pasta, não um arquivo dentro dela.
+
+Corrigido de duas formas:
+
+1. As regras de negação passaram a ser avaliadas **duas vezes** — contra a forma textual
+   normalizada e contra o **caminho real** (`cd "$(dirname)"; pwd -P`, o mesmo que o
+   portão já fazia). Basta uma casar para negar. As duas formas são necessárias:
+   resolver só a real tornaria o caminho absoluto quando um dos lados tem link, e as
+   regras relativas e o escopo declarado (`P6`) deixariam de casar — por isso `P6`
+   continua só na forma textual.
+2. Os padrões de `R5` para migrations e ledger perderam a exigência de barra final, para
+   que criar um atalho para a pasta seja barrado como escrever dentro dela.
+
+Cobertura: casos F46–F53. Total: 128 casos, 128 como esperado.
+
+**Padrão que estas três reprovações ensinam:** acrescentar padrão por padrão não fecha
+uma classe de evasão de caminho. Só fecha quem **resolve o caminho** antes de decidir.
+As duas primeiras correções foram sintomáticas e por isso cada auditoria achou a grafia
+seguinte.

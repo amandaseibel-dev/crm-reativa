@@ -229,7 +229,10 @@ avaliar_comando() {
 
   # R5 — escrita por shell em caminho protegido (desvia de Edit/Write).
   if printf '%s' "$e" | grep -Eq '>>?|(^| )(tee|cp|mv|install|ln|rsync)( |$)|sed +-i|perl +-0?pi'; then
-    if printf '%s' "$e" | grep -Eq 'supabase/ledger/'; then
+    # SEM exigir a barra final: `ln -s .../supabase/migrations <atalho>` nomeia a
+    # PASTA, não um arquivo dentro dela, e passava -- criando um atalho pelo qual
+    # a escrita chegava por caminho canônico. Vale igual para o ledger.
+    if printf '%s' "$e" | grep -Eq 'supabase/ledger'; then
       negar "R5/ledger" \
         "[$origem] O ledger é registro byte a byte do que rodou em produção: um comentário nosso muda o md5, que é a própria prova." \
         "nenhum — ledger não se edita"
@@ -237,7 +240,7 @@ avaliar_comando() {
     if printf '%s' "$e" | grep -Eq '\.claude/settings(\.local)?\.json'; then
       negar "R5/desarme" "[$origem] Alterar as permissões da sessão por shell." "você edita, com revisão em diff"
     fi
-    if printf '%s' "$e" | grep -Eq 'supabase/migrations/'; then
+    if printf '%s' "$e" | grep -Eq 'supabase/migrations'; then
       negar "R5/migration" \
         "[$origem] Nesta fase nenhum agente escreve migration (o agente de Banco é da Fase 2)." \
         "propor o SQL no chat para você aplicar"
@@ -315,11 +318,33 @@ normalizar_caminho() {
   printf '%s' "$s"
 }
 
-avaliar_caminho() {
-  local p origem cwd
-  p="$(normalizar_caminho "$1")"; origem="$2"
-  cwd="$(normalizar_caminho "$CWD")"
-  local rel="${p#"$cwd"/}"
+# CAMINHO REAL do arquivo: resolve link simbólico e `..` de verdade, pedindo ao
+# sistema de arquivos. O arquivo pode não existir ainda (é uma criação), o
+# diretório tem de existir. Vazio quando não há como resolver.
+caminho_real() {
+  local p="$1" dir base
+  dir="$(cd "$(dirname "$p")" 2>/dev/null && pwd -P)" || return 0
+  [ -n "$dir" ] || return 0
+  base="$(basename "$p")"
+  printf '%s' "${dir%/}/$base"
+}
+
+# As regras de NEGAÇÃO, avaliadas contra UMA forma do caminho. São chamadas duas
+# vezes: com a forma textual normalizada e com o caminho real. Basta uma casar.
+#
+# POR QUE DUAS FORMAS. A normalização textual não resolve `..` nem link
+# simbólico, e os padrões são literais:
+#   supabase/functions/../migrations/<ts>.sql  -> escapava de P3 sem consultar o
+#     portão, em UM passo, em qualquer checkout (a pasta `functions` existe);
+#   <atalho>/<ts>.sql, com <atalho> -> .../supabase/migrations, é caminho
+#     CANÔNICO e escapava igual.
+# Resolver só o caminho real também não serve: `rel` nasce de tirar o prefixo do
+# diretório corrente, e quando um dos dois lados tem link simbólico a forma real
+# fica absoluta e as regras relativas e o escopo (P6) deixariam de casar. Então
+# as duas formas são avaliadas, e P6 segue só na textual.
+# Achado da terceira auditoria do Guardião, 26/10/2026.
+regras_de_negacao() {
+  local rel="$1" p="$2" origem="$3"
 
   # TODO PADRÃO TEM O PAR ABSOLUTO. `rel` só fica relativo quando o caminho
   # começa exatamente com "$CWD/": com caminho absoluto de outro checkout, ou do
@@ -355,6 +380,27 @@ avaliar_caminho() {
     supabase/migrations/*__*.sql|*/supabase/migrations/*__*.sql)
       negar "P5/nome-ledger" "[$origem] Arquivo com '__' dentro de migrations/ é padrão de LEDGER; a catraca reprova." "nome <14 dígitos>_<descricao>.sql" ;;
   esac
+}
+
+avaliar_caminho() {
+  local p origem cwd
+  p="$(normalizar_caminho "$1")"; origem="$2"
+  cwd="$(normalizar_caminho "$CWD")"
+  local rel="${p#"$cwd"/}"
+
+  # 1ª passagem: forma textual normalizada.
+  regras_de_negacao "$rel" "$p" "$origem"
+
+  # 2ª passagem: caminho real. Fecha `..` no meio e link simbólico. Quando a
+  # resolução falha (diretório inexistente) não há 2ª passagem -- e aí não há
+  # escrita possível tampouco.
+  local preal relreal cwdreal
+  preal="$(caminho_real "$p")"
+  if [ -n "$preal" ] && [ "$preal" != "$p" ]; then
+    cwdreal="$(cd "$cwd" 2>/dev/null && pwd -P)" || cwdreal="$cwd"
+    relreal="${preal#"${cwdreal%/}"/}"
+    regras_de_negacao "$relreal" "$preal" "$origem"
+  fi
 
   # P6 — escopo declarado em .claude/reativa-one.local.md. Quando não há
   # declaração, não bloqueia (não inventa limite que você não pediu).
