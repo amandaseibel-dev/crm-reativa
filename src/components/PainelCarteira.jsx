@@ -7,6 +7,7 @@ import { idsPendentesPrimeiroAcionamento, agruparPorAluno } from "../utils/prime
 import { carregarIndicadoresCarteira, TEXTO_APOIO } from "../utils/carteiraAcionada";
 import AlertasParcelaAcordo from "./AlertasParcelaAcordo";
 import PainelMeuDia from "./PainelMeuDia";
+import { ehOrigemDoOperador } from "../utils/retornoOrigem";
 import AvisoRetornoNaHora from "./AvisoRetornoNaHora";
 import {
   chaveSilenciados,
@@ -215,7 +216,7 @@ function statusTabulavel(status) {
 function retornoAgendadoPeloOperador(a) {
   const data = a?.data_retorno ? String(a.data_retorno).slice(0, 10) : "";
   if (!data) return "";
-  if (!String(a?.retorno_origem || "").startsWith("OPERADOR")) return "";
+  if (!ehOrigemDoOperador(a?.retorno_origem)) return "";
   return data >= hojeLocalBR() ? data : "";
 }
 

@@ -36,6 +36,10 @@ import { ordenarAlertas } from "./alertasParcela";
 // `parcela ainda cobravel` tem dono: src/utils/parcelaStatus.js, que espelha
 // public.parcela_viva(). Este arquivo nao reescreve a regra -- so a usa.
 import { parcelaViva } from "./parcelaStatus";
+// A forma de perguntar "isto e combinado do operador?" tem dono:
+// src/utils/retornoOrigem.js, que espelha o `upper(coalesce(...)) like
+// 'OPERADOR%'` do banco. Modulo puro -- nao traz `supabase` para ca.
+import { ehOrigemDoOperador } from "./retornoOrigem";
 
 // Janela do bloco de boletos, em dias corridos a partir de hoje (inclusive).
 export const JANELA_BOLETOS_DIAS = 5;
@@ -52,7 +56,7 @@ export const JANELA_BOLETOS_DIAS = 5;
 // tres leituras concordam, entao uma mudanca aqui que esqueca as outras duas
 // reprova no CI em vez de passar calada.
 export function ehRetornoDoOperador(a) {
-  return String(a?.retorno_origem || "").startsWith("OPERADOR");
+  return ehOrigemDoOperador(a?.retorno_origem);
 }
 
 // Quantos retornos de uma lista sao compromisso do operador e quantos sao
@@ -106,7 +110,7 @@ export function retornosAgendados(casos, hoje, dias = 0, finAlunos = {}) {
   return (Array.isArray(casos) ? casos : [])
     .filter((a) => {
       if (!a || !a.data_retorno) return false;
-      if (!String(a.retorno_origem || "").startsWith("OPERADOR")) return false;
+      if (!ehOrigemDoOperador(a.retorno_origem)) return false;
       const distancia = diasParaData(inicio, a.data_retorno);
       return distancia !== null && distancia >= 0 && distancia <= limite;
     })
@@ -202,7 +206,7 @@ export function retornosAtrasados(casos, hoje, dias = JANELA_ATRASO_DIAS, finAlu
   return (Array.isArray(casos) ? casos : [])
     .filter((a) => {
       if (!a || !a.data_retorno) return false;
-      if (!String(a.retorno_origem || "").startsWith("OPERADOR")) return false;
+      if (!ehOrigemDoOperador(a.retorno_origem)) return false;
       if (a.retorno_confirmado_em) return false;
       const distancia = diasParaData(inicio, a.data_retorno);
       // Negativo = passado. Hoje (0) e futuro ficam com `retornosAgendados`:

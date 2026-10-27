@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
+import { camposDeRetornoAutomatico, MOTIVO_RETORNO_LEITURA_FALHOU } from "../utils/tabulacoes";
 
 // Envio em lote pelo proprio Gmail do usuario, com contador de seguranca
 // diario pra nao bloquear a conta. Um aluno por vez: escolhe a arte, abre o
@@ -107,8 +108,30 @@ export default function EnvioGmailLote() {
 
   async function registrar(a) {
     const agora = new Date().toISOString();
+    // O prazo da arte é regra do sistema, não compromisso: entra como
+    // AUTOMATICO e leva embora a hora e a prioridade do retorno anterior. Com
+    // retorno OPERADOR futuro na ficha, `camposDeRetornoAutomatico` devolve
+    // campos vazios e o lote grava só o status. O e-mail sai de todo jeito.
+    //
+    // ATENÇÃO -- A PROTEÇÃO AQUI É PARCIAL, e vai continuar parcial até a
+    // migration do banco ser aplicada. Esta tela grava `status_acionamento`
+    // com o prefixo 'Ação massiva%', e no ramo COBRANCA_VENCIDA de
+    // `recalcular_situacao_aluno` o `v_retorno := v_ult_acion + 10` da massiva
+    // vem ANTES do guard de retorno futuro. Ou seja: por 10 dias, qualquer
+    // recálculo deste aluno (inclusive a virada diária) reescreve a data e
+    // apaga o combinado que a linha abaixo acabou de preservar. A tela faz a
+    // parte dela; o motor é que ainda não respeita a ordem. Enquanto isso não
+    // for corrigido no banco, não se pode dizer que este ponto está protegido.
+    // Proposta de migration: ordem das condições do ramo COBRANCA_VENCIDA.
+    // Lote: o aviso de leitura falhada fica no console (um alerta por aluno
+    // travaria o envio). `camposDeRetornoAutomatico` já registra o motivo.
+    const retorno = await camposDeRetornoAutomatico(a.id, proximoDiaUtil(tpl?.dias_retorno || 10));
+    if (retorno.motivo === MOTIVO_RETORNO_LEITURA_FALHOU) {
+      console.warn("[lote] aluno", a.id, "ficou sem prazo de retorno: a leitura da ficha falhou");
+    }
+
     await supabase.from("alunos").update({
-      data_retorno: proximoDiaUtil(tpl?.dias_retorno || 10),
+      ...retorno.campos,
       status_acionamento: "Ação massiva externa enviada — aguardando retorno",
       status_jornada: "RETORNAR_DEPOIS",
       status_atual: "RETORNAR_DEPOIS",

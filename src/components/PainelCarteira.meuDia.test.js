@@ -51,7 +51,12 @@ describe("PainelCarteira: bloco Meu dia", () => {
   });
 
   it("retorno e so o que o operador agendou; o automatico e contador", () => {
-    expect(UTIL).toMatch(/startsWith\("OPERADOR"\)/);
+    // 27/10/2026: a pergunta "e compromisso do operador?" saiu daqui e virou
+    // `ehOrigemDoOperador`, em src/utils/retornoOrigem.js, que normaliza a caixa
+    // igual ao `upper(coalesce(...)) like 'OPERADOR%'` do banco. O filtro
+    // continua existindo -- mudou a forma, nao o critério.
+    expect(UTIL).toMatch(/ehOrigemDoOperador/);
+    expect(UTIL).not.toMatch(/startsWith\("OPERADOR"\)/);
     expect(SRC).toMatch(/retornosAgendados\(casos, hojeLocalBR\(\), JANELA_RETORNOS_DIAS, finAlunos\)/);
     expect(SRC).toMatch(/contarRetornoAutomaticoHoje\(kpis\.retornosHoje, retornosDoDia\(retornosDaSemana, hojeLocalBR\(\)\)\)/);
   });
@@ -143,8 +148,9 @@ describe("PainelCarteira: aba Atrasados do Meu dia", () => {
     const corpo = util.slice(0, util.indexOf("\n}") + 2);
     // Funcao de leitura: nada de supabase, update, insert ou rpc aqui dentro.
     expect(corpo).not.toMatch(/supabase|update|insert|rpc/);
-    // E o filtro de origem continua valendo, igual a aba de hoje.
-    expect(corpo).toMatch(/startsWith\("OPERADOR"\)/);
+    // E o filtro de origem continua valendo, igual a aba de hoje -- agora pela
+    // regra unica de src/utils/retornoOrigem.js.
+    expect(corpo).toMatch(/ehOrigemDoOperador/);
     // Tratado nao volta como pendencia.
     expect(corpo).toMatch(/if \(a\.retorno_confirmado_em\) return false;/);
   });
