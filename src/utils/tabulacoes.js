@@ -18,6 +18,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { ehOrigemDoOperador } from "./retornoOrigem";
 
 // Cópia do catálogo de produção (04/09/2026). Só entra em cena se o banco não
 // responder -- não é a fonte de verdade.
@@ -194,10 +195,11 @@ export function descreverPrazo(catalogo, codigo) {
 export function compromissoFuturoDoOperador(retornoAtual, hoje = new Date()) {
   const hojeISO = formatarDataISOLocal(new Date(hoje));
   const atualData = String(retornoAtual?.data || "").slice(0, 10);
-  const atualOrigem = String(retornoAtual?.origem || "");
-  if (!atualData || !atualOrigem.startsWith("OPERADOR")) return null;
+  // `ehOrigemDoOperador` é a mesma forma do banco (`upper(coalesce(...))
+  // like 'OPERADOR%'`) -- ver src/utils/retornoOrigem.js.
+  if (!atualData || !ehOrigemDoOperador(retornoAtual?.origem)) return null;
   if (!(atualData > hojeISO)) return null;
-  return { data: atualData, origem: atualOrigem };
+  return { data: atualData, origem: retornoAtual?.origem };
 }
 
 export function desfechoDaTabulacao(catalogo, codigo, { hoje = new Date(), dataDigitada = "", retornoAtual = null } = {}) {
@@ -307,10 +309,32 @@ export async function lerRetornoAtual(alunoId) {
 }
 
 // Açúcar para os pontos automáticos: lê a ficha e devolve os campos a gravar,
-// já com a preservação do combinado aplicada. `{}` significa "não mexa no
-// retorno" -- por compromisso futuro do operador OU por leitura que falhou.
+// já com a preservação do combinado aplicada.
+//
+// DEVOLVE O MOTIVO, de propósito. Antes isto devolvia só `{}`, e `{}` queria
+// dizer duas coisas muito diferentes: "preservei um combinado" e "não consegui
+// ler a ficha". A tela não tinha como distinguir, não avisava e não registrava
+// -- e o segundo caso deixa o aluno com status de encaminhamento e sem retorno
+// nenhum, que é como um caso para de aparecer sem ninguém saber.
+//   * GRAVADO        -> `campos` tem o prazo automático carimbado;
+//   * PRESERVADO     -> `campos` vazio porque há compromisso do operador;
+//   * LEITURA_FALHOU -> `campos` vazio porque a leitura falhou (avisa no
+//                       console; quem chama pode mostrar na tela).
+export const MOTIVO_RETORNO_GRAVADO = "GRAVADO";
+export const MOTIVO_RETORNO_PRESERVADO = "PRESERVADO";
+export const MOTIVO_RETORNO_LEITURA_FALHOU = "LEITURA_FALHOU";
+
 export async function camposDeRetornoAutomatico(alunoId, data, { hoje = new Date() } = {}) {
   const atual = await lerRetornoAtual(alunoId);
-  if (!atual.ok) return {};
-  return camposDeRetorno(RETORNO_ORIGEM_AUTOMATICO, data, { retornoAtual: atual.retorno, hoje });
+  if (!atual.ok) {
+    console.warn(
+      "[retorno] não foi possível ler o retorno atual do aluno",
+      alunoId,
+      "-- o prazo automático NÃO foi gravado, para não apagar compromisso do operador"
+    );
+    return { campos: {}, motivo: MOTIVO_RETORNO_LEITURA_FALHOU };
+  }
+  const campos = camposDeRetorno(RETORNO_ORIGEM_AUTOMATICO, data, { retornoAtual: atual.retorno, hoje });
+  const preservou = Object.keys(campos).length === 0;
+  return { campos, motivo: preservou ? MOTIVO_RETORNO_PRESERVADO : MOTIVO_RETORNO_GRAVADO };
 }

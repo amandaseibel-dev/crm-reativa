@@ -417,9 +417,19 @@ describe("origem do retorno", () => {
     expect(ehRetornoDoOperador({ retorno_origem: null })).toBe(false);
     expect(ehRetornoDoOperador({})).toBe(false);
     expect(ehRetornoDoOperador(null)).toBe(false);
-    // Minuscula NAO passa -- o dado de producao e maiusculo e o criterio e o
-    // mesmo que as duas funcoes da tela aplicam no proprio filtro.
-    expect(ehRetornoDoOperador({ retorno_origem: "operador" })).toBe(false);
+    // MUDOU EM 27/10/2026, por decisao da gestao. A regra saiu daqui e virou
+    // `ehOrigemDoOperador`, em `src/utils/retornoOrigem.js`, usada pelas QUATRO
+    // leituras do frontend. Ela segue a forma TOLERANTE do banco
+    // (`upper(coalesce(...)) like 'OPERADOR%'`, da migration 20261019132433);
+    // o ramo ACORDO_EM_DIA de `recalcular_situacao_aluno` usa a forma ESTRITA,
+    // sem `upper` -- o banco tem as duas, e alinhar as duas e trabalho de
+    // migration. A tolerante foi escolhida porque falso positivo PRESERVA uma
+    // data e falso negativo APAGA um compromisso.
+    // Medido em producao em 27/10/2026: a coluna tem so 'AUTOMATICO', nulo e
+    // 'OPERADOR', zero fora de caixa alta e zero com espaco -- hoje a escolha
+    // nao muda a resposta para nenhuma ficha.
+    expect(ehRetornoDoOperador({ retorno_origem: "operador" })).toBe(true);
+    expect(ehRetornoDoOperador({ retorno_origem: " Operador " })).toBe(true);
   });
 
   it("as tres leituras da origem concordam (guarda contra deriva)", () => {

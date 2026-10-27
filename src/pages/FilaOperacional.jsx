@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
-import { carregarTabulacoes, desfechoDaTabulacao, camposDeRetorno, RETORNO_ORIGEM_OPERADOR } from "../utils/tabulacoes";
+import { carregarTabulacoes, desfechoDaTabulacao, camposDeRetorno, lerRetornoAtual, RETORNO_ORIGEM_OPERADOR } from "../utils/tabulacoes";
 import { buscarTudo } from "../utils/paginado";
 import { SITUACAO_FORA_DA_FILA_OPERACIONAL } from "../utils/carteiraFila";
 import {
@@ -713,14 +713,30 @@ export default function FilaOperador() {
       atualizacaoAluno.status_atual = statusNovo;
       atualizacaoAluno.status_acionamento = statusNovo;
       // Prazo e proxima acao pelo catalogo de tabulacoes -- regra unica com a
-      // Minha Carteira, a ficha e o e-mail. Antes esta tela zerava o retorno
-      // de toda tabulacao sem data e tinha a propria tabela fixa de acoes.
+      // Minha Carteira, a ficha e o e-mail.
+      //
+      // `retornoAtual` e OBRIGATORIO aqui (27/10/2026): sem ele a tabulacao com
+      // prazo de catalogo e sem data digitada gravava AUTOMATICO por cima de
+      // compromisso que o operador marcou para data futura. A Minha Carteira e
+      // o e-mail do aluno unificado ja leem a ficha; estas duas telas nao
+      // liam -- e sao as duas em que mais se tabula.
       const catalogo = await carregarTabulacoes();
+      const atualDoRetorno = await lerRetornoAtual(alunoId);
       const desfecho = desfechoDaTabulacao(catalogo, statusNovo, {
         dataDigitada: retorno ? paraDataLocalBR(retorno) || "" : "",
+        retornoAtual: atualDoRetorno.retorno,
       });
       atualizacaoAluno.proxima_acao = desfecho.proxima_acao;
-      if (desfecho.data_retorno) {
+      // LEITURA FALHOU FECHA: sem saber o que ha na ficha, nao se toca em
+      // `data_retorno`. A data DIGITADA e a excecao -- ela e o combinado novo,
+      // e nao depende de ler o antigo.
+      if (!atualDoRetorno.ok && desfecho.motivo !== "DIGITADA") {
+        console.warn(
+          "[retorno] leitura da ficha falhou ao tabular o aluno",
+          alunoId,
+          "-- a tabulacao foi gravada SEM mexer no retorno"
+        );
+      } else if (desfecho.data_retorno) {
         atualizacaoAluno.data_retorno = desfecho.data_retorno;
         atualizacaoAluno.retorno_origem = desfecho.retorno_origem;
       }
