@@ -157,33 +157,53 @@ comment on function public.acordo_cobertura_comprovada(uuid) is
 -- supabase_admin (SQL Editor). Como o papel aplicador varia, revogar anon nao e
 -- redundancia.
 --
--- POR QUE authenticated CONTINUA COM EXECUTE, e nao e descuido: o Guardiao
--- apontou (§4) que nao ha chamador no frontend -- nao ha mesmo, `acordo_cobertura`
--- nao aparece em src/ -- e pediu para revogar. TESTADO: revogar DERRUBA A GUARDA.
--- `titulo_reavaliar` chama `acordo_cobertura_comprovada` como o CHAMADOR, nao como
--- owner; sem EXECUTE a chamada falha, a guarda degrada e o titulo do re-acordo
--- volta para ABERTO em vez de ficar NEGOCIADO -- cobranca em dobro, o oposto do
--- que esta migration existe para evitar. O teste "RE-ACORDO: A pago em parte, B
--- cancelado sem pagar" reprova a revogacao (da ABERTO no lugar de NEGOCIADO).
--- A exposicao que sobra e de leitura agregada (teto, soma, descoberto) de um
--- acordo cujo uuid a pessoa ja tenha, sem PII; fechar isso exige portao interno
--- no motor, que e frente propria -- nao se resolve mexendo no grant.
+-- authenticated TAMBEM e revogado (§4 da premissa de seguranca, apontado pelo
+-- Guardiao): nao ha chamador no frontend -- `acordo_cobertura` nao aparece em
+-- src/ -- e as duas sao SECURITY DEFINER sem portao interno, entao deixar
+-- EXECUTE para authenticated daria a qualquer pessoa logada o teto, a soma e o
+-- descoberto de qualquer acordo cujo uuid ela tivesse. E leitura agregada, sem
+-- PII, mas e leitura que ninguem precisa.
+--
+-- CORRECAO DE UMA AFIRMACAO MINHA QUE ESTAVA ERRADA, registrada porque ela ficou
+-- versionada por um commit: eu disse que revogar derrubaria a guarda, porque
+-- `titulo_reavaliar` chamaria a cobertura como o CHAMADOR. Nao chama. O motor e
+-- SECURITY DEFINER, e chamada aninhada e conferida contra o OWNER dele. A medicao
+-- que eu usei estava contaminada: foi feita com a suite ainda intermitente, e o
+-- ABERTO que eu atribui a revogacao era o empate de `criado_em` da bancada do
+-- re-acordo. Refeito o controle com a suite deterministica, a revogacao reprova
+-- SO a assercao de ACL -- os testes de comportamento passam, 3 rodadas.
+--
+-- O QUE A REVOGACAO EXIGE DE VERDADE, e esta na linha abaixo: EXECUTE nominal
+-- para o OWNER de `titulo_reavaliar`. Como a checagem aninhada vai contra esse
+-- owner, se esta migration for aplicada por um papel diferente dele o
+-- `revoke all from public` acima deixaria o motor sem EXECUTE -- e vinculacao,
+-- cancelamento de acordo e cron abortariam com `permission denied for function`.
+-- Conceder ao owner fecha isso em qualquer combinacao de papel aplicador.
 do $$
-declare r text; f text;
+declare r text; f text; v_owner_motor text;
 begin
   foreach f in array array['public.acordo_cobertura_detalhe(uuid)',
                            'public.acordo_cobertura_comprovada(uuid)'] loop
     execute format('revoke all on function %s from public', f);
-    foreach r in array array['anon'] loop
+    foreach r in array array['anon', 'authenticated'] loop
       if exists (select 1 from pg_roles where rolname = r) then
         execute format('revoke all on function %s from %I', f, r);
       end if;
     end loop;
-    foreach r in array array['authenticated', 'service_role'] loop
+    foreach r in array array['service_role'] loop
       if exists (select 1 from pg_roles where rolname = r) then
         execute format('grant execute on function %s to %I', f, r);
       end if;
     end loop;
+    -- O OWNER DO MOTOR, nominalmente. Ver o paragrafo acima: sem isto a
+    -- revogacao pode calar titulo_reavaliar, que e quem consome as duas.
+    select pg_get_userbyid(p.proowner) into v_owner_motor
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.proname = 'titulo_reavaliar'
+     limit 1;
+    if v_owner_motor is not null then
+      execute format('grant execute on function %s to %I', f, v_owner_motor);
+    end if;
   end loop;
 end $$;
 

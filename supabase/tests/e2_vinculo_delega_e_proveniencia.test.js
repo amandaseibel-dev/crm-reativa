@@ -51,6 +51,7 @@ const ler = (p) => readFileSync(resolve(AQUI, "..", "..", p), "utf8");
 
 const MIGRATION = ler("supabase/aguardando_aprovacao/20261026210000_e2_vinculo_delega_e_proveniencia.sql.pendente");
 const ROLLBACK  = ler("supabase/aguardando_aprovacao/20261026210000_e2_vinculo_delega_e_proveniencia.rollback.sql");
+const ENSAIO    = ler("supabase/aguardando_aprovacao/20261026210000_e2_ENSAIO_COM_ROLLBACK.sql");
 
 const MD5_PROD_VINC = "1ea3ca97f0dea404c299ae2beda50502";
 const MD5_PROD_REAV = "a86ab9bf86267fbf4c273a916b072cb7";
@@ -603,6 +604,27 @@ describe("E2 nao toca desvincular_titulos_acordo (a contencao e da #757)", () =>
     expect(await um(db, "select md5(prosrc) from pg_proc where proname='desvincular_titulos_acordo'")).toBe(md5(corpoDe(DUBLE_DESV)));
   });
 
+  // O roteiro do ensaio NAO era lido por teste nenhum -- e foi ali que o
+  // Guardiao achou o que 26/26 verdes nao pegavam: a FOTO exigia 3 md5 mudadas
+  // e a V1 do mesmo arquivo exigia que a 3a NAO mudasse. Nao havia estado do
+  // banco em que aquele roteiro passasse, e ele e o unico instrumento de
+  // validacao em producao que esta frente tem. Estes tres amarram o arquivo.
+  it("o roteiro do ensaio espera as DUAS md5 patchadas, e desvincular igual", () => {
+    expect(ENSAIO).toContain("a.chave in ('md5_vincular','md5_reavaliar') and a.valor <> d.valor");
+    expect(ENSAIO).toContain("md5_desvincular mudou, e esta migration nao toca essa funcao");
+    expect(ENSAIO).not.toContain("esperava as 3 md5 mudadas");
+  });
+
+  it("nenhuma validacao do ensaio compara com literal de md5 de desvincular", () => {
+    expect(ENSAIO).not.toContain(MD5_PROD_DESV);
+  });
+
+  it("o md5 de origem declarado no ensaio e o do arquivo que ele aplica", () => {
+    const declarado = ENSAIO.match(/md5 do arquivo de origem: ([0-9a-f]{32})/);
+    expect(declarado).not.toBeNull();
+    expect(declarado[1]).toBe(md5(MIGRATION));
+  });
+
   it("nem a migration nem o rollback carregam o md5 de desvincular", () => {
     expect(MIGRATION).not.toContain("'" + MD5_PROD_DESV + "'");
     expect(ROLLBACK).not.toContain("'" + MD5_PROD_DESV + "'");
@@ -658,12 +680,27 @@ describe("E2 -- a migration como mecanismo", () => {
     expect(def).toContain("E2: UM CAMINHO SO");
   });
 
-  it("as funcoes novas nascem fechadas para anon", async () => {
+  it("as funcoes novas nascem fechadas para anon E para authenticated", async () => {
     const db = await novoBanco();
     for (const f of ["acordo_cobertura_detalhe", "acordo_cobertura_comprovada"]) {
       const acl = await um(db, "select coalesce(array_to_string(proacl,','),'(nula)') from pg_proc where proname=$1", [f]);
       expect(acl).not.toContain("anon=X");
-      expect(acl).toContain("authenticated=X");
+      expect(acl).not.toContain("authenticated=X");
+    }
+  });
+
+  // A revogacao de authenticated so e segura com ESTE grant: o motor e
+  // SECURITY DEFINER, a chamada aninhada vai contra o owner dele, e se a
+  // migration for aplicada por outro papel o `revoke all from public` calaria
+  // titulo_reavaliar. Prova por mutacao: tirar o grant do owner derruba o teste
+  // de comportamento do re-acordo, nao este.
+  it("o owner de titulo_reavaliar recebe EXECUTE nas duas funcoes novas", async () => {
+    const db = await novoBanco();
+    const owner = await um(db, "select pg_get_userbyid(proowner) from pg_proc where proname='titulo_reavaliar'");
+    for (const f of ["acordo_cobertura_detalhe", "acordo_cobertura_comprovada"]) {
+      const pode = await um(db,
+        "select has_function_privilege($1, (select oid from pg_proc where proname=$2), 'EXECUTE')", [owner, f]);
+      expect(pode).toBe(true);
     }
   });
 

@@ -3,7 +3,7 @@
 -- =====================================================================
 -- Gerado automaticamente a partir de
 --   20261026210000_e2_vinculo_delega_e_proveniencia.sql.pendente
---   md5 do arquivo de origem: 8f4fb7f759623aa6a5a66d0f7e83b6d6
+--   md5 do arquivo de origem: c51f4d9631bd85a7ab5b87cf1a5d6648
 -- A unica diferenca em relacao ao arquivo de origem e que as duas linhas de
 -- nivel de script `begin;` e `commit;` foram REMOVIDAS, porque o `commit;` e o
 -- unico comando da migration capaz de persistir fora da transacao. Todo o
@@ -440,10 +440,13 @@ begin
   if position('origem_liquidacao     = coalesce(origem_liquidacao' in v_def) = 0 then v_falhas := v_falhas || 'motor: gravacao de proveniencia ausente; '; end if;
 
   -- desvincular_titulos_acordo NAO e tocada por esta migration (ver cabecalho:
-  -- a contencao e da #757). Aqui so se confere que ela ficou INTACTA.
-  select md5(p.prosrc) into v_def from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-   where n.nspname='public' and p.proname='desvincular_titulos_acordo';
-  if v_def <> 'ebd07b0ec54e64f9ab685928988cb9a5'                            then v_falhas := v_falhas || 'desvincular: corpo mudou, e esta migration nao deveria toca-lo; '; end if;
+  -- a contencao e da #757). Aqui so se confere que ela ficou INTACTA -- contra a
+  -- FOTO ANTES, nao contra literal nenhum. Literal pre-#757 acusaria falsamente
+  -- "corpo mudou" justamente na ordem que o cabecalho recomenda (#757 primeiro).
+  select a.valor into v_def from _ensaio_antes a where a.chave = 'md5_desvincular';
+  if v_def is distinct from (select md5(p.prosrc) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                              where n.nspname='public' and p.proname='desvincular_titulos_acordo')
+                                                                            then v_falhas := v_falhas || 'desvincular: corpo mudou, e esta migration nao deveria toca-lo; '; end if;
 
   if v_falhas <> '' then raise exception 'V1 FALHOU: %', v_falhas; end if;
   raise notice 'V1 ok: os dois corpos patchados tem as marcas certas, nenhuma das proibidas, e desvincular ficou intacta';
@@ -539,11 +542,20 @@ order by case when a.valor = d.valor then 1 else 0 end, a.chave;
 do $ensaio$
 declare v_md5_mudou int; v_negocio_mudou text;
 begin
+  -- DUAS, nao tres: o bloco 4 saiu da E2 (a contencao de
+  -- desvincular_titulos_acordo e da #757). vincular e titulo_reavaliar TEM de
+  -- mudar; desvincular tem de ficar IGUAL. Por chave, e nao por contagem: com
+  -- contagem, "duas mudaram" passaria mesmo se as duas erradas tivessem mudado.
   select count(*) into v_md5_mudou
     from _ensaio_antes a join _ensaio_depois d using (chave)
-   where a.chave like 'md5_%' and a.valor <> d.valor;
-  if v_md5_mudou <> 3 then
-    raise exception 'FOTO FALHOU: esperava as 3 md5 mudadas e % mudaram', v_md5_mudou;
+   where a.chave in ('md5_vincular','md5_reavaliar') and a.valor <> d.valor;
+  if v_md5_mudou <> 2 then
+    raise exception 'FOTO FALHOU: esperava md5_vincular e md5_reavaliar mudadas, e % mudaram', v_md5_mudou;
+  end if;
+
+  if exists (select 1 from _ensaio_antes a join _ensaio_depois d using (chave)
+              where a.chave = 'md5_desvincular' and a.valor <> d.valor) then
+    raise exception 'FOTO FALHOU: md5_desvincular mudou, e esta migration nao toca essa funcao';
   end if;
 
   select string_agg(a.chave || ' ' || a.valor || ' -> ' || d.valor, '; ') into v_negocio_mudou
@@ -553,7 +565,7 @@ begin
     raise exception 'FOTO FALHOU: dado de negocio mudou -- %', v_negocio_mudou;
   end if;
 
-  raise notice 'FOTO ok: as 3 md5 mudaram e NENHUMA linha de negocio mudou';
+  raise notice 'FOTO ok: as 2 md5 patchadas mudaram, desvincular ficou igual, e NENHUMA linha de negocio mudou';
 end $ensaio$;
 
 -- =====================================================================
