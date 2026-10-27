@@ -11,6 +11,7 @@ import {
   naoReabreNoBordero, statusNaoReabreNoBordero, motivoDeNaoTocar,
   SITUACOES_QUE_NAO_REABREM,
   cpfConfiavel, motivoDeAnalise, fichasParaCriar,
+  titulosNovosParaImportar,
 } from "./bordero";
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
@@ -955,5 +956,84 @@ describe("gatilho do banco: importação não reativa, motor legítimo continua"
       `select situacao, status, saldo_corrigido::float8 as saldo
          from public.acordos_titulos where documento='5000001'`);
     expect(novo[0]).toMatchObject({ situacao: "ABERTO", status: "em_aberto", saldo: 500 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// O INDICADOR DA PRÉVIA ("Títulos novos para importar")
+// ---------------------------------------------------------------------------
+//
+// O indicador não tem regra própria: ele conta o que `confirmarImportacao` vai
+// gravar. Este bloco existe para prender os dois. O `selecionaComoOLaco`
+// abaixo é a transcrição dos descartes do laço de `registrosTitulos` em
+// Borderos.jsx -- se alguém mudar o laço e não mudar o utilitário (ou o
+// contrário), o primeiro teste quebra.
+describe("indicador: títulos novos para importar", () => {
+  // transcrição dos três `continue` do laço de gravação, nesta ordem
+  function selecionaComoOLaco(linhas) {
+    const chaves = new Set();
+    const saida = [];
+    for (const linha of linhas) {
+      if (motivoDeNaoTocar(linha)) continue;              // já existe / terminal
+      if (linha.origemMatch === "analise") continue;       // aluno irresolvível
+      const chave = String(linha.numTitulo ?? "").trim().replace(/^0+/, "") || null;
+      if (chave) {
+        if (chaves.has(chave)) continue;                   // repetido no lote
+        chaves.add(chave);
+      }
+      saida.push(linha);
+    }
+    return saida;
+  }
+
+  const LOTE = [
+    // entram
+    { numTitulo: "5001", valor: 100.5,  jaExiste: false, origemMatch: "cpf" },
+    { numTitulo: "5002", valor: 200.25, jaExiste: false, origemMatch: "novo" },
+    // não entram
+    { numTitulo: "5003", valor: 999,    jaExiste: true,  origemMatch: "cpf", situacaoAtual: "ABERTO",    statusAtual: "em_aberto" },
+    { numTitulo: "5004", valor: 999,    jaExiste: true,  origemMatch: "cpf", situacaoAtual: "CANCELADA", statusAtual: "cancelada" },
+    { numTitulo: "5005", valor: 999,    jaExiste: false, origemMatch: "analise" },
+    // mesma chave normalizada do 5001: a segunda grafia não entra duas vezes
+    { numTitulo: "05001", valor: 100.5, jaExiste: false, origemMatch: "cpf" },
+  ];
+
+  it("conta o mesmo que o laço de gravação, linha por linha", () => {
+    const esperado = selecionaComoOLaco(LOTE);
+    const { quantidade, valor } = titulosNovosParaImportar(LOTE);
+
+    expect(quantidade).toBe(esperado.length);
+    expect(valor).toBeCloseTo(esperado.reduce((s, l) => s + l.valor, 0), 2);
+  });
+
+  it("os 4 descartes são os esperados: existente, terminal, análise e grafia repetida", () => {
+    const { quantidade, valor } = titulosNovosParaImportar(LOTE);
+    expect(quantidade).toBe(2);
+    expect(valor).toBeCloseTo(300.75, 2);
+  });
+
+  it("valor ilegível não derruba a contagem -- entra como zero", () => {
+    // a linha VAI ser gravada de qualquer forma (`valor_original: linha.valor`),
+    // então esconder a linha por causa do valor seria pior do que somar zero
+    const { quantidade, valor } = titulosNovosParaImportar([
+      { numTitulo: "6001", valor: null,        jaExiste: false, origemMatch: "cpf" },
+      { numTitulo: "6002", valor: "quarenta",  jaExiste: false, origemMatch: "cpf" },
+      { numTitulo: "6003", valor: 40.4,        jaExiste: false, origemMatch: "cpf" },
+    ]);
+    expect(quantidade).toBe(3);
+    expect(valor).toBeCloseTo(40.4, 2);
+  });
+
+  it("lote vazio ou nulo dá zero, não explode", () => {
+    expect(titulosNovosParaImportar([])).toEqual({ quantidade: 0, valor: 0 });
+    expect(titulosNovosParaImportar(null)).toEqual({ quantidade: 0, valor: 0 });
+  });
+
+  it("borderô inteiro já existente: zero para importar, e o indicador diz isso", () => {
+    const todosExistentes = ["7001", "7002", "7003"].map((d) => ({
+      numTitulo: d, valor: 500, jaExiste: true, origemMatch: "cpf",
+      situacaoAtual: "ABERTO", statusAtual: "em_aberto",
+    }));
+    expect(titulosNovosParaImportar(todosExistentes)).toEqual({ quantidade: 0, valor: 0 });
   });
 });
