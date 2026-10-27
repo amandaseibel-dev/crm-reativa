@@ -3,7 +3,7 @@
 -- =====================================================================
 -- Gerado automaticamente a partir de
 --   20261026210000_e2_vinculo_delega_e_proveniencia.sql.pendente
---   md5 do arquivo de origem: c51f4d9631bd85a7ab5b87cf1a5d6648
+--   md5 do arquivo de origem: 26b5d451963fe47343db8f59532dfde6
 -- A unica diferenca em relacao ao arquivo de origem e que as duas linhas de
 -- nivel de script `begin;` e `commit;` foram REMOVIDAS, porque o `commit;` e o
 -- unico comando da migration capaz de persistir fora da transacao. Todo o
@@ -469,7 +469,16 @@ begin
                 and has_function_privilege('anon', p.oid, 'EXECUTE')) then
     raise exception 'V2 FALHOU: anon tem EXECUTE em funcao nova';
   end if;
-  raise notice 'V2 ok: anon sem EXECUTE nas duas funcoes novas';
+  -- authenticated TAMBEM aborta: a migration revoga EXECUTE dele de proposito
+  -- (§4 -- nao ha chamador no frontend e nao ha portao interno). Antes isto so
+  -- era IMPRESSO na coluna authenticated_pode, para o humano ver; impresso nao
+  -- e assercao, e o ensaio passaria com o grant indevido no lugar.
+  if exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+              where n.nspname='public' and p.proname in ('acordo_cobertura_detalhe','acordo_cobertura_comprovada')
+                and has_function_privilege('authenticated', p.oid, 'EXECUTE')) then
+    raise exception 'V2 FALHOU: authenticated tem EXECUTE em funcao nova -- a revogacao nao pegou';
+  end if;
+  raise notice 'V2 ok: anon e authenticated sem EXECUTE nas duas funcoes novas';
 end $ensaio$;
 
 -- V3 — a cobertura sobre ACORDOS REAIS, somente leitura

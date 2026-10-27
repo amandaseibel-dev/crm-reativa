@@ -692,8 +692,14 @@ describe("E2 -- a migration como mecanismo", () => {
   // A revogacao de authenticated so e segura com ESTE grant: o motor e
   // SECURITY DEFINER, a chamada aninhada vai contra o owner dele, e se a
   // migration for aplicada por outro papel o `revoke all from public` calaria
-  // titulo_reavaliar. Prova por mutacao: tirar o grant do owner derruba o teste
-  // de comportamento do re-acordo, nao este.
+  // titulo_reavaliar.
+  //
+  // NAO TESTAVEL AQUI, e nao vale fingir que e: no PGlite tudo e do mesmo papel
+  // (nenhum `set role` neste arquivo) e o owner retem EXECUTE de qualquer jeito,
+  // entao a linha do grant ao owner e inerte na bancada e nenhuma mutacao dela
+  // derruba teste nenhum. Isto aqui prova que o grant EXISTE, nada mais. A prova
+  // de que a cadeia gatilho -> titulo_reavaliar -> cobertura executa com o papel
+  // revogado e no ensaio, com papel distinto, em sessao real.
   it("o owner de titulo_reavaliar recebe EXECUTE nas duas funcoes novas", async () => {
     const db = await novoBanco();
     const owner = await um(db, "select pg_get_userbyid(proowner) from pg_proc where proname='titulo_reavaliar'");

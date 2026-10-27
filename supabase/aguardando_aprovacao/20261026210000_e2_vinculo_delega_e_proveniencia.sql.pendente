@@ -197,10 +197,14 @@ begin
     end loop;
     -- O OWNER DO MOTOR, nominalmente. Ver o paragrafo acima: sem isto a
     -- revogacao pode calar titulo_reavaliar, que e quem consome as duas.
+    -- Pela IDENTIDADE, a mesma que o bloco 3 usa, e nao por `limit 1`: com uma
+    -- sobrecarga futura de titulo_reavaliar o `limit 1` sem desempate escolhe
+    -- indeterminado, e e o mesmo vicio que esta frente foi registrar no
+    -- `order by criado_em desc limit 1` da guarda de 20260925123852.
     select pg_get_userbyid(p.proowner) into v_owner_motor
       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public' and p.proname = 'titulo_reavaliar'
-     limit 1;
+       and pg_get_function_identity_arguments(p.oid) = 'p_titulo uuid';
     if v_owner_motor is not null then
       execute format('grant execute on function %s to %I', f, v_owner_motor);
     end if;
