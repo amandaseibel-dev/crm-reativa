@@ -385,3 +385,90 @@ export function titulosNovosParaImportar(linhas) {
 
   return { quantidade, valor };
 }
+
+// ---------------------------------------------------------------------------
+// CLASSIFICAÇÃO DA PRÉVIA (28/10/2026)
+// ---------------------------------------------------------------------------
+//
+// Só NOMEIA cada linha para a gestão ver antes de confirmar. Não decide o que
+// entra: quem grava continua sendo o laço de `registrosTitulos`. Códigos
+// conferidos no catálogo `tabulacoes` de produção em 28/10/2026 (coluna
+// `codigo`; a tabulação atual do caso vive em `casos.status_acionamento`).
+
+// B -- tratamento em andamento. Não bloqueia acionamento no catálogo
+// (`bloqueia_acionamento = false`), por isso o grupo vem do código, não do flag.
+export const CODIGOS_EM_TRATAMENTO = Object.freeze([
+  "ACORDO_FECHADO",
+  "ALUNO_EM_NEGOCIACAO_24H",
+  "TERMO_ENVIADO_ALUNO",
+  "TERMO_ENVIADO_ADM",
+  "TERMO_RECEBIDO_LIBERADO",
+  "ALEGA_FIES",
+  "ALEGA_CREDIES",
+  "ALEGA_FINANCIAMENTO",
+]);
+
+// C -- cobrança suspensa, juridicada ou cancelada por decisão da gestão.
+export const CODIGOS_COBRANCA_ENCERRADA = Object.freeze([
+  "SUSPENSAO_COBRANCA",
+  "JURIDICO",
+  "CANCELAMENTO_COBRANCA",
+]);
+
+// E -- a parcela sai ou fica devolvida (`efeito_desfecho = DEVOLVE_PARCELA`).
+export const CODIGOS_DEVOLVEM_PARCELA = Object.freeze([
+  "ANTECIPACAO_SEMESTRE",
+  "ALEGA_FIES_CONFIRMADO",
+  "ALEGA_CREDIES_CONFIRMADO",
+  "ALEGA_FINANCIAMENTO_CONFIRMADO",
+]);
+
+// A base grafa os códigos de jeitos diferentes ("CANCELAMENTO COBRANCA" com
+// espaço e "CANCELAMENTO_COBRANCA" com sublinhado), então a comparação normaliza.
+function codigoNormalizado(valor) {
+  return String(valor ?? "").trim().toUpperCase().replace(/\s+/g, "_");
+}
+
+// Grupo de uma linha da prévia:
+//   D = já existe (motivoDeNaoTocar, o mesmo predicado do laço de gravação);
+//   X = em análise (não será gravada: CPF sem aluno confiável);
+//   C, E, B, A = nas prioridades abaixo.
+// `statusCaso` é a tabulação atual do caso; os `statusAluno*` são os estados do
+// aluno. Qualquer um deles que caia numa lista decide. C vem antes de E porque
+// suspensão e jurídico são a decisão que a gestão quer ver isolada.
+export function grupoDaLinha(linha) {
+  if (motivoDeNaoTocar(linha)) return "D";
+  if (linha?.origemMatch === "analise") return "X";
+
+  const estados = [
+    linha?.statusCaso,
+    linha?.statusAluno,
+    linha?.statusAtualAluno,
+    linha?.statusJornadaAluno,
+  ].map(codigoNormalizado);
+  const algumEm = (lista) => estados.some((estado) => lista.includes(estado));
+
+  if (algumEm(CODIGOS_COBRANCA_ENCERRADA)) return "C";
+  if (algumEm(CODIGOS_DEVOLVEM_PARCELA)) return "E";
+  if (algumEm(CODIGOS_EM_TRATAMENTO)) return "B";
+  return "A";
+}
+
+// Quantidade e valor de cada grupo. Soma o mesmo que a prévia já soma: o valor
+// de uma linha ilegível conta como zero, e a linha continua contada.
+export function resumoPorGrupo(linhas) {
+  const resumo = {
+    A: { quantidade: 0, valor: 0 },
+    B: { quantidade: 0, valor: 0 },
+    C: { quantidade: 0, valor: 0 },
+    E: { quantidade: 0, valor: 0 },
+    D: { quantidade: 0, valor: 0 },
+    X: { quantidade: 0, valor: 0 },
+  };
+  for (const linha of Array.isArray(linhas) ? linhas : []) {
+    const grupo = grupoDaLinha(linha);
+    resumo[grupo].quantidade += 1;
+    resumo[grupo].valor += Number(linha?.valor) || 0;
+  }
+  return resumo;
+}

@@ -11,7 +11,7 @@ import {
   naoReabreNoBordero, statusNaoReabreNoBordero, motivoDeNaoTocar,
   SITUACOES_QUE_NAO_REABREM,
   cpfConfiavel, motivoDeAnalise, fichasParaCriar,
-  titulosNovosParaImportar,
+  titulosNovosParaImportar, grupoDaLinha, resumoPorGrupo,
 } from "./bordero";
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
@@ -1035,5 +1035,56 @@ describe("indicador: títulos novos para importar", () => {
       situacaoAtual: "ABERTO", statusAtual: "em_aberto",
     }));
     expect(titulosNovosParaImportar(todosExistentes)).toEqual({ quantidade: 0, valor: 0 });
+  });
+});
+
+describe("classificação da prévia por grupo (só nomeia, não decide)", () => {
+  const nova = { jaExiste: false, valor: 100, origemMatch: "novo" };
+
+  it("linha nova sem tratamento nem restrição é A", () => {
+    expect(grupoDaLinha({ ...nova })).toBe("A");
+  });
+
+  it("tratamento em andamento na tabulação do caso é B", () => {
+    expect(grupoDaLinha({ ...nova, statusCaso: "ACORDO_FECHADO" })).toBe("B");
+    expect(grupoDaLinha({ ...nova, statusCaso: "ALEGA_FIES" })).toBe("B");
+  });
+
+  it("suspensão, jurídico e cancelamento são C, com ou sem espaço na grafia", () => {
+    expect(grupoDaLinha({ ...nova, statusAtualAluno: "SUSPENSAO_COBRANCA" })).toBe("C");
+    expect(grupoDaLinha({ ...nova, statusJornadaAluno: "JURIDICO" })).toBe("C");
+    expect(grupoDaLinha({ ...nova, statusAluno: "CANCELAMENTO COBRANCA" })).toBe("C");
+  });
+
+  it("devolução de parcela é E", () => {
+    expect(grupoDaLinha({ ...nova, statusCaso: "ANTECIPACAO_SEMESTRE" })).toBe("E");
+  });
+
+  it("C vence E quando as duas aparecem na mesma linha", () => {
+    expect(grupoDaLinha({ ...nova, statusCaso: "ANTECIPACAO_SEMESTRE", statusAtualAluno: "SUSPENSAO_COBRANCA" })).toBe("C");
+  });
+
+  it("já existente é D, e em análise é X, antes de qualquer outra regra", () => {
+    expect(grupoDaLinha({ jaExiste: true, situacaoAtual: "PAGO", valor: 5, statusCaso: "ACORDO_FECHADO" })).toBe("D");
+    expect(grupoDaLinha({ ...nova, origemMatch: "analise", statusAtualAluno: "SUSPENSAO_COBRANCA" })).toBe("X");
+  });
+
+  it("resumo soma quantidade e valor de cada grupo, e valor ilegível conta como zero", () => {
+    const linhas = [
+      { ...nova, valor: 10 },
+      { ...nova, valor: null, statusCaso: "ACORDO_FECHADO" },
+      { ...nova, valor: 30, statusAtualAluno: "SUSPENSAO_COBRANCA" },
+      { jaExiste: true, situacaoAtual: "PAGO", valor: 999 },
+    ];
+    const r = resumoPorGrupo(linhas);
+    expect(r.A).toEqual({ quantidade: 1, valor: 10 });
+    expect(r.B).toEqual({ quantidade: 1, valor: 0 });
+    expect(r.C).toEqual({ quantidade: 1, valor: 30 });
+    expect(r.D).toEqual({ quantidade: 1, valor: 999 });
+  });
+
+  it("lista vazia ou nula zera todos os grupos", () => {
+    expect(resumoPorGrupo([]).A).toEqual({ quantidade: 0, valor: 0 });
+    expect(resumoPorGrupo(null).C).toEqual({ quantidade: 0, valor: 0 });
   });
 });

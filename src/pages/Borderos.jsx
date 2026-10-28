@@ -12,6 +12,7 @@ import {
   indexarTitulosPorDocumento,
   colisoesNormalizadasNoLote,
   titulosNovosParaImportar,
+  resumoPorGrupo,
 } from "../utils/bordero";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
@@ -208,7 +209,7 @@ export default function Borderos() {
         "alunos",
         "cpf",
         cpfs,
-        "id, nome, cpf, email, telefone, curso, unidade"
+        "id, nome, cpf, email, telefone, curso, unidade, status_atual, status_jornada, status_acionamento"
       );
 
       // 27/10/2026: a consulta passou a mandar as VARIANTES de zero à esquerda
@@ -245,6 +246,19 @@ export default function Borderos() {
       // isto que faz um título gravado com zero à esquerda ser reconhecido
       // como existente em vez de duplicado.
       const mapaTitulos = indexarTitulosPorDocumento(titulosExistentes);
+
+      // Tabulação atual do caso de cada aluno casado por CPF. Só lê, para a
+      // prévia separar os grupos A/B/C/E; a gravação não consulta isto.
+      const idsAlunosCasados = [...new Set(alunosEncontrados.map((a) => a.id))];
+      const casosDosAlunos = await buscarEmLotes(
+        "casos",
+        "aluno_id",
+        idsAlunosCasados,
+        "aluno_id, status_acionamento"
+      );
+      const mapaCasoPorAluno = Object.fromEntries(
+        casosDosAlunos.map((c) => [c.aluno_id, c])
+      );
 
       // Pra quem não bateu por CPF, tenta achar pelo nome antes de decidir
       // criar um cadastro novo.
@@ -307,6 +321,10 @@ export default function Borderos() {
           jaExiste: Boolean(mapaTitulos[chaveDocumento(linha.numTitulo)]),
           situacaoAtual: mapaTitulos[chaveDocumento(linha.numTitulo)]?.situacao || null,
           statusAtual: mapaTitulos[chaveDocumento(linha.numTitulo)]?.status || null,
+          statusCaso: porCpf ? mapaCasoPorAluno[porCpf.id]?.status_acionamento || null : null,
+          statusAluno: porCpf?.status_acionamento || null,
+          statusAtualAluno: porCpf?.status_atual || null,
+          statusJornadaAluno: porCpf?.status_jornada || null,
         };
       });
 
@@ -325,6 +343,9 @@ export default function Borderos() {
       // de `registrosTitulos`. Antes a gestão tinha que subtrair de cabeça, e
       // o valor em dinheiro não aparecia em lugar nenhum da prévia.
       const novosParaImportar = titulosNovosParaImportar(linhasComStatus);
+      // Grupos da prévia (A/B/C/E novos, D já existentes, X em análise). Só
+      // separa para leitura; não muda o que entra.
+      const grupos = resumoPorGrupo(linhasComStatus);
 
       const numeroBordero = extrairNumeroBordero(arquivoSelecionado.name);
 
@@ -351,6 +372,7 @@ export default function Borderos() {
           existentes,
           novosParaImportarQtd: novosParaImportar.quantidade,
           novosParaImportarValor: novosParaImportar.valor,
+          grupos,
         },
         numeroBordero,
         jaImportadoAntes: importacoesAnteriores?.[0] || null,
@@ -1068,6 +1090,28 @@ export default function Borderos() {
                 </strong>
               </div>
             </div>
+          </div>
+
+          {/* Os títulos novos separados por grupo, só para leitura. Não muda o
+              que entra: a gravação continua sendo a de registrosTitulos. */}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "12px 0 0" }}>
+            {[
+              ["A", "Sem restrição", preview.totais.grupos.A],
+              ["B", "Em tratamento (acordo, termo, alegação)", preview.totais.grupos.B],
+              ["C", "Suspensão, jurídico ou cancelamento", preview.totais.grupos.C],
+              ["E", "Parcela devolvida", preview.totais.grupos.E],
+            ].map(([codigo, rotulo, grupo]) => (
+              <div key={codigo} style={{ ...estilos.cartao, minWidth: 180 }}>
+                <div style={{ ...estilos.numero, fontSize: 20 }}>{grupo.quantidade}</div>
+                <div style={estilos.label}>
+                  Grupo {codigo}: {rotulo}
+                  <br />
+                  <strong>
+                    {grupo.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                  </strong>
+                </div>
+              </div>
+            ))}
           </div>
 
           <p style={{ fontSize: 13, opacity: 0.75, margin: "16px 0 8px" }}>
