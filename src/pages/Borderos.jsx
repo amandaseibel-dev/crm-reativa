@@ -11,6 +11,7 @@ import {
   variantesDeDocumento,
   indexarTitulosPorDocumento,
   colisoesNormalizadasNoLote,
+  titulosNovosParaImportar,
 } from "../utils/bordero";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
@@ -320,6 +321,11 @@ export default function Borderos() {
       const emAnalise = linhasComStatus.filter((l) => l.origemMatch === "analise").length;
       const existentes = linhasComStatus.filter((l) => l.jaExiste).length;
 
+      // O que a confirmação vai GRAVAR, contado pelo mesmo predicado do laço
+      // de `registrosTitulos`. Antes a gestão tinha que subtrair de cabeça, e
+      // o valor em dinheiro não aparecia em lugar nenhum da prévia.
+      const novosParaImportar = titulosNovosParaImportar(linhasComStatus);
+
       const numeroBordero = extrairNumeroBordero(arquivoSelecionado.name);
 
       // Avisa se esse mesmo bordero (mesmo numero) ja foi importado antes,
@@ -343,6 +349,8 @@ export default function Borderos() {
           novosAlunos,
           emAnalise,
           existentes,
+          novosParaImportarQtd: novosParaImportar.quantidade,
+          novosParaImportarValor: novosParaImportar.valor,
         },
         numeroBordero,
         jaImportadoAntes: importacoesAnteriores?.[0] || null,
@@ -1042,6 +1050,23 @@ export default function Borderos() {
             <div style={estilos.cartao}>
               <div style={estilos.numero}>{preview.totais.existentes}</div>
               <div style={estilos.label}>Títulos já existentes</div>
+            </div>
+            {/* O que a confirmação vai gravar, em quantidade e em dinheiro.
+                Mesmo predicado do laço de gravação (titulosNovosParaImportar). */}
+            <div style={{ ...estilos.cartao, background: "rgba(167,139,250,0.12)" }}>
+              <div style={{ ...estilos.numero, color: "#c4b5fd" }}>
+                {preview.totais.novosParaImportarQtd}
+              </div>
+              <div style={estilos.label}>
+                Títulos novos para importar
+                <br />
+                <strong style={{ color: "#c4b5fd" }}>
+                  {preview.totais.novosParaImportarValor.toLocaleString("pt-BR", {
+                    style: "currency",
+                    currency: "BRL",
+                  })}
+                </strong>
+              </div>
             </div>
           </div>
 

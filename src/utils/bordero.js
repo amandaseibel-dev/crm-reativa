@@ -338,3 +338,50 @@ export function alunoDaLinha(linha, mapaNovosPorCpf) {
 // duas fichas: juntá-las exigiria decidir identidade por nome, que a regra 1
 // proíbe. O que mudou para elas é só não misturar mais os títulos de pessoas
 // diferentes numa ficha só (ver o comentário do lote em Borderos.jsx).
+
+// ---------------------------------------------------------------------------
+// TÍTULOS NOVOS PARA IMPORTAR — o indicador da prévia
+// ---------------------------------------------------------------------------
+//
+// 27/10/2026, pedido da gestão: a prévia dizia "1.338 já existentes" e deixava
+// a gestão fazer a subtração de cabeça para saber o que a confirmação ia
+// gravar, e não dizia o valor em dinheiro nenhum lugar.
+//
+// NÃO é uma regra nova: é o MESMO predicado do laço que monta
+// `registrosTitulos` em Borderos.jsx -- `motivoDeNaoTocar` descarta, aluno
+// irresolvível descarta, chave normalizada repetida no lote descarta. Nada
+// aqui decide o que entra; isto só CONTA o que o importador já decidiu.
+//
+// POR QUE O PREDICADO ESTÁ AQUI e não inline na tela: duas cópias do mesmo
+// critério divergem (foi exatamente o que aconteceu hoje com um campo
+// renomeado em três suítes). O teste `o indicador conta o mesmo que o laço de
+// gravação` prende os dois contra as mesmas linhas.
+//
+// `origemMatch !== "analise"` é o proxy de "o aluno vai existir na hora de
+// gravar": `cpf` já tem ficha, `novo` terá a ficha criada no mesmo ato, e
+// `analise` é justamente a linha que não vira dívida (regra 2 da gestão).
+export function titulosNovosParaImportar(linhas) {
+  const chavesNoLote = new Set();
+  let quantidade = 0;
+  let valor = 0;
+
+  for (const linha of Array.isArray(linhas) ? linhas : []) {
+    if (motivoDeNaoTocar(linha)) continue;
+    if (linha?.origemMatch === "analise") continue;
+
+    const chave = chaveDocumento(linha?.numTitulo);
+    if (chave) {
+      if (chavesNoLote.has(chave)) continue;
+      chavesNoLote.add(chave);
+    }
+
+    quantidade += 1;
+    // valor ausente ou ilegível entra como 0 e NÃO derruba a contagem: a linha
+    // existe e vai ser gravada de qualquer forma (o importador grava
+    // `valor_original: linha.valor`). Somar `null` como 0 é o que a soma do
+    // arquivo já fazia.
+    valor += Number(linha?.valor) || 0;
+  }
+
+  return { quantidade, valor };
+}
