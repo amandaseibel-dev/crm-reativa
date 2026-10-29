@@ -210,6 +210,7 @@ export default function ModuloLinkPagamentoGlobal() {
     }
 
     setAberto(false);
+    window.atualizarContadoresCrm?.();
 
     alert("Link solicitado com dados preenchidos. Agora foi enviado para a fila ADM/Supervisão.");
   }

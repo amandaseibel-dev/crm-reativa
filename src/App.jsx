@@ -14,7 +14,7 @@ const ICONES_MENU = {
 };
 import { supabase } from "./services/supabase";
 import usePolling from "./utils/polling";
-import { chamarRpcContido } from "./utils/rpcResiliente";
+import { chamarRpcContido, invalidarRpcContido } from "./utils/rpcResiliente";
 import AutoLogout from "./components/AutoLogout";
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const BaseAnalitica = lazy(() => import("./pages/BaseAnalitica"));
@@ -416,7 +416,7 @@ export default function App() {
         supabase,
         "contadores_cabecalho",
         {},
-        { cacheMs: 60000, timeoutMs: 8000 }
+        { cacheMs: 300000, timeoutMs: 8000 }
       );
       if (error || !data) return;
       const perfilAtual = usuario?.perfil?.perfil;
@@ -488,13 +488,21 @@ export default function App() {
     setParcelasVencendo([]);
     setSugestoesNovas(0);
     setMinhasValidacoesPendentes(0);
+    // Descarta o cache ao sair: impede que o próximo login na mesma aba
+    // receba dados filtrados pelo JWT do usuário anterior.
+    invalidarRpcContido();
   }, [usuario]);
 
   // Disponibiliza a atualizacao imediata pra qualquer tela que acabou de
   // fazer uma acao que mexe nesses contadores (aprovar termo, dar baixa,
   // confirmar pagamento), em vez de esperar o proximo intervalo.
+  // Invalida o cache antes de disparar: sem isso chamarRpcContido retorna
+  // o valor em cache e nunca chega ao banco dentro do TTL de 300 s.
   useEffect(() => {
-    window.atualizarContadoresCrm = atualizarContadores;
+    window.atualizarContadoresCrm = () => {
+      invalidarRpcContido("contadores_cabecalho");
+      atualizarContadores();
+    };
     return () => { delete window.atualizarContadoresCrm; };
   }, [atualizarContadores]);
 
