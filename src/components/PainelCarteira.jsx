@@ -1814,6 +1814,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const recorteSemDados =
     (filtroCurso !== "TODOS" || filtroSemestre !== "AMBOS") &&
     (cursoSemestreCarregando || mapaCursoSemestre === null);
+  const mensagemRecorteSemDados = cursoSemestreCarregando
+    ? "Carregando o recorte de curso e semestre… os totais aparecem quando a lista filtrada estiver pronta."
+    : "Recorte de curso e semestre indisponível: a contagem não carregou. Troque o filtro para tentar de novo.";
 
   // O recorte esta pronto pra virar foto? Enquanto o filtro de ano ou o recorte
   // do card ainda estao carregando, o botao fica indisponivel -- comecar ali
@@ -3740,7 +3743,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
               </div>
             )}
 
-            {visao === "kanban" ? (
+            {visao === "kanban" && recorteSemDados ? (
+              <p style={{ ...S.rodapeTabela, padding: "24px 0" }}>{mensagemRecorteSemDados}</p>
+            ) : visao === "kanban" ? (
               <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 10 }}>
                 {kanbanColunas.map((col) => (
                   <div
@@ -4182,11 +4187,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
               </table>
             </div>
             {recorteSemDados ? (
-              <p style={S.rodapeTabela}>
-                {cursoSemestreCarregando
-                  ? "Carregando o recorte de curso e semestre… os totais aparecem quando a lista filtrada estiver pronta."
-                  : "Recorte de curso e semestre indisponível: a contagem não carregou. Troque o filtro para tentar de novo."}
-              </p>
+              <p style={S.rodapeTabela}>{mensagemRecorteSemDados}</p>
             ) : (
             <p style={S.rodapeTabela}>
               Mostrando {listaFiltrada.length} de {filtroKpi ? (casosEspeciais || []).length : casos.length}{" "}

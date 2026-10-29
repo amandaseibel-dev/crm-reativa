@@ -132,4 +132,28 @@ describe("PainelCarteira: curso/semestre nao custa nada na abertura", () => {
     expect(total).toBeGreaterThan(ramo);
     expect(SRC.slice(guarda, guarda + 400)).toMatch(/cursoSemestreCarregando \|\| mapaCursoSemestre === null/);
   });
+  // Kanban: com recorte sem dados validados, as colunas e contagens NAO aparecem.
+  // A mesma condicao protege o rodape e o kanban; sem recorte, ou apos a carga com
+  // sucesso (mapa presente), a visualizacao normal continua.
+  it("carregamento: o kanban nao mostra colunas nem contagens do total geral", () => {
+    expect(SRC).toMatch(/visao === "kanban" && recorteSemDados \? \(/);
+    const guarda = SRC.indexOf('visao === "kanban" && recorteSemDados');
+    const colunasKanban = SRC.indexOf("{kanbanColunas.map((col) => (");
+    expect(guarda).toBeGreaterThan(-1);
+    expect(colunasKanban).toBeGreaterThan(guarda);
+  });
+
+  it("falha: sem mapa validado, a mensagem de indisponibilidade substitui o total geral", () => {
+    expect(SRC).toMatch(/mapaCursoSemestre === null\)/);
+    expect(SRC).toMatch(/Recorte de curso e semestre indisponível/);
+    expect(SRC).toMatch(/if \(error\) \{ setMapaCursoSemestre\(null\); return; \}/);
+  });
+
+  it("sucesso e sem recorte: a visualizacao normal nao muda", () => {
+    // sem recorte, recorteSemDados e falso mesmo com mapa nulo
+    expect(SRC).toMatch(/\(filtroCurso !== "TODOS" \|\| filtroSemestre !== "AMBOS"\) &&/);
+    // a mensagem tem uma unica fonte, usada no kanban e no rodape
+    const ocorrencias = SRC.match(/\{mensagemRecorteSemDados\}/g) || [];
+    expect(ocorrencias.length).toBe(2);
+  });
 });
