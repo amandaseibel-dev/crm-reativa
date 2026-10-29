@@ -1,0 +1,313 @@
+-- E5: O CANCELAMENTO DE ACORDO DEIXA DE RESPONDER SUCESSO QUANDO NAO TRATOU
+-- VINCULO NENHUM.
+--
+-- NAO APLICAR SEM AUTORIZACAO EXPLICITA. Arquivo em aguardando_aprovacao/ de
+-- proposito: `.sql.pendente` nao e migration ativa, e este diretorio esta na
+-- lista de AUXILIARES da catraca (scripts/ci/catraca-migrations.mjs), fora do
+-- indice de versoes.
+--
+-- AUTORIZACAO (Amanda, 26/10/2026): "Autorizo implementar exclusivamente a E5,
+-- conforme a proposta consolidada no commit 9abe2ef3. Objetivo: corrigir a
+-- resposta do cancelamento de acordos para que o CRM nao informe sucesso
+-- operacional quando nenhum vinculo foi efetivamente tratado."
+--
+-- O DEFEITO (diagnostico facd5a7c, secao 3/D3): `cancelar_acordo_ficha`
+-- desativa os vinculos com `get diagnostics v_vinculos = row_count` e devolve
+-- `ok: true` qualquer que seja esse numero. Com ZERO vinculo nenhum gatilho de
+-- titulo dispara, nenhuma mensalidade e devolvida, e a funcao responde a mesma
+-- coisa que responderia num cancelamento que devolveu tudo. A tela mostra
+-- "Acordo cancelado." e o operador conclui que a divida voltou a ficar
+-- negociavel. Aconteceu com o acordo 5692 (ULBRA 74210) do Pedro Henrique em
+-- 26/10/2026 12:52 UTC e e o estado de 624 dos 677 acordos CANCELADO da base.
+--
+-- O QUE MUDA: nada em dado. Esta migration NAO altera nenhum UPDATE. Os tres
+-- UPDATE (acordos, acordo_titulo_vinculo, parcelas), a ordem entre eles (status
+-- do acordo PRIMEIRO, para `titulo_reavaliar` ver o acordo ja CANCELADO -- regra
+-- de 22/09/2026), as duas travas de entrada (parcela PAGO / baixa viva), a
+-- chamada a `liberar_caso_por_evento` e as tres excecoes continuam identicos,
+-- linha por linha. O que entra sao SELECT de medicao, tres campos novos no
+-- retorno e um registro em `auditoria` no caso raro.
+--
+-- Corpo de partida: md5(prosrc) `130665ad5be7b222b74875ebcc767719` (producao em
+-- 26/10/2026, versao 20260925123852). Quem conferir depois deve comparar o
+-- corpo novo com este arquivo, nao com o de 25/09.
+--
+-- OS TRES DESFECHOS (pedido de 26/10, item 2):
+--
+--   CANCELAMENTO_EFETIVO    >=1 vinculo ativo foi desativado agora. As
+--                           mensalidades passaram pelo motor; `mensalidades_
+--                           devolvidas` diz quantas voltaram para ABERTO.
+--                           Pode ser 0 legitimamente: mensalidade cuja cadeia
+--                           tem acordo que recebeu dinheiro continua NEGOCIADA
+--                           e a divida e o saldo residual (re-acordo, 22/09).
+--
+--   COMPOSICAO_AUSENTE      nenhum vinculo ativo para tratar. `vinculos_total`
+--                           separa os dois motivos legitimos: 0 = o acordo
+--                           nunca teve composicao registrada (o caso dos 624);
+--                           >0 = a composicao existiu e ja estava solta. Nos
+--                           dois, nenhuma mensalidade foi devolvida por este
+--                           cancelamento, e e isso que a tela passa a dizer.
+--
+--   CONFERENCIA_NECESSARIA  o acordo foi cancelado e sobrou mensalidade
+--                           marcada PAGO/quitada presa a ele. E a coorte do
+--                           diagnostico (147 acordos / 321 titulos). Tem
+--                           precedencia sobre os outros dois: e o unico
+--                           desfecho que exige gente. NADA e reaberto aqui --
+--                           a correcao e a E6, que ainda nao existe.
+--
+-- POR QUE A CONFERENCIA NAO ACUSA QUITACAO LEGITIMA -- tres filtros:
+--   1. exclui `origem_liquidacao = 'PRIME_LIQUIDACAO_OFICIAL'` (liquidado na
+--      origem, ja terminal pelo gatilho titulo_liquidado_na_origem_e_terminal);
+--   2. exclui `origem_encerramento` preenchido (saida administrativa, que tem
+--      porta propria);
+--   3. exige que a quitacao esteja ATRIBUIDA A ESTE acordo (`acordo_id` ou
+--      `origem_liquidacao_ref`). Sem a ancora 3, o re-acordo A (pago em parte)
+--      -> B (cancelado sem pagar) acusaria o titulo legitimamente quitado por
+--      A: ele aparece no UNION so por causa do vinculo inativo com B. Com ela,
+--      o desfecho de B e CANCELAMENTO_EFETIVO, como deve ser.
+-- Mensalidade que continua NEGOCIADA apontando para outro acordo tambem nao
+-- entra: a contagem exige PAGO/quitada.
+--
+-- CONSEQUENCIA, dita em voz alta: pela ficha, CONFERENCIA_NECESSARIA e raro.
+-- A trava de parcela PAGO recusa justamente os acordos da coorte do
+-- diagnostico (todos tem parcela paga), entao o desfecho so aparece em acordo
+-- QUITADO sem parcela PAGO -- quitado por parcela RENEGOCIADA/CANCELADA. E de
+-- proposito: a E5 nao cria caminho para cancelar o que hoje e recusado.
+--
+-- AS DUAS PERNAS DA LEITURA: titulo deste acordo e alcancado pelo vinculo em
+-- `acordo_titulo_vinculo` OU pela coluna `acordos_titulos.acordo_id`, e ha
+-- titulo alcancavel so por uma delas (medido em 23/10/2026: 155 de 5.702
+-- vinculos ativos apontam para titulo com `acordo_id` nulo ou divergente). Por
+-- isso o UNION, e nao uma das duas.
+--
+-- EFETIVIDADE: compativel, sem alteracao. Esta migration nao muda situacao de
+-- titulo nenhum, e `carteira_2026_1_classificar` le a situacao do titulo (10
+-- linhas do corpo combinam `situacao` e `PAGO`) -- logo a efetividade nao se
+-- move. `tg_carteira_efetividade_invalidar` continua invalidando o snapshot
+-- pelos mesmos UPDATE de sempre, nem um a mais. A view
+-- `efetividade_caixa_origem` (#744, versao 20261023131709) NAO esta aplicada em
+-- producao e nao e referenciada aqui.
+--
+-- IDEMPOTENCIA: `create or replace` dentro de transacao, com guarda de md5
+-- que reconhece a propria marca. A segunda execucao deixa o mesmo corpo.
+-- Rollback em
+-- aguardando_aprovacao/20261026180000_e5_cancelamento_desfecho_explicito.rollback.sql,
+-- que devolve o corpo `130665ad5be7b222b74875ebcc767719`.
+
+-- =====================================================================
+-- ENVELOPE TRANSACIONAL E GUARDA DE md5 -- FALHA FECHADO
+-- =====================================================================
+-- O `create or replace` abaixo reescreve o corpo INTEIRO. Sem guarda ele falha
+-- ABERTO: se producao nao estiver mais no corpo de 26/10/2026, ele sobrescreve
+-- em silencio o que tiver mudado no meio. O teste prova o md5 do ARQUIVO, nao o
+-- do banco no dia da aplicacao -- e e o do banco que decide.
+--
+-- `begin`/`commit` nao e enfeite: sem eles a excecao da guarda nao impediria o
+-- `create or replace` seguinte de rodar. Dentro da transacao, falhar aqui
+-- significa nada aplicado.
+--
+-- IDEMPOTENCIA preservada: se o corpo ja tem a marca da E5, a guarda passa
+-- adiante e o `create or replace` reescreve o mesmo corpo.
+begin;
+
+do $guarda$
+declare
+  v_md5_esperado constant text := '130665ad5be7b222b74875ebcc767719';
+  v_md5          text;
+  v_def          text;
+begin
+  select md5(p.prosrc), pg_get_functiondef(p.oid) into v_md5, v_def
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'cancelar_acordo_ficha'
+     and pg_get_function_identity_arguments(p.oid) = 'p_acordo_id uuid';
+
+  if v_def is null then
+    raise exception 'E5/GUARDA: cancelar_acordo_ficha(p_acordo_id uuid) nao existe';
+  end if;
+
+  if position('-- E5 (26/10/2026): medicao do desfecho.' in v_def) > 0 then
+    raise notice 'E5/GUARDA: ja aplicada; o create or replace deixa o mesmo corpo';
+    return;
+  end if;
+
+  if v_md5 <> v_md5_esperado then
+    raise exception 'E5/GUARDA: md5 do corpo e % e o esperado e % -- producao mudou desde 26/10/2026, nao vou sobrescrever as cegas',
+      v_md5, v_md5_esperado;
+  end if;
+
+  raise notice 'E5/GUARDA: corpo de producao confere, segue a aplicacao';
+end $guarda$;
+
+create or replace function public.cancelar_acordo_ficha(p_acordo_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path to 'public'
+set statement_timeout to '60s'
+as $function$
+declare
+  v_agora    timestamptz := now();
+  v_acordo   public.acordos%rowtype;
+  v_vinculos int := 0;
+  v_parcelas int := 0;
+  -- E5 (26/10/2026): medicao do desfecho. NENHUMA destas variaveis entra em
+  -- UPDATE -- o que esta funcao escreve em dado continua identico ao de 25/09.
+  v_vinculos_total int := 0;
+  v_devolvidas     int := 0;
+  v_conferir       int := 0;
+  v_desfecho       text;
+begin
+  if not public.crm_usuario_pode_quitar_baixar() then
+    raise exception 'Cancelar acordo e exclusivo da gestao financeira.' using errcode = '42501';
+  end if;
+
+  select * into v_acordo from public.acordos where id = p_acordo_id for update;
+  if not found then
+    raise exception 'Acordo nao encontrado.' using errcode = 'P0001';
+  end if;
+  if upper(coalesce(v_acordo.status, '')) in ('CANCELADO', 'CANCELADA') then
+    raise exception 'Este acordo ja esta cancelado.' using errcode = 'P0001';
+  end if;
+
+  if exists (select 1 from public.parcelas where acordo_id = p_acordo_id and upper(coalesce(status, '')) = 'PAGO') then
+    raise exception 'Esse acordo ja tem parcela paga -- nao da pra cancelar (protege o historico financeiro). Se foi um erro, fale com quem confirmou o pagamento antes de mexer.' using errcode = 'P0001';
+  end if;
+  if exists (select 1 from public.baixas_pagamento where acordo_id = p_acordo_id and devolvido_em is null) then
+    raise exception 'Esse acordo ja tem alguma baixa/pagamento registrado -- nao da pra cancelar por aqui.' using errcode = 'P0001';
+  end if;
+
+  -- E5: quantos vinculos este acordo teve na vida, ativos ou nao. Lido ANTES de
+  -- desativar para separar "nunca teve composicao" de "a composicao ja estava
+  -- solta". O UPDATE de baixo so vira `ativo` -- nunca insere nem apaga --,
+  -- entao o total seria o mesmo depois; ler aqui e clareza, nao necessidade.
+  select count(*) into v_vinculos_total
+    from public.acordo_titulo_vinculo
+   where acordo_id = p_acordo_id;
+
+  -- Quem decide o destino de cada mensalidade e titulo_reavaliar, disparado
+  -- pelo gatilho do UPDATE de status abaixo (trg_acordo_status_reavalia_titulos).
+  -- Como as travas acima garantem que este acordo nunca recebeu pagamento, a
+  -- mensalidade volta para ABERTO e fica livre para um acordo novo -- a menos
+  -- que outro acordo da cadeia dela tenha recebido dinheiro (re-acordo), caso
+  -- em que continua NEGOCIADA e a divida e o saldo residual (25/09/2026). Por
+  -- isso o status do acordo muda PRIMEIRO: titulo_reavaliar precisa ver o
+  -- acordo ja CANCELADO. So depois o vinculo e' desativado -- nunca apagado --
+  -- para a cadeia mensalidade->negociacao->acordo continuar inteira na tela e
+  -- na auditoria.
+  update public.acordos
+     set status = 'CANCELADO', saldo = 0, atualizado_em = v_agora
+   where id = p_acordo_id;
+
+  update public.acordo_titulo_vinculo
+     set ativo = false
+   where acordo_id = p_acordo_id and coalesce(ativo, true);
+  get diagnostics v_vinculos = row_count;
+
+  update public.parcelas
+     set status = 'CANCELADA', atualizado_em = v_agora
+   where acordo_id = p_acordo_id
+     and upper(coalesce(status, '')) <> 'PAGO';
+  get diagnostics v_parcelas = row_count;
+
+  -- E5: o que sobrou nas mensalidades deste acordo, depois de os gatilhos dos
+  -- tres UPDATE acima terem rodado. Leitura pura.
+  select
+    count(*) filter (where upper(coalesce(t.situacao, '')) = 'ABERTO'),
+    count(*) filter (where upper(coalesce(t.situacao, '')) = 'PAGO'
+                       and lower(coalesce(t.status, '')) = 'quitada'
+                       and coalesce(t.origem_liquidacao, '') <> 'PRIME_LIQUIDACAO_OFICIAL'
+                       and t.origem_encerramento is null
+                       -- A quitacao tem de estar atribuida A ESTE acordo. Sem
+                       -- esta ancora, o re-acordo A (pago) -> B (cancelado)
+                       -- acusaria o titulo legitimamente quitado por A, que so
+                       -- esta no UNION por causa do vinculo inativo com B.
+                       and (t.acordo_id = p_acordo_id
+                            or coalesce(t.origem_liquidacao_ref, '') = p_acordo_id::text))
+    into v_devolvidas, v_conferir
+    from (
+      select v.titulo_id as id from public.acordo_titulo_vinculo v where v.acordo_id = p_acordo_id
+      union
+      select t2.id        from public.acordos_titulos t2      where t2.acordo_id = p_acordo_id
+    ) c
+    join public.acordos_titulos t on t.id = c.id;
+
+  -- E5: o desfecho. CONFERENCIA_NECESSARIA tem precedencia porque e o unico
+  -- que exige gente; depois dele, "nenhum vinculo tratado agora" e o que
+  -- distingue a ausencia de composicao do cancelamento efetivo.
+  v_desfecho := case
+    when v_conferir > 0 then 'CONFERENCIA_NECESSARIA'
+    when v_vinculos = 0 then 'COMPOSICAO_AUSENTE'
+    else 'CANCELAMENTO_EFETIVO'
+  end;
+
+  if v_acordo.aluno_id is not null then
+    perform public.liberar_caso_por_evento(v_acordo.aluno_id, 'CANCELADO');
+  end if;
+
+  -- E5: registra SO quando ha o que conferir. E raro e por isso cabe -- mesmo
+  -- criterio do gatilho titulo_liquidado_na_origem_e_terminal. Sem isto, a
+  -- inconsistencia existe apenas no alert de quem clicou e morre com ele.
+  if v_conferir > 0 then
+    insert into public.auditoria (usuario, acao, tabela_afetada, registro_id, detalhes)
+    values (coalesce(nullif(lower(auth.jwt() ->> 'email'), ''), 'gestao'),
+            'ACORDO_CANCELADO_COM_MENSALIDADE_QUITADA', 'acordos', p_acordo_id,
+            jsonb_build_object('acordo_id', p_acordo_id,
+                               'aluno_id', v_acordo.aluno_id,
+                               'numero_acordo', v_acordo.numero_acordo,
+                               'titulos_conferir', v_conferir,
+                               'mensalidades_devolvidas', v_devolvidas,
+                               'vinculos_desativados', v_vinculos,
+                               'vinculos_total', v_vinculos_total));
+  end if;
+
+  return jsonb_build_object(
+    'ok', true,
+    'acordo_id', p_acordo_id,
+    'vinculos_desativados', v_vinculos,
+    'parcelas_canceladas', v_parcelas,
+    'desfecho', v_desfecho,
+    'vinculos_total', v_vinculos_total,
+    'composicao_ausente', v_vinculos = 0,
+    'mensalidades_devolvidas', v_devolvidas,
+    'titulos_conferir', v_conferir
+  );
+end;
+$function$;
+
+comment on function public.cancelar_acordo_ficha(uuid) is
+  'Cancela acordo pela ficha. Recusa acordo com parcela PAGO ou baixa viva. '
+  'Muda o status do acordo ANTES de desativar o vinculo (titulo_reavaliar '
+  'precisa ver o acordo ja CANCELADO). E5, 26/10/2026: devolve `desfecho` '
+  '(CANCELAMENTO_EFETIVO / COMPOSICAO_AUSENTE / CONFERENCIA_NECESSARIA) com as '
+  'contagens, em vez de ok:true indistinto, e audita quando sobra mensalidade '
+  'quitada presa ao acordo cancelado. Nao reabre titulo e nao desfaz pagamento.';
+
+-- =====================================================================
+-- GRANTS RECONFIRMADOS (premissa de seguranca §10 / checklist §C)
+-- =====================================================================
+-- `CREATE OR REPLACE` preserva a ACL de quem ja existia, mas a premissa manda
+-- reconfirmar depois de recriar -- e o Guardiao apontou a ausencia. O portao
+-- real e interno (`crm_usuario_pode_quitar_baixar()` levantando 42501 no corpo),
+-- entao `authenticated` precisa ALCANCAR a funcao para receber a recusa com
+-- mensagem; o grant nao e a autorizacao. `anon` e `public` saem por garantia:
+-- o papel que aplica varia (supabase_admin no SQL Editor) e funcao nova neste
+-- schema pode nascer com EXECUTE para anon.
+--
+-- `if exists` em cada papel porque nem toda bancada de teste cria os tres.
+do $acl$
+declare r text;
+begin
+  execute 'revoke all on function public.cancelar_acordo_ficha(uuid) from public';
+  foreach r in array array['anon'] loop
+    if exists (select 1 from pg_roles where rolname = r) then
+      execute format('revoke all on function public.cancelar_acordo_ficha(uuid) from %I', r);
+    end if;
+  end loop;
+  foreach r in array array['authenticated', 'service_role'] loop
+    if exists (select 1 from pg_roles where rolname = r) then
+      execute format('grant execute on function public.cancelar_acordo_ficha(uuid) to %I', r);
+    end if;
+  end loop;
+end $acl$;
+
+commit;
