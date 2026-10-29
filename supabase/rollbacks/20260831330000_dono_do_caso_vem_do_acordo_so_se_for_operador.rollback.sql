@@ -1,0 +1,14 @@
+-- Desfaz a trava: volta o gatilho a adotar o dono do acordo seja ele quem for
+-- (incluindo importacao@sistema e gerencia). So usar se a trava provar estorvo.
+-- O texto abaixo e o corpo anterior, capturado de producao em 31/08/2026.
+--
+-- Para reverter os 28 alunos corrigidos na mao, use as movimentacoes:
+--   select aluno_id, operador_anterior_email, operador_novo_email
+--     from public.aluno_movimentacoes
+--    where tipo='ATRIBUICAO_ACORDO' and registrado_em::date = date '2026-08-31';
+-- e chame internal.set_resp_aluno de volta para operador_anterior_email
+-- (nulo = devolver para "sem dono").
+
+-- corpo anterior: identico ao da migration, sem a condicao
+-- `and coalesce(v_e_operador, false)` no bloco final e sem a coluna
+-- (ativo and perfil='operador') no select para v_e_operador.
