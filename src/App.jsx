@@ -89,6 +89,7 @@ const SaudeDaBase = lazy(() => import("./pages/SaudeDaBase"));
 const RevisaoCadastral = lazy(() => import("./pages/RevisaoCadastral"));
 const SaudeCompletaCarteira = lazy(() => import("./pages/SaudeCompletaCarteira"));
 const RevisaoPrime = lazy(() => import("./pages/RevisaoPrime"));
+const DiagnosticoPortador166 = lazy(() => import("./pages/DiagnosticoPortador166"));
 const TvElogios = lazy(() => import("./pages/TvElogios"));
 const Preventivo = lazy(() => import("./pages/Preventivo"));
 import AvisoTemplateNovo from "./components/AvisoTemplateNovo";
@@ -190,7 +191,7 @@ function podeAcessar(perfil, rota) {
   // perfis ativos (o banco confere de novo por app_usuario_ativo()).
   if (rota === "/leads-whatsapp") return true;
   if (rota === "/tv-mensagem") return perfil !== "operador"; // escrita ainda restrita pela RLS
-  if (rota === "/minhas-solicitacoes") return true; if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/a-entrar") return true; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/acordos-duplicados") return perfil !== "operador"; if (rota === "/acordos-sem-vinculo") return perfil !== "operador"; if (rota === "/pagamentos-sem-aluno") return perfil !== "operador"; if (rota === "/quitacao-sugerida") return perfil !== "operador"; if (rota === "/conferencia-prime") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador"; if (rota === "/acordos-operador") return perfil !== "operador";
+  if (rota === "/minhas-solicitacoes") return true; if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/a-entrar") return true; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/acordos-duplicados") return perfil !== "operador"; if (rota === "/acordos-sem-vinculo") return perfil !== "operador"; if (rota === "/pagamentos-sem-aluno") return perfil !== "operador"; if (rota === "/quitacao-sugerida") return perfil !== "operador"; if (rota === "/conferencia-prime") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador"; if (rota === "/acordos-operador") return perfil !== "operador"; if (rota === "/diagnostico-portador-166") return perfil !== "operador";
   const permissoes = {
     gerencia: [
       "/",
@@ -364,6 +365,12 @@ function RotaProtegida({ usuario, rota, children }) {
   // Acordos por operador: mesma gestão da Calibragem (Amanda gestora, Fernanda,
   // Amanda ADM). A RPC confere de novo por calibragem_e_gestao() -- isto aqui é
   // só para não abrir uma tela que voltaria vazia.
+  if (rota === "/diagnostico-portador-166") {
+    const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+    if (!["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(email)) {
+      return <Navigate to="/" replace />;
+    }
+  }
   if (rota === "/acordos-operador") {
     const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
     if (!["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(email)) {
@@ -1270,6 +1277,7 @@ export default function App() {
               <Route path="/revisao-cadastral" element={<RevisaoCadastral />} />
               <Route path="/saude-completa-carteira" element={<SaudeCompletaCarteira />} />
               <Route path="/revisao-prime" element={<RevisaoPrime />} />
+              <Route path="/diagnostico-portador-166" element={<RotaProtegida usuario={usuario} rota="/diagnostico-portador-166"><DiagnosticoPortador166 /></RotaProtegida>} />
               <Route path="/acordos-operador" element={<RotaProtegida usuario={usuario} rota="/acordos-operador"><AcordosPorOperador /></RotaProtegida>} />
               <Route path="/log-nivelamento" element={<LogNivelamento />} />
               <Route path="/sugestoes-recebidas" element={<SugestoesRecebidas />} />
