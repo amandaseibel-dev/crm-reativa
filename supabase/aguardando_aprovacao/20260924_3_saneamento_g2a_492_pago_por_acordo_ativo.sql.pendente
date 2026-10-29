@@ -1,0 +1,1094 @@
+-- ============================================================================
+-- 3/4 -- SANEAMENTO G2-A: 492 mensalidades quitadas POR CONSEQUENCIA de acordo
+--        que depois voltou a ficar ATIVO. Só o grupo A. C, D, E1 e E2 ficam.
+-- ============================================================================
+-- NAO APLICAR SEM APROVACAO. Exige o arquivo 1 (estrutural) ja aplicado.
+--
+-- ---------------------------------------------------------------------------
+-- OS 538 "PAGO em acordo ATIVO", SEPARADOS POR PROVA DE CAUSALIDADE
+-- ---------------------------------------------------------------------------
+--   A1  173 | 57 acordos | R$ 173.773,28  motivo do titulo NOMEIA este acordo
+--   A2  319 | 88 acordos | R$ 656.268,85  assinatura exata de titulos_por_status_acordo
+--   ----------------------------------------------------------------
+--   A   492 | 145 acordos | 145 alunos | R$ 830.042,13   <= SO ESTE ENTRA
+--
+--   B     0                                  pagamento/baixa propria (nao existe)
+--   C    17 | 14 acordos | R$ 6.030,79       boleto do proprio acordo
+--   D    21 | 10 acordos | R$ 8.181,97       quitado pela liquidacao Prime (portador 195)
+--   E1    5 |  1 acordo  | R$ 0,00           quitacao manual que zerou o valor
+--   E2    3 |  1 acordo  | R$ 0,00           intervencao posterior mexeu no valor
+--   ----------------------------------------------------------------
+--       538 titulos | R$ 844.254,89
+--
+-- ---------------------------------------------------------------------------
+-- POR QUE "MESMA TRANSACAO" NAO BASTA -- E O QUE FOI FEITO NO LUGAR
+-- ---------------------------------------------------------------------------
+-- `audit_log.criado_em` tem DEFAULT now(), que em Postgres e o timestamp da
+-- TRANSACAO. Timestamp igual prova que os dois UPDATEs estao na mesma
+-- transacao -- e SO ISSO. Nao diz qual causou qual, e nao exclui um terceiro
+-- processo que tenha escrito os dois. A primeira versao desta correcao parava
+-- aqui e teria levado junto 8 titulos que NAO foram quitados pelo acordo.
+--
+-- O que sustenta cada titulo do grupo A sao QUATRO evidencias, todas exigidas
+-- ao mesmo tempo, e todas recalculadas como guard na hora da execucao:
+--
+--  (1) CONTEUDO: o conjunto exato de campos que aquele UPDATE alterou casa com
+--      a assinatura de UMA funcao conhecida, e so uma:
+--        A1 -> (atualizado_em, motivo_ajuste, situacao, status) e o motivo
+--              GANHOU o texto 'quitada junto com o acordo <N>' com <N> sendo o
+--              numero DESTE acordo. A funcao escreve o numero do acordo que
+--              disparou -- a propria linha diz quem a causou.
+--        A2 -> (atualizado_em, situacao, status) ou (atualizado_em, situacao),
+--              com motivo INALTERADO. E a assinatura de
+--              `titulos_por_status_acordo`, a unica funcao que quita titulo
+--              escrevendo so `situacao` (o `status` vem do gatilho de coerencia
+--              `_titulo_situacao_e_status_coerentes`; nas linhas de agosto,
+--              anteriores a esse gatilho, o status nem mudou). E o WHERE dela e
+--              literalmente `v.acordo_id = new.id`: ela so toca titulo vinculado
+--              AO ACORDO QUE ACABOU DE VIRAR QUITADO.
+--
+--  (2) ORDEM / IDENTIFICADORES: `audit_log.id` e sequencial. O evento do titulo
+--      esta DEPOIS do evento do seu acordo e ANTES do evento do PROXIMO acordo
+--      quitado na mesma transacao -- a "janela" do seu acordo. E o padrao de
+--      gatilho: o UPDATE do titulo roda dentro dos AFTER triggers do UPDATE
+--      daquele acordo. Um backfill em bloco (`update acordos...; update
+--      acordos_titulos...`) colocaria TODOS os titulos depois de TODOS os
+--      acordos. Medido: 0 titulo fora da janela, 0 titulo escrito antes do seu
+--      acordo. (Varias dessas transacoes quitaram 78, 111 e 140 acordos de uma
+--      vez -- lote de rotina; a intercalacao e o que prova que quem escreveu o
+--      titulo foi o gatilho de cada acordo, e nao o lote.)
+--
+--  (3) NENHUM VALOR FOI TOCADO, nem naquele evento nem depois. Quitacao manual
+--      pela tela (`quitar_e_encerrar_caso`) zera `saldo_corrigido` e
+--      `valor_em_aberto` no mesmo UPDATE -- assinatura inconfundivel. Quem tem
+--      qualquer mexida em valor, no evento ou em qualquer evento posterior,
+--      esta FORA (grupos E1 e E2).
+--
+--  (4) NENHUM REGISTRO INDEPENDENTE DE LIQUIDACAO: `origem_liquidacao` e
+--      `origem_encerramento` nulas, nenhum casamento em `pagamentos.titulo_numero`
+--      nem em `conferencia_pagamentos.titulo_numero`, nenhuma linha em
+--      `solicitacoes_confirmacao_pagamento.titulo_id`. Vale para os 538.
+--
+-- Nao sobrou nenhum titulo com assinatura desconhecida: 538 = 492 + 46, sem
+-- resto. Se sobrasse, estaria listado como excecao, nao dentro do lote.
+--
+-- ---------------------------------------------------------------------------
+-- AS EXCECOES, NOMEADAS
+-- ---------------------------------------------------------------------------
+-- C (17) -- boleto do proprio acordo, `tipo_boleto = 'Acordo'`. Nao e
+--   mensalidade. `_titulo_quita_com_o_acordo` ja os exclui desde 20260831140000;
+--   entraram porque `titulos_por_status_acordo` nao tinha o filtro (corrigido no
+--   arquivo 1). Documentos todos no padrao 05xxxxxxxxxx, saldo_corrigido 0,00.
+--
+-- D (21) -- quitados em 09/09/2026 12:44:23.75972 UTC, todos na mesma
+--   transacao, com `acordo_id` sendo GRAVADO no mesmo UPDATE e motivo
+--   "vinculado pelo Prime: liquidado no portador 195 junto com as outras
+--   mensalidades". NAO existe evento de acordo->QUITADO nessa transacao: nao
+--   foi o acordo que os quitou, foi a regra de liquidacao da Prime. Evidencia
+--   independente de pagamento -- exatamente o que nao se pode desfazer aqui.
+--
+-- E1 (5) -- Sandra Thalyta Barros de Melo, acordo 2922, 24/08/2026 13:09:05.
+--   O UPDATE zerou `saldo_corrigido` (de R$ 1.409,30 / 1.409,32 / 1.043,94 para
+--   0,00) e o motivo termina em "(reconciliacao 24/08: quitar tudo havia
+--   falhado por timeout) por amanda.seibel@aelbra.com.br". Foi decisao de
+--   reconciliacao, nao consequencia do acordo.
+--   e375b5f2-ed46-471a-8e32-722112955878  doc 4206257
+--   3db898c6-4b07-413c-b0bf-73bd350ed9b9  doc 4206258
+--   79fc2b94-c0e5-442a-b3f3-2afc4713a68d  doc 4206259
+--   caa68f25-17c9-4f49-a50e-1111ee7ceb08  doc 4206260
+--   5bc36b6c-199f-4ab7-a51e-922ee9d56642  doc 4206261
+--
+-- E2 (3) -- Gabriel Rocha Mota, acordo 2681. O titulo virou PAGO pelo acordo,
+--   mas em 31/08/2026 um evento POSTERIOR (amanda.seibel) gravou
+--   status='quitada' zerando `saldo_corrigido` e `valor_em_aberto`. O estado de
+--   hoje tem duas causas sobrepostas; reabrir devolveria uma mensalidade
+--   negociada com valor zero. Fica para decisao separada.
+--   e1127398-25c3-43b7-b588-61baadf0691f  doc 4302176
+--   6e05eb54-089e-4be7-b8a2-644a7cf2d33b  doc 4302177
+--   9c78e1e8-0da7-42ec-b0b5-61032e8b475c  doc 4302178
+--
+-- ---------------------------------------------------------------------------
+-- COMO A CORRECAO E FEITA: gravando a prova e deixando o motor decidir
+-- ---------------------------------------------------------------------------
+--   1) grava em cada titulo a proveniencia comprovada (`quitacao_origem`,
+--      `quitacao_origem_acordo_id`, `quitacao_origem_em` = o instante do evento);
+--   2) chama `public.titulo_reavaliar(id)` -- o motor oficial do arquivo 1 --
+--      que ve proveniencia de acordo + acordo nao quitado e devolve o titulo
+--      para NEGOCIADO/vinculada, limpando a proveniencia.
+-- Nenhum UPDATE de situacao escrito a mao. Se o motor discordar de um so, a
+-- validacao aborta a transacao inteira.
+--
+-- EFEITO NO SALDO: NENHUM. PAGO esta fora do saldo; NEGOCIADO com vinculo vivo
+-- tambem (as duas funcoes de saldo excluem por NOT EXISTS de vinculo vivo).
+-- Muda o rotulo na ficha e muda `carteira_2026_1_classificar`, onde
+-- situacao = 'PAGO' conta como EFETIVIDADE -- R$ 830.042,13 saem de "pago" e
+-- voltam para "negociado".
+--
+-- ROLLBACK: 20260924_3_saneamento_g2a_..._rollback.sql (mesma pasta)
+-- ============================================================================
+
+begin;
+
+-- ---------------------------------------------------------------------------
+-- 0) PRE-REQUISITO: o arquivo 1 tem de estar aplicado
+-- ---------------------------------------------------------------------------
+do $$
+begin
+  if not exists (select 1 from information_schema.columns
+                  where table_schema='public' and table_name='acordos_titulos'
+                    and column_name='quitacao_origem') then
+    raise exception 'ABORTA: rode antes o arquivo 1 (estrutural) -- coluna quitacao_origem nao existe';
+  end if;
+  if (select pg_get_functiondef(p.oid) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+       where n.nspname='public' and p.proname='titulo_reavaliar') not like '%quitacao_origem%' then
+    raise exception 'ABORTA: titulo_reavaliar ainda e a versao antiga -- rode o arquivo 1 primeiro';
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 1) A LISTA. Fechada, conferida por ID em 24/09/2026. 492 linhas.
+--    A 4a coluna e o `audit_log.id` do evento que levou o titulo a PAGO --
+--    a prova fica amarrada ao EVENTO, nao so ao titulo.
+-- ---------------------------------------------------------------------------
+create temporary table _g2a_lista (
+  titulo_id uuid primary key,
+  acordo_id uuid not null,
+  valor_esperado numeric not null,
+  audit_id_pago bigint not null
+) on commit drop;
+
+insert into _g2a_lista (titulo_id, acordo_id, valor_esperado, audit_id_pago) values
+  ('0066db2c-2060-4744-829a-681720d12b7d'::uuid, '6319250f-5f56-41ad-aef2-7ffdd8a6d3e3'::uuid, 640.72::numeric, 122710::bigint),
+  ('007d8288-2711-4ec6-840b-26c7400ece2a'::uuid, 'a232edf4-46fc-4f96-8176-e287f8e6fba0'::uuid, 1102.34::numeric, 122016::bigint),
+  ('011a477f-2d30-4a61-878b-282eafa48070'::uuid, 'c2a74404-be2c-47b0-9b66-33c6ee5d6a6b'::uuid, 2589.54::numeric, 97206::bigint),
+  ('01bbc9f0-3288-4c85-a99c-7730e41740ad'::uuid, 'fb668fe2-7d77-42ae-a286-d214619b133b'::uuid, 703.59::numeric, 145280::bigint),
+  ('01e508ae-9250-4472-9855-8782153661ee'::uuid, 'e768ef3b-7b78-4f38-881d-3255fc555fd5'::uuid, 847.14::numeric, 122598::bigint),
+  ('02832e4a-e98d-4526-8841-d3fbfdfaefed'::uuid, '1931b9aa-4cd7-4711-a9a5-b87be2eaeddb'::uuid, 3057.38::numeric, 122076::bigint),
+  ('0362ffb6-c237-4fe4-bdde-bcf0664f0aa6'::uuid, '1ea42bc8-51a7-4b2e-a91a-d6d1d0b5d468'::uuid, 3071.47::numeric, 122589::bigint),
+  ('03be0558-8778-4219-be3d-723113a946fc'::uuid, '639e421e-9660-4bcb-ae4d-2b46e9dae683'::uuid, 436.80::numeric, 97254::bigint),
+  ('04896ab6-c2a4-444d-99ac-4819cad20572'::uuid, '16a0ff77-d0df-4369-a782-dc4ef0f95fcc'::uuid, 560.62::numeric, 122351::bigint),
+  ('05061c75-da9d-4c2b-ae49-631232bd194a'::uuid, '39485051-5716-489c-a2ea-3fb01d373fc0'::uuid, 1317.95::numeric, 122149::bigint),
+  ('05a74e2b-be9a-4e9c-b306-99b2b0cb0dce'::uuid, '7127159c-86c5-4d0f-814e-1e91d9b44b79'::uuid, 3167.39::numeric, 152945::bigint),
+  ('05c11cef-0be2-46e4-9f59-72bcad13637b'::uuid, 'ee660b51-d9d0-43fd-8274-fdf9a2b981b4'::uuid, 1395.70::numeric, 158500::bigint),
+  ('0600b875-ae38-40f5-8a2d-6ade46fadbef'::uuid, '639e421e-9660-4bcb-ae4d-2b46e9dae683'::uuid, 436.80::numeric, 97253::bigint),
+  ('07081418-09fb-4669-beca-05b1ff0806c1'::uuid, '857ad8dc-d832-4cbf-a152-682b70283b06'::uuid, 937.91::numeric, 154587::bigint),
+  ('076bb61d-aee6-4422-a388-8cc44826fc62'::uuid, 'b6331893-d993-465e-8c4f-7183db533ac2'::uuid, 12217.87::numeric, 122499::bigint),
+  ('08359d54-278c-45f4-84f4-ec26cd92204a'::uuid, 'd568fadf-0303-4bc5-85f6-4747c04af87f'::uuid, 1568.80::numeric, 97339::bigint),
+  ('087bbc6d-b916-47a2-92a9-5a2aacc98fb6'::uuid, 'bed0dc6a-2292-48fb-aee8-14b2aad9736c'::uuid, 1656.24::numeric, 97343::bigint),
+  ('0ac5b626-6321-4a1a-8bfd-e95f1b9200c6'::uuid, '0afd06d5-e2eb-4ad5-91b4-8b825bffcf28'::uuid, 272.09::numeric, 122611::bigint),
+  ('0b7dd605-57b3-4dde-a782-aa27016158d8'::uuid, 'b931e8c7-4839-4f98-9fb8-5442984d7eaa'::uuid, 1422.37::numeric, 121923::bigint),
+  ('0b9e4b7b-c74e-4e62-a05b-ff6aa73cf756'::uuid, '1f2d1ca4-2e7e-4cd8-87e6-5dad12c23ba4'::uuid, 3987.59::numeric, 122092::bigint),
+  ('0bda014f-50ec-4465-8dc3-a57c85a40616'::uuid, 'd6ee9f8d-b271-4995-a083-c1f47433f8aa'::uuid, 1020.44::numeric, 122176::bigint),
+  ('0c1d2f62-fcf4-47c6-a5a3-cf29ae440d2c'::uuid, 'd756bb69-d5e4-4c96-bde2-06bf17a60f9a'::uuid, 850.10::numeric, 122511::bigint),
+  ('0d02d7f8-9100-4a99-a883-6adf560f0bc9'::uuid, '4c73766c-a9f7-49b5-875f-df15ed1db869'::uuid, 2471.80::numeric, 141330::bigint),
+  ('0d1463a7-0f21-4642-a613-7ac179628580'::uuid, '7127159c-86c5-4d0f-814e-1e91d9b44b79'::uuid, 3167.38::numeric, 152946::bigint),
+  ('0db244c0-1f00-48ba-b665-59c4521f5c49'::uuid, '6a41a965-6324-4e16-99ff-86e6b721ebb8'::uuid, 847.15::numeric, 122533::bigint),
+  ('0e520fce-9b21-4967-ab97-606fc5d80f64'::uuid, 'aa96155b-e3c2-4380-974a-a83fc1257aed'::uuid, 1059.04::numeric, 158504::bigint),
+  ('0fb915b1-f7c5-49ac-a81c-2257402931ea'::uuid, '4c73766c-a9f7-49b5-875f-df15ed1db869'::uuid, 2471.80::numeric, 141332::bigint),
+  ('0ff025b3-f1f5-4df2-887b-37229c910e53'::uuid, '6ffafaa0-8b22-4b8c-8ba6-94d1b8455064'::uuid, 730.62::numeric, 123046::bigint),
+  ('101c8cea-72a5-434e-a1cb-cf0c947e41b3'::uuid, '1cb7de82-3e03-48ba-b095-bbb94748ca42'::uuid, 1917.70::numeric, 158533::bigint),
+  ('1094d1a8-23d0-4832-a71f-75723b21da21'::uuid, 'e7d9efc9-5a9f-4fef-b872-8eb8aed8985a'::uuid, 718.38::numeric, 97327::bigint),
+  ('1117858e-3f5b-45d0-a846-319a6766a82f'::uuid, '74e6c09c-3680-4d6d-8d25-a11a5b66b47b'::uuid, 783.25::numeric, 122580::bigint),
+  ('11398c3b-0a4f-467d-8954-31ed9c8ac679'::uuid, 'fb668fe2-7d77-42ae-a286-d214619b133b'::uuid, 703.57::numeric, 145284::bigint),
+  ('1197bb5b-cd88-4eb2-b6c9-2008425dee0e'::uuid, '5e5cc3f7-c75a-477b-8073-0acc6d730b40'::uuid, 764.17::numeric, 122023::bigint),
+  ('1199fc25-1823-4e04-9bb9-b26fb2e0ba7a'::uuid, '1f2d1ca4-2e7e-4cd8-87e6-5dad12c23ba4'::uuid, 2184.98::numeric, 122089::bigint),
+  ('127fa141-f912-4eca-a2cc-73c6066bb624'::uuid, 'bed0dc6a-2292-48fb-aee8-14b2aad9736c'::uuid, 1656.24::numeric, 97346::bigint),
+  ('13432341-486e-4965-9706-f4abeef9e0f0'::uuid, '1e3f0aad-2ffd-4d31-a15a-ee78b00efed9'::uuid, 473.67::numeric, 145384::bigint),
+  ('1348665b-13d5-499c-a1a0-7ec6a81367cf'::uuid, '877c491e-a854-410b-90b0-1d00cae920f5'::uuid, 1163.96::numeric, 121855::bigint),
+  ('13c63ead-5afa-4954-acdf-9b0c23c2d944'::uuid, '9698a187-4185-40bf-af46-07fefc591a03'::uuid, 1528.66::numeric, 122046::bigint),
+  ('1427c1e3-f25a-4be1-998e-6a147236ff42'::uuid, '01405dc1-bb0c-44bf-9058-c7032170b81f'::uuid, 638.59::numeric, 141916::bigint),
+  ('14dc4255-ff75-4649-bf9b-21cd38c6c6ef'::uuid, 'f2ae9ec4-a5af-4b2e-b3e6-ee5792a9cb7f'::uuid, 1230.53::numeric, 141493::bigint),
+  ('1515ecd7-1a85-4a1b-8fda-ecfda16f6375'::uuid, 'b5c5d1aa-8a98-49dc-99f2-85d036e6cf07'::uuid, 780.18::numeric, 97267::bigint),
+  ('152a1cab-5748-4fb9-9326-6f3f23c9e54c'::uuid, '37bee93c-c725-498b-8daa-f772e4ded9ba'::uuid, 2029.00::numeric, 122009::bigint),
+  ('15ce564f-4a85-4318-ae67-bc9718975e7a'::uuid, '79bc37f2-3807-4ba2-875d-b152c00e645f'::uuid, 652.71::numeric, 122524::bigint),
+  ('15d1fbd9-c140-4d9a-9678-6b4d18ad08f1'::uuid, '0d813921-226c-4daf-8d2a-ffbc5c9fdd4b'::uuid, 1283.63::numeric, 122620::bigint),
+  ('16b39ee4-f4c5-4b2f-9539-3da36a3dbbb4'::uuid, '1cb7de82-3e03-48ba-b095-bbb94748ca42'::uuid, 1917.71::numeric, 158532::bigint),
+  ('189d7724-4b5e-4bab-8fac-b9d3e004fe1e'::uuid, 'eb121e1b-58ab-4876-a5cc-40385909bf49'::uuid, 2128.09::numeric, 141310::bigint),
+  ('18a0c8db-5752-4702-b3b1-f7c4130f7d98'::uuid, '83c10d1e-ddb1-4304-a25b-0ffdd3cc8ec8'::uuid, 852.61::numeric, 144894::bigint),
+  ('18e5e7bf-2f29-4209-8dcc-d5518a02542a'::uuid, '9cbc504e-0212-46a1-8a1b-e89386f87fa3'::uuid, 352.96::numeric, 153017::bigint),
+  ('1a37b1fb-d183-4652-892e-d4a62682dffb'::uuid, 'fd4f6aa7-c966-44c2-a1e1-c033f663e224'::uuid, 1596.40::numeric, 115210::bigint),
+  ('1a684c0b-bbeb-4b20-9016-32a6be16cb2b'::uuid, '39485051-5716-489c-a2ea-3fb01d373fc0'::uuid, 1317.95::numeric, 122151::bigint),
+  ('1a8d9727-66ac-436f-a5c6-2c08555caf58'::uuid, '9cbc504e-0212-46a1-8a1b-e89386f87fa3'::uuid, 352.93::numeric, 153019::bigint),
+  ('1b0586a2-ddc2-4a51-850c-8920d5d7dd2b'::uuid, '6a41a965-6324-4e16-99ff-86e6b721ebb8'::uuid, 847.15::numeric, 122532::bigint),
+  ('1b2ec051-40be-40ed-8435-619024ea2d0c'::uuid, 'b6331893-d993-465e-8c4f-7183db533ac2'::uuid, 12217.87::numeric, 122496::bigint),
+  ('1b4d01d4-bcfc-466a-b836-6d65a05c2732'::uuid, '1e6fff4e-12fc-4e07-b5c2-34729cd1a1d3'::uuid, 1158.75::numeric, 122681::bigint),
+  ('1ca44ee6-acc8-4856-a2d4-c063cf59de8c'::uuid, '39d08ae8-b533-45bb-a6d9-f659fd6cff85'::uuid, 1643.54::numeric, 122899::bigint),
+  ('1cb197a8-08d1-49d3-9662-2ba085305b69'::uuid, 'be2960a7-320e-4070-b0b5-0d00b31aa248'::uuid, 774.30::numeric, 122263::bigint),
+  ('1cc72b07-7f48-45e5-8b3e-1f2057b5da88'::uuid, '736cd80a-d050-4c1e-aee5-79c2d04c04af'::uuid, 2514.42::numeric, 152948::bigint),
+  ('1d5429d3-aaaf-44e2-b4a6-38142e7bef0d'::uuid, '77ecac36-6f5d-4c8e-a756-787204ad420c'::uuid, 1649.59::numeric, 122319::bigint),
+  ('1da1ec18-3fc0-4c97-b403-33ffe328fd4f'::uuid, '37bee93c-c725-498b-8daa-f772e4ded9ba'::uuid, 2028.99::numeric, 122007::bigint),
+  ('1e034288-5e9f-404a-acb1-a9b95c3cdd3e'::uuid, '4c73766c-a9f7-49b5-875f-df15ed1db869'::uuid, 2471.76::numeric, 141333::bigint),
+  ('1e21247c-1d3e-45a5-ad9e-e6d4bed17285'::uuid, 'e492fd92-ff3a-48d3-a112-da64e127bebe'::uuid, 783.25::numeric, 154003::bigint),
+  ('1e741c5f-a1d3-4907-84ba-77bf9bd94698'::uuid, '36d7e4f0-d287-41ac-922f-f28a193b5967'::uuid, 1638.39::numeric, 122409::bigint),
+  ('1e8d1850-15f9-498e-b7a6-e9138c956f60'::uuid, '2fb4cb7b-24af-4148-a25e-8e24e0d83a70'::uuid, 1637.24::numeric, 158523::bigint),
+  ('1eaab997-a4d9-4d18-92f5-e508fc35dc96'::uuid, '857ad8dc-d832-4cbf-a152-682b70283b06'::uuid, 937.91::numeric, 154585::bigint),
+  ('1eb1bf1a-4ec4-40fe-91e0-1319cfe46e04'::uuid, 'b4266995-f016-430e-bae4-29cf8d35ef4b'::uuid, 839.19::numeric, 122479::bigint),
+  ('1ef697c6-c3f5-4f02-b5d6-fd8235dc644b'::uuid, '19260dca-92e1-4a06-b7e7-e79882ef120b'::uuid, 897.99::numeric, 122648::bigint),
+  ('210c8572-9ae6-499a-9772-94fe5c04f58d'::uuid, '7127159c-86c5-4d0f-814e-1e91d9b44b79'::uuid, 3167.39::numeric, 152943::bigint),
+  ('21c10f95-ac34-4152-891c-b8333f9706cf'::uuid, '2f04e780-0b59-4335-89cb-fd244e90eba6'::uuid, 710.51::numeric, 141531::bigint),
+  ('21fe2d6c-5d1b-49a4-822c-068bc8fc6172'::uuid, '2d4fdac3-ed9f-4368-a9c4-26b749530f72'::uuid, 1072.94::numeric, 122114::bigint),
+  ('2309b9d6-2cbc-4bdf-bdd6-c02924ead2b9'::uuid, '13a0c5d2-5053-4370-b735-1e0d613a2f75'::uuid, 821.12::numeric, 145007::bigint),
+  ('232c7a80-4eeb-43b9-af54-b43fdeb9d0f3'::uuid, 'e768ef3b-7b78-4f38-881d-3255fc555fd5'::uuid, 847.17::numeric, 122600::bigint),
+  ('2355d054-a91c-4e24-a5e8-03de31a89833'::uuid, '49a73a21-7a92-4a3e-a901-be720ee5bc41'::uuid, 3216.30::numeric, 122448::bigint),
+  ('238cf2e7-59a7-4cd6-9d5e-ad37ee63d336'::uuid, '532c9b2a-7654-45b0-a16e-255361ee79b4'::uuid, 7094.52::numeric, 122490::bigint),
+  ('24e6e6d9-2191-4eee-8b2c-671268a4db1d'::uuid, 'b864104d-3704-41e4-b3f3-1857ac60a97e'::uuid, 1300.53::numeric, 122466::bigint),
+  ('274be547-7b98-4626-8733-586bed8432c4'::uuid, '1e3f0aad-2ffd-4d31-a15a-ee78b00efed9'::uuid, 473.67::numeric, 145385::bigint),
+  ('27abbf31-280b-49ca-86e3-efdc52a5e5db'::uuid, 'c5a852da-7dbe-4284-af32-9993af4d1735'::uuid, 473.67::numeric, 157052::bigint),
+  ('287804c1-e63d-4cf8-8be9-c937265f67dc'::uuid, 'e15dde83-7ff9-4353-b781-a8b2c4d695dd'::uuid, 904.36::numeric, 153397::bigint),
+  ('287a5fe0-a711-4249-9f33-d5187994fe3f'::uuid, '54dff27a-ca1f-4456-b5ea-9990f4abc961'::uuid, 7651.48::numeric, 121871::bigint),
+  ('288183d9-7a19-446f-a75b-ce99bb22b5e6'::uuid, 'c2a74404-be2c-47b0-9b66-33c6ee5d6a6b'::uuid, 2589.48::numeric, 97202::bigint),
+  ('28c5d443-434d-4d24-a397-ef288567bf77'::uuid, '157a7794-6744-42ac-abb1-c0658040001b'::uuid, 466.24::numeric, 122945::bigint),
+  ('28cc868c-e61d-40c1-b45a-78eeab387727'::uuid, '83021979-39c3-4cae-b951-de23d0909b47'::uuid, 757.12::numeric, 141697::bigint),
+  ('28e8c87f-a1ec-468e-b5da-65b6f398ec7f'::uuid, 'e9fa12b6-6168-4684-b68d-a8cf2605ebc2'::uuid, 1425.31::numeric, 122200::bigint),
+  ('29853eec-1b08-4390-9118-8c87635e0f70'::uuid, '2fb4cb7b-24af-4148-a25e-8e24e0d83a70'::uuid, 1637.24::numeric, 158525::bigint),
+  ('29d58b43-d038-4010-9e89-8a4b33fb7b8e'::uuid, 'f8ca460d-f36a-40ac-b9d1-b6b75e8d56a2'::uuid, 1825.51::numeric, 141662::bigint),
+  ('2a73e4cf-f2a6-4c75-8c94-e740e025e19d'::uuid, '095f3753-80e0-4f24-ab92-df2f5e3d70d4'::uuid, 1376.49::numeric, 122295::bigint),
+  ('2aee5280-d799-42f4-b772-b2d2de84a30b'::uuid, 'fef26cee-72ba-4820-91b4-8f2606b5d450'::uuid, 839.34::numeric, 141628::bigint),
+  ('2bb09a12-6e40-420a-b4e2-97bd5258fe1b'::uuid, '72a11805-1c38-4c98-a2d7-3f96b3f2b060'::uuid, 395.82::numeric, 121882::bigint),
+  ('2c87ebe6-2f9c-47c3-b02d-a2e87b4856a6'::uuid, '67253176-9ede-4b7f-88aa-46222a480758'::uuid, 1139.20::numeric, 122369::bigint),
+  ('2cc43371-a401-456b-80f0-9527f33a3e50'::uuid, 'ae3dcf9b-aa09-40c7-9fd4-39b6a9eda184'::uuid, 957.84::numeric, 141749::bigint),
+  ('2ce270dd-1aac-424f-b13c-eefd921737ec'::uuid, '14821927-a05a-4eff-9f30-6d469fb31f11'::uuid, 705.60::numeric, 158406::bigint),
+  ('2d9f08b5-547d-40df-96f9-c45cd9cdd4db'::uuid, 'e768ef3b-7b78-4f38-881d-3255fc555fd5'::uuid, 847.16::numeric, 122597::bigint),
+  ('2e53aa25-25d3-41e7-a731-1b179e3788dd'::uuid, '9698a187-4185-40bf-af46-07fefc591a03'::uuid, 1528.65::numeric, 122045::bigint),
+  ('2e6b4b38-714e-4141-9ee6-4d7e3f7fded4'::uuid, '67253176-9ede-4b7f-88aa-46222a480758'::uuid, 1139.12::numeric, 122368::bigint),
+  ('2efffb39-20b5-4db2-b081-5b80bb6a653b'::uuid, '8c7e3d00-d580-444b-bebd-621cdbce0bef'::uuid, 8014.85::numeric, 121944::bigint),
+  ('2f360a45-d997-4ec8-bc21-8a319f9391cc'::uuid, '6ed4be5f-a1ff-40b8-a3d5-d2c95ea7eefc'::uuid, 710.51::numeric, 141518::bigint),
+  ('2fd35f72-c8ef-4d08-adda-b4113c43c372'::uuid, '2f04e780-0b59-4335-89cb-fd244e90eba6'::uuid, 710.51::numeric, 141532::bigint),
+  ('309c15b5-29a3-4165-8abe-d42afdeea6a9'::uuid, 'fd4f6aa7-c966-44c2-a1e1-c033f663e224'::uuid, 1596.40::numeric, 115209::bigint),
+  ('3182acde-159f-424e-b788-f4b1f9474b29'::uuid, 'fef26cee-72ba-4820-91b4-8f2606b5d450'::uuid, 839.34::numeric, 141629::bigint),
+  ('31bc6838-ece1-4386-913b-7ddf592df75d'::uuid, '77ecac36-6f5d-4c8e-a756-787204ad420c'::uuid, 1649.59::numeric, 122320::bigint),
+  ('3232e5a4-15ec-4b15-8545-235f3cf9acc0'::uuid, '9407fdec-87a9-4582-b349-a8d7432de922'::uuid, 372.23::numeric, 122576::bigint),
+  ('32eceaf5-4861-4a2e-a5b8-447941cf4c4d'::uuid, '19c9562a-e186-4640-b348-83e0e5d0f5d0'::uuid, 997.75::numeric, 141350::bigint),
+  ('34ca6a8a-d041-4f9e-9538-312dd39a5ff7'::uuid, 'a232edf4-46fc-4f96-8176-e287f8e6fba0'::uuid, 1102.35::numeric, 122014::bigint),
+  ('356563a4-6ff6-41e4-8847-fcc81e7f7b17'::uuid, 'ae6a3151-5043-48f3-aa81-8ab5296c2677'::uuid, 171.90::numeric, 153505::bigint),
+  ('36899944-9abe-4571-8fe7-aa1ec4d2e639'::uuid, '9cbc504e-0212-46a1-8a1b-e89386f87fa3'::uuid, 352.93::numeric, 153021::bigint),
+  ('370eb28a-15e6-4156-88ee-c5699bd3f3c3'::uuid, '16a0ff77-d0df-4369-a782-dc4ef0f95fcc'::uuid, 560.62::numeric, 122350::bigint),
+  ('3713b7ab-1d77-4232-9017-bdb40f2a35e1'::uuid, '80323f64-535d-4d63-b873-6a0334b6f71c'::uuid, 728.00::numeric, 141740::bigint),
+  ('37bddc83-d63a-4d58-936a-d3a9b62e2660'::uuid, '1931b9aa-4cd7-4711-a9a5-b87be2eaeddb'::uuid, 3057.38::numeric, 122077::bigint),
+  ('38785e99-62fb-4143-94b3-090b6ade6acd'::uuid, 'a0e5fb4d-0538-4e98-80e1-c9f051faa2dd'::uuid, 284.21::numeric, 122216::bigint),
+  ('38a6085f-d594-46b9-b0e2-9f18bbebcda4'::uuid, 'e777a1c2-823e-4283-84d3-0b33bfe98e48'::uuid, 658.90::numeric, 153267::bigint),
+  ('3a626dce-f1fe-4b63-be6b-1852e998331b'::uuid, 'd1bf2da6-2573-416f-b21e-97f8d6ed190f'::uuid, 468.26::numeric, 97419::bigint),
+  ('3afce0ba-c8dc-43ca-abbe-a495c6d46bb2'::uuid, 'a9cf96f6-b573-4ceb-947b-cb1a3cafb9af'::uuid, 1317.80::numeric, 97236::bigint),
+  ('3b1ebc1c-4e0d-443b-bb0f-57d4d0895a86'::uuid, '8ac608fd-5518-4fe7-a81f-a5211e7061bf'::uuid, 1341.10::numeric, 158413::bigint),
+  ('3cb497f4-e18a-45fa-a78d-e7461c5e4e6f'::uuid, 'c1ad1946-e307-492b-b470-d865191d91a7'::uuid, 1186.56::numeric, 122226::bigint),
+  ('3e4cd641-dfc8-419d-97ec-89d0d7da8b55'::uuid, '1e6fff4e-12fc-4e07-b5c2-34729cd1a1d3'::uuid, 1158.75::numeric, 122685::bigint),
+  ('3ef33ae5-85a2-4f16-95ef-ea95c37cbb8f'::uuid, 'cd2aaa24-fe74-42e6-b2ac-99d9682195f0'::uuid, 1433.70::numeric, 122632::bigint),
+  ('3f687cf1-049f-46ed-b3c8-90f3d5fa4705'::uuid, '19c9562a-e186-4640-b348-83e0e5d0f5d0'::uuid, 997.75::numeric, 141349::bigint),
+  ('3fa81a29-7a90-4e48-a310-ec83de9f8525'::uuid, '53f228ca-c262-4283-982c-1e2ae9476d5b'::uuid, 1020.45::numeric, 141892::bigint),
+  ('40278916-4175-4e32-965d-37e02930e7df'::uuid, '83021979-39c3-4cae-b951-de23d0909b47'::uuid, 757.12::numeric, 141698::bigint),
+  ('407718ca-df09-4b02-96a5-054ba38878ad'::uuid, '27d629e4-233c-4024-b9e8-1c9384f49778'::uuid, 3333.36::numeric, 121987::bigint),
+  ('41157ebb-521f-418e-864b-29c28f63635a'::uuid, 'e777a1c2-823e-4283-84d3-0b33bfe98e48'::uuid, 658.88::numeric, 153264::bigint),
+  ('41256711-cf11-4138-a071-4a74d0435a64'::uuid, '673925bd-db43-4fd6-8e26-4b97b5f58a84'::uuid, 1571.54::numeric, 141676::bigint),
+  ('414ede81-2a81-49f0-af68-4355f3a9288c'::uuid, '1f2d1ca4-2e7e-4cd8-87e6-5dad12c23ba4'::uuid, 3987.58::numeric, 122093::bigint),
+  ('421576ba-8a96-42ce-88e6-2632294e82c5'::uuid, '639e421e-9660-4bcb-ae4d-2b46e9dae683'::uuid, 436.80::numeric, 97255::bigint),
+  ('43903338-726a-4b9e-81d5-cd82e87392cd'::uuid, 'f0394524-91c5-406b-9378-12ffe0bb4c51'::uuid, 5803.37::numeric, 121956::bigint),
+  ('441df999-e9c2-40a8-9b21-f601ce9a4166'::uuid, '27d629e4-233c-4024-b9e8-1c9384f49778'::uuid, 1159.42::numeric, 121984::bigint),
+  ('4450cbca-3a5f-4461-94d8-e020f074873b'::uuid, '1302707d-70d9-4819-aa5a-c819943e5dc4'::uuid, 1323.80::numeric, 141902::bigint),
+  ('4478320a-ead6-4275-b1b3-b0292fa41df6'::uuid, '69415345-c925-43c6-8c92-cbf3ea0a264d'::uuid, 465.31::numeric, 153177::bigint),
+  ('450a9a8c-2c7e-49db-9bc5-76846d28d1e3'::uuid, '3e01d41f-aa6d-4e90-b934-59d8a20cef2b'::uuid, 9736.11::numeric, 122282::bigint),
+  ('46b597ee-199d-4125-a4ca-99b5774a16b8'::uuid, '6ed4be5f-a1ff-40b8-a3d5-d2c95ea7eefc'::uuid, 710.51::numeric, 141520::bigint),
+  ('472fdc78-789d-45c5-b1f1-3e589618e834'::uuid, 'a2dd7bac-b317-499c-a44d-e4898dfaad26'::uuid, 439.48::numeric, 158512::bigint),
+  ('47cd93b5-fc13-4a68-b8bc-0e14f5649926'::uuid, 'fe6315de-5ffd-4624-9d04-a867df4566fb'::uuid, 1024.18::numeric, 121894::bigint),
+  ('481a9736-06cd-40bf-bf4c-90fb0f5f1887'::uuid, '2fb4cb7b-24af-4148-a25e-8e24e0d83a70'::uuid, 1637.24::numeric, 158526::bigint),
+  ('49b79db3-bf62-4359-bd61-b342e3eb8864'::uuid, '9aeab9af-b7a1-42af-99c1-8e095c88ffc2'::uuid, 2404.81::numeric, 97376::bigint),
+  ('49c32bb2-67a9-4dd8-a130-1d8e9cb7158d'::uuid, '77ecac36-6f5d-4c8e-a756-787204ad420c'::uuid, 1649.59::numeric, 122322::bigint),
+  ('49ec9b5c-e507-46b3-b60d-ef16530026f7'::uuid, 'cd2aaa24-fe74-42e6-b2ac-99d9682195f0'::uuid, 1433.70::numeric, 122633::bigint),
+  ('4ac006f4-2769-46ce-bb66-28a0809cd463'::uuid, '77ecac36-6f5d-4c8e-a756-787204ad420c'::uuid, 1649.59::numeric, 122321::bigint),
+  ('4ad4a31c-d9fe-4600-9a11-fcdb8428e135'::uuid, 'db73663f-2e2c-480e-99e8-04e104278acb'::uuid, 502.87::numeric, 145368::bigint),
+  ('4bb015b5-18f9-4175-b39d-84b5b02ad94a'::uuid, 'b864104d-3704-41e4-b3f3-1857ac60a97e'::uuid, 1300.53::numeric, 122464::bigint),
+  ('4bbd0230-3382-4187-8bdd-e6c76c2e84e5'::uuid, '19c9562a-e186-4640-b348-83e0e5d0f5d0'::uuid, 997.75::numeric, 141351::bigint),
+  ('4bbe0c9f-6764-41b1-8647-733ee73e399a'::uuid, 'd756bb69-d5e4-4c96-bde2-06bf17a60f9a'::uuid, 253.75::numeric, 122513::bigint),
+  ('4be7687c-8707-41ef-97a5-7463fae70fe4'::uuid, '4c73766c-a9f7-49b5-875f-df15ed1db869'::uuid, 2471.80::numeric, 141331::bigint),
+  ('4c56fe7e-189c-452c-a68d-16961fc054c0'::uuid, 'b5c5d1aa-8a98-49dc-99f2-85d036e6cf07'::uuid, 780.18::numeric, 97269::bigint),
+  ('4ca90b14-f8e5-44ce-9eff-ba048c2e229b'::uuid, '3e01d41f-aa6d-4e90-b934-59d8a20cef2b'::uuid, 9736.12::numeric, 122283::bigint),
+  ('4d13cbf0-2892-43a5-8ad3-2ffcc9332a21'::uuid, '353d1790-16e9-4640-a1e6-8606b4bdd5fa'::uuid, 1645.84::numeric, 97191::bigint),
+  ('4d90ec45-a88c-41ce-9330-15ef7341d365'::uuid, '095f3753-80e0-4f24-ab92-df2f5e3d70d4'::uuid, 1376.53::numeric, 122297::bigint),
+  ('4dae8366-5d4e-4afa-ab09-8e2825fafecc'::uuid, '2d4fdac3-ed9f-4368-a9c4-26b749530f72'::uuid, 1072.94::numeric, 122110::bigint),
+  ('4ee1a7fd-546d-42e0-ad2e-68362d344d78'::uuid, '8c7e3d00-d580-444b-bebd-621cdbce0bef'::uuid, 8014.84::numeric, 121947::bigint),
+  ('4ef918df-f47c-426a-b227-c4eb9374ee24'::uuid, '17b830c0-0851-4291-8861-3347156588f5'::uuid, 997.16::numeric, 141801::bigint),
+  ('4f67c1f4-c683-4ac4-8f90-f4e78c566219'::uuid, 'b5c5d1aa-8a98-49dc-99f2-85d036e6cf07'::uuid, 780.18::numeric, 97270::bigint),
+  ('4f6920cd-ddc5-475c-a898-37633413527a'::uuid, 'c1ad1946-e307-492b-b470-d865191d91a7'::uuid, 1186.56::numeric, 122225::bigint),
+  ('4fa55cbc-a308-484b-abda-62c76de8cce6'::uuid, 'a0e5fb4d-0538-4e98-80e1-c9f051faa2dd'::uuid, 284.20::numeric, 122218::bigint),
+  ('4fbcac1c-0dd3-4126-8129-079a2c412b2a'::uuid, 'f8784902-ffa0-40bd-8d8b-8800bd4f7015'::uuid, 1300.56::numeric, 121999::bigint),
+  ('509f61a6-a657-4ff9-91ef-a566356af45d'::uuid, '16a0ff77-d0df-4369-a782-dc4ef0f95fcc'::uuid, 560.60::numeric, 122352::bigint),
+  ('521f2246-0931-40b8-af9f-95772ac35f51'::uuid, '6ed4be5f-a1ff-40b8-a3d5-d2c95ea7eefc'::uuid, 710.51::numeric, 141521::bigint),
+  ('52acc2a1-8743-47b2-97d1-57db4362682e'::uuid, '67511185-4889-4883-8210-cb9e09341e9c'::uuid, 418.44::numeric, 97226::bigint),
+  ('52f50e49-105e-4277-a63e-a88fb5ff4a08'::uuid, '9c249cbb-b21b-437b-872d-44fc3952baeb'::uuid, 1130.46::numeric, 122170::bigint),
+  ('537650ab-5826-4301-82da-1358a8a8f08d'::uuid, '07396dfb-b46b-431d-817b-8d1f2ef9379a'::uuid, 625.63::numeric, 152937::bigint),
+  ('54232cea-9bd3-48b8-b9af-7953396cf63f'::uuid, '2d4fdac3-ed9f-4368-a9c4-26b749530f72'::uuid, 1072.96::numeric, 122113::bigint),
+  ('548ebe68-56b8-479a-ae41-50d18596c248'::uuid, 'b66439a0-78c5-4b5e-afc8-cd30cfbf9db4'::uuid, 7272.54::numeric, 122033::bigint),
+  ('54d2129c-ad94-404d-a512-89f0e1351c78'::uuid, 'e4a0acd2-6f08-45db-bb91-63f2b0062fe7'::uuid, 618.39::numeric, 122189::bigint),
+  ('55073a23-86cc-4a6b-a0c3-4c2f025e6b0a'::uuid, 'bb79cf61-49e1-45de-a375-a1d5fa83883c'::uuid, 8240.04::numeric, 122244::bigint),
+  ('556aded2-181d-4208-96ac-e36c220df2c6'::uuid, '27d629e4-233c-4024-b9e8-1c9384f49778'::uuid, 3333.34::numeric, 121985::bigint),
+  ('564e4e10-0080-4877-b99c-a02f3ccf6eda'::uuid, '38fd4de4-1c30-476f-a878-d58a74c3e1b7'::uuid, 437.00::numeric, 122557::bigint),
+  ('577ff314-20e4-43e2-8165-0bca8ffda90e'::uuid, '79bc37f2-3807-4ba2-875d-b152c00e645f'::uuid, 652.71::numeric, 122522::bigint),
+  ('58b56aad-3d63-4201-8e6f-3c9fdfa4741a'::uuid, '1719cdff-899a-403f-855e-a5263c08d719'::uuid, 12115.36::numeric, 121973::bigint),
+  ('58bba7f8-6083-40f6-9a8b-04ac4fbf4d77'::uuid, 'f21b0854-1d2a-47c8-a9d1-e91e56bc58a6'::uuid, 369.32::numeric, 145519::bigint),
+  ('599c34e2-beb2-4d9a-b333-b88e07d1152e'::uuid, 'eb35e600-91ba-463d-bff6-e2dd7dcd2266'::uuid, 797.31::numeric, 145479::bigint),
+  ('59b61ef2-5cc4-4a63-b12b-42d8187c7039'::uuid, '69415345-c925-43c6-8c92-cbf3ea0a264d'::uuid, 465.31::numeric, 153173::bigint),
+  ('59c5345c-6e64-4dcf-9a12-81211621b66a'::uuid, 'aa96155b-e3c2-4380-974a-a83fc1257aed'::uuid, 1059.01::numeric, 158503::bigint),
+  ('5a210b8e-a199-4384-85a3-e7a74e01c7aa'::uuid, 'edf08eef-ce4f-46d5-82bc-918c9196e353'::uuid, 775.52::numeric, 97337::bigint),
+  ('5bec3099-91ae-4dd3-aa9c-6cc42c1d4585'::uuid, 'bb79cf61-49e1-45de-a375-a1d5fa83883c'::uuid, 8240.04::numeric, 122242::bigint),
+  ('5c769e4c-1a06-4fd6-bd71-c71051e00f82'::uuid, '3bcde381-4a88-4f58-8ba4-8606e25002df'::uuid, 1207.43::numeric, 141506::bigint),
+  ('5c80a114-3ca0-4af4-8b5d-3c15bcdaa939'::uuid, '9a0dd498-07c7-4013-a1a8-132cac271244'::uuid, 389.64::numeric, 153450::bigint),
+  ('5cace572-de63-48eb-b125-d6ce3eec7604'::uuid, '1c5ef980-0d6e-4df7-ac84-06b6b74f4d9e'::uuid, 968.95::numeric, 122662::bigint),
+  ('5cdc6210-aec6-4066-9688-65d2916e3845'::uuid, '1798fdf3-0815-4468-9c06-18a72d263bc0'::uuid, 1738.01::numeric, 97311::bigint),
+  ('5d118fee-5ae7-43dc-8e01-1a1f7f237e03'::uuid, 'd756bb69-d5e4-4c96-bde2-06bf17a60f9a'::uuid, 850.16::numeric, 122514::bigint),
+  ('5da35317-af91-40a2-aec2-fe7601896446'::uuid, '1cb7de82-3e03-48ba-b095-bbb94748ca42'::uuid, 1917.72::numeric, 158531::bigint),
+  ('5e089e19-89bf-42b8-b1e1-4b36f6babd8e'::uuid, '6ec82a5e-8e33-4207-847b-523c4f42929c'::uuid, 748.31::numeric, 97430::bigint),
+  ('5ef534da-9679-4234-aa86-b5a7d192cba9'::uuid, 'c5a852da-7dbe-4284-af32-9993af4d1735'::uuid, 473.67::numeric, 157051::bigint),
+  ('5f39523b-7de0-43c7-a3b4-ff607d1b897e'::uuid, '39d08ae8-b533-45bb-a6d9-f659fd6cff85'::uuid, 1643.54::numeric, 122900::bigint),
+  ('5f9ce6a0-4b8e-4457-8038-74395fc9c2e9'::uuid, 'b193dd3f-d795-4a38-8ebc-f394c29a26ba'::uuid, 1582.25::numeric, 122396::bigint),
+  ('608e7d5d-6905-4184-b9c2-ac457ce49005'::uuid, 'b0a175c7-7884-41c3-8f08-2e1b815411fd'::uuid, 737.57::numeric, 122058::bigint),
+  ('60eb9a39-6548-4b4a-8321-d2e767b4fb73'::uuid, '14821927-a05a-4eff-9f30-6d469fb31f11'::uuid, 705.60::numeric, 158407::bigint),
+  ('612a082f-4628-4ec3-9cb4-72a7cb4ddecd'::uuid, 'ba1e4b02-021d-4490-9c90-298e7547539e'::uuid, 473.67::numeric, 145536::bigint),
+  ('615b847f-6590-42d1-ac18-8e4b96959ec1'::uuid, '19260dca-92e1-4a06-b7e7-e79882ef120b'::uuid, 897.97::numeric, 122646::bigint),
+  ('615f7167-deca-4d42-b3eb-d20e8f6a3845'::uuid, '7b138a30-25e6-4721-95de-2b10ff81b987'::uuid, 727.45::numeric, 122307::bigint),
+  ('61c9f80e-4674-40bd-a9c0-05f1908e7087'::uuid, 'd756bb69-d5e4-4c96-bde2-06bf17a60f9a'::uuid, 253.75::numeric, 122512::bigint),
+  ('6287bd69-dfb6-462d-abb1-363eb52ce31f'::uuid, '3da38fa8-7d89-46c4-983c-520cddf3f05c'::uuid, 1493.69::numeric, 122427::bigint),
+  ('62e38dfa-f991-421f-a4dd-b144d5f57902'::uuid, 'a0e5fb4d-0538-4e98-80e1-c9f051faa2dd'::uuid, 284.20::numeric, 122219::bigint),
+  ('63527192-42a3-4cbf-8cc8-2590ea30446f'::uuid, 'e9fa12b6-6168-4684-b68d-a8cf2605ebc2'::uuid, 1425.31::numeric, 122199::bigint),
+  ('63883fd8-48e1-40a7-bb8a-04875d9c7083'::uuid, 'c2a74404-be2c-47b0-9b66-33c6ee5d6a6b'::uuid, 2589.48::numeric, 97204::bigint),
+  ('6406f189-4e55-4d92-8e18-a25273d1244a'::uuid, '6a2381d0-acae-4e76-83ee-04aa4a1f7913'::uuid, 942.03::numeric, 97246::bigint),
+  ('64abf0fd-6e88-4c44-8e2f-baff4a81cfcf'::uuid, '01405dc1-bb0c-44bf-9058-c7032170b81f'::uuid, 656.13::numeric, 141918::bigint),
+  ('64ef8ecc-e088-4c3c-a31d-ee2fc8d97730'::uuid, 'c5a852da-7dbe-4284-af32-9993af4d1735'::uuid, 473.67::numeric, 157047::bigint),
+  ('6594c6c3-ff89-4af5-9be9-4f35a171d1dd'::uuid, 'fb668fe2-7d77-42ae-a286-d214619b133b'::uuid, 703.57::numeric, 145282::bigint),
+  ('66fff388-196d-48d9-8316-c9ac1b71f02e'::uuid, 'f0394524-91c5-406b-9378-12ffe0bb4c51'::uuid, 5803.37::numeric, 121958::bigint),
+  ('67211dde-4a74-4c02-8dbf-a5a1fa7cf7e1'::uuid, '37bee93c-c725-498b-8daa-f772e4ded9ba'::uuid, 2028.99::numeric, 122008::bigint),
+  ('68413a0d-6f70-4174-8fac-0813c6136cf4'::uuid, '7e897bdd-e207-4c37-85bb-924a4e7fbef9'::uuid, 411.17::numeric, 153286::bigint),
+  ('685051e0-1181-4ac8-ba70-0b5916688eca'::uuid, '857ad8dc-d832-4cbf-a152-682b70283b06'::uuid, 937.92::numeric, 154589::bigint),
+  ('685052e7-3216-47be-954d-1340d8c87916'::uuid, '6a2381d0-acae-4e76-83ee-04aa4a1f7913'::uuid, 942.03::numeric, 97247::bigint),
+  ('69bbb0f0-346c-4d3c-9d90-65f249903f38'::uuid, '3da38fa8-7d89-46c4-983c-520cddf3f05c'::uuid, 1493.69::numeric, 122428::bigint),
+  ('6a2a3231-0e68-4495-b56f-83bfaf49c072'::uuid, 'a671665c-40ff-4b90-b604-1a8c2ce3d4cb'::uuid, 529.20::numeric, 152842::bigint),
+  ('6a69a798-324b-4bd7-98e9-db43358fbf0d'::uuid, '1719cdff-899a-403f-855e-a5263c08d719'::uuid, 5300.47::numeric, 121970::bigint),
+  ('6b456697-4a70-4934-b26a-e026840ccfca'::uuid, '39485051-5716-489c-a2ea-3fb01d373fc0'::uuid, 1317.96::numeric, 122147::bigint),
+  ('6c6c80b7-a324-476b-bcb7-e370a83c3f99'::uuid, '49a73a21-7a92-4a3e-a901-be720ee5bc41'::uuid, 3216.30::numeric, 122450::bigint),
+  ('6fbab681-1589-484f-991e-f079f9d9d8ca'::uuid, '14821927-a05a-4eff-9f30-6d469fb31f11'::uuid, 705.60::numeric, 158408::bigint),
+  ('70276dbd-0763-4c1f-8025-aa0e9028fb39'::uuid, '6ed4be5f-a1ff-40b8-a3d5-d2c95ea7eefc'::uuid, 710.50::numeric, 141522::bigint),
+  ('70818b58-a697-4245-accd-02c553ebee59'::uuid, '72a11805-1c38-4c98-a2d7-3f96b3f2b060'::uuid, 395.76::numeric, 121881::bigint),
+  ('70e13bd7-21fc-404e-af1d-92fe686d6304'::uuid, '57ea4788-f835-4e06-81aa-0a544306e221'::uuid, 906.74::numeric, 122732::bigint),
+  ('7252f6c0-7b7a-4134-b0a8-ddbdbcfe7096'::uuid, 'e7d9efc9-5a9f-4fef-b872-8eb8aed8985a'::uuid, 718.38::numeric, 97326::bigint),
+  ('7370cf0a-f159-4351-acce-f9c1ceb5b081'::uuid, '0d813921-226c-4daf-8d2a-ffbc5c9fdd4b'::uuid, 1283.63::numeric, 122622::bigint),
+  ('74805a7c-1936-416c-a321-74ac525ff15c'::uuid, '1e3f0aad-2ffd-4d31-a15a-ee78b00efed9'::uuid, 473.67::numeric, 145382::bigint),
+  ('754f8307-4bb0-4475-8549-9dcf87718fca'::uuid, 'e15dde83-7ff9-4353-b781-a8b2c4d695dd'::uuid, 904.35::numeric, 153398::bigint),
+  ('76924ffa-b116-42c6-ba97-4555f8a85c35'::uuid, '1f2d1ca4-2e7e-4cd8-87e6-5dad12c23ba4'::uuid, 3987.58::numeric, 122090::bigint),
+  ('77513256-04b0-41a4-bb92-addbde2f0b1c'::uuid, 'd568fadf-0303-4bc5-85f6-4747c04af87f'::uuid, 1568.80::numeric, 97340::bigint),
+  ('7811295d-393f-4c8c-8e00-3bf7fd48b3fd'::uuid, '9a0dd498-07c7-4013-a1a8-132cac271244'::uuid, 389.65::numeric, 153452::bigint),
+  ('78a5e3c0-d37b-4978-abf0-e02ff58ea755'::uuid, 'e9fa12b6-6168-4684-b68d-a8cf2605ebc2'::uuid, 1425.31::numeric, 122197::bigint),
+  ('78f54dbd-6737-4ad9-b0c3-570ec64902a1'::uuid, 'eb121e1b-58ab-4876-a5cc-40385909bf49'::uuid, 2128.29::numeric, 141315::bigint),
+  ('790ce042-f536-430e-abec-ff27ee4e3103'::uuid, 'd1bf2da6-2573-416f-b21e-97f8d6ed190f'::uuid, 468.27::numeric, 97420::bigint),
+  ('796d4fb9-1d45-47c4-b779-4e049565a601'::uuid, '1719cdff-899a-403f-855e-a5263c08d719'::uuid, 5300.47::numeric, 121971::bigint),
+  ('796e02fc-ee74-412d-b52b-72eee36e2e65'::uuid, 'd1bf2da6-2573-416f-b21e-97f8d6ed190f'::uuid, 468.26::numeric, 97421::bigint),
+  ('7a0a05ad-d421-4031-b4b1-a4e01f1b263b'::uuid, '57ea4788-f835-4e06-81aa-0a544306e221'::uuid, 677.67::numeric, 122729::bigint),
+  ('7ab6aa73-a7e3-4b4d-86c6-93c4d565d4a2'::uuid, '9a0dd498-07c7-4013-a1a8-132cac271244'::uuid, 389.68::numeric, 153453::bigint),
+  ('7b0ae76b-28bb-47f2-84c3-880ba99bdfd9'::uuid, 'db73663f-2e2c-480e-99e8-04e104278acb'::uuid, 502.88::numeric, 145364::bigint),
+  ('7b4a43d8-7f87-4ee9-9ce9-170547761b99'::uuid, '9698a187-4185-40bf-af46-07fefc591a03'::uuid, 1528.66::numeric, 122043::bigint),
+  ('7b62ab38-6955-440b-b121-04d5ef01f8af'::uuid, '69415345-c925-43c6-8c92-cbf3ea0a264d'::uuid, 465.30::numeric, 153175::bigint),
+  ('7c39d722-81a9-48e3-8695-693c6d36c245'::uuid, 'dc141360-0f00-4a73-b40f-fd861c0554cc'::uuid, 3223.96::numeric, 97184::bigint),
+  ('7d39bad8-f590-4892-9269-2ec0be3edab1'::uuid, 'ae8d632a-ccc1-4284-8d74-183b9fee2c92'::uuid, 950.18::numeric, 97331::bigint),
+  ('7e81d386-f2d9-4419-a2ef-c7d77479ff0b'::uuid, '01405dc1-bb0c-44bf-9058-c7032170b81f'::uuid, 656.14::numeric, 141920::bigint),
+  ('7ea2b95b-5083-4543-8a73-4d5e7ffab7e8'::uuid, 'ba1e4b02-021d-4490-9c90-298e7547539e'::uuid, 473.67::numeric, 145538::bigint),
+  ('7ec07101-e815-4597-8531-1c1ce77d44b8'::uuid, 'cec1f5ae-c6fb-43c7-a4cd-614fbd614b77'::uuid, 2394.57::numeric, 145206::bigint),
+  ('7f660c5d-73f6-4469-823c-2cd40bfa1532'::uuid, 'e7d9efc9-5a9f-4fef-b872-8eb8aed8985a'::uuid, 718.38::numeric, 97328::bigint),
+  ('7fea191f-6627-487a-b4d7-b7802adf8521'::uuid, '75d393df-a409-43c8-9fec-192f522ed0c6'::uuid, 1468.34::numeric, 122699::bigint),
+  ('809795bf-5b1a-4b2b-8f92-43088c143df3'::uuid, 'db73663f-2e2c-480e-99e8-04e104278acb'::uuid, 502.89::numeric, 145366::bigint),
+  ('81409e25-d68e-426e-aad4-188ad1430e41'::uuid, 'eb35e600-91ba-463d-bff6-e2dd7dcd2266'::uuid, 797.30::numeric, 145481::bigint),
+  ('81661dae-b30a-4850-9cff-35a305999241'::uuid, 'fef26cee-72ba-4820-91b4-8f2606b5d450'::uuid, 839.33::numeric, 141630::bigint),
+  ('82ac4325-cac9-40b9-a616-192d8e7adb90'::uuid, 'e7d9efc9-5a9f-4fef-b872-8eb8aed8985a'::uuid, 718.38::numeric, 97325::bigint),
+  ('82ea7475-f308-498b-912a-9b327d89ea77'::uuid, 'bed0dc6a-2292-48fb-aee8-14b2aad9736c'::uuid, 1656.24::numeric, 97347::bigint),
+  ('83047b20-afae-40f8-8e96-dff558464eaf'::uuid, 'dc141360-0f00-4a73-b40f-fd861c0554cc'::uuid, 3223.95::numeric, 97185::bigint),
+  ('83350020-4472-46eb-8bee-30cab13e46c5'::uuid, '13a0c5d2-5053-4370-b735-1e0d613a2f75'::uuid, 821.14::numeric, 145003::bigint),
+  ('83adadf7-0457-49d2-88e9-554c9fb83977'::uuid, '3acf84ec-3d82-4f9b-92cb-d0a8410aff4d'::uuid, 1128.70::numeric, 122141::bigint),
+  ('842850eb-9f4c-4c72-8986-fa2246b74584'::uuid, '2a17123b-1d93-421f-8b5e-08e4cb0e9d8f'::uuid, 1224.53::numeric, 153421::bigint),
+  ('847029b7-e801-4dd0-bf27-37ff10e92e54'::uuid, 'a3e11975-ea59-4d2a-a51d-535702533274'::uuid, 1958.45::numeric, 122330::bigint),
+  ('84abf385-0317-4278-93f6-ec991140f8de'::uuid, 'd568fadf-0303-4bc5-85f6-4747c04af87f'::uuid, 1568.80::numeric, 97341::bigint),
+  ('868e15c6-66a5-4cb0-b825-d73deb504ace'::uuid, '72a11805-1c38-4c98-a2d7-3f96b3f2b060'::uuid, 395.76::numeric, 121879::bigint),
+  ('880ee095-2872-4144-b05b-499630a0fbb3'::uuid, 'a2dd7bac-b317-499c-a44d-e4898dfaad26'::uuid, 439.49::numeric, 158515::bigint),
+  ('881acecf-54ac-4c2c-8695-993ef6df4dde'::uuid, '17b830c0-0851-4291-8861-3347156588f5'::uuid, 997.16::numeric, 141797::bigint),
+  ('8863fecf-c6a7-4da1-a994-f6cdd46a646b'::uuid, 'fe6315de-5ffd-4624-9d04-a867df4566fb'::uuid, 1024.18::numeric, 121892::bigint),
+  ('88d5a4f0-3276-4240-a24e-4c1a595efabd'::uuid, 'f0394524-91c5-406b-9378-12ffe0bb4c51'::uuid, 5803.38::numeric, 121959::bigint),
+  ('8921e462-ae0e-41a0-9c68-5d90eb65cb08'::uuid, 'a9cf96f6-b573-4ceb-947b-cb1a3cafb9af'::uuid, 1317.79::numeric, 97235::bigint),
+  ('8974e34e-27d2-4c1e-a767-d9ac31373db3'::uuid, 'aa96155b-e3c2-4380-974a-a83fc1257aed'::uuid, 1059.04::numeric, 158505::bigint),
+  ('899df4c4-084f-4238-914c-1e701e3539d0'::uuid, '736cd80a-d050-4c1e-aee5-79c2d04c04af'::uuid, 2514.41::numeric, 152950::bigint),
+  ('89d7b00e-aeb8-4cee-8f30-c4a45126d451'::uuid, '53f228ca-c262-4283-982c-1e2ae9476d5b'::uuid, 1020.40::numeric, 141891::bigint),
+  ('8a1dc695-53a9-40e6-b65d-9487f552ce5e'::uuid, '03f8f336-4fb3-45ee-be0a-31e7b6a076d7'::uuid, 1856.81::numeric, 122120::bigint),
+  ('8a4b0644-69fb-4bd0-abb2-f17712d5f8f6'::uuid, '3acf84ec-3d82-4f9b-92cb-d0a8410aff4d'::uuid, 1128.70::numeric, 122140::bigint),
+  ('8a62cc9a-afc6-4bb5-85ae-95061640a5e8'::uuid, 'd6ee9f8d-b271-4995-a083-c1f47433f8aa'::uuid, 1020.44::numeric, 122177::bigint),
+  ('8a97428d-254e-4936-b5d8-0094905af93c'::uuid, '75d393df-a409-43c8-9fec-192f522ed0c6'::uuid, 1468.35::numeric, 122697::bigint),
+  ('8b1eda17-681f-4de3-b0a5-e65c301ef28b'::uuid, 'a2dd7bac-b317-499c-a44d-e4898dfaad26'::uuid, 439.48::numeric, 158513::bigint),
+  ('8b504e7b-ba10-47de-9da3-44ba1c078591'::uuid, '9c249cbb-b21b-437b-872d-44fc3952baeb'::uuid, 1130.44::numeric, 122169::bigint),
+  ('8ba5c760-7edf-468d-8e2f-1719c4f0c4b1'::uuid, 'fef26cee-72ba-4820-91b4-8f2606b5d450'::uuid, 839.34::numeric, 141631::bigint),
+  ('8c69731d-d2f8-45a5-84ce-f7ed01c2c0e2'::uuid, '03f8f336-4fb3-45ee-be0a-31e7b6a076d7'::uuid, 1856.81::numeric, 122123::bigint),
+  ('8d2176fb-25ed-49a1-a5d9-04cde74ebde4'::uuid, 'b4266995-f016-430e-bae4-29cf8d35ef4b'::uuid, 839.21::numeric, 122475::bigint),
+  ('8e7fe69a-f161-4aa2-8a1b-5b384d8ef738'::uuid, '6319250f-5f56-41ad-aef2-7ffdd8a6d3e3'::uuid, 640.70::numeric, 122709::bigint),
+  ('903c9dcf-b979-4b51-9503-930e312b41fe'::uuid, 'd1bf2da6-2573-416f-b21e-97f8d6ed190f'::uuid, 468.26::numeric, 97417::bigint),
+  ('908353de-3982-4dce-90dc-f53bb5902cfd'::uuid, '39d08ae8-b533-45bb-a6d9-f659fd6cff85'::uuid, 1643.54::numeric, 122898::bigint),
+  ('913b03d8-828d-44dc-b6b8-f1e02f6b028f'::uuid, 'e9fa12b6-6168-4684-b68d-a8cf2605ebc2'::uuid, 1425.31::numeric, 122201::bigint),
+  ('9228f692-cbbb-4300-a15f-ab2b61a6378d'::uuid, '53f228ca-c262-4283-982c-1e2ae9476d5b'::uuid, 1020.45::numeric, 141890::bigint),
+  ('925c9061-0ac5-4860-bcc9-ebb82db2bf04'::uuid, 'be2960a7-320e-4070-b0b5-0d00b31aa248'::uuid, 774.30::numeric, 122264::bigint),
+  ('92a7bde5-3528-49cb-92a4-ed66100a5da9'::uuid, 'a2dd7bac-b317-499c-a44d-e4898dfaad26'::uuid, 439.47::numeric, 158514::bigint),
+  ('93966600-3259-40df-9daa-854a49c1b857'::uuid, 'ba1e4b02-021d-4490-9c90-298e7547539e'::uuid, 473.67::numeric, 145540::bigint),
+  ('945888f2-6a69-48af-94bd-e52d534e97ee'::uuid, 'edf08eef-ce4f-46d5-82bc-918c9196e353'::uuid, 775.51::numeric, 97335::bigint),
+  ('950d42e6-6282-4ce0-9523-b7680d6b9dac'::uuid, 'a671665c-40ff-4b90-b604-1a8c2ce3d4cb'::uuid, 529.20::numeric, 152839::bigint),
+  ('9528762d-bcd4-4167-9cd1-a207da5fcaba'::uuid, 'd7de94b4-e499-4c57-86c1-1228ead205ff'::uuid, 561.15::numeric, 153828::bigint),
+  ('957533d6-842b-4f29-8c53-7f78761f00a3'::uuid, 'dc141360-0f00-4a73-b40f-fd861c0554cc'::uuid, 3223.95::numeric, 97187::bigint),
+  ('9599fb63-1684-4d12-b5f8-3381bb08430f'::uuid, '07396dfb-b46b-431d-817b-8d1f2ef9379a'::uuid, 625.63::numeric, 152939::bigint),
+  ('95c74ae8-0d8c-4628-93ab-35d58e6b9f60'::uuid, '01405dc1-bb0c-44bf-9058-c7032170b81f'::uuid, 656.14::numeric, 141921::bigint),
+  ('95e0c6ca-716c-4ab3-9a97-d25cd4aa027e'::uuid, 'f21b0854-1d2a-47c8-a9d1-e91e56bc58a6'::uuid, 369.31::numeric, 145520::bigint),
+  ('9601c5e9-c49e-4c06-8ea9-040372c8c7a6'::uuid, '03f8f336-4fb3-45ee-be0a-31e7b6a076d7'::uuid, 1856.85::numeric, 122122::bigint),
+  ('96934acf-617f-4ea6-bc6c-f0ec46e1b886'::uuid, '8c7e3d00-d580-444b-bebd-621cdbce0bef'::uuid, 8014.85::numeric, 121946::bigint),
+  ('96a7fb81-40f0-4348-a71b-63b7c6bb7569'::uuid, '49625d29-eda2-40ca-9f8c-8b07c6868f91'::uuid, 383.85::numeric, 97238::bigint),
+  ('9770f6f5-5a3c-4fde-954e-e9b7fb27dd25'::uuid, '532c9b2a-7654-45b0-a16e-255361ee79b4'::uuid, 7094.52::numeric, 122486::bigint),
+  ('9842f084-427e-4e68-9325-88ac42a66a0b'::uuid, 'fe6315de-5ffd-4624-9d04-a867df4566fb'::uuid, 1024.18::numeric, 121893::bigint),
+  ('988e7b2a-21ef-4884-9628-62e2e7ea49de'::uuid, '3e01d41f-aa6d-4e90-b934-59d8a20cef2b'::uuid, 9736.11::numeric, 122281::bigint),
+  ('98a179a3-8cd0-482f-8711-594db8cd9218'::uuid, '72a11805-1c38-4c98-a2d7-3f96b3f2b060'::uuid, 395.76::numeric, 121883::bigint),
+  ('9ad36c98-549e-4572-a59d-363125cbb01d'::uuid, '6ffafaa0-8b22-4b8c-8ba6-94d1b8455064'::uuid, 730.64::numeric, 123047::bigint),
+  ('9b226c5a-74e9-49c4-93aa-3a05a6141eb5'::uuid, '27d629e4-233c-4024-b9e8-1c9384f49778'::uuid, 3333.34::numeric, 121986::bigint),
+  ('9bafac61-d3ff-4ad2-9267-88ac9e505d94'::uuid, '9bd0d77f-1b3c-4047-bc9e-d89906995dc9'::uuid, 1153.96::numeric, 153305::bigint),
+  ('9c78f063-624c-434e-88eb-b6dbf860e442'::uuid, '79770ba7-5331-45f6-8c64-9c65e122cfef'::uuid, 988.80::numeric, 121835::bigint),
+  ('9c82cf94-4f11-4f0c-94f6-6301d3e0504a'::uuid, '9cbc504e-0212-46a1-8a1b-e89386f87fa3'::uuid, 352.93::numeric, 153022::bigint),
+  ('9db8e3fc-a829-4278-8a0e-32c28d0ae8b0'::uuid, '353d1790-16e9-4640-a1e6-8606b4bdd5fa'::uuid, 1645.85::numeric, 97190::bigint),
+  ('9dddf685-f26a-4ab5-b939-bfaf8c4cb5c0'::uuid, 'f8784902-ffa0-40bd-8d8b-8800bd4f7015'::uuid, 1300.54::numeric, 121998::bigint),
+  ('9e4d5a30-8949-428e-86cb-cfe6551badd2'::uuid, 'bed0dc6a-2292-48fb-aee8-14b2aad9736c'::uuid, 1656.24::numeric, 97344::bigint),
+  ('9f6d5f31-8b1f-4b40-a294-d2a34e38603c'::uuid, '67253176-9ede-4b7f-88aa-46222a480758'::uuid, 1139.20::numeric, 122370::bigint),
+  ('a07dbedb-b5d3-4b9d-8806-8990f5f4c751'::uuid, 'd1bf2da6-2573-416f-b21e-97f8d6ed190f'::uuid, 468.26::numeric, 97418::bigint),
+  ('a1c415f3-0d7a-40c1-8f87-f3ad62356c41'::uuid, 'b193dd3f-d795-4a38-8ebc-f394c29a26ba'::uuid, 1582.26::numeric, 122399::bigint),
+  ('a1f54176-3524-4ef7-ad7d-7d91fbae8521'::uuid, '1c5ef980-0d6e-4df7-ac84-06b6b74f4d9e'::uuid, 968.96::numeric, 122661::bigint),
+  ('a24e47c4-d8e2-4e22-9665-a2f10df4f671'::uuid, 'c2a74404-be2c-47b0-9b66-33c6ee5d6a6b'::uuid, 2589.50::numeric, 97203::bigint),
+  ('a285248b-68fa-4676-bcfc-df202da9870f'::uuid, '2f04e780-0b59-4335-89cb-fd244e90eba6'::uuid, 710.49::numeric, 141533::bigint),
+  ('a293e972-e562-409d-a31c-4e557a3c5685'::uuid, 'dc141360-0f00-4a73-b40f-fd861c0554cc'::uuid, 3223.96::numeric, 97186::bigint),
+  ('a3b3a5a1-c990-478a-8a87-411da32c8e95'::uuid, '8c7e3d00-d580-444b-bebd-621cdbce0bef'::uuid, 8014.84::numeric, 121948::bigint),
+  ('a3c79c77-65a9-4df9-8f18-01eb7410da06'::uuid, 'e15dde83-7ff9-4353-b781-a8b2c4d695dd'::uuid, 904.35::numeric, 153395::bigint),
+  ('a441842c-333b-4492-b977-170558c63554'::uuid, '1e6fff4e-12fc-4e07-b5c2-34729cd1a1d3'::uuid, 1158.75::numeric, 122684::bigint),
+  ('a45249cc-47ef-4477-a695-e0ae1001ade1'::uuid, 'e768ef3b-7b78-4f38-881d-3255fc555fd5'::uuid, 847.14::numeric, 122599::bigint),
+  ('a63e5c96-49f7-4cb0-bbf5-77e3e0a4d27a'::uuid, 'b5c5d1aa-8a98-49dc-99f2-85d036e6cf07'::uuid, 780.19::numeric, 97268::bigint),
+  ('a68e09ad-6d10-40bf-8fa8-548780ecb59c'::uuid, 'c1ad1946-e307-492b-b470-d865191d91a7'::uuid, 1186.56::numeric, 122227::bigint),
+  ('a6989563-899e-4cfc-9bc7-92a57819dee8'::uuid, '095f3753-80e0-4f24-ab92-df2f5e3d70d4'::uuid, 1376.52::numeric, 122296::bigint),
+  ('a6dee872-56c2-4b50-b114-cffdb859ba28'::uuid, 'b4266995-f016-430e-bae4-29cf8d35ef4b'::uuid, 839.19::numeric, 122478::bigint),
+  ('a74edbbe-b1d0-47e0-9444-21a259a03731'::uuid, '382fa579-1cc7-452f-add3-bb2157370d2e'::uuid, 1608.25::numeric, 122669::bigint),
+  ('a74fcd6c-ecde-4ef8-8999-15a7bc01968b'::uuid, 'ddbc7cef-57eb-476b-911b-88e004debb08'::uuid, 386.86::numeric, 97364::bigint),
+  ('a8080a72-607f-4fb8-80be-a37a10023daf'::uuid, '8c804f86-8ca1-4803-8122-d1963ed83f9a'::uuid, 1242.51::numeric, 121910::bigint),
+  ('a82b85ce-659d-43ca-8500-e1d7772fb8c8'::uuid, '07396dfb-b46b-431d-817b-8d1f2ef9379a'::uuid, 625.63::numeric, 152935::bigint),
+  ('a895cc9a-b78c-4d7f-a2f3-f605034dbfc3'::uuid, '67253176-9ede-4b7f-88aa-46222a480758'::uuid, 1139.20::numeric, 122366::bigint),
+  ('a8ac7800-b2b9-4f0e-b22a-12975c0fa762'::uuid, '6a2381d0-acae-4e76-83ee-04aa4a1f7913'::uuid, 942.04::numeric, 97249::bigint),
+  ('aaea5309-1515-47fd-a908-7f0018629cbb'::uuid, 'd756bb69-d5e4-4c96-bde2-06bf17a60f9a'::uuid, 850.16::numeric, 122510::bigint),
+  ('abcbf54f-404b-496a-bee1-e99dee01e24a'::uuid, 'ae6a3151-5043-48f3-aa81-8ab5296c2677'::uuid, 686.92::numeric, 153506::bigint),
+  ('abe4f1ff-ddb5-4d54-a3ff-e5a909335a29'::uuid, '353d1790-16e9-4640-a1e6-8606b4bdd5fa'::uuid, 1645.85::numeric, 97189::bigint),
+  ('ac52ae70-8690-48bf-ac83-0925b0a35ace'::uuid, 'b0a175c7-7884-41c3-8f08-2e1b815411fd'::uuid, 737.59::numeric, 122057::bigint),
+  ('acf149c8-4856-4ca0-878f-cf69a53d8d89'::uuid, 'bb79cf61-49e1-45de-a375-a1d5fa83883c'::uuid, 8240.04::numeric, 122246::bigint),
+  ('ad1128d8-9242-4cbf-b863-89e40f78566c'::uuid, '877c491e-a854-410b-90b0-1d00cae920f5'::uuid, 1163.96::numeric, 121858::bigint),
+  ('ad9e1e13-60c5-4e05-a1f5-ef297c05e3f7'::uuid, 'b0a175c7-7884-41c3-8f08-2e1b815411fd'::uuid, 737.59::numeric, 122056::bigint),
+  ('add74d92-edc4-4e72-8c9b-cf20d8f9e30b'::uuid, '877c491e-a854-410b-90b0-1d00cae920f5'::uuid, 1163.95::numeric, 121857::bigint),
+  ('ade82788-3ce0-48f6-a749-16c9255a5948'::uuid, '1cb7de82-3e03-48ba-b095-bbb94748ca42'::uuid, 1917.72::numeric, 158529::bigint),
+  ('aed69d25-36b1-4a10-bfde-dc09024c82f9'::uuid, '7127159c-86c5-4d0f-814e-1e91d9b44b79'::uuid, 3167.39::numeric, 152944::bigint),
+  ('af23710f-610d-4e1b-80ef-db63839fac09'::uuid, '2d4fdac3-ed9f-4368-a9c4-26b749530f72'::uuid, 1072.95::numeric, 122112::bigint),
+  ('af4b093e-7daf-448a-9a18-2e7e95addc22'::uuid, '9aeab9af-b7a1-42af-99c1-8e095c88ffc2'::uuid, 2404.82::numeric, 97374::bigint),
+  ('af57d24e-2dbd-4011-b2fb-77e1152e04f9'::uuid, 'f21b0854-1d2a-47c8-a9d1-e91e56bc58a6'::uuid, 369.31::numeric, 145521::bigint),
+  ('b05ca5e1-d82c-4334-9095-fd5cecc198d5'::uuid, '1719cdff-899a-403f-855e-a5263c08d719'::uuid, 5300.47::numeric, 121972::bigint),
+  ('b124e777-77fc-4e25-95f7-48c01844a62c'::uuid, 'b193dd3f-d795-4a38-8ebc-f394c29a26ba'::uuid, 1582.25::numeric, 122398::bigint),
+  ('b1872401-a629-4c35-bc04-c435f129a6d6'::uuid, 'c2a74404-be2c-47b0-9b66-33c6ee5d6a6b'::uuid, 2589.48::numeric, 97205::bigint),
+  ('b215a7b4-980b-4c6b-b1f3-39ac3c519708'::uuid, '6a2381d0-acae-4e76-83ee-04aa4a1f7913'::uuid, 942.04::numeric, 97245::bigint),
+  ('b28e386e-4d87-40ec-98fe-2e84b3274da6'::uuid, 'ad79cdb1-082a-44b6-9207-b0dda0b03702'::uuid, 650.00::numeric, 114090::bigint),
+  ('b2e71e87-646b-4cf0-971d-4682f1b2a5bf'::uuid, '532c9b2a-7654-45b0-a16e-255361ee79b4'::uuid, 7094.52::numeric, 122488::bigint),
+  ('b3036282-2b2b-4017-bd2c-7d78af5ab182'::uuid, '3bcde381-4a88-4f58-8ba4-8606e25002df'::uuid, 1207.40::numeric, 141508::bigint),
+  ('b312b776-caa9-4b0d-9c70-972ce648522d'::uuid, '8c804f86-8ca1-4803-8122-d1963ed83f9a'::uuid, 1242.53::numeric, 121913::bigint),
+  ('b333b194-cdbb-4b8a-bec9-4b7c48107f13'::uuid, 'f0394524-91c5-406b-9378-12ffe0bb4c51'::uuid, 5803.37::numeric, 121955::bigint),
+  ('b350a60e-fab8-4ffc-90da-1de9ba2fd3b6'::uuid, 'ddbc7cef-57eb-476b-911b-88e004debb08'::uuid, 386.87::numeric, 97362::bigint),
+  ('b36a4326-33ed-4b46-a6bf-ea1f3632e265'::uuid, '3bcde381-4a88-4f58-8ba4-8606e25002df'::uuid, 1207.43::numeric, 141509::bigint),
+  ('b43163a6-eec6-4bf1-aeac-7904bc3b00d5'::uuid, 'db73663f-2e2c-480e-99e8-04e104278acb'::uuid, 502.89::numeric, 145367::bigint),
+  ('b46da60b-da12-47e1-9f1a-d95a70498d16'::uuid, '39d08ae8-b533-45bb-a6d9-f659fd6cff85'::uuid, 1643.52::numeric, 122901::bigint),
+  ('b4b34d91-9e90-466b-82d9-ff2f5ae2c496'::uuid, 'f2ae9ec4-a5af-4b2e-b3e6-ee5792a9cb7f'::uuid, 1230.54::numeric, 141495::bigint),
+  ('b4c01267-dff8-4ab0-97e0-ea34b4608744'::uuid, '75d393df-a409-43c8-9fec-192f522ed0c6'::uuid, 1468.34::numeric, 122698::bigint),
+  ('b4ef7aa9-16da-4c0f-b94c-1b6900ef87b9'::uuid, '83021979-39c3-4cae-b951-de23d0909b47'::uuid, 757.12::numeric, 141699::bigint),
+  ('b5036a7c-5aa1-45dc-a440-f04ab49d6f3f'::uuid, '7e897bdd-e207-4c37-85bb-924a4e7fbef9'::uuid, 411.19::numeric, 153288::bigint),
+  ('b54a331c-93be-4978-a966-8ef845474ea9'::uuid, 'ad79cdb1-082a-44b6-9207-b0dda0b03702'::uuid, 650.00::numeric, 114091::bigint),
+  ('b5835fe2-4efa-4b62-94b2-600dde71c3bb'::uuid, '157a7794-6744-42ac-abb1-c0658040001b'::uuid, 466.20::numeric, 122946::bigint),
+  ('b6196283-f0ac-4812-a5d3-298b87b91bb8'::uuid, '0afd06d5-e2eb-4ad5-91b4-8b825bffcf28'::uuid, 526.06::numeric, 122608::bigint),
+  ('b69dd797-7971-44c7-a2f6-8d9ff697ca8b'::uuid, 'ddbc7cef-57eb-476b-911b-88e004debb08'::uuid, 386.87::numeric, 97363::bigint),
+  ('b7202387-61a4-4e2e-83ec-1e5c9b6ab6de'::uuid, '6319250f-5f56-41ad-aef2-7ffdd8a6d3e3'::uuid, 640.70::numeric, 122708::bigint),
+  ('b7cf3b74-c3e6-4e6e-bf3d-5bbe2f67a395'::uuid, 'd615b703-8d32-4059-9b7c-74d842344268'::uuid, 607.46::numeric, 124977::bigint),
+  ('b8b53159-a64c-4d06-84e6-41c5506140e5'::uuid, 'ee660b51-d9d0-43fd-8274-fdf9a2b981b4'::uuid, 1395.70::numeric, 158501::bigint),
+  ('b91142ad-1162-43fd-b421-878380e01882'::uuid, '0afd06d5-e2eb-4ad5-91b4-8b825bffcf28'::uuid, 272.11::numeric, 122609::bigint),
+  ('b92d4a8c-172c-4c26-ad5d-f823bb771ce3'::uuid, 'b66439a0-78c5-4b5e-afc8-cd30cfbf9db4'::uuid, 7272.53::numeric, 122034::bigint),
+  ('b98c6732-a342-406e-a196-e491cf7b89c1'::uuid, '0d813921-226c-4daf-8d2a-ffbc5c9fdd4b'::uuid, 1283.59::numeric, 122623::bigint),
+  ('b9d91566-9371-45c7-88ac-0461654cfb20'::uuid, '382fa579-1cc7-452f-add3-bb2157370d2e'::uuid, 1608.25::numeric, 122671::bigint),
+  ('ba6b75f8-600b-4cad-9ba6-455b0e7c0ab0'::uuid, 'f21b0854-1d2a-47c8-a9d1-e91e56bc58a6'::uuid, 369.31::numeric, 145517::bigint),
+  ('bacc29fb-ffb7-481e-bb6a-dce22e96befe'::uuid, 'eb121e1b-58ab-4876-a5cc-40385909bf49'::uuid, 2128.19::numeric, 141314::bigint),
+  ('badf7a5c-a6ad-4b02-9040-6c98293b03e9'::uuid, 'eb121e1b-58ab-4876-a5cc-40385909bf49'::uuid, 2128.08::numeric, 141312::bigint),
+  ('bb06861e-9751-4649-8ee7-43d0176c46c1'::uuid, '1302707d-70d9-4819-aa5a-c819943e5dc4'::uuid, 1323.75::numeric, 141904::bigint),
+  ('bb2fbd5a-d71b-49d5-90a8-17ebc57d9722'::uuid, 'db461733-178c-46df-bb90-33cf019acc90'::uuid, 584.06::numeric, 152980::bigint),
+  ('bb317536-159a-42ec-899d-aca6d2ccbfd0'::uuid, 'a232edf4-46fc-4f96-8176-e287f8e6fba0'::uuid, 1102.35::numeric, 122015::bigint),
+  ('bb52d9b6-9f16-47fc-a4aa-0705596898e4'::uuid, '77ecac36-6f5d-4c8e-a756-787204ad420c'::uuid, 1649.59::numeric, 122317::bigint),
+  ('bb90987d-366f-4d90-8310-bffa2f1fb19e'::uuid, '36d7e4f0-d287-41ac-922f-f28a193b5967'::uuid, 1638.39::numeric, 122410::bigint),
+  ('bba19440-0663-4bf6-9f8a-7a14fdb79d91'::uuid, 'e4a0acd2-6f08-45db-bb91-63f2b0062fe7'::uuid, 618.39::numeric, 122188::bigint),
+  ('bc37ed53-f5e9-490f-9e53-ae1b49b327bd'::uuid, '9aeab9af-b7a1-42af-99c1-8e095c88ffc2'::uuid, 2404.82::numeric, 97375::bigint),
+  ('bd3883b2-4c77-4160-99a3-4b3b4a527dfc'::uuid, 'e4a0acd2-6f08-45db-bb91-63f2b0062fe7'::uuid, 618.39::numeric, 122187::bigint),
+  ('bd53e1b7-46c8-4f06-b887-891f96a9c2ba'::uuid, 'b66439a0-78c5-4b5e-afc8-cd30cfbf9db4'::uuid, 7272.53::numeric, 122031::bigint),
+  ('bdd953a7-5b17-4678-b17d-5c29030e3c54'::uuid, '54dff27a-ca1f-4456-b5ea-9990f4abc961'::uuid, 7651.48::numeric, 121869::bigint),
+  ('be095761-c4fd-437e-9a26-898d6474e953'::uuid, 'd615b703-8d32-4059-9b7c-74d842344268'::uuid, 607.47::numeric, 124978::bigint),
+  ('be5b7fe1-673a-48e3-93e8-3fdd2dc7dc02'::uuid, '17b830c0-0851-4291-8861-3347156588f5'::uuid, 997.27::numeric, 141799::bigint),
+  ('bf2a5656-3dd9-4ce9-86f1-00708754c4cc'::uuid, '49a73a21-7a92-4a3e-a901-be720ee5bc41'::uuid, 3216.29::numeric, 122449::bigint),
+  ('bff48851-6fa6-4a57-9c3f-3bfe8879725e'::uuid, '1f2d1ca4-2e7e-4cd8-87e6-5dad12c23ba4'::uuid, 3987.58::numeric, 122091::bigint),
+  ('c062bcb1-69cc-4d34-baa0-221f54655a57'::uuid, '5e5cc3f7-c75a-477b-8073-0acc6d730b40'::uuid, 764.17::numeric, 122024::bigint),
+  ('c199cf34-486f-405b-a538-4669976949ac'::uuid, '6a41a965-6324-4e16-99ff-86e6b721ebb8'::uuid, 847.16::numeric, 122534::bigint),
+  ('c24c6d2f-bfb8-4c3b-90f3-8754cd27754c'::uuid, '8ac608fd-5518-4fe7-a81f-a5211e7061bf'::uuid, 1341.09::numeric, 158414::bigint),
+  ('c2ac70b9-b9de-4e66-b7ea-d05e6f290c80'::uuid, '857ad8dc-d832-4cbf-a152-682b70283b06'::uuid, 937.90::numeric, 154588::bigint),
+  ('c2e91abe-084d-47b3-bcc8-4e67e62eec9a'::uuid, 'b931e8c7-4839-4f98-9fb8-5442984d7eaa'::uuid, 1422.38::numeric, 121922::bigint),
+  ('c2e97d66-2bb7-4c4c-a63b-eed5193e421c'::uuid, '1e6fff4e-12fc-4e07-b5c2-34729cd1a1d3'::uuid, 1158.75::numeric, 122683::bigint),
+  ('c3cccf84-afc9-4327-8b8d-6a0e30b59be5'::uuid, '3da38fa8-7d89-46c4-983c-520cddf3f05c'::uuid, 1493.76::numeric, 122429::bigint),
+  ('c3d38908-69e3-4c02-a662-3f972eebe43f'::uuid, '03f8f336-4fb3-45ee-be0a-31e7b6a076d7'::uuid, 1856.81::numeric, 122124::bigint),
+  ('c42a79b6-ae2a-444a-b84c-e78c641f800e'::uuid, 'be2960a7-320e-4070-b0b5-0d00b31aa248'::uuid, 774.30::numeric, 122261::bigint),
+  ('c4eff6c3-c184-4e54-9ae2-515bc1db3b25'::uuid, '19260dca-92e1-4a06-b7e7-e79882ef120b'::uuid, 897.97::numeric, 122649::bigint),
+  ('c60ec042-cc0f-4d9d-8cdf-aedf7fd0d59c'::uuid, '9c249cbb-b21b-437b-872d-44fc3952baeb'::uuid, 1130.44::numeric, 122168::bigint),
+  ('c73ed72c-8696-4a86-9a9a-c86a07477d56'::uuid, 'eb121e1b-58ab-4876-a5cc-40385909bf49'::uuid, 2128.08::numeric, 141313::bigint),
+  ('c764c8b3-f889-4373-88e4-1aad0ca8d909'::uuid, '79bc37f2-3807-4ba2-875d-b152c00e645f'::uuid, 652.71::numeric, 122523::bigint),
+  ('c809c846-7d8e-4ddb-97c2-2e5df534a986'::uuid, 'd6ee9f8d-b271-4995-a083-c1f47433f8aa'::uuid, 1020.44::numeric, 122179::bigint),
+  ('c87d0d15-4e8f-4511-839e-1cef783fe8ab'::uuid, 'be1af14c-c99b-4833-b282-e20f6698b562'::uuid, 284.20::numeric, 97382::bigint),
+  ('c969db82-0231-4a25-839e-53fb7afb00b1'::uuid, 'bb79cf61-49e1-45de-a375-a1d5fa83883c'::uuid, 8240.08::numeric, 122245::bigint),
+  ('c99497d5-3736-4d3a-b0df-2e599144c1f4'::uuid, '7b138a30-25e6-4721-95de-2b10ff81b987'::uuid, 727.47::numeric, 122308::bigint),
+  ('c9e039ca-33e6-4cef-821d-6f0fb41f1075'::uuid, '79770ba7-5331-45f6-8c64-9c65e122cfef'::uuid, 988.80::numeric, 121838::bigint),
+  ('cace6d66-0398-460c-a9c8-3f826172c20b'::uuid, 'e15dde83-7ff9-4353-b781-a8b2c4d695dd'::uuid, 904.36::numeric, 153396::bigint),
+  ('cbbf8aa0-5bc4-4b48-8770-28e9169be993'::uuid, '38fd4de4-1c30-476f-a878-d58a74c3e1b7'::uuid, 437.00::numeric, 122552::bigint),
+  ('cbd768d2-1785-4ee4-9ec9-6015f8ba1f54'::uuid, '37bee93c-c725-498b-8daa-f772e4ded9ba'::uuid, 2028.99::numeric, 122010::bigint),
+  ('cbe8ff60-fe98-48aa-9ed4-4828de5e2b02'::uuid, '7b138a30-25e6-4721-95de-2b10ff81b987'::uuid, 727.45::numeric, 122306::bigint),
+  ('cc302ca0-6e8b-43b7-bfe7-93825db35040'::uuid, '57ea4788-f835-4e06-81aa-0a544306e221'::uuid, 677.67::numeric, 122731::bigint),
+  ('cc468d2c-c4ed-4b31-95a6-7b4beea055c6'::uuid, 'f22ed5de-20cb-4ec1-8952-612836ac38f8'::uuid, 313.76::numeric, 144763::bigint),
+  ('cc798c40-c4f1-4572-ae4e-a139e28d7c42'::uuid, 'b931e8c7-4839-4f98-9fb8-5442984d7eaa'::uuid, 1422.38::numeric, 121921::bigint),
+  ('cc846aa0-85b9-451e-81bd-8eee04599a85'::uuid, 'd7de94b4-e499-4c57-86c1-1228ead205ff'::uuid, 561.15::numeric, 153830::bigint),
+  ('cc9b46b4-8dc4-48bd-a9ea-49857fd8168d'::uuid, '16a0ff77-d0df-4369-a782-dc4ef0f95fcc'::uuid, 560.62::numeric, 122349::bigint),
+  ('cd1c4bb5-cbbf-49fd-b730-515d31161625'::uuid, '0afd06d5-e2eb-4ad5-91b4-8b825bffcf28'::uuid, 526.05::numeric, 122607::bigint),
+  ('cdbb2d3b-e2f1-4b14-92f3-375954cc1260'::uuid, '79770ba7-5331-45f6-8c64-9c65e122cfef'::uuid, 988.80::numeric, 121837::bigint),
+  ('cdd03a20-bd5a-453e-be4f-a029075c5ed7'::uuid, '2fb4cb7b-24af-4148-a25e-8e24e0d83a70'::uuid, 1637.23::numeric, 158527::bigint),
+  ('ce35f103-c217-4292-a4f2-1bcc90117ac4'::uuid, '13a0c5d2-5053-4370-b735-1e0d613a2f75'::uuid, 821.12::numeric, 145005::bigint),
+  ('ce3914c6-dc62-4a9f-9586-3d65fd039b1e'::uuid, 'cb1b31d9-82cf-44fa-86bd-6b0d574696df'::uuid, 927.00::numeric, 145411::bigint),
+  ('ce634fc5-a635-402a-822b-0eef8cfa9f33'::uuid, '75d393df-a409-43c8-9fec-192f522ed0c6'::uuid, 1468.35::numeric, 122696::bigint),
+  ('ceb35e98-4c35-4d77-993f-b05590c6965a'::uuid, '67511185-4889-4883-8210-cb9e09341e9c'::uuid, 418.44::numeric, 97227::bigint),
+  ('cf494b47-cbd5-427f-8f44-2b7fc74c68b0'::uuid, '79770ba7-5331-45f6-8c64-9c65e122cfef'::uuid, 988.80::numeric, 121839::bigint),
+  ('cf90e89b-523b-4bdb-8be0-7704ca11349e'::uuid, '6ffafaa0-8b22-4b8c-8ba6-94d1b8455064'::uuid, 730.63::numeric, 123048::bigint),
+  ('cf9f53c0-18ad-445a-9b4d-c4ad78283761'::uuid, 'd756bb69-d5e4-4c96-bde2-06bf17a60f9a'::uuid, 850.16::numeric, 122508::bigint),
+  ('d00fa59c-ebb3-4ed7-8510-28df5c9c7b64'::uuid, '1e3f0aad-2ffd-4d31-a15a-ee78b00efed9'::uuid, 473.67::numeric, 145383::bigint),
+  ('d0749a1a-7782-4cfd-addd-32bda4316600'::uuid, '27d629e4-233c-4024-b9e8-1c9384f49778'::uuid, 3333.34::numeric, 121983::bigint),
+  ('d1467687-3b34-4071-8fd5-9f00e1478aec'::uuid, 'ae8d632a-ccc1-4284-8d74-183b9fee2c92'::uuid, 950.18::numeric, 97332::bigint),
+  ('d2867dff-09dd-4ef3-9f53-2ac702f8b24c'::uuid, '38fd4de4-1c30-476f-a878-d58a74c3e1b7'::uuid, 437.01::numeric, 122555::bigint),
+  ('d2b5fe08-0e1d-4685-a552-6bc62cc63dd5'::uuid, 'd6ee9f8d-b271-4995-a083-c1f47433f8aa'::uuid, 1020.44::numeric, 122178::bigint),
+  ('d2de73ce-ea74-4c39-9a61-ca3d541eabe3'::uuid, '382fa579-1cc7-452f-add3-bb2157370d2e'::uuid, 1608.27::numeric, 122672::bigint),
+  ('d3259948-91a6-4ff3-824e-07437f5000c3'::uuid, 'ad79cdb1-082a-44b6-9207-b0dda0b03702'::uuid, 650.00::numeric, 114092::bigint),
+  ('d3289707-ce9d-49c7-847e-67e6709ba931'::uuid, 'f8784902-ffa0-40bd-8d8b-8800bd4f7015'::uuid, 1300.54::numeric, 121996::bigint),
+  ('d3352128-dbd0-488e-a406-ccf718165a80'::uuid, '532c9b2a-7654-45b0-a16e-255361ee79b4'::uuid, 7094.52::numeric, 122489::bigint),
+  ('d367c7b7-8c0d-4287-9e83-79825331e9b3'::uuid, '1798fdf3-0815-4468-9c06-18a72d263bc0'::uuid, 1737.99::numeric, 97310::bigint),
+  ('d4246e9d-1aec-4548-acf7-73f31dac8d90'::uuid, 'ddbc7cef-57eb-476b-911b-88e004debb08'::uuid, 386.87::numeric, 97365::bigint),
+  ('d459b748-ee1e-4aa3-8c67-b97c0f6381c7'::uuid, '39485051-5716-489c-a2ea-3fb01d373fc0'::uuid, 1317.95::numeric, 122150::bigint),
+  ('d4c9785f-068f-4e98-a940-82f5d01dcb1b'::uuid, 'b864104d-3704-41e4-b3f3-1857ac60a97e'::uuid, 1300.58::numeric, 122467::bigint),
+  ('d4ff991f-e3c9-4a80-80cb-ddbde02bec3f'::uuid, '2f04e780-0b59-4335-89cb-fd244e90eba6'::uuid, 710.51::numeric, 141534::bigint),
+  ('d65cc45d-0ea8-44e5-9150-cfbd4f9dc9ba'::uuid, '1931b9aa-4cd7-4711-a9a5-b87be2eaeddb'::uuid, 3057.38::numeric, 122073::bigint),
+  ('d6d85258-56b5-45de-9223-857a92d2b176'::uuid, '3e01d41f-aa6d-4e90-b934-59d8a20cef2b'::uuid, 9736.12::numeric, 122279::bigint),
+  ('d70292ef-bde8-4306-b3df-21a5b15f83c7'::uuid, '7e897bdd-e207-4c37-85bb-924a4e7fbef9'::uuid, 411.16::numeric, 153284::bigint),
+  ('d70a666d-d148-4062-bb4f-c1be1b40c252'::uuid, '1ea42bc8-51a7-4b2e-a91a-d6d1d0b5d468'::uuid, 3071.45::numeric, 122588::bigint),
+  ('d7380a38-9d97-469b-be7b-de7dc43e073f'::uuid, 'bed0dc6a-2292-48fb-aee8-14b2aad9736c'::uuid, 1656.24::numeric, 97345::bigint),
+  ('d8063c74-f8ac-46e9-a9ab-0acf1bcaf304'::uuid, '6319250f-5f56-41ad-aef2-7ffdd8a6d3e3'::uuid, 640.70::numeric, 122707::bigint),
+  ('d80fdeb7-2ead-4944-aeb1-d84ad91226d4'::uuid, 'be2960a7-320e-4070-b0b5-0d00b31aa248'::uuid, 774.30::numeric, 122262::bigint),
+  ('d97851b1-494a-499c-914c-50adb5c083a0'::uuid, '83c10d1e-ddb1-4304-a25b-0ffdd3cc8ec8'::uuid, 852.61::numeric, 144896::bigint),
+  ('d9e365d1-6570-4b1f-9bb6-2d5a77f9ea8f'::uuid, 'b5c5d1aa-8a98-49dc-99f2-85d036e6cf07'::uuid, 780.20::numeric, 97271::bigint),
+  ('dad2310b-c094-4106-96db-8c3db1a399c0'::uuid, 'edf08eef-ce4f-46d5-82bc-918c9196e353'::uuid, 775.52::numeric, 97336::bigint),
+  ('db4ba7f8-5b8a-4607-a3aa-3efff6d85afc'::uuid, 'ae3dcf9b-aa09-40c7-9fd4-39b6a9eda184'::uuid, 957.84::numeric, 141751::bigint),
+  ('db4bcc5a-8073-455e-ad23-2a200f86bb26'::uuid, 'cd2aaa24-fe74-42e6-b2ac-99d9682195f0'::uuid, 812.92::numeric, 122630::bigint),
+  ('db693be0-4971-43cf-ba46-c8a8dc61d2a5'::uuid, 'b0a175c7-7884-41c3-8f08-2e1b815411fd'::uuid, 737.59::numeric, 122054::bigint),
+  ('dbadb930-6da7-4c97-88c5-aad024a5e4f0'::uuid, '79770ba7-5331-45f6-8c64-9c65e122cfef'::uuid, 988.80::numeric, 121840::bigint),
+  ('dc3a9014-a44d-4425-9f84-6b18ba33a66f'::uuid, '8ac608fd-5518-4fe7-a81f-a5211e7061bf'::uuid, 1341.09::numeric, 158411::bigint),
+  ('dc633b1b-1fe8-4739-87da-fb7d20cf1cd5'::uuid, 'cd2aaa24-fe74-42e6-b2ac-99d9682195f0'::uuid, 1433.69::numeric, 122636::bigint),
+  ('dca6be12-1d77-47ee-9397-8a40a0b47ebb'::uuid, '6ed4be5f-a1ff-40b8-a3d5-d2c95ea7eefc'::uuid, 710.51::numeric, 141523::bigint),
+  ('ddae03aa-c3bf-45ad-9aa1-151ce817ab9f'::uuid, 'bb79cf61-49e1-45de-a375-a1d5fa83883c'::uuid, 8240.04::numeric, 122247::bigint),
+  ('de4b927a-5eca-4135-b119-49216f04acf6'::uuid, 'ae6a3151-5043-48f3-aa81-8ab5296c2677'::uuid, 171.69::numeric, 153507::bigint),
+  ('de5d6fbe-2f12-4c74-b152-c8ecc8c09708'::uuid, 'b6331893-d993-465e-8c4f-7183db533ac2'::uuid, 12217.86::numeric, 122498::bigint),
+  ('df9bf20d-4acb-4b4b-8788-715c11ea0cf5'::uuid, 'b193dd3f-d795-4a38-8ebc-f394c29a26ba'::uuid, 1582.25::numeric, 122397::bigint),
+  ('dfd4f79d-e961-4d99-b2cc-59d963f95216'::uuid, '60bd5d1d-50be-4038-a436-897a8ddae1e8'::uuid, 795.78::numeric, 97321::bigint),
+  ('e0235ef3-5889-42ed-8803-1d1c82f28fa0'::uuid, 'cd2aaa24-fe74-42e6-b2ac-99d9682195f0'::uuid, 1433.71::numeric, 122635::bigint),
+  ('e17ac8a2-ab54-43f0-8ef6-ced304dafd26'::uuid, '6ec82a5e-8e33-4207-847b-523c4f42929c'::uuid, 748.31::numeric, 97429::bigint),
+  ('e1a4071e-ccb3-426d-9fa7-cce4086ca17d'::uuid, '1931b9aa-4cd7-4711-a9a5-b87be2eaeddb'::uuid, 3057.40::numeric, 122075::bigint),
+  ('e2a04019-3b21-429e-8e28-2ca6e1e4d0c7'::uuid, '6a2381d0-acae-4e76-83ee-04aa4a1f7913'::uuid, 942.04::numeric, 97248::bigint),
+  ('e3aa834c-3d39-4c14-8bfe-498a18b8a2db'::uuid, '1719cdff-899a-403f-855e-a5263c08d719'::uuid, 5300.47::numeric, 121968::bigint),
+  ('e3ff08ef-8dd6-417e-bf25-654afd998d1a'::uuid, 'c1ad1946-e307-492b-b470-d865191d91a7'::uuid, 1186.56::numeric, 122228::bigint),
+  ('e42200a0-e297-475a-93f5-96a63d7c6370'::uuid, 'ae8d632a-ccc1-4284-8d74-183b9fee2c92'::uuid, 950.18::numeric, 97330::bigint),
+  ('e4491ee6-f052-4c4f-b16f-95df5cbf4d0e'::uuid, '83c10d1e-ddb1-4304-a25b-0ffdd3cc8ec8'::uuid, 852.61::numeric, 144898::bigint),
+  ('e51e19fa-1183-4b00-a9e6-8248989d3ae8'::uuid, 'c5a852da-7dbe-4284-af32-9993af4d1735'::uuid, 473.67::numeric, 157049::bigint),
+  ('e56ffdef-71ac-48d9-8ded-ad8a649675f1'::uuid, 'db461733-178c-46df-bb90-33cf019acc90'::uuid, 895.92::numeric, 152982::bigint),
+  ('e602c054-2764-45ab-8646-ca8525c6921b'::uuid, '60bd5d1d-50be-4038-a436-897a8ddae1e8'::uuid, 795.78::numeric, 97320::bigint),
+  ('e6ce663e-803d-49ed-9484-9e2ec74debba'::uuid, 'a0e5fb4d-0538-4e98-80e1-c9f051faa2dd'::uuid, 284.20::numeric, 122217::bigint),
+  ('e79c0845-a735-47c2-928b-4f92e22809cd'::uuid, '1ea42bc8-51a7-4b2e-a91a-d6d1d0b5d468'::uuid, 3071.46::numeric, 122586::bigint),
+  ('e8555d58-84a6-480f-93ff-9c079feac93a'::uuid, '2f04e780-0b59-4335-89cb-fd244e90eba6'::uuid, 710.52::numeric, 141530::bigint),
+  ('e8935592-a68b-4204-a0c2-1847080bd141'::uuid, 'fe6315de-5ffd-4624-9d04-a867df4566fb'::uuid, 1024.18::numeric, 121890::bigint),
+  ('e8c67c02-a5b4-4c01-a67b-8d768fd16437'::uuid, '3da38fa8-7d89-46c4-983c-520cddf3f05c'::uuid, 1493.69::numeric, 122425::bigint),
+  ('e98d365e-3757-4fc4-9606-f153c7a0d828'::uuid, 'e492fd92-ff3a-48d3-a112-da64e127bebe'::uuid, 783.26::numeric, 154005::bigint),
+  ('e9c3e6b9-120f-4ecd-ad07-1541aec3b91f'::uuid, 'f8ca460d-f36a-40ac-b9d1-b6b75e8d56a2'::uuid, 1333.60::numeric, 141664::bigint),
+  ('ea7f457c-1797-4644-b4a7-160e20132394'::uuid, '49a73a21-7a92-4a3e-a901-be720ee5bc41'::uuid, 3216.30::numeric, 122447::bigint),
+  ('eb505584-963e-4337-bbe2-5e7eb82565b5'::uuid, 'f2ae9ec4-a5af-4b2e-b3e6-ee5792a9cb7f'::uuid, 1230.54::numeric, 141496::bigint),
+  ('ec46107f-3c3e-47ae-b20c-4be7abc668d1'::uuid, '38fd4de4-1c30-476f-a878-d58a74c3e1b7'::uuid, 437.01::numeric, 122553::bigint),
+  ('ec72827e-403a-4e7a-88a6-6f916c394a87'::uuid, 'e492fd92-ff3a-48d3-a112-da64e127bebe'::uuid, 783.25::numeric, 154004::bigint),
+  ('ed407e42-a87b-4566-831c-bea98b768fd1'::uuid, 'a9cf96f6-b573-4ceb-947b-cb1a3cafb9af'::uuid, 1317.79::numeric, 97234::bigint),
+  ('eed193a9-05c9-4824-a37d-3bf1ad073105'::uuid, '83021979-39c3-4cae-b951-de23d0909b47'::uuid, 757.12::numeric, 141700::bigint),
+  ('ef5bfa25-b8d1-48a9-811e-bd3d9f90079f'::uuid, '38fd4de4-1c30-476f-a878-d58a74c3e1b7'::uuid, 437.01::numeric, 122554::bigint),
+  ('ef86ac23-5ebf-4c5f-add4-5b5ed7776a1d'::uuid, 'f0394524-91c5-406b-9378-12ffe0bb4c51'::uuid, 5803.37::numeric, 121960::bigint),
+  ('efdc489e-ea76-43ec-9f21-8c8817d9cb9a'::uuid, '3acf84ec-3d82-4f9b-92cb-d0a8410aff4d'::uuid, 1128.70::numeric, 122138::bigint),
+  ('efe2353e-d946-48d3-a93c-99867c0f4bc4'::uuid, 'ae3dcf9b-aa09-40c7-9fd4-39b6a9eda184'::uuid, 957.84::numeric, 141747::bigint),
+  ('f009d47f-f195-429f-84f4-b343a0e81ee7'::uuid, '1c5ef980-0d6e-4df7-ac84-06b6b74f4d9e'::uuid, 968.95::numeric, 122659::bigint),
+  ('f02ebd27-59ab-4dd6-ad1f-fde7dcd2588c'::uuid, '36d7e4f0-d287-41ac-922f-f28a193b5967'::uuid, 1638.39::numeric, 122408::bigint),
+  ('f07dc43f-d213-4093-8bda-87d9213722c1'::uuid, 'b4266995-f016-430e-bae4-29cf8d35ef4b'::uuid, 839.19::numeric, 122477::bigint),
+  ('f3247d58-c132-47fb-90f0-20ea42d66f92'::uuid, 'be1af14c-c99b-4833-b282-e20f6698b562'::uuid, 284.20::numeric, 97383::bigint),
+  ('f36ad389-8e28-4efe-8f2b-3fbdc376c09a'::uuid, 'cb1b31d9-82cf-44fa-86bd-6b0d574696df'::uuid, 927.00::numeric, 145413::bigint),
+  ('f381d683-a104-47eb-8683-627b3a78c486'::uuid, '53f228ca-c262-4283-982c-1e2ae9476d5b'::uuid, 1020.45::numeric, 141889::bigint),
+  ('f5473d1b-7e13-4cc0-96db-45ae516b4c7e'::uuid, '74e6c09c-3680-4d6d-8d25-a11a5b66b47b'::uuid, 783.26::numeric, 122581::bigint),
+  ('f6bb4023-25e3-41a9-8a6f-09e3dab5753f'::uuid, 'ee660b51-d9d0-43fd-8274-fdf9a2b981b4'::uuid, 1395.70::numeric, 158498::bigint),
+  ('f7e885ee-5245-4dc8-bd54-8a80e118a760'::uuid, '38fd4de4-1c30-476f-a878-d58a74c3e1b7'::uuid, 437.02::numeric, 122556::bigint),
+  ('f8596abf-425a-4e1e-bf17-06055058cd3b'::uuid, 'f0394524-91c5-406b-9378-12ffe0bb4c51'::uuid, 5803.37::numeric, 121957::bigint),
+  ('f93aa164-9e73-4639-9e6c-4e94fe384270'::uuid, 'dc141360-0f00-4a73-b40f-fd861c0554cc'::uuid, 3223.95::numeric, 97183::bigint),
+  ('f9e6d9d7-6cd1-4f1e-a8a7-a07a784ff594'::uuid, 'b6331893-d993-465e-8c4f-7183db533ac2'::uuid, 12217.87::numeric, 122500::bigint),
+  ('fbb9435a-8432-4c74-87f5-33c4cbd0c306'::uuid, 'a3e11975-ea59-4d2a-a51d-535702533274'::uuid, 1958.47::numeric, 122332::bigint),
+  ('fc107943-2fea-46d1-9df1-660824a2401a'::uuid, '736cd80a-d050-4c1e-aee5-79c2d04c04af'::uuid, 2514.42::numeric, 152949::bigint),
+  ('fd740a3c-f07f-4a1b-a9c5-9d2f9f02b4e4'::uuid, '0afd06d5-e2eb-4ad5-91b4-8b825bffcf28'::uuid, 272.08::numeric, 122610::bigint),
+  ('fe97f28e-9937-4dac-a998-266096f43367'::uuid, 'dc141360-0f00-4a73-b40f-fd861c0554cc'::uuid, 3223.96::numeric, 97182::bigint),
+  ('feb6e318-ffa1-4b2d-911d-d2af6bc18d77'::uuid, 'b931e8c7-4839-4f98-9fb8-5442984d7eaa'::uuid, 1422.42::numeric, 121924::bigint),
+  ('fed78ca9-3b78-416f-a050-4a4527d226e5'::uuid, 'cd2aaa24-fe74-42e6-b2ac-99d9682195f0'::uuid, 1433.69::numeric, 122634::bigint),
+  ('ff580331-eb3e-4bba-aa59-536440f2546e'::uuid, '19c9562a-e186-4640-b348-83e0e5d0f5d0'::uuid, 997.75::numeric, 141347::bigint),
+  ('ffca2d79-7333-410c-905a-b27449d53f90'::uuid, '8c804f86-8ca1-4803-8122-d1963ed83f9a'::uuid, 1242.51::numeric, 121912::bigint)
+;
+
+-- ---------------------------------------------------------------------------
+-- 2) GUARDS. As quatro evidencias sao RECALCULADAS aqui. Qualquer divergencia
+--    aborta a transacao inteira -- nada fica pela metade.
+-- ---------------------------------------------------------------------------
+do $$
+declare v_qtd int; v_soma numeric; v_falha int;
+begin
+  -- 2.1 a lista chegou inteira
+  select count(*) into v_qtd from _g2a_lista;
+  if v_qtd <> 492 then
+    raise exception 'ABORTA: lista com % linhas, esperado 492', v_qtd;
+  end if;
+
+  -- 2.2 todo titulo existe
+  select count(*) into v_falha from _g2a_lista l
+   where not exists (select 1 from public.acordos_titulos t where t.id = l.titulo_id);
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) da lista nao existem mais', v_falha;
+  end if;
+
+  -- 2.3 estado anterior esperado: PAGO / quitada
+  select count(*) into v_falha
+    from _g2a_lista l join public.acordos_titulos t on t.id = l.titulo_id
+   where upper(coalesce(t.situacao,'')) <> 'PAGO' or lower(coalesce(t.status,'')) <> 'quitada';
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) nao estao mais PAGO/quitada', v_falha;
+  end if;
+
+  -- 2.4 acordo_id inalterado; nao e boleto do proprio acordo
+  select count(*) into v_falha
+    from _g2a_lista l join public.acordos_titulos t on t.id = l.titulo_id
+   where t.acordo_id is distinct from l.acordo_id or coalesce(t.tipo_boleto,'') = 'Acordo';
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) trocaram de acordo ou sao boleto do proprio acordo', v_falha;
+  end if;
+
+  -- 2.5 vinculo vivo, UNICO, apontando para o MESMO acordo
+  select count(*) into v_falha
+    from _g2a_lista l
+   where (select count(*) from public.acordo_titulo_vinculo v join public.acordos ac on ac.id = v.acordo_id
+           where v.titulo_id = l.titulo_id and coalesce(v.ativo, true)
+             and upper(coalesce(ac.status,'')) not in ('CANCELADO','CANCELADA')) <> 1
+      or not exists (select 1 from public.acordo_titulo_vinculo v
+                      where v.titulo_id = l.titulo_id and v.acordo_id = l.acordo_id
+                        and coalesce(v.ativo, true));
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) sem vinculo vivo unico para o acordo esperado', v_falha;
+  end if;
+
+  -- 2.6 o acordo continua ATIVO (a negociacao segue em andamento)
+  select count(*) into v_falha
+    from (select distinct acordo_id from _g2a_lista) x
+    join public.acordos a on a.id = x.acordo_id
+   where upper(coalesce(a.status,'')) <> 'ATIVO';
+  if v_falha > 0 then
+    raise exception 'ABORTA: % acordo(s) nao estao mais ATIVO', v_falha;
+  end if;
+
+  -- 2.7 O EVENTO e o mesmo que foi auditado, e ainda e a ULTIMA entrada em PAGO
+  select count(*) into v_falha
+    from _g2a_lista l
+   where not exists (select 1 from public.audit_log al
+                      where al.id = l.audit_id_pago and al.tabela = 'acordos_titulos'
+                        and al.registro_id = l.titulo_id::text
+                        and upper(coalesce(al.dados_depois->>'situacao','')) = 'PAGO'
+                        and upper(coalesce(al.dados_antes->>'situacao','')) <> 'PAGO')
+      or exists (select 1 from public.audit_log al2
+                  where al2.tabela='acordos_titulos' and al2.registro_id = l.titulo_id::text
+                    and al2.id > l.audit_id_pago
+                    and upper(coalesce(al2.dados_depois->>'situacao','')) = 'PAGO'
+                    and upper(coalesce(al2.dados_antes->>'situacao','')) <> 'PAGO');
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) com evento de quitacao diferente do auditado', v_falha;
+  end if;
+
+  -- 2.8 EVIDENCIA 1 -- assinatura de conteudo: A1 (motivo nomeia este acordo)
+  --     ou A2 (assinatura exata de titulos_por_status_acordo). Nada mais passa.
+  select count(*) into v_falha
+    from _g2a_lista l
+    join public.audit_log al on al.id = l.audit_id_pago
+    join public.acordos a on a.id = l.acordo_id
+   where not (
+     -- A1
+     ((select array_to_string(array_agg(k order by k),',') from jsonb_each(al.dados_depois) e(k,v)
+        where al.dados_antes->k is distinct from v) = 'atualizado_em,motivo_ajuste,situacao,status'
+      and position('quitada junto com o acordo ' || a.numero_acordo::text
+                   in coalesce(al.dados_depois->>'motivo_ajuste','')) > 0
+      and position('quitada junto com o acordo ' || a.numero_acordo::text
+                   in coalesce(al.dados_antes->>'motivo_ajuste','')) = 0)
+     or
+     -- A2
+     ((select array_to_string(array_agg(k order by k),',') from jsonb_each(al.dados_depois) e(k,v)
+        where al.dados_antes->k is distinct from v)
+        in ('atualizado_em,situacao,status','atualizado_em,situacao')
+      and coalesce(al.dados_antes->>'motivo_ajuste','') = coalesce(al.dados_depois->>'motivo_ajuste',''))
+   );
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) sem assinatura A1 nem A2 no evento de quitacao', v_falha;
+  end if;
+
+  -- 2.9 EVIDENCIA 2 -- ordem: o evento do titulo cai na JANELA do seu acordo
+  --     (depois do evento do proprio acordo e antes do proximo acordo quitado
+  --      na mesma transacao). Descarta backfill em bloco.
+  select count(*) into v_falha
+    from _g2a_lista l
+    join public.audit_log al on al.id = l.audit_id_pago
+   where not exists (
+           select 1 from public.audit_log la
+            where la.tabela='acordos' and la.registro_id = l.acordo_id::text
+              and la.criado_em = al.criado_em
+              and upper(coalesce(la.dados_depois->>'status','')) = 'QUITADO'
+              and la.id < al.id
+              and not exists (
+                select 1 from public.audit_log lb
+                 where lb.tabela='acordos' and lb.criado_em = al.criado_em
+                   and upper(coalesce(lb.dados_depois->>'status','')) = 'QUITADO'
+                   and lb.registro_id <> l.acordo_id::text
+                   and lb.id > la.id and lb.id < al.id));
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) fora da janela de gatilho do proprio acordo', v_falha;
+  end if;
+
+  -- 2.10 EVIDENCIA 3 -- nenhum valor tocado, nem no evento nem depois
+  select count(*) into v_falha
+    from _g2a_lista l
+    join public.audit_log al on al.id = l.audit_id_pago
+   where al.dados_antes->'saldo_corrigido' is distinct from al.dados_depois->'saldo_corrigido'
+      or al.dados_antes->'valor_em_aberto' is distinct from al.dados_depois->'valor_em_aberto'
+      or exists (select 1 from public.audit_log l3
+                  where l3.tabela='acordos_titulos' and l3.registro_id = l.titulo_id::text
+                    and l3.id > l.audit_id_pago
+                    and (l3.dados_antes->'saldo_corrigido' is distinct from l3.dados_depois->'saldo_corrigido'
+                      or l3.dados_antes->'valor_em_aberto' is distinct from l3.dados_depois->'valor_em_aberto'));
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) tiveram valor mexido (quitacao manual) -- NAO reabrir', v_falha;
+  end if;
+
+  -- 2.11 EVIDENCIA 4 -- nenhum registro independente de pagamento
+  select count(*) into v_falha
+    from _g2a_lista l join public.acordos_titulos t on t.id = l.titulo_id
+   where t.origem_liquidacao is not null
+      or t.origem_encerramento is not null
+      or exists (select 1 from public.pagamentos pg
+                  where coalesce(pg.titulo_numero,'') <> ''
+                    and regexp_replace(coalesce(t.documento,''),'\D','','g') <> ''
+                    and regexp_replace(pg.titulo_numero,'\D','','g')
+                        = regexp_replace(coalesce(t.documento,''),'\D','','g'))
+      or exists (select 1 from public.conferencia_pagamentos cp
+                  where coalesce(cp.titulo_numero,'') <> ''
+                    and regexp_replace(coalesce(t.documento,''),'\D','','g') <> ''
+                    and regexp_replace(cp.titulo_numero,'\D','','g')
+                        = regexp_replace(coalesce(t.documento,''),'\D','','g'))
+      or exists (select 1 from public.solicitacoes_confirmacao_pagamento s where s.titulo_id = t.id);
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) tem registro independente de pagamento -- NAO reabrir', v_falha;
+  end if;
+
+  -- 2.12 soma financeira e valor por titulo identicos aos validados
+  select round(sum(coalesce(t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0)), 2) into v_soma
+    from _g2a_lista l join public.acordos_titulos t on t.id = l.titulo_id;
+  if v_soma <> 830042.13 then
+    raise exception 'ABORTA: soma % diferente da validada 830042.13', v_soma;
+  end if;
+
+  select count(*) into v_falha
+    from _g2a_lista l join public.acordos_titulos t on t.id = l.titulo_id
+   where round(coalesce(t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0), 2)
+         <> round(l.valor_esperado, 2);
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) mudaram de valor desde a validacao', v_falha;
+  end if;
+
+  -- 2.13 a populacao FORA da lista continua sendo exatamente as excecoes
+  select count(*) into v_falha
+    from public.acordos_titulos t join public.acordos a on a.id = t.acordo_id
+   where upper(coalesce(t.situacao,''))='PAGO' and upper(coalesce(a.status,''))='ATIVO'
+     and t.id not in (select titulo_id from _g2a_lista);
+  if v_falha <> 46 then
+    raise exception 'ABORTA: fora da lista ha % titulos PAGO em acordo ATIVO, esperado 46 (C 17 + D 21 + E1 5 + E2 3)', v_falha;
+  end if;
+
+  raise notice 'GUARDS OK: 492 titulos, R$ 830.042,13, 145 acordos ATIVO; 4 evidencias de causalidade conferidas; 46 excecoes preservadas';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 3) BACKUP POR ID -- registro completo antes, vinculos, acordo, motivo
+-- ---------------------------------------------------------------------------
+create table if not exists public._backup_saneamento_g2a_20260924 (
+  titulo_id uuid primary key,
+  registro_anterior jsonb not null,
+  vinculos_anteriores jsonb not null,
+  acordo_id uuid,
+  acordo_numero text,
+  acordo_status_no_backup text,
+  situacao_anterior text,
+  status_anterior text,
+  acordo_id_anterior uuid,
+  origem_liquidacao_anterior text,
+  origem_liquidacao_ref_anterior text,
+  origem_liquidacao_em_anterior timestamptz,
+  origem_encerramento_anterior text,
+  quitacao_origem_anterior text,
+  quitacao_origem_acordo_id_anterior uuid,
+  motivo_ajuste_anterior text,
+  audit_id_pago bigint,
+  prova_auditoria_em timestamptz,
+  prova_assinatura text,
+  motivo_correcao text not null,
+  feito_em timestamptz not null default now()
+);
+
+insert into public._backup_saneamento_g2a_20260924 (
+  titulo_id, registro_anterior, vinculos_anteriores, acordo_id, acordo_numero,
+  acordo_status_no_backup, situacao_anterior, status_anterior, acordo_id_anterior,
+  origem_liquidacao_anterior, origem_liquidacao_ref_anterior, origem_liquidacao_em_anterior,
+  origem_encerramento_anterior, quitacao_origem_anterior, quitacao_origem_acordo_id_anterior,
+  motivo_ajuste_anterior, audit_id_pago, prova_auditoria_em, prova_assinatura, motivo_correcao)
+select t.id, to_jsonb(t),
+       coalesce((select jsonb_agg(to_jsonb(v)) from public.acordo_titulo_vinculo v where v.titulo_id = t.id), '[]'::jsonb),
+       a.id, a.numero_acordo::text, a.status,
+       t.situacao, t.status, t.acordo_id,
+       t.origem_liquidacao, t.origem_liquidacao_ref, t.origem_liquidacao_em,
+       t.origem_encerramento, t.quitacao_origem, t.quitacao_origem_acordo_id,
+       t.motivo_ajuste, l.audit_id_pago, al.criado_em,
+       (select array_to_string(array_agg(k order by k),',') from jsonb_each(al.dados_depois) e(k,v)
+         where al.dados_antes->k is distinct from v),
+       'G2-A 24/09/2026: quitada por consequencia do acordo (assinatura da funcao + janela de gatilho + zero mexida em valor + zero registro independente de pagamento); o acordo voltou a ATIVO e a negociacao segue em andamento. Devolvida a NEGOCIADO/vinculada pelo motor titulo_reavaliar.'
+  from _g2a_lista l
+  join public.acordos_titulos t on t.id = l.titulo_id
+  join public.acordos a on a.id = l.acordo_id
+  join public.audit_log al on al.id = l.audit_id_pago
+on conflict (titulo_id) do nothing;
+
+do $$
+declare v_qtd int;
+begin
+  select count(*) into v_qtd from public._backup_saneamento_g2a_20260924;
+  if v_qtd <> 492 then
+    raise exception 'ABORTA: backup com % linhas, esperado 492', v_qtd;
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 3b) FOTO DAS PARCELAS ANTES -- para provar, no passo 5, que nenhuma parcela
+--     de acordo foi tocada
+-- ---------------------------------------------------------------------------
+create temporary table _g2a_parcelas_antes on commit drop as
+select p.id, p.acordo_id, p.status, p.valor, p.pago_em
+  from public.parcelas p
+ where p.acordo_id in (select distinct acordo_id from _g2a_lista);
+
+-- ---------------------------------------------------------------------------
+-- 4) A CORRECAO
+--    4a) grava a proveniencia comprovada
+--    4b) deixa o motor oficial decidir o que fazer com ela
+-- ---------------------------------------------------------------------------
+update public.acordos_titulos t
+   set quitacao_origem = 'ACORDO',
+       quitacao_origem_acordo_id = l.acordo_id,
+       quitacao_origem_em = b.prova_auditoria_em,
+       atualizado_em = now()
+  from _g2a_lista l
+  join public._backup_saneamento_g2a_20260924 b on b.titulo_id = l.titulo_id
+ where t.id = l.titulo_id;
+
+do $$
+declare v_id uuid; v_n int := 0;
+begin
+  for v_id in select titulo_id from _g2a_lista order by titulo_id loop
+    perform public.titulo_reavaliar(v_id);
+    v_n := v_n + 1;
+  end loop;
+  raise notice 'titulo_reavaliar executado em % titulos', v_n;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 5) VALIDACAO AUTOMATICA
+-- ---------------------------------------------------------------------------
+do $$
+declare v_ok int; v_falha int;
+begin
+  -- 5.1 os 492 ficaram NEGOCIADO/vinculada
+  select count(*) into v_ok
+    from _g2a_lista l join public.acordos_titulos t on t.id = l.titulo_id
+   where upper(coalesce(t.situacao,'')) = 'NEGOCIADO' and lower(coalesce(t.status,'')) = 'vinculada';
+  if v_ok <> 492 then
+    raise exception 'ABORTA: % de 492 ficaram NEGOCIADO/vinculada', v_ok;
+  end if;
+
+  -- 5.2 vinculo e acordo_id preservados
+  select count(*) into v_falha
+    from _g2a_lista l join public.acordos_titulos t on t.id = l.titulo_id
+   where t.acordo_id is distinct from l.acordo_id;
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) perderam o acordo_id', v_falha;
+  end if;
+
+  select count(*) into v_falha
+    from _g2a_lista l
+   where not exists (select 1 from public.acordo_titulo_vinculo v
+                      where v.titulo_id = l.titulo_id and v.acordo_id = l.acordo_id
+                        and coalesce(v.ativo, true));
+  if v_falha > 0 then
+    raise exception 'ABORTA: % vinculo(s) sumiram', v_falha;
+  end if;
+
+  -- 5.3 proveniencia limpa (ela so vale enquanto o titulo esta pago)
+  select count(*) into v_falha
+    from _g2a_lista l join public.acordos_titulos t on t.id = l.titulo_id
+   where t.quitacao_origem is not null;
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) ficaram com proveniencia pendurada', v_falha;
+  end if;
+
+  -- 5.4 nenhum valor mexido
+  select count(*) into v_falha
+    from _g2a_lista l join public.acordos_titulos t on t.id = l.titulo_id
+   where round(coalesce(t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0), 2)
+         <> round(l.valor_esperado, 2);
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) tiveram valor alterado', v_falha;
+  end if;
+
+  -- 5.5 nenhuma marca de pagamento criada ou apagada
+  select count(*) into v_falha
+    from _g2a_lista l join public.acordos_titulos t on t.id = l.titulo_id
+   where t.origem_liquidacao is not null or t.origem_encerramento is not null;
+  if v_falha > 0 then
+    raise exception 'ABORTA: % titulo(s) ganharam marca de liquidacao/encerramento', v_falha;
+  end if;
+
+  -- 5.6 nenhuma parcela dos 145 acordos foi tocada -- diferenca simetrica
+  --     (EXCEPT nos dois sentidos) contra a foto do passo 3b
+  select count(*) into v_falha from (
+      select id, acordo_id, status, valor, pago_em from _g2a_parcelas_antes
+      except
+      select id, acordo_id, status, valor, pago_em from public.parcelas
+       where acordo_id in (select distinct acordo_id from _g2a_lista)
+  ) d;
+  if v_falha > 0 then
+    raise exception 'ABORTA: % parcela(s) sumiram ou mudaram durante a correcao', v_falha;
+  end if;
+
+  select count(*) into v_falha from (
+      select id, acordo_id, status, valor, pago_em from public.parcelas
+       where acordo_id in (select distinct acordo_id from _g2a_lista)
+      except
+      select id, acordo_id, status, valor, pago_em from _g2a_parcelas_antes
+  ) d;
+  if v_falha > 0 then
+    raise exception 'ABORTA: % parcela(s) novas ou alteradas durante a correcao', v_falha;
+  end if;
+
+  -- 5.7 nenhum acordo mudou de status
+  select count(*) into v_falha
+    from (select distinct acordo_id from _g2a_lista) x
+    join public.acordos a on a.id = x.acordo_id
+   where upper(coalesce(a.status,'')) <> 'ATIVO';
+  if v_falha > 0 then
+    raise exception 'ABORTA: % acordo(s) mudaram de status', v_falha;
+  end if;
+
+  -- 5.8 as excecoes continuam intactas: 46 titulos PAGO em acordo ATIVO
+  select count(*) into v_falha
+    from public.acordos_titulos t join public.acordos a on a.id = t.acordo_id
+   where upper(coalesce(t.situacao,'')) = 'PAGO' and upper(coalesce(a.status,'')) = 'ATIVO';
+  if v_falha <> 46 then
+    raise exception 'ABORTA: sobraram % titulos PAGO em acordo ATIVO, esperado 46 (C 17 + D 21 + E1 5 + E2 3)', v_falha;
+  end if;
+
+  raise notice 'VALIDACAO OK: 492 NEGOCIADO/vinculada; vinculos, valores, parcelas e acordos intactos; 46 excecoes preservadas';
+end $$;
+
+
+-- ---------------------------------------------------------------------------
+-- 5) FOTOGRAFIA DO ESTADO DEIXADO -- o que o rollback vai conferir depois
+-- ---------------------------------------------------------------------------
+-- Sem isto, o rollback so consegue perguntar "o titulo esta no estado que eu
+-- esperava deixar?", e essa pergunta e fraca: outra coisa pode ter reescrito o
+-- registro e chegado no mesmo par (situacao, status) com motivo, acordo ou
+-- proveniencia diferentes -- e o rollback sobrescreveria por cima.
+--
+-- Aqui, ainda DENTRO da transacao da correcao, gravamos:
+--   . o registro inteiro depois (`registro_pos`) e cada campo que o rollback
+--     vai sobrescrever (`*_pos`);
+--   . a MARCA-D'AGUA do audit_log (`audit_log_id_pos`): o maior audit_log.id
+--     deste titulo neste instante. Os eventos da propria correcao ja estao
+--     gravados, entao qualquer id MAIOR que este veio depois de nos.
+--
+-- O rollback exige os dois: igualdade campo a campo E ausencia de evento
+-- posterior relevante. Se `audit_log_id_pos` vier nulo, ele aborta inteiro em
+-- vez de cair no teste fraco.
+alter table public._backup_saneamento_g2a_20260924
+  add column if not exists registro_pos jsonb,
+  add column if not exists situacao_pos text,
+  add column if not exists status_pos text,
+  add column if not exists acordo_id_pos uuid,
+  add column if not exists motivo_ajuste_pos text,
+  add column if not exists quitacao_origem_pos text,
+  add column if not exists quitacao_origem_acordo_id_pos uuid,
+  add column if not exists quitacao_origem_em_pos timestamptz,
+  add column if not exists origem_liquidacao_pos text,
+  add column if not exists origem_encerramento_pos text,
+  add column if not exists saldo_corrigido_pos numeric,
+  add column if not exists valor_em_aberto_pos numeric,
+  add column if not exists audit_log_id_pos bigint,
+  add column if not exists fotografado_em timestamptz;
+
+update public._backup_saneamento_g2a_20260924 b
+   set registro_pos = to_jsonb(t),
+       situacao_pos = t.situacao,
+       status_pos = t.status,
+       acordo_id_pos = t.acordo_id,
+       motivo_ajuste_pos = t.motivo_ajuste,
+       quitacao_origem_pos = t.quitacao_origem,
+       quitacao_origem_acordo_id_pos = t.quitacao_origem_acordo_id,
+       quitacao_origem_em_pos = t.quitacao_origem_em,
+       origem_liquidacao_pos = t.origem_liquidacao,
+       origem_encerramento_pos = t.origem_encerramento,
+       saldo_corrigido_pos = t.saldo_corrigido,
+       valor_em_aberto_pos = t.valor_em_aberto,
+       audit_log_id_pos = (
+         select max(l.id) from public.audit_log l
+          where l.tabela = 'acordos_titulos' and l.registro_id = t.id::text),
+       fotografado_em = now()
+  from public.acordos_titulos t
+ where t.id = b.titulo_id;
+
+do $$
+declare v_sem int;
+begin
+  select count(*) into v_sem from public._backup_saneamento_g2a_20260924
+   where registro_pos is null or audit_log_id_pos is null;
+  if v_sem > 0 then
+    raise exception 'ABORTA: % linha(s) do backup ficaram sem fotografia posterior -- o rollback nao teria com o que comparar', v_sem;
+  end if;
+  raise notice 'fotografia posterior gravada para % titulo(s)', (select count(*) from public._backup_saneamento_g2a_20260924);
+end $$;
+
+commit;
