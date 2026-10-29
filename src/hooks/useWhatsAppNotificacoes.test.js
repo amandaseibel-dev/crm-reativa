@@ -88,13 +88,13 @@ describe("useWhatsAppNotificacoes", () => {
       expect(result.current.toasts).toHaveLength(0);
     });
 
-    it("não notifica mensagem com origem diferente de TEMPO_REAL", () => {
+    it("notifica mensagem independente do campo origem (gateway pode usar qualquer valor)", () => {
       const { result } = renderHook(() =>
         useWhatsAppNotificacoes({ emailOperador: "op@test.com", conversas: [conversa()] })
       );
       act(() => result.current.setPrefs({ visual: true }));
-      act(() => result.current.aoReceberMensagem(msgEntrada({ origem: "SYNC_INICIAL" })));
-      expect(result.current.toasts).toHaveLength(0);
+      act(() => result.current.aoReceberMensagem(msgEntrada({ origem: "SYNC_INICIAL", id: "msg-origem" })));
+      expect(result.current.toasts).toHaveLength(1);
     });
   });
 

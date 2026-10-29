@@ -134,7 +134,7 @@ export default function useWhatsAppNotificacoes({ emailOperador, conversas }) {
       const osc = ctx.createOscillator();
       const ganho = ctx.createGain();
       osc.frequency.value = 880;
-      ganho.gain.setValueAtTime(0.06, ctx.currentTime);
+      ganho.gain.setValueAtTime(0.35, ctx.currentTime);
       ganho.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.25);
       osc.connect(ganho);
       ganho.connect(ctx.destination);
@@ -145,9 +145,9 @@ export default function useWhatsAppNotificacoes({ emailOperador, conversas }) {
 
   // Chamada pelo handler do Realtime sempre que chega uma mensagem nova.
   const aoReceberMensagem = useCallback((mensagem) => {
-    // Só ENTRADA, só TEMPO_REAL.
+    // Só mensagens recebidas do aluno; o handler do Realtime já filtra ENTRADA,
+    // mas checamos aqui também para uso direto pelo hook.
     if (mensagem?.direcao !== "ENTRADA") return;
-    if (mensagem?.origem !== "TEMPO_REAL") return;
 
     // Deduplicação.
     if (seenRef.current.has(mensagem.id)) return;
