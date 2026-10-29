@@ -21,7 +21,20 @@ primary_region = 'gru'
   # `fly secrets set SESSOES=... -a reativa-whatsapp-gateway`, que reinicia a
   # maquina -- os canais caem por segundos e voltam sozinhos, porque a
   # credencial vive no Postgres.
-  SESSOES = 'comercial,cobranca'
+  SESSOES = 'comercial'
+
+  # 08/10/2026: o Cobranca foi aposentado. So o Comercial fica no ar.
+  #
+  # POR QUE ESTA SEGUNDA LISTA, e nao so tirar 'cobranca' de SESSOES acima:
+  # SESSOES esta como SECRET, e secret vence o [env] deste arquivo -- a linha
+  # acima, sozinha, NAO derruba o Cobranca. SESSOES_APOSENTADAS nao tem secret
+  # a sombrear, entao vale no proximo deploy e continua valendo mesmo que o
+  # secret siga listando 'cobranca'.
+  #
+  # Aposentado nao reconecta, nao pede QR Code e nao envia. Nada e apagado: a
+  # credencial fica no Postgres e o historico no CRM. Para devolver o numero ao
+  # ar, tirar daqui -- nao precisa reparear.
+  SESSOES_APOSENTADAS = 'cobranca'
 
 [[mounts]]
   source = 'whatsapp_dados'
