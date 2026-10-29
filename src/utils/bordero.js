@@ -472,3 +472,31 @@ export function resumoPorGrupo(linhas) {
   }
   return resumo;
 }
+
+// ---------------------------------------------------------------------------
+// VARIANTES DE CPF PARA BUSCA (28/10/2026)
+// ---------------------------------------------------------------------------
+//
+// `alunos.cpf` guarda o CPF de jeitos diferentes: com máscara
+// ("019.928.000-22"), só com dígitos ("01992800022") e, quando o Excel comeu o
+// zero, sem ele ("1992800022"). A busca do `.in()` do PostgREST compara valor
+// literal, então pesquisar só uma forma deixa o cadastro das outras de fora e o
+// importador cria um duplicado.
+//
+// `chaveCpf` já iguala todas essas formas na hora de INDEXAR. Este helper
+// existe para a BUSCA trazer as formas que `chaveCpf` depois vai igualar.
+
+export function variantesDeCpf(valor) {
+  const chave = chaveCpf(valor);
+  if (!chave) return [];
+  const semZeros = chave.replace(/^0+/, "");
+  // Três formas que a base comprovadamente usa: 11 dígitos, sem zero à esquerda
+  // (quando o zero existe) e com máscara de 11 dígitos.
+  const formas = [chave, semZeros, mascararCpf(chave)];
+  return [...new Set(formas.filter((f) => f))];
+}
+
+function mascararCpf(digitos11) {
+  const d = String(digitos11).padStart(11, "0");
+  return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9, 11)}`;
+}

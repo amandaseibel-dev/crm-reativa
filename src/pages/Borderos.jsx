@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   motivoDeNaoTocar,
   chaveCpf,
+  variantesDeCpf,
   indexarAlunosPorCpf,
   fichasParaCriar,
   alunoDaLinha,
@@ -205,10 +206,13 @@ export default function Borderos() {
       const cpfs = [...new Set(linhas.map((l) => l.cpfLimpo).filter(Boolean))];
       const titulos = [...new Set(linhas.map((l) => l.numTitulo))];
 
+      // Pesquisa TODAS as formas do CPF (com máscara, sem máscara, sem zero à
+      // esquerda). Pesquisar só o número limpo deixava de fora o cadastro gravado
+      // com máscara, e o importador criava duplicado (28/10/2026).
       const alunosEncontrados = await buscarEmLotes(
         "alunos",
         "cpf",
-        cpfs,
+        [...new Set(cpfs.flatMap((c) => variantesDeCpf(c)))],
         "id, nome, cpf, email, telefone, curso, unidade, status_atual, status_jornada, status_acionamento"
       );
 
@@ -470,8 +474,15 @@ export default function Borderos() {
       // ===============================================================
       const { registros: fichasPorCpf, linhasEmAnalise } = fichasParaCriar(preview.linhas);
 
-      const fichasNovas = fichasPorCpf;
-      let alunosNovosPorCpf = {};
+      // Guarda da gravação: antes de criar, procura de novo cada CPF em todas as
+      // formas. Se já há cadastro, reaproveita e não cria outro.
+      const cpfsDasFichas = [...new Set(fichasPorCpf.flatMap((f) => variantesDeCpf(f.cpf)))];
+      const jaCadastrados = cpfsDasFichas.length > 0
+        ? await buscarEmLotes("alunos", "cpf", cpfsDasFichas, "id, nome, cpf")
+        : [];
+      const mapaJaCadastrados = indexarAlunosPorCpf(jaCadastrados);
+      const fichasNovas = fichasPorCpf.filter((f) => !mapaJaCadastrados[chaveCpf(f.cpf)]);
+      let alunosNovosPorCpf = { ...mapaJaCadastrados };
       let alunosCriados = 0;
 
       if (fichasNovas.length > 0) {
@@ -483,7 +494,7 @@ export default function Borderos() {
           nomesNaoEncontrados.push(...fichasNovas.map((f) => f.nome));
           ignorados += fichasNovas.length;
         } else {
-          alunosNovosPorCpf = indexarAlunosPorCpf(novosAlunos);
+          alunosNovosPorCpf = { ...alunosNovosPorCpf, ...indexarAlunosPorCpf(novosAlunos) };
           alunosCriados = novosAlunos.length;
           nomesCriados.push(...novosAlunos.map((a) => a.nome));
         }
