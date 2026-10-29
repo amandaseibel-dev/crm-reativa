@@ -112,13 +112,19 @@ describe("camposDeRetorno -- a regra do carimbo", () => {
 });
 
 describe("os pontos de prazo do sistema leem a ficha antes de gravar", () => {
-  // Etapa 2 (27/10/2026): os três passam por `camposDeRetornoAutomatico`, que
-  // LÊ `data_retorno`/`retorno_origem` e devolve `{}` quando há compromisso
-  // OPERADOR futuro. Chamar `camposDeRetorno(RETORNO_ORIGEM_AUTOMATICO, ...)`
-  // direto voltaria a sobrescrever o combinado -- por isso a ausência também
-  // é cobrada.
+  // Etapa 2 (27/10/2026): os que gravam prazo passam por
+  // `camposDeRetornoAutomatico`, que LÊ `data_retorno`/`retorno_origem` e
+  // devolve `{}` quando há compromisso OPERADOR futuro. Chamar
+  // `camposDeRetorno(RETORNO_ORIGEM_AUTOMATICO, ...)` direto voltaria a
+  // sobrescrever o combinado -- por isso a ausência também é cobrada.
+  //
+  // `EnvioGmailLote.jsx` SAIU desta lista no merge do #685 (campanha não
+  // tabula): aquela tela deixou de escrever na ficha, então não sobrou prazo
+  // para carimbar. A cobertura dela virou a asserção mais forte, logo abaixo:
+  // não toca em `alunos` de jeito nenhum. De quebra ela também deixa de
+  // gravar o prefixo 'Ação massiva%', que era justamente o que tornava
+  // PARCIAL a proteção descrita no comentário daquela tela.
   const PONTOS_AUTOMATICOS = [
-    { arquivo: "pages/EnvioGmailLote.jsx", chamada: "camposDeRetornoAutomatico(a.id, proximoDiaUtil(tpl?.dias_retorno || 10))", antigo: "data_retorno: proximoDiaUtil(" },
     { arquivo: "pages/FilaFinanceiro.jsx", chamada: "camposDeRetornoAutomatico(alunoId, daquiA7Dias.toISOString())", antigo: "data_retorno: daquiA7Dias" },
     { arquivo: "pages/PainelAdm.jsx", chamada: "camposDeRetornoAutomatico(alunoId, daquiA7Dias.toISOString())", antigo: "data_retorno: daquiA7Dias" },
   ];
@@ -164,9 +170,23 @@ describe("os pontos de prazo do sistema leem a ficha antes de gravar", () => {
       expect(fonte, arquivo).toContain("...retorno.campos,");
       expect(fonte, arquivo).toContain('status_jornada: "Enviado ao financeiro"');
     }
-    const lote = codigo("pages/EnvioGmailLote.jsx");
-    expect(lote).toContain("...retorno.campos,");
-    expect(lote).toContain('status_jornada: "RETORNAR_DEPOIS"');
+  });
+
+  // Merge do #685: a campanha de e-mail não tabula. A asserção aqui é mais
+  // forte do que a do carimbo -- não é "grava carimbado", é "não grava".
+  // Olha só o CÓDIGO: o comentário daquela tela cita `data_retorno` e
+  // `camposDeRetornoAutomatico` para explicar o que saiu, e asserção de
+  // ausência sobre o arquivo inteiro morderia o próprio comentário.
+  it("a campanha do Gmail em lote não escreve na ficha do aluno", () => {
+    const semComentarios = codigo("pages/EnvioGmailLote.jsx")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+    expect(semComentarios).not.toContain('.from("alunos")');
+    expect(semComentarios).not.toContain("data_retorno");
+    expect(semComentarios).not.toContain("RETORNAR_DEPOIS");
+    // o acionamento continua sendo registrado: é a movimentação que conta
+    expect(semComentarios).toContain('.from("aluno_movimentacoes")');
+    expect(semComentarios).toContain("ACAO_MASSIVA_EXTERNA_EMAIL");
   });
 });
 
