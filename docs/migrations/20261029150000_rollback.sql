@@ -1,0 +1,26 @@
+-- ROLLBACK — 20261029150000_acoes_massivas_guard_zerados_parc
+-- Desfaz o guard inserido na CTE `base` de acoes_massivas_universo().
+--
+-- Como aplicar: executar via Supabase Dashboard > SQL Editor, ou pelo
+-- RUNBOOK-MIGRATIONS.md com a sessão executora autorizada.
+--
+-- O que muda: remove `pre_base` e restaura a versão anterior de `base`.
+-- Tudo o mais da função fica idêntico.
+--
+-- ATENÇÃO: após o rollback os 75 alunos com saldo zero voltam ao universo.
+-- Manter o bloqueio operacional em ACORDOS_VENCIDOS e MENSALIDADES_E_ACORDOS
+-- até nova correção ser aplicada.
+
+-- Para executar: substitua a seção marcada na função com o bloco abaixo,
+-- removendo `pre_base` inteiramente e trocando a CTE `base` pela versão
+-- sem guard:
+--
+--   -- (remover pre_base)
+--   base as materialized (
+--     select x.aluno_id, array_agg(distinct x.ano order by x.ano) as anos
+--       from (select * from tit union select * from parc) x
+--      group by x.aluno_id
+--   ),
+--
+-- A forma mais segura é `create or replace function` com a função inteira,
+-- a partir do arquivo original em supabase/migrations/20260920125244_acoes_massivas_universo.sql.
