@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
+import EfetividadePorVencimento from "../components/EfetividadePorVencimento";
+import EfetividadeCompetencias from "../components/EfetividadeCompetencias";
+import SeisLinhasDaSafra from "../components/SeisLinhasDaSafra";
+import StatusAcademicoPorSafra from "../components/StatusAcademicoPorSafra";
+import CasosPendentes from "../components/CasosPendentes";
 
 // EFETIVIDADE DA COBRANÇA — visão executiva, um layout só para toda safra.
 //
@@ -59,8 +64,11 @@ const AZUL = "var(--rv-azul)", VERDE = "var(--rv-verde-ok)", VERMELHO = "var(--r
 export default function CarteiraEfetividade() {
   const [ano, setAno] = useState("2026");
   const [sem, setSem] = useState("1");
+  // 2026/2 tem duas leituras do MESMO dado: o consolidado do semestre e o
+  // recorte por competência (mês de vencimento da mensalidade). As outras
+  // safras têm só o consolidado.
+  const [vista, setVista] = useState("consolidado");
   const [consolidada, setConsolidada] = useState(null);
-  const [academico, setAcademico] = useState(null);
   const [vigente, setVigente] = useState(null);
   const [contexto, setContexto] = useState(null);
   const [historico, setHistorico] = useState(null);
@@ -77,21 +85,23 @@ export default function CarteiraEfetividade() {
       const quem = sessao?.user?.email || "";
       if (!ativo) return;
       if (!podeVerIndicadores(quem)) { setEmail(quem); setCarregando(false); return; }
-      const [a, b, c, e, f] = await Promise.all([
+      const [indicadores2026_1, negociacoes, contexto2026_2, historicoPorAno] = await Promise.all([
         supabase.rpc("carteira_2026_1_indicadores"),
-        supabase.rpc("carteira_2026_1_academico"),
         supabase.rpc("carteira_2026_2_negociacoes"),
         supabase.rpc("carteira_2026_2_contexto"),
         supabase.rpc("carteira_saldo_historico_por_ano"),
       ]);
       if (!ativo) return;
-      const primeiro = [a, b, c, e, f].find((r) => r.error);
+      // Nomes em vez de a/b/c/e/f: a lista encolheu quando
+      // `carteira_2026_1_academico` saiu, e com letras posicionais um retorno
+      // passaria calado para o estado errado.
+      const respostas = [indicadores2026_1, negociacoes, contexto2026_2, historicoPorAno];
+      const primeiro = respostas.find((r) => r.error);
       if (primeiro) setErro(primeiro.error.message);
-      setConsolidada(a.data?.vazio ? null : a.data);
-      setAcademico(b.data || null);
-      setVigente(c.data || null);
-      setContexto(e.data || null);
-      setHistorico(f.data || null);
+      setConsolidada(indicadores2026_1.data?.vazio ? null : indicadores2026_1.data);
+      setVigente(negociacoes.data || null);
+      setContexto(contexto2026_2.data || null);
+      setHistorico(historicoPorAno.data || null);
       setEmail(quem);
       setCarregando(false);
     })();
@@ -143,7 +153,13 @@ export default function CarteiraEfetividade() {
       { rotulo: "Convertido", valor: f.efetividade, cor: AZUL },
       { rotulo: "Em aberto sem negociação", valor: f.inadimplencia, cor: VERMELHO },
       { rotulo: "Em conferência", valor: f.em_validacao, cor: AMBAR },
-      { rotulo: "Ajuste acadêmico", valor: f.academico, cor: CINZA },
+      // Desde 06/10/2026 esta faixa carrega duas coisas: o ajuste acadêmico de
+      // sempre e a cobrança encerrada administrativamente, que o classificador
+      // põe em FORA_DA_BASE e que antes não entrava em faixa nenhuma — por isso
+      // as barras não fechavam 100% da base. É a mesma regra que a visão das
+      // seis linhas aplica na linha "Cancelado". O rótulo diz as duas; a
+      // decomposição vem em `academico_detalhe`, para auditoria.
+      { rotulo: "Encerrado / ajuste acadêmico", valor: f.academico, cor: CINZA },
     ];
     referenciaRotulo = "da carteira congelada";
     rodape = "Carteira de " + moeda(base) + " · congelada em " + data(consolidada.base?.congelada_em)
@@ -154,7 +170,23 @@ export default function CarteiraEfetividade() {
     const t = vigente.total || {};
     referencia = Number(t.negociado || 0);
     indicadores = [
-      { rotulo: "Valor negociado", valor: moedaCurta(t.negociado), apoio: num(t.titulos) + " títulos negociados", cor: AZUL },
+      // "268 títulos negociados" era verdade e ainda assim confundia: a outra
+      // visão da MESMA tela conta 2.522 mensalidades, e ninguém sabia que uma é
+      // recorte da outra. Medido em 29/09: as duas consultas usam o MESMO
+      // recorte de 2026/2 -- mesma série do Prime, mesmo fallback por
+      // vencimento, mesmas exclusões -- e diferem numa linha só, o INNER JOIN
+      // em acordo aqui. O Consolidado é subconjunto perfeito: zero títulos só
+      // nele. Declarar a base resolve a leitura sem tocar em conta nenhuma.
+      //
+      // Os dois números vêm das consultas, nunca escritos à mão: se a carteira
+      // crescer, o texto acompanha. Sem o contexto carregado, some a segunda
+      // metade em vez de mostrar "de 0".
+      { rotulo: "Valor negociado", valor: moedaCurta(t.negociado),
+        apoio: "Mensalidades com acordo: " + num(t.titulos)
+             + (Number(contexto?.carteira_titulos) > 0
+                  ? " de " + num(contexto.carteira_titulos) + " da carteira"
+                  : ""),
+        cor: AZUL },
       { rotulo: "Valor recebido", valor: moedaCurta(t.recebido), apoio: pctTexto(t.recebido, t.negociado, 1) + " do negociado", cor: VERDE },
       { rotulo: "Alunos negociados", valor: num(t.cpfs) + " alunos", apoio: num(t.acordos) + " acordos", cor: "var(--rv-tinta)" },
       { rotulo: "Saldo negociado", valor: moedaCurta(t.saldo), apoio: "ainda a receber", cor: AMBAR },
@@ -166,7 +198,10 @@ export default function CarteiraEfetividade() {
     }));
     referenciaRotulo = "do valor negociado";
     rodape = "Carteira recebida: " + moedaCurta(contexto?.carteira_valor) + " · "
-           + num(contexto?.carteira_titulos) + " títulos · " + num(contexto?.carteira_cpfs) + " alunos · "
+           // "CPFs", não "alunos": este número conta CPF e os cartões por
+           // vencimento contam ficha do CRM. Dizer qual é qual custa uma
+           // palavra; deixar os dois como "alunos" custa a confiança no painel.
+           + num(contexto?.carteira_titulos) + " títulos · " + num(contexto?.carteira_cpfs) + " CPFs · "
            + num(contexto?.remessas) + " remessas (" + data(contexto?.primeira_remessa) + " a "
            + data(contexto?.ultima_remessa) + ")";
   }
@@ -194,10 +229,8 @@ export default function CarteiraEfetividade() {
            + data(historico?.prime_coletado_em);
   }
 
-  // perfil dos alunos: só existe para 2026/1 (a coleta acadêmica cobre a carteira em aberto dessa safra).
-  // Em 2024/2025 o mesmo lugar mostra de que curso vem o saldo em aberto.
-  const perfil = safra === "2026/1" ? (academico?.categorias || []) : null;
-  const perfilTotal = Number(academico?.total?.cpfs || 0);
+  // De que curso vem o saldo em aberto — só 2024/2025. A situação acadêmica
+  // de qualquer safra mora em "Alunos por status", dentro de SeisLinhasDaSafra.
   const cursos = hist ? (hist.cursos || []) : null;
   const cursosTotal = Number(hist?.aberto?.valor || 0);
 
@@ -246,6 +279,26 @@ export default function CarteiraEfetividade() {
           ) : (
             <span style={S.chip}>Ano inteiro: em 2024 e 2025 os dois semestres são lidos juntos.</span>
           )}
+          {/* Só 2026/2 tem recorte por competência: é a safra em curso, em que
+              as mensalidades do mês ainda estão entrando em cobrança. */}
+          {ano === "2026" && sem === "2" ? (
+            <div style={S.navBloco}>
+              <span style={S.navRotulo}>Visão</span>
+              <div style={S.grupo} role="group" aria-label="Visão de 2026/2">
+                {/* Três leituras de 2026/2, nunca duas ao mesmo tempo na tela.
+                    "Por competência" e "Resumo por vencimento" quebram o mesmo
+                    universo pelo mesmo mês, mas respondem a perguntas
+                    diferentes: uma decompõe em Convertido/Conferência/
+                    Acadêmico/Sem negociação, a outra em Entrou/Pago/Negociado/
+                    Cancelado/Em aberto. Nenhuma recalcula a outra. */}
+                {[["consolidado", "Consolidado"], ["competencia", "Por competência"],
+                  ["vencimento", "Resumo por vencimento"]].map(([k, r]) => (
+                  <button key={k} onClick={() => setVista(k)} aria-pressed={vista === k}
+                          style={{ ...S.opcao, ...(vista === k ? S.opcaoAtiva : null) }}>{r}</button>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
         <div style={S.periodo}>
           <strong style={S.periodoValor}>{periodo}</strong>
@@ -255,7 +308,15 @@ export default function CarteiraEfetividade() {
 
       {erro ? <p style={S.erro}>{erro}</p> : null}
 
-      {indicadores.length === 0 ? (
+      {safra === "2026/2" && vista === "competencia" ? (
+        <div style={{ marginTop: 18 }}>
+          <EfetividadeCompetencias />
+        </div>
+      ) : safra === "2026/2" && vista === "vencimento" ? (
+        <div style={{ marginTop: 18 }}>
+          <EfetividadePorVencimento />
+        </div>
+      ) : indicadores.length === 0 ? (
         <p style={{ ...S.discreto, marginTop: 24 }}>Sem dados para {periodo}.</p>
       ) : (
         <>
@@ -271,6 +332,22 @@ export default function CarteiraEfetividade() {
             ))}
           </div>
           {rodape ? <p style={S.rodapeDiscreto}>{rodape}</p> : null}
+
+          {/* 1b. AS SEIS LINHAS — Entrou, Pago, Negociado, Cancelado, Em aberto
+              e Pendente, no mesmo desenho de 2026/2. Pedido da gestão em
+              05/10/2026: a Diretoria encontra as mesmas seis linhas em toda
+              safra, em vez de um recorte conceitual diferente por período. */}
+          <SeisLinhasDaSafra ano={ano} semestre={ano === "2026" ? sem : null} />
+
+          {/* 1c. STATUS ACADEMICO POR SAFRA — 2024, 2025 e 2026/1 lado a lado.
+              Fora de 2026/2 de proposito: aquela safra nao tem perfil academico,
+              e o card compara exatamente as tres que tem fotografia. */}
+          {safra !== "2026/2" ? <StatusAcademicoPorSafra /> : null}
+
+          {/* 1d. CASOS AINDA PENDENTES — indicador operacional da carteira
+              inteira, nao por safra. Aparece em qualquer recorte de proposito:
+              o numero e o mesmo, e o cabecalho diz isso. */}
+          <CasosPendentes />
 
           {/* 2. SITUAÇÃO DA CARTEIRA — sempre barras simples, nunca tabela */}
           <section style={S.cartao}>
@@ -304,16 +381,20 @@ export default function CarteiraEfetividade() {
             </div>
           </section>
 
-          {/* 3. PERFIL DOS ALUNOS (2026/1) ou, em 2024/2025, de que curso vem o saldo em aberto */}
+          {/* 3. DE QUE CURSO VEM O SALDO EM ABERTO — só 2024/2025.
+              Em 2026/1 esta seção mostrava "Perfil dos alunos", que é a MESMA
+              situação acadêmica que `SeisLinhasDaSafra` já desenha em "Alunos
+              por status" logo acima: o mesmo conteúdo duas vezes, com dois
+              títulos. Ficou o bloco novo, que vale para toda safra. */}
+          {cursos ? (
           <section style={S.cartao}>
             <div style={S.cartaoCabecalho}>
-              <h2 style={S.h2}>{cursos ? "Saldo em aberto por curso" : "Perfil dos alunos"}</h2>
+              <h2 style={S.h2}>Saldo em aberto por curso</h2>
               {cursos && cursosTotal > 0 ? (
                 <span style={S.cartaoApoio}>% do saldo em aberto · {moeda(cursosTotal)}</span>
               ) : null}
             </div>
-            {cursos ? (
-              cursos.length > 0 ? (
+            {cursos.length > 0 ? (
                 <div>
                   {cursos.map((c) => {
                     const share = cursosTotal > 0 ? (Number(c.valor || 0) / cursosTotal) * 100 : 0;
@@ -346,36 +427,15 @@ export default function CarteiraEfetividade() {
                 </div>
               ) : (
                 <p style={{ ...S.discreto, marginTop: 8 }}>Sem saldo em aberto neste ano</p>
-              )
-            ) : perfil && perfil.length > 0 ? (
-              <div>
-                {perfil.map((c) => (
-                  <div key={c.categoria} style={S.linha}>
-                    <div style={S.linhaTopo}>
-                      <span style={S.linhaRotulo}>
-                        <span style={{ ...S.ponto, background: AZUL }} />{c.categoria}
-                      </span>
-                      <strong style={S.linhaValor}>{num(c.cpfs)} alunos</strong>
-                      <span style={{ ...S.linhaPct, color: AZUL }}>
-                        {Number(c.pct_cpfs).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%
-                      </span>
-                    </div>
-                    <div style={S.trilho}>
-                      <div style={{ ...S.barraPreenchida, width: Math.min(Number(c.pct_cpfs), 100) + "%",
-                                    minWidth: Number(c.cpfs || 0) > 0 ? 4 : 0, background: AZUL }} />
-                    </div>
-                  </div>
-                ))}
-                <p style={{ ...S.discreto, marginTop: 10 }}>
-                  {num(perfilTotal)} alunos com pendência nesta carteira. Situação acadêmica do Prime.
-                </p>
-              </div>
-            ) : (
-              <p style={{ ...S.discreto, marginTop: 8 }}>Informação acadêmica não disponível para este período</p>
-            )}
+              )}
           </section>
+          ) : null}
 
-          {/* 4. METODOLOGIA — tudo o que é técnico mora aqui */}
+        </>
+      )}
+
+      {/* 4. METODOLOGIA — tudo o que é técnico mora aqui, e vale para as duas
+          visões de 2026/2: consolidado e por competência. */}
           <div style={{ marginTop: 20 }}>
             <button onClick={() => setMetodologia((v) => !v)} aria-expanded={metodologia}
                     style={S.linkMetodologia}>
@@ -449,11 +509,26 @@ export default function CarteiraEfetividade() {
                   que ainda têm pendência na carteira. Matrícula confirmada com dívida aberta aparece como exceção — o
                   aluno só efetiva matrícula com a ficha regularizada — e o painel não afirma a razão da exceção.
                 </p>
+                <p style={S.texto}>
+                  <strong>2026/2 por competência.</strong> Mesmo dado do consolidado, quebrado pelo mês de
+                  competência da mensalidade — o mês do vencimento. Não é o borderô, que é artefato interno de
+                  importação e não identifica nada para quem lê: quatro borderôs caem em agosto de 2026 e quatro em
+                  julho, e o que os separa é a modalidade, que só existe dentro do nome do arquivo. Também não é a
+                  coluna de competência do título, que está nula em toda a safra. O título pertence ao semestre pela
+                  série de cobrança do Prime e, só onde a série não existe, pelo vencimento — nunca pela data em que o
+                  arquivo foi importado nem pelo semestre do cadastro do aluno, que rotula o aluno inteiro e não serve
+                  como dimensão de carteira.
+                  <em>Entradas</em> é entrada na carteira, não entrada financeira de acordo. <em>Recuperado</em> é a
+                  mesma recuperação financeira do consolidado: o valor original rateado pelo percentual de parcelas
+                  pagas do acordo, ou o valor original menos o saldo quando o próprio título está pago — nunca acima do
+                  valor original. <em>Cancelados</em> conta o título cuja cobrança saiu da base; acordo cancelado é
+                  outro conceito, fica em campo próprio e não retira o que já havia sido convertido, porque a conversão
+                  é histórica. Recuperação e conversão têm a mesma base declarada em cada card: o valor original que
+                  entrou naquela competência.
+                </p>
               </div>
             ) : null}
           </div>
-        </>
-      )}
     </div>
   );
 }

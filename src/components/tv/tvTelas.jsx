@@ -1,8 +1,11 @@
 import {
-  Tela, IndicadorCard, CardMeta, MetaCard, Ranking, DestaqueOperador,
+  Tela, IndicadorCard, Ranking, DestaqueOperador,
   MensagemInstitucional, Aviso, Treinamento, Conquista,
   moeda, num, statusRitmo, T, fs, layout,
 } from "./tvUI";
+import TelaMetaDoMes from "./tvMetaDoMes";
+import TelaMetas from "./tvMetas";
+import TelaMagicNumber from "./tvMagicNumber";
 
 // =============================================================================
 // TV ReATIVA — TELAS (Etapa 3: regras detalhadas)
@@ -89,20 +92,6 @@ function TelaResultadoMes({ snap }) {
         <IndicadorCard rotulo="Necessário por dia útil" valor={necTxt} tom={m.meta_atingida ? "verde" : "ambar"} />
       </div>
       <Vazio>{m.estimativa_aviso || "Projeção estimada com base no ritmo atual."}</Vazio>
-    </Tela>
-  );
-}
-
-// 3) Metas --------------------------------------------------------------------
-function TelaMetas({ snap }) {
-  // So a meta do mes. O "Marco historico" e um acumulado de R$ 3 mi, ja batido
-  // (113%), que nao traz referencia do mes e confundia quem assistia.
-  // Decisao da gestao em 11/09/2026.
-  const metas = (snap?.metas || []).filter((m) => m?.id !== "marco");
-  return (
-    <Tela titulo="Metas" icone="🎯">
-      {metas.length === 0 ? <Vazio>Sem registro no snapshot atual.</Vazio>
-        : metas.map((meta) => <CardMeta key={meta.id} meta={meta} />)}
     </Tela>
   );
 }
@@ -307,26 +296,6 @@ function TelaAcionamentosDia({ snap }) {
   );
 }
 
-// 7d) Magic Number — meta de superação = 150% da meta de honorários ----------
-//     Calculado no cliente a partir de mes.meta_empresa (não precisa backend).
-function TelaMagicNumber({ snap }) {
-  const m = snap?.mes || {};
-  const meta = Number(m.meta_empresa || 0);
-  if (!meta) return <Tela titulo="Magic Number" icone="✨"><Vazio>Meta não cadastrada nesta atualização.</Vazio></Tela>;
-  const alvo = Math.round(meta * 1.5);
-  const real = Number(m.honorarios || 0);
-  const pct = alvo > 0 ? (real / alvo) * 100 : null;
-  const falta = Math.max(0, alvo - real);
-  const detalhe = real >= alvo
-    ? "Magic batido! Superação total da meta 🚀"
-    : `Faltam ${moeda(falta)} para o Magic (150% da meta)`;
-  return (
-    <Tela titulo="Magic Number" icone="✨">
-      <MetaCard titulo="Magic Number — 150% da meta" valor={moeda(real)} alvo={moeda(alvo)} pct={pct} detalhe={detalhe} />
-    </Tela>
-  );
-}
-
 // 8) Elogios de atendimento (aprovados para a TV) ----------------------------
 //    Fonte: snap.elogios (aluno_movimentacoes com elogio_aprovado_tv). Só TEXTO
 //    — quem foi elogiado e quando. O print fica na aprovação; a TV celebra o nome.
@@ -394,6 +363,110 @@ function TelaAniversarioDestaque({ snap }) {
             {d.mensagem || "Feliz aniversário! Que seu dia seja especial."}
           </div>
         </div>
+      </div>
+    </Tela>
+  );
+}
+
+// 10) Playlist ReATIVA ---------------------------------------------------------
+// eslint-disable-next-line react-refresh/only-export-components
+function TelaPlaylistReativa({ snap }) {
+  const itens = snap?.playlist_reativa || [];
+  if (itens.length === 0) return <Tela titulo="Playlist ReATIVA" icone="🎵"><Vazio>Nenhuma música adicionada nesta atualização.</Vazio></Tela>;
+  const atual = itens[0];
+  const proximas = itens.slice(1, 4);
+  return (
+    <Tela titulo="Playlist ReATIVA" icone="🎵">
+      <MensagemInstitucional
+        badge="Música da vez"
+        titulo={atual.titulo}
+        texto={`${atual.artista} · escolhida por ${atual.adicionado_por || "Equipe ReATIVA"}`}
+      />
+      {proximas.length > 0 && (
+        <div style={{ display: "flex", gap: "1.4vw", justifyContent: "center", width: "88%", flexWrap: "nowrap" }}>
+          {proximas.map((m, i) => (
+            <div key={m.id || i} style={{ ...layout.card, flex: "1 1 0", minWidth: 0, alignItems: "flex-start", gap: "0.7vh" }}>
+              <span style={{ fontSize: fs(10, 1, 20), fontWeight: 900, letterSpacing: "0.12em", color: T.textoMudo }}>PLAYLIST</span>
+              <strong style={{ fontSize: fs(17, 2, 46), color: T.texto, lineHeight: 1.1 }}>{m.titulo}</strong>
+              <span style={{ fontSize: fs(12, 1.3, 28), color: T.textoSuave, fontWeight: 700 }}>{m.artista}</span>
+              <span style={{ fontSize: fs(10, 1.05, 22), color: T.textoMudo }}>Por {m.adicionado_por || "Equipe"}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Tela>
+  );
+}
+
+// 12) Dicas de abordagem ------------------------------------------------------
+// O backend ja montava `dicas` no snapshot -- 8 itens com titulo, texto e
+// categoria -- e NENHUMA tela lia essa chave. O dado existia e nunca aparecia.
+// Rotaciona pelo numero da atualizacao para nao mostrar sempre as mesmas.
+// eslint-disable-next-line react-refresh/only-export-components
+function TelaDicas({ snap }) {
+  const itens = snap?.dicas || [];
+  if (itens.length === 0) return <Tela titulo="Dicas de Abordagem" icone="💡"><Vazio>Nenhuma dica cadastrada.</Vazio></Tela>;
+  // A cada atualizacao do snapshot a vitrine anda: com 8 dicas e 3 por vez,
+  // todas passam pela TV em vez de so as tres primeiras.
+  const giro = Number(snap?.versao ?? snap?.dados?.versao ?? 0) || 0;
+  const inicio = itens.length > 0 ? (giro * 3) % itens.length : 0;
+  const mostra = Array.from({ length: Math.min(3, itens.length) }, (_, i) => itens[(inicio + i) % itens.length]);
+  const destaque = mostra[0];
+  const demais = mostra.slice(1);
+  return (
+    <Tela titulo="Dicas de Abordagem" icone="💡">
+      <MensagemInstitucional
+        badge={destaque.categoria || "Dica"}
+        titulo={destaque.titulo}
+        texto={destaque.texto}
+      />
+      {demais.length > 0 && (
+        <div style={{ display: "flex", gap: "1.4vw", justifyContent: "center", width: "88%", flexWrap: "nowrap" }}>
+          {demais.map((d, i) => (
+            <div key={d.id || i} style={{ ...layout.card, flex: "1 1 0", minWidth: 0, alignItems: "flex-start", gap: "0.7vh" }}>
+              <span style={{ fontSize: fs(10, 1, 20), fontWeight: 900, letterSpacing: "0.12em", color: T.textoMudo }}>
+                {(d.categoria || "DICA").toUpperCase()}
+              </span>
+              <strong style={{ fontSize: fs(17, 2, 46), color: T.texto, lineHeight: 1.1 }}>{d.titulo}</strong>
+              <span style={{ fontSize: fs(12, 1.3, 28), color: T.textoSuave, fontWeight: 700, lineHeight: 1.25 }}>{d.texto}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Tela>
+  );
+}
+
+// 11) Próximos eventos do Portal ---------------------------------------------
+// eslint-disable-next-line react-refresh/only-export-components
+function TelaEventosPortal({ snap }) {
+  const eventos = snap?.eventos_portal || [];
+  if (eventos.length === 0) return <Tela titulo="Próximos Eventos" icone="📅"><Vazio>Nenhum evento futuro cadastrado.</Vazio></Tela>;
+
+  const fmt = (iso) => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleString("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+      day: "2-digit", month: "2-digit",
+      hour: "2-digit", minute: "2-digit",
+    });
+  };
+
+  return (
+    <Tela titulo="Próximos Eventos" icone="📅">
+      <div style={{ display: "grid", gridTemplateColumns: eventos.length > 3 ? "1fr 1fr" : "1fr", gap: "1.4vh 1.5vw", width: "88%" }}>
+        {eventos.slice(0, 6).map((e, i) => (
+          <div key={e.id || i} style={{ ...layout.card, display: "flex", flexDirection: "row", alignItems: "center", gap: "1.4vw" }}>
+            <div style={{ fontSize: fs(14, 1.5, 34), fontWeight: 900, color: T.azulClaro, minWidth: "8.5vw", fontVariantNumeric: "tabular-nums" }}>
+              {fmt(e.inicio_em)}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.3vh", minWidth: 0 }}>
+              <strong style={{ fontSize: fs(16, 1.8, 42), color: T.texto, lineHeight: 1.1 }}>{e.titulo}</strong>
+              <span style={{ fontSize: fs(10, 1.05, 22), color: T.textoMudo, fontWeight: 700 }}>{e.categoria || "Operação"}</span>
+            </div>
+          </div>
+        ))}
       </div>
     </Tela>
   );
@@ -537,8 +610,11 @@ export const CATALOGO_TELAS = [
   { id: "resultado", nome: "Resultado do Mês", Comp: TelaResultadoMes, ativa: true, grupo: "operacao",
     descricao: "Acumulado do mês, projeção de fechamento e ritmo necessário.",
     temConteudo: (s) => !!s?.mes },
+  { id: "meta_do_mes", nome: "Meta do Mês", Comp: TelaMetaDoMes, ativa: true, grupo: "operacao",
+    descricao: "Tela dedicada da meta: % atingido no anel, realizado, falta, dias úteis restantes e necessário por dia útil.",
+    temConteudo: (s) => Number(s?.mes?.meta_empresa || 0) > 0 },
   { id: "metas", nome: "Metas", Comp: TelaMetas, ativa: false, grupo: "operacao",
-    descricao: "Cards de metas (empresa, magic, marco histórico).",
+    descricao: "Meta do mês no anel (meta, realizado, % e falta) e as demais metas numa faixa compacta.",
     temConteudo: (s) => (s?.metas || []).length > 0 },
   { id: "premiacao", nome: "Premiação", Comp: TelaPremiacao, ativa: false, grupo: "operacao",
     descricao: "Faixas de comissão do mês (M1 a M4).",
@@ -556,9 +632,12 @@ export const CATALOGO_TELAS = [
   { id: "aniversariantes", nome: "Aniversariantes", Comp: TelaAniversariantes, ativa: true, grupo: "pessoas",
     descricao: "Aniversariantes do mês (ou do dia, com destaque).",
     temConteudo: (s) => (s?.aniversariantes || []).length > 0 || (s?.aniversariantes_hoje || []).length > 0 },
+  // O alvo deixou de ser meta x 1,5 em 06/10/2026: virou valor próprio da
+  // competência (magic_number_mensal). Sem valor cadastrado, o slide some do
+  // rodízio em vez de mostrar um número derivado da meta.
   { id: "magic_number", nome: "Magic Number", Comp: TelaMagicNumber, ativa: true, grupo: "operacao",
-    descricao: "Meta de superação = 150% da meta de honorários.",
-    temConteudo: (s) => Number(s?.mes?.meta_empresa || 0) > 0 },
+    descricao: "Magic Number da competência: valor próprio, com o mesmo realizado de honorários da meta do mês.",
+    temConteudo: (s) => Number(s?.magic?.valor || 0) > 0 },
   { id: "destaque_semana", nome: "Destaque da Semana", Comp: TelaDestaqueSemana, ativa: true, grupo: "operacao",
     descricao: "Campeão da semana por pagamentos únicos (com vice e 3º).",
     temConteudo: (s) => (s?.dados?.ranking_semana || []).length > 0 },
@@ -571,6 +650,15 @@ export const CATALOGO_TELAS = [
   { id: "avisos", nome: "Avisos", Comp: TelaAvisos, ativa: true, grupo: "comunicacao",
     descricao: "Recados e avisos — editados na seção \"Mensagem / Avisos\" abaixo.",
     temConteudo: (s) => (s?.avisos || []).length > 0 },
+  { id: "playlist_reativa", nome: "Playlist ReATIVA", Comp: TelaPlaylistReativa, ativa: true, grupo: "pessoas",
+    descricao: "Música da vez e últimas escolhas da equipe. Não exibe indicadores financeiros individuais.",
+    temConteudo: (s) => (s?.playlist_reativa || []).length > 0 },
+  { id: "eventos_portal", nome: "Próximos Eventos", Comp: TelaEventosPortal, ativa: true, grupo: "comunicacao",
+    descricao: "Eventos futuros cadastrados na Visão Geral do Portal.",
+    temConteudo: (s) => (s?.eventos_portal || []).length > 0 },
+  { id: "dicas", nome: "Dicas de Abordagem", Comp: TelaDicas, ativa: true, grupo: "comunicacao",
+    descricao: "Dicas de sondagem e negociação já cadastradas. Gira a cada atualização para todas aparecerem.",
+    temConteudo: (s) => (s?.dicas || []).length > 0 },
   // --- estrutura pronta, EM CONSTRUÇÃO (mostram apenas "Em breve") ---
   { id: "hall", nome: "Hall da Fama", Comp: TelaHallFama, ativa: false, grupo: "construcao", placeholder: true,
     descricao: "Em construção — ainda sem conteúdo real.", temConteudo: sempre },

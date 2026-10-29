@@ -34,6 +34,17 @@ export const STATUS_CONCILIACAO = {
     rotulo: "Sem vínculo",
     explica: "a linha não trouxe boleto utilizável",
   },
+  // Os dois estados abaixo entraram no CHECK do banco depois (20260914190000 e
+  // 20260915120000) e continuavam sem rotulo aqui: a tela caia em SEM_ESTADO e
+  // dizia "Anterior à regra" para uma linha que TEM estado, e recente.
+  ACORDO_CONFIRMADO_SEM_ESTRUTURA: {
+    rotulo: "Acordo confirmado, sem estrutura",
+    explica: "a negociação está provada no portador 166, mas o acordo não existe no CRM e a estrutura não veio pela API",
+  },
+  TITULO_ORIGINAL_LIQUIDADO: {
+    rotulo: "Título liquidado na origem",
+    explica: "a dívida-mãe fechou na Prime; nenhum acordo ou parcela foi criado deste lado",
+  },
 };
 
 // Linha anterior a 14/09/2026 nao tem estado, e a tela diz isso em vez de
@@ -67,8 +78,57 @@ export function podeVincularAluno(item) {
 export const ACOES_DA_FILA = {
   REGISTRAR_ACORDO_AVISTA: "Registrar acordo à vista",
   VINCULAR_ALUNO: "Vincular aluno",
+  // Continua aqui porque `conciliacao_encerrar` segue no banco para as rotinas
+  // e para os casos ja encerrados por ela. Saiu da TELA em 23/09/2026.
   ENCERRAR_PENDENCIA: "Encerrar pendência",
+  FEITO: "Feito",
+  REJEITAR: "Rejeitar",
 };
+
+// AS DUAS SAIDAS DA FILA MANUAL (23/09/2026). Substituem "Encerrar pendência"
+// na tela: a gestao pediu duas decisoes distintas, cada uma com categoria.
+// Os valores espelham o catalogo fechado da migration 20260923020000 -- se um
+// lado mudar sem o outro, o banco recusa.
+export const CONCLUSOES_FEITO = [
+  { valor: "ENTRADA_DE_ACORDO", rotulo: "Confirmado como entrada de acordo" },
+  { valor: "PARCELA_DE_ACORDO", rotulo: "Confirmado como parcela de acordo" },
+  { valor: "JA_TRATADO", rotulo: "Pagamento já tratado corretamente" },
+  { valor: "SEM_IMPACTO_FINANCEIRO", rotulo: "Sem impacto financeiro atual" },
+  { valor: "OUTRO_CONFIRMADO", rotulo: "Outro motivo confirmado" },
+];
+
+export const MOTIVOS_REJEICAO = [
+  { valor: "NAO_E_ENTRADA_DE_ACORDO", rotulo: "Não é entrada de acordo" },
+  { valor: "NAO_PERTENCE_AO_ACORDO", rotulo: "Não pertence ao acordo indicado" },
+  { valor: "SEM_ESTRUTURA_SUFICIENTE", rotulo: "Pagamento sem estrutura suficiente" },
+  { valor: "DOCUMENTO_INCOMPATIVEL", rotulo: "Boleto/documento incompatível" },
+  { valor: "VALOR_INCOMPATIVEL", rotulo: "Valor incompatível" },
+  { valor: "OUTRO", rotulo: "Outro" },
+];
+
+// "Outro" sem explicacao encerra a linha sem deixar como relê-la depois. O
+// banco recusa dos dois lados; aqui a tela avisa antes de tentar.
+const EXIGE_OBSERVACAO = new Set(["OUTRO_CONFIRMADO", "OUTRO"]);
+
+export const FEITO_AVISO =
+  "Conclui a conferência e tira a linha da fila. Não baixa parcela, não altera acordo, saldo nem mensalidade.";
+
+export const REJEITAR_AVISO =
+  "Decisão de revisão: NÃO apaga nada e NÃO desfaz o pagamento. Só registra o motivo e tira a linha da fila.";
+
+// Uma regra so, usada pelo botao e pelo teste -- para a tela nunca discordar
+// do que o banco vai aceitar.
+export function finalizacaoInvalida({ acao, escolha, observacao }) {
+  const obs = (observacao || "").trim();
+  if (acao === "REJEITAR" && !escolha) return "Escolha o motivo da rejeição.";
+  if (acao === "FEITO" && !escolha) return "Escolha a conclusão.";
+  if (EXIGE_OBSERVACAO.has(escolha) && obs === "") {
+    return acao === "REJEITAR"
+      ? 'O motivo "Outro" exige observação.'
+      : 'A conclusão "Outro motivo confirmado" exige observação.';
+  }
+  return null;
+}
 
 // ENCERRAR NAO E ACAO TECNICA (17/09/2026). E a saida da gestao para a linha
 // que nao tem mais o que o sistema resolva sozinho: tira da fila ativa e para
@@ -244,3 +304,125 @@ export function contarPorStatus(linhas) {
   }
   return conta;
 }
+
+// CONFERENCIA MANUAL DA LINHA (23/09/2026). A gestao decidiu NAO reclassificar
+// os 34 `AGUARDANDO_ACORDO` por rotina e conferir um a um -- entao a linha
+// precisa mostrar, sem sair da fila, o que existe de fato sobre o pagamento.
+//
+// Tudo aqui e LEITURA de `pagamentos_sem_aluno.evidencias`, que o banco monta
+// a partir do que ja esta gravado. Nenhum item sugere acao nem vira vinculo:
+// sao fatos, e quem conclui e a pessoa.
+//
+// Item sem resposta NAO vira linha. "Não" e um fato; ausencia de dado nao e --
+// e mostrar "—" ao lado de um rotulo afirmativo faria parecer resposta.
+export function evidenciasDaLinha(item) {
+  const e = (item && item.evidencias) || {};
+  const linhas = [];
+
+  if (e.acordo_prefixo) {
+    linhas.push({
+      chave: "acordo_no_crm",
+      rotulo: "Acordo no CRM",
+      valor: e.acordo_no_crm
+        ? `sim · ${e.acordo_status || "sem status"}`
+        : "não — o acordo deste boleto não existe aqui",
+      alerta: !e.acordo_no_crm,
+    });
+  }
+  if (typeof e.parcela_com_este_boleto === "boolean") {
+    linhas.push({
+      chave: "parcela",
+      rotulo: "Parcela com este boleto",
+      valor: e.parcela_com_este_boleto ? `sim · ${e.parcela_status || "sem status"}` : "não",
+      // Alerta so quando a AUSENCIA e noticia: com o acordo no CRM, faltar a
+      // parcela e o problema em si (falta amarrar). Sem o acordo no CRM, a
+      // parcela nao existir e consequencia -- pintar as duas de vermelho faria
+      // o estado normal de "aguardando acordo" parecer duas falhas.
+      alerta: !e.parcela_com_este_boleto && e.acordo_no_crm === true,
+    });
+  }
+  if (typeof e.cpf_no_portador_166 === "boolean") {
+    linhas.push({
+      chave: "portador_166",
+      rotulo: "CPF no portador 166",
+      // O 166 e a carteira de negociacao: o CPF estar la prova que houve
+      // acordo, mesmo quando a estrutura dele nunca chegou ao CRM.
+      valor: e.cpf_no_portador_166 ? "sim — negociação confirmada" : "não",
+    });
+  }
+  if (e.consulta_estrutura) {
+    linhas.push({
+      chave: "estrutura",
+      rotulo: "Consulta de estrutura no Prime",
+      valor: ROTULO_CONSULTA_ESTRUTURA[e.consulta_estrutura] || e.consulta_estrutura,
+    });
+  }
+  if (e.documento) {
+    linhas.push({ chave: "documento", rotulo: "Documento", valor: e.documento });
+  }
+  if (Number(e.tentativas) > 0) {
+    linhas.push({
+      chave: "tentativas",
+      rotulo: "Avaliações automáticas",
+      valor: `${e.tentativas}${e.ultima_tentativa_em ? ` · última em ${dataHoraCurta(e.ultima_tentativa_em)}` : ""}`,
+    });
+  }
+  if (e.evidencia_origem) {
+    linhas.push({
+      chave: "origem",
+      rotulo: "Origem da evidência",
+      valor: ROTULO_EVIDENCIA_ORIGEM[e.evidencia_origem] || e.evidencia_origem,
+    });
+  }
+  if (linhas.length === 0) {
+    return [{ chave: "nenhuma", rotulo: "Evidências", valor: "nenhuma registrada até agora" }];
+  }
+  return linhas;
+}
+
+export const ROTULO_CONSULTA_ESTRUTURA = {
+  NAO_ENCONTRADA: "não encontrada — a API do Prime não devolve a estrutura",
+  ENCONTRADA: "encontrada",
+  ERRO: "erro na consulta",
+};
+
+export const ROTULO_EVIDENCIA_ORIGEM = {
+  PRIME_PORTADOR_MEMBRO: "espelho do portador 166",
+  PRIME_API_LIVE: "consulta ao vivo à API do Prime",
+};
+
+function dataHoraCurta(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+}
+
+// REGRA DE CONFERENCIA, registrada pela gestao em 23/09/2026:
+//
+//   "se o numero do acordo identificado no boleto for mais novo que o maior
+//    acordo existente do aluno no CRM, nao forcar vinculo com acordo antigo"
+//
+// POR QUE ELA EXISTE. O boleto de acordo e 5 + acordo(6) + parcela(4), entao o
+// prefixo diz de QUAL acordo aquele pagamento e. Quando esse numero e maior que
+// todos os que o aluno tem aqui, o pagamento e de um acordo que o CRM ainda nao
+// recebeu -- re-acordo. A parcela antiga que "quase bate" no valor e de outro
+// acordo, e casar as duas seria inventar um vinculo.
+//
+// MEDIDO na fila de 23/09/2026: dos 39 pendentes, 34 caem nesta situacao --
+// 21 alunos sem acordo nenhum no CRM e 13 com acordo do boleto mais novo. So 2
+// eram conciliacao de verdade. Nao e excecao: e a maioria.
+//
+// COMO DECIDIR. Classificar como acordo/re-acordo AUSENTE do CRM -- FEITO com
+// "Confirmado como entrada de acordo" ou "Confirmado como parcela de acordo",
+// conforme a tela do Prime mostrar -- e escrever o NUMERO IDENTIFICADO na
+// observacao. E esse numero que permite reencontrar o caso quando o acordo
+// finalmente entrar; sem ele a decisao vira um "conferido" sem rastro.
+//
+// O que NAO fazer: vincular ao acordo antigo, criar parcela para receber o
+// pagamento, ou baixar contra a parcela de outro acordo porque o valor parece.
+// Valor parecido nao e prova -- aqui as duas variaveis independentes (numero do
+// acordo e vencimento) dizem que sao coisas diferentes.
+export const REGRA_ACORDO_MAIS_NOVO =
+  "Se o acordo do boleto for mais novo que o maior acordo do aluno no CRM, é re-acordo ausente: " +
+  "não vincular ao acordo antigo. Concluir como entrada/parcela de acordo e anotar o número na observação.";

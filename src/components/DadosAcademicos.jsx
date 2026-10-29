@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import Dobra from "../ui/blocos";
+import SituacaoAcademicaPrime from "./SituacaoAcademicaPrime";
 
 // Bloco DADOS ACADEMICOS — so leitura, no TOPO da ficha (sempre visivel,
 // fora das abas). Busca as colunas academicas por id (resiliente ao select
@@ -137,6 +138,16 @@ export default function DadosAcademicos({ aluno }) {
           </div>
         </div>
       )}
+
+      {/* SITUAÇÃO ACADÊMICA DO PRIME. Entra aqui, e não em cada tela, porque
+          este bloco já é montado nas 8 fichas -- uma alteração em vez de oito.
+
+          Fica FORA do `temInfoAcademica`: justamente quando não há dado
+          acadêmico importado é que a consulta ao Prime importa. E é bloco
+          separado de propósito -- `situacao_academica` acima é um rótulo por
+          PESSOA, vindo de importação; o do Prime é por VÍNCULO DE CURSO, e os
+          dois não se sobrepõem nem se corrigem. */}
+      <SituacaoAcademicaPrime aluno={aluno} />
     </Dobra>
   );
 }

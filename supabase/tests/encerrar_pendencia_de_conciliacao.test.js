@@ -133,11 +133,19 @@ describe("diff mínimo contra produção", () => {
   });
 });
 
-describe("a tela oferece o encerramento sem prometer correção financeira", () => {
-  it("chama só as RPCs da fila, e a de encerrar é a nova", () => {
+describe("a tela oferece a finalização sem prometer correção financeira", () => {
+  // 23/09/2026: "Encerrar pendência" saiu da TELA e deu lugar a FEITO e
+  // REJEITAR. `conciliacao_encerrar` continua no banco -- para as rotinas e
+  // para os casos ja encerrados por ela -- e por isso os testes da RPC acima
+  // seguem valendo. O que esta guarda trava e a superficie da TELA.
+  it("chama só as RPCs da fila, e a finalização é pelas duas novas", () => {
     const rpcs = [...TELA.matchAll(/supabase\.rpc\(\s*"(\w+)"/g)].map((m) => m[1]).sort();
-    expect(rpcs).toEqual(["buscar_aluno", "conciliacao_encerrar", "pagamento_vincular_aluno", "pagamentos_sem_aluno", "pagamentos_trava"]);
-    expect(TELA).toMatch(/ENCERRAR_PENDENCIA_AVISO/);
+    expect(rpcs).toEqual(["buscar_aluno", "conciliacao_feito", "conciliacao_rejeitar", "pagamento_vincular_aluno", "pagamentos_sem_aluno", "pagamentos_trava"]);
+    // a tela nao chama mais a RPC antiga: a troca foi deliberada
+    expect(TELA).not.toMatch(/supabase\.rpc\(\s*"conciliacao_encerrar"/);
+    // e continua avisando que nao ha correcao financeira -- agora nos dois lados
+    expect(TELA).toMatch(/FEITO_AVISO/);
+    expect(TELA).toMatch(/REJEITAR_AVISO/);
     expect(TELA).toMatch(/podeEncerrarPendencia\(item\)/);
     // a acao tecnica continua primeiro: encerrar e um botao separado
     const registrar = TELA.indexOf('acao.acao === "REGISTRAR_ACORDO_AVISTA"');

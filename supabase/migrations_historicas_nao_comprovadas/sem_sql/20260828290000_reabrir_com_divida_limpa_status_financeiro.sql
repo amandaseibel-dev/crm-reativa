@@ -1,0 +1,16 @@
+-- FURO no reabridor criado hoje (casos_reabrir_com_divida).
+--
+-- Ele trocava status_atual/jornada para 'Em cobranca' e confiava no gatilho
+-- casos_set_encerrado_operacional para devolver o caso a fila. Mas deixava
+-- `status_financeiro = 'QUITADO'` intacto -- e a regra do gatilho, ao ver
+-- QUITADO com saldo_titulos_aberto(cpf) = 0, mantinha o caso ENCERRADO.
+--
+-- O saldo por CPF conta so TITULO. Quando a divida do aluno esta em PARCELA DE
+-- ACORDO, ele da zero mesmo com divida viva -- entao o aluno era "reaberto" no
+-- papel e continuava fora da fila.
+--
+-- Apareceu ao conferir a fusao de casos duplicados: Neissi Torres Lima sumiu da
+-- fila devendo R$ 401,37; Francisco Argenta, R$ 3.719,01.
+--
+-- Correcao: limpar tambem o status_financeiro quando ele diz quitado.
+-- (funcao completa na migration seguinte, que acrescenta a trava de duplicata)

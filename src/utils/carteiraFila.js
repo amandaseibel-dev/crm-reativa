@@ -111,6 +111,30 @@ export function labelStatus(s) {
   return MAPA_SITUACAO[s] || s;
 }
 
+// CONFERENCIA PRIME NAO E COBRANCA.
+//
+// `AGUARDANDO_CONFIRMACAO` e atribuido por `recalcular_situacao_aluno` quando
+// so resta titulo esperando a decisao da Conferencia Prime: o saldo sai do
+// calculo, mas NAO houve quitacao. Medido em producao em 01/10/2026: 261 casos
+// ativos nesse estado, 168 deles ainda com operador, aparecendo como trabalho
+// de cobranca com saldo zerado na tela.
+//
+// O portao que tira caso de fila (`caso_encerrado_operacional`) nao cita esse
+// status, e o filtro da fila exclui por `status_jornada` -- que nunca carrega
+// esse valor (0 alunos em producao). Por isso eles passavam.
+//
+// A exclusao e SO DE LISTAGEM: `operador_email` e o historico de responsavel
+// ficam intactos, e nada de saldo, liquidacao ou calculo e tocado. Quando a
+// conferencia resolve, `recalcular_situacao_aluno` troca a situacao sozinha e
+// o caso volta a fila sem nenhuma acao -- esse estado nao esta excluido da
+// varredura diaria das 06:00.
+export const SITUACAO_FORA_DA_FILA_OPERACIONAL = ["AGUARDANDO_CONFIRMACAO"];
+
+export function foraDaFilaOperacional(a) {
+  const s = String(a?.situacao_operacional || "").toUpperCase();
+  return SITUACAO_FORA_DA_FILA_OPERACIONAL.includes(s);
+}
+
 export const SITUACAO_QUITACAO = new Set(["QUITADO", "QUITADO_AGUARDANDO_BAIXA"]);
 export const SITUACAO_CANONICA_SEM_VENCIDO = new Set([
   "ACORDO_EM_DIA",

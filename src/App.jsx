@@ -4,17 +4,17 @@ import {
   LayoutDashboard, Zap, Folder, Calendar, User, Phone, Heart,
   DollarSign, CreditCard, CheckCircle2, FileStack, Lock,
   BarChart3, Clock, Contact, LayoutPanelTop, Clock3, Database, Link2, TrendingUp,
-  Upload, Users, Settings, UserCircle, ClipboardList,
+  Upload, Users, Settings, UserCircle, ClipboardList, ShieldCheck,
 } from "lucide-react";
 const ICONES_MENU = {
   LayoutDashboard, Zap, Folder, Calendar, User, Phone, Heart,
   DollarSign, CreditCard, CheckCircle2, FileStack, Lock,
   BarChart3, Clock, Contact, LayoutPanelTop, Clock3, Database, Link2, TrendingUp,
-  Upload, Users, Settings, UserCircle, ClipboardList,
+  Upload, Users, Settings, UserCircle, ClipboardList, ShieldCheck,
 };
 import { supabase } from "./services/supabase";
 import usePolling from "./utils/polling";
-import { chamarRpcContido, invalidarRpcContido } from "./utils/rpcResiliente";
+import { chamarRpcContido } from "./utils/rpcResiliente";
 import AutoLogout from "./components/AutoLogout";
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const BaseAnalitica = lazy(() => import("./pages/BaseAnalitica"));
@@ -81,6 +81,7 @@ const SaudeDaBase = lazy(() => import("./pages/SaudeDaBase"));
 const SaudeCompletaCarteira = lazy(() => import("./pages/SaudeCompletaCarteira"));
 const RevisaoPrime = lazy(() => import("./pages/RevisaoPrime"));
 const TvElogios = lazy(() => import("./pages/TvElogios"));
+const Preventivo = lazy(() => import("./pages/Preventivo"));
 import AvisoTemplateNovo from "./components/AvisoTemplateNovo";
 import AvisosPopup from "./components/AvisosPopup";
 import TourNovidades from "./components/TourNovidades";
@@ -89,6 +90,7 @@ const CentralAvisos = lazy(() => import("./pages/CentralAvisos"));
 const TaxaConversao = lazy(() => import("./pages/TaxaConversao"));
 const Calibragem = lazy(() => import("./pages/Calibragem"));
 const CalibragemNivelamento = lazy(() => import("./pages/CalibragemNivelamento"));
+const CarteiraGeral = lazy(() => import("./pages/CarteiraGeral"));
 const Efetividade = lazy(() => import("./pages/Efetividade"));
 const PainelGeral = lazy(() => import("./pages/PainelGeral"));
 const CentralWhatsApp = lazy(() => import("./pages/CentralWhatsApp"));
@@ -160,6 +162,9 @@ function podeAcessar(perfil, rota) {
     return DIRETORIA_ROTAS.includes(rota);
   }
   if (rota === "/calibragem") return perfil !== "operador";
+  // Carteira Geral: destino de gestao. Operador nunca entra -- ele so pode
+  // assumir o que a gestao mandou para a FILA LIVRE, pela tela dele.
+  if (rota === "/carteira-geral") return perfil !== "operador";
   if (rota === "/efetividade") return true; // operador vê o próprio; gestão vê todos
   // Central WhatsApp: central ÚNICA e compartilhada — todo perfil ativo atende
   // por ela. Ainda não há distribuição/fidelização (fase 1 é só receber e
@@ -183,6 +188,7 @@ function podeAcessar(perfil, rota) {
       "/base-analitica",
       "/termos-adm",
       "/borderos",
+      "/preventivo",
       "/vincular-operadores",
       "/importacoes",
       "/usuarios",
@@ -314,6 +320,16 @@ function RotaProtegida({ usuario, rota, children }) {
       return <Navigate to="/" replace />;
     }
   }
+  // Carteira Geral: os mesmos três logins individuais da Calibragem
+  // (Amanda gestora, Fernanda, Amanda ADM). Não existe login "Carteira Geral":
+  // ela é um destino, não uma pessoa. O portão definitivo é do banco
+  // (public.calibragem_e_gestao, checado em toda RPC da tela).
+  if (rota === "/carteira-geral") {
+    const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+    if (!["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(email)) {
+      return <Navigate to="/" replace />;
+    }
+  }
   // Calibragem: acesso restrito à gestão (Amanda gestora, Fernanda, Amanda ADM).
   if (rota === "/calibragem") {
     const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
@@ -324,7 +340,10 @@ function RotaProtegida({ usuario, rota, children }) {
   // Borderôs e Importações: SOMENTE Amanda (regra operacional definitiva).
   // Fernanda, Amanda ADM, operadores e demais perfis ficam bloqueados aqui;
   // o backend tambem trava (importar_acordos exige app_pode_borderos_importacoes).
-  if (["/borderos","/importacoes","/importar-acordos","/importar-recuperacao"].includes(rota)) {
+  // Preventivo: SOMENTE Amanda da gestão. O banco recusa de novo em toda RPC e
+  // na RLS de toda tabela `prev_` (public.preventivo_e_gestao) -- isto aqui só
+  // evita abrir uma tela que voltaria vazia.
+  if (["/borderos","/importacoes","/importar-acordos","/importar-recuperacao","/preventivo"].includes(rota)) {
     const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
     if (email !== "amanda.seibel@aelbra.com.br") {
       return <Navigate to="/" replace />;
@@ -416,7 +435,7 @@ export default function App() {
         supabase,
         "contadores_cabecalho",
         {},
-        { cacheMs: 300000, timeoutMs: 8000 }
+        { cacheMs: 60000, timeoutMs: 8000 }
       );
       if (error || !data) return;
       const perfilAtual = usuario?.perfil?.perfil;
@@ -488,21 +507,13 @@ export default function App() {
     setParcelasVencendo([]);
     setSugestoesNovas(0);
     setMinhasValidacoesPendentes(0);
-    // Descarta o cache ao sair: impede que o próximo login na mesma aba
-    // receba dados filtrados pelo JWT do usuário anterior.
-    invalidarRpcContido();
   }, [usuario]);
 
   // Disponibiliza a atualizacao imediata pra qualquer tela que acabou de
   // fazer uma acao que mexe nesses contadores (aprovar termo, dar baixa,
   // confirmar pagamento), em vez de esperar o proximo intervalo.
-  // Invalida o cache antes de disparar: sem isso chamarRpcContido retorna
-  // o valor em cache e nunca chega ao banco dentro do TTL de 300 s.
   useEffect(() => {
-    window.atualizarContadoresCrm = () => {
-      invalidarRpcContido("contadores_cabecalho");
-      atualizarContadores();
-    };
+    window.atualizarContadoresCrm = atualizarContadores;
     return () => { delete window.atualizarContadoresCrm; };
   }, [atualizarContadores]);
 
@@ -665,6 +676,7 @@ export default function App() {
     { rota: "/portal-operacional", label: "Portal Operacional", icone: "FileStack", secao: "Gestão" }, { rota: "/tv", label: "📺 TV ReATIVA", icone: "LayoutPanelTop", secao: "Gestão", externo: true },
     { rota: "/tv-mensagem", label: "📝 Mensagem da TV", icone: "MessageSquare", secao: "Gestão" },
     { rota: "/acoes-massivas", label: "Ações Massivas", icone: "Zap", secao: "Gestão" },
+    { rota: "/carteira-geral", label: "Carteira Geral", icone: "Folder", secao: "Gestão" },
     { rota: "/envio-gmail", label: "Envio pelo meu Gmail", icone: "Contact", secao: "Gestão" },
     { rota: "/historico-recuperacao", label: "Histórico da Recuperação", icone: "TrendingUp", secao: "Gestão" },
     { rota: "/saude-da-base", label: "Saúde da Base", icone: "CheckCircle2", secao: "Gestão" },
@@ -674,7 +686,6 @@ export default function App() {
     // preenche mais aluno_id sozinho, então o que não tem identificador
     // financeiro cai aqui e PRECISA de decisão humana. Sem item de menu a fila
     // só acumularia -- a rota existia desde agosto e ninguém a alcançava.
-    { rota: "/pagamentos-sem-aluno", label: "Pagamentos sem vínculo", icone: "Link2", secao: "Gestão" },
     { rota: "/acordos-operador", label: "Acordos por Operador", icone: "TrendingUp", secao: "Operação" },
     
     { rota: "/taxa-conversao", label: "Taxa de Conversão", icone: "TrendingUp", secao: "Gestão" },
@@ -682,6 +693,7 @@ export default function App() {
     { rota: "/relatorios", label: "Relatórios", icone: "TrendingUp", secao: "Gestão" },
     { rota: "/relatorios-2026-1-sem-negociacao", label: "Jan–Jun/2026 sem negociação", icone: "TrendingUp", secao: "Gestão" },
      { rota: "/acordos-duplicados", label: "Acordos duplicados", icone: "Copy", secao: "Gestão" }, { rota: "/ferramentas", label: "Ferramentas", icone: "FileStack", secao: "Gestão" }, 
+    { rota: "/preventivo", label: "Preventivo", icone: "ShieldCheck", secao: "Gestão" },
     { rota: "/avisos", label: "Central de Avisos", icone: "Bell", secao: "Configurações" },
     { rota: "/usuarios", label: "Usuários", icone: "Users", secao: "Configurações" },
     { rota: "/configuracoes", label: "🛡️ Auditoria e Segurança", icone: "Settings", secao: "Configurações" },
@@ -691,13 +703,15 @@ export default function App() {
     if (perfil === "operador" && item.esconderParaOperador) return false; if (["/exportar-contatos","/log-nivelamento","/vincular-operadores","/importar-acordos","/importar-recuperacao","/importacoes","/sugestoes-recebidas"].includes(item.rota)) return false;
     // DRE: Amanda + diretoria. O Fechamento de Remuneração continua SÓ Amanda
     // -- por isso os dois deixaram de dividir a mesma regra.
-    if (item.rota === "/pagamentos-sem-aluno") {
-      const em = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
-      return ["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br", "cobranca07@aelbra.com.br"].includes(em);
-    }
     if (item.rota === "/dre") {
       const em = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return (em === "amanda.seibel@aelbra.com.br" || perfil === "diretoria") && perfil !== "operador";
+    }
+    // Preventivo: só a Amanda da gestão vê o item. A rota e o banco travam de
+    // novo -- este filtro é só para o menu não mostrar o que não abre.
+    if (item.rota === "/preventivo") {
+      const em = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return em === "amanda.seibel@aelbra.com.br" && perfil !== "operador";
     }
     if (item.rota === "/fechamento-remuneracao") {
       const em = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
@@ -716,6 +730,10 @@ export default function App() {
     if (item.rota === "/executivo") {
       const em3 = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return (["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(em3) || perfil === "diretoria") && perfil !== "operador";
+    }
+    if (item.rota === "/carteira-geral") {
+      const emCG = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emCG) && perfil !== "operador";
     }
     if (item.rota === "/calibragem") {
       const emC = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
@@ -874,12 +892,12 @@ export default function App() {
                   >
                     <IconeComponente size={17} strokeWidth={2} style={{ flexShrink: 0 }} />
                     {!sidebarRecolhida && <span>{item.label}</span>}
-                {item.rota === "/financeiro-hub" && (linksAguardando + baixasAguardando) > 0 && (
+                {item.rota === "/financeiro-hub" && (linksAguardando + baixasAguardando + semVinculo) > 0 && (
                   <span
                     className="badge-pendente"
-                    title={`${linksAguardando} link(s) aguardando resposta · ${baixasAguardando} baixa(s) aguardando`}
+                    title={`${linksAguardando} link(s) aguardando resposta · ${baixasAguardando} baixa(s) aguardando${semVinculo > 0 ? ` · ${semVinculo} pagamento(s) sem vínculo` : ""}`}
                   >
-                    {linksAguardando + baixasAguardando}
+                    {linksAguardando + baixasAguardando + semVinculo}
                   </span>
                 )}
                 {item.rota === "/termos-adm" && termosAguardandoValidacao > 0 && (
@@ -904,14 +922,6 @@ export default function App() {
                     title="Comprovantes aguardando baixa"
                   >
                     {baixasAguardando}
-                  </span>
-                )}
-                {item.rota === "/pagamentos-sem-aluno" && semVinculo > 0 && (
-                  <span
-                    className="badge-pendente"
-                    title={`${semVinculo} pagamento(s) sem vínculo aguardando decisão da gestão`}
-                  >
-                    {semVinculo}
                   </span>
                 )}
                 {item.rota === "/elogios-atendimento" && elogiosPendentes > 0 && (
@@ -1037,10 +1047,26 @@ export default function App() {
               }
             />
             <Route
+              path="/preventivo"
+              element={
+                <RotaProtegida usuario={usuario} rota="/preventivo">
+                  <Preventivo />
+                </RotaProtegida>
+              }
+            />
+            <Route
               path="/vincular-operadores"
               element={
                 <RotaProtegida usuario={usuario} rota="/vincular-operadores">
                   <VincularBaseOperacional />
+                </RotaProtegida>
+              }
+            />
+            <Route
+              path="/carteira-geral"
+              element={
+                <RotaProtegida usuario={usuario} rota="/carteira-geral">
+                  <CarteiraGeral />
                 </RotaProtegida>
               }
             />
@@ -1125,7 +1151,7 @@ export default function App() {
               />
               <Route path="/painel-adm" element={<PainelAdm />} />
               <Route path="/painel-geral" element={<PainelGeral />} />
-              <Route path="/financeiro-hub" element={<FinanceiroHub />} />
+              <Route path="/financeiro-hub" element={<FinanceiroHub usuario={usuario} />} />
         <Route path="/central-pagamentos" element={<CentralPagamentos />} />
               <Route path="/meu-perfil" element={<MeuPerfil />} />
             <Route

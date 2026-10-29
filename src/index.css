@@ -54,6 +54,12 @@
   --rv-verde-ok-texto: #166534;
   --rv-verde-ok-fundo: #f0fdf4;
   --rv-verde-ok-borda: #bbf7d0;
+  /* Series de grafico. Par validado contra daltonismo e contraste no tema
+     CLARO (superficie #ffffff): CVD dE 32.3 protan / 29.3 tritan, visao
+     normal dE 38.3, contraste >= 3:1. Nao usar azul+roxo: esse par da
+     CVD dE 0.4 em deuteranopia -- indistinguivel. */
+  --rv-grafico-1: #2563eb;
+  --rv-grafico-2: #d97706;
   --rv-azul: #2563eb;
   --rv-azul-texto: #1e40af;
   --rv-azul-fundo: #eff6ff;
@@ -487,6 +493,11 @@ button:hover {
   --rv-verde-ok-texto: #86efac;
   --rv-verde-ok-fundo: #12301f;
   --rv-verde-ok-borda: #166534;
+  /* Tema ESCURO (superficie #111a2b): a banda de luminosidade e mais BAIXA
+     que no claro, nao mais alta -- #60a5fa/#fbbf24 reprovam. Este par
+     passa: CVD dE 30.2 protan / 28.7 tritan, visao normal dE 34.2. */
+  --rv-grafico-1: #3b82f6;
+  --rv-grafico-2: #d97706;
   --rv-azul: #60a5fa;
   --rv-azul-texto: #93c5fd;
   --rv-azul-fundo: #142544;

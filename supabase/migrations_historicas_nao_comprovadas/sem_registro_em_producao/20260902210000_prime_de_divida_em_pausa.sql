@@ -1,0 +1,35 @@
+-- As duas rotinas do Prime que falam de dívida entram em pausa.
+--
+-- POR QUE. A dívida não entra por elas. Mensalidade entra por borderô, que a
+-- Amanda importa à mão; baixa entra pelos arquivos do Santander. O Prime não
+-- está no caminho do dinheiro -- ele é sinal de conferência, e conferência
+-- ninguém usou: `prime_conferencia_decisao` tem ZERO decisões desde que existe.
+--
+-- O QUE CADA UMA CUSTAVA, medido em 02/09/2026:
+--
+--   prime_portador_mutirao  (*/3, o dia inteiro)
+--     Traz uma lista de (CPF, portador) e nada mais -- 32.483 pares, sem valor,
+--     sem título, sem data. 195 = ainda deve, 166 = negociou, ausente = quitou.
+--     Cada volta completa lê 67.048 itens da API em páginas de 200, ~335
+--     requisições. Estava dando ~13 voltas por dia, ~4.400 requisições, para
+--     alimentar UM relatório -- o 2026/1 -- lido uma vez às 02:50.
+--
+--   prime_extrato_mutirao  (*/2, o dia inteiro)
+--     Rodava vazio. `prime_extrato_fila` está com 0 pendentes desde
+--     01/09 07:44; eram ~750 disparos por dia sem nada para fazer.
+--
+-- O QUE CONTINUA. `prime_cadastro_mutirao`, semanal aos domingos desde a
+-- migration 20260902200000. Esse traz nome, telefone, e-mail e contrato -- que
+-- alimentam a ficha e o WhatsApp, e valem o custo de um domingo.
+--
+-- CONSEQUÊNCIA A OLHAR. O relatório 2026/1 (MensalidadesSemNegociacao) e o
+-- snapshot dele das 02:50 passam a ler uma lista de portador CONGELADA em
+-- 02/09/2026 18:13, com 32.483 linhas. O relatório não quebra -- ele envelhece
+-- em silêncio, e o snapshot segue gravando 1 linha por dia sobre base parada.
+-- Se aquela série diária for usada para decidir alguma coisa, religar o
+-- portador antes.
+--
+-- PAUSA, NÃO REMOÇÃO: `active => false` preserva o agendamento. Religar é o
+-- rollback ao lado.
+select cron.alter_job((select jobid from cron.job where jobname='prime_portador_mutirao'), active => false);
+select cron.alter_job((select jobid from cron.job where jobname='prime_extrato_mutirao'),  active => false);

@@ -1,0 +1,23 @@
+-- COMPARATIVO ANO A ANO NA TV (11/09/2026)
+--
+-- Pedido da gestao: a operacao ver que o MES esta abaixo do ano passado.
+--
+-- CUIDADO DELIBERADO -- comparamos o MES, nao o ano: em 11/09/2026 o acumulado
+-- de 2026 estava 160% ACIMA de 2025 (R$ 29,2 mi x R$ 11,2 mi) enquanto setembro
+-- estava 15,8% abaixo. Os dois numeros sao verdadeiros; o que a operacao ainda
+-- pode mudar e o mes. O periodo vai escrito na tela ("1 a 11 de setembro"):
+-- comparar 11 dias com um mes inteiro seria facil de contestar.
+--
+-- NAO mexe em tv_snapshot_calcular (18 mil caracteres). tv_snapshot_atualizar
+-- ja soma chaves ao payload com ||; o comparativo entra por ali, em uma linha.
+-- Uma tela nova nao pode arriscar o telao inteiro.
+--
+-- A funcao NUNCA levanta excecao: em qualquer falha devolve null, a tela some
+-- (temConteudo) e o resto do painel segue.
+--
+-- Atualizacao: o botao "Atualizar" da Projecao ja chama tv_snapshot_atualizar
+-- no mesmo gesto, entao o comparativo nunca fica mais velho que a Projecao.
+--
+-- APLICADA EM PRODUCAO em 11/09/2026 pelo MCP; este arquivo versiona o estado
+-- final. Testada de ponta a ponta antes de ligar: a funcao devolveu
+-- recuperado -15,8% (R$ 410.007 x R$ 486.718) e honorarios -17,2%.

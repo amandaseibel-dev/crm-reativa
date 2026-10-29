@@ -7,6 +7,7 @@ import AcordosSemResponsavel from "../components/AcordosSemResponsavel";
 import ForaDaCobranca from "../components/ForaDaCobranca";
 import MinhaFilaPagamentos from "./MinhaFilaPagamentos"; import HistoricoConfirmacoes from "./HistoricoConfirmacoes";
 import AcordosSemVinculo from "./AcordosSemVinculo";
+import PagamentosSemAluno from "./PagamentosSemAluno";
 
 // Reune as telas financeiras num lugar so, com abas. Cada aba carrega o
 // componente ORIGINAL sem nenhuma alteracao interna -- nenhuma logica,
@@ -25,6 +26,23 @@ import AcordosSemVinculo from "./AcordosSemVinculo";
 // menu Gestao, e a Amanda perguntou na hora "vai ficar no financeiro onde?".
 // E conferencia igual as outras -- olhar o acordo, decidir qual mensalidade ele
 // substituiu -- e o vinculo em si e feito no Financeiro da ficha. Virou aba.
+//
+// E DE NOVO, 23/09/2026: "Pagamentos sem vinculo" tinha voltado a ser item
+// solto no menu Gestao -- o comentario acima ja dizia que ela deveria estar
+// aqui, e nao estava. A Amanda perguntou "consegue deixar dentro do
+// financeiro?". Virou aba, e o item solto saiu: duas portas para a mesma fila
+// e exatamente o que essa regra existe para evitar.
+//
+// SO PARA OS TRES E-MAILS DA GESTAO FINANCEIRA. O Financeiro inteiro abre para
+// quem nao e operador, mas esta fila e das mesmas tres pessoas que
+// `usuario_e_gestao()` aceita no banco. Sem este portao, quem abrisse a aba
+// veria a tela montar e a RPC recusar -- que e pior do que a aba nao existir.
+const GESTAO_FINANCEIRA = [
+  "amanda.seibel@aelbra.com.br",
+  "cobranca04@aelbra.com.br",
+  "cobranca07@aelbra.com.br",
+];
+
 const ABAS = [
   { chave: "PAINEL_ADM", rotulo: "Painel ADM" },
   { chave: "FINANCEIRO", rotulo: "Financeiro" },
@@ -32,6 +50,7 @@ const ABAS = [
   { chave: "FILA_BAIXAS", rotulo: "Fila de Baixas" },
   { chave: "CONFERENCIA_PRIME", rotulo: "Conferência Prime" },
   { chave: "ACORDOS_SEM_VINCULO", rotulo: "Acordos sem vínculo" },
+  { chave: "PAGAMENTOS_SEM_VINCULO", rotulo: "Pagamentos sem vínculo", soGestaoFinanceira: true },
   { chave: "HIST_CONFIRMACOES", rotulo: "Histórico de Confirmações" },
   // MESMA REGRA, 10/09/2026: as duas nasceram dentro de /central-pagamentos, que
   // nao tem link em menu nenhum -- so abre por URL digitada. A Amanda foi
@@ -41,8 +60,13 @@ const ABAS = [
   { chave: "FORA_COBRANCA", rotulo: "Fora da cobrança" },
 ];
 
-export default function FinanceiroHub() {
+export default function FinanceiroHub({ usuario }) {
   const [aba, setAba] = useState("PAINEL_ADM");
+
+  const email = String(usuario?.perfil?.email || usuario?.auth?.email || "")
+    .toLowerCase().trim();
+  const eGestaoFinanceira = GESTAO_FINANCEIRA.includes(email);
+  const abasVisiveis = ABAS.filter((a) => !a.soGestaoFinanceira || eGestaoFinanceira);
 
   return (
     <div style={estilos.container}>
@@ -54,7 +78,7 @@ export default function FinanceiroHub() {
       </div>
 
       <div style={estilos.abas}>
-        {ABAS.map((a) => (
+        {abasVisiveis.map((a) => (
           <button
             key={a.chave}
             style={aba === a.chave ? estilos.abaAtiva : estilos.aba}
@@ -75,6 +99,7 @@ export default function FinanceiroHub() {
         {aba === "HIST_CONFIRMACOES" && <HistoricoConfirmacoes />}
         {aba === "ACORDO_SEM_RESP" && <AcordosSemResponsavel />}
         {aba === "FORA_COBRANCA" && <ForaDaCobranca />}
+        {aba === "PAGAMENTOS_SEM_VINCULO" && eGestaoFinanceira && <PagamentosSemAluno />}
       </div>
     </div>
   );

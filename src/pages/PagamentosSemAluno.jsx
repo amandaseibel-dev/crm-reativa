@@ -45,8 +45,13 @@ import {
   ACOES_DA_FILA,
   contarPorStatus,
   AVISO_PROJECAO,
-  ENCERRAR_PENDENCIA_AVISO,
   podeEncerrarPendencia,
+  CONCLUSOES_FEITO,
+  MOTIVOS_REJEICAO,
+  FEITO_AVISO,
+  REJEITAR_AVISO,
+  finalizacaoInvalida,
+  evidenciasDaLinha,
 } from "../utils/conciliacaoPagamento";
 import RegistrarAcordoAvista from "../components/RegistrarAcordoAvista";
 import Aluno from "./Aluno";
@@ -259,7 +264,9 @@ function Linha({ item, acao, onRegistrar, aberto, onAbrir, onVinculado, onVerFic
   const [buscando, setBuscando] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [msg, setMsg] = useState("");
-  const [encerrando, setEncerrando] = useState(false);
+  // null | "FEITO" | "REJEITAR"
+  const [finalizando, setFinalizando] = useState(null);
+  const [escolha, setEscolha] = useState("");
   const [observacao, setObservacao] = useState("");
 
   const repetido = item.motivo === "NOME_REPETIDO";
@@ -295,22 +302,39 @@ function Linha({ item, acao, onRegistrar, aberto, onAbrir, onVinculado, onVerFic
     onVinculado();
   }
 
-  // Encerrar e decisao da gestao, nao correcao financeira: o banco so grava a
-  // decisao da fila e a auditoria com o estado anterior.
-  async function encerrar() {
+  // FEITO e REJEITAR sao decisoes de revisao, nao correcao financeira: o banco
+  // so grava a decisao da fila e a auditoria com o estado anterior. Rejeitar,
+  // em particular, NAO apaga nada e NAO desfaz o pagamento.
+  async function finalizar() {
+    const impede = finalizacaoInvalida({ acao: finalizando, escolha, observacao });
+    if (impede) { setMsg(impede); return; }
+
+    const aviso = finalizando === "REJEITAR" ? REJEITAR_AVISO : FEITO_AVISO;
+    const verbo = finalizando === "REJEITAR" ? "Rejeitar" : "Concluir";
     if (!window.confirm(
-      `Encerrar a pendência do pagamento de ${moeda(item.valor_pago)} (${dataCurta(item.data_pagamento)})? ${ENCERRAR_PENDENCIA_AVISO}`
+      `${verbo} a pendência do pagamento de ${moeda(item.valor_pago)} (${dataCurta(item.data_pagamento)})? ${aviso}`
     )) return;
+
     setSalvando(true); setMsg("");
-    const { data, error } = await supabase.rpc("conciliacao_encerrar", {
-      p_pagamento_id: item.pagamento_id,
-      p_observacao: observacao.trim() === "" ? null : observacao.trim(),
-    });
+    const obs = observacao.trim() === "" ? null : observacao.trim();
+    const { data, error } = finalizando === "REJEITAR"
+      ? await supabase.rpc("conciliacao_rejeitar", {
+          p_pagamento_id: item.pagamento_id, p_motivo: escolha, p_observacao: obs,
+        })
+      : await supabase.rpc("conciliacao_feito", {
+          p_pagamento_id: item.pagamento_id, p_conclusao: escolha, p_observacao: obs,
+        });
     setSalvando(false);
     if (error) { setMsg("Erro: " + error.message); return; }
     if (!data?.ok) { setMsg("Não foi possível: " + (data?.motivo || "desconhecido")); return; }
-    setEncerrando(false);
+    setFinalizando(null); setEscolha(""); setObservacao("");
     onVinculado();
+  }
+
+  function abrirFinalizacao(acao) {
+    setMsg("");
+    setEscolha("");
+    setFinalizando((v) => (v === acao ? null : acao));
   }
 
   return (
@@ -363,33 +387,66 @@ function Linha({ item, acao, onRegistrar, aberto, onAbrir, onVinculado, onVerFic
             </span>
           )}
           {podeEncerrarPendencia(item) ? (
-            <button
-              type="button"
-              onClick={() => setEncerrando((v) => !v)}
-              style={btnEncerrar}
-              title={ENCERRAR_PENDENCIA_AVISO}
-            >
-              {encerrando ? "Fechar" : ACOES_DA_FILA.ENCERRAR_PENDENCIA}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => abrirFinalizacao("FEITO")}
+                style={btnEncerrar}
+                title={FEITO_AVISO}
+              >
+                {finalizando === "FEITO" ? "Fechar" : ACOES_DA_FILA.FEITO}
+              </button>
+              <button
+                type="button"
+                onClick={() => abrirFinalizacao("REJEITAR")}
+                style={btnEncerrar}
+                title={REJEITAR_AVISO}
+              >
+                {finalizando === "REJEITAR" ? "Fechar" : ACOES_DA_FILA.REJEITAR}
+              </button>
+            </>
           ) : null}
         </div>
       </div>
 
-      {encerrando ? (
+      {finalizando ? (
         <div style={encerrarCaixa}>
           <div style={{ fontWeight: 700, color: "var(--rv-tinta)", fontSize: 13 }}>
-            {ACOES_DA_FILA.ENCERRAR_PENDENCIA}
+            {finalizando === "REJEITAR" ? ACOES_DA_FILA.REJEITAR : ACOES_DA_FILA.FEITO}
           </div>
-          <p style={{ ...S.muted, margin: "6px 0 10px" }}>{ENCERRAR_PENDENCIA_AVISO}</p>
+          <p style={{ ...S.muted, margin: "6px 0 10px" }}>
+            {finalizando === "REJEITAR" ? REJEITAR_AVISO : FEITO_AVISO}
+          </p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <select
+              value={escolha}
+              onChange={(e) => setEscolha(e.target.value)}
+              style={S.input}
+              aria-label={finalizando === "REJEITAR" ? "Motivo da rejeição" : "Conclusão"}
+            >
+              <option value="">
+                {finalizando === "REJEITAR" ? "Motivo da rejeição…" : "Conclusão…"}
+              </option>
+              {(finalizando === "REJEITAR" ? MOTIVOS_REJEICAO : CONCLUSOES_FEITO).map((o) => (
+                <option key={o.valor} value={o.valor}>{o.rotulo}</option>
+              ))}
+            </select>
             <input
               value={observacao}
               onChange={(e) => setObservacao(e.target.value)}
-              placeholder="Observação (opcional)"
+              placeholder={
+                finalizacaoInvalida({ acao: finalizando, escolha, observacao: "" })
+                  && escolha ? "Observação (obrigatória)" : "Observação (opcional)"
+              }
               style={S.input}
             />
-            <button type="button" onClick={encerrar} disabled={salvando} style={S.btnGhost}>
-              {salvando ? "…" : "Confirmar encerramento"}
+            <button
+              type="button"
+              onClick={finalizar}
+              disabled={salvando || !!finalizacaoInvalida({ acao: finalizando, escolha, observacao })}
+              style={S.btnGhost}
+            >
+              {salvando ? "…" : finalizando === "REJEITAR" ? "Confirmar rejeição" : "Confirmar conclusão"}
             </button>
           </div>
         </div>
@@ -409,6 +466,40 @@ function Linha({ item, acao, onRegistrar, aberto, onAbrir, onVinculado, onVerFic
         ) : (
           <span style={motivoTexto}>{item.motivo_financeiro || "—"}</span>
         )}
+      </div>
+
+      {/* CONFERENCIA MANUAL (23/09/2026). A gestao decidiu conferir os
+          AGUARDANDO_ACORDO um a um em vez de reclassificar por rotina -- entao
+          o que ela precisa olhar fica aqui, na propria linha: o acordo que o
+          boleto aponta, as evidencias que existem e o saldo de hoje. Tudo
+          leitura; nada aqui vincula, cria ou baixa. */}
+      <div style={conferenciaBox}>
+        <div style={conferenciaTopo}>
+          <span style={motivoRotulo}>conferência</span>
+          {item.acordo_identificado ? (
+            <span style={conferenciaAcordo}>acordo {item.acordo_identificado}</span>
+          ) : (
+            <span style={S.cardCpf}>boleto fora do padrão: sem acordo identificável</span>
+          )}
+          <span style={{ flex: 1 }} />
+          <span style={S.cardCpf}>
+            saldo atual{" "}
+            <b style={{ color: "var(--rv-tinta)" }}>
+              {item.saldo_total == null ? "—" : moeda(item.saldo_total)}
+            </b>
+            {item.saldo_vencido != null && Number(item.saldo_vencido) > 0
+              ? ` · vencido ${moeda(item.saldo_vencido)}`
+              : ""}
+          </span>
+        </div>
+        <div style={conferenciaGrade}>
+          {evidenciasDaLinha(item).map((e) => (
+            <div key={e.chave} style={conferenciaItem}>
+              <span style={conferenciaRotulo}>{e.rotulo}</span>
+              <span style={e.alerta ? conferenciaValorAlerta : conferenciaValor}>{e.valor}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
       {aberto && podeVincular ? (
@@ -530,6 +621,26 @@ const btnEncerrar = {
   fontWeight: 700,
   cursor: "pointer",
 };
+const conferenciaBox = {
+  margin: "8px 0 0", padding: "10px 12px", borderRadius: 10,
+  background: "var(--rv-fundo-suave)", border: "1px solid var(--rv-borda-suave)",
+};
+const conferenciaTopo = { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 8 };
+const conferenciaAcordo = {
+  fontSize: 12, fontWeight: 800, color: "var(--rv-roxo-texto)", background: "var(--rv-roxo-fundo)",
+  border: "1px solid var(--rv-roxo-borda)", borderRadius: 999, padding: "2px 10px",
+};
+const conferenciaGrade = {
+  display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "6px 16px",
+};
+const conferenciaItem = { display: "flex", flexDirection: "column", gap: 1 };
+const conferenciaRotulo = {
+  fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em",
+  color: "var(--rv-texto-fraco)",
+};
+const conferenciaValor = { fontSize: 12.5, color: "var(--rv-texto-forte)" };
+const conferenciaValorAlerta = { fontSize: 12.5, color: "var(--rv-vermelho-texto)", fontWeight: 700 };
+
 const encerrarCaixa = {
   padding: "12px 16px",
   borderTop: "1px solid var(--rv-borda)",

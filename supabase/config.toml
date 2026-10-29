@@ -1,1 +1,20 @@
 project_id = "edlzlfbstshojxrudwaa"
+
+# -----------------------------------------------------------------------------
+# prime-sonda -- protecao do gateway, registrada de proposito
+# -----------------------------------------------------------------------------
+# `verify_jwt = true` ja era o estado da versao 4 implantada, mas so como
+# PADRAO implicito: nao havia nada escrito aqui. Um `supabase functions deploy
+# prime-sonda --no-verify-jwt`, ou uma mudanca futura de padrao do CLI, viraria
+# essa protecao em silencio, e ninguem veria em revisao de codigo.
+#
+# Escrito, a protecao passa a ser uma decisao versionada: desliga-la exige um
+# diff neste arquivo, que aparece no PR.
+#
+# O QUE ISTO SIGNIFICA NA PRATICA: o gateway do Supabase recusa, com 401,
+# qualquer chamada sem JWT valido no header `Authorization` -- ANTES de executar
+# uma linha da funcao. Vale para as duas portas do portao interno, inclusive a
+# da ROTINA: mandar so `x-rotina-token`, sem `Authorization`, nao entra. O token
+# de rotina e a segunda tranca, nunca a unica.
+[functions.prime-sonda]
+verify_jwt = true

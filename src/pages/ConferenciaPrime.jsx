@@ -480,6 +480,67 @@ export default function ConferenciaPrime() {
     }
   }
 
+  // SOLTAR DA CONFIRMAÇÃO, em bloco.
+  //
+  // EM_CONFIRMACAO é porta de mão única: só a Conferência Prime tira um título
+  // de lá (trigger `_titulo_em_confirmacao_protegido`), e enquanto ele está
+  // preso o saldo some da fila e a mensalidade não pode ser vinculada a
+  // negociação nenhuma. Quando a decisão é "isto volta a ser mensalidade
+  // comum, eu vinculo ou baixo caso a caso", soltar de um em um não é opção:
+  // eram 674 títulos em 24/09/2026.
+  //
+  // Só existe daqui, e não do SQL Editor, porque o portão da RPC lê o e-mail
+  // do JWT (`usuario_e_gestao()`): fora de uma sessão logada da gestão ela
+  // recusa com 42501. Rodar aqui é o que mantém o registro com o nome certo.
+  //
+  // Em blocos de 50: cada título recalcula a situação do aluno, e a RPC tem
+  // teto de 120s. Bloco que falha interrompe e mostra o erro -- o que já saiu,
+  // saiu (cada título é uma transação dentro do lote).
+  async function soltarDaConfirmacao() {
+    const lista = filtrados;
+    if (!lista.length) return;
+    const total = lista.reduce((s, x) => s + (Number(x.valor) || 0), 0);
+    if (!window.confirm(
+      `Soltar ${lista.length} título(s) da confirmação — ${moeda(total)}?\n\n` +
+      "Cada um volta a ser mensalidade em aberto, cobrável, e passa a poder ser vinculado a uma negociação. " +
+      "Nada é pago, nada é cancelado.\n\n" +
+      "A mesma liquidação da Prime não recoloca o título nesta fila."
+    )) return;
+    const motivo = pedirMotivo(
+      "Por que estes títulos saem da confirmação?\n\n" +
+        "Fica registrado na movimentação de cada aluno.",
+      5,
+      "liquidação na Prime não é prova de pagamento: a mensalidade volta a ser cobrável e será vinculada ou baixada caso a caso"
+    );
+    if (motivo === null) return;
+
+    const chave = "soltar-confirmacao";
+    if (processando[chave]) return;
+    marcar(chave, true);
+    let soltos = 0;
+    try {
+      for (let i = 0; i < lista.length; i += 50) {
+        const bloco = lista.slice(i, i + 50);
+        const { data, error } = await supabase.rpc("prime_conferencia_rejeitar_lote", {
+          p_titulo_ids: bloco.map((x) => x.titulo_id),
+          p_motivo: motivo,
+        });
+        if (error) throw error;
+        soltos += Number(data?.rejeitados || 0);
+        tirarDaTela(bloco.map((x) => x.titulo_id));
+      }
+      alert(`${soltos} título(s) soltos da confirmação. Eles já aparecem como mensalidade em aberto na ficha e podem ser vinculados.`);
+    } catch (e) {
+      alert(
+        `Parou em ${soltos} título(s) soltos: ` + (e?.message || String(e)) +
+        "\n\nO que já saiu está solto. Dá para rodar de novo com o que sobrou."
+      );
+    } finally {
+      marcar(chave, false);
+      carregar();
+    }
+  }
+
   function copiarNome(nome) {
     navigator.clipboard.writeText(nome || "").then(() => {
       setNomeCopiado(nome);
@@ -605,6 +666,17 @@ export default function ConferenciaPrime() {
           >
             {recalculando ? "Recalculando…" : "Recalcular triagem"}
           </button>
+          {filtrados.length > 0 && (
+            <button
+              type="button"
+              style={{ ...A.btnGhost, ...(processando["soltar-confirmacao"] ? A.btnBusy : {}) }}
+              disabled={!!processando["soltar-confirmacao"]}
+              onClick={soltarDaConfirmacao}
+              title="Devolve os títulos filtrados para mensalidade em aberto: voltam a ser cobráveis e podem ser vinculados a uma negociação"
+            >
+              {processando["soltar-confirmacao"] ? "Soltando…" : `Soltar os ${filtrados.length} da confirmação`}
+            </button>
+          )}
           <button type="button" style={A.btnGhost} onClick={carregar}>Atualizar</button>
         </div>
       </div>

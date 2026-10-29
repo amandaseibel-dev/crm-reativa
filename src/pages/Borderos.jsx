@@ -2,6 +2,7 @@ import { useState } from "react";
 import { naoReabreNoBordero } from "../utils/bordero";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
+import { hashArquivo, hashValido } from "../utils/hashArquivo";   // MESMA implementacao
 import Dobra from "../ui/blocos";
 
 function limparCpf(valor) {
@@ -111,6 +112,11 @@ export default function Borderos() {
   const [importando, setImportando] = useState(false);
   const [resultado, setResultado] = useState(null);
   const [erro, setErro] = useState("");
+  // O hash passa a ser calculado ao ESCOLHER o arquivo, nao na hora da captura.
+  // Antes era `await hashArquivo(await arquivo.arrayBuffer())` dentro do try da
+  // trilha: se falhasse, a importacao financeira ja estava concluida e a captura
+  // morria no catch. Calculando aqui, a falha aparece ANTES de qualquer gravacao.
+  const [arquivoHash, setArquivoHash] = useState("");
 
   async function selecionarArquivo(e) {
     const arquivoSelecionado = e.target.files?.[0];
@@ -121,8 +127,14 @@ export default function Borderos() {
     setErro("");
     setProcessando(true);
 
+    setArquivoHash("");
+
     try {
       const buffer = await arquivoSelecionado.arrayBuffer();
+      // identidade do arquivo, pre-requisito da importacao (ver trava em
+      // confirmarImportacao). Falha aqui nao interrompe a previa: quem recusa e
+      // a trava, com mensagem propria.
+      try { setArquivoHash(await hashArquivo(buffer)); } catch { setArquivoHash(""); }
       const workbook = XLSX.read(buffer, { type: "array" });
       const primeiraAba = workbook.SheetNames[0];
       const linhasBrutas = XLSX.utils.sheet_to_json(workbook.Sheets[primeiraAba], {
@@ -263,6 +275,24 @@ export default function Borderos() {
   async function confirmarImportacao() {
     if (!preview) return;
 
+    // ===== HASH OBRIGATORIO, ANTES DE QUALQUER GRAVACAO =====================
+    // Mesmo contrato da ImportacaoAcordos: sem identidade do arquivo, a
+    // importacao nao comeca. Vem antes do `setImportando` e antes do insert em
+    // `importacoes`, entao nada financeiro e gravado.
+    //
+    // ATENCAO: isto e mais restritivo do que o bordero era. Antes, um bordero
+    // cujo hash nao pudesse ser calculado importava normalmente e so perdia a
+    // trilha. Agora ele e recusado. A troca e deliberada -- um bordero que nao
+    // da para identificar nao da para auditar -- mas e um bloqueio novo num
+    // fluxo que nunca bloqueava.
+    if (!hashValido(arquivoHash)) {
+      setErro("Não foi possível calcular a identidade do arquivo (SHA-256). " +
+        "A importação NÃO foi iniciada: nada foi gravado. " +
+        "Selecione o arquivo de novo; se persistir, confira se a página está em HTTPS.");
+      return;
+    }
+    // ========================================================================
+
     setImportando(true);
     setErro("");
 
@@ -292,6 +322,14 @@ export default function Borderos() {
       let ignorados = 0;
       const nomesNaoEncontrados = [];
       const nomesCriados = [];
+
+      // ---------------------------------------------------------------------
+      // ===== CONTRATO (nao mover) ==========================================
+      // A captura de presenca deve permanecer ANTES de qualquer filtro
+      // operacional do importador -- aqui, especificamente, antes de
+      // `naoReabreNoBordero`. Nao ha teste automatizado que proteja esta
+      // ordem: a garantia e a posicao no codigo. Mover e silencioso.
+      // =====================================================================
 
       // 1) Cria em lote (uma chamada só) os alunos que não bateram nem por
       // CPF nem por nome, em vez de um insert por linha.
@@ -504,6 +542,71 @@ export default function Borderos() {
         .from("importacoes")
         .update({ status: "CONCLUIDO" })
         .eq("id", importacao.id);
+
+      // =====================================================================
+      // J3/I2 — PRESENCA DO ARQUIVO BRUTO.
+      //
+      // ORDEM (corrigida em 01/10): a captura vem DEPOIS de a importacao
+      // financeira CONCLUIR. Antes ela rodava no inicio de
+      // `confirmarImportacao`, e o motivo documentado era outro -- garantir que
+      // as linhas puladas pelo laco entrassem no registro. Esse motivo nao
+      // exige rodar antes: `preview.linhas` e o arquivo inteiro e continua
+      // disponivel aqui. Capturando antes, uma importacao que estourasse no
+      // meio deixava a trilha afirmando que uma extracao foi recebida enquanto
+      // a `importacoes` ficava em PROCESSANDO -- uma extracao registrada sem
+      // importacao concluida.
+      //
+      // O QUE A CAPTURA PRECISA MANTER, e mantem: TODAS as linhas do arquivo,
+      // inclusive as que o laco acima pula via
+      // `naoReabreNoBordero(linha.situacaoAtual)` (PAGO, EM_CONFIRMACAO,
+      // CANCELADA) e as sem aluno resolvido. Se a trilha repetisse o filtro do
+      // importador, a ausencia medida seria artefato nosso, nao do arquivo.
+      // =====================================================================
+      try {
+        await supabase.rpc("registrar_presenca_extracao", {
+          p_importacao_id: importacao.id,
+          p_source_type: "BORDERO",
+          // o bordero E o escopo: comparar bordero 545 com 617 nao faz sentido,
+          // sao populacoes diferentes por construcao.
+          p_scope_key: "BORDERO=" + String(preview.numeroBordero || "DESCONHECIDO"),
+          // CONTRATO DO BORDERO (aprovado em 01/10):
+          //   · serve para AUDITORIA DE PRESENCA;
+          //   · normalmente NAO tera snapshot comparavel seguinte (cada bordero
+          //     e importado ~1 vez: 93 referencias em 97 importacoes);
+          //   · portanto NAO gera inferencia de ausencia;
+          //   · NAO participa da sequencia TOTAL do portador 195;
+          //   · NAO e comparado com BORDERO=TODOS -- scope_key diferente, e o
+          //     CHECK ck_extracao_scope_key_coerente garante a separacao.
+          // TOTAL aqui significa "o lote inteiro DESTA remessa", nao a carteira.
+          p_completude: "TOTAL",
+          // instante do upload, nao da geracao do bordero: o arquivo nao traz
+          // data de geracao. Inofensivo aqui porque cada bordero tem scope_key
+          // propria -- existe no maximo UMA extracao por escopo, logo nao ha
+          // ordem a inverter. No relatorio, onde todas as extracoes dividem a
+          // mesma scope_key, a data E declarada pela gestao.
+          p_snapshot_at: new Date().toISOString(),
+          p_arquivo_nome: arquivo?.name || null,
+          // hash ja calculado no `selecionarArquivo` e conferido pela trava
+          p_arquivo_hash: arquivoHash,
+          p_linhas_arquivo: preview.linhas.length,
+          p_linhas: preview.linhas.map((l) => ({
+            documento: l.numTitulo,
+            cpf: l.cpfLimpo,
+            tipo_boleto: l.curso,
+            // CORRIGIDO em 01/10: antes ia `l.situacaoAtual || "ABERTO"`.
+            // `situacaoAtual` e a situacao QUE O CRM TEM para o titulo
+            // (`mapaTitulos[numTitulo].situacao`), nao algo que o arquivo diga
+            // -- o bordero nao tem coluna de situacao. Gravar aquilo era
+            // guardar estado nosso como se fosse conteudo do arquivo, e o
+            // fallback literal "ABERTO" inventava uma situacao para todo
+            // titulo que o CRM ainda nao conhecia. A trilha representa O
+            // ARQUIVO RECEBIDO: sem coluna no arquivo, sem valor aqui.
+            situacao: null,
+            valor: l.valor,
+            venc: l.vencimento,
+          })),
+        });
+      } catch { /* presenca e auditoria paralela; nao derruba a importacao */ }
 
       setResultado({ inseridos, atualizados, ignorados, alunosCriados, nomesCriados, nomesNaoEncontrados });
       setPreview(null);

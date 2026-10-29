@@ -75,6 +75,146 @@ const QUALIDADE_LABEL = {
   critico_sem_saldo_vencido: "Crítico sem saldo vencido",
 };
 
+// ───────────────────────────────────────────────────────────────────────────
+// ONDE AJUSTAR O SEMÁFORO — ponto único.
+//
+// Todo corte de cor desta tela sai daqui. Nenhum limiar aparece solto dentro
+// dos componentes, de propósito: quando a gestão quiser mudar o que é
+// "atenção", a mudança é nesta constante e em nenhum outro lugar.
+//
+// ATENÇÃO: os valores abaixo são DEFAULT TÉCNICO, não regra de negócio
+// fechada. Servem para a tela sair do cinza e precisam ser calibrados com a
+// gestão antes de virarem referência.
+// ───────────────────────────────────────────────────────────────────────────
+const LIMIARES = {
+  // % de casos sem acionamento dentro do grupo (estabelecimento / operador).
+  pct_sem_acionamento: { ok: 15, atencao: 30 },
+  // % da carteira ACIONADA na janela de giro. Lê-se ao contrário dos demais:
+  // aqui número alto é bom, por isso `ok` é o piso e não o teto.
+  pct_cobertura: { ok: 60, atencao: 35 },
+  // nº de registros com defeito em "Qualidade da carteira".
+  qualidade: { ok: 0, atencao: 50 },
+  // quantas linhas de concentração mostrar em "Onde está o dinheiro".
+  concentracao_top: 5,
+  // fatia de valor que define o núcleo da carteira (leitura de Pareto).
+  pareto_pct: 80,
+};
+
+const SEM = {
+  ok: { cor: "var(--rv-verde-ok-texto)", bg: "var(--rv-verde-ok-fundo)", borda: "var(--rv-verde-ok-borda)", rotulo: "ok" },
+  atencao: { cor: "var(--rv-ambar-texto)", bg: "var(--rv-ambar-fundo)", borda: "var(--rv-ambar-borda)", rotulo: "atenção" },
+  risco: { cor: "var(--rv-vermelho-texto)", bg: "var(--rv-vermelho-fundo)", borda: "var(--rv-vermelho-borda)", rotulo: "risco" },
+};
+const nivelPct = (v) => {
+  const n = Number(v || 0);
+  if (n <= LIMIARES.pct_sem_acionamento.ok) return "ok";
+  if (n <= LIMIARES.pct_sem_acionamento.atencao) return "atencao";
+  return "risco";
+};
+// A CARTEIRA DEVE GIRAR EM 10 DIAS (regra operacional, 02/10/2026).
+//
+// Este valor é a leitura ESTRATÉGICA e é fixo de propósito: se cada pessoa
+// lesse a cobertura com um corte diferente, a conversa de gestão não fecharia.
+// O filtro "Sem acionamento há ≥ N dias" continua existindo e continua
+// governando as TABELAS DE DETALHE -- são perguntas diferentes.
+//
+// A RPC devolve `cobertura_dias` no payload; esta constante é só o fallback
+// para quando a migration ainda não rodou.
+const COBERTURA_DIAS = 10;
+
+// Cobertura inverte a leitura: alto é bom. Por isso a comparação é >=, ao
+// contrário de nivelPct.
+const nivelCob = (v) => {
+  const n = Number(v || 0);
+  if (n >= LIMIARES.pct_cobertura.ok) return "ok";
+  if (n >= LIMIARES.pct_cobertura.atencao) return "atencao";
+  return "risco";
+};
+const nivelQualidade = (v) => {
+  const n = Number(v || 0);
+  if (n <= LIMIARES.qualidade.ok) return "ok";
+  if (n <= LIMIARES.qualidade.atencao) return "atencao";
+  return "risco";
+};
+// Participação no total. NÃO é cálculo novo de negócio: é o mesmo número que a
+// tela já mostra, dividido pelo total que a tela já mostra. Denominador zero
+// devolve 0 em vez de NaN -- carteira vazia não é erro de tela.
+const participacao = (parte, total) => {
+  const t = Number(total || 0);
+  if (!t) return 0;
+  return (Number(parte || 0) / t) * 100;
+};
+
+// Chip de semáforo. Só cor + rótulo; o número continua sendo o da tabela.
+function Semaforo({ nivel, children, titulo }) {
+  const s = SEM[nivel] || SEM.ok;
+  return (
+    <span title={titulo} style={{
+      display: "inline-block", padding: "1px 7px", borderRadius: 999, fontSize: 11.5,
+      fontWeight: 700, color: s.cor, background: s.bg, border: `1px solid ${s.borda}`,
+    }}>{children}</span>
+  );
+}
+
+// PRIORIDADES DE GESTÃO — o que a tela já sabe, na ordem que a gestão definiu.
+//
+// A tela tinha 16 cards do mesmo tamanho e da mesma cor: "casos ativos" ao lado
+// de "nunca acionados". Lado a lado, sem hierarquia, nenhum deles é prioridade
+// -- o gestor lê os 16 e decide no olho.
+//
+// A ORDEM ABAIXO É FIXA E É DECISÃO DE NEGÓCIO (Amanda, 02/10/2026). Não é
+// ordenada por contagem nem por gravidade calculada: é a sequência de cobrança
+// acordada, e a posição de cada linha é o número no selo à esquerda. Mexer na
+// ordem aqui muda o que a gestão cobra primeiro -- não é refactor.
+//
+// "Sem telefone" NÃO entra: é defeito de cadastro, e já aparece em Qualidade da
+// carteira. Prioridade operacional é o que se cobra, não o que falta preencher.
+//
+// DUAS LINHAS CARREGAM DOIS INDICADORES, porque a gestão as trata como um
+// assunto só: "sem responsável / casos livres" (carteira sem dono) e
+// "fidelização expirando hoje/amanhã" (prazo estourando). Cada indicador
+// mantém o próprio drill-down -- a lista que abre é a mesma de sempre, da mesma
+// RPC, com os filtros atuais.
+//
+// `valor` só existe onde a RPC JÁ devolve dinheiro. Hoje isso é um caso só:
+// `saldo_livres`, ao lado de `casos_livres`. Para acordos vencidos, críticos,
+// urgentes, nunca acionados e fidelização a RPC devolve apenas contagem -- e
+// somar saldo por aqui seria cálculo novo, que esta tela não faz.
+const PRIORIDADES = [
+  { k: "sem_dono", rotulo: "Sem responsável / casos livres",
+    porque: "carteira sem dono: ninguém é responsável por cobrar",
+    metricas: [
+      { k: "sem_responsavel", rotulo: "sem responsável" },
+      { k: "casos_livres", rotulo: "livres", valor: "saldo_livres" },
+    ] },
+  { k: "sem_acionamento_limite", rotulo: "Sem acionamento no limite",
+    porque: `há mais de ${COBERTURA_DIAS} dias sem acionamento válido — a carteira deve girar em ${COBERTURA_DIAS} dias`,
+    // `cobertura` é o par novo do indicador; quando a RPC o manda, ele substitui
+    // o antigo. O antigo fica como fallback para o payload de antes da migration.
+    metricas: [{ k: "sem_acionamento_limite", cobertura: { k: "fora_cobertura", valor: "saldo_fora_cobertura" } }] },
+  { k: "acordos_vencidos", rotulo: "Acordos vencidos",
+    porque: "acordo fechado que parou de ser pago; cada dia reduz a chance de retomada",
+    metricas: [{ k: "acordos_vencidos" }] },
+  { k: "criticos", rotulo: "Críticos",
+    porque: "classificados como críticos pela base",
+    metricas: [{ k: "criticos" }] },
+  { k: "urgentes", rotulo: "Urgentes",
+    porque: "classificados como urgentes pela base",
+    metricas: [{ k: "urgentes" }] },
+  { k: "nunca_acionados", rotulo: "Nunca acionados",
+    porque: "sem nenhum acionamento válido no histórico, de nenhuma fonte",
+    metricas: [{ k: "nunca_acionados", cobertura: { k: "nunca_coberto", valor: "saldo_nunca_coberto" } }] },
+  { k: "acordos_em_dia_sem_acompanhamento", rotulo: "Acordos em dia sem acompanhamento",
+    porque: "está pagando, mas sem ninguém acompanhando — é o que vira acordo vencido",
+    metricas: [{ k: "acordos_em_dia_sem_acompanhamento" }] },
+  { k: "fidelizacao_hoje_amanha", rotulo: "Fidelização expirando hoje/amanhã",
+    porque: "perde a exclusividade do caso se ninguém acionar dentro do prazo",
+    metricas: [
+      { k: "fidelizacao_expira_hoje", rotulo: "expira hoje" },
+      { k: "fidelizacao_vence_amanha", rotulo: "vence amanhã" },
+    ] },
+];
+
 export default function SaudeCompletaCarteira() {
   const [filtros, setFiltros] = useState({ min_dias_sem_acionamento: 5 });
   const { data: resumo, carregando, ultimaEm, atualizar } =
@@ -88,6 +228,10 @@ export default function SaudeCompletaCarteira() {
   const [erroCurso, setErroCurso] = useState("");
   const [metricaFaixa, setMetricaFaixa] = useState("casos");
   const [ordEstab, setOrdEstab] = useState({ col: "sem_acionamento_limite", dir: "desc" });
+  // A tabela de operador vinha sem ordenação: a ordem era a que a RPC devolvia.
+  // Para comparar operadores (que é o motivo da tabela existir) é preciso
+  // ordenar. Abre pelo saldo vencido, que é a conversa que a gestão tem.
+  const [ordOper, setOrdOper] = useState({ col: "saldo_vencido", dir: "desc" });
   const [exportando, setExportando] = useState(false);
 
   // detalhamento (drill-down)
@@ -97,9 +241,40 @@ export default function SaudeCompletaCarteira() {
   const [detOrd, setDetOrd] = useState({ ordenar_por: "saldo_vencido", ordem_dir: "desc" });
   const [detLoading, setDetLoading] = useState(false);
   const [avisoRefresh, setAvisoRefresh] = useState("");
+  // O recalculo da matview leva ~30s e e feito FORA do hook, logo o `carregando`
+  // dele nao cobre esse tempo: sem este estado o botao fica vivo e sem resposta
+  // durante o recalculo -- parece que o clique nao fez nada.
+  const [recalculando, setRecalculando] = useState(false);
+  // QUEM PODE RECALCULAR, PERGUNTADO DIRETO.
+  //
+  // `usuario_e_gestao()` no banco e uma allowlist de e-mail (3 enderecos), nao
+  // o perfil da rota: a rota libera gerencia E supervisor, e supervisor fora da
+  // allowlist NAO e gestao. Logo nao da para deduzir pelo perfil da tela.
+  //
+  // Perguntar a propria funcao -- padrao que Honorarios a Entrar, Acordos
+  // Duplicados e o WhatsApp ja usam -- torna a decisao deterministica ANTES do
+  // clique: nao chamamos a RPC pesada de quem nao pode, e qualquer erro que ela
+  // devolver passa a ser erro de verdade, nao "talvez seja falta de permissao".
+  const [ehGestao, setEhGestao] = useState(null); // null = ainda nao sei
 
   const totais = resumo?.totais || {};
   const isGestao = resumo?.escopo?.is_gestao;
+
+  // Panorama e Por curso precisam ser recarregaveis pelo botao, nao so na
+  // abertura -- dai existirem como funcao. Os efeitos de abertura/troca de
+  // filtro seguem com a propria chamada guardada por `vivo` (a regra de lint
+  // do projeto nao aceita setState chamado do corpo do efeito).
+  const carregarPorCurso = useCallback(async () => {
+    const { data, error } = await supabase.rpc("saude_carteira_por_curso", { p_filtros: filtros });
+    if (error) { setErroCurso(error.message || String(error)); setPorCurso(null); }
+    else { setErroCurso(""); setPorCurso(data || null); }
+  }, [filtros]);
+
+  const carregarPanorama = useCallback(async () => {
+    const { data, error } = await supabase.rpc("saude_carteira_panorama");
+    if (error) { setErroPanorama(error.message || String(error)); setPanorama(null); }
+    else { setErroPanorama(""); setPanorama(data || null); }
+  }, []);
 
   // "ATUALIZAR" PRECISA RECALCULAR, NAO SO RELER.
   //
@@ -108,24 +283,55 @@ export default function SaudeCompletaCarteira() {
   // acao e clicasse em seguida via o numero velho -- "faco acao e nao aparece"
   // (Amanda, 09/09). O caso classico e o contador de nunca acionados.
   //
-  // Agora o botao recalcula primeiro. Leva ~6,7s, medido em producao, e por
-  // isso continua sendo acao explicita: ninguem paga esse custo sem pedir.
+  // Agora o botao recalcula primeiro. Leva ~30s: medido em producao em
+  // 01/10/2026 nas 24 execucoes do cron das ultimas 24h (28,5s a 34,9s; a
+  // marca antiga de ~6,7s ficou obsoleta). Por isso continua sendo acao
+  // explicita, e por isso o botao precisa dizer que esta trabalhando.
   //
   // So gestao pode recalcular (a propria RPC recusa os demais), entao para
   // operador seguimos direto para a leitura -- sem erro na cara de quem nao
   // tem permissao para uma coisa que ele nem pediu.
+  //
+  // O BUG DO PRIMEIRO CLIQUE: a condicao era `if (isGestao)`, e `isGestao` vem
+  // de `resumo.escopo.is_gestao` -- ou seja, so existe DEPOIS da primeira
+  // leitura. No primeiro clique ele era `undefined`, a tela pulava o recalculo
+  // e lia a foto da matview (atualizada de hora em hora pelo cron). Quem fazia
+  // uma acao e clicava em seguida via o numero velho. Agora quem decide e
+  // `ehGestao`, que vem de `usuario_e_gestao()` e ja esta resolvido na abertura.
   const carregar = useCallback(async () => {
-    if (isGestao) {
-      const { error } = await supabase.rpc("saude_carteira_atualizar");
-      // Erro aqui NAO impede a leitura: sob carga a RPC adia o refresh de
-      // proposito, e nesse caso a foto anterior e melhor que tela vazia.
-      if (error) setAvisoRefresh("Não foi possível recalcular agora — os números abaixo são do último cálculo.");
-      else setAvisoRefresh("");
+    let recalculou = false;
+    if (ehGestao) {
+      setRecalculando(true);
+      try {
+        const { data: r, error } = await supabase.rpc("saude_carteira_atualizar");
+        // Erro aqui NAO impede a leitura: sob carga a RPC adia o refresh de
+        // proposito, e nesse caso a foto anterior e melhor que tela vazia.
+        //
+        // ADIAMENTO NAO E ERRO: sob carga (>=2 consultas acima de 5s, ou >=25
+        // ativas) a RPC devolve {skipped:true} COM SUCESSO. Tratar isso como
+        // recalculo feito era mentir para quem clicou -- os numeros continuavam
+        // os mesmos e a tela nao dizia por que. Agora o adiamento esta escrito.
+        if (error) setAvisoRefresh("Não foi possível recalcular agora — os números abaixo são do último cálculo.");
+        else if (r?.skipped) setAvisoRefresh("Recálculo adiado: o sistema está sob carga. Os números abaixo são do último cálculo — tente de novo em alguns minutos.");
+        else { recalculou = true; setAvisoRefresh(""); }
+      } finally {
+        setRecalculando(false);
+      }
     }
-    await atualizar();
+    // Se recalculou, a releitura e obrigatoria. Com os ~30s de hoje o cooldown
+    // de 15s quase nunca chega a morder -- o recalculo sozinho ja passa do
+    // intervalo. Mas "quase nunca" nao e garantia: um refresh rapido (pouca
+    // coisa para reescrever, ou um ganho de desempenho amanha) cairia dentro
+    // da janela, e o resultado seria o pior caso possivel -- pagar o recalculo
+    // inteiro e mostrar o numero velho. A leitura que segue um recalculo pago
+    // nao pode depender de quanto ele demorou.
+    await atualizar({ ignorarCooldown: recalculou });
     const { data } = await supabase.rpc("saude_carteira_qualidade", { p_filtros: filtros });
     setQualidade(data?.qualidade || null);
-  }, [atualizar, filtros, isGestao]);
+    // Panorama e Por curso tambem sao parte da tela: ficavam congelados na
+    // foto da abertura porque so carregavam no mount.
+    await Promise.all([carregarPanorama(), carregarPorCurso()]);
+  }, [atualizar, filtros, ehGestao, carregarPanorama, carregarPorCurso]);
 
   // POR CURSO. Carrega junto do panorama, pelo mesmo motivo: e leitura de
   // composicao, nao indicador de trabalho. Erro aparece, nao some.
@@ -145,6 +351,14 @@ export default function SaudeCompletaCarteira() {
   // E o erro NAO e engolido: se a funcao falhar, a tela diz. Antes eu
   // silenciava, e o resultado era o painel simplesmente nao existir sem
   // ninguem saber por que (Amanda: "saude da carteira nao esta por semestre").
+  useEffect(() => {
+    let vivo = true;
+    supabase.rpc("usuario_e_gestao").then(({ data }) => {
+      if (vivo) setEhGestao(data === true);
+    }, () => { if (vivo) setEhGestao(false); });
+    return () => { vivo = false; };
+  }, []);
+
   useEffect(() => {
     let vivo = true;
     supabase.rpc("saude_carteira_panorama").then(({ data, error }) => {
@@ -205,15 +419,36 @@ export default function SaudeCompletaCarteira() {
     }
   };
 
-  const estabs = [...(resumo?.estabelecimentos || [])].sort((a, b) => {
-    const s = (ordEstab.dir === "asc" ? 1 : -1);
-    const va = a[ordEstab.col], vb = b[ordEstab.col];
-    if (typeof va === "string") return s * String(va).localeCompare(String(vb));
-    return s * ((va || 0) - (vb || 0));
-  });
+  // PARTICIPAÇÃO NO SALDO VENCIDO, por estabelecimento e por operador.
+  //
+  // A tabela já trazia o saldo vencido de cada linha, mas não dizia se aquilo
+  // era muito. "R$ 1,2 mi" só vira informação ao lado de "27% do vencido da
+  // carteira". É divisão do número que já está na tela pelo total que já está
+  // na tela -- entra como coluna nova, e por isso é ordenável como as outras.
+  const estabs = [...(resumo?.estabelecimentos || [])]
+    .map((e) => ({ ...e, part_saldo_vencido: participacao(e.saldo_vencido, totais.saldo_vencido) }))
+    .sort((a, b) => {
+      const s = (ordEstab.dir === "asc" ? 1 : -1);
+      const va = a[ordEstab.col], vb = b[ordEstab.col];
+      if (typeof va === "string") return s * String(va).localeCompare(String(vb));
+      return s * ((va || 0) - (vb || 0));
+    });
+  // Mesma participação para operador, e aqui o ganho é maior: a tabela de
+  // operador não tinha ordenação nenhuma -- vinha na ordem da RPC.
+  //
+  // (SEM RESPONSAVEL) continua sendo uma linha como as outras, inclusive na
+  // ordenação: tirá-la ou fixá-la no fim esconderia justamente a carteira que
+  // não tem dono, que é o que mais interessa ver no topo.
+  const operadores = [...(resumo?.operadores || [])]
+    .map((o) => ({ ...o, part_saldo_vencido: participacao(o.saldo_vencido, totais.saldo_vencido) }))
+    .sort((a, b) => {
+      const s = (ordOper.dir === "asc" ? 1 : -1);
+      const va = a[ordOper.col], vb = b[ordOper.col];
+      if (typeof va === "string") return s * String(va).localeCompare(String(vb));
+      return s * ((va || 0) - (vb || 0));
+    });
   const mtxFaixa = resumo?.matriz_faixa_atraso || [];
   const mtxTempo = resumo?.matriz_tempo_sem_acionamento || [];
-  const operadores = resumo?.operadores || [];
 
   const totalGeral = (lista, col) => lista.reduce((s, x) => s + Number(x[col] || 0), 0);
 
@@ -228,7 +463,13 @@ export default function SaudeCompletaCarteira() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <BotaoAtualizar carregando={carregando} ultimaEm={ultimaEm} onClick={carregar} rotulo={isGestao ? "Recalcular indicadores" : "Atualizar indicadores"} />
+          <BotaoAtualizar
+            carregando={carregando || recalculando}
+            textoCarregando={recalculando ? "Recalculando a base… (~30s)" : "Atualizando…"}
+            ultimaEm={ultimaEm}
+            onClick={carregar}
+            rotulo={ehGestao ? "Recalcular indicadores" : "Atualizar indicadores"}
+          />
           <button onClick={exportar} disabled={exportando || !resumo} style={btnSec}>
             {exportando ? "Gerando…" : "⬇ Exportar Excel"}
           </button>
@@ -247,6 +488,25 @@ export default function SaudeCompletaCarteira() {
       <SeloDataDeCorte variante="bloco" />
 
       <Filtros filtros={filtros} setFiltros={setFiltros} estabs={resumo?.estabelecimentos || []} operadores={operadores} isGestao={isGestao} />
+
+      {/* CAMADA ESTRATÉGICA, ANTES DO DETALHE.
+          A tela abria direto no detalhe operacional. Quem abre para decidir
+          precisa primeiro da leitura (o que está acontecendo), depois da
+          alocação (onde está o valor) e só então da fila (o que cobrar). O
+          detalhe que alimenta os três continua logo abaixo, intacto. */}
+      {resumo && (
+        <ResumoExecutivo
+          totais={totais}
+          origem={resumo?.saldo_por_origem}
+          porCurso={porCurso}
+          qualidade={qualidade}
+          onDrill={abrirDrill}
+        />
+      )}
+
+      <OndeEstaODinheiro porCurso={porCurso} panorama={panorama} origem={resumo?.saldo_por_origem} />
+
+      {resumo && <PrioridadesDeGestao totais={totais} onDrill={abrirDrill} />}
 
       <Panorama dados={panorama} erro={erroPanorama} />
 
@@ -292,7 +552,8 @@ export default function SaudeCompletaCarteira() {
               <table style={tabela}>
                 <thead><tr>
                   {[["estabelecimento", "Estabelecimento"], ["casos_ativos", "Casos"], ["cpfs_unicos", "CPFs"],
-                    ["saldo_vencido", "Saldo vencido"], ["saldo_total", "Saldo total"], ["nunca_acionados", "Nunca acion."],
+                    ["saldo_vencido", "Saldo vencido"], ["part_saldo_vencido", "% do vencido"],
+                    ["saldo_total", "Saldo total"], ["nunca_acionados", "Nunca acion."],
                     ["sem_acionamento_limite", "Sem acion. (lim.)"], ["pct_sem_acionamento", "%"], ["sem_ac_7", ">7d"],
                     ["sem_ac_15", ">15d"], ["sem_ac_30", ">30d"], ["retornos_vencidos", "Ret. venc."],
                     ["sem_telefone", "S/ tel."], ["sem_responsavel", "S/ resp."], ["criticos", "Crít."],
@@ -307,9 +568,21 @@ export default function SaudeCompletaCarteira() {
                     <tr key={e.estabelecimento} style={{ borderTop: "1px solid var(--rv-borda-suave)" }}>
                       <td style={{ ...td, fontWeight: 600, cursor: "pointer" }} onClick={() => abrirDrill(`Estab.: ${e.estabelecimento}`, { estabelecimento: e.estabelecimento })}>{e.estabelecimento}</td>
                       <td style={td}>{num(e.casos_ativos)}</td><td style={td}>{num(e.cpfs_unicos)}</td>
-                      <td style={td}>{moeda(e.saldo_vencido)}</td><td style={td}>{moeda(e.saldo_total)}</td>
+                      <td style={td}>{moeda(e.saldo_vencido)}</td>
+                      {/* Barra de participação: mesma leitura do número ao lado, só
+                          mais rápida de varrer numa tabela de 20 colunas. */}
+                      <td style={td}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
+                          <span style={{ width: 44, height: 5, background: "var(--rv-fundo-suave)", borderRadius: 3, overflow: "hidden", display: "inline-block" }}>
+                            <span style={{ display: "block", width: `${Math.min(100, e.part_saldo_vencido)}%`, height: "100%", background: "var(--rv-azul-texto)" }} />
+                          </span>
+                          <span>{pct(e.part_saldo_vencido)}</span>
+                        </div>
+                      </td>
+                      <td style={td}>{moeda(e.saldo_total)}</td>
                       <td style={td}>{num(e.nunca_acionados)}</td><td style={td}>{num(e.sem_acionamento_limite)}</td>
-                      <td style={td}>{Number(e.pct_sem_acionamento || 0).toFixed(0)}%</td><td style={td}>{num(e.sem_ac_7)}</td>
+                      <td style={td}><Semaforo nivel={nivelPct(e.pct_sem_acionamento)}>{Number(e.pct_sem_acionamento || 0).toFixed(0)}%</Semaforo></td>
+                      <td style={td}>{num(e.sem_ac_7)}</td>
                       <td style={td}>{num(e.sem_ac_15)}</td><td style={td}>{num(e.sem_ac_30)}</td><td style={td}>{num(e.retornos_vencidos)}</td>
                       <td style={td}>{num(e.sem_telefone)}</td><td style={td}>{num(e.sem_responsavel)}</td><td style={td}>{num(e.criticos)}</td>
                       <td style={td}>{num(e.urgentes)}</td><td style={td}>{num(e.acordos_em_dia)}</td><td style={td}>{num(e.acordos_vencidos)}</td>
@@ -318,9 +591,11 @@ export default function SaudeCompletaCarteira() {
                   ))}
                   <tr style={{ borderTop: "2px solid var(--rv-borda-forte)", fontWeight: 800, background: "var(--rv-fundo-cartao)" }}>
                     <td style={td}>TOTAL DA CARTEIRA</td><td style={td}>{num(totais.casos_ativos)}</td><td style={td}>{num(totais.cpfs_unicos)}</td>
-                    <td style={td}>{moeda(totais.saldo_vencido)}</td><td style={td}>{moeda(totais.saldo_total)}</td>
+                    <td style={td}>{moeda(totais.saldo_vencido)}</td>
+                    <td style={td}>{pct(100)}</td>
+                    <td style={td}>{moeda(totais.saldo_total)}</td>
                     <td style={td}>{num(totais.nunca_acionados)}</td><td style={td}>{num(totais.sem_acionamento_limite)}</td>
-                    <td style={td}>{Number(totais.pct_sem_acionamento || 0).toFixed(0)}%</td>
+                    <td style={td}><Semaforo nivel={nivelPct(totais.pct_sem_acionamento)}>{Number(totais.pct_sem_acionamento || 0).toFixed(0)}%</Semaforo></td>
                     <td style={td} colSpan={3}></td>
                     <td style={td}>{num(totais.retornos_vencidos)}</td><td style={td}>{num(totais.sem_telefone)}</td>
                     <td style={td}>{num(totais.sem_responsavel)}</td><td style={td}>{num(totais.criticos)}</td><td style={td}>{num(totais.urgentes)}</td>
@@ -346,35 +621,56 @@ export default function SaudeCompletaCarteira() {
           <Secao titulo="Por operador">
             <div style={{ overflowX: "auto" }}>
               <table style={tabela}>
-                <thead><tr>{["Operador", "Casos", "CPFs", "Saldo vencido", "Saldo total", "Nunca acion.", "Sem acion.", "%", "Ret. venc.", "S/ tel.", "Crít.", "Urg.", "Ac. dia", "Ac. venc."].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                <thead><tr>
+                  {[["operador_email", "Operador"], ["casos_ativos", "Casos"], ["cpfs_unicos", "CPFs"],
+                    ["saldo_vencido", "Saldo vencido"], ["part_saldo_vencido", "% do vencido"],
+                    ["saldo_total", "Saldo total"], ["nunca_acionados", "Nunca acion."],
+                    ["sem_acionamento_limite", "Sem acion."], ["pct_sem_acionamento", "%"],
+                    ["retornos_vencidos", "Ret. venc."], ["sem_telefone", "S/ tel."], ["criticos", "Crít."],
+                    ["urgentes", "Urg."], ["acordos_em_dia", "Ac. dia"], ["acordos_vencidos", "Ac. venc."]].map(([col, lbl]) => (
+                    <th key={col} onClick={() => setOrdOper((o) => ({ col, dir: o.col === col && o.dir === "desc" ? "asc" : "desc" }))}
+                      style={{ ...th, cursor: "pointer" }}>{lbl}{ordOper.col === col ? (ordOper.dir === "desc" ? " ▼" : " ▲") : ""}</th>
+                  ))}
+                </tr></thead>
                 <tbody>
                   {operadores.map((o) => (
                     <tr key={o.operador_email} style={{ borderTop: "1px solid var(--rv-borda-suave)", ...(o.operador_email === "(SEM RESPONSAVEL)" ? { background: "var(--rv-ambar-fundo)" } : {}) }}>
                       <td style={{ ...td, fontWeight: 600, cursor: "pointer" }} onClick={() => o.operador_email !== "(SEM RESPONSAVEL)" && abrirDrill(`Operador: ${o.operador_email}`, { operador_email: o.operador_email })}>{o.operador_email}</td>
                       <td style={td}>{num(o.casos_ativos)}</td><td style={td}>{num(o.cpfs_unicos)}</td><td style={td}>{moeda(o.saldo_vencido)}</td>
+                      <td style={td}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
+                          <span style={{ width: 44, height: 5, background: "var(--rv-fundo-suave)", borderRadius: 3, overflow: "hidden", display: "inline-block" }}>
+                            <span style={{ display: "block", width: `${Math.min(100, o.part_saldo_vencido)}%`, height: "100%", background: "var(--rv-azul-texto)" }} />
+                          </span>
+                          <span>{pct(o.part_saldo_vencido)}</span>
+                        </div>
+                      </td>
                       <td style={td}>{moeda(o.saldo_total)}</td><td style={td}>{num(o.nunca_acionados)}</td><td style={td}>{num(o.sem_acionamento_limite)}</td>
-                      <td style={td}>{Number(o.pct_sem_acionamento || 0).toFixed(0)}%</td><td style={td}>{num(o.retornos_vencidos)}</td>
+                      <td style={td}><Semaforo nivel={nivelPct(o.pct_sem_acionamento)}>{Number(o.pct_sem_acionamento || 0).toFixed(0)}%</Semaforo></td>
+                      <td style={td}>{num(o.retornos_vencidos)}</td>
                       <td style={td}>{num(o.sem_telefone)}</td><td style={td}>{num(o.criticos)}</td><td style={td}>{num(o.urgentes)}</td>
                       <td style={td}>{num(o.acordos_em_dia)}</td><td style={td}>{num(o.acordos_vencidos)}</td>
                     </tr>
                   ))}
+                  {/* TOTAL DA CARTEIRA, igual ao da tabela de estabelecimento: são os
+                      totais que a RPC já devolve, NÃO a soma das linhas acima. Somar as
+                      linhas daria outro número se a RPC filtrar ou agrupar diferente, e
+                      a tela não pode ter duas versões do total da carteira. */}
+                  <tr style={{ borderTop: "2px solid var(--rv-borda-forte)", fontWeight: 800, background: "var(--rv-fundo-cartao)" }}>
+                    <td style={td}>TOTAL DA CARTEIRA</td><td style={td}>{num(totais.casos_ativos)}</td><td style={td}>{num(totais.cpfs_unicos)}</td>
+                    <td style={td}>{moeda(totais.saldo_vencido)}</td><td style={td}>{pct(100)}</td><td style={td}>{moeda(totais.saldo_total)}</td>
+                    <td style={td}>{num(totais.nunca_acionados)}</td><td style={td}>{num(totais.sem_acionamento_limite)}</td>
+                    <td style={td}><Semaforo nivel={nivelPct(totais.pct_sem_acionamento)}>{Number(totais.pct_sem_acionamento || 0).toFixed(0)}%</Semaforo></td>
+                    <td style={td}>{num(totais.retornos_vencidos)}</td><td style={td}>{num(totais.sem_telefone)}</td>
+                    <td style={td}>{num(totais.criticos)}</td><td style={td}>{num(totais.urgentes)}</td>
+                    <td style={td}>{num(totais.acordos_em_dia)}</td><td style={td}>{num(totais.acordos_vencidos)}</td>
+                  </tr>
                 </tbody>
               </table>
             </div>
           </Secao>
 
-          {qualidade && (
-            <Secao titulo="Qualidade da carteira">
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 10 }}>
-                {Object.entries(qualidade).map(([k, v]) => (
-                  <div key={k} style={{ ...card, background: v > 0 ? "var(--rv-vermelho-fundo)" : "var(--rv-verde-ok-fundo)" }}>
-                    <div style={{ fontSize: 12, color: "var(--rv-texto)" }}>{QUALIDADE_LABEL[k] || k}</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: v > 0 ? "var(--rv-vermelho-texto)" : "var(--rv-verde-ok-texto)" }}>{num(v)}</div>
-                  </div>
-                ))}
-              </div>
-            </Secao>
-          )}
+          {qualidade && <QualidadeSemaforo qualidade={qualidade} />}
         </>
       )}
 
@@ -383,6 +679,381 @@ export default function SaudeCompletaCarteira() {
           pag={detPag} setPag={setDetPag} ord={detOrd} setOrd={setDetOrd} onClose={() => { setDrill(null); setDet(null); }} />
       )}
     </div>
+  );
+}
+
+// RESUMO EXECUTIVO — as cinco frases que a tela já podia dizer e não dizia.
+//
+// A tela entregava 16 cards, 4 tabelas e 2 matrizes, todos do mesmo peso. Quem
+// abre para decidir -- não para trabalhar a fila -- tinha que montar a leitura
+// na cabeça toda vez. Este bloco faz essa leitura uma vez, em cima dos MESMOS
+// números: nada aqui vem de RPC nova, e nenhum valor é recalculado. O que é
+// novo é só a divisão de um número da tela pelo total da tela (participação),
+// e a frase ao lado dizendo o que ele significa.
+function ResumoExecutivo({ totais, origem, porCurso, qualidade, onDrill }) {
+  const temAlgo = totais && Object.keys(totais).length > 0;
+  if (!temAlgo) return null;
+
+  const pctVencido = participacao(totais.saldo_vencido, totais.saldo_total);
+  // Quanto da dívida já passou por negociação. Vem de `saldo_por_origem`, que é
+  // a posição lida das tabelas de origem -- por isso a frase diz "em acordo",
+  // não "do saldo total" dos cards, que é de outro momento.
+  const pctEmAcordo = origem ? participacao(origem.acordo_total, origem.total) : null;
+
+  const cursos = porCurso?.por_curso || [];
+  const maiorCurso = cursos.reduce((a, b) => (Number(b?.pct_valor || 0) > Number(a?.pct_valor || 0) ? b : a), cursos[0] || null);
+
+  const defeitos = Object.values(qualidade || {}).reduce((s, v) => s + Number(v || 0), 0);
+  // A RPC só passa a mandar cobertura depois da migration 20261002120000. Até
+  // lá (e se alguém rodar o rollback) a tela cai para a leitura operacional em
+  // vez de mostrar "—" ou quebrar: o payload antigo continua renderizando.
+  const temCobertura = totais.pct_cobertura != null;
+  const nivelCobertura = temCobertura ? nivelCob(totais.pct_cobertura) : nivelPct(totais.pct_sem_acionamento);
+  const nivelDef = qualidade ? nivelQualidade(defeitos) : null;
+
+  const leituras = [
+    {
+      k: "tamanho",
+      rotulo: "Tamanho da carteira",
+      valor: moeda(totais.saldo_total),
+      frase: `${num(totais.casos_ativos)} casos · ${num(totais.cpfs_unicos)} alunos · ${moeda(totais.saldo_vencido)} já vencido (${pct(pctVencido)} do total)`,
+    },
+    {
+      k: "cobertura",
+      rotulo: "Cobertura da operação",
+      // COBERTURA É % ACIONADO, NÃO % DESCOBERTO.
+      //
+      // O card dizia `pct_sem_acionamento` sob o rótulo "Cobertura": o número
+      // era o complemento do que o rótulo prometia. E a base era
+      // `data_ultimo_acionamento`, que por decisão de 20/09 NÃO registra ação
+      // massiva -- 1.751 casos acionados em massa apareciam como descobertos.
+      //
+      // Agora vem de `pct_cobertura`, calculado na RPC sobre a mesma definição
+      // de acionamento válido da tela de Ações Massivas, com giro de 10 dias.
+      valor: temCobertura ? pct(totais.pct_cobertura) : pct(100 - Number(totais.pct_sem_acionamento || 0)),
+      nivel: nivelCobertura,
+      frase: temCobertura
+        ? `da carteira foi acionada nos últimos ${num(totais.cobertura_dias ?? COBERTURA_DIAS)} dias, contando ação massiva · ${num(totais.fora_cobertura)} fora da cobertura e ${num(totais.nunca_coberto)} nunca acionados`
+        : `da carteira foi acionada dentro do limite do filtro · ${num(totais.nunca_acionados)} nunca foram acionados`,
+      indicador: "nunca_acionados",
+      indicadorRotulo: "Nunca acionados",
+    },
+    {
+      k: "negociacao",
+      rotulo: "Dívida negociada",
+      valor: pctEmAcordo == null ? "—" : pct(pctEmAcordo),
+      frase: pctEmAcordo == null
+        ? "posição por origem indisponível nesta leitura"
+        : `do saldo em aberto já está dentro de acordo · ${num(totais.acordos_vencidos)} acordos vencidos e ${num(totais.acordos_em_dia_sem_acompanhamento)} em dia sem acompanhamento`,
+      indicador: "acordos_vencidos",
+      indicadorRotulo: "Acordos vencidos",
+    },
+    {
+      k: "concentracao",
+      rotulo: "Concentração",
+      valor: maiorCurso ? pct(maiorCurso.pct_valor) : "—",
+      frase: maiorCurso
+        ? `do valor está em ${maiorCurso.curso}, com ${num(maiorCurso.casos)} alunos e ticket médio de ${moeda(maiorCurso.ticket_medio)}`
+        : "carteira por curso indisponível nesta leitura",
+    },
+    {
+      k: "qualidade",
+      rotulo: "Confiança no dado",
+      valor: qualidade ? num(defeitos) : "—",
+      nivel: nivelDef,
+      frase: qualidade
+        ? "registros com defeito de cadastro ou de consistência — todo número acima carrega esse erro"
+        : "qualidade da carteira indisponível nesta leitura",
+    },
+  ];
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 13, fontWeight: 800, color: "var(--rv-tinta)" }}>Resumo executivo</span>
+        <span style={{ fontSize: 12.5, color: "var(--rv-texto-suave)" }}>
+          a leitura da carteira em cinco frases · mesmos números do detalhe abaixo
+        </span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 12 }}>
+        {leituras.map((l) => (
+          <div key={l.k} style={{ ...card, borderLeft: `3px solid ${l.nivel ? SEM[l.nivel].cor : "var(--rv-borda-forte)"}` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 12, color: "var(--rv-texto-suave)", fontWeight: 700 }}>{l.rotulo}</span>
+              {l.nivel ? <Semaforo nivel={l.nivel} titulo={`limiar em LIMIARES (ver topo do arquivo)`}>{SEM[l.nivel].rotulo}</Semaforo> : null}
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: "var(--rv-tinta)", margin: "6px 0 4px" }}>{l.valor}</div>
+            <div style={{ fontSize: 11.5, color: "var(--rv-texto-suave)", lineHeight: 1.5 }}>{l.frase}</div>
+            {l.indicador && onDrill ? (
+              <button onClick={() => onDrill(l.indicadorRotulo, { indicador: l.indicador })}
+                style={{ ...btnSec, marginTop: 8, padding: "4px 10px", fontSize: 12 }}>
+                ver lista →
+              </button>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ONDE ESTÁ O DINHEIRO — a síntese que faltava entre "De que é feita a carteira"
+// e "Por curso", que já existem logo abaixo.
+//
+// Os dois blocos de baixo mostram a composição LINHA POR LINHA. Nenhum dos dois
+// responde "quantos cursos eu preciso resolver para endereçar a maior parte do
+// valor" -- e essa é a pergunta de alocação de time. Aqui entra o acumulado
+// (Pareto), que é a mesma lista ordenada com a soma corrida ao lado.
+//
+// Tudo sai de `saude_carteira_por_curso` e `saude_carteira_panorama`, já
+// carregadas. Nada de novo é consultado.
+function OndeEstaODinheiro({ porCurso, panorama, origem }) {
+  const cursos = [...(porCurso?.por_curso || [])].sort((a, b) => Number(b.saldo || 0) - Number(a.saldo || 0));
+  const totalCursos = Number(porCurso?.total || 0);
+  if (!cursos.length && !panorama && !origem) return null;
+
+  // Acumulado: quantos cursos somam a fatia de LIMIARES.pareto_pct do valor.
+  // Acumulado por `reduce` e não por variável externa: a regra de imutabilidade
+  // do projeto proíbe reatribuir no corpo do render, e aqui o acumulador vive
+  // dentro da própria lista que está sendo construída.
+  const comAcumulado = cursos.reduce((acc, c) => {
+    const corrido = (acc.length ? acc[acc.length - 1].corrido : 0) + Number(c.saldo || 0);
+    acc.push({ ...c, corrido, acumulado: participacao(corrido, totalCursos) });
+    return acc;
+  }, []);
+  const nucleo = comAcumulado.findIndex((c) => c.acumulado >= LIMIARES.pareto_pct);
+  const cursosNoNucleo = nucleo === -1 ? comAcumulado.length : nucleo + 1;
+  const topo = comAcumulado.slice(0, LIMIARES.concentracao_top);
+
+  const faixas = [...(panorama?.por_faixa || [])].sort((a, b) => Number(b.pct_valor || 0) - Number(a.pct_valor || 0));
+  const maiorFaixa = faixas[0];
+  const pctEmAcordo = origem ? participacao(origem.acordo_total, origem.total) : null;
+
+  return (
+    <Secao titulo="Onde está o dinheiro">
+      <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--rv-texto-suave)", lineHeight: 1.6 }}>
+        Síntese de alocação, montada sobre a composição detalhada que aparece logo abaixo —
+        nenhum número novo, só a soma corrida que a lista simples não mostra.
+      </p>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: 12, marginBottom: 14 }}>
+        {comAcumulado.length ? (
+          <div style={card}>
+            <div style={{ fontSize: 12, color: "var(--rv-texto-suave)", fontWeight: 700 }}>Núcleo da carteira</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: "var(--rv-tinta)", margin: "6px 0 4px" }}>
+              {num(cursosNoNucleo)} {cursosNoNucleo === 1 ? "curso" : "cursos"}
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--rv-texto-suave)", lineHeight: 1.5 }}>
+              concentram {pct(LIMIARES.pareto_pct)} do valor, de {num(comAcumulado.length)} cursos na carteira
+            </div>
+          </div>
+        ) : null}
+
+        {maiorFaixa ? (
+          <div style={card}>
+            <div style={{ fontSize: 12, color: "var(--rv-texto-suave)", fontWeight: 700 }}>Maior faixa de dívida</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: "var(--rv-tinta)", margin: "6px 0 4px" }}>{maiorFaixa.faixa}</div>
+            <div style={{ fontSize: 11.5, color: "var(--rv-texto-suave)", lineHeight: 1.5 }}>
+              {pct(maiorFaixa.pct_valor)} do valor em {num(maiorFaixa.cpfs)} alunos ({pct(maiorFaixa.pct_cpfs)} da base)
+            </div>
+          </div>
+        ) : null}
+
+        {pctEmAcordo != null ? (
+          <div style={card}>
+            <div style={{ fontSize: 12, color: "var(--rv-texto-suave)", fontWeight: 700 }}>Negociado x não negociado</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: "var(--rv-tinta)", margin: "6px 0 4px" }}>{pct(pctEmAcordo)}</div>
+            <div style={{ fontSize: 11.5, color: "var(--rv-texto-suave)", lineHeight: 1.5 }}>
+              em acordo ({moeda(origem.acordo_total)}) · {moeda(origem.mensalidade_total)} ainda sem negociação
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {topo.length ? (
+        <div style={{ overflowX: "auto" }}>
+          <table style={tabela}>
+            <thead>
+              <tr>
+                <th style={{ ...th, textAlign: "left" }}>Curso</th>
+                <th style={th}>Alunos</th>
+                <th style={th}>Saldo</th>
+                <th style={th}>% do valor</th>
+                <th style={th}>Acumulado</th>
+                <th style={th}>Ticket médio</th>
+              </tr>
+            </thead>
+            <tbody>
+              {topo.map((c) => (
+                <tr key={c.curso} style={{ borderTop: "1px solid var(--rv-borda-suave)" }}>
+                  <td style={{ ...td, textAlign: "left", fontWeight: 600 }}>{c.curso}</td>
+                  <td style={td}>{num(c.casos)}</td>
+                  <td style={{ ...td, fontWeight: 700 }}>{moeda(c.saldo)}</td>
+                  <td style={td}>{pct(c.pct_valor)}</td>
+                  <td style={{ ...td, color: "var(--rv-azul-texto)", fontWeight: 700 }}>{pct(c.acumulado)}</td>
+                  <td style={td}>{moeda(c.ticket_medio)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--rv-texto-suave)", lineHeight: 1.5 }}>
+            Os {num(topo.length)} maiores de {num(comAcumulado.length)} cursos. A lista completa fica em <b>Por curso</b>, abaixo.
+            <b> Acumulado</b> é a soma corrida do % de valor na ordem de saldo — é por ele que se lê quanto da carteira
+            cabe num recorte pequeno.
+          </p>
+        </div>
+      ) : null}
+    </Secao>
+  );
+}
+
+// PRIORIDADES DE GESTÃO — a fila de cobrança do gestor, não do operador.
+//
+// A ordem é a de PRIORIDADES, no topo, e é decisão de negócio: aqui não se
+// ordena nada. O selo à esquerda é a POSIÇÃO nessa fila, não um semáforo --
+// ordenar por contagem ou por gravidade calculada contrariaria a sequência
+// acordada.
+//
+// As oito linhas aparecem SEMPRE, inclusive zeradas. Esta seção é uma lista de
+// conferência: "nunca acionados = 0" é informação (a frente está limpa), e uma
+// linha que some muda a posição das outras, que é justamente o que a ordem fixa
+// existe para impedir.
+function PrioridadesDeGestao({ totais, onDrill }) {
+  // Quando a RPC manda cobertura (migration 20261002120000), os indicadores que
+  // têm par passam a ler a definição de 10 dias -- que inclui ação massiva.
+  // Sem ela, a tela continua na leitura antiga em vez de mostrar zero.
+  const temCobertura = totais?.pct_cobertura != null;
+  const linhas = PRIORIDADES.map((p, i) => ({
+    ...p,
+    posicao: i + 1,
+    metricas: p.metricas.map((m) => {
+      const ef = temCobertura && m.cobertura ? { ...m, ...m.cobertura } : m;
+      return {
+        ...ef,
+        quantidade: Number(totais?.[ef.k] || 0),
+        // Dinheiro só quando a RPC já manda. Sem chave `valor`, a linha mostra
+        // contagem e mais nada -- é o caso de quase todos os indicadores.
+        dinheiro: ef.valor != null && totais?.[ef.valor] != null ? Number(totais[ef.valor]) : null,
+      };
+    }),
+  }));
+
+  const linhaAtiva = (l) => l.metricas.some((m) => m.quantidade > 0);
+
+  return (
+    <Secao titulo="Prioridades de gestão">
+      <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--rv-texto-suave)", lineHeight: 1.6 }}>
+        Os mesmos indicadores dos cards acima, na ordem de cobrança definida pela gestão — não por
+        tamanho do número. Cada métrica abre a mesma lista do card correspondente, com os filtros atuais.
+        Linhas zeradas continuam visíveis: a posição na fila é fixa.
+      </p>
+      <div style={{ display: "grid", gap: 8 }}>
+        {linhas.map((l) => {
+          const ativa = linhaAtiva(l);
+          return (
+            // `data-prioridade` é ponto de ancoragem de teste: a ordem desta
+            // seção é decisão de negócio e precisa ser verificável sem depender
+            // de texto ou de posição no DOM.
+            <div key={l.k} data-prioridade={l.k} data-posicao={l.posicao} style={{
+              ...card, display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 12, alignItems: "center",
+              borderLeft: `3px solid ${ativa ? "var(--rv-azul-texto)" : "var(--rv-borda-forte)"}`,
+              opacity: ativa ? 1 : 0.65,
+            }}>
+              <span title={`posição ${l.posicao} na fila de cobrança`} style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24,
+                borderRadius: 999, fontSize: 12, fontWeight: 800,
+                color: ativa ? "var(--rv-azul-texto)" : "var(--rv-texto-fraco)",
+                background: ativa ? "var(--rv-azul-fundo)" : "var(--rv-fundo-suave)",
+                border: `1px solid ${ativa ? "var(--rv-azul-borda)" : "var(--rv-borda)"}`,
+              }}>{l.posicao}</span>
+
+              <span style={{ textAlign: "left" }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "var(--rv-tinta)" }}>{l.rotulo}</span>
+                <span style={{ display: "block", fontSize: 11.5, color: "var(--rv-texto-suave)", marginTop: 2, lineHeight: 1.45 }}>
+                  {l.porque}
+                </span>
+              </span>
+
+              <span style={{ display: "flex", gap: 18, alignItems: "flex-start", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                {l.metricas.map((m) => (
+                  <button key={m.k} onClick={() => onDrill(m.rotulo ? `${l.rotulo} · ${m.rotulo}` : l.rotulo, { indicador: m.k })}
+                    style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "right" }}>
+                    <span style={{ display: "block", fontSize: 20, fontWeight: 800, whiteSpace: "nowrap",
+                                   color: m.quantidade > 0 ? "var(--rv-tinta)" : "var(--rv-texto-fraco)" }}>
+                      {num(m.quantidade)}
+                    </span>
+                    {/* O valor só aparece quando existe na base. Linha sem dinheiro
+                        não ganha um "R$ 0,00" inventado para parecer simétrica. */}
+                    {m.dinheiro != null && (
+                      <span style={{ display: "block", fontSize: 12, fontWeight: 700, color: "var(--rv-texto-forte)", whiteSpace: "nowrap" }}>
+                        {moeda(m.dinheiro)}
+                      </span>
+                    )}
+                    <span style={{ display: "block", fontSize: 11, color: "var(--rv-texto-suave)", marginTop: 1, whiteSpace: "nowrap" }}>
+                      {m.rotulo ? `${m.rotulo} · ` : ""}<span style={{ color: "var(--rv-azul-texto)", fontWeight: 700 }}>ver lista →</span>
+                    </span>
+                  </button>
+                ))}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <p style={{ margin: "10px 0 0", fontSize: 11.5, color: "var(--rv-texto-suave)", lineHeight: 1.5 }}>
+        <b>Valor financeiro aparece onde a base já o fornece.</b> Hoje isso é um indicador só — casos livres,
+        via <code>saldo_livres</code>. Para os demais a RPC devolve apenas contagem, e somar saldo nesta tela
+        seria cálculo novo. <b>Sem telefone</b> não está aqui de propósito: é defeito de cadastro e vive em
+        <b> Qualidade da carteira</b>, abaixo.
+      </p>
+    </Secao>
+  );
+}
+
+// QUALIDADE DA CARTEIRA EM SEMÁFORO.
+//
+// Antes eram dez cards em ordem alfabética do nome do campo, e a cor era binária:
+// qualquer valor acima de zero virava vermelho. Com isso "1 caso sem e-mail"
+// ficava do mesmo vermelho que "3.400 sem telefone" -- e, com meia tela
+// vermelha, o vermelho deixa de significar algo.
+//
+// Agora a cor é a faixa de LIMIARES.qualidade e a ordem é risco → atenção → ok,
+// com o total no cabeçalho. Nenhuma contagem muda: só o agrupamento e a cor.
+function QualidadeSemaforo({ qualidade }) {
+  const itens = Object.entries(qualidade)
+    .map(([k, v]) => ({ k, rotulo: QUALIDADE_LABEL[k] || k, valor: Number(v || 0), nivel: nivelQualidade(v) }));
+
+  const ordem = { risco: 0, atencao: 1, ok: 2 };
+  const ordenados = [...itens].sort((a, b) => (ordem[a.nivel] - ordem[b.nivel]) || (b.valor - a.valor));
+
+  const total = itens.reduce((s, i) => s + i.valor, 0);
+  const porNivel = (n) => itens.filter((i) => i.nivel === n).length;
+
+  return (
+    <Secao
+      titulo="Qualidade da carteira"
+      extra={
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11.5, color: "var(--rv-texto-suave)" }}>{num(total)} registros com defeito ·</span>
+          <Semaforo nivel="risco">{num(porNivel("risco"))} risco</Semaforo>
+          <Semaforo nivel="atencao">{num(porNivel("atencao"))} atenção</Semaforo>
+          <Semaforo nivel="ok">{num(porNivel("ok"))} ok</Semaforo>
+        </div>
+      }
+    >
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(210px,1fr))", gap: 10 }}>
+        {ordenados.map((i) => (
+          <div key={i.k} style={{ ...card, background: SEM[i.nivel].bg, borderColor: SEM[i.nivel].borda }}>
+            <div style={{ fontSize: 12, color: "var(--rv-texto)" }}>{i.rotulo}</div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: SEM[i.nivel].cor }}>{num(i.valor)}</div>
+          </div>
+        ))}
+      </div>
+      <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--rv-texto-suave)", lineHeight: 1.5 }}>
+        Faixas de cor definidas em <b>LIMIARES.qualidade</b>, no topo deste arquivo —
+        hoje: verde até {num(LIMIARES.qualidade.ok)}, âmbar até {num(LIMIARES.qualidade.atencao)},
+        vermelho acima disso. São valores provisórios, a calibrar com a gestão.
+      </p>
+    </Secao>
   );
 }
 

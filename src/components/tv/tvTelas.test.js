@@ -7,6 +7,9 @@ function snapBase(extra = {}) {
   return {
     hoje: {},
     mes: { meta_empresa: 450000 },
+    // magic deixou de ser meta x 1,5 em 06/10/2026: agora o slide só aparece
+    // com valor próprio da competência (magic_number_mensal).
+    magic: { mes_referencia: "2026-10", valor: 142800 },
     rankings: { melhor_mes: { operador: "X" } },
     dados: { ranking_semana: [{ operador: "A" }] },
     rank: { top_dia: [{ nome: "A", qtd: 3 }] },

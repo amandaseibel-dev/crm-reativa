@@ -26,7 +26,14 @@ jobs:
   verificar:
     name: testes, build e catracas
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 25 e não 15: com 15 a suíte morria por timeout e o run aparecia como
+    # "cancelled", que se confunde com cancelamento humano. Medido em 30/09/2026:
+    # a suíte levava 11m49s num run e 14m20s em outro — a variação do runner
+    # decidia se passava. Dois runs morreram em ~15m15s, inclusive o da própria
+    # main. O repositório é público, então o minuto de Actions custa US$ 0,00 e a
+    # folga não tem preço a pagar. Isto compra margem; não resolve crescimento —
+    # se voltar a apertar, o caminho é separar os testes de banco em outro job.
+    timeout-minutes: 25
 
     steps:
       # fetch-depth: 0 porque a catraca das migrations compara este ramo com o
@@ -76,3 +83,79 @@ jobs:
         env:
           CATRACA_BASE: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: npm run check:migrations
+
+  # ---------------------------------------------------------------------------
+  # Valida a proposta de banco num POSTGRES DE VERDADE, descartavel.
+  #
+  # Por que existe: teste de interface com RPC simulada nao prova que o SQL
+  # funciona. Aqui a migration roda inteira -- CREATE TABLE, CREATE OR REPLACE,
+  # revoke/grant e a guarda -- e a RPC de gravacao e chamada de verdade.
+  #
+  # Nao e producao, nao e servico pago e nao usa segredo: e um container que
+  # nasce e morre com o job. Repositorio publico, minuto a US$ 0,00.
+  #
+  # Depois de aplicada, o arquivo vive em supabase/migrations/ -- e o job passa a
+  # rodar A MIGRATION. Isso nao e detalhe: e o que impede o PR #542, que
+  # redefine o mesmo classificador por DROP+CREATE, apagar esta correcao em
+  # silencio. Se alguem reescrever o classificador sem o ramo conferido, o caso
+  # 1 quebra aqui antes de chegar em producao.
+  # ---------------------------------------------------------------------------
+  proposta-conferido:
+    name: proposta conferido em aberto (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/conferido_em_aberto
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Onde está o SQL a validar?
+        id: existe
+        run: |
+          APLICADA=supabase/migrations/20260928180725_conferido_em_aberto_efetividade_2026_2.sql
+          PROPOSTA=supabase/propostas/PROPOSTA_conferido_em_aberto.sql
+          if   [ -f "$APLICADA" ]; then ALVO="$APLICADA"
+          elif [ -f "$PROPOSTA" ]; then ALVO="$PROPOSTA"
+          else ALVO=""
+          fi
+          if [ -n "$ALVO" ]; then
+            echo "roda=sim"      >> "$GITHUB_OUTPUT"
+            echo "alvo=$ALVO"    >> "$GITHUB_OUTPUT"
+            echo "Validando: $ALVO"
+          else
+            echo "roda=nao" >> "$GITHUB_OUTPUT"
+            echo "Nem a migration nem a proposta existem — nada a validar."
+          fi
+
+      # 1. ambiente  2. estado de produção  3. A PROPOSTA  4. os casos.
+      # ON_ERROR_STOP em todos: o primeiro erro derruba o job.
+      - name: Montar ambiente, aplicar o SQL e rodar os casos
+        if: steps.existe.outputs.roda == 'sim'
+        env:
+          ALVO: ${{ steps.existe.outputs.alvo }}
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_baseline.sql"
+          psql -v ON_ERROR_STOP=1 -f "$ALVO"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"

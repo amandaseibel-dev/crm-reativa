@@ -1,0 +1,21 @@
+{
+ "internal.carteira_geral_email": "141977f65931457ec806063d6cbac1cd",
+ "public.calibragem_e_gestao": "cee6783831836f9fccdbd20b63cf4296",
+ "public.calibragem_executar_acordos": "3a0078074753c3bd0e9a35ca2822528f",
+ "public.calibragem_executar_giro_lote": "a67334a29c8857eeff818ce049e9cdf7",
+ "public.calibragem_executar_giro_lote_impl": "3b2693121a29bff52ed463d6cbbe2588",
+ "public.calibragem_executar_simulacao": "9f5ff16f64b5efbd4b0ae58b32c8bac6",
+ "public.calibragem_indice_equilibrio": "330eeaf36ea54fb896eb1cf9537d8117",
+ "public.calibragem_simular_giro_2026": "9c296e4463952901b7b1aefc15d2c012",
+ "public.caso_aguarda_confirmacao_financeira": "f64f02a02676f5c17b48882b9d6d4f08",
+ "public.caso_dentro_prazo_fidelizacao": "f519301f9f54fdc057565c54068f134c",
+ "public.caso_encerrado_operacional": "90628de239fa33332c31caa6df9dd4a5",
+ "public.caso_protegido_redistribuicao": "1c00d3fb6b87d3e1a3e2ab4efa6e59ed",
+ "public.casos_elegiveis_liberacao_fidelizacao": "fb72379bec0573059354843c3f82ddbd",
+ "public.liberar_casos_fidelizacao_vencida": "9177828bee57dbd931f5cce98acd174c",
+ "public.liberar_fidelizacao_caso": "3bc57e9583f8073bf5fd1b524f91101d",
+ "public.nivelamento_automatico_gestao": "224614ea078083c1b46f3e0da0ea9517",
+ "public.normalizar_status_acionamento": "111639f9c4227e11b2f31fc7204ed64d",
+ "public.saldo_titulos_aberto": "ee0d3a1f54b4785e57e0abd86157342f",
+ "public.usuario_e_gestao_fila": "1e79a1b7161cc2d72e8ab59b3946629f"
+}

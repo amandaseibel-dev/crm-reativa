@@ -1,7 +1,7 @@
 // Botao unico para analiticas SOB DEMANDA (ver useAnaliticaSobDemanda).
 // Mostra o estado (Atualizar / Atualizando) e quando foi a ultima atualizacao.
 // Enquanto carrega fica desabilitado; o cooldown vive no hook.
-export default function BotaoAtualizar({ carregando, ultimaEm, onClick, rotulo = "Atualizar" }) {
+export default function BotaoAtualizar({ carregando, ultimaEm, onClick, rotulo = "Atualizar", textoCarregando = "Atualizando…" }) {
   return (
     <div style={S.wrap}>
       <button
@@ -10,7 +10,7 @@ export default function BotaoAtualizar({ carregando, ultimaEm, onClick, rotulo =
         disabled={carregando}
         style={{ ...S.btn, ...(carregando ? S.btnOff : null) }}
       >
-        {carregando ? "Atualizando…" : `↻ ${rotulo}`}
+        {carregando ? textoCarregando : `↻ ${rotulo}`}
       </button>
       <span style={S.info}>
         {ultimaEm

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { carregarTabulacoes, desfechoDaTabulacao } from "../utils/tabulacoes";
 import { buscarTudo } from "../utils/paginado";
+import { SITUACAO_FORA_DA_FILA_OPERACIONAL } from "../utils/carteiraFila";
 import {
   carregarIdsEmConfirmacao,
   alunoEmConfirmacao,
@@ -420,6 +421,13 @@ export default function FilaOperador() {
           "status_jornada",
           "in",
           '("QUITADO_MANUAL","QUITADO","AGUARDANDO_BAIXA","BAIXA_REALIZADA","SEM_SALDO_EM_ABERTO")'
+        );
+        // Conferencia Prime nao e cobranca: sai da fila operacional sem perder
+        // responsavel nem saldo. Ver SITUACAO_FORA_DA_FILA_OPERACIONAL.
+        query = query.not(
+          "situacao_operacional",
+          "in",
+          `(${SITUACAO_FORA_DA_FILA_OPERACIONAL.map((x) => `"${x}"`).join(",")})`
         );
       }
 

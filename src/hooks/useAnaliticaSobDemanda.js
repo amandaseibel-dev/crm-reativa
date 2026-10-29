@@ -11,6 +11,14 @@ import { chamarRpcContido } from "../utils/rpcResiliente";
 //  - cooldown: intervalo minimo entre atualizacoes (evita marteladas no botao);
 //  - chamarRpcContido: timeout local, single-flight e cache curto ja embutidos.
 //
+// O cooldown protege contra martelada no botao, NAO contra leitura legitima:
+// quando a tela acabou de recalcular a base (ex.: Saude Completa da Carteira,
+// que roda `saude_carteira_atualizar` antes de ler), reler e obrigatorio --
+// caso contrario o recalculo acontece e a tela continua mostrando a foto
+// velha, que e exatamente o "atualizo e nao muda nada". Nesse caso chame
+// `atualizar({ ignorarCooldown: true })`: quem paga os ~7s do recalculo
+// explicito ja e freio suficiente.
+//
 // Uso:
 //   const { data, carregando, erro, ultimaEm, atualizar, jaRodou } =
 //     useAnaliticaSobDemanda("dashboard_carteira_360");
@@ -27,9 +35,11 @@ export function useAnaliticaSobDemanda(nomeRpc, params = {}, opcoes = {}) {
   const paramsRef = useRef(params);
   paramsRef.current = params;
 
-  const atualizar = useCallback(async () => {
+  const atualizar = useCallback(async (opcoesChamada) => {
+    const ignorarCooldown = opcoesChamada?.ignorarCooldown === true;
     const agora = Date.now();
-    if (emVoo.current || agora < bloqueadoAte.current) return;
+    if (emVoo.current) return;
+    if (!ignorarCooldown && agora < bloqueadoAte.current) return;
     emVoo.current = true;
     bloqueadoAte.current = agora + cooldownMs;
     setCarregando(true);

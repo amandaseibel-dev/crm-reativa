@@ -1,0 +1,36 @@
+-- Duas versoes da mesma funcao: o botao "Ja baixado" pedia o motivo e dava erro.
+--
+-- Amanda, 31/08: "estou clicando em ja baixado e ele pede o motivo e depois da erro".
+--
+-- A migration 20260829070000 acrescentou `p_desde date` a
+-- `conciliacao_santander_decidir`. Como `create or replace function` compara
+-- pela LISTA DE ARGUMENTOS, isso nao substituiu a versao de 4 parametros da
+-- 20260828400000 -- criou uma SEGUNDA funcao ao lado dela.
+--
+-- A tela chama com 4 argumentos, que servem para as duas. O PostgREST nao tem
+-- como escolher e devolve 300 (PGRST203, "could not choose the best candidate
+-- function"). Medido em 31/08: 300 as 11:29, 11:31 e 11:33.
+--
+-- POR QUE PASSOU DESPERCEBIDO: 300 nao e 4xx nem 5xx. Quem procura falha
+-- olhando status >= 400 -- eu inclusive, na primeira busca de hoje -- nao ve
+-- nada. So aparece filtrando pelo caminho da funcao.
+--
+-- E POR QUE IMPORTAVA ALEM DO ERRO NA TELA: a versao velha nao escreve em
+-- `conciliacao_pagamento_conferido`, que e justamente o que tira a pessoa da
+-- fila. Se o PostgREST tivesse escolhido a antiga em vez de recusar, a decisao
+-- seria gravada e a pessoa continuaria aparecendo na fila para sempre -- um
+-- retrabalho silencioso, bem pior que o erro visivel.
+--
+-- Fica so a de 5 parametros. `p_desde` tem valor padrao, entao a chamada de 4
+-- argumentos que a tela ja faz continua funcionando sem mexer no front.
+--
+-- VARREDURA FEITA NO MESMO DIA: outros cinco nomes tem versao duplicada em prod
+-- (brl, conciliacao_santander, projecao_definir_meta, projecao_importar_pagamentos,
+-- responder_link_pagamento). NENHUM deles esta ambiguo hoje -- conferido campo a
+-- campo contra o que cada tela envia: ou a chamada usa nomes que so existem na
+-- versao nova, ou a funcao nao tem chamador no front. Sao copias velhas paradas,
+-- nao defeitos ativos. Ficam para uma limpeza separada.
+--
+-- DESFAZER: supabase/rollbacks/20260831110000_remover_conciliacao_decidir_duplicada.rollback.sql
+
+drop function if exists public.conciliacao_santander_decidir(uuid, text, text, numeric);

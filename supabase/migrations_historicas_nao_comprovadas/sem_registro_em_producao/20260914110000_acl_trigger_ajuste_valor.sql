@@ -1,0 +1,28 @@
+-- FECHA O EXECUTE PARA PUBLIC EM tg_titulo_ajuste_valor_protegido().
+--
+-- O QUE ACONTECEU. Na migration do ajuste de valor cobravel (aplicada como
+-- `20260914090235`) eu revoguei o EXECUTE de PUBLIC dos tres RPCs novos --
+-- `crm_usuario_pode_ajustar_valor`, `titulo_ajuste_valor_bloqueio` e
+-- `titulo_ajustar_valor_cobravel` -- e esqueci da funcao de gatilho. Ela nasceu
+-- com o default do PostgreSQL, que e EXECUTE para PUBLIC:
+--   {=X/postgres, postgres=X/postgres, authenticated=X/postgres, service_role=X/postgres}
+-- A primeira entrada, com grantee vazio, e PUBLIC -- e por isso `anon` tambem
+-- alcanca.
+--
+-- NAO E EXPLORAVEL, E MESMO ASSIM VAI FECHAR. Funcao de gatilho nao e chamavel
+-- direto: conferido em producao em 14/09/2026, a chamada devolve
+-- `0A000 trigger functions can only be called as triggers`. Ou seja, o grant e
+-- inerte. Mas ele esta fora do padrao fechado no PR #368 para
+-- `titulo_reavaliar`, e grant inerte hoje vira grant vivo no dia em que alguem
+-- transforma a funcao em algo chamavel. Fecha agora, custa uma linha.
+--
+-- ESCOPO. Só esta funcao. `_acordo_status_reavalia_titulos` e
+-- `trg_tabulacao_redireciona` tambem tem EXECUTE para PUBLIC desde antes, pela
+-- mesma razao, e continuam de fora de proposito -- serao uma varredura propria,
+-- nao um bolo com esta.
+--
+-- O QUE ESTA MIGRATION NAO FAZ: nao altera o corpo da funcao, nao mexe no
+-- gatilho que a usa, nao muda owner nem seguranca, nao mexe em service_role nem
+-- em authenticated, nao tem DML e nao muda nenhum dado.
+
+revoke execute on function public.tg_titulo_ajuste_valor_protegido() from public;

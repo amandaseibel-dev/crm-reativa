@@ -1,0 +1,23 @@
+-- META DO MES NO PORTAL OPERACIONAL (11/09/2026)
+--
+-- O Portal mostrava as faixas ESCRITAS A MAO no codigo, e eram as de julho
+-- (R$ 38.000 / 45.000 / 52.000 / 60.000). Setembro tem 15.000 / 21.600 /
+-- 27.000 -- a operacao leu meta errada de agosto ate hoje.
+--
+-- A fonte passa a ser metas_projecao, a MESMA tabela que a gestao edita em
+-- Projecao -> Configuracoes. Sem segundo lugar para manter.
+--
+-- metas_projecao e restrita a gestao pela RLS (usuario_e_gestao). Esta funcao
+-- expoe ao operador SO a meta operacional e as faixas -- nada de
+-- meta_honorario, meta_unidades ou quem alterou. O painel da TV (eh_painel) nao
+-- le: e tela de operador logado.
+--
+-- Regra das faixas, igual a do fechamento (fechamentoRemuneracaoPdf.js): cada
+-- faixa vale A PARTIR do seu valor, ate o inicio da proxima. A PRIMEIRA COMECA
+-- EM ZERO -- o cadastro guarda 0,01 so para nao empatar com a faixa anterior,
+-- e a gestao confirmou: "comeca em 0 ate 15 a primeira faixa".
+--
+-- APLICADA EM PRODUCAO em 11/09/2026 pelo MCP; este arquivo versiona o estado
+-- final. Testada executando: devolveu as 4 faixas de setembro (0-15.000 a 4%,
+-- 15.000,01-21.600 a 8%, 21.600,01-27.000 a 9%, acima de 27.000,01 a 9,5%),
+-- meta operacional R$ 120.000, e {"sem_meta": true} para um mes sem cadastro.

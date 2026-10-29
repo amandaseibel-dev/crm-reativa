@@ -1,0 +1,32 @@
+-- SEGURANCA: fecha public.carteira_2026_2_classificar() para `authenticated`.
+--
+-- O PROBLEMA. A funcao e SECURITY DEFINER, NAO tem portao de permissao e NAO
+-- mascara CPF -- mascarar e trabalho de carteira_2026_2_competencia_detalhe,
+-- que e quem deveria ser a unica porta. Com EXECUTE concedido a
+-- `authenticated`, qualquer usuario logado podia chama-la pelo PostgREST e
+-- receber a carteira inteira de 2026/2 com CPF em texto puro.
+--
+-- MEDIDO em 27/09/2026 chamando a RPC com sessao comum: HTTP 200 com o teto de
+-- linhas do PostgREST, trazendo cpf sem mascara, aluno_id, documento e valor.
+--
+-- CAUSA. Erro na migration 20260927221825, que concedeu EXECUTE a
+-- `authenticated` no classificador. O equivalente de 2026/1 ja fazia certo:
+-- carteira_2026_1_classificar tem ACL `postgres | service_role`, sem
+-- authenticated. Esta migration alinha 2026/2 ao padrao que ja existia.
+--
+-- POR QUE REVOGAR NAO QUEBRA NADA. carteira_2026_2_competencias e
+-- carteira_2026_2_competencia_detalhe sao SECURITY DEFINER de postgres, que e
+-- o dono do classificador: elas o executam como postgres, nao como quem
+-- chamou. PROVA viva em producao: carteira_2026_1_academico e concedida a
+-- authenticated, chama carteira_2026_1_classificar, e esse classificador NAO e
+-- concedido a authenticated.
+--
+-- ESCOPO. Uma unica instrucao. Nao toca corpo de funcao, assinatura, tabela,
+-- linha, gatilho, cron, nem o acesso de postgres e service_role. Nenhum total,
+-- nenhum agrupamento e nenhuma tela mudam. PUBLIC e anon ja nao tinham EXECUTE
+-- e continuam sem: nada e concedido aqui.
+--
+-- ROLLBACK: grant execute on function public.carteira_2026_2_classificar()
+--           to authenticated;   -- reabre a exposicao; so com motivo escrito.
+
+revoke execute on function public.carteira_2026_2_classificar() from authenticated;
