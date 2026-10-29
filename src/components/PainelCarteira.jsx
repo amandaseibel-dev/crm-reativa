@@ -1808,6 +1808,13 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     });
   }
 
+  // Recorte de curso ou semestre escolhido sem contagem validada: carregando, ou a
+  // RPC falhou (mapa nulo). Nesse estado a lista ainda nao foi filtrada, entao o
+  // total geral NAO pode aparecer como se fosse resultado do recorte.
+  const recorteSemDados =
+    (filtroCurso !== "TODOS" || filtroSemestre !== "AMBOS") &&
+    (cursoSemestreCarregando || mapaCursoSemestre === null);
+
   // O recorte esta pronto pra virar foto? Enquanto o filtro de ano ou o recorte
   // do card ainda estao carregando, o botao fica indisponivel -- comecar ali
   // percorreria a carteira inteira (ano) ou o card ANTERIOR (KPI).
@@ -4174,6 +4181,13 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                 </tbody>
               </table>
             </div>
+            {recorteSemDados ? (
+              <p style={S.rodapeTabela}>
+                {cursoSemestreCarregando
+                  ? "Carregando o recorte de curso e semestre… os totais aparecem quando a lista filtrada estiver pronta."
+                  : "Recorte de curso e semestre indisponível: a contagem não carregou. Troque o filtro para tentar de novo."}
+              </p>
+            ) : (
             <p style={S.rodapeTabela}>
               Mostrando {listaFiltrada.length} de {filtroKpi ? (casosEspeciais || []).length : casos.length}{" "}
               {filtroKpi ? "casos do card" : "casos carregados"}. Clique numa linha para abrir o atendimento.
@@ -4192,6 +4206,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                 Linhas em azul claro = ja acionadas hoje.
               </span>
             </p>
+            )}
               </>
             )}
           </div>

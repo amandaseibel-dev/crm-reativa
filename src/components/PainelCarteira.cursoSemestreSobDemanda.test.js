@@ -120,4 +120,16 @@ describe("PainelCarteira: curso/semestre nao custa nada na abertura", () => {
     expect(carregar).not.toMatch(/carteira_curso_semestre_do_operador/);
     expect(carregar).not.toMatch(/mapaCursoSemestre/);
   });
+  // Durante a carga de um recorte (ou se a contagem falhou), o total geral NAO
+  // pode aparecer como resultado do recorte. O rodape so mostra "Mostrando X de Y"
+  // no ramo em que o recorte ja tem dados validados.
+  it("recorte carregando: o rodape nao mostra o total geral", () => {
+    const guarda = SRC.indexOf("const recorteSemDados =");
+    const ramo = SRC.indexOf("{recorteSemDados ? (");
+    const total = SRC.indexOf("Mostrando {listaFiltrada.length} de");
+    expect(guarda).toBeGreaterThan(-1);
+    expect(ramo).toBeGreaterThan(-1);
+    expect(total).toBeGreaterThan(ramo);
+    expect(SRC.slice(guarda, guarda + 400)).toMatch(/cursoSemestreCarregando \|\| mapaCursoSemestre === null/);
+  });
 });
