@@ -6,6 +6,7 @@ import {
   alunosDoSemestreEscolhido,
   finAlunosDoSemestre,
   valorAbertoDe,
+  cursoSemestrePedido,
   CURSOS_CARTEIRA,
   SEMESTRES_CARTEIRA,
 } from "./carteiraFila";
@@ -275,5 +276,62 @@ describe("Minha Carteira: o guiado nao comeca em recorte a meio carregar", () =>
   it("em TODOS/AMBOS nao exige conjunto nenhum", () => {
     expect(recorteProntoParaGuiado({})).toBe(true);
     expect(recorteProntoParaGuiado({ filtroCurso: "TODOS", filtroSemestre: "AMBOS" })).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A leitura so acontece quando o operador pede (26/10/2026)
+// ---------------------------------------------------------------------------
+//
+// O que estas checagens protegem: a RPC de curso/semestre e a consulta mais
+// cara da tela (3,07 s no MELHOR caso, contra teto de 8 s do papel
+// `authenticated`) e saia em toda abertura de carteira. Se alguem voltar a
+// dispara-la no padrao, o custo volta para todos os operadores -- inclusive os
+// que nunca tocam no recorte.
+describe("Minha Carteira: a leitura de curso/semestre e sob demanda", () => {
+  it("no padrao da tela (TODOS/AMBOS) NAO pede a consulta", () => {
+    expect(cursoSemestrePedido("TODOS", "AMBOS")).toBe(false);
+  });
+
+  it("sem filtro nenhum (vazio, nulo, indefinido) tambem nao pede", () => {
+    expect(cursoSemestrePedido(undefined, undefined)).toBe(false);
+    expect(cursoSemestrePedido(null, null)).toBe(false);
+    expect(cursoSemestrePedido("", "")).toBe(false);
+  });
+
+  it("escolher um curso pede a consulta", () => {
+    for (const c of CURSOS_CARTEIRA) {
+      expect(cursoSemestrePedido(c, "AMBOS")).toBe(true);
+    }
+  });
+
+  it("escolher um semestre pede a consulta", () => {
+    for (const s of SEMESTRES_CARTEIRA) {
+      expect(cursoSemestrePedido("TODOS", s)).toBe(true);
+    }
+  });
+
+  it("os dois juntos pedem uma vez -- a RPC traz as duas dimensoes", () => {
+    expect(cursoSemestrePedido("Medicina", "2026/1")).toBe(true);
+  });
+
+  it("valor fora das listas NAO dispara a consulta pesada", () => {
+    // Pertencimento, nao `!== TODOS`: valor estranho no select (ou um rotulo
+    // renomeado sem atualizar a lista) nao pode custar 3 a 8 s de banco.
+    expect(cursoSemestrePedido("Biomedicina", "AMBOS")).toBe(false);
+    expect(cursoSemestrePedido("TODOS", "2025/2")).toBe(false);
+    expect(cursoSemestrePedido("QUALQUER", "QUALQUER")).toBe(false);
+  });
+
+  it("espaco em volta nao muda a decisao", () => {
+    expect(cursoSemestrePedido("  Medicina  ", "AMBOS")).toBe(true);
+    expect(cursoSemestrePedido("TODOS", "  2026/2  ")).toBe(true);
+  });
+
+  it("o recorte a meio carregar continua bloqueando o guiado", () => {
+    // A leitura sob demanda torna o estado "pediu mas ainda nao chegou" MAIS
+    // frequente. A guarda que ja existia e o que impede o guiado de comecar
+    // num recorte incompleto -- ela nao pode ser removida junto.
+    expect(recorteProntoParaGuiado({ filtroCurso: "Medicina", alunosDoCurso: null })).toBe(false);
   });
 });

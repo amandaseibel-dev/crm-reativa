@@ -60,6 +60,9 @@ import {
   semSaldoVencido,
   ehNaoAcionavel,
   SITUACAO_QUITACAO,
+  cursoSemestrePedido,
+  conjuntoDoRecorte,
+  listaParaContagem,
 } from "../utils/carteiraFila";
 import { analiticasSuspensas } from "../config/modoContencao";
 import EmailAlunoUnificado from "./EmailAlunoUnificado";
@@ -89,6 +92,7 @@ import {
 import VisaoGeralCarteira from "./VisaoGeralCarteira";
 import VisaoGestao360 from "./VisaoGestao360";
 import { parcelaViva } from "../utils/parcelaStatus";
+import { recorteSemDadosValidados } from "../utils/recorteCursoSemestreVisual";
 
 // Quantas parcelas VENCIDAS o card mostra antes de pedir "ver todas". A M2
 // trouxe ~144 por operador; abrir as 144 de uma vez e o que deixava a tela
@@ -731,6 +735,14 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const [filtroCurso, setFiltroCurso] = useState("TODOS");
   const [filtroSemestre, setFiltroSemestre] = useState("AMBOS");
   const [mapaCursoSemestre, setMapaCursoSemestre] = useState(null);
+  // Escopo a que o mapa lido pertence, e se a leitura esta em voo. Ver o
+  // `useEffect` de curso/semestre: a leitura e SOB DEMANDA desde 26/10/2026.
+  const [escopoCursoSemestreLido, setEscopoCursoSemestreLido] = useState(null);
+  const [cursoSemestreCarregando, setCursoSemestreCarregando] = useState(false);
+  // Falha da RPC, para oferecer "Tentar novamente". A tentativa e um contador:
+  // subir o numero refaz a carga, sem mexer nos filtros escolhidos.
+  const [falhaCursoSemestre, setFalhaCursoSemestre] = useState(false);
+  const [tentativaCursoSemestre, setTentativaCursoSemestre] = useState(0);
   const [filtroKpi, setFiltroKpi] = useState(null);
   const [filtroValorMin, setFiltroValorMin] = useState("");
   const [filtroValorMax, setFiltroValorMax] = useState("");
@@ -1052,35 +1064,71 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     return () => { ativo = false; };
   }, [filtroAnoVencimento]);
 
-  // Curso e semestre: uma leitura por escopo, nao por troca de filtro -- a RPC
-  // devolve as duas dimensoes de uma vez, entao trocar o select nao vai ao
-  // banco. Recarrega quando a gestao troca de operador.
+  // Curso e semestre: leitura SOB DEMANDA (26/10/2026, incidente de carga).
+  //
+  // Antes esta RPC saia em TODA abertura de carteira. Ela e a consulta mais
+  // cara da tela -- piso de 3,07 s, media de 4,86 s e ~48 MB de disco
+  // temporario por chamada, contra o teto de 8 s do papel `authenticated` --
+  // e pagava esse custo tambem para o operador que nunca toca no recorte.
+  // Enquanto a lista de casos (media de 83 ms) morria por saturacao, esta era
+  // a maior contribuicao da tela para essa saturacao.
+  //
+  // Agora so vai ao banco quando o operador escolhe de fato um curso ou um
+  // semestre. Segue UMA leitura por ESCOPO: a RPC devolve as duas dimensoes de
+  // uma vez, entao trocar o select depois de carregado nao volta ao banco.
+  const escopoCursoSemestre = `${email || ""}|${veTudo ? "1" : "0"}|${operadorFiltro || ""}`;
+  const pedeCursoSemestre = cursoSemestrePedido(filtroCurso, filtroSemestre);
+
   useEffect(() => {
+    if (!pedeCursoSemestre) return;
+    if (escopoCursoSemestreLido === escopoCursoSemestre) return;
     let ativo = true;
     (async () => {
+      // Dentro da assincrona, antes do primeiro `await`: marca o carregamento
+      // sem chamada sincrona de setState no corpo do efeito.
+      setCursoSemestreCarregando(true);
+      setFalhaCursoSemestre(false);
       const alvo = emailEscopo();
       const { data, error } = await supabase.rpc("carteira_curso_semestre_do_operador", {
         p_email: alvo || null,
       });
       if (!ativo) return;
-      if (error) { setMapaCursoSemestre(null); return; }
+      setCursoSemestreCarregando(false);
+      // Falha segue TOLERADA: mapa nulo NAO filtra, e a lista nunca encolhe por
+      // dado a meio caminho. O operador perde o recorte, nunca o atendimento.
+      if (error) { setMapaCursoSemestre(null); setFalhaCursoSemestre(true); return; }
       const mapa = {};
       for (const linha of data || []) mapa[String(linha.aluno_id)] = linha;
       setMapaCursoSemestre(mapa);
+      setEscopoCursoSemestreLido(escopoCursoSemestre);
     })();
     return () => { ativo = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [email, veTudo, operadorFiltro]);
+  }, [pedeCursoSemestre, escopoCursoSemestre, escopoCursoSemestreLido, tentativaCursoSemestre]);
+
+  // O mapa so vale para o escopo em que foi lido. Comparar aqui, em vez de
+  // zerar o estado num efeito de invalidacao, fecha a janela em que a gestao
+  // troca de operador e a tela ainda recortaria pela carteira anterior.
+  const mapaCursoSemestreValido =
+    escopoCursoSemestreLido === escopoCursoSemestre ? mapaCursoSemestre : null;
 
   // Os conjuntos que o recorte usa. `null` enquanto a RPC nao respondeu, e
   // `null` NAO filtra -- a lista nunca encolhe por dado a meio caminho.
   const alunosDoCurso = useMemo(
-    () => (mapaCursoSemestre ? alunosDoCursoEscolhido(mapaCursoSemestre, filtroCurso, filtroSemestre) : null),
-    [mapaCursoSemestre, filtroCurso, filtroSemestre]
+    () => conjuntoDoRecorte({
+      escolhido: CURSOS_CARTEIRA.includes(String(filtroCurso || "").trim()),
+      mapaValido: mapaCursoSemestreValido,
+      calcular: (m) => alunosDoCursoEscolhido(m, filtroCurso, filtroSemestre),
+    }),
+    [mapaCursoSemestreValido, filtroCurso, filtroSemestre]
   );
   const alunosDoSemestre = useMemo(
-    () => (mapaCursoSemestre ? alunosDoSemestreEscolhido(mapaCursoSemestre, filtroSemestre) : null),
-    [mapaCursoSemestre, filtroSemestre]
+    () => conjuntoDoRecorte({
+      escolhido: SEMESTRES_CARTEIRA.includes(String(filtroSemestre || "").trim()),
+      mapaValido: mapaCursoSemestreValido,
+      calcular: (m) => alunosDoSemestreEscolhido(m, filtroSemestre),
+    }),
+    [mapaCursoSemestreValido, filtroSemestre]
   );
 
   const [novosCasosAutomaticos, setNovosCasosAutomaticos] = useState([]);
@@ -1776,6 +1824,33 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       idAtual,
     });
   }
+
+  // Recorte de curso ou semestre escolhido sem contagem validada: carregando, ou a
+  // RPC falhou (mapa nulo). Nesse estado a lista ainda nao foi filtrada, entao o
+  // total geral NAO pode aparecer como se fosse resultado do recorte.
+  const recorteSemDados = recorteSemDadosValidados({
+    filtroCurso,
+    filtroSemestre,
+    carregando: cursoSemestreCarregando,
+    mapaValido: mapaCursoSemestreValido,
+  });
+  const mensagemRecorteSemDados = cursoSemestreCarregando
+    ? "Carregando o recorte de curso e semestre… os totais aparecem quando a lista filtrada estiver pronta."
+    : "Recorte de curso e semestre indisponível: a contagem não carregou. Troque o filtro para tentar de novo.";
+  const conteudoRecorteSemDados = (
+    <>
+      {mensagemRecorteSemDados}
+      {falhaCursoSemestre && !cursoSemestreCarregando ? (
+        <button
+          type="button"
+          onClick={() => setTentativaCursoSemestre((n) => n + 1)}
+          style={{ marginLeft: 12 }}
+        >
+          Tentar novamente
+        </button>
+      ) : null}
+    </>
+  );
 
   // O recorte esta pronto pra virar foto? Enquanto o filtro de ano ou o recorte
   // do card ainda estao carregando, o botao fica indisponivel -- comecar ali
@@ -2722,8 +2797,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // re-rank do Foco do Dia e uma linha por pessoa) mora em
   // src/utils/carteiraFila.js, com teste. Aqui so se entrega o estado atual.
   const finAlunosDoRecorte = useMemo(
-    () => finAlunosDoSemestre(finAlunos, mapaCursoSemestre, filtroSemestre),
-    [finAlunos, mapaCursoSemestre, filtroSemestre]
+    () => finAlunosDoSemestre(finAlunos, mapaCursoSemestreValido, filtroSemestre),
+    [finAlunos, mapaCursoSemestreValido, filtroSemestre]
   );
   const recorteAtual = {
     casos,
@@ -2751,9 +2826,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     finAlunos: finAlunosDoRecorte,
   };
   const listaFiltrada = useMemo(
-    () => montarListaFiltrada(recorteAtual),
+    () => (recorteSemDados ? [] : montarListaFiltrada(recorteAtual)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [casos, casosForaDaFila, casosEspeciais, filtroStatus, filtroPrioridade, filtroTabulacao, busca, filtroKpi, ordenacao, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, alunosDoCurso, alunosDoSemestre, finAlunosDoRecorte]
+    [recorteSemDados, casos, casosForaDaFila, casosEspeciais, filtroStatus, filtroPrioridade, filtroTabulacao, busca, filtroKpi, ordenacao, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, alunosDoCurso, alunosDoSemestre, finAlunosDoRecorte]
   );
   listaFiltradaRef.current = listaFiltrada;
 
@@ -2766,12 +2841,15 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // lista vazia) e que a operacao leu como "sumiu caso".
   const contagemPrioridade = useMemo(
     () => contarPorPrioridade(
-      filtroPrioridade === "TODAS"
-        ? listaFiltrada
-        : montarListaFiltrada({ ...recorteAtual, filtroPrioridade: "TODAS" })
+      listaParaContagem({
+        recorteSemDados,
+        filtroPrioridade,
+        listaFiltrada,
+        montarSemPrioridade: () => montarListaFiltrada({ ...recorteAtual, filtroPrioridade: "TODAS" }),
+      })
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [listaFiltrada, filtroPrioridade, casos, casosForaDaFila, casosEspeciais, filtroStatus, filtroTabulacao, busca, filtroKpi, ordenacao, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, alunosDoCurso, alunosDoSemestre, finAlunosDoRecorte]
+    [recorteSemDados, listaFiltrada, filtroPrioridade, casos, casosForaDaFila, casosEspeciais, filtroStatus, filtroTabulacao, busca, filtroKpi, ordenacao, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, alunosDoCurso, alunosDoSemestre, finAlunosDoRecorte]
   );
 
   // A GESTAO CONSEGUE ABRIR A FILA DE UM OPERADOR.
@@ -3591,9 +3669,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                 style={S.select}
                 value={filtroCurso}
                 onChange={(e) => setFiltroCurso(e.target.value)}
-                disabled={mapaCursoSemestre === null}
+                disabled={cursoSemestreCarregando}
                 title={
-                  mapaCursoSemestre === null
+                  cursoSemestreCarregando
                     ? "Carregando curso e semestre…"
                     : "Curso do contrato do Prime. Com um semestre escolhido, vale o curso daquele semestre; em “Ambos”, quem trocou de curso aparece nos dois."
                 }
@@ -3607,9 +3685,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                 style={S.select}
                 value={filtroSemestre}
                 onChange={(e) => setFiltroSemestre(e.target.value)}
-                disabled={mapaCursoSemestre === null}
+                disabled={cursoSemestreCarregando}
                 title={
-                  mapaCursoSemestre === null
+                  cursoSemestreCarregando
                     ? "Carregando curso e semestre…"
                     : "Competência do título (série do boleto no Prime). Parcela de acordo entra no semestre só quando o acordo é de um semestre único; o que não é atribuível aparece apenas em “Ambos”."
                 }
@@ -3702,7 +3780,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
               </div>
             )}
 
-            {visao === "kanban" ? (
+            {visao === "kanban" && recorteSemDados ? (
+              <p style={{ ...S.rodapeTabela, padding: "24px 0" }}>{conteudoRecorteSemDados}</p>
+            ) : visao === "kanban" ? (
               <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 10 }}>
                 {kanbanColunas.map((col) => (
                   <div
@@ -4143,6 +4223,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                 </tbody>
               </table>
             </div>
+            {recorteSemDados ? (
+              <p style={S.rodapeTabela}>{conteudoRecorteSemDados}</p>
+            ) : (
             <p style={S.rodapeTabela}>
               Mostrando {listaFiltrada.length} de {filtroKpi ? (casosEspeciais || []).length : casos.length}{" "}
               {filtroKpi ? "casos do card" : "casos carregados"}. Clique numa linha para abrir o atendimento.
@@ -4161,6 +4244,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                 Linhas em azul claro = ja acionadas hoje.
               </span>
             </p>
+            )}
               </>
             )}
           </div>

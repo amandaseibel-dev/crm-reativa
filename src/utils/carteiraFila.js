@@ -363,6 +363,47 @@ export function valorAbertoDe(a, finAlunos) {
 export const CURSOS_CARTEIRA = ["Medicina", "Medicina Veterinária", "Odontologia"];
 export const SEMESTRES_CARTEIRA = ["2026/1", "2026/2"];
 
+// A leitura de curso/semestre precisa acontecer? (26/10/2026, incidente de carga)
+//
+// A RPC `carteira_curso_semestre_do_operador` e a consulta mais cara da tela.
+// Medido em PROD em 26/10/2026: piso de 3,07 s, media de 4,86 s e ~48 MB de
+// disco temporario POR CHAMADA, contra o teto de 8 s do papel `authenticated`.
+// Ela saia em TODA abertura de carteira, inclusive para quem nunca toca no
+// recorte, e era a maior fonte de saturacao vinda da tela -- ao ponto de
+// derrubar a propria lista de casos, que tem media de 83 ms e so estourava o
+// teto por saturacao.
+//
+// Com os dois filtros no padrao o mapa nao serve para NADA: sem curso escolhido
+// `alunosDoCursoEscolhido` devolve null, sem semestre escolhido
+// `alunosDoSemestreEscolhido` devolve null, e `finAlunosDoSemestre` devolve o
+// proprio `finAlunos` sem olhar o mapa. Entao a leitura so se paga quando o
+// operador escolhe de fato.
+//
+// O teste e por PERTENCIMENTO as listas, nao por `!== "TODOS"`: valor estranho
+// no select nunca dispara a consulta pesada.
+export function cursoSemestrePedido(curso, semestre) {
+  const c = String(curso || "").trim();
+  const s = String(semestre || "").trim();
+  return CURSOS_CARTEIRA.includes(c) || SEMESTRES_CARTEIRA.includes(s);
+}
+
+// Conjunto de alunos de um recorte escolhido. Recorte escolhido SEM mapa validado
+// para o escopo atual vira conjunto VAZIO, nunca "sem filtro": nenhum contador nem
+// linha pode mostrar a carteira geral enquanto o recorte nao foi validado.
+// Sem escolha, devolve null (comportamento original).
+export function conjuntoDoRecorte({ escolhido, mapaValido, calcular }) {
+  if (!escolhido) return null;
+  if (!mapaValido) return new Set();
+  return calcular(mapaValido);
+}
+
+// Lista usada para contar por prioridade. Com recorte sem dados validados, nao ha
+// contagem valida: zero, nunca o total geral.
+export function listaParaContagem({ recorteSemDados, filtroPrioridade, listaFiltrada, montarSemPrioridade }) {
+  if (recorteSemDados) return [];
+  return filtroPrioridade === "TODAS" ? listaFiltrada : montarSemPrioridade();
+}
+
 // Quais fichas casam o curso escolhido.
 //
 // O curso vem do contrato do Prime da JANELA do semestre -- entao com um
