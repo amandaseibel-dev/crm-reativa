@@ -49,6 +49,7 @@
 //
 // Secrets: WHATSAPP_GATEWAY_URL, WHATSAPP_GATEWAY_TOKEN.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { motivoRegistravel, registrarBloqueio } from "./bloqueio.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -63,17 +64,6 @@ const jsonResp = (obj: unknown, status = 200) =>
   });
 
 const LIMITE_TEXTO = 4096;
-
-// Códigos que a cadência devolve em `DETAIL`. A lista é fechada de propósito:
-// só registra o que se reconhece, para o log não virar depósito de qualquer
-// mensagem de erro que passe por aqui.
-const MOTIVOS_DE_BLOQUEIO = new Set([
-  "MODO_PAUSADO",
-  "MODO_SOMENTE_RESPOSTAS",
-  "FORA_DA_JANELA",
-  "LIMITE_OPERADOR",
-  "LIMITE_CANAL",
-]);
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -146,17 +136,24 @@ Deno.serve(async (req) => {
     //
     // Nada de conteúdo da mensagem e nada de telefone: só canal, operador,
     // referência da conversa, motivo e quando.
-    const motivo = (erroPreparo as { details?: string }).details;
-    if (motivo && MOTIVOS_DE_BLOQUEIO.has(motivo)) {
-      // Falhar o log NÃO pode transformar um bloqueio em erro diferente para o
-      // operador: o que importa é que a mensagem não saiu.
-      await comoOperador
-        .rpc("whatsapp_cadencia_registrar_bloqueio", {
+    // O registro mora em ./bloqueio.ts porque precisa de teste: ver o cabeçalho
+    // daquele arquivo para o defeito que ele existe para impedir (o `.catch`
+    // encadeado no PostgrestFilterBuilder, que virava 500 no lugar deste 403).
+    const motivo = motivoRegistravel(erroPreparo as { details?: string });
+    if (motivo) {
+      const r = await registrarBloqueio(() =>
+        comoOperador.rpc("whatsapp_cadencia_registrar_bloqueio", {
           p_canal_id: corpo.canal_id ?? null,
           p_conversa_id: corpo.conversa_id ?? null,
           p_motivo: motivo,
         })
-        .catch(() => {});
+      );
+      // Única pista de que a trilha parou de ser escrita: o silêncio anterior
+      // custou 2 meses. Segue a mesma regra de cima — motivo e causa, nada de
+      // telefone nem de conteúdo.
+      if (!r.registrado) {
+        console.error("bloqueio de cadencia nao registrado", motivo, r.porque);
+      }
     }
     return jsonResp({ erro: erroPreparo.message }, 403);
   }
