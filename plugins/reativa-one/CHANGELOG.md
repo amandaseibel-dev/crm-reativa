@@ -1,5 +1,35 @@
 # ReATIVA One — registro de versões
 
+## 1.3.0 — 2026-10-29 (Fase 2 de Banco — portão de desenvolvimento de migration)
+
+Libera `Write`/`Edit` de migration em worktree e branch nomeados pela gestão, sem
+alterar nenhum bloqueio de aplicação. Autoteste validado com 163 casos, 0 divergente.
+
+- **Portão `fase2_liberada()`** em `hooks/guardiao.sh`: ativado pela variável de ambiente
+  `REATIVA_FASE2_BANCO` (`<raiz>|<branch>`), definida no lançamento da sessão executora.
+  Verificações obrigatórias: worktree vinculado (git-dir ≠ git-common-dir), branch
+  autorizada, caminho real dentro de `supabase/migrations/` do worktree, `main`/`master`
+  recusados mesmo que nomeados. Fail-closed em qualquer indeterminação.
+- **Camada 0 intocada**: nenhuma entrada de `deny`/`ask` alterada. Os 12 bloqueios de
+  aplicação (`apply_migration`, `db push`, `db reset`, deploy, merge, etc.) foram
+  confirmados com o portão aberto pelo autoteste.
+- **`docs/RUNBOOK-MIGRATIONS.md`**: documento que existia como referência morta desde
+  1.0.0 foi criado. Seção 9 cobre a Fase 2 de Banco: o que libera, como autorizar, por
+  que variável de ambiente e não arquivo, e os limites conhecidos registrados sem esconder.
+- **Autoteste:** 163 casos (eram 75). F01–F88 são os 88 casos da Fase 2 de Banco.
+  12 deles provam que nenhum bloqueio de aplicação foi relaxado com o portão aberto.
+- **`tests/RESULTADO-FASE-2.md`**: resultado de segurança gravado nesta sessão.
+  163/163 APROVADO.
+
+**Limitação nova, declarada:** a variável `REATIVA_FASE2_BANCO` não é testada pelo
+autoteste — ela precisa estar no ambiente do processo pai do hook, definida no lançamento.
+O autoteste simula o portão **com a variável já resolvida**; a prova de que o lançamento
+a entrega corretamente fica com a gestão. Não há forma automatizada de testar isso sem
+criar uma sessão completa.
+
+**Limitações anteriores, não resolvidas:** `execute_sql` em `ask` sem prova interativa;
+habilitação do plugin sem prova de carregamento no checkout principal.
+
 ## 1.2.0 — 2026-10-26 (habilitação versionada e seleção de recursos)
 
 **O achado que motivou esta versão:** o plugin estava completo no repositório e
