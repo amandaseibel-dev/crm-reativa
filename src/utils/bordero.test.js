@@ -12,6 +12,7 @@ import {
   SITUACOES_QUE_NAO_REABREM,
   cpfConfiavel, motivoDeAnalise, fichasParaCriar,
   titulosNovosParaImportar, grupoDaLinha, resumoPorGrupo,
+  variantesDeCpf, chaveCpf, indexarAlunosPorCpf,
 } from "./bordero";
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
@@ -1086,5 +1087,50 @@ describe("classificação da prévia por grupo (só nomeia, não decide)", () =>
   it("lista vazia ou nula zera todos os grupos", () => {
     expect(resumoPorGrupo([]).A).toEqual({ quantidade: 0, valor: 0 });
     expect(resumoPorGrupo(null).C).toEqual({ quantidade: 0, valor: 0 });
+  });
+});
+
+describe("CPF com e sem máscara encontra o mesmo aluno (28/10/2026)", () => {
+  it("as formas da base (máscara, só dígitos, sem zero à esquerda) estão todas na busca", () => {
+    const formas = variantesDeCpf("01992800022");
+    expect(formas).toContain("01992800022");
+    expect(formas).toContain("1992800022");
+    expect(formas).toContain("019.928.000-22");
+  });
+
+  it("a mesma lista sai quando o CPF chega com máscara", () => {
+    expect(variantesDeCpf("019.928.000-22").sort()).toEqual(variantesDeCpf("01992800022").sort());
+  });
+
+  it("cadastro gravado com máscara é achado pelo CPF limpo do arquivo", () => {
+    const gravado = { id: "ec324e37", cpf: "019.928.000-22" };
+    const mapa = indexarAlunosPorCpf([gravado]);
+    expect(mapa[chaveCpf("01992800022")]).toEqual(gravado);
+  });
+
+  it("a busca traz o cadastro gravado em qualquer forma comprovada da base", () => {
+    for (const gravado of ["019.928.000-22", "01992800022", "1992800022"]) {
+      expect(variantesDeCpf("01992800022")).toContain(gravado);
+    }
+  });
+
+  it("CPF sem cadastro não casa com outro CPF", () => {
+    const formasDeOutro = variantesDeCpf("12345678909");
+    expect(formasDeOutro).not.toContain("01992800022");
+    expect(formasDeOutro).not.toContain("019.928.000-22");
+  });
+
+  it("CPF vazio ou nulo não gera busca", () => {
+    expect(variantesDeCpf("")).toEqual([]);
+    expect(variantesDeCpf(null)).toEqual([]);
+  });
+
+  it("ambiguidade: dois cadastros com o mesmo CPF, em formas diferentes, não geram um terceiro", () => {
+    const mapa = indexarAlunosPorCpf([
+      { id: "antigo", cpf: "019.928.000-22" },
+      { id: "novo", cpf: "01992800022" },
+    ]);
+    expect(Object.keys(mapa)).toHaveLength(1);
+    expect(mapa[chaveCpf("01992800022")].id).toBe("antigo");
   });
 });
