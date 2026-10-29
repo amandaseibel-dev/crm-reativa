@@ -8,7 +8,12 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "pretest": "node scripts/dev/trava-testes.mjs npm test",
     "test": "vitest run",
+    "posttest": "node scripts/dev/trava-testes.mjs --liberar",
+    "pretest:foco": "node scripts/dev/trava-testes.mjs npm run test:foco",
+    "test:foco": "vitest run",
+    "posttest:foco": "node scripts/dev/trava-testes.mjs --liberar",
     "check:migrations": "node scripts/ci/catraca-migrations.mjs"
   },
   "dependencies": {
