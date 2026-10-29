@@ -387,6 +387,40 @@ export function cursoSemestrePedido(curso, semestre) {
   return CURSOS_CARTEIRA.includes(c) || SEMESTRES_CARTEIRA.includes(s);
 }
 
+// O mapa so vale para o escopo em que foi lido (operador, veTudo). Trocar o
+// operador muda o escopo na hora; o mapa anterior vira `null` ate a recarga.
+export function mapaDoEscopo(mapa, escopoLido, escopo) {
+  return escopoLido === escopo ? mapa : null;
+}
+
+export const MSG_RECORTE_CARREGANDO =
+  "Carregando o recorte de curso e semestre… os totais aparecem quando a lista filtrada estiver pronta.";
+export const MSG_RECORTE_INDISPONIVEL =
+  "Recorte de curso e semestre indisponível: a contagem não carregou. Troque o filtro para tentar de novo.";
+
+// Estado do recorte para o kanban e o rodape da carteira.
+//
+// Sem filtro pedido nao ha recorte a proteger: a tela segue como sempre.
+// Com filtro pedido, sem mapa valido para o escopo atual, NAO se mostram
+// colunas nem totais gerais -- nem durante a carga, nem na falha, nem na janela
+// entre trocar de operador e a recarga.
+//
+// `pendente` separa "ainda vai chegar" de "nao chegou": um mapa de OUTRO escopo
+// ainda presente significa recarga pendente, entao a mensagem diz "carregando",
+// e nao "indisponivel".
+export function estadoRecorteCursoSemestre({ filtroCurso, filtroSemestre, carregando, mapa, escopoLido, escopo }) {
+  if (!cursoSemestrePedido(filtroCurso, filtroSemestre)) {
+    return { semDados: false, mensagem: null };
+  }
+  const valido = mapaDoEscopo(mapa, escopoLido, escopo);
+  const semDados = carregando || valido === null;
+  const pendente = carregando || (valido === null && mapa !== null);
+  return {
+    semDados,
+    mensagem: semDados ? (pendente ? MSG_RECORTE_CARREGANDO : MSG_RECORTE_INDISPONIVEL) : null,
+  };
+}
+
 // Quais fichas casam o curso escolhido.
 //
 // O curso vem do contrato do Prime da JANELA do semestre -- entao com um
