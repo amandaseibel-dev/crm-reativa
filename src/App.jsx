@@ -14,7 +14,7 @@ const ICONES_MENU = {
 };
 import { supabase } from "./services/supabase";
 import usePolling from "./utils/polling";
-import { chamarRpcContido } from "./utils/rpcResiliente";
+import { chamarRpcContido, invalidarRpcContido } from "./utils/rpcResiliente";
 import AutoLogout from "./components/AutoLogout";
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const BaseAnalitica = lazy(() => import("./pages/BaseAnalitica"));
@@ -80,6 +80,7 @@ const HistoricoRecuperacao = lazy(() => import("./pages/HistoricoRecuperacao"));
 const SaudeDaBase = lazy(() => import("./pages/SaudeDaBase"));
 const SaudeCompletaCarteira = lazy(() => import("./pages/SaudeCompletaCarteira"));
 const RevisaoPrime = lazy(() => import("./pages/RevisaoPrime"));
+const DiagnosticoPortador166 = lazy(() => import("./pages/DiagnosticoPortador166"));
 const TvElogios = lazy(() => import("./pages/TvElogios"));
 const Preventivo = lazy(() => import("./pages/Preventivo"));
 import AvisoTemplateNovo from "./components/AvisoTemplateNovo";
@@ -175,7 +176,7 @@ function podeAcessar(perfil, rota) {
   // perfis ativos (o banco confere de novo por app_usuario_ativo()).
   if (rota === "/leads-whatsapp") return true;
   if (rota === "/tv-mensagem") return perfil !== "operador"; // escrita ainda restrita pela RLS
-  if (rota === "/minhas-solicitacoes") return true; if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/a-entrar") return true; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/acordos-duplicados") return perfil !== "operador"; if (rota === "/acordos-sem-vinculo") return perfil !== "operador"; if (rota === "/pagamentos-sem-aluno") return perfil !== "operador"; if (rota === "/quitacao-sugerida") return perfil !== "operador"; if (rota === "/conferencia-prime") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador"; if (rota === "/acordos-operador") return perfil !== "operador";
+  if (rota === "/minhas-solicitacoes") return true; if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/a-entrar") return true; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/acordos-duplicados") return perfil !== "operador"; if (rota === "/acordos-sem-vinculo") return perfil !== "operador"; if (rota === "/pagamentos-sem-aluno") return perfil !== "operador"; if (rota === "/quitacao-sugerida") return perfil !== "operador"; if (rota === "/conferencia-prime") return perfil !== "operador"; if (rota === "/diagnostico-portador-166") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador"; if (rota === "/acordos-operador") return perfil !== "operador";
   const permissoes = {
     gerencia: [
       "/",
@@ -311,6 +312,15 @@ function RotaProtegida({ usuario, rota, children }) {
       return <Navigate to="/" replace />;
     }
   }
+  // Diagnóstico portador 166: mesma lista que usuario_e_gestao() usa no banco.
+  // A prime-sonda verifica de novo no servidor -- este guard só evita que
+  // outros perfis abram uma tela que voltaria com ACESSO_NEGADO.
+  if (rota === "/diagnostico-portador-166") {
+    const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+    if (!["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(email)) {
+      return <Navigate to="/" replace />;
+    }
+  }
   // Acordos por operador: mesma gestão da Calibragem (Amanda gestora, Fernanda,
   // Amanda ADM). A RPC confere de novo por calibragem_e_gestao() -- isto aqui é
   // só para não abrir uma tela que voltaria vazia.
@@ -435,7 +445,7 @@ export default function App() {
         supabase,
         "contadores_cabecalho",
         {},
-        { cacheMs: 60000, timeoutMs: 8000 }
+        { cacheMs: 300000, timeoutMs: 8000 }
       );
       if (error || !data) return;
       const perfilAtual = usuario?.perfil?.perfil;
@@ -507,13 +517,21 @@ export default function App() {
     setParcelasVencendo([]);
     setSugestoesNovas(0);
     setMinhasValidacoesPendentes(0);
+    // Descarta o cache ao sair: impede que o próximo login na mesma aba
+    // receba dados filtrados pelo JWT do usuário anterior.
+    invalidarRpcContido();
   }, [usuario]);
 
   // Disponibiliza a atualizacao imediata pra qualquer tela que acabou de
   // fazer uma acao que mexe nesses contadores (aprovar termo, dar baixa,
   // confirmar pagamento), em vez de esperar o proximo intervalo.
+  // Invalida o cache antes de disparar: sem isso chamarRpcContido retorna
+  // o valor em cache e nunca chega ao banco dentro do TTL de 300 s.
   useEffect(() => {
-    window.atualizarContadoresCrm = atualizarContadores;
+    window.atualizarContadoresCrm = () => {
+      invalidarRpcContido("contadores_cabecalho");
+      atualizarContadores();
+    };
     return () => { delete window.atualizarContadoresCrm; };
   }, [atualizarContadores]);
 
@@ -1174,6 +1192,7 @@ export default function App() {
               <Route path="/saude-da-base" element={<SaudeDaBase />} />
               <Route path="/saude-completa-carteira" element={<SaudeCompletaCarteira />} />
               <Route path="/revisao-prime" element={<RevisaoPrime />} />
+              <Route path="/diagnostico-portador-166" element={<RotaProtegida usuario={usuario} rota="/diagnostico-portador-166"><DiagnosticoPortador166 /></RotaProtegida>} />
               <Route path="/acordos-operador" element={<RotaProtegida usuario={usuario} rota="/acordos-operador"><AcordosPorOperador /></RotaProtegida>} />
               <Route path="/log-nivelamento" element={<LogNivelamento />} />
               <Route path="/sugestoes-recebidas" element={<SugestoesRecebidas />} />
