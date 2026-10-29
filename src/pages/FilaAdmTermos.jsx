@@ -106,6 +106,7 @@ export default function FilaAdmTermos() {
     await atualizarStatusAluno(termo.aluno_id, "Termo recebido - liberado", "Termo aprovado pela ADM");
 
     alert("Termo aprovado e liberado para operação. O caso vai pro topo da fila do operador.");
+    window.atualizarContadoresCrm?.();
     carregarTermos();
   }
 
@@ -136,6 +137,7 @@ export default function FilaAdmTermos() {
     await atualizarStatusAluno(termo.aluno_id, "Termo rejeitado", "Termo rejeitado pela ADM");
 
     alert("Termo rejeitado e devolvido para operação. O caso vai pro topo da fila do operador.");
+    window.atualizarContadoresCrm?.();
     carregarTermos();
   }
 
