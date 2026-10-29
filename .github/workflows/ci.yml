@@ -33,7 +33,21 @@ jobs:
     # main. O repositório é público, então o minuto de Actions custa US$ 0,00 e a
     # folga não tem preço a pagar. Isto compra margem; não resolve crescimento —
     # se voltar a apertar, o caminho é separar os testes de banco em outro job.
-    timeout-minutes: 25
+    #
+    # APERTOU DE NOVO: 25 -> 40 em 20/10/2026. O job da PR #700 (run 39432797275,
+    # job 118661906774) começou 13:42:57 e foi morto 14:08:16 — 25m19s contra o
+    # teto de 25. Não foi teste reprovando: às 14:06:49 a suíte ainda estava
+    # passando e a última linha do log é "The operation was canceled". Não foi
+    # cancel-in-progress: nenhum run mais novo existia naquele ref. E não é caso
+    # isolado — os 6 runs anteriores da main levaram 20, 12, 15, 13, 20 e 19 min,
+    # ou seja a main já roda a 80% do teto e qualquer teste de banco novo estoura.
+    #
+    # Onde o tempo realmente está, medido nesse mesmo log: dos 4.207s somados por
+    # arquivo, 4.111s (97,7%) são supabase/tests/ e 96s (2,3%) são src/. Então a
+    # saída que este comentário sugeria acima — "separar os testes de banco em
+    # outro job" — renderia um job de 2,3% e outro de 97,7%. O ganho real está em
+    # repartir o PRÓPRIO grupo de Postgres em vários jobs paralelos.
+    timeout-minutes: 40
 
     steps:
       # fetch-depth: 0 porque a catraca das migrations compara este ramo com o

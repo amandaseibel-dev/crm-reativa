@@ -225,3 +225,176 @@ select p.proname, has_function_privilege('authenticated', p.oid, 'EXECUTE')
  where p.prosrc like '%set_config%' and p.prosrc like '%reativa.fluxo_pagamentos%'
    and p.prosrc not like '%usuario_e_gestao%';
 ```
+
+## `20261023004500` (#738) BLOQUEADA para aplicação (decidido 24/10/2026)
+
+**Prioridade:** alta se a reserva de orçamento da rodada voltar à pauta ·
+**origem:** Etapa 1 da conciliação inteligente (PR #752).
+
+A migration `20261023004500_fluxo_incremental_reserva_bloqueado.sql` recria
+`fluxo_pagamentos_incremental` com o corpo inteiro e **não** traz o predicado
+`ENCERRADO_SEM_EFEITO_FINANCEIRO` do contador `v_pend`. Aplicada depois de
+`20261024170000_conciliacao_saida_terminal`, ela apaga essa correção em
+silêncio: nada falha, e `pendentes` volta a contar quem já foi encerrado sem
+efeito financeiro.
+
+Não está aplicada em produção (conferido em 24/10/2026: a versão não existe em
+`schema_migrations`, o corpo vivo tem `md5(prosrc) = 11c14ef5…` e
+`position('v_reserva')` = 0). O arquivo **não** pode ser corrigido: está
+mesclado na `main` e a catraca das migrations recusa alterar migration que já
+existe no branch base.
+
+**Enquanto não for aplicada:** nada a fazer. A catraca
+`supabase/tests/contador_pendentes_nao_regride.test.js` declara a #738 como
+BLOQUEADA e reprova qualquer migration posterior que recrie a função sem o
+predicado.
+
+**Quando for aplicada:** promover
+`supabase/propostas/PROPOSTA_contador_pendentes_apos_reserva_738.sql` para
+`supabase/migrations/` com timestamp posterior, aplicar a #738 e depois a
+complementar, e remover a entrada da lista `DECLARADAS` da catraca.
+
+Detalhe completo em `docs/CONCILIACAO-INTELIGENTE-2026-10-24.md`, anexo
+"A #738 fica BLOQUEADA para aplicação em produção".
+
+## Próximas prioridades da conciliação financeira (registradas 26/10/2026)
+
+**Origem:** autorização da Etapa 2 (encaminhamento). A gestão autorizou a Etapa
+2 e pediu que estes quatro ficassem registrados como as prioridades seguintes —
+**nenhum deles foi iniciado**, e cada um precisa de autorização própria e
+executor único. Todas as medições abaixo são de 26/10/2026, em produção
+(`ahattpqrjmhkzsmnbdzs`), somente leitura.
+
+### 1. `PAGAMENTO_CONFIRMADO` sem prova de caixa
+
+**Prioridade:** alta · **efeito financeiro:** nenhum (é rótulo) ·
+**é correção de semântica, não de dinheiro.**
+
+`_fechar_confirmacao_ao_zerar_saldo` grava `status = 'PAGAMENTO_CONFIRMADO'` em
+`solicitacoes_confirmacao_pagamento` quando o aluno fica sem saldo em aberto.
+Medido: **1.042 confirmações, R$ 1.346.190,64**, de 26/08 a 26/10/2026 (o
+caminho está vivo), das quais **833 (R$ 1.080.509,31) sem nenhum pagamento
+ligado** em `solicitacao_confirmacao_pagamentos`.
+
+Quem lê "PAGAMENTO_CONFIRMADO" entende caixa comprovado, e aqui o fato é "ficou
+sem saldo em aberto". O vocabulário correto **já existe e não é usado**:
+`CONCLUIDA_SALDO_ZERO` (3.069 linhas) e `ENCERRADO_SALDO_ZERO` (2).
+
+Não confundir com o furo do fluxo de confirmação, que **está fechado**: depois
+da regra de 09/10/2026 (PR #663), 340 de 347 confirmações têm pagamento ligado
+(98,0%), contra 335 de 3.854 antes (8,7%). Os 7 restantes são exatamente este
+caminho de saldo-zero.
+
+### 2. Detector de duplicidade ligado à importação
+
+**Prioridade:** alta · **efeito financeiro:** nenhum (só sinaliza).
+
+`pagamentos_detectar_suspeita_duplicidade(p_importacao_id)` existe e **nenhuma
+função a chama** (medido: 0 chamadores em `pg_proc`).
+`projecao_importar_pagamentos` não a invoca.
+`pagamento_suspeita_duplicidade` tem **9 linhas, todas de 11/09/2026** — nenhuma
+em 45 dias.
+
+A etapa `sinalizar_duplicado` está `ligado = true` em `fluxo_pagamentos_config`,
+e isso **não a executa**: quem lê a configuração é `fluxo_pagamentos_rodar`, no
+job 38, `active = false` desde o incidente de 24/09. Os jobs ativos (73/74/75)
+chamam `fluxo_pagamentos_incremental`, que **não lê a configuração** e só chama
+`pagamento_conciliar_um`.
+
+### 3. Digital e arquivo preservados na importação de pagamentos
+
+**Prioridade:** média · **efeito financeiro:** nenhum (rastreabilidade).
+
+`importacoes` não tem **nenhuma** das três colunas de proveniência (medido: 0 de
+`arquivo_sha256`, `arquivo_path`, `arquivo_bytes`). A Edge Function
+`santander-importar` **calcula** a digital do conteúdo, usa-a para recusar
+divergência entre prévia e confirmação, devolve-a na resposta — e **descarta**.
+
+O padrão já está em produção para a importação de acordos
+(`importacoes_acordos`, as 3 colunas, migration `20261024114622`, PR #750): as 2
+importações desde 24/10 têm digital e contagem de linhas. Falta aplicá-lo ao
+arquivo de pagamentos.
+
+Secundário, medido no caminho: **714 pagamentos (R$ 1.062.023,14)** têm
+`importacao_id` nulo e por isso não aparecem na conferência por arquivo.
+
+### 4. Relatório dos acordos ausentes
+
+**Prioridade:** alta · **efeito financeiro:** nenhum (é leitura).
+
+**186 acordos / 334 pagamentos / R$ 253.716,61** em `AGUARDANDO_ACORDO` sem
+decisão, e **0 dos 186 existem em `acordos`** — o registro-pai não existe, então
+não há onde pendurar composição. Era 175 / 319 / R$ 231.812,17 em 22/10: a fila
+cresce ~R$ 5,5 mil/dia.
+
+Decomposição (26/10/2026):
+
+| | Acordos | Pagamentos | Valor |
+|---|---:|---:|---:|
+| Parcial, passa no teste de piso | 7 | 14 | R$ 5.612,98 |
+| Parcial, refutado pelo piso | 31 | 60 | R$ 29.927,46 |
+| Aluno existe, zero título livre | 119 | 216 | R$ 193.778,47 |
+| Sem CPF no arquivo | 29 | 44 | R$ 24.397,70 |
+
+**Por que a crítica por linha da #750 não cobre isto.** `importacao_acordo_critica`
+mede o que ENTROU no arquivo e foi rejeitado — tem 2 linhas, ambas
+`documento_invalido`. Os 186 acordos **nunca estiveram no arquivo**: o
+"Relatório de Títulos em Aberto" é extração parcial, e ausência não gera
+crítica. O relatório a criar é de ausência, por acordo esperado — conferência,
+sem criar acordo nenhum.
+
+**Pendência de documentação, anterior a qualquer pedido externo:**
+`docs/rascunhos/PEDIDO-TI-ULBRA-ACORDOS-166.RASCUNHO.md` (não enviado, não
+autorizado) afirma que o padrão `5 + acordo(6) + parcela(4)` foi "verificado em
+9.086 pagamentos sem uma única exceção". A parte da **parcela** foi refutada em
+23/10/2026: nenhuma convenção fixa explica mais de 56,3% das 14.488 parcelas e
+11,5% não casam com nenhuma — só os 6 dígitos do acordo são confiáveis (99,6%).
+Corrigir o rascunho **antes** de qualquer decisão de enviá-lo, e atualizar os
+cinco arquivos de `docs/integracoes/` na mesma alteração, como o README exige.
+
+## `ESCOLHER_ALUNO` retirada da Etapa 2 (decidido 26/10/2026)
+
+**Prioridade:** média · **origem:** revisão da própria Etapa 2, antes de
+qualquer PR · **efeito financeiro:** existe, e é esse o problema.
+
+A Etapa 2 do encaminhamento ia oferecer duas ações. `ESCOLHER_ALUNO` (42
+pagamentos, R$ 23.469,07) foi **retirada** e vira item próprio. Dois defeitos
+medidos em 26/10/2026, não hipóteses:
+
+**a) A porta daria baixa.** A única função que executaria a ação é
+`pagamento_vincular_aluno`, que chama `pagamento_conciliar_um(p_pagamento_id,
+true)` logo depois de vincular, com `p_aplicar = true`. Essa função tem 24.824
+caracteres, toca `baixas_pagamento`, grava `origem_baixa_ref` e chama
+`recalcular_situacao_aluno`. Medido: dos **212** pagamentos com
+`origem_vinculo = 'GESTAO_MANUAL'`, **154 (R$ 166.312,94) terminaram em
+`BAIXADO`** — 73%. Uma fachada que anunciasse `efeito_financeiro: false` nesse
+caminho estaria mentindo.
+
+**b) 32 dos 42 já têm aluno vinculado.** Os 42 estão todos em
+`AGUARDANDO_ACORDO`, e 32 têm `aluno_id` preenchido. O projeto decidiu o
+contrário em 16/09/2026, e está no código: `podeVincularAluno` devolve
+`!item.tem_aluno`, com o comentário *"oferecer Vincular nessas linhas só daria a
+chance de sobrescrever um vínculo correto"*; e a trava
+`ALUNO_VINCULADO_SEM_PROVA_DUPLA` tem `acao: null` de propósito.
+`pagamento_vincular_aluno` grava `aluno_id` sem bloquear quando já havia aluno —
+ela só registra o anterior no retorno.
+
+**Como o defeito passou desapercebido, para não repetir.** O teste de
+comportamento **dublava** `pagamento_vincular_aluno`, e o dublê omitia a chamada
+a `pagamento_conciliar_um`. O teste "não toca no dinheiro" ficou verde afirmando
+algo que a função real não garante. A lição está escrita no cabeçalho de
+`supabase/tests/conciliacao_encaminhamento_etapa2.test.js`: **dublê de função que
+move dinheiro não prova ausência de efeito financeiro; ausência da função, sim.**
+Na versão final a bancada não tem `pagamento_vincular_aluno`, e um teste afirma
+essa ausência explicitamente.
+
+**O que NÃO mudou.** A busca manual de aluno em `PagamentosSemAluno.jsx`, que já
+chamava `pagamento_vincular_aluno` em produção antes desta frente, segue
+intacta, com o próprio portão e o próprio aviso. A Etapa 2 apenas não abriu uma
+segunda porta para ela. Os 42 continuam visíveis na fila e recebem, desta
+interface, a recusa nomeada `ACAO_FORA_DO_ESCOPO_DESTA_ETAPA`.
+
+**Para retomar**, o item precisa resolver, antes de qualquer tela: se vincular
+aluno pode ou não acionar a baixa pela mesma transação (decisão de negócio, não
+de código); e uma guarda para não sobrescrever vínculo existente, que hoje não
+existe em `pagamento_vincular_aluno`.

@@ -4,6 +4,7 @@ import { supabase } from "../services/supabase";
 import { buscarTudo } from "../utils/paginado";
 import { urlComprovanteLink, urlTermo, abrirDocumento } from "../utils/documentoFinanceiro";
 import { podeVerTudo } from "../utils/operadores";
+import { camposDeRetornoAutomatico, MOTIVO_RETORNO_LEITURA_FALHOU } from "../utils/tabulacoes";
 import { intervaloPeriodo, comoInputData, intervaloInvalido } from "../utils/periodo";
 
 const OPERADORES_REATIVA = [
@@ -612,10 +613,19 @@ export default function PainelAdm() {
     const daquiA7Dias = new Date();
     daquiA7Dias.setDate(daquiA7Dias.getDate() + 7);
 
-    await supabase
+    // +7 dias é prazo de acompanhamento do sistema, não compromisso com o
+    // aluno: entra como AUTOMATICO e não deixa hora nem prioridade para trás.
+    // E não passa por cima de combinado: se a ficha tem retorno OPERADOR com
+    // data futura, `camposDeRetornoAutomatico` devolve `{}` e só o status é
+    // gravado (decisão da gestão, 27/10/2026).
+    const retorno = await camposDeRetornoAutomatico(alunoId, daquiA7Dias.toISOString());
+    // O aviso de leitura falhada vem DEPOIS da gravação: antes ele afirmava
+    // "o encaminhamento foi gravado" antes do update acontecer.
+
+    const { error } = await supabase
       .from("alunos")
       .update({
-        data_retorno: daquiA7Dias.toISOString(),
+        ...retorno.campos,
         status_jornada: "Enviado ao financeiro",
         status_atual: "Enviado ao financeiro",
         status_acionamento: "Enviado ao financeiro",
@@ -623,6 +633,17 @@ export default function PainelAdm() {
         atualizado_em: new Date().toISOString(),
       })
       .eq("id", alunoId);
+
+    if (error) {
+      console.error("Erro ao agendar retorno do aluno:", error);
+      return;
+    }
+
+    if (retorno.motivo === MOTIVO_RETORNO_LEITURA_FALHOU) {
+      // Não dá para saber se havia compromisso, então o prazo de +7 não entrou.
+      // Quem está na tela precisa saber que o caso ficou sem data de retorno.
+      alert("Encaminhamento gravado, mas não foi possível ler o retorno atual do aluno — o prazo de 7 dias NÃO foi aplicado. Confira a data de retorno na ficha.");
+    }
   }
 
   async function marcarComoEnviadoFinanceiro(solicitacao) {

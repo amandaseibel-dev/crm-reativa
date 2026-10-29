@@ -1,0 +1,11 @@
+-- ROLLBACK de 20261023131709_efetividade_caixa_origem.
+--
+-- A view não é lida por nenhuma tela, função ou job: a Etapa 1 entrega só a
+-- camada de dados, e o leitor com portão de gestão vem na Etapa 2. Por isso
+-- derrubá-la não quebra consumidor nenhum, e não há estado para restaurar --
+-- a view não grava nada.
+--
+-- `restrict` de propósito, não `cascade`: se algum objeto passar a depender
+-- dela, o rollback deve FALHAR e obrigar a decisão, em vez de derrubar em
+-- silêncio um consumidor que alguém criou depois.
+drop view if exists public.efetividade_caixa_origem restrict;

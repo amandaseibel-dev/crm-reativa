@@ -85,6 +85,36 @@
         "vite.meudia.config.js"
       ],
       "port": 5204
+    },
+    {
+      "name": "massivas-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--config",
+        "vite.massivas.config.js"
+      ],
+      "port": 5204
+    },
+    {
+      "name": "alertas-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--config",
+        "vite.alertas.config.js"
+      ],
+      "port": 5205
+    },
+    {
+      "name": "mensalidades-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--config",
+        "vite.mensalidades.config.js"
+      ],
+      "port": 5206
     }
   ]
 }

@@ -69,4 +69,63 @@ describe("chamarRpcContido", () => {
 
     expect(supa.rpc).toHaveBeenCalledTimes(2); // erro nao entra no cache
   });
+
+  it("(f) invalidarRpcContido() sem args forca nova consulta (isolamento entre usuarios)", async () => {
+    const supa = fakeSupabase(() => Promise.resolve({ data: { n: 42 }, error: null }));
+
+    // Usuario A faz a primeira chamada, popula cache
+    await chamarRpcContido(supa, "contadores_cabecalho", {}, { cacheMs: 300000, tentativasExtras: 0 });
+    expect(supa.rpc).toHaveBeenCalledTimes(1);
+
+    // Segunda chamada dentro do TTL: servida do cache
+    await chamarRpcContido(supa, "contadores_cabecalho", {}, { cacheMs: 300000, tentativasExtras: 0 });
+    expect(supa.rpc).toHaveBeenCalledTimes(1);
+
+    // Logout: invalida tudo
+    invalidarRpcContido();
+
+    // Proxima chamada (usuario B) deve ir ao banco
+    await chamarRpcContido(supa, "contadores_cabecalho", {}, { cacheMs: 300000, tentativasExtras: 0 });
+    expect(supa.rpc).toHaveBeenCalledTimes(2);
+  });
+
+  it("(g) invalidarRpcContido(nome) forca nova consulta sem apagar outras entradas", async () => {
+    const supaA = fakeSupabase(() => Promise.resolve({ data: { n: 1 }, error: null }));
+    const supaB = fakeSupabase(() => Promise.resolve({ data: { n: 2 }, error: null }));
+
+    // Popula duas entradas diferentes
+    await chamarRpcContido(supaA, "contadores_cabecalho", {}, { cacheMs: 300000, tentativasExtras: 0 });
+    await chamarRpcContido(supaB, "outra_rpc", {}, { cacheMs: 300000, tentativasExtras: 0 });
+
+    // Invalida somente contadores_cabecalho
+    invalidarRpcContido("contadores_cabecalho");
+
+    // contadores_cabecalho deve ir ao banco novamente
+    await chamarRpcContido(supaA, "contadores_cabecalho", {}, { cacheMs: 300000, tentativasExtras: 0 });
+    expect(supaA.rpc).toHaveBeenCalledTimes(2);
+
+    // outra_rpc ainda serve do cache
+    await chamarRpcContido(supaB, "outra_rpc", {}, { cacheMs: 300000, tentativasExtras: 0 });
+    expect(supaB.rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it("(h) request em voo antes do logout nao grava no cache apos invalidarRpcContido()", async () => {
+    let resolver;
+    const supa = fakeSupabase(() => new Promise((r) => { resolver = r; }));
+
+    // Inicia request sem aguardar (em voo)
+    const promessa = chamarRpcContido(supa, "contadores_cabecalho", {}, { cacheMs: 300000, tentativasExtras: 0 });
+
+    // Logout acontece ANTES do request completar
+    invalidarRpcContido();
+
+    // Agora o request completa com dado do usuario anterior
+    resolver({ data: { n: 99 }, error: null });
+    await promessa;
+
+    // Cache deve estar vazio: novo usuario nao deve ver dado do anterior
+    const supa2 = fakeSupabase(() => Promise.resolve({ data: { n: 0 }, error: null }));
+    await chamarRpcContido(supa2, "contadores_cabecalho", {}, { cacheMs: 300000, tentativasExtras: 0 });
+    expect(supa2.rpc).toHaveBeenCalledTimes(1); // foi ao banco, nao serviu do cache contaminado
+  });
 });

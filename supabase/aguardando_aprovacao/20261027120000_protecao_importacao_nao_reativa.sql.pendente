@@ -1,0 +1,638 @@
+-- ============================================================================
+-- IMPORTACAO NAO REATIVA E NAO ATUALIZA TITULO EXISTENTE
+-- Artefato de 08/10/2026, RENUMERADO em 27/10/2026 para 20261027120000.
+-- NAO APLICAR SEM AUTORIZACAO EXPLICITA DA GESTAO.
+--
+-- POR QUE RENUMERADO: a versao original 20261008120000 ja pertence a
+-- `supabase/migrations/20261008120000_tv_acordos_de_hoje.sql`. `version` e
+-- PRIMARY KEY em `supabase_migrations.schema_migrations`: duas migrations com a
+-- mesma versao nunca sao as duas registradas -- uma nao roda e ninguem e
+-- avisado. A catraca do CI reprova isso como M5-VERSAO-JA-EXISTE, e ela nao
+-- pegou aqui porque o arquivo ainda esta em `aguardando_aprovacao`, fora do
+-- alcance dela. Conferido em 27/10: nem 20261008120000 nem 20261027120000
+-- constam de `schema_migrations` em producao -- a colisao e de repositorio.
+-- O SQL NAO foi alterado por esta renumeracao (prova de md5 no pacote).
+--
+-- Pedido da gestao em 08/10/2026:
+--   "A intencao e exclusivamente incluir parcelas de mensalidades que realmente
+--    nao existem no CRM. Nao atualizar valores, vencimentos, responsaveis,
+--    status ou qualquer registro existente."
+--   "impedir reativacao de parcelas negociadas, pagas, quitadas, suspensas,
+--    canceladas, devolvidas ou encerradas, incluindo acordos e vinculos
+--    financeiros."
+--
+-- PRECISADO PELA GESTAO EM 08/10/2026, depois da remessa de setembro:
+--   "a parcela ja negociada e paga nao volta, quando entra uma nova parcela
+--    precisamos trabalhar ela"
+--
+-- A primeira versao desta migration tratava as duas frases como uma. Nao sao:
+-- "nao reativar" vale para divida ANTIGA (a secao 2 e o insert-only da tela);
+-- mensalidade NOVA tem de entrar e ser cobrada, mesmo de aluno com historico
+-- de quitacao. A secao 3 foi ajustada em 09/10/2026 -- QUITADO, QUITADO_MANUAL,
+-- `casos.encerrado_operacional` e `casos.quitado_em` sairam de PROTEGIDA, que
+-- passa a significar so DECISAO DE NAO COBRAR (juridico, suspensao,
+-- cancelamento, `nao_acionar`). O porque esta escrito no CASE da secao 3,
+-- onde a regra e lida.
+--
+-- CORRIGIDO EM 09/10/2026 contra o schema REAL de producao: a secao 3 testava
+-- `casos.cancelado_em`, coluna que NAO EXISTE. Detalhe e as seis colunas
+-- validadas estao no proprio CASE.
+--
+-- ----------------------------------------------------------------------------
+-- O DEFEITO QUE ISTO FECHA (auditoria de 08/10/2026, docs/SIMULACAO-*)
+--
+-- Borderos.jsx grava titulo por `upsert(..., onConflict: 'documento')` com
+-- `situacao: 'ABERTO'` fixo. A trava da tela (src/utils/bordero.js) cobre
+-- apenas PAGO, EM_CONFIRMACAO e CANCELADA. **NEGOCIADO nao esta na lista.**
+--
+-- E no banco nenhum dos tres gatilhos existentes cobre NEGOCIADO:
+--   trg_titulo_em_confirmacao_protegido          -> old.situacao='EM_CONFIRMACAO'
+--   trg_titulo_encerrado_administrativo_protegido-> old.origem_encerramento not null
+--   trg_titulo_liquidado_na_origem_e_terminal    -> old.origem_liquidacao='PRIME_LIQUIDACAO_OFICIAL'
+--
+-- Pior: `trg_titulo_normaliza_vinculo_incoerente` (20260825230000) ve
+-- `vinculada` + `ABERTO` sem vinculo ativo e zera o status para `em_aberto` --
+-- COMPLETANDO o apagamento da negociacao em vez de impedi-lo.
+--
+-- ----------------------------------------------------------------------------
+-- POR QUE A TRAVA E POR ASSINATURA DO IMPORTADOR, E NAO POR SITUACAO TERMINAL
+--
+-- NEGOCIADO -> ABERTO e um caminho LEGITIMO em producao: `titulo_reavaliar`
+-- devolve a mensalidade quando o acordo e cancelado sem nenhum pagamento na
+-- cadeia (migration 20260925123852, EM PROD; 19 titulos / R$ 8.457,59
+-- corrigidos em 25/09). Uma trava terminal generica cegaria essa regra.
+--
+-- Tambem nao da para usar a polaridade `v_oficial` dos gatilhos existentes (GUC
+-- que o chamador legitimo acende): seriam necessarios 17+ chamadores na
+-- allowlist, e esquecer um quebra producao em silencio.
+--
+-- A trava identifica O IMPORTADOR por duas marcas, e nao mexe em mais ninguem:
+--
+--   1. `reativa.importando` = 'on'  -- GUC TRANSACIONAL que `importar_acordos`
+--      JA acende hoje (20260917200000) e que a RPC nova tambem acende.
+--      Forjavel? Sim -- e inofensivo: acender esta chave so deixa a protecao
+--      MAIS restritiva para quem a acendeu. Nao ha ganho em forjar.
+--
+--   2. a UPDATE reescreve `importacao_id` de titulo que JA existe.
+--      MEDIDO em 08/10/2026: nenhuma migration e nenhuma tela atualiza
+--      `importacao_id` de titulo existente (`grep` em 974 migrations e em
+--      src/: zero ocorrencia). O unico caminho que faz isso e o `upsert` do
+--      bordero. Esta marca pega o importador mesmo se a correcao da tela for
+--      revertida.
+--
+-- Fora dessas duas marcas o gatilho faz `return new` e e inerte.
+--
+-- ----------------------------------------------------------------------------
+-- O QUE ESTA MIGRATION NAO FAZ
+--   . nao altera nenhum titulo, parcela, acordo, vinculo, caso ou aluno
+--   . nao faz backfill, nao da baixa, nao encerra nada
+--   . nao mexe em titulo_reavaliar, no motor de baixa, na Conferencia Prime,
+--     em vw_aluno_saldo_cobravel, Saude da Carteira, Calibragem, acoes
+--     massivas, fidelizacao, responsavel, retornos nem historico
+--   . nao revoga EXECUTE de authenticated em funcao nenhuma (o controle e
+--     portao interno -- ver memoria `restringir-a-gestao-e-portao-interno`)
+--
+-- ROLLBACK: 20261027120000_protecao_importacao_nao_reativa.rollback.sql
+-- ============================================================================
+
+begin;
+
+-- Disputa de lock interrompe com seguranca em vez de enfileirar atras de uma
+-- transacao longa. Os DOIS `drop trigger` (secoes 1b e 2) pegam ACCESS
+-- EXCLUSIVE em
+-- `acordos_titulos`, e o lock sobe em escada: sem teto, esta migration poderia
+-- bloquear TODO leitor da tabela enquanto espera. Com o teto ela falha rapido e
+-- a transacao inteira reverte -- nada pela metade.
+-- Acrescentado em 27/10/2026 pela ressalva 2 do parecer do Guardiao.
+set local lock_timeout = '3s';
+
+-- Teto por INSTRUCAO desta transacao. Note a diferenca em relacao ao que foi
+-- RETIRADO das assinaturas de funcao: `set local` aqui vale para os statements
+-- desta transacao, que ainda nao comecaram -- entao ele rearma de verdade. O
+-- que nao rearma e `set statement_timeout` na assinatura de uma funcao, pois a
+-- instrucao que a chamou ja esta em curso (memoria
+-- `proconfig-statement-timeout-nao-rearma`). O mais caro aqui e o
+-- CREATE UNIQUE INDEX sobre ~48 mil linhas; 120s e folga larga.
+set local statement_timeout = '120s';
+
+-- ---------------------------------------------------------------------------
+-- 0. PRE-CONDICAO: a chave normalizada nao pode ja estar duplicada.
+--    Medido em 01/10/2026: ltrim por zero a esquerda nao colide em
+--    acordos_titulos (47.949 = 47.949). Se mudou desde entao, ABORTA aqui com
+--    mensagem clara em vez de falhar obscuro no CREATE INDEX -- e REGISTRA a
+--    divergencia em auditoria antes de abortar, para a proxima pessoa saber o
+--    tamanho do saneamento sem ter de medir de novo.
+-- ---------------------------------------------------------------------------
+do $pre$
+declare v_dup bigint;
+begin
+  select count(*) - count(distinct public.extracao_documento_norm(documento))
+    into v_dup
+    from public.acordos_titulos
+   where documento is not null;
+  if v_dup <> 0 then
+    -- SEM `insert into auditoria` aqui, e o motivo e tecnico: este bloco esta
+    -- dentro do `begin;` que abre a migration, e o `raise exception` abaixo aborta a
+    -- transacao INTEIRA -- levando com ela qualquer insert feito antes. Uma
+    -- versao anterior gravava DOCUMENTO_NORMALIZADO_COLIDE aqui e afirmava no
+    -- comentario que o registro existiria: nunca existiria. O mesmo mecanismo
+    -- esta provado no teste B1 de src/utils/bordero.test.js (o rastro de uma
+    -- chamada que falha nao sobrevive ao rollback da subtransacao).
+    -- A mensagem do erro E o registro, e ela carrega o numero.
+    raise exception
+      'ABORTADO: % documento(s) colidem sob extracao_documento_norm. O indice unico normalizado nao pode ser criado antes de sanear essas linhas. Para listar: select public.extracao_documento_norm(documento) k, count(*), array_agg(documento) from public.acordos_titulos where documento is not null group by 1 having count(*) > 1;', v_dup;
+  end if;
+end $pre$;
+
+-- ---------------------------------------------------------------------------
+-- 1. INDICE UNICO NORMALIZADO
+--    Fecha a brecha do zero a esquerda: hoje `acordos_titulos_documento_key`
+--    trata '04039712' e '4039712' como chaves diferentes, e os importadores
+--    casam por `ltrim`. O indice torna a repeticao segura NO BANCO, nao so no
+--    WHERE da aplicacao.
+--    `extracao_documento_norm` e IMMUTABLE exatamente para permitir isto --
+--    ver o COMMENT dela em 20261001183516.
+--
+--    A UNICIDADE E REQUISITO DA GESTAO, declarado em 27/10/2026: "nao remova
+--    nem enfraqueca a unicidade para facilitar a importacao". Uma versao
+--    intermediaria deste arquivo criava o indice NAO unico para evitar o
+--    erro 23505 nos inseridores; foi revertida. O 23505 e resolvido pela
+--    secao 1b, que impede a tentativa em vez de afrouxar a regra.
+-- ---------------------------------------------------------------------------
+create unique index if not exists ux_acordos_titulos_documento_norm
+  on public.acordos_titulos (public.extracao_documento_norm(documento))
+  where documento is not null;
+
+comment on index public.ux_acordos_titulos_documento_norm is
+  'UNICO sobre extracao_documento_norm(documento): fecha a brecha do zero a esquerda, que acordos_titulos_documento_key (sobre o valor CRU) deixa aberta. A unicidade e requisito da gestao de 27/10/2026 e nao deve ser enfraquecida; quem impede o 23505 nos inseridores e o gatilho da secao 1b, nao o afrouxamento deste indice.';
+
+-- ---------------------------------------------------------------------------
+-- 1b. GUARDA DE INSERCAO: impede a TENTATIVA de duplicata normalizada, em vez
+--     de afrouxar o indice.
+--
+--     O PROBLEMA que isto resolve (ressalva 1 do parecer do Guardiao de
+--     27/10/2026):
+--       . `Borderos.jsx` grava com `onConflict: "documento"` -> SQL
+--         `ON CONFLICT (documento) DO NOTHING`. **ON CONFLICT declarado para UM
+--         indice nao absorve violacao de OUTRO indice.** Uma colisao no indice
+--         normalizado levantaria 23505 e abortaria o lote de 500 inteiro;
+--       . `importar_acordos` testa existencia com
+--         `where not exists (... t.documento = i.documento)` -- comparacao
+--         CRUA, sem `exception` ao redor: 23505 abortaria a importacao de
+--         acordos inteira. E boleto de acordo tem o formato
+--         `0`+`5`+acordo(6)+seq(4), que COMECA com zero -- exatamente o caso
+--         que a normalizacao colapsa.
+--
+--     A SOLUCAO TEM DOIS RAMOS (corrigido em 27/10/2026, bloqueio B):
+--     na importacao de ACORDOS ela LEVANTA, abortando a transacao inteira, para
+--     nenhum acordo nascer subdeclarado; fora dela, um BEFORE INSERT que
+--     devolve NULL **pula a linha** sem erro. Entao a
+--     linha que violaria o indice unico nunca chega a ele: nao ha 23505, nao ha
+--     lote abortado, e a duplicata **nao entra** -- que e o mesmo resultado que
+--     o indice unico daria, sem o efeito colateral de derrubar as outras 499
+--     linhas legitimas do lote.
+--
+--     E NAO E SILENCIOSO. Toda linha pulada vira uma linha em `auditoria`
+--     (TITULO_DUPLICADO_NORMALIZADO_RECUSADO) com as duas grafias. A exigencia
+--     da gestao em 27/10/2026 foi "sem introduzir duplicidades nem ocultar
+--     divergencias": pular sem dizer seria ocultar.
+--
+--     VALE PARA TODO INSERIDOR, inclusive os que ninguem alinhou: a tela, a RPC
+--     da secao 3, `importar_acordos`, script e SQL Editor -- com o ramo de
+--     cada um descrito no corpo da funcao.
+--
+--     ===== CORRECAO DE 27/10/2026 (bloqueio B do parecer) ==================
+--     Uma versao anterior deste comentario afirmava que o alinhamento de
+--     `importar_acordos` "deixa de ser pre-requisito". **Isso e verdade SO
+--     para o 23505, e eu generalizei errado.** Ha um segundo caminho, e ele
+--     entra em DINHEIRO:
+--
+--       20260917200000:880-884 recalcula `fila_acordos_confirmar.qtd_parcelas`
+--       e `valor_total` agregando `acordos_titulos where importacao_id =
+--       p_importacao_id`; e :887-890 cria `public.acordos` com
+--       `valor_total = f.valor_total`, `qtd_parcelas = f.qtd_parcelas` e
+--       **`saldo = f.valor_total`**.
+--
+--     Titulo pulado por esta guarda FALTA nesse agregado -- entao o acordo
+--     nasce com valor_total, qtd_parcelas e saldo SUBDECLARADOS, em silencio.
+--     O indice unico, sozinho, nao teria esse efeito: ele levantaria 23505 e
+--     abortaria a importacao inteira, alto e visivel.
+--
+--     Ocorrencias hoje: ZERO (censo de 27/10: 0 colisao dentro de
+--     acordos_titulos). Alcancavel estruturalmente: SIM -- boleto de acordo e
+--     `0`+`5`+acordo(6)+seq(4), comeca com zero, a forma que o ltrim colapsa.
+--
+--     RESOLVIDO em 27/10/2026, por determinacao da gestao ("Determino corrigir
+--     o fluxo de importar_acordos antes da aplicacao de C1"): a guarda passou a
+--     LEVANTAR quando a GUC `reativa.importando` esta acesa. `importar_acordos`
+--     NAO FOI ALTERADA -- e a menor alteracao segura, porque ela ja se declara
+--     pela GUC e nao tem handler em volta do insert, entao a transacao reverte
+--     inteira por conta propria. Zero linha tocada numa funcao de ~8 mil
+--     caracteres que esta em producao.
+--     =====================================================================
+--
+--     POR QUE NAO UM `ON CONFLICT` NA PROPRIA TELA: PostgREST aceita apenas
+--     NOME DE COLUNA em `on_conflict`, nunca expressao funcional. Nao ha como a
+--     tela declarar conflito sobre `extracao_documento_norm(documento)`.
+--
+--     POR QUE `SECURITY DEFINER`: a guarda PERGUNTA ao banco se a chave existe.
+--     `acordos_titulos` tem RLS com policies (20260726201500). Com os direitos
+--     do invocador, uma policy de SELECT por responsavel faria a guarda NAO VER
+--     a linha colidente, devolver NEW, e o 23505 chegar ao indice unico --
+--     derrubando o lote de 500, que e exatamente o que ela existe para evitar.
+--     Mesma escolha de `tg_titulo_normaliza_vinculo_incoerente` (20260825230000),
+--     que tambem le a tabela de dentro de um gatilho.
+-- ---------------------------------------------------------------------------
+create or replace function public._titulo_recusa_duplicata_normalizada()
+ returns trigger
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $fn$
+declare
+  v_chave text := public.extracao_documento_norm(new.documento);
+  v_existente record;
+  -- `importar_acordos` SE DECLARA: ela acende esta GUC transacional
+  -- (20260917200000:807). A tela do bordero NAO acende (grava por PostgREST).
+  --
+  -- A RPC da secao 3 TAMBEM acende a GUC -- e por isso ela precisa nunca
+  -- COLIDIR, nao apenas "comparar normalizado". Os dois `not exists` dela so
+  -- veem o estado comitado; o que a mantem fora deste ramo e o dedupe de
+  -- `_origem` por `k` (chave normalizada), corrigido em 27/10/2026. Antes dele,
+  -- duas grafias da mesma chave no mesmo arquivo chegavam as duas ao insert e a
+  -- RPC abortava a carga inteira -- medido, nao suposto.
+  --
+  -- Em outras palavras: o discriminador NAO e a GUC sozinha. E a GUC MAIS a
+  -- garantia de que o unico chamador que pode colidir com a GUC acesa e
+  -- `importar_acordos`, que compara `documento` CRU (20260917200000:864).
+  v_importando boolean :=
+    coalesce(current_setting('reativa.importando', true), 'off') = 'on';
+begin
+  if v_chave is null then
+    return new;   -- sem documento utilizavel nao ha chave a comparar
+  end if;
+
+  -- `t.documento is not null` nao e redundante: o indice da secao 1 e PARCIAL
+  -- (`where documento is not null`), e sem este predicado no WHERE o planner
+  -- nao consegue prova-lo e cai em seq scan de ~48 mil linhas -- por LINHA
+  -- inserida, num lote de 500. Com ele, o indice e usado.
+  select t.id, t.documento, t.situacao, t.status
+    into v_existente
+    from public.acordos_titulos t
+   where t.documento is not null
+     and public.extracao_documento_norm(t.documento) = v_chave
+   limit 1;
+
+  if not found then
+    return new;   -- caminho normal: documento ausente, insere
+  end if;
+
+  -- Mesma grafia exata: NAO e assunto desta guarda. Quem resolve e a unicidade
+  -- CRUA de `acordos_titulos_documento_key`, que ja existia.
+  --
+  -- ATENCAO, corrigido em 27/10/2026 (5a revisao): dizer "o ON CONFLICT do
+  -- chamador resolve" era FALSO para os inseridores SQL -- nem o insert de
+  -- `importar_acordos` (20260917200000:861) nem o da RPC de mensalidades
+  -- ausentes declaram `ON CONFLICT`. Neles, grafia repetida levanta 23505 e
+  -- aborta. Quem tem `ON CONFLICT (documento) DO NOTHING` e a TELA do bordero
+  -- (`Borderos.jsx`, upsert com ignoreDuplicates). Esta guarda e inerte nos
+  -- tres casos, de proposito: ela so trata grafia DIFERENTE.
+  if v_existente.documento = new.documento then
+    return new;
+  end if;
+
+  -- ===== DAQUI PARA BAIXO: grafia diferente, MESMA chave normalizada ======
+  -- E a duplicata que o indice unico recusaria com 23505. O que fazer com ela
+  -- DEPENDE DE QUEM ESTA INSERINDO, e essa distincao e a correcao de
+  -- 27/10/2026 exigida pela gestao (bloqueio B do parecer do Guardiao).
+  --
+  -- PULAR E SEGURO NA MENSALIDADE E ERRADO NO ACORDO. Por que:
+  --
+  --   . tela do bordero -> insert-only, e NADA a jusante agrega o que entrou.
+  --     Pular a linha deixa a divida correta (o titulo ja existe, com a outra
+  --     grafia) e salva as outras 499 do lote. A GUC nao esta acesa aqui.
+  --
+  --   . RPC da secao 3 -> nao chega a este ponto: o dedupe por `k` impede
+  --     colisao intra-arquivo, e os dois `not exists` normalizados impedem
+  --     colisao contra a base. Se chegasse, cairia no ramo do `raise` (a GUC
+  --     esta acesa) e abortaria a carga -- era o defeito medido na 4a revisao.
+  --
+  --   . `importar_acordos` -> 20260917200000:880-884 recalcula
+  --     `fila_acordos_confirmar.qtd_parcelas` e `valor_total` AGREGANDO
+  --     `acordos_titulos where importacao_id = p_importacao_id`, e :887-890
+  --     cria `public.acordos` com `valor_total`, `qtd_parcelas` e
+  --     **`saldo = f.valor_total`**. Titulo pulado FALTA no agregado, e o
+  --     acordo nasce SUBDECLARADO -- em silencio, o que e pior que o erro.
+  --
+  -- DECISAO DA GESTAO em 27/10/2026, textual: "Nao autorizo aceitar o risco de
+  -- acordos com valor_total, qtd_parcelas ou saldo subdeclarados, mesmo com
+  -- monitoramento" e "se nao for possivel provar a integridade do acordo,
+  -- bloquear sua confirmacao com erro rastreavel, sem gravar acordo parcial".
+  --
+  -- Entao: na importacao de acordos, LEVANTA. `importar_acordos` nao tem
+  -- handler em volta do insert (:861-871), logo a transacao inteira reverte --
+  -- nao nasce acordo, nao nasce linha de fila, nao nasce nada parcial. E o
+  -- mesmo desfecho alto e visivel que o indice unico daria, com mensagem
+  -- legivel no lugar de um 23505 cru.
+  --
+  -- TENSAO QUE A GESTAO PRECISA CONHECER, e nao esta escondida aqui: a memoria
+  -- `importacao-sinaliza-duplicidade-nao-barra` registra a decisao de 27/08 --
+  -- "o sistema deveria sinalizar as duplicidades e importar normalmente",
+  -- porque barrar o lote por uma linha travava a operacao. Aquela decisao era
+  -- sobre ACORDO DUPLICADO (`tg_acordo_bloquear_duplicado`), nao sobre colisao
+  -- de documento normalizado, e a instrucao de 27/10 e explicita para ESTE
+  -- caso. Mitigacao: ocorrencias hoje = ZERO (censo de 27/10), e a mensagem diz
+  -- exatamente qual linha corrigir no arquivo.
+  --
+  -- POR QUE A RASTREABILIDADE VAI NA MENSAGEM, e nao em `auditoria`: o `raise`
+  -- aborta a transacao e LEVA qualquer insert feito antes dele -- provado no
+  -- teste B1 de src/utils/bordero.test.js e e o mesmo motivo pelo qual o insert
+  -- saiu da secao 0. Gravar auditoria aqui seria gravar o que nunca existiria.
+  -- =======================================================================
+  if v_importando then
+    raise exception
+      'TITULO_DUPLICADO_NORMALIZADO_NA_IMPORTACAO: a chave normalizada % ja existe como documento % e o arquivo trouxe %. A importacao foi ABORTADA INTEIRA de proposito: aceitar a linha duplicaria a divida, e pular faria o acordo nascer com valor_total/qtd_parcelas/saldo subdeclarados (20260917200000:880-890). As duas grafias precisam ser conciliadas antes de reimportar -- e o arquivo vem da ULBRA e pode nao ser editavel (memorias `importacao-sinaliza-duplicidade-nao-barra` e `ulbra-nao-emite-relatorio-novo`), entao isto e decisao da gestao, nao conserto de planilha. Titulo existente: id %, situacao %.',
+      v_chave, v_existente.documento, new.documento, v_existente.id, v_existente.situacao;
+  end if;
+
+  -- Fora da importacao de acordos: pula a linha e REGISTRA.
+  begin
+    insert into public.auditoria (usuario, acao, tabela_afetada, registro_id, detalhes)
+    values ('sistema', 'TITULO_DUPLICADO_NORMALIZADO_RECUSADO', 'acordos_titulos',
+            v_existente.id,
+            jsonb_build_object(
+              'chave_normalizada', v_chave,
+              'documento_existente', v_existente.documento,
+              'documento_recusado', new.documento,
+              'situacao_existente', v_existente.situacao,
+              'status_existente', v_existente.status,
+              'tentou_aluno_id', new.aluno_id,
+              'tentou_valor_original', new.valor_original,
+              'tentou_vencimento', new.vencimento,
+              'tentou_importacao_id', new.importacao_id));
+  exception when others then null;   -- auditoria nunca derruba a importacao
+  end;
+
+  return null;   -- linha pulada, SEM erro: nenhum lote cai por causa dela
+end;
+$fn$;
+
+comment on function public._titulo_recusa_duplicata_normalizada() is
+  'BEFORE INSERT em acordos_titulos: recusa, SEM erro, a linha cuja chave extracao_documento_norm(documento) ja existe com OUTRA grafia -- exatamente a que o indice unico ux_acordos_titulos_documento_norm rejeitaria com 23505, abortando o lote inteiro. Pular a linha da o mesmo resultado (a duplicata nao entra) sem derrubar as demais. Toda recusa vira TITULO_DUPLICADO_NORMALIZADO_RECUSADO em auditoria. Grafia IDENTICA nao e assunto desta guarda: quem resolve e a unicidade CRUA de acordos_titulos_documento_key, e o desfecho depende do chamador -- a TELA do bordero tem ON CONFLICT DO NOTHING, mas os inseridores SQL (importar_acordos e a RPC de mensalidades ausentes) NAO tem, e nelas grafia repetida levanta 23505.';
+
+revoke all on function public._titulo_recusa_duplicata_normalizada() from public, anon;
+
+-- ANTES do indice na pratica: BEFORE INSERT roda antes de qualquer indice ser
+-- consultado para a nova linha.
+drop trigger if exists trg_titulo_recusa_duplicata_normalizada on public.acordos_titulos;
+create trigger trg_titulo_recusa_duplicata_normalizada
+  before insert on public.acordos_titulos
+  for each row execute function public._titulo_recusa_duplicata_normalizada();
+
+-- ---------------------------------------------------------------------------
+-- 2. GATILHO: importacao nunca reativa nem atualiza titulo existente
+-- ---------------------------------------------------------------------------
+create or replace function public._titulo_importacao_nao_reativa()
+ returns trigger
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $fn$
+declare
+  -- marca 1: a importacao se declara (GUC transacional, ja usada por importar_acordos)
+  v_importando boolean :=
+    coalesce(current_setting('reativa.importando', true), 'off') = 'on';
+  -- marca 2: assinatura do upsert do bordero -- reescrever o lote de um titulo que ja existe
+  v_reescreve_lote boolean :=
+    new.importacao_id is distinct from old.importacao_id;
+  v_motivo text;
+begin
+  -- Fora das duas marcas, este gatilho e inerte. titulo_reavaliar, o motor de
+  -- baixa, a Conferencia Prime, a ficha e as telas passam por aqui sem efeito.
+  if not (v_importando or v_reescreve_lote) then
+    return new;
+  end if;
+
+  -- Por que a lista e esta: sao os estados que a gestao nomeou em 08/10/2026,
+  -- traduzidos para o schema. `suspensa` NAO e estado de titulo -- vive em
+  -- alunos.status_* (JURIDICO / SUSPENSAO_COBRANCA / CANCELAMENTO_COBRANCA).
+  --
+  -- ESCOPO, dito e nao deduzido (27/10/2026, 6a revisao): quem barrava o aluno
+  -- suspenso era a RPC da secao 3, que SAIU deste arquivo. Entao **C1 nao
+  -- cobre a metade "suspensas" do pedido de 08/10** -- ela chega com
+  -- 20261027120001. Nao e regressao: o `new := old` abaixo e incondicional e
+  -- protege o UPDATE de qualquer situacao, inclusive de aluno suspenso; o que
+  -- C1 nao faz e barrar o INSERT de titulo novo para esse aluno.
+  select case
+    when upper(coalesce(old.situacao,'')) in
+         ('NEGOCIADO','PAGO','QUITADO','QUITADA','CANCELADA','CANCELADO',
+          'EM_CONFIRMACAO','DEVOLVIDA','DEVOLVIDO')
+      then 'situacao=' || upper(old.situacao)
+    when lower(coalesce(old.status,'')) in ('quitada','cancelada','devolvida')
+      then 'status=' || lower(old.status)
+    when old.origem_liquidacao  is not null then 'origem_liquidacao'
+    when old.origem_encerramento is not null then 'origem_encerramento'
+    -- "incluindo acordos e vinculos financeiros":
+    when old.acordo_id is not null then 'vinculado ao acordo ' || old.acordo_id::text
+    when exists (select 1 from public.acordo_titulo_vinculo v
+                  where v.titulo_id = old.id and coalesce(v.ativo, true))
+      then 'vinculo financeiro ativo'
+  end into v_motivo;
+
+  if v_motivo is not null then
+    -- COAGE de volta em vez de levantar excecao -- a mesma escolha de
+    -- trg_titulo_liquidado_na_origem_e_terminal, para nao derrubar um lote
+    -- inteiro por causa de uma linha.
+    --
+    -- EMBRULHADO em 27/10/2026 (bloqueio A do parecer). Sem o handler, este
+    -- insert levantaria se RLS ou grant de `public.auditoria` negassem o
+    -- invocador -- e a UPDATE derrubaria o lote, exatamente o que o comentario
+    -- acima diz evitar. A secao 1b ja embrulhava o mesmo insert; esta aqui
+    -- ficou de fora por descuido meu. Perder a LINHA DE AUDITORIA e aceitavel;
+    -- derrubar o lote nao e.
+    begin
+    insert into public.auditoria (usuario, acao, tabela_afetada, registro_id, detalhes)
+    values ('sistema', 'TITULO_IMPORTACAO_REATIVACAO_RECUSADA', 'acordos_titulos', old.id,
+            jsonb_build_object(
+              'documento', old.documento, 'motivo', v_motivo,
+              'de_situacao', old.situacao, 'de_status', old.status,
+              'tentou_situacao', new.situacao, 'tentou_status', new.status,
+              'tentou_valor_original', new.valor_original,
+              'tentou_saldo_corrigido', new.saldo_corrigido,
+              'tentou_vencimento', new.vencimento,
+              'tentou_aluno_id', new.aluno_id,
+              'tentou_importacao_id', new.importacao_id,
+              'marca', case when v_importando then 'guc' else 'importacao_id' end));
+    exception when others then null;
+    end;
+  end if;
+
+  -- A importacao NUNCA atualiza titulo existente -- protegido ou nao.
+  -- A UPDATE vira no-op: valor, vencimento, dono, lote e situacao ficam como
+  -- estavam. Nao e no-op ABSOLUTA -- ver o limite (b) logo abaixo do gatilho. Isto e literalmente o que foi pedido, e e o que
+  -- preserva historico, provencia (`importacao_id`) e indicadores.
+  new := old;
+  return new;
+end;
+$fn$;
+
+-- POR QUE `SECURITY DEFINER` (acrescentado em 27/10/2026, bloqueio A):
+-- esta funcao LE `public.acordo_titulo_vinculo`, que tem policy RESTRITIVA --
+-- `atv_select ... for select to authenticated using (usuario_e_gestao() or
+-- app_owns_acordo(acordo_id))`, em 20260805160000:51-53. Com direitos do
+-- invocador, quem nao e gestao nem dono do acordo NAO VE o vinculo, e o ramo
+-- `vinculo financeiro ativo` nao dispara -- justamente no caso `acordo_id IS
+-- NULL` COM vinculo vivo, que o ramo anterior nao cobre. A protecao em si nao
+-- cai (`new := old` roda incondicionalmente), mas a linha de auditoria se
+-- perde e a contagem de reativacoes barradas fica subdeclarada.
+-- Mesma escolha de `tg_titulo_normaliza_vinculo_incoerente` (20260825230000),
+-- que tambem le tabela de dentro de um gatilho.
+comment on function public._titulo_importacao_nao_reativa() is
+  'Importacao de titulo nunca reativa nem atualiza titulo que ja existe. '
+  'Identifica o importador por duas marcas: a GUC transacional '
+  'reativa.importando (que importar_acordos ja acende) ou a reescrita de '
+  'importacao_id de titulo existente (assinatura do upsert do bordero; medido '
+  'em 08/10/2026 como exclusiva dele). Fora dessas marcas e inerte -- em '
+  'especial NAO cega titulo_reavaliar, que legitimamente devolve mensalidade '
+  'NEGOCIADO para ABERTO quando o acordo e cancelado sem pagamento na cadeia '
+  '(20260925123852, EM PROD). Coage em vez de abortar, para nao derrubar lote.';
+
+revoke all on function public._titulo_importacao_nao_reativa() from public, anon;
+
+-- BEFORE UPDATE apenas. INSERT de documento ausente e exatamente o que se
+-- quer permitir; a nao-duplicacao dele e garantida em DUAS camadas nesta
+-- migration: o indice unico da secao 1 e a guarda de insercao da secao 1b (que
+-- evita o 23505). A terceira -- os dois `not exists` normalizados -- saiu com a
+-- RPC para 20261027120001, e vale so para o caminho dela.
+--
+-- DOIS LIMITES DESTE GATILHO, escritos porque o parecer de 27/10/2026 os
+-- levantou e eles NAO sao corrigidos aqui:
+--
+--  (a) **DELETE nao passa por aqui.** `importar_acordos` chama, na mesma
+--      transacao, `completar_parcelas_acordo`, que APAGA titulo
+--      (`delete from public.acordos_titulos src where src.id = t.id`), com
+--      snapshot previo em `_backup_parcelas_acordo_erro_import` e
+--      `_backup_completar_parcelas_lote`. Verificado no corpo da funcao em
+--      20260917200000. Entao a frase "a importacao nao mexe em titulo
+--      existente" tem esta excecao, e ela e LEGITIMA (e reversivel pelo
+--      snapshot) -- nao foi tocada. Alcance: so `length(digits(documento))
+--      >= 10`, isto e boleto de ACORDO (12-13 digitos). A mensalidade do
+--      bordero tem 7 digitos e esta FORA desse alcance, entao a reimportacao
+--      de parcelas ausentes nao e atingida.
+--
+--  (b) **"a UPDATE vira no-op completa" nao e literal.** Gatilhos BEFORE
+--      disparam em ordem ALFABETICA de nome, e
+--      `trg_titulo_normaliza_vinculo_incoerente` (20260825230000) vem DEPOIS
+--      de `trg_titulo_importacao_nao_reativa`: ele ainda pode reescrever
+--      `NEW.status := 'em_aberto'` por cima do `new := old`. Efeito estreito
+--      (so `vinculada` + `ABERTO` sem vinculo ativo) e pre-existente a esta
+--      migration. Valor, vencimento, dono, lote e `situacao` ficam preservados.
+drop trigger if exists trg_titulo_importacao_nao_reativa on public.acordos_titulos;
+create trigger trg_titulo_importacao_nao_reativa
+  before update on public.acordos_titulos
+  for each row execute function public._titulo_importacao_nao_reativa();
+
+-- ---------------------------------------------------------------------------
+-- 3. (VAGA) A RPC `mensalidades_ausentes_inserir` SAIU DESTE ARQUIVO.
+--
+--     Movida em 27/10/2026 para
+--     `20261027120001_mensalidades_ausentes_inserir.sql.pendente`, depois da
+--     5a revisao do Guardiao. O motivo nao foi estilo: foram TRES defeitos
+--     MEDIDOS nela, e nenhum deles e da protecao.
+--
+--     POR QUE O RECORTE ESTAVA ERRADO. Esta migration tem um objetivo:
+--     impedir que a importacao reative ou duplique titulo. Isso e o indice
+--     unico (secao 1), a guarda de insercao (1b) e o no-op da UPDATE (2). A
+--     RPC e outra coisa -- e o VEICULO DA REIMPORTACAO de parcelas ausentes,
+--     isto e da frente A --, nao e chamada por nada em `src/` (conferido em
+--     27/10: zero chamador, so uma mencao em comentario), e nenhum objeto
+--     desta migration depende dela.
+--
+--     Mantendo-a aqui, tres decisoes de DADO viravam pre-requisito da
+--     protecao, e a gestao decidiu o contrario: a protecao vem ANTES da
+--     reimportacao. As decisoes estao enumeradas no cabecalho do arquivo novo.
+--
+--     A numeracao 3 fica vaga de proposito, para as secoes 1, 1b, 2 e 4 nao
+--     mudarem de nome em revisao nenhuma.
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- 4. PROVA. Qualquer divergencia aborta a migration inteira.
+-- ---------------------------------------------------------------------------
+do $prova$
+begin
+  -- 4.1 o gatilho existe e e BEFORE UPDATE
+  if not exists (
+    select 1 from pg_trigger g
+     where g.tgrelid = 'public.acordos_titulos'::regclass
+       and g.tgname = 'trg_titulo_importacao_nao_reativa'
+       and not g.tgisinternal
+       -- confere o TIPO, nao so o nome: BEFORE (2) + ROW (1) + UPDATE (16).
+       -- Sem isto a prova dizia "e BEFORE UPDATE" e conferia apenas que
+       -- existia algo com esse nome.
+       and (g.tgtype & 2) <> 0 and (g.tgtype & 1) <> 0 and (g.tgtype & 16) <> 0) then
+    raise exception 'PROVA: trg_titulo_importacao_nao_reativa nao existe, ou nao e BEFORE UPDATE FOR EACH ROW';
+  end if;
+
+  -- 4.2 o indice normalizado existe E E UNICO. A unicidade e requisito da
+  --     gestao (27/10/2026): se alguem a afrouxar, a prova reprova.
+  if not exists (select 1 from pg_class where relname = 'ux_acordos_titulos_documento_norm') then
+    raise exception 'PROVA: indice ux_acordos_titulos_documento_norm nao foi criado';
+  end if;
+  if not exists (select 1 from pg_class c join pg_index x on x.indexrelid = c.oid
+                  where c.relname = 'ux_acordos_titulos_documento_norm' and x.indisunique) then
+    raise exception 'PROVA: ux_acordos_titulos_documento_norm existe mas NAO e unico -- a unicidade nao pode ser enfraquecida';
+  end if;
+
+  -- 4.2b a guarda de insercao existe e e BEFORE INSERT. Sem ela, o indice
+  --      unico derrubaria lote inteiro com 23505.
+  if not exists (
+    select 1 from pg_trigger g
+     where g.tgrelid = 'public.acordos_titulos'::regclass
+       and g.tgname = 'trg_titulo_recusa_duplicata_normalizada'
+       and not g.tgisinternal
+       -- BEFORE (2) + ROW (1) + INSERT (4). Se nascer AFTER, o `return null`
+       -- nao pula nada e o 23505 volta.
+       and (g.tgtype & 2) <> 0 and (g.tgtype & 1) <> 0 and (g.tgtype & 4) <> 0) then
+    raise exception 'PROVA: trg_titulo_recusa_duplicata_normalizada nao existe, ou nao e BEFORE INSERT FOR EACH ROW';
+  end if;
+
+  -- 4.2c a guarda tem OS DOIS RAMOS. **Confere o TEXTO da funcao, nao o
+  --      comportamento** -- e rede rasa, e esta dito em voz alta: pega
+  --      substituicao por copia antiga, nao pega quem apague o `if` deixando um
+  --      comentario com o mesmo token. A prova de COMPORTAMENTO dos dois ramos
+  --      vive em src/utils/bordero.test.js, num Postgres descartavel, porque
+  --      aqui ela exigiria inserir em acordos_titulos durante a migration. Se alguem tirar o `raise`, acordo volta a
+  --      poder nascer subdeclarado -- e a gestao recusou esse risco por escrito.
+  if (select prosrc from pg_proc
+       where proname = '_titulo_recusa_duplicata_normalizada'
+         and pronamespace = 'public'::regnamespace)
+     not like '%TITULO_DUPLICADO_NORMALIZADO_NA_IMPORTACAO%' then
+    raise exception 'PROVA: a guarda perdeu o ramo que ABORTA a importacao de acordos -- sem ele o acordo nasce subdeclarado';
+  end if;
+
+  -- 4.3 os tres gatilhos que JA existiam seguem intactos
+  if (select count(*) from pg_trigger g
+       where g.tgrelid = 'public.acordos_titulos'::regclass and not g.tgisinternal
+         and g.tgname in ('trg_titulo_em_confirmacao_protegido',
+                          'trg_titulo_encerrado_administrativo_protegido',
+                          'trg_titulo_liquidado_na_origem_e_terminal')) <> 3 then
+    raise exception 'PROVA: um dos tres gatilhos de protecao preexistentes desapareceu';
+  end if;
+
+  -- 4.4 anon nao recebeu EXECUTE em nenhuma funcao deste arquivo.
+  --     (A prova da RPC saiu junto com ela -- ver secao 3.)
+  if has_function_privilege('anon', 'public._titulo_importacao_nao_reativa()', 'EXECUTE')
+     or has_function_privilege('anon', 'public._titulo_recusa_duplicata_normalizada()', 'EXECUTE') then
+    raise exception 'PROVA: anon pode executar uma das funcoes de gatilho';
+  end if;
+
+  -- 4.5 nenhum titulo foi tocado por esta migration
+  if exists (select 1 from public.auditoria
+              where acao = 'TITULO_IMPORTACAO_REATIVACAO_RECUSADA'
+                and created_at > now() - interval '1 minute') then
+    raise exception 'PROVA: a migration disparou a trava -- algo escreveu titulo durante ela';
+  end if;
+end $prova$;
+
+commit;

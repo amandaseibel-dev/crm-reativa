@@ -1,0 +1,26 @@
+-- ROLLBACK de 20261021172255_onda1_simular.sql
+--
+-- O QUE REVERTER REINTRODUZ, EM LETRAS MAIÚSCULAS:
+--
+--   NADA DE OPERACIONAL. A função só SIMULA: ela não move aluno, não troca
+--   responsável, não escreve em `casos`, `acordos` ou `alunos`. Derrubá-la
+--   apenas tira da gestão a capacidade de GERAR a simulação da Onda 1 -- o
+--   recorte volta a não ter nenhuma função que o expresse, que era o estado
+--   de antes.
+--
+-- Por isso este é um dos rollbacks mais baratos da base: `drop function`.
+--
+-- O QUE ELE NÃO APAGA, DE PROPÓSITO
+--
+-- As linhas já gravadas em `public.calibragem_simulacoes` com
+-- `resultado->>'metrica' = 'ONDA1_LOTE_A'` FICAM. São registro histórico do que
+-- foi simulado, e apagá-las destruiria a trilha de uma decisão -- inclusive a
+-- prova de que a simulação não moveu ninguém. Se a gestão quiser removê-las,
+-- é decisão à parte, com motivo declarado, e por comando próprio:
+--
+--   delete from public.calibragem_simulacoes
+--    where resultado->>'metrica' = 'ONDA1_LOTE_A' and status = 'RASCUNHO';
+--
+-- Nenhuma linha de dado operacional a reverter. Nenhum agendamento a refazer.
+
+drop function if exists public.onda1_simular(jsonb);

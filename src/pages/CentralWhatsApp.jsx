@@ -25,6 +25,7 @@ import AnexoWhatsApp from "../components/AnexoWhatsApp";
 // quem esta logado, a ordem da vez e o contador do dia saem da mesma
 // fonte e dos mesmos RPCs -- esta tela nao recalcula nem zera nada.
 import FilaReceptivo from "../components/FilaReceptivo";
+import useWhatsAppNotificacoes from "../hooks/useWhatsAppNotificacoes";
 // A ficha COMPLETA, embutida. É o mesmo componente da tela /aluno: aqui ele
 // recebe `fichaEmbedId` e se comporta como conteúdo, não como página — o padrão
 // que Agenda Operacional, Saúde da Base e as filas de confirmação já usam.
@@ -145,6 +146,7 @@ export default function CentralWhatsApp() {
   const [verSupervisao, setVerSupervisao] = useState(false);
   const [sync, setSync] = useState([]);
 
+  const [emailOperador, setEmailOperador] = useState("");
   const [ficha, setFicha] = useState(null);
   // Ficha do aluno EM CIMA da conversa. Guarda o ID, e não um booleano: é ele
   // que a ficha embutida consome, e prender a ficha ao aluno que estava aberto
@@ -172,7 +174,7 @@ export default function CentralWhatsApp() {
   const [anexo, setAnexo] = useState(null); // { nome, estado: ENVIANDO|ENVIADO|ERRO, erro }
   const seletorArquivoRef = useRef(null);
   const [erro, setErro] = useState("");
-  const [som, setSom] = useState(false);
+  const [prefsAberto, setPrefsAberto] = useState(false);
 
   // Relógio de 1 min só para os contadores de espera reescreverem sozinhos.
   const [, setTique] = useState(0);
@@ -182,36 +184,21 @@ export default function CentralWhatsApp() {
   }, []);
 
   const fimDaThreadRef = useRef(null);
-  const audioRef = useRef(null);
   // Espelhos para os callbacks do Realtime, que são criados uma vez e não
   // enxergariam o estado novo.
   const selecionadaRef = useRef(null);
-  const somRef = useRef(false);
   useEffect(() => { selecionadaRef.current = selecionada; }, [selecionada]);
-  useEffect(() => { somRef.current = som; }, [som]);
 
-  // Aviso sonoro discreto, gerado no próprio navegador — sem arquivo para
-  // baixar. O navegador só deixa tocar depois de um clique do usuário, por isso
-  // é um botão que liga, e não algo ligado por padrão.
-  const tocarAviso = useCallback(() => {
-    if (!somRef.current) return;
-    try {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      if (!Ctx) return;
-      const ctx = audioRef.current || (audioRef.current = new Ctx());
-      const osc = ctx.createOscillator();
-      const ganho = ctx.createGain();
-      osc.frequency.value = 880;
-      ganho.gain.setValueAtTime(0.06, ctx.currentTime);
-      ganho.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.25);
-      osc.connect(ganho);
-      ganho.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.25);
-    } catch {
-      /* som é conforto, não pode derrubar a tela */
-    }
+  // Email do operador: usado pelo hook de notificações para filtrar alertas.
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      const mail = (data?.user?.email || "").toLowerCase();
+      if (mail) setEmailOperador(mail);
+    }).catch(() => {});
   }, []);
+
+  const { prefs, setPrefs, pedirPermissaoBrowser, toasts, fecharToast, tocarSom, aoReceberMensagem } =
+    useWhatsAppNotificacoes({ emailOperador, conversas });
 
   // `mostrarCarregando` só na primeira carga e na troca de filtro. As recargas
   // de fundo (Realtime, volta de foco, marcar lida) NÃO tiram a lista da tela:
@@ -270,7 +257,7 @@ export default function CentralWhatsApp() {
           const nova = payload?.new;
           if (!nova) return;
 
-          if (nova.direcao === "ENTRADA" && nova.origem === "TEMPO_REAL") tocarAviso();
+          if (nova.direcao === "ENTRADA") aoReceberMensagem(nova);
 
           // A thread ABERTA continua imediata: quem está lendo a conversa vê a
           // mensagem aparecer na hora.
@@ -301,7 +288,7 @@ export default function CentralWhatsApp() {
       if (recargaRef.current) clearTimeout(recargaRef.current);
       supabase.removeChannel(canal);
     };
-  }, [carregarConversas, tocarAviso]);
+  }, [carregarConversas, aoReceberMensagem]);
 
   useEffect(() => {
     fimDaThreadRef.current?.scrollIntoView({ block: "end" });
@@ -652,11 +639,14 @@ export default function CentralWhatsApp() {
             Nova conversa
           </button>
           <button
-            style={som ? S.botaoSecAtivo : S.botaoSec}
-            onClick={() => { setSom((s) => !s); if (!som) tocarAviso(); }}
-            title="Aviso sonoro quando chega mensagem nova"
+            style={prefs.som || prefs.visual || prefs.browser ? S.botaoSecAtivo : S.botaoSec}
+            onClick={() => setPrefsAberto((v) => !v)}
+            title="Preferências de notificação"
           >
-            {som ? "Som ligado" : "Som desligado"}
+            🔔 {prefs.som || prefs.visual || prefs.browser ? "Notificações" : "Notificações off"}
+            {resumo?.nao_lidas > 0 ? (
+              <span style={S.badgeBtn}>{resumo.nao_lidas}</span>
+            ) : null}
           </button>
           {gestao ? (
             <>
@@ -670,6 +660,17 @@ export default function CentralWhatsApp() {
           <button style={S.botaoSec} onClick={carregarConversas}>Atualizar</button>
         </div>
       </div>
+
+      {/* ------------- Preferências de notificação ------------- */}
+      {prefsAberto ? (
+        <PainelPrefsNotif
+          prefs={prefs}
+          onChange={setPrefs}
+          pedirPermissaoBrowser={pedirPermissaoBrowser}
+          tocarSom={tocarSom}
+          onFechar={() => setPrefsAberto(false)}
+        />
+      ) : null}
 
       {/* ------------- Estado dos números ------------- */}
       <div style={algumCanalFora ? S.conexoesAlerta : S.conexoes}>
@@ -944,7 +945,11 @@ export default function CentralWhatsApp() {
                 const ativa = selecionada?.id === c.id;
                 const espera = c.aguardando_resposta ? esperaDesde(c.aguardando_desde) : null;
                 return (
-                  <button key={c.id} onClick={() => abrirConversa(c)} style={ativa ? S.itemAtivo : S.item}>
+                  <button
+                    key={c.id}
+                    onClick={() => abrirConversa(c)}
+                    style={ativa ? S.itemAtivo : c.nao_lidas > 0 ? S.itemNaoLido : S.item}
+                  >
                     <div style={S.itemTopo}>
                       <span style={S.itemNome}>
                         {c.aluno_nome || c.nome_perfil || formatarTelefone(c.telefone_e164)}
@@ -1230,6 +1235,19 @@ export default function CentralWhatsApp() {
       {/* ---------------- Ficha completa do aluno (popup) ---------------- */}
       {fichaAbertaId ? (
         <FichaDoAluno alunoId={fichaAbertaId} onFechar={() => setFichaAbertaId(null)} />
+      ) : null}
+
+      {/* ---------------- Toasts de mensagem nova ---------------- */}
+      {toasts.length > 0 ? (
+        <ToastsWapp
+          toasts={toasts}
+          onFechar={fecharToast}
+          onAbrir={(conversaId) => {
+            setPrefsAberto(false);
+            const c = conversas.find((x) => x.id === conversaId);
+            if (c) abrirConversa(c);
+          }}
+        />
       ) : null}
 
       {/* ---------------- QR Code (gestão) ---------------- */}
@@ -2002,6 +2020,44 @@ const S = {
   botaoSec: botaoBase,
   botaoSecAtivo: { ...botaoBase, background: "var(--rv-azul-fundo)", borderColor: AZUL, color: AZUL, fontWeight: 600 },
   botaoMini: { ...botaoBase, padding: "4px 9px", fontSize: 12 },
+  badgeBtn: {
+    display: "inline-block", marginLeft: 6,
+    background: VERMELHO, color: "#fff", fontSize: 11, fontWeight: 700,
+    padding: "1px 6px", borderRadius: 999, verticalAlign: "middle",
+  },
+
+  // Conversa com mensagem não lida (sem estar ativa): fundo levemente destacado.
+  itemNaoLido: {
+    display: "block", width: "100%", textAlign: "left", padding: "10px 12px",
+    border: "none", borderBottom: "1px solid var(--rv-borda-suave)",
+    background: "var(--rv-verde-ok-fundo)",
+    cursor: "pointer", boxShadow: `inset 3px 0 0 ${VERDE}`,
+  },
+
+  // Painel de preferências de notificação.
+  prefsPanel: {
+    margin: "0 0 12px", padding: "12px 14px", borderRadius: 10,
+    border: `1px solid ${AZUL}`, background: "var(--rv-azul-fundo)",
+    display: "flex", flexDirection: "column", gap: 10,
+  },
+  prefsTitulo: { fontWeight: 700, fontSize: 14, color: AZUL },
+  prefsLinha: { display: "flex", alignItems: "center", gap: 10, fontSize: 13 },
+  prefsDesc: { color: CINZA, fontSize: 12 },
+
+  // Toasts de mensagem nova.
+  toastsWrap: {
+    position: "fixed", right: 20, bottom: 80, zIndex: 9998,
+    display: "flex", flexDirection: "column", gap: 10, maxWidth: 340,
+  },
+  toastCard: {
+    position: "relative", background: "var(--rv-superficie)", borderRadius: 12,
+    padding: "12px 14px 12px", boxShadow: "0 10px 32px rgba(15,23,42,.30)",
+    border: `1px solid ${VERDE}`,
+  },
+  toastNome: { fontWeight: 700, fontSize: 13.5, paddingRight: 20 },
+  toastPrevia: { fontSize: 12.5, color: CINZA, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  toastAcoes: { display: "flex", gap: 8, marginTop: 10 },
+  toastX: { position: "absolute", top: 8, right: 10, background: "transparent", border: "none", color: CINZA, fontSize: 18, cursor: "pointer", lineHeight: 1 },
 
   // ---- modal do QR ----
   modalFundo: {
@@ -2082,3 +2138,98 @@ const S = {
   qr: { width: 260, height: 260, imageRendering: "pixelated" },
   modalAviso: { margin: 0, fontSize: 11.5, color: CINZA, lineHeight: 1.6 },
 };
+
+// ---------------------------------------------------------------------------
+// PAINEL DE PREFERÊNCIAS DE NOTIFICAÇÃO
+// ---------------------------------------------------------------------------
+function PainelPrefsNotif({ prefs, onChange, pedirPermissaoBrowser, tocarSom, onFechar }) {
+  const [permBrowser, setPermBrowser] = useState(
+    typeof Notification !== "undefined" ? Notification.permission : "default"
+  );
+
+  async function ativarBrowser() {
+    const resultado = await pedirPermissaoBrowser();
+    setPermBrowser(resultado);
+    if (resultado === "granted") onChange({ browser: true });
+  }
+
+  return (
+    <div style={S.prefsPanel} role="region" aria-label="Preferências de notificação">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={S.prefsTitulo}>Notificações de mensagem nova</span>
+        <button style={S.botaoMini} onClick={onFechar}>Fechar</button>
+      </div>
+      <p style={S.prefsDesc}>
+        Somente mensagens das suas conversas ou das que estão sem responsável (receptivo).
+        Sem alertas de mensagens que você mesmo enviou.
+      </p>
+
+      <label style={S.prefsLinha}>
+        <input
+          type="checkbox"
+          checked={prefs.som}
+          onChange={(e) => { onChange({ som: e.target.checked }); if (e.target.checked) tocarSom(); }}
+        />
+        Som discreto (toque ao receber)
+        {prefs.som ? <span style={{ fontSize: 11, color: "var(--rv-verde-ok-texto)" }}>▶ tocando</span> : null}
+      </label>
+
+      <label style={S.prefsLinha}>
+        <input
+          type="checkbox"
+          checked={prefs.visual}
+          onChange={(e) => onChange({ visual: e.target.checked })}
+        />
+        Notificação visual dentro do CRM (cartão com nome e prévia)
+      </label>
+
+      <label style={S.prefsLinha}>
+        <input
+          type="checkbox"
+          checked={prefs.browser}
+          disabled={permBrowser === "denied"}
+          onChange={(e) => {
+            if (e.target.checked && permBrowser !== "granted") {
+              ativarBrowser();
+            } else {
+              onChange({ browser: e.target.checked });
+            }
+          }}
+        />
+        Notificação nativa do navegador
+        {permBrowser === "denied" ? (
+          <span style={{ fontSize: 11, color: "var(--rv-vermelho-texto)" }}>
+            bloqueada pelo navegador — libere nas configurações do site
+          </span>
+        ) : permBrowser === "default" ? (
+          <button style={S.botaoMini} onClick={ativarBrowser}>Pedir permissão</button>
+        ) : null}
+      </label>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// TOASTS DE MENSAGEM NOVA
+// ---------------------------------------------------------------------------
+function ToastsWapp({ toasts, onFechar, onAbrir }) {
+  return (
+    <div style={S.toastsWrap} aria-live="polite" aria-label="Mensagens novas">
+      {toasts.map((t) => (
+        <div key={t.id} style={S.toastCard} role="alert">
+          <button style={S.toastX} onClick={() => onFechar(t.id)} aria-label="Fechar">×</button>
+          <div style={S.toastNome}>💬 {t.nomeAluno}</div>
+          <div style={S.toastPrevia}>{t.previa}</div>
+          <div style={S.toastAcoes}>
+            {t.conversaId ? (
+              <button style={S.botaoMini} onClick={() => { onAbrir(t.conversaId); onFechar(t.id); }}>
+                Abrir conversa
+              </button>
+            ) : null}
+            <button style={S.botaoMini} onClick={() => onFechar(t.id)}>Ok</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}

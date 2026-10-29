@@ -8,20 +8,23 @@ import { Carregando } from "../ui/estados";
 
 const FONTE = "'Sora', 'Inter', system-ui, sans-serif";
 
+// Cooldown por aluno desta tela, em dias. A fila daqui NAO passa por
+// acoes_massivas_universo: ela chama buscar_candidatos_acoes_massivas, que nao
+// conhece canal nem recencia. O unico freio temporal que existia era o
+// `data_retorno` que a propria tela gravava -- e que ela deixou de gravar,
+// porque criava "retorno agendado" que ninguem agendou. Sem este parametro o
+// mesmo aluno poderia voltar a fila no dia seguinte. 10 dias e a mesma janela
+// da recencia da acao massiva.
+const DIAS_SEM_CONTATO = 10;
+
 function moeda(v) {
   return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-function proximoDiaUtil(dias) {
-  const d = new Date();
-  let add = 0;
-  const alvo = dias || 10;
-  while (add < alvo) {
-    d.setDate(d.getDate() + 1);
-    const w = d.getDay();
-    if (w !== 0 && w !== 6) add += 1;
-  }
-  return d.toISOString().slice(0, 10);
+// "Hoje" do contador é o dia em Brasília, não em UTC. Com `toISOString` puro o
+// dia virava às 21h e o limite diário zerava no meio do expediente da noite.
+function hojeBRT() {
+  return new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 export default function EnvioGmailLote() {
@@ -57,13 +60,12 @@ export default function EnvioGmailLote() {
   }, []);
 
   async function contarHoje(email) {
-    const hoje = new Date().toISOString().slice(0, 10);
     const { count } = await supabase
       .from("aluno_movimentacoes")
       .select("id", { count: "exact", head: true })
       .eq("registrado_por_email", email)
       .eq("tipo", "ACAO_MASSIVA_EXTERNA_EMAIL")
-      .gte("registrado_em", hoje + "T00:00:00");
+      .gte("registrado_em", hojeBRT() + "T00:00:00-03:00");
     setEnviadosHoje(count || 0);
   }
 
@@ -71,7 +73,7 @@ export default function EnvioGmailLote() {
     const { data } = await supabase.rpc("buscar_candidatos_acoes_massivas", {
       p_ano_vencimento: null,
       p_limite: 300,
-      p_dias_minimo_sem_contato: null,
+      p_dias_minimo_sem_contato: DIAS_SEM_CONTATO,
       p_apenas_nunca_acionado: false,
     });
     const comEmail = (data || [])
@@ -105,16 +107,30 @@ export default function EnvioGmailLote() {
   const html = tpl ? merge(tpl.corpo_html) : "";
   const texto = tpl ? merge(tpl.corpo_texto) : "";
 
+  // CAMPANHA NAO TABULA. O unico efeito e a movimentacao: o gatilho
+  // fn_atualizar_ultimo_acionamento avanca data_ultimo_acionamento do aluno e
+  // do caso (so para frente) e, por ser tipo massivo, NAO chama a
+  // recalculadora. Esta tela gravava data_retorno (10 dias uteis),
+  // status_acionamento, status_jornada=RETORNAR_DEPOIS, status_atual e
+  // proxima_acao direto na ficha -- escrevendo por fora a mesma coisa que a
+  // 20261004103024 tirou do banco, criando "retorno agendado" que nunca
+  // ninguem agendou e jogando o aluno para fora das Acoes Massivas.
+  // Quem segura a janela da campanha e a recencia por canal, nao o retorno.
+  //
+  // MERGE COM O CARIMBO DO RETORNO (#767): aquele PR passou esta tela a gravar
+  // `...camposDeRetornoAutomatico(...)` no lugar do `data_retorno` cru, para
+  // que todo retorno automatico nascesse carimbado e nao apagasse compromisso
+  // do operador. O proprio comentario de la registrava que a protecao ficava
+  // PARCIAL: como esta tela gravava `status_acionamento` com o prefixo
+  // 'Acao massiva%', o ramo COBRANCA_VENCIDA de `recalcular_situacao_aluno`
+  // reescrevia a data por 10 dias a cada recalculo.
+  // Aqui nao sobra o que carimbar: a campanha deixou de escrever na ficha, e
+  // com isso o prefixo 'Acao massiva%' tambem nao e mais gravado por esta
+  // tela -- ou seja, some justamente o gatilho que tornava aquela protecao
+  // parcial. A regra do #767 continua valendo onde ha escrita de verdade
+  // (FilaFinanceiro, PainelAdm, Aluno, FilaOperacional, AgendaAlunoUnificado).
   async function registrar(a) {
     const agora = new Date().toISOString();
-    await supabase.from("alunos").update({
-      data_retorno: proximoDiaUtil(tpl?.dias_retorno || 10),
-      status_acionamento: "Ação massiva externa enviada — aguardando retorno",
-      status_jornada: "RETORNAR_DEPOIS",
-      status_atual: "RETORNAR_DEPOIS",
-      proxima_acao: "RETORNAR",
-      data_ultimo_acionamento: agora,
-    }).eq("id", a.id);
     await supabase.from("aluno_movimentacoes").insert({
       aluno_id: String(a.id),
       tipo: "ACAO_MASSIVA_EXTERNA_EMAIL",

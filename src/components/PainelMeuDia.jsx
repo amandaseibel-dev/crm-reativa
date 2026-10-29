@@ -12,15 +12,53 @@
 // 15/10/2026): uma linha por pessoa, cinco linhas visiveis por coluna, o resto
 // atras de "ver todos". A semana inteira de retornos fica atras do botao
 // "Semana", agrupada por dia -- a tela abre sempre em "Hoje".
+//
+// 22/10/2026 -- cinco melhorias de TELA, sem regra nova (o recorte continua em
+// src/utils/painelMeuDia.js e nada aqui escreve no banco):
+//  1. aba "Atrasados": o retorno agendado que venceu e nao foi tratado. Ele
+//     existia na base e no selo da linha da fila, mas sumia desta visao no dia
+//     seguinte -- a aba so aparece quando ha atraso;
+//  2. a hora combinada que ja passou fica vermelha, usando o relogio de 30s
+//     que a tela ja mantinha para o aviso "esta na hora";
+//  3. o chip do dia, na visao Semana, mostra quantos prioritarios pendentes
+//     aquele dia tem (a ORDEM dos dias nao muda);
+//  4. telefone formatado e clicavel (`tel:`), com o mesmo helper do resto do
+//     sistema;
+//  5. a coluna de retornos ganha contagem de pendentes e total em aberto --
+//     paridade com a coluna de boletos, que ja somava.
+//
+// 23/10/2026 -- duas melhorias de TELA, tambem sem regra nova:
+//  6. `visaoParcial`: na visao da gestao em "Todos os operadores" a coluna de
+//     retornos dizia "0" porque a carteira carrega so 3.000 das 18.435 fichas
+//     (teto de custo da propria consulta) e nenhum dos retornos agendados do
+//     dia caia nessas 3.000 -- medido em producao em 22/10/2026: 0 de 183.
+//     Zero era uma afirmacao falsa; agora a coluna diz que a visao e parcial e
+//     pede um operador. A coluna de BOLETOS nao muda, porque ela nao tem esse
+//     teto (vem de `buscarTudo` sobre acordos/parcelas, paginado ate o fim);
+//  7. `acionamentoPorAluno` passa a alimentar tambem a linha de RETORNO, com o
+//     mesmo "ultimo acionamento" que a coluna de boletos ja mostrava. Motivo
+//     medido: dos 183 retornos agendados para 22/10/2026, 141 compartilham o
+//     mesmo `atualizado_em` (29/06/2026 16h) -- um lote de quatro meses atras
+//     que na tela parecia compromisso de hoje, sem nada que o distinguisse.
 import { useState } from "react";
 import { formatarDataBR, formatarValorBRL, rotuloDiasRestantes, chaveAlerta } from "../utils/alertasParcela";
+import { situacaoAcionamento } from "../utils/acionamentoAlerta";
+// Telefone: `formatarTelefone`/`normalizarE164` (e NAO o par `formatarCadastro`/
+// `normalizarCadastro`) de proposito. O par do cadastro passa por
+// `limparCadastro`, que INSERE o nono digito em numero de 10 digitos -- certo
+// para montar link de WhatsApp, errado para discar: num fixo isso vira outro
+// numero de telefone. Aqui o que esta escrito na tela e exatamente o que o
+// `tel:` disca, e nenhum digito e inventado.
+import { formatarTelefone, normalizarE164 } from "../utils/telefone";
 import {
   JANELA_BOLETOS_DIAS,
   agruparRetornosPorDia,
   fimDaJanela,
+  horaRetornoVencida,
   retornosDoDia,
   retornosPendentes,
   somaBoletos,
+  somaEmAberto,
 } from "../utils/painelMeuDia";
 
 const MOSTRAR_INICIAL = 5;
@@ -80,6 +118,10 @@ const S = {
   chip: { fontSize: 11, fontWeight: 800, color: "var(--rv-roxo)", background: "rgba(124,58,237,0.12)", borderRadius: 5, padding: "1px 6px", whiteSpace: "nowrap" },
   chipHoje: { fontSize: 11, fontWeight: 800, color: "var(--rv-vermelho)", background: "var(--rv-vermelho-fundo)", borderRadius: 5, padding: "1px 6px", whiteSpace: "nowrap" },
   chipPrioridade: { fontSize: 11, fontWeight: 800, color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)", borderRadius: 5, padding: "1px 6px", whiteSpace: "nowrap" },
+  // Hora que ja passou e atraso em dias usam o MESMO vermelho do "vence hoje"
+  // dos boletos: na tela do operador, vermelho quer dizer "isto atrasou".
+  chipAtraso: { fontSize: 11, fontWeight: 800, color: "var(--rv-vermelho)", background: "var(--rv-vermelho-fundo)", borderRadius: 5, padding: "1px 6px", whiteSpace: "nowrap" },
+  telefone: { color: "var(--rv-texto-suave)", textDecoration: "none", fontWeight: 700 },
   chipOk: { fontSize: 11, fontWeight: 800, color: "var(--rv-verde-ok-texto)", background: "var(--rv-verde-ok-fundo)", borderRadius: 5, padding: "1px 6px", whiteSpace: "nowrap" },
   check: {
     border: "1px solid var(--rv-borda)",
@@ -96,6 +138,19 @@ const S = {
   },
   checkFeito: { color: "var(--rv-verde-ok-texto)", border: "1px solid var(--rv-verde-ok-texto)", background: "var(--rv-verde-ok-fundo)" },
   vazio: { fontSize: 12, color: "var(--rv-texto-suave)", margin: "8px 0 2px", fontWeight: 600 },
+  // Aviso de visao parcial: mesma familia visual do "vazio", com a borda
+  // ambar que o resto da tela usa para "atencao, leia isto".
+  parcial: {
+    fontSize: 12,
+    color: "var(--rv-ambar-texto)",
+    background: "var(--rv-ambar-fundo)",
+    border: "1px solid var(--rv-ambar-borda)",
+    borderRadius: 8,
+    padding: "8px 10px",
+    margin: "6px 0 2px",
+    fontWeight: 600,
+    lineHeight: 1.35,
+  },
   rodape: { marginTop: 8, paddingTop: 6, borderTop: "1px solid var(--rv-borda)", fontSize: 11.5, color: "var(--rv-texto-suave)", fontWeight: 600, display: "flex", gap: 6, flexWrap: "wrap" },
   link: { background: "none", border: "none", padding: 0, color: "var(--rv-azul)", fontWeight: 800, cursor: "pointer", fontSize: 11.5 },
 };
@@ -116,7 +171,48 @@ function BotaoCheck({ item, confirmandoRetornoId, onConfirmarRetorno }) {
   );
 }
 
-function LinhaRetorno({ item, mostrarResponsavel, onAbrirFicha, confirmandoRetornoId, onConfirmarRetorno }) {
+// Telefone do aluno pronto para discar. `normalizarE164` devolve "" quando o
+// cadastro nao tem numero aproveitavel (menos de 10 digitos) -- nesse caso a
+// linha mostra o texto cru, sem link, em vez de oferecer uma ligacao que vai
+// cair em lugar nenhum.
+function Telefone({ telefone }) {
+  const bruto = String(telefone || "");
+  if (!bruto) return null;
+  const e164 = normalizarE164(bruto);
+  const visivel = formatarTelefone(bruto);
+  if (!e164) return <>{`${bruto} · `}</>;
+  return (
+    <>
+      <a href={`tel:+${e164}`} style={S.telefone} title="Ligar para este número">
+        {visivel}
+      </a>
+      {" · "}
+    </>
+  );
+}
+
+// Ultimo acionamento REGISTRADO do aluno, com o mesmo helper e o mesmo texto
+// de apoio da coluna de boletos -- um indicador so no sistema.
+//
+// Aqui NAO entra `vencimento`: numa linha de retorno nao existe parcela a que
+// comparar, e `situacaoAcionamento` sem vencimento devolve exatamente o que se
+// pode afirmar ("Ha N dias", "Registrado em dd/mm"), sem o antes/apos.
+//
+// O que isto resolve: o retorno de hoje e o retorno de um lote de junho eram
+// indistinguiveis na tela. Nada aqui muda a data, a origem ou a ordem da lista.
+function UltimoAcionamento({ item, acionamentoPorAluno, hoje }) {
+  if (!acionamentoPorAluno) return null;
+  const info = acionamentoPorAluno.get?.(String(item.aluno_id || item.id));
+  const s = situacaoAcionamento({ dua: info?.dua, hoje, temCaso: Boolean(info) });
+  return (
+    <div style={{ ...S.meta, cursor: "help" }} title={s.detalhe} aria-label={s.detalhe} data-testid="meu-dia-retorno-acionamento">
+      último acionamento: {s.curto}
+    </div>
+  );
+}
+
+function LinhaRetorno({ item, mostrarResponsavel, onAbrirFicha, confirmandoRetornoId, onConfirmarRetorno, hoje, horaAgora, acionamentoPorAluno }) {
+  const horaVencida = horaRetornoVencida(item, { hoje, horaAgora });
   return (
     <div style={{ ...S.item, ...(item.tratado ? S.itemTratado : {}) }} data-testid="meu-dia-retorno-item">
       <div style={{ minWidth: 0, flex: 1 }}>
@@ -126,16 +222,33 @@ function LinhaRetorno({ item, mostrarResponsavel, onAbrirFicha, confirmandoRetor
               ⭐ prioridade
             </span>
           )}
-          {item.hora_retorno ? <span style={S.chip}>{item.hora_retorno}</span> : null}
+          {/* Atraso em DIAS (aba Atrasados) e hora que passou (aba Hoje) nunca
+              aparecem juntos: `horaRetornoVencida` so vale para o dia de hoje,
+              e a linha com `dias_atraso` por definicao nao e de hoje. */}
+          {Number(item.dias_atraso) > 0 && (
+            <span style={S.chipAtraso} data-testid="meu-dia-retorno-atraso" title="Retorno agendado que venceu e segue sem tratamento">
+              ⚠️ {item.dias_atraso}d de atraso
+            </span>
+          )}
+          {item.hora_retorno ? (
+            <span
+              style={horaVencida ? S.chipAtraso : S.chip}
+              data-testid={horaVencida ? "meu-dia-hora-vencida" : undefined}
+              title={horaVencida ? `Hora combinada já passou (agora ${horaAgora})` : "Hora combinada"}
+            >
+              {horaVencida ? `⏰ ${item.hora_retorno}` : item.hora_retorno}
+            </span>
+          ) : null}
           <button type="button" style={S.nome} onClick={() => onAbrirFicha && onAbrirFicha(item)} title="Abrir ficha do aluno">
             {item.nome}
           </button>
         </div>
         <div style={S.meta}>
-          {item.telefone ? `${item.telefone} · ` : ""}
+          <Telefone telefone={item.telefone} />
           {formatarValorBRL(item.valor_em_aberto)}
           {mostrarResponsavel && item.responsavel_email ? ` · ${item.responsavel_email}` : ""}
         </div>
+        <UltimoAcionamento item={item} acionamentoPorAluno={acionamentoPorAluno} hoje={hoje} />
       </div>
       <BotaoCheck item={item} confirmandoRetornoId={confirmandoRetornoId} onConfirmarRetorno={onConfirmarRetorno} />
     </div>
@@ -143,19 +256,27 @@ function LinhaRetorno({ item, mostrarResponsavel, onAbrirFicha, confirmandoRetor
 }
 
 export default function PainelMeuDia({
+  acionamentoPorAluno = null,
   hoje,
+  horaAgora = "",
   retornos = [],
+  retornosAtrasados: atrasados = [],
   retornoAutomaticoHoje = 0,
   boletos = [],
   janelaDias = JANELA_BOLETOS_DIAS,
   mostrarResponsavel = false,
+  // Visao da gestao em "Todos os operadores": a lista de retornos vem de uma
+  // carteira truncada (ver o item 6 do cabecalho), entao a coluna nao pode
+  // apresentar os seus numeros como se fossem a operacao inteira.
+  visaoParcial = false,
   confirmandoRetornoId = null,
   onAbrirFicha,
   onConfirmarRetorno,
   onVerRetornosNaFila,
 }) {
-  // A tela sempre abre no dia; a semana e uma escolha de quem esta olhando.
-  const [visaoSemana, setVisaoSemana] = useState(false);
+  // A tela sempre abre no dia; semana e atrasados sao escolha de quem esta
+  // olhando. Tres valores: "hoje" | "semana" | "atrasados".
+  const [visao, setVisao] = useState("hoje");
   const [diaEscolhido, setDiaEscolhido] = useState("");
   const [verTodosRetornos, setVerTodosRetornos] = useState(false);
   const [verTodosBoletos, setVerTodosBoletos] = useState(false);
@@ -163,6 +284,15 @@ export default function PainelMeuDia({
   const doDia = retornosDoDia(retornos, hoje);
   const pendentesDoDia = retornosPendentes(doDia).length;
   const pendentesSemana = retornosPendentes(retornos).length;
+  // `retornosAtrasados` ja chega sem os tratados (ver a funcao): aqui o
+  // tamanho da lista E a contagem de pendentes.
+  const temAtrasados = atrasados.length > 0;
+
+  // A aba "Atrasados" existe so quando ha atraso -- "Atrasados (0)" fixo na
+  // tela seria exatamente a poluicao que a gestao pediu para evitar. Se o
+  // operador tratar o ultimo atrasado com a aba aberta, a aba desaparece e a
+  // visao cai de volta em "Hoje" em vez de ficar numa aba sem dono.
+  const visaoAtiva = visao === "atrasados" && !temAtrasados ? "hoje" : visao;
 
   // Na semana a lista NAO vira um rolo de todos os dias juntos: os dias viram
   // chips com o que falta em cada um e a lista mostra o dia escolhido (o
@@ -170,43 +300,86 @@ export default function PainelMeuDia({
   // sem empurrar a carteira para baixo.
   const grupos = agruparRetornosPorDia(retornos, hoje);
   const diaAtivo = grupos.some((g) => g.data === diaEscolhido) ? diaEscolhido : grupos[0]?.data || "";
-  const listaBase = visaoSemana ? grupos.find((g) => g.data === diaAtivo)?.itens || [] : doDia;
+  const listaBase =
+    visaoAtiva === "atrasados"
+      ? atrasados
+      : visaoAtiva === "semana"
+        ? grupos.find((g) => g.data === diaAtivo)?.itens || []
+        : doDia;
   const visiveis = verTodosRetornos ? listaBase : listaBase.slice(0, MOSTRAR_INICIAL);
+
+  // Contador do titulo e do rodape seguem a aba aberta: o numero na tela
+  // sempre fala da lista que esta logo abaixo dele.
+  const pendentesDaVisao = retornosPendentes(listaBase).length;
+  const emAbertoDaVisao = somaEmAberto(listaBase);
 
   const listaBoletos = verTodosBoletos ? boletos : boletos.slice(0, MOSTRAR_INICIAL);
   const vencemHoje = boletos.filter((b) => Number(b.dias_restantes) === 0).length;
 
-  const propsLinha = { mostrarResponsavel, onAbrirFicha, confirmandoRetornoId, onConfirmarRetorno };
+  const trocarVisao = (destino) => {
+    setVisao(destino);
+    setVerTodosRetornos(false);
+  };
+
+  const propsLinha = { mostrarResponsavel, onAbrirFicha, confirmandoRetornoId, onConfirmarRetorno, hoje, horaAgora, acionamentoPorAluno };
 
   return (
     <section style={S.grade} aria-label="Meu dia" data-testid="painel-meu-dia">
       <div style={S.coluna} data-testid="meu-dia-retornos">
         <div style={S.topo}>
-          <h3 style={S.titulo}>🗓️ Retornos · {visaoSemana ? pendentesSemana : pendentesDoDia}</h3>
+          {/* Na visao parcial o titulo vai SEM numero: o que a coluna tem nao
+              e a contagem da operacao, e mostra-la seria afirmar um total que
+              nao se conhece. */}
+          <h3 style={S.titulo}>🗓️ Retornos{visaoParcial ? "" : ` · ${pendentesDaVisao}`}</h3>
+          {!visaoParcial && (
           <div style={S.abas} role="tablist" aria-label="Período dos retornos">
             <button
               type="button"
               role="tab"
-              aria-selected={!visaoSemana}
-              style={{ ...S.aba, ...(!visaoSemana ? S.abaAtiva : {}) }}
-              onClick={() => { setVisaoSemana(false); setVerTodosRetornos(false); }}
+              aria-selected={visaoAtiva === "hoje"}
+              style={{ ...S.aba, ...(visaoAtiva === "hoje" ? S.abaAtiva : {}) }}
+              onClick={() => trocarVisao("hoje")}
             >
               Hoje ({pendentesDoDia})
             </button>
             <button
               type="button"
               role="tab"
-              aria-selected={visaoSemana}
-              style={{ ...S.aba, ...(visaoSemana ? S.abaAtiva : {}) }}
-              onClick={() => { setVisaoSemana(true); setVerTodosRetornos(false); }}
+              aria-selected={visaoAtiva === "semana"}
+              style={{ ...S.aba, ...(visaoAtiva === "semana" ? S.abaAtiva : {}) }}
+              onClick={() => trocarVisao("semana")}
             >
               Semana ({pendentesSemana})
             </button>
+            {temAtrasados && (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={visaoAtiva === "atrasados"}
+                data-testid="meu-dia-aba-atrasados"
+                style={{ ...S.aba, ...(visaoAtiva === "atrasados" ? S.abaAtiva : {}), color: "var(--rv-vermelho)" }}
+                onClick={() => trocarVisao("atrasados")}
+              >
+                ⚠️ Atrasados ({atrasados.length})
+              </button>
+            )}
           </div>
+          )}
         </div>
-        <p style={S.apoio}>Agendados por você · ✓ marca o contato como feito</p>
+        {visaoParcial ? (
+          <p style={S.parcial} data-testid="meu-dia-retornos-parcial">
+            Visão parcial: em “Todos os operadores” a carteira carrega só parte das
+            fichas, então os retornos agendados não cabem nesta soma. Escolha um
+            operador no seletor acima para ver a agenda dele.
+          </p>
+        ) : (
+          <p style={S.apoio}>
+            Agendados por você
+            {pendentesDaVisao > 0 ? ` · ${pendentesDaVisao} pendente${pendentesDaVisao > 1 ? "s" : ""} · ${formatarValorBRL(emAbertoDaVisao)} em aberto` : ""}
+          </p>
+        )}
 
-        {visaoSemana && grupos.length > 0 && (
+        {!visaoParcial && visaoAtiva === "semana" && grupos.length > 0 && (
           <div style={S.dias} role="tablist" aria-label="Dias com retorno">
             {grupos.map((g) => (
               <button
@@ -217,26 +390,42 @@ export default function PainelMeuDia({
                 data-testid="meu-dia-chip-dia"
                 style={{ ...S.diaChip, ...(g.data === diaAtivo ? S.diaChipAtivo : {}) }}
                 onClick={() => { setDiaEscolhido(g.data); setVerTodosRetornos(false); }}
+                title={g.prioritarios > 0 ? `${g.prioritarios} prioritário(s) neste dia` : undefined}
               >
                 {g.rotulo} · {g.pendentes}
+                {/* ⭐ so aparece no dia que TEM prioritario pendente -- o dia
+                    sem prioridade continua com o texto de antes, e a ordem
+                    dos dias segue a do calendario. */}
+                {g.prioritarios > 0 ? ` ⭐${g.prioritarios}` : ""}
               </button>
             ))}
           </div>
         )}
 
-        {listaBase.length === 0 ? (
-          <p style={S.vazio}>{visaoSemana ? "Nenhum retorno agendado para os próximos dias." : "Nenhum retorno agendado para hoje."}</p>
+        {/* Na visao parcial nem a lista nem o "nao ha nada" aparecem: as duas
+            coisas seriam afirmacoes sobre um universo que nao foi carregado. */}
+        {visaoParcial ? null : listaBase.length === 0 ? (
+          <p style={S.vazio}>
+            {visaoAtiva === "semana"
+              ? "Nenhum retorno agendado para os próximos dias."
+              : visaoAtiva === "atrasados"
+                ? "Nenhum retorno vencido sem tratamento."
+                : "Nenhum retorno agendado para hoje."}
+          </p>
         ) : (
           visiveis.map((r) => <LinhaRetorno key={r.id} item={r} {...propsLinha} />)
         )}
 
-        {listaBase.length > MOSTRAR_INICIAL && (
+        {!visaoParcial && listaBase.length > MOSTRAR_INICIAL && (
           <button type="button" style={{ ...S.link, marginTop: 6 }} onClick={() => setVerTodosRetornos((v) => !v)}>
             {verTodosRetornos ? "Ver menos" : `Ver todos (${listaBase.length})`}
           </button>
         )}
 
-        {retornoAutomaticoHoje > 0 && (
+        {/* `retornoAutomaticoHoje` subtrai esta lista de `kpis.retornosHoje`, e
+            na visao da gestao as DUAS pontas batem no mesmo teto de 3.000 --
+            7.113 retornos de hoje viravam "3.000". Numero assim nao vai a tela. */}
+        {!visaoParcial && retornoAutomaticoHoje > 0 && (
           <div style={S.rodape} data-testid="meu-dia-retorno-automatico">
             <span>+{retornoAutomaticoHoje} com prazo de tabulação vencendo hoje</span>
             <button type="button" style={S.link} onClick={() => onVerRetornosNaFila && onVerRetornosNaFila()}>
@@ -275,6 +464,19 @@ export default function PainelMeuDia({
                   {b.boleto ? ` · boleto ${b.boleto}` : ""}
                   {mostrarResponsavel && b.responsavel_email ? ` · ${b.responsavel_email}` : ""}
                 </div>
+                {/* Situacao do acionamento do ALUNO -- nunca da parcela. Nao ha
+                    registro que ligue contato a parcela; ver o cabecalho de
+                    utils/acionamentoAlerta.js. Aqui a parcela ainda VAI vencer,
+                    entao o que interessa e se ja houve aviso preventivo. */}
+                {acionamentoPorAluno && (() => {
+                  const info = acionamentoPorAluno.get?.(String(b.aluno_id));
+                  const s = situacaoAcionamento({ dua: info?.dua, vencimento: b.vencimento, hoje, temCaso: Boolean(info) });
+                  return (
+                    <div style={{ ...S.meta, cursor: "help" }} title={s.detalhe} aria-label={s.detalhe} data-testid="meu-dia-boleto-acionamento">
+                      último acionamento: {s.curto}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           ))

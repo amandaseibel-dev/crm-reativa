@@ -11,7 +11,8 @@ import DadosAcademicos from "../components/DadosAcademicos";
 import ConfirmarPagamento from "../components/ConfirmarPagamento";
 import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 import EmailAlunoUnificado from "../components/EmailAlunoUnificado";
-import { carregarTabulacoes, desfechoDaTabulacao, retornoEhManual } from "../utils/tabulacoes";
+import { carregarTabulacoes, desfechoDaTabulacao, retornoEhManual, camposDeRetorno, lerRetornoAtual, RETORNO_ORIGEM_OPERADOR } from "../utils/tabulacoes";
+import { ehOrigemDoOperador } from "../utils/retornoOrigem";
 import TelefonesAluno from "../components/TelefonesAluno";
 import PainelDesfazer from "../components/PainelDesfazer";
 import Dobra from "../ui/blocos";
@@ -993,7 +994,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     // automatica (motor da fila / regra da tabulacao) nao e compromisso: se
     // viesse preenchida, o Finalizar a regravava como escolha humana.
     const compromisso =
-      String(aluno.retorno_origem || "").startsWith("OPERADOR") &&
+      ehOrigemDoOperador(aluno.retorno_origem) &&
       (paraDataLocalBR(aluno.data_retorno) || "") >= paraDataLocalBR(new Date());
     setDataRetorno(compromisso ? paraInputDateTime(aluno.data_retorno) : "");
   }
@@ -1237,21 +1238,36 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       atualizacaoAluno.status_jornada = statusNovo;
       atualizacaoAluno.status_atual = statusNovo;
       atualizacaoAluno.status_acionamento = statusNovo;
-      // Proxima acao e prazo de retorno vem do catalogo de tabulacoes -- a
-      // mesma regra da Minha Carteira e do e-mail. Data digitada e compromisso
-      // do operador; sem data, a tabulacao agenda sozinha (ou nao agenda).
+      // Prazo e proxima acao pelo catalogo de tabulacoes -- regra unica com a
+      // Minha Carteira, a ficha e o e-mail.
+      //
+      // `retornoAtual` e OBRIGATORIO aqui (27/10/2026): sem ele a tabulacao com
+      // prazo de catalogo e sem data digitada gravava AUTOMATICO por cima de
+      // compromisso que o operador marcou para data futura. A Minha Carteira e
+      // o e-mail do aluno unificado ja leem a ficha; estas duas telas nao
+      // liam -- e sao as duas em que mais se tabula.
       const catalogo = await carregarTabulacoes();
+      const atualDoRetorno = await lerRetornoAtual(alunoId);
       const desfecho = desfechoDaTabulacao(catalogo, statusNovo, {
         dataDigitada: retorno ? paraDataLocalBR(retorno) || "" : "",
+        retornoAtual: atualDoRetorno.retorno,
       });
       atualizacaoAluno.proxima_acao = desfecho.proxima_acao;
-      if (desfecho.data_retorno) {
+      // LEITURA FALHOU FECHA: sem saber o que ha na ficha, nao se toca em
+      // `data_retorno`. A data DIGITADA e a excecao -- ela e o combinado novo,
+      // e nao depende de ler o antigo.
+      if (!atualDoRetorno.ok && desfecho.motivo !== "DIGITADA") {
+        console.warn(
+          "[retorno] leitura da ficha falhou ao tabular o aluno",
+          alunoId,
+          "-- a tabulacao foi gravada SEM mexer no retorno"
+        );
+      } else if (desfecho.data_retorno) {
         atualizacaoAluno.data_retorno = desfecho.data_retorno;
         atualizacaoAluno.retorno_origem = desfecho.retorno_origem;
       }
     } else if (retorno) {
-      atualizacaoAluno.data_retorno = paraDataLocalBR(retorno);
-      atualizacaoAluno.retorno_origem = "OPERADOR";
+      Object.assign(atualizacaoAluno, camposDeRetorno(RETORNO_ORIGEM_OPERADOR, paraDataLocalBR(retorno)));
     }
     if (observacaoAluno !== null) {
       atualizacaoAluno.observacao = observacaoAluno;
@@ -1601,7 +1617,10 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
         return;
       }
       const extraAluno = {};
-      if (novaDataRetornoAlteracao) { extraAluno.data_retorno = paraDataLocalBR(new Date(novaDataRetornoAlteracao).toISOString()); }
+      // A data digitada na troca de responsável é compromisso do operador --
+      // carimba OPERADOR para o "Meu dia" enxergar. Hora e prioridade ficam
+      // como estão: esta tela não tem os dois campos.
+      if (novaDataRetornoAlteracao) { Object.assign(extraAluno, camposDeRetorno(RETORNO_ORIGEM_OPERADOR, paraDataLocalBR(new Date(novaDataRetornoAlteracao).toISOString()))); }
       if (novaTabulacaoAlteracao) { extraAluno.status_jornada = novaTabulacaoAlteracao; extraAluno.status_atual = novaTabulacaoAlteracao; }
       if (Object.keys(extraAluno).length > 0) { await supabase.from("alunos").update(extraAluno).eq("id", alunoSelecionado.id); }
       setNovoOperadorEmail("");

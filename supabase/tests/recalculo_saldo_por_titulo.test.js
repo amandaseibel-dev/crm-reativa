@@ -93,6 +93,41 @@ beforeAll(async () => {
     end $f$;
   `);
 
+  // ---------------------------------------------------------------------
+  // Os TRES gatilhos de protecao de `acordos_titulos`, como no-op.
+  //
+  // Acrescentados em 27/10/2026. A migration ganhou, na revisao do Guardiao,
+  // uma PROVA 4.3 que exige que estes tres CONTINUEM de pe depois de aplicar
+  // (a migration nao pode custar nenhuma protecao da tabela). Sem eles aqui a
+  // fixture nao reproduzia producao, a prova abortava com "um dos tres
+  // gatilhos de protecao preexistentes desapareceu (achei 0)" e esta suite
+  // inteira ficava vermelha -- 14 testes skipped e CI quebrado, porque
+  // `npm run test` roda `vitest run` em tudo.
+  //
+  // Mesma solucao que `src/utils/bordero.test.js` ja usava para a outra
+  // migration pendente: os gatilhos existem para serem CONTADOS, nao para
+  // fazerem algo. Em producao eles tem corpo proprio e nao sao tocados por
+  // esta frente.
+  //
+  // LICAO, que vale para a proxima prova: toda `do $prova$` que conta objeto
+  // PREEXISTENTE cria dependencia da fixture de TODA suite que carrega a
+  // migration. Ao acrescentar uma, rodar `npm run test` inteiro, nao so a
+  // suite da frente.
+  // ---------------------------------------------------------------------
+  await db.exec(`
+    create or replace function public._noop_protecao() returns trigger
+      language plpgsql as $f$ begin return new; end $f$;
+    create trigger trg_titulo_em_confirmacao_protegido
+      before update on public.acordos_titulos
+      for each row execute function public._noop_protecao();
+    create trigger trg_titulo_encerrado_administrativo_protegido
+      before update on public.acordos_titulos
+      for each row execute function public._noop_protecao();
+    create trigger trg_titulo_liquidado_na_origem_e_terminal
+      before update on public.acordos_titulos
+      for each row execute function public._noop_protecao();
+  `);
+
   // A MIGRATION DE VERDADE, inteira, do arquivo.
   await db.exec(ler(MIGRATION));
 });

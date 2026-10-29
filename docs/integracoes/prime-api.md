@@ -305,7 +305,7 @@ juros e honorário.
 | Campo | Tipo | Significado |
 |---|---|---|
 | `boleto` | string, 7 díg. | **é** `acordos_titulos.documento` no CRM — ponte medida e confiável, só para portador 195 |
-| `documentNumber` | string, 13 díg. | documento interno ULBRA. Mensalidade: base(9) = `010`+contrato, sequência(4) = parcela fracionária (ex. terminado em `990` = parcela 9,9). Acordo: `0`+`5`+acordo(6)+parcela(4) |
+| `documentNumber` | string, 13 díg. | documento interno ULBRA. Mensalidade: base(9) = `010`+contrato, sequência(4) = parcela fracionária (ex. terminado em `990` = parcela 9,9). Acordo: `0`+`5`+acordo(6)+**sequência(4)** — o acordo (6 díg. centrais) é confiável (99,6% da base, 23/10/2026); os **4 últimos NÃO são `parcelas.numero`** e não devem ser usados para deduzir parcela: nenhuma convenção fixa explica mais de 56,3% dos casos. Para chegar à parcela, casar o boleto inteiro com `parcelas.boleto`. Ver [`prime-mapa-identificadores.md`](prime-mapa-identificadores.md) |
 | `carrier` | `{id, name}` | o portador **do título**, não do aluno — decide se ainda está em cobrança |
 | `dueDate` | date | vencimento |
 | `paymentDate` | date | presente em ~100% das linhas do portador 195, **inclusive títulos que o CRM mantém ABERTO** — não é prova de pagamento isolada |

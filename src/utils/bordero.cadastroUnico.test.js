@@ -129,10 +129,10 @@ describe("fichasParaCriar — um cadastro por CPF, não um por linha", () => {
 
   it("linha sem CPF fica de fora de `registros` e é devolvida à parte", () => {
     const semCpf = linha(null, "Sem CPF na planilha");
-    const { registros, linhasSemCpf } = fichasParaCriar([semCpf, linha(CPF_A, "Aluna A")]);
+    const { registros, linhasEmAnalise } = fichasParaCriar([semCpf, linha(CPF_A, "Aluna A")]);
     expect(registros).toHaveLength(1);
     expect(registros[0].cpf).toBe(CPF_A);
-    expect(linhasSemCpf).toEqual([semCpf]);
+    expect(linhasEmAnalise).toEqual([semCpf]);
   });
 
   it("preserva a ordem da primeira aparição de cada CPF", () => {
@@ -206,9 +206,9 @@ describe("reimportar o mesmo borderô não duplica nem reabre", () => {
   }));
 
   it("nenhuma ficha nova nasce na segunda passada", () => {
-    const { registros, linhasSemCpf } = fichasParaCriar(segundaPassada);
+    const { registros, linhasEmAnalise } = fichasParaCriar(segundaPassada);
     expect(registros).toEqual([]);
-    expect(linhasSemCpf).toEqual([]);
+    expect(linhasEmAnalise).toEqual([]);
   });
 
   it("as 6 linhas continuam apontando para a MESMA ficha da primeira passada", () => {

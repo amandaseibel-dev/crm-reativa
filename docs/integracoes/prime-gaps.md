@@ -24,6 +24,8 @@ outra via" (VERMELHO com evidência). Ver a formulação completa em
 | **Evento de pagamento (data + valor) da mensalidade corrente** | 🔴 VERMELHO | Não | — | **Não** | Provado com variável independente em 28/09/2026: entre 101 títulos que o relatório de inadimplência do dia dá como EM ABERTO, 101 têm `paymentDate` e 61 têm `paidAmount = netAmount`. Também verificado que nenhuma outra integração autorizada cobre isso (`public.pagamentos` guarda número de ACORDO de 5 dígitos, não boleto). O pedido técnico exato está em `docs/preventivo/README.md`, seção 4 |
 | Existência de título original (mensalidade) | 🟢 VERDE | Sim | `financial_statement` | Sim | nenhum |
 | Boleto (7 díg.) ↔ `acordos_titulos.documento` | 🟢 VERDE | Sim | `financial_statement[].boleto` | Sim | nenhum |
+| **Parcela do acordo a partir dos 4 últimos dígitos do boleto** | 🟡 AMARELO | A semântica dos 4 dígitos **não foi determinada** nas amostras e medições já feitas | — (estrutura do próprio título) | **NÃO** — e não deve ser tentado | **Medido em 23/10/2026 sobre 14.488 parcelas:** nenhuma convenção fixa explica mais de **56,3%**; `= parcelas.numero` só 51,5%; **11,5% não casam com nenhuma** das quatro leituras testadas. Causas medidas: 946 de 4.831 acordos numeram parcelas a partir de 0 e 863 têm parcela sem boleto. **A via correta existe e é confiável:** casar o boleto inteiro com `parcelas.boleto`. Ver [`prime-mapa-identificadores.md`](prime-mapa-identificadores.md) |
+| Número do acordo nos 6 dígitos centrais do boleto | 🟢 VERDE | Sim | `parcelas.boleto` / `documentNumber` | Sim | **51 parcelas em 47 acordos divergem** de `acordos.numero_ulbra` (13.703 de 13.754 comparáveis conferem, 99,6%; outras 734 têm `numero_ulbra` nulo e ficam fora da comparação). Divergência não investigada caso a caso — medida em 23/10/2026 |
 | Decomposição de valor (principal/multa/juros/honorário) | 🟢 VERDE | Sim | `financial_statement[]` | Sim | nenhum |
 | Mensalidade liquidada (portador 195) | 🟡 AMARELO | Parcial | `financial_statement[].paymentDate` | Condicional — só dentro da regra de entrada em prod, nunca `paymentDate` isolado | `paymentDate` não distingue negociado de aberto sozinho |
 | Caixa efetivamente recebido | 🟡 AMARELO | Parcial (fonte é o Santander, não a Prime) | fora da API | Sim, mas fora desta integração | `paidAmount` da Prime é dívida corrigida, não caixa |
@@ -33,8 +35,8 @@ outra via" (VERMELHO com evidência). Ver a formulação completa em
 | Status do acordo (confirmado/quebrado/renegociado/cancelado) | 🔴 VERMELHO | Não | — | Não | idem |
 | Total de parcelas quando o acordo não está quitado | 🔴 VERMELHO | Não (só vemos as pagas, via extrato) | — | Não | idem |
 | OpenAPI/Swagger da Prime | 🔴 VERMELHO | Não — 404 em produção | `/swagger`, `/openapi.json`, `/docs` | — | pedir à TI da ULBRA, decisão de contato externo não tomada até 15/09/2026 |
-| RPC/tabelas de produção sem migration | 🔴 VERMELHO (drift, não é gap de dado) | Existem em produção, não no repositório | `prime_chave_api()`, `prime_extrato`, `prime_extrato_fila` | — | reconciliar com migration — não aplicado nesta etapa (leitura/mapeamento só) |
-| Rotina que alimenta `prime_extrato_fila` | 🔴 VERMELHO (processo, não é gap de dado) | Não localizada em `src/` nem Edge Functions do repo | — | — | provável SQL/cron só em produção; investigar antes de depender |
+| RPC/tabelas de produção sem migration | 🟡 AMARELO (drift, não é gap de dado) | **Censo completo em 20/10/2026: 8 tabelas e 27 funções `prime*` sem migration.** O subsistema `prime_extrato` (2 tabelas + 5 funções) foi versionado — ver `20261020122217_versionar_subsistema_prime_extrato.sql` | `prime_chave_api()`, `prime_extrato`, `prime_extrato_fila`, `prime_extrato_reenfileirar()`, `prime_extrato_mutirao()`, `prime_extrato_ok()`, `prime_extrato_falhou()` | — | **Restam 28 objetos**: piloto acadêmico (2 tabelas + 11 funções), portador 202 (4 funções), `prime_alunos_sync`, `prime_mensalidades_sync`, `prime_sync_cursor`, `prime_sync_execucoes`, e 8 funções avulsas. Outro subsistema, PR própria |
+| Rotina que alimenta `prime_extrato_fila` | 🟢 VERDE | **LOCALIZADA em 20/10/2026**: `public.prime_extrato_reenfileirar()`, agendada no pg_cron como `prime_extrato_reenfileirar_semanal` (`5 2 * * 6`). Não estava em `src/` nem nas Edge Functions porque é função SQL agendada — e também não tinha migration | `prime_extrato_reenfileirar()` | Sim | nenhum — versionada em `20261020122217`. A fila é drenada por `prime_extrato_mutirao()` (job 35, `*/2 2-23 * * 6`), que faz `net.http_post` para a Edge Function `prime-extrato` |
 
 ## Drift de banco encontrado (não é gap de API — é gap de reprodutibilidade)
 
@@ -134,6 +136,43 @@ opera **sempre no ramo NULL**. Nada quebra por isso (NULL é o lado seguro), mas
 a evidência que ela deveria produzir não existe. **Não corrigido aqui** —
 é achado de arquitetura, e mexer nisso toca o motor de conciliação, que estava
 fora do escopo desta rodada.
+
+### Remedida em 2026-10-21, e a causa apareceu
+
+A tabela cresceu de 182 para **655 linhas** (386 sem decisão da gestão) e
+`consulta_estrutura_resultado` segue **NULL em 655 de 655**. Duas medições novas
+explicam por quê:
+
+| medida | valor |
+|---|---|
+| `consulta_portador_em` nos 296 pagamentos `AGUARDANDO_ACORDO` que esperam a consulta | **NULL em 296 de 296** |
+| `auditoria` com `acao='ACORDO_ENCONTRADO_NA_API'` | **0 linhas** |
+| etapa `consulta_portador` em `fluxo_pagamentos_config` | **`ligado = false`** |
+| `fluxo_pagamentos_rodar` chama `conciliacao_reprocessar` (único caminho até a consulta)? | **não** |
+
+**A consulta nunca rodou uma única vez** — não é que a API tenha respondido
+"não tem". Os dois leitores de `consulta_portador`
+(`conciliacao_reprocessar`, `conciliacao_consultar_portador_pendentes`) nunca
+foram alcançados pela rodada horária, porque `fluxo_pagamentos_rodar` não os
+chama; e a própria etapa está desligada.
+
+Portanto o ramo NULL não é falha de gravação: é ausência de chamada. O defeito
+de instrumentação acima permanece válido, mas a causa raiz é de **fiação**, não
+de recorder.
+
+Consequência para quem for religar a automação: **não presuma que a consulta
+resolveria os 296**. O que falta neles é a estrutura do acordo, classificada
+🔴 VERMELHO nesta mesma página (`/agreements` responde vazio, 48 rotas
+candidatas testadas). Medido no mesmo dia: dos 296, **zero são à vista**, então
+`recuperar_acordo_avista` também não os alcança. Eles dependem de o acordo
+entrar no CRM — importação do relatório ou registro da gestão — não de uma
+consulta à API.
+
+Também medido: `quantidade_tentativas` chega a **241** numa linha, com média
+**54,1**, e **386 de 386** linhas sem decisão foram tentadas nas últimas 24h
+mesmo com o cron horário desligado desde 24/09 — a rota de importação também
+aciona o motor. Reavaliar casos sem saída a cada rodada é o que empurra
+pagamento novo para o fim da fila.
 
 ## Fontes de payload histórico: todas fechadas
 

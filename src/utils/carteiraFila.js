@@ -227,6 +227,70 @@ export function critAlta(a) {
   return n === "PERDENDO" || n === "CRITICO" || n === "URGENTE";
 }
 
+// FAIXA DE PRIORIDADE -- a classificacao que o operador ve e pede na tela
+// (22/10/2026): "Perdendo o caso -> Critico -> Urgente -> Atencao -> Novo ->
+// Normal".
+//
+// POR QUE ELA PRECISOU EXISTIR. A tela tinha DOIS vocabularios que repetem tres
+// palavras e NAO falam da mesma coisa:
+//
+//   - `seloPrazo`: dias sem acionamento (8 = Atencao, 9-10 = Critico, 11+ =
+//     Perdendo o caso). E o que o filtro "Todos os status" sempre recortou.
+//   - `critCanon`: `alunos.nivel_criticidade`, calculado pelo backend
+//     (recalcular_situacao_aluno) com saldo vencido, dias sem acionamento,
+//     valor, termo pendente e fim de mes. E o que o SELO da linha mostra, e o
+//     unico lugar onde "Urgente" existe.
+//
+// Medido em producao em 22/10/2026, sobre os 6.170 casos ativos das 12
+// carteiras: dos 2.336 casos ATENCAO, ZERO caiam no filtro "Atencao" (2.279
+// apareciam como "Dentro do prazo"); dos 318 CRITICO, so 119 caiam em
+// "Critico"; e os 1.304 URGENTE nao tinham opcao nenhuma. Era por isso que a
+// operacao dizia que os casos classificados "nao aparecem": eles estavam na
+// lista, mas a unica peneira de classificacao da tela perguntava outra coisa.
+//
+// Esta faixa NAO recalcula criticidade -- le `nivel_criticidade` como esta. A
+// unica coisa que ela acrescenta e separar, DENTRO de NORMAL, quem nunca foi
+// acionado ("Novo"), que e a faixa que a gestao pediu entre Atencao e Normal.
+// As seis faixas sao exclusivas e cobrem a carteira inteira: nenhum caso fica
+// sem faixa, nenhum caso aparece em duas.
+export const FAIXAS_PRIORIDADE = ["PERDENDO", "CRITICO", "URGENTE", "ATENCAO", "NOVO", "NORMAL"];
+
+export const PRIORIDADE_LABEL = {
+  PERDENDO: "Perdendo o caso",
+  CRITICO: "Crítico",
+  URGENTE: "Urgente",
+  ATENCAO: "Atenção",
+  NOVO: "Novo",
+  NORMAL: "Normal",
+};
+
+export function faixaPrioridade(a, agoraMs) {
+  const n = critCanon(a);
+  if (n !== "NORMAL") return n;
+  // "Novo" e o mesmo "nunca acionado" que o selo de prazo ja usa -- mesma
+  // funcao, para as duas leituras da tela nao divergirem.
+  return diasSemContato(a, agoraMs) === null ? "NOVO" : "NORMAL";
+}
+
+export function rankPrioridadeFaixa(a, agoraMs) {
+  const i = FAIXAS_PRIORIDADE.indexOf(faixaPrioridade(a, agoraMs));
+  return i === -1 ? FAIXAS_PRIORIDADE.length : i;
+}
+
+// Quantos casos em cada faixa. Recebe a lista JA recortada pelos demais
+// filtros, para o numero do contador ser o numero de linhas que o clique
+// abre -- o card que promete 89 e abre vazio foi um bug real desta tela
+// (Joao, 27/08/2026), e nao vai se repetir por aqui.
+export function contarPorPrioridade(lista, agoraMs) {
+  const fora = { TODOS: 0 };
+  FAIXAS_PRIORIDADE.forEach((f) => { fora[f] = 0; });
+  for (const a of lista || []) {
+    fora.TODOS += 1;
+    fora[faixaPrioridade(a, agoraMs)] += 1;
+  }
+  return fora;
+}
+
 // Prioridade por semestre da divida (regra da gestao, 10/09/2026): o semestre
 // mais recente vem primeiro -- 2026/2 na frente de 2026/1, e assim por diante.
 // Entra ABAIXO da faixa de prazo de proposito: quem esta a 11+ dias sem
@@ -283,6 +347,131 @@ export function valorAbertoDe(a, finAlunos) {
   return Number.isFinite(fb) ? fb : 0;
 }
 
+// ---------------------------------------------------------------------------
+// Curso e semestre (23/10/2026)
+// ---------------------------------------------------------------------------
+//
+// As duas listas que a tela oferece. O dado vem da RPC
+// `carteira_curso_semestre_do_operador`, que devolve uma linha por ficha da
+// carteira com: curso_2026_1, curso_2026_2, titulos/saldo de cada semestre e o
+// saldo de acordo atribuivel a cada semestre (mais o indeterminado, separado).
+//
+// Por que nao sai de `alunos.curso` nem de `alunos.semestre_divida`: medido em
+// 23/10/2026, `alunos.curso` e campo de MODALIDADE (so 14 de 18.435 fichas tem
+// nome de curso) e `alunos.semestre_divida` erra ou nao serve em 17,5% da
+// carteira. A migration da RPC registra os numeros.
+export const CURSOS_CARTEIRA = ["Medicina", "Medicina Veterinária", "Odontologia"];
+export const SEMESTRES_CARTEIRA = ["2026/1", "2026/2"];
+
+// A leitura de curso/semestre precisa acontecer? (26/10/2026, incidente de carga)
+//
+// A RPC `carteira_curso_semestre_do_operador` e a consulta mais cara da tela.
+// Medido em PROD em 26/10/2026: piso de 3,07 s, media de 4,86 s e ~48 MB de
+// disco temporario POR CHAMADA, contra o teto de 8 s do papel `authenticated`.
+// Ela saia em TODA abertura de carteira, inclusive para quem nunca toca no
+// recorte, e era a maior fonte de saturacao vinda da tela -- ao ponto de
+// derrubar a propria lista de casos, que tem media de 83 ms e so estourava o
+// teto por saturacao.
+//
+// Com os dois filtros no padrao o mapa nao serve para NADA: sem curso escolhido
+// `alunosDoCursoEscolhido` devolve null, sem semestre escolhido
+// `alunosDoSemestreEscolhido` devolve null, e `finAlunosDoSemestre` devolve o
+// proprio `finAlunos` sem olhar o mapa. Entao a leitura so se paga quando o
+// operador escolhe de fato.
+//
+// O teste e por PERTENCIMENTO as listas, nao por `!== "TODOS"`: valor estranho
+// no select nunca dispara a consulta pesada.
+export function cursoSemestrePedido(curso, semestre) {
+  const c = String(curso || "").trim();
+  const s = String(semestre || "").trim();
+  return CURSOS_CARTEIRA.includes(c) || SEMESTRES_CARTEIRA.includes(s);
+}
+
+// Conjunto de alunos de um recorte escolhido. Recorte escolhido SEM mapa validado
+// para o escopo atual vira conjunto VAZIO, nunca "sem filtro": nenhum contador nem
+// linha pode mostrar a carteira geral enquanto o recorte nao foi validado.
+// Sem escolha, devolve null (comportamento original).
+export function conjuntoDoRecorte({ escolhido, mapaValido, calcular }) {
+  if (!escolhido) return null;
+  if (!mapaValido) return new Set();
+  return calcular(mapaValido);
+}
+
+// Lista usada para contar por prioridade. Com recorte sem dados validados, nao ha
+// contagem valida: zero, nunca o total geral.
+export function listaParaContagem({ recorteSemDados, filtroPrioridade, listaFiltrada, montarSemPrioridade }) {
+  if (recorteSemDados) return [];
+  return filtroPrioridade === "TODAS" ? listaFiltrada : montarSemPrioridade();
+}
+
+// Quais fichas casam o curso escolhido.
+//
+// O curso vem do contrato do Prime da JANELA do semestre -- entao com um
+// semestre escolhido vale o curso DAQUELE semestre. Em "Ambos" vale quem
+// cursou em qualquer uma das duas janelas: quem trocou de curso no meio do ano
+// aparece nos dois recortes, e a tela diz isso em vez de escolher uma linha.
+export function alunosDoCursoEscolhido(mapa, curso, semestre) {
+  const c = String(curso || "").trim();
+  if (!c || c === "TODOS") return null;
+  const sem = String(semestre || "").trim();
+  const out = new Set();
+  for (const [id, linha] of Object.entries(mapa || {})) {
+    const c1 = (linha && linha.curso_2026_1) || null;
+    const c2 = (linha && linha.curso_2026_2) || null;
+    const casa =
+      sem === "2026/1" ? c1 === c
+      : sem === "2026/2" ? c2 === c
+      : c1 === c || c2 === c;
+    if (casa) out.add(String(id));
+  }
+  return out;
+}
+
+// Quais fichas tem divida do semestre escolhido.
+//
+// Mensalidade entra pelo semestre do PROPRIO titulo. Parcela de acordo entra
+// so quando os titulos daquele acordo apontam para um semestre unico -- a RPC
+// ja resolve isso e manda o resto em `acordo_indeterminado`, que NAO entra
+// aqui: nao se sabe de que semestre e, e chutar seria inventar carteira.
+export function alunosDoSemestreEscolhido(mapa, semestre) {
+  const sem = String(semestre || "").trim();
+  if (!SEMESTRES_CARTEIRA.includes(sem)) return null;
+  const um = sem === "2026/1";
+  const out = new Set();
+  for (const [id, linha] of Object.entries(mapa || {})) {
+    const n = Number((linha && (um ? linha.titulos_2026_1 : linha.titulos_2026_2)) || 0);
+    const a = Number((linha && (um ? linha.acordo_saldo_2026_1 : linha.acordo_saldo_2026_2)) || 0);
+    if (n > 0 || a > 0) out.add(String(id));
+  }
+  return out;
+}
+
+// O VALOR do recorte quando um semestre esta escolhido.
+//
+// O pedido foi "exibir somente os valores e titulos do semestre selecionado",
+// e nesta tela o valor exibido, o filtro de valor e a ordenacao por valor saem
+// todos de `valorAbertoDe(a, finAlunos)`. Entao a troca e feita num lugar so:
+// devolve um `finAlunos` com `total` do semestre, e as tres coisas passam a
+// concordar sem mexer em nenhuma delas.
+//
+// Em "Ambos" devolve o proprio `finAlunos`, por identidade -- sem semestre
+// escolhido NADA muda de comportamento. Os demais campos da linha (incluindo
+// `menorVencimento`, que outras partes da tela leem) sao preservados.
+export function finAlunosDoSemestre(finAlunos, mapa, semestre) {
+  const sem = String(semestre || "").trim();
+  if (!SEMESTRES_CARTEIRA.includes(sem)) return finAlunos || {};
+  const um = sem === "2026/1";
+  const out = { ...(finAlunos || {}) };
+  for (const [id, linha] of Object.entries(mapa || {})) {
+    const k = String(id);
+    const total =
+      Number((linha && (um ? linha.saldo_2026_1 : linha.saldo_2026_2)) || 0) +
+      Number((linha && (um ? linha.acordo_saldo_2026_1 : linha.acordo_saldo_2026_2)) || 0);
+    out[k] = { ...(out[k] || {}), temDetalhe: true, total };
+  }
+  return out;
+}
+
 export const ORDENACOES = [
   "inteligente",
   "prioridade",
@@ -302,10 +491,12 @@ export const ORDENACOES = [
 export function filtrarCasos(entrada) {
   const {
     casos = [],
+    casosForaDaFila = [],
     casosEspeciais = null,
     filtroKpi = null,
     busca = "",
     filtroStatus = "TODOS",
+    filtroPrioridade = "TODAS",
     filtroTabulacao = "TODAS",
     somenteFixados = false,
     fixados = new Set(),
@@ -315,6 +506,8 @@ export function filtrarCasos(entrada) {
     filtroValorMax = "",
     filtroDiasMinSemContato = "",
     alunosDoAnoVencimento = null,
+    alunosDoCurso = null,
+    alunosDoSemestre = null,
     finAlunos = {},
     hoje = hojeLocalBR(),
     agoraMs = Date.now(),
@@ -323,12 +516,25 @@ export function filtrarCasos(entrada) {
   // Com um card selecionado, a lista vem dos registros carregados do
   // indicador; sem card, mostra a carteira normal.
   let l = filtroKpi ? casosEspeciais || [] : casos;
+  // PESQUISAR TEM DE ACHAR. A fila de trabalho exclui, de proposito, quitado,
+  // juridico, cancelado, aguardando baixa, em confirmacao e saldo abaixo de
+  // R$ 5 -- mas eles continuam sendo casos DA CARTEIRA do operador, e ate aqui
+  // nem a busca os encontrava: digitar o nome nao devolvia nada e a tela nao
+  // dizia por que. Com termo digitado, a carteira inteira entra na peneira;
+  // sem termo, a fila de trabalho segue exatamente como era.
+  if (!filtroKpi && busca.trim() && (casosForaDaFila || []).length) {
+    const jaNaLista = new Set(l.map((a) => String(a?.id)));
+    l = l.concat((casosForaDaFila || []).filter((a) => !jaNaLista.has(String(a?.id))));
+  }
   // Quem ja foi acionado hoje sai da lista de trabalho (ja esta feito).
   if (filtroKpi !== "acionadosHoje" && !busca.trim()) {
     l = l.filter((a) => !trabalhadoHoje(a, hoje));
   }
   if (filtroStatus !== "TODOS") {
     l = l.filter((a) => seloPrazo(a, agoraMs) === filtroStatus);
+  }
+  if (filtroPrioridade !== "TODAS") {
+    l = l.filter((a) => faixaPrioridade(a, agoraMs) === filtroPrioridade);
   }
   if (filtroTabulacao !== "TODAS") {
     l = l.filter((a) => tabulacaoDoAluno(a) === filtroTabulacao);
@@ -370,12 +576,33 @@ export function filtrarCasos(entrada) {
   if (alunosDoAnoVencimento) {
     l = l.filter((a) => alunosDoAnoVencimento.has(a.id));
   }
+  // CURSO e SEMESTRE (23/10/2026) seguem o mesmo padrao do filtro de ano: um
+  // Set que chega por RPC propria (carteira_curso_semestre_do_operador) e que
+  // vale `null` enquanto nao carregou -- `null` NAO filtra, para a lista nunca
+  // encolher por dado a meio caminho. Os dois se combinam por interseccao:
+  // escolher Medicina + 2026/2 pede as duas condicoes, nao uma ou outra.
+  if (alunosDoCurso) {
+    l = l.filter((a) => alunosDoCurso.has(String(a.id)));
+  }
+  if (alunosDoSemestre) {
+    l = l.filter((a) => alunosDoSemestre.has(String(a.id)));
+  }
   if (busca.trim()) {
     const t = semAcento(busca);
+    // `matricula` entrou em 22/10/2026: a tela dizia pesquisar por "CPF, nome
+    // ou telefone" e a matricula e o numero que a operacao tem em mao quando
+    // o aluno liga. Digitos do CPF tambem casam com o CPF pontuado.
+    const soDigitos = t.replace(/\D/g, "");
     l = l.filter((a) =>
-      [nomeAluno(a), a.cpf, a.telefone, a.responsavel_atual_nome, situacaoLabel(a)]
+      [nomeAluno(a), a.cpf, a.telefone, a.matricula, a.responsavel_atual_nome, situacaoLabel(a)]
         .filter(Boolean)
-        .some((c) => semAcento(c).includes(t))
+        .some((c) => {
+          const campo = semAcento(c);
+          if (campo.includes(t)) return true;
+          if (!soDigitos) return false;
+          const digitosCampo = campo.replace(/\D/g, "");
+          return Boolean(digitosCampo) && digitosCampo.includes(soDigitos);
+        })
     );
   }
   return l;
@@ -455,9 +682,16 @@ export function ordenarCasos(lista, entrada) {
       (valor(b) - valor(a))
     );
   } else if (ordenacao === "prioridade") {
-    // O que acionar primeiro: retorno devido (hoje/atrasado) e maior
-    // criticidade canonica no topo; empate por mais tempo sem contato e maior
-    // saldo.
+    // O que acionar primeiro, na ordem que a gestao pediu em 22/10/2026:
+    //   Perdendo o caso -> Critico -> Urgente -> Atencao -> Novo -> Normal
+    // ... sem passar por cima dos compromissos que ja existiam: a prioridade
+    // MARCADA pelo operador num retorno devido continua em primeiro lugar, e o
+    // retorno devido (hoje/atrasado) continua vindo antes da faixa -- quem
+    // marcou hora com o aluno nao pode cair para o meio da fila porque o caso
+    // e "so" Atencao. Empate por mais tempo sem contato e maior saldo.
+    //
+    // Antes daqui a ordem usava `critRank`, que nao tinha a faixa "Novo": o
+    // nunca acionado se misturava com o NORMAL no fim da lista.
     const retornoDevido = (a) => {
       const ret = a?.data_retorno ? String(a.data_retorno).slice(0, 10) : null;
       return ret && ret <= hoje ? 0 : 1;
@@ -465,7 +699,7 @@ export function ordenarCasos(lista, entrada) {
     arr.sort((a, b) =>
       (rankPrioridade(a) - rankPrioridade(b)) ||
       (retornoDevido(a) - retornoDevido(b)) ||
-      (critRank(a) - critRank(b)) ||
+      (rankPrioridadeFaixa(a, agoraMs) - rankPrioridadeFaixa(b, agoraMs)) ||
       (keyDias(b) - keyDias(a)) ||
       (valor(b) - valor(a))
     );
@@ -529,6 +763,10 @@ export function montarListaFiltrada(entrada) {
 export function recorteProntoParaGuiado({
   filtroAnoVencimento = "",
   alunosDoAnoVencimento = null,
+  filtroCurso = "TODOS",
+  alunosDoCurso = null,
+  filtroSemestre = "AMBOS",
+  alunosDoSemestre = null,
   filtroKpi = null,
   casosEspeciais = null,
   carregandoEspecial = false,
@@ -536,6 +774,11 @@ export function recorteProntoParaGuiado({
 } = {}) {
   if (carregando) return false;
   if (String(filtroAnoVencimento || "").trim() && alunosDoAnoVencimento === null) return false;
+  // Curso e semestre entram aqui pelo mesmo motivo do ano: com o filtro
+  // escolhido e o Set ainda null, a lista mostra a carteira inteira -- comecar
+  // o guiado ali percorreria fichas que o recorte vai excluir.
+  if (filtroCurso !== "TODOS" && alunosDoCurso === null) return false;
+  if (filtroSemestre !== "AMBOS" && alunosDoSemestre === null) return false;
   if (filtroKpi && (carregandoEspecial || casosEspeciais === null)) return false;
   return true;
 }
