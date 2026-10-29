@@ -12,7 +12,7 @@ import {
   SITUACOES_QUE_NAO_REABREM,
   cpfConfiavel, motivoDeAnalise, fichasParaCriar,
   titulosNovosParaImportar, grupoDaLinha, resumoPorGrupo,
-  variantesDeCpf, chaveCpf, indexarAlunosPorCpf,
+  variantesDeCpf, chaveCpf, indexarAlunosPorCpf, alunoDaLinha,
 } from "./bordero";
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
@@ -1132,5 +1132,75 @@ describe("CPF com e sem máscara encontra o mesmo aluno (28/10/2026)", () => {
     ]);
     expect(Object.keys(mapa)).toHaveLength(1);
     expect(mapa[chaveCpf("01992800022")].id).toBe("antigo");
+  });
+});
+
+// Integração em Postgres real (PGlite, memória, sem dados de produção): a busca
+// que o importador faz com `.in()` acha o cadastro com máscara, e a guarda da
+// gravação não cria o duplicado. Nada aqui toca a base de produção.
+describe("integração: CPF com máscara não gera cadastro duplicado (PGlite)", () => {
+  async function bancoComAlunos(linhas) {
+    const db = new PGlite();
+    await db.exec(`create table alunos (id text primary key, nome text, cpf text);`);
+    for (const a of linhas) {
+      await db.query(`insert into alunos (id, nome, cpf) values ($1, $2, $3)`, [a.id, a.nome, a.cpf]);
+    }
+    return db;
+  }
+
+  // Replica a busca do importador: `.in('cpf', variantes)` sobre as formas do CPF.
+  async function buscaComoOImportador(db, cpfDoArquivo) {
+    const formas = variantesDeCpf(cpfDoArquivo);
+    const { rows } = await db.query(
+      `select id, nome, cpf from alunos where cpf = any($1::text[])`,
+      [formas]
+    );
+    return rows;
+  }
+
+  it("CPF do arquivo sem máscara acha o cadastro gravado com máscara", async () => {
+    const db = await bancoComAlunos([{ id: "ec324e37", nome: "Verônica", cpf: "019.928.000-22" }]);
+    const achados = await buscaComoOImportador(db, "01992800022");
+    expect(achados.map((r) => r.id)).toEqual(["ec324e37"]);
+  });
+
+  it("gravação não cria ficha quando o CPF já existe em outra forma", async () => {
+    const db = await bancoComAlunos([{ id: "ec324e37", nome: "Verônica", cpf: "019.928.000-22" }]);
+    const achados = await buscaComoOImportador(db, "01992800022");
+
+    const linha = { cpfOriginal: "01992800022", cpfLimpo: chaveCpf("01992800022"), nome: "Verônica", numTitulo: "1", valor: 10 };
+    const mapa = indexarAlunosPorCpf(achados);
+    const linhaComAluno = { ...linha, aluno: mapa[chaveCpf(linha.cpfLimpo)] || null };
+    const { registros } = fichasParaCriar([linhaComAluno]);
+
+    expect(registros).toEqual([]);
+    expect(alunoDaLinha(linhaComAluno, {})?.id).toBe("ec324e37");
+    const { rows } = await db.query(`select count(*)::int as n from alunos`);
+    expect(rows[0].n).toBe(1);
+  });
+
+  it("CPF inexistente continua criando ficha, uma só", async () => {
+    const db = await bancoComAlunos([{ id: "ec324e37", nome: "Verônica", cpf: "019.928.000-22" }]);
+    const achados = await buscaComoOImportador(db, "12345678909");
+    expect(achados).toEqual([]);
+    const { registros } = fichasParaCriar([
+      { cpfOriginal: "12345678909", cpfLimpo: chaveCpf("12345678909"), nome: "Novo", numTitulo: "2", valor: 5 },
+      { cpfOriginal: "12345678909", cpfLimpo: chaveCpf("12345678909"), nome: "Novo", numTitulo: "3", valor: 6 },
+    ]);
+    expect(registros).toHaveLength(1);
+  });
+
+  it("ambiguidade: dois cadastros do mesmo CPF em formas diferentes resolvem para o primeiro e não criam terceiro", async () => {
+    const db = await bancoComAlunos([
+      { id: "antigo", nome: "Matheus", cpf: "036.091.790-90" },
+      { id: "novo", nome: "Matheus", cpf: "03609179090" },
+    ]);
+    const achados = await buscaComoOImportador(db, "03609179090");
+    expect(achados).toHaveLength(2);
+    const mapa = indexarAlunosPorCpf(achados);
+    expect(Object.keys(mapa)).toHaveLength(1);
+    const linha = { cpfOriginal: "03609179090", cpfLimpo: chaveCpf("03609179090"), nome: "Matheus", numTitulo: "4", valor: 7, aluno: mapa[chaveCpf("03609179090")] };
+    expect(fichasParaCriar([linha]).registros).toEqual([]);
+    expect(alunoDaLinha(linha, {}).id).toBe("antigo");
   });
 });
