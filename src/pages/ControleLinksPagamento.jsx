@@ -215,6 +215,7 @@ export default function ControleLinksPagamento() {
 
     await historico(item, "LINK_PRONTO_PARA_ENVIO", "Link gerado/colado pela Fernanda/ADM.");
     alert("Link salvo. O operador será sinalizado como link pronto e o caso vai pro topo da fila dele.");
+    window.atualizarContadoresCrm?.();
     carregarLinks();
   }
 
@@ -238,6 +239,7 @@ export default function ControleLinksPagamento() {
 
     await historico(item, "BAIXA_REALIZADA", obs || "Baixa concluída pela Amanda ADM.");
     alert("Baixa concluída. O operador será sinalizado.");
+    window.atualizarContadoresCrm?.();
     carregarLinks();
   }
 
@@ -287,6 +289,7 @@ export default function ControleLinksPagamento() {
 
     await historico(item, "CANCELADO", "Solicitação cancelada.");
     alert("Solicitação cancelada.");
+    window.atualizarContadoresCrm?.();
     carregarLinks();
   }
 

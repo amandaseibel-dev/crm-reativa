@@ -115,6 +115,7 @@ export default function ElogiosAtendimento() {
     }
 
     setModalAprovar(null);
+    window.atualizarContadoresCrm?.();
     carregar();
   }
 
@@ -157,6 +158,7 @@ export default function ElogiosAtendimento() {
       alert("Erro ao arquivar elogio: " + error.message);
       return;
     }
+    window.atualizarContadoresCrm?.();
     carregar();
   }
 

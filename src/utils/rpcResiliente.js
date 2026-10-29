@@ -15,6 +15,8 @@
 
 const cache = new Map();     // chave -> { expira, valor }
 const emVoo = new Map();     // chave -> Promise
+let geracao = 0;             // incrementado em invalidarRpcContido(); impede que
+                             // um request em voo antes do logout grave no cache após a limpeza
 
 function chaveDe(nome, params) {
   return nome + ":" + JSON.stringify(params || {});
@@ -53,6 +55,7 @@ export async function chamarRpcContido(supabase, nome, params = {}, opcoes = {})
   // 2) Single-flight: se já há uma chamada igual em voo, aguarda a mesma.
   if (emVoo.has(chave)) return emVoo.get(chave);
 
+  const geracaoAtual = geracao; // captura antes de iniciar; invalidarRpcContido() incrementa
   const executar = (async () => {
     let ultimo = { data: null, error: new Error("não executado") };
     for (let tentativa = 0; tentativa <= tentativasExtras; tentativa++) {
@@ -66,7 +69,8 @@ export async function chamarRpcContido(supabase, nome, params = {}, opcoes = {})
         await new Promise((r) => setTimeout(r, backoffMs * (tentativa + 1)));
       }
     }
-    if (cacheMs > 0 && !ultimo.error) {
+    // Só grava no cache se a geração não mudou (sem logout/invalidação global entre-meio).
+    if (cacheMs > 0 && !ultimo.error && geracao === geracaoAtual) {
       cache.set(chave, { expira: Date.now() + cacheMs, valor: ultimo });
     }
     return ultimo;
@@ -81,7 +85,9 @@ export async function chamarRpcContido(supabase, nome, params = {}, opcoes = {})
 }
 
 // Invalida o cache (ex.: após uma ação que muda os contadores).
+// Sem argumentos: limpa tudo e incrementa a geração, protegendo contra o
+// caso em que um request em voo antes do logout grava no cache após a limpeza.
 export function invalidarRpcContido(nome, params) {
-  if (!nome) { cache.clear(); return; }
+  if (!nome) { geracao++; cache.clear(); return; }
   cache.delete(chaveDe(nome, params));
 }
