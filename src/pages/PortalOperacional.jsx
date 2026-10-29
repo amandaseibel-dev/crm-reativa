@@ -2,6 +2,7 @@ import { useState, useEffect, Fragment } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
 import VisaoGeralInterativa from "../components/VisaoGeralInterativa";
+import guiaWhatsAppCopiarColar from "../assets/portal/guia-whatsapp-copiar-colar.webp";
 import printOlinda from "../data/elogios/diego-olinda";
 import printRamon from "../data/elogios/suyanne";
 import printSuyanne from "../data/elogios/diego-suyanne";
@@ -60,6 +61,7 @@ const SECOES = [
     grupo: "Operação",
     itens: [
       { id: "sistemas", label: "🚀 Sistemas e Planilhas", keywords: "reativa one crm mensageria whatsapp gmail prime folya nota fiscal prestação serviços comissão pix conta planilha sistema acesso link ferramenta cobrafix robbu callsys proesc assertiva" },
+      { id: "materiais", label: "🖼️ Materiais para Enviar", keywords: "material arte imagem whatsapp copiar colar link conversa aluno enviar orientação" },
       { id: "manualprime", label: "📘 Manual do Prime", keywords: "prime manual painel atendimento títulos receber acordos condições especiais desconto atalho financeiro" },
       { id: "manualmensageria", label: "💬 Manual do CRM Mensageria", keywords: "crm mensageria manual whatsapp mensagens atendimento template resposta aluno comprovante baixa acordo" },
       { id: "ddds", label: "📞 DDDs das Unidades", keywords: "ddd código área telefone unidade cidade cachoeira canoas carazinho gravataí guaíba itumbiara manaus palmas porto alegre santa maria santarém são jerônimo torres ead" },
@@ -216,6 +218,7 @@ export default function PortalOperacional() {
           {secao === "documentos" && <SecaoDocumentos />}
           {secao === "cursos" && <SecaoCursos />}
           {secao === "sistemas" && <SecaoSistemas ir={navegar} />}
+          {secao === "materiais" && <SecaoMateriais />}
           {secao === "manualprime" && <SecaoManualPrime ir={navegar} />}
           {secao === "manualmensageria" && <SecaoManualMensageria ir={navegar} />}
           {secao === "ddds" && <SecaoDdds />}
@@ -1701,6 +1704,81 @@ function SecaoBeneficios() {
         <a href="https://www.ulbra.br/fies" target="_blank" rel="noreferrer" style={S.botaoSecundario}>FIES</a>
         <a href="https://www.ulbra.br/prouni" target="_blank" rel="noreferrer" style={S.botaoSecundario}>Prouni</a>
       </div>
+    </>
+  );
+}
+
+/* ===================== Materiais para Enviar ===================== */
+
+function SecaoMateriais() {
+  const [statusCopia, setStatusCopia] = useState("");
+
+  async function copiarImagemWhatsApp() {
+    setStatusCopia("");
+    try {
+      if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
+        throw new Error("clipboard_indisponivel");
+      }
+
+      const imagem = new Image();
+      imagem.src = guiaWhatsAppCopiarColar;
+      await imagem.decode();
+
+      const canvas = document.createElement("canvas");
+      canvas.width = imagem.naturalWidth;
+      canvas.height = imagem.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(imagem, 0, 0);
+
+      const blob = await new Promise((resolve, reject) => {
+        canvas.toBlob((arquivo) => arquivo ? resolve(arquivo) : reject(new Error("falha_png")), "image/png", 1);
+      });
+
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      setStatusCopia("Imagem copiada. Agora é só colar na conversa.");
+    } catch {
+      window.open(guiaWhatsAppCopiarColar, "_blank", "noopener,noreferrer");
+      setStatusCopia("A imagem foi aberta em outra aba. Use Copiar imagem pelo menu do navegador.");
+    }
+  }
+
+  return (
+    <>
+      <TituloSecao
+        emoji="🖼️"
+        titulo="Materiais para Enviar"
+        sub="Artes prontas para copiar e encaminhar durante o atendimento."
+      />
+
+      <Card>
+        <span style={S.cardTag}>WHATSAPP</span>
+        <h3 style={{ ...S.h3, marginTop: 8 }}>Como copiar um link e colar em outra conversa</h3>
+        <p style={S.paragrafo}>
+          Use esta arte quando o aluno precisar de orientação para copiar links, documentos,
+          imagens ou outros conteúdos no WhatsApp.
+        </p>
+
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", margin: "16px 0" }}>
+          <button type="button" onClick={copiarImagemWhatsApp} style={S.botaoPrimario}>
+            Copiar imagem
+          </button>
+          <a href={guiaWhatsAppCopiarColar} target="_blank" rel="noreferrer" style={S.botaoSecundario}>
+            Abrir imagem
+          </a>
+        </div>
+
+        {statusCopia && (
+          <div style={{ ...S.aviso, ...S.avisoInfo, marginBottom: 16 }}>
+            {statusCopia}
+          </div>
+        )}
+
+        <img
+          src={guiaWhatsAppCopiarColar}
+          alt="Guia ReATIVA mostrando como copiar um link do WhatsApp e colar em outra conversa"
+          style={{ width: "100%", maxWidth: 1100, display: "block", margin: "0 auto", borderRadius: 18, border: "1px solid #dbe4f0" }}
+        />
+      </Card>
     </>
   );
 }
