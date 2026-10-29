@@ -20,6 +20,7 @@ vi.mock("./Aluno", () => ({
 // Realtime: canal inerte. A tela não pode depender dele para renderizar.
 vi.mock("../services/supabase", () => ({
   supabase: {
+    auth: { getUser: async () => ({ data: { user: { email: "teste@reativa.com.br" } }, error: null }) },
     channel: () => ({ on() { return this; }, subscribe() { return this; } }),
     removeChannel: () => {},
     // O anexo pede uma URL assinada na hora de aparecer. Sem isto ele nunca
