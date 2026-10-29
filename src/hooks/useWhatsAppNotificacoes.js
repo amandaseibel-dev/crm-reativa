@@ -41,7 +41,7 @@ function lerPrefs(email) {
 function salvarPrefs(email, prefs) {
   try {
     localStorage.setItem(chavePrefs(email), JSON.stringify(prefs));
-  } catch {}
+  } catch { /* armazenamento indisponível — preferências não persistidas */ }
 }
 
 function lerSeen() {
@@ -57,7 +57,7 @@ function gravarSeen(set) {
     // Limita a 1000 para não crescer sem fim.
     const arr = [...set].slice(-1000);
     sessionStorage.setItem(chaveSeen(), JSON.stringify(arr));
-  } catch {}
+  } catch { /* armazenamento indisponível — dedup não persistido */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -81,9 +81,8 @@ export default function useWhatsAppNotificacoes({ emailOperador, conversas }) {
   useEffect(() => { emailRef.current = emailOperador; }, [emailOperador]);
 
   // Relê preferências ao trocar de operador (login compartilhado).
-  useEffect(() => {
-    setPrefsState(lerPrefs(emailOperador));
-  }, [emailOperador]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { setPrefsState(lerPrefs(emailOperador)); }, [emailOperador]);
 
   // BroadcastChannel para deduplicação entre abas.
   useEffect(() => {
@@ -94,9 +93,9 @@ export default function useWhatsAppNotificacoes({ emailOperador, conversas }) {
         if (e.data?.msgId) seenRef.current.add(e.data.msgId);
       };
       bcRef.current = bc;
-    } catch {}
+    } catch { /* BroadcastChannel indisponível — sem dedup multi-aba */ }
     return () => {
-      try { bcRef.current?.close(); } catch {}
+      try { bcRef.current?.close(); } catch { /* ignorar erro de close */ }
       bcRef.current = null;
     };
   }, []);
@@ -141,7 +140,7 @@ export default function useWhatsAppNotificacoes({ emailOperador, conversas }) {
       ganho.connect(ctx.destination);
       osc.start();
       osc.stop(ctx.currentTime + 0.25);
-    } catch {}
+    } catch { /* AudioContext indisponível ou bloqueado — sem som */ }
   }
 
   // Chamada pelo handler do Realtime sempre que chega uma mensagem nova.
@@ -157,7 +156,7 @@ export default function useWhatsAppNotificacoes({ emailOperador, conversas }) {
 
     // Publica para outras abas antes de qualquer verificação de responsável,
     // para que elas também marquem como visto e não toquem duas vezes.
-    try { bcRef.current?.postMessage?.({ msgId: mensagem.id }); } catch {}
+    try { bcRef.current?.postMessage?.({ msgId: mensagem.id }); } catch { /* canal fechado */ }
 
     // Filtro de responsabilidade.
     const email = emailRef.current;
@@ -204,7 +203,7 @@ export default function useWhatsAppNotificacoes({ emailOperador, conversas }) {
           // `tag` deduplicado pelo próprio navegador entre abas.
           tag: `rv-wapp-${mensagem.id}`,
         });
-      } catch {}
+      } catch { /* Notification bloqueada pelo navegador */ }
     }
   }, []);
 
