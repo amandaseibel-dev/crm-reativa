@@ -53,7 +53,7 @@ describe("PainelCarteira: curso/semestre nao custa nada na abertura", () => {
     expect(SRC).toMatch(
       /const pedeCursoSemestre = cursoSemestrePedido\(filtroCurso, filtroSemestre\)/
     );
-    expect(SRC).toMatch(/estadoRecorteCursoSemestre,\n[\s\S]*\} from "\.\.\/utils\/carteiraFila"/);
+    expect(SRC).toMatch(/cursoSemestrePedido,\n\} from "\.\.\/utils\/carteiraFila"/);
     expect(UTIL).toMatch(/export function cursoSemestrePedido\(curso, semestre\)/);
   });
 
@@ -124,13 +124,13 @@ describe("PainelCarteira: curso/semestre nao custa nada na abertura", () => {
   // pode aparecer como resultado do recorte. O rodape so mostra "Mostrando X de Y"
   // no ramo em que o recorte ja tem dados validados.
   it("recorte carregando: o rodape nao mostra o total geral", () => {
-    const guarda = SRC.indexOf("const estadoRecorte = estadoRecorteCursoSemestre(");
+    const guarda = SRC.indexOf("const recorteSemDados =");
     const ramo = SRC.indexOf("{recorteSemDados ? (");
     const total = SRC.indexOf("Mostrando {listaFiltrada.length} de");
     expect(guarda).toBeGreaterThan(-1);
     expect(ramo).toBeGreaterThan(-1);
     expect(total).toBeGreaterThan(ramo);
-    expect(SRC.slice(guarda, guarda + 500)).toMatch(/escopoLido: escopoCursoSemestreLido/);
+    expect(SRC.slice(guarda, guarda + 400)).toMatch(/mapaValido: mapaCursoSemestreValido/);
   });
   // Kanban: com recorte sem dados validados, as colunas e contagens NAO aparecem.
   // A mesma condicao protege o rodape e o kanban; sem recorte, ou apos a carga com
@@ -144,15 +144,15 @@ describe("PainelCarteira: curso/semestre nao custa nada na abertura", () => {
   });
 
   it("falha: sem mapa validado, a mensagem de indisponibilidade substitui o total geral", () => {
-    expect(SRC).toMatch(/estadoRecorteCursoSemestre\(\{/);
-    expect(SRC).toMatch(/estadoRecorteCursoSemestre,/);
-    expect(UTIL).toMatch(/Recorte de curso e semestre indisponível/);
+    expect(SRC).toMatch(/recorteSemDadosValidados\(\{/);
+    expect(SRC).toMatch(/import \{ recorteSemDadosValidados \} from "..\/utils\/recorteCursoSemestreVisual"/);
+    expect(SRC).toMatch(/Recorte de curso e semestre indisponível/);
     expect(SRC).toMatch(/if \(error\) \{ setMapaCursoSemestre\(null\); return; \}/);
   });
 
   it("sucesso e sem recorte: a visualizacao normal nao muda", () => {
     // sem recorte, recorteSemDados e falso mesmo com mapa nulo
-    expect(UTIL).toMatch(/if \(!cursoSemestrePedido\(filtroCurso, filtroSemestre\)\) \{/);
+    expect(readFileSync(resolve(AQUI, "../utils/recorteCursoSemestreVisual.js"), "utf8")).toMatch(/if \(!haRecorte\) return false;/);
     // a mensagem tem uma unica fonte, usada no kanban e no rodape
     const ocorrencias = SRC.match(/\{mensagemRecorteSemDados\}/g) || [];
     expect(ocorrencias.length).toBe(2);

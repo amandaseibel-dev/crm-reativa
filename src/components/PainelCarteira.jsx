@@ -60,7 +60,6 @@ import {
   ehNaoAcionavel,
   SITUACAO_QUITACAO,
   cursoSemestrePedido,
-  estadoRecorteCursoSemestre,
 } from "../utils/carteiraFila";
 import { analiticasSuspensas } from "../config/modoContencao";
 import EmailAlunoUnificado from "./EmailAlunoUnificado";
@@ -90,6 +89,7 @@ import {
 import VisaoGeralCarteira from "./VisaoGeralCarteira";
 import VisaoGestao360 from "./VisaoGestao360";
 import { parcelaViva } from "../utils/parcelaStatus";
+import { recorteSemDadosValidados } from "../utils/recorteCursoSemestreVisual";
 
 // Quantas parcelas VENCIDAS o card mostra antes de pedir "ver todas". A M2
 // trouxe ~144 por operador; abrir as 144 de uma vez e o que deixava a tela
@@ -1812,16 +1812,15 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // Recorte de curso ou semestre escolhido sem contagem validada: carregando, ou a
   // RPC falhou (mapa nulo). Nesse estado a lista ainda nao foi filtrada, entao o
   // total geral NAO pode aparecer como se fosse resultado do recorte.
-  const estadoRecorte = estadoRecorteCursoSemestre({
+  const recorteSemDados = recorteSemDadosValidados({
     filtroCurso,
     filtroSemestre,
     carregando: cursoSemestreCarregando,
-    mapa: mapaCursoSemestre,
-    escopoLido: escopoCursoSemestreLido,
-    escopo: escopoCursoSemestre,
+    mapaValido: mapaCursoSemestreValido,
   });
-  const recorteSemDados = estadoRecorte.semDados;
-  const mensagemRecorteSemDados = estadoRecorte.mensagem;
+  const mensagemRecorteSemDados = cursoSemestreCarregando
+    ? "Carregando o recorte de curso e semestre… os totais aparecem quando a lista filtrada estiver pronta."
+    : "Recorte de curso e semestre indisponível: a contagem não carregou. Troque o filtro para tentar de novo.";
 
   // O recorte esta pronto pra virar foto? Enquanto o filtro de ano ou o recorte
   // do card ainda estao carregando, o botao fica indisponivel -- comecar ali

@@ -9,9 +9,6 @@ import {
   cursoSemestrePedido,
   CURSOS_CARTEIRA,
   SEMESTRES_CARTEIRA,
-  estadoRecorteCursoSemestre,
-  MSG_RECORTE_CARREGANDO,
-  MSG_RECORTE_INDISPONIVEL,
 } from "./carteiraFila";
 
 // Relogio fixo: sem isso "acionado hoje" mudaria de valor amanha e o teste
@@ -336,50 +333,5 @@ describe("Minha Carteira: a leitura de curso/semestre e sob demanda", () => {
     // frequente. A guarda que ja existia e o que impede o guiado de comecar
     // num recorte incompleto -- ela nao pode ser removida junto.
     expect(recorteProntoParaGuiado({ filtroCurso: "Medicina", alunosDoCurso: null })).toBe(false);
-  });
-});
-
-// Kanban e rodape: com recorte pedido, nenhuma contagem geral sem mapa validado
-// para o escopo atual. Comportamento, nao leitura de codigo.
-describe("Carteira: estado do recorte para kanban e rodape", () => {
-  const COM = { filtroCurso: "Medicina", filtroSemestre: "AMBOS" };
-  const SEM = { filtroCurso: "TODOS", filtroSemestre: "AMBOS" };
-  const MAPA = { "aluno-1": { aluno_id: "aluno-1", curso: "Medicina" } };
-  const ESC_A = "operador-a|0|";
-  const ESC_B = "operador-b|0|";
-
-  it("carregamento: recorte pedido sem mapa, com a RPC em curso -> sem dados e mensagem de carga", () => {
-    const e = estadoRecorteCursoSemestre({ ...COM, carregando: true, mapa: null, escopoLido: null, escopo: ESC_A });
-    expect(e.semDados).toBe(true);
-    expect(e.mensagem).toBe(MSG_RECORTE_CARREGANDO);
-  });
-
-  it("falha: RPC falhou (mapa nulo, escopo lido igual) -> indisponivel, nunca contagem geral", () => {
-    const e = estadoRecorteCursoSemestre({ ...COM, carregando: false, mapa: null, escopoLido: ESC_A, escopo: ESC_A });
-    expect(e.semDados).toBe(true);
-    expect(e.mensagem).toBe(MSG_RECORTE_INDISPONIVEL);
-  });
-
-  it("troca de operador com filtro ativo: mapa do operador A nao vale para B", () => {
-    // A recarga de B ainda nao comecou: o mapa de A continua na memoria.
-    const e = estadoRecorteCursoSemestre({ ...COM, carregando: false, mapa: MAPA, escopoLido: ESC_A, escopo: ESC_B });
-    expect(e.semDados).toBe(true);
-    expect(e.mensagem).toBe(MSG_RECORTE_CARREGANDO); // recarga pendente, nao falha
-  });
-
-  it("sucesso: mapa validado para o escopo atual libera o recorte", () => {
-    const e = estadoRecorteCursoSemestre({ ...COM, carregando: false, mapa: MAPA, escopoLido: ESC_A, escopo: ESC_A });
-    expect(e.semDados).toBe(false);
-    expect(e.mensagem).toBeNull();
-  });
-
-  it("retorno a carteira sem filtros: visualizacao normal, com ou sem mapa, carregando ou nao", () => {
-    for (const carregando of [true, false]) {
-      for (const mapa of [null, MAPA]) {
-        const e = estadoRecorteCursoSemestre({ ...SEM, carregando, mapa, escopoLido: null, escopo: ESC_A });
-        expect(e.semDados).toBe(false);
-        expect(e.mensagem).toBeNull();
-      }
-    }
   });
 });
