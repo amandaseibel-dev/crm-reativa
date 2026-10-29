@@ -736,6 +736,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // `useEffect` de curso/semestre: a leitura e SOB DEMANDA desde 26/10/2026.
   const [escopoCursoSemestreLido, setEscopoCursoSemestreLido] = useState(null);
   const [cursoSemestreCarregando, setCursoSemestreCarregando] = useState(false);
+  // Falha da RPC, para oferecer "Tentar novamente". A tentativa e um contador:
+  // subir o numero refaz a carga, sem mexer nos filtros escolhidos.
+  const [falhaCursoSemestre, setFalhaCursoSemestre] = useState(false);
+  const [tentativaCursoSemestre, setTentativaCursoSemestre] = useState(0);
   const [filtroKpi, setFiltroKpi] = useState(null);
   const [filtroValorMin, setFiltroValorMin] = useState("");
   const [filtroValorMax, setFiltroValorMax] = useState("");
@@ -1080,6 +1084,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       // Dentro da assincrona, antes do primeiro `await`: marca o carregamento
       // sem chamada sincrona de setState no corpo do efeito.
       setCursoSemestreCarregando(true);
+      setFalhaCursoSemestre(false);
       const alvo = emailEscopo();
       const { data, error } = await supabase.rpc("carteira_curso_semestre_do_operador", {
         p_email: alvo || null,
@@ -1088,7 +1093,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       setCursoSemestreCarregando(false);
       // Falha segue TOLERADA: mapa nulo NAO filtra, e a lista nunca encolhe por
       // dado a meio caminho. O operador perde o recorte, nunca o atendimento.
-      if (error) { setMapaCursoSemestre(null); return; }
+      if (error) { setMapaCursoSemestre(null); setFalhaCursoSemestre(true); return; }
       const mapa = {};
       for (const linha of data || []) mapa[String(linha.aluno_id)] = linha;
       setMapaCursoSemestre(mapa);
@@ -1096,7 +1101,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     })();
     return () => { ativo = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pedeCursoSemestre, escopoCursoSemestre, escopoCursoSemestreLido]);
+  }, [pedeCursoSemestre, escopoCursoSemestre, escopoCursoSemestreLido, tentativaCursoSemestre]);
 
   // O mapa so vale para o escopo em que foi lido. Comparar aqui, em vez de
   // zerar o estado num efeito de invalidacao, fecha a janela em que a gestao
@@ -1821,6 +1826,20 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const mensagemRecorteSemDados = cursoSemestreCarregando
     ? "Carregando o recorte de curso e semestre… os totais aparecem quando a lista filtrada estiver pronta."
     : "Recorte de curso e semestre indisponível: a contagem não carregou. Troque o filtro para tentar de novo.";
+  const conteudoRecorteSemDados = (
+    <>
+      {mensagemRecorteSemDados}
+      {falhaCursoSemestre && !cursoSemestreCarregando ? (
+        <button
+          type="button"
+          onClick={() => setTentativaCursoSemestre((n) => n + 1)}
+          style={{ marginLeft: 12 }}
+        >
+          Tentar novamente
+        </button>
+      ) : null}
+    </>
+  );
 
   // O recorte esta pronto pra virar foto? Enquanto o filtro de ano ou o recorte
   // do card ainda estao carregando, o botao fica indisponivel -- comecar ali
@@ -2796,9 +2815,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     finAlunos: finAlunosDoRecorte,
   };
   const listaFiltrada = useMemo(
-    () => montarListaFiltrada(recorteAtual),
+    () => (recorteSemDados ? [] : montarListaFiltrada(recorteAtual)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [casos, casosForaDaFila, casosEspeciais, filtroStatus, filtroPrioridade, filtroTabulacao, busca, filtroKpi, ordenacao, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, alunosDoCurso, alunosDoSemestre, finAlunosDoRecorte]
+    [recorteSemDados, casos, casosForaDaFila, casosEspeciais, filtroStatus, filtroPrioridade, filtroTabulacao, busca, filtroKpi, ordenacao, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, alunosDoCurso, alunosDoSemestre, finAlunosDoRecorte]
   );
   listaFiltradaRef.current = listaFiltrada;
 
@@ -3748,7 +3767,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             )}
 
             {visao === "kanban" && recorteSemDados ? (
-              <p style={{ ...S.rodapeTabela, padding: "24px 0" }}>{mensagemRecorteSemDados}</p>
+              <p style={{ ...S.rodapeTabela, padding: "24px 0" }}>{conteudoRecorteSemDados}</p>
             ) : visao === "kanban" ? (
               <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 10 }}>
                 {kanbanColunas.map((col) => (
@@ -4191,7 +4210,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
               </table>
             </div>
             {recorteSemDados ? (
-              <p style={S.rodapeTabela}>{mensagemRecorteSemDados}</p>
+              <p style={S.rodapeTabela}>{conteudoRecorteSemDados}</p>
             ) : (
             <p style={S.rodapeTabela}>
               Mostrando {listaFiltrada.length} de {filtroKpi ? (casosEspeciais || []).length : casos.length}{" "}

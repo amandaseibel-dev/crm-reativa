@@ -62,7 +62,7 @@ describe("PainelCarteira: curso/semestre nao custa nada na abertura", () => {
     // As dependencias do efeito. Sem `pedeCursoSemestre` ali, o efeito voltaria
     // a correr na abertura da tela.
     expect(bloco).toMatch(
-      /\}, \[pedeCursoSemestre, escopoCursoSemestre, escopoCursoSemestreLido\]\)/
+      /\}, \[pedeCursoSemestre, escopoCursoSemestre, escopoCursoSemestreLido, tentativaCursoSemestre\]\)/
     );
     // E nao sobrou o efeito antigo, que dependia so do escopo.
     expect(bloco).not.toMatch(/\}, \[email, veTudo, operadorFiltro\]\)/);
@@ -79,7 +79,7 @@ describe("PainelCarteira: curso/semestre nao custa nada na abertura", () => {
 
   it("a falha segue tolerada: mapa nulo nao encolhe a lista", () => {
     const bloco = blocoSobDemanda();
-    expect(bloco).toMatch(/if \(error\) \{ setMapaCursoSemestre\(null\); return; \}/);
+    expect(bloco).toMatch(/if \(error\) \{ setMapaCursoSemestre\(null\); setFalhaCursoSemestre\(true\); return; \}/);
     // `null` nao filtra -- a garantia mora no utilitario e e testada la.
     expect(UTIL).toMatch(/if \(!c \|\| c === "TODOS"\) return null;/);
   });
@@ -147,14 +147,28 @@ describe("PainelCarteira: curso/semestre nao custa nada na abertura", () => {
     expect(SRC).toMatch(/recorteSemDadosValidados\(\{/);
     expect(SRC).toMatch(/import \{ recorteSemDadosValidados \} from "..\/utils\/recorteCursoSemestreVisual"/);
     expect(SRC).toMatch(/Recorte de curso e semestre indisponível/);
-    expect(SRC).toMatch(/if \(error\) \{ setMapaCursoSemestre\(null\); return; \}/);
+    expect(SRC).toMatch(/if \(error\) \{ setMapaCursoSemestre\(null\); setFalhaCursoSemestre\(true\); return; \}/);
   });
 
   it("sucesso e sem recorte: a visualizacao normal nao muda", () => {
     // sem recorte, recorteSemDados e falso mesmo com mapa nulo
     expect(readFileSync(resolve(AQUI, "../utils/recorteCursoSemestreVisual.js"), "utf8")).toMatch(/if \(!haRecorte\) return false;/);
     // a mensagem tem uma unica fonte, usada no kanban e no rodape
-    const ocorrencias = SRC.match(/\{mensagemRecorteSemDados\}/g) || [];
+    const ocorrencias = SRC.match(/\{conteudoRecorteSemDados\}/g) || [];
     expect(ocorrencias.length).toBe(2);
+  });
+
+  // Tentar novamente: a falha liga o botao, e o botao sobe um contador que entra
+  // nas dependencias do efeito. Os filtros nao sao tocados.
+  it("falha: o botao Tentar novamente refaz a carga sem mexer nos filtros", () => {
+    expect(SRC).toMatch(/setTentativaCursoSemestre\(\(n\) => n \+ 1\)/);
+    expect(SRC).toMatch(/falhaCursoSemestre && !cursoSemestreCarregando/);
+    expect(SRC).toMatch(/Tentar novamente/);
+    expect(SRC).not.toMatch(/setFiltroCurso\("TODOS"\)[^;]*tentativa/);
+  });
+
+  // Sem recorte validado, nenhuma linha: a lista nunca aparece sem o filtro ativo.
+  it("lista: com recorte sem dados validados, nenhuma linha aparece", () => {
+    expect(SRC).toMatch(/\(recorteSemDados \? \[\] : montarListaFiltrada\(recorteAtual\)\)/);
   });
 });
