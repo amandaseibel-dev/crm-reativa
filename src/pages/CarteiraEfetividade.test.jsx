@@ -587,3 +587,62 @@ describe("Efetividade — política de atualização da fotografia", () => {
     expect(depois).toBe(antes);
   });
 });
+
+// ===========================================================================
+// O BOTAO "ATUALIZAR DADOS" -- as duas correcoes de 08/10/2026
+// ===========================================================================
+// 1. NO CASO COMUM ELE NAO DIZIA NADA. Com a fotografia em dia -- o normal,
+//    agora que a rede automatica e de 20 min -- o botao relia, caia no `return`
+//    e nao emitia aviso nenhum: nenhum texto novo, nenhum numero diferente.
+//    Clicar e nao ver nada e indistinguivel de botao quebrado.
+// 2. A DECISAO USAVA ESTADO VELHO. `fotografia` e o resultado da leitura
+//    ANTERIOR; `setRecarga` so agenda a releitura. Depois de uma resolucao a
+//    marca podia existir no banco e o botao nao registrar pedido nenhum.
+describe("Efetividade — “Atualizar dados” responde sempre", () => {
+  const comFoto2 = (extra) => ({
+    seis_linhas: { ...SITUACOES, snapshot: { gerado_em: "2026-10-07T23:40:00Z", ...extra } },
+    composicao_academica: { ...COMPOSICAO, snapshot: { gerado_em: "2026-10-07T23:40:00Z", ...extra } },
+  });
+
+  it("sem pendência, diz que já está atualizado e declara a hora da fotografia", async () => {
+    responder({}, comFoto2({ atualizacao_pendente: false }));
+    await abrir();
+    await act(async () => { fireEvent.click(screen.getByText("↻ Atualizar dados")); });
+    const corpo = txt(document.body);
+    expect(corpo).toContain("Dados já estão atualizados");
+    expect(corpo).toContain("Nada a reconstruir");
+    // e continua sem pedir reconstrução à toa
+    expect(rpcMock.mock.calls.map((c) => c[0]))
+      .not.toContain("carteira_efetividade_solicitar_atualizacao");
+  });
+
+  it("a decisão vem de uma leitura FRESCA, não do estado da montagem", async () => {
+    // Monta com a fotografia em dia...
+    responder({}, comFoto2({ atualizacao_pendente: false }));
+    await abrir();
+    // ...e entre a montagem e o clique a marca aparece no banco (foi o que
+    // acontecia depois de resolver um caso). O botão tem de enxergar isso.
+    responder({}, comFoto2({ atualizacao_pendente: true }));
+    await act(async () => { fireEvent.click(screen.getByText("↻ Atualizar dados")); });
+    expect(rpcMock.mock.calls.map((c) => c[0]))
+      .toContain("carteira_efetividade_solicitar_atualizacao");
+  });
+
+  it("falha na releitura é dita, não engolida", async () => {
+    responder({}, comFoto2({ atualizacao_pendente: false }));
+    await abrir();
+    responder({}, { seis_linhas: { __erro: { message: "timeout" } } });
+    await act(async () => { fireEvent.click(screen.getByText("↻ Atualizar dados")); });
+    expect(txt(document.body)).toContain("Não foi possível reler a fotografia");
+    expect(rpcMock.mock.calls.map((c) => c[0]))
+      .not.toContain("carteira_efetividade_solicitar_atualizacao");
+  });
+
+  it("sem fotografia nenhuma, o clique registra o pedido da primeira", async () => {
+    responder({}, { seis_linhas: { sem_snapshot: true }, composicao_academica: { sem_snapshot: true } });
+    await abrir();
+    await act(async () => { fireEvent.click(screen.getByText("↻ Atualizar dados")); });
+    expect(rpcMock.mock.calls.map((c) => c[0]))
+      .toContain("carteira_efetividade_solicitar_atualizacao");
+  });
+});

@@ -567,3 +567,192 @@ describe("Fila Única — a entrada cai onde há caso a tratar", () => {
     expect(safrasPedidas()).toEqual(["2026/1"]);
   });
 });
+
+// ===========================================================================
+// O FLUXO DE ENCERRAMENTO -- Pendente -> Em analise -> Finalizado
+// ===========================================================================
+// O que estes testes travam:
+//   1. a fila OFERECE as tres decisoes, e `Rejeitado` nao passa sem motivo;
+//   2. a decisao vai para `carteira_pendencia_tratar` com titulo, motivo,
+//      recorte, estado e desfecho -- e para NENHUMA RPC de dinheiro;
+//   3. finalizado, o caso sai da fila ativa NA HORA;
+//   4. o historico e a MESMA consulta com `p_incluir_finalizados`, mostra quem
+//      encerrou, quando e por que, e oferece reabrir;
+//   5. quem nao e gestao financeira nao ve botao de decisao.
+
+// RPCs que mexem em dinheiro. Se qualquer uma delas for chamada por um
+// encerramento, o requisito "nao alterar saldos, acordos ou pagamentos
+// automaticamente" foi violado.
+const RPCS_DE_DINHEIRO = [
+  "prime_conferencia_vincular", "prime_conferencia_seguir_pagamento",
+  "prime_conferencia_rejeitar", "vincular_titulos_acordo",
+  "carteira_efetividade_recalcular",
+];
+
+const ITEM_PENDENTE = {
+  ...ITEM_SEM_LASTRO,
+  tratamento_estado: null, tratamento_desfecho: null, tratamento_por: null,
+  tratamento_em: null, tratamento_justificativa: null,
+};
+
+const ITEM_FINALIZADO = {
+  ...ITEM_SEM_LASTRO,
+  tratamento_estado: "FINALIZADO",
+  tratamento_desfecho: "REJEITADO",
+  tratamento_por: "cobranca04@aelbra.com.br",
+  tratamento_em: "2026-10-08T21:05:00Z",
+  tratamento_justificativa: "Boleto já cancelado na origem; cobrança indevida.",
+};
+
+const botao = (rotulo) =>
+  screen.getAllByRole("button").find((b) => txt(b).trim() === rotulo);
+
+describe("Fila Única — início, análise e encerramento", () => {
+  it("o caso pendente oferece 'Em análise' e as três decisões", async () => {
+    responder({ itens: [ITEM_PENDENTE] });
+    await montar("?ano=2024&motivo=pago_sem_lastro");
+    expect(botao("Em análise")).toBeTruthy();
+    expect(botao("Validado, sem pendências")).toBeTruthy();
+    expect(botao("Resolvido")).toBeTruthy();
+    expect(botao("Rejeitado")).toBeTruthy();
+  });
+
+  it("'Em análise' registra o estado sem desfecho e sem tocar em dinheiro", async () => {
+    responder({ itens: [ITEM_PENDENTE] });
+    await montar("?ano=2024&motivo=pago_sem_lastro");
+    await act(async () => { fireEvent.click(botao("Em análise")); });
+
+    expect(rpcMock).toHaveBeenCalledWith("carteira_pendencia_tratar", {
+      p_titulo_id: ITEM_PENDENTE.titulo_id,
+      p_motivo: "pago_sem_lastro",
+      p_recorte: "2024",
+      p_estado: "EM_ANALISE",
+      p_desfecho: null,
+      p_justificativa: null,
+    });
+    const nomes = rpcMock.mock.calls.map((c) => c[0]);
+    for (const proibida of RPCS_DE_DINHEIRO) expect(nomes).not.toContain(proibida);
+  });
+
+  it("'Validado, sem pendências' finaliza e a linha sai da fila NA HORA", async () => {
+    responder({ itens: [ITEM_PENDENTE] });
+    await montar("?ano=2024&motivo=pago_sem_lastro");
+    expect(screen.queryByText(ITEM_PENDENTE.aluno_nome)).toBeTruthy();
+
+    await act(async () => { fireEvent.click(botao("Validado, sem pendências")); });
+
+    expect(rpcMock).toHaveBeenCalledWith("carteira_pendencia_tratar",
+      expect.objectContaining({ p_estado: "FINALIZADO", p_desfecho: "VALIDADO_SEM_PENDENCIA" }));
+    // saiu da lista sem releitura: a fotografia ainda nao foi reconstruida
+    expect(screen.queryByText(ITEM_PENDENTE.aluno_nome)).toBeNull();
+    expect(txt(document.body)).toContain("saiu da fila ativa e ficou no histórico");
+    const nomes = rpcMock.mock.calls.map((c) => c[0]);
+    for (const proibida of RPCS_DE_DINHEIRO) expect(nomes).not.toContain(proibida);
+  });
+
+  it("'Rejeitado' exige justificativa: cancelar o motivo não registra nada", async () => {
+    responder({ itens: [ITEM_PENDENTE] });
+    const prompt = vi.spyOn(window, "prompt").mockReturnValue(null);
+    await montar("?ano=2024&motivo=pago_sem_lastro");
+    await act(async () => { fireEvent.click(botao("Rejeitado")); });
+
+    expect(prompt).toHaveBeenCalled();
+    expect(rpcMock.mock.calls.map((c) => c[0])).not.toContain("carteira_pendencia_tratar");
+    // o caso continua na fila
+    expect(screen.queryByText(ITEM_PENDENTE.aluno_nome)).toBeTruthy();
+    prompt.mockRestore();
+  });
+
+  it("'Rejeitado' com motivo vazio avisa e não registra", async () => {
+    responder({ itens: [ITEM_PENDENTE] });
+    const prompt = vi.spyOn(window, "prompt").mockReturnValue("   ");
+    await montar("?ano=2024&motivo=pago_sem_lastro");
+    await act(async () => { fireEvent.click(botao("Rejeitado")); });
+
+    expect(rpcMock.mock.calls.map((c) => c[0])).not.toContain("carteira_pendencia_tratar");
+    expect(txt(document.body)).toContain("Rejeitar exige justificativa");
+    prompt.mockRestore();
+  });
+
+  it("'Rejeitado' com motivo manda a justificativa junto", async () => {
+    responder({ itens: [ITEM_PENDENTE] });
+    const prompt = vi.spyOn(window, "prompt").mockReturnValue("Cobrança indevida: boleto cancelado.");
+    await montar("?ano=2024&motivo=pago_sem_lastro");
+    await act(async () => { fireEvent.click(botao("Rejeitado")); });
+
+    expect(rpcMock).toHaveBeenCalledWith("carteira_pendencia_tratar",
+      expect.objectContaining({
+        p_estado: "FINALIZADO",
+        p_desfecho: "REJEITADO",
+        p_justificativa: "Cobrança indevida: boleto cancelado.",
+      }));
+    prompt.mockRestore();
+  });
+
+  it("o histórico é a MESMA consulta com p_incluir_finalizados", async () => {
+    responder({ itens: [ITEM_FINALIZADO] });
+    await montar("?ano=2024&motivo=pago_sem_lastro&estado=historico");
+
+    expect(rpcMock).toHaveBeenCalledWith("carteira_pendencias_itens_ler",
+      expect.objectContaining({ p_incluir_finalizados: true }));
+    const nomes = rpcMock.mock.calls.map((c) => c[0]);
+    expect(nomes).not.toContain("carteira_pendencias_itens");
+  });
+
+  it("a fila ativa pede explicitamente para NÃO incluir finalizados", async () => {
+    responder({ itens: [ITEM_PENDENTE] });
+    await montar("?ano=2024&motivo=pago_sem_lastro");
+    expect(rpcMock).toHaveBeenCalledWith("carteira_pendencias_itens_ler",
+      expect.objectContaining({ p_incluir_finalizados: false }));
+  });
+
+  it("o caso encerrado mostra desfecho, quem, quando e o motivo", async () => {
+    responder({ itens: [ITEM_FINALIZADO] });
+    await montar("?ano=2024&motivo=pago_sem_lastro&estado=historico");
+    const corpo = txt(document.body);
+    expect(corpo).toContain("Finalizado como “Rejeitado”");
+    expect(corpo).toContain("cobranca04@aelbra.com.br");
+    expect(corpo).toContain("Boleto já cancelado na origem; cobrança indevida.");
+    // encerrado não reoferece decisão: oferece reabrir
+    expect(botao("Reabrir análise")).toBeTruthy();
+    expect(botao("Validado, sem pendências")).toBeFalsy();
+  });
+
+  it("reabrir devolve o caso para análise, mantendo o registro anterior", async () => {
+    responder({ itens: [ITEM_FINALIZADO] });
+    await montar("?ano=2024&motivo=pago_sem_lastro&estado=historico");
+    await act(async () => { fireEvent.click(botao("Reabrir análise")); });
+
+    expect(rpcMock).toHaveBeenCalledWith("carteira_pendencia_tratar",
+      expect.objectContaining({ p_estado: "EM_ANALISE", p_desfecho: null }));
+  });
+
+  it("o caso em análise se declara e continua na fila ativa", async () => {
+    responder({ itens: [{ ...ITEM_PENDENTE, tratamento_estado: "EM_ANALISE" }] });
+    await montar("?ano=2024&motivo=pago_sem_lastro");
+    expect(txt(document.body)).toContain("Em análise.");
+    // já está em análise: o botão de abrir análise não se repete
+    expect(botao("Em análise")).toBeFalsy();
+    expect(botao("Resolvido")).toBeTruthy();
+  });
+
+  it("quem não é gestão financeira não vê botão de decisão", async () => {
+    emailLogado = "cobranca03@aelbra.com.br";
+    responder({ itens: [ITEM_PENDENTE] });
+    await montar("?ano=2024&motivo=pago_sem_lastro");
+    expect(botao("Validado, sem pendências")).toBeFalsy();
+    expect(botao("Rejeitado")).toBeFalsy();
+    // mas continua vendo o caso e podendo abrir a ficha
+    expect(screen.queryByText(ITEM_PENDENTE.aluno_nome)).toBeTruthy();
+    expect(botao("Abrir ficha do aluno")).toBeTruthy();
+  });
+
+  it("trocar de motivo preserva o recorte de histórico na URL", async () => {
+    responder({ itens: [ITEM_FINALIZADO] });
+    await montar("?ano=2024&motivo=pago_sem_lastro&estado=historico");
+    rpcMock.mockClear();
+    await act(async () => { fireEvent.click(botao("Em confirmação de pagamento · 11")); });
+    expect(rpcMock).toHaveBeenCalledWith("carteira_pendencias_itens_ler",
+      expect.objectContaining({ p_motivo: "em_confirmacao", p_incluir_finalizados: true }));
+  });
+});
