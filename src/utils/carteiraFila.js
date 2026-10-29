@@ -387,6 +387,23 @@ export function cursoSemestrePedido(curso, semestre) {
   return CURSOS_CARTEIRA.includes(c) || SEMESTRES_CARTEIRA.includes(s);
 }
 
+// Conjunto de alunos de um recorte escolhido. Recorte escolhido SEM mapa validado
+// para o escopo atual vira conjunto VAZIO, nunca "sem filtro": nenhum contador nem
+// linha pode mostrar a carteira geral enquanto o recorte nao foi validado.
+// Sem escolha, devolve null (comportamento original).
+export function conjuntoDoRecorte({ escolhido, mapaValido, calcular }) {
+  if (!escolhido) return null;
+  if (!mapaValido) return new Set();
+  return calcular(mapaValido);
+}
+
+// Lista usada para contar por prioridade. Com recorte sem dados validados, nao ha
+// contagem valida: zero, nunca o total geral.
+export function listaParaContagem({ recorteSemDados, filtroPrioridade, listaFiltrada, montarSemPrioridade }) {
+  if (recorteSemDados) return [];
+  return filtroPrioridade === "TODAS" ? listaFiltrada : montarSemPrioridade();
+}
+
 // Quais fichas casam o curso escolhido.
 //
 // O curso vem do contrato do Prime da JANELA do semestre -- entao com um

@@ -60,6 +60,8 @@ import {
   ehNaoAcionavel,
   SITUACAO_QUITACAO,
   cursoSemestrePedido,
+  conjuntoDoRecorte,
+  listaParaContagem,
 } from "../utils/carteiraFila";
 import { analiticasSuspensas } from "../config/modoContencao";
 import EmailAlunoUnificado from "./EmailAlunoUnificado";
@@ -1112,11 +1114,19 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // Os conjuntos que o recorte usa. `null` enquanto a RPC nao respondeu, e
   // `null` NAO filtra -- a lista nunca encolhe por dado a meio caminho.
   const alunosDoCurso = useMemo(
-    () => (mapaCursoSemestreValido ? alunosDoCursoEscolhido(mapaCursoSemestreValido, filtroCurso, filtroSemestre) : null),
+    () => conjuntoDoRecorte({
+      escolhido: CURSOS_CARTEIRA.includes(String(filtroCurso || "").trim()),
+      mapaValido: mapaCursoSemestreValido,
+      calcular: (m) => alunosDoCursoEscolhido(m, filtroCurso, filtroSemestre),
+    }),
     [mapaCursoSemestreValido, filtroCurso, filtroSemestre]
   );
   const alunosDoSemestre = useMemo(
-    () => (mapaCursoSemestreValido ? alunosDoSemestreEscolhido(mapaCursoSemestreValido, filtroSemestre) : null),
+    () => conjuntoDoRecorte({
+      escolhido: SEMESTRES_CARTEIRA.includes(String(filtroSemestre || "").trim()),
+      mapaValido: mapaCursoSemestreValido,
+      calcular: (m) => alunosDoSemestreEscolhido(m, filtroSemestre),
+    }),
     [mapaCursoSemestreValido, filtroSemestre]
   );
 
@@ -2830,12 +2840,15 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // lista vazia) e que a operacao leu como "sumiu caso".
   const contagemPrioridade = useMemo(
     () => contarPorPrioridade(
-      filtroPrioridade === "TODAS"
-        ? listaFiltrada
-        : montarListaFiltrada({ ...recorteAtual, filtroPrioridade: "TODAS" })
+      listaParaContagem({
+        recorteSemDados,
+        filtroPrioridade,
+        listaFiltrada,
+        montarSemPrioridade: () => montarListaFiltrada({ ...recorteAtual, filtroPrioridade: "TODAS" }),
+      })
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [listaFiltrada, filtroPrioridade, casos, casosForaDaFila, casosEspeciais, filtroStatus, filtroTabulacao, busca, filtroKpi, ordenacao, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, alunosDoCurso, alunosDoSemestre, finAlunosDoRecorte]
+    [recorteSemDados, listaFiltrada, filtroPrioridade, casos, casosForaDaFila, casosEspeciais, filtroStatus, filtroTabulacao, busca, filtroKpi, ordenacao, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, alunosDoCurso, alunosDoSemestre, finAlunosDoRecorte]
   );
 
   // A GESTAO CONSEGUE ABRIR A FILA DE UM OPERADOR.

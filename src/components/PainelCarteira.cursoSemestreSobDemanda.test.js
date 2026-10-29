@@ -53,7 +53,7 @@ describe("PainelCarteira: curso/semestre nao custa nada na abertura", () => {
     expect(SRC).toMatch(
       /const pedeCursoSemestre = cursoSemestrePedido\(filtroCurso, filtroSemestre\)/
     );
-    expect(SRC).toMatch(/cursoSemestrePedido,\n\} from "\.\.\/utils\/carteiraFila"/);
+    expect(SRC).toMatch(/listaParaContagem,\n\} from "\.\.\/utils\/carteiraFila"/);
     expect(UTIL).toMatch(/export function cursoSemestrePedido\(curso, semestre\)/);
   });
 
@@ -98,14 +98,11 @@ describe("PainelCarteira: curso/semestre nao custa nada na abertura", () => {
     expect(SRC).toMatch(
       /const mapaCursoSemestreValido =\s*\n\s*escopoCursoSemestreLido === escopoCursoSemestre \? mapaCursoSemestre : null;/
     );
-    for (const consumidor of [
-      "alunosDoCursoEscolhido",
-      "alunosDoSemestreEscolhido",
-      "finAlunosDoSemestre",
-    ]) {
-      const re = new RegExp(`${consumidor}\\((finAlunos, )?mapaCursoSemestreValido`);
-      expect(SRC).toMatch(re);
-    }
+    // Consumidores: os conjuntos passam pelo conjuntoDoRecorte, sempre com o mapa VALIDADO.
+    expect(SRC).toMatch(/mapaValido: mapaCursoSemestreValido/);
+    expect(SRC).toMatch(/alunosDoCursoEscolhido\(m, /);
+    expect(SRC).toMatch(/alunosDoSemestreEscolhido\(m, /);
+    expect(SRC).toMatch(/finAlunosDoSemestre\(finAlunos, mapaCursoSemestreValido,/);
     // Nenhum consumidor ficou no mapa cru.
     expect(SRC).not.toMatch(/alunosDoCursoEscolhido\(mapaCursoSemestre,/);
     expect(SRC).not.toMatch(/alunosDoSemestreEscolhido\(mapaCursoSemestre,/);
