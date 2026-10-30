@@ -198,6 +198,11 @@ export async function assumirConversa(conversaId) {
   if (error) throw new Error(error.message);
 }
 
+export async function marcarAtendidoReceptivoWhatsApp(email) {
+  const { error } = await supabase.rpc("fila_receptivo_marcar_atendido", { p_email: email });
+  if (error) throw new Error(error.message);
+}
+
 export async function transferirConversa(conversaId, paraEmail) {
   const { error } = await supabase.rpc("whatsapp_transferir_conversa", {
     p_conversa_id: conversaId,

@@ -17,6 +17,12 @@ vi.mock("./Aluno", () => ({
   default: ({ fichaEmbedId }) => <div>FICHA EMBUTIDA {fichaEmbedId}</div>,
 }));
 
+vi.mock("../components/FilaReceptivo", () => ({
+  default: ({ usuarioLogado }) => (
+    <div data-testid="fila-receptivo">FilaReceptivo {usuarioLogado?.email}</div>
+  ),
+}));
+
 // Realtime: canal inerte. A tela não pode depender dele para renderizar.
 vi.mock("../services/supabase", () => ({
   supabase: {
@@ -61,6 +67,7 @@ const servico = vi.hoisted(() => ({
   arquivadasLista: [],
   documentosEnviados: [],
   erroAoEnviarDocumento: null,
+  atendidosReceptivos: [],
 }));
 
 vi.mock("../services/whatsapp", async (original) => {
@@ -155,6 +162,9 @@ vi.mock("../services/whatsapp", async (original) => {
       if (servico.erroAoIniciar) throw new Error(servico.erroAoIniciar);
       return { ok: true, conversa_id: "k-nova", ja_existia: false };
     }),
+    marcarAtendidoReceptivoWhatsApp: vi.fn(async (email) => {
+      servico.atendidosReceptivos.push(email);
+    }),
   };
 });
 
@@ -236,6 +246,7 @@ beforeEach(() => {
   servico.supervisao = [];
   servico.documentosEnviados = [];
   servico.erroAoEnviarDocumento = null;
+  servico.atendidosReceptivos = [];
 });
 
 afterEach(cleanup);
@@ -1794,5 +1805,106 @@ describe("Central WhatsApp — anexar PDF", () => {
     } finally {
       window.open = abrirOriginal;
     }
+  });
+});
+
+describe("Fila de Receptivo na Central WhatsApp", () => {
+  it("renderiza o componente FilaReceptivo na página", async () => {
+    render(<CentralWhatsApp />);
+    expect(await screen.findByTestId("fila-receptivo")).toBeDefined();
+  });
+
+  it("passa o e-mail do operador logado para FilaReceptivo", async () => {
+    render(<CentralWhatsApp />);
+    expect(await screen.findByText(/FilaReceptivo teste@reativa.com.br/)).toBeDefined();
+  });
+
+  it("assumir conversa RECEPTIVA chama marcarAtendidoReceptivoWhatsApp", async () => {
+    const { marcarAtendidoReceptivoWhatsApp } = await import("../services/whatsapp");
+    servico.conversas = [conversa({ responsavel_email: null })];
+    servico.mensagens = [
+      { id: "m1", direcao: "ENTRADA", texto: "Oi", timestamp_wa: new Date().toISOString() },
+      { id: "m2", direcao: "SAIDA", texto: "Olá", timestamp_wa: new Date().toISOString() },
+    ];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Oi, quero negociar"));
+    fireEvent.click(await screen.findByText("Assumir"));
+    await waitFor(() => expect(servico.atendidosReceptivos.length).toBe(1));
+    expect(marcarAtendidoReceptivoWhatsApp).toHaveBeenCalledWith("teste@reativa.com.br");
+  });
+
+  it("assumir conversa de ABORDAGEM ATIVA não chama marcarAtendidoReceptivoWhatsApp", async () => {
+    const { marcarAtendidoReceptivoWhatsApp, assumirConversa } = await import("../services/whatsapp");
+    marcarAtendidoReceptivoWhatsApp.mockClear();
+    servico.conversas = [conversa({ responsavel_email: null })];
+    servico.mensagens = [
+      { id: "m1", direcao: "SAIDA", texto: "Oi, tudo bem?", timestamp_wa: new Date().toISOString() },
+      { id: "m2", direcao: "ENTRADA", texto: "Sim, quero negociar", timestamp_wa: new Date().toISOString() },
+    ];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Oi, quero negociar"));
+    fireEvent.click(await screen.findByText("Assumir"));
+    await waitFor(() => expect(assumirConversa).toHaveBeenCalled());
+    expect(marcarAtendidoReceptivoWhatsApp).not.toHaveBeenCalled();
+  });
+
+  it("assumir conversa sem mensagens carregadas não chama marcarAtendidoReceptivoWhatsApp", async () => {
+    const { marcarAtendidoReceptivoWhatsApp, assumirConversa } = await import("../services/whatsapp");
+    marcarAtendidoReceptivoWhatsApp.mockClear();
+    servico.conversas = [conversa({ responsavel_email: null })];
+    servico.mensagens = [];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Oi, quero negociar"));
+    fireEvent.click(await screen.findByText("Assumir"));
+    await waitFor(() => expect(assumirConversa).toHaveBeenCalled());
+    expect(marcarAtendidoReceptivoWhatsApp).not.toHaveBeenCalled();
+  });
+
+  it("assumir conversa receptiva chama marcarAtendidoReceptivoWhatsApp exatamente uma vez", async () => {
+    const { marcarAtendidoReceptivoWhatsApp } = await import("../services/whatsapp");
+    marcarAtendidoReceptivoWhatsApp.mockClear();
+    servico.conversas = [conversa({ responsavel_email: null })];
+    servico.mensagens = [
+      { id: "m1", direcao: "ENTRADA", texto: "Oi", timestamp_wa: new Date().toISOString() },
+    ];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Oi, quero negociar"));
+    fireEvent.click(await screen.findByText("Assumir"));
+    await waitFor(() => expect(servico.atendidosReceptivos.length).toBe(1));
+    expect(marcarAtendidoReceptivoWhatsApp).toHaveBeenCalledTimes(1);
+  });
+
+  it("falha ao assumir conversa não registra atendimento receptivo", async () => {
+    const { marcarAtendidoReceptivoWhatsApp, assumirConversa } = await import("../services/whatsapp");
+    marcarAtendidoReceptivoWhatsApp.mockClear();
+    assumirConversa.mockRejectedValueOnce(new Error("Já assumida por outro"));
+    servico.conversas = [conversa({ responsavel_email: null })];
+    servico.mensagens = [
+      { id: "m1", direcao: "ENTRADA", texto: "Oi", timestamp_wa: new Date().toISOString() },
+    ];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Oi, quero negociar"));
+    fireEvent.click(await screen.findByText("Assumir"));
+    await screen.findByText("Já assumida por outro");
+    expect(marcarAtendidoReceptivoWhatsApp).not.toHaveBeenCalled();
+  });
+
+  it("dois cliques rápidos em Assumir geram apenas uma chamada a assumirConversa e um registro receptivo", async () => {
+    const { marcarAtendidoReceptivoWhatsApp, assumirConversa } = await import("../services/whatsapp");
+    marcarAtendidoReceptivoWhatsApp.mockClear();
+    assumirConversa.mockClear();
+    servico.conversas = [conversa({ responsavel_email: null })];
+    servico.mensagens = [
+      { id: "m1", direcao: "ENTRADA", texto: "Oi", timestamp_wa: new Date().toISOString() },
+    ];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Oi, quero negociar"));
+    const botao = await screen.findByText("Assumir");
+    // Dois cliques síncronos — o segundo deve ser bloqueado pela trava
+    fireEvent.click(botao);
+    fireEvent.click(botao);
+    await waitFor(() => expect(servico.atendidosReceptivos.length).toBe(1));
+    expect(assumirConversa).toHaveBeenCalledTimes(1);
+    expect(marcarAtendidoReceptivoWhatsApp).toHaveBeenCalledTimes(1);
   });
 });
