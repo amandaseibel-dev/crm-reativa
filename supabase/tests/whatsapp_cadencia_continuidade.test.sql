@@ -38,16 +38,17 @@ create table _cad_cont_teste (n int, caso text, ok boolean, detalhe text);
 
 do $teste$
 declare
-  v_canal   uuid;
-  v_conv1   uuid; -- para RESPOSTA
-  v_conv2   uuid; -- para NOVA_ABORDAGEM -> CONTINUIDADE
-  v_conv_x  uuid; -- auxiliar
-  v_op1     text := 'op_cad_cont@test.local';
-  v_agora   timestamptz := now();
-  v_r       text;
-  v_cnt     int;
-  v_detail  text;
-  v_i       int;
+  v_canal    uuid;
+  v_conv1    uuid; -- para RESPOSTA
+  v_conv2    uuid; -- para NOVA_ABORDAGEM -> CONTINUIDADE
+  v_conv_x   uuid; -- auxiliar para LIMITE_OPERADOR
+  v_conv_new uuid; -- conversa sem abordagem prévia para teste 11
+  v_op1      text := 'op_cad_cont@test.local';
+  v_agora    timestamptz := now();
+  v_r        text;
+  v_cnt      int;
+  v_detail   text;
+  v_i        int;
 begin
   -- Canal de teste: janela 00:00-23:59 para nao interferir com horario real.
   insert into public.whatsapp_canais (
@@ -63,6 +64,9 @@ begin
   values (v_canal, '5551900009001', 'EM_ATENDIMENTO') returning id into v_conv1;
   insert into public.whatsapp_conversas (canal_id, telefone_e164, status)
   values (v_canal, '5551900009002', 'EM_ATENDIMENTO') returning id into v_conv2;
+  -- Conversa sem abordagem prévia — usada no caso 8 para garantir INSERT real
+  insert into public.whatsapp_conversas (canal_id, telefone_e164, status)
+  values (v_canal, '5551900009003', 'EM_ATENDIMENTO') returning id into v_conv_new;
 
   perform set_config('request.jwt.claims',
     format('{"email":"%s","role":"authenticated"}', v_op1), true);
@@ -202,19 +206,21 @@ begin
 
   -- ==========================================================================
   -- CASO 8: continuidade_janela_horas = 0 desliga CONTINUIDADE
-  -- (conv2 voltaria a ser NOVA_ABORDAGEM, mas o limite ja foi atingido, portanto
-  -- deve cair em LIMITE_OPERADOR — prova que o caminho CONTINUIDADE foi pulado)
+  -- Usa v_conv_new (sem abordagem prévia) para garantir INSERT real:
+  -- sem ON CONFLICT, a contagem sobe para 6 > 5 = limite → LIMITE_OPERADOR.
+  -- Prova que o caminho CONTINUIDADE foi pulado (v_conv2 teria retornado
+  -- CONTINUIDADE com janela ativa, mas v_conv_new nunca foi abordada).
   -- ==========================================================================
   update public.whatsapp_config set continuidade_janela_horas = 0;
   begin
-    select public.whatsapp_cadencia_checar(v_canal, v_conv2, v_op1) into v_r;
+    select public.whatsapp_cadencia_checar(v_canal, v_conv_new, v_op1) into v_r;
     insert into _cad_cont_teste values (11, 'continuidade_janela_h=0: CONTINUIDADE desligada',
       false, format('esperava excecao LIMITE_OPERADOR, retornou: %s', coalesce(v_r,'null')));
   exception when others then
     get stacked diagnostics v_detail = pg_exception_detail;
     insert into _cad_cont_teste values (11, 'continuidade_janela_h=0: CONTINUIDADE desligada',
       v_detail = 'LIMITE_OPERADOR',
-      format('ok: detail=%s (caminho CONTINUIDADE pulado)', v_detail));
+      format('ok: detail=%s (caminho CONTINUIDADE pulado, INSERT real em v_conv_new)', v_detail));
   end;
   -- Restaura
   update public.whatsapp_config set continuidade_janela_horas = 48;
