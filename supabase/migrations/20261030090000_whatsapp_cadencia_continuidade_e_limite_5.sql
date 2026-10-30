@@ -132,6 +132,31 @@ ALTER TABLE public.whatsapp_cadencia_bloqueios
 -- ============================================================
 -- 5. whatsapp_cadencia_checar: adiciona CONTINUIDADE
 -- ============================================================
+-- GUARDA: o corpo vivo em producao precisa ser o medido em 30/10/2026,
+-- OU ja ser o corpo desta migration (segunda execucao idempotente).
+-- Se a funcao nao existir, a resolucao do regprocedure aborta aqui.
+DO $guarda$
+DECLARE
+  v_md5 text;
+BEGIN
+  SELECT md5(prosrc) INTO v_md5 FROM pg_proc
+   WHERE oid = 'public.whatsapp_cadencia_checar(uuid,uuid,text)'::regprocedure;
+
+  IF v_md5 IS NULL THEN
+    RAISE EXCEPTION 'whatsapp_cadencia_checar encontrada mas sem prosrc. Reavaliar a migration.'
+      USING ERRCODE = '55000';
+  END IF;
+
+  IF v_md5 NOT IN (
+    'da5cc8a08ccb006e87cc19ff1ff710be',  -- versao pre-migration (producao em 30/10/2026)
+    'bc5252a85384792372f39bb2f86b4065'   -- versao pos-migration (este CREATE OR REPLACE)
+  ) THEN
+    RAISE EXCEPTION 'whatsapp_cadencia_checar mudou em producao (md5 %). Reavaliar a migration.', v_md5
+      USING ERRCODE = '55000';
+  END IF;
+END
+$guarda$;
+
 CREATE OR REPLACE FUNCTION public.whatsapp_cadencia_checar(
   p_canal_id    uuid,
   p_conversa_id uuid,
