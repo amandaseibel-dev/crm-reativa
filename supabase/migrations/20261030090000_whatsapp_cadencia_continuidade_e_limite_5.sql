@@ -5,7 +5,7 @@
 -- O QUE ESTA MIGRATION FAZ, EM ORDEM:
 --
 --   1. whatsapp_config: adiciona `continuidade_janela_horas` (padrao 48).
---      Define janela (em horas) a partir do DIA da NOVA_ABORDAGEM original
+--      Define janela (em horas) a partir do CRIADO_EM da NOVA_ABORDAGEM original
 --      dentro da qual re-envios do mesmo operador para a mesma conversa sao
 --      classificados como CONTINUIDADE (isento de cota).
 --      A janela e ancorada no registro em whatsapp_abordagens -- ela nao se
@@ -32,7 +32,8 @@
 --      Hierarquia de classificacao:
 --        RESPOSTA       — aluno escreveu nas ultimas resposta_janela_horas h (24h)
 --        CONTINUIDADE   — existe abordagem do operador nesta conversa ha no maximo
---                         floor(continuidade_janela_horas / 24) dias (padrao 2 dias)
+--                         continuidade_janela_horas horas, medidas por criado_em
+--                         (padrao 48 h exatas)
 --        NOVA_ABORDAGEM — nenhum dos dois; conta na cota diaria
 --
 --      CONTINUIDADE fica apos SOMENTE_RESPOSTAS e FORA_DA_JANELA: restricoes do
@@ -64,7 +65,7 @@ ALTER TABLE public.whatsapp_config
   CHECK (continuidade_janela_horas >= 0);
 
 COMMENT ON COLUMN public.whatsapp_config.continuidade_janela_horas IS
-  'Janela em horas a partir do dia da NOVA_ABORDAGEM original dentro da qual re-envios do mesmo operador sao CONTINUIDADE (isento de cota). 0 desliga. Convertido para dias inteiros (floor(n/24)) ao consultar whatsapp_abordagens.dia. Padrao 48.';
+  'Janela em horas exatas a partir do criado_em da NOVA_ABORDAGEM original dentro da qual re-envios do mesmo operador sao CONTINUIDADE (isento de cota). 0 desliga. Comparada a whatsapp_abordagens.criado_em (now() - n horas). Padrao 48.';
 
 -- ============================================================
 -- 2 + 3. teto 3 -> 5 e Comercial operador 2 -> 5
@@ -214,17 +215,17 @@ BEGIN
   END IF;
 
   -- CONTINUIDADE: ja existe abordagem registrada para esta conversa e este operador
-  -- dentro de floor(continuidade_janela_horas / 24) dias. Como CONTINUIDADE retorna
-  -- antes do INSERT em whatsapp_abordagens, nenhum envio de continuidade cria novo
-  -- registro -- a janela e ancorada no primeiro contato e nao pode ser renovada por
-  -- envios sucessivos.
+  -- nas ultimas continuidade_janela_horas horas exatas, contadas de criado_em.
+  -- Como CONTINUIDADE retorna antes do INSERT em whatsapp_abordagens, nenhum envio
+  -- de continuidade cria novo registro -- a janela e ancorada no primeiro contato e
+  -- nao pode ser renovada por envios sucessivos.
   IF v_continuidade_h > 0 AND p_conversa_id IS NOT NULL THEN
     v_continuidade := EXISTS (
       SELECT 1 FROM public.whatsapp_abordagens a
       WHERE a.canal_id = p_canal_id
         AND a.conversa_id = p_conversa_id
         AND a.operador_email = lower(p_operador)
-        AND a.dia >= v_hoje - (v_continuidade_h / 24)
+        AND a.criado_em >= now() - make_interval(hours => v_continuidade_h)
     );
     IF v_continuidade THEN RETURN 'CONTINUIDADE'; END IF;
   END IF;
