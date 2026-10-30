@@ -183,6 +183,10 @@ export default function CentralWhatsApp() {
   // enxergariam o estado novo.
   const selecionadaRef = useRef(null);
   useEffect(() => { selecionadaRef.current = selecionada; }, [selecionada]);
+  // Espelho de carregarConversas: mantém o canal Realtime estável mesmo quando
+  // o operador muda filtros ou busca (o que recria a função a cada render).
+  const carregarConversasRef = useRef(null);
+  useEffect(() => { carregarConversasRef.current = carregarConversas; }, [carregarConversas]);
 
   // Email do operador: usado pelo hook de notificações para filtrar alertas.
   useEffect(() => {
@@ -274,7 +278,8 @@ export default function CentralWhatsApp() {
           if (recargaRef.current) clearTimeout(recargaRef.current);
           recargaRef.current = setTimeout(() => {
             recargaRef.current = null;
-            carregarConversas();
+            // Usa ref para não recriar o canal quando filtros mudam.
+            carregarConversasRef.current?.();
           }, 600);
         },
       )
@@ -283,7 +288,10 @@ export default function CentralWhatsApp() {
       if (recargaRef.current) clearTimeout(recargaRef.current);
       supabase.removeChannel(canal);
     };
-  }, [carregarConversas, aoReceberMensagem]);
+  // aoReceberMensagem é estável (useCallback com []).
+  // carregarConversasRef nunca muda, então o canal é criado uma única vez.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aoReceberMensagem]);
 
   useEffect(() => {
     fimDaThreadRef.current?.scrollIntoView({ block: "end" });
