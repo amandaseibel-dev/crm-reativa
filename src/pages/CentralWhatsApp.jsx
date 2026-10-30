@@ -225,6 +225,12 @@ export default function CentralWhatsApp() {
     }
   }, [filtroStatus, filtroCanal, filtroTempo, busca, filtroResponsavel]);
 
+  // Espelho de carregarConversas: declarado APÓS a função para evitar TDZ.
+  // Mantém o canal Realtime estável mesmo quando o operador muda filtros ou
+  // digita na busca (o que recria carregarConversas a cada render).
+  const carregarConversasRef = useRef(null);
+  useEffect(() => { carregarConversasRef.current = carregarConversas; }, [carregarConversas]);
+
   useEffect(() => {
     listarCanais().then(setCanais).catch((e) => setErro(e.message));
     listarOperadores().then(setOperadores).catch(() => {});
@@ -274,7 +280,8 @@ export default function CentralWhatsApp() {
           if (recargaRef.current) clearTimeout(recargaRef.current);
           recargaRef.current = setTimeout(() => {
             recargaRef.current = null;
-            carregarConversas();
+            // Usa ref para não recriar o canal quando filtros mudam.
+            carregarConversasRef.current?.();
           }, 600);
         },
       )
@@ -283,7 +290,10 @@ export default function CentralWhatsApp() {
       if (recargaRef.current) clearTimeout(recargaRef.current);
       supabase.removeChannel(canal);
     };
-  }, [carregarConversas, aoReceberMensagem]);
+  // aoReceberMensagem é estável (useCallback com []).
+  // carregarConversasRef.current atualiza sem recriar o canal.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aoReceberMensagem]);
 
   useEffect(() => {
     fimDaThreadRef.current?.scrollIntoView({ block: "end" });
