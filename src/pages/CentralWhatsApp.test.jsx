@@ -18,9 +18,24 @@ vi.mock("./Aluno", () => ({
 }));
 
 // Realtime: canal inerte. A tela não pode depender dele para renderizar.
-vi.mock("../services/supabase", () => ({
+//
+// `auth`, `from` e `rpc` existem aqui por causa da BARRA DO RECEPTIVO, que
+// mora no topo da fila. Ela é testada onde mora (a fila do receptivo); o que
+// esta suíte precisa é que a Central monte sem a barra explodir. Com fila
+// vazia ela não desenha nada além do próprio espaço.
+vi.mock("../services/supabase", () => {
+  const consultaVazia = {
+    select: () => consultaVazia,
+    eq: () => consultaVazia,
+    in: () => consultaVazia,
+    maybeSingle: async () => ({ data: null, error: null }),
+    then: (resolver) => resolver({ data: [], error: null }),
+  };
+  return {
   supabase: {
     auth: { getUser: async () => ({ data: { user: { email: "teste@reativa.com.br" } }, error: null }) },
+    from: () => consultaVazia,
+    rpc: async () => ({ data: null, error: null }),
     channel: () => ({ on() { return this; }, subscribe() { return this; } }),
     removeChannel: () => {},
     // O anexo pede uma URL assinada na hora de aparecer. Sem isto ele nunca
@@ -35,7 +50,8 @@ vi.mock("../services/supabase", () => ({
       }),
     },
   },
-}));
+  };
+});
 
 const servico = vi.hoisted(() => ({
   canais: [],

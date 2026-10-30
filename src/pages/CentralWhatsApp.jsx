@@ -20,6 +20,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { formatarTelefone, normalizarE164 } from "../utils/telefone";
 import AnexoWhatsApp from "../components/AnexoWhatsApp";
+// A fila do receptivo deitada, no topo da fila de conversas. E o MESMO
+// componente da aba Receptivo da Carteira, so que na variante "barra":
+// quem esta logado, a ordem da vez e o contador do dia saem da mesma
+// fonte e dos mesmos RPCs -- esta tela nao recalcula nem zera nada.
+import FilaReceptivo from "../components/FilaReceptivo";
 import useWhatsAppNotificacoes from "../hooks/useWhatsAppNotificacoes";
 // A ficha COMPLETA, embutida. É o mesmo componente da tela /aluno: aqui ele
 // recebe `fichaEmbedId` e se comporta como conteúdo, não como página — o padrão
@@ -857,6 +862,9 @@ export default function CentralWhatsApp() {
           <button style={S.fecharErro} onClick={() => setErro("")}>×</button>
         </div>
       ) : null}
+
+      {/* ------------- Receptivo: quem esta na vez ------------- */}
+      <FilaReceptivo variante="barra" />
 
       <div style={S.corpo}>
         {/* ---------------- Lista de conversas ---------------- */}
