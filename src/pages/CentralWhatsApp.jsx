@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { formatarTelefone, normalizarE164 } from "../utils/telefone";
 import AnexoWhatsApp from "../components/AnexoWhatsApp";
+import FilaReceptivo from "../components/FilaReceptivo";
 import useWhatsAppNotificacoes from "../hooks/useWhatsAppNotificacoes";
 // A ficha COMPLETA, embutida. É o mesmo componente da tela /aluno: aqui ele
 // recebe `fichaEmbedId` e se comporta como conteúdo, não como página — o padrão
@@ -36,6 +37,7 @@ import {
   TEMPOS_SEM_INTERACAO,
   ROTULO_STATUS,
   assumirConversa,
+  marcarAtendidoReceptivoWhatsApp,
   buscarAluno,
   carregarCandidatos,
   carregarFichaAluno,
@@ -183,6 +185,9 @@ export default function CentralWhatsApp() {
   // enxergariam o estado novo.
   const selecionadaRef = useRef(null);
   useEffect(() => { selecionadaRef.current = selecionada; }, [selecionada]);
+  // Trava síncrona: impede duplo-clique em Assumir (o mesmo padrão usado em
+  // FilaReceptivo para marcarAtendido e alternarPausa).
+  const assumirEmAndamentoRef = useRef(false);
 
   // Email do operador: usado pelo hook de notificações para filtrar alertas.
   useEffect(() => {
@@ -447,6 +452,28 @@ export default function CentralWhatsApp() {
       await carregarConversas();
     } catch (e) {
       setErro(e.message);
+    }
+  }
+
+  // Assumir conversa receptiva também movimenta o operador na fila telefônica.
+  // Receptivo = o aluno nos contactou primeiro: `mensagens[0]` (o mais antigo,
+  // após o reverse de listarMensagens) é ENTRADA. Abordagem ativa = nós
+  // iniciamos (primeiro é SAIDA) → não movimenta a fila.
+  async function assumir() {
+    if (!selecionada || assumirEmAndamentoRef.current) return;
+    assumirEmAndamentoRef.current = true;
+    setErro("");
+    try {
+      await assumirConversa(selecionada.id);
+      const eReceptivo = mensagens.length > 0 && mensagens[0].direcao === "ENTRADA";
+      if (eReceptivo && emailOperador) {
+        await marcarAtendidoReceptivoWhatsApp(emailOperador).catch(() => {});
+      }
+      await carregarConversas();
+    } catch (e) {
+      setErro(e.message);
+    } finally {
+      assumirEmAndamentoRef.current = false;
     }
   }
 
@@ -861,6 +888,10 @@ export default function CentralWhatsApp() {
         </div>
       ) : null}
 
+      {emailOperador ? (
+        <FilaReceptivo usuarioLogado={{ email: emailOperador }} />
+      ) : null}
+
       {erro ? (
         <div style={S.erro}>
           {erro}
@@ -1019,7 +1050,7 @@ export default function CentralWhatsApp() {
                       Retirar responsável
                     </button>
                   ) : (
-                    <button style={S.botaoSec} onClick={() => acao(assumirConversa)}>Assumir</button>
+                    <button style={S.botaoSec} onClick={assumir}>Assumir</button>
                   )}
                   <select
                     style={S.selectAcao}
