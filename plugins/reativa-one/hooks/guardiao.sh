@@ -26,7 +26,7 @@
 # ============================================================================
 set -uo pipefail
 
-VERSAO="1.0.0"
+VERSAO="1.1.0"
 
 # ----------------------------------------------------------------------------
 # saída padrão
@@ -143,6 +143,52 @@ esac
 
 # Daqui para baixo: região guardada. Indeterminado = nega.
 JQ() { printf '%s' "$PAYLOAD" | jq -r "$1" 2>/dev/null; }
+
+# ----------------------------------------------------------------------------
+# M1 — apply_migration: exceção ÚNICA, por registro de aprovação na main.
+#
+# Passa somente se origin/main tiver uma linha do registro
+# docs/seguranca/migracoes-aprovadas.tsv com projeto, nome e SHA-256 integral
+# da query IGUAIS aos da chamada, status "pendente" e expira_em no futuro (UTC).
+# Colunas (separadas por TAB): projeto, nome, sha256, executor, expira_em, status.
+# Qualquer outro caso é negado. A confirmação humana acontece pelo `ask` do
+# .claude/settings.json, a cada chamada.
+#
+# O registro é lido de origin/main, não do checkout: a aprovação só existe depois
+# de revisada e mesclada. Se origin/main estiver desatualizada, a aprovação não é
+# vista e a chamada é negada (fail-closed).
+#
+# O SHA-256 é dos bytes de tool_input.query, sem quebra de linha acrescentada.
+# ----------------------------------------------------------------------------
+aprovar_migracao() {
+  local proj nome q sha agora reg linha
+  proj="$(JQ '.tool_input.project_id // empty')"
+  nome="$(JQ '.tool_input.name // empty')"
+  # `$(...)` apagaria a quebra de linha final do SQL. A sentinela preserva os bytes.
+  q="$(printf '%s' "$PAYLOAD" | jq -j '.tool_input.query // empty' 2>/dev/null; printf x)"
+  q="${q%x}"
+  if [ -z "$proj" ] || [ -z "$nome" ] || [ -z "$q" ]; then
+    negar "M1/migracao-sem-campos" \
+      "apply_migration sem project_id, name ou query legíveis. Indeterminado é negado." \
+      "nenhum: a migração exige projeto, nome e SQL explícitos"
+  fi
+  sha="$(printf '%s' "$q" | shasum -a 256 2>/dev/null | cut -c1-64)"
+  agora="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  reg="$(git show origin/main:docs/seguranca/migracoes-aprovadas.tsv 2>/dev/null)" || reg=""
+  if [ -z "$reg" ]; then
+    negar "M1/registro-indisponivel" \
+      "Registro de aprovações de migração não lido de origin/main." \
+      "publicar o registro na main por PR revisada, e atualizar origin/main"
+  fi
+  linha="$(printf '%s\n' "$reg" | awk -F'\t' -v p="$proj" -v n="$nome" -v s="$sha" -v a="$agora" \
+    '$1==p && $2==n && $3==s && $6=="pendente" && $5>a {print; exit}')"
+  if [ -z "$linha" ]; then
+    negar "M1/sem-aprovacao" \
+      "apply_migration ($nome, projeto $proj, SHA-256 $sha) sem aprovação pendente e válida em origin/main." \
+      "aprovação registrada e mesclada na main, dentro da validade e ainda não aplicada"
+  fi
+  return 0
+}
 if ! printf '%s' "$PAYLOAD" | jq -e . >/dev/null 2>&1; then
   negar "json-ilegivel" \
     "A carga desta chamada não é JSON válido e a ferramenta ($TOOL) é guardada." \
@@ -573,7 +619,11 @@ case "$TOOL" in
     SUF="${TOOL##*__}"
 
     case "$SUF" in
-      apply_migration|deploy_edge_function|pause_project|restore_project|create_project|\
+      apply_migration)
+        # Única exceção de M1: passa só com aprovação válida no registro da main.
+        # O ask do settings.json continua exigindo confirmação humana na hora.
+        aprovar_migracao ;;
+      deploy_edge_function|pause_project|restore_project|create_project|\
 create_branch|delete_branch|merge_branch|reset_branch|rebase_branch|confirm_cost)
         negar "M1/banco-producao" \
           "$TOOL escreve ou reconfigura o projeto Supabase. O projeto ligado a este checkout é a PRODUÇÃO (ahattpqrjmhkzsmnbdzs)." \

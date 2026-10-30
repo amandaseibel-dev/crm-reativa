@@ -95,6 +95,33 @@ Não acompanham a autorização de aplicar, a menos que ela diga: backfill, reso
 congelamentos, liberação manual de alunos, alteração de cadastro ou qualquer outra
 migration.
 
+### Exceção de `apply_migration` por registro de aprovação
+
+Alterações no Guardião e nas permissões protegidas ocorrem **só por PR específica**,
+baseada na `origin/main` atual, com revisão e aprovação humana.
+
+O hook (M1, `plugins/reativa-one/hooks/guardiao.sh`) libera `apply_migration` somente se:
+
+1. `project_id`, `name` e o SHA-256 integral do `query` forem iguais aos de uma
+   linha de `docs/seguranca/migracoes-aprovadas.tsv`, lido de `origin/main`;
+2. o `status` dessa linha for `pendente` e o `expira_em` estiver no futuro (UTC);
+3. a pessoa confirmar a chamada pelo `ask` do `.claude/settings.json`.
+
+Colunas do registro, separadas por TAB: `projeto`, `nome`, `sha256`, `executor`,
+`expira_em`, `status`.
+
+- **Aprovar:** linha nova com `status=pendente`, validade de 30 minutos, executor
+  nominal, publicada na `origin/main` por PR revisada.
+- **Depois da aplicação:** PR que muda o `status` para `aplicada`.
+- **Bloqueado:** migration `aplicada`, expirada, ausente do registro ou com SQL
+  diferente do aprovado.
+
+Continuam bloqueados: `db push`, `db reset`, `migration repair`, `migration up`,
+deploy, merge, `execute_sql` com escrita sem rollback e as demais ferramentas de M1.
+
+A versão gerada pelo servidor é registrada, com a correspondência para o nome do
+arquivo, na PR que muda o `status` para `aplicada`.
+
 ## 7. Registro da versão efetivamente aplicada no ledger
 
 Registre no ledger a versão **que o banco gravou**, não a que o arquivo pretendia. A
