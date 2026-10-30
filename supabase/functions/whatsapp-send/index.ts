@@ -71,6 +71,7 @@ const MOTIVOS_DE_BLOQUEIO = new Set([
   "MODO_PAUSADO",
   "MODO_SOMENTE_RESPOSTAS",
   "FORA_DA_JANELA",
+  "INTERVALO_MINIMO",
   "LIMITE_OPERADOR",
   "LIMITE_CANAL",
 ]);
@@ -150,13 +151,16 @@ Deno.serve(async (req) => {
     if (motivo && MOTIVOS_DE_BLOQUEIO.has(motivo)) {
       // Falhar o log NÃO pode transformar um bloqueio em erro diferente para o
       // operador: o que importa é que a mensagem não saiu.
-      await comoOperador
-        .rpc("whatsapp_cadencia_registrar_bloqueio", {
+      // ATENÇÃO: .rpc() devolve PostgrestFilterBuilder, não Promise — não encadear .catch().
+      const { error: erroLog } = await comoOperador.rpc(
+        "whatsapp_cadencia_registrar_bloqueio",
+        {
           p_canal_id: corpo.canal_id ?? null,
           p_conversa_id: corpo.conversa_id ?? null,
           p_motivo: motivo,
-        })
-        .catch(() => {});
+        },
+      );
+      if (erroLog) console.error("[cadencia] falha ao registrar bloqueio:", erroLog.code);
     }
     return jsonResp({ erro: erroPreparo.message }, 403);
   }
