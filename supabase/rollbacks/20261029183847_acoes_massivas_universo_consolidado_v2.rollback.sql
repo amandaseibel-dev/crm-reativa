@@ -1,9 +1,3 @@
--- =============================================================================
--- ROLLBACK — recuperacao_acoes_massivas_universo
--- Restaura o estado exato de #775 (producao ao vivo antes desta migration).
--- MD5 da definicao apos aplicar: 88ec923f40294febcd4376491102b37d
--- Validado por T6 da suite consolidado_t.mjs (31/31 testes, sessão e854d0a5).
--- =============================================================================
 CREATE OR REPLACE FUNCTION public.acoes_massivas_universo(p_filtros jsonb DEFAULT '{}'::jsonb)
  RETURNS TABLE(aluno_id uuid, anos integer[], responsavel_email text, valor numeric, ultimo_acionamento timestamp with time zone, ultimo_massivo timestamp with time zone, acionado_mes boolean, acionado_hoje boolean, nunca_acionado boolean, tem_mensalidade boolean, tem_acordo_vencido boolean, fidelizacao_ativa boolean, tem_telefone boolean, tem_email boolean, disponivel boolean, motivo text, motivo_sem_tipo text)
  LANGUAGE plpgsql
@@ -80,6 +74,8 @@ begin
     select t.aluno_id, t.tem_mensalidade, t.tem_acordo_vencido
       from public.acoes_massivas_tipo_cobranca_alunos(v_ids) t
   ),
+  -- BASE: quem tem divida ativa; o ano e o do vencimento do titulo em aberto
+  -- (ou da parcela vencida de acordo ativo).
   tit as materialized (
     select t.aluno_id, extract(year from t.vencimento)::int as ano
       from public.acordos_titulos t
