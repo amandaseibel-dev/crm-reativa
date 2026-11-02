@@ -18,6 +18,7 @@ vi.stubEnv("VITE_SUPABASE_URL", "http://localhost:54321");
 const fetchMock = vi.fn();
 
 beforeEach(() => {
+  fetchMock.mockClear();
   vi.stubGlobal("fetch", fetchMock);
   sessionStorage.clear();
 });
