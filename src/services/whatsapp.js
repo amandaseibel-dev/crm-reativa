@@ -198,8 +198,13 @@ export async function assumirConversa(conversaId) {
   if (error) throw new Error(error.message);
 }
 
-export async function marcarAtendidoReceptivoWhatsApp(email) {
-  const { error } = await supabase.rpc("fila_receptivo_marcar_atendido", { p_email: email });
+export async function marcarAtendidoReceptivoWhatsApp(email, conversaId = null) {
+  const params = { p_email: email };
+  if (conversaId) {
+    params.p_conversa_id = conversaId;
+    params.p_canal = "WHATSAPP";
+  }
+  const { error } = await supabase.rpc("fila_receptivo_marcar_atendido", params);
   if (error) throw new Error(error.message);
 }
 
