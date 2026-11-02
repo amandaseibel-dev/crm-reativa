@@ -40,16 +40,27 @@ vi.mock("../components/ErrorBoundaryProjecao", () => ({ default: ({ children }) 
 
 import ProjecaoHoraHora from "./ProjecaoHoraHora";
 
-// metas_projecao, por mês. Valores do banco de produção em 02/10.
+// Meses relativos: o componente abre no mês corrente de new Date().
+// Fixar em "2026-10" quebra o teste quando o mês avança.
+function mesISO(offsetMeses = 0) {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + offsetMeses);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+const MES_ATUAL    = mesISO(0);   // mês que o componente abre por padrão
+const MES_ANTERIOR = mesISO(-1);  // usado nos testes de troca de mês
+
+// metas_projecao, por mês. Valores baseados nos dados de produção de 02/10.
 const TABELA = {
-  "2026-10": {
-    mes_referencia: "2026-10",
+  [MES_ATUAL]: {
+    mes_referencia: MES_ATUAL,
     meta_operacional: 112400, meta_unidades: 10000, meta_honorario: 122400,
     m1_valor: 0.01, m1_percentual: 4, m2_valor: 14050.01, m2_percentual: 8,
     m3_valor: 20232.01, m3_percentual: 9, m4_valor: 25290.01, m4_percentual: 9.5,
   },
-  "2026-09": {
-    mes_referencia: "2026-09",
+  [MES_ANTERIOR]: {
+    mes_referencia: MES_ANTERIOR,
     meta_operacional: 98000, meta_unidades: 9000, meta_honorario: 100000,
     m1_valor: 0.01, m1_percentual: 4, m2_valor: 38000.01, m2_percentual: 8,
     m3_valor: 45000.01, m3_percentual: 9, m4_valor: 50000.01, m4_percentual: 9.5,
@@ -142,9 +153,9 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("Configurações > meta: fonte é metas_projecao, não o snapshot", () => {
-  it("1. ao abrir outubro/2026 mostra os valores da tabela, não os zeros do snapshot", async () => {
+  it("1. ao abrir o mês atual mostra os valores da tabela, não os zeros do snapshot", async () => {
     await abrirConfiguracoes();
-    await waitFor(() => expect(chamadasMeta).toContain("2026-10"));
+    await waitFor(() => expect(chamadasMeta).toContain(MES_ATUAL));
     await waitFor(() => expect(valorDoCampo("Meta Operacional (R$)")).toBe("112400"));
     expect(valorDoCampo("Meta de honorário (R$)")).toBe("122400");
     // o snapshot zerado foi lido (alimenta os calculados) e NÃO venceu
@@ -195,10 +206,10 @@ describe("Configurações > meta: fonte é metas_projecao, não o snapshot", () 
     // gravou com o valor novo
     const chamada = rpcMock.mock.calls.filter(([n]) => n === "projecao_definir_meta").at(-1)[1];
     expect(chamada.p_meta_operacional).toBe(125000);
-    expect(chamada.p_mes_referencia).toBe("2026-10");
+    expect(chamada.p_mes_referencia).toBe(MES_ATUAL);
     // e a tela releu metas_projecao, não o snapshot
     await waitFor(() => expect(valorDoCampo("Meta Operacional (R$)")).toBe("125000"));
-    expect(tabela["2026-10"].meta_operacional).toBe(125000);
+    expect(tabela[MES_ATUAL].meta_operacional).toBe(125000);
 
     // reabrir (remontar) continua mostrando o salvo
     cleanup();
@@ -224,29 +235,29 @@ describe("Configurações > meta: troca de mês e corrida", () => {
   it("trocar de mês carrega a meta do novo mes_referencia", async () => {
     await abrirConfiguracoes();
     await waitFor(() => expect(valorDoCampo("Meta Operacional (R$)")).toBe("112400"));
-    await trocarMes("2026-09");
+    await trocarMes(MES_ANTERIOR);
     await waitFor(() => expect(valorDoCampo("Meta Operacional (R$)")).toBe("98000"));
-    expect(chamadasMeta).toContain("2026-09");
+    expect(chamadasMeta).toContain(MES_ANTERIOR);
   });
 
   it("resposta lenta de um mês abandonado não pinta o formulário do mês atual", async () => {
-    // outubro demora 80ms; setembro responde na hora. Troca-se antes da volta.
-    atrasoPorMes["2026-10"] = 80;
+    // mês atual demora 80ms; mês anterior responde na hora. Troca-se antes da volta.
+    atrasoPorMes[MES_ATUAL] = 80;
     await abrirConfiguracoes();
-    await trocarMes("2026-09");
+    await trocarMes(MES_ANTERIOR);
     await waitFor(() => expect(valorDoCampo("Meta Operacional (R$)")).toBe("98000"));
-    // a resposta atrasada de outubro chega agora e deve ser descartada
+    // a resposta atrasada do mês atual chega agora e deve ser descartada
     await act(async () => { await new Promise((r) => setTimeout(r, 150)); });
     expect(valorDoCampo("Meta Operacional (R$)")).toBe("98000");
-    expect(document.querySelector('input[type="month"]').value).toBe("2026-09");
+    expect(document.querySelector('input[type="month"]').value).toBe(MES_ANTERIOR);
   });
 });
 
 describe("Configurações > meta: bordas", () => {
   it("mês sem linha em metas_projecao abre zerado, sem erro", async () => {
-    delete tabela["2026-10"];
+    delete tabela[MES_ATUAL];
     await abrirConfiguracoes();
-    await waitFor(() => expect(chamadasMeta).toContain("2026-10"));
+    await waitFor(() => expect(chamadasMeta).toContain(MES_ATUAL));
     await waitFor(() => expect(valorDoCampo("Meta Operacional (R$)")).toBe(""));
     expect(document.body.textContent).not.toMatch(/Não foi possível ler a meta/);
   });
