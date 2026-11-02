@@ -171,6 +171,7 @@ export default function CentralWhatsApp() {
   const [anexo, setAnexo] = useState(null); // { nome, estado: ENVIANDO|ENVIADO|ERRO, erro }
   const seletorArquivoRef = useRef(null);
   const [erro, setErro] = useState("");
+  const [avisoFila, setAvisoFila] = useState(null);
   const [prefsAberto, setPrefsAberto] = useState(false);
 
   // Relógio de 1 min só para os contadores de espera reescreverem sozinhos.
@@ -456,18 +457,22 @@ export default function CentralWhatsApp() {
   }
 
   // Assumir conversa receptiva também movimenta o operador na fila telefônica.
-  // Receptivo = o aluno nos contactou primeiro: `mensagens[0]` (o mais antigo,
-  // após o reverse de listarMensagens) é ENTRADA. Abordagem ativa = nós
-  // iniciamos (primeiro é SAIDA) → não movimenta a fila.
+  // Receptivo = aguardando_resposta derivado por trigger no banco a partir da
+  // última mensagem real — ignora SYNC_INICIAL e reordenação de histórico.
   async function assumir() {
     if (!selecionada || assumirEmAndamentoRef.current) return;
     assumirEmAndamentoRef.current = true;
     setErro("");
+    setAvisoFila(null);
     try {
       await assumirConversa(selecionada.id);
-      const eReceptivo = mensagens.length > 0 && mensagens[0].direcao === "ENTRADA";
-      if (eReceptivo && emailOperador) {
-        await marcarAtendidoReceptivoWhatsApp(emailOperador).catch(() => {});
+      if (selecionada.aguardando_resposta && emailOperador) {
+        try {
+          await marcarAtendidoReceptivoWhatsApp(emailOperador, selecionada.id);
+        } catch (eFila) {
+          console.warn("[fila-receptivo]", eFila.message);
+          setAvisoFila("Atendimento registrado, mas posição na fila não foi atualizada. Avisar gestão se persistir.");
+        }
       }
       await carregarConversas();
     } catch (e) {
@@ -890,6 +895,13 @@ export default function CentralWhatsApp() {
 
       {emailOperador ? (
         <FilaReceptivo usuarioLogado={{ email: emailOperador }} />
+      ) : null}
+
+      {avisoFila ? (
+        <div style={S.avisoFila}>
+          {avisoFila}
+          <button style={S.fecharErro} onClick={() => setAvisoFila(null)}>×</button>
+        </div>
       ) : null}
 
       {erro ? (
@@ -1937,6 +1949,11 @@ const S = {
     background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", color: "var(--rv-vermelho-texto)", fontSize: 13,
   },
   fecharErro: { border: "none", background: "transparent", cursor: "pointer", fontSize: 18, color: "var(--rv-vermelho-texto)" },
+  avisoFila: {
+    display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8,
+    padding: "9px 12px", marginBottom: 12, borderRadius: 8,
+    background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)", fontSize: 13,
+  },
 
   // ---- corpo ----
   corpo: { display: "grid", gridTemplateColumns: "minmax(300px, 380px) 1fr", gap: 14, alignItems: "start" },

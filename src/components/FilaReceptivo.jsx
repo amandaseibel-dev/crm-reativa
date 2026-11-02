@@ -27,6 +27,11 @@ export default function FilaReceptivo({ usuarioLogado }) {
 
   const email = usuarioLogado?.email || "";
   const ehParticipante = operadoresReceptivo.includes(email);
+  // Perfis autorizados a registrar atendimento em nome de outro operador.
+  // Espelha usuario_e_gestao_fila() no banco: gerencia, supervisor, administrativo
+  // + allowlist de gestão (cobranca04, cobranca07 têm perfis equivalentes).
+  const PERFIS_PROXY = ["gerencia", "supervisor", "administrativo"];
+  const podeMarcarPorOutros = PERFIS_PROXY.includes(usuarioLogado?.perfil);
 
   async function buscarFila() {
     const { data: usuariosReceptivos } = await supabase
@@ -99,11 +104,16 @@ export default function FilaReceptivo({ usuarioLogado }) {
   }, [linhas, operadoresReceptivo]);
 
   // Marca um atendimento. Sem argumento, marca o próprio operador logado.
-  // Com um e-mail (botão na linha), marca aquele operador — útil quando quem
-  // atendeu não foi quem estava na vez, ou pra a gestão registrar por eles.
+  // Com um e-mail (botão na linha), marca aquele operador — permitido apenas
+  // para gestão/supervisão (podeMarcarPorOutros); o botão não aparece para
+  // operadores comuns na linha alheia.
   async function marcarAtendido(alvoEmail) {
     const alvo = alvoEmail || email;
     if (!alvo || emAcaoRef.current) return;
+    // Guard de autorização: operador só marca o próprio atendimento.
+    // Espelha usuario_e_gestao_fila() no banco — a rejeição real vem do banco,
+    // esta verificação é defesa em profundidade na interface.
+    if (alvo !== email && !podeMarcarPorOutros) return;
     emAcaoRef.current = true;
     setMarcando(true);
     try {
@@ -218,15 +228,17 @@ export default function FilaReceptivo({ usuarioLogado }) {
                 {eu ? " (você)" : ""}
               </span>
               <span style={estilos.contador}>{linha.atendimentos_hoje} hoje</span>
-              <button
-                type="button"
-                onClick={() => marcarAtendido(linha.email)}
-                disabled={marcando}
-                style={estilos.botaoMarcarLinha}
-                title={`Marcar um atendimento para ${nomeExibicao(linha)}`}
-              >
-                ✅ Marcar
-              </button>
+              {(eu || podeMarcarPorOutros) && (
+                <button
+                  type="button"
+                  onClick={() => marcarAtendido(linha.email)}
+                  disabled={marcando}
+                  style={estilos.botaoMarcarLinha}
+                  title={`Marcar um atendimento para ${nomeExibicao(linha)}`}
+                >
+                  ✅ Marcar
+                </button>
+              )}
             </div>
           );
         })}
