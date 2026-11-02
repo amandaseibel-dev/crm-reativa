@@ -412,8 +412,217 @@ const casos = [
 ];
 
 // ---------------------------------------------------------------------------
+// T01-T20: FASE 2 DE BANCO — VIA TSV (origin/main).
+//
+// A via 2 lê `git show origin/main:docs/seguranca/fase2-banco-aprovadas.tsv`
+// do repositório onde o arquivo alvo está. Para testar sem tocar produção,
+// criamos um repositório descartável com um remote "origin" cujo main tem o
+// TSV. Nenhum dos worktrees dos casos T01-T20 é do repositório real.
+//
+// Estrutura:
+//   tsvBase     — repositório "bare" que faz papel de origin
+//   tsvLocal    — clone de tsvBase; tem o main com o TSV; é de onde os
+//                 worktrees descartáveis para os testes são criados
+//   tsvWT       — worktree vinculado a tsvLocal, no branch BR_TSV
+// ---------------------------------------------------------------------------
+function dataFutura(horasAFrente = 2) {
+  const d = new Date(Date.now() + horasAFrente * 3_600_000);
+  return d.toISOString().replace(/\.\d+Z$/, "Z");
+}
+function dataPassada(horasAtras = 1) {
+  const d = new Date(Date.now() - horasAtras * 3_600_000);
+  return d.toISOString().replace(/\.\d+Z$/, "Z");
+}
+
+const TSV_HEADER = "worktree_raiz\tbranch\tautorizado_por\texpira_em\tstatus\n";
+
+// cria repositório base para os testes TSV
+const tsvBase = mkdtempSync(join(tmpdir(), "guardiao-tsv-bare-"));
+temporarios.push(tsvBase);
+execFileSync("git", ["init", "--bare", "-q", tsvBase], { stdio: "ignore" });
+
+const tsvLocal = mkdtempSync(join(tmpdir(), "guardiao-tsv-local-"));
+temporarios.push(tsvLocal);
+const gitTsv = (...a) =>
+  execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...a], {
+    cwd: tsvLocal, stdio: "ignore",
+  });
+gitTsv("init", "-q", "-b", "main");
+gitTsv("remote", "add", "origin", tsvBase);
+mkdirSync(join(tsvLocal, "docs", "seguranca"), { recursive: true });
+writeFileSync(join(tsvLocal, "docs", "seguranca", "fase2-banco-aprovadas.tsv"), TSV_HEADER);
+gitTsv("add", "docs/seguranca/fase2-banco-aprovadas.tsv");
+gitTsv("commit", "-q", "-m", "base");
+gitTsv("push", "-q", "origin", "main");
+
+const BR_TSV = "feat/tsv-teste";
+const tsvWT = join(tmpdir(), `guardiao-tsv-wt-${Math.random().toString(36).slice(2, 8)}`);
+temporarios.push(tsvWT);
+gitTsv("worktree", "add", "-q", "-b", BR_TSV, tsvWT);
+mkdirSync(join(tsvWT, "supabase", "migrations"), { recursive: true });
+
+// Função auxiliar: publica novo conteúdo do TSV em origin/main do repositório
+// de teste, sem tocar produção.
+function publicarTsv(conteudo) {
+  writeFileSync(join(tsvLocal, "docs", "seguranca", "fase2-banco-aprovadas.tsv"), conteudo);
+  gitTsv("add", "docs/seguranca/fase2-banco-aprovadas.tsv");
+  gitTsv("commit", "-q", "--allow-empty", "-m", "tsv-teste");
+  gitTsv("push", "-q", "origin", "main");
+}
+
+function linhaValida(raiz, branch, expira) {
+  return `${raiz}\t${branch}\tamanda.seibel@aelbra.com.br\t${expira}\tpendente\n`;
+}
+
+// raiz REAL do worktree (resolve link simbólico, como o hook faz)
+const tsvWTReal = execFileSync("bash", ["-c", `cd "${tsvWT}" && pwd -P`], { encoding: "utf8" }).trim();
+
+// Worktrees extras para T10 e T15 (criados uma vez, usados nos setups).
+const tsvWTmain = join(tmpdir(), `guardiao-tsv-wt-main-${Math.random().toString(36).slice(2, 8)}`);
+temporarios.push(tsvWTmain);
+gitTsv("worktree", "add", "-q", "-b", "feat/wt-main-teste", tsvWTmain);
+mkdirSync(join(tsvWTmain, "supabase", "migrations"), { recursive: true });
+
+const tsvWT2 = join(tmpdir(), `guardiao-tsv-wt2-${Math.random().toString(36).slice(2, 8)}`);
+temporarios.push(tsvWT2);
+gitTsv("worktree", "add", "-q", "-b", "feat/tsv-irmao", tsvWT2);
+mkdirSync(join(tsvWT2, "supabase", "migrations"), { recursive: true });
+
+const tsvLocalReal = execFileSync("bash", ["-c", `cd "${tsvLocal}" && pwd -P`], { encoding: "utf8" }).trim();
+mkdirSync(join(tsvLocal, "supabase", "migrations"), { recursive: true });
+
+// Os casos TSV usam o 7º campo `setup` — uma função chamada pelo runner
+// IMEDIATAMENTE antes de `chamar()`, garantindo que origin/main está com
+// o conteúdo correto no momento de cada teste.
+const casosTsv = [
+  // T01 — caso positivo: linha válida, worktree e branch corretos.
+  ["T01", "PASSA", "TSV via 2: linha válida — Write de migration no worktree e branch autorizados",
+    arquivo("Write", join(tsvWT, "supabase", "migrations", "20261102000000_x.sql"), tsvWT),
+    undefined, undefined,
+    () => publicarTsv(TSV_HEADER + linhaValida(tsvWTReal, BR_TSV, dataFutura(2)))],
+
+  // T02 — variável de ambiente VAZIA + TSV válido → deve usar a via 2.
+  // Reutiliza o mesmo TSV do T01 (setup não é necessário).
+  ["T02", "PASSA", "TSV via 2: env vazia, TSV válido — usa a via 2",
+    arquivo("Write", join(tsvWT, "supabase", "migrations", "20261102000000_x.sql"), tsvWT),
+    { REATIVA_FASE2_BANCO: "" }],
+
+  // T03 — TSV expirado.
+  ["T03", "NEGA", "TSV via 2: registro expirado",
+    arquivo("Write", join(tsvWT, "supabase", "migrations", "20261102000000_x.sql"), tsvWT),
+    undefined, undefined,
+    () => publicarTsv(TSV_HEADER + linhaValida(tsvWTReal, BR_TSV, dataPassada(1)))],
+
+  // T04 — status diferente de pendente.
+  ["T04", "NEGA", "TSV via 2: status 'usado' é rejeitado",
+    arquivo("Write", join(tsvWT, "supabase", "migrations", "20261102000000_x.sql"), tsvWT),
+    undefined, undefined,
+    () => publicarTsv(TSV_HEADER + `${tsvWTReal}\t${BR_TSV}\tamanda.seibel@aelbra.com.br\t${dataFutura(2)}\tusado\n`)],
+
+  // T05 — branch no TSV diferente da branch real.
+  ["T05", "NEGA", "TSV via 2: branch no registro diferente da branch do worktree",
+    arquivo("Write", join(tsvWT, "supabase", "migrations", "20261102000000_x.sql"), tsvWT),
+    undefined, undefined,
+    () => publicarTsv(TSV_HEADER + linhaValida(tsvWTReal, "feat/outra-branch", dataFutura(2)))],
+
+  // T06 — worktree_raiz diferente da raiz real.
+  ["T06", "NEGA", "TSV via 2: worktree_raiz no registro aponta para outro repositório",
+    arquivo("Write", join(tsvWT, "supabase", "migrations", "20261102000000_x.sql"), tsvWT),
+    undefined, undefined,
+    () => publicarTsv(TSV_HEADER + linhaValida(tsvLocal, BR_TSV, dataFutura(2)))],
+
+  // T07 — TSV vazio (só cabeçalho).
+  ["T07", "NEGA", "TSV via 2: arquivo sem linhas de autorização",
+    arquivo("Write", join(tsvWT, "supabase", "migrations", "20261102000000_x.sql"), tsvWT),
+    undefined, undefined,
+    () => publicarTsv(TSV_HEADER)],
+
+  // T08 — duplicata (duas linhas pendentes para o mesmo worktree+branch).
+  ["T08", "NEGA", "TSV via 2: duplicata (dois registros pendentes para o mesmo worktree+branch)",
+    arquivo("Write", join(tsvWT, "supabase", "migrations", "20261102000000_x.sql"), tsvWT),
+    undefined, undefined,
+    () => publicarTsv(
+      TSV_HEADER +
+      linhaValida(tsvWTReal, BR_TSV, dataFutura(1)) +
+      linhaValida(tsvWTReal, BR_TSV, dataFutura(2)),
+    )],
+
+  // T09 — expira_em excede 4 horas.
+  ["T09", "NEGA", "TSV via 2: expira_em excede 4 horas",
+    arquivo("Write", join(tsvWT, "supabase", "migrations", "20261102000000_x.sql"), tsvWT),
+    undefined, undefined,
+    () => publicarTsv(TSV_HEADER + linhaValida(tsvWTReal, BR_TSV, dataFutura(5)))],
+
+  // T10 — branch 'main' no registro.
+  // O worktree `tsvWT` tem branch BR_TSV (não main), mas o registro diz "main".
+  ["T10", "NEGA", "TSV via 2: branch 'main' no registro é rejeitado",
+    arquivo("Write", join(tsvWT, "supabase", "migrations", "20261102000000_x.sql"), tsvWT),
+    undefined, undefined,
+    () => publicarTsv(TSV_HEADER + linhaValida(tsvWTReal, "main", dataFutura(2)))],
+
+  // T11 — M1 continua bloqueando apply_migration mesmo com TSV válido.
+  ["T11", "NEGA", "TSV via 2 aberta: apply_migration segue bloqueado por M1",
+    mcp("mcp__3e1f85b1-8c91-4d44-b207-0f452630cdc0__apply_migration", { name: "x", query: "select 1" }),
+    undefined, undefined,
+    () => publicarTsv(TSV_HEADER + linhaValida(tsvWTReal, BR_TSV, dataFutura(2)))],
+
+  // T12 — shell (R5) segue bloqueado mesmo com TSV válido.
+  ["T12", "NEGA", "TSV via 2 aberta: escrita por shell em migrations segue bloqueada (R5)",
+    bash(`echo x > ${join(tsvWT, "supabase", "migrations", "x.sql")}`, tsvWT)],
+
+  // T13 — Write em settings.json segue bloqueado (P2).
+  ["T13", "NEGA", "TSV via 2 aberta: Write em settings.json segue bloqueado (P2)",
+    arquivo("Write", join(RAIZ, ".claude", "settings.json"), tsvWT)],
+
+  // T14 — Write em settings.local.json segue bloqueado (P2).
+  ["T14", "NEGA", "TSV via 2 aberta: Write em settings.local.json segue bloqueado (P2)",
+    arquivo("Write", join(RAIZ, ".claude", "settings.local.json"), tsvWT)],
+
+  // T15 — Write em worktree irmão, não no worktree autorizado.
+  ["T15", "NEGA", "TSV via 2: arquivo alvo em worktree irmão, não no worktree autorizado",
+    arquivo("Write", join(tsvWT2, "supabase", "migrations", "20261102000000_x.sql"), tsvWT2),
+    undefined, undefined,
+    () => publicarTsv(TSV_HEADER + linhaValida(tsvWTReal, BR_TSV, dataFutura(2)))],
+
+  // T16 — checkout principal: gd = gcd, portão P3 falha mesmo com registro válido.
+  ["T16", "NEGA", "TSV via 2: checkout principal não é liberado mesmo com registro válido",
+    arquivo("Write", join(tsvLocal, "supabase", "migrations", "20261102000000_x.sql"), tsvLocal),
+    undefined, undefined,
+    () => publicarTsv(TSV_HEADER + linhaValida(tsvLocalReal, "main", dataFutura(2)))],
+
+  // T17 — Tentativa de autoautorização: agente escreve o TSV na branch de trabalho.
+  // O hook NÃO bloqueia esse Write — docs/seguranca/ não é protegida por P1/P2/P3.
+  // A segurança vem de R3/R4 (merge bloqueado), não de impedir a escrita local.
+  ["T17", "PASSA", "autoautorização impossível: agente escreve o TSV na branch (não em origin/main — merge é o portão, não a escrita)",
+    arquivo("Write", join(tsvWT, "docs", "seguranca", "fase2-banco-aprovadas.tsv"), tsvWT),
+    undefined, undefined,
+    () => publicarTsv(TSV_HEADER)],
+
+  // T18 — campo expira_em vazio.
+  ["T18", "NEGA", "TSV via 2: campo expira_em vazio",
+    arquivo("Write", join(tsvWT, "supabase", "migrations", "20261102000000_x.sql"), tsvWT),
+    undefined, undefined,
+    () => publicarTsv(TSV_HEADER + `${tsvWTReal}\t${BR_TSV}\tamanda.seibel@aelbra.com.br\t\tpendente\n`)],
+
+  // T19 — linha malformada (só 2 campos).
+  ["T19", "NEGA", "TSV via 2: linha malformada (menos colunas que o esperado)",
+    arquivo("Write", join(tsvWT, "supabase", "migrations", "20261102000000_x.sql"), tsvWT),
+    undefined, undefined,
+    () => publicarTsv(TSV_HEADER + `${tsvWTReal}\t${BR_TSV}\n`)],
+
+  // T20 — positivo final: Edit (não só Write) é liberado.
+  ["T20", "PASSA", "TSV via 2: Edit de migration no worktree e branch autorizados",
+    arquivo("Edit", join(tsvWT, "supabase", "migrations", "20261102000000_x.sql"), tsvWT),
+    undefined, undefined,
+    () => publicarTsv(TSV_HEADER + linhaValida(tsvWTReal, BR_TSV, dataFutura(2)))],
+];
+
+for (const caso of casosTsv) casos.push(caso);
+
+// ---------------------------------------------------------------------------
 const resultados = [];
-for (const [id, esperado, descricao, payload, env, cwdProc] of casos) {
+for (const [id, esperado, descricao, payload, env, cwdProc, setup] of casos) {
+  if (typeof setup === "function") setup();
   const r = chamar(payload, env, cwdProc);
   const obtido = r.code === 2 ? "NEGA" : r.code === 0 ? "PASSA" : `ERRO(${r.code})`;
   const regra = (r.motivo.match(/\[([^\]]+)\]/) || [, ""])[1];
