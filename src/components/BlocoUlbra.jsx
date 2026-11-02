@@ -9,9 +9,9 @@ export default function BlocoUlbra({ aluno }) {
     if (!aluno?.id) return;
 
     let cancelado = false;
-    setEstado("carregando");
 
     const consultar = async () => {
+      if (!cancelado) setEstado("carregando");
       try {
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token;

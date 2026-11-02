@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import BlocoUlbra from "./BlocoUlbra";
 
@@ -12,14 +12,20 @@ vi.mock("../services/supabase", () => ({
 const VITE_URL = "http://localhost:54321";
 vi.stubEnv("VITE_SUPABASE_URL", VITE_URL);
 
+const fetchMock = vi.fn();
+
 beforeEach(() => {
   vi.clearAllMocks();
-  global.fetch = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe("BlocoUlbra", () => {
   it("renderiza link quando status é vinculado", async () => {
-    global.fetch.mockResolvedValueOnce({
+    fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         status: "vinculado",
@@ -37,7 +43,7 @@ describe("BlocoUlbra", () => {
   });
 
   it("exibe mensagem de múltiplos cadastros quando status é ambiguo", async () => {
-    global.fetch.mockResolvedValueOnce({
+    fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ status: "ambiguo" }),
     });
@@ -49,7 +55,7 @@ describe("BlocoUlbra", () => {
   });
 
   it("exibe motivo SEM_TELEFONE quando aluno não tem telefone", async () => {
-    global.fetch.mockResolvedValueOnce({
+    fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ status: "nao_encontrado", motivo: "SEM_TELEFONE" }),
     });
@@ -61,7 +67,7 @@ describe("BlocoUlbra", () => {
   });
 
   it("retorna null em caso de erro de rede", async () => {
-    global.fetch.mockRejectedValueOnce(new Error("network error"));
+    fetchMock.mockRejectedValueOnce(new Error("network error"));
 
     const { container } = render(<BlocoUlbra aluno={{ id: "aluno-4" }} />);
     await waitFor(() => {
@@ -71,19 +77,19 @@ describe("BlocoUlbra", () => {
 
   it("não chama fetch quando aluno_id é null", () => {
     render(<BlocoUlbra aluno={null} />);
-    expect(global.fetch).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("envia aluno_id e Authorization corretos na requisição", async () => {
-    global.fetch.mockResolvedValueOnce({
+    fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ status: "nao_encontrado", motivo: "NAO_ENCONTRADO" }),
     });
 
     render(<BlocoUlbra aluno={{ id: "aluno-xyz" }} />);
-    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
-    const [url, opts] = global.fetch.mock.calls[0];
+    const [url, opts] = fetchMock.mock.calls[0];
     expect(url).toContain("/ulbra-consultar");
     const body = JSON.parse(opts.body);
     expect(body.aluno_id).toBe("aluno-xyz");

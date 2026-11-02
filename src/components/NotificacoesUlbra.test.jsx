@@ -15,9 +15,15 @@ vi.mock("../services/supabase", () => ({
 
 vi.stubEnv("VITE_SUPABASE_URL", "http://localhost:54321");
 
+const fetchMock = vi.fn();
+
 beforeEach(() => {
-  global.fetch = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
   sessionStorage.clear();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 afterEach(cleanup);
@@ -29,18 +35,18 @@ const LEADS = [
 
 describe("NotificacoesUlbra", () => {
   it("não renderiza nada quando lista está vazia", async () => {
-    global.fetch.mockResolvedValueOnce({
+    fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ leads: [] }),
     });
 
     const { container } = render(<NotificacoesUlbra />);
-    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(container.firstChild).toBeNull();
   });
 
   it("exibe badge com contagem de leads", async () => {
-    global.fetch.mockResolvedValueOnce({
+    fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ leads: LEADS }),
     });
@@ -50,7 +56,7 @@ describe("NotificacoesUlbra", () => {
   });
 
   it("exibe nomes dos leads ao abrir painel", async () => {
-    global.fetch.mockResolvedValueOnce({
+    fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ leads: LEADS }),
     });
@@ -65,7 +71,7 @@ describe("NotificacoesUlbra", () => {
   });
 
   it("chama onAssumirLead com o lead correto", async () => {
-    global.fetch.mockResolvedValueOnce({
+    fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ leads: [LEADS[0]] }),
     });
@@ -81,18 +87,18 @@ describe("NotificacoesUlbra", () => {
   });
 
   it("não renderiza nada quando resposta é NAO_RECEPTIVO", async () => {
-    global.fetch.mockResolvedValueOnce({
+    fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ leads: [], motivo: "NAO_RECEPTIVO" }),
     });
 
     const { container } = render(<NotificacoesUlbra />);
-    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(container.firstChild).toBeNull();
   });
 
   it("idempotência: mesmo lead não duplica no estado após segunda chamada", async () => {
-    global.fetch
+    fetchMock
       .mockResolvedValueOnce({ ok: true, json: async () => ({ leads: [LEADS[0]] }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ leads: [LEADS[0]] }) });
 
@@ -102,7 +108,7 @@ describe("NotificacoesUlbra", () => {
   });
 
   it("persiste IDs vistos em sessionStorage após primeira notificação", async () => {
-    global.fetch.mockResolvedValueOnce({
+    fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ leads: [LEADS[0]] }),
     });
@@ -121,7 +127,7 @@ describe("NotificacoesUlbra", () => {
     // Mas ainda está em waiting no sistema — deve continuar visível para operação
     sessionStorage.setItem("ulbra_leads_vistos", JSON.stringify(["lead-1"]));
 
-    global.fetch.mockResolvedValueOnce({
+    fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ leads: [LEADS[0]] }),
     });
@@ -136,7 +142,7 @@ describe("NotificacoesUlbra", () => {
     // vistos antes do mount
     sessionStorage.setItem("ulbra_leads_vistos", JSON.stringify(["lead-1"]));
 
-    global.fetch.mockResolvedValueOnce({
+    fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ leads: [LEADS[0]] }),
     });
