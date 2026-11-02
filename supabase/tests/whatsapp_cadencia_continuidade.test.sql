@@ -140,7 +140,7 @@ begin
   -- (INTERVALO_MINIMO nao dispara: nenhuma mensagem SAIDA inserida nesta sessao)
   -- ==========================================================================
   insert into public.whatsapp_conversas (canal_id, telefone_e164, status)
-  values (v_canal, '5551900009003', 'EM_ATENDIMENTO') returning id into v_conv_x;
+  values (v_canal, '5551900009007', 'EM_ATENDIMENTO') returning id into v_conv_x;
 
   begin
     select public.whatsapp_cadencia_checar(v_canal, v_conv_x, v_op1) into v_r;
