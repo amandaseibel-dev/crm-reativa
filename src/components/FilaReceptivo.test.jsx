@@ -55,10 +55,9 @@ vi.mock("../services/supabase", () => ({
 }));
 
 vi.mock("../utils/polling", () => ({
-  default: (fn, _ms, deps) => {
-    // Chama uma vez imediatamente no mount para popular o estado.
-    const { useEffect } = require("react");
-    useEffect(() => { fn(); }, deps ?? []);
+  default: (fn) => {
+    // Chama uma vez de forma assíncrona após o mount para popular o estado.
+    setTimeout(fn, 0);
   },
 }));
 
