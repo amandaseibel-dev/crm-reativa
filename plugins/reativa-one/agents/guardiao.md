@@ -58,3 +58,41 @@ Depois, no máximo uma tela de texto: o que mudou, o que você conferiu (com
 arquivo e seção), o que falta. Encerre com o bloco de conclusão da §13 da
 premissa de segurança, preenchido de verdade — campo que você não conferiu vai
 como `NÃO CONFERIDO`, nunca como ☑.
+
+## Fase 2 de Banco — autorização P3
+
+`fase2_liberada()` em `hooks/guardiao.sh` aceita duas vias:
+
+**Via 1 — variável de ambiente** (`REATIVA_FASE2_BANCO=<raiz>|<branch>`): definida
+no Terminal ao lançar a sessão. Não requer nenhuma alteração de arquivo.
+
+**Via 2 — registro versionado em origin/main**: a gestão cria um PR que adiciona
+uma linha em `docs/seguranca/fase2-banco-aprovadas.tsv` e faz o merge. O hook lê
+sempre de `origin/main`, nunca da branch de trabalho. O campo `autorizado_por`
+não é prova de identidade; a segurança vem da integridade de `origin/main` — só
+a gestão pode fazer o merge (R3 e R4 bloqueiam merge e push para main por qualquer
+via: CLI, API, MCP).
+
+### Colunas do TSV (TAB como separador)
+
+```
+worktree_raiz  branch  autorizado_por  expira_em  status
+```
+
+### Regras de validação (todas obrigatórias)
+
+- `status = pendente`
+- `expira_em` no futuro (UTC) e no máximo 4 horas a partir do momento da chamada
+- `worktree_raiz` conferido pelo caminho real (resolve link simbólico)
+- `branch` idêntico ao branch ativo, diferente de `main` e `master`
+- Exatamente uma linha ativa — duplicata nega
+- `origin/main` inacessível → nega (fail-closed)
+
+### Para auditoria: o que verificar num PR que toca o TSV
+
+1. O caminho lido pelo hook é `origin/main:docs/seguranca/fase2-banco-aprovadas.tsv`
+   — confirme que nenhuma outra referência é usada.
+2. `expira_em` não excede 4 horas.
+3. `worktree_raiz` aponta para um worktree vinculado (não o checkout principal).
+4. Só uma linha com `status = pendente` para o mesmo branch.
+5. Após uso, a gestão atualiza o status para `usado` por novo PR.
