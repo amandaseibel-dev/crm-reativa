@@ -531,7 +531,7 @@ variável verificada não é tecnicamente viável para migrations com múltiplos
 statements. Esta é uma limitação estrutural do SQL Editor, não um defeito de
 procedimento.
 
-**O que é garantido matematicamente:** o conteúdo registrado em `schema_migrations`
+**O que é verificado por MD5:** o conteúdo registrado em `schema_migrations`
 é idêntico ao aprovado — o guard verifica o md5 antes do INSERT e o INSERT usa a
 variável verificada, não uma terceira cópia.
 
@@ -628,8 +628,9 @@ mesmo conteúdo. Os dois devem ser idênticos ao arquivo aprovado.
 **Passo 3 — executar**
 
 Colar o bloco completo no SQL Editor e executar. Verificar ausência de erro e de
-`ROLLBACK`. Registrar o timestamp UTC após o `COMMIT` — via `SELECT now()` se o
-painel não exibir o horário.
+`ROLLBACK`. Registrar o horário de confirmação do `COMMIT` — o painel geralmente
+exibe o horário da execução; na ausência, executar `SELECT now()` em consulta
+separada imediatamente após e usar esse valor como referência aproximada.
 
 **Passo 4 — validação de estado e integridade**
 
