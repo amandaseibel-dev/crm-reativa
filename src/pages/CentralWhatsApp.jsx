@@ -894,7 +894,9 @@ export default function CentralWhatsApp() {
       ) : null}
 
       {emailOperador ? (
-        <FilaReceptivo usuarioLogado={{ email: emailOperador }} />
+        <FilaReceptivo
+          usuarioLogado={{ email: emailOperador, perfil: gestao ? "gerencia" : undefined }}
+        />
       ) : null}
 
       {avisoFila ? (
