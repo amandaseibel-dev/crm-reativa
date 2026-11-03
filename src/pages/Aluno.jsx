@@ -14,6 +14,7 @@ import EmailAlunoUnificado from "../components/EmailAlunoUnificado";
 import { carregarTabulacoes, desfechoDaTabulacao, retornoEhManual, camposDeRetorno, lerRetornoAtual, RETORNO_ORIGEM_OPERADOR } from "../utils/tabulacoes";
 import { ehOrigemDoOperador } from "../utils/retornoOrigem";
 import TelefonesAluno from "../components/TelefonesAluno";
+import BlocoUlbra from "../components/BlocoUlbra";
 import PainelDesfazer from "../components/PainelDesfazer";
 import Dobra from "../ui/blocos";
 import {
@@ -2523,6 +2524,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                 </div>
               </div>
               <TelefonesAluno aluno={alunoSelecionado} />
+              <BlocoUlbra aluno={alunoSelecionado} />
               </>
               )}
               {(abaFicha === "dados" || abaFicha === "tabulacoes") && (
