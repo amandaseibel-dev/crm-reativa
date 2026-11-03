@@ -130,14 +130,98 @@ desta correção.
 | `src/components/tv/tvProjecaoParcial.test.jsx` | selo nas três telas da TV |
 | `src/pages/ProjecaoHoraHora.projecaoParcial.test.jsx` | selo no CRM |
 
-## Como aplicar
+## Validação do SQL contra as funções reais (03/11/2026)
 
-1. Rodar `proposta.sql` inteiro (uma transação; qualquer âncora que não casar
-   aborta tudo e nada é gravado).
-2. Conferir a saída do `select` final: `tem_flag = t`, `tem_desconto = f`, e os
-   grants iguais aos de antes — **`CREATE OR REPLACE` devolve execute para
-   PUBLIC**, e por isso o script repõe os grants no fim.
-3. Regerar os snapshots: botão "Atualizar projeção" no CRM; na TV, esperar o
-   cron 85 ou chamar `tv_snapshot_atualizar()`.
-4. Conferir em novembro/2026: base 1 · total 19 · realizado 4.073,80 ·
-   projeção 77.402,20 · parcial true.
+O patch e o rollback foram rodados **como transformação de texto sobre
+`pg_get_functiondef` das três funções de produção**, em `SELECT` puro — nada foi
+executado, nada foi gravado. Resultado:
+
+| Função | Patch casou | Desconto saiu | Flag entrou | Conta intacta | Rollback idêntico | Tamanho |
+|---|---|---|---|---|---|---|
+| `projecao_calcular_filial` | sim | sim | sim | sim | **sim** | 7.136 → 7.279 |
+| `projecao_calcular_operador` | sim | sim | sim | sim | **sim** | 9.344 → 9.487 |
+| `tv_snapshot_calcular` | sim | sim | sim (2 payloads) | sim | **sim** | 19.732 → 20.028 |
+
+"Rollback idêntico" é o que importa mais: `rollback(patch(def)) = def`
+**byte a byte** nas três. A volta não é aproximada.
+
+"Conta intacta" confere que a expressão da projeção não foi tocada —
+`(v_hon_mes / v_du_pass) * v_du_total` no CRM e
+`v_hon::numeric / v_du_ate * v_du_mes` na TV. Só o denominador muda de valor.
+
+## Sequência segura de aplicação
+
+A **ordem entre banco e tela é livre** — as duas pontas são compatíveis nos dois
+sentidos:
+
+- tela antes do banco → o payload não tem `projecao_parcial`, o selo não aparece
+  (há teste para `undefined`), e a projeção segue como está hoje;
+- banco antes da tela → a projeção já corrige, e o selo entra quando a tela subir.
+
+A recomendação é **banco primeiro**: é ele que destrava o número.
+
+### 1. Aplicar o SQL — você, no SQL Editor de produção
+
+Rodar `proposta.sql` **inteiro, de uma vez**. É uma transação: qualquer âncora
+que não casar dispara `raise exception`, a transação aborta e **nada muda**.
+
+Não há janela proibida — pode ser a qualquer hora. (Antes do patch, conferir a
+projeção entre 21h e meia-noite dá leitura distorcida, por causa do `current_date`
+em UTC; depois do patch esse efeito deixa de existir.)
+
+### 2. Conferir a saída do `select` final
+
+Já vem no fim do script. Esperado:
+
+```
+projecao_calcular_filial    postgres=X/postgres | service_role=X/postgres                    t  f
+projecao_calcular_operador  postgres=X/postgres | service_role=X/postgres                    t  f
+tv_snapshot_calcular        postgres=X/postgres | authenticated=X/postgres | service_role=…   t  f
+```
+
+`tem_flag = t`, `tem_desconto = f`. **Os grants são o ponto de atenção:**
+`CREATE OR REPLACE` devolve execute para PUBLIC, e o script repõe os de antes —
+se a coluna `acl_final` vier diferente disso, parar e avisar.
+
+### 3. Regerar os snapshots
+
+As funções acima só **calculam**; quem grava é o atualizador.
+
+- **CRM:** um clique no botão "Atualizar projeção" na tela. Recalcula filial +
+  operadores do mês selecionado, com lock — dois cliques simultâneos não
+  atropelam.
+- **TV:** `select public.tv_snapshot_atualizar();` ou esperar o cron `85`
+  (até 15 min, dias úteis 8h–20h). O cron passa pelo disjuntor
+  `sistema_sob_carga()` — com o banco sob carga ele pula a rodada e a TV só
+  atualiza quando a carga baixar.
+
+Mês fechado não precisa de nada: o resultado é idêntico ao de hoje.
+
+### 4. Conferir o número
+
+```sql
+select payload->>'dias_uteis_passados'       as base,
+       payload->>'dias_uteis_total_mes'      as total,
+       payload->>'honorario_mes'             as realizado,
+       payload->>'projecao_honorario_filial' as projecao,
+       payload->>'projecao_parcial'          as parcial
+from public.projecao_snapshot
+where escopo = 'FILIAL' and mes_referencia = '2026-11';
+```
+
+Em 03/11: `base = 1`, `total = 19`, `parcial = true`, e
+`projecao = realizado × 19`. O realizado muda ao longo do dia conforme entram
+pagamentos — então a projeção não vai ser exatamente 77.402,20 se o honorário já
+passou de 4.073,80; o que tem de valer é a razão `projecao / realizado = 19`.
+
+### 5. Tela
+
+Merge da PR #809 e deploy — **sob sua autorização**, não incluída aqui.
+
+### Se precisar voltar
+
+`rollback.sql` (mesmo esquema: transação, âncoras conferidas) e **regerar os
+snapshots de novo** — senão as telas seguem lendo o payload com a flag.
+
+Rollback **não é restore**: PITR não está habilitado. Isto é o inverso
+determinístico do patch, provado byte a byte, não uma volta no tempo do banco.
