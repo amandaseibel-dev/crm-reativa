@@ -1342,6 +1342,7 @@ function ProjecaoHoraHoraInner() {
                         <div style={{ ...estilos.heroNumero, color: "#1d4ed8" }}>{moeda(dashboard?.projecao_honorario_filial)}</div>
                         <div style={{ ...estilos.heroSubLabel, color: "#1d4ed8" }}>
                           Projeção de fechamento · {dashboard?.percentual_projecao_filial ?? 0}% da meta
+                          <SeloProjecaoParcial parcial={dashboard?.projecao_parcial} />
                         </div>
                       </div>
                       <div style={estilos.heroMeta}>
@@ -1409,6 +1410,7 @@ function ProjecaoHoraHoraInner() {
                         <div style={{ ...estilos.heroNumero, color: "#1d4ed8" }}>{moeda(dashboard?.projecao_honorario_filial)}</div>
                         <div style={{ ...estilos.heroSubLabel, color: "#1d4ed8" }}>
                           Projeção de fechamento pelo ritmo atual
+                          <SeloProjecaoParcial parcial={dashboard?.projecao_parcial} />
                         </div>
                       </div>
                     </div>
@@ -2202,6 +2204,19 @@ function ProjecaoHoraHoraInner() {
   );
 }
 
+// Selo de PROJEÇÃO PARCIAL. Quem decide é o banco: `projecao_parcial` vem no
+// payload do snapshot e é true enquanto o dia corrente está na base do ritmo
+// (dia útil, dentro do mês). A tela não recalcula nada -- se recalculasse, CRM
+// e TV voltariam a ter duas contas para o mesmo número.
+export function SeloProjecaoParcial({ parcial }) {
+  if (!parcial) return null;
+  return (
+    <span style={estilos.seloParcial} title="O dia ainda está em andamento: a projeção usa o honorário já confirmado hoje e muda conforme novos pagamentos entram.">
+      PROJEÇÃO PARCIAL
+    </span>
+  );
+}
+
 function FaixaItem({ label, valor }) {
   return (
     <div style={estilos.faixaItem}>
@@ -2252,6 +2267,7 @@ function PainelIndividual({ dados, mes }) {
           <span>
             No ritmo atual, fecha em <strong>{moeda(dados?.projecao_honorario_individual)}</strong>{" "}
             ({dados?.percentual_projecao_individual ?? 0}% da meta)
+            <SeloProjecaoParcial parcial={dados?.projecao_parcial} />
           </span>
         </div>
       </div>
@@ -2363,6 +2379,19 @@ const estilos = {
   heroProjBloco: {
     paddingLeft: 18,
     borderLeft: `2px solid #bfdbfe`,
+  },
+  seloParcial: {
+    display: "inline-block",
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: "0.08em",
+    color: "#1d4ed8",
+    background: "#eff6ff",
+    border: "1px solid #bfdbfe",
+    borderRadius: 999,
+    padding: "2px 8px",
+    marginLeft: 8,
+    verticalAlign: "middle",
   },
   heroMeta: {
     display: "flex",

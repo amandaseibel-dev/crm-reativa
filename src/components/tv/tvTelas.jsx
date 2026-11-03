@@ -134,7 +134,11 @@ function TelaResultadoMes({ snap }) {
         <IndicadorCard rotulo="Pagamentos confirmados no mês" valor={num(m.pagamentos_confirmados)} tom="ambar" />
         <IndicadorCard rotulo="Média diária de honorários" valor={mediaHonTxt} tom="azul"
                        sub={m.media_diaria == null ? undefined : `${moeda(m.media_diaria)} de bruto recuperado`} />
-        <IndicadorCard rotulo="Projeção de fechamento (honorários)" valor={moeda(m.proj_honorarios)} tom="verde" />
+        {/* `projecao_parcial` vem pronto de tv_snapshot_calcular: true enquanto
+            o dia corrente está na base do ritmo (dia útil, mês em curso). A TV
+            não recalcula projeção -- só diz que o número ainda vai mexer. */}
+        <IndicadorCard rotulo="Projeção de fechamento (honorários)" valor={moeda(m.proj_honorarios)} tom="verde"
+                       sub={m.projecao_parcial ? "PARCIAL — o dia ainda está em andamento" : undefined} />
       </div>
       <div style={linha}>
         <IndicadorCard rotulo={`Dias úteis (${m.dias_uteis_transcorridos}/${m.dias_uteis_mes})`} valor={`${m.dias_uteis_restantes} restantes`} tom="azul" />
