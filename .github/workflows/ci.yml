@@ -173,3 +173,50 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/02_baseline.sql"
           psql -v ON_ERROR_STOP=1 -f "$ALVO"
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
+
+  # ---------------------------------------------------------------------------
+  # migration 20261030090000 — CONTINUIDADE de 48h e limite 5 por operador
+  #
+  # Aplica a migration num Postgres descartável e roda os 11 cenários:
+  #   RESPOSTA, NOVA_ABORDAGEM, CONTINUIDADE, não-renovação da janela,
+  #   LIMITE_OPERADOR, bloqueio não consome cota, CONTINUIDADE com cota
+  #   esgotada, janela_horas=0 desliga CONTINUIDADE.
+  # ---------------------------------------------------------------------------
+  whatsapp-cadencia-continuidade:
+    name: whatsapp cadencia continuidade (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/whatsapp_cadencia_continuidade
+      MIGRATION: supabase/migrations/20261030090000_whatsapp_cadencia_continuidade_e_limite_5.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # 1. ambiente  2. baseline (função sem CONTINUIDADE)  3. migration  4. casos
+      - name: Montar ambiente, aplicar migration e rodar os 11 casos
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_baseline.sql"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
