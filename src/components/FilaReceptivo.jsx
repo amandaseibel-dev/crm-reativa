@@ -156,7 +156,7 @@ export default function FilaReceptivo({ usuarioLogado }) {
   // Sem ninguém online: mantém a caixa (pra não empurrar a tela) e, se eu
   // sou participante, o botão de pausa continua acessível.
   if (ordem.length === 0) {
-    if (!ehParticipante) return <div style={estilos.espacoReservado} />;
+    if (!ehParticipante && !podeMarcarPorOutros) return <div style={estilos.espacoReservado} />;
     return (
       <div style={estilos.caixa}>
         <div style={estilos.cabecalho}>
