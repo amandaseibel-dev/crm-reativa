@@ -296,9 +296,12 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   const [usuarioLogado, setUsuarioLogado] = useState(null);
   const emailLiberadoAluno = true; // liberado para todos os operadores
   const [alunos, setAlunos] = useState([]);
+  // true apenas depois que o usuário disparou pelo menos uma busca explícita.
+  // Enquanto false, a lista exibe "Digite para pesquisar" em vez de ficar vazia.
+  const [buscaDisparada, setBuscaDisparada] = useState(false);
   const [alunoSelecionado, setAlunoSelecionado] = useState(null);
   const [nomeCopiado, setNomeCopiado] = useState(null);
-  const [finAlunos, setFinAlunos] = useState({});
+  const finAlunos = {}; // detalhe financeiro removido da lista (ver calcularFinLista)
   const [abaFicha, setAbaFicha] = useState("dados");
   const [editandoCadastro, setEditandoCadastro] = useState(false);
   const [nomeEditado, setNomeEditado] = useState("");
@@ -411,6 +414,9 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   const [busca, setBusca] = useState("");
   const [observacao, setObservacao] = useState("");
   const [statusFinalizacao, setStatusFinalizacao] = useState("CONTATAR");
+  // Referência ao topo da lista de resultados — usado para scroll automático
+  // logo após a busca retornar, levando o operador direto aos resultados.
+  const listaResultadosRef = useRef(null);
   // Referencias aos blocos expansiveis da aba Tabulacao, para rolagem suave
   // ate o inicio do formulario correspondente quando a tabulacao muda.
   const blocosRef = useRef({});
@@ -446,92 +452,15 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
   const [origemAbertura, setOrigemAbertura] = useState("");
-  // Valor em aberto consolidado por aluno da LISTA -- reutiliza EXATAMENTE a
-  // mesma fonte da Minha Carteira (acordos ATIVO -> parcelas A_VENCER/VENCIDA +
-  // acordos_titulos em_aberto). total = mensalidades + acordos. Sem calculo novo.
-  useEffect(() => {
-    let cancelado = false;
-    async function calcularFinLista() {
-      const ids = (alunos || []).map((a) => String(a.id));
-      if (!ids.length) {
-        setFinAlunos({});
-        return;
-      }
-      const LOTE = 200;
-      const fin = {};
-      ids.forEach((id) => {
-        fin[id] = { mensalidades: 0, acordos: 0, negociadas: 0, qtdNegociadas: 0, total: 0, temDetalhe: false };
-      });
-      const acAluno = [];
-      for (let i = 0; i < ids.length; i += LOTE) {
-        const lote = ids.slice(i, i + LOTE);
-        const { data } = await supabase
-          .from("acordos")
-          .select("id,aluno_id,status")
-          .in("aluno_id", lote)
-          .eq("status", "ATIVO");
-        if (data) acAluno.push(...data);
-      }
-      const acById = new Map(acAluno.map((a) => [a.id, a]));
-      const acIds = acAluno.map((a) => a.id);
-      for (let i = 0; i < acIds.length; i += LOTE) {
-        const lote = acIds.slice(i, i + LOTE);
-        if (!lote.length) continue;
-        const { data } = await supabase
-          .from("parcelas")
-          .select("acordo_id,status,valor")
-          .in("acordo_id", lote)
-          .in("status", ["A_VENCER", "VENCIDA"]);
-        for (const pp of data || []) {
-          const ac = acById.get(pp.acordo_id);
-          if (!ac || !ac.aluno_id) continue;
-          const id = String(ac.aluno_id);
-          if (!fin[id]) continue;
-          fin[id].acordos += Number(pp.valor || 0);
-          fin[id].temDetalhe = true;
-        }
-      }
-      for (let i = 0; i < ids.length; i += LOTE) {
-        const lote = ids.slice(i, i + LOTE);
-        // HOTFIX parcela negociada: o filtro .eq("status","em_aberto") fazia a
-        // mensalidade vinculada a acordo sumir da tela sem aparecer em lugar
-        // nenhum. Agora traz tambem as vinculadas e as contabiliza num balde
-        // SEPARADO ("negociadas") -- elas NAO entram no total em aberto, que
-        // segue sendo so obrigacao avulsa, e NAO sao somadas de novo junto
-        // com as parcelas do acordo. O total geral nao muda.
-        const { data } = await supabase
-          .from("acordos_titulos")
-          .select("aluno_id,status,situacao,acordo_id,valor_em_aberto,saldo_corrigido,valor_original")
-          .in("aluno_id", lote)
-          .in("status", ["em_aberto", "vinculada"]);
-        for (const t of data || []) {
-          const id = String(t.aluno_id);
-          if (!fin[id]) continue;
-          const v = Number(t.valor_em_aberto ?? t.saldo_corrigido ?? t.valor_original ?? 0);
-          const negociada =
-            t.status === "vinculada" || t.situacao === "NEGOCIADO" || !!t.acordo_id;
-          if (negociada) {
-            fin[id].negociadas += v;
-            fin[id].qtdNegociadas += 1;
-          } else {
-            fin[id].mensalidades += v;
-          }
-          fin[id].temDetalhe = true;
-        }
-      }
-      ids.forEach((id) => {
-        fin[id].total = fin[id].mensalidades + fin[id].acordos;
-      });
-      if (!cancelado) setFinAlunos(fin);
-    }
-    calcularFinLista();
-    return () => {
-      cancelado = true;
-    };
-  }, [alunos]);
+  // finAlunos mantido como estado vazio — os detalhes financeiros por aluno
+  // (acordos + parcelas + acordos_titulos) eram calculados em 3+ queries para
+  // toda a lista, consumindo centenas de KB a cada pesquisa. A lista agora usa
+  // apenas aluno.valor_em_aberto (já vem do SELECT principal, sem custo extra).
+  // O detalhe completo permanece na ficha aberta via recarregarSaldoFicha.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     inicializarTelaAlunos();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Notificacao clicada com a ficha JA montada: navigate("/aluno?...") nao
   // remonta, entao o efeito de mount acima nao roda de novo. Aqui reagimos a
@@ -565,7 +494,8 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       await consumirIntencaoDeAbertura(alunoId);
       return;
     }
-    await carregarAlunos();
+    // Sem aluno na URL/localStorage: não consulta a base.
+    // O operador precisa digitar para pesquisar (lazy load).
   }
 
   // Consome, UMA UNICA VEZ, os flags de "abrir ficha X na secao Y destacando Z"
@@ -609,6 +539,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     };
   }
   async function carregarAlunos() {
+    setBuscaDisparada(true);
     setCarregando(true);
     setErro("");
     // Importante: toda pesquisa/atualização da lista precisa soltar o aluno
@@ -673,9 +604,9 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
           }
         }
       } else {
-        const resultado = await supabase.from("alunos").select("*").limit(150);
-        data = resultado.data;
-        error = resultado.error;
+        // Sem termo: não consulta — o operador precisa digitar para pesquisar.
+        data = [];
+        error = null;
       }
       if (error) {
         console.error("Erro ao carregar alunos:", error);
@@ -684,6 +615,13 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
         return;
       }
       setAlunos(data || []);
+      // Rola suavemente para o início dos resultados, levando o operador
+      // direto abaixo do campo de busca sem precisar rolar manualmente.
+      if (podeRolarSozinho) {
+        setTimeout(() => {
+          listaResultadosRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 80);
+      }
     } catch (e) {
       console.error("Erro inesperado ao carregar alunos:", e);
       setErro("Erro inesperado ao carregar alunos.");
@@ -1691,10 +1629,12 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
         {erro && <p style={{ color: "#f87171" }}>{erro}</p>}
       </div>
       <div style={layout}>
-        <div style={caixa}>
+        <div style={caixa} ref={listaResultadosRef}>
           <h2 style={tituloSecao}>Alunos</h2>
           {carregando ? (
             <p style={textoCinza}>Carregando...</p>
+          ) : !buscaDisparada ? (
+            <p style={textoCinza}>Digite nome, CPF ou telefone acima e clique em Pesquisar.</p>
           ) : alunos.length === 0 ? (
             <p style={textoCinza}>Nenhum aluno encontrado.</p>
           ) : (

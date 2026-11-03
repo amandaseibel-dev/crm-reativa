@@ -20,6 +20,25 @@ project_id = "edlzlfbstshojxrudwaa"
 verify_jwt = true
 
 # -----------------------------------------------------------------------------
+# ulbra-consultar -- vincula aluno ReATIVA ao cadastro na Mensageria Ulbra
+# -----------------------------------------------------------------------------
+# Chamada pelo front-end (operadores autenticados). O portao interno verifica
+# que o JWT corresponde a um usuario ativo em public.usuarios. O token MCP
+# (ULBRA_MCP_TOKEN) fica exclusivamente no secret de backend -- nunca sai da
+# funcao nem aparece em resposta ou log.
+[functions.ulbra-consultar]
+verify_jwt = true
+
+# -----------------------------------------------------------------------------
+# ulbra-leads-pendentes -- lista leads receptivos em waiting na Mensageria Ulbra
+# -----------------------------------------------------------------------------
+# Chamada em polling pelo componente NotificacoesUlbra (60s). Devolve apenas
+# id, nome e timestamp -- sem CPF ou telefone. Operadores com receptivo=true
+# e gestao recebem a lista; demais recebem lista vazia com motivo NAO_RECEPTIVO.
+[functions.ulbra-leads-pendentes]
+verify_jwt = true
+
+# -----------------------------------------------------------------------------
 # santander-previa -- ENTREGA A do caminho Santander, so leitura
 # -----------------------------------------------------------------------------
 # A planilha do extrato traz nome de aluno, matricula e valor pago. O gateway
