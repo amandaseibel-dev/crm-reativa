@@ -183,11 +183,6 @@ export default function CentralWhatsApp() {
   // enxergariam o estado novo.
   const selecionadaRef = useRef(null);
   useEffect(() => { selecionadaRef.current = selecionada; }, [selecionada]);
-  // Espelho de carregarConversas: mantém o canal Realtime estável mesmo quando
-  // o operador muda filtros ou busca (o que recria a função a cada render).
-  const carregarConversasRef = useRef(null);
-  useEffect(() => { carregarConversasRef.current = carregarConversas; }, [carregarConversas]);
-
   // Email do operador: usado pelo hook de notificações para filtrar alertas.
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -228,6 +223,11 @@ export default function CentralWhatsApp() {
       setCarregandoLista(false);
     }
   }, [filtroStatus, filtroCanal, filtroTempo, busca, filtroResponsavel]);
+
+  // Espelho de carregarConversas: mantém o canal Realtime estável mesmo quando
+  // o operador muda filtros ou busca (o que recria a função a cada render).
+  const carregarConversasRef = useRef(null);
+  useEffect(() => { carregarConversasRef.current = carregarConversas; }, [carregarConversas]);
 
   useEffect(() => {
     listarCanais().then(setCanais).catch((e) => setErro(e.message));
