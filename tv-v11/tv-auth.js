@@ -52,14 +52,41 @@ window.tvAuth = {
   async negado(status) {
     if (!client) return;
     if (status === 403) {
+      // Conta sem permissão: avisa, mas não apaga a sessão salva no aparelho.
       mostrar('Esta conta não tem permissão para os indicadores da TV.');
-      await client.auth.signOut();
-    } else if (status === 401) {
-      await client.auth.signOut();
-      mostrar('Sessão encerrada. Entre novamente.');
+      return;
     }
+    if (status === 401) await renovarOuEncerrar();
   },
 };
+
+// Um 401 pode ser token vencido (renova) ou falha de rede/servidor (mantém a
+// sessão). Só encerra localmente quando o próprio Auth recusa o refresh token.
+// Nunca usa signOut global: ele revogaria o login em todos os aparelhos.
+let renovacao = null;
+function renovarOuEncerrar() {
+  if (!renovacao) {
+    renovacao = (async () => {
+      try {
+        const { data } = await client.auth.getSession();
+        if (!data || !data.session) { mostrar('Sessão encerrada. Entre novamente.'); return; }
+        const { error } = await client.auth.refreshSession();
+        if (!error) { esconder(); return; }
+        const regras = window.tvAuthRegras;
+        const tipo = regras ? regras.classificarErroDeSessao(error) : 'transitoria';
+        if (tipo === 'invalida') {
+          await client.auth.signOut({ scope: 'local' });
+          mostrar('Sessão encerrada. Entre novamente.');
+        }
+      } catch (e) {
+        // Falha de conexão: a sessão salva continua valendo; a próxima leitura tenta de novo.
+      } finally {
+        renovacao = null;
+      }
+    })();
+  }
+  return renovacao;
+}
 
 init();
 })();
