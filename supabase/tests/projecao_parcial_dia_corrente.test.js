@@ -59,7 +59,7 @@ describe("regra: o dia corrente entra na base do ritmo (PGlite)", () => {
           );
       $f$;
 
-      -- Mesmas cinco linhas que o patch deixa em projecao_calcular_filial e
+      -- Mesmas linhas que o patch deixa em projecao_calcular_filial e
       -- projecao_calcular_operador, com v_hoje recebido de fora.
       create or replace function public.regra(p_mes text, p_hoje date, p_hon numeric)
         returns table(base int, total int, restantes int, projecao numeric, parcial boolean)
@@ -72,6 +72,9 @@ describe("regra: o dia corrente entra na base do ritmo (PGlite)", () => {
         v_du_rest  := public.dias_uteis(greatest(p_hoje, v_ini), v_fim);
         v_du_total := public.dias_uteis(v_ini, v_fim);
         v_du_pass  := public.dias_uteis(v_ini, least(p_hoje, v_fim));
+        if p_hoje <= v_fim then
+          v_du_pass := greatest(public.dias_uteis(v_ini, p_hoje - 1), 1);
+        end if;
         v_parcial  := (p_hoje between v_ini and v_fim) and public.dias_uteis(p_hoje, p_hoje) = 1;
         return query select v_du_pass, v_du_total, v_du_rest,
           case when v_du_pass > 0 then round((p_hon / v_du_pass) * v_du_total, 2) else p_hon end,
@@ -94,42 +97,61 @@ describe("regra: o dia corrente entra na base do ritmo (PGlite)", () => {
     expect(rows[0].sem_feriado).toBe(21);
   });
 
-  it("1º DIA ÚTIL (03/11): base 1, projeção = acumulado × 19, marcada como parcial", async () => {
+  it("1º DIA ÚTIL (03/11): nenhum dia fechado, o piso de 1 vale, projeção = acumulado × 19", async () => {
     const r = await regra("2026-11", "2026-11-03", "4073.80");
     expect(r.base).toBe(1);
     expect(r.total).toBe(19);
     expect(Number(r.projecao)).toBe(77402.2); // 4.073,80 / 1 × 19 — exemplo da gestão
     expect(r.parcial).toBe(true);
-    // o dia corrente conta dos dois lados de propósito: ele ainda vai fechar
+    // o dia corrente conta como restante: ele ainda vai fechar
     expect(r.restantes).toBe(19);
   });
 
-  it("DIA INTERMEDIÁRIO (10/11): base conta os fechados MAIS o dia em andamento", async () => {
+  it("2º DIA ÚTIL (04/11): a base é 1, NÃO 2 — só o dia 3 fechou", async () => {
+    // A decisão da gestão em 04/11/2026: o dia corrente não vira divisor, então
+    // hoje é o 1º dia de projeção. Dividir por 2 na virada do relógio cortaria
+    // a projeção pela metade sem que nada tivesse acontecido.
+    const r = await regra("2026-11", "2026-11-04", "5371.41");
+    expect(r.base).toBe(1);
+    expect(Number(r.projecao)).toBe(102056.79); // 5.371,41 / 1 × 19
+    expect(r.parcial).toBe(true);
+    expect(r.restantes).toBe(18);
+  });
+
+  it("DIA INTERMEDIÁRIO (10/11): base = só os dias que fecharam", async () => {
     const r = await regra("2026-11", "2026-11-10", "20000");
-    expect(r.base).toBe(6); // 3,4,5,6,9 fechados + 10 em andamento
-    expect(Number(r.projecao)).toBe(63333.33); // 20.000 / 6 × 19
+    expect(r.base).toBe(5); // 3,4,5,6,9 — o dia 10 está em andamento
+    expect(Number(r.projecao)).toBe(76000); // 20.000 / 5 × 19
     expect(r.parcial).toBe(true);
     expect(r.restantes).toBe(14);
   });
 
   it("FERIADO (20/11, sexta): não entra na base e a projeção não é parcial", async () => {
     const r = await regra("2026-11", "2026-11-20", "50000");
-    expect(r.base).toBe(13); // nenhum dia em andamento: o feriado não abre
+    expect(r.base).toBe(13); // 3..19; o feriado não abre e não fecha nada
     expect(Number(r.projecao)).toBe(73076.92); // 50.000 / 13 × 19
     expect(r.parcial).toBe(false);
   });
 
-  it("FERIADO ANTES DO 1º DIA ÚTIL (02/11, Finados): base 0, projeção = realizado", async () => {
+  it("FERIADO ANTES DO 1º DIA ÚTIL (02/11, Finados): o piso de 1 segura a conta", async () => {
     const r = await regra("2026-11", "2026-11-02", "1200");
-    expect(r.base).toBe(0);
-    expect(Number(r.projecao)).toBe(1200); // sem base não se inventa ritmo
+    expect(r.base).toBe(1); // nenhum dia fechado ainda — piso
+    expect(Number(r.projecao)).toBe(22800); // 1.200 × 19
     expect(r.parcial).toBe(false);
   });
 
-  it("FIM DE SEMANA (14/11, sábado): base só com os dias fechados, não é parcial", async () => {
+  it("FIM DE SEMANA (14/11, sábado): base com os 9 dias fechados, não é parcial", async () => {
     const r = await regra("2026-11", "2026-11-14", "40000");
-    expect(r.base).toBe(9); // 3,4,5,6,9,10,11,12,13
+    expect(r.base).toBe(9); // 3,4,5,6,9,10,11,12,13 — todos fecharam
+    expect(Number(r.projecao)).toBe(84444.44);
     expect(r.parcial).toBe(false);
+  });
+
+  it("a base nunca conta o dia corrente: 04/11 e 05/11 diferem em 1", async () => {
+    const q = await regra("2026-11", "2026-11-04", "10000");
+    const s = await regra("2026-11", "2026-11-05", "10000");
+    expect(q.base).toBe(1);
+    expect(s.base).toBe(2);
   });
 
   it("MÊS FECHADO (consultado em dezembro): base = total, projeção = realizado, sem selo", async () => {
@@ -141,9 +163,8 @@ describe("regra: o dia corrente entra na base do ritmo (PGlite)", () => {
     expect(r.restantes).toBe(0);
   });
 
-  it("MÊS FUTURO: sem dia fechado nem dia em andamento, projeção = realizado", async () => {
+  it("MÊS FUTURO: sem honorário não há projeção, e não é parcial", async () => {
     const r = await regra("2026-12", "2026-11-03", "0");
-    expect(r.base).toBe(0);
     expect(Number(r.projecao)).toBe(0);
     expect(r.parcial).toBe(false);
   });
@@ -158,7 +179,7 @@ describe("regra: o dia corrente entra na base do ritmo (PGlite)", () => {
 // -----------------------------------------------------------------------------
 // 2. A PROPOSTA DE SQL — escopo e segurança
 // -----------------------------------------------------------------------------
-describe("proposta.sql: muda a regra e nada além dela", () => {
+describe("proposta.sql (patch 2): muda a base do ritmo e nada além dela", () => {
   const sql = semComentario(PROPOSTA);
 
   it("ataca exatamente as três funções que calculam projeção", () => {
@@ -166,23 +187,43 @@ describe("proposta.sql: muda a regra e nada além dela", () => {
     expect(sql).toContain("p.proname = 'tv_snapshot_calcular'");
   });
 
-  it("tira o desconto do dia corrente e guarda contra ele sobrar", () => {
-    expect(PROPOSTA).toContain("greatest\\(v_du_pass - 1, 0\\)");
-    expect(PROPOSTA).toContain("greatest\\(0, v_du_ate - 1\\)");
+  it("exige o patch de 2026-11-03 aplicado, e aborta se não estiver", () => {
+    // Produção já está com o patch 1 (conferido em 04/11/2026). Rodar o patch 2
+    // sobre o estado de agosto produziria código incoerente, então a
+    // pré-condição é conferida antes de qualquer substituição.
+    // `sql` vem minúsculo de semComentario
+    expect(sql).toContain("strpos(pg_get_functiondef(p.oid), 'regra 2026-11-03') = 0");
+    expect(sql).toMatch(/pre-condicao nao atendida/);
+  });
+
+  it("a base passa a ser o dia FECHADO com piso de 1, no CRM e na TV", () => {
+    // CRM: dias úteis de 1º do mês até ONTEM, nunca até hoje
+    expect(PROPOSTA).toContain("v_du_pass := greatest(public.dias_uteis(v_ini, v_hoje - 1), 1);");
+    // TV: a mesma conta, com os marcos do mês inline
+    expect(PROPOSTA).toContain("v_du_ate := greatest(public.dias_uteis(date_trunc(''month'',current_date)::date, current_date - 1), 1);");
+    // o piso é 1, não 0: com 0 o 1º dia útil volta a repetir o realizado
+    expect(PROPOSTA).not.toContain("v_hoje - 1), 0)");
+  });
+
+  it("ancora no bloco do patch 1 e guarda contra ele sobrar", () => {
+    expect(PROPOSTA).toContain("REGRA 2026-11-03");
+    expect(sql).toContain("strpos(v_novo, 'regra 2026-11-03') > 0");
+  });
+
+  it("guarda contra o desconto de agosto reaparecer", () => {
     expect(sql).toContain("strpos(v_novo, 'v_du_pass - 1') > 0");
     expect(sql).toContain("strpos(v_novo, 'v_du_ate - 1') > 0");
   });
 
-  it("introduz projecao_parcial e o dia local, e aborta se alguma âncora não casar", () => {
-    // dentro do SQL o literal vai com as aspas dobradas
-    expect(PROPOSTA).toContain("''projecao_parcial'', v_parcial,");
-    expect(PROPOSTA).toContain("(now() at time zone ''America/Sao_Paulo'')::date");
-    expect(sql.match(/raise exception/g).length).toBeGreaterThanOrEqual(10);
-  });
-
-  it("preserva a conta da projeção (só o denominador muda)", () => {
+  it("preserva a conta da projeção, o payload e o dia local (vieram do patch 1)", () => {
     expect(sql).toContain("(v_hon_mes / v_du_pass) * v_du_total");
     expect(sql).toContain("v_hon::numeric / v_du_ate * v_du_mes");
+    expect(PROPOSTA).toContain("''projecao_parcial'', v_parcial,");
+    expect(PROPOSTA).toContain("(now() at time zone ''America/Sao_Paulo'')::date");
+  });
+
+  it("aborta em qualquer âncora ou guarda que não casar", () => {
+    expect(sql.match(/raise exception/g).length).toBeGreaterThanOrEqual(10);
   });
 
   it("repõe os grants que o CREATE OR REPLACE devolve para PUBLIC", () => {
@@ -207,18 +248,26 @@ describe("proposta.sql: muda a regra e nada além dela", () => {
 // -----------------------------------------------------------------------------
 // 3. O ROLLBACK — inverso exato
 // -----------------------------------------------------------------------------
-describe("rollback.sql: desfaz a regra e repõe os grants", () => {
+describe("rollback.sql: desfaz o patch 2 e repõe os grants", () => {
   const sql = semComentario(ROLLBACK);
 
-  it("devolve o desconto do dia corrente nas três funções", () => {
-    expect(ROLLBACK).toContain("if v_hoje <= v_fim then v_du_pass := greatest(v_du_pass - 1, 0); end if;");
-    expect(ROLLBACK).toContain("v_du_ate := greatest(0, v_du_ate - 1);");
-    expect(ROLLBACK).toContain("v_du_rest := greatest(0, v_du_mes - v_du_ate);");
+  it("volta ao estado do patch 1, não ao de agosto", () => {
+    // O rollback devolve `REGRA 2026-11-03` (dia corrente na base), que é onde
+    // produção estava antes do patch 2. Voltar à premissa de agosto é outro
+    // script — e está dito no cabeçalho, para ninguém esperar isso daqui.
+    expect(ROLLBACK).toContain("REGRA 2026-11-03 (gestao): o DIA CORRENTE entra na base do ritmo");
+    expect(sql).toContain("strpos(v_novo, 'regra 2026-11-03') = 0");
+    expect(ROLLBACK).not.toContain("PREMISSA 2026-08-17");
   });
 
-  it("remove projecao_parcial e volta v_hoje para current_date", () => {
-    expect(ROLLBACK).toContain("v_hoje date := current_date;");
-    expect(sql).toContain("strpos(v_novo, 'projecao_parcial') > 0");
+  it("ancora no bloco do patch 2 e guarda contra a base por dia fechado sobrar", () => {
+    expect(ROLLBACK).toContain("REGRA 2026-11-04");
+    expect(sql).toContain("strpos(v_novo, 'v_hoje - 1') > 0");
+    expect(sql).toContain("strpos(v_novo, 'current_date - 1') > 0");
+  });
+
+  it("não encosta no payload, no dia local nem na conta", () => {
+    expect(sql).not.toMatch(/dias_uteis_passados|America\/Sao_Paulo/);
   });
 
   it("repõe os mesmos grants e não toca em dado", () => {
