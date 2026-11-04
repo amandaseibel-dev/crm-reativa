@@ -75,13 +75,17 @@ export default function TelaMagicNumber({ snap }) {
             <span><strong style={{ color: T.texto }}>Meta do mês</strong> {moeda(m.meta_empresa)}</span>
           </>
         )}
-        {proj > 0 && (
+        {m.projecao_aguardando_fechamento === true ? (
+          <>
+            <span style={sep}>·</span>
+            <span>Aguardando fechamento do 1º dia útil</span>
+          </>
+        ) : proj > 0 && (
           <>
             <span style={sep}>·</span>
             <span>
               <strong style={{ color: T.texto }}>Projeção de fechamento</strong> {moeda(proj)}
               {` (${Math.round((proj / alvo) * 100)}% do Magic)`}
-              {m.projecao_parcial === true && " · PARCIAL"}
             </span>
           </>
         )}

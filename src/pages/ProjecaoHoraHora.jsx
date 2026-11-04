@@ -1339,11 +1339,16 @@ function ProjecaoHoraHoraInner() {
                         <div style={estilos.heroSubLabel}>Honorário realizado</div>
                       </div>
                       <div style={estilos.heroProjBloco}>
-                        <div style={{ ...estilos.heroNumero, color: "#1d4ed8" }}>{moeda(dashboard?.projecao_honorario_filial)}</div>
-                        <div style={{ ...estilos.heroSubLabel, color: "#1d4ed8" }}>
-                          Projeção de fechamento · {dashboard?.percentual_projecao_filial ?? 0}% da meta
-                          <SeloProjecaoParcial parcial={dashboard?.projecao_parcial} />
-                        </div>
+                        {dashboard?.projecao_aguardando_fechamento ? (
+                          <AguardandoFechamento />
+                        ) : (
+                          <>
+                            <div style={{ ...estilos.heroNumero, color: "#1d4ed8" }}>{moeda(dashboard?.projecao_honorario_filial)}</div>
+                            <div style={{ ...estilos.heroSubLabel, color: "#1d4ed8" }}>
+                              Projeção de fechamento · {dashboard?.percentual_projecao_filial ?? 0}% da meta
+                            </div>
+                          </>
+                        )}
                       </div>
                       <div style={estilos.heroMeta}>
                         <span style={estilos.heroMetaLabel}>META</span>
@@ -1407,11 +1412,16 @@ function ProjecaoHoraHoraInner() {
                         <div style={estilos.heroSubLabel}>Honorário no mês</div>
                       </div>
                       <div style={estilos.heroProjBloco}>
-                        <div style={{ ...estilos.heroNumero, color: "#1d4ed8" }}>{moeda(dashboard?.projecao_honorario_filial)}</div>
-                        <div style={{ ...estilos.heroSubLabel, color: "#1d4ed8" }}>
-                          Projeção de fechamento pelo ritmo atual
-                          <SeloProjecaoParcial parcial={dashboard?.projecao_parcial} />
-                        </div>
+                        {dashboard?.projecao_aguardando_fechamento ? (
+                          <AguardandoFechamento />
+                        ) : (
+                          <>
+                            <div style={{ ...estilos.heroNumero, color: "#1d4ed8" }}>{moeda(dashboard?.projecao_honorario_filial)}</div>
+                            <div style={{ ...estilos.heroSubLabel, color: "#1d4ed8" }}>
+                              Projeção de fechamento pelos dias úteis encerrados
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -2204,16 +2214,22 @@ function ProjecaoHoraHoraInner() {
   );
 }
 
-// Selo de PROJEÇÃO PARCIAL. Quem decide é o banco: `projecao_parcial` vem no
-// payload do snapshot e é true enquanto o dia corrente está na base do ritmo
-// (dia útil, dentro do mês). A tela não recalcula nada -- se recalculasse, CRM
-// e TV voltariam a ter duas contas para o mesmo número.
-export function SeloProjecaoParcial({ parcial }) {
-  if (!parcial) return null;
+// A projeção usa SÓ dias úteis já encerrados: numerador e divisor cobrem o
+// mesmo período, de 1º do mês até ontem. No 1º dia útil do mês não existe dia
+// fechado, então não existe projeção -- e dizer isso é melhor que mostrar um
+// número que não tem lastro.
+//
+// Quem decide é o banco: `projecao_aguardando_fechamento` vem pronto no payload
+// do snapshot. A tela não recalcula nada -- se recalculasse, CRM e TV voltariam
+// a ter duas contas para o mesmo número.
+export function AguardandoFechamento() {
   return (
-    <span style={estilos.seloParcial} title="O dia ainda está em andamento: a projeção usa o honorário já confirmado hoje e muda conforme novos pagamentos entram.">
-      PROJEÇÃO PARCIAL
-    </span>
+    <div
+      style={estilos.aguardandoFechamento}
+      title="A projeção considera apenas dias úteis já encerrados. O honorário recebido hoje aparece no realizado e entra na projeção quando o dia fechar."
+    >
+      Aguardando fechamento do primeiro dia útil
+    </div>
   );
 }
 
@@ -2265,9 +2281,15 @@ function PainelIndividual({ dados, mes }) {
               : <strong>faixa máxima atingida</strong>}
           </span>
           <span>
-            No ritmo atual, fecha em <strong>{moeda(dados?.projecao_honorario_individual)}</strong>{" "}
-            ({dados?.percentual_projecao_individual ?? 0}% da meta)
-            <SeloProjecaoParcial parcial={dados?.projecao_parcial} />
+            {dados?.projecao_aguardando_fechamento ? (
+              "Aguardando fechamento do primeiro dia útil"
+            ) : (
+              <>
+                Pelos dias úteis encerrados, fecha em{" "}
+                <strong>{moeda(dados?.projecao_honorario_individual)}</strong>{" "}
+                ({dados?.percentual_projecao_individual ?? 0}% da meta)
+              </>
+            )}
           </span>
         </div>
       </div>
@@ -2380,18 +2402,16 @@ const estilos = {
     paddingLeft: 18,
     borderLeft: `2px solid #bfdbfe`,
   },
-  seloParcial: {
-    display: "inline-block",
-    fontSize: 10,
-    fontWeight: 800,
-    letterSpacing: "0.08em",
+  aguardandoFechamento: {
+    fontSize: 13,
+    fontWeight: 700,
+    lineHeight: 1.35,
     color: "#1d4ed8",
     background: "#eff6ff",
     border: "1px solid #bfdbfe",
-    borderRadius: 999,
-    padding: "2px 8px",
-    marginLeft: 8,
-    verticalAlign: "middle",
+    borderRadius: 10,
+    padding: "10px 14px",
+    maxWidth: 260,
   },
   heroMeta: {
     display: "flex",
