@@ -1,90 +1,106 @@
 -- ============================================================================
--- PATCH 2 — A BASE DO RITMO VOLTA A SER SEMPRE O DIA FECHADO (piso de 1)
--- Decisão da gestão em 04/11/2026.
+-- PATCH 2 — PROJEÇÃO SOMENTE POR DIAS ÚTEIS EFETIVAMENTE FECHADOS
+-- Regra aprovada pela gestão em 04/11/2026.
 --
 -- NÃO APLICADO. Proposta para a Amanda aplicar (R5/P3 do Guardião: nesta fase
 -- nenhum agente escreve migration; o caminho autorizado é propor o SQL).
 --
 -- ----------------------------------------------------------------------------
+-- A REGRA
+-- ----------------------------------------------------------------------------
+--   numerador = honorário dos dias úteis FECHADOS (1º do mês até ONTEM)
+--   divisor   = quantidade desses mesmos dias úteis fechados
+--   projeção  = numerador / divisor * dias úteis totais do mês
+--
+--   Numerador e divisor cobrem EXATAMENTE o mesmo período, encerrado até
+--   ontem, em horário de Brasília. Sem piso artificial.
+--
+--   O honorário recebido HOJE continua no realizado e nos cartões de "hoje",
+--   mas NÃO entra na projeção até o dia fechar.
+--
+--   Sem nenhum dia fechado (1º dia útil do mês), não existe projeção: o campo
+--   vai NULO e a tela mostra "Aguardando fechamento do primeiro dia útil".
+--
+--   04/11/2026, com o dia 3 fechado em 5.354,85 e 19 dias úteis no mês:
+--     5.354,85 / 1 * 19 = R$ 101.742,15   (valor esperado pela gestão)
+--
+--   Como o numerador não tem o dinheiro de hoje, a projeção fica ESTÁVEL ao
+--   longo do dia e muda uma vez por dia, no fechamento. Não infla nem recua.
+--
+-- ----------------------------------------------------------------------------
 -- ESTADO DE PRODUÇÃO QUE ESTE SCRIPT ESPERA
 -- ----------------------------------------------------------------------------
 -- O patch de 2026-11-03 **já está aplicado em produção** (conferido em
--- 04/11/2026): as três funções têm o bloco `REGRA 2026-11-03`, o campo
--- `projecao_parcial` no payload e `v_hoje` em data local. O snapshot de 2026-11
--- foi regerado pela Amanda em 04/11 às 08:11 e é o que está na tela.
+-- 04/11/2026): as três funções têm o bloco `REGRA 2026-11-03`, `v_hoje` em data
+-- local e um campo `projecao_parcial` no payload. O snapshot de 2026-11 foi
+-- regerado pela Amanda em 04/11 às 08:11.
 --
--- Por isso este script é um SEGUNDO patch, ancorado nesse estado — não é o
--- primeiro de novo. Há uma GUARDA DE PRÉ-CONDIÇÃO no início: se o patch de
--- 2026-11-03 não estiver aplicado, aborta sem tocar em nada.
---
--- ----------------------------------------------------------------------------
--- O QUE MUDA
--- ----------------------------------------------------------------------------
--- O patch 1 colocou o DIA CORRENTE na base do ritmo. Na prática isso fez a
--- projeção cair pela metade na virada da meia-noite: em 04/11, com só o dia 3
--- fechado, a base virou 2 e a projeção caiu de ~102 mil para 51.028,40 sem que
--- nada tivesse acontecido.
---
--- A gestão corrigiu: "hoje não é o 2 e sim o 1 dia de projeção". A base volta a
--- ser o DIA FECHADO — que é a premissa de 2026-08-17, e por um motivo real:
--- boleto e parte dos cartões caem em D+1, então o dia corrente está incompleto
--- e não pode virar divisor. O que entra de novo é o PISO DE 1, para a projeção
--- existir já no 1º dia útil em vez de repetir o realizado.
---
---   base     = dias úteis FECHADOS (1º do mês até ONTEM), com piso de 1
---   projeção = honorário acumulado / base * dias úteis totais do mês
---
---   03/11 (1º dia útil): nenhum dia fechado -> piso 1 -> 4.073,80 × 19 = 77.402,20
---   04/11 (2º dia útil): fechou só o dia 3  -> base 1 -> 5.371,41 × 19 = 102.056,79
---   05/11 (3º dia útil): fecharam 3 e 4     -> base 2
---
--- O piso de 1 é o que separa esta regra da premissa de agosto: lá a base era
--- `greatest(fechados, 0)`, que no 1º dia útil dava 0 e derrubava a projeção
--- para o realizado. Aqui o mínimo é 1.
---
--- Diferença de fórmula em relação ao patch 1, nas três funções:
---   antes (agosto):  base = dias_uteis(ini, hoje) - 1, piso 0
---   patch 1 (03/11): base = dias_uteis(ini, hoje)              <- hoje contava
---   patch 2 (04/11): base = dias_uteis(ini, hoje - 1), piso 1  <- este script
---
--- Note que `dias_uteis(ini, hoje - 1)` não é o mesmo que o `- 1` de agosto: em
--- sábado, domingo e feriado o desconto de agosto tirava um dia que já tinha
--- fechado (em 14/11 daria 8 em vez de 9). Contar até ontem acerta isso.
+-- Este script é o SEGUNDO patch, ancorado nesse estado. Há uma GUARDA DE
+-- PRÉ-CONDIÇÃO no início: se o patch de 2026-11-03 não estiver aplicado, aborta
+-- sem tocar em nada.
 --
 -- ----------------------------------------------------------------------------
--- O QUE NÃO MUDA
+-- HISTÓRICO DA FÓRMULA (para quem ler isso depois)
 -- ----------------------------------------------------------------------------
---   · valor realizado, recuperado, honorário — nenhuma linha de pagamento é
---     lida de forma diferente;
---   · metas (metas_projecao) e faixas/percentuais de comissão;
---   · `projecao_parcial`, o campo e a regra dele: segue true enquanto hoje for
---     dia útil dentro do mês. E segue correto — o honorário de hoje está no
---     numerador, então o número ainda vai mexer;
---   · "dias úteis restantes" (conta hoje, que ainda vai fechar), e portanto
+--   premissa 2026-08-17 : base = dias_uteis(ini, hoje) - 1, piso 0
+--                         numerador = honorário do mês inteiro (inclui hoje)
+--                         -> 1º dia útil zerava a projeção
+--   patch 1   2026-11-03: base = dias_uteis(ini, hoje)   (hoje contava)
+--                         -> projeção caía pela metade na virada do dia
+--   patch 2   2026-11-04: base = dias_uteis(ini, hoje - 1), SEM piso
+--                         numerador = honorário só dos dias fechados
+--                         -> este script
+--
+-- `dias_uteis(ini, hoje - 1)` não é o `- 1` de agosto: aquele descontava um dia
+-- que JÁ tinha fechado em sábado, domingo e feriado (em 14/11 daria 8 em vez
+-- de 9). Contar até ontem acerta esses dias.
+--
+-- ----------------------------------------------------------------------------
+-- O QUE NÃO MUDA (indicadores financeiros preservados)
+-- ----------------------------------------------------------------------------
+--   · realizado, recuperado e honorário do mês (`v_hon_mes` segue intacto) e os
+--     cartões de hoje — nenhuma linha de pagamento é lida de forma diferente;
+--   · metas (metas_projecao), faixas, percentuais e comissão — `v_du_pass` só é
+--     usado na projeção e no payload, em nenhum outro cálculo;
+--   · "dias úteis restantes" (conta hoje, que ainda vai fechar) e portanto
 --     "média diária necessária" e "necessário por dia útil";
---   · mês encerrado: `v_hoje <= v_fim` é falso, a base continua sendo o total e
---     a projeção continua igual ao realizado. Outubro/2026 segue 21/21;
---   · `v_hoje` em data local, o payload e os grants — tudo isso veio no patch 1
---     e este script não mexe.
+--   · `v_hoje` em data local e os grants — vieram no patch 1;
+--   · mês encerrado: `least(v_hoje - 1, v_fim) = v_fim`, a base é o total e a
+--     projeção é o realizado. Outubro/2026 segue 21/21.
 --
--- EFEITO A CONHECER: o honorário de hoje entra no numerador sobre um divisor
--- que não conta hoje. Cada R$ 1 que entra hoje vale R$ 19 de projeção, então a
--- projeção sobe ao longo do dia e recua na virada, quando o divisor ganha +1.
--- É o preço de a projeção existir no 1º dia útil E refletir o dinheiro de hoje,
--- que foram os dois pedidos da gestão.
+-- NOTA sobre a TV: `media_diaria` e `media_diaria_honorarios` continuam com a
+-- fórmula que já tinham (mês corrente ÷ v_du_ate). Como v_du_ate volta a ser o
+-- dia fechado, elas voltam ao valor que tinham ANTES do patch 1 — restauração,
+-- não mudança nova. Nenhuma fórmula de indicador foi reescrita.
+--
+-- NOTA sobre `_tv_meta_obj`: com a projeção nula no 1º dia útil, o campo
+-- `situacao` das metas da TV cai no ramo final e diz "Abaixo do ritmo". É o
+-- mesmo texto que ele já mostra no começo do mês hoje, então não é regressão —
+-- mas fica anotado, porque corrigir isso é mexer em outra função.
+--
+-- ----------------------------------------------------------------------------
+-- CAMPO NOVO NO PAYLOAD
+-- ----------------------------------------------------------------------------
+--   `projecao_aguardando_fechamento` (boolean) substitui `projecao_parcial`,
+--   que deixou de fazer sentido: a projeção não é mais parcial, porque não
+--   contém o dia em andamento. É true quando não há nenhum dia útil fechado no
+--   mês, e é o que faz a tela escrever "Aguardando fechamento do primeiro dia
+--   útil" em vez de um número.
 --
 -- ----------------------------------------------------------------------------
 -- COMO O PATCH É FEITO
 -- ----------------------------------------------------------------------------
 -- Patch ANCORADO sobre pg_get_functiondef, não reescrita das funções: o corpo
--- em produção não é o do repositório. Uma única substituição por função, no
--- bloco `REGRA 2026-11-03`. Qualquer âncora que não casar aborta tudo.
+-- em produção não é o do repositório. Cada substituição é conferida e qualquer
+-- âncora que não casar aborta tudo.
+--
+-- O honorário do período fechado é lido por uma consulta própria, no mesmo
+-- universo de linhas que o honorário do mês de cada função (a filial soma
+-- tudo; o operador filtra pelo e-mail / SEM_OPERADOR). Isso evita cirurgia
+-- dentro das CTEs e do `select ... into`.
 --
 -- CREATE OR REPLACE RESTAURA OS GRANTS PADRÃO (execute para PUBLIC). Os grants
--- são reaplicados no fim, iguais aos conferidos em produção em 04/11/2026:
---   projecao_calcular_filial   -> postgres + service_role
---   projecao_calcular_operador -> postgres + service_role
---   tv_snapshot_calcular       -> postgres + service_role + authenticated
+-- são reaplicados no fim, iguais aos conferidos em produção em 04/11/2026.
 -- ============================================================================
 
 begin;
@@ -112,114 +128,229 @@ $guarda$;
 
 do $patch$
 declare
-  v_rec   record;
-  v_def   text;
-  v_novo  text;
+  v_def  text;
+  v_novo text;
+  v_cab  text;   -- comentário comum às duas funções do CRM
 begin
 
-  -- ==========================================================================
-  -- 1) CRM — projecao_calcular_filial e projecao_calcular_operador
-  -- ==========================================================================
-  for v_rec in
-    select p.oid::regprocedure::text as assinatura,
-           pg_get_functiondef(p.oid) as def
-    from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public'
-      and p.proname in ('projecao_calcular_filial', 'projecao_calcular_operador')
-    order by p.proname
-  loop
-    v_def := v_rec.def;
-
-    -- Âncora: o bloco do patch 1 (comentário REGRA 2026-11-03 + a atribuição
-    -- de v_parcial). Entra o cálculo da base pelo dia fechado, com piso de 1.
-    v_novo := regexp_replace(
-      v_def,
-      '[ \t]*--[^\n]*REGRA 2026-11-03[^\n]*\n([ \t]*--[^\n]*\n)*[ \t]*v_parcial := \(v_hoje between v_ini and v_fim\)[^\n]*\n',
-         '  -- REGRA 2026-11-04 (gestao): a base do ritmo e sempre o DIA FECHADO.'   || E'\n'
-      || '  -- O dia corrente esta incompleto -- boleto e parte dos cartoes caem em' || E'\n'
-      || '  -- D+1 -- e nao vira divisor: em 04/11 a base e 1 (so o dia 3 fechou),'  || E'\n'
-      || '  -- nao 2. Dividir por 2 na virada da meia-noite cortaria a projecao'     || E'\n'
-      || '  -- pela metade sem que nada tivesse acontecido.'                         || E'\n'
-      || '  -- PISO DE 1: no 1o dia util do mes nada fechou ainda, e o piso faz a'   || E'\n'
-      || '  -- projecao existir desde o primeiro dia em vez de repetir o realizado.' || E'\n'
-      || '  -- Contar ate ONTEM, e nao "transcorridos - 1", acerta sabado, domingo'  || E'\n'
-      || '  -- e feriado, em que o dia anterior ja estava fechado.'                  || E'\n'
-      || '  -- Mes encerrado: v_hoje > v_fim, a base segue sendo o total.'           || E'\n'
-      || '  if v_hoje <= v_fim then'                                                 || E'\n'
-      || '    v_du_pass := greatest(public.dias_uteis(v_ini, v_hoje - 1), 1);'       || E'\n'
-      || '  end if;'                                                                 || E'\n'
-      || '  v_parcial := (v_hoje between v_ini and v_fim) and public.dias_uteis(v_hoje, v_hoje) = 1;' || E'\n'
-    );
-    if v_novo = v_def then
-      raise exception 'ANCORA 1 nao casou em %', v_rec.assinatura;
-    end if;
-
-    -- guardas: a base nova entrou, o bloco antigo saiu, o resto ficou de pe.
-    if strpos(v_novo, 'v_du_pass := greatest(public.dias_uteis(v_ini, v_hoje - 1), 1);') = 0 then
-      raise exception 'GUARDA: base por dia fechado nao entrou em %', v_rec.assinatura;
-    end if;
-    if strpos(v_novo, 'REGRA 2026-11-03') > 0 then
-      raise exception 'GUARDA: bloco do patch 1 sobrou em %', v_rec.assinatura;
-    end if;
-    if strpos(v_novo, 'v_du_pass - 1') > 0 then
-      raise exception 'GUARDA: desconto de agosto reapareceu em %', v_rec.assinatura;
-    end if;
-    if strpos(v_novo, '(v_hon_mes / v_du_pass) * v_du_total') = 0
-       or strpos(v_novo, '''projecao_parcial'', v_parcial,') = 0
-       or strpos(v_novo, '(now() at time zone ''America/Sao_Paulo'')::date') = 0 then
-      raise exception 'GUARDA: conta, payload ou dia local inesperados em %', v_rec.assinatura;
-    end if;
-
-    execute v_novo;
-    raise notice 'patch 2 aplicado: %', v_rec.assinatura;
-  end loop;
+  v_cab :=
+       '  -- REGRA 2026-11-04 (gestao): projecao SO por dia util FECHADO.'       || E'\n'
+    || '  -- Numerador e divisor cobrem exatamente o MESMO periodo: 1o do mes'   || E'\n'
+    || '  -- ate ONTEM, em horario de Brasilia. O honorario de hoje segue no'    || E'\n'
+    || '  -- realizado, mas nao entra na projecao antes do dia fechar -- por'    || E'\n'
+    || '  -- isso a projecao fica estavel no dia e muda uma vez, no fechamento.' || E'\n'
+    || '  -- Sem nenhum dia fechado (1o dia util do mes) NAO existe projecao: o' || E'\n'
+    || '  -- campo vai nulo e a tela diz "Aguardando fechamento do primeiro dia' || E'\n'
+    || '  -- util" (projecao_aguardando_fechamento).'                            || E'\n'
+    || '  -- Mes encerrado: least(v_hoje - 1, v_fim) = v_fim, base = total.'     || E'\n';
 
   -- ==========================================================================
-  -- 2) TV — tv_snapshot_calcular
+  -- 1) projecao_calcular_filial
   -- ==========================================================================
   select pg_get_functiondef(p.oid) into v_def
-  from pg_proc p
-  join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname = 'public' and p.proname = 'tv_snapshot_calcular';
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'projecao_calcular_filial';
+  if v_def is null then raise exception 'projecao_calcular_filial nao encontrada'; end if;
+  v_novo := v_def;
 
-  if v_def is null then
-    raise exception 'tv_snapshot_calcular nao encontrada';
+  -- 1.a declaração: v_parcial sai, entram v_aguardando e v_hon_fec
+  if strpos(v_novo, 'v_du_rest int; v_du_pass int; v_du_total int; v_parcial boolean;') = 0 then
+    raise exception 'ANCORA 1.a (declare) nao casou em projecao_calcular_filial';
   end if;
+  v_novo := replace(v_novo,
+    'v_du_rest int; v_du_pass int; v_du_total int; v_parcial boolean;',
+    'v_du_rest int; v_du_pass int; v_du_total int; v_aguardando boolean; v_hon_fec numeric;');
 
-  -- Na TV, v_du_ate é calculado logo acima com `least(current_date, fim)` — ou
-  -- seja, inclui hoje. Aqui ele é recalculado pelo dia fechado, com piso de 1.
-  -- v_du_rest não muda: segue contando hoje, pela mesma fórmula do CRM.
-  v_novo := regexp_replace(
-    v_def,
-    '[ \t]*--[^\n]*REGRA 2026-11-03[^\n]*\n([ \t]*--[^\n]*\n)*[ \t]*v_du_rest := public\.dias_uteis\(current_date[^\n]*\n[ \t]*v_parcial := public\.dias_uteis\(current_date, current_date\) = 1;[ \t]*\n',
-       '  -- REGRA 2026-11-04 (gestao): a base do ritmo e sempre o DIA FECHADO,'  || E'\n'
-    || '  -- com PISO DE 1 no 1o dia util do mes. O dia corrente esta incompleto' || E'\n'
-    || '  -- (boleto e parte dos cartoes em D+1) e nao vira divisor.'             || E'\n'
-    || '  -- "Restantes" conta hoje -- o dia ainda vai fechar -- pela mesma'      || E'\n'
-    || '  -- formula do CRM, para TV e CRM nao divergirem.'                       || E'\n'
-    || '  v_du_ate := greatest(public.dias_uteis(date_trunc(''month'',current_date)::date, current_date - 1), 1);' || E'\n'
-    || '  v_du_rest := public.dias_uteis(current_date, (date_trunc(''month'',current_date) + interval ''1 month - 1 day'')::date);' || E'\n'
-    || '  v_parcial := public.dias_uteis(current_date, current_date) = 1;'        || E'\n'
-  );
+  -- 1.b a base passa a contar até ONTEM
+  if strpos(v_novo, 'v_du_pass  := public.dias_uteis(v_ini, least(v_hoje, v_fim));') = 0 then
+    raise exception 'ANCORA 1.b (base) nao casou em projecao_calcular_filial';
+  end if;
+  v_novo := replace(v_novo,
+    'v_du_pass  := public.dias_uteis(v_ini, least(v_hoje, v_fim));',
+    'v_du_pass  := public.dias_uteis(v_ini, least(v_hoje - 1, v_fim));');
+
+  -- 1.c bloco do patch 1 -> comentário novo + honorário do período fechado
+  v_def := v_novo;
+  v_novo := regexp_replace(v_novo,
+    '[ \t]*--[^\n]*REGRA 2026-11-03[^\n]*\n([ \t]*--[^\n]*\n)*[ \t]*v_parcial := \(v_hoje between v_ini and v_fim\)[^\n]*\n',
+    v_cab
+    || '  select coalesce(sum(valor_honorario),0) into v_hon_fec'                || E'\n'
+    || '  from public.pagamentos'                                               || E'\n'
+    || '  where data_pagamento >= v_ini and data_pagamento <= least(v_hoje - 1, v_fim);' || E'\n'
+    || '  v_aguardando := (v_du_pass = 0);'                                     || E'\n');
   if v_novo = v_def then
-    raise exception 'ANCORA 2 nao casou';
+    raise exception 'ANCORA 1.c (bloco do patch 1) nao casou em projecao_calcular_filial';
   end if;
 
-  if strpos(v_novo, 'v_du_ate := greatest(public.dias_uteis(date_trunc(''month'',current_date)::date, current_date - 1), 1);') = 0 then
-    raise exception 'GUARDA: base por dia fechado nao entrou na TV';
+  -- 1.d a projeção passa a usar o honorário fechado, e fica nula sem base
+  if strpos(v_novo, '  v_proj_filial := case when v_du_pass > 0 then round((v_hon_mes / v_du_pass) * v_du_total, 2) else v_hon_mes end;') = 0 then
+    raise exception 'ANCORA 1.d (projecao) nao casou em projecao_calcular_filial';
   end if;
-  if strpos(v_novo, 'REGRA 2026-11-03') > 0 then
-    raise exception 'GUARDA: bloco do patch 1 sobrou na TV';
+  v_novo := replace(v_novo,
+    '  v_proj_filial := case when v_du_pass > 0 then round((v_hon_mes / v_du_pass) * v_du_total, 2) else v_hon_mes end;',
+    '  v_proj_filial := case when v_du_pass > 0 then round((v_hon_fec / v_du_pass) * v_du_total, 2) else null end;');
+
+  -- 1.e payload
+  if strpos(v_novo, '''projecao_parcial'', v_parcial,') = 0 then
+    raise exception 'ANCORA 1.e (payload) nao casou em projecao_calcular_filial';
   end if;
-  if strpos(v_novo, 'v_du_ate - 1') > 0 then
-    raise exception 'GUARDA: desconto de agosto reapareceu na TV';
+  v_novo := replace(v_novo,
+    '''projecao_parcial'', v_parcial,',
+    '''projecao_aguardando_fechamento'', v_aguardando,');
+
+  if strpos(v_novo, 'v_parcial') > 0
+     or strpos(v_novo, 'REGRA 2026-11-03') > 0
+     or strpos(v_novo, 'v_du_pass - 1') > 0 then
+    raise exception 'GUARDA: resto do patch 1 ou de agosto sobrou em projecao_calcular_filial';
   end if;
-  if strpos(v_novo, 'v_hon::numeric / v_du_ate * v_du_mes') = 0
-     or strpos(v_novo, '''projecao_parcial'', v_parcial,') = 0 then
-    raise exception 'GUARDA: conta ou payload inesperados na TV';
+  execute v_novo;
+  raise notice 'patch 2 aplicado: projecao_calcular_filial(text)';
+
+  -- ==========================================================================
+  -- 2) projecao_calcular_operador
+  -- ==========================================================================
+  select pg_get_functiondef(p.oid) into v_def
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'projecao_calcular_operador';
+  if v_def is null then raise exception 'projecao_calcular_operador nao encontrada'; end if;
+  v_novo := v_def;
+
+  if strpos(v_novo, 'v_du_rest int; v_du_pass int; v_du_total int; v_parcial boolean;') = 0 then
+    raise exception 'ANCORA 2.a (declare) nao casou em projecao_calcular_operador';
+  end if;
+  v_novo := replace(v_novo,
+    'v_du_rest int; v_du_pass int; v_du_total int; v_parcial boolean;',
+    'v_du_rest int; v_du_pass int; v_du_total int; v_aguardando boolean; v_hon_fec numeric;');
+
+  if strpos(v_novo, 'v_du_pass  := public.dias_uteis(v_ini, least(v_hoje, v_fim));') = 0 then
+    raise exception 'ANCORA 2.b (base) nao casou em projecao_calcular_operador';
+  end if;
+  v_novo := replace(v_novo,
+    'v_du_pass  := public.dias_uteis(v_ini, least(v_hoje, v_fim));',
+    'v_du_pass  := public.dias_uteis(v_ini, least(v_hoje - 1, v_fim));');
+
+  -- Mesmo universo de linhas do `op` desta função: e-mail do operador, ou
+  -- operador_email nulo quando p_email = 'SEM_OPERADOR'.
+  v_def := v_novo;
+  v_novo := regexp_replace(v_novo,
+    '[ \t]*--[^\n]*REGRA 2026-11-03[^\n]*\n([ \t]*--[^\n]*\n)*[ \t]*v_parcial := \(v_hoje between v_ini and v_fim\)[^\n]*\n',
+    v_cab
+    || '  select coalesce(sum(valor_honorario),0) into v_hon_fec'                || E'\n'
+    || '  from public.pagamentos'                                               || E'\n'
+    || '  where data_pagamento >= v_ini and data_pagamento <= least(v_hoje - 1, v_fim)' || E'\n'
+    || '    and ( (v_sem and operador_email is null)'                           || E'\n'
+    || '          or (not v_sem and lower(operador_email) = p_email) );'        || E'\n'
+    || '  v_aguardando := (v_du_pass = 0);'                                     || E'\n');
+  if v_novo = v_def then
+    raise exception 'ANCORA 2.c (bloco do patch 1) nao casou em projecao_calcular_operador';
   end if;
 
+  if strpos(v_novo, '    v_proj_ind := case when v_du_pass > 0 then round((v_hon_mes / v_du_pass) * v_du_total, 2) else v_hon_mes end;') = 0 then
+    raise exception 'ANCORA 2.d (projecao) nao casou em projecao_calcular_operador';
+  end if;
+  v_novo := replace(v_novo,
+    '    v_proj_ind := case when v_du_pass > 0 then round((v_hon_mes / v_du_pass) * v_du_total, 2) else v_hon_mes end;',
+    '    v_proj_ind := case when v_du_pass > 0 then round((v_hon_fec / v_du_pass) * v_du_total, 2) else null end;');
+
+  if strpos(v_novo, '''projecao_parcial'', v_parcial,') = 0 then
+    raise exception 'ANCORA 2.e (payload) nao casou em projecao_calcular_operador';
+  end if;
+  v_novo := replace(v_novo,
+    '''projecao_parcial'', v_parcial,',
+    '''projecao_aguardando_fechamento'', v_aguardando,');
+
+  if strpos(v_novo, 'v_parcial') > 0
+     or strpos(v_novo, 'REGRA 2026-11-03') > 0
+     or strpos(v_novo, 'v_du_pass - 1') > 0 then
+    raise exception 'GUARDA: resto do patch 1 ou de agosto sobrou em projecao_calcular_operador';
+  end if;
+  execute v_novo;
+  raise notice 'patch 2 aplicado: projecao_calcular_operador(text,text)';
+
+  -- ==========================================================================
+  -- 3) tv_snapshot_calcular
+  -- ==========================================================================
+  select pg_get_functiondef(p.oid) into v_def
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'tv_snapshot_calcular';
+  if v_def is null then raise exception 'tv_snapshot_calcular nao encontrada'; end if;
+  v_novo := v_def;
+
+  -- 3.a declaração
+  if strpos(v_novo, 'v_du_mes int; v_du_ate int; v_du_rest int; v_parcial boolean;') = 0 then
+    raise exception 'ANCORA 3.a (declare) nao casou na TV';
+  end if;
+  v_novo := replace(v_novo,
+    'v_du_mes int; v_du_ate int; v_du_rest int; v_parcial boolean;',
+    'v_du_mes int; v_du_ate int; v_du_rest int; v_aguardando boolean; v_rec_fec bigint; v_hon_fec bigint;');
+
+  -- 3.b v_du_ate passa a contar até ONTEM
+  if strpos(v_novo, 'least(current_date, (date_trunc(''month'',current_date) + interval ''1 month - 1 day'')::date)') = 0 then
+    raise exception 'ANCORA 3.b (v_du_ate) nao casou na TV';
+  end if;
+  v_novo := replace(v_novo,
+    'least(current_date, (date_trunc(''month'',current_date) + interval ''1 month - 1 day'')::date)',
+    'least(current_date - 1, (date_trunc(''month'',current_date) + interval ''1 month - 1 day'')::date)');
+
+  -- 3.c bloco do patch 1 -> recuperado e honorário do período fechado.
+  --     v_du_rest não muda: segue contando hoje, pela fórmula do CRM.
+  v_def := v_novo;
+  v_novo := regexp_replace(v_novo,
+    '[ \t]*--[^\n]*REGRA 2026-11-03[^\n]*\n([ \t]*--[^\n]*\n)*[ \t]*v_du_rest := public\.dias_uteis\(current_date[^\n]*\n[ \t]*v_parcial := public\.dias_uteis\(current_date, current_date\) = 1;[ \t]*\n',
+       '  -- REGRA 2026-11-04 (gestao): projecao SO por dia util FECHADO -- o'   || E'\n'
+    || '  -- numerador (v_rec_fec / v_hon_fec) e o divisor (v_du_ate) cobrem o'  || E'\n'
+    || '  -- mesmo periodo: 1o do mes ate ONTEM. O dinheiro de hoje segue no'    || E'\n'
+    || '  -- realizado, fora da projecao. Sem dia fechado a projecao e nula.'    || E'\n'
+    || '  -- "Restantes" conta hoje -- o dia ainda vai fechar -- pela mesma'     || E'\n'
+    || '  -- formula do CRM, para TV e CRM nao divergirem.'                      || E'\n'
+    || '  v_du_rest := public.dias_uteis(current_date, (date_trunc(''month'',current_date) + interval ''1 month - 1 day'')::date);' || E'\n'
+    || '  select coalesce(round(sum(valor_pago)),0)::bigint, coalesce(round(sum(valor_honorario)),0)::bigint' || E'\n'
+    || '    into v_rec_fec, v_hon_fec'                                          || E'\n'
+    || '  from public.pagamentos where data_pagamento is not null'              || E'\n'
+    || '    and date_trunc(''month'',data_pagamento) = date_trunc(''month'',current_date)' || E'\n'
+    || '    and data_pagamento <= current_date - 1;'                            || E'\n'
+    || '  v_aguardando := (v_du_ate = 0);'                                      || E'\n');
+  if v_novo = v_def then
+    raise exception 'ANCORA 3.c (bloco do patch 1) nao casou na TV';
+  end if;
+
+  -- 3.d as duas projeções do bloco de ritmo
+  if strpos(v_novo, '  v_proj_rec := case when v_du_ate > 0 then round(v_rec::numeric / v_du_ate * v_du_mes) else v_rec end;') = 0
+     or strpos(v_novo, '  v_proj_hon := case when v_du_ate > 0 then round(v_hon::numeric / v_du_ate * v_du_mes) else v_hon end;') = 0 then
+    raise exception 'ANCORA 3.d (proj_rec/proj_hon) nao casou na TV';
+  end if;
+  v_novo := replace(v_novo,
+    '  v_proj_rec := case when v_du_ate > 0 then round(v_rec::numeric / v_du_ate * v_du_mes) else v_rec end;',
+    '  v_proj_rec := case when v_du_ate > 0 then round(v_rec_fec::numeric / v_du_ate * v_du_mes) else null end;');
+  v_novo := replace(v_novo,
+    '  v_proj_hon := case when v_du_ate > 0 then round(v_hon::numeric / v_du_ate * v_du_mes) else v_hon end;',
+    '  v_proj_hon := case when v_du_ate > 0 then round(v_hon_fec::numeric / v_du_ate * v_du_mes) else null end;');
+
+  -- 3.e projecao_fechamento (recuperado) é a mesma projeção: período fechado.
+  --     `media_diaria` fica como está — indicador existente, fórmula intacta.
+  if strpos(v_novo, '  v_proj_fech := case when v_du_ate > 0 then round(v_media_dia * v_du_mes) else v_rec end;') = 0 then
+    raise exception 'ANCORA 3.e (proj_fech) nao casou na TV';
+  end if;
+  v_novo := replace(v_novo,
+    '  v_proj_fech := case when v_du_ate > 0 then round(v_media_dia * v_du_mes) else v_rec end;',
+    '  v_proj_fech := case when v_du_ate > 0 then round(v_rec_fec::numeric / v_du_ate * v_du_mes) else null end;');
+
+  -- 3.f payload (duas ocorrências)
+  if strpos(v_novo, '''projecao_parcial'', v_parcial,') = 0 then
+    raise exception 'ANCORA 3.f (payload) nao casou na TV';
+  end if;
+  v_novo := replace(v_novo,
+    '''projecao_parcial'', v_parcial,',
+    '''projecao_aguardando_fechamento'', v_aguardando,');
+
+  if strpos(v_novo, 'v_parcial') > 0
+     or strpos(v_novo, 'REGRA 2026-11-03') > 0
+     or strpos(v_novo, 'v_du_ate - 1') > 0 then
+    raise exception 'GUARDA: resto do patch 1 ou de agosto sobrou na TV';
+  end if;
+  if strpos(v_novo, 'v_media_dia := case when v_du_ate > 0 then round(v_rec::numeric / v_du_ate) else 0 end;') = 0 then
+    raise exception 'GUARDA: media_diaria da TV foi alterada -- nao deveria';
+  end if;
   execute v_novo;
   raise notice 'patch 2 aplicado: tv_snapshot_calcular()';
 end
@@ -241,18 +372,17 @@ grant execute on function public.tv_snapshot_calcular() to authenticated, servic
 -- ============================================================================
 select p.proname,
        coalesce(array_to_string(p.proacl, ' | '), '(default)') as acl_final,
-       strpos(pg_get_functiondef(p.oid), 'REGRA 2026-11-04')  > 0 as regra_nova,
-       strpos(pg_get_functiondef(p.oid), 'REGRA 2026-11-03')  > 0 as sobrou_patch1,
-       strpos(pg_get_functiondef(p.oid), 'projecao_parcial')  > 0 as tem_flag,
-       (strpos(pg_get_functiondef(p.oid), 'v_du_pass - 1') > 0
-        or strpos(pg_get_functiondef(p.oid), 'v_du_ate - 1') > 0) as desconto_de_agosto
+       strpos(pg_get_functiondef(p.oid), 'REGRA 2026-11-04') > 0 as regra_nova,
+       strpos(pg_get_functiondef(p.oid), 'REGRA 2026-11-03') > 0 as sobrou_patch1,
+       strpos(pg_get_functiondef(p.oid), 'projecao_aguardando_fechamento') > 0 as tem_campo_novo,
+       strpos(pg_get_functiondef(p.oid), 'v_parcial') > 0 as sobrou_parcial
 from pg_proc p
 join pg_namespace n on n.oid = p.pronamespace
 where n.nspname = 'public'
   and p.proname in ('projecao_calcular_filial','projecao_calcular_operador','tv_snapshot_calcular')
 order by p.proname;
 
--- ESPERADO: regra_nova = t · sobrou_patch1 = f · tem_flag = t · desconto_de_agosto = f
+-- ESPERADO: regra_nova = t · sobrou_patch1 = f · tem_campo_novo = t · sobrou_parcial = f
 --   projecao_calcular_filial    postgres=X/postgres | service_role=X/postgres
 --   projecao_calcular_operador  postgres=X/postgres | service_role=X/postgres
 --   tv_snapshot_calcular        postgres=X/postgres | service_role=X/postgres | authenticated=X/postgres
@@ -265,15 +395,16 @@ commit;
 --   · TV:  select public.tv_snapshot_atualizar();  -- ou o cron 85 (*/15 11-23 * * 1-5)
 --
 -- CONFERÊNCIA DE VALOR, novembro/2026 (19 dias úteis):
---   select payload->>'dias_uteis_passados'       as base,
+--   select payload->>'dias_uteis_passados'       as base_fechada,
 --          payload->>'dias_uteis_total_mes'      as total,
 --          payload->>'honorario_mes'             as realizado,
 --          payload->>'projecao_honorario_filial' as projecao,
---          payload->>'projecao_parcial'          as parcial
+--          payload->>'projecao_aguardando_fechamento' as aguardando
 --   from public.projecao_snapshot
 --   where escopo = 'FILIAL' and mes_referencia = '2026-11';
 --
---   em 04/11: base 1 (só o dia 3 fechou) · total 19 · parcial true
---             projecao = realizado × 19
---   a partir de 05/11: base 2, e a razão projecao/realizado cai para 9,5
+--   em 04/11: base_fechada 1 · total 19 · aguardando false
+--             projecao 101742.15  (5.354,85 do dia 3 × 19)
+--   o realizado segue subindo durante o dia; a PROJEÇÃO não se move até
+--   o fechamento — é assim que se confere que a regra está certa.
 -- ============================================================================

@@ -134,11 +134,14 @@ function TelaResultadoMes({ snap }) {
         <IndicadorCard rotulo="Pagamentos confirmados no mês" valor={num(m.pagamentos_confirmados)} tom="ambar" />
         <IndicadorCard rotulo="Média diária de honorários" valor={mediaHonTxt} tom="azul"
                        sub={m.media_diaria == null ? undefined : `${moeda(m.media_diaria)} de bruto recuperado`} />
-        {/* `projecao_parcial` vem pronto de tv_snapshot_calcular: true enquanto
-            o dia corrente está na base do ritmo (dia útil, mês em curso). A TV
-            não recalcula projeção -- só diz que o número ainda vai mexer. */}
-        <IndicadorCard rotulo="Projeção de fechamento (honorários)" valor={moeda(m.proj_honorarios)} tom="verde"
-                       sub={m.projecao_parcial ? "PARCIAL — o dia ainda está em andamento" : undefined} />
+        {/* A projeção usa só dias úteis encerrados. No 1º dia útil do mês não
+            existe dia fechado, então não existe projeção: o banco manda
+            `projecao_aguardando_fechamento` e a TV diz isso, em vez de mostrar
+            R$ 0. A TV não recalcula nada. */}
+        <IndicadorCard rotulo="Projeção de fechamento (honorários)" tom="verde"
+                       valor={m.projecao_aguardando_fechamento
+                         ? "Aguardando fechamento do 1º dia útil"
+                         : moeda(m.proj_honorarios)} />
       </div>
       <div style={linha}>
         <IndicadorCard rotulo={`Dias úteis (${m.dias_uteis_transcorridos}/${m.dias_uteis_mes})`} valor={`${m.dias_uteis_restantes} restantes`} tom="azul" />
