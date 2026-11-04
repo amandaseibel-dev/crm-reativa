@@ -45,6 +45,7 @@ aplicável). Nunca só um dos cinco.
 | [`prime-edge-functions.md`](prime-edge-functions.md) | Inventário completo das Edge Functions que tocam Prime/ULBRA, incluindo as 6 que existiam só em produção e foram versionadas nesta auditoria |
 | [`prime-arquitetura.md`](prime-arquitetura.md) | Diagrama lógico: CRM → Edge Functions → API Prime → banco; caminhos de leitura/escrita; pontos cegos |
 | [`prime-gaps.md`](prime-gaps.md) | Tabela VERDE/AMARELO/VERMELHO de cada informação necessária, e a resposta à pergunta da estrutura financeira dos acordos |
+| [`mensageria-ulbra.md`](mensageria-ulbra.md) | Mensageria Ulbra (crm.ulbra.ai): conector MCP, ferramentas, escopos, limites de chamadas, Edge Functions `ulbra-*` e o que não é exposto |
 
 Ver também `docs/PREMISSAS.md` (Premissas 19 e 20, seção "Acordo") — é onde
 vive a evidência medida, título a título, da investigação da estrutura do

@@ -62,15 +62,6 @@ export default function BlocoUlbra({ aluno }) {
     );
   }
 
-  if (estado === "ambiguo") {
-    return (
-      <div className="mt-2 text-xs text-yellow-700">
-        Múltiplos cadastros na Mensageria —{" "}
-        <a href="/gestao/ulbra" className="underline">revisar na gestão</a>
-      </div>
-    );
-  }
-
   if (estado === "nao_encontrado" && dados?.motivo) {
     const msgs = {
       SEM_TELEFONE: "Aluno sem telefone cadastrado",

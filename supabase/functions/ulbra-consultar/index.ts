@@ -1,25 +1,30 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decidirAcessoUlbra } from "./portao.ts";
+import { MCP_URL, escolherContato, extrairResultado, interpretar, montarChamada } from "./mcp.ts";
 
-const MCP_URL = "https://crm.ulbra.ai/api/mcp";
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+function responder(corpo: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(corpo), {
+    status,
+    headers: { ...CORS, "Content-Type": "application/json" },
+  });
+}
+
+function urlCliente(clienteId: string) {
+  return `https://crm.ulbra.ai/atendimentos/${clienteId}`;
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
   const body = await req.json().catch(() => ({}));
   const { aluno_id } = body;
-
-  if (!aluno_id) {
-    return new Response(JSON.stringify({ erro: "ALUNO_ID_OBRIGATORIO" }), {
-      status: 400,
-      headers: { ...CORS, "Content-Type": "application/json" },
-    });
-  }
+  if (!aluno_id) return responder({ erro: "ALUNO_ID_OBRIGATORIO" }, 400);
 
   const sbService = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -29,8 +34,6 @@ serve(async (req) => {
   const decisao = await decidirAcessoUlbra({
     autorizacao: req.headers.get("authorization") ?? "",
     aluno_id,
-
-    // Verifica que o JWT pertence a um usuario ativo e retorna email + perfil
     validarOperador: async (auth) => {
       const sb = createClient(
         Deno.env.get("SUPABASE_URL")!,
@@ -39,22 +42,16 @@ serve(async (req) => {
       );
       const { data: { user } } = await sb.auth.getUser();
       if (!user?.email) return null;
-
-      // Busca perfil via service_role para evitar RLS na tabela usuarios
       const { data: usuario } = await sbService
         .from("usuarios")
         .select("email, perfil")
         .ilike("email", user.email)
         .eq("ativo", true)
         .limit(1)
-        .single();
-
+        .maybeSingle();
       if (!usuario) return null;
       return { email: usuario.email as string, perfil: usuario.perfil as string };
     },
-
-    // Para perfil 'operador': confirma que aluno esta na carteira dele
-    // (responsavel_atual_email = email do operador, mesma regra do RLS alunos_update)
     verificarEscopoAluno: async (email, _perfil, id) => {
       const { data } = await sbService
         .from("alunos")
@@ -62,165 +59,116 @@ serve(async (req) => {
         .eq("id", id)
         .ilike("responsavel_atual_email", email)
         .limit(1)
-        .single();
+        .maybeSingle();
       return !!data;
     },
   });
 
-  if (!decisao.ok) {
-    return new Response(JSON.stringify(decisao.corpo), {
-      status: decisao.status,
-      headers: { ...CORS, "Content-Type": "application/json" },
-    });
-  }
+  if (!decisao.ok) return responder(decisao.corpo, decisao.status);
 
-  // A partir daqui o acesso ao aluno esta autorizado
+  const usuario = decisao.usuario.email;
 
-  // Verificar vínculo ativo existente
+  // Auditoria: só quem chama a Mensageria ou grava vínculo. Nunca telefone/CPF.
+  const auditar = async (
+    acao: "ULBRA_CONSULTA" | "ULBRA_VINCULO_CRIADO",
+    tabela_afetada: "alunos" | "ulbra_vinculos",
+    registro_id: string,
+    detalhes: Record<string, unknown>
+  ) => {
+    const { error } = await sbService
+      .from("auditoria")
+      .insert({ usuario, acao, tabela_afetada, registro_id, detalhes: { aluno_id, ...detalhes } });
+    if (error) console.error("ulbra-consultar: auditoria falhou", acao, error.message);
+  };
+
   const { data: vinculo } = await sbService
     .from("ulbra_vinculos")
     .select("ulbra_cliente_id, confianca, origem")
     .eq("aluno_id", aluno_id)
     .is("desvinculado_em", null)
-    .single();
+    .maybeSingle();
 
   if (vinculo) {
-    return new Response(
-      JSON.stringify({
-        status: "vinculado",
-        ulbra_cliente_id: vinculo.ulbra_cliente_id,
-        confianca: vinculo.confianca,
-        origem: vinculo.origem,
-        url: `https://crm.ulbra.ai/atendimentos/${vinculo.ulbra_cliente_id}`,
-      }),
-      { headers: { ...CORS, "Content-Type": "application/json" } }
-    );
-  }
-
-  // Buscar telefone do aluno
-  const { data: aluno } = await sbService
-    .from("alunos")
-    .select("telefone, cpf, email")
-    .eq("id", aluno_id)
-    .single();
-
-  if (!aluno) {
-    return new Response(JSON.stringify({ status: "nao_encontrado", motivo: "ALUNO_NAO_ENCONTRADO" }), {
-      headers: { ...CORS, "Content-Type": "application/json" },
+    return responder({
+      status: "vinculado",
+      ulbra_cliente_id: vinculo.ulbra_cliente_id,
+      confianca: vinculo.confianca,
+      origem: vinculo.origem,
+      url: urlCliente(vinculo.ulbra_cliente_id),
     });
   }
+
+  const { data: aluno } = await sbService
+    .from("alunos")
+    .select("telefone, cpf")
+    .eq("id", aluno_id)
+    .maybeSingle();
+  if (!aluno) return responder({ status: "nao_encontrado", motivo: "ALUNO_NAO_ENCONTRADO" });
 
   const token = Deno.env.get("ULBRA_MCP_TOKEN");
   if (!token) {
-    return new Response(JSON.stringify({ erro: "CONFIG_AUSENTE" }), {
-      status: 500,
-      headers: { ...CORS, "Content-Type": "application/json" },
+    console.error("ulbra-consultar: ULBRA_MCP_TOKEN ausente no ambiente da função");
+    return responder({ erro: "CONFIG_AUSENTE" }, 500);
+  }
+
+  const escolha = escolherContato(aluno);
+  if ("erro" in escolha) return responder({ status: "nao_encontrado", motivo: escolha.erro });
+
+  let interpretado;
+  try {
+    const resp = await fetch(MCP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(montarChamada(escolha.contato)),
     });
+    if (!resp.ok) {
+      console.error("ulbra-consultar: MCP respondeu", resp.status);
+      await auditar("ULBRA_CONSULTA", "alunos", aluno_id, { origem: escolha.origem, resultado: "ULBRA_INDISPONIVEL", http: resp.status });
+      return responder({ erro: resp.status === 429 ? "ULBRA_LIMITE" : "ULBRA_INDISPONIVEL" }, 502);
+    }
+    interpretado = interpretar(extrairResultado(await resp.json()));
+  } catch (e) {
+    console.error("ulbra-consultar: falha ao consultar MCP", (e as Error).name);
+    await auditar("ULBRA_CONSULTA", "alunos", aluno_id, { origem: escolha.origem, resultado: "ULBRA_INDISPONIVEL" });
+    return responder({ erro: "ULBRA_INDISPONIVEL" }, 502);
   }
 
-  const tel = aluno.telefone?.replace(/\D/g, "");
-  const telValido = tel && tel.length >= 10 && tel.length <= 13;
-
-  let busca: { campo: string; valor: string } | null = null;
-
-  if (telValido) {
-    busca = { campo: "telefone", valor: tel };
-  } else if (aluno.cpf) {
-    busca = { campo: "cpf", valor: aluno.cpf.replace(/\D/g, "") };
-  } else {
-    return new Response(
-      JSON.stringify({ status: "nao_encontrado", motivo: telValido ? "SEM_TELEFONE" : "TELEFONE_MALFORMADO" }),
-      { headers: { ...CORS, "Content-Type": "application/json" } }
-    );
+  if (interpretado.status !== "vinculado") {
+    await auditar("ULBRA_CONSULTA", "alunos", aluno_id, { origem: escolha.origem, resultado: interpretado.motivo });
+    return responder(interpretado, interpretado.status === "erro" ? 502 : 200);
   }
 
-  // Conferir duplicidade na Mensageria Ulbra
-  const dupResp = await fetch(MCP_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/call",
-      params: {
-        name: "conferir_duplicidade",
-        arguments: { [busca.campo]: busca.valor },
-      },
-    }),
-  });
-
-  if (!dupResp.ok) {
-    return new Response(JSON.stringify({ erro: "ULBRA_INDISPONIVEL" }), {
-      status: 502,
-      headers: { ...CORS, "Content-Type": "application/json" },
-    });
-  }
-
-  const dupJson = await dupResp.json() as {
-    result?: { content?: Array<{ text?: string }> };
-  };
-  const dupText = dupJson?.result?.content?.[0]?.text ?? "{}";
-  const dup = JSON.parse(dupText) as {
-    clientes?: Array<{ id: string; equipe?: string | null }>;
-  };
-
-  const emEscopo = (dup.clientes ?? []).filter((c) => c.equipe != null);
-
-  if (emEscopo.length !== 1) {
-    return new Response(
-      JSON.stringify({
-        status: emEscopo.length === 0 ? "nao_encontrado" : "ambiguo",
-        motivo: emEscopo.length === 0 ? "NAO_ENCONTRADO" : "MULTIPLOS_CADASTROS",
-      }),
-      { headers: { ...CORS, "Content-Type": "application/json" } }
-    );
-  }
-
-  const clienteId = emEscopo[0].id;
-
-  // Consultar dados do cliente confirmado
-  const cliResp = await fetch(MCP_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 2,
-      method: "tools/call",
-      params: { name: "consultar_cliente", arguments: { id: clienteId } },
-    }),
-  });
-
-  if (!cliResp.ok) {
-    return new Response(JSON.stringify({ erro: "ULBRA_INDISPONIVEL" }), {
-      status: 502,
-      headers: { ...CORS, "Content-Type": "application/json" },
-    });
-  }
-
-  // Gravar vínculo de alta confiança
-  await sbService.from("ulbra_vinculos").insert({
-    aluno_id,
-    ulbra_cliente_id: clienteId,
-    telefone_e164: telValido ? `+55${tel}` : null,
-    confianca: "alta",
-    origem: busca.campo as "telefone" | "cpf",
-    vinculado_por: decisao.usuario.email,
-  });
-
-  return new Response(
-    JSON.stringify({
-      status: "vinculado",
-      ulbra_cliente_id: clienteId,
+  const { data: novo, error: erroVinculo } = await sbService
+    .from("ulbra_vinculos")
+    .insert({
+      aluno_id,
+      ulbra_cliente_id: interpretado.ulbra_cliente_id,
+      telefone_e164: escolha.telefone_e164,
       confianca: "alta",
-      origem: busca.campo,
-      url: `https://crm.ulbra.ai/atendimentos/${clienteId}`,
-    }),
-    { headers: { ...CORS, "Content-Type": "application/json" } }
-  );
+      origem: escolha.origem,
+      vinculado_por: usuario,
+    })
+    .select("id")
+    .single();
+
+  if (erroVinculo || !novo) {
+    console.error("ulbra-consultar: falha ao gravar vínculo", erroVinculo?.message);
+    await auditar("ULBRA_CONSULTA", "alunos", aluno_id, { origem: escolha.origem, resultado: "VINCULO_NAO_GRAVADO", ulbra_cliente_id: interpretado.ulbra_cliente_id });
+    return responder({ erro: "VINCULO_NAO_GRAVADO" }, 500);
+  }
+
+  await auditar("ULBRA_VINCULO_CRIADO", "ulbra_vinculos", novo.id, {
+    origem: escolha.origem,
+    ulbra_cliente_id: interpretado.ulbra_cliente_id,
+    equipe: interpretado.equipe,
+    em_atendimento: interpretado.em_atendimento,
+  });
+
+  return responder({
+    status: "vinculado",
+    ulbra_cliente_id: interpretado.ulbra_cliente_id,
+    confianca: "alta",
+    origem: escolha.origem,
+    url: urlCliente(interpretado.ulbra_cliente_id),
+  });
 });
