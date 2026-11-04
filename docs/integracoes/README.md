@@ -79,14 +79,23 @@ da pessoa.
 ## Resposta direta: onde está a estrutura financeira dos acordos
 
 **Não localizada em nenhuma rota da API Prime/ULBRA testada.** A tela do
-Prime mostra a estrutura completa (visto e conferido título a título no
-acordo 71903, 15/09/2026), então **o dado existe** — o que não foi
-identificado é a URL estruturada que essa tela consome. É uma limitação de
-**escopo da superfície pública testada com a chave atual**, comprovada com
-evidência (inclusive `agreements: []` para um acordo confirmado ATIVO na tela
-no mesmo instante da chamada), não uma afirmação de que a ULBRA não tenha o
-dado em algum lugar. Detalhe completo em
-[`prime-gaps.md`](prime-gaps.md#a-resposta-à-prioridade-imediata).
+Prime mostra a estrutura completa (confirmada no acordo 71903 em 15/09/2026 e
+novamente em 04/11/2026). É uma limitação de **escopo da superfície pública
+testada com a chave atual**, comprovada com evidência (inclusive
+`agreements: []` para um acordo ATIVO na tela no mesmo instante da chamada).
+
+**URL da tela web confirmada em 04/11/2026:**
+
+```
+https://596057.mannesoftprime.com.br/mannesoft/sistema.php?ACAO=publico/acordo.view.php
+```
+
+Esse host (Mannesoft cloud-hosted) é diferente de `prime.ulbra.ai`. A URL é
+estática — o número do acordo não aparece nela. O mecanismo de identificação
+(POST ou sessão PHP) ainda não foi comprovado. A acessibilidade via Chrome
+local também não foi verificada. **Não presumir automação viável** sem esses
+dois pontos confirmados. Detalhe completo em
+[`prime-gaps.md § Interface web`](prime-gaps.md#interface-web-do-prime--descoberta-de-04112026).
 
 **Nenhuma regra financeira nova foi criada** durante este mapeamento, conforme
 pedido — inclusive o teste de consistência descrito na Premissa 20

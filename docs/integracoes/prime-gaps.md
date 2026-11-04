@@ -29,11 +29,11 @@ outra via" (VERMELHO com evidência). Ver a formulação completa em
 | Decomposição de valor (principal/multa/juros/honorário) | 🟢 VERDE | Sim | `financial_statement[]` | Sim | nenhum |
 | Mensalidade liquidada (portador 195) | 🟡 AMARELO | Parcial | `financial_statement[].paymentDate` | Condicional — só dentro da regra de entrada em prod, nunca `paymentDate` isolado | `paymentDate` não distingue negociado de aberto sozinho |
 | Caixa efetivamente recebido | 🟡 AMARELO | Parcial (fonte é o Santander, não a Prime) | fora da API | Sim, mas fora desta integração | `paidAmount` da Prime é dívida corrigida, não caixa |
-| **Estrutura financeira do acordo** (parcelas, valor negociado, vencimentos) | 🔴 VERMELHO | **Visível na tela do Prime; rota estruturada NÃO identificada** | `/agreements` responde vazio (48 rotas candidatas testadas, todas 404 exceto essa) | **NÃO** | Comprovadamente não exposta pela superfície pública testada — não é "não existe". Ver Premissa 19/20 |
-| Quem fechou o acordo | 🔴 VERMELHO | Não | sondado por `prime-acordo`, nada encontrado | Não | mesma superfície do gap acima |
-| Quais mensalidades o acordo substituiu | 🔴 VERMELHO | Não, na API. Reconstrução interna existe (teto ALTA_CONFIANÇA) | — | Condicional, com revisão humana — nunca `CONFIRMADO` | idem |
-| Status do acordo (confirmado/quebrado/renegociado/cancelado) | 🔴 VERMELHO | Não | — | Não | idem |
-| Total de parcelas quando o acordo não está quitado | 🔴 VERMELHO | Não (só vemos as pagas, via extrato) | — | Não | idem |
+| **Estrutura financeira do acordo** (parcelas, valor negociado, vencimentos) | 🔴 VERMELHO | **Via API: NÃO identificada.** Via tela web: **confirmada no acordo 71903 (04/11/2026)** — ver § Interface web abaixo | API: `/agreements` vazio (48 rotas testadas). Web: `596057.mannesoftprime.com.br` → `sistema.php?ACAO=publico/acordo.view.php` | **NÃO via API. Via web: mecanismo de acesso não comprovado ainda** | API: comprovadamente não exposta pela superfície pública testada. Web: URL estática sem identificador visível — POST ou sessão PHP, ambos pendentes. Ver § Interface web |
+| Quem fechou o acordo | 🔴 VERMELHO | Via API: Não. Via tela web: visível no acordo 71903 (DIEGO RODRIGUES CRUZ, 04/11/2026) — ver § Interface web | sondado por `prime-acordo`, nada encontrado | Não via API. Via web: mecanismo não comprovado | mesma superfície de gap na API; tela web entrega o campo, automação ainda não testada |
+| Quais mensalidades o acordo substituiu | 🔴 VERMELHO | Via API: Não. Via tela web: 7 mensalidades originais (05/12/2025–05/06/2026) confirmadas no acordo 71903 — ver § Interface web | — | Condicional, com revisão humana — nunca `CONFIRMADO` via API. Via web: mecanismo não comprovado | idem |
+| Status do acordo (confirmado/quebrado/renegociado/cancelado) | 🔴 VERMELHO | Via API: Não. Via tela web: "Confirmado" visível no acordo 71903 (04/11/2026) — ver § Interface web | — | Não via API. Via web: mecanismo não comprovado | idem |
+| Total de parcelas quando o acordo não está quitado | 🔴 VERMELHO | Via API: Não. Via tela web: 10 parcelas visíveis no acordo 71903 (quitado) — comportamento para acordos em aberto não observado | — | Não via API. Via web: mecanismo não comprovado | idem |
 | OpenAPI/Swagger da Prime | 🔴 VERMELHO | Não — 404 em produção | `/swagger`, `/openapi.json`, `/docs` | — | pedir à TI da ULBRA, decisão de contato externo não tomada até 15/09/2026 |
 | RPC/tabelas de produção sem migration | 🟡 AMARELO (drift, não é gap de dado) | **Censo completo em 20/10/2026: 8 tabelas e 27 funções `prime*` sem migration.** O subsistema `prime_extrato` (2 tabelas + 5 funções) foi versionado — ver `20261020122217_versionar_subsistema_prime_extrato.sql` | `prime_chave_api()`, `prime_extrato`, `prime_extrato_fila`, `prime_extrato_reenfileirar()`, `prime_extrato_mutirao()`, `prime_extrato_ok()`, `prime_extrato_falhou()` | — | **Restam 28 objetos**: piloto acadêmico (2 tabelas + 11 funções), portador 202 (4 funções), `prime_alunos_sync`, `prime_mensalidades_sync`, `prime_sync_cursor`, `prime_sync_execucoes`, e 8 funções avulsas. Outro subsistema, PR própria |
 | Rotina que alimenta `prime_extrato_fila` | 🟢 VERDE | **LOCALIZADA em 20/10/2026**: `public.prime_extrato_reenfileirar()`, agendada no pg_cron como `prime_extrato_reenfileirar_semanal` (`5 2 * * 6`). Não estava em `src/` nem nas Edge Functions porque é função SQL agendada — e também não tinha migration | `prime_extrato_reenfileirar()` | Sim | nenhum — versionada em `20261020122217`. A fila é drenada por `prime_extrato_mutirao()` (job 35, `*/2 2-23 * * 6`), que faz `net.http_post` para a Edge Function `prime-extrato` |
@@ -83,14 +83,73 @@ dez parcelas novas, todas nomeadas e não apenas inferidas). O que falta
 identificar é **a URL/rota que essa tela consome** — não é a existência do
 dado que está em aberto, é a superfície estruturada.
 
-**O único caminho conhecido para destravar isso:** capturar, via F12 → Rede,
-a requisição que a própria interface do Prime faz ao abrir a tela de detalhe
-de um acordo. Ninguém fez esse contato/captura ainda; abrir essa frente
-(inclusive decidir se cabe contato formal com a TI da ULBRA) é decisão da
-gestão, não tomada até a data desta auditoria.
+**URL da tela web confirmada em 04/11/2026:**
+
+```
+Host: 596057.mannesoftprime.com.br
+Rota: /mannesoft/sistema.php?ACAO=publico/acordo.view.php
+```
+
+Esse host é diferente de `prime.ulbra.ai` (que responde 404 externamente). O
+identificador do acordo **não está visível na URL** — é transmitido por POST ou
+herdado de sessão PHP da etapa anterior ("Acordos - Seleção"). Ambas as
+hipóteses estão abertas; nenhuma foi comprovada. Ver § Interface web abaixo.
 
 Detalhe completo, com a evidência medida título a título: `docs/PREMISSAS.md`,
 Premissas 19 e 20.
+
+---
+
+## Interface web do Prime — descoberta de 04/11/2026
+
+### Host e URL
+
+```
+https://596057.mannesoftprime.com.br/mannesoft/sistema.php?ACAO=publico/acordo.view.php
+```
+
+Esse host (Mannesoft cloud-hosted) é diferente de `prime.ulbra.ai`. **Não foi
+verificado** se é acessível via Chrome local sem área de trabalho remota — não
+presumir que seja.
+
+### Estrutura observada no acordo 71903
+
+| Campo | Valor observado | Status antes |
+|---|---|---|
+| Situação | Confirmado | desconhecido |
+| Data Cadastro | 14/09/2026 | — |
+| Data Assinatura | 16/09/2026 | desconhecido |
+| Usuário Confirmação | DIEGO RODRIGUES CRUZ | desconhecido |
+| Nº Parcelas Originais | 7 | ✓ já documentado |
+| Valor Original | R$ 3.315,69 | ✓ já documentado |
+| Valor Multa | R$ 66,29 | desconhecido |
+| Valor Juros | R$ 593,59 | desconhecido |
+| Valor Negociado | R$ 3.975,57 | ✓ ao centavo |
+| Valor Desconto | R$ 0,00 | ✓ |
+| Valor Honorário | R$ 318,05 | ✓ ao centavo |
+| Valor Acordo | R$ 4.293,62 | ✓ ao centavo |
+| Nº Parcelas Novas | 10 | ✓ |
+| Saldo Devedor | R$ 0,00 (quitado) | desconhecido |
+| Total Pago | R$ 4.293,62 | ✓ |
+| Status de cada parcela | 10/10 Quitadas | desconhecido |
+
+Vencimentos originais: 05/12/2025 → 05/06/2026 (7 mensalidades, R$ 473,67 cada).
+Vencimentos do acordo: 16/09/2026 → 16/06/2027 (10 parcelas; últimas 3 sem
+mensalidade de origem vinculada). Rateio: 9 × R$ 429,36 + R$ 429,38.
+
+### Mecanismo de identificação — pendente
+
+A URL é estática e não carrega o número do acordo. O filtro "Acordo 71903"
+foi submetido via formulário. O identificador vai no corpo da requisição
+(POST) ou é herdado de sessão PHP da etapa "Acordos - Seleção". **Nenhum dos
+dois foi comprovado.** O nome do campo POST também não foi determinado.
+
+### O que ainda falta antes de qualquer automação
+
+1. Verificar se o host responde no Chrome local (sem área de trabalho remota).
+2. Comprovar o mecanismo de identificação: POST ou sessão PHP.
+3. Se POST: identificar o nome do campo no formulário.
+4. Realizar teste com um segundo acordo (diferente de 71903).
 
 ---
 
