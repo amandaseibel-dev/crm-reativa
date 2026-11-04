@@ -1,0 +1,8 @@
+{
+  "snapshot_url": "https://ahattpqrjmhkzsmnbdzs.supabase.co/functions/v1/tv-dados",
+  "fila_url": "",
+  "intervalo_dados_segundos": 60,
+  "intervalo_fila_segundos": 5,
+  "supabase_url": "https://ahattpqrjmhkzsmnbdzs.supabase.co",
+  "supabase_key": "sb_publishable_DOYQQCgscKWJGYXZ64BKkQ_yvk_ZNW3"
+}

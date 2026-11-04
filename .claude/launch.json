@@ -2,6 +2,12 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "tv-v11",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["-e", "const h=require('http'),f=require('fs'),p=require('path');const r='tv-v11';const t={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.json':'application/json','.png':'image/png','.txt':'text/plain'};h.createServer((q,s)=>{let u=decodeURIComponent(q.url.split('?')[0]);if(u==='/')u='/index.html';const fp=p.join(r,p.normalize(u));if(!fp.startsWith(r)){s.writeHead(403);s.end();return;}f.readFile(fp,(e,d)=>{if(e){s.writeHead(404);s.end();return;}s.writeHead(200,{'Content-Type':t[p.extname(fp)]||'application/octet-stream','Cache-Control':'no-store'});s.end(d);});}).listen(5207,'127.0.0.1');"],
+      "port": 5207
+    },
+    {
       "name": "vite-dev",
       "runtimeExecutable": "npm",
       "runtimeArgs": [

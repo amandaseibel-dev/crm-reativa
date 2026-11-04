@@ -1,0 +1,11 @@
+# Site reativa-tv (TV ReATIVA V11): publica o painel estático aprovado, sem build.
+# Vale só para o site Netlify ligado a este repositório; o CRM é publicado na Vercel.
+[build]
+  command = ""
+  publish = "tv-v11"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    Cache-Control = "no-cache"

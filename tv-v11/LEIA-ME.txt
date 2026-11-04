@@ -1,0 +1,14 @@
+TV ReATIVA | V11 - RETORNO AO LAYOUT APROVADO
+
+Esta versão restaura o painel azul premium de três colunas aprovado:
+1. Honorários e resultados à esquerda.
+2. Conteúdo rotativo de negociação no centro.
+3. Ranking de 1º, 2º e 3º lugares à direita, sem valores individuais.
+4. Receptivo fixo no rodapé, sem dados simulados.
+5. Horário, data e clima de Canoas/RS no topo.
+
+PUBLICAÇÃO: envie o arquivo ZIP sem extrair em Implantações do projeto já existente no Netlify.
+
+DADOS: dados-tv.json é um arquivo-modelo sem números reais. Para atualização automática, use config.json e informe apenas URLs de APIs autorizadas, seguras e com dados estritamente necessários para exibição. A integração com o CRM e a fila ainda não foi concluída. Não coloque credenciais ou tokens secretos nos arquivos públicos do Netlify.
+
+NÃO ALTERA: CRM, Supabase, Portal ou seus bancos de dados.
