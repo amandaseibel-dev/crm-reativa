@@ -48,10 +48,36 @@ describe("BlocoUlbra", () => {
       json: async () => ({ status: "ambiguo" }),
     });
 
-    render(<BlocoUlbra aluno={{ id: "aluno-2" }} />);
+    const { container } = render(<BlocoUlbra aluno={{ id: "aluno-2" }} />);
     await waitFor(() => {
       expect(screen.getByText(/Múltiplos cadastros/)).toBeTruthy();
     });
+    // A rota /gestao/ulbra não existe: o estado ambíguo não pode apontar para ela
+    expect(container.querySelector("a")).toBeNull();
+  });
+
+  it("exibe FORA_DO_ESCOPO sem link e sem dados do aluno", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: "nao_encontrado", motivo: "FORA_DO_ESCOPO" }),
+    });
+
+    const { container } = render(<BlocoUlbra aluno={{ id: "aluno-5" }} />);
+    await waitFor(() => {
+      expect(screen.getByText(/fora do escopo/i)).toBeTruthy();
+    });
+    expect(container.querySelector("a")).toBeNull();
+  });
+
+  it("não renderiza nada quando a função devolve erro (502 ULBRA_INDISPONIVEL)", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ erro: "ULBRA_INDISPONIVEL" }),
+    });
+
+    const { container } = render(<BlocoUlbra aluno={{ id: "aluno-6" }} />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await waitFor(() => expect(container.firstChild).toBeNull());
   });
 
   it("exibe motivo SEM_TELEFONE quando aluno não tem telefone", async () => {

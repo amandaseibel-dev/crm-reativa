@@ -65,8 +65,7 @@ export default function BlocoUlbra({ aluno }) {
   if (estado === "ambiguo") {
     return (
       <div className="mt-2 text-xs text-yellow-700">
-        Múltiplos cadastros na Mensageria —{" "}
-        <a href="/gestao/ulbra" className="underline">revisar na gestão</a>
+        Múltiplos cadastros na Mensageria — confira pelo telefone no CRM Mensageria
       </div>
     );
   }
