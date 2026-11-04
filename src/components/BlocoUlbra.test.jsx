@@ -42,17 +42,16 @@ describe("BlocoUlbra", () => {
     });
   });
 
-  it("exibe mensagem de múltiplos cadastros quando status é ambiguo", async () => {
+  it("status desconhecido (ex.: 'ambiguo' da versão antiga) não renderiza link nenhum", async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ status: "ambiguo" }),
     });
 
     const { container } = render(<BlocoUlbra aluno={{ id: "aluno-2" }} />);
-    await waitFor(() => {
-      expect(screen.getByText(/Múltiplos cadastros/)).toBeTruthy();
-    });
-    // A rota /gestao/ulbra não existe: o estado ambíguo não pode apontar para ela
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await waitFor(() => expect(container.firstChild).toBeNull());
+    // A rota /gestao/ulbra não existe: nenhum estado pode apontar para ela
     expect(container.querySelector("a")).toBeNull();
   });
 

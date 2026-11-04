@@ -67,7 +67,7 @@ serve(async (req) => {
     }
     return responder({ leads: mapearLeads(extrairResultado(await resp.json())) });
   } catch (e) {
-    console.error("ulbra-leads-pendentes: falha ao consultar MCP", (e as Error).message);
+    console.error("ulbra-leads-pendentes: falha ao consultar MCP", (e as Error).name);
     return responder({ erro: "ULBRA_INDISPONIVEL" }, 502);
   }
 });

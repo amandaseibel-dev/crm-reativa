@@ -128,7 +128,7 @@ serve(async (req) => {
     }
     interpretado = interpretar(extrairResultado(await resp.json()));
   } catch (e) {
-    console.error("ulbra-consultar: falha ao consultar MCP", (e as Error).message);
+    console.error("ulbra-consultar: falha ao consultar MCP", (e as Error).name);
     await auditar("ULBRA_CONSULTA", "alunos", aluno_id, { origem: escolha.origem, resultado: "ULBRA_INDISPONIVEL" });
     return responder({ erro: "ULBRA_INDISPONIVEL" }, 502);
   }
