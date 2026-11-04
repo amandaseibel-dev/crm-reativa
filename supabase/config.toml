@@ -71,3 +71,12 @@ verify_jwt = true
 # propria e decisao propria, nao um atalho nesta porta.
 [functions.santander-importar]
 verify_jwt = true
+
+# -----------------------------------------------------------------------------
+# ulbra-atendimento -- atendimento atual do aluno na Mensageria Ulbra (ficha)
+# -----------------------------------------------------------------------------
+# Chamada pela ficha, uma vez por abertura, so para aluno com vinculo ativo em
+# ulbra_vinculos. Mesmo portao da ulbra-consultar. Cache em memoria de 5 min.
+# Nao grava nada. Token MCP so no secret de backend.
+[functions.ulbra-atendimento]
+verify_jwt = true
