@@ -20,10 +20,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { formatarTelefone, normalizarE164 } from "../utils/telefone";
 import AnexoWhatsApp from "../components/AnexoWhatsApp";
-// A fila do receptivo deitada, no topo da fila de conversas. E o MESMO
-// componente da aba Receptivo da Carteira, so que na variante "barra":
-// quem esta logado, a ordem da vez e o contador do dia saem da mesma
-// fonte e dos mesmos RPCs -- esta tela nao recalcula nem zera nada.
+// A fila do receptivo. A main ja a trouxe para esta tela (#792, #801); esta
+// branch so troca a FORMA: a mesma fila na variante "barra", de uma linha.
 import FilaReceptivo from "../components/FilaReceptivo";
 import useWhatsAppNotificacoes from "../hooks/useWhatsAppNotificacoes";
 // A ficha COMPLETA, embutida. É o mesmo componente da tela /aluno: aqui ele
@@ -41,6 +39,7 @@ import {
   TEMPOS_SEM_INTERACAO,
   ROTULO_STATUS,
   assumirConversa,
+  marcarAtendidoReceptivoWhatsApp,
   buscarAluno,
   carregarCandidatos,
   carregarFichaAluno,
@@ -174,6 +173,7 @@ export default function CentralWhatsApp() {
   const [anexo, setAnexo] = useState(null); // { nome, estado: ENVIANDO|ENVIADO|ERRO, erro }
   const seletorArquivoRef = useRef(null);
   const [erro, setErro] = useState("");
+  const [avisoFila, setAvisoFila] = useState(null);
   const [prefsAberto, setPrefsAberto] = useState(false);
 
   // Relógio de 1 min só para os contadores de espera reescreverem sozinhos.
@@ -188,6 +188,9 @@ export default function CentralWhatsApp() {
   // enxergariam o estado novo.
   const selecionadaRef = useRef(null);
   useEffect(() => { selecionadaRef.current = selecionada; }, [selecionada]);
+  // Trava síncrona: impede duplo-clique em Assumir (o mesmo padrão usado em
+  // FilaReceptivo para marcarAtendido e alternarPausa).
+  const assumirEmAndamentoRef = useRef(false);
 
   // Email do operador: usado pelo hook de notificações para filtrar alertas.
   useEffect(() => {
@@ -229,6 +232,12 @@ export default function CentralWhatsApp() {
       setCarregandoLista(false);
     }
   }, [filtroStatus, filtroCanal, filtroTempo, busca, filtroResponsavel]);
+
+  // Espelho de carregarConversas: declarado APÓS a função para evitar TDZ.
+  // Mantém o canal Realtime estável mesmo quando o operador muda filtros ou
+  // digita na busca (o que recria carregarConversas a cada render).
+  const carregarConversasRef = useRef(null);
+  useEffect(() => { carregarConversasRef.current = carregarConversas; }, [carregarConversas]);
 
   useEffect(() => {
     listarCanais().then(setCanais).catch((e) => setErro(e.message));
@@ -279,7 +288,8 @@ export default function CentralWhatsApp() {
           if (recargaRef.current) clearTimeout(recargaRef.current);
           recargaRef.current = setTimeout(() => {
             recargaRef.current = null;
-            carregarConversas();
+            // Usa ref para não recriar o canal quando filtros mudam.
+            carregarConversasRef.current?.();
           }, 600);
         },
       )
@@ -288,7 +298,10 @@ export default function CentralWhatsApp() {
       if (recargaRef.current) clearTimeout(recargaRef.current);
       supabase.removeChannel(canal);
     };
-  }, [carregarConversas, aoReceberMensagem]);
+  // aoReceberMensagem é estável (useCallback com []).
+  // carregarConversasRef.current atualiza sem recriar o canal.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aoReceberMensagem]);
 
   useEffect(() => {
     fimDaThreadRef.current?.scrollIntoView({ block: "end" });
@@ -442,6 +455,32 @@ export default function CentralWhatsApp() {
       await carregarConversas();
     } catch (e) {
       setErro(e.message);
+    }
+  }
+
+  // Assumir conversa receptiva também movimenta o operador na fila telefônica.
+  // Receptivo = aguardando_resposta derivado por trigger no banco a partir da
+  // última mensagem real — ignora SYNC_INICIAL e reordenação de histórico.
+  async function assumir() {
+    if (!selecionada || assumirEmAndamentoRef.current) return;
+    assumirEmAndamentoRef.current = true;
+    setErro("");
+    setAvisoFila(null);
+    try {
+      await assumirConversa(selecionada.id);
+      if (selecionada.aguardando_resposta && emailOperador) {
+        try {
+          await marcarAtendidoReceptivoWhatsApp(emailOperador, selecionada.id);
+        } catch (eFila) {
+          console.warn("[fila-receptivo]", eFila.message);
+          setAvisoFila("Atendimento registrado, mas posição na fila não foi atualizada. Avisar gestão se persistir.");
+        }
+      }
+      await carregarConversas();
+    } catch (e) {
+      setErro(e.message);
+    } finally {
+      assumirEmAndamentoRef.current = false;
     }
   }
 
@@ -856,15 +895,26 @@ export default function CentralWhatsApp() {
         </div>
       ) : null}
 
+      {emailOperador ? (
+        <FilaReceptivo
+          variante="barra"
+          usuarioLogado={{ email: emailOperador, perfil: gestao ? "gerencia" : undefined }}
+        />
+      ) : null}
+
+      {avisoFila ? (
+        <div style={S.avisoFila}>
+          {avisoFila}
+          <button style={S.fecharErro} onClick={() => setAvisoFila(null)}>×</button>
+        </div>
+      ) : null}
+
       {erro ? (
         <div style={S.erro}>
           {erro}
           <button style={S.fecharErro} onClick={() => setErro("")}>×</button>
         </div>
       ) : null}
-
-      {/* ------------- Receptivo: quem esta na vez ------------- */}
-      <FilaReceptivo variante="barra" />
 
       <div style={S.corpo}>
         {/* ---------------- Lista de conversas ---------------- */}
@@ -1017,7 +1067,7 @@ export default function CentralWhatsApp() {
                       Retirar responsável
                     </button>
                   ) : (
-                    <button style={S.botaoSec} onClick={() => acao(assumirConversa)}>Assumir</button>
+                    <button style={S.botaoSec} onClick={assumir}>Assumir</button>
                   )}
                   <select
                     style={S.selectAcao}
@@ -1904,6 +1954,11 @@ const S = {
     background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", color: "var(--rv-vermelho-texto)", fontSize: 13,
   },
   fecharErro: { border: "none", background: "transparent", cursor: "pointer", fontSize: 18, color: "var(--rv-vermelho-texto)" },
+  avisoFila: {
+    display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8,
+    padding: "9px 12px", marginBottom: 12, borderRadius: 8,
+    background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)", fontSize: 13,
+  },
 
   // ---- corpo ----
   corpo: { display: "grid", gridTemplateColumns: "minmax(300px, 380px) 1fr", gap: 14, alignItems: "start" },

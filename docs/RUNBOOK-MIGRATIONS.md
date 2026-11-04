@@ -95,6 +95,33 @@ Não acompanham a autorização de aplicar, a menos que ela diga: backfill, reso
 congelamentos, liberação manual de alunos, alteração de cadastro ou qualquer outra
 migration.
 
+### Exceção de `apply_migration` por registro de aprovação
+
+Alterações no Guardião e nas permissões protegidas ocorrem **só por PR específica**,
+baseada na `origin/main` atual, com revisão e aprovação humana.
+
+O hook (M1, `plugins/reativa-one/hooks/guardiao.sh`) libera `apply_migration` somente se:
+
+1. `project_id`, `name` e o SHA-256 integral do `query` forem iguais aos de uma
+   linha de `docs/seguranca/migracoes-aprovadas.tsv`, lido de `origin/main`;
+2. o `status` dessa linha for `pendente` e o `expira_em` estiver no futuro (UTC);
+3. a pessoa confirmar a chamada pelo `ask` do `.claude/settings.json`.
+
+Colunas do registro, separadas por TAB: `projeto`, `nome`, `sha256`, `executor`,
+`expira_em`, `status`.
+
+- **Aprovar:** linha nova com `status=pendente`, validade de 30 minutos, executor
+  nominal, publicada na `origin/main` por PR revisada.
+- **Depois da aplicação:** PR que muda o `status` para `aplicada`.
+- **Bloqueado:** migration `aplicada`, expirada, ausente do registro ou com SQL
+  diferente do aprovado.
+
+Continuam bloqueados: `db push`, `db reset`, `migration repair`, `migration up`,
+deploy, merge, `execute_sql` com escrita sem rollback e as demais ferramentas de M1.
+
+A versão gerada pelo servidor é registrada, com a correspondência para o nome do
+arquivo, na PR que muda o `status` para `aplicada`.
+
 ## 7. Registro da versão efetivamente aplicada no ledger
 
 Registre no ledger a versão **que o banco gravou**, não a que o arquivo pretendia. A
@@ -483,3 +510,160 @@ O que **não** está coberto, registrado aqui para não ser descoberto como surp
 
 Nenhum destes seis é regressão: todos ou já existiam, ou são o preço declarado de uma
 proteção nova.
+
+---
+
+## 11. Execução pelo painel do Supabase (SQL Editor)
+
+Caminho alternativo a `apply_migration` quando M1 bloqueia o MCP.
+
+**A execução é ação exclusivamente humana.** O Guardião M1 permanece intacto:
+nenhum agente executa migration via MCP, independentemente desta seção. Cada
+aplicação exige **autorização nominal** da gestão, por migration específica, antes
+de qualquer passo.
+
+### Limitação de verificação de integridade — declarada
+
+Este caminho exige duas cópias do SQL no mesmo bloco: uma no BLOCO A (para registro)
+e uma no BLOCO B (para execução). `EXECUTE` em PL/pgSQL processa um statement por
+chamada e não suporta strings multi-statement; por isso a execução a partir da
+variável verificada não é tecnicamente viável para migrations com múltiplos
+statements. Esta é uma limitação estrutural do SQL Editor, não um defeito de
+procedimento.
+
+**O que é verificado por MD5:** o conteúdo registrado em `schema_migrations`
+é idêntico ao aprovado — o guard verifica o md5 antes do INSERT e o INSERT usa a
+variável verificada, não uma terceira cópia.
+
+**O que depende do executor:** o BLOCO B (execução) corresponde ao conteúdo
+aprovado. A evidência é a concordância entre as queries de validação e o estado
+esperado declarado na autorização.
+
+### Autorização nominal
+
+A gestão autoriza, por escrito e por migration específica:
+
+- versão pretendida (prefixo do arquivo, ex.: `20261030090000`)
+- MD5 do conteúdo sem newline final, declarado explicitamente
+- o que **não** acompanha esta aplicação
+
+Aprovação para desenvolver não é aprovação para aplicar (§1).
+
+### Estrutura do bloco único
+
+```sql
+BEGIN;
+
+-- ── LOCK ──────────────────────────────────────────────────────────────────────
+-- Impede execução concorrente da mesma versão.
+-- Liberado automaticamente no COMMIT ou ROLLBACK.
+SELECT pg_advisory_xact_lock(hashtext('migration_<versão>'));
+
+-- ── BLOCO A: guard duplo + identidade + registro ──────────────────────────────
+-- O INSERT usa v_conteudo — a mesma variável verificada pelo md5.
+-- Não é possível passar no guard de identidade e registrar conteúdo diferente.
+DO $$
+DECLARE
+  v_md5_aprovado  CONSTANT text := '<md5 declarado na autorização>';
+  v_versao        CONSTANT text := '<versão pretendida>';
+  v_nome          CONSTANT text := '<nome da migration>';
+  v_conteudo      text;
+BEGIN
+  -- Guard 1: dupla aplicação sequencial
+  IF EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = v_versao
+  ) THEN
+    RAISE EXCEPTION 'GUARDA: versão % já registrada em schema_migrations', v_versao;
+  END IF;
+
+  -- Conteúdo aprovado — colado aqui uma única vez para registro
+  v_conteudo := $reg$
+<conteúdo integral do arquivo aprovado, sem newline final>
+$reg$;
+
+  -- Guard 2: identidade — aborta se diverge do aprovado
+  IF md5(v_conteudo) <> v_md5_aprovado THEN
+    RAISE EXCEPTION 'GUARDA DE IDENTIDADE: md5(conteúdo)=% md5(aprovado)=%',
+      md5(v_conteudo), v_md5_aprovado;
+  END IF;
+
+  -- Registro atômico (usa v_conteudo — não uma terceira cópia)
+  INSERT INTO supabase_migrations.schema_migrations (version, name, statements)
+  VALUES (v_versao, v_nome, ARRAY[v_conteudo]);
+END $$;
+
+-- ── BLOCO B: migration SQL ────────────────────────────────────────────────────
+-- Colar aqui o mesmo conteúdo do BLOCO A, na íntegra e sem alteração.
+-- Este é o único passo cuja fidelidade ao aprovado depende do executor.
+
+<conteúdo integral do arquivo aprovado>
+
+-- ── FIM ───────────────────────────────────────────────────────────────────────
+COMMIT;
+```
+
+### Passos de execução
+
+**Passo 1 — pré-condição (consulta separada, somente leitura)**
+
+Executar as queries de pré-condição específicas da migration. Prosseguir somente
+quando todos os valores correspondem ao esperado. Divergência: parar e informar (§6).
+
+A query de pré-condição deve incluir obrigatoriamente:
+
+```sql
+EXISTS (
+  SELECT 1 FROM supabase_migrations.schema_migrations
+  WHERE version = '<versão pretendida>'
+) AS ja_registrada
+```
+
+Critério: `ja_registrada = false`.
+
+**Passo 2 — montar o bloco único**
+
+Preencher BLOCO A com o MD5 aprovado e o conteúdo do arquivo. Colar em BLOCO B o
+mesmo conteúdo. Os dois devem ser idênticos ao arquivo aprovado.
+
+**Passo 3 — executar**
+
+Colar o bloco completo no SQL Editor e executar. Verificar ausência de erro e de
+`ROLLBACK`. Registrar o horário de confirmação do `COMMIT` — o painel geralmente
+exibe o horário da execução; na ausência, executar `SELECT now()` em consulta
+separada imediatamente após e usar esse valor como referência aproximada.
+
+**Passo 4 — validação de estado e integridade**
+
+Executar as queries de validação específicas da migration (estado dos objetos
+criados ou alterados) e:
+
+```sql
+SELECT version, name,
+       md5(array_to_string(statements, E'\n')) AS md5_prod,
+       octet_length(array_to_string(statements, E'\n'))   AS bytes
+FROM supabase_migrations.schema_migrations
+WHERE version = '<versão pretendida>';
+```
+
+`md5_prod` deve ser igual ao MD5 declarado na autorização. Divergência: acionar a
+gestão antes de qualquer passo seguinte — não registrar no ledger.
+
+**Passo 5 — ledger**
+
+Acrescentar linha em `supabase/ledger/YYYY-MM/INDICE.tsv`:
+
+```
+<versão>	<nome>	-	<md5_prod>	<bytes>	<data_utc_passo_3>	ESTRUTURAL		<nota>
+```
+
+- `arquivo = -` quando o par existe em `supabase/migrations/`
+- `md5` e `bytes`: da query do Passo 4, não calculados localmente
+- `data_utc`: timestamp do `COMMIT` (Passo 3), não do momento de escrita do ledger
+
+### O que este caminho não autoriza
+
+- Execução sem lock e sem BLOCO A
+- `version` baseada no relógio UTC do SQL Editor
+- Ledger sem a verificação do Passo 4
+- Mais de uma migration por autorização
+- Qualquer migration não nomeada na autorização

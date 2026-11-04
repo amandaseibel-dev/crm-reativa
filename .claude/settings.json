@@ -38,8 +38,6 @@
       "Bash(supabase migration up:*)",
       "Bash(npx supabase migration up:*)",
 
-      "mcp__3e1f85b1-8c91-4d44-b207-0f452630cdc0__apply_migration",
-      "mcp__claude_ai_Supabase__apply_migration",
       "mcp__3e1f85b1-8c91-4d44-b207-0f452630cdc0__deploy_edge_function",
       "mcp__claude_ai_Supabase__deploy_edge_function",
       "mcp__3e1f85b1-8c91-4d44-b207-0f452630cdc0__pause_project",
@@ -210,6 +208,8 @@
       "Bash(gh pr create:*)",
       "Bash(gh pr create *)",
 
+      "mcp__3e1f85b1-8c91-4d44-b207-0f452630cdc0__apply_migration",
+      "mcp__claude_ai_Supabase__apply_migration",
       "mcp__3e1f85b1-8c91-4d44-b207-0f452630cdc0__execute_sql",
       "mcp__claude_ai_Supabase__execute_sql",
       "mcp__terminal__run_in_terminal",

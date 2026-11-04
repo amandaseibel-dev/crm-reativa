@@ -26,7 +26,7 @@
 # ============================================================================
 set -uo pipefail
 
-VERSAO="1.0.0"
+VERSAO="1.1.0"
 
 # ----------------------------------------------------------------------------
 # saída padrão
@@ -43,73 +43,176 @@ negar() {
 
 # ----------------------------------------------------------------------------
 # FASE 2 — BANCO. Libera APENAS Edit/Write/NotebookEdit de migration, e apenas
-# no worktree e na branch que a gestão nomeou em REATIVA_FASE2_BANCO no
-# LANÇAMENTO desta sessão. Consultada em UM lugar só: P3/migration.
+# no worktree e na branch que a gestão nomeou. Consultada em UM lugar só:
+# P3/migration.
+#
+# Duas vias de autorização, tentadas nesta ordem:
+#   1. REATIVA_FASE2_BANCO no ambiente do processo (via Terminal na sessão).
+#   2. Registro em docs/seguranca/fase2-banco-aprovadas.tsv lido de
+#      origin/main — não da branch de trabalho. Este arquivo só muda quando
+#      a gestão faz merge de um PR, portanto é não-falsificável pelo agente
+#      (R3/R4 bloqueiam merge/push para main por qualquer via).
 #
 # ESCRITA POR SHELL NÃO É LIBERADA EM NENHUMA HIPÓTESE. R5/migration segue
 # integral, porque o comando não revela o destino da escrita e o CWD vem do
 # payload. Esta função não é chamada de lá.
 #
-# POR QUE VARIÁVEL DE AMBIENTE, e não arquivo: o agente não escreve o ambiente
-# deste processo -- o hook é processo irmão, criado pelo harness, e estado de
-# shell não atravessa chamadas de ferramenta. Posta em arquivo lido pelo
-# lançador (.claude/settings.json), a autorização voltaria a ser forjável; por
-# isso aquele arquivo passou a ser protegido em P2.
-#
 # NÃO libera aplicação: M1, R9, a regra do CLI, R4, R7 e o deny versionado não
 # consultam esta função.
 #
-# FAIL-CLOSED: variável ausente, malformada, git ilegível, caminho
+# FAIL-CLOSED: ambas as vias ausentes/malformadas, git ilegível, caminho
 # indeterminado, destino fora da pasta de migrations = NEGA.
-fase2_liberada() {
-  local alvo="${1:-}" aut="${REATIVA_FASE2_BANCO:-}"
-  [ -n "$alvo" ] && [ -n "$aut" ] || return 1
-  case "$aut" in *'|'*) ;; *) return 1 ;; esac
-  # EXATAMENTE dois campos. `${aut##*|}` pegaria o ÚLTIMO campo e engoliria em
-  # silêncio o do meio de "raiz|lixo|branch", então a checagem é no RESTO.
-  local raiz_aut="${aut%%|*}" br_aut="${aut#*|}"
-  case "$br_aut" in *'|'*) return 1 ;; esac
-  [ -n "$raiz_aut" ] && [ -n "$br_aut" ] || return 1
+# ----------------------------------------------------------------------------
 
-  # CAMINHO REAL DO ARQUIVO. Resolve link simbólico no diretório que o contém;
-  # o arquivo pode ainda não existir (é uma criação), o diretório tem de existir.
+# _fase2_validar_worktree: extrai e valida raiz + branch do arquivo alvo,
+# e confirma que é worktree VINCULADO (não o checkout principal).
+# Retorna 0 e preenche as variáveis raiz_wt/br_wt do chamador em caso de
+# sucesso; retorna 1 em qualquer falha (fail-closed).
+# Deve ser chamada com `local raiz_wt br_wt` declaradas no chamador.
+_fase2_validar_worktree() {
+  local alvo="$1"
   local dir
   dir="$(cd "$(dirname "$alvo")" 2>/dev/null && pwd -P)" || return 1
 
   git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
-  local raiz br gd gcd
-  raiz="$(cd "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null && pwd -P)" || return 1
-  br="$(git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null)" || return 1
-  [ -n "$raiz" ] && [ -n "$br" ] || return 1
+
+  raiz_wt="$(cd "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null && pwd -P)" || return 1
+  br_wt="$(git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null)" || return 1
+  [ -n "$raiz_wt" ] && [ -n "$br_wt" ] || return 1
 
   # SÓ EM WORKTREE VINCULADO, nunca no checkout principal. Num worktree o
   # git-dir é .git/worktrees/<nome> e difere do git-common-dir; no principal
-  # os dois coincidem. Sem caminho fixo no código.
+  # os dois coincidem.
   # `--path-format=absolute` É OBRIGATÓRIO: no checkout principal o git devolve
   # `--git-common-dir` RELATIVO (`../../.git`), e resolvê-lo com `cd` o
-  # interpretaria contra o diretório do PROCESSO DO HOOK, não contra $dir --
-  # fazendo gd != gcd passar espúrio e liberar o checkout de produção.
+  # interpretaria contra o diretório do PROCESSO DO HOOK, não contra $dir.
+  local gd gcd
   gd="$(git -C "$dir" rev-parse --path-format=absolute --git-dir 2>/dev/null)" || return 1
   gcd="$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 1
   [ -n "$gd" ] && [ -n "$gcd" ] || return 1
-  # `cd ""` devolve 0 em bash: os -n acima são o que impede o passe silencioso.
   gd="$(cd "$gd" 2>/dev/null && pwd -P)" || return 1
   gcd="$(cd "$gcd" 2>/dev/null && pwd -P)" || return 1
   [ -n "$gd" ] && [ -n "$gcd" ] && [ "$gd" != "$gcd" ] || return 1
 
-  # DESTINO DENTRO DA PASTA DE MIGRATIONS do próprio worktree, pelo caminho
-  # real: barra `..`, link que escapa e homônimo em outro lugar da árvore.
+  # DESTINO DENTRO DA PASTA DE MIGRATIONS do próprio worktree.
   local pasta
-  pasta="$(cd "$raiz/supabase/migrations" 2>/dev/null && pwd -P)" || return 1
+  pasta="$(cd "$raiz_wt/supabase/migrations" 2>/dev/null && pwd -P)" || return 1
   [ "$dir" = "$pasta" ] || return 1
 
-  # resolve link simbólico também no lado da autorização, antes de comparar
+  # branch não pode ser main nem master.
+  [ "$br_wt" != "main" ] && [ "$br_wt" != "master" ] || return 1
+
+  return 0
+}
+
+# _fase2_via_env: via 1 — lê REATIVA_FASE2_BANCO do ambiente.
+# Retorna 0 se a variável está presente e os valores conferem com o worktree.
+_fase2_via_env() {
+  local alvo="$1" aut="${REATIVA_FASE2_BANCO:-}"
+  [ -n "$aut" ] || return 1
+  case "$aut" in *'|'*) ;; *) return 1 ;; esac
+  local raiz_aut="${aut%%|*}" br_aut="${aut#*|}"
+  # Exatamente dois campos — "raiz|lixo|branch" é rejeitado.
+  case "$br_aut" in *'|'*) return 1 ;; esac
+  [ -n "$raiz_aut" ] && [ -n "$br_aut" ] || return 1
+
+  local raiz_wt br_wt
+  _fase2_validar_worktree "$alvo" || return 1
+
   local raiz_aut_r
   raiz_aut_r="$(cd "$raiz_aut" 2>/dev/null && pwd -P)" || return 1
 
-  [ "$br" != "main" ] && [ "$br" != "master" ] || return 1
+  [ "$raiz_wt" = "$raiz_aut_r" ] && [ "$br_wt" = "$br_aut" ]
+}
 
-  [ "$raiz" = "$raiz_aut_r" ] && [ "$br" = "$br_aut" ]
+# _fase2_via_tsv: via 2 — lê origin/main:docs/seguranca/fase2-banco-aprovadas.tsv.
+#
+# Colunas (TAB): worktree_raiz, branch, autorizado_por, expira_em, status.
+#
+# NÃO-FALSIFICÁVEL: origin/main só muda com merge humano (R3/R4 bloqueiam
+# merge e push para main por todas as vias — CLI, API, MCP).
+# O campo autorizado_por não é prova de identidade; a segurança vem da
+# integridade de origin/main, não do texto naquele campo.
+#
+# VALIDAÇÕES obrigatórias:
+#   - exatamente uma linha ativa (duplicata = nega);
+#   - status = "pendente";
+#   - expira_em no futuro (UTC), máximo 4 h a partir de agora;
+#   - worktree_raiz e branch conferem com o worktree real do arquivo alvo;
+#   - branch não é main nem master.
+_fase2_via_tsv() {
+  local alvo="$1"
+  # Diretório real do arquivo alvo — necessário para localizar o repositório
+  # correto ao chamar `git show`. Sem -C aqui, git usaria o CWD do processo
+  # (o repositório principal), não o repositório do worktree alvo.
+  local dir
+  dir="$(cd "$(dirname "$alvo")" 2>/dev/null && pwd -P)" || return 1
+
+  # Lê o arquivo de ORIGIN/MAIN, nunca da branch de trabalho.
+  # Falha silenciosa se origin/main não está disponível (fail-closed).
+  local tsv
+  tsv="$(git -C "$dir" show origin/main:docs/seguranca/fase2-banco-aprovadas.tsv 2>/dev/null)" || return 1
+  [ -n "$tsv" ] || return 1
+
+  local raiz_wt br_wt
+  _fase2_validar_worktree "$alvo" || return 1
+
+  local agora
+  agora="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" || return 1
+
+  # Máximo de 4 h a partir de agora, em segundos.
+  # `date -u -v+4H` é portável no macOS (BSD date).
+  local limite4h
+  limite4h="$(date -u -v+4H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" || return 1
+
+  # Filtra linhas com raiz + branch + status corretos, descartando o cabeçalho.
+  # Usa TAB como separador. Compara worktree_raiz pelo caminho REAL (resolve link).
+  local linhas_ativas n_ativas
+  linhas_ativas=""
+  local linha raiz_reg br_reg autor_reg expira_reg status_reg
+  while IFS=$'\t' read -r raiz_reg br_reg autor_reg expira_reg status_reg _resto; do
+    # Ignorar cabeçalho e linhas em branco.
+    [ "$raiz_reg" = "worktree_raiz" ] && continue
+    [ -z "$raiz_reg" ] && continue
+
+    # status deve ser exatamente "pendente".
+    [ "$status_reg" = "pendente" ] || continue
+
+    # branch deve conferir exatamente.
+    [ "$br_reg" = "$br_wt" ] || continue
+
+    # worktree_raiz deve conferir pelo caminho real.
+    local raiz_reg_r
+    raiz_reg_r="$(cd "$raiz_reg" 2>/dev/null && pwd -P)" || continue
+    [ "$raiz_reg_r" = "$raiz_wt" ] || continue
+
+    # expira_em deve estar no futuro.
+    [ -n "$expira_reg" ] || continue
+    [ "$expira_reg" \> "$agora" ] || continue
+
+    # expira_em não pode exceder 4 horas a partir de agora.
+    [ "$expira_reg" \< "$limite4h" ] || [ "$expira_reg" = "$limite4h" ] || continue
+
+    # Linha válida — acumula para checar duplicatas.
+    linhas_ativas="${linhas_ativas}1"
+  done <<< "$tsv"
+
+  # Exatamente uma linha ativa. Zero = sem aprovação; dois ou mais = duplicata.
+  n_ativas="${#linhas_ativas}"
+  [ "$n_ativas" -eq 1 ]
+}
+
+fase2_liberada() {
+  local alvo="${1:-}"
+  [ -n "$alvo" ] || return 1
+
+  # Via 1 — variável de ambiente (Terminal).
+  _fase2_via_env "$alvo" && return 0
+
+  # Via 2 — registro em origin/main (interface, sem Terminal).
+  _fase2_via_tsv "$alvo" && return 0
+
+  return 1
 }
 
 PAYLOAD="$(cat 2>/dev/null)" || PAYLOAD=""
@@ -143,6 +246,52 @@ esac
 
 # Daqui para baixo: região guardada. Indeterminado = nega.
 JQ() { printf '%s' "$PAYLOAD" | jq -r "$1" 2>/dev/null; }
+
+# ----------------------------------------------------------------------------
+# M1 — apply_migration: exceção ÚNICA, por registro de aprovação na main.
+#
+# Passa somente se origin/main tiver uma linha do registro
+# docs/seguranca/migracoes-aprovadas.tsv com projeto, nome e SHA-256 integral
+# da query IGUAIS aos da chamada, status "pendente" e expira_em no futuro (UTC).
+# Colunas (separadas por TAB): projeto, nome, sha256, executor, expira_em, status.
+# Qualquer outro caso é negado. A confirmação humana acontece pelo `ask` do
+# .claude/settings.json, a cada chamada.
+#
+# O registro é lido de origin/main, não do checkout: a aprovação só existe depois
+# de revisada e mesclada. Se origin/main estiver desatualizada, a aprovação não é
+# vista e a chamada é negada (fail-closed).
+#
+# O SHA-256 é dos bytes de tool_input.query, sem quebra de linha acrescentada.
+# ----------------------------------------------------------------------------
+aprovar_migracao() {
+  local proj nome q sha agora reg linha
+  proj="$(JQ '.tool_input.project_id // empty')"
+  nome="$(JQ '.tool_input.name // empty')"
+  # `$(...)` apagaria a quebra de linha final do SQL. A sentinela preserva os bytes.
+  q="$(printf '%s' "$PAYLOAD" | jq -j '.tool_input.query // empty' 2>/dev/null; printf x)"
+  q="${q%x}"
+  if [ -z "$proj" ] || [ -z "$nome" ] || [ -z "$q" ]; then
+    negar "M1/migracao-sem-campos" \
+      "apply_migration sem project_id, name ou query legíveis. Indeterminado é negado." \
+      "nenhum: a migração exige projeto, nome e SQL explícitos"
+  fi
+  sha="$(printf '%s' "$q" | shasum -a 256 2>/dev/null | cut -c1-64)"
+  agora="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  reg="$(git show origin/main:docs/seguranca/migracoes-aprovadas.tsv 2>/dev/null)" || reg=""
+  if [ -z "$reg" ]; then
+    negar "M1/registro-indisponivel" \
+      "Registro de aprovações de migração não lido de origin/main." \
+      "publicar o registro na main por PR revisada, e atualizar origin/main"
+  fi
+  linha="$(printf '%s\n' "$reg" | awk -F'\t' -v p="$proj" -v n="$nome" -v s="$sha" -v a="$agora" \
+    '$1==p && $2==n && $3==s && $6=="pendente" && $5>a {print; exit}')"
+  if [ -z "$linha" ]; then
+    negar "M1/sem-aprovacao" \
+      "apply_migration ($nome, projeto $proj, SHA-256 $sha) sem aprovação pendente e válida em origin/main." \
+      "aprovação registrada e mesclada na main, dentro da validade e ainda não aplicada"
+  fi
+  return 0
+}
 if ! printf '%s' "$PAYLOAD" | jq -e . >/dev/null 2>&1; then
   negar "json-ilegivel" \
     "A carga desta chamada não é JSON válido e a ferramenta ($TOOL) é guardada." \
@@ -494,7 +643,7 @@ regras_de_negacao() {
       # caso F11 do autoteste).
       fase2_liberada "$p" || negar "P3/migration" \
         "[$origem] $rel_original — Fase 2 de Banco não autorizada para este worktree e branch." \
-        "propor o SQL no chat, ou a gestão lançar a sessão com REATIVA_FASE2_BANCO" ;;
+        "via 1: gestão lança a sessão com REATIVA_FASE2_BANCO=<raiz>|<branch>; via 2: gestão mescla PR com linha em docs/seguranca/fase2-banco-aprovadas.tsv em origin/main" ;;
     .git/*|*/.git/*)
       negar "P4/git-interno" "[$origem] Escrita dentro de .git/." "comandos git normais" ;;
   esac
@@ -573,7 +722,11 @@ case "$TOOL" in
     SUF="${TOOL##*__}"
 
     case "$SUF" in
-      apply_migration|deploy_edge_function|pause_project|restore_project|create_project|\
+      apply_migration)
+        # Única exceção de M1: passa só com aprovação válida no registro da main.
+        # O ask do settings.json continua exigindo confirmação humana na hora.
+        aprovar_migracao ;;
+      deploy_edge_function|pause_project|restore_project|create_project|\
 create_branch|delete_branch|merge_branch|reset_branch|rebase_branch|confirm_cost)
         negar "M1/banco-producao" \
           "$TOOL escreve ou reconfigura o projeto Supabase. O projeto ligado a este checkout é a PRODUÇÃO (ahattpqrjmhkzsmnbdzs)." \

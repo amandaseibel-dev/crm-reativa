@@ -81,6 +81,7 @@ export default function TelaMagicNumber({ snap }) {
             <span>
               <strong style={{ color: T.texto }}>Projeção de fechamento</strong> {moeda(proj)}
               {` (${Math.round((proj / alvo) * 100)}% do Magic)`}
+              {m.projecao_parcial === true && " · PARCIAL"}
             </span>
           </>
         )}

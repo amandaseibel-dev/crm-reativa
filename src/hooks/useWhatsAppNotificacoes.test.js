@@ -88,7 +88,7 @@ describe("useWhatsAppNotificacoes", () => {
       expect(result.current.toasts).toHaveLength(0);
     });
 
-    it("não notifica mensagem com origem diferente de TEMPO_REAL", () => {
+    it("não notifica mensagem com origem SYNC_INICIAL (histórico de pareamento)", () => {
       const { result } = renderHook(() =>
         useWhatsAppNotificacoes({ emailOperador: "op@test.com", conversas: [conversa()] })
       );

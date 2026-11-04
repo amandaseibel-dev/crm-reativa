@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import usePolling from "../utils/polling";
 import { nomeOperadorPorEmail } from "../utils/operadores";
@@ -35,22 +35,13 @@ export default function FilaReceptivo({ usuarioLogado, variante = "coluna" }) {
   // hora, antes de qualquer await.
   const emAcaoRef = useRef(false);
 
-  // A Carteira passa o usuario por prop; a Central WhatsApp nao tem esse
-  // objeto em maos. Quando a prop falta, o e-mail vem da propria sessao --
-  // sem isso a barra nao saberia quem e "voce" e esconderia os botoes.
-  const [emailSessao, setEmailSessao] = useState("");
-  useEffect(() => {
-    if (usuarioLogado?.email) return undefined;
-    let vivo = true;
-    (async () => {
-      const { data } = await supabase.auth.getUser();
-      if (vivo) setEmailSessao(data?.user?.email || "");
-    })();
-    return () => { vivo = false; };
-  }, [usuarioLogado?.email]);
-
-  const email = usuarioLogado?.email || emailSessao;
+  const email = usuarioLogado?.email || "";
   const ehParticipante = operadoresReceptivo.includes(email);
+  // Perfis autorizados a registrar atendimento em nome de outro operador.
+  // Espelha usuario_e_gestao_fila() no banco: gerencia, supervisor, administrativo
+  // + allowlist de gestão (cobranca04, cobranca07 têm perfis equivalentes).
+  const PERFIS_PROXY = ["gerencia", "supervisor", "administrativo"];
+  const podeMarcarPorOutros = PERFIS_PROXY.includes(usuarioLogado?.perfil);
 
   async function buscarFila() {
     const { data: usuariosReceptivos } = await supabase
@@ -123,11 +114,16 @@ export default function FilaReceptivo({ usuarioLogado, variante = "coluna" }) {
   }, [linhas, operadoresReceptivo]);
 
   // Marca um atendimento. Sem argumento, marca o próprio operador logado.
-  // Com um e-mail (botão na linha), marca aquele operador — útil quando quem
-  // atendeu não foi quem estava na vez, ou pra a gestão registrar por eles.
+  // Com um e-mail (botão na linha), marca aquele operador — permitido apenas
+  // para gestão/supervisão (podeMarcarPorOutros); o botão não aparece para
+  // operadores comuns na linha alheia.
   async function marcarAtendido(alvoEmail) {
     const alvo = alvoEmail || email;
     if (!alvo || emAcaoRef.current) return;
+    // Guard de autorização: operador só marca o próprio atendimento.
+    // Espelha usuario_e_gestao_fila() no banco — a rejeição real vem do banco,
+    // esta verificação é defesa em profundidade na interface.
+    if (alvo !== email && !podeMarcarPorOutros) return;
     emAcaoRef.current = true;
     setMarcando(true);
     try {
@@ -176,87 +172,109 @@ export default function FilaReceptivo({ usuarioLogado, variante = "coluna" }) {
   // continua sendo do banco, ninguém zera nada pela tela.
   // ----------------------------------------------------------------------
   if (variante === "barra") {
+    // Quem nao e do receptivo nem e gestao nao tem o que fazer com a fila:
+    // nao ocupa linha nenhuma no topo da Central. Mesma regra da caixa
+    // vertical logo abaixo (!ehParticipante && !podeMarcarPorOutros).
+    if (!ehParticipante && !podeMarcarPorOutros) return null;
+
     const naVez = ordem[0] || null;
     const minhaVez = Boolean(naVez && naVez.email === email);
-    const depois = ordem.slice(1, 4);
-    const resto = Math.max(0, ordem.length - 4);
-
-    const botaoPausaCompacto = ehParticipante ? (
-      <button
-        type="button"
-        onClick={() => alternarPausa(!euEstouEmPausa)}
-        disabled={marcando}
-        style={euEstouEmPausa ? B.botaoLeveAtivo : B.botaoLeve}
-        title={euEstouEmPausa ? "Voltar da pausa" : "Entrar em pausa"}
-      >
-        {euEstouEmPausa ? "▶️ Voltar" : "⏸️ Pausar"}
-      </button>
-    ) : null;
+    const fila = ordem.slice(1);
+    // A PILHA e o que impede o cabecalho de virar uma fila extensa: por mais
+    // gente que entre, a barra mostra no maximo 6 rostos sobrepostos e fecha
+    // o resto num "+N". A altura e a mesma com 3 ou com 30 operadores.
+    const PILHA_MAX = 6;
+    const naPilha = fila.slice(0, PILHA_MAX);
+    const excedente = Math.max(0, fila.length - PILHA_MAX);
+    const nomesDaFila = fila.map((l) => nomeExibicao(l)).join(" · ");
 
     return (
       <div style={B.envoltorio}>
         <div style={B.barra}>
-          <span style={B.tituloBarra}>📞 Receptivo</span>
-          <span style={ordem.length ? B.online : B.offline}>
+          <span style={B.rotulo}>Receptivo</span>
+          <span style={B.contagem}>
             <span style={ordem.length ? B.pontoVerde : B.pontoCinza} />
             {ordem.length} online
           </span>
 
+          <span style={B.risco} />
+
           {naVez ? (
-            <span style={B.naVez}>
-              <span style={B.naVezRotulo}>na vez</span>
+            <span
+              style={minhaVez ? B.naVezEu : B.naVez}
+              title={`${nomeExibicao(naVez)} — ${naVez.atendimentos_hoje} atendimento(s) hoje`}
+            >
               <AvatarFoto
                 usuarioId={perfis[naVez.email]?.id}
                 nome={nomeExibicao(naVez)}
                 tamanho={22}
               />
-              <strong style={B.naVezNome}>{nomeExibicao(naVez)}</strong>
-              <span style={B.naVezContador}>{naVez.atendimentos_hoje} hoje</span>
+              <span style={B.naVezNome}>{nomeExibicao(naVez)}</span>
+              <span style={B.naVezEtiqueta}>{minhaVez ? "sua vez" : "na vez"}</span>
             </span>
           ) : (
-            <span style={B.vazioBarra}>
-              {euEstouEmPausa
-                ? "Você está em pausa — fora da vez."
-                : "Ninguém online no receptivo agora."}
+            <span style={B.vazio}>
+              {euEstouEmPausa ? "Você está em pausa" : "Ninguém online no receptivo"}
             </span>
           )}
 
-          {depois.length ? (
-            <span style={B.depois}>
-              depois: {depois.map((l) => nomeExibicao(l)).join(" · ")}
-              {resto > 0 ? ` +${resto}` : ""}
+          {naPilha.length ? (
+            <span style={B.pilha} title={`Em seguida: ${nomesDaFila}`}>
+              {naPilha.map((linha, indice) => (
+                <span
+                  key={linha.email}
+                  style={{ ...B.pilhaItem, zIndex: PILHA_MAX - indice }}
+                >
+                  <AvatarFoto
+                    usuarioId={perfis[linha.email]?.id}
+                    nome={nomeExibicao(linha)}
+                    tamanho={24}
+                  />
+                </span>
+              ))}
+              {excedente ? <span style={B.pilhaMais}>+{excedente}</span> : null}
             </span>
           ) : null}
 
           <span style={B.espacador} />
 
-          {minhaVez ? <span style={B.suaVez}>é a sua vez</span> : null}
           {ehParticipante ? (
-            <button
-              type="button"
-              onClick={() => marcarAtendido(email)}
-              disabled={marcando}
-              style={B.botaoAtendi}
-            >
-              {marcando ? "Registrando..." : "✅ Atendi"}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => marcarAtendido(email)}
+                disabled={marcando}
+                style={minhaVez ? B.botaoAtendiVez : B.botaoAtendi}
+              >
+                {marcando ? "Registrando…" : "Atendi"}
+              </button>
+              <button
+                type="button"
+                onClick={() => alternarPausa(!euEstouEmPausa)}
+                disabled={marcando}
+                style={euEstouEmPausa ? B.botaoLeveAtivo : B.botaoLeve}
+              >
+                {euEstouEmPausa ? "Voltar" : "Pausar"}
+              </button>
+            </>
           ) : null}
-          {botaoPausaCompacto}
+
           {ordem.length ? (
             <button
               type="button"
               onClick={() => setFilaAberta((v) => !v)}
-              style={B.botaoLeve}
+              style={B.botaoGaveta}
               aria-expanded={filaAberta}
-              title="Ver a fila inteira e marcar atendimento de outro operador"
+              aria-label={filaAberta ? "Fechar a fila" : "Ver a fila inteira"}
+              title={filaAberta ? "Fechar a fila" : "Ver a fila inteira"}
             >
-              {filaAberta ? "Fechar fila ▴" : `Fila (${ordem.length}) ▾`}
+              {filaAberta ? "⌃" : "⌄"}
             </button>
           ) : null}
         </div>
 
-        {/* A gaveta: a fila inteira, com o Marcar de cada um. Fechada por
-            padrao -- quem so quer saber de quem e a vez nao ve nada disso. */}
+        {/* A gaveta: a fila inteira, numerada. Fechada por padrao -- quem so
+            quer saber de quem e a vez nunca ve esta lista. */}
         {filaAberta && ordem.length ? (
           <div style={B.gaveta}>
             {ordem.map((linha, indice) => {
@@ -266,9 +284,9 @@ export default function FilaReceptivo({ usuarioLogado, variante = "coluna" }) {
                 <div
                   key={linha.email}
                   style={{
-                    ...B.chip,
-                    ...(primeiro ? B.chipVez : {}),
-                    ...(eu ? B.chipEu : {}),
+                    ...B.linha,
+                    ...(primeiro ? B.linhaVez : {}),
+                    ...(eu ? B.linhaEu : {}),
                   }}
                 >
                   <span style={{ ...B.posicao, ...(primeiro ? B.posicaoVez : {}) }}>
@@ -279,20 +297,24 @@ export default function FilaReceptivo({ usuarioLogado, variante = "coluna" }) {
                     nome={nomeExibicao(linha)}
                     tamanho={24}
                   />
-                  <span style={B.chipNome}>
+                  <span style={B.linhaNome}>
                     {nomeExibicao(linha)}
                     {eu ? " (você)" : ""}
                   </span>
-                  <span style={B.chipContador}>{linha.atendimentos_hoje} hoje</span>
-                  <button
-                    type="button"
-                    onClick={() => marcarAtendido(linha.email)}
-                    disabled={marcando}
-                    style={B.chipBotao}
-                    title={`Marcar um atendimento para ${nomeExibicao(linha)}`}
-                  >
-                    ✅
-                  </button>
+                  <span style={B.linhaContador}>{linha.atendimentos_hoje} hoje</span>
+                  {/* Mesmo guard da caixa vertical: operador comum so marca o
+                      proprio atendimento; a recusa de verdade e do banco. */}
+                  {eu || podeMarcarPorOutros ? (
+                    <button
+                      type="button"
+                      onClick={() => marcarAtendido(linha.email)}
+                      disabled={marcando}
+                      style={B.linhaBotao}
+                      title={`Marcar um atendimento para ${nomeExibicao(linha)}`}
+                    >
+                      Marcar
+                    </button>
+                  ) : null}
                 </div>
               );
             })}
@@ -305,7 +327,7 @@ export default function FilaReceptivo({ usuarioLogado, variante = "coluna" }) {
   // Sem ninguém online: mantém a caixa (pra não empurrar a tela) e, se eu
   // sou participante, o botão de pausa continua acessível.
   if (ordem.length === 0) {
-    if (!ehParticipante) return <div style={estilos.espacoReservado} />;
+    if (!ehParticipante && !podeMarcarPorOutros) return <div style={estilos.espacoReservado} />;
     return (
       <div style={estilos.caixa}>
         <div style={estilos.cabecalho}>
@@ -377,15 +399,17 @@ export default function FilaReceptivo({ usuarioLogado, variante = "coluna" }) {
                 {eu ? " (você)" : ""}
               </span>
               <span style={estilos.contador}>{linha.atendimentos_hoje} hoje</span>
-              <button
-                type="button"
-                onClick={() => marcarAtendido(linha.email)}
-                disabled={marcando}
-                style={estilos.botaoMarcarLinha}
-                title={`Marcar um atendimento para ${nomeExibicao(linha)}`}
-              >
-                ✅ Marcar
-              </button>
+              {(eu || podeMarcarPorOutros) && (
+                <button
+                  type="button"
+                  onClick={() => marcarAtendido(linha.email)}
+                  disabled={marcando}
+                  style={estilos.botaoMarcarLinha}
+                  title={`Marcar um atendimento para ${nomeExibicao(linha)}`}
+                >
+                  ✅ Marcar
+                </button>
+              )}
             </div>
           );
         })}
@@ -593,12 +617,13 @@ const estilos = {
   },
 };
 
-// Estilos da variante "barra". Separados dos de cima de proposito: a caixa
-// vertical da Carteira nao muda em nada.
+// Estilos da variante "barra". A caixa vertical acima nao muda em nada.
 //
-// A regra aqui e NAO COMPETIR COM A FILA DE CONVERSAS: a barra ocupa UMA linha
-// discreta, mostra quem esta na vez e os proximos em texto, e guarda a lista
-// inteira (com o Marcar de cada um) numa gaveta fechada.
+// Duas regras mandam aqui:
+//  1. ALTURA CONSTANTE. A barra tem uma linha, com 3 ou com 30 operadores
+//     online. Quem nao e a vez vira rosto na pilha, e o excedente vira "+N".
+//  2. NAO COMPETIR com a lista de conversas: sem cor forte, sem emoji, sem
+//     borda grossa -- o unico destaque e quem esta na vez.
 const B = {
   envoltorio: {
     marginBottom: 12,
@@ -607,146 +632,202 @@ const B = {
     display: "flex",
     alignItems: "center",
     gap: 10,
-    padding: "7px 12px",
+    height: 40,
+    padding: "0 12px",
     borderRadius: 10,
     border: `1px solid ${BORDA_SUAVE}`,
     background: "var(--rv-fundo-cartao)",
-    flexWrap: "wrap",
+    overflow: "hidden",
   },
-  tituloBarra: {
-    fontSize: 12.5,
+  rotulo: {
+    fontSize: 10.5,
     fontWeight: 700,
-    color: "var(--rv-texto-suave)",
-    whiteSpace: "nowrap",
-  },
-  online: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 5,
-    fontSize: 11,
-    fontWeight: 600,
-    color: "var(--rv-verde-ok)",
-    whiteSpace: "nowrap",
-  },
-  offline: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 5,
-    fontSize: 11,
-    fontWeight: 600,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
     color: "var(--rv-texto-fraco)",
     whiteSpace: "nowrap",
+    flexShrink: 0,
+  },
+  contagem: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    fontSize: 11.5,
+    color: "var(--rv-texto-suave)",
+    whiteSpace: "nowrap",
+    flexShrink: 0,
   },
   pontoVerde: {
-    width: 7, height: 7, borderRadius: "50%", background: "#16a34a", display: "inline-block",
+    width: 6, height: 6, borderRadius: "50%", background: "#16a34a", display: "inline-block",
   },
   pontoCinza: {
-    width: 7, height: 7, borderRadius: "50%", background: "var(--rv-texto-fraco)", display: "inline-block",
+    width: 6, height: 6, borderRadius: "50%", background: "var(--rv-texto-fraco)", display: "inline-block",
+  },
+  risco: {
+    width: 1,
+    height: 18,
+    background: BORDA_SUAVE,
+    flexShrink: 0,
   },
   naVez: {
     display: "inline-flex",
     alignItems: "center",
     gap: 7,
-    padding: "3px 10px 3px 4px",
+    padding: "3px 10px 3px 3px",
+    borderRadius: 999,
+    background: "var(--rv-superficie)",
+    border: `1px solid ${BORDA_SUAVE}`,
+    whiteSpace: "nowrap",
+    flexShrink: 0,
+  },
+  naVezEu: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 7,
+    padding: "3px 10px 3px 3px",
     borderRadius: 999,
     background: "var(--rv-verde-ok-fundo)",
     border: "1px solid var(--rv-verde-ok-borda)",
     whiteSpace: "nowrap",
-  },
-  naVezRotulo: {
-    fontSize: 9.5,
-    fontWeight: 700,
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
-    color: "var(--rv-verde-ok)",
-    paddingLeft: 6,
+    flexShrink: 0,
   },
   naVezNome: {
     fontSize: 13,
-    fontWeight: 700,
+    fontWeight: 650,
     color: "var(--rv-tinta)",
   },
-  naVezContador: {
-    fontSize: 11,
-    color: "var(--rv-verde-ok-texto)",
+  naVezEtiqueta: {
+    fontSize: 9.5,
+    fontWeight: 700,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    color: "var(--rv-verde-ok)",
   },
-  depois: {
-    fontSize: 11.5,
+  // Rostos sobrepostos: cada um entra 8px por cima do anterior.
+  pilha: {
+    display: "inline-flex",
+    alignItems: "center",
+    paddingLeft: 8,
+    minWidth: 0,
+    overflow: "hidden",
+  },
+  pilhaItem: {
+    display: "inline-flex",
+    marginLeft: -8,
+    borderRadius: "50%",
+    boxShadow: "0 0 0 2px var(--rv-fundo-cartao)",
+    position: "relative",
+    flexShrink: 0,
+  },
+  pilhaMais: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: -8,
+    width: 24,
+    height: 24,
+    borderRadius: "50%",
+    background: "var(--rv-fundo-suave)",
+    color: "var(--rv-texto-suave)",
+    boxShadow: "0 0 0 2px var(--rv-fundo-cartao)",
+    fontSize: 10.5,
+    fontWeight: 700,
+    flexShrink: 0,
+  },
+  vazio: {
+    fontSize: 12,
     color: "var(--rv-texto-fraco)",
     whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    minWidth: 0,
   },
   espacador: { flex: 1, minWidth: 8 },
-  suaVez: {
-    fontSize: 11,
-    fontWeight: 700,
-    color: "var(--rv-verde-ok)",
-    whiteSpace: "nowrap",
-  },
   botaoAtendi: {
+    background: "var(--rv-superficie)",
+    color: "var(--rv-texto)",
+    border: `1px solid ${BORDA}`,
+    borderRadius: 8,
+    padding: "5px 12px",
+    fontSize: 12,
+    fontWeight: 650,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+    flexShrink: 0,
+  },
+  // So vira verde cheio quando e a vez DELE: o destaque aparece na hora em
+  // que serve para alguma coisa, e nao o tempo todo.
+  botaoAtendiVez: {
     background: "#16a34a",
     color: "#fff",
-    border: "none",
+    border: "1px solid #16a34a",
     borderRadius: 8,
-    padding: "6px 12px",
+    padding: "5px 12px",
     fontSize: 12,
     fontWeight: 700,
     cursor: "pointer",
     whiteSpace: "nowrap",
+    flexShrink: 0,
   },
   botaoLeve: {
-    padding: "5px 10px",
-    borderRadius: 8,
-    border: `1px solid ${BORDA}`,
-    background: "var(--rv-superficie)",
+    background: "transparent",
     color: "var(--rv-texto-suave)",
-    fontSize: 11.5,
-    fontWeight: 600,
+    border: `1px solid ${BORDA_SUAVE}`,
+    borderRadius: 8,
+    padding: "5px 10px",
+    fontSize: 12,
     cursor: "pointer",
     whiteSpace: "nowrap",
+    flexShrink: 0,
   },
   botaoLeveAtivo: {
-    padding: "5px 10px",
-    borderRadius: 8,
-    border: "1px solid var(--rv-ambar-borda)",
     background: "var(--rv-ambar-fundo)",
     color: "var(--rv-ambar-texto)",
-    fontSize: 11.5,
+    border: "1px solid var(--rv-ambar-borda)",
+    borderRadius: 8,
+    padding: "5px 10px",
+    fontSize: 12,
     fontWeight: 600,
     cursor: "pointer",
     whiteSpace: "nowrap",
+    flexShrink: 0,
   },
-  vazioBarra: {
+  botaoGaveta: {
+    background: "transparent",
+    border: `1px solid ${BORDA_SUAVE}`,
+    borderRadius: 8,
+    width: 26,
+    height: 26,
+    padding: 0,
     fontSize: 12,
-    color: "var(--rv-texto-fraco)",
+    lineHeight: 1,
+    color: "var(--rv-texto-suave)",
+    cursor: "pointer",
+    flexShrink: 0,
   },
-  // ---- gaveta (fechada por padrao) ----
+  // ---- gaveta ----
   gaveta: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 7,
-    marginTop: 7,
-    padding: "9px 10px",
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))",
+    gap: 6,
+    marginTop: 6,
+    padding: 10,
     borderRadius: 10,
     border: `1px solid ${BORDA_SUAVE}`,
     background: "var(--rv-superficie)",
   },
-  chip: {
+  linha: {
     display: "flex",
     alignItems: "center",
-    gap: 7,
-    padding: "4px 6px 4px 5px",
-    borderRadius: 999,
+    gap: 8,
+    padding: "5px 8px",
+    borderRadius: 8,
     border: `1px solid ${BORDA_SUAVE}`,
     background: "var(--rv-superficie)",
+    minWidth: 0,
   },
-  chipVez: {
+  linhaVez: {
     border: "1px solid var(--rv-verde-ok-borda)",
     background: "var(--rv-verde-ok-fundo)",
   },
-  chipEu: { boxShadow: "inset 0 0 0 1px var(--rv-borda-forte)" },
+  linhaEu: { boxShadow: "inset 0 0 0 1px var(--rv-borda-forte)" },
   posicao: {
     width: 19, height: 19, borderRadius: "50%",
     background: "var(--rv-fundo-suave)", color: "var(--rv-texto-suave)",
@@ -754,17 +835,31 @@ const B = {
     display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
   },
   posicaoVez: { background: "#16a34a", color: "#fff" },
-  chipNome: {
-    fontSize: 12.5, fontWeight: 600, color: "var(--rv-tinta)", whiteSpace: "nowrap",
+  linhaNome: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 12.5,
+    fontWeight: 600,
+    color: "var(--rv-tinta)",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
-  chipContador: {
-    fontSize: 11, color: "var(--rv-texto-fraco)", whiteSpace: "nowrap",
+  linhaContador: {
+    fontSize: 11,
+    color: "var(--rv-texto-fraco)",
+    whiteSpace: "nowrap",
+    flexShrink: 0,
   },
-  chipBotao: {
+  linhaBotao: {
     border: `1px solid ${BORDA_SUAVE}`,
     background: "var(--rv-superficie)",
-    borderRadius: 999,
-    width: 24, height: 24, fontSize: 11, lineHeight: 1,
-    cursor: "pointer", flexShrink: 0, padding: 0,
+    borderRadius: 7,
+    padding: "3px 8px",
+    fontSize: 11,
+    color: "var(--rv-texto-suave)",
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+    flexShrink: 0,
   },
 };

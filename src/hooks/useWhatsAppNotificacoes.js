@@ -145,9 +145,12 @@ export default function useWhatsAppNotificacoes({ emailOperador, conversas }) {
 
   // Chamada pelo handler do Realtime sempre que chega uma mensagem nova.
   const aoReceberMensagem = useCallback((mensagem) => {
-    // Só ENTRADA, só TEMPO_REAL.
+    // Só mensagem do aluno; descarta o que o operador enviou.
     if (mensagem?.direcao !== "ENTRADA") return;
-    if (mensagem?.origem !== "TEMPO_REAL") return;
+    // SYNC_INICIAL = histórico importado no pareamento do celular.
+    // Esses registros chegam via postgres_changes como qualquer INSERT,
+    // mas notificá-los geraria centenas de alertas de uma vez.
+    if (mensagem?.origem === "SYNC_INICIAL") return;
 
     // Deduplicação.
     if (seenRef.current.has(mensagem.id)) return;

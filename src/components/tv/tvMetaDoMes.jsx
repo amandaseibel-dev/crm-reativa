@@ -16,7 +16,9 @@ import { Tela, IndicadorCard, AnelProgresso, RaioReativa, moeda, num, statusMeta
 //   • falta            -> mes.meta_falta           (meta - realizado)
 //   • por dia útil     -> mes.necessidade_diaria   (falta / dias úteis restantes)
 //   • dias úteis       -> mes.dias_uteis_restantes (generate_series sem sáb/dom)
-//   • projeção         -> mes.proj_honorarios      (ritmo por dia útil transcorrido)
+//   • projeção         -> mes.proj_honorarios      (ritmo por dia útil transcorrido,
+//                                                   o dia corrente incluso)
+//   • parcial          -> mes.projecao_parcial     (dia corrente ainda em andamento)
 //
 // ESTA TELA É SÓ DA META PISO. O Magic Number tem valor próprio por competência
 // (magic_number_mensal) e tela própria — ver tvMagicNumber.jsx. Nenhum fator
@@ -89,6 +91,7 @@ export default function TelaMetaDoMes({ snap }) {
             <span>
               <strong style={{ color: T.texto }}>Projeção de fechamento</strong> {moeda(proj)}
               {projPct != null && ` (${Math.round(projPct)}% da meta)`}
+              {m.projecao_parcial === true && " · PARCIAL"}
             </span>
           </>
         )}
