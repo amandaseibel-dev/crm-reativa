@@ -323,6 +323,26 @@ avaliar_comando() {
   local e; e="$(esqueleto "$cmd")"
   local el; el="$(printf '%s' "$e" | tr '[:upper:]' '[:lower:]')"
 
+  # DUPLICAÇÃO DE DESCRITOR removida, e SÓ para o teste de redirecionamento de
+  # R5 e R7. `2>&1`, `>&2`, `2>&-` mandam um descritor para outro: não abrem
+  # arquivo e não escrevem em caminho nenhum. Sem esta cópia,
+  # `ls -la .claude/settings.json 2>&1` -- leitura pura -- era NEGADO por
+  # R5/desarme, porque o portão externo casa `>>?` e o `>` de `2>&1` servia.
+  # Regra que incomoda sem motivo é regra que alguém desliga, mesma doutrina da
+  # isenção de `.env.example` em R6.
+  #
+  # O QUE SEGUE CASANDO, por construção de `[0-9]*>&[0-9-]*` -- o `&` tem de vir
+  # DEPOIS do `>` para o trecho ser removido:
+  #   `&>arq`       o `&` vem ANTES do `>`: não casa, não é removido, nega;
+  #   `2>>arq`      não há `&` depois do `>`: não casa, não é removido, nega;
+  #   `> arq 2>&1`  só o `2>&1` sai; o `> arq` permanece e nega.
+  # O recorte é exatamente o conjunto das formas que NÃO escrevem: nenhum
+  # caminho de escrita é perdido.
+  #
+  # Os greps de CAMINHO PROTEGIDO e as mensagens seguem em `$e`: o caminho é
+  # avaliado na forma original, e quem lê precisa ver o que pediu.
+  local er; er="$(printf '%s' "$e" | sed -E 's/[0-9]*>&[0-9-]*//g')"
+
   # R1 — CLI do Supabase que reescreve ou reverte produção.
   # docs/RUNBOOK-MIGRATIONS.md, regra nº 1: db push é PROIBIDO, sem exceção.
   if printf '%s' "$el" | grep -Eq '(^| |/)supabase[^ ]* '; then
@@ -384,7 +404,7 @@ avaliar_comando() {
   # supabase/migrations/x.sql` e `CP a .claude/settings.json` passavam. Achado da
   # sétima auditoria, a segunda sobre caixa: normalizar o ramo não serve se o
   # portão que leva até ele não estiver normalizado.
-  if printf '%s' "$e" | grep -Eiq '>>?|(^| )(tee|cp|mv|install|ln|rsync)( |$)|sed +-i|perl +-0?pi'; then
+  if printf '%s' "$er" | grep -Eiq '>>?|(^| )(tee|cp|mv|install|ln|rsync)( |$)|sed +-i|perl +-0?pi'; then
     # SEM exigir a barra final: `ln -s .../supabase/migrations <atalho>` nomeia a
     # PASTA, não um arquivo dentro dela, e passava -- criando um atalho pelo qual
     # a escrita chegava por caminho canônico. Vale igual para o ledger.
@@ -451,7 +471,7 @@ avaliar_comando() {
   # passavam, com a caixa do caminho já corrigida. Mesmo furo da rodada
   # anterior, por outra letra.
   if printf '%s' "$e" | grep -Eiq 'plugins/reativa-one/hooks/' \
-     && printf '%s' "$e" | grep -Eiq '>>?|(^| )(tee|cp|mv|rm)( |$)|sed +-i|perl +-0?pi'; then
+     && printf '%s' "$er" | grep -Eiq '>>?|(^| )(tee|cp|mv|rm)( |$)|sed +-i|perl +-0?pi'; then
     negar "R7/auto-desarme" "[$origem] O Guardião não se desarma por linha de comando." "editar com revisão em diff, aprovado por você"
   fi
 
