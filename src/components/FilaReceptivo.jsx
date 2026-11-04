@@ -207,7 +207,7 @@ export default function FilaReceptivo({ usuarioLogado, variante = "coluna" }) {
               <AvatarFoto
                 usuarioId={perfis[naVez.email]?.id}
                 nome={nomeExibicao(naVez)}
-                tamanho={22}
+                tamanho={20}
               />
               <span style={B.naVezNome}>{nomeExibicao(naVez)}</span>
               <span style={B.naVezEtiqueta}>{minhaVez ? "sua vez" : "na vez"}</span>
@@ -228,7 +228,7 @@ export default function FilaReceptivo({ usuarioLogado, variante = "coluna" }) {
                   <AvatarFoto
                     usuarioId={perfis[linha.email]?.id}
                     nome={nomeExibicao(linha)}
-                    tamanho={24}
+                    tamanho={20}
                   />
                 </span>
               ))}
@@ -626,24 +626,22 @@ const estilos = {
 //     borda grossa -- o unico destaque e quem esta na vez.
 const B = {
   envoltorio: {
-    marginBottom: 12,
+    marginBottom: 8,
   },
   barra: {
     display: "flex",
     alignItems: "center",
-    gap: 10,
-    height: 40,
-    padding: "0 12px",
-    borderRadius: 10,
-    border: `1px solid ${BORDA_SUAVE}`,
-    background: "var(--rv-fundo-cartao)",
+    gap: 8,
+    height: 32,
+    padding: "0 2px",
+    // Sem caixa: a barra e uma FAIXA, nao mais um cartao dentro de uma tela
+    // cheia de cartoes. So um fio embaixo separa da lista de conversas.
+    borderBottom: `1px solid ${BORDA_SUAVE}`,
     overflow: "hidden",
   },
   rotulo: {
-    fontSize: 10.5,
-    fontWeight: 700,
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
+    fontSize: 11,
+    fontWeight: 600,
     color: "var(--rv-texto-fraco)",
     whiteSpace: "nowrap",
     flexShrink: 0,
@@ -651,9 +649,9 @@ const B = {
   contagem: {
     display: "inline-flex",
     alignItems: "center",
-    gap: 5,
-    fontSize: 11.5,
-    color: "var(--rv-texto-suave)",
+    gap: 4,
+    fontSize: 11,
+    color: "var(--rv-texto-fraco)",
     whiteSpace: "nowrap",
     flexShrink: 0,
   },
@@ -665,7 +663,7 @@ const B = {
   },
   risco: {
     width: 1,
-    height: 18,
+    height: 14,
     background: BORDA_SUAVE,
     flexShrink: 0,
   },
@@ -673,7 +671,7 @@ const B = {
     display: "inline-flex",
     alignItems: "center",
     gap: 7,
-    padding: "3px 10px 3px 3px",
+    padding: "2px 8px 2px 2px",
     borderRadius: 999,
     background: "var(--rv-superficie)",
     border: `1px solid ${BORDA_SUAVE}`,
@@ -684,7 +682,7 @@ const B = {
     display: "inline-flex",
     alignItems: "center",
     gap: 7,
-    padding: "3px 10px 3px 3px",
+    padding: "2px 8px 2px 2px",
     borderRadius: 999,
     background: "var(--rv-verde-ok-fundo)",
     border: "1px solid var(--rv-verde-ok-borda)",
@@ -692,7 +690,7 @@ const B = {
     flexShrink: 0,
   },
   naVezNome: {
-    fontSize: 13,
+    fontSize: 12.5,
     fontWeight: 650,
     color: "var(--rv-tinta)",
   },
@@ -713,9 +711,9 @@ const B = {
   },
   pilhaItem: {
     display: "inline-flex",
-    marginLeft: -8,
+    marginLeft: -7,
     borderRadius: "50%",
-    boxShadow: "0 0 0 2px var(--rv-fundo-cartao)",
+    boxShadow: "0 0 0 2px var(--rv-fundo)",
     position: "relative",
     flexShrink: 0,
   },
@@ -723,14 +721,14 @@ const B = {
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-    marginLeft: -8,
-    width: 24,
-    height: 24,
+    marginLeft: -7,
+    width: 20,
+    height: 20,
     borderRadius: "50%",
     background: "var(--rv-fundo-suave)",
     color: "var(--rv-texto-suave)",
-    boxShadow: "0 0 0 2px var(--rv-fundo-cartao)",
-    fontSize: 10.5,
+    boxShadow: "0 0 0 2px var(--rv-fundo)",
+    fontSize: 10,
     fontWeight: 700,
     flexShrink: 0,
   },
@@ -744,9 +742,9 @@ const B = {
     background: "var(--rv-superficie)",
     color: "var(--rv-texto)",
     border: `1px solid ${BORDA}`,
-    borderRadius: 8,
-    padding: "5px 12px",
-    fontSize: 12,
+    borderRadius: 7,
+    padding: "3px 10px",
+    fontSize: 11.5,
     fontWeight: 650,
     cursor: "pointer",
     whiteSpace: "nowrap",
@@ -758,9 +756,9 @@ const B = {
     background: "#16a34a",
     color: "#fff",
     border: "1px solid #16a34a",
-    borderRadius: 8,
-    padding: "5px 12px",
-    fontSize: 12,
+    borderRadius: 7,
+    padding: "3px 10px",
+    fontSize: 11.5,
     fontWeight: 700,
     cursor: "pointer",
     whiteSpace: "nowrap",
@@ -768,11 +766,11 @@ const B = {
   },
   botaoLeve: {
     background: "transparent",
-    color: "var(--rv-texto-suave)",
-    border: `1px solid ${BORDA_SUAVE}`,
-    borderRadius: 8,
-    padding: "5px 10px",
-    fontSize: 12,
+    color: "var(--rv-texto-fraco)",
+    border: "none",
+    borderRadius: 7,
+    padding: "3px 6px",
+    fontSize: 11.5,
     cursor: "pointer",
     whiteSpace: "nowrap",
     flexShrink: 0,
@@ -781,9 +779,9 @@ const B = {
     background: "var(--rv-ambar-fundo)",
     color: "var(--rv-ambar-texto)",
     border: "1px solid var(--rv-ambar-borda)",
-    borderRadius: 8,
-    padding: "5px 10px",
-    fontSize: 12,
+    borderRadius: 7,
+    padding: "3px 8px",
+    fontSize: 11.5,
     fontWeight: 600,
     cursor: "pointer",
     whiteSpace: "nowrap",
@@ -791,10 +789,10 @@ const B = {
   },
   botaoGaveta: {
     background: "transparent",
-    border: `1px solid ${BORDA_SUAVE}`,
-    borderRadius: 8,
-    width: 26,
-    height: 26,
+    border: "none",
+    borderRadius: 7,
+    width: 22,
+    height: 22,
     padding: 0,
     fontSize: 12,
     lineHeight: 1,
