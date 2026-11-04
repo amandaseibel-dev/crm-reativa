@@ -2,15 +2,26 @@
 // em 2026-11-04 (ids e nomes trocados). Se a Mensageria mudar a forma, este
 // é o teste que deve quebrar — nunca o mock da tela.
 import { describe, it, expect } from "vitest";
-import { escolherContato, extrairResultado, interpretar, montarChamada } from "./mcp.ts";
+import {
+  contatosDeChaves,
+  extrairResultado,
+  interpretar,
+  interpretarPorChave,
+  montarChamada,
+  montarChamadaMulti,
+  montarChaves,
+} from "./mcp.ts";
 
 function envelope(texto: unknown) {
   return { jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: JSON.stringify(texto) }] } };
 }
 
+const CLIENTE_A = "6a8353957e2e9cae71e8207f";
+const CLIENTE_B = "6a8353957e2e9cae71e82080";
+
 const NO_ESCOPO_EM_ATENDIMENTO = {
   resultados: [
-    { posicao: 0, existe: true, cliente: { id: "6a8353957e2e9cae71e8207f" }, equipe: "Reativa", emAtendimento: { equipe: "Reativa" } },
+    { posicao: 0, existe: true, cliente: { id: CLIENTE_A }, equipe: "Reativa", emAtendimento: { equipe: "Reativa" } },
   ],
   chamada: "6aeb12c5b0d037965ad8cf55",
 };
@@ -34,6 +45,21 @@ describe("ulbra-consultar contrato: pedido", () => {
     expect(c.params.arguments).toEqual({ contatos: [{ telefone: "5551999990000" }] });
     expect(c.params.arguments).not.toHaveProperty("telefone");
   });
+
+  it("telefone e CPF vão na MESMA chamada, em duas posições", () => {
+    const m = montarChaves({ telefone: "(51) 99999-0000", cpf: "123.456.789-01" });
+    if ("erro" in m) throw new Error("devia montar as duas chaves");
+    const c = montarChamadaMulti(contatosDeChaves(m.chaves, m.ordem));
+    expect(c.params.arguments).toEqual({
+      contatos: [{ telefone: "51999990000" }, { cpf: "12345678901" }],
+    });
+  });
+
+  it("recusa chamada vazia e acima das 20 posições do limite medido", () => {
+    expect(() => montarChamadaMulti([])).toThrow(/CONTATOS_FORA_DO_LIMITE/);
+    const vinteUm = Array.from({ length: 21 }, () => ({ cpf: "12345678901" }));
+    expect(() => montarChamadaMulti(vinteUm)).toThrow(/CONTATOS_FORA_DO_LIMITE/);
+  });
 });
 
 describe("ulbra-consultar contrato: envelope JSON-RPC", () => {
@@ -55,7 +81,7 @@ describe("ulbra-consultar contrato: interpretação de resultados[]", () => {
   it("cliente no escopo → vinculado com equipe e atendimento", () => {
     expect(interpretar(NO_ESCOPO_EM_ATENDIMENTO)).toEqual({
       status: "vinculado",
-      ulbra_cliente_id: "6a8353957e2e9cae71e8207f",
+      ulbra_cliente_id: CLIENTE_A,
       equipe: "Reativa",
       em_atendimento: true,
     });
@@ -85,26 +111,150 @@ describe("ulbra-consultar contrato: interpretação de resultados[]", () => {
   });
 });
 
-describe("ulbra-consultar contrato: escolha do contato", () => {
-  it("prefere telefone válido e normaliza E.164", () => {
-    expect(escolherContato({ telefone: "(51) 99999-0000", cpf: "12345678901" })).toEqual({
-      contato: { telefone: "51999990000" }, origem: "telefone", telefone_e164: "+5551999990000",
+// ---------------------------------------------------------------------------
+// O casamento por POSIÇÃO é o ponto onde um erro silencioso trocaria o
+// resultado do telefone pelo do CPF — e gravaria vínculo no aluno errado sem
+// nenhuma exceção aparecer. Por isso cada forma torta tem teste próprio.
+// ---------------------------------------------------------------------------
+describe("ulbra-consultar contrato: casamento por posição", () => {
+  const ordem = ["telefone", "cpf"] as const;
+
+  it("casa cada posição com a sua chave", () => {
+    const r = interpretarPorChave({
+      resultados: [
+        { posicao: 0, existe: true, cliente: { id: CLIENTE_A }, equipe: "Reativa", emAtendimento: null },
+        { posicao: 1, existe: true, cliente: { id: CLIENTE_B }, equipe: "Reativa", emAtendimento: null },
+      ],
+    }, [...ordem]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.porChave.telefone).toMatchObject({ ulbra_cliente_id: CLIENTE_A });
+    expect(r.porChave.cpf).toMatchObject({ ulbra_cliente_id: CLIENTE_B });
+  });
+
+  it("usa `posicao`, NUNCA a ordem de chegada do array", () => {
+    // Mesmas duas posições, chegando ao contrário: o CPF (posição 1) continua
+    // sendo o CLIENTE_B, não o primeiro item do array.
+    const r = interpretarPorChave({
+      resultados: [
+        { posicao: 1, existe: true, cliente: { id: CLIENTE_B }, equipe: "Reativa", emAtendimento: null },
+        { posicao: 0, existe: true, cliente: { id: CLIENTE_A }, equipe: "Reativa", emAtendimento: null },
+      ],
+    }, [...ordem]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.porChave.telefone).toMatchObject({ ulbra_cliente_id: CLIENTE_A });
+    expect(r.porChave.cpf).toMatchObject({ ulbra_cliente_id: CLIENTE_B });
+  });
+
+  // A numeração de `posicao` em chamada de DUAS chaves nunca foi medida: o
+  // contrato de 04/11/2026 só tem resposta de uma posição. Se a Mensageria
+  // numerar a partir de 1, a leitura tem de continuar funcionando — senão
+  // todo vínculo para de ser criado, por um detalhe que ninguém mediu.
+  it("aceita numeração a partir de 1, mantendo o mapeamento", () => {
+    const r = interpretarPorChave({
+      resultados: [
+        { posicao: 1, existe: true, cliente: { id: CLIENTE_A }, equipe: "Reativa", emAtendimento: null },
+        { posicao: 2, existe: true, cliente: { id: CLIENTE_B }, equipe: "Reativa", emAtendimento: null },
+      ],
+    }, ["telefone", "cpf"]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.porChave.telefone).toMatchObject({ ulbra_cliente_id: CLIENTE_A });
+    expect(r.porChave.cpf).toMatchObject({ ulbra_cliente_id: CLIENTE_B });
+  });
+
+  it("uma só chave: aceita tanto `posicao: 0` (medido) quanto `posicao: 1`", () => {
+    for (const posicao of [0, 1]) {
+      const r = interpretarPorChave({
+        resultados: [{ posicao, existe: true, cliente: { id: CLIENTE_A }, equipe: "Reativa", emAtendimento: null }],
+      }, ["cpf"]);
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.porChave.cpf).toMatchObject({ ulbra_cliente_id: CLIENTE_A });
+    }
+  });
+
+  it("base ambígua não existe: {0,1} é base 0 e {1,2} é base 1, nunca os dois", () => {
+    // Os dois conjuntos nunca são o mesmo (base 0 exige a posição 0 presente),
+    // então a base é DETERMINADA pelo conjunto recebido, não escolhida.
+    const comBuraco = interpretarPorChave({
+      resultados: [{ posicao: 0, existe: false }, { posicao: 2, existe: false }],
+    }, ["telefone", "cpf"]);
+    expect(comBuraco).toEqual({ ok: false, motivo: "RESPOSTA_INVALIDA" });
+  });
+
+  it("falha fechado: quantidade de resultados diferente do pedido", () => {
+    const r = interpretarPorChave({
+      resultados: [
+        { posicao: 0, existe: false },
+        { posicao: 1, existe: false },
+        { posicao: 2, existe: false },
+      ],
+    }, ["telefone", "cpf"]);
+    expect(r).toEqual({ ok: false, motivo: "RESPOSTA_INVALIDA" });
+  });
+
+  it("falha fechado: posição faltando", () => {
+    const r = interpretarPorChave({ resultados: [{ posicao: 0, existe: false }] }, [...ordem]);
+    expect(r).toEqual({ ok: false, motivo: "RESPOSTA_INVALIDA" });
+  });
+
+  it("falha fechado: posição repetida", () => {
+    const r = interpretarPorChave({
+      resultados: [{ posicao: 0, existe: false }, { posicao: 0, existe: false }],
+    }, [...ordem]);
+    expect(r).toEqual({ ok: false, motivo: "RESPOSTA_INVALIDA" });
+  });
+
+  it("falha fechado: posição que não foi pedida", () => {
+    const r = interpretarPorChave({
+      resultados: [{ posicao: 0, existe: false }, { posicao: 7, existe: false }],
+    }, [...ordem]);
+    expect(r).toEqual({ ok: false, motivo: "RESPOSTA_INVALIDA" });
+  });
+
+  it("falha fechado: posicao não numérica, resultados ausente, item sem `existe`", () => {
+    expect(interpretarPorChave({ resultados: [{ posicao: "0", existe: false }] } as never, ["telefone"]))
+      .toEqual({ ok: false, motivo: "RESPOSTA_INVALIDA" });
+    expect(interpretarPorChave({}, ["telefone"])).toEqual({ ok: false, motivo: "RESPOSTA_INVALIDA" });
+    expect(interpretarPorChave({ resultados: [{ posicao: 0 }] } as never, ["telefone"]))
+      .toEqual({ ok: false, motivo: "RESPOSTA_INVALIDA" });
+  });
+});
+
+describe("ulbra-consultar contrato: chaves do aluno", () => {
+  it("telefone e CPF válidos → as duas chaves, telefone primeiro", () => {
+    expect(montarChaves({ telefone: "(51) 99999-0000", cpf: "123.456.789-01" })).toEqual({
+      chaves: { telefone: "51999990000", telefone_e164: "+5551999990000", cpf: "12345678901" },
+      ordem: ["telefone", "cpf"],
     });
   });
 
   it("telefone já com 55 não duplica o DDI no E.164", () => {
-    const r = escolherContato({ telefone: "5551999990000" });
-    expect("contato" in r && r.telefone_e164).toBe("+5551999990000");
+    const r = montarChaves({ telefone: "5551999990000" });
+    if ("erro" in r) throw new Error("devia montar");
+    expect(r.chaves.telefone_e164).toBe("+5551999990000");
   });
 
-  it("sem telefone usa CPF como fallback", () => {
-    expect(escolherContato({ telefone: null, cpf: "123.456.789-01" })).toEqual({
-      contato: { cpf: "12345678901" }, origem: "cpf", telefone_e164: null,
+  it("só CPF → consulta por CPF, sem telefone_e164", () => {
+    expect(montarChaves({ telefone: null, cpf: "123.456.789-01" })).toEqual({
+      chaves: { cpf: "12345678901" },
+      ordem: ["cpf"],
     });
   });
 
-  it("telefone curto e sem CPF → TELEFONE_MALFORMADO; nada → SEM_TELEFONE", () => {
-    expect(escolherContato({ telefone: "9999", cpf: null })).toEqual({ erro: "TELEFONE_MALFORMADO" });
-    expect(escolherContato({ telefone: "", cpf: "" })).toEqual({ erro: "SEM_TELEFONE" });
+  it("telefone malformado NÃO derruba o CPF: o CPF sozinho ainda vale", () => {
+    const r = montarChaves({ telefone: "9999", cpf: "12345678901" });
+    expect(r).toEqual({ chaves: { cpf: "12345678901" }, ordem: ["cpf"] });
+  });
+
+  it("CPF de tamanho errado não é chave", () => {
+    expect(montarChaves({ telefone: null, cpf: "1234567890" })).toEqual({ erro: "SEM_CHAVE" });
+  });
+
+  it("telefone malformado e sem CPF → TELEFONE_MALFORMADO; nada → SEM_CHAVE", () => {
+    expect(montarChaves({ telefone: "9999", cpf: null })).toEqual({ erro: "TELEFONE_MALFORMADO" });
+    expect(montarChaves({ telefone: "", cpf: "" })).toEqual({ erro: "SEM_CHAVE" });
   });
 });

@@ -1,7 +1,15 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decidirAcessoUlbra } from "./portao.ts";
-import { MCP_URL, escolherContato, extrairResultado, interpretar, montarChamada } from "./mcp.ts";
+import {
+  MCP_URL,
+  contatosDeChaves,
+  extrairResultado,
+  interpretarPorChave,
+  montarChamadaMulti,
+  montarChaves,
+} from "./mcp.ts";
+import { CONFIANCA, decidirVinculo } from "./vinculo.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -68,9 +76,10 @@ serve(async (req) => {
 
   const usuario = decisao.usuario.email;
 
-  // Auditoria: só quem chama a Mensageria ou grava vínculo. Nunca telefone/CPF.
+  // Auditoria: só quem chama a Mensageria ou grava/barra vínculo.
+  // NUNCA telefone nem CPF — só QUAL chave casou, nunca o valor dela.
   const auditar = async (
-    acao: "ULBRA_CONSULTA" | "ULBRA_VINCULO_CRIADO",
+    acao: "ULBRA_CONSULTA" | "ULBRA_VINCULO_CRIADO" | "ULBRA_VINCULO_BLOQUEADO",
     tabela_afetada: "alunos" | "ulbra_vinculos",
     registro_id: string,
     detalhes: Record<string, unknown>
@@ -81,20 +90,41 @@ serve(async (req) => {
     if (error) console.error("ulbra-consultar: auditoria falhou", acao, error.message);
   };
 
-  const { data: vinculo } = await sbService
+  // -------------------------------------------------------------------------
+  // Vínculo já gravado: devolve e para. Falha FECHADO se a leitura der erro —
+  // seguir adiante com `vinculo` nulo por causa de um erro de leitura é como
+  // se cria o segundo vínculo ativo do mesmo aluno.
+  // -------------------------------------------------------------------------
+  const { data: vinculo, error: erroLeitura } = await sbService
     .from("ulbra_vinculos")
-    .select("ulbra_cliente_id, confianca, origem")
+    .select("ulbra_cliente_id, confianca, origem, vinculado_em")
     .eq("aluno_id", aluno_id)
     .is("desvinculado_em", null)
     .maybeSingle();
 
+  if (erroLeitura) {
+    console.error("ulbra-consultar: falha ao ler vinculo", erroLeitura.message);
+    return responder({ erro: "VINCULO_LEITURA_FALHOU" }, 500);
+  }
+
   if (vinculo) {
+    const d = await decidirVinculo({
+      existente: vinculo,
+      clienteJaDeOutroAluno: async () => true,
+    });
+    if (d.acao !== "manter_existente") {
+      // Inalcançável por construção: `existente` é o primeiro portão de
+      // decidirVinculo. Fecha em vez de assumir o caminho felizardo.
+      console.error("ulbra-consultar: decisao inesperada para vinculo existente", d.acao);
+      return responder({ erro: "DECISAO_INESPERADA" }, 500);
+    }
     return responder({
       status: "vinculado",
-      ulbra_cliente_id: vinculo.ulbra_cliente_id,
-      confianca: vinculo.confianca,
-      origem: vinculo.origem,
-      url: urlCliente(vinculo.ulbra_cliente_id),
+      ulbra_cliente_id: d.ulbra_cliente_id,
+      confianca: d.confianca,
+      origem: d.origem,
+      reconfirmar_recomendado: d.reconfirmar_recomendado,
+      url: urlCliente(d.ulbra_cliente_id),
     });
   }
 
@@ -111,64 +141,137 @@ serve(async (req) => {
     return responder({ erro: "CONFIG_AUSENTE" }, 500);
   }
 
-  const escolha = escolherContato(aluno);
-  if ("erro" in escolha) return responder({ status: "nao_encontrado", motivo: escolha.erro });
+  const montagem = montarChaves(aluno);
+  if ("erro" in montagem) {
+    const motivo = montagem.erro === "SEM_CHAVE" ? "SEM_TELEFONE" : montagem.erro;
+    return responder({ status: "nao_encontrado", motivo });
+  }
+  const { chaves, ordem } = montagem;
 
-  let interpretado;
+  // Telefone E CPF na MESMA chamada: `contatos` aceita até 20 posições e o
+  // limite da Mensageria é por chamada, então a confirmação cruzada é de graça.
+  let porChave;
   try {
     const resp = await fetch(MCP_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify(montarChamada(escolha.contato)),
+      body: JSON.stringify(montarChamadaMulti(contatosDeChaves(chaves, ordem))),
     });
     if (!resp.ok) {
       console.error("ulbra-consultar: MCP respondeu", resp.status);
-      await auditar("ULBRA_CONSULTA", "alunos", aluno_id, { origem: escolha.origem, resultado: "ULBRA_INDISPONIVEL", http: resp.status });
+      await auditar("ULBRA_CONSULTA", "alunos", aluno_id, { chaves: ordem, resultado: "ULBRA_INDISPONIVEL", http: resp.status });
       return responder({ erro: resp.status === 429 ? "ULBRA_LIMITE" : "ULBRA_INDISPONIVEL" }, 502);
     }
-    interpretado = interpretar(extrairResultado(await resp.json()));
+    const lido = interpretarPorChave(extrairResultado(await resp.json()), ordem);
+    if (!lido.ok) {
+      await auditar("ULBRA_CONSULTA", "alunos", aluno_id, { chaves: ordem, resultado: lido.motivo });
+      return responder({ status: "erro", motivo: lido.motivo }, 502);
+    }
+    porChave = lido.porChave;
   } catch (e) {
     console.error("ulbra-consultar: falha ao consultar MCP", (e as Error).name);
-    await auditar("ULBRA_CONSULTA", "alunos", aluno_id, { origem: escolha.origem, resultado: "ULBRA_INDISPONIVEL" });
+    await auditar("ULBRA_CONSULTA", "alunos", aluno_id, { chaves: ordem, resultado: "ULBRA_INDISPONIVEL" });
     return responder({ erro: "ULBRA_INDISPONIVEL" }, 502);
   }
 
-  if (interpretado.status !== "vinculado") {
-    await auditar("ULBRA_CONSULTA", "alunos", aluno_id, { origem: escolha.origem, resultado: interpretado.motivo });
-    return responder(interpretado, interpretado.status === "erro" ? 502 : 200);
+  const achado = (k: "telefone" | "cpf") => {
+    const i = porChave[k];
+    if (!i) return undefined;
+    return {
+      ulbra_cliente_id: i.status === "vinculado" ? i.ulbra_cliente_id : null,
+      equipe: i.status === "vinculado" ? i.equipe : null,
+      em_atendimento: i.status === "vinculado" ? i.em_atendimento : false,
+      fora_do_escopo: i.status === "nao_encontrado" && i.motivo === "FORA_DO_ESCOPO",
+    };
+  };
+
+  const d = await decidirVinculo({
+    existente: null,
+    porTelefone: achado("telefone"),
+    porCpf: achado("cpf"),
+    telefone_e164: chaves.telefone_e164 ?? null,
+    clienteJaDeOutroAluno: async (clienteId) => {
+      const { data, error } = await sbService
+        .from("ulbra_vinculos")
+        .select("aluno_id")
+        .eq("ulbra_cliente_id", clienteId)
+        .is("desvinculado_em", null)
+        .neq("aluno_id", aluno_id)
+        .limit(1)
+        .maybeSingle();
+      // Erro de leitura NÃO é "não existe": falha fechado tratando como
+      // duplicado, que barra o vínculo em vez de criar o errado.
+      if (error) {
+        console.error("ulbra-consultar: falha ao checar cliente duplicado", error.message);
+        return true;
+      }
+      return !!data;
+    },
+  });
+
+  if (d.acao === "nao_encontrado") {
+    await auditar("ULBRA_CONSULTA", "alunos", aluno_id, { chaves: ordem, resultado: d.motivo });
+    return responder({ status: "nao_encontrado", motivo: d.motivo });
+  }
+
+  if (d.acao === "bloquear") {
+    await auditar("ULBRA_VINCULO_BLOQUEADO", "alunos", aluno_id, {
+      chaves: ordem,
+      motivo: d.motivo,
+      ulbra_cliente_id_candidato: d.ulbra_cliente_id_candidato,
+    });
+    return responder({ status: "bloqueado", motivo: d.motivo });
+  }
+
+  if (d.acao !== "criar") {
+    console.error("ulbra-consultar: decisao inesperada", (d as { acao: string }).acao);
+    return responder({ erro: "DECISAO_INESPERADA" }, 500);
   }
 
   const { data: novo, error: erroVinculo } = await sbService
     .from("ulbra_vinculos")
     .insert({
       aluno_id,
-      ulbra_cliente_id: interpretado.ulbra_cliente_id,
-      telefone_e164: escolha.telefone_e164,
-      confianca: "alta",
-      origem: escolha.origem,
+      ulbra_cliente_id: d.ulbra_cliente_id,
+      telefone_e164: d.telefone_e164,
+      confianca: CONFIANCA.ALTA_CPF,
+      origem: "cpf",
       vinculado_por: usuario,
     })
     .select("id")
     .single();
 
   if (erroVinculo || !novo) {
+    // Inclui o caso em que o índice único de cliente ativo (proposta
+    // 20261104200000) barrou a corrida de duas chamadas simultâneas: o banco
+    // é o último portão, e perder essa corrida é o comportamento correto.
     console.error("ulbra-consultar: falha ao gravar vínculo", erroVinculo?.message);
-    await auditar("ULBRA_CONSULTA", "alunos", aluno_id, { origem: escolha.origem, resultado: "VINCULO_NAO_GRAVADO", ulbra_cliente_id: interpretado.ulbra_cliente_id });
+    await auditar("ULBRA_CONSULTA", "alunos", aluno_id, {
+      chaves: ordem,
+      resultado: "VINCULO_NAO_GRAVADO",
+      ulbra_cliente_id: d.ulbra_cliente_id,
+    });
     return responder({ erro: "VINCULO_NAO_GRAVADO" }, 500);
   }
 
   await auditar("ULBRA_VINCULO_CRIADO", "ulbra_vinculos", novo.id, {
-    origem: escolha.origem,
-    ulbra_cliente_id: interpretado.ulbra_cliente_id,
-    equipe: interpretado.equipe,
-    em_atendimento: interpretado.em_atendimento,
+    origem: "cpf",
+    confianca: CONFIANCA.ALTA_CPF,
+    telefone_concordou: d.telefone_concordou,
+    // Telefone apontou alguém fora do escopo do token: comparação impossível,
+    // CPF mandou. Fica registrado para não passar como concordância.
+    telefone_fora_do_escopo: d.telefone_fora_do_escopo,
+    ulbra_cliente_id: d.ulbra_cliente_id,
+    equipe: d.equipe,
+    em_atendimento: d.em_atendimento,
   });
 
   return responder({
     status: "vinculado",
-    ulbra_cliente_id: interpretado.ulbra_cliente_id,
-    confianca: "alta",
-    origem: escolha.origem,
-    url: urlCliente(interpretado.ulbra_cliente_id),
+    ulbra_cliente_id: d.ulbra_cliente_id,
+    confianca: CONFIANCA.ALTA_CPF,
+    origem: "cpf",
+    reconfirmar_recomendado: false,
+    url: urlCliente(d.ulbra_cliente_id),
   });
 });
