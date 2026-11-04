@@ -1,0 +1,26 @@
+{
+  "atualizado_em": null,
+  "fonte": "Aguardando fonte oficial do CRM",
+  "resultado": {
+    "honorarios_hoje": null,
+    "honorarios_mes": null,
+    "projecao_honorarios_mes": null,
+    "recuperado_hoje": null,
+    "recuperado_mes": null,
+    "pagamentos_confirmados_hoje": null,
+    "pagamentos_confirmados_mes": null,
+    "acordos_fechados_hoje": null,
+    "acordos_fechados_mes": null
+  },
+  "rankings": {
+    "honorarios": [],
+    "valor_recuperado": [],
+    "pagamentos": [],
+    "acordos": []
+  },
+  "receptivo": {
+    "atualizado_em": null,
+    "online": null,
+    "proximos": []
+  }
+}

@@ -1,0 +1,85 @@
+// REFERÊNCIA HISTÓRICA — tv-dados v1 (02/11/2026 → 04/11/2026). NÃO REIMPLANTAR.
+// Esta versão respondia a qualquer GET anônimo com indicadores financeiros,
+// usando SUPABASE_SERVICE_ROLE_KEY e verify_jwt=false. Guardada só para auditoria
+// e para comparar o mapeamento de campos. A reversão segura NÃO é voltar a este
+// arquivo: ver README.md nesta pasta.
+
+import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
+import { createClient } from 'jsr:@supabase/supabase-js@2'
+
+const CORS = {
+  'Access-Control-Allow-Origin': 'https://reativa-tv.netlify.app',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: CORS })
+  }
+  if (req.method !== 'GET') {
+    return new Response('Method Not Allowed', { status: 405, headers: CORS })
+  }
+
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+  )
+
+  const { data, error } = await supabase.rpc('tv_snapshot_ler')
+
+  if (error || !data?.payload) {
+    return new Response(
+      JSON.stringify({ error: 'snapshot indisponível', detalhe: error?.message }),
+      { status: 503, headers: { ...CORS, 'Content-Type': 'application/json' } },
+    )
+  }
+
+  const p = data.payload as Record<string, unknown>
+  const hoje = (p.hoje ?? {}) as Record<string, unknown>
+  const mes = (p.mes ?? {}) as Record<string, unknown>
+  const rankings = (p.rankings ?? {}) as Record<string, unknown>
+  const acordosHoje = (p.acordos_hoje ?? {}) as Record<string, unknown>
+
+  const top3 = Array.isArray(rankings.top3_mes) ? rankings.top3_mes : []
+
+  const payload = {
+    atualizado_em: data.gerado_em ?? null,
+    fonte: 'CRM ReATIVA One — tv_snapshot',
+    resultado: {
+      honorarios_hoje:             numOrNull(hoje.honorarios),
+      honorarios_mes:              numOrNull(mes.honorarios),
+      projecao_honorarios_mes:     numOrNull(mes.proj_honorarios),
+      recuperado_hoje:             numOrNull(hoje.recuperado),
+      recuperado_mes:              numOrNull(mes.recuperado),
+      pagamentos_confirmados_hoje: numOrNull(hoje.pagamentos_confirmados),
+      pagamentos_confirmados_mes:  numOrNull(mes.pagamentos_confirmados),
+      acordos_fechados_hoje:       numOrNull(acordosHoje.fechados),
+      acordos_fechados_mes:        null,
+    },
+    rankings: {
+      honorarios:      top3.map((r: Record<string, unknown>) => String(r.operador ?? '')).filter(Boolean),
+      valor_recuperado: [],
+      pagamentos:       [],
+      acordos:          [],
+    },
+    receptivo: {
+      atualizado_em: null,
+      online:        null,
+      proximos:      [],
+    },
+  }
+
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: {
+      ...CORS,
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+    },
+  })
+})
+
+function numOrNull(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null
+}
