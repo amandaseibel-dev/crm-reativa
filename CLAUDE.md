@@ -20,6 +20,21 @@ Prime/ULBRA:**
 3. subir de modelo ou de esforço exige declarar, em uma linha, qual critério
    acionou
 
+## Leitura de arquivo e busca
+
+1. ler e buscar pelas ferramentas `Read`, `Grep` e `Glob` **quando estiverem
+   disponíveis na sessão** — são limitadas por caminho, não abrem arquivo para
+   escrita e não aceitam redirecionamento
+2. não recorrer a `cat`, `head`, `tail`, `sed -n`, `grep` ou `find` por shell
+   só por hábito. Regra de permissão para esses verbos é de **prefixo**, e
+   prefixo casa `grep x f > saida`, que escreve: liberá-los no `allow` abriria
+   escrita por atalho. É por isso que eles não estão lá, e não por esquecimento
+3. quando `Grep`/`Glob` não existirem na sessão, busca de conteúdo por `grep`
+   no Bash é o caminho restante — agrupar as buscas num único comando em vez de
+   repetir chamadas
+4. isto não afrouxa nada: os bloqueios de `.env`, do ledger, de migrations, de
+   `settings.json` e do próprio Guardião valem igual em qualquer das vias
+
 ## Seleção de recursos e paralelismo
 
 Vale em toda frente, sem precisar ser pedido:

@@ -182,7 +182,14 @@ const casos = [
   ["B32", "NEGA", "Write em settings.local.json", arquivo("Write", ".claude/settings.local.json")],
   ["B33", "NEGA", "Write em migrations/", arquivo("Write", "supabase/migrations/20261016120000_x.sql")],
   ["B34", "NEGA", "Write com nome de ledger (__) em migrations/", arquivo("Write", "supabase/migrations/20261016120000__x.sql")],
-  ["B35", "PASSA", "Write em src/ sem escopo declarado", arquivo("Write", "src/pages/Dashboard.jsx")],
+  // FIXTURE, não RAIZ: com `cwd = RAIZ` este caso lia o
+  // `.claude/reativa-one.local.md` do checkout em que o autoteste roda, e
+  // passava a FALHAR sempre que a frente tivesse escopo declarado -- que é o
+  // estado normal de trabalho (CLAUDE.md §4: quem edita declara escopo antes da
+  // primeira edição). O caso afere "sem escopo declarado", então o cwd tem de
+  // ser um repositório SEM declaração. B36/B37 já usavam fixture.
+  ["B35", "PASSA", "Write em src/ sem escopo declarado",
+    arquivo("Write", join(EM_TRABALHO, "src/pages/Dashboard.jsx"), EM_TRABALHO)],
   ["B36", "NEGA", "Write fora do escopo declarado", arquivo("Write", join(COM_ESCOPO, "src/pages/Dashboard.jsx"), COM_ESCOPO)],
   ["B37", "PASSA", "Write dentro do escopo declarado", arquivo("Write", join(COM_ESCOPO, "src/utils/carteiraFila.js"), COM_ESCOPO)],
   ["B38", "NEGA", "Edit no ledger", arquivo("Edit", "supabase/ledger/2026-09/x.sql")],
@@ -409,6 +416,28 @@ const casos = [
     arquivo("Write", `${RAIZ}/.claude/settings.local.json\t`, WT.dir), FASE2],
   ["F88", "NEGA", "espaço nas duas pontas, caminho relativo",
     arquivo("Write", " .claude/settings.json ", RAIZ), FASE2],
+
+  // ---- F89-F96: DUPLICAÇÃO DE DESCRITOR. `2>&1`, `>&2` e `2>&-` mandam um
+  // descritor para outro e não abrem arquivo, mas o `>` deles servia ao portão
+  // EXTERNO de R5 e R7 e negava leitura pura -- `ls .claude/settings.json 2>&1`
+  // caía em R5/desarme. A cópia `$er` recorta só as formas `N>&M`; toda forma
+  // que ABRE arquivo permanece, e é isso que F91-F96 travam.
+  ["F89", "PASSA", "2>&1 na leitura das permissões não é escrita",
+    bash("ls -la .claude/settings.json 2>&1", RAIZ), FASE2],
+  ["F90", "PASSA", "2>&- na leitura do próprio arquivo do Guardião",
+    bash("cat plugins/reativa-one/hooks/guardiao.sh 2>&-", RAIZ), FASE2],
+  ["F91", "NEGA", "escrita real nas permissões segue negada",
+    bash("echo x > .claude/settings.json", RAIZ), FASE2],
+  ["F92", "NEGA", "append real: em `2>>arq` não há & depois do >",
+    bash("echo x 2>>.claude/settings.json", RAIZ), FASE2],
+  ["F93", "NEGA", "`&>arq` segue escrita: o & vem ANTES do >",
+    bash("echo x &>.claude/settings.json", RAIZ), FASE2],
+  ["F94", "NEGA", "escrita com 2>&1 na cauda: o `> arq` permanece",
+    bash("echo x > .claude/settings.json 2>&1", RAIZ), FASE2],
+  ["F95", "NEGA", "CP com 2>&1 sobre o Guardião segue desarme (R7)",
+    bash("cp novo.sh plugins/reativa-one/hooks/guardiao.sh 2>&1", RAIZ), FASE2],
+  ["F96", "NEGA", "redirecionar para migration com 2>&1 segue negado (R5)",
+    bash("echo x > supabase/migrations/20260101000000_a.sql 2>&1", RAIZ), FASE2],
 ];
 
 // ---------------------------------------------------------------------------
