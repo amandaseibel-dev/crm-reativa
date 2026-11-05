@@ -124,6 +124,48 @@ sempre vai para `acordos_prime_staging_criticas`, nunca é promovida por
 omissão — mas o escopo do que exige conferência ficou mais estreito e
 explícito, exatamente como pedido nesta rodada.
 
+## Vínculo com o convênio Santander ReATIVA — 272047/portador 166 (quarta etapa)
+
+Diagnóstico desta rodada mostrou que nada no staging validava se a captura
+realmente pertence ao convênio Santander ReATIVA (carrier `166`, covenant
+`0272047` — medido em produção, ver `prime-mapa-identificadores.md`). A
+quarta etapa fecha essa lacuna, com a mesma lógica fail-closed das demais:
+
+- **Onde a evidência mora.** `avaliarVinculoConvenioReativa()` olha **só os
+  títulos GERADOS do próprio acordo** (os boletos novos) — nunca a filiação
+  geral do aluno ao portador 166 em outro lugar do CRM/Prime. Um aluno pode
+  ter outros acordos ou mensalidades em qualquer portador; isso não prova
+  nada sobre **este** acordo.
+- **Sem lista rígida de portadores de ORIGEM.** Um título negociado
+  (mensalidade original ou parcela herdada de acordo anterior) pode vir de
+  qualquer portador — 195 (mensalidade em cobrança), 166, ou qualquer outro
+  — e isso nunca é filtrado, restringido nem usado para excluir a
+  negociação. `TituloNegociado`/`TituloGerado` só preservam
+  `portadorIdMannesoft`/`convenioMannesoft` como o Mannesoft informar, brutos
+  (ver `IdentificacaoPortador`).
+- **Reconhecimento exige evidência no destino.** `ehPortadorReativa()` só
+  reconhece um título gerado como ReATIVA quando ele próprio informa,
+  explicitamente, portador `166` e/ou convênio `272047` (com ou sem zero à
+  esquerda). Sem nenhum título gerado, ou com algum título gerado sem
+  portador/convênio informado, o vínculo é **informação insuficiente**
+  (`VINCULO_CONVENIO_REATIVA_SEM_INFORMACAO`). Com algum título gerado
+  apontando outro portador/convênio (ex.: 95/272036, 160/272037 — ambos
+  "fora do escopo Reativa" por decisão da gestão, ou 165/202, judiciais), o
+  vínculo é **divergência** (`VINCULO_CONVENIO_REATIVA_DIVERGENTE`). Os dois
+  casos vão para `acordos_prime_staging_criticas`, nunca descartados — ficam
+  registrados no staging, à espera de conferência.
+- **Mudança de vínculo entre versões.** `compararVersoes()` agora também
+  reporta `vinculoConvenioMudou` — se a captura passou de evidência
+  suficiente para insuficiente/divergente (ou vice-versa) entre duas
+  capturas do mesmo acordo — como sinal independente de `carteiraMudou`
+  (que continua sendo o atributo livre, de compatibilidade, do acordo
+  inteiro).
+
+Nenhuma dessas checagens altera a separação reconhecimento × bloqueio
+financeiro da etapa anterior: `bloqueioFinanceiroAtivo()` continua sempre
+bloqueada, para todo caso, mesmo quando o vínculo com o convênio ReATIVA é
+comprovado.
+
 ## O que esta etapa entrega
 
 - `supabase/propostas/PROPOSTA_staging_acordos_prime.sql` — proposta de

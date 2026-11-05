@@ -48,7 +48,12 @@ create table if not exists public.acordos_prime_staging (
 
   -- Composição completa, como a tela do Acordo-Detalhe mostra: GRUPO de
   -- títulos negociados + GRUPO de títulos gerados. Nunca um emparelhamento
-  -- individual que o Mannesoft não ofereça explicitamente.
+  -- individual que o Mannesoft não ofereça explicitamente. Cada título
+  -- (negociado ou gerado) preserva, quando informado, portador/convênio
+  -- brutos (ver IdentificacaoPortador em prime-acordos-staging.ts) — é
+  -- contra os títulos GERADOS que se comprova o vínculo com o convênio
+  -- Santander ReATIVA (272047/portador 166); os títulos negociados nunca são
+  -- filtrados por portador de origem.
   composicao              jsonb not null,
   composicao_hash         text not null,
 
@@ -116,6 +121,8 @@ create table if not exists public.acordos_prime_staging_criticas (
     --   IDENTIDADE_AMBIGUA_REFERENCIA_NAO_RESOLVIDA  -- referência a acordo anterior que o staging não encontra
     --   COMPOSICAO_DIVERGENTE_MULTIPLOS_ACORDOS_DE_ORIGEM  -- parcelas herdadas referenciando mais de um acordo de origem
     --   INFORMACAO_INSUFICIENTE_ORIGEM_DO_TITULO_SEM_REFERENCIA  -- parcela herdada sem dizer de qual acordo vem
+    --   VINCULO_CONVENIO_REATIVA_SEM_INFORMACAO  -- títulos gerados sem portador/convênio informado (nenhum, ou algum)
+    --   VINCULO_CONVENIO_REATIVA_DIVERGENTE  -- título gerado aponta portador/convênio diferente de 166/272047
     --
     -- NOTA (rodada 3): REACORDO_APOS_CANCELAMENTO e COMPOSICAO_MISTA_EXIGE_CONFERENCIA
     -- deixaram de ser códigos de EXCEÇÃO automática — esses cenários (e os demais

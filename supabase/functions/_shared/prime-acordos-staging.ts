@@ -35,6 +35,17 @@
 //      (`bloqueioFinanceiroAtivo` nunca libera), independente do
 //      reconhecimento — pendente de validar o contrato real das rotinas
 //      oficiais e de autorização específica de gestão.
+//   8. VÍNCULO COM O CONVÊNIO SANTANDER REATIVA (272047, portador 166) só é
+//      comprovado pelos TÍTULOS GERADOS do próprio acordo — nunca pela
+//      filiação geral do aluno ao portador 166 (um aluno pode ter outros
+//      acordos ou mensalidades em qualquer portador; isso não diz nada sobre
+//      ESTE acordo). Sem lista rígida de portadores de ORIGEM: o título
+//      negociado pode vir de qualquer portador (mensalidade, parcela de
+//      acordo anterior) e é sempre preservado como veio, nunca filtrado nem
+//      excluído por isso (ver `avaliarVinculoConvenioReativa`). Quando os
+//      títulos gerados não informam portador/convênio, ou informam um que
+//      diverge de 166/272047, a captura vai para conferência — nunca é
+//      presumida ReATIVA por omissão.
 
 // Origem de um item de `titulos_negociados` — só preenchida quando o PRÓPRIO
 // Mannesoft distingue o tipo do título (ex.: etiqueta/coluna própria na tela).
@@ -42,15 +53,37 @@
 // distinção explícita — nunca inferida por valor, data ou posição.
 export type OrigemTituloNegociado = "MENSALIDADE_ORIGINAL" | "PARCELA_DE_ACORDO_ANTERIOR" | "INDETERMINADA";
 
-export type TituloNegociado = {
+// Identificação de portador/convênio — SEMPRE o valor bruto informado pela
+// origem (Mannesoft), preservado como veio, nunca normalizado além do que
+// `normalizarConvenio` faz para COMPARAR (nunca para substituir o valor
+// guardado). Ausência de ambos os campos significa só que a captura não
+// trouxe essa informação — nunca inferida por tabela, aluno ou qualquer outra
+// fonte.
+export type IdentificacaoPortador = {
+  portadorIdMannesoft?: number | string | null; // ex.: 166 — bruto, como a Prime/Mannesoft devolve
+  convenioMannesoft?: string | null; // ex.: "0272047" — bruto, com ou sem zero à esquerda
+};
+
+export type TituloNegociado = IdentificacaoPortador & {
   documento: string;
   origem?: OrigemTituloNegociado; // ausente == INDETERMINADA
   acordoOrigemMannesoft?: string; // só quando o próprio Mannesoft informa de qual acordo vem a parcela herdada
 };
 
+// Título gerado (boleto novo do acordo). Antes `unknown[]` — agora tipado,
+// com portador/convênio preservados do mesmo jeito que em TituloNegociado,
+// porque é exatamente aqui que se comprova (ou não) o vínculo com o convênio
+// ReATIVA (ver `avaliarVinculoConvenioReativa`).
+export type TituloGerado = IdentificacaoPortador & {
+  documento: string;
+  vencimento?: string;
+  valor?: number;
+  unidade?: string | null;
+};
+
 export type Composicao = {
   titulos_negociados: TituloNegociado[];
-  titulos_gerados: unknown[];
+  titulos_gerados: TituloGerado[];
 };
 
 export type CapturaAcordo = {
@@ -113,6 +146,59 @@ export function hashComposicao(composicao: Composicao): string {
 }
 
 // ----------------------------------------------------------------------------
+// 2b. VÍNCULO COM O CONVÊNIO SANTANDER REATIVA (272047 / portador 166) —
+//     comprovado SÓ pelos títulos GERADOS do próprio acordo (os boletos
+//     novos emitidos por ele), nunca pela filiação geral do aluno ao
+//     portador 166 em outro lugar do CRM/Prime. Sem lista rígida de
+//     portadores de ORIGEM: um título negociado pode vir de qualquer
+//     portador (mensalidade em 195, parcela herdada de outro acordo em
+//     qualquer convênio) e isso nunca é restringido nem usado para excluir a
+//     negociação — só é preservado, bruto, em `IdentificacaoPortador`.
+// ----------------------------------------------------------------------------
+
+// Valor oficial, medido em produção (prime-mapa-identificadores.md): carrier
+// 166 = "SANTANDER REATIVA", covenant "0272047" (zero à esquerda variável).
+const PORTADOR_REATIVA_ACORDO_ID = 166;
+const CONVENIO_REATIVA_ACORDO_DIGITOS = "272047";
+
+function normalizarConvenio(convenio: unknown): string {
+  return String(convenio ?? "").replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+}
+
+// true só quando o PRÓPRIO item informa explicitamente portador 166 e/ou
+// convênio 272047 — nunca por omissão.
+export function ehPortadorReativa(p: IdentificacaoPortador): boolean {
+  const convenioOk = p.convenioMannesoft != null && normalizarConvenio(p.convenioMannesoft) === CONVENIO_REATIVA_ACORDO_DIGITOS;
+  const portadorOk = p.portadorIdMannesoft != null && String(p.portadorIdMannesoft).trim() === String(PORTADOR_REATIVA_ACORDO_ID);
+  return convenioOk || portadorOk;
+}
+
+export type VinculoConvenioReativa = {
+  suficiente: boolean; // true só quando TODOS os títulos gerados informam portador/convênio e todos casam com 166/272047
+  divergente: boolean; // algum título gerado informa portador/convênio que NÃO é 166/272047
+  semInformacao: boolean; // nenhum título gerado, ou algum sem portador/convênio informado
+};
+
+// Avalia só os títulos GERADOS — nunca a filiação do aluno, nunca os títulos
+// negociados (que podem legitimamente vir de qualquer portador).
+export function avaliarVinculoConvenioReativa(titulosGerados: TituloGerado[]): VinculoConvenioReativa {
+  if (!titulosGerados || titulosGerados.length === 0) {
+    return { suficiente: false, divergente: false, semInformacao: true };
+  }
+  let divergente = false;
+  let semInformacao = false;
+  for (const t of titulosGerados) {
+    const informado = t.portadorIdMannesoft != null || t.convenioMannesoft != null;
+    if (!informado) {
+      semInformacao = true;
+      continue;
+    }
+    if (!ehPortadorReativa(t)) divergente = true;
+  }
+  return { suficiente: !divergente && !semInformacao, divergente, semInformacao };
+}
+
+// ----------------------------------------------------------------------------
 // 3. COMPARAÇÃO ENTRE VERSÕES — nunca decide o que fazer, só descreve o que mudou.
 // ----------------------------------------------------------------------------
 
@@ -121,6 +207,7 @@ export type ComparacaoVersoes = {
   situacaoMudou: boolean;
   carteiraMudou: boolean;
   composicaoMudou: boolean;
+  vinculoConvenioMudou: boolean; // o vínculo com 166/272047 (suficiente/insuficiente) mudou entre as duas capturas
   camposAlterados: string[];
 };
 
@@ -129,16 +216,27 @@ export function compararVersoes(
   atual: CapturaAcordo,
 ): ComparacaoVersoes {
   if (!anterior) {
-    return { primeiraCaptura: true, situacaoMudou: false, carteiraMudou: false, composicaoMudou: false, camposAlterados: [] };
+    return {
+      primeiraCaptura: true,
+      situacaoMudou: false,
+      carteiraMudou: false,
+      composicaoMudou: false,
+      vinculoConvenioMudou: false,
+      camposAlterados: [],
+    };
   }
   const campos: string[] = [];
   const situacaoMudou = anterior.situacaoMannesoft !== atual.situacaoMannesoft;
   const carteiraMudou = (anterior.carteiraPortador ?? null) !== (atual.carteiraPortador ?? null);
   const composicaoMudou = hashComposicao(anterior.composicao) !== hashComposicao(atual.composicao);
+  const vinculoConvenioMudou =
+    avaliarVinculoConvenioReativa(anterior.composicao.titulos_gerados).suficiente !==
+    avaliarVinculoConvenioReativa(atual.composicao.titulos_gerados).suficiente;
   if (situacaoMudou) campos.push("situacao_mannesoft");
   if (carteiraMudou) campos.push("carteira_portador");
   if (composicaoMudou) campos.push("composicao");
-  return { primeiraCaptura: false, situacaoMudou, carteiraMudou, composicaoMudou, camposAlterados: campos };
+  if (vinculoConvenioMudou) campos.push("vinculo_convenio_reativa");
+  return { primeiraCaptura: false, situacaoMudou, carteiraMudou, composicaoMudou, vinculoConvenioMudou, camposAlterados: campos };
 }
 
 // ----------------------------------------------------------------------------
@@ -216,6 +314,7 @@ export type TracosComposicao = {
   acordoOrigemReferenciasDivergentes: boolean; // mais de um acordo de origem distinto referenciado — AMBÍGUO
   algumaParcelaDeAcordoAnteriorSemReferencia: boolean; // origem dada sem dizer de qual acordo — INSUFICIENTE
   parcelaUnica: boolean; // um único título gerado (item 6) — nunca, por si, presume quitação
+  vinculoConvenioReativa: VinculoConvenioReativa; // comprovação do destino 166/272047 pelos títulos gerados
 };
 
 export function analisarComposicao(composicao: Composicao): TracosComposicao {
@@ -232,6 +331,7 @@ export function analisarComposicao(composicao: Composicao): TracosComposicao {
     acordoOrigemReferenciasDivergentes: new Set(referenciasDefinidas).size > 1,
     algumaParcelaDeAcordoAnteriorSemReferencia: parcelasHerdadas.some((t) => !t.acordoOrigemMannesoft),
     parcelaUnica: composicao.titulos_gerados.length === 1,
+    vinculoConvenioReativa: avaliarVinculoConvenioReativa(composicao.titulos_gerados),
   };
 }
 
@@ -270,6 +370,13 @@ export function ehQuitacaoObservada(situacaoMannesoft: string): boolean {
 //    parcialmente pago renegociado ou uma parcela única bem formados: esses
 //    são reconhecidos automaticamente no staging quando a captura é
 //    inequívoca.
+//
+//    (b)/(c) agora também cobrem o VÍNCULO COM O CONVÊNIO REATIVA: um título
+//    gerado que informa portador/convênio diferente de 166/272047 é
+//    divergência (b); títulos gerados sem nenhuma informação de
+//    portador/convênio são informação insuficiente (c) — nunca presumidos
+//    ReATIVA por omissão, e nunca pela filiação do aluno a 166 em outro
+//    lugar.
 // ----------------------------------------------------------------------------
 
 export type ClasseSeguranca = "AUTOMATICO" | "EXCECAO";
@@ -298,8 +405,14 @@ export function avaliarReconhecimento(ctx: ContextoReconhecimento): AvaliacaoSeg
   if (ctx.tracos.acordoOrigemReferenciasDivergentes) {
     return { classe: "EXCECAO", motivo: "COMPOSICAO_DIVERGENTE_MULTIPLOS_ACORDOS_DE_ORIGEM" };
   }
+  if (ctx.tracos.vinculoConvenioReativa.divergente) {
+    return { classe: "EXCECAO", motivo: "VINCULO_CONVENIO_REATIVA_DIVERGENTE" };
+  }
   if (ctx.tracos.algumaParcelaDeAcordoAnteriorSemReferencia) {
     return { classe: "EXCECAO", motivo: "INFORMACAO_INSUFICIENTE_ORIGEM_DO_TITULO_SEM_REFERENCIA" };
+  }
+  if (ctx.tracos.vinculoConvenioReativa.semInformacao) {
+    return { classe: "EXCECAO", motivo: "VINCULO_CONVENIO_REATIVA_SEM_INFORMACAO" };
   }
   // Nenhuma ambiguidade, divergência ou lacuna encontrada: identidade,
   // composição e histórico (reacordo simples ou encadeado, renegociação

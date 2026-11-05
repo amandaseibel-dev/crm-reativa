@@ -15,11 +15,21 @@ import {
   analisarComposicao,
   temComposicaoMista,
   ehQuitacaoObservada,
+  ehPortadorReativa,
+  avaliarVinculoConvenioReativa,
   avaliarReconhecimento,
   reconhecerCaptura,
   bloqueioFinanceiroAtivo,
   transformarParaImportarAcordos,
 } from "./prime-acordos-staging.ts";
+
+// Título gerado "de livro" do acordo: boleto emitido sob o convênio
+// Santander ReATIVA (166/0272047) — usado como padrão nos fixtures que não
+// estão testando o vínculo com o convênio em si, para não contaminar
+// asserções de outros cenários.
+function tituloGeradoReativa(overrides = {}) {
+  return { documento: "9000101", vencimento: "2026-06-10", portadorIdMannesoft: 166, convenioMannesoft: "0272047", ...overrides };
+}
 
 function captura(overrides = {}) {
   return {
@@ -30,7 +40,7 @@ function captura(overrides = {}) {
     tipoMannesoft: "Acordo",
     composicao: {
       titulos_negociados: [{ documento: "9000001", vencimento: "2026-05-10" }],
-      titulos_gerados: [{ documento: "9000101", vencimento: "2026-06-10" }],
+      titulos_gerados: [tituloGeradoReativa()],
     },
     ...overrides,
   };
@@ -202,7 +212,7 @@ describe("3. renegociação de uma ou várias parcelas de acordo anterior", () =
   it("renegociação parcial bem resolvida é reconhecida automaticamente no staging", () => {
     const composicao = {
       titulos_negociados: [{ documento: "2", origem: "PARCELA_DE_ACORDO_ANTERIOR", acordoOrigemMannesoft: "71903" }],
-      titulos_gerados: [{ documento: "9" }],
+      titulos_gerados: [tituloGeradoReativa()],
     };
     const r = avaliarReconhecimento({ conflitoNaCaptura: false, tracos: analisarComposicao(composicao) });
     expect(r.classe).toBe("AUTOMATICO");
@@ -267,10 +277,25 @@ describe("4. negociações que reúnem mensalidades e parcelas de acordos (compo
         { documento: "1", origem: "MENSALIDADE_ORIGINAL" },
         { documento: "2", origem: "PARCELA_DE_ACORDO_ANTERIOR", acordoOrigemMannesoft: "71903" },
       ],
-      titulos_gerados: [{ documento: "9" }],
+      titulos_gerados: [tituloGeradoReativa()],
     };
     const r = avaliarReconhecimento({ conflitoNaCaptura: false, tracos: analisarComposicao(composicao) });
     expect(r.classe).toBe("AUTOMATICO");
+  });
+
+  it("negociação mista preserva, SEM filtrar, os portadores de ORIGEM diferentes dos títulos negociados — mensalidade e parcela herdada podem vir de qualquer portador", () => {
+    const composicao = {
+      titulos_negociados: [
+        { documento: "1", origem: "MENSALIDADE_ORIGINAL", portadorIdMannesoft: 195, convenioMannesoft: null },
+        { documento: "2", origem: "PARCELA_DE_ACORDO_ANTERIOR", acordoOrigemMannesoft: "71903", portadorIdMannesoft: 95, convenioMannesoft: "0272036" },
+      ],
+      titulos_gerados: [tituloGeradoReativa()],
+    };
+    // nenhum dado de portador do título negociado é alterado, descartado ou usado para excluir a negociação
+    expect(composicao.titulos_negociados[0].portadorIdMannesoft).toBe(195);
+    expect(composicao.titulos_negociados[1].portadorIdMannesoft).toBe(95);
+    const r = avaliarReconhecimento({ conflitoNaCaptura: false, tracos: analisarComposicao(composicao) });
+    expect(r.classe).toBe("AUTOMATICO"); // o vínculo com 166/272047 é comprovado pelo título GERADO, não pelos negociados
   });
 });
 
@@ -314,7 +339,7 @@ describe("6. acordo de parcela única — sem presumir quitação", () => {
   });
 
   it("acordo de parcela única ATIVO não é tratado como quitação, e reconhecimento segue automático", () => {
-    const atual = captura({ situacaoMannesoft: "ATIVO", composicao: { titulos_negociados: [{ documento: "1" }], titulos_gerados: [{ documento: "9" }] } });
+    const atual = captura({ situacaoMannesoft: "ATIVO", composicao: { titulos_negociados: [{ documento: "1" }], titulos_gerados: [tituloGeradoReativa({ documento: "9" })] } });
     expect(ehQuitacaoObservada(atual.situacaoMannesoft)).toBe(false);
     const r = reconhecerCaptura({ anterior: null, atual, conflitoNaCaptura: false });
     expect(r.tracos.parcelaUnica).toBe(true);
@@ -348,6 +373,244 @@ describe("bloqueioFinanceiroAtivo — sempre bloqueado nesta etapa, para todo ca
     const r = reconhecerCaptura({ anterior: null, atual: captura(), conflitoNaCaptura: false });
     expect(r.reconhecimento.classe).toBe("AUTOMATICO");
     expect(bloqueioFinanceiroAtivo(captura().situacaoMannesoft).bloqueado).toBe(true);
+  });
+});
+
+describe("ehPortadorReativa / avaliarVinculoConvenioReativa — convênio 272047, portador 166", () => {
+  it("reconhece por portadorIdMannesoft = 166, mesmo sem convênio informado", () => {
+    expect(ehPortadorReativa({ portadorIdMannesoft: 166, convenioMannesoft: null })).toBe(true);
+  });
+
+  it("reconhece por convenioMannesoft = 0272047 (com zero à esquerda), mesmo sem portadorId informado", () => {
+    expect(ehPortadorReativa({ portadorIdMannesoft: null, convenioMannesoft: "0272047" })).toBe(true);
+  });
+
+  it("reconhece convênio sem zero à esquerda (272047) — a comparação normaliza, mas o valor bruto não é alterado no objeto", () => {
+    const titulo = { portadorIdMannesoft: null, convenioMannesoft: "272047" };
+    expect(ehPortadorReativa(titulo)).toBe(true);
+    expect(titulo.convenioMannesoft).toBe("272047"); // preservado como veio, nunca normalizado no dado
+  });
+
+  it("não reconhece outro portador Santander (95/272036, 160/272037) nem judiciais (165, 202) como ReATIVA", () => {
+    expect(ehPortadorReativa({ portadorIdMannesoft: 95, convenioMannesoft: "0272036" })).toBe(false);
+    expect(ehPortadorReativa({ portadorIdMannesoft: 160, convenioMannesoft: "0272037" })).toBe(false);
+    expect(ehPortadorReativa({ portadorIdMannesoft: 165, convenioMannesoft: null })).toBe(false);
+    expect(ehPortadorReativa({ portadorIdMannesoft: 202, convenioMannesoft: null })).toBe(false);
+  });
+
+  it("não reconhece nada sem informação nenhuma (nem portador, nem convênio) — nunca presume", () => {
+    expect(ehPortadorReativa({})).toBe(false);
+    expect(ehPortadorReativa({ portadorIdMannesoft: null, convenioMannesoft: null })).toBe(false);
+  });
+
+  it("suficiente só quando TODOS os títulos gerados informam e casam com 166/272047", () => {
+    expect(avaliarVinculoConvenioReativa([tituloGeradoReativa()])).toEqual({ suficiente: true, divergente: false, semInformacao: false });
+    expect(avaliarVinculoConvenioReativa([tituloGeradoReativa(), tituloGeradoReativa({ documento: "9000102" })])).toEqual({
+      suficiente: true,
+      divergente: false,
+      semInformacao: false,
+    });
+  });
+
+  it("sem nenhum título gerado é informação insuficiente — nunca presumido ReATIVA", () => {
+    expect(avaliarVinculoConvenioReativa([])).toEqual({ suficiente: false, divergente: false, semInformacao: true });
+  });
+
+  it("título gerado sem portador nem convênio é informação insuficiente", () => {
+    expect(avaliarVinculoConvenioReativa([{ documento: "9" }])).toEqual({ suficiente: false, divergente: false, semInformacao: true });
+  });
+
+  it("título gerado com portador/convênio divergente de 166/272047 é divergência, não insuficiência", () => {
+    expect(avaliarVinculoConvenioReativa([{ documento: "9", portadorIdMannesoft: 95, convenioMannesoft: "0272036" }])).toEqual({
+      suficiente: false,
+      divergente: true,
+      semInformacao: false,
+    });
+  });
+
+  it("um título gerado divergente entre vários ReATIVA já torna o vínculo insuficiente (fail-closed)", () => {
+    const r = avaliarVinculoConvenioReativa([tituloGeradoReativa(), { documento: "9000103", portadorIdMannesoft: 195, convenioMannesoft: null }]);
+    expect(r.suficiente).toBe(false);
+    expect(r.divergente).toBe(true);
+  });
+
+  it("NÃO usa a filiação geral do aluno ao portador 166 — avalia só os títulos gerados passados, nada além disso", () => {
+    // mesmo que, em outro lugar do CRM, o aluno tenha filiação ao 166, a
+    // função não recebe nem consulta esse dado — só o array de titulos_gerados
+    // do PRÓPRIO acordo em avaliação.
+    expect(avaliarVinculoConvenioReativa([{ documento: "9" }]).suficiente).toBe(false);
+  });
+});
+
+describe("3/5. validação do convênio 272047/portador 166 como destino, e exceção quando não comprovado", () => {
+  it("acordo simples com boleto gerado comprovadamente no 166/0272047 é reconhecido automaticamente", () => {
+    const r = reconhecerCaptura({ anterior: null, atual: captura(), conflitoNaCaptura: false });
+    expect(r.reconhecimento).toEqual({ classe: "AUTOMATICO", motivo: "RECONHECIMENTO_AUTOMATICO_IDENTIDADE_COMPOSICAO_HISTORICO" });
+  });
+
+  it("acordo simples cujo boleto gerado não informa portador nem convênio vai para conferência — nunca presumido ReATIVA", () => {
+    const atual = captura({ composicao: { titulos_negociados: [{ documento: "1" }], titulos_gerados: [{ documento: "9" }] } });
+    const r = reconhecerCaptura({ anterior: null, atual, conflitoNaCaptura: false });
+    expect(r.reconhecimento).toEqual({ classe: "EXCECAO", motivo: "VINCULO_CONVENIO_REATIVA_SEM_INFORMACAO" });
+  });
+
+  it("acordo simples cujo boleto gerado está noutro convênio Santander (95/272036, fora do escopo Reativa) vai para conferência", () => {
+    const atual = captura({
+      composicao: {
+        titulos_negociados: [{ documento: "1" }],
+        titulos_gerados: [{ documento: "9", portadorIdMannesoft: 95, convenioMannesoft: "0272036" }],
+      },
+    });
+    const r = reconhecerCaptura({ anterior: null, atual, conflitoNaCaptura: false });
+    expect(r.reconhecimento).toEqual({ classe: "EXCECAO", motivo: "VINCULO_CONVENIO_REATIVA_DIVERGENTE" });
+  });
+
+  it("não considera o acordo da ReATIVA só porque, em algum outro lugar, o aluno tem filiação ao 166 — exige evidência no PRÓPRIO acordo", () => {
+    // simula um acordo cujo próprio título gerado nada informa, mesmo que o
+    // chamador "soubesse" que o aluno tem filiação ao 166 em outro contexto —
+    // essa informação nunca entra na função, e o resultado é conferência.
+    const atual = captura({ composicao: { titulos_negociados: [{ documento: "1" }], titulos_gerados: [{ documento: "9" }] } });
+    const r = reconhecerCaptura({ anterior: null, atual, conflitoNaCaptura: false });
+    expect(r.reconhecimento.classe).toBe("EXCECAO");
+  });
+});
+
+describe("4. preservação de títulos originais de outros portadores (mensalidade e parcela de acordo anterior)", () => {
+  it("preserva o portador/convênio bruto de uma mensalidade original vinda de outro portador (195), sem filtrar nem excluir", () => {
+    const composicao = {
+      titulos_negociados: [{ documento: "1", origem: "MENSALIDADE_ORIGINAL", portadorIdMannesoft: 195, convenioMannesoft: null }],
+      titulos_gerados: [tituloGeradoReativa()],
+    };
+    expect(composicao.titulos_negociados[0].portadorIdMannesoft).toBe(195);
+    const r = avaliarReconhecimento({ conflitoNaCaptura: false, tracos: analisarComposicao(composicao) });
+    expect(r.classe).toBe("AUTOMATICO");
+  });
+
+  it("preserva o portador bruto de uma parcela herdada de acordo anterior vinda de um portador qualquer, sem lista rígida de origem", () => {
+    const composicao = {
+      titulos_negociados: [
+        { documento: "2", origem: "PARCELA_DE_ACORDO_ANTERIOR", acordoOrigemMannesoft: "71903", portadorIdMannesoft: 166, convenioMannesoft: "0272047" },
+      ],
+      titulos_gerados: [tituloGeradoReativa()],
+    };
+    expect(composicao.titulos_negociados[0].portadorIdMannesoft).toBe(166);
+    const r = avaliarReconhecimento({ conflitoNaCaptura: false, tracos: analisarComposicao(composicao) });
+    expect(r.classe).toBe("AUTOMATICO");
+  });
+
+  it("título negociado com portador totalmente desconhecido/inusual (fora de qualquer lista) ainda é reconhecido — não há lista rígida de origem", () => {
+    const composicao = {
+      titulos_negociados: [{ documento: "1", origem: "MENSALIDADE_ORIGINAL", portadorIdMannesoft: 999999, convenioMannesoft: "9999999" }],
+      titulos_gerados: [tituloGeradoReativa()],
+    };
+    const r = avaliarReconhecimento({ conflitoNaCaptura: false, tracos: analisarComposicao(composicao) });
+    expect(r.classe).toBe("AUTOMATICO"); // o vínculo é comprovado pelo gerado; o portador de origem nunca é filtro
+  });
+});
+
+describe("6. registro e comparação de mudança de portador/convênio entre versões", () => {
+  it("compararVersoes expõe vinculoConvenioMudou quando o boleto gerado passa a divergir do convênio ReATIVA entre capturas", () => {
+    const anterior = captura();
+    const atual = captura({
+      composicao: {
+        titulos_negociados: [{ documento: "9000001", vencimento: "2026-05-10" }],
+        titulos_gerados: [{ documento: "9000101", vencimento: "2026-06-10", portadorIdMannesoft: 95, convenioMannesoft: "0272036" }],
+      },
+    });
+    const cmp = compararVersoes(anterior, atual);
+    expect(cmp.vinculoConvenioMudou).toBe(true);
+    expect(cmp.camposAlterados).toContain("vinculo_convenio_reativa");
+  });
+
+  it("vinculoConvenioMudou é false quando o vínculo permanece igualmente suficiente entre capturas, mesmo com outro boleto", () => {
+    const anterior = captura();
+    const atual = captura({
+      composicao: {
+        titulos_negociados: [{ documento: "9000001", vencimento: "2026-05-10" }],
+        titulos_gerados: [tituloGeradoReativa({ documento: "9000199" })],
+      },
+    });
+    const cmp = compararVersoes(anterior, atual);
+    expect(cmp.vinculoConvenioMudou).toBe(false);
+  });
+
+  it("carteiraMudou (atributo livre do acordo) e vinculoConvenioMudou (evidência estrutural) são sinais independentes", () => {
+    const anterior = captura({ carteiraPortador: "166" });
+    const atual = captura({ carteiraPortador: "195" }); // mesma composição/titulos_gerados ReATIVA — só o texto livre mudou
+    const cmp = compararVersoes(anterior, atual);
+    expect(cmp.carteiraMudou).toBe(true);
+    expect(cmp.vinculoConvenioMudou).toBe(false);
+  });
+});
+
+describe("7. cenários combinados com portador/convênio — simples, cancelado-e-refeito, reacordos sucessivos, mista", () => {
+  it("acordo simples (ACORDO_NOVO) com vínculo ReATIVA comprovado: automático", () => {
+    const r = reconhecerCaptura({ anterior: null, atual: captura(), conflitoNaCaptura: false });
+    expect(r.caso).toBe("ACORDO_NOVO");
+    expect(r.reconhecimento.classe).toBe("AUTOMATICO");
+  });
+
+  it("acordo cancelado e refeito (REACORDO_APOS_CANCELAMENTO) com vínculo ReATIVA comprovado: automático", () => {
+    const r = reconhecerCaptura({
+      anterior: null,
+      atual: captura({ numeroAcordoMannesoft: "80002", acordoAnteriorMannesoft: "71903" }),
+      conflitoNaCaptura: false,
+      acordoAnterior: { situacaoMannesoft: "CANCELADO" },
+    });
+    expect(r.caso).toBe("REACORDO_APOS_CANCELAMENTO");
+    expect(r.reconhecimento.classe).toBe("AUTOMATICO");
+  });
+
+  it("acordo cancelado e refeito SEM vínculo ReATIVA comprovado no boleto novo: conferência, mesmo com a cadeia bem resolvida", () => {
+    const atual = captura({
+      numeroAcordoMannesoft: "80002",
+      acordoAnteriorMannesoft: "71903",
+      composicao: { titulos_negociados: [{ documento: "1" }], titulos_gerados: [{ documento: "9" }] }, // sem portador/convênio
+    });
+    const r = reconhecerCaptura({ anterior: null, atual, conflitoNaCaptura: false, acordoAnterior: { situacaoMannesoft: "CANCELADO" } });
+    expect(r.caso).toBe("REACORDO_APOS_CANCELAMENTO");
+    expect(r.reconhecimento.classe).toBe("EXCECAO");
+    expect(r.reconhecimento.motivo).toBe("VINCULO_CONVENIO_REATIVA_SEM_INFORMACAO");
+  });
+
+  it("reacordos sucessivos (cadeia A→B→C) com vínculo ReATIVA comprovado em cada captura: automático", () => {
+    const r = reconhecerCaptura({
+      anterior: null,
+      atual: captura({ numeroAcordoMannesoft: "80003", acordoAnteriorMannesoft: "80002" }),
+      conflitoNaCaptura: false,
+      acordoAnterior: { situacaoMannesoft: "CANCELADO" },
+    });
+    expect(r.reconhecimento.classe).toBe("AUTOMATICO");
+  });
+
+  it("negociação mista (mensalidade em 195 + parcela herdada em 166 + boleto novo em 166/272047): automático — a origem não é filtrada", () => {
+    const atual = captura({
+      composicao: {
+        titulos_negociados: [
+          { documento: "1", origem: "MENSALIDADE_ORIGINAL", portadorIdMannesoft: 195, convenioMannesoft: null },
+          { documento: "2", origem: "PARCELA_DE_ACORDO_ANTERIOR", acordoOrigemMannesoft: "71903", portadorIdMannesoft: 166, convenioMannesoft: "0272047" },
+        ],
+        titulos_gerados: [tituloGeradoReativa()],
+      },
+    });
+    const r = reconhecerCaptura({ anterior: null, atual, conflitoNaCaptura: false });
+    expect(r.tracos.composicaoMista).toBe(true);
+    expect(r.reconhecimento.classe).toBe("AUTOMATICO");
+  });
+
+  it("negociação mista cujo boleto novo gerado diverge do convênio ReATIVA: conferência, mesmo a composição estando bem formada", () => {
+    const atual = captura({
+      composicao: {
+        titulos_negociados: [
+          { documento: "1", origem: "MENSALIDADE_ORIGINAL", portadorIdMannesoft: 195, convenioMannesoft: null },
+          { documento: "2", origem: "PARCELA_DE_ACORDO_ANTERIOR", acordoOrigemMannesoft: "71903", portadorIdMannesoft: 166, convenioMannesoft: "0272047" },
+        ],
+        titulos_gerados: [{ documento: "9", portadorIdMannesoft: 160, convenioMannesoft: "0272037" }],
+      },
+    });
+    const r = reconhecerCaptura({ anterior: null, atual, conflitoNaCaptura: false });
+    expect(r.tracos.composicaoMista).toBe(true);
+    expect(r.reconhecimento).toEqual({ classe: "EXCECAO", motivo: "VINCULO_CONVENIO_REATIVA_DIVERGENTE" });
   });
 });
 
