@@ -15,6 +15,7 @@ import { carregarTabulacoes, desfechoDaTabulacao, retornoEhManual, camposDeRetor
 import { ehOrigemDoOperador } from "../utils/retornoOrigem";
 import TelefonesAluno from "../components/TelefonesAluno";
 import BlocoUlbra from "../components/BlocoUlbra";
+import AtendimentoUlbra from "../components/AtendimentoUlbra";
 import PainelDesfazer from "../components/PainelDesfazer";
 import Dobra from "../ui/blocos";
 import {
@@ -2465,6 +2466,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
               </div>
               <TelefonesAluno aluno={alunoSelecionado} />
               <BlocoUlbra aluno={alunoSelecionado} />
+              <AtendimentoUlbra aluno={alunoSelecionado} />
               </>
               )}
               {(abaFicha === "dados" || abaFicha === "tabulacoes") && (
