@@ -113,8 +113,17 @@ create table if not exists public.acordos_prime_staging_criticas (
     --   CANCELAMENTO_SEM_PRE_CHECAGEM
     --   CARTEIRA_MUDOU_ENTRE_CAPTURAS
     --   FORMATO_NAO_VALIDADO_PARA_IMPORTADOR
-    --   REACORDO_APOS_CANCELAMENTO
-    --   COMPOSICAO_MISTA_EXIGE_CONFERENCIA
+    --   IDENTIDADE_AMBIGUA_REFERENCIA_NAO_RESOLVIDA  -- referência a acordo anterior que o staging não encontra
+    --   COMPOSICAO_DIVERGENTE_MULTIPLOS_ACORDOS_DE_ORIGEM  -- parcelas herdadas referenciando mais de um acordo de origem
+    --   INFORMACAO_INSUFICIENTE_ORIGEM_DO_TITULO_SEM_REFERENCIA  -- parcela herdada sem dizer de qual acordo vem
+    --
+    -- NOTA (rodada 3): REACORDO_APOS_CANCELAMENTO e COMPOSICAO_MISTA_EXIGE_CONFERENCIA
+    -- deixaram de ser códigos de EXCEÇÃO automática — esses cenários (e os demais
+    -- de renegociação) agora são reconhecidos automaticamente no staging quando a
+    -- captura é inequívoca (ver avaliarReconhecimento() em prime-acordos-staging.ts).
+    -- Os dois códigos ficam aqui apenas como histórico de nomenclatura; uma captura
+    -- rotulada como reacordo-após-cancelamento ou composição mista só gera linha
+    -- nesta tabela quando também cair em um dos três motivos acima.
   detalhes          jsonb null,
   status            text not null default 'ABERTA', -- ABERTA | REVISADA | RESOLVIDA
   revisado_por_email text null,

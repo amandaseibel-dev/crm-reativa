@@ -59,20 +59,70 @@ Adicionados sem reabrir nenhuma das decisões da primeira etapa:
   repetido — é exatamente o tipo de inferência já invalidado em produção.
   `montarCadeiaReacordo()` resolve a cadeia (A→B→C→...) seguindo essas
   referências elo a elo; a cadeia termina no primeiro elo sem referência
-  explícita, sem presumir continuidade. `REACORDO_APOS_CANCELAMENTO` sempre
-  cai em exceção — nunca é promovido automaticamente.
+  explícita, sem presumir continuidade.
 - **Parcelas herdadas de acordos anteriores.** Um item de `titulos_negociados`
   pode trazer `origem: "PARCELA_DE_ACORDO_ANTERIOR"` com
   `acordoOrigemMannesoft`, mas só quando a própria tela do Mannesoft
   distinguir esse título de uma mensalidade original. Sem essa distinção
   explícita, o item fica `INDETERMINADA` — nunca classificado por adivinhação.
 - **Negociações mistas (mensalidade + parcela de acordo anterior na mesma
-  composição).** `temComposicaoMista()` só é verdadeiro quando a própria
-  captura rotula origens diferentes dentro do mesmo grupo de títulos
-  negociados; `INDETERMINADA` nunca conta nem como mista nem como pura.
-  Composição mista força exceção mesmo num caso que, isoladamente, seria
-  `ACORDO_NOVO` automático — a mesma dívida pode já estar representada em
-  outro acordo, e isso exige conferência humana.
+  composição).** `temComposicaoMista()`/`analisarComposicao()` só marcam
+  composição mista quando a própria captura rotula origens diferentes dentro
+  do mesmo grupo de títulos negociados; `INDETERMINADA` nunca conta nem como
+  mista nem como pura.
+
+## Reconhecimento automático no staging × bloqueio financeiro (terceira etapa)
+
+A terceira rodada separou, de forma permanente, duas decisões que antes
+estavam misturadas:
+
+1. **RECONHECIMENTO** (`avaliarReconhecimento()`/`reconhecerCaptura()`) — só
+   decide se a identidade, a composição e o histórico da captura podem ser
+   **registrados no staging** sem conferência humana. Isto nunca autoriza
+   nenhuma escrita financeira.
+2. **BLOQUEIO FINANCEIRO** (`bloqueioFinanceiroAtivo()`) — decide se alguma
+   rotina oficial poderia ser acionada a partir do que está no staging. Nesta
+   etapa, **nunca libera**, para nenhuma situação, independente do
+   reconhecimento: cancelamento, quitação, baixa e alteração de título
+   continuam bloqueados até validação das rotinas oficiais e autorização
+   específica de gestão.
+
+Com essa separação, o padrão de reconhecimento deixou de ser "qualquer
+cenário de renegociação cai em exceção" e passou a ser **automático por
+padrão**, com conferência reservada só para quando houver:
+
+- **(a) identidade ambígua** — colisão de chave dentro do lote
+  (`COLISAO_CHAVE_NO_LOTE`), ou referência explícita a um acordo anterior que
+  o staging não consegue resolver (`IDENTIDADE_AMBIGUA_REFERENCIA_NAO_RESOLVIDA`);
+- **(b) composição divergente** — parcelas herdadas referenciando mais de um
+  acordo de origem distinto (`COMPOSICAO_DIVERGENTE_MULTIPLOS_ACORDOS_DE_ORIGEM`);
+- **(c) informação insuficiente** — parcela herdada sem dizer de qual acordo
+  vem (`INFORMACAO_INSUFICIENTE_ORIGEM_DO_TITULO_SEM_REFERENCIA`).
+
+Sob esse critério, os seis cenários pedidos nesta rodada são reconhecidos
+**automaticamente** no staging quando a captura é inequívoca:
+
+1. acordo cancelado e refeito (`REACORDO_APOS_CANCELAMENTO`, com referência
+   resolvida);
+2. reacordos sucessivos (`montarCadeiaReacordo()`, cadeia resolvida elo a
+   elo);
+3. renegociação de uma ou várias parcelas de acordo anterior (origem e
+   referência explícitas, sem divergência);
+4. negociação mista de mensalidades com parcelas de acordo (composição mista
+   bem resolvida, sem divergência nem referência faltando);
+5. acordo parcialmente pago que passa por renegociação — o traço
+   `renegociacaoDeAcordoParcialmentePago` (informado explicitamente pelo
+   chamador, nunca inferido aqui) é só informativo e não força conferência por
+   si só;
+6. acordo de parcela única — `parcelaUnica` é derivado só da contagem de
+   títulos gerados, nunca usado para presumir quitação; a regra de quitação
+   observada (`ehQuitacaoObservada()`) é a mesma para qualquer quantidade de
+   parcelas.
+
+Fail-closed continua valendo — qualquer captura que caia em (a), (b) ou (c)
+sempre vai para `acordos_prime_staging_criticas`, nunca é promovida por
+omissão — mas o escopo do que exige conferência ficou mais estreito e
+explícito, exatamente como pedido nesta rodada.
 
 ## O que esta etapa entrega
 

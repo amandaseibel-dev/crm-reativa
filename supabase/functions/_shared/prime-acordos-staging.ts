@@ -24,6 +24,17 @@
 //   5. Quitação observada aqui NUNCA aciona baixa — só gera alerta.
 //   6. Indeterminado = EXCEÇÃO (fail-closed), nunca AUTOMÁTICO por omissão —
 //      mesmo princípio do Guardião (`INDETERMINADO = NEGA`).
+//   7. RECONHECIMENTO (identidade + composição + histórico no staging) é
+//      uma decisão separada de PROMOÇÃO FINANCEIRA. Reacordo, renegociação
+//      parcial, composição mista, acordo parcialmente pago renegociado e
+//      parcela única são reconhecidos automaticamente no staging quando a
+//      captura é inequívoca — só exigem conferência quando há identidade
+//      ambígua, composição divergente ou informação insuficiente
+//      (`avaliarReconhecimento`). Cancelamento, quitação, baixa e alteração
+//      de título continuam SEMPRE bloqueados nesta etapa
+//      (`bloqueioFinanceiroAtivo` nunca libera), independente do
+//      reconhecimento — pendente de validar o contrato real das rotinas
+//      oficiais e de autorização específica de gestão.
 
 // Origem de um item de `titulos_negociados` — só preenchida quando o PRÓPRIO
 // Mannesoft distingue o tipo do título (ex.: etiqueta/coluna própria na tela).
@@ -193,20 +204,40 @@ export function montarCadeiaReacordo(
 }
 
 // ----------------------------------------------------------------------------
-// 4c. COMPOSIÇÃO MISTA — true só quando a PRÓPRIA captura distingue origens
-//     diferentes entre os títulos negociados (mensalidade original × parcela
-//     herdada de acordo anterior). 'INDETERMINADA' nunca conta como mista
-//     nem como pura — fica de fora da contagem, porque a captura não deu
-//     base para afirmar nada.
+// 4c. TRAÇOS DA COMPOSIÇÃO — tudo lido só do que a PRÓPRIA captura distingue
+//     explicitamente. 'INDETERMINADA'/ausente nunca conta como mista, pura,
+//     divergente ou suficiente — fica de fora, porque a captura não deu base
+//     para afirmar nada.
 // ----------------------------------------------------------------------------
 
-export function temComposicaoMista(composicao: Composicao): boolean {
+export type TracosComposicao = {
+  composicaoMista: boolean; // mensalidade original + parcela de acordo anterior no mesmo grupo (item 4)
+  temParcelaDeAcordoAnterior: boolean; // uma ou várias parcelas de acordo anterior na negociação (item 3)
+  acordoOrigemReferenciasDivergentes: boolean; // mais de um acordo de origem distinto referenciado — AMBÍGUO
+  algumaParcelaDeAcordoAnteriorSemReferencia: boolean; // origem dada sem dizer de qual acordo — INSUFICIENTE
+  parcelaUnica: boolean; // um único título gerado (item 6) — nunca, por si, presume quitação
+};
+
+export function analisarComposicao(composicao: Composicao): TracosComposicao {
   const origensDistintas = new Set(
     composicao.titulos_negociados
       .map((t) => t.origem)
       .filter((o): o is OrigemTituloNegociado => !!o && o !== "INDETERMINADA"),
   );
-  return origensDistintas.size > 1;
+  const parcelasHerdadas = composicao.titulos_negociados.filter((t) => t.origem === "PARCELA_DE_ACORDO_ANTERIOR");
+  const referenciasDefinidas = parcelasHerdadas.map((t) => t.acordoOrigemMannesoft).filter((r): r is string => !!r);
+  return {
+    composicaoMista: origensDistintas.size > 1,
+    temParcelaDeAcordoAnterior: parcelasHerdadas.length > 0,
+    acordoOrigemReferenciasDivergentes: new Set(referenciasDefinidas).size > 1,
+    algumaParcelaDeAcordoAnteriorSemReferencia: parcelasHerdadas.some((t) => !t.acordoOrigemMannesoft),
+    parcelaUnica: composicao.titulos_gerados.length === 1,
+  };
+}
+
+// Mantida por compatibilidade com o uso já testado na etapa anterior.
+export function temComposicaoMista(composicao: Composicao): boolean {
+  return analisarComposicao(composicao).composicaoMista;
 }
 
 // ----------------------------------------------------------------------------
@@ -214,6 +245,9 @@ export function temComposicaoMista(composicao: Composicao): boolean {
 //    `quitar_acordo_cartao()` grava uma baixa como se o pagamento tivesse
 //    ocorrido agora, neste sistema — usá-la para refletir algo só OBSERVADO
 //    no Mannesoft forjaria um evento financeiro que não ocorreu aqui.
+//    Nunca depende da quantidade de parcelas: um acordo de parcela única
+//    (item 6) só é quitação se `situacaoMannesoft` disser isso — a mesma
+//    regra, sem exceção, de um acordo de várias parcelas.
 // ----------------------------------------------------------------------------
 
 const SITUACOES_QUITACAO = ["QUITADO", "PAGO", "LIQUIDADO"];
@@ -223,9 +257,19 @@ export function ehQuitacaoObservada(situacaoMannesoft: string): boolean {
 }
 
 // ----------------------------------------------------------------------------
-// 6. CLASSIFICAÇÃO DE SEGURANÇA — fail-closed: qualquer entrada que o
-//    chamador não tenha informado (pré-checagem não feita, nível de vínculo
-//    desconhecido) cai em EXCEÇÃO, nunca em AUTOMÁTICO por omissão.
+// 6. RECONHECIMENTO AUTOMÁTICO NO STAGING — decide só se identidade,
+//    composição e histórico podem ser REGISTRADOS no staging sem
+//    conferência humana. Isto NUNCA autoriza nenhuma alteração financeira
+//    — ver `bloqueioFinanceiroAtivo()`, que é sempre consultada em separado
+//    e está sempre bloqueada nesta etapa.
+//
+//    Fail-closed continua valendo, mas o critério mudou: só exige
+//    conferência quando houver (a) identidade ambígua, (b) composição
+//    divergente ou (c) informação insuficiente — nunca só porque o caso é
+//    um reacordo, uma renegociação parcial, uma composição mista, um acordo
+//    parcialmente pago renegociado ou uma parcela única bem formados: esses
+//    são reconhecidos automaticamente no staging quando a captura é
+//    inequívoca.
 // ----------------------------------------------------------------------------
 
 export type ClasseSeguranca = "AUTOMATICO" | "EXCECAO";
@@ -235,47 +279,95 @@ export type AvaliacaoSeguranca = {
   motivo: string;
 };
 
-export type ContextoSeguranca = {
-  conflitoNaCaptura: boolean;
-  caso: Caso;
-  situacaoMannesoft: string;
-  // Pré-checagens que só a Edge Function pode fazer (consulta ao CRM).
-  // Omitidas (undefined) => tratadas como NÃO CONFIRMADAS => exceção.
-  semParcelaPagaOuBaixa?: boolean; // obrigatório para permitir cancelamento automático
-  nivelVinculo?: "FORTE" | "FRACO" | "SEM_VINCULO"; // de acordo_vinculo_sugestoes_calcular()
-  // true quando a composição mistura mensalidade original e parcela herdada
-  // de acordo anterior (temComposicaoMista) — sempre força conferência,
-  // porque a mesma dívida pode já estar representada em outro acordo.
-  composicaoMista?: boolean;
+export type ContextoReconhecimento = {
+  conflitoNaCaptura: boolean; // (a) identidade ambígua — colisão de chave dentro do lote
+  // (a) identidade ambígua — a captura referencia um acordo anterior
+  // explicitamente, mas o lookup no staging não encontrou esse acordo (não
+  // dá para confirmar nada sobre ele). Sempre exige conferência.
+  referenciaAcordoAnteriorNaoResolvida?: boolean;
+  tracos: TracosComposicao; // (b)/(c) vêm de analisarComposicao()
 };
 
-export function avaliarSeguranca(ctx: ContextoSeguranca): AvaliacaoSeguranca {
+export function avaliarReconhecimento(ctx: ContextoReconhecimento): AvaliacaoSeguranca {
   if (ctx.conflitoNaCaptura) {
     return { classe: "EXCECAO", motivo: "COLISAO_CHAVE_NO_LOTE" };
   }
-  if (ehQuitacaoObservada(ctx.situacaoMannesoft)) {
-    return { classe: "EXCECAO", motivo: "QUITACAO_OBSERVADA_EXTERNA" };
+  if (ctx.referenciaAcordoAnteriorNaoResolvida === true) {
+    return { classe: "EXCECAO", motivo: "IDENTIDADE_AMBIGUA_REFERENCIA_NAO_RESOLVIDA" };
   }
-  if (ctx.composicaoMista === true) {
-    return { classe: "EXCECAO", motivo: "COMPOSICAO_MISTA_EXIGE_CONFERENCIA" };
+  if (ctx.tracos.acordoOrigemReferenciasDivergentes) {
+    return { classe: "EXCECAO", motivo: "COMPOSICAO_DIVERGENTE_MULTIPLOS_ACORDOS_DE_ORIGEM" };
   }
-  if ((ctx.situacaoMannesoft ?? "").toUpperCase() === "CANCELADO") {
-    if (ctx.semParcelaPagaOuBaixa === true) {
-      return { classe: "AUTOMATICO", motivo: "CANCELAMENTO_PRE_CHECADO_SEM_PAGAMENTO" };
-    }
-    return { classe: "EXCECAO", motivo: "CANCELAMENTO_SEM_PRE_CHECAGEM" };
+  if (ctx.tracos.algumaParcelaDeAcordoAnteriorSemReferencia) {
+    return { classe: "EXCECAO", motivo: "INFORMACAO_INSUFICIENTE_ORIGEM_DO_TITULO_SEM_REFERENCIA" };
   }
-  if (ctx.caso === "ACORDO_NOVO") {
-    return { classe: "AUTOMATICO", motivo: "ACORDO_NOVO_SEM_CONFLITO" };
+  // Nenhuma ambiguidade, divergência ou lacuna encontrada: identidade,
+  // composição e histórico (reacordo simples ou encadeado, renegociação
+  // parcial, composição mista, parcela única, acordo parcialmente pago
+  // renegociado) são reconhecidos automaticamente no staging.
+  return { classe: "AUTOMATICO", motivo: "RECONHECIMENTO_AUTOMATICO_IDENTIDADE_COMPOSICAO_HISTORICO" };
+}
+
+// Resultado completo de uma captura: o caso identificado, os traços de
+// composição (incluindo o sinal de pagamento parcial na cadeia, quando o
+// chamador o informa a partir de leitura própria do CRM) e se o
+// RECONHECIMENTO no staging é automático ou exige conferência. Nunca inclui
+// nem implica nenhuma decisão financeira.
+export type ResultadoReconhecimento = {
+  caso: Caso;
+  tracos: TracosComposicao & {
+    // Item 5: a cadeia (acordo anterior referenciado) já recebeu algum
+    // pagamento (parcela PAGO ou baixa viva) — só true quando o chamador
+    // informa isso explicitamente, a partir de leitura própria do CRM
+    // (nunca inferido aqui). Relevante porque titulo_reavaliar() trata
+    // diferente uma cadeia que já recebeu dinheiro.
+    renegociacaoDeAcordoParcialmentePago: boolean;
+  };
+  reconhecimento: AvaliacaoSeguranca;
+};
+
+export function reconhecerCaptura(params: {
+  anterior: CapturaAcordo | null;
+  atual: CapturaAcordo;
+  conflitoNaCaptura: boolean;
+  acordoAnterior?: { situacaoMannesoft: string; teveParcelaPagaOuBaixaViva?: boolean } | null;
+  referenciaAcordoAnteriorNaoResolvida?: boolean;
+}): ResultadoReconhecimento {
+  const caso = classificarCaso(params.anterior, params.atual, params.acordoAnterior ?? null);
+  const tracosComposicao = analisarComposicao(params.atual.composicao);
+  const tracos = {
+    ...tracosComposicao,
+    renegociacaoDeAcordoParcialmentePago: params.acordoAnterior?.teveParcelaPagaOuBaixaViva === true,
+  };
+  const reconhecimento = avaliarReconhecimento({
+    conflitoNaCaptura: params.conflitoNaCaptura,
+    referenciaAcordoAnteriorNaoResolvida: params.referenciaAcordoAnteriorNaoResolvida,
+    tracos: tracosComposicao,
+  });
+  return { caso, tracos, reconhecimento };
+}
+
+// ----------------------------------------------------------------------------
+// 6b. BLOQUEIO FINANCEIRO — SEMPRE ativo nesta etapa, independente do
+//     reconhecimento acima. Cancelamento, quitação, baixa e alteração de
+//     título só seriam acionados por rotina oficial (cancelar_acordo_ficha,
+//     quitar_acordo_cartao, importar_acordos, etc.) depois de (1) validar o
+//     contrato real dessas rotinas contra este staging e (2) autorização
+//     específica de gestão — nenhuma das duas existe ainda. Esta função
+//     nunca devolve liberado: existe para que nenhum chamador precise
+//     "lembrar" disso por conta própria.
+// ----------------------------------------------------------------------------
+
+export type BloqueioFinanceiro = { bloqueado: true; motivo: string };
+
+export function bloqueioFinanceiroAtivo(situacaoMannesoft: string): BloqueioFinanceiro {
+  if (ehQuitacaoObservada(situacaoMannesoft)) {
+    return { bloqueado: true, motivo: "QUITACAO_OBSERVADA_EXTERNA_NUNCA_GERA_BAIXA_AUTOMATICA" };
   }
-  if (ctx.caso === "REACORDO_ROTULADO" || ctx.caso === "REACORDO_APOS_CANCELAMENTO") {
-    return { classe: "EXCECAO", motivo: "REACORDO_EXIGE_CONFERENCIA" };
+  if ((situacaoMannesoft ?? "").toUpperCase() === "CANCELADO") {
+    return { bloqueado: true, motivo: "CANCELAMENTO_SO_POR_ROTINA_OFICIAL_APOS_VALIDACAO_E_AUTORIZACAO" };
   }
-  if (ctx.caso === "SEM_MUDANCA") {
-    return { classe: "AUTOMATICO", motivo: "SEM_MUDANCA_NADA_A_PROMOVER" };
-  }
-  // Qualquer combinação não prevista explicitamente acima — fail-closed.
-  return { classe: "EXCECAO", motivo: "CASO_NAO_PREVISTO" };
+  return { bloqueado: true, motivo: "PROMOCAO_FINANCEIRA_BLOQUEADA_PENDENTE_VALIDACAO_DAS_ROTINAS_OFICIAIS" };
 }
 
 // ----------------------------------------------------------------------------
@@ -321,7 +413,7 @@ export function transformarParaImportarAcordos(
       "Confirmar que `importar_acordos()` não rejeita a linha pela regra de CPF quitado há <=7 dias quando o CPF já tem acordo recém-encerrado nesta própria integração.",
       "Esta função só cobre o caso ACORDO_NOVO. Cancelamento e confirmação de situação NUNCA passam por importar_acordos() — usam cancelar_acordo_ficha() e o modelo de fila_acordos_confirmar_automatico(), respectivamente (fora deste módulo).",
       "O vínculo título negociado × título gerado NÃO é transformado aqui — fica preservado só na composição do staging, e só é promovido via acordo_vinculo_sugestao_confirmar() quando o nível calculado for FORTE.",
-      "REACORDO_APOS_CANCELAMENTO e composição mista (temComposicaoMista) nunca chegam a esta função automaticamente — avaliarSeguranca() já classifica os dois como EXCECAO antes da promoção, então a transformação para eles só ocorre depois de conferência humana explícita.",
+      "Reconhecimento automático no staging (avaliarReconhecimento/reconhecerCaptura) NUNCA autoriza chamar esta função contra produção — bloqueioFinanceiroAtivo() está sempre bloqueada nesta etapa, para TODO caso, independente do reconhecimento. Esta função só serve para preparar a proposta de linha, a ser revisada por gestão.",
       "Saldo residual herdado de acordo anterior (origem = PARCELA_DE_ACORDO_ANTERIOR) não tem, nesta proposta, uma regra de cálculo de valor — o valor a importar para esse título precisa ser confirmado contra a lógica real de titulo_reavaliar() antes de qualquer promoção automática.",
     ],
   };
