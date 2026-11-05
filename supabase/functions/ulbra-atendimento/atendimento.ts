@@ -61,6 +61,27 @@ export function recortar(resposta: unknown): AtendimentoFicha | null {
   };
 }
 
+// Só vínculo ativo COM confiança por CPF abre consulta de atendimento. Vínculo
+// legado por telefone (confianca 'alta') ou ambíguo não passa por aqui.
+// O cliente do Supabase entra por parâmetro para ser testado sem rede.
+export interface VinculoConsultavel {
+  ulbra_cliente_id: string;
+}
+
+export async function vinculoConfirmado(
+  sb: any,
+  alunoId: string,
+): Promise<VinculoConsultavel | null> {
+  const { data } = await sb
+    .from("ulbra_vinculos")
+    .select("ulbra_cliente_id")
+    .eq("aluno_id", alunoId)
+    .is("desvinculado_em", null)
+    .eq("confianca", "alta_cpf")
+    .maybeSingle();
+  return (data as VinculoConsultavel | null) ?? null;
+}
+
 // Cache por isolate: uma abertura de ficha por aluno a cada 5 min no máximo,
 // para caber no limite diário da Mensageria sem tabela nova.
 export function criarCache(agora: () => number = Date.now) {
