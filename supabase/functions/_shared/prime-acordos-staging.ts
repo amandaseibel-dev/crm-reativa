@@ -45,7 +45,22 @@
 //      excluído por isso (ver `avaliarVinculoConvenioReativa`). Quando os
 //      títulos gerados não informam portador/convênio, ou informam um que
 //      diverge de 166/272047, a captura vai para conferência — nunca é
-//      presumida ReATIVA por omissão.
+//      presumida ReATIVA por omissão. A comprovação do convênio é sempre
+//      pelo dado bancário de origem (ex.: o campo de convênio da própria
+//      linha do arquivo de pagamento), NUNCA pelo formato numérico do
+//      boleto isoladamente — o padrão do boleto decodifica identidade
+//      (número do acordo/parcela), não convênio.
+//   9. IDENTIDADE do acordo e VÍNCULO com o convênio ReATIVA são decisões
+//      diferentes de COMPOSIÇÃO FINANCEIRA COMPLETA (quais títulos foram
+//      negociados). Uma captura com identidade e vínculo comprovados mas sem
+//      nenhum título negociado informado (típico de captura originada só de
+//      pagamento observado, nunca da tela do Acordo-Detalhe) não é
+//      AUTOMATICO (composição não é conhecida) nem EXCECAO (não há
+//      ambiguidade, divergência nem conferência a fazer) — é PARCIAL:
+//      registrada no staging, pendente de complementação, sem promoção
+//      financeira. Filiação ao portador 166 sozinha, sem número de acordo,
+//      não gera nenhuma captura — não é identidade de acordo, é só sinal de
+//      nível aluno.
 
 // Origem de um item de `titulos_negociados` — só preenchida quando o PRÓPRIO
 // Mannesoft distingue o tipo do título (ex.: etiqueta/coluna própria na tela).
@@ -315,6 +330,14 @@ export type TracosComposicao = {
   algumaParcelaDeAcordoAnteriorSemReferencia: boolean; // origem dada sem dizer de qual acordo — INSUFICIENTE
   parcelaUnica: boolean; // um único título gerado (item 6) — nunca, por si, presume quitação
   vinculoConvenioReativa: VinculoConvenioReativa; // comprovação do destino 166/272047 pelos títulos gerados
+  // Identidade do acordo é uma coisa; a COMPOSIÇÃO FINANCEIRA COMPLETA (quais
+  // títulos negociados entraram) é outra. Verdadeiro quando NENHUM título
+  // negociado foi informado — nunca por qualquer outro motivo (não é "poucos",
+  // é "nenhum"). É o caso típico de uma captura originada só de um pagamento
+  // observado (boleto identificado + convênio comprovado pela própria linha
+  // do arquivo bancário), que nunca traz os títulos originais negociados —
+  // ver `avaliarReconhecimento` e `PARCIAL`.
+  composicaoCompletaDesconhecida: boolean;
 };
 
 export function analisarComposicao(composicao: Composicao): TracosComposicao {
@@ -332,6 +355,7 @@ export function analisarComposicao(composicao: Composicao): TracosComposicao {
     algumaParcelaDeAcordoAnteriorSemReferencia: parcelasHerdadas.some((t) => !t.acordoOrigemMannesoft),
     parcelaUnica: composicao.titulos_gerados.length === 1,
     vinculoConvenioReativa: avaliarVinculoConvenioReativa(composicao.titulos_gerados),
+    composicaoCompletaDesconhecida: composicao.titulos_negociados.length === 0,
   };
 }
 
@@ -377,9 +401,27 @@ export function ehQuitacaoObservada(situacaoMannesoft: string): boolean {
 //    portador/convênio são informação insuficiente (c) — nunca presumidos
 //    ReATIVA por omissão, e nunca pela filiação do aluno a 166 em outro
 //    lugar.
+//
+//    TERCEIRA CLASSE: PARCIAL. Identidade do acordo (número + CPF) e vínculo
+//    com o convênio ReATIVA são coisas DIFERENTES de composição financeira
+//    completa (quais títulos foram negociados). Uma captura originada só de
+//    um pagamento observado — boleto identificável, convênio 272047
+//    comprovado pela própria linha do arquivo bancário de origem, SEM
+//    nenhum título negociado informado — tem identidade e vínculo
+//    comprovados, mas NUNCA sabe a composição completa. Isso não é
+//    ambiguidade (a), divergência (b) nem informação insuficiente sobre o
+//    que FOI informado (c): é a ausência, reconhecida como tal, da
+//    composição inteira. Por isso NÃO classifica como EXCECAO (não precisa
+//    de conferência humana a cada captura) nem como AUTOMATICO (não é um
+//    reconhecimento completo) — fica PARCIAL: registrada no staging, pendente
+//    de complementação, sem promoção financeira (que já está sempre
+//    bloqueada por `bloqueioFinanceiroAtivo`, independente de tudo isto).
+//    Nunca presume, a partir disso, quitação, cancelamento, quantidade total
+//    de parcelas ou vínculo com mensalidades originais — PARCIAL só descreve
+//    o que falta, nunca completa por inferência.
 // ----------------------------------------------------------------------------
 
-export type ClasseSeguranca = "AUTOMATICO" | "EXCECAO";
+export type ClasseSeguranca = "AUTOMATICO" | "PARCIAL" | "EXCECAO";
 
 export type AvaliacaoSeguranca = {
   classe: ClasseSeguranca;
@@ -413,6 +455,11 @@ export function avaliarReconhecimento(ctx: ContextoReconhecimento): AvaliacaoSeg
   }
   if (ctx.tracos.vinculoConvenioReativa.semInformacao) {
     return { classe: "EXCECAO", motivo: "VINCULO_CONVENIO_REATIVA_SEM_INFORMACAO" };
+  }
+  // A partir daqui: identidade sem ambiguidade E vínculo com o convênio
+  // ReATIVA comprovado. Falta só saber se a composição completa é conhecida.
+  if (ctx.tracos.composicaoCompletaDesconhecida) {
+    return { classe: "PARCIAL", motivo: "COMPOSICAO_COMPLETA_DESCONHECIDA_PENDENTE_COMPLEMENTACAO" };
   }
   // Nenhuma ambiguidade, divergência ou lacuna encontrada: identidade,
   // composição e histórico (reacordo simples ou encadeado, renegociação

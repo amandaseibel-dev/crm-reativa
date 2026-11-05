@@ -139,7 +139,7 @@ create table if not exists public.acordos_prime_staging_criticas (
 );
 
 comment on table public.acordos_prime_staging_criticas is
-  'Exceções da integração ACORDOS Prime/ULBRA que exigem conferência humana antes de qualquer promoção. Tabela própria — nunca reaproveita importacao_acordo_critica.';
+  'Exceções da integração ACORDOS Prime/ULBRA que exigem conferência humana antes de qualquer promoção. Tabela própria — nunca reaproveita importacao_acordo_critica. Só recebe linha quando avaliarReconhecimento() devolve classe EXCECAO — uma captura PARCIAL (identidade e vínculo com o convênio ReATIVA comprovados, composição completa ainda desconhecida, típico de pagamento observado) nunca entra aqui: fica só em acordos_prime_staging, pendente de complementação, sem conferência forçada.';
 
 create index if not exists idx_acordos_prime_staging_criticas_abertas
   on public.acordos_prime_staging_criticas (chave_acordo)

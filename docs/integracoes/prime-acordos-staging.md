@@ -166,6 +166,44 @@ financeiro da etapa anterior: `bloqueioFinanceiroAtivo()` continua sempre
 bloqueada, para todo caso, mesmo quando o vínculo com o convênio ReATIVA é
 comprovado.
 
+## PARCIAL — identidade/vínculo comprovados, composição completa desconhecida (quinta etapa)
+
+Identidade do acordo e vínculo com o convênio ReATIVA são decisões
+**diferentes** de composição financeira completa (quais títulos foram
+negociados). Isso importa porque existe uma origem legítima de captura que
+só comprova as duas primeiras, nunca a terceira: um **pagamento observado**
+(boleto identificável, com o número do acordo decodificado pelo padrão já
+comprovado, e o convênio 272047 confirmado pelo próprio campo de convênio
+da linha do arquivo bancário de origem — nunca pelo formato do boleto
+isoladamente). Um pagamento isolado nunca traz os títulos negociados
+originais.
+
+`avaliarReconhecimento()` por isso ganhou uma terceira classe,
+`ClasseSeguranca: "PARCIAL"`, motivo `COMPOSICAO_COMPLETA_DESCONHECIDA_PENDENTE_COMPLEMENTACAO`,
+disparada quando `tracos.composicaoCompletaDesconhecida` é verdadeiro
+(nenhum título negociado informado) **e** nenhuma das checagens de
+ambiguidade/divergência/informação insuficiente já existentes disparou
+antes — ou seja, PARCIAL só existe depois que identidade e vínculo com o
+convênio já foram comprovados sem ressalva.
+
+PARCIAL não é EXCECAO: não é enviada para conferência humana a cada
+captura — fica registrada no staging, pendente de complementação. PARCIAL
+não é AUTOMATICO: nunca é tratada como reconhecimento completo. Em nenhum
+dos dois casos há promoção financeira — `bloqueioFinanceiroAtivo()`
+continua sempre bloqueada, para toda classe, sem excecão.
+
+**O que PARCIAL nunca presume:** quitação, cancelamento, quantidade total
+de parcelas (inclusive as ainda não pagas) ou vínculo com mensalidades
+originais. Só descreve o que é conhecido (identidade, vínculo, o(s)
+título(s) gerado(s) daquele pagamento) e o que falta (composição completa)
+— nunca completa por inferência.
+
+**O que NÃO gera captura alguma:** filiação ao portador 166 sem nenhum
+número de acordo identificado. É sinal de nível ALUNO ("tem relação com o
+convênio"), nunca identidade de acordo — `montarChaveAcordo()` recusa sem o
+número do acordo, e nenhuma captura chega a existir a partir só da
+filiação.
+
 ## O que esta etapa entrega
 
 - `supabase/propostas/PROPOSTA_staging_acordos_prime.sql` — proposta de

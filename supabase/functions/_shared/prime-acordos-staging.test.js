@@ -614,6 +614,93 @@ describe("7. cenários combinados com portador/convênio — simples, cancelado-
   });
 });
 
+describe("PARCIAL — identidade/vínculo comprovados, composição completa desconhecida (pagamento observado)", () => {
+  // Molde de captura típico de um pagamento Santander observado: identidade
+  // (número do acordo + CPF) e vínculo com o convênio ReATIVA comprovados
+  // pelo próprio dado bancário de origem (não pelo formato do boleto), mas
+  // SEM nenhum título negociado informado — a composição completa nunca vem
+  // de um pagamento isolado.
+  function capturaDePagamentoObservado(overrides = {}) {
+    return captura({
+      composicao: {
+        titulos_negociados: [], // nunca conhecido só por um pagamento
+        titulos_gerados: [tituloGeradoReativa()], // boleto identificado, convênio comprovado pelo arquivo bancário
+      },
+      ...overrides,
+    });
+  }
+
+  it("captura COMPLETA (títulos negociados informados) continua AUTOMATICO — não regride", () => {
+    const r = reconhecerCaptura({ anterior: null, atual: captura(), conflitoNaCaptura: false });
+    expect(r.tracos.composicaoCompletaDesconhecida).toBe(false);
+    expect(r.reconhecimento).toEqual({ classe: "AUTOMATICO", motivo: "RECONHECIMENTO_AUTOMATICO_IDENTIDADE_COMPOSICAO_HISTORICO" });
+  });
+
+  it("captura PARCIAL (só pagamento observado, vínculo comprovado, sem título negociado) nunca é EXCECAO nem AUTOMATICO", () => {
+    const atual = capturaDePagamentoObservado();
+    const r = reconhecerCaptura({ anterior: null, atual, conflitoNaCaptura: false });
+    expect(r.tracos.composicaoCompletaDesconhecida).toBe(true);
+    expect(r.reconhecimento).toEqual({ classe: "PARCIAL", motivo: "COMPOSICAO_COMPLETA_DESCONHECIDA_PENDENTE_COMPLEMENTACAO" });
+  });
+
+  it("identidade registrável diretamente por avaliarReconhecimento, sem passar por reconhecerCaptura", () => {
+    const composicao = { titulos_negociados: [], titulos_gerados: [tituloGeradoReativa()] };
+    const r = avaliarReconhecimento({ conflitoNaCaptura: false, tracos: analisarComposicao(composicao) });
+    expect(r.classe).toBe("PARCIAL");
+  });
+
+  it("PARCIAL com CONVÊNIO DIVERGENTE no boleto pago vira EXCECAO, nunca PARCIAL — vínculo não comprovado tem prioridade sobre composição desconhecida", () => {
+    const atual = capturaDePagamentoObservado({
+      composicao: { titulos_negociados: [], titulos_gerados: [{ documento: "9", portadorIdMannesoft: 95, convenioMannesoft: "0272036" }] },
+    });
+    const r = reconhecerCaptura({ anterior: null, atual, conflitoNaCaptura: false });
+    expect(r.reconhecimento).toEqual({ classe: "EXCECAO", motivo: "VINCULO_CONVENIO_REATIVA_DIVERGENTE" });
+  });
+
+  it("PARCIAL com AUSÊNCIA DE INFORMAÇÃO de portador/convênio no boleto pago vira EXCECAO, nunca PARCIAL", () => {
+    const atual = capturaDePagamentoObservado({
+      composicao: { titulos_negociados: [], titulos_gerados: [{ documento: "9" }] }, // sem portador nem convênio
+    });
+    const r = reconhecerCaptura({ anterior: null, atual, conflitoNaCaptura: false });
+    expect(r.reconhecimento).toEqual({ classe: "EXCECAO", motivo: "VINCULO_CONVENIO_REATIVA_SEM_INFORMACAO" });
+  });
+
+  it("PARCIAL não é encaminhada à conferência — bloqueioFinanceiroAtivo segue bloqueado do mesmo jeito, nunca liberado por ser identidade comprovada", () => {
+    const atual = capturaDePagamentoObservado();
+    const r = reconhecerCaptura({ anterior: null, atual, conflitoNaCaptura: false });
+    expect(r.reconhecimento.classe).toBe("PARCIAL");
+    expect(bloqueioFinanceiroAtivo(atual.situacaoMannesoft).bloqueado).toBe(true);
+  });
+
+  it("PARCIAL nunca presume quitação, cancelamento, quantidade total de parcelas ou vínculo com mensalidade original", () => {
+    const atual = capturaDePagamentoObservado({ situacaoMannesoft: "ATIVO" });
+    const r = reconhecerCaptura({ anterior: null, atual, conflitoNaCaptura: false });
+    expect(r.reconhecimento.classe).toBe("PARCIAL");
+    // nenhum traço de quitação, cancelamento ou vínculo com mensalidade é
+    // derivado — só o que a composição (vazia) e a situação crua permitem:
+    expect(ehQuitacaoObservada(atual.situacaoMannesoft)).toBe(false);
+    expect(r.tracos.temParcelaDeAcordoAnterior).toBe(false); // não inferido; composição vazia não autoriza afirmar nada
+    expect(r.tracos.composicaoMista).toBe(false); // idem — ausência de dado não é "mensalidade pura"
+    expect(bloqueioFinanceiroAtivo(atual.situacaoMannesoft).bloqueado).toBe(true);
+  });
+
+  it("PARCIAL encadeado (pagamento observado referenciando acordo anterior resolvido) ainda assim não vira AUTOMATICO — composição continua desconhecida", () => {
+    const atual = capturaDePagamentoObservado({ numeroAcordoMannesoft: "80002", acordoAnteriorMannesoft: "71903" });
+    const r = reconhecerCaptura({
+      anterior: null,
+      atual,
+      conflitoNaCaptura: false,
+      acordoAnterior: { situacaoMannesoft: "CANCELADO" },
+    });
+    expect(r.caso).toBe("REACORDO_APOS_CANCELAMENTO");
+    expect(r.reconhecimento.classe).toBe("PARCIAL");
+  });
+
+  it("filiação ao portador 166 sozinha, sem número de acordo, não produz nenhuma captura (regra 9) — montarChaveAcordo recusa", () => {
+    expect(() => montarChaveAcordo({ numeroAcordoMannesoft: "", identificadorAluno: "052.961.800-11" })).toThrow(/CHAVE_ACORDO_INCOMPLETA/);
+  });
+});
+
 describe("transformarParaImportarAcordos — proposta, não contrato comprovado", () => {
   it("sempre devolve pendências de validação junto com a linha proposta", () => {
     const r = transformarParaImportarAcordos(captura(), { documento: "9000101", vencimento: "2026-06-10", valor: 500.5 });
