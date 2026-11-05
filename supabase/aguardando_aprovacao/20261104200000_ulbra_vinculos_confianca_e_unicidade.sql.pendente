@@ -1,0 +1,618 @@
+-- ============================================================================
+-- ULBRA_VINCULOS: RESTRICAO DE CONFIANCA, UNICIDADE POR CLIENTE ATIVO
+-- E PROTECAO DOS VINCULOS ANTIGOS
+--
+-- Artefato de 04/11/2026. NAO APLICAR SEM AUTORIZACAO EXPLICITA DA GESTAO.
+-- NAO FOI APLICADO EM NENHUM AMBIENTE. Nada aqui rodou.
+--
+-- ----------------------------------------------------------------------------
+-- ESTADO REAL CONFERIDO EM PRODUCAO (ahattpqrjmhkzsmnbdzs) EM 04/11/2026
+--
+-- A tabela esta VAZIA: 0 linhas no total, 0 ativas, e 0 linhas de `auditoria`
+-- com acao ULBRA_VINCULO_CRIADO. Isso importa para julgar o risco desta
+-- proposta: nao ha backfill, nao ha linha para reclassificar e o indice unico
+-- novo nao pode falhar por duplicata preexistente. A protecao que este arquivo
+-- instala e ESTRUTURAL -- fecha o caminho antes de ele ser percorrido -- e nao
+-- corretiva.
+--
+-- O que existe hoje na tabela (nascida em producao sem migration, PR #794 --
+-- o drift esta registrado em docs/integracoes/mensageria-ulbra.md):
+--
+--   ulbra_vinculos_pkey                 PRIMARY KEY (id)
+--   ulbra_vinculos_aluno_id_fkey        FOREIGN KEY (aluno_id) -> alunos(id)
+--                                       SEM on delete: e NO ACTION (conferido
+--                                       em 04/11/2026). Importa para a secao 3:
+--                                       como a FK ja barra apagar aluno que tem
+--                                       vinculo, a proibicao de DELETE deste
+--                                       arquivo NAO muda o que acontece ao
+--                                       excluir aluno. Se fosse ON DELETE
+--                                       CASCADE, mudaria -- e nao e.
+--   ulbra_vinculos_confianca_check      CHECK (confianca IN ('alta','ambigua'))
+--   ulbra_vinculos_origem_check         CHECK (origem IN ('telefone','cpf','manual'))
+--   ulbra_vinculos_aluno_ativo_uniq     UNIQUE (aluno_id) WHERE desvinculado_em IS NULL
+--   ulbra_vinculos_cliente_idx          INDEX (ulbra_cliente_id)      -- NAO unico
+--   RLS ativa, 3 policies, todas exigindo usuario_e_gestao()
+--   grants: authenticated tem SELECT, INSERT, UPDATE, DELETE, TRUNCATE
+--   nenhum trigger
+--
+-- ----------------------------------------------------------------------------
+-- OS TRES BURACOS QUE ISTO FECHA
+--
+-- 1. CONFIANCA NAO DISTINGUE PROVA DE PALPITE.
+--    O CHECK aceita 'alta' e 'ambigua'. A Etapa 1 (PR #813) gravava 'alta'
+--    CRAVADO, qualquer que fosse a origem -- inclusive quando o cliente foi
+--    achado por TELEFONE. Telefone nao e identidade: e contato. Telefone de
+--    mae, de conjuge, de recado e numero reciclado por operadora casam com o
+--    cliente ERRADO, e o vinculo nascia com selo 'alta' sem nada provado.
+--    Nao ha como, hoje, separar no banco um vinculo confirmado por CPF de um
+--    chute por telefone: os dois sao 'alta'.
+--
+-- 2. UNICIDADE SO EXISTE DO LADO DO ALUNO.
+--    `ulbra_vinculos_aluno_ativo_uniq` garante um vinculo ativo por ALUNO.
+--    O lado do CLIENTE esta livre: N alunos do CRM podiam apontar ativamente
+--    para o MESMO `ulbra_cliente_id`, cada um achando que era o seu. O indice
+--    `ulbra_vinculos_cliente_idx` existe mas NAO e unico -- serve a busca,
+--    nao a integridade.
+--
+-- 3. VINCULO ANTIGO PODE SER APAGADO E REESCRITO SEM DEIXAR RASTRO.
+--    `authenticated` tem DELETE e TRUNCATE (herdados do padrao do schema --
+--    memoria `tabela-nova-herda-truncate-para-authenticated`; o REVOKE foi
+--    proposto em prosa na Etapa 1 e NUNCA foi aplicado nem escrito como SQL
+--    ate este arquivo). E nada impede que um UPDATE troque o `aluno_id` ou o
+--    `ulbra_cliente_id` de uma linha existente: a desvinculacao, que deveria
+--    ser logica (`desvinculado_em`), pode virar reescrita silenciosa.
+--
+-- ----------------------------------------------------------------------------
+-- ORDEM DE APLICACAO -- IMPORTA, E NAO E INTERCAMBIAVEL
+--
+-- Esta proposta tem de ser aplicada ANTES do deploy da `ulbra-consultar`
+-- corrigida, porque a funcao corrigida grava `confianca = 'alta_cpf'`, valor
+-- que o CHECK DE HOJE REJEITA.
+--
+--   ordem certa:  1) este SQL   2) deploy da ulbra-consultar
+--   ordem errada: deploy primeiro -> todo vinculo novo falha com
+--                 VINCULO_NAO_GRAVADO (erro 500 na ficha).
+--
+-- A ordem errada FALHA FECHADO: nenhum vinculo errado e gravado, so nenhum
+-- vinculo e gravado. E ruim, nao e perigoso. Dito aqui para ninguem descobrir
+-- isso em producao.
+--
+-- ----------------------------------------------------------------------------
+-- O QUE ESTE ARQUIVO NAO FAZ, DE PROPOSITO
+--
+-- - Nao apaga, nao reclassifica e nao desvincula nenhuma linha preexistente
+--   (nao ha linha; e se houver quando for aplicado, continua nao tocando
+--   nelas). As linhas que a secao 5 escreve sao de prova e sao DESFEITAS na
+--   propria secao -- a assercao final confere que nao sobrou nenhuma.
+-- - Nao remove o valor legado 'alta' do CHECK. Vinculo gravado pela Etapa 1 e
+--   dado do operador, nao lixo nosso: continua valido e legivel. Quem decide
+--   o que fazer com ele e a gestao, caso a caso, e a tela passa a AVISAR que
+--   a identidade nao foi provada por CPF.
+-- - Nao mexe nas 3 policies de RLS nem no grant de SELECT/INSERT/UPDATE de
+--   `authenticated`: a tela da gestao depende deles.
+-- - Nao cria cron, nao cria RPC, nao faz backfill.
+-- ============================================================================
+
+begin;
+
+set local lock_timeout = '3s';
+set local statement_timeout = '30s';
+
+-- ----------------------------------------------------------------------------
+-- SECAO 0. GUARDA DE PRE-CONDICAO
+-- Falha ANTES de alterar qualquer coisa se o mundo nao for o que foi medido.
+-- ----------------------------------------------------------------------------
+do $guarda$
+declare
+  v_dup integer;
+begin
+  if to_regclass('public.ulbra_vinculos') is null then
+    raise exception 'PRE-CONDICAO: public.ulbra_vinculos nao existe neste ambiente';
+  end if;
+
+  -- O indice unico de cliente ativo nao pode ser criado se ja houver, HOJE,
+  -- dois alunos ativos no mesmo cliente. Medido como 0 em 04/11/2026, mas a
+  -- medicao nao substitui a guarda no instante da aplicacao.
+  select count(*) into v_dup from (
+    select ulbra_cliente_id
+      from public.ulbra_vinculos
+     where desvinculado_em is null
+     group by ulbra_cliente_id
+    having count(distinct aluno_id) > 1
+  ) d;
+  if v_dup > 0 then
+    raise exception
+      'PRE-CONDICAO: % cliente(s) da Mensageria com mais de um aluno ativo. '
+      'Resolver caso a caso COM A GESTAO antes de aplicar -- esta migration '
+      'nao escolhe qual vinculo sobrevive.', v_dup;
+  end if;
+
+  -- Nenhuma linha pode ter confianca fora do conjunto novo, senao o CHECK
+  -- novo barraria linha preexistente.
+  if exists (
+    select 1 from public.ulbra_vinculos
+     where confianca not in ('alta','alta_cpf','ambigua','reconfirmar')
+  ) then
+    raise exception 'PRE-CONDICAO: existe linha com confianca fora do conjunto novo';
+  end if;
+end $guarda$;
+
+-- ----------------------------------------------------------------------------
+-- SECAO 0b. BACKUP DA ESTRUTURA E DOS DADOS (§13 da PREMISSA_SEGURANCA_PROJETO)
+--
+-- A §13 exige backup da estrutura E dos dados afetados, nao so a reversa.
+-- Vale mesmo com a tabela vazia: o que esta sendo guardado aqui e sobretudo a
+-- ESTRUTURA de 04/11/2026 -- os CHECKs, indices, policies e grants exatos de
+-- antes do ALTER. E com eles que se confere, depois, se a reversa devolveu o
+-- banco ao estado certo, em vez de confiar na memoria de quem aplicou.
+--
+-- As duas tabelas de snapshot seguem a §3: RLS LIGADA, NENHUMA policy
+-- (deny-all) e NENHUM grant a anon/authenticated. `REVOKE` explicito porque
+-- tabela nova HERDA grants do schema -- inclusive TRUNCATE (memoria
+-- `tabela-nova-herda-truncate-para-authenticated`); sem o revoke o backup
+-- nasceria mais exposto que a tabela que ele protege.
+--
+-- ATENCAO: o ROLLBACK **NAO** apaga estas duas tabelas, de proposito. Backup
+-- que a reversa destroi nao e backup. Descarte e decisao da gestao, depois de
+-- a correcao estar estavel.
+-- ----------------------------------------------------------------------------
+create table if not exists public.ulbra_vinculos_backup_20261104 as
+  select * from public.ulbra_vinculos;
+
+alter table public.ulbra_vinculos_backup_20261104 enable row level security;
+revoke all on table public.ulbra_vinculos_backup_20261104 from public;
+revoke all on table public.ulbra_vinculos_backup_20261104 from anon;
+revoke all on table public.ulbra_vinculos_backup_20261104 from authenticated;
+
+create table if not exists public.ulbra_vinculos_estrutura_backup_20261104 (
+  capturado_em timestamptz not null default now(),
+  tipo         text not null,
+  objeto       text not null,
+  definicao    text not null
+);
+
+alter table public.ulbra_vinculos_estrutura_backup_20261104 enable row level security;
+revoke all on table public.ulbra_vinculos_estrutura_backup_20261104 from public;
+revoke all on table public.ulbra_vinculos_estrutura_backup_20261104 from anon;
+revoke all on table public.ulbra_vinculos_estrutura_backup_20261104 from authenticated;
+
+-- Idempotente: so captura se ainda nao capturou. A guarda e no DO, e nao um
+-- `where not exists` na cauda do UNION -- ali ele valeria apenas para o ultimo
+-- braco, e a reaplicacao duplicaria todos os outros.
+do $snapshot$
+begin
+  if exists (select 1 from public.ulbra_vinculos_estrutura_backup_20261104) then
+    raise notice 'SNAPSHOT: estrutura ja capturada antes; retrato original preservado';
+    return;
+  end if;
+
+  insert into public.ulbra_vinculos_estrutura_backup_20261104 (tipo, objeto, definicao)
+  select 'constraint', conname, pg_get_constraintdef(oid)
+    from pg_constraint where conrelid = 'public.ulbra_vinculos'::regclass
+  union all
+  select 'index', indexname, indexdef
+    from pg_indexes where schemaname = 'public' and tablename = 'ulbra_vinculos'
+  union all
+  select 'policy', policyname,
+         cmd || ' | roles=' || roles::text ||
+         ' | using=' || coalesce(qual,'-') || ' | check=' || coalesce(with_check,'-')
+    from pg_policies where schemaname = 'public' and tablename = 'ulbra_vinculos'
+  union all
+  select 'grant', grantee, string_agg(privilege_type, ',' order by privilege_type)
+    from information_schema.role_table_grants
+   where table_schema = 'public' and table_name = 'ulbra_vinculos'
+   group by grantee
+  union all
+  select 'rls', 'relrowsecurity', relrowsecurity::text
+    from pg_class where oid = 'public.ulbra_vinculos'::regclass
+  union all
+  select 'dados', 'linhas_totais', (select count(*)::text from public.ulbra_vinculos);
+end $snapshot$;
+
+-- ----------------------------------------------------------------------------
+-- SECAO 1. RESTRICAO DE CONFIANCA
+--
+-- 'alta_cpf'    -> CPF confirmou o cliente. UNICO nivel que a `ulbra-consultar`
+--                  grava sozinha, a partir desta correcao.
+-- 'alta'        -> LEGADO da Etapa 1: gravado sem confirmacao de CPF. Fica
+--                  aceito para nao invalidar linha preexistente, mas a funcao
+--                  nunca mais escreve este valor. A tela marca para reconferir.
+-- 'ambigua'     -> gestao marcou a mao como duvidoso. Ja existia.
+-- 'reconfirmar' -> legado marcado para reconferencia. Nunca escrito automatico.
+--
+-- O par (confianca='alta_cpf', origem) tambem e amarrado: confirmacao por CPF
+-- nao pode ter origem 'telefone'. Sem isso o selo forte voltaria a poder ser
+-- colado num casamento por telefone -- o defeito exato da Etapa 1, so que
+-- escrito a mao.
+-- ----------------------------------------------------------------------------
+alter table public.ulbra_vinculos
+  drop constraint if exists ulbra_vinculos_confianca_check;
+
+alter table public.ulbra_vinculos
+  add constraint ulbra_vinculos_confianca_check
+  check (confianca in ('alta_cpf','alta','ambigua','reconfirmar'));
+
+alter table public.ulbra_vinculos
+  drop constraint if exists ulbra_vinculos_alta_cpf_exige_origem_forte;
+
+alter table public.ulbra_vinculos
+  add constraint ulbra_vinculos_alta_cpf_exige_origem_forte
+  check (confianca <> 'alta_cpf' or origem in ('cpf','manual'));
+
+-- ----------------------------------------------------------------------------
+-- SECAO 2. UNICIDADE POR CLIENTE ATIVO
+--
+-- Simetrico ao `ulbra_vinculos_aluno_ativo_uniq` que ja existe: um cliente da
+-- Mensageria tem no maximo UM aluno ativo do CRM. Parcial em
+-- `desvinculado_em IS NULL` para que o historico de desvinculacao continue
+-- podendo repetir o mesmo cliente -- o que esta fechado e o ESTADO atual, nao
+-- o passado.
+--
+-- Nao e CONCURRENTLY de proposito: CREATE INDEX CONCURRENTLY nao roda dentro
+-- de transacao, e esta migration e transacional por desenho. A tabela tem 0
+-- linhas (medido em 04/11/2026), entao o lock e instantaneo.
+-- ----------------------------------------------------------------------------
+create unique index if not exists ulbra_vinculos_cliente_ativo_uniq
+  on public.ulbra_vinculos (ulbra_cliente_id)
+  where desvinculado_em is null;
+
+-- ----------------------------------------------------------------------------
+-- SECAO 3. PROTECAO DOS VINCULOS ANTIGOS
+--
+-- 3a. Identidade da linha e IMUTAVEL. Trocar `aluno_id` ou `ulbra_cliente_id`
+--     de um vinculo existente nao e correcao: e apagar um vinculo e criar
+--     outro no lugar, sem auditoria e sem rastro. Quem errou o vinculo
+--     desvincula (preenche `desvinculado_em`) e cria um novo -- os dois
+--     fatos ficam registrados.
+--
+-- 3b. Desvinculacao nao se desfaz por UPDATE. `desvinculado_em` preenchido
+--     nao volta para NULL: reativar um vinculo encerrado pelo mesmo caminho
+--     que o encerrou e como o indice parcial de unicidade e burlado.
+--
+-- 3c. DELETE de LINHA e proibido para todos, inclusive service_role, porque o
+--     gatilho e por linha e o gatilho nao conhece role. A tabela e registro de
+--     a quem o CRM ja acreditou que um aluno correspondia -- mesma logica da
+--     memoria `nao-estar-no-prime-nao-autoriza-excluir`. Saida e sempre logica.
+--
+--     TRUNCATE nao e evento de linha: gatilho FOR EACH ROW nao o ve, e RLS
+--     tambem nao o cobre (memoria
+--     `tabela-nova-herda-truncate-para-authenticated`). Logo, so o REVOKE
+--     segura TRUNCATE -- e ele tem de alcancar `service_role` tambem, que e a
+--     chave que as edge functions usam. Sem isso, a frase "DELETE e proibido
+--     para todos" seria verdadeira para DELETE e falsa para o efeito que
+--     importa: levar o historico inteiro de uma vez. Nenhum codigo do
+--     repositorio trunca esta tabela (so `ulbra-consultar` escreve nela), e
+--     INSERT/SELECT/UPDATE de `service_role` ficam intactos.
+-- ----------------------------------------------------------------------------
+create or replace function public._ulbra_vinculo_protege_historico()
+returns trigger
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $fn$
+begin
+  if tg_op = 'DELETE' then
+    raise exception
+      'ULBRA_VINCULO_DELETE_PROIBIDO: vinculo nao se apaga. '
+      'Desvincule preenchendo desvinculado_em/desvinculado_por.';
+  end if;
+
+  -- `is distinct from`, nao `<>`: com `<>`, se a coluna fosse (ou virasse)
+  -- nullable, `new.x <> old.x` com um NULL dos lados da NULL -- nao TRUE --, o
+  -- `if` nao dispara e um `set ulbra_cliente_id = null` escapa da
+  -- imutabilidade; pior, NULL nao colide em indice unico parcial. Hoje as duas
+  -- colunas sao NOT NULL (conferido em 04/11/2026), entao `<>` bastaria: o
+  -- ponto e que esta protecao nao deve depender de um NOT NULL que um ALTER
+  -- futuro pode remover sem ninguem reler este gatilho.
+  if new.aluno_id is distinct from old.aluno_id then
+    raise exception
+      'ULBRA_VINCULO_IMUTAVEL: aluno_id de vinculo existente nao muda '
+      '(era %, tentou %). Desvincule e crie um novo.', old.aluno_id, new.aluno_id;
+  end if;
+
+  if new.ulbra_cliente_id is distinct from old.ulbra_cliente_id then
+    raise exception
+      'ULBRA_VINCULO_IMUTAVEL: ulbra_cliente_id de vinculo existente nao muda. '
+      'Desvincule e crie um novo.';
+  end if;
+
+  if old.desvinculado_em is not null and new.desvinculado_em is null then
+    raise exception
+      'ULBRA_VINCULO_NAO_REABRE: vinculo desvinculado nao volta a ativo. '
+      'Crie um vinculo novo.';
+  end if;
+
+  return new;
+end
+$fn$;
+
+-- Funcao nova HERDA EXECUTE para PUBLIC (e portanto anon e authenticated) --
+-- skill `seguranca-rls`, "Duas armadilhas"; memoria
+-- `grants-de-funcao-nova-nao-seguem-os-da-view`. Esta e funcao de gatilho: nao
+-- e chamavel direto por `select`, entao a exposicao e baixa. Baixa nao e zero,
+-- e o item e de lista, nao de opiniao -- o REVOKE vai junto, com prova.
+revoke all on function public._ulbra_vinculo_protege_historico() from public;
+revoke all on function public._ulbra_vinculo_protege_historico() from anon;
+revoke all on function public._ulbra_vinculo_protege_historico() from authenticated;
+
+drop trigger if exists trg_ulbra_vinculo_protege_historico on public.ulbra_vinculos;
+create trigger trg_ulbra_vinculo_protege_historico
+  before update or delete on public.ulbra_vinculos
+  for each row execute function public._ulbra_vinculo_protege_historico();
+
+-- 3d. REVOKE de DELETE e TRUNCATE. Proposto na Etapa 1, nunca aplicado.
+--     SELECT, INSERT e UPDATE de `authenticated` FICAM: as 3 policies de RLS
+--     (todas sob usuario_e_gestao()) sao o portao da tela da gestao, e tirar
+--     o grant derrubaria a tela. O que sai e so o que nenhum caminho legitimo
+--     usa.
+revoke delete, truncate on public.ulbra_vinculos from authenticated;
+revoke delete, truncate on public.ulbra_vinculos from anon;
+-- service_role: SO o TRUNCATE sai. INSERT/SELECT/UPDATE ficam (a
+-- `ulbra-consultar` depende deles) e o DELETE dela ja e barrado pelo gatilho,
+-- que e por linha e nao olha role.
+revoke truncate on public.ulbra_vinculos from service_role;
+
+-- ----------------------------------------------------------------------------
+-- SECAO 4. PROVA
+-- Toda alteracao desta migration tem assercao propria. Sem assercao, ninguem
+-- provou que a alteracao pegou.
+-- ----------------------------------------------------------------------------
+do $prova$
+begin
+  -- 1. CHECK de confianca aceita alta_cpf e recusa valor inventado
+  begin
+    insert into public.ulbra_vinculos
+      (aluno_id, ulbra_cliente_id, confianca, origem, vinculado_por)
+    values
+      ('00000000-0000-0000-0000-000000000000','prova','inventado','cpf','prova');
+    raise exception 'PROVA: CHECK de confianca aceitou valor inventado';
+  exception
+    when check_violation then null;          -- esperado
+    when foreign_key_violation then
+      raise exception 'PROVA: o CHECK nao barrou -- caiu na FK, ordem errada';
+  end;
+
+  -- 2. alta_cpf com origem telefone e barrado
+  begin
+    insert into public.ulbra_vinculos
+      (aluno_id, ulbra_cliente_id, confianca, origem, vinculado_por)
+    values
+      ('00000000-0000-0000-0000-000000000000','prova','alta_cpf','telefone','prova');
+    raise exception 'PROVA: alta_cpf com origem telefone foi aceito';
+  exception
+    when check_violation then null;          -- esperado
+    when foreign_key_violation then
+      raise exception 'PROVA: o CHECK de origem forte nao barrou -- caiu na FK';
+  end;
+
+  -- 3. indice unico de cliente ativo existe, e unico, e e parcial
+  if not exists (
+    select 1 from pg_index i
+      join pg_class c on c.oid = i.indexrelid
+     where c.relname = 'ulbra_vinculos_cliente_ativo_uniq'
+       and i.indisunique
+       and i.indpred is not null
+  ) then
+    raise exception 'PROVA: ulbra_vinculos_cliente_ativo_uniq nao existe, nao e unico, ou nao e parcial';
+  end if;
+
+  -- 4. o indice por aluno NAO foi levado junto
+  if not exists (
+    select 1 from pg_class where relname = 'ulbra_vinculos_aluno_ativo_uniq'
+  ) then
+    raise exception 'PROVA: o indice preexistente ulbra_vinculos_aluno_ativo_uniq desapareceu';
+  end if;
+
+  -- 5. trigger e funcao de protecao existem
+  if not exists (
+    select 1 from pg_trigger
+     where tgname = 'trg_ulbra_vinculo_protege_historico' and not tgisinternal
+  ) then
+    raise exception 'PROVA: trigger de protecao nao foi criado';
+  end if;
+
+  -- 6. DELETE e TRUNCATE sairam de authenticated; SELECT/INSERT/UPDATE ficaram
+  if has_table_privilege('authenticated','public.ulbra_vinculos','DELETE') then
+    raise exception 'PROVA: authenticated ainda tem DELETE';
+  end if;
+  if has_table_privilege('authenticated','public.ulbra_vinculos','TRUNCATE') then
+    raise exception 'PROVA: authenticated ainda tem TRUNCATE';
+  end if;
+  -- TRUNCATE escapa de gatilho de linha e de RLS: so o REVOKE o segura, e
+  -- precisa alcancar service_role, a chave das edge functions.
+  if has_table_privilege('service_role','public.ulbra_vinculos','TRUNCATE') then
+    raise exception 'PROVA: service_role ainda tem TRUNCATE';
+  end if;
+  if not has_table_privilege('service_role','public.ulbra_vinculos','INSERT')
+     or not has_table_privilege('service_role','public.ulbra_vinculos','SELECT')
+     or not has_table_privilege('service_role','public.ulbra_vinculos','UPDATE') then
+    raise exception 'PROVA: o REVOKE quebrou a ulbra-consultar (service_role)';
+  end if;
+  if not has_table_privilege('authenticated','public.ulbra_vinculos','SELECT')
+     or not has_table_privilege('authenticated','public.ulbra_vinculos','INSERT')
+     or not has_table_privilege('authenticated','public.ulbra_vinculos','UPDATE') then
+    raise exception 'PROVA: o REVOKE levou grant que a tela da gestao usa';
+  end if;
+
+  -- 7. RLS continua ativa e as 3 policies continuam de pe
+  if not (select relrowsecurity from pg_class where oid = 'public.ulbra_vinculos'::regclass) then
+    raise exception 'PROVA: RLS foi desligada';
+  end if;
+  if (select count(*) from pg_policies
+       where schemaname='public' and tablename='ulbra_vinculos') <> 3 then
+    raise exception 'PROVA: o numero de policies mudou (eram 3)';
+  end if;
+
+  -- 8. ANON nao tem privilegio nenhum na tabela (§5: anon sem dado
+  --    operacional). Medido em 04/11/2026: anon nao tinha grant algum --
+  --    esta assercao existe para que uma ampliacao futura seja barrada aqui.
+  if has_table_privilege('anon','public.ulbra_vinculos','SELECT')
+     or has_table_privilege('anon','public.ulbra_vinculos','INSERT')
+     or has_table_privilege('anon','public.ulbra_vinculos','UPDATE')
+     or has_table_privilege('anon','public.ulbra_vinculos','DELETE')
+     or has_table_privilege('anon','public.ulbra_vinculos','TRUNCATE') then
+    raise exception 'PROVA: anon tem privilegio na tabela de vinculos';
+  end if;
+
+  -- 9. EXECUTE da funcao de gatilho NAO ficou aberto
+  if has_function_privilege('anon','public._ulbra_vinculo_protege_historico()','EXECUTE')
+     or has_function_privilege('authenticated','public._ulbra_vinculo_protege_historico()','EXECUTE') then
+    raise exception 'PROVA: EXECUTE da funcao de gatilho ficou aberto para anon/authenticated';
+  end if;
+
+  -- 10. As duas tabelas de snapshot existem, com RLS ligada, deny-all
+  --     (nenhuma policy) e sem grant a anon/authenticated (§3).
+  if not (select relrowsecurity from pg_class where oid = 'public.ulbra_vinculos_backup_20261104'::regclass)
+     or not (select relrowsecurity from pg_class where oid = 'public.ulbra_vinculos_estrutura_backup_20261104'::regclass) then
+    raise exception 'PROVA: tabela de backup sem RLS';
+  end if;
+  if (select count(*) from pg_policies where schemaname='public'
+       and tablename in ('ulbra_vinculos_backup_20261104','ulbra_vinculos_estrutura_backup_20261104')) <> 0 then
+    raise exception 'PROVA: tabela de backup deveria ser deny-all (nenhuma policy)';
+  end if;
+  if has_table_privilege('authenticated','public.ulbra_vinculos_backup_20261104','SELECT')
+     or has_table_privilege('anon','public.ulbra_vinculos_backup_20261104','SELECT')
+     or has_table_privilege('authenticated','public.ulbra_vinculos_estrutura_backup_20261104','SELECT')
+     or has_table_privilege('anon','public.ulbra_vinculos_estrutura_backup_20261104','SELECT') then
+    raise exception 'PROVA: tabela de backup legivel por anon/authenticated';
+  end if;
+  if not exists (select 1 from public.ulbra_vinculos_estrutura_backup_20261104 where tipo='constraint') then
+    raise exception 'PROVA: snapshot de estrutura nao capturou os constraints';
+  end if;
+end $prova$;
+
+-- ----------------------------------------------------------------------------
+-- SECAO 5. PROVA DE COMPORTAMENTO DO GATILHO (§9: escrita em PROD com ROLLBACK)
+--
+-- Checar que o trigger EXISTE nao prova que ele BARRA. Esta secao escreve de
+-- verdade e desfaz: o bloco interno tem handler de excecao, o que o torna uma
+-- subtransacao -- sair dele por excecao desfaz tudo que ele inseriu. Nenhuma
+-- linha sobrevive a esta secao.
+--
+-- Inclui GRUPO DE CONTROLE (assercao 0): a desvinculacao legitima tem de
+-- PASSAR. Sem ela, um trigger que barrasse todo UPDATE faria as tres
+-- assercoes negativas passarem pelo motivo errado -- memoria
+-- `criterio-sem-grupo-de-controle-nao-e-prova`.
+-- ----------------------------------------------------------------------------
+do $comportamento$
+declare
+  v_aluno_a uuid;
+  v_aluno_b uuid;
+  v_id      uuid;
+  v_ok      boolean;
+begin
+  -- Os dois alunos de prova precisam estar SEM vinculo ativo. Pegar o
+  -- primeiro aluno por id, como esta secao fazia antes, funciona com a tabela
+  -- vazia (o estado medido em 04/11/2026) e quebra no dia em que ela nao
+  -- estiver: o INSERT bateria no `ulbra_vinculos_aluno_ativo_uniq` e levantaria
+  -- `unique_violation`, que o handler desta secao (`when raise_exception`) NAO
+  -- captura -- a migration abortaria inteira, com erro que manda procurar o
+  -- problema no lugar errado. Falha fechado, mas falha confusa.
+  select a.id into v_aluno_a
+    from public.alunos a
+   where not exists (
+     select 1 from public.ulbra_vinculos v
+      where v.aluno_id = a.id and v.desvinculado_em is null
+   )
+   order by a.id limit 1;
+
+  if v_aluno_a is null then
+    raise notice 'PROVA DE COMPORTAMENTO: PULADA -- nao ha aluno sem vinculo ativo';
+    return;
+  end if;
+
+  select a.id into v_aluno_b
+    from public.alunos a
+   where a.id <> v_aluno_a
+     and not exists (
+       select 1 from public.ulbra_vinculos v
+        where v.aluno_id = a.id and v.desvinculado_em is null
+     )
+   order by a.id limit 1;
+
+  begin
+    insert into public.ulbra_vinculos
+      (aluno_id, ulbra_cliente_id, confianca, origem, vinculado_por)
+    values
+      (v_aluno_a, 'PROVA_TRIGGER_20261104200000', 'alta_cpf', 'cpf', 'prova-migration')
+    returning id into v_id;
+
+    -- 0. CONTROLE: desvincular (uso legitimo) tem de funcionar
+    update public.ulbra_vinculos
+       set desvinculado_em = now(), desvinculado_por = 'prova-migration'
+     where id = v_id;
+    if (select desvinculado_em from public.ulbra_vinculos where id = v_id) is null then
+      raise exception 'PROVA DE COMPORTAMENTO: a desvinculacao legitima nao gravou';
+    end if;
+
+    -- 1. reabertura barrada
+    v_ok := false;
+    begin
+      update public.ulbra_vinculos set desvinculado_em = null where id = v_id;
+    exception when raise_exception then v_ok := true;
+    end;
+    if not v_ok then raise exception 'PROVA DE COMPORTAMENTO: reabertura NAO foi barrada'; end if;
+
+    -- 2. troca de ulbra_cliente_id barrada
+    v_ok := false;
+    begin
+      update public.ulbra_vinculos set ulbra_cliente_id = 'OUTRO_CLIENTE' where id = v_id;
+    exception when raise_exception then v_ok := true;
+    end;
+    if not v_ok then raise exception 'PROVA DE COMPORTAMENTO: troca de ulbra_cliente_id NAO foi barrada'; end if;
+
+    -- 3. troca de aluno_id barrada (so se houver um segundo aluno real)
+    if v_aluno_b is not null then
+      v_ok := false;
+      begin
+        update public.ulbra_vinculos set aluno_id = v_aluno_b where id = v_id;
+      exception when raise_exception then v_ok := true;
+      end;
+      if not v_ok then raise exception 'PROVA DE COMPORTAMENTO: troca de aluno_id NAO foi barrada'; end if;
+    else
+      raise notice 'PROVA DE COMPORTAMENTO: troca de aluno_id nao testada (so existe um aluno)';
+    end if;
+
+    -- 4. DELETE barrado
+    v_ok := false;
+    begin
+      delete from public.ulbra_vinculos where id = v_id;
+    exception when raise_exception then v_ok := true;
+    end;
+    if not v_ok then raise exception 'PROVA DE COMPORTAMENTO: DELETE NAO foi barrado'; end if;
+
+    -- 5. unicidade por cliente ativo barra o segundo aluno no mesmo cliente
+    if v_aluno_b is not null then
+      insert into public.ulbra_vinculos
+        (aluno_id, ulbra_cliente_id, confianca, origem, vinculado_por)
+      values
+        (v_aluno_a, 'PROVA_UNICIDADE_20261104200000', 'alta_cpf', 'cpf', 'prova-migration');
+      v_ok := false;
+      begin
+        insert into public.ulbra_vinculos
+          (aluno_id, ulbra_cliente_id, confianca, origem, vinculado_por)
+        values
+          (v_aluno_b, 'PROVA_UNICIDADE_20261104200000', 'alta_cpf', 'cpf', 'prova-migration');
+      exception when unique_violation then v_ok := true;
+      end;
+      if not v_ok then raise exception 'PROVA DE COMPORTAMENTO: dois alunos no mesmo cliente NAO foi barrado'; end if;
+    end if;
+
+    -- Tudo provado: sai por excecao para DESFAZER as linhas de prova.
+    raise exception 'PROVA_DE_COMPORTAMENTO_OK';
+  exception
+    when raise_exception then
+      if sqlerrm <> 'PROVA_DE_COMPORTAMENTO_OK' then
+        raise;   -- assercao real falhou: propaga e aborta a migration
+      end if;
+      raise notice 'PROVA DE COMPORTAMENTO: 5 assercoes OK, linhas de prova desfeitas';
+  end;
+
+  -- Cinto e suspensorio: nenhuma linha de prova pode ter sobrado.
+  if exists (select 1 from public.ulbra_vinculos
+              where ulbra_cliente_id like 'PROVA_%_20261104200000') then
+    raise exception 'PROVA DE COMPORTAMENTO: sobrou linha de prova na tabela';
+  end if;
+end $comportamento$;
+
+commit;

@@ -5,10 +5,23 @@
 // conferir_duplicidade recebe `contatos: [{telefone|email|cpf}]` (até 20) e
 // responde POR POSIÇÃO em `resultados`. O `cliente.id` só vem quando o cliente
 // está no escopo da pessoa dona do token; fora do escopo vem só `equipe`.
+//
+// ---------------------------------------------------------------------------
+// POR QUE AS DUAS CHAVES VÃO NA MESMA CHAMADA (04/11/2026)
+//
+// `contatos` aceita até 20 posições por chamada, e o limite medido da
+// Mensageria é por CHAMADA (15/min por conexão, 500/dia por pessoa), não por
+// posição. Então perguntar telefone E CPF juntos custa exatamente o mesmo que
+// perguntar só o telefone: 1 chamada. Não há orçamento a economizar aqui — o
+// que existe é a confirmação cruzada de graça, e é ela que separa um vínculo
+// provado de um palpite por telefone de parente.
 
 export const MCP_URL = "https://crm.ulbra.ai/api/mcp";
 
 export type ContatoBusca = { telefone: string } | { cpf: string };
+
+/** Qual chave de identidade originou uma posição da chamada. */
+export type Chave = "telefone" | "cpf";
 
 export interface ResultadoDuplicidade {
   posicao: number;
@@ -27,13 +40,71 @@ export type Interpretacao =
   | { status: "nao_encontrado"; motivo: "NAO_ENCONTRADO" | "FORA_DO_ESCOPO" }
   | { status: "erro"; motivo: "RESPOSTA_INVALIDA" };
 
+/** O que o aluno oferece como chave de identidade, já normalizado. */
+export interface ChavesAluno {
+  telefone?: string;
+  telefone_e164?: string | null;
+  cpf?: string;
+}
+
+export type MontagemChaves =
+  | { chaves: ChavesAluno; ordem: Chave[] }
+  | { erro: "SEM_CHAVE" | "TELEFONE_MALFORMADO" };
+
+/**
+ * Normaliza telefone e CPF do aluno e devolve a ORDEM em que entram em
+ * `contatos`. Sem nenhuma chave utilizável não há consulta a fazer.
+ *
+ * CPF com 11 dígitos é chave; telefone só entra entre 10 e 13 dígitos. Um
+ * telefone presente mas malformado NÃO é silenciado quando é a única chave:
+ * o aluno fica sem consulta e o motivo é dito.
+ */
+export function montarChaves(aluno: { telefone?: string | null; cpf?: string | null }): MontagemChaves {
+  const telBruto = (aluno.telefone ?? "").replace(/\D/g, "");
+  const cpf = (aluno.cpf ?? "").replace(/\D/g, "");
+
+  const chaves: ChavesAluno = {};
+  const ordem: Chave[] = [];
+
+  const telValido = telBruto.length >= 10 && telBruto.length <= 13;
+  if (telValido) {
+    chaves.telefone = telBruto;
+    chaves.telefone_e164 = `+55${telBruto.replace(/^55/, "")}`;
+    ordem.push("telefone");
+  }
+  if (cpf.length === 11) {
+    chaves.cpf = cpf;
+    ordem.push("cpf");
+  }
+
+  if (ordem.length === 0) {
+    return { erro: telBruto ? "TELEFONE_MALFORMADO" : "SEM_CHAVE" };
+  }
+  return { chaves, ordem };
+}
+
 export function montarChamada(contato: ContatoBusca, id = 1) {
+  return montarChamadaMulti([contato], id);
+}
+
+/** Uma chamada, N posições. `contatos` aceita até 20 (limite medido). */
+export function montarChamadaMulti(contatos: ContatoBusca[], id = 1) {
+  if (contatos.length === 0 || contatos.length > 20) {
+    throw new Error("CONTATOS_FORA_DO_LIMITE");
+  }
   return {
     jsonrpc: "2.0",
     id,
     method: "tools/call",
-    params: { name: "conferir_duplicidade", arguments: { contatos: [contato] } },
+    params: { name: "conferir_duplicidade", arguments: { contatos } },
   };
+}
+
+/** Monta os `contatos` na ordem declarada por `montarChaves`. */
+export function contatosDeChaves(chaves: ChavesAluno, ordem: Chave[]): ContatoBusca[] {
+  return ordem.map((k) =>
+    k === "telefone" ? { telefone: chaves.telefone! } : { cpf: chaves.cpf! }
+  );
 }
 
 // Envelope JSON-RPC do MCP: o resultado da ferramenta vem serializado em
@@ -48,8 +119,8 @@ export function extrairResultado(envelope: unknown): unknown {
   return JSON.parse(texto);
 }
 
-export function interpretar(resposta: unknown): Interpretacao {
-  const r = (resposta as RespostaConferirDuplicidade | null)?.resultados?.[0];
+/** Interpreta UMA posição de `resultados`. */
+export function interpretarResultado(r: ResultadoDuplicidade | undefined | null): Interpretacao {
   if (!r || typeof r.existe !== "boolean") return { status: "erro", motivo: "RESPOSTA_INVALIDA" };
   if (r.cliente?.id) {
     return {
@@ -65,14 +136,60 @@ export function interpretar(resposta: unknown): Interpretacao {
   return { status: "nao_encontrado", motivo: "NAO_ENCONTRADO" };
 }
 
-export function escolherContato(aluno: { telefone?: string | null; cpf?: string | null }):
-  | { contato: ContatoBusca; origem: "telefone" | "cpf"; telefone_e164: string | null }
-  | { erro: "SEM_TELEFONE" | "TELEFONE_MALFORMADO" } {
-  const tel = (aluno.telefone ?? "").replace(/\D/g, "");
-  if (tel.length >= 10 && tel.length <= 13) {
-    return { contato: { telefone: tel }, origem: "telefone", telefone_e164: `+55${tel.replace(/^55/, "")}` };
+export function interpretar(resposta: unknown): Interpretacao {
+  return interpretarResultado((resposta as RespostaConferirDuplicidade | null)?.resultados?.[0]);
+}
+
+export type InterpretacaoPorChave =
+  | { ok: true; porChave: Record<Chave, Interpretacao | undefined> }
+  | { ok: false; motivo: "RESPOSTA_INVALIDA" };
+
+/**
+ * Casa `resultados[]` com a ORDEM pedida usando o campo `posicao` — nunca a
+ * ordem do array. A doc da ferramenta diz "responde POR POSIÇÃO"; confiar na
+ * ordem de chegada é o jeito de trocar o resultado do telefone pelo do CPF e
+ * gravar vínculo no aluno errado sem nenhum erro aparecer.
+ *
+ * Falha FECHADO quando: não é array, falta uma posição pedida, uma posição
+ * vem repetida, ou vem posição que não foi pedida.
+ */
+export function interpretarPorChave(resposta: unknown, ordem: Chave[]): InterpretacaoPorChave {
+  const resultados = (resposta as RespostaConferirDuplicidade | null)?.resultados;
+  if (!Array.isArray(resultados)) return { ok: false, motivo: "RESPOSTA_INVALIDA" };
+  if (resultados.length !== ordem.length) return { ok: false, motivo: "RESPOSTA_INVALIDA" };
+
+  const porPosicao = new Map<number, ResultadoDuplicidade>();
+  for (const r of resultados) {
+    const p = r?.posicao;
+    if (typeof p !== "number" || !Number.isInteger(p)) return { ok: false, motivo: "RESPOSTA_INVALIDA" };
+    if (porPosicao.has(p)) return { ok: false, motivo: "RESPOSTA_INVALIDA" };
+    porPosicao.set(p, r);
   }
-  const cpf = (aluno.cpf ?? "").replace(/\D/g, "");
-  if (cpf.length === 11) return { contato: { cpf }, origem: "cpf", telefone_e164: null };
-  return { erro: tel ? "TELEFONE_MALFORMADO" : "SEM_TELEFONE" };
+
+  // A numeração de `posicao` em chamada de DUAS chaves nunca foi medida contra
+  // a Mensageria (o contrato de 04/11/2026 só tem resposta de uma posição, com
+  // `posicao: 0`). Então aceita as duas bases possíveis, e SÓ elas:
+  //
+  //   conjunto {0..n-1}  -> base 0
+  //   conjunto {1..n}    -> base 1
+  //
+  // Não é adivinhação: os dois conjuntos nunca são o mesmo — base 0 exige a
+  // posição 0 presente e base 1 exige que ela não esteja —, então a base é
+  // DETERMINADA pelo conjunto recebido, não escolhida. (Eles se sobrepõem:
+  // {0,1} e {1,2} compartilham o 1. Não importa; quem decide é o 0.)
+  // Qualquer outro conjunto
+  // (buraco, posição fora da faixa, posição repetida) FALHA FECHADO — e falhar
+  // fechado aqui significa não gravar vínculo nenhum, nunca gravar o errado.
+  const posicoes = [...porPosicao.keys()].sort((a, b) => a - b);
+  const esperado = (base: number) => ordem.every((_, i) => posicoes[i] === base + i);
+  const base = esperado(0) ? 0 : esperado(1) ? 1 : null;
+  if (base === null) return { ok: false, motivo: "RESPOSTA_INVALIDA" };
+
+  const porChave: Record<Chave, Interpretacao | undefined> = { telefone: undefined, cpf: undefined };
+  for (let i = 0; i < ordem.length; i++) {
+    const interp = interpretarResultado(porPosicao.get(base + i));
+    if (interp.status === "erro") return { ok: false, motivo: "RESPOSTA_INVALIDA" };
+    porChave[ordem[i]] = interp;
+  }
+  return { ok: true, porChave };
 }
