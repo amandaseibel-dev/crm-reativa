@@ -4,7 +4,7 @@
 // operador só vê aluno da própria carteira. Não grava nada.
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { MCP_URL, criarCache, extrairResultado, montarChamada, recortar } from "./atendimento.ts";
+import { MCP_URL, criarCache, extrairResultado, montarChamada, recortar, vinculoConfirmado } from "./atendimento.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -52,8 +52,7 @@ serve(async (req) => {
     if (!naCarteira) return responder({ erro: "ACESSO_NEGADO", detalhe: "aluno_fora_da_carteira" }, 403);
   }
 
-  const { data: vinculo } = await sbService
-    .from("ulbra_vinculos").select("ulbra_cliente_id").eq("aluno_id", aluno_id).is("desvinculado_em", null).maybeSingle();
+  const vinculo = await vinculoConfirmado(sbService, aluno_id);
   if (!vinculo) return responder({ status: "sem_vinculo" });
 
   const clienteId = vinculo.ulbra_cliente_id as string;

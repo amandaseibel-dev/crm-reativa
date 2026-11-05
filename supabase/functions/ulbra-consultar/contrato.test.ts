@@ -151,17 +151,62 @@ describe("ulbra-consultar contrato: casamento por posição", () => {
   // contrato de 04/11/2026 só tem resposta de uma posição. Se a Mensageria
   // numerar a partir de 1, a leitura tem de continuar funcionando — senão
   // todo vínculo para de ser criado, por um detalhe que ninguém mediu.
-  it("aceita numeração a partir de 1, mantendo o mapeamento", () => {
+  // Base 1 é convenção NÃO confirmada, então só é aceita quando o mapeamento
+  // não pode mudar a decisão: mesmo cliente em todas as posições, ou nenhuma
+  // com cliente. Assimetria falha fechado — ver os dois testes seguintes.
+  it("aceita numeração a partir de 1 quando o mapeamento é indiferente", () => {
+    const r = interpretarPorChave({
+      resultados: [
+        { posicao: 1, existe: true, cliente: { id: CLIENTE_A }, equipe: "Reativa", emAtendimento: null },
+        { posicao: 2, existe: true, cliente: { id: CLIENTE_A }, equipe: "Reativa", emAtendimento: null },
+      ],
+    }, ["telefone", "cpf"]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.porChave.telefone).toMatchObject({ ulbra_cliente_id: CLIENTE_A });
+    expect(r.porChave.cpf).toMatchObject({ ulbra_cliente_id: CLIENTE_A });
+  });
+
+  it("base 1 com clientes diferentes falha fechado (numeração não medida)", () => {
+    // Se as posições estiverem trocadas, telefone e CPF trocam de resultado.
+    // Com clientes diferentes isso decide coisas opostas: recusa.
     const r = interpretarPorChave({
       resultados: [
         { posicao: 1, existe: true, cliente: { id: CLIENTE_A }, equipe: "Reativa", emAtendimento: null },
         { posicao: 2, existe: true, cliente: { id: CLIENTE_B }, equipe: "Reativa", emAtendimento: null },
       ],
     }, ["telefone", "cpf"]);
+    expect(r).toEqual({ ok: false, motivo: "RESPOSTA_INVALIDA" });
+  });
+
+  it("base 1 assimétrica (um achou, outro não) falha fechado", () => {
+    // É o caso perigoso: trocado, "telefone achou" viraria "CPF confirmou".
+    const r = interpretarPorChave({
+      resultados: [
+        { posicao: 1, existe: true, cliente: { id: CLIENTE_A }, equipe: "Reativa", emAtendimento: null },
+        { posicao: 2, existe: false },
+      ],
+    }, ["telefone", "cpf"]);
+    expect(r).toEqual({ ok: false, motivo: "RESPOSTA_INVALIDA" });
+  });
+
+  it("base 1 com nenhuma posição achando nada é aceita (decisão é a mesma)", () => {
+    const r = interpretarPorChave({
+      resultados: [{ posicao: 1, existe: false }, { posicao: 2, existe: false }],
+    }, ["telefone", "cpf"]);
+    expect(r.ok).toBe(true);
+  });
+
+  it("base 0 assimétrica segue aceita: é a convenção medida", () => {
+    const r = interpretarPorChave({
+      resultados: [
+        { posicao: 0, existe: false },
+        { posicao: 1, existe: true, cliente: { id: CLIENTE_A }, equipe: "Reativa", emAtendimento: null },
+      ],
+    }, ["telefone", "cpf"]);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.porChave.telefone).toMatchObject({ ulbra_cliente_id: CLIENTE_A });
-    expect(r.porChave.cpf).toMatchObject({ ulbra_cliente_id: CLIENTE_B });
+    expect(r.porChave.cpf).toMatchObject({ ulbra_cliente_id: CLIENTE_A });
   });
 
   it("uma só chave: aceita tanto `posicao: 0` (medido) quanto `posicao: 1`", () => {

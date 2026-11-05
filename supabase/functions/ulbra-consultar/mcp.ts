@@ -191,5 +191,33 @@ export function interpretarPorChave(resposta: unknown, ordem: Chave[]): Interpre
     if (interp.status === "erro") return { ok: false, motivo: "RESPOSTA_INVALIDA" };
     porChave[ordem[i]] = interp;
   }
+
+  // -------------------------------------------------------------------------
+  // BASE 1 É CONVENÇÃO NÃO CONFIRMADA — e por isso só vale quando não pode
+  // mudar a decisão.
+  //
+  // O que foi medido em 04/11/2026 é `posicao: 0` em resposta de UMA posição.
+  // Base 1 é inferência. E a inferência importa: se as posições estiverem
+  // trocadas em relação ao pedido, o resultado "telefone achou X, CPF não
+  // achou" é lido como "CPF confirmou X, telefone não achou" — e o primeiro
+  // BLOQUEIA enquanto o segundo GRAVA. Seria o falso positivo exato que esta
+  // correção existe para fechar, produzido por um detalhe que ninguém mediu.
+  //
+  // Então, em base 1, só segue adiante a resposta cujo mapeamento é
+  // indiferente: todas as chaves com o MESMO cliente, ou nenhuma com cliente.
+  // Qualquer assimetria falha FECHADO — nenhum vínculo é gravado.
+  //
+  // Base 0 segue aceita como está: é a convenção medida e é a que a própria
+  // ferramenta documenta ("responde POR POSIÇÃO", posições do array pedido).
+  // -------------------------------------------------------------------------
+  if (base === 1) {
+    const ids = ordem.map((k) => {
+      const i = porChave[k];
+      return i && i.status === "vinculado" ? i.ulbra_cliente_id : null;
+    });
+    const distintos = new Set(ids);
+    if (distintos.size > 1) return { ok: false, motivo: "RESPOSTA_INVALIDA" };
+  }
+
   return { ok: true, porChave };
 }
