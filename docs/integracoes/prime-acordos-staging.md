@@ -173,10 +173,20 @@ Identidade do acordo e vínculo com o convênio ReATIVA são decisões
 negociados). Isso importa porque existe uma origem legítima de captura que
 só comprova as duas primeiras, nunca a terceira: um **pagamento observado**
 (boleto identificável, com o número do acordo decodificado pelo padrão já
-comprovado, e o convênio 272047 confirmado pelo próprio campo de convênio
-da linha do arquivo bancário de origem — nunca pelo formato do boleto
-isoladamente). Um pagamento isolado nunca traz os títulos negociados
+comprovado; o convênio 272047, quando comprovável, viria do próprio campo de
+convênio da linha do arquivo bancário de origem — nunca do formato do
+boleto isoladamente). Um pagamento isolado nunca traz os títulos negociados
 originais.
+
+> **Correção (sexta etapa):** a frase acima presumia que o campo de convênio
+> da linha bancária **já chega e já é gravado** em `pagamentos`. Essa
+> premissa estava **errada** e foi corrigida na sexta etapa, abaixo — o
+> campo é lido do arquivo por `normalizarLinhaSantander()`
+> (`supabase/functions/santander-previa/planilha.ts`) e **descartado** na
+> desestruturação; nunca é persistido, nem como coluna, nem dentro de
+> `pagamentos.dados` (confirmado por `jsonb_object_keys(dados)`: 26 chaves
+> observadas, nenhuma "convenio"). Hoje, a partir de dado já armazenado,
+> **não existe prova de convênio por linha de pagamento.**
 
 `avaliarReconhecimento()` por isso ganhou uma terceira classe,
 `ClasseSeguranca: "PARCIAL"`, motivo `COMPOSICAO_COMPLETA_DESCONHECIDA_PENDENTE_COMPLEMENTACAO`,
@@ -203,6 +213,76 @@ número de acordo identificado. É sinal de nível ALUNO ("tem relação com o
 convênio"), nunca identidade de acordo — `montarChaveAcordo()` recusa sem o
 número do acordo, e nenhuma captura chega a existir a partir só da
 filiação.
+
+## Adaptador PAGAMENTOS Santander → staging de ACORDOS (sexta etapa)
+
+Esta etapa prepara, de forma isolada, a transformação de pagamentos
+Santander **já armazenados** em `pagamentos` em capturas do staging —
+sem alterar o importador Santander, o motor de conciliação ou qualquer
+tabela financeira, e sem aplicar a proposta de schema do staging.
+
+**Contrato real verificado nesta rodada (não repetir):**
+
+- `pagamentos` tem `id` (uuid), `cpf`, `titulo_numero`,
+  `numero_parcela_completo`, `valor_pago`, `data_pagamento`,
+  `tipo_pagamento`, `dados` (jsonb), entre outras. **Nenhuma delas guarda o
+  convênio bancário da linha de origem** — ver correção acima.
+- `acordos` e `parcelas` também não têm nenhuma coluna de
+  portador/convênio (`information_schema.columns`, consultado nesta
+  rodada). Não há, portanto, nenhum caminho indireto já armazenado (nem
+  mesmo via vínculo `parcelas.acordo_id`) que prove convênio por linha.
+- `tipo_pagamento = 'SANTANDER'` identifica **o importador usado**, não o
+  convênio da linha — o próprio código do importador (`santander-importar`)
+  não distingue convênio na ingestão; aceitaria, sem diferença, qualquer
+  arquivo Santander se um dia fosse alimentado com um de outro convênio.
+  Por isso **nunca** é tratado como prova de 272047.
+- `numero_parcela_completo` é o identificador correto, único por parcela
+  (o próprio código do importador documenta isso e avisa para nunca usar
+  `titulo_numero` para dedup) — é o `documento` usado pelo adaptador.
+- O evento de pagamento nunca é identificado por parcela/boleto — é
+  identificado por `pagamentos.id` (uuid, estável, gerado na origem),
+  porque vários pagamentos (parciais, reimportados) podem compartilhar a
+  mesma parcela sem serem o mesmo evento.
+
+**O que o adaptador faz** (`supabase/functions/_shared/santander-pagamentos-acordos-adapter.ts`):
+
+1. Decodifica identidade (número do acordo + parcela) do
+   `numero_parcela_completo`, com validação de formato (`5` + acordo(6) +
+   parcela(4) = 11 dígitos) — nunca convênio, mesma separação já fechada na
+   quarta etapa.
+2. Resolve a identidade do aluno só a partir de um CPF completo (11
+   dígitos) já armazenado — nunca presume CPF nem vínculo inexistente.
+3. Usa `pagamentos.id` como chave estável do evento — nunca
+   `parcelas.boleto`/`numero_parcela_completo` isolados.
+4. Acumula títulos gerados do mesmo acordo entre pagamentos — de um mesmo
+   lote ou de lotes sucessivos (via `capturasAnterioresPorChave`, fornecida
+   pelo chamador) — sem nunca perder uma parcela já conhecida.
+5. Preserva, bruto, `portadorIdMannesoft`/`convenioMannesoft` quando a
+   entrada os informa (hoje, sempre ausentes pelo motivo acima) —
+   reaproveita, sem duplicar, `avaliarVinculoConvenioReativa()`/
+   `avaliarReconhecimento()` já existentes para a classificação final.
+6. Nunca fixa `situacaoMannesoft` como quitação/cancelamento — usa o rótulo
+   fixo `EM_ANDAMENTO_OBSERVADO_PAGAMENTO_SANTANDER`, nunca inferido.
+7. É idempotente: eventos (`idPagamento`) já processados, informados pelo
+   chamador via `eventosJaProcessados`, são sempre ignorados; devolve um
+   cursor (`cursorUltimoIdPagamentoProcessado`) para o chamador persistir e
+   retomar com segurança após qualquer interrupção.
+
+**Resultado da classificação real, hoje:** como nenhum dado já armazenado
+comprova convênio, toda captura produzida pelo adaptador cai, pela lógica
+já existente (`avaliarReconhecimento()`, inalterada), em
+`EXCECAO`/`VINCULO_CONVENIO_REATIVA_SEM_INFORMACAO` — nunca em `PARCIAL`
+nem em `AUTOMATICO`. Isso é o comportamento fail-closed correto e já
+comprovado; **não é um defeito do adaptador**, é o reflexo honesto de uma
+lacuna real de dados. O adaptador e sua classificação ficam prontos para o
+dia em que essa lacuna for resolvida (ex.: alteração do importador Santander
+para reter o convênio — fora do escopo desta tarefa — ou outra fonte já
+armazenada que venha a comprová-lo).
+
+- `supabase/functions/_shared/santander-pagamentos-acordos-adapter.test.js`
+  — 24 testes com dados fictícios: pagamentos parciais, boletos repetidos,
+  acordos com várias parcelas, reimportações/idempotência e convênio
+  divergente.
 
 ## O que esta etapa entrega
 
@@ -233,6 +313,7 @@ ou `baixas_pagamento`. Nada altera o importador atual de boletos/pagamentos.
 | **Decisão de gestão sobre quitação observada externamente** | Não existe hoje rotina oficial que signifique "aplicar um status só observado externamente, sem fabricar um evento local". Fica como alerta até essa decisão existir. | Gestão |
 | **RLS/grants do staging** | Esta proposta de schema deliberadamente não inclui RLS — precisa passar pela skill `seguranca-rls` antes de qualquer aplicação real. | Revisão de segurança, antes de aplicar a migration |
 | **Identidade de serviço autorizada** para acionar as rotinas oficiais (`importar_acordos`, `cancelar_acordo_ficha`, etc.) a partir desta integração | Precisa de uma identidade formalmente autorizada por gestão (molde do `confirmacao-automatica@sistema` já em uso), não de um atalho que pule a checagem de permissão. | Gestão |
+| **Convênio bancário não é persistido em nenhuma captura via pagamentos** | `normalizarLinhaSantander()` descarta a coluna de convênio do arquivo na importação; `pagamentos`/`acordos`/`parcelas` não guardam esse dado em nenhuma coluna ou jsonb. Sem alterar o importador (vedado nesta tarefa), toda captura do adaptador de pagamentos cai hoje em `EXCECAO` por falta de informação de vínculo — nunca chega a `PARCIAL`. | Decisão de gestão/TI sobre alterar o importador Santander para reter o convênio, ou apontar outra fonte já armazenada que o comprove |
 
 Nenhuma dessas dependências bloqueia o que já foi entregue nesta etapa —
 ficam documentadas para a próxima decisão, sem impedir o resto do
