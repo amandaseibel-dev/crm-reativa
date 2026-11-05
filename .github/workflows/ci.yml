@@ -220,3 +220,55 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/02_baseline.sql"
           psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
+
+  # ---------------------------------------------------------------------------
+  # PROPOSTA_staging_acordos_prime.sql — RLS, grants e isolamento do staging
+  # de ACORDOS, num Postgres descartável.
+  #
+  # Por que num Postgres de serviço e não só em PGlite: o `ALTER DEFAULT
+  # PRIVILEGES` do schema `public` é o que faz tabela nova nascer aberta para
+  # `authenticated` — inclusive TRUNCATE, que a RLS não cobre. O ambiente
+  # reproduz isso de propósito, para o revoke da proposta ter trabalho real.
+  #
+  # O MESMO SQL roda em PGlite por supabase/tests/staging_acordos_prime.test.js,
+  # dentro da suíte. Este job existe para o resultado valer num Postgres de
+  # verdade, com os três papéis do Supabase.
+  # ---------------------------------------------------------------------------
+  staging-acordos-rls:
+    name: staging acordos — RLS e grants (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/staging_acordos_prime
+      PROPOSTA: supabase/propostas/PROPOSTA_staging_acordos_prime.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # 1. ambiente (papéis + a armadilha do default privilege)
+      # 2. a proposta  3. os casos
+      - name: Montar ambiente, aplicar a proposta e rodar os casos
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$PROPOSTA"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_casos.sql"
