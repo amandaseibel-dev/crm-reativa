@@ -18,6 +18,7 @@ import {
   SITUACAO_PAGAMENTO_OBSERVADO,
 } from "./santander-pagamentos-acordos-adapter.ts";
 import { avaliarReconhecimento, analisarComposicao } from "./prime-acordos-staging.ts";
+import { normalizarLinhaSantander } from "../santander-previa/planilha.ts";
 
 function pagamento(overrides = {}) {
   return {
@@ -329,5 +330,115 @@ describe("adaptarLotePagamentosSantanderParaAcordos — cenários do lote", () =
       BOLETO_ACORDO_71903_PARCELA_0001,
       BOLETO_ACORDO_71903_PARCELA_0002,
     ]);
+  });
+});
+
+// =============================================================================
+// TESTE INTEGRADO PONTA A PONTA — arquivo bancário → normalizador real
+// (santander-previa/planilha.ts) → adaptador → classificação (PARCIAL só
+// quando identidade E convênio 272047 estão comprovados).
+//
+// Prova a cadeia completa com o normalizador REAL, agora que ele preserva a
+// coluna F (convenio_bancario) em vez de descartá-la. Simula o passo que
+// ainda falta construir (a Edge Function que lê `pagamentos.dados` e monta
+// `PagamentoSantanderObservado`) só como uma projeção explícita de
+// `dados.convenio_bancario` para `convenioMannesoft` — sem rede, sem banco.
+// =============================================================================
+describe("INTEGRAÇÃO — linha bancária real até a classificação PARCIAL/EXCECAO", () => {
+  // Mesma ordem de colunas documentada em planilha.ts: A instituição | B
+  // matrícula-nome | C título | D operador | E boleto | F convênio |
+  // G vencimento | H valor original | I honorário | J data pagamento |
+  // K valor pago.
+  function linhaBancaria({ convenio = "0272047", boleto = "5" + "071903" + "0001" } = {}) {
+    return [
+      "ULBRA",
+      "2026002333 - Aluno Sintetico",
+      "71903",
+      "DIEGO",
+      boleto,
+      convenio,
+      new Date("2026-10-22T00:00:00Z"),
+      1234.56,
+      123.45,
+      new Date("2026-10-21T00:00:00Z"),
+      1234.56,
+    ];
+  }
+
+  // Projeta `LinhaNormalizada.dados` (o que acabaria em `pagamentos.dados`)
+  // + o CPF já resolvido pelo CRM (fora do escopo do normalizador, que nunca
+  // atribui CPF) para dentro de `PagamentoSantanderObservado` -- é
+  // exatamente o que a futura Edge Function do adaptador fará ao ler
+  // `pagamentos`. Nenhuma lógica de classificação mora aqui.
+  function paraPagamentoObservado(linhaNormalizada, { idPagamento, cpf }) {
+    return {
+      idPagamento,
+      cpf,
+      numeroParcelaCompleto: linhaNormalizada.numero_parcela_completo,
+      valorPago: linhaNormalizada.valor_pago,
+      dataPagamento: linhaNormalizada.data_pagamento,
+      convenioMannesoft: linhaNormalizada.convenio_bancario,
+    };
+  }
+
+  it("convênio 272047 comprovado (com zero à esquerda) + identidade resolvida => PARCIAL", () => {
+    const linha = normalizarLinhaSantander(linhaBancaria({ convenio: "0272047" }));
+    const pagamentoObservado = paraPagamentoObservado(linha, { idPagamento: "pag-int-1", cpf: "12345678909" });
+
+    const resultado = adaptarLotePagamentosSantanderParaAcordos({
+      pagamentos: [pagamentoObservado],
+      eventosJaProcessados: new Set(),
+    });
+
+    expect(resultado.eventosRejeitados).toEqual([]);
+    const { captura } = resultado.capturas[0];
+    const avaliacao = avaliarReconhecimento({ conflitoNaCaptura: false, tracos: analisarComposicao(captura.composicao) });
+    expect(avaliacao.classe).toBe("PARCIAL");
+    expect(avaliacao.motivo).toBe("COMPOSICAO_COMPLETA_DESCONHECIDA_PENDENTE_COMPLEMENTACAO");
+  });
+
+  it("convênio 272047 comprovado (sem zero à esquerda) + identidade resolvida => PARCIAL", () => {
+    const linha = normalizarLinhaSantander(linhaBancaria({ convenio: "272047" }));
+    const pagamentoObservado = paraPagamentoObservado(linha, { idPagamento: "pag-int-2", cpf: "12345678909" });
+
+    const resultado = adaptarLotePagamentosSantanderParaAcordos({
+      pagamentos: [pagamentoObservado],
+      eventosJaProcessados: new Set(),
+    });
+
+    const { captura } = resultado.capturas[0];
+    const avaliacao = avaliarReconhecimento({ conflitoNaCaptura: false, tracos: analisarComposicao(captura.composicao) });
+    expect(avaliacao.classe).toBe("PARCIAL");
+  });
+
+  it("convênio divergente (outro Santander, 272036) => EXCECAO, nunca PARCIAL -- nunca presume 272047", () => {
+    const linha = normalizarLinhaSantander(linhaBancaria({ convenio: "272036" }));
+    const pagamentoObservado = paraPagamentoObservado(linha, { idPagamento: "pag-int-3", cpf: "12345678909" });
+
+    const resultado = adaptarLotePagamentosSantanderParaAcordos({
+      pagamentos: [pagamentoObservado],
+      eventosJaProcessados: new Set(),
+    });
+
+    const { captura } = resultado.capturas[0];
+    const avaliacao = avaliarReconhecimento({ conflitoNaCaptura: false, tracos: analisarComposicao(captura.composicao) });
+    expect(avaliacao.classe).toBe("EXCECAO");
+    expect(avaliacao.motivo).toBe("VINCULO_CONVENIO_REATIVA_DIVERGENTE");
+  });
+
+  it("convênio ausente na linha (coluna F vazia) => EXCECAO por falta de informação, nunca PARCIAL -- comportamento de pagamento histórico", () => {
+    const linha = normalizarLinhaSantander(linhaBancaria({ convenio: "" }));
+    expect(linha.convenio_bancario).toBeNull(); // mesmo comportamento de todo pagamento importado antes desta correção
+    const pagamentoObservado = paraPagamentoObservado(linha, { idPagamento: "pag-int-4", cpf: "12345678909" });
+
+    const resultado = adaptarLotePagamentosSantanderParaAcordos({
+      pagamentos: [pagamentoObservado],
+      eventosJaProcessados: new Set(),
+    });
+
+    const { captura } = resultado.capturas[0];
+    const avaliacao = avaliarReconhecimento({ conflitoNaCaptura: false, tracos: analisarComposicao(captura.composicao) });
+    expect(avaliacao.classe).toBe("EXCECAO");
+    expect(avaliacao.motivo).toBe("VINCULO_CONVENIO_REATIVA_SEM_INFORMACAO");
   });
 });

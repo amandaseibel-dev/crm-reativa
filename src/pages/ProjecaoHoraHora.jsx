@@ -59,7 +59,7 @@ export function normalizarLinhaSantander(linhaArray) {
     tituloNumero,
     operadorBruto,
     numeroParcelaCompleto,
-    ,
+    convenioBruto,
     vencimento,
     valorOriginal,
     honorario,
@@ -122,6 +122,9 @@ export function normalizarLinhaSantander(linhaArray) {
     operador_nome: emailOperador ? nomeOperadorPorEmail(emailOperador) : (operadorBruto || null),
     aluno_nome: aluno || null,
     matricula,
+    // Coluna F, bruta (sem normalizar nem validar contra 272047) -- mesmo
+    // contrato do normalizador do servidor (santander-previa/planilha.ts).
+    convenio_bancario: convenioBruto ? String(convenioBruto) : null,
     cpf: null,
   };
 }
