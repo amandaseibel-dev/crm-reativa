@@ -118,12 +118,39 @@ serve(async (req) => {
       console.error("ulbra-consultar: decisao inesperada para vinculo existente", d.acao);
       return responder({ erro: "DECISAO_INESPERADA" }, 500);
     }
+    // Vínculo sem CPF comprovado NÃO é atalho para a Mensageria. Aviso não
+    // basta: enquanto houver `url` na resposta, existe botão para clicar, e um
+    // clique abre o atendimento de um cliente que ninguém confirmou ser este
+    // aluno. Então a resposta não carrega `url` NEM `ulbra_cliente_id` — sem o
+    // id, nenhum cliente consegue remontar a URL por conta própria.
+    // A linha continua na tabela, visível para a gestão; o que sai é o acesso
+    // automático pela ficha.
+    if (d.reconfirmar_recomendado) {
+      // `tabela_afetada: "alunos"` porque `registro_id` é o id do ALUNO, não o
+      // da linha de vínculo — mesma forma do outro caminho de bloqueio. Nada
+      // em `ulbra_vinculos` é escrito aqui.
+      // Esta linha repete a cada abertura da ficha enquanto o vínculo seguir
+      // sem confirmação: é recusa de acesso, e recusa repetida é registro
+      // legítimo, não erro. Volume é zero hoje (a tabela está vazia).
+      await auditar("ULBRA_VINCULO_BLOQUEADO", "alunos", aluno_id, {
+        motivo: "VINCULO_SEM_CONFIRMACAO_CPF",
+        confianca: d.confianca,
+        origem: d.origem,
+      });
+      return responder({
+        status: "vinculado_nao_confirmado",
+        confianca: d.confianca,
+        origem: d.origem,
+        reconfirmar_recomendado: true,
+      });
+    }
+
     return responder({
       status: "vinculado",
       ulbra_cliente_id: d.ulbra_cliente_id,
       confianca: d.confianca,
       origem: d.origem,
-      reconfirmar_recomendado: d.reconfirmar_recomendado,
+      reconfirmar_recomendado: false,
       url: urlCliente(d.ulbra_cliente_id),
     });
   }

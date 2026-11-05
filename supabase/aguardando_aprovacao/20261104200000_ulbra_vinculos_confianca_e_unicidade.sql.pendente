@@ -353,6 +353,48 @@ revoke delete, truncate on public.ulbra_vinculos from anon;
 revoke truncate on public.ulbra_vinculos from service_role;
 
 -- ----------------------------------------------------------------------------
+-- SECAO 3e. SUPERFICIE SEGURA PARA AS OUTRAS FUNCOES
+--
+-- `ulbra-atendimento` (PR #814) le `ulbra_vinculos` filtrando apenas
+-- `aluno_id` + `desvinculado_em is null`, e NAO le `confianca`. Para ela, um
+-- vinculo legado com selo 'alta' e origem 'telefone' -- que ninguem confirmou
+-- por CPF -- e indistinguivel de um confirmado. Abrir atendimento a partir
+-- dele e abrir conversa com a pessoa errada.
+--
+-- Esta view e a superficie que as OUTRAS funcoes devem consumir: ela so
+-- enxerga vinculo ativo e confirmado por CPF. Enquanto a `ulbra-atendimento`
+-- nao migrar para ca, a garantia dela e por disciplina; migrando, passa a ser
+-- estrutural -- nao da para "esquecer de filtrar `confianca`" quando a fonte
+-- nao tem linha nao confirmada para devolver.
+--
+-- A migracao da `ulbra-atendimento` NAO e feita aqui: aquele arquivo pertence
+-- a PR #814, que esta aberta, e duas frentes nao editam o mesmo arquivo. A
+-- dependencia esta registrada em docs/integracoes/mensageria-ulbra.md.
+--
+-- `security_invoker = on` e o ponto que nao pode faltar: sem ele a view roda
+-- com os direitos do DONO e PASSA POR CIMA da RLS da tabela base, entregando
+-- vinculo de qualquer aluno a qualquer autenticado. Com ele, as 3 policies de
+-- `ulbra_vinculos` (todas sob `usuario_e_gestao()`) continuam valendo atraves
+-- da view. Postgres 17.6 em producao suporta (requer 15+).
+-- ----------------------------------------------------------------------------
+create or replace view public.ulbra_vinculos_confirmados
+with (security_invoker = on) as
+select id, aluno_id, ulbra_cliente_id, confianca, origem, vinculado_em
+  from public.ulbra_vinculos
+ where desvinculado_em is null
+   and confianca = 'alta_cpf';
+
+-- View nova NAO herda os grants da tabela (memoria
+-- `grants-de-funcao-nova-nao-seguem-os-da-view`): sao declarados aqui.
+-- `authenticated` recebe SELECT porque e assim que a tela da gestao chega --
+-- a RLS da tabela base continua sendo o portao, via security_invoker. `anon`
+-- nao recebe nada (§5).
+revoke all on public.ulbra_vinculos_confirmados from public;
+revoke all on public.ulbra_vinculos_confirmados from anon;
+grant select on public.ulbra_vinculos_confirmados to authenticated;
+grant select on public.ulbra_vinculos_confirmados to service_role;
+
+-- ----------------------------------------------------------------------------
 -- SECAO 4. PROVA
 -- Toda alteracao desta migration tem assercao propria. Sem assercao, ninguem
 -- provou que a alteracao pegou.
@@ -479,6 +521,36 @@ begin
   if not exists (select 1 from public.ulbra_vinculos_estrutura_backup_20261104 where tipo='constraint') then
     raise exception 'PROVA: snapshot de estrutura nao capturou os constraints';
   end if;
+
+  -- 11. A view segura existe, e `security_invoker` esta LIGADO. Sem essa
+  --     opcao a view passaria por cima da RLS da tabela base -- entregaria
+  --     vinculo de qualquer aluno a qualquer autenticado. E a assercao mais
+  --     importante desta secao.
+  if to_regclass('public.ulbra_vinculos_confirmados') is null then
+    raise exception 'PROVA: a view ulbra_vinculos_confirmados nao existe';
+  end if;
+  -- Le a opcao pela `pg_options_to_table`, que e o idioma do proprio gate do
+  -- repositorio (`scripts/seguranca/auditoria_seguranca.sql`, item 7
+  -- "VIEW_BYPASS_RLS"). Casar a string literal 'security_invoker=on' quebraria
+  -- se alguem reescrevesse como `= true` -- quebraria para o lado seguro, mas
+  -- quebraria. Usar o mesmo idioma do gate tambem garante que as duas
+  -- verificacoes concordem sempre.
+  if coalesce((
+    select option_value from pg_options_to_table(
+      (select reloptions from pg_class where oid = 'public.ulbra_vinculos_confirmados'::regclass)
+    ) where option_name = 'security_invoker'
+  ), 'off') not in ('on','true') then
+    raise exception
+      'PROVA: ulbra_vinculos_confirmados SEM security_invoker -- a view '
+      'passaria por cima da RLS de ulbra_vinculos';
+  end if;
+  if has_table_privilege('anon','public.ulbra_vinculos_confirmados','SELECT') then
+    raise exception 'PROVA: anon le a view de vinculos confirmados';
+  end if;
+  if not has_table_privilege('authenticated','public.ulbra_vinculos_confirmados','SELECT')
+     or not has_table_privilege('service_role','public.ulbra_vinculos_confirmados','SELECT') then
+    raise exception 'PROVA: a view segura nao e legivel por quem precisa dela';
+  end if;
 end $prova$;
 
 -- ----------------------------------------------------------------------------
@@ -598,6 +670,28 @@ begin
       if not v_ok then raise exception 'PROVA DE COMPORTAMENTO: dois alunos no mesmo cliente NAO foi barrado'; end if;
     end if;
 
+    -- 6. A view segura ESCONDE vinculo nao confirmado por CPF e MOSTRA o
+    --    confirmado. E o que impede `ulbra-atendimento` de abrir atendimento
+    --    de cliente que ninguem conferiu -- checar que a view existe nao
+    --    prova que ela filtra.
+    if v_aluno_b is not null then
+      insert into public.ulbra_vinculos
+        (aluno_id, ulbra_cliente_id, confianca, origem, vinculado_por)
+      values
+        (v_aluno_b, 'PROVA_LEGADO_20261104200000', 'alta', 'telefone', 'prova-migration');
+
+      if exists (select 1 from public.ulbra_vinculos_confirmados
+                  where ulbra_cliente_id = 'PROVA_LEGADO_20261104200000') then
+        raise exception
+          'PROVA DE COMPORTAMENTO: a view expos vinculo legado NAO confirmado por CPF';
+      end if;
+      if not exists (select 1 from public.ulbra_vinculos_confirmados
+                      where ulbra_cliente_id = 'PROVA_UNICIDADE_20261104200000') then
+        raise exception
+          'PROVA DE COMPORTAMENTO: a view escondeu vinculo confirmado por CPF';
+      end if;
+    end if;
+
     -- Tudo provado: sai por excecao para DESFAZER as linhas de prova.
     raise exception 'PROVA_DE_COMPORTAMENTO_OK';
   exception
@@ -605,7 +699,7 @@ begin
       if sqlerrm <> 'PROVA_DE_COMPORTAMENTO_OK' then
         raise;   -- assercao real falhou: propaga e aborta a migration
       end if;
-      raise notice 'PROVA DE COMPORTAMENTO: 5 assercoes OK, linhas de prova desfeitas';
+      raise notice 'PROVA DE COMPORTAMENTO: 6 assercoes OK, linhas de prova desfeitas';
   end;
 
   -- Cinto e suspensorio: nenhuma linha de prova pode ter sobrado.

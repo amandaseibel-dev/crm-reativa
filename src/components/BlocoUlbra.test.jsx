@@ -161,7 +161,28 @@ describe("BlocoUlbra", () => {
     await waitFor(() => expect(container.firstChild).toBeNull());
   });
 
-  it("vínculo legado marcado para reconferência: mantém o link E avisa", async () => {
+  // Vínculo sem CPF confirmado NÃO pode oferecer o botão. Aviso sozinho não
+  // segura ninguém: o botão ao lado continua clicável, e um clique abre o
+  // atendimento de um cliente que ninguém confirmou ser este aluno.
+  it("vínculo não confirmado por CPF: avisa e NÃO dá o botão", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        status: "vinculado_nao_confirmado",
+        confianca: "alta",
+        origem: "telefone",
+        reconfirmar_recomendado: true,
+      }),
+    });
+
+    const { container } = render(<BlocoUlbra aluno={{ id: "aluno-legado" }} />);
+    await waitFor(() => expect(container.textContent).toMatch(/sem confirmação por CPF/i));
+    expect(container.querySelector("a")).toBeNull();
+    expect(container.textContent).toMatch(/gestão precisa conferir/i);
+  });
+
+  it("mesmo se a função devolver url com reconfirmar_recomendado, a tela não dá o botão", async () => {
+    // Cinto e suspensório: versão anterior da função publicada por engano.
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -173,12 +194,10 @@ describe("BlocoUlbra", () => {
       }),
     });
 
-    const { container } = render(<BlocoUlbra aluno={{ id: "aluno-legado" }} />);
-    await waitFor(() => {
-      // O vínculo antigo não é escondido nem apagado — continua clicável.
-      expect(container.querySelector("a")).toBeTruthy();
-      expect(container.textContent).toMatch(/sem confirmação por CPF/i);
-    });
+    const { container } = render(<BlocoUlbra aluno={{ id: "aluno-legado-2" }} />);
+    await waitFor(() => expect(container.textContent).toMatch(/sem confirmação por CPF/i));
+    expect(container.querySelector("a")).toBeNull();
+    expect(container.innerHTML).not.toContain("crm.ulbra.ai");
   });
 
   it("vínculo confirmado por CPF não exibe aviso de reconferência", async () => {

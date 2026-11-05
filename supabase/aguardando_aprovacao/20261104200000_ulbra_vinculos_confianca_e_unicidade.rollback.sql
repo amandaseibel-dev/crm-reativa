@@ -9,7 +9,7 @@
 -- ----------------------------------------------------------------------------
 -- O QUE ESTA REVERSA DEVOLVE, OBJETO POR OBJETO
 --
--- Os SEIS pontos alterados pela migration sao todos NOVOS ou restauraveis --
+-- Os SETE pontos alterados pela migration sao todos NOVOS ou restauraveis --
 -- nenhum `create or replace` sobre funcao preexistente, nenhuma policy
 -- alterada --, entao revertê-los devolve o banco ao estado medido em
 -- 04/11/2026:
@@ -22,6 +22,8 @@
 --                                                  REVOKE de EXECUTE sai com
 --                                                  ela, nao e item separado)
 --   6. grants DELETE/TRUNCATE de authenticated     DEVOLVIDOS (ver abaixo)
+--   7. ulbra_vinculos_confirmados (view)           removida (nao existia); ver
+--                                                  a SECAO 1b antes de rodar
 --
 -- NENHUMA linha de `ulbra_vinculos`, `alunos` ou `auditoria` e lida, escrita
 -- ou apagada aqui.
@@ -115,6 +117,17 @@ grant delete, truncate on public.ulbra_vinculos to authenticated;
 grant truncate on public.ulbra_vinculos to service_role;
 
 -- ----------------------------------------------------------------------------
+-- SECAO 1b. SUPERFICIE SEGURA
+--
+-- CONSEQUENCIA: quem estiver lendo `ulbra_vinculos_confirmados` quebra na hora
+-- (relation does not exist) e volta a ter de filtrar `confianca` por conta
+-- propria. CONFERIR, ANTES DE RODAR, se a `ulbra-atendimento` ja migrou para a
+-- view -- se migrou, reverter isto sem reverter aquela funcao derruba a
+-- abertura de atendimento inteira.
+-- ----------------------------------------------------------------------------
+drop view if exists public.ulbra_vinculos_confirmados;
+
+-- ----------------------------------------------------------------------------
 -- SECAO 2. UNICIDADE POR CLIENTE ATIVO
 -- ----------------------------------------------------------------------------
 drop index if exists public.ulbra_vinculos_cliente_ativo_uniq;
@@ -155,6 +168,10 @@ begin
 
   if exists (select 1 from pg_class where relname = 'ulbra_vinculos_cliente_ativo_uniq') then
     raise exception 'PROVA DA REVERSA: sobrou o indice ulbra_vinculos_cliente_ativo_uniq';
+  end if;
+
+  if to_regclass('public.ulbra_vinculos_confirmados') is not null then
+    raise exception 'PROVA DA REVERSA: sobrou a view ulbra_vinculos_confirmados';
   end if;
 
   if exists (

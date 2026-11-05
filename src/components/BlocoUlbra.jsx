@@ -92,7 +92,32 @@ export default function BlocoUlbra({ aluno }) {
     return <div className="text-xs text-gray-400 mt-1">Consultando Mensageria Ulbra…</div>;
   }
 
+  // Vínculo que existe mas NÃO foi confirmado por CPF: aviso, nunca botão.
+  // A função já devolve este caso sem `url` e sem `ulbra_cliente_id`; esta tela
+  // não reconstrói a URL nem oferece caminho para abrir o atendimento.
+  if (estado === "vinculado_nao_confirmado") {
+    return (
+      <div className="mt-1 text-xs text-amber-600">
+        Vínculo sem confirmação por CPF — a gestão precisa conferir a identidade
+        antes de abrir na Mensageria
+      </div>
+    );
+  }
+
   if (estado === "vinculado" && dados?.url) {
+    // Cinto e suspensório: se uma versão anterior da função devolver `url`
+    // JUNTO com `reconfirmar_recomendado`, a tela ainda assim não dá o botão.
+    // Vínculo não confirmado por CPF não tem acesso automático — o aviso
+    // sozinho não segura ninguém, porque o botão ao lado continua clicável.
+    if (dados.reconfirmar_recomendado) {
+      return (
+        <div className="mt-1 text-xs text-amber-600">
+          Vínculo sem confirmação por CPF — a gestão precisa conferir a
+          identidade antes de abrir na Mensageria
+        </div>
+      );
+    }
+
     return (
       <div className="mt-2">
         <a
@@ -103,14 +128,6 @@ export default function BlocoUlbra({ aluno }) {
         >
           Abrir na Mensageria Ulbra ↗
         </a>
-        {/* Vínculo da Etapa 1 (selo "alta" sem confirmação de CPF) continua
-            válido e clicável — não é apagado nem escondido —, mas o operador
-            precisa saber que a identidade não foi provada por CPF. */}
-        {dados.reconfirmar_recomendado && (
-          <div className="mt-1 text-xs text-amber-600">
-            Vínculo antigo, sem confirmação por CPF — confira a identidade antes de usar
-          </div>
-        )}
       </div>
     );
   }

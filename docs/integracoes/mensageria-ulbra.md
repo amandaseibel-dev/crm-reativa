@@ -65,7 +65,8 @@ O que vale agora, em `supabase/functions/ulbra-consultar/vinculo.ts`:
 | CPF confirma, mas o cliente já tem vínculo ativo com outro aluno | **bloqueia** `DUPLICADO_CLIENTE_DE_OUTRO_ALUNO` |
 | Só o telefone achou | **bloqueia** `CONFIRMACAO_MANUAL_SO_TELEFONE` |
 | Telefone achou e o aluno não tem CPF cadastrado | **bloqueia** `CONFIRMACAO_MANUAL_SEM_CPF` |
-| Já existe vínculo ativo | devolve o existente; **nunca** sobrescreve |
+| Já existe vínculo ativo **confirmado por CPF** | devolve o existente com `url`; **nunca** sobrescreve |
+| Já existe vínculo ativo **sem** confirmação por CPF | `vinculado_nao_confirmado`: **sem `url` e sem `ulbra_cliente_id`** |
 
 **Limite conhecido da detecção de discordância.** Quando o telefone casa com
 cliente fora do escopo do token, a Mensageria devolve `equipe` mas **não** o
@@ -95,10 +96,63 @@ base é *determinada* pelo conjunto recebido, não escolhida. Qualquer outro
 conjunto — buraco, posição repetida, quantidade diferente da pedida — falha
 fechado (`RESPOSTA_INVALIDA`): nenhum vínculo é gravado, nunca o errado.
 
-**Vínculo antigo não é apagado nem rebaixado.** Linha com `confianca = 'alta'`
-e `origem = 'telefone'` (selo da Etapa 1) continua válida e clicável, mas vem
-com `reconfirmar_recomendado: true` e a ficha avisa que a identidade não foi
-provada por CPF. Desvinculação é sempre lógica (`desvinculado_em`).
+**Base 1 só é aceita quando o mapeamento não pode mudar a decisão** — mesmo
+cliente em todas as posições, ou nenhuma com cliente. O motivo é concreto: se
+as posições estiverem trocadas em relação ao pedido, "telefone achou X, CPF não
+achou" é lido como "CPF confirmou X, telefone não achou" — e o primeiro
+**bloqueia** enquanto o segundo **grava**. Seria o falso positivo exato que
+esta correção existe para fechar, produzido por uma convenção que ninguém
+mediu. Então base 1 assimétrica falha fechado.
+
+**Base 0 segue aceita com mapeamento assimétrico — e isso é inferência, não
+medição.** Tem de ser aceita, senão o caminho principal (só o CPF confirma)
+nunca gravaria. O que a sustenta é a semântica documentada de `posicao` como
+índice do array `contatos` pedido; o que foi **medido** é `posicao: 0` em
+resposta de **uma** posição. Para duas, é extrapolação da documentação.
+
+Resta exatamente um cenário de falso positivo, e ele precisa estar escrito:
+se as posições vierem trocadas em base 0, a função lê "CPF→A, telefone→nada" e
+**grava**, quando a verdade seria "telefone→A, CPF→nada", que deveria
+**bloquear**. O cenário inverso é seguro — produz bloqueio falso, não gravação
+falsa. Fechar isso exige a medição com duas posições, que segue pendente e
+precisa de autorização da gestão. Até lá, "nenhum resultado duvidoso gera
+vínculo" é verdade para tudo que o código consegue detectar como duvidoso, e
+**não comprovada** para uma violação da semântica de `posicao` em base 0.
+
+**Vínculo antigo não é apagado nem rebaixado — mas também não dá acesso.**
+Linha com `confianca = 'alta'` e `origem = 'telefone'` (selo da Etapa 1)
+continua válida e visível para a gestão na tabela, porém a `ulbra-consultar`
+devolve `status: 'vinculado_nao_confirmado'` **sem `url` e sem
+`ulbra_cliente_id`**, e a ficha mostra só o aviso, sem o botão "Abrir na
+Mensageria". Aviso ao lado de um botão clicável não é proteção: enquanto o id
+viajar na resposta, qualquer cliente da API remonta a URL do atendimento.
+Desvinculação é sempre lógica (`desvinculado_em`).
+
+### Dependência obrigatória: `ulbra-atendimento` (PR #814)
+
+`ulbra-atendimento` lê `ulbra_vinculos` filtrando apenas `aluno_id` +
+`desvinculado_em is null`, e **não lê `confianca`**. Para ela, um vínculo
+legado por telefone é indistinguível de um confirmado por CPF — e abrir
+atendimento a partir dele é abrir conversa com a pessoa errada.
+
+Essa função **não é alterada nesta frente**: pertence à PR #814, que está
+aberta, e duas frentes não editam o mesmo arquivo. Fica registrado como
+**dependência obrigatória, a cumprir na frente da #814**:
+
+> `ulbra-atendimento` deve passar a ler a view
+> `public.ulbra_vinculos_confirmados` (criada pela proposta
+> `20261104200000`), que só expõe vínculo ativo com `confianca = 'alta_cpf'`,
+> ou então filtrar `confianca = 'alta_cpf'` explicitamente.
+
+A view tem `security_invoker = on` — sem isso ela rodaria com os direitos do
+dono e passaria por cima da RLS de `ulbra_vinculos`, entregando vínculo de
+qualquer aluno a qualquer autenticado. Enquanto a `ulbra-atendimento` não
+migrar, a garantia do lado dela é **disciplina, não estrutura**.
+
+Hoje isso é risco potencial, não ativo: `ulbra_vinculos` está vazia e a
+`ulbra-consultar` corrigida só escreve `alta_cpf`. Um vínculo não confirmado
+só passa a existir se a função da Etapa 1 for republicada ou se a gestão
+inserir à mão.
 
 ## Pendências
 
@@ -119,9 +173,22 @@ provada por CPF. Desvinculação é sempre lógica (`desvinculado_em`).
 - **Medição pendente, precisa de autorização da gestão:** a numeração de
   `posicao` em chamada `conferir_duplicidade` com duas posições. Tratada por
   tolerância às duas bases possíveis, não por medição.
-- **`index.ts` da `ulbra-consultar` não tem teste automatizado** (não há Deno
-  nesta máquina). A regra toda está em `vinculo.ts` e `mcp.ts`, que têm; o que
-  fica sem prova automática é a fiação: códigos HTTP e ordem das auditorias.
+- **Teste de integração existe, mas NÃO é validação completa.**
+  `supabase/functions/ulbra-consultar/integracao.test.ts` percorre a cadeia
+  envelope JSON-RPC → casamento por posição → validação por CPF → tentativa de
+  gravação, com banco falso que recusa como o real recusaria (CHECK de
+  `confianca`, unicidade de cliente). **Fica expressamente sem prova:**
+  1. `index.ts` não é importado — chama `serve()` e `createClient()` no topo e
+     não há Deno nesta máquina. Códigos HTTP e ordem real das auditorias seguem
+     provados só por leitura; a cadeia é reconstruída pelo teste, não executada
+     a partir do `index.ts`.
+  2. Nenhuma chamada real à Mensageria. Os envelopes são fixtures na forma
+     medida em 04/11/2026.
+  3. Nenhuma escrita real no Postgres. As recusas do banco são imitadas; que o
+     banco real as aplique é o que as seções 4 e 5 da proposta SQL provam — e
+     ela não foi aplicada.
+
+  Ninguém deve declarar a integração validada com base só neste arquivo.
 - **Ordem obrigatória de publicação:** o SQL **antes** do deploy da
   `ulbra-consultar` corrigida. A função grava `alta_cpf`, valor que o CHECK de
   hoje rejeita; na ordem errada todo vínculo novo falha com
