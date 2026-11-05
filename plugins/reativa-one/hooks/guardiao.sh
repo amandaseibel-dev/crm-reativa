@@ -26,7 +26,7 @@
 # ============================================================================
 set -uo pipefail
 
-VERSAO="1.1.0"
+VERSAO="1.3.1"
 
 # ----------------------------------------------------------------------------
 # saída padrão
@@ -339,9 +339,31 @@ avaliar_comando() {
   # O recorte é exatamente o conjunto das formas que NÃO escrevem: nenhum
   # caminho de escrita é perdido.
   #
+  # DESCARTE PARA /dev/null, pelo MESMO motivo e com o mesmo cuidado. `2>/dev/null`
+  # e `>/dev/null` não abrem arquivo: descartam. Sem esta segunda remoção,
+  # `grep -rn x .claude/settings.json 2>/dev/null` -- leitura pura -- era NEGADO
+  # por R5/desarme, porque o `>` do descarte servia ao portão externo. Medido em
+  # sessão real em 05/11/2026, no próprio trabalho de revisão desta regra.
+  #
+  # O RECORTE É EXATAMENTE `/dev/null`, E EXIGE FRONTEIRA DEPOIS DELE. O destino
+  # é literal e não é arquivo do repositório; a fronteira `($|[ ;|&)])` é o que
+  # impede que `>/dev/nullx` ou `>/dev/null/../x` -- que NOMEIAM outro destino --
+  # sejam lidos como descarte. A fronteira é devolvida pelo `\2`: sem isso,
+  # `cat a >/dev/null; echo x > supabase/migrations/y.sql` perderia o `;` e os
+  # dois comandos virariam um só texto.
+  #
+  # O QUE SEGUE NEGANDO, de propósito:
+  #   `> /dev/null` mais `> arq`   só o descarte sai; o `> arq` permanece e nega;
+  #   `> arq 2>/dev/null`          idem -- é escrita com erro descartado;
+  #   `>/dev/stderr`, `>/dev/fd/3` não são descarte: não casam, negam;
+  #   `cp a /dev/null`             `cp` segue no portão, por token, não por `>`.
+  #
   # Os greps de CAMINHO PROTEGIDO e as mensagens seguem em `$e`: o caminho é
   # avaliado na forma original, e quem lê precisa ver o que pediu.
-  local er; er="$(printf '%s' "$e" | sed -E 's/[0-9]*>&[0-9-]*//g')"
+  local er
+  er="$(printf '%s' "$e" \
+    | sed -E 's/[0-9]*>&[0-9-]*//g' \
+    | sed -E 's@([0-9]*|&)>>?[ ]*/dev/null($|[ ;|&)])@\2@g')"
 
   # R1 — CLI do Supabase que reescreve ou reverte produção.
   # docs/RUNBOOK-MIGRATIONS.md, regra nº 1: db push é PROIBIDO, sem exceção.
@@ -490,6 +512,67 @@ avaliar_comando() {
   fi
 
   return 0
+}
+
+# ----------------------------------------------------------------------------
+# M3 — SEPARAR CÓDIGO SQL DE TEXTO QUE SÓ PARECE CÓDIGO.
+#
+# O filtro de verbo de M3 varria a query inteira, então consulta de LEITURA era
+# negada por CITAR a palavra: `where acao = 'update'`, `where definition ilike
+# '%grant%'` sobre `pg_get_functiondef`, `where tipo in ('insert','delete')`.
+# Nenhuma delas escreve nada. Regra que incomoda sem motivo é regra que alguém
+# desliga -- mesma doutrina da isenção de `.env.example` em R6 e da duplicação
+# de descritor em R5.
+#
+# Esta função remove APENAS o que não pode executar: literal entre apóstrofos,
+# identificador entre aspas duplas e comentário. Devolve o RESTO, que é código.
+# O filtro de verbo segue idêntico e passa a rodar sobre esse resto, então
+# nenhum verbo de escrita em posição de código deixa de casar -- `select 'a';
+# update t set x=1` continua negado, porque o `update` não está em literal.
+#
+# ORDEM OBRIGATÓRIA: literal ANTES de comentário. Ao contrário,
+# `select 'a--' ; update t set x=1` seria truncado no `--` de DENTRO do literal
+# e a escrita seguinte desapareceria do texto examinado. Furo, não detalhe.
+#
+# DÚVIDA = NÃO SANITIZA, e o filtro roda sobre o texto CRU, que nega:
+#   - barra invertida: com `standard_conforming_strings` desligado, `E'\''`
+#     muda onde o literal termina e a regra do apóstrofo deixa de valer;
+#   - citação por dólar (`$$ … $$`, `$tag$ … $tag$`): o corpo de um `DO` ou de
+#     uma função EXECUTA. Não é texto e não é removido em nenhuma hipótese;
+#   - apóstrofo ou aspas sobrando depois da remoção: não havia par (literal
+#     aberto, literal em várias linhas), então o recorte não é confiável.
+#
+# Múltiplas instruções não mudam nada aqui: o filtro de verbo não depende de
+# onde começa o statement, e `;` segue no texto devolvido.
+# ----------------------------------------------------------------------------
+sanitizar_sql() {
+  local q="$1"
+
+  # barra invertida em qualquer lugar: não mexe.
+  case "$q" in
+    *\\*) printf '%s' "$q"; return 0 ;;
+  esac
+
+  # citação por dólar em qualquer lugar: não mexe. Corpo de DO/função executa.
+  if printf '%s' "$q" | grep -Eq '\$[a-z_0-9]*\$'; then
+    printf '%s' "$q"; return 0
+  fi
+
+  # `sed` é por LINHA, de propósito: comentário `--` termina na linha, e literal
+  # que atravessa linha fica sem par e cai na recusa de sanitizar abaixo.
+  local s
+  s="$(printf '%s' "$q" \
+    | sed -E "s@'(''|[^'])*'@@g" \
+    | sed -E 's@"[^"]*"@@g' \
+    | sed -E 's@/\*([^*]|\*+[^*/])*\*+/@@g' \
+    | sed -E 's@--.*$@@')"
+
+  # sobrou apóstrofo ou aspas: o recorte não é confiável.
+  case "$s" in
+    *\'*|*\"*) printf '%s' "$q"; return 0 ;;
+  esac
+
+  printf '%s' "$s"
 }
 
 # ----------------------------------------------------------------------------
@@ -761,13 +844,39 @@ put_firewall_config|update_firewall_config)
       execute_sql)
         Q="$(JQ '.tool_input.query // empty' | tr '[:upper:]' '[:lower:]')"
         [ -z "$Q" ] && negar "M3/sql-sem-query" "execute_sql sem query legível." "nenhum"
+        # CÓDIGO, sem literal, identificador citado nem comentário. Dúvida
+        # devolve a query crua, e aí o filtro abaixo nega. Ver sanitizar_sql.
+        QS="$(sanitizar_sql "$Q")"
+        [ -z "$QS" ] && QS="$Q"
         # Filtro de verbo é defesa EM CIMA da aprovação da Camada 0, nunca em
         # lugar dela: execute_sql está em "ask" no settings.json.
-        if printf '%s' "$Q" | grep -Eq '(^|[^a-z_])(insert|update|delete|truncate|drop|alter|create|grant|revoke|comment|reindex|vacuum|refresh)([^a-z_]|$)'; then
-          if ! printf '%s' "$Q" | grep -Eq '(^|[^a-z_])rollback([^a-z_]|$)'; then
+        #
+        # `do` e `execute` ENTRAM NA LISTA junto com a sanitização, e por causa
+        # dela: `do 'update t set x=1' language plpgsql` EXECUTA, e com o literal
+        # removido não restaria verbo nenhum para casar. Sem este par a
+        # sanitização abriria um caminho de escrita. A fronteira `[^a-z_]`
+        # preserva `pedido`, `do_algo` e `executed`.
+        if printf '%s' "$QS" | grep -Eq '(^|[^a-z_])(insert|update|delete|truncate|drop|alter|create|grant|revoke|comment|reindex|vacuum|refresh|do|execute)([^a-z_]|$)'; then
+          # PERFIL DE TESTE, ESTRUTURAL, sobre o código sanitizado (QS). A forma
+          # anterior era `rollback` em qualquer lugar da query CRUA, e cinco
+          # contornos passavam: `update …; rollback;` sem begin (autocommit,
+          # escreve e o rollback não faz nada), `begin; …; commit; rollback;`
+          # (o commit já gravou), e `rollback` dentro de literal ou comentário.
+          # Exigem-se as três coisas, todas:
+          #   1. começar em `begin` -- sem transação aberta o rollback não desfaz;
+          #   2. nenhum `commit`, `end` ou `release` em código -- gravam;
+          #   3. `rollback` como ÚLTIMO statement -- um `update` depois dele
+          #      escreveria em autocommit.
+          # Não cobre efeito externo (dblink, função que chama outro banco),
+          # que rollback nenhum desfaz: fica registrado como limite.
+          PERFIL_OK=1
+          printf '%s' "$QS" | grep -Eq '^[[:space:]]*begin[[:space:]]*(;|$)' || PERFIL_OK=0
+          printf '%s' "$QS" | grep -Eq '(^|[^a-z_])(commit|end|release)([^a-z_]|$)' && PERFIL_OK=0
+          printf '%s' "$QS" | grep -Eq 'rollback[[:space:]]*;?[[:space:]]*$' || PERFIL_OK=0
+          if [ "$PERFIL_OK" -ne 1 ]; then
             negar "M3/sql-escreve" \
-              "A consulta contém verbo de escrita e não termina em rollback." \
-              "leitura; ou 'begin; … rollback;' para teste de perfil (docs/seguranca §9)"
+              "A consulta contém verbo de escrita fora do perfil de teste: precisa começar em begin, não ter commit, e terminar em rollback." \
+              "leitura; ou 'begin; … rollback;' como último statement (docs/seguranca §9)"
           fi
         fi ;;
 
