@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { AvatarFoto } from "../components/AvatarFoto";
 import { cartaoAcentoEscuro, modalBoxEscuro } from "../ui/cards";
+import { validarNovaSenha } from "../utils/senhaAdmin";
 
 const perfis = ["gerencia", "supervisor", "administrativo", "operador", "auditor", "diretoria"];
 
@@ -82,6 +83,37 @@ export default function Usuarios() {
   }
 
   const [enviandoSenhaPara, setEnviandoSenhaPara] = useState("");
+
+  // Definir senha direto (sem e-mail): gestão escolhe o usuário e digita a senha.
+  // A troca acontece na Edge Function admin-definir-senha, no servidor. A senha
+  // digitada sai da memória da tela assim que a chamada termina.
+  const [senhaDe, setSenhaDe] = useState(null);
+  const [novaSenhaTxt, setNovaSenhaTxt] = useState("");
+  const [definindoSenha, setDefinindoSenha] = useState(false);
+
+  async function definirSenhaDireta() {
+    setErro("");
+    setMensagem("");
+    const alvo = senhaDe;
+    if (!alvo) return;
+    const validacao = validarNovaSenha(novaSenhaTxt);
+    if (!validacao.ok) {
+      setErro(validacao.motivo);
+      return;
+    }
+    setDefinindoSenha(true);
+    const { data, error } = await supabase.functions.invoke("admin-definir-senha", {
+      body: { email: alvo.email, nova_senha: novaSenhaTxt },
+    });
+    setDefinindoSenha(false);
+    setNovaSenhaTxt("");
+    if (error || (data && data.error)) {
+      setErro("Não foi possível definir a senha: " + ((data && data.error) || error?.message || "erro desconhecido"));
+      return;
+    }
+    setSenhaDe(null);
+    setMensagem(`Senha definida para ${alvo.email}.`);
+  }
 
   // Envia um e-mail de redefinicao de senha pro proprio operador -- ele
   // define a senha dele mesmo, sem ninguem digitar/ver a senha de outra
@@ -379,6 +411,34 @@ export default function Usuarios() {
           {erro && <p style={erroStyle}>{erro}</p>}
           {mensagem && <p style={okStyle}>{mensagem}</p>}
         </form>
+
+        {senhaDe && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginTop: 12 }}>
+            <span>Nova senha para <strong>{senhaDe.email}</strong>:</span>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={novaSenhaTxt}
+              onChange={(e) => setNovaSenhaTxt(e.target.value)}
+              placeholder="10 a 128 caracteres, com letra e número"
+              style={{ minWidth: 260 }}
+            />
+            <button type="button" style={miniBtn} onClick={definirSenhaDireta} disabled={definindoSenha}>
+              {definindoSenha ? "Salvando..." : "Salvar senha"}
+            </button>
+            <button
+              type="button"
+              style={miniBtn}
+              onClick={() => {
+                setSenhaDe(null);
+                setNovaSenhaTxt("");
+              }}
+              disabled={definindoSenha}
+            >
+              Cancelar
+            </button>
+          </div>
+        )}
       </section>
 
       <div style={filters}>
@@ -477,6 +537,19 @@ export default function Usuarios() {
                         disabled={enviandoSenhaPara === u.email}
                       >
                         {enviandoSenhaPara === u.email ? "Enviando..." : "🔒 Enviar redefinição de senha"}
+                      </button>
+                      <button
+                        type="button"
+                        style={miniBtn}
+                        onClick={() => {
+                          setSenhaDe(u);
+                          setNovaSenhaTxt("");
+                          setErro("");
+                          setMensagem("");
+                        }}
+                        disabled={!u.email}
+                      >
+                        🔑 Definir senha
                       </button>
                       <button style={miniBtn} onClick={() => alternarAtivo(u)}>
                         {u.ativo ? "Inativar" : "Ativar"}
