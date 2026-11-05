@@ -1,5 +1,43 @@
 # ReATIVA One — registro de versões
 
+## 1.3.1 — 2026-11-05 (falsos positivos de R5/R7 e de M3)
+
+Dois bloqueios que atingiam **leitura** foram corrigidos. Nenhuma regra nova, nenhum
+bloqueio de escrita relaxado, Camada 0 intocada: `.claude/settings.json` não é alterado
+por esta versão.
+
+- **R5/R7 — descarte para `/dev/null`.** O portão externo das duas regras casa qualquer
+  `>`, e a cópia que ignora redirecionamento só recortava `N>&M`. Consequência:
+  `grep -rn x .claude/settings.json 2>/dev/null` — leitura pura — era negado por
+  `R5/desarme`. Medido em sessão real de revisão, em 05/11/2026. O recorte passou a
+  incluir `>/dev/null` e `N>/dev/null`, **com fronteira obrigatória depois do destino**:
+  `>/dev/nullx`, `>/dev/null/../<caminho>` e `>/dev/stderr` nomeiam outro destino, não
+  casam e seguem negando. Mesma doutrina da duplicação de descritor (1.3.0) e da isenção
+  de `.env.example` em R6: regra que incomoda sem motivo é regra que alguém desliga.
+- **M3 — palavra de escrita fora de posição de código.** O filtro de verbo varria a query
+  inteira, então consulta de leitura era negada por **citar** a palavra:
+  `where acao = 'update'`, `where pg_get_functiondef(oid) ilike '%grant%'`,
+  `where tipo in ('insert','delete')`. Entrou `sanitizar_sql()`, que remove **só o que não
+  executa** — literal entre apóstrofos, identificador entre aspas duplas e comentário de
+  linha e de bloco — e o filtro passou a rodar sobre o resto, que é código. Literal é
+  removido **antes** de comentário, senão `select 'a--' ; update t set x=1` seria truncado
+  no `--` de dentro do literal e a escrita desapareceria do texto examinado.
+- **Dúvida segue negando.** A sanitização é recusada, e o filtro roda sobre a query crua,
+  quando há barra invertida (escape de literal muda onde o literal termina), citação por
+  dólar (`$$ … $$` é corpo de `DO`/função: executa, não é texto) ou apóstrofo/aspas
+  sobrando depois da remoção (literal sem par, ou em várias linhas).
+- **`do` e `execute` entraram na lista de verbos de M3**, por causa da sanitização e não
+  apesar dela: `do 'update t set x=1' language plpgsql` executa, e com o literal removido
+  não restaria verbo para casar. Sem esse par a sanitização abriria caminho de escrita.
+- **Autoteste: 219 casos (eram 191), 0 divergente.** 28 novos: `G01`–`G13` para o descarte
+  de stderr (5 de leitura liberada, 8 provando que toda forma que nomeia outro destino
+  segue negada) e `Q01`–`Q15` para M3 (7 de leitura liberada, 8 de escrita negada —
+  `;` depois de literal, CTE que escreve, `DO` em literal e em dólar, literal aberto,
+  barra invertida).
+- **Não mudou:** nenhuma outra regra do hook, nenhuma entrada de `deny`/`ask`, nenhum
+  bloqueio de aplicação. `copy … from` e função de escrita chamada por `select` seguem
+  fora da lista de verbos de M3 — lacuna **anterior** a esta versão, não introduzida aqui.
+
 ## 1.3.0 — 2026-10-29 (Fase 2 de Banco — portão de desenvolvimento de migration)
 
 Libera `Write`/`Edit` de migration em worktree e branch nomeados pela gestão, sem

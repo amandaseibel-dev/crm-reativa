@@ -438,6 +438,76 @@ const casos = [
     bash("cp novo.sh plugins/reativa-one/hooks/guardiao.sh 2>&1", RAIZ), FASE2],
   ["F96", "NEGA", "redirecionar para migration com 2>&1 segue negado (R5)",
     bash("echo x > supabase/migrations/20260101000000_a.sql 2>&1", RAIZ), FASE2],
+
+  // ---- G01-G13: DESCARTE PARA /dev/null. Mesmo defeito de F89-F96 por outra
+  // forma: `2>/dev/null` e `>/dev/null` não abrem arquivo, mas o `>` deles
+  // servia ao portão EXTERNO de R5 e R7 e negava LEITURA PURA. Medido em sessão
+  // real em 05/11/2026 (`grep -rn x .claude/settings.json 2>/dev/null` caía em
+  // R5/desarme). O recorte é exatamente `/dev/null` COM fronteira depois: tudo
+  // que nomeia outro destino permanece, e é isso que G06-G13 travam.
+  ["G01", "PASSA", "/dev/null: leitura das permissões com 2>/dev/null",
+    bash("grep -rn x .claude/settings.json 2>/dev/null", RAIZ), FASE2],
+  ["G02", "PASSA", "/dev/null: leitura do próprio arquivo do Guardião",
+    bash("cat plugins/reativa-one/hooks/guardiao.sh 2>/dev/null", RAIZ), FASE2],
+  ["G03", "PASSA", "/dev/null: ls da pasta de migrations",
+    bash("ls -la supabase/migrations 2>/dev/null", RAIZ), FASE2],
+  ["G04", "PASSA", "/dev/null: descarte da saída na leitura do ledger",
+    bash("grep -c x supabase/ledger/2026-10/a.sql >/dev/null", RAIZ), FASE2],
+  ["G05", "PASSA", "/dev/null: descarte nas duas pontas, com espaço",
+    bash("grep x .claude/settings.json > /dev/null 2> /dev/null", RAIZ), FASE2],
+  ["G06", "NEGA", "/dev/null: escrita real nas permissões segue negada",
+    bash("echo x > .claude/settings.json", RAIZ), FASE2],
+  ["G07", "NEGA", "/dev/null: escrita em migration com stderr descartado",
+    bash("echo x > supabase/migrations/20260101000000_a.sql 2>/dev/null", RAIZ), FASE2],
+  ["G08", "NEGA", "/dev/null: escrita no ledger com saída descartada",
+    bash("echo x > supabase/ledger/2026-10/a.sql >/dev/null", RAIZ), FASE2],
+  ["G09", "NEGA", "/dev/null: cp sobre o Guardião com stderr descartado (R7)",
+    bash("cp novo.sh plugins/reativa-one/hooks/guardiao.sh 2>/dev/null", RAIZ), FASE2],
+  ["G10", "NEGA", "/dev/nullx NÃO é descarte: nomeia outro destino",
+    bash("echo x >/dev/nullx .claude/settings.json", RAIZ), FASE2],
+  ["G11", "NEGA", "/dev/null/../ NÃO é descarte: nomeia outro destino",
+    bash("echo x >/dev/null/../.claude/settings.json", RAIZ), FASE2],
+  ["G12", "NEGA", "/dev/null: descarte, ponto-e-vírgula e escrita na sequência",
+    bash("cat a >/dev/null; echo x > supabase/migrations/y.sql", RAIZ), FASE2],
+  ["G13", "NEGA", "/dev/stderr NÃO é descarte",
+    bash("echo x >/dev/stderr .claude/settings.json", RAIZ), FASE2],
+
+  // ---- Q01-Q15: M3 sobre o CÓDIGO, não sobre o texto. O filtro de verbo
+  // varria a query inteira, então consulta de leitura era negada por CITAR a
+  // palavra. Literal, identificador citado e comentário passam a ser removidos
+  // ANTES do filtro; `do` e `execute` entram na lista de verbos junto com a
+  // sanitização, porque sem eles `do '<corpo>'` ficaria sem verbo para casar.
+  // Q08-Q15 travam o que a sanitização NÃO pode abrir.
+  ["Q01", "PASSA", "M3: palavra update dentro de literal (filtro)",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: "select id from acoes where acao = 'update'" })],
+  ["Q02", "PASSA", "M3: definição consultada contendo a palavra grant",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: "select proname from pg_proc where pg_get_functiondef(oid) ilike '%grant%'" })],
+  ["Q03", "PASSA", "M3: lista de literais insert/delete",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: "select * from log where tipo in ('insert','delete')" })],
+  ["Q04", "PASSA", "M3: comentário de linha citando truncate",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: "select 1 -- truncate alunos" })],
+  ["Q05", "PASSA", "M3: comentário de bloco citando drop",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: "select /* drop table x */ count(*) from alunos" })],
+  ["Q06", "PASSA", "M3: identificador citado chamado update",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: 'select "update" from auditoria' })],
+  ["Q07", "PASSA", "M3: select simples segue passando",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: "select count(*) from alunos" })],
+  ["Q08", "NEGA", "M3: update de verdade segue negado",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: "update alunos set saldo_total = 0" })],
+  ["Q09", "NEGA", "M3: literal com -- antes, escrita depois do ;",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: "select 'a--' ; update alunos set x = 1" })],
+  ["Q10", "NEGA", "M3: CTE que escreve (with ... as (delete ...))",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: "with d as (delete from alunos returning id) select * from d" })],
+  ["Q11", "NEGA", "M3: DO com o corpo em literal",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: "do 'update alunos set x=1' language plpgsql" })],
+  ["Q12", "NEGA", "M3: DO com o corpo em citação por dólar",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: "do $$ begin update alunos set x=1; end $$" })],
+  ["Q13", "NEGA", "M3: literal aberto (sem par) não é sanitizado",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: "select 'aberto ; update alunos set x=1" })],
+  ["Q14", "NEGA", "M3: barra invertida impede sanitizar (escape de literal)",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: "select E'\\'' ; update alunos set x=1" })],
+  ["Q15", "PASSA", "M3: begin/rollback segue liberado (teste de perfil)",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: "begin; update alunos set x=1; rollback;" })],
 ];
 
 // ---------------------------------------------------------------------------
