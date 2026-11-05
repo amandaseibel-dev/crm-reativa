@@ -187,6 +187,17 @@ export interface LinhaNormalizada {
   aluno_nome: string | null;
   matricula: string | null;
   cpf: null;
+  // Coluna F do arquivo, bruta, como a origem informa (ex.: "0272047",
+  // "272047", ou vazio quando a linha não traz). NUNCA normalizada,
+  // validada ou substituída aqui -- quem decide se comprova o convênio
+  // Santander ReATIVA (272047/portador 166) é avaliarVinculoConvenioReativa()
+  // em prime-acordos-staging.ts, a partir deste valor cru. Antes desta
+  // rodada, esta coluna era lida e descartada na própria desestruturação
+  // (posição 5) -- nunca chegava a existir em nenhum lugar armazenado (ver
+  // docs/integracoes/prime-acordos-staging.md). Pagamentos importados ANTES
+  // desta mudança nunca terão este campo -- não é recuperável retroativamente,
+  // porque o arquivo original nunca foi preservado em nenhum lugar.
+  convenio_bancario: string | null;
 }
 
 export function normalizarLinhaSantander(linhaArray: unknown[]): LinhaNormalizada {
@@ -196,7 +207,7 @@ export function normalizarLinhaSantander(linhaArray: unknown[]): LinhaNormalizad
     tituloNumero,
     operadorBruto,
     numeroParcelaCompleto,
-    ,
+    convenioBruto,
     vencimento,
     valorOriginal,
     honorario,
@@ -239,6 +250,10 @@ export function normalizarLinhaSantander(linhaArray: unknown[]): LinhaNormalizad
     operador_nome: emailOperador ? nomeOperadorPorEmail(emailOperador) : ((operadorBruto as string) || null),
     aluno_nome: aluno || null,
     matricula,
+    // Bruto, sem normalizar (nem remover zero à esquerda, nem validar contra
+    // 272047) -- mesma regra já aplicada a titulo_numero/numero_parcela_completo:
+    // string() ou null, nunca inferido.
+    convenio_bancario: convenioBruto ? String(convenioBruto) : null,
     cpf: null,
   };
 }

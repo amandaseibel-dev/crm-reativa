@@ -507,6 +507,26 @@ conteúdo cru se `cru: true` for pedido explicitamente, para conferir um caso
 concreto. Nunca grava nada. Usar essa função — não reinventar sondagem, e
 nunca colar a chave em um script ad-hoc.
 
+## O que esta API NÃO fornece para o staging de ACORDOS
+
+Registrado na sétima etapa do staging de acordos (ver
+[`prime-acordos-staging.md`](prime-acordos-staging.md)), para que ninguém
+procure na API o que não está lá:
+
+- **O convênio bancário por linha de pagamento não vem da API Prime.** Ele é
+  a coluna F do arquivo do Santander, e passou a ser preservado em
+  `pagamentos.dados.convenio_bancario` pelo importador — não por esta API.
+  `financial_statement[].carrier` traz o portador do **título**, que é coisa
+  distinta do convênio da **linha de pagamento recebida**.
+- **A equivalência entre os dois não está comprovada.** Que a coluna F do
+  arquivo bancário corresponda ao covenant `0272047` do portador 166 medido
+  em `carriers` é **premissa**, não medição. Não existe rota desta API que
+  permita conferir isso; a conferência é entre um lote real do arquivo e a
+  listagem do portador 166.
+- **Vínculo de acordo ao convênio ReATIVA não é consultável aqui.** É
+  reconstruído no CRM, só pelos títulos gerados do próprio acordo. A
+  validação direta dos portadores 166/195 segue impossível internamente.
+
 ## Manutenção deste documento
 
 Toda descoberta nova sobre a API deve atualizar, no mesmo commit:

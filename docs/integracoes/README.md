@@ -46,6 +46,7 @@ aplicável). Nunca só um dos cinco.
 | [`prime-arquitetura.md`](prime-arquitetura.md) | Diagrama lógico: CRM → Edge Functions → API Prime → banco; caminhos de leitura/escrita; pontos cegos |
 | [`prime-gaps.md`](prime-gaps.md) | Tabela VERDE/AMARELO/VERMELHO de cada informação necessária, e a resposta à pergunta da estrutura financeira dos acordos |
 | [`mensageria-ulbra.md`](mensageria-ulbra.md) | Mensageria Ulbra (crm.ulbra.ai): conector MCP, ferramentas, escopos, limites de chamadas, Edge Functions `ulbra-*` e o que não é exposto |
+| [`prime-acordos-staging.md`](prime-acordos-staging.md) | Integração ACORDOS (Mannesoft → ReATIVA One): identidade do acordo, staging isolado, composição preservada como grupo, rotinas oficiais usadas em cada transição, e as dependências que ainda bloqueiam a sincronização automática completa |
 
 Ver também `docs/PREMISSAS.md` (Premissas 19 e 20, seção "Acordo") — é onde
 vive a evidência medida, título a título, da investigação da estrutura do

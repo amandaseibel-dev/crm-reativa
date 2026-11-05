@@ -95,6 +95,15 @@ describe("EQUIVALÊNCIA com o navegador", () => {
     { nome: "boleto ausente", l: linha({ boleto: "" }) },
     { nome: "título ausente", l: linha({ titulo: "" }) },
     { nome: "valores como texto", l: linha({ valorPago: "1234.56", honorario: "123.45" }) },
+    // Convênio (coluna F) -- preservado bruto a partir desta rodada; antes
+    // era descartado na desestruturação e nunca chegava a existir em
+    // LinhaNormalizada. Ver avaliarVinculoConvenioReativa() em
+    // prime-acordos-staging.ts para quem decide se comprova 272047/166 --
+    // aqui é só captura bruta, sem normalizar nem validar.
+    { nome: "convênio com zero à esquerda (0272047)", l: linha({ convenio: "0272047" }) },
+    { nome: "convênio sem zero à esquerda (272047)", l: linha({ convenio: "272047" }) },
+    { nome: "convênio divergente (272036)", l: linha({ convenio: "272036" }) },
+    { nome: "convênio ausente (coluna vazia)", l: linha({ convenio: "" }) },
   ];
 
   for (const { nome, l } of casos) {
@@ -103,14 +112,48 @@ describe("EQUIVALÊNCIA com o navegador", () => {
     });
   }
 
-  it("as 13 chaves e a ordem do contrato não mudam", () => {
+  it("as 14 chaves e a ordem do contrato não mudam (convenio_bancario acrescentado nesta rodada)", () => {
     expect(Object.keys(normalizarLinhaSantander(linha())).sort()).toEqual(
       [
-        "aluno_nome", "cpf", "data_pagamento", "matricula", "numero_parcela_completo",
+        "aluno_nome", "convenio_bancario", "cpf", "data_pagamento", "matricula", "numero_parcela_completo",
         "operador_email", "operador_nome", "tipo_pagamento", "titulo_numero",
         "valor_honorario", "valor_original", "vencimento", "valor_pago",
       ].sort(),
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // CONVÊNIO BANCÁRIO (coluna F) -- captura bruta, nunca normalizada ou
+  // validada aqui. Quem decide vínculo com 272047/166 é
+  // avaliarVinculoConvenioReativa() em prime-acordos-staging.ts, a partir
+  // deste valor cru.
+  // -------------------------------------------------------------------------
+  describe("convenio_bancario -- captura bruta, sem normalizar nem validar", () => {
+    it("preserva o valor exatamente como veio, com zero à esquerda", () => {
+      expect(normalizarLinhaSantander(linha({ convenio: "0272047" })).convenio_bancario).toBe("0272047");
+    });
+
+    it("preserva o valor exatamente como veio, sem zero à esquerda", () => {
+      expect(normalizarLinhaSantander(linha({ convenio: "272047" })).convenio_bancario).toBe("272047");
+    });
+
+    it("preserva um convênio divergente sem filtrar, sem excluir e sem alertar aqui -- a classificação é da etapa de staging", () => {
+      expect(normalizarLinhaSantander(linha({ convenio: "272036" })).convenio_bancario).toBe("272036");
+    });
+
+    it("nunca presume 272047 quando a coluna vem vazia -- fica null, nunca um valor inventado", () => {
+      expect(normalizarLinhaSantander(linha({ convenio: "" })).convenio_bancario).toBeNull();
+    });
+
+    it("nunca presume 272047 quando a coluna vem ausente (undefined)", () => {
+      const l = linha();
+      l[5] = undefined;
+      expect(normalizarLinhaSantander(l).convenio_bancario).toBeNull();
+    });
+
+    it("converte valor numérico da planilha para string, igual a titulo_numero/numero_parcela_completo", () => {
+      expect(normalizarLinhaSantander(linha({ convenio: 272047 })).convenio_bancario).toBe("272047");
+    });
   });
 
   it("52 textos distintos de operador: o servidor concorda com o navegador em todos", () => {
