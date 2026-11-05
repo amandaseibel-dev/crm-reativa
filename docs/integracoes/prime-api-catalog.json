@@ -8,7 +8,7 @@
     "secret_location": "Supabase Vault, segredo 'prime_api_key' — lido só por service_role, via RPC prime_api_key_backend() ou prime_chave_api() (duas RPCs equivalentes, ver gaps)",
     "never": "a chave nunca chega ao navegador, nunca é logada, nunca aparece em resposta de Edge Function"
   },
-  "last_verified_at": "2026-09-28",
+  "last_verified_at": "2026-11-05",
   "resources": [
     {
       "resource": "carriers",
@@ -407,5 +407,18 @@
       "documentacao_publica": "404 em /swagger*, /openapi.json, /api-docs, /.well-known/openapi"
     },
     "proveniencia_do_71643": "interna. auditoria.acao = RECUPERACAO_ACORDO_PAGO_SEM_IMPORTACAO, por conciliacao@sistema. Nenhuma ocorrencia em payload externo."
+  },
+  "convenio_bancario_pagamentos": {
+    "$comment": "Registrado na setima etapa do staging de ACORDOS. NAO e dado desta API — e a coluna F do arquivo do Santander. Entra aqui porque o catalogo e consultado antes de procurar a informacao na API.",
+    "origem": "arquivo bancario Santander, coluna F (convenio)",
+    "nao_vem_de": "API Prime — financial_statement[].carrier e o portador do TITULO, nao o convenio da LINHA DE PAGAMENTO",
+    "onde_fica_hoje": "pagamentos.dados.convenio_bancario (27a chave do jsonb), a partir da importacao que suceder a setima etapa",
+    "normalizado": false,
+    "validado_contra_272047": false,
+    "equivalencia_com_portador_166": "PREMISSA NAO COMPROVADA — que a coluna F corresponda ao covenant 0272047 do portador 166 nao foi medido. Conferencia exige um lote real do arquivo contra a listagem do portador 166",
+    "proibicao": "nunca projetar em convenioMannesoft — a origem e bancaria, nao Mannesoft",
+    "pagamentos_historicos": "permanentemente sem o campo; o arquivo original nao e preservado para reprocessamento",
+    "deploy": "santander-previa e santander-importar compartilham planilha.ts e tem deploy separado — publicar as duas na mesma janela, senao a digital discorda e a importacao do dia e recusada",
+    "ver": "docs/integracoes/prime-acordos-staging.md"
   }
 }

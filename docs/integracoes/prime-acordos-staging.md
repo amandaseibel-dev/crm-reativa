@@ -179,14 +179,30 @@ boleto isoladamente). Um pagamento isolado nunca traz os títulos negociados
 originais.
 
 > **Correção (sexta etapa):** a frase acima presumia que o campo de convênio
-> da linha bancária **já chega e já é gravado** em `pagamentos`. Essa
-> premissa estava **errada** e foi corrigida na sexta etapa, abaixo — o
-> campo é lido do arquivo por `normalizarLinhaSantander()`
+> da linha bancária **já chegava e já era gravado** em `pagamentos`. Essa
+> premissa estava **errada**: o campo era lido do arquivo por
+> `normalizarLinhaSantander()`
 > (`supabase/functions/santander-previa/planilha.ts`) e **descartado** na
-> desestruturação; nunca é persistido, nem como coluna, nem dentro de
+> desestruturação; não era persistido, nem como coluna, nem dentro de
 > `pagamentos.dados` (confirmado por `jsonb_object_keys(dados)`: 26 chaves
-> observadas, nenhuma "convenio"). Hoje, a partir de dado já armazenado,
-> **não existe prova de convênio por linha de pagamento.**
+> observadas, nenhuma "convenio").
+>
+> **Correção (sétima etapa) — o estado ATUAL desta branch:** a sétima etapa
+> alterou os dois normalizadores para **preservar** a coluna F em
+> `convenio_bancario`, bruto, sem normalizar e sem validar. O campo passa a
+> existir em `LinhaNormalizada` e, porque
+> `projecao_importar_pagamentos` grava `dados = v` (o objeto inteiro, sem
+> lista fixa de campos), **passa a ser persistido em `pagamentos.dados`** —
+> 27ª chave, da próxima importação em diante. Isso **altera o importador
+> Santander**: `planilha.ts` é o parser que `santander-importar/index.ts`
+> consome. Nenhuma migration, trigger, tabela ou RPC foi alterada, e
+> pagamentos já importados **permanecem sem o campo, permanentemente** (o
+> arquivo original não é preservado para reprocessamento).
+>
+> Consequências operacionais obrigatórias estão na seção **"Publicação
+> coordenada e rollback"**, ao fim deste documento. Toda frase anterior que
+> dizia que o importador não seria alterado, ou que o convênio nunca seria
+> persistido, descreve o estado **até a sexta etapa** e não vale mais.
 
 `avaliarReconhecimento()` por isso ganhou uma terceira classe,
 `ClasseSeguranca: "PARCIAL"`, motivo `COMPOSICAO_COMPLETA_DESCONHECIDA_PENDENTE_COMPLEMENTACAO`,
@@ -299,8 +315,13 @@ armazenada que venha a comprová-lo).
 - `supabase/functions/_shared/prime-acordos-staging.test.js` — testes com
   dados fictícios cobrindo as 7 decisões acima.
 
-Nada neste commit lê ou escreve em `acordos`, `acordos_titulos`, `parcelas`
-ou `baixas_pagamento`. Nada altera o importador atual de boletos/pagamentos.
+Nada nesta entrega lê ou escreve em `acordos`, `acordos_titulos`, `parcelas`
+ou `baixas_pagamento`. O motor de conciliação, as baixas e os valores
+financeiros não são tocados.
+
+**O importador Santander, porém, É alterado** — pela sétima etapa, que
+preserva a coluna F nos dois normalizadores. Ver "Correção (sétima etapa)"
+acima e "Publicação coordenada e rollback" abaixo.
 
 ## Dependências que ainda impedem a sincronização automática completa
 
@@ -313,8 +334,57 @@ ou `baixas_pagamento`. Nada altera o importador atual de boletos/pagamentos.
 | **Decisão de gestão sobre quitação observada externamente** | Não existe hoje rotina oficial que signifique "aplicar um status só observado externamente, sem fabricar um evento local". Fica como alerta até essa decisão existir. | Gestão |
 | **RLS/grants do staging** | Esta proposta de schema deliberadamente não inclui RLS — precisa passar pela skill `seguranca-rls` antes de qualquer aplicação real. | Revisão de segurança, antes de aplicar a migration |
 | **Identidade de serviço autorizada** para acionar as rotinas oficiais (`importar_acordos`, `cancelar_acordo_ficha`, etc.) a partir desta integração | Precisa de uma identidade formalmente autorizada por gestão (molde do `confirmacao-automatica@sistema` já em uso), não de um atalho que pule a checagem de permissão. | Gestão |
-| **Convênio bancário não é persistido em nenhuma captura via pagamentos** | `normalizarLinhaSantander()` descarta a coluna de convênio do arquivo na importação; `pagamentos`/`acordos`/`parcelas` não guardam esse dado em nenhuma coluna ou jsonb. Sem alterar o importador (vedado nesta tarefa), toda captura do adaptador de pagamentos cai hoje em `EXCECAO` por falta de informação de vínculo — nunca chega a `PARCIAL`. | Decisão de gestão/TI sobre alterar o importador Santander para reter o convênio, ou apontar outra fonte já armazenada que o comprove |
+| **Equivalência entre a coluna F do arquivo Santander e o covenant do portador 166 no Prime** | A sétima etapa passou a preservar a coluna F, então o dado existe a partir da próxima importação. Mas a afirmação "coluna F do arquivo bancário ≡ covenant `0272047` do portador 166 no Prime" **não está comprovada em nenhum arquivo versionado** — é premissa, não medição. Enquanto não for provada, nenhum chamador deve projetar `dados.convenio_bancario` em `convenioMannesoft`: isso carimbaria proveniência Mannesoft num dado de origem bancária. O campo é de origem **bancária** (arquivo Santander), não Mannesoft. | Gestão/TI, por conferência entre um lote real do arquivo e a listagem do portador 166 no Prime |
+| **Pagamentos já importados nunca terão o convênio** | O arquivo original não é preservado para reprocessamento, então toda linha importada antes da sétima etapa fica permanentemente sem `convenio_bancario`. Captura do adaptador sobre pagamento histórico seguirá em `EXCECAO/VINCULO_CONVENIO_REATIVA_SEM_INFORMACAO`. | Nenhuma decisão pendente — é limitação definitiva, registrada |
 
 Nenhuma dessas dependências bloqueia o que já foi entregue nesta etapa —
 ficam documentadas para a próxima decisão, sem impedir o resto do
 desenvolvimento.
+
+## Publicação coordenada e rollback
+
+A sétima etapa altera `supabase/functions/santander-previa/planilha.ts`, que
+é compartilhado por **duas Edge Functions com deploy separado**:
+
+- `santander-previa` — lê e normaliza em modo prévia, não grava;
+- `santander-importar` — importa em duas fases, com digital do conteúdo
+  (importa o parser de `../santander-previa/planilha.ts`).
+
+### Por que a publicação tem de ser conjunta
+
+`textoParaDigital()` hasheia as chaves da linha **ordenadas por desenho**. Ao
+acrescentar `convenio_bancario`, a digital do **mesmo arquivo** muda. As duas
+funções comparam digitais entre si para garantir que a prévia conferida é o
+mesmo arquivo que está sendo importado.
+
+Publicar **uma sem a outra** faz as digitais discordarem e a importação do dia
+ser **recusada por inteiro**. O comportamento é fail-closed — não corrompe
+dado, não grava pela metade — mas **trava a gestão** até a segunda função
+subir.
+
+### Procedimento de publicação
+
+1. Mesclar a PR (não publica nada por si — Edge Function não sobe por merge).
+2. Publicar as duas funções **na mesma janela**, fora do horário de
+   importação, sem operador importando:
+   - `santander-previa`
+   - `santander-importar`
+3. Conferir numa prévia real que a linha normalizada traz
+   `convenio_bancario`, e que prévia e importação concordam na digital.
+4. Só então liberar a importação do dia para a gestão.
+
+A tela (`src/pages/ProjecaoHoraHora.jsx`) sobe pelo deploy do front, que é
+independente. O caminho legado da tela (`p_linhas: linhasPreview`) também
+passa a mandar a 27ª chave — logo o front pode subir antes ou depois sem
+travar nada, porque ele não compara digital com as funções.
+
+### Rollback operacional
+
+| O que | Como | O que NÃO volta |
+|---|---|---|
+| Código | Reverter o commit do convênio e **republicar as duas funções juntas**, pela mesma regra do item 2 acima | — |
+| Digital | Volta sozinha ao valor anterior quando as duas funções estiverem na versão revertida | — |
+| `pagamentos.dados` | **Nada a desfazer por migration** — nenhuma coluna, trigger ou RPC mudou | As linhas já importadas **mantêm** a 27ª chave `convenio_bancario`. Não há limpeza prevista, e não é necessária: nenhum consumidor enumera as chaves de `pagamentos.dados`, todos leem chave por nome |
+
+Não existe rollback de banco porque não existe alteração de banco. O efeito
+residual é uma chave extra em linhas já gravadas — inerte por desenho.

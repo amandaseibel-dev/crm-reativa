@@ -188,9 +188,24 @@ export function ehPortadorReativa(p: IdentificacaoPortador): boolean {
   return convenioOk || portadorOk;
 }
 
+// Contradição DENTRO do mesmo item: os dois sinais estão informados e
+// discordam entre si — portador 166 com convênio que não é 272047, ou
+// convênio 272047 com portador que não é 166. Desenho fail-closed: evidência
+// contraditória nunca comprova vínculo, mesmo que um dos dois lados case.
+//
+// Omissão NÃO é contradição. Item com apenas um dos dois sinais informado
+// segue julgado por `ehPortadorReativa` (critério inalterado), e item sem
+// nenhum dos dois segue caindo em `semInformacao`.
+export function ehVinculoContraditorio(p: IdentificacaoPortador): boolean {
+  if (p.convenioMannesoft == null || p.portadorIdMannesoft == null) return false;
+  const convenioOk = normalizarConvenio(p.convenioMannesoft) === CONVENIO_REATIVA_ACORDO_DIGITOS;
+  const portadorOk = String(p.portadorIdMannesoft).trim() === String(PORTADOR_REATIVA_ACORDO_ID);
+  return convenioOk !== portadorOk;
+}
+
 export type VinculoConvenioReativa = {
   suficiente: boolean; // true só quando TODOS os títulos gerados informam portador/convênio e todos casam com 166/272047
-  divergente: boolean; // algum título gerado informa portador/convênio que NÃO é 166/272047
+  divergente: boolean; // algum título gerado informa portador/convênio que NÃO é 166/272047, OU informa os dois em contradição entre si
   semInformacao: boolean; // nenhum título gerado, ou algum sem portador/convênio informado
 };
 
@@ -208,7 +223,10 @@ export function avaliarVinculoConvenioReativa(titulosGerados: TituloGerado[]): V
       semInformacao = true;
       continue;
     }
-    if (!ehPortadorReativa(t)) divergente = true;
+    // Contradição primeiro: um item que informa 166 e um convênio que não é
+    // 272047 (ou o inverso) é evidência contra o vínculo, não a favor — mesmo
+    // que `ehPortadorReativa` aceite por um dos lados.
+    if (ehVinculoContraditorio(t) || !ehPortadorReativa(t)) divergente = true;
   }
   return { suficiente: !divergente && !semInformacao, divergente, semInformacao };
 }

@@ -16,6 +16,7 @@ import {
   temComposicaoMista,
   ehQuitacaoObservada,
   ehPortadorReativa,
+  ehVinculoContraditorio,
   avaliarVinculoConvenioReativa,
   avaliarReconhecimento,
   reconhecerCaptura,
@@ -432,6 +433,53 @@ describe("ehPortadorReativa / avaliarVinculoConvenioReativa — convênio 272047
     const r = avaliarVinculoConvenioReativa([tituloGeradoReativa(), { documento: "9000103", portadorIdMannesoft: 195, convenioMannesoft: null }]);
     expect(r.suficiente).toBe(false);
     expect(r.divergente).toBe(true);
+  });
+
+  // --------------------------------------------------------------------------
+  // REGRESSÃO — evidência CONTRADITÓRIA dentro do mesmo título gerado.
+  // Antes desta correção `ehPortadorReativa` usava OR, então portador 166 com
+  // convênio 272036 (sinais que discordam) retornava true e o vínculo vinha
+  // `suficiente` — comprovava vínculo a partir de evidência contra ele.
+  // Agora contradição é divergência, e divergência é EXCECAO.
+  // --------------------------------------------------------------------------
+  it("portador 166 com convênio comprovadamente divergente é CONTRADIÇÃO, não vínculo", () => {
+    expect(ehVinculoContraditorio({ portadorIdMannesoft: 166, convenioMannesoft: "0272036" })).toBe(true);
+    const r = avaliarVinculoConvenioReativa([{ documento: "9", portadorIdMannesoft: 166, convenioMannesoft: "0272036" }]);
+    expect(r).toEqual({ suficiente: false, divergente: true, semInformacao: false });
+  });
+
+  it("o inverso também é contradição: convênio 272047 com portador que não é 166", () => {
+    expect(ehVinculoContraditorio({ portadorIdMannesoft: 95, convenioMannesoft: "0272047" })).toBe(true);
+    const r = avaliarVinculoConvenioReativa([{ documento: "9", portadorIdMannesoft: 95, convenioMannesoft: "0272047" }]);
+    expect(r).toEqual({ suficiente: false, divergente: true, semInformacao: false });
+  });
+
+  it("um título contraditório entre vários coerentes derruba o vínculo inteiro (fail-closed)", () => {
+    const r = avaliarVinculoConvenioReativa([
+      tituloGeradoReativa(),
+      { documento: "9000104", portadorIdMannesoft: 166, convenioMannesoft: "0272036" },
+    ]);
+    expect(r.suficiente).toBe(false);
+    expect(r.divergente).toBe(true);
+  });
+
+  it("OMISSÃO não é contradição — critério de evidência ausente permanece inalterado", () => {
+    // só um dos dois sinais informado: segue valendo ehPortadorReativa, e o
+    // vínculo segue suficiente. Esta correção não endureceu este caso.
+    expect(ehVinculoContraditorio({ portadorIdMannesoft: 166, convenioMannesoft: null })).toBe(false);
+    expect(ehVinculoContraditorio({ portadorIdMannesoft: null, convenioMannesoft: "0272047" })).toBe(false);
+    expect(ehVinculoContraditorio({})).toBe(false);
+    expect(avaliarVinculoConvenioReativa([{ documento: "9", portadorIdMannesoft: 166, convenioMannesoft: null }])).toEqual({
+      suficiente: true,
+      divergente: false,
+      semInformacao: false,
+    });
+  });
+
+  it("os dois sinais coerentes seguem comprovando vínculo (166 + 272047, com e sem zero à esquerda)", () => {
+    expect(ehVinculoContraditorio({ portadorIdMannesoft: 166, convenioMannesoft: "0272047" })).toBe(false);
+    expect(ehVinculoContraditorio({ portadorIdMannesoft: 166, convenioMannesoft: "272047" })).toBe(false);
+    expect(ehVinculoContraditorio({ portadorIdMannesoft: 95, convenioMannesoft: "0272036" })).toBe(false);
   });
 
   it("NÃO usa a filiação geral do aluno ao portador 166 — avalia só os títulos gerados passados, nada além disso", () => {
