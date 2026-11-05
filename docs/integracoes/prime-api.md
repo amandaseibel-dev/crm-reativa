@@ -382,6 +382,12 @@ decomposição de valor; ponte `boleto` (7 díg.) ↔ `acordos_titulos.documento
   (medido em 67 alunos / 1.625 linhas);
 - `carrierId` como filtro deste endpoint é ignorado silenciosamente — pedir
   só o 195 ou só o 166 não reduz a resposta.
+- **RECONFERIDO EM 2026-10-20**, pela tela nova de diagnóstico (`/diagnostico-prime`, PR #709), com a sessão da própria gestão — nenhum token manuseado. Matrícula `232005643`, aluno filiado ao portador 166, com acordo 5629 **ATIVO** no CRM e 12 parcelas: o extrato devolveu **48 títulos, nenhum do portador 166**, e
+  `?carrierId=166` devolveu **resposta idêntica** — a tela compara os dois
+  corpos inteiros, em JSON canônico, não só as contagens. É a terceira
+  população independente a medir a mesma coisa (388.446 linhas em 09/09;
+  1.625 linhas/67 alunos em 15/09; este caso em 20/10). **Não repetir a
+  varredura**: a pergunta está respondida.
 
 **Segurança:** FINANCEIRO (leitura)
 
@@ -419,6 +425,11 @@ sem eles): `carrierId`, `includeSettled`, `status`, `onlyAgreements`,
 
 **Retorno:** `{ items: [], totalItems: 0 }` — **em todos os testes
 realizados**, sem exceção.
+
+**RECONFERIDO EM 2026-10-20**, pela tela nova de diagnóstico (`/diagnostico-prime`, PR #709), com a sessão da própria gestão — nenhum token manuseado. Matrícula `232005643`, aluno filiado ao portador 166, com acordo 5629 **ATIVO** no CRM e 12 parcelas: `agreements` devolveu **zero itens**, e o composto
+`/students/232005643` trouxe o campo `agreements` **vazio** no mesmo instante.
+O acordo está ATIVO no CRM — ou seja, a resposta vazia continua sendo limite
+de **escopo** da superfície pública, não ausência do acordo.
 
 **Fonte de verdade para:** nada, hoje — não há dado retornado.
 
