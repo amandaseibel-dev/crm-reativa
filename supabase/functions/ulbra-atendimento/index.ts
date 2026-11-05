@@ -53,7 +53,8 @@ serve(async (req) => {
   }
 
   const { data: vinculo } = await sbService
-    .from("ulbra_vinculos").select("ulbra_cliente_id").eq("aluno_id", aluno_id).is("desvinculado_em", null).maybeSingle();
+    .from("ulbra_vinculos").select("ulbra_cliente_id").eq("aluno_id", aluno_id).is("desvinculado_em", null)
+    .eq("confianca", "alta_cpf").maybeSingle();
   if (!vinculo) return responder({ status: "sem_vinculo" });
 
   const clienteId = vinculo.ulbra_cliente_id as string;
