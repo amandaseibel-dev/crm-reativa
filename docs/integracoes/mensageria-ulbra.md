@@ -77,9 +77,10 @@ concordância: é impossibilidade de comparar, e fica registrado como
 outra equipe da ULBRA não bloqueia o vínculo por CPF.
 
 Barrado **não grava nada** e o motivo aparece na ficha. Por que barrar em vez
-de gravar com confiança baixa: `ulbra-atendimento` (PR #814) abre atendimento
-para qualquer vínculo ativo, **sem ler `confianca`** — um vínculo fraco gravado
-como ativo seria, uma função adiante, um atendimento aberto no cliente errado.
+de gravar com confiança baixa: um vínculo fraco gravado como ativo seria, numa
+função que só checasse `desvinculado_em`, um atendimento aberto no cliente
+errado. A `ulbra-atendimento` (PR #814) filtra `confianca = 'alta_cpf'` desde a
+#819, mas a regra não pode depender só dela.
 
 Custo de chamada: **as duas chaves vão na mesma chamada**. `contatos` aceita 20
 posições e o limite medido é por chamada, então a confirmação cruzada é de
@@ -128,31 +129,21 @@ Mensageria". Aviso ao lado de um botão clicável não é proteção: enquanto o
 viajar na resposta, qualquer cliente da API remonta a URL do atendimento.
 Desvinculação é sempre lógica (`desvinculado_em`).
 
-### Dependência obrigatória: `ulbra-atendimento` (PR #814)
+### Proteção do `ulbra-atendimento` (PR #814, já com a #819)
 
-`ulbra-atendimento` lê `ulbra_vinculos` filtrando apenas `aluno_id` +
-`desvinculado_em is null`, e **não lê `confianca`**. Para ela, um vínculo
-legado por telefone é indistinguível de um confirmado por CPF — e abrir
-atendimento a partir dele é abrir conversa com a pessoa errada.
+A `ulbra-atendimento` abre atendimento só com vínculo confirmado por CPF: a
+função `vinculoConfirmado` (`supabase/functions/ulbra-atendimento/atendimento.ts`)
+filtra `confianca = 'alta_cpf'`, e `index.ts` a chama antes de qualquer consulta.
+Essa proteção entrou na main pela #819 (`accb9db2`). Não é alterada aqui.
 
-Essa função **não é alterada nesta frente**: pertence à PR #814, que está
-aberta, e duas frentes não editam o mesmo arquivo. Fica registrado como
-**dependência obrigatória, a cumprir na frente da #814**:
+Ainda assim, a view `public.ulbra_vinculos_confirmados` (proposta
+`20261104200000`, não aplicada) é a superfície estrutural que o filtro de
+código não substitui: com ela, uma função futura que leia `ulbra_vinculos` sem
+filtrar `confianca` não tem linha não confirmada para devolver. Ela tem
+`security_invoker = on`, para não passar por cima da RLS de `ulbra_vinculos`.
 
-> `ulbra-atendimento` deve passar a ler a view
-> `public.ulbra_vinculos_confirmados` (criada pela proposta
-> `20261104200000`), que só expõe vínculo ativo com `confianca = 'alta_cpf'`,
-> ou então filtrar `confianca = 'alta_cpf'` explicitamente.
-
-A view tem `security_invoker = on` — sem isso ela rodaria com os direitos do
-dono e passaria por cima da RLS de `ulbra_vinculos`, entregando vínculo de
-qualquer aluno a qualquer autenticado. Enquanto a `ulbra-atendimento` não
-migrar, a garantia do lado dela é **disciplina, não estrutura**.
-
-Hoje isso é risco potencial, não ativo: `ulbra_vinculos` está vazia e a
-`ulbra-consultar` corrigida só escreve `alta_cpf`. Um vínculo não confirmado
-só passa a existir se a função da Etapa 1 for republicada ou se a gestão
-inserir à mão.
+Antes de qualquer republicação da função da Etapa 1, ou de inserção manual de
+vínculo, o filtro `alta_cpf` precisa continuar presente em `ulbra-atendimento`.
 
 ## Pendências
 
