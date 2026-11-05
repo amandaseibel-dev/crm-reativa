@@ -29,11 +29,24 @@ por esta versão.
 - **`do` e `execute` entraram na lista de verbos de M3**, por causa da sanitização e não
   apesar dela: `do 'update t set x=1' language plpgsql` executa, e com o literal removido
   não restaria verbo para casar. Sem esse par a sanitização abriria caminho de escrita.
-- **Autoteste: 219 casos (eram 191), 0 divergente.** 28 novos: `G01`–`G13` para o descarte
+- **Perfil de teste de M3 virou estrutural (correção de revisão).** O `rollback` era aceito
+  em qualquer lugar da query **crua**, e cinco contornos passavam: `update …; rollback;`
+  sem `begin` (autocommit grava e o rollback não faz nada), `begin; …; commit; rollback;`
+  (o commit já gravou), e `rollback` dentro de literal ou comentário. A regra exige agora,
+  sobre o código sanitizado: começar em `begin`, nenhum `commit`/`end`/`release`, e
+  `rollback` como último statement. Esta regra existia na `main` com a mesma falha; a
+  correção a fecha, não a introduz.
+- **Versão alinhada:** `VERSAO` do hook passa a ser `1.3.1`, igual a este registro.
+- **Autoteste: 227 casos (eram 191), 0 divergente.** 36 novos: `G01`–`G13` para o descarte
   de stderr (5 de leitura liberada, 8 provando que toda forma que nomeia outro destino
-  segue negada) e `Q01`–`Q15` para M3 (7 de leitura liberada, 8 de escrita negada —
-  `;` depois de literal, CTE que escreve, `DO` em literal e em dólar, literal aberto,
-  barra invertida).
+  segue negada); `Q01`–`Q15` para M3 (7 de leitura liberada, 8 de escrita negada — `;`
+  depois de literal, CTE que escreve, `DO` em literal e em dólar, literal aberto, barra
+  invertida); `Q16`–`Q22` para o perfil de teste (os cinco contornos acima, mais `update`
+  depois do `rollback` e `end` como sinônimo de commit); `Q23` prova que o perfil legítimo,
+  com espaços e `;` finais, segue liberado.
+- **Limite declarado do perfil de teste:** não cobre efeito externo (`dblink`, função que
+  chama outro banco), que `rollback` nenhum desfaz. A execução segue sob `ask` no
+  `settings.json`, que é a contenção real desse caso.
 - **Não mudou:** nenhuma outra regra do hook, nenhuma entrada de `deny`/`ask`, nenhum
   bloqueio de aplicação. `copy … from` e função de escrita chamada por `select` seguem
   fora da lista de verbos de M3 — lacuna **anterior** a esta versão, não introduzida aqui.

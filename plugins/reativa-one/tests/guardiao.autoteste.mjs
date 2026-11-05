@@ -508,6 +508,27 @@ const casos = [
     mcp("mcp__claude_ai_Supabase__execute_sql", { query: "select E'\\'' ; update alunos set x=1" })],
   ["Q15", "PASSA", "M3: begin/rollback segue liberado (teste de perfil)",
     mcp("mcp__claude_ai_Supabase__execute_sql", { query: "begin; update alunos set x=1; rollback;" })],
+
+  // ---- Q16-Q22: PERFIL DE TESTE de M3, estrutural. O `rollback` era aceito em
+  // qualquer lugar da query crua, e estes cinco contornos PASSAVAM antes desta
+  // correção (medidos em 05/11/2026). Q16-Q20 travam cada um; Q21 e Q22 travam
+  // que a correção NÃO fechou o perfil legítimo.
+  ["Q16", "NEGA", "M3 perfil: update sem begin, rollback no fim (autocommit grava)",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: "update alunos set x=1; rollback;" })],
+  ["Q17", "NEGA", "M3 perfil: commit antes do rollback (a escrita já foi gravada)",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: "begin; update alunos set x=1; commit; rollback;" })],
+  ["Q18", "NEGA", "M3 perfil: rollback só dentro de literal",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: "update alunos set x=1; select 'rollback';" })],
+  ["Q19", "NEGA", "M3 perfil: rollback só dentro de comentário de linha",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: "update alunos set x=1; -- rollback" })],
+  ["Q20", "NEGA", "M3 perfil: rollback só dentro de comentário de bloco",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: "update alunos set x=1; /* rollback */" })],
+  ["Q21", "NEGA", "M3 perfil: update DEPOIS do rollback (escreve em autocommit)",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: "begin; rollback; update alunos set x=1;" })],
+  ["Q22", "NEGA", "M3 perfil: end como sinônimo de commit",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: "begin; update alunos set x=1; end; rollback;" })],
+  ["Q23", "PASSA", "M3 perfil: begin; update; rollback com espaços e ; final",
+    mcp("mcp__claude_ai_Supabase__execute_sql", { query: "  begin ;  update alunos set x = 1 ;  rollback ;  " })],
 ];
 
 // ---------------------------------------------------------------------------

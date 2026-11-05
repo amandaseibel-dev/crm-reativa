@@ -26,7 +26,7 @@
 # ============================================================================
 set -uo pipefail
 
-VERSAO="1.2.0"
+VERSAO="1.3.1"
 
 # ----------------------------------------------------------------------------
 # saída padrão
@@ -857,10 +857,26 @@ put_firewall_config|update_firewall_config)
         # sanitização abriria um caminho de escrita. A fronteira `[^a-z_]`
         # preserva `pedido`, `do_algo` e `executed`.
         if printf '%s' "$QS" | grep -Eq '(^|[^a-z_])(insert|update|delete|truncate|drop|alter|create|grant|revoke|comment|reindex|vacuum|refresh|do|execute)([^a-z_]|$)'; then
-          if ! printf '%s' "$Q" | grep -Eq '(^|[^a-z_])rollback([^a-z_]|$)'; then
+          # PERFIL DE TESTE, ESTRUTURAL, sobre o código sanitizado (QS). A forma
+          # anterior era `rollback` em qualquer lugar da query CRUA, e cinco
+          # contornos passavam: `update …; rollback;` sem begin (autocommit,
+          # escreve e o rollback não faz nada), `begin; …; commit; rollback;`
+          # (o commit já gravou), e `rollback` dentro de literal ou comentário.
+          # Exigem-se as três coisas, todas:
+          #   1. começar em `begin` -- sem transação aberta o rollback não desfaz;
+          #   2. nenhum `commit`, `end` ou `release` em código -- gravam;
+          #   3. `rollback` como ÚLTIMO statement -- um `update` depois dele
+          #      escreveria em autocommit.
+          # Não cobre efeito externo (dblink, função que chama outro banco),
+          # que rollback nenhum desfaz: fica registrado como limite.
+          PERFIL_OK=1
+          printf '%s' "$QS" | grep -Eq '^[[:space:]]*begin[[:space:]]*(;|$)' || PERFIL_OK=0
+          printf '%s' "$QS" | grep -Eq '(^|[^a-z_])(commit|end|release)([^a-z_]|$)' && PERFIL_OK=0
+          printf '%s' "$QS" | grep -Eq 'rollback[[:space:]]*;?[[:space:]]*$' || PERFIL_OK=0
+          if [ "$PERFIL_OK" -ne 1 ]; then
             negar "M3/sql-escreve" \
-              "A consulta contém verbo de escrita e não termina em rollback." \
-              "leitura; ou 'begin; … rollback;' para teste de perfil (docs/seguranca §9)"
+              "A consulta contém verbo de escrita fora do perfil de teste: precisa começar em begin, não ter commit, e terminar em rollback." \
+              "leitura; ou 'begin; … rollback;' como último statement (docs/seguranca §9)"
           fi
         fi ;;
 
