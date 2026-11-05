@@ -45,10 +45,11 @@
 // prova é o telefone. Nos casos barrados o aluno fica SEM vínculo e o motivo
 // é dito — nunca se grava "alta" no escuro.
 //
-// Por que barrar em vez de gravar fraco: `ulbra-atendimento` (PR #814) abre
-// atendimento para QUALQUER vínculo ativo, sem ler `confianca`. Um vínculo
-// fraco gravado como ativo seria, uma função adiante, um atendimento aberto no
-// cliente errado. Então o que não foi provado não entra na tabela.
+// Por que barrar em vez de gravar fraco: uma função que leia vínculo ativo sem
+// filtrar `confianca` abriria atendimento para qualquer vínculo, inclusive um
+// fraco gravado aqui. A `ulbra-atendimento` (PR #814, na main desde a #819)
+// filtra `alta_cpf`, mas a regra não pode depender só dela. Então o que não foi
+// provado não entra na tabela.
 
 /** Níveis de confiança aceitos em `ulbra_vinculos.confianca`. */
 export const CONFIANCA = {

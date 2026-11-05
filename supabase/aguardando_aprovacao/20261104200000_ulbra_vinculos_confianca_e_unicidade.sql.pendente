@@ -355,21 +355,19 @@ revoke truncate on public.ulbra_vinculos from service_role;
 -- ----------------------------------------------------------------------------
 -- SECAO 3e. SUPERFICIE SEGURA PARA AS OUTRAS FUNCOES
 --
--- `ulbra-atendimento` (PR #814) le `ulbra_vinculos` filtrando apenas
--- `aluno_id` + `desvinculado_em is null`, e NAO le `confianca`. Para ela, um
--- vinculo legado com selo 'alta' e origem 'telefone' -- que ninguem confirmou
--- por CPF -- e indistinguivel de um confirmado. Abrir atendimento a partir
--- dele e abrir conversa com a pessoa errada.
+-- `ulbra-atendimento` (PR #814, ja na main) filtra `confianca = 'alta_cpf'`
+-- desde a #819, na funcao `vinculoConfirmado`. Antes da #819, ela lia
+-- `ulbra_vinculos` sem filtrar `confianca`; um vinculo legado com selo 'alta'
+-- e origem 'telefone' era indistinguivel de um confirmado por CPF.
 --
--- Esta view e a superficie que as OUTRAS funcoes devem consumir: ela so
--- enxerga vinculo ativo e confirmado por CPF. Enquanto a `ulbra-atendimento`
--- nao migrar para ca, a garantia dela e por disciplina; migrando, passa a ser
--- estrutural -- nao da para "esquecer de filtrar `confianca`" quando a fonte
--- nao tem linha nao confirmada para devolver.
+-- Esta view e a superficie estrutural para QUALQUER funcao futura que leia
+-- vinculo: ela so enxerga vinculo ativo e confirmado por CPF. O filtro de
+-- codigo da `ulbra-atendimento` continua necessario e nao e substituido por
+-- esta view; a view garante que uma leitura nova nao precise lembrar do
+-- filtro para estar segura.
 --
--- A migracao da `ulbra-atendimento` NAO e feita aqui: aquele arquivo pertence
--- a PR #814, que esta aberta, e duas frentes nao editam o mesmo arquivo. A
--- dependencia esta registrada em docs/integracoes/mensageria-ulbra.md.
+-- Esta migration NAO altera a `ulbra-atendimento`. A dependencia de
+-- republicacao esta registrada em docs/integracoes/mensageria-ulbra.md.
 --
 -- `security_invoker = on` e o ponto que nao pode faltar: sem ele a view roda
 -- com os direitos do DONO e PASSA POR CIMA da RLS da tabela base, entregando
