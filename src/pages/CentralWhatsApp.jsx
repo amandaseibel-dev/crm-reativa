@@ -20,6 +20,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { formatarTelefone, normalizarE164 } from "../utils/telefone";
 import AnexoWhatsApp from "../components/AnexoWhatsApp";
+// A fila do receptivo. A main ja a trouxe para esta tela (#792, #801); esta
+// branch so troca a FORMA: a mesma fila na variante "barra", de uma linha.
 import FilaReceptivo from "../components/FilaReceptivo";
 import useWhatsAppNotificacoes from "../hooks/useWhatsAppNotificacoes";
 // A ficha COMPLETA, embutida. É o mesmo componente da tela /aluno: aqui ele
@@ -895,6 +897,7 @@ export default function CentralWhatsApp() {
 
       {emailOperador ? (
         <FilaReceptivo
+          variante="barra"
           usuarioLogado={{ email: emailOperador, perfil: gestao ? "gerencia" : undefined }}
         />
       ) : null}

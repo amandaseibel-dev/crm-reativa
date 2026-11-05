@@ -228,3 +228,16 @@ export const iniciarConversa = async ({ canalId, telefone, alunoId, texto }) => 
   }];
   return { ok: true, conversa_id: "k-nova", ja_existia: false };
 };
+
+// Responder uma conversa que estava esperando tambem marca atendimento no
+// receptivo (a main ligou os dois em #792). No preview isso cai no mesmo
+// RPC de mentira do mock do supabase, entao a fila anda de verdade na tela.
+export async function marcarAtendidoReceptivoWhatsApp(email, conversaId = null) {
+  const { supabase } = await import("./mock-supabase.js");
+  const params = { p_email: email };
+  if (conversaId) {
+    params.p_conversa_id = conversaId;
+    params.p_canal = "WHATSAPP";
+  }
+  await supabase.rpc("fila_receptivo_marcar_atendido", params);
+}
