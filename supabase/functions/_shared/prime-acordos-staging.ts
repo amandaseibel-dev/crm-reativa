@@ -25,8 +25,20 @@
 //   6. Indeterminado = EXCEÇÃO (fail-closed), nunca AUTOMÁTICO por omissão —
 //      mesmo princípio do Guardião (`INDETERMINADO = NEGA`).
 
+// Origem de um item de `titulos_negociados` — só preenchida quando o PRÓPRIO
+// Mannesoft distingue o tipo do título (ex.: etiqueta/coluna própria na tela).
+// 'INDETERMINADA' é o padrão e fica assim sempre que a captura não traz essa
+// distinção explícita — nunca inferida por valor, data ou posição.
+export type OrigemTituloNegociado = "MENSALIDADE_ORIGINAL" | "PARCELA_DE_ACORDO_ANTERIOR" | "INDETERMINADA";
+
+export type TituloNegociado = {
+  documento: string;
+  origem?: OrigemTituloNegociado; // ausente == INDETERMINADA
+  acordoOrigemMannesoft?: string; // só quando o próprio Mannesoft informa de qual acordo vem a parcela herdada
+};
+
 export type Composicao = {
-  titulos_negociados: unknown[];
+  titulos_negociados: TituloNegociado[];
   titulos_gerados: unknown[];
 };
 
@@ -37,6 +49,10 @@ export type CapturaAcordo = {
   situacaoMannesoft: string;
   tipoMannesoft: string | null; // texto cru do Mannesoft; nunca inferido
   composicao: Composicao;
+  // Referência explícita a um acordo anterior — só preenchida quando o
+  // próprio Mannesoft mostra essa referência na tela do Acordo-Detalhe.
+  // NUNCA inferida por proximidade de data, valor ou CPF repetido.
+  acordoAnteriorMannesoft?: string;
 };
 
 // ----------------------------------------------------------------------------
@@ -121,15 +137,76 @@ export function compararVersoes(
 //    valor ou qualquer heurística já invalidada em rodadas anteriores.
 // ----------------------------------------------------------------------------
 
-export type Caso = "ACORDO_NOVO" | "REACORDO_ROTULADO" | "MUDANCA_SITUACAO" | "SEM_MUDANCA";
+export type Caso =
+  | "ACORDO_NOVO"
+  | "REACORDO_ROTULADO"
+  | "REACORDO_APOS_CANCELAMENTO"
+  | "MUDANCA_SITUACAO"
+  | "SEM_MUDANCA";
 
-export function classificarCaso(anterior: CapturaAcordo | null, atual: CapturaAcordo): Caso {
+// `acordoAnterior`: quando a captura atual referencia explicitamente (campo
+// `acordoAnteriorMannesoft`) um acordo que JÁ ESTÁ no staging com situação
+// CANCELADO, é uma renegociação encadeada — nunca presumida por proximidade,
+// só pela referência que o próprio Mannesoft deu e pela situação já
+// capturada anteriormente (o chamador resolve essa busca; esta função só
+// decide a partir do que já foi confirmado).
+export function classificarCaso(
+  anterior: CapturaAcordo | null,
+  atual: CapturaAcordo,
+  acordoAnterior?: { situacaoMannesoft: string } | null,
+): Caso {
   if (!anterior) {
+    if (atual.acordoAnteriorMannesoft && acordoAnterior?.situacaoMannesoft?.toUpperCase() === "CANCELADO") {
+      return "REACORDO_APOS_CANCELAMENTO";
+    }
     return /reacordo/i.test(atual.tipoMannesoft ?? "") ? "REACORDO_ROTULADO" : "ACORDO_NOVO";
   }
   const cmp = compararVersoes(anterior, atual);
   if (cmp.situacaoMudou) return "MUDANCA_SITUACAO";
   return "SEM_MUDANCA";
+}
+
+// ----------------------------------------------------------------------------
+// 4b. RENEGOCIAÇÕES SUCESSIVAS — a cadeia é a sequência de referências
+//     explícitas `acordoAnteriorMannesoft`, nunca reconstruída por data ou
+//     valor. Devolve a cadeia tal como o chamador a resolveu (um lookup por
+//     elo); se algum elo não tiver referência explícita, a cadeia TERMINA
+//     ali — não presume continuidade.
+// ----------------------------------------------------------------------------
+
+export function montarCadeiaReacordo(
+  chaveAtual: string,
+  buscarAnteriorPorChave: (chave: string) => { chave: string; acordoAnteriorChave?: string } | null,
+): string[] {
+  const cadeia: string[] = [chaveAtual];
+  const vistos = new Set([chaveAtual]);
+  let atual: string | undefined = chaveAtual;
+  for (let i = 0; i < 100 && atual; i++) {
+    const elo = buscarAnteriorPorChave(atual);
+    const proximo = elo?.acordoAnteriorChave;
+    if (!proximo || vistos.has(proximo)) break; // sem referência explícita, ou ciclo: a cadeia termina aqui
+    cadeia.push(proximo);
+    vistos.add(proximo);
+    atual = proximo;
+  }
+  return cadeia;
+}
+
+// ----------------------------------------------------------------------------
+// 4c. COMPOSIÇÃO MISTA — true só quando a PRÓPRIA captura distingue origens
+//     diferentes entre os títulos negociados (mensalidade original × parcela
+//     herdada de acordo anterior). 'INDETERMINADA' nunca conta como mista
+//     nem como pura — fica de fora da contagem, porque a captura não deu
+//     base para afirmar nada.
+// ----------------------------------------------------------------------------
+
+export function temComposicaoMista(composicao: Composicao): boolean {
+  const origensDistintas = new Set(
+    composicao.titulos_negociados
+      .map((t) => t.origem)
+      .filter((o): o is OrigemTituloNegociado => !!o && o !== "INDETERMINADA"),
+  );
+  return origensDistintas.size > 1;
 }
 
 // ----------------------------------------------------------------------------
@@ -166,6 +243,10 @@ export type ContextoSeguranca = {
   // Omitidas (undefined) => tratadas como NÃO CONFIRMADAS => exceção.
   semParcelaPagaOuBaixa?: boolean; // obrigatório para permitir cancelamento automático
   nivelVinculo?: "FORTE" | "FRACO" | "SEM_VINCULO"; // de acordo_vinculo_sugestoes_calcular()
+  // true quando a composição mistura mensalidade original e parcela herdada
+  // de acordo anterior (temComposicaoMista) — sempre força conferência,
+  // porque a mesma dívida pode já estar representada em outro acordo.
+  composicaoMista?: boolean;
 };
 
 export function avaliarSeguranca(ctx: ContextoSeguranca): AvaliacaoSeguranca {
@@ -174,6 +255,9 @@ export function avaliarSeguranca(ctx: ContextoSeguranca): AvaliacaoSeguranca {
   }
   if (ehQuitacaoObservada(ctx.situacaoMannesoft)) {
     return { classe: "EXCECAO", motivo: "QUITACAO_OBSERVADA_EXTERNA" };
+  }
+  if (ctx.composicaoMista === true) {
+    return { classe: "EXCECAO", motivo: "COMPOSICAO_MISTA_EXIGE_CONFERENCIA" };
   }
   if ((ctx.situacaoMannesoft ?? "").toUpperCase() === "CANCELADO") {
     if (ctx.semParcelaPagaOuBaixa === true) {
@@ -184,7 +268,7 @@ export function avaliarSeguranca(ctx: ContextoSeguranca): AvaliacaoSeguranca {
   if (ctx.caso === "ACORDO_NOVO") {
     return { classe: "AUTOMATICO", motivo: "ACORDO_NOVO_SEM_CONFLITO" };
   }
-  if (ctx.caso === "REACORDO_ROTULADO") {
+  if (ctx.caso === "REACORDO_ROTULADO" || ctx.caso === "REACORDO_APOS_CANCELAMENTO") {
     return { classe: "EXCECAO", motivo: "REACORDO_EXIGE_CONFERENCIA" };
   }
   if (ctx.caso === "SEM_MUDANCA") {
@@ -237,6 +321,8 @@ export function transformarParaImportarAcordos(
       "Confirmar que `importar_acordos()` não rejeita a linha pela regra de CPF quitado há <=7 dias quando o CPF já tem acordo recém-encerrado nesta própria integração.",
       "Esta função só cobre o caso ACORDO_NOVO. Cancelamento e confirmação de situação NUNCA passam por importar_acordos() — usam cancelar_acordo_ficha() e o modelo de fila_acordos_confirmar_automatico(), respectivamente (fora deste módulo).",
       "O vínculo título negociado × título gerado NÃO é transformado aqui — fica preservado só na composição do staging, e só é promovido via acordo_vinculo_sugestao_confirmar() quando o nível calculado for FORTE.",
+      "REACORDO_APOS_CANCELAMENTO e composição mista (temComposicaoMista) nunca chegam a esta função automaticamente — avaliarSeguranca() já classifica os dois como EXCECAO antes da promoção, então a transformação para eles só ocorre depois de conferência humana explícita.",
+      "Saldo residual herdado de acordo anterior (origem = PARCELA_DE_ACORDO_ANTERIOR) não tem, nesta proposta, uma regra de cálculo de valor — o valor a importar para esse título precisa ser confirmado contra a lógica real de titulo_reavaliar() antes de qualquer promoção automática.",
     ],
   };
 }

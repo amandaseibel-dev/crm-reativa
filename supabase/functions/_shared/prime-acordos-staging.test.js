@@ -8,6 +8,8 @@ import {
   hashComposicao,
   compararVersoes,
   classificarCaso,
+  montarCadeiaReacordo,
+  temComposicaoMista,
   ehQuitacaoObservada,
   avaliarSeguranca,
   transformarParaImportarAcordos,
@@ -153,6 +155,102 @@ describe("avaliarSeguranca — fail-closed", () => {
   it("sem mudança nenhuma é seguro para automático (não há nada a promover)", () => {
     const r = avaliarSeguranca({ conflitoNaCaptura: false, caso: "SEM_MUDANCA", situacaoMannesoft: "ATIVO" });
     expect(r.classe).toBe("AUTOMATICO");
+  });
+});
+
+describe("renegociação sucessiva — acordo cancelado e refeito", () => {
+  it("só classifica REACORDO_APOS_CANCELAMENTO com referência explícita AO acordo anterior E o anterior já confirmado CANCELADO", () => {
+    const atual = captura({ numeroAcordoMannesoft: "80002", acordoAnteriorMannesoft: "71903" });
+    const caso = classificarCaso(null, atual, { situacaoMannesoft: "CANCELADO" });
+    expect(caso).toBe("REACORDO_APOS_CANCELAMENTO");
+  });
+
+  it("não classifica como reacordo encadeado sem a referência explícita, mesmo que exista um acordo cancelado do mesmo aluno", () => {
+    const atual = captura({ numeroAcordoMannesoft: "80003" }); // sem acordoAnteriorMannesoft
+    const caso = classificarCaso(null, atual, { situacaoMannesoft: "CANCELADO" });
+    expect(caso).toBe("ACORDO_NOVO");
+  });
+
+  it("não classifica como reacordo encadeado se o acordo referenciado ainda não está confirmado CANCELADO", () => {
+    const atual = captura({ numeroAcordoMannesoft: "80004", acordoAnteriorMannesoft: "71903" });
+    const caso = classificarCaso(null, atual, { situacaoMannesoft: "ATIVO" });
+    expect(caso).toBe("ACORDO_NOVO");
+  });
+
+  it("REACORDO_APOS_CANCELAMENTO sempre exige conferência, nunca automático", () => {
+    const r = avaliarSeguranca({ conflitoNaCaptura: false, caso: "REACORDO_APOS_CANCELAMENTO", situacaoMannesoft: "ATIVO" });
+    expect(r.classe).toBe("EXCECAO");
+    expect(r.motivo).toBe("REACORDO_EXIGE_CONFERENCIA");
+  });
+});
+
+describe("montarCadeiaReacordo — renegociações sucessivas (A→B→C)", () => {
+  const elos = {
+    "MANNESOFT:80003:CPF:05296180011": { chave: "MANNESOFT:80003:CPF:05296180011", acordoAnteriorChave: "MANNESOFT:80002:CPF:05296180011" },
+    "MANNESOFT:80002:CPF:05296180011": { chave: "MANNESOFT:80002:CPF:05296180011", acordoAnteriorChave: "MANNESOFT:71903:CPF:05296180011" },
+    "MANNESOFT:71903:CPF:05296180011": { chave: "MANNESOFT:71903:CPF:05296180011" }, // sem referência explícita — a cadeia termina aqui
+  };
+  const buscar = (chave) => elos[chave] ?? null;
+
+  it("segue a cadeia só pelas referências explícitas, do mais novo ao mais antigo", () => {
+    const cadeia = montarCadeiaReacordo("MANNESOFT:80003:CPF:05296180011", buscar);
+    expect(cadeia).toEqual([
+      "MANNESOFT:80003:CPF:05296180011",
+      "MANNESOFT:80002:CPF:05296180011",
+      "MANNESOFT:71903:CPF:05296180011",
+    ]);
+  });
+
+  it("para numa chave sem elo registrado, sem presumir continuidade", () => {
+    const cadeia = montarCadeiaReacordo("MANNESOFT:99999:CPF:05296180011", buscar);
+    expect(cadeia).toEqual(["MANNESOFT:99999:CPF:05296180011"]);
+  });
+
+  it("não entra em loop se houver referência circular", () => {
+    const circular = {
+      A: { chave: "A", acordoAnteriorChave: "B" },
+      B: { chave: "B", acordoAnteriorChave: "A" },
+    };
+    const cadeia = montarCadeiaReacordo("A", (c) => circular[c] ?? null);
+    expect(cadeia).toEqual(["A", "B"]);
+  });
+});
+
+describe("temComposicaoMista — mensalidades + parcelas de acordo anterior na mesma negociação", () => {
+  it("é mista quando há mensalidade original e parcela herdada no mesmo grupo", () => {
+    const composicao = {
+      titulos_negociados: [
+        { documento: "1", origem: "MENSALIDADE_ORIGINAL" },
+        { documento: "2", origem: "PARCELA_DE_ACORDO_ANTERIOR", acordoOrigemMannesoft: "71903" },
+      ],
+      titulos_gerados: [],
+    };
+    expect(temComposicaoMista(composicao)).toBe(true);
+  });
+
+  it("não é mista quando todos os títulos negociados têm a mesma origem explícita", () => {
+    const composicao = {
+      titulos_negociados: [
+        { documento: "1", origem: "MENSALIDADE_ORIGINAL" },
+        { documento: "2", origem: "MENSALIDADE_ORIGINAL" },
+      ],
+      titulos_gerados: [],
+    };
+    expect(temComposicaoMista(composicao)).toBe(false);
+  });
+
+  it("origem INDETERMINADA ou ausente nunca conta como mista nem como pura — não inventa distinção que a captura não deu", () => {
+    const composicao = {
+      titulos_negociados: [{ documento: "1" }, { documento: "2", origem: "INDETERMINADA" }],
+      titulos_gerados: [],
+    };
+    expect(temComposicaoMista(composicao)).toBe(false);
+  });
+
+  it("composição mista força exceção mesmo num caso que seria ACORDO_NOVO automático", () => {
+    const r = avaliarSeguranca({ conflitoNaCaptura: false, caso: "ACORDO_NOVO", situacaoMannesoft: "ATIVO", composicaoMista: true });
+    expect(r.classe).toBe("EXCECAO");
+    expect(r.motivo).toBe("COMPOSICAO_MISTA_EXIGE_CONFERENCIA");
   });
 });
 

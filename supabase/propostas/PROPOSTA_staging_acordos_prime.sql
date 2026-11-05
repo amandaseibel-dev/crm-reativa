@@ -38,6 +38,14 @@ create table if not exists public.acordos_prime_staging (
   situacao_mannesoft      text not null,
   tipo_mannesoft          text null,      -- texto cru do Mannesoft (ex.: "Acordo", "Reacordo"); nunca inferido
 
+  -- Renegociação encadeada: só preenchido quando o PRÓPRIO Mannesoft
+  -- referencia explicitamente o acordo anterior na tela do Acordo-Detalhe.
+  -- Nunca inferido por proximidade de data, valor ou CPF repetido. A cadeia
+  -- de renegociações sucessivas é a sequência dessas referências, resolvida
+  -- elo a elo (ver montarCadeiaReacordo em prime-acordos-staging.ts) — nunca
+  -- reconstruída por heurística.
+  acordo_anterior_mannesoft text null,
+
   -- Composição completa, como a tela do Acordo-Detalhe mostra: GRUPO de
   -- títulos negociados + GRUPO de títulos gerados. Nunca um emparelhamento
   -- individual que o Mannesoft não ofereça explicitamente.
@@ -105,6 +113,8 @@ create table if not exists public.acordos_prime_staging_criticas (
     --   CANCELAMENTO_SEM_PRE_CHECAGEM
     --   CARTEIRA_MUDOU_ENTRE_CAPTURAS
     --   FORMATO_NAO_VALIDADO_PARA_IMPORTADOR
+    --   REACORDO_APOS_CANCELAMENTO
+    --   COMPOSICAO_MISTA_EXIGE_CONFERENCIA
   detalhes          jsonb null,
   status            text not null default 'ABERTA', -- ABERTA | REVISADA | RESOLVIDA
   revisado_por_email text null,

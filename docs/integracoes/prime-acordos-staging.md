@@ -47,6 +47,33 @@ frente de ACORDOS, que **não é** a estrutura financeira hoje lida pela API
    princípio do Guardião (`plugins/reativa-one/hooks/guardiao.sh`:
    "INDETERMINADO = NEGA").
 
+## Cenários de renegociação (segunda etapa de desenvolvimento)
+
+Adicionados sem reabrir nenhuma das decisões da primeira etapa:
+
+- **Acordo cancelado e refeito / renegociações sucessivas.** Um novo acordo só
+  é tratado como continuação de um anterior (`REACORDO_APOS_CANCELAMENTO`)
+  quando a própria captura traz uma referência explícita ao acordo anterior
+  (`acordoAnteriorMannesoft`) **e** esse acordo anterior já está confirmado
+  como `CANCELADO` no staging. Nunca por proximidade de data, valor ou CPF
+  repetido — é exatamente o tipo de inferência já invalidado em produção.
+  `montarCadeiaReacordo()` resolve a cadeia (A→B→C→...) seguindo essas
+  referências elo a elo; a cadeia termina no primeiro elo sem referência
+  explícita, sem presumir continuidade. `REACORDO_APOS_CANCELAMENTO` sempre
+  cai em exceção — nunca é promovido automaticamente.
+- **Parcelas herdadas de acordos anteriores.** Um item de `titulos_negociados`
+  pode trazer `origem: "PARCELA_DE_ACORDO_ANTERIOR"` com
+  `acordoOrigemMannesoft`, mas só quando a própria tela do Mannesoft
+  distinguir esse título de uma mensalidade original. Sem essa distinção
+  explícita, o item fica `INDETERMINADA` — nunca classificado por adivinhação.
+- **Negociações mistas (mensalidade + parcela de acordo anterior na mesma
+  composição).** `temComposicaoMista()` só é verdadeiro quando a própria
+  captura rotula origens diferentes dentro do mesmo grupo de títulos
+  negociados; `INDETERMINADA` nunca conta nem como mista nem como pura.
+  Composição mista força exceção mesmo num caso que, isoladamente, seria
+  `ACORDO_NOVO` automático — a mesma dívida pode já estar representada em
+  outro acordo, e isso exige conferência humana.
+
 ## O que esta etapa entrega
 
 - `supabase/propostas/PROPOSTA_staging_acordos_prime.sql` — proposta de
