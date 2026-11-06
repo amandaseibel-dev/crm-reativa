@@ -439,7 +439,15 @@ reconstrução é NÃO COMPROVADA e não deve ser gravada).
 **Segurança:** READ ONLY (quando responde) — mas não há efeito a classificar,
 pois nunca devolve dado.
 
-**Pedido formal aberto (05/11/2026):** o escopo de acordos nesta chave está
+**RETESTE EM 06/11/2026:** mesma rota, mesma resposta — HTTP 200 com
+`{items: [], totalItems: 0}`, zero acordos, nenhuma lista de parcelas, com a
+sessão de gestão autenticada funcionando. Sete semanas depois do teste de
+15/09, o comportamento é idêntico. Classificação: **ausência de dados no
+escopo da chave** — não é falha de autenticação (a sessão passou) nem
+indisponibilidade (a API respondeu 200). Ver
+[`prime-pedido-ti-acordos.md`](prime-pedido-ti-acordos.md) §2.4.
+
+**Pedido formal aberto (05/11/2026, atualizado em 06/11):** o escopo de acordos nesta chave está
 solicitado à TI ULBRA em
 [`prime-pedido-ti-acordos.md`](prime-pedido-ti-acordos.md) — cabeçalho do
 acordo **e lista de parcelas**, por leitura, na mesma `X-API-Key`, sem
