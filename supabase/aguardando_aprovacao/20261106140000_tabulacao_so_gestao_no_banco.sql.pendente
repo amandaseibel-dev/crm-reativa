@@ -178,14 +178,20 @@ begin
   -- bloqueados no historico (`aluno_movimentacoes`), e TODAS AS 8 foram feitas
   -- pela gestao -- que passa pelo bypass acima. Logo nenhum fluxo real de
   -- operador e interrompido por este endurecimento.
+  -- `btrim` NOS DOIS LADOS. `v_bloqueadas` normaliza com `upper(btrim(codigo))`;
+  -- se aqui fosse só `upper()`, 'CANCELAMENTO_COBRANCA ' com espaco passaria o
+  -- portao. No servidor o valor ficaria inerte (os consumidores comparam por
+  -- igualdade exata), mas `casoNoKpi` em src/components/PainelCarteira.jsx
+  -- classifica concatenando os status e olhando SUBSTRING -- o valor com espaco
+  -- apareceria como encerrado na tela. Simetria e mais barata que a duvida.
   select x.novo into v_tentou
     from (values
-            (upper(coalesce(new.status_atual,'')),
-             case when tg_op = 'INSERT' then '' else upper(coalesce(old.status_atual,'')) end),
-            (upper(coalesce(new.status_jornada,'')),
-             case when tg_op = 'INSERT' then '' else upper(coalesce(old.status_jornada,'')) end),
-            (upper(coalesce(new.status_acionamento,'')),
-             case when tg_op = 'INSERT' then '' else upper(coalesce(old.status_acionamento,'')) end)
+            (upper(btrim(coalesce(new.status_atual,''))),
+             case when tg_op = 'INSERT' then '' else upper(btrim(coalesce(old.status_atual,''))) end),
+            (upper(btrim(coalesce(new.status_jornada,''))),
+             case when tg_op = 'INSERT' then '' else upper(btrim(coalesce(old.status_jornada,''))) end),
+            (upper(btrim(coalesce(new.status_acionamento,''))),
+             case when tg_op = 'INSERT' then '' else upper(btrim(coalesce(old.status_acionamento,''))) end)
          ) as x(novo, antigo)
    where x.novo <> x.antigo
      and x.novo = any(v_bloqueadas)

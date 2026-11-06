@@ -1,4 +1,4 @@
--- CASOS — 18 cenários de permissão para a trava de tabulação somente gestão
+-- CASOS — 19 cenários de permissão para a trava de tabulação somente gestão
 --
 -- Pré-condição: 01_ambiente.sql + 02_baseline.sql + o SQL de
 -- 20261106140000_tabulacao_so_gestao_no_banco aplicados, nesta ordem.
@@ -53,8 +53,8 @@ insert into public.alunos (id, nome, status_atual, status_jornada, status_aciona
   ('a0000007-0000-0000-0000-000000000007','c7 comum',        'CONTATAR','CONTATAR','CONTATAR'),
   ('a0000008-0000-0000-0000-000000000008','c8 comum',        'CONTATAR','CONTATAR','CONTATAR'),
   ('a0000009-0000-0000-0000-000000000009','c9 comum',        'CONTATAR','CONTATAR','CONTATAR'),
-  ('a0000010-0000-0000-0000-000000000010','c10 comum',       'CONTATAR','CONTATAR','CONTATAR'),
-  ('a0000011-0000-0000-0000-000000000011','c11 comum',       'CONTATAR','CONTATAR','CONTATAR'),
+  -- O aluno do CASO 18: codigo bloqueado com espaco sobrando.
+  ('a0000010-0000-0000-0000-000000000010','c18 comum',       'CONTATAR','CONTATAR','CONTATAR'),
   ('a0000012-0000-0000-0000-000000000012','c12 comum',       'CONTATAR','CONTATAR','CONTATAR'),
   ('a0000013-0000-0000-0000-000000000013','c13 comum',       'CONTATAR','CONTATAR','CONTATAR'),
   -- O aluno do CASO 14: ja carrega RETORNO_FINANCEIRO, como ficam os casos que
@@ -228,6 +228,25 @@ begin
       (17, 'edicao de rotina em aluno ja cancelado passa', false, sqlerrm);
   end;
 
+  -- ========================================================================
+  -- CASO 18: ESPACO NAO E DISFARCE. `v_bloqueadas` normaliza com
+  -- `upper(btrim(codigo))`; se o lado do NEW nao fizesse `btrim`,
+  -- 'CANCELAMENTO_COBRANCA ' passaria o portao. No servidor o valor ficaria
+  -- inerte (os consumidores comparam por igualdade exata), mas `casoNoKpi` na
+  -- Minha Carteira classifica por SUBSTRING dos status concatenados -- o caso
+  -- apareceria como encerrado na tela sem nunca ter sido encerrado.
+  -- ========================================================================
+  begin
+    update public.alunos set status_jornada = 'CANCELAMENTO_COBRANCA '
+     where id = 'a0000010-0000-0000-0000-000000000010';
+    insert into public._trava_teste values
+      (18, 'codigo bloqueado com espaco sobrando tambem e barrado', false,
+       'o UPDATE passou: espaco no fim driblou o portao');
+  exception when insufficient_privilege then
+    insert into public._trava_teste values
+      (18, 'codigo bloqueado com espaco sobrando tambem e barrado', true, sqlerrm);
+  end;
+
   -- CASO 9: a identidade vem do TOKEN. Mesma conexao, mesmo papel de banco --
   -- so o e-mail muda -- e a gestao passa onde o operador foi barrado. E a
   -- prova de que nao e o frontend que decide: aqui nao existe frontend.
@@ -324,7 +343,7 @@ update public.tabulacoes set somente_gestao = true  where codigo = 'CANCELAMENTO
 update public.tabulacoes set somente_gestao = false where codigo = 'AGUARDANDO_BAIXA';
 
 \echo ''
-\echo '=== TRAVA DE TABULACAO SOMENTE GESTAO — 18 casos (0 a 17) ==='
+\echo '=== TRAVA DE TABULACAO SOMENTE GESTAO — 19 casos (0 a 18) ==='
 select n, case when ok then 'OK  ' else 'FALHOU' end as resultado, caso, left(coalesce(detalhe,''), 90) as detalhe
   from public._trava_teste order by n;
 
@@ -334,7 +353,7 @@ declare
   v_falhou int;
 begin
   select count(*) into v_falhou from public._trava_teste where not ok;
-  select 18 - count(distinct n) into v_faltou from public._trava_teste;
+  select 19 - count(distinct n) into v_faltou from public._trava_teste;
 
   if v_faltou <> 0 then
     raise exception 'faltaram % casos: algum bloco morreu antes de registrar o resultado', v_faltou;
@@ -342,6 +361,6 @@ begin
   if v_falhou <> 0 then
     raise exception '% caso(s) FALHARAM -- ver a tabela acima', v_falhou;
   end if;
-  raise notice 'todos os 18 casos passaram';
+  raise notice 'todos os 19 casos passaram';
 end
 $$;
