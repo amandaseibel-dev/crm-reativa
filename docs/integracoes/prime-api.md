@@ -439,6 +439,17 @@ reconstrução é NÃO COMPROVADA e não deve ser gravada).
 **Segurança:** READ ONLY (quando responde) — mas não há efeito a classificar,
 pois nunca devolve dado.
 
+**Pedido formal aberto (05/11/2026):** o escopo de acordos nesta chave está
+solicitado à TI ULBRA em
+[`prime-pedido-ti-acordos.md`](prime-pedido-ti-acordos.md) — cabeçalho do
+acordo **e lista de parcelas**, por leitura, na mesma `X-API-Key`, sem
+credencial de pessoa. O contrato que a sincronização exige, campo por campo,
+está em
+[`prime-acordos-contrato-sincronizacao.md`](prime-acordos-contrato-sincronizacao.md).
+Enquanto este endpoint devolver lista vazia, a sincronização automática de
+acordos **não substitui** a importação manual do relatório — ver §4 daquele
+documento para o buraco estrutural (parcela que nunca recebeu pagamento).
+
 **Pode automatizar?** NÃO — não há dado.
 
 **Fallback:** **NENHUM ENCONTRADO PELA API.** A tela do Prime mostra a cadeia

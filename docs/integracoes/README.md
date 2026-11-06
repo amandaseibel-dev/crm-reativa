@@ -47,6 +47,8 @@ aplicável). Nunca só um dos cinco.
 | [`prime-gaps.md`](prime-gaps.md) | Tabela VERDE/AMARELO/VERMELHO de cada informação necessária, e a resposta à pergunta da estrutura financeira dos acordos |
 | [`mensageria-ulbra.md`](mensageria-ulbra.md) | Mensageria Ulbra (crm.ulbra.ai): conector MCP, ferramentas, escopos, limites de chamadas, Edge Functions `ulbra-*` e o que não é exposto |
 | [`prime-acordos-staging.md`](prime-acordos-staging.md) | Integração ACORDOS (Mannesoft → ReATIVA One): identidade do acordo, staging isolado, composição preservada como grupo, rotinas oficiais usadas em cada transição, e as dependências que ainda bloqueiam a sincronização automática completa |
+| [`prime-acordos-contrato-sincronizacao.md`](prime-acordos-contrato-sincronizacao.md) | **Etapa 0, lado do CRM.** O contrato completo da sincronização automática de acordos, campo por campo, com a fonte autorizada e o veredito 🟢/🟡/🔴 de cada um; o contrato pobre do importador manual atual; e a lista exata do que falta para a primeira sincronização real |
+| [`prime-pedido-ti-acordos.md`](prime-pedido-ti-acordos.md) | **Etapa 0, lado externo.** Solicitação técnica à TI ULBRA para o escopo de ACORDOS na credencial de serviço (cabeçalho **e lista de parcelas**), com a evidência medida, o que já foi tentado, e por que não automatizamos a interface web |
 
 Ver também `docs/PREMISSAS.md` (Premissas 19 e 20, seção "Acordo") — é onde
 vive a evidência medida, título a título, da investigação da estrutura do
