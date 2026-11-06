@@ -11,7 +11,7 @@ import DadosAcademicos from "../components/DadosAcademicos";
 import ConfirmarPagamento from "../components/ConfirmarPagamento";
 import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 import EmailAlunoUnificado from "../components/EmailAlunoUnificado";
-import { carregarTabulacoes, desfechoDaTabulacao, retornoEhManual, camposDeRetorno, lerRetornoAtual, RETORNO_ORIGEM_OPERADOR } from "../utils/tabulacoes";
+import { carregarTabulacoes, desfechoDaTabulacao, retornoEhManual, camposDeRetorno, lerRetornoAtual, RETORNO_ORIGEM_OPERADOR, tabulacaoDisponivel } from "../utils/tabulacoes";
 import { ehOrigemDoOperador } from "../utils/retornoOrigem";
 import TelefonesAluno from "../components/TelefonesAluno";
 import BlocoUlbra from "../components/BlocoUlbra";
@@ -57,6 +57,11 @@ const STATUS_FINALIZACAO = [
   "AGUARDANDO_BAIXA",
   "BAIXA_REALIZADA",
   "BAIXA_DEVOLVIDA",
+  // Retorno do financeiro (gestão, 06/11/2026): só gestão escolhe. O filtro do
+  // <select> usa `tabulacaoDisponivel`, a régua de quem é só-gestão mora em
+  // src/utils/tabulacoes.js, e a trava de verdade está no banco
+  // (`_encerramento_so_gestao`, que lê `tabulacoes.somente_gestao`).
+  "RETORNO_FINANCEIRO",
   "TERMO_ENVIADO_ALUNO",
   "TERMO_ENVIADO_ADM",
   "TERMO_RECEBIDO_LIBERADO",
@@ -1703,7 +1708,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                     </div>
                     <div style={colStatus}>
                       <span style={badgeSituacaoA}>
-                        {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", ACORDO_FECHADO: "Acordo fechado", LEMBRETE_PARCELA: "Lembrete de parcela feito", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro", ALEGA_FIES: "Alega FIES", ALEGA_CREDIES: "Alega CREDIES", ALEGA_FINANCIAMENTO: "Alega financiamento", ANTECIPACAO_SEMESTRE: "Antecipação de semestre", ALEGA_FIES_CONFIRMADO: "FIES confirmado pela unidade", ALEGA_CREDIES_CONFIRMADO: "CREDIES confirmado pela unidade", ALEGA_FINANCIAMENTO_CONFIRMADO: "Financiamento confirmado pela unidade" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
+                        {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", RETORNO_FINANCEIRO: "Retorno do financeiro", ACORDO_FECHADO: "Acordo fechado", LEMBRETE_PARCELA: "Lembrete de parcela feito", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro", ALEGA_FIES: "Alega FIES", ALEGA_CREDIES: "Alega CREDIES", ALEGA_FINANCIAMENTO: "Alega financiamento", ANTECIPACAO_SEMESTRE: "Antecipação de semestre", ALEGA_FIES_CONFIRMADO: "FIES confirmado pela unidade", ALEGA_CREDIES_CONFIRMADO: "CREDIES confirmado pela unidade", ALEGA_FINANCIAMENTO_CONFIRMADO: "Financiamento confirmado pela unidade" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
                       </span>
                       <div style={subCelA}>
                         Últ. contato: {formatarDataHora(aluno.data_ultimo_acionamento)}
@@ -2231,11 +2236,19 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                 >
                   {STATUS_FINALIZACAO.filter(
                     (status) =>
-                      !STATUS_BLOQUEADOS_ACIONAMENTO.includes(status) ||
-                      podeVerTudo(usuarioLogado?.email)
+                      (!STATUS_BLOQUEADOS_ACIONAMENTO.includes(status) ||
+                        podeVerTudo(usuarioLogado?.email)) &&
+                      // Tabulação só da gestão (TABULACOES_SO_GESTAO). O valor
+                      // JÁ escolhido nunca desaparece do <select>: sem isso o
+                      // navegador trocaria a tabulação sozinho.
+                      tabulacaoDisponivel(
+                        status,
+                        podeVerTudo(usuarioLogado?.email),
+                        statusFinalizacao
+                      )
                   ).map((status) => (
                     <option key={status} value={status}>
-                      {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", ACORDO_FECHADO: "Acordo fechado", LEMBRETE_PARCELA: "Lembrete de parcela feito", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro", ALEGA_FIES: "Alega FIES", ALEGA_CREDIES: "Alega CREDIES", ALEGA_FINANCIAMENTO: "Alega financiamento", ANTECIPACAO_SEMESTRE: "Antecipação de semestre", ALEGA_FIES_CONFIRMADO: "FIES confirmado pela unidade", ALEGA_CREDIES_CONFIRMADO: "CREDIES confirmado pela unidade", ALEGA_FINANCIAMENTO_CONFIRMADO: "Financiamento confirmado pela unidade" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
+                      {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", RETORNO_FINANCEIRO: "Retorno do financeiro", ACORDO_FECHADO: "Acordo fechado", LEMBRETE_PARCELA: "Lembrete de parcela feito", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro", ALEGA_FIES: "Alega FIES", ALEGA_CREDIES: "Alega CREDIES", ALEGA_FINANCIAMENTO: "Alega financiamento", ANTECIPACAO_SEMESTRE: "Antecipação de semestre", ALEGA_FIES_CONFIRMADO: "FIES confirmado pela unidade", ALEGA_CREDIES_CONFIRMADO: "CREDIES confirmado pela unidade", ALEGA_FINANCIAMENTO_CONFIRMADO: "Financiamento confirmado pela unidade" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
                     </option>
                   ))}
                 </select>
@@ -2661,7 +2674,19 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   style={select}
                 >
                   <option value="">Não alterar tabulação</option>
-                  {STATUS_FINALIZACAO.map((s) => (
+                  {/* MESMO PORTÃO do <select> de tabular, e não é redundância:
+                      este bloco está na aba ADM, que é renderizada para TODOS
+                      (a lista de abas acima não tem `podeVerTudo`), e o que se
+                      escolhe aqui vira UPDATE direto em `alunos.status_*` --
+                      sem RPC de tabulação e sem validação de catálogo. Sem o
+                      filtro, a tabulação só-gestão vazaria por aqui. */}
+                  {STATUS_FINALIZACAO.filter((s) =>
+                    tabulacaoDisponivel(
+                      s,
+                      podeVerTudo(usuarioLogado?.email),
+                      novaTabulacaoAlteracao
+                    )
+                  ).map((s) => (
                     <option key={s} value={s}>
                       {s}
                     </option>

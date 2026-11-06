@@ -1,0 +1,245 @@
+-- Trava de tabulação SOMENTE GESTÃO no banco (decisão da gestão, 06/11/2026)
+--
+-- PEDIDO: "não quero que a segurança dependa exclusivamente da interface".
+-- Até aqui, "só gestão" para `RETORNO_FINANCEIRO` existia apenas no <select>.
+-- Esta migration põe a régua no banco, onde a interface não alcança.
+--
+-- ===========================================================================
+-- POR QUE ESTA MIGRATION É PEQUENA: O GATILHO JÁ EXISTE
+--
+-- `_encerramento_so_gestao` roda em `public.alunos` desde 28/08/2026 e já
+-- barra o operador. O que ele tinha era um ARRAY LITERAL de códigos, mantido
+-- à mão -- e medido em produção em 06/11/2026, esse array é EXATAMENTE o
+-- conjunto `tabulacoes.somente_gestao = true`:
+--
+--   array['CANCELAMENTO_COBRANCA','SUSPENSAO_COBRANCA','JURIDICO',
+--         'ANTECIPACAO_SEMESTRE','ALEGA_FIES_CONFIRMADO',
+--         'ALEGA_CREDIES_CONFIRMADO','ALEGA_FINANCIAMENTO_CONFIRMADO']
+--
+-- Então trocar "lista à mão" por "lista + catálogo" NÃO muda o comportamento
+-- de hoje para nenhum desses sete, e passa a cobrir qualquer tabulação futura
+-- marcada `somente_gestao` -- inclusive `RETORNO_FINANCEIRO` -- sem precisar
+-- de outra migration. Uma régua, não duas.
+--
+-- ===========================================================================
+-- POR QUE AQUI SE LÊ `somente_gestao` E NO FRONT NÃO
+--
+-- Não é incoerência; é o oposto, pelo mesmo motivo. No front, ler a coluna é
+-- FAIL-OPEN: a policy `tabulacoes_leitura_autenticado` (20260828050000:52-59)
+-- é `using (not somente_gestao or usuario_e_gestao() or service_role)`, então
+-- o catálogo que chega ao operador NÃO TEM a linha -- o predicado não a acha,
+-- conclui "não é só-gestão" e mostra a opção. Por isso o front usa lista
+-- literal (`TABULACOES_SO_GESTAO`, src/utils/tabulacoes.js).
+--
+-- AQUI dentro a mesma coluna é legível por inteiro: a função é SECURITY
+-- DEFINER, dona `postgres` (= dona de `public.tabulacoes`), e a tabela está
+-- com `relforcerowsecurity = false` -- conferido em produção em 06/11/2026.
+-- Dona de tabela não é filtrada pela própria RLS. Logo o gatilho vê as 8
+-- linhas, e o catálogo pode ser a fonte da verdade.
+--
+-- ===========================================================================
+-- FAIL-CLOSED: O PISO LITERAL NÃO ENCOLHE
+--
+-- O array dos sete fica, como PISO. A trava de encerramento que existe desde
+-- agosto não pode ser afrouxada por um `UPDATE` descuidado no catálogo (a
+-- gestão edita `tabulacoes` pela tela /tabulacoes), nem por uma leitura que
+-- volte vazia. Bloqueia-se a UNIÃO: piso ∪ catálogo. A régua só cresce.
+--
+-- ===========================================================================
+-- AUTORIZAÇÃO É DO BANCO, NUNCA DO FRONTEND
+--
+-- Quem decide é `public.usuario_e_gestao()`, que lê `auth.jwt()->>'email'` --
+-- a identidade do token, não um perfil que a tela mande. Nada aqui aceita
+-- parâmetro de quem chama. Os três e-mails são os de sempre (Amanda gestora,
+-- Fernanda, Amanda ADM); esta migration NÃO mexe nessa função.
+--
+-- ===========================================================================
+-- O QUE MUDA DE COMPORTAMENTO, DE FATO
+--
+--   1. `RETORNO_FINANCEIRO` passa a ser barrado para quem não é gestão, em
+--      QUALQUER caminho de UPDATE em `alunos.status_*` -- inclusive os UPDATE
+--      diretos da tela (Aluno.jsx e PainelCarteira.jsx gravam sem RPC e sem
+--      validação de catálogo) e qualquer RPC chamada com o JWT do operador.
+--   2. INSERT passa a ser coberto. O gatilho de hoje é só `BEFORE UPDATE OF`;
+--      nascer com código só-gestão não era barrado. Nenhum fluxo conhecido faz
+--      isso (cadastro novo nasce `CONTATAR`), então é seguro -- mas "impedir
+--      independentemente da interface" inclui a porta do INSERT.
+--   3. A MENSAGEM deixa de mentir. Hoje ela fala em "Encerrar cobrança" para
+--      tudo. `RETORNO_FINANCEIRO` não encerra nada, então quem tentar recebe
+--      o motivo certo, com o nome da tabulação.
+--
+-- NÃO MUDA: parcela, acordo, pagamento, fidelização, distribuição, nem o
+-- efeito de nenhuma tabulação. `RETORNO_FINANCEIRO` segue NEUTRA
+-- (`efeito_desfecho = null`, `bloqueia_acionamento = false`,
+-- `exige_processo = false`) -- condição da aprovação desta frente.
+--
+-- Reescrever um código já gravado continua passando: a cláusula
+-- "só barra quando é NOVO" é a de sempre, e 182 alunos em produção carregam
+-- hoje um código só-gestão (medido em 06/11/2026). Sem ela, qualquer edição
+-- na ficha desses 182 passaria a falhar para o operador.
+--
+-- ===========================================================================
+-- ORDEM DE IMPLANTAÇÃO
+--   1. 20261106120000_tabulacao_retorno_financeiro        (cria a tabulação)
+--   2. 20261106140000_tabulacao_so_gestao_no_banco        (ESTA -- a trava)
+--   3. frontend
+-- A trava antes do front é o que garante que, mesmo que o front vá primeiro
+-- por engano, o banco recusa. E a tabulação antes da trava porque a trava lê o
+-- catálogo: sem a linha, `RETORNO_FINANCEIRO` só estaria protegido quando a
+-- linha existisse.
+--
+-- ROLLBACK: 20261106140000_tabulacao_so_gestao_no_banco.rollback.sql
+--           (restaura o corpo literal e remove o gatilho de INSERT)
+
+begin;
+
+-- Corpo base copiado VERBATIM de produção em 06/11/2026
+-- (`pg_get_functiondef`), e não da cópia do repositório: o repositório não
+-- registrava os três `ALEGA_*_CONFIRMADO` que produção já tem. Reescrever uma
+-- função sem ler o corpo que está rodando é como se perdem proteções.
+create or replace function public._encerramento_so_gestao()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+declare
+  -- PISO LITERAL -- nunca encolhe (ver FAIL-CLOSED no cabeçalho).
+  -- + ANTECIPACAO_SEMESTRE (07/10/2026): passou a quitar parcela, virou
+  --   decisao de gestao como cancelamento, suspensao e juridico.
+  v_encerra text[] := array['CANCELAMENTO_COBRANCA','SUSPENSAO_COBRANCA','JURIDICO','ANTECIPACAO_SEMESTRE','ALEGA_FIES_CONFIRMADO','ALEGA_CREDIES_CONFIRMADO','ALEGA_FINANCIAMENTO_CONFIRMADO'];
+  v_catalogo text[];
+  v_bloqueadas text[];
+  v_novo text[];
+  v_antigo text[];
+  v_tentou text;
+  v_sistema boolean := coalesce(auth.role(),'') = 'service_role'
+                       or auth.jwt() is null
+                       or session_user in ('postgres','reativa_responsavel_executor');
+begin
+  if v_sistema or coalesce(public.usuario_e_gestao(), false) then
+    return new;
+  end if;
+
+  -- Catalogo: aqui dentro a RLS de `tabulacoes` nao filtra (SECURITY DEFINER,
+  -- dona postgres, tabela sem FORCE ROW LEVEL SECURITY), entao `somente_gestao`
+  -- e legivel por inteiro. `coalesce` para array vazio: leitura vazia nao pode
+  -- virar NULL e anular o `&&` do piso.
+  select coalesce(array_agg(upper(btrim(codigo))), '{}'::text[])
+    into v_catalogo
+    from public.tabulacoes
+   where somente_gestao;
+
+  -- UNIAO piso + catalogo. A regua so cresce.
+  select coalesce(array_agg(distinct c), '{}'::text[])
+    into v_bloqueadas
+    from unnest(v_encerra || v_catalogo) as c
+   where c <> '';
+
+  v_novo := array[upper(coalesce(new.status_atual,'')), upper(coalesce(new.status_jornada,'')),
+                  upper(coalesce(new.status_acionamento,''))];
+
+  -- No INSERT nao existe OLD: nada foi "reescrito", todo codigo bloqueado e novo.
+  if tg_op = 'INSERT' then
+    v_antigo := '{}'::text[];
+  else
+    v_antigo := array[upper(coalesce(old.status_atual,'')), upper(coalesce(old.status_jornada,'')),
+                      upper(coalesce(old.status_acionamento,''))];
+  end if;
+
+  -- So barra quando o codigo bloqueado e NOVO: reescrever o que ja estava la
+  -- nao e o operador encerrando nem tabulando nada (182 alunos em producao
+  -- carregam hoje um codigo so-gestao).
+  if (v_novo && v_bloqueadas) and not (v_antigo && v_bloqueadas) then
+    select c into v_tentou
+      from unnest(v_novo) as c
+     where c = any(v_bloqueadas)
+       and not (c = any(v_antigo))
+     limit 1;
+
+    if v_tentou = any(v_encerra) then
+      -- Mensagem HISTORICA, palavra por palavra: os operadores a conhecem e
+      -- ha teste ancorado nela.
+      raise exception
+        'Encerrar cobrança (cancelamento, suspensão, jurídico ou antecipação de semestre) é decisão da gestão. Registre a solicitação para Amanda, Fernanda ou Amanda ADM.'
+        using errcode = '42501';
+    else
+      -- Tabulacao so-gestao que NAO encerra cobranca (ex.: RETORNO_FINANCEIRO).
+      -- Dizer "encerrar cobranca" aqui seria mentir para o operador.
+      raise exception
+        'A tabulação "%" é restrita à gestão. Registre a solicitação para Amanda, Fernanda ou Amanda ADM.', v_tentou
+        using errcode = '42501';
+    end if;
+  end if;
+
+  return new;
+end;
+$function$;
+
+comment on function public._encerramento_so_gestao() is
+  'Barra o operador de gravar em alunos.status_* qualquer tabulacao restrita a gestao: o piso literal de ENCERRAMENTO (cancelamento, suspensao, juridico, antecipacao, confirmacoes de alegacao) UNIDO a tabulacoes.somente_gestao lido do catalogo. Autorizacao por usuario_e_gestao() (e-mail do JWT), nunca por perfil vindo do frontend. Cobre UPDATE e INSERT. Reescrever codigo ja gravado passa.';
+
+-- GRANTS: `create or replace function` restaura o padrao do schema, que inclui
+-- PUBLIC. Reafirmar aqui o ACL EXATO que produção tinha em 06/11/2026
+-- (`postgres=X, authenticated=X, service_role=X`) -- nem mais, nem menos, e
+-- anon de fora. Sem isto, a migration AMPLIA acesso de carona.
+revoke all on function public._encerramento_so_gestao() from public;
+revoke all on function public._encerramento_so_gestao() from anon;
+grant execute on function public._encerramento_so_gestao() to postgres, authenticated, service_role;
+
+-- Gatilho de UPDATE: recriado identico ao de producao (mesmas tres colunas).
+drop trigger if exists trg_encerramento_so_gestao on public.alunos;
+create trigger trg_encerramento_so_gestao
+before update of status_atual, status_jornada, status_acionamento
+on public.alunos
+for each row execute function public._encerramento_so_gestao();
+
+-- Gatilho de INSERT: porta que nao existia.
+drop trigger if exists trg_tabulacao_so_gestao_insert on public.alunos;
+create trigger trg_tabulacao_so_gestao_insert
+before insert on public.alunos
+for each row execute function public._encerramento_so_gestao();
+
+-- ---------------------------------------------------------------------------
+-- VIGIA: a trava tem que estar de pé nas duas portas e com o ACL certo.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_update boolean;
+  v_insert boolean;
+  v_publico boolean;
+  v_anon boolean;
+begin
+  select exists (
+    select 1 from pg_trigger
+     where tgrelid = 'public.alunos'::regclass
+       and tgname = 'trg_encerramento_so_gestao' and not tgisinternal
+  ) into v_update;
+
+  select exists (
+    select 1 from pg_trigger
+     where tgrelid = 'public.alunos'::regclass
+       and tgname = 'trg_tabulacao_so_gestao_insert' and not tgisinternal
+  ) into v_insert;
+
+  if not v_update then
+    raise exception 'trg_encerramento_so_gestao nao esta em public.alunos: a trava de UPDATE caiu';
+  end if;
+  if not v_insert then
+    raise exception 'trg_tabulacao_so_gestao_insert nao esta em public.alunos: a porta do INSERT ficou aberta';
+  end if;
+
+  select has_function_privilege('public', 'public._encerramento_so_gestao()', 'EXECUTE'),
+         has_function_privilege('anon',   'public._encerramento_so_gestao()', 'EXECUTE')
+    into v_publico, v_anon;
+
+  if v_publico then
+    raise exception 'PUBLIC ficou com EXECUTE em _encerramento_so_gestao: o revoke nao pegou';
+  end if;
+  if v_anon then
+    raise exception 'anon ficou com EXECUTE em _encerramento_so_gestao';
+  end if;
+end
+$$;
+
+commit;

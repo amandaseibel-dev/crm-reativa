@@ -24,6 +24,12 @@ export const MAPA_SITUACAO = {
   AGUARDANDO_BAIXA: "Aguardando baixa",
   BAIXA_REALIZADA: "Baixa realizada",
   BAIXA_DEVOLVIDA: "Baixa devolvida",
+  // Tabulação só da gestão (06/11/2026) -- ver TABULACOES_SO_GESTAO em
+  // src/utils/tabulacoes.js. O rótulo fica aqui para o histórico do aluno
+  // mostrar texto humano para QUALQUER leitor, inclusive o operador que não
+  // pode escolher esta tabulação: esconder a opção é uma coisa, deixar
+  // `RETORNO_FINANCEIRO` cru na ficha é outra.
+  RETORNO_FINANCEIRO: "Retorno do financeiro",
   ACORDO_FECHADO: "Acordo fechado",
   // Estado operacional escrito pelo encerramento de confirmacao processada (acordo ativo, parcela futura, nada vencido).
   // Nao e tabulacao: o operador nao escolhe este status.
