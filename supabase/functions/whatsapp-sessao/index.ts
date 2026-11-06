@@ -75,12 +75,32 @@ Deno.serve(async (req) => {
 
   const { data: canal, error: erroCanal } = await admin
     .from("whatsapp_canais")
-    .select("sessao_chave, apelido")
+    .select("sessao_chave, apelido, ativo")
     .eq("id", corpo.canal_id)
     .maybeSingle();
 
   if (erroCanal) return jsonResp({ erro: erroCanal.message }, 500);
   if (!canal) return jsonResp({ erro: "canal inexistente" }, 404);
+
+  // Canal desativado NÃO volta ao ar por comando.
+  //
+  // Desativar um número é como se aposenta um canal no CRM — e aposentado não
+  // reconecta nem pede QR Code. Sem este portão, um clique em "Reconectar"
+  // ressuscitaria um número que a gestão tirou do ar de propósito.
+  //
+  // POR QUE SÓ `reconectar`: `desconectar` e `logout` andam na direção de
+  // DESLIGAR, e continuam valendo justamente para um canal recém-desativado —
+  // é por `logout` que a gestão desvincula o aparelho dele. Bloquear os três
+  // deixaria o número desativado e ainda pareado, sem caminho pela tela.
+  if (canal.ativo === false && comando === "reconectar") {
+    return jsonResp(
+      {
+        erro: `o numero ${canal.apelido} esta desativado e nao reconecta. ` +
+          'Para voltar a usa-lo, reative em "Numeros" na Central.',
+      },
+      409,
+    );
+  }
 
   // Registra ANTES de executar: se o comando derrubar a sessão, o rastro de
   // quem mandou já está gravado.
