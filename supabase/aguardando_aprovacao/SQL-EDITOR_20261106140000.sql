@@ -1,67 +1,33 @@
--- =============================================================================
--- EXECUCAO PELO SQL EDITOR — RUNBOOK §11
--- migration: 20261106140000_tabulacao_so_gestao_no_banco
--- versao pretendida: 20261106140000
--- projeto: ahattpqrjmhkzsmnbdzs (PRODUCAO)
---
--- EXECUCAO E ACAO EXCLUSIVAMENTE HUMANA (§11). Nenhum agente executa isto.
---
--- md5 do conteudo entre os delimitadores $reg$ (o que o BLOCO A registra e o
--- BLOCO B executa): a3a28c60ba93df935cebe5d2a3f76e6c
--- sha256 do mesmo conteudo: 83bb5e314261a1658492e25d4df43a6293790af389275944b75acad6b0fc888f
---
--- O conteudo abaixo e o arquivo
---   supabase/aguardando_aprovacao/20261106140000_tabulacao_so_gestao_no_banco.sql.pendente
--- SEM o `begin;`/`commit;` proprio dele: o bloco unico do §11 ja abre e fecha a
--- transacao, e um commit aninhado confirmaria a transacao externa antes do fim.
--- Nada mais foi alterado.
---
--- PASSO 1 — PRE-CONDICAO. Rodar ISOLADO, antes, e so prosseguir se bater:
---   -- Criterio: ja_registrada = false, md5_prosrc = d962319f021e9e3fe78b838730fadad7,
---   --           tabulacao_existe = EXISTE (a 20261106120000 tem de ter sido aplicada ANTES)
---   SELECT
---     EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations
---              WHERE version = '20261106140000')                      AS ja_registrada,
---     (SELECT md5(p.prosrc) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
---       WHERE n.nspname = 'public' AND p.proname = '_encerramento_so_gestao') AS md5_prosrc,
---     COALESCE((SELECT 'EXISTE' FROM public.tabulacoes
---                WHERE codigo = 'RETORNO_FINANCEIRO'), 'AUSENTE')     AS tabulacao_existe;
---
--- PASSO 4 — VALIDACAO. Rodar ISOLADO, depois:
---   -- Estado dos objetos alterados. Todas as quatro colunas tem de vir como indicado.
---   SELECT
---     (SELECT count(*) FROM pg_trigger
---       WHERE tgrelid = 'public.alunos'::regclass AND NOT tgisinternal
---         AND tgname IN ('trg_encerramento_so_gestao','trg_tabulacao_so_gestao_insert')) AS gatilhos_esperado_2,
---     has_function_privilege('public','public._encerramento_so_gestao()','EXECUTE') AS public_esperado_false,
---     has_function_privilege('anon',  'public._encerramento_so_gestao()','EXECUTE') AS anon_esperado_false,
---     (SELECT p.prosrc ILIKE '%somente_gestao%' FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
---       WHERE n.nspname = 'public' AND p.proname = '_encerramento_so_gestao') AS le_catalogo_esperado_true;
---   SELECT version, name,
---          md5(array_to_string(statements, E'\n')) AS md5_prod,
---          octet_length(array_to_string(statements, E'\n')) AS bytes
---     FROM supabase_migrations.schema_migrations WHERE version = '20261106140000';
--- =============================================================================
+-- ============================================================================
+-- SQL-EDITOR 20261106140000 — RUNBOOK §11 (execução humana, SQL Editor)
+-- Gerado a partir de supabase/aguardando_aprovacao/20261106140000_tabulacao_so_gestao_no_banco.sql.pendente (PR #844, main).
+-- Conteúdo a validar = arquivo SEM o LF final.
+--   versao pretendida : 20261106140000
+--   nome              : 20261106140000_tabulacao_so_gestao_no_banco
+--   md5 (sem LF final): ba955d4c9bda8be08431fb05eef79073
+--   bytes             : 17938
+--   sha256 do arquivo : 0b242ca731c60db60ef4f92b0c11ef5a0319eb03d8cdfb77751309f5eaf0796e
+-- ============================================================================
 
 BEGIN;
 
--- == LOCK =====================================================================
+-- LOCK: impede execução concorrente da mesma versão (liberado no COMMIT/ROLLBACK)
 SELECT pg_advisory_xact_lock(hashtext('migration_20261106140000'));
 
--- == BLOCO A: guard duplo + identidade + registro ==============================
-DO $$
+-- BLOCO A: guardas + registro. O INSERT usa v_conteudo, a MESMA variável verificada.
+DO $blocoA$
 DECLARE
-  v_md5_aprovado  CONSTANT text := 'a3a28c60ba93df935cebe5d2a3f76e6c';
+  v_md5_aprovado  CONSTANT text := 'ba955d4c9bda8be08431fb05eef79073';
   v_versao        CONSTANT text := '20261106140000';
   v_nome          CONSTANT text := '20261106140000_tabulacao_so_gestao_no_banco';
   v_conteudo      text;
 BEGIN
-  IF EXISTS (
-    SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = v_versao
-  ) THEN
+  -- Guard 1: dupla aplicação
+  IF EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = v_versao) THEN
     RAISE EXCEPTION 'GUARDA: versao % ja registrada em schema_migrations', v_versao;
   END IF;
 
+  -- Conteúdo aprovado: colado UMA vez, entre delimitadores, sem LF final
   v_conteudo := $reg$-- Trava de tabulação SOMENTE GESTÃO no banco (decisão da gestão, 06/11/2026)
 --
 -- PEDIDO: "não quero que a segurança dependa exclusivamente da interface".
@@ -170,6 +136,7 @@ BEGIN
 -- ROLLBACK: 20261106140000_tabulacao_so_gestao_no_banco.rollback.sql
 --           (restaura o corpo literal e remove o gatilho de INSERT)
 
+begin;
 
 -- ── GUARDA DE MD5 — §4 do RUNBOOK ───────────────────────────────────────────
 -- "Toda substituição de função existente carrega guarda de md5(prosrc) medido
@@ -396,8 +363,11 @@ begin
     raise exception 'o corpo novo nao le tabulacoes.somente_gestao: a trava nao cobriria tabulacao nova';
   end if;
 end
-$$;$reg$;
+$$;
 
+commit;$reg$;
+
+  -- Guard 2: identidade
   IF md5(v_conteudo) <> v_md5_aprovado THEN
     RAISE EXCEPTION 'GUARDA DE IDENTIDADE: md5(conteudo)=% md5(aprovado)=%',
       md5(v_conteudo), v_md5_aprovado;
@@ -405,9 +375,10 @@ $$;$reg$;
 
   INSERT INTO supabase_migrations.schema_migrations (version, name, statements)
   VALUES (v_versao, v_nome, ARRAY[v_conteudo]);
-END $$;
+END $blocoA$;
 
--- == BLOCO B: a migration ======================================================
+-- BLOCO B: execução. Idêntico ao arquivo aprovado, EXCETO as linhas begin;/commit;
+-- do próprio arquivo, que saem porque o transação é o template acima.
 -- Trava de tabulação SOMENTE GESTÃO no banco (decisão da gestão, 06/11/2026)
 --
 -- PEDIDO: "não quero que a segurança dependa exclusivamente da interface".
@@ -744,5 +715,6 @@ begin
 end
 $$;
 
--- == FIM =======================================================================
+
+-- FIM: confirma o COMMIT
 COMMIT;
