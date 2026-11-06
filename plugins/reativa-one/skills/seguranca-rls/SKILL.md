@@ -39,11 +39,84 @@ PRODUÇÃO.
 
 ## Duas armadilhas que já custaram caro aqui
 
-- **Função nova herda `EXECUTE` para `authenticated`; tabela e view não.**
-  Depois de criar função, confira `information_schema.routine_privileges` — não
-  `role_table_grants`.
+- **Objeto novo no schema `public` herda privilégio: função, tabela, view e
+  matview — todos.** Não é "função sim, tabela e view não", como esta skill
+  afirmou até 06/11/2026; a correção está medida logo abaixo. O que muda de um
+  para o outro é **qual catálogo responde**: função se confere em
+  `information_schema.routine_privileges`, relação (tabela, view, matview) em
+  `information_schema.role_table_grants` ou `has_table_privilege`.
 - **Tabela nova herda `TRUNCATE` para `authenticated`** pelo default do schema
   `public`, e **RLS não cobre `TRUNCATE`**.
+
+### A herança de grants, medida (06/11/2026)
+
+Quem decide a herança é `pg_default_acl`, não o tipo do objeto. Lido em
+produção (`ahattpqrjmhkzsmnbdzs`), somente leitura, há **duas** entradas para o
+schema `public` — e `defaclobjtype = 'r'` vale para **toda relação**, inclusive
+view:
+
+```
+FOR ROLE postgres        tipo r  ->  authenticated=arwdDxtm, service_role=arwdDxtm
+FOR ROLE supabase_admin  tipo r  ->  anon=arwdDxtm, authenticated=arwdDxtm,
+                                     service_role=arwdDxtm
+```
+
+Objeto criado pelo runner de migration (`postgres`) cai na primeira linha:
+**`authenticated` e `service_role` nascem com ALL.**
+
+Por que isso importa numa view, e não é teoria:
+
+1. **`grant select` sozinho não restringe nada.** Sobre um ALL que já está lá,
+   ele é no-op. A view fica legível *e gravável*.
+2. **View simples é atualizável por padrão no Postgres**, então o `insert`,
+   `update` ou `delete` **atravessa** para a tabela base. Nessa altura ainda
+   sobram a RLS e os gatilhos da base — mas a barreira passou a ser uma camada
+   adiante do que o arquivo prometia.
+
+Dois incidentes do repositório provam a herança em relação, não em função:
+`supabase/migrations/20261002121000_mv_saude_carteira_acl_sem_authenticated.sql`
+(matview recriada em 02/10/2026 voltou com `authenticated` na ACL) e a linha 5
+de `supabase/migrations/20260930232237_mrl_privilegios_como_audit_log.sql`. E
+`supabase/migrations/20260805170000_grants_minimos_default_privileges.sql`
+(linhas 21-23) revoga os defaults de `anon` — é por isso que `anon` aparece só
+na entrada de `supabase_admin`.
+
+**O padrão, portanto, é revogar antes de conceder** — e revogar dos quatro, não
+de dois:
+
+```sql
+revoke all on public.<objeto> from public;
+revoke all on public.<objeto> from anon;
+revoke all on public.<objeto> from authenticated;
+revoke all on public.<objeto> from service_role;
+grant select on public.<objeto> to authenticated;   -- só o que o caso exige
+```
+
+E a asserção correspondente, no mesmo arquivo, para cada `grant`/`revoke` —
+conferir a existência do objeto não prova a permissão dele:
+
+```sql
+if has_table_privilege('authenticated','public.<objeto>','INSERT')
+   or has_table_privilege('authenticated','public.<objeto>','UPDATE')
+   or has_table_privilege('authenticated','public.<objeto>','DELETE') then
+  raise exception 'PROVA: o objeto aceita escrita de authenticated';
+end if;
+```
+
+Em **view**, isto é obrigatório além do revoke: `with (security_invoker = on)`.
+Sem a opção, a view roda com os direitos do dono e **passa por cima da RLS da
+tabela base** — é o item `VIEW_BYPASS_RLS` (7) de
+`scripts/seguranca/auditoria_seguranca.sql`. Confira pela
+`pg_options_to_table`, o mesmo idioma do gate, e não casando a string
+`'security_invoker=on'`, que quebra se alguém reescrever como `= true`.
+
+Exemplo completo e revisado, com guarda de pré-condição, provas e reversa:
+`supabase/aguardando_aprovacao/20261106190000_ulbra_vinculos_view_confirmados.sql.pendente`.
+
+**O que segue NÃO COMPROVADO:** a leitura acima é de `pg_default_acl` em
+06/11/2026. Um `ALTER DEFAULT PRIVILEGES` novo, para outro grantee ou outro
+`FOR ROLE`, muda o conjunto e não aparece em nenhum arquivo do repositório.
+Reler `pg_default_acl` no momento da aplicação é leitura barata e fecha o caso.
 
 ## Gate automático
 

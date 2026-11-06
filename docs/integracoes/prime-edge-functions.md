@@ -61,6 +61,48 @@ também mostra `documento-financeiro-url`, `foto-perfil-url`,
 `whatsapp-enviar-documento` — nenhuma referencia Prime/ULBRA e ficam fora
 deste inventário.
 
+**Esta contagem é de 22/09/2026 e ficou para trás.** As três funções
+`ulbra-*`, criadas em 03/11/2026, não existiam quando ela foi feita — estão na
+seção seguinte, acrescentada em 06/11/2026.
+
+## Mensageria ULBRA (`crm.ulbra.ai`) — três funções, outra API
+
+Acrescentado em **06/11/2026**, para cumprir a regra 2 do
+[`README.md`](README.md) (toda Edge Function que toque Prime/ULBRA entra neste
+inventário). Elas estavam fora dele desde 03/11.
+
+**Não falam com a API Prime.** O destino é o endpoint MCP JSON-RPC 2.0
+`https://crm.ulbra.ai/api/mcp`, sistema de atendimento/WhatsApp separado do
+Prime, com credencial própria (`ULBRA_MCP_TOKEN`, Bearer) e limites próprios
+(15 chamadas/min por conexão, 30/min por pessoa, **500/dia por pessoa**). Por
+isso a regra dos cinco arquivos do Prime (`prime-api.md` +
+`prime-api-catalog.json` + `prime-mapa-fontes-verdade.md` + identificadores +
+gaps) **não se aplica** a elas: a fonte de verdade da Mensageria é
+[`mensageria-ulbra.md`](mensageria-ulbra.md), documento próprio na tabela do
+`README.md`. O que se aplica é este inventário.
+
+| Função | Finalidade | Ferramenta MCP | Portão | Leitura/escrita | Callers |
+|---|---|---|---|---|---|
+| `ulbra-consultar` | Vincula o aluno do CRM ao cliente da Mensageria e devolve a URL do atendimento | `conferir_duplicidade` (1 chamada, telefone **e** CPF nas duas posições) | JWT + usuário ativo em `public.usuarios`; operador só alcança aluno da própria carteira; perfis amplos (`supervisor`, `gerencia`, `administrativo`) alcançam qualquer um | Lê Mensageria; escreve **`ulbra_vinculos`** e `auditoria` (`ULBRA_CONSULTA`, `ULBRA_VINCULO_CRIADO`, `ULBRA_VINCULO_BLOQUEADO`) | `src/components/BlocoUlbra.jsx` |
+| `ulbra-atendimento` | Atendimento atual do aluno, para o bloco da ficha | `listar_atendimentos` / `consultar_atendimento` | Mesmo portão da `ulbra-consultar`; lê vínculo filtrando `confianca = 'alta_cpf'` (`vinculoConfirmado`) | **Só lê**; cache em memória de 5 min, nunca grava | `src/components/AtendimentoUlbra.jsx` |
+| `ulbra-leads-pendentes` | Lista leads receptivos em `waiting` da equipe "Reativa" | `listar_atendimentos {situacao:"waiting"}` | JWT; `receptivo` da própria linha **ou** `usuario_e_gestao()` | **Só lê**; devolve apenas id, nome e data — sem CPF e sem telefone | `src/components/NotificacoesUlbra.jsx`, que **não está montado** em nenhuma página (polling de 60 s estouraria o limite diário) |
+
+### Divergência repo × produção, medida em 06/11/2026
+
+Vale o mesmo princípio das 6 funções desta auditoria: **versionado não é
+publicado.** Lido por `list_edge_functions` e `get_edge_function`:
+
+| Função | Produção |
+|---|---|
+| `ulbra-consultar` | `version 2`, de 03/11 — **a da PR #794**. Busca por telefone (CPF só como *fallback*), grava `confianca: 'alta'`, **não escreve auditoria** e devolve `url` para qualquer vínculo ativo |
+| `ulbra-leads-pendentes` | `version 2`, de 03/11 |
+| `ulbra-atendimento` | **não existe** — nunca publicada, embora `AtendimentoUlbra` esteja montado na ficha e a chame |
+
+A correção do vínculo (PRs #813, #818, #819, #821) está na `main` e **não está
+em produção**. A sequência de publicação e validação está em
+[`mensageria-ulbra.md`](mensageria-ulbra.md), seção "Sequência de publicação".
+Nada foi publicado nesta alteração — documentar é diferente de implantar.
+
 ## Autenticação, em duas famílias
 
 - **Rotina noturna / cron:** header `x-rotina-token`, validado contra o
