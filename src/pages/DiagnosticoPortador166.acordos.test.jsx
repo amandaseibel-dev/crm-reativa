@@ -188,3 +188,92 @@ describe("a tela invoca pela sessão autenticada, sem manipular token", () => {
     expect(fonte).not.toMatch(/functions\.invoke\(\s*["'`](?!prime-sync|prime-sonda)/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// SONDA DE ESTRUTURA DO ACORDO — prime-sonda em /agreements
+//
+// Opção A da gestão: usar a sonda que já está publicada e que já permite a
+// rota, em vez de corrigir a prime-sync. Estes casos cobrem a invocação, a
+// preservação dos botões existentes e a privacidade NO DOM.
+// ---------------------------------------------------------------------------
+describe("sonda da estrutura do acordo (prime-sonda / agreements)", () => {
+  const ACORDO_SENSIVEL = [
+    {
+      id: 71903,
+      status: "Confirmado",
+      totalValue: 3975.57,
+      cpf: "111.222.333-44",
+      studentName: "Aluno Sintetico",
+      newInstallments: [
+        { documentNumber: "50719030001", value: 429.36, paymentDate: "2026-09-16" },
+        { documentNumber: "50719030002", value: 429.36, paymentDate: null },
+      ],
+    },
+  ];
+
+  it("invoca prime-sonda na rota de acordos da matrícula piloto, com cru", async () => {
+    invoke.mockResolvedValue({ data: { status: 200, cru: { items: [] } }, error: null });
+    render(<DiagnosticoPortador166 />);
+
+    screen.getByRole("button", { name: /Sondar estrutura do acordo/i }).click();
+
+    await waitFor(() => expect(invoke).toHaveBeenCalled());
+    expect(invoke).toHaveBeenCalledWith("prime-sonda", {
+      body: { caminho: "/students/2025007862/agreements", cru: true },
+    });
+  });
+
+  it("lista vazia: diz que não há acordo, sem inventar parcela", async () => {
+    invoke.mockResolvedValue({ data: { status: 200, cru: { items: [], totalItems: 0 } }, error: null });
+    render(<DiagnosticoPortador166 />);
+    screen.getByRole("button", { name: /Sondar estrutura do acordo/i }).click();
+
+    const painel = await screen.findByRole("region", { name: /sonda de acordos/i });
+    expect(painel.textContent).toMatch(/lista vazia/i);
+    expect(painel.textContent).toMatch(/não trouxe lista de parcelas/i);
+  });
+
+  it("acordo completo: mostra que traz parcelas, e quantas não pagas", async () => {
+    invoke.mockResolvedValue({ data: { status: 200, cru: ACORDO_SENSIVEL }, error: null });
+    render(<DiagnosticoPortador166 />);
+    screen.getByRole("button", { name: /Sondar estrutura do acordo/i }).click();
+
+    const painel = await screen.findByRole("region", { name: /sonda de acordos/i });
+    expect(painel.textContent).toMatch(/devolveu a estrutura do acordo/i);
+    expect(painel.textContent).toMatch(/Não pagas/i);
+  });
+
+  it("PRIVACIDADE no DOM: nenhum CPF, nome, boleto, valor ou data renderizado", async () => {
+    invoke.mockResolvedValue({ data: { status: 200, cru: ACORDO_SENSIVEL }, error: null });
+    render(<DiagnosticoPortador166 />);
+    screen.getByRole("button", { name: /Sondar estrutura do acordo/i }).click();
+
+    const painel = await screen.findByRole("region", { name: /sonda de acordos/i });
+    const texto = painel.textContent;
+    expect(texto).not.toMatch(/111\.222\.333-44/);
+    expect(texto).not.toMatch(/Aluno Sintetico/);
+    expect(texto).not.toMatch(/50719030001/);
+    expect(texto).not.toMatch(/3975/);
+    expect(texto).not.toMatch(/429/);
+    expect(texto).not.toMatch(/2026-09-16/);
+    // nome de campo PODE aparecer -- é o que a gestão pediu ver
+    expect(texto).toMatch(/totalValue/);
+    expect(texto).toMatch(/documentNumber/);
+  });
+
+  it("status da API Prime diferente de 200 é erro, não 'sem acordo'", async () => {
+    invoke.mockResolvedValue({ data: { status: 503, cru: null }, error: null });
+    render(<DiagnosticoPortador166 />);
+    screen.getByRole("button", { name: /Sondar estrutura do acordo/i }).click();
+
+    const alerta = await screen.findByRole("alert");
+    expect(alerta.textContent).toMatch(/status 503/);
+  });
+
+  it("os três botões coexistem — nada foi substituído", () => {
+    render(<DiagnosticoPortador166 />);
+    expect(screen.getByRole("button", { name: /Executar diagnóstico/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Diagnosticar acordos/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Sondar estrutura do acordo/i })).toBeTruthy();
+  });
+});
