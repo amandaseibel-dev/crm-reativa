@@ -85,6 +85,9 @@ begin
   if has_function_privilege('public', 'public._encerramento_so_gestao()', 'EXECUTE') then
     raise exception 'rollback deixou PUBLIC com EXECUTE em _encerramento_so_gestao';
   end if;
+  if has_function_privilege('anon', 'public._encerramento_so_gestao()', 'EXECUTE') then
+    raise exception 'rollback deixou anon com EXECUTE em _encerramento_so_gestao';
+  end if;
 end
 $$;
 

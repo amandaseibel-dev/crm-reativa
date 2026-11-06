@@ -157,10 +157,12 @@ export function useTabulacoes() {
 // gestora, Fernanda, Amanda ADM) -- não é perfil novo nem allowlist paralela.
 //
 // E ESCONDER OPÇÃO NÃO É A SEGURANÇA, É A CORTESIA. Quem barra de verdade é o
-// banco: `_encerramento_so_gestao`, gatilho de `public.alunos`, recusa gravar
-// em `status_atual/status_jornada/status_acionamento` qualquer código marcado
-// `somente_gestao` no catálogo, em UPDATE e em INSERT, autorizando pelo e-mail
-// do JWT (`usuario_e_gestao()`) e nunca por perfil que a tela mande -- ver
+// banco: `_encerramento_so_gestao`, gatilho de `public.alunos`, recusa
+// INTRODUZIR em `status_atual`, `status_jornada` ou `status_acionamento`
+// qualquer código marcado `somente_gestao` no catálogo -- em UPDATE e em
+// INSERT, decidindo por COLUNA (a coluna está recebendo agora um código que
+// não tinha?) e autorizando pelo e-mail do JWT (`usuario_e_gestao()`), nunca
+// por perfil que a tela mande. Ver
 // 20261106140000_tabulacao_so_gestao_no_banco. Este filtro existe para o
 // operador não ver um caminho que terminaria em erro, não para proteger o dado.
 // Por isso ele pode ser lista literal sem culpa: se a lista aqui ficar

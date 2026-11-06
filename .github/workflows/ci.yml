@@ -276,7 +276,7 @@ jobs:
   # ---------------------------------------------------------------------------
   # trava de tabulação somente gestão no banco — 20261106140000
   #
-  # Aplica a proposta num Postgres descartável e roda os 14 casos de permissão:
+  # Aplica a proposta num Postgres descartável e roda os 18 casos de permissão:
   # operador barrado em RETORNO_FINANCEIRO (com a mensagem certa, que NÃO fala
   # em "encerrar cobrança"), trava histórica de encerramento intacta, tabulação
   # comum livre, reescrita de código já gravado passando, as três colunas de
@@ -340,7 +340,7 @@ jobs:
       # 1. ambiente  2. baseline (o estado de produção, lista literal e sem
       # INSERT)  3. A PROPOSTA  4. os 14 casos.
       # ON_ERROR_STOP em todos: o primeiro erro derruba o job.
-      - name: Montar ambiente, aplicar o SQL e rodar os 14 casos
+      - name: Montar ambiente, aplicar o SQL e rodar os 18 casos
         if: steps.existe.outputs.roda == 'sim'
         env:
           ALVO: ${{ steps.existe.outputs.alvo }}

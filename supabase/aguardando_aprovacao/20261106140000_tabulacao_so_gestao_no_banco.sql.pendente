@@ -16,10 +16,16 @@
 --         'ANTECIPACAO_SEMESTRE','ALEGA_FIES_CONFIRMADO',
 --         'ALEGA_CREDIES_CONFIRMADO','ALEGA_FINANCIAMENTO_CONFIRMADO']
 --
--- Então trocar "lista à mão" por "lista + catálogo" NÃO muda o comportamento
--- de hoje para nenhum desses sete, e passa a cobrir qualquer tabulação futura
--- marcada `somente_gestao` -- inclusive `RETORNO_FINANCEIRO` -- sem precisar
--- de outra migration. Uma régua, não duas.
+-- Então trocar "lista à mão" por "lista + catálogo" cobre qualquer tabulação
+-- futura marcada `somente_gestao` -- inclusive `RETORNO_FINANCEIRO` -- sem
+-- precisar de outra migration. Uma régua, não duas.
+--
+-- MAS A TROCA NÃO É NEUTRA, E ISSO CUSTOU UMA REPROVAÇÃO: o portão original
+-- comparava CONJUNTOS (`&&`), então ampliar a lista de códigos bloqueados
+-- ampliava também o conjunto de estados que DESLIGAM o portão. Ver o comentário
+-- "POR COLUNA E POR CODIGO" no corpo da função: a decisão passou a ser por
+-- coluna, e é isso que torna a ampliação segura. Sem essa mudança, esta
+-- migration abriria cancelamento/suspensão/jurídico para o operador.
 --
 -- ===========================================================================
 -- POR QUE AQUI SE LÊ `somente_gestao` E NO FRONT NÃO
@@ -43,7 +49,10 @@
 -- O array dos sete fica, como PISO. A trava de encerramento que existe desde
 -- agosto não pode ser afrouxada por um `UPDATE` descuidado no catálogo (a
 -- gestão edita `tabulacoes` pela tela /tabulacoes), nem por uma leitura que
--- volte vazia. Bloqueia-se a UNIÃO: piso ∪ catálogo. A régua só cresce.
+-- volte vazia. Bloqueia-se a UNIÃO: piso ∪ catálogo.
+--
+-- E com a decisão por coluna, aí sim a régua só cresce: ampliar o conjunto
+-- bloqueado não amplia mais o conjunto que desarma o bloqueio.
 --
 -- ===========================================================================
 -- AUTORIZAÇÃO É DO BANCO, NUNCA DO FRONTEND
@@ -67,6 +76,12 @@
 --   3. A MENSAGEM deixa de mentir. Hoje ela fala em "Encerrar cobrança" para
 --      tudo. `RETORNO_FINANCEIRO` não encerra nada, então quem tentar recebe
 --      o motivo certo, com o nome da tabulação.
+--   4. Trocar um código bloqueado por OUTRO (suspensão -> jurídico) passa a ser
+--      barrado para quem não é gestão. Antes passava, por causa do `&&`.
+--   5. Copiar um código bloqueado de uma coluna de status para outra também.
+--      Medido: as 8 transições entre códigos bloqueados que existem no
+--      histórico foram TODAS feitas pela gestão, que não é barrada. Nenhum
+--      fluxo real de operador para de funcionar.
 --
 -- NÃO MUDA: parcela, acordo, pagamento, fidelização, distribuição, nem o
 -- efeito de nenhuma tabulação. `RETORNO_FINANCEIRO` segue NEUTRA
@@ -110,8 +125,6 @@ declare
   v_encerra text[] := array['CANCELAMENTO_COBRANCA','SUSPENSAO_COBRANCA','JURIDICO','ANTECIPACAO_SEMESTRE','ALEGA_FIES_CONFIRMADO','ALEGA_CREDIES_CONFIRMADO','ALEGA_FINANCIAMENTO_CONFIRMADO'];
   v_catalogo text[];
   v_bloqueadas text[];
-  v_novo text[];
-  v_antigo text[];
   v_tentou text;
   v_sistema boolean := coalesce(auth.role(),'') = 'service_role'
                        or auth.jwt() is null
@@ -136,27 +149,49 @@ begin
     from unnest(v_encerra || v_catalogo) as c
    where c <> '';
 
-  v_novo := array[upper(coalesce(new.status_atual,'')), upper(coalesce(new.status_jornada,'')),
-                  upper(coalesce(new.status_acionamento,''))];
+  -- POR COLUNA E POR CODIGO -- NUNCA por sobreposicao de conjuntos.
+  --
+  -- O gatilho original perguntava `(v_novo && v_bloqueadas) and not (v_antigo
+  -- && v_bloqueadas)`, com arrays das tres colunas. `&&` e SOBREPOSICAO: bastava
+  -- o aluno JA carregar qualquer codigo bloqueado, em qualquer das tres
+  -- colunas, para o portao ser pulado para QUALQUER codigo novo -- inclusive um
+  -- diferente. Enquanto a lista eram so os 7 estados TERMINAIS, a brecha era
+  -- estreita. Ao acrescentar o catalogo ela deixaria de ser: `RETORNO_FINANCEIRO`
+  -- e neutro e NAO terminal, a gestao vai carimba-lo na rotina em casos que
+  -- seguem na carteira do operador -- e "aluno com retorno do financeiro"
+  -- viraria a chave que destranca cancelamento, suspensao e juridico para o
+  -- operador. Com efeito financeiro: `trg_tabulacao_efeito_financeiro` e AFTER
+  -- UPDATE OF status_jornada, nao tem portao proprio (conferido em producao em
+  -- 06/11/2026) e chama `parcela_efeito_sem_pagamento_aplicar`.
+  --
+  -- A pergunta certa e por COLUNA: esta coluna esta RECEBENDO AGORA um codigo
+  -- bloqueado que ela nao tinha? Isso preserva o que importava na regra antiga
+  -- -- reescrever o que ja estava la passa, e por isso os 182 alunos de
+  -- producao que carregam codigo so-gestao continuam editaveis pelo operador --
+  -- e fecha a brecha.
+  --
+  -- MAIS ESTRITO QUE ANTES EM DOIS PONTOS, declarados de propósito:
+  --   1. trocar um codigo bloqueado por OUTRO (ex.: suspensao -> juridico)
+  --      passa a ser barrado para quem nao e gestao;
+  --   2. copiar um codigo bloqueado de uma coluna para outra tambem.
+  -- Medido em producao em 06/11/2026: existem 8 transicoes entre codigos
+  -- bloqueados no historico (`aluno_movimentacoes`), e TODAS AS 8 foram feitas
+  -- pela gestao -- que passa pelo bypass acima. Logo nenhum fluxo real de
+  -- operador e interrompido por este endurecimento.
+  select x.novo into v_tentou
+    from (values
+            (upper(coalesce(new.status_atual,'')),
+             case when tg_op = 'INSERT' then '' else upper(coalesce(old.status_atual,'')) end),
+            (upper(coalesce(new.status_jornada,'')),
+             case when tg_op = 'INSERT' then '' else upper(coalesce(old.status_jornada,'')) end),
+            (upper(coalesce(new.status_acionamento,'')),
+             case when tg_op = 'INSERT' then '' else upper(coalesce(old.status_acionamento,'')) end)
+         ) as x(novo, antigo)
+   where x.novo <> x.antigo
+     and x.novo = any(v_bloqueadas)
+   limit 1;
 
-  -- No INSERT nao existe OLD: nada foi "reescrito", todo codigo bloqueado e novo.
-  if tg_op = 'INSERT' then
-    v_antigo := '{}'::text[];
-  else
-    v_antigo := array[upper(coalesce(old.status_atual,'')), upper(coalesce(old.status_jornada,'')),
-                      upper(coalesce(old.status_acionamento,''))];
-  end if;
-
-  -- So barra quando o codigo bloqueado e NOVO: reescrever o que ja estava la
-  -- nao e o operador encerrando nem tabulando nada (182 alunos em producao
-  -- carregam hoje um codigo so-gestao).
-  if (v_novo && v_bloqueadas) and not (v_antigo && v_bloqueadas) then
-    select c into v_tentou
-      from unnest(v_novo) as c
-     where c = any(v_bloqueadas)
-       and not (c = any(v_antigo))
-     limit 1;
-
+  if v_tentou is not null then
     if v_tentou = any(v_encerra) then
       -- Mensagem HISTORICA, palavra por palavra: os operadores a conhecem e
       -- ha teste ancorado nela.
@@ -177,7 +212,7 @@ end;
 $function$;
 
 comment on function public._encerramento_so_gestao() is
-  'Barra o operador de gravar em alunos.status_* qualquer tabulacao restrita a gestao: o piso literal de ENCERRAMENTO (cancelamento, suspensao, juridico, antecipacao, confirmacoes de alegacao) UNIDO a tabulacoes.somente_gestao lido do catalogo. Autorizacao por usuario_e_gestao() (e-mail do JWT), nunca por perfil vindo do frontend. Cobre UPDATE e INSERT. Reescrever codigo ja gravado passa.';
+  'Barra o operador de INTRODUZIR em alunos.status_atual/status_jornada/status_acionamento qualquer tabulacao restrita a gestao: o piso literal de ENCERRAMENTO (cancelamento, suspensao, juridico, antecipacao, confirmacoes de alegacao) UNIDO a tabulacoes.somente_gestao lido do catalogo. A decisao e POR COLUNA -- a coluna esta recebendo agora um codigo bloqueado que nao tinha? --, nunca por sobreposicao de conjuntos: com `&&`, um aluno que ja carregasse qualquer codigo bloqueado destrancaria todos os outros. Autorizacao por usuario_e_gestao() (e-mail do JWT), nunca por perfil vindo do frontend. Cobre UPDATE e INSERT. Reescrever na mesma coluna o codigo que ja estava la passa.';
 
 -- GRANTS: `create or replace function` restaura o padrao do schema, que inclui
 -- PUBLIC. Reafirmar aqui o ACL EXATO que produção tinha em 06/11/2026
