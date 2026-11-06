@@ -53,6 +53,10 @@ vi.mock("../utils/tabulacoes", () => ({
   camposDeRetorno: vi.fn().mockReturnValue({}),
   lerRetornoAtual: vi.fn().mockResolvedValue({ ok: true, retorno: null }),
   RETORNO_ORIGEM_OPERADOR: "OPERADOR",
+  // Portão de tabulação só-gestão (06/11/2026). Aqui devolve sempre true: este
+  // teste é sobre lazy load, não sobre quem vê qual opção -- a régua do portão
+  // tem teste próprio em src/utils/tabulacoes.test.js.
+  tabulacaoDisponivel: () => true,
 }));
 vi.mock("../utils/retornoOrigem", () => ({ ehOrigemDoOperador: vi.fn().mockReturnValue(false) }));
 vi.mock("jspdf", () => ({ default: class { text() {} save() {} setFont() {} setFontSize() {} setTextColor() {} setDrawColor() {} line() {} splitTextToSize() { return []; } addPage() {} } }));

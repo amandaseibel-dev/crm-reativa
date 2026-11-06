@@ -1,0 +1,748 @@
+-- =============================================================================
+-- EXECUCAO PELO SQL EDITOR — RUNBOOK §11
+-- migration: 20261106140000_tabulacao_so_gestao_no_banco
+-- versao pretendida: 20261106140000
+-- projeto: ahattpqrjmhkzsmnbdzs (PRODUCAO)
+--
+-- EXECUCAO E ACAO EXCLUSIVAMENTE HUMANA (§11). Nenhum agente executa isto.
+--
+-- md5 do conteudo entre os delimitadores $reg$ (o que o BLOCO A registra e o
+-- BLOCO B executa): a3a28c60ba93df935cebe5d2a3f76e6c
+-- sha256 do mesmo conteudo: 83bb5e314261a1658492e25d4df43a6293790af389275944b75acad6b0fc888f
+--
+-- O conteudo abaixo e o arquivo
+--   supabase/aguardando_aprovacao/20261106140000_tabulacao_so_gestao_no_banco.sql.pendente
+-- SEM o `begin;`/`commit;` proprio dele: o bloco unico do §11 ja abre e fecha a
+-- transacao, e um commit aninhado confirmaria a transacao externa antes do fim.
+-- Nada mais foi alterado.
+--
+-- PASSO 1 — PRE-CONDICAO. Rodar ISOLADO, antes, e so prosseguir se bater:
+--   -- Criterio: ja_registrada = false, md5_prosrc = d962319f021e9e3fe78b838730fadad7,
+--   --           tabulacao_existe = EXISTE (a 20261106120000 tem de ter sido aplicada ANTES)
+--   SELECT
+--     EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations
+--              WHERE version = '20261106140000')                      AS ja_registrada,
+--     (SELECT md5(p.prosrc) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--       WHERE n.nspname = 'public' AND p.proname = '_encerramento_so_gestao') AS md5_prosrc,
+--     COALESCE((SELECT 'EXISTE' FROM public.tabulacoes
+--                WHERE codigo = 'RETORNO_FINANCEIRO'), 'AUSENTE')     AS tabulacao_existe;
+--
+-- PASSO 4 — VALIDACAO. Rodar ISOLADO, depois:
+--   -- Estado dos objetos alterados. Todas as quatro colunas tem de vir como indicado.
+--   SELECT
+--     (SELECT count(*) FROM pg_trigger
+--       WHERE tgrelid = 'public.alunos'::regclass AND NOT tgisinternal
+--         AND tgname IN ('trg_encerramento_so_gestao','trg_tabulacao_so_gestao_insert')) AS gatilhos_esperado_2,
+--     has_function_privilege('public','public._encerramento_so_gestao()','EXECUTE') AS public_esperado_false,
+--     has_function_privilege('anon',  'public._encerramento_so_gestao()','EXECUTE') AS anon_esperado_false,
+--     (SELECT p.prosrc ILIKE '%somente_gestao%' FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--       WHERE n.nspname = 'public' AND p.proname = '_encerramento_so_gestao') AS le_catalogo_esperado_true;
+--   SELECT version, name,
+--          md5(array_to_string(statements, E'\n')) AS md5_prod,
+--          octet_length(array_to_string(statements, E'\n')) AS bytes
+--     FROM supabase_migrations.schema_migrations WHERE version = '20261106140000';
+-- =============================================================================
+
+BEGIN;
+
+-- == LOCK =====================================================================
+SELECT pg_advisory_xact_lock(hashtext('migration_20261106140000'));
+
+-- == BLOCO A: guard duplo + identidade + registro ==============================
+DO $$
+DECLARE
+  v_md5_aprovado  CONSTANT text := 'a3a28c60ba93df935cebe5d2a3f76e6c';
+  v_versao        CONSTANT text := '20261106140000';
+  v_nome          CONSTANT text := '20261106140000_tabulacao_so_gestao_no_banco';
+  v_conteudo      text;
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = v_versao
+  ) THEN
+    RAISE EXCEPTION 'GUARDA: versao % ja registrada em schema_migrations', v_versao;
+  END IF;
+
+  v_conteudo := $reg$-- Trava de tabulação SOMENTE GESTÃO no banco (decisão da gestão, 06/11/2026)
+--
+-- PEDIDO: "não quero que a segurança dependa exclusivamente da interface".
+-- Até aqui, "só gestão" para `RETORNO_FINANCEIRO` existia apenas no <select>.
+-- Esta migration põe a régua no banco, onde a interface não alcança.
+--
+-- ===========================================================================
+-- POR QUE ESTA MIGRATION É PEQUENA: O GATILHO JÁ EXISTE
+--
+-- `_encerramento_so_gestao` roda em `public.alunos` desde 28/08/2026 e já
+-- barra o operador. O que ele tinha era um ARRAY LITERAL de códigos, mantido
+-- à mão -- e medido em produção em 06/11/2026, esse array é EXATAMENTE o
+-- conjunto `tabulacoes.somente_gestao = true`:
+--
+--   array['CANCELAMENTO_COBRANCA','SUSPENSAO_COBRANCA','JURIDICO',
+--         'ANTECIPACAO_SEMESTRE','ALEGA_FIES_CONFIRMADO',
+--         'ALEGA_CREDIES_CONFIRMADO','ALEGA_FINANCIAMENTO_CONFIRMADO']
+--
+-- Então trocar "lista à mão" por "lista + catálogo" cobre qualquer tabulação
+-- futura marcada `somente_gestao` -- inclusive `RETORNO_FINANCEIRO` -- sem
+-- precisar de outra migration. Uma régua, não duas.
+--
+-- MAS A TROCA NÃO É NEUTRA, E ISSO CUSTOU UMA REPROVAÇÃO: o portão original
+-- comparava CONJUNTOS (`&&`), então ampliar a lista de códigos bloqueados
+-- ampliava também o conjunto de estados que DESLIGAM o portão. Ver o comentário
+-- "POR COLUNA E POR CODIGO" no corpo da função: a decisão passou a ser por
+-- coluna, e é isso que torna a ampliação segura. Sem essa mudança, esta
+-- migration abriria cancelamento/suspensão/jurídico para o operador.
+--
+-- ===========================================================================
+-- POR QUE AQUI SE LÊ `somente_gestao` E NO FRONT NÃO
+--
+-- Não é incoerência; é o oposto, pelo mesmo motivo. No front, ler a coluna é
+-- FAIL-OPEN: a policy `tabulacoes_leitura_autenticado` (20260828050000:52-59)
+-- é `using (not somente_gestao or usuario_e_gestao() or service_role)`, então
+-- o catálogo que chega ao operador NÃO TEM a linha -- o predicado não a acha,
+-- conclui "não é só-gestão" e mostra a opção. Por isso o front usa lista
+-- literal (`TABULACOES_SO_GESTAO`, src/utils/tabulacoes.js).
+--
+-- AQUI dentro a mesma coluna é legível por inteiro: a função é SECURITY
+-- DEFINER, dona `postgres` (= dona de `public.tabulacoes`), e a tabela está
+-- com `relforcerowsecurity = false` -- conferido em produção em 06/11/2026.
+-- Dona de tabela não é filtrada pela própria RLS. Logo o gatilho vê as 8
+-- linhas, e o catálogo pode ser a fonte da verdade.
+--
+-- ===========================================================================
+-- FAIL-CLOSED: O PISO LITERAL NÃO ENCOLHE
+--
+-- O array dos sete fica, como PISO. A trava de encerramento que existe desde
+-- agosto não pode ser afrouxada por um `UPDATE` descuidado no catálogo (a
+-- gestão edita `tabulacoes` pela tela /tabulacoes), nem por uma leitura que
+-- volte vazia. Bloqueia-se a UNIÃO: piso ∪ catálogo.
+--
+-- E com a decisão por coluna, aí sim a régua só cresce: ampliar o conjunto
+-- bloqueado não amplia mais o conjunto que desarma o bloqueio.
+--
+-- ===========================================================================
+-- AUTORIZAÇÃO É DO BANCO, NUNCA DO FRONTEND
+--
+-- Quem decide é `public.usuario_e_gestao()`, que lê `auth.jwt()->>'email'` --
+-- a identidade do token, não um perfil que a tela mande. Nada aqui aceita
+-- parâmetro de quem chama. Os três e-mails são os de sempre (Amanda gestora,
+-- Fernanda, Amanda ADM); esta migration NÃO mexe nessa função.
+--
+-- ===========================================================================
+-- O QUE MUDA DE COMPORTAMENTO, DE FATO
+--
+--   1. `RETORNO_FINANCEIRO` passa a ser barrado para quem não é gestão, em
+--      QUALQUER caminho de UPDATE em `alunos.status_*` -- inclusive os UPDATE
+--      diretos da tela (Aluno.jsx e PainelCarteira.jsx gravam sem RPC e sem
+--      validação de catálogo) e qualquer RPC chamada com o JWT do operador.
+--   2. INSERT passa a ser coberto. O gatilho de hoje é só `BEFORE UPDATE OF`;
+--      nascer com código só-gestão não era barrado. Nenhum fluxo conhecido faz
+--      isso (cadastro novo nasce `CONTATAR`), então é seguro -- mas "impedir
+--      independentemente da interface" inclui a porta do INSERT.
+--   3. A MENSAGEM deixa de mentir. Hoje ela fala em "Encerrar cobrança" para
+--      tudo. `RETORNO_FINANCEIRO` não encerra nada, então quem tentar recebe
+--      o motivo certo, com o nome da tabulação.
+--   4. Trocar um código bloqueado por OUTRO (suspensão -> jurídico) passa a ser
+--      barrado para quem não é gestão. Antes passava, por causa do `&&`.
+--   5. Copiar um código bloqueado de uma coluna de status para outra também.
+--      Medido: as 8 transições entre códigos bloqueados que existem no
+--      histórico foram TODAS feitas pela gestão, que não é barrada. Nenhum
+--      fluxo real de operador para de funcionar.
+--
+-- NÃO MUDA: parcela, acordo, pagamento, fidelização, distribuição, nem o
+-- efeito de nenhuma tabulação. `RETORNO_FINANCEIRO` segue NEUTRA
+-- (`efeito_desfecho = null`, `bloqueia_acionamento = false`,
+-- `exige_processo = false`) -- condição da aprovação desta frente.
+--
+-- Reescrever um código já gravado continua passando: a cláusula
+-- "só barra quando é NOVO" é a de sempre, e 182 alunos em produção carregam
+-- hoje um código só-gestão (medido em 06/11/2026). Sem ela, qualquer edição
+-- na ficha desses 182 passaria a falhar para o operador.
+--
+-- ===========================================================================
+-- ORDEM DE IMPLANTAÇÃO
+--   1. 20261106120000_tabulacao_retorno_financeiro        (cria a tabulação)
+--   2. 20261106140000_tabulacao_so_gestao_no_banco        (ESTA -- a trava)
+--   3. frontend
+-- A trava antes do front é o que garante que, mesmo que o front vá primeiro
+-- por engano, o banco recusa. E a tabulação antes da trava porque a trava lê o
+-- catálogo: sem a linha, `RETORNO_FINANCEIRO` só estaria protegido quando a
+-- linha existisse.
+--
+-- ROLLBACK: 20261106140000_tabulacao_so_gestao_no_banco.rollback.sql
+--           (restaura o corpo literal e remove o gatilho de INSERT)
+
+
+-- ── GUARDA DE MD5 — §4 do RUNBOOK ───────────────────────────────────────────
+-- "Toda substituição de função existente carrega guarda de md5(prosrc) medido
+-- em produção, que interrompe a migration antes de qualquer create or replace
+-- se o texto divergir."
+--
+-- Medido em produção (projeto ahattpqrjmhkzsmnbdzs) em 06/11/2026:
+--   md5(prosrc) = d962319f021e9e3fe78b838730fadad7
+--   length(prosrc) = 1424 caracteres (1434 bytes em UTF-8: a mensagem de erro
+--   tem acentos, e `length()` conta caractere, não byte -- não confundir os dois
+--   números ao reconferir)
+--
+-- Se a função tiver mudado depois da revisão, esta migration NÃO roda. É o que
+-- impede de substituir por cima de uma proteção que alguém acrescentou no meio
+-- do caminho -- e, como não há rota de arquivo para o banco, é também a prova
+-- de que a transcrição do corpo abaixo é fiel.
+do $$
+declare
+  v_md5_esperado constant text := 'd962319f021e9e3fe78b838730fadad7';
+  v_md5_atual text;
+begin
+  select md5(p.prosrc) into v_md5_atual
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = '_encerramento_so_gestao';
+
+  if v_md5_atual is null then
+    raise exception
+      'GUARDA md5: public._encerramento_so_gestao() nao existe. Esta migration SUBSTITUI uma funcao existente -- se ela nao esta la, o estado do banco nao e o revisado. Pare e reveja.';
+  end if;
+
+  if v_md5_atual <> v_md5_esperado then
+    raise exception
+      'GUARDA md5: o corpo de public._encerramento_so_gestao() divergiu do revisado. esperado=% atual=%. A funcao mudou depois da revisao: NAO substitua -- releia o corpo vivo com pg_get_functiondef e reveja a migration.',
+      v_md5_esperado, v_md5_atual;
+  end if;
+end
+$$;
+
+-- Corpo base copiado VERBATIM de produção em 06/11/2026
+-- (`pg_get_functiondef`), e não da cópia do repositório: o repositório não
+-- registrava os três `ALEGA_*_CONFIRMADO` que produção já tem. Reescrever uma
+-- função sem ler o corpo que está rodando é como se perdem proteções.
+create or replace function public._encerramento_so_gestao()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+declare
+  -- PISO LITERAL -- nunca encolhe (ver FAIL-CLOSED no cabeçalho).
+  -- + ANTECIPACAO_SEMESTRE (07/10/2026): passou a quitar parcela, virou
+  --   decisao de gestao como cancelamento, suspensao e juridico.
+  v_encerra text[] := array['CANCELAMENTO_COBRANCA','SUSPENSAO_COBRANCA','JURIDICO','ANTECIPACAO_SEMESTRE','ALEGA_FIES_CONFIRMADO','ALEGA_CREDIES_CONFIRMADO','ALEGA_FINANCIAMENTO_CONFIRMADO'];
+  v_catalogo text[];
+  v_bloqueadas text[];
+  v_tentou text;
+  v_sistema boolean := coalesce(auth.role(),'') = 'service_role'
+                       or auth.jwt() is null
+                       or session_user in ('postgres','reativa_responsavel_executor');
+begin
+  if v_sistema or coalesce(public.usuario_e_gestao(), false) then
+    return new;
+  end if;
+
+  -- Catalogo: aqui dentro a RLS de `tabulacoes` nao filtra (SECURITY DEFINER,
+  -- dona postgres, tabela sem FORCE ROW LEVEL SECURITY), entao `somente_gestao`
+  -- e legivel por inteiro. `coalesce` para array vazio: leitura vazia nao pode
+  -- virar NULL e anular o `&&` do piso.
+  select coalesce(array_agg(upper(btrim(codigo))), '{}'::text[])
+    into v_catalogo
+    from public.tabulacoes
+   where somente_gestao;
+
+  -- UNIAO piso + catalogo. A regua so cresce.
+  select coalesce(array_agg(distinct c), '{}'::text[])
+    into v_bloqueadas
+    from unnest(v_encerra || v_catalogo) as c
+   where c <> '';
+
+  -- POR COLUNA E POR CODIGO -- NUNCA por sobreposicao de conjuntos.
+  --
+  -- O gatilho original perguntava `(v_novo && v_bloqueadas) and not (v_antigo
+  -- && v_bloqueadas)`, com arrays das tres colunas. `&&` e SOBREPOSICAO: bastava
+  -- o aluno JA carregar qualquer codigo bloqueado, em qualquer das tres
+  -- colunas, para o portao ser pulado para QUALQUER codigo novo -- inclusive um
+  -- diferente. Enquanto a lista eram so os 7 estados TERMINAIS, a brecha era
+  -- estreita. Ao acrescentar o catalogo ela deixaria de ser: `RETORNO_FINANCEIRO`
+  -- e neutro e NAO terminal, a gestao vai carimba-lo na rotina em casos que
+  -- seguem na carteira do operador -- e "aluno com retorno do financeiro"
+  -- viraria a chave que destranca cancelamento, suspensao e juridico para o
+  -- operador. Com efeito financeiro: `trg_tabulacao_efeito_financeiro` e AFTER
+  -- UPDATE OF status_jornada, nao tem portao proprio (conferido em producao em
+  -- 06/11/2026) e chama `parcela_efeito_sem_pagamento_aplicar`.
+  --
+  -- A pergunta certa e por COLUNA: esta coluna esta RECEBENDO AGORA um codigo
+  -- bloqueado que ela nao tinha? Isso preserva o que importava na regra antiga
+  -- -- reescrever o que ja estava la passa, e por isso os 182 alunos de
+  -- producao que carregam codigo so-gestao continuam editaveis pelo operador --
+  -- e fecha a brecha.
+  --
+  -- MAIS ESTRITO QUE ANTES EM DOIS PONTOS, declarados de propósito:
+  --   1. trocar um codigo bloqueado por OUTRO (ex.: suspensao -> juridico)
+  --      passa a ser barrado para quem nao e gestao;
+  --   2. copiar um codigo bloqueado de uma coluna para outra tambem.
+  -- Medido em producao em 06/11/2026: existem 8 transicoes entre codigos
+  -- bloqueados no historico (`aluno_movimentacoes`), e TODAS AS 8 foram feitas
+  -- pela gestao -- que passa pelo bypass acima. Logo nenhum fluxo real de
+  -- operador e interrompido por este endurecimento.
+  -- `btrim` NOS DOIS LADOS. `v_bloqueadas` normaliza com `upper(btrim(codigo))`;
+  -- se aqui fosse só `upper()`, 'CANCELAMENTO_COBRANCA ' com espaco passaria o
+  -- portao. No servidor o valor ficaria inerte (os consumidores comparam por
+  -- igualdade exata), mas `casoNoKpi` em src/components/PainelCarteira.jsx
+  -- classifica concatenando os status e olhando SUBSTRING -- o valor com espaco
+  -- apareceria como encerrado na tela. Simetria e mais barata que a duvida.
+  select x.novo into v_tentou
+    from (values
+            (upper(btrim(coalesce(new.status_atual,''))),
+             case when tg_op = 'INSERT' then '' else upper(btrim(coalesce(old.status_atual,''))) end),
+            (upper(btrim(coalesce(new.status_jornada,''))),
+             case when tg_op = 'INSERT' then '' else upper(btrim(coalesce(old.status_jornada,''))) end),
+            (upper(btrim(coalesce(new.status_acionamento,''))),
+             case when tg_op = 'INSERT' then '' else upper(btrim(coalesce(old.status_acionamento,''))) end)
+         ) as x(novo, antigo)
+   where x.novo <> x.antigo
+     and x.novo = any(v_bloqueadas)
+   limit 1;
+
+  if v_tentou is not null then
+    if v_tentou = any(v_encerra) then
+      -- Mensagem HISTORICA, palavra por palavra: os operadores a conhecem e
+      -- ha teste ancorado nela.
+      raise exception
+        'Encerrar cobrança (cancelamento, suspensão, jurídico ou antecipação de semestre) é decisão da gestão. Registre a solicitação para Amanda, Fernanda ou Amanda ADM.'
+        using errcode = '42501';
+    else
+      -- Tabulacao so-gestao que NAO encerra cobranca (ex.: RETORNO_FINANCEIRO).
+      -- Dizer "encerrar cobranca" aqui seria mentir para o operador.
+      raise exception
+        'A tabulação "%" é restrita à gestão. Registre a solicitação para Amanda, Fernanda ou Amanda ADM.', v_tentou
+        using errcode = '42501';
+    end if;
+  end if;
+
+  return new;
+end;
+$function$;
+
+comment on function public._encerramento_so_gestao() is
+  'Barra o operador de INTRODUZIR em alunos.status_atual/status_jornada/status_acionamento qualquer tabulacao restrita a gestao: o piso literal de ENCERRAMENTO (cancelamento, suspensao, juridico, antecipacao, confirmacoes de alegacao) UNIDO a tabulacoes.somente_gestao lido do catalogo. A decisao e POR COLUNA -- a coluna esta recebendo agora um codigo bloqueado que nao tinha? --, nunca por sobreposicao de conjuntos: com `&&`, um aluno que ja carregasse qualquer codigo bloqueado destrancaria todos os outros. Autorizacao por usuario_e_gestao() (e-mail do JWT), nunca por perfil vindo do frontend. Cobre UPDATE e INSERT. Reescrever na mesma coluna o codigo que ja estava la passa.';
+
+-- GRANTS: `create or replace function` restaura o padrao do schema, que inclui
+-- PUBLIC. Reafirmar aqui o ACL EXATO que produção tinha em 06/11/2026
+-- (`postgres=X, authenticated=X, service_role=X`) -- nem mais, nem menos, e
+-- anon de fora. Sem isto, a migration AMPLIA acesso de carona.
+revoke all on function public._encerramento_so_gestao() from public;
+revoke all on function public._encerramento_so_gestao() from anon;
+grant execute on function public._encerramento_so_gestao() to postgres, authenticated, service_role;
+
+-- Gatilho de UPDATE: recriado identico ao de producao (mesmas tres colunas).
+drop trigger if exists trg_encerramento_so_gestao on public.alunos;
+create trigger trg_encerramento_so_gestao
+before update of status_atual, status_jornada, status_acionamento
+on public.alunos
+for each row execute function public._encerramento_so_gestao();
+
+-- Gatilho de INSERT: porta que nao existia.
+drop trigger if exists trg_tabulacao_so_gestao_insert on public.alunos;
+create trigger trg_tabulacao_so_gestao_insert
+before insert on public.alunos
+for each row execute function public._encerramento_so_gestao();
+
+-- ---------------------------------------------------------------------------
+-- VIGIA: a trava tem que estar de pé nas duas portas e com o ACL certo.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_update boolean;
+  v_insert boolean;
+  v_publico boolean;
+  v_anon boolean;
+begin
+  select exists (
+    select 1 from pg_trigger
+     where tgrelid = 'public.alunos'::regclass
+       and tgname = 'trg_encerramento_so_gestao' and not tgisinternal
+  ) into v_update;
+
+  select exists (
+    select 1 from pg_trigger
+     where tgrelid = 'public.alunos'::regclass
+       and tgname = 'trg_tabulacao_so_gestao_insert' and not tgisinternal
+  ) into v_insert;
+
+  if not v_update then
+    raise exception 'trg_encerramento_so_gestao nao esta em public.alunos: a trava de UPDATE caiu';
+  end if;
+  if not v_insert then
+    raise exception 'trg_tabulacao_so_gestao_insert nao esta em public.alunos: a porta do INSERT ficou aberta';
+  end if;
+
+  select has_function_privilege('public', 'public._encerramento_so_gestao()', 'EXECUTE'),
+         has_function_privilege('anon',   'public._encerramento_so_gestao()', 'EXECUTE')
+    into v_publico, v_anon;
+
+  if v_publico then
+    raise exception 'PUBLIC ficou com EXECUTE em _encerramento_so_gestao: o revoke nao pegou';
+  end if;
+  if v_anon then
+    raise exception 'anon ficou com EXECUTE em _encerramento_so_gestao';
+  end if;
+
+  -- CONTRAPROVA DA GUARDA: o corpo tem de ter MUDADO (senao o create or replace
+  -- nao pegou) e tem de ler o catalogo (senao a trava nao cobre tabulacao nova).
+  if (select md5(p.prosrc) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = '_encerramento_so_gestao')
+     = 'd962319f021e9e3fe78b838730fadad7' then
+    raise exception 'o corpo de _encerramento_so_gestao continua o anterior: o create or replace nao pegou';
+  end if;
+
+  if (select p.prosrc from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = '_encerramento_so_gestao')
+     not ilike '%somente_gestao%' then
+    raise exception 'o corpo novo nao le tabulacoes.somente_gestao: a trava nao cobriria tabulacao nova';
+  end if;
+end
+$$;$reg$;
+
+  IF md5(v_conteudo) <> v_md5_aprovado THEN
+    RAISE EXCEPTION 'GUARDA DE IDENTIDADE: md5(conteudo)=% md5(aprovado)=%',
+      md5(v_conteudo), v_md5_aprovado;
+  END IF;
+
+  INSERT INTO supabase_migrations.schema_migrations (version, name, statements)
+  VALUES (v_versao, v_nome, ARRAY[v_conteudo]);
+END $$;
+
+-- == BLOCO B: a migration ======================================================
+-- Trava de tabulação SOMENTE GESTÃO no banco (decisão da gestão, 06/11/2026)
+--
+-- PEDIDO: "não quero que a segurança dependa exclusivamente da interface".
+-- Até aqui, "só gestão" para `RETORNO_FINANCEIRO` existia apenas no <select>.
+-- Esta migration põe a régua no banco, onde a interface não alcança.
+--
+-- ===========================================================================
+-- POR QUE ESTA MIGRATION É PEQUENA: O GATILHO JÁ EXISTE
+--
+-- `_encerramento_so_gestao` roda em `public.alunos` desde 28/08/2026 e já
+-- barra o operador. O que ele tinha era um ARRAY LITERAL de códigos, mantido
+-- à mão -- e medido em produção em 06/11/2026, esse array é EXATAMENTE o
+-- conjunto `tabulacoes.somente_gestao = true`:
+--
+--   array['CANCELAMENTO_COBRANCA','SUSPENSAO_COBRANCA','JURIDICO',
+--         'ANTECIPACAO_SEMESTRE','ALEGA_FIES_CONFIRMADO',
+--         'ALEGA_CREDIES_CONFIRMADO','ALEGA_FINANCIAMENTO_CONFIRMADO']
+--
+-- Então trocar "lista à mão" por "lista + catálogo" cobre qualquer tabulação
+-- futura marcada `somente_gestao` -- inclusive `RETORNO_FINANCEIRO` -- sem
+-- precisar de outra migration. Uma régua, não duas.
+--
+-- MAS A TROCA NÃO É NEUTRA, E ISSO CUSTOU UMA REPROVAÇÃO: o portão original
+-- comparava CONJUNTOS (`&&`), então ampliar a lista de códigos bloqueados
+-- ampliava também o conjunto de estados que DESLIGAM o portão. Ver o comentário
+-- "POR COLUNA E POR CODIGO" no corpo da função: a decisão passou a ser por
+-- coluna, e é isso que torna a ampliação segura. Sem essa mudança, esta
+-- migration abriria cancelamento/suspensão/jurídico para o operador.
+--
+-- ===========================================================================
+-- POR QUE AQUI SE LÊ `somente_gestao` E NO FRONT NÃO
+--
+-- Não é incoerência; é o oposto, pelo mesmo motivo. No front, ler a coluna é
+-- FAIL-OPEN: a policy `tabulacoes_leitura_autenticado` (20260828050000:52-59)
+-- é `using (not somente_gestao or usuario_e_gestao() or service_role)`, então
+-- o catálogo que chega ao operador NÃO TEM a linha -- o predicado não a acha,
+-- conclui "não é só-gestão" e mostra a opção. Por isso o front usa lista
+-- literal (`TABULACOES_SO_GESTAO`, src/utils/tabulacoes.js).
+--
+-- AQUI dentro a mesma coluna é legível por inteiro: a função é SECURITY
+-- DEFINER, dona `postgres` (= dona de `public.tabulacoes`), e a tabela está
+-- com `relforcerowsecurity = false` -- conferido em produção em 06/11/2026.
+-- Dona de tabela não é filtrada pela própria RLS. Logo o gatilho vê as 8
+-- linhas, e o catálogo pode ser a fonte da verdade.
+--
+-- ===========================================================================
+-- FAIL-CLOSED: O PISO LITERAL NÃO ENCOLHE
+--
+-- O array dos sete fica, como PISO. A trava de encerramento que existe desde
+-- agosto não pode ser afrouxada por um `UPDATE` descuidado no catálogo (a
+-- gestão edita `tabulacoes` pela tela /tabulacoes), nem por uma leitura que
+-- volte vazia. Bloqueia-se a UNIÃO: piso ∪ catálogo.
+--
+-- E com a decisão por coluna, aí sim a régua só cresce: ampliar o conjunto
+-- bloqueado não amplia mais o conjunto que desarma o bloqueio.
+--
+-- ===========================================================================
+-- AUTORIZAÇÃO É DO BANCO, NUNCA DO FRONTEND
+--
+-- Quem decide é `public.usuario_e_gestao()`, que lê `auth.jwt()->>'email'` --
+-- a identidade do token, não um perfil que a tela mande. Nada aqui aceita
+-- parâmetro de quem chama. Os três e-mails são os de sempre (Amanda gestora,
+-- Fernanda, Amanda ADM); esta migration NÃO mexe nessa função.
+--
+-- ===========================================================================
+-- O QUE MUDA DE COMPORTAMENTO, DE FATO
+--
+--   1. `RETORNO_FINANCEIRO` passa a ser barrado para quem não é gestão, em
+--      QUALQUER caminho de UPDATE em `alunos.status_*` -- inclusive os UPDATE
+--      diretos da tela (Aluno.jsx e PainelCarteira.jsx gravam sem RPC e sem
+--      validação de catálogo) e qualquer RPC chamada com o JWT do operador.
+--   2. INSERT passa a ser coberto. O gatilho de hoje é só `BEFORE UPDATE OF`;
+--      nascer com código só-gestão não era barrado. Nenhum fluxo conhecido faz
+--      isso (cadastro novo nasce `CONTATAR`), então é seguro -- mas "impedir
+--      independentemente da interface" inclui a porta do INSERT.
+--   3. A MENSAGEM deixa de mentir. Hoje ela fala em "Encerrar cobrança" para
+--      tudo. `RETORNO_FINANCEIRO` não encerra nada, então quem tentar recebe
+--      o motivo certo, com o nome da tabulação.
+--   4. Trocar um código bloqueado por OUTRO (suspensão -> jurídico) passa a ser
+--      barrado para quem não é gestão. Antes passava, por causa do `&&`.
+--   5. Copiar um código bloqueado de uma coluna de status para outra também.
+--      Medido: as 8 transições entre códigos bloqueados que existem no
+--      histórico foram TODAS feitas pela gestão, que não é barrada. Nenhum
+--      fluxo real de operador para de funcionar.
+--
+-- NÃO MUDA: parcela, acordo, pagamento, fidelização, distribuição, nem o
+-- efeito de nenhuma tabulação. `RETORNO_FINANCEIRO` segue NEUTRA
+-- (`efeito_desfecho = null`, `bloqueia_acionamento = false`,
+-- `exige_processo = false`) -- condição da aprovação desta frente.
+--
+-- Reescrever um código já gravado continua passando: a cláusula
+-- "só barra quando é NOVO" é a de sempre, e 182 alunos em produção carregam
+-- hoje um código só-gestão (medido em 06/11/2026). Sem ela, qualquer edição
+-- na ficha desses 182 passaria a falhar para o operador.
+--
+-- ===========================================================================
+-- ORDEM DE IMPLANTAÇÃO
+--   1. 20261106120000_tabulacao_retorno_financeiro        (cria a tabulação)
+--   2. 20261106140000_tabulacao_so_gestao_no_banco        (ESTA -- a trava)
+--   3. frontend
+-- A trava antes do front é o que garante que, mesmo que o front vá primeiro
+-- por engano, o banco recusa. E a tabulação antes da trava porque a trava lê o
+-- catálogo: sem a linha, `RETORNO_FINANCEIRO` só estaria protegido quando a
+-- linha existisse.
+--
+-- ROLLBACK: 20261106140000_tabulacao_so_gestao_no_banco.rollback.sql
+--           (restaura o corpo literal e remove o gatilho de INSERT)
+
+
+-- ── GUARDA DE MD5 — §4 do RUNBOOK ───────────────────────────────────────────
+-- "Toda substituição de função existente carrega guarda de md5(prosrc) medido
+-- em produção, que interrompe a migration antes de qualquer create or replace
+-- se o texto divergir."
+--
+-- Medido em produção (projeto ahattpqrjmhkzsmnbdzs) em 06/11/2026:
+--   md5(prosrc) = d962319f021e9e3fe78b838730fadad7
+--   length(prosrc) = 1424 caracteres (1434 bytes em UTF-8: a mensagem de erro
+--   tem acentos, e `length()` conta caractere, não byte -- não confundir os dois
+--   números ao reconferir)
+--
+-- Se a função tiver mudado depois da revisão, esta migration NÃO roda. É o que
+-- impede de substituir por cima de uma proteção que alguém acrescentou no meio
+-- do caminho -- e, como não há rota de arquivo para o banco, é também a prova
+-- de que a transcrição do corpo abaixo é fiel.
+do $$
+declare
+  v_md5_esperado constant text := 'd962319f021e9e3fe78b838730fadad7';
+  v_md5_atual text;
+begin
+  select md5(p.prosrc) into v_md5_atual
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = '_encerramento_so_gestao';
+
+  if v_md5_atual is null then
+    raise exception
+      'GUARDA md5: public._encerramento_so_gestao() nao existe. Esta migration SUBSTITUI uma funcao existente -- se ela nao esta la, o estado do banco nao e o revisado. Pare e reveja.';
+  end if;
+
+  if v_md5_atual <> v_md5_esperado then
+    raise exception
+      'GUARDA md5: o corpo de public._encerramento_so_gestao() divergiu do revisado. esperado=% atual=%. A funcao mudou depois da revisao: NAO substitua -- releia o corpo vivo com pg_get_functiondef e reveja a migration.',
+      v_md5_esperado, v_md5_atual;
+  end if;
+end
+$$;
+
+-- Corpo base copiado VERBATIM de produção em 06/11/2026
+-- (`pg_get_functiondef`), e não da cópia do repositório: o repositório não
+-- registrava os três `ALEGA_*_CONFIRMADO` que produção já tem. Reescrever uma
+-- função sem ler o corpo que está rodando é como se perdem proteções.
+create or replace function public._encerramento_so_gestao()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+declare
+  -- PISO LITERAL -- nunca encolhe (ver FAIL-CLOSED no cabeçalho).
+  -- + ANTECIPACAO_SEMESTRE (07/10/2026): passou a quitar parcela, virou
+  --   decisao de gestao como cancelamento, suspensao e juridico.
+  v_encerra text[] := array['CANCELAMENTO_COBRANCA','SUSPENSAO_COBRANCA','JURIDICO','ANTECIPACAO_SEMESTRE','ALEGA_FIES_CONFIRMADO','ALEGA_CREDIES_CONFIRMADO','ALEGA_FINANCIAMENTO_CONFIRMADO'];
+  v_catalogo text[];
+  v_bloqueadas text[];
+  v_tentou text;
+  v_sistema boolean := coalesce(auth.role(),'') = 'service_role'
+                       or auth.jwt() is null
+                       or session_user in ('postgres','reativa_responsavel_executor');
+begin
+  if v_sistema or coalesce(public.usuario_e_gestao(), false) then
+    return new;
+  end if;
+
+  -- Catalogo: aqui dentro a RLS de `tabulacoes` nao filtra (SECURITY DEFINER,
+  -- dona postgres, tabela sem FORCE ROW LEVEL SECURITY), entao `somente_gestao`
+  -- e legivel por inteiro. `coalesce` para array vazio: leitura vazia nao pode
+  -- virar NULL e anular o `&&` do piso.
+  select coalesce(array_agg(upper(btrim(codigo))), '{}'::text[])
+    into v_catalogo
+    from public.tabulacoes
+   where somente_gestao;
+
+  -- UNIAO piso + catalogo. A regua so cresce.
+  select coalesce(array_agg(distinct c), '{}'::text[])
+    into v_bloqueadas
+    from unnest(v_encerra || v_catalogo) as c
+   where c <> '';
+
+  -- POR COLUNA E POR CODIGO -- NUNCA por sobreposicao de conjuntos.
+  --
+  -- O gatilho original perguntava `(v_novo && v_bloqueadas) and not (v_antigo
+  -- && v_bloqueadas)`, com arrays das tres colunas. `&&` e SOBREPOSICAO: bastava
+  -- o aluno JA carregar qualquer codigo bloqueado, em qualquer das tres
+  -- colunas, para o portao ser pulado para QUALQUER codigo novo -- inclusive um
+  -- diferente. Enquanto a lista eram so os 7 estados TERMINAIS, a brecha era
+  -- estreita. Ao acrescentar o catalogo ela deixaria de ser: `RETORNO_FINANCEIRO`
+  -- e neutro e NAO terminal, a gestao vai carimba-lo na rotina em casos que
+  -- seguem na carteira do operador -- e "aluno com retorno do financeiro"
+  -- viraria a chave que destranca cancelamento, suspensao e juridico para o
+  -- operador. Com efeito financeiro: `trg_tabulacao_efeito_financeiro` e AFTER
+  -- UPDATE OF status_jornada, nao tem portao proprio (conferido em producao em
+  -- 06/11/2026) e chama `parcela_efeito_sem_pagamento_aplicar`.
+  --
+  -- A pergunta certa e por COLUNA: esta coluna esta RECEBENDO AGORA um codigo
+  -- bloqueado que ela nao tinha? Isso preserva o que importava na regra antiga
+  -- -- reescrever o que ja estava la passa, e por isso os 182 alunos de
+  -- producao que carregam codigo so-gestao continuam editaveis pelo operador --
+  -- e fecha a brecha.
+  --
+  -- MAIS ESTRITO QUE ANTES EM DOIS PONTOS, declarados de propósito:
+  --   1. trocar um codigo bloqueado por OUTRO (ex.: suspensao -> juridico)
+  --      passa a ser barrado para quem nao e gestao;
+  --   2. copiar um codigo bloqueado de uma coluna para outra tambem.
+  -- Medido em producao em 06/11/2026: existem 8 transicoes entre codigos
+  -- bloqueados no historico (`aluno_movimentacoes`), e TODAS AS 8 foram feitas
+  -- pela gestao -- que passa pelo bypass acima. Logo nenhum fluxo real de
+  -- operador e interrompido por este endurecimento.
+  -- `btrim` NOS DOIS LADOS. `v_bloqueadas` normaliza com `upper(btrim(codigo))`;
+  -- se aqui fosse só `upper()`, 'CANCELAMENTO_COBRANCA ' com espaco passaria o
+  -- portao. No servidor o valor ficaria inerte (os consumidores comparam por
+  -- igualdade exata), mas `casoNoKpi` em src/components/PainelCarteira.jsx
+  -- classifica concatenando os status e olhando SUBSTRING -- o valor com espaco
+  -- apareceria como encerrado na tela. Simetria e mais barata que a duvida.
+  select x.novo into v_tentou
+    from (values
+            (upper(btrim(coalesce(new.status_atual,''))),
+             case when tg_op = 'INSERT' then '' else upper(btrim(coalesce(old.status_atual,''))) end),
+            (upper(btrim(coalesce(new.status_jornada,''))),
+             case when tg_op = 'INSERT' then '' else upper(btrim(coalesce(old.status_jornada,''))) end),
+            (upper(btrim(coalesce(new.status_acionamento,''))),
+             case when tg_op = 'INSERT' then '' else upper(btrim(coalesce(old.status_acionamento,''))) end)
+         ) as x(novo, antigo)
+   where x.novo <> x.antigo
+     and x.novo = any(v_bloqueadas)
+   limit 1;
+
+  if v_tentou is not null then
+    if v_tentou = any(v_encerra) then
+      -- Mensagem HISTORICA, palavra por palavra: os operadores a conhecem e
+      -- ha teste ancorado nela.
+      raise exception
+        'Encerrar cobrança (cancelamento, suspensão, jurídico ou antecipação de semestre) é decisão da gestão. Registre a solicitação para Amanda, Fernanda ou Amanda ADM.'
+        using errcode = '42501';
+    else
+      -- Tabulacao so-gestao que NAO encerra cobranca (ex.: RETORNO_FINANCEIRO).
+      -- Dizer "encerrar cobranca" aqui seria mentir para o operador.
+      raise exception
+        'A tabulação "%" é restrita à gestão. Registre a solicitação para Amanda, Fernanda ou Amanda ADM.', v_tentou
+        using errcode = '42501';
+    end if;
+  end if;
+
+  return new;
+end;
+$function$;
+
+comment on function public._encerramento_so_gestao() is
+  'Barra o operador de INTRODUZIR em alunos.status_atual/status_jornada/status_acionamento qualquer tabulacao restrita a gestao: o piso literal de ENCERRAMENTO (cancelamento, suspensao, juridico, antecipacao, confirmacoes de alegacao) UNIDO a tabulacoes.somente_gestao lido do catalogo. A decisao e POR COLUNA -- a coluna esta recebendo agora um codigo bloqueado que nao tinha? --, nunca por sobreposicao de conjuntos: com `&&`, um aluno que ja carregasse qualquer codigo bloqueado destrancaria todos os outros. Autorizacao por usuario_e_gestao() (e-mail do JWT), nunca por perfil vindo do frontend. Cobre UPDATE e INSERT. Reescrever na mesma coluna o codigo que ja estava la passa.';
+
+-- GRANTS: `create or replace function` restaura o padrao do schema, que inclui
+-- PUBLIC. Reafirmar aqui o ACL EXATO que produção tinha em 06/11/2026
+-- (`postgres=X, authenticated=X, service_role=X`) -- nem mais, nem menos, e
+-- anon de fora. Sem isto, a migration AMPLIA acesso de carona.
+revoke all on function public._encerramento_so_gestao() from public;
+revoke all on function public._encerramento_so_gestao() from anon;
+grant execute on function public._encerramento_so_gestao() to postgres, authenticated, service_role;
+
+-- Gatilho de UPDATE: recriado identico ao de producao (mesmas tres colunas).
+drop trigger if exists trg_encerramento_so_gestao on public.alunos;
+create trigger trg_encerramento_so_gestao
+before update of status_atual, status_jornada, status_acionamento
+on public.alunos
+for each row execute function public._encerramento_so_gestao();
+
+-- Gatilho de INSERT: porta que nao existia.
+drop trigger if exists trg_tabulacao_so_gestao_insert on public.alunos;
+create trigger trg_tabulacao_so_gestao_insert
+before insert on public.alunos
+for each row execute function public._encerramento_so_gestao();
+
+-- ---------------------------------------------------------------------------
+-- VIGIA: a trava tem que estar de pé nas duas portas e com o ACL certo.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_update boolean;
+  v_insert boolean;
+  v_publico boolean;
+  v_anon boolean;
+begin
+  select exists (
+    select 1 from pg_trigger
+     where tgrelid = 'public.alunos'::regclass
+       and tgname = 'trg_encerramento_so_gestao' and not tgisinternal
+  ) into v_update;
+
+  select exists (
+    select 1 from pg_trigger
+     where tgrelid = 'public.alunos'::regclass
+       and tgname = 'trg_tabulacao_so_gestao_insert' and not tgisinternal
+  ) into v_insert;
+
+  if not v_update then
+    raise exception 'trg_encerramento_so_gestao nao esta em public.alunos: a trava de UPDATE caiu';
+  end if;
+  if not v_insert then
+    raise exception 'trg_tabulacao_so_gestao_insert nao esta em public.alunos: a porta do INSERT ficou aberta';
+  end if;
+
+  select has_function_privilege('public', 'public._encerramento_so_gestao()', 'EXECUTE'),
+         has_function_privilege('anon',   'public._encerramento_so_gestao()', 'EXECUTE')
+    into v_publico, v_anon;
+
+  if v_publico then
+    raise exception 'PUBLIC ficou com EXECUTE em _encerramento_so_gestao: o revoke nao pegou';
+  end if;
+  if v_anon then
+    raise exception 'anon ficou com EXECUTE em _encerramento_so_gestao';
+  end if;
+
+  -- CONTRAPROVA DA GUARDA: o corpo tem de ter MUDADO (senao o create or replace
+  -- nao pegou) e tem de ler o catalogo (senao a trava nao cobre tabulacao nova).
+  if (select md5(p.prosrc) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = '_encerramento_so_gestao')
+     = 'd962319f021e9e3fe78b838730fadad7' then
+    raise exception 'o corpo de _encerramento_so_gestao continua o anterior: o create or replace nao pegou';
+  end if;
+
+  if (select p.prosrc from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = '_encerramento_so_gestao')
+     not ilike '%somente_gestao%' then
+    raise exception 'o corpo novo nao le tabulacoes.somente_gestao: a trava nao cobriria tabulacao nova';
+  end if;
+end
+$$;
+
+-- == FIM =======================================================================
+COMMIT;
