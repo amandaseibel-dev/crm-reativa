@@ -108,42 +108,43 @@
 
 begin;
 
--- ---------------------------------------------------------------------------
--- GUARDA DE INTEGRIDADE (RUNBOOK-MIGRATIONS §4): toda substituição de função
--- existente carrega o md5(prosrc) medido em produção e PARA antes do
--- `create or replace` se o texto divergir. O corpo abaixo foi lido de produção
--- em 06/11/2026; se alguém alterou `_encerramento_so_gestao` depois dessa
--- leitura, reescrevê-la apagaria essa alteração sem ninguém ver. Dentro da
--- transação: a exceção desfaz tudo e nada muda.
+-- ── GUARDA DE MD5 — §4 do RUNBOOK ───────────────────────────────────────────
+-- "Toda substituição de função existente carrega guarda de md5(prosrc) medido
+-- em produção, que interrompe a migration antes de qualquer create or replace
+-- se o texto divergir."
 --
--- md5 de referência (md5(prosrc), produção, 06/11/2026):
---   d962319f021e9e3fe78b838730fadad7
--- `to_regprocedure` em vez de `proname`: assinatura exata, sem risco de pegar
--- uma sobrecarga, e NULL (não erro de cast) quando a função não existe.
--- ---------------------------------------------------------------------------
-do $guarda$
+-- Medido em produção (projeto ahattpqrjmhkzsmnbdzs) em 06/11/2026:
+--   md5(prosrc) = d962319f021e9e3fe78b838730fadad7
+--   length(prosrc) = 1424 caracteres (1434 bytes em UTF-8: a mensagem de erro
+--   tem acentos, e `length()` conta caractere, não byte -- não confundir os dois
+--   números ao reconferir)
+--
+-- Se a função tiver mudado depois da revisão, esta migration NÃO roda. É o que
+-- impede de substituir por cima de uma proteção que alguém acrescentou no meio
+-- do caminho -- e, como não há rota de arquivo para o banco, é também a prova
+-- de que a transcrição do corpo abaixo é fiel.
+do $$
 declare
-  v_oid  regprocedure := to_regprocedure('public._encerramento_so_gestao()');
-  v_md5  text;
+  v_md5_esperado constant text := 'd962319f021e9e3fe78b838730fadad7';
+  v_md5_atual text;
 begin
-  if v_oid is null then
+  select md5(p.prosrc) into v_md5_atual
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = '_encerramento_so_gestao';
+
+  if v_md5_atual is null then
     raise exception
-      'GUARDA DE INTEGRIDADE: public._encerramento_so_gestao() nao existe neste '
-      'ambiente. Esta migration SUBSTITUI a funcao; sem ela, o estado nao e o '
-      'medido em 06/11/2026 -- nada foi alterado.';
+      'GUARDA md5: public._encerramento_so_gestao() nao existe. Esta migration SUBSTITUI uma funcao existente -- se ela nao esta la, o estado do banco nao e o revisado. Pare e reveja.';
   end if;
 
-  select md5(p.prosrc) into v_md5 from pg_proc p where p.oid = v_oid;
-
-  if v_md5 is distinct from 'd962319f021e9e3fe78b838730fadad7' then
+  if v_md5_atual <> v_md5_esperado then
     raise exception
-      'GUARDA DE INTEGRIDADE: md5(prosrc) de _encerramento_so_gestao = %, '
-      'esperado d962319f021e9e3fe78b838730fadad7. O corpo em producao divergiu '
-      'do que este arquivo leu em 06/11/2026: releia pg_get_functiondef, '
-      'reconcilie o texto e so entao reaplique -- nada foi alterado.',
-      coalesce(v_md5, 'NULL');
+      'GUARDA md5: o corpo de public._encerramento_so_gestao() divergiu do revisado. esperado=% atual=%. A funcao mudou depois da revisao: NAO substitua -- releia o corpo vivo com pg_get_functiondef e reveja a migration.',
+      v_md5_esperado, v_md5_atual;
   end if;
-end $guarda$;
+end
+$$;
 
 -- Corpo base copiado VERBATIM de produção em 06/11/2026
 -- (`pg_get_functiondef`), e não da cópia do repositório: o repositório não
@@ -316,6 +317,20 @@ begin
   end if;
   if v_anon then
     raise exception 'anon ficou com EXECUTE em _encerramento_so_gestao';
+  end if;
+
+  -- CONTRAPROVA DA GUARDA: o corpo tem de ter MUDADO (senao o create or replace
+  -- nao pegou) e tem de ler o catalogo (senao a trava nao cobre tabulacao nova).
+  if (select md5(p.prosrc) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = '_encerramento_so_gestao')
+     = 'd962319f021e9e3fe78b838730fadad7' then
+    raise exception 'o corpo de _encerramento_so_gestao continua o anterior: o create or replace nao pegou';
+  end if;
+
+  if (select p.prosrc from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = '_encerramento_so_gestao')
+     not ilike '%somente_gestao%' then
+    raise exception 'o corpo novo nao le tabulacoes.somente_gestao: a trava nao cobriria tabulacao nova';
   end if;
 end
 $$;
