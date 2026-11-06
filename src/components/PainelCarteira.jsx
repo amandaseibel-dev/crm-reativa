@@ -88,6 +88,7 @@ import {
   descreverPrazo,
   proximaAcaoDeTabulacao,
   retornoEhManual,
+  tabulacaoDisponivel,
 } from "../utils/tabulacoes";
 import VisaoGeralCarteira from "./VisaoGeralCarteira";
 import VisaoGestao360 from "./VisaoGestao360";
@@ -147,6 +148,10 @@ const STATUS_FINALIZACAO = [
   "AGUARDANDO_BAIXA",
   "BAIXA_REALIZADA",
   "BAIXA_DEVOLVIDA",
+  // Retorno do financeiro (gestão, 06/11/2026): só gestão escolhe -- o filtro
+  // do <select> usa `tabulacaoDisponivel`, e a régua mora em
+  // src/utils/tabulacoes.js.
+  "RETORNO_FINANCEIRO",
   "TERMO_ENVIADO_ALUNO",
   "TERMO_ENVIADO_ADM",
   "TERMO_RECEBIDO_LIBERADO",
@@ -4514,8 +4519,13 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                           // escolhe. O banco tambem recusa (_encerramento_so_gestao),
                           // mas deixar a opcao visivel para o operador seria
                           // oferecer um caminho que termina em erro.
-                          (s) => !["ANTECIPACAO_SEMESTRE","ALEGA_FIES_CONFIRMADO",
-                                 "ALEGA_CREDIES_CONFIRMADO","ALEGA_FINANCIAMENTO_CONFIRMADO"].includes(s) || veTudo
+                          (s) => (!["ANTECIPACAO_SEMESTRE","ALEGA_FIES_CONFIRMADO",
+                                 "ALEGA_CREDIES_CONFIRMADO","ALEGA_FINANCIAMENTO_CONFIRMADO"].includes(s) || veTudo)
+                                 // Tabulacao so da gestao (RETORNO_FINANCEIRO).
+                                 // O valor ja escolhido nao desaparece do
+                                 // <select>: senao o navegador trocaria a
+                                 // tabulacao sozinho.
+                                 && tabulacaoDisponivel(s, veTudo, statusNovo)
                         ).map((s) => (
                           <option key={s} value={s}>{labelStatus(s)}</option>
                         ))}

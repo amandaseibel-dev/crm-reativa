@@ -46,13 +46,29 @@ export const FALLBACK_TABULACOES = [
   { codigo: "AGUARDANDO_BAIXA", rotulo: "Aguardando baixa", ordem: 310, grupo: "FINANCEIRO", retorno_modo: "NENHUM", retorno_dias_uteis: null, proxima_acao: "CONTATAR", ativa: true },
   { codigo: "BAIXA_REALIZADA", rotulo: "Baixa realizada", ordem: 320, grupo: "FINANCEIRO", retorno_modo: "NENHUM", retorno_dias_uteis: null, proxima_acao: "CONTATAR", ativa: true },
   { codigo: "BAIXA_DEVOLVIDA", rotulo: "Baixa devolvida", ordem: 330, grupo: "FINANCEIRO", retorno_modo: "NENHUM", retorno_dias_uteis: null, proxima_acao: "CONTATAR", ativa: true },
+  // Retorno do financeiro (gestão, 06/11/2026). SÓ GESTÃO tabula -- ver
+  // TABULACOES_SO_GESTAO abaixo. Sem prazo próprio (NENHUM), como as outras
+  // do grupo FINANCEIRO: quem carimba aqui está registrando o desfecho de uma
+  // solicitação, não combinando data com o aluno; o caso volta pelo motor da
+  // fila. NÃO se confunde com o status de texto "Retorno do financeiro
+  // recebido", que a RPC `financeiro_registrar_retorno` escreve sozinha a
+  // partir da Fila do Financeiro -- este é o código que a gestão escolhe no
+  // <select> da ficha e da Minha Carteira.
+  { codigo: "RETORNO_FINANCEIRO", rotulo: "Retorno do financeiro", ordem: 340, grupo: "FINANCEIRO", retorno_modo: "NENHUM", retorno_dias_uteis: null, proxima_acao: "CONTATAR", ativa: true, somente_gestao: true },
   { codigo: "ELOGIO_ATENDIMENTO", rotulo: "Elogio de atendimento", ordem: 410, grupo: "ENCERRAMENTO", retorno_modo: "NENHUM", retorno_dias_uteis: null, proxima_acao: "CONTATAR", ativa: true },
-  { codigo: "CANCELAMENTO_COBRANCA", rotulo: "Cancelamento definitivo de cobrança", ordem: 420, grupo: "ENCERRAMENTO", retorno_modo: "NENHUM", retorno_dias_uteis: null, proxima_acao: "CONTATAR", ativa: true },
-  { codigo: "SUSPENSAO_COBRANCA", rotulo: "Suspensão de cobrança", ordem: 430, grupo: "ENCERRAMENTO", retorno_modo: "NENHUM", retorno_dias_uteis: null, proxima_acao: "CONTATAR", ativa: true },
-  { codigo: "JURIDICO", rotulo: "Jurídico", ordem: 440, grupo: "ENCERRAMENTO", retorno_modo: "NENHUM", retorno_dias_uteis: null, proxima_acao: "CONTATAR", ativa: true },
+  // `somente_gestao` aqui é CÓPIA FIEL do catálogo de produção (conferido em
+  // 06/11/2026), para documentação -- quem esconde do operador é
+  // TABULACOES_SO_GESTAO, não esta flag. No banco, estas três também são
+  // barradas pelo gatilho `_encerramento_so_gestao`.
+  { codigo: "CANCELAMENTO_COBRANCA", rotulo: "Cancelamento definitivo de cobrança", ordem: 420, grupo: "ENCERRAMENTO", retorno_modo: "NENHUM", retorno_dias_uteis: null, proxima_acao: "CONTATAR", ativa: true, somente_gestao: true },
+  { codigo: "SUSPENSAO_COBRANCA", rotulo: "Suspensão de cobrança", ordem: 430, grupo: "ENCERRAMENTO", retorno_modo: "NENHUM", retorno_dias_uteis: null, proxima_acao: "CONTATAR", ativa: true, somente_gestao: true },
+  { codigo: "JURIDICO", rotulo: "Jurídico", ordem: 440, grupo: "ENCERRAMENTO", retorno_modo: "NENHUM", retorno_dias_uteis: null, proxima_acao: "CONTATAR", ativa: true, somente_gestao: true },
   { codigo: "QUITADO_MANUAL", rotulo: "Quitado", ordem: 450, grupo: "ENCERRAMENTO", retorno_modo: "NENHUM", retorno_dias_uteis: null, proxima_acao: "CONTATAR", ativa: false },
 ];
 
+// `somente_gestao` NÃO entra aqui de propósito -- ver TABULACOES_SO_GESTAO
+// abaixo. A policy de leitura já esconde a linha do operador, então pedir a
+// coluna só faria o predicado do <select> decidir sobre linha ausente.
 const COLUNAS = "codigo,rotulo,ativa,ordem,grupo,retorno_modo,retorno_dias_uteis,proxima_acao";
 
 // Cache de módulo: o catálogo muda raramente e é lido em várias telas ao mesmo
@@ -112,6 +128,50 @@ export function useTabulacoes() {
   }, []);
 
   return { tabulacoes, carregando };
+}
+
+// TABULAÇÃO SÓ DA GESTÃO -- LISTA LITERAL, de propósito.
+//
+// NÃO LER `tabulacoes.somente_gestao` AQUI. A tentação é óbvia: a coluna
+// existe, está preenchida para oito tabulações, e parece ser a fonte da
+// verdade. Lê-la no front é FAIL-OPEN, e a razão é a própria RLS: a policy
+// `tabulacoes_leitura_autenticado` (migration 20260828050000:52-59) é
+// `using (not somente_gestao or usuario_e_gestao() or service_role)` -- o
+// catálogo que chega ao navegador do OPERADOR não tem a linha. Um predicado
+// que pergunta "esta linha está marcada?" recebe `undefined`, conclui "não é
+// só-gestão" e MOSTRA a opção justamente para quem não pode vê-la.
+// A decisão já estava versionada em 20261007143000:50-54 -- "o front NAO le
+// `somente_gestao`: essa coluna e governanca no catalogo, nao controle de
+// tela". Esta lista é o controle de tela.
+//
+// Lista aqui, e não em cada tela: a duplicação em 5 arquivos foi o que deixou
+// as quatro tabulações de ALEGAÇÃO no catálogo do banco sem nunca aparecer no
+// <select> desde 10/09/2026.
+//
+// `RETORNO_FINANCEIRO` NÃO entra em `STATUS_BLOQUEADOS_ACIONAMENTO`
+// (Aluno.jsx): aquele array esconde E encerra -- exige observação em destaque,
+// pede número de processo e marca o caso como "não pode ser acionado". Retorno
+// do financeiro não encerra caso nenhum.
+//
+// "Gestão" é a mesma régua de `podeVerTudo` / `usuario_e_gestao()` (Amanda
+// gestora, Fernanda, Amanda ADM) -- não é perfil novo nem allowlist paralela.
+// E esconder opção é INTERFACE, não segurança: não existe trava no banco para
+// este código, porque `_encerramento_so_gestao` só barra os de ENCERRAMENTO.
+// A tabulação é neutra (não move dinheiro, não tira caso da cobrança), então o
+// que está em jogo é governança, não dado pessoal.
+export const TABULACOES_SO_GESTAO = Object.freeze(["RETORNO_FINANCEIRO"]);
+
+export function tabulacaoEhSoGestao(codigo) {
+  return TABULACOES_SO_GESTAO.includes(String(codigo || "").trim().toUpperCase());
+}
+
+// true quando `codigo` pode aparecer no <select> de quem tem (ou não) gestão.
+// O código JÁ GRAVADO no aluno nunca é escondido por aqui -- quem monta o
+// <select> passa `atual` para que o navegador não troque a tabulação do aluno
+// sozinho (mesma armadilha do `opcoesTabulacao` com tabulação inativa).
+export function tabulacaoDisponivel(codigo, ehGestao, atual = null) {
+  if (atual && String(codigo) === String(atual)) return true;
+  return !tabulacaoEhSoGestao(codigo) || Boolean(ehGestao);
 }
 
 export function acharTabulacao(catalogo, codigo) {
