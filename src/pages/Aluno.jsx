@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { podeVerTudo } from "../utils/operadores";
@@ -11,8 +11,14 @@ import DadosAcademicos from "../components/DadosAcademicos";
 import ConfirmarPagamento from "../components/ConfirmarPagamento";
 import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 import EmailAlunoUnificado from "../components/EmailAlunoUnificado";
-import { carregarTabulacoes, desfechoDaTabulacao, retornoEhManual, camposDeRetorno, lerRetornoAtual, RETORNO_ORIGEM_OPERADOR } from "../utils/tabulacoes";
+import { carregarTabulacoes, useTabulacoes, desfechoDaTabulacao, retornoEhManual, camposDeRetorno, lerRetornoAtual, RETORNO_ORIGEM_OPERADOR, tabulacaoDisponivel } from "../utils/tabulacoes";
 import { ehOrigemDoOperador } from "../utils/retornoOrigem";
+import {
+  corMovimentacao,
+  resumoStatus,
+  rotuloOperador,
+  recortarMovimentacoes,
+} from "../utils/movimentacoes";
 import TelefonesAluno from "../components/TelefonesAluno";
 import BlocoUlbra from "../components/BlocoUlbra";
 import AtendimentoUlbra from "../components/AtendimentoUlbra";
@@ -57,6 +63,10 @@ const STATUS_FINALIZACAO = [
   "AGUARDANDO_BAIXA",
   "BAIXA_REALIZADA",
   "BAIXA_DEVOLVIDA",
+  // Retorno do financeiro (gestão, 06/11/2026): só gestão escolhe -- o filtro
+  // do <select> usa `tabulacaoDisponivel`, e a régua de quem é só-gestão mora
+  // em src/utils/tabulacoes.js, não aqui.
+  "RETORNO_FINANCEIRO",
   "TERMO_ENVIADO_ALUNO",
   "TERMO_ENVIADO_ADM",
   "TERMO_RECEBIDO_LIBERADO",
@@ -311,6 +321,13 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   const [emailEditado, setEmailEditado] = useState("");
   const [salvandoCadastro, setSalvandoCadastro] = useState(false);
   const [movimentacoes, setMovimentacoes] = useState([]);
+  // Recorte visual do histórico: as 10 mais recentes por padrão. O array
+  // completo segue intacto em `movimentacoes` — é dele que o PDF é gerado.
+  const [movimentacoesExpandidas, setMovimentacoesExpandidas] = useState(false);
+  const recorteMovimentacoes = useMemo(
+    () => recortarMovimentacoes(movimentacoes, movimentacoesExpandidas),
+    [movimentacoes, movimentacoesExpandidas],
+  );
   // Saldo financeiro atual da ficha aberta, pela fonte unica (RPC). Serve para
   // (a) mostrar a situacao financeira ATUAL separada do ultimo evento de baixa
   // e (b) bloquear "Quitar tudo" quando ainda ha saldo/pendencia em aberto.
@@ -415,6 +432,10 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   const [busca, setBusca] = useState("");
   const [observacao, setObservacao] = useState("");
   const [statusFinalizacao, setStatusFinalizacao] = useState("CONTATAR");
+  // Catálogo ao vivo só para montar o <select>: é ele que diz qual tabulação é
+  // `somente_gestao`. O caminho de GRAVAÇÃO continua chamando
+  // `carregarTabulacoes()` na hora de tabular -- não mudou nada ali.
+  const { tabulacoes: catalogoTabulacoes } = useTabulacoes();
   // Referência ao topo da lista de resultados — usado para scroll automático
   // logo após a busca retornar, levando o operador direto aos resultados.
   const listaResultadosRef = useRef(null);
@@ -552,6 +573,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     setEditandoCadastro(false);
     setOrigemAbertura("");
     setMovimentacoes([]);
+    setMovimentacoesExpandidas(false);
     setVindoDaFila(false);
     try {
       const termo = busca.trim();
@@ -1703,7 +1725,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                     </div>
                     <div style={colStatus}>
                       <span style={badgeSituacaoA}>
-                        {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", ACORDO_FECHADO: "Acordo fechado", LEMBRETE_PARCELA: "Lembrete de parcela feito", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro", ALEGA_FIES: "Alega FIES", ALEGA_CREDIES: "Alega CREDIES", ALEGA_FINANCIAMENTO: "Alega financiamento", ANTECIPACAO_SEMESTRE: "Antecipação de semestre", ALEGA_FIES_CONFIRMADO: "FIES confirmado pela unidade", ALEGA_CREDIES_CONFIRMADO: "CREDIES confirmado pela unidade", ALEGA_FINANCIAMENTO_CONFIRMADO: "Financiamento confirmado pela unidade" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
+                        {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", RETORNO_FINANCEIRO: "Retorno do financeiro", ACORDO_FECHADO: "Acordo fechado", LEMBRETE_PARCELA: "Lembrete de parcela feito", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro", ALEGA_FIES: "Alega FIES", ALEGA_CREDIES: "Alega CREDIES", ALEGA_FINANCIAMENTO: "Alega financiamento", ANTECIPACAO_SEMESTRE: "Antecipação de semestre", ALEGA_FIES_CONFIRMADO: "FIES confirmado pela unidade", ALEGA_CREDIES_CONFIRMADO: "CREDIES confirmado pela unidade", ALEGA_FINANCIAMENTO_CONFIRMADO: "Financiamento confirmado pela unidade" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
                       </span>
                       <div style={subCelA}>
                         Últ. contato: {formatarDataHora(aluno.data_ultimo_acionamento)}
@@ -2231,11 +2253,20 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                 >
                   {STATUS_FINALIZACAO.filter(
                     (status) =>
-                      !STATUS_BLOQUEADOS_ACIONAMENTO.includes(status) ||
-                      podeVerTudo(usuarioLogado?.email)
+                      (!STATUS_BLOQUEADOS_ACIONAMENTO.includes(status) ||
+                        podeVerTudo(usuarioLogado?.email)) &&
+                      // Tabulação marcada `somente_gestao` no catálogo. O valor
+                      // JÁ escolhido nunca desaparece do <select>: sem isso o
+                      // navegador trocaria a tabulação sozinho.
+                      tabulacaoDisponivel(
+                        catalogoTabulacoes,
+                        status,
+                        podeVerTudo(usuarioLogado?.email),
+                        statusFinalizacao
+                      )
                   ).map((status) => (
                     <option key={status} value={status}>
-                      {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", ACORDO_FECHADO: "Acordo fechado", LEMBRETE_PARCELA: "Lembrete de parcela feito", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro", ALEGA_FIES: "Alega FIES", ALEGA_CREDIES: "Alega CREDIES", ALEGA_FINANCIAMENTO: "Alega financiamento", ANTECIPACAO_SEMESTRE: "Antecipação de semestre", ALEGA_FIES_CONFIRMADO: "FIES confirmado pela unidade", ALEGA_CREDIES_CONFIRMADO: "CREDIES confirmado pela unidade", ALEGA_FINANCIAMENTO_CONFIRMADO: "Financiamento confirmado pela unidade" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
+                      {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", RETORNO_FINANCEIRO: "Retorno do financeiro", ACORDO_FECHADO: "Acordo fechado", LEMBRETE_PARCELA: "Lembrete de parcela feito", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro", ALEGA_FIES: "Alega FIES", ALEGA_CREDIES: "Alega CREDIES", ALEGA_FINANCIAMENTO: "Alega financiamento", ANTECIPACAO_SEMESTRE: "Antecipação de semestre", ALEGA_FIES_CONFIRMADO: "FIES confirmado pela unidade", ALEGA_CREDIES_CONFIRMADO: "CREDIES confirmado pela unidade", ALEGA_FINANCIAMENTO_CONFIRMADO: "Financiamento confirmado pela unidade" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
                     </option>
                   ))}
                 </select>
@@ -2576,37 +2607,66 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                 {movimentacoes.length === 0 ? (
                   <p style={textoCinza}>Nenhuma movimentação registrada.</p>
                 ) : (
-                  <div style={{ display: "grid", gap: "10px" }}>
-                    {movimentacoes.map((mov) => (
-                      <div key={mov.id} style={cardMov}>
-                        <strong>{mov.tipo}</strong>
-                        <p>{mov.descricao || "-"}</p>
-                        <small>
-                          Status: {mov.status_anterior || "-"} →{" "}
-                          {mov.status_novo || "-"}
-                          <br />
-                          Retorno: {formatarDataHora(mov.data_retorno)}
-                          <br />
-                          Registrado por:{" "}
-                          {mov.registrado_por_nome || "Não identificado"}
-                          {mov.registrado_por_email
-                            ? ` - ${mov.registrado_por_email}`
-                            : ""}
-                          <br />
-                          Data/hora: {formatarDataHora(mov.registrado_em)}
-                        </small>
-                        {mov.elogio_print_path && (
-                          <button
-                            type="button"
-                            onClick={() => abrirAnexoElogio(mov.elogio_print_path)}
-                            style={{ ...botaoSecundario, marginTop: "8px", fontSize: "12px", padding: "6px 10px" }}
+                  <>
+                    <div style={{ display: "grid", gap: "6px" }}>
+                      {recorteMovimentacoes.visiveis.map((mov) => {
+                        const transicao = resumoStatus(mov.status_anterior, mov.status_novo);
+                        const operador = rotuloOperador(
+                          mov.registrado_por_nome,
+                          mov.registrado_por_email,
+                        );
+                        const retorno = formatarDataHora(mov.data_retorno);
+                        return (
+                          <div
+                            key={mov.id}
+                            style={{
+                              ...cardMov,
+                              borderLeftColor: corMovimentacao(mov.tipo, mov.status_novo),
+                            }}
                           >
-                            📎 Ver anexo{mov.elogio_print_nome ? `: ${mov.elogio_print_nome}` : ""}
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+                            <div style={movLinhaTopo}>
+                              <strong style={movTipo}>{mov.tipo || "Movimentação"}</strong>
+                              <span style={movData}>{formatarDataHora(mov.registrado_em)}</span>
+                            </div>
+                            <div style={movDescricao}>
+                              {mov.descricao || transicao || "-"}
+                            </div>
+                            {(transicao || operador || retorno !== "-") && (
+                              <div style={movMeta}>
+                                {transicao && mov.descricao && <span>{transicao}</span>}
+                                {retorno !== "-" && <span>retorno {retorno}</span>}
+                                {operador && (
+                                  <span title={mov.registrado_por_email || undefined}>
+                                    {operador}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            {mov.elogio_print_path && (
+                              <button
+                                type="button"
+                                onClick={() => abrirAnexoElogio(mov.elogio_print_path)}
+                                style={{ ...botaoSecundario, marginTop: "6px", fontSize: "12px", padding: "4px 10px" }}
+                              >
+                                📎 Ver anexo{mov.elogio_print_nome ? `: ${mov.elogio_print_nome}` : ""}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {recorteMovimentacoes.podeExpandir && (
+                      <button
+                        type="button"
+                        onClick={() => setMovimentacoesExpandidas((v) => !v)}
+                        style={botaoVerTodas}
+                      >
+                        {movimentacoesExpandidas
+                          ? "Mostrar menos"
+                          : `Ver todas (${recorteMovimentacoes.total})`}
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
               </>
@@ -2904,7 +2964,57 @@ const subCelA = { fontSize: 11.5, color: "var(--rv-texto-fraco)" };
 const badgeSituacaoA = { display: "inline-block", padding: "3px 9px", borderRadius: 999, background: "var(--rv-roxo-fundo)", color: "var(--rv-azul)", fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap", alignSelf: "flex-start" };
 const emAbertoTotalA = { fontWeight: 700, fontSize: 13, color: "var(--rv-tinta)" };
 const emAbertoSubA = { fontSize: 11, color: "var(--rv-texto-fraco)" };
-const cardMov = { ...cartao, borderLeft: "4px solid #2563eb" };
+// Card de movimentação: duas linhas principais (tipo+data / descrição) e uma
+// terceira só quando há metadado real. A cor da borda vem de corMovimentacao.
+const cardMov = {
+  ...cartao,
+  borderLeft: "3px solid #2563eb",
+  padding: "8px 12px",
+  margin: 0,
+};
+const movLinhaTopo = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "baseline",
+  gap: 10,
+};
+const movTipo = {
+  fontSize: 12.5,
+  fontWeight: 700,
+  color: "var(--rv-texto-forte)",
+  letterSpacing: 0.2,
+};
+const movData = {
+  fontSize: 11.5,
+  color: "var(--rv-texto-fraco)",
+  whiteSpace: "nowrap",
+};
+const movDescricao = {
+  fontSize: 13,
+  color: "var(--rv-texto)",
+  lineHeight: 1.35,
+  marginTop: 2,
+};
+const movMeta = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "2px 10px",
+  fontSize: 11.5,
+  color: "var(--rv-texto-fraco)",
+  marginTop: 3,
+};
+const botaoVerTodas = {
+  marginTop: 8,
+  width: "100%",
+  background: "transparent",
+  border: "1px dashed var(--rv-borda-forte)",
+  borderRadius: 8,
+  padding: "6px 12px",
+  fontSize: 12,
+  fontWeight: 700,
+  color: "var(--rv-texto-suave)",
+  cursor: "pointer",
+};
 const textoInfo = {
   color: "var(--rv-texto)",
   margin: "3px 0",
