@@ -107,16 +107,37 @@ begin
   --
   -- Esta guarda refaz a medicao no instante da aplicacao: se alguem tiver
   -- afrouxado o portao da tabela no meio do caminho, a view NAO e criada.
+  -- A conferencia e por IGUALDADE do texto medido, policy por policy, e NAO
+  -- por `like '%usuario_e_gestao()%'`. A diferenca e concreta e foi apontada
+  -- pela auditoria do Guardiao: substring aceita
+  -- `using (usuario_e_gestao() or true)`, que contem o texto e libera tudo.
+  -- `cmd` e `policyname` tambem entram, senao tres policies "conformes" com
+  -- comandos diferentes dos medidos (a de SELECT virando DELETE, por exemplo)
+  -- passariam.
   if (
     select count(*) from pg_policies
      where schemaname = 'public' and tablename = 'ulbra_vinculos'
        and roles::text = '{authenticated}'
-       and coalesce(qual,'') || coalesce(with_check,'') like '%usuario_e_gestao()%'
+       and (policyname, cmd, coalesce(qual,'-'), coalesce(with_check,'-')) in (
+         ('ulbra_vinculos_select', 'SELECT', 'usuario_e_gestao()', '-'),
+         ('ulbra_vinculos_insert', 'INSERT', '-', 'usuario_e_gestao()'),
+         ('ulbra_vinculos_update', 'UPDATE', 'usuario_e_gestao()', 'usuario_e_gestao()')
+       )
   ) <> 3 then
     raise exception
-      'PRE-CONDICAO: as 3 policies de ulbra_vinculos nao sao mais as medidas em '
-      '06/11/2026 (authenticated, sob usuario_e_gestao()). A view herda esse '
-      'portao -- conferir com a gestao antes de criar.';
+      'PRE-CONDICAO: as 3 policies de ulbra_vinculos nao sao, texto a texto, as '
+      'medidas em 06/11/2026 (authenticated, usuario_e_gestao()). A view herda '
+      'esse portao -- conferir com a gestao antes de criar.';
+  end if;
+
+  -- E o TOTAL tem de ser 3. Sem esta segunda contagem, uma 4a policy frouxa
+  -- acrescentada ao lado simplesmente nao seria contada acima e passaria.
+  -- A prova 6 da secao 2 repete isto depois do create, na mesma transacao.
+  if (select count(*) from pg_policies
+       where schemaname='public' and tablename='ulbra_vinculos') <> 3 then
+    raise exception
+      'PRE-CONDICAO: ulbra_vinculos tem policy a mais ou a menos (eram 3 em '
+      '06/11/2026) -- a view herdaria um portao que ninguem mediu';
   end if;
 end $guarda$;
 
@@ -149,6 +170,19 @@ select id, aluno_id, ulbra_cliente_id, confianca, origem, vinculado_em
 -- na versao anterior: falha fechada, nao exposicao -- mas o arquivo nao fazia
 -- o que dizia. Fere docs/seguranca/PREMISSA_SEGURANCA_PROJETO.md §5
 -- ("Evitar GRANT ALL herdado").
+--
+-- OS QUATRO GRANTEES NAO SAO CHUTE. pg_default_acl de producao, lido em
+-- 06/11/2026 (somente leitura), tem DUAS entradas para o schema public, e sao
+-- elas que decidem o que uma relacao nova herda:
+--   FOR ROLE postgres        tipo r  ->  authenticated=arwdDxtm, service_role=arwdDxtm
+--   FOR ROLE supabase_admin  tipo r  ->  anon=arwdDxtm, authenticated=arwdDxtm,
+--                                        service_role=arwdDxtm
+-- A view criada pelo runner (postgres) cai na primeira: authenticated e
+-- service_role com ALL. `public` entra por completude -- o GRANT a PUBLIC nao
+-- vem de pg_default_acl, mas revogar e barato e fecha o caso de alguem ter
+-- concedido a PUBLIC no schema. Nenhum outro grantee aparece nas duas entradas,
+-- entao os quatro REVOKE abaixo cobrem o conjunto medido, nao um conjunto
+-- suposto.
 --
 -- RESSALVA: plugins/reativa-one/skills/seguranca-rls/SKILL.md afirma, nas
 -- linhas 42-43, que view NAO herda grant -- o que a propria linha 45 dela e as
