@@ -1,66 +1,33 @@
--- =============================================================================
--- EXECUCAO PELO SQL EDITOR — RUNBOOK §11
--- migration: 20261106120000_tabulacao_retorno_financeiro
--- versao pretendida: 20261106120000
--- projeto: ahattpqrjmhkzsmnbdzs (PRODUCAO)
---
--- EXECUCAO E ACAO EXCLUSIVAMENTE HUMANA (§11). Nenhum agente executa isto.
---
--- md5 do conteudo entre os delimitadores $reg$ (o que o BLOCO A registra e o
--- BLOCO B executa): a40bbba74e26a9c33bbbf8103568d48e
--- sha256 do mesmo conteudo: 6820f9677922181f5fce7d087f33c31d47de5270091a6f7d83022dc55e2e7340
---
--- O conteudo abaixo e o arquivo
---   supabase/aguardando_aprovacao/20261106120000_tabulacao_retorno_financeiro.sql.pendente
--- SEM o `begin;`/`commit;` proprio dele: o bloco unico do §11 ja abre e fecha a
--- transacao, e um commit aninhado confirmaria a transacao externa antes do fim.
--- Nada mais foi alterado.
---
--- PASSO 1 — PRE-CONDICAO. Rodar ISOLADO, antes, e so prosseguir se bater:
---   -- Criterio: ja_registrada = false  E  linha_no_catalogo = 'AUSENTE'
---   SELECT
---     EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations
---              WHERE version = '20261106120000')                      AS ja_registrada,
---     COALESCE((SELECT 'EXISTE' FROM public.tabulacoes
---                WHERE codigo = 'RETORNO_FINANCEIRO'), 'AUSENTE')     AS linha_no_catalogo;
---
--- PASSO 4 — VALIDACAO. Rodar ISOLADO, depois:
---   -- As seis validacoes pedidas pela gestao. Todas tem de bater.
---   SELECT codigo,
---          ativa                 AS ativa_esperado_true,
---          somente_gestao        AS somente_gestao_esperado_true,
---          retorno_modo          AS retorno_modo_esperado_NENHUM,
---          retorno_dias_uteis    AS dias_esperado_null,
---          bloqueia_acionamento  AS bloqueia_esperado_false,
---          efeito_desfecho       AS efeito_esperado_null,
---          grupo, ordem, sistema
---     FROM public.tabulacoes
---    WHERE codigo = 'RETORNO_FINANCEIRO';
---   SELECT version, name,
---          md5(array_to_string(statements, E'\n')) AS md5_prod,
---          octet_length(array_to_string(statements, E'\n')) AS bytes
---     FROM supabase_migrations.schema_migrations WHERE version = '20261106120000';
--- =============================================================================
+-- ============================================================================
+-- SQL-EDITOR 20261106120000 — RUNBOOK §11 (execução humana, SQL Editor)
+-- Gerado a partir de supabase/aguardando_aprovacao/20261106120000_tabulacao_retorno_financeiro.sql.pendente (PR #844, main).
+-- Conteúdo a validar = arquivo SEM o LF final.
+--   versao pretendida : 20261106120000
+--   nome              : 20261106120000_tabulacao_retorno_financeiro
+--   md5 (sem LF final): b9dae9d5a1f0d12df7e9375b6d293227
+--   bytes             : 4894
+--   sha256 do arquivo : ff8e9e8e9c092ccf9f60e1c57aceaadca9a8d858ec1d0254a9dca7784f5196fb
+-- ============================================================================
 
 BEGIN;
 
--- == LOCK =====================================================================
+-- LOCK: impede execução concorrente da mesma versão (liberado no COMMIT/ROLLBACK)
 SELECT pg_advisory_xact_lock(hashtext('migration_20261106120000'));
 
--- == BLOCO A: guard duplo + identidade + registro ==============================
-DO $$
+-- BLOCO A: guardas + registro. O INSERT usa v_conteudo, a MESMA variável verificada.
+DO $blocoA$
 DECLARE
-  v_md5_aprovado  CONSTANT text := 'a40bbba74e26a9c33bbbf8103568d48e';
+  v_md5_aprovado  CONSTANT text := 'b9dae9d5a1f0d12df7e9375b6d293227';
   v_versao        CONSTANT text := '20261106120000';
   v_nome          CONSTANT text := '20261106120000_tabulacao_retorno_financeiro';
   v_conteudo      text;
 BEGIN
-  IF EXISTS (
-    SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = v_versao
-  ) THEN
+  -- Guard 1: dupla aplicação
+  IF EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = v_versao) THEN
     RAISE EXCEPTION 'GUARDA: versao % ja registrada em schema_migrations', v_versao;
   END IF;
 
+  -- Conteúdo aprovado: colado UMA vez, entre delimitadores, sem LF final
   v_conteudo := $reg$-- Tabulação "Retorno do financeiro" -- só gestão (pedido da gestão, 06/11/2026)
 --
 -- O QUE FAZ: insere UMA linha em public.tabulacoes. Nada mais.
@@ -103,6 +70,7 @@ BEGIN
 --
 -- ROLLBACK: 20261106120000_tabulacao_retorno_financeiro.rollback.sql
 
+begin;
 
 insert into public.tabulacoes (
   codigo,
@@ -183,8 +151,11 @@ begin
     raise exception 'RETORNO_FINANCEIRO nao ficou em FINANCEIRO/NENHUM sem prazo';
   end if;
 end
-$$;$reg$;
+$$;
 
+commit;$reg$;
+
+  -- Guard 2: identidade
   IF md5(v_conteudo) <> v_md5_aprovado THEN
     RAISE EXCEPTION 'GUARDA DE IDENTIDADE: md5(conteudo)=% md5(aprovado)=%',
       md5(v_conteudo), v_md5_aprovado;
@@ -192,9 +163,10 @@ $$;$reg$;
 
   INSERT INTO supabase_migrations.schema_migrations (version, name, statements)
   VALUES (v_versao, v_nome, ARRAY[v_conteudo]);
-END $$;
+END $blocoA$;
 
--- == BLOCO B: a migration ======================================================
+-- BLOCO B: execução. Idêntico ao arquivo aprovado, EXCETO as linhas begin;/commit;
+-- do próprio arquivo, que saem porque o transação é o template acima.
 -- Tabulação "Retorno do financeiro" -- só gestão (pedido da gestão, 06/11/2026)
 --
 -- O QUE FAZ: insere UMA linha em public.tabulacoes. Nada mais.
@@ -319,5 +291,6 @@ begin
 end
 $$;
 
--- == FIM =======================================================================
+
+-- FIM: confirma o COMMIT
 COMMIT;
