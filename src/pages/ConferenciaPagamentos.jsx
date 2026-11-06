@@ -30,7 +30,6 @@ import { supabase } from "../services/supabase";
 import { S } from "../ui/estilosFila";
 import { listarMeses } from "../utils/mesesConferencia";
 import Aluno from "./Aluno";
-import DiagnosticoF1b from "../components/DiagnosticoF1b";
 import ResolverEmConfirmacao from "../components/ResolverEmConfirmacao";
 
 const moeda = (v) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -493,7 +492,6 @@ export default function ConferenciaPagamentos() {
                     <div style={sub}>
                       {semDono ? <span style={seloSemDono}>sem vínculo</span> : `CPF ${l.cpf || "-"} · ${l.responsavel}`}
                       {!semDono && !l.tem_acordo ? <span style={seloSemAcordo}>sem acordo</span> : null}
-                      {!semDono && l.aluno_id ? <DiagnosticoF1b alunoId={l.aluno_id} /> : null}
                       {!semDono && Number(l.entrou) === 0 && Number(l.baixado) > 0 ? (
                         <span style={seloSoBaixa} title="Baixa registrada sem pagamento correspondente no extrato do Santander.">
                           baixa sem lastro
