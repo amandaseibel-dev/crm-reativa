@@ -2,6 +2,25 @@
 -- ROLLBACK de 20261104200000_ulbra_vinculos_confianca_e_unicidade
 -- Artefato de 04/11/2026. NAO FOI EXECUTADO EM NENHUM AMBIENTE.
 --
+-- ----------------------------------------------------------------------------
+-- ATENCAO: A MIGRATION QUE ESTE ARQUIVO REVERTE JA ESTA APLICADA.
+--
+-- Aplicada em producao (ahattpqrjmhkzsmnbdzs) em 06/11/2026, carimbada como
+-- version 20261106151254 (name 20261104200000_ulbra_vinculos_confianca_e_unicidade).
+-- O SQL exato que rodou esta registrado byte a byte em
+-- supabase/ledger/2026-11/20261106151254__20261104200000_ulbra_vinculos_confianca_e_unicidade.sql
+-- (md5 a8c591756729edc4d9721028ba02d0cd, 29.864 bytes), com a nota ao lado.
+--
+-- Por isso o `.sql.pendente` NAO vive mais neste diretorio: nao esta mais
+-- aguardando aprovacao. Este rollback fica, porque ele SIM continua
+-- nao-executado -- e porque reversa de coisa aplicada e exatamente o que
+-- precisa estar a mao.
+--
+-- A unica peca daquela proposta que NAO entrou e a view
+-- ulbra_vinculos_confirmados, extraida para
+-- 20261106190000_ulbra_vinculos_view_confirmados.sql.pendente (com reversa
+-- propria). Esta reversa aqui NAO a cobre, e nao precisa: a view nao existe.
+--
 -- PITR NAO esta habilitado neste projeto (memoria
 -- `pitr-nao-habilitado-rollback-nao-e-restore`), por isso a reversa e por
 -- objeto nomeado, nunca por restore.

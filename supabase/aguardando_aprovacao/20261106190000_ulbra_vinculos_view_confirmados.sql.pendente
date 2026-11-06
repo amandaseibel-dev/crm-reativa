@@ -1,0 +1,353 @@
+-- ============================================================================
+-- VIEW SEGURA DE VINCULOS CONFIRMADOS POR CPF  (ulbra_vinculos_confirmados)
+--
+-- NAO APLICADO EM NENHUM AMBIENTE. Nada aqui rodou. Exige autorizacao
+-- explicita da gestao, pela sessao principal.
+--
+-- ----------------------------------------------------------------------------
+-- POR QUE ESTE ARQUIVO EXISTE SEPARADO
+--
+-- A proposta 20261104200000_ulbra_vinculos_confianca_e_unicidade FOI APLICADA
+-- em producao em 06/11/2026, carimbada como version 20261106151254 -- o SQL
+-- exato esta registrado byte a byte em
+-- supabase/ledger/2026-11/20261106151254__*.sql. A UNICA peca daquela proposta
+-- que NAO entrou e a view deste arquivo (conferido em 06/11/2026: 0 linhas em
+-- pg_views para ulbra_vinculos_confirmados).
+--
+-- Manter a view dentro do arquivo grande obrigaria a reaplicar o que ja esta
+-- aplicado para entregar o que falta. Ela foi extraida para ca inteira, com a
+-- guarda de pre-condicao e as provas que lhe pertencem.
+--
+-- ----------------------------------------------------------------------------
+-- ISTO NAO E PRE-REQUISITO DE PUBLICACAO. E DEFESA EM PROFUNDIDADE.
+--
+-- supabase/functions/ulbra-atendimento/atendimento.ts JA filtra
+-- `confianca = 'alta_cpf'` explicitamente desde a #819 -- a alternativa que a
+-- propria docs/integracoes/mensageria-ulbra.md aceita no lugar da view. Logo:
+--
+--   * a ulbra-consultar e a ulbra-atendimento podem ser publicadas SEM esta
+--     view, e a garantia do lado da ulbra-atendimento continua valendo;
+--   * o que a view acrescenta e ESTRUTURA no lugar de DISCIPLINA: uma funcao
+--     futura que leia vinculo e esqueca o filtro passa a ler a view e nao
+--     consegue mais ver vinculo nao confirmado.
+--
+-- ----------------------------------------------------------------------------
+-- SECURITY_INVOKER NAO E DETALHE
+--
+-- Sem `security_invoker = on` a view rodaria com os direitos do DONO e passaria
+-- por cima da RLS de `ulbra_vinculos`, entregando vinculo de QUALQUER aluno a
+-- QUALQUER autenticado -- memoria `grants-de-funcao-nova-nao-seguem-os-da-view`
+-- e item 7 ("VIEW_BYPASS_RLS") de scripts/seguranca/auditoria_seguranca.sql.
+-- A assercao 2 da secao de prova e justamente essa, e le a opcao pela
+-- `pg_options_to_table`, o mesmo idioma do gate do repositorio, em vez de casar
+-- a string 'security_invoker=on' -- que quebraria se alguem reescrevesse como
+-- `= true`.
+--
+-- O QUE ESTE ARQUIVO NAO FAZ: nao altera a tabela, nao mexe nas 3 policies,
+-- nao reclassifica nem desvincula linha nenhuma, nao cria cron nem RPC, nao
+-- faz backfill, e NAO reaplica nada da 20261106151254.
+-- ============================================================================
+
+begin;
+
+set local lock_timeout = '3s';
+set local statement_timeout = '30s';
+
+-- ----------------------------------------------------------------------------
+-- SECAO 0. GUARDA DE PRE-CONDICAO
+--
+-- A view so faz sentido depois da 20261106151254: e o CHECK dela que garante
+-- que 'alta_cpf' e um valor possivel, e o CHECK de origem forte que garante
+-- que 'alta_cpf' nao pode ter sido colado num casamento por telefone. Sem os
+-- dois, a view filtraria por um valor que o banco nao sabe o que significa.
+-- ----------------------------------------------------------------------------
+do $guarda$
+begin
+  if to_regclass('public.ulbra_vinculos') is null then
+    raise exception 'PRE-CONDICAO: public.ulbra_vinculos nao existe neste ambiente';
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+     where conrelid = 'public.ulbra_vinculos'::regclass
+       and conname = 'ulbra_vinculos_confianca_check'
+       and pg_get_constraintdef(oid) like '%alta_cpf%'
+  ) then
+    raise exception
+      'PRE-CONDICAO: o CHECK de confianca nao conhece alta_cpf. '
+      'A version 20261106151254 precisa estar aplicada antes desta.';
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+     where conrelid = 'public.ulbra_vinculos'::regclass
+       and conname = 'ulbra_vinculos_alta_cpf_exige_origem_forte'
+  ) then
+    raise exception
+      'PRE-CONDICAO: falta ulbra_vinculos_alta_cpf_exige_origem_forte. '
+      'A version 20261106151254 precisa estar aplicada antes desta.';
+  end if;
+
+  if not (select relrowsecurity from pg_class where oid = 'public.ulbra_vinculos'::regclass) then
+    raise exception
+      'PRE-CONDICAO: RLS desligada em ulbra_vinculos -- a view com '
+      'security_invoker herdaria uma tabela sem portao';
+  end if;
+
+  -- A view com `security_invoker` nao tem portao PROPRIO: ela herda o da
+  -- tabela. Entao o portao da tabela faz parte da pre-condicao, e nao pode
+  -- ficar como suposicao -- as 3 policies nasceram em producao SEM migration
+  -- (PR #794), logo nao existe arquivo neste repositorio que as defina.
+  --
+  -- Medidas em producao (ahattpqrjmhkzsmnbdzs) em 06/11/2026, somente leitura:
+  --   ulbra_vinculos_select  SELECT  {authenticated}  using  usuario_e_gestao()
+  --   ulbra_vinculos_insert  INSERT  {authenticated}  check  usuario_e_gestao()
+  --   ulbra_vinculos_update  UPDATE  {authenticated}  using + check usuario_e_gestao()
+  -- Nenhuma policy para `anon`, nenhuma permissiva sem predicado.
+  --
+  -- Esta guarda refaz a medicao no instante da aplicacao: se alguem tiver
+  -- afrouxado o portao da tabela no meio do caminho, a view NAO e criada.
+  -- A conferencia e por IGUALDADE do texto medido, policy por policy, e NAO
+  -- por `like '%usuario_e_gestao()%'`. A diferenca e concreta e foi apontada
+  -- pela auditoria do Guardiao: substring aceita
+  -- `using (usuario_e_gestao() or true)`, que contem o texto e libera tudo.
+  -- `cmd` e `policyname` tambem entram, senao tres policies "conformes" com
+  -- comandos diferentes dos medidos (a de SELECT virando DELETE, por exemplo)
+  -- passariam.
+  if (
+    select count(*) from pg_policies
+     where schemaname = 'public' and tablename = 'ulbra_vinculos'
+       and roles::text = '{authenticated}'
+       and (policyname, cmd, coalesce(qual,'-'), coalesce(with_check,'-')) in (
+         ('ulbra_vinculos_select', 'SELECT', 'usuario_e_gestao()', '-'),
+         ('ulbra_vinculos_insert', 'INSERT', '-', 'usuario_e_gestao()'),
+         ('ulbra_vinculos_update', 'UPDATE', 'usuario_e_gestao()', 'usuario_e_gestao()')
+       )
+  ) <> 3 then
+    raise exception
+      'PRE-CONDICAO: as 3 policies de ulbra_vinculos nao sao, texto a texto, as '
+      'medidas em 06/11/2026 (authenticated, usuario_e_gestao()). A view herda '
+      'esse portao -- conferir com a gestao antes de criar.';
+  end if;
+
+  -- E o TOTAL tem de ser 3. Sem esta segunda contagem, uma 4a policy frouxa
+  -- acrescentada ao lado simplesmente nao seria contada acima e passaria.
+  -- A prova 6 da secao 2 repete isto depois do create, na mesma transacao.
+  if (select count(*) from pg_policies
+       where schemaname='public' and tablename='ulbra_vinculos') <> 3 then
+    raise exception
+      'PRE-CONDICAO: ulbra_vinculos tem policy a mais ou a menos (eram 3 em '
+      '06/11/2026) -- a view herdaria um portao que ninguem mediu';
+  end if;
+end $guarda$;
+
+-- ----------------------------------------------------------------------------
+-- SECAO 1. A VIEW
+--
+-- Expoe SO vinculo ativo e confirmado por CPF. Nao expoe telefone_e164 nem
+-- quem vinculou: quem precisa desses campos le a tabela, sob RLS da gestao.
+-- ----------------------------------------------------------------------------
+create or replace view public.ulbra_vinculos_confirmados
+with (security_invoker = on) as
+select id, aluno_id, ulbra_cliente_id, confianca, origem, vinculado_em
+  from public.ulbra_vinculos
+ where desvinculado_em is null
+   and confianca = 'alta_cpf';
+
+-- O REVOKE de `authenticated` NAO e redundante com o `grant select` abaixo, e
+-- esta e a correcao do defeito que a auditoria do Guardiao apontou em
+-- 06/11/2026 na primeira versao deste arquivo. Relacao NOVA no schema public
+-- HERDA ALL de `authenticated` pelo default privilege do schema -- incidente
+-- medido em producao em 02/10/2026, registrado no cabecalho de
+-- supabase/migrations/20261002121000_mv_saude_carteira_acl_sem_authenticated.sql
+-- e na linha 5 de 20260930232237_mrl_privilegios_como_audit_log.sql. Sem o
+-- revoke, `grant select` nao RESTRINGE nada: e um no-op sobre um ALL que ja
+-- esta la, e a view aceitaria INSERT/UPDATE/DELETE de qualquer autenticado
+-- (uma view simples como esta e atualizavel por padrao no Postgres, entao a
+-- escrita atravessaria para a tabela base -- barrada depois pela RLS e pelo
+-- gatilho, mas barrada uma camada adiante do que este arquivo promete).
+-- A prova 5 da secao 2 e a assercao exata disto, e ela ABORTARIA a transacao
+-- na versao anterior: falha fechada, nao exposicao -- mas o arquivo nao fazia
+-- o que dizia. Fere docs/seguranca/PREMISSA_SEGURANCA_PROJETO.md §5
+-- ("Evitar GRANT ALL herdado").
+--
+-- OS QUATRO GRANTEES NAO SAO CHUTE. pg_default_acl de producao, lido em
+-- 06/11/2026 (somente leitura), tem DUAS entradas para o schema public, e sao
+-- elas que decidem o que uma relacao nova herda:
+--   FOR ROLE postgres        tipo r  ->  authenticated=arwdDxtm, service_role=arwdDxtm
+--   FOR ROLE supabase_admin  tipo r  ->  anon=arwdDxtm, authenticated=arwdDxtm,
+--                                        service_role=arwdDxtm
+-- A view criada pelo runner (postgres) cai na primeira: authenticated e
+-- service_role com ALL. `public` entra por completude -- o GRANT a PUBLIC nao
+-- vem de pg_default_acl, mas revogar e barato e fecha o caso de alguem ter
+-- concedido a PUBLIC no schema. Nenhum outro grantee aparece nas duas entradas,
+-- entao os quatro REVOKE abaixo cobrem o conjunto medido, nao um conjunto
+-- suposto.
+--
+-- RESSALVA: plugins/reativa-one/skills/seguranca-rls/SKILL.md afirma, nas
+-- linhas 42-43, que view NAO herda grant -- o que a propria linha 45 dela e as
+-- duas migrations acima contradizem. A skill precisa de correcao; nao e
+-- corrigida aqui porque esta fora do escopo declarado desta frente.
+revoke all on public.ulbra_vinculos_confirmados from public;
+revoke all on public.ulbra_vinculos_confirmados from anon;
+revoke all on public.ulbra_vinculos_confirmados from authenticated;
+revoke all on public.ulbra_vinculos_confirmados from service_role;
+grant select on public.ulbra_vinculos_confirmados to authenticated;
+grant select on public.ulbra_vinculos_confirmados to service_role;
+
+-- ----------------------------------------------------------------------------
+-- SECAO 2. PROVA DE ESTRUTURA
+-- ----------------------------------------------------------------------------
+do $prova$
+begin
+  -- 1. a view existe
+  if to_regclass('public.ulbra_vinculos_confirmados') is null then
+    raise exception 'PROVA: a view ulbra_vinculos_confirmados nao existe';
+  end if;
+
+  -- 2. security_invoker LIGADO. A assercao mais importante deste arquivo.
+  if coalesce((
+    select option_value from pg_options_to_table(
+      (select reloptions from pg_class where oid = 'public.ulbra_vinculos_confirmados'::regclass)
+    ) where option_name = 'security_invoker'
+  ), 'off') not in ('on','true') then
+    raise exception
+      'PROVA: ulbra_vinculos_confirmados SEM security_invoker -- a view '
+      'passaria por cima da RLS de ulbra_vinculos';
+  end if;
+
+  -- 3. anon nao le
+  if has_table_privilege('anon','public.ulbra_vinculos_confirmados','SELECT') then
+    raise exception 'PROVA: anon le a view de vinculos confirmados';
+  end if;
+
+  -- 4. quem precisa, le
+  if not has_table_privilege('authenticated','public.ulbra_vinculos_confirmados','SELECT')
+     or not has_table_privilege('service_role','public.ulbra_vinculos_confirmados','SELECT') then
+    raise exception 'PROVA: a view segura nao e legivel por quem precisa dela';
+  end if;
+
+  -- 5. a view e somente leitura para quem a le: nenhum grant de escrita.
+  --    Esta e a assercao que pega o ALL herdado do schema -- ver o comentario
+  --    longo ao lado dos REVOKE da secao 1.
+  if has_table_privilege('authenticated','public.ulbra_vinculos_confirmados','INSERT')
+     or has_table_privilege('authenticated','public.ulbra_vinculos_confirmados','UPDATE')
+     or has_table_privilege('authenticated','public.ulbra_vinculos_confirmados','DELETE') then
+    raise exception 'PROVA: a view aceita escrita de authenticated';
+  end if;
+  if has_table_privilege('service_role','public.ulbra_vinculos_confirmados','INSERT')
+     or has_table_privilege('service_role','public.ulbra_vinculos_confirmados','UPDATE')
+     or has_table_privilege('service_role','public.ulbra_vinculos_confirmados','DELETE') then
+    raise exception 'PROVA: a view aceita escrita de service_role';
+  end if;
+
+  -- 6. a tabela base nao foi tocada por este arquivo
+  if (select count(*) from pg_policies
+       where schemaname='public' and tablename='ulbra_vinculos') <> 3 then
+    raise exception 'PROVA: o numero de policies de ulbra_vinculos mudou (eram 3)';
+  end if;
+  if has_table_privilege('authenticated','public.ulbra_vinculos','DELETE')
+     or has_table_privilege('authenticated','public.ulbra_vinculos','TRUNCATE') then
+    raise exception 'PROVA: os REVOKE da 20261106151254 foram desfeitos';
+  end if;
+end $prova$;
+
+-- ----------------------------------------------------------------------------
+-- SECAO 3. PROVA DE COMPORTAMENTO (§9: escrita em PROD com ROLLBACK)
+--
+-- Checar que a view EXISTE nao prova que ela FILTRA. Esta secao escreve de
+-- verdade e desfaz: o bloco interno tem handler de excecao, o que o torna uma
+-- subtransacao -- sair dele por excecao desfaz tudo que ele inseriu. Nenhuma
+-- linha sobrevive a esta secao.
+--
+-- GRUPO DE CONTROLE obrigatorio (memoria
+-- `criterio-sem-grupo-de-controle-nao-e-prova`): a view tem de MOSTRAR o
+-- vinculo confirmado por CPF. Sem isso, uma view que nao devolvesse nada
+-- passaria a assercao negativa pelo motivo errado.
+--
+-- O INSERT do vinculo legado usa confianca 'alta' + origem 'telefone', que o
+-- CHECK de origem forte permite (ele so barra 'alta_cpf' com 'telefone') --
+-- e exatamente a forma do vinculo que a Etapa 1 gravava.
+-- ----------------------------------------------------------------------------
+do $comportamento$
+declare
+  v_aluno_a uuid;
+  v_aluno_b uuid;
+begin
+  select a.id into v_aluno_a
+    from public.alunos a
+   where not exists (
+     select 1 from public.ulbra_vinculos v
+      where v.aluno_id = a.id and v.desvinculado_em is null
+   )
+   order by a.id limit 1;
+
+  select a.id into v_aluno_b
+    from public.alunos a
+   where a.id is distinct from v_aluno_a
+     and not exists (
+       select 1 from public.ulbra_vinculos v
+        where v.aluno_id = a.id and v.desvinculado_em is null
+     )
+   order by a.id limit 1;
+
+  if v_aluno_a is null or v_aluno_b is null then
+    raise notice
+      'PROVA DE COMPORTAMENTO: PULADA -- precisa de dois alunos sem vinculo ativo';
+    return;
+  end if;
+
+  begin
+    -- CONTROLE: confirmado por CPF tem de APARECER na view
+    insert into public.ulbra_vinculos
+      (aluno_id, ulbra_cliente_id, confianca, origem, vinculado_por)
+    values
+      (v_aluno_a, 'PROVA_VIEW_CPF_20261106190000', 'alta_cpf', 'cpf', 'prova-migration');
+
+    if not exists (select 1 from public.ulbra_vinculos_confirmados
+                    where ulbra_cliente_id = 'PROVA_VIEW_CPF_20261106190000') then
+      raise exception
+        'PROVA DE COMPORTAMENTO: a view ESCONDEU vinculo confirmado por CPF';
+    end if;
+
+    -- O caso que importa: legado por telefone NAO aparece
+    insert into public.ulbra_vinculos
+      (aluno_id, ulbra_cliente_id, confianca, origem, vinculado_por)
+    values
+      (v_aluno_b, 'PROVA_VIEW_LEGADO_20261106190000', 'alta', 'telefone', 'prova-migration');
+
+    if exists (select 1 from public.ulbra_vinculos_confirmados
+                where ulbra_cliente_id = 'PROVA_VIEW_LEGADO_20261106190000') then
+      raise exception
+        'PROVA DE COMPORTAMENTO: a view EXPOS vinculo legado nao confirmado por CPF';
+    end if;
+
+    -- Desvinculado tambem sai da view, mesmo sendo alta_cpf
+    update public.ulbra_vinculos
+       set desvinculado_em = now(), desvinculado_por = 'prova-migration'
+     where ulbra_cliente_id = 'PROVA_VIEW_CPF_20261106190000';
+
+    if exists (select 1 from public.ulbra_vinculos_confirmados
+                where ulbra_cliente_id = 'PROVA_VIEW_CPF_20261106190000') then
+      raise exception
+        'PROVA DE COMPORTAMENTO: a view EXPOS vinculo ja desvinculado';
+    end if;
+
+    -- Tudo provado: sai por excecao para DESFAZER as linhas de prova.
+    raise exception 'PROVA_DE_COMPORTAMENTO_OK';
+  exception
+    when raise_exception then
+      if sqlerrm <> 'PROVA_DE_COMPORTAMENTO_OK' then
+        raise;   -- assercao real falhou: propaga e aborta
+      end if;
+      raise notice 'PROVA DE COMPORTAMENTO: 3 assercoes OK, linhas de prova desfeitas';
+  end;
+
+  -- Cinto e suspensorio: nenhuma linha de prova pode ter sobrado.
+  if exists (select 1 from public.ulbra_vinculos
+              where ulbra_cliente_id like 'PROVA_VIEW_%_20261106190000') then
+    raise exception 'PROVA DE COMPORTAMENTO: sobrou linha de prova na tabela';
+  end if;
+end $comportamento$;
+
+commit;

@@ -45,6 +45,37 @@ Componente da ficha: `src/components/BlocoUlbra.jsx` (botão "Abrir na
 Mensageria Ulbra"). `NotificacoesUlbra.jsx` existe mas **não está montado**
 em nenhuma página (polling de 60s estouraria o limite diário).
 
+## Estado em PRODUÇÃO — medido em 06/11/2026
+
+Repositório e produção **não estão no mesmo ponto**, e a diferença é de
+segurança. Medido no projeto `ahattpqrjmhkzsmnbdzs`, somente leitura:
+
+| Peça | Repositório (main + #821) | Produção |
+|---|---|---|
+| SQL do vínculo | `20261106151254` registrada no ledger | **aplicada** em 06/11 |
+| `ulbra-consultar` | confirma por CPF, falha fechado | **`version 2`, de 03/11** — a da #794 |
+| `ulbra-atendimento` | filtra `confianca = 'alta_cpf'` | **não existe** (nunca publicada) |
+| `ulbra-leads-pendentes` | portão de receptivo/gestão | `version 2`, de 03/11 |
+| view `ulbra_vinculos_confirmados` | proposta `20261106190000` | não existe |
+| `ulbra_vinculos` | — | **0 linhas**, 0 auditorias `ULBRA_*` |
+
+Duas consequências que não devem ser suavizadas:
+
+1. **A função que está no ar é a que vincula por telefone.** Lido no fonte
+   publicado: ela busca por telefone (CPF só como *fallback* quando o telefone
+   falta ou é malformado), grava `confianca: 'alta'`, **não escreve auditoria
+   nenhuma** e devolve `url` para qualquer vínculo ativo que encontrar. É o
+   defeito inteiro descrito abaixo, em execução. A correção só passa a valer
+   **no deploy** — merge não publica Edge Function.
+2. **`AtendimentoUlbra` está montado na ficha chamando uma função que não
+   existe** (`FichaAlunoUnificada.jsx`, `Aluno.jsx`). O bloco falha para o
+   operador.
+
+O que limita o dano hoje é que `ulbra_vinculos` está **vazia**: nenhum vínculo
+errado foi criado ainda. Mas isso é a ausência de um clique, não uma proteção —
+e os 0 registros de auditoria **não provam nada**, porque a função publicada
+não audita.
+
 ## Vínculo aluno ↔ cliente: a regra (corrigida em 04/11/2026)
 
 **Vínculo automático nasce só quando o CPF confirma.** A Etapa 1 (PR #813)
@@ -65,7 +96,8 @@ O que vale agora, em `supabase/functions/ulbra-consultar/vinculo.ts`:
 | CPF confirma, mas o cliente já tem vínculo ativo com outro aluno | **bloqueia** `DUPLICADO_CLIENTE_DE_OUTRO_ALUNO` |
 | Só o telefone achou | **bloqueia** `CONFIRMACAO_MANUAL_SO_TELEFONE` |
 | Telefone achou e o aluno não tem CPF cadastrado | **bloqueia** `CONFIRMACAO_MANUAL_SEM_CPF` |
-| Já existe vínculo ativo | devolve o existente; **nunca** sobrescreve |
+| Já existe vínculo ativo **confirmado por CPF** | devolve o existente com `url`; **nunca** sobrescreve |
+| Já existe vínculo ativo **sem** confirmação por CPF | `vinculado_nao_confirmado`: **sem `url` e sem `ulbra_cliente_id`** |
 
 **Limite conhecido da detecção de discordância.** Quando o telefone casa com
 cliente fora do escopo do token, a Mensageria devolve `equipe` mas **não** o
@@ -76,9 +108,10 @@ concordância: é impossibilidade de comparar, e fica registrado como
 outra equipe da ULBRA não bloqueia o vínculo por CPF.
 
 Barrado **não grava nada** e o motivo aparece na ficha. Por que barrar em vez
-de gravar com confiança baixa: `ulbra-atendimento` (PR #814) abre atendimento
-para qualquer vínculo ativo, **sem ler `confianca`** — um vínculo fraco gravado
-como ativo seria, uma função adiante, um atendimento aberto no cliente errado.
+de gravar com confiança baixa: um vínculo fraco gravado como ativo seria, numa
+função que só checasse `desvinculado_em`, um atendimento aberto no cliente
+errado. A `ulbra-atendimento` (PR #814) filtra `confianca = 'alta_cpf'` desde a
+#819, mas a regra não pode depender só dela.
 
 Custo de chamada: **as duas chaves vão na mesma chamada**. `contatos` aceita 20
 posições e o limite medido é por chamada, então a confirmação cruzada é de
@@ -95,37 +128,191 @@ base é *determinada* pelo conjunto recebido, não escolhida. Qualquer outro
 conjunto — buraco, posição repetida, quantidade diferente da pedida — falha
 fechado (`RESPOSTA_INVALIDA`): nenhum vínculo é gravado, nunca o errado.
 
-**Vínculo antigo não é apagado nem rebaixado.** Linha com `confianca = 'alta'`
-e `origem = 'telefone'` (selo da Etapa 1) continua válida e clicável, mas vem
-com `reconfirmar_recomendado: true` e a ficha avisa que a identidade não foi
-provada por CPF. Desvinculação é sempre lógica (`desvinculado_em`).
+**Base 1 só é aceita quando o mapeamento não pode mudar a decisão** — mesmo
+cliente em todas as posições, ou nenhuma com cliente. O motivo é concreto: se
+as posições estiverem trocadas em relação ao pedido, "telefone achou X, CPF não
+achou" é lido como "CPF confirmou X, telefone não achou" — e o primeiro
+**bloqueia** enquanto o segundo **grava**. Seria o falso positivo exato que
+esta correção existe para fechar, produzido por uma convenção que ninguém
+mediu. Então base 1 assimétrica falha fechado.
+
+**Base 0 segue aceita com mapeamento assimétrico — e isso é inferência, não
+medição.** Tem de ser aceita, senão o caminho principal (só o CPF confirma)
+nunca gravaria. O que a sustenta é a semântica documentada de `posicao` como
+índice do array `contatos` pedido; o que foi **medido** é `posicao: 0` em
+resposta de **uma** posição. Para duas, é extrapolação da documentação.
+
+Resta exatamente um cenário de falso positivo, e ele precisa estar escrito:
+se as posições vierem trocadas em base 0, a função lê "CPF→A, telefone→nada" e
+**grava**, quando a verdade seria "telefone→A, CPF→nada", que deveria
+**bloquear**. O cenário inverso é seguro — produz bloqueio falso, não gravação
+falsa. Fechar isso exige a medição com duas posições, que segue pendente e
+precisa de autorização da gestão. Até lá, "nenhum resultado duvidoso gera
+vínculo" é verdade para tudo que o código consegue detectar como duvidoso, e
+**não comprovada** para uma violação da semântica de `posicao` em base 0.
+
+**Vínculo antigo não é apagado nem rebaixado — mas também não dá acesso.**
+Linha com `confianca = 'alta'` e `origem = 'telefone'` (selo da Etapa 1)
+continua válida e visível para a gestão na tabela, porém a `ulbra-consultar`
+devolve `status: 'vinculado_nao_confirmado'` **sem `url` e sem
+`ulbra_cliente_id`**, e a ficha mostra só o aviso, sem o botão "Abrir na
+Mensageria". Aviso ao lado de um botão clicável não é proteção: enquanto o id
+viajar na resposta, qualquer cliente da API remonta a URL do atendimento.
+Desvinculação é sempre lógica (`desvinculado_em`).
+
+### Proteção do `ulbra-atendimento` (PR #814, já com a #819)
+
+A `ulbra-atendimento` abre atendimento só com vínculo confirmado por CPF: a
+função `vinculoConfirmado` (`supabase/functions/ulbra-atendimento/atendimento.ts`)
+filtra `confianca = 'alta_cpf'`, e `index.ts` a chama antes de qualquer consulta.
+Essa proteção entrou na main pela #819 (`accb9db2`). Não é alterada aqui.
+
+Ainda assim, a view `public.ulbra_vinculos_confirmados` (proposta
+`20261106190000`, **não aplicada** — conferido em 06/11/2026: 0 linhas em
+`pg_views`) é a superfície estrutural que o filtro de código não substitui: com
+ela, uma função futura que leia `ulbra_vinculos` sem filtrar `confianca` não tem
+linha não confirmada para devolver. Ela tem `security_invoker = on`, para não
+passar por cima da RLS de `ulbra_vinculos`. **Não é pré-requisito de
+publicação** — é defesa em profundidade; o filtro `alta_cpf` da
+`ulbra-atendimento` já é a alternativa que esta documentação aceita.
+
+Antes de qualquer republicação da função da Etapa 1, ou de inserção manual de
+vínculo, o filtro `alta_cpf` precisa continuar presente em `ulbra-atendimento`.
+
+**E a ordem do deploy importa por causa disso.** A `ulbra-consultar` que está
+em produção hoje é a da **#794** (`version 2`, publicada em 03/11 — não a da
+Etapa 1/#813, que é de 04/11 e nunca foi publicada): ela grava
+`confianca: 'alta'` por telefone.
+Se a `ulbra-atendimento` for publicada **antes** da `ulbra-consultar`
+corrigida, o filtro `alta_cpf` dela já estaria no ar enquanto a função que
+escreve ainda cria vínculo fraco: nada se abriria errado (o filtro barra), mas
+o bloco da ficha mostraria "sem atendimento" para vínculos que a função velha
+acabou de criar. Publicar a `ulbra-consultar` primeiro evita esse estado
+intermediário confuso.
 
 ## Pendências
+
+- **Lacuna de inventário, apontada pela auditoria do Guardião em 06/11/2026 e
+  NÃO fechada aqui:** `docs/integracoes/prime-edge-functions.md` não lista
+  `ulbra-consultar`, `ulbra-atendimento` nem `ulbra-leads-pendentes`, embora a
+  regra 2 do [`README.md`](README.md) mande toda Edge Function que toque
+  Prime/ULBRA entrar lá **no mesmo commit em que é criada**. A regra dos cinco
+  arquivos (`prime-api.md` + `prime-api-catalog.json` +
+  `prime-mapa-fontes-verdade.md` + identificadores + gaps) **não** se aplica a
+  esta frente: ela vale para descoberta na **API Prime**, e a Mensageria é
+  sistema separado, com documento próprio na tabela do `README.md`. O
+  inventário das Edge Functions, porém, aplica-se. Não foi corrigido porque
+  `prime-edge-functions.md` está fora do escopo declarado desta frente — é
+  decisão da gestão abrir ou não essa edição aqui.
 
 - `ulbra_vinculos` nasceu em produção sem migration (PR #794). Conferido em
   04/11/2026: a tabela está **vazia** (0 linhas, 0 `ULBRA_VINCULO_CRIADO` em
   `auditoria`), então não há vínculo legado a reclassificar — a proteção é
   estrutural.
-- **Proposta SQL não aplicada**, em
-  `supabase/aguardando_aprovacao/20261104200000_ulbra_vinculos_confianca_e_unicidade.sql.pendente`
-  (+ `.rollback.sql`): backup de estrutura e dados (§13), CHECK de `confianca`
-  com `alta_cpf`/`reconfirmar`, índice único de **cliente ativo** (hoje a
-  unicidade só existe do lado do aluno), trigger de
-  imutabilidade/não-reabertura com `REVOKE EXECUTE`, e o REVOKE de
-  DELETE/TRUNCATE de `authenticated` proposto na Etapa 1 — escrito como SQL
-  pela primeira vez aqui. As provas incluem comportamento (UPDATE, DELETE,
-  reabertura e unicidade barrados de fato, com grupo de controle e ROLLBACK),
-  não apenas existência dos objetos.
+- **As 3 policies de RLS também nasceram sem migration, então não existe
+  arquivo neste repositório que as defina.** Ficavam descritas em prosa como
+  "todas sob `usuario_e_gestao()`", sem medição. Medidas em produção
+  (`ahattpqrjmhkzsmnbdzs`) em 06/11/2026, somente leitura:
+
+  | policy | cmd | roles | predicado |
+  |---|---|---|---|
+  | `ulbra_vinculos_select` | SELECT | `{authenticated}` | `using usuario_e_gestao()` |
+  | `ulbra_vinculos_insert` | INSERT | `{authenticated}` | `check usuario_e_gestao()` |
+  | `ulbra_vinculos_update` | UPDATE | `{authenticated}` | `using` + `check usuario_e_gestao()` |
+
+  Nenhuma policy para `anon`, nenhuma permissiva sem predicado. Isso importa
+  para a view: com `security_invoker = on` ela **não tem portão próprio**, ela
+  herda este. Por isso a proposta `20261106190000` refaz essa medição como
+  guarda de pré-condição — se o portão da tabela for afrouxado, a view não é
+  criada. **O drift em si continua não corrigido**: as policies seguem só em
+  produção, sem migration que as versione.
+- **O SQL do vínculo está APLICADO em produção desde 06/11/2026** — isto
+  corrige versões anteriores desta documentação, que o davam como pendente. A
+  proposta `20261104200000` foi carimbada como `version 20261106151254` e está
+  registrada byte a byte em
+  `supabase/ledger/2026-11/20261106151254__20261104200000_ulbra_vinculos_confianca_e_unicidade.sql`
+  (md5 `a8c591756729edc4d9721028ba02d0cd`, 29.864 bytes, 1 statement), com a
+  nota ao lado. Conferido em produção, somente leitura, em 06/11/2026: os dois
+  CHECK de `confianca` (com `alta_cpf`) de pé, `ulbra_vinculos_cliente_ativo_uniq`
+  e `ulbra_vinculos_aluno_ativo_uniq` presentes e únicos,
+  `trg_ulbra_vinculo_protege_historico` ativo, RLS ligada com 3 policies,
+  `authenticated` com `SELECT/INSERT/UPDATE` e **sem** DELETE/TRUNCATE,
+  `service_role` **sem** TRUNCATE, tabela com **0 linhas** e 0 auditorias
+  `ULBRA_*`. A reversa
+  (`supabase/aguardando_aprovacao/20261104200000_..._.rollback.sql`) segue
+  **não executada**, e o `.sql.pendente` saiu de `aguardando_aprovacao` porque
+  não está mais aguardando nada. **Não reaplicar.**
+- **Pendente de verdade, e só isso: a view.**
+  `supabase/aguardando_aprovacao/20261106190000_ulbra_vinculos_view_confirmados.sql.pendente`
+  (+ `.rollback.sql`) traz a view `ulbra_vinculos_confirmados` com
+  `security_invoker = on`, extraída inteira da proposta grande — com guarda de
+  pré-condição que exige a `20261106151254` aplicada, prova de estrutura e
+  prova de comportamento com grupo de controle (mostra `alta_cpf`, esconde
+  legado por telefone, esconde desvinculado). Precisa de autorização explícita
+  da gestão e **não bloqueia a publicação das Edge Functions**.
 - **Medição pendente, precisa de autorização da gestão:** a numeração de
   `posicao` em chamada `conferir_duplicidade` com duas posições. Tratada por
   tolerância às duas bases possíveis, não por medição.
-- **`index.ts` da `ulbra-consultar` não tem teste automatizado** (não há Deno
-  nesta máquina). A regra toda está em `vinculo.ts` e `mcp.ts`, que têm; o que
-  fica sem prova automática é a fiação: códigos HTTP e ordem das auditorias.
-- **Ordem obrigatória de publicação:** o SQL **antes** do deploy da
-  `ulbra-consultar` corrigida. A função grava `alta_cpf`, valor que o CHECK de
-  hoje rejeita; na ordem errada todo vínculo novo falha com
-  `VINCULO_NAO_GRAVADO` (falha fechado — não grava errado, só não grava).
+- **Teste de integração existe, mas NÃO é validação completa.**
+  `supabase/functions/ulbra-consultar/integracao.test.ts` percorre a cadeia
+  envelope JSON-RPC → casamento por posição → validação por CPF → tentativa de
+  gravação, com banco falso que recusa como o real recusaria (CHECK de
+  `confianca`, unicidade de cliente). **Fica expressamente sem prova:**
+  1. `index.ts` não é importado — chama `serve()` e `createClient()` no topo e
+     não há Deno nesta máquina. Códigos HTTP e ordem real das auditorias seguem
+     provados só por leitura; a cadeia é reconstruída pelo teste, não executada
+     a partir do `index.ts`.
+  2. Nenhuma chamada real à Mensageria. Os envelopes são fixtures na forma
+     medida em 04/11/2026.
+  3. Nenhuma escrita real no Postgres. As recusas do banco são imitadas. Que o
+     banco real as aplique é o que as seções 4 e 5 da `20261106151254` provaram
+     **na própria aplicação, em produção, em 06/11/2026** — as asserções de
+     comportamento (UPDATE, DELETE, reabertura e unicidade barrados de fato,
+     com grupo de controle e linhas de prova desfeitas) rodaram dentro da
+     transação que aplicou a migration. O que o teste imita, o banco já provou;
+     o que segue sem prova é a cadeia a partir do `index.ts`.
+
+  Ninguém deve declarar a integração validada com base só neste arquivo.
+- **Ordem obrigatória de publicação — já satisfeita.** O SQL tinha de vir
+  **antes** do deploy da `ulbra-consultar` corrigida, porque a função grava
+  `alta_cpf`, valor que o CHECK antigo rejeitava; na ordem errada todo vínculo
+  novo falharia com `VINCULO_NAO_GRAVADO` (falha fechado — não grava errado, só
+  não grava). Em 06/11/2026 o CHECK novo está em produção, então **o deploy
+  pode ir a qualquer momento** e essa armadilha deixou de existir.
 - Teste de contrato: `supabase/functions/ulbra-consultar/contrato.test.ts`,
   `vinculo.test.ts` e `ulbra-leads-pendentes/portao.test.ts` carregam a forma
   real das respostas — se a Mensageria mudar a forma, é aí que quebra.
+
+## Sequência de publicação (preparada, NÃO executada)
+
+Nada abaixo foi executado. Cada passo exige autorização explícita da gestão e
+executor único — a sessão principal. O SQL do vínculo **já está aplicado**,
+então esta sequência é de deploy, não de banco.
+
+1. **Merge da #821 na main.** Sem isso o deploy publicaria o código antigo.
+2. **Publicar `ulbra-consultar`** (`supabase/functions/ulbra-consultar/`:
+   `index.ts`, `vinculo.ts`, `mcp.ts`, `portao.ts`). É o passo que encerra o
+   vínculo por telefone — enquanto ele não roda, nada mudou para o operador.
+   Conferir depois: `version` subiu de 2, e o fonte publicado importa
+   `vinculo.ts`.
+3. **Publicar `ulbra-atendimento`** (`index.ts`, `atendimento.ts`). Depois da
+   `ulbra-consultar`, pelo motivo da seção anterior. Hoje a função **não
+   existe** em produção e a ficha já a chama.
+4. **Publicar o frontend** (`BlocoUlbra.jsx` com a recusa do botão). A tela sem
+   a função nova mostraria o botão para vínculo não confirmado; a função nova
+   sem a tela já é segura (o `ulbra_cliente_id` não viaja).
+5. **Validar com um aluno real da carteira de quem valida**, lendo a
+   `auditoria`: tem de aparecer `ULBRA_CONSULTA` e, conforme o caso,
+   `ULBRA_VINCULO_CRIADO` (com `confianca = 'alta_cpf'`) **ou**
+   `ULBRA_VINCULO_BLOQUEADO` com o motivo. Vínculo gravado com
+   `origem = 'telefone'` depois do deploy é regressão: parar e reverter.
+6. **Opcional, autorização própria:** a view
+   `20261106190000_ulbra_vinculos_view_confirmados.sql.pendente`. Não bloqueia
+   nada acima.
+7. **Fora desta frente, e não resolvido aqui:** medir a numeração de `posicao`
+   com duas chaves, e o `NotificacoesUlbra`, que segue desmontado de propósito.
+
+**Reversão**: o deploy volta republicando a versão anterior da função — não há
+dado a desfazer, porque a função corrigida só grava `alta_cpf` e vínculo não se
+apaga (gatilho da `20261106151254`). A reversa do SQL existe e **não** deve ser
+usada para desfazer deploy.
