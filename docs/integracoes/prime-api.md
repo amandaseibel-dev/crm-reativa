@@ -439,6 +439,25 @@ reconstrução é NÃO COMPROVADA e não deve ser gravada).
 **Segurança:** READ ONLY (quando responde) — mas não há efeito a classificar,
 pois nunca devolve dado.
 
+**RETESTE EM 06/11/2026:** mesma rota, mesma resposta — HTTP 200 com
+`{items: [], totalItems: 0}`, zero acordos, nenhuma lista de parcelas, com a
+sessão de gestão autenticada funcionando. Sete semanas depois do teste de
+15/09, o comportamento é idêntico. Classificação: **ausência de dados no
+escopo da chave** — não é falha de autenticação (a sessão passou) nem
+indisponibilidade (a API respondeu 200). Ver
+[`prime-pedido-ti-acordos.md`](prime-pedido-ti-acordos.md) §2.4.
+
+**Pedido formal aberto (05/11/2026, atualizado em 06/11):** o escopo de acordos nesta chave está
+solicitado à TI ULBRA em
+[`prime-pedido-ti-acordos.md`](prime-pedido-ti-acordos.md) — cabeçalho do
+acordo **e lista de parcelas**, por leitura, na mesma `X-API-Key`, sem
+credencial de pessoa. O contrato que a sincronização exige, campo por campo,
+está em
+[`prime-acordos-contrato-sincronizacao.md`](prime-acordos-contrato-sincronizacao.md).
+Enquanto este endpoint devolver lista vazia, a sincronização automática de
+acordos **não substitui** a importação manual do relatório — ver §4 daquele
+documento para o buraco estrutural (parcela que nunca recebeu pagamento).
+
 **Pode automatizar?** NÃO — não há dado.
 
 **Fallback:** **NENHUM ENCONTRADO PELA API.** A tela do Prime mostra a cadeia
@@ -506,6 +525,26 @@ A Edge Function `prime-sonda` (produção, versionada em
 conteúdo cru se `cru: true` for pedido explicitamente, para conferir um caso
 concreto. Nunca grava nada. Usar essa função — não reinventar sondagem, e
 nunca colar a chave em um script ad-hoc.
+
+## O que esta API NÃO fornece para o staging de ACORDOS
+
+Registrado na sétima etapa do staging de acordos (ver
+[`prime-acordos-staging.md`](prime-acordos-staging.md)), para que ninguém
+procure na API o que não está lá:
+
+- **O convênio bancário por linha de pagamento não vem da API Prime.** Ele é
+  a coluna F do arquivo do Santander, e passou a ser preservado em
+  `pagamentos.dados.convenio_bancario` pelo importador — não por esta API.
+  `financial_statement[].carrier` traz o portador do **título**, que é coisa
+  distinta do convênio da **linha de pagamento recebida**.
+- **A equivalência entre os dois não está comprovada.** Que a coluna F do
+  arquivo bancário corresponda ao covenant `0272047` do portador 166 medido
+  em `carriers` é **premissa**, não medição. Não existe rota desta API que
+  permita conferir isso; a conferência é entre um lote real do arquivo e a
+  listagem do portador 166.
+- **Vínculo de acordo ao convênio ReATIVA não é consultável aqui.** É
+  reconstruído no CRM, só pelos títulos gerados do próprio acordo. A
+  validação direta dos portadores 166/195 segue impossível internamente.
 
 ## Manutenção deste documento
 

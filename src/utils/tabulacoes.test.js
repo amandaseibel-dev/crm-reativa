@@ -15,6 +15,8 @@ import {
   proximaAcaoDeTabulacao,
   retornoEhManual,
   dataBRDeISO,
+  tabulacaoEhSoGestao,
+  tabulacaoDisponivel,
 } from "./tabulacoes";
 
 const CATALOGO = FALLBACK_TABULACOES;
@@ -115,5 +117,82 @@ describe("carregarTabulacoes", () => {
     const catalogo = await carregarTabulacoes();
     expect(catalogo).toBe(FALLBACK_TABULACOES);
     silencio.mockRestore();
+  });
+});
+
+// TABULAÇÃO SÓ DA GESTÃO -- o que estes testes protegem é o FAIL-CLOSED.
+//
+// A primeira versão desta frente lia `tabulacoes.somente_gestao` do catálogo
+// carregado. Era fail-open: a policy `tabulacoes_leitura_autenticado`
+// (20260828050000) não entrega a linha gestão-only ao operador, então o
+// predicado não achava a linha, concluía "não é só-gestão" e MOSTRAVA a opção
+// para quem não pode vê-la. Por isso a régua é lista literal -- e por isso o
+// caso central aqui é "catálogo SEM a linha, usuário sem gestão".
+describe("tabulação só da gestão", () => {
+  it("Retorno do financeiro existe no catálogo e não agenda prazo", () => {
+    const t = CATALOGO.find((x) => x.codigo === "RETORNO_FINANCEIRO");
+    expect(t).toBeTruthy();
+    expect(t.rotulo).toBe("Retorno do financeiro");
+    expect(t.ativa).toBe(true);
+    expect(t.grupo).toBe("FINANCEIRO");
+    // Prazo NENHUM: a gestão carimba o desfecho, o caso volta pelo motor da
+    // fila. Se virar DIAS_UTEIS sem decisão nova, este teste cobra.
+    expect(t.retorno_modo).toBe("NENHUM");
+    expect(t.retorno_dias_uteis).toBe(null);
+    expect(retornoAutomaticoDeTabulacao(CATALOGO, "RETORNO_FINANCEIRO", SEXTA)).toBe(null);
+    expect(descreverPrazo(CATALOGO, "RETORNO_FINANCEIRO")).toBe("sem retorno automático");
+  });
+
+  it("FAIL-CLOSED: esconde do operador mesmo que o catálogo não traga a linha", () => {
+    // ESTE é o caso real do operador: a RLS filtrou a linha. A régua não pode
+    // depender dela. Se alguém trocar a lista literal por leitura do catálogo,
+    // este teste cai.
+    expect(tabulacaoEhSoGestao("RETORNO_FINANCEIRO")).toBe(true);
+    expect(tabulacaoDisponivel("RETORNO_FINANCEIRO", false)).toBe(false);
+    const semALinha = CATALOGO.filter((t) => t.codigo !== "RETORNO_FINANCEIRO");
+    expect(semALinha.some((t) => t.codigo === "RETORNO_FINANCEIRO")).toBe(false);
+    expect(tabulacaoDisponivel("RETORNO_FINANCEIRO", false)).toBe(false);
+  });
+
+  it("a gestão vê; o operador não", () => {
+    expect(tabulacaoDisponivel("RETORNO_FINANCEIRO", true)).toBe(true);
+    expect(tabulacaoDisponivel("RETORNO_FINANCEIRO", false)).toBe(false);
+    expect(tabulacaoDisponivel("MENSAGEM_ENVIADA", false)).toBe(true);
+    expect(tabulacaoDisponivel("MENSAGEM_ENVIADA", true)).toBe(true);
+  });
+
+  it("não esconde tabulação comum, e nem código desconhecido", () => {
+    // Importante não inverter o default: opção legítima que não esteja no
+    // catálogo (há códigos em STATUS_FINALIZACAO sem linha na tabela) não pode
+    // desaparecer da tela do operador.
+    expect(tabulacaoEhSoGestao("CONTATAR")).toBe(false);
+    expect(tabulacaoEhSoGestao("CODIGO_QUE_NAO_EXISTE")).toBe(false);
+    expect(tabulacaoDisponivel("CODIGO_QUE_NAO_EXISTE", false)).toBe(true);
+    expect(tabulacaoEhSoGestao("")).toBe(false);
+    expect(tabulacaoEhSoGestao(null)).toBe(false);
+  });
+
+  it("o valor JÁ escolhido nunca desaparece do select", () => {
+    // Sem isto o navegador trocaria sozinho a tabulação do aluno pela primeira
+    // opção da lista -- mesma armadilha da tabulação desativada (17/08/2026).
+    expect(tabulacaoDisponivel("RETORNO_FINANCEIRO", false, "RETORNO_FINANCEIRO")).toBe(true);
+    expect(tabulacaoDisponivel("RETORNO_FINANCEIRO", false, "MENSAGEM_ENVIADA")).toBe(false);
+  });
+
+  it("o front NÃO pede somente_gestao ao banco", async () => {
+    // Pedir a coluna é o primeiro passo para voltar a decidir por ela. A
+    // decisão versionada (20261007143000:50-54) é que o front não a lê.
+    const colunasPedidas = [];
+    fromMock.mockReturnValue({
+      select: (colunas) => {
+        colunasPedidas.push(String(colunas));
+        return { order: () => ({ order: async () => ({ data: [{ codigo: "MENSAGEM_ENVIADA", rotulo: "Mensagem enviada", ativa: true, ordem: 20, grupo: "CONTATO", retorno_modo: "NENHUM", retorno_dias_uteis: null, proxima_acao: "CONTATAR" }], error: null }) }) };
+      },
+    });
+    await carregarTabulacoes();
+    expect(colunasPedidas.length).toBeGreaterThan(0);
+    for (const colunas of colunasPedidas) {
+      expect(colunas).not.toContain("somente_gestao");
+    }
   });
 });

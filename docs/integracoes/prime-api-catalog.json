@@ -8,7 +8,7 @@
     "secret_location": "Supabase Vault, segredo 'prime_api_key' — lido só por service_role, via RPC prime_api_key_backend() ou prime_chave_api() (duas RPCs equivalentes, ver gaps)",
     "never": "a chave nunca chega ao navegador, nunca é logada, nunca aparece em resposta de Edge Function"
   },
-  "last_verified_at": "2026-09-28",
+  "last_verified_at": "2026-11-06",
   "resources": [
     {
       "resource": "carriers",
@@ -407,5 +407,68 @@
       "documentacao_publica": "404 em /swagger*, /openapi.json, /api-docs, /.well-known/openapi"
     },
     "proveniencia_do_71643": "interna. auditoria.acao = RECUPERACAO_ACORDO_PAGO_SEM_IMPORTACAO, por conciliacao@sistema. Nenhuma ocorrencia em payload externo."
+  },
+  "convenio_bancario_pagamentos": {
+    "$comment": "Registrado na setima etapa do staging de ACORDOS. NAO e dado desta API — e a coluna F do arquivo do Santander. Entra aqui porque o catalogo e consultado antes de procurar a informacao na API.",
+    "origem": "arquivo bancario Santander, coluna F (convenio)",
+    "nao_vem_de": "API Prime — financial_statement[].carrier e o portador do TITULO, nao o convenio da LINHA DE PAGAMENTO",
+    "onde_fica_hoje": "pagamentos.dados.convenio_bancario (27a chave do jsonb), a partir da importacao que suceder a setima etapa",
+    "normalizado": false,
+    "validado_contra_272047": false,
+    "equivalencia_com_portador_166": "PREMISSA NAO COMPROVADA — que a coluna F corresponda ao covenant 0272047 do portador 166 nao foi medido. Conferencia exige um lote real do arquivo contra a listagem do portador 166",
+    "proibicao": "nunca projetar em convenioMannesoft — a origem e bancaria, nao Mannesoft",
+    "pagamentos_historicos": "permanentemente sem o campo; o arquivo original nao e preservado para reprocessamento",
+    "deploy": "santander-previa e santander-importar compartilham planilha.ts e tem deploy separado — publicar as duas na mesma janela, senao a digital discorda e a importacao do dia e recusada",
+    "ver": "docs/integracoes/prime-acordos-staging.md"
+  },
+  "pedido_escopo_acordos_aberto": {
+    "$comment": "Etapa 0 da sincronizacao de ACORDOS. Registrado em 05/11/2026.",
+    "data": "2026-11-05",
+    "estado": "ABERTO — nao enviado ainda; aguarda decisao da gestao",
+    "documento": "docs/integracoes/prime-pedido-ti-acordos.md",
+    "contrato_do_que_e_necessario": "docs/integracoes/prime-acordos-contrato-sincronizacao.md",
+    "endpoint_alvo": "GET /students/{registration}/agreements",
+    "sintoma": "HTTP 200 com {items:[],totalItems:0} em 100% dos testes, inclusive para acordo ATIVO na tela no mesmo instante (71903, 15/09/2026)",
+    "pedido": [
+      "1. identificador e situacao do acordo",
+      "2. portador e convenio",
+      "3. valor negociado E valor do acordo (campos distintos)",
+      "4. quantidade de parcelas",
+      "5. parcelas: vencimento, valor, boleto e situacao de pagamento",
+      "6. titulos originais vinculados ao acordo",
+      "7. saldo devedor",
+      "8. datas de cadastro, assinatura e confirmacao",
+      "9. usuario responsavel pela confirmacao",
+      "10. acordos anteriores vinculados",
+      "11. documentacao da API (/swagger, /openapi.json, /docs: todos 404)",
+      "12. limites de utilizacao",
+      "EXTRA: um exemplo real de resposta com acordo ATIVO e parcelas, com dados anonimizados"
+    ],
+    "nao_pedido": "escrita. Somente leitura, mesma X-API-Key, sem credencial de pessoa.",
+    "tela_web_nao_e_api": "a interface do Prime mostra a estrutura inteira, mas a URL e estatica, o identificador vai no corpo da requisicao e o mecanismo seria POST autenticado ou sessao PHP — credencial de pessoa, fora do critterio. Por isso o pedido existe.",
+    "escala": {
+      "acordos_sem_estrutura": 229,
+      "pagamentos_sem_vinculo": 411,
+      "valor_parado_brl": 334447.57,
+      "desde": "2026-09-11",
+      "importacoes_manuais_desde_07_07": 484,
+      "substituicoes": 226
+    },
+    "versao": 3,
+    "reteste_06_11_2026": {
+      "rota": "GET /students/{registration}/agreements",
+      "http": 200,
+      "corpo": "lista vazia",
+      "acordos": 0,
+      "lista_de_parcelas": "nenhuma",
+      "autenticacao_gestao": "funcionou",
+      "classificacao": "AUSENCIA DE DADOS no escopo da chave — nao e falha de autenticacao nem indisponibilidade",
+      "caso_que_decide": "acordo 71903 estava Confirmado e ATIVO na tela do Prime, com 10 parcelas, em 15/09/2026, e a API devolveu items vazio no mesmo instante"
+    },
+    "esclarecimentos_para_nao_ler_errado": [
+      "portador 166 ausente do extrato financeiro e comportamento DOCUMENTADO da API; a identificacao do 166 e pela listagem de filiacao (students_search?carrierId=166), nunca pelo extrato",
+      "isAgreementInstallment permanece false em todas as linhas observadas e nao permite identificar parcela de acordo"
+    ],
+    "rota_por_numero_de_acordo": "NAO EXISTE rota documentada e funcional. Cinco candidatas testadas com numero de acordo real (71903): todas 404, nenhuma 405"
   }
 }

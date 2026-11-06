@@ -18,15 +18,106 @@
 
 import { useState } from "react";
 import { supabase } from "../services/supabase";
+import { resumirProvarMatch, resumirAgreementsCru } from "../utils/diagnosticoAcordos";
 
 // Matrícula previamente auditada como pertencente ao portador 166.
 // Definida aqui: a gestora não precisa digitar nada.
 const MATRICULA_PILOTO = "2025007862";
 const CAMINHO_SONDA = `/students/${MATRICULA_PILOTO}/financial-statement`;
 
+// Mesma matrícula piloto, outra rota: a estrutura do acordo.
+//
+// POR QUE PELA SONDA, e não pela `prime-sync`: a `prime-sonda` já está
+// publicada, já funciona, e `/students/{reg}/agreements` JÁ consta da sua lista
+// de caminhos permitidos (`portao.ts`, CAMINHOS_PERMITIDOS). Ela também busca a
+// chave no Vault quando o ambiente não a traz — que é o que a `prime-sync` não
+// faz. Então esta consulta não depende de corrigir nada nem de deploy.
+//
+// `cru: true` porque a FORMA não basta: para saber se há parcela não paga é
+// preciso olhar a lista de parcelas. O conteúdo não sai desta tela — o
+// resumidor devolve contagens e nomes de campo, nunca valores.
+const CAMINHO_SONDA_ACORDOS = `/students/${MATRICULA_PILOTO}/agreements`;
+
+// ---------------------------------------------------------------------------
+// DIAGNÓSTICO DE ACORDOS — `prime-sync`, ação `provar_match`
+//
+// POR QUE EXISTE. A pergunta aberta da Etapa 0 é se
+// `/students/{reg}/agreements` passou a devolver acordo com a LISTA DE
+// PARCELAS, inclusive as não pagas. O último teste foi em 15/09/2026, e sem
+// essa resposta a sincronização automática de acordos não sai do lugar.
+// Ver docs/integracoes/prime-acordos-contrato-sincronizacao.md.
+//
+// POR QUE AQUI. A ação já existe publicada e é SOMENTE LEITURA (dois GET na
+// API e dois SELECT; nenhum insert/update/upsert/delete/rpc). Faltava apenas
+// uma porta autorizada para acioná-la: `supabase.functions.invoke` manda o JWT
+// da sessão de gestão automaticamente, e o portão da função confere
+// `usuario_e_gestao()` no servidor. Nenhum token é manipulado nesta tela.
+//
+// O QUE NÃO FAZ. Não grava, não altera importação, acordo, pagamento ou baixa,
+// não dispara cron, não cria credencial.
+const AMOSTRA_ACORDOS = 5;
+
 export default function DiagnosticoPortador166() {
   const [estado, setEstado] = useState("idle"); // idle | carregando | ok | erro
   const [resultado, setResultado] = useState(null);
+  const [estadoAcordos, setEstadoAcordos] = useState("idle");
+  const [resumoAcordos, setResumoAcordos] = useState(null);
+  const [erroAcordos, setErroAcordos] = useState(null);
+  const [estadoSonda, setEstadoSonda] = useState("idle");
+  const [resumoSonda, setResumoSonda] = useState(null);
+  const [erroSonda, setErroSonda] = useState(null);
+
+  async function executarSondaAcordos() {
+    setEstadoSonda("carregando");
+    setResumoSonda(null);
+    setErroSonda(null);
+
+    // Mesmo invoke das outras duas consultas: o JWT da sessão vai
+    // automaticamente. Nenhum token é lido nem manipulado aqui.
+    const { data, error } = await supabase.functions.invoke("prime-sonda", {
+      body: { caminho: CAMINHO_SONDA_ACORDOS, cru: true },
+    });
+
+    if (error || data?.erro) {
+      setEstadoSonda("erro");
+      setErroSonda(String(error?.message ?? data?.erro));
+      return;
+    }
+
+    // A sonda devolve o status da própria API Prime no corpo, mesmo com HTTP
+    // 200 na Edge Function — distinguir os dois é o que evita ler
+    // indisponibilidade como "não tem acordo".
+    const statusPrime = data?.status ?? null;
+    if (statusPrime !== null && statusPrime !== 200) {
+      setEstadoSonda("erro");
+      setErroSonda(`A API Prime respondeu com status ${statusPrime}.`);
+      return;
+    }
+
+    setEstadoSonda("ok");
+    setResumoSonda({ ...resumirAgreementsCru(data?.cru), status_prime: statusPrime });
+  }
+
+  async function executarDiagnosticoAcordos() {
+    setEstadoAcordos("carregando");
+    setResumoAcordos(null);
+    setErroAcordos(null);
+
+    // Mesmo padrão da sonda acima: o invoke envia o JWT da sessão autenticada.
+    // Nenhum token é lido, digitado ou exibido aqui.
+    const { data, error } = await supabase.functions.invoke("prime-sync", {
+      body: { acao: "provar_match", amostra: AMOSTRA_ACORDOS },
+    });
+
+    if (error || data?.erro) {
+      setEstadoAcordos("erro");
+      setErroAcordos(String(error?.message ?? data?.erro));
+      return;
+    }
+
+    setEstadoAcordos("ok");
+    setResumoAcordos(resumirProvarMatch(data?.relatorio));
+  }
 
   async function executar() {
     setEstado("carregando");
@@ -130,6 +221,355 @@ export default function DiagnosticoPortador166() {
       >
         {estado === "carregando" ? "Consultando…" : "Executar diagnóstico"}
       </button>
+
+      {/* --------------------------------------------------------------- */}
+      {/* ESTRUTURA DO ACORDO — prime-sonda / /agreements                 */}
+      {/* --------------------------------------------------------------- */}
+      <div style={{ marginTop: 32, paddingTop: 24, borderTop: "1px solid #e5e7eb" }}>
+        <h2 style={{ fontSize: 15, fontWeight: 800, color: "var(--rv-tinta)", marginBottom: 4 }}>
+          Estrutura do acordo — pela sonda
+        </h2>
+        <p style={{ fontSize: 13, color: "var(--rv-texto-suave)", marginBottom: 16, lineHeight: 1.5 }}>
+          Consulta de leitura à <code>prime-sonda</code> em{" "}
+          <code>/students/&#123;matrícula&#125;/agreements</code>, para a mesma
+          matrícula piloto. Responde se a API devolve a estrutura do acordo e se
+          há lista de parcelas. Mostra somente contagens e nomes de campo —
+          nenhum CPF, nome, matrícula, boleto, data ou valor.
+        </p>
+
+        <button
+          onClick={executarSondaAcordos}
+          disabled={estadoSonda === "carregando"}
+          style={{
+            background: estadoSonda === "carregando" ? "#94a3b8" : "#0f766e",
+            color: "#fff",
+            border: "none",
+            borderRadius: 8,
+            padding: "10px 22px",
+            fontWeight: 700,
+            fontSize: 14,
+            cursor: estadoSonda === "carregando" ? "not-allowed" : "pointer",
+          }}
+        >
+          {estadoSonda === "carregando" ? "Consultando…" : "Sondar estrutura do acordo"}
+        </button>
+
+        {resumoSonda && estadoSonda === "ok" && (
+          <div
+            role="region"
+            aria-label="Resultado da sonda de acordos"
+            style={{
+              marginTop: 20,
+              background: resumoSonda.acordos > 0 ? "#f0fdf4" : "#fffbeb",
+              border: `1px solid ${resumoSonda.acordos > 0 ? "#86efac" : "#fcd34d"}`,
+              borderRadius: 10,
+              padding: 20,
+            }}
+          >
+            <div
+              style={{
+                fontWeight: 700,
+                marginBottom: 12,
+                fontSize: 15,
+                color: resumoSonda.acordos > 0 ? "#15803d" : "#92400e",
+              }}
+            >
+              {!resumoSonda.forma_reconhecida
+                ? "⚠ A resposta não veio no formato de lista"
+                : resumoSonda.acordos > 0
+                ? "✓ A API devolveu a estrutura do acordo"
+                : "✗ A API devolveu lista vazia — nenhum acordo"}
+            </div>
+
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+              <tbody>
+                <tr>
+                  <td style={{ padding: "4px 0", color: "#374151" }}>Acordos retornados</td>
+                  <td style={{ padding: "4px 0", fontWeight: 800, textAlign: "right" }}>
+                    {resumoSonda.acordos}
+                  </td>
+                </tr>
+                <tr>
+                  <td style={{ padding: "4px 0", color: "#374151" }}>Traz lista de parcelas?</td>
+                  <td
+                    style={{
+                      padding: "4px 0",
+                      fontWeight: 800,
+                      textAlign: "right",
+                      color: resumoSonda.tem_lista_parcelas ? "#15803d" : "#b91c1c",
+                    }}
+                  >
+                    {resumoSonda.tem_lista_parcelas ? "✓ SIM" : "✗ NÃO"}
+                  </td>
+                </tr>
+                {resumoSonda.tem_lista_parcelas && (
+                  <tr>
+                    <td style={{ padding: "4px 0", color: "#374151" }}>Parcelas na lista</td>
+                    <td style={{ padding: "4px 0", fontWeight: 700, textAlign: "right" }}>
+                      {resumoSonda.parcelas}
+                    </td>
+                  </tr>
+                )}
+
+                <tr>
+                  <td colSpan={2} style={{ padding: "12px 0 4px", color: "#6b7280", fontSize: 12, fontWeight: 600 }}>
+                    SITUAÇÃO DAS PARCELAS
+                  </td>
+                </tr>
+                {!resumoSonda.tem_lista_parcelas ? (
+                  <tr>
+                    <td colSpan={2} style={{ padding: "4px 0 4px 12px", color: "#92400e", fontSize: 13 }}>
+                      A API não trouxe lista de parcelas — não há o que classificar.
+                    </td>
+                  </tr>
+                ) : resumoSonda.situacao_conhecida ? (
+                  <>
+                    <tr>
+                      <td style={{ padding: "2px 0 2px 12px", color: "#374151" }}>Pagas</td>
+                      <td style={{ padding: "2px 0", fontWeight: 700, textAlign: "right" }}>
+                        {resumoSonda.parcelas_pagas}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style={{ padding: "2px 0 2px 12px", color: "#374151" }}>Não pagas</td>
+                      <td
+                        style={{
+                          padding: "2px 0",
+                          fontWeight: 800,
+                          textAlign: "right",
+                          color: resumoSonda.parcelas_nao_pagas > 0 ? "#15803d" : "#374151",
+                        }}
+                      >
+                        {resumoSonda.parcelas_nao_pagas}
+                      </td>
+                    </tr>
+                  </>
+                ) : (
+                  <tr>
+                    <td colSpan={2} style={{ padding: "4px 0 4px 12px", color: "#92400e", fontSize: 13 }}>
+                      A lista existe, mas nenhuma parcela traz campo de situação —
+                      <strong> situação desconhecida</strong>. Isto é diferente de
+                      &quot;não há parcela não paga&quot;.
+                    </td>
+                  </tr>
+                )}
+
+                <tr>
+                  <td colSpan={2} style={{ padding: "12px 0 4px", color: "#6b7280", fontSize: 12, fontWeight: 600 }}>
+                    CAMPOS DO ACORDO ({resumoSonda.campos.length})
+                  </td>
+                </tr>
+                <tr>
+                  <td colSpan={2} style={{ padding: "2px 0 2px 12px", color: "#374151", fontSize: 13, wordBreak: "break-word" }}>
+                    {resumoSonda.campos.length > 0 ? (
+                      <code>{resumoSonda.campos.join(", ")}</code>
+                    ) : resumoSonda.campos_no_topo.length > 0 ? (
+                      <>
+                        — nenhum acordo. Campos no topo da resposta:{" "}
+                        <code>{resumoSonda.campos_no_topo.join(", ")}</code>
+                      </>
+                    ) : (
+                      "— nenhum campo (a API devolveu lista vazia)"
+                    )}
+                  </td>
+                </tr>
+
+                {resumoSonda.campos_parcela.length > 0 && (
+                  <>
+                    <tr>
+                      <td colSpan={2} style={{ padding: "12px 0 4px", color: "#6b7280", fontSize: 12, fontWeight: 600 }}>
+                        CAMPOS DA PARCELA ({resumoSonda.campos_parcela.length})
+                      </td>
+                    </tr>
+                    <tr>
+                      <td colSpan={2} style={{ padding: "2px 0 2px 12px", color: "#374151", fontSize: 13, wordBreak: "break-word" }}>
+                        <code>{resumoSonda.campos_parcela.join(", ")}</code>
+                      </td>
+                    </tr>
+                  </>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {erroSonda && estadoSonda === "erro" && (
+          <div
+            role="alert"
+            style={{ marginTop: 20, background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 10, padding: 20 }}
+          >
+            <div style={{ fontWeight: 700, color: "#b91c1c", marginBottom: 6, fontSize: 14 }}>
+              A sonda não concluiu
+            </div>
+            <div style={{ fontSize: 13, color: "#7f1d1d" }}>{erroSonda}</div>
+          </div>
+        )}
+      </div>
+
+      {/* --------------------------------------------------------------- */}
+      {/* DIAGNÓSTICO DE ACORDOS — prime-sync / provar_match              */}
+      {/* --------------------------------------------------------------- */}
+      <div style={{ marginTop: 32, paddingTop: 24, borderTop: "1px solid #e5e7eb" }}>
+        <h2 style={{ fontSize: 15, fontWeight: 800, color: "var(--rv-tinta)", marginBottom: 4 }}>
+          Diagnóstico — estrutura dos acordos
+        </h2>
+        <p style={{ fontSize: 13, color: "var(--rv-texto-suave)", marginBottom: 16, lineHeight: 1.5 }}>
+          Consulta de leitura à <code>prime-sync</code> (<code>provar_match</code>),
+          com amostra de <strong>{AMOSTRA_ACORDOS}</strong> alunos do portador
+          166 escolhidos pela própria função. Responde se{" "}
+          <code>/students/&#123;reg&#125;/agreements</code> devolve acordo com
+          lista de parcelas. Mostra somente números e nomes de campo — nenhum
+          CPF, matrícula, nome ou valor individual.
+        </p>
+
+        <button
+          onClick={executarDiagnosticoAcordos}
+          disabled={estadoAcordos === "carregando"}
+          style={{
+            background: estadoAcordos === "carregando" ? "#94a3b8" : "#7c3aed",
+            color: "#fff",
+            border: "none",
+            borderRadius: 8,
+            padding: "10px 22px",
+            fontWeight: 700,
+            fontSize: 14,
+            cursor: estadoAcordos === "carregando" ? "not-allowed" : "pointer",
+          }}
+        >
+          {estadoAcordos === "carregando" ? "Consultando…" : "Diagnosticar acordos"}
+        </button>
+
+        {resumoAcordos && estadoAcordos === "ok" && (
+          <div
+            role="region"
+            aria-label="Resultado do diagnóstico de acordos"
+            style={{
+              marginTop: 20,
+              background: resumoAcordos.acordos_encontrados > 0 ? "#f0fdf4" : "#fffbeb",
+              border: `1px solid ${resumoAcordos.acordos_encontrados > 0 ? "#86efac" : "#fcd34d"}`,
+              borderRadius: 10,
+              padding: 20,
+            }}
+          >
+            <div
+              style={{
+                fontWeight: 700,
+                marginBottom: 12,
+                fontSize: 15,
+                color: resumoAcordos.acordos_encontrados > 0 ? "#15803d" : "#92400e",
+              }}
+            >
+              {resumoAcordos.acordos_encontrados > 0
+                ? "✓ A API devolveu acordos"
+                : "✗ A API não devolveu acordo nenhum"}
+            </div>
+
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+              <tbody>
+                <tr>
+                  <td style={{ padding: "4px 0", color: "#374151" }}>Consultas realizadas</td>
+                  <td style={{ padding: "4px 0", fontWeight: 700, textAlign: "right" }}>
+                    {resumoAcordos.consultas}
+                  </td>
+                </tr>
+                <tr>
+                  <td style={{ padding: "4px 0", color: "#374151" }}>Alunos com acordo retornado</td>
+                  <td style={{ padding: "4px 0", fontWeight: 700, textAlign: "right" }}>
+                    {resumoAcordos.com_acordo}
+                  </td>
+                </tr>
+                <tr>
+                  <td style={{ padding: "4px 0", color: "#374151" }}>Acordos encontrados</td>
+                  <td style={{ padding: "4px 0", fontWeight: 800, textAlign: "right" }}>
+                    {resumoAcordos.acordos_encontrados}
+                  </td>
+                </tr>
+                <tr>
+                  <td style={{ padding: "4px 0", color: "#374151" }}>Documentos de parcela na API</td>
+                  <td style={{ padding: "4px 0", fontWeight: 700, textAlign: "right" }}>
+                    {resumoAcordos.docs_prime}
+                  </td>
+                </tr>
+                <tr>
+                  <td style={{ padding: "4px 0", color: "#374151" }}>Desses, já existentes no CRM</td>
+                  <td style={{ padding: "4px 0", fontWeight: 700, textAlign: "right" }}>
+                    {resumoAcordos.docs_casados}
+                  </td>
+                </tr>
+
+                <tr>
+                  <td colSpan={2} style={{ padding: "12px 0 4px", color: "#6b7280", fontSize: 12, fontWeight: 600 }}>
+                    PARCELAS
+                  </td>
+                </tr>
+                {resumoAcordos.situacao_conhecida ? (
+                  <>
+                    <tr>
+                      <td style={{ padding: "2px 0 2px 12px", color: "#374151" }}>Pagas</td>
+                      <td style={{ padding: "2px 0", fontWeight: 700, textAlign: "right" }}>
+                        {resumoAcordos.parcelas_pagas}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style={{ padding: "2px 0 2px 12px", color: "#374151" }}>Não pagas</td>
+                      <td
+                        style={{
+                          padding: "2px 0",
+                          fontWeight: 800,
+                          textAlign: "right",
+                          color: resumoAcordos.parcelas_nao_pagas > 0 ? "#15803d" : "#374151",
+                        }}
+                      >
+                        {resumoAcordos.parcelas_nao_pagas}
+                      </td>
+                    </tr>
+                  </>
+                ) : (
+                  <tr>
+                    <td colSpan={2} style={{ padding: "4px 0 4px 12px", color: "#92400e", fontSize: 13 }}>
+                      A resposta não trouxe campo de situação de parcela — não é
+                      possível dizer se há parcela não paga. Isto é diferente de
+                      &quot;não há parcela não paga&quot;.
+                    </td>
+                  </tr>
+                )}
+
+                <tr>
+                  <td colSpan={2} style={{ padding: "12px 0 4px", color: "#6b7280", fontSize: 12, fontWeight: 600 }}>
+                    CAMPOS RETORNADOS NO ACORDO ({resumoAcordos.campos.length})
+                  </td>
+                </tr>
+                <tr>
+                  <td colSpan={2} style={{ padding: "2px 0 2px 12px", color: "#374151", fontSize: 13, wordBreak: "break-word" }}>
+                    {resumoAcordos.campos.length > 0 ? (
+                      <code>{resumoAcordos.campos.join(", ")}</code>
+                    ) : (
+                      "— nenhum campo (a API devolveu lista vazia)"
+                    )}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {erroAcordos && estadoAcordos === "erro" && (
+          <div
+            role="alert"
+            style={{ marginTop: 20, background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 10, padding: 20 }}
+          >
+            <div style={{ fontWeight: 700, color: "#b91c1c", marginBottom: 6, fontSize: 14 }}>
+              A consulta não foi concluída
+            </div>
+            <div style={{ fontSize: 13, color: "#7f1d1d" }}>{erroAcordos}</div>
+            <div style={{ fontSize: 12, color: "#991b1b", marginTop: 8 }}>
+              <code>Somente gestao</code> ou <code>403</code> indica que a sessão
+              atual não passa no portão de gestão do servidor — o impedimento
+              passa a ser de perfil, não de mecanismo.
+            </div>
+          </div>
+        )}
+      </div>
 
       {resultado && estado === "ok" && (
         <div

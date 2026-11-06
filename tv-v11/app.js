@@ -63,7 +63,7 @@ function renderRanks(kind='honorarios'){
  }
 }
 function renderQueue(){
- const q=data.receptivo||{};const stamped=validDate(q.atualizado_em);const fresh=stamped&&Date.now()-stamped.getTime()>=0&&Date.now()-stamped.getTime()<90000;
+ const q=data.receptivo||{};const stamped=validDate(q.atualizado_em);const fresh=!!stamped;
  const names=fresh&&Array.isArray(q.proximos)?q.proximos.slice(0,4).map(nameOf):[];
  const host=$('queueItems');host.replaceChildren();
  for(let i=0;i<4;i++){
@@ -105,7 +105,6 @@ function setMainText(f){
  $('contentQuote').textContent=x.quote;
  $('contentFooterTitle').textContent=x.footerTitle;
  $('contentFooter').textContent=x.footer;
- renderRanks(f.rank);
 }
 function renderFrame(){
  if(!frames.length)return;
@@ -117,10 +116,47 @@ async function getJSON(url){
  const r=await fetch(url+(url.includes('?')?'&':'?')+'t='+Date.now(),{cache:'no-store',headers});
  if(externo&&(r.status===401||r.status===403)&&window.tvAuth)window.tvAuth.negado(r.status);
  if(!r.ok)throw Error('HTTP '+r.status);return r.json();}
+// Pódio: muda só quando a projeção do dia é atualizada (atualizado_em do snapshot), na categoria fixa de honorários.
+let podiumStamp=null;
+function refreshPodium(){
+ const stamp=data.atualizado_em||null;
+ if(stamp===podiumStamp)return;
+ podiumStamp=stamp;
+ renderRanks('honorarios');
+}
+// Fila do receptivo: redesenha só quando o conteúdo muda, sem ciclo próprio de 5 s.
+let queueSignature=null;
+function refreshQueue(){
+ const q=data.receptivo||{};
+ const sig=JSON.stringify([q.online??null,Array.isArray(q.proximos)?q.proximos.slice(0,4):[]]);
+ if(sig===queueSignature)return;
+ queueSignature=sig;
+ renderQueue();
+}
+// Sinal realtime da projeção (tabela tv_sinal, publicada no Realtime). Quando o snapshot é gerado
+// com sucesso, o telão recebe UM evento e faz UMA leitura. Se o Realtime falhar, a leitura periódica
+// do snapshot continua valendo, porque o pódio só redesenha quando atualizado_em muda.
+let queueTimer=null;
+function scheduleQueueRefresh(){
+ clearTimeout(queueTimer);
+ queueTimer=setTimeout(()=>{queueTimer=null;readSnapshot();},1500);
+}
+async function subscribeProjectionSignal(){
+ if(!window.supabase||!window.tvAuth||!config.supabase_url||!config.supabase_key)return;
+ const sb=window.supabase.createClient(config.supabase_url,config.supabase_key,{auth:{persistSession:false,autoRefreshToken:false}});
+ const authorize=async()=>{const h=await window.tvAuth.headers();const token=String(h?.Authorization||'').replace(/^Bearer\s+/i,'');if(token)sb.realtime.setAuth(token);};
+ await authorize();
+ sb.channel('tv-sinal-projecao').on('postgres_changes',{event:'*',schema:'public',table:'tv_sinal'},()=>{readSnapshot();}).subscribe();
+ // Sinal da fila (public.fila_sinal, incrementado a cada atendimento registrado). Vários atendimentos
+ // seguidos viram UMA leitura: o debounce espera 1,5 s de silêncio antes de ler o snapshot.
+ sb.channel('tv-sinal-fila').on('postgres_changes',{event:'*',schema:'public',table:'fila_sinal'},scheduleQueueRefresh).subscribe();
+ // Token de sessão expira; renova a autorização do canal a cada 5 minutos.
+ setInterval(()=>{authorize().catch(()=>{});},5*60*1000);
+}
 async function readSnapshot(){
  try{const fresh=await getJSON(config.snapshot_url||'./dados-tv.json');if(!isObject(fresh)||!isObject(fresh.resultado))throw Error('dados inválidos');
   data={...data,...fresh,resultado:{...data.resultado,...fresh.resultado},rankings:{...data.rankings,...fresh.rankings},receptivo:{...data.receptivo,...fresh.receptivo}};
-  renderResults();renderQueue();if(frames.length)renderFrame();
+  renderResults();refreshPodium();refreshQueue();if(frames.length)renderFrame();
  }catch(e){if(!data.atualizado_em)$('statusDados').textContent='Fonte oficial indisponível';}
 }
 async function readQueue(){
@@ -133,10 +169,9 @@ async function start(){
  renderResults();renderRanks();renderQueue();updateTime();updateWeather();
  if(window.tvAuth)await window.tvAuth.ready();
  await readSnapshot();await readQueue();
+ subscribeProjectionSignal().catch(()=>{});
  setInterval(updateTime,1000);setInterval(updateWeather,30*60*1000);
  setInterval(readSnapshot,Math.max(10,Number(config.intervalo_dados_segundos)||30)*1000);
- setInterval(readQueue,Math.max(3,Number(config.intervalo_fila_segundos)||5)*1000);
- setInterval(renderQueue,5000);
  setInterval(()=>{if(!frames.length)return;frame=(frame+1)%frames.length;renderFrame();},25000);
 }
 $('fullscreenButton').addEventListener('click',()=>{const doc=document.documentElement;if(document.fullscreenElement){document.exitFullscreen?.();return;}doc.requestFullscreen?.().catch(()=>{});});

@@ -59,7 +59,7 @@ export function normalizarLinhaSantander(linhaArray) {
     tituloNumero,
     operadorBruto,
     numeroParcelaCompleto,
-    ,
+    convenioBruto,
     vencimento,
     valorOriginal,
     honorario,
@@ -122,6 +122,9 @@ export function normalizarLinhaSantander(linhaArray) {
     operador_nome: emailOperador ? nomeOperadorPorEmail(emailOperador) : (operadorBruto || null),
     aluno_nome: aluno || null,
     matricula,
+    // Coluna F, bruta (sem normalizar nem validar contra 272047) -- mesmo
+    // contrato do normalizador do servidor (santander-previa/planilha.ts).
+    convenio_bancario: convenioBruto ? String(convenioBruto) : null,
     cpf: null,
   };
 }
@@ -179,6 +182,18 @@ function ProjecaoHoraHoraInner() {
   // por arquivo -- o que tambem permite conferir os dois lado a lado com o
   // mesmo arquivo antes de confiar nele.
   const [lerNoServidor, setLerNoServidor] = useState(false);
+  // E a interface fica OCULTA enquanto a Edge Function publicada estiver
+  // desatualizada. Medido em producao em 05/11/2026: `santander-previa` esta na
+  // versao 3 (22/10), cujo `LinhaNormalizada` tem 13 campos e descarta a coluna
+  // F -- nao preserva `convenio_bancario`. E `santander-importar` NAO EXISTE em
+  // producao (`Function not found`), logo marcar a caixa dava previa que lia e
+  // confirmacao que falhava com 404: beco sem saida, e previa com uma forma de
+  // dado diferente da do caminho de hoje.
+  //
+  // Ocultar, nao remover: `previaPeloServidor` e `importarPeloServidor` seguem
+  // no arquivo, testadas, prontas para quando as duas funcoes forem publicadas
+  // com o parser atual. Religar e trocar esta constante para true.
+  const SERVIDOR_DISPONIVEL = false;
   // Digital do conteudo normalizado, devolvida pela previa do servidor. Enquanto
   // ela existe, a confirmacao vai pelo servidor; nula, vai pelo caminho de hoje.
   const [digitalServidor, setDigitalServidor] = useState(null);
@@ -1929,27 +1944,34 @@ function ProjecaoHoraHoraInner() {
           {/* ENTREGA B. Fica ao lado do seletor porque a escolha e por arquivo,
               e desmarcada por padrao porque a funcao do servidor ainda nao esta
               publicada -- marcada sem funcao publicada, a previa falha e diz o
-              que fazer, em vez de fingir que leu. */}
-          <label style={estilos.checkboxRetroativo}>
-            <input
-              type="checkbox"
-              checked={lerNoServidor}
-              disabled={lendoNoServidor || importando}
-              onChange={(e) => {
-                setLerNoServidor(e.target.checked);
-                // Trocar de caminho invalida a previa que esta na tela: ela foi
-                // produzida pelo outro lado. Sem limpar, a confirmacao poderia
-                // usar uma conferencia que nao corresponde ao caminho atual.
-                setLinhasPreview([]);
-                setDigitalServidor(null);
-                setArquivo(null);
-                setMensagemImportacao("");
-              }}
-            />
-            Ler no servidor (novo) — a planilha é lida e normalizada no servidor, e a
-            confirmação só grava se o arquivo for o mesmo que você conferiu
-            {lendoNoServidor && " · lendo…"}
-          </label>
+              que fazer, em vez de fingir que leu.
+
+              OCULTA enquanto `SERVIDOR_DISPONIVEL` for false: ver o motivo
+              medido na declaracao da constante. A caixa nao e desabilitada, e
+              sim nao renderizada -- caixa cinza convida a perguntar por que,
+              e nao ha o que responder enquanto o caminho nao existe. */}
+          {SERVIDOR_DISPONIVEL && (
+            <label style={estilos.checkboxRetroativo}>
+              <input
+                type="checkbox"
+                checked={lerNoServidor}
+                disabled={lendoNoServidor || importando}
+                onChange={(e) => {
+                  setLerNoServidor(e.target.checked);
+                  // Trocar de caminho invalida a previa que esta na tela: ela foi
+                  // produzida pelo outro lado. Sem limpar, a confirmacao poderia
+                  // usar uma conferencia que nao corresponde ao caminho atual.
+                  setLinhasPreview([]);
+                  setDigitalServidor(null);
+                  setArquivo(null);
+                  setMensagemImportacao("");
+                }}
+              />
+              Ler no servidor (novo) — a planilha é lida e normalizada no servidor, e a
+              confirmação só grava se o arquivo for o mesmo que você conferiu
+              {lendoNoServidor && " · lendo…"}
+            </label>
+          )}
 
           <label style={estilos.checkboxRetroativo}>
             <input

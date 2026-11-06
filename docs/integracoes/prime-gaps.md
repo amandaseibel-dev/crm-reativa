@@ -257,3 +257,38 @@ cá**:
 possuímos contém a rota. As duas únicas portas que sobram são a captura na
 interface do Prime e o contato formal com a TI da ULBRA — ambas decisão da
 gestão, e nenhuma delas é trabalho que este ambiente consiga fazer sozinho.
+
+---
+
+# Gap aberto — equivalência da coluna F do Santander com o portador 166
+
+Registrado em 2026-11-05, na sétima etapa do staging de ACORDOS.
+
+A sétima etapa passou a **preservar** a coluna F (convênio) do arquivo do
+Santander em `pagamentos.dados.convenio_bancario`, bruto. O dado passa a
+existir — mas o que ele **significa** não está provado.
+
+**A afirmação não comprovada:** "a coluna F do arquivo bancário corresponde ao
+covenant `0272047` do portador 166 no Prime". Isso é premissa, não medição.
+Não existe arquivo versionado que a sustente, e nenhuma rota da API Prime
+permite conferir: `financial_statement[].carrier` é o portador do **título**,
+não o convênio da **linha de pagamento recebida**.
+
+**Por que importa:** é essa equivalência que tornaria a classe `PARCIAL`
+alcançável no staging de acordos. Sem ela, toda captura do adaptador de
+pagamentos continua caindo em
+`EXCECAO/VINCULO_CONVENIO_REATIVA_SEM_INFORMACAO` — o que é o
+comportamento correto enquanto a prova não existir.
+
+**Como se prova, e só assim:** conferência entre um lote real do arquivo do
+Santander e a listagem do portador 166 no Prime. É medição externa, não
+dedução interna — a validação direta dos portadores 166/195 segue impossível
+por dentro.
+
+**Proibição derivada:** até a prova existir, nenhum chamador deve projetar
+`dados.convenio_bancario` em `convenioMannesoft`. A origem do campo é
+**bancária**; carimbá-lo como Mannesoft falsifica proveniência.
+
+**Limitação definitiva, sem decisão pendente:** pagamentos importados antes da
+sétima etapa nunca terão o campo. O arquivo original não é preservado para
+reprocessamento.
