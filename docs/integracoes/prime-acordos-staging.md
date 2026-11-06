@@ -341,6 +341,76 @@ Nenhuma dessas dependências bloqueia o que já foi entregue nesta etapa —
 ficam documentadas para a próxima decisão, sem impedir o resto do
 desenvolvimento.
 
+## Componentes: o que já existe e o que falta conectar
+
+Levantado em 05/11/2026 contra a `main` (`1a07e108`). **Nada aqui precisa ser
+escrito de novo** — o que falta é ligação, não implementação.
+
+| Componente | Estado | O que falta |
+|---|---|---|
+| `prime-acordos-staging.ts` — identidade, hash de composição, comparação de versões, classificação | **pronto**, 87 testes | nada |
+| `santander-pagamentos-acordos-adapter.ts` — pagamento Santander → título gerado do staging | **pronto**, 28 testes | nada |
+| `PROPOSTA_staging_acordos_prime.sql` — 2 tabelas + 1 view, com RLS/grants/isolamento | **pronta e testada** em Postgres | **autorização para aplicar** |
+| Captura do Mannesoft (quem lê a tela do Acordo-Detalhe e produz a captura) | **NÃO EXISTE** | é a Etapa 0 — ver abaixo |
+| Edge Function que lê `pagamentos.dados` e monta `PagamentoSantanderObservado` | **NÃO EXISTE** | o adaptador espera esse formato; o teste de integração simula a projeção explicitamente |
+| `convenio_bancario` em `pagamentos.dados` | **em produção** desde `290b1b1b` | nada (histórico nunca terá) |
+| Promoção staging → `acordos` via `importar_acordos()` | `transformarParaImportarAcordos()` é **proposta, não contrato** | validar formato contra ambiente real |
+
+**O que NÃO será criado:** nenhum mecanismo novo de importação de pagamentos. O
+adaptador existente é o caminho, e o `convenio_bancario` chega pelo importador
+que já funciona (a tela normaliza e `projecao_importar_pagamentos` grava) — ver
+a seção de publicação abaixo.
+
+## Como obter os acordos completos do Mannesoft — as portas reais
+
+Pergunta aberta desde 22/09/2026, e o rastreamento de proveniência já a
+esgotou por dentro (ver [`prime-gaps.md`](prime-gaps.md) § Rastreamento):
+código, banco, logs, payloads e URLs do nosso ambiente. **Censo de produção:
+`/agreements` nunca devolveu lista preenchida** (`auditoria.ACORDO_ENCONTRADO_NA_API` = 0).
+
+Portas avaliadas em 05/11/2026, com o critério de **não usar credencial
+pessoal, cookie, nem contornar autenticação**:
+
+| Porta | Viável? | Por quê |
+|---|---|---|
+| **Rota JSON da API Prime** | **NÃO** | a estrutura do acordo não é exposta por nenhuma rota testada. `prime-sonda` existe para sondar com segurança, e já foi usada; nada encontrado |
+| **Conector MCP de mensageria ULBRA** | **NÃO** | provado em 04/11: dá leitura de clientes e atendimentos, 500 chamadas/dia. **Não tem acordos** |
+| Automatizar a tela com a sessão da gestão | **NÃO** | seria credencial pessoal e cookie de sessão — fora do critério, e proibido pelas premissas |
+| **Relatório/exportação oficial pela TI da ULBRA** | **SIM**, é a única | o canal é a mensageria ULBRA↔CRM, que já é oficial. Pedido formal de exportação dos acordos (os 175 pendentes são o recorte mínimo útil) |
+| **Credencial de serviço própria para a API**, concedida pela TI | **SIM**, se a rota existir | depende de a TI confirmar que há endpoint de acordo; hoje não há evidência de que exista |
+
+**Conclusão:** não existe caminho técnico interno. A dependência externa é
+**indispensável** e é uma só — a TI da ULBRA, por exportação de relatório ou por
+credencial de serviço com rota confirmada. Nenhuma linha de código muda isso, e
+construir captura de tela com sessão pessoal seria violar o critério.
+
+## Implantação progressiva — só leitura e reconhecimento
+
+Desenhada para que **nenhuma etapa produza baixa financeira**. O bloqueio é
+estrutural, não procedural: `bloqueioFinanceiroAtivo()` não tem caminho que
+devolva "liberado", e nenhuma das duas tabelas tem FK para tabela financeira
+(há caso de teste que derruba o CI se alguém acrescentar).
+
+| Etapa | O que roda | Escreve onde | Autorização |
+|---|---|---|---|
+| **1. Aplicar o schema** | a proposta, com RLS/grants | cria 2 tabelas + 1 view, vazias | **a próxima necessária** |
+| **2. Captura seca** | captura real → `acordos_prime_staging`, append-only | só staging | depois da Etapa 1, e depende da porta externa |
+| **3. Reconhecimento** | `avaliarReconhecimento()` classifica AUTOMATICO / PARCIAL / EXCECAO | staging + `_criticas` | nenhuma nova — é leitura e classificação |
+| **4. Conferência pela gestão** | revisar `_criticas` (status/revisado_*) | só as 3 colunas liberadas | nenhuma nova |
+| **5. Promoção** | `importar_acordos()` pela rotina oficial | `acordos`, `acordos_titulos` | **autorização própria, financeira** — fora deste escopo |
+
+As classes são preservadas como estão, e o teste de integração desta entrega
+cobre as três: **AUTOMATICO** (captura inequívoca), **PARCIAL** (identidade e
+vínculo comprovados, composição desconhecida), **EXCECAO** (ambiguidade,
+divergência, informação insuficiente, **ou contradição** — portador 166 com
+convênio que não é 272047, e o inverso).
+
+Nota de realidade sobre a Etapa 3: hoje **toda** captura vinda do adaptador de
+pagamentos cai em `EXCECAO/VINCULO_CONVENIO_REATIVA_SEM_INFORMACAO`, porque
+nada já armazenado comprova convênio para pagamento histórico. Isso é o
+desenho funcionando, não defeito — e muda quando (a) houver importação nova com
+`convenio_bancario`, e (b) a equivalência coluna F ≡ portador 166 for provada.
+
 ## Publicação coordenada e rollback
 
 A sétima etapa altera `supabase/functions/santander-previa/planilha.ts`, que

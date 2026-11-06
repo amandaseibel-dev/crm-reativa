@@ -146,8 +146,117 @@ create index if not exists idx_acordos_prime_staging_criticas_abertas
   where status = 'ABERTA';
 
 -- ============================================================================
--- Acesso e RLS: DELIBERADAMENTE NÃO incluídos nesta proposta.
--- Antes de qualquer aplicação real, passar pela skill `seguranca-rls`
--- (CLAUDE.md item 7) — grants padrão de `CREATE TABLE` não são suficientes
--- para tabela que vai receber escrita de serviço e leitura de gestão.
+-- 3. ACESSO, RLS E ISOLAMENTO
+--
+-- Revisado pela skill `seguranca-rls` em 05/11/2026, contra
+-- docs/seguranca/PREMISSA_SEGURANCA_PROJETO.md §2 a §7.
+--
+-- DECISÃO DE PERFIL, e o porquê: estas tabelas são **gestão-only**. Não há
+-- policy de leitura para operador, e isso não é excesso de zelo — o staging
+-- guarda CPF (`identificador_aluno`) e composição de dívida de acordos de TODA
+-- a base, não da carteira de quem consulta. Premissa §2: operador vê apenas a
+-- própria carteira. Uma policy por carteira aqui seria inventar um recorte que
+-- a tabela não tem (um acordo capturado pode nem ter `aluno_id` resolvido
+-- ainda), então o recorte correto é nenhum: operador não lê.
+--
+-- Premissa §3.5: leitura que não é do operador vai por deny-all + gestão, e
+-- qualquer consumo futuro por operador terá de ser RPC `SECURITY DEFINER` com
+-- recorte explícito — não ampliação destas policies.
+-- ============================================================================
+
+alter table public.acordos_prime_staging          enable row level security;
+alter table public.acordos_prime_staging_criticas enable row level security;
+
+-- ----------------------------------------------------------------------------
+-- 3.1 GRANTS — fechar antes de abrir.
+--
+-- A ARMADILHA, que já custou caro aqui (premissa §10 e o alerta da skill):
+-- tabela nova em `public` NASCE com privilégio para `authenticated` por
+-- ALTER DEFAULT PRIVILEGES, **inclusive TRUNCATE** — e RLS **não cobre
+-- TRUNCATE**. Sem o revoke abaixo, qualquer usuário logado apaga o staging
+-- inteiro sem violar policy nenhuma.
+-- ----------------------------------------------------------------------------
+revoke all on public.acordos_prime_staging          from public, anon, authenticated;
+revoke all on public.acordos_prime_staging_criticas from public, anon, authenticated;
+revoke all on public.acordos_prime_staging_atual    from public, anon, authenticated;
+
+-- `authenticated` recebe SELECT, e só; a RLS abaixo restringe a gestão.
+-- Nenhum INSERT/UPDATE/DELETE/TRUNCATE para o navegador: a escrita do staging
+-- é da rotina de captura, que fala como `service_role` pela Edge Function.
+grant select on public.acordos_prime_staging       to authenticated;
+grant select on public.acordos_prime_staging_atual to authenticated;
+
+-- Críticas: gestão lê e revisa (muda `status`/`revisado_*`). O UPDATE é
+-- restringido por policy E por grant de coluna — sem o grant de coluna, uma
+-- policy permissiva deixaria a gestão reescrever `codigo` e `detalhes`, que são
+-- a evidência do que foi detectado.
+grant select on public.acordos_prime_staging_criticas to authenticated;
+grant update (status, revisado_por_email, revisado_em)
+  on public.acordos_prime_staging_criticas to authenticated;
+
+-- `service_role` escreve. Nunca no navegador (premissa §5).
+grant select, insert on public.acordos_prime_staging          to service_role;
+grant select, insert on public.acordos_prime_staging_criticas to service_role;
+grant select            on public.acordos_prime_staging_atual to service_role;
+
+-- Append-only de verdade: nem a gestão nem o serviço fazem UPDATE ou DELETE em
+-- `acordos_prime_staging`. Corrigir captura errada é capturar de novo — a
+-- versão nova vence pela view `_atual`, e a errada permanece como evidência.
+-- (Por isso o grant acima concede apenas SELECT e INSERT, sem UPDATE/DELETE.)
+
+-- ----------------------------------------------------------------------------
+-- 3.2 POLICIES — mínimas e explícitas por comando (premissa §3.3).
+-- Nenhum `USING (true)`: toda policy passa por `usuario_e_gestao()`, que é
+-- SECURITY DEFINER com search_path fixo e decide pelo JWT, no banco.
+-- ----------------------------------------------------------------------------
+drop policy if exists acordos_prime_staging_select_gestao on public.acordos_prime_staging;
+create policy acordos_prime_staging_select_gestao
+  on public.acordos_prime_staging
+  for select
+  to authenticated
+  using (public.usuario_e_gestao());
+
+drop policy if exists acordos_prime_staging_criticas_select_gestao on public.acordos_prime_staging_criticas;
+create policy acordos_prime_staging_criticas_select_gestao
+  on public.acordos_prime_staging_criticas
+  for select
+  to authenticated
+  using (public.usuario_e_gestao());
+
+-- Revisão de crítica: gestão muda o status, e o `WITH CHECK` impede que a
+-- linha saia do conjunto que ela podia ver (premissa §3.3 — policy por
+-- comando, com USING e WITH CHECK explícitos).
+drop policy if exists acordos_prime_staging_criticas_update_gestao on public.acordos_prime_staging_criticas;
+create policy acordos_prime_staging_criticas_update_gestao
+  on public.acordos_prime_staging_criticas
+  for update
+  to authenticated
+  using (public.usuario_e_gestao())
+  with check (public.usuario_e_gestao());
+
+-- NÃO existe policy de INSERT/DELETE para `authenticated` em nenhuma das duas,
+-- e isso é deliberado: sem policy, o comando é negado. `service_role` escreve
+-- porque contorna RLS por desenho do Postgres (BYPASSRLS), não porque alguém
+-- lhe deu policy.
+
+-- ----------------------------------------------------------------------------
+-- 3.3 VIEW — `security_invoker` ligado (premissa §6).
+-- Sem isto a view rodaria com os direitos do dono e viraria uma porta lateral
+-- para ler o staging inteiro sem passar pela RLS da tabela.
+-- ----------------------------------------------------------------------------
+alter view public.acordos_prime_staging_atual set (security_invoker = true);
+
+-- ----------------------------------------------------------------------------
+-- 3.4 DADO PESSOAL (premissa §7)
+--
+-- `identificador_aluno` é CPF formatado, e `composicao` traz valores de dívida.
+-- O acesso é gestão-only, que é o perfil que já vê CPF sem máscara nas telas
+-- financeiras — não há ampliação de exposição em relação ao que a gestão já
+-- alcança. Nenhuma view de leitura geral nova é criada para operador, e a
+-- `_atual` herda a mesma RLS por `security_invoker`.
+--
+-- O que NÃO foi feito, e fica declarado: não há mascaramento de CPF nesta
+-- camada, porque mascarar o identificador quebraria a própria função do
+-- staging (resolver identidade contra `alunos`). Se um dia houver leitura por
+-- operador, ela nasce como RPC que devolve CPF mascarado, nunca como grant.
 -- ============================================================================
