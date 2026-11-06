@@ -122,6 +122,14 @@ describe("regra da sugestao (FORTE / REVISAO / SEM_EVIDENCIA)", () => {
     }
     await db.close();
   });
+  // ATENCAO (23/10/2026): este caso descreve o comportamento da migration
+  // ORIGINAL, que e a que esta bancada instala -- e continua verdadeiro aqui.
+  // EM PRODUCAO, depois de 20261023132000_vinculo_195_teto_alta_confianca.sql,
+  // acordo QUITADO NAO e mais FORTE: cai para REVISAO com motivo
+  // ACORDO_QUITADO_EXIGE_REVISAO, porque vincular ali QUITA a mensalidade e
+  // quitacao exige pagamento comprovado. Quem alterar este arquivo nao deve ler
+  // a linha abaixo como "producao aceita QUITADO como forte".
+  // Ver supabase/tests/vinculo_195_teto_alta_confianca.test.js.
   it("12) acordo QUITADO tambem e avaliado; acordo CANCELADO nao", async () => {
     const db = await novo();
     const q = await cenario(db, { status: "QUITADO" }); expect((await calc(db, q.ac)).nivel).toBe("FORTE");

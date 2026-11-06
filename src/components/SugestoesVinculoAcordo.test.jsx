@@ -22,10 +22,10 @@ describe("SugestoesVinculoAcordo", () => {
   it("mascara o CPF (3 primeiros e 2 ultimos) e formata datas", () => {
     expect(cpfMascarado("123.456.789-01")).toBe("123.***.***-01"); expect(cpfMascarado(null)).toBe("sem CPF"); expect(dataBR("2026-08-03T12:00:00Z")).toBe("03/08/2026");
   });
-  it("abre em 'Sugestao forte' (FORTE no topo), com contagens por filtro e cartao completo", async () => {
+  it("abre em 'Alta confianca' (FORTE no topo), com contagens por filtro e cartao completo", async () => {
     render(<SugestoesVinculoAcordo />);
     await waitFor(() => expect(screen.getAllByTestId("sugestao-card")).toHaveLength(1));
-    expect(screen.getByText("Sugestão forte (1)")).toBeTruthy(); expect(screen.getByText("Revisão (1)")).toBeTruthy(); expect(screen.getByText("Sem evidência (1)")).toBeTruthy(); expect(screen.getByText("Rejeitadas (1)")).toBeTruthy();
+    expect(screen.getByText("Alta confiança (1)")).toBeTruthy(); expect(screen.getByText("Revisão (1)")).toBeTruthy(); expect(screen.getByText("Sem evidência (1)")).toBeTruthy(); expect(screen.getByText("Rejeitadas (1)")).toBeTruthy();
     const c = screen.getByTestId("sugestao-card").textContent;
     expect(c).toMatch(/Aluna Teste/); expect(c).toMatch(/123\.\*\*\*\.\*\*\*-01/); expect(c).not.toMatch(/12345678901/); expect(c).toMatch(/2922/); expect(c).toMatch(/ATIVO/);
     expect(c).toMatch(/03\/08\/2026/); expect(c).toMatch(/3\.776,66/); expect(c).toMatch(/cobranca06@aelbra.com.br/); expect(c).toMatch(/31\/07\/2026/); expect(c).toMatch(/Único grupo Prime 195/);
@@ -39,34 +39,34 @@ describe("SugestoesVinculoAcordo", () => {
   it("filtros: Revisao e Sem evidencia nao tem 'Confirmar vinculo'; Rejeitadas mostra quem rejeitou e nao oferece botoes", async () => {
     render(<SugestoesVinculoAcordo />); await waitFor(() => screen.getByTestId("sugestao-card"));
     fireEvent.click(screen.getByText("Revisão (1)"));
-    expect(screen.getByText("Aluno Revisao")).toBeTruthy(); expect(screen.queryByText("Confirmar vínculo")).toBeNull(); expect(screen.getByText("Rejeitar sugestão")).toBeTruthy();
+    expect(screen.getByText("Aluno Revisao")).toBeTruthy(); expect(screen.queryByText("Aceitar como origem")).toBeNull(); expect(screen.getByText("Rejeitar sugestão")).toBeTruthy();
     fireEvent.click(screen.getByText("Sem evidência (1)"));
-    expect(screen.getByText("Aluno Sem")).toBeTruthy(); expect(screen.queryByText("Confirmar vínculo")).toBeNull(); expect(screen.queryByText("Rejeitar sugestão")).toBeNull();
+    expect(screen.getByText("Aluno Sem")).toBeTruthy(); expect(screen.queryByText("Aceitar como origem")).toBeNull(); expect(screen.queryByText("Rejeitar sugestão")).toBeNull();
     fireEvent.click(screen.getByText("Rejeitadas (1)"));
     expect(screen.getByText(/Rejeitada por amanda.seibel@aelbra.com.br/)).toBeTruthy(); expect(screen.getByText(/nao e desse acordo/)).toBeTruthy();
-    expect(screen.queryByText("Confirmar vínculo")).toBeNull(); expect(screen.queryByText("Rejeitar sugestão")).toBeNull();
+    expect(screen.queryByText("Aceitar como origem")).toBeNull(); expect(screen.queryByText("Rejeitar sugestão")).toBeNull();
   });
-  it("Confirmar vinculo: pede confirmacao, chama a RPC de confirmacao (revalida no servidor) com acordo e composicao, e recarrega a fila", async () => {
+  it("Aceitar como origem: pede confirmacao, chama a RPC de confirmacao (revalida no servidor) com acordo e composicao, e recarrega a fila", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<SugestoesVinculoAcordo />); await waitFor(() => screen.getByTestId("sugestao-card"));
-    fireEvent.click(screen.getByText("Confirmar vínculo"));
+    fireEvent.click(screen.getByText("Aceitar como origem"));
     await waitFor(() => expect(rpcMock).toHaveBeenCalledWith("acordo_vinculo_sugestao_confirmar", { p_acordo_id: "a1", p_composicao_hash: "h1" }));
     await waitFor(() => expect(rpcMock.mock.calls.filter((c) => c[0] === "acordos_vinculo_sugestoes").length).toBeGreaterThanOrEqual(2));
-    expect(screen.getByText(/Vínculo confirmado: 2 mensalidade/)).toBeTruthy();
+    expect(screen.getByText(/Origem aceita com alta confiança: 2 mensalidade/)).toBeTruthy();
     // a tela NUNCA grava vinculo por conta propria
     expect(rpcMock.mock.calls.map((c) => c[0]).every((n) => ["acordos_vinculo_sugestoes", "acordo_vinculo_sugestao_confirmar"].includes(n))).toBe(true);
   });
   it("cancelar a caixa de confirmacao nao chama nenhuma RPC de escrita", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<SugestoesVinculoAcordo />); await waitFor(() => screen.getByTestId("sugestao-card"));
-    fireEvent.click(screen.getByText("Confirmar vínculo"));
+    fireEvent.click(screen.getByText("Aceitar como origem"));
     expect(rpcMock.mock.calls.filter((c) => c[0] !== "acordos_vinculo_sugestoes")).toHaveLength(0);
   });
   it("servidor recusa (evidencia mudou): mostra a mensagem, nao diz que vinculou e recarrega", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     rpcMock.mockImplementation(async (nome) => (nome === "acordos_vinculo_sugestoes" ? { data: dados, error: null } : { data: { ok: false, erro: "SUGESTAO_MUDOU" }, error: null }));
     render(<SugestoesVinculoAcordo />); await waitFor(() => screen.getByTestId("sugestao-card"));
-    fireEvent.click(screen.getByText("Confirmar vínculo"));
+    fireEvent.click(screen.getByText("Aceitar como origem"));
     await waitFor(() => expect(screen.getByText(/A evidência mudou/)).toBeTruthy());
     expect(screen.queryByText(/Vínculo confirmado/)).toBeNull();
   });
@@ -81,5 +81,65 @@ describe("SugestoesVinculoAcordo", () => {
   it("Abrir ficha delega para a ficha existente", async () => {
     const abrir = vi.fn(); render(<SugestoesVinculoAcordo onAbrirFicha={abrir} />); await waitFor(() => screen.getByTestId("sugestao-card"));
     fireEvent.click(within(screen.getByTestId("sugestao-card")).getByText("Abrir ficha")); expect(abrir).toHaveBeenCalledWith("al1");
+  });
+});
+
+// ===========================================================================
+// VOCABULARIO E AS RECUSAS NOVAS (23/10/2026). O rotulo "Confirmar vinculo"
+// prometia confirmacao; a regra entrega ALTA_CONFIANCA, porque o lado do acordo
+// e inferencia por data. E as duas recusas novas do servidor tem de chegar na
+// tela nomeando a regra, nao como "deixou de ser forte".
+// ===========================================================================
+describe("SugestoesVinculoAcordo · vocabulario e recusas novas", () => {
+  const comRecusa = (erro) =>
+    rpcMock.mockImplementation(async (nome) =>
+      nome === "acordos_vinculo_sugestoes"
+        ? { data: dados, error: null }
+        : { data: { ok: false, erro }, error: null });
+
+  it("nao promete confirmacao em nenhum lugar visivel", async () => {
+    render(<SugestoesVinculoAcordo />);
+    await waitFor(() => screen.getByTestId("sugestao-card"));
+    expect(screen.queryByText(/confirmar v[íi]nculo/i)).toBeNull();
+    expect(screen.getByText("Aceitar como origem")).toBeTruthy();
+    expect(screen.getByText("Alta confiança (1)")).toBeTruthy();
+  });
+
+  it("a caixa de confirmacao avisa que nao quita e nao da baixa", async () => {
+    const espiao = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<SugestoesVinculoAcordo />);
+    await waitFor(() => screen.getByTestId("sugestao-card"));
+    fireEvent.click(screen.getByText("Aceitar como origem"));
+    expect(espiao).toHaveBeenCalled();
+    expect(espiao.mock.calls[0][0]).toMatch(/N[ÃA]O quita e N[ÃA]O d[áa] baixa/i);
+  });
+
+  it("sucesso diz 'origem aceita com alta confianca', nunca 'vinculo confirmado'", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<SugestoesVinculoAcordo />);
+    await waitFor(() => screen.getByTestId("sugestao-card"));
+    fireEvent.click(screen.getByText("Aceitar como origem"));
+    await waitFor(() => expect(screen.getByText(/Origem aceita com alta confian/i)).toBeTruthy());
+    expect(screen.getByText(/Nada foi quitado nem baixado/i)).toBeTruthy();
+    expect(screen.queryByText(/V[íi]nculo confirmado/i)).toBeNull();
+  });
+
+  it("acordo fora de ATIVO: a tela diz que quitacao exige pagamento comprovado", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    comRecusa("ACORDO_NAO_ATIVO_EXIGE_REVISAO");
+    render(<SugestoesVinculoAcordo />);
+    await waitFor(() => screen.getByTestId("sugestao-card"));
+    fireEvent.click(screen.getByText("Aceitar como origem"));
+    await waitFor(() => expect(screen.getByText(/quita(ç|c)[ãa]o exige pagamento comprovado/i)).toBeTruthy());
+    expect(screen.queryByText(/Origem aceita/i)).toBeNull();
+  });
+
+  it("acordo sem parcela viva: a tela diz que a divida sairia do saldo sem substituto", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    comRecusa("ACORDO_SEM_PARCELA_VIVA");
+    render(<SugestoesVinculoAcordo />);
+    await waitFor(() => screen.getByTestId("sugestao-card"));
+    fireEvent.click(screen.getByText("Aceitar como origem"));
+    await waitFor(() => expect(screen.getByText(/sem nada entrar no lugar/i)).toBeTruthy());
   });
 });
