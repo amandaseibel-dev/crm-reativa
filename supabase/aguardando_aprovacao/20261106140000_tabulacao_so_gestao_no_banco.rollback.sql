@@ -72,9 +72,26 @@ for each row execute function public._encerramento_so_gestao();
 
 drop trigger if exists trg_tabulacao_so_gestao_insert on public.alunos;
 
--- VIGIA do rollback: a trava de encerramento NAO pode cair junto.
+-- VIGIA do rollback: §4 exige que rollback de função "restaura o texto exato
+-- anterior e confere o md5 de volta". É isto -- se o md5 não voltar ao valor
+-- medido em produção em 06/11/2026, a transcrição acima não é fiel e o rollback
+-- não reverteu de verdade. E a trava de encerramento NÃO pode cair junto.
 do $$
+declare
+  v_md5_original constant text := 'd962319f021e9e3fe78b838730fadad7';
+  v_md5_atual text;
 begin
+  select md5(p.prosrc) into v_md5_atual
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = '_encerramento_so_gestao';
+
+  if v_md5_atual is distinct from v_md5_original then
+    raise exception
+      'ROLLBACK md5: o corpo nao voltou ao original. esperado=% atual=%. O rollback NAO reverteu a funcao -- nao de por revertido.',
+      v_md5_original, v_md5_atual;
+  end if;
+
   if not exists (
     select 1 from pg_trigger
      where tgrelid = 'public.alunos'::regclass
