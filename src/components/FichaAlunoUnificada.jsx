@@ -7,6 +7,12 @@ import TelefonesAluno from "./TelefonesAluno";
 import BlocoUlbra from "./BlocoUlbra";
 import RelatorioAcionamentosBtn from "./RelatorioAcionamentosBtn";
 import { parcelaViva } from "../utils/parcelaStatus";
+import {
+  corMovimentacao,
+  resumoStatus,
+  rotuloOperador,
+  recortarMovimentacoes,
+} from "../utils/movimentacoes";
 
 /*
   FichaAlunoUnificada
@@ -112,6 +118,13 @@ export default function FichaAlunoUnificada({
   const [acordos, setAcordos] = useState([]);
   const [parcelas, setParcelas] = useState([]);
   const [movimentacoes, setMovimentacoes] = useState([]);
+  // Mesma regra da ficha em Aluno.jsx: 10 mais recentes por padrão, lista
+  // completa preservada em `movimentacoes`.
+  const [movimentacoesExpandidas, setMovimentacoesExpandidas] = useState(false);
+  const recorteMovimentacoes = useMemo(
+    () => recortarMovimentacoes(movimentacoes, movimentacoesExpandidas),
+    [movimentacoes, movimentacoesExpandidas],
+  );
   const [aba, setAba] = useState(abaInicial);
   const [carregando, setCarregando] = useState(false);
   const [emailUsuario, setEmailUsuario] = useState("");
@@ -361,13 +374,43 @@ export default function FichaAlunoUnificada({
       {aba === "historico" && (
         <div style={S.historico}>
           {movimentacoes.length === 0 && <p style={S.subInfo}>Sem movimentações registradas.</p>}
-          {movimentacoes.map((h) => (
-            <div key={h.id} style={S.itemHist}>
-              <div style={S.histData}>{dataHora(h.registrado_em)}</div>
-              <div style={S.histDesc}>{h.descricao || h.tipo || h.status_novo || "Movimentação"}</div>
-              {h.registrado_por_nome && <div style={S.histAutor}>por {h.registrado_por_nome}</div>}
-            </div>
-          ))}
+          {recorteMovimentacoes.visiveis.map((h) => {
+            const operador = rotuloOperador(h.registrado_por_nome, h.registrado_por_email);
+            const transicao = resumoStatus(h.status_anterior, h.status_novo);
+            return (
+              <div
+                key={h.id}
+                style={{
+                  ...S.itemHist,
+                  borderLeftColor: corMovimentacao(h.tipo, h.status_novo),
+                }}
+              >
+                <div style={S.histTopo}>
+                  <span style={S.histTipo}>{h.tipo || "Movimentação"}</span>
+                  <span style={S.histData}>{dataHora(h.registrado_em)}</span>
+                </div>
+                <div style={S.histDesc}>{h.descricao || transicao || "Movimentação"}</div>
+                {(operador || (transicao && h.descricao)) && (
+                  <div style={S.histAutor}>
+                    {transicao && h.descricao ? transicao : ""}
+                    {transicao && h.descricao && operador ? " · " : ""}
+                    {operador}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {recorteMovimentacoes.podeExpandir && (
+            <button
+              type="button"
+              onClick={() => setMovimentacoesExpandidas((v) => !v)}
+              style={S.btnVerTodas}
+            >
+              {movimentacoesExpandidas
+                ? "Mostrar menos"
+                : `Ver todas (${recorteMovimentacoes.total})`}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -411,7 +454,21 @@ const S = {
   parcNum: { fontWeight: 700, color: "var(--rv-texto)" },
   historico: { display: "flex", flexDirection: "column", gap: 8, maxHeight: 420, overflowY: "auto" },
   itemHist: { borderLeft: "2px solid var(--rv-borda)", paddingLeft: 10 },
-  histData: { fontSize: 11.5, color: "var(--rv-texto-fraco)" },
-  histDesc: { fontSize: 13, color: "var(--rv-texto-forte)" },
+  histTopo: { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 },
+  histTipo: { fontSize: 11.5, fontWeight: 700, color: "var(--rv-texto-forte)", letterSpacing: 0.2 },
+  histData: { fontSize: 11.5, color: "var(--rv-texto-fraco)", whiteSpace: "nowrap" },
+  histDesc: { fontSize: 13, color: "var(--rv-texto-forte)", lineHeight: 1.35 },
   histAutor: { fontSize: 11.5, color: "var(--rv-texto-fraco)" },
+  btnVerTodas: {
+    marginTop: 4,
+    width: "100%",
+    background: "transparent",
+    border: "1px dashed var(--rv-borda-forte)",
+    borderRadius: 8,
+    padding: "6px 12px",
+    fontSize: 12,
+    fontWeight: 700,
+    color: "var(--rv-texto-suave)",
+    cursor: "pointer",
+  },
 };
