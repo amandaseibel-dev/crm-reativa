@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { EFEITO_VINCULA, CLASSES_HUMANAS } from "./emConfirmacao";
+import { EFEITO_VINCULA, CLASSES_HUMANAS, podeEncerrarAdministrativo } from "./emConfirmacao";
 
 // GUARDA DA CONFIRMACAO DE PAGAMENTO QUE RESOLVE O TITULO EM CONFIRMACAO.
 //
@@ -200,5 +200,43 @@ describe("as duas listas não se confundem com a do vínculo", () => {
     expect([...EFEITO_VINCULA].sort()).toEqual(["VIRA_NEGOCIADO", "VIRA_PAGO"]);
     const classes = new Set(CLASSES_HUMANAS.map((c) => c.valor));
     for (const e of EFEITO_VINCULA) expect(classes.has(e)).toBe(false);
+  });
+});
+
+// O ENCERRAMENTO SEM RECUPERAÇÃO, de volta em 09/10/2026.
+//
+// Ele saiu da tela em 08/10 porque gravava CANCELADA — estado errado para quem
+// encerra sem recuperação. Com DEVOLVIDO em produção a ação voltou, e estes
+// testes travam a condição de aparecer, que é copiada da guarda da RPC: sem
+// classe humana ela recusa com SEM_CLASSE_HUMANA, e fora das duas classes
+// administrativas recusa com CLASSE_NAO_ADMINISTRATIVA.
+describe("encerrar sem recuperação — quando o botão pode aparecer", () => {
+  it("aparece nas DUAS classes administrativas", () => {
+    expect(podeEncerrarAdministrativo("CANCELAMENTO_ESTORNO")).toBe(true);
+    expect(podeEncerrarAdministrativo("ISENCAO_FIES_BOLSA")).toBe(true);
+  });
+
+  it("NÃO aparece onde houve dinheiro — seria apagar recuperação", () => {
+    expect(podeEncerrarAdministrativo("PAGAMENTO_REAL")).toBe(false);
+    expect(podeEncerrarAdministrativo("ACORDO")).toBe(false);
+  });
+
+  it("NÃO aparece nas demais classes que a RPC recusa", () => {
+    for (const c of ["LIQUIDACAO_INSTITUCIONAL", "SUBSTITUICAO_TITULO", "INCONCLUSIVO"]) {
+      expect(podeEncerrarAdministrativo(c)).toBe(false);
+    }
+  });
+
+  it("sem classe registrada não aparece: a RPC exige a classe antes", () => {
+    expect(podeEncerrarAdministrativo(null)).toBe(false);
+    expect(podeEncerrarAdministrativo(undefined)).toBe(false);
+    expect(podeEncerrarAdministrativo("")).toBe(false);
+  });
+
+  it("as duas classes do botão existem no menu de classificação", () => {
+    // se o rótulo sumisse do menu, não haveria como chegar ao botão
+    const valores = CLASSES_HUMANAS.map((c) => c.valor);
+    expect(valores).toContain("CANCELAMENTO_ESTORNO");
+    expect(valores).toContain("ISENCAO_FIES_BOLSA");
   });
 });
