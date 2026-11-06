@@ -82,6 +82,52 @@ Quando o cache não refletir o repositório, forçar a releitura do marketplace
 `reativa` por `/plugin` no app (o marketplace é `directory`, aponta para o
 próprio checkout).
 
+## 4b. Desativação na camada local (aplicada em 06/11/2026)
+
+Autorizada pela gestão em 06/11/2026, em complemento à alteração versionada.
+
+**Onde o Claude Code realmente lê os hooks.** Não é o checkout e não é
+`~/.claude/settings.json` — esse arquivo **não contém hooks**, só
+`enabledPlugins` e `extraKnownMarketplaces`. `installed_plugins.json` registra,
+para todos os escopos (`user` e `project`), o mesmo `installPath`:
+
+```
+~/.claude/plugins/cache/reativa/reativa-one/1.2.0/
+```
+
+Esse é o `CLAUDE_PLUGIN_ROOT` efetivo. A desativação local foi feita em
+`<esse diretório>/hooks/hooks.json`, retirando `PreToolUse` e `Stop` — a mesma
+alteração da camada versionada.
+
+**Backup** em `~/.claude/backups/guardiao-desativacao-local-20261106/`:
+
+| Arquivo | sha1 |
+| --- | --- |
+| `hooks.json.ORIGINAL` | `e580d15f2bfce82bd73c1e8114a1e768ace6fec8` |
+| `guardiao.sh.ORIGINAL` | `672f99e0f05231aeee47433e2cd3bd9a360f57c9` |
+| `aviso-final.sh.ORIGINAL` | `35aefe302a68c8fa0219cfaaa80fd645b0fe13aa` |
+| `marco.sh.ORIGINAL` | `5f54e8331376fdf24087157cb9b4c887ac79e878` |
+| `settings.json.ORIGINAL` | cópia byte-idêntica de `~/.claude/settings.json` |
+
+Os três scripts seguem no cache, intactos (sha1 confere com o backup), apenas
+sem gatilho. Nenhuma permissão, ferramenta ou integração foi tocada:
+`~/.claude/settings.json`, `.claude/settings.json` e
+`.claude/settings.local.json` permanecem como estavam.
+
+**Reativar a camada local** — uma linha:
+
+```bash
+cp ~/.claude/backups/guardiao-desativacao-local-20261106/hooks.json.ORIGINAL \
+   ~/.claude/plugins/cache/reativa/reativa-one/1.2.0/hooks/hooks.json
+```
+
+Depois reiniciar o Claude Code e conferir com `/reativa-one:autoteste`.
+
+**Atenção:** o cache é gerido pelo app. Uma ressincronização do marketplace
+`reativa` (por `/plugin`, ou quando o app atualiza o plugin) **sobrescreve esse
+`hooks.json` com o do checkout** — por isso a camada versionada (PR #831) é a
+que mantém a desativação estável, e a restauração definitiva é a da seção 4.
+
 ## 5. Limites desta alteração
 
 - Não toca dados financeiros, acordos, pagamentos ou baixas.
