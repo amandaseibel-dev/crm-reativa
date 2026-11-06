@@ -1,51 +1,6 @@
 {
-  "description": "Guardião do ReATIVA One: bloqueia, no instante da chamada, o que reescreve produção, publica, mescla, mexe na branch principal, edita o ledger, despeja segredo ou sai do escopo declarado. Cobre Bash, Edit/Write, os MCPs (por sufixo do nome da ferramenta), o terminal do app e o navegador. Ao fim da sessão, avisa se a camada de permissões foi alterada. Antes de resumir (PreCompact) ou limpar/encerrar (SessionEnd), grava um marco de estado técnico — sem conteúdo e sem bloquear.",
+  "description": "REMOCAO TEMPORARIA DO GUARDIAO (decisao da gestao, 06/11/2026). Os hooks de bloqueio do Guardiao estao desativados: PreToolUse (Bash, Edit, Write, MultiEdit, NotebookEdit, mcp__) e Stop (aviso-final) foram retirados deste arquivo e preservados integralmente em hooks.json.guardiao-ativo, ao lado. guardiao.sh e aviso-final.sh continuam no repositorio, intactos, sem nenhum gatilho. Permanece ativo apenas o marco de estado tecnico (PreCompact/SessionEnd), que nao bloqueia nada e pertence a politica de economia de token, nao ao Guardiao. Para reinstalar: docs/operacao/guardiao-remocao-temporaria.md",
   "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/guardiao.sh\"", "timeout": 10 }
-        ]
-      },
-      {
-        "matcher": "Edit",
-        "hooks": [
-          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/guardiao.sh\"", "timeout": 10 }
-        ]
-      },
-      {
-        "matcher": "Write",
-        "hooks": [
-          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/guardiao.sh\"", "timeout": 10 }
-        ]
-      },
-      {
-        "matcher": "MultiEdit",
-        "hooks": [
-          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/guardiao.sh\"", "timeout": 10 }
-        ]
-      },
-      {
-        "matcher": "NotebookEdit",
-        "hooks": [
-          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/guardiao.sh\"", "timeout": 10 }
-        ]
-      },
-      {
-        "matcher": "mcp__",
-        "hooks": [
-          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/guardiao.sh\"", "timeout": 10 }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/aviso-final.sh\"", "timeout": 10 }
-        ]
-      }
-    ],
     "PreCompact": [
       {
         "hooks": [
