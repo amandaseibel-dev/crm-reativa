@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "reativa-readonly": {
+      "command": "/usr/local/bin/node",
+      "args": ["/caminho/ate/docs/seguranca/mcp-readonly/server.js"],
+      "env": {
+        "SUPABASE_URL": "https://ahattpqrjmhkzsmnbdzs.supabase.co",
+        "SUPABASE_ANON_KEY": "<chave-anon-publica-do-projeto>"
+      }
+    }
+  }
+}
