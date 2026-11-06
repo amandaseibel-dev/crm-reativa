@@ -180,7 +180,9 @@ Antes de qualquer republicação da função da Etapa 1, ou de inserção manual
 vínculo, o filtro `alta_cpf` precisa continuar presente em `ulbra-atendimento`.
 
 **E a ordem do deploy importa por causa disso.** A `ulbra-consultar` que está
-em produção hoje é a da Etapa 1 — ela grava `confianca: 'alta'` por telefone.
+em produção hoje é a da **#794** (`version 2`, publicada em 03/11 — não a da
+Etapa 1/#813, que é de 04/11 e nunca foi publicada): ela grava
+`confianca: 'alta'` por telefone.
 Se a `ulbra-atendimento` for publicada **antes** da `ulbra-consultar`
 corrigida, o filtro `alta_cpf` dela já estaria no ar enquanto a função que
 escreve ainda cria vínculo fraco: nada se abriria errado (o filtro barra), mas
@@ -190,10 +192,40 @@ intermediário confuso.
 
 ## Pendências
 
+- **Lacuna de inventário, apontada pela auditoria do Guardião em 06/11/2026 e
+  NÃO fechada aqui:** `docs/integracoes/prime-edge-functions.md` não lista
+  `ulbra-consultar`, `ulbra-atendimento` nem `ulbra-leads-pendentes`, embora a
+  regra 2 do [`README.md`](README.md) mande toda Edge Function que toque
+  Prime/ULBRA entrar lá **no mesmo commit em que é criada**. A regra dos cinco
+  arquivos (`prime-api.md` + `prime-api-catalog.json` +
+  `prime-mapa-fontes-verdade.md` + identificadores + gaps) **não** se aplica a
+  esta frente: ela vale para descoberta na **API Prime**, e a Mensageria é
+  sistema separado, com documento próprio na tabela do `README.md`. O
+  inventário das Edge Functions, porém, aplica-se. Não foi corrigido porque
+  `prime-edge-functions.md` está fora do escopo declarado desta frente — é
+  decisão da gestão abrir ou não essa edição aqui.
+
 - `ulbra_vinculos` nasceu em produção sem migration (PR #794). Conferido em
   04/11/2026: a tabela está **vazia** (0 linhas, 0 `ULBRA_VINCULO_CRIADO` em
   `auditoria`), então não há vínculo legado a reclassificar — a proteção é
   estrutural.
+- **As 3 policies de RLS também nasceram sem migration, então não existe
+  arquivo neste repositório que as defina.** Ficavam descritas em prosa como
+  "todas sob `usuario_e_gestao()`", sem medição. Medidas em produção
+  (`ahattpqrjmhkzsmnbdzs`) em 06/11/2026, somente leitura:
+
+  | policy | cmd | roles | predicado |
+  |---|---|---|---|
+  | `ulbra_vinculos_select` | SELECT | `{authenticated}` | `using usuario_e_gestao()` |
+  | `ulbra_vinculos_insert` | INSERT | `{authenticated}` | `check usuario_e_gestao()` |
+  | `ulbra_vinculos_update` | UPDATE | `{authenticated}` | `using` + `check usuario_e_gestao()` |
+
+  Nenhuma policy para `anon`, nenhuma permissiva sem predicado. Isso importa
+  para a view: com `security_invoker = on` ela **não tem portão próprio**, ela
+  herda este. Por isso a proposta `20261106190000` refaz essa medição como
+  guarda de pré-condição — se o portão da tabela for afrouxado, a view não é
+  criada. **O drift em si continua não corrigido**: as policies seguem só em
+  produção, sem migration que as versione.
 - **O SQL do vínculo está APLICADO em produção desde 06/11/2026** — isto
   corrige versões anteriores desta documentação, que o davam como pendente. A
   proposta `20261104200000` foi carimbada como `version 20261106151254` e está

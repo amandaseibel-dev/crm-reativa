@@ -93,6 +93,31 @@ begin
       'PRE-CONDICAO: RLS desligada em ulbra_vinculos -- a view com '
       'security_invoker herdaria uma tabela sem portao';
   end if;
+
+  -- A view com `security_invoker` nao tem portao PROPRIO: ela herda o da
+  -- tabela. Entao o portao da tabela faz parte da pre-condicao, e nao pode
+  -- ficar como suposicao -- as 3 policies nasceram em producao SEM migration
+  -- (PR #794), logo nao existe arquivo neste repositorio que as defina.
+  --
+  -- Medidas em producao (ahattpqrjmhkzsmnbdzs) em 06/11/2026, somente leitura:
+  --   ulbra_vinculos_select  SELECT  {authenticated}  using  usuario_e_gestao()
+  --   ulbra_vinculos_insert  INSERT  {authenticated}  check  usuario_e_gestao()
+  --   ulbra_vinculos_update  UPDATE  {authenticated}  using + check usuario_e_gestao()
+  -- Nenhuma policy para `anon`, nenhuma permissiva sem predicado.
+  --
+  -- Esta guarda refaz a medicao no instante da aplicacao: se alguem tiver
+  -- afrouxado o portao da tabela no meio do caminho, a view NAO e criada.
+  if (
+    select count(*) from pg_policies
+     where schemaname = 'public' and tablename = 'ulbra_vinculos'
+       and roles::text = '{authenticated}'
+       and coalesce(qual,'') || coalesce(with_check,'') like '%usuario_e_gestao()%'
+  ) <> 3 then
+    raise exception
+      'PRE-CONDICAO: as 3 policies de ulbra_vinculos nao sao mais as medidas em '
+      '06/11/2026 (authenticated, sob usuario_e_gestao()). A view herda esse '
+      'portao -- conferir com a gestao antes de criar.';
+  end if;
 end $guarda$;
 
 -- ----------------------------------------------------------------------------
@@ -108,8 +133,31 @@ select id, aluno_id, ulbra_cliente_id, confianca, origem, vinculado_em
  where desvinculado_em is null
    and confianca = 'alta_cpf';
 
+-- O REVOKE de `authenticated` NAO e redundante com o `grant select` abaixo, e
+-- esta e a correcao do defeito que a auditoria do Guardiao apontou em
+-- 06/11/2026 na primeira versao deste arquivo. Relacao NOVA no schema public
+-- HERDA ALL de `authenticated` pelo default privilege do schema -- incidente
+-- medido em producao em 02/10/2026, registrado no cabecalho de
+-- supabase/migrations/20261002121000_mv_saude_carteira_acl_sem_authenticated.sql
+-- e na linha 5 de 20260930232237_mrl_privilegios_como_audit_log.sql. Sem o
+-- revoke, `grant select` nao RESTRINGE nada: e um no-op sobre um ALL que ja
+-- esta la, e a view aceitaria INSERT/UPDATE/DELETE de qualquer autenticado
+-- (uma view simples como esta e atualizavel por padrao no Postgres, entao a
+-- escrita atravessaria para a tabela base -- barrada depois pela RLS e pelo
+-- gatilho, mas barrada uma camada adiante do que este arquivo promete).
+-- A prova 5 da secao 2 e a assercao exata disto, e ela ABORTARIA a transacao
+-- na versao anterior: falha fechada, nao exposicao -- mas o arquivo nao fazia
+-- o que dizia. Fere docs/seguranca/PREMISSA_SEGURANCA_PROJETO.md §5
+-- ("Evitar GRANT ALL herdado").
+--
+-- RESSALVA: plugins/reativa-one/skills/seguranca-rls/SKILL.md afirma, nas
+-- linhas 42-43, que view NAO herda grant -- o que a propria linha 45 dela e as
+-- duas migrations acima contradizem. A skill precisa de correcao; nao e
+-- corrigida aqui porque esta fora do escopo declarado desta frente.
 revoke all on public.ulbra_vinculos_confirmados from public;
 revoke all on public.ulbra_vinculos_confirmados from anon;
+revoke all on public.ulbra_vinculos_confirmados from authenticated;
+revoke all on public.ulbra_vinculos_confirmados from service_role;
 grant select on public.ulbra_vinculos_confirmados to authenticated;
 grant select on public.ulbra_vinculos_confirmados to service_role;
 
@@ -145,11 +193,18 @@ begin
     raise exception 'PROVA: a view segura nao e legivel por quem precisa dela';
   end if;
 
-  -- 5. a view e somente leitura para quem a le: nenhum grant de escrita
+  -- 5. a view e somente leitura para quem a le: nenhum grant de escrita.
+  --    Esta e a assercao que pega o ALL herdado do schema -- ver o comentario
+  --    longo ao lado dos REVOKE da secao 1.
   if has_table_privilege('authenticated','public.ulbra_vinculos_confirmados','INSERT')
      or has_table_privilege('authenticated','public.ulbra_vinculos_confirmados','UPDATE')
      or has_table_privilege('authenticated','public.ulbra_vinculos_confirmados','DELETE') then
     raise exception 'PROVA: a view aceita escrita de authenticated';
+  end if;
+  if has_table_privilege('service_role','public.ulbra_vinculos_confirmados','INSERT')
+     or has_table_privilege('service_role','public.ulbra_vinculos_confirmados','UPDATE')
+     or has_table_privilege('service_role','public.ulbra_vinculos_confirmados','DELETE') then
+    raise exception 'PROVA: a view aceita escrita de service_role';
   end if;
 
   -- 6. a tabela base nao foi tocada por este arquivo
