@@ -420,5 +420,31 @@
     "pagamentos_historicos": "permanentemente sem o campo; o arquivo original nao e preservado para reprocessamento",
     "deploy": "santander-previa e santander-importar compartilham planilha.ts e tem deploy separado — publicar as duas na mesma janela, senao a digital discorda e a importacao do dia e recusada",
     "ver": "docs/integracoes/prime-acordos-staging.md"
+  },
+  "pedido_escopo_acordos_aberto": {
+    "$comment": "Etapa 0 da sincronizacao de ACORDOS. Registrado em 05/11/2026.",
+    "data": "2026-11-05",
+    "estado": "ABERTO — nao enviado ainda; aguarda decisao da gestao",
+    "documento": "docs/integracoes/prime-pedido-ti-acordos.md",
+    "contrato_do_que_e_necessario": "docs/integracoes/prime-acordos-contrato-sincronizacao.md",
+    "endpoint_alvo": "GET /students/{registration}/agreements",
+    "sintoma": "HTTP 200 com {items:[],totalItems:0} em 100% dos testes, inclusive para acordo ATIVO na tela no mesmo instante (71903, 15/09/2026)",
+    "pedido": [
+      "cabecalho do acordo: identificador, situacao, carrierId, valor negociado E valor acordo (campos distintos), nº contratado de parcelas, saldo devedor, data cadastro, data assinatura, usuario confirmacao, referencia ao acordo anterior",
+      "LISTA DE PARCELAS: boleto, vencimento, valor e situacao de cada uma — sem isto a parcela que nunca recebeu pagamento segue invisivel",
+      "titulos originais substituidos: boleto de cada mensalidade negociada",
+      "documentacao da API (nao localizada: /swagger, /openapi.json, /docs todos 404)",
+      "limite de taxa, se houver — a rodada prevista e de 30 minutos"
+    ],
+    "nao_pedido": "escrita. Somente leitura, mesma X-API-Key, sem credencial de pessoa.",
+    "tela_web_nao_e_api": "a interface do Prime mostra a estrutura inteira, mas a URL e estatica, o identificador vai no corpo da requisicao e o mecanismo seria POST autenticado ou sessao PHP — credencial de pessoa, fora do critterio. Por isso o pedido existe.",
+    "escala": {
+      "acordos_sem_estrutura": 229,
+      "pagamentos_sem_vinculo": 411,
+      "valor_parado_brl": 334447.57,
+      "desde": "2026-09-11",
+      "importacoes_manuais_desde_07_07": 484,
+      "substituicoes": 226
+    }
   }
 }
