@@ -32,6 +32,7 @@ import { listarMeses } from "../utils/mesesConferencia";
 import Aluno from "./Aluno";
 import DiagnosticoF1b from "../components/DiagnosticoF1b";
 import ResolverEmConfirmacao from "../components/ResolverEmConfirmacao";
+import { ehExcecao, excecoesDaLinha, MOTIVOS_JA_TRATADO } from "../utils/conferenciaExcecao";
 
 const moeda = (v) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const curta = (d) => (d ? String(d).slice(0, 10).split("-").reverse().join("/") : "-");
@@ -79,6 +80,7 @@ export default function ConferenciaPagamentos() {
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [faixa, setFaixa] = useState(0);
+  const [filtrosAvancados, setFiltrosAvancados] = useState(false);
   const [tipoDivida, setTipoDivida] = useState(null);
   const [mes, setMes] = useState(MES_PADRAO);
   const [de, setDe] = useState("");
@@ -96,6 +98,9 @@ export default function ConferenciaPagamentos() {
   // componente ResolverEmConfirmacao -- o mesmo que a ficha do aluno usa.
   const [emConfAberto, setEmConfAberto] = useState(null);
   const buscaRef = useRef(null);
+  // Sem o dialogo "Sim/Nao", dois cliques no mesmo botão chegariam antes de
+  // `ocupado` existir no DOM. O ref responde no mesmo instante do clique.
+  const emVooRef = useRef(new Set());
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro("");
@@ -186,7 +191,10 @@ export default function ConferenciaPagamentos() {
   // caso quita sozinho. Enquanto o abatimento nao existir, ninguem zera por
   // engano a partir daqui.
   async function aplicar(l, observacao) {
-    setOcupado(chaveDe(l)); setConfirmando(null);
+    const k = chaveDe(l);
+    if (emVooRef.current.has(k)) return;
+    emVooRef.current.add(k);
+    setOcupado(k); setConfirmando(null);
     try {
       const { error: eb } = await supabase.rpc("conferencia_baixar_do_extrato", {
         p_aluno_id: l.aluno_id, p_valor: Number(l.entrou),
@@ -211,7 +219,7 @@ export default function ConferenciaPagamentos() {
       setDesfazer({ linha: l, acao: "CONFIRMADO" });
     } catch (e) {
       alert("Não foi possível concluir: " + (e?.message || String(e)));
-    } finally { setOcupado(null); }
+    } finally { emVooRef.current.delete(k); setOcupado(null); }
   }
 
   // "JA TRATADO" -- carimbo SEM baixa nenhuma.
@@ -229,7 +237,10 @@ export default function ConferenciaPagamentos() {
   async function marcarJaTratado(l, motivo) {
     const texto = String(motivo || "").trim();
     if (texto.length < 3) { alert("Diga onde já foi tratado (ex.: cartão baixado no Prime)."); return; }
-    setOcupado(chaveDe(l)); setConfirmando(null);
+    const k = chaveDe(l);
+    if (emVooRef.current.has(k)) return;
+    emVooRef.current.add(k);
+    setOcupado(k); setConfirmando(null);
     try {
       const m = MESES.find((x) => x.chave === mes);
       const desde = de || m?.de || undefined;
@@ -243,7 +254,7 @@ export default function ConferenciaPagamentos() {
       setDesfazer({ linha: l, acao: "JA_TRATADO" });
     } catch (e) {
       alert("Não foi possível carimbar: " + (e?.message || String(e)));
-    } finally { setOcupado(null); }
+    } finally { emVooRef.current.delete(k); setOcupado(null); }
   }
 
   const desfazerAgora = useCallback(async () => {
@@ -258,7 +269,7 @@ export default function ConferenciaPagamentos() {
     // So o "Feito" cria baixa. O carimbo "ja tratado" nao mexeu em dinheiro
     // nenhum, entao desfazer ele nao deixa ponta solta a avisar.
     if (acao === "CONFIRMADO") {
-      alert("Voltou para a fila. A baixa em si NÃO foi estornada — se for o caso, desfaça pelo fluxo do Financeiro.");
+      alert("Voltou para a fila. A baixa em si NÃO foi estornada — o estorno é pelo fluxo do Financeiro.");
     }
   }, [desfazer]);
 
@@ -335,8 +346,17 @@ export default function ConferenciaPagamentos() {
       else if (l.tipo === "SEM_VINCULO") {
         if (e.key === "v") { e.preventDefault(); setVinculando({ chave: chaveDe(l), termo: l.nome, achados: null }); procurarAluno(l, l.nome); }
       }
-      // F de Feito. C segue valendo por costume de quem ja usava a tela.
-      else if (e.key === "f" || e.key === "c") { e.preventDefault(); setConfirmando({ chave: chaveDe(l), acao: "FEITO" }); }
+      // F confirma. No caso normal ele JA aplica -- o dialogo "Sim/Nao" so
+      // existe onde ha o que olhar. Na excecao, F abre a analise, igual ao R.
+      // C segue valendo por costume de quem ja usava a tela.
+      else if (e.key === "f" || e.key === "c") {
+        e.preventDefault();
+        if (ehExcecao(l)) setConfirmando({ chave: chaveDe(l), acao: "DIVERGENCIA" });
+        else aplicar(l);
+      }
+      // R de Resolver: abre a analise mesmo numa linha normal, para quem quiser
+      // conferir os numeros antes de decidir.
+      else if (e.key === "r") { e.preventDefault(); setConfirmando({ chave: chaveDe(l), acao: "DIVERGENCIA" }); }
       // T de "ja Tratado": sai da fila sem criar baixa.
       else if (e.key === "t") { e.preventDefault(); setConfirmando({ chave: chaveDe(l), acao: "JA_TRATADO", motivo: "" }); }
       else if (e.key === "Enter" && l.aluno_id) { e.preventDefault(); setFichaId(l.aluno_id); }
@@ -366,12 +386,10 @@ export default function ConferenciaPagamentos() {
         <div>
           <h1 style={S.titulo}>Confirmação de Pagamento</h1>
           <p style={S.sub}>
-            Pagamento que <b>ainda não foi conferido</b>, e as baixas do período,
-            uma linha por pessoa. Entrou, baixado e saldo lado a lado.
-            O extrato do Santander define quem pagou. Quem já está zerado sai da lista — já foi conferido.
-            Decidir aqui carimba os pagamentos daquela pessoa, e a fila diminui. Quem pagou
-            <b> depois de ter sido quitado</b> vem primeiro — dinheiro novo depois de uma quitação
-            total pede um olhar.
+            Nome, CPF, responsável, valor e data vêm do CRM e do extrato — nada a digitar.
+            No caso normal, <b>Confirmar</b> resolve em um clique (12s para desfazer).
+            <b>Já tratado</b> sai da fila sem criar baixa. Quem tem divergência, quitação ou
+            pagamento sem vínculo pede <b>análise</b> antes — e a tela avisa na própria linha.
           </p>
         </div>
         <button type="button" onClick={carregar} style={S.btnGhost} disabled={carregando}>
@@ -379,7 +397,7 @@ export default function ConferenciaPagamentos() {
         </button>
       </div>
 
-      <div style={faixas}>
+      <div style={{ ...faixas, alignItems: "center" }}>
         <span style={rotuloGrupo}>Período</span>
         {MESES.map((m) => (
           <button
@@ -391,18 +409,22 @@ export default function ConferenciaPagamentos() {
             {m.rotulo}
           </button>
         ))}
-        <input type="date" value={de} onChange={(e) => setDe(e.target.value)}
-               style={inputData} title="Pagamentos a partir desta data" />
-        <span style={{ fontSize: 12, color: "var(--rv-texto-fraco)" }}>até</span>
-        <input type="date" value={ate} onChange={(e) => setAte(e.target.value)}
-               style={inputData} title="Pagamentos até esta data, ela inclusive" />
+        {filtrosAvancados ? (
+          <>
+            <input type="date" value={de} onChange={(e) => setDe(e.target.value)}
+                   style={inputData} title="Pagamentos a partir desta data" />
+            <span style={{ fontSize: 12, color: "var(--rv-texto-fraco)" }}>até</span>
+            <input type="date" value={ate} onChange={(e) => setAte(e.target.value)}
+                   style={inputData} title="Pagamentos até esta data, ela inclusive" />
+          </>
+        ) : null}
         {(de || ate) ? (
           <button type="button" style={chipFaixa} onClick={() => { setDe(""); setAte(""); }}>limpar datas</button>
         ) : null}
       </div>
 
       <div style={faixas}>
-        <span style={rotuloGrupo}>Dívida</span>
+        <span style={rotuloGrupo}>Situação</span>
         {TIPOS.map((t) => (
           <button
             key={t.rotulo} type="button" onClick={() => setTipoDivida(t.chave)}
@@ -413,20 +435,25 @@ export default function ConferenciaPagamentos() {
             {t.rotulo}
           </button>
         ))}
-        <span style={rotuloGrupo}>Valor pago</span>
-        {FAIXAS.map((f) => (
-          <button
-            key={f.min} type="button" onClick={() => setFaixa(f.min)}
-            style={{ ...chipFaixa, ...(f.min === faixa ? chipFaixaOn : null) }}
-            aria-pressed={f.min === faixa}
-            title="Filtra pelo valor que entrou no extrato, não pelo saldo."
-          >
-            {f.rotulo}
-          </button>
-        ))}
-        <span style={dicaTeclado}>
-          <b>J/K</b> anda · <b>F</b> feito · <b>T</b> já tratado · <b>V</b> vincula · <b>Enter</b> ficha · <b>/</b> busca
-        </span>
+        <button type="button" style={chipFaixa} aria-expanded={filtrosAvancados}
+          onClick={() => setFiltrosAvancados((v) => !v)}>
+          {filtrosAvancados ? "Ocultar filtros" : "Mais filtros"}
+        </button>
+        {filtrosAvancados ? (
+          <>
+            <span style={rotuloGrupo}>Valor pago</span>
+            {FAIXAS.map((f) => (
+              <button
+                key={f.min} type="button" onClick={() => setFaixa(f.min)}
+                style={{ ...chipFaixa, ...(f.min === faixa ? chipFaixaOn : null) }}
+                aria-pressed={f.min === faixa}
+                title="Filtra pelo valor que entrou no extrato, não pelo saldo."
+              >
+                {f.rotulo}
+              </button>
+            ))}
+          </>
+        ) : null}
       </div>
 
       <div style={S.barra}>
@@ -445,6 +472,9 @@ export default function ConferenciaPagamentos() {
           <span style={S.contadorValor}>{moeda(totais.saldo)} em aberto</span>
           {placar.n > 0 ? <span style={S.contadorAcordos}>✓ {placar.n} resolvidos</span> : null}
         </div>
+        <span style={dicaTeclado}>
+          <b>J/K</b> anda · <b>F</b> confirma · <b>T</b> já tratado · <b>R</b> resolve · <b>V</b> vincula · <b>Enter</b> ficha
+        </span>
       </div>
 
       {linhas.length < totais.linhas ? (
@@ -465,10 +495,7 @@ export default function ConferenciaPagamentos() {
               <th style={S.th}>Pessoa</th>
               <th style={S.thNum}>Entrou</th>
               <th style={S.thNum}>Baixado</th>
-              <th style={S.thNum}>Saldo</th>
-              <th style={S.thNum}>Em acordo</th>
-              <th style={S.thNum}>Mensalidade</th>
-              <th style={S.thNum}>Vencido</th>
+              <th style={S.thNum}>Em aberto</th>
               <th style={S.th}>Ações</th>
             </tr>
           </thead>
@@ -479,6 +506,10 @@ export default function ConferenciaPagamentos() {
               const conf = confirmando?.chave === chave ? confirmando.acao : null;
               const vinc = vinculando?.chave === chave ? vinculando : null;
               const semDono = l.tipo === "SEM_VINCULO";
+              // Uma lista so decide a cor do botao, o atalho de teclado e o texto
+              // da analise -- tela e teclado nunca discordam sobre o que e excecao.
+              const excecoes = semDono ? [] : excecoesDaLinha(l);
+              const excecao = excecoes.length > 0;
               const abertoEmConf = emConfAberto === chave && !semDono;
               return (
                 <Fragment key={chave}>
@@ -546,11 +577,24 @@ export default function ConferenciaPagamentos() {
                       </>
                     ) : <span style={{ color: "var(--rv-texto-fraco)" }}>—</span>}
                   </td>
-                  <td style={{ ...S.tdNum, fontWeight: 800 }}>{semDono ? "—" : moeda(l.saldo_aberto)}</td>
-                  <td style={S.tdNum}>{semDono ? "—" : moeda(l.saldo_em_acordo)}</td>
-                  <td style={S.tdNum}>{semDono ? "—" : moeda(l.saldo_em_mensalidade)}</td>
-                  <td style={{ ...S.tdNum, color: Number(l.saldo_vencido) > 0 ? "var(--rv-vermelho-texto)" : "var(--rv-texto-fraco)" }}>
-                    {semDono ? "—" : moeda(l.saldo_vencido)}
+                  {/* SALDO E A SUA COMPOSICAO NA MESMA CELULA. Eram quatro colunas --
+                      Saldo, Em acordo, Mensalidade e Vencido -- e as tres ultimas sao
+                      fatias da primeira: contexto competindo em tamanho com o numero
+                      que decide. Nenhum dado saiu da tela; mudou o peso. */}
+                  <td style={{ ...S.tdNum, fontWeight: 800 }}>
+                    {semDono ? "—" : (
+                      <>
+                        {moeda(l.saldo_aberto)}
+                        <div style={composicaoSaldo}>
+                          acordo {moeda(l.saldo_em_acordo)} · mensalidade {moeda(l.saldo_em_mensalidade)}
+                          {Number(l.saldo_vencido) > 0 ? (
+                            <span style={{ color: "var(--rv-vermelho-texto)", fontWeight: 800 }}>
+                              {" · "}vencido {moeda(l.saldo_vencido)}
+                            </span>
+                          ) : null}
+                        </div>
+                      </>
+                    )}
                   </td>
                   <td style={S.td}>
                     {vinc ? (
@@ -600,37 +644,71 @@ export default function ConferenciaPagamentos() {
                         ) : null}
                       </div>
                     ) : conf === "JA_TRATADO" ? (
-                      <div style={caixaConf}>
+                      <div style={caixaAnalise}>
                         <span style={txtConf}>
                           Tirar da fila <b>sem criar baixa</b>. Onde já foi tratado?
                         </span>
-                        <input
-                          autoFocus style={inputMotivo}
-                          placeholder="ex.: cartão baixado no Prime e no CRM"
-                          value={confirmando?.motivo ?? ""}
-                          onChange={(e) => setConfirmando({ ...confirmando, motivo: e.target.value })}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") marcarJaTratado(l, confirmando?.motivo);
-                            if (e.key === "Escape") setConfirmando(null);
-                          }}
-                        />
-                        <button type="button" style={btnOk}
-                          onClick={() => marcarJaTratado(l, confirmando?.motivo)}>Carimbar</button>
-                        <button type="button" style={btnNao} onClick={() => setConfirmando(null)}>Não</button>
+                        {/* O MOTIVO CONTINUA OBRIGATORIO -- e ele que deixa separar
+                            "conferi eu aqui" de "ja estava resolvido" na auditoria.
+                            O que saiu foi a DIGITACAO: os tres casos que a Amanda
+                            citou viraram um clique, e o campo livre fica para o resto. */}
+                        <div style={caixaConf}>
+                          {MOTIVOS_JA_TRATADO.map((m) => (
+                            <button key={m} type="button" style={chipMotivo} disabled={ocupado === chave}
+                              onClick={() => marcarJaTratado(l, m)}>{m}</button>
+                          ))}
+                        </div>
+                        <div style={caixaConf}>
+                          <input
+                            autoFocus style={inputMotivo}
+                            placeholder="outro motivo…"
+                            value={confirmando?.motivo ?? ""}
+                            onChange={(e) => setConfirmando({ ...confirmando, motivo: e.target.value })}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") marcarJaTratado(l, confirmando?.motivo);
+                              if (e.key === "Escape") setConfirmando(null);
+                            }}
+                          />
+                          <button type="button" style={btnOk} disabled={ocupado === chave}
+                            onClick={() => marcarJaTratado(l, confirmando?.motivo)}>Carimbar</button>
+                          <button type="button" style={btnNao} onClick={() => setConfirmando(null)}>Não</button>
+                        </div>
                       </div>
-                    ) : conf ? (
-                      <div style={caixaConf}>
-                        <span style={txtConf}>
-                          Registrar <b>{moeda(l.entrou)}</b> como conferido?
-                          {Number(l.saldo_aberto) > 0.005 ? (
-                            <> Restam <b>{moeda(l.saldo_aberto)}</b> — segue na cobrança.</>
-                          ) : (
-                            <> Sem saldo em aberto — o caso quita sozinho.</>
-                          )}
-                        </span>
-                        <button type="button" style={btnOk}
-                          onClick={() => aplicar(l)}>Sim</button>
-                        <button type="button" style={btnNao} onClick={() => setConfirmando(null)}>Não</button>
+                    ) : conf === "DIVERGENCIA" ? (
+                      /* A ANALISE ACONTECE NA PROPRIA LINHA. Sem aba nova e sem tela
+                         nova: os dados que a decisao pede -- quem, quanto entrou,
+                         quando, quanto foi baixado, quanto sobra -- ja vieram do CRM
+                         e do extrato, entao nada aqui se digita. */
+                      <div style={caixaAnalise}>
+                        <div style={txtConf}>
+                          <b>Precisa de análise</b> — {l.nome}
+                          {l.cpf ? ` · CPF ${l.cpf}` : ""}{l.responsavel ? ` · ${l.responsavel}` : ""}
+                        </div>
+                        <div style={txtConf}>
+                          Entrou <b>{moeda(l.entrou)}</b> em <b>{curta(l.ultimo_pagamento)}</b>
+                          {Number(l.baixado) > 0.005 ? <> · baixado <b>{moeda(l.baixado)}</b></> : null}
+                          {" · "}em aberto <b>{moeda(l.saldo_aberto)}</b>
+                        </div>
+                        <ul style={listaMotivos}>
+                          {excecoes.map((m) => <li key={m.chave}>{m.texto}</li>)}
+                        </ul>
+                        <div style={caixaConf}>
+                          <button type="button" style={ocupado === chave ? S.btnBusy : btnOk}
+                            disabled={ocupado === chave}
+                            onClick={() => aplicar(l)}
+                            title="Registra a baixa do extrato e marca como conferido. NÃO zera dívida: quem ainda deve segue na cobrança.">
+                            Confirmar mesmo assim
+                          </button>
+                          <button type="button" style={btnJaTratado} disabled={ocupado === chave}
+                            onClick={() => setConfirmando({ chave, acao: "JA_TRATADO", motivo: "" })}>
+                            Já tratado
+                          </button>
+                          {l.aluno_id ? (
+                            <button type="button" style={btnNao}
+                              onClick={() => setFichaId(l.aluno_id)}>Abrir ficha</button>
+                          ) : null}
+                          <button type="button" style={btnNao} onClick={() => setConfirmando(null)}>Fechar</button>
+                        </div>
                       </div>
                     ) : semDono ? (
                       <button type="button" style={btnVincular} disabled={ocupado === chave}
@@ -640,10 +718,27 @@ export default function ConferenciaPagamentos() {
                       </button>
                     ) : (
                       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                        <button type="button" style={ocupado === chave ? S.btnBusy : S.btnConf}
-                          disabled={ocupado === chave}
-                          onClick={() => setConfirmando({ chave, acao: "FEITO" })}
-                          title="Registra a baixa do extrato e marca como conferido. NÃO zera dívida: quem ainda deve segue na cobrança, e quem já zerou quita sozinho. (F)">Feito</button>
+                        {/* UM CLIQUE NO CASO NORMAL. O dialogo "Sim/Nao" cobrava pedagio
+                            em toda linha, inclusive onde nao havia nada a olhar: a baixa
+                            registra um fato que o banco ja confirmou e `confirmar_baixa_caso`
+                            nao zera nada enquanto houver saldo. O pedagio passa a ser
+                            cobrado onde protege -- na linha de excecao, inclusive a de
+                            saldo zerado, que e a unica que pode quitar. O desfazer de 12s
+                            segue valendo, e `conferencia_baixar_do_extrato` ignora baixa
+                            repetida de mesmo aluno, data e valor. */}
+                        {excecao ? (
+                          <button type="button" style={btnDivergencia}
+                            disabled={ocupado === chave}
+                            onClick={() => setConfirmando({ chave, acao: "DIVERGENCIA" })}
+                            title={`Precisa de análise: ${excecoes.map((m) => m.texto).join(" · ")} (R)`}>
+                            Resolver divergência
+                          </button>
+                        ) : (
+                          <button type="button" style={ocupado === chave ? S.btnBusy : S.btnConf}
+                            disabled={ocupado === chave}
+                            onClick={() => aplicar(l)}
+                            title="Registra a baixa do extrato e marca como conferido. NÃO zera dívida: quem ainda deve segue na cobrança. (F)">Confirmar</button>
+                        )}
                         <button type="button" style={btnJaTratado}
                           disabled={ocupado === chave}
                           onClick={() => setConfirmando({ chave, acao: "JA_TRATADO", motivo: "" })}
@@ -654,7 +749,7 @@ export default function ConferenciaPagamentos() {
                 </tr>
                 {abertoEmConf ? (
                   <tr>
-                    <td colSpan={8} style={celulaEmConf}>
+                    <td colSpan={5} style={celulaEmConf}>
                       <ResolverEmConfirmacao
                         alunoId={l.aluno_id}
                         onResolvido={(restantes) => aoResolverEmConf(l.aluno_id, restantes)}
@@ -675,8 +770,19 @@ export default function ConferenciaPagamentos() {
             <b>{desfazer.linha.nome}</b> — {desfazer.acao === "JA_TRATADO"
               ? "carimbado como já tratado (nenhuma baixa foi criada)."
               : "baixa registrada e conferido."}
+            {desfazer.acao === "CONFIRMADO" ? (
+              <div style={avisoDesfazer}>
+                Desfazer devolve a pessoa à fila, mas <b>não estorna a baixa</b> —
+                o estorno é pelo fluxo do Financeiro.
+              </div>
+            ) : null}
           </span>
-          <button type="button" style={btnDesfazer} onClick={desfazerAgora}>Desfazer (U)</button>
+          <button type="button" style={btnDesfazer} onClick={desfazerAgora}
+            title={desfazer.acao === "CONFIRMADO"
+              ? "Devolve a pessoa à fila. NÃO estorna a baixa registrada."
+              : "Devolve a pessoa à fila. Nenhuma baixa foi criada."}>
+            {desfazer.acao === "CONFIRMADO" ? "Voltar à fila (U)" : "Desfazer (U)"}
+          </button>
         </div>
       ) : null}
 
@@ -766,6 +872,25 @@ const btnVincular = {
   padding: "5px 14px", fontSize: 12, fontWeight: 800, cursor: "pointer",
 };
 const caixaConf = { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" };
+// A analise empilha: fatos em cima, motivos no meio, decisao embaixo.
+const caixaAnalise = {
+  display: "flex", flexDirection: "column", gap: 5, alignItems: "flex-start",
+  background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)",
+  borderRadius: 10, padding: "8px 10px", minWidth: 320,
+};
+const listaMotivos = { margin: 0, paddingLeft: 18, fontSize: 11.5, color: "var(--rv-texto-suave)" };
+// Ambar, nao verde: nao e o caminho que registra dinheiro, e o que manda olhar.
+const btnDivergencia = {
+  background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)",
+  border: "1px solid var(--rv-ambar-borda)", borderRadius: 8,
+  padding: "5px 13px", fontSize: 12, fontWeight: 800, cursor: "pointer",
+};
+const chipMotivo = {
+  background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-forte)", borderRadius: 999,
+  padding: "4px 11px", fontSize: 11.5, fontWeight: 700, color: "var(--rv-texto)", cursor: "pointer",
+};
+// Composicao do saldo debaixo do numero: contexto, nao protagonista.
+const composicaoSaldo = { ...sub, fontWeight: 600, whiteSpace: "nowrap" };
 const txtConf = { fontSize: 12, color: "var(--rv-texto-forte)" };
 const inputMotivo = { border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "4px 9px", fontSize: 12, minWidth: 200 };
 const btnOk = {
@@ -785,6 +910,11 @@ const toast = {
   background: "#0f172a", color: "#fff", borderRadius: 12, padding: "11px 16px",
   display: "flex", gap: 14, alignItems: "center", fontSize: 13,
   boxShadow: "0 10px 30px rgba(15,23,42,.35)", zIndex: 200, maxWidth: "92vw",
+};
+// Amarelo no escuro do toast: o limite do desfazer tem de ser lido ANTES do
+// clique, nao no alerta que vinha depois dele.
+const avisoDesfazer = {
+  fontSize: 11.5, color: "#fde68a", marginTop: 3, maxWidth: 360, fontWeight: 600,
 };
 const btnDesfazer = {
   background: "#facc15", color: "var(--rv-tinta)", border: "none", borderRadius: 8,
