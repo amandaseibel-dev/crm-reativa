@@ -257,20 +257,87 @@ trilha. **Mais um motivo para a trilha ser a parte intocável.**
 
 ---
 
-## 6. Proposta de retenção por categoria (curta, para aprovação)
+## 6. Proposta de retenção — três classes, com prazo justificado
 
-> Nada abaixo está implementado. Não há migration, não há cron, não há exclusão.
+> **Nada abaixo é regra fechada.** São prazos **propostos para decisão da
+> Amanda**, cada um com o motivo nomeado: o que o prazo protege e o que se perde
+> quando vence. Nada está implementado: sem migration, sem cron, sem exclusão.
 
-| Categoria | Proposta | Volume recuperável | Dependência | Risco |
-|---|---|---|---|---|
-| **Registro financeiro definitivo** | **para sempre** | 0 | — | — |
-| **Trilha de importação** (`importacoes`, `importacoes_acordos`, `academico_importacoes`) | **para sempre** (408 + 88 + 216 kB) | 0 | — | — |
-| **Arquivo original** (bucket `importacoes-acordos`) | **para sempre** enquanto cobrir <10% das importações; rever só depois de a cobertura chegar a 100% e passar 12 meses | 0 agora | — | apagar hoje tira o único original existente |
-| **Críticas de importação** (`importacao_acordo_critica`, 159 linhas) | manter **24 meses** | ~0 hoje | nenhuma | baixo |
-| **Staging vazio** (`borderos`, `base_importacoes`, `baixas_importadas`) | **NÃO apagar a estrutura** — está vazia, custa 176 kB e `borderos` tem `importacao_id`; conferir antes se algum código ainda escreve | 176 kB | grep de uso + conferir RLS/grants | derrubar tela por tabela removida já aconteceu neste projeto |
-| **`_backup_pos_import_*` de 2026-09** (548 tabelas, 9.616 kB) | **candidatas a sair**, em duas levas: primeiro as que a simulação provar com **0 linhas**; as com linha só depois de prova de que o reparo que lastreiam está encerrado | até 9.616 kB e **548 objetos de catálogo** | contagem exata (item 7); confirmar que `acordos_pos_importacao` segue sem leitor; crons seguem `active=false` | são lastro de desfazer de ação financeira. **Com PITR desligado, isto é irreversível** |
-| **Outras `_backup*` / `_excecao*`** (648 tabelas, 58 MB) | **caso a caso, não em lote.** Varrer nome por nome contra as frentes abertas; as de `dup_reimport` e `bordero723` **ficam** | parte dos 58 MB | decisão da Amanda item por item | alto se tratado como lote |
-| **`projecao_snapshot_pagamentos`** (11.235 linhas) | manter — alimenta projeção/meta | 0 | — | — |
+**Princípio adotado nesta versão:** "para sempre" só sobrevive onde houver motivo
+nomeado. Onde o único motivo seria "ainda não medimos", o prazo é **provisório** e
+vem acompanhado do que precisa ser medido para confirmá-lo.
+
+### Classe (a) — Registro financeiro definitivo
+
+O que é: `acordos`, `acordos_titulos`, `parcelas`, `pagamentos`, `alunos`,
+`acordo_titulo_vinculo`, `recuperacao_historica`, e os buckets
+`comprovantes-pagamento` e `termos-acordo`.
+
+| Prazo proposto | O que protege | O que se perde ao vencer |
+|---|---|---|
+| **Permanente, sem prazo** | Obrigação fiscal e civil sobre dívida de mensalidade, prova de pagamento e termo assinado. É o registro do crédito e da sua quitação — não é cópia de nada | A dívida e a quitação deixam de ter prova. Perda não recuperável e com exposição legal |
+
+**Motivo nomeado:** obrigação legal/fiscal. Nada aqui é derivado — é o original.
+Esta é a única classe onde "permanente" não precisa de prazo de revisão.
+
+**Observação para quem decidir:** o prazo de guarda fiscal no Brasil é
+tipicamente contado em anos após a extinção do crédito, e **a definição exata é
+jurídica, não técnica — não foi apurada nesta frente**. Como o volume desta
+classe não é o problema (o espaço está em webhook/histórico/audit), não há ganho
+em arbitrar um número aqui. **Se a gestão quiser prazo nominal, isso precisa vir
+do jurídico/contábil, não deste documento.**
+
+### Classe (b) — Auditoria e trilha
+
+O que é: `importacoes` (897 linhas), `importacoes_acordos` (237),
+`academico_importacoes` (29), `importacao_acordo_critica` (159),
+`extracao_escopo` (128), `titulo_presenca_importacao` (~36 mil),
+`_backup_*` de reparo de reimportação, e as 548 `_backup_pos_import_*`.
+
+| Sub-item | Prazo proposto | O que protege | O que se perde ao vencer |
+|---|---|---|---|
+| `importacoes` + `importacoes_acordos` | **Igual à classe (a): acompanha o registro financeiro** | **Janela de reconstrução de vínculo.** Com `borderos` vazio e sem arquivo de borderô, é o **único** registro de que o borderô nº X entrou, quando, por quem, com quantas linhas. É o que permite saber *qual* planilha pedir à ULBRA | A auditoria de 160 borderôs e a possibilidade de pedir reenvio direcionado. 408 + 88 kB — não há ganho nenhum em apagar |
+| `importacao_acordo_critica`, `extracao_escopo` | **Provisório: 24 meses** | Prova de que a importação teve ou não crítica, e o escopo declarado da extração | A capacidade de responder "essa importação já tinha problema?" sobre um período fechado |
+| `titulo_presenca_importacao` | **Provisório: acompanha a conferência Prime** | Presença de título por escopo — lastro da conferência | Prova de que um título estava (ou não) no escopo conferido |
+| `_backup_*` de reparo (`dup_reimport`, `bordero723`, `parcelas_acordo_erro_import`) | **Permanente até o reparo ser declarado encerrado, por escrito** | **Prova de reparo.** São o antes/depois de correções de reimportação que já aconteceram | A prova de que um ajuste financeiro foi legítimo. É exatamente o caso que motivou esta frente |
+| **548 `_backup_pos_import_*`** | **Provisório: 12 meses após o encerramento das frentes de conciliação em aberto** | **Lastro de desfazer** de `acordos_pos_importacao`, que marca título como pago e cria vínculo. 335 delas guardam 11.645 linhas | A possibilidade de desfazer por id uma marcação de pagamento. **Com PITR desligado, não há outro caminho de volta** |
+
+**O que precisa ser medido para confirmar os prazos provisórios:**
+1. encerramento formal das frentes de conciliação citadas no item 4 (enquanto
+   houver pagamento pendente de conciliação, o prazo não começa a contar);
+2. que `acordos_pos_importacao` siga **sem nenhum leitor** (hoje: confirmado, 0);
+3. desempenho — se o ganho de remover objetos de catálogo é real (hoje: **não
+   comprovado**).
+
+**As 213 comprovadamente vazias são a exceção:** não guardam lastro de nada, e
+podem sair sem prazo de espera. São 1.704 kB e 213 dos 1.468 objetos.
+
+### Classe (c) — Arquivo original de importação
+
+O que é: bucket `importacoes-acordos` (21 objetos, 485 kB) e o arquivo de borderô
+— **que não existe**.
+
+| Sub-item | Prazo proposto | O que protege | O que se perde ao vencer |
+|---|---|---|---|
+| Arquivo de acordo no bucket | **Provisório: permanente enquanto a cobertura for parcial** | **Janela de reimportação.** São os únicos originais que existem, e cobrem 21 de 237 importações (8,9%) | O único insumo para reimportar sem depender de reenvio da ULBRA |
+| Arquivo de borderô | **não se aplica — não é guardado** | — | Já perdido: a reimportação do borderô depende de a ULBRA reenviar a planilha |
+
+**O que precisa ser medido para confirmar:** cobertura. **Enquanto for 8,9%, a
+discussão de prazo é prematura** — 485 kB não justificam prazo nenhum. O prazo
+só passa a fazer sentido depois de (1) a cobertura chegar perto de 100% e (2)
+haver uma série de ao menos 12 meses para dizer quanto cresce por mês.
+
+**A decisão real desta classe não é de retenção, é de produto:** passar a guardar
+o arquivo de borderô (o hash SHA-256 já é obrigatório e o bucket já existe para
+acordos) ou aceitar formalmente a dependência do reenvio da ULBRA.
+
+### Fora das três classes
+
+| Item | Proposta |
+|---|---|
+| **Staging vazio** (`borderos`, `base_importacoes`, `baixas_importadas`, 176 kB) | **Não apagar a estrutura.** Está vazia e `borderos` tem `importacao_id`. Remover tabela já derrubou tela neste projeto. Conferir antes se algum caminho ainda escreve |
+| **Outras 648 `_backup*` / `_excecao*`** (58 MB) | **Caso a caso, nome por nome, fora desta frente.** Tratar como lote é o risco alto |
+| **`projecao_snapshot_pagamentos`** (11.235 linhas) | Não é importação — alimenta projeção e meta. Fica |
 
 ### Trilha compacta a preservar quando o bruto sair
 
@@ -314,10 +381,18 @@ Apenas `SELECT` de contagem e tamanho. Nenhum `DROP`, `DELETE`, `TRUNCATE` ou
 contagem **exata** de linhas das 548 `_backup_pos_import_*` (que `reltuples` não
 responde), separando as realmente vazias das que têm conteúdo.
 
-**Não foi executado contra produção** além das consultas de catálogo já citadas
-neste documento. O bloco 4 (contagem exata linha por linha em 548 relações) é o
-único trecho com custo não desprezível e **está marcado para rodar só com aviso
-prévio**.
+**Atualização de 07/11/2026 — o bloco 4 está aposentado.** A contagem exata com
+`count(*)` nas 548 relações **foi executada uma vez**, e o resultado está no
+RESULTADO (213 vazias / 335 com conteúdo). Por decisão da gestão, **não se conta
+linha mais**: o caminho sancionado passa a ser o **bloco 4-SEQ**, que pergunta
+apenas `exists (select 1 … limit 1)`, **uma relação por vez**, com
+`set local statement_timeout` **conferido por `show statement_timeout`** — porque
+`statement_timeout` em `proconfig` **não rearma** — e com **regra de parada
+explícita** ao primeiro sinal de impacto. Resultado parcial com ponto de parada
+declarado é entrega válida; varredura completa que derruba o banco não é.
+
+O bloco 4 foi mantido no arquivo **comentado**, como registro do que de fato
+rodou, marcado para nunca mais rodar.
 
 ---
 

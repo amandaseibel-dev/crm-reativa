@@ -9,9 +9,38 @@ e executa [simulacao-retencao-importacoes.sql](simulacao-retencao-importacoes.sq
 
 ---
 
+## 0. Como a contagem foi obtida — e por que não se repete
+
+**Registro honesto da ordem dos fatos.** A contagem exata com `count(*)` nas 548
+relações (bloco 4 do SQL) **foi executada em 07/11/2026**, numa passada única,
+**antes** de a gestão decidir que não se conta linha nesta etapa. Terminou sem
+sinal de impacto e o resultado está na seção 1.
+
+A decisão posterior da gestão é: **não contar linha**. Para saber se uma relação
+está vazia, o caminho sancionado é `exists (select 1 … limit 1)`, **uma consulta
+por vez**, com `set local statement_timeout` dentro de transação e
+**confirmado por `show statement_timeout`** — porque `statement_timeout` em
+`proconfig` **não rearma**, armadilha já paga neste projeto —, e com **parada ao
+primeiro sinal de impacto**, valendo resultado parcial com o ponto de parada
+declarado.
+
+Esse caminho está **preparado** no **bloco 4-SEQ** de
+[simulacao-retencao-importacoes.sql](simulacao-retencao-importacoes.sql), em 4
+passos: gerar a lista na ordem, gerar os comandos um por relação (texto para
+colar, deliberadamente **não** um loop — loop volta a ser varredura), o modelo de
+uma verificação com a conferência do timeout, e a regra de parada com medição de
+`pg_stat_activity` a cada ~50 relações.
+
+**O bloco 4-SEQ não foi executado, e não precisa ser:** o número que ele
+produziria já existe. Rodá-lo agora seria carga nova para reobter dado que está
+na seção 1. O bloco 4 original ficou no arquivo **comentado**, como registro do
+que rodou, marcado para nunca mais rodar.
+
+---
+
 ## 1. Simulação executada — `_backup_pos_import_*`
 
-### Contagem exata (bloco 4 do SQL, 548 relações percorridas)
+### Contagem exata (bloco 4, execução única de 07/11/2026)
 
 | | Tabelas | Linhas | Tamanho |
 |---|---|---|---|
@@ -102,11 +131,61 @@ foi fechada entre o `insert` em `importacoes` e o `update` final para
 
 ### Houve gravação parcial?
 
-**Sim, e é substancial.**
+**Sim, e é maior do que a primeira leitura indicou.** Varri **todas as 12 tabelas
+que têm coluna `importacao_id`**, não só as duas óbvias:
 
-- **472 linhas em `acordos_titulos`** com `importacao_id = bff088bd…`
-- `borderos` com esse `importacao_id`: **0** (a tabela de staging está vazia no
-  banco inteiro — confirmado no diagnóstico)
+| Tabela com `importacao_id` | Linhas da travada |
+|---|---|
+| **`acordos_titulos`** | **472** |
+| **`importacoes_acordos`** | **1** (linha de contadores) |
+| `pagamentos` | 0 |
+| `borderos` | 0 |
+| `acordos_revisao_parcelas` | 0 |
+| `fila_acordos_confirmar` | 0 |
+| `fila_pagamento_sem_vinculo` | 0 |
+| `pagamento_suspeita_duplicidade` | 0 |
+| `fechamento_remuneracao_pagamento` | 0 |
+| `projecao_snapshot_pagamentos` | 0 |
+| `importacao_acordo_critica` | 0 |
+| `extracao_escopo` | 0 |
+
+**Nenhum pagamento foi afetado** — `pagamentos` tem 0 linhas dessa importação.
+
+#### O que a linha de contadores revela
+
+`importacoes_acordos` tem **uma linha** para essa importação de borderô, gravada
+em `2026-07-02 00:51:24.655` — **274 ms depois** da linha em `importacoes`
+(`00:51:24.381`). Conteúdo:
+
+| Campo | Valor |
+|---|---|
+| `parcelas` | **472** |
+| `acordos` | **471** |
+| `cpfs` | **471** |
+| `total` | **R$ 620.870,89** |
+| `arquivo_nome`, `arquivo_path`, `arquivo_sha256`, `arquivo_bytes`, `linhas_arquivo`, `importado_por`, `titulos_inseridos`, `alunos_novos` | **todos `null`** |
+
+Dois fatos saem daí:
+
+1. **A importação foi longe.** Não parou no `insert` inicial: gravou títulos e
+   fechou contadores, inclusive o valor total. O que não aconteceu foi o `update`
+   final de `status` para `CONCLUIDO`.
+2. **Essa importação não tem identidade de arquivo nenhuma** — nem nome, nem
+   hash, nem tamanho. É de 02/07, muito antes de o hash passar a ser obrigatório.
+   Para ela, não há como provar qual planilha entrou.
+
+#### Conferência em dinheiro, direto nos títulos
+
+Somando os 472 títulos de `acordos_titulos` com esse `importacao_id`:
+
+| Medida | Valor |
+|---|---|
+| Títulos | **472** |
+| Alunos distintos | **471** |
+| Valor original | **R$ 620.870,89** ← bate **exatamente** com o `total` da trilha |
+| Saldo hoje | **R$ 617.124,98** |
+| Saldo ainda em aberto | **R$ 565.966,54** |
+| Vencimentos | 05/03/2025 a 13/03/2025 |
 
 Situação dos 472 títulos **hoje**:
 
@@ -119,8 +198,22 @@ Situação dos 472 títulos **hoje**:
 | `DUPLICADA` | 1 |
 | `EM_CONFIRMACAO` | 1 |
 
-**Esses títulos são dívida viva, em operação.** 5 já foram pagos, 3 negociados,
-1 em confirmação. Não são resíduo de importação falha — são carteira.
+**Esses títulos são dívida viva, em operação** — R$ 565.966,54 ainda em aberto,
+5 pagos, 3 negociados, 1 em confirmação. Não são resíduo de importação falha:
+são carteira, e estão sendo cobrados.
+
+#### O que ficou pela metade, em uma frase
+
+Ficou **o status**, não o dado: 472 títulos, 471 acordos e R$ 620.870,89 entraram
+e estão corretos; o que não entrou foi a marca de que a importação terminou.
+
+#### Os 471 acordos — atribuição não comprovável
+
+`acordos` e `parcelas` **não têm coluna `importacao_id`**. A quantidade de acordos
+criados (**471**) vem da linha de contadores, e é confiável como número. Mas
+**quais** linhas de `acordos` são aquelas **não é provável por coluna** — só por
+proximidade de timestamp, e neste projeto *timestamp igual não prova causa*.
+Portanto: **471 é o número; a identificação linha a linha fica NÃO COMPROVADA.**
 
 ### Qual recuperação é possível
 
@@ -145,8 +238,11 @@ fez o trabalho.
 numa linha de trilha.** A recuperação possível é:
 
 1. **Recomendada** — `update importacoes set status='CONCLUIDO', observacao='…'`
-   nessa única linha, **por id**, registrando que 472 dos 646 entraram em 02/07
-   e o restante em 28/10. Uma linha, reversível, nada financeiro.
+   nessa única linha, **por id**, registrando que 472 títulos / 471 acordos /
+   **R$ 620.870,89** entraram em 02/07/2026 e o restante em 28/10/2026, e que
+   essa importação **não tem identidade de arquivo** (sem nome, sem hash).
+   Uma linha, reversível, nada financeiro é tocado.
+   **Não executado** — depende de autorização e o executor é a sessão principal.
 2. **Não fazer nada** — é defensável: a linha `PROCESSANDO` é o registro honesto
    de que aquela tentativa não terminou, e `Importacoes.jsx:56` já a mostra como
    `travado`, que é verdade.
@@ -197,21 +293,50 @@ values (p_importacao_id,'ACORDOS','Relatorio de Titulos em Aberto (Acordo)',
         'Relatorio Titulos em Aberto',v_usuario,'Concluída',false)
 ```
 
-### Filtros afetados HOJE: nenhum
+### Varredura completa: RPCs, views, crons e telas
 
-Todo consumidor de `importacoes.status` é recortado por `tipo` **na origem**:
+Procurei em quatro lugares, não só na tela.
 
-| Consumidor | Recorte | Vê `Concluída`? |
+**(i) Funções do banco.** Busquei em `pg_proc.prosrc` por comparação de status
+com `CONCLUID`/`Conclu*`. Doze funções casaram — e **nenhuma delas compara
+`importacoes.status`**:
+
+| Função | Que tabela ela realmente compara | Afeta? |
 |---|---|---|
-| `relatorio_importacoes_bordero` → [Importacoes.jsx:56](../../src/pages/Importacoes.jsx#L56) `status !== "CONCLUIDO"` | `where i.tipo = 'BORDERO'` | **não** |
-| `importacao_conferencia_arquivos` + `vw_importacao_conferencia` → [conferenciaPorArquivo.js:134](../../src/utils/conferenciaPorArquivo.js#L134) `importacao_status !== "CONCLUIDO"` | `where i.tipo in ('PROJECAO_DIARIA','PROJECAO_RETROATIVA')` | **não** |
-| [ProjecaoHoraHora.jsx:607](../../src/pages/ProjecaoHoraHora.jsx#L607) e as comparações em `:2085-2104` | `.in("tipo",["PROJECAO_DIARIA","PROJECAO_RETROATIVA"])` | **não** |
-| [Borderos.jsx:364](../../src/pages/Borderos.jsx#L364) `.eq("status","CONCLUIDO")` | `.eq("tipo","BORDERO")` | **não** |
-| Aba de acordos (`listar_importacoes_acordos`) | — | não expõe `status` |
-| Nenhuma função do banco | — | nenhuma filtra `importacoes.status` |
+| `preventivo_carteiras`, `preventivo_sinc_situacao`, `preventivo_acao_preparar` | `prev_sinc.status = 'CONCLUIDA'` | **não** — outra tabela |
+| `concluir_confirmacao_saldo_zero`, `historico_confirmacoes_por_dia`, `_confirmacao_sem_valor_sai_da_fila` | `solicitacoes_confirmacao_pagamento.status = 'CONCLUIDA_SALDO_ZERO'` | **não** — outra tabela |
+| `projecao_importar_pagamentos`, `projecao_checar_importacao_existente`, `projecao_excluir_importacao`, `projecao_reprocessar_importacao`, `tg_notif_projecao_atualizada` | `importacoes.status`, **sempre com `tipo in ('PROJECAO_DIARIA','PROJECAO_RETROATIVA')`** | **não** — `Concluída` é só de `ACORDOS` |
 
-**Veredito: armadilha latente, não defeito ativo.** O diagnóstico original dizia
-que um filtro erra por 157 linhas — **estava errado, e está corrigido lá**.
+**(ii) Views e matviews.** Quatro citam `importacoes`:
+`vw_importacao_conferencia` (recorta `tipo in ('PROJECAO_DIARIA','PROJECAO_RETROATIVA')`),
+`vw_estoque_carteira` (`JOIN importacoes i ON i.id = t.importacao_id AND i.tipo = 'BORDERO'` — **lê, mas não filtra status**),
+`vw_pagamento_suspeita_pendente` e `vw_extracao_validacao_trilha` (**não leem
+`status`**). Nenhuma afetada.
+
+**(iii) Crons.** Busquei em `cron.job.command` por `importacoes`/`CONCLUID`/
+`Conclu*` nos 60 jobs: **nenhum**. Nenhum cron filtra status de importação.
+
+**(iv) Telas.** Quatro comparações, todas recortadas por tipo na origem.
+
+### Quanto cada filtro erra hoje, ponto a ponto
+
+| # | Ponto (`arquivo:linha`) | O que compara | Recorte na origem | **Quanto erra hoje** | O que o usuário vê de errado |
+|---|---|---|---|---|---|
+| 1 | [src/pages/Importacoes.jsx:56](../../src/pages/Importacoes.jsx#L56) — `if (linha.status !== "CONCLUIDO") agregado.travado = true` | status de borderô | `relatorio_importacoes_bordero` tem `where i.tipo = 'BORDERO'`; só existem `CONCLUIDO` (159) e `PROCESSANDO` (1) | **0 linhas** | **Nada de errado.** Marca como travado só o Borderô 333, que está travado de verdade |
+| 2 | [src/utils/conferenciaPorArquivo.js:134](../../src/utils/conferenciaPorArquivo.js#L134) — `importacao_status !== "CONCLUIDO"` acrescenta o status ao rótulo | status de projeção | `importacao_conferencia_arquivos` tem `where i.tipo in ('PROJECAO_DIARIA','PROJECAO_RETROATIVA')` | **0 linhas** | **Nada de errado.** Mostra `· SUBSTITUIDA` / `· EXCLUIDA` onde é o caso — 240 linhas legítimas |
+| 3 | [src/pages/ProjecaoHoraHora.jsx:2085-2104](../../src/pages/ProjecaoHoraHora.jsx#L2085) — `imp.status === "CONCLUIDO"` / `"SUBSTITUIDA"` / `"EXCLUIDA"` | status de projeção | a carga em `:607` usa `.in("tipo", ["PROJECAO_DIARIA","PROJECAO_RETROATIVA"])` | **0 linhas** | **Nada de errado** |
+| 4 | [src/pages/Borderos.jsx:364](../../src/pages/Borderos.jsx#L364) — `.eq("status","CONCLUIDO")` no aviso de duplicata | status de borderô | `.eq("tipo","BORDERO")` | **0 linhas pela grafia** — mas **1 linha pelo status `PROCESSANDO`** | **Aqui há defeito, e não é a grafia:** o Borderô 333 ficou invisível ao aviso, e quem reimportou em 28/10 **não foi avisado** de que ele já havia entrado com 472 títulos e R$ 620.870,89 |
+| 5 | Aba de acordos (`listar_importacoes_acordos`) | — | não expõe `status` | **0** | nada |
+
+**Total do erro atribuível à divergência de grafia: 0 linhas, em 0 pontos.**
+
+As 157 linhas `Concluída` são **todas** de `tipo='ACORDOS'`, e nenhum dos 5
+pontos recebe linhas de `ACORDOS`. **Veredito: armadilha latente, não defeito
+ativo.** O diagnóstico original afirmava que um filtro erra por 157 linhas —
+**estava errado, e está corrigido lá.**
+
+**O defeito real encontrado nesta varredura é o ponto 4**, e a causa é o status
+`PROCESSANDO` não contar como tentativa anterior — não a acentuação.
 
 O registro de que a divergência já incomodou está em
 [CriticasImportacaoAcordos.jsx:12](../../src/components/CriticasImportacaoAcordos.jsx#L12):

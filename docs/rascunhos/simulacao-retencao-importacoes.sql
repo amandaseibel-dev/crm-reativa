@@ -144,19 +144,28 @@ select jobname, schedule, active
 
 
 -- ---------------------------------------------------------------------
--- BLOCO 4 -- CONTAGEM EXATA das _backup_pos_import_*
+-- BLOCO 4 -- *** NAO RODAR. APOSENTADO POR DECISAO DA GESTAO ***
 --
--- *** AVISAR A GESTAO ANTES DE RODAR ***
--- Percorre 548 relacoes com count(*). Cada uma tem 1 ou 2 paginas,
--- portanto o custo real e baixo, mas sao 548 consultas dinamicas e
--- este banco ja saturou sob carga. Rodar fora de horario de operacao.
+-- Contagem exata com count(*) nas 548 relacoes de uma vez.
 --
--- Serve para responder o que `reltuples` NAO responde: reltuples = -1
--- significa "nunca analisada", nao "vazia". Sem este bloco nao se pode
--- afirmar que uma tabela esta vazia.
+-- HISTORICO HONESTO: este bloco FOI executado uma vez, em 07/11/2026,
+-- ANTES da decisao da gestao de nao contar linha. Terminou numa passada,
+-- sem sinal de impacto, e o resultado esta registrado:
+--     548 relacoes -> 213 VAZIAS (1.704 kB) e 335 COM CONTEUDO
+--     (11.645 linhas, 7.912 kB).
+-- Esse numero ja existe e NAO precisa ser refeito. O bloco fica aqui
+-- como registro do que rodou -- nao se apaga o que de fato aconteceu --,
+-- marcado para nunca mais rodar.
 --
--- SOMENTE LEITURA: query_to_xml roda um SELECT count(*), nada mais.
+-- DECISAO DA GESTAO (07/11/2026): nao contar linha. Para saber se uma
+-- relacao esta vazia, usar o BLOCO 4-SEQ abaixo: `exists`, uma consulta
+-- por vez, com timeout curto confirmado e parada ao primeiro sinal de
+-- impacto. Resultado parcial com ponto de parada declarado e entrega
+-- valida; varredura completa que derruba o banco nao e.
+--
+-- NAO EXECUTAR O SELECT ABAIXO.
 -- ---------------------------------------------------------------------
+/* APOSENTADO -- mantido comentado de proposito, para nao rodar por engano:
 select
   case when linhas = 0 then 'VAZIA -- candidata da 1a leva'
        else 'COM CONTEUDO -- exige prova de reparo encerrado' end as leva,
@@ -179,26 +188,96 @@ group by 1
 order by 1;
 
 
--- ---------------------------------------------------------------------
--- BLOCO 4b -- Detalhe nominal das VAZIAS (a lista que a gestao aprova)
--- Mesmo custo do bloco 4. Rodar junto, nao separado.
--- A saida e a lista de nomes -- insumo da decisao, nao comando.
--- ---------------------------------------------------------------------
-select relname, pg_size_pretty(bytes) as tamanho
-from (
-  select c.relname,
-         pg_total_relation_size(c.oid) as bytes,
-         (xpath('/row/cnt/text()',
-                query_to_xml(format('select count(*) as cnt from public.%I', c.relname),
-                             false, true, '')))[1]::text::bigint as linhas
-    from pg_class c
-    join pg_namespace n on n.oid = c.relnamespace
-   where n.nspname = 'public'
-     and c.relkind in ('r','p')
-     and c.relname like '\_backup\_pos\_import\_%'
-) s
-where linhas = 0
-order by relname;
+*/
+-- (fim do bloco aposentado)
+
+
+-- =====================================================================
+-- BLOCO 4-SEQ -- VERIFICACAO SEQUENCIAL DE VAZIO, SEM CONTAR LINHA
+--
+-- Caminho sancionado pela gestao em 07/11/2026. Substitui o bloco 4.
+--
+-- Principios, nesta ordem:
+--   1. nao conta linha -- so pergunta se existe UMA
+--   2. uma consulta por vez, nunca as 548 numa varredura
+--   3. timeout curto, posto DENTRO da transacao e CONFERIDO
+--   4. para ao primeiro sinal de impacto, mesmo incompleto
+--
+-- ARMADILHA JA PAGA NESTE PROJETO: `statement_timeout` em `proconfig`
+-- NAO REARMA. Nao confie em default de role, nem em `set` de sessao que
+-- alguem pode ter mexido. Use `set local` dentro de transacao e CONFIRA
+-- por `show statement_timeout` que o valor esta valendo -- conferir, nao
+-- supor.
+-- =====================================================================
+
+-- PASSO 1 -- gerar a lista de relacoes a verificar, NA ORDEM.
+-- Custo: catalogo. Nao toca dado. Rode isto primeiro e guarde a saida.
+select row_number() over (order by c.relname) as ordem,
+       c.relname,
+       pg_size_pretty(pg_total_relation_size(c.oid)) as tamanho
+  from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace
+ where n.nspname = 'public'
+   and c.relkind in ('r','p')
+   and c.relname like '\_backup\_pos\_import\_%'
+ order by c.relname;
+
+
+-- PASSO 2 -- gerar os comandos, um por relacao, para executar UM A UM.
+-- Isto NAO executa nada: so devolve texto para a pessoa colar.
+-- Deliberadamente nao e um loop: loop volta a ser varredura.
+select format(
+  'begin; set local statement_timeout = ''1500ms''; '
+  || 'show statement_timeout; '
+  || 'select %L as relacao, exists (select 1 from public.%I limit 1) as tem_linha; '
+  || 'commit;',
+  c.relname, c.relname) as comando_para_colar
+  from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace
+ where n.nspname = 'public'
+   and c.relkind in ('r','p')
+   and c.relname like '\_backup\_pos\_import\_%'
+ order by c.relname;
+
+
+-- PASSO 3 -- modelo de UMA verificacao, para conferir o padrao antes de
+-- comecar a sequencia. Troque o nome da relacao.
+--
+-- O `show statement_timeout` no meio NAO e enfeite: e a prova de que o
+-- timeout esta valendo nesta transacao. Se ele voltar '0' ou o default
+-- do banco em vez de '1500ms', PARE -- o freio nao pegou e a consulta
+-- seguinte roda sem teto.
+begin;
+  set local statement_timeout = '1500ms';
+  show statement_timeout;                       -- deve dizer 1500ms
+  select '_backup_pos_import_20260924174025' as relacao,
+         exists (select 1 from public._backup_pos_import_20260924174025 limit 1) as tem_linha;
+commit;
+
+
+-- PASSO 4 -- REGRA DE PARADA. Nao e sugestao.
+--
+-- Interromper a sequencia e registrar o ponto de parada se QUALQUER um
+-- destes aparecer:
+--   · uma verificacao estourar o statement_timeout (erro 57014)
+--   · `show statement_timeout` nao devolver o valor posto
+--   · o tempo de resposta de uma verificacao subir acima de ~1s
+--   · qualquer alerta de carga/latencia no painel do banco
+--   · qualquer reclamacao de lentidao da operacao
+--
+-- Ao parar: anotar a ULTIMA relacao verificada com sucesso e o motivo.
+-- Resultado parcial com ponto de parada declarado E ENTREGA VALIDA.
+-- Varredura completa que derruba o banco NAO E.
+--
+-- Medicao de carga ANTES de comecar e a cada ~50 relacoes (catalogo,
+-- custo despreziivel):
+select count(*) filter (where state = 'active')                       as ativas,
+       count(*) filter (where wait_event_type = 'Lock')               as esperando_lock,
+       coalesce(max(extract(epoch from (now() - query_start)))::int,0) as consulta_mais_longa_s
+  from pg_stat_activity
+ where datname = current_database() and pid <> pg_backend_pid();
+-- Se `ativas` ou `consulta_mais_longa_s` subirem em relacao a leitura
+-- inicial, PARE. O numero que falta nao vale o banco.
 
 
 -- ---------------------------------------------------------------------
