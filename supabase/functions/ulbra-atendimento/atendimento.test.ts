@@ -68,3 +68,55 @@ describe("ulbra-atendimento: cache", () => {
     expect(c.obter("k")).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Leitura do corpo SSE do MCP. O enquadramento abaixo e o MEDIDO em
+// 2026-11-07 contra crm.ulbra.ai/api/mcp: `event: message` + uma linha `data:`
+// com o envelope JSON-RPC inteiro. Sem `Accept` o servidor devolve 406.
+// ---------------------------------------------------------------------------
+import { ACCEPT_MCP, lerCorpoMcp } from "./atendimento.ts";
+
+describe("lerCorpoMcp — corpo SSE da Mensageria", () => {
+  const envelope = {
+    jsonrpc: "2.0",
+    id: 1,
+    result: { content: [{ text: '{"resultados":[]}' }] },
+  };
+  const sse = (e: unknown) => `event: message\ndata: ${JSON.stringify(e)}\n\n`;
+
+  it("le o envelope do evento SSE", () => {
+    expect(lerCorpoMcp("text/event-stream", sse(envelope))).toEqual(envelope);
+  });
+
+  it("aceita content-type com charset e caixa alta", () => {
+    expect(lerCorpoMcp("TEXT/EVENT-STREAM; charset=utf-8", sse(envelope))).toEqual(envelope);
+  });
+
+  it("concatena varias linhas data: do mesmo evento", () => {
+    const corpo = 'event: message\ndata: {"jsonrpc":"2.0",\ndata: "id":1}\n\n';
+    expect(lerCorpoMcp("text/event-stream", corpo)).toEqual({ jsonrpc: "2.0", id: 1 });
+  });
+
+  it("pula comentario/keep-alive e usa o evento com payload", () => {
+    expect(lerCorpoMcp("text/event-stream", `: ping\n\n${sse(envelope)}`)).toEqual(envelope);
+  });
+
+  it("entende CRLF", () => {
+    const corpo = `event: message\r\ndata: ${JSON.stringify(envelope)}\r\n\r\n`;
+    expect(lerCorpoMcp("text/event-stream", corpo)).toEqual(envelope);
+  });
+
+  it("falha FECHADO quando o corpo SSE nao tem data:", () => {
+    expect(() => lerCorpoMcp("text/event-stream", "event: message\n\n")).toThrow();
+  });
+
+  it("corpo JSON direto continua funcionando, com e sem content-type", () => {
+    expect(lerCorpoMcp("application/json", JSON.stringify(envelope))).toEqual(envelope);
+    expect(lerCorpoMcp(null, JSON.stringify(envelope))).toEqual(envelope);
+  });
+
+  it("ACCEPT_MCP declara os dois tipos exigidos", () => {
+    expect(ACCEPT_MCP).toContain("application/json");
+    expect(ACCEPT_MCP).toContain("text/event-stream");
+  });
+});

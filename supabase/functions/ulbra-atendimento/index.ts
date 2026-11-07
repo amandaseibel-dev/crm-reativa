@@ -4,7 +4,7 @@
 // operador só vê aluno da própria carteira. Não grava nada.
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { MCP_URL, criarCache, extrairResultado, montarChamada, recortar, vinculoConfirmado } from "./atendimento.ts";
+import { ACCEPT_MCP, MCP_URL, criarCache, extrairResultado, lerCorpoMcp, montarChamada, recortar, vinculoConfirmado } from "./atendimento.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -68,14 +68,19 @@ serve(async (req) => {
   try {
     const resp = await fetch(MCP_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: ACCEPT_MCP,
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify(montarChamada(clienteId)),
     });
     if (!resp.ok) {
       console.error("ulbra-atendimento: MCP respondeu", resp.status);
       return responder({ erro: resp.status === 429 ? "ULBRA_LIMITE" : "ULBRA_INDISPONIVEL" }, 502);
     }
-    const atendimento = recortar(extrairResultado(await resp.json()));
+    const envelope = lerCorpoMcp(resp.headers.get("content-type"), await resp.text());
+    const atendimento = recortar(extrairResultado(envelope));
     cache.guardar(clienteId, atendimento);
     return responder({ status: atendimento ? "encontrado" : "sem_atendimento", atendimento, cache: false });
   } catch (e) {

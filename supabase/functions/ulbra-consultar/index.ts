@@ -2,10 +2,12 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decidirAcessoUlbra } from "./portao.ts";
 import {
+  ACCEPT_MCP,
   MCP_URL,
   contatosDeChaves,
   extrairResultado,
   interpretarPorChave,
+  lerCorpoMcp,
   montarChamadaMulti,
   montarChaves,
 } from "./mcp.ts";
@@ -181,7 +183,11 @@ serve(async (req) => {
   try {
     const resp = await fetch(MCP_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: ACCEPT_MCP,
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify(montarChamadaMulti(contatosDeChaves(chaves, ordem))),
     });
     if (!resp.ok) {
@@ -189,7 +195,8 @@ serve(async (req) => {
       await auditar("ULBRA_CONSULTA", "alunos", aluno_id, { chaves: ordem, resultado: "ULBRA_INDISPONIVEL", http: resp.status });
       return responder({ erro: resp.status === 429 ? "ULBRA_LIMITE" : "ULBRA_INDISPONIVEL" }, 502);
     }
-    const lido = interpretarPorChave(extrairResultado(await resp.json()), ordem);
+    const envelope = lerCorpoMcp(resp.headers.get("content-type"), await resp.text());
+    const lido = interpretarPorChave(extrairResultado(envelope), ordem);
     if (!lido.ok) {
       await auditar("ULBRA_CONSULTA", "alunos", aluno_id, { chaves: ordem, resultado: lido.motivo });
       return responder({ status: "erro", motivo: lido.motivo }, 502);
