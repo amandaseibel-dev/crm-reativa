@@ -45,36 +45,71 @@ Componente da ficha: `src/components/BlocoUlbra.jsx` (botão "Abrir na
 Mensageria Ulbra"). `NotificacoesUlbra.jsx` existe mas **não está montado**
 em nenhuma página (polling de 60s estouraria o limite diário).
 
-## Estado em PRODUÇÃO — medido em 06/11/2026
+## Estado em PRODUÇÃO — validado em 07/11/2026
 
-Repositório e produção **não estão no mesmo ponto**, e a diferença é de
-segurança. Medido no projeto `ahattpqrjmhkzsmnbdzs`, somente leitura:
+Repositório e produção estão **no mesmo ponto** desde 07/11/2026. Medido no
+projeto `ahattpqrjmhkzsmnbdzs`:
 
-| Peça | Repositório (main + #821) | Produção |
-|---|---|---|
-| SQL do vínculo | `20261106151254` registrada no ledger | **aplicada** em 06/11 |
-| `ulbra-consultar` | confirma por CPF, falha fechado | **`version 2`, de 03/11** — a da #794 |
-| `ulbra-atendimento` | filtra `confianca = 'alta_cpf'` | **não existe** (nunca publicada) |
-| `ulbra-leads-pendentes` | portão de receptivo/gestão | `version 2`, de 03/11 |
-| view `ulbra_vinculos_confirmados` | proposta `20261106190000` | não existe |
-| `ulbra_vinculos` | — | **0 linhas**, 0 auditorias `ULBRA_*` |
+| Peça | Produção |
+|---|---|
+| SQL do vínculo | **aplicada** em 06/11 (`20261106151254`, registrada no ledger) |
+| `ulbra-consultar` | **publicada** em 07/11 a partir da main: confirma por CPF, audita, falha fechado; `verify_jwt = true` |
+| `ulbra-atendimento` | **publicada** em 07/11 (antes não existia): filtra `confianca = 'alta_cpf'`; `verify_jwt = true` |
+| `ulbra-leads-pendentes` | sem alteração |
+| view `ulbra_vinculos_confirmados` | proposta `20261106190000`, **não aplicada** |
+| `ulbra_vinculos` | **2 linhas**, ambas `alta_cpf` / `origem: cpf`, com `ULBRA_VINCULO_CRIADO` na auditoria |
+| secret `ULBRA_MCP_TOKEN` | **cadastrado** em 07/11 — antes disso não existia |
 
-Duas consequências que não devem ser suavizadas:
+### O que a publicação exigiu além do merge
 
-1. **A função que está no ar é a que vincula por telefone.** Lido no fonte
-   publicado: ela busca por telefone (CPF só como *fallback* quando o telefone
-   falta ou é malformado), grava `confianca: 'alta'`, **não escreve auditoria
-   nenhuma** e devolve `url` para qualquer vínculo ativo que encontrar. É o
-   defeito inteiro descrito abaixo, em execução. A correção só passa a valer
-   **no deploy** — merge não publica Edge Function.
-2. **`AtendimentoUlbra` está montado na ficha chamando uma função que não
-   existe** (`FichaAlunoUnificada.jsx`, `Aluno.jsx`). O bloco falha para o
-   operador.
+Duas correções que só apareceram ao exercitar a integração contra a Mensageria
+real. As duas foram **medidas**, não inferidas:
 
-O que limita o dano hoje é que `ulbra_vinculos` está **vazia**: nenhum vínculo
-errado foi criado ainda. Mas isso é a ausência de um clique, não uma proteção —
-e os 0 registros de auditoria **não provam nada**, porque a função publicada
-não audita.
+1. **`Accept: application/json, text/event-stream` é obrigatório** (PR #849).
+   Sem o cabeçalho o endpoint devolve **406**; com ele devolve **200**, e o
+   corpo vem em **SSE** (`event: message` + uma linha `data:` com o envelope
+   JSON-RPC inteiro), onde `resp.json()` quebra. Daí o `lerCorpoMcp()` nas duas
+   funções, que aceita as duas formas e falha fechado em corpo sem `data:`.
+2. **A rota do cadastro do cliente é `/app/clientes/<ulbra_cliente_id>`**
+   (PR #850). O formato anterior, `/atendimentos/<id>`, devolvia "Not Found":
+   faltava o prefixo `/app` **e** punha id de CLIENTE numa rota de ATENDIMENTO,
+   que tem id próprio.
+
+Antes dessas duas, a integração **nunca funcionou em produção** — o que explica
+`ulbra_vinculos` vazia desde 03/11. Enquanto o secret não existia, toda chamada
+parava em `CONFIG_AUSENTE`; depois dele, parava em `406`.
+
+### Validação na ficha real (07/11/2026)
+
+Com usuário de gestão autenticado, na ficha de alunos com CPF:
+
+- o vínculo nasceu `alta_cpf` / `origem: cpf`, com `ULBRA_VINCULO_CRIADO` na
+  auditoria e **sem CPF nem telefone nos detalhes** — só qual chave casou;
+- num dos dois casos o **telefone discordou do CPF** (`telefone_concordou:
+  false`) e **o CPF decidiu**. É a regra de segurança desta frente exercida em
+  dado real: na versão anterior esse aluno teria sido vinculado pelo telefone,
+  com selo `alta`;
+- o botão "Abrir na Mensageria Ulbra" abre o **cadastro correto** do cliente;
+- **o bloco de atendimento respondeu vazio** (`Sem atendimento na Mensageria
+  Ulbra`), já com a função corrigida e com o token de backend.
+
+**A causa da consulta vir vazia NÃO está comprovada.** Pode ser ausência real
+de atendimento para aquele cliente, recorte do que `listar_atendimentos`
+devolve, ou outra coisa. Medições feitas pela conexão OAuth de gestão **não
+servem de prova** para o token de backend: são credenciais diferentes. Só a
+ULBRA confirma — **não registrar como "escopo" sem essa confirmação**.
+
+### Pendente
+
+- **Rotação da credencial da Mensageria, com a TI da ULBRA.** O valor do token
+  havia sido cadastrado no campo **nome** de um secret, e nome de secret é
+  legível em texto puro no painel para qualquer pessoa com acesso ao projeto. O
+  cadastro malformado foi removido em 07/11 e o `ULBRA_MCP_TOKEN` correto está
+  no lugar, mas **o valor esteve exposto e segue válido** até ser trocado.
+- **Confirmar com a ULBRA** por que `listar_atendimentos` volta vazia para um
+  cliente que existe e tem equipe.
+- A view `ulbra_vinculos_confirmados` (`20261106190000`) segue **não aplicada**
+  — é defesa em profundidade, não pré-requisito.
 
 ## Vínculo aluno ↔ cliente: a regra (corrigida em 04/11/2026)
 
@@ -206,9 +241,10 @@ intermediário confuso.
   decisão da gestão abrir ou não essa edição aqui.
 
 - `ulbra_vinculos` nasceu em produção sem migration (PR #794). Conferido em
-  04/11/2026: a tabela está **vazia** (0 linhas, 0 `ULBRA_VINCULO_CRIADO` em
-  `auditoria`), então não há vínculo legado a reclassificar — a proteção é
-  estrutural.
+  04/11/2026: a tabela estava **vazia** (0 linhas, 0 `ULBRA_VINCULO_CRIADO` em
+  `auditoria`), então não havia vínculo legado a reclassificar — a proteção é
+  estrutural. Em 07/11/2026, depois da publicação, a tabela tem **2 linhas**,
+  ambas `alta_cpf` / `origem: cpf`, com auditoria correspondente.
 - **As 3 policies de RLS também nasceram sem migration, então não existe
   arquivo neste repositório que as defina.** Ficavam descritas em prosa como
   "todas sob `usuario_e_gestao()`", sem medição. Medidas em produção
@@ -283,7 +319,14 @@ intermediário confuso.
   `vinculo.test.ts` e `ulbra-leads-pendentes/portao.test.ts` carregam a forma
   real das respostas — se a Mensageria mudar a forma, é aí que quebra.
 
-## Sequência de publicação (preparada, NÃO executada)
+## Sequência de publicação — EXECUTADA em 07/11/2026
+
+> **Esta sequência foi cumprida em 07/11/2026.** Os passos 1 a 3 estão feitos
+> (secret cadastrado, `ulbra-consultar` e `ulbra-atendimento` publicadas) e o
+> passo 5 foi validado em ficha real — ver "Estado em PRODUÇÃO" no topo. O
+> passo 4 (frontend) não foi necessário: a tela já estava publicada. O passo 6
+> (view) segue pendente, por autorização própria. O texto abaixo fica como
+> registro do que foi executado e em que ordem.
 
 Nada abaixo foi executado. Cada passo exige autorização explícita da gestão e
 executor único — a sessão principal. O SQL do vínculo **já está aplicado**,
