@@ -41,7 +41,12 @@ const ROTULO_ORIGEM = {
   whatsapp: "WhatsApp",
 };
 
-export default function TelefonesAluno({ aluno }) {
+// `children` = acoes que PERTENCEM aos contatos mas moram em outro componente.
+// Hoje e o link da Mensageria ULBRA, que vive no `BlocoUlbra`. Este bloco so
+// da LUGAR a ele, dentro do cartao: a condicao de exibicao (vinculo confirmado
+// por CPF) e a abertura em nova aba continuam inteiras la dentro, onde o portao
+// de identidade foi escrito. Nada aqui decide se o link aparece.
+export default function TelefonesAluno({ aluno, children }) {
   // A7: reativar contato e exclusivo do Administrativo e da supervisao. O
   // portao de verdade esta dentro de `aluno_contato_revalidar`; aqui o botao e
   // escondido para nao oferecer uma acao que vai ser recusada.
@@ -328,6 +333,11 @@ export default function TelefonesAluno({ aluno }) {
         </div>
       </Dobra>
 
+      {/* Sem borda nem recheio de proposito: quando o `BlocoUlbra` decide nao
+          mostrar nada (vinculo nao confirmado, aluno fora do escopo), esta
+          caixa fica invisivel em vez de deixar uma faixa vazia no cartao. */}
+      {children ? <div style={S.rodape}>{children}</div> : null}
+
       {msg ? <div style={S.msg}>{msg}</div> : null}
     </div>
   );
@@ -376,6 +386,7 @@ const S = {
   botaoAddLeve: { background: "var(--rv-superficie)", color: "var(--rv-azul-texto)", border: "1px solid var(--rv-azul-borda)", borderRadius: 8, padding: "6px 11px", fontWeight: 700, cursor: "pointer", fontSize: 12 },
   acoes: { display: "flex", alignItems: "center", gap: 12, marginTop: 2 },
   salvarLeve: { background: "var(--rv-superficie)", color: "var(--rv-azul-texto)", border: "1px solid var(--rv-azul-borda)", borderRadius: 8, padding: "6px 11px", fontWeight: 700, fontSize: 12, cursor: "pointer" },
+  rodape: { marginTop: 2 },
   vazio: { fontSize: 12, color: "var(--rv-texto-fraco)" },
   msg: { fontSize: 12, color: "var(--rv-verde-ok-texto)", fontWeight: 600, marginTop: 4 },
 };

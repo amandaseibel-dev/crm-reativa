@@ -2252,7 +2252,16 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   WhatsApp, copiar o numero). Antes viviam no meio da aba
                   "Resumo e tabulacao", embaixo do card de acordos. Saiu de la,
                   nao foi duplicado. */}
-              <TelefonesAluno aluno={alunoSelecionado} />
+              {/* O link "Abrir na Mensageria Ulbra ↗" entra como rodape do
+                  cartao de contatos: e um canal de contato, e o lugar dele e
+                  junto dos telefones. O `BlocoUlbra` vem INTEIRO, sem nenhuma
+                  alteracao -- ele continua sendo o unico a decidir se mostra o
+                  link (so com vinculo confirmado por CPF), o aviso de vinculo
+                  nao confirmado ou nada, e a abertura segue em nova aba com
+                  `rel="noopener noreferrer"`. Mudou o lugar, nao a regra. */}
+              <TelefonesAluno aluno={alunoSelecionado}>
+                <BlocoUlbra aluno={alunoSelecionado} />
+              </TelefonesAluno>
               <div style={caixaTabular}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 13, fontWeight: 800, color: "var(--rv-azul-texto)", whiteSpace: "nowrap" }}>
@@ -2521,7 +2530,10 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   )}
                 </div>
               </div>
-              <BlocoUlbra aluno={alunoSelecionado} />
+              {/* `BlocoUlbra` saiu daqui para o rodape do cartao de contatos,
+                  logo abaixo do cabecalho. Nao foi duplicado. O
+                  `AtendimentoUlbra` fica: e o atendimento em curso, nao um
+                  contato -- e segue so na aba "Resumo e tabulacao". */}
               <AtendimentoUlbra aluno={alunoSelecionado} />
               </>
               )}
