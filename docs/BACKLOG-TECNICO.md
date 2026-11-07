@@ -398,3 +398,70 @@ interface, a recusa nomeada `ACAO_FORA_DO_ESCOPO_DESTA_ETAPA`.
 aluno pode ou não acionar a baixa pela mesma transação (decisão de negócio, não
 de código); e uma guarda para não sobrescrever vínculo existente, que hoje não
 existe em `pagamento_vincular_aluno`.
+
+## Classes do Tailwind órfãs e regra global de `input` (aberto em 07/11/2026)
+
+**Prioridade:** média · **origem:** amostra visual da ficha na PR #852.
+**Registrado como pendência por decisão da Amanda em 07/11/2026.** Nenhum outro
+componente foi alterado.
+
+### 1. O projeto não tem Tailwind, mas três componentes escrevem classes dele
+
+Não existe `tailwind.config`, não há dependência no `package.json` e não há
+`@tailwind` no `src/index.css`. Logo, **toda classe do Tailwind no código nunca
+pintou nada**: o navegador recebe um `class` que não casa com regra nenhuma e o
+elemento sai com o estilo padrão — texto preto, tamanho normal, sem espaçamento.
+
+Isso só apareceu porque a amostra da PR #852 renderizou o bloco isolado. Na
+ficha inteira o efeito passa por "texto sem destaque", não por "tela quebrada".
+
+Estado em 07/11/2026:
+
+- `src/components/BlocoUlbra.jsx` — **corrigido na PR #852.** Era o caso grave:
+  os avisos de *vínculo sem confirmação por CPF*, *bloqueio* e *falha de
+  gravação* saíam em preto comum, sem ler como alerta. Agora usam estilo inline
+  nos tokens da ficha.
+- `src/components/AtendimentoUlbra.jsx` — **pendente, e está vivo**: é
+  renderizado na ficha por `src/pages/Aluno.jsx` e por
+  `src/components/FichaAlunoUnificada.jsx`. Classes sem efeito hoje:
+  `font-semibold text-gray-600`, `mt-1 text-xs text-gray-400`,
+  `mt-2 text-xs text-gray-700 border-l-2 border-blue-300 pl-2`,
+  `ml-2 text-xs text-blue-600 hover:underline whitespace-nowrap`,
+  `text-sm truncate`.
+- `src/components/NotificacoesUlbra.jsx` — **pendente, mas órfão**: nenhum
+  arquivo de produção o importa (só o próprio teste). Se um dia for montado,
+  aparece sem nada do visual pretendido — inclusive o botão
+  `bg-blue-600 text-white` e o dropdown `absolute ... bg-white shadow-lg z-50`,
+  que sem Tailwind não é nem posicionado. Decidir antes se o componente fica ou
+  sai.
+
+**O que resolveria**, em ordem de custo:
+
+1. converter as classes dos dois componentes para estilo inline com os tokens
+   `--rv-*`, como foi feito no `BlocoUlbra` — é o caminho coerente com o resto
+   do CRM, que já é todo estilo inline + tokens;
+2. adicionar Tailwind ao projeto — resolve de uma vez, mas introduz build novo,
+   e as 92 ocorrências de `className` espalhadas passariam a pintar de verdade,
+   o que **mudaria telas que hoje estão estáveis**. Não é mudança visual
+   pequena, apesar de parecer.
+
+A opção 1 é a recomendada. A opção 2 não deve ser tomada como "só ligar o
+Tailwind": ela repinta o que hoje ninguém está vendo.
+
+### 2. Regra global `input { background: #0f172a }` no `src/index.css`
+
+A regra é do tema escuro e vale para **todo `<input>` do CRM**. Qualquer campo
+que não declare `background` e `color` herda fundo quase preto. Dentro de um
+cartão claro, vira uma caixa preta.
+
+Foi o que acontecia com os três campos do cartão de contatos (`inTel`,
+`inMail`, `inNome`), **corrigidos localmente na PR #852** — os três passaram a
+declarar fundo, texto e borda explícitos. A regra global **não foi tocada**, por
+decisão: ela alcança todas as telas e mexer nela sem varredura é risco de
+respingo onde hoje está estável.
+
+**Pendência:** levantar quais outros formulários do CRM herdam essa regra sem
+declarar fundo próprio. Não foi medido — a frente da PR #852 parou no cartão de
+contatos de propósito.
+
+**Não implementar nenhum dos dois sem aprovação.**
