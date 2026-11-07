@@ -85,19 +85,50 @@ Com usuário de gestão autenticado, na ficha de alunos com CPF:
 
 - o vínculo nasceu `alta_cpf` / `origem: cpf`, com `ULBRA_VINCULO_CRIADO` na
   auditoria e **sem CPF nem telefone nos detalhes** — só qual chave casou;
-- num dos dois casos o **telefone discordou do CPF** (`telefone_concordou:
-  false`) e **o CPF decidiu**. É a regra de segurança desta frente exercida em
-  dado real: na versão anterior esse aluno teria sido vinculado pelo telefone,
-  com selo `alta`;
-- o botão "Abrir na Mensageria Ulbra" abre o **cadastro correto** do cliente;
-- **o bloco de atendimento respondeu vazio** (`Sem atendimento na Mensageria
-  Ulbra`), já com a função corrigida e com o token de backend.
+- num dos dois casos o telefone **não concordou** com o CPF
+  (`telefone_concordou: false`). Isso **não bloqueou** nada: o CPF confirmou e
+  o vínculo nasceu `alta_cpf` normalmente. O que a regra impediu foi **o
+  telefone determinar o vínculo** — na versão anterior o telefone decidia, e o
+  selo saía `alta` sem identidade provada.
 
-**A causa da consulta vir vazia NÃO está comprovada.** Pode ser ausência real
-de atendimento para aquele cliente, recorte do que `listar_atendimentos`
-devolve, ou outra coisa. Medições feitas pela conexão OAuth de gestão **não
-servem de prova** para o token de backend: são credenciais diferentes. Só a
-ULBRA confirma — **não registrar como "escopo" sem essa confirmação**.
+  **Os dois casos são excludentes por construção**, e vale ler a condição
+  exata em `vinculo.ts`:
+
+  ```ts
+  if (idTel && idCpf && idTel !== idCpf) -> bloquear AMBIGUO_CHAVES_DISCORDANTES
+  ```
+
+  É o **primeiro** portão de `decidirVinculo` depois do vínculo existente, e
+  exige as **duas** chaves devolvendo id **dentro do escopo do token** e
+  **diferentes** entre si. Nesse caso nada é gravado: `acao: "bloquear"`, sem
+  candidato. Logo, **num vínculo que existe, `telefone_concordou: false` nunca
+  significa "o telefone apontou outro cliente"** — se apontasse, não haveria
+  vínculo. Significa que o telefone **não devolveu id**: não achou ninguém,
+  ou achou fora do escopo do token (aí `telefone_fora_do_escopo` vem `true`,
+  e fica registrado na auditoria em vez de passar por concordância).
+
+  Em resumo: *telefone sem id* é caso **permitido**, decidido pelo CPF;
+  *telefone com id diferente* é **bloqueio**, e não gera vínculo;
+- o botão "Abrir na Mensageria Ulbra" abre o **cadastro correto** do cliente;
+- numa das fichas **o bloco de atendimento respondeu vazio** (`Sem atendimento
+  na Mensageria Ulbra`), já com a função corrigida e com o token de backend;
+- noutra ficha, **o bloco veio preenchido**: a mesma função, com o mesmo token
+  de backend, devolveu o atendimento do cadastro vinculado — situação, coluna,
+  equipe e responsável, conferindo com o que a Mensageria mostra para aquele
+  cadastro.
+
+**O teste positivo prova uma coisa só, e convém não esticar:** naquele cadastro
+vinculado, o token de backend **leu atendimento**. Não é base para generalizar
+alcance de permissão — nada se conclui daqui sobre outras equipes, outros
+cadastros ou outros tipos de atendimento.
+
+**A causa da outra consulta vir vazia NÃO está comprovada.** O que o teste
+positivo afasta é a explicação "o backend não consegue ler atendimento", já que
+ele leu. Resta ausência real de atendimento naquele cadastro, recorte do que
+`listar_atendimentos` devolve, ou outra coisa — e só a ULBRA confirma.
+Medições feitas pela conexão OAuth de gestão **não servem de prova** para o
+token de backend: são credenciais diferentes. **Não registrar como "escopo"
+sem essa confirmação.**
 
 ### Pendente
 
