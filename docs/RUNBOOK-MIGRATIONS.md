@@ -122,6 +122,77 @@ deploy, merge, `execute_sql` com escrita sem rollback e as demais ferramentas de
 A versão gerada pelo servidor é registrada, com a correspondência para o nome do
 arquivo, na PR que muda o `status` para `aplicada`.
 
+#### A janela de 30 minutos cobre a CHAMADA, não a confirmação
+
+Esclarecimento acrescentado em **06/11/2026**. Ele **não altera nenhum
+requisito de autorização** — os três itens acima continuam valendo
+integralmente. O que estava faltando era dizer *em que instante* o item 2 é
+avaliado, porque a ausência disso fez uma aplicação legítima parecer irregular
+numa auditoria posterior.
+
+- O hook M1 roda no **`PreToolUse`**: ele avalia `project_id`, `name`, SHA-256,
+  `status` e `expira_em` **no momento em que a chamada é emitida**, e libera ou
+  nega ali.
+- O **`ask`** do `.claude/settings.json` vem **depois** da liberação, e o hook
+  **não reavalia** nada quando a pessoa confirma.
+- A `version` que o banco grava é o **relógio UTC do servidor no instante da
+  gravação** — depois da confirmação. Ela **não é** a hora da chamada, e
+  portanto **não serve** para julgar se a janela foi respeitada.
+
+> **Estado atual do freio, em 06/11/2026: o hook NÃO está instalado.** Por
+> decisão da gestão, `plugins/reativa-one/hooks/hooks.json` teve os
+> `PreToolUse` e o `Stop` do Guardião retirados — o `guardiao.sh` continua no
+> repositório, intacto, **sem gatilho**; a cópia ativa está em
+> `hooks.json.guardiao-ativo` e a reinstalação está descrita em
+> `docs/operacao/guardiao-remocao-temporaria.md`. Enquanto isso valer, **nada
+> avalia a janela automaticamente**: o item 2 é cumprido por disciplina, e este
+> RUNBOOK é o único portão. A camada de permissões (`deny`/`ask`) do
+> `.claude/settings.json` continua ativa, mas ela não lê o registro de
+> aprovação.
+
+Consequência prática, e é ela que precisa estar escrita: **uma `version`
+posterior ao `expira_em` não é, por si, aplicação fora da janela.** O que
+decide é o instante da chamada — e, pelo mesmo motivo, a `version` **também não
+prova cumprimento**: ela não diz nada sobre a janela, em nenhuma das duas
+direções. Sem o instante da chamada registrado, vale o veredito padrão do fim
+desta subseção.
+
+**Caso de referência, já documentado:** a migration
+`20261104200000_ulbra_vinculos_confianca_e_unicidade` (PR #818). `expira_em`
+da linha M1 `2026-11-06T15:09:00Z`; a versão que o banco carimbou é
+`20261106151254`, isto é **15:12:54Z** — 3 min 54 s após o `expira_em`.
+
+Segundo o **declarado** no corpo da **PR #836** e em
+`supabase/ledger/2026-11/20261106151254__NOTA.md`, a linha foi conferida em
+`origin/main` às 15:06:10Z e a chamada foi emitida em seguida, dentro da
+validade. **Isso é declaração de quem executou, não reconstituição por
+artefato:** a `version` é posterior e o hook não deixa log, então não há como
+provar o instante da chamada depois do fato.
+
+Do conteúdo, as duas provas não têm a mesma força, e vale distingui-las aqui
+pela mesma régua que o resto desta subseção aplica: o **SHA-256** do arquivo é
+**verificável no próprio repositório** (`shasum -a 256` do blob em `f5fb4fc6`,
+igual ao da linha M1 em `docs/seguranca/migracoes-aprovadas.tsv`); o **md5 dos
+`statements`** é **medição declarada** na NOTA do ledger, que depende de ler
+produção para reconferir.
+
+**Como provar a janela, então.** A `version` não basta. Registre, na PR que
+muda o `status` para `aplicada`, o horário em que a linha M1 foi conferida em
+`origin/main` e o da emissão da chamada — como a #836 fez.
+
+**E o veredito padrão, quando esse registro falta, é fechado: a janela fica
+NÃO COMPROVADA.** Não se presume cumprida por ausência de prova do contrário,
+e não se presume violada pela `version` — fica registrada como não comprovada,
+com o conteúdo (SHA-256) separado da autorização (janela), porque são duas
+perguntas diferentes e uma pode estar provada sem a outra.
+
+**O que isto não afrouxa:** nada. A janela segue sendo de 30 minutos, a linha
+segue tendo de estar `pendente` com `expira_em` no futuro **no momento da
+chamada**, o executor segue nominal, o `ask` segue obrigatório, e demora entre
+a chamada e a confirmação **não é** autorização estendida — se a pessoa não vai
+confirmar de imediato, o certo é não emitir a chamada. Reestampar a validade
+exige PR nova e revisada, como sempre.
+
 ## 7. Registro da versão efetivamente aplicada no ledger
 
 Registre no ledger a versão **que o banco gravou**, não a que o arquivo pretendia. A
