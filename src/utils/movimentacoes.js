@@ -77,3 +77,86 @@ export function recortarMovimentacoes(
     podeExpandir: excede,
   };
 }
+
+// --- Linha única ---------------------------------------------------------
+//
+// A ficha mostrava CADA movimentação em três linhas (tipo, descrição, meta),
+// com o tipo repetindo o que a descrição já dizia e com nome de coluna do
+// banco na cara do operador. O que segue reduz o registro a UMA linha, sem
+// esconder registro nenhum: o que não cabe vai para o `title`, e o histórico
+// completo continua no "Ver todas" e no PDF.
+
+/**
+ * Data compacta para a linha: "07/11 10:01". O ano fica de fora porque a
+ * lista é cronológica e o ano inteiro está no `title`. Coluna `date` pura
+ * (sem horário) não passa por `new Date` -- ver a mesma armadilha em
+ * `formatarDataHora`: o parser leria como UTC e o dia voltaria um.
+ */
+export function dataCompacta(valor) {
+  if (!valor) return "";
+  try {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
+      const [, mes, dia] = valor.split("-");
+      return `${dia}/${mes}`;
+    }
+    const d = new Date(valor);
+    if (Number.isNaN(d.getTime())) return "";
+    const dia = String(d.getDate()).padStart(2, "0");
+    const mes = String(d.getMonth() + 1).padStart(2, "0");
+    const hora = String(d.getHours()).padStart(2, "0");
+    const min = String(d.getMinutes()).padStart(2, "0");
+    return `${dia}/${mes} ${hora}:${min}`;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Transição em português. `traduzir` é injetado (na tela, `rotuloStatus`)
+ * para este módulo seguir sem depender de outro: quem chama decide o mapa.
+ */
+export function resumoStatusLegivel(statusAnterior, statusNovo, traduzir) {
+  const t = typeof traduzir === "function" ? traduzir : (v) => v;
+  const de = (statusAnterior || "").trim();
+  const para = (statusNovo || "").trim();
+  if (!de && !para) return "";
+  if (!de) return t(para);
+  if (!para) return t(de);
+  if (de === para) return t(para);
+  return `${t(de)} → ${t(para)}`;
+}
+
+/**
+ * Os quatro pedaços da linha única. Nada é descartado: o que não entra em
+ * `texto` entra em `titulo`, que a tela põe no atributo `title`.
+ *
+ * `texto` prefere a descrição porque é ela que diz o que houve; o tipo só
+ * aparece quando não há descrição, e ainda assim traduzido.
+ */
+export function linhaMovimentacao(mov, traduzir, formatarCompleta) {
+  const m = mov || {};
+  const t = typeof traduzir === "function" ? traduzir : (v) => v;
+  const transicao = resumoStatusLegivel(m.status_anterior, m.status_novo, t);
+  const descricao = (m.descricao || "").trim();
+  const tipoLegivel = m.tipo ? t(m.tipo) : "";
+  const operador = rotuloOperador(m.registrado_por_nome, m.registrado_por_email);
+
+  const texto = descricao || transicao || tipoLegivel || "Movimentação";
+
+  const completa =
+    typeof formatarCompleta === "function" ? formatarCompleta(m.registrado_em) : "";
+  const partes = [
+    tipoLegivel,
+    completa,
+    transicao,
+    descricao,
+    operador && m.registrado_por_email ? `${operador} (${m.registrado_por_email})` : operador,
+  ].filter(Boolean);
+
+  return {
+    data: dataCompacta(m.registrado_em),
+    texto,
+    operador,
+    titulo: partes.join("\n"),
+  };
+}
