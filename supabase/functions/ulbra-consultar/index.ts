@@ -25,8 +25,13 @@ function responder(corpo: Record<string, unknown>, status = 200) {
   });
 }
 
+// Rota do CADASTRO do cliente na Mensageria. Conferida em 07/11/2026
+// abrindo `/app/clientes/<ulbra_cliente_id>` com um id vindo de
+// `conferir_duplicidade`: carrega a ficha do cliente. O formato antigo
+// (`/atendimentos/<id>`) devolvia "Not Found" — punha id de CLIENTE numa
+// rota de ATENDIMENTO, que tem id proprio.
 function urlCliente(clienteId: string) {
-  return `https://crm.ulbra.ai/atendimentos/${clienteId}`;
+  return `https://crm.ulbra.ai/app/clientes/${clienteId}`;
 }
 
 serve(async (req) => {
