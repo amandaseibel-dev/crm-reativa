@@ -51,6 +51,8 @@ export default function TelefonesAluno({ aluno }) {
   const [novoTel, setNovoTel] = useState("");
   const [novoMail, setNovoMail] = useState("");
   const [msg, setMsg] = useState("");
+  // Qual valor acabou de ser copiado -- so para o retorno visual do botao.
+  const [copiado, setCopiado] = useState("");
 
   const [resp, setResp] = useState({ nome_resp1: "", telefone_resp1: "", nome_resp2: "", telefone_resp2: "" });
   const [salvandoResp, setSalvandoResp] = useState(false);
@@ -148,6 +150,26 @@ export default function TelefonesAluno({ aluno }) {
     } finally { setSalvandoResp(false); }
   }
 
+  // Copiar o numero/e-mail cru -- e o que o operador cola no Prime e no
+  // discador. O fallback do textarea existe porque a clipboard API exige
+  // contexto seguro e nem todo navegador da operacao esta nele.
+  async function copiar(valor) {
+    const texto = String(valor || "").trim();
+    if (!texto) { setMsg("Nada para copiar."); return; }
+    try {
+      await navigator.clipboard.writeText(texto);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = texto;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    setCopiado(texto);
+    setTimeout(() => setCopiado((v) => (v === texto ? "" : v)), 1500);
+  }
+
   function zap(tel) {
     const d = soDigitos(tel);
     if (!d) { setMsg("Número vazio ou inválido."); return; }
@@ -156,26 +178,61 @@ export default function TelefonesAluno({ aluno }) {
 
   const telefones = contatos.filter((c) => c.tipo === "telefone");
   const emails = contatos.filter((c) => c.tipo === "email");
+  // Qual telefone recebe o destaque. Precisa ser `principal` E `valido`: um
+  // principal invalidado nao pode ser oferecido como o numero a discar. Se o
+  // banco nao marcou nenhum, ninguem ganha destaque -- a ficha nao inventa.
+  const idPrincipal = telefones.find((c) => c.principal && c.valido)?.id || null;
   // O numero no titulo da dobra existe para nada ficar escondido sem aviso:
   // fechado com "(2)" o operador sabe que ha responsavel cadastrado.
   const qtdResp = [resp.telefone_resp1, resp.telefone_resp2].filter((t) => String(t || "").trim()).length;
 
-  function Contato({ c }) {
+  // `destaque` = este e o contato principal e valido. Ele ganha moldura e
+  // fonte maior porque e o numero que o operador disca primeiro; os demais
+  // continuam TODOS visiveis, so com peso menor -- nada entra atras de clique.
+  function Contato({ c, destaque }) {
     const texto = c.tipo === "telefone" ? exibirTelefone(c.valor) : c.valor;
+    const estaCopiado = copiado === String(c.valor || "").trim();
     return (
-      <div style={{ ...S.item, ...(c.valido ? null : S.itemInvalido) }}>
-        <span style={{ ...S.valor, ...(c.valido ? null : S.valorInvalido) }}>{texto}</span>
-        {c.principal && c.valido ? <span style={S.tagPrincipal}>principal</span> : null}
+      <div
+        style={{
+          ...S.item,
+          ...(destaque ? S.itemDestaque : null),
+          ...(c.valido ? null : S.itemInvalido),
+        }}
+      >
+        <span
+          style={{
+            ...S.valor,
+            ...(destaque ? S.valorDestaque : null),
+            ...(c.valido ? null : S.valorInvalido),
+          }}
+        >
+          {texto}
+        </span>
+        {c.principal && c.valido ? (
+          <span style={destaque ? S.tagPrincipalForte : S.tagPrincipal}>principal</span>
+        ) : null}
         <span style={S.tagOrigem}>{ROTULO_ORIGEM[c.origem] || c.origem}</span>
         {c.valido ? (
           <>
+            {/* Acoes de atendimento: WhatsApp e copiar ficam sempre a um
+                clique, com peso visual proprio. */}
             {c.tipo === "telefone" ? (
-              <button style={S.zap} onClick={() => zap(c.valor)} title="Abrir WhatsApp">WhatsApp</button>
+              <button style={destaque ? S.zapForte : S.zap} onClick={() => zap(c.valor)} title="Abrir WhatsApp">WhatsApp</button>
             ) : null}
+            <button
+              style={estaCopiado ? S.copiarOk : S.copiar}
+              onClick={() => copiar(c.valor)}
+              title={c.tipo === "telefone" ? "Copiar o número" : "Copiar o e-mail"}
+            >
+              {estaCopiado ? "✓ Copiado" : "Copiar"}
+            </button>
+            {/* Acoes administrativas: recuam para texto discreto. O que elas
+                fazem e quem pode fazer NAO mudou -- so o peso visual. */}
             {!c.principal ? (
-              <button style={S.botaoLeve} onClick={() => tornarPrincipal(c)}>Tornar principal</button>
+              <button style={S.botaoAdmin} onClick={() => tornarPrincipal(c)}>Tornar principal</button>
             ) : null}
-            <button style={S.botaoInvalidar} onClick={() => invalidar(c)}>Invalidar</button>
+            <button style={S.botaoAdminRisco} onClick={() => invalidar(c)}>Invalidar</button>
           </>
         ) : (
           <>
@@ -183,7 +240,7 @@ export default function TelefonesAluno({ aluno }) {
               inválido{c.motivo_invalidacao ? ` — ${c.motivo_invalidacao}` : ""}
             </span>
             {podeReativar ? (
-              <button style={S.botaoLeve} onClick={() => revalidar(c)}>Reativar</button>
+              <button style={S.botaoAdmin} onClick={() => revalidar(c)}>Reativar</button>
             ) : (
               <span style={S.semPermissao} title="Reativar contato é do Administrativo e da supervisão">
                 reativação: Administrativo
@@ -204,7 +261,9 @@ export default function TelefonesAluno({ aluno }) {
       <div style={S.grupoAberto}>
         <div style={S.lista}>
           {telefones.length === 0 && !carregando ? <div style={S.vazio}>Nenhum telefone cadastrado.</div> : null}
-          {telefones.map((c) => <Contato key={c.id} c={c} />)}
+          {telefones.map((c) => (
+            <Contato key={c.id} c={c} destaque={c.id === idPrincipal} />
+          ))}
           <div style={S.linhaNovo}>
             <input
               style={S.inTel}
@@ -213,7 +272,7 @@ export default function TelefonesAluno({ aluno }) {
               onChange={(e) => setNovoTel(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") adicionar("telefone", novoTel); }}
             />
-            <button style={S.botaoAdd} onClick={() => adicionar("telefone", novoTel)}>Adicionar telefone</button>
+            <button style={S.botaoAddLeve} onClick={() => adicionar("telefone", novoTel)}>Adicionar telefone</button>
           </div>
         </div>
       </div>
@@ -252,10 +311,17 @@ export default function TelefonesAluno({ aluno }) {
                 onChange={(e) => setResp((v) => ({ ...v, [`telefone_resp${n}`]: e.target.value }))}
               />
               <button style={S.zap} onClick={() => zap(resp[`telefone_resp${n}`])} title="Abrir WhatsApp">WhatsApp</button>
+              <button
+                style={copiado === String(resp[`telefone_resp${n}`] || "").trim() && String(resp[`telefone_resp${n}`] || "").trim() ? S.copiarOk : S.copiar}
+                onClick={() => copiar(resp[`telefone_resp${n}`])}
+                title="Copiar o número"
+              >
+                Copiar
+              </button>
             </div>
           ))}
           <div style={S.acoes}>
-            <button style={S.salvar} onClick={salvarResp} disabled={salvandoResp}>
+            <button style={S.salvarLeve} onClick={salvarResp} disabled={salvandoResp}>
               {salvandoResp ? "Salvando…" : "Salvar responsáveis"}
             </button>
           </div>
@@ -274,11 +340,23 @@ const S = {
   grupoDobra: { marginBottom: 2 },
   rot: { fontSize: 12, color: "var(--rv-texto-suave)", fontWeight: 700, minWidth: 96, paddingTop: 7 },
   lista: { display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 260, marginTop: 6 },
-  item: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  item: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" },
+  // Moldura do principal: borda esquerda azul, como o bloco de decisao do
+  // cabecalho usa. E o unico contato com fundo proprio.
+  itemDestaque: {
+    gap: 8,
+    background: "var(--rv-fundo-suave)",
+    border: "1px solid var(--rv-azul-borda)",
+    borderLeft: "4px solid #2563eb",
+    borderRadius: 10,
+    padding: "7px 10px",
+  },
   itemInvalido: { opacity: 0.75 },
   valor: { fontSize: 13, fontWeight: 600, color: "var(--rv-tinta)", minWidth: 140 },
+  valorDestaque: { fontSize: 17, fontWeight: 800, letterSpacing: "-0.01em" },
   valorInvalido: { textDecoration: "line-through", color: "var(--rv-texto-suave)", fontWeight: 500 },
   tagPrincipal: { fontSize: 11, fontWeight: 700, color: "var(--rv-azul-texto)", background: "var(--rv-fundo-suave)", borderRadius: 999, padding: "2px 8px" },
+  tagPrincipalForte: { fontSize: 10.5, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase", color: "#fff", background: "#2563eb", borderRadius: 999, padding: "2px 9px" },
   tagOrigem: { fontSize: 11, color: "var(--rv-texto-suave)", background: "var(--rv-fundo-suave)", borderRadius: 999, padding: "2px 8px" },
   motivo: { fontSize: 12, color: "var(--rv-ambar-texto)" },
   semPermissao: { fontSize: 11, color: "var(--rv-texto-suave)", fontStyle: "italic" },
@@ -286,12 +364,18 @@ const S = {
   inNome: { border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "7px 9px", fontSize: 13, minWidth: 150 },
   inTel: { border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "7px 9px", fontSize: 13, minWidth: 140 },
   inMail: { border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "7px 9px", fontSize: 13, minWidth: 200 },
-  zap: { background: "#25D366", color: "#fff", border: "none", borderRadius: 8, padding: "6px 10px", fontWeight: 700, cursor: "pointer", fontSize: 12 },
-  botaoAdd: { background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 8, padding: "7px 12px", fontWeight: 700, cursor: "pointer", fontSize: 12 },
-  botaoLeve: { background: "var(--rv-superficie)", color: "var(--rv-texto-forte)", border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "5px 10px", fontWeight: 600, cursor: "pointer", fontSize: 12 },
-  botaoInvalidar: { background: "var(--rv-superficie)", color: "var(--rv-vermelho-texto)", border: "1px solid var(--rv-vermelho-borda)", borderRadius: 8, padding: "5px 10px", fontWeight: 600, cursor: "pointer", fontSize: 12 },
+  zap: { background: "#25D366", color: "#fff", border: "none", borderRadius: 8, padding: "5px 10px", fontWeight: 700, cursor: "pointer", fontSize: 12 },
+  zapForte: { background: "#25D366", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontWeight: 800, cursor: "pointer", fontSize: 13 },
+  copiar: { background: "var(--rv-superficie)", color: "var(--rv-texto-forte)", border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "5px 10px", fontWeight: 700, cursor: "pointer", fontSize: 12 },
+  copiarOk: { background: "var(--rv-verde-ok-fundo)", color: "var(--rv-verde-ok-texto)", border: "1px solid var(--rv-verde-ok-borda)", borderRadius: 8, padding: "5px 10px", fontWeight: 700, cursor: "pointer", fontSize: 12 },
+  // Acoes administrativas: sem moldura, cor suave, fonte menor. Continuam
+  // clicaveis e com a mesma regra de permissao -- so nao competem com o
+  // WhatsApp e o copiar.
+  botaoAdmin: { background: "transparent", color: "var(--rv-texto-suave)", border: "none", padding: "4px 4px", fontWeight: 600, cursor: "pointer", fontSize: 11.5, textDecoration: "underline" },
+  botaoAdminRisco: { background: "transparent", color: "var(--rv-vermelho-texto)", border: "none", padding: "4px 4px", fontWeight: 600, cursor: "pointer", fontSize: 11.5, textDecoration: "underline", opacity: 0.85 },
+  botaoAddLeve: { background: "var(--rv-superficie)", color: "var(--rv-azul-texto)", border: "1px solid var(--rv-azul-borda)", borderRadius: 8, padding: "6px 11px", fontWeight: 700, cursor: "pointer", fontSize: 12 },
   acoes: { display: "flex", alignItems: "center", gap: 12, marginTop: 2 },
-  salvar: { background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 8, padding: "7px 12px", fontWeight: 700, fontSize: 12.5, cursor: "pointer" },
+  salvarLeve: { background: "var(--rv-superficie)", color: "var(--rv-azul-texto)", border: "1px solid var(--rv-azul-borda)", borderRadius: 8, padding: "6px 11px", fontWeight: 700, fontSize: 12, cursor: "pointer" },
   vazio: { fontSize: 12, color: "var(--rv-texto-fraco)" },
   msg: { fontSize: 12, color: "var(--rv-verde-ok-texto)", fontWeight: 600, marginTop: 4 },
 };
