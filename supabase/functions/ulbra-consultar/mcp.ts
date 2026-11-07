@@ -109,6 +109,46 @@ export function contatosDeChaves(chaves: ChavesAluno, ordem: Chave[]): ContatoBu
 
 // Envelope JSON-RPC do MCP: o resultado da ferramenta vem serializado em
 // `result.content[0].text`. `error` no envelope é falha da chamada.
+// ---------------------------------------------------------------------------
+// A Mensageria responde o MCP por SSE. Medido em 2026-11-07 contra
+// crm.ulbra.ai/api/mcp, com credencial de backend:
+//
+//   sem `Accept`                               -> HTTP 406
+//   com `Accept: application/json, text/event-stream` -> HTTP 200,
+//                                     `content-type: text/event-stream`
+//
+// e o corpo vem no enquadramento padrao do SSE, com o envelope JSON-RPC
+// inteiro numa linha `data:`:
+//
+//   event: message
+//   data: {"result":{...},"jsonrpc":"2.0","id":1}
+//
+// `resp.json()` quebra nesse corpo. Por isso a leitura passa por aqui: devolve
+// o ENVELOPE a partir do corpo bruto, aceitando as duas formas (JSON direto e
+// SSE). Falha FECHADO: corpo sem `data:` levanta, e quem chama ja trata
+// excecao como ULBRA_INDISPONIVEL, sem gravar vinculo.
+// ---------------------------------------------------------------------------
+
+/** Cabecalho exigido pelo MCP sobre HTTP. Sem ele a resposta e 406. */
+export const ACCEPT_MCP = "application/json, text/event-stream";
+
+export function lerCorpoMcp(contentType: string | null, corpo: string): unknown {
+  if (!(contentType ?? "").toLowerCase().includes("text/event-stream")) {
+    return JSON.parse(corpo);
+  }
+  // Eventos separados por linha em branco. Dentro de um evento, cada linha
+  // `data:` e um pedaco do payload, concatenado por \n (regra do SSE).
+  for (const evento of corpo.split(/\r?\n\r?\n/)) {
+    const dados = evento
+      .split(/\r?\n/)
+      .filter((l) => l.startsWith("data:"))
+      .map((l) => l.slice(5).replace(/^ /, ""))
+      .join("\n");
+    if (dados.trim()) return JSON.parse(dados);
+  }
+  throw new Error("SSE_SEM_DADOS");
+}
+
 export function extrairResultado(envelope: unknown): unknown {
   if (!envelope || typeof envelope !== "object") throw new Error("ENVELOPE_INVALIDO");
   const env = envelope as { error?: { message?: string }; result?: { content?: Array<{ text?: string }>; isError?: boolean } };
