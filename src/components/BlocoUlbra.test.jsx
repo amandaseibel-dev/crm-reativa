@@ -29,7 +29,7 @@ describe("BlocoUlbra", () => {
       ok: true,
       json: async () => ({
         status: "vinculado",
-        url: "https://crm.ulbra.ai/atendimentos/abc123",
+        url: "https://crm.ulbra.ai/app/clientes/abc123",
       }),
     });
 
@@ -37,7 +37,7 @@ describe("BlocoUlbra", () => {
     await waitFor(() => {
       const link = screen.getByRole("link");
       expect(link).toBeTruthy();
-      expect(link.getAttribute("href")).toBe("https://crm.ulbra.ai/atendimentos/abc123");
+      expect(link.getAttribute("href")).toBe("https://crm.ulbra.ai/app/clientes/abc123");
       expect(link.getAttribute("target")).toBe("_blank");
     });
   });
@@ -187,7 +187,7 @@ describe("BlocoUlbra", () => {
       ok: true,
       json: async () => ({
         status: "vinculado",
-        url: "https://crm.ulbra.ai/atendimentos/abc123",
+        url: "https://crm.ulbra.ai/app/clientes/abc123",
         confianca: "alta",
         origem: "telefone",
         reconfirmar_recomendado: true,
@@ -205,7 +205,7 @@ describe("BlocoUlbra", () => {
       ok: true,
       json: async () => ({
         status: "vinculado",
-        url: "https://crm.ulbra.ai/atendimentos/abc123",
+        url: "https://crm.ulbra.ai/app/clientes/abc123",
         confianca: "alta_cpf",
         origem: "cpf",
         reconfirmar_recomendado: false,

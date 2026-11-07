@@ -150,7 +150,7 @@ async function cadeiaCompleta(
       };
     }
     return {
-      resposta: { status: "vinculado", ulbra_cliente_id: d.ulbra_cliente_id, url: `https://crm.ulbra.ai/atendimentos/${d.ulbra_cliente_id}` },
+      resposta: { status: "vinculado", ulbra_cliente_id: d.ulbra_cliente_id, url: `https://crm.ulbra.ai/app/clientes/${d.ulbra_cliente_id}` },
       pedido,
     };
   }
@@ -171,7 +171,7 @@ async function cadeiaCompleta(
       status: "vinculado",
       ulbra_cliente_id: d.ulbra_cliente_id,
       confianca: CONFIANCA.ALTA_CPF,
-      url: `https://crm.ulbra.ai/atendimentos/${d.ulbra_cliente_id}`,
+      url: `https://crm.ulbra.ai/app/clientes/${d.ulbra_cliente_id}`,
     },
     pedido,
   };
