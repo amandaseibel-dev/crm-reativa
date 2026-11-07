@@ -167,7 +167,37 @@ export function useTabulacoes() {
 // operador não ver um caminho que terminaria em erro, não para proteger o dado.
 // Por isso ele pode ser lista literal sem culpa: se a lista aqui ficar
 // desatualizada, o pior que acontece é a opção aparecer e o banco recusar.
-export const TABULACOES_SO_GESTAO = Object.freeze(["RETORNO_FINANCEIRO"]);
+//
+// AS QUATRO DE 07/11/2026 -- por que entram AQUI e não em cada tela.
+//
+// Conferido em produção em 07/11/2026: `somente_gestao = true` e o gatilho
+// barra as quatro por DOIS caminhos (o piso literal `v_encerra` da função já
+// as traz, e a união com o catálogo também). O BANCO JÁ ESTAVA FECHADO; o que
+// faltava era a tela, e faltava de forma desigual, porque cada `<select>`
+// mantinha a sua própria lista à mão:
+//   * `PainelCarteira.jsx` (Minha Carteira, a tela real do operador) filtrava
+//     ANTECIPACAO_SEMESTRE e os três ALEGA_*_CONFIRMADO -- e deixava
+//     CANCELAMENTO_COBRANCA, SUSPENSAO_COBRANCA e JURIDICO à vista;
+//   * o `<select>` da aba ADM em `Aluno.jsx` filtrava SÓ por
+//     `tabulacaoDisponivel` (isto é, só RETORNO_FINANCEIRO), e aquela aba é
+//     renderizada para TODOS e grava por UPDATE direto -- as quatro vazavam;
+//   * o `<select>` de tabular da ficha (`Aluno.jsx`) já as escondia, por
+//     `STATUS_BLOQUEADOS_ACIONAMENTO` + `podeVerTudo`.
+// Acrescentar as quatro aqui fecha os dois furos de uma vez, nos três
+// `<select>` que gravam, sem mais uma lista literal para manter.
+//
+// NÃO MEXE NO EFEITO DE NENHUMA DELAS. Esta lista só decide quem VÊ a opção.
+// `STATUS_BLOQUEADOS_ACIONAMENTO`, `STATUS_COM_PROCESSO`, o efeito financeiro
+// (`trg_tabulacao_efeito_financeiro`), a saída da cobrança, o borderô e a fila
+// continuam exatamente como estavam -- suspensão continua suspendendo e
+// cancelamento continua cancelando, quando a gestão escolhe.
+export const TABULACOES_SO_GESTAO = Object.freeze([
+  "RETORNO_FINANCEIRO",
+  "ALEGA_FINANCIAMENTO_CONFIRMADO",
+  "CANCELAMENTO_COBRANCA",
+  "SUSPENSAO_COBRANCA",
+  "JURIDICO",
+]);
 
 export function tabulacaoEhSoGestao(codigo) {
   return TABULACOES_SO_GESTAO.includes(String(codigo || "").trim().toUpperCase());
