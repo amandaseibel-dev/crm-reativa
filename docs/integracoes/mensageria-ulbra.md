@@ -88,10 +88,27 @@ Com usuário de gestão autenticado, na ficha de alunos com CPF:
 - num dos dois casos o telefone **não concordou** com o CPF
   (`telefone_concordou: false`). Isso **não bloqueou** nada: o CPF confirmou e
   o vínculo nasceu `alta_cpf` normalmente. O que a regra impediu foi **o
-  telefone determinar o vínculo** — na versão anterior, o telefone decidia, e
-  o selo saía `alta` sem identidade provada. Bloqueio é outra coisa, e tem
-  motivo próprio (`AMBIGUO_CHAVES_DISCORDANTES` quando as duas chaves apontam
-  clientes diferentes);
+  telefone determinar o vínculo** — na versão anterior o telefone decidia, e o
+  selo saía `alta` sem identidade provada.
+
+  **Os dois casos são excludentes por construção**, e vale ler a condição
+  exata em `vinculo.ts`:
+
+  ```ts
+  if (idTel && idCpf && idTel !== idCpf) -> bloquear AMBIGUO_CHAVES_DISCORDANTES
+  ```
+
+  É o **primeiro** portão de `decidirVinculo` depois do vínculo existente, e
+  exige as **duas** chaves devolvendo id **dentro do escopo do token** e
+  **diferentes** entre si. Nesse caso nada é gravado: `acao: "bloquear"`, sem
+  candidato. Logo, **num vínculo que existe, `telefone_concordou: false` nunca
+  significa "o telefone apontou outro cliente"** — se apontasse, não haveria
+  vínculo. Significa que o telefone **não devolveu id**: não achou ninguém,
+  ou achou fora do escopo do token (aí `telefone_fora_do_escopo` vem `true`,
+  e fica registrado na auditoria em vez de passar por concordância).
+
+  Em resumo: *telefone sem id* é caso **permitido**, decidido pelo CPF;
+  *telefone com id diferente* é **bloqueio**, e não gera vínculo;
 - o botão "Abrir na Mensageria Ulbra" abre o **cadastro correto** do cliente;
 - numa das fichas **o bloco de atendimento respondeu vazio** (`Sem atendimento
   na Mensageria Ulbra`), já com a função corrigida e com o token de backend;
