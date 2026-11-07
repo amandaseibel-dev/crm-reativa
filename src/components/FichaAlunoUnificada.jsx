@@ -10,10 +10,10 @@ import RelatorioAcionamentosBtn from "./RelatorioAcionamentosBtn";
 import { parcelaViva } from "../utils/parcelaStatus";
 import {
   corMovimentacao,
-  resumoStatus,
-  rotuloOperador,
+  linhaMovimentacao,
   recortarMovimentacoes,
 } from "../utils/movimentacoes";
+import { rotuloStatus } from "../utils/rotulosStatus";
 
 /*
   FichaAlunoUnificada
@@ -377,28 +377,19 @@ export default function FichaAlunoUnificada({
         <div style={S.historico}>
           {movimentacoes.length === 0 && <p style={S.subInfo}>Sem movimentações registradas.</p>}
           {recorteMovimentacoes.visiveis.map((h) => {
-            const operador = rotuloOperador(h.registrado_por_nome, h.registrado_por_email);
-            const transicao = resumoStatus(h.status_anterior, h.status_novo);
+            const linha = linhaMovimentacao(h, rotuloStatus, dataHora);
             return (
               <div
                 key={h.id}
+                title={linha.titulo}
                 style={{
                   ...S.itemHist,
                   borderLeftColor: corMovimentacao(h.tipo, h.status_novo),
                 }}
               >
-                <div style={S.histTopo}>
-                  <span style={S.histTipo}>{h.tipo || "Movimentação"}</span>
-                  <span style={S.histData}>{dataHora(h.registrado_em)}</span>
-                </div>
-                <div style={S.histDesc}>{h.descricao || transicao || "Movimentação"}</div>
-                {(operador || (transicao && h.descricao)) && (
-                  <div style={S.histAutor}>
-                    {transicao && h.descricao ? transicao : ""}
-                    {transicao && h.descricao && operador ? " · " : ""}
-                    {operador}
-                  </div>
-                )}
+                <span style={S.histData}>{linha.data}</span>
+                <span style={S.histTexto}>{linha.texto}</span>
+                {linha.operador && <span style={S.histAutor}>{linha.operador}</span>}
               </div>
             );
           })}
@@ -454,13 +445,12 @@ const S = {
   tabelaParc: { marginTop: 10, borderTop: "1px solid var(--rv-borda-suave)" },
   linhaParc: { display: "grid", gridTemplateColumns: "40px 1fr 1fr 1fr", gap: 8, padding: "6px 0", fontSize: 13, borderBottom: "1px solid var(--rv-borda-suave)", alignItems: "center" },
   parcNum: { fontWeight: 700, color: "var(--rv-texto)" },
-  historico: { display: "flex", flexDirection: "column", gap: 8, maxHeight: 420, overflowY: "auto" },
-  itemHist: { borderLeft: "2px solid var(--rv-borda)", paddingLeft: 10 },
-  histTopo: { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 },
-  histTipo: { fontSize: 11.5, fontWeight: 700, color: "var(--rv-texto-forte)", letterSpacing: 0.2 },
-  histData: { fontSize: 11.5, color: "var(--rv-texto-fraco)", whiteSpace: "nowrap" },
-  histDesc: { fontSize: 13, color: "var(--rv-texto-forte)", lineHeight: 1.35 },
-  histAutor: { fontSize: 11.5, color: "var(--rv-texto-fraco)" },
+  historico: { display: "flex", flexDirection: "column", gap: 1, maxHeight: 420, overflowY: "auto" },
+  // Uma linha por movimentacao: data | texto que encolhe | operador.
+  itemHist: { display: "flex", alignItems: "baseline", gap: 8, minWidth: 0, borderLeft: "2px solid var(--rv-borda)", padding: "3px 0 3px 8px" },
+  histData: { fontSize: 11.5, color: "var(--rv-texto-fraco)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" },
+  histTexto: { flex: 1, minWidth: 0, fontSize: 12.5, color: "var(--rv-texto)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  histAutor: { fontSize: 11.5, color: "var(--rv-texto-fraco)", whiteSpace: "nowrap" },
   btnVerTodas: {
     marginTop: 4,
     width: "100%",

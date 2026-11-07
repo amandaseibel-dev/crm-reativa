@@ -15,8 +15,7 @@ import { carregarTabulacoes, desfechoDaTabulacao, retornoEhManual, camposDeRetor
 import { ehOrigemDoOperador } from "../utils/retornoOrigem";
 import {
   corMovimentacao,
-  resumoStatus,
-  rotuloOperador,
+  linhaMovimentacao,
   recortarMovimentacoes,
 } from "../utils/movimentacoes";
 import TelefonesAluno from "../components/TelefonesAluno";
@@ -2604,48 +2603,40 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   <p style={textoCinza}>Nenhuma movimentação registrada.</p>
                 ) : (
                   <>
-                    <div style={{ display: "grid", gap: "6px" }}>
+                    <div style={{ display: "grid", gap: "1px" }}>
                       {recorteMovimentacoes.visiveis.map((mov) => {
-                        const transicao = resumoStatus(mov.status_anterior, mov.status_novo);
-                        const operador = rotuloOperador(
-                          mov.registrado_por_nome,
-                          mov.registrado_por_email,
+                        const linha = linhaMovimentacao(
+                          mov,
+                          rotuloStatus,
+                          formatarDataHora,
                         );
-                        const retorno = formatarDataHora(mov.data_retorno);
                         return (
                           <div
                             key={mov.id}
+                            title={linha.titulo}
                             style={{
-                              ...cardMov,
+                              ...linhaMov,
                               borderLeftColor: corMovimentacao(mov.tipo, mov.status_novo),
                             }}
                           >
-                            <div style={movLinhaTopo}>
-                              <strong style={movTipo}>{mov.tipo || "Movimentação"}</strong>
-                              <span style={movData}>{formatarDataHora(mov.registrado_em)}</span>
-                            </div>
-                            <div style={movDescricao}>
-                              {mov.descricao || transicao || "-"}
-                            </div>
-                            {(transicao || operador || retorno !== "-") && (
-                              <div style={movMeta}>
-                                {transicao && mov.descricao && <span>{transicao}</span>}
-                                {retorno !== "-" && <span>retorno {retorno}</span>}
-                                {operador && (
-                                  <span title={mov.registrado_por_email || undefined}>
-                                    {operador}
-                                  </span>
-                                )}
-                              </div>
-                            )}
+                            <span style={movData}>{linha.data}</span>
+                            <span style={movTexto}>{linha.texto}</span>
                             {mov.elogio_print_path && (
                               <button
                                 type="button"
                                 onClick={() => abrirAnexoElogio(mov.elogio_print_path)}
-                                style={{ ...botaoSecundario, marginTop: "6px", fontSize: "12px", padding: "4px 10px" }}
+                                style={movAnexo}
+                                title={
+                                  mov.elogio_print_nome
+                                    ? `Ver anexo: ${mov.elogio_print_nome}`
+                                    : "Ver anexo"
+                                }
                               >
-                                📎 Ver anexo{mov.elogio_print_nome ? `: ${mov.elogio_print_nome}` : ""}
+                                📎
                               </button>
+                            )}
+                            {linha.operador && (
+                              <span style={movOperador}>{linha.operador}</span>
                             )}
                           </div>
                         );
@@ -2974,42 +2965,43 @@ const emAbertoTotalA = { fontWeight: 700, fontSize: 13, color: "var(--rv-tinta)"
 const emAbertoSubA = { fontSize: 11, color: "var(--rv-texto-fraco)" };
 // Card de movimentação: duas linhas principais (tipo+data / descrição) e uma
 // terceira só quando há metadado real. A cor da borda vem de corMovimentacao.
-const cardMov = {
-  ...cartao,
-  borderLeft: "3px solid #2563eb",
-  padding: "8px 12px",
-  margin: 0,
-};
-const movLinhaTopo = {
+// Linha unica de movimentacao: data | texto (encolhe e trunca) | operador.
+// O que nao couber esta no `title` -- nada de registro escondido.
+const linhaMov = {
   display: "flex",
-  justifyContent: "space-between",
   alignItems: "baseline",
-  gap: 10,
-};
-const movTipo = {
-  fontSize: 12.5,
-  fontWeight: 700,
-  color: "var(--rv-texto-forte)",
-  letterSpacing: 0.2,
+  gap: 8,
+  borderLeft: "3px solid #2563eb",
+  padding: "3px 0 3px 8px",
+  minWidth: 0,
 };
 const movData = {
   fontSize: 11.5,
   color: "var(--rv-texto-fraco)",
   whiteSpace: "nowrap",
+  fontVariantNumeric: "tabular-nums",
 };
-const movDescricao = {
-  fontSize: 13,
+const movTexto = {
+  flex: 1,
+  minWidth: 0,
+  fontSize: 12.5,
   color: "var(--rv-texto)",
-  lineHeight: 1.35,
-  marginTop: 2,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
 };
-const movMeta = {
-  display: "flex",
-  flexWrap: "wrap",
-  gap: "2px 10px",
+const movOperador = {
   fontSize: 11.5,
   color: "var(--rv-texto-fraco)",
-  marginTop: 3,
+  whiteSpace: "nowrap",
+};
+const movAnexo = {
+  border: "none",
+  background: "none",
+  padding: 0,
+  cursor: "pointer",
+  fontSize: 12,
+  lineHeight: 1,
 };
 const botaoVerTodas = {
   marginTop: 8,

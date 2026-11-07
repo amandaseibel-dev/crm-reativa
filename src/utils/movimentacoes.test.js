@@ -5,6 +5,9 @@ import {
   resumoStatus,
   rotuloOperador,
   recortarMovimentacoes,
+  dataCompacta,
+  resumoStatusLegivel,
+  linhaMovimentacao,
 } from "./movimentacoes";
 
 // O recorte é só de exibição: a garantia que importa é que ele nunca perde
@@ -104,5 +107,82 @@ describe("corMovimentacao", () => {
   it("devolve o azul padrão sem correspondência ou sem dado", () => {
     expect(corMovimentacao("ALGO_QUE_NAO_EXISTE", null)).toBe("#2563eb");
     expect(corMovimentacao(null, null)).toBe("#2563eb");
+  });
+});
+
+describe("linha única", () => {
+  const traduzir = (s) =>
+    ({
+      LINK_ENVIADO_AO_ALUNO: "Link enviado",
+      AGUARDANDO_BAIXA: "Aguardando baixa",
+      COMPROVANTE_ENVIADO_BAIXA: "Comprovante enviado para baixa",
+    })[s] || s;
+
+  it("traduz a transição em vez de mostrar nome de coluna", () => {
+    expect(
+      resumoStatusLegivel("LINK_ENVIADO_AO_ALUNO", "AGUARDANDO_BAIXA", traduzir),
+    ).toBe("Link enviado → Aguardando baixa");
+  });
+
+  it("sem transição real, devolve vazio", () => {
+    expect(resumoStatusLegivel("", "", traduzir)).toBe("");
+    expect(resumoStatusLegivel("X", "X", traduzir)).toBe("X");
+  });
+
+  it("o texto da linha é a descrição, não o tipo repetido", () => {
+    const l = linhaMovimentacao(
+      {
+        tipo: "COMPROVANTE_ENVIADO_BAIXA",
+        descricao: "Comprovante anexado pelo operador.",
+        status_anterior: "LINK_ENVIADO_AO_ALUNO",
+        status_novo: "AGUARDANDO_BAIXA",
+        registrado_por_nome: "João",
+      },
+      traduzir,
+    );
+    expect(l.texto).toBe("Comprovante anexado pelo operador.");
+    expect(l.operador).toBe("João");
+  });
+
+  it("sem descrição, cai para a transição traduzida e depois para o tipo", () => {
+    expect(
+      linhaMovimentacao(
+        { status_anterior: "LINK_ENVIADO_AO_ALUNO", status_novo: "AGUARDANDO_BAIXA" },
+        traduzir,
+      ).texto,
+    ).toBe("Link enviado → Aguardando baixa");
+    expect(
+      linhaMovimentacao({ tipo: "COMPROVANTE_ENVIADO_BAIXA" }, traduzir).texto,
+    ).toBe("Comprovante enviado para baixa");
+    expect(linhaMovimentacao({}, traduzir).texto).toBe("Movimentação");
+  });
+
+  it("nada se perde: o que sai da linha fica no title", () => {
+    const l = linhaMovimentacao(
+      {
+        tipo: "COMPROVANTE_ENVIADO_BAIXA",
+        descricao: "Comprovante anexado.",
+        status_anterior: "LINK_ENVIADO_AO_ALUNO",
+        status_novo: "AGUARDANDO_BAIXA",
+        registrado_por_nome: "João",
+        registrado_por_email: "joao@x.com",
+      },
+      traduzir,
+      () => "07/11/2026, 10:01",
+    );
+    expect(l.titulo).toContain("Comprovante enviado para baixa");
+    expect(l.titulo).toContain("07/11/2026, 10:01");
+    expect(l.titulo).toContain("Link enviado → Aguardando baixa");
+    expect(l.titulo).toContain("Comprovante anexado.");
+    expect(l.titulo).toContain("joao@x.com");
+  });
+
+  // Estrutural de propósito: valor exato depende do fuso da máquina e
+  // quebraria no CI -- ver a armadilha já conhecida dos testes de horário.
+  it("data compacta sai sem ano e no formato dd/mm hh:mm", () => {
+    expect(dataCompacta("2026-11-07T13:01:00Z")).toMatch(/^\d{2}\/\d{2} \d{2}:\d{2}$/);
+    expect(dataCompacta("2026-11-07")).toBe("07/11");
+    expect(dataCompacta("")).toBe("");
+    expect(dataCompacta("nao e data")).toBe("");
   });
 });
