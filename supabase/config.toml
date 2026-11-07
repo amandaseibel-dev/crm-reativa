@@ -80,3 +80,6 @@ verify_jwt = true
 # Nao grava nada. Token MCP so no secret de backend.
 [functions.ulbra-atendimento]
 verify_jwt = true
+
+[functions.ulbra-diagnostico]
+verify_jwt = true
