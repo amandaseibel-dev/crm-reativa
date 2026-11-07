@@ -40,6 +40,27 @@ const MSG_NAO_ENCONTRADO = {
   ALUNO_NAO_ENCONTRADO: "Aluno não encontrado",
 };
 
+// Botao secundario, nos mesmos tokens do cartao de contatos da ficha (onde
+// este bloco e renderizado): contorno azul sobre a superficie, nunca azul
+// cheio -- o preenchido e reservado para a acao principal da tela.
+const ESTILO = {
+  caixaLink: { marginTop: 6 },
+  botaoSecundario: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    background: "var(--rv-superficie)",
+    color: "var(--rv-azul-texto)",
+    border: "1px solid var(--rv-azul-borda)",
+    borderRadius: 8,
+    padding: "6px 11px",
+    fontSize: 12,
+    fontWeight: 700,
+    textDecoration: "none",
+    cursor: "pointer",
+  },
+};
+
 export default function BlocoUlbra({ aluno }) {
   const [estado, setEstado] = useState("ocioso");
   const [dados, setDados] = useState(null);
@@ -118,15 +139,20 @@ export default function BlocoUlbra({ aluno }) {
       );
     }
 
+    // SO o visual mudou aqui (rotulo curto e aparencia de botao secundario,
+    // para ficar junto dos contatos na ficha). Segue sendo um <a> de verdade,
+    // com o MESMO `href` vindo da funcao, o MESMO `target="_blank"` e o MESMO
+    // `rel="noopener noreferrer"` -- a aba nova nao ganha acesso a esta.
+    // A escada de condicao acima nao foi tocada.
     return (
-      <div className="mt-2">
+      <div style={ESTILO.caixaLink}>
         <a
           href={dados.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+          style={ESTILO.botaoSecundario}
         >
-          Abrir na Mensageria Ulbra ↗
+          Mensageria ULBRA ↗
         </a>
       </div>
     );
