@@ -8,12 +8,9 @@ import BlocoUlbra from "./BlocoUlbra";
 import AtendimentoUlbra from "./AtendimentoUlbra";
 import RelatorioAcionamentosBtn from "./RelatorioAcionamentosBtn";
 import { parcelaViva } from "../utils/parcelaStatus";
-import {
-  corMovimentacao,
-  linhaMovimentacao,
-  recortarMovimentacoes,
-} from "../utils/movimentacoes";
+import { corMovimentacao, recortarMovimentacoes } from "../utils/movimentacoes";
 import { rotuloStatus } from "../utils/rotulosStatus";
+import LinhaMovimentacao from "./LinhaMovimentacao";
 
 /*
   FichaAlunoUnificada
@@ -376,23 +373,16 @@ export default function FichaAlunoUnificada({
       {aba === "historico" && (
         <div style={S.historico}>
           {movimentacoes.length === 0 && <p style={S.subInfo}>Sem movimentações registradas.</p>}
-          {recorteMovimentacoes.visiveis.map((h) => {
-            const linha = linhaMovimentacao(h, rotuloStatus, dataHora);
-            return (
-              <div
-                key={h.id}
-                title={linha.titulo}
-                style={{
-                  ...S.itemHist,
-                  borderLeftColor: corMovimentacao(h.tipo, h.status_novo),
-                }}
-              >
-                <span style={S.histData}>{linha.data}</span>
-                <span style={S.histTexto}>{linha.texto}</span>
-                {linha.operador && <span style={S.histAutor}>{linha.operador}</span>}
-              </div>
-            );
-          })}
+          {recorteMovimentacoes.visiveis.map((h) => (
+            <LinhaMovimentacao
+              key={h.id}
+              mov={h}
+              traduzir={rotuloStatus}
+              formatarCompleta={dataHora}
+              corBorda={corMovimentacao(h.tipo, h.status_novo)}
+              larguraBorda={2}
+            />
+          ))}
           {recorteMovimentacoes.podeExpandir && (
             <button
               type="button"
@@ -447,10 +437,6 @@ const S = {
   parcNum: { fontWeight: 700, color: "var(--rv-texto)" },
   historico: { display: "flex", flexDirection: "column", gap: 1, maxHeight: 420, overflowY: "auto" },
   // Uma linha por movimentacao: data | texto que encolhe | operador.
-  itemHist: { display: "flex", alignItems: "baseline", gap: 8, minWidth: 0, borderLeft: "2px solid var(--rv-borda)", padding: "3px 0 3px 8px" },
-  histData: { fontSize: 11.5, color: "var(--rv-texto-fraco)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" },
-  histTexto: { flex: 1, minWidth: 0, fontSize: 12.5, color: "var(--rv-texto)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
-  histAutor: { fontSize: 11.5, color: "var(--rv-texto-fraco)", whiteSpace: "nowrap" },
   btnVerTodas: {
     marginTop: 4,
     width: "100%",
