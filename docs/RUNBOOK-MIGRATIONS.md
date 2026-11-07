@@ -133,6 +133,11 @@ numa auditoria posterior.
 - O hook M1 roda no **`PreToolUse`**: ele avalia `project_id`, `name`, SHA-256,
   `status` e `expira_em` **no momento em que a chamada é emitida**, e libera ou
   nega ali.
+- O **`ask`** do `.claude/settings.json` vem **depois** da liberação, e o hook
+  **não reavalia** nada quando a pessoa confirma.
+- A `version` que o banco grava é o **relógio UTC do servidor no instante da
+  gravação** — depois da confirmação. Ela **não é** a hora da chamada, e
+  portanto **não serve** para julgar se a janela foi respeitada.
 
 > **Estado atual do freio, em 06/11/2026: o hook NÃO está instalado.** Por
 > decisão da gestão, `plugins/reativa-one/hooks/hooks.json` teve os
@@ -144,11 +149,6 @@ numa auditoria posterior.
 > RUNBOOK é o único portão. A camada de permissões (`deny`/`ask`) do
 > `.claude/settings.json` continua ativa, mas ela não lê o registro de
 > aprovação.
-- O **`ask`** do `.claude/settings.json` vem **depois** da liberação, e o hook
-  **não reavalia** nada quando a pessoa confirma.
-- A `version` que o banco grava é o **relógio UTC do servidor no instante da
-  gravação** — depois da confirmação. Ela **não é** a hora da chamada, e
-  portanto **não serve** para julgar se a janela foi respeitada.
 
 Consequência prática, e é ela que precisa estar escrita: **uma `version`
 posterior ao `expira_em` não é, por si, aplicação fora da janela.** O que
@@ -167,8 +167,14 @@ Segundo o **declarado** no corpo da **PR #836** e em
 `origin/main` às 15:06:10Z e a chamada foi emitida em seguida, dentro da
 validade. **Isso é declaração de quem executou, não reconstituição por
 artefato:** a `version` é posterior e o hook não deixa log, então não há como
-provar o instante da chamada depois do fato. O que **está** provado é o
-conteúdo — SHA-256 e md5 dos bytes aplicados iguais aos aprovados na linha M1.
+provar o instante da chamada depois do fato.
+
+Do conteúdo, as duas provas não têm a mesma força, e vale distingui-las aqui
+pela mesma régua que o resto desta subseção aplica: o **SHA-256** do arquivo é
+**verificável no próprio repositório** (`shasum -a 256` do blob em `f5fb4fc6`,
+igual ao da linha M1 em `docs/seguranca/migracoes-aprovadas.tsv`); o **md5 dos
+`statements`** é **medição declarada** na NOTA do ledger, que depende de ler
+produção para reconferir.
 
 **Como provar a janela, então.** A `version` não basta. Registre, na PR que
 muda o `status` para `aplicada`, o horário em que a linha M1 foi conferida em
