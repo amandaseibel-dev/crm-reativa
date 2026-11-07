@@ -40,6 +40,52 @@ const MSG_NAO_ENCONTRADO = {
   ALUNO_NAO_ENCONTRADO: "Aluno não encontrado",
 };
 
+// Botao secundario, nos mesmos tokens do cartao de contatos da ficha (onde
+// este bloco e renderizado): contorno azul sobre a superficie, nunca azul
+// cheio -- o preenchido e reservado para a acao principal da tela.
+const ESTILO = {
+  caixaLink: { marginTop: 6 },
+  botaoSecundario: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    background: "var(--rv-superficie)",
+    color: "var(--rv-azul-texto)",
+    border: "1px solid var(--rv-azul-borda)",
+    borderRadius: 8,
+    padding: "6px 11px",
+    fontSize: 12,
+    fontWeight: 700,
+    textDecoration: "none",
+    cursor: "pointer",
+  },
+  // Os avisos usavam classes do Tailwind (`text-xs text-amber-600`), e este
+  // projeto NAO tem Tailwind: sem config, sem dependencia, sem `@tailwind` no
+  // index.css. Na pratica as classes nunca pintaram nada e todo aviso saia em
+  // texto preto de tamanho normal -- justamente os que precisam ser lidos como
+  // alerta. Agora vao nos tokens claros da ficha, sem tocar em CSS global.
+  aviso: {
+    marginTop: 4,
+    fontSize: 12,
+    lineHeight: 1.4,
+    fontWeight: 600,
+    color: "var(--rv-ambar-texto)",
+  },
+  erro: {
+    marginTop: 4,
+    fontSize: 12,
+    lineHeight: 1.4,
+    fontWeight: 700,
+    color: "var(--rv-vermelho-texto)",
+  },
+  neutro: {
+    marginTop: 4,
+    fontSize: 12,
+    lineHeight: 1.4,
+    color: "var(--rv-texto-fraco)",
+  },
+};
+
 export default function BlocoUlbra({ aluno }) {
   const [estado, setEstado] = useState("ocioso");
   const [dados, setDados] = useState(null);
@@ -89,7 +135,7 @@ export default function BlocoUlbra({ aluno }) {
   if (!aluno?.id || estado === "erro") return null;
 
   if (estado === "carregando") {
-    return <div className="text-xs text-gray-400 mt-1">Consultando Mensageria Ulbra…</div>;
+    return <div style={ESTILO.neutro}>Consultando Mensageria Ulbra…</div>;
   }
 
   // Vínculo que existe mas NÃO foi confirmado por CPF: aviso, nunca botão.
@@ -97,7 +143,7 @@ export default function BlocoUlbra({ aluno }) {
   // não reconstrói a URL nem oferece caminho para abrir o atendimento.
   if (estado === "vinculado_nao_confirmado") {
     return (
-      <div className="mt-1 text-xs text-amber-600">
+      <div style={ESTILO.aviso}>
         Vínculo sem confirmação por CPF — a gestão precisa conferir a identidade
         antes de abrir na Mensageria
       </div>
@@ -111,22 +157,27 @@ export default function BlocoUlbra({ aluno }) {
     // sozinho não segura ninguém, porque o botão ao lado continua clicável.
     if (dados.reconfirmar_recomendado) {
       return (
-        <div className="mt-1 text-xs text-amber-600">
+        <div style={ESTILO.aviso}>
           Vínculo sem confirmação por CPF — a gestão precisa conferir a
           identidade antes de abrir na Mensageria
         </div>
       );
     }
 
+    // SO o visual mudou aqui (rotulo curto e aparencia de botao secundario,
+    // para ficar junto dos contatos na ficha). Segue sendo um <a> de verdade,
+    // com o MESMO `href` vindo da funcao, o MESMO `target="_blank"` e o MESMO
+    // `rel="noopener noreferrer"` -- a aba nova nao ganha acesso a esta.
+    // A escada de condicao acima nao foi tocada.
     return (
-      <div className="mt-2">
+      <div style={ESTILO.caixaLink}>
         <a
           href={dados.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+          style={ESTILO.botaoSecundario}
         >
-          Abrir na Mensageria Ulbra ↗
+          Mensageria ULBRA ↗
         </a>
       </div>
     );
@@ -134,7 +185,7 @@ export default function BlocoUlbra({ aluno }) {
 
   if (estado === "falha_gravacao") {
     return (
-      <div className="mt-1 text-xs text-red-600">
+      <div style={ESTILO.erro}>
         {MSG_FALHA_DE_GRAVACAO[dados?.erro]}
       </div>
     );
@@ -142,7 +193,7 @@ export default function BlocoUlbra({ aluno }) {
 
   if (estado === "bloqueado") {
     return (
-      <div className="mt-1 text-xs text-amber-600">
+      <div style={ESTILO.aviso}>
         {MSG_BLOQUEIO[dados?.motivo] ?? "Vínculo com a Mensageria não confirmado"}
       </div>
     );
@@ -150,7 +201,7 @@ export default function BlocoUlbra({ aluno }) {
 
   if (estado === "nao_encontrado" && dados?.motivo) {
     return (
-      <div className="mt-1 text-xs text-gray-400">
+      <div style={ESTILO.neutro}>
         {MSG_NAO_ENCONTRADO[dados.motivo] ?? "Não encontrado na Mensageria Ulbra"}
       </div>
     );

@@ -42,6 +42,44 @@ describe("BlocoUlbra", () => {
     });
   });
 
+  // O botao mudou de aparencia (rotulo curto, estilo secundario) quando foi
+  // para o cartao de contatos. Estes dois travam o que NAO pode mudar com o
+  // visual: continua sendo link de verdade, e a aba nova nao recebe acesso a
+  // esta -- `noopener` tira o `window.opener`, `noreferrer` tira o Referer.
+  it("o link traz rel=noopener noreferrer (aba nova sem acesso a esta)", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        status: "vinculado",
+        url: "https://crm.ulbra.ai/app/clientes/abc123",
+      }),
+    });
+
+    // `container`, nao `screen`: os render anteriores deste arquivo seguem
+    // montados no documento, e `screen` acharia os links deles tambem.
+    const { container } = render(<BlocoUlbra aluno={{ id: "aluno-rel" }} />);
+    await waitFor(() => {
+      const rel = container.querySelector("a")?.getAttribute("rel") || "";
+      expect(rel).toContain("noopener");
+      expect(rel).toContain("noreferrer");
+    });
+  });
+
+  it("o rotulo do botao e 'Mensageria ULBRA ↗'", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        status: "vinculado",
+        url: "https://crm.ulbra.ai/app/clientes/abc123",
+      }),
+    });
+
+    const { container } = render(<BlocoUlbra aluno={{ id: "aluno-rotulo" }} />);
+    await waitFor(() =>
+      expect(container.querySelector("a")?.textContent.trim()).toBe("Mensageria ULBRA ↗"),
+    );
+  });
+
   it("status desconhecido (ex.: 'ambiguo' da versão antiga) não renderiza link nenhum", async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,

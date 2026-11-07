@@ -1991,14 +1991,18 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                           <button
                             type="button"
                             onClick={abrirEdicaoCadastro}
+                            // Acao administrativa: recua para texto discreto.
+                            // Segue no mesmo lugar e com a mesma permissao.
                             style={{
                               marginLeft: 10,
                               background: "none",
                               border: "none",
-                              color: "var(--rv-azul-texto)",
+                              color: "var(--rv-texto-suave)",
                               cursor: "pointer",
                               textDecoration: "underline",
-                              fontSize: 13,
+                              fontSize: 11.5,
+                              fontWeight: 600,
+                              padding: 0,
                             }}
                           >
                             Corrigir nome/CPF
@@ -2103,7 +2107,8 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                               setNovoOperadorEmail(alunoSelecionado.responsavel_atual_email || "");
                               setEditandoOperadorRapido(true);
                             }}
-                            style={{ marginLeft: 8, border: "none", background: "transparent", cursor: "pointer", fontSize: 13 }}
+                            // Acao administrativa: recua (menor e menos opaca).
+                            style={{ marginLeft: 8, border: "none", background: "transparent", cursor: "pointer", fontSize: 11.5, opacity: 0.6, padding: 0 }}
                             title="Alterar operador responsável"
                           >
                             ✏️
@@ -2222,17 +2227,41 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                       <span style={cardTitulo}>Próxima ação</span>
                       <div style={valorMini}>{rotuloStatus(alunoSelecionado.proxima_acao || "CONTATAR")}</div>
                     </div>
-                    <div style={itemMini}>
+                    {/* "Últ. tabulação" e o antigo cartao "Status" viram UMA
+                        celula. `status_acionamento` nao e o mesmo campo do selo
+                        azul no topo (que le `status_jornada`), entao o valor
+                        continua na tela -- o que saiu foi o cartao separado, que
+                        fazia a ficha parecer ter dois status soltos. */}
+                    <div style={{ ...itemMini, flex: "1 1 170px" }}>
                       <span style={cardTitulo}>Últ. tabulação</span>
-                      <div style={valorMini}>{formatarDataHora(alunoSelecionado.registrado_em)}</div>
-                    </div>
-                    <div style={itemMini}>
-                      <span style={cardTitulo}>Status</span>
-                      <div style={valorMini}>{rotuloStatus(alunoSelecionado.status_acionamento) || "-"}</div>
+                      <div style={valorMini}>
+                        {formatarDataHora(alunoSelecionado.registrado_em)}
+                        {alunoSelecionado.status_acionamento ? (
+                          <span style={{ color: "var(--rv-texto-suave)" }}>
+                            {" · "}
+                            {rotuloStatus(alunoSelecionado.status_acionamento)}
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
+              {/* Contatos sobem para logo abaixo do cabecalho: e a primeira
+                  coisa que o operador precisa para agir (discar, abrir o
+                  WhatsApp, copiar o numero). Antes viviam no meio da aba
+                  "Resumo e tabulacao", embaixo do card de acordos. Saiu de la,
+                  nao foi duplicado. */}
+              {/* O link "Abrir na Mensageria Ulbra ↗" entra como rodape do
+                  cartao de contatos: e um canal de contato, e o lugar dele e
+                  junto dos telefones. O `BlocoUlbra` vem INTEIRO, sem nenhuma
+                  alteracao -- ele continua sendo o unico a decidir se mostra o
+                  link (so com vinculo confirmado por CPF), o aviso de vinculo
+                  nao confirmado ou nada, e a abertura segue em nova aba com
+                  `rel="noopener noreferrer"`. Mudou o lugar, nao a regra. */}
+              <TelefonesAluno aluno={alunoSelecionado}>
+                <BlocoUlbra aluno={alunoSelecionado} />
+              </TelefonesAluno>
               <div style={caixaTabular}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 13, fontWeight: 800, color: "var(--rv-azul-texto)", whiteSpace: "nowrap" }}>
@@ -2326,22 +2355,33 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                     )}
                   </div>
                 )}
-                <label style={label}>Data e horário de retorno</label>
-                <input
-                  type="datetime-local"
-                  value={dataRetorno}
-                  onChange={(e) => setDataRetorno(e.target.value)}
-                  style={inputCheio}
-                />
-                <label style={label}>Observação da finalização</label>
-                <textarea
-                  value={observacao}
-                  onChange={(e) => setObservacao(e.target.value)}
-                  placeholder="Digite a observação do atendimento..."
-                  rows={2}
-                  style={textarea}
-                />
-                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                {/* Retorno e observacao param de empilhar: eram dois campos de
+                    largura cheia, um debaixo do outro, e sozinhos respondiam
+                    por boa parte da altura do bloco. Mesmos campos, mesmo
+                    estado, mesma validacao -- so a disposicao mudou. Em tela
+                    estreita o grid volta a uma coluna. */}
+                <div style={gradeTabular}>
+                  <div>
+                    <label style={label}>Data e horário de retorno</label>
+                    <input
+                      type="datetime-local"
+                      value={dataRetorno}
+                      onChange={(e) => setDataRetorno(e.target.value)}
+                      style={{ ...inputCheio, marginBottom: 0 }}
+                    />
+                  </div>
+                  <div>
+                    <label style={label}>Observação da finalização</label>
+                    <textarea
+                      value={observacao}
+                      onChange={(e) => setObservacao(e.target.value)}
+                      placeholder="Digite a observação do atendimento..."
+                      rows={2}
+                      style={textareaTabular}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: 8 }}>
                   <button
                     type="button"
                     onClick={finalizarAtendimento}
@@ -2490,8 +2530,10 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   )}
                 </div>
               </div>
-              <TelefonesAluno aluno={alunoSelecionado} />
-              <BlocoUlbra aluno={alunoSelecionado} />
+              {/* `BlocoUlbra` saiu daqui para o rodape do cartao de contatos,
+                  logo abaixo do cabecalho. Nao foi duplicado. O
+                  `AtendimentoUlbra` fica: e o atendimento em curso, nao um
+                  contato -- e segue so na aba "Resumo e tabulacao". */}
               <AtendimentoUlbra aluno={alunoSelecionado} />
               </>
               )}
@@ -2821,6 +2863,15 @@ const caixaTabular = {
   padding: "10px 12px",
   marginBottom: "10px",
 };
+// Linha de campos do bloco de tabular. `auto-fit` com minimo de 240px: em
+// tela larga retorno e observacao ficam lado a lado; em tela estreita cada um
+// volta a ocupar a linha inteira, sem media query.
+const gradeTabular = {
+  display: "grid",
+  gap: 10,
+  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+  marginBottom: 0,
+};
 const caixaLinkPronto = { ...cartaoSucesso, border: "1px solid var(--rv-azul-borda)", marginBottom: "16px" };
 const caixaInterna = cartaoInterno;
 const layout = {
@@ -3071,6 +3122,16 @@ const textarea = {
   resize: "vertical",
   outline: "none",
   marginBottom: "8px",
+};
+// Observacao dentro do bloco de tabular: mesma caixa, sem a margem de baixo
+// (quem espaca agora e o grid) e com o mesmo recheio dos outros campos da
+// ficha, pra alinhar com o campo de retorno ao lado.
+const textareaTabular = {
+  ...textarea,
+  marginBottom: 0,
+  padding: "7px 10px",
+  borderRadius: "8px",
+  fontSize: 13,
 };
 const botaoPrincipal = {
   background: "#2563eb",
