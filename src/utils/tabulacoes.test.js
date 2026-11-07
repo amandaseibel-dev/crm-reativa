@@ -179,6 +179,54 @@ describe("tabulação só da gestão", () => {
     expect(tabulacaoDisponivel("RETORNO_FINANCEIRO", false, "MENSAGEM_ENVIADA")).toBe(false);
   });
 
+  // ----------------------------------------------------------------------
+  // AS QUATRO DE 07/11/2026. O banco já barrava as quatro (somente_gestao e o
+  // piso literal do gatilho, conferidos em produção); o que faltava era a tela
+  // -- e faltava desigual, porque cada <select> tinha a sua lista à mão.
+  const QUATRO = Object.freeze([
+    "ALEGA_FINANCIAMENTO_CONFIRMADO", // "Financiamento confirmado pela unidade"
+    "CANCELAMENTO_COBRANCA",
+    "SUSPENSAO_COBRANCA",
+    "JURIDICO",
+  ]);
+
+  it("as quatro de 07/11/2026 são só da gestão", () => {
+    for (const codigo of QUATRO) {
+      expect(tabulacaoEhSoGestao(codigo)).toBe(true);
+      expect(tabulacaoDisponivel(codigo, true)).toBe(true);
+      expect(tabulacaoDisponivel(codigo, false)).toBe(false);
+    }
+  });
+
+  it("FAIL-CLOSED nas quatro: esconde mesmo sem a linha no catálogo", () => {
+    // Mesmo caso real do operador do RETORNO_FINANCEIRO: a RLS
+    // (`tabulacoes_leitura_autenticado`) filtra a linha `somente_gestao`, então
+    // a régua não pode depender do catálogo. Se alguém trocar a lista literal
+    // por leitura de `somente_gestao`, este teste cai.
+    const semAsQuatro = CATALOGO.filter((t) => !QUATRO.includes(t.codigo));
+    for (const codigo of QUATRO) {
+      expect(semAsQuatro.some((t) => t.codigo === codigo)).toBe(false);
+      expect(tabulacaoDisponivel(codigo, false)).toBe(false);
+    }
+  });
+
+  it("o código JÁ gravado nas quatro não desaparece do select do operador", () => {
+    // 182 alunos em produção carregam código só-gestão: esconder o valor atual
+    // faria o navegador trocar a tabulação do aluno sozinho.
+    for (const codigo of QUATRO) {
+      expect(tabulacaoDisponivel(codigo, false, codigo)).toBe(true);
+    }
+  });
+
+  it("a alegação ABERTA continua do operador -- só a confirmação é da gestão", () => {
+    // ALEGA_FINANCIAMENTO só encaminha para a ADM apurar; quem devolve a
+    // parcela é ALEGA_FINANCIAMENTO_CONFIRMADO. Restringir a confirmação não
+    // pode fechar a alegação para quem atende.
+    expect(tabulacaoDisponivel("ALEGA_FINANCIAMENTO", false)).toBe(true);
+    expect(tabulacaoDisponivel("ALEGA_FIES", false)).toBe(true);
+    expect(tabulacaoDisponivel("ALEGA_CREDIES", false)).toBe(true);
+  });
+
   it("o front NÃO pede somente_gestao ao banco", async () => {
     // Pedir a coluna é o primeiro passo para voltar a decidir por ela. A
     // decisão versionada (20261007143000:50-54) é que o front não a lê.
