@@ -61,17 +61,28 @@ FOR ROLE supabase_admin  tipo r  ->  anon=arwdDxtm, authenticated=arwdDxtm,
                                      service_role=arwdDxtm
 ```
 
-Objeto criado pelo runner de migration (`postgres`) cai na primeira linha:
-**`authenticated` e `service_role` nascem com ALL.**
+Qual das duas vale depende do papel que cria o objeto — e **isso não foi
+medido** (ver "NÃO COMPROVADO", ao final). O que **as duas** têm em comum, e é
+o que decide o padrão: **`authenticated` e `service_role` nascem com ALL** em
+qualquer um dos casos.
 
 Por que isso importa numa view, e não é teoria:
 
 1. **`grant select` sozinho não restringe nada.** Sobre um ALL que já está lá,
    ele é no-op. A view fica legível *e gravável*.
 2. **View simples é atualizável por padrão no Postgres**, então o `insert`,
-   `update` ou `delete` **atravessa** para a tabela base. Nessa altura ainda
-   sobram a RLS e os gatilhos da base — mas a barreira passou a ser uma camada
-   adiante do que o arquivo prometia.
+   `update` ou `delete` **atravessa** para a tabela base. O que sobra depois
+   disso **depende do `security_invoker`**, e a diferença é grande:
+   - **com `security_invoker = on`**: o acesso à base usa os direitos de quem
+     invocou, então a RLS e os gatilhos da tabela ainda barram — a proteção
+     passou a ser uma camada adiante do que o arquivo prometia, mas existe;
+   - **sem a opção** (que é o **default** do Postgres): o acesso à base é feito
+     com os direitos do **dono** da view, e o dono normalmente **contorna a
+     RLS** — não "sobra" RLS nenhuma. Só os gatilhos continuam de pé.
+
+   Por isso as duas coisas andam juntas e nenhuma substitui a outra: o
+   `revoke` fecha a escrita pela view, e o `security_invoker` garante que, se
+   ela acontecer, continue sujeita à RLS da base.
 
 Dois incidentes do repositório provam a herança em relação, não em função:
 `supabase/migrations/20261002121000_mv_saude_carteira_acl_sem_authenticated.sql`
@@ -82,7 +93,7 @@ de `supabase/migrations/20260930232237_mrl_privilegios_como_audit_log.sql`. E
 na entrada de `supabase_admin`.
 
 **O padrão, portanto, é revogar antes de conceder** — e revogar dos quatro, não
-de dois:
+de dois. O bloco abaixo é de **relação** (tabela, view, matview):
 
 ```sql
 revoke all on public.<objeto> from public;
@@ -91,6 +102,11 @@ revoke all on public.<objeto> from authenticated;
 revoke all on public.<objeto> from service_role;
 grant select on public.<objeto> to authenticated;   -- só o que o caso exige
 ```
+
+**Para função a sintaxe é outra, e copiar a de cima não funciona:**
+`revoke all on function public.<f>(<tipos>) from ...`, `grant execute`, e a
+conferência é por `has_function_privilege` / `information_schema.routine_privileges`.
+O erro é alto (objeto errado), não silencioso — mas é retrabalho.
 
 E a asserção correspondente, no mesmo arquivo, para cada `grant`/`revoke` —
 conferir a existência do objeto não prova a permissão dele:
@@ -113,10 +129,22 @@ tabela base** — é o item `VIEW_BYPASS_RLS` (7) de
 Exemplo completo e revisado, com guarda de pré-condição, provas e reversa:
 `supabase/aguardando_aprovacao/20261106190000_ulbra_vinculos_view_confirmados.sql.pendente`.
 
-**O que segue NÃO COMPROVADO:** a leitura acima é de `pg_default_acl` em
-06/11/2026. Um `ALTER DEFAULT PRIVILEGES` novo, para outro grantee ou outro
-`FOR ROLE`, muda o conjunto e não aparece em nenhum arquivo do repositório.
-Reler `pg_default_acl` no momento da aplicação é leitura barata e fecha o caso.
+**O que segue NÃO COMPROVADO**, e vale declarar em vez de deixar o leitor
+supor:
+
+1. A leitura acima é de `pg_default_acl` em **06/11/2026**. Um
+   `ALTER DEFAULT PRIVILEGES` novo, para outro grantee ou outro `FOR ROLE`,
+   muda o conjunto e não aparece em nenhum arquivo do repositório.
+2. **Qual das duas entradas se aplica** depende do papel de conexão com que o
+   `apply_migration` roda. Dizer que ele cai na de `FOR ROLE postgres` é
+   inferência: nenhum arquivo do repositório fixa isso, e não foi medido.
+
+As duas fecham do mesmo jeito, e é leitura barata: reler `pg_default_acl` e
+conferir `current_user` no momento da aplicação. **Na prática não muda o
+padrão** — as duas entradas dão ALL a `authenticated` e `service_role`, e a de
+`supabase_admin` ainda inclui `anon`, então revogar dos quatro cobre os dois
+casos. É por isso que o padrão é revogar dos quatro, e não dos dois que a
+medição de hoje mostraria.
 
 ## Gate automático
 

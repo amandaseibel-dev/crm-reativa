@@ -133,6 +133,17 @@ numa auditoria posterior.
 - O hook M1 roda no **`PreToolUse`**: ele avalia `project_id`, `name`, SHA-256,
   `status` e `expira_em` **no momento em que a chamada é emitida**, e libera ou
   nega ali.
+
+> **Estado atual do freio, em 06/11/2026: o hook NÃO está instalado.** Por
+> decisão da gestão, `plugins/reativa-one/hooks/hooks.json` teve os
+> `PreToolUse` e o `Stop` do Guardião retirados — o `guardiao.sh` continua no
+> repositório, intacto, **sem gatilho**; a cópia ativa está em
+> `hooks.json.guardiao-ativo` e a reinstalação está descrita em
+> `docs/operacao/guardiao-remocao-temporaria.md`. Enquanto isso valer, **nada
+> avalia a janela automaticamente**: o item 2 é cumprido por disciplina, e este
+> RUNBOOK é o único portão. A camada de permissões (`deny`/`ask`) do
+> `.claude/settings.json` continua ativa, mas ela não lê o registro de
+> aprovação.
 - O **`ask`** do `.claude/settings.json` vem **depois** da liberação, e o hook
   **não reavalia** nada quando a pessoa confirma.
 - A `version` que o banco grava é o **relógio UTC do servidor no instante da
@@ -141,22 +152,33 @@ numa auditoria posterior.
 
 Consequência prática, e é ela que precisa estar escrita: **uma `version`
 posterior ao `expira_em` não é, por si, aplicação fora da janela.** O que
-decide é o instante da chamada.
+decide é o instante da chamada — e, pelo mesmo motivo, a `version` **também não
+prova cumprimento**: ela não diz nada sobre a janela, em nenhuma das duas
+direções. Sem o instante da chamada registrado, vale o veredito padrão do fim
+desta subseção.
 
 **Caso de referência, já documentado:** a migration
 `20261104200000_ulbra_vinculos_confianca_e_unicidade` (PR #818). `expira_em`
-da linha M1 `2026-11-06T15:09:00Z`; conferência da linha em `origin/main` às
-15:06:10Z e `apply_migration` emitida em seguida, **dentro da validade**; a
-confirmação humana veio depois e o banco carimbou a versão `20261106151254`,
-isto é **15:12:54Z** — 3 min 54 s após o `expira_em`. A cronologia completa, os
-md5 e o SHA-256 (iguais aos aprovados) estão no corpo da **PR #836** e em
-`supabase/ledger/2026-11/20261106151254__NOTA.md`.
+da linha M1 `2026-11-06T15:09:00Z`; a versão que o banco carimbou é
+`20261106151254`, isto é **15:12:54Z** — 3 min 54 s após o `expira_em`.
+
+Segundo o **declarado** no corpo da **PR #836** e em
+`supabase/ledger/2026-11/20261106151254__NOTA.md`, a linha foi conferida em
+`origin/main` às 15:06:10Z e a chamada foi emitida em seguida, dentro da
+validade. **Isso é declaração de quem executou, não reconstituição por
+artefato:** a `version` é posterior e o hook não deixa log, então não há como
+provar o instante da chamada depois do fato. O que **está** provado é o
+conteúdo — SHA-256 e md5 dos bytes aplicados iguais aos aprovados na linha M1.
 
 **Como provar a janela, então.** A `version` não basta. Registre, na PR que
 muda o `status` para `aplicada`, o horário em que a linha M1 foi conferida em
-`origin/main` e o da emissão da chamada — como a #836 fez. Sem isso, a
-diferença entre "chamada dentro da janela" e "aplicação fora da janela" não é
-reconstituível depois.
+`origin/main` e o da emissão da chamada — como a #836 fez.
+
+**E o veredito padrão, quando esse registro falta, é fechado: a janela fica
+NÃO COMPROVADA.** Não se presume cumprida por ausência de prova do contrário,
+e não se presume violada pela `version` — fica registrada como não comprovada,
+com o conteúdo (SHA-256) separado da autorização (janela), porque são duas
+perguntas diferentes e uma pode estar provada sem a outra.
 
 **O que isto não afrouxa:** nada. A janela segue sendo de 30 minutos, a linha
 segue tendo de estar `pendente` com `expira_em` no futuro **no momento da

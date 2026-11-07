@@ -62,14 +62,20 @@ também mostra `documento-financeiro-url`, `foto-perfil-url`,
 deste inventário.
 
 **Esta contagem é de 22/09/2026 e ficou para trás.** As três funções
-`ulbra-*`, criadas em 03/11/2026, não existiam quando ela foi feita — estão na
-seção seguinte, acrescentada em 06/11/2026.
+`ulbra-*` não existiam quando ela foi feita — estão na seção seguinte,
+acrescentada em 06/11/2026.
 
 ## Mensageria ULBRA (`crm.ulbra.ai`) — três funções, outra API
 
 Acrescentado em **06/11/2026**, para cumprir a regra 2 do
 [`README.md`](README.md) (toda Edge Function que toque Prime/ULBRA entra neste
-inventário). Elas estavam fora dele desde 03/11.
+inventário). As datas de criação no repositório, por `git log --diff-filter=A`,
+**não são as mesmas para as três**:
+
+- `ulbra-consultar` e `ulbra-leads-pendentes`: `24c482f4`, **03/11/2026**
+  (PR #794) — fora do inventário desde então;
+- `ulbra-atendimento`: `4b840239`, **05/11/2026** (PR #814), junto com
+  `src/components/AtendimentoUlbra.jsx`.
 
 **Não falam com a API Prime.** O destino é o endpoint MCP JSON-RPC 2.0
 `https://crm.ulbra.ai/api/mcp`, sistema de atendimento/WhatsApp separado do
@@ -84,7 +90,7 @@ gaps) **não se aplica** a elas: a fonte de verdade da Mensageria é
 | Função | Finalidade | Ferramenta MCP | Portão | Leitura/escrita | Callers |
 |---|---|---|---|---|---|
 | `ulbra-consultar` | Vincula o aluno do CRM ao cliente da Mensageria e devolve a URL do atendimento | `conferir_duplicidade` (1 chamada, telefone **e** CPF nas duas posições) | JWT + usuário ativo em `public.usuarios`; operador só alcança aluno da própria carteira; perfis amplos (`supervisor`, `gerencia`, `administrativo`) alcançam qualquer um | Lê Mensageria; escreve **`ulbra_vinculos`** e `auditoria` (`ULBRA_CONSULTA`, `ULBRA_VINCULO_CRIADO`, `ULBRA_VINCULO_BLOQUEADO`) | `src/components/BlocoUlbra.jsx` |
-| `ulbra-atendimento` | Atendimento atual do aluno, para o bloco da ficha | `listar_atendimentos` / `consultar_atendimento` | Mesmo portão da `ulbra-consultar`; lê vínculo filtrando `confianca = 'alta_cpf'` (`vinculoConfirmado`) | **Só lê**; cache em memória de 5 min, nunca grava | `src/components/AtendimentoUlbra.jsx` |
+| `ulbra-atendimento` | Atendimento atual do aluno, para o bloco da ficha | `listar_atendimentos` (`{cliente, limite: 1}`) — **e só ela**; `consultar_atendimento` existe no catálogo da Mensageria mas **não é chamada** por nenhuma função | Mesmo portão da `ulbra-consultar` em substância (mesma lista de perfis, mesmo recorte por `responsavel_atual_email`), porém **reimplementado** em `index.ts` em vez de importar `portao.ts`; lê vínculo filtrando `confianca = 'alta_cpf'` (`vinculoConfirmado`), antes de qualquer consulta | **Só lê**; cache em memória de 5 min (`TTL_MS`), nunca grava | `src/components/AtendimentoUlbra.jsx` |
 | `ulbra-leads-pendentes` | Lista leads receptivos em `waiting` da equipe "Reativa" | `listar_atendimentos {situacao:"waiting"}` | JWT; `receptivo` da própria linha **ou** `usuario_e_gestao()` | **Só lê**; devolve apenas id, nome e data — sem CPF e sem telefone | `src/components/NotificacoesUlbra.jsx`, que **não está montado** em nenhuma página (polling de 60 s estouraria o limite diário) |
 
 ### Divergência repo × produção, medida em 06/11/2026
