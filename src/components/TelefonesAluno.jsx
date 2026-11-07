@@ -343,6 +343,15 @@ export default function TelefonesAluno({ aluno, children }) {
   );
 }
 
+const CAMPO = {
+  background: "var(--rv-fundo-cartao)",
+  color: "var(--rv-texto-forte)",
+  border: "1px solid var(--rv-borda-forte)",
+  borderRadius: 8,
+  padding: "7px 9px",
+  fontSize: 13,
+};
+
 const S = {
   wrap: { border: "1px solid var(--rv-borda-suave)", borderRadius: 12, padding: "10px 12px", marginTop: 10, background: "var(--rv-superficie)" },
   head: { fontSize: 13, fontWeight: 700, color: "var(--rv-tinta)", marginBottom: 8 },
@@ -371,9 +380,15 @@ const S = {
   motivo: { fontSize: 12, color: "var(--rv-ambar-texto)" },
   semPermissao: { fontSize: 11, color: "var(--rv-texto-suave)", fontStyle: "italic" },
   linhaNovo: { display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" },
-  inNome: { border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "7px 9px", fontSize: 13, minWidth: 150 },
-  inTel: { border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "7px 9px", fontSize: 13, minWidth: 140 },
-  inMail: { border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "7px 9px", fontSize: 13, minWidth: 200 },
+  // O `index.css` tem uma regra global `input { background: #0f172a }`, do
+  // tema escuro. Estes campos nao declaravam fundo nem cor, entao herdavam o
+  // escuro e saiam como caixas pretas dentro de um cartao claro. Fundo, texto
+  // e borda passam a ser explicitos, nos mesmos tokens dos outros campos da
+  // ficha -- so neste componente, sem mexer na regra global, que vale para
+  // todas as telas do CRM.
+  inNome: { ...CAMPO, minWidth: 150 },
+  inTel: { ...CAMPO, minWidth: 140 },
+  inMail: { ...CAMPO, minWidth: 200 },
   zap: { background: "#25D366", color: "#fff", border: "none", borderRadius: 8, padding: "5px 10px", fontWeight: 700, cursor: "pointer", fontSize: 12 },
   zapForte: { background: "#25D366", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontWeight: 800, cursor: "pointer", fontSize: 13 },
   copiar: { background: "var(--rv-superficie)", color: "var(--rv-texto-forte)", border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "5px 10px", fontWeight: 700, cursor: "pointer", fontSize: 12 },

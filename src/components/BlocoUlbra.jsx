@@ -59,6 +59,31 @@ const ESTILO = {
     textDecoration: "none",
     cursor: "pointer",
   },
+  // Os avisos usavam classes do Tailwind (`text-xs text-amber-600`), e este
+  // projeto NAO tem Tailwind: sem config, sem dependencia, sem `@tailwind` no
+  // index.css. Na pratica as classes nunca pintaram nada e todo aviso saia em
+  // texto preto de tamanho normal -- justamente os que precisam ser lidos como
+  // alerta. Agora vao nos tokens claros da ficha, sem tocar em CSS global.
+  aviso: {
+    marginTop: 4,
+    fontSize: 12,
+    lineHeight: 1.4,
+    fontWeight: 600,
+    color: "var(--rv-ambar-texto)",
+  },
+  erro: {
+    marginTop: 4,
+    fontSize: 12,
+    lineHeight: 1.4,
+    fontWeight: 700,
+    color: "var(--rv-vermelho-texto)",
+  },
+  neutro: {
+    marginTop: 4,
+    fontSize: 12,
+    lineHeight: 1.4,
+    color: "var(--rv-texto-fraco)",
+  },
 };
 
 export default function BlocoUlbra({ aluno }) {
@@ -110,7 +135,7 @@ export default function BlocoUlbra({ aluno }) {
   if (!aluno?.id || estado === "erro") return null;
 
   if (estado === "carregando") {
-    return <div className="text-xs text-gray-400 mt-1">Consultando Mensageria Ulbra…</div>;
+    return <div style={ESTILO.neutro}>Consultando Mensageria Ulbra…</div>;
   }
 
   // Vínculo que existe mas NÃO foi confirmado por CPF: aviso, nunca botão.
@@ -118,7 +143,7 @@ export default function BlocoUlbra({ aluno }) {
   // não reconstrói a URL nem oferece caminho para abrir o atendimento.
   if (estado === "vinculado_nao_confirmado") {
     return (
-      <div className="mt-1 text-xs text-amber-600">
+      <div style={ESTILO.aviso}>
         Vínculo sem confirmação por CPF — a gestão precisa conferir a identidade
         antes de abrir na Mensageria
       </div>
@@ -132,7 +157,7 @@ export default function BlocoUlbra({ aluno }) {
     // sozinho não segura ninguém, porque o botão ao lado continua clicável.
     if (dados.reconfirmar_recomendado) {
       return (
-        <div className="mt-1 text-xs text-amber-600">
+        <div style={ESTILO.aviso}>
           Vínculo sem confirmação por CPF — a gestão precisa conferir a
           identidade antes de abrir na Mensageria
         </div>
@@ -160,7 +185,7 @@ export default function BlocoUlbra({ aluno }) {
 
   if (estado === "falha_gravacao") {
     return (
-      <div className="mt-1 text-xs text-red-600">
+      <div style={ESTILO.erro}>
         {MSG_FALHA_DE_GRAVACAO[dados?.erro]}
       </div>
     );
@@ -168,7 +193,7 @@ export default function BlocoUlbra({ aluno }) {
 
   if (estado === "bloqueado") {
     return (
-      <div className="mt-1 text-xs text-amber-600">
+      <div style={ESTILO.aviso}>
         {MSG_BLOQUEIO[dados?.motivo] ?? "Vínculo com a Mensageria não confirmado"}
       </div>
     );
@@ -176,7 +201,7 @@ export default function BlocoUlbra({ aluno }) {
 
   if (estado === "nao_encontrado" && dados?.motivo) {
     return (
-      <div className="mt-1 text-xs text-gray-400">
+      <div style={ESTILO.neutro}>
         {MSG_NAO_ENCONTRADO[dados.motivo] ?? "Não encontrado na Mensageria Ulbra"}
       </div>
     );
