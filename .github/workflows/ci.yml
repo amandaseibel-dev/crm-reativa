@@ -360,13 +360,17 @@ jobs:
   # Fecha também o Security Gate, que localmente não roda por falta de psql.
   # ---------------------------------------------------------------------------
   revoke-truncate-backup-pos-import:
-    name: revoke truncate backup_pos_import (postgres isolado)
+    name: revoke truncate backup_pos_import (postgres ${{ matrix.pg }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['16', '17']
     timeout-minutes: 10
 
     services:
       postgres:
-        image: postgres:16
+        image: postgres:${{ matrix.pg }}
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: teste
