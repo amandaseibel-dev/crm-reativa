@@ -1,0 +1,43 @@
+-- Mapeamento operador ReATIVA ↔ atendente ULBRA (configuração no servidor).
+-- PENDENTE: não aplicar em produção sem aprovação. Restrito à gestão.
+--
+-- Os 11 vínculos vêm da conferência da gestão em 08/11/2026.
+-- João Silva e Marketing NÃO entram: ficam sem vínculo.
+-- Este mapeamento identifica operadores. Não substitui o consentimento OAuth
+-- individual e não autoriza envio pela credencial central.
+
+create table if not exists public.ulbra_operadores_vinculo (
+  id            uuid primary key default gen_random_uuid(),
+  id_ulbra      text not null unique check (id_ulbra ~ '^[0-9a-f]{24}$'),
+  email_reativa text not null unique,
+  nome_ulbra    text not null,
+  ativo         boolean not null default true,
+  criado_em     timestamptz not null default now()
+);
+
+alter table public.ulbra_operadores_vinculo enable row level security;
+
+-- Grants: nada para anon; authenticated só lê, e só a gestão.
+revoke all on table public.ulbra_operadores_vinculo from public, anon, authenticated;
+grant select on table public.ulbra_operadores_vinculo to authenticated;
+-- Escrita só pelo servidor (service_role), sem TRUNCATE para authenticated.
+
+drop policy if exists ulbra_operadores_vinculo_gestao_le on public.ulbra_operadores_vinculo;
+create policy ulbra_operadores_vinculo_gestao_le
+  on public.ulbra_operadores_vinculo
+  for select to authenticated
+  using (public.usuario_e_gestao());
+
+insert into public.ulbra_operadores_vinculo (id_ulbra, email_reativa, nome_ulbra) values
+  ('698624766387b1cde0c8477a', 'cobranca11@aelbra.com.br',      'Allan Silva'),
+  ('691de4c95dbe7b715b9c1a53', 'cobranca07@aelbra.com.br',      'Amanda Borges'),
+  ('691cbe85f6c9e7f8850e09f7', 'amanda.seibel@aelbra.com.br',   'Amanda Prado Seibel'),
+  ('6a04d0a51bb2511b24611770', 'cobranca13@aelbra.com.br',      'Diego Cruz'),
+  ('691dd3255dbe7b715b9645c7', 'cobranca04@aelbra.com.br',      'Fernanda Avila'),
+  ('691e0e1ecd033c6b374b1036', 'cobranca10@aelbra.com.br',      'João Vitor'),
+  ('691ddcd65dbe7b715b998829', 'cobranca05@aelbra.com.br',      'Luana Marques'),
+  ('691dd3775dbe7b715b9660dc', 'cobranca06@aelbra.com.br',      'Mauricio Feijo'),
+  ('691de8195dbe7b715b9d36dd', 'cobranca08@aelbra.com.br',      'Nataly Pereira'),
+  ('6986289c6387b1cde0ca43c5', 'cobranca12@aelbra.com.br',      'Rafaella Coimbra'),
+  ('692700c8e3db35ff4d8562fa', 'angela.ferreira@aelbra.com.br', 'Ângela Ferreira')
+on conflict (id_ulbra) do nothing;
