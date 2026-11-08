@@ -273,6 +273,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_leitura_por_usuario.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/05_resposta_seguida_de_operador.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/06_fila_de_detalhes.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/07_reabrir_pendencia.sql"
           psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
           psql -v ON_ERROR_STOP=1 -f "$DIR/04_depois_do_rollback.sql"
 

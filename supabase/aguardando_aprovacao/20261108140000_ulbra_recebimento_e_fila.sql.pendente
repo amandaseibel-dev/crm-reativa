@@ -118,7 +118,9 @@ create table public.ulbra_sync_estado (
   -- fila de detalhes: quantas conversas ficaram sem leitura de detalhe, e quantas
   -- foram desistidas apos o maximo de tentativas (perda declarada, visivel).
   detalhe_fila_tamanho      integer not null default 0,
-  detalhes_desistidos       integer not null default 0,
+  -- pendencias abertas: conversas esgotadas, preservadas para recuperacao.
+  detalhes_pendencias_abertas integer not null default 0,
+  alerta_gestao             text,
   ultima_execucao           timestamptz,
   ultimo_ciclo              text,
   ultimo_erro               text,
@@ -135,9 +137,24 @@ create table public.ulbra_detalhe_fila (
   ulbra_cliente_id  text not null,
   na_lista_em       timestamptz not null,
   tentativas        integer not null default 0,
+  antes_de          text,
   enfileirado_em    timestamptz not null default now(),
   constraint ulbra_detalhe_tentativas_check check (tentativas >= 0)
 );
+-- Pendencias: conversas esgotadas (5 falhas). NAO sao descartadas: ficam aqui
+-- ate a gestao reabrir. Sao o registro da perda possivel, nunca silencio.
+create table public.ulbra_detalhe_pendencias (
+  ulbra_conversa_id text primary key references public.ulbra_conversas (ulbra_conversa_id) on delete cascade,
+  ulbra_cliente_id  text not null,
+  na_lista_em       timestamptz not null,
+  motivo            text not null default 'FALHAS_ESGOTADAS',
+  criada_em         timestamptz not null default now(),
+  recuperada_em     timestamptz,
+  recuperada_por    text
+);
+comment on table public.ulbra_detalhe_pendencias is
+  'Conversas sem leitura de detalhe apos o maximo de tentativas. Aberta ate a gestao reabrir. Visivel so para a gestao.';
+
 create index ulbra_detalhe_fila_ordem_idx on public.ulbra_detalhe_fila (na_lista_em);
 
 comment on table public.ulbra_detalhe_fila is
@@ -170,6 +187,11 @@ alter table public.ulbra_conversas enable row level security;
 alter table public.ulbra_atendimentos enable row level security;
 alter table public.ulbra_sync_estado enable row level security;
 alter table public.ulbra_detalhe_fila enable row level security;
+alter table public.ulbra_detalhe_pendencias enable row level security;
+create policy ulbra_detalhe_pendencias_gestao on public.ulbra_detalhe_pendencias
+  for select to authenticated using (usuario_e_gestao() and not eh_painel());
+revoke all on public.ulbra_detalhe_pendencias from authenticated, anon, public;
+grant select on public.ulbra_detalhe_pendencias to authenticated;
 revoke all on public.ulbra_detalhe_fila from authenticated, anon, public;
 
 -- LEITURA POR USUARIO. A regra e a MESMA da tela, aplicada no banco -- senao
@@ -340,9 +362,24 @@ begin
    where f.ulbra_conversa_id in (
      select e->>'ulbra_conversa_id'
        from jsonb_array_elements(coalesce(p_payload->'detalhe_concluidas', '[]'::jsonb)) e
-     union
-     select jsonb_array_elements_text(coalesce(p_payload->'detalhe_desistidas', '[]'::jsonb))
    );
+
+  -- Continuar: a leitura de detalhe pediu mais uma pagina. Nao e falha.
+  update public.ulbra_detalhe_fila f set antes_de = x.antes_de
+    from jsonb_to_recordset(coalesce(p_payload->'detalhe_continuar', '[]'::jsonb)) as x(
+      ulbra_conversa_id text, antes_de text)
+   where f.ulbra_conversa_id = x.ulbra_conversa_id;
+
+  -- Esgotadas: viram PENDENCIA (preservada) e saem da fila ativa.
+  insert into public.ulbra_detalhe_pendencias (ulbra_conversa_id, ulbra_cliente_id, na_lista_em)
+  select x.ulbra_conversa_id, x.ulbra_cliente_id, x.na_lista_em
+    from jsonb_to_recordset(coalesce(p_payload->'detalhe_pendencias', '[]'::jsonb)) as x(
+      ulbra_conversa_id text, ulbra_cliente_id text, na_lista_em timestamptz)
+  on conflict (ulbra_conversa_id) do nothing;
+  delete from public.ulbra_detalhe_fila f
+   where f.ulbra_conversa_id in (
+     select x->>'ulbra_conversa_id'
+       from jsonb_array_elements(coalesce(p_payload->'detalhe_pendencias', '[]'::jsonb)) x);
 
   -- Falhou: uma tentativa a mais. A desistencia so acontece na leitura seguinte.
   update public.ulbra_detalhe_fila f set tentativas = f.tentativas + 1
@@ -367,7 +404,14 @@ begin
     chamadas_dia = case when dia = v_dia then chamadas_dia + v_chamadas else v_chamadas end,
     dia = v_dia,
     detalhe_fila_tamanho = (select count(*) from public.ulbra_detalhe_fila),
-    detalhes_desistidos = detalhes_desistidos + coalesce(jsonb_array_length(p_payload->'detalhe_desistidas'), 0),
+    detalhes_pendencias_abertas = (select count(*) from public.ulbra_detalhe_pendencias
+                                    where recuperada_em is null),
+    alerta_gestao = case when (select count(*) from public.ulbra_detalhe_pendencias
+                                where recuperada_em is null) > 0
+      then 'PENDENCIA: ' || (select count(*) from public.ulbra_detalhe_pendencias
+                              where recuperada_em is null)
+           || ' conversa(s) sem leitura de detalhe apos 5 falhas. Revisar e reabrir.'
+      else null end,
     ciclos_desde_atendimentos = case
       when coalesce((p_payload->>'atendimentos_lidos')::boolean, false) then 0
       else ciclos_desde_atendimentos + 1 end
@@ -497,7 +541,39 @@ begin
 end;
 $$;
 
+-- Reabre uma pendencia: volta a fila com tentativas zeradas. So gestao.
+-- A pendencia nao some: ganha data e autor de recuperacao.
+create or replace function public.ulbra_detalhe_reabrir(p_conversa text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_linha public.ulbra_detalhe_pendencias;
+begin
+  if not usuario_e_gestao() then
+    return jsonb_build_object('ok', false, 'motivo', 'ACESSO_NEGADO');
+  end if;
+  update public.ulbra_detalhe_pendencias
+     set recuperada_em = now(), recuperada_por = app_email()
+   where ulbra_conversa_id = p_conversa and recuperada_em is null
+  returning * into v_linha;
+  if not found then
+    return jsonb_build_object('ok', false, 'motivo', 'NAO_PENDENTE');
+  end if;
+  insert into public.ulbra_detalhe_fila (ulbra_conversa_id, ulbra_cliente_id, na_lista_em, tentativas, antes_de)
+  values (v_linha.ulbra_conversa_id, v_linha.ulbra_cliente_id, v_linha.na_lista_em, 0, null)
+  on conflict (ulbra_conversa_id) do update set tentativas = 0, antes_de = null;
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
 revoke all on function public.ulbra_conversa_marcar_lida(text) from public, anon;
+revoke all on function public.ulbra_atendimento_assumir(text) from public, anon;
+revoke all on function public.ulbra_atendimento_dispensar(text, text) from public, anon;
+revoke all on function public.ulbra_detalhe_reabrir(text) from public, anon;
+grant execute on function public.ulbra_detalhe_reabrir(text) to authenticated;
 grant execute on function public.ulbra_atendimento_assumir(text) to authenticated;
 grant execute on function public.ulbra_atendimento_dispensar(text, text) to authenticated;
 grant execute on function public.ulbra_conversa_marcar_lida(text) to authenticated;

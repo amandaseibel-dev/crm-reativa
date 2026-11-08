@@ -182,3 +182,120 @@ dispensa, copiar antes (o próprio arquivo traz o comando de backup).
   `mensageria-ulbra.md`). Não há valor de credencial neste documento.
 - Eventos ou webhooks da plataforma: **não verificado**. As páginas públicas não
   documentam nada, e `/api/docs` exige autenticação.
+
+---
+
+## 12. Revisão desta rodada (08/11/2026): o que mudou e o que ficou provado
+
+### 12.1 Chegada vs capacidade: quando a fila converge
+
+Modelo: backlog inicial **B** conversas; chegada média **λ** por ciclo; capacidade
+**K** leituras por ciclo. Cada conversa precisa de **P** páginas de
+`ler_conversa` (capacidade efetiva **K/P** conversas por ciclo).
+
+| Condição | Comportamento | Prova (`fila.test.ts`, `fila2.test.ts`) |
+| --- | --- | --- |
+| λ < K/P | backlog esvazia em ≈ B / (K/P − λ) ciclos | λ=0,5, K=1, B=20: esvazia entre os ciclos 38 e 44 |
+| λ = K/P | backlog **não** diminui; fica em B | λ=1, K=1, B=20: fica em 20 |
+| λ > K/P | cresce a cada ciclo | λ=2, K=1: 40 após 40 ciclos |
+
+Atraso esperado para o item na posição **p** da fila: ≈ p·P/K ciclos (× 10 min).
+
+**Consequência:** "chegada igual à capacidade" **não** elimina o backlog, e
+a configuração só serve com folga (λ·P < K). A medição de λ em produção é a
+condição de aceite, não uma suposição.
+
+### 12.2 Conta por consumidor, 12 horas (72 ciclos)
+
+Fórmula, uma linha por consumidor:
+
+    total_12h(K) = (L + A + K·72) + ceil(0,15 · (L + A + K·72)) + F
+
+| Consumidor | Chamadas | Natureza |
+| --- | --- | --- |
+| L `listar_conversas` (1 página por ciclo em regime) | 72 | estimativa de regime |
+| A `listar_atendimentos` (a cada 3º ciclo) | 24 | estimativa |
+| K·72 `ler_conversa` (fila de detalhes, K leituras por ciclo) | 72 (K=1) | limite de código: K por ciclo |
+| margem de falha e retentativa | 15% sobre a base | estimativa |
+| F reserva das fichas dos operadores | 30 | **não é consumo da sincronização** |
+| envios de mensagem | 0 | esta etapa não envia |
+
+- **K=1: 168 + 26 + 30 = 224.** Cabe na convenção de 250.
+- **K=2: 240 + 36 + 30 = 306.** Não cabe na convenção de 250.
+
+A convenção de 250 é **metade do teto diário**, usada só para dividir a janela.
+**Não é limite da API.** O limite garantido é o diário, abaixo.
+
+### 12.3 Alcance do teto: o que ele controla e o que não controla
+
+**O teto de 440 por dia controla somente a sincronização.** Ele não impede:
+- as chamadas das **fichas** dos operadores (reservadas 60 por dia, sem garantia);
+- os **envios** (zero nesta etapa, mas a função não os impede se existirem);
+- o **OAuth** de gestão, que usa a mesma conta de pessoa do limite de 500/dia.
+
+Se o consumo de fora passar de 60, o limite da pessoa pode estourar **antes** de
+a sincronização chegar a 440. A sincronização não tem como saber disso sem o
+saldo real da API.
+
+**Saldo real da API: não medido.** A função lê `x-ratelimit-remaining`,
+`ratelimit-remaining` ou `x-ratelimit-remaining-day` nos cabeçalhos da resposta
+e aplica o menor valor. Se nenhum vier, o controle fica só local, e isso é o
+estado atual. **Antes de publicar, medir a resposta real da Mensageria** e
+confirmar se algum cabeçalho desses existe. Sem isso, a garantia é local.
+
+### 12.4 Esgotada não é descartada: pendência preservada e alerta
+
+Após 5 falhas, a conversa **sai da fila ativa e vira pendência** em
+`ulbra_detalhe_pendencias`, com data e motivo. Ela não some.
+
+- `ulbra_sync_estado.detalhes_pendencias_abertas` conta as abertas;
+- `ulbra_sync_estado.alerta_gestao` traz o texto do alerta, visível à gestão;
+- `ulbra_detalhe_reabrir(conversa)` devolve a conversa à fila com tentativas
+  zeradas. **Só a gestão** executa; a pendência continua registrada, com quem
+  reabriu e quando.
+
+### 12.5 Detalhe paginado: recupera resposta anterior à última mensagem
+
+`ler_conversa` devolve **20 mensagens por página**, da mais recente para a mais
+antiga. Uma página **não basta**: se não há mensagem do cliente nela e há mais
+antigas, a função continua com `antesDe` e guarda o ponto de retomada na fila
+(`antes_de`). Só conclui quando:
+
+- há mensagem do cliente, e a data é o máximo daquela página (a primeira página
+  com cliente tem a mais recente dele); **ou**
+- não há mais mensagens: não existe resposta a provar, e isso é registrado como nulo.
+
+Prova: histórico de 60 mensagens, cliente só na 3ª página. A 1ª página **não**
+conclui; a retomada com `antesDe` encontra a resposta em 2 chamadas
+(`fila2.test.ts`, "retomando com antesDe").
+
+**Limite:** o alcance é o que `ler_conversa` devolve. Histórico com mais de 60
+mensagens de operador depois da última do cliente exige mais páginas, e cada
+página é uma chamada do orçamento.
+
+### 12.6 Registro: #859
+
+A PR **#859 foi fechada como substituída pela #861, sem merge**, por decisão da
+Amanda. A branch `claude/relaxed-satoshi-e50fb7` e os commits permanecem no
+remoto, em `b8f666d8`, como referência documental. Não reaberta. Cinco arquivos
+existem só nela e não na #861 (`ulbraRespostas.js` e o teste dele,
+`ulbraRespostasFonte.js`, e a migration `ulbra_mensagens_e_leitura` com rollback).
+Reaproveitar SQL de lá exige renumerar: `20261108120000` está aposentada.
+
+### 12.7 Recomendação para a janela de 12 horas
+
+Configuração recomendada, **para aprovação, não aplicada**:
+
+- ciclo de **10 minutos** (72 por janela de 12 horas);
+- **K = 1** leitura de detalhe por ciclo, com `antesDe` para paginação;
+- teto diário de sincronização **440** (controle local por chamada) + saldo da API quando existir;
+- reserva de **60** por dia para fichas, **sem** garantia de cumprimento;
+- consumo previsto: **224** por 12 horas (estimativa); faixa de 224 a 300 se o backlog for frequente.
+
+**Condições antes de publicar:**
+1. medir λ·P em 24 horas com K=1 (condição de convergência, 12.1);
+2. medir os cabeçalhos de saldo da Mensageria (12.3);
+3. confirmar com a TI da ULBRA se a credencial é de serviço ou de pessoa.
+
+**Limitações que permanecem:** a perda de respostas além de 60 mensagens de
+operador; o alcance do teto (12.3); as pendências dependem da gestão reabri-las.

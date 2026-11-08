@@ -29,6 +29,7 @@ describe("ULBRA recebimento — Postgres real (PGlite)", () => {
     await db.exec(sqlDe(`${DIR}/03_leitura_por_usuario.sql`));
     await db.exec(sqlDe(`${DIR}/05_resposta_seguida_de_operador.sql`));
     await db.exec(sqlDe(`${DIR}/06_fila_de_detalhes.sql`));
+    await db.exec(sqlDe(`${DIR}/07_reabrir_pendencia.sql`));
     await db.exec(sqlDe(ROLLBACK));
     await db.exec(sqlDe(`${DIR}/04_depois_do_rollback.sql`));
     await db.close();

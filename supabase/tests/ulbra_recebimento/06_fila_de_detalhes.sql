@@ -44,9 +44,9 @@ do $$ declare n int; d timestamptz; begin
   perform public.afirmar(d = '2026-11-08T05:30:00+00:00', 'a data do cliente do detalhe chega ao espelho');
 end $$;
 
--- ciclo D: outra conversa cz esgota as tentativas e e DESISTIDA (contada)
+-- ciclo D: a conversa cz esgota as tentativas. NAO some: vira PENDENCIA e alerta.
 select public.ulbra_sync_gravar(jsonb_build_object(
-  'ciclo', 'OK', 'chamadas', 1, 'dia', '2026-11-08', 'cursor', '2026-11-08T06:00:00+00:00',
+  'ciclo', 'OK', 'chamadas', 1, 'dia', '2026-11-08', 'cursor', '2026-11-08T06:01:00+00:00',
   'conversas', jsonb_build_array(jsonb_build_object(
     'ulbra_conversa_id', 'cz', 'ulbra_cliente_id', 'kz', 'cliente_nome', 'Aluno C',
     'canal', 'whatsapp', 'situacao', 'active', 'equipe', 'Reativa', 'responsavel_ulbra', null,
@@ -58,13 +58,16 @@ select public.ulbra_sync_gravar(jsonb_build_object(
 
 select public.ulbra_sync_gravar(jsonb_build_object(
   'ciclo', 'OK', 'chamadas', 1, 'dia', '2026-11-08', 'cursor', '2026-11-08T06:01:00+00:00',
-  'detalhe_desistidas', jsonb_build_array('cz')));
+  'detalhe_pendencias', jsonb_build_array(jsonb_build_object(
+    'ulbra_conversa_id', 'cz', 'ulbra_cliente_id', 'kz', 'na_lista_em', '2026-11-08T06:01:00+00:00'))));
 
-do $$ declare n int; desist int; begin
+do $$ declare n int; p int; alerta text; begin
   select count(*) into n from public.ulbra_detalhe_fila where ulbra_conversa_id = 'cz';
-  perform public.afirmar(n = 0, 'conversa desistida sai da fila');
-  select detalhes_desistidos into desist from public.ulbra_sync_estado where id;
-  perform public.afirmar(desist = 1, 'a desistencia fica contada no estado, visivel para a gestao');
+  perform public.afirmar(n = 0, 'conversa esgotada sai da fila ativa');
+  select count(*) into p from public.ulbra_detalhe_pendencias where ulbra_conversa_id = 'cz' and recuperada_em is null;
+  perform public.afirmar(p = 1, 'conversa esgotada NAO some: fica como pendencia aberta');
+  select alerta_gestao into alerta from public.ulbra_sync_estado where id;
+  perform public.afirmar(alerta like 'PENDENCIA:%', 'a gestao recebe alerta com a contagem de pendencias');
 end $$;
 
 select 'FILA DE DETALHES: afirmacoes passaram' as resultado;

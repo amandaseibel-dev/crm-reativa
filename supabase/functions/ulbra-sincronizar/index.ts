@@ -32,13 +32,14 @@ import {
   candidatasDaColheita,
   colherConversas,
   decidirDestino,
+  decidirDetalhe,
+  saldoDoCabecalho,
   identificar,
   lerAtendimentos,
   lerCorpoMcp,
   novaJanela,
   resultadoDoEnvelope,
   selecionarDetalhes,
-  ultimaDoClienteNoDetalhe,
   type AtendimentoLido,
   type Colheita,
   type ConversaLida,
@@ -76,7 +77,7 @@ function chaveConfere(recebida: string, esperada: string): boolean {
   return diferenca === 0;
 }
 
-async function chamarMcp(token: string, carga: unknown): Promise<unknown> {
+async function chamarMcp(token: string, carga: unknown): Promise<{ dados: unknown; saldo: number | null }> {
   const resp = await fetch(MCP_URL, {
     method: "POST",
     headers: {
@@ -89,7 +90,9 @@ async function chamarMcp(token: string, carga: unknown): Promise<unknown> {
   if (!resp.ok) {
     throw new Error(resp.status === 429 ? "ULBRA_LIMITE" : `ULBRA_HTTP_${resp.status}`);
   }
-  return resultadoDoEnvelope(lerCorpoMcp(resp.headers.get("content-type"), await resp.text()));
+  const saldo = saldoDoCabecalho(resp.headers);
+  const dados = resultadoDoEnvelope(lerCorpoMcp(resp.headers.get("content-type"), await resp.text()));
+  return { dados, saldo };
 }
 
 Deno.serve(async (req: Request) => {
@@ -138,7 +141,10 @@ Deno.serve(async (req: Request) => {
   const chamar = async (carga: unknown) => {
     orcamento.gastar();
     chamadas++;
-    return chamarMcp(token, carga);
+    const { dados, saldo } = await chamarMcp(token, carga);
+    // Saldo da própria API, quando informado, prevalece se for menor.
+    orcamento.ajustarAoSaldoDaApi(saldo);
+    return dados;
   };
   const pode = () => orcamento.pode();
 
@@ -148,7 +154,7 @@ Deno.serve(async (req: Request) => {
     sb.from("fila_receptivo").select("email, atendimentos_hoje, ultimo_atendimento, em_pausa, online_em"),
     sb
       .from("ulbra_detalhe_fila")
-      .select("ulbra_conversa_id, ulbra_cliente_id, na_lista_em, tentativas")
+      .select("ulbra_conversa_id, ulbra_cliente_id, na_lista_em, tentativas, antes_de")
       .order("na_lista_em", { ascending: true })
       .limit(1000),
   ]);
@@ -173,6 +179,7 @@ Deno.serve(async (req: Request) => {
   // Resultados do detalhe, aplicados na gravação.
   const concluidas: Array<{ ulbra_conversa_id: string; ultima_mensagem_cliente_em: string | null }> = [];
   const falhas: string[] = [];
+  const continuar: Array<{ ulbra_conversa_id: string; antes_de: string }> = [];
   let desistidas: FilaDetalhe[] = [];
   let novas: FilaDetalhe[] = [];
 
@@ -192,11 +199,14 @@ Deno.serve(async (req: Request) => {
     for (const f of sel.escolhidas) {
       if (!pode()) break; // sem saldo: as que sobraram seguem na fila
       try {
-        const resposta = await chamar(cargaDetalhe(f.ulbra_conversa_id));
-        concluidas.push({
-          ulbra_conversa_id: f.ulbra_conversa_id,
-          ultima_mensagem_cliente_em: ultimaDoClienteNoDetalhe(resposta),
-        });
+        const resposta = await chamar(cargaDetalhe(f.ulbra_conversa_id, f.antes_de ?? null));
+        const passo = decidirDetalhe(resposta);
+        if (passo.acao === "CONCLUIR") {
+          concluidas.push({ ulbra_conversa_id: f.ulbra_conversa_id, ultima_mensagem_cliente_em: passo.ultima_cliente });
+        } else {
+          // Não é falha: a conversa segue na fila, retomando em `antes_de`.
+          continuar.push({ ulbra_conversa_id: f.ulbra_conversa_id, antes_de: passo.antes_de });
+        }
       } catch (e) {
         console.error("ulbra-sincronizar: detalhe falhou", (e as Error).message);
         falhas.push(f.ulbra_conversa_id);
@@ -276,8 +286,14 @@ Deno.serve(async (req: Request) => {
         na_lista_em: f.na_lista_em,
       })),
       detalhe_concluidas: concluidas,
+      detalhe_continuar: continuar,
       detalhe_falhas: falhas,
-      detalhe_desistidas: desistidas.map((f) => f.ulbra_conversa_id),
+      // Esgotadas: NAO se descartam. Viram pendencia, visivel a gestao.
+      detalhe_pendencias: desistidas.map((f) => ({
+        ulbra_conversa_id: f.ulbra_conversa_id,
+        ulbra_cliente_id: f.ulbra_cliente_id,
+        na_lista_em: f.na_lista_em,
+      })),
     },
   });
   if (error) {
@@ -295,7 +311,7 @@ Deno.serve(async (req: Request) => {
     conversas_novas: linhasConversas.length,
     detalhes_lidos: concluidas.length,
     detalhes_falharam: falhas.length,
-    detalhes_desistidas: desistidas.length,
+    detalhes_pendencias_novas: desistidas.length,
     atendimentos_em_espera: atendimentosLidos ? linhasAtendimentos.length : null,
     gravado,
   });

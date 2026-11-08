@@ -33,6 +33,18 @@ begin
   perform public.afirmar(ok_trunc, 'authenticated NAO TRUNCA o espelho (grant revogado)');
 end $$;
 
+-- Funcoes de escrita da etapa 1: anon nunca executa; authenticated executa so as de usuario.
+do $$ begin
+  perform public.afirmar(not has_function_privilege('anon', 'public.ulbra_atendimento_assumir(text)', 'execute'),
+    'anon NAO executa ulbra_atendimento_assumir');
+  perform public.afirmar(not has_function_privilege('anon', 'public.ulbra_atendimento_dispensar(text,text)', 'execute'),
+    'anon NAO executa ulbra_atendimento_dispensar');
+  perform public.afirmar(not has_function_privilege('anon', 'public.ulbra_conversa_marcar_lida(text)', 'execute'),
+    'anon NAO executa ulbra_conversa_marcar_lida');
+  perform public.afirmar(not has_function_privilege('anon', 'public.ulbra_detalhe_reabrir(text)', 'execute'),
+    'anon NAO executa ulbra_detalhe_reabrir');
+end $$;
+
 -- a porta de escrita da sincronizacao e so de service_role
 do $$ declare ok boolean := false; begin
   ok := not has_function_privilege('authenticated', 'public.ulbra_sync_gravar(jsonb)', 'execute');

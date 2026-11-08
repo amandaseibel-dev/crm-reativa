@@ -247,13 +247,49 @@ export function ultimaDoClienteNoDetalhe(resposta: unknown): string | null {
   return maior;
 }
 
-export function cargaDetalhe(conversaId: string, id = 1) {
-  return {
-    jsonrpc: "2.0",
-    id,
-    method: "tools/call",
-    params: { name: "ler_conversa", arguments: { id: conversaId, limite: 20 } },
-  };
+export function cargaDetalhe(conversaId: string, antesDe?: string | null, id = 1) {
+  const args: Record<string, unknown> = { id: conversaId, limite: 20 };
+  if (antesDe) args.antesDe = antesDe;
+  return { jsonrpc: "2.0", id, method: "tools/call", params: { name: "ler_conversa", arguments: args } };
+}
+
+/**
+ * Decide o próximo passo de uma conversa a partir de UMA página de `ler_conversa`.
+ *
+ * A página traz as mensagens MAIS RECENTES primeiro (limite 20). A primeira página
+ * que tem mensagem do cliente contém a mais recente dele: basta olhar o máximo
+ * dessa página. Se não há cliente na página e ainda há mais antigas, o próximo
+ * passo é continuar com `antesDe`. Uma página NÃO basta por si só.
+ */
+export function decidirDetalhe(
+  resposta: unknown,
+): { acao: "CONCLUIR"; ultima_cliente: string | null } | { acao: "CONTINUAR"; antes_de: string } {
+  const corpo = resposta as {
+    mensagens?: Array<{ quem?: string; em?: string }>;
+    paginacao?: { maisAntigas?: boolean; antesDe?: string };
+  } | null;
+  const ultima = ultimaDoClienteNoDetalhe(resposta);
+  if (ultima !== null) return { acao: "CONCLUIR", ultima_cliente: ultima };
+  const maisAntigas = corpo?.paginacao?.maisAntigas === true;
+  const antesDe = corpo?.paginacao?.antesDe;
+  if (maisAntigas && typeof antesDe === "string" && antesDe.length > 0) {
+    return { acao: "CONTINUAR", antes_de: antesDe };
+  }
+  // Sem cliente em nenhuma mensagem do histórico: não há resposta a provar.
+  return { acao: "CONCLUIR", ultima_cliente: null };
+}
+
+/**
+ * Saldo que a PRÓPRIA API informa no cabeçalho de resposta, se informar.
+ * Não medido: a API medida não documenta esse cabeçalho. Quando não vier,
+ * devolve null e o controle fica só local. Nunca se presume um valor.
+ */
+export function saldoDoCabecalho(headers: { get(nome: string): string | null }): number | null {
+  for (const nome of ["x-ratelimit-remaining", "ratelimit-remaining", "x-ratelimit-remaining-day"]) {
+    const v = headers.get(nome);
+    if (v !== null && /^\d+$/.test(v.trim())) return Number(v.trim());
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -278,6 +314,10 @@ export class Orcamento {
   gastar(): void {
     if (this.restante > 0) this.restante--;
   }
+  /** Saldo informado pela API prevalece quando é MENOR que o local. */
+  ajustarAoSaldoDaApi(saldoApi: number | null): void {
+    if (saldoApi !== null && saldoApi < this.restante) this.restante = saldoApi;
+  }
   get saldo(): number {
     return this.restante;
   }
@@ -298,6 +338,8 @@ export interface FilaDetalhe {
   ulbra_cliente_id: string;
   na_lista_em: string;
   tentativas: number;
+  /** Onde retomar a leitura de detalhe desta conversa (paginação `antesDe`). */
+  antes_de?: string | null;
 }
 
 export function candidatasDaColheita(conversas: ConversaLida[]): FilaDetalhe[] {
