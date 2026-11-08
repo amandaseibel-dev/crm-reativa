@@ -1,0 +1,200 @@
+Correção compatível com 'CONCLUIDO' e 'Concluída' — PREPARADA, NÃO APLICADA
+
+Contexto: docs/rascunhos/RESULTADO-SIMULACAO-E-ACHADOS-2026-11-07.md, item 3.
+
+Não reescreve histórico: nenhum UPDATE nas 157 linhas 'Concluída', nenhuma
+alteração em public.importar_acordos (que é a origem da grafia e exigiria
+migration + aprovação, fora deste PR).
+
+Três hunks INDEPENDENTES. Aplicar com:
+    git apply docs/rascunhos/patch-status-importacao-compativel.patch
+
+HUNK A — util puro + teste. Sem efeito em tela.
+HUNK B — passa as duas comparações existentes a usar o util.
+         Sem mudança de comportamento hoje (ambas já são recortadas por tipo
+         na origem); blinda quem ler `importacoes` sem recorte no futuro.
+HUNK C — ÚNICO COM EFEITO REAL: o aviso de borderô já importado passa a
+         considerar tentativa anterior travada. É o furo que deixou a
+         reimportação do Borderô 333, em 28/10, sem aviso. Pode ser aplicado
+         sozinho, sem A e B.
+
+=============================================================================
+HUNK A — novo util e teste
+=============================================================================
+--- /dev/null
++++ b/src/utils/statusImportacao.js
+@@ -0,0 +1,38 @@
++// Status de importação: duas grafias convivem em `importacoes.status` e as duas
++// são verdade.
++//
++// `public.importar_acordos` grava 'Concluída' (acentuado, caixa de frase);
++// borderô, projeção e os demais tipos gravam 'CONCLUIDO'. Medido em produção
++// em 07/11/2026: ACORDOS/Concluída=157, BORDERO/CONCLUIDO=159,
++// PROJECAO_DIARIA/CONCLUIDO=338. A divergência é segregada por tipo -- não há
++// mistura dentro de um mesmo tipo.
++//
++// Hoje nenhum filtro erra por causa disso: todo consumidor é recortado por
++// `tipo` na origem (`relatorio_importacoes_bordero` tem where tipo='BORDERO';
++// `importacao_conferencia_arquivos` tem where tipo in ('PROJECAO_DIARIA',
++// 'PROJECAO_RETROATIVA')). Este util existe para que a primeira leitura SEM
++// esse recorte não nasça errada.
++//
++// Não normaliza o dado gravado. Normaliza a LEITURA.
++
++const CONCLUIDOS = new Set(["CONCLUIDO", "CONCLUIDA"]);
++
++/** Remove acento e sobe a caixa, para 'Concluída' e 'CONCLUIDO' caírem no mesmo lugar. */
++export function normalizarStatusImportacao(status) {
++  if (status === null || status === undefined) return "";
++  return String(status)
++    .normalize("NFD")
++    .replace(/[̀-ͯ]/g, "")
++    .trim()
++    .toUpperCase();
++}
++
++/** true para 'CONCLUIDO', 'Concluída', 'CONCLUÍDA', 'concluido'. */
++export function ehImportacaoConcluida(status) {
++  return CONCLUIDOS.has(normalizarStatusImportacao(status));
++}
++
++/** O inverso, para quem lê "ainda não terminou" -- status ausente NÃO é travado. */
++export function ehImportacaoTravada(status) {
++  const s = normalizarStatusImportacao(status);
++  if (s === "") return false;
++  return !CONCLUIDOS.has(s);
++}
+--- /dev/null
++++ b/src/utils/statusImportacao.test.js
+@@ -0,0 +1,41 @@
++import { describe, it, expect } from "vitest";
++import {
++  normalizarStatusImportacao,
++  ehImportacaoConcluida,
++  ehImportacaoTravada,
++} from "./statusImportacao";
++
++describe("statusImportacao", () => {
++  it("aceita as duas grafias que existem em producao", () => {
++    // ACORDOS (157 linhas) e BORDERO/PROJECAO (499 linhas), medido 07/11/2026
++    expect(ehImportacaoConcluida("Concluída")).toBe(true);
++    expect(ehImportacaoConcluida("CONCLUIDO")).toBe(true);
++  });
++
++  it("aceita variacoes de caixa e acento sem inventar status novo", () => {
++    expect(ehImportacaoConcluida("CONCLUÍDA")).toBe(true);
++    expect(ehImportacaoConcluida("concluido")).toBe(true);
++    expect(ehImportacaoConcluida(" Concluída ")).toBe(true);
++  });
++
++  it("nao confunde os outros status reais da tabela", () => {
++    expect(ehImportacaoConcluida("PROCESSANDO")).toBe(false);
++    expect(ehImportacaoConcluida("SUBSTITUIDA")).toBe(false);
++    expect(ehImportacaoConcluida("EXCLUIDA")).toBe(false);
++  });
++
++  it("status ausente nao e concluido NEM travado", () => {
++    // a aba de acordos nao expoe status; ausencia nao e defeito
++    expect(ehImportacaoConcluida(null)).toBe(false);
++    expect(ehImportacaoTravada(null)).toBe(false);
++    expect(ehImportacaoTravada(undefined)).toBe(false);
++    expect(ehImportacaoTravada("")).toBe(false);
++  });
++
++  it("travada e o complemento, para os status que existem", () => {
++    expect(ehImportacaoTravada("PROCESSANDO")).toBe(true);
++    expect(ehImportacaoTravada("Concluída")).toBe(false);
++  });
++
++  it("normalizar nao muda o dado, so a leitura", () => {
++    expect(normalizarStatusImportacao("Concluída")).toBe("CONCLUIDA");
++    expect(normalizarStatusImportacao("CONCLUIDO")).toBe("CONCLUIDO");
++  });
++});
+
+=============================================================================
+HUNK B — usa o util nas duas comparações existentes
+=============================================================================
+--- a/src/utils/conferenciaPorArquivo.js
++++ b/src/utils/conferenciaPorArquivo.js
+@@ -131,9 +131,12 @@
+   const n = numero(arquivo.pagamentos);
+   const quantos = n === 0 ? "nenhum pagamento" : n === 1 ? "1 pagamento" : `${contagem(n)} pagamentos`;
+-  const substituida = arquivo.importacao_status && arquivo.importacao_status !== "CONCLUIDO"
+-    ? ` · ${arquivo.importacao_status}`
+-    : "";
++  // `importacao_conferencia_arquivos` recorta tipo in ('PROJECAO_DIARIA',
++  // 'PROJECAO_RETROATIVA'), onde só existe 'CONCLUIDO'. O util é para esse
++  // recorte não ser premissa escondida: se a RPC passar a trazer ACORDOS,
++  // 'Concluída' não vira "substituída".
++  const substituida = ehImportacaoTravada(arquivo.importacao_status)
++    ? ` · ${arquivo.importacao_status}`
++    : "";
+   return `${arquivo.arquivo_nome || "(sem nome)"} — ${quando} · ${quantos}${substituida}`;
+ }
+
+--- a/src/pages/Importacoes.jsx
++++ b/src/pages/Importacoes.jsx
+@@ -53,7 +53,7 @@
+       const agregado = porReferencia[chave];
+       agregado.titulos_gravados += Number(linha.titulos_gravados) || 0;
+       agregado.tentativas += 1;
+-      if (linha.status !== "CONCLUIDO") agregado.travado = true;
++      if (ehImportacaoTravada(linha.status)) agregado.travado = true;
+       // fica com a data mais recente entre as tentativas
+       if (new Date(linha.criado_em) > new Date(agregado.criado_em)) {
+         agregado.criado_em = linha.criado_em;
+
+(ambos precisam do import correspondente:
+   import { ehImportacaoTravada } from "../utils/statusImportacao";
+ em src/pages/Importacoes.jsx, e
+   import { ehImportacaoTravada } from "./statusImportacao";
+ em src/utils/conferenciaPorArquivo.js)
+
+=============================================================================
+HUNK C — aviso de borderô duplicado passa a ver tentativa travada
+            *** ÚNICO HUNK QUE MUDA COMPORTAMENTO ***
+=============================================================================
+Por que: o Borderô 333 entrou parcialmente em 02/07/2026 (472 títulos) e ficou
+em PROCESSANDO. Em 28/10 foi reimportado e o aviso "já foi importado antes"
+NÃO apareceu, porque o filtro exige status CONCLUIDO. Deu certo só porque o
+upsert com ignoreDuplicates barrou os repetidos -- 0 documento duplicado. Para
+AVISAR, qualquer tentativa anterior conta.
+
+--- a/src/pages/Borderos.jsx
++++ b/src/pages/Borderos.jsx
+@@ -356,13 +356,16 @@
+       const numeroBordero = extrairNumeroBordero(arquivoSelecionado.name);
+
+       // Avisa se esse mesmo bordero (mesmo numero) ja foi importado antes,
+       // pra evitar reenvio sem perceber. Nao bloqueia (pode ser reforço de
+       // dados de propósito), so deixa bem visivel antes de confirmar.
++      //
++      // NAO filtra por status: uma tentativa travada em PROCESSANDO tambem
++      // gravou titulo (o Bordero 333 gravou 472 em 02/07/2026 e ficou
++      // PROCESSANDO; em 28/10 foi reimportado sem aviso nenhum). Para avisar,
++      // qualquer tentativa anterior conta -- inclusive a que nao terminou.
+       const { data: importacoesAnteriores } = await supabase
+         .from("importacoes")
+-        .select("id, created_at, usuario, qtd_registros")
++        .select("id, created_at, usuario, qtd_registros, status")
+         .eq("tipo", "BORDERO")
+         .eq("referencia", numeroBordero)
+-        .eq("status", "CONCLUIDO")
+         .order("created_at", { ascending: false })
+         .limit(1);
+
+
+A tela que consome `preview.jaImportadoAntes` deve passar a mostrar o `status`
+quando ele não for concluído, para a gestão distinguir "já entrou inteiro" de
+"entrou pela metade e travou". Sem isso, o aviso fica ambíguo.
+
+=============================================================================
+NÃO INCLUÍDO DE PROPÓSITO
+=============================================================================
+- UPDATE nas 157 linhas 'Concluída'  -> reescreveria histórico
+- ALTER/CREATE OR REPLACE em public.importar_acordos para gravar 'CONCLUIDO'
+  -> exige migration, aprovação e criaria um terceiro regime (ACORDOS antigo
+     'Concluída', novo 'CONCLUIDO'). Decisão separada.
+- UPDATE no status do Bordero 333 -> os 3 caminhos estão no item 2 do
+  RESULTADO; nenhum executado.
