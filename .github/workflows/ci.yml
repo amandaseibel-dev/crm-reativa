@@ -282,6 +282,68 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/04_depois_do_rollback.sql"
 
   # ---------------------------------------------------------------------------
+  # ULBRA — mapeamento operador ReATIVA x atendente ULBRA (20261108150000).
+  #
+  # Job SEPARADO do de cima de propósito: esta migration é outra, tem rollback
+  # próprio e NÃO está coberta pela autorização M1 da #864, que nomeia só a
+  # 20261108140000. Misturar as duas no mesmo job faria uma passar de carona na
+  # aprovação da outra.
+  # ---------------------------------------------------------------------------
+  ulbra-operadores-sql:
+    name: ulbra operadores — RLS, grants herdados e rollback (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/ulbra_operadores
+      MIGRATION: supabase/aguardando_aprovacao/20261108150000_ulbra_operadores_vinculo.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261108150000_ulbra_operadores_vinculo.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ambiente, migration candidata, provas, rollback e verificacao
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_provas.sql"
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/03_depois_do_rollback.sql"
+
+      # A prova so vale se cair quando o REVOKE sai. Sem isto, os grants
+      # herdados por `alter default privileges` passariam sem ser exercitados.
+      - name: Sensibilidade — sem o REVOKE, a prova TEM de falhar
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -c 'drop schema public cascade; create schema public;'
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          grep -v '^revoke all on table' "$MIGRATION" | psql -v ON_ERROR_STOP=1
+          if psql -v ON_ERROR_STOP=1 -f "$DIR/02_provas.sql" >/dev/null 2>&1; then
+            echo "FALHA: a prova passou sem o REVOKE -- ela nao prova nada"
+            exit 1
+          fi
+          echo "ok: sem o REVOKE a prova cai, como tem de ser"
+
+  # ---------------------------------------------------------------------------
   # ULBRA — verificação de TIPOS e IMPORTS da Edge Function com o Deno, em
   # versão FIXADA. O transform do Vitest não prova isso: ele não resolve
   # imports remotos (esm.sh) nem checa tipos do runtime Deno.

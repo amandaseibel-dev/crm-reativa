@@ -286,3 +286,83 @@ A tabela de correspondência é trabalho da gestão do ReATIVA, não da ULBRA.
    explícita. Executor único: sessão principal.
 
 Nenhum passo acima altera carteira ou produção sem aprovação específica.
+
+---
+
+## 10. O que a #864 autoriza, e o que NÃO autoriza (08/11/2026)
+
+A autorização M1 da PR **#864** nomeia **uma** migration e trava **um** hash.
+Tudo o mais nesta frente segue pendente, com autorização própria a pedir.
+
+| Artefato | Coberto pela #864? | Estado |
+| --- | --- | --- |
+| `20261108140000_ulbra_recebimento_e_fila` | **SIM** — nome e SHA-256 `ccf3b206…` na linha do registro | **não aplicada** |
+| `20261108150000_ulbra_operadores_vinculo` (mapeamento) | **NÃO** — nem nome nem hash constam | preparada, **não aplicada** |
+| `20261106190000_ulbra_vinculos_view_confirmados` | **NÃO** | pendente de rodadas anteriores |
+| Gravar `ULBRA_SYNC_CHAVE` (ambiente e Vault) | não é migration — passo próprio | não feito |
+| Publicar `ulbra-sincronizar` | não é migration — passo próprio | não publicada |
+| Criar o cron | **NÃO**, e fora do escopo desta etapa | não criado |
+
+**Três coisas que a linha M1 pendente NÃO significa:**
+
+1. **não significa aplicada** — enquanto a #864 não for mesclada, a linha nem
+   existe na `origin/main`, e o hook não tem o que ler;
+2. **não significa autorização de outra migration** — ela vincula um hash só.
+   A `20261108150000` precisa de linha própria;
+3. **não autoriza os passos que não são migration** — secret, deploy e cron
+   têm autorização separada, como manda o runbook §6.
+
+Conferido em produção em 08/11/2026 16:44:47Z, somente leitura: versão não
+aplicada, 0 tabelas, 0 funções, 0 cron, última versão do banco
+`20261107143314`.
+
+### 10.1 O mapeamento, separado de propósito
+
+`20261108150000_ulbra_operadores_vinculo` tem **rollback próprio**
+(`…rollback.sql`) e **job próprio no CI** (`ulbra-operadores-sql`, Postgres 17),
+que exercita RLS, privilégios e a volta ao estado anterior — mais um passo de
+**sensibilidade**: removendo o `revoke all`, a prova TEM de falhar. Se não
+falhasse, ela não estaria provando nada contra o
+`alter default privileges … grant all on tables to authenticated` do projeto,
+que faz tabela nova nascer aberta com TRUNCATE incluso.
+
+O rollback não mexe nesse `alter default privileges`: ele é configuração do
+schema, anterior à migration e usada pelo resto do sistema. Desfazê-lo aqui
+seria alterar o ambiente inteiro para derrubar uma tabela. A consequência fica
+dita: depois do rollback, o ambiente volta ao estado anterior — **e esse estado
+inclui a armadilha**.
+
+## 11. Correção da previsão do e-mail (08/11/2026)
+
+O número de 30 minutos que apresentei é **intervalo nominal de consulta, não
+prazo máximo garantido**. A espera real pode ser maior por três motivos, todos
+já no código:
+
+- **backlog**: o ciclo que atinge o teto de páginas marca `truncado` e deixa o
+  resto para o próximo — o excedente espera um ciclo inteiro, ou mais;
+- **falha**: erro em `listar_conversas` grava `FALHOU` e **não move a janela**;
+  o conteúdo só aparece no ciclo seguinte que der certo;
+- **saldo insuficiente**: sem orçamento, o ciclo é pulado (`PULADO_ORCAMENTO`)
+  e nada é lido até o dia virar.
+
+Então o correto é: **intervalo nominal de 30 min, sem teto garantido.**
+
+A estimativa de custo abaixo mantém **K = 1**, e esse é o ponto frágil:
+
+| Cadência do e-mail | Chamadas a mais em 12 h | Total 12 h | Acréscimo |
+| --- | --- | --- | --- |
+| mesmo ciclo (10 min) | +72 | 290 | +83 (+40%) |
+| **a cada 30 min** | **+24** | **235** | **+28 (+14%)** |
+| a cada 60 min | +12 | 221 | +14 (+7%) |
+
+**O que a tabela não cobre:** ela conta só a **listagem**. Conversa de e-mail
+que precise de detalhe disputa a **mesma** capacidade de `ler_conversa` — que
+é `DETALHE_POR_CICLO = 1`, um por ciclo, para os dois canais juntos. Ligar o
+e-mail sem mexer em K não aumenta a capacidade de detalhe: **aumenta a fila que
+divide a mesma capacidade**, e a condição de convergência λ × P < K passa a
+valer para a soma dos canais. Se a coleta mostrar λ perto de 1 só com WhatsApp,
+somar e-mail empurra a fila para a não convergência — e a saída, pela regra já
+registrada, é encurtar o intervalo do ciclo de detalhe, não subir K.
+
+Por isso o e-mail fica no escopo final **sem ativação nesta etapa**: a decisão
+depende do λ medido, e medir λ só com WhatsApp não responde pelo conjunto.
