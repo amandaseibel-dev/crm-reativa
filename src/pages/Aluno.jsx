@@ -13,11 +13,8 @@ import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 import EmailAlunoUnificado from "../components/EmailAlunoUnificado";
 import { carregarTabulacoes, desfechoDaTabulacao, retornoEhManual, camposDeRetorno, lerRetornoAtual, RETORNO_ORIGEM_OPERADOR, tabulacaoDisponivel } from "../utils/tabulacoes";
 import { ehOrigemDoOperador } from "../utils/retornoOrigem";
-import {
-  corMovimentacao,
-  linhaMovimentacao,
-  recortarMovimentacoes,
-} from "../utils/movimentacoes";
+import { corMovimentacao, recortarMovimentacoes } from "../utils/movimentacoes";
+import LinhaMovimentacao from "../components/LinhaMovimentacao";
 import TelefonesAluno from "../components/TelefonesAluno";
 import BlocoUlbra from "../components/BlocoUlbra";
 import AtendimentoUlbra from "../components/AtendimentoUlbra";
@@ -2646,43 +2643,30 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                 ) : (
                   <>
                     <div style={{ display: "grid", gap: "1px" }}>
-                      {recorteMovimentacoes.visiveis.map((mov) => {
-                        const linha = linhaMovimentacao(
-                          mov,
-                          rotuloStatus,
-                          formatarDataHora,
-                        );
-                        return (
-                          <div
-                            key={mov.id}
-                            title={linha.titulo}
-                            style={{
-                              ...linhaMov,
-                              borderLeftColor: corMovimentacao(mov.tipo, mov.status_novo),
-                            }}
-                          >
-                            <span style={movData}>{linha.data}</span>
-                            <span style={movTexto}>{linha.texto}</span>
-                            {mov.elogio_print_path && (
-                              <button
-                                type="button"
-                                onClick={() => abrirAnexoElogio(mov.elogio_print_path)}
-                                style={movAnexo}
-                                title={
-                                  mov.elogio_print_nome
-                                    ? `Ver anexo: ${mov.elogio_print_nome}`
-                                    : "Ver anexo"
-                                }
-                              >
-                                📎
-                              </button>
-                            )}
-                            {linha.operador && (
-                              <span style={movOperador}>{linha.operador}</span>
-                            )}
-                          </div>
-                        );
-                      })}
+                      {recorteMovimentacoes.visiveis.map((mov) => (
+                        <LinhaMovimentacao
+                          key={mov.id}
+                          mov={mov}
+                          traduzir={rotuloStatus}
+                          formatarCompleta={formatarDataHora}
+                          corBorda={corMovimentacao(mov.tipo, mov.status_novo)}
+                        >
+                          {mov.elogio_print_path && (
+                            <button
+                              type="button"
+                              onClick={() => abrirAnexoElogio(mov.elogio_print_path)}
+                              style={movAnexo}
+                              title={
+                                mov.elogio_print_nome
+                                  ? `Ver anexo: ${mov.elogio_print_nome}`
+                                  : "Ver anexo"
+                              }
+                            >
+                              📎
+                            </button>
+                          )}
+                        </LinhaMovimentacao>
+                      ))}
                     </div>
                     {recorteMovimentacoes.podeExpandir && (
                       <button
@@ -3016,36 +3000,9 @@ const emAbertoTotalA = { fontWeight: 700, fontSize: 13, color: "var(--rv-tinta)"
 const emAbertoSubA = { fontSize: 11, color: "var(--rv-texto-fraco)" };
 // Card de movimentação: duas linhas principais (tipo+data / descrição) e uma
 // terceira só quando há metadado real. A cor da borda vem de corMovimentacao.
-// Linha unica de movimentacao: data | texto (encolhe e trunca) | operador.
-// O que nao couber esta no `title` -- nada de registro escondido.
-const linhaMov = {
-  display: "flex",
-  alignItems: "baseline",
-  gap: 8,
-  borderLeft: "3px solid #2563eb",
-  padding: "3px 0 3px 8px",
-  minWidth: 0,
-};
-const movData = {
-  fontSize: 11.5,
-  color: "var(--rv-texto-fraco)",
-  whiteSpace: "nowrap",
-  fontVariantNumeric: "tabular-nums",
-};
-const movTexto = {
-  flex: 1,
-  minWidth: 0,
-  fontSize: 12.5,
-  color: "var(--rv-texto)",
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-};
-const movOperador = {
-  fontSize: 11.5,
-  color: "var(--rv-texto-fraco)",
-  whiteSpace: "nowrap",
-};
+// A linha de movimentacao (data | texto | operador) mora em
+// components/LinhaMovimentacao.jsx, compartilhada com a ficha unificada.
+// Aqui fica so o botao de anexo, que e exclusivo desta tela.
 const movAnexo = {
   border: "none",
   background: "none",
