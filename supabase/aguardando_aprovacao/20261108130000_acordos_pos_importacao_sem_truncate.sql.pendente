@@ -51,15 +51,18 @@
 --   · volatilidade, custo, `parallel`, tipo de retorno `jsonb`;
 --   · e o corpo, byte a byte, fora da linha acrescentada.
 -- Ler a função inteira antes de substituir é regra da casa, e foi feito:
--- 94 linhas, 4.420 bytes, uma única sobrecarga.
+-- corpo `prosrc`: 94 linhas, 4.420 bytes; `pg_get_functiondef()` (o que este
+-- patch manipula): 101 linhas, 4.690 bytes, md5
+-- 1a0bf629927d3c6bbfcca01d3e8cab87. Uma única sobrecarga.
 --
 -- GRANTS -- premissa §10: `CREATE OR REPLACE` pode restaurar grants padrão.
 -- A migration fotografa `proacl` antes e **aborta** se mudar depois. Hoje é
 -- `postgres:EXECUTE, authenticated:EXECUTE, service_role:EXECUTE`, sem `anon`
 -- e sem `PUBLIC`.
 --
--- ROLLBACK: `20261108120000_acordos_pos_importacao_sem_truncate.rollback.sql`,
--- que remove exatamente as duas linhas acrescentadas, pela mesma âncora.
+-- ROLLBACK: `20261108130000_acordos_pos_importacao_sem_truncate.rollback.sql`,
+-- que remove exatamente as três linhas acrescentadas (a instrução e os dois
+-- comentários), pela mesma âncora.
 
 begin;
 
@@ -75,7 +78,7 @@ declare
     'execute format(''alter table public.%I enable row level security'', ''_backup_pos_import_'' || v_lote);';
   v_adicao constant text :=
     E'\n  -- Fecha o TRUNCATE que o default privilege do schema `public` abre em\n'
-    || E'  -- toda tabela nova. RLS nao cobre TRUNCATE. (migration 20261108120000)\n'
+    || E'  -- toda tabela nova. RLS nao cobre TRUNCATE. (migration 20261108130000)\n'
     || E'  execute format(''revoke truncate on table public.%I from authenticated'', ''_backup_pos_import_'' || v_lote);';
 begin
   select pg_get_functiondef(p.oid),

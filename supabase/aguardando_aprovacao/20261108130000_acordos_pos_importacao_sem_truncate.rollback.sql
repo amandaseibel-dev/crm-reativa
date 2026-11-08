@@ -1,4 +1,4 @@
--- ROLLBACK de 20261108120000_acordos_pos_importacao_sem_truncate
+-- ROLLBACK de 20261108130000_acordos_pos_importacao_sem_truncate
 --
 -- Remove do corpo de `public.acordos_pos_importacao` exatamente as três linhas
 -- que a migration acrescentou (dois comentários e o `execute format` do
@@ -35,7 +35,7 @@ declare
     'execute format(''alter table public.%I enable row level security'', ''_backup_pos_import_'' || v_lote);';
   v_adicao constant text :=
     E'\n  -- Fecha o TRUNCATE que o default privilege do schema `public` abre em\n'
-    || E'  -- toda tabela nova. RLS nao cobre TRUNCATE. (migration 20261108120000)\n'
+    || E'  -- toda tabela nova. RLS nao cobre TRUNCATE. (migration 20261108130000)\n'
     || E'  execute format(''revoke truncate on table public.%I from authenticated'', ''_backup_pos_import_'' || v_lote);';
 begin
   select pg_get_functiondef(p.oid),

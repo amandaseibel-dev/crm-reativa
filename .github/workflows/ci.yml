@@ -352,7 +352,8 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
 
   # ---------------------------------------------------------------------------
-  # Revoke de TRUNCATE nas 548 tabelas _backup_pos_import_*.
+  # Revoke de TRUNCATE nas 545 tabelas _backup_pos_import_* que o tinham aberto
+  # para `authenticated` (de 548 no total -- tres nunca tiveram o grant).
   # Reproduz a condição de produção num Postgres descartável (os NOMES REAIS,
   # para a guarda de assinatura md5 casar), PROVA que TRUNCATE ignora RLS --
   # prova que não se pode fazer em produção --, aplica a migration, roda os 8
@@ -366,7 +367,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        image: postgres:17
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: teste
@@ -390,7 +391,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # 1. papéis + default privilege (a causa raiz)  2. as 548 tabelas e a
+      # 1. papéis + default privilege (a causa raiz)  2. as 548 tabelas (545 no
+      # alvo do revoke) e a
       # prova de que TRUNCATE ignora RLS  3. a migration  4. os 8 casos
       - name: Montar ambiente, provar o buraco, aplicar migration e rodar os casos
         run: |
@@ -434,7 +436,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        image: postgres:17
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: teste
@@ -452,8 +454,8 @@ jobs:
       PGPASSWORD: postgres
       PGDATABASE: teste
       DIR: supabase/tests/acordos_pos_importacao_sem_truncate
-      MIGRATION: supabase/aguardando_aprovacao/20261108120000_acordos_pos_importacao_sem_truncate.sql.pendente
-      ROLLBACK: supabase/aguardando_aprovacao/20261108120000_acordos_pos_importacao_sem_truncate.rollback.sql
+      MIGRATION: supabase/aguardando_aprovacao/20261108130000_acordos_pos_importacao_sem_truncate.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261108130000_acordos_pos_importacao_sem_truncate.rollback.sql
 
     steps:
       - uses: actions/checkout@v5
@@ -492,3 +494,59 @@ jobs:
           set -euo pipefail
           DATABASE_URL="postgres://postgres:postgres@localhost:5432/teste" \
             scripts/seguranca/run_security_gate.sh
+
+  # ---------------------------------------------------------------------------
+  # O MESMO patch, agora sobre o CORPO REAL da função e no MESMO major de
+  # produção (PostgreSQL 17 -- prod roda 17.6).
+  #
+  # O job acima prova COMPORTAMENTO com um stand-in simplificado. Este prova
+  # TEXTO: o corpo de 101 linhas capturado de produção em 08/11/2026
+  # (md5 1a0bf629927d3c6bbfcca01d3e8cab87) entra, a migration o corrige, as
+  # sete conferências passam, o rollback o devolve BYTE A BYTE.
+  #
+  # A função nunca é executada aqui -- o patch mexe no texto, não na lógica.
+  # ---------------------------------------------------------------------------
+  acordos-pos-importacao-corpo-real:
+    name: acordos_pos_importacao corpo real (postgres 17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/acordos_pos_importacao_sem_truncate
+      MIGRATION: supabase/aguardando_aprovacao/20261108130000_acordos_pos_importacao_sem_truncate.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261108130000_acordos_pos_importacao_sem_truncate.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Papeis, corpo real fiel, migration e as sete conferencias
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/05_corpo_real_baseline.sql"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/06_corpo_real_casos.sql"
+
+      - name: Rollback devolve o corpo real byte a byte
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/07_corpo_real_rollback.sql"

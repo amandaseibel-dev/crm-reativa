@@ -1,4 +1,4 @@
--- Casos DEPOIS de aplicar a migration 20261108120000.
+-- Casos DEPOIS de aplicar a migration 20261108130000.
 \set ON_ERROR_STOP on
 
 -- 1. O revoke entrou no corpo

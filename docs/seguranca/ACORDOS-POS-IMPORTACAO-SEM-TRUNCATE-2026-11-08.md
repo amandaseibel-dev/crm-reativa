@@ -8,8 +8,8 @@ catálogo. Nenhum TRUNCATE em produção.
 
 | Arquivo | O que é |
 |---|---|
-| `supabase/aguardando_aprovacao/20261108120000_acordos_pos_importacao_sem_truncate.sql.pendente` | a migration |
-| `supabase/aguardando_aprovacao/20261108120000_acordos_pos_importacao_sem_truncate.rollback.sql` | o rollback |
+| `supabase/aguardando_aprovacao/20261108130000_acordos_pos_importacao_sem_truncate.sql.pendente` | a migration |
+| `supabase/aguardando_aprovacao/20261108130000_acordos_pos_importacao_sem_truncate.rollback.sql` | o rollback |
 | `supabase/tests/acordos_pos_importacao_sem_truncate/` | fixtures e 7 + 2 casos |
 | `.github/workflows/ci.yml` | job `acordos-pos-importacao-sem-truncate` |
 
@@ -24,8 +24,11 @@ Complementa o PR das 545 tabelas existentes
 O documento de 07/11/2026 afirmava que **"qualquer token autenticado pode
 chamá-la e criar uma `_backup_pos_import_*` nova"**. **Está errado.**
 
-A leitura da função inteira (94 linhas, 4.420 bytes, uma única sobrecarga)
-mostra portão interno nas primeiras linhas:
+A leitura da função inteira (corpo `prosrc`: 94 linhas, 4.420 bytes, md5
+`bfc0c3d7c63e79ac55b10be0247a5853`; como `pg_get_functiondef()`, que é o que o
+patch e os testes manipulam: 101 linhas, 4.690 bytes, md5
+`1a0bf629927d3c6bbfcca01d3e8cab87` — uma única sobrecarga) mostra portão
+interno nas primeiras linhas:
 
 ```sql
 if coalesce(current_setting('reativa.fluxo_pagamentos', true),'') <> 'on'
@@ -49,8 +52,10 @@ criou — mas é **higiene de privilégio**, não contenção de risco iminente.
 
 ## 2. O que a migration faz
 
-Acrescenta **uma linha** (mais dois comentários) ao corpo, logo depois da linha
-que liga a RLS na tabela recém-criada:
+Acrescenta **três linhas de texto** ao corpo — **uma instrução** e dois
+comentários que a explicam — logo depois da linha que liga a RLS na tabela
+recém-criada. O corpo vai de 101 para 104 linhas e de 4.690 para 4.945 bytes
+(`pg_get_functiondef()`):
 
 ```sql
 execute format('revoke truncate on table public.%I from authenticated',
@@ -120,8 +125,18 @@ sem `PUBLIC`.
 
 ## 4. Teste: Postgres isolado no CI
 
-Job `acordos-pos-importacao-sem-truncate`, mesmo padrão que já existia no
-repositório (`services: postgres:16` + `psql`), **sem nada contratado a mais**.
+Dois jobs, mesmo padrão que já existia no repositório (`services: postgres` +
+`psql`), **sem nada contratado a mais**:
+
+| Job | Postgres | Corpo da função | O que prova |
+|---|---|---|---|
+| `acordos-pos-importacao-sem-truncate` | 17 | stand-in simplificado | **comportamento**: a tabela nasce esvaziável e deixa de nascer; alcance; idempotência; rollback |
+| `acordos-pos-importacao-corpo-real` | 17 | **real**, de produção | **texto**: o patch sobrevive às 101 linhas reais e o rollback as devolve byte a byte |
+
+O major foi alinhado a produção (**PostgreSQL 17.6**) em 08/11/2026; antes os
+dois rodavam em `postgres:16`. O job da PR #858
+(`revoke-truncate-backup-pos-import`) foi alinhado junto, porque as duas
+migrations são aplicadas na mesma janela.
 
 ### O fixture, e o que ele não é
 
@@ -193,10 +208,15 @@ COMPROVADO** (`psql` ausente na máquina local).
 
 ## 5. O que fica sem teste — exatamente
 
-1. **A migration nunca rodou contra o banco de produção.** O CI usa PG16 e uma
-   função stand-in; produção é PG17 e a função real tem 94 linhas de negócio.
-   O patch é feito sobre `pg_get_functiondef()` da função **real** no momento da
-   aplicação, com guarda de âncora única — mas a aplicação em si não foi feita.
+1. **A migration nunca rodou contra o banco de produção.** Isto segue
+   verdadeiro, e é o único item desta lista que a aplicação encerra. O que
+   **deixou** de faltar em 08/11/2026: o CI agora roda em **PostgreSQL 17**, o
+   mesmo major de produção, e o job `acordos-pos-importacao-corpo-real` aplica o
+   patch sobre o **corpo real** capturado de produção
+   (md5 `1a0bf629927d3c6bbfcca01d3e8cab87`), conferindo que o rollback o devolve
+   byte a byte. Falta só a aplicação em si — o patch é feito sobre o
+   `pg_get_functiondef()` da função real no momento em que roda, com guarda de
+   âncora única.
 2. **A lógica de negócio da função real não foi exercitada**, nem antes nem
    depois. O patch não a altera, e o fixture não a reproduz.
 3. **Nenhuma execução real de `acordos_pos_importacao` em produção** — nem para
@@ -255,7 +275,7 @@ RESULTADO: [x] ☑ APROVADO PARA APLICAÇÃO -- condicionado a: (1) autorizaçã
 
 1. **Primeiro** o revoke das 545 existentes (`20261107200000`) — fecha o
    estoque, que é onde está o lastro.
-2. **Depois** este patch (`20261108120000`) — impede o estoque de voltar a
+2. **Depois** este patch (`20261108130000`) — impede o estoque de voltar a
    crescer com o grant aberto.
 
 A ordem inversa também funciona; nenhuma depende da outra. Esta é a ordem que
