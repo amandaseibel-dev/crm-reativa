@@ -121,6 +121,9 @@ create table public.ulbra_sync_estado (
   -- pendencias abertas: conversas esgotadas, preservadas para recuperacao.
   detalhes_pendencias_abertas integer not null default 0,
   alerta_gestao             text,
+  -- saldo DIARIO da pessoa do token, lido de meu_acesso.limites.pessoaPorDia.restam
+  saldo_api_restam          integer,
+  saldo_api_em              timestamptz,
   ultima_execucao           timestamptz,
   ultimo_ciclo              text,
   ultimo_erro               text,
@@ -138,6 +141,7 @@ create table public.ulbra_detalhe_fila (
   na_lista_em       timestamptz not null,
   tentativas        integer not null default 0,
   antes_de          text,
+  paginas_lidas     integer not null default 0,
   enfileirado_em    timestamptz not null default now(),
   constraint ulbra_detalhe_tentativas_check check (tentativas >= 0)
 );
@@ -150,7 +154,8 @@ create table public.ulbra_detalhe_pendencias (
   motivo            text not null default 'FALHAS_ESGOTADAS',
   criada_em         timestamptz not null default now(),
   recuperada_em     timestamptz,
-  recuperada_por    text
+  recuperada_por    text,
+  antes_de          text
 );
 comment on table public.ulbra_detalhe_pendencias is
   'Conversas sem leitura de detalhe apos o maximo de tentativas. Aberta ate a gestao reabrir. Visivel so para a gestao.';
@@ -365,21 +370,29 @@ begin
    );
 
   -- Continuar: a leitura de detalhe pediu mais uma pagina. Nao e falha.
-  update public.ulbra_detalhe_fila f set antes_de = x.antes_de
+  update public.ulbra_detalhe_fila f set antes_de = x.antes_de, paginas_lidas = x.paginas_lidas
     from jsonb_to_recordset(coalesce(p_payload->'detalhe_continuar', '[]'::jsonb)) as x(
-      ulbra_conversa_id text, antes_de text)
+      ulbra_conversa_id text, antes_de text, paginas_lidas integer)
    where f.ulbra_conversa_id = x.ulbra_conversa_id;
 
   -- Esgotadas: viram PENDENCIA (preservada) e saem da fila ativa.
-  insert into public.ulbra_detalhe_pendencias (ulbra_conversa_id, ulbra_cliente_id, na_lista_em)
-  select x.ulbra_conversa_id, x.ulbra_cliente_id, x.na_lista_em
+  insert into public.ulbra_detalhe_pendencias (ulbra_conversa_id, ulbra_cliente_id, na_lista_em, motivo, antes_de)
+  select x.ulbra_conversa_id, x.ulbra_cliente_id, x.na_lista_em,
+         coalesce(x.motivo, 'FALHAS_ESGOTADAS'), nullif(x.antes_de, '')
     from jsonb_to_recordset(coalesce(p_payload->'detalhe_pendencias', '[]'::jsonb)) as x(
-      ulbra_conversa_id text, ulbra_cliente_id text, na_lista_em timestamptz)
+      ulbra_conversa_id text, ulbra_cliente_id text, na_lista_em timestamptz,
+      motivo text, antes_de text)
   on conflict (ulbra_conversa_id) do nothing;
   delete from public.ulbra_detalhe_fila f
    where f.ulbra_conversa_id in (
      select x->>'ulbra_conversa_id'
        from jsonb_array_elements(coalesce(p_payload->'detalhe_pendencias', '[]'::jsonb)) x);
+
+  -- Saldo diario lido de meu_acesso (so quando veio).
+  update public.ulbra_sync_estado set
+    saldo_api_restam = (p_payload->'saldo_api'->>'restam')::integer,
+    saldo_api_em = (p_payload->'saldo_api'->>'em')::timestamptz
+   where id and p_payload->'saldo_api' is not null and jsonb_typeof(p_payload->'saldo_api') = 'object';
 
   -- Falhou: uma tentativa a mais. A desistencia so acontece na leitura seguinte.
   update public.ulbra_detalhe_fila f set tentativas = f.tentativas + 1
@@ -562,9 +575,10 @@ begin
   if not found then
     return jsonb_build_object('ok', false, 'motivo', 'NAO_PENDENTE');
   end if;
-  insert into public.ulbra_detalhe_fila (ulbra_conversa_id, ulbra_cliente_id, na_lista_em, tentativas, antes_de)
-  values (v_linha.ulbra_conversa_id, v_linha.ulbra_cliente_id, v_linha.na_lista_em, 0, null)
-  on conflict (ulbra_conversa_id) do update set tentativas = 0, antes_de = null;
+  insert into public.ulbra_detalhe_fila (ulbra_conversa_id, ulbra_cliente_id, na_lista_em, tentativas, antes_de, paginas_lidas)
+  values (v_linha.ulbra_conversa_id, v_linha.ulbra_cliente_id, v_linha.na_lista_em, 0, v_linha.antes_de, 0)
+  on conflict (ulbra_conversa_id) do update
+    set tentativas = 0, antes_de = excluded.antes_de, paginas_lidas = 0;
   return jsonb_build_object('ok', true);
 end;
 $$;

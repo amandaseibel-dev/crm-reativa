@@ -253,43 +253,57 @@ export function cargaDetalhe(conversaId: string, antesDe?: string | null, id = 1
   return { jsonrpc: "2.0", id, method: "tools/call", params: { name: "ler_conversa", arguments: args } };
 }
 
+/** Páginas de `ler_conversa` por conversa antes de parar e registrar a pendência. 3 x 20 = 60. */
+export const MAX_PAGINAS_DETALHE = 3;
+
+export type PassoDetalhe =
+  | { acao: "CONCLUIR"; ultima_cliente: string | null }
+  | { acao: "CONTINUAR"; antes_de: string }
+  | { acao: "ALCANCE_ESGOTADO"; antes_de: string };
+
 /**
- * Decide o próximo passo de uma conversa a partir de UMA página de `ler_conversa`.
+ * Próximo passo de uma conversa, a partir de UMA página de `ler_conversa`.
  *
- * A página traz as mensagens MAIS RECENTES primeiro (limite 20). A primeira página
- * que tem mensagem do cliente contém a mais recente dele: basta olhar o máximo
- * dessa página. Se não há cliente na página e ainda há mais antigas, o próximo
- * passo é continuar com `antesDe`. Uma página NÃO basta por si só.
+ * - há mensagem do cliente na página: CONCLUIR com a mais nova dele (a primeira
+ *   página com cliente contém a mais recente);
+ * - não há, o histórico tem mais: CONTINUAR com `antesDe`, até MAX_PAGINAS_DETALHE;
+ * - não há, o limite de páginas acabou e ainda há histórico: ALCANCE_ESGOTADO.
+ *   NUNCA se conclui "sem resposta" por truncamento: a pendência fica visível e
+ *   guarda `antesDe` para retomada;
+ * - não há, e o histórico acabou (maisAntigas falso): CONCLUIR null. Aí sim o
+ *   histórico inteiro foi lido e não existe resposta do cliente.
  */
-export function decidirDetalhe(
-  resposta: unknown,
-): { acao: "CONCLUIR"; ultima_cliente: string | null } | { acao: "CONTINUAR"; antes_de: string } {
+export function decidirDetalhe(resposta: unknown, paginasJaLidas: number): PassoDetalhe {
   const corpo = resposta as {
-    mensagens?: Array<{ quem?: string; em?: string }>;
     paginacao?: { maisAntigas?: boolean; antesDe?: string };
   } | null;
   const ultima = ultimaDoClienteNoDetalhe(resposta);
   if (ultima !== null) return { acao: "CONCLUIR", ultima_cliente: ultima };
   const maisAntigas = corpo?.paginacao?.maisAntigas === true;
   const antesDe = corpo?.paginacao?.antesDe;
-  if (maisAntigas && typeof antesDe === "string" && antesDe.length > 0) {
-    return { acao: "CONTINUAR", antes_de: antesDe };
+  if (!maisAntigas) return { acao: "CONCLUIR", ultima_cliente: null };
+  if (typeof antesDe !== "string" || antesDe.length === 0) {
+    // Há histórico mas a API não deu o ponto de retomada: não se conclui.
+    return { acao: "ALCANCE_ESGOTADO", antes_de: "" };
   }
-  // Sem cliente em nenhuma mensagem do histórico: não há resposta a provar.
-  return { acao: "CONCLUIR", ultima_cliente: null };
+  if (paginasJaLidas + 1 >= MAX_PAGINAS_DETALHE) return { acao: "ALCANCE_ESGOTADO", antes_de: antesDe };
+  return { acao: "CONTINUAR", antes_de: antesDe };
+}
+
+/** Consulta de saldo: `meu_acesso`. Mesma pessoa do token usado na chamada. */
+export function cargaMeuAcesso(id = 1) {
+  return { jsonrpc: "2.0", id, method: "tools/call", params: { name: "meu_acesso", arguments: {} } };
 }
 
 /**
- * Saldo que a PRÓPRIA API informa no cabeçalho de resposta, se informar.
- * Não medido: a API medida não documenta esse cabeçalho. Quando não vier,
- * devolve null e o controle fica só local. Nunca se presume um valor.
+ * Saldo diário restante, lido do contrato medido de `meu_acesso`:
+ * `limites.pessoaPorDia.restam` (medido em 08/11/2026: limite 500, restam 443).
+ * Devolve null se o campo não vier: nunca se presume valor.
  */
-export function saldoDoCabecalho(headers: { get(nome: string): string | null }): number | null {
-  for (const nome of ["x-ratelimit-remaining", "ratelimit-remaining", "x-ratelimit-remaining-day"]) {
-    const v = headers.get(nome);
-    if (v !== null && /^\d+$/.test(v.trim())) return Number(v.trim());
-  }
-  return null;
+export function saldoDoMeuAcesso(resposta: unknown): number | null {
+  const corpo = resposta as { limites?: { pessoaPorDia?: { restam?: unknown } } } | null;
+  const restam = corpo?.limites?.pessoaPorDia?.restam;
+  return typeof restam === "number" && Number.isFinite(restam) && restam >= 0 ? Math.floor(restam) : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -340,6 +354,8 @@ export interface FilaDetalhe {
   tentativas: number;
   /** Onde retomar a leitura de detalhe desta conversa (paginação `antesDe`). */
   antes_de?: string | null;
+  /** Páginas já lidas nesta tentativa de detalhe (limite MAX_PAGINAS_DETALHE). */
+  paginas_lidas?: number;
 }
 
 export function candidatasDaColheita(conversas: ConversaLida[]): FilaDetalhe[] {

@@ -299,3 +299,131 @@ Configuração recomendada, **para aprovação, não aplicada**:
 
 **Limitações que permanecem:** a perda de respostas além de 60 mensagens de
 operador; o alcance do teto (12.3); as pendências dependem da gestão reabri-las.
+
+---
+
+## 13. Correção desta rodada (08/11/2026): substitui 12.3, 12.7 e as contas anteriores
+
+### 13.1 Saldo real: contrato medido de `meu_acesso`
+
+Chamada de leitura, medida nesta sessão (`chamada 6af0623f9ab1d6401cdac914`),
+conexão OAuth de gestão:
+
+    "limites": {
+      "conexaoPorMinuto": {"limite": 15, "restam": 13},
+      "pessoaPorMinuto":  {"limite": 30, "restam": 28},
+      "pessoaPorDia":     {"limite": 500, "restam": 443},
+      "rascunhosPorHora": {"limite": 20, "restam": 20}
+    }
+
+- **O saldo diário é `limites.pessoaPorDia.restam`.** O campo estava no fixture
+  de teste do diagnóstico (`diagnostico.test.ts`), e a leitura real confirmou.
+- **Não há cabeçalho de saldo.** A leitura de cabeçalhos que eu tinha proposto
+  foi removida: não foi medida e não existe no contrato.
+- `restam` é de **uma pessoa**: a da conexão que faz a chamada. A sincronização
+  consulta o saldo com o **token de backend**, então o número que ela lê é o da
+  pessoa desse token. Se for a mesma pessoa da gestão, OAuth e fichas aparecem
+  nele; se não for, não aparecem. **Pendência:** confirmar com a TI da ULBRA.
+- **Custo:** `meu_acesso` é uma chamada. A sincronização a faz **uma vez por hora**
+  (24 por dia), dentro do orçamento.
+- O controle local usa **o menor entre o saldo local e `restam`**. A reserva de 60
+  para fichas é política, **não garantia**: o saldo real pode cair abaixo dela
+  por consumo que a sincronização não vê.
+
+### 13.2 Conta por consumidor (sem teto artificial de 250)
+
+Configuração comparada: ciclo de 10 min; atendimentos a cada 30 min; `meu_acesso`
+a cada 60 min; K leituras de detalhe por ciclo. Margem de 15% sobre a base.
+Reserva das fichas à parte (**não** é consumo da sincronização).
+
+| Janela | Consumidor | K=1 | K=2 |
+| --- | --- | --- | --- |
+| 12 h (72 ciclos) | listar_conversas | 72 | 72 |
+| | listar_atendimentos | 24 | 24 |
+| | ler_conversa (detalhe) | 72 | 144 |
+| | meu_acesso | 12 | 12 |
+| | margem 15% | 27 | 38 |
+| | **sincronização** | **207** | **290** |
+| 24 h (144 ciclos) | listar_conversas | 144 | 144 |
+| | listar_atendimentos | 48 | 48 |
+| | ler_conversa (detalhe) | 144 | 288 |
+| | meu_acesso | 24 | 24 |
+| | margem 15% | 54 | 76 |
+| | **sincronização** | **414** | **580** |
+| 24 h | + reserva de fichas | 60 | 60 |
+| 24 h | **total previsto** | **474** | **640** |
+| 24 h | cabe em 500? | **sim (26 de folga)** | **não** |
+
+**Leitura da tabela:**
+- **K=2 não cabe em 24 horas** com cadência de 10 min, mesmo sem nenhuma outra
+  chamada: só a sincronização já passa de 500 (580).
+- **K=1 cabe**, com 26 de folga. A folga é pequena: se o consumo de fora
+  (OAuth, fichas, envios) for maior que 26 por dia, o limite da pessoa estoura.
+  Por isso o controle depende de `restam` real (13.1).
+- Antes desta correção, a conta de K=1 **não** incluía `meu_acesso` e somava 336
+  por dia na base. Com `meu_acesso` a cada hora, a base sobe para 360.
+
+### 13.3 Recomendação para a janela de 12 horas
+
+**Recomendo K=1**, com:
+- ciclo de 10 min, atendimentos a cada 30 min, `meu_acesso` a cada 60 min;
+- controle por chamada: menor entre o saldo local (teto 440) e `restam` lido;
+- consumo previsto de **207 na sincronização** em 12 horas (**474 em 24 horas**, com fichas);
+- limitação: K=1 só converge se a chegada média multiplicada por P (páginas por
+  conversa) for menor que 1 por ciclo. **Esse número ainda não foi medido** (13.5).
+
+**K=2 não recomendo.** Não cabe em 24 horas nesta cadência. Se a chegada medida
+exigir mais capacidade, a alternativa é aumentar o intervalo do ciclo de detalhe
+(menos ciclos, mesmo K), e não K.
+
+### 13.4 Alcance de 60 mensagens: nunca "sem resposta" por truncamento
+
+- Até **3 páginas** (60 mensagens) por tentativa de detalhe.
+- Se a resposta do cliente aparece dentro desse alcance, é encontrada (teste
+  "resposta na 3ª página").
+- Se o histórico acaba sem cliente, **conclui sem resposta**, porque o histórico
+  foi lido por inteiro (teste "histórico que acaba sem cliente").
+- Se o alcance acaba e ainda há histórico, **gera pendência `ALCANCE_ESGOTADO`
+  visível**, com o ponto de retomada (`antesDe`) guardado. Não conclui nada.
+  Reabrir pela gestão devolve a conversa à fila **nesse ponto**, não do zero
+  (prova SQL em `07_reabrir_pendencia.sql`).
+
+### 13.5 Medição de chegada em 24 horas: protocolo e custo para aprovação
+
+**Objetivo:** medir λ, o número de conversas por ciclo cuja última mensagem não
+é do cliente, e o tamanho da lista de detalhe necessária. Isso fecha a condição
+de convergência (12.1) com dado, não com suposição.
+
+**Como é lido, sem nenhuma ação sobre a operação:**
+- só ferramentas de leitura: `listar_conversas` (canal `whatsapp`, situação
+  `active`, limite 50, página 1) e `meu_acesso`;
+- **nenhum** `ler_conversa`, nenhum envio, nenhum `assumir`, nenhuma transferência
+  e nenhuma notificação;
+- λ sai da própria listagem: conversas com `ultimaMensagemEm` dentro de cada
+  janela de 10 min e `ultimaMensagem.quem` diferente de `cliente`.
+
+**Custo:** 144 chamadas de `listar_conversas` (1 por 10 min, 24 horas) + 2 de
+`meu_acesso` (início e fim) = **146 chamadas**, cerca de **29% do limite diário**.
+Essas chamadas saem do mesmo saldo da operação enquanto durarem, por isso a
+coleta precisa de aprovação e roda com a conexão de gestão, fora da sincronização.
+
+**Limitação da medição:** a listagem só mostra a última mensagem. Uma resposta
+do cliente seguida de operador **não** aparece em λ. Então λ é o número de
+conversas que **precisariam** de detalhe, e não o número de respostas perdidas.
+Isso é o que a fila dimensiona.
+
+**Validação não depende de publicar:** a coleta roda com a conexão já autorizada,
+antes de qualquer publicação. Não exige migration, função nem cron.
+
+### 13.6 Pendências concretas
+
+1. **Aprovar a coleta de 24 h** (13.5, 146 chamadas). Sem ela, λ segue desconhecido.
+2. **Confirmar com a TI da ULBRA** se o token de backend é da mesma pessoa da
+   gestão (muda o significado de `restam`, 13.1) e se o limite é compartilhado.
+3. **Medir o consumo de fora da sincronização** (fichas, envios, OAuth) nas
+   mesmas 24 h, para fechar a folga de 26 (13.2).
+4. Rotação de `ULBRA_MCP_TOKEN`: segue com a TI.
+5. Eventos ou webhooks da plataforma: não verificado.
+6. Aplicar, publicar e agendar: **nenhum** passo foi executado. Cada um depende da
+   aprovação do pacote.
+

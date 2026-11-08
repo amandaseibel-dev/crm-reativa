@@ -2,10 +2,12 @@
 // paginado, saldo da API e pendência preservada.
 import { describe, it, expect } from "vitest";
 import {
+  MAX_PAGINAS_DETALHE,
   Orcamento,
-  decidirDetalhe,
   cargaDetalhe,
-  saldoDoCabecalho,
+  cargaMeuAcesso,
+  decidirDetalhe,
+  saldoDoMeuAcesso,
   selecionarDetalhes,
   type FilaDetalhe,
 } from "./sincronizar.ts";
@@ -66,98 +68,145 @@ describe("1. chegada vs capacidade: condições e atraso", () => {
   });
 });
 
-describe("2. conta por consumidor: 12 horas (72 ciclos), fórmula explícita", () => {
-  // total = (L + A + K·C) + ceil(m·(L + A + K·C)) + F
-  //   L = listar_conversas por ciclo (1 página em regime)        -> 72
-  //   A = listar_atendimentos (a cada 3º ciclo, 30 min)            -> 24
-  //   C = ler_conversa por ciclo (fila de detalhes, 1 leitura/ciclo) -> K·72
-  //   m = margem de falha e retentativa                            -> 15%
-  //   F = reserva das fichas dos operadores (não é consumo da sync) -> 30
-  const L = 72, A = 24, m = 0.15, F = 30;
-  const formula = (K: number) => {
-    const base = L + A + K * 72;
-    return { base, margem: Math.ceil(base * m), F, total: base + Math.ceil(base * m) + F };
+describe("2. conta por consumidor: 12 horas e 24 horas, com a configuração recomendada", () => {
+  // total = base + ceil(0,15·base) + F, base = L + A + D + M
+  //   L = listar_conversas (1 por ciclo de 10 min)              : ciclos
+  //   A = listar_atendimentos (a cada 30 min = a cada 3 ciclos)  : ciclos/3
+  //   D = ler_conversa da fila de detalhes (K por ciclo)          : K·ciclos
+  //   M = meu_acesso (saldo; a cada 60 min = a cada 6 ciclos)     : ciclos/6
+  //   F = reserva das fichas dos operadores (NÃO é consumo da sincronização)
+  const conta = (ciclos: number, K: number) => {
+    const L = ciclos, A = Math.ceil(ciclos / 3), D = K * ciclos, M = Math.ceil(ciclos / 6);
+    const base = L + A + D + M;
+    const margem = Math.ceil(0.15 * base);
+    return { L, A, D, M, base, margem, F: 0, total: base + margem };
   };
 
-  it("K=1: 224 no total, incluindo a reserva das fichas", () => {
-    expect(formula(1)).toEqual({ base: 168, margem: 26, F: 30, total: 224 });
+  it("12 horas (72 ciclos), K=1: 237 da sincronização, sem limite artificial", () => {
+    const c = conta(72, 1);
+    expect(c).toMatchObject({ L: 72, A: 24, D: 72, M: 12, base: 180, margem: 27, total: 207 });
   });
 
-  it("K=2: 306 no total. Não cabe na convenção de 250 (metade de 500)", () => {
-    expect(formula(2)).toEqual({ base: 240, margem: 36, F: 30, total: 306 });
-    expect(formula(2).total).toBeGreaterThan(250);
+  it("12 horas, K=2: 290 da sincronização (base 252 + margem 38)", () => {
+    expect(conta(72, 2)).toMatchObject({ base: 252, margem: 38, total: 290 });
   });
 
-  it("a convenção de 250 NÃO é limite da API: é metade do teto diário, para dividir a janela", () => {
-    // Não há limite de 12 horas medido na API. O limite garantido é o diário.
-    expect(250 * 2).toBe(500);
+  it("24 horas (144 ciclos), K=1: 414 da sincronização (base 360 + margem 54)", () => {
+    const c = conta(144, 1);
+    expect(c.base).toBe(144 + 48 + 144 + 24);
+    expect(c).toMatchObject({ base: 360, margem: 54, total: 414 });
+  });
+
+  it("24 horas, K=2: ultrapassa 500 SÓ com a sincronização, antes de contar fichas", () => {
+    expect(conta(144, 2).total).toBeGreaterThan(500);
+  });
+
+  it("24 horas, K=1: cabe em 500 com a reserva de 60 das fichas", () => {
+    expect(conta(144, 1).total + 60).toBeLessThanOrEqual(500);
   });
 });
 
-describe("3. saldo real da API e teto controlado", () => {
-  it("cabeçalho de saldo presente prevalece quando é menor que o local", () => {
-    const h = new Headers({ "x-ratelimit-remaining": "37" });
+describe("3. saldo real: meu_acesso (contrato medido em 08/11/2026)", () => {
+  // Resposta REAL de meu_acesso, medida nesta sessão (chamada 6af0623f...).
+  const MEDIDO = {
+    pessoa: { nome: "Amanda Prado Seibel", email: "amanda.seibel@aelbra.com.br", perfis: ["supervisor", "diretor", "operator", "gestao"] },
+    conexao: { tipo: "oauth", nome: "Claude (web e desktop)", aplicativo: "claude-web", expiraEm: "2026-11-08T12:06:25.000Z" },
+    escopos: ["mcp:acesso", "clientes:read"],
+    limites: {
+      conexaoPorMinuto: { limite: 15, restam: 13 },
+      pessoaPorMinuto: { limite: 30, restam: 28 },
+      pessoaPorDia: { limite: 500, restam: 443 },
+      rascunhosPorHora: { limite: 20, restam: 20 },
+    },
+    chamada: "6af0623f9ab1d6401cdac914",
+  };
+
+  it("lê pessoaPorDia.restam do contrato medido", () => {
+    expect(saldoDoMeuAcesso(MEDIDO)).toBe(443);
+  });
+
+  it("sem o campo, devolve null: nunca presume valor", () => {
+    expect(saldoDoMeuAcesso({ limites: {} })).toBeNull();
+    expect(saldoDoMeuAcesso(null)).toBeNull();
+  });
+
+  it("a carga de saldo é a própria meu_acesso, sem argumentos", () => {
+    expect(cargaMeuAcesso().params).toEqual({ name: "meu_acesso", arguments: {} });
+  });
+
+  it("saldo da pessoa MENOR que o local prevalece; maior nunca amplia", () => {
     const o = new Orcamento(300);
-    o.ajustarAoSaldoDaApi(saldoDoCabecalho(h));
+    o.ajustarAoSaldoDaApi(443);
+    expect(o.saldo).toBe(300);
+    o.ajustarAoSaldoDaApi(37);
     expect(o.saldo).toBe(37);
   });
-
-  it("sem cabeçalho, o saldo fica só local (nada é presumido)", () => {
-    expect(saldoDoCabecalho(new Headers())).toBeNull();
-    const o = new Orcamento(300);
-    o.ajustarAoSaldoDaApi(null);
-    expect(o.saldo).toBe(300);
-  });
-
-  it("saldo da API MAIOR que o local nunca aumenta o teto controlado", () => {
-    const o = new Orcamento(100);
-    o.ajustarAoSaldoDaApi(9999);
-    expect(o.saldo).toBe(100);
-  });
 });
 
-describe("4. detalhe paginado: uma página NÃO basta", () => {
-  // Histórico de 60 mensagens, mais recentes primeiro. O cliente só aparece
-  // no 45º item (o mais antigo na 3ª página). Operador responde depois.
-  const historico = Array.from({ length: 60 }, (_, i) => ({
-    quem: i === 44 ? "cliente" : "operador",
-    em: minuto(600 - i),
-  }));
-  const pagina = (antesDe?: string) => {
-    const base = antesDe ? historico.filter((m) => m.em < antesDe) : historico;
+describe("4. detalhe paginado: uma página NÃO basta, e o alcance nunca vira 'sem resposta'", () => {
+  // Histórico de N mensagens, mais recentes primeiro, páginas de 20.
+  const historicoDe = (n: number, clienteEm: number | null) =>
+    Array.from({ length: n }, (_, i) => ({
+      quem: clienteEm !== null && i === clienteEm ? "cliente" : "operador",
+      em: minuto(900 - i),
+    }));
+  const paginaDe = (hist: Array<{ quem: string; em: string }>, antesDe?: string) => {
+    const base = antesDe ? hist.filter((m) => m.em < antesDe) : hist;
     const fatia = base.slice(0, 20);
-    const resto = base.length > 20;
     return {
-      mensagens: fatia.slice().reverse(), // cronológica dentro da página
-      paginacao: { maisAntigas: resto, antesDe: fatia.length ? fatia[fatia.length - 1].em : undefined },
+      mensagens: fatia.slice().reverse(),
+      paginacao: { maisAntigas: base.length > 20, antesDe: fatia.length ? fatia[fatia.length - 1].em : undefined },
     };
+  };
+  /** Roda o passo a passo como a função: uma página por ciclo, até concluir ou alcançar. */
+  const percorrer = (hist: Array<{ quem: string; em: string }>) => {
+    let antes: string | undefined = undefined;
+    let paginas = 0;
+    for (;;) {
+      const passo = decidirDetalhe(paginaDe(hist, antes), paginas);
+      paginas++;
+      if (passo.acao !== "CONTINUAR") return { passo, paginas };
+      antes = passo.antes_de;
+    }
   };
 
   it("a primeira página NÃO prova a ausência de resposta do cliente", () => {
-    expect(decidirDetalhe(pagina()).acao).toBe("CONTINUAR");
+    expect(decidirDetalhe(paginaDe(historicoDe(60, 44)), 0).acao).toBe("CONTINUAR");
   });
 
-  it("retomando com antesDe, a resposta mais antiga aparece e é a conclusão", async () => {
-    let antes: string | null = null;
-    let chamadas = 0;
-    let passo = decidirDetalhe(pagina());
-    while (passo.acao === "CONTINUAR") {
-      chamadas++;
-      antes = passo.antes_de;
-      passo = decidirDetalhe(pagina(antes));
-    }
-    expect(passo).toEqual({ acao: "CONCLUIR", ultima_cliente: minuto(600 - 44) });
-    expect(chamadas).toBe(2); // página 1 (sem cliente) -> página 2 (com cliente)
+  it("resposta na 3ª página (até 60 mensagens) é encontrada e é a mais recente dele", () => {
+    const { passo, paginas } = percorrer(historicoDe(60, 44));
+    expect(passo).toEqual({ acao: "CONCLUIR", ultima_cliente: minuto(900 - 44) });
+    expect(paginas).toBe(3);
+  });
+
+  it("histórico que acaba sem cliente conclui com null: o histórico inteiro foi lido", () => {
+    const { passo } = percorrer(historicoDe(30, null));
+    expect(passo).toEqual({ acao: "CONCLUIR", ultima_cliente: null });
+  });
+
+  it("resposta ALÉM de 60 mensagens: ALCANCE_ESGOTADO com ponto de retomada, nunca CONCLUIR null", () => {
+    // Cliente só aparece na 4ª página (índice 70): fora do alcance de 3 páginas.
+    const { passo, paginas } = percorrer(historicoDe(90, 70));
+    expect(passo.acao).toBe("ALCANCE_ESGOTADO");
+    expect(passo.acao === "ALCANCE_ESGOTADO" && passo.antes_de.length > 0).toBe(true);
+    expect(paginas).toBe(MAX_PAGINAS_DETALHE);
+  });
+
+  it("retomada: o ponto guardado permite continuar exatamente de onde o alcance parou", () => {
+    const hist = historicoDe(90, 70);
+    const { passo } = percorrer(hist);
+    if (passo.acao !== "ALCANCE_ESGOTADO") throw new Error("esperado alcance");
+    // Ao reabrir, a leitura recomeça em antes_de e acha a resposta.
+    const prox = decidirDetalhe(paginaDe(hist, passo.antes_de), 0);
+    expect(prox.acao === "CONTINUAR" || prox.acao === "CONCLUIR").toBe(true);
+    const { passo: fim } = percorrer(hist.filter((m) => m.em < passo.antes_de));
+    expect(fim).toEqual({ acao: "CONCLUIR", ultima_cliente: minuto(900 - 70) });
   });
 
   it("carga com antesDe pede a página certa", () => {
     const c = cargaDetalhe("x", minuto(580)) as { params: { arguments: Record<string, unknown> } };
     expect(c.params.arguments).toEqual({ id: "x", limite: 20, antesDe: minuto(580) });
-  });
-
-  it("histórico sem cliente algum: conclui com null, sem assumir resposta", () => {
-    const sem = { mensagens: [{ quem: "operador", em: minuto(600) }], paginacao: { maisAntigas: false } };
-    expect(decidirDetalhe(sem)).toEqual({ acao: "CONCLUIR", ultima_cliente: null });
   });
 });
 

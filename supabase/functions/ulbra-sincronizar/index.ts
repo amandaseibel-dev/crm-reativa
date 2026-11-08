@@ -32,8 +32,9 @@ import {
   candidatasDaColheita,
   colherConversas,
   decidirDestino,
+  cargaMeuAcesso,
   decidirDetalhe,
-  saldoDoCabecalho,
+  saldoDoMeuAcesso,
   identificar,
   lerAtendimentos,
   lerCorpoMcp,
@@ -77,7 +78,7 @@ function chaveConfere(recebida: string, esperada: string): boolean {
   return diferenca === 0;
 }
 
-async function chamarMcp(token: string, carga: unknown): Promise<{ dados: unknown; saldo: number | null }> {
+async function chamarMcp(token: string, carga: unknown): Promise<unknown> {
   const resp = await fetch(MCP_URL, {
     method: "POST",
     headers: {
@@ -90,9 +91,7 @@ async function chamarMcp(token: string, carga: unknown): Promise<{ dados: unknow
   if (!resp.ok) {
     throw new Error(resp.status === 429 ? "ULBRA_LIMITE" : `ULBRA_HTTP_${resp.status}`);
   }
-  const saldo = saldoDoCabecalho(resp.headers);
-  const dados = resultadoDoEnvelope(lerCorpoMcp(resp.headers.get("content-type"), await resp.text()));
-  return { dados, saldo };
+  return resultadoDoEnvelope(lerCorpoMcp(resp.headers.get("content-type"), await resp.text()));
 }
 
 Deno.serve(async (req: Request) => {
@@ -115,7 +114,7 @@ Deno.serve(async (req: Request) => {
   // ---------------------------------------------------------------- estado
   const { data: estado } = await sb
     .from("ulbra_sync_estado")
-    .select("cursor_mensagem, piso_pendente, topo_processado, chamadas_dia, dia, ciclos_desde_atendimentos")
+    .select("cursor_mensagem, piso_pendente, topo_processado, chamadas_dia, dia, ciclos_desde_atendimentos, saldo_api_restam, saldo_api_em")
     .eq("id", true)
     .maybeSingle();
 
@@ -129,6 +128,16 @@ Deno.serve(async (req: Request) => {
   const ciclosDesde: number = estado?.ciclos_desde_atendimentos ?? 999;
 
   const orcamento = new Orcamento(TETO_DIARIO_SYNC - chamadasAntes);
+  // Saldo DIÁRIO da pessoa do token (meu_acesso, limites.pessoaPorDia.restam).
+  // Consultado no máximo a cada 60 min; o valor em cache limita o orçamento
+  // enquanto estiver fresco. Ele inclui OAuth e fichas: é o limite real.
+  const SALDO_VALIDO_MS = 60 * 60 * 1000;
+  let saldoApiNovo: { restam: number; em: string } | null = null;
+  const saldoEmMs = estado?.saldo_api_em ? Date.parse(estado.saldo_api_em) : 0;
+  const saldoCacheFresco = Date.now() - saldoEmMs < SALDO_VALIDO_MS;
+  if (saldoCacheFresco && estado?.saldo_api_restam != null) {
+    orcamento.ajustarAoSaldoDaApi(estado.saldo_api_restam);
+  }
   if (!orcamento.pode()) {
     await sb.rpc("ulbra_sync_gravar", {
       p_payload: { ciclo: "PULADO_ORCAMENTO", chamadas: 0, dia: hoje, erro: "ORCAMENTO_DO_DIA" },
@@ -141,10 +150,7 @@ Deno.serve(async (req: Request) => {
   const chamar = async (carga: unknown) => {
     orcamento.gastar();
     chamadas++;
-    const { dados, saldo } = await chamarMcp(token, carga);
-    // Saldo da própria API, quando informado, prevalece se for menor.
-    orcamento.ajustarAoSaldoDaApi(saldo);
-    return dados;
+    return chamarMcp(token, carga);
   };
   const pode = () => orcamento.pode();
 
@@ -154,7 +160,7 @@ Deno.serve(async (req: Request) => {
     sb.from("fila_receptivo").select("email, atendimentos_hoje, ultimo_atendimento, em_pausa, online_em"),
     sb
       .from("ulbra_detalhe_fila")
-      .select("ulbra_conversa_id, ulbra_cliente_id, na_lista_em, tentativas, antes_de")
+      .select("ulbra_conversa_id, ulbra_cliente_id, na_lista_em, tentativas, antes_de, paginas_lidas")
       .order("na_lista_em", { ascending: true })
       .limit(1000),
   ]);
@@ -164,6 +170,20 @@ Deno.serve(async (req: Request) => {
   );
   const fila = (filaBruta ?? []) as OperadorRodizio[];
   const agoraMs = Date.now();
+
+  // Saldo real: 1 chamada de meu_acesso quando o cache venceu. Falha aqui não
+  // derruba o ciclo: segue só com o controle local, e isso é registrado.
+  if (!saldoCacheFresco && pode()) {
+    try {
+      const restam = saldoDoMeuAcesso(await chamar(cargaMeuAcesso()));
+      if (restam !== null) {
+        orcamento.ajustarAoSaldoDaApi(restam);
+        saldoApiNovo = { restam, em: new Date().toISOString() };
+      }
+    } catch (e) {
+      console.error("ulbra-sincronizar: meu_acesso falhou", (e as Error).message);
+    }
+  }
 
   // ------------------------------------------------------------- leitura
   let atendimentos: AtendimentoLido[] = [];
@@ -179,7 +199,10 @@ Deno.serve(async (req: Request) => {
   // Resultados do detalhe, aplicados na gravação.
   const concluidas: Array<{ ulbra_conversa_id: string; ultima_mensagem_cliente_em: string | null }> = [];
   const falhas: string[] = [];
-  const continuar: Array<{ ulbra_conversa_id: string; antes_de: string }> = [];
+  const continuar: Array<{ ulbra_conversa_id: string; antes_de: string; paginas_lidas: number }> = [];
+  const pendenciasAlcance: Array<{
+    ulbra_conversa_id: string; ulbra_cliente_id: string; na_lista_em: string; antes_de: string | null;
+  }> = [];
   let desistidas: FilaDetalhe[] = [];
   let novas: FilaDetalhe[] = [];
 
@@ -200,12 +223,21 @@ Deno.serve(async (req: Request) => {
       if (!pode()) break; // sem saldo: as que sobraram seguem na fila
       try {
         const resposta = await chamar(cargaDetalhe(f.ulbra_conversa_id, f.antes_de ?? null));
-        const passo = decidirDetalhe(resposta);
+        const paginasLidas = f.paginas_lidas ?? 0;
+        const passo = decidirDetalhe(resposta, paginasLidas);
         if (passo.acao === "CONCLUIR") {
           concluidas.push({ ulbra_conversa_id: f.ulbra_conversa_id, ultima_mensagem_cliente_em: passo.ultima_cliente });
-        } else {
+        } else if (passo.acao === "CONTINUAR") {
           // Não é falha: a conversa segue na fila, retomando em `antes_de`.
-          continuar.push({ ulbra_conversa_id: f.ulbra_conversa_id, antes_de: passo.antes_de });
+          continuar.push({ ulbra_conversa_id: f.ulbra_conversa_id, antes_de: passo.antes_de, paginas_lidas: paginasLidas + 1 });
+        } else {
+          // Alcance esgotado: pendência VISÍVEL, com ponto de retomada. Nunca "sem resposta".
+          pendenciasAlcance.push({
+            ulbra_conversa_id: f.ulbra_conversa_id,
+            ulbra_cliente_id: f.ulbra_cliente_id,
+            na_lista_em: f.na_lista_em,
+            antes_de: passo.antes_de || null,
+          });
         }
       } catch (e) {
         console.error("ulbra-sincronizar: detalhe falhou", (e as Error).message);
@@ -286,14 +318,20 @@ Deno.serve(async (req: Request) => {
         na_lista_em: f.na_lista_em,
       })),
       detalhe_concluidas: concluidas,
+      saldo_api: saldoApiNovo,
       detalhe_continuar: continuar,
       detalhe_falhas: falhas,
-      // Esgotadas: NAO se descartam. Viram pendencia, visivel a gestao.
-      detalhe_pendencias: desistidas.map((f) => ({
-        ulbra_conversa_id: f.ulbra_conversa_id,
-        ulbra_cliente_id: f.ulbra_cliente_id,
-        na_lista_em: f.na_lista_em,
-      })),
+      // Nada é descartado: cada pendência tem motivo e, quando couber, ponto de retomada.
+      detalhe_pendencias: [
+        ...desistidas.map((f) => ({
+          ulbra_conversa_id: f.ulbra_conversa_id,
+          ulbra_cliente_id: f.ulbra_cliente_id,
+          na_lista_em: f.na_lista_em,
+          motivo: "FALHAS_ESGOTADAS",
+          antes_de: null,
+        })),
+        ...pendenciasAlcance.map((p) => ({ ...p, motivo: "ALCANCE_ESGOTADO" })),
+      ],
     },
   });
   if (error) {
@@ -311,7 +349,7 @@ Deno.serve(async (req: Request) => {
     conversas_novas: linhasConversas.length,
     detalhes_lidos: concluidas.length,
     detalhes_falharam: falhas.length,
-    detalhes_pendencias_novas: desistidas.length,
+    detalhes_pendencias_novas: desistidas.length + pendenciasAlcance.length,
     atendimentos_em_espera: atendimentosLidos ? linhasAtendimentos.length : null,
     gravado,
   });
