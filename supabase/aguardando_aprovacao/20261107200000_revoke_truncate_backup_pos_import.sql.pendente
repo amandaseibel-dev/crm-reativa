@@ -137,6 +137,29 @@ begin
 end
 $guarda$;
 
+-- Fotografia do ACL de `authenticated` em TODAS as tabelas de `public`, antes
+-- do revoke. É o que permite provar depois, sem supor nada sobre versão do
+-- Postgres nem sobre ordem canônica das letras do ACL, que:
+--   · nas 545 saiu exatamente o `D` (TRUNCATE) e mais nada;
+--   · nas outras ~920 tabelas de `public` nada mudou.
+-- Temp table `on commit drop`: morre junto com a transação.
+do $snapshot$
+begin
+  create temp table _seg_antes on commit drop as
+  select c.oid,
+         c.relname,
+         c.relrowsecurity,
+         (select a::text from unnest(c.relacl) a
+           where a::text like 'authenticated=%') as acl_auth
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+   where n.nspname = 'public'
+     and c.relkind = 'r';
+
+  create index on _seg_antes (oid);
+end
+$snapshot$;
+
 -- O revoke. Lista explícita, 545 tabelas, uma por linha.
 revoke truncate on table
   public."_backup_pos_import_20260831",
@@ -686,16 +709,24 @@ revoke truncate on table
   public."_backup_pos_import_20260924174025"
 from authenticated;
 
--- Conferência posterior, dentro da mesma transação: se algo saiu do alvo,
--- a transação não comita.
+-- Conferência posterior, dentro da mesma transação. Qualquer desvio levanta
+-- exceção e a transação NÃO comita.
+--
+-- A comparação é contra a fotografia `_seg_antes`, não contra string fixa:
+-- `replace(acl, 'D', '')` tira só o TRUNCATE, então
+--   replace(depois,'D','') = replace(antes,'D','')
+-- prova que **nenhum outro privilégio** se moveu -- sem depender de a versão
+-- do servidor ter `MAINTAIN` (PG17) ou não (PG16), e sem depender da ordem
+-- das letras.
 do $confere$
 declare
   v_ainda_truncate integer;
-  v_acl_errado     integer;
-  v_rls_desligada  integer;
-  v_fora_do_alvo   integer;
+  v_outro_privilegio integer;
+  v_rls_mudou      integer;
+  v_colateral      integer;
+  v_alvo           integer;
 begin
-  -- (a) nenhuma das 545 pode seguir com TRUNCATE para authenticated
+  -- (a) nenhuma das 545 pode seguir com TRUNCATE para `authenticated`
   select count(*) into v_ainda_truncate
     from pg_class c
     join pg_namespace n on n.oid = c.relnamespace
@@ -708,49 +739,51 @@ begin
     raise exception 'revoke incompleto: % tabelas ainda com TRUNCATE para authenticated', v_ainda_truncate;
   end if;
 
-  -- (b) o ACL de authenticated tem de ser exatamente arwdxtm (arwdDxtm sem o D)
-  select count(*) into v_acl_errado
-    from pg_class c
-    join pg_namespace n on n.oid = c.relnamespace
-   where n.nspname = 'public'
-     and c.relkind = 'r'
-     and c.relname like '\_backup\_pos\_import\_%'
-     and c.relacl is not null
-     and exists (select 1 from aclexplode(c.relacl) x
-                  join pg_roles r on r.oid = x.grantee
-                 where r.rolname = 'authenticated')
-     and not exists (select 1 from unnest(c.relacl) a
-                      where a::text = 'authenticated=arwdxtm/postgres');
+  -- (b) nas tabelas do alvo, SÓ o TRUNCATE saiu
+  select count(*) into v_outro_privilegio
+    from _seg_antes antes
+    join pg_class c on c.oid = antes.oid
+   where antes.acl_auth is not null
+     and antes.relname like '\_backup\_pos\_import\_%'
+     and coalesce(replace((select a::text from unnest(c.relacl) a
+                            where a::text like 'authenticated=%'), 'D', ''), '<ausente>')
+         <> replace(antes.acl_auth, 'D', '');
 
-  if v_acl_errado <> 0 then
-    raise exception 'ACL fora do esperado em % tabelas: authenticated deveria ficar arwdxtm', v_acl_errado;
+  if v_outro_privilegio <> 0 then
+    raise exception 'privilegio fora do alvo mudou em % tabelas de backup -- esperado sair apenas TRUNCATE', v_outro_privilegio;
   end if;
 
-  -- (c) RLS segue habilitada nas 548 -- esta migration não mexe em RLS
-  select count(*) into v_rls_desligada
-    from pg_class c
-    join pg_namespace n on n.oid = c.relnamespace
-   where n.nspname = 'public'
-     and c.relkind = 'r'
-     and c.relname like '\_backup\_pos\_import\_%'
-     and c.relrowsecurity = false;
+  -- (c) RLS intacta em todas as tabelas de `public` -- esta migration não toca RLS
+  select count(*) into v_rls_mudou
+    from _seg_antes antes
+    join pg_class c on c.oid = antes.oid
+   where c.relrowsecurity is distinct from antes.relrowsecurity;
 
-  if v_rls_desligada <> 0 then
-    raise exception 'RLS desligada em % tabelas -- esta migration nao deveria tocar RLS', v_rls_desligada;
+  if v_rls_mudou <> 0 then
+    raise exception 'RLS mudou em % tabelas -- esta migration nao deveria tocar RLS', v_rls_mudou;
   end if;
 
-  -- (d) nenhuma tabela FORA do padrão _backup_pos_import_ perdeu TRUNCATE:
-  --     conta quantas tabelas de public ainda têm TRUNCATE para authenticated.
-  --     Antes do revoke eram todas menos as 3; depois, todas menos as 548.
-  select count(*) into v_fora_do_alvo
+  -- (d) dano colateral: nenhuma tabela FORA do padrão teve o ACL de
+  --     `authenticated` alterado, nem em uma letra
+  select count(*) into v_colateral
+    from _seg_antes antes
+    join pg_class c on c.oid = antes.oid
+   where antes.relname not like '\_backup\_pos\_import\_%'
+     and (select a::text from unnest(c.relacl) a
+           where a::text like 'authenticated=%') is distinct from antes.acl_auth;
+
+  if v_colateral <> 0 then
+    raise exception 'dano colateral: % tabelas fora do padrao tiveram o ACL de authenticated alterado', v_colateral;
+  end if;
+
+  select count(*) into v_alvo
     from pg_class c
     join pg_namespace n on n.oid = c.relnamespace
    where n.nspname = 'public'
      and c.relkind = 'r'
-     and c.relname not like '\_backup\_pos\_import\_%'
-     and not has_table_privilege('authenticated', c.oid, 'TRUNCATE');
+     and c.relname like '\_backup\_pos\_import\_%';
 
-  raise notice 'conferencia OK: 545 revogadas; tabelas fora do padrao sem TRUNCATE para authenticated: % (informativo, nao bloqueia)', v_fora_do_alvo;
+  raise notice 'conferencia OK: TRUNCATE revogado em 545; nenhum outro privilegio movido; RLS intacta; 0 dano colateral; % tabelas no padrao', v_alvo;
 end
 $confere$;
 
@@ -770,4 +803,5 @@ commit;
 --  where n.nspname = 'public' and c.relkind = 'r'
 --    and c.relname like '\_backup\_pos\_import\_%'
 --  group by 1;
--- -- esperado: 545 com `authenticated=arwdxtm/postgres` e 3 sem authenticated
+-- -- esperado em PG17: 545 com `authenticated=arwdxtm/postgres` e 3 sem authenticated
+-- -- (em PG16 o mesmo sem o `m`, porque MAINTAIN não existe lá)

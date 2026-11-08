@@ -71,6 +71,24 @@ begin
 end
 $guarda$;
 
+-- Fotografia antes do grant, para provar que só o TRUNCATE volta.
+do $snapshot$
+begin
+  create temp table _seg_antes on commit drop as
+  select c.oid,
+         c.relname,
+         c.relrowsecurity,
+         (select a::text from unnest(c.relacl) a
+           where a::text like 'authenticated=%') as acl_auth
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+   where n.nspname = 'public'
+     and c.relkind = 'r';
+
+  create index on _seg_antes (oid);
+end
+$snapshot$;
+
 grant truncate on table
   public."_backup_pos_import_20260831",
   public."_backup_pos_import_20260901130404",
@@ -619,46 +637,56 @@ grant truncate on table
   public."_backup_pos_import_20260924174025"
 to authenticated;
 
--- Conferência do rollback, na mesma transação.
+-- Conferência do rollback, na mesma transação, contra a fotografia.
+--
+-- Mesma régua da migration, pelo avesso: `replace(acl,'D','')` igual dos dois
+-- lados prova que **só** o TRUNCATE voltou, sem depender de o servidor ter
+-- `MAINTAIN` (PG17) ou não (PG16) nem da ordem das letras do ACL.
 do $confere$
 declare
-  v_sem_truncate integer;
-  v_acl_errado   integer;
+  v_sem_truncate     integer;
+  v_outro_privilegio integer;
+  v_colateral        integer;
 begin
+  -- (a) as 545 têm de voltar a ter TRUNCATE
   select count(*) into v_sem_truncate
-    from pg_class c
-    join pg_namespace n on n.oid = c.relnamespace
-   where n.nspname = 'public'
-     and c.relkind = 'r'
-     and c.relname like '\_backup\_pos\_import\_%'
-     and exists (select 1 from aclexplode(c.relacl) x
-                  join pg_roles r on r.oid = x.grantee
-                 where r.rolname = 'authenticated')
+    from _seg_antes antes
+    join pg_class c on c.oid = antes.oid
+   where antes.acl_auth is not null
+     and antes.relname like '\_backup\_pos\_import\_%'
      and not has_table_privilege('authenticated', c.oid, 'TRUNCATE');
 
   if v_sem_truncate <> 0 then
     raise exception 'rollback incompleto: % tabelas seguem sem TRUNCATE', v_sem_truncate;
   end if;
 
-  -- o ACL tem de voltar a ser exatamente o original
-  select count(*) into v_acl_errado
-    from pg_class c
-    join pg_namespace n on n.oid = c.relnamespace
-   where n.nspname = 'public'
-     and c.relkind = 'r'
-     and c.relname like '\_backup\_pos\_import\_%'
-     and c.relacl is not null
-     and exists (select 1 from aclexplode(c.relacl) x
-                  join pg_roles r on r.oid = x.grantee
-                 where r.rolname = 'authenticated')
-     and not exists (select 1 from unnest(c.relacl) a
-                      where a::text = 'authenticated=arwdDxtm/postgres');
+  -- (b) e nada além do TRUNCATE voltou
+  select count(*) into v_outro_privilegio
+    from _seg_antes antes
+    join pg_class c on c.oid = antes.oid
+   where antes.acl_auth is not null
+     and antes.relname like '\_backup\_pos\_import\_%'
+     and coalesce(replace((select a::text from unnest(c.relacl) a
+                            where a::text like 'authenticated=%'), 'D', ''), '<ausente>')
+         <> replace(antes.acl_auth, 'D', '');
 
-  if v_acl_errado <> 0 then
-    raise exception 'ACL nao voltou ao original em % tabelas (esperado authenticated=arwdDxtm/postgres)', v_acl_errado;
+  if v_outro_privilegio <> 0 then
+    raise exception 'rollback mexeu em privilegio fora do alvo em % tabelas', v_outro_privilegio;
   end if;
 
-  raise notice 'rollback OK: 545 tabelas com ACL original authenticated=arwdDxtm/postgres';
+  -- (c) nenhuma tabela fora do padrão foi tocada
+  select count(*) into v_colateral
+    from _seg_antes antes
+    join pg_class c on c.oid = antes.oid
+   where antes.relname not like '\_backup\_pos\_import\_%'
+     and (select a::text from unnest(c.relacl) a
+           where a::text like 'authenticated=%') is distinct from antes.acl_auth;
+
+  if v_colateral <> 0 then
+    raise exception 'dano colateral no rollback: % tabelas fora do padrao', v_colateral;
+  end if;
+
+  raise notice 'rollback OK: TRUNCATE restaurado nas 545; nenhum outro privilegio movido; 0 dano colateral';
 end
 $confere$;
 

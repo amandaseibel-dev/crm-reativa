@@ -169,121 +169,216 @@ local foi **provada idêntica** à de produção: `md5` dos 545 nomes em ordem =
 **Guarda 2 — dependência.** Recusa rodar se qualquer função do `public` passar
 a executar TRUNCATE.
 
+**Fotografia antes de mexer.** Um bloco `DO` tira uma `_seg_antes` (temp table
+`on commit drop`) com o ACL de `authenticated` e o `relrowsecurity` de **todas**
+as tabelas de `public`. É contra essa fotografia que a conferência compara —
+não contra string fixa, que seria presa à versão do Postgres (ver §6.1).
+
 **Conferência posterior, na própria transação** (se algo sair do alvo, não
 comita):
 
 | Checagem | Esperado |
 |---|---|
-| (a) tabelas com TRUNCATE para `authenticated` | **0** |
-| (b) ACL de `authenticated` exatamente `arwdxtm` | **545** |
-| (c) tabelas com RLS desligada | **0** — esta migration não toca RLS |
-| (d) tabelas fora do padrão sem TRUNCATE | informativo, não bloqueia |
+| (a) tabelas do alvo com TRUNCATE para `authenticated` | **0** |
+| (b) `replace(acl_depois,'D','') = replace(acl_antes,'D','')` nas 545 | **saiu só o TRUNCATE**, nenhum outro privilégio |
+| (c) `relrowsecurity` mudou em alguma tabela de `public` | **0** — não toca RLS |
+| (d) tabela **fora** do padrão com ACL de `authenticated` diferente do de antes | **0** — dano colateral zero, nem em uma letra |
 
 Mais a conferência manual pós-commit, comentada no fim do arquivo.
 
-**Rollback baseado nos grants originais.** Mesma lista, `grant truncate`,
-devolvendo `arwdDxtm`. Como o revoke retira **só** o `D` e as 545 tinham ACL
-idêntico, devolver o `D` recompõe o original letra por letra — não é
+**Rollback baseado nos grants originais.** Mesma lista, `grant truncate`, com a
+mesma régua pelo avesso: `replace(acl,'D','')` igual dos dois lados prova que
+**só** o TRUNCATE voltou. Como as 545 tinham ACL idêntico e o revoke retira
+apenas o `D`, devolvê-lo recompõe o original letra por letra — não é
 aproximação. As três tabelas sem grant seguem fora: concedê-las seria
 **ampliar** acesso, não reverter.
 
+## 6.1 Revisão estática final (08/11/2026) — três defeitos corrigidos
+
+A revisão linha a linha da migration e do rollback, feita **antes** de pedir
+aprovação, encontrou três problemas. Todos corrigidos.
+
+**Defeito 1 — a conferência de ACL era presa ao PostgreSQL 17.** A versão
+anterior exigia a string exata `authenticated=arwdxtm/postgres`. A letra `m` é
+`MAINTAIN`, que **só existe no PG17**. Produção é PG17 (o `m` aparece no ACL
+medido), mas o Postgres do CI é **16** — a conferência reprovaria sozinha, por
+diferença de versão, não por defeito da migration. Pior: travaria a aprovação
+num falso negativo.
+
+**Correção:** a conferência não compara mais string fixa. Um bloco novo tira
+uma **fotografia** (`_seg_antes`, temp table `on commit drop`) do ACL de
+`authenticated` em **todas** as tabelas de `public` antes do revoke, e a
+conferência prova que
+
+```
+replace(acl_depois, 'D', '') = replace(acl_antes, 'D', '')
+```
+
+ou seja: **saiu exatamente o `D` (TRUNCATE) e mais nada** — sem depender de
+versão do servidor, sem depender da ordem canônica das letras e sem supor o
+nome do concedente. O rollback usa a mesma régua pelo avesso.
+
+**Defeito 2 — a checagem de dano colateral não checava nada.** A versão
+anterior contava quantas tabelas fora do padrão **não tinham** TRUNCATE e
+emitia um `notice`. Isso é informação, não prova: sem um valor anterior para
+comparar, o número não diz se algo mudou.
+
+**Correção:** com a fotografia, agora é prova de verdade — nenhuma tabela fora
+do padrão `_backup_pos_import_%` pode ter o ACL de `authenticated` diferente do
+que era, **nem em uma letra**, ou a transação não comita. Também passou a
+conferir que `relrowsecurity` não mudou em nenhuma tabela de `public`, e não
+só nas 548.
+
+**Defeito 3 (registrado, não corrigido — é limite da autorização).** A Guarda 2
+recusa a migration se **qualquer** função de `public` contiver a palavra
+`truncate` seguida de espaço, inclusive dentro de comentário ou string. É
+conservadora: falha fechada, nunca abre. Hoje o número é zero, então não
+bloqueia. Fica anotado para quem mexer depois não se surpreender.
+
 ---
 
-## 7. Teste: o que foi provado e o que não foi
+## 7. Teste: o que foi provado, onde, e o que não foi
 
-### 7.1 O que não deu para fazer
+### 7.1 O que mudou desde a primeira versão
 
-**O teste em staging não rodou.** O MCP do Supabase desta sessão está escopado
-**só na produção**: qualquer consulta ao projeto `edlzlfbstshojxrudwaa`
-devolve `You do not have permission to perform this action` — inclusive um
-`select current_database()`. Não há, nesta sessão, ambiente isolado alcançável.
+A primeira versão deste documento registrava que **não havia ambiente isolado
+alcançável**. Isso estava incompleto: **o CI do repositório já oferece
+PostgreSQL descartável**, no padrão que `proposta-conferido` e
+`whatsapp-cadencia-continuidade` já usavam — `services: postgres:16` mais
+`psql`, sem nada contratado a mais. Era o ambiente isolado, e estava à mão.
 
-As duas saídas para um teste isolado de verdade, **nenhuma executada**:
+Job novo: **`revoke-truncate-backup-pos-import`** em
+[`.github/workflows/ci.yml`](../../.github/workflows/ci.yml), com os fixtures
+em [`supabase/tests/revoke_truncate_backup_pos_import/`](../../supabase/tests/revoke_truncate_backup_pos_import/).
 
-1. **Supabase local** (`supabase start`) — a máquina tem 8 GB com swap
-   saturado; subir o stack é risco operacional real, não só custo.
-2. **Branch do Supabase** — **tem custo em dinheiro** e exige aviso prévio à
-   gestão (regra da casa). Além disso, as `_backup_pos_import_*` não existem
-   numa branch nova, então o teste teria de recriar a condição à mão.
+### 7.2 O ambiente do teste é fiel, e isso é verificado
 
-### 7.2 O que foi provado, e como
+| Fixture | O que monta |
+|---|---|
+| `01_ambiente.sql` | papéis `anon`, `authenticated`, `service_role` como em produção (NOLOGIN; `service_role` com `bypassrls`), e **a causa raiz**: `alter default privileges in schema public grant all on tables` — mais uma asserção que **falha o CI** se uma tabela nova não nascer com o `D` |
+| `02_baseline.sql` | as **548** tabelas com os **nomes reais de produção** — 545 com grant a `authenticated`, 3 sem —, todas com RLS ligada e **zero policy**. Confere `md5 = e9368e7cd2d8095423234387ace01018` antes de prosseguir: se os nomes não forem os de produção, o CI falha |
+| `03_casos.sql` | os 8 casos depois da migration |
+| `04_rollback.sql` | os 3 casos depois do rollback |
 
-Ensaio **atômico** em produção: um único `DO` block que executa o revoke
-equivalente, roda todas as conferências, executa o grant do rollback e
-**termina levantando exceção de propósito**. Como um `DO` block é uma única
-instrução, a exceção desfaz tudo — nada persistiu. **Nenhum TRUNCATE foi
-executado**, conforme instruído.
+### 7.3 A prova que faltava, agora feita
 
-| # | Checagem | Resultado |
-|---|---|---|
-| 1 | alvo antes | **545 tabelas**, md5 `e9368e7cd2d8095423234387ace01018` |
-| 2 | com TRUNCATE depois do revoke | **0** (esperado 0) |
-| 3 | ACL `authenticated=arwdxtm` | **545** (esperado 545) |
-| 4 | RLS desligada | **0** (esperado 0) |
-| 5 | tabelas fora do padrão sem TRUNCATE | 357 — **pré-existente**, não efeito do ensaio |
-| 6 | mantêm os outros 6 privilégios (`SELECT`, `INSERT`, `UPDATE`, `DELETE`, `REFERENCES`, `TRIGGER`) | **545** (esperado 545) |
-| 7 | ACL restaurado a `arwdDxtm` pelo rollback | **545** (esperado 545) |
+**`TRUNCATE` ignora RLS deixou de ser premissa documental e passou a ser
+medição.** No banco descartável do CI isso pode ser executado — em produção não
+podia, e não foi. O `02_baseline.sql` faz, como `authenticated`, na mesma
+tabela, com RLS ligada e 0 policy:
 
-**Conferência de que nada persistiu**, depois do ensaio:
-545 com TRUNCATE, 548 no total, 548 com RLS — produção exatamente como antes.
+| Operação como `authenticated` | Resultado exigido |
+|---|---|
+| `SELECT` | **0 linha visível** — RLS bloqueia |
+| `DELETE` | **0 linha afetada** — RLS bloqueia |
+| `TRUNCATE` | **esvazia a tabela** — RLS **não** protege |
 
-Isso prova: a sintaxe roda, o revoke acerta o alvo, **não** respinga em outro
-privilégio, **não** toca RLS, e o rollback restaura o ACL original. A forma do
-predicado de ACL usada nos arquivos é a que passou no ensaio.
+Se qualquer um dos três não der esse resultado, o CI falha. É o buraco
+demonstrado, não argumentado.
 
-### 7.3 O que segue NÃO COMPROVADO
+### 7.4 Os casos
 
-- **Que `TRUNCATE` ignora RLS não foi demonstrado por execução** — é
-  comportamento documentado do Postgres (RLS cobre `SELECT`/`INSERT`/`UPDATE`/
-  `DELETE`; `TRUNCATE` é governado por privilégio). A gestão proibiu executar
-  TRUNCATE em produção, e não havia ambiente isolado. **Fica como premissa
-  documental, não como medição.**
-- **Gate automático de segurança não rodou:** `scripts/seguranca/run_security_gate.sh`
-  exige `psql`, **que não está instalado nesta máquina**. Sem o gate, o
-  resultado é NÃO COMPROVADO — não "passou".
-- **Matriz de perfis (§9) não aplicável nesta mudança**, e não foi executada:
-  não há RLS, policy, RPC, view ou dado pessoal alterado. Vai como
-  **NÃO CONFERIDO**, não como ☑.
+Depois da migration (`03_casos.sql`):
+
+| # | Caso |
+|---|---|
+| 1 | nenhuma das 548 tem mais TRUNCATE para `authenticated` |
+| 2 | as 545 mantêm `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `REFERENCES`, `TRIGGER` |
+| 3 | **o mesmo TRUNCATE que funcionou no baseline agora é negado (`42501`)** e o lastro continua na tabela |
+| 4 | as 3 sem grant seguem sem grant — não foram tocadas |
+| 5 | 548 com RLS, 0 policy — nada mudou |
+| 6 | `service_role` mantém TRUNCATE nas 548, por desenho |
+| 7 | `anon` não alcança nenhuma |
+| 8 | **teste negativo da guarda:** criada uma tabela nova no padrão, total e `md5` mudam — a migration recusaria rodar |
+
+Depois do rollback (`04_rollback.sql`): 545 voltam a ter TRUNCATE, as 3 seguem
+de fora, a assinatura volta a ser a de produção e a RLS continua intacta.
+
+### 7.5 Security Gate
+
+Passou a rodar **no CI**, contra o banco descartável, no mesmo job —
+`run_security_gate.sh` com `DATABASE_URL` apontando para o serviço. Resolve a
+falta de `psql` na máquina local.
+
+**Com o escopo dito na cara:** o gate audita o **fixture**, não a produção.
+Prova que a migration **não introduz achado `BLOQUEIA`** e que o gate executa.
+**Não** substitui rodar o gate contra o projeto de produção.
+
+Um achado esperado e que **não reprova**: a verificação 2 do
+`auditoria_seguranca.sql` (`RLS_SEM_POLICY_COM_GRANT`) aponta essas tabelas —
+RLS ligada, 0 policy, com grant a `authenticated` — e **vai continuar
+apontando depois deste revoke**, porque os outros privilégios permanecem. A
+gravidade é `ALERTA`, não `BLOQUEIA`, então o gate passa. O fechamento completo
+seria `revoke all` de `authenticated` nessas tabelas (ninguém as lê: 0 funções,
+0 views, 0 FKs) — **fora da autorização desta frente**, que é exclusivamente
+TRUNCATE. Fica registrado em §9.
+
+### 7.6 O ensaio em produção não foi repetido
+
+Conforme instruído. O ensaio atômico de 07/11/2026 (bloco `DO` que se desfazia
+por exceção) fica no histórico como registro do que foi medido naquele dia:
+545 no alvo, 0 com TRUNCATE depois, RLS intacta, rollback restaurando o ACL, e
+produção conferida idêntica depois. **Nada foi executado em produção em
+08/11/2026** além de leitura de catálogo, e **nenhum TRUNCATE** em produção, em
+nenhum momento.
+
+### 7.7 O que segue sem teste — exatamente
+
+1. **A migration nunca rodou contra o banco de produção.** O CI prova a
+   mecânica contra 548 tabelas de mesmo nome e mesmo ACL, num Postgres **16**
+   vazio. Produção é **17**, tem ~1.468 tabelas em `public`, extensões, crons e
+   `pg_default_acl` de dois donos (`postgres` e `supabase_admin`). A
+   equivalência é forte, mas **não é identidade**.
+2. **O fixture não reproduz `authenticator` nem o PostgREST.** A conclusão de
+   que não há caminho de exploração pela API vem de auditoria de catálogo e de
+   leitura do código, **não** de tentativa de exploração por HTTP.
+3. **O gate contra produção segue NÃO COMPROVADO.** Roda no fixture; na
+   máquina local não roda por falta de `psql`.
+4. **Matriz de perfis (§9 da premissa) não executada**, por não se aplicar:
+   nenhuma regra de acesso de operador, carteira, RPC ou view muda.
+5. **Desempenho não medido**, e esta migration não se propõe a melhorá-lo.
 
 ---
 
 ## 8. Checklist de deploy (`CHECKLIST_SEGURANCA_DEPLOY.md`)
 
-**A. Gate automático** — `auditoria_seguranca.sql` **NÃO EXECUTADO** (`psql`
-ausente). Resultado: **NÃO COMPROVADO**.
+**A. Gate automático** — roda no CI contra banco descartável (job
+`revoke-truncate-backup-pos-import`). Contra **produção**: **NÃO COMPROVADO**
+(`psql` ausente na máquina local). Achados `BLOQUEIA` no fixture: **0**.
 
-**B. Critérios de interrupção** — nenhum disparado por esta mudança: não
-desliga RLS, não torna bucket público, **não concede** nada a
-`public`/`anon`/`authenticated` (só **retira**), não cria RPC nem view, não
-altera mascaramento. `service_role` não entra no bundle. Nenhuma referência a
-staging. **Alterações operacionais inesperadas: 0** (ensaio desfeito, produção
-conferida).
+**B. Critérios de interrupção** — nenhum disparado: não desliga RLS, não torna
+bucket público, **não concede** nada a `public`/`anon`/`authenticated` (só
+**retira**), não cria RPC nem view, não altera mascaramento. `service_role`
+fora do bundle. Nenhuma referência a staging. **Alterações operacionais
+inesperadas: 0** — provado por fotografia na própria transação, que aborta se
+qualquer ACL fora do alvo mudar.
 
 **C. Migration** — sem `CREATE OR REPLACE`: nenhuma função, view, trigger,
-tabela ou policy é criada ou substituída, então não há grants nem `search_path`
-a restaurar. Rollback preparado e testado no ensaio. ☑
+tabela ou policy criada ou substituída, então não há grants nem `search_path` a
+restaurar. Rollback preparado **e testado no CI**, com conferência própria. ☑
 
 **D. Teste de perfis (com ROLLBACK)** — **NÃO CONFERIDO**, por não se aplicar:
-nenhuma regra de acesso de operador, carteira, RPC ou view muda. O único papel
-afetado é `authenticated`, e o efeito é **perda** de um privilégio que nenhuma
-tela usa.
+o único papel afetado é `authenticated`, e o efeito é **perda** de um
+privilégio que nenhuma tela usa. O comportamento de `authenticated`, `anon` e
+`service_role` sobre essas tabelas está coberto pelos casos 3, 6 e 7 do CI.
 
-**E. Dados pessoais / Storage** — **não se aplica**: nenhum dado, coluna,
-bucket, URL assinada ou log é tocado.
+**E. Dados pessoais / Storage** — não se aplica: nenhum dado, coluna, bucket,
+URL assinada ou log é tocado.
 
 **F. Conclusão (§13)**
 
 ```
-SEGURANÇA VALIDADA: [x] (por auditoria de catálogo + ensaio atômico)
-PERFIS TESTADOS: [ ] NÃO CONFERIDO -- não se aplica (nenhuma regra de acesso muda)
-RLS VALIDADA: [x] (548/548 seguem com RLS ligada; a migration não toca RLS)
+SEGURANÇA VALIDADA: [x] (auditoria de catálogo + 11 casos em Postgres isolado no CI)
+PERFIS TESTADOS: [ ] NÃO CONFERIDO -- não se aplica (nenhuma regra de acesso muda);
+                     comportamento de authenticated/anon/service_role coberto por casos 3, 6 e 7
+RLS VALIDADA: [x] (548 seguem com RLS; conferido por fotografia, aborta se mudar)
 GRANTS VALIDADOS: [x] (545 alvo, 3 fora, PUBLIC ausente, service_role mantido)
-RPCS VALIDADAS: [x] (nenhuma executa TRUNCATE; acordos_pos_importacao é SECURITY DEFINER e não depende do grant)
+RPCS VALIDADAS: [x] (nenhuma executa TRUNCATE; acordos_pos_importacao é SECURITY DEFINER)
 PII MASCARADA: [ ] não se aplica (nenhum dado pessoal no escopo)
 ARQUIVOS PRIVADOS: [ ] não se aplica (nenhum bucket no escopo)
 ALTERAÇÕES OPERACIONAIS INESPERADAS: 0
-ROLLBACK PREPARADO: [x] (lista explícita, grants originais, testado no ensaio)
-GATE AUTOMÁTICO: [ ] NÃO COMPROVADO -- psql ausente nesta máquina
+ROLLBACK PREPARADO: [x] (lista explícita, grants originais, testado no CI)
+GATE AUTOMÁTICO: [x] no fixture do CI (0 BLOQUEIA) · [ ] contra PRODUÇÃO: NÃO COMPROVADO
 RESULTADO: [x] ☑ APROVADO PARA APLICAÇÃO -- condicionado a: (1) autorização
            explícita da gestão para aplicar, (2) executor único = sessão
            principal, (3) backup/rollback à mão porque PITR está desligado
@@ -293,13 +388,18 @@ RESULTADO: [x] ☑ APROVADO PARA APLICAÇÃO -- condicionado a: (1) autorizaçã
 
 ## 9. O que falta decidir
 
-1. **Aplicar ou não** o revoke em produção. Preparado; não aplicado.
-2. **Item 4 do §5** — fechar a porta que recria o grant
-   (`acordos_pos_importacao`). É o que impede o problema de voltar.
-3. **Item 3 do §5** — `alter default privileges` no schema `public`. Decisão
-   maior, frente própria.
-4. **Teste isolado de verdade**, se a gestão quiser antes de aplicar: exige
-   Supabase local (risco na máquina de 8 GB) ou branch do Supabase (**custo em
-   dinheiro**, precisa de aviso e aprovação).
-5. **Gate automático** — instalar `psql` nesta máquina é pré-requisito para
-   qualquer entrega sensível sair com gate comprovado, não só esta.
+1. **Aplicar ou não** o revoke em produção. Preparado, testado no CI, **não
+   aplicado**. É a decisão que esta entrega pede.
+2. **A origem** — `acordos_pos_importacao` pode criar tabela nova com TRUNCATE
+   aberto outra vez. Correção de **menor alcance** preparada em PR separada
+   (ver `ACORDOS-POS-IMPORTACAO-SEM-TRUNCATE-2026-11-08.md`), também sem
+   aplicar.
+3. **`revoke all` nessas tabelas**, não só TRUNCATE — fecharia o `ALERTA`
+   `RLS_SEM_POLICY_COM_GRANT` do gate, que este revoke **não** fecha. Ninguém
+   lê essas tabelas (0 funções, 0 views, 0 FKs). Fora da autorização atual;
+   decisão própria.
+4. **`alter default privileges` no schema `public`** — resolveria para toda
+   tabela futura, mas afeta **todas** as tabelas novas do schema. Não proposto
+   aqui por alcance; precisa de varredura de quem cria tabela em runtime.
+5. **Gate contra produção** — depende de `psql` na máquina ou de rodá-lo pelo
+   SQL editor do projeto.
