@@ -35,6 +35,7 @@ $$;
 do $$
 declare v_tab text; v_acl text;
 begin
+  perform pg_sleep(1.1);   -- lote de 1s: garante tabela nova, nao reuso
   select (public.acordos_pos_importacao(null, true) ->> 'backup') into v_tab;
   select (select a::text from unnest(relacl) a where a::text like 'authenticated=%')
     into v_acl from pg_class where oid = ('public.'||quote_ident(v_tab))::regclass;

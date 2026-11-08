@@ -47,7 +47,18 @@ $$;
 do $$
 declare v_tab text; v_acl text; v_rls boolean; v_erro text; v_linhas integer;
 begin
+  -- `v_lote` e to_char(clock_timestamp(),'YYYYMMDDHH24MISS'): granularidade de
+  -- UM SEGUNDO. Duas chamadas no mesmo segundo geram o MESMO nome, e o
+  -- `create table if not exists` reusa a tabela anterior em vez de criar.
+  -- Em producao ha minutos ou horas entre execucoes; no CI, milissegundos.
+  -- Por isso espera o segundo virar, e recusa seguir se ainda colidir.
+  perform pg_sleep(1.1);
   select (public.acordos_pos_importacao(null, true) ->> 'backup') into v_tab;
+
+  if exists (select 1 from public._teste_tabela_do_baseline b where b.nome = v_tab) then
+    raise exception 'INCONCLUSIVO: a funcao reusou a tabela do baseline (%) -- colisao de lote de 1s, nao defeito da migration', v_tab;
+  end if;
+
 
   select (select a::text from unnest(relacl) a where a::text like 'authenticated=%'), relrowsecurity
     into v_acl, v_rls
@@ -125,6 +136,7 @@ $$;
 do $$
 declare v_tab text; v_v boolean;
 begin
+  perform pg_sleep(1.1);   -- lote de 1s: evita reusar a tabela do caso anterior
   select (public.acordos_pos_importacao(null, true) ->> 'backup') into v_tab;
   select has_table_privilege('anon', ('public.'||quote_ident(v_tab))::regclass::oid, 'SELECT')
       or has_table_privilege('anon', ('public.'||quote_ident(v_tab))::regclass::oid, 'TRUNCATE')

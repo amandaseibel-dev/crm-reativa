@@ -156,6 +156,25 @@ Depois do patch (`03_casos.sql`):
 | 6 | `anon` sem alcance na tabela nova |
 | 7 | o portão interno continua barrando quem não é gestão (42501) |
 
+### Um defeito do próprio teste, achado pelo CI
+
+A primeira execução do job **falhou no caso 3** — e o defeito era do teste, não
+da migration. `v_lote` é `to_char(clock_timestamp(),'YYYYMMDDHH24MISS')`:
+granularidade de **um segundo**. No CI as chamadas caem no mesmo segundo, o
+nome gerado repete, e o `create table if not exists` **reusa** a tabela do
+baseline — que o baseline já havia esvaziado para provar o buraco. O caso 3
+então checava a tabela errada.
+
+O log da execução mostra que tudo o que importa havia passado antes disso:
+ambiente fiel (`authenticated=arwdDxt/postgres` — sem o `m`, porque o CI é
+PG16, exatamente como previsto), problema confirmado, patch aplicado com
+`EXECUTE` e `DEFAULT` intactos, casos 1 e 2 OK, e o TRUNCATE **negado**.
+
+**Correção:** os casos que chamam a função esperam o segundo virar
+(`pg_sleep(1.1)`) e **recusam seguir** se o nome ainda colidir, com a mensagem
+`INCONCLUSIVO` em vez de um falso `FALHOU`. Em produção há minutos ou horas
+entre execuções; a colisão é artefato do CI.
+
 **Idempotência** é testada no próprio workflow: a segunda aplicação da
 migration **tem de falhar**, ou o job falha.
 
