@@ -366,3 +366,78 @@ registrada, é encurtar o intervalo do ciclo de detalhe, não subir K.
 
 Por isso o e-mail fica no escopo final **sem ativação nesta etapa**: a decisão
 depende do λ medido, e medir λ só com WhatsApp não responde pelo conjunto.
+
+---
+
+## 12. Painel Gestão da Mensageria — primeira entrega (09/11/2026)
+
+Aprovado visualmente pela demonstração de 08/11. Implementado sobre o que já existe:
+o espelho do piloto (`ulbra_conversas`, `ulbra_atendimentos`, `ulbra_sync_estado`,
+`ulbra_leitura_usuario`) e os helpers de `ulbraRecebimento.js`. **Nenhuma chamada à
+ULBRA**: a tela lê só o Postgres, por uma RPC de agregação. Abrir dez painéis custa zero.
+
+### 12.1 Migration separada — `20261109090000_ulbra_painel_gestao` (NÃO aplicada)
+
+Uma função, `public.ulbra_painel_gestao() -> jsonb`, `security definer` com `search_path`
+fixo, `revoke` de `public`/`anon`, `execute` para `authenticated` com **portão interno**
+`usuario_e_gestao()` — quem não é gestão recebe `ACESSO_NEGADO` e nenhum número. Agrega no
+banco (`count`, `group by`, `percentile_cont`) sobre o espelho **inteiro**: não herda o teto
+de 200 linhas do sino. Devolve só contagens, datas e e-mails de operador; nenhum nome,
+prévia ou id de cliente (provado no teste). Rollback: `drop function`, sem `cascade`.
+
+**Não está coberta por nenhuma linha M1.** Precisa de linha própria para ser aplicada.
+Até lá, a tela mostra "Painel não disponível" — sem número no lugar.
+
+### 12.2 O que a tela mostra, na ordem
+
+1. **Confiabilidade antes dos números:** último ciclo, atraso, resultado (`ultimo_ciclo` +
+   `ultimo_erro`), chamadas do dia, backlog (fila de detalhes), pendências, cursor e saldo
+   da pessoa do token **como fotografia com hora** — nunca como saldo final.
+2. **Indicadores:** sem responsável; conversas com resposta do aluno aguardando (última
+   mensagem é do cliente); **não lidas por você** (marcador é por pessoa — a mesma regra do
+   sino); coletados; em conferência; sem operador; identidade confirmada; total.
+3. **Espera:** começa em **`entrou_em`** — a entrada em espera *na Mensageria*, informada
+   pela ULBRA — **não** na hora da coleta. Atendimento sem `entrou_em` sai da conta e é
+   contado em `sem_data`. Resposta de aluno: desde `ultima_mensagem_cliente_em`.
+4. **Canal e situação:** conversas por canal e situação; atendimentos por situação;
+   **atendimentos por canal = não disponível** (o espelho não guarda canal). Distribuição
+   por responsável **só por posse comprovada** (`responsavel_email`); o destino sugerido sai
+   à parte, rotulado como sugestão. **Divergência carteira × responsável ULBRA = não
+   disponível**: depende do mapeamento `20261108150000`; não se calcula por nome.
+5. **Cobertura:** equipe, canais coletados, canais ativos (WhatsApp; **e-mail não ativo**),
+   situações, período coletado, primeira/última coleta, alcance em páginas (**não
+   disponível** até existir coluna). "O que foi coletado, não o total da Mensageria."
+
+### 12.3 Estados — cinco, e diferentes
+
+| estado | quando | o que a tela diz |
+| --- | --- | --- |
+| `SEM_CICLO` | `ultima_execucao` nula | os zeros são porque nada foi coletado |
+| `ERRO` | `ultimo_ciclo = FALHOU` | erro, janela não avançou, números são do último ciclo bom |
+| `DESATUALIZADO` | **só com cron ativo** e atraso > 25 min | zero aqui não significa nada |
+| `INCOMPLETO` | `ultimo_ciclo = INCOMPLETO` | cursor não avançou, piso guardado, nada descartado |
+| `EM_DIA` | o resto | zero é zero de verdade |
+
+**Sem cron**, a tela diz **"atualização manual — sem sincronização automática ativa"**, e
+atraso grande **não** vira `DESATUALIZADO` (é informação, não defeito). A função lê
+`cron.job` para decidir; sem `pg_cron` legível, responde `desconhecida` — nunca inventa
+"automática".
+
+### 12.4 Provas
+
+- `supabase/tests/ulbra_painel.test.js` (PGlite) e job `ulbra-painel-sql` (Postgres 17):
+  privilégios; operador e inativo recebem `ACESSO_NEGADO` sem agregados; agregados sobre o
+  seed do recebimento (3 conversas, 4 atendimentos); `por_responsavel` vazio com sugestões
+  presentes; canal de atendimento e divergência = `null`; base da espera declarada;
+  cobertura; **nenhum nome/id de cliente na resposta**; leitura por usuário muda só o
+  "para mim"; transições `SEM_CICLO → INCOMPLETO → ERRO → EM_DIA` com 3 h de atraso sem
+  cron; rollback deixa o piloto de pé.
+- `src/pages/PainelMensageriaUlbra.test.jsx` (13): nenhum `fetch`; confiabilidade antes dos
+  números; fotografia do saldo; "não disponível" nos três lugares; "atualização manual";
+  base da espera; cobertura com e-mail não ativo; posse × sugestão; estados; recusa a
+  não-gestão; função ausente; erro com "tentar de novo"; `fmtMin`.
+
+### 12.5 Próxima rodada
+
+Adaptar a **central do operador** sobre esta mesma base (mesma RPC, recorte por pessoa).
+Fora: cron, e-mail, mapeamento, acesso dos operadores.
