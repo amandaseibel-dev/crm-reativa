@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   PREFS_PADRAO,
   contarNovidades,
+  marcarNaoLidas,
   conversasVisiveis,
   leadsVisiveis,
   lerPrefs,
@@ -90,21 +91,61 @@ describe("leadsVisiveis", () => {
   });
 });
 
+describe("leitura por usuário", () => {
+  const CONVERSA = {
+    ulbra_conversa_id: "c1",
+    aluno_id: "aluno-1",
+    ultima_mensagem_cliente_em: "2026-11-08T05:00:00Z",
+  };
+
+  it("sem marcador, a conversa com resposta do cliente é não lida", () => {
+    const [c] = marcarNaoLidas([CONVERSA], new Map());
+    expect(c.nao_lida).toBe(true);
+  });
+
+  it("quem leu não vê mais como não lida; quem não leu continua vendo", () => {
+    const eu = marcarNaoLidas([CONVERSA], new Map([["c1", "2026-11-08T05:00:00Z"]]));
+    const outro = marcarNaoLidas([CONVERSA], new Map());
+    expect(eu[0].nao_lida).toBe(false);
+    expect(outro[0].nao_lida).toBe(true);
+  });
+
+  it("resposta nova depois da leitura volta a ser não lida para quem leu", () => {
+    const nova = { ...CONVERSA, ultima_mensagem_cliente_em: "2026-11-08T06:00:00Z" };
+    const [c] = marcarNaoLidas([nova], new Map([["c1", "2026-11-08T05:00:00Z"]]));
+    expect(c.nao_lida).toBe(true);
+  });
+
+  it("conversa sem resposta do cliente nunca é não lida", () => {
+    const [c] = marcarNaoLidas([{ ...CONVERSA, ultima_mensagem_cliente_em: null }], new Map());
+    expect(c.nao_lida).toBe(false);
+  });
+
+  it("um operador ler a conversa não zera o aviso do responsável", () => {
+    // A regra por usuário é a mesma função com o mapa de CADA pessoa. O que
+    // muda entre um operador e outro é só o mapa de leitura.
+    const mapaOperadorA = new Map([["c1", "2026-11-08T05:00:00Z"]]);
+    const mapaResponsavel = new Map();
+    expect(marcarNaoLidas([CONVERSA], mapaOperadorA)[0].nao_lida).toBe(false);
+    expect(marcarNaoLidas([CONVERSA], mapaResponsavel)[0].nao_lida).toBe(true);
+  });
+});
+
 describe("conversasVisiveis", () => {
   const conversas = [
-    { ulbra_conversa_id: "c1", nao_lidas: 2, aluno_id: "aluno-1" },
-    { ulbra_conversa_id: "c2", nao_lidas: 1, aluno_id: "aluno-9" },
-    { ulbra_conversa_id: "c3", nao_lidas: 0, aluno_id: "aluno-1" },
+    { ulbra_conversa_id: "c1", nao_lida: true, aluno_id: "aluno-1" },
+    { ulbra_conversa_id: "c2", nao_lida: true, aluno_id: "aluno-9" },
+    { ulbra_conversa_id: "c3", nao_lida: false, aluno_id: "aluno-1" },
   ];
 
-  it("operador vê só conversa de aluno da carteira dele, e só com não lida", () => {
+  it("operador vê só conversa de aluno da carteira dele, e só não lida para ele", () => {
     const meus = new Set(["aluno-1"]);
     expect(conversasVisiveis(conversas, "op1@x", false, meus).map((c) => c.ulbra_conversa_id)).toEqual(
       ["c1"],
     );
   });
 
-  it("gestão vê todas com não lida", () => {
+  it("gestão vê todas as não lidas", () => {
     expect(conversasVisiveis(conversas, "amanda@x", true).map((c) => c.ulbra_conversa_id)).toEqual([
       "c1",
       "c2",
@@ -113,16 +154,19 @@ describe("conversasVisiveis", () => {
 });
 
 describe("contarNovidades", () => {
-  it("soma não lidas com leads ainda sem responsável", () => {
+  it("conta conversas com resposta pendente, não mensagens", () => {
     const c = contarNovidades({
-      conversas: [{ ulbra_conversa_id: "c1", nao_lidas: 3, aluno_id: "aluno-1" }],
+      conversas: [
+        { ulbra_conversa_id: "c1", nao_lida: true, aluno_id: "aluno-1" },
+        { ulbra_conversa_id: "c4", nao_lida: true, aluno_id: "aluno-1" },
+      ],
       atendimentos: [LEAD, { ...LEAD, ulbra_atendimento_id: "a5", responsavel_email: "op1@x" }],
       email: "op1@x",
       alunosDoOperador: new Set(["aluno-1"]),
     });
-    expect(c.nao_lidas).toBe(3);
+    expect(c.nao_lidas).toBe(2);
     expect(c.leads.map((a) => a.ulbra_atendimento_id)).toEqual(["a1"]);
-    expect(c.total).toBe(4);
+    expect(c.total).toBe(3);
   });
 
   it("sem nada, total é zero e não quebra com lista nula", () => {

@@ -93,11 +93,29 @@ export function leadsVisiveis(atendimentos, email, ehGestao = false) {
   });
 }
 
+/**
+ * Não lida PARA ESTE USUÁRIO: o cliente mandou algo depois do ponto até onde
+ * ele leu. `leituras` é só a linha dele (ulbra_leitura_usuario), indexada pelo
+ * id da conversa. Nunca se usa o marcador de outro operador.
+ */
+export function marcarNaoLidas(conversas, leituras) {
+  const mapa = leituras instanceof Map ? leituras : new Map();
+  return (conversas || []).map((c) => {
+    const ultimaDoCliente = c.ultima_mensagem_cliente_em
+      ? Date.parse(c.ultima_mensagem_cliente_em)
+      : null;
+    if (ultimaDoCliente === null) return { ...c, nao_lida: false };
+    const lido = mapa.get(c.ulbra_conversa_id);
+    const lidoAte = lido ? Date.parse(lido) : null;
+    return { ...c, nao_lida: lidoAte === null || ultimaDoCliente > lidoAte };
+  });
+}
+
 /** Conversas com resposta do aluno esperando: as do operador, ou todas na gestão. */
 export function conversasVisiveis(conversas, email, ehGestao = false, alunosDoOperador = null) {
   const meu = normalizarEmail(email);
   return (conversas || []).filter((c) => {
-    if (!c.nao_lidas) return false;
+    if (!c.nao_lida) return false;
     if (ehGestao) return true;
     if (alunosDoOperador instanceof Set) return c.aluno_id && alunosDoOperador.has(c.aluno_id);
     return normalizarEmail(c.responsavel_ulbra) === meu;
@@ -107,7 +125,8 @@ export function conversasVisiveis(conversas, email, ehGestao = false, alunosDoOp
 export function contarNovidades({ conversas, atendimentos, email, ehGestao = false, alunosDoOperador = null }) {
   const respostas = conversasVisiveis(conversas, email, ehGestao, alunosDoOperador);
   const leads = leadsVisiveis(atendimentos, email, ehGestao).filter((a) => !a.responsavel_email);
-  const naoLidas = respostas.reduce((s, c) => s + (Number(c.nao_lidas) || 0), 0);
+  // Conta CONVERSAS com resposta pendente para este usuário, não mensagens.
+  const naoLidas = respostas.length;
   return { respostas, leads, nao_lidas: naoLidas, total: naoLidas + leads.length };
 }
 

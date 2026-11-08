@@ -35,6 +35,8 @@ drop function if exists public.ulbra_atendimento_dispensar(text, text);
 drop function if exists public.ulbra_atendimento_assumir(text);
 drop function if exists public.ulbra_sync_gravar(jsonb);
 
+-- leitura por usuario referencia ulbra_conversas: sai ANTES dela
+drop table if exists public.ulbra_leitura_usuario;
 drop table if exists public.ulbra_sync_estado;
 drop table if exists public.ulbra_atendimentos;
 drop table if exists public.ulbra_conversas;

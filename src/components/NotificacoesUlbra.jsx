@@ -21,6 +21,7 @@ import usePolling from "../utils/polling";
 import {
   RECUSA_EM_PORTUGUES,
   contarNovidades,
+  marcarNaoLidas,
   lerPrefs,
   normalizarEmail,
   ordenarPorRecencia,
@@ -43,7 +44,8 @@ function horaCurta(iso) {
 
 export default function NotificacoesUlbra({ usuario }) {
   const email = normalizarEmail(usuario?.perfil?.email || usuario?.auth?.email);
-  const [conversas, setConversas] = useState([]);
+  const [conversasBrutas, setConversasBrutas] = useState([]);
+  const [leituras, setLeituras] = useState(() => new Map());
   const [atendimentos, setAtendimentos] = useState([]);
   const [ehGestao, setEhGestao] = useState(false);
   const [alunosDoOperador, setAlunosDoOperador] = useState(null);
@@ -87,9 +89,9 @@ export default function NotificacoesUlbra({ usuario }) {
       supabase
         .from("ulbra_conversas")
         .select(
-          "ulbra_conversa_id, ulbra_cliente_id, cliente_nome, situacao, responsavel_ulbra, ultima_mensagem_em, ultima_mensagem_quem, ultima_mensagem_previa, nao_lidas, aluno_id, aluno_status",
+          "ulbra_conversa_id, ulbra_cliente_id, cliente_nome, situacao, responsavel_ulbra, ultima_mensagem_em, ultima_mensagem_quem, ultima_mensagem_previa, ultima_mensagem_cliente_em, aluno_id, aluno_status",
         )
-        .gt("nao_lidas", 0)
+        .not("ultima_mensagem_cliente_em", "is", null)
         .order("ultima_mensagem_em", { ascending: false })
         .limit(200),
       supabase
@@ -101,10 +103,16 @@ export default function NotificacoesUlbra({ usuario }) {
         .order("entrou_em", { ascending: false })
         .limit(200),
     ]);
-    setConversas(conv || []);
+    // Leitura: SO a linha deste usuario (RLS ja restringe; o filtro e explicito)
+    const { data: lidos } = await supabase
+      .from("ulbra_leitura_usuario")
+      .select("ulbra_conversa_id, lido_ate")
+      .eq("usuario_email", email);
+    setConversasBrutas(conv || []);
+    setLeituras(new Map((lidos || []).map((l) => [l.ulbra_conversa_id, l.lido_ate])));
     setAtendimentos(atend || []);
     setCarregado(true);
-  }, []);
+  }, [email]);
 
   // Quem é da gestão e quais alunos são do operador: uma vez por sessão.
   useEffect(() => {
@@ -146,8 +154,15 @@ export default function NotificacoesUlbra({ usuario }) {
   }, [email, atualizarAgora]);
 
   const novidades = useMemo(
-    () => contarNovidades({ conversas, atendimentos, email, ehGestao, alunosDoOperador }),
-    [conversas, atendimentos, email, ehGestao, alunosDoOperador],
+    () =>
+      contarNovidades({
+        conversas: marcarNaoLidas(conversasBrutas, leituras),
+        atendimentos,
+        email,
+        ehGestao,
+        alunosDoOperador,
+      }),
+    [conversasBrutas, leituras, atendimentos, email, ehGestao, alunosDoOperador],
   );
 
   // Som só quando o número SOBE. Primeira carga nunca toca: chegar numa fila

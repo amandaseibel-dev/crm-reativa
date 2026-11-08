@@ -431,7 +431,15 @@ Duas consequências que mandam na arquitetura:
    aluno. Mensagem de `bot` ou `operador` não notifica ninguém;
 2. **controle de leitura é nosso**. Não existe ferramenta que marque lida, e
    `minha_fila` só conta não lidas da pessoa do token — que é a credencial de
-   backend, não o operador. O contador de não lidas do ReATIVA é do ReATIVA.
+   backend, não o operador. A leitura é do ReATIVA: cada pessoa tem a sua
+   linha em `ulbra_leitura_usuario` (até quando leu), com RLS que deixa ver e
+   escrever só a própria. Marcar como lida não zera o aviso de ninguém mais,
+   e a gestão não lê o marcador de terceiros.
+
+   **Limite assumido:** "não lida" é por CONVERSA (data da última mensagem do
+   cliente), não por mensagem. Um registro por mensagem daria prova item a
+   item de que nenhuma recebida se perdeu; não foi feito nesta etapa, e fica
+   como próximo passo se a gestão exigir essa prova.
 
 ### Eventos e webhooks fora do catálogo MCP — NÃO VERIFICADO
 

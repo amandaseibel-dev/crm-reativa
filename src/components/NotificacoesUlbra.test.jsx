@@ -12,6 +12,7 @@ import { render, screen, waitFor, fireEvent, cleanup } from "@testing-library/re
 import NotificacoesUlbra from "./NotificacoesUlbra";
 
 const estado = {
+  leituras: [],
   conversas: [],
   atendimentos: [],
   gestao: false,
@@ -21,23 +22,24 @@ const estado = {
 const rpcChamadas = [];
 const avisosRealtime = [];
 
+function dadosDa(nome) {
+  if (nome === "ulbra_conversas") return estado.conversas;
+  if (nome === "ulbra_atendimentos") return estado.atendimentos;
+  if (nome === "ulbra_leitura_usuario") return estado.leituras;
+  return estado.casos;
+}
+
 function tabelaFalsa(nome) {
   const encadeado = {
     select: () => encadeado,
     gt: () => encadeado,
     is: () => encadeado,
+    not: () => encadeado,
     eq: () => encadeado,
     order: () => encadeado,
-    limit: () =>
-      Promise.resolve({
-        data:
-          nome === "ulbra_conversas"
-            ? estado.conversas
-            : nome === "ulbra_atendimentos"
-              ? estado.atendimentos
-              : estado.casos,
-        error: null,
-      }),
+    limit: () => encadeado,
+    // thenable: `await` no fim da cadeia devolve as linhas da tabela
+    then: (resolve) => resolve({ data: dadosDa(nome), error: null }),
   };
   return encadeado;
 }
@@ -71,7 +73,7 @@ const USUARIO = { perfil: { email: "op1@x" } };
 const CONVERSA = {
   ulbra_conversa_id: "c1",
   cliente_nome: "Aluno Um",
-  nao_lidas: 2,
+  ultima_mensagem_cliente_em: "2026-11-08T05:00:00Z",
   aluno_id: "aluno-1",
   aluno_status: "vinculado",
   responsavel_ulbra: "op1@x",
@@ -106,6 +108,7 @@ const fetchMock = vi.fn();
 
 beforeEach(() => {
   estado.conversas = [];
+  estado.leituras = [];
   estado.atendimentos = [];
   estado.gestao = false;
   estado.casos = [{ aluno_id: "aluno-1" }, { aluno_id: "aluno-2" }];
@@ -135,12 +138,12 @@ describe("NotificacoesUlbra", () => {
     await waitFor(() => expect(container.firstChild).toBeNull());
   });
 
-  it("conta mensagens não lidas e leads no mesmo badge", async () => {
+  it("conta conversas não lidas e leads no mesmo badge", async () => {
     estado.conversas = [CONVERSA];
     estado.atendimentos = [LEAD_MEU];
     render(<NotificacoesUlbra usuario={USUARIO} />);
-    // 2 não lidas + 1 lead
-    await waitFor(() => expect(screen.getByText("3")).toBeTruthy());
+    // 1 conversa com resposta pendente + 1 lead
+    await waitFor(() => expect(screen.getByText("2")).toBeTruthy());
   });
 
   it("não mostra lead destinado a outro operador", async () => {
@@ -200,7 +203,7 @@ describe("NotificacoesUlbra", () => {
     const criarOsc = dublarSom();
     estado.conversas = [CONVERSA];
     render(<NotificacoesUlbra usuario={USUARIO} />);
-    await waitFor(() => expect(screen.getByText("2")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("1")).toBeTruthy());
     expect(criarOsc).not.toHaveBeenCalled();
   });
 
@@ -208,11 +211,11 @@ describe("NotificacoesUlbra", () => {
     const criarOsc = dublarSom();
     estado.conversas = [CONVERSA];
     render(<NotificacoesUlbra usuario={USUARIO} />);
-    await waitFor(() => expect(screen.getByText("2")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("1")).toBeTruthy());
 
-    estado.conversas = [CONVERSA, { ...CONVERSA, ulbra_conversa_id: "c2", nao_lidas: 1 }];
+    estado.conversas = [CONVERSA, { ...CONVERSA, ulbra_conversa_id: "c2" }];
     avisosRealtime.forEach((cb) => cb({}));
-    await waitFor(() => expect(screen.getByText("3")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("2")).toBeTruthy());
     expect(criarOsc).toHaveBeenCalled();
   });
 
@@ -221,11 +224,11 @@ describe("NotificacoesUlbra", () => {
     localStorage.setItem("rv_ulbra_prefs_op1_x", JSON.stringify({ som: false, visual: true }));
     estado.conversas = [CONVERSA];
     render(<NotificacoesUlbra usuario={USUARIO} />);
-    await waitFor(() => expect(screen.getByText("2")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("1")).toBeTruthy());
 
-    estado.conversas = [CONVERSA, { ...CONVERSA, ulbra_conversa_id: "c2", nao_lidas: 1 }];
+    estado.conversas = [CONVERSA, { ...CONVERSA, ulbra_conversa_id: "c2" }];
     avisosRealtime.forEach((cb) => cb({}));
-    await waitFor(() => expect(screen.getByText("3")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("2")).toBeTruthy());
     expect(criarOsc).not.toHaveBeenCalled();
   });
 });

@@ -5,13 +5,14 @@
 -- NAO FOI APLICADO EM NENHUM AMBIENTE. Nada aqui rodou.
 --
 -- O QUE ISTO INSTALA
---   1. `ulbra_conversas`     espelho das conversas da equipe Reativa
+--   1. `ulbra_conversas`     espelho das conversas da equipe Reativa (sem contador)
+--   1b. `ulbra_leitura_usuario` leitura por usuario: uma linha por pessoa e conversa
 --   2. `ulbra_atendimentos`  fila dos atendimentos em espera da equipe Reativa
 --   3. `ulbra_sync_estado`   cursor, contador de chamadas do dia, ultimo erro
 --   4. `ulbra_sync_gravar`   unica porta de escrita; so service_role
 --   5. `ulbra_atendimento_assumir`   posse por UPDATE condicional
 --   6. `ulbra_atendimento_dispensar` devolve o lead a fila, com motivo
---   7. `ulbra_conversa_marcar_lida`  zera o contador de nao lidas
+--   7. `ulbra_conversa_marcar_lida`  marca leitura POR USUARIO (ulbra_leitura_usuario)
 --
 -- O QUE ISTO NAO FAZ
 --   - nao altera `casos`, `alunos`, `fila_receptivo`, `ulbra_vinculos`,
@@ -46,17 +47,17 @@ create table public.ulbra_conversas (
   ultima_mensagem_em     timestamptz,
   ultima_mensagem_quem   text,
   ultima_mensagem_previa text,
-  nao_lidas              integer not null default 0,
+  -- Data da ultima mensagem RECEBIDA DO CLIENTE. Nao e contador: "nao lida"
+  -- e uma pergunta por usuario (ver ulbra_leitura_usuario), e o banco so
+  -- guarda o fato que todos compartilham.
+  ultima_mensagem_cliente_em timestamptz,
   aluno_id               uuid references public.alunos (id),
   aluno_status           text not null default 'nao_confirmado',
-  lida_em                timestamptz,
-  lida_por               text,
   criado_em              timestamptz not null default now(),
   atualizado_em          timestamptz not null default now(),
   constraint ulbra_conversas_equipe_check check (equipe = 'Reativa'),
   constraint ulbra_conversas_aluno_status_check
-    check (aluno_status in ('vinculado', 'nao_confirmado')),
-  constraint ulbra_conversas_nao_lidas_check check (nao_lidas >= 0)
+    check (aluno_status in ('vinculado', 'nao_confirmado'))
 );
 
 comment on table public.ulbra_conversas is
@@ -124,20 +125,72 @@ comment on table public.ulbra_sync_estado is
 
 insert into public.ulbra_sync_estado (id) values (true);
 
+-- ------------------------------------------------------- leitura por usuario
+-- Uma linha por (usuario, conversa): ate quando AQUELE usuario leu. A gestao
+-- NAO le a linha de outro usuario -- marcador de leitura individual nao serve
+-- a operacao e nao deve ser exposto. "Nao lida" para X = a conversa tem
+-- mensagem do cliente mais nova que o lido_ate de X (ou nunca foi lida por X).
+create table public.ulbra_leitura_usuario (
+  usuario_email    text not null,
+  ulbra_conversa_id text not null references public.ulbra_conversas (ulbra_conversa_id) on delete cascade,
+  lido_ate         timestamptz not null,
+  atualizado_em    timestamptz not null default now(),
+  primary key (usuario_email, ulbra_conversa_id),
+  constraint ulbra_leitura_email_minusculo check (usuario_email = lower(usuario_email))
+);
+
+comment on table public.ulbra_leitura_usuario is
+  'Leitura por usuario. Cada pessoa ve e escreve SO a propria linha (RLS). Gestao nao le a de terceiros.';
+
 -- --------------------------------------------------------------- RLS e grants
 alter table public.ulbra_conversas enable row level security;
 alter table public.ulbra_atendimentos enable row level security;
 alter table public.ulbra_sync_estado enable row level security;
 
--- Leitura: mesma regua da Central WhatsApp (`whatsapp_conversas_leitura`) --
--- usuario ativo do sistema. O painel da TV e barrado, como nas demais.
+-- LEITURA POR USUARIO. A regra e a MESMA da tela, aplicada no banco -- senao
+-- qualquer usuario ativo leria o espelho inteiro por SQL, e a separacao por
+-- operador existiria so no front.
+--   conversa:     gestao ve tudo; operador ve a dos alunos que sao casos dele
+--   atendimento:  gestao ve tudo; operador ve o que e sugerido a ele ou que ele
+--                 assumiu. Conferencia e SEM_OPERADOR so para a gestao.
+-- O painel da TV e barrado, como nas demais.
 create policy ulbra_conversas_leitura on public.ulbra_conversas
-  for select to authenticated using (app_usuario_ativo() and not eh_painel());
+  for select to authenticated using (
+    not eh_painel() and app_usuario_ativo() and (
+      usuario_e_gestao()
+      or exists (
+        select 1 from public.casos c
+         where c.aluno_id = ulbra_conversas.aluno_id
+           and lower(c.operador_email) = app_email()
+      )
+    )
+  );
 create policy ulbra_atendimentos_leitura on public.ulbra_atendimentos
-  for select to authenticated using (app_usuario_ativo() and not eh_painel());
+  for select to authenticated using (
+    not eh_painel() and app_usuario_ativo() and (
+      usuario_e_gestao()
+      or (
+        lower(coalesce(responsavel_email, '')) = app_email()
+      )
+      or (
+        responsavel_email is null
+        and destino_motivo in ('CARTEIRA', 'RODIZIO')
+        and lower(coalesce(destino_email, '')) = app_email()
+        and dispensado_em is null
+      )
+    )
+  );
 -- Estado do ciclo e diagnostico: so gestao.
 create policy ulbra_sync_estado_leitura on public.ulbra_sync_estado
   for select to authenticated using (usuario_e_gestao() and not eh_painel());
+
+alter table public.ulbra_leitura_usuario enable row level security;
+create policy ulbra_leitura_usuario_propria on public.ulbra_leitura_usuario
+  for all to authenticated
+  using (usuario_email = lower(coalesce(app_email(), '')) and app_usuario_ativo() and not eh_painel())
+  with check (usuario_email = lower(coalesce(app_email(), '')) and app_usuario_ativo() and not eh_painel());
+revoke all on public.ulbra_leitura_usuario from authenticated, anon, public;
+grant select, insert, update on public.ulbra_leitura_usuario to authenticated;
 
 -- Nenhuma policy de INSERT/UPDATE/DELETE: escrita nao passa por aqui.
 revoke all on public.ulbra_conversas from authenticated, anon, public;
@@ -177,13 +230,13 @@ begin
     insert into public.ulbra_conversas as c (
       ulbra_conversa_id, ulbra_cliente_id, cliente_nome, canal, situacao, equipe,
       responsavel_ulbra, ultima_mensagem_em, ultima_mensagem_quem, ultima_mensagem_previa,
-      nao_lidas, aluno_id, aluno_status, atualizado_em
+      ultima_mensagem_cliente_em, aluno_id, aluno_status, atualizado_em
     )
     select
       e.ulbra_conversa_id, e.ulbra_cliente_id, e.cliente_nome, coalesce(e.canal, 'whatsapp'),
       e.situacao, e.equipe, e.responsavel_ulbra, e.ultima_mensagem_em, e.ultima_mensagem_quem,
       e.ultima_mensagem_previa,
-      case when e.resposta_do_cliente then 1 else 0 end,
+      case when e.resposta_do_cliente then e.ultima_mensagem_em end,
       e.aluno_id, e.aluno_status, now()
     from entrada e
     on conflict (ulbra_conversa_id) do update set
@@ -193,16 +246,16 @@ begin
       ultima_mensagem_em = excluded.ultima_mensagem_em,
       ultima_mensagem_quem = excluded.ultima_mensagem_quem,
       ultima_mensagem_previa = excluded.ultima_mensagem_previa,
+      -- so sobe: mensagem antiga relida nao rebaixa a ultima do cliente
+      ultima_mensagem_cliente_em = greatest(c.ultima_mensagem_cliente_em,
+                                            excluded.ultima_mensagem_cliente_em),
       aluno_id = excluded.aluno_id,
       aluno_status = excluded.aluno_status,
-      nao_lidas = c.nao_lidas + case
-        when excluded.ultima_mensagem_quem = 'cliente'
-         and (c.ultima_mensagem_em is null or excluded.ultima_mensagem_em > c.ultima_mensagem_em)
-        then 1 else 0 end,
       atualizado_em = now()
     where excluded.ultima_mensagem_em is distinct from c.ultima_mensagem_em
        or excluded.situacao is distinct from c.situacao
        or excluded.aluno_status is distinct from c.aluno_status
+       or excluded.ultima_mensagem_cliente_em is distinct from c.ultima_mensagem_cliente_em
     returning 1
   )
   select count(*) into v_conversas from gravado;
@@ -358,22 +411,29 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_email text := lower(coalesce(app_email(), ''));
+  v_ultima timestamptz;
 begin
-  if not app_usuario_ativo() or eh_painel() then
+  if v_email = '' or not app_usuario_ativo() or eh_painel() then
     return jsonb_build_object('ok', false, 'motivo', 'ACESSO_NEGADO');
   end if;
-  update public.ulbra_conversas
-     set nao_lidas = 0, lida_em = now(), lida_por = app_email(), atualizado_em = now()
-   where ulbra_conversa_id = p_id;
+  -- Marca ate onde ESTE usuario leu. Nao mexe na conversa nem em quem leu
+  -- antes ou depois: cada operador tem a sua linha.
+  select ultima_mensagem_cliente_em into v_ultima
+    from public.ulbra_conversas where ulbra_conversa_id = p_id;
   if not found then
     return jsonb_build_object('ok', false, 'motivo', 'NAO_ENCONTRADO');
   end if;
+  insert into public.ulbra_leitura_usuario (usuario_email, ulbra_conversa_id, lido_ate, atualizado_em)
+  values (v_email, p_id, coalesce(v_ultima, now()), now())
+  on conflict (usuario_email, ulbra_conversa_id) do update
+    set lido_ate = greatest(ulbra_leitura_usuario.lido_ate, excluded.lido_ate),
+        atualizado_em = now();
   return jsonb_build_object('ok', true);
 end;
 $$;
 
-revoke all on function public.ulbra_atendimento_assumir(text) from public, anon;
-revoke all on function public.ulbra_atendimento_dispensar(text, text) from public, anon;
 revoke all on function public.ulbra_conversa_marcar_lida(text) from public, anon;
 grant execute on function public.ulbra_atendimento_assumir(text) to authenticated;
 grant execute on function public.ulbra_atendimento_dispensar(text, text) to authenticated;

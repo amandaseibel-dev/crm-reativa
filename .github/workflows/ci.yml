@@ -222,6 +222,59 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
 
   # ---------------------------------------------------------------------------
+  # ULBRA — recebimento (etapa 1): leitura por usuario, grants e rollback,
+  # num Postgres 16 descartavel. Roda a migration CANDIDATA (ainda em
+  # aguardando_aprovacao/), nao producao.
+  #
+  # Prova o que a RLS e os grants prometem, como papeis reais: anon nao le;
+  # authenticated nao escreve nem TRUNCA o espelho; cada operador le so o
+  # seu; a leitura de um usuario nao zera a de outro; dois operadores nao
+  # assumem o mesmo atendimento; e o rollback volta ao ponto anterior.
+  # ---------------------------------------------------------------------------
+  ulbra-recebimento-sql:
+    name: ulbra recebimento — leitura por usuario, grants e rollback (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/ulbra_recebimento
+      MIGRATION: supabase/aguardando_aprovacao/20261108120000_ulbra_recebimento_e_fila.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261108120000_ulbra_recebimento_e_fila.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # 1. ambiente  2. migration candidata  3. dados simulados
+      # 4. provas de leitura/grant  5. rollback candidato  6. banco de volta
+      - name: Ambiente, migration, provas por usuario, rollback e verificacao
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_dados.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/03_leitura_por_usuario.sql"
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/04_depois_do_rollback.sql"
+
+  # ---------------------------------------------------------------------------
   # PROPOSTA_staging_acordos_prime.sql — RLS, grants e isolamento do staging
   # de ACORDOS, num Postgres descartável.
   #
