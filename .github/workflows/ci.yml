@@ -350,3 +350,79 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/02_baseline.sql"
           psql -v ON_ERROR_STOP=1 -f "$ALVO"
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
+
+  # ---------------------------------------------------------------------------
+  # `acordos_pos_importacao` deixa de criar tabela de backup com TRUNCATE
+  # aberto para `authenticated`. Correção de MENOR ALCANCE: uma linha no corpo
+  # da função, só TRUNCATE, só authenticated, só a tabela que ela cria.
+  #
+  # O teste prova as duas pontas: que hoje a tabela nasce esvaziável (e que
+  # authenticated de fato a esvazia, apesar da RLS), e que depois do patch o
+  # TRUNCATE é negado. Prova também o ALCANCE: tabela criada antes segue
+  # intacta, e o default privilege do schema não é alterado.
+  # ---------------------------------------------------------------------------
+  acordos-pos-importacao-sem-truncate:
+    name: acordos_pos_importacao sem truncate (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/acordos_pos_importacao_sem_truncate
+      MIGRATION: supabase/aguardando_aprovacao/20261108120000_acordos_pos_importacao_sem_truncate.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261108120000_acordos_pos_importacao_sem_truncate.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # 1. ambiente (papéis + default privilege)  2. a função como está hoje,
+      # com o problema demonstrado  3. a migration  4. os 7 casos
+      - name: Montar ambiente, demonstrar o problema, aplicar patch e rodar os casos
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_baseline.sql"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
+
+      # 5. idempotência: a segunda aplicação TEM de ser recusada pela Guarda 1
+      - name: Segunda aplicacao tem de ser recusada
+        run: |
+          set -uo pipefail
+          if psql -v ON_ERROR_STOP=1 -f "$MIGRATION"; then
+            echo ">> FALHOU: a migration rodou duas vezes; a guarda de idempotencia nao pegou" >&2
+            exit 1
+          fi
+          echo "OK: segunda aplicacao recusada"
+
+      # 6. o rollback, e a prova de que o comportamento volta ao anterior
+      - name: Aplicar rollback e conferir reversao
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/04_rollback.sql"
+
+      # 7. Security Gate contra o banco descartavel (audita o FIXTURE, nao a
+      #    producao -- prova que o patch nao introduz achado BLOQUEIA)
+      - name: Security Gate no banco descartavel
+        run: |
+          set -euo pipefail
+          DATABASE_URL="postgres://postgres:postgres@localhost:5432/teste" \
+            scripts/seguranca/run_security_gate.sh
