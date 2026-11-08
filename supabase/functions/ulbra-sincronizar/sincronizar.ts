@@ -434,6 +434,15 @@ export async function colherConversas(
     }
   };
 
+  // `piso_coletado` e `topo_coletado` só são escritos DENTRO de `recolher`, que
+  // é uma closure. O TypeScript não considera atribuição em função aninhada ao
+  // estreitar a variável aqui fora: para ele, no corpo do laço, `piso_coletado`
+  // continua sendo o `null` do inicializador — e um `!== null` sobre `null`
+  // estreita para `never`, o que fez o `deno check` recusar o `<=` com TS2365.
+  // Ler por esta função devolve o TIPO DECLARADO (`string | null`) e desfaz o
+  // estreitamento indevido, sem mudar valor nem ordem de leitura.
+  const lerPiso = (): string | null => piso_coletado;
+
   for (let pagina = 1; pagina <= hardLeituras; pagina++) {
     // Sem saldo: para AQUI e marca incompleto. Nunca trata página não lida como vazia.
     if (!pode()) {
@@ -457,16 +466,21 @@ export async function colherConversas(
       }
       const prox = lerPaginaConversas(await buscarPagina(pagina + 1), janela);
       leituras++;
-      if (piso_coletado !== null) {
-        recolher(prox.conversas.filter((c) => c.ultima_mensagem_em === piso_coletado));
+      const pisoAntes = lerPiso();
+      if (pisoAntes !== null) {
+        recolher(prox.conversas.filter((c) => c.ultima_mensagem_em === pisoAntes));
       }
       // Ainda há item não processado abaixo do piso, acima do cursor?
       // Conservador: itens com o mesmo horário do piso que sobraram contam como
       // pendentes. Um ciclo a mais, nunca uma perda.
+      // O piso é relido DEPOIS do `recolher` acima, como era antes desta
+      // correção de tipo — aquele `recolher` só admite item com horário IGUAL
+      // ao piso, então o valor não muda; reler mantém a leitura idêntica.
+      const pisoDepois = lerPiso();
       truncado =
         prox.piso !== null &&
-        piso_coletado !== null &&
-        prox.piso <= piso_coletado &&
+        pisoDepois !== null &&
+        prox.piso <= pisoDepois &&
         (janela.cursor === null || prox.piso > janela.cursor);
       break;
     }
