@@ -56,6 +56,9 @@ import { registrarLoginSeNecessario, registrarLogout } from "./utils/ponto";
 // ficha do aluno ja aplica para decidir sobre titulo em confirmacao.
 import { podeGerirFinanceiro, podeVerTudo } from "./utils/operadores";
 const PainelAdm = lazy(() => import("./pages/PainelAdm"));
+// Tela TEMPORÁRIA de diagnóstico da Mensageria (gestão). Sai quando a
+// integração operacional estiver desenhada.
+const UlbraDiagnostico = lazy(() => import("./pages/UlbraDiagnostico"));
 const FinanceiroHub = lazy(() => import("./pages/FinanceiroHub"));
 const CentralPagamentos = lazy(() => import("./components/CentralPagamentos"));
 const RelatorioTabulacoes = lazy(() => import("./pages/RelatorioTabulacoes"));
@@ -1250,6 +1253,7 @@ export default function App() {
                 }
               />
               <Route path="/painel-adm" element={<PainelAdm />} />
+              <Route path="/ulbra-diagnostico" element={<UlbraDiagnostico usuario={usuario} />} />
               <Route path="/painel-geral" element={<PainelGeral />} />
               <Route
                 path="/produtividade"

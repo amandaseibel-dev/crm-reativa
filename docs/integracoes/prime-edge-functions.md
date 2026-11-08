@@ -65,7 +65,7 @@ deste inventário.
 `ulbra-*` não existiam quando ela foi feita — estão na seção seguinte,
 acrescentada em 06/11/2026.
 
-## Mensageria ULBRA (`crm.ulbra.ai`) — três funções, outra API
+## Mensageria ULBRA (`crm.ulbra.ai`) — quatro funções, outra API
 
 Acrescentado em **06/11/2026**, para cumprir a regra 2 do
 [`README.md`](README.md) (toda Edge Function que toque Prime/ULBRA entra neste
@@ -92,6 +92,7 @@ gaps) **não se aplica** a elas: a fonte de verdade da Mensageria é
 | `ulbra-consultar` | Vincula o aluno do CRM ao cliente da Mensageria e devolve a URL do atendimento | `conferir_duplicidade` (1 chamada, telefone **e** CPF nas duas posições) | JWT + usuário ativo em `public.usuarios`; operador só alcança aluno da própria carteira; perfis amplos (`supervisor`, `gerencia`, `administrativo`) alcançam qualquer um | Lê Mensageria; escreve **`ulbra_vinculos`** e `auditoria` (`ULBRA_CONSULTA`, `ULBRA_VINCULO_CRIADO`, `ULBRA_VINCULO_BLOQUEADO`) | `src/components/BlocoUlbra.jsx` |
 | `ulbra-atendimento` | Atendimento atual do aluno, para o bloco da ficha | `listar_atendimentos` (`{cliente, limite: 1}`) — **e só ela**; `consultar_atendimento` existe no catálogo da Mensageria mas **não é chamada** por nenhuma função | Mesmo portão da `ulbra-consultar` em substância (mesma lista de perfis, mesmo recorte por `responsavel_atual_email`), porém **reimplementado** em `index.ts` em vez de importar `portao.ts`; lê vínculo filtrando `confianca = 'alta_cpf'` (`vinculoConfirmado`), antes de qualquer consulta | **Só lê**; cache em memória de 5 min (`TTL_MS`), nunca grava | `src/components/AtendimentoUlbra.jsx` |
 | `ulbra-leads-pendentes` | Lista leads receptivos em `waiting` da equipe "Reativa" | `listar_atendimentos {situacao:"waiting"}` | JWT; `receptivo` da própria linha **ou** `usuario_e_gestao()` | **Só lê**; devolve apenas id, nome e data — sem CPF e sem telefone | `src/components/NotificacoesUlbra.jsx`, que **não está montado** em nenhuma página (polling de 60 s estouraria o limite diário) |
+| `ulbra-diagnostico` | Diz o que o **token de backend** pode fazer na Mensageria — o escopo do `ULBRA_MCP_TOKEN` não é visível de fora, e decide o desenho da integração operacional | `meu_acesso` (via `tools/call`) e `tools/list` — duas chamadas, nenhuma com dado de cliente | JWT + usuário ativo + **perfil de gestão** (`gerencia`, `administrativo`); operador e supervisor não entram | **Só lê**, e não grava nem auditoria. Devolve **apenas superfície**: tipo da conexão, perfis, escopos, limites e nomes de ferramentas — nunca a credencial, dado de aluno ou conversa; o objeto `pessoa` (nome e e-mail do dono do token) é removido no recorte | nenhum: chamada manual de gestão |
 
 ### Divergência repo × produção, medida em 06/11/2026
 
