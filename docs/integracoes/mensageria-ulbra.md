@@ -283,6 +283,80 @@ intermediário confuso.
   `vinculo.test.ts` e `ulbra-leads-pendentes/portao.test.ts` carregam a forma
   real das respostas — se a Mensageria mudar a forma, é aí que quebra.
 
+## Resposta do aluno no ReATIVA — etapa 1 (08/11/2026)
+
+**O que a integração NÃO permite, e por isso muda o desenho.** A Mensageria
+não expõe mensagens nem conversas (seção "Ferramentas (8) e escopos" acima:
+"Não expostos: conversas, mensagens, envio, campanhas, templates"). De um
+atendimento o token lê apenas `id, cliente{id,nome}, situacao, coluna, equipe,
+atendente, entrouEm, aceitoEm, atualizadoEm`. Logo **não existe "mensagem não
+lida" para ler**: não há remetente, não há conteúdo e não há marca de leitura
+do lado da ULBRA. Também não há como enviar mensagem — nem por engano.
+
+Então os dois termos do pedido foram definidos assim, e a tela diz isso ao
+operador em vez de sugerir que lemos a conversa:
+
+| Termo | Definição implementada | Fonte |
+|---|---|---|
+| "o aluno respondeu" | o atendimento está `waiting` — esperando alguém da Reativa | `situacao`, o mesmo sinal que a `ulbra-leads-pendentes` já usa |
+| "não lida" | `atualizadoEm` posterior ao último instante em que **este usuário** olhou | carimbo deles, marcador **nosso** |
+
+**O marcador de leitura é nosso e, na etapa 1, é do navegador.** Vive no
+`localStorage` por e-mail (`ulbra_respostas_visto_em:<email>`), então a mesma
+operadora noutra máquina recomeça com tudo não lido. Marcador durável por
+usuário é tabela, e tabela exige autorização própria — fica como pendência da
+etapa 2, não como defeito escondido.
+
+**Aviso ao responsável.** O operador é avisado dos alunos da própria carteira;
+a gestão, de todos. Isso é peso de tela: quem decide quem lê o quê continua
+sendo o portão da Edge Function (`receptivo` da linha do usuário ou
+`usuario_e_gestao()`, em `ulbra-leads-pendentes/portao.ts`). Atendimento **sem
+responsável conhecido** — que é o que a `ulbra-leads-pendentes` devolve hoje,
+só id, nome e data — fica visível para quem o portão já deixou passar:
+esconder por falta de um campo que a fonte ainda não manda perderia lead
+receptivo em silêncio.
+
+### Dimensionamento dentro das 500 chamadas/dia
+
+O que torna a conta viável: `listar_atendimentos` aceita `equipe` e
+`limite ≤ 500`, então **uma chamada cobre a equipe Reativa inteira**. O custo
+do sinal não cresce com o número de alunos nem com o número de operadores com
+a tela aberta — cresce só com a **frequência**.
+
+| Consumidor | Custo |
+|---|---|
+| `ulbra-consultar` | 1 por abertura de ficha |
+| `ulbra-atendimento` | 1 por abertura de ficha (cache de 5 min) |
+| sincronização das respostas | 1 por tick, para a equipe inteira |
+
+Com tick de **10 minutos em 12 horas de operação = 72 chamadas/dia**, sobram
+428 para as fichas — cerca de **214 aberturas de ficha por dia**, já que cada
+uma custa 2. A conta está codificada e testada em `orcamentoSincronizacao`
+(`src/utils/ulbraRespostas.js`), não só escrita aqui.
+
+É também o motivo de esta tela ter nascido desmontada: a 60 segundos ela
+sozinha custaria **720 chamadas/dia** e estouraria o limite antes de qualquer
+ficha abrir. O `usePolling` do CRM pausa em aba oculta e atualiza ao voltar o
+foco, o que derruba o custo real abaixo do teórico.
+
+**O orçamento é apertado e convém não suavizar:** a natureza do
+`ULBRA_MCP_TOKEN` (serviço × pessoa) segue **não confirmada**. Se for de
+pessoa, todo o CRM divide as mesmas 500.
+
+### O que a etapa 1 entrega, e o que ela não é
+
+Entrega: `src/utils/ulbraRespostas.js` (lógica pura), `ulbraRespostasFonte.js`
+(marcador de leitura e a fonte real, já escrita), e o
+`src/components/NotificacoesUlbra.jsx` **reaproveitado** — agora montado na
+barra lateral, com contador de não lidas e com as classes Tailwind órfãs
+trocadas por estilo nos tokens do CRM (ver `docs/BACKLOG-TECNICO.md`).
+
+**Roda com dados SIMULADOS**, sem nenhuma chamada à Mensageria e sem enviar
+mensagem nenhuma. O painel carrega o selo `SIMULADO` para ninguém confundir
+amostra com operação. Trocar a fonte pela real é uma linha (`simulado={false}`),
+e é trabalho da etapa 2 — junto com a integração à fila receptiva e com o
+marcador de leitura em tabela.
+
 ## Sequência de publicação (preparada, NÃO executada)
 
 Nada abaixo foi executado. Cada passo exige autorização explícita da gestão e

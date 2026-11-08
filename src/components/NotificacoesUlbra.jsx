@@ -1,110 +1,116 @@
-import { useState, useEffect, useRef } from "react";
-import { supabase } from "../services/supabase";
+import { useCallback, useMemo, useState } from "react";
+import usePolling from "../utils/polling";
+import { doResponsavel, naoLidas, amostraSimulada } from "../utils/ulbraRespostas";
+import { lerVistoEm, gravarVistoEm, carregarReal } from "../utils/ulbraRespostasFonte";
 
-const INTERVALO_MS = 60_000;
-const SS_KEY = "ulbra_leads_vistos";
+// Aviso de "o aluno respondeu" na Mensageria Ulbra.
+//
+// ETAPA 1: roda com DADOS SIMULADOS, sem nenhuma chamada à Mensageria e sem
+// enviar mensagem nenhuma — aliás o MCP não expõe envio. O selo "SIMULADO" na
+// tela existe para ninguém confundir amostra com operação. A etapa 2 troca a
+// fonte pelo `carregarReal` abaixo, que já está escrito, e liga a fila
+// receptiva.
+//
+// POR QUE O POLLING NÃO É MAIS DE 60s. Esta tela nasceu desmontada de
+// propósito: a 60s ela estouraria o limite de 500 chamadas/dia da Mensageria
+// (720 só dela). Agora são 10 minutos, com `usePolling`, que pausa em aba
+// oculta e atualiza ao voltar o foco. A conta está em
+// `orcamentoSincronizacao` (src/utils/ulbraRespostas.js) e em
+// docs/integracoes/mensageria-ulbra.md.
+const INTERVALO_MS = 10 * 60_000;
 
-function carregarVistos() {
-  try {
-    const raw = sessionStorage.getItem(SS_KEY);
-    return raw ? new Set(JSON.parse(raw)) : new Set();
-  } catch {
-    return new Set();
-  }
-}
-
-function salvarVistos(set) {
-  try {
-    sessionStorage.setItem(SS_KEY, JSON.stringify([...set]));
-  } catch {
-    // sessionStorage indisponível — continua sem persistência
-  }
-}
-
-export default function NotificacoesUlbra({ onAssumirLead }) {
-  const [leads, setLeads] = useState([]);
+export default function NotificacoesUlbra({
+  onAssumirLead,
+  email = "",
+  gestao = false,
+  simulado = true,
+  carregar,
+}) {
+  const [itens, setItens] = useState([]);
   const [aberto, setAberto] = useState(false);
-  const vistoRef = useRef(carregarVistos());
+  const [vistoEm, setVistoEm] = useState(() => lerVistoEm(email));
 
-  useEffect(() => {
-    let ativo = true;
+  const fonte = useMemo(() => {
+    if (carregar) return carregar;
+    if (simulado) return async () => amostraSimulada(Date.now(), email || undefined);
+    return carregarReal;
+  }, [carregar, simulado, email]);
 
-    const buscar = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token;
-        if (!token || !ativo) return;
+  const buscar = useCallback(async () => {
+    try {
+      setItens(await fonte());
+    } catch {
+      // silencioso: a Mensageria fora do ar não pode travar a barra lateral
+    }
+  }, [fonte]);
 
-        const resp = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ulbra-leads-pendentes`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        if (!ativo) return;
-        const dados = await resp.json();
+  usePolling(buscar, INTERVALO_MS, [fonte], true);
 
-        if (dados.motivo === "NAO_RECEPTIVO") return;
+  const meus = useMemo(() => doResponsavel(itens, { email, gestao }), [itens, email, gestao]);
+  const novas = useMemo(() => naoLidas(meus, { vistoEm }), [meus, vistoEm]);
+  // A lista operacional mostra TODAS as que esperam a Reativa, lidas ou não:
+  // um aluno esperando não some da operação só porque alguém já olhou.
+  const esperando = useMemo(() => naoLidas(meus, {}), [meus]);
 
-        const chegando = dados.leads ?? [];
-        const idsAtuais = new Set(chegando.map((l) => l.id));
+  function alternar() {
+    const abrindo = !aberto;
+    setAberto(abrindo);
+    if (abrindo) {
+      // Abrir é ler: o contador zera, a lista continua.
+      const agora = new Date().toISOString();
+      gravarVistoEm(email, agora);
+      setVistoEm(agora);
+    }
+  }
 
-        // Detectar leads genuinamente novos (não notificados ainda)
-        const novos = chegando.filter((l) => !vistoRef.current.has(l.id));
-        novos.forEach((l) => vistoRef.current.add(l.id));
-
-        // Limpar IDs que saíram do waiting — permitem re-notificação se retornarem
-        for (const id of vistoRef.current) {
-          if (!idsAtuais.has(id)) vistoRef.current.delete(id);
-        }
-        if (novos.length > 0) salvarVistos(vistoRef.current);
-
-        // Lista operacional = sempre todos os atendimentos waiting em escopo
-        // Independente do vistoRef — um lead ainda pendente nunca some da operação
-        setLeads(chegando);
-      } catch {
-        // silencioso — não bloquear a interface
-      }
-    };
-
-    buscar();
-    const id = setInterval(buscar, INTERVALO_MS);
-    return () => { ativo = false; clearInterval(id); };
-  }, []);
-
-  if (leads.length === 0) return null;
+  if (esperando.length === 0) return null;
 
   return (
-    <div className="relative">
-      <button
-        onClick={() => setAberto((v) => !v)}
-        className="relative text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded"
-      >
-        Mensageria Ulbra
-        <span className="ml-1 bg-red-500 text-white text-xs rounded-full px-1.5">
-          {leads.length}
-        </span>
+    <div style={S.caixa}>
+      <button style={S.btn} onClick={alternar} title="Alunos que responderam na Mensageria Ulbra">
+        💬 Responderam
+        {novas.length > 0 ? <span style={S.badge}>{novas.length}</span> : null}
       </button>
 
       {aberto && (
-        <div className="absolute right-0 mt-1 w-72 bg-white border rounded shadow-lg z-50">
-          <div className="p-2 text-xs font-semibold text-gray-500 border-b">
-            Novos leads receptivos
+        <div style={S.painel}>
+          <div style={S.cabecalho}>
+            Esperando a Reativa
+            {simulado ? <span style={S.selo}>SIMULADO</span> : null}
           </div>
-          {leads.map((lead) => (
-            <div key={lead.id} className="p-2 flex items-center justify-between hover:bg-gray-50">
-              <span className="text-sm truncate">{lead.nome}</span>
+          {esperando.map((item) => (
+            <div key={item.atendimento_id} style={S.linha}>
+              <span style={S.nome}>{item.aluno_nome || "Sem nome"}</span>
               <button
+                style={S.assumir}
                 onClick={() => {
-                  onAssumirLead?.(lead);
+                  onAssumirLead?.(item);
                   setAberto(false);
                 }}
-                className="ml-2 text-xs text-blue-600 hover:underline whitespace-nowrap"
               >
                 Assumir
               </button>
             </div>
           ))}
+          <div style={S.rodape}>
+            Sinal de estado, não leitura de conversa: a Mensageria não expõe
+            mensagens. Para ler, abra o cadastro na Mensageria.
+          </div>
         </div>
       )}
     </div>
   );
 }
+
+const S = {
+  caixa: { position: "relative", marginTop: 10, padding: "0 10px" },
+  btn: { position: "relative", width: "100%", background: "transparent", border: "1px solid rgba(148,163,184,0.3)", color: "#93c5fd", borderRadius: 999, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
+  badge: { position: "absolute", top: -6, right: -6, background: "#dc2626", color: "#fff", borderRadius: 999, minWidth: 18, height: 18, fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 5px" },
+  painel: { position: "absolute", left: 10, right: 10, bottom: "calc(100% + 6px)", background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-forte)", borderRadius: 10, boxShadow: "0 10px 30px rgba(2,6,23,0.35)", zIndex: 50, overflow: "hidden" },
+  cabecalho: { display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", fontSize: 11, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--rv-texto-suave)", borderBottom: "1px solid var(--rv-borda-suave)" },
+  selo: { background: "var(--rv-ambar-texto)", color: "#fff", borderRadius: 999, padding: "1px 7px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em" },
+  linha: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "7px 10px" },
+  nome: { fontSize: 13, fontWeight: 600, color: "var(--rv-tinta)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  assumir: { background: "var(--rv-superficie)", color: "var(--rv-azul-texto)", border: "1px solid var(--rv-azul-borda)", borderRadius: 8, padding: "4px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
+  rodape: { padding: "8px 10px", fontSize: 10.5, lineHeight: 1.4, color: "var(--rv-texto-fraco)", borderTop: "1px solid var(--rv-borda-suave)" },
+};

@@ -96,6 +96,7 @@ import AvisoTemplateNovo from "./components/AvisoTemplateNovo";
 import AvisosPopup from "./components/AvisosPopup";
 import TourNovidades from "./components/TourNovidades";
 import AvisosBadge from "./components/AvisosBadge";
+import NotificacoesUlbra from "./components/NotificacoesUlbra";
 const CentralAvisos = lazy(() => import("./pages/CentralAvisos"));
 const TaxaConversao = lazy(() => import("./pages/TaxaConversao"));
 const Calibragem = lazy(() => import("./pages/Calibragem"));
@@ -1045,6 +1046,18 @@ export default function App() {
             Desenvolvido por Amanda Seibel
           </div>
           {perfil !== "diretoria" ? <AvisosBadge /> : null}
+          {/* Aviso de "o aluno respondeu" na Mensageria Ulbra. O operador vê
+              os alunos da própria carteira; a gestão vê todos — e quem decide
+              de verdade quem lê o quê é o portão da Edge Function, não esta
+              linha. ETAPA 1: `simulado` liga a amostra, sem nenhuma chamada à
+              Mensageria; o painel mostra o selo SIMULADO. */}
+          {perfil !== "diretoria" ? (
+            <NotificacoesUlbra
+              email={String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()}
+              gestao={podeVerTudo(String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim())}
+              simulado
+            />
+          ) : null}
         </aside>
         <main className="content">
       <Suspense fallback={<div style={{ padding: 40, color: "var(--rv-texto-fraco)", fontSize: 14, fontWeight: 600 }}>Carregando…</div>}>
