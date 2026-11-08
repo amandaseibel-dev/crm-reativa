@@ -1,0 +1,214 @@
+-- =============================================================================
+-- PROPOSTA — NÃO APLICADA. Aguarda revisão e autorização da gestão.
+--
+-- Mensagens recebidas da Mensageria Ulbra + marcador de leitura por usuário.
+--
+-- POR QUE ESTAS DUAS TABELAS EXISTEM
+--
+-- 1. `ulbra_mensagens_recebidas` é CACHE COMPARTILHADO, e é a correção de um
+--    defeito de arquitetura medido em 08/11/2026: hoje não existe nada
+--    compartilhado entre operadores.
+--      - `ulbra-leads-pendentes` não tem cache nenhum: cada tick de cada
+--        navegador é 1 chamada à Mensageria;
+--      - o cache da `ulbra-atendimento` é um `Map` em memória de isolate
+--        (`index.ts:14`), que não é compartilhado entre isolates nem
+--        sobrevive à reciclagem.
+--    Com 9 operadores e tick de 10 min em 12h seriam 9 x 72 = 648 chamadas/dia,
+--    acima do limite medido de 500/dia -- e o limite é POR PESSOA, com a
+--    natureza do token (serviço x pessoa) ainda não confirmada.
+--    Com esta tabela, UMA sincronização central escreve e todos os navegadores
+--    leem do Postgres: o custo na Mensageria deixa de multiplicar por operador.
+--
+-- 2. `ulbra_leitura_usuario` guarda até quando cada usuário já leu. Hoje isso
+--    vive no `localStorage`, logo vale para um NAVEGADOR e não para a pessoa:
+--    a mesma operadora em outra máquina recomeça com tudo não lido.
+--
+-- O QUE ESTA PROPOSTA NÃO FAZ
+--   - não cria cron, não publica Edge Function, não envia mensagem;
+--   - não toca `ulbra_vinculos`, `ulbra-consultar` nem o filtro `alta_cpf`;
+--   - não guarda TEXTO de mensagem. Só id, direção, horário e a quem pertence.
+--     Conteúdo de conversa permanece na Mensageria, lido sob demanda por quem
+--     tem alcance lá. Ver §7 (dado pessoal) da premissa de segurança.
+--
+-- ORDEM: esta migration é independente da `20261106151254` (vínculo), que já
+-- está aplicada. Não depende dela para criar, mas a coluna `aluno_id` só é
+-- preenchida pela sincronização quando existe vínculo confirmado por CPF.
+--
+-- SEGURANÇA — armadilhas tratadas explicitamente abaixo:
+--   - tabela nova herda TRUNCATE para `authenticated` pelo default do schema
+--     `public`, e RLS NÃO cobre TRUNCATE -> REVOKE explícito;
+--   - DELETE não é concedido a `authenticated` em nenhuma das duas;
+--   - `service_role` fica sem TRUNCATE, como em `ulbra_vinculos`.
+-- =============================================================================
+
+begin;
+
+-- -----------------------------------------------------------------------------
+-- Pré-condição: não recriar por cima de tabela existente com outra forma.
+-- -----------------------------------------------------------------------------
+do $$
+begin
+  if exists (select 1 from pg_tables where schemaname = 'public' and tablename = 'ulbra_mensagens_recebidas') then
+    raise exception 'ulbra_mensagens_recebidas já existe — revisar antes de aplicar';
+  end if;
+  if exists (select 1 from pg_tables where schemaname = 'public' and tablename = 'ulbra_leitura_usuario') then
+    raise exception 'ulbra_leitura_usuario já existe — revisar antes de aplicar';
+  end if;
+  if not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                 where n.nspname = 'public' and p.proname = 'usuario_e_gestao') then
+    raise exception 'public.usuario_e_gestao() ausente — o portão desta RLS depende dela';
+  end if;
+end $$;
+
+-- -----------------------------------------------------------------------------
+-- 1. Mensagens recebidas (cache compartilhado da sincronização central)
+-- -----------------------------------------------------------------------------
+create table public.ulbra_mensagens_recebidas (
+  -- id da mensagem na Mensageria (24 hex). É a chave natural: a mesma
+  -- mensagem relida numa sincronização seguinte não duplica.
+  mensagem_id      text primary key,
+  conversa_id      text not null,
+  ulbra_cliente_id text not null,
+  -- Preenchido só quando existe vínculo ativo confirmado por CPF. Sem vínculo
+  -- a linha ainda entra (a gestão enxerga), mas não encosta em aluno nenhum.
+  aluno_id         uuid references public.alunos(id) on delete set null,
+  canal            text not null check (canal in ('whatsapp', 'email')),
+  -- Direção. Só 'cliente' é mensagem RECEBIDA do aluno; as demais ficam para
+  -- a conversa não parecer unilateral em auditoria.
+  quem             text not null check (quem in ('cliente', 'operador', 'bot', 'sistema')),
+  recebida_em      timestamptz not null,
+  sincronizada_em  timestamptz not null default now()
+);
+
+comment on table public.ulbra_mensagens_recebidas is
+  'Cache compartilhado das mensagens da Mensageria Ulbra: id, direção e horário. NÃO guarda texto.';
+comment on column public.ulbra_mensagens_recebidas.quem is
+  'Direção medida em 08/11/2026 via ler_conversa: cliente | operador | bot | sistema.';
+
+create index ulbra_msg_recebida_em_idx on public.ulbra_mensagens_recebidas (recebida_em desc);
+create index ulbra_msg_aluno_idx on public.ulbra_mensagens_recebidas (aluno_id, recebida_em desc)
+  where aluno_id is not null;
+
+alter table public.ulbra_mensagens_recebidas enable row level security;
+
+-- Leitura: gestão vê tudo; operador vê só mensagem de aluno da própria
+-- carteira. Linha sem `aluno_id` (cliente ainda não vinculado por CPF) é só
+-- da gestão -- não dá para dizer de quem é.
+create policy ulbra_msg_select on public.ulbra_mensagens_recebidas
+  for select to authenticated
+  using (
+    public.usuario_e_gestao()
+    or exists (
+      select 1
+      from public.alunos a
+      where a.id = ulbra_mensagens_recebidas.aluno_id
+        and lower(coalesce(a.responsavel_atual_email, '')) = lower(coalesce((auth.jwt() ->> 'email'), ''))
+    )
+  );
+
+-- Escrita é SÓ da sincronização central, que roda com service_role.
+-- `authenticated` não recebe INSERT/UPDATE/DELETE: nenhuma tela inventa
+-- mensagem recebida.
+
+-- -----------------------------------------------------------------------------
+-- 2. Marcador de leitura por usuário
+-- -----------------------------------------------------------------------------
+create table public.ulbra_leitura_usuario (
+  usuario_email text primary key,
+  lido_ate      timestamptz not null,
+  atualizado_em timestamptz not null default now()
+);
+
+comment on table public.ulbra_leitura_usuario is
+  'Até quando cada usuário já leu os avisos de resposta. O marcador é NOSSO: a Mensageria não expõe leitura.';
+
+alter table public.ulbra_leitura_usuario enable row level security;
+
+-- Cada um só enxerga e só mexe na própria linha. A gestão NÃO recebe leitura
+-- das linhas alheias: marcador de leitura de terceiro não serve para operação
+-- e é dado de comportamento individual.
+create policy ulbra_leitura_select on public.ulbra_leitura_usuario
+  for select to authenticated
+  using (usuario_email = lower(coalesce((auth.jwt() ->> 'email'), '')));
+
+create policy ulbra_leitura_insert on public.ulbra_leitura_usuario
+  for insert to authenticated
+  with check (usuario_email = lower(coalesce((auth.jwt() ->> 'email'), '')));
+
+create policy ulbra_leitura_update on public.ulbra_leitura_usuario
+  for update to authenticated
+  using (usuario_email = lower(coalesce((auth.jwt() ->> 'email'), '')))
+  with check (usuario_email = lower(coalesce((auth.jwt() ->> 'email'), '')));
+
+-- -----------------------------------------------------------------------------
+-- 3. Grants — o ponto em que tabela nova já saiu errada neste repositório
+--
+-- Tabela nova herda TRUNCATE para `authenticated` pelo default do schema
+-- public, e RLS não cobre TRUNCATE. Sem estes REVOKE, qualquer usuário
+-- autenticado apagaria as duas tabelas inteiras passando por cima da RLS.
+-- -----------------------------------------------------------------------------
+revoke all on public.ulbra_mensagens_recebidas from public, anon, authenticated;
+revoke all on public.ulbra_leitura_usuario   from public, anon, authenticated;
+
+grant select on public.ulbra_mensagens_recebidas to authenticated;
+grant select, insert, update on public.ulbra_leitura_usuario to authenticated;
+
+-- service_role escreve o cache, mas não trunca (igual a `ulbra_vinculos`).
+grant select, insert, update, delete on public.ulbra_mensagens_recebidas to service_role;
+grant select, insert, update, delete on public.ulbra_leitura_usuario to service_role;
+revoke truncate on public.ulbra_mensagens_recebidas from service_role;
+revoke truncate on public.ulbra_leitura_usuario   from service_role;
+
+-- -----------------------------------------------------------------------------
+-- 4. Prova de estrutura — falha a transação inteira se algo acima não pegou.
+-- -----------------------------------------------------------------------------
+do $$
+declare n int;
+begin
+  select count(*) into n from pg_tables
+   where schemaname = 'public'
+     and tablename in ('ulbra_mensagens_recebidas', 'ulbra_leitura_usuario')
+     and rowsecurity = true;
+  if n <> 2 then raise exception 'RLS não ficou ligada nas duas tabelas (achei %)', n; end if;
+
+  select count(*) into n from pg_policies
+   where schemaname = 'public'
+     and tablename in ('ulbra_mensagens_recebidas', 'ulbra_leitura_usuario');
+  if n <> 4 then raise exception 'esperava 4 policies, achei %', n; end if;
+
+  -- TRUNCATE é a armadilha: conferir que NINGUÉM além do dono o tem.
+  select count(*) into n from information_schema.role_table_grants
+   where table_schema = 'public'
+     and table_name in ('ulbra_mensagens_recebidas', 'ulbra_leitura_usuario')
+     and privilege_type = 'TRUNCATE'
+     and grantee in ('anon', 'authenticated', 'service_role', 'PUBLIC');
+  if n <> 0 then raise exception 'TRUNCATE ainda concedido (% grants)', n; end if;
+
+  select count(*) into n from information_schema.role_table_grants
+   where table_schema = 'public'
+     and table_name = 'ulbra_mensagens_recebidas'
+     and privilege_type in ('INSERT', 'UPDATE', 'DELETE')
+     and grantee = 'authenticated';
+  if n <> 0 then raise exception 'authenticated não pode escrever mensagem recebida (% grants)', n; end if;
+end $$;
+
+commit;
+
+-- =============================================================================
+-- PROVA DE COMPORTAMENTO — rodar à parte, SEMPRE dentro de BEGIN/ROLLBACK,
+-- conforme §9 da premissa de segurança. NÃO foi executada: `psql` não está
+-- instalado nesta máquina, então o gate de segurança NÃO RODOU e o resultado
+-- é NÃO COMPROVADO.
+--
+--   begin;
+--   set local role authenticated;
+--   set local request.jwt.claims = '{"email":"cobranca05@aelbra.com.br"}';
+--   -- deve devolver 0 linhas de aluno que não seja da carteira dela
+--   select count(*) from public.ulbra_mensagens_recebidas;
+--   -- deve FALHAR
+--   insert into public.ulbra_mensagens_recebidas(mensagem_id, conversa_id, ulbra_cliente_id, canal, quem, recebida_em)
+--     values ('x','y','z','whatsapp','cliente', now());
+--   -- deve devolver só a própria linha
+--   select * from public.ulbra_leitura_usuario;
+--   rollback;
+-- =============================================================================

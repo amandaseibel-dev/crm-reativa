@@ -27,12 +27,139 @@ fala com ele pelo endpoint MCP JSON-RPC 2.0 `https://crm.ulbra.ai/api/mcp`
 | `abrir_atendimento` | `atendimentos:write` | `cliente, equipe?, atendente?` | abre já ACEITO na fila do atendente; `ja_existia` se já é dele |
 | `criar_atendimentos_da_lista` | `atendimentos:write` | `linhas[≤20], previa (padrão true)` | prévia por linha; grava só com `previa:false` |
 
-**Não expostos:** conversas, mensagens, envio, campanhas, templates,
-transferência de atendimento, edição de cadastro, relatórios.
+> ⚠️ **CORRIGIDO EM 08/11/2026 — a lista de 8 ferramentas acima está
+> INCOMPLETA, e a frase que vinha aqui estava ERRADA.** Ela dizia: *"Não
+> expostos: conversas, mensagens, envio, campanhas, templates, transferência
+> de atendimento, edição de cadastro, relatórios"*. O diagnóstico de produção
+> (#854/#855) mediu no **token de backend 18 escopos e 60 ferramentas**,
+> incluindo `conversas:read`, `mensagens:enviar`, `listar_conversas`,
+> `ler_conversa` e `enviar_mensagem_whatsapp`. Conversas e mensagens **são**
+> expostas. Ver "Conversas e mensagens" abaixo.
+>
+> A frase errada não ficou só errada no papel: ela levou a etapa 1 da #859 a
+> derivar "o aluno respondeu" de `situacao === "waiting"` e "não lida" de
+> `atualizadoEm` — dois proxies, quando a evidência real estava disponível.
+> Ambos foram removidos.
 
 Armadilha medida: `conferir_duplicidade` devolveu `existe:true` com
 `equipe:null` para telefone inexistente — sem `cliente.id` e sem `equipe` não é
 prova de cadastro (tratado como `NAO_ENCONTRADO`).
+
+## Conversas e mensagens — contratos medidos em 08/11/2026
+
+Escopos confirmados na conexão usada para medir (`meu_acesso`): 18, entre eles
+`conversas:read` e `mensagens:enviar`. Limites na mesma resposta: 15/min por
+conexão, 30/min por pessoa, **500/dia por pessoa**, 20 rascunhos/h.
+
+**Ressalva que não deve ser apagada:** a medição de FORMA abaixo foi feita
+pela conexão OAuth de gestão. Os **escopos** do token de backend vêm do
+diagnóstico das #854/#855. Forma de resposta é contrato da ferramenta e não
+muda com a credencial; alcance de dados muda. Não promover um ao outro.
+
+### `listar_conversas` — a lista já diz quem falou por último
+
+Argumentos: `canal` (`whatsapp` \| `email`), `cliente` (24 hex), `situacao`
+(`active` \| `closed` \| `pending` \| `archived`), `limite ≤ 50`, `pagina`.
+**Não aceita filtro de equipe.**
+
+```json
+{ "id": "...", "canal": "whatsapp", "situacao": "active",
+  "cliente": { "id": "...", "nome": "..." },
+  "equipe": "Única", "responsavel": "...",
+  "ultimaMensagemEm": "2026-11-08T09:47:41.000Z",
+  "ultimaMensagem": { "quem": "cliente", "em": "...", "trecho": "..." } }
+```
+
+O achado que decide a arquitetura: **`ultimaMensagem.quem` já vem na lista**.
+Dá para saber que o aluno respondeu sem abrir a conversa — logo sem gastar uma
+chamada por aluno. Paginação medida: `total` 94.613 conversas no canal, então
+varredura completa está fora de questão; o uso correto é a página mais recente.
+
+### `ler_conversa` — a mensagem
+
+Argumentos: `id` (24 hex, obrigatório), `limite ≤ 50`, `antesDe`.
+
+```json
+{ "encontrado": true,
+  "conversa": { "id": "...", "canal": "...", "cliente": {...}, "equipe": "...", "responsavel": "..." },
+  "mensagens": [ { "id": "...", "quem": "operador", "autor": "...", "em": "...",
+                   "tipo": "text", "texto": "...", "transcricao": null,
+                   "assunto": null, "anexos": [] } ],
+  "paginacao": { "maisAntigas": true, "antesDe": "<cursor>" } }
+```
+
+Daí saem as quatro coisas que o aviso precisa, todas de primeira mão:
+
+| Precisa | Campo | Observação |
+|---|---|---|
+| mensagem recebida | `quem === "cliente"` | evidência, não proxy |
+| direção | `quem` | `cliente` \| `operador` \| `bot` \| `sistema` |
+| id | `id` da mensagem | 24 hex, chave natural |
+| horário | `em` | ISO 8601 |
+
+`autor` vem preenchido para `operador` e **`null` para `cliente`**. Anexo traz
+só nome e tipo, nunca o arquivo.
+
+## Arquitetura: não existe cache nem orçamento compartilhado (medido 08/11/2026)
+
+Esta é a correção mais séria desta rodada, e ela invalida o dimensionamento
+que a #859 tinha escrito.
+
+- **`ulbra-leads-pendentes` não tem cache nenhum.** Cada tick de cada
+  navegador é 1 chamada à Mensageria.
+- **O cache da `ulbra-atendimento` é por isolate**: `const cache = criarCache()`
+  no topo de `index.ts` (linha 14) é um `Map` em memória. Não atravessa
+  isolates, não sobrevive à reciclagem, não é compartilhado entre operadores.
+
+Portanto **`usePolling` no navegador não dá sincronização centralizada** — ele
+só espaça as chamadas de *cada* aba. O custo multiplica por operador logado:
+
+| Desenho | Chamadas/dia (10 min, 12h) | Cabe em 500? |
+|---|---|---|
+| polling no navegador, 1 operador | 72 | sim |
+| polling no navegador, **9 operadores** | **648** | **não** |
+| sincronização central, N operadores | 72 | sim |
+
+A conta está codificada e testada em `orcamentoSincronizacao`
+(`src/utils/ulbraRespostas.js`), com o caso de 9 operadores provando o estouro.
+
+**O desenho correto**, e o que a proposta de migration prepara: UMA
+sincronização central do lado do servidor escreve em
+`ulbra_mensagens_recebidas`; os navegadores leem o Postgres, que não consome o
+orçamento da Mensageria. O limite é **por pessoa** e a natureza do
+`ULBRA_MCP_TOKEN` (serviço × pessoa) **segue não confirmada** — se for de
+pessoa, todo o CRM divide as mesmas 500.
+
+## Aviso de resposta do aluno — etapa 1 (08/11/2026)
+
+| Termo | Definição implementada |
+|---|---|
+| "o aluno respondeu" | a **última mensagem da conversa é do cliente** (`ultimaMensagem.quem === "cliente"`) — a bola está com a gente |
+| "não lida" | o horário dessa mensagem é posterior ao marcador de leitura **deste usuário** |
+
+Saíram `waiting` e `atualizadoEm`: o primeiro é estado de atendimento, o
+segundo muda por qualquer motivo. Nenhum dos dois é evidência de mensagem.
+
+**Quem decide que a conversa é nossa é o vínculo por CPF**, não a equipe — a
+conversa medida veio com `equipe: "Única"`, e a ferramenta nem aceita filtro
+de equipe. O casamento é `cliente.id` ↔ `ulbra_vinculos` com
+`confianca = 'alta_cpf'`, que esta frente **não altera**.
+
+**Migration preparada, NÃO aplicada:**
+`supabase/aguardando_aprovacao/20261108120000_ulbra_mensagens_e_leitura.sql.pendente`
+(+ `.rollback.sql`). Cria `ulbra_mensagens_recebidas` (cache compartilhado:
+id, direção, horário — **nunca o texto**) e `ulbra_leitura_usuario` (marcador
+de leitura por usuário, que hoje vive no `localStorage` e por isso vale para
+um navegador, não para a pessoa). RLS ligada nas duas, `authenticated` sem
+escrita no cache, TRUNCATE revogado explicitamente — tabela nova o herda pelo
+default do schema `public`, e RLS não cobre TRUNCATE. **O gate de segurança
+não rodou** (`psql` não está instalado nesta máquina): o resultado é **NÃO
+COMPROVADO**, e a prova de comportamento está escrita no rodapé do arquivo
+para rodar com `ROLLBACK`.
+
+Enquanto a migration não for aprovada, a tela mostra **"fonte não ligada"** em
+vez de zero — zero pareceria "tudo lido". O modo simulado é separado e carimba
+`SIMULADO`.
 
 ## Edge Functions
 

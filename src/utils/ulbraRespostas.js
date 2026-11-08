@@ -1,36 +1,34 @@
 // Resposta do aluno na Mensageria Ulbra — lógica pura, sem rede e sem React.
 //
-// ATENÇÃO AO QUE ESTE MÓDULO *NÃO* SABE, porque a tela não pode prometer mais
-// do que a integração entrega. A Mensageria **não expõe mensagens nem
-// conversas** pelo MCP (`docs/integracoes/mensageria-ulbra.md`, seção
-// "Ferramentas (8) e escopos": "Não expostos: conversas, mensagens, envio,
-// campanhas, templates..."). De um atendimento o token lê apenas:
+// PREMISSA CORRIGIDA EM 08/11/2026. Uma versão anterior deste arquivo dizia
+// que a Mensageria não expunha mensagens e derivava "o aluno respondeu" de
+// `situacao === "waiting"` e "não lida" de `atualizadoEm`. **Estava errado.**
+// O diagnóstico de produção (#854/#855) confirmou no token de backend 18
+// escopos e 60 ferramentas, entre elas `conversas:read`, `listar_conversas` e
+// `ler_conversa`. Os contratos foram medidos em 08/11/2026 e estão abaixo.
+// `waiting` é estado de ATENDIMENTO e `atualizadoEm` muda por qualquer
+// motivo — nenhum dos dois é evidência de mensagem recebida, e não são mais
+// usados aqui.
 //
-//   id, cliente{id,nome}, situacao, coluna, equipe, atendente,
-//   entrouEm, aceitoEm, atualizadoEm
+// CONTRATO MEDIDO — `listar_conversas` devolve, por conversa:
+//   { id, canal, situacao, cliente{id,nome}, equipe, responsavel,
+//     ultimaMensagemEm, ultimaMensagem{ quem, em, trecho } }
 //
-// Logo **não existe "mensagem não lida"** para ler: não há remetente, não há
-// conteúdo e não há marca de leitura do lado da ULBRA. O que este módulo
-// chama de "o aluno respondeu" e de "não lidas" é derivado de ESTADO e de
-// CARIMBO DE TEMPO, e a tela diz isso ao operador em vez de sugerir que
-// lemos a conversa.
+// CONTRATO MEDIDO — `ler_conversa` devolve, por mensagem:
+//   { id, quem, autor, em, tipo, texto, transcricao, assunto, anexos[] }
+//   `paginacao { maisAntigas, antesDe }` para as anteriores.
 //
-//   "o aluno respondeu"  :=  o atendimento está `waiting` — esperando alguém
-//                            da Reativa. É o mesmo sinal que a
-//                            `ulbra-leads-pendentes` já usa para a fila
-//                            receptiva (`situacao: "waiting"`).
-//   "não lida"           :=  `atualizado_em` é posterior ao último instante em
-//                            que ESTE usuário olhou. O marcador de leitura é
-//                            NOSSO, não da ULBRA.
-//
-// Quem quiser o conteúdo da conversa abre o cadastro na Mensageria pelo botão
-// que já existe na ficha.
+// Daí saem as quatro coisas que o aviso precisa, todas de primeira mão:
+//   mensagem recebida -> `quem === "cliente"`
+//   direção           -> `quem` ∈ cliente | operador | bot | sistema
+//   id                -> `id` da mensagem (24 hex)
+//   horário           -> `em` (ISO)
 
-/** Nome canônico da equipe. Comparação exata, como em `ulbra-leads-pendentes`. */
-export const EQUIPE_REATIVA = "Reativa";
+/** Quem mandou. Medido em `ler_conversa` em 08/11/2026. */
+export const DIRECOES = ["cliente", "operador", "bot", "sistema"];
 
-/** Situação que significa "esperando a Reativa" na Mensageria. */
-export const SITUACAO_ESPERANDO = "waiting";
+/** Só esta direção é mensagem RECEBIDA do aluno. */
+export const DIRECAO_CLIENTE = "cliente";
 
 /** Limite medido da Mensageria, por pessoa (docs/integracoes/mensageria-ulbra.md). */
 export const LIMITE_DIARIO_MENSAGERIA = 500;
@@ -46,107 +44,146 @@ function texto(valor) {
   return s || null;
 }
 
+function direcao(valor) {
+  const d = texto(valor);
+  return DIRECOES.includes(d) ? d : null;
+}
+
 /**
- * Normaliza um atendimento vindo da Mensageria (ou do dublê) para o formato
- * que a tela usa. Devolve `null` para o que não serve — sem id não há o que
- * mostrar, e equipe diferente de "Reativa" não é nosso.
- *
- * Falha fechado de propósito: na dúvida o item some da lista, em vez de
- * aparecer como aviso que ninguém sabe de quem é.
+ * Normaliza UMA MENSAGEM de `ler_conversa`.
+ * Guarda id, direção e horário — nunca o texto: conteúdo de conversa fica na
+ * Mensageria, lido sob demanda por quem tem alcance lá.
  */
-export function normalizarAtendimento(bruto) {
+export function normalizarMensagem(bruto, extra = {}) {
   if (!bruto || typeof bruto !== "object") return null;
-  const id = texto(bruto.atendimento_id ?? bruto.id);
-  if (!id) return null;
-  if (texto(bruto.equipe) !== EQUIPE_REATIVA) return null;
+  const mensagem_id = texto(bruto.mensagem_id ?? bruto.id);
+  const quem = direcao(bruto.quem);
+  const em = texto(bruto.em ?? bruto.recebida_em);
+  // Falha fechado: sem id, sem direção reconhecida ou sem horário não dá para
+  // dizer que alguém respondeu, nem quando.
+  if (!mensagem_id || !quem || instante(em) === null) return null;
   return {
-    atendimento_id: id,
-    aluno_id: texto(bruto.aluno_id),
-    aluno_nome: texto(bruto.aluno_nome ?? bruto.cliente?.nome),
-    responsavel_email: (texto(bruto.responsavel_email) || "").toLowerCase() || null,
-    situacao: texto(bruto.situacao),
-    entrou_em: texto(bruto.entrou_em ?? bruto.entrouEm),
-    atualizado_em: texto(bruto.atualizado_em ?? bruto.atualizadoEm ?? bruto.entrou_em ?? bruto.entrouEm),
+    mensagem_id,
+    conversa_id: texto(extra.conversa_id ?? bruto.conversa_id),
+    canal: texto(extra.canal ?? bruto.canal),
+    quem,
+    recebida_em: em,
+    tipo: texto(bruto.tipo),
+    aluno_id: texto(extra.aluno_id ?? bruto.aluno_id),
+    aluno_nome: texto(extra.aluno_nome ?? bruto.aluno_nome),
+    ulbra_cliente_id: texto(extra.ulbra_cliente_id ?? bruto.ulbra_cliente_id),
+    responsavel_email: (texto(extra.responsavel_email ?? bruto.responsavel_email) || "").toLowerCase() || null,
   };
 }
 
 /**
- * "O aluno respondeu" — isto é, o atendimento está esperando a Reativa.
- * Não é leitura de mensagem; ver o cabeçalho deste arquivo.
+ * Normaliza UMA CONVERSA de `listar_conversas`. O barato aqui é que a lista
+ * já traz `ultimaMensagem{quem, em}` — dá para saber quem falou por último
+ * sem abrir a conversa, logo sem gastar uma chamada por aluno.
+ *
+ * Note que NÃO filtramos por `equipe`: a conversa medida veio com
+ * `equipe: "Única"`, e a ferramenta nem aceita filtro de equipe. Quem diz que
+ * a conversa é nossa é o VÍNCULO POR CPF (`cliente.id` ↔ `ulbra_vinculos`),
+ * resolvido fora daqui.
  */
-export function alunoRespondeu(item) {
-  return item?.situacao === SITUACAO_ESPERANDO;
+export function normalizarConversa(bruto, extra = {}) {
+  if (!bruto || typeof bruto !== "object") return null;
+  const conversa_id = texto(bruto.conversa_id ?? bruto.id);
+  if (!conversa_id) return null;
+  const ultima = bruto.ultimaMensagem ?? bruto.ultima_mensagem ?? null;
+  const quem = direcao(ultima?.quem ?? bruto.ultima_de);
+  const em = texto(ultima?.em ?? bruto.ultimaMensagemEm ?? bruto.ultima_mensagem_em);
+  return {
+    conversa_id,
+    canal: texto(bruto.canal),
+    situacao: texto(bruto.situacao),
+    ulbra_cliente_id: texto(bruto.cliente?.id ?? bruto.ulbra_cliente_id),
+    cliente_nome: texto(bruto.cliente?.nome ?? bruto.cliente_nome),
+    equipe: texto(bruto.equipe),
+    // Quem falou por último e quando. `null` quando a conversa não traz —
+    // conversa sem última mensagem conhecida não vira aviso.
+    ultima_de: quem,
+    ultima_em: instante(em) === null ? null : em,
+    aluno_id: texto(extra.aluno_id ?? bruto.aluno_id),
+    aluno_nome: texto(extra.aluno_nome ?? bruto.aluno_nome),
+    responsavel_email: (texto(extra.responsavel_email ?? bruto.responsavel_email) || "").toLowerCase() || null,
+  };
+}
+
+/** A mensagem foi recebida DO ALUNO. É a evidência, não um proxy. */
+export function mensagemRecebida(m) {
+  return m?.quem === DIRECAO_CLIENTE;
 }
 
 /**
- * O recorte de quem recebe o aviso. O responsável vê os alunos da própria
- * carteira; a gestão vê todos.
- *
- * Isto é peso de TELA, não permissão: quem decide o que cada um pode ler é o
- * portão da Edge Function (`receptivo` da própria linha ou `usuario_e_gestao()`,
- * em `ulbra-leads-pendentes/portao.ts`). Filtrar aqui sem o portão lá seria
- * esconder, não proteger.
+ * "O aluno respondeu": a ÚLTIMA mensagem da conversa é do cliente — ou seja,
+ * a bola está com a gente. Se o último a falar foi operador, bot ou sistema,
+ * ninguém está esperando resposta nossa.
+ */
+export function alunoRespondeu(conversa) {
+  return conversa?.ultima_de === DIRECAO_CLIENTE && Boolean(conversa?.ultima_em);
+}
+
+/**
+ * Recorte de quem recebe o aviso. Operador vê a própria carteira; gestão vê
+ * tudo. Isto é peso de TELA — quem decide o que cada um pode ler é a RLS de
+ * `ulbra_mensagens_recebidas` e o portão da Edge Function.
  */
 export function doResponsavel(itens, { email, gestao = false } = {}) {
   const lista = Array.isArray(itens) ? itens : [];
   if (gestao) return lista;
   const meu = String(email ?? "").trim().toLowerCase();
   return lista.filter((i) => {
-    // Item SEM responsável conhecido fica visível para quem o portão já
-    // deixou passar. É o caso da `ulbra-leads-pendentes` de hoje, que devolve
-    // só id, nome e data: esconder por falta de um campo que a fonte ainda
-    // não manda seria perder lead receptivo em silêncio. Quem amarra
-    // atendimento a responsável é a etapa 2.
-    if (!i?.responsavel_email) return true;
+    // Sem responsável conhecido = cliente ainda não vinculado por CPF. Esse
+    // caso é só da gestão: não dá para dizer de quem é a conversa.
+    if (!i?.responsavel_email) return false;
     return Boolean(meu) && i.responsavel_email === meu;
   });
 }
 
 /**
- * Atendimentos que mudaram depois do último olhar deste usuário.
- *
- * `vistoEm` ausente (primeira vez na máquina) devolve a lista inteira: é
- * melhor avisar demais uma vez do que engolir a primeira resposta do dia.
+ * Não lidas: respostas do aluno com horário posterior ao marcador de leitura
+ * DESTE usuário. O marcador é nosso — a Mensageria não expõe leitura.
  */
-export function naoLidas(itens, { vistoEm = null } = {}) {
+export function naoLidas(itens, { lidoAte = null } = {}) {
   const lista = (Array.isArray(itens) ? itens : []).filter(alunoRespondeu);
-  const corte = instante(vistoEm);
+  const corte = instante(lidoAte);
   if (corte === null) return lista;
   return lista.filter((i) => {
-    const t = instante(i?.atualizado_em);
+    const t = instante(i.ultima_em);
     return t !== null && t > corte;
   });
 }
 
-/** Quantas não lidas o responsável tem. É o número do contador. */
 export function contarNaoLidas(itens, opcoes = {}) {
   return naoLidas(doResponsavel(itens, opcoes), opcoes).length;
 }
 
 /**
- * Dimensionamento da sincronização dentro das 500 chamadas/dia.
+ * Dimensionamento dentro das 500 chamadas/dia.
  *
- * O que torna a conta viável: `listar_atendimentos` aceita `equipe` e
- * `limite ≤ 500`, então **uma chamada cobre a equipe Reativa inteira**. O
- * custo do sinal NÃO cresce com o número de alunos nem com o número de
- * operadores com a tela aberta — cresce só com a FREQUÊNCIA, desde que a
- * leitura seja compartilhada (uma chamada por tick, não uma por operador).
+ * CORREÇÃO DE ARQUITETURA, medida em 08/11/2026. A versão anterior assumia
+ * que um tick custava 1 chamada. Não custa: **hoje não existe nada
+ * compartilhado entre operadores**.
+ *   - `ulbra-leads-pendentes` não tem cache nenhum;
+ *   - o cache da `ulbra-atendimento` é um `Map` em memória de isolate
+ *     (`index.ts:14`), que não atravessa isolates nem sobrevive à reciclagem.
+ * Logo, com polling no navegador, o custo multiplica por operador logado.
  *
- * Os outros consumidores do mesmo orçamento, hoje:
- *   - `ulbra-consultar`   — 1 chamada por abertura de ficha;
- *   - `ulbra-atendimento` — 1 por abertura de ficha, com cache de 5 min;
- *   - `ulbra-leads-pendentes` — 1 por tick de quem estiver na fila receptiva.
- *
- * `aberturasFicha` é o número de fichas abertas no dia; cada uma custa 2.
+ * `operadores` é justamente esse multiplicador:
+ *   - sincronização CENTRALIZADA (um job no servidor) -> `operadores: 1`,
+ *     porque os navegadores passam a ler o Postgres, que não gasta orçamento;
+ *   - polling no navegador -> `operadores: N`, e é aí que estoura.
  */
 export function orcamentoSincronizacao({
   intervaloMin = 10,
   horasPorDia = 12,
+  operadores = 1,
   aberturasFicha = 0,
   limiteDiario = LIMITE_DIARIO_MENSAGERIA,
 } = {}) {
   const porHora = intervaloMin > 0 ? 60 / intervaloMin : 0;
-  const sincronizacao = Math.ceil(porHora * horasPorDia);
+  const sincronizacao = Math.ceil(porHora * horasPorDia) * Math.max(1, operadores);
   const fichas = Math.max(0, aberturasFicha) * 2;
   const total = sincronizacao + fichas;
   return {
@@ -160,57 +197,47 @@ export function orcamentoSincronizacao({
 }
 
 /**
- * Dados SIMULADOS da etapa 1. Nenhuma chamada à Mensageria, nenhuma mensagem
- * enviada — a etapa 1 entrega a tela funcionando sem tocar na integração.
- *
- * Datas são relativas a `agora` de propósito: fixture com data absoluta vence
- * e derruba o CI (já aconteceu neste repositório).
+ * Dados SIMULADOS. Mantidos SEPARADOS do real de propósito: quem chama isto
+ * sabe que está pedindo amostra, e a tela carimba o selo SIMULADO.
+ * Datas relativas a `agora` — fixture com data absoluta vence e derruba o CI.
  */
 export function amostraSimulada(agora = Date.now(), email = "cobranca05@aelbra.com.br") {
   const min = (n) => new Date(agora - n * 60_000).toISOString();
   return [
+    // Último a falar foi o aluno: é resposta esperando.
     {
-      atendimento_id: "sim-1",
-      aluno_id: "sim-aluno-1",
-      aluno_nome: "Maria Oliveira dos Santos",
-      responsavel_email: email,
-      situacao: SITUACAO_ESPERANDO,
-      equipe: EQUIPE_REATIVA,
-      entrou_em: min(18),
-      atualizado_em: min(4),
+      id: "sim-conversa-1",
+      canal: "whatsapp",
+      situacao: "active",
+      cliente: { id: "sim-cliente-1", nome: "Maria Oliveira dos Santos" },
+      equipe: "Única",
+      ultimaMensagemEm: min(4),
+      ultimaMensagem: { quem: "cliente", em: min(4), trecho: "Quanto ficaria?" },
     },
     {
-      atendimento_id: "sim-2",
-      aluno_id: "sim-aluno-2",
-      aluno_nome: "Carlos Eduardo Lima",
-      responsavel_email: email,
-      situacao: SITUACAO_ESPERANDO,
-      equipe: EQUIPE_REATIVA,
-      entrou_em: min(95),
-      atualizado_em: min(41),
+      id: "sim-conversa-2",
+      canal: "whatsapp",
+      situacao: "active",
+      cliente: { id: "sim-cliente-2", nome: "Carlos Eduardo Lima" },
+      equipe: "Única",
+      ultimaMensagemEm: min(41),
+      ultimaMensagem: { quem: "cliente", em: min(41), trecho: "Consigo parcelar?" },
     },
+    // Último a falar fomos nós: NÃO é resposta esperando.
     {
-      // Já aceito por alguém: NÃO conta como resposta esperando.
-      atendimento_id: "sim-3",
-      aluno_id: "sim-aluno-3",
-      aluno_nome: "Juliana Prado",
-      responsavel_email: email,
-      situacao: "accepted",
-      equipe: EQUIPE_REATIVA,
-      entrou_em: min(240),
-      atualizado_em: min(120),
+      id: "sim-conversa-3",
+      canal: "whatsapp",
+      situacao: "active",
+      cliente: { id: "sim-cliente-3", nome: "Juliana Prado" },
+      equipe: "Única",
+      ultimaMensagemEm: min(120),
+      ultimaMensagem: { quem: "operador", em: min(120), trecho: "Enviei o link" },
     },
-    {
-      // Outra equipe: não é nossa, some na normalização.
-      atendimento_id: "sim-4",
-      aluno_nome: "Fora do escopo",
+  ].map((c, i) =>
+    normalizarConversa(c, {
+      aluno_id: `sim-aluno-${i + 1}`,
+      aluno_nome: c.cliente.nome,
       responsavel_email: email,
-      situacao: SITUACAO_ESPERANDO,
-      equipe: "Financeiro",
-      entrou_em: min(30),
-      atualizado_em: min(10),
-    },
-  ]
-    .map(normalizarAtendimento)
-    .filter(Boolean);
+    }),
+  );
 }

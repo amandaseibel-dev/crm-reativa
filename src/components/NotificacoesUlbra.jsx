@@ -1,69 +1,94 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import usePolling from "../utils/polling";
 import { doResponsavel, naoLidas, amostraSimulada } from "../utils/ulbraRespostas";
-import { lerVistoEm, gravarVistoEm, carregarReal } from "../utils/ulbraRespostasFonte";
+import { lerLidoAte, gravarLidoAte, carregarReal } from "../utils/ulbraRespostasFonte";
 
 // Aviso de "o aluno respondeu" na Mensageria Ulbra.
 //
-// ETAPA 1: roda com DADOS SIMULADOS, sem nenhuma chamada à Mensageria e sem
-// enviar mensagem nenhuma — aliás o MCP não expõe envio. O selo "SIMULADO" na
-// tela existe para ninguém confundir amostra com operação. A etapa 2 troca a
-// fonte pelo `carregarReal` abaixo, que já está escrito, e liga a fila
-// receptiva.
+// O SINAL É MENSAGEM DE VERDADE. A última mensagem da conversa é do cliente —
+// medido por `listar_conversas` / `ler_conversa` (`quem`, `em`, `id`). Não é
+// mais `situacao === "waiting"` nem `atualizadoEm`, que eram proxies e saíram.
 //
-// POR QUE O POLLING NÃO É MAIS DE 60s. Esta tela nasceu desmontada de
-// propósito: a 60s ela estouraria o limite de 500 chamadas/dia da Mensageria
-// (720 só dela). Agora são 10 minutos, com `usePolling`, que pausa em aba
-// oculta e atualiza ao voltar o foco. A conta está em
-// `orcamentoSincronizacao` (src/utils/ulbraRespostas.js) e em
-// docs/integracoes/mensageria-ulbra.md.
-const INTERVALO_MS = 10 * 60_000;
+// O NAVEGADOR NÃO FALA COM A MENSAGERIA. Ele lê o Postgres, que não gasta o
+// orçamento de 500/dia. Quem fala com a Mensageria é uma sincronização
+// central; sem ela, cada navegador multiplicaria as chamadas (9 operadores a
+// cada 10 min dariam 648/dia). Por isso o intervalo abaixo é do refresh da
+// TELA contra o nosso banco, não da ida à ULBRA.
+const INTERVALO_MS = 2 * 60_000;
 
 export default function NotificacoesUlbra({
   onAssumirLead,
   email = "",
   gestao = false,
-  simulado = true,
+  simulado = false,
   carregar,
 }) {
   const [itens, setItens] = useState([]);
+  const [indisponivel, setIndisponivel] = useState(false);
   const [aberto, setAberto] = useState(false);
-  const [vistoEm, setVistoEm] = useState(() => lerVistoEm(email));
+  const [lidoAte, setLidoAte] = useState(null);
+
+  useEffect(() => {
+    let vivo = true;
+    lerLidoAte(email).then((v) => { if (vivo) setLidoAte(v); });
+    return () => { vivo = false; };
+  }, [email]);
 
   const fonte = useMemo(() => {
     if (carregar) return carregar;
-    if (simulado) return async () => amostraSimulada(Date.now(), email || undefined);
+    // Simulado e real ficam SEPARADOS: nada de amostra vazando para o caminho
+    // real nem de fallback silencioso de um para o outro.
+    if (simulado) {
+      return async () => ({ itens: amostraSimulada(Date.now(), email || undefined), indisponivel: false });
+    }
     return carregarReal;
   }, [carregar, simulado, email]);
 
   const buscar = useCallback(async () => {
     try {
-      setItens(await fonte());
+      const r = await fonte();
+      const lista = Array.isArray(r) ? r : (r?.itens ?? []);
+      setItens(lista);
+      setIndisponivel(Array.isArray(r) ? false : Boolean(r?.indisponivel));
     } catch {
-      // silencioso: a Mensageria fora do ar não pode travar a barra lateral
+      setItens([]);
+      setIndisponivel(true);
     }
   }, [fonte]);
 
   usePolling(buscar, INTERVALO_MS, [fonte], true);
 
   const meus = useMemo(() => doResponsavel(itens, { email, gestao }), [itens, email, gestao]);
-  const novas = useMemo(() => naoLidas(meus, { vistoEm }), [meus, vistoEm]);
-  // A lista operacional mostra TODAS as que esperam a Reativa, lidas ou não:
-  // um aluno esperando não some da operação só porque alguém já olhou.
+  const novas = useMemo(() => naoLidas(meus, { lidoAte }), [meus, lidoAte]);
+  // A lista mostra TODAS as que esperam resposta, lidas ou não: um aluno
+  // esperando não some da operação só porque alguém já olhou.
   const esperando = useMemo(() => naoLidas(meus, {}), [meus]);
 
-  function alternar() {
+  async function alternar() {
     const abrindo = !aberto;
     setAberto(abrindo);
     if (abrindo) {
-      // Abrir é ler: o contador zera, a lista continua.
       const agora = new Date().toISOString();
-      gravarVistoEm(email, agora);
-      setVistoEm(agora);
+      setLidoAte(agora);
+      await gravarLidoAte(email, agora);
     }
   }
 
-  if (esperando.length === 0) return null;
+  // Sem ninguém esperando — e sem nada a dizer sobre indisponibilidade — a
+  // barra lateral não ganha ruído.
+  if (esperando.length === 0 && !indisponivel) return null;
+
+  // Fonte real indisponível (a migration do cache ainda não foi aplicada):
+  // dizer isso é melhor do que mostrar zero como se estivesse tudo lido.
+  if (esperando.length === 0 && indisponivel) {
+    return (
+      <div style={S.caixa}>
+        <div style={S.inativo} title="Depende da migration 20261108120000, ainda não aplicada">
+          💬 Respostas: fonte não ligada
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={S.caixa}>
@@ -75,12 +100,12 @@ export default function NotificacoesUlbra({
       {aberto && (
         <div style={S.painel}>
           <div style={S.cabecalho}>
-            Esperando a Reativa
+            Responderam e aguardam
             {simulado ? <span style={S.selo}>SIMULADO</span> : null}
           </div>
           {esperando.map((item) => (
-            <div key={item.atendimento_id} style={S.linha}>
-              <span style={S.nome}>{item.aluno_nome || "Sem nome"}</span>
+            <div key={item.conversa_id} style={S.linha}>
+              <span style={S.nome}>{item.aluno_nome || item.cliente_nome || "Sem nome"}</span>
               <button
                 style={S.assumir}
                 onClick={() => {
@@ -88,13 +113,14 @@ export default function NotificacoesUlbra({
                   setAberto(false);
                 }}
               >
-                Assumir
+                Abrir
               </button>
             </div>
           ))}
           <div style={S.rodape}>
-            Sinal de estado, não leitura de conversa: a Mensageria não expõe
-            mensagens. Para ler, abra o cadastro na Mensageria.
+            {simulado
+              ? "Amostra: nenhuma chamada à Mensageria e nenhuma mensagem enviada."
+              : "A última mensagem da conversa é do aluno. O texto fica na Mensageria — abra o cadastro para ler."}
           </div>
         </div>
       )}
@@ -105,6 +131,7 @@ export default function NotificacoesUlbra({
 const S = {
   caixa: { position: "relative", marginTop: 10, padding: "0 10px" },
   btn: { position: "relative", width: "100%", background: "transparent", border: "1px solid rgba(148,163,184,0.3)", color: "#93c5fd", borderRadius: 999, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
+  inativo: { width: "100%", textAlign: "center", border: "1px dashed rgba(148,163,184,0.25)", color: "#64748b", borderRadius: 999, padding: "6px 10px", fontSize: 11, fontWeight: 600 },
   badge: { position: "absolute", top: -6, right: -6, background: "#dc2626", color: "#fff", borderRadius: 999, minWidth: 18, height: 18, fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 5px" },
   painel: { position: "absolute", left: 10, right: 10, bottom: "calc(100% + 6px)", background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-forte)", borderRadius: 10, boxShadow: "0 10px 30px rgba(2,6,23,0.35)", zIndex: 50, overflow: "hidden" },
   cabecalho: { display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", fontSize: 11, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--rv-texto-suave)", borderBottom: "1px solid var(--rv-borda-suave)" },
