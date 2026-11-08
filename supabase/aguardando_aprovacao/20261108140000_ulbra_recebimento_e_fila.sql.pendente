@@ -115,6 +115,10 @@ create table public.ulbra_sync_estado (
   -- a mensagem mais nova ja processada. Ver sincronizar.ts (novaJanela).
   piso_pendente             timestamptz,
   topo_processado           timestamptz,
+  -- fila de detalhes: quantas conversas ficaram sem leitura de detalhe, e quantas
+  -- foram desistidas apos o maximo de tentativas (perda declarada, visivel).
+  detalhe_fila_tamanho      integer not null default 0,
+  detalhes_desistidos       integer not null default 0,
   ultima_execucao           timestamptz,
   ultimo_ciclo              text,
   ultimo_erro               text,
@@ -123,6 +127,21 @@ create table public.ulbra_sync_estado (
   ciclos_desde_atendimentos integer not null default 999,
   constraint ulbra_sync_estado_linha_unica check (id)
 );
+
+-- Fila de detalhes: conversas cuja ultima mensagem NAO e do cliente. Uma linha
+-- por conversa (dedupe pela chave). Sai com a leitura de detalhe ou desistida.
+create table public.ulbra_detalhe_fila (
+  ulbra_conversa_id text primary key references public.ulbra_conversas (ulbra_conversa_id) on delete cascade,
+  ulbra_cliente_id  text not null,
+  na_lista_em       timestamptz not null,
+  tentativas        integer not null default 0,
+  enfileirado_em    timestamptz not null default now(),
+  constraint ulbra_detalhe_tentativas_check check (tentativas >= 0)
+);
+create index ulbra_detalhe_fila_ordem_idx on public.ulbra_detalhe_fila (na_lista_em);
+
+comment on table public.ulbra_detalhe_fila is
+  'Conversas aguardando leitura de detalhe (ler_conversa). Escrita so por ulbra_sync_gravar.';
 
 comment on table public.ulbra_sync_estado is
   'Uma linha. Cursor do incremental e medidor do orcamento diario da Mensageria (teto medido: 500 chamadas/dia por pessoa). chamadas_dia zera na virada de `dia`.';
@@ -150,6 +169,8 @@ comment on table public.ulbra_leitura_usuario is
 alter table public.ulbra_conversas enable row level security;
 alter table public.ulbra_atendimentos enable row level security;
 alter table public.ulbra_sync_estado enable row level security;
+alter table public.ulbra_detalhe_fila enable row level security;
+revoke all on public.ulbra_detalhe_fila from authenticated, anon, public;
 
 -- LEITURA POR USUARIO. A regra e a MESMA da tela, aplicada no banco -- senao
 -- qualquer usuario ativo leria o espelho inteiro por SQL, e a separacao por
@@ -298,6 +319,36 @@ begin
   )
   select count(*) into v_atend from gravado;
 
+  -- FILA DE DETALHES. Ordem importa: enfileirar antes de concluir/desistir,
+  -- para que uma conversa lida no mesmo ciclo em que entrou nao fique para tras.
+  insert into public.ulbra_detalhe_fila (ulbra_conversa_id, ulbra_cliente_id, na_lista_em)
+  select x.ulbra_conversa_id, x.ulbra_cliente_id, x.na_lista_em
+    from jsonb_to_recordset(coalesce(p_payload->'detalhe_enfileirar', '[]'::jsonb)) as x(
+      ulbra_conversa_id text, ulbra_cliente_id text, na_lista_em timestamptz)
+  on conflict (ulbra_conversa_id) do nothing;
+
+  -- Lida: a data do cliente vai para o espelho (so sobe), e sai da fila.
+  update public.ulbra_conversas c set
+    ultima_mensagem_cliente_em = greatest(c.ultima_mensagem_cliente_em, x.em)
+    from (
+      select (e->>'ulbra_conversa_id') as id, (e->>'ultima_mensagem_cliente_em')::timestamptz as em
+        from jsonb_array_elements(coalesce(p_payload->'detalhe_concluidas', '[]'::jsonb)) e
+    ) x
+   where c.ulbra_conversa_id = x.id and x.em is not null;
+
+  delete from public.ulbra_detalhe_fila f
+   where f.ulbra_conversa_id in (
+     select e->>'ulbra_conversa_id'
+       from jsonb_array_elements(coalesce(p_payload->'detalhe_concluidas', '[]'::jsonb)) e
+     union
+     select jsonb_array_elements_text(coalesce(p_payload->'detalhe_desistidas', '[]'::jsonb))
+   );
+
+  -- Falhou: uma tentativa a mais. A desistencia so acontece na leitura seguinte.
+  update public.ulbra_detalhe_fila f set tentativas = f.tentativas + 1
+   where f.ulbra_conversa_id in (
+     select jsonb_array_elements_text(coalesce(p_payload->'detalhe_falhas', '[]'::jsonb)));
+
   -- A janela so se move quando o ciclo NAO falha. Falha grava nada de janela:
   -- o proximo ciclo refaz a mesma coleta, e o upsert e idempotente.
   update public.ulbra_sync_estado set
@@ -315,6 +366,8 @@ begin
     ultimo_erro = p_payload->>'erro',
     chamadas_dia = case when dia = v_dia then chamadas_dia + v_chamadas else v_chamadas end,
     dia = v_dia,
+    detalhe_fila_tamanho = (select count(*) from public.ulbra_detalhe_fila),
+    detalhes_desistidos = detalhes_desistidos + coalesce(jsonb_array_length(p_payload->'detalhe_desistidas'), 0),
     ciclos_desde_atendimentos = case
       when coalesce((p_payload->>'atendimentos_lidos')::boolean, false) then 0
       else ciclos_desde_atendimentos + 1 end

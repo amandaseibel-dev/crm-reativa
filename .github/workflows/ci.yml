@@ -272,8 +272,30 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/02_dados.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_leitura_por_usuario.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/05_resposta_seguida_de_operador.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/06_fila_de_detalhes.sql"
           psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
           psql -v ON_ERROR_STOP=1 -f "$DIR/04_depois_do_rollback.sql"
+
+  # ---------------------------------------------------------------------------
+  # ULBRA — verificação de TIPOS e IMPORTS da Edge Function com o Deno, em
+  # versão FIXADA. O transform do Vitest não prova isso: ele não resolve
+  # imports remotos (esm.sh) nem checa tipos do runtime Deno.
+  # ---------------------------------------------------------------------------
+  ulbra-sincronizar-deno-check:
+    name: ulbra-sincronizar — deno check (versão fixada)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Instalar Deno (versão fixada)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.1.4
+
+      - name: deno check da função e de tudo que ela importa
+        run: deno check supabase/functions/ulbra-sincronizar/index.ts
 
   # ---------------------------------------------------------------------------
   # PROPOSTA_staging_acordos_prime.sql — RLS, grants e isolamento do staging

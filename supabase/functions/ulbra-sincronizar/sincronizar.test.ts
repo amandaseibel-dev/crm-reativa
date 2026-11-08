@@ -129,9 +129,9 @@ describe("cliente responde e operador/bot responde depois, antes da sincronizaç
         { quem: "bot", em: "2026-11-08T05:06:00.000Z" },
       ],
     };
-    expect(ultimaDoClienteNoDetalhe(detalhe, null)).toBe("2026-11-08T05:00:00.000Z");
-    // resposta do cliente já processada (acima do cursor?) não volta como nova
-    expect(ultimaDoClienteNoDetalhe(detalhe, "2026-11-08T05:00:00.000Z")).toBeNull();
+    expect(ultimaDoClienteNoDetalhe(detalhe)).toBe("2026-11-08T05:00:00.000Z");
+    // sem mensagem do cliente no detalhe, não há data a provar
+    expect(ultimaDoClienteNoDetalhe({ mensagens: [{ quem: "operador", em: "2026-11-08T05:05:00.000Z" }] })).toBeNull();
   });
 
   it("sem detalhe, a resposta fica invisível: é a perda conhecida, e o teste a documenta", () => {

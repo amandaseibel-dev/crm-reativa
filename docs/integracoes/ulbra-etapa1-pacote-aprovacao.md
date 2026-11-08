@@ -36,30 +36,66 @@ próprio. Não reutilizo `ULBRA_MCP_TOKEN`: é a credencial da ULBRA. Usá-la co
 portão daria a quem conhecesse a chave de sincronização um caminho para a
 Mensageria. O valor nunca aparece em código, log ou documento.
 
-## 4. Orçamento: composição
+## 4. Orçamento: consumo estimado x limite controlado
 
 Teto medido: **500 chamadas/dia por pessoa** (`meu_acesso`, 07/11/2026). Tratado
 como teto único, sem assumir orçamento separado entre OAuth e backend.
 
-| Item | Cadência | Chamadas/dia | Natureza |
-| --- | --- | --- | --- |
-| `listar_conversas` (1 página em regime) | 10 min | 144 | **estimativa** de regime |
-| `listar_atendimentos` (fila de espera) | 30 min | 48 | **estimativa** |
-| `ler_conversa` nas fichas | sob demanda | 60 | **estimativa** |
-| margem de falha e repetição | 15% | 38 | **estimativa** |
-| **total em regime** | | **290** | |
+**Limite CONTROLADO pelo código (garantido):**
+- cada chamada passa pelo portão `Orcamento` antes de sair;
+- o saldo do dia da sincronização nunca passa de **440** (`500 - 60` de reserva
+  para as fichas dos operadores);
+- dentro de um ciclo, paginação e leitura de detalhe param quando o saldo acaba,
+  e o ciclo sai `INCOMPLETO` sem fingir página vazia;
+- `MAX_PAGINAS = 3` (páginas com coleta por ciclo) e `HARD_LEITURAS = 12`
+  (leituras totais por ciclo, incluindo as que só pulam).
 
-**Limite imposto pelo código, não estimativa:**
-- `MAX_PAGINAS = 3`: páginas COM coleta por ciclo;
-- `HARD_LEITURAS = 12`: leituras totais por ciclo, incluindo páginas só puladas;
-- `DETALHE_POR_CICLO = 0`: leitura de detalhe **desligada** (ver seção 6);
-- freio diário: o ciclo não roda com 488 chamadas gastas no dia.
+**Consumo ESTIMADO (previsão, não garantia):**
 
-**Não medido, e que pode mudar o número:**
-- ciclos em backlog gastam até 12 leituras; com backlog frequente, o consumo
-  sobe. O freio diário protege o limite, mas NÃO divide o orçamento com as
-  fichas de forma justa: as fichas podem perder chamadas em dia de backlog;
-- frequência de 10 min é **nominal**: pode subir por falha da API ou por limite.
+Conta por janela, com `DETALHE_POR_CICLO = 1` (uma leitura de detalhe por ciclo)
+e margem de 15% sobre o tráfego da sincronização:
+
+| Item | 12 horas (72 ciclos) | 24 horas (144 ciclos) |
+| --- | --- | --- |
+| `listar_conversas` (1 página em regime) | 72 | 144 |
+| `listar_atendimentos` (a cada 30 min) | 24 | 48 |
+| `ler_conversa` (fila de detalhes, K=1) | 72 | 144 |
+| base | 168 | 336 |
+| margem de falha e repetição (15%) | 26 | 51 |
+| fichas dos operadores (reserva) | 30 | 60 |
+| **total previsto** | **224** | **447** |
+| teto controlado (sync) | — | 440 |
+| envios de mensagem | 0 | 0 |
+
+Leitura: K=1 cabe nas duas janelas. K=2 **não** cabe: 12h daria ~300 (acima de
+250, metade do teto) e 24h daria ~552 (acima de 440, o teto controlado corta
+antes do fim do dia). Os testes em `fila.test.ts` provam essas contas.
+
+**Não medido, e que muda o número:**
+- backlog (ciclos com teto de páginas atingido) gasta mais leituras. Essas
+  leituras ENTRAM no limite controlado; o efeito é atraso, não estouro;
+- retentativas de detalhe: entram na margem de 15%. Em falha persistente, cada
+  conversa tenta até 5 vezes antes de desistir;
+- frequência de 10 min é **nominal**: pode subir por falha da API ou limite.
+
+## 4a. Fila de detalhes: convergência e perda
+
+Conversa entra na fila quando muda na janela e a última mensagem não é do
+cliente. Sai quando lida ou desistida. Ordem: mais antiga primeiro. Uma linha
+por conversa (sem duplicar).
+
+**Condição de convergência, demonstrada em `fila.test.ts`:** a fila esvazia
+enquanto a chegada média por ciclo for **≤ K**. Com chegada 2 e K=1 a fila cresce
+sem limite (teste documenta esse lado). Logo, **K=1 só converge se a chegada
+média for de até 1 conversa a cada 10 minutos**. Esse número não foi medido em
+produção. Por isso a aprovação inclui: observar `ulbra_sync_estado.detalhe_fila_tamanho`
+nas primeiras 24 horas. Se a fila crescer sem parar, a decisão é aumentar K
+(custo) ou aceitar a perda registrada.
+
+**Perda declarada, não silenciosa:**
+- conversa que falha 5 vezes é desistida e contada em `detalhes_desistidos`;
+- `ler_conversa` mostra só as últimas 20 mensagens: resposta do cliente mais
+  antiga que isso, com 20 mensagens do operador depois, não aparece.
 
 ## 5. Cron e atraso
 

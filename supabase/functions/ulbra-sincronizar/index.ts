@@ -1,36 +1,35 @@
 // Edge Function: ulbra-sincronizar
 // ---------------------------------------------------------------------------
 // O ÚNICO relógio da integração com a Mensageria ULBRA. Roda por cron, com
-// chave própria, e NÃO atende a tela de ninguém: é por isso que o custo não
-// se multiplica pelo número de operadores abertos.
+// chave própria, e NÃO atende a tela de ninguém.
 //
-// SÓ LÊ da ULBRA. As duas ferramentas usadas — `listar_conversas` e
-// `listar_atendimentos` — são de leitura e o próprio catálogo diz que não
-// alteram nada. Nenhuma mensagem é enviada aqui, nenhum atendimento é
-// assumido, transferido ou encerrado, nenhum cadastro é tocado.
+// SÓ LÊ da ULBRA: `listar_conversas`, `ler_conversa` e `listar_atendimentos`
+// são de leitura. Nenhuma mensagem é enviada, nenhum atendimento é assumido,
+// transferido ou encerrado, nenhum cadastro é tocado.
 //
-// O que ela escreve, escreve no NOSSO banco, por uma RPC só
-// (`ulbra_sync_gravar`): espelho das conversas da equipe Reativa, fila de
-// atendimentos em espera e o estado do ciclo (cursor, contador de chamadas do
-// dia, último erro). A decisão de QUEM atende é sugestão — a posse nasce de
-// `ulbra_atendimento_assumir`, que é um UPDATE condicional.
+// Escreve só no NOSSO banco, por uma RPC só (`ulbra_sync_gravar`).
 //
-// ACESSO: exige o cabeçalho `x-sync-chave` igual ao segredo `ULBRA_SYNC_CHAVE`.
-// JWT de operador não serve, de propósito. `verify_jwt = false` no
-// config.toml porque quem chama é o cron, não uma sessão — o portão é a chave.
+// ORÇAMENTO: cada chamada passa pelo portão `Orcamento` ANTES de sair. O saldo
+// do dia nunca passa de TETO_DIARIO_SYNC (500 - reserva das fichas). Isso é
+// limite controlado pelo código. O consumo previsto é outra coisa.
 //
-// FALHA FECHADO: erro de rede, 406, 429 ou envelope torto terminam o ciclo
-// como FALHOU, com o cursor ANTERIOR intacto. Nada é marcado como visto sem
-// ter sido lido, e o ciclo seguinte repete a janela.
-
+// ACESSO: `x-sync-chave` == segredo `ULBRA_SYNC_CHAVE`. `verify_jwt = false`
+// porque quem chama é o cron. Sem a chave, 403 e nenhuma chamada à ULBRA.
+//
+// FALHA FECHADO: erro em listar/atendimentos grava FALHOU e não move a janela.
+// Erro em ler_conversa conta como falha da conversa (retentativa), não do ciclo.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   ACCEPT_MCP,
   CADENCIA_PADRAO,
+  DETALHE_TENTATIVAS_MAX,
   MCP_URL,
+  TETO_DIARIO_SYNC,
+  Orcamento,
   cargaAtendimentos,
   cargaConversas,
   cargaDetalhe,
+  candidatasDaColheita,
   colherConversas,
   decidirDestino,
   identificar,
@@ -38,22 +37,23 @@ import {
   lerCorpoMcp,
   novaJanela,
   resultadoDoEnvelope,
+  selecionarDetalhes,
   ultimaDoClienteNoDetalhe,
   type AtendimentoLido,
   type Colheita,
   type ConversaLida,
+  type FilaDetalhe,
   type Janela,
   type OperadorRodizio,
   type VinculoAtivo,
 } from "./sincronizar.ts";
 
 /**
- * Quantas conversas por ciclo ganham uma leitura de detalhe (`ler_conversa`)
- * para provar resposta do cliente seguida de operador/bot.
- * 0 = DESLIGADO. Ligar custa até este número de chamadas por ciclo; com 144
- * ciclos/dia, K=1 já adiciona ~144/dia. Decisão de aprovação, não default.
+ * Leituras de detalhe (`ler_conversa`) por ciclo. Cada uma custa 1 chamada.
+ * Prova de convergência e orçamento: sincronizar.test.ts ("fila de detalhes")
+ * e docs/integracoes/ulbra-etapa1-pacote-aprovacao.md, seção 4.
  */
-export const DETALHE_POR_CICLO = 0;
+export const DETALHE_POR_CICLO = 1;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -125,24 +125,32 @@ Deno.serve(async (req: Request) => {
   const chamadasAntes: number = estado?.dia === hoje ? (estado?.chamadas_dia ?? 0) : 0;
   const ciclosDesde: number = estado?.ciclos_desde_atendimentos ?? 999;
 
-  // Freio de orçamento do próprio dia: antes de gastar, confere se há saldo.
-  // 12 é a folga reservada para a abertura de fichas pelos operadores.
-  if (chamadasAntes >= 500 - 12) {
+  const orcamento = new Orcamento(TETO_DIARIO_SYNC - chamadasAntes);
+  if (!orcamento.pode()) {
     await sb.rpc("ulbra_sync_gravar", {
       p_payload: { ciclo: "PULADO_ORCAMENTO", chamadas: 0, dia: hoje, erro: "ORCAMENTO_DO_DIA" },
     });
-    return json({ ciclo: "PULADO_ORCAMENTO", chamadas_dia: chamadasAntes });
+    return json({ ciclo: "PULADO_ORCAMENTO", chamadas_dia: chamadasAntes, teto: TETO_DIARIO_SYNC });
   }
 
+  // Toda chamada à ULBRA passa por aqui: o saldo é gasto ANTES de sair.
+  let chamadas = 0;
+  const chamar = async (carga: unknown) => {
+    orcamento.gastar();
+    chamadas++;
+    return chamarMcp(token, carga);
+  };
+  const pode = () => orcamento.pode();
+
   // ------------------------------------------------- referências do CRM
-  const [{ data: vinculosBrutos }, { data: filaBruta }] = await Promise.all([
+  const [{ data: vinculosBrutos }, { data: filaBruta }, { data: detalhesFila }] = await Promise.all([
+    sb.from("ulbra_vinculos").select("ulbra_cliente_id, aluno_id, confianca").is("desvinculado_em", null),
+    sb.from("fila_receptivo").select("email, atendimentos_hoje, ultimo_atendimento, em_pausa, online_em"),
     sb
-      .from("ulbra_vinculos")
-      .select("ulbra_cliente_id, aluno_id, confianca")
-      .is("desvinculado_em", null),
-    sb
-      .from("fila_receptivo")
-      .select("email, atendimentos_hoje, ultimo_atendimento, em_pausa, online_em"),
+      .from("ulbra_detalhe_fila")
+      .select("ulbra_conversa_id, ulbra_cliente_id, na_lista_em, tentativas")
+      .order("na_lista_em", { ascending: true })
+      .limit(1000),
   ]);
 
   const vinculos = new Map<string, VinculoAtivo>(
@@ -152,8 +160,8 @@ Deno.serve(async (req: Request) => {
   const agoraMs = Date.now();
 
   // ------------------------------------------------------------- leitura
-  let chamadas = 0;
   let atendimentos: AtendimentoLido[] = [];
+  let atendimentosLidos = false;
   let colheita: Colheita;
   const lerAtendimentosAgora =
     ciclosDesde >=
@@ -162,25 +170,42 @@ Deno.serve(async (req: Request) => {
       Math.round(CADENCIA_PADRAO.cadencia_atendimentos_min / CADENCIA_PADRAO.cadencia_conversas_min),
     );
 
-  try {
-    colheita = await colherConversas(async (pagina) => {
-      chamadas++;
-      return chamarMcp(token, cargaConversas(pagina, pagina));
-    }, janela);
+  // Resultados do detalhe, aplicados na gravação.
+  const concluidas: Array<{ ulbra_conversa_id: string; ultima_mensagem_cliente_em: string | null }> = [];
+  const falhas: string[] = [];
+  let desistidas: FilaDetalhe[] = [];
+  let novas: FilaDetalhe[] = [];
 
-    // Detalhe OPCIONAL: só para quem tem última mensagem que não é do cliente.
-    // Sem ele, uma resposta do cliente seguida de operador/bot fica invisível.
-    const candidatas = colheita.conversas.filter((c) => c.precisa_detalhe).slice(0, DETALHE_POR_CICLO);
-    for (const c of candidatas) {
-      chamadas++;
-      const resposta = await chamarMcp(token, cargaDetalhe(c.ulbra_conversa_id));
-      const ultima = ultimaDoClienteNoDetalhe(resposta, janela.cursor);
-      if (ultima) c.ultima_mensagem_cliente_em = ultima;
+  try {
+    colheita = await colherConversas((pagina) => chamar(cargaConversas(pagina, pagina)), janela, { pode });
+
+    // Fila: mantém o que já estava (com suas tentativas) e acrescenta o novo.
+    novas = candidatasDaColheita(colheita.conversas);
+    const mapa = new Map<string, FilaDetalhe>(
+      (detalhesFila ?? []).map((f) => [f.ulbra_conversa_id as string, f as FilaDetalhe]),
+    );
+    for (const n of novas) if (!mapa.has(n.ulbra_conversa_id)) mapa.set(n.ulbra_conversa_id, n);
+
+    const sel = selecionarDetalhes([...mapa.values()], DETALHE_POR_CICLO);
+    desistidas = sel.desistidas;
+
+    for (const f of sel.escolhidas) {
+      if (!pode()) break; // sem saldo: as que sobraram seguem na fila
+      try {
+        const resposta = await chamar(cargaDetalhe(f.ulbra_conversa_id));
+        concluidas.push({
+          ulbra_conversa_id: f.ulbra_conversa_id,
+          ultima_mensagem_cliente_em: ultimaDoClienteNoDetalhe(resposta),
+        });
+      } catch (e) {
+        console.error("ulbra-sincronizar: detalhe falhou", (e as Error).message);
+        falhas.push(f.ulbra_conversa_id);
+      }
     }
 
-    if (lerAtendimentosAgora) {
-      atendimentos = lerAtendimentos(await chamarMcp(token, cargaAtendimentos(99)));
-      chamadas++;
+    if (lerAtendimentosAgora && pode()) {
+      atendimentos = lerAtendimentos(await chamar(cargaAtendimentos(99)));
+      atendimentosLidos = true;
     }
   } catch (e) {
     const motivo = (e as Error).message;
@@ -213,18 +238,21 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  const linhasConversas = colheita.conversas.map((c: ConversaLida) => ({
-    ...c,
-    ...identificar(c.ulbra_cliente_id, vinculos),
-  }));
+  const linhasConversas = colheita.conversas.map((c: ConversaLida) => {
+    const identidade = identificar(c.ulbra_cliente_id, vinculos);
+    // Data do cliente: a da lista quando a última é do cliente; a do detalhe, se lido.
+    const doDetalhe = concluidas.find((x) => x.ulbra_conversa_id === c.ulbra_conversa_id);
+    return {
+      ...c,
+      ultima_mensagem_cliente_em: c.ultima_mensagem_cliente_em ?? doDetalhe?.ultima_mensagem_cliente_em ?? null,
+      ...identidade,
+    };
+  });
 
   const linhasAtendimentos = atendimentos.map((a) => {
     const identidade = identificar(a.ulbra_cliente_id, vinculos);
     const dono = identidade.aluno_id ? (donoPorAluno.get(identidade.aluno_id) ?? null) : null;
-    const destino = decidirDestino(
-      { identidade, caso: { operador_email: dono }, fila },
-      agoraMs,
-    );
+    const destino = decidirDestino({ identidade, caso: { operador_email: dono }, fila }, agoraMs);
     return { ...a, ...identidade, ...destino };
   });
 
@@ -233,15 +261,23 @@ Deno.serve(async (req: Request) => {
     p_payload: {
       // INCOMPLETO grava o que foi lido e guarda a janela (ver novaJanela).
       ciclo: colheita.truncado ? "INCOMPLETO" : "OK",
-      erro: colheita.truncado ? "BACKLOG_ACIMA_DO_TETO" : undefined,
+      erro: colheita.truncado ? "BACKLOG_OU_ORCAMENTO" : undefined,
       chamadas,
       dia: hoje,
       cursor: proxima.cursor,
       piso_pendente: proxima.pendente,
       topo_processado: proxima.topo,
-      atendimentos_lidos: lerAtendimentosAgora,
+      atendimentos_lidos: atendimentosLidos,
       conversas: linhasConversas,
       atendimentos: linhasAtendimentos,
+      detalhe_enfileirar: novas.map((f) => ({
+        ulbra_conversa_id: f.ulbra_conversa_id,
+        ulbra_cliente_id: f.ulbra_cliente_id,
+        na_lista_em: f.na_lista_em,
+      })),
+      detalhe_concluidas: concluidas,
+      detalhe_falhas: falhas,
+      detalhe_desistidas: desistidas.map((f) => f.ulbra_conversa_id),
     },
   });
   if (error) {
@@ -250,14 +286,17 @@ Deno.serve(async (req: Request) => {
   }
 
   return json({
-    ciclo: "OK",
+    ciclo: colheita.truncado ? "INCOMPLETO" : "OK",
+    ciclo_completo: !colheita.truncado,
     chamadas,
     chamadas_dia: chamadasAntes + chamadas,
-    ciclo_completo: !colheita.truncado,
+    teto_dia: TETO_DIARIO_SYNC,
     leituras: colheita.leituras,
     conversas_novas: linhasConversas.length,
-    respostas_de_cliente: linhasConversas.filter((c) => c.resposta_do_cliente).length,
-    atendimentos_em_espera: lerAtendimentosAgora ? linhasAtendimentos.length : null,
+    detalhes_lidos: concluidas.length,
+    detalhes_falharam: falhas.length,
+    detalhes_desistidas: desistidas.length,
+    atendimentos_em_espera: atendimentosLidos ? linhasAtendimentos.length : null,
     gravado,
   });
 });

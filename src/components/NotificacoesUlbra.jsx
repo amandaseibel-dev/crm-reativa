@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import usePolling from "../utils/polling";
+import { buscarTudo } from "../utils/paginado";
 import {
   RECUSA_EM_PORTUGUES,
   contarNovidades,
@@ -122,13 +123,18 @@ export default function NotificacoesUlbra({ usuario }) {
       if (!ativo) return;
       setEhGestao(gestao === true);
       if (gestao === true || !email) return;
-      const { data: casos } = await supabase
-        .from("casos")
-        .select("aluno_id")
-        .eq("operador_email", email)
-        .limit(2000);
+      // buscarTudo: a API entrega no máximo 1000 por requisição, sem erro.
+      // Desempate por id para a paginação não repetir nem perder linha.
+      const casos = await buscarTudo((de, ate) =>
+        supabase
+          .from("casos")
+          .select("id, aluno_id")
+          .eq("operador_email", email)
+          .order("id", { ascending: true })
+          .range(de, ate)
+      );
       if (!ativo) return;
-      setAlunosDoOperador(new Set((casos || []).map((c) => c.aluno_id).filter(Boolean)));
+      setAlunosDoOperador(new Set(casos.map((c) => c.aluno_id).filter(Boolean)));
     })();
     return () => {
       ativo = false;

@@ -38,6 +38,7 @@ function tabelaFalsa(nome) {
     eq: () => encadeado,
     order: () => encadeado,
     limit: () => encadeado,
+    range: () => encadeado,
     // thenable: `await` no fim da cadeia devolve as linhas da tabela
     then: (resolve) => resolve({ data: dadosDa(nome), error: null }),
   };

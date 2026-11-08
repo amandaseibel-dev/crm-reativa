@@ -230,14 +230,18 @@ export function lerPaginaConversas(resposta: unknown, janela: Janela): PaginaCon
   return { conversas, piso, pode_ter_mais, total };
 }
 
-/** Mensagem mais nova do cliente que `ler_conversa` mostra acima do cursor. */
-export function ultimaDoClienteNoDetalhe(resposta: unknown, cursor: string | null): string | null {
+/**
+ * Data da mensagem mais nova DO CLIENTE que `ler_conversa` mostra (limite 20).
+ * Sem filtro de cursor: a fila de detalhes precisa checar conversas que o cursor
+ * já passou. A gravação guarda o máximo (greatest), então repetir não rebaixa.
+ * LIMITE: se houver mais de 20 mensagens depois da do cliente, ela não aparece.
+ */
+export function ultimaDoClienteNoDetalhe(resposta: unknown): string | null {
   const corpo = resposta as { mensagens?: Array<{ quem?: string; em?: string }> } | null;
   const msgs = Array.isArray(corpo?.mensagens) ? corpo!.mensagens! : [];
   let maior: string | null = null;
   for (const m of msgs) {
     if (m?.quem !== "cliente" || typeof m.em !== "string") continue;
-    if (cursor !== null && m.em <= cursor) continue;
     if (maior === null || m.em > maior) maior = m.em;
   }
   return maior;
@@ -250,6 +254,81 @@ export function cargaDetalhe(conversaId: string, id = 1) {
     method: "tools/call",
     params: { name: "ler_conversa", arguments: { id: conversaId, limite: 20 } },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Orçamento: limite CONTROLADO pelo código, por chamada.
+// ---------------------------------------------------------------------------
+// Consumo estimado (290/dia, 193/12h) é previsão. O que o código garante é:
+// nenhuma chamada sai sem um saldo, e o saldo do dia nunca passa de
+// TETO_DIARIO_SYNC. A reserva de RESERVA_FICHAS_DIA protege as fichas dos
+// operadores mesmo com backlog.
+
+export const RESERVA_FICHAS_DIA = 60;
+export const TETO_DIARIO_SYNC = 500 - RESERVA_FICHAS_DIA; // 440
+
+export class Orcamento {
+  private restante: number;
+  constructor(restante: number) {
+    this.restante = Math.max(0, restante);
+  }
+  pode(): boolean {
+    return this.restante > 0;
+  }
+  gastar(): void {
+    if (this.restante > 0) this.restante--;
+  }
+  get saldo(): number {
+    return this.restante;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Fila de detalhes: conversas cuja última mensagem não é do cliente.
+// ---------------------------------------------------------------------------
+// Entra na fila quando a conversa muda na janela (já é "alterada desde a última
+// sincronização"). Sai com a leitura de detalhe, ou com DETALHE_TENTATIVAS_MAX
+// falhas (desistida, contada e visível na gestão). Ordem: mais antiga primeiro.
+// Dedupe: uma linha por conversa (chave primária).
+
+export const DETALHE_TENTATIVAS_MAX = 5;
+
+export interface FilaDetalhe {
+  ulbra_conversa_id: string;
+  ulbra_cliente_id: string;
+  na_lista_em: string;
+  tentativas: number;
+}
+
+export function candidatasDaColheita(conversas: ConversaLida[]): FilaDetalhe[] {
+  return conversas
+    .filter((c) => c.precisa_detalhe)
+    .map((c) => ({
+      ulbra_conversa_id: c.ulbra_conversa_id,
+      ulbra_cliente_id: c.ulbra_cliente_id,
+      na_lista_em: c.ultima_mensagem_em,
+      tentativas: 0,
+    }));
+}
+
+/**
+ * Escolhe até `k` para ler agora, mais antigas primeiro. As que já falharam o
+ * máximo saem como `desistidas`: não voltam, e são contadas.
+ */
+export function selecionarDetalhes(
+  fila: FilaDetalhe[],
+  k: number,
+): { escolhidas: FilaDetalhe[]; desistidas: FilaDetalhe[] } {
+  const ordenada = [...fila].sort((a, b) =>
+    a.na_lista_em !== b.na_lista_em
+      ? (a.na_lista_em < b.na_lista_em ? -1 : 1)
+      : a.ulbra_conversa_id.localeCompare(b.ulbra_conversa_id),
+  );
+  const desistidas = ordenada.filter((f) => f.tentativas >= DETALHE_TENTATIVAS_MAX);
+  const escolhidas = ordenada
+    .filter((f) => f.tentativas < DETALHE_TENTATIVAS_MAX)
+    .slice(0, Math.max(0, k));
+  return { escolhidas, desistidas };
 }
 
 export interface Colheita {
@@ -271,8 +350,9 @@ export interface Colheita {
 export async function colherConversas(
   buscarPagina: (pagina: number) => Promise<unknown>,
   janela: Janela,
-  limites: { maxPaginas?: number; hardLeituras?: number } = {},
+  limites: { maxPaginas?: number; hardLeituras?: number; pode?: () => boolean } = {},
 ): Promise<Colheita> {
+  const pode = limites.pode ?? (() => true);
   const maxPaginas = limites.maxPaginas ?? MAX_PAGINAS;
   const hardLeituras = limites.hardLeituras ?? HARD_LEITURAS;
   const conversas: ConversaLida[] = [];
@@ -297,6 +377,11 @@ export async function colherConversas(
   };
 
   for (let pagina = 1; pagina <= hardLeituras; pagina++) {
+    // Sem saldo: para AQUI e marca incompleto. Nunca trata página não lida como vazia.
+    if (!pode()) {
+      truncado = true;
+      break;
+    }
     const lida = lerPaginaConversas(await buscarPagina(pagina), janela);
     leituras++;
     if (lida.conversas.length > 0) paginasComColeta++;
@@ -308,7 +393,7 @@ export async function colherConversas(
     if (paginasComColeta >= maxPaginas) {
       // Teto atingido. Antes de parar, olha a página seguinte: só o grupo com o
       // MESMO horário do piso entra (não pode ser partido); o resto fica pendente.
-      if (pagina + 1 > hardLeituras) {
+      if (pagina + 1 > hardLeituras || !pode()) {
         truncado = true;
         break;
       }
