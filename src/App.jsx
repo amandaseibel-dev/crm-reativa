@@ -59,6 +59,9 @@ const PainelAdm = lazy(() => import("./pages/PainelAdm"));
 // Tela TEMPORÁRIA de diagnóstico da Mensageria (gestão). Sai quando a
 // integração operacional estiver desenhada.
 const UlbraDiagnostico = lazy(() => import("./pages/UlbraDiagnostico"));
+// Painel Gestão da Mensageria: lê só o Postgres por RPC de agregação; o portão
+// de gestão é a própria RPC (usuario_e_gestao()), e a tela só repete a recusa.
+const PainelMensageriaUlbra = lazy(() => import("./pages/PainelMensageriaUlbra"));
 const FinanceiroHub = lazy(() => import("./pages/FinanceiroHub"));
 const CentralPagamentos = lazy(() => import("./components/CentralPagamentos"));
 const RelatorioTabulacoes = lazy(() => import("./pages/RelatorioTabulacoes"));
@@ -1243,6 +1246,7 @@ export default function App() {
               />
               <Route path="/painel-adm" element={<PainelAdm />} />
               <Route path="/ulbra-diagnostico" element={<UlbraDiagnostico usuario={usuario} />} />
+              <Route path="/mensageria-ulbra" element={<PainelMensageriaUlbra usuario={usuario} />} />
               <Route path="/painel-geral" element={<PainelGeral />} />
               <Route
                 path="/produtividade"

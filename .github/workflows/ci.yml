@@ -344,6 +344,56 @@ jobs:
           echo "ok: sem o REVOKE a prova cai, como tem de ser"
 
   # ---------------------------------------------------------------------------
+  # ULBRA — painel da gestão (20261109090000): RPC de agregação. Migration
+  # SEPARADA do piloto (20261108140000, já aplicada) — sem linha M1 própria, não
+  # se aplica. O job monta o banco com a migration do piloto só para ter as
+  # tabelas, e prova portão, agregados, estados do ciclo e rollback.
+  # ---------------------------------------------------------------------------
+  ulbra-painel-sql:
+    name: ulbra painel da gestao — portao, agregados e rollback (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      REC: supabase/tests/ulbra_recebimento
+      DIR: supabase/tests/ulbra_painel
+      PILOTO: supabase/aguardando_aprovacao/20261108140000_ulbra_recebimento_e_fila.sql.pendente
+      PAINEL: supabase/aguardando_aprovacao/20261109090000_ulbra_painel_gestao.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261109090000_ulbra_painel_gestao.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ambiente, piloto, seed, painel, provas, rollback e verificacao
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$REC/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$PILOTO"
+          psql -v ON_ERROR_STOP=1 -f "$REC/02_dados.sql"
+          psql -v ON_ERROR_STOP=1 -f "$PAINEL"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_provas_painel.sql"
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/03_depois_do_rollback.sql"
+
+  # ---------------------------------------------------------------------------
   # ULBRA — verificação de TIPOS e IMPORTS da Edge Function com o Deno, em
   # versão FIXADA. O transform do Vitest não prova isso: ele não resolve
   # imports remotos (esm.sh) nem checa tipos do runtime Deno.
