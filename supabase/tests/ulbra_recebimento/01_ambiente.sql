@@ -29,19 +29,22 @@ grant usage on schema public to anon, authenticated, service_role;
 alter default privileges in schema public grant execute on functions to anon, authenticated, service_role;
 alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
 
--- 2. AUTH (stub de JWT lido de GUC) ------------------------------------------
+-- 2. AUTH (stub de JWT e uid lidos de GUC) ----------------------------------
 create schema if not exists auth;
--- No Supabase real, anon/authenticated tem USAGE em auth e EXECUTE em auth.jwt():
--- as policies chamam app_email() que o le. Sem isso a RLS quebra com permission denied.
+-- No Supabase real, anon/authenticated tem USAGE em auth e EXECUTE em auth.jwt().
 grant usage on schema auth to anon, authenticated, service_role;
 create or replace function auth.jwt() returns jsonb language sql stable as $$
   select jsonb_build_object('email', coalesce(current_setting('teste.email', true), ''));
+$$;
+create or replace function auth.uid() returns uuid language sql stable as $$
+  select nullif(current_setting('teste.uid', true), '')::uuid;
 $$;
 
 -- 3. TABELAS QUE A MIGRATION REFERENCIA ---------------------------------------
 create table public.alunos (id uuid primary key default gen_random_uuid(), nome text);
 create table public.usuarios (
-  email text primary key, ativo boolean not null default true, perfil text not null default 'operador'
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique, ativo boolean not null default true
 );
 create table public.casos (
   id uuid primary key default gen_random_uuid(),
@@ -49,19 +52,40 @@ create table public.casos (
   operador_email text
 );
 
--- 4. CONTRATO DAS FUNCOES DE SEGURANCA (stubs; ver cabecalho) ----------------
-create or replace function public.app_email() returns text language sql stable as $$
-  select lower(coalesce(auth.jwt() ->> 'email', ''));
+-- 4. FUNCOES DE SEGURANCA: COPIA DAS DEFINICOES REAIS DE PRODUCAO --------------
+-- Lidas de pg_get_functiondef em ahattpqrjmhkzsmnbdzs em 08/11/2026. As
+-- diferencas em relacao a um stub seriam exatamente o que o teste precisa pegar:
+-- usuario_e_gestao() NAO consulta usuarios; e uma lista fixa de tres e-mails.
+create or replace function public.app_email() returns text
+language sql stable set search_path = public as $$
+  select lower(coalesce((auth.jwt() ->> 'email'), ''));
 $$;
-create or replace function public.app_usuario_ativo() returns boolean language sql stable as $$
-  select exists (select 1 from public.usuarios u where lower(u.email) = public.app_email() and u.ativo);
+
+create or replace function public.app_usuario_ativo() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.usuarios u
+    where lower(u.email) = lower(coalesce((auth.jwt() ->> 'email'), ''))
+      and u.ativo is true
+  );
 $$;
-create or replace function public.eh_painel() returns boolean language sql stable as $$
-  select exists (select 1 from public.usuarios u where lower(u.email) = public.app_email() and u.perfil = 'painel');
+
+create or replace function public.eh_painel() returns boolean
+language sql stable security definer set search_path = public as $$
+  SELECT coalesce(
+    (SELECT lower(u.email) = 'painel.tv@reativa.local'
+       FROM public.usuarios u
+      WHERE u.id = auth.uid()),
+    false);
 $$;
-create or replace function public.usuario_e_gestao() returns boolean language sql stable as $$
-  select exists (select 1 from public.usuarios u where lower(u.email) = public.app_email()
-                  and u.ativo and u.perfil = 'gerencia');
+
+create or replace function public.usuario_e_gestao() returns boolean
+language sql stable security definer set search_path = public as $$
+  select lower(coalesce(auth.jwt()->>'email','')) in (
+    'amanda.seibel@aelbra.com.br',
+    'cobranca04@aelbra.com.br',
+    'cobranca07@aelbra.com.br'
+  );
 $$;
 
 -- 5. AFIRMACAO: falha alto, com o nome do caso --------------------------------
@@ -81,11 +105,12 @@ insert into public.alunos (id, nome) values
   ('00000000-0000-0000-0000-00000000000b', 'Aluno B'),
   ('00000000-0000-0000-0000-00000000000c', 'Aluno C');
 
-insert into public.usuarios (email, ativo, perfil) values
-  ('op1@x', true, 'operador'),
-  ('op2@x', true, 'operador'),
-  ('gestao@x', true, 'gerencia'),
-  ('inativo@x', false, 'operador');
+insert into public.usuarios (id, email, ativo) values
+  ('00000000-0000-0000-0000-0000000000a1', 'op1@x', true),
+  ('00000000-0000-0000-0000-0000000000a2', 'op2@x', true),
+  ('00000000-0000-0000-0000-0000000000a3', 'amanda.seibel@aelbra.com.br', true),
+  ('00000000-0000-0000-0000-0000000000a4', 'inativo@x', false),
+  ('00000000-0000-0000-0000-0000000000a5', 'painel.tv@reativa.local', true);
 
 -- A tem caso com op1; B tem caso com op2; C nao tem caso.
 insert into public.casos (aluno_id, operador_email) values

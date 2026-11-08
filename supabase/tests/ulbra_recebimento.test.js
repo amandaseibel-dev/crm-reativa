@@ -27,6 +27,7 @@ describe("ULBRA recebimento — Postgres real (PGlite)", () => {
     await db.exec(sqlDe(`${DIR}/02_dados.sql`));
     // Cada afirmação falha alto com 'FALHOU: ...': exec() rejeita e o teste cai.
     await db.exec(sqlDe(`${DIR}/03_leitura_por_usuario.sql`));
+    await db.exec(sqlDe(`${DIR}/05_resposta_seguida_de_operador.sql`));
     await db.exec(sqlDe(ROLLBACK));
     await db.exec(sqlDe(`${DIR}/04_depois_do_rollback.sql`));
     await db.close();

@@ -30,6 +30,7 @@
 
 begin;
 
+drop function if exists public.ulbra_sincronizar_disparar();
 drop function if exists public.ulbra_conversa_marcar_lida(text);
 drop function if exists public.ulbra_atendimento_dispensar(text, text);
 drop function if exists public.ulbra_atendimento_assumir(text);

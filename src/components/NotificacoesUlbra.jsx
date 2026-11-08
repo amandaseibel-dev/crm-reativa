@@ -236,7 +236,7 @@ export default function NotificacoesUlbra({ usuario }) {
           {recado ? <div className="p-2 text-xs text-gray-700 bg-gray-50 border-b">{recado}</div> : null}
 
           <div className="p-2 text-xs font-semibold text-gray-500">
-            Respostas de aluno ({novidades.nao_lidas})
+            Conversas com resposta não lida ({novidades.nao_lidas})
           </div>
           {novidades.respostas.length === 0 ? (
             <div className="px-2 pb-2 text-xs text-gray-400">nada esperando</div>

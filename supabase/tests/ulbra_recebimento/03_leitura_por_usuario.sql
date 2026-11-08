@@ -62,7 +62,7 @@ end $$;
 reset role;
 
 -- gestao: tudo, inclusive conferencia
-set role authenticated; select set_config('teste.email', 'gestao@x', false);
+set role authenticated; select set_config('teste.email', 'amanda.seibel@aelbra.com.br', false);
 do $$ declare n int; begin
   select count(*) into n from public.ulbra_conversas;
   perform public.afirmar(n = 3, 'gestao le todas as conversas (3)');
@@ -98,7 +98,7 @@ do $$ declare n int; begin
 end $$;
 reset role;
 
-set role authenticated; select set_config('teste.email', 'gestao@x', false);
+set role authenticated; select set_config('teste.email', 'amanda.seibel@aelbra.com.br', false);
 do $$ declare n int; begin
   select count(*) into n from public.ulbra_leitura_usuario where usuario_email = 'op1@x';
   perform public.afirmar(n = 0, 'gestao NAO le o marcador de leitura de terceiro');
@@ -151,7 +151,7 @@ end $$;
 reset role;
 
 -- gestao pode assumir a carteira de outro (regra explicita)
-set role authenticated; select set_config('teste.email', 'gestao@x', false);
+set role authenticated; select set_config('teste.email', 'amanda.seibel@aelbra.com.br', false);
 do $$ declare r jsonb; begin
   r := public.ulbra_atendimento_assumir('x2');
   perform public.afirmar((r->>'ok')::boolean, 'gestao assume a carteira de op2 (excecao da gestao)');

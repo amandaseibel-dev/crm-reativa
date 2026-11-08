@@ -111,6 +111,10 @@ create index ulbra_atendimentos_abertos_idx on public.ulbra_atendimentos (entrou
 create table public.ulbra_sync_estado (
   id                        boolean primary key default true,
   cursor_mensagem           timestamptz,
+  -- janela do backlog: piso do que ja foi processado num ciclo incompleto, e
+  -- a mensagem mais nova ja processada. Ver sincronizar.ts (novaJanela).
+  piso_pendente             timestamptz,
+  topo_processado           timestamptz,
   ultima_execucao           timestamptz,
   ultimo_ciclo              text,
   ultimo_erro               text,
@@ -223,8 +227,8 @@ begin
     select * from jsonb_to_recordset(coalesce(p_payload->'conversas', '[]'::jsonb)) as x(
       ulbra_conversa_id text, ulbra_cliente_id text, cliente_nome text, canal text,
       situacao text, equipe text, responsavel_ulbra text, ultima_mensagem_em timestamptz,
-      ultima_mensagem_quem text, ultima_mensagem_previa text, resposta_do_cliente boolean,
-      aluno_id uuid, aluno_status text
+      ultima_mensagem_quem text, ultima_mensagem_previa text,
+      ultima_mensagem_cliente_em timestamptz, aluno_id uuid, aluno_status text
     )
   ), gravado as (
     insert into public.ulbra_conversas as c (
@@ -236,7 +240,7 @@ begin
       e.ulbra_conversa_id, e.ulbra_cliente_id, e.cliente_nome, coalesce(e.canal, 'whatsapp'),
       e.situacao, e.equipe, e.responsavel_ulbra, e.ultima_mensagem_em, e.ultima_mensagem_quem,
       e.ultima_mensagem_previa,
-      case when e.resposta_do_cliente then e.ultima_mensagem_em end,
+      e.ultima_mensagem_cliente_em,
       e.aluno_id, e.aluno_status, now()
     from entrada e
     on conflict (ulbra_conversa_id) do update set
@@ -294,12 +298,18 @@ begin
   )
   select count(*) into v_atend from gravado;
 
+  -- A janela so se move quando o ciclo NAO falha. Falha grava nada de janela:
+  -- o proximo ciclo refaz a mesma coleta, e o upsert e idempotente.
   update public.ulbra_sync_estado set
-    cursor_mensagem = case
-      when v_ciclo = 'OK' and (p_payload->>'cursor') is not null
-      then greatest(coalesce(cursor_mensagem, '-infinity'::timestamptz),
-                    (p_payload->>'cursor')::timestamptz)
-      else cursor_mensagem end,
+    cursor_mensagem = case when v_ciclo <> 'FALHOU' and (p_payload ? 'cursor')
+                           then (p_payload->>'cursor')::timestamptz
+                           else cursor_mensagem end,
+    piso_pendente = case when v_ciclo <> 'FALHOU' and (p_payload ? 'piso_pendente')
+                         then (p_payload->>'piso_pendente')::timestamptz
+                         else piso_pendente end,
+    topo_processado = case when v_ciclo <> 'FALHOU' and (p_payload ? 'topo_processado')
+                           then (p_payload->>'topo_processado')::timestamptz
+                           else topo_processado end,
     ultima_execucao = now(),
     ultimo_ciclo = v_ciclo,
     ultimo_erro = p_payload->>'erro',
@@ -438,6 +448,44 @@ revoke all on function public.ulbra_conversa_marcar_lida(text) from public, anon
 grant execute on function public.ulbra_atendimento_assumir(text) to authenticated;
 grant execute on function public.ulbra_atendimento_dispensar(text, text) to authenticated;
 grant execute on function public.ulbra_conversa_marcar_lida(text) to authenticated;
+
+-- ============================================================================
+-- DISPARADOR DO CRON. Define a funcao, NAO agenda. O agendamento e o ultimo
+-- passo do pacote, depois da funcao publicada: agendar antes faria o cron bater
+-- num endpoint que ainda nao existe.
+--
+-- Mesmo padrao das rotinas existentes do repositorio (projeto_url e segredo no
+-- Vault, net.http_post). Sem grant para anon/authenticated: so o cron, que roda
+-- como postgres, chama.
+-- ============================================================================
+create or replace function public.ulbra_sincronizar_disparar()
+returns bigint
+language plpgsql
+security definer
+set search_path = public, vault, net, pg_temp
+as $$
+declare
+  v_url   text;
+  v_chave text;
+  v_req   bigint;
+begin
+  select decrypted_secret into v_url   from vault.decrypted_secrets where name = 'projeto_url';
+  select decrypted_secret into v_chave from vault.decrypted_secrets where name = 'ulbra_sync_chave';
+  if v_url is null or v_chave is null then
+    raise exception 'SEGREDO_AUSENTE: projeto_url ou ulbra_sync_chave';
+  end if;
+
+  select net.http_post(
+    url     := rtrim(v_url, '/') || '/functions/v1/ulbra-sincronizar',
+    headers := jsonb_build_object('Content-Type', 'application/json', 'x-sync-chave', v_chave),
+    body    := '{}'::jsonb,
+    timeout_milliseconds := 20000
+  ) into v_req;
+  return v_req;
+end;
+$$;
+
+revoke all on function public.ulbra_sincronizar_disparar() from public, anon, authenticated;
 
 commit;
 

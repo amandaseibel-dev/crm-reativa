@@ -27,23 +27,33 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   ACCEPT_MCP,
   CADENCIA_PADRAO,
-  MAX_PAGINAS,
   MCP_URL,
   cargaAtendimentos,
   cargaConversas,
+  cargaDetalhe,
+  colherConversas,
   decidirDestino,
   identificar,
   lerAtendimentos,
   lerCorpoMcp,
-  lerPaginaConversas,
-  novoCursor,
+  novaJanela,
   resultadoDoEnvelope,
+  ultimaDoClienteNoDetalhe,
   type AtendimentoLido,
-  colherConversas,
   type Colheita,
+  type ConversaLida,
+  type Janela,
   type OperadorRodizio,
   type VinculoAtivo,
 } from "./sincronizar.ts";
+
+/**
+ * Quantas conversas por ciclo ganham uma leitura de detalhe (`ler_conversa`)
+ * para provar resposta do cliente seguida de operador/bot.
+ * 0 = DESLIGADO. Ligar custa até este número de chamadas por ciclo; com 144
+ * ciclos/dia, K=1 já adiciona ~144/dia. Decisão de aprovação, não default.
+ */
+export const DETALHE_POR_CICLO = 0;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -102,11 +112,15 @@ Deno.serve(async (req: Request) => {
   // ---------------------------------------------------------------- estado
   const { data: estado } = await sb
     .from("ulbra_sync_estado")
-    .select("cursor_mensagem, chamadas_dia, dia, ciclos_desde_atendimentos")
+    .select("cursor_mensagem, piso_pendente, topo_processado, chamadas_dia, dia, ciclos_desde_atendimentos")
     .eq("id", true)
     .maybeSingle();
 
-  const cursor: string | null = estado?.cursor_mensagem ?? null;
+  const janela: Janela = {
+    cursor: estado?.cursor_mensagem ?? null,
+    pendente: estado?.piso_pendente ?? null,
+    topo: estado?.topo_processado ?? null,
+  };
   const hoje = new Date().toISOString().slice(0, 10);
   const chamadasAntes: number = estado?.dia === hoje ? (estado?.chamadas_dia ?? 0) : 0;
   const ciclosDesde: number = estado?.ciclos_desde_atendimentos ?? 999;
@@ -115,12 +129,7 @@ Deno.serve(async (req: Request) => {
   // 12 é a folga reservada para a abertura de fichas pelos operadores.
   if (chamadasAntes >= 500 - 12) {
     await sb.rpc("ulbra_sync_gravar", {
-      p_payload: {
-        ciclo: "PULADO_ORCAMENTO",
-        chamadas: 0,
-        dia: hoje,
-        erro: "ORCAMENTO_DO_DIA",
-      },
+      p_payload: { ciclo: "PULADO_ORCAMENTO", chamadas: 0, dia: hoje, erro: "ORCAMENTO_DO_DIA" },
     });
     return json({ ciclo: "PULADO_ORCAMENTO", chamadas_dia: chamadasAntes });
   }
@@ -150,16 +159,24 @@ Deno.serve(async (req: Request) => {
     ciclosDesde >=
     Math.max(
       1,
-      Math.round(
-        CADENCIA_PADRAO.cadencia_atendimentos_min / CADENCIA_PADRAO.cadencia_conversas_min,
-      ),
+      Math.round(CADENCIA_PADRAO.cadencia_atendimentos_min / CADENCIA_PADRAO.cadencia_conversas_min),
     );
 
   try {
     colheita = await colherConversas(async (pagina) => {
       chamadas++;
       return chamarMcp(token, cargaConversas(pagina, pagina));
-    }, cursor, MAX_PAGINAS);
+    }, janela);
+
+    // Detalhe OPCIONAL: só para quem tem última mensagem que não é do cliente.
+    // Sem ele, uma resposta do cliente seguida de operador/bot fica invisível.
+    const candidatas = colheita.conversas.filter((c) => c.precisa_detalhe).slice(0, DETALHE_POR_CICLO);
+    for (const c of candidatas) {
+      chamadas++;
+      const resposta = await chamarMcp(token, cargaDetalhe(c.ulbra_conversa_id));
+      const ultima = ultimaDoClienteNoDetalhe(resposta, janela.cursor);
+      if (ultima) c.ultima_mensagem_cliente_em = ultima;
+    }
 
     if (lerAtendimentosAgora) {
       atendimentos = lerAtendimentos(await chamarMcp(token, cargaAtendimentos(99)));
@@ -168,11 +185,14 @@ Deno.serve(async (req: Request) => {
   } catch (e) {
     const motivo = (e as Error).message;
     console.error("ulbra-sincronizar: ciclo falhou", motivo);
+    // FALHOU não grava janela nem espelho: o próximo ciclo refaz a mesma coleta.
     await sb.rpc("ulbra_sync_gravar", {
       p_payload: { ciclo: "FALHOU", chamadas, dia: hoje, erro: motivo },
     });
     return json({ ciclo: "FALHOU", erro: motivo, chamadas }, 502);
   }
+
+  const proxima = novaJanela(janela, colheita);
 
   // ------------------------------------------------------------- decisão
   const clientes = [...new Set(atendimentos.map((a) => a.ulbra_cliente_id))];
@@ -193,7 +213,10 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  const linhasConversas = colheita.conversas.map((c) => ({ ...c, ...identificar(c.ulbra_cliente_id, vinculos) }));
+  const linhasConversas = colheita.conversas.map((c: ConversaLida) => ({
+    ...c,
+    ...identificar(c.ulbra_cliente_id, vinculos),
+  }));
 
   const linhasAtendimentos = atendimentos.map((a) => {
     const identidade = identificar(a.ulbra_cliente_id, vinculos);
@@ -208,12 +231,14 @@ Deno.serve(async (req: Request) => {
   // -------------------------------------------------------------- gravação
   const { data: gravado, error } = await sb.rpc("ulbra_sync_gravar", {
     p_payload: {
-      // INCOMPLETO grava os dados lidos, mas NAO avanca o cursor (ver novoCursor).
+      // INCOMPLETO grava o que foi lido e guarda a janela (ver novaJanela).
       ciclo: colheita.truncado ? "INCOMPLETO" : "OK",
-      erro: colheita.truncado ? "BACKLOG_ACIMA_DO_TETO_DE_PAGINAS" : undefined,
+      erro: colheita.truncado ? "BACKLOG_ACIMA_DO_TETO" : undefined,
       chamadas,
       dia: hoje,
-      cursor: novoCursor(cursor, colheita),
+      cursor: proxima.cursor,
+      piso_pendente: proxima.pendente,
+      topo_processado: proxima.topo,
       atendimentos_lidos: lerAtendimentosAgora,
       conversas: linhasConversas,
       atendimentos: linhasAtendimentos,
@@ -229,6 +254,7 @@ Deno.serve(async (req: Request) => {
     chamadas,
     chamadas_dia: chamadasAntes + chamadas,
     ciclo_completo: !colheita.truncado,
+    leituras: colheita.leituras,
     conversas_novas: linhasConversas.length,
     respostas_de_cliente: linhasConversas.filter((c) => c.resposta_do_cliente).length,
     atendimentos_em_espera: lerAtendimentosAgora ? linhasAtendimentos.length : null,

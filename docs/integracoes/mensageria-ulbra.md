@@ -518,3 +518,17 @@ cron (10 min) -> ulbra-sincronizar -> Postgres (ulbra_conversas,
 
 Sem o passo 1 a tela renderiza e não mostra novidade nenhuma: as tabelas não
 existem. É esse o estado do preview desta PR.
+
+### Correções medidas em 08/11/2026 (valem sobre o texto acima)
+
+- `listar_conversas` mostra **só a última mensagem**. Resposta do cliente
+  seguida de operador/bot não aparece na lista; só `ler_conversa` prova. A
+  leitura de detalhe fica desligada por orçamento (ver
+  `ulbra-etapa1-pacote-aprovacao.md`, seção 6).
+- Em `ler_conversa`, o campo `autor` veio **nulo** em mensagens de operador na
+  conversa medida. Não se deve assumir que ele identifica quem respondeu.
+- A gestão no banco (`usuario_e_gestao()`) é uma **lista fixa** de três e-mails,
+  não uma coluna de perfil. Conferido com `pg_get_functiondef`.
+- "Não lida" é por usuário (`ulbra_leitura_usuario`), e por conversa, não por
+  mensagem.
+

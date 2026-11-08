@@ -41,6 +41,9 @@ export const EQUIPE_REATIVA = "Reativa";
 /** Teto de páginas por ciclo. Vale como freio de custo, não como meta. */
 export const MAX_PAGINAS = 3;
 
+/** Teto TOTAL de leituras por ciclo, incluindo páginas só puladas. */
+export const HARD_LEITURAS = 12;
+
 /** `listar_conversas` pagina em no máximo 50 (contrato medido). */
 export const LIMITE_PAGINA = 50;
 
@@ -107,12 +110,26 @@ export function cargaAtendimentos(id = 1) {
 // Conversas: o incremental
 // ---------------------------------------------------------------------------
 //
-// `listar_conversas` NÃO tem filtro "desde" — nenhuma ferramenta do catálogo
-// tem. O que ela tem, e que foi medido em 08/11/2026 nas páginas 1 e 2, é
-// ordenação GLOBAL por `ultimaMensagemEm` decrescente: o piso da página 1 é
-// maior que o teto da página 2. Isso basta para um incremental de verdade —
-// lê-se da página 1 para baixo e para-se na primeira conversa que não é mais
-// nova que o cursor. Em regime, isso é UMA chamada por ciclo.
+// `listar_conversas` NÃO tem filtro "desde". Tem ordenação GLOBAL por
+// `ultimaMensagemEm` decrescente (medido em 08/11: piso da página 1 > teto da
+// página 2). Com isso o estado tem três marcos, e a janela de coleta é:
+//
+//   coleta o item  se  cursor < em  E  (em <= pendente  OU  em > topo)
+//
+//   cursor    = tudo até aqui já foi processado e NÃO precisa ser relido
+//   pendente  = piso do que já foi processado num ciclo INCOMPLETO; itens
+//               acima dele e abaixo do topo já foram processados, pulam
+//   topo      = mensagem mais nova já processada; itens acima dele são novos
+//
+// Ciclo completo: cursor := topo, pendente := null.
+// Ciclo incompleto (teto de páginas): cursor fica; pendente := menor `em`
+// coletado; o empate no piso é devolvido ao próximo ciclo (não se perde nem
+// se duplica). Interrupção: nada é gravado, o próximo ciclo refaz a janela.
+//
+// LIMITE DE ORÇAMENTO: pular páginas custa chamada. Por isso há dois tetos
+// separados: MAX_PAGINAS (páginas COM coleta por ciclo) e HARD_LEITURAS (total
+// de leituras, incluindo as que só pulam). Backlog novo acima de ~HARD_LEITURAS
+// × 50 itens não termina nunca e sai como INCOMPLETO, visível na gestão.
 
 export interface ConversaMcp {
   id?: string;
@@ -136,22 +153,43 @@ export interface ConversaLida {
   ultima_mensagem_em: string;
   ultima_mensagem_quem: string;
   ultima_mensagem_previa: string | null;
-  /** Só `quem === "cliente"` é resposta do aluno. Mensagem do bot ou do
-   *  operador da ULBRA não notifica ninguém: não é resposta recebida. */
-  resposta_do_cliente: boolean;
+  /** Data da última mensagem do CLIENTE que a lista PROVA. Quando a última
+   *  mensagem é do cliente, é ela. Quando é do operador/bot, fica null:
+   *  a lista não mostra se o cliente respondeu antes. Ver `precisaDetalhe`. */
+  ultima_mensagem_cliente_em: string | null;
+  /** Verdadeiro quando a última mensagem NÃO é do cliente e é recente: a
+   *  resposta do cliente pode ter ficado para trás. Só `ler_conversa` prova. */
+  precisa_detalhe: boolean;
+}
+
+export interface Janela {
+  cursor: string | null;
+  pendente: string | null;
+  topo: string | null;
 }
 
 export interface PaginaConversas {
   conversas: ConversaLida[];
-  /** Menor `ultimaMensagemEm` visto na página, mesmo de outra equipe. */
   piso: string | null;
-  /** Verdadeiro quando a página inteira ficou acima do cursor: pode haver
-   *  mais coisa nova na página seguinte. */
   pode_ter_mais: boolean;
   total: number | null;
 }
 
-export function lerPaginaConversas(resposta: unknown, cursor: string | null): PaginaConversas {
+/**
+ * Coleta o item se ele ainda não foi processado:
+ *  - cursor (exclusivo): tudo até ele já está processado;
+ *  - pendente (inclusivo): tudo com em >= pendente e <= topo já está processado.
+ * Um ciclo incompleto só fecha depois de ler TODO o grupo do seu piso, então
+ * o pendente nunca deixa um empate pela metade.
+ */
+function dentroDaJanela(em: string, j: Janela): boolean {
+  if (j.cursor !== null && em <= j.cursor) return false;
+  const jaProcessado =
+    j.pendente !== null && em >= j.pendente && (j.topo === null || em <= j.topo);
+  return !jaProcessado;
+}
+
+export function lerPaginaConversas(resposta: unknown, janela: Janela): PaginaConversas {
   const corpo = resposta as { conversas?: ConversaMcp[]; paginacao?: { total?: number } } | null;
   const itens = Array.isArray(corpo?.conversas) ? corpo!.conversas! : [];
   const total = typeof corpo?.paginacao?.total === "number" ? corpo!.paginacao!.total! : null;
@@ -163,13 +201,12 @@ export function lerPaginaConversas(resposta: unknown, cursor: string | null): Pa
     const em = c?.ultimaMensagemEm ?? c?.ultimaMensagem?.em ?? null;
     if (!em) continue;
     if (piso === null || em < piso) piso = em;
-
-    // Cursor é exclusivo: igual não é novo, e assim a mesma conversa não
-    // notifica duas vezes quando o ciclo repete.
-    if (cursor && em <= cursor) continue;
+    if (!dentroDaJanela(em, janela)) continue;
     if (typeof c.id !== "string" || typeof c.cliente?.id !== "string") continue;
     if ((c.equipe ?? "") !== EQUIPE_REATIVA) continue;
 
+    const quem = c.ultimaMensagem?.quem ?? "desconhecido";
+    const doCliente = quem === "cliente";
     conversas.push({
       ulbra_conversa_id: c.id,
       ulbra_cliente_id: c.cliente.id,
@@ -179,79 +216,138 @@ export function lerPaginaConversas(resposta: unknown, cursor: string | null): Pa
       equipe: EQUIPE_REATIVA,
       responsavel_ulbra: c.responsavel ?? null,
       ultima_mensagem_em: em,
-      ultima_mensagem_quem: c.ultimaMensagem?.quem ?? "desconhecido",
+      ultima_mensagem_quem: quem,
       ultima_mensagem_previa: c.ultimaMensagem?.trecho ?? null,
-      resposta_do_cliente: c.ultimaMensagem?.quem === "cliente",
+      ultima_mensagem_cliente_em: doCliente ? em : null,
+      precisa_detalhe: !doCliente,
     });
   }
 
-  // Página vazia não autoriza seguir: sem piso, não há o que comparar.
+  // Página cheia com itens ainda acima do cursor: pode haver mais.
   const pode_ter_mais =
-    itens.length >= LIMITE_PAGINA && (cursor === null || (piso !== null && piso > cursor));
+    itens.length >= LIMITE_PAGINA && (janela.cursor === null || (piso !== null && piso > janela.cursor));
 
   return { conversas, piso, pode_ter_mais, total };
 }
 
-/**
- * Novo cursor = a mensagem mais recente já processada, e SÓ se a coleta
- * alcançou o cursor antigo (ou seja, nada entre os dois ficou para trás).
- *
- * Se a coleta parou por teto de páginas ANTES de chegar ao cursor antigo, o
- * cursor NÃO anda. Avançá-lo aqui perderia tudo o que ficou entre o topo lido e
- * o cursor: a ordenação é decrescente, e o próximo ciclo pararia no topo.
- * Manter o cursor é o lado seguro: a janela inteira é relida no próximo ciclo
- * (a gravação é idempotente) e o ciclo sai como INCOMPLETO, visível na gestão.
- */
-export function novoCursor(
-  cursor: string | null,
-  colheita: Colheita,
-): string | null {
-  if (colheita.truncado) return cursor;
-  let maior = cursor;
-  for (const p of colheita.paginas) {
-    for (const c of p.conversas) {
-      if (maior === null || c.ultima_mensagem_em > maior) maior = c.ultima_mensagem_em;
-    }
+/** Mensagem mais nova do cliente que `ler_conversa` mostra acima do cursor. */
+export function ultimaDoClienteNoDetalhe(resposta: unknown, cursor: string | null): string | null {
+  const corpo = resposta as { mensagens?: Array<{ quem?: string; em?: string }> } | null;
+  const msgs = Array.isArray(corpo?.mensagens) ? corpo!.mensagens! : [];
+  let maior: string | null = null;
+  for (const m of msgs) {
+    if (m?.quem !== "cliente" || typeof m.em !== "string") continue;
+    if (cursor !== null && m.em <= cursor) continue;
+    if (maior === null || m.em > maior) maior = m.em;
   }
   return maior;
 }
 
+export function cargaDetalhe(conversaId: string, id = 1) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    method: "tools/call",
+    params: { name: "ler_conversa", arguments: { id: conversaId, limite: 20 } },
+  };
+}
+
 export interface Colheita {
-  paginas: PaginaConversas[];
-  /** Verdadeiro quando o teto de páginas acabou com itens ainda acima do cursor. */
-  truncado: boolean;
-  /** Conversas da equipe Reativa, na ordem em que foram lidas. */
   conversas: ConversaLida[];
+  /** Páginas lidas (inclusive as que só pularam). */
+  leituras: number;
+  truncado: boolean;
+  /** Menor `em` coletado neste ciclo; vira o pendente se truncar. */
+  piso_coletado: string | null;
+  /** Maior `em` visto neste ciclo (coletado). Vira o topo. */
+  topo_coletado: string | null;
 }
 
 /**
- * Lê as páginas da mais nova para a mais antiga, até o cursor ou o teto.
- *
- * `buscarPagina(n)` é injetado: em produção chama a Mensageria; no teste, uma
- * lista em memória que pode mudar ENTRE uma página e outra — que é o caso real
- * de mensagem chegando durante a leitura.
+ * Lê as páginas da mais nova para a mais antiga. `buscarPagina(n)` é injetado:
+ * em produção chama a Mensageria; no teste, uma lista em memória que pode
+ * mudar entre páginas (mensagem chegando no meio da leitura).
  */
 export async function colherConversas(
   buscarPagina: (pagina: number) => Promise<unknown>,
-  cursor: string | null,
-  maxPaginas = MAX_PAGINAS,
+  janela: Janela,
+  limites: { maxPaginas?: number; hardLeituras?: number } = {},
 ): Promise<Colheita> {
-  const paginas: PaginaConversas[] = [];
-  let conversas: ConversaLida[] = [];
+  const maxPaginas = limites.maxPaginas ?? MAX_PAGINAS;
+  const hardLeituras = limites.hardLeituras ?? HARD_LEITURAS;
+  const conversas: ConversaLida[] = [];
+  let leituras = 0;
+  let paginasComColeta = 0;
   let truncado = false;
-  for (let pagina = 1; pagina <= maxPaginas; pagina++) {
-    const lida = lerPaginaConversas(await buscarPagina(pagina), cursor);
-    paginas.push(lida);
-    conversas = conversas.concat(lida.conversas);
-    if (!lida.pode_ter_mais) {
-      truncado = false;
+  let piso_coletado: string | null = null;
+  let topo_coletado: string | null = null;
+
+  // Paginação por offset: uma mensagem nova no topo empurra os itens para a
+  // página seguinte, e um item pode aparecer em duas páginas do mesmo ciclo.
+  // Dedupe pelo id dentro do ciclo; entre ciclos, a janela cuida disso.
+  const vistos = new Set<string>();
+  const recolher = (lista: ConversaLida[]) => {
+    for (const c of lista) {
+      if (vistos.has(c.ulbra_conversa_id)) continue;
+      vistos.add(c.ulbra_conversa_id);
+      conversas.push(c);
+      if (piso_coletado === null || c.ultima_mensagem_em < piso_coletado) piso_coletado = c.ultima_mensagem_em;
+      if (topo_coletado === null || c.ultima_mensagem_em > topo_coletado) topo_coletado = c.ultima_mensagem_em;
+    }
+  };
+
+  for (let pagina = 1; pagina <= hardLeituras; pagina++) {
+    const lida = lerPaginaConversas(await buscarPagina(pagina), janela);
+    leituras++;
+    if (lida.conversas.length > 0) paginasComColeta++;
+    recolher(lida.conversas);
+
+    // Fim da janela: nada mais acima do cursor. Ciclo completo.
+    if (!lida.pode_ter_mais) break;
+
+    if (paginasComColeta >= maxPaginas) {
+      // Teto atingido. Antes de parar, olha a página seguinte: só o grupo com o
+      // MESMO horário do piso entra (não pode ser partido); o resto fica pendente.
+      if (pagina + 1 > hardLeituras) {
+        truncado = true;
+        break;
+      }
+      const prox = lerPaginaConversas(await buscarPagina(pagina + 1), janela);
+      leituras++;
+      if (piso_coletado !== null) {
+        recolher(prox.conversas.filter((c) => c.ultima_mensagem_em === piso_coletado));
+      }
+      // Ainda há item não processado abaixo do piso, acima do cursor?
+      // Conservador: itens com o mesmo horário do piso que sobraram contam como
+      // pendentes. Um ciclo a mais, nunca uma perda.
+      truncado =
+        prox.piso !== null &&
+        piso_coletado !== null &&
+        prox.piso <= piso_coletado &&
+        (janela.cursor === null || prox.piso > janela.cursor);
       break;
     }
-    // Ainda há itens acima do cursor e o teto acabou: não é concluído.
-    if (pagina === maxPaginas) truncado = true;
   }
-  return { paginas, truncado, conversas };
+  return { conversas, leituras, truncado, piso_coletado, topo_coletado };
 }
+
+/** Janela do PRÓXIMO ciclo. Ciclo completo fecha o backlog; incompleto guarda o piso. */
+export function novaJanela(janela: Janela, colheita: Colheita): Janela {
+  const topoNovo = maiorDeDois(janela.topo, colheita.topo_coletado);
+  if (!colheita.truncado) {
+    return { cursor: topoNovo, pendente: null, topo: topoNovo };
+  }
+  // Incompleto: o empate no piso volta ao próximo ciclo (não é marcado como visto).
+  const pendenteNovo = colheita.piso_coletado ?? janela.pendente;
+  return { cursor: janela.cursor, pendente: pendenteNovo, topo: topoNovo };
+}
+
+function maiorDeDois(a: string | null, b: string | null): string | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return a > b ? a : b;
+}
+
 
 // ---------------------------------------------------------------------------
 // Atendimentos novos
