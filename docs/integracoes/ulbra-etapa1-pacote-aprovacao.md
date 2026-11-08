@@ -427,3 +427,127 @@ antes de qualquer publicação. Não exige migration, função nem cron.
 6. Aplicar, publicar e agendar: **nenhum** passo foi executado. Cada um depende da
    aprovação do pacote.
 
+
+---
+
+## 14. Piloto de observação (autorizado em 08/11/2026): substitui a configuração de 2 e 13.3
+
+A gestão autorizou a implantação **como piloto de observação**: sincronização
+central e **painel restrito à gestão**, sem assumir, dispensar, transferir ou
+distribuir atendimento. Esta seção manda sobre a ordem da seção 2.
+
+### 14.1 Os três ajustes, já na migration
+
+1. **`assumir` e `dispensar` sem `EXECUTE` para `authenticated`.** As funções
+   continuam criadas; o `revoke` é explícito porque o ambiente tem
+   `alter default privileges ... grant execute on functions to authenticated` —
+   **omitir o grant não bastaria**. Como as duas são `security definer`, o grant
+   era o portão inteiro.
+2. **`ulbra_conversas_leitura` e `ulbra_atendimentos_leitura` só com
+   `usuario_e_gestao()`.** A sincronização **continua gravando** `destino_email`
+   e `destino_motivo`: é assim que o piloto mede o que o rodízio *teria*
+   decidido, sem que a sugestão chegue a operador nenhum.
+   **Por que esvaziar a fila do rodízio não resolveria:** `decidirDestino` marca
+   `CARTEIRA` sempre que o aluno tem caso com operador, **antes** de consultar o
+   rodízio. Com a fila vazia, o caminho `CARTEIRA` continua valendo.
+3. **O cron chama `ulbra_sincronizar_disparar()`**, que lê `projeto_url` e
+   `ulbra_sync_chave` do Vault, em vez de levar a chave no corpo. O corpo do
+   cron fica em `cron.job`, que é tabela legível: a chave viraria segredo em
+   texto numa tabela de agendamento.
+
+Nada foi aplicado, publicado ou agendado.
+
+### 14.2 Provas desta rodada
+
+- `sincronizar.test.ts`: **41** (eram 34; +7 do portão da chave).
+- `fila.test.ts` 14 + `fila2.test.ts` 20.
+- `supabase/tests/ulbra_recebimento.test.js` em PGlite e no job
+  `ulbra-recebimento-sql` (Postgres 17 do CI), agora com
+  **`08_regime_pos_piloto.sql`** entre 03 e 05.
+- `deno check` com Deno fixado em 2.1.4: passa.
+
+**O portão da chave, provado sem gastar chamada da Mensageria.** `portaoSync`
+saiu de dentro do `Deno.serve` para `sincronizar.ts`: é função pura, não recebe
+cliente HTTP e não conhece o token do MCP, então a recusa é decidida antes de
+qualquer chamada poder sair. Casos provados: sem cabeçalho → 403
+`ACESSO_NEGADO`; cabeçalho vazio → 403; chave errada **do mesmo tamanho** → 403;
+prefixo correto e tamanho diferente → 403; **segredo ausente no ambiente** →
+403 mesmo sem cabeçalho (o pior caso: função publicada sem segredo não vira
+porta aberta); chave correta → entra. Um dos casos instala um `fetch` que falha
+o teste se for chamado, e exercita os quatro cenários com ele instalado.
+
+**Nenhuma prova foi descartada.** As regras de regime (operador vê a conversa
+do aluno da sua carteira e o atendimento sugerido a ele; `assumir` com
+`E_DA_CARTEIRA_DE_OUTRO`, `IDENTIDADE_NAO_CONFIRMADA`, `JA_ASSUMIDO` e a exceção
+da gestão) foram para `08_regime_pos_piloto.sql`, que **aplica o regime,
+reexecuta as afirmações e volta ao piloto no fim**. Esse overlay é, em
+miniatura, a migration de fim de piloto — se o regime quebrar, o CI acusa agora.
+
+### 14.3 Ordem de aplicação — cron por último
+
+| # | Passo | Prova |
+| --- | --- | --- |
+| 1 | aplicar a migration | `has_function_privilege('authenticated','ulbra_atendimento_assumir(text)','EXECUTE')` = false |
+| 2 | `ULBRA_SYNC_CHAVE` no **ambiente da função** | deixa de responder `CONFIG_AUSENTE` |
+| 3 | mesma chave no **Vault** (`ulbra_sync_chave`) + `projeto_url` | `ulbra_sincronizar_disparar()` não levanta `SEGREDO_AUSENTE` |
+| 4 | publicar com `verify_jwt = false` | função ACTIVE |
+| 5 | teste autenticado controlado | sem chave → 403; chave inválida → 403; chave válida → 1 ciclo |
+| 6 | **só então** o cron de 10 min | `cron.job` sem segredo no corpo |
+
+A chave vai nos dois lugares porque são dois consumidores: o ambiente **confere**
+a requisição; o Vault **fornece** ao disparo pelo banco.
+
+### 14.4 Pausa
+
+| Nível | Comando | Efeito |
+| --- | --- | --- |
+| pausar | `update cron.job set active = false where jobname = 'ulbra_sincronizar';` | para de disparar; estado preservado |
+| remover | `select cron.unschedule('ulbra_sincronizar');` | nada mais dispara sozinho |
+| fechar a porta | rotacionar `ULBRA_SYNC_CHAVE` (ambiente **e** Vault) | toda chamada passa a 403 |
+
+### 14.5 Correção de duas afirmações minhas
+
+**(a) Ausência de `client_id` no repositório não prova ausência de cadastro na
+ULBRA.** O que está provado é mais estreito: o ReATIVA **não usa** cliente
+OAuth — fala com a Mensageria só pelo Bearer `ULBRA_MCP_TOKEN`, e não há
+`client_id`, segredo de cliente nem endpoint de autorização em `src/` ou
+`supabase/`. Se existe algum cadastro feito pela ULBRA em nome do ReATIVA,
+**isso o repositório não sabe e não pode saber** — quem responde é a TI da
+ULBRA, e é pergunta a fazer **antes** de pedir cadastro novo. O que o
+repositório mostra é que a única conexão OAuth em uso é a do Claude
+(`aplicativo: "claude-web"`, registrado no fixture de `fila2.test.ts`), de outro
+aplicativo e com `redirect_uri` de outro aplicativo.
+
+**(b) O rollback apaga mais que o espelho.** Além de `ulbra_conversas`,
+`ulbra_atendimentos` e `ulbra_sync_estado` — que a sincronização reconstrói
+lendo a Mensageria —, ele derruba o que **nasce aqui e não existe fora**:
+`ulbra_leitura_usuario` (os marcadores de leitura por usuário: quem leu o quê e
+até quando), `ulbra_detalhe_pendencias` (as pendências locais de
+`ALCANCE_ESGOTADO`, com o ponto de retomada `antes_de`), `ulbra_detalhe_fila`
+(tentativas já gastas) e, em `ulbra_atendimentos`, quem assumiu e quem
+dispensou. O cabeçalho do arquivo de rollback agora separa o que é
+reconstruível do que não é, e lista os três backups a tirar antes — com o aviso
+de que tabela de backup nasce aberta para `authenticated`, TRUNCATE incluso.
+
+### 14.6 Pendências, atualizadas
+
+1. **Coleta de volume (λ)** em horário operacional a combinar. **Variante
+   aprovada: 2 horas, somente leitura, teto de 15 chamadas** (12 ×
+   `listar_conversas` a cada 10 min + 2 × `meu_acesso`) = 14 previstas, 2,8% da
+   cota. Protocolo pronto; **não executada e não agendada**. Limitação: 2 h são
+   uma fatia, não a curva do dia — dão ordem de grandeza e um pico local.
+2. **Configuração recomendada para 12 h, a ratificar pela coleta:** K=1, ciclo
+   de 10 min, atendimentos a cada 30, `meu_acesso` a cada 60, cron restrito à
+   janela — 207 chamadas em 12 h, 267 com as fichas, folga de 233. K=2 só cabe
+   com o cron restrito à janela (290), nunca em 24 h (580).
+3. **TI da ULBRA:** natureza do `ULBRA_MCP_TOKEN` (serviço × pessoa); teto por
+   organização acima do `pessoaPorDia`; validade de access e refresh token;
+   **se já existe cliente OAuth cadastrado para o ReATIVA** (ver 14.5a) e, se
+   não, o cadastro para a Etapa 2.
+4. **Autoria:** a credencial central **nunca** envia em nome de operador —
+   `enviar_mensagem_whatsapp` não tem campo de autor e sai "com o nome de quem
+   atende". No piloto não se apresenta: não há envio.
+5. **Fim do piloto:** reconceder `EXECUTE` de `assumir`/`dispensar` e devolver os
+   ramos de operador às duas policies, em migration própria — conteúdo já
+   escrito e provado em `08_regime_pos_piloto.sql`.
+6. Eventos ou webhooks da plataforma: não verificado.

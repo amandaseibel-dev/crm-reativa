@@ -27,6 +27,11 @@ describe("ULBRA recebimento — Postgres real (PGlite)", () => {
     await db.exec(sqlDe(`${DIR}/02_dados.sql`));
     // Cada afirmação falha alto com 'FALHOU: ...': exec() rejeita e o teste cai.
     await db.exec(sqlDe(`${DIR}/03_leitura_por_usuario.sql`));
+    // 08 vem AQUI, logo depois de 03, e não no fim: ele conta linhas de
+    // `ulbra_conversas` (3) e `ulbra_atendimentos` (4), e os arquivos 05, 06 e
+    // 07 inserem conversas próprias. Rodando depois deles, as contagens de
+    // regime mudariam e a prova viraria ruído.
+    await db.exec(sqlDe(`${DIR}/08_regime_pos_piloto.sql`));
     await db.exec(sqlDe(`${DIR}/05_resposta_seguida_de_operador.sql`));
     await db.exec(sqlDe(`${DIR}/06_fila_de_detalhes.sql`));
     await db.exec(sqlDe(`${DIR}/07_reabrir_pendencia.sql`));

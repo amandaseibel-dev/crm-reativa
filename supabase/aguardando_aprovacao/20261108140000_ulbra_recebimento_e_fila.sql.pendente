@@ -199,38 +199,33 @@ revoke all on public.ulbra_detalhe_pendencias from authenticated, anon, public;
 grant select on public.ulbra_detalhe_pendencias to authenticated;
 revoke all on public.ulbra_detalhe_fila from authenticated, anon, public;
 
--- LEITURA POR USUARIO. A regra e a MESMA da tela, aplicada no banco -- senao
--- qualquer usuario ativo leria o espelho inteiro por SQL, e a separacao por
--- operador existiria so no front.
---   conversa:     gestao ve tudo; operador ve a dos alunos que sao casos dele
---   atendimento:  gestao ve tudo; operador ve o que e sugerido a ele ou que ele
---                 assumiu. Conferencia e SEM_OPERADOR so para a gestao.
--- O painel da TV e barrado, como nas demais.
+-- LEITURA. A regra e aplicada no banco -- senao qualquer usuario ativo leria o
+-- espelho inteiro por SQL, e a separacao existiria so no front. O painel da TV
+-- e barrado, como nas demais.
+--
+-- PILOTO DE OBSERVACAO (autorizado em 08/11/2026): SO A GESTAO LE.
+--
+-- A sincronizacao CONTINUA gravando `destino_email` e `destino_motivo`: e assim
+-- que o piloto mede o que o rodizio TERIA decidido, sem que a sugestao chegue a
+-- operador nenhum. Os campos existem, sao preenchidos e ninguem fora da gestao
+-- os ve.
+--
+-- Por que o ramo de operador tinha de sair, e nao bastava esvaziar a fila do
+-- rodizio: `decidirDestino` marca `CARTEIRA` sempre que o aluno tem caso com
+-- operador, ANTES de consultar o rodizio (sincronizar.ts). Com a fila vazia o
+-- caminho CARTEIRA continua valendo, e o operador continuaria vendo.
+--
+-- A regra de regime -- gestao ve tudo; operador ve a conversa dos alunos que
+-- sao casos dele e o atendimento sugerido a ele ou por ele assumido -- esta
+-- provada em `08_regime_pos_piloto.sql`, que a aplica e reexecuta as
+-- afirmacoes. E esse arquivo que descreve a migration de fim de piloto.
 create policy ulbra_conversas_leitura on public.ulbra_conversas
   for select to authenticated using (
-    not eh_painel() and app_usuario_ativo() and (
-      usuario_e_gestao()
-      or exists (
-        select 1 from public.casos c
-         where c.aluno_id = ulbra_conversas.aluno_id
-           and lower(c.operador_email) = app_email()
-      )
-    )
+    not eh_painel() and app_usuario_ativo() and usuario_e_gestao()
   );
 create policy ulbra_atendimentos_leitura on public.ulbra_atendimentos
   for select to authenticated using (
-    not eh_painel() and app_usuario_ativo() and (
-      usuario_e_gestao()
-      or (
-        lower(coalesce(responsavel_email, '')) = app_email()
-      )
-      or (
-        responsavel_email is null
-        and destino_motivo in ('CARTEIRA', 'RODIZIO')
-        and lower(coalesce(destino_email, '')) = app_email()
-        and dispensado_em is null
-      )
-    )
+    not eh_painel() and app_usuario_ativo() and usuario_e_gestao()
   );
 -- Estado do ciclo e diagnostico: so gestao.
 create policy ulbra_sync_estado_leitura on public.ulbra_sync_estado
@@ -588,9 +583,23 @@ revoke all on function public.ulbra_atendimento_assumir(text) from public, anon;
 revoke all on function public.ulbra_atendimento_dispensar(text, text) from public, anon;
 revoke all on function public.ulbra_detalhe_reabrir(text) from public, anon;
 grant execute on function public.ulbra_detalhe_reabrir(text) to authenticated;
-grant execute on function public.ulbra_atendimento_assumir(text) to authenticated;
-grant execute on function public.ulbra_atendimento_dispensar(text, text) to authenticated;
 grant execute on function public.ulbra_conversa_marcar_lida(text) to authenticated;
+
+-- PILOTO DE OBSERVACAO (autorizado em 08/11/2026) -----------------------------
+-- `assumir` e `dispensar` NAO recebem EXECUTE de `authenticated`. As funcoes
+-- ficam criadas -- o codigo e as provas continuam valendo e o fim do piloto so
+-- reconcede --, mas no piloto NINGUEM alem de `service_role` as executa.
+--
+-- Por que o grant era o unico portao: as duas sao `security definer`. Sem
+-- EXECUTE a chamada morre antes de entrar na funcao; com EXECUTE, quem decide
+-- e a regra interna. O piloto nao quer a regra interna, quer a porta fechada.
+--
+-- O REVOKE e explicito em vez de "nao conceder" de proposito: o ambiente tem
+-- `alter default privileges ... grant execute on functions to authenticated`
+-- (reproduzido em 01_ambiente.sql), que faz funcao nova nascer executavel.
+-- Omitir o grant NAO bastaria.
+revoke all on function public.ulbra_atendimento_assumir(text)         from public, anon, authenticated;
+revoke all on function public.ulbra_atendimento_dispensar(text, text) from public, anon, authenticated;
 
 -- ============================================================================
 -- DISPARADOR DO CRON. Define a funcao, NAO agenda. O agendamento e o ultimo
@@ -640,17 +649,23 @@ commit;
 --   2. gravar o segredo `ULBRA_SYNC_CHAVE` no ambiente da funcao e no Vault
 --      do banco (nome sugerido: `ulbra_sync_chave`);
 --   3. so entao criar o cron de 10 minutos, que e o numero que cabe no teto
---      de 500 chamadas/dia com folga para as fichas:
+--      de 500 chamadas/dia com folga para as fichas. O cron NAO carrega o
+--      segredo: chama o disparador, que le do Vault.
 --
---      select cron.schedule('ulbra_sincronizar', '*/10 * * * *', $cron$
---        select net.http_post(
---          url := '<SUPABASE_URL>/functions/v1/ulbra-sincronizar',
---          headers := jsonb_build_object('x-sync-chave', '<LEITURA DO VAULT -- a forma
---            exata depende de como o projeto le segredo no banco; nao ha funcao
---            propria para isso hoje, e inventar uma aqui seria chute>'),
---          timeout_milliseconds := 20000);
---      $cron$);
+--      select cron.schedule('ulbra_sincronizar', '*/10 * * * *',
+--        $cron$ select public.ulbra_sincronizar_disparar(); $cron$);
 --
---   Antes do passo 3, o ciclo pode ser disparado a mao, uma vez, para
---   conferir o resultado com alguem olhando.
+--      `ulbra_sincronizar_disparar()` (criada acima) le `projeto_url` e
+--      `ulbra_sync_chave` de `vault.decrypted_secrets`, monta o `net.http_post`
+--      com o cabecalho `x-sync-chave` e levanta SEGREDO_AUSENTE se faltar
+--      qualquer um dos dois. Ela ja esta revogada de `public`, `anon` e
+--      `authenticated`.
+--
+--      POR QUE ASSIM, e nao com a chave no corpo do cron: o corpo fica em
+--      `cron.job`, que e tabela legivel -- a chave viraria segredo guardado em
+--      texto numa tabela de agendamento. Chamando o disparador, a definicao do
+--      cron nao contem segredo nenhum.
+--
+--   Antes do passo 3, o ciclo pode ser disparado a mao, uma vez, pela mesma
+--   funcao, para conferir o resultado com alguem olhando.
 -- ============================================================================

@@ -10,15 +10,35 @@
 -- de mesmo nome (conferido em producao em 08/11/2026: nao existe `ulbra_sync_*`
 -- nem `ulbra_atendimento_*` no schema public).
 --
--- O QUE SE PERDE AO RODAR: o cursor do incremental e o espelho das conversas
--- e dos atendimentos. Nada disso e fonte da verdade -- a fonte e a Mensageria,
--- e a sincronizacao reconstroi lendo de novo. O que NAO volta e o trabalho
--- registrado so aqui: quem assumiu, quem dispensou e com que motivo. Antes de
--- rodar, se houver linha com `responsavel_email` ou `dispensado_em`, copiar:
+-- O QUE SE PERDE AO RODAR -- e NAO e so o espelho:
+--
+--   a) RECONSTRUIVEL lendo a Mensageria de novo: o espelho das conversas e dos
+--      atendimentos (`ulbra_conversas`, `ulbra_atendimentos`) e o cursor do
+--      incremental (`ulbra_sync_estado`). A fonte e a Mensageria.
+--
+--   b) NAO RECONSTRUIVEL -- nasce aqui e nao existe em lugar nenhum fora:
+--      - `ulbra_leitura_usuario`: os MARCADORES DE LEITURA por usuario (quem
+--        leu o que, e ate quando). Sumindo, toda conversa volta a aparecer como
+--        nao lida para todo mundo.
+--      - `ulbra_detalhe_pendencias`: as PENDENCIAS LOCAIS de alcance
+--        (`ALCANCE_ESGOTADO`) com o ponto de retomada `antes_de`. Sumindo,
+--        perde-se onde cada leitura de historico parou -- e a retomada volta
+--        ao inicio.
+--      - `ulbra_detalhe_fila`: a fila de detalhes com as tentativas ja gastas.
+--      - em `ulbra_atendimentos`, o trabalho registrado so aqui: quem assumiu,
+--        quem dispensou e com que motivo.
+--
+-- Antes de rodar, copiar o que e do grupo (b):
 --
 --   create table ulbra_atendimentos_backup_<data> as
 --     select * from public.ulbra_atendimentos
 --      where responsavel_email is not null or dispensado_em is not null;
+--   create table ulbra_leitura_usuario_backup_<data>   as select * from public.ulbra_leitura_usuario;
+--   create table ulbra_detalhe_pendencias_backup_<data> as select * from public.ulbra_detalhe_pendencias;
+--
+-- Tabela de backup nasce aberta para `authenticated`, TRUNCATE incluso
+-- (memoria `tabela-nova-herda-truncate-para-authenticated`): ligar RLS e
+-- revogar, ou cria-la em schema fora do `public`.
 --
 -- ORDEM: funcoes antes das tabelas, porque sao elas que referenciam.
 -- Se o cron do passo 3 ja existir, ele TEM de sair primeiro -- senao continua

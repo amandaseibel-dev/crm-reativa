@@ -27,8 +27,51 @@ fala com ele pelo endpoint MCP JSON-RPC 2.0 `https://crm.ulbra.ai/api/mcp`
 | `abrir_atendimento` | `atendimentos:write` | `cliente, equipe?, atendente?` | abre já ACEITO na fila do atendente; `ja_existia` se já é dele |
 | `criar_atendimentos_da_lista` | `atendimentos:write` | `linhas[≤20], previa (padrão true)` | prévia por linha; grava só com `previa:false` |
 
-**Não expostos:** conversas, mensagens, envio, campanhas, templates,
-transferência de atendimento, edição de cadastro, relatórios.
+**Atualização de 08/11/2026 — a lista de 8 ferramentas acima é a superfície
+medida em 04/11 e NÃO é mais a superfície disponível.** O metadado público do
+recurso protegido (`/.well-known/oauth-protected-resource`, consultado sem
+gastar chamada) declara 22 escopos, entre eles `conversas:read`,
+`mensagens:enviar`, `atendimentos:atender`, `atendimentos:fila`,
+`atendimentos:pedir`, `atendimentos:decidir`, `equipes:read`,
+`relatorios:read`, `campanhas:read/write/disparar`. Conversas, mensagens,
+envio, campanhas, templates e transferência **existem** — o que vale é o escopo
+da credencial, não esta lista. A etapa 1 do recebimento usa quatro, todas de
+leitura: `listar_conversas`, `ler_conversa`, `listar_atendimentos`,
+`meu_acesso`.
+
+## OAuth: o que os metadados públicos dizem (08/11/2026)
+
+Lido de `https://crm.ulbra.ai/.well-known/oauth-protected-resource` e
+`https://crm.ulbra.ai/.well-known/oauth-authorization-server/api/oauth`, **sem
+consumir a cota**:
+
+| Campo | Valor |
+|---|---|
+| `issuer` | `https://crm.ulbra.ai/api/oauth` |
+| `authorization_endpoint` | `/api/oauth/auth` |
+| `token_endpoint` | `/api/oauth/token` |
+| `revocation_endpoint` | `/api/oauth/token/revocation` |
+| `grant_types_supported` | `authorization_code`, `refresh_token` |
+| `code_challenge_methods_supported` | `S256` (PKCE) |
+| `token_endpoint_auth_methods_supported` | `none` — **cliente público, sem segredo** |
+| `registration_endpoint` | **ausente** — não há registro dinâmico |
+
+Consequências para um desenho de autorização individual por operador:
+
+- o fluxo por pessoa é de primeira classe, com renovação (`refresh_token`) e
+  revogação (endpoint próprio);
+- **um `client_id` do ReATIVA depende da TI da ULBRA**, porque não há DCR;
+- cliente público não tem segredo, então refresh token **nunca** no navegador:
+  servidor, em tabela com RLS deny-all e acesso só por `service_role`;
+- **autoria é implícita, do dono da conexão.** `enviar_mensagem_whatsapp` não
+  tem parâmetro de autor e sai "com o nome de quem atende";
+  `assumir_ou_devolver_ao_bot` deixa a conversa "com a pessoa". Enviar por uma
+  credencial central gravaria a gestão como autora de toda resposta;
+- o ReATIVA **não usa** cliente OAuth hoje: fala com a Mensageria só pelo
+  Bearer `ULBRA_MCP_TOKEN`. A única conexão OAuth em uso é a do **Claude**
+  (`aplicativo: "claude-web"`), de outro aplicativo. **Isso não prova que a
+  ULBRA não tenha algum cadastro em nome do ReATIVA** — essa resposta é da TI,
+  e a pergunta vem antes de pedir cadastro novo.
 
 Armadilha medida: `conferir_duplicidade` devolveu `existe:true` com
 `equipe:null` para telefone inexistente — sem `cliente.id` e sem `equipe` não é

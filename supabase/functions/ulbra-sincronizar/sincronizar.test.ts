@@ -21,6 +21,7 @@ import {
   lerPaginaConversas,
   novaJanela,
   operadoresDisponiveis,
+  portaoSync,
   proximoDoRodizio,
   resultadoDoEnvelope,
   ultimaDoClienteNoDetalhe,
@@ -462,3 +463,73 @@ describe("orçamento", () => {
   });
 });
 
+
+// ---------------------------------------------------------------------------
+// Portão da chave: a recusa, provada SEM gastar chamada da Mensageria
+// ---------------------------------------------------------------------------
+// A função é publicada com `verify_jwt = false`: o Supabase não barra ninguém e
+// o portão inteiro é o cabeçalho `x-sync-chave`. Então o que precisa de prova
+// aqui é a RECUSA, não o sucesso.
+//
+// Por que estes casos não consomem a API da ULBRA: `portaoSync` é uma função
+// pura — não recebe cliente HTTP, não importa `fetch`, não conhece o token do
+// MCP. A decisão de recusar existe antes de qualquer chamada poder sair. Para
+// não depender só do argumento, o último caso instala um `fetch` que falha o
+// teste se for chamado, e exercita os três cenários com ele instalado.
+describe("portão da chave (verify_jwt = false)", () => {
+  const SEGREDO = "chave-secreta-de-32-caracteres!!";
+
+  it("sem cabeçalho nenhum: recusa com 403 ACESSO_NEGADO", () => {
+    const d = portaoSync(null, SEGREDO);
+    expect(d.ok).toBe(false);
+    if (!d.ok) {
+      expect(d.status).toBe(403);
+      expect(d.corpo).toEqual({ erro: "ACESSO_NEGADO" });
+    }
+  });
+
+  it("cabeçalho vazio: recusa", () => {
+    expect(portaoSync("", SEGREDO).ok).toBe(false);
+  });
+
+  it("chave inválida do mesmo tamanho: recusa", () => {
+    const errada = "chave-secreta-de-32-caracteres!?";
+    expect(errada.length).toBe(SEGREDO.length); // o caso interessante
+    expect(portaoSync(errada, SEGREDO).ok).toBe(false);
+  });
+
+  it("chave inválida de outro tamanho, e prefixo correto: recusa", () => {
+    expect(portaoSync("chave-secreta", SEGREDO).ok).toBe(false);
+    expect(portaoSync(SEGREDO + "a", SEGREDO).ok).toBe(false);
+  });
+
+  it("segredo ausente no ambiente: recusa, mesmo sem cabeçalho", () => {
+    // O pior caso: função publicada sem o segredo configurado. Não pode virar
+    // porta aberta.
+    expect(portaoSync(null, undefined).ok).toBe(false);
+    expect(portaoSync("", "").ok).toBe(false);
+    expect(portaoSync("qualquer-coisa", "").ok).toBe(false);
+  });
+
+  it("chave correta: entra", () => {
+    expect(portaoSync(SEGREDO, SEGREDO)).toEqual({ ok: true });
+  });
+
+  it("nenhum dos casos de recusa faz chamada de rede", () => {
+    const original = globalThis.fetch;
+    let chamadas = 0;
+    globalThis.fetch = (() => {
+      chamadas++;
+      throw new Error("portaoSync NAO pode chamar a rede");
+    }) as typeof fetch;
+    try {
+      portaoSync(null, SEGREDO);
+      portaoSync("", SEGREDO);
+      portaoSync("errada", SEGREDO);
+      portaoSync(SEGREDO, SEGREDO);
+    } finally {
+      globalThis.fetch = original;
+    }
+    expect(chamadas).toBe(0);
+  });
+});

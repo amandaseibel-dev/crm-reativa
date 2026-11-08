@@ -48,6 +48,58 @@ export const HARD_LEITURAS = 12;
 export const LIMITE_PAGINA = 50;
 
 // ---------------------------------------------------------------------------
+// Portão de acesso da função: a chave, e só a chave
+// ---------------------------------------------------------------------------
+// A função é publicada com `verify_jwt = false`, porque quem a chama é o cron
+// e não a tela de ninguém. Consequência direta: **o Supabase não barra
+// ninguém** — o portão inteiro é o cabeçalho `x-sync-chave`. Se este portão
+// falhar aberto, a função fica exposta na internet.
+//
+// Mora aqui, fora do `Deno.serve`, para ser provável sem rede, sem Deno.env e
+// **sem gastar uma única chamada da Mensageria**: a decisão de recusar é
+// tomada antes de existir qualquer cliente HTTP. É o mesmo desenho do portão
+// da `ulbra-consultar` (`portao.ts`).
+
+export type DecisaoPortaoSync =
+  | { ok: true }
+  | { ok: false; status: 403; corpo: { erro: "ACESSO_NEGADO" } };
+
+const NEGADO: DecisaoPortaoSync = { ok: false, status: 403, corpo: { erro: "ACESSO_NEGADO" } };
+
+/**
+ * Comparação de tempo fixo: percorre a chave inteira sempre, acumulando as
+ * diferenças em XOR. Sair no primeiro byte diferente vazaria, pelo tempo de
+ * resposta, quanto do prefixo está certo.
+ *
+ * O tamanho é comparado antes porque não há como esconder: chaves de tamanhos
+ * diferentes não são comparáveis byte a byte. O que isso revela é o
+ * comprimento do segredo, não o conteúdo.
+ */
+export function chaveConfere(recebida: string, esperada: string): boolean {
+  if (recebida.length !== esperada.length) return false;
+  let diferenca = 0;
+  for (let i = 0; i < recebida.length; i++) {
+    diferenca |= recebida.charCodeAt(i) ^ esperada.charCodeAt(i);
+  }
+  return diferenca === 0;
+}
+
+/**
+ * Decide se a requisição entra. Recusa, com 403 e sem olhar mais nada:
+ * - cabeçalho ausente (`null`) ou vazio;
+ * - chave diferente da esperada, em conteúdo ou em tamanho.
+ *
+ * Segredo vazio ou ausente no ambiente **também** recusa — senão uma função
+ * publicada sem o segredo configurado aceitaria requisição sem cabeçalho,
+ * que é exatamente o pior caso.
+ */
+export function portaoSync(recebida: string | null | undefined, esperada: string | null | undefined): DecisaoPortaoSync {
+  if (!esperada) return NEGADO;
+  if (!recebida) return NEGADO;
+  return chaveConfere(recebida, esperada) ? { ok: true } : NEGADO;
+}
+
+// ---------------------------------------------------------------------------
 // Leitura do envelope
 // ---------------------------------------------------------------------------
 

@@ -271,6 +271,10 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
           psql -v ON_ERROR_STOP=1 -f "$DIR/02_dados.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_leitura_por_usuario.sql"
+          # 08 logo depois de 03: ele conta conversas (3) e atendimentos (4), e
+          # 05/06/07 inserem conversas proprias. Depois deles, as contagens de
+          # regime mudariam.
+          psql -v ON_ERROR_STOP=1 -f "$DIR/08_regime_pos_piloto.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/05_resposta_seguida_de_operador.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/06_fila_de_detalhes.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/07_reabrir_pendencia.sql"

@@ -33,6 +33,22 @@ begin
   perform public.afirmar(ok_trunc, 'authenticated NAO TRUNCA o espelho (grant revogado)');
 end $$;
 
+-- PILOTO DE OBSERVACAO: as duas portas de acao estao fechadas para
+-- `authenticated`, nao so para `anon`. Esta e a afirmacao central do piloto --
+-- sem ela, qualquer operador ativo assumiria ou dispensaria atendimento.
+do $$ begin
+  perform public.afirmar(not has_function_privilege('authenticated', 'public.ulbra_atendimento_assumir(text)', 'execute'),
+    'PILOTO: authenticated NAO executa ulbra_atendimento_assumir');
+  perform public.afirmar(not has_function_privilege('authenticated', 'public.ulbra_atendimento_dispensar(text,text)', 'execute'),
+    'PILOTO: authenticated NAO executa ulbra_atendimento_dispensar');
+  -- as funcoes CONTINUAM existindo e executaveis por service_role: o fim do
+  -- piloto e um grant, nao um redeploy.
+  perform public.afirmar(to_regprocedure('public.ulbra_atendimento_assumir(text)') is not null,
+    'PILOTO: a funcao assumir continua criada');
+  perform public.afirmar(has_function_privilege('service_role', 'public.ulbra_atendimento_assumir(text)', 'execute'),
+    'PILOTO: service_role continua executando assumir');
+end $$;
+
 -- Funcoes de escrita da etapa 1: anon nunca executa; authenticated executa so as de usuario.
 do $$ begin
   perform public.afirmar(not has_function_privilege('anon', 'public.ulbra_atendimento_assumir(text)', 'execute'),
@@ -52,26 +68,39 @@ do $$ declare ok boolean := false; begin
 end $$;
 reset role;
 
--- ------------------------------------------ leitura: cada um ve o seu
--- op1: so conversa de aluno que e caso dele (A)
+-- -------------------------------- PILOTO: painel restrito a gestao
+-- op1 tem caso com o aluno A, e o atendimento x1 esta com destino CARTEIRA
+-- para ele. No piloto, nada disso o faz enxergar: a policy nao tem ramo de
+-- operador. E a prova de que a restricao NAO depende de a fila do rodizio
+-- estar vazia -- x1 chega a op1 por CARTEIRA, nao por RODIZIO.
 set role authenticated; select set_config('teste.email', 'op1@x', false);
 do $$ declare n int; begin
   select count(*) into n from public.ulbra_conversas;
-  perform public.afirmar(n = 1, 'op1 le so a conversa do aluno da sua carteira (1)');
+  perform public.afirmar(n = 0, 'PILOTO: op1 NAO le conversa, nem a da propria carteira');
   select count(*) into n from public.ulbra_atendimentos;
-  perform public.afirmar(n = 1, 'op1 le so o atendimento sugerido a ele (x1)');
+  perform public.afirmar(n = 0, 'PILOTO: op1 NAO le atendimento, nem o sugerido a ele por CARTEIRA');
 end $$;
 reset role;
 
--- op2: conversa de B; atendimentos x2 (carteira) e x4 (rodizio)
+-- op2: tem carteira (x2) e rodizio (x4). Tambem nao ve nada.
 set role authenticated; select set_config('teste.email', 'op2@x', false);
 do $$ declare n int; begin
   select count(*) into n from public.ulbra_conversas;
-  perform public.afirmar(n = 1, 'op2 le so a conversa do aluno da sua carteira (1)');
+  perform public.afirmar(n = 0, 'PILOTO: op2 NAO le conversa');
   select count(*) into n from public.ulbra_atendimentos;
-  perform public.afirmar(n = 2, 'op2 le os seus dois atendimentos (x2, x4)');
+  perform public.afirmar(n = 0, 'PILOTO: op2 NAO le atendimento, nem o do rodizio (x4)');
 end $$;
 reset role;
+
+-- O destino CONTINUA gravado: e o que o piloto mede. Conferido como
+-- superusuario, porque authenticated nao le fora da gestao.
+reset role;
+do $$ declare n int; begin
+  select count(*) into n from public.ulbra_atendimentos
+   where destino_motivo in ('CARTEIRA', 'RODIZIO') and destino_email is not null;
+  perform public.afirmar(n >= 2,
+    'PILOTO: a sincronizacao segue gravando destino (CARTEIRA/RODIZIO) para medicao');
+end $$;
 
 -- gestao: tudo, inclusive conferencia
 set role authenticated; select set_config('teste.email', 'amanda.seibel@aelbra.com.br', false);
@@ -142,32 +171,32 @@ do $$ declare nao_lida_para_op2 boolean; lida_por_op1 boolean; begin
   perform public.afirmar(lida_por_op1, 'op1 tem a propria marca em c1');
 end $$;
 
--- ---------------------------------------------- assumir: dois donos e carteira
+-- ------------------------------------------- PILOTO: a chamada morre no grant
+-- Nao e so "nao deve": e `insufficient_privilege` antes de entrar na funcao.
 set role authenticated; select set_config('teste.email', 'op1@x', false);
-do $$ declare r jsonb; begin
-  r := public.ulbra_atendimento_assumir('x1');
-  perform public.afirmar((r->>'ok')::boolean, 'op1 assume o atendimento sugerido a ele (x1)');
-  r := public.ulbra_atendimento_assumir('x2');
-  perform public.afirmar(r->>'motivo' = 'E_DA_CARTEIRA_DE_OUTRO', 'op1 NAO assume a carteira de op2 (x2)');
-  r := public.ulbra_atendimento_assumir('x3');
-  perform public.afirmar(r->>'motivo' = 'IDENTIDADE_NAO_CONFIRMADA', 'op1 NAO assume conferencia (x3)');
+do $$ declare barrou_assumir boolean := false; barrou_dispensar boolean := false; begin
+  begin perform public.ulbra_atendimento_assumir('x1');
+  exception when insufficient_privilege then barrou_assumir := true; end;
+  begin perform public.ulbra_atendimento_dispensar('x1', 'teste');
+  exception when insufficient_privilege then barrou_dispensar := true; end;
+  perform public.afirmar(barrou_assumir,   'PILOTO: assumir barra op1 no grant (insufficient_privilege)');
+  perform public.afirmar(barrou_dispensar, 'PILOTO: dispensar barra op1 no grant (insufficient_privilege)');
 end $$;
 reset role;
 
-set role authenticated; select set_config('teste.email', 'op2@x', false);
-do $$ declare r jsonb; begin
-  r := public.ulbra_atendimento_assumir('x1');
-  perform public.afirmar(r->>'motivo' = 'JA_ASSUMIDO' and r->>'responsavel' = 'op1@x',
-    'op2 chega depois e recebe JA_ASSUMIDO com o nome de quem chegou primeiro');
-end $$;
-reset role;
-
--- gestao pode assumir a carteira de outro (regra explicita)
+-- A gestao tambem nao assume no piloto: o portao e o grant de `authenticated`,
+-- nao o perfil. Isso e proposital -- piloto e observacao.
 set role authenticated; select set_config('teste.email', 'amanda.seibel@aelbra.com.br', false);
-do $$ declare r jsonb; begin
-  r := public.ulbra_atendimento_assumir('x2');
-  perform public.afirmar((r->>'ok')::boolean, 'gestao assume a carteira de op2 (excecao da gestao)');
+do $$ declare barrou boolean := false; begin
+  begin perform public.ulbra_atendimento_assumir('x2');
+  exception when insufficient_privilege then barrou := true; end;
+  perform public.afirmar(barrou, 'PILOTO: nem a gestao assume -- o portao e o grant, nao o perfil');
 end $$;
 reset role;
 
-select 'LEITURA POR USUARIO: todas as afirmacoes passaram' as resultado;
+-- A regra de REGIME de `assumir` (sugerido a ele, carteira de outro,
+-- conferencia, JA_ASSUMIDO, excecao da gestao) continua provada em
+-- `08_regime_pos_piloto.sql`, que reconcede os grants e reexecuta as
+-- afirmacoes. Nenhuma prova foi descartada ao fechar as portas do piloto.
+
+select 'LEITURA (PILOTO): todas as afirmacoes passaram' as resultado;

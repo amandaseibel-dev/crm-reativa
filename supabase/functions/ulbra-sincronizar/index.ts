@@ -39,6 +39,7 @@ import {
   lerAtendimentos,
   lerCorpoMcp,
   novaJanela,
+  portaoSync,
   resultadoDoEnvelope,
   selecionarDetalhes,
   type AtendimentoLido,
@@ -68,15 +69,9 @@ const json = (corpo: Record<string, unknown>, status = 200) =>
     headers: { ...CORS, "Content-Type": "application/json" },
   });
 
-/** Comparação de tamanho fixo: não vaza o tamanho da chave pelo tempo. */
-function chaveConfere(recebida: string, esperada: string): boolean {
-  if (recebida.length !== esperada.length) return false;
-  let diferenca = 0;
-  for (let i = 0; i < recebida.length; i++) {
-    diferenca |= recebida.charCodeAt(i) ^ esperada.charCodeAt(i);
-  }
-  return diferenca === 0;
-}
+// O portão (`portaoSync`) mora em `sincronizar.ts`, fora do `Deno.serve`, para
+// ser provado sem rede e sem gastar chamada da Mensageria — ver
+// `sincronizar.test.ts`, "portão da chave".
 
 async function chamarMcp(token: string, carga: unknown): Promise<unknown> {
   const resp = await fetch(MCP_URL, {
@@ -105,9 +100,8 @@ Deno.serve(async (req: Request) => {
     console.error("ulbra-sincronizar: ambiente incompleto");
     return json({ erro: "CONFIG_AUSENTE" }, 500);
   }
-  if (!chaveConfere(req.headers.get("x-sync-chave") ?? "", segredo)) {
-    return json({ erro: "ACESSO_NEGADO" }, 403);
-  }
+  const portao = portaoSync(req.headers.get("x-sync-chave"), segredo);
+  if (!portao.ok) return json(portao.corpo, portao.status);
 
   const sb = createClient(urlBanco, servico, { auth: { persistSession: false } });
 
