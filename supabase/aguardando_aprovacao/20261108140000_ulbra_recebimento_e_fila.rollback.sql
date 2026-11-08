@@ -1,5 +1,5 @@
 -- ============================================================================
--- ROLLBACK de 20261108120000_ulbra_recebimento_e_fila
+-- ROLLBACK de 20261108140000_ulbra_recebimento_e_fila
 --
 -- Par do artefato de 08/11/2026. Como o SQL original NAO FOI APLICADO, este
 -- arquivo tambem nunca rodou.

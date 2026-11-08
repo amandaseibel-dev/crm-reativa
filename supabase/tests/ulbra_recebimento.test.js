@@ -9,8 +9,8 @@ import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 
 const DIR = "supabase/tests/ulbra_recebimento";
-const MIGRATION = "supabase/aguardando_aprovacao/20261108120000_ulbra_recebimento_e_fila.sql.pendente";
-const ROLLBACK = "supabase/aguardando_aprovacao/20261108120000_ulbra_recebimento_e_fila.rollback.sql";
+const MIGRATION = "supabase/aguardando_aprovacao/20261108140000_ulbra_recebimento_e_fila.sql.pendente";
+const ROLLBACK = "supabase/aguardando_aprovacao/20261108140000_ulbra_recebimento_e_fila.rollback.sql";
 
 function sqlDe(caminho) {
   return readFileSync(caminho, "utf8")

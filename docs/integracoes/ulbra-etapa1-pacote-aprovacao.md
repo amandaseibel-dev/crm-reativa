@@ -14,7 +14,7 @@ espelho no banco e não consome orçamento da Mensageria por operador aberto.
 
 ## 2. Ordem de implantação (cada passo só depois do anterior)
 
-1. **Aplicar a migration** `supabase/aguardando_aprovacao/20261108120000_ulbra_recebimento_e_fila.sql.pendente`.
+1. **Aplicar a migration** `supabase/aguardando_aprovacao/20261108140000_ulbra_recebimento_e_fila.sql.pendente`.
    Cria 4 tabelas (`ulbra_conversas`, `ulbra_atendimentos`, `ulbra_sync_estado`,
    `ulbra_leitura_usuario`) e 5 funções. Não altera objeto existente.
 2. **Publicar a função `ulbra-sincronizar`** com `verify_jwt = false`
@@ -128,7 +128,7 @@ fechado se divergir.
 
 ## 10. Rollback
 
-Arquivo: `supabase/aguardando_aprovacao/20261108120000_ulbra_recebimento_e_fila.rollback.sql`.
+Arquivo: `supabase/aguardando_aprovacao/20261108140000_ulbra_recebimento_e_fila.rollback.sql`.
 
 Ordem, se for preciso desfazer:
 1. `select cron.unschedule('ulbra_sincronizar');` — se o passo 5 já tiver rodado;

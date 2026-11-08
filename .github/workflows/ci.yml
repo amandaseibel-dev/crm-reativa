@@ -238,7 +238,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        image: postgres:17
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: teste
@@ -256,8 +256,8 @@ jobs:
       PGPASSWORD: postgres
       PGDATABASE: teste
       DIR: supabase/tests/ulbra_recebimento
-      MIGRATION: supabase/aguardando_aprovacao/20261108120000_ulbra_recebimento_e_fila.sql.pendente
-      ROLLBACK: supabase/aguardando_aprovacao/20261108120000_ulbra_recebimento_e_fila.rollback.sql
+      MIGRATION: supabase/aguardando_aprovacao/20261108140000_ulbra_recebimento_e_fila.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261108140000_ulbra_recebimento_e_fila.rollback.sql
 
     steps:
       - uses: actions/checkout@v5

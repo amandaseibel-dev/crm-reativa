@@ -508,7 +508,7 @@ cron (10 min) -> ulbra-sincronizar -> Postgres (ulbra_conversas,
 
 ### O que falta para funcionar (cada um com autorização própria)
 
-1. aplicar `supabase/aguardando_aprovacao/20261108120000_ulbra_recebimento_e_fila.sql.pendente`
+1. aplicar `supabase/aguardando_aprovacao/20261108140000_ulbra_recebimento_e_fila.sql.pendente`
    (3 tabelas, 4 funções; nada existente é tocado — rollback no par `.rollback.sql`);
 2. publicar `ulbra-sincronizar` com `verify_jwt = false`;
 3. gravar o segredo `ULBRA_SYNC_CHAVE`;
