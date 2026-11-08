@@ -441,3 +441,39 @@ atraso grande **não** vira `DESATUALIZADO` (é informação, não defeito). A f
 
 Adaptar a **central do operador** sobre esta mesma base (mesma RPC, recorte por pessoa).
 Fora: cron, e-mail, mapeamento, acesso dos operadores.
+
+### 12.6 Ajustes pedidos pela gestão antes da linha M1 (09/11/2026)
+
+**Responsável no ReATIVA ≠ atendente na Mensageria.** São dois sistemas e dois campos:
+
+| lado | campo no espelho | o que prova |
+| --- | --- | --- |
+| ReATIVA | `ulbra_atendimentos.responsavel_email` | quem **assumiu aqui**, por UPDATE condicional. Vazio prova só que ninguém assumiu **no ReATIVA** |
+| ULBRA (atendimentos) | — **não existe** no espelho (a sincronização não lê `atendente`) | nada; sai `null` = **não disponível** |
+| ULBRA (conversas) | `ulbra_conversas.responsavel_ulbra` | o atendente como a Mensageria informa; sai pelo valor bruto, sem casamento por nome |
+
+A RPC passou a devolver `sem_responsavel_reativa` / `com_responsavel_reativa` /
+`por_responsavel_reativa`, `atendente_ulbra: null`, e para conversas
+`com_atendente_ulbra` / `sem_atendente_ulbra` / `por_atendente_ulbra`. A chave ambígua
+`sem_responsavel` **não existe mais** (há teste para isso). O tempo de espera declara o
+universo: "sem responsável NO REATIVA; não diz nada sobre atendente na ULBRA".
+
+**Estados, revistos.** Os valores que a função grava em `ultimo_ciclo` são `OK`,
+`INCOMPLETO`, `FALHOU`, `PULADO_ORCAMENTO`. O mapa final:
+
+| estado | quando | a tela diz |
+| --- | --- | --- |
+| `SEM_CICLO` | sem `ultima_execucao` | zeros porque nada foi coletado |
+| `ERRO` | `FALHOU` | erro, janela não avançou |
+| **`PULADO_ORCAMENTO`** | `PULADO_ORCAMENTO` | **nada foi lido; números do ciclo anterior; isto NÃO é atualizado** |
+| `DESATUALIZADO` | só com cron ativo e atraso > 25 min | zero aqui não significa nada |
+| `INCOMPLETO` | `INCOMPLETO` | cursor não avançou, piso guardado |
+| `EM_DIA` | `OK` **e** cron ativo | sincronização automática em dia |
+| **`COLETA_CONCLUIDA`** | `OK` **e** atualização manual | **"última coleta concluída em \<data e hora\>"**, sempre com a hora |
+
+Na atualização manual `EM_DIA` **não existe**: não há relógio prometendo a próxima coleta,
+então o que se afirma é só quando a última terminou.
+
+**RPC gerencial preservada.** `ulbra_painel_gestao()` continua restrita à gestão pelo portão
+interno. A futura central do operador terá **consulta própria, com autorização e recorte por
+pessoa** — esta RPC não será liberada para operador (está no `comment` da função).

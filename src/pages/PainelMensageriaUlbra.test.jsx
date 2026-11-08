@@ -37,11 +37,14 @@ function resposta(extra = {}) {
     },
     conversas: { total: 7, por_canal: { whatsapp: 7 }, por_situacao: { active: 7 }, identidade_confirmada: 0,
       identidade_nao_confirmada: 7, resposta_aguardando: 2, nao_lidas_para_mim: 2,
-      resposta_mais_antiga_em: "2026-11-08T05:00:00Z", espera_resposta_max_min: 1860 },
-    atendimentos: { coletados: 7, sem_responsavel: 7, com_responsavel: 0, em_conferencia: 7, sem_operador: 0,
-      por_situacao: { waiting: 7 }, por_destino_sugerido: { CONFERENCIA: 7 }, por_responsavel: {},
+      resposta_mais_antiga_em: "2026-11-08T05:00:00Z", espera_resposta_max_min: 1860,
+      com_atendente_ulbra: 0, sem_atendente_ulbra: 7, por_atendente_ulbra: {} },
+    atendimentos: { coletados: 7, sem_responsavel_reativa: 7, com_responsavel_reativa: 0, por_responsavel_reativa: {},
+      atendente_ulbra: null, em_conferencia: 7, sem_operador: 0,
+      por_situacao: { waiting: 7 }, por_destino_sugerido: { CONFERENCIA: 7 },
       por_canal: null, divergencia_carteira_ulbra: null },
-    espera: { base: "entrou_em (entrada em espera na Mensageria, informada pela ULBRA)", n: 7, sem_data: 0,
+    espera: { base: "entrou_em (entrada em espera na Mensageria, informada pela ULBRA)",
+      universo: "atendimentos sem responsavel NO REATIVA (ninguem assumiu aqui); nao diz nada sobre atendente na ULBRA", n: 7, sem_data: 0,
       max_min: 1700, mediana_min: 900, acima_30_min: 7 },
     cobertura: { equipe: "Reativa", canais_coletados: ["whatsapp"], situacoes_coletadas: ["active"],
       periodo: { conversas_de: "2026-11-07T21:51:00Z", conversas_ate: "2026-11-08T20:24:00Z",
@@ -89,7 +92,7 @@ describe("PainelMensageriaUlbra", () => {
     const t = container.textContent;
     expect(t).toMatch(/atendimentos por canal.*não disponível/);
     expect(t).toMatch(/alcance do último ciclo \(páginas\).*não disponível/);
-    expect(t).toMatch(/divergência carteira ReATIVA × responsável ULBRA: não disponível/);
+    expect(t).toMatch(/divergência carteira ReATIVA × atendente ULBRA: não disponível/);
     expect(t).toMatch(/não se calcula por nome/);
   });
 
@@ -120,28 +123,59 @@ describe("PainelMensageriaUlbra", () => {
     expect(cob).toMatch(/período das conversas/);
   });
 
-  it("distribuição por responsável só com posse comprovada; sugestão sai rotulada", async () => {
+  it("responsável NO REATIVA e atendente NA MENSAGERIA são campos distintos; vazio local não prova nada da ULBRA", async () => {
     rpc.mockResolvedValue({ data: resposta(), error: null });
     const { container } = render(<PainelMensageriaUlbra usuario={GESTAO} />);
     await screen.findByText(/Coleta incompleta/);
-    expect(container.textContent).toMatch(/nenhum atendimento assumido — zero de verdade/);
-    expect(container.textContent).toMatch(/destino sugerido \(não é posse\): CONFERENCIA: 7/);
+    const t = container.textContent;
+    expect(t).toMatch(/sem responsável NO REATIVA \(ninguém assumiu aqui\)/);
+    expect(t).toMatch(/atendimentos sem atendente NA MENSAGERIA/);
+    expect(t).toMatch(/atendimentos — atendente ULBRAnão disponível \(o espelho de atendimentos não guarda esse campo\)/);
+    expect(t).toMatch(/"Sem responsável no ReATIVA" não prova nada sobre o atendente na ULBRA/);
+    expect(t).toMatch(/nenhum atendimento assumido no ReATIVA — zero de verdade/);
+    expect(t).toMatch(/destino sugerido \(não é posse\): CONFERENCIA: 7/);
+    expect(t).toMatch(/conversas sem atendente ULBRA7/);
   });
 
-  it("estados: zero de verdade, desatualizado, erro e sem ciclo são textos diferentes", () => {
+  it("estados: sem ciclo, erro, pulado por orçamento, desatualizado, incompleto, em dia e coleta concluída são textos diferentes", () => {
     const base = resposta();
     expect(descreverEstado({ ...base, estado: "SEM_CICLO" }).titulo).toMatch(/Nenhum ciclo/);
     expect(descreverEstado({ ...base, estado: "ERRO", sync: { ...base.sync, ultimo_erro: "ULBRA_HTTP_502" } }).texto).toMatch(/ULBRA_HTTP_502/);
     expect(descreverEstado({ ...base, estado: "DESATUALIZADO", sync: { ...base.sync, atraso_min: 49 } }).titulo).toMatch(/desatualizados: 49 min/);
     expect(descreverEstado({ ...base, estado: "EM_DIA" }).tom).toBe("verde");
     expect(descreverEstado({ ...base, estado: "INCOMPLETO" }).tom).toBe("ambar");
+    const pulado = descreverEstado({ ...base, estado: "PULADO_ORCAMENTO", sync: { ...base.sync, ultimo_erro: "ORCAMENTO_DO_DIA" } });
+    expect(pulado.tom).toBe("vermelho");
+    expect(pulado.titulo).toMatch(/PULADO por orçamento/);
+    expect(pulado.texto).toMatch(/NÃO é atualizado/);
+    const concluida = descreverEstado({ ...base, estado: "COLETA_CONCLUIDA" });
+    expect(concluida.titulo).toMatch(/Última coleta concluída em \d{2}\/\d{2}, \d{2}:\d{2}/); // sempre com data e hora
+    expect(concluida.texto).toMatch(/Atualização manual/);
+    expect(concluida.titulo).not.toMatch(/em dia/i);
+  });
+
+  it("COLETA_CONCLUIDA na tela: data e hora no título, e rótulo de atualização manual", async () => {
+    rpc.mockResolvedValue({ data: resposta({ estado: "COLETA_CONCLUIDA", sync: { ...resposta().sync, ultimo_ciclo: "OK", ultimo_erro: null } }), error: null });
+    render(<PainelMensageriaUlbra usuario={GESTAO} />);
+    expect(await screen.findByText(/Última coleta concluída em \d{2}\/\d{2}, \d{2}:\d{2}/)).toBeTruthy();
+    expect(screen.getByText(/atualização manual — sem sincronização automática ativa/)).toBeTruthy();
+  });
+
+  it("PULADO_ORCAMENTO na tela: vermelho, e nunca lido como atualizado", async () => {
+    rpc.mockResolvedValue({ data: resposta({ estado: "PULADO_ORCAMENTO", sync: { ...resposta().sync, ultimo_ciclo: "PULADO_ORCAMENTO", ultimo_erro: "ORCAMENTO_DO_DIA" } }), error: null });
+    const { container } = render(<PainelMensageriaUlbra usuario={GESTAO} />);
+    await screen.findByText(/PULADO por orçamento/);
+    const bloco = container.querySelector('[data-testid="bloco-estado"]');
+    expect(bloco.getAttribute("data-estado")).toBe("PULADO_ORCAMENTO");
+    expect(bloco.className).toMatch(/red/);
+    expect(bloco.textContent).toMatch(/isto NÃO é atualizado/);
   });
 
   it("quem não é gestão não vê número nenhum", async () => {
     rpc.mockResolvedValue({ data: { ok: false, motivo: "ACESSO_NEGADO" }, error: null });
     const { container } = render(<PainelMensageriaUlbra usuario={{ perfil: { email: "op1@x" } }} />);
     await screen.findByText(/restrita à gestão/);
-    expect(container.textContent).not.toMatch(/atendimentos sem responsável/);
+    expect(container.textContent).not.toMatch(/sem responsável NO REATIVA/);
   });
 
   it("função ausente (migration não aplicada) = painel não disponível, sem número no lugar", async () => {

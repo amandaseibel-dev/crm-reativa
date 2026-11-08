@@ -80,12 +80,21 @@ begin
     v_atualizacao := 'desconhecida';
   end;
 
+  -- Os valores de `ultimo_ciclo` sao os que a funcao grava: OK, INCOMPLETO,
+  -- FALHOU, PULADO_ORCAMENTO. Cada um e um estado proprio:
+  --   PULADO_ORCAMENTO nunca e "atualizado": nada foi lido, os numeros sao do
+  --   ciclo anterior. EM_DIA so existe com atualizacao AUTOMATICA; na manual,
+  --   o estado e COLETA_CONCLUIDA -- a tela diz "ultima coleta concluida em
+  --   <data e hora>", sempre com a hora, porque nao ha relogio prometendo a
+  --   proxima.
   v_estado_painel := case
     when v_estado.ultima_execucao is null then 'SEM_CICLO'
     when v_estado.ultimo_ciclo = 'FALHOU' then 'ERRO'
+    when v_estado.ultimo_ciclo = 'PULADO_ORCAMENTO' then 'PULADO_ORCAMENTO'
     when v_atualizacao = 'automatica' and v_atraso_min > c_limiar_desatualizado_min then 'DESATUALIZADO'
     when v_estado.ultimo_ciclo = 'INCOMPLETO' then 'INCOMPLETO'
-    else 'EM_DIA'
+    when v_atualizacao = 'automatica' then 'EM_DIA'
+    else 'COLETA_CONCLUIDA'
   end;
 
   -- ------------------------------------------------------------ conversas
@@ -110,6 +119,13 @@ begin
     'identidade_nao_confirmada', count(*) filter (where aluno_status <> 'vinculado'),
     'resposta_aguardando', count(*) filter (where resposta_aguardando),
     'nao_lidas_para_mim', count(*) filter (where nao_lida_para_mim),
+    -- ATENDENTE NA MENSAGERIA (lado ULBRA), como a propria Mensageria informa em
+    -- `responsavel_ulbra`. E dado do outro sistema, nao posse no ReATIVA: nunca
+    -- se mistura com `responsavel_email` dos atendimentos. Sai pelo valor bruto;
+    -- nenhum casamento por nome e feito aqui.
+    'com_atendente_ulbra', count(*) filter (where responsavel_ulbra is not null),
+    'sem_atendente_ulbra', count(*) filter (where responsavel_ulbra is null),
+    'por_atendente_ulbra', coalesce((select jsonb_object_agg(responsavel_ulbra, n) from (select responsavel_ulbra, count(*) n from c where responsavel_ulbra is not null group by responsavel_ulbra) t), '{}'::jsonb),
     -- espera de RESPOSTA: comeca na ultima mensagem do cliente
     'resposta_mais_antiga_em', min(ultima_mensagem_cliente_em) filter (where resposta_aguardando),
     'espera_resposta_max_min', case when count(*) filter (where resposta_aguardando) = 0 then null
@@ -117,27 +133,37 @@ begin
   ) into v_conversas from c;
 
   -- --------------------------------------------------------- atendimentos
-  -- "distribuicao por responsavel" = POSSE comprovada (responsavel_email), nunca
-  -- a sugestao de destino. A sugestao sai a parte, rotulada como sugestao.
+  -- DOIS LADOS QUE NAO SE MISTURAM:
+  --   * RESPONSAVEL NO REATIVA = `responsavel_email`: quem ASSUMIU aqui, por
+  --     UPDATE condicional. `null` prova so que ninguem assumiu NO REATIVA.
+  --   * ATENDENTE NA MENSAGERIA = quem atende do lado da ULBRA. O espelho de
+  --     atendimentos NAO guarda esse campo (a sincronizacao nao o le), entao
+  --     ele sai como null = "nao disponivel". `responsavel_email` vazio NUNCA
+  --     e usado como prova de que o atendimento esta sem atendente na ULBRA.
+  -- "Distribuicao por responsavel" = posse comprovada no ReATIVA; a sugestao de
+  -- destino sai a parte, rotulada como sugestao.
   with a as (
     select * from public.ulbra_atendimentos where dispensado_em is null
   )
   select jsonb_build_object(
     'coletados', count(*),
-    'sem_responsavel', count(*) filter (where responsavel_email is null),
-    'com_responsavel', count(*) filter (where responsavel_email is not null),
+    'sem_responsavel_reativa', count(*) filter (where responsavel_email is null),
+    'com_responsavel_reativa', count(*) filter (where responsavel_email is not null),
+    'por_responsavel_reativa', coalesce((select jsonb_object_agg(responsavel_email, n) from (select responsavel_email, count(*) n from a where responsavel_email is not null group by responsavel_email) t), '{}'::jsonb),
+    -- lado ULBRA: o espelho de atendimentos nao guarda o atendente
+    'atendente_ulbra', null,
     'em_conferencia', count(*) filter (where destino_motivo = 'CONFERENCIA'),
     'sem_operador', count(*) filter (where destino_motivo = 'SEM_OPERADOR'),
     'por_situacao', coalesce((select jsonb_object_agg(situacao, n) from (select situacao, count(*) n from a group by situacao) t), '{}'::jsonb),
     'por_destino_sugerido', coalesce((select jsonb_object_agg(destino_motivo, n) from (select destino_motivo, count(*) n from a group by destino_motivo) t), '{}'::jsonb),
-    'por_responsavel', coalesce((select jsonb_object_agg(responsavel_email, n) from (select responsavel_email, count(*) n from a where responsavel_email is not null group by responsavel_email) t), '{}'::jsonb),
     -- a tabela de atendimentos NAO tem canal: nao inventar
     'por_canal', null,
-    -- divergencia carteira x responsavel ULBRA: so com o mapeamento (nao aplicado)
+    -- divergencia carteira x atendente ULBRA: so com o mapeamento (nao aplicado)
     'divergencia_carteira_ulbra', null
   ) into v_atend from a;
 
   -- --------------------------------------------------------------- espera
+  -- Espera dos atendimentos SEM RESPONSAVEL NO REATIVA (ninguem assumiu aqui).
   -- A CONTAGEM COMECA EM `entrou_em`: a hora em que o atendimento entrou em
   -- espera NA MENSAGERIA, informada pela ULBRA -- nao a hora em que o espelho
   -- o coletou. Sem `entrou_em`, o atendimento nao entra na conta e e contado
@@ -149,6 +175,7 @@ begin
   )
   select jsonb_build_object(
     'base', 'entrou_em (entrada em espera na Mensageria, informada pela ULBRA)',
+    'universo', 'atendimentos sem responsavel NO REATIVA (ninguem assumiu aqui); nao diz nada sobre atendente na ULBRA',
     'n', count(*),
     'sem_data', (select count(*) from public.ulbra_atendimentos
                   where dispensado_em is null and responsavel_email is null and entrou_em is null),
@@ -207,7 +234,7 @@ end;
 $$;
 
 comment on function public.ulbra_painel_gestao() is
-  'Agregacoes do espelho da Mensageria para o painel da gestao. Le so o Postgres, nunca a ULBRA. Portao interno: usuario_e_gestao(). Devolve contagens e datas; nenhum dado pessoal.';
+  'Agregacoes do espelho da Mensageria para o painel da GESTAO. Le so o Postgres, nunca a ULBRA. Portao interno: usuario_e_gestao(). Devolve contagens e datas; nenhum dado pessoal. RPC GERENCIAL: a futura central do operador tera consulta propria, com autorizacao e recorte por pessoa -- esta funcao NAO e liberada para operador.';
 
 revoke all on function public.ulbra_painel_gestao() from public, anon;
 grant execute on function public.ulbra_painel_gestao() to authenticated;

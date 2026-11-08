@@ -137,22 +137,25 @@ export default function PainelMensageriaUlbra({ usuario }) {
 
       {/* 2 — INDICADORES */}
       <section className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-        <Tile n={fmtNum(atendimentos.sem_responsavel)} r="atendimentos sem responsável" destaque={atendimentos.sem_responsavel > 0} />
+        <Tile n={fmtNum(atendimentos.sem_responsavel_reativa)} r="atendimentos sem responsável NO REATIVA (ninguém assumiu aqui)" destaque={atendimentos.sem_responsavel_reativa > 0} />
+        <Tile n={atendimentos.atendente_ulbra == null ? ND : fmtNum(atendimentos.atendente_ulbra)} r="atendimentos sem atendente NA MENSAGERIA (o espelho não guarda esse campo)" />
         <Tile n={fmtNum(conversas.resposta_aguardando)} r="conversas com resposta do aluno aguardando" />
         <Tile n={fmtNum(conversas.nao_lidas_para_mim)} r="não lidas por você (marcador é por pessoa)" />
         <Tile n={fmtNum(atendimentos.coletados)} r="atendimentos coletados (espelho)" />
         <Tile n={fmtNum(atendimentos.em_conferencia)} r="em conferência da gestão (identidade não confirmada)" destaque={atendimentos.em_conferencia > 0} />
-        <Tile n={fmtNum(atendimentos.sem_operador)} r="sem operador disponível na leitura" />
-        <Tile n={fmtNum(conversas.identidade_confirmada)} r="conversas com identidade confirmada (CPF)" />
+        <Tile n={fmtNum(conversas.sem_atendente_ulbra)} r="conversas sem atendente na Mensageria (como a ULBRA informa)" />
         <Tile n={fmtNum(conversas.total)} r="conversas no espelho" />
       </section>
 
       <section className="mt-4 grid md:grid-cols-2 gap-4 text-xs">
         {/* 3 — ESPERA, com a base declarada */}
         <div className="rounded border bg-white p-3">
-          <div className="font-semibold text-gray-700">Tempo de espera — atendimentos sem responsável</div>
+          <div className="font-semibold text-gray-700">Tempo de espera — atendimentos sem responsável no ReATIVA</div>
           <div className="text-gray-500 mt-0.5">
             Começa em <strong>{espera.base || ND}</strong>. Não é a hora da coleta.
+          </div>
+          <div className="text-gray-500 mt-0.5">
+            Universo: <strong>{espera.universo || ND}</strong>.
           </div>
           <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
             <Dt k="na conta" v={fmtNum(espera.n)} />
@@ -173,23 +176,34 @@ export default function PainelMensageriaUlbra({ usuario }) {
             <Dt k="conversas por situação" v={objeto(conversas.por_situacao)} />
             <Dt k="atendimentos por situação" v={objeto(atendimentos.por_situacao)} />
           </dl>
-          <div className="font-semibold text-gray-700 mt-3">Distribuição por responsável (posse comprovada)</div>
-          {atendimentos.por_responsavel && Object.keys(atendimentos.por_responsavel).length > 0 ? (
+          <div className="font-semibold text-gray-700 mt-3">Responsável NO REATIVA (posse comprovada por quem assumiu aqui)</div>
+          {atendimentos.por_responsavel_reativa && Object.keys(atendimentos.por_responsavel_reativa).length > 0 ? (
             <table className="w-full mt-1 border-t">
               <tbody>
-                {Object.entries(atendimentos.por_responsavel).map(([k, v]) => (
+                {Object.entries(atendimentos.por_responsavel_reativa).map(([k, v]) => (
                   <tr key={k} className="border-b"><td className="py-1 pr-2">{k}</td><td className="py-1 text-right tabular-nums">{v}</td></tr>
                 ))}
               </tbody>
             </table>
           ) : (
-            <div className="text-gray-500 mt-1">nenhum atendimento assumido — zero de verdade, não ausência de dado</div>
+            <div className="text-gray-500 mt-1">nenhum atendimento assumido no ReATIVA — zero de verdade, não ausência de dado</div>
           )}
           <div className="text-gray-500 mt-2">
             destino <em>sugerido</em> (não é posse): {objeto(atendimentos.por_destino_sugerido)}
           </div>
+
+          <div className="font-semibold text-gray-700 mt-3">Atendente NA MENSAGERIA (lado ULBRA, como a Mensageria informa)</div>
+          <dl className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1">
+            <Dt k="atendimentos — atendente ULBRA" v={atendimentos.atendente_ulbra == null ? `${ND} (o espelho de atendimentos não guarda esse campo)` : objeto(atendimentos.atendente_ulbra)} />
+            <Dt k="conversas com atendente ULBRA" v={fmtNum(conversas.com_atendente_ulbra)} />
+            <Dt k="conversas sem atendente ULBRA" v={fmtNum(conversas.sem_atendente_ulbra)} />
+            <Dt k="conversas por atendente ULBRA" v={objeto(conversas.por_atendente_ulbra)} />
+          </dl>
           <div className="text-gray-500 mt-1">
-            divergência carteira ReATIVA × responsável ULBRA: <strong>{ND}</strong> — depende do mapeamento de operadores; não se calcula por nome.
+            "Sem responsável no ReATIVA" <strong>não</strong> prova nada sobre o atendente na ULBRA: são dois sistemas, dois campos.
+          </div>
+          <div className="text-gray-500 mt-1">
+            divergência carteira ReATIVA × atendente ULBRA: <strong>{ND}</strong> — depende do mapeamento de operadores; não se calcula por nome.
           </div>
         </div>
       </section>

@@ -29,20 +29,28 @@ export function fmtNum(v) {
 }
 
 /**
- * Texto e cor do bloco de estado. Os cinco estados são DIFERENTES de propósito:
- * zero de verdade (EM_DIA sem nada), sem ciclo, desatualizado, erro e coleta
- * incompleta não podem ser lidos como a mesma coisa.
+ * Texto e cor do bloco de estado. Os estados são DIFERENTES de propósito:
+ * sem ciclo, erro, pulado por orçamento, desatualizado, coleta incompleta,
+ * em dia (só com cron) e coleta concluída (manual, sempre com data e hora)
+ * não podem ser lidos como a mesma coisa.
  */
 export function descreverEstado(d) {
   const s = d?.sync || {};
   const atraso = fmtMin(s.atraso_min);
+  const quando = fmtHora(s.ultima_execucao);
   switch (d?.estado) {
     case "SEM_CICLO":
       return { tom: "cinza", titulo: "Nenhum ciclo de sincronização executado ainda",
         texto: "Os números abaixo são zero porque nada foi coletado — não porque não haja nada na Mensageria." };
     case "ERRO":
-      return { tom: "vermelho", titulo: `Último ciclo FALHOU há ${atraso}`,
+      return { tom: "vermelho", titulo: `Último ciclo FALHOU em ${quando} (há ${atraso})`,
         texto: `Erro: ${s.ultimo_erro || ND}. A janela não avançou; os números são do último ciclo que deu certo.` };
+    case "PULADO_ORCAMENTO":
+      return { tom: "vermelho", titulo: `Último ciclo PULADO por orçamento em ${quando} (há ${atraso})`,
+        texto: "Nada foi lido da Mensageria nesse ciclo: o saldo do dia não permitiu. Os números abaixo são do ciclo anterior — isto NÃO é atualizado." };
+    case "COLETA_CONCLUIDA":
+      return { tom: "verde", titulo: `Última coleta concluída em ${quando} (há ${atraso})`,
+        texto: "Atualização manual: não há sincronização automática prometendo a próxima coleta. Os números valem para esse horário." };
     case "DESATUALIZADO":
       return { tom: "vermelho", titulo: `Dados desatualizados: ${atraso} sem sincronizar`,
         texto: "A sincronização automática está atrasada. Zero aqui NÃO significa que não há nada." };
@@ -50,7 +58,7 @@ export function descreverEstado(d) {
       return { tom: "ambar", titulo: `Coleta incompleta há ${atraso}`,
         texto: `Motivo: ${s.ultimo_erro || ND}. O cursor não avançou e o piso ficou guardado${s.piso_pendente ? ` (${fmtHora(s.piso_pendente)})` : ""}. O próximo ciclo continua dali — nada foi descartado.` };
     case "EM_DIA":
-      return { tom: "verde", titulo: `Último ciclo OK há ${atraso}`, texto: "" };
+      return { tom: "verde", titulo: `Último ciclo OK em ${quando} (há ${atraso}) — sincronização automática em dia`, texto: "" };
     default:
       return { tom: "cinza", titulo: ND, texto: "" };
   }

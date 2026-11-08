@@ -55,14 +55,24 @@ do $$ declare r jsonb; begin
 
   -- 2. atendimentos
   perform public.afirmar((r->'atendimentos'->>'coletados')::int = 4, 'atendimentos coletados = 4');
-  perform public.afirmar((r->'atendimentos'->>'sem_responsavel')::int = 4, 'sem responsavel = 4');
+  perform public.afirmar((r->'atendimentos'->>'sem_responsavel_reativa')::int = 4,
+    'sem responsavel NO REATIVA = 4 (ninguem assumiu aqui)');
+  perform public.afirmar(r->'atendimentos' ? 'sem_responsavel' = false,
+    'nao existe mais a chave ambigua sem_responsavel');
+  perform public.afirmar(r->'atendimentos'->'atendente_ulbra' = 'null'::jsonb,
+    'atendente NA MENSAGERIA = null (nao disponivel): responsavel_email vazio NAO prova nada sobre a ULBRA');
+  -- lado ULBRA nas conversas: o seed nao tem responsavel_ulbra
+  perform public.afirmar((r->'conversas'->>'sem_atendente_ulbra')::int = 3
+                     and (r->'conversas'->>'com_atendente_ulbra')::int = 0
+                     and r->'conversas'->'por_atendente_ulbra' = '{}'::jsonb,
+    'conversas: 3 sem atendente ULBRA, 0 com, mapa vazio');
   perform public.afirmar((r->'atendimentos'->>'em_conferencia')::int = 1, 'em conferencia = 1 (x3)');
   perform public.afirmar((r->'atendimentos'->>'sem_operador')::int = 0, 'sem operador = 0');
   perform public.afirmar((r->'atendimentos'->'por_destino_sugerido'->>'RODIZIO')::int = 2
                      and (r->'atendimentos'->'por_destino_sugerido'->>'CARTEIRA')::int = 1,
     'destino SUGERIDO sai rotulado como sugestao: RODIZIO 2, CARTEIRA 1');
-  perform public.afirmar(r->'atendimentos'->'por_responsavel' = '{}'::jsonb,
-    'por_responsavel vazio: sugestao NAO conta como distribuicao comprovada');
+  perform public.afirmar(r->'atendimentos'->'por_responsavel_reativa' = '{}'::jsonb,
+    'por_responsavel_reativa vazio: sugestao NAO conta como posse no ReATIVA');
   perform public.afirmar(r->'atendimentos'->'por_canal' = 'null'::jsonb,
     'canal de atendimento = null (nao disponivel), nunca inventado');
   perform public.afirmar(r->'atendimentos'->'divergencia_carteira_ulbra' = 'null'::jsonb,
@@ -70,6 +80,8 @@ do $$ declare r jsonb; begin
 
   -- 3. espera
   perform public.afirmar(r->'espera'->>'base' like 'entrou_em%', 'a base da espera e entrou_em, declarada');
+  perform public.afirmar(r->'espera'->>'universo' like '%NO REATIVA%',
+    'a espera declara o universo: sem responsavel NO REATIVA');
   perform public.afirmar((r->'espera'->>'n')::int = 4 and (r->'espera'->>'sem_data')::int = 0,
     'espera: 4 atendimentos com data, 0 sem data');
   perform public.afirmar((r->'espera'->>'max_min')::numeric >= (r->'espera'->>'mediana_min')::numeric,
@@ -127,9 +139,23 @@ update public.ulbra_sync_estado set ultimo_ciclo = 'OK', ultimo_erro = null,
 set role authenticated; select set_config('teste.email', 'amanda.seibel@aelbra.com.br', false);
 do $$ declare r jsonb; begin
   r := public.ulbra_painel_gestao();
-  perform public.afirmar(r->>'estado' = 'EM_DIA',
-    'sem cron, 3 h de atraso NAO e DESATUALIZADO: e atualizacao manual, informada pelo atraso');
+  perform public.afirmar(r->>'estado' = 'COLETA_CONCLUIDA',
+    'sem cron, ciclo OK vira COLETA_CONCLUIDA (nunca EM_DIA, nunca DESATUALIZADO): a tela diz a data e hora');
+  perform public.afirmar(r->'sync'->>'ultima_execucao' is not null,
+    'COLETA_CONCLUIDA sempre vem com a data e hora da ultima execucao');
   perform public.afirmar((r->'sync'->>'atraso_min')::numeric >= 179, 'atraso de ~180 min informado');
+end $$;
+reset role;
+
+-- PULADO_ORCAMENTO e estado proprio: nada foi lido, nao e "atualizado".
+update public.ulbra_sync_estado set ultimo_ciclo = 'PULADO_ORCAMENTO', ultimo_erro = 'ORCAMENTO_DO_DIA',
+  ultima_execucao = now() - interval '2 minutes' where id;
+set role authenticated; select set_config('teste.email', 'amanda.seibel@aelbra.com.br', false);
+do $$ declare r jsonb; begin
+  r := public.ulbra_painel_gestao();
+  perform public.afirmar(r->>'estado' = 'PULADO_ORCAMENTO',
+    'ciclo PULADO_ORCAMENTO vira estado PULADO_ORCAMENTO -- nunca EM_DIA nem COLETA_CONCLUIDA');
+  perform public.afirmar(r->'sync'->>'ultimo_erro' = 'ORCAMENTO_DO_DIA', 'motivo do pulo repassado');
 end $$;
 reset role;
 
