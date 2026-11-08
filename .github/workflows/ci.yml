@@ -352,6 +352,72 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
 
   # ---------------------------------------------------------------------------
+  # Revoke de TRUNCATE nas 548 tabelas _backup_pos_import_*.
+  # Reproduz a condição de produção num Postgres descartável (os NOMES REAIS,
+  # para a guarda de assinatura md5 casar), PROVA que TRUNCATE ignora RLS --
+  # prova que não se pode fazer em produção --, aplica a migration, roda os 8
+  # casos, aplica o rollback e confere que o estado volta ao original.
+  # Fecha também o Security Gate, que localmente não roda por falta de psql.
+  # ---------------------------------------------------------------------------
+  revoke-truncate-backup-pos-import:
+    name: revoke truncate backup_pos_import (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/revoke_truncate_backup_pos_import
+      MIGRATION: supabase/aguardando_aprovacao/20261107200000_revoke_truncate_backup_pos_import.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261107200000_revoke_truncate_backup_pos_import.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # 1. papéis + default privilege (a causa raiz)  2. as 548 tabelas e a
+      # prova de que TRUNCATE ignora RLS  3. a migration  4. os 8 casos
+      - name: Montar ambiente, provar o buraco, aplicar migration e rodar os casos
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_baseline.sql"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
+
+      # 5. o rollback, no mesmo banco, e a conferência de que tudo voltou
+      - name: Aplicar o rollback e conferir o estado original
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/04_rollback.sql"
+
+      # 6. Security Gate contra o banco descartável.
+      #    ATENÇÃO: audita o FIXTURE, não a produção. Serve para provar que a
+      #    migration não introduz achado BLOQUEIA e que o gate roda -- não
+      #    substitui rodar o gate contra o projeto de produção.
+      - name: Security Gate no banco descartavel
+        run: |
+          set -euo pipefail
+          DATABASE_URL="postgres://postgres:postgres@localhost:5432/teste" \
+            scripts/seguranca/run_security_gate.sh
+
+  # ---------------------------------------------------------------------------
   # `acordos_pos_importacao` deixa de criar tabela de backup com TRUNCATE
   # aberto para `authenticated`. Correção de MENOR ALCANCE: uma linha no corpo
   # da função, só TRUNCATE, só authenticated, só a tabela que ela cria.
