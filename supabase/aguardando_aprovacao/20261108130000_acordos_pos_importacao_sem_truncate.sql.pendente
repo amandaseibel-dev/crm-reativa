@@ -1,0 +1,198 @@
+-- `acordos_pos_importacao` deixa de criar tabela de backup com TRUNCATE aberto
+-- Autorização da gestão: 08/11/2026. PREPARADA, NÃO APLICADA.
+--
+-- O QUE FAZ: acrescenta UMA linha ao corpo de
+-- `public.acordos_pos_importacao`, logo depois da linha que liga a RLS na
+-- tabela de backup recém-criada:
+--
+--   execute format('revoke truncate on table public.%I from authenticated',
+--                  '_backup_pos_import_' || v_lote);
+--
+-- MENOR ALCANCE POSSÍVEL, de propósito:
+--   · um privilégio   -> só TRUNCATE
+--   · um papel        -> só `authenticated`
+--   · uma tabela      -> só a que a própria função acabou de criar
+--   · zero tabela existente é tocada (quem faz isso é o PR das 545)
+--   · zero efeito sobre qualquer outra tabela do schema `public`
+--
+-- O QUE **NÃO** FAZ, e por quê:
+--   · **não** mexe em `alter default privileges` do schema `public`. Isso
+--     resolveria para toda tabela futura, mas mudaria o privilégio padrão de
+--     **todas** as tabelas novas do schema -- alcance global, com efeito em
+--     código que ainda não existe. A gestão pediu o menor alcance necessário,
+--     e exigiu avaliar efeitos antes de mexer em privilégio de outras
+--     tabelas. Fica como decisão separada.
+--   · **não** tira o `EXECUTE` de `authenticated` da função.
+--   · **não** muda uma linha da lógica de negócio: nem o alvo, nem o casamento
+--     de parcela, nem os `update`, nem o retorno. Só acrescenta o revoke.
+--   · **não** mexe em RLS, policy, dado, ou em qualquer outro privilégio.
+--
+-- QUEM PODE CHAMAR A FUNÇÃO -- correção de um registro anterior:
+-- o documento de 07/11/2026 dizia que "qualquer token autenticado" podia
+-- chamá-la. **Está errado, e fica corrigido aqui.** A função tem portão
+-- interno nas suas primeiras linhas: exige GUC `reativa.fluxo_pagamentos='on'`
+-- **ou** `auth.role()='service_role'` **ou** `public.usuario_e_gestao()`, e
+-- sem isso levanta `42501`. O `EXECUTE` para `authenticated` existe, mas o
+-- corpo barra quem não é gestão. Isso **reduz** a gravidade: a porta que
+-- recria o grant está atrás do portão da gestão, não aberta a qualquer token.
+-- Ainda assim vale fechar: a tabela criada não deveria nascer esvaziável por
+-- `authenticated`, independentemente de quem a criou.
+--
+-- COMO O PATCH É FEITO -- sem transcrever o corpo:
+-- a migration **não** reescreve a função. Ela lê a definição real do catálogo
+-- com `pg_get_functiondef()`, insere a linha depois da âncora e executa o
+-- texto resultante. Assim ficam preservados, por construção e não por
+-- cuidado manual:
+--   · os DEFAULT dos argumentos (`p_importacao_id uuid DEFAULT NULL::uuid`,
+--     `p_confirmar boolean DEFAULT false`) -- perder isso quebraria quem
+--     chama a função com menos argumentos;
+--   · `SECURITY DEFINER`, `SET search_path TO 'public'`,
+--     `SET statement_timeout TO '600s'`;
+--   · volatilidade, custo, `parallel`, tipo de retorno `jsonb`;
+--   · e o corpo, byte a byte, fora da linha acrescentada.
+-- Ler a função inteira antes de substituir é regra da casa, e foi feito:
+-- corpo `prosrc`: 94 linhas, 4.420 bytes; `pg_get_functiondef()` (o que este
+-- patch manipula): 101 linhas, 4.690 bytes, md5
+-- 1a0bf629927d3c6bbfcca01d3e8cab87. Uma única sobrecarga.
+--
+-- GRANTS -- premissa §10: `CREATE OR REPLACE` pode restaurar grants padrão.
+-- A migration fotografa `proacl` antes e **aborta** se mudar depois. Hoje é
+-- `postgres:EXECUTE, authenticated:EXECUTE, service_role:EXECUTE`, sem `anon`
+-- e sem `PUBLIC`.
+--
+-- ROLLBACK: `20261108130000_acordos_pos_importacao_sem_truncate.rollback.sql`,
+-- que remove exatamente as três linhas acrescentadas (a instrução e os dois
+-- comentários), pela mesma âncora.
+
+begin;
+
+do $patch$
+declare
+  v_def       text;
+  v_novo      text;
+  v_acl_antes text;
+  v_acl_depois text;
+  v_cfg_antes text;
+  v_ocorrencias integer;
+  v_ancora constant text :=
+    'execute format(''alter table public.%I enable row level security'', ''_backup_pos_import_'' || v_lote);';
+  v_adicao constant text :=
+    E'\n  -- Fecha o TRUNCATE que o default privilege do schema `public` abre em\n'
+    || E'  -- toda tabela nova. RLS nao cobre TRUNCATE. (migration 20261108130000)\n'
+    || E'  execute format(''revoke truncate on table public.%I from authenticated'', ''_backup_pos_import_'' || v_lote);';
+begin
+  select pg_get_functiondef(p.oid),
+         (select string_agg(x.grantee::regrole::text || ':' || x.privilege_type, ', ' order by x.grantee::regrole::text)
+            from aclexplode(p.proacl) x),
+         array_to_string(p.proconfig, ', ')
+    into v_def, v_acl_antes, v_cfg_antes
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname = 'acordos_pos_importacao';
+
+  if v_def is null then
+    raise exception 'public.acordos_pos_importacao nao existe neste banco -- nada a corrigir';
+  end if;
+
+  -- Guarda 1: idempotencia. Se o revoke ja esta no corpo, nao faz de novo.
+  if position('revoke truncate' in lower(v_def)) > 0 then
+    raise exception 'ja aplicado: o corpo de acordos_pos_importacao ja contem "revoke truncate"';
+  end if;
+
+  -- Guarda 2: a ancora tem de existir EXATAMENTE UMA vez. Zero significa que
+  -- a funcao mudou; mais de uma, que o patch cairia em lugar ambiguo.
+  v_ocorrencias := (length(v_def) - length(replace(v_def, v_ancora, ''))) / length(v_ancora);
+  if v_ocorrencias <> 1 then
+    raise exception 'ancora encontrada % vez(es), esperado exatamente 1 -- a funcao mudou, reaudite antes de aplicar', v_ocorrencias;
+  end if;
+
+  -- Guarda 3: o portao interno tem de continuar la. Se alguem o removeu, esta
+  -- migration nao e o lugar de descobrir isso em silencio.
+  if position('usuario_e_gestao' in v_def) = 0 then
+    raise exception 'portao interno (usuario_e_gestao) ausente do corpo -- reaudite a funcao antes de aplicar';
+  end if;
+
+  v_novo := replace(v_def, v_ancora, v_ancora || v_adicao);
+
+  if v_novo = v_def then
+    raise exception 'replace nao alterou nada -- abortando por seguranca';
+  end if;
+
+  execute v_novo;
+
+  -- Conferencia: grants e settings intactos (premissa §10)
+  select (select string_agg(x.grantee::regrole::text || ':' || x.privilege_type, ', ' order by x.grantee::regrole::text)
+            from aclexplode(p.proacl) x),
+         array_to_string(p.proconfig, ', ')
+    into v_acl_depois, v_cfg_antes
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname = 'acordos_pos_importacao';
+
+  if v_acl_depois is distinct from v_acl_antes then
+    raise exception 'EXECUTE mudou: antes [%] depois [%]', v_acl_antes, v_acl_depois;
+  end if;
+
+  raise notice 'patch aplicado: revoke truncate acrescentado; EXECUTE intacto [%]; config [%]', v_acl_depois, v_cfg_antes;
+end
+$patch$;
+
+-- Conferência final, ainda na transação: a função tem de seguir inteira.
+do $confere$
+declare
+  v_secdef   boolean;
+  v_cfg      text;
+  v_args     text;
+  v_retorno  text;
+  v_tem      boolean;
+begin
+  select p.prosecdef,
+         array_to_string(p.proconfig, ', '),
+         pg_get_function_arguments(p.oid),
+         pg_get_function_result(p.oid),
+         position('revoke truncate' in lower(p.prosrc)) > 0
+    into v_secdef, v_cfg, v_args, v_retorno, v_tem
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname = 'acordos_pos_importacao';
+
+  if not v_tem then
+    raise exception 'o revoke nao ficou no corpo';
+  end if;
+  if not v_secdef then
+    raise exception 'a funcao perdeu SECURITY DEFINER';
+  end if;
+  if v_cfg is distinct from 'search_path=public, statement_timeout=600s' then
+    raise exception 'config mudou: [%]', v_cfg;
+  end if;
+  if position('DEFAULT' in upper(v_args)) = 0 then
+    raise exception 'os DEFAULT dos argumentos foram perdidos: [%]', v_args;
+  end if;
+  if v_retorno <> 'jsonb' then
+    raise exception 'o retorno mudou: [%]', v_retorno;
+  end if;
+
+  raise notice 'conferencia OK: % returns % / SECURITY DEFINER / %', v_args, v_retorno, v_cfg;
+end
+$confere$;
+
+commit;
+
+-- CONFERÊNCIA MANUAL depois do commit (somente leitura):
+--
+-- select position('revoke truncate' in lower(prosrc)) > 0 as tem_revoke,
+--        prosecdef, array_to_string(proconfig,', ') as cfg,
+--        pg_get_function_arguments(oid) as args
+--   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+--  where n.nspname='public' and p.proname='acordos_pos_importacao';
+--
+-- Na PRÓXIMA execução real da função, a tabela criada deve nascer sem
+-- TRUNCATE para authenticated:
+--
+-- select relname, array_to_string(relacl,' | ')
+--   from pg_class c join pg_namespace n on n.oid=c.relnamespace
+--  where n.nspname='public' and relname like '\_backup\_pos\_import\_%'
+--  order by relname desc limit 1;
