@@ -1,0 +1,87 @@
+-- ============================================================================
+-- ROLLBACK de 20261108150000_ulbra_operadores_vinculo
+--
+-- Par do artefato de 08/11/2026. Como o SQL original NAO FOI APLICADO, este
+-- arquivo tambem nunca rodou.
+--
+-- ESTA MIGRATION NAO E O PILOTO. Ela NAO esta coberta pela autorizacao M1 da
+-- PR #864, que nomeia somente `20261108140000_ulbra_recebimento_e_fila` e
+-- trava o SHA-256 daquele arquivo. Aplicar esta aqui exige autorizacao
+-- propria, com linha propria no registro.
+--
+-- ----------------------------------------------------------------------------
+-- DEPENDENCIAS CONFERIDAS (08/11/2026)
+--
+--   - `ulbra_operadores_vinculo` nao tem chave estrangeira para ninguem e
+--     ninguem a referencia: nenhuma FK, nenhuma view, nenhuma funcao SQL,
+--     nenhum trigger, nenhum indice fora os proprios (pk + os dois unique).
+--   - A unica policy que existe sobre ela nasceu na propria migration
+--     (`ulbra_operadores_vinculo_gestao_le`) e cai junto com a tabela --
+--     `drop table` leva policies, constraints e indices.
+--   - Quem le a tabela e `supabase/functions/_shared/ulbra_operadores.ts`,
+--     que e TypeScript e NAO cria dependencia no banco. Depois do rollback ele
+--     passa a receber erro de relacao inexistente e devolve `null` pelo proprio
+--     tratamento de erro -- ou seja, falha FECHADO: nenhum operador e
+--     identificado, nenhum e identificado ERRADO.
+--   - Nenhuma Edge Function publicada importa esse leitor hoje.
+--
+-- ----------------------------------------------------------------------------
+-- O QUE SE PERDE AO RODAR
+--
+--   a) RECONSTRUIVEL: os 11 vinculos conferidos pela gestao em 08/11/2026 --
+--      eles estao literalmente no corpo da migration, entao reaplicar devolve
+--      exatamente a mesma tabela.
+--
+--   b) NAO RECONSTRUIVEL: qualquer alteracao feita DEPOIS de aplicar --
+--      vinculo novo, vinculo desativado (`ativo = false`), e-mail corrigido.
+--      Nada disso esta no arquivo. Antes de rodar, se a tabela divergir dos 11
+--      originais, copiar:
+--
+--        create table ulbra_operadores_vinculo_backup_<data> as
+--          select * from public.ulbra_operadores_vinculo;
+--
+--      Tabela de backup nasce aberta para `authenticated`, TRUNCATE incluso
+--      (memoria `tabela-nova-herda-truncate-para-authenticated`): ligar RLS e
+--      revogar, ou cria-la em schema fora do `public`.
+--
+--      Conferir a divergencia antes, em leitura:
+--        select count(*) from public.ulbra_operadores_vinculo;               -- 11?
+--        select count(*) from public.ulbra_operadores_vinculo where not ativo; -- 0?
+--
+-- ----------------------------------------------------------------------------
+-- PRIVILEGIOS: por que o `drop` basta e nao sobra nada
+--
+--   Os grants vivem NO OBJETO: `drop table` leva junto o `grant select` dado a
+--   `authenticated` e tudo o mais que estivesse no catalogo para esta tabela.
+--   Nao ha `grant` em schema, funcao ou sequencia a desfazer -- a chave e uuid
+--   com `gen_random_uuid()`, entao nao existe sequence propria.
+--
+--   O QUE ESTE ROLLBACK NAO TOCA, DE PROPOSITO: o
+--   `alter default privileges ... grant all on tables to authenticated` do
+--   projeto, que e a armadilha que faz TABELA NOVA nascer aberta. Ele e
+--   configuracao do schema, anterior a esta migration e usada por todo o
+--   resto do sistema. Mexer nele aqui seria alterar o ambiente inteiro para
+--   desfazer uma tabela -- exatamente o tipo de efeito colateral que um
+--   rollback nao pode ter.
+--
+--   Consequencia pratica, dita sem maquiagem: depois deste rollback, o
+--   ambiente volta ao estado anterior A MIGRATION, e esse estado inclui a
+--   armadilha. Se a tabela for recriada por outro caminho que nao repita o
+--   `revoke all`, ela nasce com ALL para `authenticated`, TRUNCATE incluso.
+-- ============================================================================
+
+begin;
+
+-- Policy explicita antes do drop. `drop table` levaria junto, mas deixar o
+-- comando aqui faz o rollback dizer o que esta desfazendo -- e se alguem tiver
+-- criado outra policy com este nome em outro caminho, o `if exists` nao
+-- quebra nada.
+drop policy if exists ulbra_operadores_vinculo_gestao_le on public.ulbra_operadores_vinculo;
+
+-- Sem `cascade`: se algum objeto tiver passado a depender desta tabela depois
+-- da aplicacao, o `drop` FALHA e aborta a transacao. E o comportamento certo:
+-- melhor parar e mostrar o que apareceu do que derrubar em silencio um objeto
+-- que ninguem mapeou.
+drop table if exists public.ulbra_operadores_vinculo;
+
+commit;

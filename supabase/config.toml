@@ -83,3 +83,10 @@ verify_jwt = true
 
 [functions.ulbra-diagnostico]
 verify_jwt = true
+
+# A sincronizacao NAO e chamada por sessao de usuario: quem chama e o cron.
+# Por isso `verify_jwt = false` -- nao existe JWT nessa chamada. O portao dela
+# e o cabecalho `x-sync-chave`, comparado com o segredo `ULBRA_SYNC_CHAVE`;
+# sem ele a funcao responde 403 e nao toca na Mensageria.
+[functions.ulbra-sincronizar]
+verify_jwt = false

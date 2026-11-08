@@ -27,8 +27,51 @@ fala com ele pelo endpoint MCP JSON-RPC 2.0 `https://crm.ulbra.ai/api/mcp`
 | `abrir_atendimento` | `atendimentos:write` | `cliente, equipe?, atendente?` | abre já ACEITO na fila do atendente; `ja_existia` se já é dele |
 | `criar_atendimentos_da_lista` | `atendimentos:write` | `linhas[≤20], previa (padrão true)` | prévia por linha; grava só com `previa:false` |
 
-**Não expostos:** conversas, mensagens, envio, campanhas, templates,
-transferência de atendimento, edição de cadastro, relatórios.
+**Atualização de 08/11/2026 — a lista de 8 ferramentas acima é a superfície
+medida em 04/11 e NÃO é mais a superfície disponível.** O metadado público do
+recurso protegido (`/.well-known/oauth-protected-resource`, consultado sem
+gastar chamada) declara 22 escopos, entre eles `conversas:read`,
+`mensagens:enviar`, `atendimentos:atender`, `atendimentos:fila`,
+`atendimentos:pedir`, `atendimentos:decidir`, `equipes:read`,
+`relatorios:read`, `campanhas:read/write/disparar`. Conversas, mensagens,
+envio, campanhas, templates e transferência **existem** — o que vale é o escopo
+da credencial, não esta lista. A etapa 1 do recebimento usa quatro, todas de
+leitura: `listar_conversas`, `ler_conversa`, `listar_atendimentos`,
+`meu_acesso`.
+
+## OAuth: o que os metadados públicos dizem (08/11/2026)
+
+Lido de `https://crm.ulbra.ai/.well-known/oauth-protected-resource` e
+`https://crm.ulbra.ai/.well-known/oauth-authorization-server/api/oauth`, **sem
+consumir a cota**:
+
+| Campo | Valor |
+|---|---|
+| `issuer` | `https://crm.ulbra.ai/api/oauth` |
+| `authorization_endpoint` | `/api/oauth/auth` |
+| `token_endpoint` | `/api/oauth/token` |
+| `revocation_endpoint` | `/api/oauth/token/revocation` |
+| `grant_types_supported` | `authorization_code`, `refresh_token` |
+| `code_challenge_methods_supported` | `S256` (PKCE) |
+| `token_endpoint_auth_methods_supported` | `none` — **cliente público, sem segredo** |
+| `registration_endpoint` | **ausente** — não há registro dinâmico |
+
+Consequências para um desenho de autorização individual por operador:
+
+- o fluxo por pessoa é de primeira classe, com renovação (`refresh_token`) e
+  revogação (endpoint próprio);
+- **um `client_id` do ReATIVA depende da TI da ULBRA**, porque não há DCR;
+- cliente público não tem segredo, então refresh token **nunca** no navegador:
+  servidor, em tabela com RLS deny-all e acesso só por `service_role`;
+- **autoria é implícita, do dono da conexão.** `enviar_mensagem_whatsapp` não
+  tem parâmetro de autor e sai "com o nome de quem atende";
+  `assumir_ou_devolver_ao_bot` deixa a conversa "com a pessoa". Enviar por uma
+  credencial central gravaria a gestão como autora de toda resposta;
+- o ReATIVA **não usa** cliente OAuth hoje: fala com a Mensageria só pelo
+  Bearer `ULBRA_MCP_TOKEN`. A única conexão OAuth em uso é a do **Claude**
+  (`aplicativo: "claude-web"`), de outro aplicativo. **Isso não prova que a
+  ULBRA não tenha algum cadastro em nome do ReATIVA** — essa resposta é da TI,
+  e a pergunta vem antes de pedir cadastro novo.
 
 Armadilha medida: `conferir_duplicidade` devolveu `existe:true` com
 `equipe:null` para telefone inexistente — sem `cliente.id` e sem `equipe` não é
@@ -390,3 +433,145 @@ então esta sequência é de deploy, não de banco.
 dado a desfazer, porque a função corrigida só grava `alta_cpf` e vínculo não se
 apaga (gatilho da `20261106151254`). A reversa do SQL existe e **não** deve ser
 usada para desfazer deploy.
+
+---
+
+## Etapa 1 — recebimento no ReATIVA: contrato medido em 08/11/2026
+
+Medido pelo conector OAuth da gestão, só leitura, **5 chamadas no total**
+(2 de `listar_conversas`, 1 de `ler_conversa`, mais as 2 do diagnóstico).
+Nenhuma mensagem enviada, nenhum atendimento alterado.
+
+### Nenhuma ferramenta tem filtro incremental
+
+Não existe parâmetro `desde`, `atualizadoApos` ou equivalente em
+`listar_conversas`, `ler_conversa`, `listar_atendimentos`, `minha_fila` nem
+`fila_agora`. O que existe, e que resolve o problema, é **ordenação**:
+
+- `listar_conversas` devolve por `ultimaMensagemEm` **decrescente, global** —
+  conferido comparando página 1 e 2: o piso da página 1 (`03:17:55Z`) é maior
+  que o teto da página 2 (`02:43:40Z`). Isso permite incremental de verdade:
+  lê-se da página 1 para baixo e para-se na primeira conversa que não é mais
+  nova que o cursor. Em regime, **uma chamada por ciclo**.
+- páginas de até **50**; `paginacao.total` vinha **420** conversas ativas de
+  WhatsApp na instituição inteira (todas as equipes).
+- **não há filtro por equipe** em `listar_conversas` — o corte por `Reativa`
+  é feito sobre a resposta, no nosso lado.
+
+### Campos que a Etapa 1 usa
+
+| ferramenta | o que serve | o que NÃO vem |
+| --- | --- | --- |
+| `listar_conversas` | `id`, `cliente.{id,nome}`, `equipe`, `responsavel`, `situacao`, `ultimaMensagemEm`, `ultimaMensagem.{quem,em,trecho}` | telefone, e-mail, contagem de não lidas |
+| `ler_conversa` | mensagens em ordem cronológica: `quem` (`cliente`/`operador`/`bot`/`sistema`), `em`, `tipo`, `texto`, `transcricao`, `assunto`, `anexos[{nome,tipo}]`; `paginacao.antesDe` para as anteriores | o arquivo do anexo, e **qualquer marca de lida** |
+| `listar_atendimentos` | até **500** por página, `situacao`, `coluna`, `equipe`, `atendente`, `entrouEm` | conversas e contato |
+| `minha_fila` | fila e **não lidas** da PRÓPRIA pessoa da credencial | serve à pessoa do token, não à equipe |
+| `fila_agora` | operadores da ULBRA na fila | não é fila de casos |
+
+Duas consequências que mandam na arquitetura:
+
+1. **direção** da mensagem é `quem`: só `quem === "cliente"` é resposta de
+   aluno. Mensagem de `bot` ou `operador` não notifica ninguém;
+2. **controle de leitura é nosso**. Não existe ferramenta que marque lida, e
+   `minha_fila` só conta não lidas da pessoa do token — que é a credencial de
+   backend, não o operador. A leitura é do ReATIVA: cada pessoa tem a sua
+   linha em `ulbra_leitura_usuario` (até quando leu), com RLS que deixa ver e
+   escrever só a própria. Marcar como lida não zera o aviso de ninguém mais,
+   e a gestão não lê o marcador de terceiros.
+
+   **Limite assumido:** "não lida" é por CONVERSA (data da última mensagem do
+   cliente), não por mensagem. Um registro por mensagem daria prova item a
+   item de que nenhuma recebida se perdeu; não foi feito nesta etapa, e fica
+   como próximo passo se a gestão exigir essa prova.
+
+### Eventos e webhooks fora do catálogo MCP — NÃO VERIFICADO
+
+Conferido em 08/11/2026: `crm.ulbra.ai/docs` e a raiz devolvem 200 com o texto
+`ULBRA CRM` e nada mais; `/api/docs` devolve **401**; não há
+`/.well-known/oauth-authorization-server`. Nenhuma das páginas públicas
+menciona webhook, evento, subscription ou callback.
+
+Isso **não prova** que a plataforma não tenha webhook: prova que não há
+documentação pública legível. A ausência de ferramenta MCP de subscrição
+também não prova nada sobre a plataforma. Fica como **pergunta à TI da ULBRA**,
+junto da rotação da credencial — e a Etapa 1 foi desenhada para não depender
+da resposta: se o webhook existir, ele substitui o cron sem mexer no resto.
+
+### Orçamento: o número, não a esperança
+
+Teto medido em `meu_acesso`: **500 chamadas/dia por pessoa**, 30/min por
+pessoa, 15/min por conexão. **Não assumimos que OAuth e backend têm orçamentos
+separados** — a ULBRA não confirmou, e o campo diz "por pessoa". A conta trata
+os dois como UM teto de 500/dia. Com a cadência escolhida:
+
+| item | cadência | chamadas/dia |
+| --- | --- | --- |
+| `listar_conversas` (1 página em regime) | 10 min | 144 |
+| `listar_atendimentos` (espera) | 30 min | 48 |
+| `ler_conversa` ao abrir ficha | sob demanda | 60 |
+| margem de falha e repetição | 15% | 38 |
+| **total** | | **290** de 500 |
+
+O número está cravado em teste (`sincronizar.test.ts`): se alguém apertar a
+cadência sem refazer a conta, o CI reprova. Para referência: 5 minutos dá 456
+e ainda cabe, mas não suporta o dobro de aberturas de ficha; 1 minuto dá 1.548
+e estoura.
+
+**Atraso esperado:** até 10 minutos entre o aluno responder e o sino tocar,
+média de 5. A alternativa concreta para reduzir isso não é apertar o relógio —
+é webhook, ou um orçamento/credencial de serviço próprio. Enquanto não houver
+um dos dois, 10 minutos é o que cabe.
+
+### Desenho
+
+```
+cron (10 min) -> ulbra-sincronizar -> Postgres (ulbra_conversas,
+                 (1 credencial)        ulbra_atendimentos, ulbra_sync_estado)
+                                             |
+                          Realtime           v
+      tela de cada operador  <---------  le o banco (custo ZERO na Mensageria)
+```
+
+- **nada de poll por operador.** A `ulbra-leads-pendentes` fazia 1 chamada por
+  requisição e foi desenhada para 60s por aba: 1.440/dia por pessoa. Nunca foi
+  montada em tela — está marcada como superada e segue publicada, intocada;
+- **identidade** só de `ulbra_vinculos` ativo com `confianca = 'alta_cpf'`. O
+  selo antigo `alta` (anterior a 04/11, que não distinguia CPF de telefone)
+  **não identifica**: cai em conferência igual a quem não tem vínculo;
+- **carteira e fidelização antes do rodízio**: aluno com dono vai para o dono
+  (`destino_motivo = 'CARTEIRA'`); sem dono, é sugerido ao próximo do receptivo
+  online, pela mesma régua da tela (`fila_receptivo`, 90s de folga, fora de
+  pausa);
+- **dois operadores não assumem o mesmo**: `ulbra_atendimento_assumir` é
+  `UPDATE ... WHERE responsavel_email IS NULL`. O segundo recebe `JA_ASSUMIDO`
+  com o nome de quem chegou primeiro. A tela não decide isso;
+- **equipe**: só `Reativa`, e por `CHECK` na tabela — atendimento de outra
+  equipe não entra nem por erro de código, e nunca é assumido nem transferido
+  por nós.
+
+### O que falta para funcionar (cada um com autorização própria)
+
+1. aplicar `supabase/aguardando_aprovacao/20261108140000_ulbra_recebimento_e_fila.sql.pendente`
+   (3 tabelas, 4 funções; nada existente é tocado — rollback no par `.rollback.sql`);
+2. publicar `ulbra-sincronizar` com `verify_jwt = false`;
+3. gravar o segredo `ULBRA_SYNC_CHAVE`;
+4. disparar um ciclo à mão, conferir o resultado, e só então criar o cron de
+   10 minutos — publicar função de cron dispara na hora, e aqui isso seria
+   consumo sem ninguém olhando.
+
+Sem o passo 1 a tela renderiza e não mostra novidade nenhuma: as tabelas não
+existem. É esse o estado do preview desta PR.
+
+### Correções medidas em 08/11/2026 (valem sobre o texto acima)
+
+- `listar_conversas` mostra **só a última mensagem**. Resposta do cliente
+  seguida de operador/bot não aparece na lista; só `ler_conversa` prova. A
+  leitura de detalhe fica desligada por orçamento (ver
+  `ulbra-etapa1-pacote-aprovacao.md`, seção 6).
+- Em `ler_conversa`, o campo `autor` veio **nulo** em mensagens de operador na
+  conversa medida. Não se deve assumir que ele identifica quem respondeu.
+- A gestão no banco (`usuario_e_gestao()`) é uma **lista fixa** de três e-mails,
+  não uma coluna de perfil. Conferido com `pg_get_functiondef`.
+- "Não lida" é por usuário (`ulbra_leitura_usuario`), e por conversa, não por
+  mensagem.
+

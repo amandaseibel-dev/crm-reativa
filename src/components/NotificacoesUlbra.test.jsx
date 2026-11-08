@@ -1,158 +1,235 @@
 // @vitest-environment jsdom
+//
+// Garantias deste componente, em ordem de importância:
+// 1. NÃO chama a Mensageria: nenhum `fetch` sai daqui — o custo por operador
+//    aberto é zero, e é esta a razão de o componente existir desta forma;
+// 2. operador não vê o que é da carteira de outro nem o que está em
+//    conferência;
+// 3. "Assumir" respeita a recusa do banco e não finge sucesso;
+// 4. som nunca toca na primeira carga.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, fireEvent, cleanup } from "@testing-library/react";
 import NotificacoesUlbra from "./NotificacoesUlbra";
 
+const estado = {
+  leituras: [],
+  conversas: [],
+  atendimentos: [],
+  gestao: false,
+  casos: [],
+  assumir: { ok: true, responsavel: "op1@x" },
+};
+const rpcChamadas = [];
+const avisosRealtime = [];
+
+function dadosDa(nome) {
+  if (nome === "ulbra_conversas") return estado.conversas;
+  if (nome === "ulbra_atendimentos") return estado.atendimentos;
+  if (nome === "ulbra_leitura_usuario") return estado.leituras;
+  return estado.casos;
+}
+
+function tabelaFalsa(nome) {
+  const encadeado = {
+    select: () => encadeado,
+    gt: () => encadeado,
+    is: () => encadeado,
+    not: () => encadeado,
+    eq: () => encadeado,
+    order: () => encadeado,
+    limit: () => encadeado,
+    range: () => encadeado,
+    // thenable: `await` no fim da cadeia devolve as linhas da tabela
+    then: (resolve) => resolve({ data: dadosDa(nome), error: null }),
+  };
+  return encadeado;
+}
+
 vi.mock("../services/supabase", () => ({
   supabase: {
-    auth: {
-      getSession: vi.fn().mockResolvedValue({
-        data: { session: { access_token: "tok123" } },
-      }),
+    from: (nome) => tabelaFalsa(nome),
+    rpc: (nome, args) => {
+      rpcChamadas.push([nome, args]);
+      if (nome === "usuario_e_gestao") return Promise.resolve({ data: estado.gestao, error: null });
+      if (nome === "ulbra_atendimento_assumir") {
+        return Promise.resolve({ data: estado.assumir, error: null });
+      }
+      return Promise.resolve({ data: { ok: true }, error: null });
     },
+    channel: () => ({
+      on: function (_evento, _filtro, cb) {
+        avisosRealtime.push(cb);
+        return this;
+      },
+      subscribe: function () {
+        return this;
+      },
+    }),
+    removeChannel: () => {},
   },
 }));
 
-vi.stubEnv("VITE_SUPABASE_URL", "http://localhost:54321");
+const USUARIO = { perfil: { email: "op1@x" } };
+
+const CONVERSA = {
+  ulbra_conversa_id: "c1",
+  cliente_nome: "Aluno Um",
+  ultima_mensagem_cliente_em: "2026-11-08T05:00:00Z",
+  aluno_id: "aluno-1",
+  aluno_status: "vinculado",
+  responsavel_ulbra: "op1@x",
+  ultima_mensagem_em: "2026-11-08T05:00:00Z",
+  ultima_mensagem_quem: "cliente",
+  ultima_mensagem_previa: "pode ser hoje",
+};
+
+const LEAD_MEU = {
+  ulbra_atendimento_id: "a1",
+  cliente_nome: "Aluno Dois",
+  aluno_id: "aluno-2",
+  aluno_status: "vinculado",
+  destino_email: "op1@x",
+  destino_motivo: "CARTEIRA",
+  responsavel_email: null,
+  dispensado_em: null,
+  entrou_em: "2026-11-08T05:10:00Z",
+};
+
+const LEAD_DE_OUTRO = { ...LEAD_MEU, ulbra_atendimento_id: "a2", destino_email: "op2@x" };
+const LEAD_EM_CONFERENCIA = {
+  ...LEAD_MEU,
+  ulbra_atendimento_id: "a3",
+  aluno_id: null,
+  aluno_status: "nao_confirmado",
+  destino_email: null,
+  destino_motivo: "CONFERENCIA",
+};
 
 const fetchMock = vi.fn();
 
 beforeEach(() => {
+  estado.conversas = [];
+  estado.leituras = [];
+  estado.atendimentos = [];
+  estado.gestao = false;
+  estado.casos = [{ aluno_id: "aluno-1" }, { aluno_id: "aluno-2" }];
+  estado.assumir = { ok: true, responsavel: "op1@x" };
+  rpcChamadas.length = 0;
+  avisosRealtime.length = 0;
   fetchMock.mockClear();
   vi.stubGlobal("fetch", fetchMock);
-  sessionStorage.clear();
+  localStorage.clear();
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
-
 afterEach(cleanup);
 
-const LEADS = [
-  { id: "lead-1", nome: "Ângela Gabryela", criado_em: "2026-11-01T10:00:00Z" },
-  { id: "lead-2", nome: "Evelen Arrieche", criado_em: "2026-11-01T11:00:00Z" },
-];
-
 describe("NotificacoesUlbra", () => {
-  it("não renderiza nada quando lista está vazia", async () => {
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ leads: [] }),
-    });
-
-    const { container } = render(<NotificacoesUlbra />);
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(container.firstChild).toBeNull();
+  it("não dispara nenhuma chamada de rede própria — lê o banco", async () => {
+    estado.conversas = [CONVERSA];
+    render(<NotificacoesUlbra usuario={USUARIO} />);
+    await waitFor(() => expect(screen.getByText("Mensageria ULBRA")).toBeTruthy());
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("exibe badge com contagem de leads", async () => {
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ leads: LEADS }),
-    });
+  it("some da tela quando não há novidade", async () => {
+    const { container } = render(<NotificacoesUlbra usuario={USUARIO} />);
+    await waitFor(() => expect(container.firstChild).toBeNull());
+  });
 
-    render(<NotificacoesUlbra />);
+  it("conta conversas não lidas e leads no mesmo badge", async () => {
+    estado.conversas = [CONVERSA];
+    estado.atendimentos = [LEAD_MEU];
+    render(<NotificacoesUlbra usuario={USUARIO} />);
+    // 1 conversa com resposta pendente + 1 lead
     await waitFor(() => expect(screen.getByText("2")).toBeTruthy());
   });
 
-  it("exibe nomes dos leads ao abrir painel", async () => {
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ leads: LEADS }),
-    });
+  it("não mostra lead destinado a outro operador", async () => {
+    estado.atendimentos = [LEAD_DE_OUTRO];
+    const { container } = render(<NotificacoesUlbra usuario={USUARIO} />);
+    await waitFor(() => expect(container.firstChild).toBeNull());
+  });
 
-    render(<NotificacoesUlbra />);
+  it("não mostra ao operador o que está em conferência", async () => {
+    estado.atendimentos = [LEAD_EM_CONFERENCIA];
+    const { container } = render(<NotificacoesUlbra usuario={USUARIO} />);
+    await waitFor(() => expect(container.firstChild).toBeNull());
+  });
+
+  it("gestão vê o que está em conferência", async () => {
+    estado.gestao = true;
+    estado.atendimentos = [LEAD_EM_CONFERENCIA];
+    render(<NotificacoesUlbra usuario={USUARIO} />);
+    await waitFor(() => expect(screen.getByText("1")).toBeTruthy());
+  });
+
+  it("assumir chama a RPC do banco e mostra a recusa como ela veio", async () => {
+    estado.atendimentos = [LEAD_MEU];
+    estado.assumir = { ok: false, motivo: "JA_ASSUMIDO", responsavel: "op2@x" };
+    render(<NotificacoesUlbra usuario={USUARIO} />);
+    fireEvent.click(await screen.findByText("Mensageria ULBRA"));
+    fireEvent.click(await screen.findByText("Assumir"));
+    await waitFor(() =>
+      expect(screen.getByText("outro operador assumiu primeiro")).toBeTruthy(),
+    );
+    expect(rpcChamadas.some(([n, a]) => n === "ulbra_atendimento_assumir" && a.p_id === "a1")).toBe(
+      true,
+    );
+  });
+
+  function dublarSom() {
+    const osc = { frequency: {}, connect: () => {}, start: () => {}, stop: () => {} };
+    const criarOsc = vi.fn(() => osc);
+    vi.stubGlobal(
+      "AudioContext",
+      class {
+        state = "running";
+        currentTime = 0;
+        createOscillator = criarOsc;
+        createGain = () => ({
+          gain: { setValueAtTime: () => {}, exponentialRampToValueAtTime: () => {} },
+          connect: () => {},
+        });
+        destination = {};
+      },
+    );
+    localStorage.setItem("rv_ulbra_prefs_op1_x", JSON.stringify({ som: true, visual: true }));
+    return criarOsc;
+  }
+
+  it("primeira carga não toca som", async () => {
+    const criarOsc = dublarSom();
+    estado.conversas = [CONVERSA];
+    render(<NotificacoesUlbra usuario={USUARIO} />);
+    await waitFor(() => expect(screen.getByText("1")).toBeTruthy());
+    expect(criarOsc).not.toHaveBeenCalled();
+  });
+
+  it("toca quando a contagem sobe depois de carregada", async () => {
+    const criarOsc = dublarSom();
+    estado.conversas = [CONVERSA];
+    render(<NotificacoesUlbra usuario={USUARIO} />);
+    await waitFor(() => expect(screen.getByText("1")).toBeTruthy());
+
+    estado.conversas = [CONVERSA, { ...CONVERSA, ulbra_conversa_id: "c2" }];
+    avisosRealtime.forEach((cb) => cb({}));
     await waitFor(() => expect(screen.getByText("2")).toBeTruthy());
-
-    fireEvent.click(screen.getByRole("button"));
-
-    expect(screen.getByText("Ângela Gabryela")).toBeTruthy();
-    expect(screen.getByText("Evelen Arrieche")).toBeTruthy();
+    expect(criarOsc).toHaveBeenCalled();
   });
 
-  it("chama onAssumirLead com o lead correto", async () => {
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ leads: [LEADS[0]] }),
-    });
-
-    const onAssumir = vi.fn();
-    render(<NotificacoesUlbra onAssumirLead={onAssumir} />);
+  it("com som desligado, a contagem sobe e nada toca", async () => {
+    const criarOsc = dublarSom();
+    localStorage.setItem("rv_ulbra_prefs_op1_x", JSON.stringify({ som: false, visual: true }));
+    estado.conversas = [CONVERSA];
+    render(<NotificacoesUlbra usuario={USUARIO} />);
     await waitFor(() => expect(screen.getByText("1")).toBeTruthy());
 
-    fireEvent.click(screen.getByRole("button"));
-    fireEvent.click(screen.getByRole("button", { name: /assumir/i }));
-
-    expect(onAssumir).toHaveBeenCalledWith(LEADS[0]);
-  });
-
-  it("não renderiza nada quando resposta é NAO_RECEPTIVO", async () => {
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ leads: [], motivo: "NAO_RECEPTIVO" }),
-    });
-
-    const { container } = render(<NotificacoesUlbra />);
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(container.firstChild).toBeNull();
-  });
-
-  it("idempotência: mesmo lead não duplica no estado após segunda chamada", async () => {
-    fetchMock
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ leads: [LEADS[0]] }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ leads: [LEADS[0]] }) });
-
-    render(<NotificacoesUlbra />);
-    await waitFor(() => expect(screen.getByText("1")).toBeTruthy());
-    expect(screen.queryByText("2")).toBeNull();
-  });
-
-  it("persiste IDs vistos em sessionStorage após primeira notificação", async () => {
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ leads: [LEADS[0]] }),
-    });
-
-    render(<NotificacoesUlbra />);
-    await waitFor(() => expect(screen.getByText("1")).toBeTruthy());
-
-    const raw = sessionStorage.getItem("ulbra_leads_vistos");
-    expect(raw).toBeTruthy();
-    const vistos = JSON.parse(raw);
-    expect(vistos).toContain("lead-1");
-  });
-
-  it("lead em sessionStorage ainda aparece na lista operacional após reload", async () => {
-    // Simular reload: lead-1 já foi notificado (presente no sessionStorage)
-    // Mas ainda está em waiting no sistema — deve continuar visível para operação
-    sessionStorage.setItem("ulbra_leads_vistos", JSON.stringify(["lead-1"]));
-
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ leads: [LEADS[0]] }),
-    });
-
-    render(<NotificacoesUlbra />);
-
-    // Lead ainda está em waiting: deve aparecer no badge mesmo após reload
-    await waitFor(() => expect(screen.getByText("1")).toBeTruthy());
-  });
-
-  it("lead em sessionStorage não é salvo novamente (sem re-notificação)", async () => {
-    // vistos antes do mount
-    sessionStorage.setItem("ulbra_leads_vistos", JSON.stringify(["lead-1"]));
-
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ leads: [LEADS[0]] }),
-    });
-
-    render(<NotificacoesUlbra />);
-    await waitFor(() => expect(screen.getByText("1")).toBeTruthy());
-
-    // salvarVistos não é chamado para leads que já estavam no vistoRef
-    const vistos = JSON.parse(sessionStorage.getItem("ulbra_leads_vistos") ?? "[]");
-    expect(vistos).toEqual(["lead-1"]); // inalterado — não sobrescrito
+    estado.conversas = [CONVERSA, { ...CONVERSA, ulbra_conversa_id: "c2" }];
+    avisosRealtime.forEach((cb) => cb({}));
+    await waitFor(() => expect(screen.getByText("2")).toBeTruthy());
+    expect(criarOsc).not.toHaveBeenCalled();
   });
 });

@@ -222,6 +222,149 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
 
   # ---------------------------------------------------------------------------
+  # ULBRA — recebimento (etapa 1): leitura por usuario, grants e rollback,
+  # num Postgres 16 descartavel. Roda a migration CANDIDATA (ainda em
+  # aguardando_aprovacao/), nao producao.
+  #
+  # Prova o que a RLS e os grants prometem, como papeis reais: anon nao le;
+  # authenticated nao escreve nem TRUNCA o espelho; cada operador le so o
+  # seu; a leitura de um usuario nao zera a de outro; dois operadores nao
+  # assumem o mesmo atendimento; e o rollback volta ao ponto anterior.
+  # ---------------------------------------------------------------------------
+  ulbra-recebimento-sql:
+    name: ulbra recebimento — leitura por usuario, grants e rollback (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/ulbra_recebimento
+      MIGRATION: supabase/aguardando_aprovacao/20261108140000_ulbra_recebimento_e_fila.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261108140000_ulbra_recebimento_e_fila.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # 1. ambiente  2. migration candidata  3. dados simulados
+      # 4. provas de leitura/grant  5. rollback candidato  6. banco de volta
+      - name: Ambiente, migration, provas por usuario, rollback e verificacao
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_dados.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/03_leitura_por_usuario.sql"
+          # 08 logo depois de 03: ele conta conversas (3) e atendimentos (4), e
+          # 05/06/07 inserem conversas proprias. Depois deles, as contagens de
+          # regime mudariam.
+          psql -v ON_ERROR_STOP=1 -f "$DIR/08_regime_pos_piloto.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/05_resposta_seguida_de_operador.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/06_fila_de_detalhes.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/07_reabrir_pendencia.sql"
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/04_depois_do_rollback.sql"
+
+  # ---------------------------------------------------------------------------
+  # ULBRA — mapeamento operador ReATIVA x atendente ULBRA (20261108150000).
+  #
+  # Job SEPARADO do de cima de propósito: esta migration é outra, tem rollback
+  # próprio e NÃO está coberta pela autorização M1 da #864, que nomeia só a
+  # 20261108140000. Misturar as duas no mesmo job faria uma passar de carona na
+  # aprovação da outra.
+  # ---------------------------------------------------------------------------
+  ulbra-operadores-sql:
+    name: ulbra operadores — RLS, grants herdados e rollback (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/ulbra_operadores
+      MIGRATION: supabase/aguardando_aprovacao/20261108150000_ulbra_operadores_vinculo.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261108150000_ulbra_operadores_vinculo.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ambiente, migration candidata, provas, rollback e verificacao
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_provas.sql"
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/03_depois_do_rollback.sql"
+
+      # A prova so vale se cair quando o REVOKE sai. Sem isto, os grants
+      # herdados por `alter default privileges` passariam sem ser exercitados.
+      - name: Sensibilidade — sem o REVOKE, a prova TEM de falhar
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -c 'drop schema public cascade; create schema public;'
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          grep -v '^revoke all on table' "$MIGRATION" | psql -v ON_ERROR_STOP=1
+          if psql -v ON_ERROR_STOP=1 -f "$DIR/02_provas.sql" >/dev/null 2>&1; then
+            echo "FALHA: a prova passou sem o REVOKE -- ela nao prova nada"
+            exit 1
+          fi
+          echo "ok: sem o REVOKE a prova cai, como tem de ser"
+
+  # ---------------------------------------------------------------------------
+  # ULBRA — verificação de TIPOS e IMPORTS da Edge Function com o Deno, em
+  # versão FIXADA. O transform do Vitest não prova isso: ele não resolve
+  # imports remotos (esm.sh) nem checa tipos do runtime Deno.
+  # ---------------------------------------------------------------------------
+  ulbra-sincronizar-deno-check:
+    name: ulbra-sincronizar — deno check (versão fixada)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Instalar Deno (versão fixada)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.1.4
+
+      - name: deno check da função e de tudo que ela importa
+        run: deno check supabase/functions/ulbra-sincronizar/index.ts
+
+  # ---------------------------------------------------------------------------
   # PROPOSTA_staging_acordos_prime.sql — RLS, grants e isolamento do staging
   # de ACORDOS, num Postgres descartável.
   #
