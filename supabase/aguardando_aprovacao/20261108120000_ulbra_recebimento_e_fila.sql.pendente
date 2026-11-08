@@ -1,0 +1,405 @@
+-- ============================================================================
+-- ULBRA — ETAPA 1: RECEBIMENTO (RESPOSTAS E NOVOS ATENDIMENTOS) DENTRO DO CRM
+--
+-- Artefato de 08/11/2026. NAO APLICAR SEM AUTORIZACAO EXPLICITA DA GESTAO.
+-- NAO FOI APLICADO EM NENHUM AMBIENTE. Nada aqui rodou.
+--
+-- O QUE ISTO INSTALA
+--   1. `ulbra_conversas`     espelho das conversas da equipe Reativa
+--   2. `ulbra_atendimentos`  fila dos atendimentos em espera da equipe Reativa
+--   3. `ulbra_sync_estado`   cursor, contador de chamadas do dia, ultimo erro
+--   4. `ulbra_sync_gravar`   unica porta de escrita; so service_role
+--   5. `ulbra_atendimento_assumir`   posse por UPDATE condicional
+--   6. `ulbra_atendimento_dispensar` devolve o lead a fila, com motivo
+--   7. `ulbra_conversa_marcar_lida`  zera o contador de nao lidas
+--
+-- O QUE ISTO NAO FAZ
+--   - nao altera `casos`, `alunos`, `fila_receptivo`, `ulbra_vinculos`,
+--     `whatsapp_*` nem qualquer objeto existente;
+--   - nao cria cron. O cron entra depois, em passo proprio, quando a funcao
+--     `ulbra-sincronizar` estiver publicada e a chave estiver no Vault (ver
+--     "DEPOIS DESTE SQL", no fim do arquivo). Memoria
+--     `publicar-funcao-de-cron-dispara-na-hora`: cron e deploy na mesma janela
+--     disparam junto, e aqui isso seria consumo de orcamento sem ninguem
+--     olhando;
+--   - nao escreve nada de identidade por conta propria: `aluno_id` so chega
+--     por `ulbra_vinculos` com `confianca = 'alta_cpf'`, decidido na funcao.
+--
+-- GRANTS, PELA REGRA DA CASA
+--   Tabela nova herda TRUNCATE para `authenticated` (memoria
+--   `tabela-nova-herda-truncate-para-authenticated`). Os REVOKE abaixo sao
+--   explicitos e vem ANTES dos GRANT. `authenticated` fica so com SELECT; toda
+--   escrita passa por funcao SECURITY DEFINER com `search_path` fixo.
+-- ============================================================================
+
+begin;
+
+-- ---------------------------------------------------------------- conversas
+create table public.ulbra_conversas (
+  ulbra_conversa_id      text primary key,
+  ulbra_cliente_id       text not null,
+  cliente_nome           text,
+  canal                  text not null default 'whatsapp',
+  situacao               text not null,
+  equipe                 text not null,
+  responsavel_ulbra      text,
+  ultima_mensagem_em     timestamptz,
+  ultima_mensagem_quem   text,
+  ultima_mensagem_previa text,
+  nao_lidas              integer not null default 0,
+  aluno_id               uuid references public.alunos (id),
+  aluno_status           text not null default 'nao_confirmado',
+  lida_em                timestamptz,
+  lida_por               text,
+  criado_em              timestamptz not null default now(),
+  atualizado_em          timestamptz not null default now(),
+  constraint ulbra_conversas_equipe_check check (equipe = 'Reativa'),
+  constraint ulbra_conversas_aluno_status_check
+    check (aluno_status in ('vinculado', 'nao_confirmado')),
+  constraint ulbra_conversas_nao_lidas_check check (nao_lidas >= 0)
+);
+
+comment on table public.ulbra_conversas is
+  'Espelho das conversas da equipe Reativa na Mensageria ULBRA. Escrita so por ulbra_sync_gravar. O CHECK de equipe e estrutural: conversa de outra equipe nao entra nem por engano de codigo.';
+comment on column public.ulbra_conversas.aluno_status is
+  'vinculado = ulbra_vinculos ativo com confianca alta_cpf. nao_confirmado = vai para conferencia; nunca se resolve por nome ou telefone.';
+
+create index ulbra_conversas_cliente_idx on public.ulbra_conversas (ulbra_cliente_id);
+create index ulbra_conversas_aluno_idx on public.ulbra_conversas (aluno_id)
+  where aluno_id is not null;
+create index ulbra_conversas_recentes_idx on public.ulbra_conversas (ultima_mensagem_em desc);
+
+-- ------------------------------------------------------------ atendimentos
+create table public.ulbra_atendimentos (
+  ulbra_atendimento_id text primary key,
+  ulbra_cliente_id     text not null,
+  cliente_nome         text,
+  equipe               text not null,
+  situacao             text not null,
+  coluna               text,
+  entrou_em            timestamptz,
+  aluno_id             uuid references public.alunos (id),
+  aluno_status         text not null default 'nao_confirmado',
+  destino_email        text,
+  destino_motivo       text not null,
+  responsavel_email    text,
+  assumido_em          timestamptz,
+  dispensado_em        timestamptz,
+  dispensado_por       text,
+  dispensa_motivo      text,
+  criado_em            timestamptz not null default now(),
+  atualizado_em        timestamptz not null default now(),
+  constraint ulbra_atendimentos_equipe_check check (equipe = 'Reativa'),
+  constraint ulbra_atendimentos_aluno_status_check
+    check (aluno_status in ('vinculado', 'nao_confirmado')),
+  constraint ulbra_atendimentos_destino_motivo_check
+    check (destino_motivo in ('CARTEIRA', 'RODIZIO', 'CONFERENCIA', 'SEM_OPERADOR'))
+);
+
+comment on table public.ulbra_atendimentos is
+  'Fila dos atendimentos em espera da equipe Reativa. destino_email e SUGESTAO; a posse nasce de ulbra_atendimento_assumir, que e UPDATE condicional -- dois operadores nao conseguem assumir o mesmo.';
+comment on column public.ulbra_atendimentos.destino_motivo is
+  'CARTEIRA = aluno ja tem dono (preserva carteira e fidelizacao). RODIZIO = sugerido ao proximo do receptivo online. CONFERENCIA = identidade nao confirmada, ninguem recebe. SEM_OPERADOR = ninguem online no momento da leitura.';
+
+create index ulbra_atendimentos_destino_idx on public.ulbra_atendimentos (destino_email)
+  where responsavel_email is null and dispensado_em is null;
+create index ulbra_atendimentos_abertos_idx on public.ulbra_atendimentos (entrou_em desc)
+  where dispensado_em is null;
+
+-- ------------------------------------------------------------------ estado
+create table public.ulbra_sync_estado (
+  id                        boolean primary key default true,
+  cursor_mensagem           timestamptz,
+  ultima_execucao           timestamptz,
+  ultimo_ciclo              text,
+  ultimo_erro               text,
+  chamadas_dia              integer not null default 0,
+  dia                       date not null default current_date,
+  ciclos_desde_atendimentos integer not null default 999,
+  constraint ulbra_sync_estado_linha_unica check (id)
+);
+
+comment on table public.ulbra_sync_estado is
+  'Uma linha. Cursor do incremental e medidor do orcamento diario da Mensageria (teto medido: 500 chamadas/dia por pessoa). chamadas_dia zera na virada de `dia`.';
+
+insert into public.ulbra_sync_estado (id) values (true);
+
+-- --------------------------------------------------------------- RLS e grants
+alter table public.ulbra_conversas enable row level security;
+alter table public.ulbra_atendimentos enable row level security;
+alter table public.ulbra_sync_estado enable row level security;
+
+-- Leitura: mesma regua da Central WhatsApp (`whatsapp_conversas_leitura`) --
+-- usuario ativo do sistema. O painel da TV e barrado, como nas demais.
+create policy ulbra_conversas_leitura on public.ulbra_conversas
+  for select to authenticated using (app_usuario_ativo() and not eh_painel());
+create policy ulbra_atendimentos_leitura on public.ulbra_atendimentos
+  for select to authenticated using (app_usuario_ativo() and not eh_painel());
+-- Estado do ciclo e diagnostico: so gestao.
+create policy ulbra_sync_estado_leitura on public.ulbra_sync_estado
+  for select to authenticated using (usuario_e_gestao() and not eh_painel());
+
+-- Nenhuma policy de INSERT/UPDATE/DELETE: escrita nao passa por aqui.
+revoke all on public.ulbra_conversas from authenticated, anon, public;
+revoke all on public.ulbra_atendimentos from authenticated, anon, public;
+revoke all on public.ulbra_sync_estado from authenticated, anon, public;
+grant select on public.ulbra_conversas to authenticated;
+grant select on public.ulbra_atendimentos to authenticated;
+grant select on public.ulbra_sync_estado to authenticated;
+
+-- ============================================================================
+-- ESCRITA 1: a porta da sincronizacao
+-- ============================================================================
+create or replace function public.ulbra_sync_gravar(p_payload jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_dia        date := coalesce((p_payload->>'dia')::date, current_date);
+  v_chamadas   integer := coalesce((p_payload->>'chamadas')::integer, 0);
+  v_ciclo      text := coalesce(p_payload->>'ciclo', 'OK');
+  v_conversas  integer := 0;
+  v_atend      integer := 0;
+begin
+  -- Conversas: upsert. `nao_lidas` SO cresce quando a mensagem nova e do
+  -- cliente e e mais recente que a ultima gravada -- repetir o ciclo nao
+  -- infla o contador, e mensagem do bot ou do operador nao conta.
+  with entrada as (
+    select * from jsonb_to_recordset(coalesce(p_payload->'conversas', '[]'::jsonb)) as x(
+      ulbra_conversa_id text, ulbra_cliente_id text, cliente_nome text, canal text,
+      situacao text, equipe text, responsavel_ulbra text, ultima_mensagem_em timestamptz,
+      ultima_mensagem_quem text, ultima_mensagem_previa text, resposta_do_cliente boolean,
+      aluno_id uuid, aluno_status text
+    )
+  ), gravado as (
+    insert into public.ulbra_conversas as c (
+      ulbra_conversa_id, ulbra_cliente_id, cliente_nome, canal, situacao, equipe,
+      responsavel_ulbra, ultima_mensagem_em, ultima_mensagem_quem, ultima_mensagem_previa,
+      nao_lidas, aluno_id, aluno_status, atualizado_em
+    )
+    select
+      e.ulbra_conversa_id, e.ulbra_cliente_id, e.cliente_nome, coalesce(e.canal, 'whatsapp'),
+      e.situacao, e.equipe, e.responsavel_ulbra, e.ultima_mensagem_em, e.ultima_mensagem_quem,
+      e.ultima_mensagem_previa,
+      case when e.resposta_do_cliente then 1 else 0 end,
+      e.aluno_id, e.aluno_status, now()
+    from entrada e
+    on conflict (ulbra_conversa_id) do update set
+      cliente_nome = excluded.cliente_nome,
+      situacao = excluded.situacao,
+      responsavel_ulbra = excluded.responsavel_ulbra,
+      ultima_mensagem_em = excluded.ultima_mensagem_em,
+      ultima_mensagem_quem = excluded.ultima_mensagem_quem,
+      ultima_mensagem_previa = excluded.ultima_mensagem_previa,
+      aluno_id = excluded.aluno_id,
+      aluno_status = excluded.aluno_status,
+      nao_lidas = c.nao_lidas + case
+        when excluded.ultima_mensagem_quem = 'cliente'
+         and (c.ultima_mensagem_em is null or excluded.ultima_mensagem_em > c.ultima_mensagem_em)
+        then 1 else 0 end,
+      atualizado_em = now()
+    where excluded.ultima_mensagem_em is distinct from c.ultima_mensagem_em
+       or excluded.situacao is distinct from c.situacao
+       or excluded.aluno_status is distinct from c.aluno_status
+    returning 1
+  )
+  select count(*) into v_conversas from gravado;
+
+  -- Atendimentos: upsert que NUNCA mexe em quem ja assumiu nem em quem foi
+  -- dispensado. Reler a lista da ULBRA nao tira o caso de ninguem.
+  with entrada as (
+    select * from jsonb_to_recordset(coalesce(p_payload->'atendimentos', '[]'::jsonb)) as x(
+      ulbra_atendimento_id text, ulbra_cliente_id text, cliente_nome text, equipe text,
+      situacao text, coluna text, entrou_em timestamptz, aluno_id uuid, aluno_status text,
+      destino_email text, destino_motivo text
+    )
+  ), gravado as (
+    insert into public.ulbra_atendimentos as a (
+      ulbra_atendimento_id, ulbra_cliente_id, cliente_nome, equipe, situacao, coluna,
+      entrou_em, aluno_id, aluno_status, destino_email, destino_motivo, atualizado_em
+    )
+    select
+      e.ulbra_atendimento_id, e.ulbra_cliente_id, e.cliente_nome, e.equipe, e.situacao,
+      e.coluna, e.entrou_em, e.aluno_id, e.aluno_status, e.destino_email, e.destino_motivo, now()
+    from entrada e
+    on conflict (ulbra_atendimento_id) do update set
+      situacao = excluded.situacao,
+      coluna = excluded.coluna,
+      cliente_nome = excluded.cliente_nome,
+      aluno_id = excluded.aluno_id,
+      aluno_status = excluded.aluno_status,
+      -- destino so e re-sugerido enquanto ninguem assumiu
+      destino_email = case when a.responsavel_email is null then excluded.destino_email
+                           else a.destino_email end,
+      destino_motivo = case when a.responsavel_email is null then excluded.destino_motivo
+                            else a.destino_motivo end,
+      atualizado_em = now()
+    where a.dispensado_em is null
+    returning 1
+  )
+  select count(*) into v_atend from gravado;
+
+  update public.ulbra_sync_estado set
+    cursor_mensagem = case
+      when v_ciclo = 'OK' and (p_payload->>'cursor') is not null
+      then greatest(coalesce(cursor_mensagem, '-infinity'::timestamptz),
+                    (p_payload->>'cursor')::timestamptz)
+      else cursor_mensagem end,
+    ultima_execucao = now(),
+    ultimo_ciclo = v_ciclo,
+    ultimo_erro = p_payload->>'erro',
+    chamadas_dia = case when dia = v_dia then chamadas_dia + v_chamadas else v_chamadas end,
+    dia = v_dia,
+    ciclos_desde_atendimentos = case
+      when coalesce((p_payload->>'atendimentos_lidos')::boolean, false) then 0
+      else ciclos_desde_atendimentos + 1 end
+  where id;
+
+  return jsonb_build_object('conversas', v_conversas, 'atendimentos', v_atend, 'ciclo', v_ciclo);
+end;
+$$;
+
+comment on function public.ulbra_sync_gravar(jsonb) is
+  'Unica porta de escrita do espelho da Mensageria. So service_role: a funcao ulbra-sincronizar chama, mais ninguem.';
+
+revoke all on function public.ulbra_sync_gravar(jsonb) from public, anon, authenticated;
+grant execute on function public.ulbra_sync_gravar(jsonb) to service_role;
+
+-- ============================================================================
+-- ESCRITA 2: posse, dispensa e leitura -- acoes da tela
+-- ============================================================================
+
+-- A TRAVA CONTRA DOIS DONOS. O `where responsavel_email is null` e o que
+-- impede dois operadores de assumirem o mesmo atendimento: o segundo UPDATE
+-- nao encontra linha e a funcao devolve `ja_assumido`, com o nome de quem
+-- chegou primeiro. Nao depende de nada da tela.
+create or replace function public.ulbra_atendimento_assumir(p_id text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_email text := app_email();
+  v_linha public.ulbra_atendimentos;
+begin
+  if not app_usuario_ativo() or eh_painel() then
+    return jsonb_build_object('ok', false, 'motivo', 'ACESSO_NEGADO');
+  end if;
+
+  select * into v_linha from public.ulbra_atendimentos where ulbra_atendimento_id = p_id;
+  if not found then
+    return jsonb_build_object('ok', false, 'motivo', 'NAO_ENCONTRADO');
+  end if;
+  if v_linha.dispensado_em is not null then
+    return jsonb_build_object('ok', false, 'motivo', 'DISPENSADO');
+  end if;
+  -- Identidade nao confirmada nao se assume: vai para conferencia primeiro.
+  if v_linha.aluno_status <> 'vinculado' then
+    return jsonb_build_object('ok', false, 'motivo', 'IDENTIDADE_NAO_CONFIRMADA');
+  end if;
+  -- Carteira: se o aluno tem dono, so o dono (ou a gestao) assume.
+  if v_linha.destino_motivo = 'CARTEIRA'
+     and lower(coalesce(v_linha.destino_email, '')) <> lower(coalesce(v_email, ''))
+     and not usuario_e_gestao() then
+    return jsonb_build_object('ok', false, 'motivo', 'E_DA_CARTEIRA_DE_OUTRO',
+                              'destino', v_linha.destino_email);
+  end if;
+
+  update public.ulbra_atendimentos
+     set responsavel_email = v_email, assumido_em = now(), atualizado_em = now()
+   where ulbra_atendimento_id = p_id
+     and responsavel_email is null
+     and dispensado_em is null
+  returning * into v_linha;
+
+  if not found then
+    select * into v_linha from public.ulbra_atendimentos where ulbra_atendimento_id = p_id;
+    return jsonb_build_object('ok', false, 'motivo', 'JA_ASSUMIDO',
+                              'responsavel', v_linha.responsavel_email);
+  end if;
+
+  return jsonb_build_object('ok', true, 'responsavel', v_linha.responsavel_email);
+end;
+$$;
+
+create or replace function public.ulbra_atendimento_dispensar(p_id text, p_motivo text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_email text := app_email();
+begin
+  if not app_usuario_ativo() or eh_painel() then
+    return jsonb_build_object('ok', false, 'motivo', 'ACESSO_NEGADO');
+  end if;
+  update public.ulbra_atendimentos
+     set dispensado_em = now(), dispensado_por = v_email,
+         dispensa_motivo = nullif(btrim(coalesce(p_motivo, '')), ''), atualizado_em = now()
+   where ulbra_atendimento_id = p_id
+     and dispensado_em is null
+     and (responsavel_email is null
+          or lower(responsavel_email) = lower(coalesce(v_email, ''))
+          or usuario_e_gestao());
+  if not found then
+    return jsonb_build_object('ok', false, 'motivo', 'NAO_PERMITIDO_OU_JA_DISPENSADO');
+  end if;
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+create or replace function public.ulbra_conversa_marcar_lida(p_id text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if not app_usuario_ativo() or eh_painel() then
+    return jsonb_build_object('ok', false, 'motivo', 'ACESSO_NEGADO');
+  end if;
+  update public.ulbra_conversas
+     set nao_lidas = 0, lida_em = now(), lida_por = app_email(), atualizado_em = now()
+   where ulbra_conversa_id = p_id;
+  if not found then
+    return jsonb_build_object('ok', false, 'motivo', 'NAO_ENCONTRADO');
+  end if;
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+revoke all on function public.ulbra_atendimento_assumir(text) from public, anon;
+revoke all on function public.ulbra_atendimento_dispensar(text, text) from public, anon;
+revoke all on function public.ulbra_conversa_marcar_lida(text) from public, anon;
+grant execute on function public.ulbra_atendimento_assumir(text) to authenticated;
+grant execute on function public.ulbra_atendimento_dispensar(text, text) to authenticated;
+grant execute on function public.ulbra_conversa_marcar_lida(text) to authenticated;
+
+commit;
+
+-- ============================================================================
+-- DEPOIS DESTE SQL -- EM PASSOS SEPARADOS, CADA UM COM AUTORIZACAO
+--
+--   1. publicar a funcao `ulbra-sincronizar` com `verify_jwt = false`
+--      (o portao dela e o cabecalho `x-sync-chave`);
+--   2. gravar o segredo `ULBRA_SYNC_CHAVE` no ambiente da funcao e no Vault
+--      do banco (nome sugerido: `ulbra_sync_chave`);
+--   3. so entao criar o cron de 10 minutos, que e o numero que cabe no teto
+--      de 500 chamadas/dia com folga para as fichas:
+--
+--      select cron.schedule('ulbra_sincronizar', '*/10 * * * *', $cron$
+--        select net.http_post(
+--          url := '<SUPABASE_URL>/functions/v1/ulbra-sincronizar',
+--          headers := jsonb_build_object('x-sync-chave', '<LEITURA DO VAULT -- a forma
+--            exata depende de como o projeto le segredo no banco; nao ha funcao
+--            propria para isso hoje, e inventar uma aqui seria chute>'),
+--          timeout_milliseconds := 20000);
+--      $cron$);
+--
+--   Antes do passo 3, o ciclo pode ser disparado a mao, uma vez, para
+--   conferir o resultado com alguem olhando.
+-- ============================================================================

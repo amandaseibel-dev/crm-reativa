@@ -390,3 +390,123 @@ então esta sequência é de deploy, não de banco.
 dado a desfazer, porque a função corrigida só grava `alta_cpf` e vínculo não se
 apaga (gatilho da `20261106151254`). A reversa do SQL existe e **não** deve ser
 usada para desfazer deploy.
+
+---
+
+## Etapa 1 — recebimento no ReATIVA: contrato medido em 08/11/2026
+
+Medido pelo conector OAuth da gestão, só leitura, **5 chamadas no total**
+(2 de `listar_conversas`, 1 de `ler_conversa`, mais as 2 do diagnóstico).
+Nenhuma mensagem enviada, nenhum atendimento alterado.
+
+### Nenhuma ferramenta tem filtro incremental
+
+Não existe parâmetro `desde`, `atualizadoApos` ou equivalente em
+`listar_conversas`, `ler_conversa`, `listar_atendimentos`, `minha_fila` nem
+`fila_agora`. O que existe, e que resolve o problema, é **ordenação**:
+
+- `listar_conversas` devolve por `ultimaMensagemEm` **decrescente, global** —
+  conferido comparando página 1 e 2: o piso da página 1 (`03:17:55Z`) é maior
+  que o teto da página 2 (`02:43:40Z`). Isso permite incremental de verdade:
+  lê-se da página 1 para baixo e para-se na primeira conversa que não é mais
+  nova que o cursor. Em regime, **uma chamada por ciclo**.
+- páginas de até **50**; `paginacao.total` vinha **420** conversas ativas de
+  WhatsApp na instituição inteira (todas as equipes).
+- **não há filtro por equipe** em `listar_conversas` — o corte por `Reativa`
+  é feito sobre a resposta, no nosso lado.
+
+### Campos que a Etapa 1 usa
+
+| ferramenta | o que serve | o que NÃO vem |
+| --- | --- | --- |
+| `listar_conversas` | `id`, `cliente.{id,nome}`, `equipe`, `responsavel`, `situacao`, `ultimaMensagemEm`, `ultimaMensagem.{quem,em,trecho}` | telefone, e-mail, contagem de não lidas |
+| `ler_conversa` | mensagens em ordem cronológica: `quem` (`cliente`/`operador`/`bot`/`sistema`), `em`, `tipo`, `texto`, `transcricao`, `assunto`, `anexos[{nome,tipo}]`; `paginacao.antesDe` para as anteriores | o arquivo do anexo, e **qualquer marca de lida** |
+| `listar_atendimentos` | até **500** por página, `situacao`, `coluna`, `equipe`, `atendente`, `entrouEm` | conversas e contato |
+| `minha_fila` | fila e **não lidas** da PRÓPRIA pessoa da credencial | serve à pessoa do token, não à equipe |
+| `fila_agora` | operadores da ULBRA na fila | não é fila de casos |
+
+Duas consequências que mandam na arquitetura:
+
+1. **direção** da mensagem é `quem`: só `quem === "cliente"` é resposta de
+   aluno. Mensagem de `bot` ou `operador` não notifica ninguém;
+2. **controle de leitura é nosso**. Não existe ferramenta que marque lida, e
+   `minha_fila` só conta não lidas da pessoa do token — que é a credencial de
+   backend, não o operador. O contador de não lidas do ReATIVA é do ReATIVA.
+
+### Eventos e webhooks fora do catálogo MCP — NÃO VERIFICADO
+
+Conferido em 08/11/2026: `crm.ulbra.ai/docs` e a raiz devolvem 200 com o texto
+`ULBRA CRM` e nada mais; `/api/docs` devolve **401**; não há
+`/.well-known/oauth-authorization-server`. Nenhuma das páginas públicas
+menciona webhook, evento, subscription ou callback.
+
+Isso **não prova** que a plataforma não tenha webhook: prova que não há
+documentação pública legível. A ausência de ferramenta MCP de subscrição
+também não prova nada sobre a plataforma. Fica como **pergunta à TI da ULBRA**,
+junto da rotação da credencial — e a Etapa 1 foi desenhada para não depender
+da resposta: se o webhook existir, ele substitui o cron sem mexer no resto.
+
+### Orçamento: o número, não a esperança
+
+Teto medido em `meu_acesso`: **500 chamadas/dia por pessoa**, 30/min por
+pessoa, 15/min por conexão. **Não assumimos que OAuth e backend têm orçamentos
+separados** — a ULBRA não confirmou, e o campo diz "por pessoa". A conta trata
+os dois como UM teto de 500/dia. Com a cadência escolhida:
+
+| item | cadência | chamadas/dia |
+| --- | --- | --- |
+| `listar_conversas` (1 página em regime) | 10 min | 144 |
+| `listar_atendimentos` (espera) | 30 min | 48 |
+| `ler_conversa` ao abrir ficha | sob demanda | 60 |
+| margem de falha e repetição | 15% | 38 |
+| **total** | | **290** de 500 |
+
+O número está cravado em teste (`sincronizar.test.ts`): se alguém apertar a
+cadência sem refazer a conta, o CI reprova. Para referência: 5 minutos dá 456
+e ainda cabe, mas não suporta o dobro de aberturas de ficha; 1 minuto dá 1.548
+e estoura.
+
+**Atraso esperado:** até 10 minutos entre o aluno responder e o sino tocar,
+média de 5. A alternativa concreta para reduzir isso não é apertar o relógio —
+é webhook, ou um orçamento/credencial de serviço próprio. Enquanto não houver
+um dos dois, 10 minutos é o que cabe.
+
+### Desenho
+
+```
+cron (10 min) -> ulbra-sincronizar -> Postgres (ulbra_conversas,
+                 (1 credencial)        ulbra_atendimentos, ulbra_sync_estado)
+                                             |
+                          Realtime           v
+      tela de cada operador  <---------  le o banco (custo ZERO na Mensageria)
+```
+
+- **nada de poll por operador.** A `ulbra-leads-pendentes` fazia 1 chamada por
+  requisição e foi desenhada para 60s por aba: 1.440/dia por pessoa. Nunca foi
+  montada em tela — está marcada como superada e segue publicada, intocada;
+- **identidade** só de `ulbra_vinculos` ativo com `confianca = 'alta_cpf'`. O
+  selo antigo `alta` (anterior a 04/11, que não distinguia CPF de telefone)
+  **não identifica**: cai em conferência igual a quem não tem vínculo;
+- **carteira e fidelização antes do rodízio**: aluno com dono vai para o dono
+  (`destino_motivo = 'CARTEIRA'`); sem dono, é sugerido ao próximo do receptivo
+  online, pela mesma régua da tela (`fila_receptivo`, 90s de folga, fora de
+  pausa);
+- **dois operadores não assumem o mesmo**: `ulbra_atendimento_assumir` é
+  `UPDATE ... WHERE responsavel_email IS NULL`. O segundo recebe `JA_ASSUMIDO`
+  com o nome de quem chegou primeiro. A tela não decide isso;
+- **equipe**: só `Reativa`, e por `CHECK` na tabela — atendimento de outra
+  equipe não entra nem por erro de código, e nunca é assumido nem transferido
+  por nós.
+
+### O que falta para funcionar (cada um com autorização própria)
+
+1. aplicar `supabase/aguardando_aprovacao/20261108120000_ulbra_recebimento_e_fila.sql.pendente`
+   (3 tabelas, 4 funções; nada existente é tocado — rollback no par `.rollback.sql`);
+2. publicar `ulbra-sincronizar` com `verify_jwt = false`;
+3. gravar o segredo `ULBRA_SYNC_CHAVE`;
+4. disparar um ciclo à mão, conferir o resultado, e só então criar o cron de
+   10 minutos — publicar função de cron dispara na hora, e aqui isso seria
+   consumo sem ninguém olhando.
+
+Sem o passo 1 a tela renderiza e não mostra novidade nenhuma: as tabelas não
+existem. É esse o estado do preview desta PR.

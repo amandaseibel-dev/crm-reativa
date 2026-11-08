@@ -65,6 +65,7 @@ const RelatorioTabulacoes = lazy(() => import("./pages/RelatorioTabulacoes"));
 const AcordosPorOperador = lazy(() => import("./pages/AcordosPorOperador"));
 import HeartbeatReceptivo from "./components/HeartbeatReceptivo";
 import NotificacoesSupervisaoAdm from "./components/NotificacoesSupervisaoAdm";
+import NotificacoesUlbra from "./components/NotificacoesUlbra";
 import LiberacoesAcesso from "./components/LiberacoesAcesso";
 const GestaoFinanceiraOperadores = lazy(() => import("./pages/GestaoFinanceiraOperadores"));
 const ProjecaoHoraHora = lazy(() => import("./pages/ProjecaoHoraHora"));
@@ -864,6 +865,7 @@ export default function App() {
         <HeartbeatReceptivo usuario={usuario} />
         <AutoLogout usuario={usuario} />
         <NotificacoesSupervisaoAdm usuario={usuario} />
+        <NotificacoesUlbra usuario={usuario} />
         <LiberacoesAcesso />
         <BotaoSugestao />
         <NotificacoesPopup />

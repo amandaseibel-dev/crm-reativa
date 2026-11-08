@@ -1,3 +1,14 @@
+// SUPERADA PELA `ulbra-sincronizar` (08/11/2026). NAO USAR EM TELA NOVA.
+// -----------------------------------------------------------------------------
+// Esta funcao faz UMA chamada a Mensageria POR REQUISICAO, e foi desenhada
+// para ser chamada pela aba de cada operador a cada 60s -- 1.440 chamadas por
+// dia POR PESSOA, contra um teto medido de 500/dia para a credencial inteira.
+// Nunca foi montada em tela nenhuma, e e por isso que o orcamento nunca
+// estourou. O caminho novo e: `ulbra-sincronizar` (um cron, uma credencial)
+// grava o espelho no banco, e a tela le o banco.
+//
+// Continua publicada e intocada de proposito: remover funcao publicada e
+// passo com autorizacao propria, nao efeito colateral desta entrega.
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decidirAcessoLeads } from "./portao.ts";
