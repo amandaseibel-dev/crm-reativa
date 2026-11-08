@@ -40,24 +40,38 @@ const MSG_NAO_ENCONTRADO = {
   ALUNO_NAO_ENCONTRADO: "Aluno não encontrado",
 };
 
-// Botao secundario, nos mesmos tokens do cartao de contatos da ficha (onde
-// este bloco e renderizado): contorno azul sobre a superficie, nunca azul
-// cheio -- o preenchido e reservado para a acao principal da tela.
+// Botao de DESTAQUE, por decisao da gestao em 08/11/2026. Era um contorno azul
+// no RODAPE do cartao de contatos e passava batido: agora e azul cheio, texto
+// branco, icone de conversa, e mora no TOPO do cartao, visivel sem rolagem.
+// Isto revoga de proposito a regra anterior de "preenchido so para a acao
+// principal da tela" -- a Mensageria e o canal que o operador mais usa.
+//
+// O azul vem cravado (`#1d4ed8`), e nao de `var(--rv-azul)`, pelo mesmo motivo
+// dos outros botoes cheios do cartao (`Adicionar telefone`, `Salvar
+// responsaveis`): no tema escuro `--rv-azul` vira #60a5fa e texto branco em
+// cima dele perde contraste.
+//
+// `maxWidth: "100%"` existe para a tela estreita: com o `flexWrap` do cabecalho
+// do cartao, o botao desce para a propria linha ACIMA dos telefones, sem
+// sobrepor nenhum numero nem estourar a borda do cartao.
 const ESTILO = {
-  caixaLink: { marginTop: 6 },
-  botaoSecundario: {
+  caixaLink: { display: "flex", minWidth: 0 },
+  botaoDestaque: {
     display: "inline-flex",
     alignItems: "center",
-    gap: 4,
-    background: "var(--rv-superficie)",
-    color: "var(--rv-azul-texto)",
-    border: "1px solid var(--rv-azul-borda)",
+    gap: 6,
+    maxWidth: "100%",
+    background: "#1d4ed8",
+    color: "#fff",
+    border: "none",
     borderRadius: 8,
-    padding: "6px 11px",
-    fontSize: 12,
+    padding: "8px 14px",
+    fontSize: 12.5,
     fontWeight: 700,
+    lineHeight: 1.25,
     textDecoration: "none",
     cursor: "pointer",
+    boxShadow: "0 1px 2px rgba(15, 23, 42, 0.18)",
   },
   // Os avisos usavam classes do Tailwind (`text-xs text-amber-600`), e este
   // projeto NAO tem Tailwind: sem config, sem dependencia, sem `@tailwind` no
@@ -85,6 +99,28 @@ const ESTILO = {
     color: "var(--rv-texto-fraco)",
   },
 };
+
+// Icone de conversa em SVG inline: sem dependencia nova e herda a cor do texto
+// do botao. `aria-hidden` porque o rotulo ao lado ja diz o que o botao faz.
+function IconeConversa() {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+      style={{ flexShrink: 0 }}
+    >
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z" />
+    </svg>
+  );
+}
 
 export default function BlocoUlbra({ aluno }) {
   const [estado, setEstado] = useState("ocioso");
@@ -164,20 +200,22 @@ export default function BlocoUlbra({ aluno }) {
       );
     }
 
-    // SO o visual mudou aqui (rotulo curto e aparencia de botao secundario,
-    // para ficar junto dos contatos na ficha). Segue sendo um <a> de verdade,
-    // com o MESMO `href` vindo da funcao, o MESMO `target="_blank"` e o MESMO
+    // SO o visual mudou aqui (azul cheio, icone de conversa e rotulo "Abrir
+    // Mensageria ULBRA ↗"). Segue sendo um <a> de verdade, com o MESMO `href`
+    // vindo da funcao, o MESMO `target="_blank"` e o MESMO
     // `rel="noopener noreferrer"` -- a aba nova nao ganha acesso a esta.
-    // A escada de condicao acima nao foi tocada.
+    // A escada de condicao acima nao foi tocada: o botao continua existindo so
+    // com vinculo confirmado por CPF.
     return (
       <div style={ESTILO.caixaLink}>
         <a
           href={dados.url}
           target="_blank"
           rel="noopener noreferrer"
-          style={ESTILO.botaoSecundario}
+          style={ESTILO.botaoDestaque}
         >
-          Mensageria ULBRA ↗
+          <IconeConversa />
+          Abrir Mensageria ULBRA ↗
         </a>
       </div>
     );
