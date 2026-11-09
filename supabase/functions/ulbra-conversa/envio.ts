@@ -71,6 +71,12 @@ export interface DependenciasEnvio {
   provedorOAuth: ProvedorOAuth;
   provedorEnvio: ProvedorEnvio;
   conexao: RegistroConexao | null;
+  /**
+   * Só `true` no caminho de envio REAL explicitamente confirmado (roteiro aprovado).
+   * Sem isso, o módulo bloqueia antes de qualquer chamada ao provedor. Preparação
+   * e testes nunca passam true.
+   */
+  envioRealConfirmado: boolean;
   agora: () => number;
   timeoutMs?: number;
 }
@@ -103,6 +109,7 @@ export async function enviarResposta(
   pedido: PedidoEnvio,
   deps: DependenciasEnvio,
 ): Promise<ResultadoEnvio> {
+  if (!deps.envioRealConfirmado) return { situacao: "BLOQUEADO", motivos: ["ENVIO_REAL_NAO_CONFIRMADO"] };
   const motivos = validarPedido(pedido);
   if (motivos.length > 0) return { situacao: "BLOQUEADO", motivos };
 

@@ -83,6 +83,7 @@ function deps(over: Partial<Parameters<typeof enviarResposta>[1]> = {}) {
       provedorOAuth: new OAuthSimulado(),
       provedorEnvio,
       conexao: conexao(),
+      envioRealConfirmado: true,
       agora: () => AGORA,
       timeoutMs: 50,
       ...over,
@@ -123,6 +124,16 @@ describe("validação do pedido", () => {
 
   it("comparação de e-mail ignora maiúsculas", () => {
     expect(validarPedido(pedido({ dono_carteira: OP.toUpperCase() }))).toEqual([]);
+  });
+});
+
+describe("envio real só com confirmação explícita", () => {
+  it("sem envioRealConfirmado, bloqueia e não chama o provedor (previa:false não é padrão)", async () => {
+    const { d, provedorEnvio } = deps({ envioRealConfirmado: false });
+    const r = await enviarResposta(pedido(), d);
+    expect(r.situacao).toBe("BLOQUEADO");
+    expect(r.situacao === "BLOQUEADO" && r.motivos).toEqual(["ENVIO_REAL_NAO_CONFIRMADO"]);
+    expect(provedorEnvio.chamadas).toEqual([]);
   });
 });
 
