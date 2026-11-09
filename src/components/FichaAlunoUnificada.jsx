@@ -279,8 +279,12 @@ export default function FichaAlunoUnificada({
           {acoesContexto ? <div style={S.contexto}>{acoesContexto}</div> : null}
 
           {/* Troca de responsável — só master; entrar em fila NÃO transfere. */}
-          <TelefonesAluno aluno={aluno} />
-          <BlocoUlbra aluno={aluno} />
+          {/* Mesmo lugar da ficha de `Aluno.jsx`: o botao da Mensageria entra
+              no cabecalho do cartao de contatos, nao solto embaixo dele. As
+              duas fichas usam os mesmos componentes e precisam combinar. */}
+          <TelefonesAluno aluno={aluno}>
+            <BlocoUlbra aluno={aluno} />
+          </TelefonesAluno>
           <AtendimentoUlbra aluno={aluno} />
         <RelatorioAcionamentosBtn aluno={aluno} />
 

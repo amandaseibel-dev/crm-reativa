@@ -42,10 +42,13 @@ const ROTULO_ORIGEM = {
 };
 
 // `children` = acoes que PERTENCEM aos contatos mas moram em outro componente.
-// Hoje e o link da Mensageria ULBRA, que vive no `BlocoUlbra`. Este bloco so
+// Hoje e o botao da Mensageria ULBRA, que vive no `BlocoUlbra`. Este bloco so
 // da LUGAR a ele, dentro do cartao: a condicao de exibicao (vinculo confirmado
 // por CPF) e a abertura em nova aba continuam inteiras la dentro, onde o portao
-// de identidade foi escrito. Nada aqui decide se o link aparece.
+// de identidade foi escrito. Nada aqui decide se o botao aparece.
+//
+// O lugar mudou em 08/11/2026, por decisao da gestao: era o RODAPE do cartao e
+// so aparecia depois de rolar; agora e o CABECALHO, na mesma linha do titulo.
 export default function TelefonesAluno({ aluno, children }) {
   // A7: reativar contato e exclusivo do Administrativo e da supervisao. O
   // portao de verdade esta dentro de `aluno_contato_revalidar`; aqui o botao e
@@ -259,7 +262,15 @@ export default function TelefonesAluno({ aluno, children }) {
 
   return (
     <div style={S.wrap}>
-      <div style={S.head}>Contatos do aluno</div>
+      {/* Titulo e acao do canal na MESMA linha, no topo do cartao: o botao da
+          Mensageria tem de ser visto sem rolagem. `flexWrap` cuida da tela
+          estreita -- quando os dois nao cabem, o botao desce para a propria
+          linha, ainda ACIMA da lista de telefones, sem sobrepor numero nenhum.
+          Sem `children` a linha fica so com o titulo, sem faixa vazia. */}
+      <div style={S.cabecalho}>
+        <div style={S.head}>Contatos do aluno</div>
+        {children ? <div style={S.acaoCanal}>{children}</div> : null}
+      </div>
 
       {carregando && contatos.length === 0 ? <div style={S.vazio}>Carregando…</div> : null}
 
@@ -333,11 +344,6 @@ export default function TelefonesAluno({ aluno, children }) {
         </div>
       </Dobra>
 
-      {/* Sem borda nem recheio de proposito: quando o `BlocoUlbra` decide nao
-          mostrar nada (vinculo nao confirmado, aluno fora do escopo), esta
-          caixa fica invisivel em vez de deixar uma faixa vazia no cartao. */}
-      {children ? <div style={S.rodape}>{children}</div> : null}
-
       {msg ? <div style={S.msg}>{msg}</div> : null}
     </div>
   );
@@ -354,7 +360,9 @@ const CAMPO = {
 
 const S = {
   wrap: { border: "1px solid var(--rv-borda-suave)", borderRadius: 12, padding: "10px 12px", marginTop: 10, background: "var(--rv-superficie)" },
-  head: { fontSize: 13, fontWeight: 700, color: "var(--rv-tinta)", marginBottom: 8 },
+  cabecalho: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 8 },
+  head: { fontSize: 13, fontWeight: 700, color: "var(--rv-tinta)" },
+  acaoCanal: { minWidth: 0, maxWidth: "100%" },
   grupoAberto: { display: "flex", gap: 10, marginBottom: 8, flexWrap: "wrap" },
   grupoDobra: { marginBottom: 2 },
   rot: { fontSize: 12, color: "var(--rv-texto-suave)", fontWeight: 700, minWidth: 96, paddingTop: 7 },
@@ -401,7 +409,6 @@ const S = {
   botaoAddLeve: { background: "var(--rv-superficie)", color: "var(--rv-azul-texto)", border: "1px solid var(--rv-azul-borda)", borderRadius: 8, padding: "6px 11px", fontWeight: 700, cursor: "pointer", fontSize: 12 },
   acoes: { display: "flex", alignItems: "center", gap: 12, marginTop: 2 },
   salvarLeve: { background: "var(--rv-superficie)", color: "var(--rv-azul-texto)", border: "1px solid var(--rv-azul-borda)", borderRadius: 8, padding: "6px 11px", fontWeight: 700, fontSize: 12, cursor: "pointer" },
-  rodape: { marginTop: 2 },
   vazio: { fontSize: 12, color: "var(--rv-texto-fraco)" },
   msg: { fontSize: 12, color: "var(--rv-verde-ok-texto)", fontWeight: 600, marginTop: 4 },
 };
