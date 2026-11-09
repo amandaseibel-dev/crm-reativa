@@ -1,0 +1,538 @@
+/* ============================================================================
+ * MÓDULO ULBRA (painel da gestão, sino e Central do operador).
+ *
+ * Todas as classes são prefixadas com `ulbra-` e usam apenas os tokens
+ * `--rv-*` de src/index.css, então o modo escuro vem de graça. Nada aqui é
+ * global: não redefine `button`, `input`, `table` nem nenhuma classe do app.
+ * ========================================================================== */
+
+/* ---------- página ---------- */
+.ulbra-pagina {
+  box-sizing: border-box;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px 16px 96px; /* 96px: a última linha não fica sob o sino fixo */
+  color: var(--rv-texto);
+  font-size: 14px;
+  line-height: 1.4;
+}
+.ulbra-cabecalho {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ulbra-titulo {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--rv-texto-forte);
+}
+.ulbra-faixa {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--rv-texto-suave);
+}
+.ulbra-faixa--aviso {
+  color: var(--rv-ambar-texto);
+}
+.ulbra-ajuda {
+  max-width: 260px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--rv-texto-suave);
+}
+.ulbra-nota {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--rv-texto-suave);
+}
+.ulbra-rodape {
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--rv-texto-suave);
+}
+
+/* ---------- botões e links ---------- */
+.ulbra-botao {
+  box-sizing: border-box;
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.2;
+  color: var(--rv-texto);
+  background: var(--rv-superficie);
+  border: 1px solid var(--rv-borda);
+  border-radius: var(--rv-raio-pequeno);
+  cursor: pointer;
+}
+.ulbra-botao:hover {
+  background: var(--rv-fundo-suave);
+}
+.ulbra-botao:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.ulbra-botao--primario {
+  color: #fff;
+  background: var(--rv-verde-escuro);
+  border-color: var(--rv-verde-escuro);
+}
+.ulbra-botao--primario:hover {
+  background: var(--rv-verde-escuro);
+  filter: brightness(1.08);
+}
+.ulbra-link {
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--rv-azul);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-decoration: none;
+}
+.ulbra-link:hover {
+  text-decoration: underline;
+}
+.ulbra-texto-desativado {
+  font-size: 12px;
+  color: var(--rv-texto-fraco);
+}
+
+/* ---------- avisos (estado da coleta, recados) ---------- */
+.ulbra-aviso {
+  margin-top: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--rv-texto);
+  background: var(--rv-fundo-suave);
+  border: 1px solid var(--rv-borda);
+  border-radius: var(--rv-raio-pequeno);
+}
+.ulbra-aviso--ambar {
+  color: var(--rv-ambar-texto);
+  background: var(--rv-ambar-fundo);
+  border-color: var(--rv-ambar-borda);
+}
+.ulbra-aviso--vermelho {
+  color: var(--rv-vermelho-texto);
+  background: var(--rv-vermelho-fundo);
+  border-color: var(--rv-vermelho-borda);
+}
+.ulbra-aviso--verde {
+  color: var(--rv-verde-ok-texto);
+  background: var(--rv-verde-ok-fundo);
+  border-color: var(--rv-verde-ok-borda);
+}
+.ulbra-aviso--cinza {
+  color: var(--rv-texto);
+  background: var(--rv-fundo-suave);
+  border-color: var(--rv-borda);
+}
+.ulbra-aviso-detalhe {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+}
+.ulbra-recado {
+  margin-top: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--rv-texto);
+  background: var(--rv-fundo-suave);
+  border: 1px solid var(--rv-borda);
+  border-radius: var(--rv-raio-pequeno);
+}
+
+/* ---------- cartões ---------- */
+.ulbra-cartoes {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.ulbra-cartoes--tres {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.ulbra-cartao {
+  min-width: 0;
+  padding: 12px 14px;
+  background: var(--rv-fundo-cartao);
+  border: 1px solid var(--rv-borda);
+  border-radius: var(--rv-raio);
+  box-shadow: var(--rv-sombra);
+}
+.ulbra-cartao--destaque {
+  border-color: var(--rv-ambar-borda);
+}
+.ulbra-cartao-numero {
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--rv-texto-forte);
+}
+.ulbra-cartao-titulo {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.25;
+  color: var(--rv-texto);
+}
+.ulbra-cartao-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.25;
+  color: var(--rv-texto-suave);
+}
+
+/* ---------- blocos e seções ---------- */
+.ulbra-bloco {
+  margin-top: 16px;
+  padding: 12px 14px;
+  font-size: 13px;
+  background: var(--rv-fundo-cartao);
+  border: 1px solid var(--rv-borda);
+  border-radius: var(--rv-raio);
+}
+.ulbra-bloco-titulo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--rv-texto-forte);
+}
+.ulbra-bloco-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--rv-texto-suave);
+}
+.ulbra-bloco-vazio {
+  padding: 8px 0;
+  font-size: 13px;
+  color: var(--rv-texto-fraco);
+}
+
+/* ---------- etiquetas ---------- */
+.ulbra-etiqueta {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  color: var(--rv-texto);
+  background: var(--rv-fundo-suave);
+  border-radius: 999px;
+}
+.ulbra-etiqueta--vermelho { color: var(--rv-vermelho-texto); background: var(--rv-vermelho-fundo); }
+.ulbra-etiqueta--laranja  { color: var(--rv-ambar-texto);    background: var(--rv-ambar-fundo); }
+.ulbra-etiqueta--ambar    { color: var(--rv-ambar-texto);    background: var(--rv-ambar-fundo); }
+.ulbra-etiqueta--azul     { color: var(--rv-azul-texto);     background: var(--rv-azul-fundo); }
+.ulbra-etiqueta--verde    { color: var(--rv-verde-ok-texto); background: var(--rv-verde-ok-fundo); }
+.ulbra-etiqueta--cinza    { color: var(--rv-texto);          background: var(--rv-fundo-suave); }
+
+/* ---------- tabela simples ---------- */
+.ulbra-tabela {
+  width: 100%;
+  margin-top: 8px;
+  font-size: 13px;
+  border-collapse: collapse;
+}
+.ulbra-tabela th {
+  padding: 6px 0;
+  font-weight: 500;
+  text-align: left;
+  color: var(--rv-texto-suave);
+  border-bottom: 1px solid var(--rv-borda);
+}
+.ulbra-tabela td {
+  padding: 7px 0;
+  border-bottom: 1px solid var(--rv-borda-suave);
+  overflow-wrap: anywhere;
+}
+.ulbra-tabela .ulbra-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- detalhes recolhidos ---------- */
+.ulbra-detalhes {
+  margin-top: 16px;
+  font-size: 13px;
+  background: var(--rv-fundo-cartao);
+  border: 1px solid var(--rv-borda);
+  border-radius: var(--rv-raio);
+}
+.ulbra-detalhes > summary {
+  padding: 10px 14px;
+  font-weight: 600;
+  color: var(--rv-texto-forte);
+  cursor: pointer;
+  user-select: none;
+}
+.ulbra-detalhes-corpo {
+  padding: 0 14px 14px;
+  font-size: 12px;
+}
+.ulbra-grupo {
+  margin-top: 12px;
+}
+.ulbra-grupo-titulo {
+  margin-bottom: 4px;
+  font-weight: 600;
+  color: var(--rv-texto);
+}
+.ulbra-lista {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+}
+.ulbra-lista dt {
+  color: var(--rv-texto-suave);
+}
+.ulbra-lista dd {
+  margin: 0;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.ulbra-dupla {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px 16px;
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+
+/* ---------- sino (notificações do operador) ---------- */
+.ulbra-sino {
+  position: fixed;
+  right: 16px;
+  bottom: 92px;
+  z-index: 60;
+  font-size: 12px;
+}
+.ulbra-sino-botao {
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--rv-verde-escuro);
+  border: 0;
+  border-radius: 999px;
+  box-shadow: var(--rv-sombra-elevada);
+  cursor: pointer;
+}
+.ulbra-sino-contagem {
+  margin-left: 6px;
+  padding: 0 7px;
+  font-size: 11px;
+  color: #fff;
+  background: var(--rv-vermelho);
+  border-radius: 999px;
+}
+.ulbra-sino-painel {
+  position: absolute;
+  right: 0;
+  bottom: 44px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: min(340px, calc(100vw - 32px));
+  max-height: min(70vh, 440px);
+  overflow: hidden;
+  background: var(--rv-superficie);
+  border: 1px solid var(--rv-borda);
+  border-radius: var(--rv-raio);
+  box-shadow: var(--rv-sombra-elevada);
+}
+.ulbra-sino-cabeca {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--rv-borda);
+}
+.ulbra-sino-corpo {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.ulbra-sino-secao {
+  padding: 8px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--rv-texto-suave);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.ulbra-sino-item {
+  padding: 8px 10px;
+  border-top: 1px solid var(--rv-borda-suave);
+}
+.ulbra-sino-linha {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ulbra-sino-nome {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ulbra-sino-hora {
+  flex: 0 0 auto;
+  color: var(--rv-texto-fraco);
+}
+.ulbra-sino-previa {
+  overflow: hidden;
+  color: var(--rv-texto-suave);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ulbra-sino-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+.ulbra-sino-vazio {
+  padding: 8px 10px;
+  color: var(--rv-texto-fraco);
+}
+.ulbra-sino-fechar {
+  padding: 0 4px;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--rv-texto-suave);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+/* ---------- Central: filtros, linhas e selos ---------- */
+.ulbra-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+.ulbra-select {
+  box-sizing: border-box;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--rv-texto);
+  background: var(--rv-superficie);
+  border: 1px solid var(--rv-borda-forte);
+  border-radius: var(--rv-raio-pequeno);
+}
+.ulbra-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ulbra-linha {
+  padding: 10px 0;
+  border-top: 1px solid var(--rv-borda-suave);
+}
+.ulbra-linha-topo {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ulbra-linha-nome {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.ulbra-linha-tempo {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--rv-texto);
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.ulbra-linha-tempo-data {
+  color: var(--rv-texto-fraco);
+}
+.ulbra-linha-previa {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--rv-texto);
+  overflow-wrap: anywhere;
+}
+.ulbra-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--rv-texto-suave);
+}
+.ulbra-meta strong {
+  color: var(--rv-texto);
+  font-weight: 600;
+}
+.ulbra-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  margin-top: 6px;
+}
+
+/* ---------- celular: uma coluna, alvos de toque maiores ---------- */
+@media (max-width: 640px) {
+  .ulbra-cartoes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ulbra-cartoes--tres {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ulbra-dupla {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ulbra-linha-topo {
+    flex-direction: column;
+    gap: 2px;
+  }
+  .ulbra-linha-tempo {
+    text-align: left;
+  }
+  .ulbra-botao,
+  .ulbra-link,
+  .ulbra-sino-botao {
+    min-height: 36px;
+  }
+  .ulbra-lista {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------- desktop: lista de detalhes em duas colunas ---------- */
+@media (min-width: 641px) {
+  .ulbra-lista {
+    grid-template-columns: max-content minmax(0, 1fr);
+  }
+}

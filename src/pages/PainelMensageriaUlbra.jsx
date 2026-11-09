@@ -19,6 +19,7 @@
 //     outro universo. Sem medida específica, o dado é omitido, não aproximado.
 // ===========================================================================
 import { useCallback, useState } from "react";
+import "./ulbra.css";
 import { supabase } from "../services/supabase";
 import usePolling from "../utils/polling";
 import { normalizarEmail } from "../utils/ulbraRecebimento";
@@ -28,10 +29,10 @@ import { ND, descreverEstado, estadoExigeAviso, fmtHora, fmtMin, fmtNum, rotuloF
 const POLL_MS = 60_000;
 
 const TOM = {
-  verde: "border-emerald-300 bg-emerald-50 text-emerald-900",
-  ambar: "border-amber-300 bg-amber-50 text-amber-900",
-  vermelho: "border-red-400 bg-red-50 text-red-800",
-  cinza: "border-gray-300 bg-gray-50 text-gray-800",
+  verde: "ulbra-aviso--verde",
+  ambar: "ulbra-aviso--ambar",
+  vermelho: "ulbra-aviso--vermelho",
+  cinza: "ulbra-aviso--cinza",
 };
 
 export default function PainelMensageriaUlbra({ usuario }) {
@@ -64,13 +65,13 @@ export default function PainelMensageriaUlbra({ usuario }) {
   const atualizarAgora = usePolling(buscar, POLL_MS, [email], Boolean(email));
 
   if (!email || situacao === "negado") {
-    return <div className="p-6 text-sm">Esta tela é restrita à gestão.</div>;
+    return <div className="ulbra-pagina">Esta tela é restrita à gestão.</div>;
   }
   if (situacao === "indisponivel") {
     return (
-      <div className="p-6 max-w-3xl">
-        <h1 className="text-lg font-semibold">CRM ULBRA</h1>
-        <div className="mt-3 rounded border border-gray-300 bg-gray-50 p-3 text-sm">
+      <div className="ulbra-pagina">
+        <h1 className="ulbra-titulo">CRM ULBRA</h1>
+        <div className="ulbra-aviso ulbra-aviso--cinza">
           <strong>Painel não disponível.</strong> A função de agregação (<code>ulbra_painel_gestao</code>) ainda não
           foi aplicada no banco. Nenhum número é mostrado no lugar.
         </div>
@@ -79,19 +80,19 @@ export default function PainelMensageriaUlbra({ usuario }) {
   }
   if (situacao === "erro") {
     return (
-      <div className="p-6 max-w-3xl">
-        <h1 className="text-lg font-semibold">CRM ULBRA</h1>
-        <div className="mt-3 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+      <div className="ulbra-pagina">
+        <h1 className="ulbra-titulo">CRM ULBRA</h1>
+        <div className="ulbra-aviso ulbra-aviso--vermelho">
           <strong>Erro ao ler o painel:</strong> {erro || ND}. Nenhum número é mostrado no lugar.
         </div>
-        <button type="button" onClick={() => atualizarAgora()} className="mt-3 text-sm text-blue-700 hover:underline">
+        <button type="button" onClick={() => atualizarAgora()} className="ulbra-link" style={{ marginTop: 10 }}>
           tentar de novo
         </button>
       </div>
     );
   }
   if (situacao === "carregando" || !dados) {
-    return <div className="p-6 text-sm text-gray-500">Lendo o espelho…</div>;
+    return <div className="ulbra-pagina ulbra-texto-desativado">Lendo o espelho…</div>;
   }
 
   const { sync = {}, conversas = {}, atendimentos = {}, espera = {}, cobertura = {} } = dados;
@@ -101,13 +102,13 @@ export default function PainelMensageriaUlbra({ usuario }) {
   const porAtendente = Object.entries(conversas.por_atendente_ulbra || {}).sort((a, b) => b[1] - a[1]);
 
   return (
-    <div className="p-4 md:p-6 max-w-5xl mx-auto text-gray-900">
+    <div className="ulbra-pagina">
       {/* CABEÇALHO: título, faixa de estado, botão */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="ulbra-cabecalho">
         <div>
-          <h1 className="text-lg font-semibold">CRM ULBRA</h1>
+          <h1 className="ulbra-titulo">CRM ULBRA</h1>
           <div
-            className={`mt-1 text-xs ${aviso ? "text-amber-800" : "text-gray-600"}`}
+            className={`ulbra-faixa ${aviso ? "ulbra-faixa--aviso" : ""}`}
             data-testid="faixa-estado"
             data-estado={dados.estado}
             data-atualizacao={manual ? "manual" : "automatica"}
@@ -115,11 +116,11 @@ export default function PainelMensageriaUlbra({ usuario }) {
             {manual ? "Atualização manual" : "Atualização automática"} • última coleta em {fmtHora(sync.ultima_execucao)} • {rotuloFaixa(dados)}
           </div>
         </div>
-        <div className="text-left md:text-right">
-          <button type="button" onClick={() => atualizarAgora()} className="text-sm px-3 py-1.5 rounded border bg-white hover:bg-gray-50">
+        <div>
+          <button type="button" onClick={() => atualizarAgora()} className="ulbra-botao">
             Atualizar painel
           </button>
-          <div className="text-[11px] text-gray-500 mt-1 max-w-[260px]">
+          <div className="ulbra-ajuda">
             Atualiza a leitura dos dados já coletados. Não consulta a ULBRA.
           </div>
         </div>
@@ -127,18 +128,18 @@ export default function PainelMensageriaUlbra({ usuario }) {
 
       {/* AVISO RESUMIDO fora dos detalhes, só quando há falha/incompleto */}
       {aviso ? (
-        <div className={`mt-3 rounded border p-2.5 text-xs ${TOM[est.tom]}`} data-testid="aviso-estado" data-estado={dados.estado}>
-          <span className="font-semibold">{est.titulo}</span>
+        <div className={`ulbra-aviso ${TOM[est.tom]}`} data-testid="aviso-estado" data-estado={dados.estado}>
+          <span style={{ fontWeight: 600 }}>{est.titulo}</span>
           {est.texto ? <span> — {est.texto}</span> : null}
         </div>
       ) : null}
 
-      <p className="mt-3 text-xs text-gray-500" data-testid="nota-espelho">
+      <p className="ulbra-nota" data-testid="nota-espelho">
         Números do espelho coletado pelo ReATIVA (equipe {cobertura.equipe || ND}, {listaCanais(cobertura.canais_coletados)}), não o total da Mensageria.
       </p>
 
       {/* QUATRO CARTÕES */}
-      <section className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="cartoes">
+      <section className="ulbra-cartoes" data-testid="cartoes">
         <Cartao n={fmtNum(atendimentos.coletados)} titulo="atendimentos coletados" sub="atendimentos em espera, no espelho" />
         <Cartao n={fmtNum(conversas.resposta_aguardando)} titulo="conversas aguardando resposta" sub="conversas cuja última mensagem é do aluno" />
         <Cartao n={fmtNum(atendimentos.em_conferencia)} titulo="atendimentos em conferência" sub="identidade não confirmada por CPF" destaque={atendimentos.em_conferencia > 0} />
@@ -146,29 +147,29 @@ export default function PainelMensageriaUlbra({ usuario }) {
       </section>
 
       {/* CONVERSAS POR ATENDENTE NA MENSAGERIA */}
-      <section className="mt-4 rounded border bg-white p-3 text-sm" data-testid="por-atendente">
-        <div className="font-semibold">Conversas por atendente na Mensageria</div>
-        <div className="text-xs text-gray-500 mt-0.5">Nome como a Mensageria informa. Não é correspondência com operador do ReATIVA.</div>
+      <section className="ulbra-bloco" data-testid="por-atendente">
+        <div className="ulbra-bloco-titulo">Conversas por atendente na Mensageria</div>
+        <div className="ulbra-bloco-sub">Nome como a Mensageria informa. Não é correspondência com operador do ReATIVA.</div>
         {conversas.por_atendente_ulbra == null ? (
-          <div className="mt-2 text-xs text-gray-500">{ND}</div>
+          <div className="ulbra-bloco-vazio">{ND}</div>
         ) : (
-          <table className="w-full mt-2 text-xs">
+          <table className="ulbra-tabela">
             <thead>
-              <tr className="text-gray-500 border-b">
-                <th className="text-left font-medium py-1">atendente na Mensageria</th>
-                <th className="text-right font-medium py-1">conversas</th>
+              <tr>
+                <th>atendente na Mensageria</th>
+                <th className="ulbra-num">conversas</th>
               </tr>
             </thead>
             <tbody>
               {porAtendente.map(([k, v]) => (
-                <tr key={k} className="border-b">
-                  <td className="py-1.5 pr-2 break-all">{k}</td>
-                  <td className="py-1.5 text-right tabular-nums">{v}</td>
+                <tr key={k}>
+                  <td>{k}</td>
+                  <td className="ulbra-num">{v}</td>
                 </tr>
               ))}
-              <tr className="border-b text-gray-500">
-                <td className="py-1.5 pr-2">sem atendente informado</td>
-                <td className="py-1.5 text-right tabular-nums">{fmtNum(conversas.sem_atendente_ulbra)}</td>
+              <tr style={{ color: "var(--rv-texto-suave)" }}>
+                <td>sem atendente informado</td>
+                <td className="ulbra-num">{fmtNum(conversas.sem_atendente_ulbra)}</td>
               </tr>
             </tbody>
           </table>
@@ -176,27 +177,27 @@ export default function PainelMensageriaUlbra({ usuario }) {
       </section>
 
       {/* PENDÊNCIAS DE CONFERÊNCIA — só o que a RPC mede sobre esse universo */}
-      <section className="mt-4 rounded border bg-white p-3 text-sm" data-testid="conferencia">
-        <div className="flex items-center gap-2">
-          <span className="font-semibold">Pendências de conferência</span>
-          <span className="text-[11px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 tabular-nums">{fmtNum(atendimentos.em_conferencia)} atendimentos</span>
+      <section className="ulbra-bloco" data-testid="conferencia">
+        <div className="ulbra-bloco-titulo">
+          <span>Pendências de conferência</span>
+          <span className="ulbra-etiqueta ulbra-etiqueta--cinza">{fmtNum(atendimentos.em_conferencia)} atendimentos</span>
         </div>
-        <div className="text-xs text-gray-500 mt-1">
+        <div className="ulbra-bloco-sub">
           Clientes sem vínculo confirmado por CPF. A identidade nunca é presumida por nome ou telefone; a conferência é da gestão, na ficha do aluno.
         </div>
-        <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+        <dl className="ulbra-dupla">
           <Dt k="identidade confirmada (conversas)" v={fmtNum(conversas.identidade_confirmada)} />
           <Dt k="identidade não confirmada (conversas)" v={fmtNum(conversas.identidade_nao_confirmada)} />
         </dl>
       </section>
 
       {/* DETALHES DA SINCRONIZAÇÃO — recolhido por padrão */}
-      <details className="mt-4 rounded border bg-white text-sm" data-testid="detalhes">
-        <summary className="cursor-pointer px-3 py-2 font-semibold select-none">Detalhes da sincronização</summary>
-        <div className="px-3 pb-3 text-xs">
-          <div className={`rounded border p-2 ${TOM[est.tom]}`} data-testid="bloco-estado" data-estado={dados.estado}>
-            <div className="font-semibold">{est.titulo}</div>
-            {est.texto ? <div className="mt-0.5">{est.texto}</div> : null}
+      <details className="ulbra-detalhes" data-testid="detalhes">
+        <summary>Detalhes da sincronização</summary>
+        <div className="ulbra-detalhes-corpo">
+          <div className={`ulbra-aviso ${TOM[est.tom]}`} data-testid="bloco-estado" data-estado={dados.estado}>
+            <div style={{ fontWeight: 600 }}>{est.titulo}</div>
+            {est.texto ? <div style={{ marginTop: 2 }}>{est.texto}</div> : null}
           </div>
 
           <Grupo titulo="Ciclo">
@@ -253,7 +254,7 @@ export default function PainelMensageriaUlbra({ usuario }) {
             <Dt k="divergência carteira ReATIVA × atendente ULBRA" v={`${ND} — depende do mapeamento de operadores; não se calcula por nome`} />
           </Grupo>
 
-          <div className="mt-3 text-gray-500">
+          <div className="ulbra-rodape">
             Mensagem ≠ conversa ≠ atendimento ≠ aluno único. "Sem responsável no ReATIVA" não prova nada sobre o atendente na ULBRA: são dois sistemas, dois campos.
           </div>
         </div>
@@ -264,26 +265,26 @@ export default function PainelMensageriaUlbra({ usuario }) {
 
 function Cartao({ n, titulo, sub, destaque = false }) {
   return (
-    <div className={`rounded border bg-white p-3 ${destaque ? "border-amber-400" : ""}`}>
-      <div className="text-2xl font-semibold tabular-nums leading-none">{n}</div>
-      <div className="text-sm mt-2 leading-tight">{titulo}</div>
-      <div className="text-[11px] text-gray-500 mt-0.5 leading-tight">{sub}</div>
+    <div className={`ulbra-cartao ${destaque ? "ulbra-cartao--destaque" : ""}`}>
+      <div className="ulbra-cartao-numero">{n}</div>
+      <div className="ulbra-cartao-titulo">{titulo}</div>
+      <div className="ulbra-cartao-sub">{sub}</div>
     </div>
   );
 }
 function Grupo({ titulo, children, testid }) {
   return (
-    <div className="mt-3" data-testid={testid}>
-      <div className="font-semibold text-gray-700">{titulo}</div>
-      <dl className="mt-1 grid grid-cols-1 md:grid-cols-[max-content_1fr] gap-x-4 gap-y-1">{children}</dl>
+    <div className="ulbra-grupo" data-testid={testid}>
+      <div className="ulbra-grupo-titulo">{titulo}</div>
+      <dl className="ulbra-lista">{children}</dl>
     </div>
   );
 }
 function Dt({ k, v }) {
   return (
     <>
-      <dt className="text-gray-500">{k}</dt>
-      <dd className="font-medium break-words">{v}</dd>
+      <dt>{k}</dt>
+      <dd>{v}</dd>
     </>
   );
 }
