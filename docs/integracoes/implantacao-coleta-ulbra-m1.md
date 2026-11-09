@@ -21,11 +21,20 @@ autorização e não deve ser reaplicado.**
 A comparação de conteúdo do statement de produção com o arquivo não foi feita
 byte a byte. Só o nome, a versão e o SHA do arquivo foram conferidos.
 
-## 2. Escopo desta autorização
+## 2. Estado no remoto e escopo desta autorização
 
-Somente a migration incremental `20261109160000_ulbra_coleta_posicao`, depois
-do merge da PR #877 (correção da coleta) e da PR #878 (retomada do backlog,
-com base ajustada para `main`).
+Conferido em 09/11/2026 no GitHub:
+
+- **PR #877 mesclada** na `main` no commit `b416c17c`. Corrige o ciclo
+  incompleto, o grupo de horário e o orçamento.
+- **PR #878** segue em `fix/ulbra-coleta-backlog-posicao`, com base `main`, no
+  head `7fcc6743`. O histórico já inclui o teto por execução (`62e3e3b5`) e a
+  prova de interrupção e retomada. CI `CI` concluído com sucesso nesse head.
+  Aguarda o merge da gestão.
+
+A autorização M1 cobre **somente** a migration incremental
+`20261109160000_ulbra_coleta_posicao`, a ser aplicada depois do merge da #878.
+Nenhuma outra migration entra nesta autorização.
 
 ## 3. Teto por execução: comprovado no código
 
@@ -71,7 +80,7 @@ Não envia mensagem, não assume atendimento e não altera cadastro.
 
 Proposta de teste, a aprovar antes de qualquer execução real:
 
-1. **Simulado (já coberto no código):** backlog de 1000 com teto 6, cobertura
+1. **Simulado (já coberto no código, verificado no head `7fcc6743`, 95 testes de `ulbra-sincronizar` passando):** backlog de 1000 com teto 6, cobertura
    total entre execuções, sem estouro de teto.
 2. **Real, duas execuções manuais, teto 6 cada:**
    - custo máximo: 12 chamadas no total, mais as gravações no banco;
