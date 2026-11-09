@@ -69,6 +69,16 @@ describe("BlocoUlbra sob demanda", () => {
     expect(consultasNaMensageria()).toBe(0);
   });
 
+  it("sem acesso ao aluno: nada na tela (sem botao, sem link, sem dado)", async () => {
+    supabase.rpc.mockResolvedValueOnce({ data: { status: "sem_acesso" }, error: null });
+    const { container } = render(<BlocoUlbra aluno={ALUNO} sobDemanda />);
+    await waitFor(() => expect(supabase.rpc).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(container.textContent).toBe("");
+    expect(screen.queryByText("Consultar vínculo na ULBRA")).toBeNull();
+    expect(consultasNaMensageria()).toBe(0);
+  });
+
   it("clique: exatamente UMA consulta à Mensageria", async () => {
     supabase.rpc.mockResolvedValueOnce({ data: { status: "sem_vinculo" }, error: null });
     fetchMock.mockResolvedValueOnce({
@@ -134,7 +144,7 @@ describe("BlocoUlbra padrão (outras fichas): comportamento preservado", () => {
       json: async () => ({ status: "vinculado", url: "https://crm.ulbra.ai/app/clientes/9", reconfirmar_recomendado: false }),
     });
     render(<BlocoUlbra aluno={ALUNO} />);
-    await waitFor(() => expect(screen.getByRole("link", { name: /Abrir Mensageria ULBRA/ })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("link", { name: /CRM ULBRA/ })).toBeTruthy());
     expect(consultasNaMensageria()).toBe(1);
     expect(supabase.rpc).not.toHaveBeenCalled();
   });

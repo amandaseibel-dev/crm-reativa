@@ -468,6 +468,49 @@ jobs:
         run: deno check supabase/functions/ulbra-sincronizar/index.ts
 
   # ---------------------------------------------------------------------------
+  # ULBRA — leitura do vinculo para a ficha: AUTORIZACAO sobre o aluno, em
+  # Postgres 17 descartavel. Dois operadores, gestao, supervisor, inativo, painel e
+  # anon. Roda a migration CANDIDATA (aguardando_aprovacao), nao producao.
+  # ---------------------------------------------------------------------------
+  ulbra-vinculo-leitura-sql:
+    name: ulbra vinculo — autorizacao por aluno, perfis, painel e anon (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/ulbra_vinculo_leitura
+      MIGRATION: supabase/aguardando_aprovacao/20261109180000_ulbra_vinculo_leitura.sql.pendente
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ambiente, montagem, migration candidata e provas de autorizacao
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/00_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_montagem.sql"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_provas.sql"
+
+  # ---------------------------------------------------------------------------
   # PROPOSTA_staging_acordos_prime.sql — RLS, grants e isolamento do staging
   # de ACORDOS, num Postgres descartável.
   #

@@ -1,0 +1,76 @@
+-- LEITURA DO VINCULO PARA A FICHA, COM AUTORIZACAO SOBRE O ALUNO. NAO APLICAR SEM APROVACAO.
+--
+-- Usada pela ficha da carteira ao abrir. Devolve so o status e, quando o vinculo
+-- esta confirmado por CPF, o link. Nunca escreve, nunca audita, nunca chama a
+-- Mensageria.
+--
+-- AUTORIZACAO (espelha ulbra-consultar/portao.ts, sem ampliar acesso):
+--   - usuario precisa estar ATIVO em public.usuarios;
+--   - painel nunca le;
+--   - perfis amplos (supervisor, gerencia, administrativo) leem qualquer aluno;
+--   - demais perfis leem so o aluno cujo responsavel_atual_email e o seu.
+-- Quem nao tem acesso ao aluno recebe `sem_acesso`, sem nenhum dado do vinculo.
+-- Usuario ativo, sozinho, NAO basta.
+--
+-- Regra do vinculo espelhada de vinculo.ts (precisaReconfirmar): so `alta_cpf` e
+-- vinculo confirmado. Qualquer outro nivel vira aviso, sem link.
+begin;
+
+create or replace function public.ulbra_vinculo_aluno(p_aluno_id uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_email     text := lower(coalesce(app_email(), ''));
+  v_perfil    text;
+  v_cliente   text;
+  v_confianca text;
+begin
+  if v_email = '' or eh_painel() then
+    return jsonb_build_object('status', 'sem_acesso');
+  end if;
+
+  select u.perfil into v_perfil
+    from public.usuarios u
+   where lower(u.email) = v_email and u.ativo is true
+   limit 1;
+  if not found then
+    return jsonb_build_object('status', 'sem_acesso');
+  end if;
+
+  -- Regra real de acesso a ficha (portao da ulbra-consultar)
+  if v_perfil not in ('supervisor', 'gerencia', 'administrativo') then
+    if not exists (
+      select 1 from public.alunos a
+       where a.id = p_aluno_id
+         and lower(coalesce(a.responsavel_atual_email, '')) = v_email
+    ) then
+      return jsonb_build_object('status', 'sem_acesso');
+    end if;
+  end if;
+
+  select ulbra_cliente_id, confianca
+    into v_cliente, v_confianca
+    from public.ulbra_vinculos
+   where aluno_id = p_aluno_id and desvinculado_em is null
+   limit 1;
+
+  if not found then
+    return jsonb_build_object('status', 'sem_vinculo');
+  end if;
+  if v_confianca = 'alta_cpf' then
+    -- mesma origem fixa de ulbra-consultar (urlCliente)
+    return jsonb_build_object('status', 'vinculado',
+      'url', 'https://crm.ulbra.ai/app/clientes/' || v_cliente);
+  end if;
+  return jsonb_build_object('status', 'vinculado_nao_confirmado');
+end;
+$$;
+
+revoke all on function public.ulbra_vinculo_aluno(uuid) from public, anon;
+grant execute on function public.ulbra_vinculo_aluno(uuid) to authenticated;
+
+commit;

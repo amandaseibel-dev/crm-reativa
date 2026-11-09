@@ -174,7 +174,8 @@ export default function BlocoUlbra({ aluno, sobDemanda = false }) {
   // dois cliques antes do re-render.
   const emCurso = useRef(false);
 
-  const rotuloLink = sobDemanda ? "CRM ULBRA ↗" : "Abrir Mensageria ULBRA ↗";
+  // Rotulo unico em todas as fichas (decisao da gestao).
+  const rotuloLink = "CRM ULBRA ↗";
 
   // Modo padrão: consulta ao montar, exatamente como antes.
   useEffect(() => {
@@ -208,6 +209,8 @@ export default function BlocoUlbra({ aluno, sobDemanda = false }) {
           setEstado("vinculado");
           return;
         }
+        // sem_acesso: o usuario nao pode ver este aluno. Nada de botao, nada de dado.
+        if (data.status === "sem_acesso") { setEstado("sem_acesso"); return; }
         setEstado(data.status === "vinculado_nao_confirmado" ? "vinculado_nao_confirmado" : "sem_vinculo");
       } catch {
         if (!cancelado) setEstado("sem_vinculo");
@@ -235,6 +238,7 @@ export default function BlocoUlbra({ aluno, sobDemanda = false }) {
   if (!aluno?.id) return null;
 
   if (sobDemanda) {
+    if (estado === "sem_acesso") return null;
     if (estado === "lendo") {
       return <div style={ESTILO.neutro}>Verificando vínculo…</div>;
     }
