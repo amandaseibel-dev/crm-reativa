@@ -2249,13 +2249,15 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   WhatsApp, copiar o numero). Antes viviam no meio da aba
                   "Resumo e tabulacao", embaixo do card de acordos. Saiu de la,
                   nao foi duplicado. */}
-              {/* O link "Abrir na Mensageria Ulbra ↗" entra como rodape do
-                  cartao de contatos: e um canal de contato, e o lugar dele e
-                  junto dos telefones. O `BlocoUlbra` vem INTEIRO, sem nenhuma
-                  alteracao -- ele continua sendo o unico a decidir se mostra o
-                  link (so com vinculo confirmado por CPF), o aviso de vinculo
+              {/* O botao "Abrir Mensageria ULBRA ↗" entra no CABECALHO do
+                  cartao de contatos (era o rodape, e so aparecia depois de
+                  rolar): e um canal de contato, e o lugar dele e junto dos
+                  telefones. O `BlocoUlbra` vem INTEIRO, sem nenhuma alteracao
+                  de regra -- ele continua sendo o unico a decidir se mostra o
+                  botao (so com vinculo confirmado por CPF), o aviso de vinculo
                   nao confirmado ou nada, e a abertura segue em nova aba com
-                  `rel="noopener noreferrer"`. Mudou o lugar, nao a regra. */}
+                  `rel="noopener noreferrer"`. Mudou o lugar e o visual, nao a
+                  regra. */}
               <TelefonesAluno aluno={alunoSelecionado}>
                 <BlocoUlbra aluno={alunoSelecionado} />
               </TelefonesAluno>
@@ -2527,8 +2529,8 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   )}
                 </div>
               </div>
-              {/* `BlocoUlbra` saiu daqui para o rodape do cartao de contatos,
-                  logo abaixo do cabecalho. Nao foi duplicado. O
+              {/* `BlocoUlbra` saiu daqui para o cabecalho do cartao de
+                  contatos. Nao foi duplicado. O
                   `AtendimentoUlbra` fica: e o atendimento em curso, nao um
                   contato -- e segue so na aba "Resumo e tabulacao". */}
               <AtendimentoUlbra aluno={alunoSelecionado} />

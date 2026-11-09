@@ -17,6 +17,8 @@
 //   - não mostra conteúdo de conversa, só o trecho que a lista já traz.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
+import "../pages/ulbra.css";
+import { podeVerCentralUlbra } from "../utils/ulbraCentral";
 import usePolling from "../utils/polling";
 import { buscarTudo } from "../utils/paginado";
 import {
@@ -29,7 +31,6 @@ import {
   podeAssumir,
   salvarPrefs,
 } from "../utils/ulbraRecebimento";
-import { podeVerCentralUlbra } from "../utils/ulbraCentral";
 
 // Reserva, não relógio principal: o Realtime é quem avisa. 45s só cobre o
 // caso de o socket cair sem avisar. É Postgres nosso, não a Mensageria.
@@ -216,108 +217,99 @@ export default function NotificacoesUlbra({ usuario }) {
   if (novidades.total === 0 && !aberto) return null;
 
   return (
-    <div className="notificacoes-ulbra" style={{ position: "fixed", right: 16, bottom: 92, zIndex: 60 }}>
+    <div className="ulbra-sino">
       <button
         type="button"
         onClick={() => setAberto((v) => !v)}
-        className="text-sm font-medium text-white bg-emerald-700 hover:bg-emerald-800 px-3 py-1 rounded shadow"
+        className="ulbra-sino-botao"
         aria-label="Mensageria ULBRA"
+        aria-expanded={aberto}
       >
         Mensageria ULBRA
-        {novidades.total > 0 ? (
-          <span className="ml-1 bg-red-500 text-white text-xs rounded-full px-1.5">
-            {novidades.total}
-          </span>
-        ) : null}
+        {novidades.total > 0 ? <span className="ulbra-sino-contagem">{novidades.total}</span> : null}
       </button>
 
       {aberto ? (
-        <div className="mt-1 w-80 bg-white border rounded shadow-lg max-h-96 overflow-auto">
-          <div className="p-2 flex items-center justify-between border-b">
-            <span className="text-xs font-semibold text-gray-500">Mensageria ULBRA</span>
-            <button type="button" onClick={alternarSom} className="text-xs text-blue-600 hover:underline">
-              som {prefs.som ? "ligado" : "desligado"}
-            </button>
+        <div className="ulbra-sino-painel" role="dialog" aria-label="Avisos da Mensageria ULBRA">
+          <div className="ulbra-sino-cabeca">
+            <span>Mensageria ULBRA</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <button type="button" onClick={alternarSom} className="ulbra-link">
+                som {prefs.som ? "ligado" : "desligado"}
+              </button>
+              <button type="button" onClick={() => setAberto(false)} className="ulbra-sino-fechar" aria-label="Fechar avisos">
+                ×
+              </button>
+            </span>
           </div>
 
-          {podeVerCentralUlbra(email) ? (
-            <a href="/central-ulbra" className="block p-2 text-xs text-blue-600 hover:underline border-b">
-              abrir Central ULBRA (fila completa)
-            </a>
-          ) : null}
+          <div className="ulbra-sino-corpo">
+            {recado ? <div className="ulbra-recado" style={{ margin: 8 }}>{recado}</div> : null}
 
-          {recado ? <div className="p-2 text-xs text-gray-700 bg-gray-50 border-b">{recado}</div> : null}
+            {podeVerCentralUlbra(email) ? (
+              <a href="/central-ulbra" className="ulbra-link" style={{ display: "block", padding: "8px 10px" }}>
+                abrir Central ULBRA (fila completa)
+              </a>
+            ) : null}
 
-          <div className="p-2 text-xs font-semibold text-gray-500">
-            Conversas com resposta não lida ({novidades.nao_lidas})
-          </div>
-          {novidades.respostas.length === 0 ? (
-            <div className="px-2 pb-2 text-xs text-gray-400">nada esperando</div>
-          ) : (
-            ordenarPorRecencia(novidades.respostas, "ultima_mensagem_em").map((c) => (
-              <div key={c.ulbra_conversa_id} className="p-2 border-t hover:bg-gray-50">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm truncate">{c.cliente_nome || "sem nome"}</span>
-                  <span className="text-xs text-gray-400">{horaCurta(c.ultima_mensagem_em)}</span>
-                </div>
-                <div className="text-xs text-gray-600 truncate">{c.ultima_mensagem_previa}</div>
-                <div className="mt-1 flex gap-3">
-                  {c.aluno_id ? (
-                    <a
-                      className="text-xs text-blue-600 hover:underline"
-                      href={`/aluno?alunoId=${encodeURIComponent(c.aluno_id)}&origem=ulbra`}
-                    >
-                      abrir ficha
-                    </a>
-                  ) : (
-                    <span className="text-xs text-amber-700">identidade não confirmada</span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => marcarLida(c)}
-                    className="text-xs text-gray-500 hover:underline"
-                  >
-                    marcar como lida
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-
-          <div className="p-2 text-xs font-semibold text-gray-500 border-t">
-            Novos atendimentos ({novidades.leads.length})
-          </div>
-          {novidades.leads.length === 0 ? (
-            <div className="px-2 pb-2 text-xs text-gray-400">nada esperando</div>
-          ) : (
-            ordenarPorRecencia(novidades.leads, "entrou_em").map((a) => {
-              const julgado = podeAssumir(a, email, ehGestao);
-              return (
-                <div key={a.ulbra_atendimento_id} className="p-2 border-t hover:bg-gray-50">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm truncate">{a.cliente_nome || "sem nome"}</span>
-                    <span className="text-xs text-gray-400">{horaCurta(a.entrou_em)}</span>
+            <div className="ulbra-sino-secao">Conversas com resposta não lida ({novidades.nao_lidas})</div>
+            {novidades.respostas.length === 0 ? (
+              <div className="ulbra-sino-vazio">nada esperando</div>
+            ) : (
+              ordenarPorRecencia(novidades.respostas, "ultima_mensagem_em").map((c) => (
+                <div key={c.ulbra_conversa_id} className="ulbra-sino-item">
+                  <div className="ulbra-sino-linha">
+                    <span className="ulbra-sino-nome">{c.cliente_nome || "sem nome"}</span>
+                    <span className="ulbra-sino-hora">{horaCurta(c.ultima_mensagem_em)}</span>
                   </div>
-                  <div className="text-xs text-gray-500">
-                    {a.destino_motivo === "CARTEIRA" ? "da sua carteira" : "rodízio do receptivo"}
-                  </div>
-                  {julgado.pode ? (
-                    <button
-                      type="button"
-                      onClick={() => assumir(a)}
-                      className="mt-1 text-xs text-blue-600 hover:underline"
-                    >
-                      Assumir
+                  <div className="ulbra-sino-previa">{c.ultima_mensagem_previa}</div>
+                  <div className="ulbra-sino-acoes">
+                    {c.aluno_id ? (
+                      <a className="ulbra-link" href={`/aluno?alunoId=${encodeURIComponent(c.aluno_id)}&origem=ulbra`}>
+                        abrir ficha
+                      </a>
+                    ) : (
+                      <span className="ulbra-etiqueta ulbra-etiqueta--ambar">identidade não confirmada</span>
+                    )}
+                    <button type="button" onClick={() => marcarLida(c)} className="ulbra-link">
+                      marcar como lida
                     </button>
-                  ) : (
-                    <span className="mt-1 block text-xs text-gray-400">
-                      {RECUSA_EM_PORTUGUES[julgado.motivo] || "indisponível"}
-                    </span>
-                  )}
+                  </div>
                 </div>
-              );
-            })
-          )}
+              ))
+            )}
+
+            <div className="ulbra-sino-secao">Novos atendimentos ({novidades.leads.length})</div>
+            {novidades.leads.length === 0 ? (
+              <div className="ulbra-sino-vazio">nada esperando</div>
+            ) : (
+              ordenarPorRecencia(novidades.leads, "entrou_em").map((a) => {
+                const julgado = podeAssumir(a, email, ehGestao);
+                return (
+                  <div key={a.ulbra_atendimento_id} className="ulbra-sino-item">
+                    <div className="ulbra-sino-linha">
+                      <span className="ulbra-sino-nome">{a.cliente_nome || "sem nome"}</span>
+                      <span className="ulbra-sino-hora">{horaCurta(a.entrou_em)}</span>
+                    </div>
+                    <div className="ulbra-sino-previa">
+                      {a.destino_motivo === "CARTEIRA" ? "da sua carteira" : "rodízio do receptivo"}
+                    </div>
+                    <div className="ulbra-sino-acoes">
+                      {julgado.pode ? (
+                        <button type="button" onClick={() => assumir(a)} className="ulbra-link">
+                          Assumir
+                        </button>
+                      ) : (
+                        <span className="ulbra-texto-desativado">
+                          {RECUSA_EM_PORTUGUES[julgado.motivo] || "indisponível"}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
       ) : null}
     </div>
