@@ -108,7 +108,7 @@ describe("PainelMensageriaUlbra (CRM ULBRA)", () => {
     await screen.findByRole("heading", { name: "CRM ULBRA" });
     const aviso = container.querySelector('[data-testid="aviso-estado"]');
     expect(aviso.getAttribute("data-estado")).toBe("PULADO_ORCAMENTO");
-    expect(aviso.className).toMatch(/red/);
+    expect(aviso.className).toMatch(/ulbra-aviso--vermelho/);
     expect(aviso.textContent).toMatch(/isto NÃO é atualizado/);
     expect(container.querySelector('[data-testid="faixa-estado"]').textContent).toMatch(/sem orçamento/);
   });
