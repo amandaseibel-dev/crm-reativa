@@ -103,7 +103,7 @@ Deno.serve(async (req: Request) => {
   // ---------------------------------------------------------------- estado
   const { data: estado } = await sb
     .from("ulbra_sync_estado")
-    .select("cursor_mensagem, piso_pendente, topo_processado, chamadas_dia, dia, ciclos_desde_atendimentos, saldo_api_restam, saldo_api_em")
+    .select("cursor_mensagem, piso_pendente, topo_processado, offset_pendente, chamadas_dia, dia, ciclos_desde_atendimentos, saldo_api_restam, saldo_api_em")
     .eq("id", true)
     .maybeSingle();
 
@@ -196,7 +196,12 @@ Deno.serve(async (req: Request) => {
   let novas: FilaDetalhe[] = [];
 
   try {
-    colheita = await colherConversas((pagina) => chamar(cargaConversas(pagina, pagina)), janela, { pode });
+    // Reserva: a última chamada do orçamento é do detalhe das mensagens recentes.
+    // O backlog nunca a consome, para que uma resposta de cliente não fique sem leitura.
+    colheita = await colherConversas((pagina) => chamar(cargaConversas(pagina, pagina)), janela, {
+      pode: () => orcamento.saldo > DETALHE_POR_CICLO,
+      posicao: estado?.offset_pendente != null ? { offset: estado.offset_pendente } : undefined,
+    });
 
     // Fila: mantém o que já estava (com suas tentativas) e acrescenta o novo.
     novas = candidatasDaColheita(colheita.conversas);
@@ -327,6 +332,13 @@ Deno.serve(async (req: Request) => {
     console.error("ulbra-sincronizar: gravação falhou", error.message);
     return json({ ciclo: "FALHOU", erro: "GRAVACAO", detalhe: error.message }, 500);
   }
+
+  // Posição de leitura para o próximo ciclo. Só depois da gravação; se falhar,
+  // a posição antiga segue, e a validação em sincronizar.ts a torna segura.
+  const { error: errPosicao } = await sb.rpc("ulbra_sync_posicao_gravar", {
+    p_offset: colheita.offset_pendente,
+  });
+  if (errPosicao) console.error("ulbra-sincronizar: posição não gravada", errPosicao.message);
 
   return json({
     ciclo: colheita.truncado ? "INCOMPLETO" : "OK",
