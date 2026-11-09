@@ -399,7 +399,7 @@ jobs:
   # Postgres descartável. A migration NÃO está aplicada nem autorizada no M1.
   # ---------------------------------------------------------------------------
   ulbra-central-sql:
-    name: ulbra central do operador — isolamento, paginacao e rollback (postgres isolado)
+    name: ulbra central do operador — isolamento, responsabilidade, paginacao e rollback (postgres isolado)
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -442,6 +442,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/01_complemento.sql"
           psql -v ON_ERROR_STOP=1 -f "$CENTRAL"
           psql -v ON_ERROR_STOP=1 -f "$DIR/02_provas_central.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/04_responsabilidade.sql"
           psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_depois_do_rollback.sql"
 
