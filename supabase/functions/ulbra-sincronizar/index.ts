@@ -84,6 +84,22 @@ async function chamarMcp(token: string, carga: unknown): Promise<unknown> {
   return resultadoDoEnvelope(lerCorpoMcp(resp.headers.get("content-type"), await resp.text()));
 }
 
+/** Teto de chamadas desta execução, lido do corpo JSON. Ausente = sem teto extra. */
+export const TETO_EXECUCAO_MAX = 12;
+async function lerTetoExecucao(req: Request): Promise<number | "INVALIDO" | null> {
+  const texto = await req.text().catch(() => "");
+  if (!texto) return null;
+  let corpo: { teto_chamadas?: unknown };
+  try {
+    corpo = JSON.parse(texto);
+  } catch {
+    return "INVALIDO";
+  }
+  if (corpo.teto_chamadas === undefined) return null;
+  const n = corpo.teto_chamadas;
+  return typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= TETO_EXECUCAO_MAX ? n : "INVALIDO";
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
@@ -116,7 +132,14 @@ Deno.serve(async (req: Request) => {
   const chamadasAntes: number = estado?.dia === hoje ? (estado?.chamadas_dia ?? 0) : 0;
   const ciclosDesde: number = estado?.ciclos_desde_atendimentos ?? 999;
 
-  const orcamento = new Orcamento(TETO_DIARIO_SYNC - chamadasAntes);
+  // Teto POR EXECUÇÃO, além do diário. Só vale quando a chamada traz `teto_chamadas`
+  // (validação manual) e o valor está entre 1 e TETO_EXECUCAO_MAX. O cron não envia
+  // corpo, então roda sem esse teto extra, com o teto diário de sempre.
+  const tetoExecucao = await lerTetoExecucao(req);
+  if (tetoExecucao === "INVALIDO") return json({ erro: "TETO_INVALIDO" }, 400);
+  const orcamento = new Orcamento(
+    Math.min(TETO_DIARIO_SYNC - chamadasAntes, tetoExecucao ?? Number.POSITIVE_INFINITY),
+  );
   // Saldo DIÁRIO da pessoa do token (meu_acesso, limites.pessoaPorDia.restam).
   // Consultado no máximo a cada 60 min; o valor em cache limita o orçamento
   // enquanto estiver fresco. Ele inclui OAuth e fichas: é o limite real.

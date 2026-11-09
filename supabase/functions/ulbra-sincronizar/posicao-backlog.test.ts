@@ -156,3 +156,50 @@ describe("propriedade com posição guardada", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Teto por execução: a coleta nunca passa do teto informado, e a retomada
+// continua entre execuções. Usa o mesmo portão de reserva da função (1 chamada
+// fica para o detalhe). Sem rede: a API é simulada e conta cada chamada.
+// ---------------------------------------------------------------------------
+import { Orcamento } from "./sincronizar.ts";
+
+describe("teto de chamadas por execução", () => {
+  it("com teto 6, nenhuma execução passa de 6 chamadas, e o backlog de 1000 avança entre execuções", async () => {
+    const lista: Item[] = [];
+    for (let i = 0; i < 1000; i++) lista.push({ id: `g${i}`, em: minuto(i), quem: "cliente" });
+    const api = apiSimulada(lista);
+    let janela = J0;
+    let offset: number | null = null;
+    const coletados: string[] = [];
+    let maiorUso = 0;
+    let completo = false;
+    for (let execucao = 0; execucao < 60 && !completo; execucao++) {
+      const orc = new Orcamento(6);
+      const colheita = await colherConversas(
+        async (p) => {
+          orc.gastar();
+          return api(p);
+        },
+        janela,
+        {
+          maxPaginas: 3,
+          hardLeituras: 12,
+          pode: () => orc.saldo > 1,
+          posicao: offset === null ? undefined : { offset },
+        },
+      );
+      maiorUso = Math.max(maiorUso, 6 - orc.saldo);
+      coletados.push(...colheita.conversas.map((c) => c.ulbra_conversa_id));
+      janela = novaJanela(janela, colheita);
+      offset = colheita.offset_pendente;
+      completo = !colheita.truncado;
+    }
+    expect(maiorUso).toBeLessThanOrEqual(6);
+    expect(completo).toBe(true);
+    // Cobertura total. Repetições só no item de fronteira, uma por execução que
+    // parou no meio do grupo do piso. A gravação é idempotente por id.
+    expect(new Set(coletados).size).toBe(1000);
+    expect(coletados.length - 1000).toBeLessThanOrEqual(60);
+  });
+});
