@@ -21,6 +21,7 @@
 // ===========================================================================
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import "./ulbra.css";
 import { supabase } from "../services/supabase";
 import usePolling from "../utils/polling";
 import { normalizarEmail } from "../utils/ulbraRecebimento";
@@ -48,30 +49,23 @@ import {
 const POLL_MS = 60_000;
 
 const TOM = {
-  verde: "border-emerald-300 bg-emerald-50 text-emerald-900",
-  ambar: "border-amber-300 bg-amber-50 text-amber-900",
-  vermelho: "border-red-400 bg-red-50 text-red-800",
-  cinza: "border-gray-300 bg-gray-50 text-gray-700",
-};
-const SELO = {
-  vermelho: "bg-red-100 text-red-800",
-  laranja: "bg-orange-100 text-orange-800",
-  ambar: "bg-amber-100 text-amber-800",
-  azul: "bg-indigo-100 text-indigo-800",
-  cinza: "bg-gray-100 text-gray-700",
+  verde: "ulbra-aviso--verde",
+  ambar: "ulbra-aviso--ambar",
+  vermelho: "ulbra-aviso--vermelho",
+  cinza: "ulbra-aviso--cinza",
 };
 
 function Selo({ tom = "cinza", children }) {
-  return <span className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded-full ${SELO[tom]}`}>{children}</span>;
+  return <span className={`ulbra-etiqueta ulbra-etiqueta--${tom || "cinza"}`}>{children}</span>;
 }
 
 function RotuloResponsabilidade({ item }) {
   const r = item?.responsabilidade;
   if (r === "A_DEFINIR") {
     return (
-      <span data-campo="responsabilidade" className="inline-flex items-center gap-1 text-amber-800">
+      <span data-campo="responsabilidade" style={{ display: "inline-flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
         <Selo tom="ambar">Responsabilidade a definir pela gestão</Selo>
-        <span className="text-[11px] text-gray-500">mais de um operador tem caso deste aluno — fora do rodízio, sem aviso individual</span>
+        <span className="ulbra-texto-desativado">mais de um operador tem caso deste aluno — fora do rodízio, sem aviso individual</span>
       </span>
     );
   }
@@ -79,7 +73,12 @@ function RotuloResponsabilidade({ item }) {
     return <span data-campo="responsabilidade"><Selo tom="verde">responsabilidade sua</Selo></span>;
   }
   if (item?.responsavel_e_outro) {
-    return <span data-campo="responsabilidade"><Selo tom="cinza">responsável: outro operador</Selo> <span className="text-[11px] text-gray-500">— você pode ver este atendimento, mas não responde por ele</span></span>;
+    return (
+      <span data-campo="responsabilidade" style={{ display: "inline-flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
+        <Selo tom="cinza">responsável: outro operador</Selo>
+        <span className="ulbra-texto-desativado">você pode ver este atendimento, mas não responde por ele</span>
+      </span>
+    );
   }
   return null;
 }
@@ -89,7 +88,7 @@ function Responsaveis({ item, reativa, ulbra }) {
     <>
       <RotuloResponsabilidade item={item} />
       {item?.divergencia ? (
-        <span data-campo="divergencia" className="text-[11px] text-amber-800">
+        <span data-campo="divergencia" style={{ color: "var(--rv-ambar-texto)" }}>
           este aluno tem casos de mais de um operador
         </span>
       ) : null}
@@ -105,10 +104,10 @@ function Responsaveis({ item, reativa, ulbra }) {
 
 function Cartao({ n, total, rotulo, nota }) {
   return (
-    <div className={`bg-white border rounded-lg px-4 py-3 ${n > 0 ? "border-amber-400" : "border-gray-200"}`}>
-      <div className="text-3xl font-bold tabular-nums leading-tight">{n}</div>
-      <div className="text-sm text-gray-700 mt-1">{rotulo}</div>
-      <div className="text-xs text-gray-500">
+    <div className={`ulbra-cartao ${n > 0 ? "ulbra-cartao--destaque" : ""}`}>
+      <div className="ulbra-cartao-numero">{n}</div>
+      <div className="ulbra-cartao-titulo">{rotulo}</div>
+      <div className="ulbra-cartao-sub">
         {total > n ? `mostrando ${n} de ${total} · ` : ""}
         {nota}
       </div>
@@ -203,13 +202,13 @@ export default function CentralUlbra({ usuario }) {
   }
 
   if (!email || situacao === "negado") {
-    return <div className="p-6 text-sm">Você não tem acesso à Central ULBRA.</div>;
+    return <div className="ulbra-pagina">Você não tem acesso à Central ULBRA.</div>;
   }
   if (situacao === "indisponivel") {
     return (
-      <div className="p-6 max-w-2xl" data-testid="central-indisponivel">
-        <h1 className="text-xl font-bold">Central ULBRA</h1>
-        <div className={`mt-3 border rounded-lg p-3 text-sm ${TOM.cinza}`}>
+      <div className="ulbra-pagina" data-testid="central-indisponivel">
+        <h1 className="ulbra-titulo">Central ULBRA</h1>
+        <div className={`ulbra-aviso ${TOM.cinza}`}>
           <strong>A Central ainda não está disponível.</strong> A consulta do banco que alimenta esta tela não foi
           aplicada. Isto não significa fila vazia: nenhum dado foi lido.
         </div>
@@ -218,17 +217,17 @@ export default function CentralUlbra({ usuario }) {
   }
   if (situacao === "erro") {
     return (
-      <div className="p-6 max-w-2xl">
-        <h1 className="text-xl font-bold">Central ULBRA</h1>
-        <div className={`mt-3 border rounded-lg p-3 text-sm ${TOM.vermelho}`}>
+      <div className="ulbra-pagina">
+        <h1 className="ulbra-titulo">Central ULBRA</h1>
+        <div className={`ulbra-aviso ${TOM.vermelho}`}>
           Não foi possível ler a Central: {erro || "erro desconhecido"}.{" "}
-          <button type="button" className="underline" onClick={() => atualizarAgora()}>Tentar de novo</button>
+          <button type="button" className="ulbra-link" onClick={() => atualizarAgora()}>Tentar de novo</button>
         </div>
       </div>
     );
   }
   if (situacao === "carregando" || !dados) {
-    return <div className="p-6 text-sm text-gray-500">Carregando a Central ULBRA…</div>;
+    return <div className="ulbra-pagina ulbra-texto-desativado">Carregando a Central ULBRA…</div>;
   }
 
   const coleta = descreverColeta(dados.coleta);
@@ -237,39 +236,39 @@ export default function CentralUlbra({ usuario }) {
   const faltam = haMais(totais, dados);
   const Ficha = ({ alunoId }) =>
     alunoId ? (
-      <Link className="text-sm text-blue-600 hover:underline" to={hrefFicha(alunoId)} onClick={aoAbrirFicha}>
+      <Link className="ulbra-link" to={hrefFicha(alunoId)} onClick={aoAbrirFicha}>
         Abrir ficha
       </Link>
     ) : (
-      <span className="text-xs text-gray-400">sem vínculo confirmado por CPF — ficha não abre</span>
+      <span className="ulbra-texto-desativado">sem vínculo confirmado por CPF — ficha não abre</span>
     );
 
   return (
-    <div ref={raizRef} className="p-4 pb-10 max-w-5xl mx-auto text-gray-900" data-testid="central-ulbra">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-xl font-bold">Central ULBRA</h1>
-        <span className="text-xs text-gray-500" data-testid="recorte">
+    <div ref={raizRef} className="ulbra-pagina" data-testid="central-ulbra">
+      <div className="ulbra-cabecalho">
+        <h1 className="ulbra-titulo">Central ULBRA</h1>
+        <span className="ulbra-faixa" data-testid="recorte">
           {dados.eh_gestao
             ? dados.operador ? `fila de ${nomeCurto(dados.operador)}` : "todas as carteiras"
             : `sua fila · ${nomeCurto(dados.operador)}`}
         </span>
       </div>
 
-      <div className={`mt-2 border rounded-lg px-3 py-2 text-sm ${TOM[coleta.tom]}`} data-testid="faixa-coleta" data-estado={dados.coleta?.estado}>
+      <div className={`ulbra-aviso ${TOM[coleta.tom]}`} data-testid="faixa-coleta" data-estado={dados.coleta?.estado}>
         <strong>{coleta.titulo}</strong> · {coleta.texto}
-        {coleta.detalhe ? <div className="mt-1" data-testid="coleta-detalhe">{coleta.detalhe}</div> : null}
-        <div className="mt-1 text-xs opacity-80">
+        {coleta.detalhe ? <span className="ulbra-aviso-detalhe" data-testid="coleta-detalhe">{coleta.detalhe}</span> : null}
+        <span className="ulbra-aviso-detalhe">
           Responder ao aluno é na Mensageria ULBRA. Aqui você vê a fila, abre a ficha e registra.{" "}
-          <button type="button" className="underline" onClick={() => atualizarAgora()}>Atualizar lista</button>
+          <button type="button" className="ulbra-link" onClick={() => atualizarAgora()}>Atualizar lista</button>
           {" "}(relê os dados já coletados; não consulta a ULBRA)
-        </div>
+        </span>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-sm" data-testid="filtros">
+      <div className="ulbra-filtros" data-testid="filtros">
         {dados.eh_gestao ? (
           <select
             aria-label="Operador"
-            className="border border-gray-300 rounded px-2 py-1 bg-white"
+            className="ulbra-select"
             value={filtros.operador}
             onChange={(e) => mudarFiltro("operador", e.target.value)}
           >
@@ -279,7 +278,7 @@ export default function CentralUlbra({ usuario }) {
         ) : null}
         <select
           aria-label="Faixa de prazo"
-          className="border border-gray-300 rounded px-2 py-1 bg-white"
+          className="ulbra-select"
           value={filtros.faixa}
           onChange={(e) => mudarFiltro("faixa", e.target.value)}
         >
@@ -288,38 +287,38 @@ export default function CentralUlbra({ usuario }) {
         </select>
       </div>
 
-      {recado ? <div className="mt-2 text-xs text-gray-700 bg-gray-100 border rounded px-2 py-1" role="status">{recado}</div> : null}
+      {recado ? <div className="ulbra-recado" role="status">{recado}</div> : null}
 
-      <div className="mt-3 grid gap-3 grid-cols-1 sm:grid-cols-3" data-testid="cartoes">
+      <div className="ulbra-cartoes ulbra-cartoes--tres" data-testid="cartoes">
         <Cartao n={dados.respostas.length} total={totais.respostas} rotulo="respostas aguardando ação" nota="mais antiga primeiro; a definir pela gestão fora dos avisos" />
         <Cartao n={semInteracao.length} total={filtros.faixa ? semInteracao.length : totais.sem_interacao} rotulo="sem interação válida" nota="fora do prazo de 7 dias, mais tempo primeiro" />
         <Cartao n={dados.novos.length} total={totais.novos} rotulo="novos atendimentos" nota="destinados ao operador, mais antigos primeiro" />
       </div>
 
-      <section className="mt-4 bg-white border border-gray-200 rounded-lg px-4 py-3" data-testid="fila-respostas">
-        <h2 className="text-[15px] font-semibold">1. Respostas aguardando ação <Selo>{dados.respostas.length}</Selo></h2>
-        <p className="text-xs text-gray-500 mt-0.5">
+      <section className="ulbra-bloco" data-testid="fila-respostas">
+        <h2 className="ulbra-bloco-titulo">1. Respostas aguardando ação <Selo>{dados.respostas.length}</Selo></h2>
+        <p className="ulbra-bloco-sub">
           A última mensagem da conversa é do aluno. A linha só sai quando a Mensageria mostrar resposta ao aluno:
           marcar como lida ou registrar acionamento não comprova resposta e não a retira.
         </p>
         {dados.respostas.length === 0 ? (
-          <div className="text-sm text-gray-400 py-2">nenhuma resposta aguardando</div>
+          <div className="ulbra-bloco-vazio">nenhuma resposta aguardando</div>
         ) : dados.respostas.map((r) => (
-          <div key={r.conversa_id} className="py-2.5 border-t border-gray-100 mt-2" data-linha="resposta">
-            <div className="flex justify-between gap-3">
-              <span className="text-sm font-semibold">{r.nome || "sem nome"}</span>
-              <span className="text-xs text-gray-700 text-right whitespace-nowrap">
+          <div key={r.conversa_id} className="ulbra-linha" data-linha="resposta">
+            <div className="ulbra-linha-topo">
+              <span className="ulbra-linha-nome">{r.nome || "sem nome"}</span>
+              <span className="ulbra-linha-tempo">
                 aguardando há <strong>{fmtEspera(r.espera_min)}</strong>
-                <br /><span className="text-gray-400">{fmtDataHora(r.mensagem_em)}</span>
+                <br /><span className="ulbra-linha-tempo-data">{fmtDataHora(r.mensagem_em)}</span>
               </span>
             </div>
-            {r.previa ? <div className="text-sm text-gray-700">“{r.previa}”</div> : null}
-            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500">
+            {r.previa ? <div className="ulbra-linha-previa">“{r.previa}”</div> : null}
+            <div className="ulbra-meta">
               <Selo tom="vermelho">resposta do aluno sem retorno na Mensageria</Selo>
               {r.notificar ? <Selo tom="verde">aviso para você</Selo> : null}
               <Responsaveis item={r} reativa={r.responsavel_reativa} ulbra={r.atendente_ulbra} />
             </div>
-            <div className="mt-0.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500" data-campo="informacoes">
+            <div className="ulbra-meta" data-campo="informacoes">
               <span>
                 {r.acionamento_posterior
                   ? `acionamento no ReATIVA em ${fmtData(r.ultimo_acionamento)} — não comprova resposta à mensagem`
@@ -327,10 +326,10 @@ export default function CentralUlbra({ usuario }) {
               </span>
               <span>{r.lida ? "você marcou como lida — segue aguardando resposta" : "não lida por você"}</span>
             </div>
-            <div className="mt-1 flex flex-wrap gap-4 items-center">
+            <div className="ulbra-acoes">
               <Ficha alunoId={r.aluno_id} />
               {!r.lida ? (
-                <button type="button" className="text-sm text-gray-600 hover:underline" onClick={() => marcarLida(r)}>
+                <button type="button" className="ulbra-link" onClick={() => marcarLida(r)}>
                   marcar como lida
                 </button>
               ) : null}
@@ -339,81 +338,81 @@ export default function CentralUlbra({ usuario }) {
         ))}
       </section>
 
-      <section className="mt-4 bg-white border border-gray-200 rounded-lg px-4 py-3" data-testid="fila-sem-interacao">
-        <h2 className="text-[15px] font-semibold">2. Sem interação válida há mais tempo <Selo>{semInteracao.length}</Selo></h2>
-        <p className="text-xs text-gray-500 mt-0.5">
+      <section className="ulbra-bloco" data-testid="fila-sem-interacao">
+        <h2 className="ulbra-bloco-titulo">2. Sem interação válida há mais tempo <Selo>{semInteracao.length}</Selo></h2>
+        <p className="ulbra-bloco-sub">
           Alunos com conversa ou atendimento na Mensageria, pela regra de prazo da carteira: dias desde o último
           acionamento registrado no ReATIVA.
         </p>
         {semInteracao.length === 0 ? (
-          <div className="text-sm text-gray-400 py-2">{filtros.faixa ? "ninguém nesta faixa" : "todos dentro do prazo"}</div>
+          <div className="ulbra-bloco-vazio">{filtros.faixa ? "ninguém nesta faixa" : "todos dentro do prazo"}</div>
         ) : semInteracao.map((x) => (
-          <div key={x.aluno_id} className="py-2.5 border-t border-gray-100 mt-2" data-linha="sem-interacao">
-            <div className="flex justify-between gap-3">
-              <span className="text-sm font-semibold">{x.nome || "sem nome"}</span>
-              <span className="text-xs text-gray-700 text-right whitespace-nowrap">
+          <div key={x.aluno_id} className="ulbra-linha" data-linha="sem-interacao">
+            <div className="ulbra-linha-topo">
+              <span className="ulbra-linha-nome">{x.nome || "sem nome"}</span>
+              <span className="ulbra-linha-tempo">
                 {x.dias_sem_acionamento === null || x.dias_sem_acionamento === undefined
                   ? <strong>nunca acionado</strong>
                   : <><strong>{x.dias_sem_acionamento} dias</strong> sem acionamento</>}
-                <br /><span className="text-gray-400">último: {fmtData(x.ultimo_acionamento)}</span>
+                <br /><span className="ulbra-linha-tempo-data">último: {fmtData(x.ultimo_acionamento)}</span>
               </span>
             </div>
-            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500">
+            <div className="ulbra-meta">
               <Selo tom={FAIXAS[x.faixa]?.tom}>{FAIXAS[x.faixa]?.rotulo || x.faixa}</Selo>
               <Responsaveis item={x} reativa={x.responsavel_reativa} ulbra={x.atendente_ulbra} />
               <span>origem: {x.origem}</span>
             </div>
-            <div className="mt-1"><Ficha alunoId={x.aluno_id} /></div>
+            <div className="ulbra-acoes"><Ficha alunoId={x.aluno_id} /></div>
           </div>
         ))}
       </section>
 
-      <section className="mt-4 bg-white border border-gray-200 rounded-lg px-4 py-3" data-testid="fila-novos">
-        <h2 className="text-[15px] font-semibold">3. Novos atendimentos destinados ao operador <Selo>{dados.novos.length}</Selo></h2>
-        <p className="text-xs text-gray-500 mt-0.5">
+      <section className="ulbra-bloco" data-testid="fila-novos">
+        <h2 className="ulbra-bloco-titulo">3. Novos atendimentos destinados ao operador <Selo>{dados.novos.length}</Selo></h2>
+        <p className="ulbra-bloco-sub">
           Entraram em espera na Mensageria com CPF confirmado e ninguém assumiu no ReATIVA. Não são respostas: ficam
           separados.
         </p>
         {dados.novos.length === 0 ? (
-          <div className="text-sm text-gray-400 py-2">nenhum atendimento novo</div>
+          <div className="ulbra-bloco-vazio">nenhum atendimento novo</div>
         ) : dados.novos.map((a) => (
-          <div key={a.atendimento_id} className="py-2.5 border-t border-gray-100 mt-2" data-linha="novo">
-            <div className="flex justify-between gap-3">
-              <span className="text-sm font-semibold">{a.nome || "sem nome"}</span>
-              <span className="text-xs text-gray-700 text-right whitespace-nowrap">
+          <div key={a.atendimento_id} className="ulbra-linha" data-linha="novo">
+            <div className="ulbra-linha-topo">
+              <span className="ulbra-linha-nome">{a.nome || "sem nome"}</span>
+              <span className="ulbra-linha-tempo">
                 em espera há <strong>{fmtEspera(a.espera_min)}</strong>
-                <br /><span className="text-gray-400">{fmtDataHora(a.entrou_em)}</span>
+                <br /><span className="ulbra-linha-tempo-data">{fmtDataHora(a.entrou_em)}</span>
               </span>
             </div>
-            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500">
+            <div className="ulbra-meta">
               <Selo tom="azul">{DESTINO[a.destino_motivo] || a.destino_motivo}</Selo>
               <span>destino sugerido: <strong>{nomeCurto(a.destino_email) || "ninguém"}</strong></span>
               <Responsaveis item={a} reativa={a.responsavel_reativa} ulbra={null} />
             </div>
-            <div className="mt-1 flex flex-wrap gap-4 items-center">
+            <div className="ulbra-acoes">
               <Ficha alunoId={a.aluno_id} />
-              <span className="text-xs text-gray-400">assumir — indisponível nesta etapa</span>
+              <span className="ulbra-texto-desativado">assumir — indisponível nesta etapa</span>
             </div>
           </div>
         ))}
       </section>
 
       {faltam ? (
-        <div className="mt-3 text-center">
-          <button type="button" className="text-sm border border-gray-300 rounded px-3 py-1.5 bg-white hover:bg-gray-50" onClick={() => setPaginas((p) => p + 1)}>
+        <div className="ulbra-rodape" style={{ textAlign: "center" }}>
+          <button type="button" className="ulbra-botao" onClick={() => setPaginas((p) => p + 1)}>
             Carregar mais
           </button>
-          <div className="text-xs text-gray-500 mt-1">há linhas no banco que ainda não estão na tela</div>
+          <div style={{ marginTop: 4 }}>há linhas no banco que ainda não estão na tela</div>
         </div>
       ) : null}
 
-      <section className="mt-4 border border-dashed border-gray-300 rounded-lg px-4 py-3 bg-gray-50 text-sm text-gray-600" data-testid="oferta-indisponivel">
+      <section className="ulbra-aviso ulbra-aviso--cinza" style={{ borderStyle: "dashed" }} data-testid="oferta-indisponivel">
         <strong>Oferta e aceite de atendimentos livres: indisponível nesta etapa.</strong> Nenhum atendimento está
         sendo ofertado, e não há botão de aceitar. Quando a gestão ativar, a ação será “Aceitar e abrir ficha”, e a
         ficha só abrirá depois que o banco confirmar o aceite para uma única pessoa.
       </section>
 
-      <p className="mt-3 text-xs text-gray-500">
+      <p className="ulbra-rodape">
         Identidade nunca é presumida por nome ou telefone: o que não tem CPF confirmado fica na conferência da gestão e
         não entra nesta fila.
       </p>

@@ -205,7 +205,7 @@ describe("CentralUlbra", () => {
     const faixa = await screen.findByTestId("faixa-coleta");
     expect(faixa.getAttribute("data-estado")).toBe("MANUAL");
     expect(faixa.textContent).toMatch(/Atualização manual · Última coleta em \d{2}\/\d{2}/);
-    expect(faixa.className).toMatch(/gray/);
+    expect(faixa.className).toMatch(/ulbra-aviso--cinza/);
     expect(screen.queryByTestId("coleta-detalhe")).toBeNull();
   });
 
@@ -214,13 +214,13 @@ describe("CentralUlbra", () => {
     montar();
     const faixa = await screen.findByTestId("faixa-coleta");
     expect(faixa.textContent).toMatch(/Falha na última coleta · HTTP_500/);
-    expect(faixa.className).toMatch(/red/);
+    expect(faixa.className).toMatch(/ulbra-aviso--vermelho/);
     cleanup();
 
     rpc.mockResolvedValue({ data: resposta({ coleta: { estado: "MANUAL", ultima_execucao: "2026-11-08T21:23:00Z", ultimo_ciclo: "INCOMPLETO", ultimo_erro: "BACKLOG_OU_ORCAMENTO", atraso_min: 660 } }), error: null });
     montar();
     expect((await screen.findByTestId("coleta-detalhe")).textContent).toMatch(/ficou incompleta \(BACKLOG_OU_ORCAMENTO\)/);
-    expect(screen.getByTestId("faixa-coleta").className).toMatch(/amber/);
+    expect(screen.getByTestId("faixa-coleta").className).toMatch(/ulbra-aviso--ambar/);
   });
 
   it("oferta, aceite e assumir aparecem como indisponíveis, sem botão ativo", async () => {
