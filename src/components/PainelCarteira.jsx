@@ -4301,7 +4301,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                 {/* Mensageria ULBRA na ficha da carteira e do acionamento guiado:
                     mesmo bloco da ficha de Aluno. Sem isto, o operador que trabalha
                     pela carteira não tem o botão de abrir a Mensageria. */}
-                <BlocoUlbra aluno={alunoModal} />
+                <BlocoUlbra aluno={alunoModal} sobDemanda />
               </div>
               <button style={S.btnFechar} onClick={fecharModal} aria-label={guiado ? "Sair do acionamento guiado" : "Fechar"} title={guiado ? "Sair do acionamento guiado" : "Fechar"}>
                 {guiado ? "Sair ✕" : "✕"}

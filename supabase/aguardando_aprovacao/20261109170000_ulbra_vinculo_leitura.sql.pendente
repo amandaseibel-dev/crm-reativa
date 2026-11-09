@@ -1,0 +1,49 @@
+-- LEITURA DO VINCULO PARA A FICHA (somente banco). NAO APLICAR SEM APROVACAO.
+--
+-- Usada pela ficha da carteira ao abrir: mostra "CRM ULBRA ↗" quando o vinculo
+-- esta confirmado por CPF, SEM chamar a Mensageria. A tabela ulbra_vinculos so
+-- deixa a gestao ler; a ficha do operador precisa desta funcao, que devolve so o
+-- status e, quando confirmado, o link. Nunca escreve, nunca audita, nunca chama a
+-- Mensageria.
+--
+-- Regra espelhada de ulbra-consultar (vinculo.ts, precisaReconfirmar): so
+-- `alta_cpf` e vinculo confirmado. Qualquer outro nivel vira aviso, sem link.
+begin;
+
+create or replace function public.ulbra_vinculo_aluno(p_aluno_id uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_cliente   text;
+  v_confianca text;
+begin
+  if not app_usuario_ativo() or eh_painel() then
+    return jsonb_build_object('status', 'sem_vinculo');
+  end if;
+
+  select ulbra_cliente_id, confianca
+    into v_cliente, v_confianca
+    from public.ulbra_vinculos
+   where aluno_id = p_aluno_id and desvinculado_em is null
+   limit 1;
+
+  if not found then
+    return jsonb_build_object('status', 'sem_vinculo');
+  end if;
+  if v_confianca = 'alta_cpf' then
+    -- mesma origem fixa de ulbra-consultar (urlCliente)
+    return jsonb_build_object('status', 'vinculado',
+      'url', 'https://crm.ulbra.ai/app/clientes/' || v_cliente);
+  end if;
+  return jsonb_build_object('status', 'vinculado_nao_confirmado');
+end;
+$$;
+
+revoke all on function public.ulbra_vinculo_aluno(uuid) from public, anon;
+grant execute on function public.ulbra_vinculo_aluno(uuid) to authenticated;
+
+commit;

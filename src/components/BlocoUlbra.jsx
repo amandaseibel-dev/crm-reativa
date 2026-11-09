@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "../services/supabase";
 
 // Motivos de BLOQUEIO devolvidos pela `ulbra-consultar` quando o vínculo
@@ -122,61 +122,145 @@ function IconeConversa() {
   );
 }
 
-export default function BlocoUlbra({ aluno }) {
-  const [estado, setEstado] = useState("ocioso");
+// Estilo do botao de CONSULTA (modo sob demanda): mesma familia do destaque,
+// mas com contorno, porque a acao custa uma consulta e precisa ser lida como acao.
+const ESTILO_CONSULTA = {
+  ...ESTILO.botaoDestaque,
+  background: "#fff",
+  color: "#1d4ed8",
+  border: "1px solid #1d4ed8",
+  cursor: "pointer",
+};
+
+// Chamada a `ulbra-consultar`: a UNICA rota desta tela que toca a Mensageria.
+// Quem chama decide quando: no modo padrao, ao montar; no sob demanda, so por clique.
+async function chamarUlbraConsultar(alunoId) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) throw new Error("SEM_TOKEN");
+  const resp = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ulbra-consultar`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ aluno_id: alunoId }),
+    }
+  );
+  return resp.json();
+}
+
+// Converte a resposta da funcao no estado de tela. Mesma regra de sempre.
+function estadoDaResposta(json) {
+  // Resposta de erro não traz `status`. Falha de gravação ganha estado
+  // próprio para não cair no silêncio de "erro".
+  if (!json.status && MSG_FALHA_DE_GRAVACAO[json.erro]) return "falha_gravacao";
+  return json.status ?? "erro";
+}
+
+/**
+ * `sobDemanda` (padrao false): a ficha da carteira usa true. Com ele, abrir a
+ * ficha NAO chama a Mensageria: le so o banco (`ulbra_vinculo_aluno`). Se nao ha
+ * vinculo confirmado, mostra "Consultar vínculo na ULBRA"; a consulta externa so
+ * acontece por clique, uma vez por vez. Sem `sobDemanda`, o comportamento e o de
+ * sempre (outras fichas), inclusive o rotulo.
+ */
+export default function BlocoUlbra({ aluno, sobDemanda = false }) {
+  const [estado, setEstado] = useState(sobDemanda ? "lendo" : "ocioso");
   const [dados, setDados] = useState(null);
+  // Trava contra cliques repetidos: uma consulta externa por vez, mesmo com
+  // dois cliques antes do re-render.
+  const emCurso = useRef(false);
 
+  const rotuloLink = sobDemanda ? "CRM ULBRA ↗" : "Abrir Mensageria ULBRA ↗";
+
+  // Modo padrão: consulta ao montar, exatamente como antes.
   useEffect(() => {
-    if (!aluno?.id) return;
-
+    if (!aluno?.id || sobDemanda) return;
     let cancelado = false;
-
-    const consultar = async () => {
+    (async () => {
       if (!cancelado) setEstado("carregando");
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token;
-        if (!token) { setEstado("erro"); return; }
-
-        const resp = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ulbra-consultar`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ aluno_id: aluno.id }),
-          }
-        );
+        const json = await chamarUlbraConsultar(aluno.id);
         if (cancelado) return;
-        const json = await resp.json();
         setDados(json);
-        // Resposta de erro não traz `status`. Falha de gravação ganha estado
-        // próprio para não cair no silêncio de "erro".
-        if (!json.status && MSG_FALHA_DE_GRAVACAO[json.erro]) {
-          setEstado("falha_gravacao");
-          return;
-        }
-        setEstado(json.status ?? "erro");
+        setEstado(estadoDaResposta(json));
       } catch {
         if (!cancelado) setEstado("erro");
       }
-    };
-
-    consultar();
+    })();
     return () => { cancelado = true; };
-  }, [aluno?.id]);
+  }, [aluno?.id, sobDemanda]);
 
-  if (!aluno?.id || estado === "erro") return null;
+  // Modo sob demanda: lê so o banco. Nenhuma chamada a Mensageria aqui.
+  useEffect(() => {
+    if (!aluno?.id || !sobDemanda) return;
+    let cancelado = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase.rpc("ulbra_vinculo_aluno", { p_aluno_id: aluno.id });
+        if (cancelado) return;
+        if (error || !data) { setEstado("sem_vinculo"); return; }
+        if (data.status === "vinculado" && data.url) {
+          setDados({ status: "vinculado", url: data.url });
+          setEstado("vinculado");
+          return;
+        }
+        setEstado(data.status === "vinculado_nao_confirmado" ? "vinculado_nao_confirmado" : "sem_vinculo");
+      } catch {
+        if (!cancelado) setEstado("sem_vinculo");
+      }
+    })();
+    return () => { cancelado = true; };
+  }, [aluno?.id, sobDemanda]);
+
+  // Clique explícito: a única ida à Mensageria no modo sob demanda.
+  const consultarNaMensageria = async () => {
+    if (emCurso.current || !aluno?.id) return;
+    emCurso.current = true;
+    setEstado("carregando");
+    try {
+      const json = await chamarUlbraConsultar(aluno.id);
+      setDados(json);
+      setEstado(estadoDaResposta(json));
+    } catch {
+      setEstado("erro");
+    } finally {
+      emCurso.current = false;
+    }
+  };
+
+  if (!aluno?.id) return null;
+
+  if (sobDemanda) {
+    if (estado === "lendo") {
+      return <div style={ESTILO.neutro}>Verificando vínculo…</div>;
+    }
+    if (estado === "sem_vinculo" || estado === "erro") {
+      return (
+        <div style={ESTILO.caixaLink}>
+          <button type="button" onClick={consultarNaMensageria} style={ESTILO_CONSULTA}>
+            Consultar vínculo na ULBRA
+          </button>
+          <div style={ESTILO.neutro}>
+            {estado === "erro"
+              ? "Não foi possível consultar agora. Consome 1 consulta na Mensageria ULBRA."
+              : "Consome 1 consulta na Mensageria ULBRA."}
+          </div>
+        </div>
+      );
+    }
+  }
+
+  if (estado === "erro" && !sobDemanda) return null;
 
   if (estado === "carregando") {
     return <div style={ESTILO.neutro}>Consultando Mensageria Ulbra…</div>;
   }
 
   // Vínculo que existe mas NÃO foi confirmado por CPF: aviso, nunca botão.
-  // A função já devolve este caso sem `url` e sem `ulbra_cliente_id`; esta tela
-  // não reconstrói a URL nem oferece caminho para abrir o atendimento.
   if (estado === "vinculado_nao_confirmado") {
     return (
       <div style={ESTILO.aviso}>
@@ -189,8 +273,6 @@ export default function BlocoUlbra({ aluno }) {
   if (estado === "vinculado" && dados?.url) {
     // Cinto e suspensório: se uma versão anterior da função devolver `url`
     // JUNTO com `reconfirmar_recomendado`, a tela ainda assim não dá o botão.
-    // Vínculo não confirmado por CPF não tem acesso automático — o aviso
-    // sozinho não segura ninguém, porque o botão ao lado continua clicável.
     if (dados.reconfirmar_recomendado) {
       return (
         <div style={ESTILO.aviso}>
@@ -200,12 +282,7 @@ export default function BlocoUlbra({ aluno }) {
       );
     }
 
-    // SO o visual mudou aqui (azul cheio, icone de conversa e rotulo "Abrir
-    // Mensageria ULBRA ↗"). Segue sendo um <a> de verdade, com o MESMO `href`
-    // vindo da funcao, o MESMO `target="_blank"` e o MESMO
-    // `rel="noopener noreferrer"` -- a aba nova nao ganha acesso a esta.
-    // A escada de condicao acima nao foi tocada: o botao continua existindo so
-    // com vinculo confirmado por CPF.
+    // Mesmo <a>, mesmo href, mesmo target e rel. Só o rótulo muda no modo sob demanda.
     return (
       <div style={ESTILO.caixaLink}>
         <a
@@ -215,7 +292,7 @@ export default function BlocoUlbra({ aluno }) {
           style={ESTILO.botaoDestaque}
         >
           <IconeConversa />
-          Abrir Mensageria ULBRA ↗
+          {rotuloLink}
         </a>
       </div>
     );
