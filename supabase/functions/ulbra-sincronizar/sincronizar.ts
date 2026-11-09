@@ -475,8 +475,10 @@ export interface Colheita {
   /** Maior `em` visto neste ciclo (coletado). Vira o topo. */
   topo_coletado: string | null;
   /**
-   * Pendente da PRÓXIMA janela, quando truncado. EXCLUSIVO: itens com
-   * em > pendente e <= topo já estão processados; itens com em <= pendente não.
+   * Pendente da PRÓXIMA janela, quando truncado. É EXCLUSIVO: itens com
+   * em > pendente e <= topo já estão processados; itens com em <= pendente ainda
+   * não estão. Nunca aponta para um item já coletado, então nada se repete entre
+   * ciclos e nada abaixo do piso se perde.
    */
   pendente_proximo: string | null;
   /**
@@ -505,7 +507,8 @@ export const FOLGA_POSICAO = LIMITE_PAGINA;
  *    errada: descarta a página e segue em sequência. Nada se perde.
  *
  * Ao atingir o teto de páginas COM coleta, não para no meio de um grupo de
- * mesmo horário: fecha o grupo do piso antes de parar.
+ * mesmo horário: fecha o grupo do piso (lendo as páginas seguintes enquanto o
+ * horário continuar igual, até o teto de leituras) e só então para.
  */
 export async function colherConversas(
   buscarPagina: (pagina: number) => Promise<unknown>,
@@ -521,7 +524,12 @@ export async function colherConversas(
   const maxPaginas = limites.maxPaginas ?? MAX_PAGINAS;
   const hardLeituras = limites.hardLeituras ?? HARD_LEITURAS;
   const conversas: ConversaLida[] = [];
+  // Paginação por offset: uma mensagem nova no topo empurra os itens para a
+  // página seguinte, e um item pode aparecer em duas páginas do mesmo ciclo.
+  // Dedupe pelo id dentro do ciclo; entre ciclos, a janela cuida disso.
   const vistos = new Set<string>();
+  // Estado mutável em objeto: evita o estreitamento de tipo do TypeScript sobre
+  // variáveis atribuídas dentro de closures.
   const acc = { piso: null as string | null, topo: null as string | null };
   // Índice e horário de cada item lido, para achar a posição do pendente.
   const lidos: Array<{ indice: number; em: string | null }> = [];
@@ -554,10 +562,13 @@ export async function colherConversas(
       if (leituras >= hardLeituras || !pode()) return { terminou: false, pendente: grupo };
       const p = await ler(n);
       n++;
+      // Só entra o que tem o horário do grupo; o restante fica para o próximo ciclo.
       recolher(p.conversas.filter((c) => c.ultima_mensagem_em === grupo));
       if (p.piso === null) return { terminou: true, pendente: null };
       if (p.piso < grupo) {
         if (janela.cursor !== null && p.piso <= janela.cursor) return { terminou: true, pendente: null };
+        // Itens abaixo do grupo nesta página ainda não foram coletados. O pendente
+        // é o maior deles: os de horário igual a ele voltam no próximo ciclo.
         let maiorAbaixo: string | null = null;
         for (const c of p.conversas) {
           if (c.ultima_mensagem_em < grupo && (maiorAbaixo === null || c.ultima_mensagem_em > maiorAbaixo)) {
@@ -575,10 +586,12 @@ export async function colherConversas(
   // O teto conta LEITURAS feitas, não números de página: um salto não pode
   // deixar o ciclo com menos leituras do que o teto permite.
   while (leituras < hardLeituras) {
+    // Sem saldo: para AQUI e marca incompleto. Nunca trata página não lida como vazia.
     if (!pode()) break;
     const lida = await ler(pagina);
     if (lida.conversas.length > 0) paginasComColeta++;
     recolher(lida.conversas);
+    // Fim da janela: nada mais acima do cursor. Ciclo completo.
     if (!lida.pode_ter_mais) {
       fim = { terminou: true, pendente: null };
       break;
@@ -622,6 +635,9 @@ export async function colherConversas(
     pagina = proxima;
   }
 
+  // Sem fim da janela (teto de leituras, saldo ou página sem coleta até o fim do
+  // laço): INCOMPLETO. Antes, um laço que esgotava HARD_LEITURAS saía como
+  // completo e o cursor avançava por cima do backlog não lido.
   const terminou = fim?.terminou === true;
   const pendente = terminou ? null : (fim?.pendente ?? acc.piso ?? janela.pendente);
   let offset: number | null = null;
