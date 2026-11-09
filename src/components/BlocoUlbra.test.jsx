@@ -65,7 +65,7 @@ describe("BlocoUlbra", () => {
     });
   });
 
-  it("o rotulo do botao e 'Mensageria ULBRA ↗'", async () => {
+  it("o rotulo do botao e 'CRM ULBRA ↗'", async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -76,7 +76,7 @@ describe("BlocoUlbra", () => {
 
     const { container } = render(<BlocoUlbra aluno={{ id: "aluno-rotulo" }} />);
     await waitFor(() =>
-      expect(container.querySelector("a")?.textContent.trim()).toBe("Mensageria ULBRA ↗"),
+      expect(container.querySelector("a")?.textContent.trim()).toBe("CRM ULBRA ↗"),
     );
   });
 
