@@ -278,17 +278,56 @@ select fase, n, caso, esperado, obtido,
   from _cont_v2_resultado
  order by fase desc, n;
 
--- COMPARATIVO regra atual x v2, nos 6 cenários medidos nas duas fases
-select a.n,
-       a.caso                as cenario,
-       a.obtido              as regra_atual,
-       d.obtido              as regra_v2,
+-- COMPARATIVO regra atual x v2.
+--
+-- O par ANTES/DEPOIS é dado por um mapa EXPLÍCITO, nunca pelo índice: na fase
+-- DEPOIS vários casos compartilham o mesmo n (o 6 tem 4 asserções, o 11 tem 2,
+-- o 14 tem 3, o 17 tem 5). Casar por n gerava produto cartesiano e inventava
+-- "MUDA" entre cenários diferentes — foi o que saiu errado na execução
+-- 42658921344, onde o cenário "conversa ARQUIVADA" apareceu 4 vezes pareado
+-- com as asserções do teto de insistência.
+with mapa(n_antes, n_depois, caso_depois) as (values
+  (1,  1, 'envio anterior classificado RESPOSTA, aluno respondeu ha 40h'),
+  (2,  2, 'aluno respondeu ha 80h (fora da janela de 72h)'),
+  (3,  3, 'operador NUNCA enviou nesta conversa'),
+  (4,  4, 'operador ja enviou, aluno NUNCA respondeu'),
+  (5, 11, 'op2 (nunca enviou) na MESMA conversa'),
+  (6,  7, 'conversa ARQUIVADA')
+)
+select m.n_antes as n,
+       a.caso    as cenario,
+       a.obtido  as regra_atual,
+       d.obtido  as regra_v2,
        case when a.obtido = d.obtido then 'igual' else 'MUDA' end as efeito
-  from _cont_v2_resultado a
-  join _cont_v2_resultado d
-    on d.fase = 'DEPOIS' and d.n = a.n
- where a.fase = 'ANTES'
- order by a.n;
+  from mapa m
+  join _cont_v2_resultado a on a.fase = 'ANTES'  and a.n = m.n_antes
+  join _cont_v2_resultado d on d.fase = 'DEPOIS' and d.n = m.n_depois
+                           and d.caso = m.caso_depois
+ order by m.n_antes;
+
+-- Falha fechado: o mapa tem de casar 1:1, senão o comparativo mente calado.
+do $mapa$
+declare v_n integer;
+begin
+  with mapa(n_antes, n_depois, caso_depois) as (values
+    (1,  1, 'envio anterior classificado RESPOSTA, aluno respondeu ha 40h'),
+    (2,  2, 'aluno respondeu ha 80h (fora da janela de 72h)'),
+    (3,  3, 'operador NUNCA enviou nesta conversa'),
+    (4,  4, 'operador ja enviou, aluno NUNCA respondeu'),
+    (5, 11, 'op2 (nunca enviou) na MESMA conversa'),
+    (6,  7, 'conversa ARQUIVADA')
+  )
+  select count(*) into v_n
+    from mapa m
+    join _cont_v2_resultado a on a.fase = 'ANTES'  and a.n = m.n_antes
+    join _cont_v2_resultado d on d.fase = 'DEPOIS' and d.n = m.n_depois
+                             and d.caso = m.caso_depois;
+  if v_n <> 6 then
+    raise exception 'comparativo pareou % linhas, esperado exatamente 6', v_n
+      using errcode = '22023';
+  end if;
+  raise notice 'comparativo: 6 cenarios pareados 1:1';
+end $mapa$;
 
 do $final$
 declare v_falhas integer; v_total integer;
