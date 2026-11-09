@@ -29,6 +29,7 @@ import {
   podeAssumir,
   salvarPrefs,
 } from "../utils/ulbraRecebimento";
+import { podeVerCentralUlbra } from "../utils/ulbraCentral";
 
 // Reserva, não relógio principal: o Realtime é quem avisa. 45s só cobre o
 // caso de o socket cair sem avisar. É Postgres nosso, não a Mensageria.
@@ -238,6 +239,12 @@ export default function NotificacoesUlbra({ usuario }) {
               som {prefs.som ? "ligado" : "desligado"}
             </button>
           </div>
+
+          {podeVerCentralUlbra(email) ? (
+            <a href="/central-ulbra" className="block p-2 text-xs text-blue-600 hover:underline border-b">
+              abrir Central ULBRA (fila completa)
+            </a>
+          ) : null}
 
           {recado ? <div className="p-2 text-xs text-gray-700 bg-gray-50 border-b">{recado}</div> : null}
 
