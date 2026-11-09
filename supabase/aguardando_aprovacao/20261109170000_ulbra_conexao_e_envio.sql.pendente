@@ -31,7 +31,7 @@ create table if not exists public.ulbra_envios (
   id                   uuid primary key default gen_random_uuid(),
   chave                text not null,
   operador_email       text not null,
-  ulbra_conversa_id    text not null,
+  atendimento_id       text not null,
   texto                text not null,
   status               text not null check (status in ('PENDENTE','ENVIANDO','ENVIADO','RECUSADO','FALHA_INCERTA')),
   ulbra_mensagem_id    text,
@@ -40,11 +40,12 @@ create table if not exists public.ulbra_envios (
   atualizado_em        timestamptz not null default now(),
   -- Idempotência: uma chave por operador. Clique repetido não cria segunda linha.
   constraint ulbra_envios_chave_unica unique (operador_email, chave),
-  constraint ulbra_envios_texto_limite check (char_length(texto) between 1 and 1000),
-  constraint ulbra_envios_chave_minima check (char_length(chave) >= 16)
+  constraint ulbra_envios_texto_limite check (char_length(texto) between 1 and 4096),
+  constraint ulbra_envios_chave_limite check (char_length(chave) between 8 and 80),
+  constraint ulbra_envios_atendimento_formato check (atendimento_id ~ '^[a-f0-9]{24}$')
 );
 
-create index if not exists ulbra_envios_conversa_idx on public.ulbra_envios (ulbra_conversa_id, criado_em desc);
+create index if not exists ulbra_envios_atendimento_idx on public.ulbra_envios (atendimento_id, criado_em desc);
 
 alter table public.ulbra_envios enable row level security;
 revoke all on public.ulbra_envios from public, anon, authenticated;

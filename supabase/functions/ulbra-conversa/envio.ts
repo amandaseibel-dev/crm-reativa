@@ -12,7 +12,13 @@
 // ===========================================================================
 import { garantirConexao, type ProvedorOAuth, type RegistroConexao } from "./conexao.ts";
 
-export const TEXTO_MAX = 1000;
+/** Limites do contrato da ferramenta `enviar_mensagem_whatsapp` (medido no schema). */
+export const TEXTO_MAX = 4096;
+export const CHAVE_MIN = 8;
+export const CHAVE_MAX = 80;
+/** Janela de atendimento: o cliente precisa ter escrito nas últimas 24 h. Fora dela, só template. */
+export const JANELA_MS = 24 * 60 * 60 * 1000;
+export const ATENDIMENTO_RE = /^[a-f0-9]{24}$/;
 export const TIMEOUT_ENVIO_MS = 15_000;
 
 export type StatusEnvio = "PENDENTE" | "ENVIANDO" | "ENVIADO" | "RECUSADO" | "FALHA_INCERTA";
@@ -20,7 +26,7 @@ export type StatusEnvio = "PENDENTE" | "ENVIANDO" | "ENVIADO" | "RECUSADO" | "FA
 export interface Envio {
   chave: string;
   operador_email: string;
-  ulbra_conversa_id: string;
+  atendimento_id: string;
   texto: string;
   status: StatusEnvio;
   ulbra_mensagem_id: string | null;
@@ -30,10 +36,13 @@ export interface Envio {
 
 export interface PedidoEnvio {
   operador: string;
-  ulbra_conversa_id: string;
+  atendimento_id: string;
   texto: string;
   /** Gerada pelo cliente uma vez por clique. Repetição com a mesma chave não reenvia. */
   chave: string;
+  /** Último horário em que o CLIENTE escreveu, para checar a janela de 24 h. */
+  ultima_mensagem_cliente_em_ms: number | null;
+  agora_ms: number;
   /** Quem é o dono da carteira do aluno (casos.operador_email), se houver. */
   dono_carteira: string | null;
   /** Responsável pelo atendimento no ReATIVA (ulbra_atendimentos.responsavel_email), se houver. */
@@ -43,7 +52,7 @@ export interface PedidoEnvio {
 
 export interface ProvedorEnvio {
   enviar(
-    pedido: { access_token: string; ulbra_conversa_id: string; texto: string },
+    pedido: { access_token: string; atendimento_id: string; texto: string; chave: string },
   ): Promise<{ ulbra_mensagem_id: string }>;
 }
 
@@ -77,12 +86,16 @@ export function validarPedido(p: PedidoEnvio): string[] {
   const texto = p.texto.trim();
   if (texto.length === 0) motivos.push("TEXTO_VAZIO");
   if (texto.length > TEXTO_MAX) motivos.push("TEXTO_LONGO");
-  if (!p.chave || p.chave.length < 16) motivos.push("CHAVE_INVALIDA");
+  if (p.chave.length < CHAVE_MIN || p.chave.length > CHAVE_MAX) motivos.push("CHAVE_INVALIDA");
+  if (!ATENDIMENTO_RE.test(p.atendimento_id)) motivos.push("ATENDIMENTO_INVALIDO");
   if (!p.identidade_confirmada) motivos.push("IDENTIDADE_NAO_CONFIRMADA");
   const operador = p.operador.toLowerCase();
   const eDono = (p.dono_carteira ?? "").toLowerCase() === operador;
   const eResponsavel = (p.responsavel_atendimento ?? "").toLowerCase() === operador;
   if (!eDono && !eResponsavel) motivos.push("SEM_PERMISSAO_NA_CONVERSA");
+  if (p.ultima_mensagem_cliente_em_ms === null || p.agora_ms - p.ultima_mensagem_cliente_em_ms > JANELA_MS) {
+    motivos.push("JANELA_FECHADA_USAR_TEMPLATE");
+  }
   return motivos;
 }
 
@@ -109,7 +122,7 @@ export async function enviarResposta(
   const novo: Envio = {
     chave: pedido.chave,
     operador_email: pedido.operador,
-    ulbra_conversa_id: pedido.ulbra_conversa_id,
+    atendimento_id: pedido.atendimento_id,
     texto,
     status: "PENDENTE",
     ulbra_mensagem_id: null,
@@ -128,8 +141,9 @@ export async function enviarResposta(
     const resposta = await comTimeout(
       deps.provedorEnvio.enviar({
         access_token: conn.registro.access_token,
-        ulbra_conversa_id: pedido.ulbra_conversa_id,
+        atendimento_id: pedido.atendimento_id,
         texto,
+        chave: pedido.chave,
       }),
       limite,
     );

@@ -19,9 +19,11 @@ const CHAVE = "chave-clique-0001-abcdef";
 
 const pedido = (over: Partial<PedidoEnvio> = {}): PedidoEnvio => ({
   operador: OP,
-  ulbra_conversa_id: "conv-1",
+  atendimento_id: "0123456789abcdef01234567",
   texto: "Olá, em que posso ajudar?",
   chave: CHAVE,
+  agora_ms: AGORA,
+  ultima_mensagem_cliente_em_ms: AGORA - 60_000,
   dono_carteira: OP,
   responsavel_atendimento: null,
   identidade_confirmada: true,
@@ -61,7 +63,7 @@ class OAuthSimulado implements ProvedorOAuth {
 class EnvioSimulado implements ProvedorEnvio {
   chamadas: Array<{ access_token: string; texto: string }> = [];
   modo: "ok" | "recusa" | "lento" | "queda" = "ok";
-  async enviar(p: { access_token: string; ulbra_conversa_id: string; texto: string }) {
+  async enviar(p: { access_token: string; atendimento_id: string; texto: string; chave: string }) {
     this.chamadas.push({ access_token: p.access_token, texto: p.texto });
     if (this.modo === "recusa") throw new RecusadoPelaUlbra("CONVERSA_ENCERRADA");
     if (this.modo === "queda") throw new Error("ECONNRESET");
@@ -89,9 +91,21 @@ function deps(over: Partial<Parameters<typeof enviarResposta>[1]> = {}) {
 }
 
 describe("validação do pedido", () => {
-  it("texto vazio e texto longo são recusados", () => {
+  it("texto vazio e texto longo são recusados (limite 4096, como na ferramenta)", () => {
     expect(validarPedido(pedido({ texto: "   " }))).toContain("TEXTO_VAZIO");
     expect(validarPedido(pedido({ texto: "x".repeat(TEXTO_MAX + 1) }))).toContain("TEXTO_LONGO");
+    expect(validarPedido(pedido({ texto: "x".repeat(TEXTO_MAX) }))).toEqual([]);
+  });
+
+  it("fora da janela de 24 h só template: bloqueia o envio livre", () => {
+    expect(validarPedido(pedido({ ultima_mensagem_cliente_em_ms: AGORA - 25 * 3600_000 }))).toContain("JANELA_FECHADA_USAR_TEMPLATE");
+    expect(validarPedido(pedido({ ultima_mensagem_cliente_em_ms: null }))).toContain("JANELA_FECHADA_USAR_TEMPLATE");
+  });
+
+  it("atendimento com formato inválido e chave fora de 8 a 80 caracteres são recusados", () => {
+    expect(validarPedido(pedido({ atendimento_id: "conv-1" }))).toContain("ATENDIMENTO_INVALIDO");
+    expect(validarPedido(pedido({ chave: "curta" }))).toContain("CHAVE_INVALIDA");
+    expect(validarPedido(pedido({ chave: "x".repeat(81) }))).toContain("CHAVE_INVALIDA");
   });
 
   it("identidade não confirmada bloqueia, mesmo para o dono", () => {
@@ -161,7 +175,7 @@ describe("idempotência: repetir o clique não reenvia", () => {
   it("a chave vale por operador: outro operador com a mesma chave não é bloqueado pela chave alheia", async () => {
     const repo = new RepoMemoria();
     await repo.inserirSeNovo({
-      chave: CHAVE, operador_email: "outro@aelbra.com.br", ulbra_conversa_id: "c", texto: "x",
+      chave: CHAVE, operador_email: "outro@aelbra.com.br", atendimento_id: "c", texto: "x",
       status: "ENVIADO", ulbra_mensagem_id: "m", motivo: null, criado_em_ms: AGORA,
     });
     const { d, provedorEnvio } = deps({ repositorio: repo });
