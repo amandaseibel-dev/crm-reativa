@@ -45,7 +45,7 @@ describe("operador com a votação aberta", () => {
     for (const o of OPCOES_LOGOTIPO) {
       expect(screen.getByText(o.titulo)).toBeTruthy();
     }
-    expect(screen.getAllByText("ReATIVA | Recuperação de Crédito").length).toBeGreaterThan(0);
+    expect(screen.getAllByAltText(/ReATIVA \| Recuperação de Crédito/).length).toBe(OPCOES_LOGOTIPO.length);
     expect(screen.queryByText(/voto(s)? registrado/)).toBeNull();
     expect(screen.queryByText("Acompanhamento (gestão)")).toBeNull();
     expect(rpcMock).not.toHaveBeenCalledWith("portal_logotipo_apuracao");
@@ -76,9 +76,9 @@ describe("operador com a votação aberta", () => {
     render(<VotacaoLogotipo />);
     expect(await screen.findByText("Seu voto: Proposta 4.", { exact: false })).toBeTruthy();
     expect(screen.getByText("✓ Seu voto")).toBeTruthy();
-    const botoes = screen.getAllByRole("button");
-    expect(botoes).toHaveLength(OPCOES_LOGOTIPO.length);
-    expect(botoes.every((b) => b.disabled)).toBe(true);
+    const votos = screen.getAllByRole("button").filter((b) => /^Voto registrado$|^Votar na /.test(b.textContent));
+    expect(votos).toHaveLength(OPCOES_LOGOTIPO.length);
+    expect(votos.every((b) => b.disabled)).toBe(true);
   });
 
   it("mostra a mensagem do banco quando o voto é recusado", async () => {
@@ -89,6 +89,33 @@ describe("operador com a votação aberta", () => {
     render(<VotacaoLogotipo />);
     fireEvent.click(await screen.findByRole("button", { name: "Votar na Proposta 3" }));
     expect((await screen.findByRole("alert")).textContent).toContain("Você já registrou seu voto");
+  });
+});
+
+describe("cartões com as artes enviadas", () => {
+  it("mostra as quatro imagens, cada uma com seu arquivo original", async () => {
+    responder({ situacao: { existe: true, status: "aberta", minha_opcao: null, gestao: false } });
+    render(<VotacaoLogotipo />);
+    await screen.findByText("Proposta 4");
+    const imgs = screen.getAllByRole("img");
+    expect(imgs.map((i) => i.getAttribute("src"))).toEqual(
+      OPCOES_LOGOTIPO.map((o) => o.imagem)
+    );
+    expect(OPCOES_LOGOTIPO.map((o) => o.imagem.split("/").pop())).toEqual([
+      "ReATIVA_opcao_1.png", "ReATIVA_opcao_2.png", "ReATIVA_opcao_3.png", "ReATIVA_opcao_4.png",
+    ]);
+  });
+
+  it("amplia a imagem ao clicar e fecha com o botão e com Esc", async () => {
+    responder({ situacao: { existe: true, status: "aberta", minha_opcao: null, gestao: false } });
+    render(<VotacaoLogotipo />);
+    fireEvent.click(await screen.findByRole("button", { name: "Ampliar Proposta 3" }));
+    expect(await screen.findByRole("dialog", { name: "Proposta 3 ampliada" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Fechar ✕" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Ampliar Proposta 3" }));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
 

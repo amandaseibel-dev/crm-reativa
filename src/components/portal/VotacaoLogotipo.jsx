@@ -30,7 +30,7 @@ const botao = (primario) => ({
   minHeight: 44,
 });
 
-function Quadro({ numero, imagem, titulo, selecionada, bloqueada, onVotar, ocupado }) {
+function Quadro({ numero, imagem, titulo, selecionada, bloqueada, onVotar, onAmpliar, ocupado }) {
   return (
     <article
       aria-label={`${titulo}: ${NOME_MARCA}`}
@@ -66,7 +66,14 @@ function Quadro({ numero, imagem, titulo, selecionada, bloqueada, onVotar, ocupa
         }}
       >
         {imagem ? (
-          <img src={imagem} alt={`${titulo}: ${NOME_MARCA}`} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+          <button
+            type="button"
+            onClick={() => onAmpliar(numero)}
+            aria-label={`Ampliar ${titulo}`}
+            style={{ all: "unset", cursor: "zoom-in", width: "100%", height: "100%", display: "flex" }}
+          >
+            <img src={imagem} alt={`${titulo}: ${NOME_MARCA}`} style={{ width: "100%", height: "100%", objectFit: "contain", background: "#fff" }} />
+          </button>
         ) : (
           <div style={{ textAlign: "center", padding: 12, color: "var(--rv-azul-texto)" }}>
             <div style={{ fontWeight: 700, fontSize: 15 }}>{NOME_MARCA}</div>
@@ -129,6 +136,15 @@ export default function VotacaoLogotipo() {
   const [ocupado, setOcupado] = useState(false);
   const [erro, setErro] = useState("");
   const [aviso, setAviso] = useState("");
+  const [ampliada, setAmpliada] = useState(null);
+
+  // Fecha a ampliação com Esc.
+  useEffect(() => {
+    if (!ampliada) return undefined;
+    const fechar = (e) => { if (e.key === "Escape") setAmpliada(null); };
+    window.addEventListener("keydown", fechar);
+    return () => window.removeEventListener("keydown", fechar);
+  }, [ampliada]);
 
   // Aplica o resultado da leitura. Só a gestão (ou a votação já encerrada)
   // recebe a contagem; para o operador com a votação aberta ela nem é pedida.
@@ -199,6 +215,37 @@ export default function VotacaoLogotipo() {
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
+      {ampliada && (() => {
+        const op = OPCOES_LOGOTIPO.find((o) => o.opcao === ampliada);
+        return (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${op.titulo} ampliada`}
+            onClick={() => setAmpliada(null)}
+            style={{
+              position: "fixed", inset: 0, zIndex: 1000, background: "rgba(15, 23, 42, 0.85)",
+              display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+            }}
+          >
+            <div style={{ position: "relative", maxWidth: "min(96vw, 1000px)", width: "100%" }}>
+              <img
+                src={op.imagem}
+                alt={`${op.titulo}: ${NOME_MARCA}`}
+                onClick={(e) => e.stopPropagation()}
+                style={{ width: "100%", height: "auto", background: "#fff", borderRadius: "var(--rv-raio)" }}
+              />
+              <button
+                type="button"
+                onClick={() => setAmpliada(null)}
+                style={{ ...botao(true), position: "absolute", top: -12, right: -12, minHeight: 40 }}
+              >
+                Fechar ✕
+              </button>
+            </div>
+          </div>
+        );
+      })()}
       <div style={card}>
         <p style={{ margin: 0, fontSize: 15, lineHeight: 1.5 }}>
           Escolha o novo logotipo institucional da ReATIVA. Você tem <strong>um voto</strong>.
@@ -227,6 +274,7 @@ export default function VotacaoLogotipo() {
             bloqueada={!aberta || Boolean(minhaOpcao)}
             ocupado={ocupado}
             onVotar={votar}
+            onAmpliar={setAmpliada}
           />
         ))}
       </div>

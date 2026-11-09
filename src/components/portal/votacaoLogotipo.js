@@ -3,18 +3,22 @@
 // Configuração e textos puros, sem banco e sem React: fica separado para o teste
 // cobrir a regra de exibição sem montar a tela.
 //
-// AS ARTES: as quatro propostas ainda não foram validadas. Enquanto `imagem` for
-// null, a tela mostra um quadro de espera com o nome da marca, em vez de uma arte
-// inventada. Quando as artes forem aprovadas, cada uma entra em
-// src/assets/logotipo-votacao/ e o `imagem` recebe o import correspondente.
+// AS ARTES: são as imagens enviadas pela gestão (ReATIVA_opcao_1.png a
+// ReATIVA_opcao_4.png), copiadas sem alteração para src/assets/logotipo-votacao/.
+// Não recriar nem substituir sem nova aprovação.
+
+import opcao1 from "../../assets/logotipo-votacao/ReATIVA_opcao_1.png";
+import opcao2 from "../../assets/logotipo-votacao/ReATIVA_opcao_2.png";
+import opcao3 from "../../assets/logotipo-votacao/ReATIVA_opcao_3.png";
+import opcao4 from "../../assets/logotipo-votacao/ReATIVA_opcao_4.png";
 
 export const NOME_MARCA = "ReATIVA | Recuperação de Crédito";
 
 export const OPCOES_LOGOTIPO = [
-  { opcao: 1, titulo: "Proposta 1", imagem: null },
-  { opcao: 2, titulo: "Proposta 2", imagem: null },
-  { opcao: 3, titulo: "Proposta 3", imagem: null },
-  { opcao: 4, titulo: "Proposta 4", imagem: null },
+  { opcao: 1, titulo: "Proposta 1", imagem: opcao1 },
+  { opcao: 2, titulo: "Proposta 2", imagem: opcao2 },
+  { opcao: 3, titulo: "Proposta 3", imagem: opcao3 },
+  { opcao: 4, titulo: "Proposta 4", imagem: opcao4 },
 ];
 
 // Traduz o erro do banco (a mensagem da exceção é um código curto) em texto para
