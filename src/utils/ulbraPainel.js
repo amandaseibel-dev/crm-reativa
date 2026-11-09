@@ -63,3 +63,40 @@ export function descreverEstado(d) {
       return { tom: "cinza", titulo: ND, texto: "" };
   }
 }
+
+/**
+ * Quem vê o CRM ULBRA (menu e rota). Espelho EXATO da lista de
+ * `public.usuario_e_gestao()` no banco — o portão interno da RPC
+ * `ulbra_painel_gestao` (conferido em produção em 08/11/2026: três e-mails,
+ * sem regra por perfil). Não reutiliza `podeVerTudo`: é outra função, com
+ * outro dono, ainda que hoje devolva as mesmas pessoas. Se o banco mudar, a
+ * RPC recusa e a tela repete a recusa — nunca o contrário.
+ */
+export const EMAILS_GESTAO_CRM_ULBRA = [
+  "amanda.seibel@aelbra.com.br",
+  "cobranca04@aelbra.com.br",
+  "cobranca07@aelbra.com.br",
+];
+
+export function podeVerCrmUlbra(email) {
+  return EMAILS_GESTAO_CRM_ULBRA.includes(String(email || "").toLowerCase().trim());
+}
+
+/** Texto curto da faixa do cabeçalho, por estado. */
+export function rotuloFaixa(d) {
+  switch (d?.estado) {
+    case "SEM_CICLO": return "nenhuma coleta ainda";
+    case "ERRO": return "falha na última coleta";
+    case "PULADO_ORCAMENTO": return "coleta pulada: sem orçamento";
+    case "DESATUALIZADO": return "dados desatualizados";
+    case "INCOMPLETO": return "coleta parcial";
+    case "COLETA_CONCLUIDA": return "última coleta concluída";
+    case "EM_DIA": return "em dia";
+    default: return ND;
+  }
+}
+
+/** Estados que exigem aviso resumido fora dos detalhes. */
+export function estadoExigeAviso(estado) {
+  return ["ERRO", "PULADO_ORCAMENTO", "DESATUALIZADO", "INCOMPLETO"].includes(estado);
+}
