@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import "../pages/ulbra.css";
+import { podeVerCentralUlbra } from "../utils/ulbraCentral";
 import usePolling from "../utils/polling";
 import { buscarTudo } from "../utils/paginado";
 import {
@@ -244,6 +245,12 @@ export default function NotificacoesUlbra({ usuario }) {
 
           <div className="ulbra-sino-corpo">
             {recado ? <div className="ulbra-recado" style={{ margin: 8 }}>{recado}</div> : null}
+
+            {podeVerCentralUlbra(email) ? (
+              <a href="/central-ulbra" className="ulbra-link" style={{ display: "block", padding: "8px 10px" }}>
+                abrir Central ULBRA (fila completa)
+              </a>
+            ) : null}
 
             <div className="ulbra-sino-secao">Conversas com resposta não lida ({novidades.nao_lidas})</div>
             {novidades.respostas.length === 0 ? (

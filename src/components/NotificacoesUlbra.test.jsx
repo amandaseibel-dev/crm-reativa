@@ -134,6 +134,18 @@ describe("NotificacoesUlbra", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("link para a Central ULBRA aparece só para quem pode vê-la (hoje, gestão)", async () => {
+    estado.conversas = [CONVERSA];
+    const { unmount } = render(<NotificacoesUlbra usuario={USUARIO} />);
+    fireEvent.click(await screen.findByLabelText("Mensageria ULBRA"));
+    expect(screen.queryByText(/abrir Central ULBRA/)).toBeNull();
+    unmount();
+
+    render(<NotificacoesUlbra usuario={{ perfil: { email: "amanda.seibel@aelbra.com.br" } }} />);
+    fireEvent.click(await screen.findByLabelText("Mensageria ULBRA"));
+    expect(screen.getByText(/abrir Central ULBRA/).getAttribute("href")).toBe("/central-ulbra");
+  });
+
   it("some da tela quando não há novidade", async () => {
     const { container } = render(<NotificacoesUlbra usuario={USUARIO} />);
     await waitFor(() => expect(container.firstChild).toBeNull());
