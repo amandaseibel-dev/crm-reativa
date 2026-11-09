@@ -55,6 +55,7 @@ import { registrarLoginSeNecessario, registrarLogout } from "./utils/ponto";
 // A Fila Unica de Confirmacao usa a MESMA regra de gestao financeira que a
 // ficha do aluno ja aplica para decidir sobre titulo em confirmacao.
 import { podeGerirFinanceiro, podeVerTudo } from "./utils/operadores";
+import { podeVerCrmUlbra } from "./utils/ulbraPainel";
 const PainelAdm = lazy(() => import("./pages/PainelAdm"));
 // Tela TEMPORÁRIA de diagnóstico da Mensageria (gestão). Sai quando a
 // integração operacional estiver desenhada.
@@ -339,6 +340,15 @@ function RotaProtegida({ usuario, rota, children }) {
   // exatamente esses três -- os mesmos de `usuario_e_gestao()` no banco, que é
   // quem a RLS de `ponto_operadores` deixa ver a batida dos outros. Sem
   // permissão nova: a tela não mostra nada que esses três já não possam ler.
+  // CRM ULBRA: mesma lista do portão interno da RPC (`usuario_e_gestao()`).
+  // O banco continua recusando quem não é gestão; aqui só se evita mostrar
+  // uma tela que a RPC vai negar.
+  if (rota === "/mensageria-ulbra") {
+    const emailUl = String(usuario?.perfil?.email || usuario?.auth?.email || "")
+      .toLowerCase().trim();
+    if (!podeVerCrmUlbra(emailUl)) return <Navigate to="/" replace />;
+    return children;
+  }
   if (rota === "/produtividade") {
     const emailProd = String(usuario?.perfil?.email || usuario?.auth?.email || "")
       .toLowerCase().trim();
@@ -769,6 +779,12 @@ export default function App() {
     // `podeAcessar` já liberava -- gerência e supervisor, que são exatamente os
     // dois e-mails que a RPC `painel_geral` aceita.
     { rota: "/painel-geral", label: "Painel Geral", icone: "LayoutPanelTop", secao: "Gestão" },
+    // CRM ULBRA: a rota `/mensageria-ulbra` existia sem item de menu. Quem vê
+    // é `podeVerCrmUlbra(email)`, espelho da lista de `usuario_e_gestao()` no
+    // banco -- a MESMA regra do portão interno da RPC `ulbra_painel_gestao`.
+    // Não é a regra de "Produtividade Operacional": aquela é outra função,
+    // ainda que hoje devolva as mesmas pessoas. Se divergir, o banco recusa.
+    { rota: "/mensageria-ulbra", label: "CRM ULBRA", icone: "MessageSquare", secao: "Gestão" },
 
     { rota: "/taxa-conversao", label: "Taxa de Conversão", icone: "TrendingUp", secao: "Gestão" },
 
@@ -852,6 +868,10 @@ export default function App() {
     // item sumiria para todo mundo, porque a rota não está nas listas por
     // perfil e `podeAcessar` devolveria undefined (foi o que aconteceu com a
     // Fila Única de Confirmação, que ficou sem porta de julho a setembro).
+    if (item.rota === "/mensageria-ulbra") {
+      const emUl = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return podeVerCrmUlbra(emUl);
+    }
     if (item.rota === "/produtividade") {
       const emPr = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return podeVerTudo(emPr);
@@ -1246,7 +1266,7 @@ export default function App() {
               />
               <Route path="/painel-adm" element={<PainelAdm />} />
               <Route path="/ulbra-diagnostico" element={<UlbraDiagnostico usuario={usuario} />} />
-              <Route path="/mensageria-ulbra" element={<PainelMensageriaUlbra usuario={usuario} />} />
+              <Route path="/mensageria-ulbra" element={<RotaProtegida usuario={usuario} rota="/mensageria-ulbra"><PainelMensageriaUlbra usuario={usuario} /></RotaProtegida>} />
               <Route path="/painel-geral" element={<PainelGeral />} />
               <Route
                 path="/produtividade"
