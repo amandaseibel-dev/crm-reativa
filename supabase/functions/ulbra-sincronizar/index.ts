@@ -22,6 +22,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   ACCEPT_MCP,
   CADENCIA_PADRAO,
+  DETALHE_POR_CICLO,
   DETALHE_TENTATIVAS_MAX,
   MCP_URL,
   TETO_DIARIO_SYNC,
@@ -38,6 +39,7 @@ import {
   identificar,
   lerAtendimentos,
   lerCorpoMcp,
+  modoDoCiclo,
   novaJanela,
   portaoSync,
   resultadoDoEnvelope,
@@ -50,13 +52,6 @@ import {
   type OperadorRodizio,
   type VinculoAtivo,
 } from "./sincronizar.ts";
-
-/**
- * Leituras de detalhe (`ler_conversa`) por ciclo. Cada uma custa 1 chamada.
- * Prova de convergência e orçamento: sincronizar.test.ts ("fila de detalhes")
- * e docs/integracoes/ulbra-etapa1-pacote-aprovacao.md, seção 4.
- */
-export const DETALHE_POR_CICLO = 1;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -336,6 +331,7 @@ Deno.serve(async (req: Request) => {
   return json({
     ciclo: colheita.truncado ? "INCOMPLETO" : "OK",
     ciclo_completo: !colheita.truncado,
+    modo: modoDoCiclo(janela),
     chamadas,
     chamadas_dia: chamadasAntes + chamadas,
     teto_dia: TETO_DIARIO_SYNC,
