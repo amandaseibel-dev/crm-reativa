@@ -39,7 +39,12 @@ declare
   v_lock boolean;
   v_h integer; v_m integer;
 begin
-  v_canal := public._t_canal('_cont_v2', 'ATIVO_CONTROLADO', 5, null);
+  -- Limite alto DE PROPOSITO: este canal testa CLASSIFICACAO, e as abordagens
+  -- acumulam ao longo dos casos. Com limite baixo, um caso tardio recebe
+  -- LIMITE_OPERADOR em vez do veredito que se quer medir (foi o que derrubou
+  -- o caso 16 na execucao 42644515538). O limite em si e testado no caso 15b,
+  -- em canal dedicado com limite 2.
+  v_canal := public._t_canal('_cont_v2', 'ATIVO_CONTROLADO', 100, null);
 
   -- ============ 1. o caso relatado: envio anterior foi RESPOSTA ============
   v_c := public._t_conversa(v_canal, '5551900200001');
@@ -87,7 +92,11 @@ begin
 
   -- ============ 6. teto de insistencia: 3 continuidades, 4a nao ============
   v_c := public._t_conversa(v_canal, '5551900200006');
-  perform public._t_msg(v_c, 'ENTRADA', 40);          -- ancora
+  -- cond. 1 precisa de envio anterior DESTE operador, e ele tem de ser ANTES
+  -- da ultima ENTRADA para a contagem de "sem resposta" comecar em zero.
+  -- Sem esta linha o caso 6 media cond.1 falhando, nao o teto de insistencia.
+  perform public._t_msg(v_c, 'SAIDA',   50, v_op1);
+  perform public._t_msg(v_c, 'ENTRADA', 40);          -- ancora, zera a contagem
   -- 1o envio apos a resposta: 0 envios anteriores desde a ENTRADA
   v_r := public._t_checar(v_canal, v_c, v_op1);
   insert into _cont_v2_resultado values ('DEPOIS', 6,

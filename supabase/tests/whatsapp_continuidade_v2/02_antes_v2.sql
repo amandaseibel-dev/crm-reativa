@@ -13,7 +13,10 @@ declare
   v_op1 text := 'op1_cont_v2@test.local';
   v_op2 text := 'op2_cont_v2@test.local';
 begin
-  v_canal := public._t_canal('_cont_v2_antes');
+  -- Limite alto: aqui se mede classificacao, nao cota. Com o default de 5 o
+  -- op1 ficava exatamente na borda (5 abordagens, limite 5) e qualquer caso
+  -- novo passaria a receber LIMITE_OPERADOR.
+  v_canal := public._t_canal('_cont_v2_antes', 'ATIVO_CONTROLADO', 100, null);
 
   -- C1: operador já enviou (seria RESPOSTA na época), aluno respondeu há 40h
   v_c1 := public._t_conversa(v_canal, '5551900100001');
