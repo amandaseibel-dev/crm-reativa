@@ -37,6 +37,7 @@ describe("ULBRA central do operador — Postgres real (PGlite)", () => {
     await db.exec(sqlDe(`${DIR}/01_complemento.sql`));
     await db.exec(sqlDe(CENTRAL));
     await db.exec(sqlDe(`${DIR}/02_provas_central.sql`));
+    await db.exec(sqlDe(`${DIR}/04_responsabilidade.sql`));
     await db.exec(sqlDe(ROLLBACK));
     await db.exec(sqlDe(`${DIR}/03_depois_do_rollback.sql`));
     await db.close();

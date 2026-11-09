@@ -22,8 +22,19 @@
 --     proprio e-mail do JWT. Nao ha parametro que faca um operador ler a fila
 --     de outro;
 --   - painel de TV e usuario inativo: ACESSO_NEGADO.
---   O "dono" do aluno e `casos.operador_email`, a MESMA fonte que a coleta
---   (`ulbra-sincronizar`) e o sino ja usam. Nenhuma regra nova de carteira.
+--   PODE VER quem tem caso do aluno (`casos.operador_email`, a permissao que ja
+--   existe) ou quem assumiu o atendimento. Nenhuma regra nova de carteira.
+--
+-- VER NAO E RESPONDER
+--   A responsabilidade pela resposta e calculada a parte:
+--     CARTEIRA   um unico operador tem caso do aluno;
+--     ASSUMIDO   ha aceite identificado no banco (e-mail do JWT), de uma pessoa;
+--     A_DEFINIR  mais de um operador tem caso e ninguem e comprovado.
+--   A_DEFINIR nao e de ninguem: aparece sinalizado para quem ja tem acesso,
+--   fica FORA do rodizio e SEM aviso individual (`notificar` = false para
+--   todos), ate a gestao definir. Nunca se escolhe por nome, primeiro caso
+--   encontrado ou ultimo acionamento. Esta funcao so le: carteira e
+--   fidelizacao nao mudam.
 --
 -- IDENTIDADE
 --   So entra linha com `aluno_status = 'vinculado'` (CPF confirmado). O que
@@ -86,6 +97,8 @@ declare
   v_tot_resp    int;
   v_tot_sem     int;
   v_tot_novos   int;
+  v_def_resp    int;
+  v_def_novos   int;
   c_limiar_atraso_min constant numeric := 25;  -- mesmo limiar do painel da gestao
   c_prazo_dias        constant int := 7;       -- "dentro do prazo" da carteira
   c_teto              constant int := 200;
@@ -138,28 +151,67 @@ begin
   ), acion as (
     select k.aluno_id, max(k.data_ultimo_acionamento) as ultimo
       from public.casos k where k.aluno_id is not null group by k.aluno_id
+  ), cart as (
+    -- quantos operadores tem caso do aluno; `unico` so existe quando e UM
+    select d.aluno_id, count(*) as qtd,
+           case when count(*) = 1 then min(d.operador) end as unico,
+           jsonb_agg(d.operador order by d.operador) as lista
+      from dono d group by d.aluno_id
+  ), assum as (
+    -- responsavel COMPROVADO POR IDENTIFICADOR: quem assumiu no ReATIVA (o banco
+    -- gravou o e-mail do JWT). So vale se for UMA pessoa. Nome nunca entra aqui.
+    select t.aluno_id, min(lower(t.responsavel_email)) as por
+      from public.ulbra_atendimentos t
+     where t.responsavel_email is not null and t.dispensado_em is null
+       and t.aluno_status = 'vinculado' and t.aluno_id is not null
+     group by t.aluno_id
+    having count(distinct lower(t.responsavel_email)) = 1
+  ), resp as (
+    -- RESPONSABILIDADE POR RESPONDER (separada de quem PODE VER):
+    --   CARTEIRA     um unico operador tem caso do aluno -> e ele
+    --   ASSUMIDO     mais de um (ou nenhum) caso, mas ha aceite identificado -> quem aceitou
+    --   A_DEFINIR    mais de um operador com caso e ninguem comprovado -> gestao decide
+    --   SEM_CARTEIRA ninguem tem caso e ninguem assumiu
+    -- Nunca por nome, primeiro caso encontrado ou ultimo acionamento.
+    select x.aluno_id,
+           coalesce(c.qtd, 0) as qtd, c.lista,
+           case when coalesce(c.qtd, 0) = 1 then c.unico
+                when s.por is not null then s.por end as responsavel,
+           case when coalesce(c.qtd, 0) = 1 then 'CARTEIRA'
+                when s.por is not null then 'ASSUMIDO'
+                when coalesce(c.qtd, 0) > 1 then 'A_DEFINIR'
+                else 'SEM_CARTEIRA' end as responsabilidade
+      from (select aluno_id from cart union select aluno_id from assum) x
+      left join cart c on c.aluno_id = x.aluno_id
+      left join assum s on s.aluno_id = x.aluno_id
   ), base as (
     select c.ulbra_conversa_id, c.aluno_id, c.cliente_nome, c.ultima_mensagem_previa,
            c.ultima_mensagem_cliente_em, c.responsavel_ulbra,
-           (select min(d.operador) from dono d where d.aluno_id = c.aluno_id) as responsavel_reativa,
+           r.responsavel, r.responsabilidade, r.qtd, r.lista,
            a.ultimo as ultimo_acionamento,
+           -- o responsavel comprovado ve a linha primeiro; quem so tem acesso, depois
+           case when v_op is not null and r.responsavel = v_op then 0 else 1 end as prio,
            exists (select 1 from public.ulbra_leitura_usuario l
                     where l.ulbra_conversa_id = c.ulbra_conversa_id
                       and l.usuario_email = v_email
                       and l.lido_ate >= c.ultima_mensagem_cliente_em) as lida
       from public.ulbra_conversas c
       left join acion a on a.aluno_id = c.aluno_id
+      left join resp r on r.aluno_id = c.aluno_id
      where c.aluno_status = 'vinculado'
        and c.aluno_id is not null
        and c.ultima_mensagem_quem = 'cliente'
-       and (v_op is null or exists (
-             select 1 from dono d where d.aluno_id = c.aluno_id and d.operador = v_op))
+       -- PODE VER: quem tem caso do aluno (permissao atual) ou quem assumiu
+       and (v_op is null
+            or exists (select 1 from dono d where d.aluno_id = c.aluno_id and d.operador = v_op)
+            or r.responsavel = v_op)
   ), ordenada as (
     select * from base
-     order by ultima_mensagem_cliente_em asc nulls last, ulbra_conversa_id
+     order by prio, ultima_mensagem_cliente_em asc nulls last, ulbra_conversa_id
      limit v_lim offset v_off
   )
   select (select count(*) from base),
+         (select count(*) from base where responsabilidade = 'A_DEFINIR'),
          coalesce(jsonb_agg(jsonb_build_object(
            'conversa_id', o.ulbra_conversa_id,
            'aluno_id', o.aluno_id,
@@ -168,15 +220,26 @@ begin
            'mensagem_em', o.ultima_mensagem_cliente_em,
            'espera_min', round(extract(epoch from (now() - o.ultima_mensagem_cliente_em)) / 60.0),
            'atendente_ulbra', o.responsavel_ulbra,
-           'responsavel_reativa', o.responsavel_reativa,
+           'responsabilidade', coalesce(o.responsabilidade, 'SEM_CARTEIRA'),
+           -- e-mail de outro operador nunca vai para operador: so "e outro"
+           'responsavel_reativa', case when v_gestao or o.responsavel = v_op then o.responsavel end,
+           'responsavel_e_outro', (o.responsavel is not null and v_op is not null and o.responsavel <> v_op),
+           -- quem nao e responsavel ve que HA responsavel, sem o e-mail alheio
+           'responsavel_definido', (o.responsavel is not null),
+           'minha', (v_op is not null and o.responsavel is not distinct from v_op and o.responsavel is not null),
+           'divergencia', (coalesce(o.qtd, 0) > 1),
+           'operadores_com_caso', case when v_gestao then coalesce(o.lista, '[]'::jsonb) end,
+           -- aviso individual SO para o responsavel comprovado; A_DEFINIR nao avisa ninguem
+           'notificar', (o.responsavel is not null and v_op is not null and o.responsavel = v_op),
+           -- `ultimo_acionamento` e DATE: sai como data, sem hora inventada
            'ultimo_acionamento', o.ultimo_acionamento,
            -- informacao, NAO criterio de saida: acionamento nao comprova resposta
            'acionamento_posterior',
              (o.ultimo_acionamento is not null and o.ultima_mensagem_cliente_em is not null
               and o.ultimo_acionamento >= (o.ultima_mensagem_cliente_em at time zone 'America/Sao_Paulo')::date),
            'lida', o.lida
-         ) order by o.ultima_mensagem_cliente_em asc nulls last, o.ulbra_conversa_id), '[]'::jsonb)
-    into v_tot_resp, v_respostas
+         ) order by o.prio, o.ultima_mensagem_cliente_em asc nulls last, o.ulbra_conversa_id), '[]'::jsonb)
+    into v_tot_resp, v_def_resp, v_respostas
     from ordenada o;
 
   -- ------------------------------------- 2. sem interacao valida ha mais tempo
@@ -187,6 +250,39 @@ begin
   ), acion as (
     select k.aluno_id, max(k.data_ultimo_acionamento) as ultimo
       from public.casos k where k.aluno_id is not null group by k.aluno_id
+  ), cart as (
+    -- quantos operadores tem caso do aluno; `unico` so existe quando e UM
+    select d.aluno_id, count(*) as qtd,
+           case when count(*) = 1 then min(d.operador) end as unico,
+           jsonb_agg(d.operador order by d.operador) as lista
+      from dono d group by d.aluno_id
+  ), assum as (
+    -- responsavel COMPROVADO POR IDENTIFICADOR: quem assumiu no ReATIVA (o banco
+    -- gravou o e-mail do JWT). So vale se for UMA pessoa. Nome nunca entra aqui.
+    select t.aluno_id, min(lower(t.responsavel_email)) as por
+      from public.ulbra_atendimentos t
+     where t.responsavel_email is not null and t.dispensado_em is null
+       and t.aluno_status = 'vinculado' and t.aluno_id is not null
+     group by t.aluno_id
+    having count(distinct lower(t.responsavel_email)) = 1
+  ), resp as (
+    -- RESPONSABILIDADE POR RESPONDER (separada de quem PODE VER):
+    --   CARTEIRA     um unico operador tem caso do aluno -> e ele
+    --   ASSUMIDO     mais de um (ou nenhum) caso, mas ha aceite identificado -> quem aceitou
+    --   A_DEFINIR    mais de um operador com caso e ninguem comprovado -> gestao decide
+    --   SEM_CARTEIRA ninguem tem caso e ninguem assumiu
+    -- Nunca por nome, primeiro caso encontrado ou ultimo acionamento.
+    select x.aluno_id,
+           coalesce(c.qtd, 0) as qtd, c.lista,
+           case when coalesce(c.qtd, 0) = 1 then c.unico
+                when s.por is not null then s.por end as responsavel,
+           case when coalesce(c.qtd, 0) = 1 then 'CARTEIRA'
+                when s.por is not null then 'ASSUMIDO'
+                when coalesce(c.qtd, 0) > 1 then 'A_DEFINIR'
+                else 'SEM_CARTEIRA' end as responsabilidade
+      from (select aluno_id from cart union select aluno_id from assum) x
+      left join cart c on c.aluno_id = x.aluno_id
+      left join assum s on s.aluno_id = x.aluno_id
   ), tocados as (
     select c.aluno_id, max(c.cliente_nome) as nome, max(c.responsavel_ulbra) as atendente_ulbra,
            'conversa'::text as origem
@@ -204,12 +300,14 @@ begin
     select t.aluno_id, coalesce(al.nome, t.nome) as nome, t.atendente_ulbra, t.origem,
            a.ultimo as ultimo_acionamento,
            case when a.ultimo is null then null else (v_hoje - a.ultimo) end as dias,
-           (select min(d.operador) from dono d where d.aluno_id = t.aluno_id) as responsavel_reativa
+           r.responsavel, r.responsabilidade, r.qtd, r.lista
       from tocados t
       left join acion a on a.aluno_id = t.aluno_id
+      left join resp r on r.aluno_id = t.aluno_id
       left join public.alunos al on al.id = t.aluno_id
-     where (v_op is null or exists (
-             select 1 from dono d where d.aluno_id = t.aluno_id and d.operador = v_op))
+     where (v_op is null
+            or exists (select 1 from dono d where d.aluno_id = t.aluno_id and d.operador = v_op)
+            or r.responsavel = v_op)
   ), fora as (
     select * from base where dias is null or dias > c_prazo_dias
   ), ordenada as (
@@ -227,27 +325,93 @@ begin
                          else 'PERDENDO' end,
            'ultimo_acionamento', o.ultimo_acionamento,
            'atendente_ulbra', o.atendente_ulbra,
-           'responsavel_reativa', o.responsavel_reativa,
+           'responsabilidade', coalesce(o.responsabilidade, 'SEM_CARTEIRA'),
+           -- e-mail de outro operador nunca vai para operador: so "e outro"
+           'responsavel_reativa', case when v_gestao or o.responsavel = v_op then o.responsavel end,
+           'responsavel_e_outro', (o.responsavel is not null and v_op is not null and o.responsavel <> v_op),
+           -- quem nao e responsavel ve que HA responsavel, sem o e-mail alheio
+           'responsavel_definido', (o.responsavel is not null),
+           'minha', (v_op is not null and o.responsavel is not distinct from v_op and o.responsavel is not null),
+           'divergencia', (coalesce(o.qtd, 0) > 1),
+           'operadores_com_caso', case when v_gestao then coalesce(o.lista, '[]'::jsonb) end,
+           -- aviso individual SO para o responsavel comprovado; A_DEFINIR nao avisa ninguem
+           'notificar', (o.responsavel is not null and v_op is not null and o.responsavel = v_op),
            'origem', o.origem
          ) order by o.dias desc nulls last, o.aluno_id), '[]'::jsonb)
     into v_tot_sem, v_sem
     from ordenada o;
 
   -- ------------------------------ 3. novos atendimentos destinados ao operador
-  with base as (
-    select t.ulbra_atendimento_id, t.aluno_id, t.cliente_nome, t.entrou_em,
-           t.destino_motivo, lower(t.destino_email) as destino_email
+  -- O `destino_email` CARTEIRA que a coleta grava e o do primeiro caso que ela
+  -- encontrou. Aqui ele NAO e usado quando o aluno tem caso de mais de um
+  -- operador: nesse caso o destino e "a definir pela gestao" e a linha aparece,
+  -- sinalizada, para quem ja tem acesso -- sem ser de ninguem em particular.
+  with dono as (
+    select distinct k.aluno_id, lower(k.operador_email) as operador
+      from public.casos k
+     where k.aluno_id is not null and k.operador_email is not null
+  ), acion as (
+    select k.aluno_id, max(k.data_ultimo_acionamento) as ultimo
+      from public.casos k where k.aluno_id is not null group by k.aluno_id
+  ), cart as (
+    -- quantos operadores tem caso do aluno; `unico` so existe quando e UM
+    select d.aluno_id, count(*) as qtd,
+           case when count(*) = 1 then min(d.operador) end as unico,
+           jsonb_agg(d.operador order by d.operador) as lista
+      from dono d group by d.aluno_id
+  ), assum as (
+    -- responsavel COMPROVADO POR IDENTIFICADOR: quem assumiu no ReATIVA (o banco
+    -- gravou o e-mail do JWT). So vale se for UMA pessoa. Nome nunca entra aqui.
+    select t.aluno_id, min(lower(t.responsavel_email)) as por
       from public.ulbra_atendimentos t
+     where t.responsavel_email is not null and t.dispensado_em is null
+       and t.aluno_status = 'vinculado' and t.aluno_id is not null
+     group by t.aluno_id
+    having count(distinct lower(t.responsavel_email)) = 1
+  ), resp as (
+    -- RESPONSABILIDADE POR RESPONDER (separada de quem PODE VER):
+    --   CARTEIRA     um unico operador tem caso do aluno -> e ele
+    --   ASSUMIDO     mais de um (ou nenhum) caso, mas ha aceite identificado -> quem aceitou
+    --   A_DEFINIR    mais de um operador com caso e ninguem comprovado -> gestao decide
+    --   SEM_CARTEIRA ninguem tem caso e ninguem assumiu
+    -- Nunca por nome, primeiro caso encontrado ou ultimo acionamento.
+    select x.aluno_id,
+           coalesce(c.qtd, 0) as qtd, c.lista,
+           case when coalesce(c.qtd, 0) = 1 then c.unico
+                when s.por is not null then s.por end as responsavel,
+           case when coalesce(c.qtd, 0) = 1 then 'CARTEIRA'
+                when s.por is not null then 'ASSUMIDO'
+                when coalesce(c.qtd, 0) > 1 then 'A_DEFINIR'
+                else 'SEM_CARTEIRA' end as responsabilidade
+      from (select aluno_id from cart union select aluno_id from assum) x
+      left join cart c on c.aluno_id = x.aluno_id
+      left join assum s on s.aluno_id = x.aluno_id
+  ), base as (
+    select t.ulbra_atendimento_id, t.aluno_id, t.cliente_nome, t.entrou_em, t.destino_motivo,
+           r.qtd, r.lista,
+           case when t.destino_motivo = 'RODIZIO' then lower(t.destino_email)
+                when coalesce(r.qtd, 0) = 1 then r.responsavel end as responsavel,
+           case when t.destino_motivo = 'RODIZIO' then 'RODIZIO'
+                when coalesce(r.qtd, 0) > 1 then 'A_DEFINIR'
+                else 'CARTEIRA' end as responsabilidade
+      from public.ulbra_atendimentos t
+      left join resp r on r.aluno_id = t.aluno_id
      where t.dispensado_em is null
        and t.responsavel_email is null
        and t.aluno_status = 'vinculado'
        and t.aluno_id is not null
        and t.destino_motivo in ('CARTEIRA', 'RODIZIO')
-       and (v_op is null or lower(t.destino_email) = v_op)
+       and (v_op is null
+            or (t.destino_motivo = 'RODIZIO' and lower(t.destino_email) = v_op)
+            or (t.destino_motivo = 'CARTEIRA'
+                and exists (select 1 from dono d where d.aluno_id = t.aluno_id and d.operador = v_op)))
   ), ordenada as (
-    select * from base order by entrou_em asc nulls last, ulbra_atendimento_id limit v_lim offset v_off
+    select *, case when v_op is not null and responsavel = v_op then 0 else 1 end as prio
+      from base
+     order by prio, entrou_em asc nulls last, ulbra_atendimento_id limit v_lim offset v_off
   )
   select (select count(*) from base),
+         (select count(*) from base where responsabilidade = 'A_DEFINIR'),
          coalesce(jsonb_agg(jsonb_build_object(
            'atendimento_id', o.ulbra_atendimento_id,
            'aluno_id', o.aluno_id,
@@ -255,9 +419,21 @@ begin
            'entrou_em', o.entrou_em,
            'espera_min', round(extract(epoch from (now() - o.entrou_em)) / 60.0),
            'destino_motivo', o.destino_motivo,
-           'destino_email', o.destino_email
-         ) order by o.entrou_em asc nulls last, o.ulbra_atendimento_id), '[]'::jsonb)
-    into v_tot_novos, v_novos
+           'destino_email', case when v_gestao or o.responsavel = v_op then o.responsavel end,
+           'responsabilidade', coalesce(o.responsabilidade, 'SEM_CARTEIRA'),
+           -- e-mail de outro operador nunca vai para operador: so "e outro"
+           'responsavel_reativa', case when v_gestao or o.responsavel = v_op then o.responsavel end,
+           'responsavel_e_outro', (o.responsavel is not null and v_op is not null and o.responsavel <> v_op),
+           -- quem nao e responsavel ve que HA responsavel, sem o e-mail alheio
+           'responsavel_definido', (o.responsavel is not null),
+           'minha', (v_op is not null and o.responsavel is not distinct from v_op and o.responsavel is not null),
+           'divergencia', (coalesce(o.qtd, 0) > 1),
+           'operadores_com_caso', case when v_gestao then coalesce(o.lista, '[]'::jsonb) end,
+           -- aviso individual SO para o responsavel comprovado; A_DEFINIR nao avisa ninguem
+           'notificar', (o.responsavel is not null and v_op is not null and o.responsavel = v_op),
+           'fora_do_rodizio', (o.responsabilidade = 'A_DEFINIR')
+         ) order by o.prio, o.entrou_em asc nulls last, o.ulbra_atendimento_id), '[]'::jsonb)
+    into v_tot_novos, v_def_novos, v_novos
     from ordenada o;
 
   -- --------------------------------- filtro de operador: SO para a gestao
@@ -293,7 +469,8 @@ begin
     ),
     'limite', v_lim,
     'pagina', greatest(coalesce(p_pagina, 0), 0),
-    'totais', jsonb_build_object('respostas', v_tot_resp, 'sem_interacao', v_tot_sem, 'novos', v_tot_novos),
+    'totais', jsonb_build_object('respostas', v_tot_resp, 'sem_interacao', v_tot_sem, 'novos', v_tot_novos,
+                                 'respostas_a_definir', v_def_resp, 'novos_a_definir', v_def_novos),
     'respostas', v_respostas,
     'sem_interacao', v_sem,
     'novos', v_novos

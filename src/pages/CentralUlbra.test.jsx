@@ -273,3 +273,60 @@ describe("CentralUlbra", () => {
     expect(await screen.findByTestId("central-ulbra")).toBeTruthy();
   });
 });
+
+describe("CentralUlbra: divergência de casos", () => {
+  it("atendimento a definir aparece sinalizado e sem aviso, nunca como de um operador", async () => {
+    const d = resposta({
+      respostas: [
+        { conversa_id: "c-def", aluno_id: "al-9", nome: "Aluno com dois casos", previa: "oi", mensagem_em: "2026-11-09T10:00:00Z",
+          espera_min: 120, atendente_ulbra: null, responsavel_reativa: null, ultimo_acionamento: "2026-11-05",
+          acionamento_posterior: false, lida: false, responsabilidade: "A_DEFINIR", notificar: false, minha: false,
+          responsavel_e_outro: false, divergencia: true, responsavel_definido: false },
+      ],
+      sem_interacao: [], novos: [],
+      totais: { respostas: 1, sem_interacao: 0, novos: 0, respostas_a_definir: 1, novos_a_definir: 0 },
+    });
+    rpc.mockResolvedValue({ data: d, error: null });
+    montar();
+    const linha = (await screen.findByTestId("fila-respostas")).querySelector('[data-linha="resposta"]');
+    expect(linha.textContent).toMatch(/Responsabilidade a definir pela gestão/);
+    expect(linha.textContent).toMatch(/este aluno tem casos de mais de um operador/);
+    expect(linha.textContent).toMatch(/responsável no ReATIVA: a definir/);
+    expect(linha.textContent).not.toMatch(/aviso para você/);
+    expect(linha.querySelector('[data-campo="responsavel-reativa"]').textContent).not.toMatch(/cobranca/);
+  });
+
+  it("responsável comprovado vê o aviso; outro operador vê que há responsável, sem nome", async () => {
+    const d = resposta({
+      respostas: [
+        { conversa_id: "c-mine", aluno_id: "al-1", nome: "Minha", previa: "oi", mensagem_em: "2026-11-09T09:00:00Z",
+          espera_min: 60, atendente_ulbra: null, responsavel_reativa: "cobranca10@aelbra.com.br", ultimo_acionamento: null,
+          acionamento_posterior: false, lida: false, responsabilidade: "CARTEIRA", notificar: true, minha: true,
+          responsavel_e_outro: false, divergencia: false, responsavel_definido: true },
+        { conversa_id: "c-outro", aluno_id: "al-2", nome: "Dele", previa: "oi", mensagem_em: "2026-11-09T09:30:00Z",
+          espera_min: 30, atendente_ulbra: null, responsavel_reativa: null, ultimo_acionamento: null,
+          acionamento_posterior: false, lida: false, responsabilidade: "ASSUMIDO", notificar: false, minha: false,
+          responsavel_e_outro: true, divergencia: true, responsavel_definido: true },
+      ],
+      sem_interacao: [], novos: [],
+      totais: { respostas: 2, sem_interacao: 0, novos: 0, respostas_a_definir: 0, novos_a_definir: 0 },
+    });
+    rpc.mockResolvedValue({ data: d, error: null });
+    montar();
+    const linhas = (await screen.findByTestId("fila-respostas")).querySelectorAll('[data-linha="resposta"]');
+    expect(linhas[0].textContent).toMatch(/aviso para você/);
+    expect(linhas[0].textContent).toMatch(/responsabilidade sua/);
+    expect(linhas[1].textContent).toMatch(/responsável: outro operador/);
+    expect(linhas[1].textContent).toMatch(/você pode ver este atendimento, mas não responde por ele/);
+    expect(linhas[1].textContent).not.toMatch(/aviso para você/);
+    expect(linhas[1].querySelector('[data-campo="responsavel-reativa"]').textContent).toBe("responsável no ReATIVA: ninguém");
+  });
+
+  it("data de acionamento aparece como data pura, sem hora", async () => {
+    rpc.mockResolvedValue({ data: resposta(), error: null });
+    montar();
+    const fila = await screen.findByTestId("fila-sem-interacao");
+    expect(fila.textContent).toMatch(/último: 28\/10\/2026/);
+    expect(fila.textContent).not.toMatch(/28\/10\/2026, \d{2}:\d{2}/);
+  });
+});

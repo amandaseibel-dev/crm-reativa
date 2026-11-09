@@ -65,11 +65,36 @@ function Selo({ tom = "cinza", children }) {
   return <span className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded-full ${SELO[tom]}`}>{children}</span>;
 }
 
-function Responsaveis({ reativa, ulbra }) {
+function RotuloResponsabilidade({ item }) {
+  const r = item?.responsabilidade;
+  if (r === "A_DEFINIR") {
+    return (
+      <span data-campo="responsabilidade" className="inline-flex items-center gap-1 text-amber-800">
+        <Selo tom="ambar">Responsabilidade a definir pela gestão</Selo>
+        <span className="text-[11px] text-gray-500">mais de um operador tem caso deste aluno — fora do rodízio, sem aviso individual</span>
+      </span>
+    );
+  }
+  if (item?.minha) {
+    return <span data-campo="responsabilidade"><Selo tom="verde">responsabilidade sua</Selo></span>;
+  }
+  if (item?.responsavel_e_outro) {
+    return <span data-campo="responsabilidade"><Selo tom="cinza">responsável: outro operador</Selo> <span className="text-[11px] text-gray-500">— você pode ver este atendimento, mas não responde por ele</span></span>;
+  }
+  return null;
+}
+
+function Responsaveis({ item, reativa, ulbra }) {
   return (
     <>
+      <RotuloResponsabilidade item={item} />
+      {item?.divergencia ? (
+        <span data-campo="divergencia" className="text-[11px] text-amber-800">
+          este aluno tem casos de mais de um operador
+        </span>
+      ) : null}
       <span data-campo="responsavel-reativa">
-        responsável no ReATIVA: <strong>{nomeCurto(reativa) || "ninguém"}</strong>
+        responsável no ReATIVA: <strong>{item?.responsabilidade === "A_DEFINIR" ? "a definir" : (nomeCurto(reativa) || "ninguém")}</strong>
       </span>
       <span data-campo="atendente-mensageria">
         atendente na Mensageria: <strong>{ulbra || "não informado"}</strong>
@@ -266,7 +291,7 @@ export default function CentralUlbra({ usuario }) {
       {recado ? <div className="mt-2 text-xs text-gray-700 bg-gray-100 border rounded px-2 py-1" role="status">{recado}</div> : null}
 
       <div className="mt-3 grid gap-3 grid-cols-1 sm:grid-cols-3" data-testid="cartoes">
-        <Cartao n={dados.respostas.length} total={totais.respostas} rotulo="respostas aguardando ação" nota="mais antiga primeiro" />
+        <Cartao n={dados.respostas.length} total={totais.respostas} rotulo="respostas aguardando ação" nota="mais antiga primeiro; a definir pela gestão fora dos avisos" />
         <Cartao n={semInteracao.length} total={filtros.faixa ? semInteracao.length : totais.sem_interacao} rotulo="sem interação válida" nota="fora do prazo de 7 dias, mais tempo primeiro" />
         <Cartao n={dados.novos.length} total={totais.novos} rotulo="novos atendimentos" nota="destinados ao operador, mais antigos primeiro" />
       </div>
@@ -291,7 +316,8 @@ export default function CentralUlbra({ usuario }) {
             {r.previa ? <div className="text-sm text-gray-700">“{r.previa}”</div> : null}
             <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500">
               <Selo tom="vermelho">resposta do aluno sem retorno na Mensageria</Selo>
-              <Responsaveis reativa={r.responsavel_reativa} ulbra={r.atendente_ulbra} />
+              {r.notificar ? <Selo tom="verde">aviso para você</Selo> : null}
+              <Responsaveis item={r} reativa={r.responsavel_reativa} ulbra={r.atendente_ulbra} />
             </div>
             <div className="mt-0.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500" data-campo="informacoes">
               <span>
@@ -334,7 +360,7 @@ export default function CentralUlbra({ usuario }) {
             </div>
             <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500">
               <Selo tom={FAIXAS[x.faixa]?.tom}>{FAIXAS[x.faixa]?.rotulo || x.faixa}</Selo>
-              <Responsaveis reativa={x.responsavel_reativa} ulbra={x.atendente_ulbra} />
+              <Responsaveis item={x} reativa={x.responsavel_reativa} ulbra={x.atendente_ulbra} />
               <span>origem: {x.origem}</span>
             </div>
             <div className="mt-1"><Ficha alunoId={x.aluno_id} /></div>
@@ -362,7 +388,7 @@ export default function CentralUlbra({ usuario }) {
             <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500">
               <Selo tom="azul">{DESTINO[a.destino_motivo] || a.destino_motivo}</Selo>
               <span>destino sugerido: <strong>{nomeCurto(a.destino_email) || "ninguém"}</strong></span>
-              <Responsaveis reativa={null} ulbra={null} />
+              <Responsaveis item={a} reativa={a.responsavel_reativa} ulbra={null} />
             </div>
             <div className="mt-1 flex flex-wrap gap-4 items-center">
               <Ficha alunoId={a.aluno_id} />

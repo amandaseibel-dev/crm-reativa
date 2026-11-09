@@ -43,6 +43,19 @@ export function fmtEspera(min) {
   return `${Math.floor(m / 1440)} d ${Math.floor((m % 1440) / 60)} h`;
 }
 
+/** Rótulo de responsabilidade, sem nome alheio: 'a definir' nunca vira um operador. */
+export function rotuloResponsabilidade(item) {
+  if (item?.responsabilidade === "A_DEFINIR") return "Responsabilidade a definir pela gestão";
+  if (item?.minha) return "responsabilidade sua";
+  if (item?.responsavel_e_outro) return "responsável: outro operador";
+  return null;
+}
+
+/** Só o responsável comprovado recebe aviso individual. */
+export function deveNotificar(item) {
+  return item?.notificar === true && item?.responsabilidade !== "A_DEFINIR";
+}
+
 export function nomeCurto(email) {
   const e = String(email || "").trim();
   return e ? e.split("@")[0] : null;

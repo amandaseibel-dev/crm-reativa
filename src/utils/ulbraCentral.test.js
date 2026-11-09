@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from "vitest";
 import {
+  deveNotificar,
+  rotuloResponsabilidade,
   CENTRAL_ULBRA_LIBERADA_OPERADORES,
   descreverColeta,
   filtrarSemInteracao,
@@ -122,5 +124,27 @@ describe("posição ao voltar da ficha", () => {
   it("filtros diferentes não herdam a posição", () => {
     salvarPosicao({ busca: "?faixa=CRITICO", rolagem: 840, paginas: 3 });
     expect(tomarPosicao("")).toBeNull();
+  });
+});
+
+describe("responsabilidade: ver não é responder", () => {
+  it("a definir pela gestão não recebe aviso nem vira de um operador", () => {
+    const item = { responsabilidade: "A_DEFINIR", notificar: true, minha: false };
+    expect(deveNotificar(item)).toBe(false);
+    expect(rotuloResponsabilidade(item)).toBe("Responsabilidade a definir pela gestão");
+  });
+  it("responsável comprovado recebe aviso e é identificado como sua responsabilidade", () => {
+    const item = { responsabilidade: "CARTEIRA", notificar: true, minha: true };
+    expect(deveNotificar(item)).toBe(true);
+    expect(rotuloResponsabilidade(item)).toBe("responsabilidade sua");
+  });
+  it("quem só vê não recebe aviso e não é apresentado como responsável", () => {
+    const item = { responsabilidade: "ASSUMIDO", notificar: false, minha: false, responsavel_e_outro: true };
+    expect(deveNotificar(item)).toBe(false);
+    expect(rotuloResponsabilidade(item)).toBe("responsável: outro operador");
+  });
+  it("sem campo de responsabilidade não inventa rótulo", () => {
+    expect(rotuloResponsabilidade({})).toBeNull();
+    expect(deveNotificar(null)).toBe(false);
   });
 });

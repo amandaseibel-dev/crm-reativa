@@ -9,7 +9,7 @@ do $$ begin
   perform public.afirmar(to_regclass('public.ulbra_conversas') is not null
                      and to_regclass('public.ulbra_atendimentos') is not null,
     'o espelho continua de pe');
-  perform public.afirmar((select count(*) from public.ulbra_conversas) = 9, 'o espelho nao foi tocado (5 do seed + 4 da prova de paginacao)');
+  perform public.afirmar((select count(*) from public.ulbra_conversas) = 12, 'o espelho nao foi tocado (5 do seed + 4 de paginacao + 3 de responsabilidade)');
 end $$;
 
 select 'ROLLBACK DA CENTRAL: so a funcao saiu' as resultado;
