@@ -1,0 +1,51 @@
+-- =============================================================================
+-- ULBRA — conexão individual do operador e registro de envios (PREPARADA)
+--
+-- NÃO APLICAR sem autorização da gestão. Nenhuma linha é criada aqui.
+--
+-- Tabelas com RLS ligada e SEM política para authenticated/anon: só service_role
+-- lê e escreve. Operador e gestão não leem tokens nem o histórico de envios
+-- por esta via. A leitura do histórico é feita pela função de servidor.
+--
+-- BLOQUEIO ABERTO: refresh_token_cifrado precisa de chave de criptografia que
+-- fique FORA do banco (cofre do Supabase ou variável de ambiente da função).
+-- Até essa decisão, esta migration não deve ser aplicada com tokens reais.
+-- =============================================================================
+
+create table if not exists public.ulbra_conexoes_operador (
+  operador_email        text primary key,
+  access_token_cifrado  text,
+  refresh_token_cifrado text,
+  expira_em             timestamptz,
+  conectada_em          timestamptz not null default now(),
+  revogada_em           timestamptz,
+  atualizado_em         timestamptz not null default now(),
+  constraint ulbra_conexoes_email_minusculo check (operador_email = lower(operador_email))
+);
+
+alter table public.ulbra_conexoes_operador enable row level security;
+revoke all on public.ulbra_conexoes_operador from public, anon, authenticated;
+grant select, insert, update, delete on public.ulbra_conexoes_operador to service_role;
+
+create table if not exists public.ulbra_envios (
+  id                   uuid primary key default gen_random_uuid(),
+  chave                text not null,
+  operador_email       text not null,
+  ulbra_conversa_id    text not null,
+  texto                text not null,
+  status               text not null check (status in ('PENDENTE','ENVIANDO','ENVIADO','RECUSADO','FALHA_INCERTA')),
+  ulbra_mensagem_id    text,
+  motivo               text,
+  criado_em            timestamptz not null default now(),
+  atualizado_em        timestamptz not null default now(),
+  -- Idempotência: uma chave por operador. Clique repetido não cria segunda linha.
+  constraint ulbra_envios_chave_unica unique (operador_email, chave),
+  constraint ulbra_envios_texto_limite check (char_length(texto) between 1 and 1000),
+  constraint ulbra_envios_chave_minima check (char_length(chave) >= 16)
+);
+
+create index if not exists ulbra_envios_conversa_idx on public.ulbra_envios (ulbra_conversa_id, criado_em desc);
+
+alter table public.ulbra_envios enable row level security;
+revoke all on public.ulbra_envios from public, anon, authenticated;
+grant select, insert, update on public.ulbra_envios to service_role;
