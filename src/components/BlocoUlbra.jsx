@@ -177,7 +177,7 @@ export default function BlocoUlbra({ aluno }) {
           rel="noopener noreferrer"
           style={ESTILO.botaoSecundario}
         >
-          Mensageria ULBRA ↗
+          CRM ULBRA ↗
         </a>
       </div>
     );
