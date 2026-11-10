@@ -21,7 +21,7 @@ async function ambiente() {
   return db
 }
 
-const pode = async (db, fn, args) => {
+const pode = async (db, fn) => {
   const r = await db.query(`select has_function_privilege('authenticated', '${fn}', 'EXECUTE') as ok`)
   return r.rows[0].ok
 }
