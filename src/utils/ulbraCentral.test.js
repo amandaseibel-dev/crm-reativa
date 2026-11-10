@@ -12,6 +12,7 @@ import {
   hrefFicha,
   juntarPaginas,
   lerFiltros,
+  listaPrioridade,
   paraBusca,
   podeVerCentralUlbra,
   salvarPosicao,
@@ -22,9 +23,9 @@ describe("porta da Central ULBRA", () => {
   it("nesta entrega os operadores NÃO estão liberados", () => {
     expect(CENTRAL_ULBRA_LIBERADA_OPERADORES).toBe(false);
   });
-  it("gestão vê; operador não vê enquanto não liberado; sem e-mail ninguém vê", () => {
+  it("gestão vê; operador fora do piloto não vê; sem e-mail ninguém vê", () => {
     expect(podeVerCentralUlbra("Amanda.Seibel@aelbra.com.br ")).toBe(true);
-    expect(podeVerCentralUlbra("cobranca10@aelbra.com.br")).toBe(false);
+    expect(podeVerCentralUlbra("cobranca05@aelbra.com.br")).toBe(false);
     expect(podeVerCentralUlbra("")).toBe(false);
     expect(podeVerCentralUlbra(null)).toBe(false);
   });
@@ -82,13 +83,33 @@ describe("formatos", () => {
 
 describe("filtros na URL", () => {
   it("lê, normaliza e descarta faixa inválida", () => {
-    expect(lerFiltros("?operador=COBRANCA10@aelbra.com.br&faixa=critico")).toEqual({ operador: "cobranca10@aelbra.com.br", faixa: "CRITICO" });
-    expect(lerFiltros("?faixa=qualquer")).toEqual({ operador: "", faixa: "" });
+    expect(lerFiltros("?operador=COBRANCA10@aelbra.com.br&faixa=critico")).toEqual({ operador: "cobranca10@aelbra.com.br", faixa: "CRITICO", visao: "cartoes", conv: "" });
+    expect(lerFiltros("?faixa=qualquer")).toEqual({ operador: "", faixa: "", visao: "cartoes", conv: "" });
   });
   it("ida e volta preserva os filtros", () => {
-    const f = { operador: "op@x", faixa: "PERDENDO" };
+    const f = { operador: "op@x", faixa: "PERDENDO", visao: "cartoes", conv: "" };
     expect(lerFiltros(paraBusca(f))).toEqual(f);
-    expect(paraBusca({ operador: "", faixa: "" })).toBe("");
+    expect(paraBusca({ operador: "", faixa: "", visao: "cartoes", conv: "" })).toBe("");
+  });
+
+  it("visão de conversas e conversa selecionada vão para a URL e voltam", () => {
+    const f = { operador: "", faixa: "", visao: "conversas", conv: "r:abc-1" };
+    expect(paraBusca(f)).toBe("?visao=conversas&conv=r%3Aabc-1");
+    expect(lerFiltros(paraBusca(f))).toEqual(f);
+    expect(lerFiltros("?visao=qualquer").visao).toBe("cartoes");
+  });
+
+  it("listaPrioridade: respostas, depois sem interação, depois novos; mantém a ordem do banco", () => {
+    const dados = {
+      respostas: [{ conversa_id: "c2", nome: "B", espera_min: 50, aluno_id: "a2" }, { conversa_id: "c1", nome: "A", espera_min: 9, aluno_id: null }],
+      sem_interacao: [{ aluno_id: "s1", nome: "S", dias_sem_acionamento: 12, faixa: "CRITICO" }],
+      novos: [{ atendimento_id: "n1", nome: "N", espera_min: 3, aluno_id: "a9" }],
+    };
+    const ordem = listaPrioridade(dados, "").map((i) => i.tipo);
+    expect(ordem).toEqual(["resposta", "resposta", "sem_interacao", "novo"]);
+    expect(listaPrioridade(dados, "PERDENDO").map((i) => i.tipo)).toEqual(["resposta", "resposta", "novo"]);
+    expect(listaPrioridade(dados, "")[0].nome).toBe("B");
+    expect(listaPrioridade(dados, "")[2].dias_sem_acionamento).toBe(12);
   });
   it("faixa filtra só a lista de sem interação", () => {
     const l = [{ aluno_id: 1, faixa: "PERDENDO" }, { aluno_id: 2, faixa: "CRITICO" }];
@@ -146,5 +167,13 @@ describe("responsabilidade: ver não é responder", () => {
   it("sem campo de responsabilidade não inventa rótulo", () => {
     expect(rotuloResponsabilidade({})).toBeNull();
     expect(deveNotificar(null)).toBe(false);
+  });
+});
+
+describe("piloto da Central: só o operador da lista entra", () => {
+  it("cobranca10 entra; outro operador sem liberação não entra", () => {
+    expect(podeVerCentralUlbra("cobranca10@aelbra.com.br")).toBe(true);
+    expect(podeVerCentralUlbra("cobranca05@aelbra.com.br")).toBe(false);
+    expect(podeVerCentralUlbra("")).toBe(false);
   });
 });
