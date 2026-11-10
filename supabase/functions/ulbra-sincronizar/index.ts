@@ -84,6 +84,22 @@ async function chamarMcp(token: string, carga: unknown): Promise<unknown> {
   return resultadoDoEnvelope(lerCorpoMcp(resp.headers.get("content-type"), await resp.text()));
 }
 
+/** Teto de chamadas desta execução, lido do corpo JSON. Ausente = sem teto extra. */
+export const TETO_EXECUCAO_MAX = 12;
+async function lerTetoExecucao(req: Request): Promise<number | "INVALIDO" | null> {
+  const texto = await req.text().catch(() => "");
+  if (!texto) return null;
+  let corpo: { teto_chamadas?: unknown };
+  try {
+    corpo = JSON.parse(texto);
+  } catch {
+    return "INVALIDO";
+  }
+  if (corpo.teto_chamadas === undefined) return null;
+  const n = corpo.teto_chamadas;
+  return typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= TETO_EXECUCAO_MAX ? n : "INVALIDO";
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
@@ -103,7 +119,7 @@ Deno.serve(async (req: Request) => {
   // ---------------------------------------------------------------- estado
   const { data: estado } = await sb
     .from("ulbra_sync_estado")
-    .select("cursor_mensagem, piso_pendente, topo_processado, chamadas_dia, dia, ciclos_desde_atendimentos, saldo_api_restam, saldo_api_em")
+    .select("cursor_mensagem, piso_pendente, topo_processado, offset_pendente, chamadas_dia, dia, ciclos_desde_atendimentos, saldo_api_restam, saldo_api_em")
     .eq("id", true)
     .maybeSingle();
 
@@ -116,7 +132,14 @@ Deno.serve(async (req: Request) => {
   const chamadasAntes: number = estado?.dia === hoje ? (estado?.chamadas_dia ?? 0) : 0;
   const ciclosDesde: number = estado?.ciclos_desde_atendimentos ?? 999;
 
-  const orcamento = new Orcamento(TETO_DIARIO_SYNC - chamadasAntes);
+  // Teto POR EXECUÇÃO, além do diário. Só vale quando a chamada traz `teto_chamadas`
+  // (validação manual) e o valor está entre 1 e TETO_EXECUCAO_MAX. O cron não envia
+  // corpo, então roda sem esse teto extra, com o teto diário de sempre.
+  const tetoExecucao = await lerTetoExecucao(req);
+  if (tetoExecucao === "INVALIDO") return json({ erro: "TETO_INVALIDO" }, 400);
+  const orcamento = new Orcamento(
+    Math.min(TETO_DIARIO_SYNC - chamadasAntes, tetoExecucao ?? Number.POSITIVE_INFINITY),
+  );
   // Saldo DIÁRIO da pessoa do token (meu_acesso, limites.pessoaPorDia.restam).
   // Consultado no máximo a cada 60 min; o valor em cache limita o orçamento
   // enquanto estiver fresco. Ele inclui OAuth e fichas: é o limite real.
@@ -196,7 +219,12 @@ Deno.serve(async (req: Request) => {
   let novas: FilaDetalhe[] = [];
 
   try {
-    colheita = await colherConversas((pagina) => chamar(cargaConversas(pagina, pagina)), janela, { pode });
+    // Reserva: a última chamada do orçamento é do detalhe das mensagens recentes.
+    // O backlog nunca a consome, para que uma resposta de cliente não fique sem leitura.
+    colheita = await colherConversas((pagina) => chamar(cargaConversas(pagina, pagina)), janela, {
+      pode: () => orcamento.saldo > DETALHE_POR_CICLO,
+      posicao: estado?.offset_pendente != null ? { offset: estado.offset_pendente } : undefined,
+    });
 
     // Fila: mantém o que já estava (com suas tentativas) e acrescenta o novo.
     novas = candidatasDaColheita(colheita.conversas);
@@ -327,6 +355,13 @@ Deno.serve(async (req: Request) => {
     console.error("ulbra-sincronizar: gravação falhou", error.message);
     return json({ ciclo: "FALHOU", erro: "GRAVACAO", detalhe: error.message }, 500);
   }
+
+  // Posição de leitura para o próximo ciclo. Só depois da gravação; se falhar,
+  // a posição antiga segue, e a validação em sincronizar.ts a torna segura.
+  const { error: errPosicao } = await sb.rpc("ulbra_sync_posicao_gravar", {
+    p_offset: colheita.offset_pendente,
+  });
+  if (errPosicao) console.error("ulbra-sincronizar: posição não gravada", errPosicao.message);
 
   return json({
     ciclo: colheita.truncado ? "INCOMPLETO" : "OK",

@@ -229,6 +229,8 @@ export interface PaginaConversas {
   piso: string | null;
   pode_ter_mais: boolean;
   total: number | null;
+  /** Horário de cada item BRUTO da página, na ordem da API (null se faltar). */
+  ems: (string | null)[];
 }
 
 /**
@@ -268,6 +270,7 @@ export function lerPaginaConversas(resposta: unknown, janela: Janela): PaginaCon
 
   let piso: string | null = null;
   const conversas: ConversaLida[] = [];
+  const ems = itens.map((c) => c?.ultimaMensagemEm ?? c?.ultimaMensagem?.em ?? null);
 
   for (const c of itens) {
     const em = c?.ultimaMensagemEm ?? c?.ultimaMensagem?.em ?? null;
@@ -299,7 +302,7 @@ export function lerPaginaConversas(resposta: unknown, janela: Janela): PaginaCon
   const pode_ter_mais =
     itens.length >= LIMITE_PAGINA && (janela.cursor === null || (piso !== null && piso > janela.cursor));
 
-  return { conversas, piso, pode_ter_mais, total };
+  return { conversas, piso, pode_ter_mais, total, ems };
 }
 
 /**
@@ -463,7 +466,7 @@ export function selecionarDetalhes(
 
 export interface Colheita {
   conversas: ConversaLida[];
-  /** Páginas lidas (inclusive as que só pularam). */
+  /** Páginas lidas (inclusive as que só pularam e as descartadas). */
   leituras: number;
   /** Verdadeiro quando a janela NÃO foi lida até o fim: o próximo ciclo continua. */
   truncado: boolean;
@@ -478,14 +481,30 @@ export interface Colheita {
    * ciclos e nada abaixo do piso se perde.
    */
   pendente_proximo: string | null;
+  /**
+   * Posição de leitura para o próximo ciclo: índice, na lista ordenada, da
+   * primeira mensagem com em <= pendente. Null quando o ciclo fechou a janela.
+   * É só uma dica: quem a usa valida antes de pular (ver `posicao`).
+   */
+  offset_pendente: number | null;
 }
 
 type FimDoCiclo = { terminou: boolean; pendente: string | null };
+
+/** Quantas mensagens antes da posição guardada começar a leitura. Uma página de folga. */
+export const FOLGA_POSICAO = LIMITE_PAGINA;
 
 /**
  * Lê as páginas da mais nova para a mais antiga. `buscarPagina(n)` é injetado:
  * em produção chama a Mensageria; no teste, uma lista em memória que pode
  * mudar entre páginas (mensagem chegando no meio da leitura).
+ *
+ * `posicao` (opcional) é o `offset_pendente` do ciclo anterior. Regras:
+ *  - as mensagens NOVAS (acima do topo) são lidas primeiro, em sequência;
+ *  - só depois de passar do topo a leitura pula para a página da posição
+ *    (com uma página de folga), e só se essa página começar acima do pendente;
+ *  - se a página de destino não começar acima do pendente, a posição está
+ *    errada: descarta a página e segue em sequência. Nada se perde.
  *
  * Ao atingir o teto de páginas COM coleta, não para no meio de um grupo de
  * mesmo horário: fecha o grupo do piso (lendo as páginas seguintes enquanto o
@@ -494,7 +513,12 @@ type FimDoCiclo = { terminou: boolean; pendente: string | null };
 export async function colherConversas(
   buscarPagina: (pagina: number) => Promise<unknown>,
   janela: Janela,
-  limites: { maxPaginas?: number; hardLeituras?: number; pode?: () => boolean } = {},
+  limites: {
+    maxPaginas?: number;
+    hardLeituras?: number;
+    pode?: () => boolean;
+    posicao?: { offset: number };
+  } = {},
 ): Promise<Colheita> {
   const pode = limites.pode ?? (() => true);
   const maxPaginas = limites.maxPaginas ?? MAX_PAGINAS;
@@ -507,6 +531,8 @@ export async function colherConversas(
   // Estado mutável em objeto: evita o estreitamento de tipo do TypeScript sobre
   // variáveis atribuídas dentro de closures.
   const acc = { piso: null as string | null, topo: null as string | null };
+  // Índice e horário de cada item lido, para achar a posição do pendente.
+  const lidos: Array<{ indice: number; em: string | null }> = [];
   let leituras = 0;
   let paginasComColeta = 0;
 
@@ -523,6 +549,7 @@ export async function colherConversas(
   const ler = async (n: number): Promise<PaginaConversas> => {
     const p = lerPaginaConversas(await buscarPagina(n), janela);
     leituras++;
+    p.ems.forEach((em, i) => lidos.push({ indice: (n - 1) * LIMITE_PAGINA + i, em }));
     return p;
   };
 
@@ -532,7 +559,7 @@ export async function colherConversas(
     if (grupo === null) return { terminou: false, pendente: null };
     let n = inicio;
     for (;;) {
-      if (n > hardLeituras || !pode()) return { terminou: false, pendente: grupo };
+      if (leituras >= hardLeituras || !pode()) return { terminou: false, pendente: grupo };
       const p = await ler(n);
       n++;
       // Só entra o que tem o horário do grupo; o restante fica para o próximo ciclo.
@@ -550,12 +577,15 @@ export async function colherConversas(
         }
         return { terminou: false, pendente: maiorAbaixo ?? grupo };
       }
-      // p.piso === grupo: o grupo continua na página seguinte; segue lendo.
     }
   };
 
   let fim: FimDoCiclo | null = null;
-  for (let pagina = 1; pagina <= hardLeituras; pagina++) {
+  let saltou = false;
+  let pagina = 1;
+  // O teto conta LEITURAS feitas, não números de página: um salto não pode
+  // deixar o ciclo com menos leituras do que o teto permite.
+  while (leituras < hardLeituras) {
     // Sem saldo: para AQUI e marca incompleto. Nunca trata página não lida como vazia.
     if (!pode()) break;
     const lida = await ler(pagina);
@@ -570,6 +600,39 @@ export async function colherConversas(
       fim = await fecharGrupo(pagina + 1);
       break;
     }
+    let proxima = pagina + 1;
+    // Passou do topo (esta página já tem mensagem que não é nova): tudo acima foi lido.
+    // Só então a posição guardada pode pular o trecho já processado.
+    if (
+      !saltou &&
+      limites.posicao !== undefined &&
+      janela.pendente !== null &&
+      janela.topo !== null &&
+      lida.piso !== null &&
+      lida.piso <= janela.topo
+    ) {
+      saltou = true;
+      const alvo = Math.floor(Math.max(0, limites.posicao.offset - FOLGA_POSICAO) / LIMITE_PAGINA) + 1;
+      if (alvo > pagina + 1 && leituras < hardLeituras && pode()) {
+        const cand = await ler(alvo);
+        const primeiro = cand.ems[0] ?? null;
+        if (primeiro !== null && primeiro > janela.pendente) {
+          if (cand.conversas.length > 0) paginasComColeta++;
+          recolher(cand.conversas);
+          if (!cand.pode_ter_mais) {
+            fim = { terminou: true, pendente: null };
+            break;
+          }
+          if (paginasComColeta >= maxPaginas) {
+            fim = await fecharGrupo(alvo + 1);
+            break;
+          }
+          proxima = alvo + 1;
+        }
+        // Posição errada: a página lida é descartada e a leitura segue em sequência.
+      }
+    }
+    pagina = proxima;
   }
 
   // Sem fim da janela (teto de leituras, saldo ou página sem coleta até o fim do
@@ -577,6 +640,13 @@ export async function colherConversas(
   // completo e o cursor avançava por cima do backlog não lido.
   const terminou = fim?.terminou === true;
   const pendente = terminou ? null : (fim?.pendente ?? acc.piso ?? janela.pendente);
+  let offset: number | null = null;
+  if (!terminou && pendente !== null) {
+    for (const x of lidos) {
+      if (x.em !== null && x.em <= pendente && (offset === null || x.indice < offset)) offset = x.indice;
+    }
+    if (offset === null) offset = limites.posicao?.offset ?? null;
+  }
   return {
     conversas,
     leituras,
@@ -584,6 +654,7 @@ export async function colherConversas(
     piso_coletado: acc.piso,
     topo_coletado: acc.topo,
     pendente_proximo: pendente,
+    offset_pendente: offset,
   };
 }
 
