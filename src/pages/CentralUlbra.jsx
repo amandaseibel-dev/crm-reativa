@@ -24,6 +24,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import "./ulbra.css";
 import CentralConversas from "../components/CentralConversas";
 import { supabase } from "../services/supabase";
+import { buscarFilaCarteira } from "../utils/filaCarteiraServidor";
 import usePolling from "../utils/polling";
 import { normalizarEmail } from "../utils/ulbraRecebimento";
 import {
@@ -132,6 +133,8 @@ export default function CentralUlbra({ usuario }) {
   const [recado, setRecado] = useState(null);
   const raizRef = useRef(null);
   const rolagemPendente = useRef(posicao?.rolagem ?? null);
+  // Fila "sem interação" pela CARTEIRA, consultada no servidor (RLS + filtros).
+  const [carteira, setCarteira] = useState({ linhas: [], temMais: false, erro: null, pagina: 0 });
 
   const buscar = useCallback(async () => {
     const lidas = [];
@@ -175,6 +178,24 @@ export default function CentralUlbra({ usuario }) {
     if (alvo === window) window.scrollTo(0, y);
     else alvo.scrollTop = y;
   }, [situacao, dados]);
+
+  // Carteira só na visão de conversas. Operador: o próprio e-mail. Gestão: o operador do filtro.
+  const operadorCarteira = dados?.eh_gestao ? filtros.operador : (dados?.operador || email);
+  useEffect(() => {
+    if (filtros.visao !== "conversas" || !operadorCarteira) return undefined;
+    let ativo = true;
+    (async () => {
+      const r = await buscarFilaCarteira(supabase, { operador: operadorCarteira, pagina: 0 });
+      if (ativo) setCarteira({ linhas: r.linhas, temMais: r.temMais, erro: r.erro, pagina: 0 });
+    })();
+    return () => { ativo = false; };
+  }, [filtros.visao, operadorCarteira]);
+
+  async function carregarMaisCarteira() {
+    const proxima = carteira.pagina + 1;
+    const r = await buscarFilaCarteira(supabase, { operador: operadorCarteira, pagina: proxima });
+    setCarteira((c) => ({ linhas: [...c.linhas, ...r.linhas], temMais: r.temMais, erro: r.erro, pagina: proxima }));
+  }
 
   useEffect(() => {
     if (!recado) return undefined;
@@ -309,8 +330,15 @@ export default function CentralUlbra({ usuario }) {
       </div>
 
       {filtros.visao === "conversas" ? (
+        <>
+        {!operadorCarteira ? (
+          <p className="ulbra-aviso ulbra-aviso--cinza">Escolha um operador no filtro para ver a fila da carteira.</p>
+        ) : null}
+        {carteira.erro ? (
+          <p className="ulbra-aviso ulbra-aviso--vermelho" role="alert">Não foi possível ler a carteira: {carteira.erro}</p>
+        ) : null}
         <CentralConversas
-          itens={listaPrioridade(dados, filtros.faixa)}
+          itens={listaPrioridade({ ...dados, sem_interacao: carteira.linhas }, filtros.faixa)}
           selecionadoChave={filtros.conv}
           onSelecionar={selecionarConversa}
           onVoltar={voltarParaLista}
@@ -318,6 +346,10 @@ export default function CentralUlbra({ usuario }) {
           aoAbrirFicha={aoAbrirFicha}
           vazio="nenhuma conversa nesta fila"
         />
+        {carteira.temMais ? (
+          <button type="button" className="ulbra-botao" onClick={carregarMaisCarteira}>Carregar mais da carteira</button>
+        ) : null}
+        </>
       ) : (
       <>
 

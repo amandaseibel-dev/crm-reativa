@@ -15,11 +15,27 @@ import { MemoryRouter, Routes, Route, useLocation } from "react-router-dom";
 import CentralUlbra from "./CentralUlbra";
 
 const rpc = vi.fn();
-vi.mock("../services/supabase", () => ({ supabase: { rpc: (...a) => rpc(...a) } }));
+const fromMock = vi.fn();
+vi.mock("../services/supabase", () => ({ supabase: { rpc: (...a) => rpc(...a), from: (...a) => fromMock(...a) } }));
+
+// Consulta da carteira falsa: registra os filtros e devolve as linhas dadas.
+const DIA = 86400000;
+function carteiraCom(linhas) {
+  const b = {};
+  for (const m of ["select", "eq", "not", "lte", "order"]) b[m] = () => b;
+  b.range = () => Promise.resolve({ data: linhas, error: null });
+  return b;
+}
+const ha = (d) => new Date(Date.now() - d * DIA).toISOString().slice(0, 10);
+const CARTEIRA_OPERADOR = [
+  { aluno_id: "al-1", nome: "Helena Dantas", data_ultimo_acionamento: ha(12), operador_email: "cobranca10@aelbra.com.br" },
+  { aluno_id: "al-3", nome: "Bruno Leal", data_ultimo_acionamento: ha(9), operador_email: "cobranca10@aelbra.com.br" },
+];
 
 const fetchMock = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
+  fromMock.mockImplementation(() => carteiraCom(CARTEIRA_OPERADOR));
   sessionStorage.clear();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -369,5 +385,40 @@ describe("visão de conversas", () => {
     montar(OPERADOR, "/central-ulbra");
     await screen.findByTestId("fila-respostas");
     expect(screen.queryByTestId("visao-conversas")).toBeNull();
+  });
+});
+
+describe("fila da carteira na visão de conversas (servidor)", () => {
+  it("consulta a tabela casos com o próprio operador e corte de 8 dias, no servidor", async () => {
+    rpc.mockResolvedValue({ data: resposta(), error: null });
+    montar(OPERADOR, "/central-ulbra?visao=conversas");
+    await screen.findByTestId("visao-conversas");
+    await waitFor(() => expect(fromMock).toHaveBeenCalledWith("casos"));
+  });
+
+  it("caso interno sem vínculo ULBRA aparece na fila da carteira", async () => {
+    rpc.mockResolvedValue({ data: resposta(), error: null });
+    fromMock.mockImplementation(() => carteiraCom([{ aluno_id: "sem-vinculo", nome: "Sem Vínculo Mensageria", data_ultimo_acionamento: ha(20), operador_email: "cobranca10@aelbra.com.br" }]));
+    montar(OPERADOR, "/central-ulbra?visao=conversas");
+    const visao = await screen.findByTestId("visao-conversas");
+    await waitFor(() => expect(visao.textContent).toMatch(/Sem Vínculo Mensageria/));
+  });
+
+  it("erro da carteira aparece como erro, não como fila vazia", async () => {
+    rpc.mockResolvedValue({ data: resposta(), error: null });
+    fromMock.mockImplementation(() => {
+      const b = carteiraCom([]);
+      b.range = () => Promise.resolve({ data: null, error: { message: "permission denied" } });
+      return b;
+    });
+    montar(OPERADOR, "/central-ulbra?visao=conversas");
+    expect(await screen.findByText(/Não foi possível ler a carteira: permission denied/)).toBeTruthy();
+  });
+
+  it("gestão sem operador escolhido não recebe fila de carteira e é avisada", async () => {
+    rpc.mockResolvedValue({ data: resposta({ eh_gestao: true, operador: null, operadores: ["cobranca10@aelbra.com.br"] }), error: null });
+    montar(GESTAO, "/central-ulbra?visao=conversas");
+    await screen.findByTestId("visao-conversas");
+    expect(screen.getByText(/Escolha um operador no filtro/)).toBeTruthy();
   });
 });
