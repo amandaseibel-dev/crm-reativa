@@ -11,7 +11,7 @@ ALUNO=11111111-1111-1111-1111-111111111111
 conv() { psql -v ON_ERROR_STOP=1 -q -c "insert into public.ulbra_conversas (ulbra_conversa_id, ulbra_cliente_id, cliente_nome, canal, situacao, equipe, ultima_mensagem_quem, ultima_mensagem_em, ultima_mensagem_cliente_em) values ('$1','$2','A','whatsapp','active','Reativa','cliente', now(), now())"; }
 status() { psql -tA -v ON_ERROR_STOP=1 -c "select aluno_status from public.ulbra_conversas where ulbra_conversa_id='$1'"; }
 reset() {
-  psql -v ON_ERROR_STOP=1 -q -c "drop schema public cascade; create schema public; grant usage on schema public to anon, authenticated, service_role;"
+  psql -v ON_ERROR_STOP=1 -q -c "drop schema public cascade; create schema public;"
   psql -v ON_ERROR_STOP=1 -q -f "$REC/01_ambiente.sql"
   psql -v ON_ERROR_STOP=1 -q -f "$PILOTO"
   psql -v ON_ERROR_STOP=1 -q -f "$DIR/00_stub_vinculos.sql"
