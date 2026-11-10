@@ -1,0 +1,7 @@
+-- ULBRA: bloqueio temporário das RPCs da Central e do sino.
+-- Efeito: remove EXECUTE de authenticated, anon e public nas duas funções.
+-- Não altera dados, tabelas, policies nem a definição das funções.
+-- Uso: reversão de emergência quando um vínculo é revogado e a função
+-- ainda expõe dados. Não restaura versão antiga de nenhuma função.
+revoke all on function public.ulbra_central_operador(text, integer, integer) from public, anon, authenticated;
+revoke all on function public.ulbra_avisos_operador(integer) from public, anon, authenticated;
