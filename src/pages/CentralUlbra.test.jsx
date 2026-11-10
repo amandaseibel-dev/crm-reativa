@@ -330,3 +330,44 @@ describe("CentralUlbra: divergência de casos", () => {
     expect(fila.textContent).not.toMatch(/28\/10\/2026, \d{2}:\d{2}/);
   });
 });
+
+describe("visão de conversas", () => {
+  it("?visao=conversas mostra as duas colunas no lugar das filas, na ordem de prioridade", async () => {
+    rpc.mockResolvedValue({ data: resposta(), error: null });
+    montar(OPERADOR, "/central-ulbra?visao=conversas");
+    const visao = await screen.findByTestId("visao-conversas");
+    expect(screen.queryByTestId("fila-respostas")).toBeNull();
+    const tipos = Array.from(visao.querySelectorAll(".ulbra-conv-item")).map((b) => b.getAttribute("data-linha"));
+    expect(tipos).toEqual(["resposta", "resposta", "sem_interacao", "sem_interacao", "novo"]);
+  });
+
+  it("selecionar uma conversa vai para a URL; abrir a ficha e voltar mantém a conversa e a visão", async () => {
+    rpc.mockResolvedValue({ data: resposta(), error: null });
+    const rolar = vi.fn();
+    vi.stubGlobal("scrollTo", rolar);
+    Object.defineProperty(window, "scrollY", { value: 300, configurable: true });
+    const { unmount } = montar(OPERADOR, "/central-ulbra?visao=conversas");
+    const visao = await screen.findByTestId("visao-conversas");
+    fireEvent.click(visao.querySelectorAll(".ulbra-conv-item")[3]);
+    await waitFor(() => expect(screen.getByTestId("onde").textContent).toBe("/central-ulbra?visao=conversas&conv=s%3Aal-3"));
+    fireEvent.click(screen.getByText("Abrir ficha"));
+    expect(screen.getByTestId("onde").textContent).toBe("/aluno?alunoId=al-3&origem=ulbra");
+    expect(JSON.parse(sessionStorage.getItem("rv_central_ulbra_posicao")).busca).toBe("?visao=conversas&conv=s%3Aal-3");
+    unmount();
+
+    window.history.replaceState(null, "", "/central-ulbra?visao=conversas&conv=s%3Aal-3");
+    montar(OPERADOR, "/central-ulbra?visao=conversas&conv=s%3Aal-3");
+    const de_volta = await screen.findByTestId("visao-conversas");
+    const ativo = de_volta.querySelector('[aria-current="true"]');
+    expect(ativo.textContent).toMatch(/Bruno Leal/);
+    await waitFor(() => expect(rolar).toHaveBeenCalledWith(0, 300));
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("a visão de cartões continua a padrão quando não há parâmetro", async () => {
+    rpc.mockResolvedValue({ data: resposta(), error: null });
+    montar(OPERADOR, "/central-ulbra");
+    await screen.findByTestId("fila-respostas");
+    expect(screen.queryByTestId("visao-conversas")).toBeNull();
+  });
+});

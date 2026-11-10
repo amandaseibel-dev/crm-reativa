@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import "./ulbra.css";
+import CentralConversas from "../components/CentralConversas";
 import { supabase } from "../services/supabase";
 import usePolling from "../utils/polling";
 import { normalizarEmail } from "../utils/ulbraRecebimento";
@@ -38,6 +39,7 @@ import {
   haMais,
   hrefFicha,
   juntarPaginas,
+  listaPrioridade,
   lerFiltros,
   nomeCurto,
   paraBusca,
@@ -186,6 +188,14 @@ export default function CentralUlbra({ usuario }) {
     if (campo === "operador") setPaginas(1);
   }
 
+  // Seleção e voltar empilham histórico: o "voltar" do navegador desfaz a escolha.
+  function selecionarConversa(chave) {
+    setParams(new URLSearchParams(paraBusca({ ...filtros, conv: chave }).replace(/^\?/, "")));
+  }
+  function voltarParaLista() {
+    setParams(new URLSearchParams(paraBusca({ ...filtros, conv: "" }).replace(/^\?/, "")));
+  }
+
   function aoAbrirFicha() {
     const alvo = contedorDeRolagem(raizRef.current);
     salvarPosicao({
@@ -288,6 +298,28 @@ export default function CentralUlbra({ usuario }) {
       </div>
 
       {recado ? <div className="ulbra-recado" role="status">{recado}</div> : null}
+
+      <div className="ulbra-visao" role="group" aria-label="Visão da Central">
+        <button type="button" className="ulbra-botao" aria-pressed={filtros.visao !== "conversas"} onClick={() => mudarFiltro("visao", "cartoes")}>
+          Cartões
+        </button>
+        <button type="button" className="ulbra-botao" aria-pressed={filtros.visao === "conversas"} onClick={() => mudarFiltro("visao", "conversas")}>
+          Conversas
+        </button>
+      </div>
+
+      {filtros.visao === "conversas" ? (
+        <CentralConversas
+          itens={listaPrioridade(dados, filtros.faixa)}
+          selecionadoChave={filtros.conv}
+          onSelecionar={selecionarConversa}
+          onVoltar={voltarParaLista}
+          historico={{ estado: "indisponivel", mensagens: [] }}
+          aoAbrirFicha={aoAbrirFicha}
+          vazio="nenhuma conversa nesta fila"
+        />
+      ) : (
+      <>
 
       <div className="ulbra-cartoes ulbra-cartoes--tres" data-testid="cartoes">
         <Cartao n={dados.respostas.length} total={totais.respostas} rotulo="respostas aguardando ação" nota="mais antiga primeiro; a definir pela gestão fora dos avisos" />
@@ -396,6 +428,9 @@ export default function CentralUlbra({ usuario }) {
           </div>
         ))}
       </section>
+
+      </>
+      )}
 
       {faltam ? (
         <div className="ulbra-rodape" style={{ textAlign: "center" }}>
