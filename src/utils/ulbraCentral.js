@@ -247,3 +247,12 @@ export function tomarPosicao(busca) {
 export function hrefFicha(alunoId) {
   return `/aluno?alunoId=${encodeURIComponent(alunoId)}&origem=ulbra`;
 }
+
+/**
+ * A ficha aberta pela Central do piloto NÃO consulta a Mensageria ao montar
+ * (BlocoUlbra e AtendimentoUlbra chamam ulbra-consultar e ulbra-atendimento,
+ * que chamam a ULBRA). Custo zero na ULBRA nessa navegação.
+ */
+export function consultaMensageriaNaFicha(search) {
+  return new URLSearchParams(search || "").get("origem") !== "ulbra";
+}

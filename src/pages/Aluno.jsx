@@ -17,6 +17,7 @@ import { corMovimentacao, recortarMovimentacoes } from "../utils/movimentacoes";
 import LinhaMovimentacao from "../components/LinhaMovimentacao";
 import TelefonesAluno from "../components/TelefonesAluno";
 import BlocoUlbra from "../components/BlocoUlbra";
+import { consultaMensageriaNaFicha } from "../utils/ulbraCentral";
 import AtendimentoUlbra from "../components/AtendimentoUlbra";
 import PainelDesfazer from "../components/PainelDesfazer";
 import Dobra from "../ui/blocos";
@@ -2259,7 +2260,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   `rel="noopener noreferrer"`. Mudou o lugar e o visual, nao a
                   regra. */}
               <TelefonesAluno aluno={alunoSelecionado}>
-                <BlocoUlbra aluno={alunoSelecionado} />
+                {consultaMensageriaNaFicha(window.location.search) ? <BlocoUlbra aluno={alunoSelecionado} /> : null}
               </TelefonesAluno>
               <div style={caixaTabular}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -2533,7 +2534,9 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   contatos. Nao foi duplicado. O
                   `AtendimentoUlbra` fica: e o atendimento em curso, nao um
                   contato -- e segue so na aba "Resumo e tabulacao". */}
-              <AtendimentoUlbra aluno={alunoSelecionado} />
+              {consultaMensageriaNaFicha(window.location.search)
+                ? <AtendimentoUlbra aluno={alunoSelecionado} />
+                : <p style={{ fontSize: 12, color: "#6b7280" }}>Mensageria não consultada nesta abertura: ficha aberta pela Central do piloto (custo zero na ULBRA).</p>}
               </>
               )}
               {(abaFicha === "dados" || abaFicha === "tabulacoes") && (

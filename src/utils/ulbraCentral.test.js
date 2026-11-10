@@ -15,6 +15,7 @@ import {
   listaPrioridade,
   paraBusca,
   podeVerCentralUlbra,
+  consultaMensageriaNaFicha,
   salvarPosicao,
   tomarPosicao,
 } from "./ulbraCentral";
@@ -175,5 +176,13 @@ describe("piloto da Central: só o operador da lista entra", () => {
     expect(podeVerCentralUlbra("cobranca10@aelbra.com.br")).toBe(true);
     expect(podeVerCentralUlbra("cobranca05@aelbra.com.br")).toBe(false);
     expect(podeVerCentralUlbra("")).toBe(false);
+  });
+});
+
+describe("ficha aberta pela Central não consulta a Mensageria", () => {
+  it("origem=ulbra desliga a consulta; ficha comum continua consultando", () => {
+    expect(consultaMensageriaNaFicha("?alunoId=al-1&origem=ulbra")).toBe(false);
+    expect(consultaMensageriaNaFicha("?alunoId=al-1")).toBe(true);
+    expect(consultaMensageriaNaFicha("")).toBe(true);
   });
 });
