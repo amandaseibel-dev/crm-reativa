@@ -8,7 +8,7 @@ const sqlDe = (p) => readFileSync(p, "utf8").split("\n").filter((l) => !l.trimSt
 const AMBIENTE = "supabase/tests/ulbra_recebimento/01_ambiente.sql";
 const PILOTO = "supabase/aguardando_aprovacao/20261108140000_ulbra_recebimento_e_fila.sql.pendente";
 const IDENTIDADE = "supabase/aguardando_aprovacao/20261110130000_ulbra_identidade_propagada.sql.pendente";
-const CENTRAL_BASE = "supabase/tests/central_base.tmp.sql";
+const CENTRAL_BASE = "supabase/aguardando_aprovacao/20261109150000_ulbra_central_operador.sql.pendente";
 const CENTRAL_PATCH = "supabase/aguardando_aprovacao/20261110140000_ulbra_central_vinculo_ativo.sql.pendente";
 const A = "11111111-1111-1111-1111-111111111111";
 const B = "22222222-2222-2222-2222-222222222222";
