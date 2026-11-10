@@ -844,3 +844,38 @@ jobs:
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
           psql -v ON_ERROR_STOP=1 -f "$DIR/07_corpo_real_rollback.sql"
+
+  # ---------------------------------------------------------------------------
+  # ULBRA — identidade do vínculo: corrida REAL entre duas sessões, PostgreSQL 17.
+  # Não chama a ULBRA. A migration candidata NÃO é aplicada em nenhum ambiente.
+  # ---------------------------------------------------------------------------
+  ulbra-identidade-concorrencia:
+    name: ulbra identidade — corrida entre coleta e vínculo (postgres 17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Corrida entre duas sessões (coleta x vínculo, nos dois sentidos)
+        run: bash supabase/tests/ulbra_identidade_concorrencia/run.sh

@@ -31,6 +31,8 @@ as $$
 declare
   v_aluno uuid;
 begin
+  -- Trava compartilhada por cliente: espera uma alteração de vínculo em curso.
+  perform pg_advisory_xact_lock_shared(hashtext('ulbra_identidade:' || new.ulbra_cliente_id));
   select v.aluno_id into v_aluno
     from public.ulbra_vinculos v
    where v.ulbra_cliente_id = new.ulbra_cliente_id
@@ -53,6 +55,8 @@ as $$
 declare
   v_aluno uuid;
 begin
+  -- Trava compartilhada por cliente: espera uma alteração de vínculo em curso.
+  perform pg_advisory_xact_lock_shared(hashtext('ulbra_identidade:' || new.ulbra_cliente_id));
   select v.aluno_id into v_aluno
     from public.ulbra_vinculos v
    where v.ulbra_cliente_id = new.ulbra_cliente_id
@@ -96,6 +100,26 @@ begin
 end
 $$;
 
+-- Trava exclusiva por cliente até o COMMIT da alteração de vínculo. Com isto,
+-- uma coleta que grava identidade concorrente espera (ou é corrigida depois):
+-- nunca fica uma linha com identidade antiga para trás.
+create or replace function public._ulbra_vinculo_trava()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform pg_advisory_xact_lock(hashtext('ulbra_identidade:' || coalesce(new.ulbra_cliente_id, old.ulbra_cliente_id)));
+  return new;
+end
+$$;
+
+drop trigger if exists trg_ulbra_vinculos_trava on public.ulbra_vinculos;
+create trigger trg_ulbra_vinculos_trava
+  before insert or update of confianca, aluno_id, desvinculado_em on public.ulbra_vinculos
+  for each row execute function public._ulbra_vinculo_trava();
+
 drop trigger if exists trg_ulbra_vinculos_propaga on public.ulbra_vinculos;
 create trigger trg_ulbra_vinculos_propaga
   after insert or update of confianca, aluno_id, desvinculado_em on public.ulbra_vinculos
@@ -104,3 +128,4 @@ create trigger trg_ulbra_vinculos_propaga
 revoke all on function public._ulbra_identidade_conversa() from public, anon, authenticated;
 revoke all on function public._ulbra_identidade_atendimento() from public, anon, authenticated;
 revoke all on function public._ulbra_identidade_propagar() from public, anon, authenticated;
+revoke all on function public._ulbra_vinculo_trava() from public, anon, authenticated;
