@@ -47,7 +47,11 @@ function horaCurta(iso) {
 }
 
 export default function NotificacoesUlbra({ usuario }) {
-  const email = normalizarEmail(usuario?.perfil?.email || usuario?.auth?.email);
+  // A MESMA porta da Central: sem ela o e-mail fica vazio e nada é lido nem
+  // mostrado (conta de painel, cadastro inativo, perfil não operacional). O
+  // banco recusa de novo em `ulbra_avisos_operador`; aqui só se evita a chamada.
+  const emailBruto = normalizarEmail(usuario?.perfil?.email || usuario?.auth?.email);
+  const email = podeVerCentralUlbra(emailBruto, usuario?.perfil) ? emailBruto : "";
   const [conversasBrutas, setConversasBrutas] = useState([]);
   const [leituras, setLeituras] = useState(() => new Map());
   const [atendimentos, setAtendimentos] = useState([]);
@@ -289,7 +293,7 @@ export default function NotificacoesUlbra({ usuario }) {
               </div>
             ) : null}
 
-            {podeVerCentralUlbra(email) ? (
+            {podeVerCentralUlbra(email, usuario?.perfil) ? (
               <a href="/central-ulbra" className="ulbra-link" style={{ display: "block", padding: "8px 10px" }}>
                 abrir Central ULBRA (fila completa)
               </a>

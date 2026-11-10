@@ -8,19 +8,36 @@
 // ===========================================================================
 import { podeVerCrmUlbra } from "./ulbraPainel";
 
-// Enquanto a consulta do banco não for aplicada e a gestão não liberar, a
-// Central aparece SÓ para a gestão. Liberar operador é decisão dela: muda-se
-// esta linha, numa PR própria, depois da migration aplicada.
-export const CENTRAL_ULBRA_LIBERADA_OPERADORES = false;
+// Liberação geral (decisão da gestão em 10/11/2026): a Central e o sino
+// aparecem para toda a equipe de operadores ativos, sem lista nominal. Esta
+// porta é SÓ de tela: o recorte de dados é do banco (`ulbra_central_operador`
+// e `ulbra_avisos_operador`), que recusa usuário inativo, conta de painel e
+// p_operador de quem não é gestão.
+export const CENTRAL_ULBRA_LIBERADA_OPERADORES = true;
 
-// PILOTO: operadores com acesso à Central antes da liberação geral. Só a
-// consulta do banco decide o que cada um vê; esta lista é só a porta de tela.
-export const CENTRAL_ULBRA_PILOTO_OPERADORES = ["cobranca10@aelbra.com.br"];
+// Conta técnica do telão: espelho de `public.eh_painel()` no banco. Confinada
+// a /tv pelo App; aqui só se garante que a porta da Central não a aceita.
+export const EMAIL_PAINEL_TV = "painel.tv@reativa.local";
 
-export function podeVerCentralUlbra(email, liberada = CENTRAL_ULBRA_LIBERADA_OPERADORES) {
+// Papéis operacionais que entram pela liberação geral. Espelha as listas de
+// `permissoes` do App: diretoria é leitura executiva (rotas fixas) e auditor
+// não opera carteira; nenhum dos dois ganha a Central por esta porta.
+export const PERFIS_OPERACIONAIS_CENTRAL = ["operador", "supervisor", "gerencia", "administrativo"];
+
+/**
+ * Porta de tela da Central ULBRA e do sino.
+ * `quem`: { perfil, ativo } do cadastro (`usuarios`). Sem e-mail, conta de
+ * painel ou cadastro inativo: nunca. Gestão (`podeVerCrmUlbra`): sempre.
+ * Operador: só com a liberação ligada E perfil operacional.
+ */
+export function podeVerCentralUlbra(email, quem = {}, liberada = CENTRAL_ULBRA_LIBERADA_OPERADORES) {
   const e = String(email || "").toLowerCase().trim();
-  if (!e) return false;
-  return podeVerCrmUlbra(e) || liberada === true || CENTRAL_ULBRA_PILOTO_OPERADORES.includes(e);
+  if (!e || e === EMAIL_PAINEL_TV) return false;
+  const q = quem && typeof quem === "object" ? quem : {};
+  if (q.ativo === false) return false;
+  if (podeVerCrmUlbra(e)) return true;
+  if (liberada !== true) return false;
+  return PERFIS_OPERACIONAIS_CENTRAL.includes(String(q.perfil || "").toLowerCase().trim());
 }
 
 export const LIMITE_PAGINA = 100;

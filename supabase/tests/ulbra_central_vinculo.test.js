@@ -102,3 +102,85 @@ describe("Central: autorização pelo vínculo ativo", () => {
     await db.close();
   });
 });
+
+// Liberação geral (10/11/2026): a porta de tela abre para toda a equipe; o
+// isolamento tem de estar TODO no banco. Estes casos provam isso na RPC.
+async function comoOperador(db, email, pOperador) {
+  await db.exec(`select set_config('teste.email', '${email}', false)`);
+  const r = await db.query("select public.ulbra_central_operador($1, 200, 0) as j", [pOperador ?? null]);
+  return r.rows[0].j;
+}
+const conversa = (db, id, cliente) => db.query(
+  "insert into public.ulbra_conversas (ulbra_conversa_id, ulbra_cliente_id, cliente_nome, canal, situacao, equipe, ultima_mensagem_quem, ultima_mensagem_em, ultima_mensagem_cliente_em) values ($1,$2,'X','whatsapp','active','Reativa','cliente', now(), now())",
+  [id, cliente]);
+async function doisOperadores(db) {
+  await db.query("insert into public.casos (aluno_id, operador_email) values ($1, 'cobranca10@aelbra.com.br'), ($2, 'cobranca05@aelbra.com.br')", [A, B]);
+  await db.query("insert into public.ulbra_vinculos (aluno_id, ulbra_cliente_id, confianca, origem) values ($1, 'cli-a', 'alta_cpf', 'cpf'), ($2, 'cli-b', 'alta_cpf', 'cpf')", [A, B]);
+  await conversa(db, "ca", "cli-a");
+  await conversa(db, "cb", "cli-b");
+}
+
+describe("Central: isolamento na liberação geral", () => {
+  it("cada operador vê só os próprios casos; p_operador de outro é ignorado para quem não é gestão", async () => {
+    const db = await ambiente();
+    await doisOperadores(db);
+    expect(ids((await comoOperador(db, "cobranca10@aelbra.com.br")).respostas)).toEqual(["ca"]);
+    expect(ids((await comoOperador(db, "cobranca05@aelbra.com.br")).respostas)).toEqual(["cb"]);
+    const tentativa = await comoOperador(db, "cobranca10@aelbra.com.br", "cobranca05@aelbra.com.br");
+    expect(tentativa.eh_gestao).toBe(false);
+    expect(ids(tentativa.respostas)).toEqual(["ca"]);
+    await db.close();
+  });
+
+  it("gestão vê todas as carteiras e, com filtro, só o operador pedido", async () => {
+    const db = await ambiente();
+    await doisOperadores(db);
+    await db.query("insert into public.usuarios (email, ativo) values ('amanda.seibel@aelbra.com.br', true) on conflict (email) do nothing");
+    const tudo = await comoOperador(db, "amanda.seibel@aelbra.com.br");
+    expect(tudo.eh_gestao).toBe(true);
+    expect(ids(tudo.respostas).sort()).toEqual(["ca", "cb"]);
+    expect((tudo.operadores ?? []).sort()).toEqual(["cobranca05@aelbra.com.br", "cobranca10@aelbra.com.br"]);
+    expect(ids((await comoOperador(db, "amanda.seibel@aelbra.com.br", "cobranca05@aelbra.com.br")).respostas)).toEqual(["cb"]);
+    await db.close();
+  });
+
+  it("cadastro inativo: ACESSO_NEGADO, mesmo com caso e vínculo", async () => {
+    const db = await ambiente();
+    await doisOperadores(db);
+    await db.query("update public.usuarios set ativo = false where email = 'cobranca05@aelbra.com.br'");
+    const r = await comoOperador(db, "cobranca05@aelbra.com.br");
+    expect(r.ok).toBe(false);
+    expect(r.motivo).toBe("ACESSO_NEGADO");
+    expect(r.respostas).toBeUndefined();
+    await db.close();
+  });
+
+  it("conta de painel: ACESSO_NEGADO", async () => {
+    const db = await ambiente();
+    await doisOperadores(db);
+    await db.query("insert into public.usuarios (email, ativo) values ('painel.tv@reativa.local', true) on conflict (email) do update set ativo = true");
+    const uid = (await db.query("select id from public.usuarios where email = 'painel.tv@reativa.local'")).rows[0].id;
+    await db.exec(`select set_config('teste.uid', '${uid}', false)`);
+    const r = await comoOperador(db, "painel.tv@reativa.local");
+    expect(r.ok).toBe(false);
+    expect(r.motivo).toBe("ACESSO_NEGADO");
+    await db.close();
+  });
+
+  it("caso sem responsável (operador_email nulo) não aparece para nenhum operador", async () => {
+    const db = await ambiente();
+    await doisOperadores(db);
+    const C = "33333333-3333-3333-3333-333333333333";
+    await db.query("insert into public.alunos (id, nome) values ($1, 'C')", [C]);
+    await db.query("insert into public.casos (aluno_id, operador_email) values ($1, null)", [C]);
+    await db.query("insert into public.ulbra_vinculos (aluno_id, ulbra_cliente_id, confianca, origem) values ($1, 'cli-c', 'alta_cpf', 'cpf')", [C]);
+    await conversa(db, "cc", "cli-c");
+    expect(ids((await comoOperador(db, "cobranca10@aelbra.com.br")).respostas)).toEqual(["ca"]);
+    expect(ids((await comoOperador(db, "cobranca05@aelbra.com.br")).respostas)).toEqual(["cb"]);
+    const gestao = await comoOperador(db, "amanda.seibel@aelbra.com.br");
+    const cc = (gestao.respostas ?? []).find((x) => x.conversa_id === "cc");
+    expect(cc).toBeTruthy();
+    expect(cc.responsavel_email ?? cc.operador_email ?? null).toBeNull();
+    await db.close();
+  });
+});

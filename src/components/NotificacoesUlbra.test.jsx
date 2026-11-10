@@ -98,7 +98,7 @@ function dublarSom() {
   return criarOsc;
 }
 
-const USUARIO = { perfil: { email: "op1@x" } };
+const USUARIO = { perfil: { email: "op1@x", perfil: "operador", ativo: true } };
 
 const CONVERSA = {
   ulbra_conversa_id: "c1",
@@ -165,16 +165,31 @@ describe("NotificacoesUlbra", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("link para a Central ULBRA aparece só para quem pode vê-la (hoje, gestão)", async () => {
+  it("link para a Central ULBRA aparece para operador liberado e para a gestão", async () => {
     estado.conversas = [CONVERSA];
     const { unmount } = render(<NotificacoesUlbra usuario={USUARIO} />);
     fireEvent.click(await screen.findByLabelText("Mensageria ULBRA"));
-    expect(screen.queryByText(/abrir Central ULBRA/)).toBeNull();
+    expect(screen.getByText(/abrir Central ULBRA/).getAttribute("href")).toBe("/central-ulbra");
     unmount();
 
     render(<NotificacoesUlbra usuario={{ perfil: { email: "amanda.seibel@aelbra.com.br" } }} />);
     fireEvent.click(await screen.findByLabelText("Mensageria ULBRA"));
     expect(screen.getByText(/abrir Central ULBRA/).getAttribute("href")).toBe("/central-ulbra");
+  });
+
+  it("fora da porta (inativo, painel, perfil não operacional) o sino não aparece nem lê nada", async () => {
+    estado.conversas = [CONVERSA];
+    for (const perfil of [
+      { email: "op1@x", perfil: "operador", ativo: false },
+      { email: "painel.tv@reativa.local", perfil: "operador", ativo: true },
+      { email: "dir@x", perfil: "diretoria", ativo: true },
+    ]) {
+      const { container, unmount } = render(<NotificacoesUlbra usuario={{ perfil }} />);
+      await new Promise((r) => setTimeout(r, 30));
+      expect(screen.queryByLabelText("Mensageria ULBRA")).toBeNull();
+      expect(container.innerHTML).toBe("");
+      unmount();
+    }
   });
 
   it("some da tela quando não há novidade", async () => {

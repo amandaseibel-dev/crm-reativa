@@ -20,19 +20,37 @@ import {
   tomarPosicao,
 } from "./ulbraCentral";
 
-describe("porta da Central ULBRA", () => {
-  it("nesta entrega os operadores NÃO estão liberados", () => {
-    expect(CENTRAL_ULBRA_LIBERADA_OPERADORES).toBe(false);
+describe("porta da Central ULBRA (liberação geral)", () => {
+  const op = { perfil: "operador", ativo: true };
+  it("a liberação geral está ligada, sem lista nominal", () => {
+    expect(CENTRAL_ULBRA_LIBERADA_OPERADORES).toBe(true);
   });
-  it("gestão vê; operador fora do piloto não vê; sem e-mail ninguém vê", () => {
+  it("gestão vê sempre; sem e-mail ninguém vê", () => {
     expect(podeVerCentralUlbra("Amanda.Seibel@aelbra.com.br ")).toBe(true);
-    expect(podeVerCentralUlbra("cobranca05@aelbra.com.br")).toBe(false);
+    expect(podeVerCentralUlbra("amanda.seibel@aelbra.com.br", { perfil: "gerencia", ativo: true })).toBe(true);
     expect(podeVerCentralUlbra("")).toBe(false);
-    expect(podeVerCentralUlbra(null)).toBe(false);
+    expect(podeVerCentralUlbra(null, op)).toBe(false);
   });
-  it("com a liberação ligada, operador com e-mail vê; sem e-mail continua fora", () => {
-    expect(podeVerCentralUlbra("cobranca10@aelbra.com.br", true)).toBe(true);
-    expect(podeVerCentralUlbra("", true)).toBe(false);
+  it("todo operador ativo com perfil operacional vê: não há mais exclusividade do cobranca10", () => {
+    expect(podeVerCentralUlbra("cobranca10@aelbra.com.br", op)).toBe(true);
+    expect(podeVerCentralUlbra("cobranca05@aelbra.com.br", op)).toBe(true);
+    expect(podeVerCentralUlbra("cobranca99@aelbra.com.br", { perfil: "supervisor" })).toBe(true);
+    expect(podeVerCentralUlbra("x@aelbra.com.br", { perfil: "administrativo" })).toBe(true);
+  });
+  it("cadastro inativo e conta de painel continuam bloqueados, mesmo com perfil operacional", () => {
+    expect(podeVerCentralUlbra("cobranca05@aelbra.com.br", { perfil: "operador", ativo: false })).toBe(false);
+    expect(podeVerCentralUlbra("painel.tv@reativa.local", op)).toBe(false);
+    expect(podeVerCentralUlbra("PAINEL.TV@reativa.local", { perfil: "gerencia", ativo: true })).toBe(false);
+  });
+  it("perfil não operacional (diretoria, auditor) ou ausente não entra pela liberação geral", () => {
+    expect(podeVerCentralUlbra("dir@aelbra.com.br", { perfil: "diretoria", ativo: true })).toBe(false);
+    expect(podeVerCentralUlbra("aud@aelbra.com.br", { perfil: "auditor", ativo: true })).toBe(false);
+    expect(podeVerCentralUlbra("cobranca05@aelbra.com.br")).toBe(false);
+    expect(podeVerCentralUlbra("cobranca05@aelbra.com.br", {})).toBe(false);
+  });
+  it("com a liberação desligada, só a gestão vê", () => {
+    expect(podeVerCentralUlbra("cobranca10@aelbra.com.br", op, false)).toBe(false);
+    expect(podeVerCentralUlbra("amanda.seibel@aelbra.com.br", op, false)).toBe(true);
   });
 });
 
@@ -171,10 +189,12 @@ describe("responsabilidade: ver não é responder", () => {
   });
 });
 
-describe("piloto da Central: só o operador da lista entra", () => {
-  it("cobranca10 entra; outro operador sem liberação não entra", () => {
-    expect(podeVerCentralUlbra("cobranca10@aelbra.com.br")).toBe(true);
-    expect(podeVerCentralUlbra("cobranca05@aelbra.com.br")).toBe(false);
+describe("liberação geral: não existe mais lista nominal de piloto", () => {
+  it("cobranca10 e cobranca05 entram pela mesma regra; sem perfil operacional nenhum dos dois entra", () => {
+    const op = { perfil: "operador", ativo: true };
+    expect(podeVerCentralUlbra("cobranca10@aelbra.com.br", op)).toBe(true);
+    expect(podeVerCentralUlbra("cobranca05@aelbra.com.br", op)).toBe(true);
+    expect(podeVerCentralUlbra("cobranca10@aelbra.com.br")).toBe(false);
     expect(podeVerCentralUlbra("")).toBe(false);
   });
 });

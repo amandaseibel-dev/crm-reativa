@@ -104,3 +104,27 @@ describe("avisos do operador responsável (servidor)", () => {
     await db.close();
   });
 });
+
+describe("avisos: bloqueios preservados na liberação geral", () => {
+  it("cadastro inativo recebe ACESSO_NEGADO", async () => {
+    const db = await ambiente();
+    await db.query("insert into public.casos (aluno_id, operador_email) values ($1, 'cobranca05@aelbra.com.br')", [A]);
+    await db.query("insert into public.ulbra_vinculos (aluno_id, ulbra_cliente_id, confianca, origem) values ($1, 'cli-i', 'alta_cpf', 'cpf')", [A]);
+    await conv(db, "ci", "cli-i");
+    await db.query("update public.usuarios set ativo = false where email = 'cobranca05@aelbra.com.br'");
+    const r = await como(db, "cobranca05@aelbra.com.br");
+    expect(r.ok).toBe(false);
+    expect(r.motivo).toBe("ACESSO_NEGADO");
+    await db.close();
+  });
+  it("conta de painel recebe ACESSO_NEGADO", async () => {
+    const db = await ambiente();
+    await db.query("insert into public.usuarios (email, ativo) values ('painel.tv@reativa.local', true) on conflict (email) do update set ativo = true");
+    const uid = (await db.query("select id from public.usuarios where email = 'painel.tv@reativa.local'")).rows[0].id;
+    await db.exec(`select set_config('teste.uid', '${uid}', false)`);
+    const r = await como(db, "painel.tv@reativa.local");
+    expect(r.ok).toBe(false);
+    expect(r.motivo).toBe("ACESSO_NEGADO");
+    await db.close();
+  });
+});
