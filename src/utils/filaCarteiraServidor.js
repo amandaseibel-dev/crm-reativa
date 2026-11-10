@@ -42,7 +42,10 @@ export async function buscarFilaCarteira(supabase, { operador, agoraMs = Date.no
   const brutas = Array.isArray(data) ? data : [];
   const temMais = brutas.length > tamanho;
   const linhas = [];
+  const eu = String(operador || "").toLowerCase();
   for (const c of brutas.slice(0, tamanho)) {
+    // defesa em profundidade: caso sem operador ou de outro operador nunca entra
+    if (String(c.operador_email || "").toLowerCase() !== eu) continue;
     const dias = diasSemContato(c, agoraMs);
     const faixa = dias === null ? null : faixaDeDias(dias);
     if (!faixa) continue; // defesa extra: o servidor já filtrou

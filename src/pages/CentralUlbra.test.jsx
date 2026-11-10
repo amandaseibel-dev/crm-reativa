@@ -422,3 +422,22 @@ describe("fila da carteira na visão de conversas (servidor)", () => {
     expect(screen.getByText(/Escolha um operador no filtro/)).toBeTruthy();
   });
 });
+
+describe("recorte da carteira não muda pelo filtro nem pela URL", () => {
+  it("operador com ?operador=outro na URL continua consultando só a PRÓPRIA carteira", async () => {
+    rpc.mockResolvedValue({ data: resposta(), error: null });
+    const eqs = [];
+    fromMock.mockImplementation(() => {
+      const b = {};
+      for (const m of ["select", "not", "lte", "order"]) b[m] = () => b;
+      b.eq = (...a) => (eqs.push(a), b);
+      b.range = () => Promise.resolve({ data: CARTEIRA_OPERADOR, error: null });
+      return b;
+    });
+    montar(OPERADOR, "/central-ulbra?visao=conversas&operador=cobranca05%40aelbra.com.br");
+    await screen.findByTestId("visao-conversas");
+    await waitFor(() => expect(eqs.length).toBeGreaterThan(0));
+    expect(eqs.every(([campo, valor]) => campo === "operador_email" && valor === "cobranca10@aelbra.com.br")).toBe(true);
+    expect(eqs.some(([, valor]) => valor === "cobranca05@aelbra.com.br")).toBe(false);
+  });
+});

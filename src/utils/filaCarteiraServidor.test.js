@@ -51,3 +51,17 @@ describe("linhas e paginação", () => {
     expect(r.linhas).toEqual([]);
   });
 });
+
+describe("casos sem operador não entram na fila do operador", () => {
+  it("a consulta sempre exige operador_email igual ao usuário; casos sem operador ficam de fora", () => {
+    const { supabase, chamadas } = fakeSupabase({ data: [], error: null });
+    montarConsultaFilaCarteira(supabase, { operador: "cobranca10@aelbra.com.br", agoraMs: AGORA });
+    const exigeOperador = chamadas.some((c) => c[0] === "eq" && c[1] === "operador_email" && c[2] === "cobranca10@aelbra.com.br");
+    expect(exigeOperador).toBe(true);
+  });
+  it("se o servidor devolver caso sem operador (ou de outro), o cliente também não o inclui", async () => {
+    const { supabase } = fakeSupabase({ data: [{ ...linha("x", 12), operador_email: null }], error: null });
+    const r = await buscarFilaCarteira(supabase, { operador: "cobranca10@aelbra.com.br", agoraMs: AGORA });
+    expect(r.linhas).toEqual([]);
+  });
+});
