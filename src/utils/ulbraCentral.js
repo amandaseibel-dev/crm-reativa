@@ -107,12 +107,19 @@ export const DESTINO = {
 
 // ------------------------------------------------------------------ filtros
 // Vivem na URL: abrir a ficha e voltar devolve a mesma lista.
+export const VISOES = ["cartoes", "conversas"];
+
 export function lerFiltros(search) {
   const p = new URLSearchParams(search || "");
   const faixa = String(p.get("faixa") || "").toUpperCase();
+  const visao = String(p.get("visao") || "").toLowerCase();
   return {
     operador: String(p.get("operador") || "").toLowerCase().trim(),
     faixa: ORDEM_FAIXAS.includes(faixa) ? faixa : "",
+    // Visão de conversas (duas colunas). Ausente = cartões, como antes.
+    visao: VISOES.includes(visao) ? visao : "cartoes",
+    // Conversa selecionada: id da linha da fila, para voltar da ficha no mesmo ponto.
+    conv: String(p.get("conv") || "").trim().slice(0, 80),
   };
 }
 
@@ -120,8 +127,58 @@ export function paraBusca(filtros) {
   const p = new URLSearchParams();
   if (filtros?.operador) p.set("operador", filtros.operador);
   if (filtros?.faixa) p.set("faixa", filtros.faixa);
+  if (filtros?.visao && filtros.visao !== "cartoes") p.set("visao", filtros.visao);
+  if (filtros?.conv) p.set("conv", filtros.conv);
   const s = p.toString();
   return s ? `?${s}` : "";
+}
+
+/**
+ * Ordem da visão de conversas: respostas aguardando ação, depois sem interação
+ * há mais tempo, depois novos atendimentos. Dentro de cada grupo, a ordem é a
+ * do banco (que já tem desempate). Não reordena nada.
+ */
+export function listaPrioridade(dados, faixa) {
+  const respostas = (dados?.respostas || []).map((r) => ({
+    chave: `r:${r.conversa_id}`,
+    tipo: "resposta",
+    rotulo: "Resposta aguardando ação",
+    nome: r.nome || "sem nome",
+    espera_min: r.espera_min,
+    dias_sem_acionamento: null,
+    previa: r.previa || null,
+    alunoId: r.aluno_id || null,
+    responsavelReativa: r.responsavel_reativa || null,
+    atendenteUlbra: r.atendente_ulbra || null,
+    bruto: r,
+  }));
+  const sem = filtrarSemInteracao(dados?.sem_interacao, faixa).map((x) => ({
+    chave: `s:${x.aluno_id}`,
+    tipo: "sem_interacao",
+    rotulo: "Sem interação válida",
+    nome: x.nome || "sem nome",
+    espera_min: null,
+    dias_sem_acionamento: x.dias_sem_acionamento ?? null,
+    previa: null,
+    alunoId: x.aluno_id || null,
+    responsavelReativa: x.responsavel_reativa || null,
+    atendenteUlbra: x.atendente_ulbra || null,
+    bruto: x,
+  }));
+  const novos = (dados?.novos || []).map((a) => ({
+    chave: `n:${a.atendimento_id}`,
+    tipo: "novo",
+    rotulo: "Novo atendimento",
+    nome: a.nome || "sem nome",
+    espera_min: a.espera_min,
+    dias_sem_acionamento: null,
+    previa: null,
+    alunoId: a.aluno_id || null,
+    responsavelReativa: a.responsavel_reativa || null,
+    atendenteUlbra: null,
+    bruto: a,
+  }));
+  return [...respostas, ...sem, ...novos];
 }
 
 /** Só a faixa é filtrada na tela; o operador é filtrado NO BANCO. */
