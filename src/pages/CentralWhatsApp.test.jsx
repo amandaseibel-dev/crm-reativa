@@ -646,6 +646,44 @@ describe("Central WhatsApp", () => {
     expect(botao.title).toMatch(/pausado/i);
   });
 
+  // Gerência, supervisão e administrativo: o backend não barra por cota
+  // individual, então a tela também não pode barrar.
+  it("perfil sem limite individual passa da cota sem ser barrado pela tela", async () => {
+    servico.cadencia = [{ ...CADENCIA_LIVRE, usadas_operador: 25, sem_limite_individual: true }];
+    servico.resumo = {
+      sem_retorno: 0, esperando_mais_1h: 0, esperando_mais_24h: 0, nao_lidas: 0,
+      sem_responsavel: 0, em_atendimento: 0, minhas: 0, pendencias_resgate: 0,
+      arquivadas_nao_lidas: 0,
+    };
+    render(<CentralWhatsApp />);
+    const botao = await screen.findByText("Nova conversa");
+    await waitFor(() => expect(botao.disabled).toBe(false));
+    expect(await screen.findByText(/sem limite individual · teto do número/)).toBeTruthy();
+    expect(screen.getByText("37/100")).toBeTruthy();
+    expect(screen.queryByText(/restam/)).toBeNull();
+  });
+
+  it("perfil sem limite individual continua parado pelo teto do número", async () => {
+    servico.cadencia = [{ ...CADENCIA_LIVRE, usadas_canal: 100, sem_limite_individual: true }];
+    render(<CentralWhatsApp />);
+    const botao = await screen.findByText("Nova conversa");
+    await waitFor(() => expect(botao.disabled).toBe(true));
+    expect(botao.title).toMatch(/atingiu 100 conversas novas hoje/i);
+  });
+
+  // limite_operador vem somado à liberação extra do dia de quem edita.
+  // Pré-preencher com ele e salvar transformaria a cota extra de uma pessoa
+  // no limite do canal inteiro.
+  it("editar o canal pré-preenche o limite CONFIGURADO, não o somado ao extra", async () => {
+    servico.gestao = true;
+    servico.cadencia = [{ ...CADENCIA_LIVRE, limite_operador: 18, limite_operador_canal: 10 }];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Números"));
+    fireEvent.click((await screen.findAllByText("Editar"))[0]);
+    expect(await screen.findByDisplayValue("10")).toBeTruthy();
+    expect(screen.queryByDisplayValue("18")).toBeNull();
+  });
+
 
   it("o resgate tem filtro proprio e o contador abre a lista", async () => {
     servico.resumo = {

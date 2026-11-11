@@ -1082,3 +1082,134 @@ jobs:
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -f "$ROLLBACK_V2"
           psql -v ON_ERROR_STOP=1 -f "$DIR/05_rollback_conferencia.sql"
+
+  # ---------------------------------------------------------------------------
+  # COTA 10 POR OPERADOR — proposta de 11/11/2026, NAO aplicada em producao.
+  # Empilhada sobre a CONTINUIDADE v2 (a migration recusa rodar sem ela).
+  #
+  # Ordem: guarda -> ambiente v2 -> v2 -> ambiente cota -> cota (2x, idempotencia)
+  #        -> casos -> corrida do limite (lock do canal) -> corrida da marca
+  #        RECEPTIVA (indice unico do ciclo) -> rollback (2x) -> conferencia.
+  # ---------------------------------------------------------------------------
+  whatsapp-cota-10:
+    name: whatsapp cota 10 por operador (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR_V2: supabase/tests/whatsapp_continuidade_v2
+      DIR: supabase/tests/whatsapp_cota_10
+      MIGRACAO_V2: supabase/aguardando_aprovacao/20261109120000_whatsapp_continuidade_v2.sql.pendente
+      MIGRACAO: supabase/aguardando_aprovacao/20261111150000_whatsapp_cota_10_operador.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261111150000_whatsapp_cota_10_operador.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Guarda — a cota 10 nao esta em migrations/
+        run: |
+          set -euo pipefail
+          if ls supabase/migrations/ | grep -qi cota_10; then
+            echo "FALHOU: a cota 10 entrou em supabase/migrations/"; exit 1
+          fi
+          test -f "$MIGRACAO" || { echo "FALHOU: migration ausente"; exit 1; }
+          test -f "$ROLLBACK" || { echo "FALHOU: rollback ausente"; exit 1; }
+          echo "OK: cota 10 presente como .pendente, fora de migrations/"
+
+      - name: Sem a v2, a migration recusa rodar
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -q -f "$DIR_V2/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -q -f "$DIR/01_ambiente_cota.sql"
+          set +e
+          SAIDA=$(psql -v ON_ERROR_STOP=1 -f "$MIGRACAO" 2>&1)
+          RC=$?
+          set -e
+          echo "$SAIDA" | tail -3
+          [ "$RC" -ne 0 ] || { echo "FALHOU: aplicou sem a v2"; exit 1; }
+          echo "$SAIDA" | grep -q "CONTINUIDADE v2 (20261109120000) nao esta aplicada" \
+            || { echo "FALHOU: recusou por outro motivo"; exit 1; }
+          echo "OK: pre-condicao barrou"
+          psql -q -c "drop schema public cascade; create schema public; grant usage on schema public to anon, authenticated, service_role;"
+
+      - name: Ambiente, v2 e cota 10 (aplicada duas vezes)
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -q -f "$DIR_V2/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -q -f "$MIGRACAO_V2"
+          psql -v ON_ERROR_STOP=1 -q -f "$DIR/01_ambiente_cota.sql"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRACAO"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRACAO"
+
+      - name: Casos da cota 10
+        run: psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos_cota.sql"
+
+      - name: Corrida REAL do limite — o lock do canal segue serializando
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -q -f "$DIR_V2/04_concorrencia_setup.sql"
+          CANAL=$(psql -tAc "select id from public.whatsapp_canais where sessao_chave='_cont_v2_conc'")
+          C1=$(psql -tAc "select id from public.whatsapp_conversas where telefone_e164='5551900300001'")
+          C2=$(psql -tAc "select id from public.whatsapp_conversas where telefone_e164='5551900300002'")
+          OP='opconc@test.local'
+          psql -q -c "begin; select public.whatsapp_cadencia_checar('$CANAL','$C1','$OP'); select pg_sleep(3); commit;" &
+          A_PID=$!
+          sleep 1
+          set +e
+          B_SAIDA=$(psql -v ON_ERROR_STOP=1 -tAc "select public.whatsapp_cadencia_checar('$CANAL','$C2','$OP');" 2>&1)
+          B_RC=$?
+          set -e
+          wait "$A_PID"
+          SOBROU=$(psql -tAc "select count(*) from public.whatsapp_abordagens where canal_id='$CANAL'")
+          echo "retorno de B: $B_RC | saida: $B_SAIDA | abordagens: $SOBROU"
+          [ "$B_RC" -ne 0 ] || { echo "FALHOU: B passou do limite 1"; exit 1; }
+          echo "$B_SAIDA" | grep -q "ja iniciou" || { echo "FALHOU: B barrada por outro motivo"; exit 1; }
+          [ "$SOBROU" = "1" ] || { echo "FALHOU: sobraram $SOBROU abordagens"; exit 1; }
+          echo "OK: limite serializado pelo lock do canal"
+
+      - name: Corrida REAL da marca RECEPTIVA — repeticao simultanea conta uma vez
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -q -f "$DIR/04_corrida_setup.sql"
+          CONV=$(psql -tAc "select id from public.whatsapp_conversas where telefone_e164='5551970000001'")
+          OP='op_corrida@test.local'
+          # A: registra a 1a resposta ENVIADA e segura a transacao 3s
+          psql -q -c "begin; select public._t_registrar('$CONV','$OP','ENVIADO','w-corrida-a',0); select pg_sleep(3); commit;" &
+          A_PID=$!
+          sleep 1
+          # B: outra resposta ENVIADA, outra conexao, mesmo ciclo
+          INICIO=$(date +%s)
+          psql -v ON_ERROR_STOP=1 -q -c "select public._t_registrar('$CONV','$OP','ENVIADO','w-corrida-b',0);"
+          FIM=$(date +%s)
+          wait "$A_PID"
+          MSGS=$(psql -tAc "select count(*) from public.whatsapp_mensagens where conversa_id='$CONV' and direcao='SAIDA'")
+          MARCAS=$(psql -tAc "select count(*) from public.whatsapp_abordagens where conversa_id='$CONV' and origem='RECEPTIVA'")
+          echo "mensagens: $MSGS | marcas RECEPTIVA: $MARCAS | B esperou: $(( FIM - INICIO ))s"
+          [ "$MSGS" = "2" ] || { echo "FALHOU: esperava as 2 mensagens registradas"; exit 1; }
+          [ "$MARCAS" = "1" ] || { echo "FALHOU: esperava 1 marca, vieram $MARCAS"; exit 1; }
+          echo "OK: duas respostas simultaneas, uma marca so"
+
+      - name: Rollback (duas vezes) e conferencia
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/05_rollback_conferencia.sql"
