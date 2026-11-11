@@ -8,7 +8,7 @@
 --   2. os dois parâmetros desapareceram de whatsapp_config
 --   3. o comportamento voltou a ser o da regra ATUAL: o cenário que a v2
 --      classificava como CONTINUIDADE volta a ser NOVA_ABORDAGEM
---   4. os grants continuam corretos (authenticated sim, anon não)
+--   4. os grants continuam corretos (authenticated nao, anon nao; so service_role)
 --   5. resposta_janela_horas segue 24 — o rollback não mexe nela
 
 \set ON_ERROR_STOP on
