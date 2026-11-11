@@ -125,7 +125,8 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.whatsapp_cadencia_checar(uuid, uuid, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.whatsapp_cadencia_checar(uuid, uuid, text) FROM anon;
-GRANT EXECUTE ON FUNCTION public.whatsapp_cadencia_checar(uuid, uuid, text) TO authenticated;
+REVOKE ALL ON FUNCTION public.whatsapp_cadencia_checar(uuid, uuid, text) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.whatsapp_cadencia_checar(uuid, uuid, text) TO service_role;
 
 -- ---------------------------------------------------------------------
 -- 2. Remove os parâmetros novos
@@ -183,9 +184,9 @@ BEGIN
     RAISE EXCEPTION 'resposta_janela_horas deveria ser 24 e esta %', v_resp USING ERRCODE = '22023';
   END IF;
 
-  IF NOT has_function_privilege('authenticated',
+  IF has_function_privilege('authenticated',
         'public.whatsapp_cadencia_checar(uuid, uuid, text)', 'EXECUTE') THEN
-    RAISE EXCEPTION 'authenticated perdeu EXECUTE na funcao' USING ERRCODE = '42501';
+    RAISE EXCEPTION 'authenticated ganhou EXECUTE no rollback (proibido)' USING ERRCODE = '42501';
   END IF;
 
   RAISE NOTICE 'rollback concluido: funcao sem CONTINUIDADE, parametros removidos';
