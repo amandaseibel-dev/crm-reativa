@@ -599,3 +599,6 @@
   .ulbra-conv-cabecalho--painel .ulbra-botao { width: 100%; text-align: center; }
 }
 a.ulbra-botao { text-decoration: none; display: inline-block; }
+
+/* Visão Mensageria (período): meta da linha */
+.ulbra-linha-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--rv-texto-suave, #6b7280); margin-top: 4px; }

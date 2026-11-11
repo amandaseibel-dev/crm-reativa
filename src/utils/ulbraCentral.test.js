@@ -15,6 +15,8 @@ import {
   listaPrioridade,
   paraBusca,
   podeVerCentralUlbra,
+  rotuloPeriodo,
+  VISOES,
   consultaMensageriaNaFicha,
   salvarPosicao,
   tomarPosicao,
@@ -204,5 +206,19 @@ describe("ficha aberta pela Central não consulta a Mensageria", () => {
     expect(consultaMensageriaNaFicha("?alunoId=al-1&origem=ulbra")).toBe(false);
     expect(consultaMensageriaNaFicha("?alunoId=al-1")).toBe(true);
     expect(consultaMensageriaNaFicha("")).toBe(true);
+  });
+});
+
+describe("visão Mensageria (período)", () => {
+  it("é uma visão própria, separada da carteira interna, e vai e volta pela URL", () => {
+    expect(VISOES).toContain("mensageria");
+    expect(lerFiltros("?visao=mensageria").visao).toBe("mensageria");
+    expect(paraBusca({ operador: "", faixa: "", visao: "mensageria", conv: "" })).toBe("?visao=mensageria");
+  });
+  it("rotula o período pelo mês de Brasília; sem data diz período atual", () => {
+    expect(rotuloPeriodo("2026-11-01T03:00:00.000Z")).toBe("novembro de 2026");
+    expect(rotuloPeriodo("2026-12-01T02:59:00.000Z")).toBe("novembro de 2026"); // ainda 30/11 23:59 em Brasília
+    expect(rotuloPeriodo(null)).toBe("período atual");
+    expect(rotuloPeriodo("lixo")).toBe("período atual");
   });
 });

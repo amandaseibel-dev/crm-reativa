@@ -23,6 +23,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Link, useSearchParams } from "react-router-dom";
 import "./ulbra.css";
 import CentralConversas from "../components/CentralConversas";
+import MensageriaPeriodo from "../components/MensageriaPeriodo";
 import { supabase } from "../services/supabase";
 import { buscarFilaCarteira } from "../utils/filaCarteiraServidor";
 import usePolling from "../utils/polling";
@@ -324,19 +325,29 @@ export default function CentralUlbra({ usuario }) {
       {recado ? <div className="ulbra-recado" role="status">{recado}</div> : null}
 
       <div className="ulbra-visao" role="group" aria-label="Visão da Central">
-        <button type="button" className="ulbra-botao" aria-pressed={filtros.visao !== "conversas"} onClick={() => mudarFiltro("visao", "cartoes")}>
-          Cartões
+        <button type="button" className="ulbra-botao" aria-pressed={filtros.visao === "mensageria"} onClick={() => mudarFiltro("visao", "mensageria")}>
+          Mensageria (período)
         </button>
         <button type="button" className="ulbra-botao" aria-pressed={filtros.visao === "conversas"} onClick={() => mudarFiltro("visao", "conversas")}>
-          Conversas
+          Carteira interna
+        </button>
+        <button type="button" className="ulbra-botao" aria-pressed={filtros.visao === "cartoes"} onClick={() => mudarFiltro("visao", "cartoes")}>
+          Cartões
         </button>
       </div>
 
-      {filtros.visao === "conversas" ? (
+      {filtros.visao === "mensageria" ? (
+        <MensageriaPeriodo
+          ehGestao={dados.eh_gestao === true}
+          operador={filtros.operador}
+          respostas={dados.respostas || []}
+          aoAbrirFicha={aoAbrirFicha}
+        />
+      ) : filtros.visao === "conversas" ? (
         <>
         {todasCarteiras ? (
           <p className="ulbra-aviso ulbra-aviso--cinza" data-testid="aviso-todas-carteiras">
-            Todas as carteiras: a fila interna de todos os operadores, mais antigo primeiro, com o operador em cada linha.
+            Carteira interna (não é a Mensageria): a fila de todos os operadores, mais antigo primeiro, com o operador em cada linha.
             Escolha um operador no filtro para ver só a carteira dele.
           </p>
         ) : null}
