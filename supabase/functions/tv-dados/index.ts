@@ -1,8 +1,12 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
-// tv-dados v2 (2026-11-04) — leitura dos indicadores da TV no formato do painel
-// estático aprovado. Três portões, nenhum deles substituível pelo outro:
+// tv-dados v3 (2026-11-10) — leitura dos indicadores da TV no formato do painel
+// estático aprovado. v3 acrescenta `destaques` (rankings por operador, com foto)
+// e o resultado do mês em centavos, lidos de public.tv_painel_operadores()
+// (20261110200000). Sem essa função no banco, a v3 responde exatamente o que a
+// v2 respondia, mais meta/dias úteis do snapshot e o ranking de acordos de hoje.
+// Três portões, nenhum deles substituível pelo outro:
 //   1. gateway: verify_jwt=true (sem JWT válido, nem chega aqui);
 //   2. identidade: auth.getUser() tem de devolver um usuário real — a anon key
 //      e a service role key passam no gateway mas NÃO têm usuário;
@@ -58,22 +62,39 @@ Deno.serve(async (req: Request) => {
   const acordosHoje = (p.acordos_hoje ?? {}) as Record<string, unknown>
   const top3 = Array.isArray(rankings.top3_mes) ? rankings.top3_mes : []
 
+  // Função nova, lida como o próprio usuário. Ausente (migration não aplicada)
+  // ou com erro → null, e a resposta cai no que o snapshot tem.
+  const painel = await lerPainel(supabase)
+  const fotos = painel ? await fotosPorId(auth, idsDoPainel(painel)) : {}
+
   const receptivo = await filaReceptivo(supabase)
+
+  const pm = (painel?.mes ?? {}) as Record<string, unknown>
+  const ph = (painel?.hoje ?? {}) as Record<string, unknown>
 
   return json(200, {
     atualizado_em: data.gerado_em ?? null,
     fonte: 'CRM ReATIVA One — tv_snapshot',
     resultado: {
-      honorarios_hoje:             numOrNull(hoje.honorarios),
-      honorarios_mes:              numOrNull(mes.honorarios),
+      // Com o painel: valores em centavos, como estão em pagamentos. Sem ele:
+      // os inteiros do snapshot, marcados em `precisao` para a tela não
+      // inventar casas decimais.
+      precisao:                    painel ? 'centavos' : 'inteiro',
+      honorarios_hoje:             painel ? numOrNull(ph.honorarios) : numOrNull(hoje.honorarios),
+      honorarios_mes:              painel ? numOrNull(pm.honorarios) : numOrNull(mes.honorarios),
       projecao_honorarios_mes:     numOrNull(mes.proj_honorarios),
       projecao_parcial:            mes.projecao_parcial === true,
-      recuperado_hoje:             numOrNull(hoje.recuperado),
-      recuperado_mes:              numOrNull(mes.recuperado),
+      recuperado_hoje:             painel ? numOrNull(ph.recuperado) : numOrNull(hoje.recuperado),
+      recuperado_mes:              painel ? numOrNull(pm.recuperado) : numOrNull(mes.recuperado),
       pagamentos_confirmados_hoje: numOrNull(hoje.pagamentos_confirmados),
       pagamentos_confirmados_mes:  numOrNull(mes.pagamentos_confirmados),
       acordos_fechados_hoje:       numOrNull(acordosHoje.fechados),
       acordos_fechados_mes:        null,
+      // META é metas_projecao.meta_honorario (snapshot: mes.meta_empresa).
+      // Projeção é outra coisa e segue em projecao_honorarios_mes.
+      meta_honorarios_mes:         painel ? numOrNull(pm.meta_honorario) : numOrNull(mes.meta_empresa),
+      dias_uteis_mes:              painel ? numOrNull(pm.dias_uteis_mes) : numOrNull(mes.dias_uteis_mes),
+      dias_uteis_ate_hoje:         painel ? numOrNull(pm.dias_uteis_ate_hoje) : numOrNull(mes.dias_uteis_transcorridos),
     },
     rankings: {
       honorarios:       top3.map((r: Record<string, unknown>) => String(r.operador ?? '')).filter(Boolean),
@@ -81,9 +102,113 @@ Deno.serve(async (req: Request) => {
       pagamentos:       [],
       acordos:          [],
     },
+    destaques: painel ? destaquesDoPainel(painel, fotos) : destaquesDoSnapshot(top3, acordosHoje),
     receptivo,
   })
 })
+
+type Linha = Record<string, unknown>
+
+async function lerPainel(supabase: ReturnType<typeof createClient>): Promise<Linha | null> {
+  try {
+    const { data, error } = await supabase.rpc('tv_painel_operadores')
+    if (error || !data || typeof data !== 'object') return null
+    return data as Linha
+  } catch {
+    return null
+  }
+}
+
+const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function idsDoPainel(painel: Linha): string[] {
+  const ids = new Set<string>()
+  const lider = painel.lider_honorarios_mes as Linha | null
+  if (lider?.usuario_id) ids.add(String(lider.usuario_id))
+  for (const k of LISTAS) {
+    const lista = Array.isArray(painel[k]) ? painel[k] as Linha[] : []
+    for (const r of lista) if (r?.usuario_id) ids.add(String(r.usuario_id))
+  }
+  return [...ids].filter((v) => RE_UUID.test(v))
+}
+
+// Fotos pelo caminho oficial do CRM: a Edge Function foto-perfil-url, chamada
+// com o JWT do próprio usuário da TV. Ela resolve o caminho no servidor e
+// devolve URL assinada de 5 min — nenhuma permissão nova, nenhum caminho
+// interno sai daqui. Falha → sem foto (a tela usa iniciais).
+async function fotosPorId(auth: string, ids: string[]): Promise<Record<string, string>> {
+  if (!ids.length) return {}
+  try {
+    const r = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/foto-perfil-url`, {
+      method: 'POST',
+      headers: { Authorization: auth, apikey: Deno.env.get('SUPABASE_ANON_KEY')!, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ usuario_ids: ids }),
+    })
+    if (!r.ok) return {}
+    const j = await r.json()
+    return j && typeof j.urls === 'object' && j.urls ? j.urls as Record<string, string> : {}
+  } catch {
+    return {}
+  }
+}
+
+const LISTAS = ['podio_mes', 'top_honorario_pagamento_mes', 'top_recuperado_mes', 'top_pagamentos_hoje', 'top_acordos_hoje'] as const
+
+// O id do operador NÃO sai para o navegador: vira só a URL assinada da foto.
+function pessoa(r: Linha, fotos: Record<string, string>) {
+  const id = String(r.usuario_id ?? '')
+  return {
+    nome: String(r.nome ?? '').trim(),
+    foto: (id && fotos[id]) || null,
+    valor: numOrNull(r.valor),
+    qtd: numOrNull(r.qtd),
+    data: typeof r.data === 'string' ? r.data : null,
+  }
+}
+
+function destaquesDoPainel(painel: Linha, fotos: Record<string, string>) {
+  const lista = (k: string) => (Array.isArray(painel[k]) ? painel[k] as Linha[] : []).slice(0, 3).map((r) => pessoa(r, fotos))
+  const lider = painel.lider_honorarios_mes as Linha | null
+  return {
+    fonte: 'tv_painel_operadores',
+    precisao: 'centavos',
+    referencia: painel.referencia ?? null,
+    // Destaque do mês sai SEM valor: a TV não expõe acumulado por operador.
+    lider_honorarios_mes: lider ? { ...pessoa(lider, fotos), valor: null, qtd: null } : null,
+    podio_mes: lista('podio_mes').map((x) => ({ ...x, valor: null, qtd: null })),
+    top_honorario_pagamento_mes: lista('top_honorario_pagamento_mes'),
+    top_recuperado_mes: lista('top_recuperado_mes'),
+    top_pagamentos_hoje: lista('top_pagamentos_hoje'),
+    top_acordos_hoje: lista('top_acordos_hoje'),
+  }
+}
+
+// Sem a função nova: só o que o snapshot já garante. Rankings que o snapshot
+// não tem (ele guarda apenas o 1º colocado) ficam null = "dado indisponível" —
+// nunca um top 3 montado com um só nome.
+function destaquesDoSnapshot(top3: unknown[], acordosHoje: Record<string, unknown>) {
+  const l = (top3[0] ?? null) as Linha | null
+  const ranking = Array.isArray(acordosHoje.ranking) ? acordosHoje.ranking as Linha[] : []
+  return {
+    fonte: 'tv_snapshot',
+    precisao: 'inteiro',
+    referencia: null,
+    lider_honorarios_mes: l && l.operador
+      ? { nome: String(l.operador), foto: null, valor: null, qtd: null, data: null }
+      : null,
+    podio_mes: (top3 as Linha[])
+      .filter((r) => r?.operador)
+      .slice(0, 3)
+      .map((r) => ({ nome: String(r.operador), foto: null, valor: null, qtd: null, data: null })),
+    top_honorario_pagamento_mes: null,
+    top_recuperado_mes: null,
+    top_pagamentos_hoje: null,
+    top_acordos_hoje: ranking
+      .filter((r) => r?.operador && String(r.operador) !== 'Sem responsável')
+      .slice(0, 3)
+      .map((r) => ({ nome: String(r.operador), foto: null, valor: null, qtd: numOrNull(r.fechados), data: null })),
+  }
+}
 
 function numOrNull(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null

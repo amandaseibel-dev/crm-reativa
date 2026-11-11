@@ -97,3 +97,19 @@ regra da tela FilaReceptivo do CRM (sem pausa, heartbeat ≤ 90 s, ordem por
 financeiro individual; qualquer falha devolve a fila vazia. Os três portões da v2
 não mudam. Publicação pelo Dashboard (Code → Deploy updates), com Verify JWT
 mantido ligado.
+
+## v3 (10/11/2026) — destaques por operador, meta e centavos
+
+- Lê `public.tv_painel_operadores()` (migration **pendente**
+  `supabase/aguardando_aprovacao/20261110200000_tv_painel_operadores.sql.pendente`),
+  como o próprio usuário. Mesmo portão do snapshot (`tv_pode_ler_snapshot`).
+- Fotos: pela Edge Function oficial `foto-perfil-url`, com o JWT do usuário da
+  TV (URL assinada de 5 min). Nenhuma permissão nova; o id do operador não sai
+  para o navegador.
+- A TV não expõe valor acumulado por operador (decisão da gestão, 10/11): o
+  pódio do mês sai só com nome/foto e o top recuperado é por pagamento único.
+- Sem a função no banco, a v3 responde como a v2 + `meta_honorarios_mes` e dias
+  úteis do snapshot, pódio/acordos de hoje do snapshot (`precisao: 'inteiro'`)
+  e os rankings que o snapshot não tem como `null` ("dado indisponível").
+- Publicar: `supabase functions deploy tv-dados --project-ref ahattpqrjmhkzsmnbdzs`
+  (verify_jwt padrão = true). Reversão: reimplantar a v2 do commit anterior.

@@ -1,0 +1,177 @@
+-- =============================================================================
+-- TV ReATIVA — tv_painel_operadores(): rankings e resultado do mês em centavos
+-- -----------------------------------------------------------------------------
+-- PENDENTE. Não aplicada. Aplicar exige autorização específica da Amanda,
+-- executor único (sessão principal) e linha M1 em
+-- docs/seguranca/migracoes-aprovadas.tsv.
+--
+-- POR QUE UMA FUNÇÃO NOVA, e não patch no tv_snapshot_calcular():
+--   • o snapshot grava todo valor como round(...)::bigint — não há centavo
+--     para mostrar. Trocar o tipo lá mudaria o que telas antigas já leem;
+--   • os rankings pedidos (top 3 pagamentos individuais por honorário, top 3
+--     recuperado no mês, top 3 quantidade de pagamentos hoje) não existem no
+--     snapshot, que guarda só o 1º colocado;
+--   • o snapshot não leva o id do operador, e a foto só sai por id
+--     (Edge Function foto-perfil-url).
+--   Uma função de LEITURA, separada, não toca no snapshot, no cron, nas metas
+--   nem em dado nenhum — só lê.
+--
+-- REGRAS — todas copiadas das funções oficiais vivas em produção (lidas por
+-- pg_get_functiondef em 10/11/2026), nenhuma inventada aqui:
+--   • fonte do dinheiro: public.pagamentos, uma linha = um pagamento, honorário
+--     = valor_honorario registrado (tv_snapshot_calcular / projecao_calcular_*);
+--   • "hoje" = data em America/Sao_Paulo (o banco roda em UTC — current_date
+--     viraria o dia às 21h de Brasília);
+--   • pagamento DE HOJE exclui retroativo (projecao_calcular_filial/operador);
+--   • operadores dos rankings de pagamento: a mesma allowlist de 7 e-mails de
+--     tv_snapshot_calcular (v_ops). Se ela mudar lá, mudar aqui;
+--   • acordo fechado hoje = acordos.criado_em em São Paulo = hoje,
+--     duplicado_de is null, status <> 'CANCELADO', dono fora de
+--     tv_equipe_oculta (20261008120000_tv_acordos_de_hoje). Diferença
+--     deliberada: acordo SEM responsável não entra no ranking por operador
+--     (no snapshot ele aparecia como "Sem responsável");
+--   • a TV não mostra acumulado por operador (decisão da gestão, 10/11): os
+--     destaques do mês saem SEM valor e o top recuperado é por pagamento único;
+--   • meta = metas_projecao.meta_honorario do mês; dias úteis = dias_uteis()
+--     (feriados do CRM). A projeção NÃO é usada como meta.
+--
+-- ACESSO: SECURITY DEFINER, porque o painel não lê pagamentos/acordos pela RLS.
+-- O portão é o mesmo do snapshot (tv_pode_ler_snapshot: allowlist de e-mails);
+-- fora dele → 42501. anon e PUBLIC sem EXECUTE (default privileges deste
+-- projeto concedem a anon em função nova — por isso o revoke explícito).
+--
+-- DESFAZER: 20261110200000_tv_painel_operadores.rollback.sql (drop function).
+-- =============================================================================
+
+create or replace function public.tv_painel_operadores()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $function$
+declare
+  v_ops text[] := array['cobranca05@aelbra.com.br','cobranca06@aelbra.com.br',
+                        'cobranca08@aelbra.com.br','cobranca10@aelbra.com.br','cobranca11@aelbra.com.br',
+                        'cobranca12@aelbra.com.br','cobranca13@aelbra.com.br'];
+  v_hoje date := (now() at time zone 'America/Sao_Paulo')::date;
+  v_ini  date;
+  v_fim  date;
+begin
+  if not coalesce(public.tv_pode_ler_snapshot(), false) then
+    raise exception 'Acesso negado' using errcode = '42501';
+  end if;
+
+  v_ini := date_trunc('month', v_hoje)::date;
+  v_fim := (date_trunc('month', v_hoje) + interval '1 month - 1 day')::date;
+
+  return (
+    with pg as (
+      select p.id, p.data_pagamento, p.valor_pago, p.valor_honorario,
+             coalesce(p.retroativo, false) as retroativo,
+             lower(btrim(p.operador_email)) as email
+        from public.pagamentos p
+       where p.data_pagamento between v_ini and v_fim
+    ),
+    ops as (
+      select lower(btrim(u.email)) as email, u.id as usuario_id,
+             coalesce(nullif(btrim(u.nome), ''), u.email) as nome
+        from public.usuarios u
+       where lower(btrim(u.email)) = any(v_ops)
+    ),
+    pg_op as (
+      select pg.*, o.usuario_id, o.nome
+        from pg join ops o on o.email = pg.email
+    ),
+    por_op_mes as (
+      select usuario_id, nome,
+             round(sum(coalesce(valor_honorario,0)), 2) as honorario,
+             count(*)                                   as qtd
+        from pg_op group by usuario_id, nome
+    ),
+    por_op_hoje as (
+      select usuario_id, nome, count(*) as qtd,
+             round(sum(coalesce(valor_honorario,0)), 2) as honorario
+        from pg_op
+       where data_pagamento = v_hoje and not retroativo
+       group by usuario_id, nome
+    ),
+    ac as (
+      select a.id, lower(nullif(btrim(coalesce(a.operador_responsavel_email,'')), '')) as dono
+        from public.acordos a
+       where (a.criado_em at time zone 'America/Sao_Paulo')::date = v_hoje
+         and a.duplicado_de is null
+         and upper(coalesce(a.status, '')) <> 'CANCELADO'
+    ),
+    ac_op as (
+      select u.id as usuario_id, coalesce(nullif(btrim(u.nome), ''), ac.dono) as nome,
+             count(distinct ac.id) as qtd
+        from ac
+        join public.usuarios u on lower(btrim(u.email)) = ac.dono
+       where ac.dono is not null
+         and ac.dono not in (select lower(email) from public.tv_equipe_oculta where email is not null)
+       group by u.id, coalesce(nullif(btrim(u.nome), ''), ac.dono)
+    )
+    select jsonb_build_object(
+      'versao', 1,
+      'referencia', jsonb_build_object(
+        'hoje', to_char(v_hoje, 'YYYY-MM-DD'),
+        'mes',  to_char(v_hoje, 'YYYY-MM'),
+        'fuso', 'America/Sao_Paulo'),
+      'mes', jsonb_build_object(
+        'honorarios',  (select round(coalesce(sum(valor_honorario),0), 2) from pg),
+        'recuperado',  (select round(coalesce(sum(valor_pago),0), 2) from pg),
+        'meta_honorario', (select round(m.meta_honorario, 2) from public.metas_projecao m
+                            where m.mes_referencia = to_char(v_hoje, 'YYYY-MM') limit 1),
+        'dias_uteis_mes', public.dias_uteis(v_ini, v_fim),
+        'dias_uteis_ate_hoje', public.dias_uteis(v_ini, v_hoje),
+        'dia_util_hoje', public.dias_uteis(v_hoje, v_hoje) = 1),
+      'hoje', jsonb_build_object(
+        'honorarios', (select round(coalesce(sum(valor_honorario),0), 2) from pg where data_pagamento = v_hoje and not retroativo),
+        'recuperado', (select round(coalesce(sum(valor_pago),0), 2) from pg where data_pagamento = v_hoje and not retroativo)),
+      'lider_honorarios_mes', (
+        -- só nome/id: o valor acumulado não sai da função
+        select jsonb_build_object('usuario_id', usuario_id, 'nome', nome)
+          from por_op_mes where honorario > 0
+         order by honorario desc, qtd desc, nome asc limit 1),
+      -- Pódio do mês (destaques): ordem pelo honorário pago acumulado, mas a
+      -- função devolve SÓ nome/id — o valor acumulado não sai daqui.
+      'podio_mes', coalesce((
+        select jsonb_agg(jsonb_build_object('usuario_id', usuario_id, 'nome', nome)
+                 order by honorario desc, qtd desc, nome)
+          from (select * from por_op_mes where honorario > 0
+                 order by honorario desc, qtd desc, nome limit 3) t), '[]'::jsonb),
+      'top_honorario_pagamento_mes', coalesce((
+        select jsonb_agg(jsonb_build_object('usuario_id', usuario_id, 'nome', nome,
+                 'valor', round(valor_honorario, 2), 'data', to_char(data_pagamento, 'YYYY-MM-DD'))
+                 order by valor_honorario desc, data_pagamento asc, id)
+          from (select * from pg_op where coalesce(valor_honorario,0) > 0
+                 order by valor_honorario desc, data_pagamento asc, id limit 3) t), '[]'::jsonb),
+      -- Decisão da gestão (10/11): não expor acumulado por operador. O top
+      -- recuperado é o MAIOR VALOR RECUPERADO EM UM ÚNICO PAGAMENTO.
+      'top_recuperado_mes', coalesce((
+        select jsonb_agg(jsonb_build_object('usuario_id', usuario_id, 'nome', nome,
+                 'valor', round(valor_pago, 2), 'data', to_char(data_pagamento, 'YYYY-MM-DD'))
+                 order by valor_pago desc, data_pagamento asc, id)
+          from (select * from pg_op where coalesce(valor_pago,0) > 0
+                 order by valor_pago desc, data_pagamento asc, id limit 3) t), '[]'::jsonb),
+      'top_pagamentos_hoje', coalesce((
+        select jsonb_agg(jsonb_build_object('usuario_id', usuario_id, 'nome', nome, 'qtd', qtd, 'valor', honorario)
+                 order by qtd desc, honorario desc, nome)
+          from (select * from por_op_hoje order by qtd desc, honorario desc, nome limit 3) t), '[]'::jsonb),
+      'top_acordos_hoje', coalesce((
+        select jsonb_agg(jsonb_build_object('usuario_id', usuario_id, 'nome', nome, 'qtd', qtd)
+                 order by qtd desc, nome)
+          from (select * from ac_op order by qtd desc, nome limit 3) t), '[]'::jsonb)
+    )
+  );
+end;
+$function$;
+
+revoke all on function public.tv_painel_operadores() from public;
+revoke all on function public.tv_painel_operadores() from anon;
+grant execute on function public.tv_painel_operadores() to authenticated;
+grant execute on function public.tv_painel_operadores() to service_role;
+
+comment on function public.tv_painel_operadores() is
+  'TV ReATIVA: leitura dos rankings por operador e do resultado do mês em centavos. Só leitura; portão tv_pode_ler_snapshot(). Ver 20261110200000.';
