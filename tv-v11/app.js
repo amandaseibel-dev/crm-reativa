@@ -146,6 +146,30 @@ function renderBoard(def){
  }
  board.append(ol);
 }
+// Card "Honorários em destaque": o LÍDER em honorários pagos ACUMULADOS no mês
+// (1º do pódio, podio_mes[0]), com foto e nome — sem valor individual. É outro
+// critério que o "Top honorários do mês" (maior honorário em um único pagamento).
+const CRITERIO_LIDER='Líder em honorários pagos acumulados no mês';
+function renderLider(){
+ const board=$('rankBoard');board.replaceChildren();
+ const dz=data.destaques||null;
+ const podio=D.ranking(dz&&dz.podio_mes);
+ const head=document.createElement('div');head.className='board-head';
+ const h=document.createElement('h1');h.textContent='Honorários em destaque';
+ const per=document.createElement('span');per.className='board-period';per.textContent=textoMes();
+ const crit=document.createElement('p');crit.className='board-criterio';crit.textContent=CRITERIO_LIDER;
+ head.append(h,per);board.append(head,crit);
+ if(!podio||!podio.length){
+  const v=document.createElement('p');v.className='board-empty';
+  v.textContent=podio?'Ainda não há resultado registrado neste mês.':'Dado indisponível no momento. O destaque aparece assim que o CRM enviar a informação.';
+  board.append(v);return;}
+ const lider=podio[0];
+ const spot=document.createElement('div');spot.className='lider-spotlight';
+ const copy=document.createElement('div');copy.className='lider-copy';
+ const tag=document.createElement('span');tag.className='leader-tag';tag.textContent='1º LUGAR · DESTAQUE DO MÊS';
+ const nm=document.createElement('strong');nm.className='lider-nome';nm.textContent=D.nomeCurto(lider.nome);
+ copy.append(tag,nm);spot.append(avatar(lider,'avatar-xl'),copy);board.append(spot);
+}
 function renderQueue(){
  const q=data.receptivo||{};const stamped=validDate(q.atualizado_em);const fresh=!!stamped;
  const names=fresh&&Array.isArray(q.proximos)?q.proximos.slice(0,4).map(nameOf):[];
@@ -176,8 +200,8 @@ function viewFor(f){
 }
 function setMainText(f){
  const x=viewFor(f);$('contentCategory').textContent=x.kicker.toLocaleUpperCase('pt-BR');
- const board=f.kind==='ranking';$('centerStage').classList.toggle('is-board',board);$('rankBoard').hidden=!board;
- if(board)renderBoard(f.def);
+ const board=f.kind==='ranking'||f.kind==='honorarios';$('centerStage').classList.toggle('is-board',board);$('rankBoard').hidden=!board;
+ if(f.kind==='honorarios')renderLider();else if(f.kind==='ranking')renderBoard(f.def);
  const theme=f.theme||currentAlmanac()?.theme||'Negociação em foco';$('themeChip').replaceChildren();
  const t=document.createTextNode('TEMA DO DIA ');const bold=document.createElement('b');bold.textContent=theme.toLocaleUpperCase('pt-BR');$('themeChip').append(t,bold);
  const h=$('contentTitle');h.replaceChildren();
@@ -188,6 +212,14 @@ function setMainText(f){
  $('contentQuote').textContent=x.quote;
  $('contentFooterTitle').textContent=x.footerTitle;
  $('contentFooter').textContent=x.footer;
+}
+// Slide que depende dos dados (honorários, resultados, rankings): redesenha a
+// cada leitura. Sem isso, o slide aberto antes da 1ª leitura ficava com "—" até
+// a rotação voltar a ele. Slides de treino não dependem de dado e não piscam.
+const FRAMES_COM_DADOS=['honorarios','resultados','ranking'];
+function refreshFrameData(){
+ const f=frames.length&&frames[frame];
+ if(f&&FRAMES_COM_DADOS.includes(f.kind))setMainText(f);
 }
 function renderFrame(){
  if(!frames.length)return;
@@ -241,7 +273,7 @@ async function subscribeProjectionSignal(){
 async function readSnapshot(){
  try{const fresh=await getJSON(config.snapshot_url||'./dados-tv.json');if(!isObject(fresh)||!isObject(fresh.resultado))throw Error('dados inválidos');
   data={...data,...fresh,resultado:{...data.resultado,...fresh.resultado},rankings:{...data.rankings,...fresh.rankings},destaques:isObject(fresh.destaques)?fresh.destaques:null,receptivo:{...data.receptivo,...fresh.receptivo}};
-  preCarregarFotos(data.destaques);renderResults();refreshPodium();refreshQueue();if(frames.length&&frames[frame]&&frames[frame].kind==='ranking')renderBoard(frames[frame].def);
+  preCarregarFotos(data.destaques);renderResults();refreshPodium();refreshQueue();refreshFrameData();
  }catch(e){if(!data.atualizado_em)$('statusDados').textContent='Fonte oficial indisponível';}
 }
 async function readQueue(){
