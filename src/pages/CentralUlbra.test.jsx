@@ -415,11 +415,24 @@ describe("fila da carteira na visão de conversas (servidor)", () => {
     expect(await screen.findByText(/Não foi possível ler a carteira: permission denied/)).toBeTruthy();
   });
 
-  it("gestão sem operador escolhido não recebe fila de carteira e é avisada", async () => {
+  it("gestão sem operador escolhido recebe a fila de TODAS as carteiras, com o operador em cada linha", async () => {
     rpc.mockResolvedValue({ data: resposta({ eh_gestao: true, operador: null, operadores: ["cobranca10@aelbra.com.br"] }), error: null });
+    const nots = [];
+    fromMock.mockImplementation(() => {
+      const b = carteiraCom([
+        ...CARTEIRA_OPERADOR,
+        { aluno_id: "al-9", nome: "Caio Prado", data_ultimo_acionamento: ha(30), operador_email: "cobranca05@aelbra.com.br" },
+      ]);
+      b.not = (...a) => { nots.push(a); return b; };
+      return b;
+    });
     montar(GESTAO, "/central-ulbra?visao=conversas");
-    await screen.findByTestId("visao-conversas");
-    expect(screen.getByText(/Escolha um operador no filtro/)).toBeTruthy();
+    const visao = await screen.findByTestId("visao-conversas");
+    expect(await screen.findByTestId("aviso-todas-carteiras")).toBeTruthy();
+    await waitFor(() => expect(visao.textContent).toMatch(/Caio Prado/));
+    expect(visao.textContent).toMatch(/Helena Dantas/);
+    expect(nots).toContainEqual(["operador_email", "is", null]);
+    expect(screen.queryByText(/Escolha um operador no filtro para ver a fila da carteira\./)).toBeNull();
   });
 });
 

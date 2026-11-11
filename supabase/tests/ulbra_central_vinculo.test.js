@@ -10,6 +10,7 @@ const PILOTO = "supabase/aguardando_aprovacao/20261108140000_ulbra_recebimento_e
 const IDENTIDADE = "supabase/aguardando_aprovacao/20261110130000_ulbra_identidade_propagada.sql.pendente";
 const CENTRAL_BASE = "supabase/aguardando_aprovacao/20261109150000_ulbra_central_operador.sql.pendente";
 const CENTRAL_PATCH = "supabase/aguardando_aprovacao/20261110140000_ulbra_central_vinculo_ativo.sql.pendente";
+const CENTRAL_PATCH2 = "supabase/aguardando_aprovacao/20261111090000_ulbra_central_operadores_carteira.sql.pendente";
 const A = "11111111-1111-1111-1111-111111111111";
 const B = "22222222-2222-2222-2222-222222222222";
 
@@ -28,6 +29,7 @@ async function ambiente() {
   await db.exec(sqlDe(IDENTIDADE));
   await db.exec(sqlDe(CENTRAL_BASE));
   await db.exec(sqlDe(CENTRAL_PATCH));
+  await db.exec(sqlDe(CENTRAL_PATCH2));
   return db;
 }
 
@@ -139,7 +141,8 @@ describe("Central: isolamento na liberação geral", () => {
     const tudo = await comoOperador(db, "amanda.seibel@aelbra.com.br");
     expect(tudo.eh_gestao).toBe(true);
     expect(ids(tudo.respostas).sort()).toEqual(["ca", "cb"]);
-    expect((tudo.operadores ?? []).sort()).toEqual(["cobranca05@aelbra.com.br", "cobranca10@aelbra.com.br"]);
+    // o ambiente semeia casos de outros operadores: a lista deve CONTER os dois
+    expect(tudo.operadores).toEqual(expect.arrayContaining(["cobranca05@aelbra.com.br", "cobranca10@aelbra.com.br"]));
     expect(ids((await comoOperador(db, "amanda.seibel@aelbra.com.br", "cobranca05@aelbra.com.br")).respostas)).toEqual(["cb"]);
     await db.close();
   });
@@ -181,6 +184,31 @@ describe("Central: isolamento na liberação geral", () => {
     const cc = (gestao.respostas ?? []).find((x) => x.conversa_id === "cc");
     expect(cc).toBeTruthy();
     expect(cc.responsavel_email ?? cc.operador_email ?? null).toBeNull();
+    await db.close();
+  });
+});
+
+describe("Central: filtro de operadores da gestão vem da carteira (20261111090000)", () => {
+  it("operador com caso e SEM nenhum aluno no espelho aparece no filtro; inativo não aparece", async () => {
+    const db = await ambiente();
+    const C = "33333333-3333-3333-3333-333333333333";
+    await db.query("insert into public.alunos (id, nome) values ($1, 'C')", [C]);
+    // cobranca13: só carteira, nenhum vínculo/conversa; cobranca05: inativo
+    await db.query("insert into public.usuarios (email, ativo) values ('cobranca13@aelbra.com.br', true), ('amanda.seibel@aelbra.com.br', true) on conflict (email) do nothing");
+    await db.query("insert into public.casos (aluno_id, operador_email) values ($1, 'cobranca13@aelbra.com.br'), ($2, 'cobranca05@aelbra.com.br'), ($3, 'cobranca10@aelbra.com.br')", [C, A, B]);
+    await db.query("update public.usuarios set ativo = false where email = 'cobranca05@aelbra.com.br'");
+    const g = await comoOperador(db, "amanda.seibel@aelbra.com.br");
+    expect(g.eh_gestao).toBe(true);
+    expect(g.operadores).toEqual(expect.arrayContaining(["cobranca10@aelbra.com.br", "cobranca13@aelbra.com.br"]));
+    expect(g.operadores).not.toContain("cobranca05@aelbra.com.br");
+    await db.close();
+  });
+  it("e-mail de carteira sem cadastro em usuarios continua listado (tem casos a acompanhar)", async () => {
+    const db = await ambiente();
+    await db.query("insert into public.usuarios (email, ativo) values ('amanda.seibel@aelbra.com.br', true) on conflict (email) do nothing");
+    await db.query("insert into public.casos (aluno_id, operador_email) values ($1, 'carteira.geral@reativa.local')", [A]);
+    const g = await comoOperador(db, "amanda.seibel@aelbra.com.br");
+    expect(g.operadores).toContain("carteira.geral@reativa.local");
     await db.close();
   });
 });

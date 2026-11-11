@@ -179,21 +179,24 @@ export default function CentralUlbra({ usuario }) {
     else alvo.scrollTop = y;
   }, [situacao, dados]);
 
-  // Carteira só na visão de conversas. Operador: o próprio e-mail. Gestão: o operador do filtro.
+  // Carteira só na visão de conversas. Operador: o próprio e-mail. Gestão: o
+  // operador do filtro ou, sem filtro, TODAS as carteiras (cada linha traz o
+  // operador). O "eh_gestao" vem do banco, não da tela.
   const operadorCarteira = dados?.eh_gestao ? filtros.operador : (dados?.operador || email);
+  const todasCarteiras = dados?.eh_gestao === true && !filtros.operador;
   useEffect(() => {
-    if (filtros.visao !== "conversas" || !operadorCarteira) return undefined;
+    if (filtros.visao !== "conversas" || (!operadorCarteira && !todasCarteiras)) return undefined;
     let ativo = true;
     (async () => {
-      const r = await buscarFilaCarteira(supabase, { operador: operadorCarteira, pagina: 0 });
+      const r = await buscarFilaCarteira(supabase, { operador: operadorCarteira, todas: todasCarteiras, pagina: 0 });
       if (ativo) setCarteira({ linhas: r.linhas, temMais: r.temMais, erro: r.erro, pagina: 0 });
     })();
     return () => { ativo = false; };
-  }, [filtros.visao, operadorCarteira]);
+  }, [filtros.visao, operadorCarteira, todasCarteiras]);
 
   async function carregarMaisCarteira() {
     const proxima = carteira.pagina + 1;
-    const r = await buscarFilaCarteira(supabase, { operador: operadorCarteira, pagina: proxima });
+    const r = await buscarFilaCarteira(supabase, { operador: operadorCarteira, todas: todasCarteiras, pagina: proxima });
     setCarteira((c) => ({ linhas: [...c.linhas, ...r.linhas], temMais: r.temMais, erro: r.erro, pagina: proxima }));
   }
 
@@ -331,7 +334,13 @@ export default function CentralUlbra({ usuario }) {
 
       {filtros.visao === "conversas" ? (
         <>
-        {!operadorCarteira ? (
+        {todasCarteiras ? (
+          <p className="ulbra-aviso ulbra-aviso--cinza" data-testid="aviso-todas-carteiras">
+            Todas as carteiras: a fila interna de todos os operadores, mais antigo primeiro, com o operador em cada linha.
+            Escolha um operador no filtro para ver só a carteira dele.
+          </p>
+        ) : null}
+        {!operadorCarteira && !todasCarteiras ? (
           <p className="ulbra-aviso ulbra-aviso--cinza">Escolha um operador no filtro para ver a fila da carteira.</p>
         ) : null}
         {carteira.erro ? (
