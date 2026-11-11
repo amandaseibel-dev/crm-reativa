@@ -26,7 +26,12 @@
 .month-bar{position:relative;overflow:visible}
 .month-bar>div{max-width:100%}
 .month-bar>i{position:absolute;top:-35%;bottom:-35%;width:2px;margin-left:-1px;background:#ffd57b;border-radius:2px;box-shadow:0 0 6px #ffd57b99}
-.pace{font-size:clamp(11px,.85vw,17px);line-height:1.3;color:#cfe3f7;margin:.1vw 0 .45vw;font-weight:700}
+.pace{font-size:clamp(11px,.85vw,17px);line-height:1.3;color:#cfe3f7;margin:.1vw 0 .25vw;font-weight:700}
+.pace>b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pace>small{display:block;font-size:clamp(10px,.72vw,15px);line-height:1.25;font-weight:600;color:#b9cfe6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* coluna de resultados: cabe inteira no painel (overflow:hidden) de 720p a 4K */
+.result-panel{gap:.35vw}
+@media(max-height:780px){.result-panel{gap:.25vw}.month-panel{padding:.4vw .6vw .45vw}.month-bar{margin:.3vw 0}.meta-line{margin-top:.1vw}}
 .pace[data-situacao="acima"]{color:#3ff0b8}
 .pace[data-situacao="abaixo"]{color:#ffb38a}
 .pace[data-situacao="no_ritmo"]{color:#9fe7ff}

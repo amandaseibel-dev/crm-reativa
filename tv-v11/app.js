@@ -57,8 +57,13 @@ function renderResults(){
  else{
   pace.dataset.situacao=ritmo.situacao;
   const dias=`${ritmo.diasAteHoje}/${ritmo.diasMes} dias úteis`;
-  pace.textContent=ritmo.situacao==='no_ritmo'?`No ritmo da meta · ${dias}`
-   :`${ritmo.situacao==='acima'?'▲':'▼'} ${money(Math.abs(ritmo.diferenca))} ${ritmo.situacao==='acima'?'acima':'abaixo'} do ritmo · esperado ${money(ritmo.esperado)} em ${dias}`;
+  // Duas linhas fixas (situação; esperado e dias úteis) em vez de uma frase que
+  // quebrava sozinha e empurrava o card do mês para fora do painel em 1080p.
+  const linha1=document.createElement('b');
+  linha1.textContent=ritmo.situacao==='no_ritmo'?'No ritmo da meta'
+   :`${ritmo.situacao==='acima'?'▲':'▼'} ${money(Math.abs(ritmo.diferenca))} ${ritmo.situacao==='acima'?'acima':'abaixo'} do ritmo`;
+  const linha2=document.createElement('small');linha2.textContent=`Esperado até hoje ${money(ritmo.esperado)} · ${dias}`;
+  pace.replaceChildren(linha1,linha2);
   mark.hidden=false;mark.style.left=`${Math.min(100,100*ritmo.diasAteHoje/ritmo.diasMes).toFixed(1)}%`;
  }
  const d=validDate(data.atualizado_em);

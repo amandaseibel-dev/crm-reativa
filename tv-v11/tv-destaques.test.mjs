@@ -204,3 +204,18 @@ describe('card "Honorários em destaque": líder do mês, separado do Top honor�
     expect(app).toMatch(/footerTitle:'HONORÁRIOS PAGOS NO MÊS · REATIVA',footer:money\(r\.honorarios_mes\)/);
   });
 });
+
+describe('coluna de resultados cabe no painel (TV 1080p cortava o card do mês)', () => {
+  const css = readFileSync(join(pasta, 'styles.css'), 'utf8');
+  it('ritmo em duas linhas fixas: situação e "esperado até hoje · dias úteis"', () => {
+    expect(app).toMatch(/pace\.replaceChildren\(linha1,linha2\)/);
+    expect(app).toMatch(/Esperado até hoje \$\{money\(ritmo\.esperado\)\} · \$\{dias\}/);
+    expect(app).not.toMatch(/do ritmo · esperado/);
+  });
+  it('as duas linhas não quebram e o espaçamento da coluna foi reduzido', () => {
+    expect(css).toMatch(/\.pace>b\{display:block;white-space:nowrap/);
+    expect(css).toMatch(/\.pace>small\{display:block;[^}]*white-space:nowrap/);
+    expect(css).toMatch(/\.result-panel\{gap:\.35vw\}/);
+    expect(css).toMatch(/@media\(max-height:780px\)\{\.result-panel\{gap:\.25vw\}/);
+  });
+});
