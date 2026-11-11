@@ -58,3 +58,12 @@ Hash divergente; saldo abaixo da condição; `FALHA` em duas execuções seguida
 
 ## Fora deste pacote
 Histórico completo na Central, resposta pelo CRM (exige conexão individual OAuth), coleta automática (cron), agente de estratégia. **Decisão pendente, recomendada:** a consulta da Mensageria ao abrir a ficha passar a ser sob demanda (botão), para proteger a cota.
+
+## Roteiro da janela de 12/11 (06:00–07:30 BRT), passo a passo
+Pré-condições (sem elas, para e informa; **sem reagendar**): #904 mesclada e deploy da Vercel concluído; PR M1 das duas migrations mesclada e dentro da validade; nenhuma linha já `aplicada`.
+1. **06:00** — `apply_migration` de `20261111130000` (campanha) e `20261111120000` (conversas), arquivos inteiros; conferir `schema_migrations`, grants (`service_role` só nas funções de campanha; `authenticated` só em `ulbra_central_conversas`), `search_path` e `prosecdef`; conferir que `ulbra_sync_estado` tem as colunas de campanha e `campanha_reservadas = 0`.
+2. **06:10** — publicar `ulbra-sincronizar` (nova versão, `--no-verify-jwt` como hoje); conferir `deno check` já passado no CI e a versão publicada (`get_edge_function`).
+3. **06:15 — verificação de saldo (1 chamada, conta nos 110):** execução com `{"campanha":"novembro-2026","teto_total":110,"teto_chamadas":1}`. A função consulta `meu_acesso` (cache de 60 min vencido), grava `saldo_api_restam` e para (sem páginas). Ler `ulbra_sync_estado.saldo_api_restam`: **se < 300, parar e informar**; nada mais é chamado.
+4. **06:20 em diante** — execuções `{"campanha":"novembro-2026","teto_total":110,"teto_chamadas":12,"desde":"2026-11-01","detalhes":5}`, uma após a outra, lendo a resposta de cada uma: para em `ciclo = OK` (completo), em `parada: true`, em `PULADO_*`/`CAMPANHA_INDISPONIVEL`, ou quando `campanha.restante = 0`. Registrar cada execução (chamadas, leituras, conversas_novas, detalhes, estado, reservadas/restante) na seção "Consumo real".
+5. **Até 07:30** — se não fechar COMPLETO dentro da janela, para onde estiver (o que foi lido está gravado; o pendente fica guardado) e informa a cobertura alcançada; nova janela só com nova aprovação.
+6. Validação (zero chamadas): visão Mensageria da Central com a gestão (todas as carteiras, filtro por operador, cobertura e última coleta na faixa) e com um operador no próprio login (só o recorte dele; Abrir ficha só com CPF confirmado; botões da ficha não chamam nada antes do clique).
