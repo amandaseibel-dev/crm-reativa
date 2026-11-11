@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import BlocoUlbra from "./BlocoUlbra";
 
 vi.mock("../services/supabase", () => ({
@@ -33,7 +33,7 @@ describe("BlocoUlbra", () => {
       }),
     });
 
-    render(<BlocoUlbra aluno={{ id: "aluno-1" }} />);
+    render(<BlocoUlbra sobDemanda={false} aluno={{ id: "aluno-1" }} />);
     await waitFor(() => {
       const link = screen.getByRole("link");
       expect(link).toBeTruthy();
@@ -57,7 +57,7 @@ describe("BlocoUlbra", () => {
 
     // `container`, nao `screen`: os render anteriores deste arquivo seguem
     // montados no documento, e `screen` acharia os links deles tambem.
-    const { container } = render(<BlocoUlbra aluno={{ id: "aluno-rel" }} />);
+    const { container } = render(<BlocoUlbra sobDemanda={false} aluno={{ id: "aluno-rel" }} />);
     await waitFor(() => {
       const rel = container.querySelector("a")?.getAttribute("rel") || "";
       expect(rel).toContain("noopener");
@@ -74,7 +74,7 @@ describe("BlocoUlbra", () => {
       }),
     });
 
-    const { container } = render(<BlocoUlbra aluno={{ id: "aluno-rotulo" }} />);
+    const { container } = render(<BlocoUlbra sobDemanda={false} aluno={{ id: "aluno-rotulo" }} />);
     await waitFor(() =>
       expect(container.querySelector("a")?.textContent.trim()).toBe("Abrir Mensageria ULBRA ↗"),
     );
@@ -86,7 +86,7 @@ describe("BlocoUlbra", () => {
       json: async () => ({ status: "ambiguo" }),
     });
 
-    const { container } = render(<BlocoUlbra aluno={{ id: "aluno-2" }} />);
+    const { container } = render(<BlocoUlbra sobDemanda={false} aluno={{ id: "aluno-2" }} />);
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     await waitFor(() => expect(container.firstChild).toBeNull());
     // A rota /gestao/ulbra não existe: nenhum estado pode apontar para ela
@@ -99,7 +99,7 @@ describe("BlocoUlbra", () => {
       json: async () => ({ status: "nao_encontrado", motivo: "FORA_DO_ESCOPO" }),
     });
 
-    const { container } = render(<BlocoUlbra aluno={{ id: "aluno-5" }} />);
+    const { container } = render(<BlocoUlbra sobDemanda={false} aluno={{ id: "aluno-5" }} />);
     await waitFor(() => {
       expect(screen.getByText(/fora do escopo/i)).toBeTruthy();
     });
@@ -112,7 +112,7 @@ describe("BlocoUlbra", () => {
       json: async () => ({ erro: "ULBRA_INDISPONIVEL" }),
     });
 
-    const { container } = render(<BlocoUlbra aluno={{ id: "aluno-6" }} />);
+    const { container } = render(<BlocoUlbra sobDemanda={false} aluno={{ id: "aluno-6" }} />);
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     await waitFor(() => expect(container.firstChild).toBeNull());
   });
@@ -123,7 +123,7 @@ describe("BlocoUlbra", () => {
       json: async () => ({ status: "nao_encontrado", motivo: "SEM_TELEFONE" }),
     });
 
-    render(<BlocoUlbra aluno={{ id: "aluno-3" }} />);
+    render(<BlocoUlbra sobDemanda={false} aluno={{ id: "aluno-3" }} />);
     await waitFor(() => {
       expect(screen.getByText(/sem telefone/i)).toBeTruthy();
     });
@@ -132,14 +132,14 @@ describe("BlocoUlbra", () => {
   it("retorna null em caso de erro de rede", async () => {
     fetchMock.mockRejectedValueOnce(new Error("network error"));
 
-    const { container } = render(<BlocoUlbra aluno={{ id: "aluno-4" }} />);
+    const { container } = render(<BlocoUlbra sobDemanda={false} aluno={{ id: "aluno-4" }} />);
     await waitFor(() => {
       expect(container.firstChild).toBeNull();
     });
   });
 
   it("não chama fetch quando aluno_id é null", () => {
-    render(<BlocoUlbra aluno={null} />);
+    render(<BlocoUlbra sobDemanda={false} aluno={null} />);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -160,7 +160,7 @@ describe("BlocoUlbra", () => {
 
     // Consultas escopadas no `container`: este arquivo não tem cleanup
     // automático, então `screen` vê os renders dos testes anteriores também.
-    const { container } = render(<BlocoUlbra aluno={{ id: `aluno-${motivo}` }} />);
+    const { container } = render(<BlocoUlbra sobDemanda={false} aluno={{ id: `aluno-${motivo}` }} />);
     await waitFor(() => expect(container.textContent).toMatch(textoEsperado));
     // Barrado nunca oferece link: clicar seria abrir o cliente não confirmado.
     expect(container.querySelector("a")).toBeNull();
@@ -172,7 +172,7 @@ describe("BlocoUlbra", () => {
       json: async () => ({ status: "bloqueado", motivo: "MOTIVO_NOVO_DO_FUTURO" }),
     });
 
-    const { container } = render(<BlocoUlbra aluno={{ id: "aluno-b9" }} />);
+    const { container } = render(<BlocoUlbra sobDemanda={false} aluno={{ id: "aluno-b9" }} />);
     await waitFor(() => expect(container.textContent).toMatch(/não confirmado/i));
     expect(container.querySelector("a")).toBeNull();
   });
@@ -186,7 +186,7 @@ describe("BlocoUlbra", () => {
   ])("mostra a falha de gravação %s em vez de ficar em branco", async (erro, texto) => {
     fetchMock.mockResolvedValueOnce({ ok: false, json: async () => ({ erro }) });
 
-    const { container } = render(<BlocoUlbra aluno={{ id: `aluno-${erro}` }} />);
+    const { container } = render(<BlocoUlbra sobDemanda={false} aluno={{ id: `aluno-${erro}` }} />);
     await waitFor(() => expect(container.textContent).toMatch(texto));
     expect(container.querySelector("a")).toBeNull();
   });
@@ -194,7 +194,7 @@ describe("BlocoUlbra", () => {
   it("Mensageria fora do ar segue silenciosa (não é acionável na ficha)", async () => {
     fetchMock.mockResolvedValueOnce({ ok: false, json: async () => ({ erro: "ULBRA_INDISPONIVEL" }) });
 
-    const { container } = render(<BlocoUlbra aluno={{ id: "aluno-indisp" }} />);
+    const { container } = render(<BlocoUlbra sobDemanda={false} aluno={{ id: "aluno-indisp" }} />);
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     await waitFor(() => expect(container.firstChild).toBeNull());
   });
@@ -213,7 +213,7 @@ describe("BlocoUlbra", () => {
       }),
     });
 
-    const { container } = render(<BlocoUlbra aluno={{ id: "aluno-legado" }} />);
+    const { container } = render(<BlocoUlbra sobDemanda={false} aluno={{ id: "aluno-legado" }} />);
     await waitFor(() => expect(container.textContent).toMatch(/sem confirmação por CPF/i));
     expect(container.querySelector("a")).toBeNull();
     expect(container.textContent).toMatch(/gestão precisa conferir/i);
@@ -232,7 +232,7 @@ describe("BlocoUlbra", () => {
       }),
     });
 
-    const { container } = render(<BlocoUlbra aluno={{ id: "aluno-legado-2" }} />);
+    const { container } = render(<BlocoUlbra sobDemanda={false} aluno={{ id: "aluno-legado-2" }} />);
     await waitFor(() => expect(container.textContent).toMatch(/sem confirmação por CPF/i));
     expect(container.querySelector("a")).toBeNull();
     expect(container.innerHTML).not.toContain("crm.ulbra.ai");
@@ -250,7 +250,7 @@ describe("BlocoUlbra", () => {
       }),
     });
 
-    const { container } = render(<BlocoUlbra aluno={{ id: "aluno-provado" }} />);
+    const { container } = render(<BlocoUlbra sobDemanda={false} aluno={{ id: "aluno-provado" }} />);
     await waitFor(() => expect(container.querySelector("a")).toBeTruthy());
     expect(container.textContent).not.toMatch(/confira a identidade/i);
   });
@@ -261,7 +261,7 @@ describe("BlocoUlbra", () => {
       json: async () => ({ status: "bloqueado", motivo: "CONFIRMACAO_MANUAL_SO_TELEFONE" }),
     });
 
-    const { container } = render(<BlocoUlbra aluno={{ id: "aluno-lgpd", telefone: "51999990000", cpf: "12345678901" }} />);
+    const { container } = render(<BlocoUlbra sobDemanda={false} aluno={{ id: "aluno-lgpd", telefone: "51999990000", cpf: "12345678901" }} />);
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     await waitFor(() => expect(container.textContent).toMatch(/sem confirmação por CPF/i));
     expect(container.textContent).not.toContain("51999990000");
@@ -274,7 +274,7 @@ describe("BlocoUlbra", () => {
       json: async () => ({ status: "nao_encontrado", motivo: "NAO_ENCONTRADO" }),
     });
 
-    render(<BlocoUlbra aluno={{ id: "aluno-xyz" }} />);
+    render(<BlocoUlbra sobDemanda={false} aluno={{ id: "aluno-xyz" }} />);
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     const [url, opts] = fetchMock.mock.calls[0];
@@ -282,5 +282,19 @@ describe("BlocoUlbra", () => {
     const body = JSON.parse(opts.body);
     expect(body.aluno_id).toBe("aluno-xyz");
     expect(opts.headers.Authorization).toBe("Bearer tok123");
+  });
+});
+
+describe("BlocoUlbra sob demanda (padrão)", () => {
+  it("ao abrir a ficha NÃO chama a função: mostra o botão de consultar; o clique consulta uma vez", async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ status: "vinculado", url: "https://crm.ulbra.ai/x", ulbra_cliente_id: "c1" }) });
+    render(<BlocoUlbra aluno={{ id: "al-1" }} />);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const botao = screen.getByTestId("ulbra-consultar");
+    expect(botao.textContent).toMatch(/Consultar Mensageria ULBRA/);
+    fireEvent.click(botao);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    // outros testes deste arquivo deixam nós montados: basta existir pelo menos um link novo
+    expect((await screen.findAllByText(/Abrir Mensageria ULBRA/)).length).toBeGreaterThan(0);
   });
 });
