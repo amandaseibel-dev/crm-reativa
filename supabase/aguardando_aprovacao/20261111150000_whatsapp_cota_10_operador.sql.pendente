@@ -447,12 +447,16 @@ BEGIN
       RETURN NULL;
     END IF;
 
-    -- Ciclo já contado: ATIVA (abordagem que abriu o ciclo) ou RECEPTIVA.
+    -- Ciclo já contado: RECEPTIVA com a MESMA chave de ciclo, ou ATIVA
+    -- gravada desde o início do ciclo (a abordagem que o abriu, ou uma
+    -- nova abordagem dentro dele). A RECEPTIVA casa pela chave, não pelo
+    -- instante: marca de um ciclo anterior nunca vale para o seguinte.
     IF EXISTS (
       SELECT 1 FROM public.whatsapp_abordagens a
        WHERE a.conversa_id = NEW.conversa_id
          AND a.operador_email = v_op
-         AND a.criado_em >= v_desde
+         AND ((a.origem = 'RECEPTIVA' AND a.ciclo_desde = v_desde)
+           OR (a.origem = 'ATIVA'     AND a.criado_em  >= v_desde))
     ) THEN
       RETURN NULL;
     END IF;
