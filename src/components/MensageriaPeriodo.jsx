@@ -18,7 +18,14 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "../services/supabase";
-import { fmtDataHora, fmtEspera, hrefFicha, nomeCurto, rotuloPeriodo } from "../utils/ulbraCentral";
+import { descreverColeta, fmtDataHora, fmtEspera, hrefFicha, nomeCurto, rotuloPeriodo } from "../utils/ulbraCentral";
+
+/** dd/mm/aaaa em Brasília, a partir de ISO. */
+function dataBr(iso) {
+  const d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric" }).format(d);
+}
 
 const TAMANHO = 100;
 
@@ -38,7 +45,7 @@ function ehFuncaoAusente(error) {
   return error?.code === "42883" || error?.code === "PGRST202" || /ulbra_central_conversas/.test(error?.message || "");
 }
 
-export default function MensageriaPeriodo({ ehGestao = false, operador = "", respostas = [], aoAbrirFicha }) {
+export default function MensageriaPeriodo({ ehGestao = false, operador = "", respostas = [], coleta = null, aoAbrirFicha }) {
   const [situacao, setSituacao] = useState("carregando"); // carregando | pronto | indisponivel | negado | erro
   const [erro, setErro] = useState(null);
   const [cabecalho, setCabecalho] = useState(null);
@@ -84,11 +91,23 @@ export default function MensageriaPeriodo({ ehGestao = false, operador = "", res
   const demais = linhas.filter((c) => !c.aguardando);
   const temMais = typeof totais.conversas === "number" && linhas.length < totais.conversas;
   const periodo = rotuloPeriodo(cabecalho?.desde);
+  const desdeBr = dataBr(cabecalho?.desde);
+  const ultimaColeta = coleta?.ultima_execucao ? fmtDataHora(coleta.ultima_execucao) : "nenhuma";
+  const coletaDesc = coleta ? descreverColeta(coleta) : null;
 
   return (
     <div data-testid="visao-mensageria">
       <p className="ulbra-aviso ulbra-aviso--cinza" data-testid="mensageria-limites">
-        <strong>Mensageria ULBRA · equipe Reativa · {periodo}.</strong> Só o que a última coleta trouxe e só
+        <strong>Conversas ativas da equipe Reativa{desdeBr ? ` desde ${desdeBr}` : ""}</strong> ({periodo}) — o que a
+        última coleta trouxe. Última coleta: <strong data-testid="mensageria-ultima-coleta">{ultimaColeta}</strong>
+        {coletaDesc?.titulo ? ` · ${coletaDesc.titulo}` : ""}.
+        {situacao === "pronto" ? (
+          <>
+            {" "}Cobertura: <strong data-testid="mensageria-cobertura">{totais.conversas ?? 0} conversa{(totais.conversas ?? 0) === 1 ? "" : "s"} com CPF confirmado
+            ({totais.aguardando ?? 0} aguardando resposta{ehGestao && totais.sem_cpf != null ? `; ${totais.sem_cpf} sem CPF confirmado` : ""})</strong>.
+          </>
+        ) : null}
+        {" "}<strong>Não é o histórico completo de novembro:</strong> só conversas ativas no WhatsApp, só a última mensagem de cada uma, e só
         alunos com CPF confirmado. <strong>Histórico completo e resposta pelo CRM ainda não estão disponíveis:</strong>{" "}
         responder ao aluno é na Mensageria ULBRA; aqui você vê, abre a ficha e registra.
       </p>

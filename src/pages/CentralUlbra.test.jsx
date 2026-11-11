@@ -476,8 +476,14 @@ describe("visão Mensageria (período): equipe Reativa, enviadas e recebidas", (
     montar(OPERADOR, "/central-ulbra?visao=mensageria");
     const visao = await screen.findByTestId("visao-mensageria");
     expect(screen.queryByTestId("visao-conversas")).toBeNull();
-    await waitFor(() => expect(screen.getByTestId("mensageria-limites").textContent).toMatch(/novembro de 2026/));
-    expect(screen.getByTestId("mensageria-limites").textContent).toMatch(/Histórico completo e resposta pelo CRM ainda não estão disponíveis/);
+    await waitFor(() => expect(screen.getByTestId("mensageria-limites").textContent).toMatch(/Conversas ativas da equipe Reativa desde 01\/11\/2026/));
+    const limites = screen.getByTestId("mensageria-limites").textContent;
+    expect(limites).toMatch(/novembro de 2026/);
+    expect(limites).toMatch(/Não é o histórico completo de novembro/);
+    expect(limites).toMatch(/Histórico completo e resposta pelo CRM ainda não estão disponíveis/);
+    // última coleta vem da Central (estado da coleta), cobertura vem da consulta do período
+    expect(screen.getByTestId("mensageria-ultima-coleta").textContent).toMatch(/08\/11|2026/);
+    expect(screen.getByTestId("mensageria-cobertura").textContent).toMatch(/3 conversas com CPF confirmado \(1 aguardando resposta\)/);
     // seção 1 vem da Central (respostas aguardando, ordem do banco: mais antiga primeiro)
     const aguardando = screen.getByTestId("mensageria-aguardando");
     const nomesAguardando = [...aguardando.querySelectorAll("li .ulbra-linha-nome")].map((e) => e.textContent);
@@ -510,6 +516,7 @@ describe("visão Mensageria (período): equipe Reativa, enviadas e recebidas", (
     montar(GESTAO, "/central-ulbra?visao=mensageria&operador=cobranca10@aelbra.com.br");
     await screen.findByTestId("visao-mensageria");
     expect((await screen.findByTestId("mensageria-sem-cpf")).textContent).toMatch(/5 conversas do período sem CPF confirmado/);
+    expect(screen.getByTestId("mensageria-cobertura").textContent).toMatch(/; 5 sem CPF confirmado/);
     const chamada = rpc.mock.calls.find((c) => c[0] === "ulbra_central_conversas");
     expect(chamada[1].p_operador).toBe("cobranca10@aelbra.com.br");
   });

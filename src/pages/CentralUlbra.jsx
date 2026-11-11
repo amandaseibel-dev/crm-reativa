@@ -341,6 +341,7 @@ export default function CentralUlbra({ usuario }) {
           ehGestao={dados.eh_gestao === true}
           operador={filtros.operador}
           respostas={dados.respostas || []}
+          coleta={dados.coleta || null}
           aoAbrirFicha={aoAbrirFicha}
         />
       ) : filtros.visao === "conversas" ? (

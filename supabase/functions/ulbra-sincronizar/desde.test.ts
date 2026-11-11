@@ -125,8 +125,8 @@ describe("parâmetros da chamada manual", () => {
   it("corpo vazio = sem parâmetros; campos válidos são lidos; data pura vira meia-noite de Brasília", () => {
     expect(lerParametros("", AGORA)).toBeNull();
     const p = lerParametros(JSON.stringify({ teto_chamadas: 12, desde: "2026-11-01", detalhes: 5 }), AGORA);
-    expect(p).toEqual({ teto_chamadas: 12, desde: "2026-11-01T03:00:00.000Z", detalhes: 5 });
-    expect(lerParametros(JSON.stringify({ desde: "2026-11-01T00:00:00Z" }), AGORA)).toEqual({ teto_chamadas: null, desde: "2026-11-01T00:00:00.000Z", detalhes: null });
+    expect(p).toEqual({ teto_chamadas: 12, teto_total: null, desde: "2026-11-01T03:00:00.000Z", detalhes: 5 });
+    expect(lerParametros(JSON.stringify({ desde: "2026-11-01T00:00:00Z" }), AGORA)).toEqual({ teto_chamadas: null, teto_total: null, desde: "2026-11-01T00:00:00.000Z", detalhes: null });
   });
   it("recusa teto fora de 1..12, detalhes fora de 1..20, desde no futuro, antigo demais ou malformado", () => {
     for (const corpo of [

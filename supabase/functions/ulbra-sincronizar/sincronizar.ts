@@ -943,8 +943,13 @@ export const DETALHES_EXECUCAO_MAX = 20;
 /** `desde` não pode ser mais antigo que isto: coleta por período é para o mês corrente, não para o histórico. */
 export const DESDE_MAX_DIAS = 120;
 
+/** Teto ACUMULADO de uma campanha (ex.: 110 para novembro), conferido contra `chamadas_dia`. */
+export const TETO_TOTAL_MAX = 500;
+
 export interface ParametrosExecucao {
   teto_chamadas: number | null;
+  /** Teto acumulado da campanha; a execução recebe no máximo o que resta dele. */
+  teto_total: number | null;
   /** Início da janela (ISO), ou null. Ver `Janela.desde`. */
   desde: string | null;
   detalhes: number | null;
@@ -957,13 +962,18 @@ export interface ParametrosExecucao {
  */
 export function lerParametros(texto: string, agoraMs = Date.now()): ParametrosExecucao | "INVALIDO" | null {
   if (!texto) return null;
-  let corpo: { teto_chamadas?: unknown; desde?: unknown; detalhes?: unknown };
+  let corpo: { teto_chamadas?: unknown; teto_total?: unknown; desde?: unknown; detalhes?: unknown };
   try {
     corpo = JSON.parse(texto);
   } catch {
     return "INVALIDO";
   }
-  const r: ParametrosExecucao = { teto_chamadas: null, desde: null, detalhes: null };
+  const r: ParametrosExecucao = { teto_chamadas: null, teto_total: null, desde: null, detalhes: null };
+  if (corpo.teto_total !== undefined) {
+    const n = corpo.teto_total;
+    if (!(typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= TETO_TOTAL_MAX)) return "INVALIDO";
+    r.teto_total = n;
+  }
   if (corpo.teto_chamadas !== undefined) {
     const n = corpo.teto_chamadas;
     if (!(typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= TETO_EXECUCAO_MAX)) return "INVALIDO";
@@ -984,4 +994,38 @@ export function lerParametros(texto: string, agoraMs = Date.now()): ParametrosEx
     r.desde = new Date(ms).toISOString();
   }
   return r;
+}
+
+// ---------------------------------------------------------------------------
+// Erro de resposta da Mensageria: PARADA DURA, sem repetição automática.
+// ---------------------------------------------------------------------------
+// 401/403 (autenticação), 429 (limite) e 5xx/rede (servidor) param a execução
+// no ato: nada mais é chamado, o que foi lido NÃO é gravado como ciclo e o
+// procedimento manual não deve continuar sem leitura humana. Outros códigos
+// (4xx de contrato) também param: não há caso em que repetir seja seguro.
+export interface ErroMcp extends Error {
+  codigo: string;
+  parada: true;
+  http: number | null;
+}
+
+export function classificarHttp(status: number | null): string {
+  if (status === null) return "ULBRA_INDISPONIVEL";
+  if (status === 401 || status === 403) return "ULBRA_AUTENTICACAO";
+  if (status === 429) return "ULBRA_LIMITE";
+  if (status >= 500) return "ULBRA_SERVIDOR";
+  return `ULBRA_HTTP_${status}`;
+}
+
+export function erroMcp(status: number | null): ErroMcp {
+  const codigo = classificarHttp(status);
+  const e = new Error(codigo) as ErroMcp;
+  e.codigo = codigo;
+  e.parada = true;
+  e.http = status;
+  return e;
+}
+
+export function ehParada(e: unknown): e is ErroMcp {
+  return typeof e === "object" && e !== null && (e as { parada?: unknown }).parada === true;
 }

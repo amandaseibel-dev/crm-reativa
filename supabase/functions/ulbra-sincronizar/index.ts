@@ -42,6 +42,8 @@ import {
   modoDoCiclo,
   lerParametros,
   type ParametrosExecucao,
+  erroMcp,
+  ehParada,
   novaJanela,
   portaoSync,
   resultadoDoEnvelope,
@@ -71,17 +73,22 @@ const json = (corpo: Record<string, unknown>, status = 200) =>
 // `sincronizar.test.ts`, "portão da chave".
 
 async function chamarMcp(token: string, carga: unknown): Promise<unknown> {
-  const resp = await fetch(MCP_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: ACCEPT_MCP,
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(carga),
-  });
+  let resp: Response;
+  try {
+    resp = await fetch(MCP_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: ACCEPT_MCP,
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(carga),
+    });
+  } catch {
+    throw erroMcp(null);
+  }
   if (!resp.ok) {
-    throw new Error(resp.status === 429 ? "ULBRA_LIMITE" : `ULBRA_HTTP_${resp.status}`);
+    throw erroMcp(resp.status);
   }
   return resultadoDoEnvelope(lerCorpoMcp(resp.headers.get("content-type"), await resp.text()));
 }
@@ -131,8 +138,18 @@ Deno.serve(async (req: Request) => {
   // (validação manual) e o valor está entre 1 e TETO_EXECUCAO_MAX. O cron não envia
   // corpo, então roda sem esse teto extra, com o teto diário de sempre.
   const tetoExecucao = parametros?.teto_chamadas ?? null;
+  // Teto ACUMULADO da campanha: conferido contra o contador do dia, que soma
+  // TODA chamada (meu_acesso, listagens, detalhes e tentativas que falharam).
+  const tetoTotal = parametros?.teto_total ?? null;
+  const restanteTotal = tetoTotal === null ? Number.POSITIVE_INFINITY : tetoTotal - chamadasAntes;
+  if (tetoTotal !== null && restanteTotal <= 0) {
+    await sb.rpc("ulbra_sync_gravar", {
+      p_payload: { ciclo: "PULADO_ORCAMENTO", chamadas: 0, dia: hoje, erro: "TETO_TOTAL_ESGOTADO" },
+    });
+    return json({ ciclo: "PULADO_TETO_TOTAL", chamadas_dia: chamadasAntes, teto_total: tetoTotal, teto_total_restante: 0 });
+  }
   const orcamento = new Orcamento(
-    Math.min(TETO_DIARIO_SYNC - chamadasAntes, tetoExecucao ?? Number.POSITIVE_INFINITY),
+    Math.min(TETO_DIARIO_SYNC - chamadasAntes, tetoExecucao ?? Number.POSITIVE_INFINITY, restanteTotal),
   );
   // Saldo DIÁRIO da pessoa do token (meu_acesso, limites.pessoaPorDia.restam).
   // Consultado no máximo a cada 60 min; o valor em cache limita o orçamento
@@ -187,6 +204,10 @@ Deno.serve(async (req: Request) => {
         saldoApiNovo = { restam, em: new Date().toISOString() };
       }
     } catch (e) {
+      if (ehParada(e)) {
+        await sb.rpc("ulbra_sync_gravar", { p_payload: { ciclo: "FALHOU", chamadas, dia: hoje, erro: e.codigo } });
+        return json({ ciclo: "FALHOU", erro: e.codigo, http: e.http, parada: true, chamadas }, 502);
+      }
       console.error("ulbra-sincronizar: meu_acesso falhou", (e as Error).message);
     }
   }
@@ -251,6 +272,7 @@ Deno.serve(async (req: Request) => {
           });
         }
       } catch (e) {
+        if (ehParada(e)) throw e; // parada dura: nada mais é chamado nem tentado
         console.error("ulbra-sincronizar: detalhe falhou", (e as Error).message);
         falhas.push(f.ulbra_conversa_id);
       }
@@ -262,12 +284,14 @@ Deno.serve(async (req: Request) => {
     }
   } catch (e) {
     const motivo = (e as Error).message;
+    const parada = ehParada(e);
     console.error("ulbra-sincronizar: ciclo falhou", motivo);
     // FALHOU não grava janela nem espelho: o próximo ciclo refaz a mesma coleta.
+    // As chamadas feitas (inclusive a que falhou) CONTAM no dia.
     await sb.rpc("ulbra_sync_gravar", {
       p_payload: { ciclo: "FALHOU", chamadas, dia: hoje, erro: motivo },
     });
-    return json({ ciclo: "FALHOU", erro: motivo, chamadas }, 502);
+    return json({ ciclo: "FALHOU", erro: motivo, http: parada ? e.http : null, parada, chamadas }, 502);
   }
 
   const proxima = novaJanela(janela, colheita);
@@ -366,6 +390,8 @@ Deno.serve(async (req: Request) => {
     chamadas,
     chamadas_dia: chamadasAntes + chamadas,
     teto_dia: TETO_DIARIO_SYNC,
+    teto_total: tetoTotal,
+    teto_total_restante: tetoTotal === null ? null : Math.max(0, tetoTotal - chamadasAntes - chamadas),
     leituras: colheita.leituras,
     conversas_novas: linhasConversas.length,
     detalhes_lidos: concluidas.length,
