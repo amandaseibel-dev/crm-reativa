@@ -17,24 +17,33 @@
   </header>
   <main class="dashboard">
     <aside class="panel result-panel">
-      <div class="panel-title"><span class="mini-symbol">▥</span><div><h2>RESULTADOS REATIVA</h2><p>HONORÁRIOS EM EVIDÊNCIA</p></div><span class="corner-pill">HOJE</span></div>
+      <div class="panel-title"><span class="mini-symbol">▥</span><div><h2>RESULTADOS REATIVA</h2><p>HONORÁRIOS EM EVIDÊNCIA</p></div><span class="corner-pill">EQUIPE</span></div>
       <div class="gold-card"><div class="mini-icon gold-icon">◉</div><div class="metric-copy"><span>HONORÁRIOS DE HOJE</span><strong id="honorariosHoje">—</strong><small id="statusDados">Aguardando fonte oficial</small></div></div>
       <div class="small-card"><div class="mini-icon">↗</div><div class="metric-copy"><span>RECUPERADO HOJE</span><strong id="recuperadoHoje">—</strong></div></div>
       <div class="small-card"><div class="mini-icon">▤</div><div class="metric-copy"><span>PAGAMENTOS CONFIRMADOS</span><strong id="pagamentosHoje">—</strong></div></div>
       <div class="small-card"><div class="mini-icon">♢</div><div class="metric-copy"><span>ACORDOS FECHADOS</span><strong id="acordosHoje">—</strong></div></div>
-      <div class="month-panel"><div class="month-row"><span>HONORÁRIOS NO MÊS</span><strong id="honorariosMes">—</strong></div><div class="month-bar"><div id="monthFill"></div></div><div class="month-sub"><span>PROJEÇÃO <strong id="projecaoHonorarios">—</strong></span><span>RECUPERADO NO MÊS <strong id="recuperadoMes">—</strong></span></div></div>
+      <div class="month-panel">
+        <div class="month-row"><small class="team-tag">RESULTADO REATIVA · MÊS</small><span>HONORÁRIOS PAGOS NO MÊS</span><strong id="honorariosMes">—</strong></div>
+        <div class="meta-line"><strong id="metaPct">—</strong><span id="metaValor">da meta de honorários</span></div>
+        <div class="month-bar"><div id="monthFill"></div><i id="paceMark" hidden></i></div>
+        <div class="pace" id="ritmoMes" data-situacao="">Ritmo: aguardando dados</div>
+        <div class="month-sub"><span>RECUPERADO NO MÊS <strong id="recuperadoMes">—</strong></span><span>PROJEÇÃO DO MÊS <strong id="projecaoHonorarios">—</strong></span></div>
+      </div>
     </aside>
 
     <section class="panel main-panel" aria-live="polite">
       <div class="main-panel-head"><span class="outline-pill" id="contentCategory">TÉCNICA DE NEGOCIAÇÃO</span><span class="theme-chip" id="themeChip">TEMA DA SEMANA <b>SONDAGEM</b></span></div>
       <div class="center-stage" id="centerStage">
         <div class="center-text"><h1 id="contentTitle">NEGOCIAÇÃO<br><em>EM FOCO</em></h1><p id="contentBody">Orientações práticas para a equipe.</p><div class="quote-panel" id="quotePanel"><span class="quote-icon">“</span><p id="contentQuote">O primeiro passo é entender o aluno.</p></div></div>
+        <div class="rank-board" id="rankBoard" hidden></div>
         <div class="target-art" aria-hidden="true"><svg viewBox="0 0 340 340"><defs><radialGradient id="targetHalo"><stop offset="0" stop-color="#1dbaff" stop-opacity=".32"/><stop offset="1" stop-color="#1dbaff" stop-opacity="0"/></radialGradient><linearGradient id="bullRing" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#36ddff"/><stop offset="1" stop-color="#1151c7"/></linearGradient></defs><circle cx="165" cy="174" r="160" fill="url(#targetHalo)"/><circle cx="164" cy="181" r="120" fill="#0c2853" stroke="#159bff" stroke-width="12"/><circle cx="164" cy="181" r="91" fill="#041a40" stroke="#48ceff" stroke-width="13"/><circle cx="164" cy="181" r="61" fill="#1457a8" stroke="#1bafff" stroke-width="12"/><circle cx="164" cy="181" r="29" fill="#54dfff"/><circle cx="164" cy="181" r="12" fill="#c6fbff"/><path d="M280 59L179 170" stroke="#9eefff" stroke-width="13" stroke-linecap="round"/><path d="M277 62l7-32 18 24 29 3-22 18-6 27z" fill="#159ee9" stroke="#75e6ff" stroke-width="4"/></svg></div>
       </div>
       <div class="coach-note"><span class="coach-icon">✦</span><div><strong id="contentFooterTitle">APLICAÇÃO PRÁTICA</strong><p id="contentFooter">Faça perguntas que ajudem a direcionar a negociação.</p></div></div>
     </section>
 
-    <aside class="panel ranking-panel"><div class="panel-title"><span class="mini-symbol trophy">★</span><div><h2>OPERADORES EM DESTAQUE</h2><p id="rankCategory">RESULTADOS DO MÊS</p></div></div><div class="rank-month" id="rankMonth">MÊS ATUAL</div><div class="rank-items" id="rankItems"><div class="rank-entry rank-one"><span class="rank-medal">1º</span><span class="operator-name">Aguardando classificação</span></div><div class="rank-entry rank-two"><span class="rank-medal">2º</span><span class="operator-name">Aguardando classificação</span></div><div class="rank-entry rank-three"><span class="rank-medal">3º</span><span class="operator-name">Aguardando classificação</span></div></div><div class="ranking-tagline">DISCIPLINA <span>•</span> RESULTADOS <span>•</span> EVOLUÇÃO</div></aside>
+    <aside class="panel ranking-panel"><div class="panel-title"><span class="mini-symbol trophy">★</span><div><h2>DESTAQUES DO MÊS</h2><p id="rankCategory">RANKING DA EQUIPE</p></div></div><div class="rank-month" id="rankMonth">MÊS ATUAL</div>
+      <div class="highlight-stack" id="rankItems"></div>
+      <div class="ranking-tagline">DISCIPLINA <span>•</span> RESULTADOS <span>•</span> EVOLUÇÃO</div></aside>
   </main>
   <footer class="receptivo-bar"><div class="receptivo-label"><span class="headset-icon">◉</span><div><strong>RECEPTIVO</strong><small id="queueStatus">Aguardando conexão com a fila oficial</small></div></div><div class="queue-items" id="queueItems"><div class="queue-entry next"><span class="next-pill">PRÓXIMO</span><b class="queue-number">1</b><strong>—</strong></div><div class="queue-entry"><b class="queue-number">2</b><strong>—</strong></div><div class="queue-entry"><b class="queue-number">3</b><strong>—</strong></div><div class="queue-entry"><b class="queue-number">4</b><strong>—</strong></div></div><div class="connected"><span>♟</span><strong id="operatorsOnline">—</strong><small>OPERADORES<br>DISPONÍVEIS</small></div></footer>
   <button id="fullscreenButton" class="fullscreen" title="Tela cheia" aria-label="Tela cheia">⛶</button>
@@ -51,5 +60,5 @@
   </form>
 </div>
 <script src="vendor/supabase.js"></script><script src="tv-auth-regras.js"></script><script src="tv-auth.js"></script>
-<script src="almanaque.js"></script><script src="app.js"></script>
+<script src="almanaque.js"></script><script src="tv-destaques.js"></script><script src="app.js"></script>
 </body></html>

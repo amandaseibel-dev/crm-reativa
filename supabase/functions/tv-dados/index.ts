@@ -1,8 +1,12 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
-// tv-dados v2 (2026-11-04) — leitura dos indicadores da TV no formato do painel
-// estático aprovado. Três portões, nenhum deles substituível pelo outro:
+// tv-dados v3 (2026-11-10) — leitura dos indicadores da TV no formato do painel
+// estático aprovado. v3 acrescenta `destaques` (rankings por operador, com foto)
+// e o resultado do mês em centavos, lidos de public.tv_painel_operadores()
+// (20261110200000). Sem essa função no banco, a v3 responde exatamente o que a
+// v2 respondia, mais meta/dias úteis do snapshot e o ranking de acordos de hoje.
+// Três portões, nenhum deles substituível pelo outro:
 //   1. gateway: verify_jwt=true (sem JWT válido, nem chega aqui);
 //   2. identidade: auth.getUser() tem de devolver um usuário real — a anon key
 //      e a service role key passam no gateway mas NÃO têm usuário;
@@ -58,22 +62,39 @@ Deno.serve(async (req: Request) => {
   const acordosHoje = (p.acordos_hoje ?? {}) as Record<string, unknown>
   const top3 = Array.isArray(rankings.top3_mes) ? rankings.top3_mes : []
 
+  // Função nova, lida como o próprio usuário. Ausente (migration não aplicada)
+  // ou com erro → null, e a resposta cai no que o snapshot tem.
+  const painel = await lerPainel(supabase)
+  const fotos = painel ? await fotosPorId(auth, idsDoPainel(painel)) : {}
+
   const receptivo = await filaReceptivo(supabase)
+
+  const pm = (painel?.mes ?? {}) as Record<string, unknown>
+  const ph = (painel?.hoje ?? {}) as Record<string, unknown>
 
   return json(200, {
     atualizado_em: data.gerado_em ?? null,
     fonte: 'CRM ReATIVA One — tv_snapshot',
     resultado: {
-      honorarios_hoje:             numOrNull(hoje.honorarios),
-      honorarios_mes:              numOrNull(mes.honorarios),
+      // Com o painel: valores em centavos, como estão em pagamentos. Sem ele:
+      // os inteiros do snapshot, marcados em `precisao` para a tela não
+      // inventar casas decimais.
+      precisao:                    painel ? 'centavos' : 'inteiro',
+      honorarios_hoje:             painel ? numOrNull(ph.honorarios) : numOrNull(hoje.honorarios),
+      honorarios_mes:              painel ? numOrNull(pm.honorarios) : numOrNull(mes.honorarios),
       projecao_honorarios_mes:     numOrNull(mes.proj_honorarios),
       projecao_parcial:            mes.projecao_parcial === true,
-      recuperado_hoje:             numOrNull(hoje.recuperado),
-      recuperado_mes:              numOrNull(mes.recuperado),
+      recuperado_hoje:             painel ? numOrNull(ph.recuperado) : numOrNull(hoje.recuperado),
+      recuperado_mes:              painel ? numOrNull(pm.recuperado) : numOrNull(mes.recuperado),
       pagamentos_confirmados_hoje: numOrNull(hoje.pagamentos_confirmados),
       pagamentos_confirmados_mes:  numOrNull(mes.pagamentos_confirmados),
       acordos_fechados_hoje:       numOrNull(acordosHoje.fechados),
       acordos_fechados_mes:        null,
+      // META é metas_projecao.meta_honorario (snapshot: mes.meta_empresa).
+      // Projeção é outra coisa e segue em projecao_honorarios_mes.
+      meta_honorarios_mes:         painel ? numOrNull(pm.meta_honorario) : numOrNull(mes.meta_empresa),
+      dias_uteis_mes:              painel ? numOrNull(pm.dias_uteis_mes) : numOrNull(mes.dias_uteis_mes),
+      dias_uteis_ate_hoje:         painel ? numOrNull(pm.dias_uteis_ate_hoje) : numOrNull(mes.dias_uteis_transcorridos),
     },
     rankings: {
       honorarios:       top3.map((r: Record<string, unknown>) => String(r.operador ?? '')).filter(Boolean),
@@ -81,66 +102,135 @@ Deno.serve(async (req: Request) => {
       pagamentos:       [],
       acordos:          [],
     },
+    destaques: painel ? destaquesDoPainel(painel, fotos) : destaquesDoSnapshot(top3, acordosHoje),
     receptivo,
   })
 })
+
+type Linha = Record<string, unknown>
+
+// Só o que as leituras usam do cliente: chamar RPC como o próprio usuário.
+// (`ReturnType<typeof createClient>` não aceita o cliente criado — erro TS2345
+// que a v11 publicada carregava, porque o deploy não checa tipos.)
+type ClienteRpc = { rpc: (fn: string) => PromiseLike<{ data: unknown; error: unknown }> }
+
+async function lerPainel(supabase: ClienteRpc): Promise<Linha | null> {
+  try {
+    const { data, error } = await supabase.rpc('tv_painel_operadores')
+    if (error || !data || typeof data !== 'object') return null
+    return data as Linha
+  } catch {
+    return null
+  }
+}
+
+const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function idsDoPainel(painel: Linha): string[] {
+  const ids = new Set<string>()
+  for (const k of LISTAS) {
+    const lista = Array.isArray(painel[k]) ? painel[k] as Linha[] : []
+    for (const r of lista) if (r?.usuario_id) ids.add(String(r.usuario_id))
+  }
+  return [...ids].filter((v) => RE_UUID.test(v))
+}
+
+// Fotos pelo caminho oficial do CRM: a Edge Function foto-perfil-url, chamada
+// com o JWT do próprio usuário da TV. Ela resolve o caminho no servidor e
+// devolve URL assinada de 5 min — nenhuma permissão nova, nenhum caminho
+// interno sai daqui. Falha → sem foto (a tela usa iniciais).
+async function fotosPorId(auth: string, ids: string[]): Promise<Record<string, string>> {
+  if (!ids.length) return {}
+  try {
+    const r = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/foto-perfil-url`, {
+      method: 'POST',
+      headers: { Authorization: auth, apikey: Deno.env.get('SUPABASE_ANON_KEY')!, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ usuario_ids: ids }),
+    })
+    if (!r.ok) return {}
+    const j = await r.json()
+    return j && typeof j.urls === 'object' && j.urls ? j.urls as Record<string, string> : {}
+  } catch {
+    return {}
+  }
+}
+
+const LISTAS = ['podio_mes', 'top_honorario_pagamento_mes', 'top_recuperado_mes', 'top_pagamentos_hoje', 'top_acordos_hoje'] as const
+
+// Rankings por operador saem com POSIÇÃO (ordem da lista), NOME e FOTO —
+// nada mais. Valor e quantidade individuais nunca vão para o navegador
+// (decisão da gestão, 10/11); o id do operador vira só a URL assinada da foto.
+function pessoa(r: Linha, fotos: Record<string, string>) {
+  const id = String(r.usuario_id ?? '')
+  return { nome: String(r.nome ?? '').trim(), foto: (id && fotos[id]) || null }
+}
+
+function destaquesDoPainel(painel: Linha, fotos: Record<string, string>) {
+  const lista = (k: string) => (Array.isArray(painel[k]) ? painel[k] as Linha[] : []).slice(0, 3).map((r) => pessoa(r, fotos))
+  return {
+    fonte: 'tv_painel_operadores',
+    referencia: painel.referencia ?? null,
+    podio_mes: lista('podio_mes'),
+    top_honorario_pagamento_mes: lista('top_honorario_pagamento_mes'),
+    top_recuperado_mes: lista('top_recuperado_mes'),
+    top_pagamentos_hoje: lista('top_pagamentos_hoje'),
+    top_acordos_hoje: lista('top_acordos_hoje'),
+  }
+}
+
+// Sem a função nova: só o que o snapshot já garante, também só com nomes.
+// Rankings que o snapshot não tem (ele guarda apenas o 1º colocado) ficam
+// null = "dado indisponível" — nunca um top 3 montado com um só nome.
+function destaquesDoSnapshot(top3: unknown[], acordosHoje: Record<string, unknown>) {
+  const nomes = (xs: Linha[], campo: string) => xs
+    .map((r) => String(r?.[campo] ?? '').trim())
+    .filter((n) => n && n !== 'Sem responsável')
+    .slice(0, 3)
+    .map((nome) => ({ nome, foto: null }))
+  return {
+    fonte: 'tv_snapshot',
+    referencia: null,
+    podio_mes: nomes(top3 as Linha[], 'operador'),
+    top_honorario_pagamento_mes: null,
+    top_recuperado_mes: null,
+    top_pagamentos_hoje: null,
+    top_acordos_hoje: nomes(Array.isArray(acordosHoje.ranking) ? acordosHoje.ranking as Linha[] : [], 'operador'),
+  }
+}
 
 function numOrNull(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null
 }
 
-// Fila do Receptivo — mesma regra da tela FilaReceptivo do CRM: participantes
-// (usuarios.receptivo), sem pausa, com heartbeat nos últimos 90 s, ordenados por
-// atendimentos_hoje, depois ultimo_atendimento, depois online_em. Lida como o
-// usuário (RLS de fila_receptivo/usuarios), devolve só nomes. Falha → vazio.
-const LIMITE_ONLINE_MS = 90 * 1000
-
+// Fila do Receptivo — lida pela RPC public.tv_fila_receptivo_ler() (SECURITY DEFINER,
+// guard tv_pode_ler_snapshot, grant só para authenticated). A RPC já devolve só
+// participantes, sem pausa, com heartbeat nos últimos 90 s, sem e-mail. Ordenação
+// feita aqui: atendimentos_hoje, depois ultimo_atendimento, depois online_em. Falha → vazio.
+// (Trecho idêntico ao da versão publicada em produção — v11 —, que estava à
+// frente do repositório: a v2 versionada ainda lia usuarios/fila_receptivo direto.)
 type LinhaFila = {
-  email: string | null
   nome: string | null
   atendimentos_hoje: number | null
   ultimo_atendimento: string | null
   online_em: string | null
-  em_pausa: boolean | null
 }
 
-async function filaReceptivo(supabase: ReturnType<typeof createClient>) {
+async function filaReceptivo(supabase: ClienteRpc) {
   const vazio = { atualizado_em: null as string | null, online: null as number | null, proximos: [] as string[] }
   try {
-    const { data: usuarios, error: eu } = await supabase
-      .from('usuarios').select('email, apelido').eq('receptivo', true)
-    if (eu || !usuarios?.length) return vazio
+    const { data: linhas, error } = await supabase.rpc('tv_fila_receptivo_ler')
+    if (error) return vazio
 
-    const apelidoPor = new Map<string, string>()
-    for (const u of usuarios as Array<{ email: string | null; apelido: string | null }>) {
-      const e = String(u.email ?? '').trim().toLowerCase()
-      if (e) apelidoPor.set(e, String(u.apelido ?? '').trim())
-    }
-    const emails = [...apelidoPor.keys()]
-
-    const { data: linhas, error: ef } = await supabase
-      .from('fila_receptivo')
-      .select('email, nome, atendimentos_hoje, ultimo_atendimento, online_em, em_pausa')
-      .in('email', emails)
-    if (ef) return vazio
-
-    const agora = Date.now()
     const t = (v: string | null) => (v ? Date.parse(v) || 0 : 0)
-    const online = ((linhas ?? []) as LinhaFila[])
-      .filter((l) => !l.em_pausa && l.online_em && agora - t(l.online_em) <= LIMITE_ONLINE_MS)
-      .sort((a, b) =>
-        (a.atendimentos_hoje ?? 0) - (b.atendimentos_hoje ?? 0) ||
-        t(a.ultimo_atendimento) - t(b.ultimo_atendimento) ||
-        t(a.online_em) - t(b.online_em))
-
-    const nome = (l: LinhaFila) =>
-      apelidoPor.get(String(l.email ?? '').trim().toLowerCase()) ||
-      String(l.nome ?? '').trim().split(/\s+/)[0] || ''
+    const online = ((linhas ?? []) as LinhaFila[]).slice().sort((a, b) =>
+      (a.atendimentos_hoje ?? 0) - (b.atendimentos_hoje ?? 0) ||
+      t(a.ultimo_atendimento) - t(b.ultimo_atendimento) ||
+      t(a.online_em) - t(b.online_em))
 
     return {
       atualizado_em: new Date().toISOString(),
       online: online.length,
-      proximos: online.slice(0, 4).map(nome).filter(Boolean),
+      proximos: online.slice(0, 4).map((l) => String(l.nome ?? '').trim()).filter(Boolean),
     }
   } catch {
     return vazio
