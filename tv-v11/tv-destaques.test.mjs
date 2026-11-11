@@ -106,12 +106,13 @@ describe('tela: textos genéricos removidos e o que fica preservado', () => {
     expect(app).toMatch(/MEDALHAS=\['ouro','prata','bronze'\]/);
     expect(app).toMatch(/dz\.podio_mes/);
   });
-  it('destaques do mês não mostram valor do operador', () => {
+  it('pódio de reconhecimento (destaques do mês) não mostra valor', () => {
     const bloco = app.slice(app.indexOf('function destaqueCard'), app.indexOf('// Card central de ranking'));
     expect(bloco).not.toMatch(/dinheiro|valor/);
   });
-  it('top recuperado é por pagamento único, não acumulado', () => {
-    expect(D.RANKINGS[1].explica).toMatch(/único pagamento/);
+  it('top recuperado é o acumulado do mês por operador; top honorários é pagamento único', () => {
+    expect(D.RANKINGS[1].explica).toMatch(/acumulado no mês/);
+    expect(D.RANKINGS[0].explica).toMatch(/único pagamento/);
   });
   it('logo natalino continua no topo e na tela de acesso', () => {
     expect(html.match(/logo-reativa-natal\.png/g)).toHaveLength(2);

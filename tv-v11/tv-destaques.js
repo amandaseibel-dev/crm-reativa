@@ -93,7 +93,7 @@
     { chave: 'top_honorario_pagamento_mes', titulo: 'Top honorários do mês', periodo: 'mes', medida: 'valor',
       explica: 'Os três maiores honorários pagos em um único pagamento.' },
     { chave: 'top_recuperado_mes', titulo: 'Top recuperado do mês', periodo: 'mes', medida: 'valor',
-      explica: 'Os três maiores valores recuperados em um único pagamento.' },
+      explica: 'Valor recuperado acumulado no mês, por operador.' },
     { chave: 'top_pagamentos_hoje', titulo: 'Top pagamentos de hoje', periodo: 'hoje', medida: 'qtd', unidade: ['pagamento', 'pagamentos'],
       explica: 'Pagamentos confirmados hoje, por operador.' },
     { chave: 'top_acordos_hoje', titulo: 'Top acordos de hoje', periodo: 'hoje', medida: 'qtd', unidade: ['acordo', 'acordos'],

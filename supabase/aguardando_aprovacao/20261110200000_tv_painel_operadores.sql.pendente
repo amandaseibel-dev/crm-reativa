@@ -30,8 +30,10 @@
 --     tv_equipe_oculta (20261008120000_tv_acordos_de_hoje). Diferença
 --     deliberada: acordo SEM responsável não entra no ranking por operador
 --     (no snapshot ele aparecia como "Sem responsável");
---   • a TV não mostra acumulado por operador (decisão da gestão, 10/11): os
---     destaques do mês saem SEM valor e o top recuperado é por pagamento único;
+--   • o pódio de reconhecimento (destaques do mês) sai só com nome/id — a
+--     ordem é pelo honorário pago acumulado, mas o valor não é devolvido;
+--     os cards de ranking (top honorário em pagamento único, top recuperado
+--     acumulado, pagamentos e acordos de hoje) devolvem o resultado;
 --   • meta = metas_projecao.meta_honorario do mês; dias úteis = dias_uteis()
 --     (feriados do CRM). A projeção NÃO é usada como meta.
 --
@@ -86,6 +88,7 @@ begin
     por_op_mes as (
       select usuario_id, nome,
              round(sum(coalesce(valor_honorario,0)), 2) as honorario,
+             round(sum(coalesce(valor_pago,0)), 2)      as recuperado,
              count(*)                                   as qtd
         from pg_op group by usuario_id, nome
     ),
@@ -147,14 +150,12 @@ begin
                  order by valor_honorario desc, data_pagamento asc, id)
           from (select * from pg_op where coalesce(valor_honorario,0) > 0
                  order by valor_honorario desc, data_pagamento asc, id limit 3) t), '[]'::jsonb),
-      -- Decisão da gestão (10/11): não expor acumulado por operador. O top
-      -- recuperado é o MAIOR VALOR RECUPERADO EM UM ÚNICO PAGAMENTO.
+      -- Top recuperado do mês = valor recuperado ACUMULADO no mês por operador.
       'top_recuperado_mes', coalesce((
-        select jsonb_agg(jsonb_build_object('usuario_id', usuario_id, 'nome', nome,
-                 'valor', round(valor_pago, 2), 'data', to_char(data_pagamento, 'YYYY-MM-DD'))
-                 order by valor_pago desc, data_pagamento asc, id)
-          from (select * from pg_op where coalesce(valor_pago,0) > 0
-                 order by valor_pago desc, data_pagamento asc, id limit 3) t), '[]'::jsonb),
+        select jsonb_agg(jsonb_build_object('usuario_id', usuario_id, 'nome', nome, 'valor', recuperado, 'qtd', qtd)
+                 order by recuperado desc, qtd desc, nome)
+          from (select * from por_op_mes where recuperado > 0
+                 order by recuperado desc, qtd desc, nome limit 3) t), '[]'::jsonb),
       'top_pagamentos_hoje', coalesce((
         select jsonb_agg(jsonb_build_object('usuario_id', usuario_id, 'nome', nome, 'qtd', qtd, 'valor', honorario)
                  order by qtd desc, honorario desc, nome)

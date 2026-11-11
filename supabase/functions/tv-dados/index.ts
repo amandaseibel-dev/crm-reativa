@@ -173,7 +173,8 @@ function destaquesDoPainel(painel: Linha, fotos: Record<string, string>) {
     fonte: 'tv_painel_operadores',
     precisao: 'centavos',
     referencia: painel.referencia ?? null,
-    // Destaque do mês sai SEM valor: a TV não expõe acumulado por operador.
+    // Pódio de reconhecimento: só nome e foto (decisão da gestão para este
+    // card). Os cards de ranking abaixo levam o resultado.
     lider_honorarios_mes: lider ? { ...pessoa(lider, fotos), valor: null, qtd: null } : null,
     podio_mes: lista('podio_mes').map((x) => ({ ...x, valor: null, qtd: null })),
     top_honorario_pagamento_mes: lista('top_honorario_pagamento_mes'),

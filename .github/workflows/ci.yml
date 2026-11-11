@@ -516,6 +516,73 @@ jobs:
         run: deno check supabase/functions/ulbra-sincronizar/index.ts
 
   # ---------------------------------------------------------------------------
+  # TV — tv_painel_operadores (20261110200000), migration CANDIDATA (ainda em
+  # aguardando_aprovacao/), num Postgres descartável. Prova grants (anon e
+  # PUBLIC sem EXECUTE apesar do default privileges), o portão da allowlist,
+  # cada regra dos rankings, o fuso de Brasília, os centavos, que o pódio não
+  # devolve valor e que o rollback remove só a função.
+  # ---------------------------------------------------------------------------
+  tv-painel-operadores-sql:
+    name: tv painel operadores — portão, regras, centavos e rollback (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/tv_painel_operadores
+      MIGRATION: supabase/aguardando_aprovacao/20261110200000_tv_painel_operadores.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261110200000_tv_painel_operadores.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ambiente, migration, provas, rollback e verificação
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_dados.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/03_provas.sql"
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/04_depois_do_rollback.sql"
+
+  # ---------------------------------------------------------------------------
+  # TV — verificação de TIPOS e IMPORTS da Edge Function tv-dados (v3).
+  # ---------------------------------------------------------------------------
+  tv-dados-deno-check:
+    name: tv-dados — deno check (versão fixada)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Instalar Deno (versão fixada)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.1.4
+
+      - name: deno check da função e de tudo que ela importa
+        run: deno check supabase/functions/tv-dados/index.ts
+
+  # ---------------------------------------------------------------------------
   # PROPOSTA_staging_acordos_prime.sql — RLS, grants e isolamento do staging
   # de ACORDOS, num Postgres descartável.
   #

@@ -465,3 +465,26 @@ declarar fundo próprio. Não foi medido — a frente da PR #852 parou no cartã
 contatos de propósito.
 
 **Não implementar nenhum dos dois sem aprovação.**
+
+## Pagamentos `PARCELA_JA_PAGA` somam em honorário, recuperado e rankings (aberto em 10/11/2026)
+
+**Prioridade:** decisão da gestão · **origem:** conferência dos números da TV (PR #898).
+**Nada foi alterado nesta frente:** a TV e a função `tv_painel_operadores` seguem a
+regra financeira atual.
+
+Regra vigente (lida em produção, `tv_snapshot_calcular` e `projecao_calcular_*`):
+toda linha de `public.pagamentos` conta, **sem filtro por `status_conciliacao`**.
+
+Medido em 10/11/2026 (consulta só de leitura, novembro até o dia 10):
+
+| status_conciliacao | pagamentos | valor pago | honorário |
+|---|---:|---:|---:|
+| `PARCELA_JA_PAGA` | 9 (6 de operadores da allowlist da TV) | R$ 3.358,56 | R$ 242,68 |
+
+`PARCELA_JA_PAGA` sugere pagamento de parcela que já constava como paga — possível
+duplicidade. Hoje ele entra no honorário do mês, no recuperado, na meta/projeção e
+nos rankings por operador.
+
+**Decidir:** se `PARCELA_JA_PAGA` (e, separadamente, `REVISAO`) deve sair das somas.
+Se sair, a mudança é na regra oficial — snapshot, projeção e `tv_painel_operadores`
+juntos —, não só na TV, para os números não divergirem entre telas.
