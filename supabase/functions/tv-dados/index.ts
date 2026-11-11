@@ -109,7 +109,12 @@ Deno.serve(async (req: Request) => {
 
 type Linha = Record<string, unknown>
 
-async function lerPainel(supabase: ReturnType<typeof createClient>): Promise<Linha | null> {
+// Só o que as leituras usam do cliente: chamar RPC como o próprio usuário.
+// (`ReturnType<typeof createClient>` não aceita o cliente criado — erro TS2345
+// que a v11 publicada carregava, porque o deploy não checa tipos.)
+type ClienteRpc = { rpc: (fn: string) => PromiseLike<{ data: unknown; error: unknown }> }
+
+async function lerPainel(supabase: ClienteRpc): Promise<Linha | null> {
   try {
     const { data, error } = await supabase.rpc('tv_painel_operadores')
     if (error || !data || typeof data !== 'object') return null
@@ -210,7 +215,7 @@ type LinhaFila = {
   online_em: string | null
 }
 
-async function filaReceptivo(supabase: ReturnType<typeof createClient>) {
+async function filaReceptivo(supabase: ClienteRpc) {
   const vazio = { atualizado_em: null as string | null, online: null as number | null, proximos: [] as string[] }
   try {
     const { data: linhas, error } = await supabase.rpc('tv_fila_receptivo_ler')
