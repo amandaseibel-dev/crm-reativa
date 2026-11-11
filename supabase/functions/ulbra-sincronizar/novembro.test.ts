@@ -132,8 +132,11 @@ describe("novembro com os cursores de produção", () => {
 describe("teto acumulado e parada dura", () => {
   const AGORA = Date.parse("2026-11-11T12:00:00Z");
   it("teto_total é lido (1..500) e recusado fora disso", () => {
-    expect(lerParametros(JSON.stringify({ teto_total: 110, teto_chamadas: 12, desde: "2026-11-01", detalhes: 5 }), AGORA))
-      .toEqual({ teto_chamadas: 12, teto_total: 110, desde: "2026-11-01T03:00:00.000Z", detalhes: 5 });
+    expect(lerParametros(JSON.stringify({ teto_total: 110, teto_chamadas: 12, desde: "2026-11-01", detalhes: 5, campanha: "novembro-2026" }), AGORA))
+      .toEqual({ teto_chamadas: 12, teto_total: 110, campanha: "novembro-2026", desde: "2026-11-01T03:00:00.000Z", detalhes: 5 });
+    // campanha exige teto_total e um id simples
+    expect(lerParametros(JSON.stringify({ campanha: "novembro-2026" }), AGORA)).toBe("INVALIDO");
+    expect(lerParametros(JSON.stringify({ campanha: "Nov 2026", teto_total: 110 }), AGORA)).toBe("INVALIDO");
     expect(lerParametros(JSON.stringify({ teto_total: 0 }), AGORA)).toBe("INVALIDO");
     expect(lerParametros(JSON.stringify({ teto_total: TETO_TOTAL_MAX + 1 }), AGORA)).toBe("INVALIDO");
     expect(lerParametros(JSON.stringify({ teto_total: 10.5 }), AGORA)).toBe("INVALIDO");

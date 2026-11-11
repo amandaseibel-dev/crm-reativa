@@ -41,6 +41,7 @@ import {
   lerCorpoMcp,
   modoDoCiclo,
   lerParametros,
+  TETO_EXECUCAO_MAX,
   type ParametrosExecucao,
   erroMcp,
   ehParada,
@@ -141,12 +142,37 @@ Deno.serve(async (req: Request) => {
   // Teto ACUMULADO da campanha: conferido contra o contador do dia, que soma
   // TODA chamada (meu_acesso, listagens, detalhes e tentativas que falharam).
   const tetoTotal = parametros?.teto_total ?? null;
-  const restanteTotal = tetoTotal === null ? Number.POSITIVE_INFINITY : tetoTotal - chamadasAntes;
+  const campanha = parametros?.campanha ?? null;
+  // Sem campanha: teto acumulado conferido contra o contador do dia (zera na
+  // virada do dia; não é atômico entre execuções concorrentes). COM campanha:
+  // RESERVA atômica no banco (ulbra_sync_campanha_reservar), independente do
+  // dia; conta tentativas e falhas porque acontece ANTES das chamadas; o que
+  // não for usado é devolvido no fim. É este o caminho do pacote de novembro.
+  let restanteTotal = tetoTotal === null ? Number.POSITIVE_INFINITY : tetoTotal - chamadasAntes;
+  let concedido: number | null = null;
+  if (campanha !== null && tetoTotal !== null) {
+    const pedido = Math.max(0, Math.min(TETO_DIARIO_SYNC - chamadasAntes, tetoExecucao ?? TETO_EXECUCAO_MAX));
+    const { data: reserva, error: errReserva } = await sb.rpc("ulbra_sync_campanha_reservar", {
+      p_campanha: campanha, p_teto: tetoTotal, p_pedido: pedido,
+    });
+    if (errReserva || !reserva?.ok) {
+      // Fecha: sem reserva confirmada, nenhuma chamada sai.
+      return json({ ciclo: "FALHOU", erro: "CAMPANHA_INDISPONIVEL", detalhe: errReserva?.message ?? reserva?.motivo ?? null, chamadas: 0 }, 500);
+    }
+    concedido = Number(reserva.concedido) || 0;
+    restanteTotal = concedido;
+  }
+  // Devolve à campanha o que esta execução reservou e não usou (em toda saída).
+  const devolver = async (usadas: number) => {
+    if (campanha === null || concedido === null) return null;
+    const { data } = await sb.rpc("ulbra_sync_campanha_devolver", { p_campanha: campanha, p_nao_usadas: Math.max(0, concedido - usadas) });
+    return data ?? null;
+  };
   if (tetoTotal !== null && restanteTotal <= 0) {
     await sb.rpc("ulbra_sync_gravar", {
       p_payload: { ciclo: "PULADO_ORCAMENTO", chamadas: 0, dia: hoje, erro: "TETO_TOTAL_ESGOTADO" },
     });
-    return json({ ciclo: "PULADO_TETO_TOTAL", chamadas_dia: chamadasAntes, teto_total: tetoTotal, teto_total_restante: 0 });
+    return json({ ciclo: "PULADO_TETO_TOTAL", chamadas_dia: chamadasAntes, teto_total: tetoTotal, teto_total_restante: 0, campanha: await devolver(0) });
   }
   const orcamento = new Orcamento(
     Math.min(TETO_DIARIO_SYNC - chamadasAntes, tetoExecucao ?? Number.POSITIVE_INFINITY, restanteTotal),
@@ -165,7 +191,7 @@ Deno.serve(async (req: Request) => {
     await sb.rpc("ulbra_sync_gravar", {
       p_payload: { ciclo: "PULADO_ORCAMENTO", chamadas: 0, dia: hoje, erro: "ORCAMENTO_DO_DIA" },
     });
-    return json({ ciclo: "PULADO_ORCAMENTO", chamadas_dia: chamadasAntes, teto: TETO_DIARIO_SYNC });
+    return json({ ciclo: "PULADO_ORCAMENTO", chamadas_dia: chamadasAntes, teto: TETO_DIARIO_SYNC, campanha: await devolver(0) });
   }
 
   // Toda chamada à ULBRA passa por aqui: o saldo é gasto ANTES de sair.
@@ -206,7 +232,7 @@ Deno.serve(async (req: Request) => {
     } catch (e) {
       if (ehParada(e)) {
         await sb.rpc("ulbra_sync_gravar", { p_payload: { ciclo: "FALHOU", chamadas, dia: hoje, erro: e.codigo } });
-        return json({ ciclo: "FALHOU", erro: e.codigo, http: e.http, parada: true, chamadas }, 502);
+        return json({ ciclo: "FALHOU", erro: e.codigo, http: e.http, parada: true, chamadas, campanha: await devolver(chamadas) }, 502);
       }
       console.error("ulbra-sincronizar: meu_acesso falhou", (e as Error).message);
     }
@@ -291,7 +317,7 @@ Deno.serve(async (req: Request) => {
     await sb.rpc("ulbra_sync_gravar", {
       p_payload: { ciclo: "FALHOU", chamadas, dia: hoje, erro: motivo },
     });
-    return json({ ciclo: "FALHOU", erro: motivo, http: parada ? e.http : null, parada, chamadas }, 502);
+    return json({ ciclo: "FALHOU", erro: motivo, http: parada ? e.http : null, parada, chamadas, campanha: await devolver(chamadas) }, 502);
   }
 
   const proxima = novaJanela(janela, colheita);
@@ -371,7 +397,7 @@ Deno.serve(async (req: Request) => {
   });
   if (error) {
     console.error("ulbra-sincronizar: gravação falhou", error.message);
-    return json({ ciclo: "FALHOU", erro: "GRAVACAO", detalhe: error.message }, 500);
+    return json({ ciclo: "FALHOU", erro: "GRAVACAO", detalhe: error.message, chamadas, campanha: await devolver(chamadas) }, 500);
   }
 
   // Posição de leitura para o próximo ciclo. Só depois da gravação; se falhar,
@@ -392,6 +418,7 @@ Deno.serve(async (req: Request) => {
     teto_dia: TETO_DIARIO_SYNC,
     teto_total: tetoTotal,
     teto_total_restante: tetoTotal === null ? null : Math.max(0, tetoTotal - chamadasAntes - chamadas),
+    campanha: await devolver(chamadas),
     leituras: colheita.leituras,
     conversas_novas: linhasConversas.length,
     detalhes_lidos: concluidas.length,

@@ -950,6 +950,9 @@ export interface ParametrosExecucao {
   teto_chamadas: number | null;
   /** Teto acumulado da campanha; a execução recebe no máximo o que resta dele. */
   teto_total: number | null;
+  /** Id da campanha (ex.: "novembro-2026"): a reserva atômica no banco vale por ele,
+   *  independente do dia. Exige `teto_total`. */
+  campanha: string | null;
   /** Início da janela (ISO), ou null. Ver `Janela.desde`. */
   desde: string | null;
   detalhes: number | null;
@@ -962,13 +965,18 @@ export interface ParametrosExecucao {
  */
 export function lerParametros(texto: string, agoraMs = Date.now()): ParametrosExecucao | "INVALIDO" | null {
   if (!texto) return null;
-  let corpo: { teto_chamadas?: unknown; teto_total?: unknown; desde?: unknown; detalhes?: unknown };
+  let corpo: { teto_chamadas?: unknown; teto_total?: unknown; campanha?: unknown; desde?: unknown; detalhes?: unknown };
   try {
     corpo = JSON.parse(texto);
   } catch {
     return "INVALIDO";
   }
-  const r: ParametrosExecucao = { teto_chamadas: null, teto_total: null, desde: null, detalhes: null };
+  const r: ParametrosExecucao = { teto_chamadas: null, teto_total: null, campanha: null, desde: null, detalhes: null };
+  if (corpo.campanha !== undefined) {
+    const c = corpo.campanha;
+    if (typeof c !== "string" || !/^[a-z0-9][a-z0-9-]{2,39}$/.test(c)) return "INVALIDO";
+    r.campanha = c;
+  }
   if (corpo.teto_total !== undefined) {
     const n = corpo.teto_total;
     if (!(typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= TETO_TOTAL_MAX)) return "INVALIDO";
@@ -984,6 +992,7 @@ export function lerParametros(texto: string, agoraMs = Date.now()): ParametrosEx
     if (!(typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= DETALHES_EXECUCAO_MAX)) return "INVALIDO";
     r.detalhes = n;
   }
+  if (r.campanha !== null && r.teto_total === null) return "INVALIDO";
   if (corpo.desde !== undefined) {
     const d = corpo.desde;
     if (typeof d !== "string" || !/^\d{4}-\d{2}-\d{2}(T.*)?$/.test(d)) return "INVALIDO";
