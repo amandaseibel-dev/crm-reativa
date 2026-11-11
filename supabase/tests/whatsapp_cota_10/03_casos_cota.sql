@@ -167,7 +167,7 @@ insert into _cota_r values ('E2', 'FALHA de envio nao marca cota', '0|0',
 
 -- E3: primeira resposta com sucesso marca, com o ciclo de responsabilidade
 select public._t_registrar(:'e1', 'op_e@test.local', 'ENVIADO', 'w-e1-1', 400);
-insert into _cota_r values ('E3', 'primeira resposta ENVIADA marca 1 RECEPTIVA', '1|1',
+insert into _cota_r values ('E3', 'primeira resposta ENVIADA marca 1 RECEPTIVA; resposta nao gasta cota', '1|0',
   public._t_marcas(:'e1', 'op_e@test.local', 'RECEPTIVA') || '|' || public._t_cota(:'c10', 'op_e@test.local'));
 insert into _cota_r values ('E3b', 'marca guarda o ciclo (responsavel_desde) e o wamid', 'true|w-e1-1',
   (select (a.ciclo_desde = cv.responsavel_desde)::text || '|' || a.wamid
@@ -181,7 +181,7 @@ insert into _cota_r values ('E4', 'REPETICAO do mesmo wamid nao marca de novo', 
 
 -- E5: segunda resposta no mesmo ciclo
 select public._t_registrar(:'e1', 'op_e@test.local', 'ENVIADO', 'w-e1-2', 350);
-insert into _cota_r values ('E5', 'segunda resposta no MESMO ciclo nao marca de novo', '1|1',
+insert into _cota_r values ('E5', 'segunda resposta no MESMO ciclo nao marca de novo; cota segue 0', '1|0',
   public._t_marcas(:'e1', 'op_e@test.local', 'RECEPTIVA') || '|' || public._t_cota(:'c10', 'op_e@test.local'));
 
 -- E6: troca de responsável (transferência) = ciclo novo para quem recebe
@@ -189,7 +189,7 @@ select public._t_assumir(:'e1', 'op_f@test.local', 300);
 insert into _cota_r values ('E6a', 'TROCA: receber a conversa nao marca', '0',
   public._t_marcas(:'e1', 'op_f@test.local', 'RECEPTIVA')::text);
 select public._t_registrar(:'e1', 'op_f@test.local', 'ENVIADO', 'w-e1-3', 250);
-insert into _cota_r values ('E6b', 'TROCA: 1a resposta do novo responsavel marca (mesma conversa, mesmo dia)', '1|1|1',
+insert into _cota_r values ('E6b', 'TROCA: 1a resposta do novo responsavel marca; cota segue 0', '1|0|1',
   public._t_marcas(:'e1', 'op_f@test.local', 'RECEPTIVA') || '|' ||
   public._t_cota(:'c10', 'op_f@test.local') || '|' ||
   public._t_marcas(:'e1', 'op_e@test.local', 'RECEPTIVA'));
@@ -198,7 +198,7 @@ insert into _cota_r values ('E6b', 'TROCA: 1a resposta do novo responsavel marca
 select public._t_retirar(:'e1');
 select public._t_assumir(:'e1', 'op_e@test.local', 200);
 select public._t_registrar(:'e1', 'op_e@test.local', 'ENVIADO', 'w-e1-4', 150);
-insert into _cota_r values ('E7', 'ciclo novo marca de novo, mas a cota conta a PESSOA uma vez no dia', '2|1',
+insert into _cota_r values ('E7', 'ciclo novo marca de novo; respostas nao gastam cota', '2|0',
   public._t_marcas(:'e1', 'op_e@test.local', 'RECEPTIVA') || '|' || public._t_cota(:'c10', 'op_e@test.local'));
 
 -- E8: quem envia não é o responsável (gestão respondendo conversa do operador)
@@ -236,7 +236,7 @@ select public._t_registrar(:'e11', 'op_g@test.local', 'ENVIADO', 'w-e11-1', 120)
 insert into _cota_r values ('E11', 'conversa que ja vinha sendo atendida nao passa a gastar cota', '0',
   public._t_marcas(:'e11', 'op_g@test.local', 'RECEPTIVA')::text);
 
--- E12: RECEPTIVA consome a cota, mas nunca barra a resposta
+-- E12: RECEPTIVA NAO consome a cota (so ATIVA conta); nunca barra a resposta
 --      op_f já tem 1 (E6). Mais 9 conversas assumidas e respondidas = 10.
 select count(*) from (
   select public._t_conversa(:'c10', '55519512' || lpad(g::text, 5, '0')) c from generate_series(1, 9) g) x;
@@ -244,16 +244,16 @@ select public._t_msg(id, 'ENTRADA', 1), public._t_assumir(id, 'op_f@test.local',
   from public.whatsapp_conversas where telefone_e164 like '55519512%';
 select public._t_registrar(id, 'op_f@test.local', 'ENVIADO', 'w-e12-' || telefone_e164, 300)
   from public.whatsapp_conversas where telefone_e164 like '55519512%';
-insert into _cota_r values ('E12a', '10 conversas receptivas respondidas = cota 10', '10',
+insert into _cota_r values ('E12a', '10 conversas receptivas respondidas: cota continua 0', '0',
   public._t_cota(:'c10', 'op_f@test.local')::text);
-insert into _cota_r values ('E12b', 'com a cota cheia por RECEPTIVA, nova abordagem e barrada', 'LIMITE_OPERADOR',
+insert into _cota_r values ('E12b', 'receptivas nao gastam cota: nova abordagem continua liberada', 'NOVA_ABORDAGEM',
   public._t_checar(:'c10', public._t_conversa(:'c10', '5551951299999'), 'op_f@test.local'));
 select public._t_conversa(:'c10', '5551951300001') as e12x \gset
 select public._t_msg(:'e12x', 'ENTRADA', 1);
 insert into _cota_r values ('E12c', 'com a cota cheia, RESPONDER quem escreveu continua liberado', 'RESPOSTA',
   public._t_preparar(:'c10', :'e12x', 'op_f@test.local'));
 select public._t_registrar(:'e12x', 'op_f@test.local', 'ENVIADO', 'w-e12x-1', 0);
-insert into _cota_r values ('E12d', 'a 11a receptiva e registrada (nunca barra, so marca)', '11',
+insert into _cota_r values ('E12d', 'receptivas nao contam: so a ATIVA do E12b (cota 1)', '1',
   public._t_cota(:'c10', 'op_f@test.local')::text);
 
 -- E13: mensagem de sincronização inicial não é envio de agora
@@ -277,7 +277,7 @@ insert into _cota_r values ('E14', 'marcacao com erro: mensagem fica registrada,
 -- ===================== F. o que a tela lê e grava ==========================
 set teste.email = 'op_f@test.local';
 insert into _cota_r
-select 'F1', 'consumo do operador: limite 10, usadas 11, sem isencao, configurado 10', '10|11|false|10',
+select 'F1', 'consumo do operador: limite 10, usadas 1 (so ATIVA), sem isencao, configurado 10', '10|1|false|10',
        limite_operador || '|' || usadas_operador || '|' || sem_limite_individual || '|' || limite_operador_canal
   from public.whatsapp_cadencia_consumo() where canal_id = :'c10';
 

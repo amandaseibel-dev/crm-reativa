@@ -408,10 +408,22 @@ export default function CentralWhatsApp() {
     if (!texto || !selecionada || enviando) return;
     setEnviando(true);
     setErro("");
+    // Lido ANTES de enviar: o envio zera aguardando_resposta no banco.
+    const eraReceptivo = Boolean(selecionada.aguardando_resposta);
     try {
       await enviarMensagem(selecionada.id, texto);
       setRascunho("");
       setMensagens(await listarMensagens(selecionada.id));
+      // Fila receptiva: a primeira resposta ENVIADA com sucesso conta uma vez
+      // por ciclo (a RPC é idempotente por ciclo). Separado da cota comercial.
+      if (eraReceptivo && emailOperador) {
+        try {
+          await marcarAtendidoReceptivoWhatsApp(emailOperador, selecionada.id);
+        } catch (eFila) {
+          console.warn("[fila-receptivo]", eFila.message);
+          setAvisoFila("Resposta enviada, mas posição na fila não foi atualizada. Avisar gestão se persistir.");
+        }
+      }
       carregarConversas();
     } catch (e) {
       setErro(e.message);
@@ -458,9 +470,8 @@ export default function CentralWhatsApp() {
     }
   }
 
-  // Assumir conversa receptiva também movimenta o operador na fila telefônica.
-  // Receptivo = aguardando_resposta derivado por trigger no banco a partir da
-  // última mensagem real — ignora SYNC_INICIAL e reordenação de histórico.
+  // Assumir NÃO conta como atendimento na fila receptiva: quem assume para
+  // olhar e devolve não pode perder a vez. O aceite conta só no envio (ver `enviar`).
   async function assumir() {
     if (!selecionada || assumirEmAndamentoRef.current) return;
     assumirEmAndamentoRef.current = true;
@@ -468,14 +479,6 @@ export default function CentralWhatsApp() {
     setAvisoFila(null);
     try {
       await assumirConversa(selecionada.id);
-      if (selecionada.aguardando_resposta && emailOperador) {
-        try {
-          await marcarAtendidoReceptivoWhatsApp(emailOperador, selecionada.id);
-        } catch (eFila) {
-          console.warn("[fila-receptivo]", eFila.message);
-          setAvisoFila("Atendimento registrado, mas posição na fila não foi atualizada. Avisar gestão se persistir.");
-        }
-      }
       await carregarConversas();
     } catch (e) {
       setErro(e.message);

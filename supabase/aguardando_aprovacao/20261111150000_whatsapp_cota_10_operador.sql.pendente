@@ -24,7 +24,7 @@
 --   operador (e qualquer perfil fora da lista abaixo)
 --       10 novas conversas por dia por canal (limite_abordagens_operador
 --       = 10) + liberação extra do dia, se houver. Conta pessoas
---       distintas: ATIVA + RECEPTIVA do dia.
+--       distintas iniciadas pelo operador no dia (ATIVA). RECEPTIVA NAO conta.
 --   gerencia, supervisor, administrativo
 --       SEM limite individual diário. As abordagens ATIVAS deles seguem
 --       gravadas e seguem contando no teto do canal.
@@ -203,7 +203,7 @@ GRANT EXECUTE ON FUNCTION public.whatsapp_cadencia_sem_limite_individual(text) T
 -- 4. whatsapp_cadencia_checar = corpo da v2 + cota 10 por perfil
 --    Diferenças em relação à v2, e só elas:
 --      a) INSERT com ON CONFLICT no índice parcial de ATIVA
---      b) v_op conta CONVERSAS DISTINTAS do operador no dia, ATIVA+RECEPTIVA
+--      b) v_op conta CONVERSAS DISTINTAS do operador no dia, so ATIVA
 --      c) v_ch conta só ATIVA
 --      d) perfis sem limite individual não passam pelo LIMITE_OPERADOR
 -- ---------------------------------------------------------------------
@@ -360,11 +360,11 @@ BEGIN
   VALUES (p_canal_id, p_conversa_id, lower(p_operador), v_hoje, 'ATIVA')
   ON CONFLICT (canal_id, conversa_id, dia) WHERE origem = 'ATIVA' DO NOTHING;
 
-  -- Cota individual: PESSOAS distintas do dia, iniciadas (ATIVA) ou
-  -- assumidas e respondidas (RECEPTIVA). Distinct porque a mesma conversa
-  -- pode ter as duas origens no dia e conta uma vez so.
+  -- Cota individual: PESSOAS distintas do dia que o OPERADOR INICIOU (ATIVA).
+  -- RECEPTIVA (resposta enviada) NUNCA entra aqui: respostas nao gastam cota.
   SELECT count(DISTINCT a.conversa_id) INTO v_op FROM public.whatsapp_abordagens a
-   WHERE a.canal_id = p_canal_id AND a.operador_email = lower(p_operador) AND a.dia = v_hoje;
+   WHERE a.canal_id = p_canal_id AND a.operador_email = lower(p_operador) AND a.dia = v_hoje
+     AND a.origem = 'ATIVA';
 
   -- Teto do canal: so o que o NUMERO iniciou. Resposta nao gasta teto.
   SELECT count(*) INTO v_ch FROM public.whatsapp_abordagens a
@@ -542,7 +542,7 @@ AS $function$
          END,
          (SELECT count(DISTINCT a.conversa_id)::integer FROM public.whatsapp_abordagens a, agora g
            WHERE a.canal_id = k.id AND a.dia = g.hoje
-             AND a.operador_email = public.app_email()),
+             AND a.operador_email = public.app_email() AND a.origem = 'ATIVA'),
          k.limite_abordagens_canal,
          (SELECT count(*)::integer FROM public.whatsapp_abordagens a, agora g
            WHERE a.canal_id = k.id AND a.dia = g.hoje AND a.origem = 'ATIVA'),
