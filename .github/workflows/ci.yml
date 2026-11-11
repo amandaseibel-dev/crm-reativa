@@ -394,6 +394,107 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_depois_do_rollback.sql"
 
   # ---------------------------------------------------------------------------
+  # ULBRA — posição de leitura do backlog (20261109160000): coluna e função
+  # service_role-only, grants inalterados, rollback. Depende do piloto de
+  # recebimento (ulbra_sync_estado). NÃO aplicada.
+  # ---------------------------------------------------------------------------
+  ulbra-coleta-posicao-sql:
+    name: ulbra coleta — posicao do backlog, grants e rollback (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      REC: supabase/tests/ulbra_recebimento
+      DIR: supabase/tests/ulbra_coleta_posicao
+      PILOTO: supabase/aguardando_aprovacao/20261108140000_ulbra_recebimento_e_fila.sql.pendente
+      MIGRATION: supabase/aguardando_aprovacao/20261109160000_ulbra_coleta_posicao.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261109160000_ulbra_coleta_posicao.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ambiente, piloto, migration, provas, rollback e verificacao
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$REC/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$PILOTO"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_posicao.sql"
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_depois_do_rollback.sql"
+
+  # ---------------------------------------------------------------------------
+  # ULBRA — consulta da Central do operador (20261109150000): portão, ISOLAMENTO
+  # entre operadores, acesso da gestão, paginação sem perda e rollback, num
+  # Postgres descartável. A migration NÃO está aplicada nem autorizada no M1.
+  # ---------------------------------------------------------------------------
+  ulbra-central-sql:
+    name: ulbra central do operador — isolamento, responsabilidade, paginacao e rollback (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      REC: supabase/tests/ulbra_recebimento
+      DIR: supabase/tests/ulbra_central
+      PILOTO: supabase/aguardando_aprovacao/20261108140000_ulbra_recebimento_e_fila.sql.pendente
+      PAINEL: supabase/aguardando_aprovacao/20261109090000_ulbra_painel_gestao.sql.pendente
+      CENTRAL: supabase/aguardando_aprovacao/20261109150000_ulbra_central_operador.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261109150000_ulbra_central_operador.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ambiente, piloto, seed, painel, complemento, central, provas, rollback e verificacao
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$REC/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$PILOTO"
+          psql -v ON_ERROR_STOP=1 -f "$REC/02_dados.sql"
+          psql -v ON_ERROR_STOP=1 -f "$PAINEL"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_complemento.sql"
+          psql -v ON_ERROR_STOP=1 -f "$CENTRAL"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_provas_central.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/04_responsabilidade.sql"
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/03_depois_do_rollback.sql"
+
+  # ---------------------------------------------------------------------------
   # ULBRA — verificação de TIPOS e IMPORTS da Edge Function com o Deno, em
   # versão FIXADA. O transform do Vitest não prova isso: ele não resolve
   # imports remotos (esm.sh) nem checa tipos do runtime Deno.
@@ -413,6 +514,78 @@ jobs:
 
       - name: deno check da função e de tudo que ela importa
         run: deno check supabase/functions/ulbra-sincronizar/index.ts
+
+  # ---------------------------------------------------------------------------
+  # TV — tv_painel_operadores (20261110200000), migration CANDIDATA (ainda em
+  # aguardando_aprovacao/), num Postgres descartável. Prova grants (anon e
+  # PUBLIC sem EXECUTE apesar do default privileges), o portão da allowlist,
+  # cada regra dos rankings, o fuso de Brasília, os centavos, que o pódio não
+  # devolve valor e que o rollback remove só a função.
+  # ---------------------------------------------------------------------------
+  tv-painel-operadores-sql:
+    name: tv painel operadores — portão, regras, centavos e rollback (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/tv_painel_operadores
+      MIGRATION: supabase/aguardando_aprovacao/20261110200000_tv_painel_operadores.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261110200000_tv_painel_operadores.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ambiente, migration, provas, rollback e verificação
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_dados.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/03_provas.sql"
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/04_depois_do_rollback.sql"
+
+  # ---------------------------------------------------------------------------
+  # TV — verificação de TIPOS e IMPORTS da Edge Function tv-dados (v3).
+  # ---------------------------------------------------------------------------
+  tv-dados-deno-check:
+    name: tv-dados — deno check (versão fixada)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Instalar Deno (versão fixada)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.1.4
+
+      # DENO_NO_PACKAGE_JSON: o package.json da raiz (projeto Vite) põe o Deno em
+      # modo node_modules manual, e os tipos de edge-runtime.d.ts (npm:openai)
+      # não resolvem. A função não depende do package.json.
+      - name: deno check da função e de tudo que ela importa
+        env:
+          DENO_NO_PACKAGE_JSON: '1'
+        run: deno check supabase/functions/tv-dados/index.ts
 
   # ---------------------------------------------------------------------------
   # PROPOSTA_staging_acordos_prime.sql — RLS, grants e isolamento do staging
@@ -743,3 +916,38 @@ jobs:
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
           psql -v ON_ERROR_STOP=1 -f "$DIR/07_corpo_real_rollback.sql"
+
+  # ---------------------------------------------------------------------------
+  # ULBRA — identidade do vínculo: corrida REAL entre duas sessões, PostgreSQL 17.
+  # Não chama a ULBRA. A migration candidata NÃO é aplicada em nenhum ambiente.
+  # ---------------------------------------------------------------------------
+  ulbra-identidade-concorrencia:
+    name: ulbra identidade — corrida entre coleta e vínculo (postgres 17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Corrida entre duas sessões (coleta x vínculo, nos dois sentidos)
+        run: bash supabase/tests/ulbra_identidade_concorrencia/run.sh

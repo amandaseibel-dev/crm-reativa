@@ -56,6 +56,7 @@ import { registrarLoginSeNecessario, registrarLogout } from "./utils/ponto";
 // ficha do aluno ja aplica para decidir sobre titulo em confirmacao.
 import { podeGerirFinanceiro, podeVerTudo } from "./utils/operadores";
 import { podeVerCrmUlbra } from "./utils/ulbraPainel";
+import { podeVerCentralUlbra } from "./utils/ulbraCentral";
 const PainelAdm = lazy(() => import("./pages/PainelAdm"));
 // Tela TEMPORÁRIA de diagnóstico da Mensageria (gestão). Sai quando a
 // integração operacional estiver desenhada.
@@ -63,6 +64,7 @@ const UlbraDiagnostico = lazy(() => import("./pages/UlbraDiagnostico"));
 // Painel Gestão da Mensageria: lê só o Postgres por RPC de agregação; o portão
 // de gestão é a própria RPC (usuario_e_gestao()), e a tela só repete a recusa.
 const PainelMensageriaUlbra = lazy(() => import("./pages/PainelMensageriaUlbra"));
+const CentralUlbra = lazy(() => import("./pages/CentralUlbra"));
 const FinanceiroHub = lazy(() => import("./pages/FinanceiroHub"));
 const CentralPagamentos = lazy(() => import("./components/CentralPagamentos"));
 const RelatorioTabulacoes = lazy(() => import("./pages/RelatorioTabulacoes"));
@@ -347,6 +349,16 @@ function RotaProtegida({ usuario, rota, children }) {
     const emailUl = String(usuario?.perfil?.email || usuario?.auth?.email || "")
       .toLowerCase().trim();
     if (!podeVerCrmUlbra(emailUl)) return <Navigate to="/" replace />;
+    return children;
+  }
+  // Central ULBRA: gestão e toda a equipe de operadores ativos com perfil
+  // operacional (`podeVerCentralUlbra`, liberação geral de 10/11/2026). Conta
+  // de painel e cadastro inativo ficam fora. O recorte de DADOS é do banco
+  // (`ulbra_central_operador`), não desta porta.
+  if (rota === "/central-ulbra") {
+    const emailCu = String(usuario?.perfil?.email || usuario?.auth?.email || "")
+      .toLowerCase().trim();
+    if (!podeVerCentralUlbra(emailCu, usuario?.perfil)) return <Navigate to="/" replace />;
     return children;
   }
   if (rota === "/produtividade") {
@@ -749,6 +761,8 @@ export default function App() {
     { rota: "/relatorio-receptivo", label: "Relatório Receptivo", icone: "Phone", secao: "Operação" }, { rota: "/elogios-atendimento", label: "Elogios de Atendimento", icone: "Heart", secao: "Operação" },
     { rota: "/leads-whatsapp", label: "Leads do WhatsApp", icone: "MessageSquare", secao: "Operação" },
     { rota: "/central-whatsapp", label: "Central WhatsApp", icone: "MessageSquare", secao: "Operação" },
+    // Central ULBRA: fila de produtividade sobre o espelho da Mensageria.
+    { rota: "/central-ulbra", label: "Central ULBRA", icone: "MessageSquare", secao: "Operação" },
     { rota: "/minhas-solicitacoes", label: "Minhas Solicitações", icone: "ClipboardList", secao: "Operação" },
     { rota: "/financeiro-hub", label: "Financeiro", icone: "DollarSign", secao: "Financeiro" },
     { rota: "/termos-adm", label: "Validação de Termos", icone: "CheckCircle2", secao: "Financeiro" },
@@ -871,6 +885,10 @@ export default function App() {
     if (item.rota === "/mensageria-ulbra") {
       const emUl = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return podeVerCrmUlbra(emUl);
+    }
+    if (item.rota === "/central-ulbra") {
+      const emCu = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return podeVerCentralUlbra(emCu, usuario?.perfil);
     }
     if (item.rota === "/produtividade") {
       const emPr = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
@@ -1267,6 +1285,7 @@ export default function App() {
               <Route path="/painel-adm" element={<PainelAdm />} />
               <Route path="/ulbra-diagnostico" element={<UlbraDiagnostico usuario={usuario} />} />
               <Route path="/mensageria-ulbra" element={<RotaProtegida usuario={usuario} rota="/mensageria-ulbra"><PainelMensageriaUlbra usuario={usuario} /></RotaProtegida>} />
+              <Route path="/central-ulbra" element={<RotaProtegida usuario={usuario} rota="/central-ulbra"><CentralUlbra usuario={usuario} /></RotaProtegida>} />
               <Route path="/painel-geral" element={<PainelGeral />} />
               <Route
                 path="/produtividade"

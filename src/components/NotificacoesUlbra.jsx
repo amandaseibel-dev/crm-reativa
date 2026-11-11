@@ -17,7 +17,9 @@
 //   - não mostra conteúdo de conversa, só o trecho que a lista já traz.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
+import { avisosDoServidor, marcarTocado, deveTocar, ehRpcAusente } from "../utils/avisosRespostasColetadas";
 import "../pages/ulbra.css";
+import { podeVerCentralUlbra } from "../utils/ulbraCentral";
 import usePolling from "../utils/polling";
 import { buscarTudo } from "../utils/paginado";
 import {
@@ -45,13 +47,19 @@ function horaCurta(iso) {
 }
 
 export default function NotificacoesUlbra({ usuario }) {
-  const email = normalizarEmail(usuario?.perfil?.email || usuario?.auth?.email);
+  // A MESMA porta da Central: sem ela o e-mail fica vazio e nada é lido nem
+  // mostrado (conta de painel, cadastro inativo, perfil não operacional). O
+  // banco recusa de novo em `ulbra_avisos_operador`; aqui só se evita a chamada.
+  const emailBruto = normalizarEmail(usuario?.perfil?.email || usuario?.auth?.email);
+  const email = podeVerCentralUlbra(emailBruto, usuario?.perfil) ? emailBruto : "";
   const [conversasBrutas, setConversasBrutas] = useState([]);
   const [leituras, setLeituras] = useState(() => new Map());
   const [atendimentos, setAtendimentos] = useState([]);
   const [ehGestao, setEhGestao] = useState(false);
   const [alunosDoOperador, setAlunosDoOperador] = useState(null);
   const [carregado, setCarregado] = useState(false);
+  const [avisosIndisponiveis, setAvisosIndisponiveis] = useState(false);
+  const ehGestaoRef = useRef(null); // null = ainda não se sabe; evita a leitura errada no primeiro ciclo
   const [aberto, setAberto] = useState(false);
   // Preferência é lida do armazenamento a cada mudança de operador ou de
   // versão. Sem setState em efeito: a versão só muda por clique do usuário.
@@ -87,6 +95,37 @@ export default function NotificacoesUlbra({ usuario }) {
   }, []);
 
   const buscar = useCallback(async () => {
+    // Operador: as pendências vêm da função do SERVIDOR (filtrada pelo responsável
+    // comprovado). A tabela ulbra_conversas não é lida pelo operador.
+    if (ehGestaoRef.current !== true) {
+      const { data: av, error } = await supabase.rpc("ulbra_avisos_operador", { p_limite: 200 });
+      if (!error && av?.ok) {
+        const { conversas, leituras: lidas, alunos } = avisosDoServidor(av.avisos);
+        setAvisosIndisponiveis(false);
+        setConversasBrutas(conversas);
+        setLeituras(lidas);
+        setAlunosDoOperador(alunos);
+        const { data: atend0 } = await supabase
+          .from("ulbra_atendimentos")
+          .select("ulbra_atendimento_id, cliente_nome, situacao, entrou_em, aluno_id, aluno_status, destino_email, destino_motivo, responsavel_email, dispensado_em")
+          .is("dispensado_em", null)
+          .order("entrou_em", { ascending: false })
+          .limit(200);
+        setAtendimentos(atend0 || []);
+        setCarregado(true);
+        return;
+      }
+      if (ehRpcAusente(error)) {
+        // Sem a função: "indisponível", nunca "nenhum aviso".
+        setAvisosIndisponiveis(true);
+        setConversasBrutas([]);
+        setLeituras(new Map());
+        setAlunosDoOperador(new Set());
+        setCarregado(true);
+        return;
+      }
+      // ACESSO_NEGADO (gestão) cai no caminho da gestão abaixo.
+    }
     const [{ data: conv }, { data: atend }] = await Promise.all([
       supabase
         .from("ulbra_conversas")
@@ -122,6 +161,7 @@ export default function NotificacoesUlbra({ usuario }) {
     (async () => {
       const { data: gestao } = await supabase.rpc("usuario_e_gestao");
       if (!ativo) return;
+      ehGestaoRef.current = gestao === true;
       setEhGestao(gestao === true);
       if (gestao === true || !email) return;
       // buscarTudo: a API entrega no máximo 1000 por requisição, sem erro.
@@ -183,7 +223,10 @@ export default function NotificacoesUlbra({ usuario }) {
     const anterior = totalAnteriorRef.current;
     totalAnteriorRef.current = novidades.total;
     if (anterior === null) return;
-    if (novidades.total > anterior && prefs.som) tocar();
+    if (novidades.total > anterior && prefs.som && deveTocar(email, novidades.total)) {
+      tocar();
+      marcarTocado(email, novidades.total);
+    }
   }, [carregado, novidades.total, prefs.som, tocar]);
 
   async function assumir(atendimento) {
@@ -213,7 +256,7 @@ export default function NotificacoesUlbra({ usuario }) {
   }
 
   if (!email) return null;
-  if (novidades.total === 0 && !aberto) return null;
+  if (novidades.total === 0 && !aberto && !avisosIndisponiveis) return null;
 
   return (
     <div className="ulbra-sino">
@@ -244,6 +287,17 @@ export default function NotificacoesUlbra({ usuario }) {
 
           <div className="ulbra-sino-corpo">
             {recado ? <div className="ulbra-recado" style={{ margin: 8 }}>{recado}</div> : null}
+            {avisosIndisponiveis ? (
+              <div className="ulbra-aviso ulbra-aviso--cinza" style={{ margin: 8 }} data-testid="avisos-indisponiveis">
+                Avisos indisponíveis nesta etapa. Isto não significa que não há respostas.
+              </div>
+            ) : null}
+
+            {podeVerCentralUlbra(email, usuario?.perfil) ? (
+              <a href="/central-ulbra" className="ulbra-link" style={{ display: "block", padding: "8px 10px" }}>
+                abrir Central ULBRA (fila completa)
+              </a>
+            ) : null}
 
             <div className="ulbra-sino-secao">Conversas com resposta não lida ({novidades.nao_lidas})</div>
             {novidades.respostas.length === 0 ? (

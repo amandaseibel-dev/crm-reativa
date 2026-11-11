@@ -575,3 +575,27 @@ existem. É esse o estado do preview desta PR.
 - "Não lida" é por usuário (`ulbra_leitura_usuario`), e por conversa, não por
   mensagem.
 
+
+## Coleta: correções e limite de backlog (branch `fix/ulbra-coleta-paginacao`)
+
+Medido por teste em `supabase/functions/ulbra-sincronizar/coleta-revisao.test.ts`.
+
+- **Ciclo incompleto nunca sai como OK.** Um laço que esgotava o teto de
+  leituras com páginas já processadas saía como completo e avançava o cursor
+  por cima do backlog. Agora sai INCOMPLETO e guarda o pendente.
+- **Grupo de mesmo horário não é partido.** Ao atingir o teto de páginas com
+  coleta, o ciclo fecha o grupo do piso antes de parar. O pendente é exclusivo
+  e aponta para o maior horário ainda não coletado, então nada se repete entre
+  ciclos e nada abaixo do piso se perde.
+- **Backlog e incremental são modos distintos.** `modoDoCiclo` devolve BACKLOG
+  (cold start ou pendente aberto) ou INCREMENTAL, e a resposta da função traz o
+  campo `modo`.
+- **Orçamento inclui o que é chamado de fato.** O custo diário soma
+  `ler_conversa` (1 por ciclo, no pior caso) e `meu_acesso` (24 por dia). Com
+  isso, 5 minutos não cabe no teto de sincronização, e 10, 15 e 30 minutos cabem.
+
+**Limite conhecido, sem correção sem migration.** Cada ciclo relê do topo o
+trecho já processado, até 12 páginas. Acima de cerca de 600 conversas pendentes,
+o backlog para em INCOMPLETO e não drena. Para drenar, é preciso guardar o
+deslocamento de leitura em `ulbra_sync_estado`. Isso exige migration, ainda não
+proposta para aplicação.

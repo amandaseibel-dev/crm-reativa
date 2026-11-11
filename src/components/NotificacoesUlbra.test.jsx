@@ -51,6 +51,15 @@ vi.mock("../services/supabase", () => ({
     rpc: (nome, args) => {
       rpcChamadas.push([nome, args]);
       if (nome === "usuario_e_gestao") return Promise.resolve({ data: estado.gestao, error: null });
+      if (nome === "ulbra_avisos_operador") {
+        // Operador: a função do servidor devolve só as respostas do próprio operador.
+        if (estado.semRpc) return Promise.resolve({ data: null, error: { code: "PGRST202", message: "Could not find the function public.ulbra_avisos_operador" } });
+        if (estado.gestao) return Promise.resolve({ data: { ok: false, motivo: "ACESSO_NEGADO" }, error: null });
+        const avisos = estado.conversas
+          .filter((c) => c.ultima_mensagem_quem === "cliente" && c.aluno_id && c.aluno_status === "vinculado")
+          .map((c) => ({ ulbra_conversa_id: c.ulbra_conversa_id, aluno_id: c.aluno_id, nome: c.cliente_nome, ultima_mensagem_cliente_em: c.ultima_mensagem_cliente_em, lida: estado.leituras.some((l) => l.ulbra_conversa_id === c.ulbra_conversa_id) }));
+        return Promise.resolve({ data: { ok: true, avisos }, error: null });
+      }
       if (nome === "ulbra_atendimento_assumir") {
         return Promise.resolve({ data: estado.assumir, error: null });
       }
@@ -69,7 +78,27 @@ vi.mock("../services/supabase", () => ({
   },
 }));
 
-const USUARIO = { perfil: { email: "op1@x" } };
+function dublarSom() {
+  const osc = { frequency: {}, connect: () => {}, start: () => {}, stop: () => {} };
+  const criarOsc = vi.fn(() => osc);
+  vi.stubGlobal(
+    "AudioContext",
+    class {
+      state = "running";
+      currentTime = 0;
+      createOscillator = criarOsc;
+      createGain = () => ({
+        gain: { setValueAtTime: () => {}, exponentialRampToValueAtTime: () => {} },
+        connect: () => {},
+      });
+      destination = {};
+    },
+  );
+  localStorage.setItem("rv_ulbra_prefs_op1_x", JSON.stringify({ som: true, visual: true }));
+  return criarOsc;
+}
+
+const USUARIO = { perfil: { email: "op1@x", perfil: "operador", ativo: true } };
 
 const CONVERSA = {
   ulbra_conversa_id: "c1",
@@ -108,6 +137,8 @@ const LEAD_EM_CONFERENCIA = {
 const fetchMock = vi.fn();
 
 beforeEach(() => {
+  localStorage.clear();
+  estado.semRpc = false;
   estado.conversas = [];
   estado.leituras = [];
   estado.atendimentos = [];
@@ -132,6 +163,33 @@ describe("NotificacoesUlbra", () => {
     render(<NotificacoesUlbra usuario={USUARIO} />);
     await waitFor(() => expect(screen.getByText("Mensageria ULBRA")).toBeTruthy());
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("link para a Central ULBRA aparece para operador liberado e para a gestão", async () => {
+    estado.conversas = [CONVERSA];
+    const { unmount } = render(<NotificacoesUlbra usuario={USUARIO} />);
+    fireEvent.click(await screen.findByLabelText("Mensageria ULBRA"));
+    expect(screen.getByText(/abrir Central ULBRA/).getAttribute("href")).toBe("/central-ulbra");
+    unmount();
+
+    render(<NotificacoesUlbra usuario={{ perfil: { email: "amanda.seibel@aelbra.com.br" } }} />);
+    fireEvent.click(await screen.findByLabelText("Mensageria ULBRA"));
+    expect(screen.getByText(/abrir Central ULBRA/).getAttribute("href")).toBe("/central-ulbra");
+  });
+
+  it("fora da porta (inativo, painel, perfil não operacional) o sino não aparece nem lê nada", async () => {
+    estado.conversas = [CONVERSA];
+    for (const perfil of [
+      { email: "op1@x", perfil: "operador", ativo: false },
+      { email: "painel.tv@reativa.local", perfil: "operador", ativo: true },
+      { email: "dir@x", perfil: "diretoria", ativo: true },
+    ]) {
+      const { container, unmount } = render(<NotificacoesUlbra usuario={{ perfil }} />);
+      await new Promise((r) => setTimeout(r, 30));
+      expect(screen.queryByLabelText("Mensageria ULBRA")).toBeNull();
+      expect(container.innerHTML).toBe("");
+      unmount();
+    }
   });
 
   it("some da tela quando não há novidade", async () => {
@@ -180,25 +238,6 @@ describe("NotificacoesUlbra", () => {
     );
   });
 
-  function dublarSom() {
-    const osc = { frequency: {}, connect: () => {}, start: () => {}, stop: () => {} };
-    const criarOsc = vi.fn(() => osc);
-    vi.stubGlobal(
-      "AudioContext",
-      class {
-        state = "running";
-        currentTime = 0;
-        createOscillator = criarOsc;
-        createGain = () => ({
-          gain: { setValueAtTime: () => {}, exponentialRampToValueAtTime: () => {} },
-          connect: () => {},
-        });
-        destination = {};
-      },
-    );
-    localStorage.setItem("rv_ulbra_prefs_op1_x", JSON.stringify({ som: true, visual: true }));
-    return criarOsc;
-  }
 
   it("primeira carga não toca som", async () => {
     const criarOsc = dublarSom();
@@ -227,6 +266,36 @@ describe("NotificacoesUlbra", () => {
     render(<NotificacoesUlbra usuario={USUARIO} />);
     await waitFor(() => expect(screen.getByText("1")).toBeTruthy());
 
+    estado.conversas = [CONVERSA, { ...CONVERSA, ulbra_conversa_id: "c2" }];
+    avisosRealtime.forEach((cb) => cb({}));
+    await waitFor(() => expect(screen.getByText("2")).toBeTruthy());
+    expect(criarOsc).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("sino integrado à função do servidor", () => {
+  it("operador: pendências vêm da função do servidor e a tabela do espelho não é lida", async () => {
+    estado.conversas = [CONVERSA];
+    render(<NotificacoesUlbra usuario={USUARIO} />);
+    await waitFor(() => expect(screen.getByText("1")).toBeTruthy());
+    expect(rpcChamadas.map((c) => c[0])).toContain("ulbra_avisos_operador");
+  });
+
+  it("função ausente: diz que está indisponível, não mostra 'nenhum aviso'", async () => {
+    estado.semRpc = true;
+    render(<NotificacoesUlbra usuario={USUARIO} />);
+    fireEvent.click(await screen.findByLabelText("Mensageria ULBRA"));
+    expect(await screen.findByTestId("avisos-indisponiveis")).toBeTruthy();
+  });
+
+  it("dois sinos (duas abas) do mesmo usuário não tocam duas vezes para a mesma contagem", async () => {
+    const criarOsc = dublarSom();
+    estado.conversas = [CONVERSA];
+    render(<NotificacoesUlbra usuario={USUARIO} />);
+    await waitFor(() => expect(screen.getByText("1")).toBeTruthy());
+    // a outra aba já tocou para a contagem 2
+    localStorage.setItem("ulbra_sino_ultimo_toque:op1@x", "2");
     estado.conversas = [CONVERSA, { ...CONVERSA, ulbra_conversa_id: "c2" }];
     avisosRealtime.forEach((cb) => cb({}));
     await waitFor(() => expect(screen.getByText("2")).toBeTruthy());

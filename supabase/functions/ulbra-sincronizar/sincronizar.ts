@@ -38,6 +38,9 @@ export const ACCEPT_MCP = "application/json, text/event-stream";
 /** Nome canônico da equipe no cadastro da Mensageria. */
 export const EQUIPE_REATIVA = "Reativa";
 
+/** Leituras de detalhe (`ler_conversa`) por ciclo. Cada uma custa 1 chamada. */
+export const DETALHE_POR_CICLO = 1;
+
 /** Teto de páginas por ciclo. Vale como freio de custo, não como meta. */
 export const MAX_PAGINAS = 3;
 
@@ -169,8 +172,9 @@ export function cargaAtendimentos(id = 1) {
 //   coleta o item  se  cursor < em  E  (em <= pendente  OU  em > topo)
 //
 //   cursor    = tudo até aqui já foi processado e NÃO precisa ser relido
-//   pendente  = piso do que já foi processado num ciclo INCOMPLETO; itens
-//               acima dele e abaixo do topo já foram processados, pulam
+//   pendente  = piso de um ciclo INCOMPLETO; itens ESTRITAMENTE acima dele e até
+//               o topo já foram processados, pulam. O grupo do horário do piso
+//               é relido: nunca se presume visto
 //   topo      = mensagem mais nova já processada; itens acima dele são novos
 //
 // Ciclo completo: cursor := topo, pendente := null.
@@ -225,20 +229,38 @@ export interface PaginaConversas {
   piso: string | null;
   pode_ter_mais: boolean;
   total: number | null;
+  /** Horário de cada item BRUTO da página, na ordem da API (null se faltar). */
+  ems: (string | null)[];
 }
 
 /**
  * Coleta o item se ele ainda não foi processado:
  *  - cursor (exclusivo): tudo até ele já está processado;
- *  - pendente (inclusivo): tudo com em >= pendente e <= topo já está processado.
+ *  - pendente (exclusivo): tudo com em > pendente e <= topo já está processado;
+ *    o grupo com em == pendente é relido.
  * Um ciclo incompleto só fecha depois de ler TODO o grupo do seu piso, então
  * o pendente nunca deixa um empate pela metade.
  */
 function dentroDaJanela(em: string, j: Janela): boolean {
   if (j.cursor !== null && em <= j.cursor) return false;
+  // Estrito no piso: o grupo com o horário do piso NÃO está garantido como
+  // processado (pode ter atravessado a página em que o ciclo parou). Relê-lo
+  // custa leitura; tratá-lo como visto perde mensagem em silêncio.
   const jaProcessado =
-    j.pendente !== null && em >= j.pendente && (j.topo === null || em <= j.topo);
+    j.pendente !== null && em > j.pendente && (j.topo === null || em <= j.topo);
   return !jaProcessado;
+}
+
+/**
+ * Modo do ciclo, a partir da janela guardada:
+ *  - BACKLOG: ainda há histórico a recuperar (cold start, ou ciclo incompleto
+ *    com pendente). Consome as leituras que sobrarem da chegada nova.
+ *  - INCREMENTAL: janela fechada; só as mensagens novas acima do topo.
+ * Separar o modo não muda a coleta: muda o que a gestão deve esperar e o
+ * que alerta quando o backlog não drena.
+ */
+export function modoDoCiclo(j: Janela): "BACKLOG" | "INCREMENTAL" {
+  return j.cursor === null || j.pendente !== null ? "BACKLOG" : "INCREMENTAL";
 }
 
 export function lerPaginaConversas(resposta: unknown, janela: Janela): PaginaConversas {
@@ -248,6 +270,7 @@ export function lerPaginaConversas(resposta: unknown, janela: Janela): PaginaCon
 
   let piso: string | null = null;
   const conversas: ConversaLida[] = [];
+  const ems = itens.map((c) => c?.ultimaMensagemEm ?? c?.ultimaMensagem?.em ?? null);
 
   for (const c of itens) {
     const em = c?.ultimaMensagemEm ?? c?.ultimaMensagem?.em ?? null;
@@ -279,7 +302,7 @@ export function lerPaginaConversas(resposta: unknown, janela: Janela): PaginaCon
   const pode_ter_mais =
     itens.length >= LIMITE_PAGINA && (janela.cursor === null || (piso !== null && piso > janela.cursor));
 
-  return { conversas, piso, pode_ter_mais, total };
+  return { conversas, piso, pode_ter_mais, total, ems };
 }
 
 /**
@@ -443,112 +466,205 @@ export function selecionarDetalhes(
 
 export interface Colheita {
   conversas: ConversaLida[];
-  /** Páginas lidas (inclusive as que só pularam). */
+  /** Páginas lidas (inclusive as que só pularam e as descartadas). */
   leituras: number;
+  /** Verdadeiro quando a janela NÃO foi lida até o fim: o próximo ciclo continua. */
   truncado: boolean;
-  /** Menor `em` coletado neste ciclo; vira o pendente se truncar. */
+  /** Menor `em` coletado neste ciclo. */
   piso_coletado: string | null;
   /** Maior `em` visto neste ciclo (coletado). Vira o topo. */
   topo_coletado: string | null;
+  /**
+   * Pendente da PRÓXIMA janela, quando truncado. É EXCLUSIVO: itens com
+   * em > pendente e <= topo já estão processados; itens com em <= pendente ainda
+   * não estão. Nunca aponta para um item já coletado, então nada se repete entre
+   * ciclos e nada abaixo do piso se perde.
+   */
+  pendente_proximo: string | null;
+  /**
+   * Posição de leitura para o próximo ciclo: índice, na lista ordenada, da
+   * primeira mensagem com em <= pendente. Null quando o ciclo fechou a janela.
+   * É só uma dica: quem a usa valida antes de pular (ver `posicao`).
+   */
+  offset_pendente: number | null;
 }
+
+type FimDoCiclo = { terminou: boolean; pendente: string | null };
+
+/** Quantas mensagens antes da posição guardada começar a leitura. Uma página de folga. */
+export const FOLGA_POSICAO = LIMITE_PAGINA;
 
 /**
  * Lê as páginas da mais nova para a mais antiga. `buscarPagina(n)` é injetado:
  * em produção chama a Mensageria; no teste, uma lista em memória que pode
  * mudar entre páginas (mensagem chegando no meio da leitura).
+ *
+ * `posicao` (opcional) é o `offset_pendente` do ciclo anterior. Regras:
+ *  - as mensagens NOVAS (acima do topo) são lidas primeiro, em sequência;
+ *  - só depois de passar do topo a leitura pula para a página da posição
+ *    (com uma página de folga), e só se essa página começar acima do pendente;
+ *  - se a página de destino não começar acima do pendente, a posição está
+ *    errada: descarta a página e segue em sequência. Nada se perde.
+ *
+ * Ao atingir o teto de páginas COM coleta, não para no meio de um grupo de
+ * mesmo horário: fecha o grupo do piso (lendo as páginas seguintes enquanto o
+ * horário continuar igual, até o teto de leituras) e só então para.
  */
 export async function colherConversas(
   buscarPagina: (pagina: number) => Promise<unknown>,
   janela: Janela,
-  limites: { maxPaginas?: number; hardLeituras?: number; pode?: () => boolean } = {},
+  limites: {
+    maxPaginas?: number;
+    hardLeituras?: number;
+    pode?: () => boolean;
+    posicao?: { offset: number };
+  } = {},
 ): Promise<Colheita> {
   const pode = limites.pode ?? (() => true);
   const maxPaginas = limites.maxPaginas ?? MAX_PAGINAS;
   const hardLeituras = limites.hardLeituras ?? HARD_LEITURAS;
   const conversas: ConversaLida[] = [];
-  let leituras = 0;
-  let paginasComColeta = 0;
-  let truncado = false;
-  let piso_coletado: string | null = null;
-  let topo_coletado: string | null = null;
-
   // Paginação por offset: uma mensagem nova no topo empurra os itens para a
   // página seguinte, e um item pode aparecer em duas páginas do mesmo ciclo.
   // Dedupe pelo id dentro do ciclo; entre ciclos, a janela cuida disso.
   const vistos = new Set<string>();
+  // Estado mutável em objeto: evita o estreitamento de tipo do TypeScript sobre
+  // variáveis atribuídas dentro de closures.
+  const acc = { piso: null as string | null, topo: null as string | null };
+  // Índice e horário de cada item lido, para achar a posição do pendente.
+  const lidos: Array<{ indice: number; em: string | null }> = [];
+  let leituras = 0;
+  let paginasComColeta = 0;
+
   const recolher = (lista: ConversaLida[]) => {
     for (const c of lista) {
       if (vistos.has(c.ulbra_conversa_id)) continue;
       vistos.add(c.ulbra_conversa_id);
       conversas.push(c);
-      if (piso_coletado === null || c.ultima_mensagem_em < piso_coletado) piso_coletado = c.ultima_mensagem_em;
-      if (topo_coletado === null || c.ultima_mensagem_em > topo_coletado) topo_coletado = c.ultima_mensagem_em;
+      if (acc.piso === null || c.ultima_mensagem_em < acc.piso) acc.piso = c.ultima_mensagem_em;
+      if (acc.topo === null || c.ultima_mensagem_em > acc.topo) acc.topo = c.ultima_mensagem_em;
     }
   };
 
-  // `piso_coletado` e `topo_coletado` só são escritos DENTRO de `recolher`, que
-  // é uma closure. O TypeScript não considera atribuição em função aninhada ao
-  // estreitar a variável aqui fora: para ele, no corpo do laço, `piso_coletado`
-  // continua sendo o `null` do inicializador — e um `!== null` sobre `null`
-  // estreita para `never`, o que fez o `deno check` recusar o `<=` com TS2365.
-  // Ler por esta função devolve o TIPO DECLARADO (`string | null`) e desfaz o
-  // estreitamento indevido, sem mudar valor nem ordem de leitura.
-  const lerPiso = (): string | null => piso_coletado;
-
-  for (let pagina = 1; pagina <= hardLeituras; pagina++) {
-    // Sem saldo: para AQUI e marca incompleto. Nunca trata página não lida como vazia.
-    if (!pode()) {
-      truncado = true;
-      break;
-    }
-    const lida = lerPaginaConversas(await buscarPagina(pagina), janela);
+  const ler = async (n: number): Promise<PaginaConversas> => {
+    const p = lerPaginaConversas(await buscarPagina(n), janela);
     leituras++;
+    p.ems.forEach((em, i) => lidos.push({ indice: (n - 1) * LIMITE_PAGINA + i, em }));
+    return p;
+  };
+
+  /** Fecha o grupo do piso a partir da página `inicio`, sem partir o mesmo horário. */
+  const fecharGrupo = async (inicio: number): Promise<FimDoCiclo> => {
+    const grupo = acc.piso;
+    if (grupo === null) return { terminou: false, pendente: null };
+    let n = inicio;
+    for (;;) {
+      if (leituras >= hardLeituras || !pode()) return { terminou: false, pendente: grupo };
+      const p = await ler(n);
+      n++;
+      // Só entra o que tem o horário do grupo; o restante fica para o próximo ciclo.
+      recolher(p.conversas.filter((c) => c.ultima_mensagem_em === grupo));
+      if (p.piso === null) return { terminou: true, pendente: null };
+      if (p.piso < grupo) {
+        if (janela.cursor !== null && p.piso <= janela.cursor) return { terminou: true, pendente: null };
+        // Itens abaixo do grupo nesta página ainda não foram coletados. O pendente
+        // é o maior deles: os de horário igual a ele voltam no próximo ciclo.
+        let maiorAbaixo: string | null = null;
+        for (const c of p.conversas) {
+          if (c.ultima_mensagem_em < grupo && (maiorAbaixo === null || c.ultima_mensagem_em > maiorAbaixo)) {
+            maiorAbaixo = c.ultima_mensagem_em;
+          }
+        }
+        return { terminou: false, pendente: maiorAbaixo ?? grupo };
+      }
+    }
+  };
+
+  let fim: FimDoCiclo | null = null;
+  let saltou = false;
+  let pagina = 1;
+  // O teto conta LEITURAS feitas, não números de página: um salto não pode
+  // deixar o ciclo com menos leituras do que o teto permite.
+  while (leituras < hardLeituras) {
+    // Sem saldo: para AQUI e marca incompleto. Nunca trata página não lida como vazia.
+    if (!pode()) break;
+    const lida = await ler(pagina);
     if (lida.conversas.length > 0) paginasComColeta++;
     recolher(lida.conversas);
-
     // Fim da janela: nada mais acima do cursor. Ciclo completo.
-    if (!lida.pode_ter_mais) break;
-
-    if (paginasComColeta >= maxPaginas) {
-      // Teto atingido. Antes de parar, olha a página seguinte: só o grupo com o
-      // MESMO horário do piso entra (não pode ser partido); o resto fica pendente.
-      if (pagina + 1 > hardLeituras || !pode()) {
-        truncado = true;
-        break;
-      }
-      const prox = lerPaginaConversas(await buscarPagina(pagina + 1), janela);
-      leituras++;
-      const pisoAntes = lerPiso();
-      if (pisoAntes !== null) {
-        recolher(prox.conversas.filter((c) => c.ultima_mensagem_em === pisoAntes));
-      }
-      // Ainda há item não processado abaixo do piso, acima do cursor?
-      // Conservador: itens com o mesmo horário do piso que sobraram contam como
-      // pendentes. Um ciclo a mais, nunca uma perda.
-      // O piso é relido DEPOIS do `recolher` acima, como era antes desta
-      // correção de tipo — aquele `recolher` só admite item com horário IGUAL
-      // ao piso, então o valor não muda; reler mantém a leitura idêntica.
-      const pisoDepois = lerPiso();
-      truncado =
-        prox.piso !== null &&
-        pisoDepois !== null &&
-        prox.piso <= pisoDepois &&
-        (janela.cursor === null || prox.piso > janela.cursor);
+    if (!lida.pode_ter_mais) {
+      fim = { terminou: true, pendente: null };
       break;
     }
+    if (paginasComColeta >= maxPaginas) {
+      fim = await fecharGrupo(pagina + 1);
+      break;
+    }
+    let proxima = pagina + 1;
+    // Passou do topo (esta página já tem mensagem que não é nova): tudo acima foi lido.
+    // Só então a posição guardada pode pular o trecho já processado.
+    if (
+      !saltou &&
+      limites.posicao !== undefined &&
+      janela.pendente !== null &&
+      janela.topo !== null &&
+      lida.piso !== null &&
+      lida.piso <= janela.topo
+    ) {
+      saltou = true;
+      const alvo = Math.floor(Math.max(0, limites.posicao.offset - FOLGA_POSICAO) / LIMITE_PAGINA) + 1;
+      if (alvo > pagina + 1 && leituras < hardLeituras && pode()) {
+        const cand = await ler(alvo);
+        const primeiro = cand.ems[0] ?? null;
+        if (primeiro !== null && primeiro > janela.pendente) {
+          if (cand.conversas.length > 0) paginasComColeta++;
+          recolher(cand.conversas);
+          if (!cand.pode_ter_mais) {
+            fim = { terminou: true, pendente: null };
+            break;
+          }
+          if (paginasComColeta >= maxPaginas) {
+            fim = await fecharGrupo(alvo + 1);
+            break;
+          }
+          proxima = alvo + 1;
+        }
+        // Posição errada: a página lida é descartada e a leitura segue em sequência.
+      }
+    }
+    pagina = proxima;
   }
-  return { conversas, leituras, truncado, piso_coletado, topo_coletado };
+
+  // Sem fim da janela (teto de leituras, saldo ou página sem coleta até o fim do
+  // laço): INCOMPLETO. Antes, um laço que esgotava HARD_LEITURAS saía como
+  // completo e o cursor avançava por cima do backlog não lido.
+  const terminou = fim?.terminou === true;
+  const pendente = terminou ? null : (fim?.pendente ?? acc.piso ?? janela.pendente);
+  let offset: number | null = null;
+  if (!terminou && pendente !== null) {
+    for (const x of lidos) {
+      if (x.em !== null && x.em <= pendente && (offset === null || x.indice < offset)) offset = x.indice;
+    }
+    if (offset === null) offset = limites.posicao?.offset ?? null;
+  }
+  return {
+    conversas,
+    leituras,
+    truncado: !terminou,
+    piso_coletado: acc.piso,
+    topo_coletado: acc.topo,
+    pendente_proximo: pendente,
+    offset_pendente: offset,
+  };
 }
 
-/** Janela do PRÓXIMO ciclo. Ciclo completo fecha o backlog; incompleto guarda o piso. */
+/** Janela do PRÓXIMO ciclo. Ciclo completo fecha o backlog; incompleto guarda o pendente. */
 export function novaJanela(janela: Janela, colheita: Colheita): Janela {
   const topoNovo = maiorDeDois(janela.topo, colheita.topo_coletado);
   if (!colheita.truncado) {
     return { cursor: topoNovo, pendente: null, topo: topoNovo };
   }
-  // Incompleto: o empate no piso volta ao próximo ciclo (não é marcado como visto).
-  const pendenteNovo = colheita.piso_coletado ?? janela.pendente;
-  return { cursor: janela.cursor, pendente: pendenteNovo, topo: topoNovo };
+  return { cursor: janela.cursor, pendente: colheita.pendente_proximo, topo: topoNovo };
 }
 
 function maiorDeDois(a: string | null, b: string | null): string | null {
@@ -747,21 +863,50 @@ export const CADENCIA_PADRAO: Cadencia = {
   margem_falha: 0.15,
 };
 
-export function custoDiarioEstimado(c: Cadencia): {
+/** `meu_acesso` para o saldo real: 1 por hora, com cache de 60 min na função. */
+export const CONSULTAS_SALDO_DIA = 24;
+
+/**
+ * Custo diário da SINCRONIZAÇÃO (sem as fichas dos operadores), com tudo o que a
+ * função chama de fato:
+ *  - listar_conversas: 1 por ciclo (com páginas por ciclo, até MAX_PAGINAS);
+ *  - ler_conversa: DETALHE_POR_CICLO por ciclo, no pior caso (fila sempre cheia);
+ *  - listar_atendimentos: a cada cadencia_atendimentos_min;
+ *  - meu_acesso: 1 por hora.
+ * Fichas dos operadores usam a reserva (RESERVA_FICHAS_DIA) e não entram aqui.
+ * Antes, esta conta deixava de fora as leituras de detalhe e o saldo, e dava
+ * "cabe" para cadências que estouram o teto.
+ */
+export function custoDiarioEstimado(c: Cadencia, detalhePorCiclo: number = DETALHE_POR_CICLO): {
   conversas: number;
+  detalhes: number;
   atendimentos: number;
-  fichas: number;
+  saldo: number;
+  base: number;
   margem: number;
   total: number;
+  fichas: number;
   cabe: boolean;
 } {
   const minutosDoDia = 24 * 60;
-  const conversas =
-    Math.floor(minutosDoDia / c.cadencia_conversas_min) * Math.min(c.paginas_por_ciclo, MAX_PAGINAS);
+  const ciclos = Math.floor(minutosDoDia / c.cadencia_conversas_min);
+  const conversas = ciclos * Math.min(c.paginas_por_ciclo, MAX_PAGINAS);
+  const detalhes = ciclos * detalhePorCiclo;
   const atendimentos = Math.floor(minutosDoDia / c.cadencia_atendimentos_min);
-  const fichas = c.fichas_por_dia;
-  const base = conversas + atendimentos + fichas;
+  const saldo = CONSULTAS_SALDO_DIA;
+  const base = conversas + detalhes + atendimentos + saldo;
   const margem = Math.ceil(base * c.margem_falha);
   const total = base + margem;
-  return { conversas, atendimentos, fichas, margem, total, cabe: total <= TETO_DIARIO };
+  const fichas = c.fichas_por_dia;
+  return {
+    conversas,
+    detalhes,
+    atendimentos,
+    saldo,
+    base,
+    margem,
+    total,
+    fichas,
+    cabe: total <= TETO_DIARIO_SYNC && fichas <= RESERVA_FICHAS_DIA,
+  };
 }

@@ -447,7 +447,7 @@ describe("orçamento", () => {
     expect(c.total).toBeLessThanOrEqual(TETO_DIARIO);
     // O número da decisão, cravado: se alguém mexer na cadência, este teste
     // muda junto e a conta volta para a mesa.
-    expect(c).toMatchObject({ conversas: 144, atendimentos: 48, fichas: 60, total: 290 });
+    expect(c).toMatchObject({ conversas: 144, detalhes: 144, atendimentos: 48, saldo: 24, base: 360, total: 414, fichas: 60 });
   });
 
   it("apertar para 1 minuto estoura o teto", () => {
@@ -455,11 +455,8 @@ describe("orçamento", () => {
     expect(c.cabe).toBe(false);
   });
 
-  it("5 minutos ainda cabe, mas sem folga para o dobro de fichas", () => {
-    expect(custoDiarioEstimado({ ...CADENCIA_PADRAO, cadencia_conversas_min: 5 }).cabe).toBe(true);
-    expect(
-      custoDiarioEstimado({ ...CADENCIA_PADRAO, cadencia_conversas_min: 5, fichas_por_dia: 120 }).cabe,
-    ).toBe(false);
+  it("5 minutos NÃO cabe com leitura de detalhe em todo ciclo (conta corrigida em coleta-revisao.test.ts)", () => {
+    expect(custoDiarioEstimado({ ...CADENCIA_PADRAO, cadencia_conversas_min: 5 }).cabe).toBe(false);
   });
 });
 
