@@ -65,3 +65,29 @@ describe("casos sem operador não entram na fila do operador", () => {
     expect(r.linhas).toEqual([]);
   });
 });
+
+describe("gestão: todas as carteiras (todas: true)", () => {
+  it("consulta casos com operador NÃO nulo, sem eq de operador, mesmo corte e ordem", () => {
+    const { supabase, chamadas } = fakeSupabase({ data: [], error: null });
+    montarConsultaFilaCarteira(supabase, { todas: true, agoraMs: AGORA });
+    expect(chamadas).toContainEqual(["not", "operador_email", "is", null]);
+    expect(chamadas.some((c) => c[0] === "eq" && c[1] === "operador_email")).toBe(false);
+    expect(chamadas).toContainEqual(["lte", "data_ultimo_acionamento", "2026-11-02"]);
+  });
+  it("cada linha traz o operador da carteira e não é 'minha'; caso sem operador continua fora", async () => {
+    const { supabase } = fakeSupabase({ data: [
+      linha("a", 12), { ...linha("b", 9), operador_email: "cobranca05@aelbra.com.br" }, { ...linha("x", 15), operador_email: null },
+    ], error: null });
+    const r = await buscarFilaCarteira(supabase, { todas: true, agoraMs: AGORA });
+    expect(r.linhas.map((l) => [l.aluno_id, l.responsavel_reativa, l.minha])).toEqual([
+      ["a", "cobranca10@aelbra.com.br", false],
+      ["b", "cobranca05@aelbra.com.br", false],
+    ]);
+  });
+  it("sem `todas` e sem operador, não consulta: devolve erro explícito", async () => {
+    const { supabase, chamadas } = fakeSupabase({ data: [linha("a", 12)], error: null });
+    const r = await buscarFilaCarteira(supabase, { operador: "", agoraMs: AGORA });
+    expect(r.erro).toMatch(/operador/);
+    expect(chamadas).toEqual([]);
+  });
+});
