@@ -579,7 +579,12 @@ jobs:
         with:
           deno-version: 2.1.4
 
+      # DENO_NO_PACKAGE_JSON: o package.json da raiz (projeto Vite) põe o Deno em
+      # modo node_modules manual, e os tipos de edge-runtime.d.ts (npm:openai)
+      # não resolvem. A função não depende do package.json.
       - name: deno check da função e de tudo que ela importa
+        env:
+          DENO_NO_PACKAGE_JSON: '1'
         run: deno check supabase/functions/tv-dados/index.ts
 
   # ---------------------------------------------------------------------------
