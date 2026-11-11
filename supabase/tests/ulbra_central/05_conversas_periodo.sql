@@ -85,7 +85,14 @@ do $$ declare r jsonb; ids text[]; begin
   perform public.afirmar((r->>'eh_gestao')::boolean, 'gestao');
   select array_agg(x->>'conversa_id' order by ord) into ids from jsonb_array_elements(r->'conversas') with ordinality t(x, ord);
   perform public.afirmar(ids = array['p-nov-rec','q-nov','r-nov','p-nov-env'], 'gestao ve todas do periodo com CPF, mais recente primeiro: ' || coalesce(ids::text, 'null'));
-  perform public.afirmar((r->'totais'->>'sem_cpf')::int = 1, 'gestao recebe a contagem do que esta sem CPF (1)');
+  -- o seed do recebimento tambem tem conversas de novembro sem vinculo alta_cpf: conta-se tudo
+  perform public.afirmar((r->'totais'->>'sem_cpf')::int = (
+      select count(*) from public.ulbra_conversas c
+       where c.equipe = 'Reativa' and c.ultima_mensagem_em >= '2026-11-01T03:00:00Z'
+         and not (c.aluno_status = 'vinculado' and c.aluno_id is not null
+                  and exists (select 1 from public.ulbra_vinculos vv where vv.ulbra_cliente_id = c.ulbra_cliente_id and vv.desvinculado_em is null and vv.confianca = 'alta_cpf')))
+    and (r->'totais'->>'sem_cpf')::int >= 1,
+    'gestao recebe a contagem do que esta sem CPF no periodo (inclui x-nov): ' || (r->'totais'->>'sem_cpf'));
   perform public.afirmar(r::text not like '%segredo-x%', 'a conversa sem CPF nao sai nem para a gestao');
   r := public.ulbra_central_conversas('2026-11-01T03:00:00Z', 'opp2@x');
   select array_agg(x->>'conversa_id' order by ord) into ids from jsonb_array_elements(r->'conversas') with ordinality t(x, ord);
