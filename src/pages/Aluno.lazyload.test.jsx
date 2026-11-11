@@ -42,6 +42,7 @@ vi.mock("../components/LinksPagamentoAluno", () => ({ default: () => null }));
 vi.mock("../components/EmailAlunoUnificado", () => ({ default: () => null }));
 vi.mock("../components/TelefonesAluno", () => ({ default: () => null }));
 vi.mock("../components/BlocoUlbra", () => ({ default: () => null }));
+vi.mock("../components/AtendimentoUlbra", () => ({ default: () => <div>ATENDIMENTO_ULBRA_CONSULTADO</div> }));
 vi.mock("../components/PainelDesfazer", () => ({ default: () => null }));
 vi.mock("../components/EnvioFinanceiro", () => ({ default: () => null }));
 vi.mock("../components/FinalizacaoTermo", () => ({ default: () => null }));
@@ -184,5 +185,34 @@ describe("Aluno.jsx — lazy load", () => {
     await act(async () => { fireEvent.click(botaoPesquisar); });
 
     expect(screen.getByText(/Nenhum aluno encontrado/i)).toBeTruthy();
+  });
+});
+
+describe("Aluno.jsx — ficha aberta pela Central ULBRA (custo zero)", () => {
+  it("segue sem consultar a Mensageria depois que a ficha reescreve a URL para /alunos?alunoId=", async () => {
+    const aluno = { id: "uuid-ulbra", nome: "Aluno Teste", cpf: "123.456.789-00", valor_em_aberto: 10 };
+    fromMock.mockReturnValue({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: aluno, error: null }),
+      single: vi.fn().mockResolvedValue({ data: aluno, error: null }),
+    });
+    rpcMock.mockImplementation((nome) => Promise.resolve(
+      nome === "buscar_aluno_por_id" ? { data: [aluno], error: null } : { data: null, error: null }
+    ));
+    // A ficha lê o alunoId de window.location (não do router): simula a URL
+    // real da navegação a partir da Central.
+    window.history.replaceState(null, "", "/aluno?alunoId=uuid-ulbra&origem=ulbra");
+    await act(async () => { renderAlunos("/aluno?alunoId=uuid-ulbra&origem=ulbra"); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+
+    // A ficha reescreve window.location (replaceState) e perde o `origem=ulbra`;
+    // o portão tem de ler o location do ROUTER, que ainda o carrega.
+    expect(window.location.search.includes("origem=ulbra")).toBe(false);
+    expect(screen.queryByText("ATENDIMENTO_ULBRA_CONSULTADO")).toBeNull();
+    expect(screen.getByText(/Mensageria não consultada nesta abertura/)).toBeTruthy();
   });
 });
