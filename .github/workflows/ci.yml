@@ -516,6 +516,40 @@ jobs:
         run: deno check supabase/functions/ulbra-sincronizar/index.ts
 
   # ---------------------------------------------------------------------------
+  ulbra-historico-deno-check:
+    name: ulbra-historico — deno check (versão fixada)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Instalar Deno (versão fixada)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.1.4
+
+      - name: deno check da função e de tudo que ela importa
+        run: deno check supabase/functions/ulbra-historico/index.ts
+
+  # ---------------------------------------------------------------------------
+  ulbra-conversa-deno-check:
+    name: ulbra-conversa — deno check (versão fixada)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Instalar Deno (versão fixada)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.1.4
+
+      - name: deno check da função e de tudo que ela importa
+        run: deno check supabase/functions/ulbra-conversa/index.ts
+
+  # ---------------------------------------------------------------------------
   # TV — tv_painel_operadores (20261110200000), migration CANDIDATA (ainda em
   # aguardando_aprovacao/), num Postgres descartável. Prova grants (anon e
   # PUBLIC sem EXECUTE apesar do default privileges), o portão da allowlist,

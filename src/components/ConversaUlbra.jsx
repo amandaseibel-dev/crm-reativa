@@ -1,9 +1,14 @@
 import { useRef, useState } from "react";
 
-// Conversa da Mensageria dentro da ficha do aluno. Só apresenta: o portão de
-// identidade e de permissão é do servidor (leitura.ts) e do envio (envio.ts).
-// Cada clique gera UMA chave de envio; enquanto o pedido está em curso, o botão
-// fica bloqueado e o mesmo clique não gera segundo envio.
+// Conversa da Mensageria dentro da Central/ficha. Só apresenta: o portão de
+// identidade e de permissão é do servidor (leitura.ts/historico.ts) e do envio
+// (envio.ts), sempre com a conexão INDIVIDUAL do operador.
+//
+// Envio em DUAS etapas, por decisão da gestão (11/11/2026):
+//   1. "Ver prévia": a Mensageria calcula custo e janela de 24 h — nada sai;
+//   2. "Confirmar envio": uma chave por clique; enquanto o pedido está em curso
+//      o botão fica bloqueado e o mesmo clique não gera segundo envio.
+// Mudar o texto depois da prévia invalida a prévia.
 
 const DIRECAO = {
   ENTRADA: { rotulo: "Aluno", classe: "ulbra-conversa-entrada" },
@@ -31,6 +36,10 @@ function novaChave() {
   return `chave-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
+function fmtUsd(v) {
+  return typeof v === "number" ? `US$ ${v.toFixed(4)}` : "não informado";
+}
+
 export default function ConversaUlbra({
   mensagens = [],
   carregando = false,
@@ -38,40 +47,69 @@ export default function ConversaUlbra({
   podeEnviar = false,
   antesDe = null,
   onCarregarAnteriores,
+  onPrevia,
   onEnviar,
 }) {
   const [texto, setTexto] = useState("");
-  const [enviando, setEnviando] = useState(false);
+  const [previa, setPrevia] = useState(null); // { ok, custo_usd, janela_aberta, recusa, em, texto }
+  const [etapa, setEtapa] = useState("escrevendo"); // escrevendo | previa | enviando
   const [aviso, setAviso] = useState(null);
   // Chave do pedido em curso: o mesmo clique repetido reaproveita esta chave.
   const chaveEmCurso = useRef(null);
+  const ocupado = etapa === "enviando";
 
-  async function enviar(evento) {
+  function mudarTexto(v) {
+    setTexto(v);
+    // prévia vale só para o texto que a gerou
+    if (previa && previa.texto !== v) { setPrevia(null); setEtapa("escrevendo"); }
+  }
+
+  async function verPrevia(evento) {
     evento.preventDefault();
-    if (enviando || !podeEnviar) return;
+    if (ocupado || !podeEnviar || !onPrevia) return;
+    const conteudo = texto.trim();
+    if (!conteudo) return;
+    setAviso(null);
+    setEtapa("enviando");
+    try {
+      const r = await onPrevia(conteudo);
+      setPrevia({ ...r, texto });
+      setEtapa("previa");
+      if (r && r.ok === false) setAviso(`A Mensageria não aceita este envio: ${r.recusa || "sem motivo informado"}`);
+    } catch {
+      setAviso("Falha ao pedir a prévia. Nada foi enviado.");
+      setEtapa("escrevendo");
+    }
+  }
+
+  async function confirmar() {
+    if (ocupado || !podeEnviar || !onEnviar || !previa || previa.ok === false) return;
     const conteudo = texto.trim();
     if (!conteudo) return;
     if (!chaveEmCurso.current) chaveEmCurso.current = novaChave();
-    setEnviando(true);
+    setEtapa("enviando");
     setAviso(null);
     try {
-      const resultado = await onEnviar(conteudo, chaveEmCurso.current);
+      const resultado = await onEnviar(conteudo, chaveEmCurso.current, previa);
       const status = resultado?.envio?.status ?? resultado?.situacao;
       if (resultado?.situacao === "BLOQUEADO") {
         setAviso(`Envio bloqueado: ${(resultado.motivos ?? []).join(", ")}`);
-      } else if (status === "ENVIADO" || status === "JA_PROCESSADO") {
+        setEtapa("previa");
+      } else if (resultado?.situacao === "JA_PROCESSADO" || status === "ENVIADO") {
         setTexto("");
+        setPrevia(null);
         chaveEmCurso.current = null;
-        setAviso(null);
+        setAviso(resultado?.situacao === "JA_PROCESSADO" ? "Este envio já tinha sido processado; nada foi reenviado." : "Mensagem enviada em seu nome.");
+        setEtapa("escrevendo");
       } else {
         setAviso(STATUS_ENVIO[status] ?? "Envio não concluído.");
         // Só a recusa libera uma nova chave. Falha incerta mantém a chave.
         if (status === "RECUSADO") chaveEmCurso.current = null;
+        setEtapa("previa");
       }
     } catch {
       setAviso("Falha de comunicação. O envio pode não ter saído: confira antes de reenviar.");
-    } finally {
-      setEnviando(false);
+      setEtapa("previa");
     }
   }
 
@@ -82,7 +120,7 @@ export default function ConversaUlbra({
 
       {antesDe && (
         <button type="button" className="ulbra-botao" onClick={() => onCarregarAnteriores?.(antesDe)}>
-          Carregar mensagens anteriores
+          Carregar mensagens anteriores (1 chamada)
         </button>
       )}
 
@@ -109,19 +147,37 @@ export default function ConversaUlbra({
         </p>
       )}
 
-      <form onSubmit={enviar}>
+      <form onSubmit={verPrevia} data-etapa={etapa}>
         <label htmlFor="ulbra-resposta">Resposta</label>
         <textarea
           id="ulbra-resposta"
           value={texto}
-          maxLength={1000}
-          disabled={!podeEnviar || enviando}
-          onChange={(e) => setTexto(e.target.value)}
+          maxLength={4096}
+          disabled={!podeEnviar || ocupado}
+          onChange={(e) => mudarTexto(e.target.value)}
         />
-        <button type="submit" className="ulbra-botao" disabled={!podeEnviar || enviando || !texto.trim()}>
-          {enviando ? "Enviando…" : "Enviar resposta"}
-        </button>
+        {!previa || previa.texto !== texto ? (
+          <button type="submit" className="ulbra-botao" disabled={!podeEnviar || ocupado || !texto.trim()}>
+            {ocupado ? "Pedindo prévia…" : "Ver prévia (1 chamada da sua cota)"}
+          </button>
+        ) : null}
       </form>
+
+      {previa && previa.texto === texto ? (
+        <div className="ulbra-aviso ulbra-aviso--ambar" data-campo="previa" data-ok={String(previa.ok !== false)}>
+          <strong>Prévia da Mensageria.</strong>{" "}
+          Custo estimado: <span data-campo="previa-custo">{fmtUsd(previa.custo_usd)}</span> ·{" "}
+          janela de 24 h: <span data-campo="previa-janela">{previa.janela_aberta === true ? "aberta" : previa.janela_aberta === false ? "fechada (só template)" : "não informada"}</span>.
+          {previa.ok !== false ? (
+            <>
+              {" "}Sai em seu nome; não tem volta.{" "}
+              <button type="button" className="ulbra-botao ulbra-botao--primario" data-campo="confirmar" disabled={ocupado} onClick={confirmar}>
+                {ocupado ? "Enviando…" : "Confirmar envio"}
+              </button>
+            </>
+          ) : null}
+        </div>
+      ) : null}
 
       {aviso && <p role="status" className="ulbra-aviso">{aviso}</p>}
     </section>

@@ -88,7 +88,7 @@ describe("painel da conversa", () => {
     tela({ selecionadoChave: "r:c1", historico: { estado: "ok", mensagens: [{ direcao: "ENTRADA", texto: "oi", em: "2026-11-10T10:00:00Z" }] } });
     const painel = document.querySelector(".ulbra-conv-painel");
     expect(within(painel).getByRole("textbox").disabled).toBe(true);
-    expect(within(painel).getByRole("button", { name: /enviar/i }).disabled).toBe(true);
+    expect(within(painel).getByRole("button", { name: /prévia/i }).disabled).toBe(true);
     expect(document.querySelector('[data-campo="envio-bloqueado"]').textContent).toMatch(/Envio bloqueado/);
   });
 

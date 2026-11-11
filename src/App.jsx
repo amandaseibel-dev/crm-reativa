@@ -65,6 +65,7 @@ const UlbraDiagnostico = lazy(() => import("./pages/UlbraDiagnostico"));
 // de gestão é a própria RPC (usuario_e_gestao()), e a tela só repete a recusa.
 const PainelMensageriaUlbra = lazy(() => import("./pages/PainelMensageriaUlbra"));
 const CentralUlbra = lazy(() => import("./pages/CentralUlbra"));
+const UlbraConectado = lazy(() => import("./pages/UlbraConectado"));
 const FinanceiroHub = lazy(() => import("./pages/FinanceiroHub"));
 const CentralPagamentos = lazy(() => import("./components/CentralPagamentos"));
 const RelatorioTabulacoes = lazy(() => import("./pages/RelatorioTabulacoes"));
@@ -355,7 +356,7 @@ function RotaProtegida({ usuario, rota, children }) {
   // operacional (`podeVerCentralUlbra`, liberação geral de 10/11/2026). Conta
   // de painel e cadastro inativo ficam fora. O recorte de DADOS é do banco
   // (`ulbra_central_operador`), não desta porta.
-  if (rota === "/central-ulbra") {
+  if (rota === "/central-ulbra" || rota === "/ulbra/conectado") {
     const emailCu = String(usuario?.perfil?.email || usuario?.auth?.email || "")
       .toLowerCase().trim();
     if (!podeVerCentralUlbra(emailCu, usuario?.perfil)) return <Navigate to="/" replace />;
@@ -1286,6 +1287,7 @@ export default function App() {
               <Route path="/ulbra-diagnostico" element={<UlbraDiagnostico usuario={usuario} />} />
               <Route path="/mensageria-ulbra" element={<RotaProtegida usuario={usuario} rota="/mensageria-ulbra"><PainelMensageriaUlbra usuario={usuario} /></RotaProtegida>} />
               <Route path="/central-ulbra" element={<RotaProtegida usuario={usuario} rota="/central-ulbra"><CentralUlbra usuario={usuario} /></RotaProtegida>} />
+              <Route path="/ulbra/conectado" element={<RotaProtegida usuario={usuario} rota="/ulbra/conectado"><UlbraConectado /></RotaProtegida>} />
               <Route path="/painel-geral" element={<PainelGeral />} />
               <Route
                 path="/produtividade"
