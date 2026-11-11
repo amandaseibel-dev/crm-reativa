@@ -33,23 +33,40 @@ describe("PainelCarteira: pendente de 1o acionamento", () => {
     expect(BLOCO).toMatch(/const idsCarteira = listaAtiva\.map/);
   });
 
-  it("as duas consultas sao paginadas e restritas aos responsaveis da carteira", () => {
+  // As DUAS consultas viraram UMA (ver PainelCarteira.consolidacao.test.jsx,
+  // que compara linha a linha a saida nova contra o filtro das duas antigas).
+  // As garantias abaixo sao as mesmas de antes -- mudou so como se escrevem.
+  it("a consulta e paginada e restrita aos responsaveis da carteira", () => {
     // Sem paginar, `.in()` devolve no maximo 1.000 linhas e responde 206: com
-    // ~7 tabulacoes por aluno o lote de 200 estourava e o aluno voltava sem as
+    // ~7 movimentacoes por aluno o lote de 200 estoura e o aluno volta sem as
     // tabulacoes dele, aparecendo como pendente sem ser.
-    expect(BLOCO.match(/buscarTudo\(\(de, ate\) =>/g)).toHaveLength(2);
-    expect(BLOCO.match(/\.range\(de, ate\)/g)).toHaveLength(2);
-    expect(BLOCO).toMatch(/\.in\("registrado_por_email", emailsResponsaveis\)/);
-    expect(BLOCO).toMatch(/\.in\("operador_novo_email", emailsResponsaveis\)/);
+    expect(BLOCO.match(/buscarTudo\(\(de, ate\) =>/g)).toHaveLength(1);
+    expect(BLOCO.match(/\.range\(de, ate\)/g)).toHaveLength(1);
+    // Restricao aos responsaveis: o filtro e montado a partir deles, e a
+    // consulta so sai quando ha responsavel na carteira.
+    expect(BLOCO).toMatch(/filtroMovimentacoesCarteira\(emailsResponsaveis, TIPOS_ACIONAMENTO\)/);
+    expect(BLOCO).toMatch(/\.or\(filtroOu\)/);
+    expect(BLOCO).toMatch(/if \(emailsResponsaveis\.length\)/);
   });
 
-  it("a consulta de tabulacao traz autor e data (sem elas nao da para separar o dono atual)", () => {
-    expect(BLOCO).toMatch(/\.select\("aluno_id,registrado_por_email,registrado_em"\)/);
-    expect(BLOCO).toMatch(/\.in\("tipo", TIPOS_ACIONAMENTO\)/);
+  it("a consulta traz autor, tipo e data (sem elas nao da para separar o dono atual)", () => {
+    expect(BLOCO).toMatch(/"aluno_id,tipo,registrado_por_email,operador_novo_email,operador_anterior_email,registrado_em"/);
   });
 
-  it("a consulta de atribuicao traz os dois lados da troca", () => {
-    expect(BLOCO).toMatch(/\.select\("aluno_id,operador_novo_email,operador_anterior_email,registrado_em"\)/);
+  it("a consulta traz os dois lados da troca, e a reparticao devolve os dois conjuntos", () => {
+    // operador_novo + operador_anterior: e o par que prova a troca de mao.
+    expect(BLOCO).toMatch(/operador_novo_email,operador_anterior_email/);
+    expect(BLOCO).toMatch(/separarMovimentacoesCarteira\(linhas, emailsResponsaveis, TIPOS_ACIONAMENTO\)/);
+    expect(BLOCO).toMatch(/tabulacoes: tabLote, transferencias: transfLote/);
+  });
+
+  it("o filtro cobre os DOIS predicados -- nenhum dos dois lados some", () => {
+    const i = SRC.indexOf("export function filtroMovimentacoesCarteira");
+    const fn = SRC.slice(i, i + 600);
+    expect(i).toBeGreaterThan(-1);
+    expect(fn).toMatch(/tipo\.in\./);
+    expect(fn).toMatch(/registrado_por_email\.in\./);
+    expect(fn).toMatch(/operador_novo_email\.in\./);
   });
 
   it("o indicador e o filtro existentes foram reaproveitados: nenhum card novo", () => {
