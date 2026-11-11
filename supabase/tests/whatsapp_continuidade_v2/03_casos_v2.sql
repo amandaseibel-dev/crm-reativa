@@ -257,10 +257,10 @@ begin
     (select resposta_janela_horas from public.whatsapp_config limit 1)::text, null,
     'decisao da Amanda em 09/11');
   insert into _cont_v2_resultado values ('DEPOIS', 17,
-    'authenticated mantem EXECUTE na funcao', 'true',
+    'authenticated SEM EXECUTE na funcao (producao so service_role)', 'false',
     has_function_privilege('authenticated',
       'public.whatsapp_cadencia_checar(uuid, uuid, text)', 'EXECUTE')::text, null,
-    'CREATE OR REPLACE restaura grants padrao');
+    'CREATE OR REPLACE restaura grants padrao; v2 nao concede a authenticated');
   insert into _cont_v2_resultado values ('DEPOIS', 17,
     'anon NAO tem EXECUTE na funcao', 'false',
     has_function_privilege('anon',
