@@ -951,3 +951,134 @@ jobs:
 
       - name: Corrida entre duas sessões (coleta x vínculo, nos dois sentidos)
         run: bash supabase/tests/ulbra_identidade_concorrencia/run.sh
+
+  # ---------------------------------------------------------------------------
+  # CONTINUIDADE v2 — proposta de 09/11/2026, NAO aplicada em producao.
+  # Ancora a continuidade no historico real de mensagens, nao em
+  # whatsapp_abordagens (foi o furo da v1).
+  #
+  # Ordem: guarda -> ambiente -> regra ATUAL -> migration v2 -> 17 casos ->
+  #        concorrencia com 2 conexoes -> rollback -> conferencia do rollback.
+  # ---------------------------------------------------------------------------
+  whatsapp-continuidade-v2:
+    name: whatsapp continuidade v2 (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/whatsapp_continuidade_v2
+      MIGRACAO_V2: supabase/aguardando_aprovacao/20261109120000_whatsapp_continuidade_v2.sql.pendente
+      ROLLBACK_V2: supabase/aguardando_aprovacao/20261109120000_whatsapp_continuidade_v2.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Guarda — a v2 nao esta em migrations/
+        run: |
+          set -euo pipefail
+          # So a v2 e vetada aqui. A v1 ja esta em migrations/ no main e a catraca
+          # proibe mexer nela; o que este passo garante e que a v2 nao entre.
+          if ls supabase/migrations/ | grep -qi continuidade_v2; then
+            echo "FALHOU: a v2 entrou em supabase/migrations/"
+            ls supabase/migrations/ | grep -i continuidade_v2
+            exit 1
+          fi
+          test -f "$MIGRACAO_V2" || { echo "FALHOU: v2 ausente em $MIGRACAO_V2"; exit 1; }
+          test -f "$ROLLBACK_V2" || { echo "FALHOU: rollback da v2 ausente"; exit 1; }
+          echo "OK: v1 e v2 fora de migrations/; v2 presente como .pendente"
+
+      - name: Ambiente + regra ATUAL (baseline do comparativo)
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_antes_v2.sql"
+
+      - name: Aplicar a v2 e rodar os 17 casos
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$MIGRACAO_V2"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos_v2.sql"
+
+      - name: Concorrencia REAL — duas conexoes independentes
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/04_concorrencia_setup.sql"
+
+          CANAL=$(psql -tAc "select id from public.whatsapp_canais where sessao_chave='_cont_v2_conc'")
+          C1=$(psql -tAc "select id from public.whatsapp_conversas where telefone_e164='5551900300001'")
+          C2=$(psql -tAc "select id from public.whatsapp_conversas where telefone_e164='5551900300002'")
+          OP='opconc@test.local'
+          echo "canal=$CANAL conv1=$C1 conv2=$C2 (limite_abordagens_operador = 1)"
+
+          # Sessao A: uma transacao que segura o FOR UPDATE da linha do canal por 3s
+          psql -q -c "begin; select public.whatsapp_cadencia_checar('$CANAL','$C1','$OP'); select pg_sleep(3); commit;" &
+          A_PID=$!
+
+          sleep 1
+
+          # Sessao B: conexao independente, concorrente.
+          # Sem o lock, A e B leriam a contagem antes do INSERT uma da outra e
+          # AMBAS passariam. Com o lock, B espera e depois ve v_op=2 > 1.
+          INICIO=$(date +%s)
+          set +e
+          B_SAIDA=$(psql -v ON_ERROR_STOP=1 -tAc "select public.whatsapp_cadencia_checar('$CANAL','$C2','$OP');" 2>&1)
+          B_RC=$?
+          set -e
+          FIM=$(date +%s)
+          wait "$A_PID"
+
+          ESPEROU=$(( FIM - INICIO ))
+          SOBROU=$(psql -tAc "select count(*) from public.whatsapp_abordagens a join public.whatsapp_canais k on k.id = a.canal_id where k.sessao_chave = '_cont_v2_conc'")
+
+          echo "--- resultado da corrida ---"
+          echo "retorno de B : $B_RC"
+          echo "saida de B   : $B_SAIDA"
+          echo "B esperou    : ${ESPEROU}s"
+          echo "abordagens   : $SOBROU"
+
+          FALHAS=0
+          if [ "$B_RC" -eq 0 ]; then
+            echo "FALHOU: sessao B passou — o limite de 1 foi furado"; FALHAS=1
+          else
+            echo "OK: sessao B foi barrada"
+          fi
+          if ! echo "$B_SAIDA" | grep -q "ja iniciou"; then
+            echo "FALHOU: B falhou por outro motivo, nao por LIMITE_OPERADOR"; FALHAS=1
+          else
+            echo "OK: B barrada por LIMITE_OPERADOR"
+          fi
+          if [ "$ESPEROU" -lt 2 ]; then
+            echo "FALHOU: B nao bloqueou no lock (esperou ${ESPEROU}s)"; FALHAS=1
+          else
+            echo "OK: B bloqueou ${ESPEROU}s no lock da linha do canal"
+          fi
+          if [ "$SOBROU" != "1" ]; then
+            echo "FALHOU: sobraram $SOBROU abordagens, esperado 1"; FALHAS=1
+          else
+            echo "OK: sobrou exatamente 1 abordagem"
+          fi
+          [ "$FALHAS" -eq 0 ] || exit 1
+
+      - name: Rollback e conferencia
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK_V2"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/05_rollback_conferencia.sql"
