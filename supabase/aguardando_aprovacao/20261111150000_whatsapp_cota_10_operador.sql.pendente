@@ -387,7 +387,7 @@ AS $function$
          END,
          (SELECT count(*)::integer FROM public.whatsapp_abordagens a, agora g
            WHERE a.canal_id = k.id AND a.dia = g.hoje
-             AND a.operador_email = public.app_email() AND a.origem = 'ATIVA'),
+             AND a.operador_email = public.app_email()),
          k.limite_abordagens_canal,
          (SELECT count(*)::integer FROM public.whatsapp_abordagens a, agora g
            WHERE a.canal_id = k.id AND a.dia = g.hoje),

@@ -406,22 +406,10 @@ export default function CentralWhatsApp() {
     if (!texto || !selecionada || enviando) return;
     setEnviando(true);
     setErro("");
-    // Lido ANTES de enviar: o envio zera aguardando_resposta no banco.
-    const eraReceptivo = Boolean(selecionada.aguardando_resposta);
     try {
       await enviarMensagem(selecionada.id, texto);
       setRascunho("");
       setMensagens(await listarMensagens(selecionada.id));
-      // Fila receptiva: a primeira resposta ENVIADA com sucesso conta uma vez
-      // por ciclo (a RPC é idempotente por ciclo). Separado da cota comercial.
-      if (eraReceptivo && emailOperador) {
-        try {
-          await marcarAtendidoReceptivoWhatsApp(emailOperador, selecionada.id);
-        } catch (eFila) {
-          console.warn("[fila-receptivo]", eFila.message);
-          setAvisoFila("Resposta enviada, mas posição na fila não foi atualizada. Avisar gestão se persistir.");
-        }
-      }
       carregarConversas();
     } catch (e) {
       setErro(e.message);

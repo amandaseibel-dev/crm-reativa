@@ -96,7 +96,6 @@ vi.mock("../services/whatsapp", async (original) => {
       return servico.conversas;
     }),
     listarMensagens: vi.fn(async () => servico.mensagens),
-    enviarMensagem: vi.fn(async () => ({ ok: true, wamid: "w-texto-1" })),
     listarOperadores: vi.fn(async () => [
       { email: "maria@aelbra.com.br", nome: "Maria" },
       { email: "joao@aelbra.com.br", nome: "João" },

@@ -392,7 +392,7 @@ $$;
 create or replace function public._t_cota(p_canal uuid, p_email text)
 returns integer language sql as $$
   select count(distinct conversa_id)::integer from public.whatsapp_abordagens
-   where canal_id = p_canal and operador_email = lower(p_email) and origem = 'ATIVA'
+   where canal_id = p_canal and operador_email = lower(p_email)
      and dia = (now() at time zone 'America/Sao_Paulo')::date;
 $$;
 
