@@ -22,6 +22,7 @@ select h.d, v.pago, v.hon, v.retro, v.op from public.teste_hoje h, (values
   (2000.20, 200.02, false, 'cobranca05@aelbra.com.br'),
   ( 500.00,   0.00, false, 'cobranca05@aelbra.com.br'),
   (40000.00, 2907.12, false, 'cobranca06@aelbra.com.br'),
+  (15000.00, 1500.00, false, 'cobranca06@aelbra.com.br'),   -- 2º maior pagamento também é dela
   ( 100.00,  10.00, true,  'cobranca06@aelbra.com.br'),   -- retroativo: mês sim, hoje não
   (13667.21, 1012.39, false, 'cobranca08@aelbra.com.br'),
   (  50.00,   5.00, false, ' COBRANCA08@aelbra.com.br '), -- e-mail sujo: mesmo operador

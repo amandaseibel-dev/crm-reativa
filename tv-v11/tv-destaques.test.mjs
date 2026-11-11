@@ -77,7 +77,7 @@ describe('rankings: nada fabricado', () => {
     ]);
   });
   it('top honorários: critério explícito de pagamento único; top recuperado: acumulado do mês', () => {
-    expect(D.RANKINGS[0].criterio).toMatch(/um único pagamento/);
+    expect(D.RANKINGS[0].criterio).toMatch(/Maior honorário de cada operador em um único pagamento/);
     expect(D.RANKINGS[1].criterio).toMatch(/acumulado no mês/);
   });
 });

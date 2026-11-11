@@ -139,13 +139,15 @@ begin
                  order by honorario desc, qtd desc, nome)
           from (select * from por_op_mes where honorario > 0
                  order by honorario desc, qtd desc, nome limit 3) t), '[]'::jsonb),
-      -- Top honorários: ordem pelo MAIOR HONORÁRIO EM UM ÚNICO PAGAMENTO (um
-      -- operador pode aparecer mais de uma vez), nunca pelo total do operador.
+      -- Top honorários: três operadores DIFERENTES, cada um classificado pelo
+      -- seu MAIOR honorário pago em um único pagamento no mês (nunca pelo total).
       'top_honorario_pagamento_mes', coalesce((
         select jsonb_agg(jsonb_build_object('usuario_id', usuario_id, 'nome', nome)
-                 order by valor_honorario desc, data_pagamento asc, id)
-          from (select * from pg_op where coalesce(valor_honorario,0) > 0
-                 order by valor_honorario desc, data_pagamento asc, id limit 3) t), '[]'::jsonb),
+                 order by maior desc, nome)
+          from (select usuario_id, nome, max(valor_honorario) as maior
+                  from pg_op where coalesce(valor_honorario,0) > 0
+                 group by usuario_id, nome
+                 order by maior desc, nome limit 3) t), '[]'::jsonb),
       -- Top recuperado do mês: ordem pelo recuperado ACUMULADO no mês por operador.
       'top_recuperado_mes', coalesce((
         select jsonb_agg(jsonb_build_object('usuario_id', usuario_id, 'nome', nome)

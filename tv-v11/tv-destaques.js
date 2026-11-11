@@ -88,7 +88,7 @@
   // resultado individual não aparece.
   const RANKINGS = [
     { chave: 'top_honorario_pagamento_mes', titulo: 'Top honorários do mês', periodo: 'mes',
-      criterio: 'Maiores honorários pagos em um único pagamento' },
+      criterio: 'Maior honorário de cada operador em um único pagamento' },
     { chave: 'top_recuperado_mes', titulo: 'Top recuperado do mês', periodo: 'mes',
       criterio: 'Maior valor recuperado acumulado no mês' },
     { chave: 'top_pagamentos_hoje', titulo: 'Top pagamentos de hoje', periodo: 'hoje',
