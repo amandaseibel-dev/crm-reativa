@@ -250,7 +250,7 @@ BEGIN
 END;
 $function$;
 
-grant execute on function public.whatsapp_cadencia_checar(uuid, uuid, text) to authenticated;
+grant execute on function public.whatsapp_cadencia_checar(uuid, uuid, text) to service_role;
 
 -- ---------------------------------------------------------------------------
 -- 5. HELPERS DE CENÁRIO

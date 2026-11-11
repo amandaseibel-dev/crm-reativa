@@ -52,7 +52,7 @@ begin
 
   -- 4. grants
   insert into _cont_v2_rollback values
-    (4, 'authenticated mantem EXECUTE', 'true',
+    (4, 'authenticated SEM EXECUTE (producao so service_role)', 'false',
      has_function_privilege('authenticated',
        'public.whatsapp_cadencia_checar(uuid, uuid, text)', 'EXECUTE')::text, null);
   insert into _cont_v2_rollback values

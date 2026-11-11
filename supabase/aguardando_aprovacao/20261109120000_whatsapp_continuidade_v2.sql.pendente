@@ -289,7 +289,8 @@ $function$;
 -- CREATE OR REPLACE restaura grants padrao: reconferir explicitamente.
 REVOKE ALL ON FUNCTION public.whatsapp_cadencia_checar(uuid, uuid, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.whatsapp_cadencia_checar(uuid, uuid, text) FROM anon;
-GRANT EXECUTE ON FUNCTION public.whatsapp_cadencia_checar(uuid, uuid, text) TO authenticated;
+REVOKE ALL ON FUNCTION public.whatsapp_cadencia_checar(uuid, uuid, text) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.whatsapp_cadencia_checar(uuid, uuid, text) TO service_role;
 
 -- ---------------------------------------------------------------------
 -- 4. Verificacao final: falha fechado se o estado nao ficou como esperado
@@ -318,9 +319,9 @@ BEGIN
     RAISE EXCEPTION 'funcao nao contem a clausula CONTINUIDADE' USING ERRCODE = '22023';
   END IF;
 
-  IF NOT has_function_privilege('authenticated',
+  IF has_function_privilege('authenticated',
         'public.whatsapp_cadencia_checar(uuid, uuid, text)', 'EXECUTE') THEN
-    RAISE EXCEPTION 'authenticated perdeu EXECUTE na funcao' USING ERRCODE = '42501';
+    RAISE EXCEPTION 'authenticated ganhou EXECUTE em whatsapp_cadencia_checar (proibido)' USING ERRCODE = '42501';
   END IF;
 
   RAISE NOTICE 'continuidade v2: janela=%h, max_sem_resposta=%, resposta=%h (inalterada)',
