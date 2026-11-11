@@ -259,12 +259,16 @@ returns void language sql as $$
   on conflict (wamid) do nothing;
 $$;
 
--- Marcas da conversa por origem
+-- Marcas da conversa por origem. plpgsql (e não sql) de propósito: a coluna
+-- `origem` só nasce com a migration, e função sql é validada na criação.
 create or replace function public._t_marcas(p_conversa uuid, p_email text, p_origem text)
-returns integer language sql as $$
-  select count(*)::integer from public.whatsapp_abordagens
+returns integer language plpgsql as $$
+declare v integer;
+begin
+  select count(*)::integer into v from public.whatsapp_abordagens
    where conversa_id = p_conversa and operador_email = lower(p_email) and origem = p_origem;
-$$;
+  return v;
+end $$;
 
 -- Cota usada hoje pelo operador no canal (a mesma conta de checar)
 create or replace function public._t_cota(p_canal uuid, p_email text)
