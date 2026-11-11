@@ -222,6 +222,21 @@ export interface Janela {
   cursor: string | null;
   pendente: string | null;
   topo: string | null;
+  /** Limite INFERIOR opcional (ISO): mensagem mais antiga que isto está fora do
+   *  escopo da coleta. Usado na coleta por período (ex.: só novembro): a leitura
+   *  para quando a página só tem itens abaixo dele, e o ciclo fecha como
+   *  completo — o que ficou abaixo não é backlog, é fora do escopo. */
+  desde?: string | null;
+}
+
+/** Verdadeiro quando `em` é anterior ao início da janela (`desde`). Sem `desde`, nunca. */
+export function antesDoInicio(em: string, j: Janela): boolean {
+  const d = j.desde;
+  if (!d) return false;
+  const a = Date.parse(em);
+  const b = Date.parse(d);
+  if (Number.isNaN(a) || Number.isNaN(b)) return em < d;
+  return a < b;
 }
 
 export interface PaginaConversas {
@@ -242,6 +257,7 @@ export interface PaginaConversas {
  * o pendente nunca deixa um empate pela metade.
  */
 function dentroDaJanela(em: string, j: Janela): boolean {
+  if (antesDoInicio(em, j)) return false;
   if (j.cursor !== null && em <= j.cursor) return false;
   // Estrito no piso: o grupo com o horário do piso NÃO está garantido como
   // processado (pode ter atravessado a página em que o ciclo parou). Relê-lo
@@ -299,8 +315,12 @@ export function lerPaginaConversas(resposta: unknown, janela: Janela): PaginaCon
   }
 
   // Página cheia com itens ainda acima do cursor: pode haver mais.
+  // Com `desde`, uma página cujo piso já está abaixo do início não tem mais nada
+  // a coletar: tudo abaixo é fora do escopo, não backlog.
   const pode_ter_mais =
-    itens.length >= LIMITE_PAGINA && (janela.cursor === null || (piso !== null && piso > janela.cursor));
+    itens.length >= LIMITE_PAGINA &&
+    (janela.cursor === null || (piso !== null && piso > janela.cursor)) &&
+    !(piso !== null && antesDoInicio(piso, janela));
 
   return { conversas, piso, pode_ter_mais, total, ems };
 }
@@ -575,6 +595,8 @@ export async function colherConversas(
             maiorAbaixo = c.ultima_mensagem_em;
           }
         }
+        // Nada abaixo do grupo dentro do escopo e o piso já passou do início: completo.
+        if (maiorAbaixo === null && antesDoInicio(p.piso, janela)) return { terminou: true, pendente: null };
         return { terminou: false, pendente: maiorAbaixo ?? grupo };
       }
     }
@@ -909,4 +931,57 @@ export function custoDiarioEstimado(c: Cadencia, detalhePorCiclo: number = DETAL
     fichas,
     cabe: total <= TETO_DIARIO_SYNC && fichas <= RESERVA_FICHAS_DIA,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Parâmetros da chamada manual (coleta por período)
+// ---------------------------------------------------------------------------
+/** Teto de chamadas desta execução, lido do corpo JSON. Ausente = sem teto extra. */
+export const TETO_EXECUCAO_MAX = 12;
+/** Leituras de detalhe por execução quando o corpo pede (coleta por período). */
+export const DETALHES_EXECUCAO_MAX = 20;
+/** `desde` não pode ser mais antigo que isto: coleta por período é para o mês corrente, não para o histórico. */
+export const DESDE_MAX_DIAS = 120;
+
+export interface ParametrosExecucao {
+  teto_chamadas: number | null;
+  /** Início da janela (ISO), ou null. Ver `Janela.desde`. */
+  desde: string | null;
+  detalhes: number | null;
+}
+
+/**
+ * Corpo JSON da chamada manual: `teto_chamadas` (1..12), `desde` (data ISO ou
+ * `AAAA-MM-DD`, até 120 dias atrás, nunca no futuro) e `detalhes` (1..20).
+ * Corpo ausente = sem parâmetros (cron). Qualquer campo inválido = INVALIDO.
+ */
+export function lerParametros(texto: string, agoraMs = Date.now()): ParametrosExecucao | "INVALIDO" | null {
+  if (!texto) return null;
+  let corpo: { teto_chamadas?: unknown; desde?: unknown; detalhes?: unknown };
+  try {
+    corpo = JSON.parse(texto);
+  } catch {
+    return "INVALIDO";
+  }
+  const r: ParametrosExecucao = { teto_chamadas: null, desde: null, detalhes: null };
+  if (corpo.teto_chamadas !== undefined) {
+    const n = corpo.teto_chamadas;
+    if (!(typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= TETO_EXECUCAO_MAX)) return "INVALIDO";
+    r.teto_chamadas = n;
+  }
+  if (corpo.detalhes !== undefined) {
+    const n = corpo.detalhes;
+    if (!(typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= DETALHES_EXECUCAO_MAX)) return "INVALIDO";
+    r.detalhes = n;
+  }
+  if (corpo.desde !== undefined) {
+    const d = corpo.desde;
+    if (typeof d !== "string" || !/^\d{4}-\d{2}-\d{2}(T.*)?$/.test(d)) return "INVALIDO";
+    // Data pura vale como meia-noite de Brasília, não UTC: "novembro" é o mês daqui.
+    const iso = d.length === 10 ? `${d}T00:00:00-03:00` : d;
+    const ms = Date.parse(iso);
+    if (Number.isNaN(ms) || ms > agoraMs || agoraMs - ms > DESDE_MAX_DIAS * 86400000) return "INVALIDO";
+    r.desde = new Date(ms).toISOString();
+  }
+  return r;
 }

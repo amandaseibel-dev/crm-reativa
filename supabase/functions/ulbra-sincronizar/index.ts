@@ -40,6 +40,8 @@ import {
   lerAtendimentos,
   lerCorpoMcp,
   modoDoCiclo,
+  lerParametros,
+  type ParametrosExecucao,
   novaJanela,
   portaoSync,
   resultadoDoEnvelope,
@@ -84,20 +86,9 @@ async function chamarMcp(token: string, carga: unknown): Promise<unknown> {
   return resultadoDoEnvelope(lerCorpoMcp(resp.headers.get("content-type"), await resp.text()));
 }
 
-/** Teto de chamadas desta execução, lido do corpo JSON. Ausente = sem teto extra. */
-export const TETO_EXECUCAO_MAX = 12;
-async function lerTetoExecucao(req: Request): Promise<number | "INVALIDO" | null> {
+async function lerTetoExecucao(req: Request): Promise<ParametrosExecucao | "INVALIDO" | null> {
   const texto = await req.text().catch(() => "");
-  if (!texto) return null;
-  let corpo: { teto_chamadas?: unknown };
-  try {
-    corpo = JSON.parse(texto);
-  } catch {
-    return "INVALIDO";
-  }
-  if (corpo.teto_chamadas === undefined) return null;
-  const n = corpo.teto_chamadas;
-  return typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= TETO_EXECUCAO_MAX ? n : "INVALIDO";
+  return lerParametros(texto);
 }
 
 Deno.serve(async (req: Request) => {
@@ -123,11 +114,15 @@ Deno.serve(async (req: Request) => {
     .eq("id", true)
     .maybeSingle();
 
+  const parametros = await lerTetoExecucao(req);
+  if (parametros === "INVALIDO") return json({ erro: "TETO_INVALIDO" }, 400);
   const janela: Janela = {
     cursor: estado?.cursor_mensagem ?? null,
     pendente: estado?.piso_pendente ?? null,
     topo: estado?.topo_processado ?? null,
+    desde: parametros?.desde ?? null,
   };
+  const detalhesPorExecucao = parametros?.detalhes ?? DETALHE_POR_CICLO;
   const hoje = new Date().toISOString().slice(0, 10);
   const chamadasAntes: number = estado?.dia === hoje ? (estado?.chamadas_dia ?? 0) : 0;
   const ciclosDesde: number = estado?.ciclos_desde_atendimentos ?? 999;
@@ -135,8 +130,7 @@ Deno.serve(async (req: Request) => {
   // Teto POR EXECUÇÃO, além do diário. Só vale quando a chamada traz `teto_chamadas`
   // (validação manual) e o valor está entre 1 e TETO_EXECUCAO_MAX. O cron não envia
   // corpo, então roda sem esse teto extra, com o teto diário de sempre.
-  const tetoExecucao = await lerTetoExecucao(req);
-  if (tetoExecucao === "INVALIDO") return json({ erro: "TETO_INVALIDO" }, 400);
+  const tetoExecucao = parametros?.teto_chamadas ?? null;
   const orcamento = new Orcamento(
     Math.min(TETO_DIARIO_SYNC - chamadasAntes, tetoExecucao ?? Number.POSITIVE_INFINITY),
   );
@@ -222,7 +216,7 @@ Deno.serve(async (req: Request) => {
     // Reserva: a última chamada do orçamento é do detalhe das mensagens recentes.
     // O backlog nunca a consome, para que uma resposta de cliente não fique sem leitura.
     colheita = await colherConversas((pagina) => chamar(cargaConversas(pagina, pagina)), janela, {
-      pode: () => orcamento.saldo > DETALHE_POR_CICLO,
+      pode: () => orcamento.saldo > detalhesPorExecucao,
       posicao: estado?.offset_pendente != null ? { offset: estado.offset_pendente } : undefined,
     });
 
@@ -233,7 +227,7 @@ Deno.serve(async (req: Request) => {
     );
     for (const n of novas) if (!mapa.has(n.ulbra_conversa_id)) mapa.set(n.ulbra_conversa_id, n);
 
-    const sel = selecionarDetalhes([...mapa.values()], DETALHE_POR_CICLO);
+    const sel = selecionarDetalhes([...mapa.values()], detalhesPorExecucao);
     desistidas = sel.desistidas;
 
     for (const f of sel.escolhidas) {
@@ -367,6 +361,8 @@ Deno.serve(async (req: Request) => {
     ciclo: colheita.truncado ? "INCOMPLETO" : "OK",
     ciclo_completo: !colheita.truncado,
     modo: modoDoCiclo(janela),
+    desde: janela.desde ?? null,
+    detalhes_por_execucao: detalhesPorExecucao,
     chamadas,
     chamadas_dia: chamadasAntes + chamadas,
     teto_dia: TETO_DIARIO_SYNC,
