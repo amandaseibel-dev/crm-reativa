@@ -1084,12 +1084,12 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/05_rollback_conferencia.sql"
 
   # ---------------------------------------------------------------------------
-  # COTA 10 POR OPERADOR — proposta de 11/11/2026, NAO aplicada em producao.
+  # COTA 10 ATIVA + RECEPTIVO NA FILA — proposta de 11/11/2026, NAO aplicada.
   # Empilhada sobre a CONTINUIDADE v2 (a migration recusa rodar sem ela).
   #
   # Ordem: guarda -> ambiente v2 -> v2 -> ambiente cota -> cota (2x, idempotencia)
-  #        -> casos -> corrida do limite (lock do canal) -> corrida da marca
-  #        RECEPTIVA (indice unico do ciclo) -> rollback (2x) -> conferencia.
+  #        -> casos -> corrida do limite (lock do canal) -> corrida do
+  #        receptivo (chave do ciclo na fila) -> rollback (2x) -> conferencia.
   # ---------------------------------------------------------------------------
   whatsapp-cota-10:
     name: whatsapp cota 10 por operador (postgres isolado)
@@ -1185,7 +1185,7 @@ jobs:
           [ "$SOBROU" = "1" ] || { echo "FALHOU: sobraram $SOBROU abordagens"; exit 1; }
           echo "OK: limite serializado pelo lock do canal"
 
-      - name: Corrida REAL da marca RECEPTIVA — repeticao simultanea conta uma vez
+      - name: Corrida REAL do receptivo — duas respostas simultaneas, um atendimento na fila
         run: |
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -q -f "$DIR/04_corrida_setup.sql"
@@ -1201,11 +1201,15 @@ jobs:
           FIM=$(date +%s)
           wait "$A_PID"
           MSGS=$(psql -tAc "select count(*) from public.whatsapp_mensagens where conversa_id='$CONV' and direcao='SAIDA'")
-          MARCAS=$(psql -tAc "select count(*) from public.whatsapp_abordagens where conversa_id='$CONV' and origem='RECEPTIVA'")
-          echo "mensagens: $MSGS | marcas RECEPTIVA: $MARCAS | B esperou: $(( FIM - INICIO ))s"
+          LOG=$(psql -tAc "select count(*) from public.receptivo_atendimentos_log where operador_email='$OP' and fonte='WHATSAPP'")
+          FILA=$(psql -tAc "select atendimentos_hoje from public.fila_receptivo where email='$OP'")
+          COTA=$(psql -tAc "select count(*) from public.whatsapp_abordagens where conversa_id='$CONV'")
+          echo "mensagens: $MSGS | log: $LOG | fila: $FILA | cota ATIVA: $COTA | B esperou: $(( FIM - INICIO ))s"
           [ "$MSGS" = "2" ] || { echo "FALHOU: esperava as 2 mensagens registradas"; exit 1; }
-          [ "$MARCAS" = "1" ] || { echo "FALHOU: esperava 1 marca, vieram $MARCAS"; exit 1; }
-          echo "OK: duas respostas simultaneas, uma marca so"
+          [ "$LOG" = "1" ] || { echo "FALHOU: esperava 1 atendimento no log, vieram $LOG"; exit 1; }
+          [ "$FILA" = "1" ] || { echo "FALHOU: fila andou $FILA vezes"; exit 1; }
+          [ "$COTA" = "0" ] || { echo "FALHOU: resposta gastou cota ATIVA"; exit 1; }
+          echo "OK: duas respostas simultaneas, um atendimento, zero cota"
 
       - name: Rollback (duas vezes) e conferencia
         run: |

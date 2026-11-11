@@ -1874,86 +1874,32 @@ describe("Fila de Receptivo na Central WhatsApp", () => {
     expect(await screen.findByText(/FilaReceptivo teste@reativa.com.br/)).toBeDefined();
   });
 
-  it("assumir conversa RECEPTIVA NÃO conta na fila: só a primeira resposta enviada conta", async () => {
+  // Decisão de 11/11/2026: assumir NÃO conta atendimento. A fila anda no
+  // banco, na primeira resposta ENVIADA do ciclo (trigger), não na tela.
+  it("assumir conversa RECEPTIVA não marca atendimento na fila", async () => {
     const { marcarAtendidoReceptivoWhatsApp, assumirConversa } = await import("../services/whatsapp");
     marcarAtendidoReceptivoWhatsApp.mockClear();
-    servico.conversas = [conversa({ responsavel_email: null })];
+    assumirConversa.mockClear();
+    servico.conversas = [conversa({ responsavel_email: null, aguardando_resposta: true })];
     render(<CentralWhatsApp />);
     fireEvent.click(await screen.findByText("Oi, quero negociar"));
     fireEvent.click(await screen.findByText("Assumir"));
-    await waitFor(() => expect(assumirConversa).toHaveBeenCalled());
+    await waitFor(() => expect(assumirConversa).toHaveBeenCalledWith("k1"));
     expect(marcarAtendidoReceptivoWhatsApp).not.toHaveBeenCalled();
+    expect(servico.atendidosReceptivos.length).toBe(0);
+    expect(screen.queryByText(/posição na fila/)).toBeNull();
   });
 
-  it("primeira resposta ENVIADA numa conversa receptiva marca a fila uma vez", async () => {
-    const { marcarAtendidoReceptivoWhatsApp } = await import("../services/whatsapp");
-    marcarAtendidoReceptivoWhatsApp.mockClear();
-    servico.conversas = [conversa({ responsavel_email: "teste@reativa.com.br", aguardando_resposta: true })];
-    render(<CentralWhatsApp />);
-    fireEvent.click(await screen.findByText("Oi, quero negociar"));
-    fireEvent.change(await screen.findByPlaceholderText(/Escreva a resposta/), { target: { value: "Olá" } });
-    fireEvent.click(await screen.findByRole("button", { name: /^Enviar$/ }));
-    await waitFor(() => expect(marcarAtendidoReceptivoWhatsApp).toHaveBeenCalledTimes(1));
-    expect(marcarAtendidoReceptivoWhatsApp).toHaveBeenCalledWith("teste@reativa.com.br", "k1");
-  });
-
-  it("envio que FALHA não marca a fila", async () => {
-    const { marcarAtendidoReceptivoWhatsApp, enviarMensagem } = await import("../services/whatsapp");
-    marcarAtendidoReceptivoWhatsApp.mockClear();
-    enviarMensagem.mockRejectedValueOnce(new Error("Falha no envio"));
-    servico.conversas = [conversa({ responsavel_email: "teste@reativa.com.br", aguardando_resposta: true })];
-    render(<CentralWhatsApp />);
-    fireEvent.click(await screen.findByText("Oi, quero negociar"));
-    fireEvent.change(await screen.findByPlaceholderText(/Escreva a resposta/), { target: { value: "Olá" } });
-    fireEvent.click(await screen.findByRole("button", { name: /^Enviar$/ }));
-    await screen.findByText("Falha no envio");
-    expect(marcarAtendidoReceptivoWhatsApp).not.toHaveBeenCalled();
-  });
-
-  it("assumir conversa de ABORDAGEM ATIVA não chama marcarAtendidoReceptivoWhatsApp", async () => {
+  it("assumir conversa de ABORDAGEM ATIVA também não marca atendimento", async () => {
     const { marcarAtendidoReceptivoWhatsApp, assumirConversa } = await import("../services/whatsapp");
     marcarAtendidoReceptivoWhatsApp.mockClear();
+    assumirConversa.mockClear();
     servico.conversas = [conversa({ responsavel_email: null, aguardando_resposta: false })];
     render(<CentralWhatsApp />);
     fireEvent.click(await screen.findByText("Oi, quero negociar"));
     fireEvent.click(await screen.findByText("Assumir"));
     await waitFor(() => expect(assumirConversa).toHaveBeenCalled());
     expect(marcarAtendidoReceptivoWhatsApp).not.toHaveBeenCalled();
-  });
-
-  it("assumir com aguardando_resposta false não registra atendimento receptivo", async () => {
-    const { marcarAtendidoReceptivoWhatsApp, assumirConversa } = await import("../services/whatsapp");
-    marcarAtendidoReceptivoWhatsApp.mockClear();
-    servico.conversas = [conversa({ responsavel_email: null, aguardando_resposta: false })];
-    render(<CentralWhatsApp />);
-    fireEvent.click(await screen.findByText("Oi, quero negociar"));
-    fireEvent.click(await screen.findByText("Assumir"));
-    await waitFor(() => expect(assumirConversa).toHaveBeenCalled());
-    expect(marcarAtendidoReceptivoWhatsApp).not.toHaveBeenCalled();
-  });
-
-  it("falha ao marcar a fila após envio exibe avisoFila sem bloquear o atendimento", async () => {
-    const { marcarAtendidoReceptivoWhatsApp } = await import("../services/whatsapp");
-    marcarAtendidoReceptivoWhatsApp.mockClear();
-    marcarAtendidoReceptivoWhatsApp.mockRejectedValueOnce(new Error("timeout"));
-    servico.conversas = [conversa({ responsavel_email: "teste@reativa.com.br", aguardando_resposta: true })];
-    render(<CentralWhatsApp />);
-    fireEvent.click(await screen.findByText("Oi, quero negociar"));
-    fireEvent.change(await screen.findByPlaceholderText(/Escreva a resposta/), { target: { value: "Olá" } });
-    fireEvent.click(await screen.findByRole("button", { name: /^Enviar$/ }));
-    expect(await screen.findByText(/posição na fila não foi atualizada/)).toBeDefined();
-    expect(screen.queryByText("timeout")).toBeNull();
-  });
-
-  it("envio numa conversa receptiva marca a fila (idempotência por ciclo fica na RPC)", async () => {
-    const { marcarAtendidoReceptivoWhatsApp } = await import("../services/whatsapp");
-    marcarAtendidoReceptivoWhatsApp.mockClear();
-    servico.conversas = [conversa({ responsavel_email: "teste@reativa.com.br", aguardando_resposta: true })];
-    render(<CentralWhatsApp />);
-    fireEvent.click(await screen.findByText("Oi, quero negociar"));
-    fireEvent.change(await screen.findByPlaceholderText(/Escreva a resposta/), { target: { value: "Olá" } });
-    fireEvent.click(await screen.findByRole("button", { name: /^Enviar$/ }));
-    await waitFor(() => expect(marcarAtendidoReceptivoWhatsApp).toHaveBeenCalledTimes(1));
   });
 
   it("falha ao assumir conversa não registra atendimento receptivo", async () => {
@@ -1971,7 +1917,7 @@ describe("Fila de Receptivo na Central WhatsApp", () => {
     expect(marcarAtendidoReceptivoWhatsApp).not.toHaveBeenCalled();
   });
 
-  it("dois cliques rápidos em Assumir geram apenas uma chamada a assumirConversa e um registro receptivo", async () => {
+  it("dois cliques rápidos em Assumir geram uma chamada a assumirConversa e nenhum registro receptivo", async () => {
     const { marcarAtendidoReceptivoWhatsApp, assumirConversa } = await import("../services/whatsapp");
     marcarAtendidoReceptivoWhatsApp.mockClear();
     assumirConversa.mockClear();
@@ -1983,7 +1929,7 @@ describe("Fila de Receptivo na Central WhatsApp", () => {
     fireEvent.click(botao);
     fireEvent.click(botao);
     await waitFor(() => expect(assumirConversa).toHaveBeenCalledTimes(1));
-    // Assumir não conta na fila, nem com dois cliques
     expect(marcarAtendidoReceptivoWhatsApp).not.toHaveBeenCalled();
+    expect(servico.atendidosReceptivos.length).toBe(0);
   });
 });

@@ -16,8 +16,13 @@
 --   * public.usuarios (email, nome, perfil, ativo)
 --   * stubs de app_email / app_usuario_ativo / usuario_e_gestao lendo o
 --     e-mail de teste.email, como auth.jwt() já faz no ambiente da v2
---   * whatsapp_cadencia_consumo, whatsapp_cadencia_indicadores e
---     whatsapp_canal_cadencia_salvar com o corpo e os grants de produção
+--   * whatsapp_cadencia_consumo e whatsapp_canal_cadencia_salvar com o
+--     corpo e os grants de produção
+--   * a fila do receptivo como em produção: fila_receptivo,
+--     receptivo_atendimentos_log + uq_receptivo_log_operador_ciclo,
+--     fila_receptivo_marcar_atendido, usuario_e_gestao_fila, auth.email()
+--   * o gatilho real trg_whatsapp_aguardando (aguardando_resposta), porque
+--     o trigger novo precisa disparar ANTES dele
 --   * os três canais reais, com os mesmos ids e limites (a migration tem
 --     pré-condição sobre eles e o rollback restaura por id)
 
@@ -29,7 +34,11 @@
 alter table public.whatsapp_conversas
   add column if not exists responsavel_email text,
   add column if not exists responsavel_nome  text,
-  add column if not exists responsavel_desde timestamptz;
+  add column if not exists responsavel_desde timestamptz,
+  add column if not exists aguardando_resposta boolean not null default false,
+  add column if not exists aguardando_desde timestamptz,
+  add column if not exists aguardando_origem text,
+  add column if not exists atualizado_em timestamptz;
 
 create table if not exists public.usuarios (
   email  text primary key,
@@ -101,33 +110,6 @@ $function$;
 revoke all on function public.whatsapp_cadencia_consumo() from public, anon;
 grant execute on function public.whatsapp_cadencia_consumo() to authenticated, service_role;
 
-create or replace function public.whatsapp_cadencia_indicadores(p_dias integer default 7)
-returns table(dia date, canal_apelido text, abordagens integer, bloqueios integer, motivo_mais_comum text)
-language sql stable security definer set search_path to 'public'
-as $function$
-  WITH corte AS (
-    SELECT ((now() AT TIME ZONE 'America/Sao_Paulo')::date
-            - greatest(1, least(coalesce(p_dias, 7), 90))) AS de
-  )
-  SELECT a.dia, k.apelido,
-         count(*)::integer,
-         (SELECT count(*)::integer FROM public.whatsapp_cadencia_bloqueios b
-           WHERE b.canal_id = a.canal_id
-             AND (b.criado_em AT TIME ZONE 'America/Sao_Paulo')::date = a.dia),
-         (SELECT b.motivo FROM public.whatsapp_cadencia_bloqueios b
-           WHERE b.canal_id = a.canal_id
-             AND (b.criado_em AT TIME ZONE 'America/Sao_Paulo')::date = a.dia
-           GROUP BY b.motivo ORDER BY count(*) DESC LIMIT 1)
-  FROM public.whatsapp_abordagens a
-  JOIN public.whatsapp_canais k ON k.id = a.canal_id
-  CROSS JOIN corte c
-  WHERE public.usuario_e_gestao() AND a.dia >= c.de
-  GROUP BY a.dia, a.canal_id, k.apelido
-  ORDER BY a.dia DESC, k.apelido;
-$function$;
-revoke all on function public.whatsapp_cadencia_indicadores(integer) from public, anon;
-grant execute on function public.whatsapp_cadencia_indicadores(integer) to authenticated, service_role;
-
 -- A tela de cadência grava por esta RPC; a migration NÃO a reescreve. Está
 -- aqui para provar que, com teto 10, a tela consegue gravar 10 e não 11.
 create or replace function public.whatsapp_canal_cadencia_salvar(
@@ -169,6 +151,142 @@ END;
 $function$;
 revoke all on function public.whatsapp_canal_cadencia_salvar(uuid, text, integer, integer, time, time) from public, anon;
 grant execute on function public.whatsapp_canal_cadencia_salvar(uuid, text, integer, integer, time, time) to authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- 3b. Fila do receptivo e aguardando_resposta (forma de produção, 11/11/2026)
+-- ---------------------------------------------------------------------------
+create or replace function auth.email() returns text language sql stable as $$
+  select nullif(current_setting('teste.email', true), '');
+$$;
+
+create table public.fila_receptivo (
+  email              text primary key,
+  nome               text,
+  atendimentos_hoje  integer default 0,
+  data_referencia    date default current_date,
+  ultimo_atendimento timestamptz,
+  online_em          timestamptz default now(),
+  em_pausa           boolean default false
+);
+
+create table public.receptivo_atendimentos_log (
+  id                uuid        primary key default gen_random_uuid(),
+  operador_email    text        not null,
+  operador_nome     text,
+  atendido_em       timestamptz not null default now(),
+  responsavel_desde timestamptz,
+  fonte             text        not null default 'MANUAL',
+  constraint receptivo_atendimentos_log_fonte_check check (fonte in ('MANUAL', 'WHATSAPP'))
+);
+create unique index uq_receptivo_log_operador_ciclo
+  on public.receptivo_atendimentos_log (operador_email, responsavel_desde)
+  where responsavel_desde is not null;
+
+create or replace function public.usuario_e_gestao_fila() returns boolean
+language sql stable security definer set search_path to 'public' as $function$
+  SELECT public.usuario_e_gestao()
+  OR EXISTS (
+    SELECT 1 FROM public.usuarios u
+    WHERE lower(u.email) = lower(coalesce(auth.jwt()->>'email',''))
+      AND u.perfil IN ('gerencia','supervisor','administrativo')
+  );
+$function$;
+
+-- Corpo de produção ANTES da migration (a migration o separa em trava + registro)
+create or replace function public.fila_receptivo_marcar_atendido(
+  p_email text, p_conversa_id uuid default null::uuid, p_canal text default null::text)
+returns void language plpgsql security definer set search_path to 'public'
+as $function$
+declare
+  v_hoje           date := (now() at time zone 'America/Sao_Paulo')::date;
+  v_nome           text;
+  v_resp_desde     timestamptz;
+  v_rows           integer;
+begin
+  if lower(p_email) <> lower(coalesce(auth.email(), '')) then
+    if not coalesce(public.usuario_e_gestao_fila(), false) then
+      raise exception 'não autorizado: somente gestão ou supervisão pode registrar atendimento para outro operador'
+        using errcode = '42501';
+    end if;
+  end if;
+  if p_conversa_id is not null then
+    select responsavel_desde into v_resp_desde
+      from public.whatsapp_conversas
+     where id = p_conversa_id
+       and lower(responsavel_email) = lower(p_email);
+    if not found or v_resp_desde is null then
+      return;
+    end if;
+  end if;
+  select nome into v_nome from public.fila_receptivo where email = p_email;
+  if not found then return; end if;
+  insert into public.receptivo_atendimentos_log
+    (operador_email, operador_nome, atendido_em, responsavel_desde, fonte)
+  values (p_email, v_nome, now(), v_resp_desde,
+          case when p_conversa_id is not null then 'WHATSAPP' else 'MANUAL' end)
+  on conflict (operador_email, responsavel_desde)
+  where responsavel_desde is not null
+  do nothing;
+  get diagnostics v_rows = row_count;
+  if v_rows > 0 then
+    update public.fila_receptivo
+       set atendimentos_hoje = case when data_referencia = v_hoje then atendimentos_hoje + 1 else 1 end,
+           data_referencia   = v_hoje,
+           ultimo_atendimento = now(),
+           online_em          = now()
+     where email = p_email;
+  end if;
+end;
+$function$;
+revoke all on function public.fila_receptivo_marcar_atendido(text, uuid, text) from public, anon;
+grant execute on function public.fila_receptivo_marcar_atendido(text, uuid, text) to authenticated, service_role;
+
+-- Gatilho real que deriva aguardando_resposta (corpo de produção)
+create or replace function public._trg_whatsapp_aguardando() returns trigger
+language plpgsql security definer set search_path to 'public' as $function$
+DECLARE
+  v_ultima timestamptz;
+BEGIN
+  SELECT max(m.timestamp_wa) INTO v_ultima
+  FROM public.whatsapp_mensagens m
+  WHERE m.conversa_id = new.conversa_id;
+
+  IF v_ultima IS NOT NULL AND new.timestamp_wa < v_ultima THEN
+    IF new.direcao = 'ENTRADA' THEN
+      UPDATE public.whatsapp_conversas
+      SET aguardando_desde = least(coalesce(aguardando_desde, new.timestamp_wa), new.timestamp_wa)
+      WHERE id = new.conversa_id AND aguardando_resposta;
+    END IF;
+    RETURN new;
+  END IF;
+
+  IF new.direcao = 'ENTRADA' THEN
+    UPDATE public.whatsapp_conversas
+    SET aguardando_resposta = true,
+        aguardando_desde    = CASE
+          WHEN coalesce(aguardando_origem, 'TEMPO_REAL') =  'SYNC_INICIAL'
+           AND coalesce(new.origem,        'TEMPO_REAL') <> 'SYNC_INICIAL'
+          THEN new.timestamp_wa
+          ELSE coalesce(aguardando_desde, new.timestamp_wa)
+        END,
+        aguardando_origem   = coalesce(new.origem, 'TEMPO_REAL'),
+        atualizado_em       = now()
+    WHERE id = new.conversa_id;
+  ELSIF new.direcao = 'SAIDA' THEN
+    IF coalesce(new.status, '') <> 'FALHOU' THEN
+      UPDATE public.whatsapp_conversas
+      SET aguardando_resposta = false,
+          aguardando_desde    = NULL,
+          aguardando_origem   = NULL,
+          atualizado_em       = now()
+      WHERE id = new.conversa_id;
+    END IF;
+  END IF;
+  RETURN new;
+END;
+$function$;
+create trigger trg_whatsapp_aguardando after insert on public.whatsapp_mensagens
+  for each row execute function public._trg_whatsapp_aguardando();
 
 -- ---------------------------------------------------------------------------
 -- 4. Os três canais reais (ids, limites e tetos de 11/11/2026)
@@ -259,16 +377,16 @@ returns void language sql as $$
   on conflict (wamid) do nothing;
 $$;
 
--- Marcas da conversa por origem. plpgsql (e não sql) de propósito: a coluna
--- `origem` só nasce com a migration, e função sql é validada na criação.
-create or replace function public._t_marcas(p_conversa uuid, p_email text, p_origem text)
-returns integer language plpgsql as $$
-declare v integer;
-begin
-  select count(*)::integer into v from public.whatsapp_abordagens
-   where conversa_id = p_conversa and operador_email = lower(p_email) and origem = p_origem;
-  return v;
-end $$;
+-- Fila do receptivo: atendimentos do operador hoje e linhas WHATSAPP no log
+create or replace function public._t_fila(p_email text)
+returns integer language sql as $$
+  select coalesce((select atendimentos_hoje from public.fila_receptivo where email = p_email), -1);
+$$;
+create or replace function public._t_log(p_email text)
+returns integer language sql as $$
+  select count(*)::integer from public.receptivo_atendimentos_log
+   where operador_email = p_email and fonte = 'WHATSAPP';
+$$;
 
 -- Cota usada hoje pelo operador no canal (a mesma conta de checar)
 create or replace function public._t_cota(p_canal uuid, p_email text)

@@ -1,5 +1,5 @@
 -- =====================================================================
--- WHATSAPP: COTA DE 10 NOVAS CONVERSAS POR OPERADOR, NA MESMA CONTAGEM
+-- WHATSAPP: COTA DE 10 ABORDAGENS ATIVAS POR OPERADOR + RECEPTIVO NA FILA
 -- Preparada em 11/11/2026. NÃO APLICADA. Aguarda aprovação da Amanda.
 --
 -- DEPENDE DA CONTINUIDADE v2 (20261109120000, PR #894) JÁ APLICADA.
@@ -8,66 +8,67 @@
 -- apagaria a regra de CONTINUIDADE em vez de preservá-la.
 --
 -- -----------------------------------------------------------------
--- REGRA FINAL
+-- REGRA FINAL (decisão da Amanda, 11/11/2026) — DUAS COISAS SEPARADAS
 --
--- Contador ÚNICO: whatsapp_abordagens (o mesmo de sempre). Nenhuma
--- segunda contagem. A linha ganha `origem`:
---   ATIVA      operador iniciou (NOVA_ABORDAGEM). Gravada ANTES do envio,
---              dentro de whatsapp_cadencia_checar, e é ela que BARRA.
---   RECEPTIVA  primeira resposta enviada COM SUCESSO pelo responsável num
---              ciclo de responsabilidade em que ele ainda não tinha linha.
---              Gravada DEPOIS do envio, por trigger no registro da
---              mensagem ENVIADO. Nunca barra a resposta (já saiu); consome
---              a cota de novas conversas do operador.
+-- 1) COTA = só ABORDAGEM ATIVA
+--    As 10 novas conversas diárias são exclusivamente abordagens ATIVAS
+--    iniciadas pelo operador (classificação NOVA_ABORDAGEM). Contador:
+--    whatsapp_abordagens, o mesmo de sempre, SEM mudança de estrutura —
+--    só NOVA_ABORDAGEM grava nele, então ele já é "só ATIVA".
+--      operador (e qualquer perfil fora da lista abaixo, inclusive
+--        diretoria): 10 por dia por canal + liberação extra do dia
+--      gerencia, supervisor, administrativo: SEM limite individual diário;
+--        a abordagem deles segue gravada e segue no teto do canal
+--    Não gastam cota: RESPOSTA, CONTINUIDADE v2 e o receptivo inteiro.
 --
--- Por perfil (public.usuarios.perfil, usuário ativo):
---   operador (e qualquer perfil fora da lista abaixo)
---       10 novas conversas por dia por canal (limite_abordagens_operador
---       = 10) + liberação extra do dia, se houver. Conta pessoas
---       distintas iniciadas pelo operador no dia (ATIVA). RECEPTIVA NAO conta.
---   gerencia, supervisor, administrativo
---       SEM limite individual diário. As abordagens ATIVAS deles seguem
---       gravadas e seguem contando no teto do canal.
+-- 2) RECEPTIVO = FILA, não cota
+--    Assumir a conversa NÃO conta. A PRIMEIRA resposta ENVIADA com sucesso
+--    pelo responsável, no ciclo de responsabilidade, conta UM atendimento e
+--    move a posição na fila (fila_receptivo.atendimentos_hoje e
+--    ultimo_atendimento), uma única vez. Segunda resposta, reenvio, recarga
+--    e envio FALHOU não contam. Envio de quem não é o responsável não conta
+--    para ninguém. Troca de responsável abre ciclo novo.
+--    Idempotência REAPROVEITADA: o mesmo caminho de
+--    fila_receptivo_marcar_atendido -> receptivo_atendimentos_log ->
+--    uq_receptivo_log_operador_ciclo (operador_email, responsavel_desde).
+--    Nenhuma contagem nova.
 --
--- O que NÃO gasta cota: RESPOSTA (aluno escreveu nas últimas 24h),
--- CONTINUIDADE (v2, intacta), envio que falhou, repetição dentro do mesmo
--- ciclo, assumir a conversa, envio de quem não é o responsável.
+-- ONDE A MARCAÇÃO DA FILA MORA: trigger no banco, ao gravar a saída
+-- ENVIADO. Motivos:
+--   * "com sucesso" é status ENVIADO, que a Edge whatsapp-send só grava
+--     DEPOIS de o gateway confirmar; FALHOU não dispara nada;
+--   * o registro é INSERT ... ON CONFLICT (wamid) DO NOTHING: reenvio do
+--     mesmo wamid não dispara de novo (idempotência que já existe);
+--   * não depende da tela: recarga, aba duplicada ou tela antiga não
+--     contam nem deixam de contar;
+--   * não exige publicar Edge Function.
+-- A tela deixa de marcar no ASSUMIR (mesma PR).
 --
--- Ciclo de responsabilidade = (conversa, responsavel_email,
--- responsavel_desde). É a MESMA chave de idempotência que o receptivo já
--- usa em fila_receptivo_marcar_atendido / uq_receptivo_log_operador_ciclo.
--- Assumir, transferir ou retirar-e-assumir gravam responsavel_desde novo
--- e, portanto, abrem ciclo novo.
+-- fila_receptivo_marcar_atendido exige o JWT do próprio operador (ou de
+-- gestão), e o trigger roda sem JWT. Por isso o corpo dela, depois da
+-- trava de autenticação, vira a função interna
+-- fila_receptivo_registrar_atendimento — SEM grant para authenticated —
+-- e a RPC pública passa a ser: trava + chamada da interna. Comportamento
+-- da RPC idêntico (o botão "Marcar" da FilaReceptivo segue igual).
 --
--- TETO GLOBAL (limite_abordagens_canal) — ajustes para não contrariar a
--- regra:
---   * conta SÓ origem ATIVA. Se contasse RECEPTIVA, volume de alunos
---     escrevendo fecharia o número para abordagem, e resposta passaria a
---     "gastar" teto.
---   * continua valendo para TODOS os perfis, inclusive os sem limite
---     individual: é proteção do número, não do operador.
---   * o valor (Comercial = 60) NÃO é alterado aqui. Ver pacote de
---     aprovação: 7 operadores x 10 = 70 > 60.
---   * whatsapp_config.teto_abordagens_operador 3 -> 10. É a trava da tela
---     de cadência (whatsapp_canal_cadencia_salvar recusa limite acima
---     dele); com 3, ninguém conseguiria gravar 10 pela tela.
+-- TETO GLOBAL (limite_abordagens_canal): continua contando só abordagem
+-- ATIVA (é o único tipo que grava em whatsapp_abordagens) e vale para
+-- TODOS os perfis — é proteção do número. Valores (Comercial 60, Cobrança
+-- 40) NÃO são alterados aqui: decisão da Amanda (7 operadores x 10 = 70).
+-- whatsapp_config.teto_abordagens_operador 3 -> 10: é a trava da tela de
+-- cadência; com 3, ninguém grava 10 pela tela.
 --
--- O QUE NÃO MUDA, DE PROPÓSITO:
---   * CONTINUIDADE v2: corpo e as cinco condições, idênticos à v2
---   * intervalo mínimo (60s), RESPOSTA 24h, janela 08:00-20:00
---   * proteção do provedor: PAUSADO, SOMENTE_RESPOSTAS, FORA_DA_JANELA,
---     INTERVALO_MINIMO, lock da linha do canal, travas de conexão e de
---     remetente em whatsapp_preparar_envio*
---   * whatsapp_cadencia_liberacoes (cota extra pontual)
---   * whatsapp_registrar_mensagem, whatsapp_assumir_conversa,
---     whatsapp_transferir_conversa, fila_receptivo_marcar_atendido e a
---     Edge whatsapp-send: NENHUM é reescrito
+-- O QUE NÃO MUDA: CONTINUIDADE v2 (corpo idêntico), intervalo mínimo
+-- (60s, vale para a gestão), RESPOSTA 24h, janela, PAUSADO,
+-- SOMENTE_RESPOSTAS, lock da linha do canal, travas de conexão/remetente,
+-- whatsapp_cadencia_liberacoes, estrutura de whatsapp_abordagens,
+-- whatsapp_cadencia_indicadores, whatsapp_registrar_mensagem,
+-- whatsapp_assumir_conversa, whatsapp_transferir_conversa, Edge
+-- whatsapp-send.
 --
 -- GRANTS: whatsapp_cadencia_checar volta ao estado de PRODUÇÃO (só
--- service_role; preparar_envio a chama como owner). A v2 concedia EXECUTE
--- a authenticated, que produção nunca teve: função SECURITY DEFINER que
--- recebe o e-mail do operador por parâmetro e grava em
--- whatsapp_abordagens. Esta migration revoga.
+-- service_role). A v2 concede EXECUTE a authenticated, que produção nunca
+-- teve; esta migration revoga.
 --
 -- IDEMPOTENTE E FALHA FECHADO. Rollback versionado ao lado.
 -- =====================================================================
@@ -95,6 +96,13 @@ BEGIN
       USING ERRCODE = '55000';
   END IF;
 
+  IF to_regclass('public.fila_receptivo') IS NULL
+     OR to_regclass('public.receptivo_atendimentos_log') IS NULL
+     OR to_regclass('public.uq_receptivo_log_operador_ciclo') IS NULL THEN
+    RAISE EXCEPTION 'estrutura da fila do receptivo ausente (fila_receptivo / receptivo_atendimentos_log / uq_receptivo_log_operador_ciclo)'
+      USING ERRCODE = '55000';
+  END IF;
+
   -- Fotografia de 11/11/2026. Valor diferente = alguém mexeu depois da
   -- revisão: parar e revisar de novo, não sobrescrever. 10 = já aplicada.
   SELECT teto_abordagens_operador INTO v_teto FROM public.whatsapp_config LIMIT 1;
@@ -104,7 +112,7 @@ BEGIN
   END IF;
 
   FOR r IN
-    SELECT k.id, k.apelido, k.limite_abordagens_operador AS atual, f.esperado
+    SELECT k.apelido, k.limite_abordagens_operador AS atual, f.esperado
       FROM public.whatsapp_canais k
       JOIN (VALUES ('b8f00c75-aee3-4d22-83b7-f0041be0ef71'::uuid, 2),   -- Comercial
                    ('9f5fc202-3a22-4b24-8794-65fd92858e31'::uuid, 15),  -- Cobrança
@@ -119,55 +127,7 @@ BEGIN
 END $pre$;
 
 -- ---------------------------------------------------------------------
--- 1. whatsapp_abordagens: origem da linha e ciclo de responsabilidade
--- ---------------------------------------------------------------------
-ALTER TABLE public.whatsapp_abordagens
-  ADD COLUMN IF NOT EXISTS origem text NOT NULL DEFAULT 'ATIVA';
-ALTER TABLE public.whatsapp_abordagens
-  ADD COLUMN IF NOT EXISTS ciclo_desde timestamptz;
-ALTER TABLE public.whatsapp_abordagens
-  ADD COLUMN IF NOT EXISTS wamid text;
-
-ALTER TABLE public.whatsapp_abordagens
-  DROP CONSTRAINT IF EXISTS ck_whatsapp_abordagem_origem;
-ALTER TABLE public.whatsapp_abordagens
-  ADD CONSTRAINT ck_whatsapp_abordagem_origem
-  CHECK (origem IN ('ATIVA', 'RECEPTIVA'));
-
-ALTER TABLE public.whatsapp_abordagens
-  DROP CONSTRAINT IF EXISTS ck_whatsapp_abordagem_receptiva_ciclo;
-ALTER TABLE public.whatsapp_abordagens
-  ADD CONSTRAINT ck_whatsapp_abordagem_receptiva_ciclo
-  CHECK (origem = 'ATIVA' OR ciclo_desde IS NOT NULL);
-
--- O UNIQUE (canal_id, conversa_id, dia) passa a valer só para ATIVA.
--- Motivo: troca de responsável no mesmo dia abre ciclo novo para outra
--- pessoa na MESMA conversa; com o UNIQUE amplo, a RECEPTIVA do segundo
--- operador colidiria com a linha do primeiro e sumiria calada.
--- O índice parcial nasce ANTES de a constraint cair: não há instante sem
--- garantia de unicidade para ATIVA.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_whatsapp_abordagem_ativa
-  ON public.whatsapp_abordagens (canal_id, conversa_id, dia)
-  WHERE origem = 'ATIVA';
-ALTER TABLE public.whatsapp_abordagens
-  DROP CONSTRAINT IF EXISTS uq_whatsapp_abordagem;
-
--- RECEPTIVA: uma por ciclo. Mesma chave do receptivo existente
--- (operador_email, responsavel_desde), acrescida da conversa.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_whatsapp_abordagem_receptiva_ciclo
-  ON public.whatsapp_abordagens (conversa_id, operador_email, ciclo_desde)
-  WHERE origem = 'RECEPTIVA';
-
-CREATE INDEX IF NOT EXISTS ix_whatsapp_abordagens_conversa_operador
-  ON public.whatsapp_abordagens (conversa_id, operador_email, criado_em);
-
-COMMENT ON COLUMN public.whatsapp_abordagens.origem IS
-  'ATIVA = operador iniciou (NOVA_ABORDAGEM, gravada antes do envio, barra no limite). RECEPTIVA = primeira resposta enviada com sucesso pelo responsavel no ciclo (gravada depois do envio, nunca barra). As duas somam na cota individual; so ATIVA soma no teto do canal.';
-COMMENT ON COLUMN public.whatsapp_abordagens.ciclo_desde IS
-  'RECEPTIVA: whatsapp_conversas.responsavel_desde do ciclo contado. Mesma chave de idempotencia de receptivo_atendimentos_log.';
-
--- ---------------------------------------------------------------------
--- 2. Limite 10 por operador e trava da tela
+-- 1. Limite 10 por operador e trava da tela
 -- ---------------------------------------------------------------------
 UPDATE public.whatsapp_config
    SET teto_abordagens_operador = 10
@@ -178,9 +138,9 @@ UPDATE public.whatsapp_canais
  WHERE limite_abordagens_operador IS DISTINCT FROM 10;
 
 -- ---------------------------------------------------------------------
--- 3. Quem não tem limite individual
---    Lê o perfil do cadastro, não o JWT: a cadência e o trigger avaliam o
---    operador do ENVIO, e o trigger roda sem JWT (service_role).
+-- 2. Quem não tem limite individual
+--    Lê o perfil do cadastro, não o JWT: a cadência avalia o operador do
+--    ENVIO, que chega por parâmetro.
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.whatsapp_cadencia_sem_limite_individual(p_email text)
 RETURNS boolean
@@ -200,12 +160,10 @@ REVOKE ALL ON FUNCTION public.whatsapp_cadencia_sem_limite_individual(text) FROM
 GRANT EXECUTE ON FUNCTION public.whatsapp_cadencia_sem_limite_individual(text) TO service_role;
 
 -- ---------------------------------------------------------------------
--- 4. whatsapp_cadencia_checar = corpo da v2 + cota 10 por perfil
---    Diferenças em relação à v2, e só elas:
---      a) INSERT com ON CONFLICT no índice parcial de ATIVA
---      b) v_op conta CONVERSAS DISTINTAS do operador no dia, so ATIVA
---      c) v_ch conta só ATIVA
---      d) perfis sem limite individual não passam pelo LIMITE_OPERADOR
+-- 3. whatsapp_cadencia_checar = corpo da v2 + isenção por perfil
+--    Única diferença em relação à v2: perfis sem limite individual não
+--    passam pelo LIMITE_OPERADOR. INSERT, contagens, teto do canal,
+--    intervalo, modos, janela e CONTINUIDADE: idênticos à v2.
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.whatsapp_cadencia_checar(
   p_canal_id    uuid,
@@ -259,7 +217,6 @@ BEGIN
 
   -- RITMO: vale para abordagem E resposta, porque o WhatsApp olha o ritmo
   -- do numero, nao a nossa classificacao. Mesma conversa nao conta.
-  -- Vale tambem para os perfis sem limite individual.
   IF v_intervalo > 0 THEN
     SELECT max(m.criado_em) INTO v_ultimo
       FROM public.whatsapp_mensagens m
@@ -351,24 +308,16 @@ BEGIN
     END IF;
   END IF;
 
-  -- ===================================================================
-  -- NOVA_ABORDAGEM: linha ATIVA no contador unico.
-  -- Gravada para TODOS os perfis: sem ela o teto do canal nao veria a
-  -- abordagem da gestao.
-  -- ===================================================================
-  INSERT INTO public.whatsapp_abordagens (canal_id, conversa_id, operador_email, dia, origem)
-  VALUES (p_canal_id, p_conversa_id, lower(p_operador), v_hoje, 'ATIVA')
-  ON CONFLICT (canal_id, conversa_id, dia) WHERE origem = 'ATIVA' DO NOTHING;
+  -- NOVA_ABORDAGEM: abordagem ATIVA. Gravada para TODOS os perfis — sem
+  -- ela o teto do canal não veria a abordagem da gestão.
+  INSERT INTO public.whatsapp_abordagens (canal_id, conversa_id, operador_email, dia)
+  VALUES (p_canal_id, p_conversa_id, lower(p_operador), v_hoje)
+  ON CONFLICT (canal_id, conversa_id, dia) DO NOTHING;
 
-  -- Cota individual: PESSOAS distintas do dia que o OPERADOR INICIOU (ATIVA).
-  -- RECEPTIVA (resposta enviada) NUNCA entra aqui: respostas nao gastam cota.
-  SELECT count(DISTINCT a.conversa_id) INTO v_op FROM public.whatsapp_abordagens a
-   WHERE a.canal_id = p_canal_id AND a.operador_email = lower(p_operador) AND a.dia = v_hoje
-     AND a.origem = 'ATIVA';
-
-  -- Teto do canal: so o que o NUMERO iniciou. Resposta nao gasta teto.
-  SELECT count(*) INTO v_ch FROM public.whatsapp_abordagens a
-   WHERE a.canal_id = p_canal_id AND a.dia = v_hoje AND a.origem = 'ATIVA';
+  SELECT count(*) INTO v_op FROM public.whatsapp_abordagens
+   WHERE canal_id = p_canal_id AND operador_email = lower(p_operador) AND dia = v_hoje;
+  SELECT count(*) INTO v_ch FROM public.whatsapp_abordagens
+   WHERE canal_id = p_canal_id AND dia = v_hoje;
 
   v_sem_limite := public.whatsapp_cadencia_sem_limite_individual(p_operador);
 
@@ -377,6 +326,7 @@ BEGIN
   v_extra := COALESCE(v_extra, 0);
   v_limite_op := v_canal.limite_abordagens_operador + v_extra;
 
+  -- Gerência, supervisão e administrativo: sem limite individual diário.
   IF NOT v_sem_limite
      AND v_canal.limite_abordagens_operador IS NOT NULL
      AND v_op > v_limite_op THEN
@@ -385,6 +335,7 @@ BEGIN
       USING ERRCODE = '42501', DETAIL = 'LIMITE_OPERADOR';
   END IF;
 
+  -- Teto do número: vale para todos os perfis (proteção do provedor).
   IF v_canal.limite_abordagens_canal IS NOT NULL
      AND v_ch > v_canal.limite_abordagens_canal THEN
     RAISE EXCEPTION 'o numero % ja iniciou % conversas novas hoje. Nenhum operador inicia novas ate amanha',
@@ -404,120 +355,14 @@ REVOKE ALL ON FUNCTION public.whatsapp_cadencia_checar(uuid, uuid, text) FROM au
 GRANT EXECUTE ON FUNCTION public.whatsapp_cadencia_checar(uuid, uuid, text) TO service_role;
 
 -- ---------------------------------------------------------------------
--- 5. Marca RECEPTIVA: depois da primeira resposta enviada com sucesso
---
---    Por que trigger em whatsapp_mensagens e não na Edge nem na RPC:
---      * reaproveita a idempotência que já existe: o registro da mensagem
---        é INSERT ... ON CONFLICT (wamid) DO NOTHING, e trigger AFTER
---        INSERT só dispara quando a linha entra de fato. Mesmo wamid
---        registrado duas vezes = um disparo só;
---      * "com sucesso" é status ENVIADO, que a Edge só grava DEPOIS de o
---        gateway confirmar. FALHOU não dispara nada;
---      * não exige publicar Edge Function nem reescrever
---        whatsapp_registrar_mensagem (que recebe toda ENTRADA).
---
---    FALHA ABERTO, de propósito: a mensagem já saiu para o aluno quando
---    este trigger roda. Se a marcação der erro, o registro da mensagem NÃO
---    pode ser desfeito junto (a conversa perderia o histórico do que foi
---    enviado). O erro vira WARNING no log e a cota deixa de ser marcada.
--- ---------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.whatsapp_cadencia_marcar_receptiva()
-RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
-AS $function$
-DECLARE
-  v_op     text := lower(NEW.enviado_por_email);
-  v_canal  uuid;
-  v_resp   text;
-  v_desde  timestamptz;
-BEGIN
-  BEGIN
-    SELECT cv.canal_id, lower(cv.responsavel_email), cv.responsavel_desde
-      INTO v_canal, v_resp, v_desde
-      FROM public.whatsapp_conversas cv
-     WHERE cv.id = NEW.conversa_id;
-
-    -- Só conta para quem é o responsável do ciclo. Gestão respondendo
-    -- conversa de operador não gasta a cota de ninguém.
-    IF v_desde IS NULL OR v_resp IS DISTINCT FROM v_op THEN
-      RETURN NULL;
-    END IF;
-
-    IF public.whatsapp_cadencia_sem_limite_individual(v_op) THEN
-      RETURN NULL;
-    END IF;
-
-    -- Ciclo já contado: RECEPTIVA com a MESMA chave de ciclo, ou ATIVA
-    -- gravada desde o início do ciclo (a abordagem que o abriu, ou uma
-    -- nova abordagem dentro dele). A RECEPTIVA casa pela chave, não pelo
-    -- instante: marca de um ciclo anterior nunca vale para o seguinte.
-    IF EXISTS (
-      SELECT 1 FROM public.whatsapp_abordagens a
-       WHERE a.conversa_id = NEW.conversa_id
-         AND a.operador_email = v_op
-         AND ((a.origem = 'RECEPTIVA' AND a.ciclo_desde = v_desde)
-           OR (a.origem = 'ATIVA'     AND a.criado_em  >= v_desde))
-    ) THEN
-      RETURN NULL;
-    END IF;
-
-    -- Primeira resposta COM SUCESSO do ciclo: se ele já tinha ENVIADO
-    -- desde responsavel_desde, esta não é a primeira. Cobre também os
-    -- ciclos abertos antes desta migration: conversa que o operador já
-    -- vinha atendendo não passa a gastar cota no dia da publicação.
-    IF EXISTS (
-      SELECT 1 FROM public.whatsapp_mensagens m
-       WHERE m.conversa_id = NEW.conversa_id
-         AND m.id <> NEW.id
-         AND m.direcao = 'SAIDA'
-         AND m.status = 'ENVIADO'
-         AND lower(m.enviado_por_email) = v_op
-         AND m.criado_em >= v_desde
-    ) THEN
-      RETURN NULL;
-    END IF;
-
-    INSERT INTO public.whatsapp_abordagens
-      (canal_id, conversa_id, operador_email, dia, origem, ciclo_desde, wamid)
-    VALUES
-      (v_canal, NEW.conversa_id, v_op, (now() AT TIME ZONE 'America/Sao_Paulo')::date,
-       'RECEPTIVA', v_desde, NEW.wamid)
-    ON CONFLICT (conversa_id, operador_email, ciclo_desde) WHERE origem = 'RECEPTIVA'
-    DO NOTHING;
-
-  EXCEPTION WHEN OTHERS THEN
-    RAISE WARNING 'whatsapp_cadencia_marcar_receptiva: cota nao marcada (conversa %, sqlstate %)',
-      NEW.conversa_id, SQLSTATE;
-  END;
-  RETURN NULL;
-END;
-$function$;
-
-REVOKE ALL ON FUNCTION public.whatsapp_cadencia_marcar_receptiva() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.whatsapp_cadencia_marcar_receptiva() FROM anon;
-REVOKE ALL ON FUNCTION public.whatsapp_cadencia_marcar_receptiva() FROM authenticated;
-
-DROP TRIGGER IF EXISTS trg_whatsapp_cadencia_receptiva ON public.whatsapp_mensagens;
-CREATE TRIGGER trg_whatsapp_cadencia_receptiva
-  AFTER INSERT ON public.whatsapp_mensagens
-  FOR EACH ROW
-  WHEN (NEW.direcao = 'SAIDA'
-        AND NEW.status = 'ENVIADO'
-        AND NEW.enviado_por_email IS NOT NULL
-        AND NEW.origem = 'TEMPO_REAL')
-  EXECUTE FUNCTION public.whatsapp_cadencia_marcar_receptiva();
-
--- ---------------------------------------------------------------------
--- 6. whatsapp_cadencia_consumo: o que a tela mostra
+-- 4. whatsapp_cadencia_consumo: o que a tela mostra
 --    Ganha duas colunas no FIM (as antigas mantêm nome, tipo e ordem):
---      limite_operador_canal  valor configurado no canal, sem extra.
---                             É o que o formulário de edição deve
---                             pré-preencher (antes ele lia o limite já
---                             somado ao extra do dia).
+--      limite_operador_canal  valor configurado no canal, sem extra. É o
+--                             que o formulário de edição deve pré-preencher
+--                             (antes lia o limite somado ao extra do dia).
 --      sem_limite_individual  true para gerencia/supervisor/administrativo.
---    limite_operador segue = configurado + extra do dia, para TODOS: tela
---    antiga, antes do deploy do front, não muda de comportamento.
---    Mudança de tipo de retorno exige DROP; grants refeitos abaixo.
+--    usadas_operador e usadas_canal: inalterados (whatsapp_abordagens só
+--    tem abordagem ATIVA). Mudança de tipo de retorno exige DROP.
 -- ---------------------------------------------------------------------
 DROP FUNCTION IF EXISTS public.whatsapp_cadencia_consumo();
 
@@ -540,12 +385,12 @@ AS $function$
                  WHERE l.canal_id = k.id AND l.dia = g.hoje
                    AND l.operador_email = lower(public.app_email())), 0)
          END,
-         (SELECT count(DISTINCT a.conversa_id)::integer FROM public.whatsapp_abordagens a, agora g
+         (SELECT count(*)::integer FROM public.whatsapp_abordagens a, agora g
            WHERE a.canal_id = k.id AND a.dia = g.hoje
              AND a.operador_email = public.app_email() AND a.origem = 'ATIVA'),
          k.limite_abordagens_canal,
          (SELECT count(*)::integer FROM public.whatsapp_abordagens a, agora g
-           WHERE a.canal_id = k.id AND a.dia = g.hoje AND a.origem = 'ATIVA'),
+           WHERE a.canal_id = k.id AND a.dia = g.hoje),
          k.janela_inicio, k.janela_fim,
          (SELECT k.janela_inicio IS NULL OR k.janela_fim IS NULL
                  OR (g.hora >= k.janela_inicio AND g.hora < k.janela_fim) FROM agora g),
@@ -562,51 +407,197 @@ GRANT EXECUTE ON FUNCTION public.whatsapp_cadencia_consumo() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.whatsapp_cadencia_consumo() TO service_role;
 
 -- ---------------------------------------------------------------------
--- 7. whatsapp_cadencia_indicadores: "abordagens" = só ATIVA
---    Sem o filtro, as marcas RECEPTIVAS inflariam o indicador de
---    abordagens por dia que a gestão usa para calibrar o teto.
+-- 5. Fila do receptivo: corpo de fila_receptivo_marcar_atendido (lido de
+--    produção em 11/11/2026) separado em trava + registro
 -- ---------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.whatsapp_cadencia_indicadores(p_dias integer DEFAULT 7)
-RETURNS TABLE(dia date, canal_apelido text, abordagens integer, bloqueios integer, motivo_mais_comum text)
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
+
+-- 5a. Registro: o corpo da RPC DEPOIS da trava de autenticação, sem
+--     nenhuma mudança de regra. Interno: sem grant para authenticated.
+--     Devolve true quando o atendimento foi contado.
+CREATE OR REPLACE FUNCTION public.fila_receptivo_registrar_atendimento(
+  p_email text, p_conversa_id uuid DEFAULT NULL::uuid)
+RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $function$
-  WITH corte AS (
-    SELECT ((now() AT TIME ZONE 'America/Sao_Paulo')::date
-            - greatest(1, least(coalesce(p_dias, 7), 90))) AS de
+declare
+  v_hoje           date := (now() at time zone 'America/Sao_Paulo')::date;
+  v_nome           text;
+  v_resp_desde     timestamptz;
+  v_rows           integer;
+begin
+  -- Para chamadas WhatsApp: lê responsavel_desde da conversa para chave de
+  -- idempotência. Se a conversa não está com este operador, retorna sem registrar.
+  if p_conversa_id is not null then
+    select responsavel_desde into v_resp_desde
+      from public.whatsapp_conversas
+     where id = p_conversa_id
+       and lower(responsavel_email) = lower(p_email);
+
+    if not found or v_resp_desde is null then
+      return false;
+    end if;
+  end if;
+
+  select nome into v_nome from public.fila_receptivo where email = p_email;
+  if not found then return false; end if;
+
+  -- INSERT primeiro: ON CONFLICT DO NOTHING se mesmo ciclo já foi registrado
+  insert into public.receptivo_atendimentos_log
+    (operador_email, operador_nome, atendido_em, responsavel_desde, fonte)
+  values (
+    p_email,
+    v_nome,
+    now(),
+    v_resp_desde,
+    case when p_conversa_id is not null then 'WHATSAPP' else 'MANUAL' end
   )
-  SELECT a.dia, k.apelido,
-         count(*)::integer,
-         (SELECT count(*)::integer FROM public.whatsapp_cadencia_bloqueios b
-           WHERE b.canal_id = a.canal_id
-             AND (b.criado_em AT TIME ZONE 'America/Sao_Paulo')::date = a.dia),
-         (SELECT b.motivo FROM public.whatsapp_cadencia_bloqueios b
-           WHERE b.canal_id = a.canal_id
-             AND (b.criado_em AT TIME ZONE 'America/Sao_Paulo')::date = a.dia
-           GROUP BY b.motivo ORDER BY count(*) DESC LIMIT 1)
-  FROM public.whatsapp_abordagens a
-  JOIN public.whatsapp_canais k ON k.id = a.canal_id
-  CROSS JOIN corte c
-  WHERE public.usuario_e_gestao() AND a.dia >= c.de AND a.origem = 'ATIVA'
-  GROUP BY a.dia, a.canal_id, k.apelido
-  ORDER BY a.dia DESC, k.apelido;
+  on conflict (operador_email, responsavel_desde)
+  where responsavel_desde is not null
+  do nothing;
+
+  get diagnostics v_rows = row_count;
+
+  -- Incrementa atendimentos_hoje SOMENTE se o INSERT foi efetivo.
+  -- Chamadas manuais/telefônicas (p_conversa_id NULL, v_resp_desde NULL)
+  -- sempre incrementam porque o conflito parcial não as alcança (v_rows = 1).
+  if v_rows > 0 then
+    update public.fila_receptivo
+       set atendimentos_hoje = case when data_referencia = v_hoje then atendimentos_hoje + 1 else 1 end,
+           data_referencia   = v_hoje,
+           ultimo_atendimento = now(),
+           online_em          = now()
+     where email = p_email;
+  end if;
+
+  return v_rows > 0;
+end;
 $function$;
 
-REVOKE ALL ON FUNCTION public.whatsapp_cadencia_indicadores(integer) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.whatsapp_cadencia_indicadores(integer) FROM anon;
-GRANT EXECUTE ON FUNCTION public.whatsapp_cadencia_indicadores(integer) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.whatsapp_cadencia_indicadores(integer) TO service_role;
+REVOKE ALL ON FUNCTION public.fila_receptivo_registrar_atendimento(text, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fila_receptivo_registrar_atendimento(text, uuid) FROM anon;
+REVOKE ALL ON FUNCTION public.fila_receptivo_registrar_atendimento(text, uuid) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.fila_receptivo_registrar_atendimento(text, uuid) TO service_role;
+
+-- 5b. A RPC pública: a MESMA trava de antes + o registro. Assinatura,
+--     retorno (void) e grants de produção preservados.
+CREATE OR REPLACE FUNCTION public.fila_receptivo_marcar_atendido(
+  p_email text, p_conversa_id uuid DEFAULT NULL::uuid, p_canal text DEFAULT NULL::text)
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+begin
+  -- Guard de autenticação: operador só registra o próprio atendimento.
+  -- usuario_e_gestao_fila() cobre: allowlist de gestão + perfis gerencia,
+  -- supervisor e administrativo em public.usuarios (inclui supervisão).
+  -- Preserva: FilaReceptivo botão "Marcar" na linha alheia, usado por gestão/supervisão.
+  if lower(p_email) <> lower(coalesce(auth.email(), '')) then
+    if not coalesce(public.usuario_e_gestao_fila(), false) then
+      raise exception 'não autorizado: somente gestão ou supervisão pode registrar atendimento para outro operador'
+        using errcode = '42501';
+    end if;
+  end if;
+
+  perform public.fila_receptivo_registrar_atendimento(p_email, p_conversa_id);
+end;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fila_receptivo_marcar_atendido(text, uuid, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fila_receptivo_marcar_atendido(text, uuid, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fila_receptivo_marcar_atendido(text, uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fila_receptivo_marcar_atendido(text, uuid, text) TO service_role;
 
 -- ---------------------------------------------------------------------
--- 8. Verificação final: falha fechado se o estado não ficou como esperado
+-- 6. Trigger: primeira resposta ENVIADA no ciclo -> 1 atendimento na fila
+--
+--    Conta quando, todas:
+--      * a saída é ENVIADO, TEMPO_REAL, com operador (cláusula WHEN);
+--      * quem enviou é o responsável atual da conversa (o ciclo é
+--        (conversa, responsavel_email, responsavel_desde));
+--      * a conversa estava AGUARDANDO RESPOSTA do aluno — o mesmo critério
+--        que a tela usava no assumir (aguardando_resposta); conversa que o
+--        operador abriu por abordagem ativa não é receptivo;
+--      * é a PRIMEIRA saída ENVIADO dele no ciclo. Isso também impede que
+--        conversa que ele já vinha atendendo antes da publicação conte no
+--        dia da publicação.
+--    "Uma vez por ciclo" é garantido pela chave existente
+--    uq_receptivo_log_operador_ciclo, inclusive entre duas respostas
+--    simultâneas e entre este trigger e a RPC antiga.
+--
+--    NOME COM "a0": gatilhos AFTER do mesmo evento disparam em ordem
+--    alfabética. Este precisa rodar ANTES de trg_whatsapp_aguardando, que
+--    zera aguardando_resposta quando a saída é gravada.
+--
+--    FALHA ABERTO, de propósito: quando ele roda, a mensagem já saiu para o
+--    aluno. Erro aqui não pode desfazer o registro da mensagem; vira
+--    WARNING no log e o atendimento deixa de ser contado.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.whatsapp_receptivo_atendimento_na_resposta()
+RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_op         text := lower(NEW.enviado_por_email);
+  v_resp       text;
+  v_desde      timestamptz;
+  v_aguardando boolean;
+BEGIN
+  BEGIN
+    SELECT lower(cv.responsavel_email), cv.responsavel_desde, cv.aguardando_resposta
+      INTO v_resp, v_desde, v_aguardando
+      FROM public.whatsapp_conversas cv
+     WHERE cv.id = NEW.conversa_id;
+
+    IF v_desde IS NULL OR v_resp IS DISTINCT FROM v_op OR NOT COALESCE(v_aguardando, false) THEN
+      RETURN NULL;
+    END IF;
+
+    IF EXISTS (
+      SELECT 1 FROM public.whatsapp_mensagens m
+       WHERE m.conversa_id = NEW.conversa_id
+         AND m.id <> NEW.id
+         AND m.direcao = 'SAIDA'
+         AND m.status = 'ENVIADO'
+         AND lower(m.enviado_por_email) = v_op
+         AND m.criado_em >= v_desde
+    ) THEN
+      RETURN NULL;
+    END IF;
+
+    PERFORM public.fila_receptivo_registrar_atendimento(v_op, NEW.conversa_id);
+
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'whatsapp_receptivo_atendimento_na_resposta: atendimento nao contado (conversa %, sqlstate %)',
+      NEW.conversa_id, SQLSTATE;
+  END;
+  RETURN NULL;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.whatsapp_receptivo_atendimento_na_resposta() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.whatsapp_receptivo_atendimento_na_resposta() FROM anon;
+REVOKE ALL ON FUNCTION public.whatsapp_receptivo_atendimento_na_resposta() FROM authenticated;
+
+DROP TRIGGER IF EXISTS trg_whatsapp_a0_receptivo_atendimento ON public.whatsapp_mensagens;
+CREATE TRIGGER trg_whatsapp_a0_receptivo_atendimento
+  AFTER INSERT ON public.whatsapp_mensagens
+  FOR EACH ROW
+  WHEN (NEW.direcao = 'SAIDA'
+        AND NEW.status = 'ENVIADO'
+        AND NEW.enviado_por_email IS NOT NULL
+        AND NEW.origem = 'TEMPO_REAL')
+  EXECUTE FUNCTION public.whatsapp_receptivo_atendimento_na_resposta();
+
+-- ---------------------------------------------------------------------
+-- 7. Verificação final: falha fechado se o estado não ficou como esperado
 -- ---------------------------------------------------------------------
 DO $verifica$
 DECLARE
-  v_teto     integer;
-  v_fora     integer;
-  v_src      text;
-  v_trg      boolean;
-  v_uq_velho integer;
-  v_resp     integer;
+  v_teto  integer;
+  v_resp  integer;
+  v_fora  integer;
+  v_src   text;
+  v_trg   boolean;
+  v_ordem text[];
 BEGIN
   SELECT teto_abordagens_operador, resposta_janela_horas INTO v_teto, v_resp
     FROM public.whatsapp_config LIMIT 1;
@@ -626,29 +617,23 @@ BEGIN
   SELECT p.prosrc INTO v_src
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = 'whatsapp_cadencia_checar';
-  IF v_src NOT ILIKE '%CONTINUIDADE%' THEN
-    RAISE EXCEPTION 'checar perdeu a CONTINUIDADE' USING ERRCODE = '22023';
-  END IF;
-  IF v_src NOT ILIKE '%whatsapp_cadencia_sem_limite_individual%' THEN
-    RAISE EXCEPTION 'checar sem a regra por perfil' USING ERRCODE = '22023';
+  IF v_src NOT ILIKE '%CONTINUIDADE%' OR v_src NOT ILIKE '%whatsapp_cadencia_sem_limite_individual%' THEN
+    RAISE EXCEPTION 'checar sem CONTINUIDADE ou sem a regra por perfil' USING ERRCODE = '22023';
   END IF;
 
   SELECT tgenabled <> 'D' INTO v_trg FROM pg_trigger
-   WHERE tgname = 'trg_whatsapp_cadencia_receptiva'
+   WHERE tgname = 'trg_whatsapp_a0_receptivo_atendimento'
      AND tgrelid = 'public.whatsapp_mensagens'::regclass;
   IF NOT COALESCE(v_trg, false) THEN
-    RAISE EXCEPTION 'trigger da marca RECEPTIVA ausente ou desligado' USING ERRCODE = '22023';
+    RAISE EXCEPTION 'trigger do atendimento receptivo ausente ou desligado' USING ERRCODE = '22023';
   END IF;
 
-  SELECT count(*) INTO v_uq_velho FROM pg_constraint
-   WHERE conname = 'uq_whatsapp_abordagem'
-     AND conrelid = 'public.whatsapp_abordagens'::regclass;
-  IF v_uq_velho <> 0 THEN
-    RAISE EXCEPTION 'UNIQUE amplo de whatsapp_abordagens continua de pe' USING ERRCODE = '22023';
-  END IF;
-  IF to_regclass('public.uq_whatsapp_abordagem_ativa') IS NULL
-     OR to_regclass('public.uq_whatsapp_abordagem_receptiva_ciclo') IS NULL THEN
-    RAISE EXCEPTION 'indices parciais de unicidade ausentes' USING ERRCODE = '22023';
+  -- O trigger tem de disparar ANTES de trg_whatsapp_aguardando.
+  SELECT array_agg(tgname::text ORDER BY tgname) INTO v_ordem FROM pg_trigger
+   WHERE tgrelid = 'public.whatsapp_mensagens'::regclass AND NOT tgisinternal
+     AND tgname IN ('trg_whatsapp_a0_receptivo_atendimento', 'trg_whatsapp_aguardando');
+  IF array_length(v_ordem, 1) = 2 AND v_ordem[1] <> 'trg_whatsapp_a0_receptivo_atendimento' THEN
+    RAISE EXCEPTION 'ordem dos gatilhos errada: %', v_ordem USING ERRCODE = '22023';
   END IF;
 
   -- Grants: o que produção tinha antes, nem mais nem menos.
@@ -657,17 +642,17 @@ BEGIN
     RAISE EXCEPTION 'whatsapp_cadencia_checar executavel por authenticated/anon' USING ERRCODE = '42501';
   END IF;
   IF has_function_privilege('authenticated', 'public.whatsapp_cadencia_sem_limite_individual(text)', 'EXECUTE')
-     OR has_function_privilege('anon', 'public.whatsapp_cadencia_sem_limite_individual(text)', 'EXECUTE') THEN
-    RAISE EXCEPTION 'helper de perfil executavel por authenticated/anon' USING ERRCODE = '42501';
+     OR has_function_privilege('anon', 'public.whatsapp_cadencia_sem_limite_individual(text)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.fila_receptivo_registrar_atendimento(text, uuid)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.fila_receptivo_registrar_atendimento(text, uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'funcao interna executavel por authenticated/anon' USING ERRCODE = '42501';
   END IF;
   IF NOT has_function_privilege('authenticated', 'public.whatsapp_cadencia_consumo()', 'EXECUTE')
-     OR has_function_privilege('anon', 'public.whatsapp_cadencia_consumo()', 'EXECUTE') THEN
-    RAISE EXCEPTION 'grants de whatsapp_cadencia_consumo errados' USING ERRCODE = '42501';
-  END IF;
-  IF NOT has_function_privilege('authenticated', 'public.whatsapp_cadencia_indicadores(integer)', 'EXECUTE')
-     OR has_function_privilege('anon', 'public.whatsapp_cadencia_indicadores(integer)', 'EXECUTE') THEN
-    RAISE EXCEPTION 'grants de whatsapp_cadencia_indicadores errados' USING ERRCODE = '42501';
+     OR has_function_privilege('anon', 'public.whatsapp_cadencia_consumo()', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.fila_receptivo_marcar_atendido(text, uuid, text)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.fila_receptivo_marcar_atendido(text, uuid, text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'grants de consumo / marcar_atendido fora do estado de producao' USING ERRCODE = '42501';
   END IF;
 
-  RAISE NOTICE 'cota 10: teto=%, canais=10, CONTINUIDADE preservada, marca RECEPTIVA ligada', v_teto;
+  RAISE NOTICE 'cota 10 ATIVA + receptivo na fila: teto=%, canais=10, CONTINUIDADE preservada, trigger ligado', v_teto;
 END $verifica$;

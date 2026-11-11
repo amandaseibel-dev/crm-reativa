@@ -1,21 +1,24 @@
 -- =====================================================================
 -- ROLLBACK de 20261111150000_whatsapp_cota_10_operador
 --
--- Volta ao estado "CONTINUIDADE v2 aplicada, cota antiga":
+-- Volta ao estado "CONTINUIDADE v2 aplicada, cota antiga, receptivo
+-- marcado pela tela no assumir":
+--   * trigger do atendimento receptivo removido
+--   * fila_receptivo_marcar_atendido = corpo de PRODUÇÃO lido em 11/11/2026
+--     (trava + registro numa função só); a função interna sai
 --   * whatsapp_cadencia_checar = corpo EXATO da v2 (20261109120000)
---   * whatsapp_cadencia_consumo e whatsapp_cadencia_indicadores = corpo
---     de produção lido em 11/11/2026
---   * whatsapp_abordagens sem origem/ciclo_desde/wamid e com o UNIQUE
---     (canal_id, conversa_id, dia) de volta
+--   * whatsapp_cadencia_consumo = corpo e assinatura de produção
 --   * teto_abordagens_operador 10 -> 3; limite por canal 10 -> fotografia
 --     de 11/11 (Comercial 2, Cobrança 15, Piloto 3), SÓ onde ainda estiver
 --     10 — valor mexido pela tela depois da aplicação não é sobrescrito
 --
--- PERDA DE DADO, DECLARADA: as linhas origem = 'RECEPTIVA' são apagadas.
--- Sem isso o UNIQUE amplo não volta (troca de responsável no mesmo dia
--- gera duas linhas na mesma conversa/dia). São marcas derivadas: dá para
--- reconstruí-las de whatsapp_mensagens (primeiro ENVIADO do responsável
--- por ciclo). A contagem apagada sai em NOTICE.
+-- NENHUM DADO É APAGADO: os atendimentos que o trigger gravou em
+-- receptivo_atendimentos_log e em fila_receptivo são atendimentos reais
+-- (os mesmos que a tela gravava) e ficam.
+--
+-- ATENÇÃO À TELA: o front da mesma PR não marca mais no assumir. Com o
+-- banco revertido e o front novo no ar, o receptivo do WhatsApp deixa de
+-- mover a fila até o front ser revertido também.
 --
 -- GRANTS: checar volta ao estado de PRODUÇÃO (sem authenticated), e não ao
 -- da v2, que concedia authenticated.
@@ -23,11 +26,87 @@
 -- Idempotente: pode rodar duas vezes.
 -- =====================================================================
 
--- 1. Marca RECEPTIVA desligada primeiro: nada novo entra durante o resto.
-DROP TRIGGER IF EXISTS trg_whatsapp_cadencia_receptiva ON public.whatsapp_mensagens;
-DROP FUNCTION IF EXISTS public.whatsapp_cadencia_marcar_receptiva();
+-- 1. Trigger fora primeiro: nada novo é contado durante o resto.
+DROP TRIGGER IF EXISTS trg_whatsapp_a0_receptivo_atendimento ON public.whatsapp_mensagens;
+DROP FUNCTION IF EXISTS public.whatsapp_receptivo_atendimento_na_resposta();
 
--- 2. whatsapp_cadencia_checar: corpo exato da v2
+-- 2. fila_receptivo_marcar_atendido: corpo de produção (11/11/2026)
+CREATE OR REPLACE FUNCTION public.fila_receptivo_marcar_atendido(
+  p_email text, p_conversa_id uuid DEFAULT NULL::uuid, p_canal text DEFAULT NULL::text)
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+declare
+  v_hoje           date := (now() at time zone 'America/Sao_Paulo')::date;
+  v_nome           text;
+  v_resp_desde     timestamptz;
+  v_rows           integer;
+begin
+  -- Guard de autenticação: operador só registra o próprio atendimento.
+  -- usuario_e_gestao_fila() cobre: allowlist de gestão + perfis gerencia,
+  -- supervisor e administrativo em public.usuarios (inclui supervisão).
+  -- Preserva: FilaReceptivo botão "Marcar" na linha alheia, usado por gestão/supervisão.
+  if lower(p_email) <> lower(coalesce(auth.email(), '')) then
+    if not coalesce(public.usuario_e_gestao_fila(), false) then
+      raise exception 'não autorizado: somente gestão ou supervisão pode registrar atendimento para outro operador'
+        using errcode = '42501';
+    end if;
+  end if;
+
+  -- Para chamadas WhatsApp: lê responsavel_desde da conversa para chave de
+  -- idempotência. Se a conversa não está com este operador, retorna sem registrar.
+  if p_conversa_id is not null then
+    select responsavel_desde into v_resp_desde
+      from public.whatsapp_conversas
+     where id = p_conversa_id
+       and lower(responsavel_email) = lower(p_email);
+
+    if not found or v_resp_desde is null then
+      return;
+    end if;
+  end if;
+
+  select nome into v_nome from public.fila_receptivo where email = p_email;
+  if not found then return; end if;
+
+  -- INSERT primeiro: ON CONFLICT DO NOTHING se mesmo ciclo já foi registrado
+  insert into public.receptivo_atendimentos_log
+    (operador_email, operador_nome, atendido_em, responsavel_desde, fonte)
+  values (
+    p_email,
+    v_nome,
+    now(),
+    v_resp_desde,
+    case when p_conversa_id is not null then 'WHATSAPP' else 'MANUAL' end
+  )
+  on conflict (operador_email, responsavel_desde)
+  where responsavel_desde is not null
+  do nothing;
+
+  get diagnostics v_rows = row_count;
+
+  -- Incrementa atendimentos_hoje SOMENTE se o INSERT foi efetivo.
+  -- Chamadas manuais/telefônicas (p_conversa_id NULL, v_resp_desde NULL)
+  -- sempre incrementam porque o conflito parcial não as alcança (v_rows = 1).
+  if v_rows > 0 then
+    update public.fila_receptivo
+       set atendimentos_hoje = case when data_referencia = v_hoje then atendimentos_hoje + 1 else 1 end,
+           data_referencia   = v_hoje,
+           ultimo_atendimento = now(),
+           online_em          = now()
+     where email = p_email;
+  end if;
+end;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fila_receptivo_marcar_atendido(text, uuid, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fila_receptivo_marcar_atendido(text, uuid, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fila_receptivo_marcar_atendido(text, uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fila_receptivo_marcar_atendido(text, uuid, text) TO service_role;
+
+DROP FUNCTION IF EXISTS public.fila_receptivo_registrar_atendimento(text, uuid);
+
+-- 3. whatsapp_cadencia_checar: corpo exato da v2
 CREATE OR REPLACE FUNCTION public.whatsapp_cadencia_checar(
   p_canal_id    uuid,
   p_conversa_id uuid,
@@ -207,7 +286,7 @@ REVOKE ALL ON FUNCTION public.whatsapp_cadencia_checar(uuid, uuid, text) FROM an
 REVOKE ALL ON FUNCTION public.whatsapp_cadencia_checar(uuid, uuid, text) FROM authenticated;
 GRANT EXECUTE ON FUNCTION public.whatsapp_cadencia_checar(uuid, uuid, text) TO service_role;
 
--- 3. whatsapp_cadencia_consumo: assinatura e corpo de produção (11/11/2026)
+-- 4. whatsapp_cadencia_consumo: assinatura e corpo de produção (11/11/2026)
 DROP FUNCTION IF EXISTS public.whatsapp_cadencia_consumo();
 
 CREATE FUNCTION public.whatsapp_cadencia_consumo()
@@ -247,71 +326,10 @@ REVOKE ALL ON FUNCTION public.whatsapp_cadencia_consumo() FROM anon;
 GRANT EXECUTE ON FUNCTION public.whatsapp_cadencia_consumo() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.whatsapp_cadencia_consumo() TO service_role;
 
--- 4. whatsapp_cadencia_indicadores: corpo de produção (11/11/2026)
-CREATE OR REPLACE FUNCTION public.whatsapp_cadencia_indicadores(p_dias integer DEFAULT 7)
-RETURNS TABLE(dia date, canal_apelido text, abordagens integer, bloqueios integer, motivo_mais_comum text)
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
-AS $function$
-  WITH corte AS (
-    SELECT ((now() AT TIME ZONE 'America/Sao_Paulo')::date
-            - greatest(1, least(coalesce(p_dias, 7), 90))) AS de
-  )
-  SELECT a.dia, k.apelido,
-         count(*)::integer,
-         (SELECT count(*)::integer FROM public.whatsapp_cadencia_bloqueios b
-           WHERE b.canal_id = a.canal_id
-             AND (b.criado_em AT TIME ZONE 'America/Sao_Paulo')::date = a.dia),
-         (SELECT b.motivo FROM public.whatsapp_cadencia_bloqueios b
-           WHERE b.canal_id = a.canal_id
-             AND (b.criado_em AT TIME ZONE 'America/Sao_Paulo')::date = a.dia
-           GROUP BY b.motivo ORDER BY count(*) DESC LIMIT 1)
-  FROM public.whatsapp_abordagens a
-  JOIN public.whatsapp_canais k ON k.id = a.canal_id
-  CROSS JOIN corte c
-  WHERE public.usuario_e_gestao() AND a.dia >= c.de
-  GROUP BY a.dia, a.canal_id, k.apelido
-  ORDER BY a.dia DESC, k.apelido;
-$function$;
-
-REVOKE ALL ON FUNCTION public.whatsapp_cadencia_indicadores(integer) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.whatsapp_cadencia_indicadores(integer) FROM anon;
-GRANT EXECUTE ON FUNCTION public.whatsapp_cadencia_indicadores(integer) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.whatsapp_cadencia_indicadores(integer) TO service_role;
-
 -- 5. Helper de perfil: nada mais o referencia
 DROP FUNCTION IF EXISTS public.whatsapp_cadencia_sem_limite_individual(text);
 
--- 6. Dados e estrutura de whatsapp_abordagens
-DO $dados$
-DECLARE v_n integer;
-BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.columns
-              WHERE table_schema = 'public' AND table_name = 'whatsapp_abordagens'
-                AND column_name = 'origem') THEN
-    EXECUTE 'DELETE FROM public.whatsapp_abordagens WHERE origem = ''RECEPTIVA''';
-    GET DIAGNOSTICS v_n = ROW_COUNT;
-    RAISE NOTICE 'rollback cota 10: % marcas RECEPTIVA apagadas', v_n;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint
-                  WHERE conname = 'uq_whatsapp_abordagem'
-                    AND conrelid = 'public.whatsapp_abordagens'::regclass) THEN
-    ALTER TABLE public.whatsapp_abordagens
-      ADD CONSTRAINT uq_whatsapp_abordagem UNIQUE (canal_id, conversa_id, dia);
-  END IF;
-END $dados$;
-
-DROP INDEX IF EXISTS public.uq_whatsapp_abordagem_ativa;
-DROP INDEX IF EXISTS public.uq_whatsapp_abordagem_receptiva_ciclo;
-DROP INDEX IF EXISTS public.ix_whatsapp_abordagens_conversa_operador;
-
-ALTER TABLE public.whatsapp_abordagens DROP CONSTRAINT IF EXISTS ck_whatsapp_abordagem_receptiva_ciclo;
-ALTER TABLE public.whatsapp_abordagens DROP CONSTRAINT IF EXISTS ck_whatsapp_abordagem_origem;
-ALTER TABLE public.whatsapp_abordagens DROP COLUMN IF EXISTS wamid;
-ALTER TABLE public.whatsapp_abordagens DROP COLUMN IF EXISTS ciclo_desde;
-ALTER TABLE public.whatsapp_abordagens DROP COLUMN IF EXISTS origem;
-
--- 7. Limites: fotografia de 11/11/2026, só onde a migration deixou 10
+-- 6. Limites: fotografia de 11/11/2026, só onde a migration deixou 10
 UPDATE public.whatsapp_config
    SET teto_abordagens_operador = 3
  WHERE teto_abordagens_operador = 10;
@@ -324,36 +342,37 @@ UPDATE public.whatsapp_canais k
        AS f(id, antes)
  WHERE k.id = f.id AND k.limite_abordagens_operador = 10;
 
--- 8. Conferência: falha fechado
+-- 7. Conferência: falha fechado
 DO $verifica$
 DECLARE v_src text; v_n integer;
 BEGIN
   SELECT p.prosrc INTO v_src
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = 'whatsapp_cadencia_checar';
-  IF v_src NOT ILIKE '%CONTINUIDADE%' OR v_src ILIKE '%sem_limite_individual%' OR v_src ILIKE '%RECEPTIVA%' THEN
+  IF v_src NOT ILIKE '%CONTINUIDADE%' OR v_src ILIKE '%sem_limite_individual%' THEN
     RAISE EXCEPTION 'checar nao voltou ao corpo da v2' USING ERRCODE = '22023';
   END IF;
 
-  SELECT count(*) INTO v_n FROM pg_trigger
-   WHERE tgname = 'trg_whatsapp_cadencia_receptiva';
-  IF v_n <> 0 THEN
-    RAISE EXCEPTION 'trigger da marca RECEPTIVA continua de pe' USING ERRCODE = '22023';
+  SELECT p.prosrc INTO v_src
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'fila_receptivo_marcar_atendido';
+  IF v_src ILIKE '%fila_receptivo_registrar_atendimento%' OR v_src NOT ILIKE '%receptivo_atendimentos_log%' THEN
+    RAISE EXCEPTION 'fila_receptivo_marcar_atendido nao voltou ao corpo de producao' USING ERRCODE = '22023';
   END IF;
 
-  SELECT count(*) INTO v_n FROM information_schema.columns
-   WHERE table_schema = 'public' AND table_name = 'whatsapp_abordagens'
-     AND column_name IN ('origem', 'ciclo_desde', 'wamid');
+  SELECT count(*) INTO v_n FROM pg_trigger WHERE tgname = 'trg_whatsapp_a0_receptivo_atendimento';
   IF v_n <> 0 THEN
-    RAISE EXCEPTION 'colunas novas de whatsapp_abordagens continuam de pe' USING ERRCODE = '22023';
+    RAISE EXCEPTION 'trigger do atendimento receptivo continua de pe' USING ERRCODE = '22023';
   END IF;
 
   IF has_function_privilege('authenticated', 'public.whatsapp_cadencia_checar(uuid, uuid, text)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.whatsapp_cadencia_checar(uuid, uuid, text)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.whatsapp_cadencia_consumo()', 'EXECUTE')
-     OR has_function_privilege('anon', 'public.whatsapp_cadencia_consumo()', 'EXECUTE') THEN
+     OR has_function_privilege('anon', 'public.whatsapp_cadencia_consumo()', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.fila_receptivo_marcar_atendido(text, uuid, text)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.fila_receptivo_marcar_atendido(text, uuid, text)', 'EXECUTE') THEN
     RAISE EXCEPTION 'grants fora do estado de producao' USING ERRCODE = '42501';
   END IF;
 
-  RAISE NOTICE 'rollback cota 10 concluido: v2 de pe, cota antiga restaurada';
+  RAISE NOTICE 'rollback cota 10 concluido: v2 de pe, cota antiga e fila pela RPC restauradas';
 END $verifica$;

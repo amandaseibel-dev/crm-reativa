@@ -39,7 +39,6 @@ import {
   TEMPOS_SEM_INTERACAO,
   ROTULO_STATUS,
   assumirConversa,
-  marcarAtendidoReceptivoWhatsApp,
   buscarAluno,
   carregarCandidatos,
   carregarFichaAluno,
@@ -173,7 +172,6 @@ export default function CentralWhatsApp() {
   const [anexo, setAnexo] = useState(null); // { nome, estado: ENVIANDO|ENVIADO|ERRO, erro }
   const seletorArquivoRef = useRef(null);
   const [erro, setErro] = useState("");
-  const [avisoFila, setAvisoFila] = useState(null);
   const [prefsAberto, setPrefsAberto] = useState(false);
 
   // Relógio de 1 min só para os contadores de espera reescreverem sozinhos.
@@ -470,13 +468,15 @@ export default function CentralWhatsApp() {
     }
   }
 
-  // Assumir NÃO conta como atendimento na fila receptiva: quem assume para
-  // olhar e devolve não pode perder a vez. O aceite conta só no envio (ver `enviar`).
+  // Assumir NÃO conta atendimento do receptivo (decisão de 11/11/2026). A
+  // fila anda no banco, uma vez por ciclo de responsabilidade, quando a
+  // PRIMEIRA resposta é ENVIADA com sucesso (trigger
+  // trg_whatsapp_a0_receptivo_atendimento). Marcar aqui contaria quem
+  // assume e não responde, e dependeria da tela.
   async function assumir() {
     if (!selecionada || assumirEmAndamentoRef.current) return;
     assumirEmAndamentoRef.current = true;
     setErro("");
-    setAvisoFila(null);
     try {
       await assumirConversa(selecionada.id);
       await carregarConversas();
@@ -923,13 +923,6 @@ export default function CentralWhatsApp() {
           variante="barra"
           usuarioLogado={{ email: emailOperador, perfil: gestao ? "gerencia" : undefined }}
         />
-      ) : null}
-
-      {avisoFila ? (
-        <div style={S.avisoFila}>
-          {avisoFila}
-          <button style={S.fecharErro} onClick={() => setAvisoFila(null)}>×</button>
-        </div>
       ) : null}
 
       {erro ? (
@@ -1983,12 +1976,6 @@ const S = {
     background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", color: "var(--rv-vermelho-texto)", fontSize: 13,
   },
   fecharErro: { border: "none", background: "transparent", cursor: "pointer", fontSize: 18, color: "var(--rv-vermelho-texto)" },
-  avisoFila: {
-    display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8,
-    padding: "9px 12px", marginBottom: 12, borderRadius: 8,
-    background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)", fontSize: 13,
-  },
-
   // ---- corpo ----
   corpo: { display: "grid", gridTemplateColumns: "minmax(300px, 380px) 1fr", gap: 14, alignItems: "start" },
   coluna: { border: `1px solid ${BORDA}`, borderRadius: 12, background: "var(--rv-superficie)", overflow: "hidden" },
