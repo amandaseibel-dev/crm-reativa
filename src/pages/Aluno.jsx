@@ -2260,7 +2260,10 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   `rel="noopener noreferrer"`. Mudou o lugar e o visual, nao a
                   regra. */}
               <TelefonesAluno aluno={alunoSelecionado}>
-                {consultaMensageriaNaFicha(window.location.search) ? <BlocoUlbra aluno={alunoSelecionado} /> : null}
+                {/* `location` e o do router: a ficha reescreve window.location
+                    para /alunos?alunoId= ao abrir (replaceState) e perdia o
+                    `origem=ulbra` -- a Central passava a consultar a Mensageria. */}
+                {consultaMensageriaNaFicha(location.search) ? <BlocoUlbra aluno={alunoSelecionado} /> : null}
               </TelefonesAluno>
               <div style={caixaTabular}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -2534,7 +2537,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   contatos. Nao foi duplicado. O
                   `AtendimentoUlbra` fica: e o atendimento em curso, nao um
                   contato -- e segue so na aba "Resumo e tabulacao". */}
-              {consultaMensageriaNaFicha(window.location.search)
+              {consultaMensageriaNaFicha(location.search)
                 ? <AtendimentoUlbra aluno={alunoSelecionado} />
                 : <p style={{ fontSize: 12, color: "#6b7280" }}>Mensageria não consultada nesta abertura: ficha aberta pela Central do piloto (custo zero na ULBRA).</p>}
               </>
