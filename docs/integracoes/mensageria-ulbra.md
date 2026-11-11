@@ -599,3 +599,24 @@ trecho já processado, até 12 páginas. Acima de cerca de 600 conversas pendent
 o backlog para em INCOMPLETO e não drena. Para drenar, é preciso guardar o
 deslocamento de leitura em `ulbra_sync_estado`. Isso exige migration, ainda não
 proposta para aplicação.
+
+## Consumo real registrado (10/11/2026)
+
+Fonte: `ulbra_sync_estado` (coleta) e logs das Edge Functions (ficha). Teto: 500/dia por pessoa, tratado como UM teto para OAuth e backend.
+
+| quando (Brasília) | origem | chamada | qtd | autorizada |
+| --- | --- | --- | --- | --- |
+| 10/11 07:02 | coleta (validação A, teto 6) | `meu_acesso` + detalhe | 2 (`chamadas_dia=2`) | sim |
+| 10/11 21:49:54 | `ulbra-atendimento` (ficha aberta pela Central, credencial de backend `ULBRA_MCP_TOKEN`) | `listar_atendimentos` | **1** | **não** |
+| 10/11 21:51:46 | `ulbra-atendimento` (mesma ficha, cache de 5 min do isolate) | — | 0 | — |
+
+`saldo_api_restam` em `ulbra_sync_estado` ficou em **1** às 10/11 10:02Z (medição da coleta); a chamada indevida das 21:49 **não está** nesse contador, que só soma a coleta — por isso o registro aqui.
+
+**Causa da chamada indevida (defeito, não ação deliberada):** a ficha reescreve `window.location` para `/alunos?alunoId=…` ao abrir (`replaceState`) e perdia o `origem=ulbra`; o portão `consultaMensageriaNaFicha` lia `window.location.search` e passava a montar `BlocoUlbra` (chama `ulbra-consultar`, que respondeu pelo vínculo existente sem ir à ULBRA) e `AtendimentoUlbra` (chama `ulbra-atendimento`, que foi à ULBRA). Correção: PR #899 (portão lê o `location` do router; teste de regressão falha sem a correção). **Até a #899 estar publicada, não abrir fichas pela Central em validações.**
+
+## Visão gerencial da Central — pendências para a próxima entrega (registradas em 10/11/2026)
+
+1. **Visão geral sem filtro.** Em "todas as carteiras" a Central mostra os cartões da Mensageria (respostas, sem interação, novos), mas a **fila interna da carteira** (`buscarFilaCarteira`) só aparece quando um operador é escolhido no filtro. A gestão pediu visão geral com filtro opcional.
+2. **Filtro de operadores depende do espelho.** `ulbra_central_operador` monta `operadores` só com e-mails de `casos`/`ulbra_atendimentos` de alunos **vinculados no espelho** — em 10/11 a lista veio **vazia** para a gestão, embora existam operadores com centenas de casos fora do prazo. O filtro deve listar os operadores ativos com perfil operacional (`usuarios`) ou os operadores com caso na carteira, **sem depender da Mensageria**. Corrigir junto com o item 1, com migration própria da RPC (ou lista montada no servidor pela carteira).
+
+**Prova de que a fila do operador vem da carteira interna, sem exigir vínculo ULBRA (10/11/2026, leitura em produção):** casos com `data_ultimo_acionamento` ≤ hoje − 8 dias por operador — cobranca06: 678 (2 com vínculo), cobranca13: 534 (1), cobranca05: 519 (1), cobranca12: 400 (0), cobranca10: 230 (2). A consulta da fila (`src/utils/filaCarteiraServidor.js`) lê `casos` por `operador_email` e data de corte, sob a RLS de `casos`, e não consulta `ulbra_vinculos`; os dados da Mensageria (conversa, atendimento) é que exigem vínculo ativo `alta_cpf`.
