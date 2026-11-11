@@ -123,8 +123,6 @@ const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 function idsDoPainel(painel: Linha): string[] {
   const ids = new Set<string>()
-  const lider = painel.lider_honorarios_mes as Linha | null
-  if (lider?.usuario_id) ids.add(String(lider.usuario_id))
   for (const k of LISTAS) {
     const lista = Array.isArray(painel[k]) ? painel[k] as Linha[] : []
     for (const r of lista) if (r?.usuario_id) ids.add(String(r.usuario_id))
@@ -154,29 +152,20 @@ async function fotosPorId(auth: string, ids: string[]): Promise<Record<string, s
 
 const LISTAS = ['podio_mes', 'top_honorario_pagamento_mes', 'top_recuperado_mes', 'top_pagamentos_hoje', 'top_acordos_hoje'] as const
 
-// O id do operador NÃO sai para o navegador: vira só a URL assinada da foto.
+// Rankings por operador saem com POSIÇÃO (ordem da lista), NOME e FOTO —
+// nada mais. Valor e quantidade individuais nunca vão para o navegador
+// (decisão da gestão, 10/11); o id do operador vira só a URL assinada da foto.
 function pessoa(r: Linha, fotos: Record<string, string>) {
   const id = String(r.usuario_id ?? '')
-  return {
-    nome: String(r.nome ?? '').trim(),
-    foto: (id && fotos[id]) || null,
-    valor: numOrNull(r.valor),
-    qtd: numOrNull(r.qtd),
-    data: typeof r.data === 'string' ? r.data : null,
-  }
+  return { nome: String(r.nome ?? '').trim(), foto: (id && fotos[id]) || null }
 }
 
 function destaquesDoPainel(painel: Linha, fotos: Record<string, string>) {
   const lista = (k: string) => (Array.isArray(painel[k]) ? painel[k] as Linha[] : []).slice(0, 3).map((r) => pessoa(r, fotos))
-  const lider = painel.lider_honorarios_mes as Linha | null
   return {
     fonte: 'tv_painel_operadores',
-    precisao: 'centavos',
     referencia: painel.referencia ?? null,
-    // Pódio de reconhecimento: só nome e foto (decisão da gestão para este
-    // card). Os cards de ranking abaixo levam o resultado.
-    lider_honorarios_mes: lider ? { ...pessoa(lider, fotos), valor: null, qtd: null } : null,
-    podio_mes: lista('podio_mes').map((x) => ({ ...x, valor: null, qtd: null })),
+    podio_mes: lista('podio_mes'),
     top_honorario_pagamento_mes: lista('top_honorario_pagamento_mes'),
     top_recuperado_mes: lista('top_recuperado_mes'),
     top_pagamentos_hoje: lista('top_pagamentos_hoje'),
@@ -184,30 +173,23 @@ function destaquesDoPainel(painel: Linha, fotos: Record<string, string>) {
   }
 }
 
-// Sem a função nova: só o que o snapshot já garante. Rankings que o snapshot
-// não tem (ele guarda apenas o 1º colocado) ficam null = "dado indisponível" —
-// nunca um top 3 montado com um só nome.
+// Sem a função nova: só o que o snapshot já garante, também só com nomes.
+// Rankings que o snapshot não tem (ele guarda apenas o 1º colocado) ficam
+// null = "dado indisponível" — nunca um top 3 montado com um só nome.
 function destaquesDoSnapshot(top3: unknown[], acordosHoje: Record<string, unknown>) {
-  const l = (top3[0] ?? null) as Linha | null
-  const ranking = Array.isArray(acordosHoje.ranking) ? acordosHoje.ranking as Linha[] : []
+  const nomes = (xs: Linha[], campo: string) => xs
+    .map((r) => String(r?.[campo] ?? '').trim())
+    .filter((n) => n && n !== 'Sem responsável')
+    .slice(0, 3)
+    .map((nome) => ({ nome, foto: null }))
   return {
     fonte: 'tv_snapshot',
-    precisao: 'inteiro',
     referencia: null,
-    lider_honorarios_mes: l && l.operador
-      ? { nome: String(l.operador), foto: null, valor: null, qtd: null, data: null }
-      : null,
-    podio_mes: (top3 as Linha[])
-      .filter((r) => r?.operador)
-      .slice(0, 3)
-      .map((r) => ({ nome: String(r.operador), foto: null, valor: null, qtd: null, data: null })),
+    podio_mes: nomes(top3 as Linha[], 'operador'),
     top_honorario_pagamento_mes: null,
     top_recuperado_mes: null,
     top_pagamentos_hoje: null,
-    top_acordos_hoje: ranking
-      .filter((r) => r?.operador && String(r.operador) !== 'Sem responsável')
-      .slice(0, 3)
-      .map((r) => ({ nome: String(r.operador), foto: null, valor: null, qtd: numOrNull(r.fechados), data: null })),
+    top_acordos_hoje: nomes(Array.isArray(acordosHoje.ranking) ? acordosHoje.ranking as Linha[] : [], 'operador'),
   }
 }
 
@@ -215,58 +197,35 @@ function numOrNull(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null
 }
 
-// Fila do Receptivo — mesma regra da tela FilaReceptivo do CRM: participantes
-// (usuarios.receptivo), sem pausa, com heartbeat nos últimos 90 s, ordenados por
-// atendimentos_hoje, depois ultimo_atendimento, depois online_em. Lida como o
-// usuário (RLS de fila_receptivo/usuarios), devolve só nomes. Falha → vazio.
-const LIMITE_ONLINE_MS = 90 * 1000
-
+// Fila do Receptivo — lida pela RPC public.tv_fila_receptivo_ler() (SECURITY DEFINER,
+// guard tv_pode_ler_snapshot, grant só para authenticated). A RPC já devolve só
+// participantes, sem pausa, com heartbeat nos últimos 90 s, sem e-mail. Ordenação
+// feita aqui: atendimentos_hoje, depois ultimo_atendimento, depois online_em. Falha → vazio.
+// (Trecho idêntico ao da versão publicada em produção — v11 —, que estava à
+// frente do repositório: a v2 versionada ainda lia usuarios/fila_receptivo direto.)
 type LinhaFila = {
-  email: string | null
   nome: string | null
   atendimentos_hoje: number | null
   ultimo_atendimento: string | null
   online_em: string | null
-  em_pausa: boolean | null
 }
 
 async function filaReceptivo(supabase: ReturnType<typeof createClient>) {
   const vazio = { atualizado_em: null as string | null, online: null as number | null, proximos: [] as string[] }
   try {
-    const { data: usuarios, error: eu } = await supabase
-      .from('usuarios').select('email, apelido').eq('receptivo', true)
-    if (eu || !usuarios?.length) return vazio
+    const { data: linhas, error } = await supabase.rpc('tv_fila_receptivo_ler')
+    if (error) return vazio
 
-    const apelidoPor = new Map<string, string>()
-    for (const u of usuarios as Array<{ email: string | null; apelido: string | null }>) {
-      const e = String(u.email ?? '').trim().toLowerCase()
-      if (e) apelidoPor.set(e, String(u.apelido ?? '').trim())
-    }
-    const emails = [...apelidoPor.keys()]
-
-    const { data: linhas, error: ef } = await supabase
-      .from('fila_receptivo')
-      .select('email, nome, atendimentos_hoje, ultimo_atendimento, online_em, em_pausa')
-      .in('email', emails)
-    if (ef) return vazio
-
-    const agora = Date.now()
     const t = (v: string | null) => (v ? Date.parse(v) || 0 : 0)
-    const online = ((linhas ?? []) as LinhaFila[])
-      .filter((l) => !l.em_pausa && l.online_em && agora - t(l.online_em) <= LIMITE_ONLINE_MS)
-      .sort((a, b) =>
-        (a.atendimentos_hoje ?? 0) - (b.atendimentos_hoje ?? 0) ||
-        t(a.ultimo_atendimento) - t(b.ultimo_atendimento) ||
-        t(a.online_em) - t(b.online_em))
-
-    const nome = (l: LinhaFila) =>
-      apelidoPor.get(String(l.email ?? '').trim().toLowerCase()) ||
-      String(l.nome ?? '').trim().split(/\s+/)[0] || ''
+    const online = ((linhas ?? []) as LinhaFila[]).slice().sort((a, b) =>
+      (a.atendimentos_hoje ?? 0) - (b.atendimentos_hoje ?? 0) ||
+      t(a.ultimo_atendimento) - t(b.ultimo_atendimento) ||
+      t(a.online_em) - t(b.online_em))
 
     return {
       atualizado_em: new Date().toISOString(),
       online: online.length,
-      proximos: online.slice(0, 4).map(nome).filter(Boolean),
+      proximos: online.slice(0, 4).map((l) => String(l.nome ?? '').trim()).filter(Boolean),
     }
   } catch {
     return vazio

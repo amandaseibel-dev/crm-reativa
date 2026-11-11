@@ -74,46 +74,31 @@
 
   // Ranking: null = dado indisponível (a fonte não mandou); [] = ninguém pontuou
   // no período. Os dois são mostrados de forma diferente e nenhum é preenchido.
+  // Cada item sai SÓ com posição, nome e foto: qualquer valor, quantidade ou
+  // data que viesse junto é descartado aqui (a TV não mostra resultado individual).
   function ranking(lista) {
     if (!Array.isArray(lista)) return null;
     return lista
       .filter((r) => r && typeof r === 'object' && String(r.nome || '').trim())
       .slice(0, 3)
-      .map((r, i) => ({
-        posicao: i + 1,
-        nome: String(r.nome).trim(),
-        foto: fotoSegura(r.foto),
-        valor: ehNumero(r.valor) ? r.valor : null,
-        qtd: ehNumero(r.qtd) ? r.qtd : null,
-        data: typeof r.data === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.data) ? r.data : null,
-      }));
+      .map((r, i) => ({ posicao: i + 1, nome: String(r.nome).trim(), foto: fotoSegura(r.foto) }));
   }
 
+  // Critério de cada ranking fica no subtítulo do card — a ordem é do CRM, o
+  // resultado individual não aparece.
   const RANKINGS = [
-    { chave: 'top_honorario_pagamento_mes', titulo: 'Top honorários do mês', periodo: 'mes', medida: 'valor',
-      explica: 'Os três maiores honorários pagos em um único pagamento.' },
-    { chave: 'top_recuperado_mes', titulo: 'Top recuperado do mês', periodo: 'mes', medida: 'valor',
-      explica: 'Valor recuperado acumulado no mês, por operador.' },
-    { chave: 'top_pagamentos_hoje', titulo: 'Top pagamentos de hoje', periodo: 'hoje', medida: 'qtd', unidade: ['pagamento', 'pagamentos'],
-      explica: 'Pagamentos confirmados hoje, por operador.' },
-    { chave: 'top_acordos_hoje', titulo: 'Top acordos de hoje', periodo: 'hoje', medida: 'qtd', unidade: ['acordo', 'acordos'],
-      explica: 'Acordos fechados hoje, sem cancelados nem duplicados.' },
+    { chave: 'top_honorario_pagamento_mes', titulo: 'Top honorários do mês', periodo: 'mes',
+      criterio: 'Maiores honorários pagos em um único pagamento' },
+    { chave: 'top_recuperado_mes', titulo: 'Top recuperado do mês', periodo: 'mes',
+      criterio: 'Maior valor recuperado acumulado no mês' },
+    { chave: 'top_pagamentos_hoje', titulo: 'Top pagamentos de hoje', periodo: 'hoje',
+      criterio: 'Mais pagamentos confirmados hoje' },
+    { chave: 'top_acordos_hoje', titulo: 'Top acordos de hoje', periodo: 'hoje',
+      criterio: 'Mais acordos fechados hoje, sem cancelados nem duplicados' },
   ];
-
-  function resultadoDe(item, def, precisao) {
-    if (def.medida === 'valor') return dinheiro(item.valor, precisao);
-    if (!ehNumero(item.qtd)) return '—';
-    return `${quantidade(item.qtd)} ${item.qtd === 1 ? def.unidade[0] : def.unidade[1]}`;
-  }
-
-  function dataCurta(iso) {
-    if (!iso) return '';
-    const [, m, d] = iso.split('-');
-    return `${d}/${m}`;
-  }
 
   raiz.tvDestaques = {
     dinheiro, quantidade, percentualMeta, percentual, ritmo, iniciais, nomeCurto,
-    fotoSegura, ranking, RANKINGS, resultadoDe, dataCurta,
+    fotoSegura, ranking, RANKINGS,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

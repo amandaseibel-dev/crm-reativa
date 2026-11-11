@@ -64,12 +64,39 @@ function renderResults(){
  const d=validDate(data.atualizado_em);
  $('statusDados').textContent=d?`Última leitura: ${new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(d)}`:'Aguardando fonte oficial';
 }
+// Fotos: URL assinada do bucket privado, válida por 5 min, renovada a cada leitura
+// da tv-dados (60 s). A imagem já carregada fica guardada pela identidade do
+// arquivo (a URL sem o token), para não piscar a cada troca de token e seguir na
+// tela depois que o token vence. Se a cópia guardada falhar, tenta a URL nova;
+// só cai nas iniciais quando não há foto ou as duas falham.
+const fotoCache=new Map();
+const chaveFoto=url=>url.split('?')[0];
+// Pré-carrega as fotos assim que a leitura chega: o card que entra depois já
+// encontra a imagem pronta (foto grande não mostra iniciais enquanto baixa).
+function preCarregarFotos(dz){
+ if(!dz)return;
+ for(const k of ['podio_mes',...D.RANKINGS.map(r=>r.chave)]){
+  for(const p of (Array.isArray(dz[k])?dz[k]:[])){
+   const url=D.fotoSegura(p&&p.foto);if(!url||fotoCache.has(chaveFoto(url)))continue;
+   const img=new Image();img.referrerPolicy='no-referrer';img.onload=()=>fotoCache.set(chaveFoto(url),url);img.src=url;
+  }
+ }
+}
 function avatar(pessoa,tamanho){
  const el=document.createElement('div');el.className=`avatar ${tamanho||''}`;
  const ini=document.createElement('span');ini.textContent=D.iniciais(pessoa&&pessoa.nome);el.append(ini);
  const url=D.fotoSegura(pessoa&&pessoa.foto);
- if(url){const img=new Image();img.alt='';img.decoding='async';img.referrerPolicy='no-referrer';
-  img.onload=()=>el.classList.add('com-foto');img.onerror=()=>img.remove();img.src=url;el.append(img);}
+ if(url){
+  const k=chaveFoto(url);const guardada=fotoCache.get(k);
+  const img=new Image();img.alt='';img.decoding='async';img.referrerPolicy='no-referrer';
+  img.onload=()=>{fotoCache.set(k,img.src);el.classList.add('com-foto');};
+  img.onerror=()=>{
+   if(img.src!==url){fotoCache.delete(k);img.src=url;return;}
+   fotoCache.delete(k);img.remove();el.classList.remove('com-foto');
+  };
+  img.src=guardada||url;el.append(img);
+  if(guardada&&img.complete&&img.naturalWidth)el.classList.add('com-foto');
+ }
  return el;
 }
 function textoMes(){return titleCase(new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',month:'long',year:'numeric'}).format(new Date()));}
@@ -97,12 +124,13 @@ function renderRanks(){
 // de dado indisponível. Nunca completa a lista com nomes inventados.
 function renderBoard(def){
  const board=$('rankBoard');board.replaceChildren();
- const dz=data.destaques||null;const precisao=dz&&dz.precisao||'inteiro';
+ const dz=data.destaques||null;
  const lista=D.ranking(dz&&dz[def.chave]);
  const periodo=def.periodo==='hoje'?`Hoje · ${new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit'}).format(new Date())}`:textoMes();
  const head=document.createElement('div');head.className='board-head';
  const h=document.createElement('h1');h.textContent=def.titulo;const per=document.createElement('span');per.className='board-period';per.textContent=periodo;
- head.append(h,per);board.append(head);
+ const crit=document.createElement('p');crit.className='board-criterio';crit.textContent=def.criterio;
+ head.append(h,per);board.append(head,crit);
  if(lista===null||(def.periodo==='hoje'&&!isToday()&&dz&&dz.fonte!=='tv_painel_operadores')){
   const v=document.createElement('p');v.className='board-empty';v.textContent='Dado indisponível no momento. O ranking aparece assim que o CRM enviar a informação.';board.append(v);return;}
  if(!lista.length){const v=document.createElement('p');v.className='board-empty';v.textContent=def.periodo==='hoje'?'Ainda não há resultado registrado hoje.':'Ainda não há resultado registrado neste mês.';board.append(v);return;}
@@ -111,12 +139,9 @@ function renderBoard(def){
   const li=document.createElement('li');li.className=`board-row pos-${item.posicao}`;
   const medal=document.createElement('span');medal.className='rank-medal';medal.textContent=`${item.posicao}º`;
   const who=document.createElement('div');who.className='board-who';
+  // Só posição, foto e nome: resultado individual não aparece na TV.
   const nome=document.createElement('strong');nome.textContent=D.nomeCurto(item.nome);
-  // Nome com a linha inteira; resultado logo abaixo — o nome nunca é cortado pelo valor.
-  const res=document.createElement('b');res.className='board-result';res.textContent=D.resultadoDe(item,def,precisao);
-  const linha=document.createElement('div');linha.className='board-line';linha.append(res);
-  if(item.data){const det=document.createElement('small');det.textContent=`pagamento de ${D.dataCurta(item.data)}`;linha.append(det);}
-  who.append(nome,linha);
+  who.append(nome);
   li.append(medal,avatar(item,'avatar-md'),who);ol.append(li);
  }
  board.append(ol);
@@ -142,10 +167,10 @@ function makeFrames(){
 }
 function buildFrames(){frames=makeFrames();frame=0;renderFrame();}
 function viewFor(f){
- const r=data.resultado||{};const pm=D.percentualMeta(r.honorarios_mes,r.meta_honorarios_mes);const result={kicker:'RESULTADOS REATIVA',title:'Honorários em destaque',body:'A base da nossa recuperação é a geração de honorários.',quote:pm===null?'Acompanhamento atualizado do resultado da operação.':`${D.percentual(pm)} da meta de honorários do mês atingidos.`,footerTitle:'HONORÁRIOS PAGOS NO MÊS',footer:money(r.honorarios_mes)};
+ const r=data.resultado||{};const pm=D.percentualMeta(r.honorarios_mes,r.meta_honorarios_mes);const result={kicker:'RESULTADOS REATIVA',title:'Honorários em destaque',body:'A base da nossa recuperação é a geração de honorários.',quote:pm===null?'Acompanhamento atualizado do resultado da operação.':`A ReATIVA atingiu ${D.percentual(pm)} da meta de honorários do mês.`,footerTitle:'HONORÁRIOS PAGOS NO MÊS · REATIVA',footer:money(r.honorarios_mes)};
  if(f.kind==='honorarios')return result;
- if(f.kind==='resultados')return {kicker:'RESULTADOS DA OPERAÇÃO',title:'Recuperação em foco',body:'Pagamento confirmado, negociação bem conduzida e resultado sustentável.',quote:'Recuperado no mês: '+money(r.recuperado_mes),footerTitle:'PAGAMENTOS CONFIRMADOS HOJE',footer:count(isToday()?r.pagamentos_confirmados_hoje:null)};
- if(f.kind==='ranking')return {kicker:'RECONHECIMENTO REATIVA',title:f.def.titulo,body:'',quote:'',footerTitle:f.def.periodo==='hoje'?'PERÍODO: HOJE':'PERÍODO: MÊS ATUAL',footer:f.def.explica};
+ if(f.kind==='resultados')return {kicker:'RESULTADOS REATIVA',title:'Recuperação em foco',body:'Pagamento confirmado, negociação bem conduzida e resultado sustentável.',quote:'Recuperado pela ReATIVA no mês: '+money(r.recuperado_mes),footerTitle:'PAGAMENTOS CONFIRMADOS HOJE · REATIVA',footer:count(isToday()?r.pagamentos_confirmados_hoje:null)};
+ if(f.kind==='ranking')return {kicker:'RECONHECIMENTO REATIVA',title:f.def.titulo,body:'',quote:'',footerTitle:f.def.periodo==='hoje'?'PERÍODO: HOJE':'PERÍODO: MÊS ATUAL',footer:'Classificação do CRM ReATIVA. Resultados individuais não são exibidos.'};
  const s=f.item||{};
  return {kicker:s.kicker||'NEGOCIAÇÃO EM FOCO',title:s.title||'Negociação',body:s.body||'',quote:s.quote||'',footerTitle:'FOCO PRÁTICO',footer:s.footer||''};
 }
@@ -178,7 +203,8 @@ async function getJSON(url){
 // a foto vem por URL assinada que muda a cada leitura, e não deve piscar a imagem a cada minuto.
 let podiumStamp=null;
 function refreshPodium(){
- const stamp=JSON.stringify([data.atualizado_em||null,(data.destaques&&Array.isArray(data.destaques.podio_mes)?data.destaques.podio_mes:[]).map(x=>x&&x.nome)]);
+ // assinatura: nomes + quais têm foto (não a URL, que muda a cada leitura)
+ const stamp=JSON.stringify([data.atualizado_em||null,(data.destaques&&Array.isArray(data.destaques.podio_mes)?data.destaques.podio_mes:[]).map(x=>x&&[x.nome,!!D.fotoSegura(x.foto)])]);
  if(stamp===podiumStamp)return;
  podiumStamp=stamp;
  renderRanks();
@@ -215,7 +241,7 @@ async function subscribeProjectionSignal(){
 async function readSnapshot(){
  try{const fresh=await getJSON(config.snapshot_url||'./dados-tv.json');if(!isObject(fresh)||!isObject(fresh.resultado))throw Error('dados inválidos');
   data={...data,...fresh,resultado:{...data.resultado,...fresh.resultado},rankings:{...data.rankings,...fresh.rankings},destaques:isObject(fresh.destaques)?fresh.destaques:null,receptivo:{...data.receptivo,...fresh.receptivo}};
-  renderResults();refreshPodium();refreshQueue();if(frames.length&&frames[frame]&&frames[frame].kind==='ranking')renderBoard(frames[frame].def);
+  preCarregarFotos(data.destaques);renderResults();refreshPodium();refreshQueue();if(frames.length&&frames[frame]&&frames[frame].kind==='ranking')renderBoard(frames[frame].def);
  }catch(e){if(!data.atualizado_em)$('statusDados').textContent='Fonte oficial indisponível';}
 }
 async function readQueue(){

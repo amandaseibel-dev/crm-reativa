@@ -107,3 +107,6 @@
 .highlight-stack .leader-card.medal-bronze{border-color:#c8814f;background:linear-gradient(130deg,#3a2a22,#08234c);box-shadow:0 0 18px rgba(205,127,72,.22)}
 .highlight-stack .leader-card.medal-bronze .avatar{border-color:#d9925e;box-shadow:0 0 18px rgba(205,127,72,.35)}
 .highlight-stack .leader-card.medal-bronze .leader-tag{color:#e7a476}
+
+.board-criterio{margin:-.4vw 0 .2vw;font-size:clamp(13px,1.1vw,23px);color:#c7e5ff;font-weight:700}
+.team-tag{font-size:clamp(9px,.7vw,14px);font-weight:900;letter-spacing:.1em;color:#5fd6ff}

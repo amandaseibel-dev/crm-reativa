@@ -46,11 +46,11 @@ select public.afirmar((select j->'referencia'->>'fuso' from r) = 'America/Sao_Pa
 
 -- totais da empresa, em centavos (todos os operadores, inclusive fora da allowlist)
 select public.afirmar((select (j->'mes'->>'honorarios')::numeric from r)
-  = 14237.54 + case when (select v from ontem_no_mes) then 1.00 else 0 end, 'honorários do mês em centavos');
+  = 16237.54 + case when (select v from ontem_no_mes) then 1.00 else 0 end, 'honorários do mês em centavos');
 select public.afirmar((select (j->'mes'->>'recuperado')::numeric from r)
-  = 157356.51 + case when (select v from ontem_no_mes) then 10.00 else 0 end, 'recuperado do mês em centavos');
-select public.afirmar((select (j->'hoje'->>'honorarios')::numeric from r) = 14227.54, 'honorários de hoje sem retroativo');
-select public.afirmar((select (j->'hoje'->>'recuperado')::numeric from r) = 157256.51, 'recuperado de hoje sem retroativo');
+  = 177356.51 + case when (select v from ontem_no_mes) then 10.00 else 0 end, 'recuperado do mês em centavos');
+select public.afirmar((select (j->'hoje'->>'honorarios')::numeric from r) = 16227.54, 'honorários de hoje sem retroativo');
+select public.afirmar((select (j->'hoje'->>'recuperado')::numeric from r) = 177256.51, 'recuperado de hoje sem retroativo');
 select public.afirmar((select (j->'mes'->>'meta_honorario')::numeric from r) = 122400, 'meta vem de metas_projecao');
 select public.afirmar((select (j->'mes'->>'dias_uteis_mes')::int from r)
   = (select public.dias_uteis(date_trunc('month', d)::date, (date_trunc('month', d) + interval '1 month - 1 day')::date) from public.teste_hoje h),
@@ -58,32 +58,37 @@ select public.afirmar((select (j->'mes'->>'dias_uteis_mes')::int from r)
 select public.afirmar((select (j->'mes'->>'dias_uteis_ate_hoje')::int from r)
   = (select public.dias_uteis(date_trunc('month', d)::date, d) from public.teste_hoje h), 'dias úteis até hoje (inclui hoje)');
 
--- pódio de reconhecimento: ordem por honorário acumulado, SEM valor
+-- RESULTADO INDIVIDUAL NÃO SAI DA FUNÇÃO: todo ranking traz só usuario_id e nome
+select public.afirmar(not exists (
+  select 1 from r, unnest(array['podio_mes','top_honorario_pagamento_mes','top_recuperado_mes',
+                                'top_pagamentos_hoje','top_acordos_hoje']) k,
+         jsonb_array_elements(j->k) x, jsonb_object_keys(x) chave
+   where chave not in ('usuario_id', 'nome')), 'rankings só com usuario_id e nome');
+select public.afirmar(not (select j ? 'lider_honorarios_mes' from r), 'sem bloco de líder com valor');
+
+-- pódio: ordem pelo honorário ACUMULADO (João 2.300,03 passa Luana 1.017,39)
 select public.afirmar((select jsonb_agg(x->>'nome') from r, jsonb_array_elements(j->'podio_mes') x)
-  = '["Rafaella Souza","Luana Lima","João Silva"]'::jsonb, 'pódio: Rafaella, Luana, João');
-select public.afirmar(not exists (select 1 from r, jsonb_array_elements(j->'podio_mes') x where x ? 'valor'),
-  'pódio não devolve valor');
-select public.afirmar((select j->'lider_honorarios_mes'->>'nome' from r) = 'Rafaella Souza', 'líder do mês');
-select public.afirmar(not ((select j->'lider_honorarios_mes' from r) ? 'valor'), 'líder não devolve valor');
+  = '["Rafaella Souza","João Silva","Luana Lima"]'::jsonb, 'pódio pelo acumulado: Rafaella, João, Luana');
 
--- top honorário em UM pagamento (separado do acumulado); fora da allowlist não entra
-select public.afirmar((select jsonb_agg(jsonb_build_array(x->>'nome', (x->>'valor')::numeric)) from r, jsonb_array_elements(j->'top_honorario_pagamento_mes') x)
-  = '[["Rafaella Souza",2907.12],["Luana Lima",1012.39],["João Silva",200.02]]'::jsonb, 'top honorário em pagamento único');
+-- top honorários: ordem pelo MAIOR HONORÁRIO EM UM ÚNICO PAGAMENTO (2.907,12; 1.012,39; 200,02),
+-- diferente do pódio; fora da allowlist (9.999) não entra
+select public.afirmar((select jsonb_agg(x->>'nome') from r, jsonb_array_elements(j->'top_honorario_pagamento_mes') x)
+  = '["Rafaella Souza","Luana Lima","João Silva"]'::jsonb, 'top honorários por pagamento único');
 
--- top recuperado ACUMULADO no mês por operador
-select public.afirmar((select jsonb_agg(jsonb_build_array(x->>'nome', (x->>'valor')::numeric)) from r, jsonb_array_elements(j->'top_recuperado_mes') x)
-  = '[["Rafaella Souza",40100.00],["Luana Lima",13717.21],["João Silva",3500.30]]'::jsonb, 'top recuperado acumulado');
+-- top recuperado: ordem pelo ACUMULADO (40.100,00; 23.500,30; 13.717,21)
+select public.afirmar((select jsonb_agg(x->>'nome') from r, jsonb_array_elements(j->'top_recuperado_mes') x)
+  = '["Rafaella Souza","João Silva","Luana Lima"]'::jsonb, 'top recuperado pelo acumulado');
 
--- top pagamentos de HOJE (quantidade, sem retroativo, sem ontem)
-select public.afirmar((select jsonb_agg(jsonb_build_array(x->>'nome', (x->>'qtd')::int)) from r, jsonb_array_elements(j->'top_pagamentos_hoje') x)
-  = '[["Mauricio Reis",4],["João Silva",3],["Luana Lima",2]]'::jsonb, 'top pagamentos de hoje');
+-- top pagamentos de HOJE (quantidade, sem retroativo, sem ontem): João 23, Mauricio 4, Luana 2
+select public.afirmar((select jsonb_agg(x->>'nome') from r, jsonb_array_elements(j->'top_pagamentos_hoje') x)
+  = '["João Silva","Mauricio Reis","Luana Lima"]'::jsonb, 'top pagamentos de hoje');
 
 -- top acordos de HOJE: sem cancelado, sem duplicado, sem "sem responsável", sem oculto,
--- e a fronteira de meia-noite é a de Brasília
-select public.afirmar((select jsonb_agg(jsonb_build_array(x->>'nome', (x->>'qtd')::int)) from r, jsonb_array_elements(j->'top_acordos_hoje') x)
-  = '[["Allan Costa",3],["João Silva",2],["Mauricio Reis",1]]'::jsonb, 'top acordos de hoje');
+-- e a fronteira de meia-noite é a de Brasília (Allan 3, João 2, Mauricio 1)
+select public.afirmar((select jsonb_agg(x->>'nome') from r, jsonb_array_elements(j->'top_acordos_hoje') x)
+  = '["Allan Costa","João Silva","Mauricio Reis"]'::jsonb, 'top acordos de hoje');
 
 -- só leitura: nada mudou nas tabelas
-select public.afirmar((select count(*) from public.pagamentos) = 13, 'pagamentos intactos');
+select public.afirmar((select count(*) from public.pagamentos) = 33, 'pagamentos intactos');
 select public.afirmar((select count(*) from public.acordos) = 16, 'acordos intactos');
 reset role;

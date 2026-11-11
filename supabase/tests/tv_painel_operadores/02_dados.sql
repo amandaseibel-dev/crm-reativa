@@ -32,6 +32,12 @@ select h.d, v.pago, v.hon, v.retro, v.op from public.teste_hoje h, (values
   (99999.00, 9999.00, false, 'externo@aelbra.com.br')     -- soma no total, fora dos rankings
 ) as v(pago, hon, retro, op);
 
+-- João: 20 pagamentos pequenos (honorário 100 cada). No ACUMULADO ele passa a
+-- Luana; no MAIOR PAGAMENTO ÚNICO continua atrás dela. É isso que separa o
+-- pódio (acumulado) do top honorários (pagamento único) no teste.
+insert into public.pagamentos (data_pagamento, valor_pago, valor_honorario, operador_email)
+select h.d, 1000.00, 100.00, 'cobranca05@aelbra.com.br' from public.teste_hoje h, generate_series(1, 20);
+
 -- Pagamento de ONTEM: nunca entra em "hoje"; no mês só se ontem for do mesmo mês.
 insert into public.pagamentos (data_pagamento, valor_pago, valor_honorario, operador_email)
 select h.d - 1, 10.00, 1.00, 'cobranca10@aelbra.com.br' from public.teste_hoje h;

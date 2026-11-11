@@ -30,10 +30,10 @@
 --     tv_equipe_oculta (20261008120000_tv_acordos_de_hoje). Diferença
 --     deliberada: acordo SEM responsável não entra no ranking por operador
 --     (no snapshot ele aparecia como "Sem responsável");
---   • o pódio de reconhecimento (destaques do mês) sai só com nome/id — a
---     ordem é pelo honorário pago acumulado, mas o valor não é devolvido;
---     os cards de ranking (top honorário em pagamento único, top recuperado
---     acumulado, pagamentos e acordos de hoje) devolvem o resultado;
+--   • RESULTADO INDIVIDUAL NÃO SAI DA FUNÇÃO (decisão da gestão, 10/11):
+--     todo ranking por operador devolve só a ordem, o id (para a foto) e o
+--     nome. Valor e quantidade servem para ordenar e ficam aqui dentro.
+--     Só os totais da EQUIPE (blocos `mes` e `hoje`) levam valor;
 --   • meta = metas_projecao.meta_honorario do mês; dias úteis = dias_uteis()
 --     (feriados do CRM). A projeção NÃO é usada como meta.
 --
@@ -132,11 +132,6 @@ begin
       'hoje', jsonb_build_object(
         'honorarios', (select round(coalesce(sum(valor_honorario),0), 2) from pg where data_pagamento = v_hoje and not retroativo),
         'recuperado', (select round(coalesce(sum(valor_pago),0), 2) from pg where data_pagamento = v_hoje and not retroativo)),
-      'lider_honorarios_mes', (
-        -- só nome/id: o valor acumulado não sai da função
-        select jsonb_build_object('usuario_id', usuario_id, 'nome', nome)
-          from por_op_mes where honorario > 0
-         order by honorario desc, qtd desc, nome asc limit 1),
       -- Pódio do mês (destaques): ordem pelo honorário pago acumulado, mas a
       -- função devolve SÓ nome/id — o valor acumulado não sai daqui.
       'podio_mes', coalesce((
@@ -144,24 +139,25 @@ begin
                  order by honorario desc, qtd desc, nome)
           from (select * from por_op_mes where honorario > 0
                  order by honorario desc, qtd desc, nome limit 3) t), '[]'::jsonb),
+      -- Top honorários: ordem pelo MAIOR HONORÁRIO EM UM ÚNICO PAGAMENTO (um
+      -- operador pode aparecer mais de uma vez), nunca pelo total do operador.
       'top_honorario_pagamento_mes', coalesce((
-        select jsonb_agg(jsonb_build_object('usuario_id', usuario_id, 'nome', nome,
-                 'valor', round(valor_honorario, 2), 'data', to_char(data_pagamento, 'YYYY-MM-DD'))
+        select jsonb_agg(jsonb_build_object('usuario_id', usuario_id, 'nome', nome)
                  order by valor_honorario desc, data_pagamento asc, id)
           from (select * from pg_op where coalesce(valor_honorario,0) > 0
                  order by valor_honorario desc, data_pagamento asc, id limit 3) t), '[]'::jsonb),
-      -- Top recuperado do mês = valor recuperado ACUMULADO no mês por operador.
+      -- Top recuperado do mês: ordem pelo recuperado ACUMULADO no mês por operador.
       'top_recuperado_mes', coalesce((
-        select jsonb_agg(jsonb_build_object('usuario_id', usuario_id, 'nome', nome, 'valor', recuperado, 'qtd', qtd)
+        select jsonb_agg(jsonb_build_object('usuario_id', usuario_id, 'nome', nome)
                  order by recuperado desc, qtd desc, nome)
           from (select * from por_op_mes where recuperado > 0
                  order by recuperado desc, qtd desc, nome limit 3) t), '[]'::jsonb),
       'top_pagamentos_hoje', coalesce((
-        select jsonb_agg(jsonb_build_object('usuario_id', usuario_id, 'nome', nome, 'qtd', qtd, 'valor', honorario)
+        select jsonb_agg(jsonb_build_object('usuario_id', usuario_id, 'nome', nome)
                  order by qtd desc, honorario desc, nome)
           from (select * from por_op_hoje order by qtd desc, honorario desc, nome limit 3) t), '[]'::jsonb),
       'top_acordos_hoje', coalesce((
-        select jsonb_agg(jsonb_build_object('usuario_id', usuario_id, 'nome', nome, 'qtd', qtd)
+        select jsonb_agg(jsonb_build_object('usuario_id', usuario_id, 'nome', nome)
                  order by qtd desc, nome)
           from (select * from ac_op order by qtd desc, nome limit 3) t), '[]'::jsonb)
     )

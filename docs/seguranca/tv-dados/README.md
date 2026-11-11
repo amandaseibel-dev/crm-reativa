@@ -106,9 +106,9 @@ mantido ligado.
 - Fotos: pela Edge Function oficial `foto-perfil-url`, com o JWT do usuário da
   TV (URL assinada de 5 min). Nenhuma permissão nova; o id do operador não sai
   para o navegador.
-- O pódio de reconhecimento (destaques do mês) sai só com nome/foto, sem valor.
-  Os cards de ranking levam o resultado. Pacote e mapa de valores:
-  `PACOTE-M1-20261110200000.md`.
+- Rankings por operador (pódio e tops) saem só com nome e foto — nenhum valor
+  ou quantidade individual vai ao navegador. Pacote, mapa de valores e caminho
+  das fotos: `PACOTE-M1-20261110200000.md`.
 - Sem a função no banco, a v3 responde como a v2 + `meta_honorarios_mes` e dias
   úteis do snapshot, pódio/acordos de hoje do snapshot (`precisao: 'inteiro'`)
   e os rankings que o snapshot não tem como `null` ("dado indisponível").

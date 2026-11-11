@@ -62,25 +62,79 @@ describe('rankings: nada fabricado', () => {
     expect(D.ranking([])).toEqual([]);
   });
   it('no máximo 3, posições 1..3, ignora linha sem nome', () => {
-    const r = D.ranking([{ nome: 'A', qtd: 3 }, { nome: '' }, { nome: 'B', qtd: 2 }, { nome: 'C', qtd: 1 }, { nome: 'D', qtd: 1 }]);
+    const r = D.ranking([{ nome: 'A' }, { nome: '' }, { nome: 'B' }, { nome: 'C' }, { nome: 'D' }]);
     expect(r.map((x) => [x.posicao, x.nome])).toEqual([[1, 'A'], [2, 'B'], [3, 'C']]);
   });
   it('com um só colocado, mostra um só — não completa o pódio', () => {
-    expect(D.ranking([{ nome: 'João', qtd: 29 }])).toHaveLength(1);
+    expect(D.ranking([{ nome: 'João' }])).toHaveLength(1);
   });
-  it('resultado: valor em dinheiro ou quantidade com unidade', () => {
-    const [hon, , pag] = D.RANKINGS;
-    expect(D.resultadoDe({ valor: 2907.12 }, hon, 'centavos')).toBe('R$ 2.907,12');
-    expect(D.resultadoDe({ qtd: 1 }, pag, 'centavos')).toBe('1 pagamento');
-    expect(D.resultadoDe({ qtd: 29 }, pag, 'centavos')).toBe('29 pagamentos');
-  });
-  it('os 4 rankings pedidos, com período', () => {
+  it('os 4 rankings pedidos, com período e critério', () => {
     expect(D.RANKINGS.map((r) => [r.chave, r.periodo])).toEqual([
       ['top_honorario_pagamento_mes', 'mes'],
       ['top_recuperado_mes', 'mes'],
       ['top_pagamentos_hoje', 'hoje'],
       ['top_acordos_hoje', 'hoje'],
     ]);
+  });
+  it('top honorários: critério explícito de pagamento único; top recuperado: acumulado do mês', () => {
+    expect(D.RANKINGS[0].criterio).toMatch(/um único pagamento/);
+    expect(D.RANKINGS[1].criterio).toMatch(/acumulado no mês/);
+  });
+});
+
+describe('separação: ranking individual sem valor; total da equipe com valor', () => {
+  const edge = readFileSync(join(pasta, '..', 'supabase', 'functions', 'tv-dados', 'index.ts'), 'utf8');
+  const sql = readFileSync(join(pasta, '..', 'supabase', 'aguardando_aprovacao', '20261110200000_tv_painel_operadores.sql.pendente'), 'utf8');
+  const trecho = (txt, de, ate) => txt.slice(txt.indexOf(de), txt.indexOf(ate));
+
+  it('ranking() devolve só posição, nome e foto, mesmo se a fonte mandar valor', () => {
+    const [item] = D.ranking([{ nome: 'Rafaella', foto: null, valor: 40000, qtd: 3, data: '2026-11-09' }]);
+    expect(Object.keys(item).sort()).toEqual(['foto', 'nome', 'posicao']);
+  });
+  it('a tela não formata valor nem quantidade nos cards de ranking nem no pódio', () => {
+    const board = trecho(app, 'function renderBoard', 'function renderQueue');
+    const podio = trecho(app, 'function destaqueCard', '// Card central de ranking');
+    for (const bloco of [board, podio]) {
+      expect(bloco).not.toMatch(/dinheiro|quantidade|money|count\(|\.valor|\.qtd|\.data\b/);
+    }
+  });
+  it('a tv-dados não envia valor nem quantidade por operador', () => {
+    const bloco = trecho(edge, 'function pessoa', 'function numOrNull').replace(/\/\/.*$/gm, '');
+    expect(bloco).not.toMatch(/\b(valor|qtd|data|honorario|recuperado)\s*:/);
+    expect(bloco).toMatch(/return \{ nome: .*foto: /);
+  });
+  it('a função SQL devolve só id e nome em todo ranking', () => {
+    const bloco = trecho(sql, "'podio_mes'", '$function$;');
+    const objetos = bloco.match(/jsonb_build_object\([^)]*\)/g) || [];
+    expect(objetos.length).toBe(5);
+    for (const o of objetos) expect(o).toBe("jsonb_build_object('usuario_id', usuario_id, 'nome', nome)");
+  });
+  it('totais da equipe seguem com valor e identificados como ReATIVA', () => {
+    expect(html).toMatch(/RESULTADOS REATIVA/);
+    expect(html).toMatch(/RESULTADO REATIVA · MÊS/);
+    for (const id of ['honorariosHoje', 'recuperadoHoje', 'honorariosMes', 'recuperadoMes']) expect(app).toMatch(new RegExp(`\\$\\('${id}'\\)\\.textContent=money`));
+  });
+});
+
+describe('fotos: renovação sem recarregar a TV', () => {
+  it('guarda a imagem pela identidade do arquivo (URL sem token) e reaproveita', () => {
+    expect(app).toMatch(/const chaveFoto=url=>url\.split\('\?'\)\[0\]/);
+    expect(app).toMatch(/img\.src=guardada\|\|url/);
+  });
+  it('se a cópia guardada falhar (token vencido), tenta a URL nova antes das iniciais', () => {
+    expect(app).toMatch(/if\(img\.src!==url\)\{fotoCache\.delete\(k\);img\.src=url;return;\}/);
+  });
+  it('pódio redesenha quando uma foto passa a existir, sem depender da URL que muda a cada leitura', () => {
+    expect(app).toMatch(/x=>x&&\[x\.nome,!!D\.fotoSegura\(x\.foto\)\]/);
+  });
+  it('pré-carrega as fotos a cada leitura da tv-dados', () => {
+    expect(app).toMatch(/preCarregarFotos\(data\.destaques\);renderResults\(\)/);
+  });
+  it('foto é casada por ID na tv-dados, nunca por nome', () => {
+    const edge = readFileSync(join(pasta, '..', 'supabase', 'functions', 'tv-dados', 'index.ts'), 'utf8');
+    expect(edge).toMatch(/fotos\[id\]/);
+    expect(edge).toMatch(/usuario_ids: ids/);
+    expect(edge).not.toMatch(/fotos\[.*nome.*\]/);
   });
 });
 
@@ -105,14 +159,6 @@ describe('tela: textos genéricos removidos e o que fica preservado', () => {
   it('destaques do mês: pódio ouro, prata e bronze', () => {
     expect(app).toMatch(/MEDALHAS=\['ouro','prata','bronze'\]/);
     expect(app).toMatch(/dz\.podio_mes/);
-  });
-  it('pódio de reconhecimento (destaques do mês) não mostra valor', () => {
-    const bloco = app.slice(app.indexOf('function destaqueCard'), app.indexOf('// Card central de ranking'));
-    expect(bloco).not.toMatch(/dinheiro|valor/);
-  });
-  it('top recuperado é o acumulado do mês por operador; top honorários é pagamento único', () => {
-    expect(D.RANKINGS[1].explica).toMatch(/acumulado no mês/);
-    expect(D.RANKINGS[0].explica).toMatch(/único pagamento/);
   });
   it('logo natalino continua no topo e na tela de acesso', () => {
     expect(html.match(/logo-reativa-natal\.png/g)).toHaveLength(2);
