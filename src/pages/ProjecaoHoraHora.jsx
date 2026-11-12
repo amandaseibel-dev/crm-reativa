@@ -223,6 +223,7 @@ function ProjecaoHoraHoraInner() {
     try {
       const { data: rel, error } = await supabase.rpc("projecao_relatorio_pdf", { p_mes: mesReferencia });
       if (error || !rel) { alert("Não foi possível gerar o PDF: " + (error?.message || "sem dados")); return; }
+      if (rel.sem_pagamentos) { alert("Nenhum pagamento registrado em " + mesReferencia + " para o seu acesso. Não há o que exportar."); return; }
       const carregarLogo = async () => {
         try {
           const resp = await fetch("/logo_padrao_email.png");
