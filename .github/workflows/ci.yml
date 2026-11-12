@@ -640,6 +640,50 @@ jobs:
           DENO_NO_PACKAGE_JSON: '1'
         run: deno check supabase/functions/tv-dados/index.ts
 
+
+  # ---------------------------------------------------------------------------
+  # ULBRA — leitura do vinculo para a ficha: AUTORIZACAO sobre o aluno, em
+  # Postgres 17 descartavel. Dois operadores, gestao, supervisor, inativo, painel e
+  # anon. Roda a migration CANDIDATA (aguardando_aprovacao), nao producao.
+  # ---------------------------------------------------------------------------
+  ulbra-vinculo-leitura-sql:
+    name: ulbra vinculo — autorizacao por aluno, perfis, painel e anon (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/ulbra_vinculo_leitura
+      MIGRATION: supabase/aguardando_aprovacao/20261109180000_ulbra_vinculo_leitura.sql.pendente
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ambiente, montagem, migration candidata e provas de autorizacao
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/00_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_montagem.sql"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_provas.sql"
+
   # ---------------------------------------------------------------------------
   # PROPOSTA_staging_acordos_prime.sql — RLS, grants e isolamento do staging
   # de ACORDOS, num Postgres descartável.
@@ -1004,3 +1048,54 @@ jobs:
 
       - name: Corrida entre duas sessões (coleta x vínculo, nos dois sentidos)
         run: bash supabase/tests/ulbra_identidade_concorrencia/run.sh
+
+  # ---------------------------------------------------------------------------
+  # PROJEÇÃO — PDF hora a hora com o mesmo acesso da tela (20261112160000).
+  #
+  # Ordem: estado anterior (reproduz o bug) -> migration candidata -> regressão
+  # -> rollback -> bloqueios após rollback. Dados 100% sintéticos (.teste.local).
+  # A migration NÃO é aplicada em produção por este job.
+  # ---------------------------------------------------------------------------
+  projecao-pdf-acesso-sql:
+    name: projecao pdf — acesso da tela, regressão diretoria e rollback (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/projecao_relatorio_pdf_acesso
+      ANTERIOR: supabase/migrations/20260729240000_projecao_relatorio_pdf.sql
+      MIGRATION: supabase/aguardando_aprovacao/20261112160000_projecao_relatorio_pdf_acesso_da_tela.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261112160000_projecao_relatorio_pdf_acesso_da_tela.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ambiente, versão anterior, bug reproduzido, migration, regressão, rollback e bloqueios
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$ANTERIOR"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_dados_sinteticos.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/03_antes_da_correcao.sql"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/04_depois_da_correcao.sql"
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/05_apos_rollback.sql"
