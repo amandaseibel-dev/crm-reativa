@@ -269,7 +269,9 @@ insert into _cota_r values ('R15', 'botao Marcar (MANUAL, gestao para outro) seg
 -- Mais 9 conversas assumidas e respondidas = 10 receptivos respondidos.
 select count(*) from (
   select public._t_conversa(:'c10', '55519512' || lpad(g::text, 5, '0')) c from generate_series(1, 9) g) x;
-select public._t_msg(id, 'ENTRADA', 1), public._t_assumir(id, 'op_g@test.local', 600)
+-- Cada atribuicao em instante proprio (600 + n s): na mesma transacao now() repete e
+-- responsavel_desde colidiria na chave (operador, ciclo) do log.
+select public._t_msg(id, 'ENTRADA', 1), public._t_assumir(id, 'op_g@test.local', 600 + (row_number() over (order by telefone_e164))::int)
   from public.whatsapp_conversas where telefone_e164 like '55519512%';
 select public._t_registrar(id, 'op_g@test.local', 'ENVIADO', 'w-s-' || telefone_e164, 300)
   from public.whatsapp_conversas where telefone_e164 like '55519512%';
