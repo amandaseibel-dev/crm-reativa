@@ -367,50 +367,134 @@ $function$;
 -- Diferenca para a massiva, de proposito: la o aluno so sai se TODOS os
 -- titulos estiverem liquidados e >= 50% pago; aqui basta UM titulo -- na
 -- duvida, nao se encaminha ao juridico.
+-- NOTA DE CUSTO (D1 corrigido 12/11): funcoes plpgsql com dois ramos evitam
+-- plano generico com Seq Scan em acordos_titulos no PostgreSQL 17.
+-- SQL SECURITY DEFINER nao e inlinada pelo planner; o OR IS NULL resultava em
+-- varredura completa da tabela a cada caso. Com plpgsql o ramo nao-nulo usa
+-- = ANY(p_aluno_ids) e recebe plano especifico com index scan.
 create function public._juridico_pagamento_nao_baixado_ids(p_aluno_ids uuid[])
 returns setof uuid
-language sql stable security definer set search_path to 'public'
+language plpgsql stable security definer set search_path to 'public'
 as $function$
-  select t.aluno_id
-    from public.acordos_titulos t
-    join public.pagamentos pg on pg.aluno_id = t.aluno_id and pg.titulo_numero = t.documento
-   where (p_aluno_ids is null or t.aluno_id = any(p_aluno_ids))
-     and upper(coalesce(t.situacao,'')) = 'ABERTO'
-     and coalesce(lower(t.status),'') <> 'quitada'
-     and coalesce(t.tipo_boleto,'') <> 'Acordo'
-  union
-  select a.aluno_id
-    from public.acordos a
-    join public.parcelas p on p.acordo_id = a.id
-    join public.pagamentos pg on pg.aluno_id = a.aluno_id
-         and (pg.numero_parcela_completo = p.boleto or pg.titulo_numero = p.boleto)
-   where (p_aluno_ids is null or a.aluno_id = any(p_aluno_ids))
-     and upper(coalesce(a.status,'')) = 'ATIVO'
-     and upper(coalesce(p.status,'')) in ('A_VENCER','VENCIDA')
-     and coalesce(btrim(p.boleto),'') <> ''
-  union
-  select t.aluno_id
-    from public.acordos_titulos t
-    join lateral (
-      select e.liquidado_em, e.valor_pago
-        from public.prime_extrato e
-       where e.boleto = regexp_replace(coalesce(t.documento,''), '\D', '', 'g') and e.cpf = t.cpf
-       order by e.coletado_em desc limit 1) e on true
-   where (p_aluno_ids is null or t.aluno_id = any(p_aluno_ids))
-     and upper(coalesce(t.situacao,'')) = 'ABERTO'
-     and coalesce(lower(t.status),'') <> 'quitada'
-     and coalesce(t.tipo_boleto,'') <> 'Acordo'
-     and e.liquidado_em is not null
-     and coalesce(e.valor_pago, 0) > 0
-     and e.liquidado_em > t.vencimento + 30
-     and e.liquidado_em >= t.created_at::date;
+begin
+  if p_aluno_ids is null then
+    return query
+      select t.aluno_id
+        from public.acordos_titulos t
+        join public.pagamentos pg on pg.aluno_id = t.aluno_id and pg.titulo_numero = t.documento
+       where upper(coalesce(t.situacao,'')) = 'ABERTO'
+         and coalesce(lower(t.status),'') <> 'quitada'
+         and coalesce(t.tipo_boleto,'') <> 'Acordo'
+      union
+      select a.aluno_id
+        from public.acordos a
+        join public.parcelas p on p.acordo_id = a.id
+        join public.pagamentos pg on pg.aluno_id = a.aluno_id
+             and (pg.numero_parcela_completo = p.boleto or pg.titulo_numero = p.boleto)
+       where upper(coalesce(a.status,'')) = 'ATIVO'
+         and upper(coalesce(p.status,'')) in ('A_VENCER','VENCIDA')
+         and coalesce(btrim(p.boleto),'') <> ''
+      union
+      select t.aluno_id
+        from public.acordos_titulos t
+        join lateral (
+          select e.liquidado_em, e.valor_pago
+            from public.prime_extrato e
+           where e.boleto = regexp_replace(coalesce(t.documento,''), '\D', '', 'g') and e.cpf = t.cpf
+           order by e.coletado_em desc limit 1) e on true
+       where upper(coalesce(t.situacao,'')) = 'ABERTO'
+         and coalesce(lower(t.status),'') <> 'quitada'
+         and coalesce(t.tipo_boleto,'') <> 'Acordo'
+         and e.liquidado_em is not null
+         and coalesce(e.valor_pago, 0) > 0
+         and e.liquidado_em > t.vencimento + 30
+         and e.liquidado_em >= t.created_at::date;
+  else
+    return query
+      select t.aluno_id
+        from public.acordos_titulos t
+        join public.pagamentos pg on pg.aluno_id = t.aluno_id and pg.titulo_numero = t.documento
+       where t.aluno_id = any(p_aluno_ids)
+         and upper(coalesce(t.situacao,'')) = 'ABERTO'
+         and coalesce(lower(t.status),'') <> 'quitada'
+         and coalesce(t.tipo_boleto,'') <> 'Acordo'
+      union
+      select a.aluno_id
+        from public.acordos a
+        join public.parcelas p on p.acordo_id = a.id
+        join public.pagamentos pg on pg.aluno_id = a.aluno_id
+             and (pg.numero_parcela_completo = p.boleto or pg.titulo_numero = p.boleto)
+       where a.aluno_id = any(p_aluno_ids)
+         and upper(coalesce(a.status,'')) = 'ATIVO'
+         and upper(coalesce(p.status,'')) in ('A_VENCER','VENCIDA')
+         and coalesce(btrim(p.boleto),'') <> ''
+      union
+      select t.aluno_id
+        from public.acordos_titulos t
+        join lateral (
+          select e.liquidado_em, e.valor_pago
+            from public.prime_extrato e
+           where e.boleto = regexp_replace(coalesce(t.documento,''), '\D', '', 'g') and e.cpf = t.cpf
+           order by e.coletado_em desc limit 1) e on true
+       where t.aluno_id = any(p_aluno_ids)
+         and upper(coalesce(t.situacao,'')) = 'ABERTO'
+         and coalesce(lower(t.status),'') <> 'quitada'
+         and coalesce(t.tipo_boleto,'') <> 'Acordo'
+         and e.liquidado_em is not null
+         and coalesce(e.valor_pago, 0) > 0
+         and e.liquidado_em > t.vencimento + 30
+         and e.liquidado_em >= t.created_at::date;
+  end if;
+end;
 $function$;
 
+-- Escalar por aluno: filtra estritamente por = p_aluno_id para garantir
+-- plano com index scan no PostgreSQL 17. Nao delega para _ids: plpgsql
+-- dentro de SECURITY DEFINER ainda planeja cada SQL internamente, e um
+-- array de um elemento nao garante index scan. Tres EXISTS independentes
+-- curto-circuitam no primeiro positivo.
 create function public._juridico_pagamento_nao_baixado(p_aluno_id uuid)
 returns boolean
-language sql stable security definer set search_path to 'public'
+language plpgsql stable security definer set search_path to 'public'
 as $function$
-  select exists (select 1 from public._juridico_pagamento_nao_baixado_ids(array[p_aluno_id]));
+begin
+  return
+    exists (
+      select 1
+        from public.acordos_titulos t
+        join public.pagamentos pg on pg.aluno_id = t.aluno_id and pg.titulo_numero = t.documento
+       where t.aluno_id = p_aluno_id
+         and upper(coalesce(t.situacao,'')) = 'ABERTO'
+         and coalesce(lower(t.status),'') <> 'quitada'
+         and coalesce(t.tipo_boleto,'') <> 'Acordo'
+    ) or exists (
+      select 1
+        from public.acordos a
+        join public.parcelas p on p.acordo_id = a.id
+        join public.pagamentos pg on pg.aluno_id = a.aluno_id
+             and (pg.numero_parcela_completo = p.boleto or pg.titulo_numero = p.boleto)
+       where a.aluno_id = p_aluno_id
+         and upper(coalesce(a.status,'')) = 'ATIVO'
+         and upper(coalesce(p.status,'')) in ('A_VENCER','VENCIDA')
+         and coalesce(btrim(p.boleto),'') <> ''
+    ) or exists (
+      select 1
+        from public.acordos_titulos t
+        join lateral (
+          select e.liquidado_em, e.valor_pago
+            from public.prime_extrato e
+           where e.boleto = regexp_replace(coalesce(t.documento,''), '\D', '', 'g') and e.cpf = t.cpf
+           order by e.coletado_em desc limit 1) e on true
+       where t.aluno_id = p_aluno_id
+         and upper(coalesce(t.situacao,'')) = 'ABERTO'
+         and coalesce(lower(t.status),'') <> 'quitada'
+         and coalesce(t.tipo_boleto,'') <> 'Acordo'
+         and e.liquidado_em is not null
+         and coalesce(e.valor_pago, 0) > 0
+         and e.liquidado_em > t.vencimento + 30
+         and e.liquidado_em >= t.created_at::date
+    );
+end;
 $function$;
 
 -- Divergencias de um caso depois da aprovacao. Usada pelo envio (recusa),
