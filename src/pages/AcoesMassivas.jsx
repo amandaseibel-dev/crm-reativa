@@ -1732,9 +1732,9 @@ export default function AcoesMassivas() {
                 </div>
               )}
             </div>
+            {/* A exportação só usa a prévia gravada: sem previaId, o banco não recebe
+                responsaveis_caso e o recorte por caso zera. Não exporta sem ela. */}
             {resultados.length > 0 && (
-              {/* A exportação só usa a prévia gravada: sem previaId, o banco não recebe
-                  responsaveis_caso e o recorte por caso zera. Não exporta sem ela. */}
               <button style={estilos.botaoGerar} onClick={exportarPlanilha} disabled={gerando || !previaId}>
                 {gerando ? "Exportando..." : "⬇️ Exportar planilha (não registra contato)"}
               </button>
