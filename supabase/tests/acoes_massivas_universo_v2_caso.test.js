@@ -133,15 +133,17 @@ describe("depois da migration combinada", () => {
 
 describe("recusa diante de definicao inesperada", () => {
   it("a migration aborta se a funcao publicada tiver sido alterada", async () => {
-    await db.exec(PROD_UNIVERSO.replace("$function$\n", "-- alterado\n$function$\n"));
-    await expect(db.exec(MIG)).rejects.toThrow(/Nada aplicado|PRE|diferente|esperado/i);
+    const adulterada = PROD_UNIVERSO.replace("  f jsonb := coalesce(p_filtros, '{}'::jsonb);", "  f jsonb := coalesce(p_filtros, '{}'::jsonb); -- alterado");
+    expect(adulterada).not.toBe(PROD_UNIVERSO);
+    await db.exec(adulterada);
+    await expect(db.exec(MIG)).rejects.toThrow(/Nada aplicado/);
   });
 });
 
 // VIRADA DE DATA: UTC x America/Sao_Paulo. Entre 21h e 24h em Brasilia o dia UTC
 // ja e o seguinte; a regra tem que contar o dia de Brasilia. Horarios fixos.
 describe("calendario de Brasilia: protegido ate o 10o dia, elegivel a partir do 11o", () => {
-  beforeEach(async () => { db = await novoBanco(); await db.exec(MIG); });
+  beforeEach(async () => { await db.exec(MIG); }); // db ja tem a definicao publicada (hook do topo)
   const prot = async (dua, agora) => (await db.query(
     "select public.acoes_massivas_fidelizacao_protege($1::timestamptz, $2::timestamptz) r",
     [dua, agora])).rows[0].r;
