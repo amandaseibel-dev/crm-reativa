@@ -507,12 +507,19 @@ begin
   -- em `status_jornada` nao pode reaplicar efeito financeiro de tabulacao.
   perform set_config('parcela_efeito_sem_pagamento.aplicando', 'on', true);
 
+  -- Cada coluna volta sozinha, se ainda for JURIDICO: a retabulacao pela ficha
+  -- grava so status_atual/status_jornada e deixava status_acionamento preso.
   update public.alunos al
-     set status_atual       = coalesce(nullif(v_ant->>'status_atual',''), 'CONTATAR'),
-         status_jornada     = coalesce(nullif(v_ant->>'status_jornada',''), 'CONTATAR'),
-         status_acionamento = coalesce(nullif(v_ant->>'status_acionamento',''), 'CONTATAR')
+     set status_atual       = case when upper(coalesce(al.status_atual,'')) = 'JURIDICO'
+                                   then coalesce(nullif(v_ant->>'status_atual',''), 'CONTATAR') else al.status_atual end,
+         status_jornada     = case when upper(coalesce(al.status_jornada,'')) = 'JURIDICO'
+                                   then coalesce(nullif(v_ant->>'status_jornada',''), 'CONTATAR') else al.status_jornada end,
+         status_acionamento = case when upper(coalesce(al.status_acionamento,'')) = 'JURIDICO'
+                                   then coalesce(nullif(v_ant->>'status_acionamento',''), 'CONTATAR') else al.status_acionamento end
    where al.id = p_caso.aluno_id
-     and upper(coalesce(al.status_atual,'')) = 'JURIDICO';
+     and (upper(coalesce(al.status_atual,'')) = 'JURIDICO'
+       or upper(coalesce(al.status_jornada,'')) = 'JURIDICO'
+       or upper(coalesce(al.status_acionamento,'')) = 'JURIDICO');
 
   update public.casos c
      set status_atual = x.status_atual
@@ -850,10 +857,24 @@ begin
    where jc.lote_id = p_lote_id and jc.status = 'APROVADO'
      and ((jt.tipo = 'MENSALIDADE'
            and (t.id is null or upper(coalesce(t.situacao,'')) <> 'ABERTO'
-                or coalesce(lower(t.status),'') = 'quitada' or t.origem_encerramento is not null))
+                or coalesce(lower(t.status),'') = 'quitada' or t.origem_encerramento is not null
+                or coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_original, 0)
+                   is distinct from jt.valor))
        or (jt.tipo = 'PARCELA_ACORDO'
            and (p.id is null or upper(coalesce(p.status,'')) not in ('A_VENCER','VENCIDA')
-                or upper(coalesce(a.status,'')) <> 'ATIVO')));
+                or upper(coalesce(a.status,'')) <> 'ATIVO' or a.duplicado_de is not null
+                or coalesce(p.valor,0) is distinct from jt.valor)));
+  -- Pagamento recebido e ainda nao baixado depois da aprovacao: idem.
+  if v_div is null then
+    select string_agg(distinct al.nome, ', ') into v_div
+      from public.juridico_casos jc
+      join public.alunos al on al.id = jc.aluno_id
+     where jc.lote_id = p_lote_id and jc.status = 'APROVADO'
+       and exists (select 1 from public.solicitacoes_confirmacao_pagamento s
+                    where s.aluno_id = al.id::text
+                      and s.status in ('AGUARDANDO_CONFIRMACAO','PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO'));
+    if v_div is not null then v_div := v_div || ' (pagamento aguardando confirmação)'; end if;
+  end if;
   if v_div is not null then
     raise exception 'Envio recusado: há título que mudou depois da aprovação (pago, cancelado ou renegociado) em: %. Remova o caso e aprove de novo.', v_div
       using errcode = 'P0001';

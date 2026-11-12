@@ -420,6 +420,44 @@ describe("titulo que mudou depois da aprovacao", () => {
   });
 });
 
+describe("auditoria: pendencia de pagamento, coluna divergente e valor atual", () => {
+  it("pagamento aguardando confirmacao depois da aprovacao trava o envio", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    const l = await gerar(db, 1);
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    await db.query("insert into solicitacoes_confirmacao_pagamento(aluno_id,status,valor_informado) values ($1,'AGUARDANDO_CONFIRMACAO',500)", [a.al]);
+    const e = await falha(rpc(db, "public.juridico_lote_enviar_financeiro($1)", [l.lote_id]));
+    expect(e?.message).toMatch(/pagamento aguardando confirmação/);
+    await db.close();
+  });
+
+  it("valor reduzido depois da aprovacao trava o envio", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    const l = await gerar(db, 1);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [(await casoDe(db, a.al)).id]);
+    await db.query("update acordos_titulos set saldo_corrigido=100, valor_cobranca_ajustado=null where id=$1", [a.titulos[0]]);
+    const e = await falha(rpc(db, "public.juridico_lote_enviar_financeiro($1)", [l.lote_id]));
+    expect(e?.code).toBe("P0001");
+    await db.close();
+  });
+
+  it("remover caso aprovado com status_acionamento divergente libera o aluno (nao trava o lote)", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000], status: "PROMESSA_PAGAMENTO" });
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    // retabulacao pela ficha grava so status_atual e status_jornada
+    await db.query("update alunos set status_atual='RETORNO_FINANCEIRO', status_jornada='RETORNO_FINANCEIRO' where id=$1", [a.al]);
+    await rpc(db, "public.juridico_caso_remover($1,'desistencia')", [caso.id]);
+    expect(await bloqueio(db, a.al)).toBeNull();
+    await db.close();
+  });
+});
+
 describe("rollback", () => {
   it("recusa com bloqueio ativo; sem bloqueio, remove tudo e guarda copia fechada", async () => {
     const db = await novo();
