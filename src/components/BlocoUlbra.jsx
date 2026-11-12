@@ -122,12 +122,20 @@ function IconeConversa() {
   );
 }
 
-export default function BlocoUlbra({ aluno }) {
+// SOB DEMANDA (decisão da gestão em 11/11/2026): a ficha NÃO consulta a
+// Mensageria ao abrir. Cada consulta custa 1 chamada da cota diária da
+// credencial (500/dia, compartilhada com a coleta): em 09/11 as fichas gastaram
+// ~250. O operador clica quando precisa; `sobDemanda={false}` mantém o
+// comportamento antigo só para testes.
+export default function BlocoUlbra({ aluno, sobDemanda = true }) {
   const [estado, setEstado] = useState("ocioso");
   const [dados, setDados] = useState(null);
+  const [pedido, setPedido] = useState(null); // id do aluno para o qual a consulta foi pedida
+
+  const consultaLiberada = !sobDemanda || pedido === aluno?.id;
 
   useEffect(() => {
-    if (!aluno?.id) return;
+    if (!aluno?.id || !consultaLiberada) return;
 
     let cancelado = false;
 
@@ -166,9 +174,28 @@ export default function BlocoUlbra({ aluno }) {
 
     consultar();
     return () => { cancelado = true; };
-  }, [aluno?.id]);
+  }, [aluno?.id, consultaLiberada]);
 
-  if (!aluno?.id || estado === "erro") return null;
+  if (!aluno?.id) return null;
+
+  if (!consultaLiberada) {
+    return (
+      <div style={ESTILO.caixaLink}>
+        <button
+          type="button"
+          style={ESTILO.botaoDestaque}
+          onClick={() => setPedido(aluno.id)}
+          data-testid="ulbra-consultar"
+          title="Consulta a Mensageria ULBRA para este aluno (1 chamada da cota diária)"
+        >
+          <IconeConversa />
+          Consultar Mensageria ULBRA
+        </button>
+      </div>
+    );
+  }
+
+  if (estado === "erro") return null;
 
   if (estado === "carregando") {
     return <div style={ESTILO.neutro}>Consultando Mensageria Ulbra…</div>;

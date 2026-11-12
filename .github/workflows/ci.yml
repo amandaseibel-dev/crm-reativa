@@ -495,6 +495,59 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_depois_do_rollback.sql"
 
   # ---------------------------------------------------------------------------
+  # ULBRA — conversas do período (Mensageria de novembro): isolamento entre
+  # operadores, gestão, revogação de vínculo, direção e rollback, no Postgres real.
+  # ---------------------------------------------------------------------------
+  ulbra-central-conversas-periodo:
+    name: ulbra central conversas do periodo — isolamento, gestao, vinculo e rollback (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      REC: supabase/tests/ulbra_recebimento
+      DIR: supabase/tests/ulbra_central
+      VINC: supabase/tests/ulbra_identidade_concorrencia/00_stub_vinculos.sql
+      PILOTO: supabase/aguardando_aprovacao/20261108140000_ulbra_recebimento_e_fila.sql.pendente
+      CENTRAL: supabase/aguardando_aprovacao/20261109150000_ulbra_central_operador.sql.pendente
+      CONVERSAS: supabase/aguardando_aprovacao/20261111120000_ulbra_central_conversas_periodo.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261111120000_ulbra_central_conversas_periodo.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ambiente, piloto, seed, vinculos, central, conversas do periodo, provas, rollback e verificacao
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$REC/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$PILOTO"
+          psql -v ON_ERROR_STOP=1 -f "$REC/02_dados.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_complemento.sql"
+          psql -v ON_ERROR_STOP=1 -f "$VINC"
+          psql -v ON_ERROR_STOP=1 -f "$CENTRAL"
+          psql -v ON_ERROR_STOP=1 -f "$CONVERSAS"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/05_conversas_periodo.sql"
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/06_depois_do_rollback_conversas.sql"
+
+  # ---------------------------------------------------------------------------
   # ULBRA — verificação de TIPOS e IMPORTS da Edge Function com o Deno, em
   # versão FIXADA. O transform do Vitest não prova isso: ele não resolve
   # imports remotos (esm.sh) nem checa tipos do runtime Deno.
