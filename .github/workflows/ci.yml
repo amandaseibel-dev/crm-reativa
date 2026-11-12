@@ -1120,3 +1120,14 @@ jobs:
           else
             echo "PENDENTE: prod_defs.json (export real de producao) ausente. Integracao com producao NAO validada."
           fi
+
+      # O proprio export roda em Postgres real, em transacao read only, sobre o banco
+      # sintetico. Prova que o script de extracao funciona no PG16 e que a saida
+      # passa na verificacao (nao prova o conteudo de producao).
+      - name: "Export em Postgres real (read only) sobre o banco sintetico"
+        run: |
+          set -euo pipefail
+          export PGDATABASE=integracao
+          psql -X -q -At -v ON_ERROR_STOP=1 -f "$DIR/export_prod_defs.sql" > /tmp/export_ci.json
+          node "$DIR/importar_prod_defs.mjs" /tmp/export_ci.json /tmp/export_ci.sql
+          echo "OK: export real do PG16 verificado"
