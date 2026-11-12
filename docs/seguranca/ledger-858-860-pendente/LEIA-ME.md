@@ -113,10 +113,32 @@ A diferença é de **um byte**, o `0x0A` final, e **nenhum outro** — o `sha256
 do conteúdo sem esse byte é idêntico ao que a autorização M1 carregava, o que
 prova que o corpo é o mesmo.
 
-**Por que o newline não foi enviado:** o portão M1 calcula o hash com
-`printf '%s' "$q"` (`guardiao.sh:278`), sem newline final. Para a linha de
-autorização casar, a `query` tinha de ser exatamente o conteúdo sem ele. Foi
-uma consequência do portão, não uma edição do SQL.
+**Por que o newline não foi enviado — correção de uma explicação errada que
+este arquivo trazia antes.** O portão **não exige** remover nada. Ele preserva
+os bytes exatos de `tool_input.query`, de propósito, com uma sentinela
+(`guardiao.sh:271-272`):
+
+```sh
+# `$(...)` apagaria a quebra de linha final do SQL. A sentinela preserva os bytes.
+q="$(printf '%s' "$PAYLOAD" | jq -j '.tool_input.query // empty'; printf x)"
+q="${q%x}"
+```
+
+e hashea esses bytes como vieram (`guardiao.sh:278`). Então **o newline final
+passa, se for enviado**.
+
+O que obrigou a enviar sem ele foi **a linha de autorização**, que carregava o
+`sha256` do conteúdo *sem* o newline — e o portão compara byte a byte. A
+restrição veio do hash registrado, não do portão. Se a linha tivesse sido
+emitida com o hash do arquivo inteiro, a `query` poderia ter sido o arquivo
+verbatim e este `.sql` do ledger seria um `cp` simples.
+
+**Consequência prática para as próximas:** as duas formas são legítimas; o que
+não pode divergir é o hash da linha e os bytes enviados. Conferir qual das duas
+a linha registrou **antes** de montar a chamada. Exemplo vivo: a linha M1 da
+migration `20261109180000_ulbra_vinculo_leitura` (PR #918) registra o `sha256`
+do arquivo **com** o newline final — ali a `query` tem de ser o arquivo
+verbatim.
 
 ## Pendência para quem cuida do ledger
 
