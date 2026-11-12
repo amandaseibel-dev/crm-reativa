@@ -84,18 +84,19 @@ describe("consolidacao das consultas de aluno_movimentacoes", () => {
     });
   });
 
-  it("monta o filtro `or` cobrindo os dois predicados, com valor entre aspas", () => {
+  it("monta o filtro `or` exato: tabulacao (tipo e autor) OU transferencia", () => {
     const filtro = filtroMovimentacoesCarteira(EMAILS, TIPOS);
     expect(filtro).toBe(
-      'and(tipo.in.("FINALIZACAO_ATENDIMENTO","FINALIZACAO"),' +
-        'registrado_por_email.in.("cobranca05@aelbra.com.br","cobranca12@aelbra.com.br")),' +
-        'operador_novo_email.in.("cobranca05@aelbra.com.br","cobranca12@aelbra.com.br")'
+      "and(tipo.in.(FINALIZACAO_ATENDIMENTO,FINALIZACAO)," +
+        "registrado_por_email.in.(cobranca05@aelbra.com.br,cobranca12@aelbra.com.br))," +
+        "operador_novo_email.in.(cobranca05@aelbra.com.br,cobranca12@aelbra.com.br)"
     );
   });
 
-  it("nao deixa aspas do valor vazarem para dentro do filtro", () => {
-    const filtro = filtroMovimentacoesCarteira(['a"b@x.com'], ["T"]);
-    expect(filtro).toContain('"ab@x.com"');
+  it("recusa valor que quebraria a lista do PostgREST, em vez de montar um filtro errado", () => {
+    expect(() => filtroMovimentacoesCarteira(['a"b@x.com'], ["T"])).toThrow();
+    expect(() => filtroMovimentacoesCarteira(["a,b@x.com"], ["T"])).toThrow();
+    expect(() => filtroMovimentacoesCarteira(["a(b@x.com"], ["T"])).toThrow();
   });
 
   // A razao da mudanca, em numero: a carteira da gestao tinha 13.694 alunos

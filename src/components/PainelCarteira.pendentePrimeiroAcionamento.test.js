@@ -69,12 +69,16 @@ describe("PainelCarteira: pendente de 1o acionamento", () => {
     expect(BLOCO).toMatch(/tabulacoes: tabLote, transferencias: transfLote/);
   });
 
-  it("o filtro cobre os DOIS predicados -- nenhum dos dois lados some", () => {
+  it("o filtro traz os DOIS lados, com predicado exato no servidor", () => {
+    // Tabulacao = tipo E autor; transferencia = operador_novo. Sem qualquer um
+    // dos tres, um lado some ou o navegador recebe linhas de outros operadores.
     const i = UTIL.indexOf("export function filtroMovimentacoesCarteira");
     const fn = UTIL.slice(i, i + 600);
     expect(i).toBeGreaterThan(-1);
-    expect(fn).toMatch(/tipo\.in\./);
+    expect(fn).toMatch(/and\(tipo\.in\./);
     expect(fn).toMatch(/registrado_por_email\.in\./);
+    expect(fn).toMatch(/operador_novo_email\.in\./);
+    expect(UTIL).toMatch(/alvos\.has\(linha\?\.registrado_por_email\)/);
     expect(fn).toMatch(/operador_novo_email\.in\./);
   });
 

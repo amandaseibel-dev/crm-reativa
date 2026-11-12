@@ -3,47 +3,51 @@
 // O indicador "pendente de 1o acionamento" precisa de duas coisas da mesma
 // tabela: as TABULACOES do responsavel atual e as TRANSFERENCIAS que provam
 // quando o caso passou para a mao dele. Eram duas consultas identicas no
-// alcance e diferentes so no predicado -- agora e uma, e estas duas funcoes
-// montam o filtro e desfazem a juncao. Sao puras, para o teste poder cobrir a
-// equivalencia sem subir banco.
+// alcance e diferentes so no predicado -- agora e uma.
 //
-// Moram aqui, e nao em PainelCarteira.jsx, porque um arquivo de componente que
-// exporta funcao solta quebra o fast refresh do React (regra
-// `react-refresh/only-export-components`). O conteudo e o mesmo, byte a byte.
+// O filtro e EXATO no servidor: so chegam ao navegador as linhas que a carteira
+// usa. Nao ha linha de outro operador que nao seja tabulacao ou transferencia
+// de um responsavel desta carteira.
+//
+//   or=(and(tipo.in.(T), registrado_por_email.in.(E)), operador_novo_email.in.(E))
+//
+// Sintaxe: `and(...)` aninhado dentro de `or(...)`, que e a forma documentada
+// do PostgREST. Ainda nao ha outro ponto do CRM que use esse aninhamento em
+// producao: ver a pendencia registrada na PR.
 
-// Valor para a lista `in.()` do PostgREST. Aspas duplas porque e-mail tem `.`
-// e `@`, e sem elas a lista quebra em caso de valor com virgula.
-function valorPostgrest(valor) {
-  return '"' + String(valor).replace(/"/g, "") + '"';
+// Valor que pode entrar sem aspas numa lista `in.()` do PostgREST. Virgula,
+// parenteses, aspas e espacos quebram a lista: recusamos em vez de adivinhar.
+const VALOR_SEGURO = /^[^,()"\s]+$/;
+
+function valoresSeguros(valores) {
+  const limpos = (valores || []).map((v) => String(v || "").trim()).filter(Boolean);
+  const invalidos = limpos.filter((v) => !VALOR_SEGURO.test(v));
+  if (invalidos.length) {
+    throw new Error(`valor nao aceito em filtro PostgREST: ${invalidos[0]}`);
+  }
+  return limpos.join(",");
 }
 
 /**
- * Filtro `.or()` que cobre, numa consulta, o que antes eram duas.
+ * Filtro `.or()` exato: tabulacoes dos responsaveis OU transferencias para eles.
  *
  * @param {string[]} emails e-mails dos responsaveis desta carteira
  * @param {string[]} tipos tipos que contam como acionamento
  * @returns {string} filtro no formato do PostgREST
  */
 export function filtroMovimentacoesCarteira(emails, tipos) {
-  const listaEmails = (emails || []).map(valorPostgrest).join(",");
-  const listaTipos = (tipos || []).map(valorPostgrest).join(",");
   return (
-    `and(tipo.in.(${listaTipos}),registrado_por_email.in.(${listaEmails})),` +
-    `operador_novo_email.in.(${listaEmails})`
+    `and(tipo.in.(${valoresSeguros(tipos)}),` +
+    `registrado_por_email.in.(${valoresSeguros(emails)})),` +
+    `operador_novo_email.in.(${valoresSeguros(emails)})`
   );
 }
 
 /**
  * Reparte as linhas da consulta unica nos dois conjuntos de antes.
  *
- * Aplica em JS exatamente o predicado que cada consulta aplicava no banco --
- * nada mais larga, nada mais estreita.
- *
- * COMPARACAO EXATA, de proposito. `.in()` do PostgREST vira `= ANY` no
- * Postgres, que diferencia maiuscula. Normalizar aqui deixaria passar para
- * `transferencias` uma linha que a consulta antiga NAO trazia (e-mail com
- * caixa diferente da lista), e o indicador mudaria de valor sem ninguem
- * pedir. Quem quiser tolerar caixa muda o predicado, nao a reparticao.
+ * Com o filtro exato, cada linha ja e de um dos dois lados; a reparticao so
+ * confere de qual lado ela e. Comparacao exata, como o `= ANY` do banco.
  *
  * @param {object[]} linhas resultado da consulta unificada
  * @param {string[]} emails e-mails dos responsaveis desta carteira
