@@ -1737,6 +1737,11 @@ export default function AcoesMassivas() {
                 </div>
               )}
             </div>
+            {resultados.length > 0 && !previaValida && (
+              <div role="status" style={{ ...estilos.ajudaCampo, maxWidth: "none", color: "#b45309", fontWeight: 600 }}>
+                Os filtros mudaram depois da prévia. Gere a prévia de novo para liberar a exportação.
+              </div>
+            )}
             {/* A exportação só usa a prévia gravada: sem previaId, o banco não recebe
                 responsaveis_caso e o recorte por caso zera. Não exporta sem ela. */}
             {resultados.length > 0 && (
