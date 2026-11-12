@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { novoBanco, alunos, previa, exportar, comoGestao, OP_A } from "./fixtures/acoes_massivas_universo/bancada.js";
+import { novoBanco, alunos, previa, exportar, comoGestao } from "./fixtures/acoes_massivas_universo/bancada.js";
 
 vi.setConfig({ testTimeout: 180000, hookTimeout: 180000 });
 
