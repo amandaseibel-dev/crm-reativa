@@ -47,6 +47,7 @@ const FilaConfirmacaoPagamento = lazy(() => import("./pages/FilaConfirmacaoPagam
 // renderizasse -- no repositório e fora do ar. O conteúdo dele é o bloco
 // "Presença × produção" da tela nova, agora cruzado com os acionamentos do dia.
 const ProdutividadeOperacional = lazy(() => import("./pages/ProdutividadeOperacional"));
+const Juridico = lazy(() => import("./pages/Juridico"));
 const MeuPerfil = lazy(() => import("./pages/MeuPerfil"));
 const Borderos = lazy(() => import("./pages/Borderos"));
 const ConsultaFinanceira = lazy(() => import("./pages/ConsultaFinanceira"));
@@ -359,6 +360,15 @@ function RotaProtegida({ usuario, rota, children }) {
     const emailCu = String(usuario?.perfil?.email || usuario?.auth?.email || "")
       .toLowerCase().trim();
     if (!podeVerCentralUlbra(emailCu, usuario?.perfil)) return <Navigate to="/" replace />;
+    return children;
+  }
+  // JURÍDICO: exclusivo da gestão, por PESSOA (mesma lista de
+  // `usuario_e_gestao()`, que é quem toda RPC `juridico_*` confere). Chamado só
+  // com o e-mail de propósito: diretoria não entra nesta primeira fase.
+  if (rota === "/juridico") {
+    const emailJur = String(usuario?.perfil?.email || usuario?.auth?.email || "")
+      .toLowerCase().trim();
+    if (!podeVerTudo(emailJur)) return <Navigate to="/" replace />;
     return children;
   }
   if (rota === "/produtividade") {
@@ -787,6 +797,7 @@ export default function App() {
     { rota: "/acordos-operador", label: "Acordos por Operador", icone: "TrendingUp", secao: "Operação" },
     
     { rota: "/produtividade", label: "Produtividade Operacional", icone: "Activity", secao: "Gestão" },
+    { rota: "/juridico", label: "Jurídico", icone: "ClipboardList", secao: "Gestão" },
     // Painel Geral: a rota, a <Route> e as permissões já existiam desde
     // sempre; o que faltava era o item de menu, e por isso a tela só era
     // alcançável digitando a URL. Nada muda dentro dela. Quem vê aqui é quem
@@ -889,6 +900,10 @@ export default function App() {
     if (item.rota === "/central-ulbra") {
       const emCu = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return podeVerCentralUlbra(emCu, usuario?.perfil);
+    }
+    if (item.rota === "/juridico") {
+      const emJu = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return podeVerTudo(emJu);
     }
     if (item.rota === "/produtividade") {
       const emPr = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
@@ -1287,6 +1302,14 @@ export default function App() {
               <Route path="/mensageria-ulbra" element={<RotaProtegida usuario={usuario} rota="/mensageria-ulbra"><PainelMensageriaUlbra usuario={usuario} /></RotaProtegida>} />
               <Route path="/central-ulbra" element={<RotaProtegida usuario={usuario} rota="/central-ulbra"><CentralUlbra usuario={usuario} /></RotaProtegida>} />
               <Route path="/painel-geral" element={<PainelGeral />} />
+              <Route
+                path="/juridico"
+                element={
+                  <RotaProtegida usuario={usuario} rota="/juridico">
+                    <Juridico />
+                  </RotaProtegida>
+                }
+              />
               <Route
                 path="/produtividade"
                 element={
