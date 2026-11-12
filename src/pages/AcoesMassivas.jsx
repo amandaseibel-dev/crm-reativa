@@ -249,6 +249,7 @@ export default function AcoesMassivas() {
   // O que o banco explicou na última prévia (painel) e o id dela (vai à exportação).
   const [resumoPrevia, setResumoPrevia] = useState(null);
   const [previaId, setPreviaId] = useState(null);
+  const [previaAssinatura, setPreviaAssinatura] = useState(null);
   const [soSemTelefone, setSoSemTelefone] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [gerando, setGerando] = useState(false);
@@ -389,6 +390,17 @@ export default function AcoesMassivas() {
     setSucesso("");
   }
 
+  // PREVIA VALIDA SO COM OS FILTROS ATUAIS. A assinatura e gravada quando a previa
+  // e gerada; se qualquer filtro mudar depois, a previa deixa de valer e a
+  // exportacao fica bloqueada. Derivado na renderizacao, sem efeito.
+  const assinaturaFiltros = [
+    canal, valorMin, valorMax, quantidade, anoVencimento, [...unidadesSel].join(','), matricula,
+    curso, [...situacoesAcadSel].join(','), [...borderosSel].join(','), [...respCaso].sort().join('|'),
+    [...respAcordo].sort().join('|'), tipoCobranca, diasMinimoSemContato, acionamentoFiltro,
+    recenciaDias, soSemTelefone,
+  ].join('\u001f');
+  const previaValida = !!previaId && previaAssinatura === assinaturaFiltros;
+
   function nomeDoOperador(email) {
     if (String(email).toUpperCase() === "TODOS") return "Todos os operadores";
     if (String(email).toUpperCase() === "LIVRES") return "Sem responsável / livres";
@@ -501,6 +513,7 @@ export default function AcoesMassivas() {
       setResumoPrevia(previa?.resumo || null);
       setPorResponsavel(previa?.por_responsavel || []);
       setPreviaId(previa?.previa_id || null);
+      setPreviaAssinatura(assinaturaFiltros);
 
       setExcluidosConfirmacao(previa?.excluidos_confirmacao || []);
       setPrimeExtratoEm(previa?.prime_extrato_em || null);
@@ -553,6 +566,10 @@ export default function AcoesMassivas() {
   // Desde 19/10 esse registro também TABULA o caso, com retorno em 10 dias.
   async function exportarPlanilha() {
     if (!resultados || resultados.length === 0) return;
+    if (!previaValida) {
+      setErro("Os filtros mudaram depois da prévia. Gere a prévia de novo antes de exportar.");
+      return;
+    }
 
     setGerando(true);
     setErro("");
@@ -1720,8 +1737,15 @@ export default function AcoesMassivas() {
                 </div>
               )}
             </div>
+            {resultados.length > 0 && !previaValida && (
+              <div role="status" style={{ ...estilos.ajudaCampo, maxWidth: "none", color: "#b45309", fontWeight: 600 }}>
+                Os filtros mudaram depois da prévia. Gere a prévia de novo para liberar a exportação.
+              </div>
+            )}
+            {/* A exportação só usa a prévia gravada: sem previaId, o banco não recebe
+                responsaveis_caso e o recorte por caso zera. Não exporta sem ela. */}
             {resultados.length > 0 && (
-              <button style={estilos.botaoGerar} onClick={exportarPlanilha} disabled={gerando}>
+              <button style={estilos.botaoGerar} onClick={exportarPlanilha} disabled={gerando || !previaValida}>
                 {gerando ? "Exportando..." : "⬇️ Exportar planilha (não registra contato)"}
               </button>
             )}

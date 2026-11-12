@@ -7,6 +7,7 @@ const ROTULO_MOTIVO = {
   fora_tipo_cobranca: "Fora do tipo de cobrança",
   retorno_futuro: "Retorno futuro",
   outro_responsavel: "Fora do responsável selecionado",
+  fidelizacao_ativa: "Protegido pela fidelização até o 10º dia",
   acao_massiva_recente: "Ação massiva recente neste canal",
   contato_indisponivel: "Sem contato válido para o canal",
   // A7: o texto não expõe o contato nem acusa o aluno — a dificuldade é de

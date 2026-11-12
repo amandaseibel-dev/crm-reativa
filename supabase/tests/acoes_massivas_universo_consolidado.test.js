@@ -23,6 +23,7 @@ const ler = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 const SETUP = ler('fixtures/acoes_massivas_universo_consolidado/setup_base.sql');
 const DEF_VIVA = ler('fixtures/acoes_massivas_universo_consolidado/definicao_viva.sql');
 const DEF_1910 = ler('fixtures/acoes_massivas_universo_consolidado/definicao_19_10.sql');
+// v2 mantem o nome do historico em migrations/ (nao aplicada); a combinada a substitui.
 const MIGRACAO = ler('../migrations/20261029183847_acoes_massivas_universo_consolidado_v2.sql');
 const ROLLBACK = ler('../rollbacks/20261029183847_acoes_massivas_universo_consolidado_v2.rollback.sql');
 
