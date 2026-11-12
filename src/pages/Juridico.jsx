@@ -176,12 +176,12 @@ export default function Juridico() {
             `${c.aluno}: aprovado. Cobrança bloqueada — manual, massiva e automática.`)}>
           Aprovar e bloquear cobrança
         </button>
-        {pend.includes("ACORDO_ATIVO_SEM_APROVACAO") || pend.includes("ACORDO_NOVO_APOS_GERACAO") ? (
+        {["ACORDO_ATIVO_SEM_APROVACAO", "ACORDO_NOVO_APOS_GERACAO", "ACORDO_REATIVADO_APOS_GERACAO"].some((x) => pend.includes(x)) ? (
           <button type="button" style={A.btnMini} onClick={() => pedir({
             titulo: `Acordo ativo — ${c.aluno}`,
-            texto: "Este aluno tem acordo ativo que não estava na lista revisada (ou foi reativado). Encaminhá-lo exige revisão e aprovação específica, com o motivo.",
+            texto: `Acordos ativos revisados agora: ${(c.conferencia?.acordos || []).map((a) => a.numero_acordo).join(", ") || "nenhum"}. Confirme que são estes e informe o motivo. Se a lista mudar, a aprovação é recusada.`,
             campos: [{ chave: "motivo", rotulo: "Motivo da aprovação", obrigatorio: true, area: true }],
-            aoConfirmar: (v) => executar("juridico_caso_aprovar_acordo_ativo", { p_caso_id: c.caso_id, p_motivo: v.motivo }, "Acordo ativo aprovado para este caso."),
+            aoConfirmar: (v) => executar("juridico_caso_aprovar_acordo_ativo", { p_caso_id: c.caso_id, p_motivo: v.motivo, p_acordos: (c.conferencia?.acordos || []).map((a) => a.acordo_id) }, "Acordo ativo aprovado para este caso."),
           })}>Aprovar acordo ativo</button>
         ) : null}
         {temDoc || c.doc_manual ? (

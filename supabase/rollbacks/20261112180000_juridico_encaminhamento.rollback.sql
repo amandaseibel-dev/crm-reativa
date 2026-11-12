@@ -7,7 +7,7 @@
 --   2. guarda copia das cinco tabelas em `_backup_juridico_*_20261112` (RLS ligada,
 --      sem grant) antes de remover;
 --   3. solta, nesta ordem: triggers nas tabelas do sistema, funcoes (lista
---      explicita de 27 assinaturas), tabelas, sequences. Nenhum titulo, parcela
+--      explicita de 28 assinaturas), tabelas, sequences. Nenhum titulo, parcela
 --      ou acordo e tocado -- a migration tambem nao os tocou.
 
 begin;
@@ -71,7 +71,7 @@ drop function public.juridico_caso_substituir(uuid,text);
 drop function public.juridico_caso_remover(uuid,text);
 drop function public.juridico_caso_documento_vincular(uuid,text,text,text);
 drop function public.juridico_caso_autorizar_documento(uuid,text);
-drop function public.juridico_caso_aprovar_acordo_ativo(uuid,text);
+drop function public.juridico_caso_aprovar_acordo_ativo(uuid,text,uuid[]);
 drop function public.juridico_caso_aprovar(uuid);
 drop function public.juridico_lote_exportar(uuid);
 drop function public.juridico_lote_enviar_financeiro(uuid);

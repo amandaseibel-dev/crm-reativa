@@ -38,7 +38,7 @@ aco as materialized (
            group by a.aluno_id, a.id) s
    group by s.aluno_id),
 univ as materialized (
-  select al.id as aid, al.grp as grupo, al.nome as nome_mask, coalesce(tit.v,0) as v_mens, coalesce(aco.v_quebrado,0) as v_aco
+  select al.id as aid, al.grp as grupo, coalesce(tit.v,0) as v_mens, coalesce(aco.v_quebrado,0) as v_aco
     from alg al left join tit on tit.tid = al.id left join aco on aco.aid = al.id
    where al.grp is not null
      and coalesce(tit.v,0) + coalesce(aco.v_quebrado,0) > 0
@@ -84,7 +84,7 @@ outros as (
                   where a.aluno_id = u.aid and upper(coalesce(a.status,'')) = 'ATIVO' and upper(coalesce(p.status,'')) in ('A_VENCER','VENCIDA') and coalesce(btrim(p.boleto),'') <> '')
 ),
 f as (
-  select u.aid, u.grupo, u.nome_mask, u.v_mens, u.v_aco,
+  select u.aid, u.grupo, u.v_mens, u.v_aco,
     exists(select 1 from outros o where o.aid = u.aid) as outro,
     exists(select 1 from regra_a r where r.aluno_id = u.aid) as ca,
     exists(select 1 from regra_c r where r.aluno_id = u.aid) as cc,
@@ -102,7 +102,27 @@ union all select 'MUDA por grupo FORMADO', count(*), sum(v_mens+v_aco) from f wh
 union all select 'MUDA por grupo TRANCADO', count(*), sum(v_mens+v_aco) from f where not outro and ca and not cc and grupo='TRANCADO'
 union all select 'MUDA por grupo EVADIDO', count(*), sum(v_mens+v_aco) from f where not outro and ca and not cc and grupo='EVADIDO';
 
--- Exemplos representativos (mascarados): um por tipo de mudanca
--- select left(aluno_id::text,8) aluno, titulo_id::text like '%' tit, right(documento,4) boleto_fim,
---        vencimento, created_at::date importado, liquidado_em, coletado_em::date coletado, valor_pago
---   from regra_a where aluno_id in (select aid from f where ...);
+-- ---------------------------------------------------------------------------
+-- Base geral (sem recorte do Juridico): todos os titulos ABERTOS com liquidacao
+-- no extrato. Valor = valor_original. Origem dos numeros 564/517/57 do relatorio.
+-- ---------------------------------------------------------------------------
+with ult as materialized (
+  select t.aluno_id, t.id as titulo_id, t.documento, t.vencimento, t.created_at, t.valor_original, e.liquidado_em, e.valor_pago, e.coletado_em
+    from public.acordos_titulos t
+    join lateral (select e.liquidado_em, e.valor_pago, e.coletado_em from public.prime_extrato e
+                   where e.boleto = regexp_replace(coalesce(t.documento,''), '\D', '', 'g') and e.cpf = t.cpf
+                   order by e.coletado_em desc limit 1) e on true
+   where upper(coalesce(t.situacao,'')) = 'ABERTO' and coalesce(lower(t.status),'') <> 'quitada'
+     and coalesce(t.tipo_boleto,'') <> 'Acordo'
+     and e.liquidado_em is not null and coalesce(e.valor_pago,0) > 0),
+a as (select * from ult where liquidado_em > vencimento + 30 and liquidado_em >= created_at::date),
+c as (select * from a where liquidado_em <> created_at::date and liquidado_em <= coletado_em::date and liquidado_em <= (now() at time zone 'America/Sao_Paulo')::date)
+select 'A_regra_atual' k, count(distinct aluno_id)::text alunos, count(*)::text titulos, round(sum(valor_original),2)::text valor from a
+union all select 'C_data_canonica', count(distinct aluno_id)::text, count(*)::text, round(sum(valor_original),2)::text from c
+union all select 'artefato_liq_eq_importacao', count(distinct aluno_id)::text, count(*)::text, round(sum(valor_original),2)::text from a where liquidado_em = created_at::date
+union all select 'liq_depois_coleta', count(distinct aluno_id)::text, count(*)::text, round(sum(valor_original),2)::text from a where liquidado_em > coletado_em::date
+union all select 'liq_futuro', count(distinct aluno_id)::text, count(*)::text, round(sum(valor_original),2)::text from a where liquidado_em > (now() at time zone 'America/Sao_Paulo')::date;
+
+-- Exemplos mascarados (sem nome, CPF ou matricula): ver a saida da consulta acima e
+--   select left(aluno_id::text,8), right(documento,4), vencimento, created_at::date, liquidado_em, coletado_em::date
+--     from a where liquidado_em = created_at::date limit 3;   (rodar dentro da mesma CTE)

@@ -8,8 +8,9 @@ Consultas: `docs/juridico/consultas-achado2-criterio-data-2026-11-12.sql`.
 - **A — atual do Jurídico** (`_juridico_pagamento_nao_baixado`, sinal c): último registro do extrato
   Prime por boleto+CPF, título ABERTO, `liquidado_em > vencimento + 30` e `liquidado_em >= created_at::date`.
   A mesma regra de data das Ações Massivas (`20260908180000_acoes_massivas_exclui_liquidados_no_prime.sql:65`).
-- **C — canônica da conciliação Prime** (Grupo A, `20260918150000_grupo_a_confirmacao_prime.sql:1106`
-  e `20261009180000_confirmacao_exige_pagamento_comprovado.sql:209`): A **mais** `liquidado_em <> dia da
+- **C — só o critério de DATA da conciliação Prime** (Grupo A, `20260918150000_grupo_a_confirmacao_prime.sql:1103-1110`
+  e `20261009180000_confirmacao_exige_pagamento_comprovado.sql:206-209`). O Grupo A completo também exige
+  portador 195, CPF coerente e corroboração; este relatório não mede esses outros critérios. Critério de data: A **mais** `liquidado_em <> dia da
   importação`, `liquidado_em <= data da coleta` e `liquidado_em <= hoje`. A fonte documentada diz
   "venc.+30, ≠ dia da importação" (`docs/integracoes/prime-api.md`, linha de mensalidade liquidada).
 
@@ -24,7 +25,7 @@ Consultas: `docs/juridico/consultas-achado2-criterio-data-2026-11-12.sql`.
 Diferença A − C: **47 alunos**, **61 títulos**, **R$ 126.231,70**. (57 alunos têm liquidação no dia da
 importação; 10 deles têm outra liquidação válida e continuam barrados por C.)
 
-**Universo do Jurídico hoje (2.640 alunos):** nenhum aluno muda de elegibilidade entre A e C. Os 24
+**Universo do Jurídico hoje (2.640 alunos):** nenhum aluno muda de elegibilidade entre A e C (consulta: linhas `MUDA:`, todas zero; 24 barrados nas duas). Os 24
 barrados por este sinal são os mesmos nas duas regras. Por isso, a decisão afeta lotes **futuros**
 e a base geral, não o lote atual.
 
@@ -40,7 +41,7 @@ e a base geral, não o lote atual.
 
 ## Recomendação
 
-Adotar a regra C no Jurídico (e avaliar o mesmo ajuste nas Ações Massivas), porque é a regra canônica
+Avaliar a adoção da regra C no Jurídico (e avaliar o mesmo ajuste nas Ações Massivas), porque é a regra canônica
 documentada e documentada como "não é artefato". Antes, a gestão precisa confirmar:
 (a) se o artefato da importação deve mesmo ser descartado; (b) se a mudança vale para a base geral.
 Não alterar sem aprovação da gestão.

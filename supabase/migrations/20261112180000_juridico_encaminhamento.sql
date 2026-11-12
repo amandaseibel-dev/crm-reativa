@@ -349,6 +349,12 @@ begin
               where a.aluno_id = p_caso.aluno_id and upper(coalesce(a.status,'')) = 'ATIVO'
                 and a.duplicado_de is null and not (a.id = any(p_caso.acordos_na_geracao))) then
     v := array_append(v, 'ACORDO_NOVO_APOS_GERACAO'); end if;
+  -- acordo que estava na base, foi cancelado e voltou a ATIVO desde a ultima revisao
+  if exists (select 1 from public.juridico_historico h
+              where h.caso_id = p_caso.id and h.evento = 'ACORDO_STATUS'
+                and h.detalhe->>'depois' = 'ATIVO' and h.detalhe->>'antes' is distinct from 'ATIVO'
+                and h.em > coalesce(p_caso.acordo_ativo_aprovado_em, p_caso.criado_em)) then
+    v := array_append(v, 'ACORDO_REATIVADO_APOS_GERACAO'); end if;
   if v_termo in ('NAO_LOCALIZADO','VALIDAR')
      and p_caso.doc_manual_em is null and p_caso.doc_autorizado_em is null then
     v := array_append(v, case v_termo when 'VALIDAR' then 'TERMO_A_VALIDAR' else 'TERMO_NAO_LOCALIZADO' end);
@@ -555,6 +561,7 @@ begin
     select 1 from public.juridico_historico h
      where h.caso_id = p_caso.id and h.evento = 'ACORDO_STATUS'
        and h.detalhe->>'depois' = 'ATIVO' and h.detalhe->>'antes' is distinct from 'ATIVO'
+       and h.em > p_caso.aprovado_em
   ) then v := array_append(v, 'ACORDO_REATIVADO'); end if;
 
   if public._juridico_pagamento_nao_baixado(p_caso.aluno_id) then
@@ -919,7 +926,7 @@ begin
 end;
 $function$;
 
-create function public.juridico_caso_aprovar_acordo_ativo(p_caso_id uuid, p_motivo text)
+create function public.juridico_caso_aprovar_acordo_ativo(p_caso_id uuid, p_motivo text, p_acordos uuid[])
 returns jsonb
 language plpgsql security definer set search_path to 'public'
 as $function$
@@ -928,12 +935,20 @@ begin
   if nullif(btrim(coalesce(p_motivo,'')), '') is null then
     raise exception 'Informe o motivo para encaminhar um aluno com acordo ativo.' using errcode = '22023';
   end if;
+  -- a gestao confirma a LISTA que viu. Se o conjunto vivo mudou, nada e gravado.
+  if p_acordos is null then
+    raise exception 'Informe a lista de acordos revisada.' using errcode = '22023';
+  end if;
+  if (select coalesce(array_agg(a.id order by a.id), '{}'::uuid[])
+        from public.acordos a join public.juridico_casos jc on jc.aluno_id = a.aluno_id
+       where jc.id = p_caso_id and upper(coalesce(a.status,'')) = 'ATIVO' and a.duplicado_de is null)
+     is distinct from (select coalesce(array_agg(x order by x), '{}'::uuid[]) from unnest(p_acordos) x) then
+    raise exception 'Os acordos do aluno mudaram desde a revisão. Recarregue a tela antes de aprovar.' using errcode = 'P0001';
+  end if;
   update public.juridico_casos
      set acordo_ativo_aprovado_por = v_email, acordo_ativo_aprovado_em = now(),
          acordo_ativo_motivo = btrim(p_motivo),
-         acordos_na_geracao = coalesce((select array_agg(a.id) from public.acordos a
-            where a.aluno_id = (select aluno_id from public.juridico_casos where id = p_caso_id)
-              and upper(coalesce(a.status,'')) = 'ATIVO' and a.duplicado_de is null), '{}'::uuid[])
+         acordos_na_geracao = p_acordos
    where id = p_caso_id and status = 'EM_ANALISE'
   returning lote_id into v_lote;
   if not found then
@@ -1334,7 +1349,7 @@ begin
            'sistema:acordos'
       from public.juridico_casos jc
      where jc.aluno_id = new.aluno_id
-       and jc.status in ('APROVADO','ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO');
+       and jc.status <> 'REMOVIDO';
   end if;
   return new;
 end;
@@ -1455,7 +1470,7 @@ begin
   'public.juridico_caso_remover(uuid,text)',
   'public.juridico_caso_documento_vincular(uuid,text,text,text)',
   'public.juridico_caso_autorizar_documento(uuid,text)',
-  'public.juridico_caso_aprovar_acordo_ativo(uuid,text)',
+  'public.juridico_caso_aprovar_acordo_ativo(uuid,text,uuid[])',
   'public.juridico_caso_aprovar(uuid)',
   'public.juridico_lote_exportar(uuid)',
   'public.juridico_lote_enviar_financeiro(uuid)',

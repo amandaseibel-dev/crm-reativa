@@ -128,7 +128,7 @@ Fica, por decisão a tomar pela gestão:
   a pendência recusa a aprovação. A base revisada é `juridico_casos.acordos_na_geracao` (gravada na
   geração e renovada só pela aprovação específica de acordo ativo, com motivo). A aprovação trava o
   conjunto de acordos ativos antes da conferência e recusa se a fotografia trouxer acordo fora dele.
-  Limite: o PGlite não reproduz a corrida entre duas conexões; a proteção é o lock `FOR UPDATE`.
+  Limite: o PGlite não reproduz a corrida entre duas conexões; o lock `FOR UPDATE` trava só as linhas ATIVO já existentes. Não cobre INSERT concorrente nem a transição CANCELADO→ATIVO feita por outra transação ainda não confirmada. A detecção depois da aprovação (`ACORDO_NOVO`, `ACORDO_REATIVADO`) é a rede de proteção.
 - **Envio recusa** qualquer caso com divergência: mensalidade ou parcela que mudou, valor
   diferente do aprovado, acordo duplicado, pagamento não baixado ou aguardando confirmação.
 - **Alerta**: `juridico_varrer_alertas` registra `ALERTA_DIVERGENCIA` no histórico do caso
@@ -143,7 +143,7 @@ Fica, por decisão a tomar pela gestão:
   enviado ou confirmado. Os valores são os da aprovação; a coluna "Situação na data da geração"
   marca o caso em que algo mudou depois.
 - **Grants e rollback**: listas explícitas de 13 funções públicas e 14 internas (sem `service_role`); a
-  migration confere que o inventário tem exatamente 27. O rollback solta gatilhos, depois as 27 funções,
+  migration confere que o inventário tem exatamente 28. O rollback solta gatilhos, depois as 28 funções,
   depois as tabelas. Cópias em `_backup_juridico_*_20261112` com RLS e sem grant.
 - **Término do Contrato** não entra em evadidos (`_juridico_grupo` devolve nulo).
 
