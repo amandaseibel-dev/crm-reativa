@@ -2250,7 +2250,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   WhatsApp, copiar o numero). Antes viviam no meio da aba
                   "Resumo e tabulacao", embaixo do card de acordos. Saiu de la,
                   nao foi duplicado. */}
-              {/* O botao "Abrir Mensageria ULBRA ↗" entra no CABECALHO do
+              {/* O botao "CRM ULBRA ↗" entra no CABECALHO do
                   cartao de contatos (era o rodape, e so aparecia depois de
                   rolar): e um canal de contato, e o lugar dele e junto dos
                   telefones. O `BlocoUlbra` vem INTEIRO, sem nenhuma alteracao
