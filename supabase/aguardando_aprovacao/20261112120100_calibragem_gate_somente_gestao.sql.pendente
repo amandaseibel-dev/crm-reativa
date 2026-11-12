@@ -1,0 +1,47 @@
+-- GATE SEM JWT NAO E AUTORIZACAO -- calibragem_* e onda1_* (PENDENTE DE APROVACAO).
+--
+-- PROBLEMA MEDIDO (12/11/2026): dezenas de funcoes calibragem_* e onda1_* usam
+--   public.calibragem_e_gestao() or auth.jwt() is null
+-- auth.jwt() e null quando a sessao nao tem JWT (SQL direto como postgres, pelo
+-- conector MCP ou pelo SQL editor). Nesses casos o gate passa sem ninguem
+-- identificado. A execucao da Onda 1 de 22/10 entrou por essa porta.
+--
+-- CORRECAO: a gestao identificada por JWT (calibragem_e_gestao) e o unico gate
+-- de funcoes de carteira. Substituicao ancorada e verificada: a expressao
+-- exata deve ocorrer; funcoes sem a forma exata sao listadas e NAO alteradas.
+--
+-- ESCOPO: so funcoes calibragem_% e onda1_%. Nenhum cron chama essas funcoes
+-- sem JWT (verificado em cron.job: unica chamada de calibragem/onda1 era o job
+-- 48, que chama nivelamento_automatico_gestao, FORA deste escopo e desativado
+-- pela migration 20261112120000).
+--
+-- NAO ALTERADO (forma de gate diferente; revisar em outra etapa):
+--   calibragem_simular, calibragem_simular_ano, calibragem_recomputar_snapshot.
+
+do $$
+declare
+  v_old constant text := 'public.calibragem_e_gestao() or auth.jwt() is null';
+  v_new constant text := 'public.calibragem_e_gestao()';
+  r record; v_def text; v_novo text; v_n int;
+begin
+  for r in
+    select p.oid, p.proname
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and (p.proname like 'calibragem\_%' or p.proname like 'onda1\_%')
+       and position(v_old in pg_get_functiondef(p.oid)) > 0
+  loop
+    v_def := pg_get_functiondef(r.oid);
+    v_n := (length(v_def) - length(replace(v_def, v_old, ''))) / length(v_old);
+    if v_n < 1 then
+      raise exception 'Ancora ausente em % apesar do filtro. Nada alterado.', r.proname;
+    end if;
+    v_novo := replace(v_def, v_old, v_new);
+    -- backup da definicao anterior, para o rollback restaurar byte a byte
+    insert into public.nivelamento_v2_backup(nome, definicao)
+      values ('fn:' || r.proname, v_def)
+      on conflict (nome) do nothing;
+    execute v_novo;
+    raise notice 'gate ajustado: % (% ocorrencia(s))', r.proname, v_n;
+  end loop;
+end $$;
