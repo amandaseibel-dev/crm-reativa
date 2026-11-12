@@ -60,6 +60,14 @@ describe("linhas do lote", () => {
     expect(titulos[2].pendencias).toBe(alunos[1].pendencias);
   });
 
+  it("caso com mudança depois da aprovação sai marcado em todas as linhas; sem mudança, dito", () => {
+    const p = { ...PAYLOAD, casos: [{ ...PAYLOAD.casos[0], divergencias: ["MENSALIDADE_ALTERADA", "PAGAMENTO_NAO_BAIXADO"] }, PAYLOAD.casos[1]] };
+    const { titulos, alunos } = linhasDoLote(p);
+    expect(alunos[0].situacao_geracao).toBe("ATENÇÃO: Mensalidade mudou depois da aprovação; Pagamento recebido e não baixado");
+    expect(titulos.filter((t) => t.aluno === "Aluna Teste Alfa").every((t) => t.situacao_geracao.startsWith("ATENÇÃO"))).toBe(true);
+    expect(alunos[1].situacao_geracao).toBe("Sem alteração desde a aprovação");
+  });
+
   it("lote vazio não quebra", () => {
     expect(linhasDoLote({ protocolo: "x", casos: [] })).toEqual({ titulos: [], alunos: [] });
     expect(linhasDoLote(null)).toEqual({ titulos: [], alunos: [] });

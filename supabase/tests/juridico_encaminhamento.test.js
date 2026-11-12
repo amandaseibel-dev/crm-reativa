@@ -631,6 +631,76 @@ describe("correcoes da reauditoria (12/11/2026)", () => {
     await db.close();
   });
 
+  it("12. reexportacao so leva caso ENVIADO; aprovado depois do envio fica fora ate ser enviado", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    const b = await mk(db, { valores: [800] });
+    const l = await gerar(db, 2);
+    const ca = await casoDe(db, a.al), cb = await casoDe(db, b.al);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [ca.id]);
+    await rpc(db, "public.juridico_lote_enviar_financeiro($1)", [l.lote_id]);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [cb.id]);
+    await db.query("update acordos_titulos set situacao='PAGO' where id=$1", [b.titulos[0]]);
+    const exp = await rpc(db, "public.juridico_lote_exportar($1)", [l.lote_id]);
+    expect(exp.casos.map((c) => c.caso_id)).toEqual([ca.id]);
+    expect(exp.casos[0].divergencias).toEqual([]);
+    // mudanca depois do envio sai MARCADA no payload do Excel, com o valor da aprovacao
+    await db.query("update acordos_titulos set situacao='PAGO' where id=$1", [a.titulos[0]]);
+    const exp2 = await rpc(db, "public.juridico_lote_exportar($1)", [l.lote_id]);
+    expect(exp2.casos[0].divergencias).toContain("MENSALIDADE_ALTERADA");
+    expect(Number(exp2.casos[0].titulos[0].valor)).toBe(1000);
+    await db.close();
+  });
+
+  it("13. valor do titulo respeita valor_em_aberto; centavos alem de 2 casas nao viram divergencia falsa", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    await db.query("update acordos_titulos set saldo_corrigido=null, valor_em_aberto=800 where id=$1", [a.titulos[0]]);
+    const b = await mk(db, { valores: [1000] });
+    await db.query("update acordos_titulos set valor_cobranca_ajustado=987.655 where id=$1", [b.titulos[0]]);
+    expect(Number((await rpc(db, "public._juridico_conferencia($1)", [a.al])).total)).toBe(800);
+    const l = await gerar(db, 2);
+    const ca = await casoDe(db, a.al), cb = await casoDe(db, b.al);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [ca.id]);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [cb.id]);
+    const env = await rpc(db, "public.juridico_lote_enviar_financeiro($1)", [l.lote_id]);
+    expect(env.enviados_agora).toBe(2);
+    expect(env.casos.map((c) => Number(c.valor_aprovado)).sort()).toEqual([800, 987.66]);
+    await db.close();
+  });
+
+  it("14. extrato Prime: liquidacao de titulo NEGOCIADO ou dentro do prazo nao barra; a regra por titulo das massivas barra", async () => {
+    const db = await novo();
+    const extrato = (x, doc, liq) => db.query(
+      "insert into prime_extrato(matricula,boleto,cpf,vencimento,liquidado_em,valor_pago) values ($1,$2,$3,'2025-06-10',$4,500)",
+      [x.cpf, String(doc).replace(/\D/g, ""), x.cpf, liq]);
+    const negociado = await mk(db, { valores: [1000, 700] });
+    await db.query("update acordos_titulos set situacao='NEGOCIADO' where id=$1", [negociado.titulos[0]]);
+    await extrato(negociado, await docDe(db, negociado.titulos[0]), "2025-09-01");
+    const noPrazo = await mk(db, { valores: [1000] });
+    await extrato(noPrazo, await docDe(db, noPrazo.titulos[0]), "2025-06-20");
+    const pago = await mk(db, { valores: [1000] });
+    await db.query("update acordos_titulos set created_at='2025-05-01' where id=$1", [pago.titulos[0]]);
+    await extrato(pago, await docDe(db, pago.titulos[0]), "2025-09-01");
+    const ids = (await db.query("select aluno_id from public.juridico_candidatos(50)")).rows.map((x) => x.aluno_id);
+    expect(ids).toContain(negociado.al);
+    expect(ids).toContain(noPrazo.al);
+    expect(ids).not.toContain(pago.al);
+    await db.close();
+  });
+
+  it("15. acordo novo fechado depois da aprovacao vira divergencia e trava o envio", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    const l = await gerar(db, 1);
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    await db.query("insert into acordos(id,aluno_id,cpf,status,valor_total,saldo,qtd_parcelas,numero_acordo,criado_em) values ($1,$2,$3,'ATIVO',500,500,1,7777, now() + interval '1 minute')", [U(950, 1), a.al, a.cpf]);
+    const e = await falha(rpc(db, "public.juridico_lote_enviar_financeiro($1)", [l.lote_id]));
+    expect(e?.message).toMatch(/ACORDO_NOVO/);
+    await db.close();
+  });
+
   it("10. pagamento que nao esta no titulo nao bloqueia: so o boleto/titulo do aluno conta", async () => {
     const db = await novo();
     const a = await mk(db, { valores: [1000] });

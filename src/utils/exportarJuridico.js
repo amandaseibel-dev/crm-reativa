@@ -43,6 +43,7 @@ export async function montarPlanilhaJuridico(payload) {
     { header: "Acordo nº", key: "acordo", width: 12 },
     { header: "Acordo ULBRA", key: "acordo_ulbra", width: 14 },
     { header: "Status do acordo", key: "acordo_status", width: 16 },
+    { header: "Situação na data da geração", key: "situacao_geracao", width: 44 },
     { header: "Pendências / observações", key: "pendencias", width: 50 },
   ], titulos, ["valor"]);
 
@@ -61,6 +62,7 @@ export async function montarPlanilhaJuridico(payload) {
     { header: "Acordos nº", key: "acordos", width: 16 },
     { header: "Documentação", key: "documento", width: 34 },
     { header: "Link / localização do documento", key: "documento_ref", width: 40 },
+    { header: "Situação na data da geração", key: "situacao_geracao", width: 44 },
     { header: "Pendências / observações", key: "pendencias", width: 50 },
   ], alunos, ["valor_mensalidades", "valor_acordos", "valor_total"]);
   const fim = wsA.addRow({ aluno: `TOTAL — ${alunos.length} aluno(s)`, valor_total: total });
@@ -75,6 +77,7 @@ export async function montarPlanilhaJuridico(payload) {
     { k: "Alunos neste arquivo", v: alunos.length },
     { k: "Títulos neste arquivo", v: titulos.length },
     { k: "Gerado em", v: new Date().toLocaleString("pt-BR") },
+    { k: "Valores", v: "São os da APROVAÇÃO de cada caso. A coluna 'Situação na data da geração' indica o que mudou depois." },
     { k: "Situação dos títulos", v: "Cobrança BLOQUEADA no CRM. Títulos não foram cancelados nem baixados." },
     { k: "Observação", v: "Encaminhamento para análise de ajuizamento. Não indica ajuizamento efetivo." },
   ]);

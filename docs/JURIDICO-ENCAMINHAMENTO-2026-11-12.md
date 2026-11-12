@@ -16,7 +16,7 @@ autorização específica (RUNBOOK-MIGRATIONS).
 | Excel + envio | `juridico_lote_enviar_financeiro`, `juridico_lote_exportar` | `APROVADO → ENVIADO_FINANCEIRO`; Excel só com aprovados |
 | Confirmar | `juridico_casos_confirmar_juridico` | `ENVIADO_FINANCEIRO → CONFIRMADO_JURIDICO` (encaminhado; **não** é ajuizamento) |
 
-Toda RPC confere `usuario_e_gestao()`. As quatro tabelas `juridico_*` têm RLS ligada, sem
+Toda RPC confere `usuario_e_gestao()`. As cinco tabelas `juridico_*` têm RLS ligada, sem
 policy e sem grant: só se lê e escreve pelas RPCs.
 
 ## Regras medidas, não presumidas
@@ -71,8 +71,8 @@ Fica, por decisão a tomar pela gestão:
   é exceção à regra de CPF mascarado, porque o financeiro precisa dele no Excel. Só gestão
   chama, e cada geração fica em `juridico_historico` (`EXCEL_GERADO`). O painel não devolve CPF.
 - **Quem é gestão**: `usuario_e_gestao()` inclui os três logins (Amanda, Fernanda, Amanda ADM).
-- **O bloqueio não é travado contra a própria gestão**: retabular o aluno por outra tela
-  tira o `JURIDICO` e o caso continua `APROVADO` na aba.
+- **O bloqueio é travado no banco** (segunda rodada): nem a gestão tira o `JURIDICO` por outra tela;
+  a saída é remover o caso na aba.
 - Rollback só é possível antes do primeiro envio ao financeiro.
 
 ## Segunda rodada (autorizada em 12/11/2026, só na #934)
@@ -82,10 +82,14 @@ Fica, por decisão a tomar pela gestão:
   ou CONFIRMADO. A única saída é `juridico_caso_remover`, que liga a GUC `juridico.desbloqueio`
   dentro da transação e registra o motivo e o estado anterior.
 - **Caso de cobrança novo para aluno com encaminhamento ativo** é recusado no insert em `casos`.
-- **Pagamento não baixado** (sinais INSPIRADOS nas Ações Massivas, não idênticos: `pagamentos` contra o
-  título ou boleto ainda aberto, e `prime_extrato` liquidado do mesmo boleto e CPF, sem o prazo nem o
-  limite de 50% que a massiva usa. **Critério a fechar pela gestão.**) bloqueia a seleção,
-  a aprovação (`!PAGAMENTO_NAO_BAIXADO`) e o envio.
+- **Pagamento não baixado** bloqueia a seleção, a aprovação (`!PAGAMENTO_NAO_BAIXADO`) e o envio.
+  Sinais: pagamento registrado contra título aberto; contra boleto de parcela viva; e extrato Prime
+  pela regra **por título** das Ações Massivas (último registro do boleto+CPF, título aberto,
+  liquidado mais de 30 dias após o vencimento e depois da importação, com valor pago).
+  **Medido em produção em 12/11/2026 (leitura):** 2.597 candidatos, R$ 7,72 mi elegíveis. A
+  primeira versão (qualquer liquidação, inclusive de título negociado) barrava 2.368 — liquidação
+  de título negociado é o acordo, não pagamento. Com a regra atual ficam 26 (2 formados, 9
+  trancados, 15 evadidos). Diferença para a massiva: aqui basta um título; lá exige todos e 50%.
 - **Envio recusa** qualquer caso com divergência: mensalidade ou parcela que mudou, valor
   diferente do aprovado, acordo duplicado, pagamento não baixado ou aguardando confirmação.
 - **Alerta**: `juridico_varrer_alertas` registra `ALERTA_DIVERGENCIA` no histórico do caso
@@ -95,10 +99,12 @@ Fica, por decisão a tomar pela gestão:
 - **Confirmação ao jurídico** não aceita data futura (horário de São Paulo).
 - **Documentos**: `juridico_documentos` guarda cada vínculo (append-only). Só se vincula com o
   caso em análise ou aprovado.
-- **Histórico** (`juridico_historico`) e `juridico_documentos` recusam UPDATE e DELETE.
-- **Excel**: toda geração (envio e reexportação) registra `EXCEL_GERADO` com o lote.
-- **Grants e rollback**: listas explícitas de 13 funções públicas e 13 internas; a migration
-  confere que o inventário tem exatamente 26. O rollback solta gatilhos, depois as 26 funções,
+- **Histórico** (`juridico_historico`) e `juridico_documentos` recusam UPDATE, DELETE e TRUNCATE.
+- **Excel**: toda geração (envio e reexportação) registra `EXCEL_GERADO` com o lote. Só leva caso
+  enviado ou confirmado. Os valores são os da aprovação; a coluna "Situação na data da geração"
+  marca o caso em que algo mudou depois.
+- **Grants e rollback**: listas explícitas de 13 funções públicas e 14 internas (sem `service_role`); a
+  migration confere que o inventário tem exatamente 27. O rollback solta gatilhos, depois as 27 funções,
   depois as tabelas. Cópias em `_backup_juridico_*_20261112` com RLS e sem grant.
 - **Término do Contrato** não entra em evadidos (`_juridico_grupo` devolve nulo).
 
@@ -114,4 +120,4 @@ Fica, por decisão a tomar pela gestão:
 ## Rollback
 
 `supabase/rollbacks/20261112180000_juridico_encaminhamento.rollback.sql` — recusa rodar
-enquanto houver caso com cobrança bloqueada pela aba; guarda cópia das quatro tabelas.
+enquanto houver caso com cobrança bloqueada pela aba; guarda cópia das cinco tabelas.

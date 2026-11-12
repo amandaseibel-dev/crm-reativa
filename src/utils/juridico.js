@@ -28,6 +28,7 @@ const DIVERGENCIAS = {
   PARCELA_ALTERADA: "Parcela de acordo mudou depois da aprovação",
   PAGAMENTO_NAO_BAIXADO: "Pagamento recebido e não baixado",
   PAGAMENTO_AGUARDANDO_CONFIRMACAO: "Pagamento aguardando confirmação",
+  ACORDO_NOVO: "Acordo novo fechado depois da aprovação",
 };
 
 export function rotuloDivergencia(codigo) {
@@ -72,6 +73,12 @@ export function cpfFormatado(cpf) {
   return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
 }
 
+// O Excel sai do sistema: leva, por caso, o que mudou desde a aprovação.
+export function situacaoNaGeracao(c) {
+  const d = c?.divergencias || [];
+  return d.length ? `ATENÇÃO: ${d.map(rotuloDivergencia).join("; ")}` : "Sem alteração desde a aprovação";
+}
+
 function pendenciasDoCaso(c) {
   const p = [];
   if (c.acordo_ativo_motivo) p.push(`Acordo ativo aprovado: ${c.acordo_ativo_motivo}`);
@@ -94,6 +101,7 @@ export function linhasDoLote(payload) {
       cpf: cpfFormatado(c.cpf),
       matricula: c.matricula || "",
       situacao_academica: c.situacao_academica || "",
+      situacao_geracao: situacaoNaGeracao(c),
     };
     alunos.push({
       ...base,

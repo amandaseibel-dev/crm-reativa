@@ -192,9 +192,9 @@ begin
   select coalesce(jsonb_agg(jsonb_build_object(
            'titulo_id', t.id, 'documento', t.documento, 'vencimento', t.vencimento,
            'competencia', t.competencia,
-           'valor', round(coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_original, 0), 2))
+           'valor', round(coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0), 2))
            order by t.vencimento, t.documento), '[]'::jsonb),
-         coalesce(sum(round(coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_original, 0), 2)), 0)
+         coalesce(sum(round(coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0), 2)), 0)
     into v_mens, v_total_mens
     from public.acordos_titulos t
    where t.aluno_id = p_aluno_id
@@ -204,7 +204,7 @@ begin
      and t.origem_encerramento is null
      and t.vencimento >= date '2025-01-01'
      and t.vencimento < (now() at time zone 'America/Sao_Paulo')::date
-     and coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_original, 0) > 0
+     and coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0) > 0
      and not exists (
        select 1 from public.acordo_titulo_vinculo v
          join public.acordos a on a.id = v.acordo_id
@@ -212,7 +212,7 @@ begin
           and upper(coalesce(a.status,'')) not in ('CANCELADO','CANCELADA'));
 
   -- Mensalidade INCORPORADA a acordo: aparece, mas NAO soma.
-  select count(*), coalesce(sum(coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_original, 0)), 0),
+  select count(*), coalesce(sum(coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0)), 0),
          count(*) filter (where upper(coalesce(t.situacao,'')) = 'NEGOCIADO' and not exists (
            select 1 from public.acordo_titulo_vinculo v
             where v.titulo_id = t.id and coalesce(v.ativo, true)))
@@ -353,48 +353,64 @@ as $function$
   values (p_caso, p_lote, p_evento, p_detalhe, p_por);
 $function$;
 
+-- Pagamento recebido e ainda nao baixado, por conjunto de alunos (null = todos).
+-- MEDIDO em producao em 12/11/2026 (leitura): a primeira versao aceitava
+-- qualquer liquidacao no extrato Prime, inclusive de titulo NEGOCIADO, e
+-- barrava 2.368 de 2.597 candidatos -- liquidacao de titulo negociado e o
+-- ACORDO, nao pagamento. Com a regra POR TITULO das Acoes Massivas
+-- (acoes_massivas_liquidados_prime) ficam 26. Sinais:
+--   (a) pagamento registrado contra titulo ABERTO do aluno;
+--   (b) pagamento registrado contra o boleto de parcela viva de acordo ATIVO;
+--   (c) extrato Prime: ULTIMO registro do boleto+CPF de titulo ABERTO, com
+--       valor pago, liquidado mais de 30 dias apos o vencimento e depois da
+--       importacao do titulo.
+-- Diferenca para a massiva, de proposito: la o aluno so sai se TODOS os
+-- titulos estiverem liquidados e >= 50% pago; aqui basta UM titulo -- na
+-- duvida, nao se encaminha ao juridico.
+create function public._juridico_pagamento_nao_baixado_ids(p_aluno_ids uuid[])
+returns setof uuid
+language sql stable security definer set search_path to 'public'
+as $function$
+  select t.aluno_id
+    from public.acordos_titulos t
+    join public.pagamentos pg on pg.aluno_id = t.aluno_id and pg.titulo_numero = t.documento
+   where (p_aluno_ids is null or t.aluno_id = any(p_aluno_ids))
+     and upper(coalesce(t.situacao,'')) = 'ABERTO'
+     and coalesce(lower(t.status),'') <> 'quitada'
+     and coalesce(t.tipo_boleto,'') <> 'Acordo'
+  union
+  select a.aluno_id
+    from public.acordos a
+    join public.parcelas p on p.acordo_id = a.id
+    join public.pagamentos pg on pg.aluno_id = a.aluno_id
+         and (pg.numero_parcela_completo = p.boleto or pg.titulo_numero = p.boleto)
+   where (p_aluno_ids is null or a.aluno_id = any(p_aluno_ids))
+     and upper(coalesce(a.status,'')) = 'ATIVO'
+     and upper(coalesce(p.status,'')) in ('A_VENCER','VENCIDA')
+     and coalesce(btrim(p.boleto),'') <> ''
+  union
+  select t.aluno_id
+    from public.acordos_titulos t
+    join lateral (
+      select e.liquidado_em, e.valor_pago
+        from public.prime_extrato e
+       where e.boleto = regexp_replace(coalesce(t.documento,''), '\D', '', 'g') and e.cpf = t.cpf
+       order by e.coletado_em desc limit 1) e on true
+   where (p_aluno_ids is null or t.aluno_id = any(p_aluno_ids))
+     and upper(coalesce(t.situacao,'')) = 'ABERTO'
+     and coalesce(lower(t.status),'') <> 'quitada'
+     and coalesce(t.tipo_boleto,'') <> 'Acordo'
+     and e.liquidado_em is not null
+     and coalesce(e.valor_pago, 0) > 0
+     and e.liquidado_em > t.vencimento + 30
+     and e.liquidado_em >= t.created_at::date;
+$function$;
+
 create function public._juridico_pagamento_nao_baixado(p_aluno_id uuid)
 returns boolean
 language sql stable security definer set search_path to 'public'
 as $function$
-  -- Pagamento recebido e ainda nao baixado. Sinais INSPIRADOS nas Acoes
-  -- Massivas, NAO identicos: aqui basta (a) pagamento registrado contra o
-  -- titulo ou boleto ainda aberto, ou (b) liquidacao com valor pago no extrato
-  -- Prime do mesmo boleto e CPF. A massiva exige prazo (vencimento + 30) e
-  -- pelo menos 50% pago; este e mais estrito de proposito -- na duvida, nao
-  -- encaminha. Criterio a fechar pela gestao (ver doc).
-  select exists (
-           select 1
-             from public.acordos_titulos t
-             join public.pagamentos pg on pg.aluno_id = t.aluno_id
-                  and pg.titulo_numero = t.documento
-            where t.aluno_id = p_aluno_id
-              and upper(coalesce(t.situacao,'')) in ('ABERTO','NEGOCIADO')
-              and coalesce(lower(t.status),'') <> 'quitada'
-              and coalesce(t.tipo_boleto,'') <> 'Acordo'
-         )
-      or exists (
-           select 1
-             from public.parcelas p
-             join public.acordos a on a.id = p.acordo_id
-             join public.pagamentos pg on pg.aluno_id = a.aluno_id
-                  and (pg.numero_parcela_completo = p.boleto or pg.titulo_numero = p.boleto)
-            where a.aluno_id = p_aluno_id
-              and upper(coalesce(a.status,'')) = 'ATIVO'
-              and upper(coalesce(p.status,'')) in ('A_VENCER','VENCIDA')
-              and coalesce(btrim(p.boleto),'') <> ''
-         )
-      or exists (
-           select 1
-             from public.acordos_titulos t
-             join public.prime_extrato pe on pe.boleto = regexp_replace(coalesce(t.documento,''), '\D', '', 'g')
-                  and pe.cpf = t.cpf
-            where t.aluno_id = p_aluno_id
-              and upper(coalesce(t.situacao,'')) in ('ABERTO','NEGOCIADO')
-              and coalesce(lower(t.status),'') <> 'quitada'
-              and pe.liquidado_em is not null
-              and coalesce(pe.valor_pago,0) > 0
-         );
+  select exists (select 1 from public._juridico_pagamento_nao_baixado_ids(array[p_aluno_id]));
 $function$;
 
 -- Divergencias de um caso depois da aprovacao. Usada pelo envio (recusa),
@@ -412,7 +428,7 @@ begin
      where jt.caso_id = p_caso.id and jt.ativo and jt.tipo = 'MENSALIDADE'
        and (t.id is null or upper(coalesce(t.situacao,'')) <> 'ABERTO'
             or coalesce(lower(t.status),'') = 'quitada' or t.origem_encerramento is not null
-            or coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_original, 0) is distinct from jt.valor)
+            or round(coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0), 2) is distinct from jt.valor)
   ) then v := array_append(v, 'MENSALIDADE_ALTERADA'); end if;
 
   if exists (
@@ -423,8 +439,17 @@ begin
      where jt.caso_id = p_caso.id and jt.ativo and jt.tipo = 'PARCELA_ACORDO'
        and (p.id is null or upper(coalesce(p.status,'')) not in ('A_VENCER','VENCIDA')
             or upper(coalesce(a.status,'')) <> 'ATIVO' or a.duplicado_de is not null
-            or coalesce(p.valor,0) is distinct from jt.valor)
+            or round(coalesce(p.valor,0), 2) is distinct from jt.valor)
   ) then v := array_append(v, 'PARCELA_ALTERADA'); end if;
+
+  -- acordo ativo fechado DEPOIS da aprovacao: nao esta na fotografia
+  if exists (
+    select 1 from public.acordos a
+     where a.aluno_id = p_caso.aluno_id and upper(coalesce(a.status,'')) = 'ATIVO'
+       and a.duplicado_de is null and a.criado_em > p_caso.aprovado_em
+       and not exists (select 1 from public.juridico_casos_titulos jt
+                        where jt.caso_id = p_caso.id and jt.ativo and jt.acordo_id = a.id)
+  ) then v := array_append(v, 'ACORDO_NOVO'); end if;
 
   if public._juridico_pagamento_nao_baixado(p_caso.aluno_id) then
     v := array_append(v, 'PAGAMENTO_NAO_BAIXADO');
@@ -461,7 +486,7 @@ begin
 
   with tit as materialized (
     select t.aluno_id as tid,
-           sum(round(coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_original, 0), 2)) as v,
+           sum(round(coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0), 2)) as v,
            count(*)::int as n
       from public.acordos_titulos t
      where upper(coalesce(t.situacao,'')) = 'ABERTO'
@@ -470,7 +495,7 @@ begin
        and t.origem_encerramento is null
        and t.vencimento >= date '2025-01-01'
        and t.vencimento < (now() at time zone 'America/Sao_Paulo')::date
-       and coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_original, 0) > 0
+       and coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0) > 0
        and not exists (
          select 1 from public.acordo_titulo_vinculo v
            join public.acordos a on a.id = v.acordo_id
@@ -490,6 +515,9 @@ begin
          group by a.aluno_id, a.id
       ) q
      group by q.aid
+  ),
+  pago as materialized (
+    select x as pid from public._juridico_pagamento_nao_baixado_ids(null) x
   ),
   ranqueado as materialized (
     select al.id, al.nome, al.matricula, al.curso, al.situacao_academica,
@@ -513,6 +541,10 @@ begin
        and (p_grupos is null or public._juridico_grupo(al.situacao_academica) = any(p_grupos))
        and coalesce(tit.v, 0) + coalesce(aco.v_quebrado, 0) > 0
        and (p_excluir is null or al.id <> all(p_excluir))
+       and not exists (select 1 from pago where pago.pid = al.id)
+       -- pre-filtro barato; o portao canonico continua sendo conferido no laco
+       and upper(replace(coalesce(al.status_atual,''), ' ', '_')) not in ('JURIDICO','SUSPENSAO_COBRANCA','CANCELAMENTO_COBRANCA')
+       and upper(replace(coalesce(al.status_jornada,''), ' ', '_')) not in ('JURIDICO','SUSPENSAO_COBRANCA','CANCELAMENTO_COBRANCA')
        and not exists (select 1 from public.juridico_casos jc
                         where jc.aluno_id = al.id and jc.status <> 'REMOVIDO')
        and not exists (select 1 from public.acordos_titulos t2
@@ -529,7 +561,6 @@ begin
   loop
     exit when v_n >= v_lim;
     continue when public.aluno_bloqueio_administrativo(r.id) is not null;
-    continue when public._juridico_pagamento_nao_baixado(r.id);
     v_n := v_n + 1;
     aluno_id := r.id; nome := r.nome; matricula := r.matricula; curso := r.curso;
     situacao_academica := r.situacao_academica; grupo := r.grupo; semestre_divida := r.semestre_divida;
@@ -908,6 +939,7 @@ as $function$
                'situacao_academica', coalesce(al.situacao_academica, jc.situacao_academica),
                'valor_aprovado', jc.valor_aprovado,
                'aprovado_em', jc.aprovado_em, 'aprovado_por', jc.aprovado_por,
+               'divergencias', to_jsonb(public._juridico_divergencias(jc)),
                'acordo_ativo_motivo', jc.acordo_ativo_motivo,
                'documento', case when jc.doc_manual_em is not null then 'Vinculado manualmente (' || jc.doc_manual_origem || ')'
                                  when jc.doc_autorizado_em is not null then 'Pendência autorizada pelo jurídico'
@@ -927,7 +959,7 @@ as $function$
         from public.juridico_casos jc
         join public.alunos al on al.id = jc.aluno_id
        where jc.lote_id = l.id
-         and jc.status in ('APROVADO','ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO')), '[]'::jsonb))
+         and jc.status in ('ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO')), '[]'::jsonb))
     from public.juridico_lotes l
    where l.id = p_lote_id;
 $function$;
@@ -1285,6 +1317,7 @@ begin
   'public._juridico_exigir_gestao()',
   'public._juridico_grupo(text)',
   'public._juridico_pagamento_nao_baixado(uuid)',
+  'public._juridico_pagamento_nao_baixado_ids(uuid[])',
   'public._juridico_conferencia(uuid)',
   'public._juridico_pendencias(public.juridico_casos,jsonb)',
   'public._juridico_divergencias(public.juridico_casos)',
@@ -1311,8 +1344,8 @@ begin
   select count(*) into v_n from pg_proc p
    where p.pronamespace = 'public'::regnamespace
      and (p.proname like 'juridico\_%' or p.proname like '\_juridico\_%');
-  if v_n <> 26 then
-    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 26 esperadas).', v_n;
+  if v_n <> 27 then
+    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 27 esperadas).', v_n;
   end if;
 
   select count(*) into v_n
