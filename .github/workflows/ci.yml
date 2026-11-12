@@ -1094,3 +1094,29 @@ jobs:
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -f "$GRB"
           psql -v ON_ERROR_STOP=1 -f "$DIR/06_pos_rollback_gate.sql"
+
+      # Integracao com definicoes exportadas. FIXTURE SINTETICO (gerado dos stubs):
+      # valida o mecanismo export -> verificacao sha256 -> importacao -> checagem no
+      # banco -> migration -> smoke. NAO valida equivalencia com producao.
+      - name: "Integracao: importacao verificada + migration + smoke (fixture sintetico)"
+        run: |
+          set -euo pipefail
+          psql -d postgres -v ON_ERROR_STOP=1 -c "drop database if exists integracao" -c "create database integracao"
+          export PGDATABASE=integracao
+          node "$DIR/importar_prod_defs.mjs" "$DIR/fixtures/prod_defs_sintetico.json" /tmp/integ.sql
+          cat /tmp/integ.sql /tmp/integ.sql.hashes.sql "$DIR/07_integracao_defs.sql" > /tmp/integ_total.sql
+          psql -v ON_ERROR_STOP=1 -f "$DIR/00_base_integracao.sql"
+          psql -v ON_ERROR_STOP=1 -f /tmp/integ_total.sql
+          psql -v ON_ERROR_STOP=1 -f "$M1"
+          psql -v ON_ERROR_STOP=1 -f "$M2"
+          R=$(psql -tAc "select public.nivelamento_reposicao_por_baixas(10)")
+          echo "smoke: $R"
+          case "$R" in *reposicoes_aplicadas*) echo "OK: smoke executado";; *) echo "FALHOU smoke"; exit 1;; esac
+
+      - name: "Export de producao: PENDENTE se o arquivo real nao existir"
+        run: |
+          if [ -f "$DIR/prod_defs.json" ]; then
+            echo "prod_defs.json presente: verificar hashes e importar (passo a cargo da validacao com producao)"
+          else
+            echo "PENDENTE: prod_defs.json (export real de producao) ausente. Integracao com producao NAO validada."
+          fi
