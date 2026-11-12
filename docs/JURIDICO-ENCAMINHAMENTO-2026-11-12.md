@@ -90,18 +90,36 @@ Fica, por decisão a tomar pela gestão:
   `docs/juridico/consultas-n1-n4-2026-11-12.sql`):** universo de 2.640 alunos (R$ 8,52 mi em
   aberto, antes do filtro de pagamento); a regra atual barra 24 (2 formados, 6 trancados, 16
   evadidos; R$ 56.558,17) e o portão canônico retira outros 4. Ficam 2.613 elegíveis.
-  Decomposição da redução de 2.382 (regra antiga) para 24, passo a passo:
+  Regra antiga e atual, sobre o universo de 2.640 alunos:
+
+  | | Regra antiga | Regra atual |
+  |---|---|---|
+  | Impedidos por pagamento não baixado | 2.382 | 24 |
+  | Elegíveis antes do portão | 258 | 2.616 |
+  | Elegíveis depois do portão canônico (4 retirados) | — | **2.613** (R$ 8,44 mi) |
+
+  Os 2.346 alunos da diferença deixam de ser impedidos com a regra atual: o prazo de 30 dias
+  **libera** esses alunos, porque o pagamento no extrato ocorreu mais de 30 dias após o
+  vencimento e depois da importação do título. Alunos barrados hoje (27 no total, contando o
+  portão): 2 formados, 6 trancados e 16 evadidos por pagamento não baixado, e 4 pelo portão.
+
+  Decomposição da redução de 2.382 para 24, passo a passo:
   - NEGOCIADO no sinal (a): **0 alunos** (não muda nada hoje);
-  - NEGOCIADO no sinal (c): **12 alunos** (todos com acordo ATIVO quebrado; liquidação de título
-    negociado é o acordo, não pagamento);
-  - prazo de 30 dias e data de criação do título no sinal (c): **2.346 alunos** — é o que
-    explica a maior parte da diferença;
+  - NEGOCIADO no sinal (c): **12 alunos** liberados pela regra atual, todos com acordo ATIVO
+    quebrado (liquidação de título negociado é o acordo, não pagamento). Restaurar NEGOCIADO
+    no sinal (c) os barraria de novo;
+  - prazo de 30 dias e data de criação do título no sinal (c): **2.346 alunos liberados**;
   - último registro do extrato (em vez de qualquer linha): **0 alunos** hoje.
+  O critério de 30 dias **não foi alterado**: depende de decisão expressa da gestão.
   Os números antigos (2.597 candidatos, 2.368 barrados, 26 e R$ 7,72 mi) não batem com esta
   medição e não foram reconciliados; não usar.
   Diferenças reais para as Ações Massivas: aqui basta **um** título pago; lá exige todos os
   títulos liquidados e pelo menos 50% pago. A massiva também não encaminha aluno com acordo
   cancelado; o Jurídico não tem essa exclusão.
+- **Acordo novo ou reativado depois da aprovação** (`ACORDO_NOVO`): a aprovação grava em
+  `juridico_casos.acordos_aprovados` os IDs de todos os acordos ATIVOS do aluno. Depois, qualquer
+  acordo ATIVO fora desse conjunto gera a divergência. Não usa `criado_em` nem `atualizado_em`.
+  Não movimenta carteira nem altera acordo; o envio fica recusado até a gestão revisar.
 - **Envio recusa** qualquer caso com divergência: mensalidade ou parcela que mudou, valor
   diferente do aprovado, acordo duplicado, pagamento não baixado ou aguardando confirmação.
 - **Alerta**: `juridico_varrer_alertas` registra `ALERTA_DIVERGENCIA` no histórico do caso

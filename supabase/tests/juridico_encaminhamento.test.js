@@ -711,6 +711,76 @@ describe("correcoes da reauditoria (12/11/2026)", () => {
   });
 });
 
+// ACORDO_NOVO por CONJUNTO registrado na aprovacao (IDs), nunca por data.
+describe("acordo novo ou reativado depois da aprovacao", () => {
+  const divs = async (db, caso) =>
+    (await db.query("select public._juridico_divergencias(jc) d from juridico_casos jc where jc.id=$1", [caso.id])).rows[0].d;
+  const acordoEm = (db, al, cpf, id, status, criado, num) =>
+    db.query(
+      "insert into acordos(id,aluno_id,cpf,status,valor_total,saldo,qtd_parcelas,numero_acordo,criado_em) values ($1,$2,$3,$4,500,500,1,$5,$6::timestamptz)",
+      [id, al, cpf, status, num, criado]);
+
+  it("acordo ATIVO novo com criado_em ANTIGO ainda vira ACORDO_NOVO (data nao decide)", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    await acordoEm(db, a.al, a.cpf, U(960, 1), "ATIVO", "2019-01-01", 8001);
+    expect(await divs(db, caso)).toContain("ACORDO_NOVO");
+    await db.close();
+  });
+
+  it("acordo CANCELADO na aprovacao e REATIVADO depois vira ACORDO_NOVO; sem reativacao, nao", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    await acordoEm(db, a.al, a.cpf, U(961, 1), "CANCELADO", "2025-01-01", 8002);
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    expect(await divs(db, caso)).not.toContain("ACORDO_NOVO");
+    await db.query("update acordos set status='ATIVO' where id=$1", [U(961, 1)]);
+    expect(await divs(db, caso)).toContain("ACORDO_NOVO");
+    const e = await falha(rpc(db, "public.juridico_lote_enviar_financeiro($1)", [(await db.query("select lote_id from juridico_casos where id=$1", [caso.id])).rows[0].lote_id]));
+    expect(e?.message).toMatch(/ACORDO_NOVO/);
+    await db.close();
+  });
+
+  it("acordo ATIVO ja contemplado na aprovacao NAO gera alerta", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000, 500], acordo: "QUEBRADO" });
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_autorizar_documento($1,'autorizado pelo jurídico')", [caso.id]);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    expect(await divs(db, caso)).not.toContain("ACORDO_NOVO");
+    await db.close();
+  });
+
+  it("acordo CANCELADO depois da aprovacao, e acordo QUITADO depois da aprovacao, NAO geram alerta", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    await acordoEm(db, a.al, a.cpf, U(962, 1), "CANCELADO", "2026-11-12", 8003);
+    await acordoEm(db, a.al, a.cpf, U(963, 1), "QUITADO", "2026-11-12", 8004);
+    expect(await divs(db, caso)).not.toContain("ACORDO_NOVO");
+    await db.close();
+  });
+
+  it("acordo ATIVO com duplicado_de preenchido NAO gera alerta (copia, nao acordo novo)", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    await db.query("insert into acordos(id,aluno_id,cpf,status,valor_total,saldo,qtd_parcelas,numero_acordo,duplicado_de) values ($1,$2,$3,'ATIVO',500,500,1,8005,$4)", [U(964, 1), a.al, a.cpf, U(964, 2)]);
+    expect(await divs(db, caso)).not.toContain("ACORDO_NOVO");
+    await db.close();
+  });
+});
+
 describe("rollback", () => {
   it("recusa com bloqueio ativo; sem bloqueio, remove tudo e guarda copia fechada", async () => {
     const db = await novo();

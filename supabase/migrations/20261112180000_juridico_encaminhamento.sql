@@ -77,6 +77,9 @@ create table public.juridico_casos (
   doc_autorizado_por text,
   doc_autorizado_em timestamptz,
   doc_autorizado_motivo text,
+  -- IDs de TODOS os acordos ATIVOS do aluno no momento da aprovacao.
+  -- Base do sinal ACORDO_NOVO (novo ou reativado depois da aprovacao).
+  acordos_aprovados uuid[] not null default '{}',
   bloqueio_anterior jsonb,
   aprovado_por text,
   aprovado_em timestamptz,
@@ -355,10 +358,12 @@ $function$;
 
 -- Pagamento recebido e ainda nao baixado, por conjunto de alunos (null = todos).
 -- MEDIDO em producao em 12/11/2026 (leitura; consultas em
--- docs/juridico/consultas-n1-n4-2026-11-12.sql): de 2.382 barrados pela regra
--- antiga, a reducao para 24 vem do prazo de 30 dias no extrato (2.346);
--- NEGOCIADO no sinal (c) explica 12 e no sinal (a) nenhum. Liquidacao de
--- titulo negociado e o ACORDO, nao pagamento. Sinais:
+-- docs/juridico/consultas-n1-n4-2026-11-12.sql): a regra antiga barrava 2.382
+-- alunos; a atual barra 24. O prazo de 30 dias LIBERA 2.346 deles (o pagamento
+-- no extrato e de mais de 30 dias apos o vencimento). NEGOCIADO no sinal (c)
+-- libera 12 e no sinal (a) nenhum. Liquidacao de titulo negociado e o ACORDO,
+-- nao pagamento. Criterio de 30 dias: so muda por decisao expressa da gestao.
+-- Sinais:
 --   (a) pagamento registrado contra titulo ABERTO do aluno;
 --   (b) pagamento registrado contra o boleto de parcela viva de acordo ATIVO;
 --   (c) extrato Prime: ULTIMO registro do boleto+CPF de titulo ABERTO, com
@@ -526,13 +531,14 @@ begin
             or round(coalesce(p.valor,0), 2) is distinct from jt.valor)
   ) then v := array_append(v, 'PARCELA_ALTERADA'); end if;
 
-  -- acordo ativo fechado DEPOIS da aprovacao: nao esta na fotografia
+  -- Acordo ATIVO que NAO estava no conjunto registrado na aprovacao: novo, ou
+  -- cancelado na aprovacao e reativado depois. Compara IDs, nunca datas
+  -- (criado_em e atualizado_em nao distinguem reativacao de edicao comum).
   if exists (
     select 1 from public.acordos a
      where a.aluno_id = p_caso.aluno_id and upper(coalesce(a.status,'')) = 'ATIVO'
-       and a.duplicado_de is null and a.criado_em > p_caso.aprovado_em
-       and not exists (select 1 from public.juridico_casos_titulos jt
-                        where jt.caso_id = p_caso.id and jt.ativo and jt.acordo_id = a.id)
+       and a.duplicado_de is null
+       and not (a.id = any(p_caso.acordos_aprovados))
   ) then v := array_append(v, 'ACORDO_NOVO'); end if;
 
   if public._juridico_pagamento_nao_baixado(p_caso.aluno_id) then
@@ -996,7 +1002,11 @@ begin
 
   update public.juridico_casos
      set status = 'APROVADO', aprovado_por = v_email, aprovado_em = now(),
-         valor_aprovado = (v_conf->>'total')::numeric, bloqueio_anterior = v_ant
+         valor_aprovado = (v_conf->>'total')::numeric, bloqueio_anterior = v_ant,
+         acordos_aprovados = coalesce((
+           select array_agg(a.id) from public.acordos a
+            where a.aluno_id = v_caso.aluno_id and upper(coalesce(a.status,'')) = 'ATIVO'
+              and a.duplicado_de is null), '{}'::uuid[])
    where id = p_caso_id;
 
   perform public._juridico_registrar(p_caso_id, v_caso.lote_id, 'CASO_APROVADO',
