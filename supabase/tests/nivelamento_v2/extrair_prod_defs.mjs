@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
 const D = 'supabase/tests/nivelamento_v2';
 const FINAL = path.join(D, 'prod_defs.json');
@@ -15,25 +16,29 @@ if (!url) {
   process.exit(3);
 }
 let pg;
-try { pg = (await import('pg')).default; }
-catch { console.error('PENDENTE: driver pg ausente (npm install --no-save pg). Nada alterado.'); process.exit(3); }
+// PG_DRIVER: caminho absoluto para o modulo pg (ex.: <dir>/node_modules/pg/lib/index.js) ou nome do pacote.
+const driver = process.env.PG_DRIVER || 'pg';
+const spec = path.isAbsolute(driver) ? pathToFileURL(driver).href : driver;
+try { pg = (await import(spec)).default; }
+catch (e) { console.error('PENDENTE: driver pg nao carregou de ' + driver + ' (' + e.code + '). Nada alterado.'); process.exit(3); }
 
 const tmp = FINAL + '.tmp-' + process.pid;
 const tmpSql = tmp + '.sql';
 const limpar = () => { for (const f of [tmp, tmpSql, tmp + '.sql.hashes.sql']) { try { fs.rmSync(f, { force: true }); } catch {} } };
 process.on('exit', (code) => { if (code !== 0) limpar(); });
 
-const client = new pg.Client({ connectionString: url, ssl: { rejectUnauthorized: true } });
+// TLS segue o sslmode da propria URL (ex.: sslmode=require); nao forcamos aqui.
+const client = new pg.Client({ connectionString: url });
 try {
   await client.connect();
   await client.query('set default_transaction_read_only = on');
-  const sql = fs.readFileSync(path.join(D, 'export_prod_defs.sql'), 'utf8');
+  const sql = fs.readFileSync(process.env.EXPORT_SQL || path.join(D, 'export_prod_defs.sql'), 'utf8');
   const { rows } = await client.query(sql.replace(/^begin read only;\s*/m, '').replace(/^commit;\s*$/m, ''));
   const json = rows[0][Object.keys(rows[0])[0]];
   if (typeof json !== 'string' || json.length < 10) throw new Error('export sem saida JSON');
   fs.writeFileSync(tmp, json);
 } catch (e) {
-  console.error('FALHOU na extracao: ' + e.message.split(url).join('<URL>') + '. Nada alterado.');
+  console.error('FALHOU na extracao: ' + String(e.message).split(url).join('<URL>') + '. Nada alterado.');
   process.exit(1);
 } finally {
   await client.end().catch(() => {});

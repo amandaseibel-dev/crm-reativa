@@ -1131,3 +1131,59 @@ jobs:
           psql -X -q -At -v ON_ERROR_STOP=1 -f "$DIR/export_prod_defs.sql" > /tmp/export_ci.json
           node "$DIR/importar_prod_defs.mjs" /tmp/export_ci.json /tmp/export_ci.sql
           echo "OK: export real do PG16 verificado"
+
+  # ---------------------------------------------------------------------------
+  # EXTRATOR DE DEFINICOES — testado contra Postgres REAL com banco SINTETICO.
+  # Nao acessa producao. O papel leitor_defs e so do CI (senha sintetica).
+  # ---------------------------------------------------------------------------
+  extrator-prod-defs:
+    name: extrator de definicoes — sucesso, falhas, divergencia e privilegio minimo (postgres 16 sintetico)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/nivelamento_v2
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Driver pg em diretorio temporario (fora do projeto; sem alterar lockfile)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pgdrv" && cd "$RUNNER_TEMP/pgdrv"
+          npm init -y >/dev/null
+          npm install --silent pg@8
+          echo "PG_DRIVER=$RUNNER_TEMP/pgdrv/node_modules/pg/lib/index.js" >> "$GITHUB_ENV"
+
+      - name: Banco sintetico com fixture e papel de privilegio minimo
+        run: |
+          set -euo pipefail
+          psql -d postgres -v ON_ERROR_STOP=1 -c "drop database if exists integracao" -c "create database integracao"
+          psql -d integracao -v ON_ERROR_STOP=1 -f "$DIR/00_base_integracao.sql"
+          node "$DIR/importar_prod_defs.mjs" "$DIR/fixtures/prod_defs_sintetico.json" "$RUNNER_TEMP/integ.sql"
+          psql -d integracao -v ON_ERROR_STOP=1 -f "$RUNNER_TEMP/integ.sql"
+          psql -d integracao -v ON_ERROR_STOP=1 -c "drop role if exists leitor_defs" -c "create role leitor_defs login password 'ci-sintetico-unico'"
+          psql -d integracao -v ON_ERROR_STOP=1 -c "grant connect on database integracao to leitor_defs" -c "grant usage on schema public, internal to leitor_defs"
+
+      - name: Testes do extrator (sucesso, conexao, divergencia, sem URL, privilegio)
+        run: |
+          set -euo pipefail
+          bash "$DIR/teste_extrator.sh"
