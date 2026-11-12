@@ -1,0 +1,168 @@
+-- ============================================================================
+-- FIDELIZAÇÃO DO GIRO DE OUTUBRO PASSA A SEGUIR OS 10 DIAS
+-- ----------------------------------------------------------------------------
+-- PENDENTE DE AUTORIZAÇÃO. NÃO APLICADA EM BANCO NENHUM.
+-- Só o teste supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js executa
+-- este arquivo, num PostgreSQL efêmero.
+--
+-- REGRA DEFINITIVA (gestão, 12/11/2026)
+--   1. A fidelização dura 10 dias, inclusive para caso distribuído pelo giro.
+--   2. A partir do 11º dia sem interação válida o caso perde a exclusividade.
+--   6. A marca histórica do giro não mantém fidelização indefinida.
+--
+-- O DEFEITO, MEDIDO EM PRODUÇÃO EM 12/11/2026 (somente leitura)
+--   `liberar_fidelizacao_caso` devolve false para QUALQUER caso com
+--   `giro_fidelizacao_ate` não nulo -- olha a MARCA, não a DATA. As datas
+--   venceram em 26/10 e 31/10, mas a marca só é limpa quando o dono muda.
+--   Resultado: 4.009 casos com marca ficaram fora do rodízio de 10 dias; 1.029
+--   deles estão parados há 11 dias ou mais e não protegidos (R$ 1,39 mi).
+--   `trg_impor_teto_operador` tem o mesmo defeito (`giro_fidelizacao_ate IS NULL`).
+--   `assumir_caso_livre` tem o defeito OPOSTO: marca vencida deixa outro
+--   operador assumir o caso SEM olhar os 10 dias -- um caso de giro acionado
+--   ontem pode ser tomado hoje.
+--
+-- O QUE MUDA -- quatro funções, por PATCH ANCORADO (recusa se o corpo mudou)
+--   A. liberar_fidelizacao_caso: a guarda do giro passa a olhar a DATA
+--      (`caso_em_giro_fidelizacao`), como o nivelamento já faz desde a M3.
+--      Vencida a data, vale só a regra comum: 10 dias do último acionamento.
+--      Ganha portão interno de gestão: a função é SECURITY DEFINER com EXECUTE
+--      para `authenticated` e não conferia quem chama. O único chamador é
+--      `liberar_casos_fidelizacao_vencida` (cron sem JWT, ou gestão).
+--      Tambem preserva o caso com retorno AGENDADO PELO OPERADOR para hoje ou
+--      depois (retorno automatico das acoes massivas nao protege).
+--   B. trg_impor_teto_operador: mesma troca de MARCA por DATA.
+--   D. casos_risco_perder: giro vigente e retorno do operador saem do card "risco
+--      de perder" (nao sao risco). Nao e espelho exato do cron (ver abaixo).
+--   C. assumir_caso_livre: caso de giro com dono só pode ser assumido por outro
+--      operador depois dos 10 dias do último acionamento.
+--
+-- O QUE NÃO MUDA
+--   * Nenhuma linha de dado: ZERO insert/update/delete. A liberação acontece
+--     depois, pelo cron 8 (`fidelizacao_liberar_vencidos`, 05:20 BRT) ou pela
+--     gestão em "Saúde da Base" -- não por este arquivo.
+--   * `caso_protegido_redistribuicao`, `caso_encerrado_operacional`,
+--     `caso_encerramento_congelado` e o hold de 24h: quem tem acordo ativo,
+--     pagamento em trânsito, confirmação aberta, jurídico/cancelado, quitação
+--     ou tratativa em andamento continua com o operador.
+--   * `casos_elegiveis_liberacao_fidelizacao`, `acoes_massivas_universo`,
+--     `nivelamento_automatico_gestao`: intocadas. `casos_risco_perder` muda SO nas
+--     duas guardas novas (giro vigente, retorno do operador); NAO vira espelho do
+--     cron: o card ainda lista Carteira Geral e caso em hold de 24h, que a
+--     liberacao nao solta (hold: some no dia seguinte).
+--   * Nenhum giro, nenhuma redistribuição: o caso solto fica LIVRE, sem dono.
+--     O job de reposição (43) segue pausado e esta migration não o toca.
+--   * Assinaturas, SECURITY DEFINER, search_path, dono e grants: o bloco final
+--     confere e ABORTA se qualquer um tiver mudado.
+--   * Nenhum agendamento: não chama cron.schedule/alter_job/unschedule.
+--
+-- Rollback: 20261112210000_fidelizacao_giro_segue_os_10_dias.rollback.sql
+-- ============================================================================
+
+BEGIN;
+
+DO $mig$
+DECLARE
+  v_antes jsonb;
+  v_depois jsonb;
+BEGIN
+  -- Retrato de dono, grants, SECURITY DEFINER e search_path ANTES.
+  SELECT jsonb_object_agg(p.proname, jsonb_build_object(
+           'acl', p.proacl::text, 'cfg', p.proconfig::text, 'def', p.prosecdef, 'dono', p.proowner::text))
+    INTO v_antes
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public'
+     AND p.proname IN ('liberar_fidelizacao_caso', 'trg_impor_teto_operador', 'assumir_caso_livre', 'casos_risco_perder');
+
+  IF (SELECT count(*) FROM jsonb_object_keys(v_antes)) <> 4 THEN
+    RAISE EXCEPTION 'fidelizacao_giro: esperava as 4 funcoes alvo, achei %.', v_antes;
+  END IF;
+
+  -- A1. liberar_fidelizacao_caso: portao interno de gestao.
+  PERFORM internal.patch_funcao_ancorada('public', 'liberar_fidelizacao_caso',
+$ancora$  select * into v_c from public.casos where id = p_caso_id for update;$ancora$,
+$novo$  -- Portao interno (12/11/2026): so o cron (sem JWT) e a gestao soltam caso.
+  if auth.jwt() is not null and not public.usuario_e_gestao_fila() then
+    raise exception 'sem_permissao' using errcode='42501';
+  end if;
+  select * into v_c from public.casos where id = p_caso_id for update;$novo$, 1);
+
+  -- A2. liberar_fidelizacao_caso: a guarda do giro olha a DATA, nao a marca.
+  PERFORM internal.patch_funcao_ancorada('public', 'liberar_fidelizacao_caso',
+$ancora$  if v_c.giro_fidelizacao_ate is not null then
+    -- Caso de giro: nao volta ao pool por rotina automatica. Ate a data da
+    -- fidelizacao por exclusividade; depois dela, para preservar o responsavel
+    -- ate que outro operador assuma pelo fluxo normal.
+    return false;$ancora$,
+$novo$  if public.caso_em_giro_fidelizacao(v_c.giro_fidelizacao_ate) then
+    -- Caso de giro: exclusivo ate a DATA da fidelizacao do lote. Vencida a
+    -- data, a marca historica nao segura mais nada -- vale a regra comum dos
+    -- 10 dias do ultimo acionamento, logo abaixo (regra da gestao, 12/11/2026).
+    return false;$novo$, 1);
+
+  -- A3. liberar_fidelizacao_caso: retorno AGENDADO PELO OPERADOR (hoje ou
+  --     futuro; prefixo OPERADOR%, como em utils/retornoOrigem.js) preserva o caso. Compromisso com o aluno nao se perde por
+  --     rotina. Retorno automatico (carimbado pelas acoes massivas) NAO e
+  --     compromisso e nao protege. Data em America/Sao_Paulo.
+  PERFORM internal.patch_funcao_ancorada('public', 'liberar_fidelizacao_caso',
+$ancora$  if public.caso_dentro_prazo_fidelizacao(v_c.data_ultimo_acionamento) then return false; end if;$ancora$,
+$novo$  if public.caso_dentro_prazo_fidelizacao(v_c.data_ultimo_acionamento) then return false; end if;
+  if v_c.aluno_id is not null and exists (
+       select 1 from public.alunos a
+        where a.id = v_c.aluno_id
+          and a.data_retorno >= (now() at time zone 'America/Sao_Paulo')::date
+          and upper(coalesce(a.retorno_origem,'')) like 'OPERADOR%') then
+    return false;  -- retorno marcado pelo operador: compromisso preservado
+  end if;$novo$, 1);
+
+  -- D. casos_risco_perder: o card "risco de perder" deixa de listar o que a
+  --    liberacao NAO solta por giro vigente ou retorno do operador. Fonte unica no banco (Premissa 12): a tela
+  --    so exibe. Sem isto o card marcaria como "perdendo" casos que a rotina nao
+  --    solta (giro ainda vigente, retorno do operador).
+  PERFORM internal.patch_funcao_ancorada('public', 'casos_risco_perder',
+$ancora$    and not public.caso_dentro_prazo_fidelizacao(c.data_ultimo_acionamento)$ancora$,
+$novo$    and not public.caso_dentro_prazo_fidelizacao(c.data_ultimo_acionamento)
+    -- giro: exclusivo so ate a DATA do lote (12/11/2026)
+    and not public.caso_em_giro_fidelizacao(c.giro_fidelizacao_ate)
+    -- retorno agendado pelo operador (hoje ou futuro) e compromisso, nao risco
+    and not exists (select 1 from public.alunos a
+                     where a.id = c.aluno_id
+                       and a.data_retorno >= (now() at time zone 'America/Sao_Paulo')::date
+                       and upper(coalesce(a.retorno_origem,'')) like 'OPERADOR%')$novo$, 1);
+
+  -- B. trg_impor_teto_operador: mesma troca de MARCA por DATA.
+  PERFORM internal.patch_funcao_ancorada('public', 'trg_impor_teto_operador',
+$ancora$AND c.giro_fidelizacao_ate IS NULL$ancora$,
+$novo$AND NOT public.caso_em_giro_fidelizacao(c.giro_fidelizacao_ate)$novo$, 1);
+
+  -- C. assumir_caso_livre: caso de giro com dono so troca de mao depois dos
+  --    10 dias do ultimo acionamento.
+  PERFORM internal.patch_funcao_ancorada('public', 'assumir_caso_livre',
+$ancora$    if v_pool is null and v_new.giro_fidelizacao_ate is null then$ancora$,
+$novo$    if v_pool is null and (v_new.giro_fidelizacao_ate is null
+         or public.caso_dentro_prazo_fidelizacao(v_new.data_ultimo_acionamento)) then$novo$, 1);
+
+  -- Retrato DEPOIS: nada de grant, dono, SECURITY DEFINER ou search_path muda.
+  SELECT jsonb_object_agg(p.proname, jsonb_build_object(
+           'acl', p.proacl::text, 'cfg', p.proconfig::text, 'def', p.prosecdef, 'dono', p.proowner::text))
+    INTO v_depois
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public'
+     AND p.proname IN ('liberar_fidelizacao_caso', 'trg_impor_teto_operador', 'assumir_caso_livre', 'casos_risco_perder');
+
+  IF v_depois IS DISTINCT FROM v_antes THEN
+    RAISE EXCEPTION 'fidelizacao_giro: grants/dono/search_path mudaram. antes=% depois=%', v_antes, v_depois;
+  END IF;
+
+  -- Nenhuma das duas pode continuar decidindo pela MARCA nua.
+  IF EXISTS (
+    SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public'
+       AND ((p.proname = 'liberar_fidelizacao_caso' AND p.prosrc LIKE '%v_c.giro_fidelizacao_ate is not null%')
+         OR (p.proname = 'trg_impor_teto_operador'  AND p.prosrc LIKE '%c.giro_fidelizacao_ate IS NULL%'))
+  ) THEN
+    RAISE EXCEPTION 'fidelizacao_giro: ainda ha guarda pela marca nua do giro.';
+  END IF;
+END
+$mig$;
+
+COMMIT;
