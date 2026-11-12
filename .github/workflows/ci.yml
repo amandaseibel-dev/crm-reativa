@@ -1047,8 +1047,8 @@ jobs:
       - name: Guarda — nada de nivelamento em migrations/ e artefatos presentes
         run: |
           set -euo pipefail
-          if ls supabase/migrations/ | grep -qi nivelamento; then
-            echo "FALHOU: ha arquivo de nivelamento em supabase/migrations/"; exit 1
+          if ls supabase/migrations/ | grep -qE "^20261112120" ; then
+            echo "FALHOU: ha migration da V2 (20261112120*) em supabase/migrations/"; exit 1
           fi
           for f in "$M1" "$M2" "$RB"; do test -f "$f" || { echo "FALHOU: ausente $f"; exit 1; }; done
           echo "OK: artefatos presentes e fora de migrations/"
