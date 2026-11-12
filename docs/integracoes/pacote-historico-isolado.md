@@ -39,16 +39,23 @@ No head `1655f425`, a trava de OAuth/envio é só técnica (variável `ULBRA_ENV
 - Testes do painel e do cliente: 8 passam.
 - `deno check supabase/functions/ulbra-historico/index.ts` com Deno 2.1.4: passa.
 
+## Botão "Histórico" na Central (PR dependente desta, branch `feat/ulbra-historico-botao-central`)
+- `src/utils/ulbraHistorico.js`: porta `HISTORICO_DISPONIVEL = false` e `podeVerHistorico(linha, ehGestao)` — só linha com `aluno_id` (CPF confirmado) e só gestão ou o responsável da linha (`minha`). A função reconfere no servidor; a porta de tela evita oferecer um clique que seria negado.
+- `src/components/MensageriaPeriodo.jsx` (visão Mensageria de `/central-ulbra`): nas duas seções, a linha elegível ganha o botão **Histórico**, que só abre o painel `HistoricoUlbraLeitura` (zero chamada). A leitura é o clique **"Carregar histórico"** dentro do painel: 1 chamada por página; recusas da função (`SALDO_DESATUALIZADO`, `SALDO_SEM_INFORMACAO`, `LIMITE_OPERADOR_DIA`, `RESERVA_GLOBAL`, `SEM_PERMISSAO_NA_CONVERSA`, `IDENTIDADE_NAO_CONFIRMADA`) viram texto, sem repetição. Com a porta desligada a tela é **idêntica à de hoje**: nenhum botão, nenhuma chamada, mesmo aviso.
+- Testes: `MensageriaPeriodo.historico.test.jsx` (4) e `ulbraHistorico.test.js` (4) — porta desligada sem botão; operador só na própria linha; gestão em toda linha com CPF; abrir painel não chama; 1 clique = 1 chamada; recusa sem repetição. Os 32 testes de `CentralUlbra.test.jsx` seguem passando.
+- **Ligar a porta** (`HISTORICO_DISPONIVEL = true`) é uma PR de uma linha, só depois dos passos 1–3 abaixo.
+
 ## Ordem de implantação (somente com aprovação nova e específica)
-1. Aplicar `20261110100000_ulbra_historico_orcamento.sql.pendente` (SHA-256 `163f3b55…`).
-2. Publicar a função `ulbra-historico`.
+1. Aplicar `20261110100000_ulbra_historico_orcamento.sql.pendente` (SHA-256 `163f3b55…`). A linha M1 em `docs/seguranca/migracoes-aprovadas.tsv` (PR #919) é por **hash**, e o hash é o mesmo nesta PR: tecnicamente cobre estes bytes até `2026-11-13T21:00:00Z`. A **aprovação expressa** da aplicação a partir desta PR é separada e ainda não foi dada.
+2. Publicar a função `ulbra-historico` (`verify_jwt = true`); conferir que o segredo `ULBRA_MCP_TOKEN` existe no projeto (só existência).
 3. Piloto de **até três chamadas** de leitura, por clique, em alunos autorizados.
-4. Montar o painel em rota: decisão separada, fora desta aprovação.
+4. Merge desta PR e da PR do botão (porta desligada): nada muda na tela.
+5. PR de uma linha ligando `HISTORICO_DISPONIVEL`.
 
 ## Reversão
-1. Remover a função `ulbra-historico` do projeto.
-2. Aplicar `20261110100000_ulbra_historico_orcamento.rollback.sql` (SHA-256 `1aa486a1…`).
-3. Não há rota montada nesta PR: nada a desmontar no frontend.
+1. Desligar a porta (`HISTORICO_DISPONIVEL = false`): o botão some, nenhuma chamada sai da tela.
+2. Remover a função `ulbra-historico` do projeto.
+3. Aplicar `20261110100000_ulbra_historico_orcamento.rollback.sql` (SHA-256 `1aa486a1…`).
 
 ## Autorização
 A autorização de implantação vinculada ao head da #913 **não se transfere** para esta PR. A implantação exige aprovação nova.
