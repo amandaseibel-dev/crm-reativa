@@ -45,6 +45,8 @@ drop trigger if exists trg_juridico_guarda_bloqueio on public.casos;
 drop trigger if exists trg_juridico_guarda_caso_novo on public.casos;
 drop trigger if exists trg_juridico_so_anexa_historico on public.juridico_historico;
 drop trigger if exists trg_juridico_so_anexa_documentos on public.juridico_documentos;
+drop trigger if exists trg_juridico_so_anexa_truncate_historico on public.juridico_historico;
+drop trigger if exists trg_juridico_so_anexa_truncate_documentos on public.juridico_documentos;
 
 -- 2. funcoes: lista explicita, 26 assinaturas (conferidas pela migration)
 drop function public._juridico_exigir_gestao();

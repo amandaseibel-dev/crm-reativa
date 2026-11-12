@@ -357,11 +357,12 @@ create function public._juridico_pagamento_nao_baixado(p_aluno_id uuid)
 returns boolean
 language sql stable security definer set search_path to 'public'
 as $function$
-  -- Os MESMOS dois sinais que as Acoes Massivas usam para "ja pagou" (ver
-  -- acoes_massivas_liquidados_prime e o universo consolidado): pagamento
-  -- registrado contra o titulo/boleto ainda ABERTO, e liquidacao no extrato
-  -- Prime do mesmo boleto e CPF. Titulo ainda aberto com um desses = recebido
-  -- e nao baixado.
+  -- Pagamento recebido e ainda nao baixado. Sinais INSPIRADOS nas Acoes
+  -- Massivas, NAO identicos: aqui basta (a) pagamento registrado contra o
+  -- titulo ou boleto ainda aberto, ou (b) liquidacao com valor pago no extrato
+  -- Prime do mesmo boleto e CPF. A massiva exige prazo (vencimento + 30) e
+  -- pelo menos 50% pago; este e mais estrito de proposito -- na duvida, nao
+  -- encaminha. Criterio a fechar pela gestao (ver doc).
   select exists (
            select 1
              from public.acordos_titulos t
@@ -446,8 +447,18 @@ returns table (
   grupo text, semestre_divida text, prioridade integer,
   valor_mensalidades numeric, valor_acordos numeric, valor_total numeric,
   qtd_titulos integer, tem_acordo_ativo boolean)
-language sql stable security definer set search_path to 'public'
+language plpgsql stable security definer set search_path to 'public'
 as $function$
+#variable_conflict use_column
+declare
+  r record;
+  v_n int := 0;
+  v_lim int := greatest(coalesce(p_limite, 0), 0);
+begin
+  -- Os filtros de bloqueio e de pagamento nao baixado sao avaliados ANTES de
+  -- contar o limite: o lote sai com o pedido, quando houver elegiveis.
+  for r in
+
   with tit as materialized (
     select t.aluno_id as tid,
            sum(round(coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_original, 0), 2)) as v,
@@ -510,16 +521,23 @@ as $function$
                         where s.aluno_id = al.id::text
                           and s.status in ('AGUARDANDO_CONFIRMACAO','PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO'))
      order by 8, coalesce(tit.v, 0) + coalesce(aco.v_quebrado, 0) desc, al.id
-     -- folga: o portao administrativo e avaliado so sobre este recorte
-     limit greatest(coalesce(p_limite, 0), 0) * 3 + 30
   )
   select r.id, r.nome, r.matricula, r.curso, r.situacao_academica, r.grupo, r.semestre_divida,
-         r.prioridade, r.v_mens, r.v_aco, r.v_mens + r.v_aco, r.n, r.tem
+         r.prioridade, r.v_mens, r.v_aco, r.n, r.tem
     from ranqueado r
-   where public.aluno_bloqueio_administrativo(r.id) is null
-     and not public._juridico_pagamento_nao_baixado(r.id)
    order by r.prioridade, r.v_mens + r.v_aco desc, r.id
-   limit greatest(coalesce(p_limite, 0), 0);
+  loop
+    exit when v_n >= v_lim;
+    continue when public.aluno_bloqueio_administrativo(r.id) is not null;
+    continue when public._juridico_pagamento_nao_baixado(r.id);
+    v_n := v_n + 1;
+    aluno_id := r.id; nome := r.nome; matricula := r.matricula; curso := r.curso;
+    situacao_academica := r.situacao_academica; grupo := r.grupo; semestre_divida := r.semestre_divida;
+    prioridade := r.prioridade; valor_mensalidades := r.v_mens; valor_acordos := r.v_aco;
+    valor_total := r.v_mens + r.v_aco; qtd_titulos := r.n; tem_acordo_ativo := r.tem;
+    return next;
+  end loop;
+end;
 $function$;
 
 -- ---------------------------------------------------------------------------
@@ -616,7 +634,7 @@ begin
      set status_atual = x.status_atual
     from jsonb_to_recordset(coalesce(p_caso.bloqueio_anterior->'casos', '[]'::jsonb))
            as x(id uuid, status_atual text)
-   where c.id = x.id and upper(coalesce(c.status_atual,'')) = 'JURIDICO';
+   where c.id = x.id and c.aluno_id = p_caso.aluno_id and upper(coalesce(c.status_atual,'')) = 'JURIDICO';
 
   perform set_config('parcela_efeito_sem_pagamento.aplicando', '', true);
   perform set_config('juridico.desbloqueio', '', true);
@@ -1135,6 +1153,10 @@ create trigger trg_juridico_so_anexa_historico before update or delete on public
   for each row execute function public._juridico_so_anexa();
 create trigger trg_juridico_so_anexa_documentos before update or delete on public.juridico_documentos
   for each row execute function public._juridico_so_anexa();
+create trigger trg_juridico_so_anexa_truncate_historico before truncate on public.juridico_historico
+  for each statement execute function public._juridico_so_anexa();
+create trigger trg_juridico_so_anexa_truncate_documentos before truncate on public.juridico_documentos
+  for each statement execute function public._juridico_so_anexa();
 
 -- ---------------------------------------------------------------------------
 -- 5. GUARDA DO BLOQUEIO: o status JURIDICO nao sai de alunos/casos enquanto
@@ -1274,7 +1296,7 @@ begin
   'public._juridico_guarda_caso_novo()',
   'public._juridico_so_anexa()'
   ] loop
-    execute format('revoke all on function %s from public, anon, authenticated', sig);
+    execute format('revoke all on function %s from public, anon, authenticated, service_role', sig);
   end loop;
 end
 $grants$;
@@ -1299,6 +1321,7 @@ begin
      and (p.proname like 'juridico\_%' or p.proname like '\_juridico\_%')
      and (has_function_privilege('anon', p.oid, 'execute')
        or (p.proname like '\_%' and has_function_privilege('authenticated', p.oid, 'execute'))
+       or (p.proname like '\_%' and has_function_privilege('service_role', p.oid, 'execute'))
        or not coalesce(p.proconfig @> array['search_path=public'], false));
   if v_n > 0 then
     raise exception 'juridico: % funcao(oes) com grant indevido ou sem search_path fixo.', v_n;

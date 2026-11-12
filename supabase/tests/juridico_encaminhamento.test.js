@@ -550,6 +550,8 @@ describe("correcoes da reauditoria (12/11/2026)", () => {
     expect((await falha(db.query("update juridico_documentos set referencia='x'")))?.code).toBe("42501");
     expect((await falha(db.query("delete from juridico_documentos")))?.code).toBe("42501");
     expect((await falha(db.query("update juridico_historico set evento='x'")))?.code).toBe("42501");
+    expect((await falha(db.query("truncate juridico_historico")))?.code).toBe("42501");
+    expect((await falha(db.query("truncate juridico_documentos")))?.code).toBe("42501");
     await db.close();
   });
 
@@ -612,6 +614,20 @@ describe("correcoes da reauditoria (12/11/2026)", () => {
     expect(await cont()).toBe(1);
     await rpc(db, "public.juridico_lote_exportar($1)", [l.lote_id]);
     expect(await cont()).toBe(2);
+    await db.close();
+  });
+
+  it("11. o lote enche ate o pedido quando os primeiros candidatos sao barrados", async () => {
+    const db = await novo();
+    const barrados = [];
+    for (let i = 0; i < 3; i++) barrados.push(await mk(db, { valores: [9000 - i] }));
+    const ok = [];
+    for (let i = 0; i < 2; i++) ok.push(await mk(db, { valores: [100 - i] }));
+    for (const b of barrados) await pagar(db, await docDe(db, b.titulos[0]), b.al, b.cpf);
+    const l = await gerar(db, 2);
+    expect(l.gerados).toBe(2);
+    const alunos = (await casosDoLote(db, l.lote_id)).map((x) => x.aluno_id).sort();
+    expect(alunos).toEqual(ok.map((x) => x.al).sort());
     await db.close();
   });
 

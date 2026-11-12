@@ -74,7 +74,9 @@ export default function Juridico() {
     setErro("");
     setPainel(data);
     // Registra no histórico o que mudou depois do encaminhamento. Não bloqueia a tela.
-    supabase.rpc("juridico_varrer_alertas");
+    supabase.rpc("juridico_varrer_alertas").then(({ error: e }) => {
+      if (e) console.error("Alerta de encaminhamento não registrado:", e.message);
+    });
   }, []);
 
   useEffect(() => {

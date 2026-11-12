@@ -62,6 +62,7 @@ describe("aprovação", () => {
     await waitFor(() => expect(chamadas("juridico_caso_aprovar")).toHaveLength(1));
     expect(chamadas("juridico_caso_aprovar")[0][1]).toEqual({ p_caso_id: "c1" });
     expect(await screen.findByText(/Cobrança bloqueada — manual, massiva e automática/)).toBeTruthy();
+    expect(rpc).toHaveBeenCalledWith("juridico_varrer_alertas");
   });
 
   it("termo não localizado: aparece dito, a aprovação fica desligada e as saídas são vincular ou autorização jurídica", async () => {

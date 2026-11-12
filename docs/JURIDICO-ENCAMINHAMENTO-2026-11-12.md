@@ -82,8 +82,9 @@ Fica, por decisão a tomar pela gestão:
   ou CONFIRMADO. A única saída é `juridico_caso_remover`, que liga a GUC `juridico.desbloqueio`
   dentro da transação e registra o motivo e o estado anterior.
 - **Caso de cobrança novo para aluno com encaminhamento ativo** é recusado no insert em `casos`.
-- **Pagamento não baixado** (mesmos dois sinais das Ações Massivas: `pagamentos` contra o título
-  ou boleto ainda aberto, e `prime_extrato` liquidado do mesmo boleto e CPF) bloqueia a seleção,
+- **Pagamento não baixado** (sinais INSPIRADOS nas Ações Massivas, não idênticos: `pagamentos` contra o
+  título ou boleto ainda aberto, e `prime_extrato` liquidado do mesmo boleto e CPF, sem o prazo nem o
+  limite de 50% que a massiva usa. **Critério a fechar pela gestão.**) bloqueia a seleção,
   a aprovação (`!PAGAMENTO_NAO_BAIXADO`) e o envio.
 - **Envio recusa** qualquer caso com divergência: mensalidade ou parcela que mudou, valor
   diferente do aprovado, acordo duplicado, pagamento não baixado ou aguardando confirmação.
