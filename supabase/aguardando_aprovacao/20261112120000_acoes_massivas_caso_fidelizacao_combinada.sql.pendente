@@ -29,6 +29,10 @@ BEGIN
        WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar_emails_do_lote') <> '9c4c8486b2436a573c0ba589428c172c' THEN
     RAISE EXCEPTION 'Exportacao por e-mail publicada mudou desde a validacao (esperado 9c4c...). Nada aplicado.';
   END IF;
+  IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar') <> '2f867f7da9f33b28868f70416c685727' THEN
+    RAISE EXCEPTION 'Exportacao publicada mudou desde a validacao (esperado 2f867f...). Nada aplicado.';
+  END IF;
   IF EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
               WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_fidelizacao_protege') THEN
     RAISE EXCEPTION 'Funcao acoes_massivas_fidelizacao_protege ja existe. Nada aplicado.';
@@ -105,6 +109,26 @@ SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_exportar_emails_
 $e4$'motivo', 'Sem e-mail válido no cadastro')$e4$,
 $e4$'motivo', case when d.fid then 'Protegido pela fidelização até o 10º dia' else 'Sem e-mail válido no cadastro' end)$e4$, 1);
 
+-- 3b. EXPORTACAO (recorte da previa autorizada) ----------------------------------
+-- Com previa, o operador e o tipo vem da PREVIA. p_operador_email nao substitui o
+-- recorte: se divergir da previa, recusa. Sem previa, 'caso:' e recusado.
+SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_exportar',
+$x1$  v_op := coalesce(lower(nullif(btrim(p_operador_email), '')),
+                   lower(nullif(btrim(v_pf ->> 'operador'), '')), 'livres');$x1$,
+$x1$  if p_previa_id is not null and nullif(btrim(p_operador_email), '') is not null
+     and lower(btrim(p_operador_email)) is distinct from lower(nullif(btrim(v_pf ->> 'operador'), '')) then
+    raise exception 'Selecao diverge da previa autorizada. Gere a previa de novo.' using errcode = '22023';
+  end if;
+  if p_previa_id is null and lower(btrim(coalesce(p_operador_email, ''))) like 'caso:%' then
+    raise exception 'Exportacao por responsavel do caso exige a previa autorizada.' using errcode = '22023';
+  end if;
+  v_op := coalesce(lower(nullif(btrim(v_pf ->> 'operador'), '')),
+                   lower(nullif(btrim(p_operador_email), '')), 'livres');$x1$, 1);
+
+SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_exportar',
+$x2$  v_tipo := coalesce(upper(nullif(btrim(p_tipo_cobranca), '')), v_pf ->> 'tipo_cobranca', 'MENSALIDADES_E_ACORDOS');$x2$,
+$x2$  v_tipo := coalesce(v_pf ->> 'tipo_cobranca', upper(nullif(btrim(p_tipo_cobranca), '')), 'MENSALIDADES_E_ACORDOS');$x2$, 1);
+
 -- 4. VERIFICACOES FINAIS --------------------------------------------------------
 -- O MD5 final de cada funcao e gravado em 20261112120000_..._md5.txt pelo teste de
 -- migracao (ver tests). Aqui so confere que as duas funcoes existem e que a protecao
@@ -132,5 +156,9 @@ BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
        WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar_emails_do_lote') <> '00d3370a7800bd334292808e1573a57d' THEN
     RAISE EXCEPTION 'MD5 final da exportacao por e-mail diferente do validado (esperado 00d3370a...).';
+  END IF;
+  IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar') <> 'c9cc7498d16ca250e85c4727c8bb05bd' THEN
+    RAISE EXCEPTION 'MD5 final da exportacao diferente do validado (esperado c9cc7498...).';
   END IF;
 END $m$;

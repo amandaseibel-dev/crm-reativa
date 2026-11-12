@@ -20,7 +20,11 @@ const FIX = resolve(AQUI, "fixtures/acoes_massivas_universo");
 const ler = (p) => readFileSync(p, "utf8");
 const PROD_UNIVERSO = ler(resolve(FIX, "prod_20261112_universo.sql"));
 const PROD_EXPORT_EMAIL = ler(resolve(FIX, "prod_20261112_exportar_emails_do_lote.sql"));
-const MIG = ler(resolve(AQUI, "../migrations/20261112120000_acoes_massivas_caso_fidelizacao_combinada.sql"));
+// A migration fica em aguardando_aprovacao (nao aplicada); nunca em migrations/.
+const MIG = ler(resolve(AQUI, "../aguardando_aprovacao/20261112120000_acoes_massivas_caso_fidelizacao_combinada.sql.pendente"));
+const PROD_EXPORTAR = ler(resolve(FIX, "prod_20261112_exportar.sql"));
+const MD5_PROD_EXPORTAR = "2f867f7da9f33b28868f70416c685727";
+const MD5_FINAL_EXPORTAR = "c9cc7498d16ca250e85c4727c8bb05bd";
 const MD5_PROD_UNIVERSO = "88ec923f40294febcd4376491102b37d";
 const MD5_FINAL_UNIVERSO = "cefd206824186d4da8e6f1e35c14beb8";
 const MD5_PROD_EXPORT = "9c4c8486b2436a573c0ba589428c172c";
@@ -34,6 +38,7 @@ beforeEach(async () => {
   db = await novoBanco();
   await db.exec(PROD_UNIVERSO);       // publicado hoje em producao
   await db.exec(PROD_EXPORT_EMAIL);
+  await db.exec(PROD_EXPORTAR);
   await comoGestao(db);
 });
 
@@ -47,6 +52,7 @@ describe("publicado hoje (antes da migration)", () => {
   it("MD5 de origem confere com o publicado", async () => {
     expect(await md5("acoes_massivas_universo")).toBe(MD5_PROD_UNIVERSO);
     expect(await md5("acoes_massivas_exportar_emails_do_lote")).toBe(MD5_PROD_EXPORT);
+    expect(await md5("acoes_massivas_exportar")).toBe(MD5_PROD_EXPORTAR);
   });
   it("defeito: selecao por caso com um responsavel devolve zero", async () => {
     await alunos(db, 3, { dono: OP_A, ini: 1 });
@@ -60,6 +66,11 @@ describe("depois da migration combinada", () => {
   it("MD5 final confere com o validado", async () => {
     expect(await md5("acoes_massivas_universo")).toBe(MD5_FINAL_UNIVERSO);
     expect(await md5("acoes_massivas_exportar_emails_do_lote")).toBe(MD5_FINAL_EXPORT);
+    expect(await md5("acoes_massivas_exportar")).toBe(MD5_FINAL_EXPORTAR);
+  });
+
+  it("exportacao por responsavel do caso sem previa e recusada", async () => {
+    await expect(db.query("select public.acoes_massivas_exportar($1::text[], $2, $3, $4, $5, null)", [[], "WHATSAPP", "x.xlsx", `caso:${OP_A}`, "MENSALIDADES"])).rejects.toThrow(/exige a previa/);
   });
 
   it("um responsavel por caso traz so os dele", async () => {
