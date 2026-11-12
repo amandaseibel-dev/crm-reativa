@@ -15,6 +15,11 @@ const sha = (s) => crypto.createHash('sha256').update(Buffer.from(s, 'utf8')).di
 let j;
 try { j = JSON.parse(fs.readFileSync(entrada, 'utf8')); }
 catch (e) { console.error('FALHOU: JSON invalido: ' + e.message); process.exit(1); }
+if (j.checagens) {
+  for (const k of ['dinamicas', 'nao_resolvidas']) {
+    if (Array.isArray(j.checagens[k]) && j.checagens[k].length) { console.error('EXPORT RECUSADO: ' + k + ': ' + j.checagens[k].join(', ')); process.exit(1); }
+  }
+}
 if (j.versao_export !== 2) { console.error('FALHOU: versao_export esperada 2, obtida ' + j.versao_export); process.exit(1); }
 for (const campo of ['tipos', 'tabelas', 'funcoes']) {
   if (!Array.isArray(j[campo])) { console.error('FALHOU: campo ausente ou invalido: ' + campo); process.exit(1); }
