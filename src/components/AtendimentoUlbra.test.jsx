@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import AtendimentoUlbra from "./AtendimentoUlbra";
 
 vi.mock("../services/supabase", () => ({
@@ -23,7 +23,7 @@ const ENCONTRADO = {
 describe("AtendimentoUlbra", () => {
   it("mostra situação, equipe, responsável e atualização", async () => {
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ENCONTRADO });
-    const { container } = render(<AtendimentoUlbra aluno={{ id: "aluno-1" }} />);
+    const { container } = render(<AtendimentoUlbra sobDemanda={false} aluno={{ id: "aluno-1" }} />);
     await waitFor(() => expect(screen.getByText(/Em atendimento/)).toBeTruthy());
     const texto = container.textContent;
     expect(texto).toContain("Equipe: Reativa");
@@ -38,7 +38,7 @@ describe("AtendimentoUlbra", () => {
 
   it("sem responsável e situação desconhecida não quebra", async () => {
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ status: "encontrado", atendimento: { id: "a2", situacao: "zzz", equipe: null, atendente: null, atualizado_em: null } }) });
-    const { container } = render(<AtendimentoUlbra aluno={{ id: "aluno-2" }} />);
+    const { container } = render(<AtendimentoUlbra sobDemanda={false} aluno={{ id: "aluno-2" }} />);
     await waitFor(() => expect(container.textContent).toContain("sem responsável"));
     expect(container.textContent).toContain("zzz");
     expect(container.textContent).toContain("Atualizado em: —");
@@ -46,30 +46,41 @@ describe("AtendimentoUlbra", () => {
 
   it("sem_atendimento mostra aviso discreto", async () => {
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ status: "sem_atendimento", atendimento: null }) });
-    render(<AtendimentoUlbra aluno={{ id: "aluno-3" }} />);
+    render(<AtendimentoUlbra sobDemanda={false} aluno={{ id: "aluno-3" }} />);
     await waitFor(() => expect(screen.getByText(/Sem atendimento na Mensageria/)).toBeTruthy());
   });
 
   it("sem_vinculo, erro HTTP e falha de rede não renderizam nada", async () => {
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ status: "sem_vinculo" }) });
-    const a = render(<AtendimentoUlbra aluno={{ id: "aluno-4" }} />);
+    const a = render(<AtendimentoUlbra sobDemanda={false} aluno={{ id: "aluno-4" }} />);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(a.container.firstChild).toBeNull();
 
     fetchMock.mockResolvedValueOnce({ ok: false, json: async () => ({ erro: "ULBRA_INDISPONIVEL" }) });
-    const b = render(<AtendimentoUlbra aluno={{ id: "aluno-5" }} />);
+    const b = render(<AtendimentoUlbra sobDemanda={false} aluno={{ id: "aluno-5" }} />);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(b.container.firstChild).toBeNull();
 
     fetchMock.mockRejectedValueOnce(new Error("rede"));
-    const c = render(<AtendimentoUlbra aluno={{ id: "aluno-6" }} />);
+    const c = render(<AtendimentoUlbra sobDemanda={false} aluno={{ id: "aluno-6" }} />);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
     expect(c.container.firstChild).toBeNull();
   });
 
   it("uma chamada por aluno; sem aluno não chama", () => {
-    render(<AtendimentoUlbra aluno={null} />);
+    render(<AtendimentoUlbra sobDemanda={false} aluno={null} />);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+});
+
+describe("AtendimentoUlbra sob demanda (padrão)", () => {
+  it("não chama a função ao abrir; só depois do clique", async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ status: "sem_atendimento" }) });
+    render(<AtendimentoUlbra aluno={{ id: "al-1" }} />);
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("ulbra-atendimento-consultar"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect((await screen.findAllByText(/Sem atendimento na Mensageria Ulbra/)).length).toBeGreaterThan(0);
+  });
 });

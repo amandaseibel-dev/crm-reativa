@@ -20,11 +20,16 @@ function formatarData(iso) {
 // Atendimento atual do aluno na Mensageria Ulbra. Uma consulta por abertura
 // da ficha, só para aluno já vinculado; qualquer falha some em silêncio —
 // a ficha nunca depende disto. O botão de abrir a Mensageria é do BlocoUlbra.
-export default function AtendimentoUlbra({ aluno }) {
+// SOB DEMANDA (11/11/2026): cada consulta custa 1 chamada da cota diária da
+// credencial. Só consulta quando o operador pede; `sobDemanda={false}` é só
+// para testes do comportamento antigo.
+export default function AtendimentoUlbra({ aluno, sobDemanda = true }) {
   const [dados, setDados] = useState(null);
+  const [pedido, setPedido] = useState(null);
+  const consultaLiberada = !sobDemanda || pedido === aluno?.id;
 
   useEffect(() => {
-    if (!aluno?.id) return;
+    if (!aluno?.id || !consultaLiberada) return;
     let cancelado = false;
     (async () => {
       try {
@@ -47,7 +52,16 @@ export default function AtendimentoUlbra({ aluno }) {
       }
     })();
     return () => { cancelado = true; };
-  }, [aluno?.id]);
+  }, [aluno?.id, consultaLiberada]);
+
+  if (aluno?.id && !consultaLiberada) {
+    return (
+      <button type="button" className="ulbra-link" onClick={() => setPedido(aluno.id)} data-testid="ulbra-atendimento-consultar"
+        style={{ fontSize: 12 }}>
+        Consultar atendimento na Mensageria ULBRA (1 chamada)
+      </button>
+    );
+  }
 
   if (!dados) return null;
 

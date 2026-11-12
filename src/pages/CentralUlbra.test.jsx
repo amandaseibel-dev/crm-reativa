@@ -539,3 +539,79 @@ describe("histórico sob demanda, conexão individual e resposta em duas etapas"
     expect(cliente.lerHistorico).not.toHaveBeenCalled();
   });
 });
+
+describe("visão Mensageria (período): equipe Reativa, enviadas e recebidas", () => {
+  const PERIODO = {
+    ok: true, eh_gestao: false, operador: "cobranca10@aelbra.com.br", desde: "2026-11-01T03:00:00+00:00",
+    limite: 100, pagina: 0, totais: { conversas: 3, aguardando: 1, sem_cpf: null },
+    conversas: [
+      { conversa_id: "c-rec", aluno_id: "al-1", nome: "Helena Dantas", previa: "pode me ligar?", mensagem_em: "2026-11-10T13:00:00Z", quem: "cliente", direcao: "recebida", aguardando: true, atendente_ulbra: "Olga", responsabilidade: "CARTEIRA", responsavel_reativa: "cobranca10@aelbra.com.br", minha: true, lida: false },
+      { conversa_id: "c-env", aluno_id: "al-3", nome: "Bruno Leal", previa: "segue o boleto", mensagem_em: "2026-11-09T18:00:00Z", quem: "operador", direcao: "enviada", aguardando: false, atendente_ulbra: "Olga", responsabilidade: "CARTEIRA", responsavel_reativa: "cobranca10@aelbra.com.br", minha: true, lida: true },
+      { conversa_id: "c-env2", aluno_id: "al-4", nome: "Carla Souza", previa: "bom dia", mensagem_em: "2026-11-02T09:00:00Z", quem: "bot", direcao: "enviada", aguardando: false, atendente_ulbra: null, responsabilidade: "SEM_CARTEIRA", responsavel_reativa: null, minha: false, lida: false },
+    ],
+  };
+  function rpcPorNome(central = resposta(), periodo = PERIODO) {
+    rpc.mockImplementation((nome) => Promise.resolve(
+      nome === "ulbra_central_conversas" ? { data: periodo, error: null } : { data: central, error: null }
+    ));
+  }
+
+  it("é uma visão separada: lista respostas aguardando (mais antiga primeiro) e depois as demais conversas, mais recente primeiro, com a direção", async () => {
+    rpcPorNome();
+    montar(OPERADOR, "/central-ulbra?visao=mensageria");
+    const visao = await screen.findByTestId("visao-mensageria");
+    expect(screen.queryByTestId("visao-conversas")).toBeNull();
+    await waitFor(() => expect(screen.getByTestId("mensageria-limites").textContent).toMatch(/Conversas ativas da equipe Reativa desde 01\/11\/2026/));
+    const limites = screen.getByTestId("mensageria-limites").textContent;
+    expect(limites).toMatch(/novembro de 2026/);
+    expect(limites).toMatch(/Não é o histórico completo de novembro/);
+    expect(limites).toMatch(/Histórico completo e resposta pelo CRM ainda não estão disponíveis/);
+    // última coleta vem da Central (estado da coleta), cobertura vem da consulta do período
+    expect(screen.getByTestId("mensageria-ultima-coleta").textContent).toMatch(/08\/11|2026/);
+    expect(screen.getByTestId("mensageria-cobertura").textContent).toMatch(/3 conversas com CPF confirmado \(1 aguardando resposta\)/);
+    // seção 1 vem da Central (respostas aguardando, ordem do banco: mais antiga primeiro)
+    const aguardando = screen.getByTestId("mensageria-aguardando");
+    const nomesAguardando = [...aguardando.querySelectorAll("li .ulbra-linha-nome")].map((e) => e.textContent);
+    expect(nomesAguardando).toEqual(resposta().respostas.map((r) => r.nome));
+    // seção 2: só as que NÃO estão aguardando, na ordem recebida (mais recente primeiro)
+    await waitFor(() => expect(screen.getByTestId("mensageria-conversas").querySelectorAll("li").length).toBe(2));
+    const itens = [...screen.getByTestId("mensageria-conversas").querySelectorAll("li")];
+    expect(itens.map((li) => li.getAttribute("data-conversa"))).toEqual(["c-env", "c-env2"]);
+    expect(itens.map((li) => li.getAttribute("data-direcao"))).toEqual(["enviada", "enviada"]);
+    expect(itens[0].textContent).toMatch(/enviada pela equipe/);
+    expect(visao.textContent).not.toMatch(/c-rec/);
+    // chamou a consulta do período com o recorte do banco (operador não escolhe)
+    const chamada = rpc.mock.calls.find((c) => c[0] === "ulbra_central_conversas");
+    expect(chamada[1]).toEqual({ p_desde: null, p_operador: null, p_limite: 100, p_pagina: 0 });
+  });
+
+  it("Abrir ficha só com vínculo por CPF; sem aluno_id a linha diz que a ficha não abre", async () => {
+    rpcPorNome(resposta(), { ...PERIODO, conversas: [{ ...PERIODO.conversas[1], aluno_id: null }, PERIODO.conversas[2]] });
+    montar(OPERADOR, "/central-ulbra?visao=mensageria");
+    await screen.findByTestId("visao-mensageria");
+    await waitFor(() => expect(screen.getByTestId("mensageria-conversas").querySelectorAll("li").length).toBe(2));
+    const [semVinculo, comVinculo] = screen.getByTestId("mensageria-conversas").querySelectorAll("li");
+    expect(semVinculo.textContent).toMatch(/ficha não abre/);
+    expect(semVinculo.querySelector("a")).toBeNull();
+    expect(comVinculo.querySelector("a").getAttribute("href")).toBe("/aluno?alunoId=al-4&origem=ulbra");
+  });
+
+  it("gestão: passa o operador do filtro à consulta e vê a contagem do que está sem CPF confirmado", async () => {
+    rpcPorNome(resposta({ eh_gestao: true, operador: null, operadores: ["cobranca10@aelbra.com.br"] }), { ...PERIODO, eh_gestao: true, operador: null, totais: { conversas: 3, aguardando: 1, sem_cpf: 5 } });
+    montar(GESTAO, "/central-ulbra?visao=mensageria&operador=cobranca10@aelbra.com.br");
+    await screen.findByTestId("visao-mensageria");
+    expect((await screen.findByTestId("mensageria-sem-cpf")).textContent).toMatch(/5 conversas do período sem CPF confirmado/);
+    expect(screen.getByTestId("mensageria-cobertura").textContent).toMatch(/; 5 sem CPF confirmado/);
+    const chamada = rpc.mock.calls.find((c) => c[0] === "ulbra_central_conversas");
+    expect(chamada[1].p_operador).toBe("cobranca10@aelbra.com.br");
+  });
+
+  it("consulta ausente no banco: diz que está indisponível, não mostra lista vazia", async () => {
+    rpc.mockImplementation((nome) => Promise.resolve(
+      nome === "ulbra_central_conversas" ? { data: null, error: { code: "PGRST202", message: "function ulbra_central_conversas not found" } } : { data: resposta(), error: null }
+    ));
+    montar(OPERADOR, "/central-ulbra?visao=mensageria");
+    expect(await screen.findByTestId("mensageria-indisponivel")).toBeTruthy();
+    expect(screen.queryByText(/nenhuma outra conversa no período/)).toBeNull();
+  });
+});
