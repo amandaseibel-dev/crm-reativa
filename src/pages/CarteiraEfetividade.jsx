@@ -517,7 +517,8 @@ export default function CarteiraEfetividade({ safraFixa = null } = {}) {
 
       {/* Escolha do período e identidade do período no MESMO bloco: o que se
           seleciona e o que se está vendo não podem morar longe um do outro. */}
-      <div style={S.painelPeriodo} hidden={!!safraFixa}>
+      {!safraFixa && (
+      <div style={S.painelPeriodo}>
         <div style={S.navegacao}>
           <div style={S.navBloco}>
             <span style={S.navRotulo}>Ano</span>
@@ -570,6 +571,7 @@ export default function CarteiraEfetividade({ safraFixa = null } = {}) {
           <span style={S.periodoNatureza}>· {natureza}</span>
         </div>
       </div>
+      )}
 
       {/* ÁREA GLOBAL — EM DESTAQUE, e fora da análise por safra.
           "Casos ainda pendentes" é indicador da CARTEIRA INTEIRA: caso sem
@@ -760,7 +762,8 @@ export default function CarteiraEfetividade({ safraFixa = null } = {}) {
           {/* COMPARATIVO ENTRE SAFRAS — compacto e SOB DEMANDA. São três
               consultas ao vivo; abri-las em toda visita custaria caro sem
               ninguém ter pedido a comparação. Fechado, a página não as dispara. */}
-          <div style={{ marginTop: 22 }} hidden={!!safraFixa}>
+          {!safraFixa && (
+          <div style={{ marginTop: 22 }}>
             <button onClick={() => setComparativo((v) => !v)} aria-expanded={comparativo}
                     style={S.linkMetodologia}>
               <span aria-hidden="true">{comparativo ? "▾" : "▸"}</span>
@@ -770,6 +773,7 @@ export default function CarteiraEfetividade({ safraFixa = null } = {}) {
               <ComparativoSafras selecionada={safra === "2026/1" ? "2026/1" : ano} recarga={recarga} />
             ) : null}
           </div>
+          )}
 
         </>
       )}
