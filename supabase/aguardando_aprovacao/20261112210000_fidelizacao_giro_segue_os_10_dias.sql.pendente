@@ -30,6 +30,12 @@
 --      `liberar_casos_fidelizacao_vencida` (cron sem JWT, ou gestão).
 --      Tambem preserva o caso com retorno AGENDADO PELO OPERADOR para hoje ou
 --      depois (retorno automatico das acoes massivas nao protege).
+--      E NAO solta o caso cujo aluno tem OUTRO caso que nao pode sair. Medido em
+--      12/11: soltar um caso solta, por gatilho, todos os casos do mesmo aluno;
+--      7 alunos do universo tem caso CONGELADO (regra de 26/10) que sairia
+--      junto. Vale para qualquer liberacao, com ou sem giro.
+--   PRE-REQUISITO: o cron `fidelizacao_liberar_vencidos` PAUSADO. A migration
+--      aborta se ele estiver ativo.
 --   B. trg_impor_teto_operador: mesma troca de MARCA por DATA.
 --   D. casos_risco_perder: giro vigente e retorno do operador saem do card "risco
 --      de perder" (nao sao risco). Nao e espelho exato do cron (ver abaixo).
@@ -60,11 +66,54 @@
 
 BEGIN;
 
+-- REGRA UNICA DE IRMAOS (12/11/2026, decisao da gestao): soltar um caso solta, por
+-- gatilho, TODOS os casos do mesmo aluno. Este caso so pode sair se nenhum irmao
+-- com operador estiver dentro dos 10 dias, sob giro vigente, congelado ou protegido.
+-- Vale para TODA liberacao -- com ou sem giro --, pela liberacao, pelo cron e pelo
+-- teto. Somente leitura: quem chama trava as linhas antes (ordem por id).
+CREATE OR REPLACE FUNCTION public.caso_pode_soltar_com_aluno(p_caso_id uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select not exists (
+    select 1
+      from public.casos c
+      join public.casos o on o.aluno_id = c.aluno_id and o.id <> c.id
+     where c.id = p_caso_id
+       and o.operador_email is not null
+       and (public.caso_dentro_prazo_fidelizacao(o.data_ultimo_acionamento)
+         or public.caso_em_giro_fidelizacao(o.giro_fidelizacao_ate)
+         or public.caso_encerramento_congelado(o.id)
+         or public.caso_protegido_redistribuicao(o.cpf_limpo, o.status_acionamento, o.nao_acionar,
+              o.status_financeiro, o.valor_pago, o.quitado_em, o.valor_quitado))
+  );
+$function$;
+
+REVOKE ALL ON FUNCTION public.caso_pode_soltar_com_aluno(uuid) FROM PUBLIC, anon, authenticated;
+
 DO $mig$
 DECLARE
   v_antes jsonb;
   v_depois jsonb;
+  v_cron_ativo boolean;
 BEGIN
+  -- ORDEM OBRIGATORIA: o cron da fidelizacao tem de estar PAUSADO antes desta
+  -- migration. Com a regra nova e o cron ativo, ele solta sozinho, as 05:20
+  -- BRT, todos os casos de giro vencidos -- sem backup e sem lote. A liberacao
+  -- controlada esta em supabase/recovery/20261112_giro_fidelizacao_0*.sql.
+  -- (EXECUTE: onde nao ha pg_cron -- bancada, ambiente local -- a tabela nao
+  -- existe e uma referencia direta nao compilaria.)
+  if to_regclass('cron.job') is not null then
+    execute $q$select exists (select 1 from cron.job j
+                               where j.jobname = 'fidelizacao_liberar_vencidos' and j.active)$q$
+      into v_cron_ativo;
+    if v_cron_ativo then
+      raise exception 'fidelizacao_giro: o cron fidelizacao_liberar_vencidos esta ATIVO. Pause-o antes de aplicar esta migration.';
+    end if;
+  end if;
+
   -- Retrato de dono, grants, SECURITY DEFINER e search_path ANTES.
   SELECT jsonb_object_agg(p.proname, jsonb_build_object(
            'acl', p.proacl::text, 'cfg', p.proconfig::text, 'def', p.prosecdef, 'dono', p.proowner::text))
@@ -112,6 +161,15 @@ $novo$  if public.caso_dentro_prazo_fidelizacao(v_c.data_ultimo_acionamento) the
           and a.data_retorno >= (now() at time zone 'America/Sao_Paulo')::date
           and upper(coalesce(a.retorno_origem,'')) like 'OPERADOR%') then
     return false;  -- retorno marcado pelo operador: compromisso preservado
+  end if;
+  -- Soltar este caso solta, por gatilho, TODOS os casos do mesmo aluno. Trava
+  -- as linhas de todos eles ANTES de ler os irmaos: sem isso, um acionamento
+  -- concorrente pode mudar a resposta depois da leitura. Ordem por id = sem impasse.
+  if v_c.aluno_id is not null then
+    perform 1 from public.casos o where o.aluno_id = v_c.aluno_id order by o.id for update;
+  end if;
+  if not public.caso_pode_soltar_com_aluno(p_caso_id) then
+    return false;  -- irmao que nao pode sair segura o aluno inteiro
   end if;$novo$, 1);
 
   -- D. casos_risco_perder: o card "risco de perder" deixa de listar o que a
@@ -133,6 +191,12 @@ $novo$    and not public.caso_dentro_prazo_fidelizacao(c.data_ultimo_acionamento
   PERFORM internal.patch_funcao_ancorada('public', 'trg_impor_teto_operador',
 $ancora$AND c.giro_fidelizacao_ate IS NULL$ancora$,
 $novo$AND NOT public.caso_em_giro_fidelizacao(c.giro_fidelizacao_ate)$novo$, 1);
+
+  -- N2 (12/11/2026): o teto solta por UPDATE direto; tem a mesma regra de irmaos.
+  PERFORM internal.patch_funcao_ancorada('public', 'trg_impor_teto_operador',
+$ancora$AND NOT public.caso_em_giro_fidelizacao(c.giro_fidelizacao_ate)$ancora$,
+$novo$AND NOT public.caso_em_giro_fidelizacao(c.giro_fidelizacao_ate)
+      AND public.caso_pode_soltar_com_aluno(c.id)$novo$, 1);
 
   -- C. assumir_caso_livre: caso de giro com dono so troca de mao depois dos
   --    10 dias do ultimo acionamento.

@@ -57,6 +57,15 @@ $novo$  if public.caso_dentro_prazo_fidelizacao(v_c.data_ultimo_acionamento) the
           and a.data_retorno >= (now() at time zone 'America/Sao_Paulo')::date
           and upper(coalesce(a.retorno_origem,'')) like 'OPERADOR%') then
     return false;  -- retorno marcado pelo operador: compromisso preservado
+  end if;
+  -- Soltar este caso solta, por gatilho, TODOS os casos do mesmo aluno. Trava
+  -- as linhas de todos eles ANTES de ler os irmaos: sem isso, um acionamento
+  -- concorrente pode mudar a resposta depois da leitura. Ordem por id = sem impasse.
+  if v_c.aluno_id is not null then
+    perform 1 from public.casos o where o.aluno_id = v_c.aluno_id order by o.id for update;
+  end if;
+  if not public.caso_pode_soltar_com_aluno(p_caso_id) then
+    return false;  -- irmao que nao pode sair segura o aluno inteiro
   end if;$novo$,
 $antigo$  if public.caso_dentro_prazo_fidelizacao(v_c.data_ultimo_acionamento) then return false; end if;$antigo$),
       (6, 'casos_risco_perder',
@@ -69,6 +78,10 @@ $novo$    and not public.caso_dentro_prazo_fidelizacao(c.data_ultimo_acionamento
                        and a.data_retorno >= (now() at time zone 'America/Sao_Paulo')::date
                        and upper(coalesce(a.retorno_origem,'')) like 'OPERADOR%')$novo$,
 $antigo$    and not public.caso_dentro_prazo_fidelizacao(c.data_ultimo_acionamento)$antigo$),
+      (8, 'trg_impor_teto_operador',
+$novo$
+      AND public.caso_pode_soltar_com_aluno(c.id)$novo$,
+$antigo$$antigo$),
       (3, 'trg_impor_teto_operador',
 $novo$AND NOT public.caso_em_giro_fidelizacao(c.giro_fidelizacao_ate)$novo$,
 $antigo$AND c.giro_fidelizacao_ate IS NULL$antigo$),
@@ -111,5 +124,8 @@ $antigo$    if v_pool is null and v_new.giro_fidelizacao_ate is null then$antigo
   END LOOP;
 END
 $rb$;
+
+-- Regra unica de irmaos: some depois dos patches (o teto e a liberacao ja nao a chamam).
+DROP FUNCTION IF EXISTS public.caso_pode_soltar_com_aluno(uuid);
 
 COMMIT;

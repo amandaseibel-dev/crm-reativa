@@ -37,6 +37,9 @@ const CADEIA = [
   ler("supabase/migrations/20261020230350_assumir_caso_livre_teto_oficial_e_tres_carteiras.sql"),
   ler(`${FX}onda1_executor_prod_20261021.sql`),
   ler(`${FX}fidelizacao_giro_prod_20261112.sql`),
+  // cadeia de gatilhos de alunos + congelamento, como em producao: e ela que faz
+  // soltar um caso soltar todos os casos do mesmo aluno.
+  ler(`${FX}fidelizacao_giro_lotes_prod_20261112.sql`),
 ];
 const MD5_PROD = JSON.parse(ler(`${FX}fidelizacao_giro_prod_20261112.md5.json`));
 const PASTA = "supabase/aguardando_aprovacao/20261112210000_fidelizacao_giro_segue_os_10_dias";
@@ -318,6 +321,199 @@ describe("regra 5 — proteções legítimas continuam valendo", () => {
     expect((await caso(db, 2)).dono).toBe(OP1);
     expect((await caso(db, 3)).dono).toBe(OP1);
     expect((await caso(db, 4)).dono).toBeNull();
+    await db.close();
+  });
+});
+
+// ===========================================================================
+describe("regra 5 — soltar um caso solta todos os casos do aluno: o irmão que não pode sair segura", () => {
+  // Segundo caso (ficha antiga) do mesmo aluno. So o INSERT e feito com os
+  // gatilhos desligados, para montar o legado; o resto roda com eles ligados.
+  const irmao = async (db, n, alunoN, o = {}) => {
+    const { dua = 15, giro = null, statusAtual = null } = o;
+    await db.exec("alter table public.casos disable trigger user");
+    await db.query(
+      `insert into public.casos (id, aluno_id, cpf, cpf_limpo, nome, chave_unificacao, operador_email, operador_nome,
+          status_atual, data_ultimo_acionamento, giro_fidelizacao_ate, ultima_tabulacao_em, total_em_aberto,
+          caso_codigo, caso_atualizado_em, nao_acionar, encerrado_operacional)
+       values ($1,$2,$3,$3,$4,$3,$5,'DONO',$6,
+          case when $7::int is null then null else current_date - $7::int end,
+          case when $8::int is null then null else current_date + $8::int end,
+          now() - interval '20 days', 100, $9, now() - interval '30 days', false, true)`,
+      [U(n), U(alunoN), CPF(alunoN), `Aluno Sintetico ${alunoN}`, OP1, statusAtual, dua, giro, n]);
+    await db.exec("alter table public.casos enable trigger user");
+  };
+
+  it("HOJE (já existia, sem giro): o cron solta por cascata o caso acionado há 2 dias", async () => {
+    const db = await hoje();
+    await cenario(db, 1, { giro: null });
+    await irmao(db, 2, 1, { dua: 2 });
+    await rodarCron(db);
+    expect((await caso(db, 1)).dono).toBeNull();
+    expect((await caso(db, 2)).dono).toBeNull();   // dentro dos 10 dias e solto mesmo assim
+    await db.close();
+  });
+
+  it("DEPOIS: irmão acionado há 2 dias segura o aluno inteiro", async () => {
+    const db = await novo();
+    await cenario(db, 1, { giro: null });
+    await irmao(db, 2, 1, { dua: 2 });
+    expect(await rodarCron(db)).toBe(0);
+    expect((await caso(db, 1)).dono).toBe(OP1);
+    expect((await caso(db, 2)).dono).toBe(OP1);
+    await db.close();
+  });
+
+  it("DEPOIS: irmão CONGELADO (regra de 26/10) segura o aluno inteiro", async () => {
+    const db = await novo();
+    await cenario(db, 1);
+    await irmao(db, 2, 1, { statusAtual: "SEM SALDO EM ABERTO" });
+    await db.query("insert into public.caso_encerramento_sem_saldo (caso_id) values ($1)", [U(2)]);
+    expect(await rodarCron(db)).toBe(0);
+    expect((await caso(db, 1)).dono).toBe(OP1);
+    expect((await caso(db, 2)).dono).toBe(OP1);
+    await db.close();
+  });
+
+  it("DEPOIS: irmão sob giro ainda VIGENTE segura o aluno inteiro", async () => {
+    const db = await novo();
+    await cenario(db, 1);
+    await irmao(db, 2, 1, { giro: 4 });
+    expect(await rodarCron(db)).toBe(0);
+    expect((await caso(db, 1)).dono).toBe(OP1);
+    await db.close();
+  });
+
+  it("DEPOIS: irmão encerrado, fora dos 10 dias e sem proteção NÃO segura — sai junto", async () => {
+    const db = await novo();
+    await cenario(db, 1);
+    await irmao(db, 2, 1, { statusAtual: "SEM SALDO EM ABERTO" });
+    await rodarCron(db);
+    expect((await caso(db, 1)).dono).toBeNull();
+    expect((await caso(db, 2)).dono).toBeNull();
+    await db.close();
+  });
+});
+
+// ===========================================================================
+describe("regra de irmãos — REGRESSÃO com e sem giro (decisão da gestão, N1)", () => {
+  // Mesma montagem do describe da regra 5: segundo caso do aluno, ficha antiga.
+  const irmaoSemGiro = async (db, n, alunoN, o = {}) => {
+    const { dua = 2, statusAtual = null, giro = null, congelado = false } = o;
+    await db.exec("alter table public.casos disable trigger user");
+    await db.query(
+      `insert into public.casos (id, aluno_id, cpf, cpf_limpo, nome, chave_unificacao, operador_email, operador_nome,
+          status_atual, data_ultimo_acionamento, giro_fidelizacao_ate, ultima_tabulacao_em, total_em_aberto,
+          caso_codigo, caso_atualizado_em, nao_acionar, encerrado_operacional)
+       values ($1,$2,$3,$3,$4,$3,$5,'DONO',$6,
+          case when $7::int is null then null else current_date - $7::int end,
+          case when $8::int is null then null else current_date + $8::int end,
+          now() - interval '20 days', 100, $9, now() - interval '30 days', false, $10)`,
+      [U(n), U(alunoN), CPF(alunoN), `Aluno Sintetico ${alunoN}`, OP1, statusAtual, dua, giro, n, statusAtual === "SEM SALDO EM ABERTO"]);
+    if (congelado) await db.query("insert into public.caso_encerramento_sem_saldo (caso_id) values ($1)", [U(n)]);
+    await db.exec("alter table public.casos enable trigger user");
+  };
+
+  it("SEM GIRO: caso parado há 15 dias, irmão acionado há 2 dias → liberar recusa", async () => {
+    const db = await novo();
+    await cenario(db, 1, { giro: null, dua: 15 });
+    await irmaoSemGiro(db, 2, 1, { dua: 2 });
+    expect(await q1(db, "select public.liberar_fidelizacao_caso($1) ok", [U(1)])).toEqual({ ok: false });
+    expect((await caso(db, 1)).dono).toBe(OP1);
+    await db.close();
+  });
+
+  it("SEM GIRO: a CASCATA de 2 dias não acontece pelo cron (HOJE acontecia)", async () => {
+    const db = await novo();
+    await cenario(db, 1, { giro: null, dua: 15 });
+    await irmaoSemGiro(db, 2, 1, { dua: 2 });
+    expect(await rodarCron(db)).toBe(0);
+    expect((await caso(db, 2)).dono).toBe(OP1);
+    await db.close();
+  });
+
+  it("SEM GIRO: irmão encerrado, fora dos 10 dias e sem proteção → caso sai (sem bloqueio indevido)", async () => {
+    const db = await novo();
+    await cenario(db, 1, { giro: null, dua: 15 });
+    await irmaoSemGiro(db, 2, 1, { dua: 30, statusAtual: "SEM SALDO EM ABERTO" });
+    expect(await rodarCron(db)).toBe(1);
+    expect((await caso(db, 1)).dono).toBeNull();
+    await db.close();
+  });
+
+  it("SEM GIRO: irmão CONGELADO segura o aluno inteiro", async () => {
+    const db = await novo();
+    await cenario(db, 1, { giro: null, dua: 15 });
+    await irmaoSemGiro(db, 2, 1, { dua: 30, statusAtual: "SEM SALDO EM ABERTO", congelado: true });
+    expect(await rodarCron(db)).toBe(0);
+    expect((await caso(db, 1)).dono).toBe(OP1);
+    await db.close();
+  });
+
+  it("COM GIRO: caso de giro vencido, irmão sob giro VIGENTE → caso fica", async () => {
+    const db = await novo();
+    await cenario(db, 1, { giro: -17, dua: 15 });
+    await irmaoSemGiro(db, 2, 1, { dua: 30, statusAtual: "SEM SALDO EM ABERTO", giro: 5 });
+    expect(await rodarCron(db)).toBe(0);
+    expect((await caso(db, 1)).dono).toBe(OP1);
+    await db.close();
+  });
+
+  it("COM GIRO: caso de giro vencido, irmão acionado há 2 dias → fica (a mesma regra)", async () => {
+    const db = await novo();
+    await cenario(db, 1, { giro: -17, dua: 15 });
+    await irmaoSemGiro(db, 2, 1, { dua: 2 });
+    expect(await rodarCron(db)).toBe(0);
+    expect((await caso(db, 1)).dono).toBe(OP1);
+    await db.close();
+  });
+
+  it("a regra não solta caso protegido, em nenhum dos dois casos (giro e sem giro)", async () => {
+    for (const giro of [null, -17]) {
+      const db = await novo();
+      await cenario(db, 1, { giro, dua: 15, acordoAtivo: true });
+      expect(await rodarCron(db)).toBe(0);
+      expect((await caso(db, 1)).dono).toBe(OP1);
+      await db.close();
+    }
+  });
+});
+
+// ===========================================================================
+describe("teto (N2) — o UPDATE direto do teto respeita a mesma regra de irmãos", () => {
+  // Teto = 3. OP1 tem 3 casos e entra o 4º (caso livre atribuido). Candidato a
+  // ser solto pelo teto: caso de giro vencido, parado ha 15 dias.
+  const montarTeto = async (db, irmao) => {
+    await cenario(db, 1, { dua: 15, valor: 10 });                 // candidato
+    await cenario(db, 2, { giro: null, dua: 2 });
+    await cenario(db, 3, { giro: null, dua: 2 });
+    if (irmao) {
+      await db.exec("alter table public.casos disable trigger user");
+      await db.query(
+        `insert into public.casos (id, aluno_id, cpf, cpf_limpo, nome, chave_unificacao, operador_email, operador_nome,
+            status_atual, data_ultimo_acionamento, ultima_tabulacao_em, total_em_aberto, caso_codigo, caso_atualizado_em,
+            nao_acionar, encerrado_operacional)
+         values ($1,$2,$3,$3,'Irmao',$3,$4,'DONO','SEM SALDO EM ABERTO', current_date - 40, now(), 100, 99, now() - interval '30 days', false, true)`,
+        [U(60), U(1), CPF(1), OP1]);
+      await db.query("insert into public.caso_encerramento_sem_saldo (caso_id) values ($1)", [U(60)]);
+      await db.exec("alter table public.casos enable trigger user");
+    }
+    await cenario(db, 4, { giro: null, dua: 2, dono: null });
+    await db.query("update public.casos set operador_email=$1, operador_nome='DONO' where id=$2", [OP1, U(4)]);
+  };
+
+  it("SEM irmão: o teto continua soltando o caso de giro vencido (comportamento mantido)", async () => {
+    const db = await novo();
+    await montarTeto(db, false);
+    expect((await caso(db, 1)).dono).toBeNull();
+    await db.close();
+  });
+
+  it("COM irmão congelado: o teto NÃO solta o caso de giro (N2 corrigido)", async () => {
+    const db = await novo();
+    await montarTeto(db, true);
+    expect((await caso(db, 1)).dono).toBe(OP1);
+    expect((await caso(db, 60)).dono).toBe(OP1);
     await db.close();
   });
 });

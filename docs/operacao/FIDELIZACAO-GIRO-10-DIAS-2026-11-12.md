@@ -3,8 +3,9 @@
 **Status:** migration PENDENTE, nada aplicado em produção. Nenhuma liberação
 executada, nenhum giro, nenhuma redistribuição.
 Arquivos: `supabase/aguardando_aprovacao/20261112210000_fidelizacao_giro_segue_os_10_dias.{sql.pendente,rollback.sql}`,
-teste `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (46 testes).
-**Sem alteração de tela** nesta PR (ver "Tela").
+teste `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (60 testes).
+Scripts de operação em `supabase/recovery/20261112_giro_fidelizacao_0{0,1,2}_*.sql`,
+teste `supabase/tests/fidelizacao_giro_lotes.test.js` (67 testes). **Sem alteração de tela** nesta PR.
 
 ## Regra definitiva (gestão, 12/11/2026)
 
@@ -99,18 +100,134 @@ Pontos a saber:
 - **Card "Sem acionamento (risco de perder)":** vem de `casos_risco_perder`; deixa de contar giro vigente e retorno do operador como risco, mas **não** é a disponibilidade exata (inclui Carteira Geral e hold de 24h) — item 7 só parcialmente atendido. Hoje a RPC devolve 1.082 linhas para a gestão: **acima do corte de 1.000 da API**, e a tela chama sem paginar (achado do Guardião; falha silenciosa para a gestão). Não mexi nisso aqui; é pendência declarada.
 - **Tela (selo por linha "Perdendo o caso (Nd)" e faixa de prioridade):** **não alterada**. Uma primeira versão decidia isso no `.jsx`; foi **descartada** porque (a) viola a Premissa 12 (regra no banco, não na tela) e (b) dependia da lista da RPC, que passa de 1.000 linhas. O selo por linha segue contando dias até haver, no banco, uma coluna que diga se o caso pode ser solto. Follow-up proposto, fora desta PR.
 
-## Recomendação de implantação segura
+## Decisões da gestão incorporadas (resposta à 2ª auditoria do Guardião)
 
-1. Revisar e autorizar a migration (linha M1 própria; **não** coberta por autorização anterior).
-2. Aplicar **fora do expediente**, em transação, com o bloco de retrato (grants/dono/search_path) como portão. Pré-requisito: conferir `md5(prosrc)` das 4 funções = `de8a3b43…`, `3d01bbd1…`, `607a8b4f…`, `702279a5…` (as do rollback). Grants de produção em 12/11: `{postgres, authenticated, service_role}` em todas, sem PUBLIC.
-3. **Não liberar tudo de uma vez.** O cron 8 solta o lote inteiro sozinho às 05:20 BRT. Antes da aplicação, decidir: (a) deixar o cron soltar os 969 e avisar os 4 operadores e o receptivo; ou (b) aplicar a migration com o cron 8 pausado, e liberar em lotes por `liberar_casos_fidelizacao_vencida(p_limite)`, conferindo a cada lote. Recomendo **(b) em 3 lotes**, começando por cobranca13.
-4. Backup por id da lista dos 969 antes de qualquer liberação (é o que permite devolver ao operador).
-5. Conferir depois: 0 caso com acionamento ≤10 dias solto; 0 caso protegido solto; contagem por operador igual à simulação; grants das 4 funções inalterados.
-6. Rollback: o do arquivo. Para devolver casos já soltos: lista por id, autorização própria.
+| Decisão | Como foi atendida | Prova |
+|---|---|---|
+| **N1** — guarda de irmão para TODOS os casos, com e sem giro | Regra única `public.caso_pode_soltar_com_aluno` (na migração), usada pela liberação e pelo teto. Irmão com interação válida nos últimos 10 dias, sob giro vigente, congelado ou protegido segura o aluno inteiro | 10 testes de regressão com/sem giro, incluindo a cascata de 2 dias; mutação: sem a regra, 10 testes falham |
+| **N2** — teto de operador por UPDATE direto | `trg_impor_teto_operador` passou a exigir `caso_pode_soltar_com_aluno` no filtro de candidatos | 3 testes separados; mutação: sem a regra, 3 testes falham |
+| **Concorrência** | `liberar_fidelizacao_caso` trava (`for update`, ordem por id) TODOS os casos do aluno antes de ler os irmãos; o lote trava as linhas do aluno antes de revalidar; `lock_timeout = 5 s` nos três scripts | Estrutural: o teste de travamento não prova concorrência real. **Não comprovado em execução paralela** (ver "Não comprovado") |
+| Itens baixos do Guardião | Limite de erros (>10% dos alunos tentados desfaz o lote); invariante também pega troca de dono X→Y; conferência da restauração inclui status_jornada e data_ultimo_acionamento; trava de cron falha FECHADA nos três scripts (job precisa existir pelo nome); data do banco conferida nos três | Testes próprios, cada um com nome; mutação de 11 proteções: todas detectadas |
+| Fuso da suíte | Teste roda no fuso de São Paulo; antes quebrava das 21h às 24h BRT | Suíte verde em qualquer horário |
+
+## Medições de produção (12/11/2026, somente leitura, ~15h BRT)
+
+Muda a cada hora: a execução usa o retrato do próprio dia.
+
+- **Cron diário hoje:** 851 casos elegíveis.
+- **Retidos pela guarda de irmão:** 7 casos, **todos de giro** (7 alunos). Sem giro: 0.
+- **Saem após a guarda:** 844 casos. Os 7 retidos seguem com o operador.
+- **Universo do giro por lote (alunos liberáveis, após a guarda):** lote 1 (cobranca13) 329 alunos / 340 casos alvo; lote 2 (cobranca06) 254 / 264; lote 3 (demais) 170 / 177. **Total 753 alunos, 781 casos alvo, R$ 1.018.960.** 7 alunos ficam fora, retendo 7 casos (R$ 9.748).
+- **Teto:** 9 operadores com carga; **nenhum acima do teto** hoje. O caminho do N2 existe, mas não se manifesta agora.
+- **Dessincronias responsável × operador:** 0. **E-mails com maiúscula:** 0. **`status_acionamento` vazio (''):** 0 (148 nulos, tratados).
+- **Casos encerrados que sairiam junto (ARRASTO):** 0 nesta medição (os 7 que apareciam antes estão congelados e viraram RETIDO).
+- **Cron 8 (fidelizacao_liberar_vencidos):** ativo. **Job 43 (reposicao_carteira_minuto):** inativo.
+- **Sessão do banco:** UTC. **Privilégios padrão** do schema public: concedem tudo a anon/authenticated/service_role (a tabela de backup revoga).
+
+## Plano final de execução e reversão (NÃO AUTORIZADO)
+
+**Situação em 12/11/2026:** a gestão aprovou a regra e a liberação em três lotes, e
+pediu uma nova auditoria antes de qualquer nova aprovação. **Não está autorizado**
+aplicar a migração, pausar o cron, liberar casos ou mesclar a PR.
+
+### Ordem, travas e janela
+
+1. **Pré-voo (leitura):** md5 das quatro funções = `de8a3b43…`, `3d01bbd1…`, `607a8b4f…`, `702279a5…`; grants = `{postgres, authenticated, service_role}`; cron 8 ativo; job 43 inativo.
+2. **Pausar o cron 8** — `select cron.alter_job(8, active := false);`. A migração aborta se ele estiver ativo.
+3. **Aplicar a migração** (`.sql.pendente`, em transação). O bloco final aborta se grant, dono ou search_path mudar.
+4. **Backup** (`00_backup.sql`) — aborta se o cron 8 estiver ativo, se o job 43 estiver ativo ou não existir pelo nome, se a data do banco não for a de São Paulo, ou se a tabela já existir.
+5. **Lote 1 (cobranca13)**, depois **lote 2 (cobranca06)**, depois **lote 3 (demais)** — `01_liberar_lote.sql` com `v_lote` trocado. Um por noite.
+6. **Reativar o cron 8** — só depois do lote 3 conferido.
+
+**Janela de execução:** o script aborta quando a data do banco (UTC) difere da de São Paulo, o que acontece **entre 21h e 24h BRT**. Executar entre **19h e 20h59 BRT** ou **depois da meia-noite BRT**. Fora do expediente.
+
+### Concorrência: o que o script garante e o que não garante
+
+- **Garante:** linhas do aluno e de todos os seus casos travadas antes de ler os irmãos; espera máxima de 5 s por trava (`lock_timeout`), com o aluno pulado em vez de bloquear o lote; cada aluno em subtransação; invariante por lista de ids.
+- **Não garante** que um operador que acionar durante a execução não tenha a ação lida como “casos já resolvidos” pelo lote. O lote pula o aluno quando a revalidação detecta mudança; uma proteção criada em **outra tabela** (acordo, pagamento) no mesmo instante pode passar. Por isso a janela é fora do expediente.
+- **Teste de interação simultânea:** não executado. A bancada roda numa única sessão; não há como provar concorrência real. Proposta: um teste com duas sessões reais, num ambiente de teste, **com autorização própria**.
+
+### Execução: conferência depois de cada lote (somente leitura)
+
+```sql
+-- 1. resultado do lote
+select lote, tipo, count(*) total,
+       count(*) filter (where liberado_em is not null) liberados,
+       count(*) filter (where pulado_motivo is not null) pulados
+  from public._backup_fidelizacao_giro_20261112 group by 1, 2 order by 1, 2;
+-- 2. nenhum liberado com acionamento nos últimos 10 dias (esperado: 0). Data de São Paulo.
+select count(*) from public._backup_fidelizacao_giro_20261112 b
+  join public.casos c on c.id = b.caso_id
+ where b.liberado_em is not null
+   and c.data_ultimo_acionamento + 10 >= (now() at time zone 'America/Sao_Paulo')::date;
+-- 3. nenhum liberado ganhou dono automático (esperado: só quem assumiu pela tela)
+select c.operador_email, count(*) from public._backup_fidelizacao_giro_20261112 b
+  join public.casos c on c.id = b.caso_id
+ where b.liberado_em is not null and c.operador_email is not null group by 1;
+-- 4. nenhum caso fora do backup ficou sem operador desde o início do lote (esperado: 0).
+--    Trocar o instante para o início do lote; usa o horário, não caso_atualizado_por.
+select count(*) from public.casos c
+ where c.operador_email is null
+   and c.caso_atualizado_em >= (select min(liberado_em) from public._backup_fidelizacao_giro_20261112 where lote = 1)
+   and not exists (select 1 from public._backup_fidelizacao_giro_20261112 b where b.caso_id = c.id);
+```
+
+### Reversão
+
+| Momento | O que fazer | Limite |
+|---|---|---|
+| Antes de qualquer lote | Rollback da migração (devolve as 4 funções byte a byte, confere md5); reativar o cron 8 | Nenhum dado mudou |
+| Depois de um ou mais lotes | Cron 8 **continua pausado** → rollback da migração → `02_restaurar.sql` (`v_lote` = 1, 2, 3 ou 0) → conferir → reativar o cron 8 | A restauração **não devolve** aluno que mudou depois de solto (motivo `nao_restaurado_mudou_depois_da_liberacao`) nem o que já foi assumido (`nao_restaurado_ja_tem_dono`). Esses casos a gestão decide caso a caso |
+| Restaurar mantendo a regra nova | Possível só com `v_exigir_regra_antiga := false` e decisão expressa. **Consequência:** o cron diário volta a soltar os casos de giro vencidos e os irmãos que a regra não permite, no dia seguinte, a menos que o cron siga pausado | Não recomendado |
+
+A restauração devolve operador, responsável, marca do giro, retorno, hora, próxima ação, origem e confirmação do retorno, a partir do retrato tirado **no instante da liberação**. Cada aluno é independente: um que não volta fica como estava e pode ser tentado de novo depois.
+
+**Retorno marcado pelo operador depois de solto** segura a restauração daquele aluno. **Retorno automático recalculado** (ação massiva) **não** segura: é carimbo, não compromisso. Isso é decisão de projeto e vem coberta por teste.
+
+### Efeitos conhecidos
+
+- Os casos liberados saem como **livres**: aparecem nas ações massivas e no receptivo, sujeitos às regras de recência e de canal.
+- O cron diário mudou para todos os casos: a regra de irmãos vale também fora do giro, como decidido pela gestão. Os **7 casos retidos** de hoje são todos de giro; os demais casos do cron diário não mudam de comportamento hoje.
+- Na reativação do cron 8, ele solta o que restou elegível. Os retidos por irmão **não saem na manhã seguinte**: só saem quando o irmão deixar de estar dentro dos 10 dias, sob giro, congelado ou protegido.
+- O espelho `alunos_unificados` continua mostrando o operador anterior depois da liberação (comportamento já existente em toda liberação diária).
+
+## Riscos residuais (declarados)
+
+1. **Concorrência real** não comprovada em execução paralela (ver acima).
+2. **Proteção criada em outra tabela** durante a execução pode passar pela revalidação.
+3. **Cron 8 pausado** deixa de soltar casos vencidos por todo o intervalo entre os lotes.
+4. **Caso de giro com irmão fora da regra** segura o aluno inteiro: o caso fica com o operador mesmo vencido, até o irmão deixar de estar fora da regra.
+5. **Tabela de backup** contém `aluno_id`, saldo e status. Descarte em 30 dias após o último lote, com autorização.
+6. **Gate de segurança do repositório** não executado (ver abaixo).
+
+## Arquivos
+
+- `supabase/aguardando_aprovacao/20261112210000_fidelizacao_giro_segue_os_10_dias.sql.pendente` + `.rollback.sql`
+- `supabase/recovery/20261112_giro_fidelizacao_00_backup.sql`
+- `supabase/recovery/20261112_giro_fidelizacao_01_liberar_lote.sql`
+- `supabase/recovery/20261112_giro_fidelizacao_02_restaurar.sql`
+- Provas: `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (60) e `supabase/tests/fidelizacao_giro_lotes.test.js` (67)
+- Fixtures: `supabase/tests/fixtures/fidelizacao_giro_*_prod_20261112.{sql,md5.json}`
+
+## Gate de segurança e CI
+
+- **CI da PR #936:** 24 checks verdes, 2 ignorados (regras de publicação da TV, sem relação). Inclui "testes, build e catracas". Este CI é de antes das mudanças desta rodada: **repetir**.
+- **Gate do repositório (`run_security_gate.sh`):** não roda nesta máquina (sem `psql`). Consulta equivalente executada por leitura em produção, critérios que bloqueiam:
+  - **Reprova produção hoje** por achados antigos, sem relação com esta PR: bucket `tv-imagens` público, `_tmp_fila2` sem RLS e 5 views (`vw_extracao_calibragem`, `vw_extracao_observabilidade`, `vw_extracao_validacao_trilha`, `vw_pagamento_suspeita_pendente`, `vw_titulo_presenca_historico`). Não conferido se são exceções já aceitas.
+  - **Esta PR não acrescenta achado:** as funções são `SECURITY DEFINER` com `search_path` fixo e sem `EXECUTE` para `anon`/`PUBLIC`; a tabela de backup nasce com RLS e sem grant (inclui `TRUNCATE`); a regra de irmãos é revogada de `PUBLIC`, `anon` e `authenticated`.
+  - Critérios de alerta (policies amplas, etc.) não executados.
+- Checagens de código: sem `service_role` no cliente, sem segredo hardcoded, sem referência a staging. ✔
+
+## Medições não reconferidas
+
+As medições de "0 vazios, 0 dessincronias, 0 maiúsculas, sessão UTC, privilégios padrão, 7 congelados" foram feitas pelo autor em 12/11 com consultas de leitura em produção. **O Guardião não as conferiu** (declarou isso no relatório). Reconferir antes de qualquer execução.
 
 ## Não comprovado
 
-- Gate de segurança do repositório (`run_security_gate.sh`) não rodou: `psql` ausente nesta máquina.
-- Tela: não alterada.
-- Produção hoje só tem `retorno_origem` = `AUTOMATICO` e `OPERADOR` (593 com retorno hoje ou futuro); `OPERADOR_EM_CONFIRMACAO` não existe agora, mas a guarda usa prefixo por segurança.
-- Plano de execução do cron com 969 casos não medido em PROD (loop com 1 `UPDATE` + 1 `INSERT` por caso, `statement_timeout` de 180 s da função).
+- **Nada foi executado em produção.** Migração, scripts e restauração rodam apenas em PGlite, na bancada.
+- **Concorrência real** não comprovada (bancada de sessão única).
+- **Papéis e RLS em produção:** o teste usa papéis simulados; `set local role authenticated` real não executado.
+- **Dublês declarados da bancada:** `audit_log`, `caso_encerramento_sem_saldo`, `auth.email()`, `cron.job`.
+- **Diferenças da bancada em relação à produção, declaradas em `fidelizacao_giro_lotes_prod_20261112.sql`:** `caso_encerrado_operacional` (produção delega ao corpo `_caso_encerrado_operacional_regra`, com congelamento e saldo conferido), `caso_aguarda_confirmacao_financeira`, `fn_atualizar_ultimo_acionamento`; 3 gatilhos de `casos` e 11 de `alunos` não reproduzidos. Os gatilhos que faltam disparam por STATUS, que a liberação e a restauração não escrevem.
+- **Tempo de execução** de um lote em produção não medido.
+- **Os números** deste documento são de 12/11/2026 e mudam todo dia; a execução usa o retrato do próprio dia.
