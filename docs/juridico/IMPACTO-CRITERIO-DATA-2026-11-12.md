@@ -45,3 +45,11 @@ Avaliar a adoção da regra C no Jurídico (e avaliar o mesmo ajuste nas Ações
 documentada e documentada como "não é artefato". Antes, a gestão precisa confirmar:
 (a) se o artefato da importação deve mesmo ser descartado; (b) se a mudança vale para a base geral.
 Não alterar sem aprovação da gestão.
+
+## Saídas medidas (12/11/2026, somente leitura)
+
+Base geral (`consultas-achado2...sql`, seção "Base geral"): A = 564 alunos / 970 títulos / R$ 2.252.157,46;
+C = 517 / 909 / R$ 2.125.925,76; artefato = 57 alunos / 61 títulos. Valor = `valor_original`.
+
+Universo do Jurídico (seção de universo): A = 24, C = 24, linhas `MUDA:` = 0. A saída foi lida na
+consulta e não está versionada como arquivo; reexecutar a consulta para reproduzir.

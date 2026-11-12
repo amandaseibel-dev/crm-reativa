@@ -939,6 +939,13 @@ begin
   if p_acordos is null then
     raise exception 'Informe a lista de acordos revisada.' using errcode = '22023';
   end if;
+  -- trava o aluno e os acordos ATIVO antes de comparar (a reativacao concorrente ainda
+  -- nao confirmada NAO e coberta; ver docs, risco residual)
+  perform 1 from public.alunos al join public.juridico_casos jc on jc.aluno_id = al.id
+   where jc.id = p_caso_id for update of al;
+  perform 1 from public.acordos a join public.juridico_casos jc on jc.aluno_id = a.aluno_id
+   where jc.id = p_caso_id and upper(coalesce(a.status,'')) = 'ATIVO' and a.duplicado_de is null
+   for update of a;
   if (select coalesce(array_agg(a.id order by a.id), '{}'::uuid[])
         from public.acordos a join public.juridico_casos jc on jc.aluno_id = a.aluno_id
        where jc.id = p_caso_id and upper(coalesce(a.status,'')) = 'ATIVO' and a.duplicado_de is null)

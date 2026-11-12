@@ -142,7 +142,7 @@ Fica, por decisão a tomar pela gestão:
 - **Excel**: toda geração (envio e reexportação) registra `EXCEL_GERADO` com o lote. Só leva caso
   enviado ou confirmado. Os valores são os da aprovação; a coluna "Situação na data da geração"
   marca o caso em que algo mudou depois.
-- **Grants e rollback**: listas explícitas de 13 funções públicas e 14 internas (sem `service_role`); a
+- **Grants e rollback**: listas explícitas de 13 funções públicas e 15 internas (sem `service_role`); a
   migration confere que o inventário tem exatamente 28. O rollback solta gatilhos, depois as 28 funções,
   depois as tabelas. Cópias em `_backup_juridico_*_20261112` com RLS e sem grant.
 - **Término do Contrato** não entra em evadidos (`_juridico_grupo` devolve nulo).

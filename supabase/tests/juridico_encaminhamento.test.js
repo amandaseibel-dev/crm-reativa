@@ -714,7 +714,7 @@ describe("correcoes da reauditoria (12/11/2026)", () => {
 // Achado 5 (Guardiao): acordo ATIVO criado ou reativado DEPOIS da geracao da lista
 // nao entra na aprovacao sem revisao especifica da gestao.
 // Limite: o PGlite roda numa unica sessao, entao a corrida real entre duas conexoes
-// nao e reproduzida aqui; a protecao contra a corrida e o lock FOR UPDATE do conjunto.
+// nao e reproduzida aqui. O lock FOR UPDATE reduz a janela, nao a fecha: ver docs.
 const ativos = async (db, al) =>
   (await db.query("select coalesce(array_agg(id order by id),'{}'::uuid[]) a from acordos where aluno_id=$1 and upper(status)='ATIVO' and duplicado_de is null", [al])).rows[0].a;
 
