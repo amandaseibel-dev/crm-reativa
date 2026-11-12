@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { montarPdfConsolidado2026_2, NOME_ARQUIVO_PDF_2026_2 } from "../utils/pdfEfetividade2026_2";
 import { Carregando } from "../ui/estados";
 import EfetividadePorVencimento from "../components/EfetividadePorVencimento";
 import EfetividadeCompetencias from "../components/EfetividadeCompetencias";
@@ -448,6 +449,18 @@ export default function CarteiraEfetividade() {
   const cursos = hist ? (hist.cursos || []) : null;
   const cursosTotal = Number(hist?.aberto?.valor || 0);
 
+  // PDF da visão 2026/2 Consolidado. Usa só o que a tela já carregou: mesmas
+  // consultas, mesmos filtros, mesmos totais. Não consulta nada novo.
+  // Entrada = borderô de remessa (primeira/última remessa e quantidade vêm de
+  // carteira_2026_2_contexto). "Recuperado desde a entrada" NÃO é medido aqui:
+  // o PDF declara essa limitação em vez de inventar o número.
+  function exportarPDF2026_2() {
+    const doc = montarPdfConsolidado2026_2({
+      safra, indicadores, situacao, contexto, rodape, moeda: moedaCurta,
+    });
+    doc.save(NOME_ARQUIVO_PDF_2026_2);
+  }
+
   return (
     <div style={S.pagina}>
       <header style={S.tituloLinha}>
@@ -544,6 +557,9 @@ export default function CarteiraEfetividade() {
                 ))}
               </div>
             </div>
+          ) : null}
+          {safra === "2026/2" && vista === "consolidado" && vigente ? (
+            <button type="button" onClick={exportarPDF2026_2} style={S.opcao}>Exportar PDF</button>
           ) : null}
         </div>
         <div style={S.periodo}>
