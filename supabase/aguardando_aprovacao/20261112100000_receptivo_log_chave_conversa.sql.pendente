@@ -114,6 +114,18 @@ begin
   select nome into v_nome from public.fila_receptivo where email = p_email;
   if not found then return false; end if;
 
+  -- REPROCESSAMENTO: ciclo WHATSAPP ja contado por linha ANTIGA (conversa_id NULL)
+  -- nao pode contar de novo so porque a conversa agora tem conversa_id. Vale
+  -- mesmo quando o ciclo era ambiguo e nao foi vinculado a conversa nenhuma.
+  if p_conversa_id is not null and exists (
+       select 1 from public.receptivo_atendimentos_log l
+        where l.operador_email = p_email
+          and l.responsavel_desde = v_resp_desde
+          and l.conversa_id is null
+          and l.fonte = 'WHATSAPP') then
+    return false;
+  end if;
+
   insert into public.receptivo_atendimentos_log
     (operador_email, operador_nome, atendido_em, responsavel_desde, fonte, conversa_id)
   values (

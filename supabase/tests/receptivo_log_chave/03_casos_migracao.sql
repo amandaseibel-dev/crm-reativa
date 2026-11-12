@@ -100,3 +100,35 @@ begin
   raise notice 'RECEPTIVO LOG CHAVE: % asserções, % falhas', v_t, v_f;
   if v_f > 0 then raise exception '% asserções falharam', v_f using errcode='22023'; end if;
 end $final$;
+
+-- C10: REPROCESSAMENTO. Ciclo ja contado por linha ANTIGA (conversa NULL) nao conta de novo,
+--      mesmo depois de a conversa ganhar conversa_id (h2 e ambiguo: 2 candidatas, fica NULL).
+do $c10$
+declare v_antes integer; v_depois integer; r1 boolean; r2 boolean;
+begin
+  select count(*) into v_antes from public.receptivo_atendimentos_log where operador_email='op_b@test.local';
+  r1 := public.fila_receptivo_registrar_atendimento('op_b@test.local','00000000-0000-0000-0000-00000000c003');
+  r2 := public.fila_receptivo_registrar_atendimento('op_b@test.local','00000000-0000-0000-0000-00000000c004');
+  select count(*) into v_depois from public.receptivo_atendimentos_log where operador_email='op_b@test.local';
+  insert into _res values ('C10a','reprocessar ciclo ambiguo ja contado (linha antiga NULL) nao conta de novo','false|false',
+    r1::text || '|' || r2::text);
+  insert into _res values ('C10b','nenhuma linha nova para o ciclo reprocessado','0', (v_depois - v_antes)::text);
+end $c10$;
+
+-- C11: reprocessar a conversa JA vinculada (c001, historico com conversa_id) nao duplica
+do $c11$
+declare v_antes integer; v_depois integer;
+begin
+  select count(*) into v_antes from public.receptivo_atendimentos_log where conversa_id='00000000-0000-0000-0000-00000000c001';
+  perform public.fila_receptivo_registrar_atendimento('op_a@test.local','00000000-0000-0000-0000-00000000c001');
+  select count(*) into v_depois from public.receptivo_atendimentos_log where conversa_id='00000000-0000-0000-0000-00000000c001';
+  insert into _res values ('C11','reprocessar historico ja vinculado nao duplica','0', (v_depois - v_antes)::text);
+end $c11$;
+
+do $final2$
+declare v_f integer; v_t integer;
+begin
+  select count(*) filter (where obtido is distinct from esperado), count(*) into v_f, v_t from _res;
+  raise notice 'RECEPTIVO LOG CHAVE (com reprocessamento): % asserções, % falhas', v_t, v_f;
+  if v_f > 0 then raise exception '% asserções falharam', v_f using errcode='22023'; end if;
+end $final2$;
