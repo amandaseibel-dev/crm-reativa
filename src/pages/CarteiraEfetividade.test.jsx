@@ -587,3 +587,40 @@ describe("Efetividade — política de atualização da fotografia", () => {
     expect(depois).toBe(antes);
   });
 });
+
+// Clique do botão "Exportar PDF" (2026/2 · Consolidado). O gerador é trocado
+// por um espião: aqui se prova o FLUXO (botão → dados da tela → arquivo), não
+// o desenho do PDF, que tem o próprio teste em utils/pdfEfetividade2026_2.test.js.
+const pdfMock = vi.hoisted(() => ({ montar: vi.fn(), save: vi.fn() }));
+vi.mock("../utils/pdfEfetividade2026_2", () => ({
+  montarPdfConsolidado2026_2: (...a) => { pdfMock.montar(...a); return { save: pdfMock.save }; },
+  NOME_ARQUIVO_PDF_2026_2: "relatorio-2026-2-consolidado.pdf",
+}));
+
+describe("Exportar PDF 2026/2 — clique", () => {
+  beforeEach(() => { pdfMock.montar.mockClear(); pdfMock.save.mockClear(); });
+
+  it("aparece no consolidado de 2026/2 e entrega os dados da tela ao gerador", async () => {
+    await abrir();
+    await ir2026_2();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Exportar PDF" })); });
+    expect(pdfMock.montar).toHaveBeenCalledTimes(1);
+    const arg = pdfMock.montar.mock.calls[0][0];
+    expect(arg.safra).toBe("2026/2");
+    expect(arg.indicadores.length).toBeGreaterThan(0);
+    expect(arg.contexto).toEqual(CONTEXTO);
+    expect(pdfMock.save).toHaveBeenCalledWith("relatorio-2026-2-consolidado.pdf");
+  });
+
+  it("não aparece em 2026/1", async () => {
+    await abrir();
+    expect(screen.queryByRole("button", { name: "Exportar PDF" })).toBeNull();
+  });
+
+  it("não aparece na visão Por competência de 2026/2", async () => {
+    await abrir();
+    await ir2026_2();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Por competência" })); });
+    expect(screen.queryByRole("button", { name: "Exportar PDF" })).toBeNull();
+  });
+});
