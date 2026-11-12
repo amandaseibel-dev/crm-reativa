@@ -1,0 +1,21 @@
+-- ROLLBACK da 20261112230000_prime_protege_decisao_humana.sql.pendente
+--
+-- Nao copiar a definicao antiga para ca: ela ja esta versionada e e a unica fonte
+-- aprovada. Para reverter, reaplicar os dois CREATE OR REPLACE FUNCTION de:
+--
+--   supabase/migrations/20260918230000_prime_liquidacao_regra_entrada.sql
+--     - public.prime_liquidacao_suspender(...)
+--     - public.prime_liquidacao_reavaliar_pendentes(...)
+--
+-- Passo a passo (em janela fora do expediente, com a conciliacao avisada):
+--   1. Exportar o estado atual das duas funcoes (pg_get_functiondef) e guardar.
+--   2. Reaplicar as duas definicoes acima, na mesma ordem (suspender, depois reavaliar).
+--   3. Conferir, em leitura: pg_get_functiondef nao contem 'DECISAO_HUMANA_PRESERVADA'
+--      nem 'ignoradas_decisao_humana'; grants e search_path iguais aos anteriores
+--      (search_path=public, security definer).
+--   4. Nao ha dado a desfazer: a migration nao altera tabelas nem linhas.
+--      As linhas de auditoria 'PRIME_SUSPENSAO_BLOQUEADA_DECISAO_HUMANA' gravadas
+--      no periodo ficam como registro historico e nao precisam ser removidas.
+--
+-- Reverter NAO restaura decisoes sobrescritas. Isso e tratado em separado, por titulo,
+-- com aprovacao da gestao.

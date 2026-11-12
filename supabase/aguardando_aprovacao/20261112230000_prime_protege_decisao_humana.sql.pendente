@@ -1,0 +1,218 @@
+-- =============================================================================
+-- PENDENTE DE APROVACAO. NAO APLICAR SEM AUTORIZACAO DA GESTAO E DA CONCILIACAO.
+--
+-- Protege decisoes humanas em prime_conferencia_decisao contra sobrescrita pela
+-- rotina de liquidacao Prime.
+--
+-- ACHADO (auditoria 12/11/2026): prime_liquidacao_suspender fazia
+--   INSERT ... ON CONFLICT (titulo_id) DO UPDATE SET decisao = 'PENDENTE',
+--   decidido_por = null, decidido_em = null ...
+-- sem nenhuma condicao sobre a decisao anterior. Titulos com decisao humana
+-- (VINCULADO, REJEITADO, CONFIRMADO, ENCERRADO_ADMINISTRATIVO, DEVOLVIDO) podiam
+-- voltar a PENDENTE e perder o autor. Comprovado em 10 titulos (R$ 2.389,14).
+--
+-- O QUE MUDA
+--   prime_liquidacao_suspender:
+--     - se ja existe decisao que nao e PENDENTE ou tem decidido_por, NAO sobrescreve
+--       a decisao, NAO muda a situacao do titulo e NAO grava movimentacao;
+--     - registra a tentativa bloqueada em auditoria (no maximo uma por titulo por dia,
+--       para nao inflar a tabela a cada execucao horaria);
+--     - devolve {ok:false, bloqueado:'DECISAO_HUMANA_PRESERVADA'}.
+--     - decisao PENDENTE sem decidido_por (criada pela propria rotina) segue o fluxo legitimo.
+--   prime_liquidacao_reavaliar_pendentes:
+--     - so reavalia linhas PENDENTE SEM decidido_por (criadas pela rotina);
+--     - conta em 'ignoradas_decisao_humana' quantas linhas foram deixadas de fora.
+--
+-- O QUE NAO MUDA
+--   - criterios de elegibilidade (prime_liquidacao_classificar_novas nao e alterada);
+--   - as rotas A (pagamento comprovado) e B (acordo comprovado) para titulos sem decisao humana;
+--   - nenhuma tabela e nenhum dado e alterado por esta migration.
+--
+-- CONCORRENCIA
+--   suspender trava a linha do titulo (FOR UPDATE em acordos_titulos) e a linha da
+--   decisao (FOR UPDATE em prime_conferencia_decisao) antes de decidir. Uma decisao
+--   humana concorrente espera o commit da rotina, e a rotina ve a decisao humana.
+--
+-- A definicao anterior das duas funcoes esta em
+--   supabase/migrations/20260918230000_prime_liquidacao_regra_entrada.sql
+-- (rollback: ver o arquivo .rollback.sql desta mesma pasta).
+-- =============================================================================
+
+create or replace function public.prime_liquidacao_suspender(
+  p_titulo_id uuid, p_subgrupo text, p_classificacao text, p_nivel text, p_motivo text,
+  p_evidencia jsonb, p_pagamento_id uuid, p_acordo_id uuid, p_quem text
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_t record; v_op text; v_num text; v_valor numeric; v_rev boolean;
+  v_dec_ant text; v_dec_quem text; v_dec_em timestamptz;
+begin
+  select t.*, coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0) as v
+    into v_t from public.acordos_titulos t where t.id = p_titulo_id for update;
+  if not found then return jsonb_build_object('ok', false, 'erro', 'TITULO_NAO_ENCONTRADO'); end if;
+  if upper(coalesce(v_t.situacao,'')) not in ('ABERTO','EM_CONFIRMACAO') then
+    return jsonb_build_object('ok', false, 'erro', 'NAO_ESTA_ABERTO', 'situacao', v_t.situacao);
+  end if;
+
+  -- GUARDA: decisao humana nunca e sobrescrita pela rotina.
+  select d.decisao, d.decidido_por, d.decidido_em
+    into v_dec_ant, v_dec_quem, v_dec_em
+    from public.prime_conferencia_decisao d where d.titulo_id = p_titulo_id for update;
+  if found and (v_dec_ant is distinct from 'PENDENTE' or v_dec_quem is not null) then
+    if not exists (
+      select 1 from public.auditoria a
+       where a.registro_id = p_titulo_id
+         and a.acao = 'PRIME_SUSPENSAO_BLOQUEADA_DECISAO_HUMANA'
+         and a.created_at > now() - interval '1 day'
+    ) then
+      insert into public.auditoria (usuario, acao, tabela_afetada, registro_id, detalhes)
+      values (p_quem, 'PRIME_SUSPENSAO_BLOQUEADA_DECISAO_HUMANA', 'prime_conferencia_decisao', p_titulo_id,
+              jsonb_build_object('decisao_preservada', v_dec_ant, 'decidido_por_preservado', v_dec_quem,
+                                 'decidido_em_preservado', v_dec_em, 'classificacao_tentada', p_classificacao,
+                                 'subgrupo_tentado', p_subgrupo));
+    end if;
+    return jsonb_build_object('ok', false, 'bloqueado', 'DECISAO_HUMANA_PRESERVADA', 'decisao', v_dec_ant);
+  end if;
+
+  v_valor := round(v_t.v, 2);
+  v_rev := coalesce((p_evidencia->>'acordo_cancelado_no_historico')::boolean, false)
+        or not coalesce((p_evidencia->'prime'->>'cpf_confere')::boolean, true)
+        or p_subgrupo = 'C_SEM_PROVA' and p_motivo like 'ACORDO_QUITADO_SEM_PAGAMENTO_REAL%';
+  select k.operador_email into v_op from public.casos k
+   where k.aluno_id = v_t.aluno_id and not coalesce(k.encerrado_operacional, false)
+   order by k.caso_atualizado_em desc nulls last limit 1;
+  if p_acordo_id is not null then
+    select coalesce(numero_acordo::text,'') into v_num from public.acordos where id = p_acordo_id;
+  end if;
+
+  insert into public.prime_conferencia_decisao
+    (titulo_id, decisao, motivo, decidido_por, decidido_em, motivo_entrada, aluno_id, cpf, documento, valor,
+     evidencia, evidencia_chave, corroboracao, subgrupo, acordo_id, acordo_numero, revisao_obrigatoria,
+     operador_no_momento, detectado_em, situacao_anterior, status_anterior)
+  values (p_titulo_id, 'PENDENTE', null, null, null, 'PRIME_LIQUIDACAO_ORIGEM_NAO_COMPROVADA', v_t.aluno_id, v_t.cpf,
+          v_t.documento, v_valor,
+          p_evidencia || jsonb_build_object('classificacao', p_classificacao, 'nivel_evidencia', p_nivel, 'motivo', p_motivo,
+                                            'pagamento_id', p_pagamento_id),
+          p_evidencia->>'evidencia_chave', 'NENHUMA', p_subgrupo, p_acordo_id, v_num, v_rev,
+          v_op, now(), v_t.situacao, v_t.status)
+  on conflict (titulo_id) do update
+    set decisao = 'PENDENTE', motivo = null, decidido_por = null, decidido_em = null,
+        motivo_entrada = excluded.motivo_entrada, aluno_id = excluded.aluno_id, cpf = excluded.cpf,
+        documento = excluded.documento, valor = excluded.valor, evidencia = excluded.evidencia,
+        evidencia_chave = excluded.evidencia_chave, corroboracao = excluded.corroboracao,
+        subgrupo = excluded.subgrupo, acordo_id = excluded.acordo_id, acordo_numero = excluded.acordo_numero,
+        revisao_obrigatoria = excluded.revisao_obrigatoria, operador_no_momento = excluded.operador_no_momento,
+        detectado_em = excluded.detectado_em, situacao_anterior = excluded.situacao_anterior,
+        status_anterior = excluded.status_anterior;
+
+  if upper(coalesce(v_t.situacao,'')) <> 'EM_CONFIRMACAO' then
+    perform set_config('conferencia_prime.decisao', 'on', true);
+    update public.acordos_titulos set situacao = 'EM_CONFIRMACAO', atualizado_em = now() where id = p_titulo_id;
+    perform set_config('conferencia_prime.decisao', 'off', true);
+
+    insert into public.aluno_movimentacoes
+      (aluno_id, tipo, descricao, status_anterior, status_novo, registrado_por_nome, registrado_por_email,
+       registrado_em, valor_movimentacao)
+    values (v_t.aluno_id::text, 'TITULO_EM_CONFIRMACAO_PRIME',
+            'Titulo ' || coalesce(v_t.documento,'?') || ' (venc. ' || to_char(v_t.vencimento,'DD/MM/YYYY')
+              || ') saiu da cobranca: a Prime liquidou em ' || coalesce(p_evidencia->'prime'->>'liquidado_em','?')
+              || ' e a origem nao esta comprovada (' || p_classificacao || '). Nada foi baixado; o valor foi mantido.',
+            coalesce(v_t.situacao,'(sem)'), 'EM_CONFIRMACAO', 'Sistema', p_quem, now(), v_valor);
+  end if;
+
+  if v_t.aluno_id is not null then
+    perform public.recalcular_situacao_aluno(v_t.aluno_id, 'prime_liquidacao_suspensao');
+  end if;
+  return jsonb_build_object('ok', true, 'titulo_id', p_titulo_id, 'subgrupo', p_subgrupo, 'valor', v_valor);
+end;
+$$;
+
+create or replace function public.prime_liquidacao_reavaliar_pendentes(p_quem text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  d record; v_ev jsonb; v_liq date; v_valor numeric; v_mudou int := 0; v_rev int := 0; v_sug int := 0;
+  v_ign int := 0;
+begin
+  -- Linhas com decisao humana (decidido_por preenchido) ficam fora da reavaliacao.
+  select count(*) into v_ign from public.prime_conferencia_decisao x
+   where x.decisao = 'PENDENTE' and x.decidido_por is not null
+     and x.subgrupo in ('C_SEM_PROVA','B_ACORDO_COMPROVADO','A_PAGAMENTO_COMPROVADO');
+
+  for d in select x.* from public.prime_conferencia_decisao x
+            where x.decisao = 'PENDENTE' and x.decidido_por is null
+              and x.subgrupo in ('C_SEM_PROVA','B_ACORDO_COMPROVADO','A_PAGAMENTO_COMPROVADO')
+            order by x.detectado_em
+            for update
+  loop
+    v_ev := public.prime_liquidacao_evidencias(d.titulo_id);
+    if v_ev is null then continue; end if;
+    v_liq := (v_ev->'prime'->>'liquidado_em')::date;
+
+    -- (a) reversao explicita: a linha da Prime existe e nao esta mais liquidada
+    if (v_ev ? 'prime') and v_liq is null then
+      select round(coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0),2)
+        into v_valor from public.acordos_titulos t where t.id = d.titulo_id;
+      perform set_config('conferencia_prime.decisao', 'on', true);
+      update public.acordos_titulos set situacao = 'ABERTO', status = 'em_aberto', atualizado_em = now()
+       where id = d.titulo_id and upper(coalesce(situacao,'')) = 'EM_CONFIRMACAO';
+      perform set_config('conferencia_prime.decisao', 'off', true);
+      update public.prime_conferencia_decisao
+         set decisao = 'REJEITADO', motivo = 'PRIME_REVERTEU_LIQUIDACAO: o boleto voltou a aparecer em aberto na Prime',
+             decidido_por = p_quem, decidido_em = now()
+       where titulo_id = d.titulo_id and decidido_por is null;
+      insert into public.prime_liquidacao_classificacao
+        (titulo_id, aluno_id, documento, evidencia_chave, data_liquidacao_prime, portador, classificacao, nivel_evidencia,
+         motivo, evidencia, origem_decisao, decidido_por, resultado_titulo)
+      values (d.titulo_id, d.aluno_id, d.documento, v_ev->>'evidencia_chave', null, (v_ev->'prime'->>'portador')::int,
+              'PRIME_REVERTEU_LIQUIDACAO', 'NENHUMA', 'a Prime deixou de mostrar o boleto liquidado; o titulo voltou para a cobranca',
+              v_ev, 'ROTINA', p_quem, 'ABERTO')
+      on conflict do nothing;
+      insert into public.aluno_movimentacoes
+        (aluno_id, tipo, descricao, status_anterior, status_novo, registrado_por_nome, registrado_por_email, registrado_em, valor_movimentacao)
+      values (d.aluno_id::text, 'TITULO_CONFIRMACAO_REJEITADA',
+              'Titulo ' || coalesce(d.documento,'?') || ' voltou para a cobranca: a Prime deixou de mostra-lo liquidado.',
+              'EM_CONFIRMACAO', 'ABERTO', 'Sistema', p_quem, now(), v_valor);
+      if d.aluno_id is not null then
+        perform public.recalcular_situacao_aluno(d.aluno_id, 'prime_liquidacao_reversao');
+      end if;
+      v_rev := v_rev + 1; v_mudou := v_mudou + 1;
+      continue;
+    end if;
+
+    -- (b)/(c): a evidencia mudou de nivel -> atualiza a sugestao da fila
+    if d.subgrupo = 'C_SEM_PROVA' and (v_ev ? 'acordo_composicao')
+       and (v_ev->'acordo_composicao'->>'status' = 'ATIVO'
+            or coalesce((v_ev->'acordo_composicao'->'pago_de_verdade'->>'suficiente')::boolean,false)) then
+      update public.prime_conferencia_decisao
+         set subgrupo = case when v_ev->'acordo_composicao'->>'status' = 'QUITADO' then 'A_PAGAMENTO_COMPROVADO' else 'B_ACORDO_COMPROVADO' end,
+             acordo_id = (v_ev->'acordo_composicao'->>'acordo_id')::uuid,
+             acordo_numero = v_ev->'acordo_composicao'->>'numero',
+             evidencia = v_ev || jsonb_build_object('classificacao',
+               case when v_ev->'acordo_composicao'->>'status' = 'QUITADO' then 'PAGAMENTO_COMPROVADO' else 'ACORDO_COMPROVADO' end,
+               'nivel_evidencia', case when v_ev->'acordo_composicao'->>'status' = 'QUITADO' then 'FINANCEIRA' else 'DOCUMENTAL' end,
+               'motivo', 'reavaliado: surgiu composicao documental de acordo'),
+             detectado_em = now()
+       where titulo_id = d.titulo_id and decidido_por is null;
+      v_sug := v_sug + 1; v_mudou := v_mudou + 1;
+    elsif d.subgrupo = 'C_SEM_PROVA'
+          and coalesce(d.evidencia->>'pagamento_candidato_id','') is distinct from coalesce(v_ev->>'pagamento_candidato_id','') then
+      update public.prime_conferencia_decisao
+         set evidencia = d.evidencia || jsonb_build_object('pagamentos_proximos', v_ev->'pagamentos_proximos',
+               'pagamento_candidato_id', v_ev->'pagamento_candidato_id', 'pagamento_candidato_status', v_ev->'pagamento_candidato_status',
+               'pagamento_cobre_o_titulo', v_ev->'pagamento_cobre_o_titulo', 'reavaliado_em', now())
+       where titulo_id = d.titulo_id and decidido_por is null;
+      v_sug := v_sug + 1; v_mudou := v_mudou + 1;
+    end if;
+  end loop;
+
+  return jsonb_build_object('mudou', v_mudou, 'revertidas_pela_prime', v_rev, 'sugestao_atualizada', v_sug,
+                            'ignoradas_decisao_humana', v_ign);
+end;
+$$;
