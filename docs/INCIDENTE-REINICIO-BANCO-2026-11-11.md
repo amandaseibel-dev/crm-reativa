@@ -55,6 +55,11 @@ De 475–889 req/min para **19–51 req/min durante seis minutos**, voltando a
    no meio.
 4. **Não há `PANIC`, não há `out of memory`, não há `terminating connection
    due to administrator command`** em nenhum momento das 24 h.
+   **Essa ausência não descarta falha de infraestrutura.** Ela só descarta as
+   explicações que deixariam rastro *no Postgres*. Travamento de host, kill
+   pelo orquestrador, perda de disco ou reinício ordenado pela plataforma
+   podem acontecer exatamente assim: sem uma linha no log do banco. O que a
+   ausência remove da mesa é "o Postgres se matou e disse por quê" — nada mais.
 5. Foi **um único reinício em 24 h**.
 6. Nas horas anteriores havia pressão de I/O real: checkpoints de 2 a 3
    minutos e uma consulta de 31,9 s.
@@ -75,11 +80,33 @@ infraestrutura da Supabase, fora do alcance das ferramentas usadas aqui.
 
 ## O que NÃO explica o incidente
 
-A PR #912 reduz pela metade as requisições da Minha Carteira em
-`aluno_movimentacoes`. **Isso é uma melhoria de carga, não a correção da causa
-da queda.** Reduzir requisição diminui a pressão que precede o evento; não
-prova que o evento não volta. Enquanto a causa do reinício não for
-identificada pela Supabase, o risco continua aberto.
+A PR #915 (que substituiu a #912) reduz pela metade as requisições da Minha
+Carteira em `aluno_movimentacoes`. **Isso é uma melhoria de carga, não a
+correção da causa da queda.** Reduzir requisição diminui a pressão que precede
+o evento; não prova que o evento não volta. Enquanto a causa do reinício não
+for identificada pela Supabase, o risco continua aberto.
+
+## Estado em 12/11/2026, ~05:00 BRT (somente leitura)
+
+**Banco estável.** De pé desde 11/11 14:37:42 BRT — 14 h sem nova queda. 8
+conexões do PostgREST, 0 `idle in transaction`, 0 esperando lock, 0 bloqueio
+não concedido, 0 deadlock, cache 99,54%, consulta ativa mais longa 0 s, 48
+crons ativos, projeto `ACTIVE_HEALTHY`.
+
+**Frontend acessível.** `crm-reativa.vercel.app` serve a tela de login
+renderizada, sem erro de console, com o chunk do cliente Supabase em 200.
+
+**Validação da operação autenticada: PENDENTE.** A tela de login **não** é
+validação da operação. Carteira, fila, tabulação, pagamentos e as telas
+internas **não foram exercitadas** — exigem sessão autenticada, que esta
+leitura não tem. O que está provado é que o banco responde e que o front
+carrega; que a operação autenticada funciona ponta a ponta **continua não
+verificado**.
+
+**Resíduo do dia.** Dois crons falharam no mesmo segundo, 11/11 15:25 BRT (48
+min depois do reinício), com `job startup timeout`:
+`whatsapp_monitor_sessoes` e `fila_acordos_confirmar_automatico`. Falha de
+slot de worker, não defeito dos jobs; nenhuma recorrência nas ~13 h seguintes.
 
 ---
 
