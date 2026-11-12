@@ -65,7 +65,7 @@ describe("BlocoUlbra", () => {
     });
   });
 
-  it("o rotulo do botao e 'Abrir Mensageria ULBRA ↗'", async () => {
+  it("o rotulo do botao e 'CRM ULBRA ↗'", async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -76,7 +76,7 @@ describe("BlocoUlbra", () => {
 
     const { container } = render(<BlocoUlbra sobDemanda={false} aluno={{ id: "aluno-rotulo" }} />);
     await waitFor(() =>
-      expect(container.querySelector("a")?.textContent.trim()).toBe("Abrir Mensageria ULBRA ↗"),
+      expect(container.querySelector("a")?.textContent.trim()).toBe("CRM ULBRA ↗"),
     );
   });
 
@@ -295,6 +295,6 @@ describe("BlocoUlbra sob demanda (padrão)", () => {
     fireEvent.click(botao);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     // outros testes deste arquivo deixam nós montados: basta existir pelo menos um link novo
-    expect((await screen.findAllByText(/Abrir Mensageria ULBRA/)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/CRM ULBRA/)).length).toBeGreaterThan(0);
   });
 });
