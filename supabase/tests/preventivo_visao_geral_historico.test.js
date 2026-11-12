@@ -247,7 +247,7 @@ describe("Preventivo — visão geral, mudanças e histórico", () => {
     });
 
     it("as RPCs são só de leitura: nenhuma tabela da cobrança é citada", () => {
-      const sql = MIGRATIONS[MIGRATIONS.length - 1];
+      const sql = readFileSync(resolve(RAIZ, "supabase/migrations/20261112120000_preventivo_visao_geral_historico.sql"), "utf8");
       expect(sql).not.toMatch(/public\.(casos|acordos|acordos_titulos|alunos|pagamentos|borderos?)\b/);
     });
   });
