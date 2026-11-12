@@ -13,7 +13,11 @@ está provada.**
 
 O ponto que mais importa para quem ler isto depois: durante quatro minutos o
 Postgres **não escreveu uma linha de log** enquanto o tráfego estava no chão.
-Um banco que não loga nada nesse intervalo não está lento — está parado.
+Esse silêncio é **compatível com um banco parado**, e não com um banco apenas
+lento — mas é indício, não prova: o registro pode ter faltado por o banco
+estar parado, por a escrita de log estar bloqueada, ou por a coleta ter
+perdido a janela. Qualquer leitura além disso depende de um registro que não
+está ao nosso alcance.
 
 ## Linha do tempo (confirmada)
 
@@ -55,11 +59,16 @@ De 475–889 req/min para **19–51 req/min durante seis minutos**, voltando a
    no meio.
 4. **Não há `PANIC`, não há `out of memory`, não há `terminating connection
    due to administrator command`** em nenhum momento das 24 h.
-   **Essa ausência não descarta falha de infraestrutura.** Ela só descarta as
-   explicações que deixariam rastro *no Postgres*. Travamento de host, kill
-   pelo orquestrador, perda de disco ou reinício ordenado pela plataforma
-   podem acontecer exatamente assim: sem uma linha no log do banco. O que a
-   ausência remove da mesa é "o Postgres se matou e disse por quê" — nada mais.
+   O enunciado exato é este: **não há evidência desses registros nos logs
+   consultados.** Isso **não descarta** `PANIC` nem OOM de forma conclusiva, e
+   não descarta falha de infraestrutura. Dois motivos concretos:
+   **(a)** o próprio log fica **mudo das 14:30:20 às 14:37:43** — ou seja, na
+   janela em que o registro apareceria, não há registro de nada, e ausência
+   dentro de um silêncio não é informação;
+   **(b)** o que foi consultado é o log do Postgres pelas ferramentas
+   disponíveis, não os registros do host nem os da plataforma.
+   `PANIC`, OOM, travamento de host, kill pelo orquestrador e reinício
+   ordenado seguem todos **possíveis e sem evidência**.
 5. Foi **um único reinício em 24 h**.
 6. Nas horas anteriores havia pressão de I/O real: checkpoints de 2 a 3
    minutos e uma consulta de 31,9 s.
@@ -144,6 +153,13 @@ to 19–51 between `17:31` and `17:36`, returning to 517+ at `17:37`.
 `database system was interrupted` — across the full 24-hour window. Only one
 restart in 24 hours. `get_advisors(health)` returns no lints and the project
 reports `ACTIVE_HEALTHY`.
+
+**We are not claiming those causes are ruled out.** This is absence of
+evidence in the logs we can read, not evidence of absence. The Postgres log is
+silent from 14:30:20 to 14:37:43 — precisely the window where such a record
+would appear — and we have no access to host-level or platform-level events.
+A `PANIC`, an OOM kill, a host stall and a platform-ordered restart are all
+still consistent with what we see.
 
 **What we are asking:**
 
