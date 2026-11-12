@@ -28,7 +28,8 @@ const DIVERGENCIAS = {
   PARCELA_ALTERADA: "Parcela de acordo mudou depois da aprovação",
   PAGAMENTO_NAO_BAIXADO: "Pagamento recebido e não baixado",
   PAGAMENTO_AGUARDANDO_CONFIRMACAO: "Pagamento aguardando confirmação",
-  ACORDO_NOVO: "Acordo novo fechado depois da aprovação",
+  ACORDO_NOVO: "Acordo novo, ou reativado depois da aprovação",
+  ACORDO_REATIVADO: "Acordo cancelado depois da aprovação e reativado",
 };
 
 export function rotuloDivergencia(codigo) {

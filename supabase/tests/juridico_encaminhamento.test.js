@@ -769,6 +769,25 @@ describe("acordo novo ou reativado depois da aprovacao", () => {
     await db.close();
   });
 
+  it("acordo ATIVO na aprovacao, CANCELADO depois e REATIVADO com o mesmo ID vira ACORDO_REATIVADO e trava o envio", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000, 500], acordo: "QUEBRADO" });
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_autorizar_documento($1,'autorizado pelo jurídico')", [caso.id]);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    await db.query("update acordos set status='CANCELADO' where id=$1", [a.ac]);
+    expect(await divs(db, caso)).not.toContain("ACORDO_REATIVADO");
+    await db.query("update acordos set status='ATIVO' where id=$1", [a.ac]);
+    expect(await divs(db, caso)).toContain("ACORDO_REATIVADO");
+    expect(await divs(db, caso)).not.toContain("ACORDO_NOVO");
+    const hist = (await db.query("select count(*)::int n from juridico_historico where caso_id=$1 and evento='ACORDO_STATUS'", [caso.id])).rows[0].n;
+    expect(hist).toBe(2);
+    const e = await falha(rpc(db, "public.juridico_lote_enviar_financeiro($1)", [caso.lote_id]));
+    expect(e?.message).toMatch(/ACORDO_REATIVADO/);
+    await db.close();
+  });
+
   it("acordo ATIVO com duplicado_de preenchido NAO gera alerta (copia, nao acordo novo)", async () => {
     const db = await novo();
     const a = await mk(db, { valores: [1000] });

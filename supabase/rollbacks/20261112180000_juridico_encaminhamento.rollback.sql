@@ -47,8 +47,9 @@ drop trigger if exists trg_juridico_so_anexa_historico on public.juridico_histor
 drop trigger if exists trg_juridico_so_anexa_documentos on public.juridico_documentos;
 drop trigger if exists trg_juridico_so_anexa_truncate_historico on public.juridico_historico;
 drop trigger if exists trg_juridico_so_anexa_truncate_documentos on public.juridico_documentos;
+drop trigger if exists trg_juridico_acordo_status on public.acordos;
 
--- 2. funcoes: lista explicita, 27 assinaturas (conferidas pela migration)
+-- 2. funcoes: lista explicita, 28 assinaturas (conferidas pela migration)
 drop function public._juridico_exigir_gestao();
 drop function public._juridico_grupo(text);
 drop function public._juridico_conferencia(uuid);
@@ -61,6 +62,7 @@ drop function public._juridico_desbloquear(public.juridico_casos);
 drop function public._juridico_guarda_bloqueio();
 drop function public._juridico_guarda_caso_novo();
 drop function public._juridico_so_anexa();
+drop function public._juridico_registra_acordo_status();
 drop function public._juridico_pagamento_nao_baixado(uuid);
 drop function public._juridico_pagamento_nao_baixado_ids(uuid[]);
 drop function public.juridico_candidatos(integer,integer,integer,text[]);

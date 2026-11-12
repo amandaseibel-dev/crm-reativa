@@ -100,6 +100,7 @@ create table public.juridico_casos (
 create unique index juridico_casos_um_ativo_por_aluno
   on public.juridico_casos (aluno_id) where status <> 'REMOVIDO';
 create index juridico_casos_lote on public.juridico_casos (lote_id);
+create index juridico_casos_aluno on public.juridico_casos (aluno_id);
 
 create table public.juridico_casos_titulos (
   id uuid primary key default gen_random_uuid(),
@@ -541,6 +542,13 @@ begin
        and not (a.id = any(p_caso.acordos_aprovados))
   ) then v := array_append(v, 'ACORDO_NOVO'); end if;
 
+  -- acordo que estava ATIVO na aprovacao, foi cancelado e voltou a ATIVO: so o historico sabe
+  if exists (
+    select 1 from public.juridico_historico h
+     where h.caso_id = p_caso.id and h.evento = 'ACORDO_STATUS'
+       and h.detalhe->>'depois' = 'ATIVO' and h.detalhe->>'antes' is distinct from 'ATIVO'
+  ) then v := array_append(v, 'ACORDO_REATIVADO'); end if;
+
   if public._juridico_pagamento_nao_baixado(p_caso.aluno_id) then
     v := array_append(v, 'PAGAMENTO_NAO_BAIXADO');
   end if;
@@ -930,6 +938,7 @@ as $function$
 declare
   v_email text := public._juridico_exigir_gestao();
   v_caso public.juridico_casos; v_conf jsonb; v_pend text[]; v_ant jsonb; v_n int;
+  v_acordos uuid[];
 begin
   select * into v_caso from public.juridico_casos where id = p_caso_id for update;
   if not found then raise exception 'Caso não encontrado.' using errcode = 'P0002'; end if;
@@ -939,6 +948,13 @@ begin
 
   -- trava a linha do aluno: duas aprovacoes simultaneas nao se cruzam
   perform 1 from public.alunos where id = v_caso.aluno_id for update;
+
+  -- conjunto de acordos ATIVOS, lido e travado ANTES da fotografia e do bloqueio
+  select array_agg(x.id) into v_acordos from (
+    select a.id from public.acordos a
+     where a.aluno_id = v_caso.aluno_id and upper(coalesce(a.status,'')) = 'ATIVO'
+       and a.duplicado_de is null
+     for update) x;
 
   v_conf := public._juridico_conferencia(v_caso.aluno_id);
   v_pend := public._juridico_pendencias(v_caso, v_conf);
@@ -1003,10 +1019,7 @@ begin
   update public.juridico_casos
      set status = 'APROVADO', aprovado_por = v_email, aprovado_em = now(),
          valor_aprovado = (v_conf->>'total')::numeric, bloqueio_anterior = v_ant,
-         acordos_aprovados = coalesce((
-           select array_agg(a.id) from public.acordos a
-            where a.aluno_id = v_caso.aluno_id and upper(coalesce(a.status,'')) = 'ATIVO'
-              and a.duplicado_de is null), '{}'::uuid[])
+         acordos_aprovados = coalesce(v_acordos, '{}'::uuid[])
    where id = p_caso_id;
 
   perform public._juridico_registrar(p_caso_id, v_caso.lote_id, 'CASO_APROVADO',
@@ -1284,6 +1297,31 @@ create trigger trg_juridico_so_anexa_truncate_historico before truncate on publi
 create trigger trg_juridico_so_anexa_truncate_documentos before truncate on public.juridico_documentos
   for each statement execute function public._juridico_so_anexa();
 
+-- Mudanca de status de acordo de aluno com caso ja aprovado (ou enviado/confirmado)
+-- vira linha no historico. E assim que se enxerga cancelado depois da aprovacao e
+-- reativado depois: o ID do acordo e o mesmo, so o status muda. So grava; nao
+-- altera acordo, parcela, titulo nem carteira.
+create function public._juridico_registra_acordo_status()
+returns trigger
+language plpgsql security definer set search_path to 'public'
+as $function$
+begin
+  if new.status is distinct from old.status then
+    insert into public.juridico_historico (caso_id, lote_id, evento, detalhe, por)
+    select jc.id, jc.lote_id, 'ACORDO_STATUS',
+           jsonb_build_object('acordo_id', new.id, 'antes', old.status, 'depois', new.status),
+           'sistema:acordos'
+      from public.juridico_casos jc
+     where jc.aluno_id = new.aluno_id
+       and jc.status in ('APROVADO','ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO');
+  end if;
+  return new;
+end;
+$function$;
+
+create trigger trg_juridico_acordo_status after update of status on public.acordos
+  for each row execute function public._juridico_registra_acordo_status();
+
 -- ---------------------------------------------------------------------------
 -- 5. GUARDA DO BLOQUEIO: o status JURIDICO nao sai de alunos/casos enquanto
 --    houver caso ativo. So a GUC juridico.desbloqueio (ligada em
@@ -1421,7 +1459,8 @@ begin
   'public._juridico_desbloquear(public.juridico_casos)',
   'public._juridico_guarda_bloqueio()',
   'public._juridico_guarda_caso_novo()',
-  'public._juridico_so_anexa()'
+  'public._juridico_so_anexa()',
+  'public._juridico_registra_acordo_status()'
   ] loop
     execute format('revoke all on function %s from public, anon, authenticated, service_role', sig);
   end loop;
@@ -1438,8 +1477,8 @@ begin
   select count(*) into v_n from pg_proc p
    where p.pronamespace = 'public'::regnamespace
      and (p.proname like 'juridico\_%' or p.proname like '\_juridico\_%');
-  if v_n <> 27 then
-    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 27 esperadas).', v_n;
+  if v_n <> 28 then
+    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 28 esperadas).', v_n;
   end if;
 
   select count(*) into v_n

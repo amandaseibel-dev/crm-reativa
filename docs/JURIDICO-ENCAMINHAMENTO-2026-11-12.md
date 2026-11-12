@@ -103,7 +103,8 @@ Fica, por decisão a tomar pela gestão:
   vencimento e depois da importação do título. Alunos barrados hoje (27 no total, contando o
   portão): 2 formados, 6 trancados e 16 evadidos por pagamento não baixado, e 4 pelo portão.
 
-  Decomposição da redução de 2.382 para 24, passo a passo:
+  Decomposição CUMULATIVA da redução de 2.382 para 24, na ordem abaixo (o efeito isolado de
+  cada mudança não foi medido; mudar a ordem muda a atribuição):
   - NEGOCIADO no sinal (a): **0 alunos** (não muda nada hoje);
   - NEGOCIADO no sinal (c): **12 alunos** liberados pela regra atual, todos com acordo ATIVO
     quebrado (liquidação de título negociado é o acordo, não pagamento). Restaurar NEGOCIADO
@@ -119,6 +120,9 @@ Fica, por decisão a tomar pela gestão:
 - **Acordo novo ou reativado depois da aprovação** (`ACORDO_NOVO`): a aprovação grava em
   `juridico_casos.acordos_aprovados` os IDs de todos os acordos ATIVOS do aluno. Depois, qualquer
   acordo ATIVO fora desse conjunto gera a divergência. Não usa `criado_em` nem `atualizado_em`.
+  Acordo cancelado depois da aprovação e reativado com o mesmo ID: o gatilho
+  `trg_juridico_acordo_status` grava cada mudança de status em `juridico_historico`
+  (evento `ACORDO_STATUS`) e a divergência `ACORDO_REATIVADO` lê esse histórico.
   Não movimenta carteira nem altera acordo; o envio fica recusado até a gestão revisar.
 - **Envio recusa** qualquer caso com divergência: mensalidade ou parcela que mudou, valor
   diferente do aprovado, acordo duplicado, pagamento não baixado ou aguardando confirmação.
