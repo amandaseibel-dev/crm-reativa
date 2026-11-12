@@ -1180,9 +1180,9 @@ jobs:
           psql -d integracao -v ON_ERROR_STOP=1 -f "$DIR/00_base_integracao.sql"
           node "$DIR/importar_prod_defs.mjs" "$DIR/fixtures/prod_defs_sintetico.json" "$RUNNER_TEMP/integ.sql"
           psql -d integracao -v ON_ERROR_STOP=1 -f "$RUNNER_TEMP/integ.sql"
-          psql -d postgres -v ON_ERROR_STOP=1 -f "$DIR/papel_temporario_criar.sql"
+          psql -d integracao -v ON_ERROR_STOP=1 -v banco=integracao -f "$DIR/papel_temporario_criar.sql"
           psql -d postgres -v ON_ERROR_STOP=1 -c "alter role leitor_defs password 'ci-sintetico-unico'"
-          psql -d postgres -v ON_ERROR_STOP=1 -c "grant connect on database integracao to leitor_defs"
+          psql -d integracao -v ON_ERROR_STOP=1 -c "select 1" >/dev/null
 
       - name: Testes do extrator (sucesso, conexao, divergencia, sem URL, privilegio)
         run: |
@@ -1193,7 +1193,7 @@ jobs:
         if: always()
         run: |
           set -uo pipefail
-          psql -d postgres -v ON_ERROR_STOP=1 -f "$DIR/papel_temporario_remover.sql"
+          psql -d integracao -v ON_ERROR_STOP=1 -v banco=integracao -f "$DIR/papel_temporario_remover.sql"
           R=$(psql -d postgres -tAc "select count(*) from pg_roles where rolname='leitor_defs'")
           test "$R" = "0" || { echo "FALHOU: papel ainda existe"; exit 1; }
           echo "OK: papel removido"

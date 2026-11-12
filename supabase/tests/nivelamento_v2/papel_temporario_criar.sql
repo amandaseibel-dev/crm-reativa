@@ -4,6 +4,7 @@
 -- a define localmente com a ultima linha (substitua o marcador por ele mesmo, sem registrar).
 -- Falha (e nao cria nada pela metade) se o papel ja existir.
 \set ON_ERROR_STOP on
+-- Conectar no banco alvo (producao: postgres). Variavel banco, ex.: psql -v banco=postgres -d postgres
 begin;
 do $$
 begin
@@ -13,7 +14,7 @@ begin
 end $$;
 create role leitor_defs login nosuperuser nocreatedb nocreaterole noinherit connection limit 2;
 alter role leitor_defs set default_transaction_read_only = on;
-grant connect on database postgres to leitor_defs;
+grant connect on database :"banco" to leitor_defs;
 grant usage on schema public to leitor_defs;
 grant usage on schema internal to leitor_defs;
 commit;

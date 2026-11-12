@@ -2,6 +2,7 @@
 -- inclusive se ela falhar. Ordem: bloquear logins -> encerrar sessoes -> revogar
 -- privilegios -> conferir dependencias -> DROP ROLE simples (sem CASCADE, sem DROP OWNED).
 \set ON_ERROR_STOP on
+-- Conectar no banco onde o papel recebeu privilegios. Variavel banco (producao: postgres).
 do $$
 begin
   if not exists (select 1 from pg_roles where rolname = 'leitor_defs') then
@@ -21,7 +22,7 @@ select pg_terminate_backend(pid)
 -- 3) revoga todos os privilegios concedidos
 revoke usage on schema public   from leitor_defs;
 revoke usage on schema internal from leitor_defs;
-revoke connect on database postgres from leitor_defs;
+revoke connect on database :"banco" from leitor_defs;
 
 -- 4) confere dependencias antes de remover: parar se houver posse de objetos
 --    ou privilegios remanescentes (nao usar DROP OWNED / CASCADE)
