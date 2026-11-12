@@ -2,8 +2,8 @@
 
 As duas migrations de privilégio **já rodaram em produção**. O que falta é só o
 **registro no ledger**, e ele está **bloqueado por desenho**. Este diretório
-guarda o pacote pronto, fora de `/private/tmp`, para que a conclusão seja um
-passo e não uma reconstrução.
+guarda o pacote pronto, versionado, para que a conclusão seja um passo e não
+uma reconstrução.
 
 ## O que já está feito
 
@@ -14,9 +14,9 @@ passo e não uma reconstrução.
 
 Confirmado em produção, somente leitura: `authenticated` com `TRUNCATE` em
 **0** das 548 tabelas `_backup_pos_import_*`; `service_role` preservado nas
-548; RLS ligada nas 548 com 0 policy; `EXECUTE` da função inalterado
-(`postgres`, `authenticated`, `service_role`). O `status` das duas linhas em
-`docs/seguranca/migracoes-aprovadas.tsv` foi para `aplicada`.
+548; RLS ligada nas 548 com 0 policy; `EXECUTE` da função inalterado. O
+`status` das duas linhas em `docs/seguranca/migracoes-aprovadas.tsv` foi para
+`aplicada`.
 
 ## Por que o ledger não foi escrito
 
@@ -26,58 +26,104 @@ O Guardião nega qualquer escrita em `supabase/ledger/**`, pelas duas vias:
 - `P1/ledger` no Edit/Write — `plugins/reativa-one/hooks/guardiao.sh:731`
 
 A alternativa que o próprio hook declara é **"nenhum — ledger não se edita"**.
-Não há via sancionada para esta sessão escrever ali, e a restrição **não foi
-contornada** — nem por worktree fora do projeto, que é falha conhecida e
-registrada, não rota.
+A restrição **não foi contornada** — nem por worktree fora do projeto, que é
+falha conhecida e registrada, não rota.
 
-## A ação exata que falta
+## Dois hashes diferentes, que não devem ser confundidos
 
-Quem tiver a escrita do ledger liberada executa **três passos**, nesta ordem.
-
-**1. Criar os dois `.sql`, cópia crua dos arquivos autorizados** (byte a byte
-iguais aos `statements` de produção — nenhum comentário nosso entra):
-
-```bash
-cd /Users/amandapradoseibel/Documents/crm-reativa-atual && cp supabase/aguardando_aprovacao/20261107200000_revoke_truncate_backup_pos_import.sql.pendente supabase/ledger/2026-11/20261111153032__20261107200000_revoke_truncate_backup_pos_import.sql
-```
-
-```bash
-cd /Users/amandapradoseibel/Documents/crm-reativa-atual && cp supabase/aguardando_aprovacao/20261108130000_acordos_pos_importacao_sem_truncate.sql.pendente supabase/ledger/2026-11/20261111170705__20261108130000_acordos_pos_importacao_sem_truncate.sql
-```
-
-**2. Acrescentar as duas linhas de `INDICE-linhas.tsv` (deste diretório) ao
-fim de `supabase/ledger/2026-11/INDICE.tsv`.** São 9 campos separados por TAB,
-no formato `version · nome · arquivo · md5 · bytes · data_utc · tipo ·
-revertida_por · nota`.
-
-**3. Conferir.** O md5 tem de bater com o de produção:
-
-```bash
-cd /Users/amandapradoseibel/Documents/crm-reativa-atual && for v in 20261111153032:950affcd2d09891357ec3cdcbd7cef73 20261111170705:4a87a131bde02e15e7713d88b7c70de7; do f=$(ls supabase/ledger/2026-11/${v%%:*}__*.sql); got=$(perl -0pe 's/\n\z//' "$f" | md5 -q); [ "$got" = "${v##*:}" ] && echo "OK  ${v%%:*}  $got" || echo "DIVERGIU  ${v%%:*}  local=$got esperado=${v##*:}"; done
-```
-
-## Atenção: estes dois registros quebram a convenção dos anteriores
-
-As entradas de 08/11 e 11/11 do `INDICE.tsv` dizem *"newline final incluso,
-usar `md5 -q` direto"*. **Aqui não.** O portão M1 exige o `sha256` do conteúdo
-exato **sem** o newline final (`guardiao.sh` usa `printf '%s'`), e foi isso que
-produção gravou. Então:
-
-| Version | com `perl -0pe 's/\n\z//'` antes (correto) | `md5 -q` direto (**não** use) |
+| | Hash de **autorização** (M1) | Hash de **integridade** (ledger) |
 |---|---|---|
-| `20261111153032` | `950affcd2d09891357ec3cdcbd7cef73` | `b4ec4c9792dd25cf2db9cd8cd7fca2c3` |
-| `20261111170705` | `4a87a131bde02e15e7713d88b7c70de7` | `e52a857aa58871eff8507c8477be2561` |
+| Algoritmo | `sha256` | `md5` |
+| Sobre o quê | a string `query` enviada ao `apply_migration` | o arquivo `.sql` guardado no ledger |
+| Serve para | provar que o que rodou **foi o que a gestão aprovou** | provar que o arquivo **é igual ao que produção guardou** |
+| Onde mora | `docs/seguranca/migracoes-aprovadas.tsv`, campo 3 | `supabase/ledger/2026-11/INDICE.tsv`, campo 4 |
+| Valores | `ea9c49a2…1fa56` / `d2d9cfdc…e9c8a` | `950affcd…cef73` / `4a87a131…0de7` |
 
-Usar o `md5 -q` direto pareceria divergência onde não há. Os `sha256` dos
-`statements` são `ea9c49a2…1fa56` e `d2d9cfdc…e9c8a` — **os mesmos** que a
-autorização M1 carregava, o que prova que rodou o arquivo aprovado.
+São perguntas distintas. O primeiro já cumpriu o seu papel quando o portão
+liberou a aplicação. O segundo é o que este pacote precisa fechar.
 
-Reconferir em produção, somente leitura:
+## A convenção efetiva do ledger, medida
 
-```sql
-select version, name,
-       md5(array_to_string(statements, E'\n')),
-       octet_length(array_to_string(statements, E'\n'))
-  from supabase_migrations.schema_migrations
- where version in ('20261111153032', '20261111170705');
+A `LEIA-ME.md` de `supabase/ledger/` manda conferir com
+`perl -0pe 's/\n\z//' arquivo | md5 -q`. **Isso não é a convenção efetiva** —
+medido nos arquivos que existem:
+
+| Version | `INDICE.tsv` casa com | `bytes` no índice | bytes do arquivo |
+|---|---|---|---|
+| `20260911204433` | md5 **sem** o newline | 1.080 | 1.081 |
+| `20261106151254` | md5 **direto** | = arquivo | = arquivo |
+| `20261108204402` | md5 **direto** | = arquivo | = arquivo |
+| `20261108234022` | md5 **direto** | = arquivo | = arquivo |
+| `20261111114543` | md5 **direto** | = arquivo | = arquivo |
+
+O invariante que vale nos dois casos é outro, e é o da **regra 1** do
+diretório: **`md5` e `bytes` descrevem os `statements` de produção.** Quando os
+`statements` têm o newline final, o arquivo copiado cru já é igual a eles e o
+`md5 -q` direto casa — os quatro casos de novembro. No caso de setembro os
+`statements` não tinham o newline, o arquivo foi guardado com ele, e o índice
+registrou o md5 e os bytes dos `statements`: o arquivo ficou **um byte
+diferente** do que diz representar.
+
+**Aqui não se repete isso.** Os `statements` destes dois não têm newline final,
+então o arquivo é **criado sem ele** — fica byte a byte igual aos `statements`,
+e a conferência é `md5 -q` **direto**, sem transformar nada na hora de medir.
+
+## A ação mínima que falta
+
+Quem tiver a escrita do ledger liberada executa **três passos**.
+
+**1. Criar os dois `.sql` byte a byte iguais aos `statements`.** O `perl`
+aparece aqui, na **criação**, porque é aqui que a diferença de um byte existe e
+fica registrada — nunca na conferência:
+
+```bash
+cd /Users/amandapradoseibel/Documents/crm-reativa-atual && perl -0pe 's/\n\z//' supabase/aguardando_aprovacao/20261107200000_revoke_truncate_backup_pos_import.sql.pendente > supabase/ledger/2026-11/20261111153032__20261107200000_revoke_truncate_backup_pos_import.sql
 ```
+
+```bash
+cd /Users/amandapradoseibel/Documents/crm-reativa-atual && perl -0pe 's/\n\z//' supabase/aguardando_aprovacao/20261108130000_acordos_pos_importacao_sem_truncate.sql.pendente > supabase/ledger/2026-11/20261111170705__20261108130000_acordos_pos_importacao_sem_truncate.sql
+```
+
+**2. Acrescentar as duas linhas de `INDICE-linhas.tsv` (deste diretório) ao fim
+de `supabase/ledger/2026-11/INDICE.tsv`.** São 9 campos separados por TAB:
+`version · nome · arquivo · md5 · bytes · data_utc · tipo · revertida_por ·
+nota`.
+
+**3. Conferir — `md5 -q` direto, e o tamanho.** Sem remover nada:
+
+```bash
+cd /Users/amandapradoseibel/Documents/crm-reativa-atual && for v in 20261111153032:950affcd2d09891357ec3cdcbd7cef73:36840 20261111170705:4a87a131bde02e15e7713d88b7c70de7:8850; do f=$(ls supabase/ledger/2026-11/${v%%:*}__*.sql); r=${v#*:}; m=$(md5 -q "$f"); b=$(wc -c < "$f" | tr -d ' '); if [ "$m" = "${r%%:*}" ] && [ "$b" = "${r##*:}" ]; then echo "OK  ${v%%:*}  md5 $m  $b bytes"; else echo "DIVERGIU  ${v%%:*}  md5=$m bytes=$b"; fi; done
+```
+
+Os comandos dos passos 1 e 3 foram **executados e validados** em 12/11/2026
+contra uma cópia fora do ledger: saíram 36.840 e 8.850 bytes, md5 `950affcd…` e
+`4a87a131…`, batendo com produção.
+
+## A diferença entre o arquivo-fonte e o SQL enviado
+
+Registrada aqui em separado, porque é real e não deve ficar escondida dentro de
+um comando de conferência.
+
+| | Arquivo-fonte (`.pendente` em `origin/main`) | SQL enviado a produção |
+|---|---|---|
+| 858 | 36.841 bytes, termina em `0x0A` (blob `3fffbcc85656`) | 36.840 bytes, termina em `)` |
+| 860 | 8.851 bytes, termina em `0x0A` (blob `f4c234ec64d4`) | 8.850 bytes, termina em `;` |
+
+A diferença é de **um byte**, o `0x0A` final, e **nenhum outro** — o `sha256`
+do conteúdo sem esse byte é idêntico ao que a autorização M1 carregava, o que
+prova que o corpo é o mesmo.
+
+**Por que o newline não foi enviado:** o portão M1 calcula o hash com
+`printf '%s' "$q"` (`guardiao.sh:278`), sem newline final. Para a linha de
+autorização casar, a `query` tinha de ser exatamente o conteúdo sem ele. Foi
+uma consequência do portão, não uma edição do SQL.
+
+## Pendência para quem cuida do ledger
+
+A `LEIA-ME.md` de `supabase/ledger/` e as notas das entradas de novembro dizem
+coisas opostas sobre o `md5` — uma manda remover o newline, as outras mandam
+usar o direto. As duas estão certas para os seus casos e erradas como regra
+geral. O enunciado que cobre os dois é: **o arquivo deve ser byte a byte igual
+aos `statements`, e o `md5`/`bytes` do índice são medidos direto no arquivo.**
+Reconciliar aquele texto é alteração em `supabase/ledger/**` e, portanto,
+também está fora do alcance desta sessão.
