@@ -1,0 +1,131 @@
+-- =============================================================================
+-- ULBRA — identidade propagada do vínculo (correção do espelho).
+-- PENDENTE. NÃO APLICAR sem autorização expressa da gestão.
+--
+-- Problema: `aluno_status` e `aluno_id` das conversas e dos atendimentos são
+-- gravados pela coleta no momento da escrita. Um vínculo criado DEPOIS disso não
+-- chegava às linhas antigas, porque a coleta só regrava o que mudou.
+--
+-- O que muda (só banco; nenhuma chamada à ULBRA):
+--   1. Função de identidade: só vínculo ATIVO e com confiança `alta_cpf` identifica.
+--   2. Gatilho BEFORE INSERT/UPDATE em ulbra_conversas e ulbra_atendimentos: a
+--      identidade é recalculada NO BANCO a cada escrita. Uma coleta concorrente
+--      com identidade antiga não sobrescreve a correção.
+--   3. Gatilho AFTER em ulbra_vinculos (criação, alteração, desativação): tocar as
+--      linhas do cliente, para o gatilho 2 recalcular.
+--   4. Atendimento sem identidade perde o destino derivado de carteira
+--      (vira CONFERENCIA), mas NÃO é redistribuído a outro operador. Atendimento
+--      já assumido (responsavel_email preenchido) mantém o responsável.
+--
+-- O que NÃO muda: classificação de resposta (mensagem do operador continua
+-- não sendo resposta do aluno), grants, RLS e histórico de vínculo (nada é apagado).
+-- =============================================================================
+
+-- Identidade das conversas (sem campo de destino).
+create or replace function public._ulbra_identidade_conversa()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_aluno uuid;
+begin
+  -- Trava compartilhada por cliente: espera uma alteração de vínculo em curso.
+  perform pg_advisory_xact_lock_shared(hashtext('ulbra_identidade:' || new.ulbra_cliente_id));
+  select v.aluno_id into v_aluno
+    from public.ulbra_vinculos v
+   where v.ulbra_cliente_id = new.ulbra_cliente_id
+     and v.desvinculado_em is null
+     and v.confianca = 'alta_cpf';
+  new.aluno_id := v_aluno;
+  new.aluno_status := case when v_aluno is null then 'nao_confirmado' else 'vinculado' end;
+  return new;
+end
+$$;
+
+-- Identidade dos atendimentos. Sem identidade e sem responsável, o destino de
+-- carteira vira CONFERENCIA (não redistribui). Responsável já definido é mantido.
+create or replace function public._ulbra_identidade_atendimento()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_aluno uuid;
+begin
+  -- Trava compartilhada por cliente: espera uma alteração de vínculo em curso.
+  perform pg_advisory_xact_lock_shared(hashtext('ulbra_identidade:' || new.ulbra_cliente_id));
+  select v.aluno_id into v_aluno
+    from public.ulbra_vinculos v
+   where v.ulbra_cliente_id = new.ulbra_cliente_id
+     and v.desvinculado_em is null
+     and v.confianca = 'alta_cpf';
+  new.aluno_id := v_aluno;
+  new.aluno_status := case when v_aluno is null then 'nao_confirmado' else 'vinculado' end;
+  if v_aluno is null and new.responsavel_email is null then
+    new.destino_email := null;
+    new.destino_motivo := 'CONFERENCIA';
+  end if;
+  return new;
+end
+$$;
+
+drop trigger if exists trg_ulbra_conversas_identidade on public.ulbra_conversas;
+create trigger trg_ulbra_conversas_identidade
+  before insert or update on public.ulbra_conversas
+  for each row execute function public._ulbra_identidade_conversa();
+
+drop trigger if exists trg_ulbra_atendimentos_identidade on public.ulbra_atendimentos;
+create trigger trg_ulbra_atendimentos_identidade
+  before insert or update on public.ulbra_atendimentos
+  for each row execute function public._ulbra_identidade_atendimento();
+
+create or replace function public._ulbra_identidade_propagar()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_cliente text := coalesce(new.ulbra_cliente_id, old.ulbra_cliente_id);
+begin
+  -- Tocar as linhas do cliente faz o gatilho BEFORE recalcular a identidade.
+  update public.ulbra_conversas set aluno_status = aluno_status
+   where ulbra_cliente_id = v_cliente;
+  update public.ulbra_atendimentos set aluno_status = aluno_status
+   where ulbra_cliente_id = v_cliente;
+  return null;
+end
+$$;
+
+-- Trava exclusiva por cliente até o COMMIT da alteração de vínculo. Com isto,
+-- uma coleta que grava identidade concorrente espera (ou é corrigida depois):
+-- nunca fica uma linha com identidade antiga para trás.
+create or replace function public._ulbra_vinculo_trava()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform pg_advisory_xact_lock(hashtext('ulbra_identidade:' || coalesce(new.ulbra_cliente_id, old.ulbra_cliente_id)));
+  return new;
+end
+$$;
+
+drop trigger if exists trg_ulbra_vinculos_trava on public.ulbra_vinculos;
+create trigger trg_ulbra_vinculos_trava
+  before insert or update of confianca, aluno_id, desvinculado_em on public.ulbra_vinculos
+  for each row execute function public._ulbra_vinculo_trava();
+
+drop trigger if exists trg_ulbra_vinculos_propaga on public.ulbra_vinculos;
+create trigger trg_ulbra_vinculos_propaga
+  after insert or update of confianca, aluno_id, desvinculado_em on public.ulbra_vinculos
+  for each row execute function public._ulbra_identidade_propagar();
+
+revoke all on function public._ulbra_identidade_conversa() from public, anon, authenticated;
+revoke all on function public._ulbra_identidade_atendimento() from public, anon, authenticated;
+revoke all on function public._ulbra_identidade_propagar() from public, anon, authenticated;
+revoke all on function public._ulbra_vinculo_trava() from public, anon, authenticated;

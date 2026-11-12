@@ -40,6 +40,11 @@ import {
   lerAtendimentos,
   lerCorpoMcp,
   modoDoCiclo,
+  lerParametros,
+  TETO_EXECUCAO_MAX,
+  type ParametrosExecucao,
+  erroMcp,
+  ehParada,
   novaJanela,
   portaoSync,
   resultadoDoEnvelope,
@@ -69,19 +74,29 @@ const json = (corpo: Record<string, unknown>, status = 200) =>
 // `sincronizar.test.ts`, "portão da chave".
 
 async function chamarMcp(token: string, carga: unknown): Promise<unknown> {
-  const resp = await fetch(MCP_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: ACCEPT_MCP,
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(carga),
-  });
+  let resp: Response;
+  try {
+    resp = await fetch(MCP_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: ACCEPT_MCP,
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(carga),
+    });
+  } catch {
+    throw erroMcp(null);
+  }
   if (!resp.ok) {
-    throw new Error(resp.status === 429 ? "ULBRA_LIMITE" : `ULBRA_HTTP_${resp.status}`);
+    throw erroMcp(resp.status);
   }
   return resultadoDoEnvelope(lerCorpoMcp(resp.headers.get("content-type"), await resp.text()));
+}
+
+async function lerTetoExecucao(req: Request): Promise<ParametrosExecucao | "INVALIDO" | null> {
+  const texto = await req.text().catch(() => "");
+  return lerParametros(texto);
 }
 
 Deno.serve(async (req: Request) => {
@@ -103,20 +118,65 @@ Deno.serve(async (req: Request) => {
   // ---------------------------------------------------------------- estado
   const { data: estado } = await sb
     .from("ulbra_sync_estado")
-    .select("cursor_mensagem, piso_pendente, topo_processado, chamadas_dia, dia, ciclos_desde_atendimentos, saldo_api_restam, saldo_api_em")
+    .select("cursor_mensagem, piso_pendente, topo_processado, offset_pendente, chamadas_dia, dia, ciclos_desde_atendimentos, saldo_api_restam, saldo_api_em")
     .eq("id", true)
     .maybeSingle();
 
+  const parametros = await lerTetoExecucao(req);
+  if (parametros === "INVALIDO") return json({ erro: "TETO_INVALIDO" }, 400);
   const janela: Janela = {
     cursor: estado?.cursor_mensagem ?? null,
     pendente: estado?.piso_pendente ?? null,
     topo: estado?.topo_processado ?? null,
+    desde: parametros?.desde ?? null,
   };
+  const detalhesPorExecucao = parametros?.detalhes ?? DETALHE_POR_CICLO;
   const hoje = new Date().toISOString().slice(0, 10);
   const chamadasAntes: number = estado?.dia === hoje ? (estado?.chamadas_dia ?? 0) : 0;
   const ciclosDesde: number = estado?.ciclos_desde_atendimentos ?? 999;
 
-  const orcamento = new Orcamento(TETO_DIARIO_SYNC - chamadasAntes);
+  // Teto POR EXECUÇÃO, além do diário. Só vale quando a chamada traz `teto_chamadas`
+  // (validação manual) e o valor está entre 1 e TETO_EXECUCAO_MAX. O cron não envia
+  // corpo, então roda sem esse teto extra, com o teto diário de sempre.
+  const tetoExecucao = parametros?.teto_chamadas ?? null;
+  // Teto ACUMULADO da campanha: conferido contra o contador do dia, que soma
+  // TODA chamada (meu_acesso, listagens, detalhes e tentativas que falharam).
+  const tetoTotal = parametros?.teto_total ?? null;
+  const campanha = parametros?.campanha ?? null;
+  // Sem campanha: teto acumulado conferido contra o contador do dia (zera na
+  // virada do dia; não é atômico entre execuções concorrentes). COM campanha:
+  // RESERVA atômica no banco (ulbra_sync_campanha_reservar), independente do
+  // dia; conta tentativas e falhas porque acontece ANTES das chamadas; o que
+  // não for usado é devolvido no fim. É este o caminho do pacote de novembro.
+  let restanteTotal = tetoTotal === null ? Number.POSITIVE_INFINITY : tetoTotal - chamadasAntes;
+  let concedido: number | null = null;
+  if (campanha !== null && tetoTotal !== null) {
+    const pedido = Math.max(0, Math.min(TETO_DIARIO_SYNC - chamadasAntes, tetoExecucao ?? TETO_EXECUCAO_MAX));
+    const { data: reserva, error: errReserva } = await sb.rpc("ulbra_sync_campanha_reservar", {
+      p_campanha: campanha, p_teto: tetoTotal, p_pedido: pedido,
+    });
+    if (errReserva || !reserva?.ok) {
+      // Fecha: sem reserva confirmada, nenhuma chamada sai.
+      return json({ ciclo: "FALHOU", erro: "CAMPANHA_INDISPONIVEL", detalhe: errReserva?.message ?? reserva?.motivo ?? null, chamadas: 0 }, 500);
+    }
+    concedido = Number(reserva.concedido) || 0;
+    restanteTotal = concedido;
+  }
+  // Devolve à campanha o que esta execução reservou e não usou (em toda saída).
+  const devolver = async (usadas: number) => {
+    if (campanha === null || concedido === null) return null;
+    const { data } = await sb.rpc("ulbra_sync_campanha_devolver", { p_campanha: campanha, p_nao_usadas: Math.max(0, concedido - usadas) });
+    return data ?? null;
+  };
+  if (tetoTotal !== null && restanteTotal <= 0) {
+    await sb.rpc("ulbra_sync_gravar", {
+      p_payload: { ciclo: "PULADO_ORCAMENTO", chamadas: 0, dia: hoje, erro: "TETO_TOTAL_ESGOTADO" },
+    });
+    return json({ ciclo: "PULADO_TETO_TOTAL", chamadas_dia: chamadasAntes, teto_total: tetoTotal, teto_total_restante: 0, campanha: await devolver(0) });
+  }
+  const orcamento = new Orcamento(
+    Math.min(TETO_DIARIO_SYNC - chamadasAntes, tetoExecucao ?? Number.POSITIVE_INFINITY, restanteTotal),
+  );
   // Saldo DIÁRIO da pessoa do token (meu_acesso, limites.pessoaPorDia.restam).
   // Consultado no máximo a cada 60 min; o valor em cache limita o orçamento
   // enquanto estiver fresco. Ele inclui OAuth e fichas: é o limite real.
@@ -131,7 +191,7 @@ Deno.serve(async (req: Request) => {
     await sb.rpc("ulbra_sync_gravar", {
       p_payload: { ciclo: "PULADO_ORCAMENTO", chamadas: 0, dia: hoje, erro: "ORCAMENTO_DO_DIA" },
     });
-    return json({ ciclo: "PULADO_ORCAMENTO", chamadas_dia: chamadasAntes, teto: TETO_DIARIO_SYNC });
+    return json({ ciclo: "PULADO_ORCAMENTO", chamadas_dia: chamadasAntes, teto: TETO_DIARIO_SYNC, campanha: await devolver(0) });
   }
 
   // Toda chamada à ULBRA passa por aqui: o saldo é gasto ANTES de sair.
@@ -170,6 +230,10 @@ Deno.serve(async (req: Request) => {
         saldoApiNovo = { restam, em: new Date().toISOString() };
       }
     } catch (e) {
+      if (ehParada(e)) {
+        await sb.rpc("ulbra_sync_gravar", { p_payload: { ciclo: "FALHOU", chamadas, dia: hoje, erro: e.codigo } });
+        return json({ ciclo: "FALHOU", erro: e.codigo, http: e.http, parada: true, chamadas, campanha: await devolver(chamadas) }, 502);
+      }
       console.error("ulbra-sincronizar: meu_acesso falhou", (e as Error).message);
     }
   }
@@ -196,7 +260,12 @@ Deno.serve(async (req: Request) => {
   let novas: FilaDetalhe[] = [];
 
   try {
-    colheita = await colherConversas((pagina) => chamar(cargaConversas(pagina, pagina)), janela, { pode });
+    // Reserva: a última chamada do orçamento é do detalhe das mensagens recentes.
+    // O backlog nunca a consome, para que uma resposta de cliente não fique sem leitura.
+    colheita = await colherConversas((pagina) => chamar(cargaConversas(pagina, pagina)), janela, {
+      pode: () => orcamento.saldo > detalhesPorExecucao,
+      posicao: estado?.offset_pendente != null ? { offset: estado.offset_pendente } : undefined,
+    });
 
     // Fila: mantém o que já estava (com suas tentativas) e acrescenta o novo.
     novas = candidatasDaColheita(colheita.conversas);
@@ -205,7 +274,7 @@ Deno.serve(async (req: Request) => {
     );
     for (const n of novas) if (!mapa.has(n.ulbra_conversa_id)) mapa.set(n.ulbra_conversa_id, n);
 
-    const sel = selecionarDetalhes([...mapa.values()], DETALHE_POR_CICLO);
+    const sel = selecionarDetalhes([...mapa.values()], detalhesPorExecucao);
     desistidas = sel.desistidas;
 
     for (const f of sel.escolhidas) {
@@ -229,6 +298,7 @@ Deno.serve(async (req: Request) => {
           });
         }
       } catch (e) {
+        if (ehParada(e)) throw e; // parada dura: nada mais é chamado nem tentado
         console.error("ulbra-sincronizar: detalhe falhou", (e as Error).message);
         falhas.push(f.ulbra_conversa_id);
       }
@@ -240,12 +310,14 @@ Deno.serve(async (req: Request) => {
     }
   } catch (e) {
     const motivo = (e as Error).message;
+    const parada = ehParada(e);
     console.error("ulbra-sincronizar: ciclo falhou", motivo);
     // FALHOU não grava janela nem espelho: o próximo ciclo refaz a mesma coleta.
+    // As chamadas feitas (inclusive a que falhou) CONTAM no dia.
     await sb.rpc("ulbra_sync_gravar", {
       p_payload: { ciclo: "FALHOU", chamadas, dia: hoje, erro: motivo },
     });
-    return json({ ciclo: "FALHOU", erro: motivo, chamadas }, 502);
+    return json({ ciclo: "FALHOU", erro: motivo, http: parada ? e.http : null, parada, chamadas, campanha: await devolver(chamadas) }, 502);
   }
 
   const proxima = novaJanela(janela, colheita);
@@ -325,16 +397,28 @@ Deno.serve(async (req: Request) => {
   });
   if (error) {
     console.error("ulbra-sincronizar: gravação falhou", error.message);
-    return json({ ciclo: "FALHOU", erro: "GRAVACAO", detalhe: error.message }, 500);
+    return json({ ciclo: "FALHOU", erro: "GRAVACAO", detalhe: error.message, chamadas, campanha: await devolver(chamadas) }, 500);
   }
+
+  // Posição de leitura para o próximo ciclo. Só depois da gravação; se falhar,
+  // a posição antiga segue, e a validação em sincronizar.ts a torna segura.
+  const { error: errPosicao } = await sb.rpc("ulbra_sync_posicao_gravar", {
+    p_offset: colheita.offset_pendente,
+  });
+  if (errPosicao) console.error("ulbra-sincronizar: posição não gravada", errPosicao.message);
 
   return json({
     ciclo: colheita.truncado ? "INCOMPLETO" : "OK",
     ciclo_completo: !colheita.truncado,
     modo: modoDoCiclo(janela),
+    desde: janela.desde ?? null,
+    detalhes_por_execucao: detalhesPorExecucao,
     chamadas,
     chamadas_dia: chamadasAntes + chamadas,
     teto_dia: TETO_DIARIO_SYNC,
+    teto_total: tetoTotal,
+    teto_total_restante: tetoTotal === null ? null : Math.max(0, tetoTotal - chamadasAntes - chamadas),
+    campanha: await devolver(chamadas),
     leituras: colheita.leituras,
     conversas_novas: linhasConversas.length,
     detalhes_lidos: concluidas.length,

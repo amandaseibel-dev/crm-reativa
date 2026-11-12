@@ -62,4 +62,5 @@ insert into public.usuarios (id, email, ativo, perfil) values
   ('00000000-0000-0000-0000-0000000000a3', 'amanda.seibel@aelbra.com.br', true, 'gerencia'),
   ('00000000-0000-0000-0000-0000000000a4', 'inativo@x', false, 'operador'),
   ('00000000-0000-0000-0000-0000000000a5', 'painel.tv@reativa.local', true, 'painel'),
-  ('00000000-0000-0000-0000-0000000000a6', 'sup@x', true, 'supervisor');
+  ('00000000-0000-0000-0000-0000000000a6', 'sup@x', true, 'supervisor'),
+  ('00000000-0000-0000-0000-0000000000a7', 'adm@x', true, 'administrativo');

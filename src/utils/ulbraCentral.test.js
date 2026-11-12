@@ -12,25 +12,47 @@ import {
   hrefFicha,
   juntarPaginas,
   lerFiltros,
+  listaPrioridade,
   paraBusca,
   podeVerCentralUlbra,
+  rotuloPeriodo,
+  VISOES,
+  consultaMensageriaNaFicha,
   salvarPosicao,
   tomarPosicao,
 } from "./ulbraCentral";
 
-describe("porta da Central ULBRA", () => {
-  it("nesta entrega os operadores NÃO estão liberados", () => {
-    expect(CENTRAL_ULBRA_LIBERADA_OPERADORES).toBe(false);
+describe("porta da Central ULBRA (liberação geral)", () => {
+  const op = { perfil: "operador", ativo: true };
+  it("a liberação geral está ligada, sem lista nominal", () => {
+    expect(CENTRAL_ULBRA_LIBERADA_OPERADORES).toBe(true);
   });
-  it("gestão vê; operador não vê enquanto não liberado; sem e-mail ninguém vê", () => {
+  it("gestão vê sempre; sem e-mail ninguém vê", () => {
     expect(podeVerCentralUlbra("Amanda.Seibel@aelbra.com.br ")).toBe(true);
-    expect(podeVerCentralUlbra("cobranca10@aelbra.com.br")).toBe(false);
+    expect(podeVerCentralUlbra("amanda.seibel@aelbra.com.br", { perfil: "gerencia", ativo: true })).toBe(true);
     expect(podeVerCentralUlbra("")).toBe(false);
-    expect(podeVerCentralUlbra(null)).toBe(false);
+    expect(podeVerCentralUlbra(null, op)).toBe(false);
   });
-  it("com a liberação ligada, operador com e-mail vê; sem e-mail continua fora", () => {
-    expect(podeVerCentralUlbra("cobranca10@aelbra.com.br", true)).toBe(true);
-    expect(podeVerCentralUlbra("", true)).toBe(false);
+  it("todo operador ativo com perfil operacional vê: não há mais exclusividade do cobranca10", () => {
+    expect(podeVerCentralUlbra("cobranca10@aelbra.com.br", op)).toBe(true);
+    expect(podeVerCentralUlbra("cobranca05@aelbra.com.br", op)).toBe(true);
+    expect(podeVerCentralUlbra("cobranca99@aelbra.com.br", { perfil: "supervisor" })).toBe(true);
+    expect(podeVerCentralUlbra("x@aelbra.com.br", { perfil: "administrativo" })).toBe(true);
+  });
+  it("cadastro inativo e conta de painel continuam bloqueados, mesmo com perfil operacional", () => {
+    expect(podeVerCentralUlbra("cobranca05@aelbra.com.br", { perfil: "operador", ativo: false })).toBe(false);
+    expect(podeVerCentralUlbra("painel.tv@reativa.local", op)).toBe(false);
+    expect(podeVerCentralUlbra("PAINEL.TV@reativa.local", { perfil: "gerencia", ativo: true })).toBe(false);
+  });
+  it("perfil não operacional (diretoria, auditor) ou ausente não entra pela liberação geral", () => {
+    expect(podeVerCentralUlbra("dir@aelbra.com.br", { perfil: "diretoria", ativo: true })).toBe(false);
+    expect(podeVerCentralUlbra("aud@aelbra.com.br", { perfil: "auditor", ativo: true })).toBe(false);
+    expect(podeVerCentralUlbra("cobranca05@aelbra.com.br")).toBe(false);
+    expect(podeVerCentralUlbra("cobranca05@aelbra.com.br", {})).toBe(false);
+  });
+  it("com a liberação desligada, só a gestão vê", () => {
+    expect(podeVerCentralUlbra("cobranca10@aelbra.com.br", op, false)).toBe(false);
+    expect(podeVerCentralUlbra("amanda.seibel@aelbra.com.br", op, false)).toBe(true);
   });
 });
 
@@ -82,13 +104,33 @@ describe("formatos", () => {
 
 describe("filtros na URL", () => {
   it("lê, normaliza e descarta faixa inválida", () => {
-    expect(lerFiltros("?operador=COBRANCA10@aelbra.com.br&faixa=critico")).toEqual({ operador: "cobranca10@aelbra.com.br", faixa: "CRITICO" });
-    expect(lerFiltros("?faixa=qualquer")).toEqual({ operador: "", faixa: "" });
+    expect(lerFiltros("?operador=COBRANCA10@aelbra.com.br&faixa=critico")).toEqual({ operador: "cobranca10@aelbra.com.br", faixa: "CRITICO", visao: "cartoes", conv: "" });
+    expect(lerFiltros("?faixa=qualquer")).toEqual({ operador: "", faixa: "", visao: "cartoes", conv: "" });
   });
   it("ida e volta preserva os filtros", () => {
-    const f = { operador: "op@x", faixa: "PERDENDO" };
+    const f = { operador: "op@x", faixa: "PERDENDO", visao: "cartoes", conv: "" };
     expect(lerFiltros(paraBusca(f))).toEqual(f);
-    expect(paraBusca({ operador: "", faixa: "" })).toBe("");
+    expect(paraBusca({ operador: "", faixa: "", visao: "cartoes", conv: "" })).toBe("");
+  });
+
+  it("visão de conversas e conversa selecionada vão para a URL e voltam", () => {
+    const f = { operador: "", faixa: "", visao: "conversas", conv: "r:abc-1" };
+    expect(paraBusca(f)).toBe("?visao=conversas&conv=r%3Aabc-1");
+    expect(lerFiltros(paraBusca(f))).toEqual(f);
+    expect(lerFiltros("?visao=qualquer").visao).toBe("cartoes");
+  });
+
+  it("listaPrioridade: respostas, depois sem interação, depois novos; mantém a ordem do banco", () => {
+    const dados = {
+      respostas: [{ conversa_id: "c2", nome: "B", espera_min: 50, aluno_id: "a2" }, { conversa_id: "c1", nome: "A", espera_min: 9, aluno_id: null }],
+      sem_interacao: [{ aluno_id: "s1", nome: "S", dias_sem_acionamento: 12, faixa: "CRITICO" }],
+      novos: [{ atendimento_id: "n1", nome: "N", espera_min: 3, aluno_id: "a9" }],
+    };
+    const ordem = listaPrioridade(dados, "").map((i) => i.tipo);
+    expect(ordem).toEqual(["resposta", "resposta", "sem_interacao", "novo"]);
+    expect(listaPrioridade(dados, "PERDENDO").map((i) => i.tipo)).toEqual(["resposta", "resposta", "novo"]);
+    expect(listaPrioridade(dados, "")[0].nome).toBe("B");
+    expect(listaPrioridade(dados, "")[2].dias_sem_acionamento).toBe(12);
   });
   it("faixa filtra só a lista de sem interação", () => {
     const l = [{ aluno_id: 1, faixa: "PERDENDO" }, { aluno_id: 2, faixa: "CRITICO" }];
@@ -146,5 +188,37 @@ describe("responsabilidade: ver não é responder", () => {
   it("sem campo de responsabilidade não inventa rótulo", () => {
     expect(rotuloResponsabilidade({})).toBeNull();
     expect(deveNotificar(null)).toBe(false);
+  });
+});
+
+describe("liberação geral: não existe mais lista nominal de piloto", () => {
+  it("cobranca10 e cobranca05 entram pela mesma regra; sem perfil operacional nenhum dos dois entra", () => {
+    const op = { perfil: "operador", ativo: true };
+    expect(podeVerCentralUlbra("cobranca10@aelbra.com.br", op)).toBe(true);
+    expect(podeVerCentralUlbra("cobranca05@aelbra.com.br", op)).toBe(true);
+    expect(podeVerCentralUlbra("cobranca10@aelbra.com.br")).toBe(false);
+    expect(podeVerCentralUlbra("")).toBe(false);
+  });
+});
+
+describe("ficha aberta pela Central não consulta a Mensageria", () => {
+  it("origem=ulbra desliga a consulta; ficha comum continua consultando", () => {
+    expect(consultaMensageriaNaFicha("?alunoId=al-1&origem=ulbra")).toBe(false);
+    expect(consultaMensageriaNaFicha("?alunoId=al-1")).toBe(true);
+    expect(consultaMensageriaNaFicha("")).toBe(true);
+  });
+});
+
+describe("visão Mensageria (período)", () => {
+  it("é uma visão própria, separada da carteira interna, e vai e volta pela URL", () => {
+    expect(VISOES).toContain("mensageria");
+    expect(lerFiltros("?visao=mensageria").visao).toBe("mensageria");
+    expect(paraBusca({ operador: "", faixa: "", visao: "mensageria", conv: "" })).toBe("?visao=mensageria");
+  });
+  it("rotula o período pelo mês de Brasília; sem data diz período atual", () => {
+    expect(rotuloPeriodo("2026-11-01T03:00:00.000Z")).toBe("novembro de 2026");
+    expect(rotuloPeriodo("2026-12-01T02:59:00.000Z")).toBe("novembro de 2026"); // ainda 30/11 23:59 em Brasília
+    expect(rotuloPeriodo(null)).toBe("período atual");
+    expect(rotuloPeriodo("lixo")).toBe("período atual");
   });
 });

@@ -222,6 +222,21 @@ export interface Janela {
   cursor: string | null;
   pendente: string | null;
   topo: string | null;
+  /** Limite INFERIOR opcional (ISO): mensagem mais antiga que isto está fora do
+   *  escopo da coleta. Usado na coleta por período (ex.: só novembro): a leitura
+   *  para quando a página só tem itens abaixo dele, e o ciclo fecha como
+   *  completo — o que ficou abaixo não é backlog, é fora do escopo. */
+  desde?: string | null;
+}
+
+/** Verdadeiro quando `em` é anterior ao início da janela (`desde`). Sem `desde`, nunca. */
+export function antesDoInicio(em: string, j: Janela): boolean {
+  const d = j.desde;
+  if (!d) return false;
+  const a = Date.parse(em);
+  const b = Date.parse(d);
+  if (Number.isNaN(a) || Number.isNaN(b)) return em < d;
+  return a < b;
 }
 
 export interface PaginaConversas {
@@ -229,6 +244,8 @@ export interface PaginaConversas {
   piso: string | null;
   pode_ter_mais: boolean;
   total: number | null;
+  /** Horário de cada item BRUTO da página, na ordem da API (null se faltar). */
+  ems: (string | null)[];
 }
 
 /**
@@ -240,6 +257,7 @@ export interface PaginaConversas {
  * o pendente nunca deixa um empate pela metade.
  */
 function dentroDaJanela(em: string, j: Janela): boolean {
+  if (antesDoInicio(em, j)) return false;
   if (j.cursor !== null && em <= j.cursor) return false;
   // Estrito no piso: o grupo com o horário do piso NÃO está garantido como
   // processado (pode ter atravessado a página em que o ciclo parou). Relê-lo
@@ -268,6 +286,7 @@ export function lerPaginaConversas(resposta: unknown, janela: Janela): PaginaCon
 
   let piso: string | null = null;
   const conversas: ConversaLida[] = [];
+  const ems = itens.map((c) => c?.ultimaMensagemEm ?? c?.ultimaMensagem?.em ?? null);
 
   for (const c of itens) {
     const em = c?.ultimaMensagemEm ?? c?.ultimaMensagem?.em ?? null;
@@ -296,10 +315,14 @@ export function lerPaginaConversas(resposta: unknown, janela: Janela): PaginaCon
   }
 
   // Página cheia com itens ainda acima do cursor: pode haver mais.
+  // Com `desde`, uma página cujo piso já está abaixo do início não tem mais nada
+  // a coletar: tudo abaixo é fora do escopo, não backlog.
   const pode_ter_mais =
-    itens.length >= LIMITE_PAGINA && (janela.cursor === null || (piso !== null && piso > janela.cursor));
+    itens.length >= LIMITE_PAGINA &&
+    (janela.cursor === null || (piso !== null && piso > janela.cursor)) &&
+    !(piso !== null && antesDoInicio(piso, janela));
 
-  return { conversas, piso, pode_ter_mais, total };
+  return { conversas, piso, pode_ter_mais, total, ems };
 }
 
 /**
@@ -463,7 +486,7 @@ export function selecionarDetalhes(
 
 export interface Colheita {
   conversas: ConversaLida[];
-  /** Páginas lidas (inclusive as que só pularam). */
+  /** Páginas lidas (inclusive as que só pularam e as descartadas). */
   leituras: number;
   /** Verdadeiro quando a janela NÃO foi lida até o fim: o próximo ciclo continua. */
   truncado: boolean;
@@ -478,14 +501,30 @@ export interface Colheita {
    * ciclos e nada abaixo do piso se perde.
    */
   pendente_proximo: string | null;
+  /**
+   * Posição de leitura para o próximo ciclo: índice, na lista ordenada, da
+   * primeira mensagem com em <= pendente. Null quando o ciclo fechou a janela.
+   * É só uma dica: quem a usa valida antes de pular (ver `posicao`).
+   */
+  offset_pendente: number | null;
 }
 
 type FimDoCiclo = { terminou: boolean; pendente: string | null };
+
+/** Quantas mensagens antes da posição guardada começar a leitura. Uma página de folga. */
+export const FOLGA_POSICAO = LIMITE_PAGINA;
 
 /**
  * Lê as páginas da mais nova para a mais antiga. `buscarPagina(n)` é injetado:
  * em produção chama a Mensageria; no teste, uma lista em memória que pode
  * mudar entre páginas (mensagem chegando no meio da leitura).
+ *
+ * `posicao` (opcional) é o `offset_pendente` do ciclo anterior. Regras:
+ *  - as mensagens NOVAS (acima do topo) são lidas primeiro, em sequência;
+ *  - só depois de passar do topo a leitura pula para a página da posição
+ *    (com uma página de folga), e só se essa página começar acima do pendente;
+ *  - se a página de destino não começar acima do pendente, a posição está
+ *    errada: descarta a página e segue em sequência. Nada se perde.
  *
  * Ao atingir o teto de páginas COM coleta, não para no meio de um grupo de
  * mesmo horário: fecha o grupo do piso (lendo as páginas seguintes enquanto o
@@ -494,7 +533,12 @@ type FimDoCiclo = { terminou: boolean; pendente: string | null };
 export async function colherConversas(
   buscarPagina: (pagina: number) => Promise<unknown>,
   janela: Janela,
-  limites: { maxPaginas?: number; hardLeituras?: number; pode?: () => boolean } = {},
+  limites: {
+    maxPaginas?: number;
+    hardLeituras?: number;
+    pode?: () => boolean;
+    posicao?: { offset: number };
+  } = {},
 ): Promise<Colheita> {
   const pode = limites.pode ?? (() => true);
   const maxPaginas = limites.maxPaginas ?? MAX_PAGINAS;
@@ -507,6 +551,8 @@ export async function colherConversas(
   // Estado mutável em objeto: evita o estreitamento de tipo do TypeScript sobre
   // variáveis atribuídas dentro de closures.
   const acc = { piso: null as string | null, topo: null as string | null };
+  // Índice e horário de cada item lido, para achar a posição do pendente.
+  const lidos: Array<{ indice: number; em: string | null }> = [];
   let leituras = 0;
   let paginasComColeta = 0;
 
@@ -523,6 +569,7 @@ export async function colherConversas(
   const ler = async (n: number): Promise<PaginaConversas> => {
     const p = lerPaginaConversas(await buscarPagina(n), janela);
     leituras++;
+    p.ems.forEach((em, i) => lidos.push({ indice: (n - 1) * LIMITE_PAGINA + i, em }));
     return p;
   };
 
@@ -532,7 +579,7 @@ export async function colherConversas(
     if (grupo === null) return { terminou: false, pendente: null };
     let n = inicio;
     for (;;) {
-      if (n > hardLeituras || !pode()) return { terminou: false, pendente: grupo };
+      if (leituras >= hardLeituras || !pode()) return { terminou: false, pendente: grupo };
       const p = await ler(n);
       n++;
       // Só entra o que tem o horário do grupo; o restante fica para o próximo ciclo.
@@ -548,14 +595,19 @@ export async function colherConversas(
             maiorAbaixo = c.ultima_mensagem_em;
           }
         }
+        // Nada abaixo do grupo dentro do escopo e o piso já passou do início: completo.
+        if (maiorAbaixo === null && antesDoInicio(p.piso, janela)) return { terminou: true, pendente: null };
         return { terminou: false, pendente: maiorAbaixo ?? grupo };
       }
-      // p.piso === grupo: o grupo continua na página seguinte; segue lendo.
     }
   };
 
   let fim: FimDoCiclo | null = null;
-  for (let pagina = 1; pagina <= hardLeituras; pagina++) {
+  let saltou = false;
+  let pagina = 1;
+  // O teto conta LEITURAS feitas, não números de página: um salto não pode
+  // deixar o ciclo com menos leituras do que o teto permite.
+  while (leituras < hardLeituras) {
     // Sem saldo: para AQUI e marca incompleto. Nunca trata página não lida como vazia.
     if (!pode()) break;
     const lida = await ler(pagina);
@@ -570,6 +622,39 @@ export async function colherConversas(
       fim = await fecharGrupo(pagina + 1);
       break;
     }
+    let proxima = pagina + 1;
+    // Passou do topo (esta página já tem mensagem que não é nova): tudo acima foi lido.
+    // Só então a posição guardada pode pular o trecho já processado.
+    if (
+      !saltou &&
+      limites.posicao !== undefined &&
+      janela.pendente !== null &&
+      janela.topo !== null &&
+      lida.piso !== null &&
+      lida.piso <= janela.topo
+    ) {
+      saltou = true;
+      const alvo = Math.floor(Math.max(0, limites.posicao.offset - FOLGA_POSICAO) / LIMITE_PAGINA) + 1;
+      if (alvo > pagina + 1 && leituras < hardLeituras && pode()) {
+        const cand = await ler(alvo);
+        const primeiro = cand.ems[0] ?? null;
+        if (primeiro !== null && primeiro > janela.pendente) {
+          if (cand.conversas.length > 0) paginasComColeta++;
+          recolher(cand.conversas);
+          if (!cand.pode_ter_mais) {
+            fim = { terminou: true, pendente: null };
+            break;
+          }
+          if (paginasComColeta >= maxPaginas) {
+            fim = await fecharGrupo(alvo + 1);
+            break;
+          }
+          proxima = alvo + 1;
+        }
+        // Posição errada: a página lida é descartada e a leitura segue em sequência.
+      }
+    }
+    pagina = proxima;
   }
 
   // Sem fim da janela (teto de leituras, saldo ou página sem coleta até o fim do
@@ -577,6 +662,13 @@ export async function colherConversas(
   // completo e o cursor avançava por cima do backlog não lido.
   const terminou = fim?.terminou === true;
   const pendente = terminou ? null : (fim?.pendente ?? acc.piso ?? janela.pendente);
+  let offset: number | null = null;
+  if (!terminou && pendente !== null) {
+    for (const x of lidos) {
+      if (x.em !== null && x.em <= pendente && (offset === null || x.indice < offset)) offset = x.indice;
+    }
+    if (offset === null) offset = limites.posicao?.offset ?? null;
+  }
   return {
     conversas,
     leituras,
@@ -584,6 +676,7 @@ export async function colherConversas(
     piso_coletado: acc.piso,
     topo_coletado: acc.topo,
     pendente_proximo: pendente,
+    offset_pendente: offset,
   };
 }
 
@@ -838,4 +931,110 @@ export function custoDiarioEstimado(c: Cadencia, detalhePorCiclo: number = DETAL
     fichas,
     cabe: total <= TETO_DIARIO_SYNC && fichas <= RESERVA_FICHAS_DIA,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Parâmetros da chamada manual (coleta por período)
+// ---------------------------------------------------------------------------
+/** Teto de chamadas desta execução, lido do corpo JSON. Ausente = sem teto extra. */
+export const TETO_EXECUCAO_MAX = 12;
+/** Leituras de detalhe por execução quando o corpo pede (coleta por período). */
+export const DETALHES_EXECUCAO_MAX = 20;
+/** `desde` não pode ser mais antigo que isto: coleta por período é para o mês corrente, não para o histórico. */
+export const DESDE_MAX_DIAS = 120;
+
+/** Teto ACUMULADO de uma campanha (ex.: 110 para novembro), conferido contra `chamadas_dia`. */
+export const TETO_TOTAL_MAX = 500;
+
+export interface ParametrosExecucao {
+  teto_chamadas: number | null;
+  /** Teto acumulado da campanha; a execução recebe no máximo o que resta dele. */
+  teto_total: number | null;
+  /** Id da campanha (ex.: "novembro-2026"): a reserva atômica no banco vale por ele,
+   *  independente do dia. Exige `teto_total`. */
+  campanha: string | null;
+  /** Início da janela (ISO), ou null. Ver `Janela.desde`. */
+  desde: string | null;
+  detalhes: number | null;
+}
+
+/**
+ * Corpo JSON da chamada manual: `teto_chamadas` (1..12), `desde` (data ISO ou
+ * `AAAA-MM-DD`, até 120 dias atrás, nunca no futuro) e `detalhes` (1..20).
+ * Corpo ausente = sem parâmetros (cron). Qualquer campo inválido = INVALIDO.
+ */
+export function lerParametros(texto: string, agoraMs = Date.now()): ParametrosExecucao | "INVALIDO" | null {
+  if (!texto) return null;
+  let corpo: { teto_chamadas?: unknown; teto_total?: unknown; campanha?: unknown; desde?: unknown; detalhes?: unknown };
+  try {
+    corpo = JSON.parse(texto);
+  } catch {
+    return "INVALIDO";
+  }
+  const r: ParametrosExecucao = { teto_chamadas: null, teto_total: null, campanha: null, desde: null, detalhes: null };
+  if (corpo.campanha !== undefined) {
+    const c = corpo.campanha;
+    if (typeof c !== "string" || !/^[a-z0-9][a-z0-9-]{2,39}$/.test(c)) return "INVALIDO";
+    r.campanha = c;
+  }
+  if (corpo.teto_total !== undefined) {
+    const n = corpo.teto_total;
+    if (!(typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= TETO_TOTAL_MAX)) return "INVALIDO";
+    r.teto_total = n;
+  }
+  if (corpo.teto_chamadas !== undefined) {
+    const n = corpo.teto_chamadas;
+    if (!(typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= TETO_EXECUCAO_MAX)) return "INVALIDO";
+    r.teto_chamadas = n;
+  }
+  if (corpo.detalhes !== undefined) {
+    const n = corpo.detalhes;
+    if (!(typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= DETALHES_EXECUCAO_MAX)) return "INVALIDO";
+    r.detalhes = n;
+  }
+  if (r.campanha !== null && r.teto_total === null) return "INVALIDO";
+  if (corpo.desde !== undefined) {
+    const d = corpo.desde;
+    if (typeof d !== "string" || !/^\d{4}-\d{2}-\d{2}(T.*)?$/.test(d)) return "INVALIDO";
+    // Data pura vale como meia-noite de Brasília, não UTC: "novembro" é o mês daqui.
+    const iso = d.length === 10 ? `${d}T00:00:00-03:00` : d;
+    const ms = Date.parse(iso);
+    if (Number.isNaN(ms) || ms > agoraMs || agoraMs - ms > DESDE_MAX_DIAS * 86400000) return "INVALIDO";
+    r.desde = new Date(ms).toISOString();
+  }
+  return r;
+}
+
+// ---------------------------------------------------------------------------
+// Erro de resposta da Mensageria: PARADA DURA, sem repetição automática.
+// ---------------------------------------------------------------------------
+// 401/403 (autenticação), 429 (limite) e 5xx/rede (servidor) param a execução
+// no ato: nada mais é chamado, o que foi lido NÃO é gravado como ciclo e o
+// procedimento manual não deve continuar sem leitura humana. Outros códigos
+// (4xx de contrato) também param: não há caso em que repetir seja seguro.
+export interface ErroMcp extends Error {
+  codigo: string;
+  parada: true;
+  http: number | null;
+}
+
+export function classificarHttp(status: number | null): string {
+  if (status === null) return "ULBRA_INDISPONIVEL";
+  if (status === 401 || status === 403) return "ULBRA_AUTENTICACAO";
+  if (status === 429) return "ULBRA_LIMITE";
+  if (status >= 500) return "ULBRA_SERVIDOR";
+  return `ULBRA_HTTP_${status}`;
+}
+
+export function erroMcp(status: number | null): ErroMcp {
+  const codigo = classificarHttp(status);
+  const e = new Error(codigo) as ErroMcp;
+  e.codigo = codigo;
+  e.parada = true;
+  e.http = status;
+  return e;
+}
+
+export function ehParada(e: unknown): e is ErroMcp {
+  return typeof e === "object" && e !== null && (e as { parada?: unknown }).parada === true;
 }

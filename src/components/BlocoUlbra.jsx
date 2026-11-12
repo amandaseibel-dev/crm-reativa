@@ -122,8 +122,8 @@ function IconeConversa() {
   );
 }
 
-// Estilo do botao de CONSULTA (modo sob demanda): mesma familia do destaque,
-// mas com contorno, porque a acao custa uma consulta e precisa ser lida como acao.
+// Botao de CONSULTA (modo sob demanda). Mesma familia do destaque, com contorno:
+// a acao custa uma consulta e precisa ser lida como acao.
 const ESTILO_CONSULTA = {
   ...ESTILO.botaoDestaque,
   background: "#fff",
@@ -132,8 +132,7 @@ const ESTILO_CONSULTA = {
   cursor: "pointer",
 };
 
-// Chamada a `ulbra-consultar`: a UNICA rota desta tela que toca a Mensageria.
-// Quem chama decide quando: no modo padrao, ao montar; no sob demanda, so por clique.
+// Unica rota desta tela que toca a Mensageria: `ulbra-consultar`.
 async function chamarUlbraConsultar(alunoId) {
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token;
@@ -152,52 +151,28 @@ async function chamarUlbraConsultar(alunoId) {
   return resp.json();
 }
 
-// Converte a resposta da funcao no estado de tela. Mesma regra de sempre.
+// Resposta da funcao -> estado de tela. Falha de gravacao tem estado proprio.
 function estadoDaResposta(json) {
-  // Resposta de erro não traz `status`. Falha de gravação ganha estado
-  // próprio para não cair no silêncio de "erro".
   if (!json.status && MSG_FALHA_DE_GRAVACAO[json.erro]) return "falha_gravacao";
   return json.status ?? "erro";
 }
 
-/**
- * `sobDemanda` (padrao false): a ficha da carteira usa true. Com ele, abrir a
- * ficha NAO chama a Mensageria: le so o banco (`ulbra_vinculo_aluno`). Se nao ha
- * vinculo confirmado, mostra "Consultar vínculo na ULBRA"; a consulta externa so
- * acontece por clique, uma vez por vez. Sem `sobDemanda`, o comportamento e o de
- * sempre (outras fichas), inclusive o rotulo.
- */
-export default function BlocoUlbra({ aluno, sobDemanda = false }) {
+// SOB DEMANDA (padrao, decisao da gestao em 11/11/2026): a ficha NAO consulta a
+// Mensageria ao abrir. Primeiro le so o banco (`ulbra_vinculo_aluno`): vinculo
+// confirmado por CPF vira o link CRM ULBRA ↗, sem gastar cota. So sem vinculo
+// aparece "Consultar vínculo na ULBRA", e a consulta externa acontece por clique,
+// uma vez. `sobDemanda={false}` mantem o comportamento antigo, so para testes.
+export default function BlocoUlbra({ aluno, sobDemanda = true, rotuloConsulta = "Consultar Mensageria ULBRA" }) {
   const [estado, setEstado] = useState(sobDemanda ? "lendo" : "ocioso");
   const [dados, setDados] = useState(null);
-  // Trava contra cliques repetidos: uma consulta externa por vez, mesmo com
-  // dois cliques antes do re-render.
+  const [pedido, setPedido] = useState(null); // id do aluno para o qual a consulta externa foi pedida
   const emCurso = useRef(false);
 
-  // Rotulo unico em todas as fichas (decisao da gestao).
-  const rotuloLink = "CRM ULBRA ↗";
+  const consultaLiberada = !sobDemanda || pedido === aluno?.id;
 
-  // Modo padrão: consulta ao montar, exatamente como antes.
+  // Leitura do banco: nenhuma chamada a Mensageria.
   useEffect(() => {
-    if (!aluno?.id || sobDemanda) return;
-    let cancelado = false;
-    (async () => {
-      if (!cancelado) setEstado("carregando");
-      try {
-        const json = await chamarUlbraConsultar(aluno.id);
-        if (cancelado) return;
-        setDados(json);
-        setEstado(estadoDaResposta(json));
-      } catch {
-        if (!cancelado) setEstado("erro");
-      }
-    })();
-    return () => { cancelado = true; };
-  }, [aluno?.id, sobDemanda]);
-
-  // Modo sob demanda: lê so o banco. Nenhuma chamada a Mensageria aqui.
-  useEffect(() => {
-    if (!aluno?.id || !sobDemanda) return;
+    if (!aluno?.id || !sobDemanda || pedido === aluno.id) return;
     let cancelado = false;
     (async () => {
       try {
@@ -209,62 +184,91 @@ export default function BlocoUlbra({ aluno, sobDemanda = false }) {
           setEstado("vinculado");
           return;
         }
-        // sem_acesso: o usuario nao pode ver este aluno. Nada de botao, nada de dado.
+        if (data.status === "vinculado_nao_confirmado") { setEstado("vinculado_nao_confirmado"); return; }
         if (data.status === "sem_acesso") { setEstado("sem_acesso"); return; }
-        setEstado(data.status === "vinculado_nao_confirmado" ? "vinculado_nao_confirmado" : "sem_vinculo");
+        setEstado("sem_vinculo");
       } catch {
         if (!cancelado) setEstado("sem_vinculo");
       }
     })();
     return () => { cancelado = true; };
-  }, [aluno?.id, sobDemanda]);
+  }, [aluno?.id, sobDemanda, pedido]);
 
-  // Clique explícito: a única ida à Mensageria no modo sob demanda.
-  const consultarNaMensageria = async () => {
+  // Consulta externa: so depois do clique (sob demanda) ou sempre (sobDemanda=false).
+  useEffect(() => {
+    if (!aluno?.id || !consultaLiberada) return;
+    let cancelado = false;
+    (async () => {
+      if (!cancelado) setEstado("carregando");
+      try {
+        const json = await chamarUlbraConsultar(aluno.id);
+        if (cancelado) return;
+        setDados(json);
+        setEstado(estadoDaResposta(json));
+      } catch {
+        if (!cancelado) setEstado("erro");
+      } finally {
+        emCurso.current = false;
+      }
+    })();
+    return () => { cancelado = true; };
+  }, [aluno?.id, consultaLiberada]);
+
+  // Clique: uma consulta por vez; cliques repetidos nao disparam outra.
+  const pedirConsulta = () => {
     if (emCurso.current || !aluno?.id) return;
     emCurso.current = true;
-    setEstado("carregando");
-    try {
-      const json = await chamarUlbraConsultar(aluno.id);
-      setDados(json);
-      setEstado(estadoDaResposta(json));
-    } catch {
-      setEstado("erro");
-    } finally {
-      emCurso.current = false;
-    }
+    setPedido(aluno.id);
   };
 
   if (!aluno?.id) return null;
 
-  if (sobDemanda) {
+  if (sobDemanda && !consultaLiberada) {
+    if (estado === "lendo") return <div style={ESTILO.neutro}>Verificando vínculo…</div>;
     if (estado === "sem_acesso") return null;
-    if (estado === "lendo") {
-      return <div style={ESTILO.neutro}>Verificando vínculo…</div>;
+    if (estado === "vinculado_nao_confirmado") {
+      return (
+        <div style={ESTILO.aviso}>
+          Vínculo sem confirmação por CPF — a gestão precisa conferir a identidade
+          antes de abrir na Mensageria
+        </div>
+      );
     }
-    if (estado === "sem_vinculo" || estado === "erro") {
+    if (estado !== "vinculado" || !dados?.url) {
       return (
         <div style={ESTILO.caixaLink}>
-          <button type="button" onClick={consultarNaMensageria} style={ESTILO_CONSULTA}>
-            Consultar vínculo na ULBRA
+          <button
+            type="button"
+            style={ESTILO_CONSULTA}
+            onClick={pedirConsulta}
+            data-testid="ulbra-consultar"
+            title="Consulta a Mensageria ULBRA para este aluno (1 consulta da cota diária)"
+          >
+            {rotuloConsulta}
           </button>
-          <div style={ESTILO.neutro}>
-            {estado === "erro"
-              ? "Não foi possível consultar agora. Consome 1 consulta na Mensageria ULBRA."
-              : "Consome 1 consulta na Mensageria ULBRA."}
-          </div>
+          <div style={ESTILO.neutro}>Consome 1 consulta na Mensageria ULBRA.</div>
         </div>
       );
     }
   }
 
-  if (estado === "erro" && !sobDemanda) return null;
+  if (sobDemanda && consultaLiberada && estado === "erro") {
+    return (
+      <div style={ESTILO.caixaLink}>
+        <div style={ESTILO.erro}>Não foi possível consultar agora.</div>
+        <button type="button" style={ESTILO_CONSULTA} onClick={() => { emCurso.current = false; setPedido(null); }}>
+          Tentar de novo
+        </button>
+      </div>
+    );
+  }
+
+  if (estado === "erro") return null;
 
   if (estado === "carregando") {
     return <div style={ESTILO.neutro}>Consultando Mensageria Ulbra…</div>;
   }
 
-  // Vínculo que existe mas NÃO foi confirmado por CPF: aviso, nunca botão.
   if (estado === "vinculado_nao_confirmado") {
     return (
       <div style={ESTILO.aviso}>
@@ -275,8 +279,7 @@ export default function BlocoUlbra({ aluno, sobDemanda = false }) {
   }
 
   if (estado === "vinculado" && dados?.url) {
-    // Cinto e suspensório: se uma versão anterior da função devolver `url`
-    // JUNTO com `reconfirmar_recomendado`, a tela ainda assim não dá o botão.
+    // Vínculo não confirmado por CPF nunca tem link, mesmo se a resposta trouxer `url`.
     if (dados.reconfirmar_recomendado) {
       return (
         <div style={ESTILO.aviso}>
@@ -286,7 +289,7 @@ export default function BlocoUlbra({ aluno, sobDemanda = false }) {
       );
     }
 
-    // Mesmo <a>, mesmo href, mesmo target e rel. Só o rótulo muda no modo sob demanda.
+    // Mesmo <a>, mesmo href, mesmo target e rel. Rotulo unico em todas as fichas.
     return (
       <div style={ESTILO.caixaLink}>
         <a
@@ -296,7 +299,7 @@ export default function BlocoUlbra({ aluno, sobDemanda = false }) {
           style={ESTILO.botaoDestaque}
         >
           <IconeConversa />
-          {rotuloLink}
+          CRM ULBRA ↗
         </a>
       </div>
     );

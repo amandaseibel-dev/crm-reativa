@@ -15,11 +15,27 @@ import { MemoryRouter, Routes, Route, useLocation } from "react-router-dom";
 import CentralUlbra from "./CentralUlbra";
 
 const rpc = vi.fn();
-vi.mock("../services/supabase", () => ({ supabase: { rpc: (...a) => rpc(...a) } }));
+const fromMock = vi.fn();
+vi.mock("../services/supabase", () => ({ supabase: { rpc: (...a) => rpc(...a), from: (...a) => fromMock(...a) } }));
+
+// Consulta da carteira falsa: registra os filtros e devolve as linhas dadas.
+const DIA = 86400000;
+function carteiraCom(linhas) {
+  const b = {};
+  for (const m of ["select", "eq", "not", "lte", "order"]) b[m] = () => b;
+  b.range = () => Promise.resolve({ data: linhas, error: null });
+  return b;
+}
+const ha = (d) => new Date(Date.now() - d * DIA).toISOString().slice(0, 10);
+const CARTEIRA_OPERADOR = [
+  { aluno_id: "al-1", nome: "Helena Dantas", data_ultimo_acionamento: ha(12), operador_email: "cobranca10@aelbra.com.br" },
+  { aluno_id: "al-3", nome: "Bruno Leal", data_ultimo_acionamento: ha(9), operador_email: "cobranca10@aelbra.com.br" },
+];
 
 const fetchMock = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
+  fromMock.mockImplementation(() => carteiraCom(CARTEIRA_OPERADOR));
   sessionStorage.clear();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -328,5 +344,189 @@ describe("CentralUlbra: divergência de casos", () => {
     const fila = await screen.findByTestId("fila-sem-interacao");
     expect(fila.textContent).toMatch(/último: 28\/10\/2026/);
     expect(fila.textContent).not.toMatch(/28\/10\/2026, \d{2}:\d{2}/);
+  });
+});
+
+describe("visão de conversas", () => {
+  it("?visao=conversas mostra as duas colunas no lugar das filas, na ordem de prioridade", async () => {
+    rpc.mockResolvedValue({ data: resposta(), error: null });
+    montar(OPERADOR, "/central-ulbra?visao=conversas");
+    const visao = await screen.findByTestId("visao-conversas");
+    expect(screen.queryByTestId("fila-respostas")).toBeNull();
+    const tipos = Array.from(visao.querySelectorAll(".ulbra-conv-item")).map((b) => b.getAttribute("data-linha"));
+    expect(tipos).toEqual(["resposta", "resposta", "sem_interacao", "sem_interacao", "novo"]);
+  });
+
+  it("selecionar uma conversa vai para a URL; abrir a ficha e voltar mantém a conversa e a visão", async () => {
+    rpc.mockResolvedValue({ data: resposta(), error: null });
+    const rolar = vi.fn();
+    vi.stubGlobal("scrollTo", rolar);
+    Object.defineProperty(window, "scrollY", { value: 300, configurable: true });
+    const { unmount } = montar(OPERADOR, "/central-ulbra?visao=conversas");
+    const visao = await screen.findByTestId("visao-conversas");
+    fireEvent.click(visao.querySelectorAll(".ulbra-conv-item")[3]);
+    await waitFor(() => expect(screen.getByTestId("onde").textContent).toBe("/central-ulbra?visao=conversas&conv=s%3Aal-3"));
+    fireEvent.click(screen.getByText("Abrir ficha"));
+    expect(screen.getByTestId("onde").textContent).toBe("/aluno?alunoId=al-3&origem=ulbra");
+    expect(JSON.parse(sessionStorage.getItem("rv_central_ulbra_posicao")).busca).toBe("?visao=conversas&conv=s%3Aal-3");
+    unmount();
+
+    window.history.replaceState(null, "", "/central-ulbra?visao=conversas&conv=s%3Aal-3");
+    montar(OPERADOR, "/central-ulbra?visao=conversas&conv=s%3Aal-3");
+    const de_volta = await screen.findByTestId("visao-conversas");
+    const ativo = de_volta.querySelector('[aria-current="true"]');
+    expect(ativo.textContent).toMatch(/Bruno Leal/);
+    await waitFor(() => expect(rolar).toHaveBeenCalledWith(0, 300));
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("a visão de cartões continua a padrão quando não há parâmetro", async () => {
+    rpc.mockResolvedValue({ data: resposta(), error: null });
+    montar(OPERADOR, "/central-ulbra");
+    await screen.findByTestId("fila-respostas");
+    expect(screen.queryByTestId("visao-conversas")).toBeNull();
+  });
+});
+
+describe("fila da carteira na visão de conversas (servidor)", () => {
+  it("consulta a tabela casos com o próprio operador e corte de 8 dias, no servidor", async () => {
+    rpc.mockResolvedValue({ data: resposta(), error: null });
+    montar(OPERADOR, "/central-ulbra?visao=conversas");
+    await screen.findByTestId("visao-conversas");
+    await waitFor(() => expect(fromMock).toHaveBeenCalledWith("casos"));
+  });
+
+  it("caso interno sem vínculo ULBRA aparece na fila da carteira", async () => {
+    rpc.mockResolvedValue({ data: resposta(), error: null });
+    fromMock.mockImplementation(() => carteiraCom([{ aluno_id: "sem-vinculo", nome: "Sem Vínculo Mensageria", data_ultimo_acionamento: ha(20), operador_email: "cobranca10@aelbra.com.br" }]));
+    montar(OPERADOR, "/central-ulbra?visao=conversas");
+    const visao = await screen.findByTestId("visao-conversas");
+    await waitFor(() => expect(visao.textContent).toMatch(/Sem Vínculo Mensageria/));
+  });
+
+  it("erro da carteira aparece como erro, não como fila vazia", async () => {
+    rpc.mockResolvedValue({ data: resposta(), error: null });
+    fromMock.mockImplementation(() => {
+      const b = carteiraCom([]);
+      b.range = () => Promise.resolve({ data: null, error: { message: "permission denied" } });
+      return b;
+    });
+    montar(OPERADOR, "/central-ulbra?visao=conversas");
+    expect(await screen.findByText(/Não foi possível ler a carteira: permission denied/)).toBeTruthy();
+  });
+
+  it("gestão sem operador escolhido recebe a fila de TODAS as carteiras, com o operador em cada linha", async () => {
+    rpc.mockResolvedValue({ data: resposta({ eh_gestao: true, operador: null, operadores: ["cobranca10@aelbra.com.br"] }), error: null });
+    const nots = [];
+    fromMock.mockImplementation(() => {
+      const b = carteiraCom([
+        ...CARTEIRA_OPERADOR,
+        { aluno_id: "al-9", nome: "Caio Prado", data_ultimo_acionamento: ha(30), operador_email: "cobranca05@aelbra.com.br" },
+      ]);
+      b.not = (...a) => { nots.push(a); return b; };
+      return b;
+    });
+    montar(GESTAO, "/central-ulbra?visao=conversas");
+    const visao = await screen.findByTestId("visao-conversas");
+    expect(await screen.findByTestId("aviso-todas-carteiras")).toBeTruthy();
+    await waitFor(() => expect(visao.textContent).toMatch(/Caio Prado/));
+    expect(visao.textContent).toMatch(/Helena Dantas/);
+    expect(nots).toContainEqual(["operador_email", "is", null]);
+    expect(screen.queryByText(/Escolha um operador no filtro para ver a fila da carteira\./)).toBeNull();
+  });
+});
+
+describe("recorte da carteira não muda pelo filtro nem pela URL", () => {
+  it("operador com ?operador=outro na URL continua consultando só a PRÓPRIA carteira", async () => {
+    rpc.mockResolvedValue({ data: resposta(), error: null });
+    const eqs = [];
+    fromMock.mockImplementation(() => {
+      const b = {};
+      for (const m of ["select", "not", "lte", "order"]) b[m] = () => b;
+      b.eq = (...a) => (eqs.push(a), b);
+      b.range = () => Promise.resolve({ data: CARTEIRA_OPERADOR, error: null });
+      return b;
+    });
+    montar(OPERADOR, "/central-ulbra?visao=conversas&operador=cobranca05%40aelbra.com.br");
+    await screen.findByTestId("visao-conversas");
+    await waitFor(() => expect(eqs.length).toBeGreaterThan(0));
+    expect(eqs.every(([campo, valor]) => campo === "operador_email" && valor === "cobranca10@aelbra.com.br")).toBe(true);
+    expect(eqs.some(([, valor]) => valor === "cobranca05@aelbra.com.br")).toBe(false);
+  });
+});
+
+describe("visão Mensageria (período): equipe Reativa, enviadas e recebidas", () => {
+  const PERIODO = {
+    ok: true, eh_gestao: false, operador: "cobranca10@aelbra.com.br", desde: "2026-11-01T03:00:00+00:00",
+    limite: 100, pagina: 0, totais: { conversas: 3, aguardando: 1, sem_cpf: null },
+    conversas: [
+      { conversa_id: "c-rec", aluno_id: "al-1", nome: "Helena Dantas", previa: "pode me ligar?", mensagem_em: "2026-11-10T13:00:00Z", quem: "cliente", direcao: "recebida", aguardando: true, atendente_ulbra: "Olga", responsabilidade: "CARTEIRA", responsavel_reativa: "cobranca10@aelbra.com.br", minha: true, lida: false },
+      { conversa_id: "c-env", aluno_id: "al-3", nome: "Bruno Leal", previa: "segue o boleto", mensagem_em: "2026-11-09T18:00:00Z", quem: "operador", direcao: "enviada", aguardando: false, atendente_ulbra: "Olga", responsabilidade: "CARTEIRA", responsavel_reativa: "cobranca10@aelbra.com.br", minha: true, lida: true },
+      { conversa_id: "c-env2", aluno_id: "al-4", nome: "Carla Souza", previa: "bom dia", mensagem_em: "2026-11-02T09:00:00Z", quem: "bot", direcao: "enviada", aguardando: false, atendente_ulbra: null, responsabilidade: "SEM_CARTEIRA", responsavel_reativa: null, minha: false, lida: false },
+    ],
+  };
+  function rpcPorNome(central = resposta(), periodo = PERIODO) {
+    rpc.mockImplementation((nome) => Promise.resolve(
+      nome === "ulbra_central_conversas" ? { data: periodo, error: null } : { data: central, error: null }
+    ));
+  }
+
+  it("é uma visão separada: lista respostas aguardando (mais antiga primeiro) e depois as demais conversas, mais recente primeiro, com a direção", async () => {
+    rpcPorNome();
+    montar(OPERADOR, "/central-ulbra?visao=mensageria");
+    const visao = await screen.findByTestId("visao-mensageria");
+    expect(screen.queryByTestId("visao-conversas")).toBeNull();
+    await waitFor(() => expect(screen.getByTestId("mensageria-limites").textContent).toMatch(/Conversas ativas da equipe Reativa desde 01\/11\/2026/));
+    const limites = screen.getByTestId("mensageria-limites").textContent;
+    expect(limites).toMatch(/novembro de 2026/);
+    expect(limites).toMatch(/Não é o histórico completo de novembro/);
+    expect(limites).toMatch(/Histórico completo e resposta pelo CRM ainda não estão disponíveis/);
+    // última coleta vem da Central (estado da coleta), cobertura vem da consulta do período
+    expect(screen.getByTestId("mensageria-ultima-coleta").textContent).toMatch(/08\/11|2026/);
+    expect(screen.getByTestId("mensageria-cobertura").textContent).toMatch(/3 conversas com CPF confirmado \(1 aguardando resposta\)/);
+    // seção 1 vem da Central (respostas aguardando, ordem do banco: mais antiga primeiro)
+    const aguardando = screen.getByTestId("mensageria-aguardando");
+    const nomesAguardando = [...aguardando.querySelectorAll("li .ulbra-linha-nome")].map((e) => e.textContent);
+    expect(nomesAguardando).toEqual(resposta().respostas.map((r) => r.nome));
+    // seção 2: só as que NÃO estão aguardando, na ordem recebida (mais recente primeiro)
+    await waitFor(() => expect(screen.getByTestId("mensageria-conversas").querySelectorAll("li").length).toBe(2));
+    const itens = [...screen.getByTestId("mensageria-conversas").querySelectorAll("li")];
+    expect(itens.map((li) => li.getAttribute("data-conversa"))).toEqual(["c-env", "c-env2"]);
+    expect(itens.map((li) => li.getAttribute("data-direcao"))).toEqual(["enviada", "enviada"]);
+    expect(itens[0].textContent).toMatch(/enviada pela equipe/);
+    expect(visao.textContent).not.toMatch(/c-rec/);
+    // chamou a consulta do período com o recorte do banco (operador não escolhe)
+    const chamada = rpc.mock.calls.find((c) => c[0] === "ulbra_central_conversas");
+    expect(chamada[1]).toEqual({ p_desde: null, p_operador: null, p_limite: 100, p_pagina: 0 });
+  });
+
+  it("Abrir ficha só com vínculo por CPF; sem aluno_id a linha diz que a ficha não abre", async () => {
+    rpcPorNome(resposta(), { ...PERIODO, conversas: [{ ...PERIODO.conversas[1], aluno_id: null }, PERIODO.conversas[2]] });
+    montar(OPERADOR, "/central-ulbra?visao=mensageria");
+    await screen.findByTestId("visao-mensageria");
+    await waitFor(() => expect(screen.getByTestId("mensageria-conversas").querySelectorAll("li").length).toBe(2));
+    const [semVinculo, comVinculo] = screen.getByTestId("mensageria-conversas").querySelectorAll("li");
+    expect(semVinculo.textContent).toMatch(/ficha não abre/);
+    expect(semVinculo.querySelector("a")).toBeNull();
+    expect(comVinculo.querySelector("a").getAttribute("href")).toBe("/aluno?alunoId=al-4&origem=ulbra");
+  });
+
+  it("gestão: passa o operador do filtro à consulta e vê a contagem do que está sem CPF confirmado", async () => {
+    rpcPorNome(resposta({ eh_gestao: true, operador: null, operadores: ["cobranca10@aelbra.com.br"] }), { ...PERIODO, eh_gestao: true, operador: null, totais: { conversas: 3, aguardando: 1, sem_cpf: 5 } });
+    montar(GESTAO, "/central-ulbra?visao=mensageria&operador=cobranca10@aelbra.com.br");
+    await screen.findByTestId("visao-mensageria");
+    expect((await screen.findByTestId("mensageria-sem-cpf")).textContent).toMatch(/5 conversas do período sem CPF confirmado/);
+    expect(screen.getByTestId("mensageria-cobertura").textContent).toMatch(/; 5 sem CPF confirmado/);
+    const chamada = rpc.mock.calls.find((c) => c[0] === "ulbra_central_conversas");
+    expect(chamada[1].p_operador).toBe("cobranca10@aelbra.com.br");
+  });
+
+  it("consulta ausente no banco: diz que está indisponível, não mostra lista vazia", async () => {
+    rpc.mockImplementation((nome) => Promise.resolve(
+      nome === "ulbra_central_conversas" ? { data: null, error: { code: "PGRST202", message: "function ulbra_central_conversas not found" } } : { data: resposta(), error: null }
+    ));
+    montar(OPERADOR, "/central-ulbra?visao=mensageria");
+    expect(await screen.findByTestId("mensageria-indisponivel")).toBeTruthy();
+    expect(screen.queryByText(/nenhuma outra conversa no período/)).toBeNull();
   });
 });

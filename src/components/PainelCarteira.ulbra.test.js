@@ -19,9 +19,9 @@ describe("PainelCarteira: Mensageria ULBRA na ficha da carteira", () => {
     // O modal termina antes de qualquer outro modal de nivel superior; o bloco tem
     // de estar no cabecalho dele, depois do resumo de contato.
     const trecho = SRC.slice(inicio, inicio + 9000);
-    expect(trecho).toMatch(/<BlocoUlbra aluno=\{alunoModal\} sobDemanda \/>/);
+    expect(trecho).toMatch(/<BlocoUlbra aluno=\{alunoModal\} sobDemanda rotuloConsulta="Consultar vínculo na ULBRA" \/>/);
     // Dentro do cabecalho: antes do botao de fechar do proprio cabecalho.
-    expect(trecho.indexOf("<BlocoUlbra aluno={alunoModal} sobDemanda />")).toBeLessThan(
+    expect(trecho.indexOf("<BlocoUlbra aluno={alunoModal} sobDemanda rotuloConsulta=\"Consultar vínculo na ULBRA\" />")).toBeLessThan(
       trecho.indexOf("S.btnFechar} onClick={fecharModal}"),
     );
   });

@@ -22,7 +22,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import "./ulbra.css";
+import CentralConversas from "../components/CentralConversas";
+import MensageriaPeriodo from "../components/MensageriaPeriodo";
 import { supabase } from "../services/supabase";
+import { buscarFilaCarteira } from "../utils/filaCarteiraServidor";
 import usePolling from "../utils/polling";
 import { normalizarEmail } from "../utils/ulbraRecebimento";
 import {
@@ -38,6 +41,7 @@ import {
   haMais,
   hrefFicha,
   juntarPaginas,
+  listaPrioridade,
   lerFiltros,
   nomeCurto,
   paraBusca,
@@ -130,6 +134,8 @@ export default function CentralUlbra({ usuario }) {
   const [recado, setRecado] = useState(null);
   const raizRef = useRef(null);
   const rolagemPendente = useRef(posicao?.rolagem ?? null);
+  // Fila "sem interação" pela CARTEIRA, consultada no servidor (RLS + filtros).
+  const [carteira, setCarteira] = useState({ linhas: [], temMais: false, erro: null, pagina: 0 });
 
   const buscar = useCallback(async () => {
     const lidas = [];
@@ -174,6 +180,27 @@ export default function CentralUlbra({ usuario }) {
     else alvo.scrollTop = y;
   }, [situacao, dados]);
 
+  // Carteira só na visão de conversas. Operador: o próprio e-mail. Gestão: o
+  // operador do filtro ou, sem filtro, TODAS as carteiras (cada linha traz o
+  // operador). O "eh_gestao" vem do banco, não da tela.
+  const operadorCarteira = dados?.eh_gestao ? filtros.operador : (dados?.operador || email);
+  const todasCarteiras = dados?.eh_gestao === true && !filtros.operador;
+  useEffect(() => {
+    if (filtros.visao !== "conversas" || (!operadorCarteira && !todasCarteiras)) return undefined;
+    let ativo = true;
+    (async () => {
+      const r = await buscarFilaCarteira(supabase, { operador: operadorCarteira, todas: todasCarteiras, pagina: 0 });
+      if (ativo) setCarteira({ linhas: r.linhas, temMais: r.temMais, erro: r.erro, pagina: 0 });
+    })();
+    return () => { ativo = false; };
+  }, [filtros.visao, operadorCarteira, todasCarteiras]);
+
+  async function carregarMaisCarteira() {
+    const proxima = carteira.pagina + 1;
+    const r = await buscarFilaCarteira(supabase, { operador: operadorCarteira, todas: todasCarteiras, pagina: proxima });
+    setCarteira((c) => ({ linhas: [...c.linhas, ...r.linhas], temMais: r.temMais, erro: r.erro, pagina: proxima }));
+  }
+
   useEffect(() => {
     if (!recado) return undefined;
     const t = setTimeout(() => setRecado(null), 4000);
@@ -184,6 +211,14 @@ export default function CentralUlbra({ usuario }) {
     const novo = { ...filtros, [campo]: valor };
     setParams(new URLSearchParams(paraBusca(novo).replace(/^\?/, "")), { replace: true });
     if (campo === "operador") setPaginas(1);
+  }
+
+  // Seleção e voltar empilham histórico: o "voltar" do navegador desfaz a escolha.
+  function selecionarConversa(chave) {
+    setParams(new URLSearchParams(paraBusca({ ...filtros, conv: chave }).replace(/^\?/, "")));
+  }
+  function voltarParaLista() {
+    setParams(new URLSearchParams(paraBusca({ ...filtros, conv: "" }).replace(/^\?/, "")));
   }
 
   function aoAbrirFicha() {
@@ -288,6 +323,56 @@ export default function CentralUlbra({ usuario }) {
       </div>
 
       {recado ? <div className="ulbra-recado" role="status">{recado}</div> : null}
+
+      <div className="ulbra-visao" role="group" aria-label="Visão da Central">
+        <button type="button" className="ulbra-botao" aria-pressed={filtros.visao === "mensageria"} onClick={() => mudarFiltro("visao", "mensageria")}>
+          Mensageria (período)
+        </button>
+        <button type="button" className="ulbra-botao" aria-pressed={filtros.visao === "conversas"} onClick={() => mudarFiltro("visao", "conversas")}>
+          Carteira interna
+        </button>
+        <button type="button" className="ulbra-botao" aria-pressed={filtros.visao === "cartoes"} onClick={() => mudarFiltro("visao", "cartoes")}>
+          Cartões
+        </button>
+      </div>
+
+      {filtros.visao === "mensageria" ? (
+        <MensageriaPeriodo
+          ehGestao={dados.eh_gestao === true}
+          operador={filtros.operador}
+          respostas={dados.respostas || []}
+          coleta={dados.coleta || null}
+          aoAbrirFicha={aoAbrirFicha}
+        />
+      ) : filtros.visao === "conversas" ? (
+        <>
+        {todasCarteiras ? (
+          <p className="ulbra-aviso ulbra-aviso--cinza" data-testid="aviso-todas-carteiras">
+            Carteira interna (não é a Mensageria): a fila de todos os operadores, mais antigo primeiro, com o operador em cada linha.
+            Escolha um operador no filtro para ver só a carteira dele.
+          </p>
+        ) : null}
+        {!operadorCarteira && !todasCarteiras ? (
+          <p className="ulbra-aviso ulbra-aviso--cinza">Escolha um operador no filtro para ver a fila da carteira.</p>
+        ) : null}
+        {carteira.erro ? (
+          <p className="ulbra-aviso ulbra-aviso--vermelho" role="alert">Não foi possível ler a carteira: {carteira.erro}</p>
+        ) : null}
+        <CentralConversas
+          itens={listaPrioridade({ ...dados, sem_interacao: carteira.linhas }, filtros.faixa)}
+          selecionadoChave={filtros.conv}
+          onSelecionar={selecionarConversa}
+          onVoltar={voltarParaLista}
+          historico={{ estado: "indisponivel", mensagens: [] }}
+          aoAbrirFicha={aoAbrirFicha}
+          vazio="nenhuma conversa nesta fila"
+        />
+        {carteira.temMais ? (
+          <button type="button" className="ulbra-botao" onClick={carregarMaisCarteira}>Carregar mais da carteira</button>
+        ) : null}
+        </>
+      ) : (
+      <>
 
       <div className="ulbra-cartoes ulbra-cartoes--tres" data-testid="cartoes">
         <Cartao n={dados.respostas.length} total={totais.respostas} rotulo="respostas aguardando ação" nota="mais antiga primeiro; a definir pela gestão fora dos avisos" />
@@ -396,6 +481,9 @@ export default function CentralUlbra({ usuario }) {
           </div>
         ))}
       </section>
+
+      </>
+      )}
 
       {faltam ? (
         <div className="ulbra-rodape" style={{ textAlign: "center" }}>

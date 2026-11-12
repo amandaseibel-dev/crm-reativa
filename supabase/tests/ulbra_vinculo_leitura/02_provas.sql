@@ -43,6 +43,13 @@ do $$ declare r jsonb; begin
   perform public.afirmar(r->>'status' = 'vinculado', 'gestao (gerencia) ve o aluno de qualquer operador');
   r := pg_temp.chamar('sup@x', null, '00000000-0000-0000-0000-00000000000a');
   perform public.afirmar(r->>'status' = 'vinculado', 'supervisor ve qualquer aluno');
+  -- perfil ADMINISTRATIVO: esta no portao da ulbra-consultar; tem de ler qualquer aluno
+  r := pg_temp.chamar('adm@x', null, '00000000-0000-0000-0000-00000000000b');
+  perform public.afirmar(r->>'status' = 'vinculado' and r->>'url' = 'https://crm.ulbra.ai/app/clientes/999',
+    'perfil administrativo ve o vinculo de aluno de outro operador (acesso amplo)');
+  r := pg_temp.chamar('adm@x', null, '00000000-0000-0000-0000-00000000000e');
+  perform public.afirmar(r->>'status' = 'vinculado_nao_confirmado' and r->'url' is null,
+    'administrativo: vinculo sem CPF continua sem link (so o escopo muda, nao a regra)');
 end $$;
 
 -- INATIVO: nada, mesmo sendo responsavel

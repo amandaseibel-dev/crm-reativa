@@ -351,13 +351,14 @@ function RotaProtegida({ usuario, rota, children }) {
     if (!podeVerCrmUlbra(emailUl)) return <Navigate to="/" replace />;
     return children;
   }
-  // Central ULBRA: hoje só gestão (`podeVerCentralUlbra`). Operador entra quando
-  // a gestão liberar, depois da consulta aplicada. O recorte de DADOS é do
-  // banco (`ulbra_central_operador`), não desta porta.
+  // Central ULBRA: gestão e toda a equipe de operadores ativos com perfil
+  // operacional (`podeVerCentralUlbra`, liberação geral de 10/11/2026). Conta
+  // de painel e cadastro inativo ficam fora. O recorte de DADOS é do banco
+  // (`ulbra_central_operador`), não desta porta.
   if (rota === "/central-ulbra") {
     const emailCu = String(usuario?.perfil?.email || usuario?.auth?.email || "")
       .toLowerCase().trim();
-    if (!podeVerCentralUlbra(emailCu)) return <Navigate to="/" replace />;
+    if (!podeVerCentralUlbra(emailCu, usuario?.perfil)) return <Navigate to="/" replace />;
     return children;
   }
   if (rota === "/produtividade") {
@@ -887,7 +888,7 @@ export default function App() {
     }
     if (item.rota === "/central-ulbra") {
       const emCu = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
-      return podeVerCentralUlbra(emCu);
+      return podeVerCentralUlbra(emCu, usuario?.perfil);
     }
     if (item.rota === "/produtividade") {
       const emPr = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
