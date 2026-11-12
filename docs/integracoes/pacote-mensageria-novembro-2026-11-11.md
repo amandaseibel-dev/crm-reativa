@@ -2,6 +2,36 @@
 
 Preparado em 11/11/2026 para aprovação da gestão. **Nenhuma chamada à ULBRA foi feita** na preparação; nada aplicado nem publicado.
 
+## Consumo real — EXECUTADO em 11/11/2026, 17:06–17:31 BRT (antecipado por autorização escrita)
+
+A janela de 12/11 06:00–07:30 foi **substituída** pela execução imediata, autorizada pela gestão em 11/11 à tarde. A linha M1 da PR #907 não tem limite inferior e valia até `2026-11-12T10:30:00Z`: cobriu a antecipação sem alterar o TSV. Saúde do banco conferida antes (sem consultas longas, sem locks, cache 99%, `sistema_sob_carga = false`, 4 falhas de cron nas 24 h anteriores, todas "job startup timeout" do incidente do dia).
+
+**Preparação (sem chamadas):** `apply_migration` de `20261111130000` (versão gravada `20261111200624`) e `20261111120000` (versão `20261111200632`), arquivos inteiros, sha256 de produção iguais aos autorizados; grants, `search_path` e `prosecdef` conferidos; colunas de campanha presentes, `campanha_reservadas = 0`. `ulbra-sincronizar` publicada da `origin/main` (`3c01788b`) como **versão 4**, `verify_jwt = false`, `index.ts` e `sincronizar.ts` com sha256 idênticos ao repositório. Ledger em `supabase/ledger/2026-11/20261111200624__*` e `20261111200632__*`.
+
+**Execuções** (`net.http_post` com chave do Vault; horários em UTC; uma única sessão executora):
+
+| # | hora | corpo | chamadas | leituras / detalhes | conversas novas | piso alcançado | reservadas / restante |
+|---|---|---|---|---|---|---|---|
+| 0 | 20:15:36 | `teto_chamadas: 1` (saldo) | 1 | 0 / 0 | 0 | — | 1 / 109 — **`restam = 9.821`** (≥ 300) |
+| 1 | 20:17:18 | lote padrão | 9 | 4 / 5 | 37 | 19:15:41Z | 10 / 100 |
+| 2 | 20:18:36 | lote padrão | 11 | 5 / 5 (+1 atendimentos) | 35 | 18:40:34Z | 21 / 89 |
+| 3 | 20:19:49 | lote padrão | 10 | 5 / 5 | 32 | 18:09:09Z | 31 / 79 |
+| 4 | 20:25:34 | lote padrão | 10 | 5 / 3 | 40 | 17:42:24Z | 41 / 69 |
+| 5 | 20:26:30 | lote padrão | 10 | 5 / 5 | 41 | 17:03:54Z | 51 / 59 |
+| 6 | 20:27:34 | lote padrão | 11 | 5 / 5 (+1 atendimentos) | 47 | 16:26:51Z | 62 / 48 |
+| 7 | 20:30:37 | lote padrão | 10 | 5 / 5 | 20 | 15:07:29Z | 72 / 38 |
+| 8 | 20:31:20 | lote padrão | 7 (perdidas) | — | 0 | **`FALHOU` / `ULBRA_LIMITE` / HTTP 429 / `parada: true`** | 79 / 31 |
+
+Lote padrão = `{"campanha":"novembro-2026","teto_total":110,"teto_chamadas":12,"desde":"2026-11-01","detalhes":5}`. Entre lotes: `pg_stat_activity` com 0 consultas ativas e 0 esperando lock em todas as leituras.
+
+**Parada:** HTTP 429 da ULBRA na 9ª chamada (72 chamadas em 16 min, com saldo diário de 9.821): limite de **taxa** (por minuto/hora), não de saldo — o valor do limite não é publicado pela ULBRA. Parada imediata, como previsto; **nenhuma execução a mais**. As 7 chamadas da execução interrompida ficam contadas na reserva (conservador). **Consumo total: 79 de 110; 31 não usadas.** `ulbra_sync_estado`: `ultimo_ciclo = FALHOU`, `ultimo_erro = ULBRA_LIMITE`, `piso_pendente = 15:07:29Z`, `offset_pendente = 753`, `topo = 20:30:35Z`.
+
+**Cobertura alcançada — NÃO chegou a 01/11.** O espelho cobre as conversas da equipe Reativa com última mensagem entre **12:07 e 17:30 de Brasília de 11/11** (`piso` 15:07:29Z → `topo` 20:30:35Z). Causa: a estimativa (34 páginas) nasceu da medição de **domingo 08/11** (150 conversas em 22,5 h, ~7/h, todas as equipes); num dia útil a caixa inteira anda a **~140 conversas/hora** (753 conversas em 5 h 23 min). Para 01/11 seriam, por ordem de grandeza, dezenas de páginas **por dia útil**, muito além de 110 chamadas; o restante do mês só sai com outro desenho (filtro por equipe/data na API, que não existe, ou teto de outra ordem). O que foi lido está gravado; o pendente fica guardado no estado; nada foi reagendado.
+
+**Resultado no banco:** `ulbra_conversas` de 7 para **245 linhas** (todas Reativa, todas `situacao = active`), 32 vinculadas (`alta_cpf`) e 213 `nao_confirmado`; última mensagem do aluno em 23, da equipe em 222. `ulbra_atendimentos` segue com 7 linhas. Tamanhos: `ulbra_conversas` 80 kB → 240 kB; `ulbra_atendimentos` 64 kB; banco 2.889 MB → 2.894 MB (inclui o resto da atividade do dia). Depois da coleta: `sistema_sob_carga = false`, cache 99,5 %, 20 conexões (1 ativa), 0 falhas de cron na última hora. Um `ULBRA_VINCULO_CRIADO` às 20:37Z veio de uma ficha aberta por operador, fora desta sessão.
+
+**Validação da Central (zero chamadas):** `ulbra_central_conversas()` com JWT simulado da gestão, transação revertida: `ok`, `eh_gestao`, `desde = 2026-11-01T03:00Z`, totais **33 conversas com CPF confirmado, 6 aguardando resposta, 212 sem CPF** (só contagem). Validação visual em `/mensageria-ulbra` e no login de um operador **pendente**: a sessão do navegador tinha expirado e o executor não entra com senha.
+
 ## O que entrega
 1. **Coleta por período** (`ulbra-sincronizar`, nova versão a publicar): corpo da chamada manual aceita `desde` (limite inferior; data pura = meia-noite de Brasília; máx. 120 dias) e `detalhes` (1..20 leituras de `ler_conversa` por execução). Com `desde`, a leitura para na página em que o piso passa do início e o ciclo fecha como COMPLETO; depois disso a coleta é incremental a partir do topo. Equipe: só Reativa (recorte no código, como hoje).
 2. **Consulta nova** `ulbra_central_conversas(p_desde, p_operador, p_limite, p_pagina)` — migration `20261111120000_ulbra_central_conversas_periodo` (pendente): conversas da equipe Reativa no período (padrão: mês corrente em Brasília), **mais recente primeiro**, com direção da última mensagem (`recebida` do aluno / `enviada` pela equipe) e `aguardando`. Só CPF confirmado (vínculo ativo `alta_cpf`); sem CPF vai **só como contagem** para a gestão. Recorte igual ao da Central: operador vê os próprios casos, gestão tudo ou o operador do filtro; inativo e painel negados. `security definer`, `search_path` fixo, EXECUTE só `authenticated`.
