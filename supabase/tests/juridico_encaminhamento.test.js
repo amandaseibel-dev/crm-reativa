@@ -394,6 +394,32 @@ describe("Excel, envio ao financeiro e confirmacao ao juridico", () => {
   });
 });
 
+describe("titulo que mudou depois da aprovacao", () => {
+  it("pago entre a aprovacao e o envio: o envio e recusado, nada e marcado, e remover libera", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000, 500] });
+    const b = await mk(db, { valores: [800], acordo: "QUEBRADO" });
+    const l = await gerar(db, 2);
+    const ca = await casoDe(db, a.al), cb = await casoDe(db, b.al);
+    await rpc(db, "public.juridico_caso_autorizar_documento($1,'autorizado')", [cb.id]);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [ca.id]);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [cb.id]);
+
+    await db.query("update acordos_titulos set situacao='PAGO' where id=$1", [a.titulos[0]]);
+    let e = await falha(rpc(db, "public.juridico_lote_enviar_financeiro($1)", [l.lote_id]));
+    expect(e?.code).toBe("P0001");
+    expect(e?.message).toMatch(/mudou depois da aprovação/);
+    expect((await db.query("select count(*)::int n from juridico_casos where lote_id=$1 and status='ENVIADO_FINANCEIRO'", [l.lote_id])).rows[0].n).toBe(0);
+
+    await rpc(db, "public.juridico_caso_remover($1,'título pago depois da aprovação')", [ca.id]);
+    // parcela do acordo paga tambem trava
+    await db.query("update parcelas set status='PAGO' where id=$1", [U(Number(b.al.slice(24, 30)), 51)]);
+    e = await falha(rpc(db, "public.juridico_lote_enviar_financeiro($1)", [l.lote_id]));
+    expect(e?.message).toMatch(/mudou depois da aprovação/);
+    await db.close();
+  });
+});
+
 describe("rollback", () => {
   it("recusa com bloqueio ativo; sem bloqueio, remove tudo e guarda copia fechada", async () => {
     const db = await novo();

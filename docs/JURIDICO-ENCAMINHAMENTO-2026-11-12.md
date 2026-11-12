@@ -56,6 +56,25 @@ enquanto o caso está `APROVADO`. Depois do envio ao financeiro a aba não desfa
 Fail-closed: se a tabulação JURIDICO ganhar `efeito_desfecho` ou `redireciona_para_email`,
 a aprovação recusa (os gatilhos de `status_jornada` passariam a ter efeito financeiro).
 
+## Auditoria do Guardião (12/11/2026) — o que foi corrigido e o que fica
+
+Corrigido: o envio ao financeiro **reconfere** cada título e parcela da fotografia e recusa,
+nomeando o aluno, se algum deixou de estar em aberto depois da aprovação; o corte de
+vencimento usa o dia de São Paulo; a sequence da identidade do histórico perdeu os grants.
+
+Conferido em produção (leitura, 12/11/2026): `termos_acordo.aluno_id` é `text`, como a
+conferência compara.
+
+Fica, por decisão a tomar pela gestão:
+
+- **CPF completo** no retorno de `juridico_lote_enviar_financeiro` e `juridico_lote_exportar`:
+  é exceção à regra de CPF mascarado, porque o financeiro precisa dele no Excel. Só gestão
+  chama, e cada geração fica em `juridico_historico` (`EXCEL_GERADO`). O painel não devolve CPF.
+- **Quem é gestão**: `usuario_e_gestao()` inclui os três logins (Amanda, Fernanda, Amanda ADM).
+- **O bloqueio não é travado contra a própria gestão**: retabular o aluno por outra tela
+  tira o `JURIDICO` e o caso continua `APROVADO` na aba.
+- Rollback só é possível antes do primeiro envio ao financeiro.
+
 ## O que não está nesta entrega
 
 - Busca automática do termo cobre os anexos do CRM (`termos_acordo`, `casos.termo_url`).

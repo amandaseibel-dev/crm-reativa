@@ -142,7 +142,8 @@ alter table public.juridico_historico enable row level security;
 revoke all on public.juridico_lotes, public.juridico_casos,
               public.juridico_casos_titulos, public.juridico_historico
   from public, anon, authenticated;
-revoke all on sequence public.juridico_protocolo_seq from public, anon, authenticated;
+revoke all on sequence public.juridico_protocolo_seq, public.juridico_historico_id_seq
+  from public, anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 2. AUXILIARES (internas: sem grant para authenticated)
@@ -202,7 +203,7 @@ begin
      and coalesce(t.tipo_boleto,'') <> 'Acordo'
      and t.origem_encerramento is null
      and t.vencimento >= date '2025-01-01'
-     and t.vencimento < current_date
+     and t.vencimento < (now() at time zone 'America/Sao_Paulo')::date
      and coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_original, 0) > 0
      and not exists (
        select 1 from public.acordo_titulo_vinculo v
@@ -369,7 +370,7 @@ as $function$
        and coalesce(t.tipo_boleto,'') <> 'Acordo'
        and t.origem_encerramento is null
        and t.vencimento >= date '2025-01-01'
-       and t.vencimento < current_date
+       and t.vencimento < (now() at time zone 'America/Sao_Paulo')::date
        and coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_original, 0) > 0
        and not exists (
          select 1 from public.acordo_titulo_vinculo v
@@ -830,10 +831,33 @@ create function public.juridico_lote_enviar_financeiro(p_lote_id uuid)
 returns jsonb
 language plpgsql security definer set search_path to 'public'
 as $function$
-declare v_email text := public._juridico_exigir_gestao(); v_n int;
+declare v_email text := public._juridico_exigir_gestao(); v_n int; v_div text;
 begin
   perform 1 from public.juridico_lotes where id = p_lote_id for update;
   if not found then raise exception 'Lote não encontrado.' using errcode = 'P0002'; end if;
+
+  -- A fotografia e da APROVACAO. Titulo ou parcela que deixou de estar em
+  -- aberto depois dela (pago, cancelado, renegociado) nao pode ir ao financeiro
+  -- como divida: recusa o envio e nomeia os alunos. A gestao remove o caso (o
+  -- bloqueio cai) e, se ainda couber, aprova de novo com o valor atual.
+  select string_agg(distinct al.nome, ', ') into v_div
+    from public.juridico_casos jc
+    join public.alunos al on al.id = jc.aluno_id
+    join public.juridico_casos_titulos jt on jt.caso_id = jc.id and jt.ativo
+    left join public.acordos_titulos t on t.id = jt.titulo_id
+    left join public.parcelas p on p.id = jt.parcela_id
+    left join public.acordos a on a.id = p.acordo_id
+   where jc.lote_id = p_lote_id and jc.status = 'APROVADO'
+     and ((jt.tipo = 'MENSALIDADE'
+           and (t.id is null or upper(coalesce(t.situacao,'')) <> 'ABERTO'
+                or coalesce(lower(t.status),'') = 'quitada' or t.origem_encerramento is not null))
+       or (jt.tipo = 'PARCELA_ACORDO'
+           and (p.id is null or upper(coalesce(p.status,'')) not in ('A_VENCER','VENCIDA')
+                or upper(coalesce(a.status,'')) <> 'ATIVO')));
+  if v_div is not null then
+    raise exception 'Envio recusado: há título que mudou depois da aprovação (pago, cancelado ou renegociado) em: %. Remova o caso e aprove de novo.', v_div
+      using errcode = 'P0001';
+  end if;
 
   with alterados as (
     update public.juridico_casos
@@ -1022,6 +1046,16 @@ begin
        or has_table_privilege('anon', c.oid, 'select,insert,update,delete,truncate'));
   if v_n > 0 then
     raise exception 'juridico: % tabela(s) sem RLS ou com grant direto.', v_n;
+  end if;
+
+  select count(*) into v_n
+    from pg_class c
+   where c.relnamespace = 'public'::regnamespace and c.relkind = 'S'
+     and c.relname in ('juridico_protocolo_seq','juridico_historico_id_seq')
+     and (has_sequence_privilege('authenticated', c.oid, 'usage,select,update')
+       or has_sequence_privilege('anon', c.oid, 'usage,select,update'));
+  if v_n > 0 then
+    raise exception 'juridico: % sequence(s) com grant direto.', v_n;
   end if;
 end
 $prova$;
