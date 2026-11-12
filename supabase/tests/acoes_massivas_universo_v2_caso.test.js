@@ -137,3 +137,29 @@ describe("recusa diante de definicao inesperada", () => {
     await expect(db.exec(MIG)).rejects.toThrow(/Nada aplicado|PRE|diferente|esperado/i);
   });
 });
+
+// VIRADA DE DATA: UTC x America/Sao_Paulo. Entre 21h e 24h em Brasilia o dia UTC
+// ja e o seguinte; a regra tem que contar o dia de Brasilia. Horarios fixos.
+describe("calendario de Brasilia: protegido ate o 10o dia, elegivel a partir do 11o", () => {
+  beforeEach(async () => { db = await novoBanco(); await db.exec(MIG); });
+  const prot = async (dua, agora) => (await db.query(
+    "select public.acoes_massivas_fidelizacao_protege($1::timestamptz, $2::timestamptz) r",
+    [dua, agora])).rows[0].r;
+
+  it("acionado 22h BRT do dia 27: protegido ate 6 de novembro (dia 10) inclusive", async () => {
+    expect(await prot("2026-10-27T22:00:00-03:00", "2026-11-06T21:30:00-03:00")).toBe(true);
+    expect(await prot("2026-10-27T22:00:00-03:00", "2026-11-06T23:59:00-03:00")).toBe(true);
+  });
+  it("mesmo acionamento: elegivel a partir de 7 de novembro (11o dia), 00h30 BRT", async () => {
+    expect(await prot("2026-10-27T22:00:00-03:00", "2026-11-07T00:30:00-03:00")).toBe(false);
+  });
+  it("acionado 22h BRT do dia 26: ja elegivel no dia 6 (11o dia), 10h BRT", async () => {
+    expect(await prot("2026-10-26T22:00:00-03:00", "2026-11-06T10:00:00-03:00")).toBe(false);
+  });
+  it("acionado 10h BRT do dia 27: protegido 22h BRT do dia 6 (10o dia)", async () => {
+    expect(await prot("2026-10-27T10:00:00-03:00", "2026-11-06T22:00:00-03:00")).toBe(true);
+  });
+  it("sem acionamento: nao protegido", async () => {
+    expect(await prot(null, "2026-11-06T10:00:00-03:00")).toBe(false);
+  });
+});
