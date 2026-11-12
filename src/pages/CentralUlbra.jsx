@@ -143,6 +143,8 @@ export default function CentralUlbra({ usuario }) {
   const [historicos, setHistoricos] = useState({});
   // Conexão individual do operador com a Mensageria (estado lido do servidor; nunca token).
   const [conexao, setConexao] = useState(null);
+  // Backend de conversa publicado? Trava de etapa: ver o useEffect abaixo.
+  const [conversaNoAr, setConversaNoAr] = useState(false);
 
   const buscar = useCallback(async () => {
     const lidas = [];
@@ -230,12 +232,19 @@ export default function CentralUlbra({ usuario }) {
 
   // Conexão: lida uma vez ao entrar na visão de conversas. Função ausente/sem
   // configuração = estado SEM_CONEXAO com motivo, nunca "conectado".
+  //
+  // `conversaNoAr` é a trava desta etapa: só é true quando a `ulbra-conversa`
+  // RESPONDEU (`ok: true`). Enquanto ela não estiver publicada, a resposta é
+  // `ok` falso e o botão "Conectar minha conta" não é oferecido -- caminho sem
+  // backend não vai para a tela. O histórico não passa por aqui: ele fala com
+  // a `ulbra-historico`, por isso pode ser implantado sozinho.
   useEffect(() => {
     if (filtros.visao !== "conversas" || !email) return undefined;
     let ativo = true;
     (async () => {
       const r = await conexaoEstado();
       if (!ativo) return;
+      setConversaNoAr(r?.ok === true);
       setConexao(r?.ok ? { estado: r.estado, pessoa: r.pessoa, envioReal: r.envio_real === true } : { estado: "SEM_CONEXAO", pessoa: null, envioReal: false, motivo: r?.motivo || r?.erro || null });
     })();
     return () => { ativo = false; };
@@ -439,8 +448,8 @@ export default function CentralUlbra({ usuario }) {
           vazio="nenhuma conversa nesta fila"
           onCarregarHistorico={carregarHistorico}
           conexao={conexao}
-          onConectar={conectar}
-          onDesconectar={desconectar}
+          onConectar={conversaNoAr ? conectar : undefined}
+          onDesconectar={conversaNoAr ? desconectar : undefined}
           onPrevia={previaDe}
           onEnviar={enviarDe}
         />
