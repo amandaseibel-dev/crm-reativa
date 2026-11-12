@@ -86,10 +86,22 @@ Fica, por decisão a tomar pela gestão:
   Sinais: pagamento registrado contra título aberto; contra boleto de parcela viva; e extrato Prime
   pela regra **por título** das Ações Massivas (último registro do boleto+CPF, título aberto,
   liquidado mais de 30 dias após o vencimento e depois da importação, com valor pago).
-  **Medido em produção em 12/11/2026 (leitura):** 2.597 candidatos, R$ 7,72 mi elegíveis. A
-  primeira versão (qualquer liquidação, inclusive de título negociado) barrava 2.368 — liquidação
-  de título negociado é o acordo, não pagamento. Com a regra atual ficam 26 (2 formados, 9
-  trancados, 15 evadidos). Diferença para a massiva: aqui basta um título; lá exige todos e 50%.
+  **Medido em produção em 12/11/2026 (leitura, consultas em
+  `docs/juridico/consultas-n1-n4-2026-11-12.sql`):** universo de 2.640 alunos (R$ 8,52 mi em
+  aberto, antes do filtro de pagamento); a regra atual barra 24 (2 formados, 6 trancados, 16
+  evadidos; R$ 56.558,17) e o portão canônico retira outros 4. Ficam 2.613 elegíveis.
+  Decomposição da redução de 2.382 (regra antiga) para 24, passo a passo:
+  - NEGOCIADO no sinal (a): **0 alunos** (não muda nada hoje);
+  - NEGOCIADO no sinal (c): **12 alunos** (todos com acordo ATIVO quebrado; liquidação de título
+    negociado é o acordo, não pagamento);
+  - prazo de 30 dias e data de criação do título no sinal (c): **2.346 alunos** — é o que
+    explica a maior parte da diferença;
+  - último registro do extrato (em vez de qualquer linha): **0 alunos** hoje.
+  Os números antigos (2.597 candidatos, 2.368 barrados, 26 e R$ 7,72 mi) não batem com esta
+  medição e não foram reconciliados; não usar.
+  Diferenças reais para as Ações Massivas: aqui basta **um** título pago; lá exige todos os
+  títulos liquidados e pelo menos 50% pago. A massiva também não encaminha aluno com acordo
+  cancelado; o Jurídico não tem essa exclusão.
 - **Envio recusa** qualquer caso com divergência: mensalidade ou parcela que mudou, valor
   diferente do aprovado, acordo duplicado, pagamento não baixado ou aguardando confirmação.
 - **Alerta**: `juridico_varrer_alertas` registra `ALERTA_DIVERGENCIA` no histórico do caso

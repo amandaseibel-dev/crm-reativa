@@ -354,11 +354,11 @@ as $function$
 $function$;
 
 -- Pagamento recebido e ainda nao baixado, por conjunto de alunos (null = todos).
--- MEDIDO em producao em 12/11/2026 (leitura): a primeira versao aceitava
--- qualquer liquidacao no extrato Prime, inclusive de titulo NEGOCIADO, e
--- barrava 2.368 de 2.597 candidatos -- liquidacao de titulo negociado e o
--- ACORDO, nao pagamento. Com a regra POR TITULO das Acoes Massivas
--- (acoes_massivas_liquidados_prime) ficam 26. Sinais:
+-- MEDIDO em producao em 12/11/2026 (leitura; consultas em
+-- docs/juridico/consultas-n1-n4-2026-11-12.sql): de 2.382 barrados pela regra
+-- antiga, a reducao para 24 vem do prazo de 30 dias no extrato (2.346);
+-- NEGOCIADO no sinal (c) explica 12 e no sinal (a) nenhum. Liquidacao de
+-- titulo negociado e o ACORDO, nao pagamento. Sinais:
 --   (a) pagamento registrado contra titulo ABERTO do aluno;
 --   (b) pagamento registrado contra o boleto de parcela viva de acordo ATIVO;
 --   (c) extrato Prime: ULTIMO registro do boleto+CPF de titulo ABERTO, com
