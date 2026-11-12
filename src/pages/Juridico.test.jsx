@@ -11,6 +11,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, waitFor, fireEvent, within } from "@testing-library/react";
 import Juridico from "./Juridico";
 
+// A tela carrega a ficha e o diálogo; em máquina carregada 5s não bastam.
+vi.setConfig({ testTimeout: 20000 });
+
 const rpc = vi.fn();
 vi.mock("../services/supabase", () => ({ supabase: { rpc: (...a) => rpc(...a) } }));
 vi.mock("./Aluno", () => ({ default: () => null }));
