@@ -12,7 +12,7 @@ import { describe, it, expect } from "vitest";
 import {
   filtroMovimentacoesCarteira,
   separarMovimentacoesCarteira,
-} from "./PainelCarteira";
+} from "../utils/movimentacoesCarteira";
 
 const TIPOS = ["FINALIZACAO_ATENDIMENTO", "FINALIZACAO"];
 const EMAILS = ["cobranca05@aelbra.com.br", "cobranca12@aelbra.com.br"];

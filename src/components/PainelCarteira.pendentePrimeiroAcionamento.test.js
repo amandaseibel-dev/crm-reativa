@@ -16,6 +16,13 @@ import { fileURLToPath } from "node:url";
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const SRC = readFileSync(resolve(AQUI, "PainelCarteira.jsx"), "utf8");
+// O filtro e a reparticao vivem num util proprio: arquivo de componente que
+// exporta funcao solta quebra o fast refresh. A garantia e a mesma, so mudou
+// de arquivo.
+const UTIL = readFileSync(
+  resolve(AQUI, "../utils/movimentacoesCarteira.js"),
+  "utf8"
+);
 const BLOCO = SRC.slice(
   SRC.indexOf("// PENDENTE DE 1o ACIONAMENTO"),
   SRC.indexOf("const diasUteis = diasUteisTranscorridos(hoje);")
@@ -45,6 +52,8 @@ describe("PainelCarteira: pendente de 1o acionamento", () => {
     // Restricao aos responsaveis: o filtro e montado a partir deles, e a
     // consulta so sai quando ha responsavel na carteira.
     expect(BLOCO).toMatch(/filtroMovimentacoesCarteira\(emailsResponsaveis, TIPOS_ACIONAMENTO\)/);
+    // A tela usa os auxiliares compartilhados, nao uma copia local deles.
+    expect(SRC).toMatch(/import \{ filtroMovimentacoesCarteira, separarMovimentacoesCarteira \} from "\.\.\/utils\/movimentacoesCarteira"/);
     expect(BLOCO).toMatch(/\.or\(filtroOu\)/);
     expect(BLOCO).toMatch(/if \(emailsResponsaveis\.length\)/);
   });
@@ -61,8 +70,8 @@ describe("PainelCarteira: pendente de 1o acionamento", () => {
   });
 
   it("o filtro cobre os DOIS predicados -- nenhum dos dois lados some", () => {
-    const i = SRC.indexOf("export function filtroMovimentacoesCarteira");
-    const fn = SRC.slice(i, i + 600);
+    const i = UTIL.indexOf("export function filtroMovimentacoesCarteira");
+    const fn = UTIL.slice(i, i + 600);
     expect(i).toBeGreaterThan(-1);
     expect(fn).toMatch(/tipo\.in\./);
     expect(fn).toMatch(/registrado_por_email\.in\./);
