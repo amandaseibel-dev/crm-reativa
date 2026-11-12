@@ -389,6 +389,18 @@ export default function AcoesMassivas() {
     setSucesso("");
   }
 
+  // INVALIDA A PREVIA quando qualquer filtro muda. A exportacao so vale para a
+  // previa gerada com os filtros que estao na tela; sem isso, a tela mostraria
+  // uma lista de outro recorte. Exige gerar a previa de novo.
+  useEffect(() => {
+    if (previaId || resultados) limparPrevia();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    canal, valorMin, valorMax, quantidade, anoVencimento, unidadesSel, matricula,
+    curso, situacoesAcadSel, borderosSel, respCaso, respAcordo, tipoCobranca,
+    diasMinimoSemContato, acionamentoFiltro, recenciaDias, soSemTelefone,
+  ]);
+
   function nomeDoOperador(email) {
     if (String(email).toUpperCase() === "TODOS") return "Todos os operadores";
     if (String(email).toUpperCase() === "LIVRES") return "Sem responsável / livres";
