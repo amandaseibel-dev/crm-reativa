@@ -315,7 +315,8 @@ begin
     'pagamento_pendente', v_pag_pend,
     'termo', v_termo,
     'total', round(v_total_mens + v_total_acordo, 2),
-    'bloqueio', public.aluno_bloqueio_administrativo(p_aluno_id));
+    'bloqueio', public.aluno_bloqueio_administrativo(p_aluno_id),
+    'pagamento_nao_baixado', public._juridico_pagamento_nao_baixado(p_aluno_id));
 end;
 $function$;
 
@@ -328,6 +329,8 @@ declare v text[] := '{}'::text[]; v_termo text := p_conf->'termo'->>'status';
 begin
   if (p_conf->>'pagamento_pendente')::boolean then
     v := array_append(v, '!PAGAMENTO_PENDENTE'); end if;
+  if (p_conf->>'pagamento_nao_baixado')::boolean then
+    v := array_append(v, '!PAGAMENTO_NAO_BAIXADO'); end if;
   if coalesce((p_conf->>'total')::numeric, 0) <= 0 then
     v := array_append(v, '!SEM_SALDO_ELEGIVEL'); end if;
   if p_caso.status = 'EM_ANALISE' and p_conf->>'bloqueio' is not null then
@@ -348,6 +351,91 @@ language sql security definer set search_path to 'public'
 as $function$
   insert into public.juridico_historico (caso_id, lote_id, evento, detalhe, por)
   values (p_caso, p_lote, p_evento, p_detalhe, p_por);
+$function$;
+
+create function public._juridico_pagamento_nao_baixado(p_aluno_id uuid)
+returns boolean
+language sql stable security definer set search_path to 'public'
+as $function$
+  -- Os MESMOS dois sinais que as Acoes Massivas usam para "ja pagou" (ver
+  -- acoes_massivas_liquidados_prime e o universo consolidado): pagamento
+  -- registrado contra o titulo/boleto ainda ABERTO, e liquidacao no extrato
+  -- Prime do mesmo boleto e CPF. Titulo ainda aberto com um desses = recebido
+  -- e nao baixado.
+  select exists (
+           select 1
+             from public.acordos_titulos t
+             join public.pagamentos pg on pg.aluno_id = t.aluno_id
+                  and pg.titulo_numero = t.documento
+            where t.aluno_id = p_aluno_id
+              and upper(coalesce(t.situacao,'')) in ('ABERTO','NEGOCIADO')
+              and coalesce(lower(t.status),'') <> 'quitada'
+              and coalesce(t.tipo_boleto,'') <> 'Acordo'
+         )
+      or exists (
+           select 1
+             from public.parcelas p
+             join public.acordos a on a.id = p.acordo_id
+             join public.pagamentos pg on pg.aluno_id = a.aluno_id
+                  and (pg.numero_parcela_completo = p.boleto or pg.titulo_numero = p.boleto)
+            where a.aluno_id = p_aluno_id
+              and upper(coalesce(a.status,'')) = 'ATIVO'
+              and upper(coalesce(p.status,'')) in ('A_VENCER','VENCIDA')
+              and coalesce(btrim(p.boleto),'') <> ''
+         )
+      or exists (
+           select 1
+             from public.acordos_titulos t
+             join public.prime_extrato pe on pe.boleto = regexp_replace(coalesce(t.documento,''), '\D', '', 'g')
+                  and pe.cpf = t.cpf
+            where t.aluno_id = p_aluno_id
+              and upper(coalesce(t.situacao,'')) in ('ABERTO','NEGOCIADO')
+              and coalesce(lower(t.status),'') <> 'quitada'
+              and pe.liquidado_em is not null
+              and coalesce(pe.valor_pago,0) > 0
+         );
+$function$;
+
+-- Divergencias de um caso depois da aprovacao. Usada pelo envio (recusa),
+-- pela tela (mostra) e pelo alerta (registra no historico, sem apagar nada).
+create function public._juridico_divergencias(p_caso public.juridico_casos)
+returns text[]
+language plpgsql stable security definer set search_path to 'public'
+as $function$
+declare v text[] := '{}'::text[];
+begin
+  if exists (
+    select 1
+      from public.juridico_casos_titulos jt
+      left join public.acordos_titulos t on t.id = jt.titulo_id
+     where jt.caso_id = p_caso.id and jt.ativo and jt.tipo = 'MENSALIDADE'
+       and (t.id is null or upper(coalesce(t.situacao,'')) <> 'ABERTO'
+            or coalesce(lower(t.status),'') = 'quitada' or t.origem_encerramento is not null
+            or coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_original, 0) is distinct from jt.valor)
+  ) then v := array_append(v, 'MENSALIDADE_ALTERADA'); end if;
+
+  if exists (
+    select 1
+      from public.juridico_casos_titulos jt
+      left join public.parcelas p on p.id = jt.parcela_id
+      left join public.acordos a on a.id = p.acordo_id
+     where jt.caso_id = p_caso.id and jt.ativo and jt.tipo = 'PARCELA_ACORDO'
+       and (p.id is null or upper(coalesce(p.status,'')) not in ('A_VENCER','VENCIDA')
+            or upper(coalesce(a.status,'')) <> 'ATIVO' or a.duplicado_de is not null
+            or coalesce(p.valor,0) is distinct from jt.valor)
+  ) then v := array_append(v, 'PARCELA_ALTERADA'); end if;
+
+  if public._juridico_pagamento_nao_baixado(p_caso.aluno_id) then
+    v := array_append(v, 'PAGAMENTO_NAO_BAIXADO');
+  end if;
+
+  if exists (select 1 from public.solicitacoes_confirmacao_pagamento s
+              where s.aluno_id = p_caso.aluno_id::text
+                and s.status in ('AGUARDANDO_CONFIRMACAO','PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO')) then
+    v := array_append(v, 'PAGAMENTO_AGUARDANDO_CONFIRMACAO');
+  end if;
+  return v;
+end;
 $function$;
 
 -- Ranking de candidatos. Interna: a porta de gestao esta em quem chama.
@@ -429,6 +517,7 @@ as $function$
          r.prioridade, r.v_mens, r.v_aco, r.v_mens + r.v_aco, r.n, r.tem
     from ranqueado r
    where public.aluno_bloqueio_administrativo(r.id) is null
+     and not public._juridico_pagamento_nao_baixado(r.id)
    order by r.prioridade, r.v_mens + r.v_aco desc, r.id
    limit greatest(coalesce(p_limite, 0), 0);
 $function$;
@@ -506,6 +595,8 @@ begin
   -- Mesma guarda que a reativacao da suspensao usa: restaurar o codigo antigo
   -- em `status_jornada` nao pode reaplicar efeito financeiro de tabulacao.
   perform set_config('parcela_efeito_sem_pagamento.aplicando', 'on', true);
+  -- Unica porta que libera o bloqueio: a guarda de bloqueio so deixa passar com esta GUC.
+  perform set_config('juridico.desbloqueio', 'on', true);
 
   -- Cada coluna volta sozinha, se ainda for JURIDICO: a retabulacao pela ficha
   -- grava so status_atual/status_jornada e deixava status_acionamento preso.
@@ -528,6 +619,7 @@ begin
    where c.id = x.id and upper(coalesce(c.status_atual,'')) = 'JURIDICO';
 
   perform set_config('parcela_efeito_sem_pagamento.aplicando', '', true);
+  perform set_config('juridico.desbloqueio', '', true);
 
   if public.aluno_bloqueio_administrativo(p_caso.aluno_id) = 'JURIDICO' then
     raise exception 'Não foi possível levantar o bloqueio jurídico do aluno %. Nada foi alterado.', p_caso.aluno_id
@@ -625,8 +717,8 @@ begin
   end if;
   select * into v_caso from public.juridico_casos where id = p_caso_id for update;
   if not found then raise exception 'Caso não encontrado.' using errcode = 'P0002'; end if;
-  if v_caso.status = 'REMOVIDO' then
-    raise exception 'Caso removido não recebe documento.' using errcode = 'P0001';
+  if v_caso.status not in ('EM_ANALISE','APROVADO') then
+    raise exception 'Documento só é vinculado com o caso em análise ou aprovado (este está %).', v_caso.status using errcode = 'P0001';
   end if;
 
   update public.juridico_casos
@@ -635,6 +727,9 @@ begin
          doc_manual_origem = upper(p_origem),
          doc_manual_por = v_email, doc_manual_em = now()
    where id = p_caso_id;
+
+  insert into public.juridico_documentos (caso_id, origem, nome, referencia, vinculado_por)
+  values (p_caso_id, upper(p_origem), nullif(btrim(coalesce(p_nome,'')),''), btrim(p_referencia), v_email);
 
   perform public._juridico_registrar(p_caso_id, v_caso.lote_id, 'DOCUMENTO_VINCULADO',
     jsonb_build_object('origem', upper(p_origem), 'nome', p_nome, 'referencia', btrim(p_referencia)), v_email);
@@ -838,7 +933,7 @@ create function public.juridico_lote_enviar_financeiro(p_lote_id uuid)
 returns jsonb
 language plpgsql security definer set search_path to 'public'
 as $function$
-declare v_email text := public._juridico_exigir_gestao(); v_n int; v_div text;
+declare v_email text := public._juridico_exigir_gestao(); v_n int; v_div text; v_d text[]; v_pl jsonb; r public.juridico_casos;
 begin
   perform 1 from public.juridico_lotes where id = p_lote_id for update;
   if not found then raise exception 'Lote não encontrado.' using errcode = 'P0002'; end if;
@@ -847,36 +942,15 @@ begin
   -- aberto depois dela (pago, cancelado, renegociado) nao pode ir ao financeiro
   -- como divida: recusa o envio e nomeia os alunos. A gestao remove o caso (o
   -- bloqueio cai) e, se ainda couber, aprova de novo com o valor atual.
-  select string_agg(distinct al.nome, ', ') into v_div
-    from public.juridico_casos jc
-    join public.alunos al on al.id = jc.aluno_id
-    join public.juridico_casos_titulos jt on jt.caso_id = jc.id and jt.ativo
-    left join public.acordos_titulos t on t.id = jt.titulo_id
-    left join public.parcelas p on p.id = jt.parcela_id
-    left join public.acordos a on a.id = p.acordo_id
-   where jc.lote_id = p_lote_id and jc.status = 'APROVADO'
-     and ((jt.tipo = 'MENSALIDADE'
-           and (t.id is null or upper(coalesce(t.situacao,'')) <> 'ABERTO'
-                or coalesce(lower(t.status),'') = 'quitada' or t.origem_encerramento is not null
-                or coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_original, 0)
-                   is distinct from jt.valor))
-       or (jt.tipo = 'PARCELA_ACORDO'
-           and (p.id is null or upper(coalesce(p.status,'')) not in ('A_VENCER','VENCIDA')
-                or upper(coalesce(a.status,'')) <> 'ATIVO' or a.duplicado_de is not null
-                or coalesce(p.valor,0) is distinct from jt.valor)));
-  -- Pagamento recebido e ainda nao baixado depois da aprovacao: idem.
-  if v_div is null then
-    select string_agg(distinct al.nome, ', ') into v_div
-      from public.juridico_casos jc
-      join public.alunos al on al.id = jc.aluno_id
-     where jc.lote_id = p_lote_id and jc.status = 'APROVADO'
-       and exists (select 1 from public.solicitacoes_confirmacao_pagamento s
-                    where s.aluno_id = al.id::text
-                      and s.status in ('AGUARDANDO_CONFIRMACAO','PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO'));
-    if v_div is not null then v_div := v_div || ' (pagamento aguardando confirmação)'; end if;
-  end if;
+  for r in select * from public.juridico_casos where lote_id = p_lote_id and status = 'APROVADO' loop
+    v_d := public._juridico_divergencias(r);
+    if array_length(v_d, 1) is not null then
+      v_div := coalesce(v_div || ', ', '') || coalesce((select al.nome from public.alunos al where al.id = r.aluno_id), '?')
+               || ' (' || array_to_string(v_d, ', ') || ')';
+    end if;
+  end loop;
   if v_div is not null then
-    raise exception 'Envio recusado: há título que mudou depois da aprovação (pago, cancelado ou renegociado) em: %. Remova o caso e aprove de novo.', v_div
+    raise exception 'Envio recusado: houve mudança depois da aprovação em: %. Remova o caso (o bloqueio cai) e aprove de novo com o valor atual.', v_div
       using errcode = 'P0001';
   end if;
 
@@ -903,7 +977,11 @@ begin
       jsonb_build_object('casos', v_n), v_email);
   end if;
 
-  return public._juridico_lote_payload(p_lote_id) || jsonb_build_object('enviados_agora', v_n);
+  v_pl := public._juridico_lote_payload(p_lote_id);
+  -- O Excel deste envio leva CPF completo: fica registrado, como a reexportacao.
+  perform public._juridico_registrar(null, p_lote_id, 'EXCEL_GERADO',
+    jsonb_build_object('casos', jsonb_array_length(v_pl->'casos'), 'origem', 'ENVIO_FINANCEIRO'), v_email);
+  return v_pl || jsonb_build_object('enviados_agora', v_n);
 end;
 $function$;
 
@@ -919,6 +997,9 @@ declare
 begin
   if p_caso_ids is null or array_length(p_caso_ids, 1) is null then
     raise exception 'Selecione ao menos um caso.' using errcode = '22023';
+  end if;
+  if v_data > (now() at time zone 'America/Sao_Paulo')::date then
+    raise exception 'A data do encaminhamento não pode ser futura.' using errcode = '22023';
   end if;
   if exists (select 1 from public.juridico_casos
               where id = any(p_caso_ids) and status <> 'ENVIADO_FINANCEIRO') then
@@ -1004,6 +1085,8 @@ begin
                    'pendencias', case when jc.status = 'EM_ANALISE'
                                       then to_jsonb(public._juridico_pendencias(jc, cf.c))
                                       else '[]'::jsonb end,
+                   'divergencias', case when jc.status in ('APROVADO','ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO')
+                                        then to_jsonb(public._juridico_divergencias(jc)) else '[]'::jsonb end,
                    'titulos_aprovados', (select count(*) from public.juridico_casos_titulos jt
                                           where jt.caso_id = jc.id and jt.ativo)
                  ) as j
@@ -1021,32 +1104,195 @@ end;
 $function$;
 
 -- ---------------------------------------------------------------------------
--- 4. GRANTS -- funcao nova nasce com EXECUTE para PUBLIC: fecha e reabre so
---    o necessario. Internas (`_juridico_*`) nao sao chamaveis pela API.
+-- 4. DOCUMENTOS VINCULADOS: historico de inclusao, nunca reescrito
+-- ---------------------------------------------------------------------------
+create table public.juridico_documentos (
+  id bigint generated always as identity primary key,
+  caso_id uuid not null references public.juridico_casos(id),
+  origem text not null check (origem in ('CRM','DRIVE','PRESENCIAL_DIGITALIZADO','OUTRO')),
+  nome text,
+  referencia text not null,
+  vinculado_por text not null,
+  vinculado_em timestamptz not null default now()
+);
+create index juridico_documentos_caso on public.juridico_documentos (caso_id);
+alter table public.juridico_documentos enable row level security;
+revoke all on public.juridico_documentos from public, anon, authenticated;
+revoke all on sequence public.juridico_documentos_id_seq, public.juridico_historico_id_seq
+  from public, anon, authenticated;
+
+create function public._juridico_so_anexa()
+returns trigger
+language plpgsql security definer set search_path to 'public'
+as $function$
+begin
+  raise exception 'Histórico jurídico é somente de inclusão: não se altera nem se apaga (%).', tg_table_name
+    using errcode = '42501';
+end;
+$function$;
+
+create trigger trg_juridico_so_anexa_historico before update or delete on public.juridico_historico
+  for each row execute function public._juridico_so_anexa();
+create trigger trg_juridico_so_anexa_documentos before update or delete on public.juridico_documentos
+  for each row execute function public._juridico_so_anexa();
+
+-- ---------------------------------------------------------------------------
+-- 5. GUARDA DO BLOQUEIO: o status JURIDICO nao sai de alunos/casos enquanto
+--    houver caso ativo. So a GUC juridico.desbloqueio (ligada em
+--    _juridico_desbloquear, dentro da remocao do caso) deixa passar.
+-- ---------------------------------------------------------------------------
+create function public._juridico_guarda_bloqueio()
+returns trigger
+language plpgsql security definer set search_path to 'public'
+as $function$
+declare v_aluno uuid; v_saiu boolean;
+begin
+  if coalesce(current_setting('juridico.desbloqueio', true), '') = 'on' then
+    return new;
+  end if;
+  if tg_table_name = 'alunos' then
+    v_aluno := new.id;
+    v_saiu := (upper(coalesce(old.status_atual,'')) = 'JURIDICO' and upper(coalesce(new.status_atual,'')) <> 'JURIDICO')
+           or (upper(coalesce(old.status_jornada,'')) = 'JURIDICO' and upper(coalesce(new.status_jornada,'')) <> 'JURIDICO')
+           or (upper(coalesce(old.status_acionamento,'')) = 'JURIDICO' and upper(coalesce(new.status_acionamento,'')) <> 'JURIDICO');
+  else
+    v_aluno := new.aluno_id;
+    v_saiu := (upper(coalesce(old.status_atual,'')) = 'JURIDICO' and upper(coalesce(new.status_atual,'')) <> 'JURIDICO')
+           or (upper(coalesce(old.status_acionamento,'')) = 'JURIDICO' and upper(coalesce(new.status_acionamento,'')) <> 'JURIDICO')
+           or (upper(coalesce(old.status_financeiro,'')) = 'JURIDICO' and upper(coalesce(new.status_financeiro,'')) <> 'JURIDICO')
+           or (upper(coalesce(old.status_jornada,'')) = 'JURIDICO' and upper(coalesce(new.status_jornada,'')) <> 'JURIDICO');
+  end if;
+  if not coalesce(v_saiu, false) then
+    return new;
+  end if;
+  if exists (select 1 from public.juridico_casos jc
+              where jc.aluno_id = v_aluno
+                and jc.status in ('APROVADO','ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO')) then
+    raise exception 'Cobrança jurídica ativa: o status JURIDICO só sai pelo procedimento de remoção do caso na aba Jurídico.'
+      using errcode = '42501';
+  end if;
+  return new;
+end;
+$function$;
+
+-- Caso de cobranca novo para aluno que ja tem encaminhamento ativo: recusa.
+create function public._juridico_guarda_caso_novo()
+returns trigger
+language plpgsql security definer set search_path to 'public'
+as $function$
+begin
+  if new.aluno_id is not null and exists (
+       select 1 from public.juridico_casos jc
+        where jc.aluno_id = new.aluno_id
+          and jc.status in ('APROVADO','ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO')) then
+    raise exception 'Aluno com encaminhamento jurídico ativo: não se abre novo caso de cobrança.'
+      using errcode = '42501';
+  end if;
+  return new;
+end;
+$function$;
+
+create trigger trg_juridico_guarda_bloqueio before update on public.alunos
+  for each row execute function public._juridico_guarda_bloqueio();
+create trigger trg_juridico_guarda_bloqueio before update on public.casos
+  for each row execute function public._juridico_guarda_bloqueio();
+create trigger trg_juridico_guarda_caso_novo before insert on public.casos
+  for each row execute function public._juridico_guarda_caso_novo();
+
+-- ---------------------------------------------------------------------------
+-- 6. ALERTA: registra no historico o que mudou depois do encaminhamento.
+--    Nao apaga, nao reescreve e nao cancela nada. Idempotente: so registra
+--    quando o conjunto de divergencias mudou desde o ultimo alerta do caso.
+-- ---------------------------------------------------------------------------
+create function public.juridico_varrer_alertas()
+returns integer
+language plpgsql security definer set search_path to 'public'
+as $function$
+declare
+  v_email text := public._juridico_exigir_gestao();
+  r public.juridico_casos;
+  v_d text[];
+  v_ultimo jsonb;
+  v_n int := 0;
+begin
+  for r in select * from public.juridico_casos
+            where status in ('APROVADO','ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO') loop
+    v_d := public._juridico_divergencias(r);
+    continue when array_length(v_d, 1) is null;
+    select h.detalhe->'codigos' into v_ultimo
+      from public.juridico_historico h
+     where h.caso_id = r.id and h.evento = 'ALERTA_DIVERGENCIA'
+     order by h.id desc limit 1;
+    continue when v_ultimo is not distinct from to_jsonb(v_d);
+    perform public._juridico_registrar(r.id, r.lote_id, 'ALERTA_DIVERGENCIA',
+      jsonb_build_object('codigos', to_jsonb(v_d), 'status_caso', r.status,
+        'aviso', 'Mudança depois do encaminhamento: gestão e jurídico devem rever. Histórico preservado.'),
+      v_email);
+    v_n := v_n + 1;
+  end loop;
+  return v_n;
+end;
+$function$;
+
+-- ---------------------------------------------------------------------------
+-- 7. GRANTS EXPLICITOS: lista fechada, sem casar por nome. Publicas: execute
+--    so para authenticated (a porta de gestao esta dentro). Internas: nenhum.
 -- ---------------------------------------------------------------------------
 do $grants$
-declare r record;
+declare sig text;
 begin
-  for r in
-    select p.oid::regprocedure as assinatura, p.proname
-      from pg_proc p
-     where p.pronamespace = 'public'::regnamespace
-       and (p.proname like 'juridico\_%' or p.proname like '\_juridico\_%')
-  loop
-    execute format('revoke all on function %s from public, anon, authenticated', r.assinatura);
-    if r.proname not like '\_%' then
-      execute format('grant execute on function %s to authenticated', r.assinatura);
-    end if;
+  foreach sig in array array[
+  'public.juridico_candidatos(integer,integer,integer,text[])',
+  'public.juridico_lote_gerar(integer,integer,integer,text[],text)',
+  'public.juridico_caso_substituir(uuid,text)',
+  'public.juridico_caso_remover(uuid,text)',
+  'public.juridico_caso_documento_vincular(uuid,text,text,text)',
+  'public.juridico_caso_autorizar_documento(uuid,text)',
+  'public.juridico_caso_aprovar_acordo_ativo(uuid,text)',
+  'public.juridico_caso_aprovar(uuid)',
+  'public.juridico_lote_exportar(uuid)',
+  'public.juridico_lote_enviar_financeiro(uuid)',
+  'public.juridico_casos_confirmar_juridico(uuid[],date,text)',
+  'public.juridico_painel()',
+  'public.juridico_varrer_alertas()'
+  ] loop
+    execute format('revoke all on function %s from public, anon, authenticated', sig);
+    execute format('grant execute on function %s to authenticated', sig);
+  end loop;
+  foreach sig in array array[
+  'public._juridico_exigir_gestao()',
+  'public._juridico_grupo(text)',
+  'public._juridico_pagamento_nao_baixado(uuid)',
+  'public._juridico_conferencia(uuid)',
+  'public._juridico_pendencias(public.juridico_casos,jsonb)',
+  'public._juridico_divergencias(public.juridico_casos)',
+  'public._juridico_registrar(uuid,uuid,text,jsonb,text)',
+  'public._juridico_candidatos(integer,integer,integer,text[],uuid[])',
+  'public._juridico_lote_payload(uuid)',
+  'public._juridico_desbloquear(public.juridico_casos)',
+  'public._juridico_guarda_bloqueio()',
+  'public._juridico_guarda_caso_novo()',
+  'public._juridico_so_anexa()'
+  ] loop
+    execute format('revoke all on function %s from public, anon, authenticated', sig);
   end loop;
 end
 $grants$;
 
 -- ---------------------------------------------------------------------------
--- 5. ASSEGURACAO
+-- 8. ASSEGURACAO
 -- ---------------------------------------------------------------------------
 do $prova$
 declare v_n int;
 begin
+  -- inventario fechado: qualquer funcao nova com este prefixo quebra a migration
+  select count(*) into v_n from pg_proc p
+   where p.pronamespace = 'public'::regnamespace
+     and (p.proname like 'juridico\_%' or p.proname like '\_juridico\_%');
+  if v_n <> 26 then
+    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 26 esperadas).', v_n;
+  end if;
+
   select count(*) into v_n
     from pg_proc p
    where p.pronamespace = 'public'::regnamespace
@@ -1061,7 +1307,7 @@ begin
   select count(*) into v_n
     from pg_class c
    where c.relnamespace = 'public'::regnamespace
-     and c.relname in ('juridico_lotes','juridico_casos','juridico_casos_titulos','juridico_historico')
+     and c.relname in ('juridico_lotes','juridico_casos','juridico_casos_titulos','juridico_historico','juridico_documentos')
      and (not c.relrowsecurity
        or has_table_privilege('authenticated', c.oid, 'select,insert,update,delete,truncate')
        or has_table_privilege('anon', c.oid, 'select,insert,update,delete,truncate'));
@@ -1072,7 +1318,7 @@ begin
   select count(*) into v_n
     from pg_class c
    where c.relnamespace = 'public'::regnamespace and c.relkind = 'S'
-     and c.relname in ('juridico_protocolo_seq','juridico_historico_id_seq')
+     and c.relname in ('juridico_protocolo_seq','juridico_historico_id_seq','juridico_documentos_id_seq')
      and (has_sequence_privilege('authenticated', c.oid, 'usage,select,update')
        or has_sequence_privilege('anon', c.oid, 'usage,select,update'));
   if v_n > 0 then

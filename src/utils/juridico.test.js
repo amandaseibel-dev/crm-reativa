@@ -1,7 +1,7 @@
 // Excel do Jurídico: o que vai para o financeiro tem de bater com o que foi
 // aprovado -- uma linha por título, sem valor contado duas vezes.
 import { describe, it, expect } from "vitest";
-import { cpfFormatado, dataBr, linhasDoLote, pendenciaImpeditiva, rotuloPendencia, rotuloTermo } from "./juridico";
+import { cpfFormatado, dataBr, linhasDoLote, pendenciaImpeditiva, rotuloDivergencia, rotuloPendencia, rotuloTermo } from "./juridico";
 import { montarPlanilhaJuridico } from "./exportarJuridico";
 
 const PAYLOAD = {
@@ -89,6 +89,8 @@ describe("rótulos", () => {
     expect(rotuloPendencia("!PAGAMENTO_PENDENTE")).toBe("Pagamento aguardando confirmação");
     expect(rotuloPendencia("!BLOQUEIO_ADMINISTRATIVO:SUSPENSAO_COBRANCA")).toContain("suspensao cobranca");
     expect(rotuloPendencia("CODIGO_NOVO")).toBe("CODIGO_NOVO");
+    expect(rotuloPendencia("!PAGAMENTO_NAO_BAIXADO")).toBe("Pagamento recebido e ainda não baixado");
+    expect(rotuloDivergencia("PAGAMENTO_NAO_BAIXADO")).toBe("Pagamento recebido e não baixado");
   });
 
   it("termo não localizado nunca é mostrado como resolvido sem vínculo ou autorização", () => {

@@ -4,7 +4,7 @@ import Aluno from "./Aluno";
 import { Carregando } from "../ui/estados";
 import { S as A } from "../ui/estilosFila";
 import {
-  GRUPOS, STATUS_CASO, dataBr, moeda, pendenciaImpeditiva, rotuloPendencia, rotuloTermo,
+  GRUPOS, STATUS_CASO, dataBr, moeda, pendenciaImpeditiva, rotuloDivergencia, rotuloPendencia, rotuloTermo,
 } from "../utils/juridico";
 
 // JURÍDICO -- seleção, conferência, aprovação e encaminhamento de alunos para
@@ -73,6 +73,8 @@ export default function Juridico() {
     }
     setErro("");
     setPainel(data);
+    // Registra no histórico o que mudou depois do encaminhamento. Não bloqueia a tela.
+    supabase.rpc("juridico_varrer_alertas");
   }, []);
 
   useEffect(() => {
@@ -306,6 +308,13 @@ export default function Juridico() {
                   ) : (
                     <>
                       <span style={{ ...A.chip, ...A.chipOk }}>Cobrança bloqueada</span>
+                      {(c.divergencias || []).length ? (
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+                          {c.divergencias.map((d) => (
+                            <span key={d} style={{ ...A.chip, ...A.chipRej }}>{rotuloDivergencia(d)}</span>
+                          ))}
+                        </div>
+                      ) : null}
                       <div style={A.muted}>
                         {aba === "APROVADO" ? `aprovado em ${dataBr(c.aprovado_em)}` : null}
                         {aba === "ENVIADO_FINANCEIRO" ? `enviado ao financeiro em ${dataBr(c.enviado_financeiro_em)}` : null}
@@ -355,6 +364,7 @@ export default function Juridico() {
           ["Enviados ao financeiro", ind.enviados_financeiro ?? 0],
           ["Encaminhados ao jurídico", ind.confirmados_juridico ?? 0],
           ["Valor com cobrança bloqueada", moeda(ind.valor_bloqueado)],
+          ["Com mudança após encaminhamento", casos.filter((c) => (c.divergencias || []).length).length],
         ].map(([rotulo, valor, sub]) => (
           <div key={rotulo} style={E.indicador}>
             <div style={E.indRotulo}>{rotulo}</div>

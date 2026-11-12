@@ -75,6 +75,32 @@ Fica, por decisão a tomar pela gestão:
   tira o `JURIDICO` e o caso continua `APROVADO` na aba.
 - Rollback só é possível antes do primeiro envio ao financeiro.
 
+## Segunda rodada (autorizada em 12/11/2026, só na #934)
+
+- **Guarda do bloqueio no banco**: `_juridico_guarda_bloqueio` (gatilhos em `alunos` e `casos`)
+  recusa tirar `JURIDICO` de qualquer coluna de status enquanto houver caso APROVADO, ENVIADO
+  ou CONFIRMADO. A única saída é `juridico_caso_remover`, que liga a GUC `juridico.desbloqueio`
+  dentro da transação e registra o motivo e o estado anterior.
+- **Caso de cobrança novo para aluno com encaminhamento ativo** é recusado no insert em `casos`.
+- **Pagamento não baixado** (mesmos dois sinais das Ações Massivas: `pagamentos` contra o título
+  ou boleto ainda aberto, e `prime_extrato` liquidado do mesmo boleto e CPF) bloqueia a seleção,
+  a aprovação (`!PAGAMENTO_NAO_BAIXADO`) e o envio.
+- **Envio recusa** qualquer caso com divergência: mensalidade ou parcela que mudou, valor
+  diferente do aprovado, acordo duplicado, pagamento não baixado ou aguardando confirmação.
+- **Alerta**: `juridico_varrer_alertas` registra `ALERTA_DIVERGENCIA` no histórico do caso
+  quando surge mudança depois do encaminhamento (idempotente). Não cancela nem reescreve nada.
+  A tela mostra as divergências em cada caso. **Não há envio de e-mail ou mensagem**: o sistema
+  não tem canal com o jurídico; o aviso fica na aba e no histórico.
+- **Confirmação ao jurídico** não aceita data futura (horário de São Paulo).
+- **Documentos**: `juridico_documentos` guarda cada vínculo (append-only). Só se vincula com o
+  caso em análise ou aprovado.
+- **Histórico** (`juridico_historico`) e `juridico_documentos` recusam UPDATE e DELETE.
+- **Excel**: toda geração (envio e reexportação) registra `EXCEL_GERADO` com o lote.
+- **Grants e rollback**: listas explícitas de 13 funções públicas e 13 internas; a migration
+  confere que o inventário tem exatamente 26. O rollback solta gatilhos, depois as 26 funções,
+  depois as tabelas. Cópias em `_backup_juridico_*_20261112` com RLS e sem grant.
+- **Término do Contrato** não entra em evadidos (`_juridico_grupo` devolve nulo).
+
 ## O que não está nesta entrega
 
 - Busca automática do termo cobre os anexos do CRM (`termos_acordo`, `casos.termo_url`).

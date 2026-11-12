@@ -20,7 +20,19 @@ const PENDENCIAS = {
   ACORDO_ATIVO_SEM_APROVACAO: "Acordo ativo: exige aprovação específica",
   TERMO_NAO_LOCALIZADO: "Termo do acordo não localizado",
   TERMO_A_VALIDAR: "Termo localizado, mas precisa de validação",
+  PAGAMENTO_NAO_BAIXADO: "Pagamento recebido e ainda não baixado",
 };
+
+const DIVERGENCIAS = {
+  MENSALIDADE_ALTERADA: "Mensalidade mudou depois da aprovação",
+  PARCELA_ALTERADA: "Parcela de acordo mudou depois da aprovação",
+  PAGAMENTO_NAO_BAIXADO: "Pagamento recebido e não baixado",
+  PAGAMENTO_AGUARDANDO_CONFIRMACAO: "Pagamento aguardando confirmação",
+};
+
+export function rotuloDivergencia(codigo) {
+  return DIVERGENCIAS[codigo] || codigo;
+}
 
 // '!' na frente = impeditiva: não há liberação pela tela.
 export function pendenciaImpeditiva(codigo) {
