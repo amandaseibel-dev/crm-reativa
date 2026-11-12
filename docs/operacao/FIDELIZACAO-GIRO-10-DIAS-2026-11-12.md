@@ -39,7 +39,7 @@ Não muda: `caso_protegido_redistribuicao`, `caso_encerrado_operacional`,
 congelamento, hold de 24h, `casos_elegiveis_liberacao_fidelizacao`,
 Ações Massivas, nivelamento, cron, grants, dono,
 `search_path`. O bloco final **aborta** se grant/dono/search_path mudar.
-Rollback devolve os 4 corpos byte a byte (md5 de produção) e recusa rodar se a
+Rollback devolve os 4 corpos ao texto de produção (md5 do corpo; ACL e dono não são conferidos pelo rollback) e recusa rodar se a
 função mudou. Ele **não** devolve ao operador o que a rotina já tiver soltado
 (isso é DML, por lista de ids de `historico_operadores_alunos`, com autorização).
 
@@ -106,7 +106,7 @@ Pontos a saber:
 |---|---|---|
 | **N1** — guarda de irmão para TODOS os casos, com e sem giro | Regra única `public.caso_pode_soltar_com_aluno` (na migração), usada pela liberação e pelo teto. Irmão com interação válida nos últimos 10 dias, sob giro vigente, congelado ou protegido segura o aluno inteiro | 10 testes de regressão com/sem giro, incluindo a cascata de 2 dias; mutação: sem a regra, 10 testes falham |
 | **N2** — teto de operador por UPDATE direto | `trg_impor_teto_operador` passou a exigir `caso_pode_soltar_com_aluno` no filtro de candidatos | 3 testes separados; mutação: sem a regra, 3 testes falham |
-| **Concorrência** | `liberar_fidelizacao_caso` trava (`for update`, ordem por id) TODOS os casos do aluno antes de ler os irmãos; o lote trava as linhas do aluno antes de revalidar; `lock_timeout = 5 s` nos três scripts | Estrutural: o teste de travamento não prova concorrência real. **Não comprovado em execução paralela** (ver "Não comprovado") |
+| **Concorrência** | `liberar_fidelizacao_caso` trava (`for update`, ordem por id) TODOS os casos do aluno antes de ler os irmãos; o lote trava as linhas do aluno antes de revalidar; `lock_timeout = 5 s` nos scripts 01 e 02 (o 00 só lê casos e escreve na tabela nova) | Estrutural: o teste de travamento não prova concorrência real. **Não comprovado em execução paralela** (ver "Não comprovado") |
 | Itens baixos do Guardião | Limite de erros (>10% dos alunos tentados desfaz o lote); invariante também pega troca de dono X→Y; conferência da restauração inclui status_jornada e data_ultimo_acionamento; trava de cron falha FECHADA nos três scripts (job precisa existir pelo nome); data do banco conferida nos três | Testes próprios, cada um com nome; mutação de 11 proteções: todas detectadas |
 | Fuso da suíte | Teste roda no fuso de São Paulo; antes quebrava das 21h às 24h BRT | Suíte verde em qualquer horário |
 
@@ -116,7 +116,7 @@ Muda a cada hora: a execução usa o retrato do próprio dia.
 
 - **Cron diário hoje:** 851 casos elegíveis.
 - **Retidos pela guarda de irmão:** 7 casos, **todos de giro** (7 alunos). Sem giro: 0.
-- **Saem após a guarda:** 844 casos. Os 7 retidos seguem com o operador.
+- **Saem após a guarda:** 844 casos pelo cron. Desses, **63 têm retorno marcado pelo operador** (hoje ou futuro), que a liberação recusa: **781 saem de fato**, e são exatamente o universo do lote (753 alunos). Os 7 retidos por irmão seguem com o operador.
 - **Universo do giro por lote (alunos liberáveis, após a guarda):** lote 1 (cobranca13) 329 alunos / 340 casos alvo; lote 2 (cobranca06) 254 / 264; lote 3 (demais) 170 / 177. **Total 753 alunos, 781 casos alvo, R$ 1.018.960.** 7 alunos ficam fora, retendo 7 casos (R$ 9.748).
 - **Teto:** 9 operadores com carga; **nenhum acima do teto** hoje. O caminho do N2 existe, mas não se manifesta agora.
 - **Dessincronias responsável × operador:** 0. **E-mails com maiúscula:** 0. **`status_acionamento` vazio (''):** 0 (148 nulos, tratados).
@@ -139,7 +139,7 @@ aplicar a migração, pausar o cron, liberar casos ou mesclar a PR.
 5. **Lote 1 (cobranca13)**, depois **lote 2 (cobranca06)**, depois **lote 3 (demais)** — `01_liberar_lote.sql` com `v_lote` trocado. Um por noite.
 6. **Reativar o cron 8** — só depois do lote 3 conferido.
 
-**Janela de execução:** o script aborta quando a data do banco (UTC) difere da de São Paulo, o que acontece **entre 21h e 24h BRT**. Executar entre **19h e 20h59 BRT** ou **depois da meia-noite BRT**. Fora do expediente.
+**Janela de execução:** o script aborta quando a data do banco (UTC) difere da de São Paulo, o que acontece **entre 21h e 24h BRT**. Executar **entre 00:00 e 20:59 BRT**, fora do expediente (preferência: 19:00–20:59). Timeout de 300 s (`statement_timeout`) desfaz o lote inteiro sem registro por aluno.
 
 ### Concorrência: o que o script garante e o que não garante
 
@@ -176,7 +176,7 @@ select count(*) from public.casos c
 
 | Momento | O que fazer | Limite |
 |---|---|---|
-| Antes de qualquer lote | Rollback da migração (devolve as 4 funções byte a byte, confere md5); reativar o cron 8 | Nenhum dado mudou |
+| Antes de qualquer lote | Rollback da migração (devolve as 4 funções e a regra de irmãos ao texto de produção, por md5); reativar o cron 8 | Nenhum dado mudou |
 | Depois de um ou mais lotes | Cron 8 **continua pausado** → rollback da migração → `02_restaurar.sql` (`v_lote` = 1, 2, 3 ou 0) → conferir → reativar o cron 8 | A restauração **não devolve** aluno que mudou depois de solto (motivo `nao_restaurado_mudou_depois_da_liberacao`) nem o que já foi assumido (`nao_restaurado_ja_tem_dono`). Esses casos a gestão decide caso a caso |
 | Restaurar mantendo a regra nova | Possível só com `v_exigir_regra_antiga := false` e decisão expressa. **Consequência:** o cron diário volta a soltar os casos de giro vencidos e os irmãos que a regra não permite, no dia seguinte, a menos que o cron siga pausado | Não recomendado |
 
@@ -193,6 +193,13 @@ A restauração devolve operador, responsável, marca do giro, retorno, hora, pr
 
 ## Riscos residuais (declarados)
 
+0. **Decisões pendentes da gestão (não tratadas nesta PR):**
+   - **Cron de nivelamento (09:20, `nivelamento_automatico_gestao`):** move casos por UPDATE direto e **não aplica a regra de irmãos**; o cascade leva os irmãos. Não medido quantos casos seriam afetados hoje. É redistribuição automática já existente: a gestão precisa decidir se entra nesta PR ou vira pendência separada.
+   - **Cascata sem registro no cron e no teto:** `liberar_fidelizacao_caso` grava histórico só para o caso liberado; os irmãos que saem junto não ganham linha de histórico fora do lote. Rastreabilidade incompleta, não erro de dono.
+   - **Carteira Geral como irmão:** decidido nesta rodada que um irmão na Carteira Geral **segura** o aluno (conservador). Confirmar com a gestão.
+   - **Teto sem travamento:** o teto lê os irmãos sem travar as linhas (não declarado antes). Custo do `EXISTS` não medido (roda só quando o teto dispara; hoje nenhum operador passa do teto).
+
+
 1. **Concorrência real** não comprovada em execução paralela (ver acima).
 2. **Proteção criada em outra tabela** durante a execução pode passar pela revalidação.
 3. **Cron 8 pausado** deixa de soltar casos vencidos por todo o intervalo entre os lotes.
@@ -206,7 +213,7 @@ A restauração devolve operador, responsável, marca do giro, retorno, hora, pr
 - `supabase/recovery/20261112_giro_fidelizacao_00_backup.sql`
 - `supabase/recovery/20261112_giro_fidelizacao_01_liberar_lote.sql`
 - `supabase/recovery/20261112_giro_fidelizacao_02_restaurar.sql`
-- Provas: `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (60) e `supabase/tests/fidelizacao_giro_lotes.test.js` (67)
+- Provas: `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (63) e `supabase/tests/fidelizacao_giro_lotes.test.js` (67)
 - Fixtures: `supabase/tests/fixtures/fidelizacao_giro_*_prod_20261112.{sql,md5.json}`
 
 ## Gate de segurança e CI
@@ -218,9 +225,15 @@ A restauração devolve operador, responsável, marca do giro, retorno, hora, pr
   - Critérios de alerta (policies amplas, etc.) não executados.
 - Checagens de código: sem `service_role` no cliente, sem segredo hardcoded, sem referência a staging. ✔
 
-## Medições não reconferidas
+## Medições sem prova no repositório
 
-As medições de "0 vazios, 0 dessincronias, 0 maiúsculas, sessão UTC, privilégios padrão, 7 congelados" foram feitas pelo autor em 12/11 com consultas de leitura em produção. **O Guardião não as conferiu** (declarou isso no relatório). Reconferir antes de qualquer execução.
+Nenhuma destas medições está reproduzida por consulta versionada no repositório: foram feitas pelo autor, em 12/11/2026, com consultas de leitura em produção (não guardadas). **O Guardião não as conferiu.** Reconferir, com as mesmas consultas, antes de qualquer execução:
+
+- cron diário: 851 elegíveis; 7 retidos por irmão (todos de giro); 844 pelo cron; 63 com retorno do operador; 781 saem;
+- universo do giro: 329 / 254 / 170 alunos nos lotes 1 / 2 / 3; 753 alunos; 781 casos alvo; R$ 1.018.960;
+- teto: 9 operadores com carga; nenhum acima do teto;
+- sem dessincronia responsável × operador; sem e-mail com maiúscula; 0 `status_acionamento` vazio (148 nulos);
+- cron 8 ativo; job 43 inativo; sessão do banco em UTC; privilégios padrão concedem tudo a anon/authenticated/service_role.
 
 ## Não comprovado
 

@@ -519,6 +519,65 @@ describe("teto (N2) — o UPDATE direto do teto respeita a mesma regra de irmão
 });
 
 // ===========================================================================
+describe("achados da 3ª auditoria — A1 (assumir_caso_livre) e A2 (Carteira Geral)", () => {
+  // A verificacao de carteira cheia e da carteira de QUEM RECEBE o caso (OP2).
+  // OP2 precisa estar cheio, com um caso candidato a ser trocado.
+  it("A1: ao trocar caso de carteira cheia, o caso cujo irmão está dentro dos 10 dias NÃO é escolhido", async () => {
+    const db = await novo();
+    await db.query("update public.calibragem_parametros set valor = '1'::jsonb where chave = 'limite_carteira'");
+    await cenario(db, 1, { dono: OP2, giro: null, dua: 15 });     // candidato a troca de OP2
+    await db.query("update public.casos set ultima_tabulacao_em = null where id = $1", [U(1)]);
+    // irmao do MESMO aluno, de OP2, acionado ha 2 dias: protege o aluno inteiro
+    await db.exec("alter table public.casos disable trigger user");
+    await db.query(
+      `insert into public.casos (id, aluno_id, cpf, cpf_limpo, nome, chave_unificacao, operador_email, operador_nome,
+          status_atual, data_ultimo_acionamento, ultima_tabulacao_em, total_em_aberto, caso_codigo, caso_atualizado_em, nao_acionar)
+       values ($1,$2,$3,$3,'Irmao',$3,$4,'DONO', null, current_date - 2, now(), 100, 97, now() - interval '30 days', false)`,
+      [U(2), U(1), CPF(1), OP2]);
+    await db.exec("alter table public.casos enable trigger user");
+    await cenario(db, 3, { dono: null });                          // caso livre que OP2 quer assumir
+    const r = await assumir(db, OP2, 3);
+    expect(r.sucesso).toBe(false);                                // nada a trocar: o candidato protege irmao
+    expect((await caso(db, 1)).dono).toBe(OP2);
+    expect((await caso(db, 2)).dono).toBe(OP2);
+    expect((await caso(db, 3)).dono).toBeNull();
+    await db.close();
+  });
+
+  it("A1: sem irmão protegido, a troca continua funcionando (comportamento mantido)", async () => {
+    const db = await novo();
+    await db.query("update public.calibragem_parametros set valor = '1'::jsonb where chave = 'limite_carteira'");
+    await cenario(db, 1, { dono: OP2, giro: null, dua: 15 });
+    await db.query("update public.casos set ultima_tabulacao_em = null where id = $1", [U(1)]);
+    await cenario(db, 2, { dono: OP2, giro: null, dua: 15 });     // outro aluno, sem protecao
+    await cenario(db, 3, { dono: null });
+    const r = await assumir(db, OP2, 3);
+    expect(r.sucesso).toBe(true);
+    expect((await caso(db, 1)).dono).toBeNull();                  // trocado, como antes
+    expect((await caso(db, 3)).dono).toBe(OP2);
+    await db.close();
+  });
+
+  it("A2: irmão na CARTEIRA GERAL segura o aluno inteiro no cron", async () => {
+    const db = await novo();
+    await cenario(db, 1, { giro: null, dua: 15 });
+    await db.exec("alter table public.casos disable trigger user");
+    await db.query(
+      `insert into public.casos (id, aluno_id, cpf, cpf_limpo, nome, chave_unificacao, operador_email, operador_nome,
+          status_atual, data_ultimo_acionamento, ultima_tabulacao_em, total_em_aberto, caso_codigo, caso_atualizado_em,
+          nao_acionar, encerrado_operacional)
+       values ($1,$2,$3,$3,'Irmao',$3,'carteira.geral@reativa.local','GERAL','SEM SALDO EM ABERTO', current_date - 40,
+          now(), 100, 98, now() - interval '30 days', false, true)`,
+      [U(41), U(1), CPF(1)]);
+    await db.exec("alter table public.casos enable trigger user");
+    expect(await rodarCron(db)).toBe(0);
+    expect((await caso(db, 1)).dono).toBe(OP1);
+    expect((await q1(db, "select operador_email e from public.casos where id=$1", [U(41)])).e).toBe("carteira.geral@reativa.local");
+    await db.close();
+  });
+});
+
+// ===========================================================================
 describe("regra 4 — nenhuma redistribuição automática", () => {
   it("a liberação não entrega o caso a ninguém nem cria caso em outra carteira", async () => {
     const db = await novo();

@@ -140,6 +140,7 @@ begin
       perform 1 from public.casos c
         where c.aluno_id = r.unidade
            or c.id in (select b.caso_id from public._backup_fidelizacao_giro_20261112 b where b.unidade = r.unidade)
+        order by c.id
         for update;
       perform 1 from public.alunos a where a.id = r.unidade for update;
 

@@ -83,7 +83,8 @@ AS $function$
       join public.casos o on o.aluno_id = c.aluno_id and o.id <> c.id
      where c.id = p_caso_id
        and o.operador_email is not null
-       and (public.caso_dentro_prazo_fidelizacao(o.data_ultimo_acionamento)
+       and (lower(o.operador_email) = internal.carteira_geral_email()   -- A2: irmao na Carteira Geral segura
+         or public.caso_dentro_prazo_fidelizacao(o.data_ultimo_acionamento)
          or public.caso_em_giro_fidelizacao(o.giro_fidelizacao_ate)
          or public.caso_encerramento_congelado(o.id)
          or public.caso_protegido_redistribuicao(o.cpf_limpo, o.status_acionamento, o.nao_acionar,
@@ -120,9 +121,9 @@ BEGIN
     INTO v_antes
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public'
-     AND p.proname IN ('liberar_fidelizacao_caso', 'trg_impor_teto_operador', 'assumir_caso_livre', 'casos_risco_perder');
+     AND p.proname IN ('liberar_fidelizacao_caso', 'trg_impor_teto_operador', 'assumir_caso_livre', 'casos_risco_perder', 'caso_pode_soltar_com_aluno');
 
-  IF (SELECT count(*) FROM jsonb_object_keys(v_antes)) <> 4 THEN
+  IF (SELECT count(*) FROM jsonb_object_keys(v_antes)) <> 5 THEN
     RAISE EXCEPTION 'fidelizacao_giro: esperava as 4 funcoes alvo, achei %.', v_antes;
   END IF;
 
@@ -205,13 +206,23 @@ $ancora$    if v_pool is null and v_new.giro_fidelizacao_ate is null then$ancora
 $novo$    if v_pool is null and (v_new.giro_fidelizacao_ate is null
          or public.caso_dentro_prazo_fidelizacao(v_new.data_ultimo_acionamento)) then$novo$, 1);
 
+  -- A1 (12/11/2026): assumir_caso_livre, quando a carteira esta cheia, troca um caso
+  -- do operador por outro. O caso trocado tem de passar pela regra de irmaos: soltar
+  -- ele solta, por gatilho, os irmaos dele.
+  PERFORM internal.patch_funcao_ancorada('public', 'assumir_caso_livre',
+$ancora$      and not public.caso_encerrado_operacional(c.cpf_limpo,c.status_atual,c.status_acionamento,c.status_financeiro,c.status_jornada)
+    order by abs(public.saldo_titulos_aberto(c.cpf_limpo) - v_new_saldo) asc$ancora$,
+$novo$      and not public.caso_encerrado_operacional(c.cpf_limpo,c.status_atual,c.status_acionamento,c.status_financeiro,c.status_jornada)
+      and public.caso_pode_soltar_com_aluno(c.id)   -- A1 (12/11/2026): trocar este caso tambem solta os irmaos
+    order by abs(public.saldo_titulos_aberto(c.cpf_limpo) - v_new_saldo) asc$novo$, 1);
+
   -- Retrato DEPOIS: nada de grant, dono, SECURITY DEFINER ou search_path muda.
   SELECT jsonb_object_agg(p.proname, jsonb_build_object(
            'acl', p.proacl::text, 'cfg', p.proconfig::text, 'def', p.prosecdef, 'dono', p.proowner::text))
     INTO v_depois
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public'
-     AND p.proname IN ('liberar_fidelizacao_caso', 'trg_impor_teto_operador', 'assumir_caso_livre', 'casos_risco_perder');
+     AND p.proname IN ('liberar_fidelizacao_caso', 'trg_impor_teto_operador', 'assumir_caso_livre', 'casos_risco_perder', 'caso_pode_soltar_com_aluno');
 
   IF v_depois IS DISTINCT FROM v_antes THEN
     RAISE EXCEPTION 'fidelizacao_giro: grants/dono/search_path mudaram. antes=% depois=%', v_antes, v_depois;

@@ -82,6 +82,12 @@ $antigo$    and not public.caso_dentro_prazo_fidelizacao(c.data_ultimo_acionamen
 $novo$
       AND public.caso_pode_soltar_com_aluno(c.id)$novo$,
 $antigo$$antigo$),
+      (9, 'assumir_caso_livre',
+$novo$      and not public.caso_encerrado_operacional(c.cpf_limpo,c.status_atual,c.status_acionamento,c.status_financeiro,c.status_jornada)
+      and public.caso_pode_soltar_com_aluno(c.id)   -- A1 (12/11/2026): trocar este caso tambem solta os irmaos
+    order by abs(public.saldo_titulos_aberto(c.cpf_limpo) - v_new_saldo) asc$novo$,
+$antigo$      and not public.caso_encerrado_operacional(c.cpf_limpo,c.status_atual,c.status_acionamento,c.status_financeiro,c.status_jornada)
+    order by abs(public.saldo_titulos_aberto(c.cpf_limpo) - v_new_saldo) asc$antigo$),
       (3, 'trg_impor_teto_operador',
 $novo$AND NOT public.caso_em_giro_fidelizacao(c.giro_fidelizacao_ate)$novo$,
 $antigo$AND c.giro_fidelizacao_ate IS NULL$antigo$),
