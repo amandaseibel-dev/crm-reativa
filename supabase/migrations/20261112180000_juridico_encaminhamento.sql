@@ -80,6 +80,9 @@ create table public.juridico_casos (
   -- IDs de TODOS os acordos ATIVOS do aluno no momento da aprovacao.
   -- Base do sinal ACORDO_NOVO (novo ou reativado depois da aprovacao).
   acordos_aprovados uuid[] not null default '{}',
+  -- IDs dos acordos ATIVOS que a gestao revisou (na geracao ou na ultima aprovacao
+  -- de acordo ativo). Acordo fora dessa base bloqueia a aprovacao.
+  acordos_na_geracao uuid[] not null default '{}',
   bloqueio_anterior jsonb,
   aprovado_por text,
   aprovado_em timestamptz,
@@ -341,6 +344,11 @@ begin
     v := array_append(v, '!BLOQUEIO_ADMINISTRATIVO:' || (p_conf->>'bloqueio')); end if;
   if (p_conf->>'acordo_ativo_em_dia')::boolean and p_caso.acordo_ativo_aprovado_em is null then
     v := array_append(v, 'ACORDO_ATIVO_SEM_APROVACAO'); end if;
+  -- acordo ATIVO criado ou reativado depois da revisao: so sai com aprovacao especifica
+  if exists (select 1 from public.acordos a
+              where a.aluno_id = p_caso.aluno_id and upper(coalesce(a.status,'')) = 'ATIVO'
+                and a.duplicado_de is null and not (a.id = any(p_caso.acordos_na_geracao))) then
+    v := array_append(v, 'ACORDO_NOVO_APOS_GERACAO'); end if;
   if v_termo in ('NAO_LOCALIZADO','VALIDAR')
      and p_caso.doc_manual_em is null and p_caso.doc_autorizado_em is null then
     v := array_append(v, case v_termo when 'VALIDAR' then 'TERMO_A_VALIDAR' else 'TERMO_NAO_LOCALIZADO' end);
@@ -717,8 +725,10 @@ begin
   returning id into v_lote;
 
   insert into public.juridico_casos
-    (lote_id, aluno_id, grupo, situacao_academica, semestre_divida, valor_previa, criado_por)
-  select v_lote, c.aluno_id, c.grupo, c.situacao_academica, c.semestre_divida, c.valor_total, v_email
+    (lote_id, aluno_id, grupo, situacao_academica, semestre_divida, valor_previa, criado_por, acordos_na_geracao)
+  select v_lote, c.aluno_id, c.grupo, c.situacao_academica, c.semestre_divida, c.valor_total, v_email,
+         coalesce((select array_agg(a.id) from public.acordos a where a.aluno_id = c.aluno_id
+                    and upper(coalesce(a.status,'')) = 'ATIVO' and a.duplicado_de is null), '{}'::uuid[])
     from public._juridico_candidatos(p_qtd, p_ano, p_semestre, p_grupos, null) c;
   get diagnostics v_n = row_count;
 
@@ -836,8 +846,10 @@ begin
   end if;
 
   insert into public.juridico_casos
-    (lote_id, aluno_id, grupo, situacao_academica, semestre_divida, valor_previa, criado_por)
-  select v_caso.lote_id, c.aluno_id, c.grupo, c.situacao_academica, c.semestre_divida, c.valor_total, v_email
+    (lote_id, aluno_id, grupo, situacao_academica, semestre_divida, valor_previa, criado_por, acordos_na_geracao)
+  select v_caso.lote_id, c.aluno_id, c.grupo, c.situacao_academica, c.semestre_divida, c.valor_total, v_email,
+         coalesce((select array_agg(a.id) from public.acordos a where a.aluno_id = c.aluno_id
+                    and upper(coalesce(a.status,'')) = 'ATIVO' and a.duplicado_de is null), '{}'::uuid[])
     from public._juridico_candidatos(1, (v_f->>'ano')::int, (v_f->>'semestre')::int, v_grupos,
            -- quem ja passou por este lote (inclusive o removido) nao volta
            (select array_agg(jc.aluno_id) from public.juridico_casos jc where jc.lote_id = v_caso.lote_id)) c
@@ -918,7 +930,10 @@ begin
   end if;
   update public.juridico_casos
      set acordo_ativo_aprovado_por = v_email, acordo_ativo_aprovado_em = now(),
-         acordo_ativo_motivo = btrim(p_motivo)
+         acordo_ativo_motivo = btrim(p_motivo),
+         acordos_na_geracao = coalesce((select array_agg(a.id) from public.acordos a
+            where a.aluno_id = (select aluno_id from public.juridico_casos where id = p_caso_id)
+              and upper(coalesce(a.status,'')) = 'ATIVO' and a.duplicado_de is null), '{}'::uuid[])
    where id = p_caso_id and status = 'EM_ANALISE'
   returning lote_id into v_lote;
   if not found then
@@ -949,14 +964,20 @@ begin
   -- trava a linha do aluno: duas aprovacoes simultaneas nao se cruzam
   perform 1 from public.alunos where id = v_caso.aluno_id for update;
 
-  -- conjunto de acordos ATIVOS, lido e travado ANTES da fotografia e do bloqueio
+  -- conjunto de acordos ATIVOS, lido e travado ANTES da conferencia, da fotografia e do bloqueio
   select array_agg(x.id) into v_acordos from (
     select a.id from public.acordos a
      where a.aluno_id = v_caso.aluno_id and upper(coalesce(a.status,'')) = 'ATIVO'
        and a.duplicado_de is null
      for update) x;
+  v_acordos := coalesce(v_acordos, '{}'::uuid[]);
 
   v_conf := public._juridico_conferencia(v_caso.aluno_id);
+  -- a conferencia nao pode trazer acordo que o conjunto travado nao tem (corrida)
+  if exists (select 1 from jsonb_array_elements(v_conf->'acordos') a
+              where not ((a->>'acordo_id')::uuid = any(v_acordos))) then
+    raise exception 'Acordo mudou durante a aprovação. Tente novamente.' using errcode = '40001';
+  end if;
   v_pend := public._juridico_pendencias(v_caso, v_conf);
   if array_length(v_pend, 1) > 0 then
     raise exception 'Caso com pendência não pode ser aprovado: %', array_to_string(v_pend, ', ')
@@ -1019,7 +1040,7 @@ begin
   update public.juridico_casos
      set status = 'APROVADO', aprovado_por = v_email, aprovado_em = now(),
          valor_aprovado = (v_conf->>'total')::numeric, bloqueio_anterior = v_ant,
-         acordos_aprovados = coalesce(v_acordos, '{}'::uuid[])
+         acordos_aprovados = v_acordos
    where id = p_caso_id;
 
   perform public._juridico_registrar(p_caso_id, v_caso.lote_id, 'CASO_APROVADO',

@@ -711,6 +711,74 @@ describe("correcoes da reauditoria (12/11/2026)", () => {
   });
 });
 
+// Achado 5 (Guardiao): acordo ATIVO criado ou reativado DEPOIS da geracao da lista
+// nao entra na aprovacao sem revisao especifica da gestao.
+// Limite: o PGlite roda numa unica sessao, entao a corrida real entre duas conexoes
+// nao e reproduzida aqui; a protecao contra a corrida e o lock FOR UPDATE do conjunto.
+describe("acordo novo ou reativado DURANTE o processo (achado 5)", () => {
+  const pend = async (db, al) =>
+    (await db.query("select public._juridico_pendencias(jc, public._juridico_conferencia(jc.aluno_id)) p from juridico_casos jc where jc.aluno_id=$1 and jc.status<>'REMOVIDO'", [al])).rows[0].p;
+  const acordoEm = (db, al, cpf, id, status, criado, num) =>
+    db.query("insert into acordos(id,aluno_id,cpf,status,valor_total,saldo,qtd_parcelas,numero_acordo,criado_em) values ($1,$2,$3,$4,500,500,1,$5,$6::timestamptz)",
+      [id, al, cpf, status, num, criado]);
+
+  it("acordo criado depois da geracao e antes da aprovacao: pendencia, aprovacao recusada", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await acordoEm(db, a.al, a.cpf, U(970, 1), "ATIVO", "2026-11-12", 9001);
+    expect(await pend(db, a.al)).toContain("ACORDO_NOVO_APOS_GERACAO");
+    const e = await falha(rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]));
+    expect(e?.message).toMatch(/ACORDO_NOVO_APOS_GERACAO/);
+    expect((await db.query("select status from juridico_casos where id=$1", [caso.id])).rows[0].status).toBe("EM_ANALISE");
+    await db.close();
+  });
+
+  it("acordo CANCELADO na geracao e REATIVADO depois: pendencia, aprovacao recusada", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    await acordoEm(db, a.al, a.cpf, U(971, 1), "CANCELADO", "2025-01-01", 9002);
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await db.query("update acordos set status='ATIVO' where id=$1", [U(971, 1)]);
+    expect(await pend(db, a.al)).toContain("ACORDO_NOVO_APOS_GERACAO");
+    const e = await falha(rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]));
+    expect(e?.message).toMatch(/ACORDO_NOVO_APOS_GERACAO/);
+    await db.close();
+  });
+
+  it("so sai com aprovacao especifica (motivo); depois a base revisada inclui o acordo e a aprovacao passa", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_autorizar_documento($1,'autorizado pelo jurídico')", [caso.id]);
+    await acordoEm(db, a.al, a.cpf, U(972, 1), "ATIVO", "2026-11-12", 9003);
+    expect((await falha(rpc(db, "public.juridico_caso_aprovar($1)", [caso.id])))?.message).toMatch(/ACORDO_NOVO_APOS_GERACAO/);
+    const semMotivo = await falha(rpc(db, "public.juridico_caso_aprovar_acordo_ativo($1,'  ')", [caso.id]));
+    expect(semMotivo).not.toBeNull();
+    await rpc(db, "public.juridico_caso_aprovar_acordo_ativo($1,'revisado pela gestao')", [caso.id]);
+    expect(await pend(db, a.al)).not.toContain("ACORDO_NOVO_APOS_GERACAO");
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    const c = (await db.query("select status, acordos_aprovados from juridico_casos where id=$1", [caso.id])).rows[0];
+    expect(c.status).toBe("APROVADO");
+    expect(c.acordos_aprovados).toContain(U(972, 1));
+    await db.close();
+  });
+
+  it("regressao: acordo ja existente na geracao NAO gera pendencia nova", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000, 500], acordo: "QUEBRADO" });
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_autorizar_documento($1,'autorizado pelo jurídico')", [caso.id]);
+    expect(await pend(db, a.al)).not.toContain("ACORDO_NOVO_APOS_GERACAO");
+    expect((await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id])).status).toBe("APROVADO");
+    await db.close();
+  });
+});
+
 // ACORDO_NOVO por CONJUNTO registrado na aprovacao (IDs), nunca por data.
 describe("acordo novo ou reativado depois da aprovacao", () => {
   const divs = async (db, caso) =>

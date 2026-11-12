@@ -124,6 +124,11 @@ Fica, por decisão a tomar pela gestão:
   `trg_juridico_acordo_status` grava cada mudança de status em `juridico_historico`
   (evento `ACORDO_STATUS`) e a divergência `ACORDO_REATIVADO` lê esse histórico.
   Não movimenta carteira nem altera acordo; o envio fica recusado até a gestão revisar.
+- **Acordo ativo novo ou reativado depois da geração da lista** (`ACORDO_NOVO_APOS_GERACAO`):
+  a pendência recusa a aprovação. A base revisada é `juridico_casos.acordos_na_geracao` (gravada na
+  geração e renovada só pela aprovação específica de acordo ativo, com motivo). A aprovação trava o
+  conjunto de acordos ativos antes da conferência e recusa se a fotografia trouxer acordo fora dele.
+  Limite: o PGlite não reproduz a corrida entre duas conexões; a proteção é o lock `FOR UPDATE`.
 - **Envio recusa** qualquer caso com divergência: mensalidade ou parcela que mudou, valor
   diferente do aprovado, acordo duplicado, pagamento não baixado ou aguardando confirmação.
 - **Alerta**: `juridico_varrer_alertas` registra `ALERTA_DIVERGENCIA` no histórico do caso

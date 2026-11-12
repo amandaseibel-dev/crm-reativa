@@ -176,10 +176,10 @@ export default function Juridico() {
             `${c.aluno}: aprovado. Cobrança bloqueada — manual, massiva e automática.`)}>
           Aprovar e bloquear cobrança
         </button>
-        {pend.includes("ACORDO_ATIVO_SEM_APROVACAO") ? (
+        {pend.includes("ACORDO_ATIVO_SEM_APROVACAO") || pend.includes("ACORDO_NOVO_APOS_GERACAO") ? (
           <button type="button" style={A.btnMini} onClick={() => pedir({
             titulo: `Acordo ativo — ${c.aluno}`,
-            texto: "Este aluno tem acordo ativo e em dia. Encaminhá-lo exige aprovação específica, com o motivo.",
+            texto: "Este aluno tem acordo ativo que não estava na lista revisada (ou foi reativado). Encaminhá-lo exige revisão e aprovação específica, com o motivo.",
             campos: [{ chave: "motivo", rotulo: "Motivo da aprovação", obrigatorio: true, area: true }],
             aoConfirmar: (v) => executar("juridico_caso_aprovar_acordo_ativo", { p_caso_id: c.caso_id, p_motivo: v.motivo }, "Acordo ativo aprovado para este caso."),
           })}>Aprovar acordo ativo</button>

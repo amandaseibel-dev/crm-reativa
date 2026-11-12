@@ -18,6 +18,7 @@ const PENDENCIAS = {
   PAGAMENTO_PENDENTE: "Pagamento aguardando confirmação",
   SEM_SALDO_ELEGIVEL: "Sem saldo elegível",
   ACORDO_ATIVO_SEM_APROVACAO: "Acordo ativo: exige aprovação específica",
+  ACORDO_NOVO_APOS_GERACAO: "Acordo ativo novo ou reativado depois da lista: exige revisão e aprovação específica",
   TERMO_NAO_LOCALIZADO: "Termo do acordo não localizado",
   TERMO_A_VALIDAR: "Termo localizado, mas precisa de validação",
   PAGAMENTO_NAO_BAIXADO: "Pagamento recebido e ainda não baixado",
