@@ -174,6 +174,25 @@ describe("depois da migration 20261112210000", () => {
   });
 });
 
+describe("seguranca: a migration nao mexe em dono, grants, search_path nem security definer", () => {
+  const meta = async () => (await db.query(
+    `select pg_get_userbyid(p.proowner) dono, p.prosecdef, p.provolatile, p.proconfig::text config, coalesce(p.proacl::text, '') acl,
+            pg_get_function_identity_arguments(p.oid) args, pg_get_function_result(p.oid) retorno
+       from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+      where n.nspname='public' and p.proname='acoes_massivas_universo'`)).rows;
+  it("metadados identicos antes e depois, com grant explicito para authenticated e sem PUBLIC", async () => {
+    await db.exec("revoke all on function public.acoes_massivas_universo(jsonb) from public; grant execute on function public.acoes_massivas_universo(jsonb) to authenticated;");
+    const antes = await meta();
+    expect(antes).toHaveLength(1);
+    expect(antes[0].prosecdef).toBe(true);
+    expect(antes[0].config).toContain("search_path=public");
+    await db.exec(emTransacao(MIG));
+    expect(await meta()).toEqual(antes);
+    await db.exec(emTransacao(ROLLBACK));
+    expect(await meta()).toEqual(antes);
+  });
+});
+
 describe("guardas da migration", () => {
   it("aborta sem alterar nada se a definicao publicada for outra", async () => {
     const adulterada = PUBLICADO.replace("  f jsonb := coalesce(p_filtros, '{}'::jsonb);", "  f jsonb := coalesce(p_filtros, '{}'::jsonb); -- alterado");
