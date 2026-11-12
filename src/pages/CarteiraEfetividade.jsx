@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import jsPDF from "jspdf";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
 import EfetividadePorVencimento from "../components/EfetividadePorVencimento";
@@ -448,6 +449,44 @@ export default function CarteiraEfetividade() {
   const cursos = hist ? (hist.cursos || []) : null;
   const cursosTotal = Number(hist?.aberto?.valor || 0);
 
+  // PDF da visão 2026/2 Consolidado. Usa só o que a tela já carregou: mesmas
+  // consultas, mesmos filtros, mesmos totais. Não consulta nada novo.
+  // Entrada = borderô de remessa (primeira/última remessa e quantidade vêm de
+  // carteira_2026_2_contexto). "Recuperado desde a entrada" NÃO é medido aqui:
+  // o PDF declara essa limitação em vez de inventar o número.
+  function exportarPDF2026_2() {
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const M = 40, CW = 595.28 - 2 * M;
+    let y = 50;
+    const linha = (texto, opts = {}) => {
+      const tam = opts.tamanho || 10;
+      doc.setFont("helvetica", opts.negrito ? "bold" : "normal");
+      doc.setFontSize(tam);
+      doc.splitTextToSize(String(texto), CW).forEach((p) => {
+        if (y > 790) { doc.addPage(); y = 50; }
+        doc.text(p, M, y);
+        y += tam + 4;
+      });
+    };
+    linha("Relatório 2026/2 — semestre vigente", { negrito: true, tamanho: 16 });
+    linha("Carteira em curso: mostra o que já foi negociado e recebido. Não é inadimplência.", { tamanho: 9 });
+    y += 6;
+    linha("Filtros: safra " + safra + " · visão Consolidado · gerado em " + new Date().toLocaleString("pt-BR"), { tamanho: 9 });
+    linha("Entrada: borderô de remessa. Primeira remessa " + data(contexto?.primeira_remessa)
+      + ", última " + data(contexto?.ultima_remessa) + ", " + num(contexto?.remessas) + " remessas.", { tamanho: 9 });
+    y += 10;
+    linha("Indicadores", { negrito: true, tamanho: 12 });
+    indicadores.forEach((i) => linha(i.rotulo + ": " + i.valor + " — " + i.apoio));
+    y += 8;
+    linha("Situação do valor negociado", { negrito: true, tamanho: 12 });
+    situacao.forEach((s) => linha(s.rotulo + ": " + moedaCurta(s.valor)));
+    y += 8;
+    linha("Limitação", { negrito: true, tamanho: 12 });
+    linha("Recuperado desde a entrada por borderô não é medido nesta visão. O valor recebido é o recebido dos acordos 2026/2, sem somar de novo o negociado.", { tamanho: 9 });
+    if (rodape) { y += 8; linha(rodape, { tamanho: 9 }); }
+    doc.save("relatorio-2026-2-consolidado.pdf");
+  }
+
   return (
     <div style={S.pagina}>
       <header style={S.tituloLinha}>
@@ -544,6 +583,9 @@ export default function CarteiraEfetividade() {
                 ))}
               </div>
             </div>
+          ) : null}
+          {safra === "2026/2" && vista === "consolidado" && vigente ? (
+            <button type="button" onClick={exportarPDF2026_2} style={S.opcao}>Exportar PDF</button>
           ) : null}
         </div>
         <div style={S.periodo}>
