@@ -90,26 +90,44 @@ begin
     'segunda rodada nao repete a mesma baixa (idempotencia)');
 end $$;
 
--- ------------------------------------------ 5. PAGAMENTO DUPLICADO ----------
-insert into public.baixas_pagamento(aluno_id, aluno_cpf, valor_pago, status_baixa, baixado_em)
-values ('a', '111', 100, 'REALIZADA', now());   -- mesmo cpf, valor e dia
+-- ------------------------------------------ 5. MESMO PAGAMENTO (MESMO LINK) ------
+insert into public.casos(id, aluno_id, cpf_limpo, nome, status_atual) values
+  ('20000000-0000-0000-0000-000000000006','00000000-0000-0000-0000-00000000a00a','961','L6','Sem contato');
+-- Duas baixas do MESMO link de pagamento = um pagamento. Uma reposicao, uma duplicata.
+insert into public.baixas_pagamento(id, aluno_id, aluno_cpf, solicitacao_link_id, valor_pago, status_baixa, baixado_em)
+values ('90000000-0000-0000-0000-000000000001','a','111','a0000000-0000-0000-0000-000000000001',100,'REALIZADA',now()),
+       ('90000000-0000-0000-0000-000000000002','a','111','a0000000-0000-0000-0000-000000000001',100,'REALIZADA',now());
 
 do $$
 declare r jsonb;
 begin
   r := public.nivelamento_reposicao_por_baixas(50);
-  perform pg_temp.afirma((r->>'reposicoes_aplicadas')::int = 0,
-    'pagamento duplicado (mesmo cpf/valor/dia) nao gera segunda reposicao');
-  perform pg_temp.afirma(exists (select 1 from public.calibragem_auditoria where evento = 'REPOSICAO_V2_DUPLICADA'),
-    'duplicata registrada como REPOSICAO_V2_DUPLICADA');
-  perform pg_temp.afirma((select operador_email from public.casos where id = '20000000-0000-0000-0000-000000000002') is null,
-    'caso livre da duplicata permanece livre');
+  perform pg_temp.afirma((r->>'reposicoes_aplicadas')::int = 1,
+    'mesmo link: UMA reposicao (a primeira baixa), a segunda nao gera outra');
+  perform pg_temp.afirma((select count(*) from public.calibragem_auditoria
+                           where evento='REPOSICAO_V2_DUPLICADA') = 1,
+    'mesmo link: segunda baixa registrada como REPOSICAO_V2_DUPLICADA');
+  perform pg_temp.afirma((select count(*) from public.casos where id in ('20000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000003') and operador_email = 'opa@t.local') = 1,
+    'exatamente UM caso livre recebeu o pagamento (sem duplicar)');
+end $$;
+
+-- ------------------------------------ 5b. PAGAMENTOS DISTINTOS, MESMO CPF/VALOR/DIA
+insert into public.baixas_pagamento(id, aluno_id, aluno_cpf, solicitacao_link_id, valor_pago, status_baixa, baixado_em)
+values ('90000000-0000-0000-0000-000000000003','a','111','a0000000-0000-0000-0000-000000000002',100,'REALIZADA',now()),
+       ('90000000-0000-0000-0000-000000000004','a','111','a0000000-0000-0000-0000-000000000003',100,'REALIZADA',now());
+
+do $$
+declare r jsonb;
+begin
+  r := public.nivelamento_reposicao_por_baixas(50);
+  perform pg_temp.afirma((r->>'reposicoes_aplicadas')::int = 2,
+    'dois pagamentos distintos (links diferentes), mesmo cpf/valor/dia: DUAS reposicoes (nao suprime evento legitimo)');
 end $$;
 
 -- ---------------------------------------- 6. OPERADOR ACIMA DO TETO ---------
 update public.calibragem_parametros set valor = to_jsonb(2) where chave = 'limite_carteira';
-insert into public.baixas_pagamento(aluno_id, aluno_cpf, valor_pago, status_baixa, baixado_em)
-values ('a', '111', 50, 'REALIZADA', now());   -- valor diferente: pagamento distinto
+insert into public.baixas_pagamento(id, aluno_id, aluno_cpf, valor_pago, status_baixa, baixado_em)
+values ('90000000-0000-0000-0000-000000000005','a','111',50,'REALIZADA',now());
 
 do $$
 declare r jsonb;
@@ -120,7 +138,20 @@ begin
   perform pg_temp.afirma(exists (select 1 from public.calibragem_auditoria where evento = 'REPOSICAO_V2_SEM_VAGA'),
     'baixa sem vaga registrada como REPOSICAO_V2_SEM_VAGA');
 end $$;
+
+-- 6b. SEM CREDITO: a baixa recebida no teto NAO vira reposicao quando a vaga abrir.
 update public.calibragem_parametros set valor = to_jsonb(700) where chave = 'limite_carteira';
+insert into public.casos(id, aluno_id, cpf_limpo, nome, status_atual) values
+  ('20000000-0000-0000-0000-000000000009','00000000-0000-0000-0000-00000000a00a','959','L9','Sem contato');
+do $$
+declare r jsonb;
+begin
+  r := public.nivelamento_reposicao_por_baixas(50);
+  perform pg_temp.afirma((r->>'reposicoes_aplicadas')::int = 0,
+    '6b: vaga abriu depois, mas a baixa ja processada no teto NAO gera credito (zero reposicao)');
+  perform pg_temp.afirma((select operador_email from public.casos where id = '20000000-0000-0000-0000-000000000009') is null,
+    '6b: caso livre permanece livre (nenhum credito acumulado)');
+end $$;
 
 -- ------------------------------------------ 7. BAIXA HISTORICA E STATUS -----
 insert into public.baixas_pagamento(aluno_id, aluno_cpf, valor_pago, status_baixa, baixado_em)
@@ -137,6 +168,17 @@ begin
                                       join public.baixas_pagamento b on a.situacao_posterior->>'baixa_id' = b.id::text
                                      where b.baixado_em < '2020-02-01'),
     'baixa historica nao foi nem processada');
+end $$;
+
+-- ---------------------------------- 8b. SIMULACAO SEM JWT NAO AUTORIZA (gate 2)
+do $$
+begin
+  begin
+    perform public.calibragem_simular_teste();
+    raise exception 'FALHOU: simulacao sem JWT passou';
+  exception when sqlstate '42501' then
+    raise notice 'OK: simulacao sem JWT recusada apos o gate (forma 2 removida)';
+  end;
 end $$;
 
 -- ------------------------------------ 9. TROCA NO TETO, MESMO SALDO -------

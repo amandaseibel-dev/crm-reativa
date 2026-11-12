@@ -14,10 +14,11 @@ begin
               where n.nspname='public' and p.proname = 'nivelamento_reposicao_por_baixas') then
     raise exception 'FALHOU: funcao V2 ainda existe apos rollback';
   end if;
+  -- O rollback PRINCIPAL nao reabre o gate: a funcao continua com a forma corrigida.
   if position('or auth.jwt() is null' in pg_get_functiondef(
        (select p.oid from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-         where n.nspname='public' and p.proname='calibragem_teste_gate'))) = 0 then
-    raise exception 'FALHOU: gate antigo nao restaurado';
+         where n.nspname='public' and p.proname='calibragem_teste_gate'))) > 0 then
+    raise exception 'FALHOU: rollback principal reabriu o gate (deveria permanecer corrigido)';
   end if;
   if exists (select 1 from public.calibragem_parametros where chave = 'nivelamento_v2_desde') then
     raise exception 'FALHOU: corte V2 ainda gravado';

@@ -20,28 +20,31 @@
 
 do $$
 declare
-  v_old constant text := 'public.calibragem_e_gestao() or auth.jwt() is null';
-  v_new constant text := 'public.calibragem_e_gestao()';
-  r record; v_def text; v_novo text; v_n int;
+  -- forma 1: gate generico (calibragem_* e onda1_*)
+  v_old1 constant text := 'public.calibragem_e_gestao() or auth.jwt() is null';
+  v_new1 constant text := 'public.calibragem_e_gestao()';
+  -- forma 2: caminho tecnico por sessao (simulacoes). Removido: sem JWT + sessao
+  -- privilegiada permitia simular sem nenhuma pessoa identificada.
+  v_old2 constant text := 'or (auth.jwt() is null and session_user in (''postgres'',''reativa_responsavel_executor''))';
+  v_new2 constant text := '';
+  r record; v_def text; v_novo text; v_n1 int; v_n2 int;
 begin
   for r in
     select p.oid, p.proname
       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public'
        and (p.proname like 'calibragem\_%' or p.proname like 'onda1\_%')
-       and position(v_old in pg_get_functiondef(p.oid)) > 0
+       and (position(v_old1 in pg_get_functiondef(p.oid)) > 0
+            or position(v_old2 in pg_get_functiondef(p.oid)) > 0)
   loop
     v_def := pg_get_functiondef(r.oid);
-    v_n := (length(v_def) - length(replace(v_def, v_old, ''))) / length(v_old);
-    if v_n < 1 then
-      raise exception 'Ancora ausente em % apesar do filtro. Nada alterado.', r.proname;
-    end if;
-    v_novo := replace(v_def, v_old, v_new);
-    -- backup da definicao anterior, para o rollback restaurar byte a byte
+    v_n1 := (length(v_def) - length(replace(v_def, v_old1, ''))) / length(v_old1);
+    v_n2 := (length(v_def) - length(replace(v_def, v_old2, ''))) / length(v_old2);
+    v_novo := replace(replace(v_def, v_old1, v_new1), v_old2, v_new2);
     insert into public.nivelamento_v2_backup(nome, definicao)
       values ('fn:' || r.proname, v_def)
       on conflict (nome) do nothing;
     execute v_novo;
-    raise notice 'gate ajustado: % (% ocorrencia(s))', r.proname, v_n;
+    raise notice 'gate ajustado: % (forma1=% forma2=%)', r.proname, v_n1, v_n2;
   end loop;
 end $$;

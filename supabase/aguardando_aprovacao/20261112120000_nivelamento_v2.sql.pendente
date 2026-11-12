@@ -208,6 +208,7 @@ create unique index if not exists calibragem_auditoria_v2_baixa_uq
 create unique index if not exists calibragem_auditoria_v2_pagamento_uq
   on public.calibragem_auditoria ((situacao_posterior->>'chave_pagamento'))
   where evento = 'REPOSICAO_V2';
+-- (chave_pagamento = link de pagamento ou id da baixa: ver nivelamento_reposicao_por_baixas)
 
 create or replace function public.nivelamento_reposicao_por_baixas(p_limite int default 200)
 returns jsonb
@@ -219,7 +220,11 @@ declare
   v_chave text; v_cpf text; v_saldo bigint; v_aplicadas int := 0; v_registros int := 0;
   v_sessao text := 'job:' || session_user;
 begin
-  if not (public.calibragem_e_gestao() or session_user in ('postgres','supabase_admin')) then
+  -- Gestao identificada por JWT, OU caminho tecnico explicito: sem JWT E sessao de
+  -- identidade privilegiada conhecida (mesmo padrao do repositorio). JWT ausente,
+  -- sozinho, nunca autoriza.
+  if not (public.calibragem_e_gestao()
+          or (auth.jwt() is null and session_user in ('postgres','reativa_responsavel_executor'))) then
     raise exception 'Sem permissao para reposicao automatica.' using errcode = '42501';
   end if;
   perform pg_advisory_xact_lock(hashtext('nivelamento_carteiras_v2'));
@@ -244,8 +249,11 @@ begin
      limit p_limite
   loop
     v_cpf := lpad(regexp_replace(coalesce(v_b.aluno_cpf,''), '\D', '', 'g'), 11, '0');
-    v_chave := v_cpf || '|' || round(coalesce(v_b.valor_pago,0),2)::text || '|'
-               || (v_b.baixado_em at time zone 'America/Sao_Paulo')::date::text;
+    -- Identificador ESTAVEL do pagamento: o link de pagamento que originou a baixa.
+    -- Duas baixas do mesmo link = um pagamento (reenvio/duplicata). Baixas de links
+    -- distintos = pagamentos distintos, mesmo com cpf, valor e dia iguais.
+    -- Sem link, o id da propria baixa e o identificador (cada linha e um evento).
+    v_chave := coalesce('link:' || v_b.solicitacao_link_id::text, 'baixa:' || v_b.id::text);
     v_saldo := round(coalesce(v_b.valor_pago,0) * 100)::bigint;
 
     -- pagamento ja aplicado (outra baixa com a mesma chave)

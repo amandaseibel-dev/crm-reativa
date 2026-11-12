@@ -107,6 +107,7 @@ create table public.baixas_pagamento (
   id           uuid primary key default gen_random_uuid(),
   aluno_id     text,
   aluno_cpf    text,
+  solicitacao_link_id uuid,
   valor_pago   numeric,
   status_baixa text,
   atualizado_em timestamptz default now(),
@@ -255,3 +256,13 @@ returns table(sucesso boolean, mensagem text, caso_liberado uuid)
 language sql security definer set search_path = public, internal as $$
   select false, 'versao anterior (stub de teste)'::text, null::uuid;
 $$;
+
+-- Simulacao com a forma 2 do gate (caminho tecnico por sessao), como em producao.
+create or replace function public.calibragem_simular_teste() returns int
+language plpgsql as $$
+begin
+  if not (public.calibragem_e_gestao() or (auth.jwt() is null and session_user in ('postgres','reativa_responsavel_executor'))) then
+    raise exception 'Sem permissao para simular.' using errcode = '42501';
+  end if;
+  return 1;
+end $$;

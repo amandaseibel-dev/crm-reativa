@@ -1,5 +1,9 @@
 -- ROLLBACK DO NIVELAMENTO V2 (20261112120000 + 20261112120100).
--- Restaura o estado ANTERIOR a aplicacao, a partir de public.nivelamento_v2_backup.
+-- Restaura o estado ANTERIOR a aplicacao da 20261112120000 (V2): assumir_caso_livre
+-- (definicao e grants anteriores), job 48 (nome, agendamento e comando) e remove
+-- a reposicao V2. NAO reabre o gate corrigido.
+-- PERMISSOES RESTAURADAS: assumir_caso_livre volta a ter EXECUTE para authenticated e
+-- service_role e nenhum para PUBLIC/anon, como em producao antes da V2.
 -- Nao apaga linhas de calibragem_auditoria (append-only): as movimentacoes V2
 -- ja gravadas permanecem como trilha. Desfazer uma movimentacao V2 e manual,
 -- caso a caso, por caso_id, com decisao da gestao.
@@ -19,19 +23,8 @@ begin
   end if;
 end $$;
 
--- 1. Gate das calibragem_* / onda1_*: restaura a definicao anterior (com o
---    "or auth.jwt() is null"). Ou seja, reverte a correcao de seguranca.
---    So execute se a gestao aprovar reverter o gate.
-do $$
-declare r record;
-begin
-  for r in select nome, definicao from public.nivelamento_v2_backup where nome like 'fn:%'
-                                                                     and nome <> 'fn:assumir_caso_livre(uuid)'
-                                                                     and nome <> 'fn:nivelamento_v2_gate_marker'
-  loop
-    execute r.definicao;
-  end loop;
-end $$;
+-- (O gate NAO e restaurado aqui: ele tem rollback proprio, separado e explicito:
+--  20261112120100_calibragem_gate_somente_gestao.rollback.sql. Este rollback nao reabre o gate.)
 
 -- 2. assumir_caso_livre: definicao anterior + grants anteriores.
 do $$

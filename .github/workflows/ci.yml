@@ -1039,6 +1039,7 @@ jobs:
       M1: supabase/aguardando_aprovacao/20261112120000_nivelamento_v2.sql.pendente
       M2: supabase/aguardando_aprovacao/20261112120100_calibragem_gate_somente_gestao.sql.pendente
       RB: supabase/aguardando_aprovacao/20261112120000_nivelamento_v2.rollback.sql
+      GRB: supabase/aguardando_aprovacao/20261112120100_calibragem_gate_somente_gestao.rollback.sql
 
     steps:
       - uses: actions/checkout@v5
@@ -1087,3 +1088,9 @@ jobs:
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -f "$RB"
           psql -v ON_ERROR_STOP=1 -f "$DIR/04_pos_rollback.sql"
+
+      - name: "Rollback do gate (explicito, reabre a brecha) e verificacao"
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$GRB"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/06_pos_rollback_gate.sql"
