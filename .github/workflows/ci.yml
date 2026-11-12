@@ -1217,3 +1217,46 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
           psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
           psql -v ON_ERROR_STOP=1 -f "$DIR/05_rollback_conferencia.sql"
+
+  receptivo-chave-log:
+    name: receptivo chave do log por conversa (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # Suite da PR #923: migration, rollback e reprocessamento em Postgres 16 real,
+    # corrida com duas conexoes. Roda pelo mesmo script usado localmente.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Guarda — a migration nao esta em migrations/
+        run: |
+          set -euo pipefail
+          if ls supabase/migrations/ | grep -qi receptivo_log_chave; then
+            echo "FALHOU: migration da chave do log entrou em supabase/migrations/"; exit 1
+          fi
+          test -f supabase/aguardando_aprovacao/20261112100000_receptivo_log_chave_conversa.sql.pendente
+          test -f supabase/aguardando_aprovacao/20261112100000_receptivo_log_chave_conversa.rollback.sql
+          echo "OK"
+
+      - name: Suite completa (migration, casos, corrida, reprocessamento, rollback)
+        run: bash supabase/tests/receptivo_log_chave/run_local.sh
