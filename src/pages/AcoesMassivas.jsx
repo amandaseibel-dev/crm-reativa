@@ -285,6 +285,8 @@ export default function AcoesMassivas() {
   // Lote + ação ("CONFIRMAR" | "DESCARTAR") aguardando o "sim" explícito.
   const [acaoLote, setAcaoLote] = useState(null);
   const [concluindoLote, setConcluindoLote] = useState(false);
+  // Confirmação parcial: { loteId, itens, marcados:Set, carregando, erro }
+  const [destinatariosLote, setDestinatariosLote] = useState(null);
   // Lotes de WhatsApp recentes, com quantos daqueles alunos têm e-mail válido.
   // Base do "Exportar e-mails deste lote": o recorte sai dos aluno_ids gravados
   // no lote, não de refazer filtro nem de "Acionados hoje".
@@ -622,19 +624,27 @@ export default function AcoesMassivas() {
         ? ` ${excluidosTipo} caso(s) ficaram fora por não corresponderem mais ao tipo de cobrança.`
         : "");
 
-      // Registro automático (migration 20261002094233, já em produção): a
-      // própria exportação grava as movimentações individuais do lote.
+      // Desde a migration 20261113100000 a exportação cria o lote PENDENTE DE
+      // ENVIO e não registra nada: quem registra é a confirmação do envio, no
+      // painel "Registro das ações massivas". Enquanto a migration não estiver
+      // aplicada, o banco ainda registra no clique (registro_automatico).
       const selecionados = Number(exp?.selecionados ?? exp?.exportados ?? contatos.length);
       const registrados = Number(exp?.registrados || 0);
+      const pendenteEnvio = !!exp?.pendente_envio;
       setResumoLote({
         selecionados,
         registrados,
         excluidos: excluidosEnvio + excluidosPrime + excluidosOutroOperador + excluidosJaAcionados + excluidosTipo,
         automatico: !!exp?.registro_automatico,
+        pendenteEnvio,
       });
 
       if (contatos.length === 0) {
         setSucesso(`Nenhum aluno na planilha.${sufixoExcluidos}`);
+      } else if (pendenteEnvio) {
+        setSucesso(
+          `Planilha exportada com ${selecionados} aluno(s). O lote ficou PENDENTE DE ENVIO: nada foi registrado nos alunos ainda. Depois do disparo, confirme o envio no painel “Registro das ações massivas” — para todos, só para os que receberam, ou descarte se não foi enviado. Só a confirmação conta como acionamento e inicia a fidelização. Se o download não abriu, use o botão “Baixar planilha novamente” abaixo.${sufixoExcluidos}`
+        );
       } else {
         setSucesso(
           `Planilha exportada com ${selecionados} aluno(s) selecionados e ${registrados} registrado(s) no CRM como ação massiva, com data, hora e canal no histórico de cada aluno. Esses registros contam como último acionamento e tabulam o caso, com retorno agendado para 10 dias. Se o download não abriu, use o botão “Baixar planilha novamente” abaixo.${sufixoExcluidos}`
@@ -709,18 +719,58 @@ export default function AcoesMassivas() {
     }
   }
 
-  // CONFIRMAR AÇÃO REALIZADA (ou DESCARTAR lote não enviado). Só aqui o aluno
-  // passa a contar como acionado: o banco revalida e grava tabulação, retorno e
-  // movimentação pelo registro de sempre. Um lote confirma uma vez só.
+  // Lista dos destinatários de um lote, para a confirmação PARCIAL: a gestão
+  // marca exatamente quem recebeu. Lida do banco (ids gravados no lote).
+  async function abrirConfirmacaoParcial(lote) {
+    setAcaoLote({ id: lote.id, acao: "PARCIAL" });
+    setDestinatariosLote({ loteId: lote.id, itens: [], marcados: new Set(), carregando: true, erro: "" });
+    const { data, error } = await supabase.rpc("acoes_massivas_lote_destinatarios", { p_lote_id: lote.id });
+    if (error) {
+      setDestinatariosLote({
+        loteId: lote.id, itens: [], marcados: new Set(), carregando: false,
+        erro: error.code === "PGRST202"
+          ? "A confirmação parcial ainda não está disponível no banco (migration pendente)."
+          : "Não foi possível carregar os destinatários: " + (error.message || "tente novamente"),
+      });
+      return;
+    }
+    setDestinatariosLote({
+      loteId: lote.id, itens: Array.isArray(data?.destinatarios) ? data.destinatarios : [],
+      marcados: new Set(), carregando: false, erro: "",
+    });
+  }
+
+  function alternarDestinatario(alunoId) {
+    setDestinatariosLote((d) => {
+      if (!d) return d;
+      const marcados = new Set(d.marcados);
+      if (marcados.has(alunoId)) marcados.delete(alunoId); else marcados.add(alunoId);
+      return { ...d, marcados };
+    });
+  }
+
+  // CONFIRMAR ENVIO — TOTAL, PARCIAL (só os marcados) ou DESCARTAR. Só aqui o
+  // aluno passa a contar como acionado: o banco revalida e grava a movimentação
+  // pelo registro de sempre, com data/hora e quem confirmou. Um lote confirma
+  // uma vez só. Sem a migration 20261113100000 no banco, TOTAL e DESCARTAR caem
+  // no acoes_massivas_concluir_lote de sempre; PARCIAL não tem equivalente.
   async function concluirLote(lote, acao) {
     setConcluindoLote(true);
     setErro("");
     setSucesso("");
     try {
-      const { data: res, error } = await supabase.rpc("acoes_massivas_concluir_lote", {
+      const ids = acao === "PARCIAL" ? [...(destinatariosLote?.marcados ?? [])] : null;
+      let { data: res, error } = await supabase.rpc("acoes_massivas_concluir_envio", {
         p_lote_id: lote.id,
         p_acao: acao,
+        p_aluno_ids: ids,
       });
+      if (error && error.code === "PGRST202" && acao !== "PARCIAL") {
+        ({ data: res, error } = await supabase.rpc("acoes_massivas_concluir_lote", {
+          p_lote_id: lote.id,
+          p_acao: acao === "TOTAL" ? "CONFIRMAR" : "DESCARTAR",
+        }));
+      }
       if (error) throw error;
       if (acao === "DESCARTAR") {
         setSucesso(`Lote ${lote.arquivo || ""} descartado. Nada foi registrado nos alunos.`);
@@ -738,8 +788,12 @@ export default function AcoesMassivas() {
           [Number(res?.excluidos_tipo_cobranca || 0), "não correspondem mais ao tipo de cobrança do lote"],
           ...outrosMotivos,
         ].filter(([n]) => n > 0).map(([n, t]) => ` ${n} caso(s) ${t} e não foram registrados.`).join("");
+        const naoEnviados = Number(res?.nao_enviados || 0);
+        const parcialTexto = res?.confirmacao === "PARCIAL"
+          ? ` Envio parcial: ${Number(res?.enviados_informados || 0)} marcado(s) como enviados; ${naoEnviados} não enviado(s) ficaram sem registro.`
+          : "";
         setSucesso(
-          `Ação confirmada: ${registrados} aluno(s) registrados como ação massiva e contados na cobertura, tabulados com retorno em 10 dias. O responsável dos alunos não foi alterado.${partes}`
+          `Envio confirmado: ${registrados} aluno(s) registrados como ação massiva e contados na cobertura, tabulados com retorno em 10 dias.${parcialTexto} O responsável dos alunos não foi alterado.${partes}`
         );
         carregarPorDia();
       }
@@ -748,6 +802,7 @@ export default function AcoesMassivas() {
       setErro("Erro ao concluir o lote: " + (e.message || "tente novamente"));
     } finally {
       setAcaoLote(null);
+      setDestinatariosLote(null);
       setConcluindoLote(false);
       carregarLotesRegistro();
     }
@@ -771,8 +826,13 @@ export default function AcoesMassivas() {
       const quando = lote.confirmado_em
         ? new Date(lote.confirmado_em).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
         : "—";
+      const modo = res?.confirmacao === "PARCIAL"
+        ? ` Envio confirmado como PARCIAL por ${res?.confirmado_por_email || "—"}: ${Number(res?.nao_enviados || 0)} aluno(s) marcados como não enviados.`
+        : res?.confirmacao === "TOTAL"
+          ? ` Envio confirmado para todos por ${res?.confirmado_por_email || "—"}.`
+          : "";
       setSucesso(
-        `Conferido: ${registrados} de ${lote.total} aluno(s) deste lote estão registrados, desde ${quando}. ` +
+        `Conferido: ${registrados} de ${lote.total} aluno(s) deste lote estão registrados, desde ${quando}.${modo} ` +
         `Nada foi gravado agora (${Number(res?.movimentacoes_criadas || 0)} movimentação nova).`
       );
     } catch (e) {
@@ -1292,7 +1352,9 @@ export default function AcoesMassivas() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginTop: 12 }}>
             {[
               ["Selecionados", resumoLote.selecionados.toLocaleString("pt-BR"), "Saíram na planilha.", false],
-              ["Registrados no CRM", resumoLote.registrados.toLocaleString("pt-BR"), "No histórico do aluno, com data, hora e canal, e tabulados com retorno em 10 dias.", false],
+              resumoLote.pendenteEnvio
+                ? ["Registrados no CRM", "aguardando envio", "Nada é registrado até a confirmação do envio no painel de registro.", true]
+                : ["Registrados no CRM", resumoLote.registrados.toLocaleString("pt-BR"), "No histórico do aluno, com data, hora e canal, e tabulados com retorno em 10 dias.", false],
               ["Excluídos na revalidação", resumoLote.excluidos.toLocaleString("pt-BR"), "Saíram do universo entre a prévia e o registro.", false],
               ["Enviados", "não disponível", "A ferramenta de disparo é externa e não devolve confirmação de entrega.", true],
               ["Falhas de envio", "não disponível", "Sem retorno técnico da mensageria, não há como medir.", true],
@@ -1416,12 +1478,20 @@ export default function AcoesMassivas() {
             Registro das ações massivas
           </h3>
           <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--rv-texto-fraco)" }}>
-            As planilhas dos últimos 7 dias e o que o CRM registrou em cada uma. O registro acontece no
-            próprio clique de <strong>Exportar</strong>: o lote já sai registrado no histórico dos alunos e
-            não há nada a confirmar depois. Os botões de <strong>Confirmar</strong> e <strong>Descartar</strong>{" "}
-            aparecem só em lote que ficou <strong>pendente</strong> — aí o CRM não sabe se o disparo aconteceu.
-            Registrar nunca altera responsável nem renova fidelização.
+            As planilhas dos últimos 7 dias e o que o CRM registrou em cada uma. Exportar <strong>não</strong>{" "}
+            registra: o lote fica <strong>pendente de envio</strong> até a gestão confirmar o disparo — para
+            todos, só para quem recebeu, ou descartando se não foi enviado. Só a confirmação conta como
+            acionamento e inicia a fidelização de 10 dias. Registrar nunca altera responsável. Lote pendente
+            nunca some deste painel.
           </p>
+          {(() => {
+            const pendentes = lotesRegistro.filter((l) => l.situacao === "PENDENTE").length;
+            return pendentes > 0 ? (
+              <p data-testid="aviso-lotes-pendentes" style={{ margin: "0 0 12px", padding: "8px 12px", borderRadius: 10, fontSize: 13, fontWeight: 700, background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)" }}>
+                ⏳ {pendentes} lote(s) aguardando confirmação de envio. Enquanto não forem confirmados, os alunos não contam como acionados.
+              </p>
+            ) : null;
+          })()}
           <div style={{ overflowX: "auto" }}>
             <table style={estilos.tabela}>
               <thead>
@@ -1463,9 +1533,9 @@ export default function AcoesMassivas() {
                         </span>
                       ) : l.situacao === "PENDENTE" ? (
                         <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--rv-ambar-texto)" }}>
-                          ⏳ Pendente de registro
+                          ⏳ Pendente de envio
                           <div style={{ fontWeight: 400, color: "var(--rv-texto-fraco)", fontSize: 11 }}>
-                            saiu na planilha, não entrou no histórico
+                            saiu na planilha, aguardando confirmação do disparo
                           </div>
                         </span>
                       ) : (
@@ -1498,29 +1568,81 @@ export default function AcoesMassivas() {
                           Conferir registro
                         </button>
                       ) : acaoLote?.id === l.id ? (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 6, maxWidth: 360 }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6, maxWidth: 380 }}>
                           <span style={{ fontSize: 12, color: "var(--rv-texto)" }}>
-                            {acaoLote.acao === "CONFIRMAR"
-                              ? `Confirme só se o disparo já foi concluído. Os ${l.total} aluno(s) passam a contar como acionados na cobertura e ficam registrados no histórico do lote, tabulados com retorno em 10 dias. Não altera responsável e não renova fidelização. Quem foi acionado por um operador depois da exportação, ou deixou de estar disponível, fica de fora.`
-                              : "Descartar: a planilha não foi enviada. Nada é registrado nos alunos."}
+                            {acaoLote.acao === "TOTAL"
+                              ? `Confirme só se o disparo já foi feito para todos. Os ${l.total} aluno(s) passam a contar como acionados, com data, hora e o seu e-mail no histórico, tabulados com retorno em 10 dias. Quem foi acionado por um operador depois da exportação, ou deixou de estar disponível, fica de fora.`
+                              : acaoLote.acao === "PARCIAL"
+                                ? "Marque exatamente quem recebeu. Só os marcados são registrados; os demais ficam guardados no lote como não enviados."
+                                : "Descartar: a planilha não foi enviada. Nada é registrado nos alunos."}
                           </span>
-                          <div style={{ display: "flex", gap: 6 }}>
-                            <button
-                              style={estilos.botaoGerar}
-                              disabled={concluindoLote}
-                              onClick={() => concluirLote(l, acaoLote.acao)}
-                            >
-                              {acaoLote.acao === "CONFIRMAR" ? "Sim, o disparo foi concluído" : "Sim, descartar"}
-                            </button>
-                            <button style={estilos.botaoSecundario} disabled={concluindoLote} onClick={() => setAcaoLote(null)}>
-                              Voltar
-                            </button>
-                          </div>
+                          {acaoLote.acao === "PARCIAL" && destinatariosLote?.loteId === l.id && (
+                            destinatariosLote.carregando ? (
+                              <span style={{ fontSize: 12, color: "var(--rv-texto-fraco)" }}>Carregando destinatários...</span>
+                            ) : destinatariosLote.erro ? (
+                              <span style={{ fontSize: 12, color: "var(--rv-vermelho-texto, #b91c1c)" }}>{destinatariosLote.erro}</span>
+                            ) : (
+                              <div data-testid="lista-destinatarios" style={{ maxHeight: 220, overflowY: "auto", border: "1px solid var(--rv-borda)", borderRadius: 8, padding: 6 }}>
+                                {destinatariosLote.itens.map((d) => (
+                                  <label key={d.aluno_id} style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12, padding: "2px 0" }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={destinatariosLote.marcados.has(d.aluno_id)}
+                                      onChange={() => alternarDestinatario(d.aluno_id)}
+                                    />
+                                    <span>{d.nome || d.aluno_id}</span>
+                                    <span style={{ color: "var(--rv-texto-fraco)" }}>
+                                      {l.canal === "EMAIL" ? (d.email || "") : (normalizarTelefone(d.telefone) || "")}
+                                    </span>
+                                  </label>
+                                ))}
+                              </div>
+                            )
+                          )}
+                          {(() => {
+                            const marcados = destinatariosLote?.loteId === l.id ? destinatariosLote.marcados.size : 0;
+                            const totalItens = destinatariosLote?.loteId === l.id ? destinatariosLote.itens.length : 0;
+                            const parcialInvalida = acaoLote.acao === "PARCIAL"
+                              && (marcados === 0 || (totalItens > 0 && marcados >= totalItens));
+                            return (
+                              <>
+                                {acaoLote.acao === "PARCIAL" && totalItens > 0 && (
+                                  <span style={{ fontSize: 11.5, color: "var(--rv-texto-fraco)" }}>
+                                    {marcados} de {totalItens} marcado(s)
+                                    {marcados >= totalItens ? " — se todos receberam, use “Enviado para todos”." : ""}
+                                  </span>
+                                )}
+                                <div style={{ display: "flex", gap: 6 }}>
+                                  <button
+                                    style={estilos.botaoGerar}
+                                    disabled={concluindoLote || parcialInvalida}
+                                    onClick={() => concluirLote(l, acaoLote.acao)}
+                                  >
+                                    {acaoLote.acao === "TOTAL"
+                                      ? "Sim, enviado para todos"
+                                      : acaoLote.acao === "PARCIAL"
+                                        ? `Confirmar envio para ${marcados}`
+                                        : "Sim, descartar"}
+                                  </button>
+                                  <button
+                                    style={estilos.botaoSecundario}
+                                    disabled={concluindoLote}
+                                    onClick={() => { setAcaoLote(null); setDestinatariosLote(null); }}
+                                  >
+                                    Voltar
+                                  </button>
+                                </div>
+                              </>
+                            );
+                          })()}
                         </div>
                       ) : (
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                          <button style={estilos.botaoGerar} onClick={() => setAcaoLote({ id: l.id, acao: "CONFIRMAR" })}>
-                            ✅ Confirmar ação realizada
+                          <button style={estilos.botaoGerar} onClick={() => setAcaoLote({ id: l.id, acao: "TOTAL" })}>
+                            ✅ Enviado para todos
+                          </button>
+                          <button style={estilos.botaoSecundario} onClick={() => abrirConfirmacaoParcial(l)}>
+                            ☑️ Enviado só para alguns
                           </button>
                           <button style={estilos.botaoSecundario} onClick={() => setAcaoLote({ id: l.id, acao: "DESCARTAR" })}>
                             Descartar
