@@ -54,7 +54,8 @@ export interface PedidoEnvio {
   identidade_confirmada: boolean;
   /**
    * Atendente do atendimento NA MENSAGERIA. Null quando não foi lido: sem ele o envio é bloqueado.
-   * Vem da coluna do espelho `atendente_ulbra`, que depende de migration ainda não aplicada.
+   * ATENÇÃO: a coluna `atendente_ulbra` NÃO existe em nenhuma migração do repositório. Enquanto
+   * não houver fonte definida, a leitura falha e o envio fica bloqueado (ATENDIMENTO_NAO_ESPELHADO).
    */
   atendente_ulbra: string | null;
   /** Conta conectada do operador (pessoa_id e pessoa_nome de meu_acesso). */
@@ -211,7 +212,8 @@ export async function enviarResposta(
     }
   }
   const final = await deps.repositorio.buscar(pedido.operador, pedido.chave);
-  return { situacao: "PROCESSADO", envio: final! };
+  if (!final) throw new Error("ENVIO_SEM_REGISTRO");
+  return { situacao: "PROCESSADO", envio: final };
 }
 
 function comTimeout<T>(p: Promise<T>, ms: number): Promise<T> {

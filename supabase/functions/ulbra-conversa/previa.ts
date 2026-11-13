@@ -6,6 +6,9 @@
 // validade curta. A confirmação consome a prévia UMA vez, revalida tudo e só
 // então envia (envio.ts). Custo e janela vindos do navegador não são usados.
 //
+// A prévia LOCAL não substitui a prévia que a ULBRA exige para envio. O envio real só liga com
+// ULBRA_CONTRATO_PREVIA_CONFIRMADO=true (index.ts), depois de confirmado o contrato real.
+//
 // Ficam de fora, de propósito: qualquer chamada de ferramenta de envio com
 // `previa: true`, porque o comportamento desse parâmetro não está comprovado.
 // ===========================================================================

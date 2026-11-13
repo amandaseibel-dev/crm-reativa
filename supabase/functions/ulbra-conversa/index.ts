@@ -77,7 +77,9 @@ Deno.serve(async (req: Request) => {
   const clientId = Deno.env.get("ULBRA_OAUTH_CLIENT_ID");
   const redirectUri = Deno.env.get("ULBRA_OAUTH_REDIRECT_URI");
   const chaveHex = Deno.env.get("ULBRA_TOKENS_CHAVE");
-  const envioReal = Deno.env.get("ULBRA_ENVIO_REAL") === "true";
+  // Duas chaves: a ULBRA_ENVIO_REAL sozinha não basta. O contrato real da prévia exigida pela
+  // ULBRA precisa estar confirmado (ULBRA_CONTRATO_PREVIA_CONFIRMADO=true) antes de qualquer envio real.
+  const envioReal = Deno.env.get("ULBRA_ENVIO_REAL") === "true" && Deno.env.get("ULBRA_CONTRATO_PREVIA_CONFIRMADO") === "true";
   if (!urlBanco || !anon || !servico) return responder({ erro: "CONFIG_AUSENTE" }, 500);
 
   const corpo = await req.json().catch(() => ({})) as Record<string, unknown>;
@@ -151,7 +153,9 @@ Deno.serve(async (req: Request) => {
       throw new Error("ENVIO_NAO_GRAVADO");
     },
     async atualizar(operador, ch, campos) {
-      await sb.from("ulbra_envios").update({ ...campos, atualizado_em: new Date().toISOString() }).eq("operador_email", operador).eq("chave", ch);
+      const { error } = await sb.from("ulbra_envios").update({ ...campos, atualizado_em: new Date().toISOString() }).eq("operador_email", operador).eq("chave", ch);
+      // Falha de atualização não pode ser silenciosa: o envio ficaria sem registro do resultado.
+      if (error) throw new Error("ENVIO_NAO_ATUALIZADO");
     },
   };
 

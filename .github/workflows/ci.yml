@@ -1133,3 +1133,43 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/04_depois_da_correcao.sql"
           psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
           psql -v ON_ERROR_STOP=1 -f "$DIR/05_apos_rollback.sql"
+
+  # ---------------------------------------------------------------------------
+  # ULBRA — conexão e envio (20261111140000): persistência contra Postgres real,
+  # consumo único e idempotência com duas conexões, guarda e rollback.
+  # Roda o runner versionado em supabase/tests/ulbra_conexao_envio/run.cjs.
+  # ---------------------------------------------------------------------------
+  ulbra-conexao-envio-sql:
+    name: ulbra conexão e envio — persistência, concorrência e rollback (postgres 17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Instalar o cliente pg (fora do repositório)
+        run: npm install --prefix "$RUNNER_TEMP/pg" pg@8.16.3
+
+      - name: Persistência, consumo único, concorrência, guarda e rollback
+        run: NODE_PATH="$RUNNER_TEMP/pg/node_modules" node supabase/tests/ulbra_conexao_envio/run.cjs

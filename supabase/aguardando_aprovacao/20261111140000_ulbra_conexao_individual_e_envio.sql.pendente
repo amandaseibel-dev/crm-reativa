@@ -12,9 +12,23 @@
 -- Templates NÃO fazem parte desta migration.
 -- =============================================================================
 
+-- Guarda: se qualquer objeto desta migration já existir, aborta sem alterar nada.
+-- Sem isso, "if not exists" trataria uma tabela homônima como criada por esta migration, e o
+-- rollback a apagaria.
+do $$
+begin
+  if to_regclass('public.ulbra_conexoes_pedidos') is not null
+     or to_regclass('public.ulbra_conexoes_operador') is not null
+     or to_regclass('public.ulbra_envio_previas') is not null
+     or to_regclass('public.ulbra_envios') is not null
+     or to_regclass('public.ulbra_envios_atendimento_idx') is not null then
+    raise exception 'MIGRATION_20261111140000: objeto já existe; não aplicar sobre estado desconhecido';
+  end if;
+end $$;
+
 -- Pedido de conexão em andamento: nasce no clique "Conectar", morre no retorno
 -- do navegador (ou em 10 min). Guarda o verifier do PKCE, nunca token.
-create table if not exists public.ulbra_conexoes_pedidos (
+create table public.ulbra_conexoes_pedidos (
   state            text primary key,
   operador_email   text not null,
   verifier         text not null,
@@ -25,7 +39,7 @@ alter table public.ulbra_conexoes_pedidos enable row level security;
 revoke all on public.ulbra_conexoes_pedidos from public, anon, authenticated;
 grant select, insert, update, delete on public.ulbra_conexoes_pedidos to service_role;
 
-create table if not exists public.ulbra_conexoes_operador (
+create table public.ulbra_conexoes_operador (
   operador_email        text primary key,
   access_token_cifrado  text,
   refresh_token_cifrado text,
@@ -49,7 +63,7 @@ grant select, insert, update, delete on public.ulbra_conexoes_operador to servic
 -- pelo ReATIVA, com o conteúdo exato (hash) e validade curta. Consumo único: a
 -- confirmação marca `consumida_em` uma vez; a unicidade em ulbra_envios.previa_id
 -- impede dois envios a partir da mesma prévia.
-create table if not exists public.ulbra_envio_previas (
+create table public.ulbra_envio_previas (
   id                uuid primary key default gen_random_uuid(),
   operador_email    text not null,
   atendimento_id    text not null,
@@ -68,7 +82,7 @@ alter table public.ulbra_envio_previas enable row level security;
 revoke all on public.ulbra_envio_previas from public, anon, authenticated;
 grant select, insert, update on public.ulbra_envio_previas to service_role;
 
-create table if not exists public.ulbra_envios (
+create table public.ulbra_envios (
   id                   uuid primary key default gen_random_uuid(),
   chave                text not null,
   operador_email       text not null,
@@ -87,7 +101,7 @@ create table if not exists public.ulbra_envios (
   constraint ulbra_envios_chave_limite check (char_length(chave) between 8 and 80),
   constraint ulbra_envios_atendimento_formato check (atendimento_id ~ '^[a-f0-9]{24}$')
 );
-create index if not exists ulbra_envios_atendimento_idx on public.ulbra_envios (atendimento_id, criado_em desc);
+create index ulbra_envios_atendimento_idx on public.ulbra_envios (atendimento_id, criado_em desc);
 alter table public.ulbra_envios enable row level security;
 revoke all on public.ulbra_envios from public, anon, authenticated;
 grant select, insert, update on public.ulbra_envios to service_role;
