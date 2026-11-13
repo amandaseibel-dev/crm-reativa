@@ -173,8 +173,15 @@ describe("relatorio 2026/2: classificacao de CPF e contagem por aluno", () => {
     expect(rows[0].rls).toBe(true);
     expect(rows[0].sel).toBe(false);
     expect(rows[0].del).toBe(false);
-    const anon = await db.query(`SELECT has_table_privilege('anon', 'public.relatorio_mens_2026_2_snapshot'::regclass, 'SELECT') AS ok`);
-    expect(anon.rows[0].ok).toBe(false);
+    for (const role of ["anon", "authenticated"]) {
+      for (const priv of ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"]) {
+        const { rows: r } = await db.query(
+          `SELECT has_table_privilege($1, 'public.relatorio_mens_2026_2_snapshot'::regclass, $2) AS ok`,
+          [role, priv],
+        );
+        expect(r[0].ok, `${role} ${priv}`).toBe(false);
+      }
+    }
   });
 
   it("rollback remove os objetos de 2026/2 quando nao ha snapshot", async () => {
