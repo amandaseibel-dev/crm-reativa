@@ -39,8 +39,6 @@ export const MAPA_SITUACAO = {
   TERMO_ENVIADO_ADM: "Termo no ADM",
   TERMO_RECEBIDO_LIBERADO: "Termo liberado",
   TERMO_REJEITADO: "Termo rejeitado",
-  TERMO_FISICO_EM_ANDAMENTO: "Possui termo físico assinado, em andamento",
-  TERMO_FISICO_ARQUIVADO: "Termo físico arquivado, quitado",
   EM_ABERTO: "Em cobrança",
   EM_NEGOCIACAO: "Em negociação",
   SEM_SALDO_EM_ABERTO: "Sem saldo em aberto",
