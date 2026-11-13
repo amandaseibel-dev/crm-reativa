@@ -148,8 +148,12 @@ Deno.serve(async (req: Request) => {
     },
     async inserirSeNovo(e: Envio) {
       const { error } = await sb.from("ulbra_envios").insert({ chave: e.chave, operador_email: e.operador_email, atendimento_id: e.atendimento_id, texto: e.texto, status: e.status, previa_id: e.previa_id });
-      if (!error) return true;
-      if ((error as { code?: string }).code === "23505") return false;
+      if (!error) return "NOVO" as const;
+      if ((error as { code?: string }).code === "23505") {
+        const msg = String((error as { message?: string }).message ?? "");
+        if (msg.includes("ulbra_envios_chave_unica")) return "CHAVE_EXISTENTE" as const;
+        if (msg.includes("ulbra_envios_texto_em_aberto_unica")) return "TEXTO_EM_ABERTO" as const;
+      }
       throw new Error("ENVIO_NAO_GRAVADO");
     },
     async existeFalhaIncerta(atendimentoId, texto) {
@@ -167,7 +171,7 @@ Deno.serve(async (req: Request) => {
     async inserir(p: PreviaRegistro) {
       const { error } = await sb.from("ulbra_envio_previas").insert({
         id: p.id, operador_email: p.operador_email, atendimento_id: p.atendimento_id, ulbra_cliente_id: p.ulbra_cliente_id,
-        conteudo_hash: p.conteudo_hash, expira_em: new Date(p.expira_em_ms).toISOString(), consumida_em: null,
+        conteudo_hash: p.conteudo_hash, criado_em: new Date(p.criado_em_ms).toISOString(), expira_em: new Date(p.expira_em_ms).toISOString(), consumida_em: null,
       });
       if (error) throw new Error("PREVIA_NAO_GRAVADA");
     },
@@ -271,6 +275,8 @@ Deno.serve(async (req: Request) => {
         atendimentoId = String(ativo.ulbra_atendimento_id);
       }
       if (!ATENDIMENTO_RE.test(atendimentoId)) return responder({ ok: false, motivo: "ATENDIMENTO_INVALIDO" }, 400);
+      // Desativação: com ULBRA_ENVIO_REAL desligado, nem prévia nem envio. Nada é apagado.
+      if (!envioReal) return responder({ ok: false, situacao: "BLOQUEADO", motivos: ["ENVIO_DESATIVADO"] }, 403);
       const conn = await garantirConexao(await lerRegistro(), provedorOAuth, Date.now());
       if (!conn.ok) return responder({ ok: false, situacao: "BLOQUEADO", motivos: [conn.motivo] }, 403);
       const m = await montarPedido(atendimentoId, texto, "previa-sem-envio", conn.registro);

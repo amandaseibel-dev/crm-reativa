@@ -217,3 +217,14 @@ describe("chave idempotente ligada ao conteúdo e falha incerta sem reenvio", ()
     expect(provedorEnvio.chamadas).toEqual([]);
   });
 });
+
+describe("índice de texto em aberto: concorrência entre requisições com chaves diferentes", () => {
+  it("se o banco recusa por texto em aberto, o envio não sai e a chave não é reutilizada", async () => {
+    const { d, provedorEnvio, repositorio } = deps();
+    // Outra requisição já tem este texto em aberto (ainda não visível para a verificação prévia).
+    repositorio.m.set("outro|chave-outra-requisicao", { chave: "chave-outra-requisicao", operador_email: "outro", atendimento_id: pedido().atendimento_id, texto: "Olá, em que posso ajudar?", status: "PENDENTE", ulbra_mensagem_id: null, motivo: null, criado_em_ms: AGORA, previa_id: null });
+    const r = await enviarResposta(pedido({ chave: "chave-nova-0009" }), d);
+    expect(r.situacao === "BLOQUEADO" && r.motivos).toEqual(["ENVIO_EM_ABERTO_MESMO_TEXTO"]);
+    expect(provedorEnvio.chamadas).toEqual([]);
+  });
+});

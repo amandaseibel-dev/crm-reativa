@@ -23,6 +23,8 @@ export interface PreviaRegistro {
   atendimento_id: string;
   ulbra_cliente_id: string;
   conteudo_hash: string;
+  // Os três instantes vêm do MESMO relógio (o da função): criação, validade e consumo.
+  criado_em_ms: number;
   expira_em_ms: number;
   consumida_em_ms: number | null;
 }
@@ -62,6 +64,7 @@ export async function criarPrevia(pedido: PedidoEnvio, deps: DependenciasPrevia)
     atendimento_id: pedido.atendimento_id,
     ulbra_cliente_id: pedido.ulbra_cliente_id!,
     conteudo_hash: await hashConteudo(pedido.texto),
+    criado_em_ms: agora,
     expira_em_ms: agora + VALIDADE_PREVIA_MS,
     consumida_em_ms: null,
   });

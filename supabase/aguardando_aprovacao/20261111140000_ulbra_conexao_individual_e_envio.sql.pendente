@@ -21,7 +21,8 @@ begin
      or to_regclass('public.ulbra_conexoes_operador') is not null
      or to_regclass('public.ulbra_envio_previas') is not null
      or to_regclass('public.ulbra_envios') is not null
-     or to_regclass('public.ulbra_envios_atendimento_idx') is not null then
+     or to_regclass('public.ulbra_envios_atendimento_idx') is not null
+     or to_regclass('public.ulbra_envios_texto_em_aberto_unica') is not null then
     raise exception 'MIGRATION_20261111140000: objeto já existe; não aplicar sobre estado desconhecido';
   end if;
 end $$;
@@ -75,7 +76,9 @@ create table public.ulbra_envio_previas (
   constraint ulbra_envio_previas_email_minusculo check (operador_email = lower(operador_email)),
   constraint ulbra_envio_previas_atendimento_formato check (atendimento_id ~ '^[a-f0-9]{24}$'),
   constraint ulbra_envio_previas_hash_formato check (conteudo_hash ~ '^[0-9a-f]{64}$'),
-  constraint ulbra_envio_previas_validade check (expira_em > criado_em)
+  constraint ulbra_envio_previas_validade check (expira_em > criado_em),
+  -- validade máxima de 10 min no banco, mesmo que o código erre (a função usa 5 min)
+  constraint ulbra_envio_previas_validade_maxima check (expira_em <= criado_em + interval '10 minutes')
   -- Sem CHECK de consumida_em >= criado_em: consumida_em vem do relógio do Edge Function e criado_em
   -- do now() do banco; a precisão diferente faz o CHECK falhar sem necessidade. O consumo único
   -- é garantido pelo UPDATE ... WHERE consumida_em IS NULL (teste de concorrência).
@@ -104,6 +107,10 @@ create table public.ulbra_envios (
   constraint ulbra_envios_atendimento_formato check (atendimento_id ~ '^[a-f0-9]{24}$')
 );
 create index ulbra_envios_atendimento_idx on public.ulbra_envios (atendimento_id, criado_em desc);
+-- No máximo UM envio em aberto (PENDENTE, ENVIANDO ou FALHA_INCERTA) por atendimento e texto,
+-- entre todos os operadores. Fecha a corrida entre requisições concorrentes com chaves diferentes.
+create unique index ulbra_envios_texto_em_aberto_unica on public.ulbra_envios (atendimento_id, texto)
+  where status in ('PENDENTE','ENVIANDO','FALHA_INCERTA');
 alter table public.ulbra_envios enable row level security;
 revoke all on public.ulbra_envios from public, anon, authenticated;
 grant select, insert, update on public.ulbra_envios to service_role;

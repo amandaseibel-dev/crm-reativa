@@ -77,7 +77,7 @@ export interface RepositorioEnvio {
    * Insere se a chave ainda não existe. Devolve false SOMENTE quando a chave já existe.
    * Qualquer outra falha de gravação deve lançar: nunca vira "já processado".
    */
-  inserirSeNovo(envio: Envio): Promise<boolean>;
+  inserirSeNovo(envio: Envio): Promise<"NOVO" | "CHAVE_EXISTENTE" | "TEXTO_EM_ABERTO">;
   atualizar(operador: string, chave: string, campos: Partial<Envio>): Promise<void>;
   /** Há envio em FALHA_INCERTA para este atendimento e este texto (qualquer operador). */
   existeFalhaIncerta(atendimento_id: string, texto: string): Promise<boolean>;
@@ -188,10 +188,15 @@ export async function enviarResposta(
     previa_id: previaId,
   };
   // Se a gravação falhar, a exceção sobe: não há envio e não há "já processado" falso.
-  const inserido = await deps.repositorio.inserirSeNovo(novo);
-  if (!inserido) {
+  const insercao = await deps.repositorio.inserirSeNovo(novo);
+  if (insercao === "CHAVE_EXISTENTE") {
     const outro = await deps.repositorio.buscar(pedido.operador, pedido.chave);
-    return { situacao: "JA_PROCESSADO", envio: outro ?? novo };
+    if (!outro) throw new Error("ENVIO_SEM_REGISTRO");
+    return { situacao: "JA_PROCESSADO", envio: outro };
+  }
+  if (insercao === "TEXTO_EM_ABERTO") {
+    // Índice único parcial: já há envio PENDENTE, ENVIANDO ou FALHA_INCERTA com este texto neste atendimento.
+    return { situacao: "BLOQUEADO", motivos: ["ENVIO_EM_ABERTO_MESMO_TEXTO"] };
   }
 
   await deps.repositorio.atualizar(pedido.operador, pedido.chave, { status: "ENVIANDO" });

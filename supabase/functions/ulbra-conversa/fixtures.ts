@@ -41,9 +41,11 @@ export class RepoMemoria implements RepositorioEnvio {
   async inserirSeNovo(e: Envio) {
     if (this.falharGravacao) throw new Error("ENVIO_NAO_GRAVADO");
     const k = this.chaveDe(e.operador_email, e.chave);
-    if (this.m.has(k)) return false;
+    if (this.m.has(k)) return "CHAVE_EXISTENTE" as const;
+    const emAberto = [...this.m.values()].some((x) => x.atendimento_id === e.atendimento_id && x.texto === e.texto && ["PENDENTE", "ENVIANDO", "FALHA_INCERTA"].includes(x.status));
+    if (emAberto) return "TEXTO_EM_ABERTO" as const;
     this.m.set(k, { ...e });
-    return true;
+    return "NOVO" as const;
   }
   async existeFalhaIncerta(atendimento_id: string, texto: string) {
     return [...this.m.values()].some((e) => e.atendimento_id === atendimento_id && e.texto === texto && e.status === "FALHA_INCERTA");
