@@ -44,6 +44,7 @@ const CADEIA = [
 const MD5_PROD = JSON.parse(ler(`${FX}fidelizacao_giro_prod_20261112.md5.json`));
 const PASTA = "supabase/aguardando_aprovacao/20261112210000_fidelizacao_giro_segue_os_10_dias";
 const AUDITORIA = ler("supabase/audits/retorno_vinculo_auditoria_20261113.sql");
+const MEDICAO_ESTOQUE = ler("supabase/audits/retorno_estoque_antigo_20261113.sql");
 const MIGRATION = ler(`${PASTA}.sql.pendente`);
 const ROLLBACK = ler(`${PASTA}.rollback.sql`);
 
@@ -974,6 +975,37 @@ describe("vínculo do retorno — via explícita e alternativa de 10 dias (gest�
     await retornoEm(db, 1, 3);
     await forcarParado(db, 1);
     expect((await ambos(db)).cron).toBe(1);
+    await db.close();
+  });
+
+  // A consulta de medição do estoque antigo (supabase/audits/) tem de rodar e
+  // separar protegido, recuperado pelo texto, liberável e AMBÍGUO.
+  it("a consulta de medição do estoque antigo roda e classifica os cinco casos", async () => {
+    const db = await novo();
+    const alvo = async (n, extra = {}) => {
+      await cenario(db, n, { dono: OP1, giro: -17, dua: 15, retorno: null, semMov: true, ...extra });
+      await retornoEm(db, n, 3);
+    };
+    await alvo(1); await atendimento(db, 1, { email: OP1, diasAtras: 12, comDataRetornoEm: 3 }); // campo
+    await alvo(2); await atendimentoTexto(db, 2, { email: OP1, diasAtras: 12, retornoEm: 3 });   // texto
+    await alvo(3); await atendimento(db, 3, { email: OP1, diasAtras: 20 });                      // liberavel
+    await alvo(4); await atendimentoTexto(db, 4, { email: OP1, diasAtras: 20, retornoEm: 9 });   // ambiguo: outra data
+    await alvo(5);                                                                               // ambiguo: sem atendimento
+    for (const n of [1, 2, 3, 4, 5]) await forcarParado(db, n);
+
+    const linhas = await qn(db, MEDICAO_ESTOQUE);
+    const v = (item) => Number(linhas.find((l) => l.item.startsWith(item))?.valor);
+    expect(v("casos")).toBe(5);
+    expect(v("protegidos pelo CAMPO")).toBe(1);
+    expect(v("RECUPERADOS pelo TEXTO")).toBe(1);
+    expect(v("LIBERAVEIS")).toBe(1);
+    const ambiguos = linhas.filter((l) => l.bloco.startsWith("D.") && l.item === "total");
+    expect(Number(ambiguos[0].valor)).toBe(2);
+    // e a função concorda com a consulta nos dois protegidos
+    for (const [n, esperado] of [[1, true], [2, true], [3, false]]) {
+      const r = await q1(db, "select public.aluno_retorno_operador_vigente($1) v", [U(n)]);
+      expect(r.v, `aluno ${n}`).toBe(esperado);
+    }
     await db.close();
   });
 
