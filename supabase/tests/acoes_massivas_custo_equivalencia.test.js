@@ -37,15 +37,23 @@ async function semear(db) {
       await db.query("insert into public.parcelas (acordo_id, status, vencimento, valor, boleto) values ($1,'VENCIDA', current_date - 20, $2, $3)", [ac, 100 + i, `B${i}`]);
       if (i % 8 === 1) await db.query("insert into public.parcelas (acordo_id, status, vencimento, valor, boleto) values ($1,'VENCIDA', current_date + 30, 80, $2)", [ac, `F${i}`]);
     }
+    // casos ENCERRADOS antigos (o indice impede so a ficha ABERTA duplicada): o aluno pode ter
+    // uma ficha aberta e varias encerradas. Valores distintos para o lateral escolher.
+    if (i % 6 === 3) {
+      for (const [k, v] of [[1, 900], [2, 50]]) {
+        await db.query(`insert into public.casos (aluno_id, operador_email, total_em_aberto, data_ultimo_acionamento, cpf_limpo, encerrado_operacional)
+          values ($1, $2, $3, timestamptz '2026-09-01 10:00:00-03', $4, true)`, [id, k === 1 ? OP_A : OP_B, v, `E${i}${k}`]);
+      }
+    }
     if (i % 5 === 2) {
       await db.query(`insert into public.aluno_movimentacoes (aluno_id, tipo, descricao, registrado_por_nome, registrado_por_email, registrado_em)
-        values ($1, 'ACAO_MASSIVA_EXTERNA', 'teste', 'x', 'x@x', now() - interval '3 days')`, [id]);
+        values ($1, 'ACAO_MASSIVA_EXTERNA', 'teste', 'x', 'x@x', timestamptz '2026-11-10 10:00:00-03')`, [id]);
       if (i % 10 === 2) {
         // movimentacao desfeita: nao deve contar
         await db.query(`insert into public.aluno_movimentacoes (aluno_id, tipo, descricao, registrado_por_nome, registrado_por_email, registrado_em)
-          values ($1, 'ACAO_MASSIVA_EXTERNA_EMAIL', 'desfeita', 'x', 'x@x', now() - interval '1 day')`, [id]);
+          values ($1, 'ACAO_MASSIVA_EXTERNA_EMAIL', 'desfeita', 'x', 'x@x', timestamptz '2026-11-12 10:00:00-03')`, [id]);
         const mid = (await db.query("select id from public.aluno_movimentacoes where aluno_id=$1 and descricao='desfeita'", [id])).rows[0].id;
-        await db.query("insert into public.acoes_desfazer (movimentacao_id, desfeito_em) values ($1, now())", [mid]);
+        await db.query("insert into public.acoes_desfazer (movimentacao_id, desfeito_em) values ($1, timestamptz '2026-11-12 11:00:00-03')", [mid]);
       }
     }
   }
@@ -113,14 +121,17 @@ describe("otimizacao do universo: equivalencia com a #941", () => {
       const rb = await B.query("select * from public.acoes_massivas_universo($1::jsonb)", [JSON.stringify(filtroB)]);
       // alunos: mapeamento por posicao de criacao (mesmos dados, ids diferentes entre bases)
       const mapa = new Map(idsA.map((x, i) => [x, idsB[i]]));
-      const norm = (rows, m) => rows.map((r) => ({
-        aluno: m.get(r.aluno_id) ?? r.aluno_id,
-        anos: r.anos, valor: Number(r.valor), tm: r.tem_mensalidade, tav: r.tem_acordo_vencido,
-        disp: r.disponivel, motivo: r.motivo, resp: r.responsavel_email,
-        acionado_mes: r.acionado_mes, nunca: r.nunca_acionado,
-      })).sort((x, y) => String(x.aluno).localeCompare(String(y.aluno)));
+      // comparacao de TODAS as colunas (valores, tipos, datas, flags), com o id de aluno mapeado para
+      // o da base A; checa duplicidade de aluno nas duas bases
+      const canon = (rows, m) => rows
+        .map((r) => ({ ...r, aluno_id: m.get(r.aluno_id) ?? r.aluno_id }))
+        .sort((x, y) => String(x.aluno_id).localeCompare(String(y.aluno_id)));
       const invertido = new Map(idsB.map((x, i) => [x, idsA[i]]));
-      expect(norm(rb.rows, invertido)).toEqual(norm(ra.rows, new Map()));
+      const dupA = new Set(ra.rows.map((r) => r.aluno_id)).size !== ra.rows.length;
+      const dupB = new Set(rb.rows.map((r) => r.aluno_id)).size !== rb.rows.length;
+      expect(dupA || dupB, "duplicidade de aluno no resultado").toBe(false);
+      expect(JSON.stringify(canon(rb.rows, invertido))).toBe(JSON.stringify(canon(ra.rows, new Map())));
+      expect(ra.fields.map((f) => f.name)).toEqual(rb.fields.map((f) => f.name));
       expect(ra.rows.length).toBe(rb.rows.length);
       // o teste so prova algo se o universo nao for vazio: ao menos uma linha, e algum disponivel
       expect(ra.rows.length).toBeGreaterThan(0);
@@ -159,5 +170,42 @@ describe("rollback da otimizacao", () => {
     await db.exec(RB);
     expect(await md5()).toBe("52f8ca6c4e4428e9dc5d0912e2b9751a");
     await expect(db.exec(RB)).rejects.toThrow(/nao esta na versao otimizada/);
+  });
+});
+
+describe("populacao vazia, filtros ausentes e lista vazia para tc", () => {
+  let A, B, idsA, idsB;
+  beforeEach(async () => {
+    A = await novoBanco(); B = await novoBanco();
+    idsA = await semear(A); idsB = await semear(B);
+    await A.exec(emTransacao(MIG941));
+    await B.exec(emTransacao(MIG941));
+    await B.exec(emTransacao(semGuardaFinal(MIG_OTIM)));
+  });
+
+  it("lista vazia para a funcao de tipo retorna zero linhas; NULL retorna a base (nao sao equivalentes)", async () => {
+    const vazio = await B.query("select count(*)::int n from public.acoes_massivas_tipo_cobranca_alunos('{}'::uuid[])");
+    const base = await B.query("select count(*)::int n from public.acoes_massivas_tipo_cobranca_alunos(null::uuid[])");
+    expect(vazio.rows[0].n).toBe(0);
+    expect(base.rows[0].n).toBeGreaterThan(0);
+  });
+
+  it("populacao vazia (unidade inexistente): A e B retornam o mesmo (zero linhas)", async () => {
+    const f = { tipo_cobranca: "MENSALIDADES_E_ACORDOS", unidade: "NAO_EXISTE" };
+    const ra = await A.query("select * from public.acoes_massivas_universo($1::jsonb)", [JSON.stringify(f)]);
+    const rb = await B.query("select * from public.acoes_massivas_universo($1::jsonb)", [JSON.stringify(f)]);
+    expect(ra.rows.length).toBe(0);
+    expect(rb.rows.length).toBe(0);
+  });
+
+  it("filtros ausentes ({}) e tipo padrao: A e B iguais, linha a linha, com todas as colunas", async () => {
+    const ra = await A.query("select * from public.acoes_massivas_universo('{}'::jsonb)");
+    const rb = await B.query("select * from public.acoes_massivas_universo('{}'::jsonb)");
+    expect(rb.rows.length).toBe(ra.rows.length);
+    expect(rb.rows.length).toBeGreaterThan(0);
+    const mapa = new Map(idsB.map((x, i) => [x, idsA[i]]));
+    const canon = (rows, m) => rows.map((r) => ({ ...r, aluno_id: m.get(r.aluno_id) ?? r.aluno_id }))
+      .sort((x, y) => String(x.aluno_id).localeCompare(String(y.aluno_id)));
+    expect(JSON.stringify(canon(rb.rows, mapa))).toBe(JSON.stringify(canon(ra.rows, new Map())));
   });
 });
