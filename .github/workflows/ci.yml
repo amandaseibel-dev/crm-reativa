@@ -210,6 +210,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # ATENCAO: quando a migration sair de `aguardando_aprovacao` (ao ser aplicada),
+      # este passo passa a responder "nao" e o job fica VERDE SEM RODAR NADA. No PR
+      # que mover o arquivo, reaponte o caminho ou remova o job.
       - name: Existe a migration pendente?
         id: existe
         run: |

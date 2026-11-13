@@ -6,8 +6,8 @@
 # Aqui são DUAS sessões `psql` de verdade, contra um Postgres descartável.
 #
 # Prova três cenários nas operações afetadas:
-#   1. LIBERAÇÃO: duas liberações simultâneas do MESMO caso não soltam duas
-#      vezes nem gravam histórico em dobro (o `for update` serializa).
+#   1. LIBERAÇÃO: duas liberações simultâneas do MESMO caso serializam — uma
+#      solta (t) e a outra recusa (f) —, sem duplicar o histórico.
 #   2. LOTE: um operador segurando a linha de um aluno NÃO derruba o lote; o
 #      aluno é pulado pelo `lock_timeout` e os demais seguem.
 #   3. ASSUNÇÃO: dois operadores assumindo o mesmo caso ao mesmo tempo — só um
@@ -49,9 +49,15 @@ C=00000000-0000-0000-0000-000000000003
 
 echo
 echo "== 1. LIBERAÇÃO simultânea do mesmo caso (duas sessões)"
-psql -X -q -c "select public.liberar_fidelizacao_caso('$A');" > /tmp/lib1.out 2>&1 &
-psql -X -q -c "select public.liberar_fidelizacao_caso('$A');" > /tmp/lib2.out 2>&1 &
+# -A -t: a saida e so 't' ou 'f'. As duas saidas SAO LIDAS: e assim que se prova
+# que as duas sessoes de fato rodaram e que o `for update` SERIALIZOU -- uma solta
+# (t) e a outra encontra o caso ja sem dono (f). Sem isto, uma sessao que falhasse
+# na conexao passaria despercebida.
+psql -X -A -t -q -c "select public.liberar_fidelizacao_caso('$A');" > /tmp/lib1.out 2>&1 &
+psql -X -A -t -q -c "select public.liberar_fidelizacao_caso('$A');" > /tmp/lib2.out 2>&1 &
 wait
+checa "uma sessão soltou (t)"                "1" "$(cat /tmp/lib1.out /tmp/lib2.out | grep -c '^t$' || true)"
+checa "a outra recusou (f): serializou"      "1" "$(cat /tmp/lib1.out /tmp/lib2.out | grep -c '^f$' || true)"
 checa "o caso ficou sem operador"            "1" "$(valor "select count(*) from public.casos where id='$A' and operador_email is null")"
 checa "histórico de liberação gravado 1 vez" "1" "$(valor "select count(*) from public.historico_operadores_alunos where cpf_referencia='70000000001' and acao='FIDELIZACAO_EXPIRADA'")"
 
@@ -76,6 +82,8 @@ checa "aluno travado foi PULADO (não liberado)" "1" "$(valor "select count(*) f
 checa "aluno travado continua com o operador"   "1" "$(valor "select count(*) from public.casos where id='$B' and operador_email='op1@teste.local'")"
 checa "os outros do lote foram liberados"      "11" "$(valor "select count(*) from public._backup_fidelizacao_giro_20261112 where liberado_em is not null")"
 checa "o lote nao abortou pelo limite de erros" "1" "$(valor "select count(*) from public._backup_fidelizacao_giro_20261112 where pulado_motivo like 'erro:%'")"
+# a CAUSA do pulo tem de ser o timeout de trava, nao outro erro qualquer
+checa "o aluno foi pulado por TIMEOUT DE TRAVA" "1" "$(valor "select count(*) from public._backup_fidelizacao_giro_20261112 where caso_id='$B' and pulado_motivo ilike '%lock timeout%'")"
 
 echo
 echo "== 3. ASSUNÇÃO simultânea do mesmo caso (dois operadores)"

@@ -375,7 +375,7 @@ Se a gestão confirmar outro horário de encerramento do atendimento, a faixa mu
 | Provas em bancada | 172 testes (105 migração + 67 lotes) |
 | Prova de concorrência real, duas sessões, Postgres descartável | job de CI `fidelizacao do giro — concorrencia real` |
 | Auditoria de produção, somente leitura, com saída versionada | `supabase/audits/retorno_vinculo_auditoria_20261113*` |
-| Parecer do Guardião | APROVADO COM RESSALVA (8ª rodada), ressalvas fechadas |
+| Parecer do Guardião | **APROVADO** (9ª rodada). L1 e L2 fechados e verificados; L3 (a medição do privilégio padrão de produção é do autor) segue declarado |
 
 **Depende só de você — uma única aprovação de implantação.** Autorizando, executo na ordem abaixo, que já está detalhada neste roteiro:
 
