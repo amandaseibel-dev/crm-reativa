@@ -19,6 +19,9 @@ const MIG = ler("../aguardando_aprovacao/20261112235500_acoes_massivas_valor_exi
 const ROLLBACK = ler("../aguardando_aprovacao/20261112235500_acoes_massivas_valor_exigivel.rollback.sql");
 const MD5_PUBLICADO = "8f94a1687f0f3d13765ecf86db1d1e19";
 const MD5_FINAL = "512be32c9c2d7a5cee324e02dc3b8833";
+const TIPO_PUBLICADO = ler("fixtures/acoes_massivas_valor_exigivel/prod_20261113_tipo_cobranca_alunos.sql");
+const MD5_TIPO_PUBLICADO = "323628b786a44f2a108210f8beafea8b";
+const MD5_TIPO_FINAL = "23114e43aaa388315304f208301e152c";
 const emTransacao = (sql) => "BEGIN;\n" + sql + "\nCOMMIT;";
 
 let db;
@@ -28,6 +31,8 @@ beforeEach(async () => {
                  alter table public.parcelas add column if not exists boleto text;
                  alter table public.acordos add column if not exists saldo numeric default 0;`);
   await db.exec(PUBLICADO);
+  // a bancada traz um stub simplificado; a funcao real e a publicada, com hash conferido
+  await db.exec(TIPO_PUBLICADO);
   await comoGestao(db);
 });
 
@@ -35,6 +40,8 @@ const md5 = async () => (await db.query(
   "select md5(pg_get_functiondef(p.oid)) m from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='acoes_massivas_universo'")).rows[0].m;
 const linha = (rows, id) => rows.find((r) => r.aluno_id === id);
 const valor = (rows, id) => Number(linha(rows, id)?.valor);
+// a universe devolve TODOS os candidatos com disponivel/motivo; "fora" = nao disponivel
+const disponivelEm = (rows, id) => linha(rows, id)?.disponivel === true;
 const MENS = (x = {}) => ({ operador: "todos", tipo_cobranca: "MENSALIDADES", ...x });
 const ACORD = (x = {}) => ({ operador: "todos", tipo_cobranca: "ACORDOS_VENCIDOS", ...x });
 const JUNT = (x = {}) => ({ operador: "todos", tipo_cobranca: "MENSALIDADES_E_ACORDOS", ...x });
@@ -113,14 +120,41 @@ describe("depois da migration", () => {
     expect(valor(await universo(db, JUNT()), id)).toBe(420);
   });
 
-  it("PENDENTE DE DECISAO: so titulo a vencer aparece disponivel com valor 0 (criterio de tipo herdado)", async () => {
-    // O criterio de tipo (acoes_massivas_tipo_cobranca_alunos) nao olha vencimento; o valor olha.
-    // Este teste fixa o comportamento atual para a divergencia nao passar despercebida.
+  it("CORRIGIDO: so titulo a vencer nao e disponivel em mensalidades (fora do tipo de cobranca)", async () => {
     const [id] = await alunos(db, 1, { ini: 1 });
     await db.query("update public.acordos_titulos set vencimento = current_date + 15 where aluno_id = $1", [id]);
-    const l = linha(await universo(db, MENS()), id);
-    expect(Number(l.valor)).toBe(0);
-    expect(l.disponivel).toBe(true);
+    expect(disponivelEm(await universo(db, MENS()), id)).toBe(false);
+  });
+
+  it("CORRIGIDO: titulo NEGOCIADO sem vinculo nao qualifica mensalidades", async () => {
+    const [id] = await alunos(db, 1, { ini: 1 });
+    await db.query("update public.acordos_titulos set situacao = 'NEGOCIADO' where aluno_id = $1", [id]);
+    expect(disponivelEm(await universo(db, MENS()), id)).toBe(false);
+  });
+
+  it("mensalidade vencida independente com acordo ATIVO em dia (sem vencida): segue fora, como antes", async () => {
+    const [id] = await alunos(db, 1, { ini: 1 });
+    const ac = await acordo(id);
+    await parcela(ac, { status: "A_VENCER", dias: 20, v: 320 });
+    expect(disponivelEm(await universo(db, MENS()), id)).toBe(false);
+  });
+
+  it("combinada: aluno com mensalidade vencida E acordo vencido aparece so em MENSALIDADES_E_ACORDOS", async () => {
+    const [id] = await alunos(db, 1, { ini: 1 });
+    const ac = await acordo(id);
+    await parcela(ac, { v: 320 });
+    expect(disponivelEm(await universo(db, MENS()), id)).toBe(false);   // tem acordo vencido: fica nos acordos
+    expect(valor(await universo(db, ACORD()), id)).toBe(320);
+    expect(valor(await universo(db, JUNT()), id)).toBe(420);
+  });
+
+  it("tipo de cobranca: MENSALIDADES nao recebe aluno so com acordo vencido", async () => {
+    const [id] = await alunos(db, 1, { ini: 1 });
+    await db.query("update public.acordos_titulos set situacao = 'PAGO' where aluno_id = $1", [id]);
+    const ac = await acordo(id);
+    await parcela(ac, { v: 320 });
+    expect(disponivelEm(await universo(db, MENS()), id)).toBe(false);
+    expect(valor(await universo(db, ACORD()), id)).toBe(320);
   });
 
   it("ACORDOS_VENCIDOS: valor = so as parcelas vencidas do acordo", async () => {
@@ -210,6 +244,17 @@ describe("depois da migration", () => {
     expect(await meta()).toEqual(antes);
     await db.exec(emTransacao(ROLLBACK));
     expect(await meta()).toEqual(antes);
+  });
+
+  it("funcao de tipo: hash final, e o rollback restaura o publicado", async () => {
+    const md5Tipo = async () => (await db.query(
+      "select md5(pg_get_functiondef(p.oid)) m from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'acoes_massivas_tipo_cobranca_alunos'")).rows[0].m;
+    expect(await md5Tipo()).toBe(MD5_TIPO_FINAL);
+    await db.exec(emTransacao(ROLLBACK));
+    expect(await md5Tipo()).toBe(MD5_TIPO_PUBLICADO);
+    expect(await md5()).toBe(MD5_PUBLICADO);
+    await db.exec(emTransacao(MIG));
+    expect(await md5Tipo()).toBe(MD5_TIPO_FINAL);
   });
 
   it("rollback volta ao publicado e recusa rodar duas vezes", async () => {
