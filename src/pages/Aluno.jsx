@@ -19,6 +19,7 @@ import TelefonesAluno from "../components/TelefonesAluno";
 import BlocoUlbra from "../components/BlocoUlbra";
 import { consultaMensageriaNaFicha } from "../utils/ulbraCentral";
 import AtendimentoUlbra from "../components/AtendimentoUlbra";
+import AssumirCasoDisponivel from "../components/AssumirCasoDisponivel";
 import PainelDesfazer from "../components/PainelDesfazer";
 import Dobra from "../ui/blocos";
 import {
@@ -2159,6 +2160,13 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                         </div>
                       )}
                     </div>
+                    <AssumirCasoDisponivel
+                      alunoId={alunoSelecionado.id}
+                      responsavelEmail={alunoSelecionado.responsavel_atual_email}
+                      usuarioEmail={usuarioLogado?.email}
+                      dataUltimoAcionamento={alunoSelecionado.data_ultimo_acionamento}
+                      onAssumido={() => window.location.reload()}
+                    />
                     {(!alunoSelecionado.responsavel_atual_email ||
                       (podeQuitarManual(usuarioLogado?.email) &&
                         pegarCampo(

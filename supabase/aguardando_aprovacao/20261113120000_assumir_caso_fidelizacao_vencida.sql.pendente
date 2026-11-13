@@ -1,0 +1,172 @@
+-- ASSUMIR CASO COM FIDELIZACAO VENCIDA (11o dia sem acionamento valido).
+--
+-- STATUS: PENDENTE. Nao aplicar em producao sem autorizacao especifica e
+-- executor unico (sessao principal). Nao altera internal.pode_alterar_responsavel,
+-- alterar_responsavel_aluno, assumir_caso_livre nem nenhuma policy/grant existente.
+--
+-- REGRA: o operador assume, para si, caso de OUTRO operador ativo cuja
+-- fidelizacao de 10 dias ja venceu. Sem destinatario escolhido: sempre o
+-- proprio operador autenticado. Nao e alteracao geral de responsavel.
+--
+-- ELEGIBILIDADE = a MESMA da liberacao automatica (casos_elegiveis_liberacao_fidelizacao):
+--   * data_ultimo_acionamento nula ou data+10 < hoje (caso_dentro_prazo_fidelizacao = false);
+--   * nao protegido (caso_protegido_redistribuicao), nao encerrado
+--     (caso_encerrado_operacional), nao congelado (caso_encerramento_congelado);
+--   * responsavel do aluno sem troca nas ultimas 24h (mesmo hold do cron);
+--   * saldo em aberto > 0;
+--   * caso de giro vigente (caso_em_giro_fidelizacao) NAO e assumivel aqui.
+--     Quando a #936 for aplicada, a regra de giro passa a ser por data; esta
+--     funcao deve seguir a mesma guarda, nao uma copia dela.
+--
+-- ATOMICIDADE: FOR UPDATE no aluno e depois no caso (mesma ordem dos caminhos de
+-- acionamento). Prazo e protecao sao lidos DEPOIS do lock. Um acionamento que
+-- commitou antes, gravado em alunos OU em casos, entra na leitura e recusa a tomada.
+-- Dois operadores: o segundo espera o lock e ve operador_email preenchido.
+-- Limite: a prova de concorrencia real esta em supabase/tests/concorrencia_assumir_fidelizacao/ (roda no CI com Postgres de verdade).
+--
+-- TETO: calibragem_teto_operador(email), mesma base de trg_impor_teto_operador
+-- (casos nao protegidos e nao encerrados). Se estiver no teto, recusa. Nao
+-- libera outro caso para compensar.
+--
+-- AUDITORIA: historico_operadores_alunos com acao ASSUMIR_FIDELIZACAO_VENCIDA,
+-- responsavel anterior, novo responsavel, data, autor e motivo obrigatorio.
+-- alunos.responsavel_* via internal.set_resp_aluno (mesmo caminho de
+-- alterar_responsavel_aluno), que preserva data_ultimo_acionamento pelo gatilho
+-- trg_acionamento_nao_volta_para_nulo.
+
+create or replace function public.assumir_caso_fidelizacao_vencida(p_aluno_id uuid, p_motivo text)
+returns table(sucesso boolean, mensagem text)
+language plpgsql
+security definer
+set search_path to 'public', 'internal'
+as $fn$
+declare
+  v_email text;
+  v_nome text;
+  v_motivo text;
+  v_c record;
+  v_al record;
+  v_ultimo_acionamento date;
+  v_ant_email text;
+  v_ant_nome text;
+  v_teto int;
+  v_count int;
+begin
+  v_email := lower(coalesce(auth.jwt() ->> 'email', ''));
+  if v_email = '' then
+    return query select false, 'Usuario nao identificado. Faca login novamente.'; return;
+  end if;
+
+  v_nome := public.nome_operador_por_email(v_email);
+  if v_nome is null then
+    return query select false, 'Operador nao ativo ou nao identificado.'; return;
+  end if;
+
+  v_motivo := nullif(btrim(coalesce(p_motivo, '')), '');
+  if v_motivo is null then
+    return query select false, 'Informe o motivo da assuncao.'; return;
+  end if;
+
+  if not internal.operador_pode_receber_caso(v_email) then
+    return query select false, 'Sua carteira esta fechada para casos novos. Fale com a gestao.'; return;
+  end if;
+
+  -- TRAVA ATOMICA, na MESMA ordem em que os caminhos de acionamento travam:
+  -- primeiro o aluno (onde trg_sync_acionamento grava o acionamento), depois o caso.
+  -- Um acionamento que grava so em alunos OU so em casos bloqueia esta tomada.
+  -- A tela passa o id do ALUNO: a RLS de casos nao deixa o operador ler caso alheio.
+  select a.id, a.responsavel_atual_email, a.responsavel_atual_em, a.data_ultimo_acionamento
+    into v_al
+    from public.alunos a where a.id = p_aluno_id for update;
+  if not found then
+    return query select false, 'Aluno nao encontrado.'; return;
+  end if;
+
+  select c.*, public.saldo_titulos_aberto(c.cpf_limpo) as _saldo into v_c
+    from public.casos c where c.aluno_id = p_aluno_id for update;
+  if not found then
+    return query select false, 'Caso nao encontrado.'; return;
+  end if;
+
+  if coalesce(v_c.operador_email, '') = '' then
+    return query select false, 'Caso livre: use Assumir atendimento.'; return;
+  end if;
+  if lower(v_c.operador_email) = v_email then
+    return query select false, 'Este caso ja esta com voce.'; return;
+  end if;
+  if lower(v_c.operador_email) = internal.carteira_geral_email() then
+    return query select false, 'Carteira Geral: use Assumir atendimento.'; return;
+  end if;
+  if not exists (select 1 from public.usuarios u
+                  where lower(u.email) = lower(v_c.operador_email) and u.ativo and u.perfil = 'operador') then
+    return query select false, 'Dono sem carteira ativa: use Assumir atendimento.'; return;
+  end if;
+
+  if public.caso_em_giro_fidelizacao(v_c.giro_fidelizacao_ate) then
+    return query select false, 'Este caso esta fidelizado pelo giro de carteira.'; return;
+  end if;
+
+  -- AMBIGUIDADE: o responsavel do aluno e o dono do caso precisam ser o mesmo.
+  if v_al.responsavel_atual_email is not null
+     and lower(v_al.responsavel_atual_email) <> lower(v_c.operador_email) then
+    return query select false, 'Responsavel divergente entre aluno e caso. A gestao precisa conferir.'; return;
+  end if;
+
+  -- PRAZO: acionamento mais recente entre aluno e caso. Lido DEPOIS do lock.
+  v_ultimo_acionamento := greatest(v_al.data_ultimo_acionamento, v_c.data_ultimo_acionamento);
+  if public.caso_dentro_prazo_fidelizacao(v_ultimo_acionamento) then
+    return query select false, 'Caso ainda dentro do prazo de 10 dias do ultimo acionamento.'; return;
+  end if;
+
+  -- HOLD 24h do responsavel do aluno (mesmo filtro do cron).
+  if v_al.responsavel_atual_em is not null and v_al.responsavel_atual_em >= now() - interval '1 day' then
+    return query select false, 'Responsavel trocado nas ultimas 24h. Tente depois.'; return;
+  end if;
+
+  if public.caso_protegido_redistribuicao(v_c.cpf_limpo, v_c.status_acionamento, v_c.nao_acionar,
+       v_c.status_financeiro, v_c.valor_pago, v_c.quitado_em, v_c.valor_quitado)
+     or public.caso_encerrado_operacional(v_c.cpf_limpo, v_c.status_atual, v_c.status_acionamento,
+       v_c.status_financeiro, v_c.status_jornada)
+     or public.caso_encerramento_congelado(v_c.id)
+     or coalesce(v_c._saldo, 0) <= 0 then
+    return query select false, 'Caso nao elegivel (protegido, encerrado, congelado ou sem saldo).'; return;
+  end if;
+
+  -- TETO vigente, mesma base do trigger de teto.
+  v_teto := public.calibragem_teto_operador(v_email);
+  v_count := (select count(*) from public.casos c where c.operador_email = v_email
+                 and not public.caso_protegido_redistribuicao(c.cpf_limpo, c.status_acionamento, c.nao_acionar,
+                       c.status_financeiro, c.valor_pago, c.quitado_em, c.valor_quitado)
+                 and not public.caso_encerrado_operacional(c.cpf_limpo, c.status_atual, c.status_acionamento,
+                       c.status_financeiro, c.status_jornada));
+  if v_count >= v_teto then
+    return query select false, 'Carteira no teto ('||v_teto||' casos). Libere um caso antes.'; return;
+  end if;
+
+  v_ant_email := lower(v_c.operador_email);
+  v_ant_nome := coalesce(v_c.operador_nome, v_c.operador_email);
+
+  perform internal.set_resp_aluno(v_c.aluno_id, v_email, v_nome, 'ASSUMIR_FIDELIZACAO_VENCIDA',
+    'Assumido de '||v_ant_nome||' (fidelizacao vencida, ultimo acionamento '||
+    coalesce(v_ultimo_acionamento::text, 'nunca')||'). Motivo: '||v_motivo,
+    v_email, v_nome);
+
+  update public.casos set operador_email = v_email, operador_nome = v_nome, operador = upper(v_nome),
+    caso_atualizado_por = v_email, caso_atualizado_em = now()
+  where id = v_c.id;
+
+  insert into public.historico_operadores_alunos
+    (chave_unificacao, nome_aluno, cpf_referencia, acao,
+     operador_anterior_nome, operador_anterior_email, operador_nome, operador_email,
+     observacao, criado_em)
+  values (v_c.chave_unificacao, v_c.nome, v_c.cpf, 'ASSUMIR_FIDELIZACAO_VENCIDA',
+     v_ant_nome, v_ant_email, v_nome, v_email,
+     'Responsavel anterior: '||v_ant_email||'. Novo: '||v_email||'. Data: '||now()::text||
+     '. Autor: '||v_email||'. Motivo: '||v_motivo||'.', now());
+
+  return query select true, 'Caso assumido. A fidelizacao de 10 dias comeca no proximo acionamento valido.';
+end;
+$fn$;
+
+revoke all on function public.assumir_caso_fidelizacao_vencida(uuid, text) from public, anon;
+grant execute on function public.assumir_caso_fidelizacao_vencida(uuid, text) to authenticated;
