@@ -221,6 +221,32 @@ A restauração devolve operador, responsável, marca do giro, retorno, hora, pr
 - Remedição (13/11): 599 alunos com retorno do operador hoje ou futuro na base; 216 têm atendimento real do responsável com a mesma data (válidos pela regra). **Dos 61 que estão entre os elegíveis à liberação, nenhum é válido pela regra** — são retornos remarcados ou sem atendimento.
 - **Consequência:** com a regra nova esses 61 **deixam de ser protegidos** e entram no universo de liberação. Antes, a regra antiga (só data e origem) os segurava. A gestão deve confirmar isso antes de qualquer execução.
 
+**Auditoria dos retornos (13/11/2026, somente leitura) — pedida pela gestão; nada movimentado.**
+
+*Os casos da cobranca06 com retorno do operador para hoje (62 na leitura de 13/11; eram 61 na anterior):*
+
+| Categoria | Casos | O que se viu |
+|---|---|---|
+| Evidência de negociação ou compromisso | 10 | Só pelo texto da tabulação (ex.: "Aguardando confirmação de pagamento", "Enviado ao financeiro"); 2 com solicitação de confirmação de pagamento nos últimos 45 dias. Nenhum acordo ativo, nenhum link de pagamento recente |
+| Apenas remarcado, sem atendimento | 0 isolados | (ver a linha seguinte: nenhuma das datas tem atendimento) |
+| Possível falha de registro ou integração | 52 | A data de retorno atual **não aparece em nenhuma movimentação**. Em 39 casos ela foi empurrada de 4 a 122 dias além do último retorno registrado; em 23 nunca houve retorno registrado |
+| Já perderam a fidelização normal de 10 dias | **62 de 62** | Último atendimento do responsável há 14 a 38 dias |
+
+Sinais em comum aos 62: retorno **sempre para hoje**, **sem hora marcada**, próxima ação com o texto automático "Próxima ação: cobrar o saldo vencido de R$ …" e situação `COBRANCA_VENCIDA`. É o padrão de data gravada por rotina automática que manteve a origem `OPERADOR` (o defeito conhecido do "carimbo do retorno": prazo de máquina herdando o selo do operador). **Hipótese forte, não comprovada:** não há trilha que mostre qual rotina gravou a data.
+
+*Os 216 retornos válidos pela regra (atendimento real do responsável com a mesma data), por distância entre atendimento e retorno:*
+
+| Distância | Retornos |
+|---|---|
+| 0 a 7 dias | 0 |
+| 8 a 10 dias | 215 |
+| 11 a 15 dias | 1 (12 dias) |
+| acima de 15 dias | 0 |
+
+Desses 216, **182 vêm da tabulação `MENSAGEM_ENVIADA`** (prazo automático de 7 dias úteis), 32 de `EM_ATENDIMENTO` e 2 de `LEMBRETE_PARCELA`. **Nenhum tem hora marcada.** O limite de 15 dias muda o resultado de 1 caso; 10 dias cobririam 215 dos 216.
+
+**Situação da regra:** o código da branch usa 15 dias como **hipótese de teste** (diretriz 5), e nada vai para produção. A regra final aguarda a gestão.
+
 **G2 — fora desta PR.** Receptivo (`sistema_assumir_receptivo`), movimentação da gestão (`carteira_geral_trocar_dono`) e vínculos de responsável (`vincular_responsavel_caso`, `desfazer_acao`) vão para PR separada, precedida de auditoria de cada caminho. Até lá, esses caminhos **continuam podendo mudar o responsável de irmão com fidelização vigente**: é risco residual da operação atual, não introduzido por esta PR.
 
 **Escopo desta PR:** liberação, cron, teto e assunção de caso.
