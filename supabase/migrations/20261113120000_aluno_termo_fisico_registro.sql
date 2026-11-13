@@ -41,6 +41,26 @@ create policy aluno_termo_fisico_eventos_gestao_le
 -- Sem policy de INSERT, UPDATE ou DELETE para authenticated: a escrita só passa
 -- pela RPC `termo_fisico_registrar`, que é SECURITY DEFINER.
 
+-- Append-only de fato, inclusive para papéis de serviço: UPDATE e DELETE
+-- levantam exceção. Sem isto, o "histórico" dependeria só de grant.
+create or replace function public.aluno_termo_fisico_eventos_imutavel()
+returns trigger
+language plpgsql
+set search_path to 'public'
+as $$
+begin
+  raise exception 'registro de termo físico é append-only'
+    using errcode = '42501';
+end;
+$$;
+
+revoke all on function public.aluno_termo_fisico_eventos_imutavel() from public, anon, authenticated;
+
+drop trigger if exists aluno_termo_fisico_eventos_sem_update_delete on public.aluno_termo_fisico_eventos;
+create trigger aluno_termo_fisico_eventos_sem_update_delete
+  before update or delete on public.aluno_termo_fisico_eventos
+  for each row execute function public.aluno_termo_fisico_eventos_imutavel();
+
 -- ----------------------------------------------------------------------------
 -- 2. Leitura: situação atual + histórico. Recusa quem não é gestão.
 -- ----------------------------------------------------------------------------
@@ -163,7 +183,7 @@ $$;
 -- 4. Grants das funções: nada para public/anon; só authenticated e service_role.
 -- ----------------------------------------------------------------------------
 revoke all on function public.termo_fisico_ler(text) from public, anon;
-grant execute on function public.termo_fisico_ler(text) to authenticated, service_role;
+grant execute on function public.termo_fisico_ler(text) to authenticated;
 
 revoke all on function public.termo_fisico_registrar(text, text, boolean) from public, anon;
-grant execute on function public.termo_fisico_registrar(text, text, boolean) to authenticated, service_role;
+grant execute on function public.termo_fisico_registrar(text, text, boolean) to authenticated;
