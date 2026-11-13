@@ -1121,3 +1121,34 @@ jobs:
         env:
           DENO_NO_PACKAGE_JSON: '1'
         run: deno check supabase/functions/ulbra-historico/index.ts
+
+  # ---------------------------------------------------------------------------
+  # ulbra-historico -- teto do piloto (3 chamadas) com reservas SIMULTÂNEAS, no
+  # SQL real da migração pendente, em Postgres isolado. Não chama a ULBRA.
+  # ---------------------------------------------------------------------------
+  ulbra-historico-teto-postgres:
+    name: ulbra-historico — teto atômico do piloto (postgres isolado, reservas simultâneas)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Reservas simultâneas no teto de 3
+        run: bash supabase/tests/ulbra_historico_teto/reservas_simultaneas.sh
