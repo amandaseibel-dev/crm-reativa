@@ -1099,3 +1099,52 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/04_depois_da_correcao.sql"
           psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
           psql -v ON_ERROR_STOP=1 -f "$DIR/05_apos_rollback.sql"
+
+  # ---------------------------------------------------------------------------
+  # ulbra-historico -- validação antes de qualquer republicação: tipagem Deno e
+  # resolução de imports, testes de autorização e validação de entrada, ausência
+  # de dependência de ulbra-conversa e JWT obrigatório. Não publica, não faz
+  # deploy e não chama a ULBRA.
+  # ---------------------------------------------------------------------------
+  ulbra-historico-validacao:
+    name: ulbra-historico — tipagem, imports, autorizacao, JWT e dependencias
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Instalar Deno (versão fixada)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.1.4
+
+      - name: deno check da função e de tudo que ela importa
+        env:
+          DENO_NO_PACKAGE_JSON: '1'
+        run: deno check supabase/functions/ulbra-historico/index.ts
+
+      - name: Sem dependência de ulbra-conversa nos arquivos da função
+        run: |
+          set -euo pipefail
+          ARQUIVOS=$(ls supabase/functions/ulbra-historico/*.ts | grep -v '\.test\.ts$')
+          if grep -n "ulbra-conversa" $ARQUIVOS; then
+            echo "dependência indevida de ulbra-conversa"
+            exit 1
+          fi
+          echo "ok: $(echo $ARQUIVOS | wc -w) arquivos sem ulbra-conversa"
+
+      - name: JWT obrigatório na configuração
+        run: |
+          python3 - <<'PY'
+          import tomllib
+          d = tomllib.load(open('supabase/config.toml', 'rb'))
+          v = d.get('functions', {}).get('ulbra-historico', {}).get('verify_jwt')
+          assert v is True, f'verify_jwt de ulbra-historico deve ser true, veio {v!r}'
+          print('ok: verify_jwt = true')
+          PY
+
+      - name: Testes de autorização, entrada e ausência de OAuth e envio
+        run: |
+          npm ci
+          npx vitest run supabase/functions/ulbra-historico

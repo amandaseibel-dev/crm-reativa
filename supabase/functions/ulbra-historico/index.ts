@@ -14,6 +14,7 @@ import {
   lerHistoricoSomenteLeitura, type DependenciasHistorico, type FotografiaSaldo,
 } from "./historico.ts";
 import type { ContextoLeitura } from "./leitura.ts";
+import { buscarUsuarioAtivo, tokenDoHeader } from "./acesso.ts";
 
 const MCP_URL = "https://crm.ulbra.ai/api/mcp";
 const ACCEPT_MCP = "application/json, text/event-stream";
@@ -56,8 +57,9 @@ async function chamarMcp(token: string, nome: string, args: Record<string, unkno
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  const auth = req.headers.get("authorization") ?? "";
-  if (!auth.startsWith("Bearer ")) return responder({ erro: "SEM_TOKEN" }, 401);
+  const auth = req.headers.get("authorization");
+  const tokenUsuario = tokenDoHeader(auth);
+  if (!tokenUsuario) return responder({ erro: "SEM_TOKEN" }, 401);
   const token = Deno.env.get("ULBRA_MCP_TOKEN");
   const urlBanco = Deno.env.get("SUPABASE_URL");
   const anon = Deno.env.get("SUPABASE_ANON_KEY");
@@ -68,12 +70,12 @@ Deno.serve(async (req: Request) => {
   if (typeof conversa_id !== "string" || !/^[a-f0-9]{24}$/.test(conversa_id)) return responder({ erro: "CONVERSA_INVALIDA" }, 400);
   const antesDe = typeof antes_de === "string" && antes_de ? antes_de : null;
 
-  const sbUser = createClient(urlBanco, anon, { global: { headers: { Authorization: auth } } });
+  const sbUser = createClient(urlBanco, anon, { global: { headers: { Authorization: `Bearer ${tokenUsuario}` } } });
   const sb = createClient(urlBanco, servico, { auth: { persistSession: false } });
   const { data: { user } } = await sbUser.auth.getUser();
   if (!user?.email) return responder({ erro: "ACESSO_NEGADO" }, 403);
   const email = user.email.toLowerCase();
-  const { data: usuario } = await sb.from("usuarios").select("email, perfil, ativo").ilike("email", email).eq("ativo", true).limit(1).maybeSingle();
+  const usuario = await buscarUsuarioAtivo(sb, email);
   if (!usuario) return responder({ erro: "ACESSO_NEGADO" }, 403);
   const gestao = PERFIS_AMPLOS.includes(String(usuario.perfil));
 
