@@ -310,16 +310,10 @@ O teste de equivalência da suíte prova a concordância com `aluno_retorno_oper
 5. **Proteção extra da via explícita entre o 11º e o 15º dia: 0 casos.**
 6. Sem casos na faixa, não há tabulação a classificar.
 
-### Recomendação: eliminar a via alternativa
+### Decisão da gestão (13/11): a via alternativa FICA nesta entrega
 
-A medição confirma o achado em produção. Como todo atendimento reinicia a fidelização de 10 dias, **nenhuma das duas vias protege um caso que a fidelização normal já não proteja**:
+A medição mostrou que, hoje, a via alternativa não protege exclusivamente nenhum caso (0 de 850) e que a dessincronização que a justificaria é zero — ela é redundante enquanto todo atendimento reiniciar a fidelização de 10 dias. **A gestão decidiu mantê-la nesta entrega**, e a regra não foi alterada. Fica registrado que a sua remoção, se e quando a gestão quiser, não tem efeito sobre o universo medido.
 
-- a **via alternativa** não protege exclusivamente nenhum caso (0 de 850) e a dessincronização que justificaria sua existência é **zero**. Pode ser **eliminada sem nenhuma perda**;
-- a **via explícita** também não protege nenhum caso hoje, mas é a única que pode vir a proteger: ela cobre o retorno marcado para **além do 10º dia** do atendimento, que é compromisso real com o aluno. Hoje são 0 casos porque nenhum retorno válido está nessa faixa (215 dos 216 medidos em 12/11 estavam entre 8 e 10 dias). **Recomendo manter**, com a janela de 15 dias ainda provisória.
-
-Observação: a correção da Minha Carteira (gravar a data na movimentação) tende a **aumentar** o número de retornos com vínculo explícito daqui para frente — hoje 217 de 600. Isso não muda a recomendação, porque a via explícita permanece.
-
-**Decisão da gestão necessária** antes de eliminar a alternativa: a regra está implementada como aprovada (opção 3, janela de 10 dias), e não a alterei.
 
 ### Achados da 8ª auditoria do Guardião — tratados e declarados
 
@@ -339,6 +333,34 @@ Observação: a correção da Minha Carteira (gravar a data na movimentação) t
 **G2 — fora desta PR.** Receptivo (`sistema_assumir_receptivo`), movimentação da gestão (`carteira_geral_trocar_dono`) e vínculos de responsável (`vincular_responsavel_caso`, `desfazer_acao`) vão para PR separada, precedida de auditoria de cada caminho. Até lá, esses caminhos **continuam podendo mudar o responsável de irmão com fidelização vigente**: é risco residual da operação atual, não introduzido por esta PR.
 
 **Escopo desta PR:** liberação, cron, teto e assunção de caso.
+
+## PACOTE FINAL — o que está pronto e o que depende da gestão
+
+**Pronto, nesta branch, sem nada aplicado em produção:**
+
+| Item | Onde |
+|---|---|
+| Migration pendente + rollback (6 funções: 4 alteradas, 2 novas) | `supabase/aguardando_aprovacao/20261112210000_*` |
+| Scripts de execução: backup, liberação por lote, restauração | `supabase/recovery/20261112_giro_fidelizacao_0{0,1,2}_*.sql` |
+| Correção da Minha Carteira (grava a data do retorno na movimentação) | `src/components/PainelCarteira.jsx` |
+| Provas em bancada | 172 testes (105 migração + 67 lotes) |
+| Prova de concorrência real, duas sessões, Postgres descartável | job de CI `fidelizacao do giro — concorrencia real` |
+| Auditoria de produção, somente leitura, com saída versionada | `supabase/audits/retorno_vinculo_auditoria_20261113*` |
+| Parecer do Guardião | APROVADO COM RESSALVA (8ª rodada), ressalvas fechadas |
+
+**Depende só de você — uma única aprovação de implantação.** Autorizando, executo na ordem abaixo, que já está detalhada neste roteiro:
+
+1. pausar o cron `fidelizacao_liberar_vencidos`;
+2. aplicar a migration (ela aborta sozinha se o cron estiver ativo);
+3. rodar o backup;
+4. liberar o lote 1, conferir; lote 2, conferir; lote 3, conferir;
+5. reativar o cron.
+
+Janela: entre 00:00 e 20:59 BRT, fora do expediente. Reversão: rollback da migration e `02_restaurar.sql`, com o cron pausado.
+
+**Números a remedir no momento da execução** (o universo muda a cada hora; os de 13/11 09:04 estão em `supabase/audits/..._RESULTADO.md`).
+
+**Fora deste pacote, por decisão sua:** os caminhos do G2 (receptivo, movimentação da gestão, vínculos de responsável) e o nivelamento das 09:20, que seguem podendo mover irmão protegido e vão para PR separada.
 
 ## Riscos residuais (declarados)
 
