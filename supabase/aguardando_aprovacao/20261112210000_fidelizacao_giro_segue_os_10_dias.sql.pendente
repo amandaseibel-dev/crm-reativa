@@ -144,8 +144,16 @@ AS $function$
                 and lower(m.registrado_por_email) = lower(a.responsavel_atual_email)
                 and m.registrado_em >= coalesce(a.responsavel_atual_em, '-infinity'::timestamptz)
                 and (
+                      -- (a) vinculo explicito pelo CAMPO da movimentacao
                       ((m.data_retorno at time zone 'America/Sao_Paulo')::date = a.data_retorno
                         and a.data_retorno <= (m.registrado_em at time zone 'America/Sao_Paulo')::date + 15)
+                      -- (a') ESTOQUE ANTERIOR a correcao da Minha Carteira: ate 13/11/2026 a
+                      -- tela gravava o retorno no ALUNO e no TEXTO da movimentacao, mas nao no
+                      -- campo. O texto e prova de agendamento HUMANO, e ausencia de campo NAO e
+                      -- prova de agendamento automatico. Mesmo teto de 15 dias.
+                   or (m.descricao like '%Retorno: ' || to_char(a.data_retorno, 'DD/MM/YYYY') || '%'
+                        and a.data_retorno <= (m.registrado_em at time zone 'America/Sao_Paulo')::date + 15)
+                      -- (b) alternativa: atendimento do responsavel nos ultimos 10 dias
                    or m.registrado_em >= now() - interval '10 days'
                 )
        )

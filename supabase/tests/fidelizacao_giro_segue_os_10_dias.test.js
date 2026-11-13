@@ -927,6 +927,56 @@ describe("vínculo do retorno — via explícita e alternativa de 10 dias (gest�
     await db.close();
   });
 
+  // ESTOQUE ANTERIOR à correção da Minha Carteira: a tela gravava o retorno no texto
+  // da movimentação, não no campo. Ausência de campo NÃO prova agendamento automático.
+  const atendimentoTexto = (db, n, { email, diasAtras, retornoEm }) =>
+    db.query(
+      `insert into public.aluno_movimentacoes (aluno_id, tipo, descricao, registrado_por_email, registrado_por_nome, registrado_em, data_retorno)
+       values ($1, 'FINALIZACAO_ATENDIMENTO',
+               'Mensagem enviada — ação rápida direto na Minha Carteira. Retorno: ' || to_char(current_date + $4::int, 'DD/MM/YYYY') || '.',
+               $2, 'OP', (current_date - $3::int)::timestamp + interval '15 hours', null)`,
+      [U(n), email, diasAtras, retornoEm]);
+
+  it("ESTOQUE ANTIGO: retorno humano gravado só no TEXTO (sem campo) protege", async () => {
+    const db = await novo();
+    await base(db);
+    await atendimentoTexto(db, 1, { email: OP1, diasAtras: 12, retornoEm: 3 });
+    await retornoEm(db, 1, 3);
+    await forcarParado(db, 1);
+    expect(await ambos(db)).toEqual({ cron: 0, assumiu: false, dono: OP1 });
+    await db.close();
+  });
+
+  it("ESTOQUE ANTIGO: texto com OUTRA data não protege (não é o retorno vigente)", async () => {
+    const db = await novo();
+    await base(db);
+    await atendimentoTexto(db, 1, { email: OP1, diasAtras: 12, retornoEm: 9 });   // texto fala de +9
+    await retornoEm(db, 1, 3);                                                     // mas o retorno e +3
+    await forcarParado(db, 1);
+    expect((await ambos(db)).cron).toBe(1);
+    await db.close();
+  });
+
+  it("ESTOQUE ANTIGO: o teto de 15 dias vale igual para o vínculo por texto", async () => {
+    const db = await novo();
+    await base(db);
+    await atendimentoTexto(db, 1, { email: OP1, diasAtras: 12, retornoEm: 6 });   // 12 + 6 = 18 dias
+    await retornoEm(db, 1, 6);
+    await forcarParado(db, 1);
+    expect((await ambos(db)).cron).toBe(1);
+    await db.close();
+  });
+
+  it("ESTOQUE ANTIGO: texto de OUTRO operador não protege o responsável atual", async () => {
+    const db = await novo();
+    await base(db);
+    await atendimentoTexto(db, 1, { email: OP2, diasAtras: 12, retornoEm: 3 });
+    await retornoEm(db, 1, 3);
+    await forcarParado(db, 1);
+    expect((await ambos(db)).cron).toBe(1);
+    await db.close();
+  });
+
   it("EXPLÍCITA: retorno a mais de 15 dias do atendimento → NÃO protege", async () => {
     const db = await novo();
     await base(db);

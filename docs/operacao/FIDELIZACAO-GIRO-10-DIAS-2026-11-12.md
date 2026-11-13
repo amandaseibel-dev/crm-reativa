@@ -281,6 +281,8 @@ Desses 216, **182 vêm da tabulação `MENSAGEM_ENVIADA`** (prazo automático de
 
 11 testes cobrem: alternativa dentro e fora dos 10 dias, remarcação, via explícita dentro e fora dos 15 dias, ex-operador, X→Y→X nos dois sentidos, retorno concluído e atendimento de outro operador.
 
+**Retornos humanos agendados ANTES da correção (13/11).** Até a correção, a Minha Carteira gravava o retorno no aluno e **no texto** da movimentação ("Retorno: DD/MM/AAAA"), mas não no campo de vínculo. **Ausência do campo não é prova de agendamento automático.** A regra passa a reconhecer as duas formas de vínculo — campo e texto —, com o mesmo teto de 15 dias e as mesmas exigências (responsável atual, atendimento posterior à última troca, retorno não concluído). Quatro testes cobrem o estoque antigo. **Quantidade em produção: pendente de medição** (a leitura caiu com erro do conector; medir antes da execução).
+
 **Correção da origem dos dados:** `PainelCarteira.jsx` passa a gravar `data_retorno` na movimentação de atendimento, nos dois pontos que registram retorno (ação rápida e tabulação). Antes, só a ficha do aluno e a fila operacional gravavam, e era essa a causa dos retornos sem vínculo. Consistência com os outros dois caminhos: mesma data que vai para `alunos.data_retorno`, às 12:00 em São Paulo, para o dia não mudar na conversão de fuso.
 
 ### ACHADO: a via alternativa de 10 dias é redundante no fluxo normal
