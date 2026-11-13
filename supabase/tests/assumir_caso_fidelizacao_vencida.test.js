@@ -215,7 +215,7 @@ describe("operador assume caso com fidelização vencida", () => {
     await como(db, LUANA);
     const r = await tomar(db, caso);
     expect(r.sucesso).toBe(false);
-    expect(r.mensagem).toContain("limite de casos");
+    expect(r.mensagem).toContain("nao esta disponivel");
     expect((await q1(db, "select operador_email e from public.casos where id=$1", [caso])).e).toBe(MAURICIO);
     await db.close();
   });
@@ -287,7 +287,7 @@ describe("operador assume caso com fidelização vencida", () => {
     await como(db, LUANA);
     expect((await tomar(db, caso, "Assumir por fidelizacao vencida")).sucesso).toBe(true);
     const m = await q1(db,
-      "select tipo, operador_anterior_email, operador_novo_email, registrado_por_email from public.aluno_movimentacoes where aluno_id=$1 order by registrado_em desc limit 1",
+      "select tipo, operador_anterior_email, operador_novo_email, registrado_por_email from public.aluno_movimentacoes where aluno_id=$1 and tipo='ASSUMIR_FIDELIZACAO_VENCIDA'",
       [U(17)]);
     expect(m.tipo).toBe("ASSUMIR_FIDELIZACAO_VENCIDA");
     expect(m.operador_anterior_email).toBe(MAURICIO);
@@ -501,5 +501,82 @@ describe("operador assume caso com fidelização vencida", () => {
       expect(r2.sucesso).toBe(false);
       await db.close();
     });
+  });
+
+  it("recusa uniforme no teto: mesma mensagem de qualquer outra recusa", async () => {
+    const db = await abrirCom();
+    await db.exec(`update public.calibragem_parametros set valor='2'::jsonb where chave='limite_carteira'`);
+    await cenario(db, 60, { dono: LUANA });
+    await cenario(db, 61, { dono: LUANA });
+    const teto = await cenario(db, 62, { dono: MAURICIO });
+    const semDono = await cenario(db, 63, { dono: null });
+    await como(db, LUANA);
+    const a = await tomar(db, teto);
+    const b = await tomar(db, semDono);
+    expect(a.mensagem).toBe(b.mensagem);
+    await db.close();
+  });
+
+  it("recusa responsável sem data da troca ou sem responsável (não dá para provar o prazo)", async () => {
+    const db = await abrirCom();
+    const caso = await cenario(db, 64, { dono: MAURICIO });
+    await db.query("update public.alunos set responsavel_atual_em = null where id=$1", [U(64)]);
+    await como(db, LUANA);
+    expect((await tomar(db, caso)).sucesso).toBe(false);
+    await db.close();
+  });
+
+  it("atendimento de OUTRO autor no mesmo dia depois da tomada impede a reversão", async () => {
+    const db = await abrirCom();
+    const caso = await cenario(db, 65, { dono: MAURICIO });
+    await como(db, LUANA);
+    const r = await tomar(db, caso);
+    await db.query("update public.casos set data_ultimo_acionamento = current_date where id=$1", [caso]);
+    await como(db, GESTAO);
+    const rv = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [r.operacao_id, "x"]);
+    expect(rv.sucesso).toBe(false);
+    expect(rv.mensagem).toContain("Conflito");
+    await db.close();
+  });
+
+  it("reversão restaura proxima ação e retorno do operador de origem", async () => {
+    const db = await abrirCom();
+    const caso = await cenario(db, 66, { dono: MAURICIO });
+    await db.query("update public.alunos set proxima_acao='LIGAR CEDO', data_retorno = current_date + 5 where id=$1", [U(66)]);
+    await como(db, LUANA);
+    const r = await tomar(db, caso);
+    expect(r.sucesso).toBe(true);
+    await como(db, GESTAO);
+    expect((await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [r.operacao_id, "x"])).sucesso).toBe(true);
+    const a = await q1(db, "select proxima_acao, data_retorno::text d from public.alunos where id=$1", [U(66)]);
+    expect(a.proxima_acao).toBe("LIGAR CEDO");
+    await db.close();
+  });
+
+  it("reversão recusada se o responsável anterior foi desligado", async () => {
+    const db = await abrirCom();
+    const caso = await cenario(db, 67, { dono: MAURICIO });
+    await como(db, LUANA);
+    const r = await tomar(db, caso);
+    await db.exec(`update public.usuarios set ativo=false where lower(email)='${MAURICIO}'`);
+    await como(db, GESTAO);
+    const rv = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [r.operacao_id, "x"]);
+    expect(rv.sucesso).toBe(false);
+    expect(rv.mensagem).toContain("nao pode receber");
+    await db.close();
+  });
+
+  it("pré-condição P2 divergente: migration FALHA", async () => {
+    const db = await construir();
+    await db.exec(`create or replace function public.aluno_retorno_operador_vigente(p_aluno_id uuid) returns boolean language sql as $f$ select false $f$`);
+    await expect(db.exec(MIGRATION)).rejects.toThrow(/P2 divergente/);
+    await db.close();
+  });
+
+  it("pré-condição P2 ausente: migration FALHA", async () => {
+    const db = await construir();
+    await db.exec(`drop function public.aluno_retorno_operador_vigente(uuid)`);
+    await expect(db.exec(MIGRATION)).rejects.toThrow(/P2 ausente/);
+    await db.close();
   });
 });

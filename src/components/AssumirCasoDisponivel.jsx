@@ -13,7 +13,7 @@ import { supabase } from "../services/supabase";
 const MSG_INDISPONIVEL = "Este caso não está disponível para assumir.";
 const MSG_FALHA = "Não foi possível assumir agora. Tente novamente.";
 
-export default function AssumirCasoDisponivel({ alunoId, responsavelEmail, usuarioEmail, onAssumido }) {
+export default function AssumirCasoDisponivel({ alunoId, responsavelEmail, usuarioEmail, ocultarParaGestao, onAssumido }) {
   const [motivo, setMotivo] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [aviso, setAviso] = useState(null); // { tipo: "ok" | "erro", texto }
@@ -21,7 +21,8 @@ export default function AssumirCasoDisponivel({ alunoId, responsavelEmail, usuar
   const outroOperador =
     responsavelEmail && usuarioEmail &&
     responsavelEmail.toLowerCase() !== usuarioEmail.toLowerCase();
-  if (!outroOperador) return null;
+  // Gestao usa o fluxo administrativo; o banco tambem recusa (R5).
+  if (ocultarParaGestao || !outroOperador) return null;
 
   async function assumir() {
     const m = motivo.trim();

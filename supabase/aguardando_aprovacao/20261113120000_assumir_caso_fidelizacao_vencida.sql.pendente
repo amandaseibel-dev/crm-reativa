@@ -56,9 +56,16 @@ begin
                   where n.nspname = 'public' and p.proname = 'aluno_retorno_operador_vigente') then
     raise exception 'PRE-CONDICAO P2 ausente: public.aluno_retorno_operador_vigente(uuid). Aplicar a PR #936 antes.';
   end if;
+  -- P2 DIVERGENTE: tem de ser o corpo da #936 (md5 25412bfe...), nao outra versao.
+  if coalesce((select md5(p.prosrc) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = 'aluno_retorno_operador_vigente'), '') <> '25412bfe933b6abcf9194a216a2e6fcd' then
+    raise exception 'PRE-CONDICAO P2 divergente: aluno_retorno_operador_vigente nao confere com a PR #936 (md5 25412bfe...).';
+  end if;
   if not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-                  where n.nspname = 'internal' and p.proname in ('operador_pode_receber_caso','pode_alterar_responsavel')) then
-    raise exception 'PRE-CONDICAO P3 ausente: internal.operador_pode_receber_caso / pode_alterar_responsavel.';
+                  where n.nspname = 'internal' and p.proname = 'operador_pode_receber_caso')
+     or not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                  where n.nspname = 'internal' and p.proname = 'pode_alterar_responsavel') then
+    raise exception 'PRE-CONDICAO P3 ausente: internal.operador_pode_receber_caso e internal.pode_alterar_responsavel.';
   end if;
 end
 $pre$;
@@ -76,6 +83,8 @@ create table if not exists public.assumir_fidelizacao_operacoes (
   responsavel_novo_email text not null,
   responsavel_novo_nome text,
   data_ultimo_acionamento_antes date,
+  -- estado de origem que a troca de dono zera (proxima_acao, data_retorno, hora_retorno)
+  estado_anterior jsonb not null default '{}'::jsonb,
   motivo text not null,
   autor_email text not null,
   revertida_em timestamptz,
@@ -160,8 +169,9 @@ begin
   end if;
 
   -- AMBIGUIDADE: responsavel do aluno e dono do caso sao a mesma pessoa.
-  if v_al.responsavel_atual_email is not null
-     and lower(v_al.responsavel_atual_email) <> lower(v_c.operador_email) then
+  -- Sem responsavel ou sem data da troca nao da para provar o prazo de 10 dias: recusa.
+  if v_al.responsavel_atual_email is null or v_al.responsavel_atual_em is null
+     or lower(v_al.responsavel_atual_email) <> lower(v_c.operador_email) then
     return query select false, v_msg, null::uuid; return;
   end if;
 
@@ -204,7 +214,7 @@ begin
                  and not public.caso_encerrado_operacional(c.cpf_limpo, c.status_atual, c.status_acionamento,
                        c.status_financeiro, c.status_jornada));
   if v_count >= v_teto then
-    return query select false, 'Sua carteira esta no limite de casos. Libere um caso antes.', null::uuid; return;
+    return query select false, v_msg, null::uuid; return;
   end if;
 
   v_ant_email := lower(v_c.operador_email);
@@ -213,8 +223,11 @@ begin
   -- Operacao gravada ANTES da troca, para a reversao ter o estado de origem.
   insert into public.assumir_fidelizacao_operacoes
     (aluno_id, caso_id, responsavel_anterior_email, responsavel_anterior_nome,
-     responsavel_novo_email, responsavel_novo_nome, data_ultimo_acionamento_antes, motivo, autor_email)
-  values (p_aluno_id, v_c.id, v_ant_email, v_ant_nome, v_email, v_nome, v_ultimo, v_motivo, v_email)
+     responsavel_novo_email, responsavel_novo_nome, data_ultimo_acionamento_antes, estado_anterior, motivo, autor_email)
+  select p_aluno_id, v_c.id, v_ant_email, v_ant_nome, v_email, v_nome, v_ultimo,
+         jsonb_build_object('proxima_acao', a.proxima_acao, 'data_retorno', a.data_retorno, 'hora_retorno', a.hora_retorno),
+         v_motivo, v_email
+    from public.alunos a where a.id = p_aluno_id
   returning id into v_op;
 
   perform internal.set_resp_aluno(p_aluno_id, v_email, v_nome, 'ASSUMIR_FIDELIZACAO_VENCIDA',
@@ -256,6 +269,9 @@ declare
   v_c record;
   v_ant_nome text;
   v_motivo text;
+  v_al public.alunos;
+  v_teto int;
+  v_count int;
 begin
   v_email := lower(coalesce(auth.jwt() ->> 'email', ''));
   if v_email = '' or not internal.pode_alterar_responsavel() then
@@ -275,7 +291,7 @@ begin
     return query select false, 'Esta operacao ja foi revertida.'; return;
   end if;
 
-  perform 1 from public.alunos a where a.id = v_op.aluno_id for update;
+  select a.* into v_al from public.alunos a where a.id = v_op.aluno_id for update;
   select c.* into v_c from public.casos c where c.id = v_op.caso_id for update;
   if not found then
     return query select false, 'Caso da operacao nao existe mais.'; return;
@@ -286,21 +302,35 @@ begin
     return query select false, 'Conflito: o caso mudou de responsavel depois desta operacao. Nao revertido.'; return;
   end if;
 
-  -- Conflito 2: o novo responsavel acionou ou movimentou o aluno depois da tomada.
-  -- Reverter apagaria atendimento real: nao reverte.
-  if exists (select 1 from public.alunos a
-              where a.id = v_op.aluno_id and a.data_ultimo_acionamento > v_op.criado_em::date)
-     or exists (select 1 from public.aluno_movimentacoes m
-                 where m.aluno_id = v_op.aluno_id::text and m.registrado_em > v_op.criado_em
-                   and lower(coalesce(m.registrado_por_email, '')) = lower(v_op.responsavel_novo_email)) then
-    return query select false, 'Conflito: houve atendimento do novo responsavel depois da tomada. Nao revertido.'; return;
+  -- Conflito 2: houve acionamento depois da tomada. O ultimo acionamento (aluno ou caso)
+  -- tem de ser o mesmo que existia ANTES da tomada. Qualquer mudanca, de qualquer autor
+  -- (inclusive data nula), conta como atendimento posterior.
+  if greatest(v_al.data_ultimo_acionamento, v_c.data_ultimo_acionamento)
+       is distinct from v_op.data_ultimo_acionamento_antes then
+    return query select false, 'Conflito: houve atendimento depois desta tomada. Nao revertido.'; return;
+  end if;
+  -- Conflito 2b: qualquer movimentacao do aluno depois da tomada (de qualquer autor).
+  if exists (select 1 from public.aluno_movimentacoes m
+              where m.aluno_id = v_op.aluno_id::text and m.registrado_em > v_op.criado_em) then
+    return query select false, 'Conflito: houve movimentacao do aluno depois desta tomada. Nao revertido.'; return;
   end if;
 
-  -- Conflito 3: o anterior nao pode mais receber o caso.
+  -- Conflito 3: o anterior nao pode receber o caso de volta (ativo, perfil operador,
+  -- recebendo casos e com vaga no teto vigente).
   if v_op.responsavel_anterior_email is null
      or not exists (select 1 from public.usuarios u
-                     where lower(u.email) = lower(v_op.responsavel_anterior_email) and u.ativo and u.perfil = 'operador') then
-    return query select false, 'Conflito: o responsavel anterior nao esta ativo. Decisao da gestao.'; return;
+                     where lower(u.email) = lower(v_op.responsavel_anterior_email) and u.ativo
+                       and u.perfil = 'operador' and coalesce(u.recebe_novos_casos, false)) then
+    return query select false, 'Conflito: o responsavel anterior nao pode receber o caso. Decisao da gestao.'; return;
+  end if;
+  v_teto := public.calibragem_teto_operador(lower(v_op.responsavel_anterior_email));
+  v_count := (select count(*) from public.casos c where c.operador_email = lower(v_op.responsavel_anterior_email)
+                 and not public.caso_protegido_redistribuicao(c.cpf_limpo, c.status_acionamento, c.nao_acionar,
+                       c.status_financeiro, c.valor_pago, c.quitado_em, c.valor_quitado)
+                 and not public.caso_encerrado_operacional(c.cpf_limpo, c.status_atual, c.status_acionamento,
+                       c.status_financeiro, c.status_jornada));
+  if v_count >= v_teto then
+    return query select false, 'Conflito: o responsavel anterior esta no limite de casos. Decisao da gestao.'; return;
   end if;
 
   v_nome := public.nome_operador_por_email(v_email);
@@ -309,6 +339,12 @@ begin
   perform internal.set_resp_aluno(v_op.aluno_id, v_op.responsavel_anterior_email, v_ant_nome,
     'REVERTER_ASSUMIR_FIDELIZACAO', 'Reversao da operacao '||v_op.id::text||'. Motivo: '||v_motivo,
     v_email, v_nome);
+
+  -- Restaura o que a troca de dono zerou (retorno e proxima acao do operador de origem).
+  update public.alunos a
+     set proxima_acao = r.proxima_acao, data_retorno = r.data_retorno, hora_retorno = r.hora_retorno
+    from jsonb_populate_record(null::public.alunos, v_op.estado_anterior) r
+   where a.id = v_op.aluno_id;
 
   update public.casos set operador_email = lower(v_op.responsavel_anterior_email), operador_nome = v_ant_nome,
     operador = upper(v_ant_nome), caso_atualizado_por = v_email, caso_atualizado_em = now()

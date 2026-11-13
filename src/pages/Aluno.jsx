@@ -2164,6 +2164,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                       alunoId={alunoSelecionado.id}
                       responsavelEmail={alunoSelecionado.responsavel_atual_email}
                       usuarioEmail={usuarioLogado?.email}
+                      ocultarParaGestao={podeVerTudo(usuarioLogado?.email)}
                       onAssumido={() => window.location.reload()}
                     />
                     {(!alunoSelecionado.responsavel_atual_email ||
