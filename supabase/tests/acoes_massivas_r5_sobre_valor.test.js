@@ -20,9 +20,11 @@ const TIPO_PUBLICADO = ler("fixtures/acoes_massivas_valor_exigivel/prod_20261113
 const MIG_941 = ler("../aguardando_aprovacao/20261112235500_acoes_massivas_valor_exigivel.sql.pendente");
 const MIG_R5 = ler("../aguardando_aprovacao/20261112235600_acoes_massivas_r5_sobre_valor.sql.pendente");
 // Os testes aplicam so os patches da R5; a conferencia de MD5 final e feita por md5() abaixo.
-const MIG_R5_SEM_GUARDA_FINAL = MIG_R5.split("-- 2. MD5 FINAL")[0] + "COMMIT;";
+// A migration e aplicada INTEIRA, com a guarda de MD5 final. Sem corte.
+// O marcador estavel abaixo garante que a guarda existe; o teste falha se ele sumir.
+const MARCADOR_GUARDA_FINAL = "[GUARDA-FINAL] MD5 FINAL";
 const MD5_941 = "52f8ca6c4e4428e9dc5d0912e2b9751a";
-const MD5_R5 = "78e55b9a43598129831b18ff62e50e40";
+const MD5_R5 = "885583bc6a45d7e3c77d7add841ac11b";
 
 const COLUNAS = `
   alter table public.acordos add column if not exists saldo numeric default 0;
@@ -46,7 +48,7 @@ beforeEach(async () => {
   await db.exec(PUBLICADO);
   await db.exec(TIPO_PUBLICADO);
   await db.exec(MIG_941);
-  await db.exec(MIG_R5_SEM_GUARDA_FINAL);
+  await db.exec(MIG_R5);
   await comoGestao(db);
   seq = 0;
 });
@@ -102,6 +104,10 @@ const ACORDOS = { operador: "todos", tipo_cobranca: "ACORDOS_VENCIDOS" };
 const JUNTO = { operador: "todos", tipo_cobranca: "MENSALIDADES_E_ACORDOS" };
 
 describe("integracao R5 sobre a #941", () => {
+  it("migration R5 contem a guarda final marcada (falha se o marcador sumir)", () => {
+    expect(MIG_R5.includes(MARCADOR_GUARDA_FINAL), `marcador "${MARCADOR_GUARDA_FINAL}" ausente na migration R5`).toBe(true);
+  });
+
   it("MD5 final confere com o pacote", async () => {
     expect(await md5()).toBe(MD5_R5);
   });
@@ -156,11 +162,55 @@ describe("integracao R5 sobre a #941", () => {
     });
   });
 
-  describe("caso ABERTO (comportamento preservado)", () => {
-    it("caso aberto com total positivo continua autorizando parcela sem evidencia R5", async () => {
+  describe("caso ABERTO: saldo positivo sozinho nao substitui evidencia R5", () => {
+    it("caso aberto com total positivo NAO autoriza parcela sem evidencia R5", async () => {
       const id = await aluno({ caso: { total: 500, encerrado: false } });
       await parcela(await acordo(id), { conf: false });
+      expect(disponivel(await universo(db, ACORDOS), id)).toBe(false);
+    });
+
+    it("caso aberto com total positivo + evidencia R5 ENTRA", async () => {
+      const id = await alunoR5({ total: 500, encerrado: false });
       expect(disponivel(await universo(db, ACORDOS), id)).toBe(true);
+    });
+  });
+
+  describe("correcoes do criterio R5", () => {
+    it("pagamento SEM aluno casado pelo boleto bloqueia", async () => {
+      const id = await aluno();
+      const b = await parcela(await acordo(id));
+      await db.query("insert into public.pagamentos (aluno_id, numero_parcela_completo, data_pagamento, valor_pago) values (null, $1, now() - interval '100 days', 100)", [b]);
+      expect(disponivel(await universo(db, ACORDOS), id)).toBe(false);
+    });
+
+    it("boleto com zero a esquerda casa com pagamento sem zero (bloqueia)", async () => {
+      const id = await aluno();
+      await parcela(await acordo(id), { boleto: "777" });
+      await db.query("insert into public.pagamentos (aluno_id, numero_parcela_completo, data_pagamento, valor_pago) values ($1, '000777', now() - interval '100 days', 100)", [id]);
+      expect(disponivel(await universo(db, ACORDOS), id)).toBe(false);
+    });
+
+    it("titulo EM_CONFIRMACAO com o mesmo documento da parcela bloqueia", async () => {
+      const id = await aluno();
+      const b = await parcela(await acordo(id), { boleto: "888" });
+      await db.query("insert into public.acordos_titulos (aluno_id, situacao, documento, status, vencimento) values ($1, 'EM_CONFIRMACAO', $2, 'em_confirmacao', current_date - 5)", [id, b]);
+      expect(disponivel(await universo(db, ACORDOS), id)).toBe(false);
+    });
+
+    it("parcela VENCIDA de ano sem R5 nao contribui com o ano do aluno so-parcela", async () => {
+      const id = await alunoR5(null, { parcela: { dias: -20 } });
+      await parcela(await acordo(id), { dias: -800, conf: false });
+      const rows = await universo(db, { operador: "todos", tipo_cobranca: "ACORDOS_VENCIDOS", ano: String(new Date().getFullYear() - 2) });
+      expect(disponivel(rows, id)).toBe(false);
+    });
+  });
+
+  describe("ACL preservado (sem PUBLIC, sem anon)", () => {
+    it("anon e PUBLIC sem EXECUTE; authenticated mantem o EXECUTE publicado", async () => {
+      const r = await db.query(`select has_function_privilege('anon', 'public.acoes_massivas_universo(jsonb)', 'EXECUTE') anon,
+        has_function_privilege('authenticated', 'public.acoes_massivas_universo(jsonb)', 'EXECUTE') auth`);
+      expect(r.rows[0].anon).toBe(false);
+      expect(r.rows[0].auth).toBe(true);
     });
   });
 
@@ -217,6 +267,13 @@ describe("integracao R5 sobre a #941", () => {
       const id = await alunoR5({ total: 0 }, { parcela: { v: 320 } });
       expect(valor(await universo(db, ACORDOS), id)).toBe(320);
       expect(valor(await universo(db, JUNTO), id)).toBe(320);
+    });
+
+    it("so-parcela: valor soma so a parcela comprovada, nao a outra vencida sem evidencia", async () => {
+      const id = await alunoR5(null, { parcela: { v: 320 } });
+      // segunda parcela VENCIDA sem evidencia (boleto nao confiavel): nao cobra no valor
+      await parcela(await acordo(id), { v: 200, conf: false, dias: -30 });
+      expect(valor(await universo(db, ACORDOS), id)).toBe(320);
     });
   });
 });

@@ -1,22 +1,25 @@
--- ACOES MASSIVAS: elegibilidade R5 integrada sobre a #941 (valor exigivel).
+-- ACOES MASSIVAS: elegibilidade R5 e valor so-parcela, integrados sobre a #941.
 --
 -- ORDEM (dependencia): 20261112235500 (#941, valor/faixa) -> ESTA (R5) -> migration de desempenho.
 -- Base: definicao final da #941, MD5 52f8ca6c4e4428e9dc5d0912e2b9751a. Nao aplicar antes da #941.
--- Rollback: 20261112235600_acoes_massivas_r5_sobre_valor.rollback.sql (restaura o MD5 52f8ca6c...).
+-- Rollback: 20261112235600_acoes_massivas_r5_sobre_valor.rollback.sql (restaura 52f8ca6c...).
+-- ACL: NAO e alterada. CREATE OR REPLACE preserva o ACL publicado
+--   (postgres, authenticated, service_role; sem PUBLIC nem anon). Conferido no teste.
 --
--- O QUE MUDA (somente elegibilidade; o valor continua o da #941):
---   1. parc_r5: parcela VENCIDA de acordo ATIVO, com vencimento ja passado, que satisfaz o criterio
---      R5 (decisao de 12/11/2026). Sem evidencia de pagamento, liquidacao no Prime, parcela gemea paga
---      ou pagamento do aluno desde o vencimento (-10 dias).
---   2. base: o caso ANTIGO (encerrado_operacional = true) deixa de autorizar aluno so-parcela. O
---      total_em_aberto de caso ABERTO continua valendo, como antes do guard de 29/10 (nao regride a
---      populacao atual). Caso sem total (nulo) equivale a zero: nao autoriza.
---   3. Aluno sem caso so entra com evidencia R5; sem evidencia continua fora.
+-- O QUE MUDA
+--   [R5-1] Elegibilidade so-parcela: aluno entra SOMENTE com evidencia R5 de alguma parcela
+--          VENCIDA de acordo ATIVO (criterio de 12/11/2026, com as correcoes abaixo).
+--          Saldo positivo de caso aberto, sozinho, NAO autoriza mais (ver nota no fim).
+--   [R5-2] Correcoes do criterio: boleto comparado sem zeros a esquerda; pagamento sem aluno
+--          casado por boleto bloqueia; titulo EM_CONFIRMACAO com o mesmo documento bloqueia.
+--   [R5-3] Anos (filtro por ano) de aluno so-parcela vem so das parcelas que comprovam R5.
+--   [R5-4] Valor de aluno que entra SOMENTE por parcela (sem titulo e sem mensalidade) soma
+--          apenas as parcelas comprovadas pelo R5. Demais alunos: valor da #941, inalterado.
 --
--- O QUE NAO MUDA: valor (vm + va da #941), tipo de cobranca, fidelizacao, retorno, liquidado Prime,
--- confirmacao, encerramento, dono do acordo. Mensalidades nao mudam.
+-- O QUE NAO MUDA: tipo de cobranca, fidelizacao, retorno, liquidado Prime, confirmacao,
+-- encerramento, dono do acordo, valor de alunos com titulo ou mensalidade.
 --
--- Executar em UMA transacao (BEGIN; ... COMMIT;). Nenhuma execucao em producao sem autorizacao.
+-- Executar em UMA transacao. Nenhuma execucao em producao sem autorizacao.
 
 BEGIN;
 
@@ -29,7 +32,7 @@ BEGIN
   END IF;
 END $g$;
 
--- 1. PATCH ANCORADO: parc_r5 + base -------------------------------------------
+-- 1. [R5-1, R5-2, R5-3] parc_r5 e pre_base/base -------------------------------
 SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_universo',
 $a1$  pre_base as (
     select aluno_id, ano, true  as via_tit from tit
@@ -44,11 +47,11 @@ $a1$  pre_base as (
     having bool_or(x.via_tit)
         or coalesce(max(c.total_em_aberto), 0) > 0
 $a1$,
-$n1$  -- R5 (decisao 12/11/2026): parcela de acordo ATIVO vencida que, sozinha, sustenta o aluno.
-  -- Exige boleto confiavel e a ausencia de qualquer evidencia de pagamento ou liquidacao.
-  -- Parcela com vencimento futuro nao entra (mesmo criterio F1 da CTE parc).
+$n1$  -- [R5] parcela de acordo ATIVO VENCIDA com evidencia de exigibilidade (criterio 12/11/2026).
+  -- Vencimento ja passado (F1). Boleto comparado sem zeros a esquerda (chave do pagamento).
+  -- Qualquer evidencia de pagamento ou liquidacao, inclusive de pagamento sem aluno, bloqueia.
   parc_r5 as materialized (
-    select a.aluno_id, extract(year from p.vencimento)::int as ano
+    select a.aluno_id, p.id as parcela_id, extract(year from p.vencimento)::int as ano
       from public.acordos a
       join public.parcelas p on p.acordo_id = a.id
       join public.alunos al on al.id = a.aluno_id
@@ -57,21 +60,24 @@ $n1$  -- R5 (decisao 12/11/2026): parcela de acordo ATIVO vencida que, sozinha, 
        and p.pago_em is null
        and coalesce(p.boleto_confiavel, false) = true
        and a.saldo > 0
-       and coalesce(btrim(p.boleto), '') <> ''
+       and ltrim(coalesce(p.boleto, ''), '0') <> ''
        and p.renegociada_no_acordo_id is null
        and (v_ids is null or a.aluno_id = any(v_ids))
        and not exists (select 1 from public.pagamentos pg
-                        where pg.aluno_id = a.aluno_id
-                          and (pg.numero_parcela_completo = p.boleto or pg.titulo_numero = p.boleto))
-       and not exists (select 1 from public.prime_extrato pe
-                        where pe.boleto = p.boleto and pe.liquidado_em is not null)
-       and not exists (select 1 from public.acordos_titulos t
-                        where t.aluno_id = a.aluno_id
-                          and ltrim(t.documento, '0') = ltrim(p.boleto, '0')
-                          and (upper(coalesce(t.situacao, '')) = 'PAGO' or lower(coalesce(t.status, '')) = 'quitada'))
+                        where (pg.aluno_id = a.aluno_id or pg.aluno_id is null)
+                          and (ltrim(coalesce(pg.numero_parcela_completo, ''), '0') = ltrim(p.boleto, '0')
+                               or ltrim(coalesce(pg.titulo_numero, ''), '0') = ltrim(p.boleto, '0')))
        and not exists (select 1 from public.pagamentos pg
                         where pg.aluno_id = a.aluno_id
                           and pg.data_pagamento >= p.vencimento - 10)
+       and not exists (select 1 from public.prime_extrato pe
+                        where ltrim(coalesce(pe.boleto, ''), '0') = ltrim(p.boleto, '0')
+                          and pe.liquidado_em is not null)
+       and not exists (select 1 from public.acordos_titulos t
+                        where t.aluno_id = a.aluno_id
+                          and ltrim(coalesce(t.documento, ''), '0') = ltrim(p.boleto, '0')
+                          and (upper(coalesce(t.situacao, '')) in ('PAGO', 'EM_CONFIRMACAO')
+                               or lower(coalesce(t.status, '')) = 'quitada'))
        and not exists (select 1 from public.acordos a2
                          join public.parcelas p2 on p2.acordo_id = a2.id
                         where a2.aluno_id = a.aluno_id
@@ -79,37 +85,62 @@ $n1$  -- R5 (decisao 12/11/2026): parcela de acordo ATIVO vencida que, sozinha, 
                           and abs(p2.vencimento - p.vencimento) <= 5
                           and (p2.pago_em is not null
                                or upper(coalesce(p2.status, '')) in ('PAGA', 'PAGO', 'QUITADA')
-                               or exists (select 1 from public.pagamentos pg
-                                           where pg.aluno_id = a.aluno_id
-                                             and p2.boleto is not null
-                                             and (pg.numero_parcela_completo = p2.boleto or pg.titulo_numero = p2.boleto))))
+                               or (ltrim(coalesce(p2.boleto, ''), '0') <> ''
+                                   and exists (select 1 from public.pagamentos pg
+                                                where (pg.aluno_id = a.aluno_id or pg.aluno_id is null)
+                                                  and (ltrim(coalesce(pg.numero_parcela_completo, ''), '0') = ltrim(p2.boleto, '0')
+                                                       or ltrim(coalesce(pg.titulo_numero, ''), '0') = ltrim(p2.boleto, '0'))))))
        and not exists (select 1 from public.prime_extrato pe
-                        where regexp_replace(coalesce(pe.cpf, ''), '\D', '', 'g') = regexp_replace(coalesce(al.cpf, ''), '\D', '', 'g')
+                        where regexp_replace(coalesce(al.cpf, ''), '\D', '', 'g') <> ''
+                          and regexp_replace(coalesce(pe.cpf, ''), '\D', '', 'g') = regexp_replace(coalesce(al.cpf, ''), '\D', '', 'g')
                           and pe.liquidado_em >= p.vencimento - 10)
   ),
   pre_base as (
     select aluno_id, ano, true  as via_tit, false as via_r5 from tit
     union all
+    -- [R5-3] parcela sem R5 nao contribui com ano para aluno que nao tem titulo
     select aluno_id, ano, false as via_tit, false as via_r5 from parc
+     where aluno_id in (select t0.aluno_id from tit t0)
     union all
     select aluno_id, ano, false as via_tit, true  as via_r5 from parc_r5
   ),
+  -- [R5-1] o saldo de caso (total_em_aberto) nao autoriza mais aluno so-parcela.
   base as materialized (
     select x.aluno_id, array_agg(distinct x.ano order by x.ano) as anos
       from pre_base x
-      left join public.casos c on c.aluno_id = x.aluno_id and c.encerrado_operacional is not true
      group by x.aluno_id
     having bool_or(x.via_tit)
         or bool_or(x.via_r5)
-        or coalesce(max(c.total_em_aberto), 0) > 0
 $n1$, 1);
 
--- 2. MD5 FINAL -----------------------------------------------------------------
--- Valor preenchido apos a validacao funcional (ver pacote). Divergencia aborta a transacao.
+-- 2. [R5-4] valor so-parcela: soma apenas parcelas comprovadas ----------------
+SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_universo',
+$a2$  val_acordo as materialized (
+    select a.aluno_id, sum(p.valor) as v
+      from public.acordos a
+      join public.parcelas p on p.acordo_id = a.id
+     where a.status = 'ATIVO' and p.status = 'VENCIDA'
+       and p.vencimento is not null and p.vencimento <= v_hoje
+       and (v_ids is null or a.aluno_id = any(v_ids))
+$a2$,
+$n2$  val_acordo as materialized (
+    select a.aluno_id, sum(p.valor) as v
+      from public.acordos a
+      join public.parcelas p on p.acordo_id = a.id
+     where a.status = 'ATIVO' and p.status = 'VENCIDA'
+       and p.vencimento is not null and p.vencimento <= v_hoje
+       and (v_ids is null or a.aluno_id = any(v_ids))
+       -- [R5-4] aluno sem titulo e sem mensalidade so entra por R5: so essas parcelas cobram
+       and (exists (select 1 from tit t0 where t0.aluno_id = a.aluno_id)
+            or exists (select 1 from val_mens vm0 where vm0.aluno_id = a.aluno_id)
+            or p.id in (select pr.parcela_id from parc_r5 pr))
+$n2$, 1);
+
+-- [GUARDA-FINAL] MD5 FINAL ----------------------------------------------------
 DO $m$
 BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') IS DISTINCT FROM '78e55b9a43598129831b18ff62e50e40' THEN
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') IS DISTINCT FROM '885583bc6a45d7e3c77d7add841ac11b' THEN
     RAISE EXCEPTION 'MD5 final do universo diferente do validado (R5).';
   END IF;
 END $m$;
