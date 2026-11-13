@@ -162,6 +162,18 @@ describe("teto total do piloto: 3 chamadas, contando meu_acesso", () => {
   });
 });
 
+describe("cliques simultâneos: o teto nunca passa de 3", () => {
+  it("5 leituras ao mesmo tempo (páginas diferentes): exatamente 3 chegam à ULBRA", async () => {
+    const cursores = ["2026-11-10T01:00:00Z", "2026-11-10T02:00:00Z", "2026-11-10T03:00:00Z", "2026-11-10T04:00:00Z", "2026-11-10T05:00:00Z"];
+    const respostas = await Promise.all(cursores.map((c) => chamar("tok-dona", { aluno_id: A1, antes_de: c })));
+    const motivos = respostas.map((r) => r.corpo.motivo ?? "ok");
+    expect(estado.chamadasUlbra).toBe(3);
+    expect(motivos.filter((m) => m === "TETO_PILOTO_ESGOTADO")).toHaveLength(2);
+    const usadoNoBanco = (estado.banco.ulbra_historico_uso ?? []).filter((l) => l.escopo === "*").reduce((s, l) => s + Number(l.usadas), 0);
+    expect(usadoNoBanco).toBe(3);
+  });
+});
+
 describe("429: parada imediata, sem nova tentativa", () => {
   it("a ULBRA responde 429: motivo ULBRA_LIMITE, uma única chamada, sem repetição", async () => {
     ulbraRoteada({ ...ROTA_OK, ler_conversa: limite429 });

@@ -144,17 +144,32 @@ Deno.serve(async (req: Request) => {
       return usoTotalAgora();
     },
     async reservar(operador, quantidade, tetoOperador, tetoGlobal) {
-      // Teto total do piloto ANTES da reserva: nenhuma chamada externa passa do limite.
-      if ((await usoTotalAgora()) + quantidade > LIMITE_TOTAL_PILOTO) {
-        return { permitido: false, usadasOperador: 0, usadasGlobal: 0, motivo: "TETO_PILOTO_ESGOTADO" };
-      }
+      // Teto do piloto, ATÔMICO: o que já foi usado em dias anteriores é fixo; o
+      // que resta para hoje é entregue como teto global à reserva do banco, que
+      // serializa as reservas do dia (advisory lock). Dois cliques simultâneos não
+      // passam juntos do limite, porque a checagem final é a do banco.
+      const hoje = new Date().toISOString().slice(0, 10);
+      const { data: linhasUso } = await sb.from("ulbra_historico_uso").select("usadas, dia").eq("escopo", "*");
+      const usadoEmDiasAnteriores = (linhasUso ?? [])
+        .filter((l: { dia: string }) => String(l.dia) < hoje)
+        .reduce((soma: number, l: { usadas?: number }) => soma + Number(l.usadas ?? 0), 0);
+      const tetoHoje = LIMITE_TOTAL_PILOTO - usadoEmDiasAnteriores;
+      if (tetoHoje < quantidade) return { permitido: false, usadasOperador: 0, usadasGlobal: 0, motivo: "TETO_PILOTO_ESGOTADO" };
       const { data, error } = await sb.rpc("ulbra_historico_reservar", {
-        p_operador: operador, p_dia: new Date().toISOString().slice(0, 10), p_quantidade: quantidade,
-        p_teto_operador: tetoOperador, p_teto_global: Math.max(0, tetoGlobal),
+        p_operador: operador, p_dia: hoje, p_quantidade: quantidade,
+        p_teto_operador: tetoOperador, p_teto_global: Math.max(0, Math.min(tetoGlobal, tetoHoje)),
       });
       if (error) throw new Error(`RESERVA_FALHOU: ${error.message}`);
       const linha = Array.isArray(data) ? data[0] : data;
-      return { permitido: Boolean(linha?.permitido), usadasOperador: Number(linha?.usadas_operador ?? 0), usadasGlobal: Number(linha?.usadas_global ?? 0) };
+      const usadasGlobal = Number(linha?.usadas_global ?? 0);
+      const permitido = Boolean(linha?.permitido);
+      const pilotoEsgotado = !permitido && usadasGlobal + quantidade > tetoHoje;
+      return {
+        permitido,
+        usadasOperador: Number(linha?.usadas_operador ?? 0),
+        usadasGlobal,
+        motivo: pilotoEsgotado ? "TETO_PILOTO_ESGOTADO" : undefined,
+      };
     },
     lerConversa: (conversaId, antes, limite) => chamarMcp(token, "ler_conversa", antes ? { id: conversaId, limite, antesDe: antes } : { id: conversaId, limite }),
     agora: () => Date.now(),
