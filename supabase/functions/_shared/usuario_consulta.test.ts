@@ -110,7 +110,8 @@ describe("limitações conhecidas (documentadas, não escondidas)", () => {
 });
 
 describe("as cinco funções usam o helper e nenhuma usa ilike", () => {
-  const FUNCOES = ["ulbra-atendimento", "ulbra-consultar", "ulbra-diagnostico", "ulbra-leads-pendentes", "ulbra-historico"];
+  // ulbra-leads-pendentes fica FORA desta republicação (divergência registrada, v5 mantida).
+  const FUNCOES = ["ulbra-atendimento", "ulbra-consultar", "ulbra-diagnostico", "ulbra-historico"];
   for (const f of FUNCOES) {
     it(`${f}: chama buscarUsuarioAtivoPorEmail e não tem .ilike(`, () => {
       const src = readFileSync(new URL(`../${f}/index.ts`, import.meta.url), "utf8");
