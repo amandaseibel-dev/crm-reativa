@@ -1,121 +1,87 @@
--- ACOES MASSIVAS: o valor da previa e do filtro passa a ser o VALOR EXIGIVEL do
--- recorte, e nao o saldo do caso.
+-- ACOES MASSIVAS: valor exigivel do recorte (regra reformulada).
 --
--- PROBLEMA (medido em producao, leitura, 12/11/2026)
--- O universo devolve em `valor` -- e usa no filtro de valor minimo/maximo --
--- casos.total_em_aberto. Esse saldo fica zerado ou defasado quando o titulo
--- entra sem recalculo do caso. Nos dois lotes de 12/11:
---   lote 14:38 (500 alunos): caso R$ 266.596,29 x titulos R$ 730.153,71; 380 divergem;
---   lote 15:20 (100 alunos, filtro de 0 a 300): caso R$ 86,57 x titulos vencidos
---     R$ 295.474,95; 97 com caso zerado ou sem caso. O filtro "ate R$ 300"
---     selecionou quem aparecia com zero, nao quem devia pouco.
---
--- O QUE MUDA em public.acoes_massivas_universo
---   * `valor` = mensalidades VENCIDAS (dia de Brasilia) e nao incorporadas em
---     acordo nao cancelado; ou, para quem tem acordo vencido no recorte, a soma
---     das parcelas VENCIDAS de acordo ATIVO do responsavel escolhido. Os dois
---     nunca sao somados para o mesmo aluno.
---   * o filtro de faixa (valor minimo/maximo) usa esse valor;
---   * quem nao tem nada exigivel (valor zero) fica indisponivel pelo motivo ja
---     existente `valor_fora_da_faixa`.
--- Os predicados dos titulos sao os que o proprio universo ja usa (ABERTO ou
--- NEGOCIADO, nao quitada, nao e boleto de acordo, valor > 0) e o criterio de
--- vinculo e o de acoes_massivas_tipo_cobranca_alunos e de
--- aluno_saldo_pendente_detalhe ("mensalidade so sai se vinculada").
---
--- O QUE NAO MUDA: quem entra na base, tipo de cobranca, responsavel pelo caso e
--- pelo acordo, fidelizacao, retorno futuro, liquidado no Prime, confirmacao
--- pendente, guard de zerados, previa, exportacao, registro, grants e search_path.
--- Nenhum titulo, caso, parcela ou saldo e alterado: e leitura.
---
--- Parte da DEFINICAO PUBLICADA apos 20261112210000 (MD5 8f94a168...).
--- Executar em UMA transacao (BEGIN; ... COMMIT;). Rollback no arquivo ao lado.
+-- ANTES: o universo devolve em "valor" casos.total_em_aberto (saldo do caso), que
+-- fica zerado ou defasado. DEPOIS: "valor" = mensalidades vencidas independentes
+-- (tipo MENSALIDADES) + parcelas vencidas de acordo ATIVO do responsavel escolhido
+-- (tipo ACORDOS_VENCIDOS), e a soma dos dois em MENSALIDADES_E_ACORDOS.
+-- Sem dupla contagem: titulo incorporado a acordo nao cancelado sai de val_mens, e
+-- titulo cujo boleto e o de uma parcela de acordo ATIVO sai de val_mens.
+-- Sem bloqueio geral de valor zero: o filtro de faixa segue o da regra atual.
+-- Base: definicao publicada 8f94a168... (com a #935). Atomica: BEGIN/COMMIT.
+-- Rollback: 20261112235500_acoes_massivas_valor_exigivel.rollback.sql.
 
--- 0. GUARDA
+BEGIN;
+
+-- 0. GUARDA: a funcao precisa estar exatamente como validada ---------------------
 DO $g$
 BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') <> '8f94a1687f0f3d13765ecf86db1d1e19' THEN
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') IS DISTINCT FROM '8f94a1687f0f3d13765ecf86db1d1e19' THEN
     RAISE EXCEPTION 'Universo publicado mudou desde a validacao (esperado 8f94a168...). Nada aplicado.';
   END IF;
 END $g$;
 
--- 1. tit: valor do titulo e marca de exigivel
+-- 1. PATCHES ANCORADOS (ancora unica, mesma semantica de patch_funcao_ancorada) --
 SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_universo',
-$a1$    select t.aluno_id, extract(year from t.vencimento)::int as ano
-      from public.acordos_titulos t$a1$,
-$n1$    select t.aluno_id, extract(year from t.vencimento)::int as ano,
-           coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0) as v,
-           -- exigivel = ja venceu (dia de Brasilia) e NAO esta incorporado em acordo
-           -- nao cancelado (mesmo criterio de "tem mensalidade" do tipo de cobranca)
-           (t.vencimento <= v_hoje
-            and not exists (
-              select 1 from public.acordo_titulo_vinculo vv
-                join public.acordos av on av.id = vv.acordo_id
-               where vv.titulo_id = t.id and coalesce(vv.ativo, true)
-                 and upper(coalesce(av.status, '')) not in ('CANCELADO', 'CANCELADA'))) as exig
-      from public.acordos_titulos t$n1$, 1);
-
--- 2. parc: valor da parcela vencida e dono do acordo
-SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_universo',
-$a2$    select a.aluno_id, extract(year from p.vencimento)::int as ano
-      from public.acordos a$a2$,
-$n2$    select a.aluno_id, extract(year from p.vencimento)::int as ano,
-           coalesce(p.valor, 0) as v,
-           (v_ra is null
-            or lower(coalesce(a.operador_responsavel_email,'')) = any(v_ra)
-            or (nullif(btrim(coalesce(a.operador_responsavel_email,'')),'') is null
-                and 'sem_responsavel' = any(v_ra))) as dono_ok
-      from public.acordos a$n2$, 1);
-
--- 3. val_mens e val_acordo: soma por aluno
-SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_universo',
-$a3$  parc_dono as materialized ($a3$,
-$n3$  -- VALOR EXIGIVEL do recorte, no lugar do saldo do caso (casos.total_em_aberto
-  -- fica zerado ou defasado quando o titulo entra sem recalculo do caso).
-  --   val_mens   -> mensalidades vencidas e nao incorporadas em acordo;
-  --   val_acordo -> parcelas VENCIDAS de acordo ATIVO do responsavel escolhido.
-  -- Os dois NUNCA sao somados para o mesmo aluno: quem tem acordo vencido no
-  -- recorte mostra so o acordo (47% dos acordos ativos nao tem titulo vinculado
-  -- e somar contaria a mesma divida duas vezes).
+$a1$  cls as materialized ($a1$,
+$n1$  -- VALOR EXIGIVEL (regra reformulada, 12/12). Dois componentes SOMADOS, sem dupla contagem:
+  --   val_mens   : titulo ABERTO vencido, nao incorporado a acordo nao cancelado, cujo boleto
+  --                nao e o de uma parcela de acordo ATIVO (mesma divida nao conta duas vezes);
+  --   val_acordo : parcelas VENCIDAS de acordo ATIVO do responsavel escolhido.
+  -- Titulos NEGOCIADO (vinculados), DEVOLVIDO, CANCELADA, DUPLICADA e EM_CONFIRMACAO ficam fora.
   val_mens as materialized (
-    select tit.aluno_id, sum(tit.v) as v from tit where tit.exig group by tit.aluno_id
+    select t.aluno_id, sum(coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0)) as v
+      from public.acordos_titulos t
+     where t.aluno_id is not null
+       and (v_ids is null or t.aluno_id = any(v_ids))
+       and t.vencimento is not null and t.vencimento <= v_hoje
+       and upper(coalesce(t.situacao, '')) = 'ABERTO'
+       and coalesce(lower(t.status), '') not in ('quitada', 'devolvido', 'cancelada', 'em_confirmacao')
+       and coalesce(t.tipo_boleto, '') <> 'Acordo'
+       and coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0) > 0
+       and not exists (select 1 from public.acordo_titulo_vinculo vv join public.acordos av on av.id = vv.acordo_id
+                        where vv.titulo_id = t.id and coalesce(vv.ativo, true)
+                          and upper(coalesce(av.status, '')) not in ('CANCELADO', 'CANCELADA'))
+       and not exists (select 1 from public.acordos a2 join public.parcelas p2 on p2.acordo_id = a2.id
+                        where a2.aluno_id = t.aluno_id and a2.status = 'ATIVO'
+                          and coalesce(btrim(p2.boleto), '') <> ''
+                          and ltrim(p2.boleto, '0') = ltrim(t.documento, '0'))
+     group by t.aluno_id
   ),
   val_acordo as materialized (
-    select parc.aluno_id, sum(parc.v) as v from parc where parc.dono_ok group by parc.aluno_id
+    select a.aluno_id, sum(p.valor) as v
+      from public.acordos a
+      join public.parcelas p on p.acordo_id = a.id
+     where a.status = 'ATIVO' and p.status = 'VENCIDA'
+       and p.vencimento is not null and p.vencimento <= v_hoje
+       and (v_ids is null or a.aluno_id = any(v_ids))
+       and (v_ra is null
+            or lower(coalesce(a.operador_responsavel_email, '')) = any(v_ra)
+            or (nullif(btrim(coalesce(a.operador_responsavel_email, '')), '') is null
+                and 'sem_responsavel' = any(v_ra)))
+     group by a.aluno_id
   ),
-  parc_dono as materialized ($n3$, 1);
+  cls as materialized ($n1$, 1);
 
--- 4. valor do recorte no lugar do saldo do caso
 SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_universo',
-$a4$           c.v as valor_caso,$a4$,
-$n4$           case when va.aluno_id is not null then coalesce(va.v, 0)
-                else coalesce(vm.v, 0) end as valor_caso,$n4$, 1);
+$a2$           c.v as valor_caso,$a2$,
+$n2$           case when v_tipo = 'MENSALIDADES' then coalesce(vm.v, 0)
+                when v_tipo = 'ACORDOS_VENCIDOS' then coalesce(va.v, 0)
+                else coalesce(vm.v, 0) + coalesce(va.v, 0) end as valor_caso,$n2$, 1);
 
--- 5. sai a leitura de casos.total_em_aberto
 SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_universo',
-$a5$      left join lateral (
-        select c2.total_em_aberto as v
-          from public.casos c2
-         where c2.aluno_id = p.id
-         order by (v_op not in ('todos', 'livres') and c2.operador_email is not distinct from v_op) desc,
-                  c2.total_em_aberto desc nulls last
-         limit 1
-      ) c on true$a5$,
-$n5$      left join val_mens vm on vm.aluno_id = p.id
-      left join val_acordo va on va.aluno_id = p.id$n5$, 1);
+$a3$      left join mov mv on mv.aluno_id = p.id::text$a3$,
+$n3$      left join mov mv on mv.aluno_id = p.id::text
+      left join val_mens vm on vm.aluno_id = p.id
+      left join val_acordo va on va.aluno_id = p.id$n3$, 1);
 
--- 6. filtro de faixa: valor zero fica sempre fora
-SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_universo',
-$a6$           (coalesce(k.valor_caso, 0) < v_min$a6$,
-$n6$           -- sem nada exigivel (valor zero) fica sempre fora da faixa
-           (coalesce(k.valor_caso, 0) < greatest(v_min, 0.01)$n6$, 1);
-
--- 7. MD5 FINAL
+-- 2. MD5 FINAL -----------------------------------------------------------------
 DO $m$
 BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') <> 'a44af07e4e52dd68f5632977d99352dc' THEN
-    RAISE EXCEPTION 'MD5 final do universo diferente do validado.';
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') IS DISTINCT FROM 'cb43dc775c5b556a6a6c36ae5371d7f8' THEN
+    RAISE EXCEPTION 'MD5 final do universo diferente do validado (esperado cb43dc775c5b556a6a6c36ae5371d7f8).';
   END IF;
 END $m$;
+
+COMMIT;

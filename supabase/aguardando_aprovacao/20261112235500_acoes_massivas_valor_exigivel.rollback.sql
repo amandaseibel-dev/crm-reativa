@@ -1,12 +1,12 @@
 -- ROLLBACK de 20261112235500_acoes_massivas_valor_exigivel.
--- So age se o universo tiver o MD5 final desta migration; senao aborta sem tocar.
--- Restaura a definicao publicada antes dela (MD5 8f94a168..., apos 20261112210000)
--- e confere o MD5 restaurado. Executar em UMA transacao (BEGIN; ... COMMIT;).
-
+-- So age se o universo tiver o MD5 final desta migration; ao final confere o MD5
+-- publicado antes dela (8f94a168...). Restaura o corpo publicado do fixture.
+-- Executar em UMA transacao (BEGIN; ... COMMIT;).
+BEGIN;
 DO $r$
 BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') <> 'a44af07e4e52dd68f5632977d99352dc' THEN
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') IS DISTINCT FROM 'cb43dc775c5b556a6a6c36ae5371d7f8' THEN
     RAISE EXCEPTION 'Rollback abortado: universo mudou desde a migration. Nada alterado.';
   END IF;
 END $r$;
@@ -273,7 +273,9 @@ $function$;
 DO $v$
 BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') <> '8f94a1687f0f3d13765ecf86db1d1e19' THEN
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') IS DISTINCT FROM '8f94a1687f0f3d13765ecf86db1d1e19' THEN
     RAISE EXCEPTION 'Rollback: universo nao voltou ao MD5 publicado (8f94a168...).';
   END IF;
 END $v$;
+
+COMMIT;
