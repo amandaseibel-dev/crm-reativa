@@ -55,7 +55,7 @@ grep -q '^f|Este caso nao esta disponivel' "$OUT/t2.txt" && ok "tomada recusada 
 
 echo "== C3: acionamento VALIDO gravado so no CASO, concorrente com a tomada (U3)"
 ambiente c3
-( { echo "begin;"; echo "update public.casos set data_ultimo_acionamento = current_date where id='$U3';"; echo "select pg_sleep(4);"; echo "commit;"; } \
+( { echo "begin;"; echo "update public.casos set data_ultimo_acionamento = current_date where aluno_id='$U3';"; echo "select pg_sleep(4);"; echo "commit;"; } \
     | psql -At -v ON_ERROR_STOP=1 > "$OUT/acion3.txt" 2>&1 ) &
 sleep 1
 { jwt $LUANA; echo "select sucesso, mensagem from public.assumir_caso_fidelizacao_vencida('$U3','tomada concorrente 3');"; } \
