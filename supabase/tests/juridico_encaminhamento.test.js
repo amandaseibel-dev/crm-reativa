@@ -1126,7 +1126,7 @@ describe("acordo que muda de situacao depois da aprovacao trava o envio", () => 
 describe("divergencias impeditivas depois da aprovacao (termo, confirmacao, condicoes, Excel)", () => {
   const divs = async (db, caso) =>
     (await db.query("select public._juridico_divergencias(jc) d from juridico_casos jc where jc.id=$1", [caso.id])).rows[0].d;
-  const termo = (db, al, extra = "") =>
+  const termo = (db, al) =>
     db.query(`insert into termos_acordo(aluno_id,status,arquivo_nome,arquivo_url,etapa_assinatura,arquivo_final_nome,arquivo_final_url) values ($1,'VALIDADO','t.pdf','https://x/t.pdf','COMPLETO','tf.pdf','https://x/tf.pdf')`, [al]);
   // aluno com acordo EM DIA, termo completo, aprovado com aprovacao especifica
   const aprovado = async (db) => {
@@ -1210,7 +1210,7 @@ describe("divergencias impeditivas depois da aprovacao (termo, confirmacao, cond
 
   it("4. Excel: 'Conferido' so sem divergencia; com divergencia vira revisao necessaria ou nao encaminhavel, e o historico da aprovacao segue no payload", async () => {
     const db = await novo();
-    const { a, l, caso } = await aprovado(db);
+    const { a, l } = await aprovado(db);
     await rpc(db, "public.juridico_lote_enviar_financeiro($1)", [l.lote_id]);
     let p = (await rpc(db, "public.juridico_lote_exportar($1)", [l.lote_id])).casos[0];
     expect(p.conferencia_status).toBe("CONFERIDO");
