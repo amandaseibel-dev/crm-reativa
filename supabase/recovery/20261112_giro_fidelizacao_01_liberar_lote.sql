@@ -164,8 +164,7 @@ begin
               or public.caso_em_giro_fidelizacao(c.giro_fidelizacao_ate)
               or not (coalesce(a.responsavel_atual_em, c.caso_atualizado_em, now() - interval '2 days')
                         < now() - interval '1 day')
-              or (a.data_retorno >= (now() at time zone 'America/Sao_Paulo')::date
-                  and upper(coalesce(a.retorno_origem, '')) like 'OPERADOR%') )) then
+              or public.aluno_retorno_operador_vigente(c.aluno_id) )) then
         v_motivo := 'ganhou_protecao_desde_o_inicio';
       -- c. o aluno nao ganhou caso fora do backup
       elsif exists (select 1 from public.casos c

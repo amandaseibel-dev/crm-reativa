@@ -51,12 +51,8 @@ $antigo$  if v_c.giro_fidelizacao_ate is not null then
     return false;$antigo$),
       (5, 'liberar_fidelizacao_caso',
 $novo$  if public.caso_dentro_prazo_fidelizacao(v_c.data_ultimo_acionamento) then return false; end if;
-  if v_c.aluno_id is not null and exists (
-       select 1 from public.alunos a
-        where a.id = v_c.aluno_id
-          and a.data_retorno >= (now() at time zone 'America/Sao_Paulo')::date
-          and upper(coalesce(a.retorno_origem,'')) like 'OPERADOR%') then
-    return false;  -- retorno marcado pelo operador: compromisso preservado
+  if public.aluno_retorno_operador_vigente(v_c.aluno_id) then
+    return false;  -- retorno valido do responsavel atual: compromisso preservado
   end if;
   -- Soltar este caso solta, por gatilho, TODOS os casos do mesmo aluno. Trava
   -- as linhas de todos eles ANTES de ler os irmaos: sem isso, um acionamento
@@ -73,14 +69,12 @@ $novo$    and not public.caso_dentro_prazo_fidelizacao(c.data_ultimo_acionamento
     -- giro: exclusivo so ate a DATA do lote (12/11/2026)
     and not public.caso_em_giro_fidelizacao(c.giro_fidelizacao_ate)
     -- retorno agendado pelo operador (hoje ou futuro) e compromisso, nao risco
-    and not exists (select 1 from public.alunos a
-                     where a.id = c.aluno_id
-                       and a.data_retorno >= (now() at time zone 'America/Sao_Paulo')::date
-                       and upper(coalesce(a.retorno_origem,'')) like 'OPERADOR%')$novo$,
+    and not public.aluno_retorno_operador_vigente(c.aluno_id)$novo$,
 $antigo$    and not public.caso_dentro_prazo_fidelizacao(c.data_ultimo_acionamento)$antigo$),
       (8, 'trg_impor_teto_operador',
 $novo$
-      AND public.caso_pode_soltar_com_aluno(c.id)$novo$,
+      AND public.caso_pode_soltar_com_aluno(c.id)
+      AND NOT public.aluno_retorno_operador_vigente(c.aluno_id)$novo$,
 $antigo$$antigo$),
       (9, 'assumir_caso_livre',
 $novo$      and not public.caso_encerrado_operacional(c.cpf_limpo,c.status_atual,c.status_acionamento,c.status_financeiro,c.status_jornada)
@@ -88,6 +82,7 @@ $novo$      and not public.caso_encerrado_operacional(c.cpf_limpo,c.status_atual
       -- H1 (12/11/2026): o proprio caso trocado nao pode estar em fidelizacao vigente
       and not public.caso_dentro_prazo_fidelizacao(c.data_ultimo_acionamento)
       and not public.caso_em_giro_fidelizacao(c.giro_fidelizacao_ate)
+      and not public.aluno_retorno_operador_vigente(c.aluno_id)
     order by abs(public.saldo_titulos_aberto(c.cpf_limpo) - v_new_saldo) asc$novo$,
 $antigo$      and not public.caso_encerrado_operacional(c.cpf_limpo,c.status_atual,c.status_acionamento,c.status_financeiro,c.status_jornada)
     order by abs(public.saldo_titulos_aberto(c.cpf_limpo) - v_new_saldo) asc$antigo$),
@@ -98,6 +93,11 @@ $novo$     or coalesce(v_new._saldo,0) <= 0 then
   -- F1/G1 (12/11/2026): assumir QUALQUER caso muda o responsavel de TODOS os casos do
   -- aluno (cascata por gatilho). Irmao protegido por fidelizacao vigente bloqueia; irmao livre
   -- (sem dono, Carteira Geral ou pool sem protecao) nao bloqueia.
+  -- Retorno valido do responsavel atual impede que OUTRO operador assuma (mesma regra da liberacao).
+  if coalesce(v_new.operador_email,'') <> '' and lower(v_new.operador_email) <> v_email
+     and public.aluno_retorno_operador_vigente(v_new.aluno_id) then
+    return query select false,'Caso com retorno agendado pelo responsavel atual.',null::uuid; return;
+  end if;
   if not public.caso_pode_soltar_com_aluno(p_caso_id) then
     return query select false,'Caso com irmao protegido por fidelizacao vigente: a assuncao nao muda o responsavel dele.',null::uuid; return;
   end if;$novo$,
@@ -149,5 +149,6 @@ $rb$;
 
 -- Regra unica de irmaos: some depois dos patches (o teto e a liberacao ja nao a chamam).
 DROP FUNCTION IF EXISTS public.caso_pode_soltar_com_aluno(uuid);
+DROP FUNCTION IF EXISTS public.aluno_retorno_operador_vigente(uuid);
 
 COMMIT;

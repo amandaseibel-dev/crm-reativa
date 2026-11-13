@@ -136,6 +136,15 @@ async function cenario(db, n, o = {}) {
         case when $8::int is null then null else current_date + $8::int end,
         now() - interval '20 days', $9, $10, now() - interval '30 days')`,
     [U(n), cpf, `Aluno Sintetico ${n}`, dono, statusAcion, naoAcionar, dua, giro, valor, n]);
+  // Retorno de OPERADOR nasce de um atendimento real do responsavel (regra de 13/11).
+  // `semAtendimento` monta o retorno "solto" (envio em lote, digitado sem atender).
+  if (retorno !== null && String(retornoOrigem || "").toUpperCase().startsWith("OPERADOR") && !o.semAtendimento && dono) {
+    await db.query(
+      `insert into public.aluno_movimentacoes (aluno_id, tipo, descricao, registrado_por_email, registrado_por_nome, registrado_em, data_retorno)
+       values ($1, 'FINALIZACAO_ATENDIMENTO', 'atendimento sintetico', $2, 'DONO',
+               (current_date - $3::int)::timestamp + interval '15 hours', (current_date + $4::int)::timestamp)`,
+      [U(n), String(o.atendidoPor || dono).toLowerCase(), o.atendidoHa ?? dua ?? 0, retorno]);
+  }
   return U(n);
 }
 
@@ -285,7 +294,7 @@ describe("regra 5 — proteções legítimas continuam valendo", () => {
 
   it.each([[0], [3]])("retorno marcado pelo OPERADOR para daqui a %i dia(s): caso preservado", async (d) => {
     const db = await novo();
-    await cenario(db, 1, { retorno: d, retornoOrigem: "OPERADOR" });
+    await cenario(db, 1, { dua: 12, retorno: d, retornoOrigem: "OPERADOR" });
     expect(await rodarCron(db)).toBe(0);
     expect((await caso(db, 1)).dono).toBe(OP1);
     await db.close();
@@ -293,8 +302,8 @@ describe("regra 5 — proteções legítimas continuam valendo", () => {
 
   it("retorno OPERADOR_EM_CONFIRMACAO (prefixo, como em retornoOrigem.js) também preserva", async () => {
     const db = await novo();
-    await cenario(db, 1, { retorno: 2, retornoOrigem: "OPERADOR_EM_CONFIRMACAO" });
-    await cenario(db, 2, { retorno: 2, retornoOrigem: "operador" });  // caixa baixa: upper() normaliza
+    await cenario(db, 1, { dua: 12, retorno: 2, retornoOrigem: "OPERADOR_EM_CONFIRMACAO" });
+    await cenario(db, 2, { dua: 12, retorno: 2, retornoOrigem: "operador" });  // caixa baixa: upper() normaliza
     expect(await rodarCron(db)).toBe(0);
     await db.close();
   });
@@ -734,6 +743,112 @@ describe("achados da 3ª auditoria — A1 (assumir_caso_livre) e A2 (Carteira Ge
 });
 
 // ===========================================================================
+describe("retorno agendado (decisão da gestão, 13/11) — liberação e assunção com a MESMA regra", () => {
+  // caso de giro vencido do OP1, atendido ha `dua` dias, com retorno do operador.
+  const alvo = (db, extra) => cenario(db, 1, { dono: OP1, giro: -17, dua: 12, retornoOrigem: "OPERADOR", ...extra });
+  const ambos = async (db) => {
+    const cron = await rodarCron(db);
+    const dono1 = (await caso(db, 1)).dono;
+    const r = dono1 ? await assumir(db, OP2, 1) : { sucesso: null };
+    return { cron, assumiu: r.sucesso, dono: (await caso(db, 1)).dono };
+  };
+
+  it.each([["futuro (daqui a 2 dias)", 2], ["de hoje", 0]])("retorno %s, válido: cron NÃO solta e outro operador NÃO assume", async (_n, ret) => {
+    const db = await novo();
+    await alvo(db, { retorno: ret });
+    expect(await ambos(db)).toEqual({ cron: 0, assumiu: false, dono: OP1 });
+    await db.close();
+  });
+
+  it("retorno VENCIDO (ontem): não protege — cron solta", async () => {
+    const db = await novo();
+    await alvo(db, { retorno: -1 });
+    expect((await ambos(db)).cron).toBe(1);
+    await db.close();
+  });
+
+  it("retorno vencido não protege a assunção: outro operador assume", async () => {
+    const db = await novo();
+    await alvo(db, { retorno: -1 });
+    expect((await assumir(db, OP2, 1)).sucesso).toBe(true);
+    await db.close();
+  });
+
+  it("retorno CANCELADO (data apagada): não protege", async () => {
+    const db = await novo();
+    await alvo(db, { retorno: 2 });
+    await db.query("update public.alunos set data_retorno = null where id = $1", [U(1)]);
+    expect((await assumir(db, OP2, 1)).sucesso).toBe(true);
+    await db.close();
+  });
+
+  it("retorno CONCLUÍDO (confirmado): não protege", async () => {
+    const db = await novo();
+    await alvo(db, { retorno: 2 });
+    await db.query("update public.alunos set retorno_confirmado_em = now() where id = $1", [U(1)]);
+    expect((await ambos(db)).cron).toBe(1);
+    await db.close();
+  });
+
+  it("retorno INVÁLIDO (sem atendimento real, ex.: envio em lote): não protege", async () => {
+    const db = await novo();
+    await alvo(db, { retorno: 2, semAtendimento: true });
+    expect((await ambos(db)).cron).toBe(1);
+    await db.close();
+  });
+
+  it("retorno AUTOMÁTICO futuro: não protege a assunção", async () => {
+    const db = await novo();
+    await alvo(db, { retorno: 2, retornoOrigem: "AUTOMATICO" });
+    expect((await assumir(db, OP2, 1)).sucesso).toBe(true);
+    await db.close();
+  });
+
+  it("TROCA DE RESPONSÁVEL: retorno marcado pelo operador anterior não protege o atual", async () => {
+    const db = await novo();
+    await alvo(db, { retorno: 2, atendidoPor: OP2 });       // quem atendeu e marcou foi outro; o dono hoje e OP1
+    expect((await ambos(db)).cron).toBe(1);
+    await db.close();
+  });
+
+  it("SEM RENOVAÇÃO: retorno a mais de 15 dias do atendimento que o marcou não protege", async () => {
+    const db = await novo();
+    await alvo(db, { dua: 20, retorno: 2 });                // atendimento ha 20 dias, retorno em +2 = 22 dias depois
+    expect((await ambos(db)).cron).toBe(1);
+    await db.close();
+  });
+
+  it("remarcar o retorno SEM atender de novo não prolonga a proteção", async () => {
+    const db = await novo();
+    await alvo(db, { retorno: 0 });
+    await db.query("update public.alunos set data_retorno = current_date + 10 where id = $1", [U(1)]);   // so empurrou a data
+    expect((await ambos(db)).cron).toBe(1);
+    await db.close();
+  });
+
+  it("o próprio responsável não é barrado pelo seu retorno; e o card de risco não lista o caso protegido", async () => {
+    const db = await novo();
+    await alvo(db, { retorno: 2 });
+    await como(db, OP1);
+    const r = await qn(db, "select aluno_id from public.casos_risco_perder(null)");
+    await como(db, GESTAO);
+    expect(r.length).toBe(0);
+    await db.close();
+  });
+
+  it("carteira cheia e teto não soltam caso do próprio operador com retorno válido", async () => {
+    const db = await novo();
+    await db.query("update public.calibragem_parametros set valor = '1'::jsonb where chave = 'limite_carteira'");
+    await cenario(db, 1, { dono: OP2, giro: null, dua: 12, retorno: 2, retornoOrigem: "OPERADOR" });
+    await db.query("update public.casos set ultima_tabulacao_em = null where id = $1", [U(1)]);
+    await cenario(db, 3, { dono: null });
+    expect((await assumir(db, OP2, 3)).sucesso).toBe(false);
+    expect((await caso(db, 1)).dono).toBe(OP2);
+    await db.close();
+  });
+});
+
+// ===========================================================================
 describe("regra 4 — nenhuma redistribuição automática", () => {
   it("a liberação não entrega o caso a ninguém nem cria caso em outra carteira", async () => {
     const db = await novo();
@@ -851,7 +966,7 @@ describe("regra 7 (parcial) — o card de risco não lista o que a liberação n
     const db = await hoje();
     await cenario(db, 1);
     await cenario(db, 2, { giro: 5 });
-    await cenario(db, 3, { retorno: 2, retornoOrigem: "OPERADOR" });
+    await cenario(db, 3, { dua: 12, retorno: 2, retornoOrigem: "OPERADOR" });
     expect(await risco(db)).toEqual([U(1), U(2), U(3)]);
     await db.close();
   });
@@ -860,7 +975,7 @@ describe("regra 7 (parcial) — o card de risco não lista o que a liberação n
     const db = await novo();
     await cenario(db, 1);                                              // giro vencido, parado
     await cenario(db, 2, { giro: 5 });                                 // giro vigente
-    await cenario(db, 3, { retorno: 2, retornoOrigem: "OPERADOR" });  // compromisso
+    await cenario(db, 3, { dua: 12, retorno: 2, retornoOrigem: "OPERADOR" });  // compromisso
     await cenario(db, 4, { giro: null });                              // sem marca
     expect(await risco(db)).toEqual([U(1), U(4)]);
     await db.close();

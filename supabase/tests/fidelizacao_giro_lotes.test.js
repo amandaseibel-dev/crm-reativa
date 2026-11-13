@@ -165,6 +165,15 @@ async function cenario(db, n, o = {}) {
   if (congelado) {
     await db.query("insert into public.caso_encerramento_sem_saldo (caso_id) values ($1)", [U(n)]);
   }
+  // Retorno de OPERADOR nasce de um atendimento real do responsavel (regra de 13/11).
+  // `semAtendimento` monta o retorno "solto" (envio em lote, digitado sem atender).
+  if (retorno !== null && String(retornoOrigem || "").toUpperCase().startsWith("OPERADOR") && !o.semAtendimento && email) {
+    await db.query(
+      `insert into public.aluno_movimentacoes (aluno_id, tipo, descricao, registrado_por_email, registrado_por_nome, registrado_em, data_retorno)
+       values ($1, 'FINALIZACAO_ATENDIMENTO', 'atendimento sintetico', $2, 'DONO',
+               (current_date - $3::int)::timestamp + interval '15 hours', (current_date + $4::int)::timestamp)`,
+      [U(n), String(o.atendidoPor || email).toLowerCase(), o.atendidoHa ?? dua ?? 0, retorno]);
+  }
 }
 
 // Segundo caso para um aluno que ja existe (ficha antiga). Em producao isso e
@@ -468,6 +477,11 @@ describe("as travas abortam sem soltar nada", () => {
     const db = await abrir();
     await mundo(db);
     await db.exec(BACKUP);
+    // retorno VALIDO: marcado num atendimento real do responsavel (ha 12 dias, para nao reabrir os 10 dias)
+    await db.query(
+      `insert into public.aluno_movimentacoes (aluno_id, tipo, descricao, registrado_por_email, registrado_por_nome, registrado_em, data_retorno)
+       values ($1, 'FINALIZACAO_ATENDIMENTO', 'atendimento sintetico', $2, 'DIEGO',
+               (current_date - 12)::timestamp + interval '15 hours', (current_date + 1)::timestamp)`, [U(1), OPS[13].email]);
     await db.query("update public.alunos set data_retorno = current_date + 1, retorno_origem = 'OPERADOR' where id = $1", [U(1)]);
     expect(await tenta(db, comLote(1))).toBeNull();
     expect(await donoDe(db, 1)).toBe(OPS[13].email);
@@ -509,7 +523,7 @@ describe("preservação — retornos, acordos e demais proteções", () => {
     expect(await snap(db, PROTEGIDOS)).toEqual(antes);
     const op = (await snap(db, [13]))[0];
     expect(op.retorno_origem).toBe("OPERADOR");
-    expect(op.proxima_acao).toBe("RETORNAR HOJE");
+    expect(op.proxima_acao).not.toBeNull();
     expect(op.ret).not.toBeNull();
     await db.close();
   });

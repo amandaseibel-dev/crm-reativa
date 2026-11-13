@@ -3,7 +3,7 @@
 **Status:** migration PENDENTE, nada aplicado em produção. Nenhuma liberação
 executada, nenhum giro, nenhuma redistribuição.
 Arquivos: `supabase/aguardando_aprovacao/20261112210000_fidelizacao_giro_segue_os_10_dias.{sql.pendente,rollback.sql}`,
-teste `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (77 testes).
+teste `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (90 testes).
 Scripts de operação em `supabase/recovery/20261112_giro_fidelizacao_0{0,1,2}_*.sql`,
 teste `supabase/tests/fidelizacao_giro_lotes.test.js` (67 testes). **Sem alteração de tela** nesta PR.
 
@@ -214,6 +214,13 @@ A restauração devolve operador, responsável, marca do giro, retorno, hora, pr
 - **H5/H6:** irmão da Carteira Geral acionado há 10 dias ou menos bloqueia a assunção (lido como regra 2); e irmão livre da Carteira Geral sai dela por cascata quando o aluno é assumido ou solto, sem passar pela movimentação da gestão.
 - **Medições:** a remedição das 21:19 repetiu os valores das 15h e não tem saída guardada no repositório. Remedir na janela e guardar a saída.
 
+**Retorno agendado (decisão da gestão, 13/11/2026).** Regra única `public.aluno_retorno_operador_vigente`, usada pela liberação, cron, teto, assunção (troca de mão e carteira cheia) e card de risco. Protege só enquanto: o aluno tem responsável; o retorno é de hoje ou futuro (data de São Paulo); a origem é do operador; não foi concluído; e nasceu de um **atendimento real** (`FINALIZACAO_ATENDIMENTO`) registrado pelo **responsável atual**, com a mesma data, a **no máximo 15 dias** desse atendimento. Cancelado, vencido, concluído, sem atendimento, de outro operador ou remarcado sem novo atendimento: não protege. **15 dias é parâmetro provisório, a confirmar pela gestão.** Testes: futuro, hoje, vencido, cancelado, concluído, sem atendimento, automático, troca de responsável, renovação e remarcação (ver "retorno agendado").
+
+**Auditoria dos casos com retorno do operador (produção, 13/11/2026, somente leitura).**
+- Primeira leitura (12/11 noite): 62 casos de giro elegíveis com retorno do operador para **hoje**; todos da cobranca06, responsável = operador do caso, nenhum confirmado. O último atendimento do responsável foi há 14 a 38 dias. 28 não têm nenhuma movimentação com retorno; 34 têm `FINALIZACAO_ATENDIMENTO`, mas com outra data de retorno.
+- Remedição (13/11): 599 alunos com retorno do operador hoje ou futuro na base; 216 têm atendimento real do responsável com a mesma data (válidos pela regra). **Dos 61 que estão entre os elegíveis à liberação, nenhum é válido pela regra** — são retornos remarcados ou sem atendimento.
+- **Consequência:** com a regra nova esses 61 **deixam de ser protegidos** e entram no universo de liberação. Antes, a regra antiga (só data e origem) os segurava. A gestão deve confirmar isso antes de qualquer execução.
+
 **G2 — fora desta PR.** Receptivo (`sistema_assumir_receptivo`), movimentação da gestão (`carteira_geral_trocar_dono`) e vínculos de responsável (`vincular_responsavel_caso`, `desfazer_acao`) vão para PR separada, precedida de auditoria de cada caminho. Até lá, esses caminhos **continuam podendo mudar o responsável de irmão com fidelização vigente**: é risco residual da operação atual, não introduzido por esta PR.
 
 **Escopo desta PR:** liberação, cron, teto e assunção de caso.
@@ -239,7 +246,7 @@ A restauração devolve operador, responsável, marca do giro, retorno, hora, pr
 - `supabase/recovery/20261112_giro_fidelizacao_00_backup.sql`
 - `supabase/recovery/20261112_giro_fidelizacao_01_liberar_lote.sql`
 - `supabase/recovery/20261112_giro_fidelizacao_02_restaurar.sql`
-- Provas: `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (77) e `supabase/tests/fidelizacao_giro_lotes.test.js` (67)
+- Provas: `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (90) e `supabase/tests/fidelizacao_giro_lotes.test.js` (67)
 - Fixtures: `supabase/tests/fixtures/fidelizacao_giro_*_prod_20261112.{sql,md5.json}`
 
 ## Gate de segurança e CI

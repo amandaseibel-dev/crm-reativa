@@ -126,11 +126,7 @@ with elig as (
     from public.casos_elegiveis_liberacao_fidelizacao() e
     join public.casos c on c.id = e.caso_id
    where not public.caso_em_giro_fidelizacao(c.giro_fidelizacao_ate)
-     and not exists (
-           select 1 from public.alunos r
-            where r.id = c.aluno_id
-              and r.data_retorno >= (now() at time zone 'America/Sao_Paulo')::date
-              and upper(coalesce(r.retorno_origem, '')) like 'OPERADOR%')
+     and not public.aluno_retorno_operador_vigente(c.aluno_id)
 ),
 dono as (  -- o operador da unidade; mais de um = unidade fora da regra
   select unidade, min(op) as op, count(distinct op) as n_op from elig group by unidade
