@@ -44,10 +44,14 @@ async function novoBanco() {
     create role anon; create role authenticated; create role service_role;
     create schema auth;
     create table public._jwt (email text);
+    -- honra request.jwt.claims (as travas da migration de 08/10 o usam) e, sem
+    -- ele, o e-mail da tabela de teste
     create function auth.jwt() returns jsonb language sql stable as
-      $$ select jsonb_build_object('email', (select email from public._jwt limit 1)) $$;
+      $$ select coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb,
+                         jsonb_build_object('email', (select email from public._jwt limit 1))) $$;
     create table public.usuarios (email text, ativo boolean default true);
-    insert into public.usuarios values ('${GESTAO}', true), ('${ADM}', true);
+    insert into public.usuarios values ('${GESTAO}', true), ('${ADM}', true),
+      ('angela.ferreira@aelbra.com.br', true), ('gustavo.ene@aelbra.com.br', true);
     insert into public._jwt values ('${GESTAO}');
   `);
   for (const m of MIGRATIONS) await db.exec(m);

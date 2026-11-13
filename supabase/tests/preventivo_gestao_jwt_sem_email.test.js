@@ -22,8 +22,11 @@ beforeAll(async () => {
     create role anon; create role authenticated; create role service_role;
     create schema auth;
     create table public._jwt (claims jsonb);
+    -- honra request.jwt.claims (as travas da migration de 08/10 o usam) e, sem
+    -- ele, a tabela de teste
     create function auth.jwt() returns jsonb language sql stable as
-      $$ select (select claims from public._jwt limit 1) $$;
+      $$ select coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb,
+                         (select claims from public._jwt limit 1)) $$;
     create table public.usuarios (email text, ativo boolean default true);
     insert into public.usuarios values ('${GESTAO}', true), ('${ADM}', true),
       ('${DIRETORIA[0]}', true), ('${DIRETORIA[1]}', true);
