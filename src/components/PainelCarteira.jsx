@@ -157,6 +157,13 @@ const STATUS_FINALIZACAO = [
   "TERMO_ENVIADO_ADM",
   "TERMO_RECEBIDO_LIBERADO",
   "TERMO_REJEITADO",
+  // Termo fisico (gestao, 13/11/2026): INFORMATIVAS. So registram no historico
+  // (data, hora e operador, pelo mesmo FINALIZACAO_ATENDIMENTO de qualquer
+  // tabulacao). Nao geram baixa, nao encerram o caso e nao agendam retorno.
+  // O codigo da segunda NAO leva "QUITADO" de proposito: varias telas tratam
+  // qualquer status que contenha "QUITAD" como caso quitado e o tiram da fila.
+  "TERMO_FISICO_EM_ANDAMENTO",
+  "TERMO_FISICO_ARQUIVADO",
   "ACORDO_FECHADO",
   "LEMBRETE_PARCELA",
   // As quatro tabulacoes de ALEGACAO estao em `public.tabulacoes` desde
