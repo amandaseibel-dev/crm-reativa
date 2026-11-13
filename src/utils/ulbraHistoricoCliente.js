@@ -22,6 +22,11 @@ async function chamar(funcao, corpo) {
 }
 
 /** Histórico sob demanda: 1 chamada por página. Só deve ser chamada por clique do usuário. */
+/** Histórico pela FICHA do aluno: o servidor resolve a conversa. 1 chamada por página, só ao clicar. */
+export function lerHistoricoDoAluno(alunoId, antesDe = null) {
+  return chamar("ulbra-historico", { aluno_id: alunoId, antes_de: antesDe });
+}
+
 export function lerHistorico(conversaId, antesDe = null) {
   return chamar("ulbra-historico", { conversa_id: conversaId, antes_de: antesDe });
 }
@@ -35,6 +40,10 @@ export const MOTIVOS_HISTORICO = {
   RESERVA_GLOBAL: "A cota diária da Mensageria está reservada para a coleta: tente mais tarde.",
   ULBRA_INDISPONIVEL: "A Mensageria não respondeu. A chamada contou na cota; não foi repetida.",
   CONVERSA_INVALIDA: "Conversa inválida.",
+  CONVERSA_NAO_ENCONTRADA: "Este aluno ainda não tem conversa coletada na Mensageria.",
+  TETO_PILOTO_ESGOTADO: "O limite de consultas do piloto foi atingido. Nenhuma consulta foi feita.",
+  ULBRA_LIMITE: "A Mensageria devolveu limite de uso (429). A consulta parou; não será repetida.",
+  ALUNO_ID_INVALIDO: "Aluno inválido.",
 };
 
 /** Traduz a resposta da função para o estado que a Central exibe. Acumula páginas quando `anterior` vem. */

@@ -1099,3 +1099,25 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/04_depois_da_correcao.sql"
           psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
           psql -v ON_ERROR_STOP=1 -f "$DIR/05_apos_rollback.sql"
+
+  # ---------------------------------------------------------------------------
+  # ulbra-historico -- tipagem Deno e resolução de imports da função publicada
+  # pelo pacote da ficha. Não publica, não faz deploy, não chama a ULBRA.
+  # ---------------------------------------------------------------------------
+  ulbra-historico-deno-check:
+    name: ulbra-historico — deno check (versão fixada)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Instalar Deno (versão fixada)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.1.4
+
+      - name: deno check da função e de tudo que ela importa
+        env:
+          DENO_NO_PACKAGE_JSON: '1'
+        run: deno check supabase/functions/ulbra-historico/index.ts

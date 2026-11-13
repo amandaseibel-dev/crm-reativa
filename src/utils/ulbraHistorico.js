@@ -19,3 +19,16 @@ export function podeVerHistorico(linha, ehGestao = false) {
   if (ehGestao === true) return true;
   return linha.minha === true;
 }
+
+// ---------------------------------------------------------------------------
+// Histórico na FICHA do aluno (piloto). Lista de e-mails autorizados a VER o
+// botão. Começa vazia: nenhum operador vê o botão até a gestão nomear o piloto.
+// O servidor reconfere tudo (CPF, carteira ou responsável, teto de 3 chamadas).
+// ---------------------------------------------------------------------------
+export const HISTORICO_FICHA_PILOTO_EMAILS = [];
+
+export function podeVerHistoricoNaFicha(email) {
+  if (!email) return false;
+  const alvo = String(email).trim().toLowerCase();
+  return HISTORICO_FICHA_PILOTO_EMAILS.some((e) => String(e).trim().toLowerCase() === alvo);
+}

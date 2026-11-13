@@ -27,6 +27,8 @@ export const RESERVA_GLOBAL = 100; // PROPOSTA — saldo que o histórico nunca 
 export const SALDO_VALIDADE_MS = 15 * 60 * 1000; // PROPOSTA: saldo com mais de 15 min não serve
 export const CACHE_VALIDADE_MS = 5 * 60 * 1000;
 export const TAMANHO_PAGINA = 20;
+/** Teto TOTAL do piloto, somando leituras e a renovação de saldo (meu_acesso). Sem reset diário. */
+export const LIMITE_TOTAL_PILOTO = 3;
 
 export interface FotografiaSaldo {
   restam: number;
@@ -40,7 +42,10 @@ export type MotivoBloqueio =
   | "SALDO_DESATUALIZADO"
   | "LIMITE_OPERADOR_DIA"
   | "RESERVA_GLOBAL"
-  | "ULBRA_INDISPONIVEL";
+  | "ULBRA_INDISPONIVEL"
+  | "ULBRA_LIMITE"
+  | "TETO_PILOTO_ESGOTADO"
+  | "CONVERSA_NAO_ENCONTRADA";
 
 export interface Decisao {
   ok: boolean;
@@ -67,6 +72,7 @@ export interface ResultadoReserva {
   permitido: boolean;
   usadasOperador: number;
   usadasGlobal: number;
+  motivo?: MotivoBloqueio;
 }
 
 export interface DependenciasHistorico {
@@ -76,6 +82,8 @@ export interface DependenciasHistorico {
   lerSaldo(): Promise<FotografiaSaldo | null>;
   /** Reserva atômica no banco: uma chamada externa = uma reserva. */
   reservar(operador: string, quantidade: number, tetoOperador: number, tetoGlobal: number): Promise<ResultadoReserva>;
+  /** Chamadas já reservadas em todo o período do piloto (somadas em todos os dias). */
+  usoTotal(): Promise<number>;
   /** Chamada real à ULBRA (credencial de backend, somente leitura). */
   lerConversa(conversaId: string, antesDe: string | null, limite: number): Promise<unknown>;
   agora(): number;
@@ -139,6 +147,8 @@ async function executar(
   if (!contexto) return { ok: false, motivo: "SEM_PERMISSAO_NA_CONVERSA" };
   const aut = autorizarHistorico(contexto);
   if (!aut.ok) return { ok: false, motivo: aut.motivo! };
+  // Teto do piloto antes de qualquer chamada externa (inclusive meu_acesso).
+  if ((await deps.usoTotal()) >= LIMITE_TOTAL_PILOTO) return { ok: false, motivo: "TETO_PILOTO_ESGOTADO" };
 
   const fotografia = await deps.lerSaldo();
   const saldo = avaliarSaldo(fotografia, deps.agora());
@@ -149,16 +159,18 @@ async function executar(
 
   const reserva = await deps.reservar(operador, 1, LIMITE_OPERADOR_DIA, tetoGlobal);
   if (!reserva.permitido) {
-    const motivo: MotivoBloqueio = reserva.usadasOperador + 1 > LIMITE_OPERADOR_DIA ? "LIMITE_OPERADOR_DIA" : "RESERVA_GLOBAL";
+    const motivo: MotivoBloqueio = reserva.motivo
+      ?? (reserva.usadasOperador + 1 > LIMITE_OPERADOR_DIA ? "LIMITE_OPERADOR_DIA" : "RESERVA_GLOBAL");
     return { ok: false, motivo };
   }
 
   let resposta: unknown;
   try {
     resposta = await deps.lerConversa(conversaId, antesDe, TAMANHO_PAGINA);
-  } catch {
+  } catch (e) {
     // A reserva já foi gasta: conta como chamada. Não repete automaticamente.
-    return { ok: false, motivo: "ULBRA_INDISPONIVEL" };
+    // 429 é parada: a função não tenta de novo e a resposta diz o motivo.
+    return { ok: false, motivo: (e as Error).message === "ULBRA_LIMITE" ? "ULBRA_LIMITE" : "ULBRA_INDISPONIVEL" };
   }
   const pagina = mapearPagina(resposta);
   cache.set(chave, { expira: deps.agora() + CACHE_VALIDADE_MS, pagina });
