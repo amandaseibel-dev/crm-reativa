@@ -1071,6 +1071,56 @@ describe("acordo novo ou reativado depois da aprovacao", () => {
   });
 });
 
+// Portao de envio depois da aprovacao (auditoria do Guardiao sobre f0bb8ad5).
+describe("acordo que muda de situacao depois da aprovacao trava o envio", () => {
+  const divs = async (db, caso) =>
+    (await db.query("select public._juridico_divergencias(jc) d from juridico_casos jc where jc.id=$1", [caso.id])).rows[0].d;
+  const aprovarQuebrado = async (db) => {
+    const a = await mk(db, { valores: [1000], acordo: "QUEBRADO" });
+    const l = await gerar(db, 1);
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_autorizar_documento($1,'autorizado pelo jurídico')", [caso.id]);
+    await revQ(db, caso);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    return { a, l, caso };
+  };
+
+  it("quebrado revisado e REGULARIZADO depois da aprovacao: envio recusado por falta de aprovacao de acordo ativo", async () => {
+    const db = await novo();
+    const { a, l, caso } = await aprovarQuebrado(db);
+    expect(await divs(db, caso)).toEqual([]);
+    await db.query("update parcelas set status='A_VENCER', vencimento='2099-06-10' where acordo_id=$1 and status='VENCIDA'", [a.ac]);
+    expect(await divs(db, caso)).toContain("ACORDO_ATIVO_SEM_APROVACAO");
+    const e = await falha(rpc(db, "public.juridico_lote_enviar_financeiro($1)", [l.lote_id]));
+    expect(e?.message).toMatch(/ACORDO_ATIVO_SEM_APROVACAO/);
+    expect((await db.query("select status from juridico_casos where id=$1", [caso.id])).rows[0].status).toBe("APROVADO");
+    await db.close();
+  });
+
+  it("acordo em dia COM aprovacao especifica nao gera a divergencia", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000], acordo: "EM_DIA" });
+    await gerar(db, 1);
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_autorizar_documento($1,'autorizado pelo jurídico')", [caso.id]);
+    await rpc(db, "public.juridico_caso_aprovar_acordo_ativo($1,'pedido do jurídico',$2)", [caso.id, await ativos(db, a.al)]);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    expect(await divs(db, caso)).toEqual([]);
+    await db.close();
+  });
+
+  it("parcela NOVA vencida no acordo quebrado (saldo muda, fotografia nao): divergencia de quebrado e envio recusado", async () => {
+    const db = await novo();
+    const { a, l, caso } = await aprovarQuebrado(db);
+    await db.query("insert into parcelas(id,acordo_id,numero,valor,vencimento,status) values ($1,$2,3,150,'2025-09-10','VENCIDA')", [U(990, 1), a.ac]);
+    const d = await divs(db, caso);
+    expect(d).toContain("ACORDO_QUEBRADO_SEM_REVISAO");
+    expect(d).not.toContain("PARCELA_ALTERADA");
+    expect((await falha(rpc(db, "public.juridico_lote_enviar_financeiro($1)", [l.lote_id])))?.message).toMatch(/ACORDO_QUEBRADO_SEM_REVISAO/);
+    await db.close();
+  });
+});
+
 describe("rollback", () => {
   it("recusa com bloqueio ativo; sem bloqueio, remove tudo e guarda copia fechada", async () => {
     const db = await novo();

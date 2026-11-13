@@ -116,6 +116,34 @@ describe("aprovação", () => {
   });
 });
 
+describe("acordo quebrado", () => {
+  it("revisão envia os acordos e o saldo que vieram do banco, com justificativa; aprovação fica desligada", async () => {
+    casosAtuais = [caso(1, "EM_ANALISE", {
+      pendencias: ["ACORDO_QUEBRADO_SEM_REVISAO"],
+      conferencia: conf({
+        acordos: [{ acordo_id: "x1", numero_acordo: 5001, situacao: "QUEBRADO", parcelas_vencidas: 1, saldo: 100.1 },
+                  { acordo_id: "x2", numero_acordo: 5002, situacao: "QUEBRADO", parcelas_vencidas: 1, saldo: 200.2 }],
+        quebrados: { ids: ["x1", "x2"], saldo: 300.3 }, total: 1300.3,
+      }),
+    })];
+    responder();
+    render(<Juridico />);
+    await abrirAba("Em análise");
+    expect(screen.getByRole("button", { name: "Aprovar e bloquear cobrança" }).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Revisar acordo quebrado" }));
+    const dlg = screen.getByRole("dialog");
+    expect(within(dlg).getByText(/5001, 5002/)).toBeTruthy();
+    fireEvent.click(within(dlg).getByRole("button", { name: "Confirmar" }));
+    expect(chamadas("juridico_caso_revisar_acordo_quebrado")).toHaveLength(0); // sem justificativa não envia
+    fireEvent.change(within(dlg).getByRole("textbox"), { target: { value: "saldo conferido" } });
+    fireEvent.click(within(dlg).getByRole("button", { name: "Confirmar" }));
+    await waitFor(() => expect(chamadas("juridico_caso_revisar_acordo_quebrado")).toHaveLength(1));
+    expect(chamadas("juridico_caso_revisar_acordo_quebrado")[0][1]).toEqual({
+      p_caso_id: "c1", p_motivo: "saldo conferido", p_acordos: ["x1", "x2"], p_saldo: 300.3,
+    });
+  });
+});
+
 describe("envio ao financeiro e confirmação ao jurídico", () => {
   it("aprovados: um botão gera o Excel e registra o envio do lote", async () => {
     casosAtuais = [caso(1, "APROVADO")];

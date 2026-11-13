@@ -134,6 +134,9 @@ Fica, por decisão a tomar pela gestão:
   Depois da aprovação, acordo que quebra sem revisão que bata vira a divergência
   `ACORDO_QUEBRADO_SEM_REVISAO` e o envio ao financeiro é recusado. O conjunto e o saldo dos
   quebrados vêm prontos da conferência (`quebrados.ids`, `quebrados.saldo`); a tela não soma.
+  Acordo que fica em dia depois da aprovação, sem a aprovação específica de acordo ativo, vira a
+  divergência `ACORDO_ATIVO_SEM_APROVACAO` e o envio é recusado. Em caso já enviado ou confirmado,
+  essas divergências são só alerta para a gestão: não há revisão nem remoção pela aba.
   Riscos residuais: (1) acordo regularizado sem pagamento (ex.: vencimento alterado) que volta a
   quebrar com os mesmos IDs e o mesmo saldo não pede nova revisão; (2) mudança de parcela por
   outra transação durante a aprovação não é travada (sem lock em `parcelas`), e não há teste de

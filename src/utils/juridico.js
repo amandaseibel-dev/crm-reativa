@@ -33,7 +33,8 @@ const DIVERGENCIAS = {
   PAGAMENTO_AGUARDANDO_CONFIRMACAO: "Pagamento aguardando confirmação",
   ACORDO_NOVO: "Acordo novo, ou reativado depois da aprovação",
   ACORDO_REATIVADO: "Acordo cancelado depois da aprovação e reativado",
-  ACORDO_QUEBRADO_SEM_REVISAO: "Acordo quebrado depois da aprovação, sem revisão financeira",
+  ACORDO_QUEBRADO_SEM_REVISAO: "Acordo quebrado ou com saldo alterado depois da aprovação: análise da gestão",
+  ACORDO_ATIVO_SEM_APROVACAO: "Acordo regularizado (em dia) depois da aprovação, sem aprovação específica",
 };
 
 export function rotuloDivergencia(codigo) {

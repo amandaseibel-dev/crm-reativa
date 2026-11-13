@@ -579,6 +579,15 @@ begin
        and not (a.id = any(p_caso.acordos_aprovados))
   ) then v := array_append(v, 'ACORDO_NOVO'); end if;
 
+  -- acordo ATIVO EM DIA (sem parcela vencida) sem a aprovacao especifica de acordo ativo:
+  -- ex.: acordo quebrado na aprovacao e regularizado depois. Mesma regra da pendencia.
+  if p_caso.acordo_ativo_aprovado_em is null and exists (
+    select 1 from public.acordos a
+     where a.aluno_id = p_caso.aluno_id and upper(coalesce(a.status,'')) = 'ATIVO' and a.duplicado_de is null
+       and not exists (select 1 from public.parcelas p
+                        where p.acordo_id = a.id and upper(coalesce(p.status,'')) = 'VENCIDA')
+  ) then v := array_append(v, 'ACORDO_ATIVO_SEM_APROVACAO'); end if;
+
   -- acordo QUEBRADO depois da aprovacao sem revisao financeira que bata (conjunto e saldo)
   if exists (
     select 1 from (
