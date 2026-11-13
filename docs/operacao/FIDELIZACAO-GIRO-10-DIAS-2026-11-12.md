@@ -140,7 +140,7 @@ aplicar a migração, pausar o cron, liberar casos ou mesclar a PR.
 5. **Lote 1 (cobranca13)**, depois **lote 2 (cobranca06)**, depois **lote 3 (demais)** — `01_liberar_lote.sql` com `v_lote` trocado. Um por noite.
 6. **Reativar o cron 8** — só depois do lote 3 conferido.
 
-**Janela de execução:** o script aborta quando a data do banco (UTC) difere da de São Paulo, o que acontece **entre 21h e 24h BRT**. Executar **entre 00:00 e 20:59 BRT**, fora do expediente (preferência: 19:00–20:59). Timeout de 300 s (`statement_timeout`) desfaz o lote inteiro sem registro por aluno.
+**Janela operacional:** ver a seção "Janela de execução". A faixa 00:00–20:59 BRT é apenas o **limite técnico** do script (fora dela a data do banco em UTC já virou), e **não** é janela operacional: ela atravessa o expediente.
 
 ### Concorrência: o que o script garante e o que não garante
 
@@ -342,6 +342,27 @@ A medição mostrou que, hoje, a via alternativa não protege exclusivamente nen
 
 **Escopo desta PR:** liberação, cron, teto e assunção de caso.
 
+## Janela de execução (corrigida em 13/11, após observação da gestão)
+
+A faixa **00:00–20:59 BRT é o limite TÉCNICO** do script: a partir das 21:00 a data do
+banco (UTC) já é a do dia seguinte e os três scripts abortam. **Isso não é uma janela
+operacional** — ela atravessa o expediente inteiro, e liberar lotes com a equipe
+atendendo é justamente o que aumenta os alunos pulados e o risco de leitura
+desatualizada.
+
+**Janela operacional, dentro do limite técnico e fora do atendimento:**
+
+| Opção | Faixa BRT | Observação |
+|---|---|---|
+| **Preferencial** | **19:00 – 20:30** | Depois do atendimento e com folga até o corte técnico das 20:59 |
+| Alternativa | 00:00 – 06:30 | Madrugada, antes do expediente |
+
+Cada lote em uma noite, com conferência na manhã seguinte: **três noites**. O cron
+`fidelizacao_liberar_vencidos` fica pausado entre o primeiro lote e a reativação final.
+
+Se a gestão confirmar outro horário de encerramento do atendimento, a faixa muda junto
+— o que não muda é a regra: **nenhum lote durante o atendimento da equipe**.
+
 ## PACOTE FINAL — o que está pronto e o que depende da gestão
 
 **Pronto, nesta branch, sem nada aplicado em produção:**
@@ -364,7 +385,7 @@ A medição mostrou que, hoje, a via alternativa não protege exclusivamente nen
 4. liberar o lote 1, conferir; lote 2, conferir; lote 3, conferir;
 5. reativar o cron.
 
-Janela: entre 00:00 e 20:59 BRT, fora do expediente. Reversão: rollback da migration e `02_restaurar.sql`, com o cron pausado.
+**Janela operacional:** ver a seção "Janela de execução". A faixa 00:00–20:59 BRT é apenas o **limite técnico** do script (fora dela a data do banco em UTC já virou), e **não** é janela operacional: ela atravessa o expediente.
 
 **Números a remedir no momento da execução** (o universo muda a cada hora; os de 13/11 09:04 estão em `supabase/audits/..._RESULTADO.md`).
 
