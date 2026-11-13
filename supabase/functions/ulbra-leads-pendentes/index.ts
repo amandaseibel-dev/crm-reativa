@@ -9,7 +9,6 @@
 //
 // Continua publicada e intocada de proposito: remover funcao publicada e
 // passo com autorizacao propria, nao efeito colateral desta entrega.
-import { buscarUsuarioAtivoPorEmail } from "../_shared/email_exato.ts";
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decidirAcessoLeads } from "./portao.ts";
@@ -43,7 +42,13 @@ serve(async (req) => {
       const { data: { user } } = await sb.auth.getUser();
       if (!user?.email) return null;
 
-      const usuario = await buscarUsuarioAtivoPorEmail<{ receptivo: boolean }>(sb, user.email, "receptivo");
+      const { data: usuario } = await sb
+        .from("usuarios")
+        .select("receptivo")
+        .ilike("email", user.email)
+        .eq("ativo", true)
+        .limit(1)
+        .maybeSingle();
       if (!usuario) return null;
 
       const { data: gestao, error } = await sb.rpc("usuario_e_gestao");
