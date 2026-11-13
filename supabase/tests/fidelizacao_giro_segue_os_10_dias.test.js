@@ -93,6 +93,14 @@ async function construir(comMigration) {
     create or replace function auth.jwt() returns jsonb language sql stable as $stub$
       select nullif(current_setting('request.jwt.claims', true), '')::jsonb;
     $stub$;
+    -- PRIVILEGIOS PADRAO DE FUNCOES, como em producao. Medido em 13/11/2026 no
+    -- schema public: ha DUAS entradas em pg_default_acl --
+    --   supabase_admin: {postgres=X, anon=X, authenticated=X, service_role=X}
+    --   postgres:       {postgres=X, authenticated=X, service_role=X}
+    -- Quando existe entrada, ela SUBSTITUI o padrao de fabrica. Sem reproduzir
+    -- isto, uma funcao nova nasce so com o dono e o teste de ACL passaria mesmo
+    -- com a linha de REVOKE apagada (o mesmo verde falso ja corrigido para tabelas).
+    alter default privileges in schema public grant execute on functions to anon, authenticated, service_role;
     insert into public.usuarios (nome, email, perfil, ativo, operador_nome, recebe_novos_casos) values
       ('OP UM',   '${OP1}', 'operador', true, 'OP UM',   true),
       ('OP DOIS', '${OP2}', 'operador', true, 'OP DOIS', true),
@@ -1232,6 +1240,37 @@ describe("segurança — portão interno de liberar_fidelizacao_caso", () => {
     expect((await q1(db, "select public.liberar_fidelizacao_caso($1) ok", [U(1)])).ok).toBe(true);
     await como(db, null);
     expect((await q1(db, "select public.liberar_fidelizacao_caso($1) ok", [U(2)])).ok).toBe(true);
+    await db.close();
+  });
+
+  // GUARD DE REGRESSAO (L1): as duas funcoes novas sao predicados INTERNOS e nao
+  // podem nascer executaveis por ninguem alem do dono. A bancada reproduz o
+  // pg_default_acl de producao, entao apagar qualquer papel da linha de REVOKE
+  // da migration quebra este teste.
+  it.each([["caso_pode_soltar_com_aluno"], ["aluno_retorno_operador_vigente"]])(
+    "ACL de %s: sem EXECUTE para PUBLIC, anon, authenticated ou service_role", async (fn) => {
+      const db = await novo();
+      const r = await q1(db,
+        `select coalesce(p.proacl::text, '(padrao)') acl, p.prosecdef, p.proconfig::text cfg
+           from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname = 'public' and p.proname = $1`, [fn]);
+      expect(r.acl).not.toMatch(/\banon=/);
+      expect(r.acl).not.toMatch(/\bauthenticated=/);
+      expect(r.acl).not.toMatch(/\bservice_role=/);
+      expect(r.acl).not.toMatch(/^\{=X/);          // sem PUBLIC
+      expect(r.acl).toMatch(/postgres=X/);          // o dono mantem
+      expect(r.prosecdef).toBe(true);
+      expect(r.cfg).toMatch(/search_path=public/);
+      await db.close();
+    });
+
+  // E a bancada tem mesmo o padrao de producao: sem isto o teste acima seria vazio.
+  it("a bancada reproduz o privilégio padrão de funções de produção", async () => {
+    const db = await novo();
+    await db.exec("create or replace function public._sonda_acl() returns int language sql as $f$ select 1 $f$");
+    const r = await q1(db, "select proacl::text acl from pg_proc where proname = '_sonda_acl'");
+    expect(r.acl).toMatch(/authenticated=X/);
+    expect(r.acl).toMatch(/service_role=X/);
     await db.close();
   });
 

@@ -295,7 +295,7 @@ O teste de equivalência da suíte prova a concordância com `aluno_retorno_oper
 
 | Proteção | Casos |
 |---|---|
-| Fidelização normal de 10 dias | **4.839** de 6.183 casos com operador |
+| Fidelização normal de 10 dias | **4.839** de 6.183 casos com operador e não encerrados |
 | Giro vigente | 0 (todas as marcas já venceram) |
 | Via **explícita**, em caso que a fidelização normal não protege | **0** |
 | Via **alternativa**, em caso que a fidelização normal não protege | **0** |
