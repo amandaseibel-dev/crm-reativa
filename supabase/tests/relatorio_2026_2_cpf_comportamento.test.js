@@ -17,12 +17,14 @@ const GESTAO = "amanda.seibel@aelbra.com.br";
 const ESQUEMA = `
   CREATE SCHEMA IF NOT EXISTS auth;
   CREATE OR REPLACE FUNCTION auth.email() RETURNS text LANGUAGE sql STABLE AS $$ SELECT coalesce(current_setting('app.email', true), '') $$;
-  CREATE OR REPLACE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$ SELECT 'authenticated'::text $$;
+  CREATE OR REPLACE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$ SELECT coalesce(nullif(current_setting('app.role', true), ''), 'authenticated')::text $$;
   CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$ SELECT NULL::jsonb $$;
   DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated; END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon; END IF;
   END $$;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated;
   CREATE TABLE alunos (id uuid PRIMARY KEY, unidade text);
   CREATE TABLE acordos_titulos (
     id uuid PRIMARY KEY, aluno_id uuid, cpf text, vencimento date,
@@ -148,6 +150,19 @@ describe("relatorio 2026/2: classificacao de CPF e contagem por aluno", () => {
     expect(await q("anon")).toBe(false);
   });
 
+  it("helper recusa chamada fora da gestao mesmo se executado (portao interno)", async () => {
+    await db.exec(`SET app.email = 'outra.pessoa@aelbra.com.br'; SET app.role = 'authenticated'`);
+    await expect(db.query("SELECT * FROM public._relatorio_2026_2_eleg()")).rejects.toThrow(/restrita a gestao|42501/);
+  });
+
+  it("captura recusa usuario comum e aceita service_role", async () => {
+    await db.exec(`SET app.email = 'outra.pessoa@aelbra.com.br'; SET app.role = 'authenticated'`);
+    await expect(db.query("SELECT relatorio_mensalidades_2026_2_capturar()")).rejects.toThrow(/restrito a gestao|42501/);
+    await db.exec(`SET app.email = ''; SET app.role = 'service_role'`);
+    const { rows } = await db.query("SELECT relatorio_mensalidades_2026_2_capturar() AS j");
+    expect(rows[0].j.alunos).toBe(6);
+  });
+
   it("snapshot tem RLS ativa e sem acesso direto para authenticated", async () => {
     const { rows } = await db.query(
       `SELECT c.relrowsecurity AS rls,
@@ -158,6 +173,8 @@ describe("relatorio 2026/2: classificacao de CPF e contagem por aluno", () => {
     expect(rows[0].rls).toBe(true);
     expect(rows[0].sel).toBe(false);
     expect(rows[0].del).toBe(false);
+    const anon = await db.query(`SELECT has_table_privilege('anon', 'public.relatorio_mens_2026_2_snapshot'::regclass, 'SELECT') AS ok`);
+    expect(anon.rows[0].ok).toBe(false);
   });
 
   it("rollback remove os objetos de 2026/2 quando nao ha snapshot", async () => {

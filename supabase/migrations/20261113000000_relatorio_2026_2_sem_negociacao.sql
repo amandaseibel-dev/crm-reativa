@@ -35,8 +35,14 @@ COMMENT ON COLUMN public.relatorio_mens_2026_2_snapshot.origem IS
 -- 2) Conjunto elegível para 2026/2 (mesma regra de 2026/1, mas com datas julho–dezembro)
 CREATE OR REPLACE FUNCTION public._relatorio_2026_2_eleg()
 RETURNS TABLE(id uuid, aluno_id uuid, cpf text, mes int, saldo numeric, curso text, unidade text, faixa text, faixa_ordem int)
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public'
 AS $$
+BEGIN
+  IF coalesce(auth.role(),'') <> 'service_role'
+     AND lower(coalesce(auth.email(),'')) NOT IN ('amanda.seibel@aelbra.com.br','cobranca04@aelbra.com.br','cobranca07@aelbra.com.br') THEN
+    RAISE EXCEPTION 'Acesso negado: elegibilidade restrita a gestao.' USING ERRCODE='42501';
+  END IF;
+  RETURN QUERY
   SELECT t.id, t.aluno_id,
          lpad(regexp_replace(coalesce(t.cpf,''),'\D','','g'),11,'0'),
          extract(month from t.vencimento)::int,
@@ -74,6 +80,7 @@ AS $$
         AND public.normalizar_status_acionamento(coalesce(c.status_atual,c.status_acionamento,c.status_jornada)) = any(array['CANCELADO','CANCELAMENTO COBRANCA','JURIDICO']))
     AND NOT EXISTS (SELECT 1 FROM public.solicitacoes_confirmacao_pagamento s
         WHERE s.aluno_id = t.aluno_id::text AND s.status='AGUARDANDO_CONFIRMACAO');
+END;
 $$;
 
 -- 3) RPC de leitura: relatório 2026/2 sem negociação (ao vivo, com recortes + evolução)
