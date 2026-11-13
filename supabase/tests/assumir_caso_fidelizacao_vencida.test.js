@@ -34,6 +34,7 @@ const MIGRATION = ler("supabase/aguardando_aprovacao/20261113120000_assumir_caso
 const LUANA = "cobranca05@aelbra.com.br";
 const MAURICIO = "cobranca06@aelbra.com.br";
 const OLGA = "cobranca03@aelbra.com.br";
+const GESTAO = "amanda.seibel@aelbra.com.br";
 
 const ext = { unaccent, pg_trgm, uuid_ossp };
 const q1 = async (db, sql, p = []) => (await db.query(sql, p)).rows[0];
@@ -73,7 +74,9 @@ async function construir() {
     insert into public.usuarios (nome, email, perfil, ativo, operador_nome, recebe_novos_casos) values
       ('LUANA',    '${LUANA}',    'operador', true,  'LUANA',    true),
       ('MAURICIO', '${MAURICIO}', 'operador', true,  'MAURICIO', true),
-      ('OLGA',     '${OLGA}',     'operador', false, 'OLGA',     false);
+      ('OLGA',     '${OLGA}',     'operador', false, 'OLGA',     false),
+      ('AMANDA GESTORA', '${GESTAO}', 'gerencia', true, null, false);
+    update public.usuarios set pode_alterar_responsavel = true where lower(email) = '${GESTAO}';
     insert into public.calibragem_parametros (chave, valor) values ('limite_carteira', '700'::jsonb)
       on conflict (chave) do update set valor = excluded.valor;
   `);
@@ -88,7 +91,7 @@ async function cenario(db, n, o = {}) {
   const cpf = CPF(n);
   await db.query(
     `insert into public.alunos (id, cpf, nome, matricula, responsavel_atual_email, responsavel_atual_nome, responsavel_atual_em)
-     values ($1,$2,$3,$4,$5,'DONO', now() - interval '5 days')`,
+     values ($1,$2,$3,$4,$5,'DONO', now() - interval '30 days')`,
     [U(n), cpf, `Aluno Sintetico ${n}`, `M${n}`, dono]);
   if (saldo > 0) {
     await db.query(
@@ -361,5 +364,142 @@ describe("operador assume caso com fidelização vencida", () => {
     expect(a.data_ultimo_acionamento).not.toBeNull();
     expect(a.status_acionamento).toBe("ACIONADO");
     await db.close();
+  });
+
+  it("R2: responsável que recebeu o caso há 3 dias não perde o caso", async () => {
+    const db = await abrirCom();
+    const caso = await cenario(db, 40, { dono: MAURICIO });
+    await db.query("update public.alunos set responsavel_atual_em = now() - interval '3 days' where id=$1", [U(40)]);
+    await como(db, LUANA);
+    expect((await tomar(db, caso)).sucesso).toBe(false);
+    await db.close();
+  });
+
+  it("R2: responsável há 11 dias perde o caso (regra de 10 dias)", async () => {
+    const db = await abrirCom();
+    const caso = await cenario(db, 41, { dono: MAURICIO });
+    await db.query("update public.alunos set responsavel_atual_em = now() - interval '11 days' where id=$1", [U(41)]);
+    await como(db, LUANA);
+    expect((await tomar(db, caso)).sucesso).toBe(true);
+    await db.close();
+  });
+
+  it("R2: sem repasse sucessivo: quem recebeu não é tirado por quem recebeu depois", async () => {
+    const db = await abrirCom();
+    const caso = await cenario(db, 42, { dono: MAURICIO });
+    await como(db, LUANA);
+    expect((await tomar(db, caso)).sucesso).toBe(true);
+    await db.exec(`insert into public.usuarios (nome,email,perfil,ativo,operador_nome,recebe_novos_casos) values ('ANA','cobranca07@aelbra.com.br','operador',true,'ANA',true)`);
+    await como(db, "cobranca07@aelbra.com.br");
+    expect((await tomar(db, caso)).sucesso).toBe(false);
+    await db.close();
+  });
+
+  it("R5: conta de gestão não usa esta ação", async () => {
+    const db = await abrirCom();
+    const caso = await cenario(db, 43, { dono: MAURICIO });
+    await como(db, GESTAO);
+    const r = await tomar(db, caso);
+    expect(r.sucesso).toBe(false);
+    expect(r.mensagem).toContain("exclusiva de operadores");
+    await db.close();
+  });
+
+  it("R5: operador ativo que não recebe novos casos não usa esta ação", async () => {
+    const db = await abrirCom();
+    const caso = await cenario(db, 44, { dono: MAURICIO });
+    await db.exec(`update public.usuarios set recebe_novos_casos = false where lower(email) = '${LUANA}'`);
+    await como(db, LUANA);
+    expect((await tomar(db, caso)).sucesso).toBe(false);
+    await db.close();
+  });
+
+  it("pré-condição P1: gatilho com corpo divergente faz a migration FALHAR", async () => {
+    const db = await construir();
+    await db.exec(`create or replace function public._acionamento_nao_volta_para_nulo() returns trigger language plpgsql as $f$ begin return new; end; $f$`);
+    await expect(db.exec(MIGRATION)).rejects.toThrow(/divergente/);
+    await db.close();
+  });
+
+  it("pré-condição P1: gatilho ausente faz a migration FALHAR", async () => {
+    const db = await construir();
+    await db.exec(`drop trigger trg_acionamento_nao_volta_para_nulo on public.alunos`);
+    await expect(db.exec(MIGRATION)).rejects.toThrow(/ausente/);
+    await db.close();
+  });
+
+  it("tabela de operações não é acessível pelo cliente", async () => {
+    const db = await abrirCom();
+    const p = await q1(db, "select has_table_privilege('authenticated','public.assumir_fidelizacao_operacoes','select') a");
+    expect(p.a).toBe(false);
+    await db.close();
+  });
+
+  describe("reversão por operação", () => {
+    async function tomadaDeLuana(db, n) {
+      const caso = await cenario(db, n, { dono: MAURICIO });
+      await como(db, LUANA);
+      const r = await tomar(db, caso);
+      expect(r.sucesso).toBe(true);
+      return { caso, op: r.operacao_id };
+    }
+
+    it("gestão reverte a operação sem conflito: caso volta ao anterior, histórico preservado", async () => {
+      const db = await abrirCom();
+      const { caso, op } = await tomadaDeLuana(db, 50);
+      const antes = await q1(db, "select count(*)::int n from public.historico_operadores_alunos");
+      await como(db, GESTAO);
+      const r = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [op, "Erro de atribuicao"]);
+      expect(r.sucesso).toBe(true);
+      expect((await q1(db, "select operador_email e from public.casos where id=$1", [caso])).e).toBe(MAURICIO);
+      const dep = await q1(db, "select count(*)::int n from public.historico_operadores_alunos");
+      expect(dep.n).toBeGreaterThan(antes.n);
+      const o = await q1(db, "select revertida_em is not null r from public.assumir_fidelizacao_operacoes where id=$1", [op]);
+      expect(o.r).toBe(true);
+      await db.close();
+    });
+
+    it("conflito: novo responsável movimentou o aluno depois da tomada → não reverte", async () => {
+      const db = await abrirCom();
+      const { caso, op } = await tomadaDeLuana(db, 51);
+      await db.query(`insert into public.aluno_movimentacoes (aluno_id,tipo,descricao,registrado_por_email,registrado_em)
+                      values ($1,'FINALIZACAO_ATENDIMENTO','teste',$2, now() + interval '1 second')`, [U(51), LUANA]);
+      await como(db, GESTAO);
+      const r = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [op, "x"]);
+      expect(r.sucesso).toBe(false);
+      expect(r.mensagem).toContain("Conflito");
+      expect((await q1(db, "select operador_email e from public.casos where id=$1", [caso])).e).toBe(LUANA);
+      await db.close();
+    });
+
+    it("conflito: o caso mudou de dono depois da tomada → não reverte", async () => {
+      const db = await abrirCom();
+      const { caso, op } = await tomadaDeLuana(db, 52);
+      await db.query("update public.casos set operador_email=$2 where id=$1", [caso, OLGA]);
+      await como(db, GESTAO);
+      const r = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [op, "x"]);
+      expect(r.sucesso).toBe(false);
+      expect(r.mensagem).toContain("mudou de responsavel");
+      await db.close();
+    });
+
+    it("operador comum não reverte", async () => {
+      const db = await abrirCom();
+      const { op } = await tomadaDeLuana(db, 53);
+      await como(db, MAURICIO);
+      const r = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [op, "x"]);
+      expect(r.sucesso).toBe(false);
+      await db.close();
+    });
+
+    it("a mesma operação não é revertida duas vezes", async () => {
+      const db = await abrirCom();
+      const { op } = await tomadaDeLuana(db, 54);
+      await como(db, GESTAO);
+      expect((await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [op, "x"])).sucesso).toBe(true);
+      const r2 = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [op, "x"]);
+      expect(r2.sucesso).toBe(false);
+      await db.close();
+    });
   });
 });

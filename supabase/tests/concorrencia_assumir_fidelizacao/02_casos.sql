@@ -9,7 +9,7 @@ begin
       (2,'00000000-0000-0000-0000-000000000002'::uuid,'30000000002'),
       (3,'00000000-0000-0000-0000-000000000003'::uuid,'30000000003')) v(n,id,cpf) loop
     insert into public.alunos (id, cpf, nome, matricula, responsavel_atual_email, responsavel_atual_nome, responsavel_atual_em)
-      values (r.id, r.cpf, 'Aluno Sintetico '||r.n, 'M'||r.n, 'cobranca06@aelbra.com.br', 'MAURICIO', now() - interval '5 days');
+      values (r.id, r.cpf, 'Aluno Sintetico '||r.n, 'M'||r.n, 'cobranca06@aelbra.com.br', 'MAURICIO', now() - interval '30 days');
     insert into public.acordos_titulos (aluno_id, cpf, documento, vencimento, valor_original, saldo_corrigido, situacao, status)
       values (r.id, r.cpf, 'DOC'||r.n, '2026-03-10', 500, 500, 'ABERTO', 'em_aberto');
     insert into public.casos (aluno_id, cpf, cpf_limpo, nome, operador_email, operador_nome, data_ultimo_acionamento,
@@ -30,7 +30,7 @@ begin
       (6,'00000000-0000-0000-0000-000000000006'::uuid,'30000000006','cobranca06@aelbra.com.br',20),
       (7,'00000000-0000-0000-0000-000000000007'::uuid,'30000000007','cobranca06@aelbra.com.br',20)) v(n,id,cpf,dono,dias) loop
     insert into public.alunos (id, cpf, nome, matricula, responsavel_atual_email, responsavel_atual_nome, responsavel_atual_em)
-      values (r.id, r.cpf, 'Aluno Sintetico '||r.n, 'M'||r.n, r.dono, 'DONO', now() - interval '5 days');
+      values (r.id, r.cpf, 'Aluno Sintetico '||r.n, 'M'||r.n, r.dono, 'DONO', now() - interval '30 days');
     insert into public.acordos_titulos (aluno_id, cpf, documento, vencimento, valor_original, saldo_corrigido, situacao, status)
       values (r.id, r.cpf, 'DOC'||r.n, '2026-03-10', 500, 500, 'ABERTO', 'em_aberto');
     insert into public.casos (aluno_id, cpf, cpf_limpo, nome, operador_email, operador_nome, data_ultimo_acionamento,

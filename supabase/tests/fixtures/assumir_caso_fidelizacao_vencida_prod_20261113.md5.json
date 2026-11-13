@@ -1,4 +1,5 @@
 {
   "public.caso_encerramento_congelado": "1de50b10708f8cc6ec8dd5bada214987",
-  "public._acionamento_nao_volta_para_nulo": "ccbc6aea6bb27b7497b008abb53bb58a"
+  "public._acionamento_nao_volta_para_nulo": "ccbc6aea6bb27b7497b008abb53bb58a",
+  "internal.pode_alterar_responsavel": "9ece7c668836cdcfd7c8ab8ad8eaad65"
 }

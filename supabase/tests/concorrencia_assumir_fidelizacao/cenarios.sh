@@ -38,7 +38,7 @@ espera=$(( $(date +%s) - inicio ))
 wait
 [ "$espera" -ge 2 ] && ok "B esperou o lock de A (${espera}s)" || falha "B nao esperou o lock (${espera}s)"
 grep -q '^t|' "$OUT/a.txt" && ok "A assumiu" || falha "A nao assumiu: $(cat "$OUT/a.txt")"
-grep -q '^f|.*24h' "$OUT/b.txt" && ok "B recusada depois do commit (hold 24h)" || falha "B nao recusada: $(cat "$OUT/b.txt")"
+grep -q '^f|Este caso nao esta disponivel' "$OUT/b.txt" && ok "B recusada depois do commit" || falha "B nao recusada: $(cat "$OUT/b.txt")"
 [ "$(q "select operador_email from public.casos where aluno_id='$U1'")" = "$LUANA" ] && ok "dono final e LUANA" || falha "dono final errado"
 [ "$(q "select count(*) from public.historico_operadores_alunos where acao='ASSUMIR_FIDELIZACAO_VENCIDA' and cpf_referencia=(select cpf from public.casos where aluno_id='$U1')")" = "1" ] && ok "uma unica linha de auditoria" || falha "auditoria duplicada ou ausente"
 
@@ -50,7 +50,7 @@ sleep 1
 { jwt $LUANA; echo "select sucesso, mensagem from public.assumir_caso_fidelizacao_vencida('$U2','tomada concorrente');"; } \
   | psql -At -v ON_ERROR_STOP=1 > "$OUT/t2.txt" 2>&1 || true
 wait
-grep -q '^f|.*dentro do prazo' "$OUT/t2.txt" && ok "tomada recusada pelo acionamento do aluno" || falha "tomada passou: $(cat "$OUT/t2.txt")"
+grep -q '^f|Este caso nao esta disponivel' "$OUT/t2.txt" && ok "tomada recusada pelo acionamento do aluno" || falha "tomada passou: $(cat "$OUT/t2.txt")"
 [ "$(q "select operador_email from public.casos where aluno_id='$U2'")" = "$MAURICIO" ] && ok "dono continua MAURICIO" || falha "caso mudou de dono"
 
 echo "== C3: acionamento VALIDO gravado so no CASO, concorrente com a tomada (U3)"
@@ -61,7 +61,7 @@ sleep 1
 { jwt $LUANA; echo "select sucesso, mensagem from public.assumir_caso_fidelizacao_vencida('$U3','tomada concorrente 3');"; } \
   | psql -At -v ON_ERROR_STOP=1 > "$OUT/t3.txt" 2>&1 || true
 wait
-grep -q '^f|.*dentro do prazo' "$OUT/t3.txt" && ok "tomada recusada pelo acionamento do caso" || falha "tomada passou: $(cat "$OUT/t3.txt")"
+grep -q '^f|Este caso nao esta disponivel' "$OUT/t3.txt" && ok "tomada recusada pelo acionamento do caso" || falha "tomada passou: $(cat "$OUT/t3.txt")"
 [ "$(q "select operador_email from public.casos where aluno_id='$U3'")" = "$MAURICIO" ] && ok "dono continua MAURICIO" || falha "caso mudou de dono"
 
 echo "== C4: dois alunos diferentes disputam a ultima vaga do teto (limite 3; LUANA tem 2)"

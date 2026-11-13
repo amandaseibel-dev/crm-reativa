@@ -1,41 +1,97 @@
--- ASSUMIR CASO COM FIDELIZACAO VENCIDA (11o dia sem acionamento valido).
+-- ASSUMIR CASO COM FIDELIZACAO VENCIDA + RECUPERACAO POR OPERACAO.
 --
--- STATUS: PENDENTE. Nao aplicar em producao sem autorizacao especifica e
--- executor unico (sessao principal). Nao altera internal.pode_alterar_responsavel,
--- alterar_responsavel_aluno, assumir_caso_livre nem nenhuma policy/grant existente.
+-- STATUS: PENDENTE. Nao aplicar sem autorizacao especifica e executor unico
+-- (sessao principal). Esta migration NAO altera internal.pode_alterar_responsavel,
+-- alterar_responsavel_aluno, assumir_caso_livre, nem nenhuma policy ou grant existente.
 --
--- REGRA: o operador assume, para si, caso de OUTRO operador ativo cuja
--- fidelizacao de 10 dias ja venceu. Sem destinatario escolhido: sempre o
--- proprio operador autenticado. Nao e alteracao geral de responsavel.
+-- PRE-CONDICOES (a migration FALHA se qualquer uma faltar; nao aplica pela metade):
+--   P1. gatilho trg_acionamento_nao_volta_para_nulo em public.alunos, com a funcao
+--       public._acionamento_nao_volta_para_nulo (migration 20260828010000).
+--       Sem ele, trocar o responsavel zera data_ultimo_acionamento e status_acionamento.
+--   P2. public.aluno_retorno_operador_vigente(uuid), entregue pela PR #936 (migration
+--       20261112210000). Esta RPC NAO copia essa regra: chama a mesma funcao. Por isso
+--       esta migration so pode ser aplicada DEPOIS da #936.
+--   P3. internal.operador_pode_receber_caso(text) e internal.pode_alterar_responsavel().
 --
--- ELEGIBILIDADE = a MESMA da liberacao automatica (casos_elegiveis_liberacao_fidelizacao):
---   * data_ultimo_acionamento nula ou data+10 < hoje (caso_dentro_prazo_fidelizacao = false);
---   * nao protegido (caso_protegido_redistribuicao), nao encerrado
---     (caso_encerrado_operacional), nao congelado (caso_encerramento_congelado);
---   * responsavel do aluno sem troca nas ultimas 24h (mesmo hold do cron);
---   * saldo em aberto > 0;
---   * caso de giro vigente (caso_em_giro_fidelizacao) NAO e assumivel aqui.
---     Quando a #936 for aplicada, a regra de giro passa a ser por data; esta
---     funcao deve seguir a mesma guarda, nao uma copia dela.
+-- QUEM PODE: somente usuario ativo, com perfil = 'operador' e recebe_novos_casos = true.
+-- Contas de gestao NAO usam esta acao; continuam no fluxo administrativo existente.
 --
--- ATOMICIDADE: FOR UPDATE no aluno e depois no caso (mesma ordem dos caminhos de
--- acionamento). Prazo e protecao sao lidos DEPOIS do lock. Um acionamento que
--- commitou antes, gravado em alunos OU em casos, entra na leitura e recusa a tomada.
--- Dois operadores: o segundo espera o lock e ve operador_email preenchido.
--- Limite: a prova de concorrencia real esta em supabase/tests/concorrencia_assumir_fidelizacao/ (roda no CI com Postgres de verdade).
+-- ELEGIBILIDADE (mesma base da liberacao automatica, lida DEPOIS do lock):
+--   * ultimo acionamento valido = maior entre alunos.data_ultimo_acionamento e
+--     casos.data_ultimo_acionamento; nulo ou com mais de 10 dias;
+--   * responsavel do aluno sem troca nos ultimos 10 dias (impede repasses sucessivos:
+--     quem recebeu o caso tem o prazo inteiro para atender);
+--   * sem retorno agendado vigente pelo operador (aluno_retorno_operador_vigente, P2);
+--   * caso nao protegido, nao encerrado, nao congelado; saldo em aberto > 0;
+--   * caso de giro vigente fica FORA nesta entrega (documentado na tela e na PR);
+--   * dono atual precisa ser operador ativo (senao o caso segue a regra da carteira livre);
+--   * responsavel do aluno e dono do caso devem ser a mesma pessoa (ambiguidade).
 --
--- TETO: calibragem_teto_operador(email), mesma base de trg_impor_teto_operador
--- (casos nao protegidos e nao encerrados). Se estiver no teto, recusa. Nao
--- libera outro caso para compensar.
+-- ATOMICIDADE: trava aluno e depois caso (ordem dos caminhos de acionamento). Um
+-- acionamento que grava so em alunos OU so em casos entra na leitura feita depois do lock.
+-- Teto: pg_advisory_xact_lock por operador antes de contar.
 --
--- AUDITORIA: historico_operadores_alunos com acao ASSUMIR_FIDELIZACAO_VENCIDA,
--- responsavel anterior, novo responsavel, data, autor e motivo obrigatorio.
--- alunos.responsavel_* via internal.set_resp_aluno (mesmo caminho de
--- alterar_responsavel_aluno), que preserva data_ultimo_acionamento pelo gatilho
--- trg_acionamento_nao_volta_para_nulo.
+-- RECUSAS: mensagem unica. Quem nao e o dono nao aprende nada sobre o caso.
+--
+-- RECUPERACAO: cada tomada gera uma linha em public.assumir_fidelizacao_operacoes com id.
+-- A reversao (reverter_assumir_fidelizacao) so volta a tomada se o caso ainda estiver
+-- com o novo responsavel E ele nao tiver acionado nem movimentado o aluno depois da
+-- tomada. Nunca apaga historico: marca a operacao como revertida e registra a reversao.
 
+-- ---------------------------------------------------------------------------
+-- P1-P3: falha cedo, com mensagem clara
+-- ---------------------------------------------------------------------------
+do $pre$
+begin
+  if not exists (select 1 from pg_trigger t join pg_class c on c.oid = t.tgrelid
+                  where c.relname = 'alunos' and t.tgname = 'trg_acionamento_nao_volta_para_nulo' and not t.tgisinternal) then
+    raise exception 'PRE-CONDICAO P1 ausente: trigger trg_acionamento_nao_volta_para_nulo em public.alunos (migration 20260828010000).';
+  end if;
+  -- P1 DIVERGENTE: o corpo da funcao tem de ser o de producao (md5 do prosrc).
+  if coalesce((select md5(p.prosrc) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                where n.nspname = 'public' and p.proname = '_acionamento_nao_volta_para_nulo'), '') <> 'ccbc6aea6bb27b7497b008abb53bb58a' then
+    raise exception 'PRE-CONDICAO P1 divergente: public._acionamento_nao_volta_para_nulo nao confere com producao (md5 ccbc6aea...).';
+  end if;
+  if not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                  where n.nspname = 'public' and p.proname = 'aluno_retorno_operador_vigente') then
+    raise exception 'PRE-CONDICAO P2 ausente: public.aluno_retorno_operador_vigente(uuid). Aplicar a PR #936 antes.';
+  end if;
+  if not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                  where n.nspname = 'internal' and p.proname in ('operador_pode_receber_caso','pode_alterar_responsavel')) then
+    raise exception 'PRE-CONDICAO P3 ausente: internal.operador_pode_receber_caso / pode_alterar_responsavel.';
+  end if;
+end
+$pre$;
+
+-- ---------------------------------------------------------------------------
+-- Tabela de operacoes (historico proprio; sem acesso direto do cliente)
+-- ---------------------------------------------------------------------------
+create table if not exists public.assumir_fidelizacao_operacoes (
+  id uuid primary key default gen_random_uuid(),
+  criado_em timestamptz not null default now(),
+  aluno_id uuid not null,
+  caso_id uuid not null,
+  responsavel_anterior_email text,
+  responsavel_anterior_nome text,
+  responsavel_novo_email text not null,
+  responsavel_novo_nome text,
+  data_ultimo_acionamento_antes date,
+  motivo text not null,
+  autor_email text not null,
+  revertida_em timestamptz,
+  revertida_por text,
+  motivo_reversao text
+);
+alter table public.assumir_fidelizacao_operacoes enable row level security;
+revoke all on public.assumir_fidelizacao_operacoes from public, anon, authenticated;
+comment on table public.assumir_fidelizacao_operacoes is
+  'Operacoes de assumir caso com fidelizacao vencida. Sem acesso direto; so pelas RPCs. Nunca apagar linhas.';
+
+-- ---------------------------------------------------------------------------
+-- RPC: assumir
+-- ---------------------------------------------------------------------------
 create or replace function public.assumir_caso_fidelizacao_vencida(p_aluno_id uuid, p_motivo text)
-returns table(sucesso boolean, mensagem text)
+returns table(sucesso boolean, mensagem text, operacao_id uuid)
 language plpgsql
 security definer
 set search_path to 'public'
@@ -44,42 +100,43 @@ declare
   v_email text;
   v_nome text;
   v_motivo text;
-  v_c record;
   v_al record;
-  v_ultimo_acionamento date;
+  v_c record;
+  v_ultimo date;
   v_ant_email text;
   v_ant_nome text;
   v_teto int;
   v_count int;
+  v_op uuid;
+  v_msg constant text := 'Este caso nao esta disponivel para assumir.';
 begin
   v_email := lower(coalesce(auth.jwt() ->> 'email', ''));
   if v_email = '' then
-    return query select false, 'Usuario nao identificado. Faca login novamente.'; return;
+    return query select false, 'Usuario nao identificado. Faca login novamente.', null::uuid; return;
   end if;
 
+  -- QUEM PODE (R5): operador ativo, perfil operador, recebendo casos.
+  if not exists (select 1 from public.usuarios u
+                  where lower(u.email) = v_email and u.ativo and u.perfil = 'operador'
+                    and coalesce(u.recebe_novos_casos, false)) then
+    return query select false, 'Esta acao e exclusiva de operadores ativos habilitados a receber casos.', null::uuid; return;
+  end if;
   v_nome := public.nome_operador_por_email(v_email);
-  if v_nome is null then
-    return query select false, 'Operador nao ativo ou nao identificado.'; return;
+  if v_nome is null or not internal.operador_pode_receber_caso(v_email) then
+    return query select false, 'Esta acao e exclusiva de operadores ativos habilitados a receber casos.', null::uuid; return;
   end if;
 
   v_motivo := nullif(btrim(coalesce(p_motivo, '')), '');
   if v_motivo is null then
-    return query select false, 'Informe o motivo da assuncao.'; return;
+    return query select false, 'Informe o motivo da assuncao.', null::uuid; return;
   end if;
 
-  if not internal.operador_pode_receber_caso(v_email) then
-    return query select false, 'Sua carteira esta fechada para casos novos. Fale com a gestao.'; return;
-  end if;
-
-  -- TRAVA ATOMICA, na MESMA ordem em que os caminhos de acionamento travam:
-  -- primeiro o aluno (onde trg_sync_acionamento grava o acionamento), depois o caso.
-  -- Um acionamento que grava so em alunos OU so em casos bloqueia esta tomada.
-  -- A tela passa o id do ALUNO: a RLS de casos nao deixa o operador ler caso alheio.
+  -- TRAVA: aluno primeiro, depois caso (mesma ordem dos caminhos de acionamento).
   select a.id, a.responsavel_atual_email, a.responsavel_atual_em, a.data_ultimo_acionamento
     into v_al
     from public.alunos a where a.id = p_aluno_id for update;
   if not found then
-    return query select false, 'Este caso nao esta disponivel para assumir.'; return;
+    return query select false, v_msg, null::uuid; return;
   end if;
 
   -- Um aluno pode ter um caso encerrado e outro aberto (indice parcial): escolhe o aberto.
@@ -90,42 +147,43 @@ begin
            c.status_financeiro, c.status_jornada)
    for update;
   if not found then
-    return query select false, 'Este caso nao esta disponivel para assumir.'; return;
+    return query select false, v_msg, null::uuid; return;
   end if;
 
-  if coalesce(v_c.operador_email, '') = '' then
-    return query select false, 'Este caso nao esta disponivel para assumir.'; return;
+  if coalesce(v_c.operador_email, '') = '' or lower(v_c.operador_email) = v_email then
+    return query select false, v_msg, null::uuid; return;
   end if;
-  if lower(v_c.operador_email) = v_email then
-    return query select false, 'Este caso nao esta disponivel para assumir.'; return;
-  end if;
-  if lower(v_c.operador_email) = internal.carteira_geral_email() then
-    return query select false, 'Este caso nao esta disponivel para assumir.'; return;
-  end if;
-  if not exists (select 1 from public.usuarios u
-                  where lower(u.email) = lower(v_c.operador_email) and u.ativo and u.perfil = 'operador') then
-    return query select false, 'Este caso nao esta disponivel para assumir.'; return;
+  if lower(v_c.operador_email) = internal.carteira_geral_email()
+     or not exists (select 1 from public.usuarios u
+                     where lower(u.email) = lower(v_c.operador_email) and u.ativo and u.perfil = 'operador') then
+    return query select false, v_msg, null::uuid; return;
   end if;
 
-  if public.caso_em_giro_fidelizacao(v_c.giro_fidelizacao_ate) then
-    return query select false, 'Este caso nao esta disponivel para assumir.'; return;
-  end if;
-
-  -- AMBIGUIDADE: o responsavel do aluno e o dono do caso precisam ser o mesmo.
+  -- AMBIGUIDADE: responsavel do aluno e dono do caso sao a mesma pessoa.
   if v_al.responsavel_atual_email is not null
      and lower(v_al.responsavel_atual_email) <> lower(v_c.operador_email) then
-    return query select false, 'Este caso nao esta disponivel para assumir.'; return;
+    return query select false, v_msg, null::uuid; return;
   end if;
 
-  -- PRAZO: acionamento mais recente entre aluno e caso. Lido DEPOIS do lock.
-  v_ultimo_acionamento := greatest(v_al.data_ultimo_acionamento, v_c.data_ultimo_acionamento);
-  if public.caso_dentro_prazo_fidelizacao(v_ultimo_acionamento) then
-    return query select false, 'Este caso nao esta disponivel para assumir.'; return;
+  -- GIRO: fora desta entrega (ver PR).
+  if public.caso_em_giro_fidelizacao(v_c.giro_fidelizacao_ate) then
+    return query select false, v_msg, null::uuid; return;
   end if;
 
-  -- HOLD 24h do responsavel do aluno (mesmo filtro do cron).
-  if v_al.responsavel_atual_em is not null and v_al.responsavel_atual_em >= now() - interval '1 day' then
-    return query select false, 'Este caso nao esta disponivel para assumir.'; return;
+  -- PRAZO: ultimo acionamento valido entre aluno e caso, lido depois do lock.
+  v_ultimo := greatest(v_al.data_ultimo_acionamento, v_c.data_ultimo_acionamento);
+  if public.caso_dentro_prazo_fidelizacao(v_ultimo) then
+    return query select false, v_msg, null::uuid; return;
+  end if;
+
+  -- R2: quem recebeu o caso ha menos de 10 dias nao perde o caso.
+  if v_al.responsavel_atual_em is not null and v_al.responsavel_atual_em >= now() - interval '10 days' then
+    return query select false, v_msg, null::uuid; return;
+  end if;
+
+  -- RETORNO vigente pelo operador (regra da #936, P2).
+  if public.aluno_retorno_operador_vigente(p_aluno_id) then
+    return query select false, v_msg, null::uuid; return;
   end if;
 
   if public.caso_protegido_redistribuicao(v_c.cpf_limpo, v_c.status_acionamento, v_c.nao_acionar,
@@ -134,12 +192,10 @@ begin
        v_c.status_financeiro, v_c.status_jornada)
      or public.caso_encerramento_congelado(v_c.id)
      or coalesce(v_c._saldo, 0) <= 0 then
-    return query select false, 'Este caso nao esta disponivel para assumir.'; return;
+    return query select false, v_msg, null::uuid; return;
   end if;
 
-  -- TETO vigente, mesma base do trigger de teto.
-  -- Serializa as tomadas do MESMO operador: sem isso, duas tomadas de alunos
-  -- diferentes contam o teto antes de qualquer uma gravar e passam juntas.
+  -- TETO: serializado por operador; conta a mesma base do trigger de teto.
   perform pg_advisory_xact_lock(hashtext('assumir_teto:' || v_email));
   v_teto := public.calibragem_teto_operador(v_email);
   v_count := (select count(*) from public.casos c where c.operador_email = v_email
@@ -148,16 +204,22 @@ begin
                  and not public.caso_encerrado_operacional(c.cpf_limpo, c.status_atual, c.status_acionamento,
                        c.status_financeiro, c.status_jornada));
   if v_count >= v_teto then
-    return query select false, 'Sua carteira esta no limite de casos. Libere um caso antes.'; return;
+    return query select false, 'Sua carteira esta no limite de casos. Libere um caso antes.', null::uuid; return;
   end if;
 
   v_ant_email := lower(v_c.operador_email);
   v_ant_nome := coalesce(v_c.operador_nome, v_c.operador_email);
 
-  perform internal.set_resp_aluno(v_c.aluno_id, v_email, v_nome, 'ASSUMIR_FIDELIZACAO_VENCIDA',
-    'Assumido de '||v_ant_nome||' (fidelizacao vencida, ultimo acionamento '||
-    coalesce(v_ultimo_acionamento::text, 'nunca')||'). Motivo: '||v_motivo,
-    v_email, v_nome);
+  -- Operacao gravada ANTES da troca, para a reversao ter o estado de origem.
+  insert into public.assumir_fidelizacao_operacoes
+    (aluno_id, caso_id, responsavel_anterior_email, responsavel_anterior_nome,
+     responsavel_novo_email, responsavel_novo_nome, data_ultimo_acionamento_antes, motivo, autor_email)
+  values (p_aluno_id, v_c.id, v_ant_email, v_ant_nome, v_email, v_nome, v_ultimo, v_motivo, v_email)
+  returning id into v_op;
+
+  perform internal.set_resp_aluno(p_aluno_id, v_email, v_nome, 'ASSUMIR_FIDELIZACAO_VENCIDA',
+    'Assumido de '||v_ant_nome||' (fidelizacao vencida; ultimo acionamento '||coalesce(v_ultimo::text,'nunca')||
+    '). Operacao '||v_op::text||'. Motivo: '||v_motivo, v_email, v_nome);
 
   update public.casos set operador_email = v_email, operador_nome = v_nome, operador = upper(v_nome),
     caso_atualizado_por = v_email, caso_atualizado_em = now()
@@ -165,16 +227,108 @@ begin
 
   insert into public.historico_operadores_alunos
     (chave_unificacao, nome_aluno, cpf_referencia, acao,
-     operador_anterior_nome, operador_anterior_email, operador_nome, operador_email,
-     observacao, criado_em)
+     operador_anterior_nome, operador_anterior_email, operador_nome, operador_email, observacao, criado_em)
   values (v_c.chave_unificacao, v_c.nome, v_c.cpf, 'ASSUMIR_FIDELIZACAO_VENCIDA',
      v_ant_nome, v_ant_email, v_nome, v_email,
-     'Responsavel anterior: '||v_ant_email||'. Novo: '||v_email||'. Data: '||now()::text||
-     '. Autor: '||v_email||'. Motivo: '||v_motivo||'.', now());
+     'Operacao '||v_op::text||'. Responsavel anterior: '||v_ant_email||'. Novo: '||v_email||
+     '. Data: '||now()::text||'. Autor: '||v_email||'. Motivo: '||v_motivo||'.', now());
 
-  return query select true, 'Caso assumido. A fidelizacao de 10 dias comeca no proximo acionamento valido.';
+  return query select true, 'Caso assumido. A fidelizacao de 10 dias comeca no seu primeiro acionamento valido.', v_op;
 end;
 $fn$;
 
 revoke all on function public.assumir_caso_fidelizacao_vencida(uuid, text) from public, anon;
 grant execute on function public.assumir_caso_fidelizacao_vencida(uuid, text) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- RPC: reverter uma operacao (somente gestao, pelo flag existente)
+-- ---------------------------------------------------------------------------
+create or replace function public.reverter_assumir_fidelizacao(p_operacao_id uuid, p_motivo text)
+returns table(sucesso boolean, mensagem text)
+language plpgsql
+security definer
+set search_path to 'public'
+as $fn$
+declare
+  v_email text;
+  v_nome text;
+  v_op record;
+  v_c record;
+  v_ant_nome text;
+  v_motivo text;
+begin
+  v_email := lower(coalesce(auth.jwt() ->> 'email', ''));
+  if v_email = '' or not internal.pode_alterar_responsavel() then
+    return query select false, 'Sem permissao para reverter.'; return;
+  end if;
+  v_motivo := nullif(btrim(coalesce(p_motivo, '')), '');
+  if v_motivo is null then
+    return query select false, 'Informe o motivo da reversao.'; return;
+  end if;
+
+  select o.* into v_op from public.assumir_fidelizacao_operacoes o
+   where o.id = p_operacao_id for update;
+  if not found then
+    return query select false, 'Operacao nao encontrada.'; return;
+  end if;
+  if v_op.revertida_em is not null then
+    return query select false, 'Esta operacao ja foi revertida.'; return;
+  end if;
+
+  perform 1 from public.alunos a where a.id = v_op.aluno_id for update;
+  select c.* into v_c from public.casos c where c.id = v_op.caso_id for update;
+  if not found then
+    return query select false, 'Caso da operacao nao existe mais.'; return;
+  end if;
+
+  -- Conflito 1: o caso mudou de dono depois da tomada. Decisao da gestao, nao automatica.
+  if lower(coalesce(v_c.operador_email, '')) <> lower(v_op.responsavel_novo_email) then
+    return query select false, 'Conflito: o caso mudou de responsavel depois desta operacao. Nao revertido.'; return;
+  end if;
+
+  -- Conflito 2: o novo responsavel acionou ou movimentou o aluno depois da tomada.
+  -- Reverter apagaria atendimento real: nao reverte.
+  if exists (select 1 from public.alunos a
+              where a.id = v_op.aluno_id and a.data_ultimo_acionamento > v_op.criado_em::date)
+     or exists (select 1 from public.aluno_movimentacoes m
+                 where m.aluno_id = v_op.aluno_id::text and m.registrado_em > v_op.criado_em
+                   and lower(coalesce(m.registrado_por_email, '')) = lower(v_op.responsavel_novo_email)) then
+    return query select false, 'Conflito: houve atendimento do novo responsavel depois da tomada. Nao revertido.'; return;
+  end if;
+
+  -- Conflito 3: o anterior nao pode mais receber o caso.
+  if v_op.responsavel_anterior_email is null
+     or not exists (select 1 from public.usuarios u
+                     where lower(u.email) = lower(v_op.responsavel_anterior_email) and u.ativo and u.perfil = 'operador') then
+    return query select false, 'Conflito: o responsavel anterior nao esta ativo. Decisao da gestao.'; return;
+  end if;
+
+  v_nome := public.nome_operador_por_email(v_email);
+  v_ant_nome := coalesce(v_op.responsavel_anterior_nome, v_op.responsavel_anterior_email);
+
+  perform internal.set_resp_aluno(v_op.aluno_id, v_op.responsavel_anterior_email, v_ant_nome,
+    'REVERTER_ASSUMIR_FIDELIZACAO', 'Reversao da operacao '||v_op.id::text||'. Motivo: '||v_motivo,
+    v_email, v_nome);
+
+  update public.casos set operador_email = lower(v_op.responsavel_anterior_email), operador_nome = v_ant_nome,
+    operador = upper(v_ant_nome), caso_atualizado_por = v_email, caso_atualizado_em = now()
+  where id = v_op.caso_id;
+
+  update public.assumir_fidelizacao_operacoes
+     set revertida_em = now(), revertida_por = v_email, motivo_reversao = v_motivo
+   where id = v_op.id;
+
+  insert into public.historico_operadores_alunos
+    (chave_unificacao, nome_aluno, cpf_referencia, acao,
+     operador_anterior_nome, operador_anterior_email, operador_nome, operador_email, observacao, criado_em)
+  select c.chave_unificacao, c.nome, c.cpf, 'REVERTER_ASSUMIR_FIDELIZACAO',
+     v_op.responsavel_novo_nome, v_op.responsavel_novo_email, v_ant_nome, lower(v_op.responsavel_anterior_email),
+     'Reversao da operacao '||v_op.id::text||'. Autor: '||v_email||'. Motivo: '||v_motivo||'.', now()
+    from public.casos c where c.id = v_op.caso_id;
+
+  return query select true, 'Operacao revertida. Caso devolvido a '||v_ant_nome||'.';
+end;
+$fn$;
+
+revoke all on function public.reverter_assumir_fidelizacao(uuid, text) from public, anon;
+grant execute on function public.reverter_assumir_fidelizacao(uuid, text) to authenticated;
