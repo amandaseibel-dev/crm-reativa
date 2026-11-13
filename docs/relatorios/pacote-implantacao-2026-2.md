@@ -6,10 +6,10 @@ Status: **não aplicado**. Esta PR não executa migration, SQL de escrita, merge
 
 | Artefato | Caminho | SHA-256 |
 |---|---|---|
-| Migration | `supabase/migrations/20261113000000_relatorio_2026_2_sem_negociacao.sql` | `567e1a4530f8cceb954d07af93bfbddfb2393363d6b52276f9bf867d0c1fe9cd` |
+| Migration | `supabase/migrations/20261113000000_relatorio_2026_2_sem_negociacao.sql` | `1621ac7b8373b33042c1999e3a79d4c5d79d04ebbaf8efe8e2e8b1ca09106683` |
 | Rollback | `supabase/rollbacks/20261113000000_relatorio_2026_2_sem_negociacao.rollback.sql` | `468cbf1d41232beac10fbe52d3e934f376e1d968de2970523d94d0f6a9f49f4c` |
 
-Commit de referência: `7c321818` (PR #947). Conferir o hash do arquivo antes de aplicar.
+Commit de referência: `d222a614` (PR #947, base `origin/main` 89bcf257). Conferir o hash do arquivo antes de aplicar.
 
 ## Pré-condições
 
@@ -56,6 +56,6 @@ Nenhuma dessas etapas é executada nesta PR.
 
 ## Riscos residuais
 
-- Estatísticas do planejador desatualizadas: o `EXPLAIN` sem `ANALYZE` estima 1 linha onde a população é de milhares. Os índices são usados, mas vale rodar `ANALYZE` em janela tranquila.
-- A regra de CPF (`00000000000` fora da contagem, "Alunos sem CPF" separado) muda a contagem de CPFs em relação à versão anterior da PR. A gestão precisa aprovar esse indicador.
+- Desempenho não medido. O `EXPLAIN` sem `ANALYZE` foi feito apenas sobre o filtro de títulos do corpo de elegibilidade (não sobre a função inteira nem sobre as agregações e o JSON da RPC). Mostrou uso de índices em todos os filtros, mas a estimativa de 1 linha não prova estatísticas desatualizadas, porque predicados correlacionados também produzem isso. Medir com `ANALYZE` só em janela aprovada.
+- A regra de CPF já foi decidida pela gestão. Ela muda a contagem de CPFs em relação à primeira versão da PR, por isso a auditoria anterior não cobre esta versão.
 - O 2026/1 tem o mesmo `lpad` que trunca CPFs com mais de 11 dígitos, e isso não foi corrigido nesta entrega, conforme pedido.
