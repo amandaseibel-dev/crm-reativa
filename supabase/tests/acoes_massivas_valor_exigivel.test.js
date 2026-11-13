@@ -21,7 +21,7 @@ const MD5_PUBLICADO = "8f94a1687f0f3d13765ecf86db1d1e19";
 const MD5_FINAL = "512be32c9c2d7a5cee324e02dc3b8833";
 const TIPO_PUBLICADO = ler("fixtures/acoes_massivas_valor_exigivel/prod_20261113_tipo_cobranca_alunos.sql");
 const MD5_TIPO_PUBLICADO = "323628b786a44f2a108210f8beafea8b";
-const MD5_TIPO_FINAL = "23114e43aaa388315304f208301e152c";
+const MD5_TIPO_FINAL = "55f24dce7c9eadca52c5b17d0c40551e";
 const emTransacao = (sql) => "BEGIN;\n" + sql + "\nCOMMIT;";
 
 let db;
@@ -130,6 +130,15 @@ describe("depois da migration", () => {
     const [id] = await alunos(db, 1, { ini: 1 });
     await db.query("update public.acordos_titulos set situacao = 'NEGOCIADO' where aluno_id = $1", [id]);
     expect(disponivelEm(await universo(db, MENS()), id)).toBe(false);
+  });
+
+  it("REGRESSAO (achado A do Guardiao): dono do acordo excluido + boleto igual a parcela VENCIDA nao fica disponivel com valor zero", async () => {
+    const [id] = await alunos(db, 1, { ini: 1, dono: OP_A, acionadoDias: 30 });
+    await db.query("update public.acordos_titulos set documento = '0007000001' where aluno_id = $1", [id]);
+    const ac = (await db.query("insert into public.acordos (aluno_id, status, operador_responsavel_email, saldo) values ($1,'ATIVO',$2,100) returning id", [id, OP_B])).rows[0].id;
+    await db.query("insert into public.parcelas (acordo_id, status, vencimento, valor, boleto) values ($1,'VENCIDA', current_date - 20, 320, '7000001')", [ac]);
+    const r = await universo(db, { operador: "caso:" + OP_A + ";acordo:" + OP_A, responsaveis_caso: [OP_A], responsaveis_acordo: [OP_A], tipo_cobranca: "MENSALIDADES" });
+    expect(disponivelEm(r, id)).toBe(false);
   });
 
   it("mensalidade vencida independente com acordo ATIVO em dia (sem vencida): segue fora, como antes", async () => {

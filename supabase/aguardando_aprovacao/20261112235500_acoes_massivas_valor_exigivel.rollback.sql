@@ -282,7 +282,7 @@ END $v$;
 DO $tr$
 BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_tipo_cobranca_alunos') IS DISTINCT FROM '23114e43aaa388315304f208301e152c' THEN
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_tipo_cobranca_alunos') IS DISTINCT FROM '55f24dce7c9eadca52c5b17d0c40551e' THEN
     RAISE EXCEPTION 'Rollback abortado: tipo_cobranca_alunos nao esta na versao da migration.';
   END IF;
 END $tr$;

@@ -87,11 +87,16 @@ END $m$;
 
 -- 3. ELEGIBILIDADE POR TIPO DE CAMPANHA (13/11/2026) ---------------------------
 -- acoes_massivas_tipo_cobranca_alunos e compartilhada por universo, previa e lote.
+-- NOTA (13/11): o comentario do corpo do universo ainda diz 'sem dupla contagem'; a afirmacao
+-- so vale quando o boleto coincide com parcela de acordo ATIVO (ver secao 3). O corpo e preservado
+-- para manter o hash validado.
+-- Achado do Guardiao (13/11): mensalidade com boleto igual a parcela de acordo ATIVO
+-- entrava como disponivel com valor zero quando o dono do acordo era excluido; agora sai.
 -- Sem esta correcao, aluno so com mensalidade A VENCER entrava como "tem
 -- mensalidade" e ficava disponivel com valor zero. Mudanca: a mensalidade que
 -- qualifica a campanha de mensalidades e so o titulo ABERTO vencido, exigivel, nao
 -- incorporado a acordo nao cancelado (mesmo criterio do valor); NEGOCIADO sai.
--- A populacao (acordo vencido ou mensalidade sem acordo em dia) fica igual.
+-- A populacao muda apenas pelo novo criterio de mensalidade (medido: 14.569 -> 14.564).
 DO $t$
 BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -122,6 +127,12 @@ AS $function$
            join public.acordos a on a.id = v.acordo_id
           where v.titulo_id = t.id and coalesce(v.ativo, true)
             and upper(coalesce(a.status, '')) not in ('CANCELADO', 'CANCELADA'))
+       -- mesma divida: boleto igual ao de parcela de acordo ATIVO do aluno (mesmo criterio do valor)
+       and not exists (
+         select 1 from public.acordos a2 join public.parcelas p2 on p2.acordo_id = a2.id
+          where a2.aluno_id = t.aluno_id and a2.status = 'ATIVO'
+            and coalesce(btrim(p2.boleto), '') <> ''
+            and ltrim(p2.boleto, '0') = ltrim(t.documento, '0'))
   ),
   ativo as (
     select distinct a.aluno_id
@@ -158,7 +169,7 @@ GRANT EXECUTE ON FUNCTION public.acoes_massivas_tipo_cobranca_alunos(uuid[]) TO 
 DO $tf$
 BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_tipo_cobranca_alunos') IS DISTINCT FROM '23114e43aaa388315304f208301e152c' THEN
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_tipo_cobranca_alunos') IS DISTINCT FROM '55f24dce7c9eadca52c5b17d0c40551e' THEN
     RAISE EXCEPTION 'MD5 final de acoes_massivas_tipo_cobranca_alunos diferente do validado.';
   END IF;
 END $tf$;
