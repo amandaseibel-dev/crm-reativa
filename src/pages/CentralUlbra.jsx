@@ -245,7 +245,7 @@ export default function CentralUlbra({ usuario }) {
       const r = await conexaoEstado();
       if (!ativo) return;
       setConversaNoAr(r?.ok === true);
-      setConexao(r?.ok ? { estado: r.estado, pessoa: r.pessoa, envioReal: r.envio_real === true, templatesAprovados: Array.isArray(r.templates_aprovados) ? r.templates_aprovados : [] } : { estado: "SEM_CONEXAO", pessoa: null, envioReal: false, motivo: r?.motivo || r?.erro || null });
+      setConexao(r?.ok ? { estado: r.estado, pessoa: r.pessoa, envioReal: r.envio_real === true } :{ estado: "SEM_CONEXAO", pessoa: null, envioReal: false, motivo: r?.motivo || r?.erro || null });
     })();
     return () => { ativo = false; };
   }, [filtros.visao, email]);
@@ -291,10 +291,10 @@ export default function CentralUlbra({ usuario }) {
     if (!conversaId) return { ok: false, recusa: "Esta linha não tem conversa na Mensageria.", custo_usd: null, janela_aberta: null };
     return resumirPrevia(await envioPrevia(conversaId, texto));
   }
-  async function enviarDe(sel, texto, chave, previa, template) {
-    const conversaId = conversaIdDe(sel);
-    if (!conversaId) return { situacao: "BLOQUEADO", motivos: ["SEM_CONVERSA"] };
-    const r = await envioConfirmar(conversaId, texto, chave, previa || {}, template || null);
+  async function enviarDe(sel, texto, chave, previa) {
+    // Só confirma com a prévia registrada no servidor. Sem previa_id, nada sai.
+    if (!previa?.previa_id) return { situacao: "BLOQUEADO", motivos: ["PREVIA_AUSENTE"] };
+    const r = await envioConfirmar(previa.previa_id, texto, chave);
     if (r?.situacao === "PROCESSADO" && r?.envio?.status === "ENVIADO") {
       setRecado("Mensagem enviada em seu nome. A Central reflete a Mensageria só na próxima coleta.");
     }

@@ -33,12 +33,12 @@ describe("chamadas às funções (JWT do usuário, nunca credencial central)", (
     respondeCom({ ok: true, url: "https://crm.ulbra.ai/api/oauth/auth?x=1" });
     expect((await conexaoIniciar()).url).toMatch(/oauth\/auth/);
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ acao: "conexao_iniciar" });
-    respondeCom({ ok: true, previa: { custoEstimado: 0.0123, janelaAberta: true } });
+    respondeCom({ ok: true, situacao: "CRIADA", previa_id: "p-1", expira_em_ms: 9999999999999, janela_aberta: true });
     await envioPrevia("b".repeat(24), "oi");
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ acao: "envio_previa", conversa_id: "b".repeat(24), texto: "oi" });
     respondeCom({ ok: true, situacao: "PROCESSADO", envio: { status: "ENVIADO" } });
-    await envioConfirmar("b".repeat(24), "oi", "chave-12345678", { custo_usd: 0.0123, janela_aberta: true, em: "2026-11-11T15:00:00Z" });
-    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ acao: "envio_confirmar", conversa_id: "b".repeat(24), texto: "oi", chave: "chave-12345678", previa_custo_usd: 0.0123, previa_janela_aberta: true, previa_em: "2026-11-11T15:00:00Z" });
+    await envioConfirmar("p-1", "oi", "chave-12345678");
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ acao: "envio_confirmar", previa_id: "p-1", texto: "oi", chave: "chave-12345678" });
   });
   it("sem sessão não chama nada; resposta não-JSON vira motivo com o HTTP", async () => {
     const { supabase } = await import("../services/supabase");
@@ -75,15 +75,13 @@ describe("conexão e prévia", () => {
     for (const e of ["SEM_CONEXAO", "EXPIRADA", "REVOGADA", undefined]) expect(conexaoPermiteEnvio(e)).toBe(false);
     for (const e of ["SEM_CONEXAO", "ATIVA", "EXPIRANDO", "EXPIRADA", "REVOGADA"]) expect(ROTULO_CONEXAO[e]).toBeTruthy();
   });
-  it("prévia resume custo e janela sem inventar; recusa da Mensageria vira ok=false com o motivo", () => {
-    const ok = resumirPrevia({ ok: true, previa: { custoEstimado: 0.05, janelaAberta: true, texto: "oi" } });
-    expect(ok).toMatchObject({ ok: true, custo_usd: 0.05, janela_aberta: true, texto: "oi" });
-    const semCusto = resumirPrevia({ ok: true, previa: {}, contexto: { janela_aberta: false } });
-    expect(semCusto.custo_usd).toBeNull();
-    expect(semCusto.janela_aberta).toBe(false);
-    const recusa = resumirPrevia({ ok: false, recusa: "janela de 24h fechada" });
-    expect(recusa).toMatchObject({ ok: false, recusa: "janela de 24h fechada" });
-    const bloqueio = resumirPrevia({ ok: false, situacao: "BLOQUEADO", motivos: ["SEM_CONEXAO_INDIVIDUAL"] });
-    expect(bloqueio.recusa).toBe("SEM_CONEXAO_INDIVIDUAL");
+  it("prévia registrada resume previa_id e validade; recusa vira ok=false com o motivo; não há custo", () => {
+    const ok = resumirPrevia({ ok: true, situacao: "CRIADA", previa_id: "p-1", expira_em_ms: 123, janela_aberta: true });
+    expect(ok).toMatchObject({ ok: true, previa_id: "p-1", expira_em_ms: 123, janela_aberta: true });
+    expect(ok.custo_usd).toBeUndefined();
+    const recusa = resumirPrevia({ ok: false, situacao: "BLOQUEADO", motivos: ["JANELA_FECHADA"] });
+    expect(recusa).toMatchObject({ ok: false, recusa: "JANELA_FECHADA", previa_id: null });
+    const sem = resumirPrevia(null);
+    expect(sem.ok).toBe(false);
   });
 });

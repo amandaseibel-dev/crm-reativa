@@ -1,0 +1,89 @@
+// Fixtures compartilhados dos testes de envio e de prévia. Provedores simulados.
+import { enviarResposta, type Envio, type PedidoEnvio, type ProvedorEnvio, type RepositorioEnvio, RecusadoPelaUlbra } from "./envio.ts";
+import type { ProvedorOAuth, RegistroConexao } from "./conexao.ts";
+
+export const AGORA = Date.parse("2026-11-09T12:00:00Z");
+export const OP = "cobranca10@aelbra.com.br";
+export const CHAVE = "chave-clique-0001-abcdef";
+
+export const pedido = (over: Partial<PedidoEnvio> = {}): PedidoEnvio => ({
+  operador: OP,
+  atendimento_id: "0123456789abcdef01234567",
+  ulbra_cliente_id: "cli-1",
+  texto: "Olá, em que posso ajudar?",
+  chave: CHAVE,
+  agora_ms: AGORA,
+  ultima_mensagem_cliente_em_ms: AGORA - 60_000,
+  dono_carteira: OP,
+  responsavel_atendimento: null,
+  identidade_confirmada: true,
+  atendente_ulbra: "pessoa-do-operador-1",
+  conta_conectada: { pessoa_id: "pessoa-do-operador-1", pessoa_nome: "Operador Piloto" },
+  ...over,
+});
+
+export const conexao = (over: Partial<RegistroConexao> = {}): RegistroConexao => ({
+  operador_email: OP,
+  access_token: "tok-do-operador",
+  refresh_token: "ref-do-operador",
+  expira_em_ms: AGORA + 3600_000,
+  revogada_em_ms: null,
+  pessoa_id: "pessoa-do-operador-1",
+  ...over,
+});
+
+export class RepoMemoria implements RepositorioEnvio {
+  m = new Map<string, Envio>();
+  /** Quando true, a próxima gravação falha com erro que NÃO é chave repetida. */
+  falharGravacao = false;
+  chaveDe(o: string, c: string) { return `${o}|${c}`; }
+  async buscar(o: string, c: string) { return this.m.get(this.chaveDe(o, c)) ?? null; }
+  async inserirSeNovo(e: Envio) {
+    if (this.falharGravacao) throw new Error("ENVIO_NAO_GRAVADO");
+    const k = this.chaveDe(e.operador_email, e.chave);
+    if (this.m.has(k)) return false;
+    this.m.set(k, { ...e });
+    return true;
+  }
+  async atualizar(o: string, c: string, campos: Partial<Envio>) {
+    const k = this.chaveDe(o, c);
+    this.m.set(k, { ...this.m.get(k)!, ...campos });
+  }
+}
+
+class OAuthSimulado implements ProvedorOAuth {
+  async renovar() { return { access_token: "novo", refresh_token: "novo-ref", expira_em_ms: AGORA + 3600_000 }; }
+  async revogar() {}
+}
+
+export class EnvioSimulado implements ProvedorEnvio {
+  chamadas: Array<{ access_token: string; texto: string; chave: string }> = [];
+  modo: "ok" | "recusa" | "lento" | "queda" = "ok";
+  async enviar(p: { access_token: string; atendimento_id: string; texto: string; chave: string }) {
+    this.chamadas.push({ access_token: p.access_token, texto: p.texto, chave: p.chave });
+    if (this.modo === "recusa") throw new RecusadoPelaUlbra("CONVERSA_ENCERRADA");
+    if (this.modo === "queda") throw new Error("ECONNRESET");
+    if (this.modo === "lento") await new Promise((r) => setTimeout(r, 200));
+    return { ulbra_mensagem_id: "msg-99" };
+  }
+}
+
+export function deps(over: Partial<Parameters<typeof enviarResposta>[1]> = {}) {
+  const repositorio = new RepoMemoria();
+  const provedorEnvio = new EnvioSimulado();
+  return {
+    repositorio,
+    provedorEnvio,
+    d: {
+      repositorio,
+      provedorOAuth: new OAuthSimulado(),
+      provedorEnvio,
+      conexao: conexao(),
+      envioRealConfirmado: true,
+      agora: () => AGORA,
+      timeoutMs: 50,
+      ...over,
+    },
+  };
+}
+

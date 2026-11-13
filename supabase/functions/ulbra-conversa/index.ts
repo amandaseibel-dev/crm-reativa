@@ -1,19 +1,18 @@
 // ===========================================================================
 // CONEXÃO INDIVIDUAL e RESPOSTA pela Mensageria ULBRA — Edge Function.
-// PREPARADA, NÃO PUBLICADA. Lógica pura em oauth.ts, conexao.ts, envio.ts e
-// cripto.ts (todas testadas sem rede).
+// PREPARADA, NÃO PUBLICADA. Lógica pura em oauth.ts, conexao.ts, envio.ts,
+// previa.ts e cripto.ts (todas testadas sem rede).
 //
 // Ações (corpo JSON `acao`), sempre com o JWT do usuário (verify_jwt = true):
-//   conexao_iniciar     -> gera PKCE+state, guarda o pedido, devolve a URL de
-//                          autorização para o NAVEGADOR DO OPERADOR
-//   conexao_concluir    -> {code, state}: troca o código, cifra e guarda os
-//                          tokens, lê meu_acesso com o token DO OPERADOR (1
-//                          chamada da cota dele) para provar quem é a pessoa
+//   conexao_iniciar     -> gera PKCE+state, guarda o pedido, devolve a URL de autorização
+//   conexao_concluir    -> {code, state}: troca o código, cifra e guarda os tokens e lê
+//                          meu_acesso com o token DO OPERADOR (1 chamada da cota dele)
 //   conexao_estado      -> SEM_CONEXAO | ATIVA | EXPIRANDO | EXPIRADA | REVOGADA (+ pessoa, escopos)
 //   conexao_desconectar -> revoga no provedor e marca revogada localmente
-//   envio_previa        -> {atendimento_id, texto}: PRÉVIA na Mensageria (custo, janela), nada sai
-//   envio_confirmar     -> {atendimento_id, texto, chave, previa_em}: envio idempotente
-//                          pelo envio.ts, só com ULBRA_ENVIO_REAL=true no ambiente
+//   envio_previa        -> {conversa_id | atendimento_id, texto}: valida AGORA e registra a
+//                          prévia no servidor (validade curta). NÃO chama a Mensageria.
+//   envio_confirmar     -> {previa_id, texto, chave}: consome a prévia uma vez, revalida e envia
+//                          (só com ULBRA_ENVIO_REAL=true). Templates: recusados.
 //
 // NUNCA usa ULBRA_MCP_TOKEN para enviar: o token é sempre o do operador.
 // ===========================================================================
@@ -21,7 +20,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { ESCOPOS_MINIMOS, gerarPkce, renovarToken, revogarToken, trocarCodigo, urlDeAutorizacao, validarRetorno, type Fetch } from "./oauth.ts";
 import { chaveDeHex, cifrar, decifrar } from "./cripto.ts";
 import { estadoConexao, garantirConexao, type ProvedorOAuth, type RegistroConexao } from "./conexao.ts";
-import { RecusadoPelaUlbra, enviarResposta, templateDoCorpo, templatesAprovadosDoAmbiente, type Envio, type PedidoEnvio, type RepositorioEnvio } from "./envio.ts";
+import { RecusadoPelaUlbra, enviarResposta, type Envio, type PedidoEnvio, type RepositorioEnvio, type ResultadoEnvio } from "./envio.ts";
+import { confirmarPrevia, criarPrevia, type PreviaRegistro, type RepositorioPrevia } from "./previa.ts";
 
 const MCP_URL = "https://crm.ulbra.ai/api/mcp";
 const ACCEPT_MCP = "application/json, text/event-stream";
@@ -64,6 +64,8 @@ async function chamarComoOperador(accessToken: string, nome: string, args: Recor
 }
 
 const fetchForm: Fetch = (url, init) => fetch(url, init);
+const ATENDIMENTO_RE = /^[a-f0-9]{24}$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -88,6 +90,11 @@ Deno.serve(async (req: Request) => {
   const email = user.email.toLowerCase();
   const { data: usuario } = await sb.from("usuarios").select("email, perfil, ativo").ilike("email", email).eq("ativo", true).limit(1).maybeSingle();
   if (!usuario) return responder({ erro: "ACESSO_NEGADO" }, 403);
+
+  // Templates ficam fora desta entrega: recusa explícita, nunca envio silencioso como texto.
+  if (corpo.template !== undefined && corpo.template !== null) {
+    return responder({ ok: false, situacao: "BLOQUEADO", motivos: ["TEMPLATE_NAO_NESTA_ENTREGA"] }, 400);
+  }
 
   // Dependências que exigem configuração: só quando a ação precisa delas.
   const precisaOauth = ["conexao_iniciar", "conexao_concluir", "conexao_desconectar", "envio_previa", "envio_confirmar", "conexao_estado"].includes(acao);
@@ -130,11 +137,79 @@ Deno.serve(async (req: Request) => {
     async revogar(tk) { await revogarToken({ clientId: clientId!, token: tk }, fetchForm); },
   };
 
+  // Repositório de envios. Falha de gravação lança; só a chave repetida (23505) devolve false.
+  const repositorio: RepositorioEnvio = {
+    async buscar(operador, ch) {
+      const { data } = await sb.from("ulbra_envios").select("*").eq("operador_email", operador).eq("chave", ch).maybeSingle();
+      if (!data) return null;
+      return { chave: data.chave, operador_email: data.operador_email, atendimento_id: data.atendimento_id, texto: data.texto, status: data.status, ulbra_mensagem_id: data.ulbra_mensagem_id, motivo: data.motivo, criado_em_ms: Date.parse(data.criado_em), previa_id: data.previa_id ?? null };
+    },
+    async inserirSeNovo(e: Envio) {
+      const { error } = await sb.from("ulbra_envios").insert({ chave: e.chave, operador_email: e.operador_email, atendimento_id: e.atendimento_id, texto: e.texto, status: e.status, previa_id: e.previa_id });
+      if (!error) return true;
+      if ((error as { code?: string }).code === "23505") return false;
+      throw new Error("ENVIO_NAO_GRAVADO");
+    },
+    async atualizar(operador, ch, campos) {
+      await sb.from("ulbra_envios").update({ ...campos, atualizado_em: new Date().toISOString() }).eq("operador_email", operador).eq("chave", ch);
+    },
+  };
+
+  const repositorioPrevia: RepositorioPrevia = {
+    async inserir(p: PreviaRegistro) {
+      const { error } = await sb.from("ulbra_envio_previas").insert({
+        id: p.id, operador_email: p.operador_email, atendimento_id: p.atendimento_id, ulbra_cliente_id: p.ulbra_cliente_id,
+        conteudo_hash: p.conteudo_hash, expira_em: new Date(p.expira_em_ms).toISOString(), consumida_em: null,
+      });
+      if (error) throw new Error("PREVIA_NAO_GRAVADA");
+    },
+    async buscar(id) {
+      if (!UUID_RE.test(id)) return null;
+      const { data } = await sb.from("ulbra_envio_previas").select("*").eq("id", id).maybeSingle();
+      if (!data) return null;
+      return { id: data.id, operador_email: data.operador_email, atendimento_id: data.atendimento_id, ulbra_cliente_id: data.ulbra_cliente_id, conteudo_hash: data.conteudo_hash, expira_em_ms: Date.parse(data.expira_em), consumida_em_ms: data.consumida_em ? Date.parse(data.consumida_em) : null };
+    },
+    async consumir(id, operador, agoraMs) {
+      // Consumo atômico: só altera a linha se ainda não consumida, do mesmo operador e dentro da validade.
+      const agora = new Date(agoraMs).toISOString();
+      const { data, error } = await sb.from("ulbra_envio_previas").update({ consumida_em: agora }).eq("id", id).eq("operador_email", operador).is("consumida_em", null).gt("expira_em", agora).select("id");
+      if (error) throw new Error("PREVIA_NAO_CONSUMIDA");
+      return (data?.length ?? 0) === 1;
+    },
+  };
+
+  /** Monta o pedido com o estado AGORA: atendimento, responsável, carteira, janela e conta conectada. */
+  async function montarPedido(atendimentoId: string, texto: string, chaveEnvio: string, conta: RegistroConexao): Promise<{ pedido: PedidoEnvio } | { bloqueio: ResultadoEnvio; status: number }> {
+    const { data: at } = await sb.from("ulbra_atendimentos").select("ulbra_cliente_id, responsavel_email, dispensado_em, atendente_ulbra").eq("ulbra_atendimento_id", atendimentoId).maybeSingle();
+    if (!at) return { bloqueio: { situacao: "BLOQUEADO", motivos: ["ATENDIMENTO_NAO_ESPELHADO"] }, status: 404 };
+    const { data: v } = await sb.from("ulbra_vinculos").select("aluno_id").eq("ulbra_cliente_id", at.ulbra_cliente_id).is("desvinculado_em", null).eq("confianca", "alta_cpf").maybeSingle();
+    const alunoId = (v?.aluno_id as string | null) ?? null;
+    let dono: string | null = null;
+    if (alunoId) {
+      const { data: casos } = await sb.from("casos").select("operador_email").eq("aluno_id", alunoId).not("operador_email", "is", null);
+      const donos = [...new Set((casos ?? []).map((k) => String(k.operador_email).toLowerCase()))];
+      dono = donos.length === 1 ? donos[0] : null;
+    }
+    const { data: conv } = await sb.from("ulbra_conversas").select("ultima_mensagem_cliente_em").eq("ulbra_cliente_id", at.ulbra_cliente_id).order("ultima_mensagem_em", { ascending: false }).limit(1).maybeSingle();
+    return {
+      pedido: {
+        operador: email, atendimento_id: atendimentoId, ulbra_cliente_id: at.ulbra_cliente_id ? String(at.ulbra_cliente_id) : null,
+        texto, chave: chaveEnvio,
+        ultima_mensagem_cliente_em_ms: conv?.ultima_mensagem_cliente_em ? Date.parse(conv.ultima_mensagem_cliente_em) : null,
+        agora_ms: Date.now(), dono_carteira: dono,
+        responsavel_atendimento: at.responsavel_email ? String(at.responsavel_email).toLowerCase() : null,
+        identidade_confirmada: Boolean(alunoId),
+        atendente_ulbra: (at as { atendente_ulbra?: string | null }).atendente_ulbra ?? null,
+        conta_conectada: { pessoa_id: conta.pessoa_id ?? null, pessoa_nome: conta.pessoa_nome ?? null },
+      },
+    };
+  }
+
   try {
     if (acao === "conexao_estado") {
       const r = await lerRegistro();
       const { data: c } = await sb.from("ulbra_conexoes_operador").select("pessoa_nome, escopos, so_leitura, conectada_em").eq("operador_email", email).maybeSingle();
-      return responder({ ok: true, estado: estadoConexao(r, Date.now()), pessoa: c?.pessoa_nome ?? null, escopos: c?.escopos ?? null, so_leitura: c?.so_leitura ?? null, conectada_em: c?.conectada_em ?? null, envio_real: envioReal, templates_aprovados: templatesAprovadosDoAmbiente() });
+      return responder({ ok: true, estado: estadoConexao(r, Date.now()), pessoa: c?.pessoa_nome ?? null, escopos: c?.escopos ?? null, so_leitura: c?.so_leitura ?? null, conectada_em: c?.conectada_em ?? null, envio_real: envioReal });
     }
 
     if (acao === "conexao_iniciar") {
@@ -175,10 +250,9 @@ Deno.serve(async (req: Request) => {
       return responder({ ok: true, estado: "REVOGADA", revogada_no_provedor: noProvedor });
     }
 
-    if (acao === "envio_previa" || acao === "envio_confirmar") {
+    if (acao === "envio_previa") {
+      // Não chama a Mensageria: valida agora e registra a prévia no servidor.
       const texto = String(corpo.texto ?? "");
-      // A tela conhece a CONVERSA; o envio exige o ATENDIMENTO ativo do mesmo cliente,
-      // resolvido aqui pelo espelho (nunca pela tela).
       let atendimentoId = String(corpo.atendimento_id ?? "");
       if (!atendimentoId && typeof corpo.conversa_id === "string" && /^[a-f0-9]{24}$/.test(corpo.conversa_id)) {
         const { data: cv } = await sb.from("ulbra_conversas").select("ulbra_cliente_id").eq("ulbra_conversa_id", corpo.conversa_id).maybeSingle();
@@ -187,79 +261,40 @@ Deno.serve(async (req: Request) => {
         if (!ativo) return responder({ ok: false, situacao: "BLOQUEADO", motivos: ["SEM_ATENDIMENTO_ATIVO"] }, 404);
         atendimentoId = String(ativo.ulbra_atendimento_id);
       }
-      if (!/^[a-f0-9]{24}$/.test(atendimentoId)) return responder({ ok: false, motivo: "ATENDIMENTO_INVALIDO" }, 400);
+      if (!ATENDIMENTO_RE.test(atendimentoId)) return responder({ ok: false, motivo: "ATENDIMENTO_INVALIDO" }, 400);
       const conn = await garantirConexao(await lerRegistro(), provedorOAuth, Date.now());
       if (!conn.ok) return responder({ ok: false, situacao: "BLOQUEADO", motivos: [conn.motivo] }, 403);
+      const m = await montarPedido(atendimentoId, texto, "previa-sem-envio", conn.registro);
+      if ("bloqueio" in m) return responder({ ok: false, ...m.bloqueio }, m.status);
+      const r = await criarPrevia(m.pedido, { repositorioPrevia, gerarId: () => crypto.randomUUID(), agora: () => Date.now() });
+      await sb.from("auditoria").insert({ usuario: email, acao: "ULBRA_PREVIA", tabela_afetada: "ulbra_envio_previas", registro_id: atendimentoId, detalhes: { situacao: r.situacao, motivos: "motivos" in r ? r.motivos : null } }).then(() => {}, () => {});
+      return responder({ ok: r.situacao === "CRIADA", ...r }, r.situacao === "CRIADA" ? 200 : 403);
+    }
 
-      // Contexto de permissão lido AGORA: atendimento -> cliente -> vínculo alta_cpf -> carteira/responsável.
-      // atendente_ulbra: coluna do espelho com o atendente lido na Mensageria. Se ausente ou nula, o envio é bloqueado (fail-closed).
-      const { data: at } = await sb.from("ulbra_atendimentos").select("ulbra_cliente_id, responsavel_email, dispensado_em, atendente_ulbra").eq("ulbra_atendimento_id", atendimentoId).maybeSingle();
-      if (!at) return responder({ ok: false, situacao: "BLOQUEADO", motivos: ["ATENDIMENTO_NAO_ESPELHADO"] }, 404);
-      const { data: v } = await sb.from("ulbra_vinculos").select("aluno_id").eq("ulbra_cliente_id", at.ulbra_cliente_id).is("desvinculado_em", null).eq("confianca", "alta_cpf").maybeSingle();
-      const alunoId = (v?.aluno_id as string | null) ?? null;
-      let dono: string | null = null;
-      if (alunoId) {
-        const { data: casos } = await sb.from("casos").select("operador_email").eq("aluno_id", alunoId).not("operador_email", "is", null);
-        const donos = [...new Set((casos ?? []).map((k) => String(k.operador_email).toLowerCase()))];
-        dono = donos.length === 1 ? donos[0] : null;
-      }
-      const { data: conv } = await sb.from("ulbra_conversas").select("ultima_mensagem_cliente_em").eq("ulbra_cliente_id", at.ulbra_cliente_id).order("ultima_mensagem_em", { ascending: false }).limit(1).maybeSingle();
-      const pedido: PedidoEnvio = {
-        operador: email, atendimento_id: atendimentoId, texto, chave: String(corpo.chave ?? ""),
-        ultima_mensagem_cliente_em_ms: conv?.ultima_mensagem_cliente_em ? Date.parse(conv.ultima_mensagem_cliente_em) : null,
-        agora_ms: Date.now(), dono_carteira: dono,
-        responsavel_atendimento: at.responsavel_email ? String(at.responsavel_email).toLowerCase() : null,
-        identidade_confirmada: Boolean(alunoId),
-        atendente_ulbra: (at as { atendente_ulbra?: string | null }).atendente_ulbra ?? null,
-        conta_conectada: { pessoa_id: conn.registro.pessoa_id ?? null, pessoa_nome: conn.registro.pessoa_nome ?? null },
-        template: templateDoCorpo(corpo.template),
-      };
-
-      if (acao === "envio_previa") {
-        // A prévia da própria Mensageria (nada sai): custo estimado, janela, e a recusa real quando houver.
-        const { dados, erro } = await chamarComoOperador(conn.registro.access_token, "enviar_mensagem_whatsapp", { atendimento: atendimentoId, texto, previa: true });
-        return responder({ ok: !erro, previa: dados, recusa: erro, contexto: { identidade_confirmada: pedido.identidade_confirmada, dono_carteira_e_voce: dono === email, responsavel_e_voce: pedido.responsavel_atendimento === email, janela_aberta: pedido.ultima_mensagem_cliente_em_ms !== null && pedido.agora_ms - pedido.ultima_mensagem_cliente_em_ms <= 24 * 3600 * 1000 } });
-      }
-
-      const repositorio: RepositorioEnvio = {
-        async buscar(operador, ch) {
-          const { data } = await sb.from("ulbra_envios").select("*").eq("operador_email", operador).eq("chave", ch).maybeSingle();
-          if (!data) return null;
-          return { chave: data.chave, operador_email: data.operador_email, atendimento_id: data.atendimento_id, texto: data.texto, status: data.status, ulbra_mensagem_id: data.ulbra_mensagem_id, motivo: data.motivo, criado_em_ms: Date.parse(data.criado_em) };
-        },
-        async inserirSeNovo(e: Envio) {
-          const { error } = await sb.from("ulbra_envios").insert({
-            chave: e.chave, operador_email: e.operador_email, atendimento_id: e.atendimento_id, texto: e.texto, status: e.status,
-            previa_custo_usd: typeof corpo.previa_custo_usd === "number" ? corpo.previa_custo_usd : null,
-            previa_janela_aberta: typeof corpo.previa_janela_aberta === "boolean" ? corpo.previa_janela_aberta : null,
-            previa_em: typeof corpo.previa_em === "string" ? corpo.previa_em : null,
-          });
-          if (!error) return true;
-          // 23505 = chave já existe (repetição do mesmo clique): devolve false. Qualquer outra falha NÃO vira "já processado".
-          if ((error as { code?: string }).code === "23505") return false;
-          throw new Error("ENVIO_NAO_GRAVADO");
-        },
-        async atualizar(operador, ch, campos) {
-          await sb.from("ulbra_envios").update({ ...campos, atualizado_em: new Date().toISOString() }).eq("operador_email", operador).eq("chave", ch);
-        },
-      };
-      const r = await enviarResposta(pedido, {
-        repositorio, provedorOAuth, conexao: conn.registro, envioRealConfirmado: envioReal, agora: () => Date.now(),
-        templatesAprovados: templatesAprovadosDoAmbiente(),
+    if (acao === "envio_confirmar") {
+      const previaId = String(corpo.previa_id ?? "");
+      const texto = String(corpo.texto ?? "");
+      const chaveEnvio = String(corpo.chave ?? "");
+      const previa = UUID_RE.test(previaId) ? await repositorioPrevia.buscar(previaId) : null;
+      // O atendimento vem da PRÉVIA, nunca do corpo da requisição.
+      if (!previa) return responder({ ok: false, situacao: "BLOQUEADO", motivos: ["PREVIA_NAO_ENCONTRADA"] }, 403);
+      const conn = await garantirConexao(await lerRegistro(), provedorOAuth, Date.now());
+      if (!conn.ok) return responder({ ok: false, situacao: "BLOQUEADO", motivos: [conn.motivo] }, 403);
+      const m = await montarPedido(previa.atendimento_id, texto, chaveEnvio, conn.registro);
+      if ("bloqueio" in m) return responder({ ok: false, ...m.bloqueio }, m.status);
+      const r = await confirmarPrevia(m.pedido, previaId, {
+        repositorio, repositorioPrevia, provedorOAuth, conexao: conn.registro, envioRealConfirmado: envioReal, agora: () => Date.now(),
+        gerarId: () => crypto.randomUUID(),
         provedorEnvio: {
           async enviar(p) {
-            // Template e texto livre usam a mesma ferramenta; o template vai no argumento próprio (nome e parâmetros não verificados ainda).
-            const args = p.template
-              ? { atendimento: p.atendimento_id, template: p.template.nome, variaveis: p.template.variaveis, previa: false, chave: p.chave }
-              : { atendimento: p.atendimento_id, texto: p.texto, previa: false, chave: p.chave };
-            const { dados, erro } = await chamarComoOperador(p.access_token, "enviar_mensagem_whatsapp", args);
+            const { dados, erro } = await chamarComoOperador(p.access_token, "enviar_mensagem_whatsapp", { atendimento: p.atendimento_id, texto: p.texto, chave: p.chave });
             if (erro) throw new RecusadoPelaUlbra(erro);
             const d = dados as { mensagem?: { id?: string }; id?: string; situacao?: string };
             return { ulbra_mensagem_id: d?.mensagem?.id ?? d?.id ?? d?.situacao ?? "sem_id" };
           },
         },
       });
-      await sb.from("auditoria").insert({ usuario: email, acao: "ULBRA_ENVIO", tabela_afetada: "ulbra_envios", registro_id: atendimentoId, detalhes: { situacao: r.situacao, status: "envio" in r ? r.envio.status : null, motivos: "motivos" in r ? r.motivos : null, template: templateDoCorpo(corpo.template)?.nome ?? null } }).then(() => {}, () => {});
+      await sb.from("auditoria").insert({ usuario: email, acao: "ULBRA_ENVIO", tabela_afetada: "ulbra_envios", registro_id: previa.atendimento_id, detalhes: { situacao: r.situacao, status: "envio" in r ? r.envio.status : null, motivos: "motivos" in r ? r.motivos : null } }).then(() => {}, () => {});
       return responder({ ok: r.situacao !== "BLOQUEADO", ...r }, r.situacao === "BLOQUEADO" ? 403 : 200);
     }
 

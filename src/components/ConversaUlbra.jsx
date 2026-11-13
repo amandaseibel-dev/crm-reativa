@@ -1,18 +1,16 @@
 import { useRef, useState } from "react";
 
 // Conversa da Mensageria dentro da Central/ficha. Só apresenta: o portão de
-// identidade e de permissão é do servidor (leitura.ts/historico.ts) e do envio
-// (envio.ts), sempre com a conexão INDIVIDUAL do operador.
+// identidade, permissão, janela e atendente é do servidor (envio.ts e previa.ts),
+// sempre com a conexão INDIVIDUAL do operador.
 //
-// Envio em DUAS etapas, por decisão da gestão (11/11/2026):
-//   1. "Ver prévia": a Mensageria calcula custo e janela de 24 h (o comportamento de envio da prévia NÃO foi verificado com a ULBRA);
-//   2. "Confirmar envio": uma chave por clique; enquanto o pedido está em curso
-//      o botão fica bloqueado e o mesmo clique não gera segundo envio.
-// Mudar o texto, o template ou as variáveis depois da prévia invalida a prévia.
-//
-// Template fora da janela: só é oferecido quando a lista de templates aprovados
-// (vinda do servidor) não está vazia. A lista local apenas restringe o uso; a
-// aprovação e a disponibilidade são as informadas pela ULBRA.
+// Envio de TEXTO LIVRE, dentro da janela de 24 h, em DUAS etapas:
+//   1. "Ver prévia": o servidor valida agora e registra a prévia (validade curta).
+//      Nada é enviado nesta etapa;
+//   2. "Confirmar envio": consome a prévia uma vez e envia. Uma chave por clique:
+//      enquanto o pedido está em curso o botão fica bloqueado.
+// Mudar o texto depois da prévia invalida a prévia. Templates NÃO fazem parte
+// desta entrega.
 
 const DIRECAO = {
   ENTRADA: { rotulo: "Aluno", classe: "ulbra-conversa-entrada" },
@@ -35,26 +33,14 @@ function formatarHora(iso) {
     : d.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" });
 }
 
+function formatarValidade(ms) {
+  if (typeof ms !== "number") return "validade não informada";
+  return `válida até ${new Date(ms).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", timeStyle: "short" })}`;
+}
+
 function novaChave() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
   return `chave-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
-}
-
-function fmtUsd(v) {
-  return typeof v === "number" ? `US$ ${v.toFixed(4)}` : "não informado";
-}
-
-/** Variáveis digitadas separadas por ";", sem vazios nas pontas. */
-export function variaveisDe(texto) {
-  return String(texto ?? "")
-    .split(";")
-    .map((v) => v.trim())
-    .filter((v) => v !== "");
-}
-
-/** Identidade do pedido: se qualquer parte muda, a prévia anterior deixa de valer. */
-export function chaveDoPedido(texto, template) {
-  return JSON.stringify({ texto: texto.trim(), template: template ? { nome: template.nome, variaveis: template.variaveis } : null });
 }
 
 export default function ConversaUlbra({
@@ -63,65 +49,34 @@ export default function ConversaUlbra({
   erro = null,
   podeEnviar = false,
   antesDe = null,
-  templatesAprovados = [],
-  // Envio por template só liga quando a prévia de template estiver verificada com a ULBRA. Padrão: desligado.
-  templateVerificado = false,
   onCarregarAnteriores,
   onPrevia,
   onEnviar,
 }) {
   const [texto, setTexto] = useState("");
-  const [templateNome, setTemplateNome] = useState("");
-  const [variaveisTexto, setVariaveisTexto] = useState("");
-  const [previa, setPrevia] = useState(null); // { ok, custo_usd, janela_aberta, recusa, em, chave }
+  const [previa, setPrevia] = useState(null); // { ok, previa_id, expira_em_ms, janela_aberta, recusa, texto }
   const [etapa, setEtapa] = useState("escrevendo"); // escrevendo | previa | enviando
   const [aviso, setAviso] = useState(null);
   // Chave do pedido em curso: o mesmo clique repetido reaproveita esta chave.
   const chaveEmCurso = useRef(null);
   const ocupado = etapa === "enviando";
 
-  const semTemplates = templatesAprovados.length === 0;
-  const template = templateNome ? { nome: templateNome, variaveis: variaveisDe(variaveisTexto) } : null;
-  const chaveAtual = chaveDoPedido(texto, template);
-  const previaValida = previa !== null && previa.chave === chaveAtual;
-
-  function invalidarSePrecisar(proximoTexto, proximoTemplate) {
-    const proxima = chaveDoPedido(proximoTexto, proximoTemplate);
-    if (previa && previa.chave !== proxima) { setPrevia(null); setEtapa("escrevendo"); }
-  }
-
   function mudarTexto(v) {
     setTexto(v);
-    invalidarSePrecisar(v, template);
-  }
-
-  function mudarTemplate(nome) {
-    // Com template, o texto livre não sai: limpa-o para não ficar gravado como se tivesse saído.
-    setTexto("");
-    setTemplateNome(nome);
-    invalidarSePrecisar(texto, nome ? { nome, variaveis: variaveisDe(variaveisTexto) } : null);
-  }
-
-  function mudarVariaveis(v) {
-    setVariaveisTexto(v);
-    invalidarSePrecisar(texto, templateNome ? { nome: templateNome, variaveis: variaveisDe(v) } : null);
-  }
-
-  function podeMontarPedido() {
-    if (template) return true;
-    return texto.trim() !== "";
+    // a prévia vale só para o texto que a gerou
+    if (previa && previa.texto !== v) { setPrevia(null); setEtapa("escrevendo"); }
   }
 
   async function verPrevia(evento) {
     evento.preventDefault();
     if (ocupado || !podeEnviar || !onPrevia) return;
-    if (!podeMontarPedido()) return;
+    const conteudo = texto.trim();
+    if (!conteudo) return;
     setAviso(null);
     setEtapa("enviando");
-    const chave = chaveAtual;
     try {
-      const r = template ? await onPrevia(texto.trim(), template) : await onPrevia(texto.trim());
-      setPrevia({ ...r, chave });
+      const r = await onPrevia(conteudo);
+      setPrevia({ ...r, texto });
       setEtapa("previa");
       if (r && r.ok === false) setAviso(`A Mensageria não aceita este envio: ${r.recusa || "sem motivo informado"}`);
     } catch {
@@ -131,23 +86,20 @@ export default function ConversaUlbra({
   }
 
   async function confirmar() {
-    if (ocupado || !podeEnviar || !onEnviar || !previaValida || previa.ok === false) return;
-    if (!podeMontarPedido()) return;
+    if (ocupado || !podeEnviar || !onEnviar || !previa || previa.ok === false || !previa.previa_id) return;
+    const conteudo = texto.trim();
+    if (!conteudo) return;
     if (!chaveEmCurso.current) chaveEmCurso.current = novaChave();
     setEtapa("enviando");
     setAviso(null);
     try {
-      const resultado = template
-        ? await onEnviar(texto.trim(), chaveEmCurso.current, previa, template)
-        : await onEnviar(texto.trim(), chaveEmCurso.current, previa);
+      const resultado = await onEnviar(conteudo, chaveEmCurso.current, previa);
       const status = resultado?.envio?.status ?? resultado?.situacao;
       if (resultado?.situacao === "BLOQUEADO") {
         setAviso(`Envio bloqueado: ${(resultado.motivos ?? []).join(", ")}`);
         setEtapa("previa");
       } else if (resultado?.situacao === "JA_PROCESSADO" || status === "ENVIADO") {
         setTexto("");
-        setTemplateNome("");
-        setVariaveisTexto("");
         setPrevia(null);
         chaveEmCurso.current = null;
         setAviso(resultado?.situacao === "JA_PROCESSADO" ? "Este envio já tinha sido processado; nada foi reenviado." : "Mensagem enviada em seu nome.");
@@ -164,7 +116,8 @@ export default function ConversaUlbra({
     }
   }
 
-  const janelaFechada = previa?.janela_aberta === false;
+  const previaValida = previa !== null && previa.texto === texto;
+  const previaOk = previaValida && previa.ok !== false;
 
   return (
     <section className="ulbra-conversa" aria-label="Conversa na Mensageria ULBRA">
@@ -206,71 +159,24 @@ export default function ConversaUlbra({
           id="ulbra-resposta"
           value={texto}
           maxLength={4096}
-          disabled={!podeEnviar || ocupado || template !== null}
+          disabled={!podeEnviar || ocupado}
           onChange={(e) => mudarTexto(e.target.value)}
         />
-
-        <fieldset className="ulbra-template" disabled={!podeEnviar || ocupado}>
-          <legend>Template (uso fora da janela de 24 h)</legend>
-          {!templateVerificado ? (
-            <p className="ulbra-aviso ulbra-aviso--cinza" data-campo="template-pendente">
-              Envio por template aguarda a verificação da prévia de template pela ULBRA. Por enquanto, fora da janela de 24 h o envio fica bloqueado.
-            </p>
-          ) : semTemplates ? (
-            <p className="ulbra-aviso ulbra-aviso--cinza" data-campo="sem-templates">
-              Nenhum template aprovado está disponível para a equipe. Fora da janela de 24 h, o envio fica bloqueado.
-            </p>
-          ) : (
-            <>
-              <label htmlFor="ulbra-template-nome">Escolher template</label>
-              <select
-                id="ulbra-template-nome"
-                data-campo="template-select"
-                value={templateNome}
-                disabled={!templateVerificado}
-                onChange={(e) => mudarTemplate(e.target.value)}
-              >
-                <option value="">Sem template (texto livre)</option>
-                {templatesAprovados.map((t) => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
-              {templateNome ? (
-                <>
-                  <label htmlFor="ulbra-template-variaveis">Variáveis (separadas por ;)</label>
-                  <input
-                    id="ulbra-template-variaveis"
-                    data-campo="template-variaveis"
-                    value={variaveisTexto}
-                    onChange={(e) => mudarVariaveis(e.target.value)}
-                  />
-                </>
-              ) : null}
-            </>
-          )}
-        </fieldset>
-
-        {!previaValida ? (
-          <button type="submit" className="ulbra-botao" disabled={!podeEnviar || ocupado || !podeMontarPedido()}>
-            {ocupado ? "Pedindo prévia…" : "Ver prévia (1 chamada da sua cota)"}
+        {!previaOk ? (
+          <button type="submit" className="ulbra-botao" disabled={!podeEnviar || ocupado || !texto.trim()}>
+            {ocupado ? "Validando…" : "Ver prévia"}
           </button>
         ) : null}
       </form>
 
-      {previa && previa.chave === chaveAtual ? (
-        <div className="ulbra-aviso ulbra-aviso--ambar" data-campo="previa" data-ok={String(previa.ok !== false)}>
-          <strong>Prévia da Mensageria.</strong>{" "}
-          Custo estimado: <span data-campo="previa-custo">{fmtUsd(previa.custo_usd)}</span> ·{" "}
-          janela de 24 h: <span data-campo="previa-janela">{previa.janela_aberta === true ? "aberta" : previa.janela_aberta === false ? "fechada (só template)" : "não informada"}</span>.
-          {janelaFechada && !template ? <> <span data-campo="previa-sem-template">Escolha um template aprovado para enviar.</span></> : null}
-          {previa.ok !== false && (!janelaFechada || template) ? (
-            <>
-              {" "}Sai em seu nome; não tem volta.{" "}
-              <button type="button" className="ulbra-botao ulbra-botao--primario" data-campo="confirmar" disabled={ocupado} onClick={confirmar}>
-                {ocupado ? "Enviando…" : "Confirmar envio"}
-              </button>
-            </>
-          ) : null}
+      {previaOk ? (
+        <div className="ulbra-aviso ulbra-aviso--ambar" data-campo="previa" data-ok="true">
+          <strong>Prévia registrada no ReATIVA.</strong>{" "}
+          <span data-campo="previa-validade">{formatarValidade(previa.expira_em_ms)}</span>. Nada foi enviado ainda.
+          {" "}Sai em seu nome; não tem volta.{" "}
+          <button type="button" className="ulbra-botao ulbra-botao--primario" data-campo="confirmar" disabled={ocupado} onClick={confirmar}>
+            {ocupado ? "Enviando…" : "Confirmar envio"}
+          </button>
         </div>
       ) : null}
 

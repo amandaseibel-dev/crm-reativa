@@ -508,7 +508,7 @@ describe("histórico sob demanda, conexão individual e resposta em duas etapas"
   it("com conexão ATIVA: histórico carregado, prévia e confirmação chamam a função com a conversa, a chave e a prévia", async () => {
     rpc.mockResolvedValue({ data: RESP(), error: null });
     cliente.conexaoEstado.mockResolvedValue({ ok: true, estado: "ATIVA", pessoa: "Maria Operadora", envio_real: true });
-    cliente.envioPrevia.mockResolvedValue({ ok: true, previa: { custoEstimado: 0.02, janelaAberta: true } });
+    cliente.envioPrevia.mockResolvedValue({ ok: true, situacao: "CRIADA", previa_id: "prev-9", expira_em_ms: 9999999999999, janela_aberta: true });
     cliente.envioConfirmar.mockResolvedValue({ ok: true, situacao: "PROCESSADO", envio: { status: "ENVIADO" } });
     const conv = RESP().respostas[0].conversa_id;
     montar(OPERADOR, `/central-ulbra?visao=conversas&conv=r%3A${conv}`);
@@ -522,11 +522,10 @@ describe("histórico sob demanda, conexão individual e resposta em duas etapas"
     expect(cliente.envioConfirmar).not.toHaveBeenCalled();
     fireEvent.click(await screen.findByText("Confirmar envio"));
     await waitFor(() => expect(cliente.envioConfirmar).toHaveBeenCalledTimes(1));
-    const [c, texto, chave, previa] = cliente.envioConfirmar.mock.calls[0];
-    expect(c).toBe(conv);
+    const [pid, texto, chave] = cliente.envioConfirmar.mock.calls[0];
+    expect(pid).toBe("prev-9");
     expect(texto).toBe("Bom dia");
     expect(chave.length).toBeGreaterThanOrEqual(8);
-    expect(previa).toMatchObject({ custo_usd: 0.02, janela_aberta: true });
     expect((await screen.findAllByText(/Mensagem enviada em seu nome/)).length).toBeGreaterThan(0);
   });
   it("linha da carteira interna (sem conversa na Mensageria) não tem histórico nem envio", async () => {

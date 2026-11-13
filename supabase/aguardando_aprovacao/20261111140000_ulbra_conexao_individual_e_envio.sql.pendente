@@ -1,15 +1,15 @@
 -- =============================================================================
--- ULBRA — conexão INDIVIDUAL do operador (OAuth por pessoa) e registro de envios.
+-- ULBRA — conexão INDIVIDUAL do operador (OAuth por pessoa), prévia registrada
+-- no servidor e registro de envios de TEXTO LIVRE.
 -- PENDENTE. NÃO APLICAR sem autorização expressa da gestão.
--- Substitui a proposta 20261109170000 (nunca aplicada): acrescenta o pedido de
--- conexão (state + verifier do PKCE), quem é a pessoa conectada e os escopos.
+-- Substitui a proposta 20261109170000 (nunca aplicada).
 --
 -- Tabelas com RLS ligada e SEM política para authenticated/anon: só service_role
 -- (as Edge Functions) lê e escreve. Tokens ficam CIFRADOS (AES-256-GCM) com
 -- chave que mora fora do banco (secret `ULBRA_TOKENS_CHAVE` da função).
--- Operador e gestão nunca leem token por esta via.
 --
 -- Nenhuma linha é criada aqui. Nada existente é tocado.
+-- Templates NÃO fazem parte desta migration.
 -- =============================================================================
 
 -- Pedido de conexão em andamento: nasce no clique "Conectar", morre no retorno
@@ -45,6 +45,29 @@ alter table public.ulbra_conexoes_operador enable row level security;
 revoke all on public.ulbra_conexoes_operador from public, anon, authenticated;
 grant select, insert, update, delete on public.ulbra_conexoes_operador to service_role;
 
+-- Prévia registrada no servidor. NÃO é a prévia da Mensageria: é a validação feita
+-- pelo ReATIVA, com o conteúdo exato (hash) e validade curta. Consumo único: a
+-- confirmação marca `consumida_em` uma vez; a unicidade em ulbra_envios.previa_id
+-- impede dois envios a partir da mesma prévia.
+create table if not exists public.ulbra_envio_previas (
+  id                uuid primary key default gen_random_uuid(),
+  operador_email    text not null,
+  atendimento_id    text not null,
+  ulbra_cliente_id  text not null,
+  conteudo_hash     text not null,
+  expira_em         timestamptz not null,
+  consumida_em      timestamptz,
+  criado_em         timestamptz not null default now(),
+  constraint ulbra_envio_previas_email_minusculo check (operador_email = lower(operador_email)),
+  constraint ulbra_envio_previas_atendimento_formato check (atendimento_id ~ '^[a-f0-9]{24}$'),
+  constraint ulbra_envio_previas_hash_formato check (conteudo_hash ~ '^[0-9a-f]{64}$'),
+  constraint ulbra_envio_previas_validade check (expira_em > criado_em),
+  constraint ulbra_envio_previas_consumo check (consumida_em is null or consumida_em >= criado_em)
+);
+alter table public.ulbra_envio_previas enable row level security;
+revoke all on public.ulbra_envio_previas from public, anon, authenticated;
+grant select, insert, update on public.ulbra_envio_previas to service_role;
+
 create table if not exists public.ulbra_envios (
   id                   uuid primary key default gen_random_uuid(),
   chave                text not null,
@@ -54,13 +77,12 @@ create table if not exists public.ulbra_envios (
   status               text not null check (status in ('PENDENTE','ENVIANDO','ENVIADO','RECUSADO','FALHA_INCERTA')),
   ulbra_mensagem_id    text,
   motivo               text,
-  -- o que a PRÉVIA da Mensageria disse antes da confirmação (custo em US$, janela)
-  previa_custo_usd     numeric(10,4),
-  previa_janela_aberta boolean,
-  previa_em            timestamptz,
+  -- a prévia que autorizou este envio. Unique: uma prévia gera no máximo um envio.
+  previa_id            uuid references public.ulbra_envio_previas (id),
   criado_em            timestamptz not null default now(),
   atualizado_em        timestamptz not null default now(),
   constraint ulbra_envios_chave_unica unique (operador_email, chave),
+  constraint ulbra_envios_previa_unica unique (previa_id),
   constraint ulbra_envios_texto_limite check (char_length(texto) between 1 and 4096),
   constraint ulbra_envios_chave_limite check (char_length(chave) between 8 and 80),
   constraint ulbra_envios_atendimento_formato check (atendimento_id ~ '^[a-f0-9]{24}$')

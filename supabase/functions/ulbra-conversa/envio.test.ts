@@ -1,114 +1,20 @@
-// Envio: validação, autoria, idempotência, recusa, timeout e falha incerta.
-// PROVA SIMULADA: provedores fake. Não é envio real à Mensageria.
+// Envio de TEXTO LIVRE: validação, autoria, idempotência, recusa, timeout, falha incerta
+// e falha de gravação. PROVA SIMULADA: provedores fake. Não é envio real à Mensageria.
+// Templates não fazem parte desta entrega.
 import { describe, it, expect } from "vitest";
-import {
-  RecusadoPelaUlbra,
-  TEXTO_MAX,
-  enviarResposta,
-  templateDoCorpo,
-  validarPedido,
-  type Envio,
-  type PedidoEnvio,
-  type ProvedorEnvio,
-  type RepositorioEnvio,
-} from "./envio.ts";
-import type { ProvedorOAuth, RegistroConexao } from "./conexao.ts";
-
-const AGORA = Date.parse("2026-11-09T12:00:00Z");
-const OP = "cobranca10@aelbra.com.br";
-const CHAVE = "chave-clique-0001-abcdef";
-
-const pedido = (over: Partial<PedidoEnvio> = {}): PedidoEnvio => ({
-  operador: OP,
-  atendimento_id: "0123456789abcdef01234567",
-  texto: "Olá, em que posso ajudar?",
-  chave: CHAVE,
-  agora_ms: AGORA,
-  ultima_mensagem_cliente_em_ms: AGORA - 60_000,
-  dono_carteira: OP,
-  responsavel_atendimento: null,
-  identidade_confirmada: true,
-  atendente_ulbra: "pessoa-do-operador-1",
-  conta_conectada: { pessoa_id: "pessoa-do-operador-1", pessoa_nome: "Operador Piloto" },
-  template: null,
-  ...over,
-});
-
-const TEMPLATE_OK = "aviso_retorno_aluno";
-
-const conexao = (over: Partial<RegistroConexao> = {}): RegistroConexao => ({
-  operador_email: OP,
-  access_token: "tok-do-operador",
-  refresh_token: "ref-do-operador",
-  expira_em_ms: AGORA + 3600_000,
-  revogada_em_ms: null,
-  pessoa_id: "pessoa-do-operador-1",
-  ...over,
-});
-
-class RepoMemoria implements RepositorioEnvio {
-  m = new Map<string, Envio>();
-  chaveDe(o: string, c: string) { return `${o}|${c}`; }
-  async buscar(o: string, c: string) { return this.m.get(this.chaveDe(o, c)) ?? null; }
-  async inserirSeNovo(e: Envio) {
-    const k = this.chaveDe(e.operador_email, e.chave);
-    if (this.m.has(k)) return false;
-    this.m.set(k, { ...e });
-    return true;
-  }
-  async atualizar(o: string, c: string, campos: Partial<Envio>) {
-    const k = this.chaveDe(o, c);
-    this.m.set(k, { ...this.m.get(k)!, ...campos });
-  }
-}
-
-class OAuthSimulado implements ProvedorOAuth {
-  async renovar() { return { access_token: "novo", refresh_token: "novo-ref", expira_em_ms: AGORA + 3600_000 }; }
-  async revogar() {}
-}
-
-class EnvioSimulado implements ProvedorEnvio {
-  chamadas: Array<{ access_token: string; texto: string; template: unknown }> = [];
-  modo: "ok" | "recusa" | "lento" | "queda" = "ok";
-  async enviar(p: { access_token: string; atendimento_id: string; texto: string; chave: string; template: unknown }) {
-    this.chamadas.push({ access_token: p.access_token, texto: p.texto, template: p.template });
-    if (this.modo === "recusa") throw new RecusadoPelaUlbra("CONVERSA_ENCERRADA");
-    if (this.modo === "queda") throw new Error("ECONNRESET");
-    if (this.modo === "lento") await new Promise((r) => setTimeout(r, 200));
-    return { ulbra_mensagem_id: "msg-99" };
-  }
-}
-
-function deps(over: Partial<Parameters<typeof enviarResposta>[1]> = {}) {
-  const repositorio = new RepoMemoria();
-  const provedorEnvio = new EnvioSimulado();
-  return {
-    repositorio,
-    provedorEnvio,
-    d: {
-      repositorio,
-      provedorOAuth: new OAuthSimulado(),
-      provedorEnvio,
-      conexao: conexao(),
-      envioRealConfirmado: true,
-      templatesAprovados: [TEMPLATE_OK],
-      agora: () => AGORA,
-      timeoutMs: 50,
-      ...over,
-    },
-  };
-}
+import { TEXTO_MAX, enviarResposta, hashConteudo, validarPedido } from "./envio.ts";
+import { AGORA, CHAVE, OP, RepoMemoria, conexao, deps, pedido } from "./fixtures.ts";
 
 describe("validação do pedido", () => {
-  it("texto vazio e texto longo são recusados (limite 4096, como na ferramenta)", () => {
+  it("texto vazio e texto longo são recusados (limite 4096, como no CHECK da migration)", () => {
     expect(validarPedido(pedido({ texto: "   " }))).toContain("TEXTO_VAZIO");
     expect(validarPedido(pedido({ texto: "x".repeat(TEXTO_MAX + 1) }))).toContain("TEXTO_LONGO");
     expect(validarPedido(pedido({ texto: "x".repeat(TEXTO_MAX) }))).toEqual([]);
   });
 
-  it("fora da janela de 24 h só template: bloqueia o envio livre", () => {
-    expect(validarPedido(pedido({ ultima_mensagem_cliente_em_ms: AGORA - 25 * 3600_000 }))).toContain("JANELA_FECHADA_USAR_TEMPLATE");
-    expect(validarPedido(pedido({ ultima_mensagem_cliente_em_ms: null }))).toContain("JANELA_FECHADA_USAR_TEMPLATE");
+  it("fora da janela de 24 h o texto livre é bloqueado, e não há template como saída", () => {
+    expect(validarPedido(pedido({ ultima_mensagem_cliente_em_ms: AGORA - 25 * 3600_000 }))).toContain("JANELA_FECHADA");
+    expect(validarPedido(pedido({ ultima_mensagem_cliente_em_ms: null }))).toContain("JANELA_FECHADA");
   });
 
   it("atendimento com formato inválido e chave fora de 8 a 80 caracteres são recusados", () => {
@@ -122,8 +28,7 @@ describe("validação do pedido", () => {
   });
 
   it("operador que não é dono nem responsável não envia", () => {
-    const m = validarPedido(pedido({ dono_carteira: "outro@aelbra.com.br", responsavel_atendimento: null }));
-    expect(m).toContain("SEM_PERMISSAO_NA_CONVERSA");
+    expect(validarPedido(pedido({ dono_carteira: "outro@aelbra.com.br", responsavel_atendimento: null }))).toContain("SEM_PERMISSAO_NA_CONVERSA");
   });
 
   it("responsável do atendimento envia mesmo sem carteira", () => {
@@ -135,11 +40,35 @@ describe("validação do pedido", () => {
   });
 });
 
+describe("identidade do atendente: conferida contra a conta conectada (fail-closed)", () => {
+  it("atendente igual ao pessoa_id da conta: passa", () => {
+    expect(validarPedido(pedido())).toEqual([]);
+  });
+  it("atendente igual ao nome da conta (sem diferença de caixa/espaço): passa", () => {
+    const p = pedido({ atendente_ulbra: "  OPERADOR  piloto ", conta_conectada: { pessoa_id: null, pessoa_nome: "operador piloto" } });
+    expect(validarPedido(p)).toEqual([]);
+  });
+  it("atendente de OUTRA pessoa: bloqueia", () => {
+    expect(validarPedido(pedido({ atendente_ulbra: "outra-pessoa-9" }))).toContain("ATENDENTE_DIFERENTE_DA_CONTA_CONECTADA");
+  });
+  it("atendente não lido (null): bloqueia", () => {
+    expect(validarPedido(pedido({ atendente_ulbra: null }))).toContain("ATENDENTE_ULBRA_NAO_LIDO");
+  });
+  it("conta sem identificação: bloqueia", () => {
+    expect(validarPedido(pedido({ conta_conectada: { pessoa_id: null, pessoa_nome: null } }))).toContain("CONTA_CONECTADA_NAO_IDENTIFICADA");
+  });
+  it("no envio: atendente divergente bloqueia e NÃO chama o provedor", async () => {
+    const { d, provedorEnvio } = deps();
+    const r = await enviarResposta(pedido({ atendente_ulbra: "outra-pessoa-9" }), d);
+    expect(r.situacao).toBe("BLOQUEADO");
+    expect(provedorEnvio.chamadas).toEqual([]);
+  });
+});
+
 describe("envio real só com confirmação explícita", () => {
-  it("sem envioRealConfirmado, bloqueia e não chama o provedor (previa:false não é padrão)", async () => {
+  it("sem envioRealConfirmado, bloqueia e não chama o provedor", async () => {
     const { d, provedorEnvio } = deps({ envioRealConfirmado: false });
     const r = await enviarResposta(pedido(), d);
-    expect(r.situacao).toBe("BLOQUEADO");
     expect(r.situacao === "BLOQUEADO" && r.motivos).toEqual(["ENVIO_REAL_NAO_CONFIRMADO"]);
     expect(provedorEnvio.chamadas).toEqual([]);
   });
@@ -148,33 +77,25 @@ describe("envio real só com confirmação explícita", () => {
 describe("autoria: só a conexão do próprio operador", () => {
   it("sem conexão individual, bloqueia e NÃO chama o provedor", async () => {
     const { d, provedorEnvio } = deps({ conexao: null });
-    const r = await enviarResposta(pedido(), d);
-    expect(r.situacao).toBe("BLOQUEADO");
+    expect((await enviarResposta(pedido(), d)).situacao).toBe("BLOQUEADO");
     expect(provedorEnvio.chamadas).toEqual([]);
   });
-
-  it("conexão sem identidade da pessoa (meu_acesso falhou) bloqueia e NÃO chama o provedor", async () => {
+  it("conexão sem identidade da pessoa bloqueia e NÃO chama o provedor", async () => {
     const { d, provedorEnvio } = deps({ conexao: conexao({ pessoa_id: null }) });
     const r = await enviarResposta(pedido(), d);
-    expect(r.situacao).toBe("BLOQUEADO");
     expect(r.situacao === "BLOQUEADO" && r.motivos).toContain("CONEXAO_SEM_IDENTIDADE");
     expect(provedorEnvio.chamadas).toEqual([]);
   });
-
-  it("conexão de OUTRO operador não serve: bloqueia", async () => {
+  it("conexão de OUTRO operador não serve", async () => {
     const { d, provedorEnvio } = deps({ conexao: conexao({ operador_email: "outro@aelbra.com.br" }) });
-    const r = await enviarResposta(pedido(), d);
-    expect(r.situacao).toBe("BLOQUEADO");
+    expect((await enviarResposta(pedido(), d)).situacao).toBe("BLOQUEADO");
     expect(provedorEnvio.chamadas).toEqual([]);
   });
-
   it("conexão revogada bloqueia", async () => {
     const { d, provedorEnvio } = deps({ conexao: conexao({ revogada_em_ms: AGORA - 1 }) });
-    const r = await enviarResposta(pedido(), d);
-    expect(r.situacao).toBe("BLOQUEADO");
+    expect((await enviarResposta(pedido(), d)).situacao).toBe("BLOQUEADO");
     expect(provedorEnvio.chamadas).toEqual([]);
   });
-
   it("o envio usa o token DO OPERADOR", async () => {
     const { d, provedorEnvio } = deps();
     await enviarResposta(pedido(), d);
@@ -182,7 +103,7 @@ describe("autoria: só a conexão do próprio operador", () => {
   });
 });
 
-describe("idempotência: repetir o clique não reenvia", () => {
+describe("idempotência: repetir a chave não reenvia", () => {
   it("duas chamadas com a mesma chave enviam UMA vez", async () => {
     const { d, provedorEnvio } = deps();
     const a = await enviarResposta(pedido(), d);
@@ -191,23 +112,27 @@ describe("idempotência: repetir o clique não reenvia", () => {
     expect(b.situacao).toBe("JA_PROCESSADO");
     expect(provedorEnvio.chamadas.length).toBe(1);
   });
-
-  it("chaves diferentes são pedidos diferentes (mensagem intencional repetida)", async () => {
+  it("chaves diferentes são pedidos diferentes", async () => {
     const { d, provedorEnvio } = deps();
     await enviarResposta(pedido(), d);
     await enviarResposta(pedido({ chave: "outra-chave-clique-0002" }), d);
     expect(provedorEnvio.chamadas.length).toBe(2);
   });
-
-  it("a chave vale por operador: outro operador com a mesma chave não é bloqueado pela chave alheia", async () => {
+  it("a chave vale por operador", async () => {
     const repo = new RepoMemoria();
-    await repo.inserirSeNovo({
-      chave: CHAVE, operador_email: "outro@aelbra.com.br", atendimento_id: "c", texto: "x",
-      status: "ENVIADO", ulbra_mensagem_id: "m", motivo: null, criado_em_ms: AGORA,
-    });
+    await repo.inserirSeNovo({ chave: CHAVE, operador_email: "outro@aelbra.com.br", atendimento_id: "c", texto: "x", status: "ENVIADO", ulbra_mensagem_id: "m", motivo: null, criado_em_ms: AGORA, previa_id: null });
     const { d, provedorEnvio } = deps({ repositorio: repo });
     await enviarResposta(pedido(), d);
     expect(provedorEnvio.chamadas.length).toBe(1);
+  });
+});
+
+describe("falha de gravação não vira 'já processado'", () => {
+  it("se a gravação falha, a exceção sobe e o provedor NÃO é chamado", async () => {
+    const { d, provedorEnvio, repositorio } = deps();
+    repositorio.falharGravacao = true;
+    await expect(enviarResposta(pedido(), d)).rejects.toThrow("ENVIO_NAO_GRAVADO");
+    expect(provedorEnvio.chamadas).toEqual([]);
   });
 });
 
@@ -218,15 +143,12 @@ describe("resultado do envio", () => {
     expect(r.situacao === "PROCESSADO" && r.envio.status).toBe("ENVIADO");
     expect(repositorio.m.get(`${OP}|${CHAVE}`)!.ulbra_mensagem_id).toBe("msg-99");
   });
-
   it("recusa da Mensageria grava RECUSADO e não é reenviada", async () => {
     const { d, provedorEnvio } = deps();
     provedorEnvio.modo = "recusa";
     const r = await enviarResposta(pedido(), d);
     expect(r.situacao === "PROCESSADO" && r.envio.status).toBe("RECUSADO");
-    expect(r.situacao === "PROCESSADO" && r.envio.motivo).toBe("CONVERSA_ENCERRADA");
   });
-
   it("timeout vira FALHA_INCERTA e NÃO reenvia automaticamente", async () => {
     const { d, provedorEnvio } = deps({ timeoutMs: 10 });
     provedorEnvio.modo = "lento";
@@ -234,7 +156,6 @@ describe("resultado do envio", () => {
     expect(r.situacao === "PROCESSADO" && r.envio.status).toBe("FALHA_INCERTA");
     expect(provedorEnvio.chamadas.length).toBe(1);
   });
-
   it("queda de conexão vira FALHA_INCERTA, sem reenvio às cegas", async () => {
     const { d, provedorEnvio } = deps();
     provedorEnvio.modo = "queda";
@@ -242,96 +163,25 @@ describe("resultado do envio", () => {
     expect(r.situacao === "PROCESSADO" && r.envio.status).toBe("FALHA_INCERTA");
     expect(provedorEnvio.chamadas.length).toBe(1);
   });
-
   it("repetir depois de FALHA_INCERTA não envia de novo com a mesma chave", async () => {
     const { d, provedorEnvio } = deps();
     provedorEnvio.modo = "queda";
     await enviarResposta(pedido(), d);
     provedorEnvio.modo = "ok";
-    const again = await enviarResposta(pedido(), d);
-    expect(again.situacao).toBe("JA_PROCESSADO");
+    expect((await enviarResposta(pedido(), d)).situacao).toBe("JA_PROCESSADO");
     expect(provedorEnvio.chamadas.length).toBe(1);
   });
-});
-
-describe("identidade do atendente: conferida contra a conta conectada (fail-closed)", () => {
-  it("atendente igual ao pessoa_id da conta: passa", () => {
-    expect(validarPedido(pedido())).toEqual([]);
-  });
-
-  it("atendente igual ao nome da conta (sem diferença de caixa/espaço): passa", () => {
-    const p = pedido({ atendente_ulbra: "  OPERADOR  piloto ", conta_conectada: { pessoa_id: null, pessoa_nome: "operador piloto" } });
-    expect(validarPedido(p)).toEqual([]);
-  });
-
-  it("atendente de OUTRA pessoa: bloqueia ATENDENTE_DIFERENTE_DA_CONTA_CONECTADA", () => {
-    const p = pedido({ atendente_ulbra: "outra-pessoa-9" });
-    expect(validarPedido(p)).toContain("ATENDENTE_DIFERENTE_DA_CONTA_CONECTADA");
-  });
-
-  it("atendente não lido (null): bloqueia ATENDENTE_ULBRA_NAO_LIDO", () => {
-    expect(validarPedido(pedido({ atendente_ulbra: null }))).toContain("ATENDENTE_ULBRA_NAO_LIDO");
-  });
-
-  it("conta sem identificação: bloqueia CONTA_CONECTADA_NAO_IDENTIFICADA", () => {
-    const p = pedido({ conta_conectada: { pessoa_id: null, pessoa_nome: null } });
-    expect(validarPedido(p)).toContain("CONTA_CONECTADA_NAO_IDENTIFICADA");
-  });
-
-  it("no envio: atendente divergente bloqueia e NÃO chama o provedor", async () => {
-    const { d, provedorEnvio } = deps();
-    const r = await enviarResposta(pedido({ atendente_ulbra: "outra-pessoa-9" }), d);
-    expect(r.situacao).toBe("BLOQUEADO");
-    expect(provedorEnvio.chamadas).toEqual([]);
+  it("o envio registra a prévia que o autorizou", async () => {
+    const { d, repositorio } = deps();
+    await enviarResposta(pedido(), d, "11111111-1111-1111-1111-111111111111");
+    expect(repositorio.m.get(`${OP}|${CHAVE}`)!.previa_id).toBe("11111111-1111-1111-1111-111111111111");
   });
 });
 
-describe("template fora da janela de 24 h", () => {
-  const FORA = { ultima_mensagem_cliente_em_ms: AGORA - 25 * 3600_000 };
-
-  it("fora da janela sem template: continua bloqueado com JANELA_FECHADA_USAR_TEMPLATE", () => {
-    expect(validarPedido(pedido({ ...FORA, texto: "oi" }))).toContain("JANELA_FECHADA_USAR_TEMPLATE");
-  });
-
-  it("fora da janela com template aprovado: passa na validação e envia o template", async () => {
-    const t = { nome: TEMPLATE_OK, variaveis: ["Maria"] };
-    const { d, provedorEnvio } = deps();
-    const r = await enviarResposta(pedido({ ...FORA, texto: "", template: t }), d);
-    expect(r.situacao).toBe("PROCESSADO");
-    expect(provedorEnvio.chamadas[0].template).toEqual(t);
-  });
-
-  it("template NÃO aprovado: bloqueia TEMPLATE_NAO_APROVADO e não chama o provedor", async () => {
-    const { d, provedorEnvio } = deps();
-    const r = await enviarResposta(pedido({ ...FORA, texto: "", template: { nome: "inventado", variaveis: [] } }), d);
-    expect(r.situacao === "BLOQUEADO" && r.motivos).toContain("TEMPLATE_NAO_APROVADO");
-    expect(provedorEnvio.chamadas).toEqual([]);
-  });
-
-  it("template sem variável preenchida: bloqueia TEMPLATE_VARIAVEL_VAZIA", () => {
-    const p = pedido({ ...FORA, texto: "", template: { nome: TEMPLATE_OK, variaveis: ["  "] } });
-    expect(validarPedido(p)).toContain("TEMPLATE_VARIAVEL_VAZIA");
-  });
-
-  it("dentro da janela, texto livre continua valendo sem template", () => {
-    expect(validarPedido(pedido({ texto: "oi" }))).toEqual([]);
-  });
-
-  it("texto vazio sem template: bloqueia TEXTO_VAZIO", () => {
-    expect(validarPedido(pedido({ texto: "  " }))).toContain("TEXTO_VAZIO");
-  });
-});
-
-describe("templateDoCorpo: malformado nunca vira texto livre em silêncio", () => {
-  it("ausente = null (texto livre)", () => {
-    expect(templateDoCorpo(undefined)).toBeNull();
-    expect(templateDoCorpo(null)).toBeNull();
-  });
-  it("válido: devolve nome e variáveis", () => {
-    expect(templateDoCorpo({ nome: "x", variaveis: ["a"] })).toEqual({ nome: "x", variaveis: ["a"] });
-  });
-  it("tipo errado ou variáveis não-texto: nome vazio (bloqueado depois)", () => {
-    expect(templateDoCorpo("texto")).toEqual({ nome: "", variaveis: [] });
-    expect(templateDoCorpo({ nome: "x", variaveis: [1, 2] })).toEqual({ nome: "", variaveis: [] });
+describe("hash do conteúdo", () => {
+  it("é determinístico e ignora espaços nas pontas, mas muda com qualquer alteração de conteúdo", async () => {
+    expect(await hashConteudo("oi")).toBe(await hashConteudo("  oi  "));
+    expect(await hashConteudo("oi")).not.toBe(await hashConteudo("oi!"));
+    expect(await hashConteudo("oi")).toMatch(/^[0-9a-f]{64}$/);
   });
 });
