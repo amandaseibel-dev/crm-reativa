@@ -175,7 +175,7 @@ describe("depois da migration", () => {
     expect(valor(await universo(db, ACORD()), id)).toBe(320);
   });
 
-  it("MENSALIDADES_E_ACORDOS: mensalidade independente + acordo vencido (sem dupla contagem)", async () => {
+  it("MENSALIDADES_E_ACORDOS: mensalidade independente (boleto distinto) + acordo vencido soma as duas", async () => {
     const [id] = await alunos(db, 1, { ini: 1 });
     const ac = await acordo(id);
     await parcela(ac, { v: 320 });
