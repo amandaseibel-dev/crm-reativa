@@ -179,12 +179,20 @@ REVOKE ALL ON FUNCTION public.aluno_retorno_operador_vigente(uuid) FROM PUBLIC, 
 -- nao existe atendimento dele. Nao da para afirmar a origem da data -- entao o caso
 -- NAO e liberado, e fica para decisao da gestao.
 --
--- MEDIDO em 13/11/2026: 56 casos, TODOS com data de retorno = hoje, nenhum com hora,
--- e todos com a data citada no texto JA VENCIDA (28/08 a 07/11). E o retrato do
--- recalculo automatico descrito na PR #949 (`recalcular_situacao_aluno`, ramo
--- COBRANCA_VENCIDA, reescreve a data para hoje e COPIA a origem antiga), nao de
--- remarcacao humana. Esta migration NAO corrige esse recalculo -- so evita liberar
--- caso cuja origem da data nao esta estabelecida.
+-- MEDIDO em 13/11/2026 15:31 (producao, somente leitura; consulta e saida em
+-- supabase/audits/retorno_ambiguo_origem_20261113.sql e _RESULTADO.md):
+-- 56 CASOS / 55 ALUNOS, todos com data de retorno = hoje, nenhum com data futura,
+-- e todos com a data citada no texto do atendimento JA VENCIDA.
+--
+-- Isso e COMPATIVEL com o recalculo automatico investigado na PR #949
+-- (`recalcular_situacao_aluno`, ramo COBRANCA_VENCIDA, reescreve a data para hoje
+-- e COPIA a origem antiga), mas NAO PROVA a origem: nao ha grupo de controle de
+-- retornos sabidamente humanos. Nao use "nenhum tem hora" como argumento --
+-- `alunos.data_retorno` e do tipo `date` e nunca guardou hora, entao esse sinal e
+-- vazio por construcao (catalogo de producao conferido em 13/11/2026).
+--
+-- Esta migration NAO corrige esse recalculo -- so evita liberar caso cuja origem
+-- da data nao esta estabelecida.
 CREATE OR REPLACE FUNCTION public.aluno_retorno_ambiguo(p_aluno_id uuid)
  RETURNS boolean
  LANGUAGE sql

@@ -1006,6 +1006,14 @@ describe("vínculo do retorno — via explícita e alternativa de 10 dias (gest�
       const r = await q1(db, "select public.aluno_retorno_operador_vigente($1) v", [U(n)]);
       expect(r.v, `aluno ${n}`).toBe(esperado);
     }
+    // K4: a MESMA amarra para a ambiguidade. A consulta classificou 4 e 5 como
+    // ambiguos (bloco D) e 1, 2 e 3 como nao-ambiguos; `aluno_retorno_ambiguo`,
+    // que o backup e o lote usam, tem de dizer exatamente o mesmo. Sem isto, a
+    // frase "a consulta e as funcoes devolvem o mesmo resultado" nao se sustenta.
+    for (const [n, esperado] of [[1, false], [2, false], [3, false], [4, true], [5, true]]) {
+      const r = await q1(db, "select public.aluno_retorno_ambiguo($1) v", [U(n)]);
+      expect(r.v, `ambiguo? aluno ${n}`).toBe(esperado);
+    }
     await db.close();
   });
 
@@ -1325,11 +1333,11 @@ describe("segurança — portão interno de liberar_fidelizacao_caso", () => {
     await db.close();
   });
 
-  // GUARD DE REGRESSAO (L1): as duas funcoes novas sao predicados INTERNOS e nao
+  // GUARD DE REGRESSAO (L1): as tres funcoes novas sao predicados INTERNOS e nao
   // podem nascer executaveis por ninguem alem do dono. A bancada reproduz o
   // pg_default_acl de producao, entao apagar qualquer papel da linha de REVOKE
   // da migration quebra este teste.
-  it.each([["caso_pode_soltar_com_aluno"], ["aluno_retorno_operador_vigente"]])(
+  it.each([["caso_pode_soltar_com_aluno"], ["aluno_retorno_operador_vigente"], ["aluno_retorno_ambiguo"]])(
     "ACL de %s: sem EXECUTE para PUBLIC, anon, authenticated ou service_role", async (fn) => {
       const db = await novo();
       const r = await q1(db,

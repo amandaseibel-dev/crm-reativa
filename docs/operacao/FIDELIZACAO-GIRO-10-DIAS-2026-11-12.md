@@ -371,32 +371,51 @@ Executada com `supabase/audits/retorno_estoque_antigo_20261113.sql`, em janela d
 
 | Item | Valor |
 |---|---|
-| Casos elegíveis à liberação | **575** |
+| Casos elegíveis à liberação | **575 casos / 558 alunos** (remedido às 15:31: **565 / 548**) |
 | Alunos | **558** |
 | Valor em aberto | **R$ 893.385** |
 | Com retorno de operador vigente | 59 |
 | Protegidos pelo vínculo no campo (formato novo) | 0 |
 | **Recuperados pelo vínculo no texto** (estoque antigo) | **0** |
 | Protegidos só pela janela de 10 dias | 0 |
-| **AMBÍGUOS — retidos, fora da liberação** | **57** |
+| **AMBÍGUOS — retidos, fora da liberação** | **57 casos** (remedido às 15:31: **56 casos / 55 alunos**) |
 | **LIBERÁVEIS** | **518** |
 
 **Leitura (corrigida em 13/11).** A correção do vínculo por texto **não recuperou nenhum caso**: em 57 dos 59 casos com retorno vigente, o atendimento do responsável cita **outra** data, e não a data que está hoje no aluno.
 
-A conclusão anterior deste roteiro — "o retorno foi remarcado depois do atendimento, sem novo atendimento" — **estava errada e foi retirada**. A divergência entre a data do texto e a data vigente não prova remarcação humana. A medição de 13/11 sobre os 56 ambíguos mostra o contrário:
+A conclusão anterior deste roteiro — "o retorno foi remarcado depois do atendimento, sem novo atendimento" — **estava errada e foi retirada**. A divergência entre a data do texto e a data vigente não prova remarcação humana.
+
+Medição versionada, 13/11 **15:31**, em `supabase/audits/retorno_ambiguo_origem_20261113.sql` (saída em `..._RESULTADO.md`):
 
 | Sinal | Resultado |
 |---|---|
-| `data_retorno` = **hoje** | **56 de 56** |
-| Data futura | 0 |
-| Com hora gravada (agendamento humano deixa hora) | **0** |
-| Texto do atendimento com data **já vencida** | **56 de 56** (de 28/08 a 07/11) |
+| Ambíguos | **56 casos / 55 alunos** |
+| Retidos por "texto cita outra data" | 56 · por "sem atendimento do responsável": 0 |
+| `data_retorno` = **hoje** | 56 de 56 · no futuro: 0 |
+| Texto do atendimento cita data **já vencida** | 56 de 56 |
 
-Todas as datas vigentes iguais a hoje, nenhuma com hora, e todos os textos apontando para datas já vencidas: é o retrato do **recálculo automático investigado na [#949](https://github.com/ReATIVA/crm-reativa-atual/pull/949)**, que reescreve `data_retorno` para o dia corrente, não de remarcação feita por pessoa. Esta entrega **não corrige** esse recálculo — ele segue na #949.
+**O que isto prova:** nenhum tem data futura, todos têm a data vigente igual ao dia da medição, e em todos o texto do próprio responsável aponta data anterior já vencida.
+
+**O que NÃO prova:** quem gravou a data. O conjunto é **compatível** com o recálculo automático investigado na [#949](https://github.com/ReATIVA/crm-reativa-atual/pull/949), que reescreve `data_retorno` para o dia corrente — mas compatibilidade não é causa, e não há grupo de controle de retornos sabidamente humanos. **Origem não comprovada.**
+
+**Um sinal que eu citei antes não existe:** `alunos.data_retorno` é do tipo `date` e nunca guardou hora. A frase "agendamento humano deixa hora, e nenhum destes tem" era vazia por construção; foi retirada do pacote. Conferido no catálogo de produção em 13/11.
 
 Por isso os ambíguos **não são liberados**: a origem da data vigente não está estabelecida, e liberar sem isso arrisca tirar do operador um compromisso real. Ficam retidos com o motivo `retorno_ambiguo_decisao_pendente`, para decisão da gestão depois que a #949 fechar.
 
 **Correção aplicada junto (achado N1 da 10ª auditoria):** a consulta afirmava que os ambíguos ficavam fora da liberação, mas os scripts **não os excluíam** — eles entrariam no backup e seriam soltos pelo lote. O backup passou a retê-los. Dois testes cobrem os dois sinais de ambiguidade, e a mutação (retirar a retenção) derruba ambos.
+
+## ESTADO DE PRODUÇÃO CONFERIDO POR LEITURA — 13/11/2026 15:30
+
+Medido pela via escopada em produção (`ahattpqrjmhkzsmnbdzs`), **somente leitura, zero DML**:
+
+| O que | Estado medido |
+|---|---|
+| Papel da sessão que vai executar | `postgres`, **não superusuário**, sessão **não** é read-only — ou seja, esta via escreve; é por isso que as travas dos scripts existem |
+| Cron 8 `fidelizacao_liberar_vencidos` | **ATIVO** — tem de ser pausado antes da migration (que aborta sozinha se não for) |
+| Job 43 `reposicao_carteira_minuto` | inativo, como o roteiro exige |
+| Cron 48 `nivelamento_automatico_gestao` | **ATIVO** — segue fora desta PR (G2); risco residual já declarado |
+| As 4 funções alvo | dono `postgres`, `SECURITY DEFINER`, `search_path` conforme o esperado, ACL `postgres/authenticated/service_role` (sem `anon`) |
+| As 3 funções novas | **não existem ainda** em produção |
 
 ## PRIMEIRO LOTE — tamanho, critérios de parada e conferência
 
@@ -434,10 +453,11 @@ Por isso os ambíguos **não são liberados**: a origem da data vigente não est
 | Migration pendente + rollback (7 funções: 4 alteradas, 3 novas) | `supabase/aguardando_aprovacao/20261112210000_*` |
 | Scripts de execução: backup, liberação por lote, restauração | `supabase/recovery/20261112_giro_fidelizacao_0{0,1,2}_*.sql` |
 | Correção da Minha Carteira (grava a data do retorno na movimentação) | `src/components/PainelCarteira.jsx` |
-| Provas em bancada | 180 testes (110 migração + 70 lotes) |
+| Provas em bancada | 181 testes (111 migração + 70 lotes) |
 | Prova de concorrência real, duas sessões, Postgres descartável | job de CI `fidelizacao do giro — concorrencia real` |
 | Auditoria de produção, somente leitura, com saída versionada | `supabase/audits/retorno_vinculo_auditoria_20261113*` |
-| Parecer do Guardião | **APROVADO** (9ª rodada). L1 e L2 fechados e verificados; L3 (a medição do privilégio padrão de produção é do autor) segue declarado |
+| Parecer do Guardião | 11ª rodada sobre o commit final (L1/L2 fechados; os quatro itens da 11ª corrigidos neste commit) |
+| **L3 — agora medido, não declarado** | Leitura de produção em 13/11 15:30: `pg_default_acl` de funções em `public` tem **duas** entradas — concedente `supabase_admin` dá EXECUTE a `postgres, anon, authenticated, service_role`; concedente `postgres` dá a `postgres, authenticated, service_role`. É por isso que o `REVOKE` explícito das funções novas é necessário, e o guard de ACL cobre as três |
 
 **Depende só de você — uma única aprovação de implantação.** Autorizando, executo na ordem abaixo, que já está detalhada neste roteiro:
 
