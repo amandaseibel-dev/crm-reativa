@@ -45,6 +45,7 @@ as $$
 declare
   v_t record; v_op text; v_num text; v_valor numeric; v_rev boolean;
   v_dec_ant text; v_dec_quem text; v_dec_em timestamptz; v_humana boolean := false;
+  v_origem_desconhecida boolean := false; v_n int;
   c_autor_rotina constant text := 'prime_liquidacao@rotina';
 begin
   -- 1) titulo primeiro
@@ -62,11 +63,18 @@ begin
 
   -- Logica de tres valores: coalesce evita que NULL (ex.: REJEITADO sem autor) passe
   -- como "nao humano". Qualquer caso nao reconhecido como rotina vira humano.
+  -- PENDENTE sem autor = origem desconhecida (decisao da gestao): protegida TEMPORARIAMENTE.
+  -- Nao e classificada como humana; apenas nao e sobrescrita automaticamente.
+  v_origem_desconhecida := found and v_dec_ant = 'PENDENTE' and v_dec_quem is null;
   if found then
     v_humana := not coalesce(
-         (v_dec_ant = 'PENDENTE' and (v_dec_quem is null or v_dec_quem = c_autor_rotina))
+         (v_dec_ant = 'PENDENTE' and v_dec_quem = c_autor_rotina)
       or (v_dec_ant = 'REJEITADO' and v_dec_quem = c_autor_rotina),
       false);
+  end if;
+
+  if v_origem_desconhecida then
+    return jsonb_build_object('ok', false, 'bloqueado', 'ORIGEM_DESCONHECIDA_PRESERVADA', 'decisao', v_dec_ant);
   end if;
 
   if v_humana then
@@ -106,6 +114,8 @@ begin
                                             'pagamento_id', p_pagamento_id),
           p_evidencia->>'evidencia_chave', 'NENHUMA', p_subgrupo, p_acordo_id, v_num, v_rev,
           v_op, now(), v_t.situacao, v_t.status)
+  -- Protecao NO PROPRIO ON CONFLICT: so atualiza linha que ainda e da rotina.
+  -- Se nada for atualizado (decisao mudou entre a trava e a escrita), aborta a transacao.
   on conflict (titulo_id) do update
     set decisao = 'PENDENTE', motivo = null, decidido_por = c_autor_rotina, decidido_em = null,
         motivo_entrada = excluded.motivo_entrada, aluno_id = excluded.aluno_id, cpf = excluded.cpf,
@@ -114,7 +124,14 @@ begin
         subgrupo = excluded.subgrupo, acordo_id = excluded.acordo_id, acordo_numero = excluded.acordo_numero,
         revisao_obrigatoria = excluded.revisao_obrigatoria, operador_no_momento = excluded.operador_no_momento,
         detectado_em = excluded.detectado_em, situacao_anterior = excluded.situacao_anterior,
-        status_anterior = excluded.status_anterior;
+        status_anterior = excluded.status_anterior
+    where public.prime_conferencia_decisao.decidido_por = c_autor_rotina
+      and public.prime_conferencia_decisao.decisao in ('PENDENTE','REJEITADO');
+  get diagnostics v_n = row_count;
+  if v_n = 0 then
+    raise exception 'DECISAO_MUDOU_DURANTE_A_SUSPENSAO: titulo % nao foi alterado', p_titulo_id
+      using errcode = 'P0001';
+  end if;
 
   if upper(coalesce(v_t.situacao,'')) <> 'EM_CONFIRMACAO' then
     perform set_config('conferencia_prime.decisao', 'on', true);
@@ -138,7 +155,8 @@ begin
 end;
 $$;
 
-create or replace function public.prime_liquidacao_reavaliar_pendentes(p_quem text)
+-- O DEFAULT precisa ser mantido: o Postgres recusa remover DEFAULT em CREATE OR REPLACE (42P13).
+create or replace function public.prime_liquidacao_reavaliar_pendentes(p_quem text default 'prime_liquidacao@rotina')
 returns jsonb
 language plpgsql
 security definer
@@ -151,13 +169,13 @@ declare
 begin
   -- Contagem das linhas com autoria humana que ficam fora da reavaliacao.
   select count(*) into v_ign from public.prime_conferencia_decisao x
-   where x.decisao = 'PENDENTE' and x.decidido_por is not null and x.decidido_por <> c_autor_rotina
+   where x.decisao = 'PENDENTE' and x.decidido_por is distinct from c_autor_rotina
      and x.subgrupo in ('C_SEM_PROVA','B_ACORDO_COMPROVADO','A_PAGAMENTO_COMPROVADO');
 
   -- Candidatos: so PENDENTE da rotina. Lista sem trava; cada um e travado abaixo, na ordem titulo -> decisao.
   for d in
     select x.titulo_id from public.prime_conferencia_decisao x
-     where x.decisao = 'PENDENTE' and (x.decidido_por is null or x.decidido_por = c_autor_rotina)
+     where x.decisao = 'PENDENTE' and x.decidido_por = c_autor_rotina
        and x.subgrupo in ('C_SEM_PROVA','B_ACORDO_COMPROVADO','A_PAGAMENTO_COMPROVADO')
      order by x.titulo_id
   loop
@@ -167,7 +185,7 @@ begin
     select x.* into d from public.prime_conferencia_decisao x
      where x.titulo_id = d.titulo_id for update;
     if not found then continue; end if;
-    if not (d.decisao = 'PENDENTE' and (d.decidido_por is null or d.decidido_por = c_autor_rotina)
+    if not (d.decisao = 'PENDENTE' and d.decidido_por = c_autor_rotina
             and d.subgrupo in ('C_SEM_PROVA','B_ACORDO_COMPROVADO','A_PAGAMENTO_COMPROVADO')) then
       continue;
     end if;
