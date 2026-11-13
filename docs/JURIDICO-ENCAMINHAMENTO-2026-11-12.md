@@ -141,26 +141,42 @@ Fica, por decisão a tomar pela gestão:
   financeiro e aparecem no painel, no alerta e no Excel; a saída é remover o caso (o que libera o
   aluno) e gerar nova seleção, com nova conferência. Nenhuma altera responsável, carteira,
   fidelização, cobrança ou encerramento.
-  - `TERMO_INVALIDADO`: caso aprovado com acordo, sem documento vinculado nem autorização jurídica,
-    cujo termo foi rejeitado, removido ou deixou de estar na etapa COMPLETO com arquivo final.
+  - `TERMO_INVALIDADO`: avalia o termo que SUSTENTOU a aprovação (`juridico_casos.termo_aprovado_id`,
+    gravado na aprovação), não qualquer termo do aluno: rejeitado, removido ou fora da etapa
+    COMPLETO com arquivo final gera a divergência. Termo novo pendente não alerta; se o aprovado é
+    rejeitado, alerta mesmo existindo outro completo (nova conferência). A tabela de termos é
+    chaveada por aluno, não por acordo; sem documento vinculado nem autorização o caso não é aprovado.
   - `TITULO_EM_CONFIRMACAO`: qualquer título do aluno em `EM_CONFIRMACAO`, esteja ou não na
     fotografia. Lido do estado efetivo do banco a cada conferência.
   - `ACORDO_CONDICOES_ALTERADAS`: a assinatura dos acordos ativos (valor total, nº de parcelas,
-    forma e entrada, e número, valor, vencimento e boleto de cada parcela) difere da gravada na
-    aprovação, mesmo com os mesmos IDs e saldo. Observação, responsável e datas de atualização
-    não contam; o status da parcela também não (pagamento e quebra têm divergência própria).
+    forma, entrada arredondada a 2 casas, e número, valor e vencimento de cada parcela) difere da
+    gravada na aprovação, OU houve alteração de valor/vencimento de parcela depois da aprovação,
+    mesmo revertida (marca em `PARCELA_MATERIAL`). Boleto, observação, responsável, datas de
+    atualização e status da parcela não contam.
+  - Nova quebra: parcela que vira `VENCIDA` em acordo ativo de caso vivo grava `PARCELA_QUEBROU`
+    (gatilho `trg_juridico_parcela_historico`, statement-level, saída imediata sem caso vivo). Depois
+    da revisão (pendência) ou da aprovação (divergência), uma nova quebra volta a exigir revisão,
+    mesmo com as mesmas condições e o mesmo saldo.
+  - Concorrência na aprovação: aluno, acordos ativos e suas parcelas são travados (`FOR UPDATE`) e
+    a assinatura é lida antes e depois da conferência; se mudou, a aprovação é recusada (40001).
+    Mudança de termo entre a conferência e a aprovação não é travada (a divergência de termo
+    pega depois). Sem teste de duas conexões reais (PGlite): a corrida é simulada por função que
+    altera a parcela durante a conferência.
+  - Confirmação jurídica: caso "Não encaminhável" NÃO é confirmado; grava `CONFIRMACAO_RECUSADA`
+    no histórico com as divergências e a tela lista quem foi recusado e por quê. Os demais seguem;
+    "Revisão necessária" segue e a divergência fica gravada no registro do encaminhamento.
   - Excel: coluna "Conferência" = Conferido (nada mudou), Revisão necessária (termo, condições,
     acordo novo/reativado, quebrado ou ativo sem aprovação) ou Não encaminhável (pagamento,
     título em confirmação, mensalidade ou parcela alterada). Com divergência, o texto "Conferido
     no CRM" não é usado. "Aprovado por" e "Aprovado em" preservam o histórico da aprovação.
-  - Desempenho: três consultas por caso, todas por `aluno_id` com índice existente em produção
+  - Desempenho: o Excel calcula as divergências uma vez por caso (`offset 0` no lateral). Três consultas por caso, por `aluno_id`, com índice existente em produção
     (`acordos_aluno_id_idx`, `parcelas_acordo_id_idx`, `ix_termos_acordo_aluno`,
     `ix_acordos_titulos_em_confirmacao_aluno` parcial). Custo medido: NÃO MEDIDO em produção.
-  Riscos residuais: (1) acordo regularizado sem pagamento volta a quebrar com as mesmas
-  condições e o mesmo saldo: não pede nova revisão; (2) mudança de parcela por outra transação
-  durante a aprovação não é travada (sem lock em `parcelas`) e não há teste de concorrência
-  real (PGlite é sessão única); (3) termo avaliado só pela etapa e pelo arquivo, não pelo
-  conteúdo.
+  Riscos residuais: (1) sem teste com duas conexões reais; (2) mudança de termo entre conferência e
+  aprovação não é travada; (3) parcela reconstruída que soma 1 em `qtd_parcelas` gera
+  `ACORDO_CONDICOES_ALTERADAS` (estrutura mudou de fato); (4) o gatilho de parcelas escreve no
+  histórico por parcela alterada de caso vivo; custo em produção NÃO MEDIDO; (5) a única saída de
+  uma divergência em caso já enviado é o alerta à gestão: não há revisão pela aba.
 - **Acordo ativo novo ou reativado depois da geração da lista** (`ACORDO_NOVO_APOS_GERACAO`):
   a pendência recusa a aprovação. A base revisada é `juridico_casos.acordos_na_geracao` (gravada na
   geração e renovada só pela aprovação específica de acordo ativo, com motivo). A aprovação trava o
@@ -179,8 +195,8 @@ Fica, por decisão a tomar pela gestão:
 - **Excel**: toda geração (envio e reexportação) registra `EXCEL_GERADO` com o lote. Só leva caso
   enviado ou confirmado. Os valores são os da aprovação; a coluna "Situação na data da geração"
   marca o caso em que algo mudou depois.
-- **Grants e rollback**: listas explícitas de 14 funções públicas e 16 internas (sem `service_role`); a
-  migration confere que o inventário tem exatamente 30. O rollback solta gatilhos, depois as 30 funções,
+- **Grants e rollback**: listas explícitas de 14 funções públicas e 18 internas (sem `service_role`); a
+  migration confere que o inventário tem exatamente 32. O rollback solta gatilhos, depois as 32 funções,
   depois as tabelas. Cópias em `_backup_juridico_*_20261112` com RLS e sem grant.
 - **Término do Contrato** não entra em evadidos (`_juridico_grupo` devolve nulo).
 
@@ -197,3 +213,16 @@ Fica, por decisão a tomar pela gestão:
 
 `supabase/rollbacks/20261112180000_juridico_encaminhamento.rollback.sql` — recusa rodar
 enquanto houver caso com cobrança bloqueada pela aba; guarda cópia das cinco tabelas.
+
+
+## Critério de data do pagamento no extrato Prime (vigente, não alterado)
+
+O sinal de pagamento não baixado (c) usa o mesmo critério de data das Ações Massivas
+(`acoes_massivas_liquidados_prime`): último registro do extrato do boleto+CPF, título ABERTO,
+`liquidado_em > vencimento + 30` e `liquidado_em >= data de criação do título`. A conciliação Prime
+(Grupo A) acrescenta `liquidado_em <> dia da importação`, `<= data da coleta` e `<= hoje`, além de
+portador, CPF e corroboração. A diferença só no critério de data alcança 47 alunos / 61 títulos /
+R$ 126.231,70 na base geral e nenhum aluno do universo atual do Jurídico
+(`docs/juridico/IMPACTO-CRITERIO-DATA-2026-11-12.md`). Decisão separada da gestão; nada mudou.
+Exemplo: título importado em 02/07/2026 com `liquidado_em` = 02/07/2026 conta como pagamento hoje
+(barra o aluno); pela regra da conciliação seria artefato e não barraria.

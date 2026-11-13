@@ -247,7 +247,10 @@ export default function Juridico() {
     aoConfirmar: async (v) => {
       const r = await executar("juridico_casos_confirmar_juridico",
         { p_caso_ids: marcados, p_data: v.data, p_observacao: v.obs || null },
-        (d) => `${d.confirmados} caso(s) registrados como encaminhados ao jurídico.`);
+        (d) => `${d.confirmados} caso(s) registrados como encaminhados ao jurídico.`
+          + ((d.recusados || []).length
+            ? ` NÃO confirmados (não encaminhável; motivo registrado no histórico): ${d.recusados.map((x) => `${x.aluno}: ${(x.divergencias || []).map(rotuloDivergencia).join("; ")}`).join(" | ")}`
+            : ""));
       if (r) setMarcados([]);
     },
   });

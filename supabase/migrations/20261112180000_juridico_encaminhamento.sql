@@ -82,6 +82,8 @@ create table public.juridico_casos (
   acordos_aprovados uuid[] not null default '{}',
   -- assinatura das condicoes materiais dos acordos ATIVOS na aprovacao (nulo ate aprovar)
   acordos_assinatura text,
+  -- termo que sustentou a aprovacao (termos_acordo.id); a validade e checada por ele
+  termo_aprovado_id uuid,
   -- IDs dos acordos ATIVOS que a gestao revisou (na geracao ou na ultima aprovacao
   -- de acordo ativo). Acordo fora dessa base bloqueia a aprovacao.
   acordos_na_geracao uuid[] not null default '{}',
@@ -371,6 +373,10 @@ begin
        is distinct from (select coalesce(array_agg(x order by x), '{}'::uuid[]) from unnest(p_caso.quebrado_revisado_ids) x)
        or (select coalesce(sum((a->>'saldo')::numeric), 0) from jsonb_array_elements(p_conf->'acordos') a
             where a->>'situacao' = 'QUEBRADO') is distinct from p_caso.quebrado_revisado_saldo
+       -- regularizou e quebrou de novo depois da revisao, com as mesmas condicoes e o mesmo saldo
+       or exists (select 1 from public.juridico_historico h
+                   where h.caso_id = p_caso.id and h.evento = 'PARCELA_QUEBROU'
+                     and h.em > coalesce(p_caso.quebrado_revisado_em, '-infinity'::timestamptz))
      ) then
     v := array_append(v, 'ACORDO_QUEBRADO_SEM_REVISAO'); end if;
 
@@ -543,9 +549,9 @@ end;
 $function$;
 
 -- Assinatura das condicoes MATERIAIS dos acordos ATIVOS do aluno: valor total, numero de
--- parcelas, forma e entrada, e de cada parcela numero, valor, vencimento e boleto. Fica de fora
--- o que e so cadastral (observacao, responsavel, datas de atualizacao) e o STATUS da parcela
--- (pagamento e quebra ja tem divergencia propria).
+-- parcelas, forma e entrada, e de cada parcela numero, valor e vencimento. Fica de fora o que e
+-- so cadastral (observacao, responsavel, datas), o BOLETO (rotinas de amarracao o reescrevem sem
+-- mudar o acordo) e o STATUS da parcela (pagamento e quebra tem divergencia propria).
 create function public._juridico_acordos_assinatura(p_aluno_id uuid)
 returns text
 language sql stable security definer set search_path to 'public'
@@ -553,10 +559,10 @@ as $function$
   select coalesce(md5(string_agg(x.linha, '|' order by x.linha)), '')
     from (
       select a.id::text || ':' || coalesce(round(a.valor_total, 2)::text, '') || ':' || coalesce(a.qtd_parcelas::text, '')
-             || ':' || coalesce(to_jsonb(a)->>'forma_pagamento', '') || ':' || coalesce(to_jsonb(a)->>'valor_entrada', '')
+             || ':' || coalesce(to_jsonb(a)->>'forma_pagamento', '') || ':' || coalesce(round((to_jsonb(a)->>'valor_entrada')::numeric, 2)::text, '')
              || ':' || coalesce(to_jsonb(a)->>'data_entrada', '') || ':'
              || coalesce((select string_agg(p.id::text || ',' || coalesce(p.numero::text, '') || ',' || coalesce(round(p.valor, 2)::text, '')
-                                             || ',' || coalesce(p.vencimento::text, '') || ',' || coalesce(p.boleto, ''),
+                                             || ',' || coalesce(p.vencimento::text, ''),
                                              ';' order by p.numero, p.id)
                             from public.parcelas p where p.acordo_id = a.id), '') as linha
         from public.acordos a
@@ -623,7 +629,11 @@ begin
               having count(*) filter (where upper(coalesce(p.status,'')) = 'VENCIDA') > 0) q) v
      where array_length(v.ids, 1) > 0
        and (v.ids is distinct from (select coalesce(array_agg(x order by x), '{}'::uuid[]) from unnest(p_caso.quebrado_revisado_ids) x)
-            or v.saldo is distinct from p_caso.quebrado_revisado_saldo)
+            or v.saldo is distinct from p_caso.quebrado_revisado_saldo
+            -- regularizado e quebrou de novo com as mesmas condicoes: o historico das parcelas sabe
+            or exists (select 1 from public.juridico_historico h
+                        where h.caso_id = p_caso.id and h.evento = 'PARCELA_QUEBROU'
+                          and h.em > greatest(coalesce(p_caso.quebrado_revisado_em, p_caso.aprovado_em), p_caso.aprovado_em)))
   ) then v := array_append(v, 'ACORDO_QUEBRADO_SEM_REVISAO'); end if;
 
   -- acordo que estava ATIVO na aprovacao, foi cancelado e voltou a ATIVO: so o historico sabe
@@ -635,16 +645,20 @@ begin
   ) then v := array_append(v, 'ACORDO_REATIVADO'); end if;
 
   -- condicoes materiais do acordo mudaram com os mesmos IDs (vencimento, valor, parcelas...)
+  -- (inclui valor ou vencimento de parcela alterado e depois revertido: o historico guarda a marca)
   if p_caso.acordos_assinatura is not null
-     and public._juridico_acordos_assinatura(p_caso.aluno_id) is distinct from p_caso.acordos_assinatura then
+     and (public._juridico_acordos_assinatura(p_caso.aluno_id) is distinct from p_caso.acordos_assinatura
+          or exists (select 1 from public.juridico_historico h
+                      where h.caso_id = p_caso.id and h.evento = 'PARCELA_MATERIAL' and h.em > p_caso.aprovado_em)) then
     v := array_append(v, 'ACORDO_CONDICOES_ALTERADAS'); end if;
 
   -- termo: aprovado com acordo, sem documento vinculado nem autorizacao, o termo deixou de
   -- atender (rejeitado, removido ou fora da etapa COMPLETO com arquivo final)
-  if coalesce(array_length(p_caso.acordos_aprovados, 1), 0) > 0
+  -- O termo avaliado e o que sustentou a aprovacao (termo_aprovado_id), nao qualquer termo do aluno.
+  if p_caso.termo_aprovado_id is not null
      and p_caso.doc_manual_em is null and p_caso.doc_autorizado_em is null
      and not exists (select 1 from public.termos_acordo ta
-                      where ta.aluno_id = p_caso.aluno_id::text and coalesce(ta.status, '') <> 'TERMO_REJEITADO'
+                      where ta.id = p_caso.termo_aprovado_id and coalesce(ta.status, '') <> 'TERMO_REJEITADO'
                         and ta.etapa_assinatura = 'COMPLETO' and ta.arquivo_final_url is not null) then
     v := array_append(v, 'TERMO_INVALIDADO'); end if;
 
@@ -1113,7 +1127,7 @@ as $function$
 declare
   v_email text := public._juridico_exigir_gestao();
   v_caso public.juridico_casos; v_conf jsonb; v_pend text[]; v_ant jsonb; v_n int;
-  v_acordos uuid[];
+  v_acordos uuid[]; v_sig text;
 begin
   select * into v_caso from public.juridico_casos where id = p_caso_id for update;
   if not found then raise exception 'Caso não encontrado.' using errcode = 'P0002'; end if;
@@ -1131,8 +1145,15 @@ begin
        and a.duplicado_de is null
      for update) x;
   v_acordos := coalesce(v_acordos, '{}'::uuid[]);
+  -- parcelas desses acordos tambem travadas, e a assinatura lida antes da conferencia
+  perform 1 from public.parcelas p where p.acordo_id = any(v_acordos) for update;
+  v_sig := public._juridico_acordos_assinatura(v_caso.aluno_id);
 
   v_conf := public._juridico_conferencia(v_caso.aluno_id);
+  -- nada pode ter mudado entre a leitura e a conferencia (outra transacao concorrente)
+  if public._juridico_acordos_assinatura(v_caso.aluno_id) is distinct from v_sig then
+    raise exception 'Parcela ou acordo mudou durante a aprovação. Tente novamente.' using errcode = '40001';
+  end if;
   -- a conferencia nao pode trazer acordo que o conjunto travado nao tem (corrida)
   if exists (select 1 from jsonb_array_elements(v_conf->'acordos') a
               where not ((a->>'acordo_id')::uuid = any(v_acordos))) then
@@ -1201,7 +1222,8 @@ begin
      set status = 'APROVADO', aprovado_por = v_email, aprovado_em = now(),
          valor_aprovado = (v_conf->>'total')::numeric, bloqueio_anterior = v_ant,
          acordos_aprovados = v_acordos,
-         acordos_assinatura = public._juridico_acordos_assinatura(v_caso.aluno_id)
+         acordos_assinatura = v_sig,
+         termo_aprovado_id = nullif(v_conf->'termo'->>'termo_id', '')::uuid
    where id = p_caso_id;
 
   perform public._juridico_registrar(p_caso_id, v_caso.lote_id, 'CASO_APROVADO',
@@ -1229,11 +1251,7 @@ as $function$
                'valor_aprovado', jc.valor_aprovado,
                'aprovado_em', jc.aprovado_em, 'aprovado_por', jc.aprovado_por,
                'divergencias', to_jsonb(dv.d),
-               'conferencia_status', case
-                   when coalesce(array_length(dv.d, 1), 0) = 0 then 'CONFERIDO'
-                   when dv.d && array['PAGAMENTO_NAO_BAIXADO','PAGAMENTO_AGUARDANDO_CONFIRMACAO','TITULO_EM_CONFIRMACAO',
-                                      'MENSALIDADE_ALTERADA','PARCELA_ALTERADA'] then 'NAO_ENCAMINHAVEL'
-                   else 'REVISAO_NECESSARIA' end,
+               'conferencia_status', public._juridico_conferencia_status(dv.d),
                'acordo_ativo_motivo', jc.acordo_ativo_motivo,
                'documento', case when coalesce(array_length(dv.d, 1), 0) > 0 then 'Revisão necessária: ver divergências'
                                  when jc.doc_manual_em is not null then 'Vinculado manualmente (' || jc.doc_manual_origem || ')'
@@ -1253,7 +1271,7 @@ as $function$
              order by al.nome)
         from public.juridico_casos jc
         join public.alunos al on al.id = jc.aluno_id
-        cross join lateral (select public._juridico_divergencias(jc) as d) dv
+        cross join lateral (select public._juridico_divergencias(jc) as d offset 0) dv
        where jc.lote_id = l.id
          and jc.status in ('ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO')), '[]'::jsonb))
     from public.juridico_lotes l
@@ -1338,7 +1356,8 @@ returns jsonb
 language plpgsql security definer set search_path to 'public'
 as $function$
 declare
-  v_email text := public._juridico_exigir_gestao(); v_n int;
+  v_email text := public._juridico_exigir_gestao(); v_n int := 0;
+  v_c public.juridico_casos; v_d text[]; v_rec jsonb := '[]'::jsonb;
   v_data date := coalesce(p_data, (now() at time zone 'America/Sao_Paulo')::date);
 begin
   if p_caso_ids is null or array_length(p_caso_ids, 1) is null then
@@ -1353,24 +1372,31 @@ begin
       using errcode = 'P0001';
   end if;
 
-  with alterados as (
-    update public.juridico_casos
-       set status = 'CONFIRMADO_JURIDICO', confirmado_juridico_data = v_data,
-           confirmado_juridico_em = now(), confirmado_juridico_por = v_email,
-           confirmado_juridico_obs = nullif(btrim(coalesce(p_observacao,'')), '')
-     where id = any(p_caso_ids) and status = 'ENVIADO_FINANCEIRO'
-    returning id, lote_id
-  ), hist as (
-    insert into public.juridico_historico (caso_id, lote_id, evento, detalhe, por)
-    select a.id, a.lote_id, 'ENCAMINHADO_AO_JURIDICO',
-           jsonb_build_object('data', v_data, 'observacao', p_observacao,
-                              'nota', 'Encaminhamento ao jurídico. Não indica ajuizamento.'), v_email
-      from alterados a
-    returning 1
-  )
-  select count(*) into v_n from hist;
+  -- Caso classificado como "Nao encaminhavel" NAO e confirmado: o motivo e registrado no
+  -- historico e devolvido a tela. Os demais seguem. Revisao necessaria segue, com a divergencia
+  -- gravada no registro do encaminhamento.
+  for v_c in select * from public.juridico_casos
+              where id = any(p_caso_ids) and status = 'ENVIADO_FINANCEIRO' order by id for update loop
+    v_d := public._juridico_divergencias(v_c);
+    if public._juridico_conferencia_status(v_d) = 'NAO_ENCAMINHAVEL' then
+      perform public._juridico_registrar(v_c.id, v_c.lote_id, 'CONFIRMACAO_RECUSADA',
+        jsonb_build_object('divergencias', to_jsonb(v_d), 'motivo', 'Caso classificado como Não encaminhável.'), v_email);
+      v_rec := v_rec || jsonb_build_object('caso_id', v_c.id,
+        'aluno', (select al.nome from public.alunos al where al.id = v_c.aluno_id), 'divergencias', to_jsonb(v_d));
+    else
+      update public.juridico_casos
+         set status = 'CONFIRMADO_JURIDICO', confirmado_juridico_data = v_data,
+             confirmado_juridico_em = now(), confirmado_juridico_por = v_email,
+             confirmado_juridico_obs = nullif(btrim(coalesce(p_observacao,'')), '')
+       where id = v_c.id;
+      perform public._juridico_registrar(v_c.id, v_c.lote_id, 'ENCAMINHADO_AO_JURIDICO',
+        jsonb_build_object('data', v_data, 'observacao', p_observacao, 'divergencias', to_jsonb(v_d),
+                           'nota', 'Encaminhamento ao jurídico. Não indica ajuizamento.'), v_email);
+      v_n := v_n + 1;
+    end if;
+  end loop;
 
-  return jsonb_build_object('confirmados', v_n, 'data', v_data);
+  return jsonb_build_object('confirmados', v_n, 'data', v_data, 'recusados', v_rec);
 end;
 $function$;
 
@@ -1511,6 +1537,57 @@ $function$;
 create trigger trg_juridico_acordo_status after update of status on public.acordos
   for each row execute function public._juridico_registra_acordo_status();
 
+-- Parcela que QUEBROU (virou VENCIDA) ou mudou de valor/vencimento, em acordo ATIVO de aluno com
+-- caso vivo, vira linha no historico. E o que permite enxergar "regularizou e quebrou de novo" e
+-- "prorrogou e reverteu". Statement-level com tabelas de transicao e saida imediata quando nao ha
+-- caso vivo: nao pesa nas rotinas em lote que atualizam parcelas. So grava; nao altera parcela.
+create function public._juridico_registra_parcela()
+returns trigger
+language plpgsql security definer set search_path to 'public'
+as $function$
+begin
+  if not exists (select 1 from public.juridico_casos
+                  where status in ('EM_ANALISE','APROVADO','ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO') limit 1) then
+    return null;
+  end if;
+  insert into public.juridico_historico (caso_id, lote_id, evento, detalhe, por)
+  select jc.id, jc.lote_id, 'PARCELA_QUEBROU',
+         jsonb_build_object('parcela_id', n.id, 'acordo_id', n.acordo_id, 'antes', o.status, 'depois', n.status),
+         'sistema:parcelas'
+    from new_t n join old_t o on o.id = n.id
+    join public.acordos a on a.id = n.acordo_id and upper(coalesce(a.status,'')) = 'ATIVO' and a.duplicado_de is null
+    join public.juridico_casos jc on jc.aluno_id = a.aluno_id and jc.status <> 'REMOVIDO'
+   where upper(coalesce(n.status,'')) = 'VENCIDA' and upper(coalesce(o.status,'')) <> 'VENCIDA';
+  insert into public.juridico_historico (caso_id, lote_id, evento, detalhe, por)
+  select jc.id, jc.lote_id, 'PARCELA_MATERIAL',
+         jsonb_build_object('parcela_id', n.id, 'acordo_id', n.acordo_id,
+                            'valor_antes', o.valor, 'valor_depois', n.valor,
+                            'vencimento_antes', o.vencimento, 'vencimento_depois', n.vencimento),
+         'sistema:parcelas'
+    from new_t n join old_t o on o.id = n.id
+    join public.acordos a on a.id = n.acordo_id and upper(coalesce(a.status,'')) = 'ATIVO' and a.duplicado_de is null
+    join public.juridico_casos jc on jc.aluno_id = a.aluno_id and jc.status <> 'REMOVIDO'
+   where n.valor is distinct from o.valor or n.vencimento is distinct from o.vencimento;
+  return null;
+end;
+$function$;
+
+create trigger trg_juridico_parcela_historico after update on public.parcelas
+  referencing old table as old_t new table as new_t
+  for each statement execute function public._juridico_registra_parcela();
+
+-- Classificacao unica da conferencia (usada pelo Excel e pela confirmacao juridica).
+create function public._juridico_conferencia_status(p_div text[])
+returns text
+language sql immutable set search_path to 'public'
+as $function$
+  select case
+    when coalesce(array_length(p_div, 1), 0) = 0 then 'CONFERIDO'
+    when p_div && array['PAGAMENTO_NAO_BAIXADO','PAGAMENTO_AGUARDANDO_CONFIRMACAO','TITULO_EM_CONFIRMACAO',
+                        'MENSALIDADE_ALTERADA','PARCELA_ALTERADA'] then 'NAO_ENCAMINHAVEL'
+    else 'REVISAO_NECESSARIA' end;
+$function$;
+
 -- ---------------------------------------------------------------------------
 -- 5. GUARDA DO BLOQUEIO: o status JURIDICO nao sai de alunos/casos enquanto
 --    houver caso ativo. So a GUC juridico.desbloqueio (ligada em
@@ -1644,6 +1721,8 @@ begin
   'public._juridico_pendencias(public.juridico_casos,jsonb)',
   'public._juridico_divergencias(public.juridico_casos)',
   'public._juridico_acordos_assinatura(uuid)',
+  'public._juridico_registra_parcela()',
+  'public._juridico_conferencia_status(text[])',
   'public._juridico_registrar(uuid,uuid,text,jsonb,text)',
   'public._juridico_candidatos(integer,integer,integer,text[],uuid[])',
   'public._juridico_lote_payload(uuid)',
@@ -1668,8 +1747,8 @@ begin
   select count(*) into v_n from pg_proc p
    where p.pronamespace = 'public'::regnamespace
      and (p.proname like 'juridico\_%' or p.proname like '\_juridico\_%');
-  if v_n <> 30 then
-    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 30 esperadas).', v_n;
+  if v_n <> 32 then
+    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 32 esperadas).', v_n;
   end if;
 
   select count(*) into v_n

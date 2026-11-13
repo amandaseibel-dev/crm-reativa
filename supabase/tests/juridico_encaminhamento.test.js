@@ -1227,6 +1227,149 @@ describe("divergencias impeditivas depois da aprovacao (termo, confirmacao, cond
   });
 });
 
+// Fechamento da frente (decisao da gestao): falsos alertas, termo pelo documento aprovado,
+// regularizacao seguida de nova quebra, mudanca entre conferencia e aprovacao, e confirmacao
+// juridica que bloqueia "Nao encaminhavel".
+describe("fechamento: alertas falsos, nova quebra, concorrencia simulada e confirmacao", () => {
+  const divs = async (db, caso) =>
+    (await db.query("select public._juridico_divergencias(jc) d from juridico_casos jc where jc.id=$1", [caso.id])).rows[0].d;
+  const pend = async (db, al) =>
+    (await db.query("select public._juridico_pendencias(jc, public._juridico_conferencia(jc.aluno_id)) p from juridico_casos jc where jc.aluno_id=$1 and jc.status<>'REMOVIDO'", [al])).rows[0].p;
+  const termoCompleto = async (db, al) =>
+    (await db.query(`insert into termos_acordo(aluno_id,status,arquivo_nome,arquivo_url,etapa_assinatura,arquivo_final_nome,arquivo_final_url) values ($1,'VALIDADO','t.pdf','https://x/t.pdf','COMPLETO','tf.pdf','https://x/tf.pdf') returning id`, [al])).rows[0].id;
+  const emDiaAprovado = async (db) => {
+    const a = await mk(db, { valores: [1000], acordo: "EM_DIA" });
+    const termoId = await termoCompleto(db, a.al);
+    const l = await gerar(db, 1);
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_aprovar_acordo_ativo($1,'pedido do jurídico',$2)", [caso.id, await ativos(db, a.al)]);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    return { a, l, caso, termoId };
+  };
+  const quebradoAprovado = async (db) => {
+    const a = await mk(db, { valores: [1000], acordo: "QUEBRADO" });
+    await termoCompleto(db, a.al);
+    const l = await gerar(db, 1);
+    const caso = await casoDe(db, a.al);
+    await revQ(db, caso);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    return { a, l, caso };
+  };
+  const enviar = (db, l) => rpc(db, "public.juridico_lote_enviar_financeiro($1)", [l.lote_id]);
+  const emConfirmacao = async (db, a, id, doc) => {
+    await db.query("select set_config('conferencia_prime.decisao','on',false)");
+    await db.query("insert into acordos_titulos(id,aluno_id,cpf,documento,vencimento,valor_original,saldo_corrigido,situacao,tipo_boleto) values ($1,$2,$3,$4,'2024-03-10',300,300,'EM_CONFIRMACAO','Acordo')", [id, a.al, a.cpf, doc]);
+    await db.query("select set_config('conferencia_prime.decisao','off',false)");
+  };
+
+  it("F1. valor_entrada regravado com outra escala (100 e 100.00) e boleto reescrito NAO geram alerta", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000], acordo: "EM_DIA" });
+    await db.query("update acordos set valor_entrada=100 where id=$1", [a.ac]);
+    await termoCompleto(db, a.al);
+    await gerar(db, 1);
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_aprovar_acordo_ativo($1,'pedido',$2)", [caso.id, await ativos(db, a.al)]);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    await db.query("update acordos set valor_entrada=100.00 where id=$1", [a.ac]);
+    await db.query("update parcelas set boleto='99900001' where acordo_id=$1 and numero=1", [a.ac]);
+    await db.query("update parcelas set boleto=null where acordo_id=$1 and numero=1", [a.ac]);
+    expect(await divs(db, caso)).toEqual([]);
+    await db.close();
+  });
+
+  it("F2. termo e o do documento aprovado: termo novo pendente nao alerta; rejeitar o aprovado alerta mesmo com outro completo", async () => {
+    const db = await novo();
+    const { a, caso, termoId } = await emDiaAprovado(db);
+    await db.query("insert into termos_acordo(aluno_id,status,etapa_assinatura,arquivo_url) values ($1,'PENDENTE','ENVIADO','https://x/n.pdf')", [a.al]);
+    expect(await divs(db, caso)).not.toContain("TERMO_INVALIDADO");
+    await termoCompleto(db, a.al); // outro termo completo
+    await db.query("update termos_acordo set status='TERMO_REJEITADO' where id=$1", [termoId]);
+    expect(await divs(db, caso)).toContain("TERMO_INVALIDADO");
+    await db.close();
+  });
+
+  it("F3. regularizado e QUEBRADO DE NOVO com as mesmas condicoes e o mesmo saldo: pendencia antes da aprovacao", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000], acordo: "QUEBRADO" });
+    await termoCompleto(db, a.al);
+    await gerar(db, 1);
+    const caso = await casoDe(db, a.al);
+    await revQ(db, caso);
+    expect(await pend(db, a.al)).not.toContain("ACORDO_QUEBRADO_SEM_REVISAO");
+    await db.query("update parcelas set status='A_VENCER' where acordo_id=$1 and numero=1", [a.ac]);
+    await db.query("update parcelas set status='VENCIDA' where acordo_id=$1 and numero=1", [a.ac]);
+    expect(await pend(db, a.al)).toContain("ACORDO_QUEBRADO_SEM_REVISAO");
+    await db.close();
+  });
+
+  it("F4. aprovado, regularizado e QUEBRADO DE NOVO sem mudar nada material: divergencia e envio recusado", async () => {
+    const db = await novo();
+    const { a, l, caso } = await quebradoAprovado(db);
+    expect(await divs(db, caso)).toEqual([]);
+    await db.query("update parcelas set status='A_VENCER' where acordo_id=$1 and numero=1", [a.ac]);
+    await db.query("update parcelas set status='VENCIDA' where acordo_id=$1 and numero=1", [a.ac]);
+    expect(await divs(db, caso)).toContain("ACORDO_QUEBRADO_SEM_REVISAO");
+    expect((await falha(enviar(db, l)))?.message).toMatch(/ACORDO_QUEBRADO_SEM_REVISAO/);
+    await db.close();
+  });
+
+  it("F5. vencimento prorrogado e REVERTIDO depois da aprovacao deixa marca (ACORDO_CONDICOES_ALTERADAS)", async () => {
+    const db = await novo();
+    const { a, caso } = await emDiaAprovado(db);
+    expect(await divs(db, caso)).toEqual([]);
+    await db.query("update parcelas set vencimento='2099-09-10' where acordo_id=$1 and numero=2", [a.ac]);
+    await db.query("update parcelas set vencimento='2099-01-10' where acordo_id=$1 and numero=2", [a.ac]);
+    expect(await divs(db, caso)).toContain("ACORDO_CONDICOES_ALTERADAS");
+    await db.close();
+  });
+
+  it("F6. parcela alterada ENTRE a conferencia e a aprovacao: aprovacao recusada (40001), nada gravado", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000], acordo: "EM_DIA" });
+    await termoCompleto(db, a.al);
+    await gerar(db, 1);
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_aprovar_acordo_ativo($1,'pedido',$2)", [caso.id, await ativos(db, a.al)]);
+    // simula outra transacao: a conferencia, ao rodar, encontra uma parcela mudada no meio do caminho
+    await db.exec("reset role");
+    await db.exec(`alter function public._juridico_conferencia(uuid) rename to _juridico_conferencia_orig;
+      create function public._juridico_conferencia(p uuid) returns jsonb language plpgsql security definer as $$
+      begin update public.parcelas set valor = valor + 1 where acordo_id in (select id from public.acordos where aluno_id = p) and numero = 2;
+            return public._juridico_conferencia_orig(p); end $$;`);
+    await H.como(db, H.GESTAO);
+    const e = await falha(rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]));
+    expect(e?.code).toBe("40001");
+    expect((await db.query("select status, acordos_assinatura from juridico_casos where id=$1", [caso.id])).rows[0]).toEqual({ status: "EM_ANALISE", acordos_assinatura: null });
+    expect(await bloqueio(db, a.al)).toBeNull();
+    await db.close();
+  });
+
+  it("F7. confirmacao juridica bloqueia 'Nao encaminhavel', registra o motivo, e confirma os demais", async () => {
+    const db = await novo();
+    const x = await emDiaAprovado(db);
+    const y = await emDiaAprovado(db);
+    await db.query("select 1");
+    // os dois no mesmo lote para um unico envio
+    const lote = x.l.lote_id;
+    await db.exec(`update juridico_casos set lote_id='${lote}' where id='${y.caso.id}'`);
+    await enviar(db, x.l);
+    await emConfirmacao(db, y.a, U(997, 1), "FORA-3"); // y vira Nao encaminhavel depois do envio
+    const r = await rpc(db, "public.juridico_casos_confirmar_juridico($1::uuid[])", [[x.caso.id, y.caso.id]]);
+    expect(r.confirmados).toBe(1);
+    expect(r.recusados).toHaveLength(1);
+    expect(r.recusados[0].caso_id).toBe(y.caso.id);
+    expect(r.recusados[0].divergencias).toContain("TITULO_EM_CONFIRMACAO");
+    const st = (await db.query("select id, status from juridico_casos where id = any($1::uuid[])", [[x.caso.id, y.caso.id]])).rows;
+    expect(st.find((c) => c.id === x.caso.id).status).toBe("CONFIRMADO_JURIDICO");
+    expect(st.find((c) => c.id === y.caso.id).status).toBe("ENVIADO_FINANCEIRO");
+    const h = (await db.query("select detalhe from juridico_historico where caso_id=$1 and evento='CONFIRMACAO_RECUSADA'", [y.caso.id])).rows;
+    expect(h).toHaveLength(1);
+    expect(JSON.stringify(h[0].detalhe)).toMatch(/TITULO_EM_CONFIRMACAO/);
+    await db.close();
+  });
+});
+
 describe("rollback", () => {
   it("recusa com bloqueio ativo; sem bloqueio, remove tudo e guarda copia fechada", async () => {
     const db = await novo();

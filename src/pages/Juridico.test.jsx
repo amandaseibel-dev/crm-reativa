@@ -157,6 +157,18 @@ describe("envio ao financeiro e confirmação ao jurídico", () => {
     expect(chamadas("juridico_lote_enviar_financeiro")[0][1]).toEqual({ p_lote_id: "l1" });
   });
 
+  it("confirmação com caso 'Não encaminhável': a tela mostra quem não foi confirmado e por quê", async () => {
+    casosAtuais = [caso(1, "ENVIADO_FINANCEIRO"), caso(2, "ENVIADO_FINANCEIRO")];
+    responder({ juridico_casos_confirmar_juridico: () => ({ data: { confirmados: 1, recusados: [{ caso_id: "c2", aluno: "Aluno 2", divergencias: ["TITULO_EM_CONFIRMACAO"] }] }, error: null }) });
+    render(<Juridico />);
+    await abrirAba("Enviados ao financeiro");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Selecionar Aluno 1" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Selecionar Aluno 2" }));
+    fireEvent.click(screen.getByRole("button", { name: /Registrar encaminhamento ao jurídico \(2\)/ }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Confirmar" }));
+    expect(await screen.findByText(/NÃO confirmados.*Aluno 2.*confirmação/)).toBeTruthy();
+  });
+
   it("enviados: confirma só os casos marcados, com data, e a tela diz que não é ajuizamento", async () => {
     casosAtuais = [caso(1, "ENVIADO_FINANCEIRO"), caso(2, "ENVIADO_FINANCEIRO")];
     responder({ juridico_casos_confirmar_juridico: () => ({ data: { confirmados: 1 }, error: null }) });
