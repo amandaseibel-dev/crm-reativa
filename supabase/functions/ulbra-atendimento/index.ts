@@ -2,7 +2,7 @@
 // Só consulta aluno com vínculo ativo em ulbra_vinculos (criado pela
 // ulbra-consultar). Mesmo portão da ulbra-consultar: JWT + usuário ativo;
 // operador só vê aluno da própria carteira. Não grava nada.
-import { escaparLike } from "../_shared/email_exato.ts";
+import { emailNormalizado, unicoAtivo } from "../_shared/email_exato.ts";
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { ACCEPT_MCP, MCP_URL, criarCache, extrairResultado, lerCorpoMcp, montarChamada, recortar, vinculoConfirmado } from "./atendimento.ts";
@@ -43,13 +43,14 @@ serve(async (req) => {
   const { data: { user } } = await sbUser.auth.getUser();
   if (!user?.email) return responder({ erro: "ACESSO_NEGADO" }, 403);
 
-  const { data: usuario } = await sbService
-    .from("usuarios").select("email, perfil").ilike("email", escaparLike(user.email)).eq("ativo", true).limit(1).maybeSingle();
+  const { data: usuarioLinhas } = await sbService
+    .from("usuarios").select("email, perfil").eq("email", emailNormalizado(user.email)).eq("ativo", true).limit(2);
+  const usuario = unicoAtivo(usuarioLinhas);
   if (!usuario) return responder({ erro: "ACESSO_NEGADO" }, 403);
 
   if (!PERFIS_AMPLOS.includes(usuario.perfil as string)) {
     const { data: naCarteira } = await sbService
-      .from("alunos").select("id").eq("id", aluno_id).ilike("responsavel_atual_email", escaparLike(usuario.email as string)).limit(1).maybeSingle();
+      .from("alunos").select("id").eq("id", aluno_id).eq("responsavel_atual_email", emailNormalizado(usuario.email as string)).limit(1).maybeSingle();
     if (!naCarteira) return responder({ erro: "ACESSO_NEGADO", detalhe: "aluno_fora_da_carteira" }, 403);
   }
 

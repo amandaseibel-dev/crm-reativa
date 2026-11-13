@@ -8,7 +8,7 @@
 // ANTES da chamada (ulbra_historico_reservar); credencial de backend, só leitura.
 // Nada é gravado com texto de mensagem. Nenhum envio.
 // ===========================================================================
-import { escaparLike } from "../_shared/email_exato.ts";
+import { emailNormalizado, unicoAtivo } from "../_shared/email_exato.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   LIMITE_OPERADOR_DIA, RESERVA_GLOBAL, SALDO_VALIDADE_MS, TAMANHO_PAGINA,
@@ -74,7 +74,8 @@ Deno.serve(async (req: Request) => {
   const { data: { user } } = await sbUser.auth.getUser();
   if (!user?.email) return responder({ erro: "ACESSO_NEGADO" }, 403);
   const email = user.email.toLowerCase();
-  const { data: usuario } = await sb.from("usuarios").select("email, perfil, ativo").ilike("email", escaparLike(email)).eq("ativo", true).limit(1).maybeSingle();
+  const { data: usuarioLinhas } = await sb.from("usuarios").select("email, perfil, ativo").eq("email", emailNormalizado(email)).eq("ativo", true).limit(2);
+  const usuario = unicoAtivo(usuarioLinhas);
   if (!usuario) return responder({ erro: "ACESSO_NEGADO" }, 403);
   const gestao = PERFIS_AMPLOS.includes(String(usuario.perfil));
 

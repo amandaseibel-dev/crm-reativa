@@ -1,10 +1,13 @@
-// Correspondência EXATA de e-mail para autorização. `ilike` sem escape trata `_` e `%`
-// como curingas: "a_b@x" casaria "axb@x". Aqui o valor é escapado antes do ilike, e
-// assim continua case-insensitive mas só casa o e-mail inteiro.
-export function escaparLike(valor: string): string {
-  return valor.replace(/[\\%_]/g, (c) => "\\" + c);
-}
+// Identificação por e-mail SEM operadores de padrão. `ilike` trata `_`, `%` (e `*`, via
+// PostgREST) como curingas. Aqui o e-mail é só normalizado (espaços e caixa) e comparado
+// por igualdade exata (`.eq`). Identidade duplicada (mais de uma linha ativa) é negada.
 
 export function emailNormalizado(valor: string | null | undefined): string {
   return String(valor ?? "").trim().toLowerCase();
+}
+
+/** Devolve a única linha ativa; null se nenhuma ou se houver mais de uma (identidade ambígua). */
+export function unicoAtivo<T>(linhas: T[] | null | undefined): T | null {
+  if (!Array.isArray(linhas) || linhas.length !== 1) return null;
+  return linhas[0];
 }

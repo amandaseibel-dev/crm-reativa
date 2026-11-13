@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-import { escaparLike } from "../_shared/email_exato.ts";
+import { emailNormalizado, unicoAtivo } from "../_shared/email_exato.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decidirAcessoUlbra } from "./portao.ts";
 import {
@@ -58,13 +58,13 @@ serve(async (req) => {
       );
       const { data: { user } } = await sb.auth.getUser();
       if (!user?.email) return null;
-      const { data: usuario } = await sbService
+      const { data: usuarioLinhas } = await sbService
         .from("usuarios")
         .select("email, perfil")
-        .ilike("email", escaparLike(user.email))
+        .eq("email", emailNormalizado(user.email))
         .eq("ativo", true)
-        .limit(1)
-        .maybeSingle();
+        .limit(2);
+  const usuario = unicoAtivo(usuarioLinhas);
       if (!usuario) return null;
       return { email: usuario.email as string, perfil: usuario.perfil as string };
     },
@@ -73,7 +73,7 @@ serve(async (req) => {
         .from("alunos")
         .select("id")
         .eq("id", id)
-        .ilike("responsavel_atual_email", escaparLike(email))
+        .eq("responsavel_atual_email", emailNormalizado(email))
         .limit(1)
         .maybeSingle();
       return !!data;
