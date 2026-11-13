@@ -55,10 +55,8 @@ const dados2026_2 = {
   cpf_diagnostico: {
     cpfs_validos: 4131,
     cpfs_compartilhados: 15,
-    alunos_sem_cpf: 1,
-    alunos_cpf_invalido: 1,
     alunos_com_cpf_divergente: 1,
-    titulos_sem_cpf_ou_invalido: 78,
+    grupos_alunos: { sem_cpf: 1, somente_cpf_valido: 4100, somente_cpf_invalido: 40, cpf_misto: 6, total: 4147 },
   },
 };
 
@@ -101,6 +99,7 @@ describe("MensalidadesSemNegociacao", () => {
     expect(await screen.findByText("CPFs válidos distintos")).toBeTruthy();
     expect(screen.getByText("4.131")).toBeTruthy();
     expect(screen.getByText("Alunos sem CPF")).toBeTruthy();
+    expect(screen.getByText("Alunos com CPF misto")).toBeTruthy();
     expect(screen.getByText(/julho e dezembro de 2026 ainda sem negociação/)).toBeTruthy();
   });
 

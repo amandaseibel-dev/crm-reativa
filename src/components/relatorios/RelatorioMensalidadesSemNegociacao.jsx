@@ -238,13 +238,22 @@ export default function RelatorioMensalidadesSemNegociacao({ config }) {
       </div>
 
       {config.mostrarDiagnosticoCpf && dados.cpf_diagnostico && (
-        <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
-          <Tot label="Alunos únicos (cadastro)" val={NUM(dados.alunos_unicos_semestre)} />
-          <Tot label="CPFs válidos distintos" val={NUM(dados.cpf_diagnostico.cpfs_validos)} />
-          <Tot label="CPFs compartilhados por mais de um aluno" val={NUM(dados.cpf_diagnostico.cpfs_compartilhados)} />
-          <Tot label="Alunos sem CPF" val={NUM(dados.cpf_diagnostico.alunos_sem_cpf)} />
-          <Tot label="Alunos com CPF inválido" val={NUM(dados.cpf_diagnostico.alunos_cpf_invalido)} />
-        </div>
+        <>
+          <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
+            <Tot label="Alunos sem CPF" val={NUM(dados.cpf_diagnostico.grupos_alunos.sem_cpf)} />
+            <Tot label="Alunos só com CPF válido" val={NUM(dados.cpf_diagnostico.grupos_alunos.somente_cpf_valido)} />
+            <Tot label="Alunos só com CPF inválido" val={NUM(dados.cpf_diagnostico.grupos_alunos.somente_cpf_invalido)} />
+            <Tot label="Alunos com CPF misto" val={NUM(dados.cpf_diagnostico.grupos_alunos.cpf_misto)} />
+          </div>
+          <p style={{ color: "var(--rv-texto-suave)", fontSize: 12, marginTop: 8, marginBottom: 0 }}>
+            Os quatro grupos somam {NUM(dados.cpf_diagnostico.grupos_alunos.total)} alunos distintos (por cadastro interno).
+            Indicadores de CPF abaixo são separados e não entram nessa soma.
+          </p>
+          <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
+            <Tot label="CPFs válidos distintos" val={NUM(dados.cpf_diagnostico.cpfs_validos)} />
+            <Tot label="CPFs compartilhados por mais de um aluno" val={NUM(dados.cpf_diagnostico.cpfs_compartilhados)} />
+          </div>
+        </>
       )}
 
       <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 12 }}>

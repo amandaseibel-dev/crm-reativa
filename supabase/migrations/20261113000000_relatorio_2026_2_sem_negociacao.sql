@@ -141,7 +141,6 @@ BEGIN
   tot AS (SELECT count(distinct cpf) FILTER (WHERE public._cpf_valido_2026_2(cpf)) AS cpfs, count(distinct aluno_id) AS alunos, count(*) AS mens, round(coalesce(sum(saldo),0),2) AS saldo FROM eleg),
   conf AS (SELECT count(distinct s.aluno_id) AS n FROM public.solicitacoes_confirmacao_pagamento s
     WHERE s.status='AGUARDANDO_CONFIRMACAO'),
-  sem_cpf AS (SELECT count(*) AS n FROM (SELECT aluno_id FROM eleg GROUP BY aluno_id HAVING bool_and(cpf IS NULL)) x),
   brutos AS (SELECT e.aluno_id, t.cpf AS cpf_raw FROM eleg e JOIN public.acordos_titulos t ON t.id = e.id),
   cls AS (
     SELECT aluno_id,
@@ -155,17 +154,30 @@ BEGIN
   ),
   cpf_alunos AS (SELECT dig, count(DISTINCT aluno_id) AS n FROM cls WHERE classe = 'valido' GROUP BY dig),
   aluno_cpfs AS (
-    SELECT aluno_id, count(DISTINCT dig) FILTER (WHERE classe = 'valido') AS n_validos,
+    SELECT aluno_id,
+      count(DISTINCT dig) FILTER (WHERE classe = 'valido') AS n_validos,
+      bool_or(classe = 'valido') AS tem_valido,
       bool_or(classe = 'invalido') AS tem_invalido
     FROM cls GROUP BY aluno_id
+  ),
+  grupos AS (
+    SELECT
+      count(*) FILTER (WHERE NOT tem_valido AND NOT tem_invalido) AS sem_cpf,
+      count(*) FILTER (WHERE tem_valido AND NOT tem_invalido) AS somente_cpf_valido,
+      count(*) FILTER (WHERE NOT tem_valido AND tem_invalido) AS somente_cpf_invalido,
+      count(*) FILTER (WHERE tem_valido AND tem_invalido) AS cpf_misto,
+      count(*) AS total
+    FROM aluno_cpfs
   ),
   diag AS (
     SELECT jsonb_build_object(
       'cpfs_validos', (SELECT count(*) FROM cpf_alunos),
       'cpfs_compartilhados', (SELECT count(*) FROM cpf_alunos WHERE n > 1),
-      'alunos_sem_cpf', (SELECT n FROM sem_cpf),
-      'alunos_cpf_invalido', (SELECT count(*) FROM aluno_cpfs WHERE tem_invalido),
       'alunos_com_cpf_divergente', (SELECT count(*) FROM aluno_cpfs WHERE n_validos > 1),
+      'grupos_alunos', (SELECT jsonb_build_object(
+          'sem_cpf', sem_cpf, 'somente_cpf_valido', somente_cpf_valido,
+          'somente_cpf_invalido', somente_cpf_invalido, 'cpf_misto', cpf_misto, 'total', total)
+        FROM grupos),
       'titulos_sem_cpf_ou_invalido', (SELECT count(*) FROM cls WHERE classe <> 'valido')
     ) AS j
   )

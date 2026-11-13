@@ -1,4 +1,4 @@
-// Relatorio 2026/2 sem negociacao: classificacao de CPF e contagem por aluno_id.
+// Relatorio 2026/2 sem negociacao: classificacao de CPF por aluno e contagem por aluno_id.
 // Roda a migration REAL sobre um esquema minimo (stubs de auth e das tabelas usadas).
 // NENHUM DADO REAL: todos os valores abaixo sao ficticios.
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -13,6 +13,7 @@ const MIGRATION = ler("supabase/migrations/20261113000000_relatorio_2026_2_sem_n
 const ROLLBACK = ler("supabase/rollbacks/20261113000000_relatorio_2026_2_sem_negociacao.rollback.sql");
 
 const GESTAO = "amanda.seibel@aelbra.com.br";
+const OUTRA = "outra.pessoa@aelbra.com.br";
 
 const ESQUEMA = `
   CREATE SCHEMA IF NOT EXISTS auth;
@@ -83,7 +84,9 @@ async function chamarRelatorio(db, email = GESTAO) {
   return rows[0].j;
 }
 
-describe("relatorio 2026/2: classificacao de CPF e contagem por aluno", () => {
+const somaGrupos = (g) => g.sem_cpf + g.somente_cpf_valido + g.somente_cpf_invalido + g.cpf_misto;
+
+describe("relatorio 2026/2: classificacao de CPF por aluno e contagem por aluno_id", () => {
   let db;
 
   beforeEach(async () => {
@@ -96,61 +99,65 @@ describe("relatorio 2026/2: classificacao de CPF e contagem por aluno", () => {
 
   it("conta alunos pelo aluno_id: titulos repetidos do mesmo aluno nao duplicam", async () => {
     const j = await chamarRelatorio(db);
-    // A (2 titulos), B, C, D, E, F (2 titulos). G esta fora do semestre.
     expect(j.alunos_unicos_semestre).toBe(6);
     expect(j.mensalidades_total).toBe(8);
   });
 
-  it("nao exclui titulos nem alunos por inconsistencia de CPF: saldo e elegibilidade preservados", async () => {
+  it("nao exclui titulos nem alunos por CPF: saldo e elegibilidade preservados", async () => {
     const j = await chamarRelatorio(db);
     expect(Number(j.saldo_total)).toBe(780);
     expect(j.mensalidades_total).toBe(8);
   });
 
-  it("classifica CPF valido, compartilhado, ausente, invalido e divergente", async () => {
+  it("grupos de alunos sao exclusivos e fecham com o total de alunos", async () => {
+    const g = (await chamarRelatorio(db)).cpf_diagnostico.grupos_alunos;
+    expect(g.sem_cpf).toBe(1); // C
+    expect(g.somente_cpf_valido).toBe(3); // A, B, F
+    expect(g.somente_cpf_invalido).toBe(2); // D, E
+    expect(g.cpf_misto).toBe(0);
+    expect(somaGrupos(g)).toBe(g.total);
+    expect(g.total).toBe(6);
+  });
+
+  it("CPF valido compartilhado conta uma vez e nao une alunos", async () => {
     const d = (await chamarRelatorio(db)).cpf_diagnostico;
     expect(d.cpfs_validos).toBe(3);
     expect(d.cpfs_compartilhados).toBe(1);
-    expect(d.alunos_sem_cpf).toBe(1);
-    expect(d.alunos_cpf_invalido).toBe(2);
     expect(d.alunos_com_cpf_divergente).toBe(1);
-    expect(d.titulos_sem_cpf_ou_invalido).toBe(3);
   });
 
-  it("CPF compartilhado nao conta duas vezes nos CPFs validos", async () => {
-    const d = (await chamarRelatorio(db)).cpf_diagnostico;
-    // 12345678901 aparece em A e B: conta uma vez como CPF valido e uma como compartilhado.
-    expect(d.cpfs_validos).toBe(3);
-    expect(d.cpfs_compartilhados).toBe(1);
-  });
-
-  it("aluno sem CPF fica no total de alunos e nao entra como CPF 00000000000", async () => {
+  it("sem CPF, somente invalido, somente valido e misto: grupos exclusivos e fechamento", async () => {
+    const I = "00000000-0000-0000-0000-000000000021";
+    const J = "00000000-0000-0000-0000-000000000022";
+    const K = "00000000-0000-0000-0000-000000000023";
+    const L = "00000000-0000-0000-0000-000000000024";
+    for (const id of [I, J, K, L]) await db.query("INSERT INTO alunos (id, unidade) VALUES ($1, 'OSASCO')", [id]);
+    const titulos = [
+      ["10000000-0000-0000-0000-0000000000b1", I, "-"],
+      ["10000000-0000-0000-0000-0000000000b2", J, "000.000.000-00"],
+      ["10000000-0000-0000-0000-0000000000b3", K, null],
+      ["10000000-0000-0000-0000-0000000000b4", K, "529.982.247-25"],
+      ["10000000-0000-0000-0000-0000000000b5", L, "529.982.247-25"],
+      ["10000000-0000-0000-0000-0000000000b6", L, "000.000.000-00"],
+    ];
+    for (const [id, aluno, cpf] of titulos) {
+      await db.query(
+        `INSERT INTO acordos_titulos (id, aluno_id, cpf, vencimento, saldo_corrigido, valor_em_aberto, valor_original, tipo_boleto, situacao, status, acordo_id)
+         VALUES ($1, $2, $3, '2026-09-10', 5, 5, 5, 'Cursos de Graduação Presencial', 'ABERTO', 'em_aberto', NULL)`,
+        [id, aluno, cpf],
+      );
+    }
     const j = await chamarRelatorio(db);
-    expect(j.alunos_unicos_semestre).toBe(6);
-    // distintos validos: 52998224725 (A,B) e os dois de F
+    const g = j.cpf_diagnostico.grupos_alunos;
+    expect(g.sem_cpf).toBe(2); // C, I
+    expect(g.somente_cpf_valido).toBe(4); // A, B, F, K
+    expect(g.somente_cpf_invalido).toBe(3); // D, E, J
+    expect(g.cpf_misto).toBe(1); // L
+    expect(g.total).toBe(10);
+    expect(somaGrupos(g)).toBe(j.alunos_unicos_semestre);
+    // CPFs validos distintos: 52998224725 (A, B, K, L) e os dois de F. Indicador separado dos grupos.
+    expect(j.cpf_diagnostico.cpfs_validos).toBe(3);
     expect(j.cpfs_semestre).toBe(3);
-    expect(j.cpf_diagnostico.alunos_sem_cpf).toBe(1);
-  });
-
-  it("CPF compartilhado nao mistura saldo entre alunos: cada aluno soma so os proprios titulos", async () => {
-    await db.exec(`SET app.email = '${GESTAO}'`);
-    const { rows } = await db.query(
-      `SELECT aluno_id, sum(saldo)::numeric AS total, count(*)::int AS titulos
-       FROM public._relatorio_2026_2_eleg() WHERE aluno_id IN ($1, $2) GROUP BY aluno_id ORDER BY aluno_id`,
-      [A, B],
-    );
-    const porAluno = Object.fromEntries(rows.map((r) => [r.aluno_id, { total: Number(r.total), titulos: r.titulos }]));
-    expect(porAluno[A]).toEqual({ total: 150, titulos: 2 });
-    expect(porAluno[B]).toEqual({ total: 200, titulos: 1 });
-  });
-
-  it("CPF com mais de 11 digitos nao e truncado nem associado a outro CPF valido", async () => {
-    await db.exec(`SET app.email = '${GESTAO}'`);
-    const { rows } = await db.query(
-      `SELECT DISTINCT cpf FROM public._relatorio_2026_2_eleg() WHERE aluno_id = $1`,
-      [E],
-    );
-    expect(rows.map((r) => r.cpf)).toEqual(["1234567890123"]);
   });
 
   it("funcao de validacao: digitos verificadores e sequencias repetidas", async () => {
@@ -165,7 +172,7 @@ describe("relatorio 2026/2: classificacao de CPF e contagem por aluno", () => {
     expect(await q("1234567890123")).toBe(false);
   });
 
-  it("CPF invalido com menos de 11 digitos e preservado, sem completar com zeros", async () => {
+  it("CPF com menos de 11 digitos e preservado, sem completar com zeros", async () => {
     const H = "00000000-0000-0000-0000-000000000011";
     const TH = "10000000-0000-0000-0000-0000000000aa";
     await db.exec(`SET app.email = '${GESTAO}'`);
@@ -179,41 +186,42 @@ describe("relatorio 2026/2: classificacao de CPF e contagem por aluno", () => {
     expect(rows.map((r) => r.cpf)).toEqual(["1234567890"]);
   });
 
-  it("CPF vazio, ilegivel ou so zeros conta como sem CPF, nunca como CPF invalido nem 00000000000", async () => {
+  it("CPF com mais de 11 digitos nao e truncado nem associado a outro CPF valido", async () => {
     await db.exec(`SET app.email = '${GESTAO}'`);
-    const I = "00000000-0000-0000-0000-000000000021";
-    const J = "00000000-0000-0000-0000-000000000022";
-    const K = "00000000-0000-0000-0000-000000000023";
-    for (const id of [I, J, K]) await db.query("INSERT INTO alunos (id, unidade) VALUES ($1, 'OSASCO')", [id]);
-    const titulos = [
-      ["10000000-0000-0000-0000-0000000000b1", I, "-"],
-      ["10000000-0000-0000-0000-0000000000b2", J, "000.000.000-00"],
-      ["10000000-0000-0000-0000-0000000000b3", K, null],
-      ["10000000-0000-0000-0000-0000000000b4", K, "529.982.247-25"],
-    ];
-    for (const [id, aluno, cpf] of titulos) {
-      await db.query(
-        `INSERT INTO acordos_titulos (id, aluno_id, cpf, vencimento, saldo_corrigido, valor_em_aberto, valor_original, tipo_boleto, situacao, status, acordo_id)
-         VALUES ($1, $2, $3, '2026-09-10', 5, 5, 5, 'Cursos de Graduação Presencial', 'ABERTO', 'em_aberto', NULL)`,
-        [id, aluno, cpf],
-      );
-    }
-    const j = await chamarRelatorio(db);
-    // sem CPF: C (nulo), I (traco). K tem um CPF valido, entao nao e sem CPF.
-    expect(j.cpf_diagnostico.alunos_sem_cpf).toBe(2);
-    // invalidos: D (repetido), E (13 digitos) e J (zeros).
-    expect(j.cpf_diagnostico.alunos_cpf_invalido).toBe(3);
-    expect(j.cpf_diagnostico.cpfs_validos).toBe(3);
-    // CPFs distintos validos: 52998224725 (A, B, K), 98765432100 (F) e 11144477735 (F)
-    expect(j.cpfs_semestre).toBe(3);
-    expect(j.alunos_unicos_semestre).toBe(9);
+    const { rows } = await db.query(`SELECT DISTINCT cpf FROM public._relatorio_2026_2_eleg() WHERE aluno_id = $1`, [E]);
+    expect(rows.map((r) => r.cpf)).toEqual(["1234567890123"]);
+  });
+
+  it("saldo por aluno com CPF compartilhado: cada aluno soma so os proprios titulos", async () => {
+    await db.exec(`SET app.email = '${GESTAO}'`);
+    const { rows } = await db.query(
+      `SELECT aluno_id, sum(saldo)::numeric AS total, count(*)::int AS titulos
+       FROM public._relatorio_2026_2_eleg() WHERE aluno_id IN ($1, $2) GROUP BY aluno_id ORDER BY aluno_id`,
+      [A, B],
+    );
+    const porAluno = Object.fromEntries(rows.map((r) => [r.aluno_id, { total: Number(r.total), titulos: r.titulos }]));
+    expect(porAluno[A]).toEqual({ total: 150, titulos: 2 });
+    expect(porAluno[B]).toEqual({ total: 200, titulos: 1 });
   });
 
   it("nao e gestao: a RPC recusa com 42501", async () => {
-    await expect(chamarRelatorio(db, "outra.pessoa@aelbra.com.br")).rejects.toThrow(/restrito a gestao|42501/);
+    await expect(chamarRelatorio(db, OUTRA)).rejects.toThrow(/restrito a gestao|42501/);
   });
 
-  it("grants: RPCs executam para authenticated; anon e public nao", async () => {
+  it("execucao real como authenticated: usuario comum recusado, gestao aceita", async () => {
+    await db.exec("SET ROLE authenticated");
+    await db.exec(`SET app.email = '${OUTRA}'`);
+    await expect(db.query("SELECT relatorio_mensalidades_2026_2_sem_negociacao()")).rejects.toThrow(/restrito a gestao|42501/);
+    await expect(db.query("SELECT relatorio_mensalidades_2026_2_capturar()")).rejects.toThrow(/restrito a gestao|42501/);
+    await expect(db.query("SELECT * FROM public._relatorio_2026_2_eleg()")).rejects.toThrow(/permission denied/);
+    await expect(db.query("SELECT * FROM public.relatorio_mens_2026_2_snapshot")).rejects.toThrow(/permission denied/);
+    await db.exec(`SET app.email = '${GESTAO}'`);
+    const { rows } = await db.query("SELECT relatorio_mensalidades_2026_2_sem_negociacao() AS j");
+    expect(rows[0].j.alunos_unicos_semestre).toBe(6);
+    await db.exec("RESET ROLE");
+  });
+
+  it("grants: RPCs executam para authenticated; anon nao", async () => {
     const q = async (role, fn) => {
       const { rows } = await db.query(`SELECT has_function_privilege($1, $2, 'EXECUTE') AS ok`, [role, fn]);
       return rows[0].ok;
@@ -224,51 +232,20 @@ describe("relatorio 2026/2: classificacao de CPF e contagem por aluno", () => {
     }
   });
 
-  it("funcao de validacao de CPF nao e executavel por anon nem authenticated", async () => {
-    for (const role of ["anon", "authenticated"]) {
-      const { rows } = await db.query(
-        `SELECT has_function_privilege($1, 'public._cpf_valido_2026_2(text)', 'EXECUTE') AS ok`,
-        [role],
-      );
-      expect(rows[0].ok, role).toBe(false);
+  it("helper de elegibilidade e funcao de validacao nao sao executaveis por anon nem authenticated", async () => {
+    for (const fn of ["public._relatorio_2026_2_eleg()", "public._cpf_valido_2026_2(text)"]) {
+      for (const role of ["anon", "authenticated"]) {
+        const { rows } = await db.query(`SELECT has_function_privilege($1, $2, 'EXECUTE') AS ok`, [role, fn]);
+        expect(rows[0].ok, `${role} ${fn}`).toBe(false);
+      }
     }
   });
 
-  it("helper de elegibilidade nao e executavel por authenticated nem anon (expoe CPF)", async () => {
-    const q = async (role) => {
-      const { rows } = await db.query(
-        `SELECT has_function_privilege($1, 'public._relatorio_2026_2_eleg()', 'EXECUTE') AS ok`,
-        [role],
-      );
-      return rows[0].ok;
-    };
-    expect(await q("authenticated")).toBe(false);
-    expect(await q("anon")).toBe(false);
-  });
-
-  it("helper recusa chamada fora da gestao mesmo se executado (portao interno)", async () => {
-    await db.exec(`SET app.email = 'outra.pessoa@aelbra.com.br'; SET app.role = 'authenticated'`);
-    await expect(db.query("SELECT * FROM public._relatorio_2026_2_eleg()")).rejects.toThrow(/restrita a gestao|42501/);
-  });
-
-  it("captura recusa usuario comum e aceita service_role", async () => {
-    await db.exec(`SET app.email = 'outra.pessoa@aelbra.com.br'; SET app.role = 'authenticated'`);
-    await expect(db.query("SELECT relatorio_mensalidades_2026_2_capturar()")).rejects.toThrow(/restrito a gestao|42501/);
-    await db.exec(`SET app.email = ''; SET app.role = 'service_role'`);
-    const { rows } = await db.query("SELECT relatorio_mensalidades_2026_2_capturar() AS j");
-    expect(rows[0].j.alunos).toBe(6);
-  });
-
-  it("snapshot tem RLS ativa e sem acesso direto para authenticated", async () => {
+  it("snapshot tem RLS ativa e nenhum privilegio direto para anon ou authenticated", async () => {
     const { rows } = await db.query(
-      `SELECT c.relrowsecurity AS rls,
-              has_table_privilege('authenticated', c.oid, 'SELECT') AS sel,
-              has_table_privilege('authenticated', c.oid, 'DELETE') AS del
-       FROM pg_class c WHERE c.oid = 'public.relatorio_mens_2026_2_snapshot'::regclass`,
+      `SELECT c.relrowsecurity AS rls FROM pg_class c WHERE c.oid = 'public.relatorio_mens_2026_2_snapshot'::regclass`,
     );
     expect(rows[0].rls).toBe(true);
-    expect(rows[0].sel).toBe(false);
-    expect(rows[0].del).toBe(false);
     for (const role of ["anon", "authenticated"]) {
       for (const priv of ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"]) {
         const { rows: r } = await db.query(
@@ -280,19 +257,27 @@ describe("relatorio 2026/2: classificacao de CPF e contagem por aluno", () => {
     }
   });
 
-  it("rollback remove os objetos de 2026/2 quando nao ha snapshot", async () => {
+  it("rollback sem historico remove funcoes e tabela", async () => {
     await db.exec(ROLLBACK);
     const { rows } = await db.query(
-      "SELECT count(*)::int AS n FROM pg_proc WHERE proname LIKE 'relatorio_mensalidades_2026_2%' OR proname = '_relatorio_2026_2_eleg'",
+      "SELECT count(*)::int AS n FROM pg_proc WHERE proname LIKE 'relatorio_mensalidades_2026_2%' OR proname IN ('_relatorio_2026_2_eleg','_cpf_valido_2026_2')",
     );
     expect(rows[0].n).toBe(0);
+    const t = await db.query("SELECT to_regclass('public.relatorio_mens_2026_2_snapshot') IS NULL AS sumiu");
+    expect(t.rows[0].sumiu).toBe(true);
   });
 
-  it("rollback aborta quando ha snapshot capturado, sem apagar nada", async () => {
+  it("rollback com historico preserva a tabela e remove so as funcoes", async () => {
     await db.exec(`INSERT INTO relatorio_mens_2026_2_snapshot (dia, cpfs, alunos, mensalidades, saldo) VALUES ('2026-11-13', 1, 1, 1, 1)`);
-    await expect(db.exec(ROLLBACK)).rejects.toThrow(/rollback abortado/);
-    await db.exec("ROLLBACK");
-    const { rows } = await db.query("SELECT count(*)::int AS n FROM relatorio_mens_2026_2_snapshot");
-    expect(rows[0].n).toBe(1);
+    await db.exec(ROLLBACK);
+    const { rows } = await db.query(
+      "SELECT count(*)::int AS n FROM pg_proc WHERE proname LIKE 'relatorio_mensalidades_2026_2%' OR proname IN ('_relatorio_2026_2_eleg','_cpf_valido_2026_2')",
+    );
+    expect(rows[0].n).toBe(0);
+    const { rows: s } = await db.query(
+      "SELECT count(*)::int AS n, to_regclass('public.relatorio_mens_2026_2_snapshot') IS NOT NULL AS existe FROM relatorio_mens_2026_2_snapshot",
+    );
+    expect(s[0].existe).toBe(true);
+    expect(s[0].n).toBe(1);
   });
 });

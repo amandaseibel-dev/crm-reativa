@@ -6,8 +6,8 @@ Status: **não aplicado**. Esta PR não executa migration, SQL de escrita, merge
 
 | Artefato | Caminho | SHA-256 |
 |---|---|---|
-| Migration | `supabase/migrations/20261113000000_relatorio_2026_2_sem_negociacao.sql` | `b10afae8e0765b7e4c6b32362841d4ad8069e67d0d9e7ca72b46090ea14a397c` |
-| Rollback | `supabase/rollbacks/20261113000000_relatorio_2026_2_sem_negociacao.rollback.sql` | `62938a9090f1540f716c6d56f4820cd846c804d5527211a3ac51243c589352f0` |
+| Migration | `supabase/migrations/20261113000000_relatorio_2026_2_sem_negociacao.sql` | `fd86ae674fafc163bdddbd3f938d12bcc53e227d5d74ba83261c813e32247240` |
+| Rollback | `supabase/rollbacks/20261113000000_relatorio_2026_2_sem_negociacao.rollback.sql` | `7bc3d3356e37e6bf66ba3353e800b067aae25d2056c65ffd624fc674d5e33944` |
 
 Commit de referência: ver `git log -1 -- supabase/migrations/20261113000000_relatorio_2026_2_sem_negociacao.sql` na PR #947. Conferir o hash do arquivo antes de aplicar.
 
@@ -35,6 +35,7 @@ Publicar o frontend antes da migration faz a aba 2026/2 chamar RPCs inexistentes
 - Ler `pg_proc` e confirmar as três funções de 2026/2 com `SECURITY DEFINER` e `search_path` fixo.
 - `has_function_privilege` para `anon`: falso nas três funções. Para `authenticated`: verdadeiro nas RPCs e falso no helper.
 - `pg_class.relrowsecurity` verdadeiro para `relatorio_mens_2026_2_snapshot`; `authenticated` sem SELECT, INSERT, UPDATE, DELETE ou TRUNCATE.
+- Grupos de alunos (sem CPF, só válido, só inválido, misto) somam o total de alunos distintos.
 - Chamada da RPC de leitura com usuário de gestão: retorna `alunos_unicos_semestre`, `cpf_diagnostico` com `alunos_sem_cpf`, e `cpfs_semestre` sem `00000000000`.
 - Chamada com usuário comum: erro `42501`.
 - Captura: só deve ser feita pela gestão após a aplicação. Não há cron nesta entrega.
@@ -42,9 +43,12 @@ Publicar o frontend antes da migration faz a aba 2026/2 chamar RPCs inexistentes
 
 ## Rollback
 
-O arquivo de rollback só remove os objetos quando a tabela de snapshot está vazia. Se já houve captura, ele aborta sem apagar nada. Isso protege o histórico, mas não reverte a aplicação do frontend.
+O rollback adquire `ACCESS EXCLUSIVE` na tabela de snapshot antes de verificar o histórico e mantém o lock até o `COMMIT`, então nenhuma captura concorrente consegue inserir entre a checagem e o `DROP`.
 
-Para voltar à versão anterior **preservando os snapshots já capturados**, a sequência é:
+- **Sem histórico:** remove as funções e a tabela.
+- **Com histórico:** remove só as funções. A tabela fica com RLS ativa e sem grants, preservando todos os snapshots (reversão não destrutiva).
+
+Para voltar à versão anterior **preservando os snapshots já capturados**, a sequência é (o rollback já faz os passos 2 e 4 quando há histórico; os passos 1, 3 e 5 são manuais):
 
 1. **Reverter o frontend** (revert do merge). A aba 2026/2 deixa de chamar as RPCs. Nenhum dado muda.
 2. **Cortar o uso no banco** sem apagar nada:
