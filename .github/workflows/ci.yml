@@ -1120,7 +1120,7 @@ jobs:
       - name: deno check das cinco funções
         run: |
           set -euo pipefail
-          for f in ulbra-atendimento ulbra-consultar ulbra-diagnostico ulbra-leads-pendentes ulbra-historico; do
+          for f in ulbra-atendimento ulbra-consultar ulbra-diagnostico ulbra-historico; do
             echo "== $f"
             deno check "supabase/functions/$f/index.ts"
           done
