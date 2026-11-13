@@ -38,7 +38,7 @@ create or replace function public.assumir_caso_fidelizacao_vencida(p_aluno_id uu
 returns table(sucesso boolean, mensagem text)
 language plpgsql
 security definer
-set search_path to 'public', 'internal'
+set search_path to 'public'
 as $fn$
 declare
   v_email text;
@@ -79,48 +79,53 @@ begin
     into v_al
     from public.alunos a where a.id = p_aluno_id for update;
   if not found then
-    return query select false, 'Aluno nao encontrado.'; return;
+    return query select false, 'Este caso nao esta disponivel para assumir.'; return;
   end if;
 
+  -- Um aluno pode ter um caso encerrado e outro aberto (indice parcial): escolhe o aberto.
   select c.*, public.saldo_titulos_aberto(c.cpf_limpo) as _saldo into v_c
-    from public.casos c where c.aluno_id = p_aluno_id for update;
+    from public.casos c
+   where c.aluno_id = p_aluno_id
+     and not public.caso_encerrado_operacional(c.cpf_limpo, c.status_atual, c.status_acionamento,
+           c.status_financeiro, c.status_jornada)
+   for update;
   if not found then
-    return query select false, 'Caso nao encontrado.'; return;
+    return query select false, 'Este caso nao esta disponivel para assumir.'; return;
   end if;
 
   if coalesce(v_c.operador_email, '') = '' then
-    return query select false, 'Caso livre: use Assumir atendimento.'; return;
+    return query select false, 'Este caso nao esta disponivel para assumir.'; return;
   end if;
   if lower(v_c.operador_email) = v_email then
-    return query select false, 'Este caso ja esta com voce.'; return;
+    return query select false, 'Este caso nao esta disponivel para assumir.'; return;
   end if;
   if lower(v_c.operador_email) = internal.carteira_geral_email() then
-    return query select false, 'Carteira Geral: use Assumir atendimento.'; return;
+    return query select false, 'Este caso nao esta disponivel para assumir.'; return;
   end if;
   if not exists (select 1 from public.usuarios u
                   where lower(u.email) = lower(v_c.operador_email) and u.ativo and u.perfil = 'operador') then
-    return query select false, 'Dono sem carteira ativa: use Assumir atendimento.'; return;
+    return query select false, 'Este caso nao esta disponivel para assumir.'; return;
   end if;
 
   if public.caso_em_giro_fidelizacao(v_c.giro_fidelizacao_ate) then
-    return query select false, 'Este caso esta fidelizado pelo giro de carteira.'; return;
+    return query select false, 'Este caso nao esta disponivel para assumir.'; return;
   end if;
 
   -- AMBIGUIDADE: o responsavel do aluno e o dono do caso precisam ser o mesmo.
   if v_al.responsavel_atual_email is not null
      and lower(v_al.responsavel_atual_email) <> lower(v_c.operador_email) then
-    return query select false, 'Responsavel divergente entre aluno e caso. A gestao precisa conferir.'; return;
+    return query select false, 'Este caso nao esta disponivel para assumir.'; return;
   end if;
 
   -- PRAZO: acionamento mais recente entre aluno e caso. Lido DEPOIS do lock.
   v_ultimo_acionamento := greatest(v_al.data_ultimo_acionamento, v_c.data_ultimo_acionamento);
   if public.caso_dentro_prazo_fidelizacao(v_ultimo_acionamento) then
-    return query select false, 'Caso ainda dentro do prazo de 10 dias do ultimo acionamento.'; return;
+    return query select false, 'Este caso nao esta disponivel para assumir.'; return;
   end if;
 
   -- HOLD 24h do responsavel do aluno (mesmo filtro do cron).
   if v_al.responsavel_atual_em is not null and v_al.responsavel_atual_em >= now() - interval '1 day' then
-    return query select false, 'Responsavel trocado nas ultimas 24h. Tente depois.'; return;
+    return query select false, 'Este caso nao esta disponivel para assumir.'; return;
   end if;
 
   if public.caso_protegido_redistribuicao(v_c.cpf_limpo, v_c.status_acionamento, v_c.nao_acionar,
@@ -129,10 +134,13 @@ begin
        v_c.status_financeiro, v_c.status_jornada)
      or public.caso_encerramento_congelado(v_c.id)
      or coalesce(v_c._saldo, 0) <= 0 then
-    return query select false, 'Caso nao elegivel (protegido, encerrado, congelado ou sem saldo).'; return;
+    return query select false, 'Este caso nao esta disponivel para assumir.'; return;
   end if;
 
   -- TETO vigente, mesma base do trigger de teto.
+  -- Serializa as tomadas do MESMO operador: sem isso, duas tomadas de alunos
+  -- diferentes contam o teto antes de qualquer uma gravar e passam juntas.
+  perform pg_advisory_xact_lock(hashtext('assumir_teto:' || v_email));
   v_teto := public.calibragem_teto_operador(v_email);
   v_count := (select count(*) from public.casos c where c.operador_email = v_email
                  and not public.caso_protegido_redistribuicao(c.cpf_limpo, c.status_acionamento, c.nao_acionar,
@@ -140,7 +148,7 @@ begin
                  and not public.caso_encerrado_operacional(c.cpf_limpo, c.status_atual, c.status_acionamento,
                        c.status_financeiro, c.status_jornada));
   if v_count >= v_teto then
-    return query select false, 'Carteira no teto ('||v_teto||' casos). Libere um caso antes.'; return;
+    return query select false, 'Sua carteira esta no limite de casos. Libere um caso antes.'; return;
   end if;
 
   v_ant_email := lower(v_c.operador_email);

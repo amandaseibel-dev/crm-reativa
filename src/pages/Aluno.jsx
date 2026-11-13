@@ -2164,7 +2164,6 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                       alunoId={alunoSelecionado.id}
                       responsavelEmail={alunoSelecionado.responsavel_atual_email}
                       usuarioEmail={usuarioLogado?.email}
-                      dataUltimoAcionamento={alunoSelecionado.data_ultimo_acionamento}
                       onAssumido={() => window.location.reload()}
                     />
                     {(!alunoSelecionado.responsavel_atual_email ||

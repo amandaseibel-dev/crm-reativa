@@ -53,3 +53,29 @@ AS $function$
   select exists (select 1 from public.caso_encerramento_sem_saldo e
                   where e.resolvido_em is null and e.caso_id = p_caso_id);
 $function$;
+
+-- Gatilho que impede apagar o acionamento do aluno na troca de dono.
+-- Sem ele, set_resp_aluno zera data_ultimo_acionamento e status_acionamento.
+CREATE OR REPLACE FUNCTION public._acionamento_nao_volta_para_nulo()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+begin
+  -- Acionamento e fato consumado: uma vez registrado, nao se apaga.
+  if old.data_ultimo_acionamento is not null and new.data_ultimo_acionamento is null then
+    new.data_ultimo_acionamento := old.data_ultimo_acionamento;
+  end if;
+
+  -- A tabulacao do contato acompanha o acionamento.
+  if old.status_acionamento is not null
+     and nullif(btrim(old.status_acionamento),'') is not null
+     and new.status_acionamento is null then
+    new.status_acionamento := old.status_acionamento;
+  end if;
+
+  return new;
+end;
+$function$;
+
+drop trigger if exists trg_acionamento_nao_volta_para_nulo on public.alunos;
+CREATE TRIGGER trg_acionamento_nao_volta_para_nulo BEFORE UPDATE OF data_ultimo_acionamento, status_acionamento ON public.alunos FOR EACH ROW EXECUTE FUNCTION _acionamento_nao_volta_para_nulo();

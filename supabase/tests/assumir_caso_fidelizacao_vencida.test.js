@@ -150,7 +150,7 @@ describe("operador assume caso com fidelização vencida", () => {
     await como(db, LUANA);
     const r = await tomar(db, caso);
     expect(r.sucesso).toBe(false);
-    expect(r.mensagem).toContain("dentro do prazo de 10 dias");
+    expect(r.mensagem).toContain("nao esta disponivel");
     expect((await q1(db, "select operador_email e from public.casos where id=$1", [caso])).e).toBe(MAURICIO);
     await db.close();
   });
@@ -161,7 +161,7 @@ describe("operador assume caso com fidelização vencida", () => {
     await como(db, LUANA);
     const r = await tomar(db, caso);
     expect(r.sucesso).toBe(false);
-    expect(r.mensagem).toContain("nao elegivel");
+    expect(r.mensagem).toContain("nao esta disponivel");
     await db.close();
   });
 
@@ -171,7 +171,7 @@ describe("operador assume caso com fidelização vencida", () => {
     await como(db, LUANA);
     const r = await tomar(db, caso);
     expect(r.sucesso).toBe(false);
-    expect(r.mensagem).toContain("giro");
+    expect(r.mensagem).toContain("nao esta disponivel");
     await db.close();
   });
 
@@ -181,7 +181,7 @@ describe("operador assume caso com fidelização vencida", () => {
     await como(db, LUANA);
     const r = await tomar(db, caso);
     expect(r.sucesso).toBe(false);
-    expect(r.mensagem).toContain("Assumir atendimento");
+    expect(r.mensagem).toContain("nao esta disponivel");
     await db.close();
   });
 
@@ -199,7 +199,7 @@ describe("operador assume caso com fidelização vencida", () => {
     await como(db, LUANA);
     const r = await tomar(db, caso);
     expect(r.sucesso).toBe(false);
-    expect(r.mensagem).toContain("Assumir atendimento");
+    expect(r.mensagem).toContain("nao esta disponivel");
     await db.close();
   });
 
@@ -212,7 +212,7 @@ describe("operador assume caso com fidelização vencida", () => {
     await como(db, LUANA);
     const r = await tomar(db, caso);
     expect(r.sucesso).toBe(false);
-    expect(r.mensagem).toContain("teto");
+    expect(r.mensagem).toContain("limite de casos");
     expect((await q1(db, "select operador_email e from public.casos where id=$1", [caso])).e).toBe(MAURICIO);
     await db.close();
   });
@@ -247,7 +247,7 @@ describe("operador assume caso com fidelização vencida", () => {
     await como(db, LUANA);
     const r = await tomar(db, caso);
     expect(r.sucesso).toBe(false);
-    expect(r.mensagem).toContain("congelado");
+    expect(r.mensagem).toContain("nao esta disponivel");
     await db.close();
   });
 
@@ -266,7 +266,7 @@ describe("operador assume caso com fidelização vencida", () => {
     await como(db, LUANA);
     const r = await tomar(db, caso);
     expect(r.sucesso).toBe(false);
-    expect(r.mensagem).toContain("24h");
+    expect(r.mensagem).toContain("nao esta disponivel");
     await db.close();
   });
 
@@ -312,7 +312,7 @@ describe("operador assume caso com fidelização vencida", () => {
     await como(db, LUANA);
     const r = await tomar(db, caso);
     expect(r.sucesso).toBe(false);
-    expect(r.mensagem).toContain("dentro do prazo");
+    expect(r.mensagem).toContain("nao esta disponivel");
     await db.close();
   });
 
@@ -323,7 +323,7 @@ describe("operador assume caso com fidelização vencida", () => {
     await como(db, LUANA);
     const r = await tomar(db, caso);
     expect(r.sucesso).toBe(false);
-    expect(r.mensagem).toContain("divergente");
+    expect(r.mensagem).toContain("nao esta disponivel");
     await db.close();
   });
 
@@ -337,6 +337,29 @@ describe("operador assume caso com fidelização vencida", () => {
     expect(existe.n).toBe(0);
     const aud = await q1(db, "select count(*)::int n from public.historico_operadores_alunos where acao='ASSUMIR_FIDELIZACAO_VENCIDA'");
     expect(aud.n).toBe(1);
+    await db.close();
+  });
+
+  it("fronteira: no 10º dia ainda protegido; no 11º dia assumível", async () => {
+    const db = await abrirCom();
+    const dia10 = await cenario(db, 30, { dono: MAURICIO, dua: null });
+    await db.query("update public.casos set data_ultimo_acionamento = current_date - 10 where id=$1", [dia10]);
+    await como(db, LUANA);
+    expect((await tomar(db, dia10)).sucesso).toBe(false);
+    await db.query("update public.casos set data_ultimo_acionamento = current_date - 11 where id=$1", [dia10]);
+    expect((await tomar(db, dia10)).sucesso).toBe(true);
+    await db.close();
+  });
+
+  it("preserva o acionamento do aluno na troca de dono (gatilho instalado)", async () => {
+    const db = await abrirCom();
+    const caso = await cenario(db, 31, { dono: MAURICIO, dua: null });
+    await db.query("update public.alunos set data_ultimo_acionamento = current_date - 15, status_acionamento = 'ACIONADO' where id=$1", [U(31)]);
+    await como(db, LUANA);
+    expect((await tomar(db, caso)).sucesso).toBe(true);
+    const a = await q1(db, "select data_ultimo_acionamento, status_acionamento from public.alunos where id=$1", [U(31)]);
+    expect(a.data_ultimo_acionamento).not.toBeNull();
+    expect(a.status_acionamento).toBe("ACIONADO");
     await db.close();
   });
 });

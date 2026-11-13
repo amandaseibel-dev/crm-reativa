@@ -64,5 +64,19 @@ wait
 grep -q '^f|.*dentro do prazo' "$OUT/t3.txt" && ok "tomada recusada pelo acionamento do caso" || falha "tomada passou: $(cat "$OUT/t3.txt")"
 [ "$(q "select operador_email from public.casos where aluno_id='$U3'")" = "$MAURICIO" ] && ok "dono continua MAURICIO" || falha "caso mudou de dono"
 
+echo "== C4: dois alunos diferentes disputam a ultima vaga do teto (limite 3; LUANA tem 2)"
+ambiente c4
+psql -v ON_ERROR_STOP=1 -q -c "update public.calibragem_parametros set valor='3'::jsonb where chave='limite_carteira';" >/dev/null
+( { echo "begin;"; jwt $LUANA; echo "select sucesso, mensagem from public.assumir_caso_fidelizacao_vencida('00000000-0000-0000-0000-000000000006','teto A');"; echo "select pg_sleep(4);"; echo "commit;"; } \
+    | psql -At -v ON_ERROR_STOP=1 > "$OUT/c4a.txt" 2>&1 ) &
+sleep 1
+{ jwt $LUANA; echo "select sucesso, mensagem from public.assumir_caso_fidelizacao_vencida('00000000-0000-0000-0000-000000000007','teto B');"; } \
+  | psql -At -v ON_ERROR_STOP=1 > "$OUT/c4b.txt" 2>&1 || true
+wait
+sa=$(grep -c '^t|' "$OUT/c4a.txt" || true); sb=$(grep -c '^t|' "$OUT/c4b.txt" || true)
+[ $((sa+sb)) -eq 1 ] && ok "exatamente uma tomada passou no teto" || falha "teto violado: A=$sa B=$sb"
+n=$(q "select count(*) from public.casos where operador_email='$LUANA' and aluno_id in ('00000000-0000-0000-0000-000000000004','00000000-0000-0000-0000-000000000005','00000000-0000-0000-0000-000000000006','00000000-0000-0000-0000-000000000007') and not public.caso_encerrado_operacional(cpf_limpo,status_atual,status_acionamento,status_financeiro,status_jornada)")
+[ "$n" -le 3 ] && ok "carteira de LUANA ficou em $n (limite 3)" || falha "carteira de LUANA em $n, acima do limite 3"
+
 echo
 [ "$falhas" -eq 0 ] && echo "CONCORRENCIA: todos os cenarios passaram" || { echo "CONCORRENCIA: $falhas falha(s)"; exit 1; }
