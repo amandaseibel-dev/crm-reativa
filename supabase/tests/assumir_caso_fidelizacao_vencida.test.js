@@ -346,10 +346,10 @@ describe("operador assume caso com fidelização vencida", () => {
   it("fronteira: no 10º dia ainda protegido; no 11º dia assumível", async () => {
     const db = await abrirCom();
     const dia10 = await cenario(db, 30, { dono: MAURICIO, dua: null });
-    await db.query("update public.casos set data_ultimo_acionamento = current_date - 10 where id=$1", [dia10]);
+    await db.query("update public.casos set data_ultimo_acionamento = (now() at time zone 'America/Sao_Paulo')::date - 10 where id=$1", [dia10]);
     await como(db, LUANA);
     expect((await tomar(db, dia10)).sucesso).toBe(false);
-    await db.query("update public.casos set data_ultimo_acionamento = current_date - 11 where id=$1", [dia10]);
+    await db.query("update public.casos set data_ultimo_acionamento = (now() at time zone 'America/Sao_Paulo')::date - 11 where id=$1", [dia10]);
     expect((await tomar(db, dia10)).sucesso).toBe(true);
     await db.close();
   });
@@ -577,6 +577,33 @@ describe("operador assume caso com fidelização vencida", () => {
     const db = await construir();
     await db.exec(`drop function public.aluno_retorno_operador_vigente(uuid)`);
     await expect(db.exec(MIGRATION)).rejects.toThrow(/P2 ausente/);
+    await db.close();
+  });
+
+  it("backup por operação: guarda a linha do caso e do aluno ANTES da tomada e o estado pós-tomada", async () => {
+    const db = await abrirCom();
+    const caso = await cenario(db, 68, { dono: MAURICIO });
+    await como(db, LUANA);
+    const r = await tomar(db, caso);
+    expect(r.sucesso).toBe(true);
+    const o = await q1(db, "select snapshot_caso->>'operador_email' as cap, snapshot_aluno->>'responsavel_atual_email' as rap, estado_pos->>'caso_operador_email' as pos from public.assumir_fidelizacao_operacoes where id=$1", [r.operacao_id]);
+    expect(o.cap).toBe(MAURICIO);
+    expect(o.rap).toBe(MAURICIO);
+    expect(o.pos).toBe(LUANA);
+    await db.close();
+  });
+
+  it("reversão recusada quando o responsável anterior já está no teto", async () => {
+    const db = await abrirCom();
+    const caso = await cenario(db, 69, { dono: MAURICIO });
+    await como(db, LUANA);
+    const r = await tomar(db, caso);
+    await db.exec(`update public.calibragem_parametros set valor='1'::jsonb where chave='limite_carteira'`);
+    await cenario(db, 70, { dono: MAURICIO });
+    await como(db, GESTAO);
+    const rv = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [r.operacao_id, "x"]);
+    expect(rv.sucesso).toBe(false);
+    expect(rv.mensagem).toContain("limite de casos");
     await db.close();
   });
 });

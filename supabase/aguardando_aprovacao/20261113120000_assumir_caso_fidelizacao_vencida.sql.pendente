@@ -83,8 +83,13 @@ create table if not exists public.assumir_fidelizacao_operacoes (
   responsavel_novo_email text not null,
   responsavel_novo_nome text,
   data_ultimo_acionamento_antes date,
+  -- BACKUP por operacao, gravado ANTES da troca: linha do caso e do aluno como estavam.
+  snapshot_caso jsonb,
+  snapshot_aluno jsonb,
   -- estado de origem que a troca de dono zera (proxima_acao, data_retorno, hora_retorno)
   estado_anterior jsonb not null default '{}'::jsonb,
+  -- estado DEPOIS da tomada: a reversao so volta se tudo isso ainda for verdade
+  estado_pos jsonb,
   motivo text not null,
   autor_email text not null,
   revertida_em timestamptz,
@@ -182,12 +187,14 @@ begin
 
   -- PRAZO: ultimo acionamento valido entre aluno e caso, lido depois do lock.
   v_ultimo := greatest(v_al.data_ultimo_acionamento, v_c.data_ultimo_acionamento);
-  if public.caso_dentro_prazo_fidelizacao(v_ultimo) then
+  -- Prazo em DATA DE BRASILIA explicita (a sessao do banco esta em UTC).
+  if v_ultimo is not null and v_ultimo + 10 >= (now() at time zone 'America/Sao_Paulo')::date then
     return query select false, v_msg, null::uuid; return;
   end if;
 
   -- R2: quem recebeu o caso ha menos de 10 dias nao perde o caso.
-  if v_al.responsavel_atual_em is not null and v_al.responsavel_atual_em >= now() - interval '10 days' then
+  if (v_al.responsavel_atual_em at time zone 'America/Sao_Paulo')::date
+       > (now() at time zone 'America/Sao_Paulo')::date - 10 then
     return query select false, v_msg, null::uuid; return;
   end if;
 
@@ -223,8 +230,10 @@ begin
   -- Operacao gravada ANTES da troca, para a reversao ter o estado de origem.
   insert into public.assumir_fidelizacao_operacoes
     (aluno_id, caso_id, responsavel_anterior_email, responsavel_anterior_nome,
-     responsavel_novo_email, responsavel_novo_nome, data_ultimo_acionamento_antes, estado_anterior, motivo, autor_email)
+     responsavel_novo_email, responsavel_novo_nome, data_ultimo_acionamento_antes,
+     snapshot_caso, snapshot_aluno, estado_anterior, motivo, autor_email)
   select p_aluno_id, v_c.id, v_ant_email, v_ant_nome, v_email, v_nome, v_ultimo,
+         to_jsonb(v_c), to_jsonb(a),
          jsonb_build_object('proxima_acao', a.proxima_acao, 'data_retorno', a.data_retorno, 'hora_retorno', a.hora_retorno),
          v_motivo, v_email
     from public.alunos a where a.id = p_aluno_id
@@ -245,6 +254,13 @@ begin
      v_ant_nome, v_ant_email, v_nome, v_email,
      'Operacao '||v_op::text||'. Responsavel anterior: '||v_ant_email||'. Novo: '||v_email||
      '. Data: '||now()::text||'. Autor: '||v_email||'. Motivo: '||v_motivo||'.', now());
+
+  -- estado pos-tomada, para a reversao comparar com o que existe no momento de reverter
+  update public.assumir_fidelizacao_operacoes
+     set estado_pos = jsonb_build_object('caso_operador_email', v_email,
+                                         'aluno_responsavel_email', v_email,
+                                         'data_ultimo_acionamento', v_ultimo)
+   where id = v_op;
 
   return query select true, 'Caso assumido. A fidelizacao de 10 dias comeca no seu primeiro acionamento valido.', v_op;
 end;
@@ -302,6 +318,13 @@ begin
     return query select false, 'Conflito: o caso mudou de responsavel depois desta operacao. Nao revertido.'; return;
   end if;
 
+  -- Conflito 0: o estado atual nao e o estado que a propria tomada deixou (backup por operacao).
+  if v_op.estado_pos is null
+     or lower(coalesce(v_c.operador_email, '')) <> lower(v_op.estado_pos->>'caso_operador_email')
+     or lower(coalesce(v_al.responsavel_atual_email, '')) <> lower(v_op.estado_pos->>'aluno_responsavel_email') then
+    return query select false, 'Conflito: o estado atual nao e o da tomada. Nao revertido.'; return;
+  end if;
+
   -- Conflito 2: houve acionamento depois da tomada. O ultimo acionamento (aluno ou caso)
   -- tem de ser o mesmo que existia ANTES da tomada. Qualquer mudanca, de qualquer autor
   -- (inclusive data nula), conta como atendimento posterior.
@@ -323,6 +346,8 @@ begin
                        and u.perfil = 'operador' and coalesce(u.recebe_novos_casos, false)) then
     return query select false, 'Conflito: o responsavel anterior nao pode receber o caso. Decisao da gestao.'; return;
   end if;
+  -- Mesma serializacao do teto da tomada, por operador (evita duas reversoes/tomadas furarem o teto).
+  perform pg_advisory_xact_lock(hashtext('assumir_teto:' || lower(v_op.responsavel_anterior_email)));
   v_teto := public.calibragem_teto_operador(lower(v_op.responsavel_anterior_email));
   v_count := (select count(*) from public.casos c where c.operador_email = lower(v_op.responsavel_anterior_email)
                  and not public.caso_protegido_redistribuicao(c.cpf_limpo, c.status_acionamento, c.nao_acionar,
