@@ -45,6 +45,9 @@ export class RepoMemoria implements RepositorioEnvio {
     this.m.set(k, { ...e });
     return true;
   }
+  async existeFalhaIncerta(atendimento_id: string, texto: string) {
+    return [...this.m.values()].some((e) => e.atendimento_id === atendimento_id && e.texto === texto && e.status === "FALHA_INCERTA");
+  }
   async atualizar(o: string, c: string, campos: Partial<Envio>) {
     const k = this.chaveDe(o, c);
     this.m.set(k, { ...this.m.get(k)!, ...campos });

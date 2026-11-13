@@ -79,6 +79,8 @@ export interface RepositorioEnvio {
    */
   inserirSeNovo(envio: Envio): Promise<boolean>;
   atualizar(operador: string, chave: string, campos: Partial<Envio>): Promise<void>;
+  /** Há envio em FALHA_INCERTA para este atendimento e este texto (qualquer operador). */
+  existeFalhaIncerta(atendimento_id: string, texto: string): Promise<boolean>;
 }
 
 export interface DependenciasEnvio {
@@ -161,11 +163,19 @@ export async function enviarResposta(
   const conn = await garantirConexao(deps.conexao, deps.provedorOAuth, agora);
   if (!conn.ok) return { situacao: "BLOQUEADO", motivos: [conn.motivo] };
 
-  // Idempotência: a mesma chave devolve o que já foi gravado, sem enviar.
-  const existente = await deps.repositorio.buscar(pedido.operador, pedido.chave);
-  if (existente) return { situacao: "JA_PROCESSADO", envio: existente };
-
   const texto = pedido.texto.trim();
+  // Idempotência ligada ao conteúdo: a chave só vale para o MESMO atendimento e o MESMO texto.
+  const existente = await deps.repositorio.buscar(pedido.operador, pedido.chave);
+  if (existente) {
+    if (existente.atendimento_id !== pedido.atendimento_id || existente.texto !== texto) {
+      return { situacao: "BLOQUEADO", motivos: ["CHAVE_COM_OUTRO_CONTEUDO"] };
+    }
+    return { situacao: "JA_PROCESSADO", envio: existente };
+  }
+  // Falha incerta não reenvia, nem com outra chave: a mensagem pode ter saído.
+  if (await deps.repositorio.existeFalhaIncerta(pedido.atendimento_id, texto)) {
+    return { situacao: "BLOQUEADO", motivos: ["FALHA_INCERTA_PENDENTE_CONFERENCIA"] };
+  }
   const novo: Envio = {
     chave: pedido.chave,
     operador_email: pedido.operador,

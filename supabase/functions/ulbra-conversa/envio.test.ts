@@ -185,3 +185,35 @@ describe("hash do conteúdo", () => {
     expect(await hashConteudo("oi")).toMatch(/^[0-9a-f]{64}$/);
   });
 });
+
+describe("chave idempotente ligada ao conteúdo e falha incerta sem reenvio", () => {
+  it("mesma chave com OUTRO texto gera conflito explícito e não envia", async () => {
+    const { d, provedorEnvio } = deps();
+    await enviarResposta(pedido(), d);
+    const r = await enviarResposta(pedido({ texto: "texto diferente" }), d);
+    expect(r.situacao === "BLOQUEADO" && r.motivos).toEqual(["CHAVE_COM_OUTRO_CONTEUDO"]);
+    expect(provedorEnvio.chamadas.length).toBe(1);
+  });
+  it("mesma chave com OUTRO atendimento gera conflito explícito", async () => {
+    const { d, provedorEnvio } = deps();
+    await enviarResposta(pedido(), d);
+    const r = await enviarResposta(pedido({ atendimento_id: "ffffffffffffffffffffffff" }), d);
+    expect(r.situacao === "BLOQUEADO" && r.motivos).toEqual(["CHAVE_COM_OUTRO_CONTEUDO"]);
+    expect(provedorEnvio.chamadas.length).toBe(1);
+  });
+  it("após FALHA_INCERTA, OUTRA chave para o mesmo texto NÃO reenvia (bloqueio explícito)", async () => {
+    const { d, provedorEnvio } = deps();
+    provedorEnvio.modo = "queda";
+    await enviarResposta(pedido(), d);
+    provedorEnvio.modo = "ok";
+    const r = await enviarResposta(pedido({ chave: "outra-chave-clique-0003" }), d);
+    expect(r.situacao === "BLOQUEADO" && r.motivos).toEqual(["FALHA_INCERTA_PENDENTE_CONFERENCIA"]);
+    expect(provedorEnvio.chamadas.length).toBe(1);
+  });
+  it("sem atendente lido, o envio nunca sai (fonte ainda não definida)", async () => {
+    const { d, provedorEnvio } = deps();
+    const r = await enviarResposta(pedido({ atendente_ulbra: null }), d);
+    expect(r.situacao === "BLOQUEADO" && r.motivos).toContain("ATENDENTE_ULBRA_NAO_LIDO");
+    expect(provedorEnvio.chamadas).toEqual([]);
+  });
+});

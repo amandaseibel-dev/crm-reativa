@@ -75,8 +75,10 @@ create table public.ulbra_envio_previas (
   constraint ulbra_envio_previas_email_minusculo check (operador_email = lower(operador_email)),
   constraint ulbra_envio_previas_atendimento_formato check (atendimento_id ~ '^[a-f0-9]{24}$'),
   constraint ulbra_envio_previas_hash_formato check (conteudo_hash ~ '^[0-9a-f]{64}$'),
-  constraint ulbra_envio_previas_validade check (expira_em > criado_em),
-  constraint ulbra_envio_previas_consumo check (consumida_em is null or consumida_em >= criado_em)
+  constraint ulbra_envio_previas_validade check (expira_em > criado_em)
+  -- Sem CHECK de consumida_em >= criado_em: consumida_em vem do relógio do Edge Function e criado_em
+  -- do now() do banco; a precisão diferente faz o CHECK falhar sem necessidade. O consumo único
+  -- é garantido pelo UPDATE ... WHERE consumida_em IS NULL (teste de concorrência).
 );
 alter table public.ulbra_envio_previas enable row level security;
 revoke all on public.ulbra_envio_previas from public, anon, authenticated;

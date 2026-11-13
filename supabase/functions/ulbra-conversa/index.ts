@@ -152,6 +152,10 @@ Deno.serve(async (req: Request) => {
       if ((error as { code?: string }).code === "23505") return false;
       throw new Error("ENVIO_NAO_GRAVADO");
     },
+    async existeFalhaIncerta(atendimentoId, texto) {
+      const { data } = await sb.from("ulbra_envios").select("chave").eq("atendimento_id", atendimentoId).eq("texto", texto).eq("status", "FALHA_INCERTA").limit(1);
+      return (data?.length ?? 0) > 0;
+    },
     async atualizar(operador, ch, campos) {
       const { error } = await sb.from("ulbra_envios").update({ ...campos, atualizado_em: new Date().toISOString() }).eq("operador_email", operador).eq("chave", ch);
       // Falha de atualização não pode ser silenciosa: o envio ficaria sem registro do resultado.
@@ -184,7 +188,7 @@ Deno.serve(async (req: Request) => {
 
   /** Monta o pedido com o estado AGORA: atendimento, responsável, carteira, janela e conta conectada. */
   async function montarPedido(atendimentoId: string, texto: string, chaveEnvio: string, conta: RegistroConexao): Promise<{ pedido: PedidoEnvio } | { bloqueio: ResultadoEnvio; status: number }> {
-    const { data: at } = await sb.from("ulbra_atendimentos").select("ulbra_cliente_id, responsavel_email, dispensado_em, atendente_ulbra").eq("ulbra_atendimento_id", atendimentoId).maybeSingle();
+    const { data: at } = await sb.from("ulbra_atendimentos").select("ulbra_cliente_id, responsavel_email, dispensado_em").eq("ulbra_atendimento_id", atendimentoId).maybeSingle();
     if (!at) return { bloqueio: { situacao: "BLOQUEADO", motivos: ["ATENDIMENTO_NAO_ESPELHADO"] }, status: 404 };
     const { data: v } = await sb.from("ulbra_vinculos").select("aluno_id").eq("ulbra_cliente_id", at.ulbra_cliente_id).is("desvinculado_em", null).eq("confianca", "alta_cpf").maybeSingle();
     const alunoId = (v?.aluno_id as string | null) ?? null;
@@ -203,7 +207,8 @@ Deno.serve(async (req: Request) => {
         agora_ms: Date.now(), dono_carteira: dono,
         responsavel_atendimento: at.responsavel_email ? String(at.responsavel_email).toLowerCase() : null,
         identidade_confirmada: Boolean(alunoId),
-        atendente_ulbra: (at as { atendente_ulbra?: string | null }).atendente_ulbra ?? null,
+        // FONTE DO ATENDENTE NÃO DEFINIDA: nenhuma coluna ou contrato a fornece hoje. Null bloqueia o envio.
+        atendente_ulbra: null,
         conta_conectada: { pessoa_id: conta.pessoa_id ?? null, pessoa_nome: conta.pessoa_nome ?? null },
       },
     };

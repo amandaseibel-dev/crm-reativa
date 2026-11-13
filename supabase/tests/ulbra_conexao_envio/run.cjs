@@ -233,17 +233,34 @@ async function main() {
     }
   });
 
-  // ---------------------------------------------------------------- rollback
-  await teste("rollback remove SOMENTE os objetos da migração e preserva os preexistentes", async () => {
-    await c.query(fs.readFileSync(ROLL, "utf8"));
-    const final = await snapshot(c);
-    igual(final, antes, "objetos após o rollback (devem ser os de antes da migração)");
-    const r = await c.query("select count(*)::int as n from public.ulbra_outro_objeto");
-    igual(r.rows[0].n, 2, "linhas do objeto preexistente após o rollback");
-    const f = await c.query("select public.ulbra_outra_fn() as v");
-    igual(f.rows[0].v, 1, "função preexistente após o rollback");
+  // ---------------------------------------------------------------- rollback com histórico
+  await teste("rollback RECUSA quando há histórico (envios, prévias ou conexões) e não altera nada", async () => {
+    const antesRollback = await snapshot(c);
+    let erro = null;
+    try { await c.query(fs.readFileSync(ROLL, "utf8")); } catch (e) { erro = e; }
+    if (!erro || !/ROLLBACK_RECUSADO_HA_HISTORICO/.test(erro.message)) throw new Error("rollback deveria recusar: " + (erro ? erro.message : "não recusou"));
+    igual(await snapshot(c), antesRollback, "objetos depois do rollback recusado");
   });
   await c.end();
+
+  // ---------------------------------------------------------------- rollback limpo (banco sem histórico)
+  await teste("rollback limpo remove SOMENTE os objetos da migração e preserva os preexistentes", async () => {
+    await criarBanco("teste_rollback");
+    const r = await conectar("teste_rollback");
+    try {
+      await r.query("create table public.ulbra_outro_objeto (id int primary key)");
+      await r.query("insert into public.ulbra_outro_objeto values (1), (2)");
+      await r.query("create function public.ulbra_outra_fn() returns int language sql as $$ select 1 $$");
+      const antesMigracao = await snapshot(r);
+      await r.query(fs.readFileSync(MIG, "utf8"));
+      await r.query(fs.readFileSync(ROLL, "utf8"));
+      igual(await snapshot(r), antesMigracao, "objetos após o rollback limpo (devem ser os de antes da migração)");
+      const n = await r.query("select count(*)::int as n from public.ulbra_outro_objeto");
+      igual(n.rows[0].n, 2, "linhas do objeto preexistente");
+    } finally {
+      await r.end();
+    }
+  });
 
   // ---------------------------------------------------------------- guarda contra objeto preexistente
   await teste("migração aborta, sem alterar nada, quando ulbra_envios já existe", async () => {
