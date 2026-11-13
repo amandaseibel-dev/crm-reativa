@@ -8,7 +8,7 @@
   - exige exatamente um vínculo ativo por CPF confirmado; sem ele, 403 antes de qualquer chamada;
   - sem conversa coletada: 404, sem chamada;
   - permissão por carteira ou responsável, como antes; sem permissão, 403 antes de qualquer chamada;
-  - **teto total de 3 chamadas** (somando leituras e a renovação de saldo `meu_acesso`), checado antes de cada chamada externa;
+  - **teto total de 3 chamadas** (somando leituras e a renovação de saldo `meu_acesso`), atômico: a reserva do banco serializa o dia, e o uso dos dias anteriores é fixo;
   - 429 vira `ULBRA_LIMITE`: parada, sem nova tentativa;
   - a resposta traz `consultado_em` (data da consulta) e cada mensagem traz `em` (data da mensagem);
   - a busca de usuário por e-mail passa a ser exata (`eq`), sem `ilike`. A versão publicada hoje ainda usa `ilike`.
@@ -18,14 +18,14 @@
 ## Hashes dos arquivos que a publicação envia
 | arquivo | sha256 |
 |---|---|
-| `supabase/functions/ulbra-historico/index.ts` | `6d5075965a1e0b17db0d0314926c684e4df2f39bea0328f62e80ecfe43570e15` |
+| `supabase/functions/ulbra-historico/index.ts` | `4eb4fc48ac525ae2a77c58a0ef0eaed85cd5ac6e653b0623b151918ec7419719` |
 | `supabase/functions/ulbra-historico/historico.ts` | `41ef6970152a8cc3a8788cf6375773691470ada417ae53c6d5a495be63de0998` |
 | `supabase/functions/ulbra-historico/leitura.ts` (igual à main e à v1) | `20cc12d353c7278c9951208d740312831bffe92fcf2533856474be01bbb2f05f` |
 
 Versão publicada hoje (v1), para reversão: `docs/integracoes/rollback-ulbra-historico-v1/SHA256SUMS` (`index.ts` `2e50b8de…`, `historico.ts` `4836a2e5…`, `leitura.ts` `20cc12d3…`).
 
 ## Testes executados (sem rede, com o código real)
-- Servidor: `ficha.test.ts` (16 casos de handler: identidade, conversa, permissão, teto de 3, 429, data da consulta, cache) e os testes existentes de histórico e de ausência de OAuth/envio. Total do diretório: 185 testes passando.
+- Servidor: `ficha.test.ts` (17 casos de handler, incluindo 5 cliques simultâneos com 3 chegando à ULBRA: identidade, conversa, permissão, teto de 3, 429, data da consulta, cache) e os testes existentes de histórico e de ausência de OAuth/envio. Total do diretório: 185 testes passando.
 - Front: `HistoricoFichaAluno.test.jsx` (6 casos: fora do piloto, abrir não chama, clique chama uma vez, datas, recusa, 429) e a suíte completa de componentes, páginas e utilitários: 175 arquivos, 2537 testes passando.
 - Lint nos arquivos alterados: sem erros.
 - `deno check`: **não executado localmente** (regra do pacote). Adicionado como job de CI `ulbra-historico-deno-check`; a publicação só deve seguir com ele verde.
