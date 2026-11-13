@@ -240,7 +240,7 @@ A restauração devolve operador, responsável, marca do giro, retorno, hora, pr
 | Possível falha de registro ou integração | 52 | A data de retorno atual **não aparece em nenhuma movimentação** (causa mais provável: a Minha Carteira não grava a data na movimentação; ver correção abaixo). Em 39 casos ela foi empurrada de 4 a 122 dias além do último retorno registrado; em 23 nunca houve retorno registrado |
 | Já perderam a fidelização normal de 10 dias | **62 de 62** | Último atendimento do responsável há 14 a 38 dias |
 
-Sinais em comum aos 62: retorno **sempre para hoje**, **sem hora marcada**, próxima ação com o texto automático e situação `COBRANCA_VENCIDA`.
+Sinais em comum aos 62: retorno **sempre para hoje**, próxima ação com o texto automático e situação `COBRANCA_VENCIDA`. *(Esta linha dizia também "sem hora marcada". Retirado em 13/11: `alunos.data_retorno` é do tipo `date` e nunca guardou hora — o sinal é vazio por construção e não distingue nada.)*
 
 **CORREÇÃO (13/11, após a 7ª auditoria do Guardião): a hipótese de "rotina automática" não se sustenta.** Todos os 62 têm atendimento real do responsável atual (`FINALIZACAO_ATENDIMENTO`), 14 a 38 dias antes do retorno; 41 têm distância de 10 a 20 dias. O que falta é o **vínculo** na movimentação: a tela **Minha Carteira grava o retorno no aluno, mas a movimentação de atendimento sai sem a data de retorno** (`PainelCarteira.jsx:2034-2036`, `:2056-2065`); só a ficha do aluno e a fila operacional gravam a data na movimentação. Medido: **92,9% das movimentações de atendimento dos últimos 60 dias (28.352 de 30.519) não têm data de retorno**, e **383 dos 599 retornos de operador** (hoje ou futuro) não têm movimentação com a mesma data. Em 31 dos 62 o último atendimento do responsável foi gravado sem data de retorno.
 
@@ -255,7 +255,7 @@ Sinais em comum aos 62: retorno **sempre para hoje**, **sem hora marcada**, pró
 | 11 a 15 dias | 1 (12 dias) |
 | acima de 15 dias | 0 |
 
-Desses 216, **182 vêm da tabulação `MENSAGEM_ENVIADA`** (prazo automático de 7 dias úteis), 32 de `EM_ATENDIMENTO` e 2 de `LEMBRETE_PARCELA`. **Nenhum tem hora marcada.** O limite de 15 dias muda o resultado de 1 caso; 10 dias cobririam 215 dos 216.
+Desses 216, **182 vêm da tabulação `MENSAGEM_ENVIADA`** (prazo automático de 7 dias úteis), 32 de `EM_ATENDIMENTO` e 2 de `LEMBRETE_PARCELA`. *(A versão anterior destacava aqui que "nenhum tem hora marcada". Isso vale para **todos** os registros, protegidos ou não, porque o campo é `date` — não é sinal.)* O limite de 15 dias muda o resultado de 1 caso; 10 dias cobririam 215 dos 216.
 
 **Situação da regra:** o código da branch usa 15 dias como **hipótese de teste** (diretriz 5), e nada vai para produção. A regra final aguarda a gestão.
 
