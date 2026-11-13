@@ -7,7 +7,7 @@
 // APENAS superfície — escopos, limites e nomes de ferramentas. Nunca a
 // credencial, nunca dado de aluno, nunca conversa, nem o nome ou e-mail do
 // dono do token. Não grava nada: sem insert, sem auditoria.
-import { emailNormalizado, unicoAtivo } from "../_shared/email_exato.ts";
+import { buscarUsuarioAtivoPorEmail } from "../_shared/email_exato.ts";
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
@@ -73,13 +73,7 @@ serve(async (req) => {
   const { data: { user } } = await sbUser.auth.getUser();
   if (!user?.email) return responder({ erro: "ACESSO_NEGADO" }, 403);
 
-  const { data: usuarioLinhas } = await sbService
-    .from("usuarios")
-    .select("perfil")
-    .eq("email", emailNormalizado(user.email))
-    .eq("ativo", true)
-    .limit(2);
-  const usuario = unicoAtivo(usuarioLinhas);
+  const usuario = await buscarUsuarioAtivoPorEmail<{ perfil: string }>(sbService, user.email, "perfil");
 
   if (!usuario || !PERFIS_GESTAO.includes(usuario.perfil as string)) {
     return responder({ erro: "ACESSO_NEGADO", detalhe: "somente_gestao" }, 403);

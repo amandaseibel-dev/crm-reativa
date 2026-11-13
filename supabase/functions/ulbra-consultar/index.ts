@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-import { emailNormalizado, unicoAtivo } from "../_shared/email_exato.ts";
+import { buscarUsuarioAtivoPorEmail, emailNormalizado } from "../_shared/email_exato.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decidirAcessoUlbra } from "./portao.ts";
 import {
@@ -58,13 +58,7 @@ serve(async (req) => {
       );
       const { data: { user } } = await sb.auth.getUser();
       if (!user?.email) return null;
-      const { data: usuarioLinhas } = await sbService
-        .from("usuarios")
-        .select("email, perfil")
-        .eq("email", emailNormalizado(user.email))
-        .eq("ativo", true)
-        .limit(2);
-  const usuario = unicoAtivo(usuarioLinhas);
+      const usuario = await buscarUsuarioAtivoPorEmail<{ email: string; perfil: string }>(sbService, user.email, "email, perfil");
       if (!usuario) return null;
       return { email: usuario.email as string, perfil: usuario.perfil as string };
     },
