@@ -91,7 +91,11 @@ AS $function$
   );
 $function$;
 
-REVOKE ALL ON FUNCTION public.caso_pode_soltar_com_aluno(uuid) FROM PUBLIC, anon, authenticated;
+-- Predicado INTERNO: so e chamado de dentro de funcoes SECURITY DEFINER (dono
+-- postgres), entao revogar nao quebra a tela. Medido em prod em 13/11: o default
+-- privilege do schema public concede EXECUTE a service_role tambem -- por isso
+-- ele entra no revoke (ninguem precisa chamar este predicado de fora).
+REVOKE ALL ON FUNCTION public.caso_pode_soltar_com_aluno(uuid) FROM PUBLIC, anon, authenticated, service_role;
 
 -- RETORNO VALIDO DO RESPONSAVEL ATUAL (decisao da gestao, 13/11/2026). Regra UNICA,
 -- usada pela liberacao, pelo cron, pelo teto, pela assuncao e pelo card de risco.
@@ -148,7 +152,11 @@ AS $function$
   );
 $function$;
 
-REVOKE ALL ON FUNCTION public.aluno_retorno_operador_vigente(uuid) FROM PUBLIC, anon, authenticated;
+-- Predicado INTERNO: so e chamado de dentro de funcoes SECURITY DEFINER (dono
+-- postgres), entao revogar nao quebra a tela. Medido em prod em 13/11: o default
+-- privilege do schema public concede EXECUTE a service_role tambem -- por isso
+-- ele entra no revoke (ninguem precisa chamar este predicado de fora).
+REVOKE ALL ON FUNCTION public.aluno_retorno_operador_vigente(uuid) FROM PUBLIC, anon, authenticated, service_role;
 
 DO $mig$
 DECLARE

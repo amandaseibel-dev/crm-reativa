@@ -287,7 +287,9 @@ Mantida **provisoriamente em 10 dias**, sem ampliar. A regra não deve ser alter
 
 ### Auditoria EXECUTADA em produção (13/11/2026, 09:04 BRT, somente leitura)
 
-Consulta versionada em **`supabase/audits/retorno_vinculo_auditoria_20261113.sql`**, rodada tal como está, em janela de baixo tráfego (2 consultas ativas no banco). Validada antes em bancada contra 4 cenários (explícita, alternativa, sem proteção, ex-operador), com a classificação batendo caso a caso com `aluno_retorno_operador_vigente`; um teste da suíte prende as duas.
+Consulta versionada em **`supabase/audits/retorno_vinculo_auditoria_20261113.sql`**, rodada tal como está, em janela de baixo tráfego (2 consultas ativas no banco). **Saída guardada em `supabase/audits/retorno_vinculo_auditoria_20261113_RESULTADO.md`.**
+
+O teste de equivalência da suíte prova a concordância com `aluno_retorno_operador_vigente` em dois níveis, sobre 4 cenários (explícita, alternativa, sem proteção, ex-operador): **caso a caso**, reusando as mesmas CTEs do arquivo versionado e comparando a via de cada aluno com a função; e no **agregado**, rodando o arquivo inteiro e conferindo a cardinalidade de cada balde.
 
 **Separação das três proteções, sem dupla contagem** (pergunta 7):
 
@@ -318,6 +320,21 @@ A medição confirma o achado em produção. Como todo atendimento reinicia a fi
 Observação: a correção da Minha Carteira (gravar a data na movimentação) tende a **aumentar** o número de retornos com vínculo explícito daqui para frente — hoje 217 de 600. Isso não muda a recomendação, porque a via explícita permanece.
 
 **Decisão da gestão necessária** antes de eliminar a alternativa: a regra está implementada como aprovada (opção 3, janela de 10 dias), e não a alterei.
+
+### Achados da 8ª auditoria do Guardião — tratados e declarados
+
+| Achado | Situação |
+|---|---|
+| **K1** — o roteiro afirmava "caso a caso" e o teste só comparava contagens | **Corrigido**: o teste passou a 4 cenários, com asserção da via de cada aluno (explícita × alternativa) além do agregado |
+| **K6** — o revoke não cobria `service_role` | **Corrigido e medido**: em produção os privilégios padrão do schema `public` concedem `EXECUTE` a `service_role`; as duas funções novas passaram a revogar dele também. São predicados internos, chamados só de dentro de funções `SECURITY DEFINER` (dono `postgres`), então revogar não quebra a tela — ao contrário do caso de RPC chamada pelo front |
+| **K2** — o teto de 15 dias da via explícita passa a mandar | **Declarado**: retorno marcado para mais de 15 dias depois do atendimento perde a proteção no 11º dia, mesmo nascido em atendimento real. Hoje o efeito é nulo (0 casos na faixa), mas a correção da Minha Carteira muda a distribuição. Os dois parâmetros (15 e 10) seguem provisórios |
+| **K3** — recarimbar `responsavel_atual_em` derruba a proteção na hora | **Declarado**: é consequência querida da regra 6 (X→Y→X não revalida), mas qualquer rotina que recarimbe sem trocar o dono tem o mesmo efeito. Os caminhos que fazem isso estão em G2, fora desta PR |
+| **K5** — aluno e movimentação são duas requisições sem transação | **Declarado**: se a segunda falhar, o retorno fica sem vínculo até o próximo atendimento. Comportamento pré-existente da tela, não introduzido aqui |
+| **K7** — a movimentação não registra a origem do retorno | **Declarado**: um atendimento cujo prazo foi automático pode servir de vínculo para um retorno de operador posto depois na mesma data. Fica dentro da regra 5 (atendimento real do responsável), mas não é exatamente o compromisso que a data representa |
+| **K8** — responsável inativo perde todos os compromissos de uma vez | **Declarado**: é a decisão da gestão sobre pool livre (regra 5). Medido: 11 dos 600 retornos vigentes estão nessa situação |
+| **K4** — a consulta duplica o predicado da regra | **Parcialmente tratado**: a duplicação é necessária enquanto a função não existe em produção; a amarra é o teste de equivalência, agora mais forte. A saída da execução passou a ser versionada |
+| Teto (caminho) | O Guardião não conseguiu provar por sonda; confere por leitura e pela suíte |
+
 
 **G2 — fora desta PR.** Receptivo (`sistema_assumir_receptivo`), movimentação da gestão (`carteira_geral_trocar_dono`) e vínculos de responsável (`vincular_responsavel_caso`, `desfazer_acao`) vão para PR separada, precedida de auditoria de cada caminho. Até lá, esses caminhos **continuam podendo mudar o responsável de irmão com fidelização vigente**: é risco residual da operação atual, não introduzido por esta PR.
 

@@ -997,34 +997,51 @@ describe("vínculo do retorno — via explícita e alternativa de 10 dias (gest�
   });
 
   // A consulta de auditoria versionada (supabase/audits/) tem de classificar
-  // exatamente como a funcao. Se uma das duas mudar sozinha, este teste quebra.
-  it("a consulta de auditoria roda e concorda com a regra, caso a caso", async () => {
+  // exatamente como a funcao. Prova em dois niveis:
+  //   (1) CASO A CASO: reusa as MESMAS CTEs do arquivo, cortando no BLOCO A e
+  //       pedindo a classificacao por aluno, e compara com a funcao aluno a aluno;
+  //   (2) AGREGADO: roda o arquivo inteiro e confere a cardinalidade de cada balde.
+  // Se a consulta ou a regra mudar sozinha, este teste quebra.
+  it("a consulta de auditoria concorda com a regra, caso a caso e no agregado", async () => {
     const db = await novo();
-    await base(db);                                                    // 1: via explicita
-    await atendimento(db, 1, { email: OP1, diasAtras: 12, comDataRetornoEm: 3 });
-    await retornoEm(db, 1, 3);
-    await forcarParado(db, 1);
-    await cenario(db, 2, { dono: OP1, giro: -17, dua: 15, retorno: null, semMov: true });   // 2: via alternativa
-    await atendimento(db, 2, { email: OP1, diasAtras: 3 });
-    await retornoEm(db, 2, 3);
-    await forcarParado(db, 2);
-    await cenario(db, 3, { dono: OP1, giro: -17, dua: 15, retorno: null, semMov: true });   // 3: sem protecao
-    await atendimento(db, 3, { email: OP1, diasAtras: 20 });
-    await retornoEm(db, 3, 3);
-    await forcarParado(db, 3);
+    const montar = async (n, o) => {
+      await cenario(db, n, { dono: o.dono ?? OP1, giro: -17, dua: 15, retorno: null, semMov: true });
+      await atendimento(db, n, { email: o.dono ?? OP1, diasAtras: o.diasAtras, comDataRetornoEm: o.comData ?? null });
+      await retornoEm(db, n, 3);
+      await forcarParado(db, n);
+    };
+    await montar(1, { diasAtras: 12, comData: 3 });                       // via explicita
+    await montar(2, { diasAtras: 3 });                                    // via alternativa
+    await montar(3, { diasAtras: 20 });                                   // sem protecao
+    await montar(4, { diasAtras: 12, comData: 3, dono: "ex.operador@aelbra.com.br" });  // ex-operador: nao protege
 
-    const vig = {};
-    for (const n of [1, 2, 3]) {
-      vig[n] = (await q1(db, "select public.aluno_retorno_operador_vigente($1) v", [U(n)])).v;
+    // (1) caso a caso, com as CTEs do proprio arquivo versionado
+    const corte = AUDITORIA.indexOf("-- BLOCO A");
+    expect(corte).toBeGreaterThan(0);
+    const porCaso = AUDITORIA.slice(0, corte) +
+      "select aluno_id::text as aluno, via_explicita, via_alternativa from classificado order by 1;";
+    const linhasCaso = await qn(db, porCaso);
+    expect(linhasCaso.length).toBe(4);
+    for (const r of linhasCaso) {
+      const daFuncao = (await q1(db, "select public.aluno_retorno_operador_vigente($1) v", [r.aluno])).v;
+      const daConsulta = r.via_explicita || r.via_alternativa;
+      expect(daConsulta, `aluno ${r.aluno}: consulta ${daConsulta} vs funcao ${daFuncao}`).toBe(daFuncao);
     }
-    expect(vig).toEqual({ 1: true, 2: true, 3: false });
+    // e a via de cada um e a esperada, nao so o booleano final
+    const via = Object.fromEntries(linhasCaso.map((r) => [r.aluno, [r.via_explicita, r.via_alternativa]]));
+    expect(via[U(1)]).toEqual([true, false]);
+    expect(via[U(2)]).toEqual([false, true]);
+    expect(via[U(3)]).toEqual([false, false]);
+    expect(via[U(4)]).toEqual([false, false]);
 
+    // (2) agregado, com o arquivo inteiro
     const linhas = await qn(db, AUDITORIA);
     const achar = (item) => Number(linhas.find((l) => l.item.startsWith(item))?.valor);
-    expect(achar("total")).toBe(3);
+    expect(achar("total")).toBe(4);
     expect(achar("protegidos SO pela via explicita")).toBe(1);
     expect(achar("protegidos SO pela via alternativa")).toBe(1);
-    expect(achar("sem protecao")).toBe(1);
+    expect(achar("sem protecao")).toBe(2);
+    expect(achar("responsavel INATIVO")).toBe(1);
     await db.close();
   });
 
