@@ -10,8 +10,9 @@
 //   depois = o mesmo corpo + o SQL pendente -> a repeticao some.
 //
 // O QUE E REAL AQUI:
-//   * `recalcular_situacao_aluno`: copia byte a byte de producao (19/09/2026),
-//     supabase/tests/fixtures/recalcular_situacao_aluno_prod_20260919.sql;
+//   * `recalcular_situacao_aluno`: o corpo VIVO de producao, lido em
+//     13/11/2026 (md5 conferido aqui),
+//     supabase/tests/fixtures/recalcular_situacao_aluno_prod_20261113.sql;
 //   * o gatilho `trg_aluno_reset_retorno_confirmado` e a RPC
 //     `agenda_confirmar_retorno`: executados a partir do arquivo da migration
 //     20260808150000;
@@ -20,11 +21,10 @@
 //     (`retornosAgendados`, `retornosAtrasados`, `retornoParaAvisar`).
 //
 // A FRONTEIRA, declarada:
-//   * o corpo de producao mudou depois de 19/09 (o md5 medido em 22/10 e
-//     outro) e o conector de leitura estava fora do ar em 13/11. O ramo
-//     COBRANCA_VENCIDA usado aqui e o do ultimo corpo versionado; se o vivo
-//     for diferente, a trava de ancora do SQL RECUSA -- ha teste disso;
-//   * as funcoes auxiliares (`calibragem_nivel_criticidade`, `fmt_brl`,
+//   * o gatilho `limpar_retorno_origem` de producao (zera a origem quando a
+//     data fica nula) nao tem definicao versionada e nao esta na bancada; o
+//     roteiro nunca anula a data;
+//   * as funcoes auxiliares (`calibragem_nivel_criticidade`, `parcela_viva`, `fmt_brl`,
 //     `dia_util_anterior_ou_igual`, `titulo_superado_por_acordo`) sao dubles:
 //     nenhuma decide data nem origem de retorno;
 //   * a virada diaria entra como "recalcular todos os alunos", que e o que ela
@@ -40,6 +40,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 import { retornosAgendados, retornosAtrasados, JANELA_RETORNOS_DIAS } from "../../src/utils/painelMeuDia";
 import { retornoParaAvisar } from "../../src/utils/alarmeRetorno";
 
@@ -51,7 +52,12 @@ const ler = (...p) => readFileSync(resolve(AQUI, "..", ...p), "utf8");
 const NOME = "20261113120000_retorno_tratado_nao_herda_selo_do_operador";
 const PENDENTE = ler("aguardando_aprovacao", `${NOME}.sql.pendente`);
 const ROLLBACK = ler("aguardando_aprovacao", `${NOME}.rollback.sql`);
-const CORPO_PROD = ler("tests", "fixtures", "recalcular_situacao_aluno_prod_20260919.sql");
+// Corpo VIVO, lido em producao em 13/11/2026 e reconstruido byte a byte; os
+// dois md5 abaixo sao os que o banco devolveu e sao conferidos no teste.
+const CORPO_PROD = ler("tests", "fixtures", "recalcular_situacao_aluno_prod_20261113.sql");
+const MD5_VIVO = { prosrc: "41475103b8b7ad363dfdc76c4170c5a8", definicao: "48385944757f4295d9f3c03cb8e394ca" };
+const MD5_PREVISTO = "03dacc0abb23490a8e060c4f86e0df94";
+const md5 = (t) => createHash("md5").update(t, "utf8").digest("hex");
 const AGENDA_CONFIRMADO = ler("migrations", "20260808150000_agenda_retorno_confirmado.sql");
 
 function trechoEntre(sql, tag) {
@@ -111,9 +117,11 @@ const ESQUEMA = `
     saldo_vencido numeric,
     saldo_total numeric,
     data_retorno date,
+    quitado_em timestamptz,
     caso_atualizado_em timestamptz
   );
-  create table public.acordos (id uuid primary key, aluno_id uuid, status text);
+  create table public.acordos (id uuid primary key, aluno_id uuid, status text, criado_em timestamptz default now());
+  create table public.pagamentos (aluno_id uuid, data_pagamento date);
   create table public.parcelas (
     id uuid primary key default gen_random_uuid(),
     acordo_id uuid, numero int, valor numeric, vencimento date, status text, is_entrada boolean
@@ -121,7 +129,9 @@ const ESQUEMA = `
   create table public.acordos_titulos (
     id uuid primary key default gen_random_uuid(),
     aluno_id uuid, situacao text, status text, tipo_boleto text, vencimento date,
-    valor_cobranca_ajustado numeric, saldo_corrigido numeric, valor_em_aberto numeric, valor_original numeric
+    valor_cobranca_ajustado numeric, saldo_corrigido numeric, valor_em_aberto numeric, valor_original numeric,
+    origem_encerramento text, origem_encerramento_em timestamptz,
+    atualizado_em timestamptz, created_at timestamptz default now()
   );
   create table public.acordo_titulo_vinculo (titulo_id uuid, acordo_id uuid, ativo boolean default true);
   create table public.solicitacoes_confirmacao_pagamento (aluno_id text, status text);
@@ -140,6 +150,8 @@ const ESQUEMA = `
   create function public.titulo_superado_por_acordo(uuid, date) returns boolean language sql as $$ select false $$;
   create function public.calibragem_nivel_criticidade(int, int, numeric, boolean, boolean, jsonb)
     returns text language sql as $$ select 'ATENCAO'::text $$;
+  create function public.parcela_viva(text) returns boolean language sql immutable
+    as $$ select upper(coalesce($1,'')) not in ('PAGO','CANCELADA','CANCELADO','ESTORNADA','ESTORNADO') $$;
   create function public.fmt_brl(numeric) returns text language sql as $$ select 'R$ ' || $1::text $$;
   create function public.dia_util_anterior_ou_igual(date) returns date language sql as $$ select $1 $$;
 `;
@@ -242,6 +254,13 @@ const md5Corpo = async (db) =>
       "select md5(prosrc) as m from pg_proc where oid = 'public.recalcular_situacao_aluno(uuid,text)'::regprocedure"
     )
   ).rows[0].m;
+
+const gatilho = async (db) =>
+  (
+    await db.query(
+      "select pg_get_triggerdef(oid) as d from pg_trigger where tgrelid = 'public.alunos'::regclass and tgname = 'trg_aluno_reset_retorno_confirmado'"
+    )
+  ).rows[0].d;
 
 const historico = async (db) =>
   (await db.query("select count(*)::int as n, md5(string_agg(descricao, '|' order by aluno_id)) as m from public.movimentacoes")).rows[0];
@@ -383,6 +402,39 @@ describe("corrigido: corpo de producao + SQL pendente", () => {
     expect(noDia.aviso?.hora_retorno).toBe("08:00");
   });
 
+  it("novo agendamento na MESMA data, depois do 'Ja falei', nasce pendente e nao perde o selo", async () => {
+    // Achado da auditoria: a confirmacao do combinado das 10:00 nao pode valer
+    // para o combinado novo das 16:00 do mesmo dia.
+    const db = await montar({ corrigido: true });
+    await agendar(db, ALUNA, 0, "10:00");
+    await jaFalei(db, ALUNA);
+    await agendar(db, ALUNA, 0, "16:00"); // mesma data, outra hora
+    const marcado = (await tela(db, "15:00")).linha(ALUNA);
+    expect(`${marcado.retorno_origem}:${marcado.hora_retorno}:${marcado.retorno_confirmado_em}`).toBe("OPERADOR:16:00:null");
+
+    // nao tratado: segue como combinado no dia seguinte, como qualquer nao tratado
+    await amanhece(db);
+    const t = await tela(db, "16:00");
+    const a = t.linha(ALUNA);
+    expect(`${a.retorno_e_hoje}:${a.retorno_origem}:${a.hora_retorno}`).toBe("true:OPERADOR:16:00");
+    expect(t.aviso?.id).toBe(ALUNA);
+  });
+
+  it("sem a parte do gatilho, esse mesmo roteiro perderia o selo -- por isso ela existe", async () => {
+    const db = await montar({ corrigido: true });
+    // devolve so o gatilho ao que era (a funcao continua com o patch)
+    await db.exec(`
+      create or replace trigger trg_aluno_reset_retorno_confirmado
+        before update of data_retorno on public.alunos for each row
+        when (new.data_retorno is distinct from old.data_retorno)
+        execute function public.tg_aluno_reset_retorno_confirmado();`);
+    await agendar(db, ALUNA, 0, "10:00");
+    await jaFalei(db, ALUNA);
+    await agendar(db, ALUNA, 0, "16:00");
+    await amanhece(db);
+    expect((await tela(db, "16:00")).linha(ALUNA).retorno_origem).toBe("AUTOMATICO");
+  });
+
   it("os demais retornos e o historico ficam intactos", async () => {
     const db = await montar({ corrigido: true });
     const antes = await historico(db);
@@ -406,8 +458,22 @@ describe("corrigido: corpo de producao + SQL pendente", () => {
   });
 });
 
-describe("o SQL pendente: so a ancora se move", () => {
-  it("a ancora existe exatamente uma vez no ultimo corpo de producao versionado, e a troca nao existe", () => {
+describe("o SQL pendente: so a ancora e o gatilho de reset se movem", () => {
+  it("a fixture e o corpo vivo de producao, e o md5 previsto depois do patch confere", () => {
+    const i = CORPO_PROD.indexOf("AS $function$") + "AS $function$".length;
+    const prosrc = CORPO_PROD.slice(i, CORPO_PROD.lastIndexOf("$function$"));
+    expect(md5(prosrc)).toBe(MD5_VIVO.prosrc);
+    expect(md5(CORPO_PROD)).toBe(MD5_VIVO.definicao);
+    expect(prosrc.length).toBe(13397);
+    expect(md5(prosrc.split(ANCORA).join(TROCA))).toBe(MD5_PREVISTO);
+    // as travas de md5 dos dois arquivos sao exatamente estes valores
+    expect(PENDENTE).toContain(`v_md5_antes <> '${MD5_VIVO.prosrc}'`);
+    expect(PENDENTE).toContain(`v_md5_depois <> '${MD5_PREVISTO}'`);
+    expect(ROLLBACK).toContain(`v_md5_antes <> '${MD5_PREVISTO}'`);
+    expect(ROLLBACK).toContain(`v_md5_depois <> '${MD5_VIVO.prosrc}'`);
+  });
+
+  it("a ancora existe exatamente uma vez no corpo vivo, e a troca nao existe", () => {
     expect(vezes(CORPO_PROD, ANCORA)).toBe(1);
     expect(vezes(CORPO_PROD, TROCA)).toBe(0);
     // a troca muda UMA atribuicao: o resto do ramo e identico
@@ -441,8 +507,10 @@ describe("o SQL pendente: so a ancora se move", () => {
   it("e idempotente: a segunda aplicacao nao muda nada", async () => {
     const db = await montar({ corrigido: true });
     const m = await md5Corpo(db);
+    const g = await gatilho(db);
     await db.exec(PENDENTE);
     expect(await md5Corpo(db)).toBe(m);
+    expect(await gatilho(db)).toBe(g);
   });
 
   it("recusa, sem tocar em nada, quando o corpo vivo nao e o que foi lido", async () => {
@@ -450,9 +518,24 @@ describe("o SQL pendente: so a ancora se move", () => {
     // producao derivou: alguem mexeu exatamente no ramo
     await db.exec(CORPO_PROD.replace("v_retorno := hoje;", "v_retorno := hoje + 0;"));
     const m = await md5Corpo(db);
-    await expect(db.exec(PENDENTE)).rejects.toThrow(/ANCORA NAO BATE/);
+    await expect(db.exec(PENDENTE)).rejects.toThrow(/CORPO INESPERADO/);
     // o `begin` do arquivo ficou aberto e abortado: nada foi gravado
     await db.exec("rollback;");
+    expect(await md5Corpo(db)).toBe(m);
+    expect(await gatilho(db)).not.toContain("hora_retorno");
+  });
+
+  it("recusa a transacao inteira quando o gatilho nao e o lido em producao", async () => {
+    const db = await montar({ corrigido: false });
+    await db.exec(`
+      create or replace trigger trg_aluno_reset_retorno_confirmado
+        before update of data_retorno, nome on public.alunos for each row
+        when (new.data_retorno is distinct from old.data_retorno)
+        execute function public.tg_aluno_reset_retorno_confirmado();`);
+    const m = await md5Corpo(db);
+    await expect(db.exec(PENDENTE)).rejects.toThrow(/GATILHO INESPERADO/);
+    await db.exec("rollback;");
+    // a parte 1 tinha rodado dentro da mesma transacao: voltou junto
     expect(await md5Corpo(db)).toBe(m);
   });
 
@@ -462,16 +545,21 @@ describe("o SQL pendente: so a ancora se move", () => {
     await db.exec(ROLLBACK); // nada aplicado ainda: nao faz nada
     expect(await md5Corpo(db)).toBe(original);
 
+    const gatilhoOriginal = await gatilho(db);
     await db.exec(PENDENTE);
-    expect(await md5Corpo(db)).not.toBe(original);
+    expect(await md5Corpo(db)).toBe(MD5_PREVISTO);
+    expect(await gatilho(db)).toContain("UPDATE OF data_retorno, hora_retorno");
     await db.exec(ROLLBACK);
     expect(await md5Corpo(db)).toBe(original);
+    expect(await gatilho(db)).toBe(gatilhoOriginal);
   });
 
   it("zero DML e nenhum cron: o SQL e o rollback so trocam a definicao da funcao", () => {
     for (const sql of [PENDENTE, ROLLBACK]) {
       const corpo = semComentarios(sql);
       expect(corpo).not.toMatch(/\b(insert\s+into|delete\s+from|truncate|drop\s+|alter\s+table|grant\s+|revoke\s+)/i);
+      // o unico objeto alem da funcao e o gatilho de reset, sem trocar a funcao dele
+      expect([...corpo.matchAll(/create or replace (\w+) (\w+)/gi)].map((x) => `${x[1]} ${x[2]}`)).toEqual(["trigger trg_aluno_reset_retorno_confirmado"]);
       expect(corpo).not.toMatch(/\bupdate\s+(public\.)?[a-z_]+\s+set\b/i);
       expect(corpo).not.toMatch(/\bcron\./i);
       expect(corpo).toMatch(/pg_get_functiondef/);

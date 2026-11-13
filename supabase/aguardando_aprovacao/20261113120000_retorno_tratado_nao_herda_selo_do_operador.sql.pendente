@@ -66,7 +66,8 @@
 --   * a DATA que o motor grava (continua `hoje`): fila, faixas, criticidade e
 --     acoes massivas leem a data, nao a origem deste ramo;
 --   * `hoje date := current_date` (UTC) -- defeito conhecido e separado;
---   * o gatilho de confirmacao e a RPC `agenda_confirmar_retorno`;
+--   * a RPC `agenda_confirmar_retorno` e a funcao do gatilho de confirmacao
+--     (o gatilho ganha a hora -- parte 2, no fim do arquivo);
 --   * os ramos ACORDO_EM_DIA, acao massiva (+10), quitado, confirmacao;
 --   * `hora_retorno` nao e escrita aqui: a tela so le hora de retorno com
 --     origem OPERADOR (alarmeRetorno/painelMeuDia).
@@ -94,20 +95,22 @@
 -- `else`), copiado byte a byte do corpo de producao de 19/09/2026
 -- (supabase/tests/fixtures/recalcular_situacao_aluno_prod_20260919.sql).
 --
--- LIMITE DECLARADO: em 13/11/2026 o conector de leitura da producao estava
--- fora do ar, entao o corpo vivo NAO foi relido hoje. O ultimo md5(prosrc)
--- medido e 41475103b8b7ad363dfdc76c4170c5a8 (22/10/2026, migration
--- 20261022220000). Por isso as travas sao pelo TEXTO, e a migration imprime o
--- md5 de antes e de depois para o ledger:
+-- CORPO VIVO LIDO EM PRODUCAO EM 13/11/2026 (somente leitura):
+--   md5(prosrc) 41475103b8b7ad363dfdc76c4170c5a8, 13.397 caracteres -- o mesmo
+--   de 22/10; md5(pg_get_functiondef) 48385944757f4295d9f3c03cb8e394ca;
+--   ancora: exatamente 1 ocorrencia; SECURITY DEFINER, search_path=public,
+--   dono postgres, EXECUTE para postgres/authenticated/service_role.
+--   Copia byte a byte em
+--   supabase/tests/fixtures/recalcular_situacao_aluno_prod_20261113.sql (os
+--   dois md5 conferidos no teste); o teste roda o patch sobre ESSE corpo.
+--   Virada: cron job 3, `0 6 * * *` (UTC), ativo.
+-- TRAVAS (parte 1), qualquer uma aborta a transacao inteira:
+--   0. md5(prosrc) = o lido acima, senao RECUSA (producao derivou);
 --   1. texto novo ja presente -> registra e sai (idempotente);
---   2. ancora EXATAMENTE uma vez, senao RECUSA sem tocar em nada;
---   3. depois da troca: texto novo 1 vez, ancora 0 vezes, e o tamanho cresceu
---      exatamente a diferenca entre os dois textos;
---   4. dono, SECURITY DEFINER, configuracao (search_path etc.) e GRANTs
---      identicos aos de antes.
--- Antes de aplicar, conferir em leitura:
---   select md5(prosrc), length(prosrc) from pg_proc
---    where oid = 'public.recalcular_situacao_aluno(uuid,text)'::regprocedure;
+--   2. ancora EXATAMENTE uma vez;
+--   3. depois da troca: texto novo 1 vez, ancora 0 vezes, e md5(prosrc) = o
+--      PREVISTO (calculado sobre a copia byte a byte);
+--   4. dono, SECURITY DEFINER, configuracao e GRANTs identicos aos de antes.
 --
 -- ROLLBACK: supabase/aguardando_aprovacao/20261113120000_retorno_tratado_nao_herda_selo_do_operador.rollback.sql
 begin;
@@ -161,6 +164,13 @@ begin
   end if;
 
   -- 2. ANCORA exatamente uma vez.
+  -- 0. CORPO: o corpo lido em producao em 13/11/2026.
+  if v_md5_antes <> '41475103b8b7ad363dfdc76c4170c5a8' then
+    raise exception
+      'CORPO INESPERADO em %: md5(prosrc) e %, esperado 41475103b8b7ad363dfdc76c4170c5a8. Reconferir antes de seguir.',
+      v_assin, v_md5_antes;
+  end if;
+
   v_n := (length(v_def) - length(replace(v_def, v_ancora, ''))) / length(v_ancora);
   if v_n <> 1 then
     raise exception
@@ -187,8 +197,55 @@ begin
   if v_guarda_depois is distinct from v_guarda_antes then
     raise exception 'DONO/DEFINER/CONFIG/GRANTS mudaram em %: antes [%], depois [%]', v_assin, v_guarda_antes, v_guarda_depois;
   end if;
+  if v_md5_depois <> '03dacc0abb23490a8e060c4f86e0df94' then
+    raise exception 'RESULTADO INESPERADO em %: md5(prosrc) ficou %, previsto 03dacc0abb23490a8e060c4f86e0df94', v_assin, v_md5_depois;
+  end if;
 
   raise notice 'retorno tratado sem selo do operador: aplicada em % (md5 % -> %)', v_assin, v_md5_antes, v_md5_depois;
+end $$;
+
+-- PARTE 2 -- "NOVO AGENDAMENTO NASCE PENDENTE" TAMBEM QUANDO SO A HORA MUDA.
+-- Sem isto a parte 1 teria um furo (achado da auditoria): operador clica "Ja
+-- falei" no combinado das 10:00 e, na mesma ligacao, marca NOVO retorno para a
+-- MESMA data as 16:00. A data nao muda, o gatilho nao dispara, a confirmacao
+-- velha sobrevive -- e a virada tiraria o selo de um combinado que ninguem
+-- tratou. O gatilho passa a zerar a confirmacao quando a data OU a hora muda.
+-- A funcao do gatilho nao e tocada. O motor nao escreve `hora_retorno`, entao
+-- este disparo novo so acontece por gravacao da tela.
+-- RESIDUO DECLARADO: reagendar para a mesma data E a mesma hora (ou ambos sem
+-- hora) continua indistinguivel do combinado ja dado como tratado.
+do $$
+declare
+  v_def text;
+begin
+  select pg_get_triggerdef(t.oid) into v_def
+    from pg_trigger t
+   where t.tgrelid = 'public.alunos'::regclass and t.tgname = 'trg_aluno_reset_retorno_confirmado' and not t.tgisinternal;
+
+  if v_def is null then
+    raise exception 'GATILHO AUSENTE: trg_aluno_reset_retorno_confirmado em public.alunos';
+  end if;
+
+  if position('hora_retorno' in v_def) > 0 then
+    raise notice 'gatilho de reset: ja cobre a hora, nada a fazer.';
+    return;
+  end if;
+
+  -- so troca o gatilho se ele for EXATAMENTE o lido em producao em 13/11/2026
+  if position('BEFORE UPDATE OF data_retorno ON public.alunos FOR EACH ROW WHEN ((new.data_retorno IS DISTINCT FROM old.data_retorno)) EXECUTE FUNCTION' in v_def) = 0
+     or position('tg_aluno_reset_retorno_confirmado()' in v_def) = 0 then
+    raise exception 'GATILHO INESPERADO: % -- reconferir antes de aplicar.', v_def;
+  end if;
+
+  set local lock_timeout = '5s';
+  create or replace trigger trg_aluno_reset_retorno_confirmado
+    before update of data_retorno, hora_retorno on public.alunos
+    for each row
+    when (new.data_retorno is distinct from old.data_retorno
+          or new.hora_retorno is distinct from old.hora_retorno)
+    execute function public.tg_aluno_reset_retorno_confirmado();
+
+  raise notice 'gatilho de reset: passa a cobrir data OU hora.';
 end $$;
 
 commit;

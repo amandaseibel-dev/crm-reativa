@@ -60,6 +60,13 @@ begin
     return;
   end if;
 
+  -- 0. CORPO: o corpo corrigido.
+  if v_md5_antes <> '03dacc0abb23490a8e060c4f86e0df94' then
+    raise exception
+      'CORPO INESPERADO em %: md5(prosrc) e %, esperado 03dacc0abb23490a8e060c4f86e0df94. Reconferir antes de seguir.',
+      v_assin, v_md5_antes;
+  end if;
+
   v_n := (length(v_def) - length(replace(v_def, v_ancora, ''))) / length(v_ancora);
   if v_n <> 1 then
     raise exception
@@ -84,8 +91,35 @@ begin
   if v_guarda_depois is distinct from v_guarda_antes then
     raise exception 'DONO/DEFINER/CONFIG/GRANTS mudaram em %: antes [%], depois [%]', v_assin, v_guarda_antes, v_guarda_depois;
   end if;
+  if v_md5_depois <> '41475103b8b7ad363dfdc76c4170c5a8' then
+    raise exception 'RESULTADO INESPERADO em %: md5(prosrc) ficou %, previsto 41475103b8b7ad363dfdc76c4170c5a8', v_assin, v_md5_depois;
+  end if;
 
   raise notice 'rollback retorno tratado: revertida em % (md5 % -> %)', v_assin, v_md5_antes, v_md5_depois;
+end $$;
+
+-- PARTE 2 -- o gatilho volta a olhar so a data (definicao de 20260808150000).
+do $$
+declare
+  v_def text;
+begin
+  select pg_get_triggerdef(t.oid) into v_def
+    from pg_trigger t
+   where t.tgrelid = 'public.alunos'::regclass and t.tgname = 'trg_aluno_reset_retorno_confirmado' and not t.tgisinternal;
+  if v_def is null then
+    raise exception 'GATILHO AUSENTE: trg_aluno_reset_retorno_confirmado em public.alunos';
+  end if;
+  if position('hora_retorno' in v_def) = 0 then
+    raise notice 'rollback gatilho de reset: ja olha so a data, nada a reverter.';
+    return;
+  end if;
+  set local lock_timeout = '5s';
+  create or replace trigger trg_aluno_reset_retorno_confirmado
+    before update of data_retorno on public.alunos
+    for each row
+    when (new.data_retorno is distinct from old.data_retorno)
+    execute function public.tg_aluno_reset_retorno_confirmado();
+  raise notice 'rollback gatilho de reset: volta a olhar so a data.';
 end $$;
 
 commit;
