@@ -80,6 +80,8 @@ create table public.juridico_casos (
   -- IDs de TODOS os acordos ATIVOS do aluno no momento da aprovacao.
   -- Base do sinal ACORDO_NOVO (novo ou reativado depois da aprovacao).
   acordos_aprovados uuid[] not null default '{}',
+  -- assinatura das condicoes materiais dos acordos ATIVOS na aprovacao (nulo ate aprovar)
+  acordos_assinatura text,
   -- IDs dos acordos ATIVOS que a gestao revisou (na geracao ou na ultima aprovacao
   -- de acordo ativo). Acordo fora dessa base bloqueia a aprovacao.
   acordos_na_geracao uuid[] not null default '{}',
@@ -540,6 +542,27 @@ begin
 end;
 $function$;
 
+-- Assinatura das condicoes MATERIAIS dos acordos ATIVOS do aluno: valor total, numero de
+-- parcelas, forma e entrada, e de cada parcela numero, valor, vencimento e boleto. Fica de fora
+-- o que e so cadastral (observacao, responsavel, datas de atualizacao) e o STATUS da parcela
+-- (pagamento e quebra ja tem divergencia propria).
+create function public._juridico_acordos_assinatura(p_aluno_id uuid)
+returns text
+language sql stable security definer set search_path to 'public'
+as $function$
+  select coalesce(md5(string_agg(x.linha, '|' order by x.linha)), '')
+    from (
+      select a.id::text || ':' || coalesce(round(a.valor_total, 2)::text, '') || ':' || coalesce(a.qtd_parcelas::text, '')
+             || ':' || coalesce(to_jsonb(a)->>'forma_pagamento', '') || ':' || coalesce(to_jsonb(a)->>'valor_entrada', '')
+             || ':' || coalesce(to_jsonb(a)->>'data_entrada', '') || ':'
+             || coalesce((select string_agg(p.id::text || ',' || coalesce(p.numero::text, '') || ',' || coalesce(round(p.valor, 2)::text, '')
+                                             || ',' || coalesce(p.vencimento::text, '') || ',' || coalesce(p.boleto, ''),
+                                             ';' order by p.numero, p.id)
+                            from public.parcelas p where p.acordo_id = a.id), '') as linha
+        from public.acordos a
+       where a.aluno_id = p_aluno_id and upper(coalesce(a.status, '')) = 'ATIVO' and a.duplicado_de is null) x;
+$function$;
+
 -- Divergencias de um caso depois da aprovacao. Usada pelo envio (recusa),
 -- pela tela (mostra) e pelo alerta (registra no historico, sem apagar nada).
 create function public._juridico_divergencias(p_caso public.juridico_casos)
@@ -610,6 +633,25 @@ begin
        and h.detalhe->>'depois' = 'ATIVO' and h.detalhe->>'antes' is distinct from 'ATIVO'
        and h.em > p_caso.aprovado_em
   ) then v := array_append(v, 'ACORDO_REATIVADO'); end if;
+
+  -- condicoes materiais do acordo mudaram com os mesmos IDs (vencimento, valor, parcelas...)
+  if p_caso.acordos_assinatura is not null
+     and public._juridico_acordos_assinatura(p_caso.aluno_id) is distinct from p_caso.acordos_assinatura then
+    v := array_append(v, 'ACORDO_CONDICOES_ALTERADAS'); end if;
+
+  -- termo: aprovado com acordo, sem documento vinculado nem autorizacao, o termo deixou de
+  -- atender (rejeitado, removido ou fora da etapa COMPLETO com arquivo final)
+  if coalesce(array_length(p_caso.acordos_aprovados, 1), 0) > 0
+     and p_caso.doc_manual_em is null and p_caso.doc_autorizado_em is null
+     and not exists (select 1 from public.termos_acordo ta
+                      where ta.aluno_id = p_caso.aluno_id::text and coalesce(ta.status, '') <> 'TERMO_REJEITADO'
+                        and ta.etapa_assinatura = 'COMPLETO' and ta.arquivo_final_url is not null) then
+    v := array_append(v, 'TERMO_INVALIDADO'); end if;
+
+  -- qualquer titulo do aluno em confirmacao, mesmo fora da fotografia (indice parcial por aluno)
+  if exists (select 1 from public.acordos_titulos t
+              where t.aluno_id = p_caso.aluno_id and upper(coalesce(t.situacao, '')) = 'EM_CONFIRMACAO') then
+    v := array_append(v, 'TITULO_EM_CONFIRMACAO'); end if;
 
   if public._juridico_pagamento_nao_baixado(p_caso.aluno_id) then
     v := array_append(v, 'PAGAMENTO_NAO_BAIXADO');
@@ -1158,7 +1200,8 @@ begin
   update public.juridico_casos
      set status = 'APROVADO', aprovado_por = v_email, aprovado_em = now(),
          valor_aprovado = (v_conf->>'total')::numeric, bloqueio_anterior = v_ant,
-         acordos_aprovados = v_acordos
+         acordos_aprovados = v_acordos,
+         acordos_assinatura = public._juridico_acordos_assinatura(v_caso.aluno_id)
    where id = p_caso_id;
 
   perform public._juridico_registrar(p_caso_id, v_caso.lote_id, 'CASO_APROVADO',
@@ -1185,9 +1228,15 @@ as $function$
                'situacao_academica', coalesce(al.situacao_academica, jc.situacao_academica),
                'valor_aprovado', jc.valor_aprovado,
                'aprovado_em', jc.aprovado_em, 'aprovado_por', jc.aprovado_por,
-               'divergencias', to_jsonb(public._juridico_divergencias(jc)),
+               'divergencias', to_jsonb(dv.d),
+               'conferencia_status', case
+                   when coalesce(array_length(dv.d, 1), 0) = 0 then 'CONFERIDO'
+                   when dv.d && array['PAGAMENTO_NAO_BAIXADO','PAGAMENTO_AGUARDANDO_CONFIRMACAO','TITULO_EM_CONFIRMACAO',
+                                      'MENSALIDADE_ALTERADA','PARCELA_ALTERADA'] then 'NAO_ENCAMINHAVEL'
+                   else 'REVISAO_NECESSARIA' end,
                'acordo_ativo_motivo', jc.acordo_ativo_motivo,
-               'documento', case when jc.doc_manual_em is not null then 'Vinculado manualmente (' || jc.doc_manual_origem || ')'
+               'documento', case when coalesce(array_length(dv.d, 1), 0) > 0 then 'Revisão necessária: ver divergências'
+                                 when jc.doc_manual_em is not null then 'Vinculado manualmente (' || jc.doc_manual_origem || ')'
                                  when jc.doc_autorizado_em is not null then 'Pendência autorizada pelo jurídico'
                                  else 'Conferido no CRM / não se aplica' end,
                'documento_ref', jc.doc_manual_ref,
@@ -1204,6 +1253,7 @@ as $function$
              order by al.nome)
         from public.juridico_casos jc
         join public.alunos al on al.id = jc.aluno_id
+        cross join lateral (select public._juridico_divergencias(jc) as d) dv
        where jc.lote_id = l.id
          and jc.status in ('ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO')), '[]'::jsonb))
     from public.juridico_lotes l
@@ -1593,6 +1643,7 @@ begin
   'public._juridico_conferencia(uuid)',
   'public._juridico_pendencias(public.juridico_casos,jsonb)',
   'public._juridico_divergencias(public.juridico_casos)',
+  'public._juridico_acordos_assinatura(uuid)',
   'public._juridico_registrar(uuid,uuid,text,jsonb,text)',
   'public._juridico_candidatos(integer,integer,integer,text[],uuid[])',
   'public._juridico_lote_payload(uuid)',
@@ -1617,8 +1668,8 @@ begin
   select count(*) into v_n from pg_proc p
    where p.pronamespace = 'public'::regnamespace
      and (p.proname like 'juridico\_%' or p.proname like '\_juridico\_%');
-  if v_n <> 29 then
-    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 29 esperadas).', v_n;
+  if v_n <> 30 then
+    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 30 esperadas).', v_n;
   end if;
 
   select count(*) into v_n

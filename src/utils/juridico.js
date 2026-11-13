@@ -32,6 +32,9 @@ const DIVERGENCIAS = {
   PAGAMENTO_NAO_BAIXADO: "Pagamento recebido e não baixado",
   PAGAMENTO_AGUARDANDO_CONFIRMACAO: "Pagamento aguardando confirmação",
   ACORDO_NOVO: "Acordo novo, ou reativado depois da aprovação",
+  TERMO_INVALIDADO: "Termo rejeitado, removido ou incompleto depois da aprovação",
+  TITULO_EM_CONFIRMACAO: "Título do aluno entrou em confirmação depois da aprovação",
+  ACORDO_CONDICOES_ALTERADAS: "Condições do acordo mudaram depois da aprovação (valor, parcelas ou vencimentos)",
   ACORDO_REATIVADO: "Acordo cancelado depois da aprovação e reativado",
   ACORDO_QUEBRADO_SEM_REVISAO: "Acordo quebrado ou com saldo alterado depois da aprovação: análise da gestão",
   ACORDO_ATIVO_SEM_APROVACAO: "Acordo regularizado (em dia) depois da aprovação, sem aprovação específica",
@@ -80,6 +83,15 @@ export function cpfFormatado(cpf) {
 }
 
 // O Excel sai do sistema: leva, por caso, o que mudou desde a aprovação.
+const CONFERENCIA = {
+  CONFERIDO: "Conferido",
+  REVISAO_NECESSARIA: "Revisão necessária",
+  NAO_ENCAMINHAVEL: "Não encaminhável",
+};
+export function rotuloConferencia(c) {
+  return CONFERENCIA[c?.conferencia_status] || ((c?.divergencias || []).length ? "Revisão necessária" : "Conferido");
+}
+
 export function situacaoNaGeracao(c) {
   const d = c?.divergencias || [];
   return d.length ? `ATENÇÃO: ${d.map(rotuloDivergencia).join("; ")}` : "Sem alteração desde a aprovação";
@@ -107,6 +119,7 @@ export function linhasDoLote(payload) {
       cpf: cpfFormatado(c.cpf),
       matricula: c.matricula || "",
       situacao_academica: c.situacao_academica || "",
+      conferencia: rotuloConferencia(c),
       situacao_geracao: situacaoNaGeracao(c),
     };
     alunos.push({
@@ -118,6 +131,8 @@ export function linhasDoLote(payload) {
       valor_total: soma("MENSALIDADE") + soma("PARCELA_ACORDO"),
       acordos: acordos.join(", "),
       documento: c.documento || "",
+      aprovado_por: c.aprovado_por || "",
+      aprovado_em: dataBr(c.aprovado_em),
       documento_ref: c.documento_ref || "",
       pendencias: pendenciasDoCaso(c),
     });

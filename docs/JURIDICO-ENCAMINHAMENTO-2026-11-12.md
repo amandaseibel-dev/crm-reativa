@@ -137,15 +137,30 @@ Fica, por decisão a tomar pela gestão:
   Acordo que fica em dia depois da aprovação, sem a aprovação específica de acordo ativo, vira a
   divergência `ACORDO_ATIVO_SEM_APROVACAO` e o envio é recusado. Em caso já enviado ou confirmado,
   essas divergências são só alerta para a gestão: não há revisão nem remoção pela aba.
-  Risco residual (ressalva do Guardião, achado por leitura, não executado): termo que piora
-  depois da aprovação (ex.: `TERMO_REJEITADO` ou arquivo removido) não gera divergência, porque
-  `_juridico_divergencias` não olha o termo; o Excel continua dizendo "Conferido no CRM".
-  Também não gera divergência título de acordo que entra em `EM_CONFIRMACAO` depois da aprovação,
-  exceto pelas rotas de fotografia e solicitação. Decisão da gestão: aceitar ou criar divergência.
-  Riscos residuais: (1) acordo regularizado sem pagamento (ex.: vencimento alterado) que volta a
-  quebrar com os mesmos IDs e o mesmo saldo não pede nova revisão; (2) mudança de parcela por
-  outra transação durante a aprovação não é travada (sem lock em `parcelas`), e não há teste de
-  concorrência real (PGlite é sessão única).
+  **Divergências impeditivas depois da aprovação (decisão da gestão):** todas recusam o envio ao
+  financeiro e aparecem no painel, no alerta e no Excel; a saída é remover o caso (o que libera o
+  aluno) e gerar nova seleção, com nova conferência. Nenhuma altera responsável, carteira,
+  fidelização, cobrança ou encerramento.
+  - `TERMO_INVALIDADO`: caso aprovado com acordo, sem documento vinculado nem autorização jurídica,
+    cujo termo foi rejeitado, removido ou deixou de estar na etapa COMPLETO com arquivo final.
+  - `TITULO_EM_CONFIRMACAO`: qualquer título do aluno em `EM_CONFIRMACAO`, esteja ou não na
+    fotografia. Lido do estado efetivo do banco a cada conferência.
+  - `ACORDO_CONDICOES_ALTERADAS`: a assinatura dos acordos ativos (valor total, nº de parcelas,
+    forma e entrada, e número, valor, vencimento e boleto de cada parcela) difere da gravada na
+    aprovação, mesmo com os mesmos IDs e saldo. Observação, responsável e datas de atualização
+    não contam; o status da parcela também não (pagamento e quebra têm divergência própria).
+  - Excel: coluna "Conferência" = Conferido (nada mudou), Revisão necessária (termo, condições,
+    acordo novo/reativado, quebrado ou ativo sem aprovação) ou Não encaminhável (pagamento,
+    título em confirmação, mensalidade ou parcela alterada). Com divergência, o texto "Conferido
+    no CRM" não é usado. "Aprovado por" e "Aprovado em" preservam o histórico da aprovação.
+  - Desempenho: três consultas por caso, todas por `aluno_id` com índice existente em produção
+    (`acordos_aluno_id_idx`, `parcelas_acordo_id_idx`, `ix_termos_acordo_aluno`,
+    `ix_acordos_titulos_em_confirmacao_aluno` parcial). Custo medido: NÃO MEDIDO em produção.
+  Riscos residuais: (1) acordo regularizado sem pagamento volta a quebrar com as mesmas
+  condições e o mesmo saldo: não pede nova revisão; (2) mudança de parcela por outra transação
+  durante a aprovação não é travada (sem lock em `parcelas`) e não há teste de concorrência
+  real (PGlite é sessão única); (3) termo avaliado só pela etapa e pelo arquivo, não pelo
+  conteúdo.
 - **Acordo ativo novo ou reativado depois da geração da lista** (`ACORDO_NOVO_APOS_GERACAO`):
   a pendência recusa a aprovação. A base revisada é `juridico_casos.acordos_na_geracao` (gravada na
   geração e renovada só pela aprovação específica de acordo ativo, com motivo). A aprovação trava o
@@ -164,8 +179,8 @@ Fica, por decisão a tomar pela gestão:
 - **Excel**: toda geração (envio e reexportação) registra `EXCEL_GERADO` com o lote. Só leva caso
   enviado ou confirmado. Os valores são os da aprovação; a coluna "Situação na data da geração"
   marca o caso em que algo mudou depois.
-- **Grants e rollback**: listas explícitas de 14 funções públicas e 15 internas (sem `service_role`); a
-  migration confere que o inventário tem exatamente 29. O rollback solta gatilhos, depois as 29 funções,
+- **Grants e rollback**: listas explícitas de 14 funções públicas e 16 internas (sem `service_role`); a
+  migration confere que o inventário tem exatamente 30. O rollback solta gatilhos, depois as 30 funções,
   depois as tabelas. Cópias em `_backup_juridico_*_20261112` com RLS e sem grant.
 - **Término do Contrato** não entra em evadidos (`_juridico_grupo` devolve nulo).
 

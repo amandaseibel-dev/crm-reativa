@@ -1121,6 +1121,112 @@ describe("acordo que muda de situacao depois da aprovacao trava o envio", () => 
   });
 });
 
+// Decisao da gestao (PR #934, apos a aprovacao com ressalvas): termo, titulo em confirmacao,
+// condicoes materiais do acordo e rotulo do Excel viram divergencia impeditiva.
+describe("divergencias impeditivas depois da aprovacao (termo, confirmacao, condicoes, Excel)", () => {
+  const divs = async (db, caso) =>
+    (await db.query("select public._juridico_divergencias(jc) d from juridico_casos jc where jc.id=$1", [caso.id])).rows[0].d;
+  const termo = (db, al, extra = "") =>
+    db.query(`insert into termos_acordo(aluno_id,status,arquivo_nome,arquivo_url,etapa_assinatura,arquivo_final_nome,arquivo_final_url) values ($1,'VALIDADO','t.pdf','https://x/t.pdf','COMPLETO','tf.pdf','https://x/tf.pdf')`, [al]);
+  // aluno com acordo EM DIA, termo completo, aprovado com aprovacao especifica
+  const aprovado = async (db) => {
+    const a = await mk(db, { valores: [1000], acordo: "EM_DIA" });
+    await termo(db, a.al);
+    const l = await gerar(db, 1);
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_aprovar_acordo_ativo($1,'pedido do jurídico',$2)", [caso.id, await ativos(db, a.al)]);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    return { a, l, caso };
+  };
+  // simula a rota oficial (Conferencia Prime), unica que a trava de producao aceita
+  const emConfirmacao = async (db, a, id, doc) => {
+    await db.query("select set_config('conferencia_prime.decisao','on',false)");
+    await db.query("insert into acordos_titulos(id,aluno_id,cpf,documento,vencimento,valor_original,saldo_corrigido,situacao,tipo_boleto) values ($1,$2,$3,$4,'2024-03-10',300,300,'EM_CONFIRMACAO','Acordo')", [id, a.al, a.cpf, doc]);
+    await db.query("select set_config('conferencia_prime.decisao','off',false)");
+  };
+  const envio = (db, l) => falha(rpc(db, "public.juridico_lote_enviar_financeiro($1)", [l.lote_id]));
+
+  it("1a. termo REJEITADO depois da aprovacao: divergencia e envio recusado", async () => {
+    const db = await novo();
+    const { a, l, caso } = await aprovado(db);
+    expect(await divs(db, caso)).toEqual([]);
+    await db.query("update termos_acordo set status='TERMO_REJEITADO' where aluno_id=$1", [a.al]);
+    expect(await divs(db, caso)).toContain("TERMO_INVALIDADO");
+    expect((await envio(db, l))?.message).toMatch(/TERMO_INVALIDADO/);
+    await db.close();
+  });
+  it("1b. termo REMOVIDO ou voltando a etapa nao completa: divergencia", async () => {
+    const db = await novo();
+    const { a, caso } = await aprovado(db);
+    await db.query("update termos_acordo set etapa_assinatura='PENDENTE' where aluno_id=$1", [a.al]);
+    expect(await divs(db, caso)).toContain("TERMO_INVALIDADO");
+    await db.query("delete from termos_acordo where aluno_id=$1", [a.al]);
+    expect(await divs(db, caso)).toContain("TERMO_INVALIDADO");
+    await db.close();
+  });
+  it("1c. regressao: termo valido, ou documento vinculado/autorizado, nao gera divergencia", async () => {
+    const db = await novo();
+    const { caso } = await aprovado(db);
+    expect(await divs(db, caso)).not.toContain("TERMO_INVALIDADO");
+    const b = await mk(db, { valores: [800], acordo: "EM_DIA" }); // sem termo, com autorizacao juridica
+    await gerar(db, 1);
+    const cb = await casoDe(db, b.al);
+    await rpc(db, "public.juridico_caso_autorizar_documento($1,'autorizado pelo jurídico')", [cb.id]);
+    await rpc(db, "public.juridico_caso_aprovar_acordo_ativo($1,'pedido',$2)", [cb.id, await ativos(db, b.al)]);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [cb.id]);
+    expect(await divs(db, cb)).not.toContain("TERMO_INVALIDADO");
+    await db.close();
+  });
+
+  it("2. titulo FORA da fotografia em confirmacao depois da aprovacao: divergencia e envio recusado", async () => {
+    const db = await novo();
+    const { a, l, caso } = await aprovado(db);
+    await emConfirmacao(db, a, U(995, 1), "FORA-1");
+    expect(await divs(db, caso)).toContain("TITULO_EM_CONFIRMACAO");
+    expect((await envio(db, l))?.message).toMatch(/TITULO_EM_CONFIRMACAO/);
+    await db.close();
+  });
+
+  it("3a. condicoes materiais do acordo mudam com os mesmos IDs e saldo: vencimento, valor total, numero de parcelas", async () => {
+    for (const mudar of [
+      (db, a) => db.query("update parcelas set vencimento='2099-08-10' where acordo_id=$1 and numero=2", [a.ac]),
+      (db, a) => db.query("update acordos set valor_total=valor_total+1000 where id=$1", [a.ac]),
+      (db, a) => db.query("update acordos set qtd_parcelas=qtd_parcelas+1 where id=$1", [a.ac]),
+    ]) {
+      const db = await novo();
+      const { a, caso } = await aprovado(db);
+      await mudar(db, a);
+      expect(await divs(db, caso)).toContain("ACORDO_CONDICOES_ALTERADAS");
+      await db.close();
+    }
+  });
+  it("3b. alteracao so cadastral (observacao, atualizado_em) NAO gera divergencia", async () => {
+    const db = await novo();
+    const { a, caso } = await aprovado(db);
+    await db.query("update acordos set observacao='nota interna', atualizado_em=now() + interval '1 day' where id=$1", [a.ac]);
+    expect(await divs(db, caso)).toEqual([]);
+    await db.close();
+  });
+
+  it("4. Excel: 'Conferido' so sem divergencia; com divergencia vira revisao necessaria ou nao encaminhavel, e o historico da aprovacao segue no payload", async () => {
+    const db = await novo();
+    const { a, l, caso } = await aprovado(db);
+    await rpc(db, "public.juridico_lote_enviar_financeiro($1)", [l.lote_id]);
+    let p = (await rpc(db, "public.juridico_lote_exportar($1)", [l.lote_id])).casos[0];
+    expect(p.conferencia_status).toBe("CONFERIDO");
+    expect(p.documento).toMatch(/Conferido/);
+    await db.query("update termos_acordo set status='TERMO_REJEITADO' where aluno_id=$1", [a.al]);
+    p = (await rpc(db, "public.juridico_lote_exportar($1)", [l.lote_id])).casos[0];
+    expect(p.conferencia_status).toBe("REVISAO_NECESSARIA");
+    expect(p.documento).not.toMatch(/Conferido/);
+    expect(p.aprovado_por).toBe(H.GESTAO);
+    await emConfirmacao(db, a, U(996, 1), "FORA-2");
+    p = (await rpc(db, "public.juridico_lote_exportar($1)", [l.lote_id])).casos[0];
+    expect(p.conferencia_status).toBe("NAO_ENCAMINHAVEL");
+    await db.close();
+  });
+});
+
 describe("rollback", () => {
   it("recusa com bloqueio ativo; sem bloqueio, remove tudo e guarda copia fechada", async () => {
     const db = await novo();

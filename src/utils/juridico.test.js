@@ -68,6 +68,17 @@ describe("linhas do lote", () => {
     expect(alunos[1].situacao_geracao).toBe("Sem alteração desde a aprovação");
   });
 
+  it("conferência: Conferido só sem divergência; com divergência, revisão necessária ou não encaminhável", () => {
+    const base = PAYLOAD.casos[0];
+    const um = (c) => linhasDoLote({ ...PAYLOAD, casos: [c] }).alunos[0].conferencia;
+    expect(um(base)).toBe("Conferido");
+    expect(um({ ...base, divergencias: ["TERMO_INVALIDADO"], conferencia_status: "REVISAO_NECESSARIA" })).toBe("Revisão necessária");
+    expect(um({ ...base, divergencias: ["TITULO_EM_CONFIRMACAO"], conferencia_status: "NAO_ENCAMINHAVEL" })).toBe("Não encaminhável");
+    expect(um({ ...base, divergencias: ["ACORDO_CONDICOES_ALTERADAS"] })).toBe("Revisão necessária"); // payload antigo, sem status
+    expect(linhasDoLote({ ...PAYLOAD, casos: [{ ...base, aprovado_por: "gestao@x", aprovado_em: "2026-11-12T10:00:00Z" }] }).alunos[0])
+      .toMatchObject({ aprovado_por: "gestao@x", aprovado_em: "12/11/2026" });
+  });
+
   it("lote vazio não quebra", () => {
     expect(linhasDoLote({ protocolo: "x", casos: [] })).toEqual({ titulos: [], alunos: [] });
     expect(linhasDoLote(null)).toEqual({ titulos: [], alunos: [] });
