@@ -91,6 +91,15 @@ export function templateDoCorpo(v: unknown): TemplateEnvio | null {
   return { nome, variaveis };
 }
 
+/**
+ * Lista local de templates aprovados (ULBRA_TEMPLATES_APROVADOS, separada por vírgula).
+ * Só RESTRINGE o uso: não substitui a aprovação nem a disponibilidade informadas pela ULBRA.
+ */
+export function templatesAprovadosDoAmbiente(): string[] {
+  const bruto = (globalThis as { Deno?: { env: { get(k: string): string | undefined } } }).Deno?.env.get("ULBRA_TEMPLATES_APROVADOS") ?? "";
+  return bruto.split(",").map((s) => s.trim()).filter((s) => s !== "");
+}
+
 /** Normaliza para comparar identidade: minúsculas, sem espaços nas pontas e com espaços colapsados. */
 export function normalizarIdentidade(v: string | null | undefined): string {
   return (v ?? "").trim().toLowerCase().replace(/\s+/g, " ");

@@ -175,8 +175,9 @@ export default function CentralConversas({
                   antesDe={historico.antesDe || null}
                   onCarregarAnteriores={historico.onCarregarAnteriores}
                   podeEnviar
+                  templatesAprovados={conexao?.templatesAprovados ?? []}
                   onPrevia={(texto) => onPrevia(sel, texto)}
-                  onEnviar={(texto, chave, previa) => onEnviar(sel, texto, chave, previa)}
+                  onEnviar={(texto, chave, previa, template) => onEnviar(sel, texto, chave, previa, template)}
                 />
               ) : mostraConversa ? (
                 <ConversaUlbra mensagens={historico.mensagens} antesDe={historico.antesDe || null} onCarregarAnteriores={historico.onCarregarAnteriores} podeEnviar={false} />

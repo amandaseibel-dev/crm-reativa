@@ -37,10 +37,14 @@ export function conexaoDesconectar() { return chamar("ulbra-conversa", { acao: "
 export function envioPrevia(conversaId, texto) {
   return chamar("ulbra-conversa", { acao: "envio_previa", conversa_id: conversaId, texto });
 }
-/** Envio confirmado, idempotente pela chave. 1 chamada da cota do operador. */
-export function envioConfirmar(conversaId, texto, chave, previa = {}) {
+/**
+ * Envio confirmado, idempotente pela chave. 1 chamada da cota do operador.
+ * `template` ({nome, variaveis}) é usado fora da janela de 24 h; o servidor confere a lista aprovada.
+ */
+export function envioConfirmar(conversaId, texto, chave, previa = {}, template = null) {
   return chamar("ulbra-conversa", {
     acao: "envio_confirmar", conversa_id: conversaId, texto, chave,
+    ...(template ? { template } : {}),
     previa_custo_usd: typeof previa.custo_usd === "number" ? previa.custo_usd : undefined,
     previa_janela_aberta: typeof previa.janela_aberta === "boolean" ? previa.janela_aberta : undefined,
     previa_em: previa.em || undefined,

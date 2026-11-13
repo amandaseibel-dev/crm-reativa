@@ -88,3 +88,49 @@ describe("ConversaUlbra — envio em duas etapas", () => {
     expect(screen.getByLabelText("Resposta").value).toBe("oi");
   });
 });
+
+describe("ConversaUlbra — template fora da janela (lista aprovada)", () => {
+  it("sem templates aprovados: mostra o aviso, não oferece seleção e mantém o envio bloqueado fora da janela", () => {
+    render(<ConversaUlbra mensagens={MSGS} podeEnviar templatesAprovados={[]} />);
+    expect(screen.getByText(/Nenhum template aprovado está disponível/)).toBeTruthy();
+    expect(document.querySelector("[data-campo='template-select']")).toBeNull();
+  });
+
+  it("com templates aprovados: oferece a seleção e não exige texto livre quando há template", async () => {
+    const onPrevia = vi.fn().mockResolvedValue({ ok: true, custo_usd: 0.01, janela_aberta: false });
+    render(<ConversaUlbra mensagens={MSGS} podeEnviar templatesAprovados={["aviso_retorno"]} onPrevia={onPrevia} />);
+    const select = document.querySelector("[data-campo='template-select']");
+    expect(select).toBeTruthy();
+    fireEvent.change(select, { target: { value: "aviso_retorno" } });
+    fireEvent.change(document.querySelector("[data-campo='template-variaveis']"), { target: { value: "Maria; 10/11" } });
+    fireEvent.click(screen.getByText(/Ver prévia/));
+    await waitFor(() => expect(onPrevia).toHaveBeenCalledTimes(1));
+    expect(onPrevia).toHaveBeenCalledWith("", { nome: "aviso_retorno", variaveis: ["Maria", "10/11"] });
+  });
+
+  it("janela fechada sem template escolhido: não deixa confirmar, pede o template", async () => {
+    const onPrevia = vi.fn().mockResolvedValue({ ok: true, custo_usd: 0.01, janela_aberta: false });
+    render(<ConversaUlbra mensagens={MSGS} podeEnviar templatesAprovados={["aviso_retorno"]} onPrevia={onPrevia} />);
+    fireEvent.change(screen.getByLabelText("Resposta"), { target: { value: "oi" } });
+    fireEvent.click(screen.getByText(/Ver prévia/));
+    await waitFor(() => expect(screen.getByText(/Escolha um template aprovado para enviar/)).toBeTruthy());
+    expect(document.querySelector("[data-campo='confirmar']")).toBeNull();
+  });
+
+  it("confirmar com template chama onEnviar com o template e UMA chave", async () => {
+    const onPrevia = vi.fn().mockResolvedValue({ ok: true, custo_usd: 0.01, janela_aberta: false });
+    const onEnviar = vi.fn().mockResolvedValue({ situacao: "PROCESSADO", envio: { status: "ENVIADO" } });
+    render(<ConversaUlbra mensagens={MSGS} podeEnviar templatesAprovados={["aviso_retorno"]} onPrevia={onPrevia} onEnviar={onEnviar} />);
+    fireEvent.change(document.querySelector("[data-campo='template-select']"), { target: { value: "aviso_retorno" } });
+    fireEvent.change(document.querySelector("[data-campo='template-variaveis']"), { target: { value: "Maria" } });
+    fireEvent.click(screen.getByText(/Ver prévia/));
+    await waitFor(() => expect(document.querySelector("[data-campo='confirmar']")).toBeTruthy());
+    fireEvent.click(document.querySelector("[data-campo='confirmar']"));
+    await waitFor(() => expect(onEnviar).toHaveBeenCalledTimes(1));
+    const [texto, chave, previa, template] = onEnviar.mock.calls[0];
+    expect(texto).toBe("");
+    expect(typeof chave).toBe("string");
+    expect(previa.janela_aberta).toBe(false);
+    expect(template).toEqual({ nome: "aviso_retorno", variaveis: ["Maria"] });
+  });
+});

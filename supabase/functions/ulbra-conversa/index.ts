@@ -21,7 +21,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { ESCOPOS_MINIMOS, gerarPkce, renovarToken, revogarToken, trocarCodigo, urlDeAutorizacao, validarRetorno, type Fetch } from "./oauth.ts";
 import { chaveDeHex, cifrar, decifrar } from "./cripto.ts";
 import { estadoConexao, garantirConexao, type ProvedorOAuth, type RegistroConexao } from "./conexao.ts";
-import { RecusadoPelaUlbra, enviarResposta, templateDoCorpo, type Envio, type PedidoEnvio, type RepositorioEnvio } from "./envio.ts";
+import { RecusadoPelaUlbra, enviarResposta, templateDoCorpo, templatesAprovadosDoAmbiente, type Envio, type PedidoEnvio, type RepositorioEnvio } from "./envio.ts";
 
 const MCP_URL = "https://crm.ulbra.ai/api/mcp";
 const ACCEPT_MCP = "application/json, text/event-stream";
@@ -134,7 +134,7 @@ Deno.serve(async (req: Request) => {
     if (acao === "conexao_estado") {
       const r = await lerRegistro();
       const { data: c } = await sb.from("ulbra_conexoes_operador").select("pessoa_nome, escopos, so_leitura, conectada_em").eq("operador_email", email).maybeSingle();
-      return responder({ ok: true, estado: estadoConexao(r, Date.now()), pessoa: c?.pessoa_nome ?? null, escopos: c?.escopos ?? null, so_leitura: c?.so_leitura ?? null, conectada_em: c?.conectada_em ?? null, envio_real: envioReal });
+      return responder({ ok: true, estado: estadoConexao(r, Date.now()), pessoa: c?.pessoa_nome ?? null, escopos: c?.escopos ?? null, so_leitura: c?.so_leitura ?? null, conectada_em: c?.conectada_em ?? null, envio_real: envioReal, templates_aprovados: templatesAprovadosDoAmbiente() });
     }
 
     if (acao === "conexao_iniciar") {
@@ -242,7 +242,7 @@ Deno.serve(async (req: Request) => {
       };
       const r = await enviarResposta(pedido, {
         repositorio, provedorOAuth, conexao: conn.registro, envioRealConfirmado: envioReal, agora: () => Date.now(),
-        templatesAprovados: (Deno.env.get("ULBRA_TEMPLATES_APROVADOS") ?? "").split(",").map((s) => s.trim()).filter((s) => s !== ""),
+        templatesAprovados: templatesAprovadosDoAmbiente(),
         provedorEnvio: {
           async enviar(p) {
             // Template e texto livre usam a mesma ferramenta; o template vai no argumento próprio (nome e parâmetros não verificados ainda).
