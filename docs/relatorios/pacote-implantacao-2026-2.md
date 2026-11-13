@@ -17,6 +17,8 @@ Commit de referência: `d222a614` (PR #947, base `origin/main` 89bcf257). Confer
 2. Não há objetos `relatorio_mensalidades_2026_2_*`, `_relatorio_2026_2_eleg` nem a tabela `relatorio_mens_2026_2_snapshot` em produção. Confirmar com leitura antes.
 3. Incidente das ações massivas encerrado, ou janela aprovada pela gestão. A migration cria objetos novos e não toca tabelas financeiras; ainda assim, nenhum relatório pesado deve rodar durante o incidente.
 4. Backup lógico do schema `public` disponível.
+5. Linha pendente em `docs/seguranca/migracoes-aprovadas.tsv` para `20261113000000` com o SHA-256 acima, criada pela gestão conforme `docs/RUNBOOK-MIGRATIONS.md` (seção "Exceção de apply_migration por registro de aprovação"). A linha não foi criada nesta PR.
+6. Conferir o ambiente do worktree antes de qualquer comando contra o banco: `ambiente.sh` no checkout principal aponta para o projeto de produção.
 
 ## Ordem de aplicação
 
