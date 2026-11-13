@@ -22,7 +22,7 @@ export const JANELA_MS = 24 * 60 * 60 * 1000;
 export const ATENDIMENTO_RE = /^[a-f0-9]{24}$/;
 export const TIMEOUT_ENVIO_MS = 15_000;
 
-export type StatusEnvio = "PENDENTE" | "ENVIANDO" | "ENVIADO" | "RECUSADO" | "FALHA_INCERTA";
+export type StatusEnvio = "PENDENTE" | "ENVIANDO" | "ENVIADO" | "RECUSADO" | "FALHA_INCERTA" | "CONFIRMADO_ENVIADO" | "CONFIRMADO_NAO_ENVIADO";
 
 export interface Envio {
   chave: string;
@@ -237,4 +237,35 @@ function comTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
     timer = setTimeout(() => rej(new Error("TIMEOUT_ENVIO")), ms);
   });
   return Promise.race([p, limite]).finally(() => clearTimeout(timer));
+}
+
+/** Status em aberto: o envio pode ter começado. Só estes podem ser conferidos. */
+export const STATUS_EM_ABERTO: readonly StatusEnvio[] = ["PENDENTE", "ENVIANDO", "FALHA_INCERTA"];
+
+export interface ResolucaoEnvio {
+  operador_email: string;
+  chave: string;
+  decisao: "CONFIRMADO_ENVIADO" | "CONFIRMADO_NAO_ENVIADO";
+  motivo: string;
+  conferido_por: string;
+}
+
+/**
+ * Conferência administrativa de envio em aberto. NÃO reenvia: só registra a decisão humana.
+ * Sem evidência no provedor, o envio continua aberto: a decisão precisa ser explícita e
+ * ter motivo. Passagem de tempo não é evidência de ausência de envio.
+ */
+export async function resolverEnvioAberto(
+  envio: Envio | null,
+  r: ResolucaoEnvio,
+  repo: RepositorioEnvio,
+): Promise<{ situacao: "RESOLVIDO" } | { situacao: "BLOQUEADO"; motivos: string[] }> {
+  const motivos: string[] = [];
+  if (!envio) motivos.push("ENVIO_NAO_ENCONTRADO");
+  else if (!STATUS_EM_ABERTO.includes(envio.status)) motivos.push("ENVIO_JA_RESOLVIDO_OU_FECHADO");
+  if (r.motivo.trim().length < 10) motivos.push("MOTIVO_OBRIGATORIO");
+  if (r.decisao !== "CONFIRMADO_ENVIADO" && r.decisao !== "CONFIRMADO_NAO_ENVIADO") motivos.push("DECISAO_INVALIDA");
+  if (motivos.length > 0) return { situacao: "BLOQUEADO", motivos };
+  await repo.atualizar(r.operador_email, r.chave, { status: r.decisao, motivo: `conferido por ${r.conferido_por}: ${r.motivo.trim()}` });
+  return { situacao: "RESOLVIDO" };
 }

@@ -2,7 +2,7 @@
 // e falha de gravação. PROVA SIMULADA: provedores fake. Não é envio real à Mensageria.
 // Templates não fazem parte desta entrega.
 import { describe, it, expect } from "vitest";
-import { TEXTO_MAX, enviarResposta, hashConteudo, validarPedido } from "./envio.ts";
+import { TEXTO_MAX, enviarResposta, hashConteudo, validarPedido, resolverEnvioAberto, type Envio } from "./envio.ts";
 import { AGORA, CHAVE, OP, RepoMemoria, conexao, deps, pedido } from "./fixtures.ts";
 
 describe("validação do pedido", () => {
@@ -226,5 +226,71 @@ describe("índice de texto em aberto: concorrência entre requisições com chav
     const r = await enviarResposta(pedido({ chave: "chave-nova-0009" }), d);
     expect(r.situacao === "BLOQUEADO" && r.motivos).toEqual(["ENVIO_EM_ABERTO_MESMO_TEXTO"]);
     expect(provedorEnvio.chamadas).toEqual([]);
+  });
+});
+
+class RepoComFalha extends RepoMemoria {
+  falharEm: string | null = null;
+  async atualizar(o: string, c: string, campos: Partial<Envio>) {
+    if (this.falharEm && campos.status === this.falharEm) throw new Error("FALHA_DB_" + this.falharEm);
+    return super.atualizar(o, c, campos);
+  }
+}
+
+describe("falhas de persistência antes e depois da chamada externa", () => {
+  it("falha ao marcar ENVIANDO (antes da chamada): o provedor NÃO é chamado", async () => {
+    const repo = new RepoComFalha();
+    repo.falharEm = "ENVIANDO";
+    const { d, provedorEnvio } = deps({ repositorio: repo });
+    await expect(enviarResposta(pedido(), d)).rejects.toThrow("FALHA_DB_ENVIANDO");
+    expect(provedorEnvio.chamadas).toEqual([]);
+  });
+  it("falha ao marcar ENVIADO (depois da chamada): vira FALHA_INCERTA, bloqueia reenvio e nunca fica 'seguro reenviar'", async () => {
+    const repo = new RepoComFalha();
+    repo.falharEm = "ENVIADO";
+    const { d, provedorEnvio } = deps({ repositorio: repo });
+    const r = await enviarResposta(pedido(), d);
+    expect(provedorEnvio.chamadas.length).toBe(1);
+    expect(r.situacao === "PROCESSADO" && r.envio.status).toBe("FALHA_INCERTA");
+    const again = await enviarResposta(pedido({ chave: "outra-chave-depois-da-falha" }), d);
+    expect(again.situacao).toBe("BLOQUEADO");
+    expect(provedorEnvio.chamadas.length).toBe(1);
+  });
+  it("texto de 4096 caracteres, acentuado e não repetitivo, é enviado normalmente", async () => {
+    const alfabeto = "áéíóúçãõàêôabcdefghijklmnopqrstuvwxyzÁÉÍÓÚÇ0123456789 ";
+    let seed = 7;
+    let texto = "";
+    while (texto.length < 4096) {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      texto += alfabeto[seed % alfabeto.length];
+    }
+    const { d, provedorEnvio } = deps();
+    const r = await enviarResposta(pedido({ texto }), d);
+    expect(r.situacao).toBe("PROCESSADO");
+    expect(provedorEnvio.chamadas[0].texto.length).toBe(4096);
+  });
+});
+
+describe("conferência administrativa de envio em aberto", () => {
+  const abertoFalha = (): Envio => ({ chave: CHAVE, operador_email: OP, atendimento_id: pedido().atendimento_id, texto: "x", status: "FALHA_INCERTA", ulbra_mensagem_id: null, motivo: "ECONNRESET", criado_em_ms: AGORA, previa_id: null });
+  it("resolve FALHA_INCERTA com motivo, sem reenviar", async () => {
+    const repo = new RepoMemoria();
+    repo.m.set(`${OP}|${CHAVE}`, abertoFalha());
+    const { d, provedorEnvio } = deps({ repositorio: repo });
+    const r = await resolverEnvioAberto(abertoFalha(), { operador_email: OP, chave: CHAVE, decisao: "CONFIRMADO_NAO_ENVIADO", motivo: "conferido na Mensageria: não há mensagem", conferido_por: "gestao@x" }, repo);
+    expect(r.situacao).toBe("RESOLVIDO");
+    expect(repo.m.get(`${OP}|${CHAVE}`)!.status).toBe("CONFIRMADO_NAO_ENVIADO");
+    expect(provedorEnvio.chamadas).toEqual([]);
+  });
+  it("sem motivo, a conferência é recusada", async () => {
+    const repo = new RepoMemoria();
+    const r = await resolverEnvioAberto(abertoFalha(), { operador_email: OP, chave: CHAVE, decisao: "CONFIRMADO_ENVIADO", motivo: "ok", conferido_por: "g" }, repo);
+    expect(r.situacao === "BLOQUEADO" && r.motivos).toContain("MOTIVO_OBRIGATORIO");
+  });
+  it("envio já fechado (ENVIADO) não é reaberto por conferência", async () => {
+    const repo = new RepoMemoria();
+    const fechado = { ...abertoFalha(), status: "ENVIADO" as const };
+    const r = await resolverEnvioAberto(fechado, { operador_email: OP, chave: CHAVE, decisao: "CONFIRMADO_ENVIADO", motivo: "motivo suficiente aqui", conferido_por: "g" }, repo);
+    expect(r.situacao === "BLOQUEADO" && r.motivos).toContain("ENVIO_JA_RESOLVIDO_OU_FECHADO");
   });
 });

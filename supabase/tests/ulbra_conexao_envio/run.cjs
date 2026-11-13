@@ -155,6 +155,22 @@ async function main() {
     await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-aberto-02', $1, $2, 'texto-aberto-unico', 'PENDENTE')", [OP, AT]);
   });
 
+  await teste("texto de 4096 caracteres, acentuado e não repetitivo, grava e a duplicata em aberto é barrada", async () => {
+    const alfabeto = "áéíóúçãõàêôabcdefghijklmnopqrstuvwxyzÁÉÍÓÚÇ0123456789 ";
+    let seed = 7;
+    let texto = "";
+    while (texto.length < 4096) {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      texto += alfabeto[seed % alfabeto.length];
+    }
+    await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-longo-acento-1', $1, $2, $3, 'PENDENTE')", [OP, AT, texto]);
+    await esperaErro(c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-longo-acento-2', $1, $2, $3, 'PENDENTE')", [OP, AT, texto]), "23505");
+  });
+  await teste("status de conferência (CONFIRMADO_ENVIADO / CONFIRMADO_NAO_ENVIADO) é aceito pelo CHECK e libera o índice", async () => {
+    await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-conf-1', $1, $2, 'texto-conferido-unico', 'CONFIRMADO_NAO_ENVIADO')", [OP, AT]);
+    await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-conf-2', $1, $2, 'texto-conferido-unico', 'PENDENTE')", [OP, AT]);
+  });
+
   // ---------------------------------------------------------------- consumo (sequencial)
   await teste("outra conta não consome a prévia", async () => {
     const r = await c.query(CONSUMIR, [PREVIA_OK, new Date().toISOString(), "outra@x.com.br"]);

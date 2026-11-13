@@ -93,7 +93,7 @@ create table public.ulbra_envios (
   operador_email       text not null,
   atendimento_id       text not null,
   texto                text not null,
-  status               text not null check (status in ('PENDENTE','ENVIANDO','ENVIADO','RECUSADO','FALHA_INCERTA')),
+  status               text not null check (status in ('PENDENTE','ENVIANDO','ENVIADO','RECUSADO','FALHA_INCERTA','CONFIRMADO_ENVIADO','CONFIRMADO_NAO_ENVIADO')),
   ulbra_mensagem_id    text,
   motivo               text,
   -- a prévia que autorizou este envio. Unique: uma prévia gera no máximo um envio.

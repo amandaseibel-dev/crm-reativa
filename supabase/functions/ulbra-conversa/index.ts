@@ -20,7 +20,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { ESCOPOS_MINIMOS, gerarPkce, renovarToken, revogarToken, trocarCodigo, urlDeAutorizacao, validarRetorno, type Fetch } from "./oauth.ts";
 import { chaveDeHex, cifrar, decifrar } from "./cripto.ts";
 import { estadoConexao, garantirConexao, type ProvedorOAuth, type RegistroConexao } from "./conexao.ts";
-import { RecusadoPelaUlbra, enviarResposta, type Envio, type PedidoEnvio, type RepositorioEnvio, type ResultadoEnvio } from "./envio.ts";
+import { enviarResposta, resolverEnvioAberto, type Envio, type PedidoEnvio, type RepositorioEnvio, type ResultadoEnvio } from "./envio.ts";
 import { confirmarPrevia, criarPrevia, type PreviaRegistro, type RepositorioPrevia } from "./previa.ts";
 
 const MCP_URL = "https://crm.ulbra.ai/api/mcp";
@@ -179,7 +179,7 @@ Deno.serve(async (req: Request) => {
       if (!UUID_RE.test(id)) return null;
       const { data } = await sb.from("ulbra_envio_previas").select("*").eq("id", id).maybeSingle();
       if (!data) return null;
-      return { id: data.id, operador_email: data.operador_email, atendimento_id: data.atendimento_id, ulbra_cliente_id: data.ulbra_cliente_id, conteudo_hash: data.conteudo_hash, expira_em_ms: Date.parse(data.expira_em), consumida_em_ms: data.consumida_em ? Date.parse(data.consumida_em) : null };
+      return { id: data.id, operador_email: data.operador_email, atendimento_id: data.atendimento_id, ulbra_cliente_id: data.ulbra_cliente_id, conteudo_hash: data.conteudo_hash, criado_em_ms: Date.parse(data.criado_em), expira_em_ms: Date.parse(data.expira_em), consumida_em_ms: data.consumida_em ? Date.parse(data.consumida_em) : null };
     },
     async consumir(id, operador, agoraMs) {
       // Consumo atômico: só altera a linha se ainda não consumida, do mesmo operador e dentro da validade.
@@ -189,6 +189,13 @@ Deno.serve(async (req: Request) => {
       return (data?.length ?? 0) === 1;
     },
   };
+
+  /** Auditoria: registro_id é uuid, então o id do atendimento vai em detalhes. Erro não é engolido. */
+  async function auditar(acao: string, tabela: string, detalhes: Record<string, unknown>): Promise<boolean> {
+    const { error } = await sb.from("auditoria").insert({ usuario: email, acao, tabela_afetada: tabela, registro_id: null, detalhes });
+    if (error) console.error("ulbra-conversa: AUDITORIA NÃO GRAVADA", acao, error.message);
+    return !error;
+  }
 
   /** Monta o pedido com o estado AGORA: atendimento, responsável, carteira, janela e conta conectada. */
   async function montarPedido(atendimentoId: string, texto: string, chaveEnvio: string, conta: RegistroConexao): Promise<{ pedido: PedidoEnvio } | { bloqueio: ResultadoEnvio; status: number }> {
@@ -283,7 +290,8 @@ Deno.serve(async (req: Request) => {
       const m = await montarPedido(atendimentoId, texto, "previa-sem-envio", conn.registro);
       if ("bloqueio" in m) return responder({ ok: false, ...m.bloqueio }, m.status);
       const r = await criarPrevia(m.pedido, { repositorioPrevia, gerarId: () => crypto.randomUUID(), agora: () => Date.now() });
-      await sb.from("auditoria").insert({ usuario: email, acao: "ULBRA_PREVIA", tabela_afetada: "ulbra_envio_previas", registro_id: atendimentoId, detalhes: { situacao: r.situacao, motivos: "motivos" in r ? r.motivos : null } }).then(() => {}, () => {});
+      const auditoriaOk = await auditar("ULBRA_PREVIA", "ulbra_envio_previas", { atendimento_id: atendimentoId, situacao: r.situacao, motivos: "motivos" in r ? r.motivos : null });
+      if (!auditoriaOk) return responder({ ok: false, motivo: "AUDITORIA_NAO_GRAVADA" }, 500);
       return responder({ ok: r.situacao === "CRIADA", ...r }, r.situacao === "CRIADA" ? 200 : 403);
     }
 
@@ -305,16 +313,9 @@ Deno.serve(async (req: Request) => {
         gerarId: () => crypto.randomUUID(),
         provedorEnvio: {
           async enviar(p) {
-            let resultado;
-            try {
-              resultado = await chamarComoOperador(p.access_token, "enviar_mensagem_whatsapp", { atendimento: p.atendimento_id, texto: p.texto, chave: p.chave });
-            } catch (e) {
-              // Rejeição HTTP antes do processamento: a mensagem NÃO saiu. Só estes casos viram recusa (não bloqueiam o texto).
-              const m = (e as Error).message;
-              if (m === "ULBRA_AUTENTICACAO" || m === "ULBRA_LIMITE" || /^ULBRA_HTTP_4/.test(m)) throw new RecusadoPelaUlbra(m);
-              throw e; // demais falhas: ambíguas, viram FALHA_INCERTA
-            }
-            // Resposta com erro ou sem id: não se sabe se a mensagem saiu. Ambíguo, nunca recusa.
+            // Qualquer falha da chamada é AMBÍGUA: sem contrato comprovado, não se sabe se a mensagem saiu.
+            // Por isso nunca vira recusa; vira FALHA_INCERTA, que bloqueia repetição.
+            const resultado = await chamarComoOperador(p.access_token, "enviar_mensagem_whatsapp", { atendimento: p.atendimento_id, texto: p.texto, chave: p.chave });
             if (resultado.erro) throw new Error("ENVIO_RESPOSTA_AMBIGUA");
             const d = resultado.dados as { mensagem?: { id?: string }; id?: string };
             const id = d?.mensagem?.id ?? d?.id;
@@ -323,8 +324,28 @@ Deno.serve(async (req: Request) => {
           },
         },
       });
-      await sb.from("auditoria").insert({ usuario: email, acao: "ULBRA_ENVIO", tabela_afetada: "ulbra_envios", registro_id: previa.atendimento_id, detalhes: { situacao: r.situacao, status: "envio" in r ? r.envio.status : null, motivos: "motivos" in r ? r.motivos : null } }).then(() => {}, () => {});
-      return responder({ ok: r.situacao !== "BLOQUEADO", ...r }, r.situacao === "BLOQUEADO" ? 403 : 200);
+      const auditoriaOk = await auditar("ULBRA_ENVIO", "ulbra_envios", { atendimento_id: previa.atendimento_id, situacao: r.situacao, status: "envio" in r ? r.envio.status : null, motivos: "motivos" in r ? r.motivos : null });
+      // Envio já feito sem auditoria: avisa, sem sugerir reenvio. Quem decide é a conferência.
+      return responder({ ok: r.situacao !== "BLOQUEADO", ...r, auditoria_gravada: auditoriaOk }, r.situacao === "BLOQUEADO" ? 403 : 200);
+    }
+
+    if (acao === "envio_conferencia") {
+      // Resolve um envio em aberto (PENDENTE, ENVIANDO ou FALHA_INCERTA) com decisão humana auditada.
+      // Só perfis de gestão. Nunca reenvia: só registra a conferência.
+      if (!["supervisor", "gerencia", "administrativo"].includes(String(usuario.perfil))) {
+        return responder({ ok: false, motivo: "ACESSO_NEGADO" }, 403);
+      }
+      const operadorAlvo = String(corpo.operador_email ?? "").toLowerCase();
+      const chaveAlvo = String(corpo.chave ?? "");
+      const envioAlvo = await repositorio.buscar(operadorAlvo, chaveAlvo);
+      const res = await resolverEnvioAberto(envioAlvo, {
+        operador_email: operadorAlvo, chave: chaveAlvo,
+        decisao: String(corpo.decisao ?? "") as "CONFIRMADO_ENVIADO" | "CONFIRMADO_NAO_ENVIADO",
+        motivo: String(corpo.motivo ?? ""), conferido_por: email,
+      }, repositorio);
+      if (res.situacao === "BLOQUEADO") return responder({ ok: false, ...res }, 422);
+      const auditoriaOk = await auditar("ULBRA_ENVIO_CONFERIDO", "ulbra_envios", { chave: chaveAlvo, operador_alvo: operadorAlvo, decisao: corpo.decisao });
+      return responder({ ok: true, ...res, auditoria_gravada: auditoriaOk }, auditoriaOk ? 200 : 500);
     }
 
     return responder({ erro: "ACAO_INVALIDA" }, 400);
