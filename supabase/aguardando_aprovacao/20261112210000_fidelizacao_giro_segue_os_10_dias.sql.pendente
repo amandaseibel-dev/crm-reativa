@@ -169,6 +169,50 @@ $function$;
 -- ele entra no revoke (ninguem precisa chamar este predicado de fora).
 REVOKE ALL ON FUNCTION public.aluno_retorno_operador_vigente(uuid) FROM PUBLIC, anon, authenticated, service_role;
 
+-- RETORNO AMBIGUO (13/11/2026). UMA definicao, usada pela medicao
+-- (supabase/audits/), pela selecao do backup e pela revalidacao do lote -- para que
+-- os tres apliquem exatamente a mesma exclusao.
+--
+-- Ambiguo = o aluno tem retorno de operador VIGENTE (hoje ou futuro, nao concluido),
+-- a regra NAO o protege, e mesmo assim ha sinal de agendamento humano que nao se
+-- amarra a data vigente: o atendimento do responsavel cita OUTRA data de retorno, ou
+-- nao existe atendimento dele. Nao da para afirmar a origem da data -- entao o caso
+-- NAO e liberado, e fica para decisao da gestao.
+--
+-- MEDIDO em 13/11/2026: 56 casos, TODOS com data de retorno = hoje, nenhum com hora,
+-- e todos com a data citada no texto JA VENCIDA (28/08 a 07/11). E o retrato do
+-- recalculo automatico descrito na PR #949 (`recalcular_situacao_aluno`, ramo
+-- COBRANCA_VENCIDA, reescreve a data para hoje e COPIA a origem antiga), nao de
+-- remarcacao humana. Esta migration NAO corrige esse recalculo -- so evita liberar
+-- caso cuja origem da data nao esta estabelecida.
+CREATE OR REPLACE FUNCTION public.aluno_retorno_ambiguo(p_aluno_id uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select exists (
+    select 1
+      from public.alunos a
+     where a.id = p_aluno_id
+       and a.responsavel_atual_email is not null
+       and a.data_retorno >= (now() at time zone 'America/Sao_Paulo')::date
+       and upper(coalesce(a.retorno_origem, '')) like 'OPERADOR%'
+       and a.retorno_confirmado_em is null
+       and not public.aluno_retorno_operador_vigente(a.id)
+       and ( exists (select 1 from public.aluno_movimentacoes m
+                      where m.aluno_id = a.id::text and m.tipo = 'FINALIZACAO_ATENDIMENTO'
+                        and lower(m.registrado_por_email) = lower(a.responsavel_atual_email)
+                        and m.descricao ilike '%retorno%'
+                        and m.descricao not like '%Retorno: ' || to_char(a.data_retorno, 'DD/MM/YYYY') || '%')
+          or not exists (select 1 from public.aluno_movimentacoes m
+                          where m.aluno_id = a.id::text and m.tipo = 'FINALIZACAO_ATENDIMENTO'
+                            and lower(m.registrado_por_email) = lower(a.responsavel_atual_email)) )
+  );
+$function$;
+
+REVOKE ALL ON FUNCTION public.aluno_retorno_ambiguo(uuid) FROM PUBLIC, anon, authenticated, service_role;
+
 DO $mig$
 DECLARE
   v_antes jsonb;
@@ -196,10 +240,10 @@ BEGIN
     INTO v_antes
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public'
-     AND p.proname IN ('liberar_fidelizacao_caso', 'trg_impor_teto_operador', 'assumir_caso_livre', 'casos_risco_perder', 'caso_pode_soltar_com_aluno', 'aluno_retorno_operador_vigente');
+     AND p.proname IN ('liberar_fidelizacao_caso', 'trg_impor_teto_operador', 'assumir_caso_livre', 'casos_risco_perder', 'caso_pode_soltar_com_aluno', 'aluno_retorno_operador_vigente', 'aluno_retorno_ambiguo');
 
-  IF (SELECT count(*) FROM jsonb_object_keys(v_antes)) <> 6 THEN
-    RAISE EXCEPTION 'fidelizacao_giro: esperava as 6 funcoes, achei %.', v_antes;
+  IF (SELECT count(*) FROM jsonb_object_keys(v_antes)) <> 7 THEN
+    RAISE EXCEPTION 'fidelizacao_giro: esperava as 7 funcoes, achei %.', v_antes;
   END IF;
 
   -- A1. liberar_fidelizacao_caso: portao interno de gestao.
@@ -315,7 +359,7 @@ $novo$     or coalesce(v_new._saldo,0) <= 0 then
     INTO v_depois
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public'
-     AND p.proname IN ('liberar_fidelizacao_caso', 'trg_impor_teto_operador', 'assumir_caso_livre', 'casos_risco_perder', 'caso_pode_soltar_com_aluno', 'aluno_retorno_operador_vigente');
+     AND p.proname IN ('liberar_fidelizacao_caso', 'trg_impor_teto_operador', 'assumir_caso_livre', 'casos_risco_perder', 'caso_pode_soltar_com_aluno', 'aluno_retorno_operador_vigente', 'aluno_retorno_ambiguo');
 
   IF v_depois IS DISTINCT FROM v_antes THEN
     RAISE EXCEPTION 'fidelizacao_giro: grants/dono/search_path mudaram. antes=% depois=%', v_antes, v_depois;

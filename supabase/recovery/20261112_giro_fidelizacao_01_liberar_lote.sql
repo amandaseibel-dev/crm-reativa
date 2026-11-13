@@ -29,7 +29,8 @@
 --      E passar de novo, na hora, por cada proteção: mesmo operador, não
 --      protegido, não encerrado, não congelado, fora dos 10 dias, sem giro
 --      vigente, fora do hold de 24h, sem retorno marcado pelo operador;
---   c. o aluno não pode ter ganho caso fora do backup;
+--   c. o aluno não pode ter ganho caso fora do backup, nem ter virado AMBÍGUO
+--      (retorno de operador vigente sem origem estabelecida) depois do backup;
 --   d. os casos ARRASTO têm de seguir encerrados, fora dos 10 dias, não
 --      congelados, não protegidos e do mesmo operador;
 --   e. erro em um aluno (gatilho, dado inesperado) desfaz só aquele aluno.
@@ -172,6 +173,12 @@ begin
                        and not exists (select 1 from public._backup_fidelizacao_giro_20261112 b
                                         where b.caso_id = c.id and b.unidade = r.unidade)) then
         v_motivo := 'aluno_ganhou_caso_fora_do_backup';
+      -- c2. AMBIGUIDADE NA EXECUCAO: o backup reteve os ambiguos conhecidos, mas um
+      -- caso pode ter virado ambiguo depois dele (retorno novo, troca de responsavel,
+      -- recalculo da virada diaria). A exclusao vale na HORA de soltar, nao so no
+      -- backup -- mesma funcao que a medicao e o backup usam.
+      elsif public.aluno_retorno_ambiguo(r.unidade) then
+        v_motivo := 'retorno_ambiguo_na_execucao';
       -- d. os ARRASTO seguem podendo sair
       elsif exists (select 1 from public._backup_fidelizacao_giro_20261112 b
                      join public.casos c on c.id = b.caso_id

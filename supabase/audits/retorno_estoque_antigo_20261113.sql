@@ -16,8 +16,11 @@
 -- `data_retorno` da movimentação. A ausência do campo NÃO é prova de agendamento
 -- automático. Os dois formatos valem, com o mesmo teto de 15 dias.
 --
--- A regra final está em `public.aluno_retorno_operador_vigente` (migration
--- PENDENTE). Como ela ainda não existe em produção, o predicado é repetido aqui.
+-- A regra final está em `public.aluno_retorno_operador_vigente` e a exclusão de
+-- ambíguos em `public.aluno_retorno_ambiguo` (migration PENDENTE). Enquanto elas não
+-- existirem em produção, o predicado é repetido aqui, com a MESMA lógica. Depois de
+-- aplicada a migration, este arquivo e as funções têm de devolver o mesmo resultado —
+-- é o que o teste de equivalência da suíte garante.
 -- ============================================================================
 
 with hoje as (select (now() at time zone 'America/Sao_Paulo')::date as d),

@@ -169,28 +169,9 @@ unidade_motivo as (
                          where a.id = k.unidade
                            and lower(a.responsavel_atual_email) is distinct from max(d.op))
              then 'responsavel_do_aluno_diverge_do_operador_do_caso'
-           -- RETORNO AMBIGUO (13/11/2026): o aluno tem retorno de operador vigente,
-           -- NAO protegido pela regra, mas ha sinal de agendamento humano que nao se
-           -- amarra a data vigente -- o atendimento do responsavel cita OUTRA data de
-           -- retorno, ou nao existe atendimento dele. Nao da para afirmar a origem:
-           -- fica FORA da liberacao ate a gestao decidir. Mesma definicao da consulta
-           -- supabase/audits/retorno_estoque_antigo_20261113.sql.
-           when exists (
-                 select 1 from public.alunos a
-                  where a.id = k.unidade
-                    and a.responsavel_atual_email is not null
-                    and a.data_retorno >= (now() at time zone 'America/Sao_Paulo')::date
-                    and upper(coalesce(a.retorno_origem, '')) like 'OPERADOR%'
-                    and a.retorno_confirmado_em is null
-                    and not public.aluno_retorno_operador_vigente(a.id)
-                    and ( exists (select 1 from public.aluno_movimentacoes m
-                                   where m.aluno_id = a.id::text and m.tipo = 'FINALIZACAO_ATENDIMENTO'
-                                     and lower(m.registrado_por_email) = lower(a.responsavel_atual_email)
-                                     and m.descricao ilike '%retorno%'
-                                     and m.descricao not like '%Retorno: ' || to_char(a.data_retorno, 'DD/MM/YYYY') || '%')
-                       or not exists (select 1 from public.aluno_movimentacoes m
-                                       where m.aluno_id = a.id::text and m.tipo = 'FINALIZACAO_ATENDIMENTO'
-                                         and lower(m.registrado_por_email) = lower(a.responsavel_atual_email)) ))
+           -- RETORNO AMBIGUO: mesma definicao usada pela medicao e pela revalidacao
+           -- do lote -- `public.aluno_retorno_ambiguo`. Fica FORA da liberacao.
+           when public.aluno_retorno_ambiguo(k.unidade)
              then 'retorno_ambiguo_decisao_pendente'
          end as motivo
     from classe k join dono d on d.unidade = k.unidade

@@ -149,6 +149,7 @@ $rb$;
 
 -- Regra unica de irmaos: some depois dos patches (o teto e a liberacao ja nao a chamam).
 DROP FUNCTION IF EXISTS public.caso_pode_soltar_com_aluno(uuid);
+DROP FUNCTION IF EXISTS public.aluno_retorno_ambiguo(uuid);
 DROP FUNCTION IF EXISTS public.aluno_retorno_operador_vigente(uuid);
 
 COMMIT;

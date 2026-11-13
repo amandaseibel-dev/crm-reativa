@@ -782,6 +782,27 @@ describe("a unidade é o aluno — a cascata do gatilho, medida e tratada", () =
     await db.close();
   });
 
+  // A retenção tem de valer NA EXECUÇÃO, não só no backup: um caso pode virar
+  // ambíguo DEPOIS do backup (retorno novo, troca de responsável, recálculo da
+  // virada diária). O lote revalida com a MESMA função.
+  it("AMBÍGUO depois do backup: o lote pula o aluno na execução", async () => {
+    const db = await abrir();
+    await mundo(db);
+    await db.exec(BACKUP);
+    expect((await tipoDe(db, 1)).tipo).toBe("ALVO");          // entrou limpo no backup
+    // depois do backup: ganha retorno de operador vigente sem origem estabelecida
+    await db.query("update public.alunos set data_retorno = current_date, retorno_origem = 'OPERADOR' where id = $1", [U(1)]);
+    await db.query(
+      `insert into public.aluno_movimentacoes (aluno_id, tipo, descricao, registrado_por_email, registrado_por_nome, registrado_em, data_retorno)
+       values ($1, 'FINALIZACAO_ATENDIMENTO', 'Mensagem enviada. Retorno: ' || to_char(current_date - 30, 'DD/MM/YYYY') || '.',
+               $2, 'DIEGO', now() - interval '30 days', null)`, [U(1), OPS[13].email]);
+    expect(await tenta(db, comLote(1))).toBeNull();
+    expect(await donoDe(db, 1)).toBe(OPS[13].email);           // NÃO foi solto
+    expect((await tipoDe(db, 1)).pulado_motivo).toBe("retorno_ambiguo_na_execucao");
+    expect(await donoDe(db, 7)).toBeNull();                    // os demais seguiram
+    await db.close();
+  });
+
   it("RETORNO AMBÍGUO: aluno sem nenhum atendimento do responsável → RETIDO", async () => {
     const db = await abrir();
     await mundo(db);

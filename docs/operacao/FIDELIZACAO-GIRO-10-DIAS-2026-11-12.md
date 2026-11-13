@@ -381,9 +381,49 @@ Executada com `supabase/audits/retorno_estoque_antigo_20261113.sql`, em janela d
 | **AMBÍGUOS — retidos, fora da liberação** | **57** |
 | **LIBERÁVEIS** | **518** |
 
-**Leitura:** a correção do vínculo por texto **não recuperou nenhum caso**. O motivo aparece no bloco de ambíguos: em 57 dos 59 casos com retorno vigente, o atendimento do responsável cita **outra** data de retorno — ou seja, o retorno foi remarcado depois do atendimento, sem novo atendimento. Pela regra 4 da gestão, remarcar sem atender não renova a proteção; mas como há sinal de agendamento humano que não se amarra à data vigente, esses 57 **não são liberados**: ficam retidos com o motivo `retorno_ambiguo_decisao_pendente`, para decisão da gestão.
+**Leitura (corrigida em 13/11).** A correção do vínculo por texto **não recuperou nenhum caso**: em 57 dos 59 casos com retorno vigente, o atendimento do responsável cita **outra** data, e não a data que está hoje no aluno.
+
+A conclusão anterior deste roteiro — "o retorno foi remarcado depois do atendimento, sem novo atendimento" — **estava errada e foi retirada**. A divergência entre a data do texto e a data vigente não prova remarcação humana. A medição de 13/11 sobre os 56 ambíguos mostra o contrário:
+
+| Sinal | Resultado |
+|---|---|
+| `data_retorno` = **hoje** | **56 de 56** |
+| Data futura | 0 |
+| Com hora gravada (agendamento humano deixa hora) | **0** |
+| Texto do atendimento com data **já vencida** | **56 de 56** (de 28/08 a 07/11) |
+
+Todas as datas vigentes iguais a hoje, nenhuma com hora, e todos os textos apontando para datas já vencidas: é o retrato do **recálculo automático investigado na [#949](https://github.com/ReATIVA/crm-reativa-atual/pull/949)**, que reescreve `data_retorno` para o dia corrente, não de remarcação feita por pessoa. Esta entrega **não corrige** esse recálculo — ele segue na #949.
+
+Por isso os ambíguos **não são liberados**: a origem da data vigente não está estabelecida, e liberar sem isso arrisca tirar do operador um compromisso real. Ficam retidos com o motivo `retorno_ambiguo_decisao_pendente`, para decisão da gestão depois que a #949 fechar.
 
 **Correção aplicada junto (achado N1 da 10ª auditoria):** a consulta afirmava que os ambíguos ficavam fora da liberação, mas os scripts **não os excluíam** — eles entrariam no backup e seriam soltos pelo lote. O backup passou a retê-los. Dois testes cobrem os dois sinais de ambiguidade, e a mutação (retirar a retenção) derruba ambos.
+
+## PRIMEIRO LOTE — tamanho, critérios de parada e conferência
+
+**Tamanho.** O lote 1 é a carteira da **cobranca13**. No retrato do giro são **329 alunos / 340 casos**; no retrato de 13/11 13:37 o universo total elegível caiu para 575 casos (518 liberáveis, 57 retidos por ambiguidade). **O número definitivo do lote 1 só existe depois do backup**, que é quem classifica ALVO / ARRASTO / RETIDO na hora. O backup imprime esse número antes de qualquer liberação: é ele que você aprova, não a estimativa.
+
+**Ordem:** lote 1 (cobranca13) → conferir → lote 2 (cobranca06) → conferir → lote 3 (demais). Um lote por noite, fora do atendimento.
+
+**Critérios de parada — qualquer um interrompe e nada mais é liberado:**
+
+| Gatilho | O que acontece |
+|---|---|
+| Backup mostra número muito acima do retrato (> 450 casos no lote 1) | Para antes de soltar. O universo mudou; remedir |
+| Mais de **10%** de erro nas unidades do lote | O script aborta sozinho e não solta o restante |
+| Invariante falha (caso solto fora da lista, liberado ainda com dono, livre que ganhou dono, troca X→Y) | O script aborta a transação inteira: nada sai |
+| Cron 8 ativo, job 43 ativo, lote fora de ordem, lote repetido, backup ausente | Aborta antes de tocar em qualquer caso |
+| Banco reiniciar ou `lock_timeout` (5 s) estourar | Transação cai inteira; nenhum caso parcialmente solto |
+| Operador relatar perda de caso que ele atendeu | Para e restaura pelo `02_restaurar.sql` antes do lote seguinte |
+
+**Conferência depois de cada lote, antes de liberar o próximo:**
+
+1. contagem de soltos = contagem de ALVO do backup, por lote;
+2. nenhum caso fora da lista do backup mudou de dono (invariante por id, já no script);
+3. retidos conferem por motivo, inclusive `retorno_ambiguo_decisao_pendente`;
+4. na manhã seguinte: o cron 8 segue pausado, nenhum operador acima do teto, e a fila do receptivo mostra os casos como livres;
+5. ouvir a equipe na primeira hora de atendimento — relato de perda indevida é critério de parada, acima.
+
+**Restauração.** `02_restaurar.sql` devolve por aluno, com subtransação, e recusa devolver caso que já ganhou outro dono ou que mudou depois da liberação; exige a regra antiga de volta e o cron pausado.
 
 ## PACOTE FINAL — o que está pronto e o que depende da gestão
 
@@ -391,10 +431,10 @@ Executada com `supabase/audits/retorno_estoque_antigo_20261113.sql`, em janela d
 
 | Item | Onde |
 |---|---|
-| Migration pendente + rollback (6 funções: 4 alteradas, 2 novas) | `supabase/aguardando_aprovacao/20261112210000_*` |
+| Migration pendente + rollback (7 funções: 4 alteradas, 3 novas) | `supabase/aguardando_aprovacao/20261112210000_*` |
 | Scripts de execução: backup, liberação por lote, restauração | `supabase/recovery/20261112_giro_fidelizacao_0{0,1,2}_*.sql` |
 | Correção da Minha Carteira (grava a data do retorno na movimentação) | `src/components/PainelCarteira.jsx` |
-| Provas em bancada | 172 testes (105 migração + 67 lotes) |
+| Provas em bancada | 180 testes (110 migração + 70 lotes) |
 | Prova de concorrência real, duas sessões, Postgres descartável | job de CI `fidelizacao do giro — concorrencia real` |
 | Auditoria de produção, somente leitura, com saída versionada | `supabase/audits/retorno_vinculo_auditoria_20261113*` |
 | Parecer do Guardião | **APROVADO** (9ª rodada). L1 e L2 fechados e verificados; L3 (a medição do privilégio padrão de produção é do autor) segue declarado |
