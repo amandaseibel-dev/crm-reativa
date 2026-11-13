@@ -125,16 +125,39 @@ describe("relatorio 2026/2: classificacao de CPF e contagem por aluno", () => {
     await expect(chamarRelatorio(db, "outra.pessoa@aelbra.com.br")).rejects.toThrow(/restrito a gestao|42501/);
   });
 
-  it("grants: authenticated executa; anon e public nao", async () => {
+  it("grants: RPCs executam para authenticated; anon e public nao", async () => {
+    const q = async (role, fn) => {
+      const { rows } = await db.query(`SELECT has_function_privilege($1, $2, 'EXECUTE') AS ok`, [role, fn]);
+      return rows[0].ok;
+    };
+    for (const fn of ["public.relatorio_mensalidades_2026_2_sem_negociacao()", "public.relatorio_mensalidades_2026_2_capturar()"]) {
+      expect(await q("authenticated", fn)).toBe(true);
+      expect(await q("anon", fn)).toBe(false);
+    }
+  });
+
+  it("helper de elegibilidade nao e executavel por authenticated nem anon (expoe CPF)", async () => {
     const q = async (role) => {
       const { rows } = await db.query(
-        `SELECT has_function_privilege($1, 'public.relatorio_mensalidades_2026_2_sem_negociacao()', 'EXECUTE') AS ok`,
+        `SELECT has_function_privilege($1, 'public._relatorio_2026_2_eleg()', 'EXECUTE') AS ok`,
         [role],
       );
       return rows[0].ok;
     };
-    expect(await q("authenticated")).toBe(true);
+    expect(await q("authenticated")).toBe(false);
     expect(await q("anon")).toBe(false);
+  });
+
+  it("snapshot tem RLS ativa e sem acesso direto para authenticated", async () => {
+    const { rows } = await db.query(
+      `SELECT c.relrowsecurity AS rls,
+              has_table_privilege('authenticated', c.oid, 'SELECT') AS sel,
+              has_table_privilege('authenticated', c.oid, 'DELETE') AS del
+       FROM pg_class c WHERE c.oid = 'public.relatorio_mens_2026_2_snapshot'::regclass`,
+    );
+    expect(rows[0].rls).toBe(true);
+    expect(rows[0].sel).toBe(false);
+    expect(rows[0].del).toBe(false);
   });
 
   it("rollback remove os objetos de 2026/2 quando nao ha snapshot", async () => {

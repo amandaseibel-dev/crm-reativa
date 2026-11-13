@@ -2,6 +2,8 @@
 
 Dados agregados de leitura no projeto Supabase de produção, em novembro de 2026. Nenhum CPF completo ou dado pessoal consta deste documento.
 
+> Os números abaixo vêm de consultas de leitura ad hoc que não estão versionadas. Reproduzir antes de usar como referência.
+
 ## Chave de contagem
 
 - 2026/1 (`relatorio_mensalidades_2026_1_sem_negociacao`): alunos são contados por `aluno_id` (`count(distinct e.aluno_id)`). CPF é indicador separado (`count(distinct e.cpf)`).

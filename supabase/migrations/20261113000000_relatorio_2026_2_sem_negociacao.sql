@@ -154,7 +154,6 @@ BEGIN
     'mensalidades_total', (SELECT mens FROM tot),
     'saldo_total', (SELECT saldo FROM tot),
     'casos_em_confirmacao', (SELECT n FROM conf),
-    'casos_em_revisao_manual', 0,
     'atualizado_em', now()
   ) INTO v_out;
   RETURN v_out;
@@ -172,7 +171,7 @@ AS $function$
 DECLARE
   v_email text := lower(coalesce(auth.email(),''));
   v_gestao boolean := v_email IN ('amanda.seibel@aelbra.com.br','cobranca04@aelbra.com.br','cobranca07@aelbra.com.br');
-  v_tecnico boolean := coalesce(auth.role(),'') = 'service_role' OR auth.jwt() IS NULL;
+  v_tecnico boolean := coalesce(auth.role(),'') = 'service_role';
   v_dia date := (now() at time zone 'America/Sao_Paulo')::date;
   v_cpfs int; v_alunos int; v_mens int; v_saldo numeric;
 BEGIN
@@ -194,13 +193,15 @@ COMMENT ON FUNCTION public.relatorio_mensalidades_2026_2_capturar() IS
   'Captura snapshot diário do relatório 2026/2 (totais de elegibilidade + saldo) e popula relatorio_mens_2026_2_snapshot. Executável por cron (service_role) ou clique da gestão.';
 
 -- Grants: mesmos usuários que 2026/1
-REVOKE ALL ON FUNCTION public._relatorio_2026_2_eleg() FROM public, anon;
-GRANT EXECUTE ON FUNCTION public._relatorio_2026_2_eleg() TO authenticated;
+REVOKE ALL ON FUNCTION public._relatorio_2026_2_eleg() FROM public, anon, authenticated;
 
 REVOKE ALL ON FUNCTION public.relatorio_mensalidades_2026_2_sem_negociacao() FROM public, anon;
 GRANT EXECUTE ON FUNCTION public.relatorio_mensalidades_2026_2_sem_negociacao() TO authenticated;
 
 REVOKE ALL ON FUNCTION public.relatorio_mensalidades_2026_2_capturar() FROM public, anon;
 GRANT EXECUTE ON FUNCTION public.relatorio_mensalidades_2026_2_capturar() TO authenticated;
+
+ALTER TABLE public.relatorio_mens_2026_2_snapshot ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.relatorio_mens_2026_2_snapshot FROM public, anon, authenticated;
 
 COMMIT;
