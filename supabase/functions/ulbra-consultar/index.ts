@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { escaparLike } from "../_shared/email_exato.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decidirAcessoUlbra } from "./portao.ts";
 import {
@@ -60,7 +61,7 @@ serve(async (req) => {
       const { data: usuario } = await sbService
         .from("usuarios")
         .select("email, perfil")
-        .ilike("email", user.email)
+        .ilike("email", escaparLike(user.email))
         .eq("ativo", true)
         .limit(1)
         .maybeSingle();
@@ -72,7 +73,7 @@ serve(async (req) => {
         .from("alunos")
         .select("id")
         .eq("id", id)
-        .ilike("responsavel_atual_email", email)
+        .ilike("responsavel_atual_email", escaparLike(email))
         .limit(1)
         .maybeSingle();
       return !!data;

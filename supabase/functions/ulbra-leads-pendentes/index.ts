@@ -9,6 +9,7 @@
 //
 // Continua publicada e intocada de proposito: remover funcao publicada e
 // passo com autorizacao propria, nao efeito colateral desta entrega.
+import { escaparLike } from "../_shared/email_exato.ts";
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decidirAcessoLeads } from "./portao.ts";
@@ -45,7 +46,7 @@ serve(async (req) => {
       const { data: usuario } = await sb
         .from("usuarios")
         .select("receptivo")
-        .ilike("email", user.email)
+        .ilike("email", escaparLike(user.email))
         .eq("ativo", true)
         .limit(1)
         .maybeSingle();

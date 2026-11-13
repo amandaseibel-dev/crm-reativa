@@ -7,6 +7,7 @@
 // APENAS superfície — escopos, limites e nomes de ferramentas. Nunca a
 // credencial, nunca dado de aluno, nunca conversa, nem o nome ou e-mail do
 // dono do token. Não grava nada: sem insert, sem auditoria.
+import { escaparLike } from "../_shared/email_exato.ts";
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
@@ -75,7 +76,7 @@ serve(async (req) => {
   const { data: usuario } = await sbService
     .from("usuarios")
     .select("perfil")
-    .ilike("email", user.email)
+    .ilike("email", escaparLike(user.email))
     .eq("ativo", true)
     .limit(1)
     .maybeSingle();
