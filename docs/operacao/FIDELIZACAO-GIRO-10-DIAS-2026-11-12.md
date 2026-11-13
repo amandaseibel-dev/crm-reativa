@@ -258,6 +258,37 @@ Desses 216, **182 vêm da tabulação `MENSAGEM_ENVIADA`** (prazo automático de
 - **J6:** a restauração (`02`) ainda usa a regra antiga de retorno (só origem OPERADOR) para decidir se restaura; é mais conservadora, mas diverge da regra única.
 - **J3:** os números de produção desta seção (62, 28, 34, 599, 383, 216, 92,9%) vêm de consultas de leitura sem saída guardada no repositório.
 
+## Vínculo do retorno — regra final da gestão (opção 3, 13/11/2026)
+
+`public.aluno_retorno_operador_vigente(uuid)`, aplicada por liberação, cron, teto, assunção e card de risco (regra 7). Protege enquanto, e somente enquanto:
+
+| Condição | Implementação |
+|---|---|
+| Responsável atual é operador **ativo** | ex-operador não bloqueia (regra 5) |
+| Retorno de hoje ou futuro, origem do operador, não concluído | regras 1, 2 e 3 |
+| Atendimento do responsável **posterior à última troca** | `m.registrado_em >= responsavel_atual_em` (regra 6: X→Y→X não revalida) |
+| **Via explícita:** movimentação com a mesma data de retorno, até 15 dias do atendimento | regra 1 (15 dias = hipótese de teste, não aprovado) |
+| **Via alternativa:** atendimento do responsável nos últimos 10 dias | regra 2, janela de 10 dias aprovada |
+| Remarcar sem atender não renova | a alternativa conta a data do **atendimento**, não a do retorno (regra 4) |
+
+11 testes cobrem: alternativa dentro e fora dos 10 dias, remarcação, via explícita dentro e fora dos 15 dias, ex-operador, X→Y→X nos dois sentidos, retorno concluído e atendimento de outro operador.
+
+**Correção da origem dos dados:** `PainelCarteira.jsx` passa a gravar `data_retorno` na movimentação de atendimento, nos dois pontos que registram retorno (ação rápida e tabulação). Antes, só a ficha do aluno e a fila operacional gravavam, e era essa a causa dos retornos sem vínculo. Consistência com os outros dois caminhos: mesma data que vai para `alunos.data_retorno`, às 12:00 em São Paulo, para o dia não mudar na conversão de fuso.
+
+### ACHADO: a via alternativa de 10 dias é redundante no fluxo normal
+
+`FINALIZACAO_ATENDIMENTO` conta como acionamento (`eh_tipo_acionamento`), e o gatilho `fn_atualizar_ultimo_acionamento` reinicia a fidelização de 10 dias. Então **um atendimento nos últimos 10 dias já protege o caso pela fidelização normal**, antes de qualquer regra de retorno: o caso nem chega a ser elegível ao cron. Provado em bancada (teste "ACHADO").
+
+**Consequência:** a via alternativa só muda o resultado quando o último acionamento está **dessincronizado** do atendimento. Os 62 casos auditados têm último atendimento do responsável há **14 a 38 dias** — nenhum nos últimos 10. Pela leitura de 13/11, **a alternativa de 10 dias não devolve proteção a nenhum deles**; quem pode devolver é a via explícita (até 15 dias), e só para os que tiverem a data gravada na movimentação. Isso **precisa ser remedido** (ver abaixo) e pode exigir nova decisão da gestão sobre a janela.
+
+### Auditoria pedida pela gestão — PENDENTE
+
+Não executada: a conexão de leitura com produção (MCP Supabase) caiu durante esta rodada. Ficam pendentes, todas somente leitura:
+- remedir os 383 retornos sem data correspondente;
+- reavaliar os 62 casos com a regra final;
+- quantos passam a ter proteção legítima, separando via explícita e via alternativa;
+- medir quantos casos elegíveis têm atendimento do responsável nos últimos 10 dias (mede o tamanho real da dessincronização).
+
 **G2 — fora desta PR.** Receptivo (`sistema_assumir_receptivo`), movimentação da gestão (`carteira_geral_trocar_dono`) e vínculos de responsável (`vincular_responsavel_caso`, `desfazer_acao`) vão para PR separada, precedida de auditoria de cada caminho. Até lá, esses caminhos **continuam podendo mudar o responsável de irmão com fidelização vigente**: é risco residual da operação atual, não introduzido por esta PR.
 
 **Escopo desta PR:** liberação, cron, teto e assunção de caso.

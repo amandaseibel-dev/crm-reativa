@@ -138,7 +138,7 @@ async function cenario(db, n, o = {}) {
     [U(n), cpf, `Aluno Sintetico ${n}`, dono, statusAcion, naoAcionar, dua, giro, valor, n]);
   // Retorno de OPERADOR nasce de um atendimento real do responsavel (regra de 13/11).
   // `semAtendimento` monta o retorno "solto" (envio em lote, digitado sem atender).
-  if (retorno !== null && String(retornoOrigem || "").toUpperCase().startsWith("OPERADOR") && !o.semAtendimento && dono) {
+  if (retorno !== null && String(retornoOrigem || "").toUpperCase().startsWith("OPERADOR") && !o.semAtendimento && !o.semMov && dono) {
     await db.query(
       `insert into public.aluno_movimentacoes (aluno_id, tipo, descricao, registrado_por_email, registrado_por_nome, registrado_em, data_retorno)
        values ($1, 'FINALIZACAO_ATENDIMENTO', 'atendimento sintetico', $2, 'DONO',
@@ -161,6 +161,15 @@ const assumir = async (db, email, n) => {
   const r = await q1(db, "select * from public.assumir_caso_livre($1)", [U(n)]);
   await como(db, GESTAO);
   return r;
+};
+// Liberacao e assuncao sobre o MESMO caso: o resultado tem de ser coerente nos dois
+// caminhos (regra 7 da gestao). Devolve o que o cron soltou, se outro operador
+// conseguiu assumir e quem ficou com o caso.
+const ambos = async (db) => {
+  const cron = await rodarCron(db);
+  const dono1 = (await caso(db, 1)).dono;
+  const r = dono1 ? await assumir(db, OP2, 1) : { sucesso: null };
+  return { cron, assumiu: r.sucesso, dono: (await caso(db, 1)).dono };
 };
 
 let SEM, COM;
@@ -746,12 +755,6 @@ describe("achados da 3ª auditoria — A1 (assumir_caso_livre) e A2 (Carteira Ge
 describe("retorno agendado (decisão da gestão, 13/11) — liberação e assunção com a MESMA regra", () => {
   // caso de giro vencido do OP1, atendido ha `dua` dias, com retorno do operador.
   const alvo = (db, extra) => cenario(db, 1, { dono: OP1, giro: -17, dua: 12, retornoOrigem: "OPERADOR", ...extra });
-  const ambos = async (db) => {
-    const cron = await rodarCron(db);
-    const dono1 = (await caso(db, 1)).dono;
-    const r = dono1 ? await assumir(db, OP2, 1) : { sucesso: null };
-    return { cron, assumiu: r.sucesso, dono: (await caso(db, 1)).dono };
-  };
 
   it.each([["futuro (daqui a 2 dias)", 2], ["de hoje", 0]])("retorno %s, válido: cron NÃO solta e outro operador NÃO assume", async (_n, ret) => {
     const db = await novo();
@@ -844,6 +847,161 @@ describe("retorno agendado (decisão da gestão, 13/11) — liberação e assun�
     await cenario(db, 3, { dono: null });
     expect((await assumir(db, OP2, 3)).sucesso).toBe(false);
     expect((await caso(db, 1)).dono).toBe(OP2);
+    await db.close();
+  });
+});
+
+// ===========================================================================
+describe("vínculo do retorno — via explícita e alternativa de 10 dias (gestão, 13/11)", () => {
+  // IMPORTANTE: registrar um FINALIZACAO_ATENDIMENTO dispara
+  // fn_atualizar_ultimo_acionamento, que reinicia a fidelizacao normal de 10 dias.
+  // Para medir SO a regra de retorno, estes testes forcam o ultimo acionamento de
+  // volta para 15 dias atras depois de inserir o atendimento: o caso fica elegivel
+  // ao cron e a unica protecao possivel passa a ser o retorno.
+  const atendimento = (db, n, { email, diasAtras, comDataRetornoEm = null }) =>
+    db.query(
+      `insert into public.aluno_movimentacoes (aluno_id, tipo, descricao, registrado_por_email, registrado_por_nome, registrado_em, data_retorno)
+       values ($1, 'FINALIZACAO_ATENDIMENTO', 'atendimento sintetico', $2, 'OP',
+               (current_date - $3::int)::timestamp + interval '15 hours',
+               case when $4::int is null then null else (current_date + $4::int)::timestamp end)`,
+      [U(n), email, diasAtras, comDataRetornoEm]);
+  const retornoEm = (db, n, dias) =>
+    db.query("update public.alunos set data_retorno = current_date + $2::int, retorno_origem = 'OPERADOR' where id = $1", [U(n), dias]);
+  const forcarParado = async (db, n) => {
+    await db.exec("alter table public.casos disable trigger user");
+    await db.exec("alter table public.alunos disable trigger user");
+    await db.query("update public.casos set data_ultimo_acionamento = current_date - 15 where id = $1", [U(n)]);
+    await db.query("update public.alunos set data_ultimo_acionamento = now() - interval '15 days' where id = $1", [U(n)]);
+    await db.exec("alter table public.alunos enable trigger user");
+    await db.exec("alter table public.casos enable trigger user");
+  };
+  // caso de giro vencido, sem movimentacao propria; o teste monta o atendimento.
+  const base = (db, extra = {}) => cenario(db, 1, { dono: OP1, giro: -17, dua: 15, retorno: null, semMov: true, ...extra });
+
+  it("ALTERNATIVA: atendimento do responsável há 3 dias, sem data na movimentação → protege", async () => {
+    const db = await novo();
+    await base(db);
+    await atendimento(db, 1, { email: OP1, diasAtras: 3 });
+    await retornoEm(db, 1, 3);
+    await forcarParado(db, 1);
+    expect(await ambos(db)).toEqual({ cron: 0, assumiu: false, dono: OP1 });
+    await db.close();
+  });
+
+  it("ALTERNATIVA: atendimento há 12 dias (fora dos 10), sem data na movimentação → NÃO protege", async () => {
+    const db = await novo();
+    await base(db);
+    await atendimento(db, 1, { email: OP1, diasAtras: 12 });
+    await retornoEm(db, 1, 3);
+    await forcarParado(db, 1);
+    expect((await ambos(db)).cron).toBe(1);
+    await db.close();
+  });
+
+  it("REMARCAR sem atender não renova: atendimento há 12 dias e retorno empurrado para +3 → NÃO protege", async () => {
+    const db = await novo();
+    await base(db);
+    await atendimento(db, 1, { email: OP1, diasAtras: 12, comDataRetornoEm: -9 });  // retorno antigo, ja vencido
+    await retornoEm(db, 1, 3);                                                       // remarcado, sem atendimento novo
+    await forcarParado(db, 1);
+    expect((await ambos(db)).cron).toBe(1);
+    await db.close();
+  });
+
+  it("EXPLÍCITA: atendimento há 12 dias COM a mesma data de retorno (+3, dentro dos 15) → protege", async () => {
+    const db = await novo();
+    await base(db);
+    await atendimento(db, 1, { email: OP1, diasAtras: 12, comDataRetornoEm: 3 });
+    await retornoEm(db, 1, 3);
+    await forcarParado(db, 1);
+    expect(await ambos(db)).toEqual({ cron: 0, assumiu: false, dono: OP1 });
+    await db.close();
+  });
+
+  it("EXPLÍCITA: retorno a mais de 15 dias do atendimento → NÃO protege", async () => {
+    const db = await novo();
+    await base(db);
+    await atendimento(db, 1, { email: OP1, diasAtras: 12, comDataRetornoEm: 6 });   // 12 + 6 = 18 dias
+    await retornoEm(db, 1, 6);
+    await forcarParado(db, 1);
+    expect((await ambos(db)).cron).toBe(1);
+    await db.close();
+  });
+
+  it("EX-OPERADOR (inativo): retorno com vínculo explícito NÃO bloqueia", async () => {
+    const db = await novo();
+    await base(db, { dono: "ex.operador@aelbra.com.br" });
+    await atendimento(db, 1, { email: "ex.operador@aelbra.com.br", diasAtras: 12, comDataRetornoEm: 3 });
+    await retornoEm(db, 1, 3);
+    await forcarParado(db, 1);
+    expect((await ambos(db)).cron).toBe(1);
+    await db.close();
+  });
+
+  it("X → Y → X: atendimento de X ANTERIOR à última troca não revalida o retorno", async () => {
+    const db = await novo();
+    await base(db);
+    await atendimento(db, 1, { email: OP1, diasAtras: 12, comDataRetornoEm: 3 });
+    await retornoEm(db, 1, 3);
+    await forcarParado(db, 1);
+    // o aluno saiu e voltou para OP1 ha 2 dias: o atendimento de 12 dias e anterior a volta
+    await db.exec("alter table public.alunos disable trigger user");
+    await db.query("update public.alunos set responsavel_atual_em = now() - interval '2 days' where id = $1", [U(1)]);
+    await db.exec("alter table public.alunos enable trigger user");
+    expect((await ambos(db)).cron).toBe(1);
+    await db.close();
+  });
+
+  it("X → Y → X: atendimento de X POSTERIOR à volta continua protegendo", async () => {
+    const db = await novo();
+    await base(db);
+    await db.exec("alter table public.alunos disable trigger user");
+    await db.query("update public.alunos set responsavel_atual_em = now() - interval '20 days' where id = $1", [U(1)]);
+    await db.exec("alter table public.alunos enable trigger user");
+    await atendimento(db, 1, { email: OP1, diasAtras: 12, comDataRetornoEm: 3 });
+    await retornoEm(db, 1, 3);
+    await forcarParado(db, 1);
+    expect(await ambos(db)).toEqual({ cron: 0, assumiu: false, dono: OP1 });
+    await db.close();
+  });
+
+  it("retorno CONCLUÍDO não protege, mesmo com vínculo explícito", async () => {
+    const db = await novo();
+    await base(db);
+    await atendimento(db, 1, { email: OP1, diasAtras: 12, comDataRetornoEm: 3 });
+    await retornoEm(db, 1, 3);
+    await db.query("update public.alunos set retorno_confirmado_em = now() where id = $1", [U(1)]);
+    await forcarParado(db, 1);
+    expect((await ambos(db)).cron).toBe(1);
+    await db.close();
+  });
+
+  // ACHADO (13/11): a via alternativa de 10 dias e REDUNDANTE no fluxo normal.
+  // FINALIZACAO_ATENDIMENTO conta como acionamento (eh_tipo_acionamento) e o gatilho
+  // fn_atualizar_ultimo_acionamento reinicia a fidelizacao de 10 dias. Logo, um
+  // atendimento nos ultimos 10 dias JA protege o caso pela fidelizacao normal, sem
+  // precisar da regra de retorno. A alternativa so muda o resultado quando o ultimo
+  // acionamento esta dessincronizado do atendimento (e por isso os testes acima
+  // forcam essa dessincronizacao para medir a regra isoladamente).
+  it("ACHADO: atendimento há 3 dias já protege pela fidelização normal, sem a regra de retorno", async () => {
+    const db = await novo();
+    await base(db, { retorno: null });
+    await atendimento(db, 1, { email: OP1, diasAtras: 3 });
+    // retorno AUTOMATICO: a regra de retorno NAO se aplica
+    await db.query("update public.alunos set data_retorno = current_date + 3, retorno_origem = 'AUTOMATICO' where id = $1", [U(1)]);
+    const c = await q1(db, "select data_ultimo_acionamento dua, public.caso_dentro_prazo_fidelizacao(data_ultimo_acionamento) dentro from public.casos where id = $1", [U(1)]);
+    expect(c.dentro).toBe(true);              // o atendimento reiniciou os 10 dias
+    expect(await rodarCron(db)).toBe(0);      // protegido pela fidelizacao normal
+    await db.close();
+  });
+
+  it("atendimento de OUTRO operador não protege o responsável atual", async () => {
+    const db = await novo();
+    await base(db);
+    await atendimento(db, 1, { email: OP2, diasAtras: 3, comDataRetornoEm: 3 });
+    await retornoEm(db, 1, 3);
+    await forcarParado(db, 1);
+    expect((await ambos(db)).cron).toBe(1);
     await db.close();
   });
 });
