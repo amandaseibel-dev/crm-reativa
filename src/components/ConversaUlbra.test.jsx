@@ -91,14 +91,14 @@ describe("ConversaUlbra — envio em duas etapas", () => {
 
 describe("ConversaUlbra — template fora da janela (lista aprovada)", () => {
   it("sem templates aprovados: mostra o aviso, não oferece seleção e mantém o envio bloqueado fora da janela", () => {
-    render(<ConversaUlbra mensagens={MSGS} podeEnviar templatesAprovados={[]} />);
+    render(<ConversaUlbra mensagens={MSGS} podeEnviar templatesAprovados={[]} templateVerificado />);
     expect(screen.getByText(/Nenhum template aprovado está disponível/)).toBeTruthy();
     expect(document.querySelector("[data-campo='template-select']")).toBeNull();
   });
 
   it("com templates aprovados: oferece a seleção e não exige texto livre quando há template", async () => {
     const onPrevia = vi.fn().mockResolvedValue({ ok: true, custo_usd: 0.01, janela_aberta: false });
-    render(<ConversaUlbra mensagens={MSGS} podeEnviar templatesAprovados={["aviso_retorno"]} onPrevia={onPrevia} />);
+    render(<ConversaUlbra mensagens={MSGS} podeEnviar templatesAprovados={["aviso_retorno"]} templateVerificado onPrevia={onPrevia} />);
     const select = document.querySelector("[data-campo='template-select']");
     expect(select).toBeTruthy();
     fireEvent.change(select, { target: { value: "aviso_retorno" } });
@@ -110,7 +110,7 @@ describe("ConversaUlbra — template fora da janela (lista aprovada)", () => {
 
   it("janela fechada sem template escolhido: não deixa confirmar, pede o template", async () => {
     const onPrevia = vi.fn().mockResolvedValue({ ok: true, custo_usd: 0.01, janela_aberta: false });
-    render(<ConversaUlbra mensagens={MSGS} podeEnviar templatesAprovados={["aviso_retorno"]} onPrevia={onPrevia} />);
+    render(<ConversaUlbra mensagens={MSGS} podeEnviar templatesAprovados={["aviso_retorno"]} templateVerificado onPrevia={onPrevia} />);
     fireEvent.change(screen.getByLabelText("Resposta"), { target: { value: "oi" } });
     fireEvent.click(screen.getByText(/Ver prévia/));
     await waitFor(() => expect(screen.getByText(/Escolha um template aprovado para enviar/)).toBeTruthy());
@@ -120,7 +120,7 @@ describe("ConversaUlbra — template fora da janela (lista aprovada)", () => {
   it("confirmar com template chama onEnviar com o template e UMA chave", async () => {
     const onPrevia = vi.fn().mockResolvedValue({ ok: true, custo_usd: 0.01, janela_aberta: false });
     const onEnviar = vi.fn().mockResolvedValue({ situacao: "PROCESSADO", envio: { status: "ENVIADO" } });
-    render(<ConversaUlbra mensagens={MSGS} podeEnviar templatesAprovados={["aviso_retorno"]} onPrevia={onPrevia} onEnviar={onEnviar} />);
+    render(<ConversaUlbra mensagens={MSGS} podeEnviar templatesAprovados={["aviso_retorno"]} templateVerificado onPrevia={onPrevia} onEnviar={onEnviar} />);
     fireEvent.change(document.querySelector("[data-campo='template-select']"), { target: { value: "aviso_retorno" } });
     fireEvent.change(document.querySelector("[data-campo='template-variaveis']"), { target: { value: "Maria" } });
     fireEvent.click(screen.getByText(/Ver prévia/));
@@ -132,5 +132,20 @@ describe("ConversaUlbra — template fora da janela (lista aprovada)", () => {
     expect(typeof chave).toBe("string");
     expect(previa.janela_aberta).toBe(false);
     expect(template).toEqual({ nome: "aviso_retorno", variaveis: ["Maria"] });
+  });
+});
+
+describe("ConversaUlbra — template desligado até a prévia de template ser verificada", () => {
+  it("sem templateVerificado: não oferece seleção de template, mesmo com templates na lista", () => {
+    render(<ConversaUlbra mensagens={MSGS} podeEnviar templatesAprovados={["aviso_retorno"]} />);
+    expect(screen.getByText(/aguarda a verificação da prévia de template/)).toBeTruthy();
+    expect(document.querySelector("[data-campo='template-select']")).toBeNull();
+  });
+
+  it("escolher template limpa o texto livre, que não sairia", () => {
+    render(<ConversaUlbra mensagens={MSGS} podeEnviar templatesAprovados={["aviso_retorno"]} templateVerificado />);
+    fireEvent.change(screen.getByLabelText("Resposta"), { target: { value: "texto que não sairia" } });
+    fireEvent.change(document.querySelector("[data-campo='template-select']"), { target: { value: "aviso_retorno" } });
+    expect(screen.getByLabelText("Resposta").value).toBe("");
   });
 });

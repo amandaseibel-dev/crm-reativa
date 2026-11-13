@@ -5,7 +5,7 @@ import { useRef, useState } from "react";
 // (envio.ts), sempre com a conexão INDIVIDUAL do operador.
 //
 // Envio em DUAS etapas, por decisão da gestão (11/11/2026):
-//   1. "Ver prévia": a Mensageria calcula custo e janela de 24 h — nada sai;
+//   1. "Ver prévia": a Mensageria calcula custo e janela de 24 h (o comportamento de envio da prévia NÃO foi verificado com a ULBRA);
 //   2. "Confirmar envio": uma chave por clique; enquanto o pedido está em curso
 //      o botão fica bloqueado e o mesmo clique não gera segundo envio.
 // Mudar o texto, o template ou as variáveis depois da prévia invalida a prévia.
@@ -64,6 +64,8 @@ export default function ConversaUlbra({
   podeEnviar = false,
   antesDe = null,
   templatesAprovados = [],
+  // Envio por template só liga quando a prévia de template estiver verificada com a ULBRA. Padrão: desligado.
+  templateVerificado = false,
   onCarregarAnteriores,
   onPrevia,
   onEnviar,
@@ -94,6 +96,8 @@ export default function ConversaUlbra({
   }
 
   function mudarTemplate(nome) {
+    // Com template, o texto livre não sai: limpa-o para não ficar gravado como se tivesse saído.
+    setTexto("");
     setTemplateNome(nome);
     invalidarSePrecisar(texto, nome ? { nome, variaveis: variaveisDe(variaveisTexto) } : null);
   }
@@ -208,7 +212,11 @@ export default function ConversaUlbra({
 
         <fieldset className="ulbra-template" disabled={!podeEnviar || ocupado}>
           <legend>Template (uso fora da janela de 24 h)</legend>
-          {semTemplates ? (
+          {!templateVerificado ? (
+            <p className="ulbra-aviso ulbra-aviso--cinza" data-campo="template-pendente">
+              Envio por template aguarda a verificação da prévia de template pela ULBRA. Por enquanto, fora da janela de 24 h o envio fica bloqueado.
+            </p>
+          ) : semTemplates ? (
             <p className="ulbra-aviso ulbra-aviso--cinza" data-campo="sem-templates">
               Nenhum template aprovado está disponível para a equipe. Fora da janela de 24 h, o envio fica bloqueado.
             </p>
@@ -219,6 +227,7 @@ export default function ConversaUlbra({
                 id="ulbra-template-nome"
                 data-campo="template-select"
                 value={templateNome}
+                disabled={!templateVerificado}
                 onChange={(e) => mudarTemplate(e.target.value)}
               >
                 <option value="">Sem template (texto livre)</option>

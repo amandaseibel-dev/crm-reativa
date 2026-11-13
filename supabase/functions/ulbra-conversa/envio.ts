@@ -86,9 +86,9 @@ export function templateDoCorpo(v: unknown): TemplateEnvio | null {
   if (typeof v !== "object") return { nome: "", variaveis: [] };
   const o = v as { nome?: unknown; variaveis?: unknown };
   const nome = typeof o.nome === "string" ? o.nome.trim() : "";
-  const variaveis = Array.isArray(o.variaveis) && o.variaveis.every((x) => typeof x === "string") ? (o.variaveis as string[]) : [];
-  if (Array.isArray(o.variaveis) && variaveis.length === 0 && o.variaveis.length > 0) return { nome: "", variaveis: [] };
-  return { nome, variaveis };
+  // variaveis precisa ser array de texto: ausente ou malformada bloqueia (nunca vira lista vazia em silêncio).
+  if (!Array.isArray(o.variaveis) || !o.variaveis.every((x) => typeof x === "string")) return { nome: "", variaveis: [] };
+  return { nome, variaveis: o.variaveis as string[] };
 }
 
 /**
@@ -98,6 +98,11 @@ export function templateDoCorpo(v: unknown): TemplateEnvio | null {
 export function templatesAprovadosDoAmbiente(): string[] {
   const bruto = (globalThis as { Deno?: { env: { get(k: string): string | undefined } } }).Deno?.env.get("ULBRA_TEMPLATES_APROVADOS") ?? "";
   return bruto.split(",").map((s) => s.trim()).filter((s) => s !== "");
+}
+
+/** Texto gravado em ulbra_envios. Com template, o texto livre não saiu: grava-se o nome do template (sem variáveis, que podem conter dado pessoal). */
+export function textoRegistro(texto: string, template: TemplateEnvio | null): string {
+  return template ? `[template] ` : texto;
 }
 
 /** Normaliza para comparar identidade: minúsculas, sem espaços nas pontas e com espaços colapsados. */
@@ -200,7 +205,7 @@ export async function enviarResposta(
     chave: pedido.chave,
     operador_email: pedido.operador,
     atendimento_id: pedido.atendimento_id,
-    texto,
+    texto: textoRegistro(texto, pedido.template),
     status: "PENDENTE",
     ulbra_mensagem_id: null,
     motivo: null,

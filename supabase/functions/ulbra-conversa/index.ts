@@ -234,7 +234,10 @@ Deno.serve(async (req: Request) => {
             previa_janela_aberta: typeof corpo.previa_janela_aberta === "boolean" ? corpo.previa_janela_aberta : null,
             previa_em: typeof corpo.previa_em === "string" ? corpo.previa_em : null,
           });
-          return !error;
+          if (!error) return true;
+          // 23505 = chave já existe (repetição do mesmo clique): devolve false. Qualquer outra falha NÃO vira "já processado".
+          if ((error as { code?: string }).code === "23505") return false;
+          throw new Error("ENVIO_NAO_GRAVADO");
         },
         async atualizar(operador, ch, campos) {
           await sb.from("ulbra_envios").update({ ...campos, atualizado_em: new Date().toISOString() }).eq("operador_email", operador).eq("chave", ch);
@@ -256,7 +259,7 @@ Deno.serve(async (req: Request) => {
           },
         },
       });
-      await sb.from("auditoria").insert({ usuario: email, acao: "ULBRA_ENVIO", tabela_afetada: "ulbra_envios", registro_id: atendimentoId, detalhes: { situacao: r.situacao, status: "envio" in r ? r.envio.status : null, motivos: "motivos" in r ? r.motivos : null } }).then(() => {}, () => {});
+      await sb.from("auditoria").insert({ usuario: email, acao: "ULBRA_ENVIO", tabela_afetada: "ulbra_envios", registro_id: atendimentoId, detalhes: { situacao: r.situacao, status: "envio" in r ? r.envio.status : null, motivos: "motivos" in r ? r.motivos : null, template: templateDoCorpo(corpo.template)?.nome ?? null } }).then(() => {}, () => {});
       return responder({ ok: r.situacao !== "BLOQUEADO", ...r }, r.situacao === "BLOQUEADO" ? 403 : 200);
     }
 
