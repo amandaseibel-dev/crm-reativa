@@ -58,6 +58,9 @@ checa "histórico de liberação gravado 1 vez" "1" "$(valor "select count(*) fr
 echo
 echo "== 2. LOTE com um aluno travado por um operador"
 psqlq -c "update public.casos set operador_email='op1@teste.local', operador_nome='OP UM' where id='$A';"
+# devolver o dono recarimba responsavel_atual_em (gatilho) e o hold de 24 h tiraria
+# o caso da lista de elegiveis; recoloca a data para o aluno voltar ao universo.
+psqlq -c "update public.alunos set responsavel_atual_em = now() - interval '30 days' where id='$A';"
 psqlq -c "delete from public.historico_operadores_alunos;"
 psqlq -f "$RAIZ/supabase/recovery/20261112_giro_fidelizacao_00_backup.sql" > /dev/null
 # sessão 1: o operador abre transação e segura a linha do aluno B por 12 s
@@ -65,12 +68,14 @@ psql -X -q -c "begin; select 1 from public.casos where id='$B' for update; selec
 TRAVA=$!
 sleep 2
 # sessão 2: o lote roda com lock_timeout de 5 s — tem de PULAR o aluno B e concluir
-sed "s/v_lote int := 1;/v_lote int := 1;/" "$RAIZ/supabase/recovery/20261112_giro_fidelizacao_01_liberar_lote.sql" > /tmp/lote.sql
+# os dados sao do operador op1, que nao e cobranca13 nem cobranca06: LOTE 3.
+sed "s/v_lote int := 1;/v_lote int := 3;/" "$RAIZ/supabase/recovery/20261112_giro_fidelizacao_01_liberar_lote.sql" > /tmp/lote.sql
 if psqlq -f /tmp/lote.sql > /tmp/lote.out 2>&1; then echo "  ok   o lote concluiu sem abortar"; else echo "  FALHA o lote abortou:"; tail -3 /tmp/lote.out; falhou=1; fi
 wait $TRAVA 2>/dev/null || true
 checa "aluno travado foi PULADO (não liberado)" "1" "$(valor "select count(*) from public._backup_fidelizacao_giro_20261112 where caso_id='$B' and liberado_em is null and pulado_motivo is not null")"
 checa "aluno travado continua com o operador"   "1" "$(valor "select count(*) from public.casos where id='$B' and operador_email='op1@teste.local'")"
-checa "os outros do lote foram liberados"       "2" "$(valor "select count(*) from public._backup_fidelizacao_giro_20261112 where liberado_em is not null")"
+checa "os outros do lote foram liberados"      "11" "$(valor "select count(*) from public._backup_fidelizacao_giro_20261112 where liberado_em is not null")"
+checa "o lote nao abortou pelo limite de erros" "1" "$(valor "select count(*) from public._backup_fidelizacao_giro_20261112 where pulado_motivo like 'erro:%'")"
 
 echo
 echo "== 3. ASSUNÇÃO simultânea do mesmo caso (dois operadores)"

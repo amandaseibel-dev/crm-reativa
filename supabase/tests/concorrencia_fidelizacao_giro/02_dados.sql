@@ -1,5 +1,6 @@
 -- Dados sintéticos. NENHUM dado real: CPF, nome e e-mail inventados.
--- Três alunos de giro vencido, parados há 15 dias, do mesmo operador.
+-- Doze alunos de giro vencido, parados há 15 dias, do mesmo operador (op1).
+-- op1 nao e cobranca13 nem cobranca06, entao todos caem no LOTE 3.
 set client_min_messages to warning;
 
 insert into public.usuarios (nome, email, perfil, ativo, operador_nome, recebe_novos_casos) values
@@ -14,7 +15,9 @@ on conflict (chave) do update set valor = excluded.valor;
 do $$
 declare n int;
 begin
-  for n in 1..3 loop
+  -- 12 alunos: o lote tolera ate 10% de erro, entao 1 aluno travado em 12 nao
+  -- aborta o lote (com 3 alunos abortaria, e o teste mediria outra coisa).
+  for n in 1..12 loop
     insert into public.alunos (id, cpf, nome, matricula, responsavel_atual_email, responsavel_atual_nome, responsavel_atual_em)
     values (('00000000-0000-0000-0000-' || lpad(n::text, 12, '0'))::uuid,
             (70000000000 + n)::text, 'Aluno ' || n, 'M' || n, 'op1@teste.local', 'OP UM', now() - interval '30 days');
