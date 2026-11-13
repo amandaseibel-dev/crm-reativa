@@ -145,8 +145,16 @@ aplicar a migração, pausar o cron, liberar casos ou mesclar a PR.
 ### Concorrência: o que o script garante e o que não garante
 
 - **Garante:** linhas do aluno e de todos os seus casos travadas antes de ler os irmãos; espera máxima de 5 s por trava (`lock_timeout`), com o aluno pulado em vez de bloquear o lote; cada aluno em subtransação; invariante por lista de ids.
-- **Não garante** que um operador que acionar durante a execução não tenha a ação lida como “casos já resolvidos” pelo lote. O lote pula o aluno quando a revalidação detecta mudança; uma proteção criada em **outra tabela** (acordo, pagamento) no mesmo instante pode passar. Por isso a janela é fora do expediente.
-- **Teste de interação simultânea:** não executado. A bancada roda numa única sessão; não há como provar concorrência real. Proposta: um teste com duas sessões reais, num ambiente de teste, **com autorização própria**.
+- **Provado em Postgres real:** operador segurando a linha não derruba o lote — o aluno é pulado e registrado. **Não garante**, ainda assim, que uma ação iniciada no mesmo instante seja lida como “caso já resolvido” pelo lote. O lote pula o aluno quando a revalidação detecta mudança; uma proteção criada em **outra tabela** (acordo, pagamento) no mesmo instante pode passar. Por isso a janela é fora do expediente.
+- **Teste de interação simultânea: EXECUTADO e aprovado (13/11).** Job de CI `fidelizacao do giro — concorrencia real (postgres isolado)`, com **duas sessões `psql`** num Postgres descartável (`supabase/tests/concorrencia_fidelizacao_giro/`). Resultado:
+
+| Cenário | Resultado |
+|---|---|
+| Liberação simultânea do mesmo caso, duas sessões | caso solto uma vez; histórico gravado **1 vez** |
+| Lote com a linha de um aluno travada por um operador | o lote **não abortou**; o aluno travado foi **pulado** pelo `lock_timeout` e ficou com o operador; os outros **11 foram liberados**; 1 erro registrado, abaixo do limite de 10% |
+| Assunção simultânea do mesmo caso por dois operadores | **exatamente um** venceu; o caso ficou com um dono só |
+
+Isso fecha o risco residual que estava declarado como "não provado em sessão única".
 
 ### Execução: conferência depois de cada lote (somente leitura)
 
@@ -408,7 +416,7 @@ Nenhuma destas medições está reproduzida por consulta versionada no repositó
 ## Não comprovado
 
 - **Nada foi executado em produção.** Migração, scripts e restauração rodam apenas em PGlite, na bancada.
-- **Concorrência real** não comprovada (bancada de sessão única).
+- ~~Concorrência real não comprovada~~ — **provada em 13/11** por job de CI com duas sessões (ver acima). Permanece o limite: proteção criada em **outra tabela** no mesmo instante (acordo, pagamento) não é travada.
 - **Papéis e RLS em produção:** o teste usa papéis simulados; `set local role authenticated` real não executado.
 - **Dublês declarados da bancada:** `audit_log`, `caso_encerramento_sem_saldo`, `auth.email()`, `cron.job`.
 - **Diferenças da bancada em relação à produção, declaradas em `fidelizacao_giro_lotes_prod_20261112.sql`:** `caso_encerrado_operacional` (produção delega ao corpo `_caso_encerrado_operacional_regra`, com congelamento e saldo conferido), `caso_aguarda_confirmacao_financeira`, `fn_atualizar_ultimo_acionamento`; 3 gatilhos de `casos` e 11 de `alunos` não reproduzidos. Os gatilhos que faltam disparam por STATUS, que a liberação e a restauração não escrevem.
