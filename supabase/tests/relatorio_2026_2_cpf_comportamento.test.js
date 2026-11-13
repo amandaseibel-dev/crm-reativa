@@ -49,14 +49,14 @@ const G = "00000000-0000-0000-0000-000000000010";
 const titulo = (id, aluno, cpf, saldo, venc = "2026-08-10") => [id, aluno, cpf, saldo, venc];
 
 const CENARIO = [
-  titulo("10000000-0000-0000-0000-000000000001", A, "12345678901", 100),
-  titulo("10000000-0000-0000-0000-000000000002", A, "12345678901", 50),
-  titulo("10000000-0000-0000-0000-000000000003", B, "12345678901", 200),
+  titulo("10000000-0000-0000-0000-000000000001", A, "52998224725", 100),
+  titulo("10000000-0000-0000-0000-000000000002", A, "52998224725", 50),
+  titulo("10000000-0000-0000-0000-000000000003", B, "52998224725", 200),
   titulo("10000000-0000-0000-0000-000000000004", C, null, 300),
   titulo("10000000-0000-0000-0000-000000000005", D, "111.111.111-11", 40),
   titulo("10000000-0000-0000-0000-000000000006", E, "1234567890123", 60),
   titulo("10000000-0000-0000-0000-000000000007", F, "98765432100", 10),
-  titulo("10000000-0000-0000-0000-000000000008", F, "11122233344", 20),
+  titulo("10000000-0000-0000-0000-000000000008", F, "11144477735", 20),
   titulo("10000000-0000-0000-0000-000000000009", G, "55555555555", 999, "2026-06-10"),
 ];
 
@@ -127,8 +127,8 @@ describe("relatorio 2026/2: classificacao de CPF e contagem por aluno", () => {
   it("aluno sem CPF fica no total de alunos e nao entra como CPF 00000000000", async () => {
     const j = await chamarRelatorio(db);
     expect(j.alunos_unicos_semestre).toBe(6);
-    // distintos: 12345678901 (A,B), 11111111111 (D), 13 digitos (E), 98765432100 e 11122233344 (F)
-    expect(j.cpfs_semestre).toBe(5);
+    // distintos validos: 52998224725 (A,B) e os dois de F
+    expect(j.cpfs_semestre).toBe(3);
     expect(j.cpf_diagnostico.alunos_sem_cpf).toBe(1);
   });
 
@@ -151,6 +151,18 @@ describe("relatorio 2026/2: classificacao de CPF e contagem por aluno", () => {
       [E],
     );
     expect(rows.map((r) => r.cpf)).toEqual(["1234567890123"]);
+  });
+
+  it("funcao de validacao: digitos verificadores e sequencias repetidas", async () => {
+    const q = async (c) => (await db.query("SELECT public._cpf_valido_2026_2($1) AS ok", [c])).rows[0].ok;
+    expect(await q("52998224725")).toBe(true);
+    expect(await q("98765432100")).toBe(true);
+    expect(await q("12345678901")).toBe(false);
+    expect(await q("11122233344")).toBe(false);
+    expect(await q("00000000000")).toBe(false);
+    expect(await q("11111111111")).toBe(false);
+    expect(await q("1234567890")).toBe(false);
+    expect(await q("1234567890123")).toBe(false);
   });
 
   it("CPF invalido com menos de 11 digitos e preservado, sem completar com zeros", async () => {
@@ -177,7 +189,7 @@ describe("relatorio 2026/2: classificacao de CPF e contagem por aluno", () => {
       ["10000000-0000-0000-0000-0000000000b1", I, "-"],
       ["10000000-0000-0000-0000-0000000000b2", J, "000.000.000-00"],
       ["10000000-0000-0000-0000-0000000000b3", K, null],
-      ["10000000-0000-0000-0000-0000000000b4", K, "123.456.789-01"],
+      ["10000000-0000-0000-0000-0000000000b4", K, "529.982.247-25"],
     ];
     for (const [id, aluno, cpf] of titulos) {
       await db.query(
@@ -187,13 +199,13 @@ describe("relatorio 2026/2: classificacao de CPF e contagem por aluno", () => {
       );
     }
     const j = await chamarRelatorio(db);
-    // sem CPF: C (nulo), I (traco), J (zeros). K tem um CPF valido, entao nao e sem CPF.
-    expect(j.cpf_diagnostico.alunos_sem_cpf).toBe(3);
-    // invalidos: D (repetido) e E (13 digitos). Sem CPF nao entra aqui.
-    expect(j.cpf_diagnostico.alunos_cpf_invalido).toBe(2);
+    // sem CPF: C (nulo), I (traco). K tem um CPF valido, entao nao e sem CPF.
+    expect(j.cpf_diagnostico.alunos_sem_cpf).toBe(2);
+    // invalidos: D (repetido), E (13 digitos) e J (zeros).
+    expect(j.cpf_diagnostico.alunos_cpf_invalido).toBe(3);
     expect(j.cpf_diagnostico.cpfs_validos).toBe(3);
-    // 00000000000 nunca aparece como CPF distinto: distintos = 12345678901, 11111111111, 1234567890123, 98765432100, 11122233344 e 12345678901 de K (mesmo de A/B)
-    expect(j.cpfs_semestre).toBe(5);
+    // CPFs distintos validos: 52998224725 (A, B, K), 98765432100 (F) e 11144477735 (F)
+    expect(j.cpfs_semestre).toBe(3);
     expect(j.alunos_unicos_semestre).toBe(9);
   });
 

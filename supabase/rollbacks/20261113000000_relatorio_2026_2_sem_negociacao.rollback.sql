@@ -14,6 +14,7 @@ END $$;
 DROP FUNCTION IF EXISTS public.relatorio_mensalidades_2026_2_capturar();
 DROP FUNCTION IF EXISTS public.relatorio_mensalidades_2026_2_sem_negociacao();
 DROP FUNCTION IF EXISTS public._relatorio_2026_2_eleg();
+DROP FUNCTION IF EXISTS public._cpf_valido_2026_2(text);
 DROP TABLE IF EXISTS public.relatorio_mens_2026_2_snapshot;
 
 COMMIT;

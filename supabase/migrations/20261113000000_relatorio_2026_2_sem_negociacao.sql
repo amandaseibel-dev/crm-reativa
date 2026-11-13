@@ -32,6 +32,36 @@ COMMENT ON TABLE public.relatorio_mens_2026_2_snapshot IS
 COMMENT ON COLUMN public.relatorio_mens_2026_2_snapshot.origem IS
   'captura = medido no dia pela RPC; reconstruido = estimado a partir da data dos eventos e ancorado nos pontos medidos.';
 
+-- CPF valido: 11 digitos, sem sequencia repetida e com digitos verificadores corretos.
+CREATE OR REPLACE FUNCTION public._cpf_valido_2026_2(p text)
+RETURNS boolean
+LANGUAGE plpgsql IMMUTABLE
+AS $fn$
+DECLARE
+  d int[];
+  s int;
+  r int;
+  i int;
+BEGIN
+  IF p IS NULL OR p !~ '^\d{11}$' OR p ~ '^(\d)\1{10}$' THEN
+    RETURN false;
+  END IF;
+  FOR i IN 1..11 LOOP
+    d[i] := substr(p, i, 1)::int;
+  END LOOP;
+  s := 0;
+  FOR i IN 1..9 LOOP s := s + d[i] * (11 - i); END LOOP;
+  r := (s * 10) % 11;
+  IF r = 10 THEN r := 0; END IF;
+  IF r <> d[10] THEN RETURN false; END IF;
+  s := 0;
+  FOR i IN 1..10 LOOP s := s + d[i] * (12 - i); END LOOP;
+  r := (s * 10) % 11;
+  IF r = 10 THEN r := 0; END IF;
+  RETURN r = d[11];
+END;
+$fn$;
+
 -- 2) Conjunto elegível para 2026/2 (mesma regra de 2026/1, mas com datas julho–dezembro)
 CREATE OR REPLACE FUNCTION public._relatorio_2026_2_eleg()
 RETURNS TABLE(id uuid, aluno_id uuid, cpf text, mes int, saldo numeric, curso text, unidade text, faixa text, faixa_ordem int)
@@ -44,8 +74,7 @@ BEGIN
   END IF;
   RETURN QUERY
   SELECT t.id, t.aluno_id,
-         CASE WHEN regexp_replace(coalesce(t.cpf,''),'\D','','g') ~ '^0*$' THEN NULL
-              ELSE regexp_replace(t.cpf,'\D','','g') END,
+         NULLIF(regexp_replace(coalesce(t.cpf,''),'\D','','g'), ''),
          extract(month from t.vencimento)::int,
          coalesce(t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0),
          CASE
@@ -102,14 +131,14 @@ BEGIN
   por_mes AS (
     SELECT g.mes AS mes_numero,
       (array['Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'])[g.mes - 6] AS mes_nome,
-      count(distinct e.cpf) AS cpfs, count(distinct e.aluno_id) AS alunos_unicos,
+      count(distinct e.cpf) FILTER (WHERE public._cpf_valido_2026_2(e.cpf)) AS cpfs, count(distinct e.aluno_id) AS alunos_unicos,
       count(e.id) AS mensalidades_sem_negociacao, round(coalesce(sum(e.saldo),0),2) AS saldo_sem_negociacao
     FROM generate_series(7,12) g(mes) LEFT JOIN eleg e ON e.mes = g.mes GROUP BY g.mes
   ),
   por_curso AS (SELECT curso, count(*) AS mensalidades, count(distinct aluno_id) AS alunos, round(sum(saldo),2) AS saldo FROM eleg GROUP BY curso),
   por_unidade AS (SELECT unidade, count(*) AS mensalidades, count(distinct aluno_id) AS alunos, round(sum(saldo),2) AS saldo FROM eleg GROUP BY unidade),
   por_faixa AS (SELECT faixa, faixa_ordem, count(*) AS mensalidades, count(distinct aluno_id) AS alunos, round(sum(saldo),2) AS saldo FROM eleg GROUP BY faixa, faixa_ordem),
-  tot AS (SELECT count(distinct cpf) AS cpfs, count(distinct aluno_id) AS alunos, count(*) AS mens, round(coalesce(sum(saldo),0),2) AS saldo FROM eleg),
+  tot AS (SELECT count(distinct cpf) FILTER (WHERE public._cpf_valido_2026_2(cpf)) AS cpfs, count(distinct aluno_id) AS alunos, count(*) AS mens, round(coalesce(sum(saldo),0),2) AS saldo FROM eleg),
   conf AS (SELECT count(distinct s.aluno_id) AS n FROM public.solicitacoes_confirmacao_pagamento s
     WHERE s.status='AGUARDANDO_CONFIRMACAO'),
   sem_cpf AS (SELECT count(*) AS n FROM (SELECT aluno_id FROM eleg GROUP BY aluno_id HAVING bool_and(cpf IS NULL)) x),
@@ -118,9 +147,8 @@ BEGIN
     SELECT aluno_id,
       regexp_replace(coalesce(cpf_raw,''),'\D','','g') AS dig,
       CASE
-        WHEN regexp_replace(coalesce(cpf_raw,''),'\D','','g') ~ '^0*$' THEN 'ausente'
-        WHEN regexp_replace(cpf_raw,'\D','','g') ~ '^\d{11}$'
-         AND regexp_replace(cpf_raw,'\D','','g') !~ '^(\d)\1{10}$' THEN 'valido'
+        WHEN regexp_replace(coalesce(cpf_raw,''),'\D','','g') = '' THEN 'ausente'
+        WHEN public._cpf_valido_2026_2(regexp_replace(cpf_raw,'\D','','g')) THEN 'valido'
         ELSE 'invalido'
       END AS classe
     FROM brutos
@@ -188,7 +216,7 @@ BEGIN
   IF NOT v_tecnico AND NOT v_gestao THEN
     RAISE EXCEPTION 'Acesso negado: restrito a gestao.' USING ERRCODE='42501';
   END IF;
-  SELECT count(distinct cpf), count(distinct aluno_id), count(*), round(coalesce(sum(saldo),0),2)
+  SELECT count(distinct cpf) FILTER (WHERE public._cpf_valido_2026_2(cpf)), count(distinct aluno_id), count(*), round(coalesce(sum(saldo),0),2)
     INTO v_cpfs, v_alunos, v_mens, v_saldo FROM public._relatorio_2026_2_eleg();
   INSERT INTO public.relatorio_mens_2026_2_snapshot (dia, cpfs, alunos, mensalidades, saldo, capturado_em, capturado_por)
   VALUES (v_dia, v_cpfs, v_alunos, v_mens, v_saldo, now(), coalesce(nullif(v_email,''),'cron'))

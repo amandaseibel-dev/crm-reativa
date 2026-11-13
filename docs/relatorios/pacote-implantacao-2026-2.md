@@ -6,10 +6,10 @@ Status: **não aplicado**. Esta PR não executa migration, SQL de escrita, merge
 
 | Artefato | Caminho | SHA-256 |
 |---|---|---|
-| Migration | `supabase/migrations/20261113000000_relatorio_2026_2_sem_negociacao.sql` | `1621ac7b8373b33042c1999e3a79d4c5d79d04ebbaf8efe8e2e8b1ca09106683` |
-| Rollback | `supabase/rollbacks/20261113000000_relatorio_2026_2_sem_negociacao.rollback.sql` | `468cbf1d41232beac10fbe52d3e934f376e1d968de2970523d94d0f6a9f49f4c` |
+| Migration | `supabase/migrations/20261113000000_relatorio_2026_2_sem_negociacao.sql` | `7c26d78d0d8d065a25538abcc430b32f71162f7c34a1202cda0942874ab4767d` |
+| Rollback | `supabase/rollbacks/20261113000000_relatorio_2026_2_sem_negociacao.rollback.sql` | `62938a9090f1540f716c6d56f4820cd846c804d5527211a3ac51243c589352f0` |
 
-Commit de referência: `d222a614` (PR #947, base `origin/main` 89bcf257). Conferir o hash do arquivo antes de aplicar.
+Commit de referência: ver `git log -1 -- supabase/migrations/20261113000000_relatorio_2026_2_sem_negociacao.sql` na PR #947. Conferir o hash do arquivo antes de aplicar.
 
 ## Pré-condições
 
@@ -59,5 +59,6 @@ Nenhuma dessas etapas é executada nesta PR.
 ## Riscos residuais
 
 - Desempenho não medido. O `EXPLAIN` sem `ANALYZE` foi feito apenas sobre o filtro de títulos do corpo de elegibilidade (não sobre a função inteira nem sobre as agregações e o JSON da RPC). Mostrou uso de índices em todos os filtros, mas a estimativa de 1 linha não prova estatísticas desatualizadas, porque predicados correlacionados também produzem isso. Medir com `ANALYZE` só em janela aprovada.
+- Regra de CPF: sem CPF = nulo, vazio ou sem dígitos; inválido = contém dígitos com tamanho incorreto, sequência repetida (inclui 000.000.000-00) ou dígito verificador incorreto; válido = 11 dígitos, não repetido e verificadores corretos. A validação só classifica o relatório: não altera cadastros, não exclui alunos ou valores e não une dívidas por CPF.
 - A regra de CPF já foi decidida pela gestão. Ela muda a contagem de CPFs em relação à primeira versão da PR, por isso a auditoria anterior não cobre esta versão.
 - O 2026/1 tem o mesmo `lpad` que trunca CPFs com mais de 11 dígitos, e isso não foi corrigido nesta entrega, conforme pedido.
