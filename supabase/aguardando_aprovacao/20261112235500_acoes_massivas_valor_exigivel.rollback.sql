@@ -6,7 +6,7 @@ BEGIN;
 DO $r$
 BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') IS DISTINCT FROM '512be32c9c2d7a5cee324e02dc3b8833' THEN
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') IS DISTINCT FROM '43fea46519b30f24353d722ec0d2db3b' THEN
     RAISE EXCEPTION 'Rollback abortado: universo mudou desde a migration. Nada alterado.';
   END IF;
 END $r$;
@@ -282,7 +282,7 @@ END $v$;
 DO $tr$
 BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_tipo_cobranca_alunos') IS DISTINCT FROM '55f24dce7c9eadca52c5b17d0c40551e' THEN
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_tipo_cobranca_alunos') IS DISTINCT FROM 'd3e5dc840b72a6fc2d7d68b4dd3070c6' THEN
     RAISE EXCEPTION 'Rollback abortado: tipo_cobranca_alunos nao esta na versao da migration.';
   END IF;
 END $tr$;

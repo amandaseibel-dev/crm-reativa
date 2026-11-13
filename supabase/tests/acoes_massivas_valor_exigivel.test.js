@@ -2,7 +2,8 @@
 //
 // Parte da definicao PUBLICADA em producao (8f94a168..., com #935), aplica a migration
 // pendente 20261112235500 e comprova: mensalidade independente entra; acordo entra pela
-// campanha; nada e somado duas vezes; titulos pagos, a vencer, devolvidos, em confirmacao
+// campanha; a dupla contagem e evitada nos casos verificados (vinculo a acordo e boleto
+// igual a parcela ATIVO; outras sobreposicoes nao foram comprovadas, ver R1); titulos pagos, a vencer, devolvidos, em confirmacao
 // e duplicados ficam fora; o dono do acordo e respeitado; protecoes preservadas.
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
@@ -18,10 +19,10 @@ const PUBLICADO = ler("fixtures/acoes_massivas_valor_exigivel/prod_20261112_univ
 const MIG = ler("../aguardando_aprovacao/20261112235500_acoes_massivas_valor_exigivel.sql.pendente");
 const ROLLBACK = ler("../aguardando_aprovacao/20261112235500_acoes_massivas_valor_exigivel.rollback.sql");
 const MD5_PUBLICADO = "8f94a1687f0f3d13765ecf86db1d1e19";
-const MD5_FINAL = "512be32c9c2d7a5cee324e02dc3b8833";
+const MD5_FINAL = "43fea46519b30f24353d722ec0d2db3b";
 const TIPO_PUBLICADO = ler("fixtures/acoes_massivas_valor_exigivel/prod_20261113_tipo_cobranca_alunos.sql");
 const MD5_TIPO_PUBLICADO = "323628b786a44f2a108210f8beafea8b";
-const MD5_TIPO_FINAL = "55f24dce7c9eadca52c5b17d0c40551e";
+const MD5_TIPO_FINAL = "d3e5dc840b72a6fc2d7d68b4dd3070c6";
 const emTransacao = (sql) => "BEGIN;\n" + sql + "\nCOMMIT;";
 
 let db;
@@ -102,7 +103,7 @@ describe("depois da migration", () => {
     expect(valor(r, id)).toBe(0);
   });
 
-  it("MENSALIDADES_E_ACORDOS com boleto igual e parcela VENCIDA: conta so a parcela (sem dupla contagem)", async () => {
+  it("MENSALIDADES_E_ACORDOS com boleto igual e parcela VENCIDA: conta so a parcela (caso verificado de dupla contagem)", async () => {
     const [id] = await alunos(db, 1, { ini: 1 });
     await db.query("update public.acordos_titulos set documento = '0005550002' where aluno_id = $1", [id]);
     const ac = await acordo(id);
@@ -139,6 +140,14 @@ describe("depois da migration", () => {
     await db.query("insert into public.parcelas (acordo_id, status, vencimento, valor, boleto) values ($1,'VENCIDA', current_date - 20, 320, '7000001')", [ac]);
     const r = await universo(db, { operador: "caso:" + OP_A + ";acordo:" + OP_A, responsaveis_caso: [OP_A], responsaveis_acordo: [OP_A], tipo_cobranca: "MENSALIDADES" });
     expect(disponivelEm(r, id)).toBe(false);
+  });
+
+  it("F1: parcela VENCIDA com vencimento futuro nao torna o aluno elegivel a ACORDOS_VENCIDOS nem a MENSALIDADES_E_ACORDOS", async () => {
+    const [id] = await alunos(db, 1, { ini: 1 });
+    const ac = await acordo(id);
+    await parcela(ac, { status: "VENCIDA", dias: 20, v: 320 });
+    expect(disponivelEm(await universo(db, ACORD()), id)).toBe(false);
+    expect(disponivelEm(await universo(db, JUNT()), id)).toBe(false);
   });
 
   it("mensalidade vencida independente com acordo ATIVO em dia (sem vencida): segue fora, como antes", async () => {
