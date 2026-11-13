@@ -13,7 +13,7 @@ import {
   type DependenciasHistorico,
   type FotografiaSaldo,
 } from "./historico.ts";
-import type { ContextoLeitura } from "../ulbra-conversa/leitura.ts";
+import type { ContextoLeitura } from "./leitura.ts";
 
 const AGORA = Date.parse("2026-11-10T12:00:00Z");
 const SALDO_FRESCO: FotografiaSaldo = { restam: 300, em: new Date(AGORA - 60_000).toISOString() };

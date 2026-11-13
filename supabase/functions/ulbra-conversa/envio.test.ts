@@ -36,6 +36,7 @@ const conexao = (over: Partial<RegistroConexao> = {}): RegistroConexao => ({
   refresh_token: "ref-do-operador",
   expira_em_ms: AGORA + 3600_000,
   revogada_em_ms: null,
+  pessoa_id: "pessoa-do-operador-1",
   ...over,
 });
 
@@ -142,6 +143,14 @@ describe("autoria: só a conexão do próprio operador", () => {
     const { d, provedorEnvio } = deps({ conexao: null });
     const r = await enviarResposta(pedido(), d);
     expect(r.situacao).toBe("BLOQUEADO");
+    expect(provedorEnvio.chamadas).toEqual([]);
+  });
+
+  it("conexão sem identidade da pessoa (meu_acesso falhou) bloqueia e NÃO chama o provedor", async () => {
+    const { d, provedorEnvio } = deps({ conexao: conexao({ pessoa_id: null }) });
+    const r = await enviarResposta(pedido(), d);
+    expect(r.situacao).toBe("BLOQUEADO");
+    expect(r.situacao === "BLOQUEADO" && r.motivos).toContain("CONEXAO_SEM_IDENTIDADE");
     expect(provedorEnvio.chamadas).toEqual([]);
   });
 

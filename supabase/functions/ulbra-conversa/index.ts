@@ -105,6 +105,7 @@ Deno.serve(async (req: Request) => {
       refresh_token: c.refresh_token_cifrado ? await decifrar(c.refresh_token_cifrado, chave!) : null,
       expira_em_ms: c.expira_em ? Date.parse(c.expira_em) : 0,
       revogada_em_ms: c.revogada_em ? Date.parse(c.revogada_em) : null,
+      pessoa_id: c.pessoa_id ?? null,
     };
   }
   async function guardarTokens(t: { access_token: string; refresh_token: string | null; expira_em_ms: number }, extra: Record<string, unknown> = {}) {

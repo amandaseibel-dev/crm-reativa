@@ -20,7 +20,7 @@
 //
 // VALORES PROPOSTOS, NÃO ATIVADOS: LIMITE_OPERADOR_DIA = 20, RESERVA_GLOBAL = 100.
 // ===========================================================================
-import { permitirLeitura, mapearPagina, type ContextoLeitura, type PaginaMensagens } from "../ulbra-conversa/leitura.ts";
+import { permitirLeitura, mapearPagina, type ContextoLeitura, type PaginaMensagens } from "./leitura.ts";
 
 export const LIMITE_OPERADOR_DIA = 20; // PROPOSTA — aguarda decisão da gestão
 export const RESERVA_GLOBAL = 100; // PROPOSTA — saldo que o histórico nunca gasta; teto = restam - reserva
@@ -126,7 +126,7 @@ export async function lerHistoricoSomenteLeitura(
 
 /** O que a leitura prova e o que NÃO prova. Vai junto com a resposta. */
 export const ALCANCE =
-  "comprovado: identidade confirmada, carteira/responsabilidade lidas do banco agora, reserva de chamada feita antes da chamada. NÃO comprovado: que a credencial de backend enxerga toda conversa (404/vazio fica como indisponível), e que a cota é separada da cota de OAuth da gestão.";
+  "comprovado: identidade confirmada, carteira/responsabilidade lidas do banco agora, reserva de chamada feita antes da chamada. NÃO comprovado: que a credencial de backend enxerga toda conversa (404/vazio fica como indisponível), e que a cota é separada da cota de autorização externa da gestão.";
 
 async function executar(
   operador: string,

@@ -13,7 +13,7 @@ import {
   LIMITE_OPERADOR_DIA, RESERVA_GLOBAL, SALDO_VALIDADE_MS, TAMANHO_PAGINA,
   lerHistoricoSomenteLeitura, type DependenciasHistorico, type FotografiaSaldo,
 } from "./historico.ts";
-import type { ContextoLeitura } from "../ulbra-conversa/leitura.ts";
+import type { ContextoLeitura } from "./leitura.ts";
 
 const MCP_URL = "https://crm.ulbra.ai/api/mcp";
 const ACCEPT_MCP = "application/json, text/event-stream";

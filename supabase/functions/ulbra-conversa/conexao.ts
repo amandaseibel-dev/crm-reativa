@@ -29,6 +29,8 @@ export interface RegistroConexao {
   /** Instante (ms desde a época) em que o access_token vence. */
   expira_em_ms: number;
   revogada_em_ms: number | null;
+  /** Identidade da pessoa do token, segundo meu_acesso. Sem ela, o envio não prova autoria. */
+  pessoa_id?: string | null;
 }
 
 export interface TokensOAuth {

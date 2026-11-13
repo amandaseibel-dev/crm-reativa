@@ -6,6 +6,7 @@ import {
 import jsPDF from "jspdf";
 import { supabase } from "../services/supabase";
 import { cartao } from "../ui/cards";
+import CarteiraEfetividade from "./CarteiraEfetividade";
 
 const BRL = (v) => (Number(v) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const NUM = (v) => (Number(v) || 0).toLocaleString("pt-BR");
@@ -15,7 +16,7 @@ const DIA = (d) => {
   return `${dd}/${m}`;
 };
 
-export default function MensalidadesSemNegociacao() {
+function RelatorioMensalidades2026_1() {
   const [dados, setDados] = useState(null);
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(true);
@@ -379,6 +380,29 @@ function Tot({ label, val, accent }) {
     </div>
   );
 }
+// Aba de relatórios por semestre. 2026/1 é a tela de sempre, intacta. 2026/2
+// reaproveita a Efetividade já travada na safra 2026/2 (mesmas consultas
+// carteira_2026_2_*, mesmas permissões, sem seletor de safra). Dados não se misturam.
+const SEMESTRES = [["2026/1", "2026/1 — 1º semestre"], ["2026/2", "2026/2 — semestre vigente"]];
+
+export default function MensalidadesSemNegociacao() {
+  const [semestre, setSemestre] = useState("2026/1");
+  return (
+    <div>
+      <div role="group" aria-label="Semestre do relatório" style={{ display: "flex", gap: 8, padding: "16px 24px 0", maxWidth: 1040, margin: "0 auto" }}>
+        {SEMESTRES.map(([k, r]) => (
+          <button key={k} type="button" aria-pressed={semestre === k} onClick={() => setSemestre(k)}
+                  style={{ padding: "6px 12px", borderRadius: 8, cursor: "pointer", fontWeight: 600,
+                           border: "1px solid var(--rv-borda, #d0d7e2)",
+                           background: semestre === k ? "var(--rv-azul)" : "transparent",
+                           color: semestre === k ? "#fff" : "var(--rv-texto, inherit)" }}>{r}</button>
+        ))}
+      </div>
+      {semestre === "2026/1" ? <RelatorioMensalidades2026_1 /> : <CarteiraEfetividade safraFixa="2026/2" />}
+    </div>
+  );
+}
+
 function Destaque({ titulo, valor, sub }) {
   return (
     <div style={{ border: "1px solid var(--rv-borda)", borderRadius: 10, padding: "12px 14px" }}>

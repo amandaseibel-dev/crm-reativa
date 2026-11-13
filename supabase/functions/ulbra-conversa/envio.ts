@@ -118,6 +118,10 @@ export async function enviarResposta(
   if (!deps.conexao || deps.conexao.operador_email.toLowerCase() !== pedido.operador.toLowerCase()) {
     return { situacao: "BLOQUEADO", motivos: ["SEM_CONEXAO_INDIVIDUAL"] };
   }
+  // A Mensageria só aceita envio da conta atendente: sem identidade da pessoa do token, não há prova de autoria.
+  if (!deps.conexao.pessoa_id) {
+    return { situacao: "BLOQUEADO", motivos: ["CONEXAO_SEM_IDENTIDADE"] };
+  }
   const conn = await garantirConexao(deps.conexao, deps.provedorOAuth, agora);
   if (!conn.ok) return { situacao: "BLOQUEADO", motivos: [conn.motivo] };
 
