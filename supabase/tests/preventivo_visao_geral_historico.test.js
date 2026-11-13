@@ -89,7 +89,7 @@ describe("Preventivo — visão geral, mudanças e histórico", () => {
     carteira = await um(db,
       `select public.preventivo_carteira_criar('Carteira', null, '2026-01-01'::date, '2027-12-31'::date)`);
   });
-  const importar = (nome, linhas, ordem = null) => um(db,
+  const importar = (nome, linhas) => um(db,
     `select public.preventivo_lote_confirmar($1::uuid, $2, 'rel.csv', '{}'::jsonb, null, $3::jsonb)`,
     [carteira, nome, JSON.stringify(linhas)]);
 
