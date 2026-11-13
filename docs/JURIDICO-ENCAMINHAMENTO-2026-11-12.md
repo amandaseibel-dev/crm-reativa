@@ -137,6 +137,11 @@ Fica, por decisão a tomar pela gestão:
   Acordo que fica em dia depois da aprovação, sem a aprovação específica de acordo ativo, vira a
   divergência `ACORDO_ATIVO_SEM_APROVACAO` e o envio é recusado. Em caso já enviado ou confirmado,
   essas divergências são só alerta para a gestão: não há revisão nem remoção pela aba.
+  Risco residual (ressalva do Guardião, achado por leitura, não executado): termo que piora
+  depois da aprovação (ex.: `TERMO_REJEITADO` ou arquivo removido) não gera divergência, porque
+  `_juridico_divergencias` não olha o termo; o Excel continua dizendo "Conferido no CRM".
+  Também não gera divergência título de acordo que entra em `EM_CONFIRMACAO` depois da aprovação,
+  exceto pelas rotas de fotografia e solicitação. Decisão da gestão: aceitar ou criar divergência.
   Riscos residuais: (1) acordo regularizado sem pagamento (ex.: vencimento alterado) que volta a
   quebrar com os mesmos IDs e o mesmo saldo não pede nova revisão; (2) mudança de parcela por
   outra transação durante a aprovação não é travada (sem lock em `parcelas`), e não há teste de
