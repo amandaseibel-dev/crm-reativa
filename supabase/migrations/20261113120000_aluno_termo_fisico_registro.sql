@@ -54,12 +54,22 @@ begin
 end;
 $$;
 
-revoke all on function public.aluno_termo_fisico_eventos_imutavel() from public, anon, authenticated;
+revoke all on function public.aluno_termo_fisico_eventos_imutavel() from public, anon, authenticated, service_role;
 
 drop trigger if exists aluno_termo_fisico_eventos_sem_update_delete on public.aluno_termo_fisico_eventos;
 create trigger aluno_termo_fisico_eventos_sem_update_delete
   before update or delete on public.aluno_termo_fisico_eventos
   for each row execute function public.aluno_termo_fisico_eventos_imutavel();
+
+-- TRUNCATE não dispara trigger de linha: precisa de trigger de instrução.
+drop trigger if exists aluno_termo_fisico_eventos_sem_truncate on public.aluno_termo_fisico_eventos;
+create trigger aluno_termo_fisico_eventos_sem_truncate
+  before truncate on public.aluno_termo_fisico_eventos
+  for each statement execute function public.aluno_termo_fisico_eventos_imutavel();
+
+-- service_role também não deve ter acesso direto: a tabela só é lida e escrita
+-- pelas RPCs (e pelo próprio dono, fora de qualquer rotina da aplicação).
+revoke all on public.aluno_termo_fisico_eventos from service_role;
 
 -- ----------------------------------------------------------------------------
 -- 2. Leitura: situação atual + histórico. Recusa quem não é gestão.
@@ -182,8 +192,10 @@ $$;
 -- ----------------------------------------------------------------------------
 -- 4. Grants das funções: nada para public/anon; só authenticated e service_role.
 -- ----------------------------------------------------------------------------
-revoke all on function public.termo_fisico_ler(text) from public, anon;
+-- service_role entra na lista de revoke porque o privilégio padrão do Supabase
+-- concede EXECUTE a ele em funções novas do schema public.
+revoke all on function public.termo_fisico_ler(text) from public, anon, service_role;
 grant execute on function public.termo_fisico_ler(text) to authenticated;
 
-revoke all on function public.termo_fisico_registrar(text, text, boolean) from public, anon;
+revoke all on function public.termo_fisico_registrar(text, text, boolean) from public, anon, service_role;
 grant execute on function public.termo_fisico_registrar(text, text, boolean) to authenticated;
