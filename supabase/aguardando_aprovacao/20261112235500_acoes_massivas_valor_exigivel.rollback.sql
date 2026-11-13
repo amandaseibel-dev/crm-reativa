@@ -6,7 +6,7 @@ BEGIN;
 DO $r$
 BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') IS DISTINCT FROM '43fea46519b30f24353d722ec0d2db3b' THEN
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') IS DISTINCT FROM '52f8ca6c4e4428e9dc5d0912e2b9751a' THEN
     RAISE EXCEPTION 'Rollback abortado: universo mudou desde a migration. Nada alterado.';
   END IF;
 END $r$;

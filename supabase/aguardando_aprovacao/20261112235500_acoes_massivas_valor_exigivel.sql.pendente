@@ -7,7 +7,7 @@
 -- Evita dupla contagem nos dois casos verificados: titulo incorporado a acordo nao
 -- cancelado sai de val_mens, e titulo cujo boleto e o de uma parcela de acordo ATIVO
 -- sai de val_mens. Outras formas de sobreposicao NAO foram comprovadas (ver a ressalva R1
--- e o item 2 do parecer do Guardiao, em aberto).
+-- e a ressalva R1 abaixo, que segue em decisao separada).
 -- Parcela de acordo so conta como vencida quando o vencimento ja passou (13/11, F1):
 -- o mesmo criterio vale para val_acordo, parc_dono e para a funcao de tipo.
 -- Sem bloqueio geral de valor zero: o filtro de faixa segue o da regra atual.
@@ -91,6 +91,29 @@ $n4$  parc_dono as materialized (
        and p.vencimento is not null and p.vencimento <= v_hoje
        and (v_ids is null$n4$, 1);
 
+-- F1 completo (13/11): a CTE parc (anos e base) tambem so usa parcela VENCIDA com vencimento passado.
+SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_universo',
+$a5$  parc as materialized (
+    select a.aluno_id, extract(year from p.vencimento)::int as ano
+      from public.acordos a
+      join public.parcelas p on p.acordo_id = a.id
+     where a.status = 'ATIVO' and p.status = 'VENCIDA' and p.vencimento is not null
+$a5$,
+$n5$  parc as materialized (
+    select a.aluno_id, extract(year from p.vencimento)::int as ano
+      from public.acordos a
+      join public.parcelas p on p.acordo_id = a.id
+     where a.status = 'ATIVO' and p.status = 'VENCIDA' and p.vencimento is not null
+       and p.vencimento <= v_hoje
+$n5$, 1);
+
+-- Sem valor exigivel positivo (NULL ou zero) o caso nao fica disponivel para extracao.
+-- Nao altera dados financeiros: so o filtro de elegibilidade.
+SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_universo',
+$a6$           (coalesce(k.valor_caso, 0) < v_min$a6$,
+$n6$           (coalesce(k.valor_caso, 0) <= 0
+            or coalesce(k.valor_caso, 0) < v_min$n6$, 1);
+
 SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_universo',
 $a3$      left join mov mv on mv.aluno_id = p.id::text$a3$,
 $n3$      left join mov mv on mv.aluno_id = p.id::text
@@ -101,16 +124,17 @@ $n3$      left join mov mv on mv.aluno_id = p.id::text
 DO $m$
 BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') IS DISTINCT FROM '43fea46519b30f24353d722ec0d2db3b' THEN
-    RAISE EXCEPTION 'MD5 final do universo diferente do validado (esperado 43fea46519b30f24353d722ec0d2db3b).';
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') IS DISTINCT FROM '52f8ca6c4e4428e9dc5d0912e2b9751a' THEN
+    RAISE EXCEPTION 'MD5 final do universo diferente do validado (esperado 52f8ca6c4e4428e9dc5d0912e2b9751a).';
   END IF;
 END $m$;
 
 -- 3. ELEGIBILIDADE POR TIPO DE CAMPANHA (13/11/2026) ---------------------------
 -- acoes_massivas_tipo_cobranca_alunos e compartilhada por universo, previa e lote.
--- NOTA (13/11): o comentario do corpo do universo ainda diz 'sem dupla contagem'; a afirmacao
--- so vale quando o boleto coincide com parcela de acordo ATIVO (ver secao 3). O corpo e preservado
--- para manter o hash validado.
+-- NOTA (13/11): o comentario do corpo do universo foi reescrito e agora condiciona a dupla
+-- contagem aos casos verificados (vinculo a acordo; boleto igual a parcela ATIVO). O criterio
+-- de vencimento vale para tipo, parc_dono, parc e valor. Hoje o unico chamador de
+-- acoes_massivas_tipo_cobranca_alunos fora de testes e o universo (medido no HEAD).
 -- Achado do Guardiao (13/11): mensalidade com boleto igual a parcela de acordo ATIVO
 -- entrava como disponivel com valor zero quando o dono do acordo era excluido; agora sai.
 -- Sem esta correcao, aluno so com mensalidade A VENCER entrava como "tem

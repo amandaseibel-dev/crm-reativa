@@ -19,7 +19,7 @@ const PUBLICADO = ler("fixtures/acoes_massivas_valor_exigivel/prod_20261112_univ
 const MIG = ler("../aguardando_aprovacao/20261112235500_acoes_massivas_valor_exigivel.sql.pendente");
 const ROLLBACK = ler("../aguardando_aprovacao/20261112235500_acoes_massivas_valor_exigivel.rollback.sql");
 const MD5_PUBLICADO = "8f94a1687f0f3d13765ecf86db1d1e19";
-const MD5_FINAL = "43fea46519b30f24353d722ec0d2db3b";
+const MD5_FINAL = "52f8ca6c4e4428e9dc5d0912e2b9751a";
 const TIPO_PUBLICADO = ler("fixtures/acoes_massivas_valor_exigivel/prod_20261113_tipo_cobranca_alunos.sql");
 const MD5_TIPO_PUBLICADO = "323628b786a44f2a108210f8beafea8b";
 const MD5_TIPO_FINAL = "d3e5dc840b72a6fc2d7d68b4dd3070c6";
@@ -296,5 +296,59 @@ describe("guardas", () => {
     await expect(db.exec(emTransacao(MIG))).rejects.toThrow(/Nada aplicado/);
     await db.exec("ROLLBACK;").catch(() => {});
     expect(await md5()).toBe(MD5_FINAL);
+  });
+});
+
+describe("depois da migration: consistencia de vencimento, valor positivo e privilegios (13/11)", () => {
+  beforeEach(async () => { await db.exec(emTransacao(MIG)); });
+
+  it("parc: parcela VENCIDA de vencimento futuro nao entra em anos (base do recorte)", async () => {
+    const [id] = await alunos(db, 1, { ini: 1 });
+    const ac = await acordo(id);
+    await parcela(ac, { status: "VENCIDA", dias: 400, v: 320 });
+    const anoFuturo = new Date(Date.now() + 400 * 864e5).getFullYear();
+    const r = await universo(db, ACORD());
+    expect(disponivelEm(r, id)).toBe(false);
+    expect(linha(r, id)?.anos ?? []).not.toContain(anoFuturo);
+  });
+
+  it("acordo em dia (parcela futura VENCIDA) + mensalidade vencida: fica fora de MENSALIDADES e de MENSALIDADES_E_ACORDOS", async () => {
+    const [id] = await alunos(db, 1, { ini: 1 });
+    await titulo(id, { dias: -60, v: 250 });
+    const ac = await acordo(id);
+    await parcela(ac, { status: "VENCIDA", dias: 20, v: 320 });
+    expect(disponivelEm(await universo(db, MENS()), id)).toBe(false);
+    expect(disponivelEm(await universo(db, JUNT()), id)).toBe(false);
+  });
+
+  it("parcela VENCIDA com valor NULL nao fica disponivel (sem valor exigivel positivo)", async () => {
+    const [id] = await alunos(db, 1, { ini: 1 });
+    const ac = await acordo(id);
+    await db.query("insert into public.parcelas (acordo_id, status, vencimento, valor, boleto) values ($1,'VENCIDA', current_date - 20, null, null)", [ac]);
+    expect(disponivelEm(await universo(db, ACORD()), id)).toBe(false);
+  });
+
+  it("parcela VENCIDA com valor ZERO nao fica disponivel (sem valor exigivel positivo)", async () => {
+    const [id] = await alunos(db, 1, { ini: 1 });
+    const ac = await acordo(id);
+    await parcela(ac, { status: "VENCIDA", dias: -20, v: 0 });
+    expect(disponivelEm(await universo(db, ACORD()), id)).toBe(false);
+  });
+
+  it("privilegios: apos a migration, anon e authenticated sem EXECUTE; service_role com EXECUTE; sem grant a PUBLIC", async () => {
+    const priv = async (fn, role) => (await db.query(
+      "select has_function_privilege($1, $2, 'EXECUTE') as ok", [role, fn])).rows[0].ok;
+    const tipo = "public.acoes_massivas_tipo_cobranca_alunos(uuid[])";
+    const univ = "public.acoes_massivas_universo(jsonb)";
+    // funcao de tipo: esta migration fixa o ACL (REVOKE PUBLIC/anon/authenticated) -> assercao estrita
+    expect(await priv(tipo, "anon")).toBe(false);
+    expect(await priv(tipo, "authenticated")).toBe(false);
+    expect(await priv(tipo, "service_role")).toBe(true);
+    // universo: o ACL vem da definicao publicada, nao desta migration; o acesso do operador e
+    // barrado pelo portao interno (42501). Aqui so se afirma o service_role. ACL real: NAO COMPROVADO.
+    expect(await priv(univ, "service_role")).toBe(true);
+    const pub = (await db.query("select proacl::text as a from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='acoes_massivas_tipo_cobranca_alunos'")).rows[0].a ?? "";
+    // PUBLIC aparece no ACL como grantee vazio: "=X/..." logo apos "{" ou ","
+    expect(pub).not.toMatch(/(^|[{,])=X\//);
   });
 });
