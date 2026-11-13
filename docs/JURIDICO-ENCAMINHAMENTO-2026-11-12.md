@@ -131,6 +131,13 @@ Fica, por decisão a tomar pela gestão:
   (`quebrado_revisado_*`). Não cobra, não cancela, não move carteira nem responsável. A pendência
   volta se o conjunto ou o saldo mudar; some se o acordo for regularizado, cancelado ou quitado.
   Mensalidades incorporadas ao acordo não entram de novo no caso.
+  Depois da aprovação, acordo que quebra sem revisão que bata vira a divergência
+  `ACORDO_QUEBRADO_SEM_REVISAO` e o envio ao financeiro é recusado. O conjunto e o saldo dos
+  quebrados vêm prontos da conferência (`quebrados.ids`, `quebrados.saldo`); a tela não soma.
+  Riscos residuais: (1) acordo regularizado sem pagamento (ex.: vencimento alterado) que volta a
+  quebrar com os mesmos IDs e o mesmo saldo não pede nova revisão; (2) mudança de parcela por
+  outra transação durante a aprovação não é travada (sem lock em `parcelas`), e não há teste de
+  concorrência real (PGlite é sessão única).
 - **Acordo ativo novo ou reativado depois da geração da lista** (`ACORDO_NOVO_APOS_GERACAO`):
   a pendência recusa a aprovação. A base revisada é `juridico_casos.acordos_na_geracao` (gravada na
   geração e renovada só pela aprovação específica de acordo ativo, com motivo). A aprovação trava o

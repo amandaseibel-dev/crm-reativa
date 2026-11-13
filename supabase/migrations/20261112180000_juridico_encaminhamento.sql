@@ -324,6 +324,11 @@ begin
     'total_acordos', round(v_total_acordo, 2),
     'acordo_ativo_em_dia', exists (select 1 from jsonb_array_elements(v_acordos) e
                                     where e->>'situacao' = 'ATIVO_EM_DIA'),
+    'quebrados', jsonb_build_object(
+      'ids', (select coalesce(jsonb_agg(e->>'acordo_id' order by e->>'acordo_id'), '[]'::jsonb)
+                from jsonb_array_elements(v_acordos) e where e->>'situacao' = 'QUEBRADO'),
+      'saldo', (select round(coalesce(sum((e->>'saldo')::numeric), 0), 2)
+                  from jsonb_array_elements(v_acordos) e where e->>'situacao' = 'QUEBRADO')),
     'acordos_cancelados', v_cancelados,
     'titulos_em_confirmacao', v_em_conf,
     'pagamento_pendente', v_pag_pend,
@@ -573,6 +578,21 @@ begin
        and a.duplicado_de is null
        and not (a.id = any(p_caso.acordos_aprovados))
   ) then v := array_append(v, 'ACORDO_NOVO'); end if;
+
+  -- acordo QUEBRADO depois da aprovacao sem revisao financeira que bata (conjunto e saldo)
+  if exists (
+    select 1 from (
+      select coalesce(array_agg(q.id order by q.id), '{}'::uuid[]) as ids, coalesce(sum(q.saldo), 0) as saldo
+        from (select a.id,
+                     round(coalesce(sum(p.valor) filter (where upper(coalesce(p.status,'')) in ('A_VENCER','VENCIDA')), 0), 2) as saldo
+                from public.acordos a join public.parcelas p on p.acordo_id = a.id
+               where a.aluno_id = p_caso.aluno_id and upper(coalesce(a.status,'')) = 'ATIVO' and a.duplicado_de is null
+               group by a.id
+              having count(*) filter (where upper(coalesce(p.status,'')) = 'VENCIDA') > 0) q) v
+     where array_length(v.ids, 1) > 0
+       and (v.ids is distinct from (select coalesce(array_agg(x order by x), '{}'::uuid[]) from unnest(p_caso.quebrado_revisado_ids) x)
+            or v.saldo is distinct from p_caso.quebrado_revisado_saldo)
+  ) then v := array_append(v, 'ACORDO_QUEBRADO_SEM_REVISAO'); end if;
 
   -- acordo que estava ATIVO na aprovacao, foi cancelado e voltou a ATIVO: so o historico sabe
   if exists (
@@ -979,7 +999,7 @@ begin
   if (select coalesce(array_agg(x order by x), '{}'::uuid[]) from unnest(p_acordos) x) is distinct from v_set then
     raise exception 'A lista de acordos quebrados mudou. Recarregue a tela.' using errcode = 'P0001';
   end if;
-  if p_saldo is distinct from v_saldo then
+  if round(p_saldo, 2) is distinct from round(v_saldo, 2) then
     raise exception 'O saldo exigível mudou (atual %). Recarregue a tela antes de revisar.', v_saldo using errcode = 'P0001';
   end if;
   update public.juridico_casos
