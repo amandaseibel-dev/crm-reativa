@@ -92,10 +92,11 @@ $antigo$      and not public.caso_encerrado_operacional(c.cpf_limpo,c.status_atu
 $novo$     or coalesce(v_new._saldo,0) <= 0 then
     return query select false,'Caso nao elegivel (protegido, encerrado ou sem saldo).',null::uuid; return;
   end if;
-  -- F1 (12/11/2026): trocar a MAO de um caso com dono (giro vencido) muda o dono de
-  -- TODOS os casos do aluno (cascata por gatilho). So vale se nenhum irmao puder sair.
-  if coalesce(v_new.operador_email,'') <> '' and not public.caso_pode_soltar_com_aluno(p_caso_id) then
-    return query select false,'Caso com irmao que nao pode mudar de mao junto (proteção do aluno).',null::uuid; return;
+  -- F1/G1 (12/11/2026): assumir QUALQUER caso muda o responsavel de TODOS os casos do
+  -- aluno (cascata por gatilho). Irmao protegido por fidelizacao vigente bloqueia; irmao livre
+  -- (sem dono, Carteira Geral ou pool sem protecao) nao bloqueia.
+  if not public.caso_pode_soltar_com_aluno(p_caso_id) then
+    return query select false,'Caso com irmao protegido por fidelizacao vigente: a assuncao nao muda o responsavel dele.',null::uuid; return;
   end if;$novo$,
 $antigo$     or coalesce(v_new._saldo,0) <= 0 then
     return query select false,'Caso nao elegivel (protegido, encerrado ou sem saldo).',null::uuid; return;

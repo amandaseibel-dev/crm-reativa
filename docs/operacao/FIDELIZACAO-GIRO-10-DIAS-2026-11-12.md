@@ -107,7 +107,7 @@ Pontos a saber:
 | **N1** — guarda de irmão para TODOS os casos, com e sem giro | Regra única `public.caso_pode_soltar_com_aluno` (na migração), usada pela liberação e pelo teto. Irmão com interação válida nos últimos 10 dias, sob giro vigente, congelado ou protegido segura o aluno inteiro | 10 testes de regressão com/sem giro, incluindo a cascata de 2 dias; mutação: sem a regra, 10 testes falham |
 | **N2** — teto de operador por UPDATE direto | `trg_impor_teto_operador` passou a exigir `caso_pode_soltar_com_aluno` no filtro de candidatos | 3 testes separados; mutação: sem a regra, 3 testes falham |
 | **Concorrência** | `liberar_fidelizacao_caso` trava (`for update`, ordem por id) TODOS os casos do aluno antes de ler os irmãos; o lote trava as linhas do aluno antes de revalidar; `lock_timeout = 5 s` nos scripts 01 e 02 (o 00 só lê casos e escreve na tabela nova) | Estrutural: o teste de travamento não prova concorrência real. **Não comprovado em execução paralela** (ver "Não comprovado") |
-| **F1** — troca de mão no `assumir_caso_livre` (caso de giro vencido com dono de outro operador) | A troca só é permitida se `caso_pode_soltar_com_aluno` aprovar: irmão que não pode mudar de mão junto segura a troca. Antes, o cascade mudava o dono de todos os casos do aluno | 3 testes de recusa (irmão encerrado dentro dos 10 dias, congelado, Carteira Geral) e 2 de permissão; mutação derruba 3 |
+| **F1** — assunção no `assumir_caso_livre` (qualquer caso, com ou sem dono) | A assunção só é permitida se `caso_pode_soltar_com_aluno` aprovar: irmão com proteção vigente segura. Antes, o cascade mudava o dono de todos os casos do aluno | 3 testes de recusa (irmão encerrado dentro dos 10 dias, congelado, Carteira Geral) e 2 de permissão; mutação derruba 3 |
 | Itens baixos do Guardião | Limite de erros (>10% dos alunos tentados desfaz o lote); invariante também pega troca de dono X→Y; conferência da restauração inclui status_jornada e data_ultimo_acionamento; trava de cron falha FECHADA nos três scripts (job precisa existir pelo nome); data do banco conferida nos três | Testes próprios, cada um com nome; mutação de 11 proteções: todas detectadas |
 | Fuso da suíte | Teste roda no fuso de São Paulo; antes quebrava das 21h às 24h BRT | Suíte verde em qualquer horário |
 
@@ -192,19 +192,29 @@ A restauração devolve operador, responsável, marca do giro, retorno, hora, pr
 - Na reativação do cron 8, ele solta o que restou elegível. Os retidos por irmão **não saem na manhã seguinte**: só saem quando o irmão deixar de estar dentro dos 10 dias, sob giro, congelado ou protegido.
 - O espelho `alunos_unificados` continua mostrando o operador anterior depois da liberação (comportamento já existente em toda liberação diária).
 
-## Regressão conhecida e caminhos fora desta PR (decisão da gestão pendente)
+## G1 corrigido e G2 separado (decisão da gestão, 12/11/2026)
 
-- **G1 — regressão conhecida, NÃO corrigida:** a regra de irmãos aplicada à troca de mão (F1) também se aplica à **livre assunção da Carteira Geral e do pool de ex-operador inativo**. Um caso da Carteira Geral com irmão também da Carteira Geral, encerrado e sem proteção, **passa a ser recusado** na assunção. A regra aprovada (migração 20261020230350) diz que esse caso é de livre assunção. Não há teste para esse cenário. Opções: (a) irmãos que também estão no pool não contam; (b) a gestão decide que irmão na Carteira Geral segura, e a regra aprovada é atualizada.
-- **G2 — caminhos de troca de responsável fora da regra de irmãos (não tratados):** `sistema_assumir_receptivo` (ligação do receptivo leva o aluno inteiro; usada em `src/pages/BaseReceptiva.jsx`), `carteira_geral_trocar_dono` (ação da gestão, move todos os casos do aluno), `vincular_responsavel_caso` e `desfazer_acao` (devolve o responsável anterior). Todos cascateiam via `set_resp_aluno` e nenhum passa por `caso_pode_soltar_com_aluno`. Não sondados. **Decisão da gestão:** ampliar esta PR a eles, ou tratá-los em PR separada.
-- **Cifras de produção:** 844, 63, 781, 753 e 7 foram medidas **antes** da regra da Carteira Geral. Remedir antes de qualquer execução.
+**G1 — regra final de irmãos** (`caso_pode_soltar_com_aluno`): um irmão só segura o aluno se tiver responsável **e** proteção vigente — acionado há 10 dias ou menos, giro vigente, congelado ou protegido. Estar na Carteira Geral ou em pool de ex-operador, por si só, **não** segura.
+
+| Regra da gestão | Como ficou | Teste |
+|---|---|---|
+| 1. Irmão livre na Carteira Geral não bloqueia a assunção | não entra na regra sem proteção vigente | "F1 / Q3 + G1", "A2 / G1 regra 5" |
+| 2. Irmão com responsável e fidelização vigente segue protegido | bloqueia cron, teto, troca de mão e assunção | "G1 regra 2" (assunção e cron) |
+| 3. Pool de ex-operador só é livre sem proteção vigente | mesma checagem de proteção | "G1 regra 3" (dois testes) |
+| 4. Assumir caso livre não transfere irmão protegido | a checagem vale para TODA assunção, inclusive de caso sem dono | "G1 regra 4"; mutação derruba |
+| 5. Livre assunção da Carteira Geral preservada | caso da Carteira Geral sem irmão protegido é assumido | "G1 regra 5" |
+
+**Remedição em produção (12/11 21:19 BRT, somente leitura, com a regra final):** 851 elegíveis no cron; **7 retidos, todos por irmão congelado e todos de giro**; 0 sem giro; 844 passam pela regra; lotes 329 / 254 / 170 alunos (340 / 264 / 177 casos), total **753 alunos, 781 casos, R$ 1.018.960**. Nenhum caso da Carteira Geral entre os elegíveis. Medido depois das 21h BRT, quando a data do banco (UTC) já é a do dia seguinte: remedir na janela de execução.
+
+**G2 — fora desta PR.** Receptivo (`sistema_assumir_receptivo`), movimentação da gestão (`carteira_geral_trocar_dono`) e vínculos de responsável (`vincular_responsavel_caso`, `desfazer_acao`) vão para PR separada, precedida de auditoria de cada caminho. Até lá, esses caminhos **continuam podendo mudar o responsável de irmão com fidelização vigente**: é risco residual da operação atual, não introduzido por esta PR.
+
+**Escopo desta PR:** liberação, cron, teto e assunção de caso.
 
 ## Riscos residuais (declarados)
 
 0. **Decisões pendentes da gestão (não tratadas nesta PR):**
    - **Cron de nivelamento (09:20, `nivelamento_automatico_gestao`):** move casos por UPDATE direto e **não aplica a regra de irmãos**; o cascade leva os irmãos. Não medido quantos casos seriam afetados hoje. É redistribuição automática já existente: a gestão precisa decidir se entra nesta PR ou vira pendência separada.
    - **Cascata sem registro no cron e no teto:** `liberar_fidelizacao_caso` grava histórico só para o caso liberado; os irmãos que saem junto não ganham linha de histórico fora do lote. Rastreabilidade incompleta, não erro de dono.
-   - **Carteira Geral como irmão (retenção sem prazo):** um irmão na Carteira Geral segura o aluno **sem prazo** — o caso só sai quando a gestão move o irmão. Quantidade em produção **não medida**. Decidir se a retenção é aceita.
-   - **Carteira Geral como irmão:** decidido nesta rodada que um irmão na Carteira Geral **segura** o aluno (conservador). Confirmar com a gestão.
    - **Teto sem travamento:** o teto lê os irmãos sem travar as linhas (não declarado antes). Custo do `EXISTS` não medido (roda só quando o teto dispara; hoje nenhum operador passa do teto).
 
 
@@ -221,7 +231,7 @@ A restauração devolve operador, responsável, marca do giro, retorno, hora, pr
 - `supabase/recovery/20261112_giro_fidelizacao_00_backup.sql`
 - `supabase/recovery/20261112_giro_fidelizacao_01_liberar_lote.sql`
 - `supabase/recovery/20261112_giro_fidelizacao_02_restaurar.sql`
-- Provas: `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (68) e `supabase/tests/fidelizacao_giro_lotes.test.js` (67)
+- Provas: `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (75) e `supabase/tests/fidelizacao_giro_lotes.test.js` (67)
 - Fixtures: `supabase/tests/fixtures/fidelizacao_giro_*_prod_20261112.{sql,md5.json}`
 
 ## Gate de segurança e CI
