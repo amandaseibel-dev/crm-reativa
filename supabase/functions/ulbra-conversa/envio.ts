@@ -54,8 +54,8 @@ export interface PedidoEnvio {
   identidade_confirmada: boolean;
   /**
    * Atendente do atendimento NA MENSAGERIA. Null quando não foi lido: sem ele o envio é bloqueado.
-   * ATENÇÃO: a coluna `atendente_ulbra` NÃO existe em nenhuma migração do repositório. Enquanto
-   * não houver fonte definida, a leitura falha e o envio fica bloqueado (ATENDIMENTO_NAO_ESPELHADO).
+   * Fonte NÃO definida. Candidato: ulbra_conversas.responsavel_ulbra, equivalência NÃO comprovada.
+   * Enquanto não houver fonte confirmada pelo contrato real, o envio fica bloqueado.
    */
   atendente_ulbra: string | null;
   /** Conta conectada do operador (pessoa_id e pessoa_nome de meu_acesso). */

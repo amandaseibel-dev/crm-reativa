@@ -80,7 +80,7 @@ create table public.ulbra_envio_previas (
   -- validade máxima de 10 min no banco, mesmo que o código erre (a função usa 5 min)
   constraint ulbra_envio_previas_validade_maxima check (expira_em <= criado_em + interval '10 minutes')
   -- Sem CHECK de consumida_em >= criado_em: consumida_em vem do relógio do Edge Function e criado_em
-  -- do now() do banco; a precisão diferente faz o CHECK falhar sem necessidade. O consumo único
+  -- também do relógio da função (não do now()); a precisão diferente faz o CHECK falhar sem necessidade. O consumo único
   -- é garantido pelo UPDATE ... WHERE consumida_em IS NULL (teste de concorrência).
 );
 alter table public.ulbra_envio_previas enable row level security;
@@ -109,7 +109,7 @@ create table public.ulbra_envios (
 create index ulbra_envios_atendimento_idx on public.ulbra_envios (atendimento_id, criado_em desc);
 -- No máximo UM envio em aberto (PENDENTE, ENVIANDO ou FALHA_INCERTA) por atendimento e texto,
 -- entre todos os operadores. Fecha a corrida entre requisições concorrentes com chaves diferentes.
-create unique index ulbra_envios_texto_em_aberto_unica on public.ulbra_envios (atendimento_id, texto)
+create unique index ulbra_envios_texto_em_aberto_unica on public.ulbra_envios (atendimento_id, md5(texto))
   where status in ('PENDENTE','ENVIANDO','FALHA_INCERTA');
 alter table public.ulbra_envios enable row level security;
 revoke all on public.ulbra_envios from public, anon, authenticated;

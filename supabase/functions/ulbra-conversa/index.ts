@@ -211,7 +211,8 @@ Deno.serve(async (req: Request) => {
         agora_ms: Date.now(), dono_carteira: dono,
         responsavel_atendimento: at.responsavel_email ? String(at.responsavel_email).toLowerCase() : null,
         identidade_confirmada: Boolean(alunoId),
-        // FONTE DO ATENDENTE NÃO DEFINIDA: nenhuma coluna ou contrato a fornece hoje. Null bloqueia o envio.
+        // FONTE DO ATENDENTE NÃO DEFINIDA. Candidato: ulbra_conversas.responsavel_ulbra. A equivalência com o
+        // atendente exigido pela Mensageria NÃO está comprovada. Null bloqueia o envio.
         atendente_ulbra: null,
         conta_conectada: { pessoa_id: conta.pessoa_id ?? null, pessoa_nome: conta.pessoa_nome ?? null },
       },
@@ -287,6 +288,8 @@ Deno.serve(async (req: Request) => {
     }
 
     if (acao === "envio_confirmar") {
+      // Desativação ANTES de qualquer efeito: sem renovação de token, sem consumo de prévia.
+      if (!envioReal) return responder({ ok: false, situacao: "BLOQUEADO", motivos: ["ENVIO_DESATIVADO"] }, 403);
       const previaId = String(corpo.previa_id ?? "");
       const texto = String(corpo.texto ?? "");
       const chaveEnvio = String(corpo.chave ?? "");
@@ -302,10 +305,21 @@ Deno.serve(async (req: Request) => {
         gerarId: () => crypto.randomUUID(),
         provedorEnvio: {
           async enviar(p) {
-            const { dados, erro } = await chamarComoOperador(p.access_token, "enviar_mensagem_whatsapp", { atendimento: p.atendimento_id, texto: p.texto, chave: p.chave });
-            if (erro) throw new RecusadoPelaUlbra(erro);
-            const d = dados as { mensagem?: { id?: string }; id?: string; situacao?: string };
-            return { ulbra_mensagem_id: d?.mensagem?.id ?? d?.id ?? d?.situacao ?? "sem_id" };
+            let resultado;
+            try {
+              resultado = await chamarComoOperador(p.access_token, "enviar_mensagem_whatsapp", { atendimento: p.atendimento_id, texto: p.texto, chave: p.chave });
+            } catch (e) {
+              // Rejeição HTTP antes do processamento: a mensagem NÃO saiu. Só estes casos viram recusa (não bloqueiam o texto).
+              const m = (e as Error).message;
+              if (m === "ULBRA_AUTENTICACAO" || m === "ULBRA_LIMITE" || /^ULBRA_HTTP_4/.test(m)) throw new RecusadoPelaUlbra(m);
+              throw e; // demais falhas: ambíguas, viram FALHA_INCERTA
+            }
+            // Resposta com erro ou sem id: não se sabe se a mensagem saiu. Ambíguo, nunca recusa.
+            if (resultado.erro) throw new Error("ENVIO_RESPOSTA_AMBIGUA");
+            const d = resultado.dados as { mensagem?: { id?: string }; id?: string };
+            const id = d?.mensagem?.id ?? d?.id;
+            if (typeof id !== "string" || id === "") throw new Error("ENVIO_RESPOSTA_AMBIGUA");
+            return { ulbra_mensagem_id: id };
           },
         },
       });
