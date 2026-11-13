@@ -229,10 +229,14 @@ A restauração devolve operador, responsável, marca do giro, retorno, hora, pr
 |---|---|---|
 | Evidência de negociação ou compromisso | 10 | Só pelo texto da tabulação (ex.: "Aguardando confirmação de pagamento", "Enviado ao financeiro"); 2 com solicitação de confirmação de pagamento nos últimos 45 dias. Nenhum acordo ativo, nenhum link de pagamento recente |
 | Apenas remarcado, sem atendimento | 0 isolados | (ver a linha seguinte: nenhuma das datas tem atendimento) |
-| Possível falha de registro ou integração | 52 | A data de retorno atual **não aparece em nenhuma movimentação**. Em 39 casos ela foi empurrada de 4 a 122 dias além do último retorno registrado; em 23 nunca houve retorno registrado |
+| Possível falha de registro ou integração | 52 | A data de retorno atual **não aparece em nenhuma movimentação** (causa mais provável: a Minha Carteira não grava a data na movimentação; ver correção abaixo). Em 39 casos ela foi empurrada de 4 a 122 dias além do último retorno registrado; em 23 nunca houve retorno registrado |
 | Já perderam a fidelização normal de 10 dias | **62 de 62** | Último atendimento do responsável há 14 a 38 dias |
 
-Sinais em comum aos 62: retorno **sempre para hoje**, **sem hora marcada**, próxima ação com o texto automático "Próxima ação: cobrar o saldo vencido de R$ …" e situação `COBRANCA_VENCIDA`. É o padrão de data gravada por rotina automática que manteve a origem `OPERADOR` (o defeito conhecido do "carimbo do retorno": prazo de máquina herdando o selo do operador). **Hipótese forte, não comprovada:** não há trilha que mostre qual rotina gravou a data.
+Sinais em comum aos 62: retorno **sempre para hoje**, **sem hora marcada**, próxima ação com o texto automático e situação `COBRANCA_VENCIDA`.
+
+**CORREÇÃO (13/11, após a 7ª auditoria do Guardião): a hipótese de "rotina automática" não se sustenta.** Todos os 62 têm atendimento real do responsável atual (`FINALIZACAO_ATENDIMENTO`), 14 a 38 dias antes do retorno; 41 têm distância de 10 a 20 dias. O que falta é o **vínculo** na movimentação: a tela **Minha Carteira grava o retorno no aluno, mas a movimentação de atendimento sai sem a data de retorno** (`PainelCarteira.jsx:2034-2036`, `:2056-2065`); só a ficha do aluno e a fila operacional gravam a data na movimentação. Medido: **92,9% das movimentações de atendimento dos últimos 60 dias (28.352 de 30.519) não têm data de retorno**, e **383 dos 599 retornos de operador** (hoje ou futuro) não têm movimentação com a mesma data. Em 31 dos 62 o último atendimento do responsável foi gravado sem data de retorno.
+
+**Consequência para a regra:** exigir "atendimento do responsável com a mesma data de retorno" reconhece só cerca de um terço dos retornos de operador. Os outros dois terços são, em grande parte, retornos legítimos marcados pela Minha Carteira que a regra trata como inválidos. A regra, como está na branch, **não deve ir adiante sem decisão da gestão** sobre o critério de vínculo (ver as opções ao final).
 
 *Os 216 retornos válidos pela regra (atendimento real do responsável com a mesma data), por distância entre atendimento e retorno:*
 
@@ -246,6 +250,13 @@ Sinais em comum aos 62: retorno **sempre para hoje**, **sem hora marcada**, pró
 Desses 216, **182 vêm da tabulação `MENSAGEM_ENVIADA`** (prazo automático de 7 dias úteis), 32 de `EM_ATENDIMENTO` e 2 de `LEMBRETE_PARCELA`. **Nenhum tem hora marcada.** O limite de 15 dias muda o resultado de 1 caso; 10 dias cobririam 215 dos 216.
 
 **Situação da regra:** o código da branch usa 15 dias como **hipótese de teste** (diretriz 5), e nada vai para produção. A regra final aguarda a gestão.
+
+**Pendências da 7ª auditoria (retorno agendado), declaradas e não resolvidas:**
+- **J1 (falso negativo):** ver a correção acima. A gestão escolhe o critério de vínculo.
+- **J2:** retorno válido de **ex-operador** (pool) bloqueia assunção e liberação por até 15 dias: o caso fica preso a quem não vai ligar. Confirmar.
+- **J5:** se o responsável vai de X para Y e volta para X, um atendimento antigo de X volta a valer. Borda não sondada.
+- **J6:** a restauração (`02`) ainda usa a regra antiga de retorno (só origem OPERADOR) para decidir se restaura; é mais conservadora, mas diverge da regra única.
+- **J3:** os números de produção desta seção (62, 28, 34, 599, 383, 216, 92,9%) vêm de consultas de leitura sem saída guardada no repositório.
 
 **G2 — fora desta PR.** Receptivo (`sistema_assumir_receptivo`), movimentação da gestão (`carteira_geral_trocar_dono`) e vínculos de responsável (`vincular_responsavel_caso`, `desfazer_acao`) vão para PR separada, precedida de auditoria de cada caminho. Até lá, esses caminhos **continuam podendo mudar o responsável de irmão com fidelização vigente**: é risco residual da operação atual, não introduzido por esta PR.
 

@@ -162,7 +162,7 @@ BEGIN
      AND p.proname IN ('liberar_fidelizacao_caso', 'trg_impor_teto_operador', 'assumir_caso_livre', 'casos_risco_perder', 'caso_pode_soltar_com_aluno', 'aluno_retorno_operador_vigente');
 
   IF (SELECT count(*) FROM jsonb_object_keys(v_antes)) <> 6 THEN
-    RAISE EXCEPTION 'fidelizacao_giro: esperava as 4 funcoes alvo, achei %.', v_antes;
+    RAISE EXCEPTION 'fidelizacao_giro: esperava as 6 funcoes, achei %.', v_antes;
   END IF;
 
   -- A1. liberar_fidelizacao_caso: portao interno de gestao.
