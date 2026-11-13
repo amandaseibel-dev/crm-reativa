@@ -68,6 +68,22 @@ async function mk(db, { sit = "Formado", valores = [1000], venc = "2025-06-10", 
   }
   return { al, cs, cpf, titulos, ac };
 }
+// Revisao financeira de acordo quebrado (decisao da gestao) feita com o que esta no banco
+// agora. Sem acordo quebrado, nao faz nada. Usada antes das aprovacoes dos testes antigos.
+const revQ = async (db, caso) => {
+  try {
+    const c = (await db.query("select public._juridico_conferencia($1) c", [caso.aluno_id])).rows[0].c;
+    const q = (c.acordos || []).filter((a) => a.situacao === "QUEBRADO");
+    if (!q.length) return;
+    const saldo = q.reduce((t, a) => t + Number(a.saldo || 0), 0);
+    const ja = (await db.query("select quebrado_revisado_ids ids, quebrado_revisado_saldo sa from juridico_casos where id=$1", [caso.id])).rows[0];
+    const ids = q.map((x) => x.acordo_id).sort();
+    if (ja && [...ja.ids].sort().join() === ids.join() && Number(ja.sa) === saldo) return; // ja revisado com o mesmo conjunto e saldo
+    await rpc(db, "public.juridico_caso_revisar_acordo_quebrado($1,$2,$3,$4)",
+      [caso.id, "revisado nos testes: saldo confirmado", q.map((x) => x.acordo_id), saldo]);
+  } catch (e) { /* sem revisao possivel: a aprovacao mostra o motivo */ }
+};
+
 const rpc = async (db, sql, p = []) => (await db.query(`select ${sql} as j`, p)).rows[0].j;
 const gerar = (db, qtd, extra = "") => rpc(db, `public.juridico_lote_gerar($1${extra})`, [qtd]);
 const casosDoLote = async (db, lote) =>
@@ -247,14 +263,16 @@ describe("encaminhamento indevido de acordo e pendencia documental", () => {
     const painel = await rpc(db, "public.juridico_painel()");
     const visto = painel.casos.find((x) => x.caso_id === ca.id);
     expect(visto.conferencia.termo.status).toBe("NAO_LOCALIZADO");
-    expect(visto.pendencias).toEqual(["TERMO_NAO_LOCALIZADO"]);
+    expect(visto.pendencias).toEqual(["ACORDO_QUEBRADO_SEM_REVISAO", "TERMO_NAO_LOCALIZADO"]);
 
     expect((await falha(rpc(db, "public.juridico_caso_aprovar($1)", [ca.id])))?.message).toMatch(/TERMO_NAO_LOCALIZADO/);
 
     await rpc(db, "public.juridico_caso_documento_vincular($1,'Termo assinado na unidade','https://drive.example/termo','PRESENCIAL_DIGITALIZADO')", [ca.id]);
+    await revQ(db, ca);
     expect((await rpc(db, "public.juridico_caso_aprovar($1)", [ca.id])).status).toBe("APROVADO");
 
     await rpc(db, "public.juridico_caso_autorizar_documento($1,'Dra. Fulana autorizou sem termo em 12/11')", [cb.id]);
+    await revQ(db, cb);
     expect((await rpc(db, "public.juridico_caso_aprovar($1)", [cb.id])).status).toBe("APROVADO");
     await db.close();
   });
@@ -268,6 +286,7 @@ describe("encaminhamento indevido de acordo e pendencia documental", () => {
     await rpc(db, "public.juridico_lote_gerar(2)");
     const ca = await casoDe(db, a.al), cb = await casoDe(db, b.al);
     expect((await falha(rpc(db, "public.juridico_caso_aprovar($1)", [ca.id])))?.message).toMatch(/TERMO_A_VALIDAR/);
+    await revQ(db, cb);
     expect((await rpc(db, "public.juridico_caso_aprovar($1)", [cb.id])).status).toBe("APROVADO");
     await db.close();
   });
@@ -300,6 +319,7 @@ describe("aprovacao bloqueia a cobranca sem tocar em titulo", () => {
     const antes = await foto();
     expect(await bloqueio(db, a.al)).toBeNull();
 
+    await revQ(db, caso);
     await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
 
     // 1. o portao canonico -- lido por elegibilidade, massivas e automaticos
@@ -402,7 +422,9 @@ describe("titulo que mudou depois da aprovacao", () => {
     const l = await gerar(db, 2);
     const ca = await casoDe(db, a.al), cb = await casoDe(db, b.al);
     await rpc(db, "public.juridico_caso_autorizar_documento($1,'autorizado')", [cb.id]);
+    await revQ(db, ca);
     await rpc(db, "public.juridico_caso_aprovar($1)", [ca.id]);
+    await revQ(db, cb);
     await rpc(db, "public.juridico_caso_aprovar($1)", [cb.id]);
 
     await db.query("update acordos_titulos set situacao='PAGO' where id=$1", [a.titulos[0]]);
@@ -784,6 +806,7 @@ describe("acordo novo ou reativado DURANTE o processo (achado 5)", () => {
     // liberar exige revisar a lista; depois a aprovacao passa
     await rpc(db, "public.juridico_caso_aprovar_acordo_ativo($1,'revisado: reativado pelo financeiro',$2)", [caso.id, await ativos(db, a.al)]);
     expect(await pend(db, a.al)).not.toContain("ACORDO_REATIVADO_APOS_GERACAO");
+    await revQ(db, caso);
     expect((await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id])).status).toBe("APROVADO");
     // e a divergencia pos-aprovacao NAO acusa o que foi revisado antes da aprovacao
     expect((await db.query("select public._juridico_divergencias(jc) d from juridico_casos jc where jc.id=$1", [caso.id])).rows[0].d).not.toContain("ACORDO_REATIVADO");
@@ -810,7 +833,99 @@ describe("acordo novo ou reativado DURANTE o processo (achado 5)", () => {
     const caso = await casoDe(db, a.al);
     await rpc(db, "public.juridico_caso_autorizar_documento($1,'autorizado pelo jurídico')", [caso.id]);
     expect(await pend(db, a.al)).not.toContain("ACORDO_NOVO_APOS_GERACAO");
+    await revQ(db, caso);
     expect((await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id])).status).toBe("APROVADO");
+    await db.close();
+  });
+});
+
+// Decisao da gestao (PR #934): acordo QUEBRADO exige revisao financeira antes da
+// aprovacao. Revisao = quem, quando, por que, com conjunto e saldo confirmados.
+describe("acordo quebrado: revisao financeira antes da aprovacao", () => {
+  const pend = async (db, al) =>
+    (await db.query("select public._juridico_pendencias(jc, public._juridico_conferencia(jc.aluno_id)) p from juridico_casos jc where jc.aluno_id=$1 and jc.status<>'REMOVIDO'", [al])).rows[0].p;
+  const conf = async (db, al) => (await db.query("select public._juridico_conferencia($1) c", [al])).rows[0].c;
+  const quebrados = (c) => (c.acordos || []).filter((a) => a.situacao === "QUEBRADO");
+  const saldoDe = (qs) => qs.reduce((t, a) => t + Number(a.saldo || 0), 0);
+  const revisar = (db, caso, motivo, ids, saldo) =>
+    rpc(db, "public.juridico_caso_revisar_acordo_quebrado($1,$2,$3,$4)", [caso.id, motivo, ids, saldo]);
+  const semPendencia = async (db, al) => expect(await pend(db, al)).not.toContain("ACORDO_QUEBRADO_SEM_REVISAO");
+
+  it("quebrado na geracao: pendencia, aprovacao recusada; revisao com responsavel, data e motivo libera; carteira e operador intactos", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000, 500], acordo: "QUEBRADO" });
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_autorizar_documento($1,'autorizado pelo jurídico')", [caso.id]);
+    const resp = (await db.query("select responsavel_atual_email, status_atual from alunos where id=$1", [a.al])).rows[0];
+    expect(await pend(db, a.al)).toContain("ACORDO_QUEBRADO_SEM_REVISAO");
+    expect((await falha(rpc(db, "public.juridico_caso_aprovar($1)", [caso.id])))?.message).toMatch(/ACORDO_QUEBRADO_SEM_REVISAO/);
+    const q = quebrados(await conf(db, a.al));
+    expect(q).toHaveLength(1);
+    await revisar(db, caso, "revisado: saldo confere com o financeiro", q.map((x) => x.acordo_id), saldoDe(q));
+    await semPendencia(db, a.al);
+    await revQ(db, caso);
+    expect((await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id])).status).toBe("APROVADO");
+    const r = (await db.query("select quebrado_revisado_por, quebrado_revisado_em, quebrado_revisado_motivo from juridico_casos where id=$1", [caso.id])).rows[0];
+    expect(r.quebrado_revisado_por).toBe(H.GESTAO);
+    expect(r.quebrado_revisado_em).not.toBeNull();
+    expect(r.quebrado_revisado_motivo).toMatch(/saldo confere/);
+    expect((await db.query("select responsavel_atual_email, status_atual from alunos where id=$1", [a.al])).rows[0]).toEqual({ ...resp, status_atual: "JURIDICO" });
+    // nenhuma parcela aparece duas vezes no caso (sem duplicar)
+    const dup = (await db.query("select count(*)::int n from juridico_casos_titulos where caso_id=$1 and parcela_id is not null group by parcela_id having count(*) > 1", [caso.id])).rows;
+    expect(dup).toHaveLength(0);
+    await db.close();
+  });
+
+  it("revisao recusa lista ou saldo que nao batem com o financeiro atual", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000], acordo: "QUEBRADO" });
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_autorizar_documento($1,'autorizado pelo jurídico')", [caso.id]);
+    const q = quebrados(await conf(db, a.al));
+    expect((await falha(revisar(db, caso, "x", [U(999, 9)], saldoDe(q))))?.message).toMatch(/lista de acordos quebrados mudou/);
+    expect((await falha(revisar(db, caso, "x", q.map((x) => x.acordo_id), saldoDe(q) + 1)))?.message).toMatch(/saldo exigível mudou/);
+    expect((await falha(revisar(db, caso, "  ", q.map((x) => x.acordo_id), saldoDe(q))))?.message).toMatch(/justificativa/);
+    await semPendencia(db, a.al).catch(() => {}); // ainda pendente: nada foi gravado
+    expect(await pend(db, a.al)).toContain("ACORDO_QUEBRADO_SEM_REVISAO");
+    await db.close();
+  });
+
+  it("quebrado DEPOIS da aprovacao de acordo ativo: pendencia; revisao libera", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000], acordo: "EM_DIA" });
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_aprovar_acordo_ativo($1,'pedido do jurídico',$2)", [caso.id, await ativos(db, a.al)]);
+    await db.query("update parcelas set status='VENCIDA' where acordo_id=$1 and status='A_VENCER' and numero=1", [a.ac]);
+    expect(await pend(db, a.al)).toContain("ACORDO_QUEBRADO_SEM_REVISAO");
+    expect((await falha(rpc(db, "public.juridico_caso_aprovar($1)", [caso.id])))?.message).toMatch(/ACORDO_QUEBRADO_SEM_REVISAO/);
+    const q = quebrados(await conf(db, a.al));
+    await revisar(db, caso, "quebrou depois da revisao: confirmado", q.map((x) => x.acordo_id), saldoDe(q));
+    await semPendencia(db, a.al);
+    await db.close();
+  });
+
+  it("regularizado: sem acordo quebrado, a pendencia some", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000], acordo: "QUEBRADO" });
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    expect(await pend(db, a.al)).toContain("ACORDO_QUEBRADO_SEM_REVISAO");
+    await db.query("update parcelas set status='PAGA' where acordo_id=$1 and status='VENCIDA'", [a.ac]);
+    await semPendencia(db, a.al);
+    await db.close();
+  });
+
+  it("cancelado e quitado: a pendencia some", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000], acordo: "QUEBRADO" });
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    expect(await pend(db, a.al)).toContain("ACORDO_QUEBRADO_SEM_REVISAO");
+    await db.query("update acordos set status='CANCELADO' where id=$1", [a.ac]);
+    await semPendencia(db, a.al);
+    await db.query("update acordos set status='QUITADO' where id=$1", [a.ac]);
+    await semPendencia(db, a.al);
     await db.close();
   });
 });
@@ -856,6 +971,7 @@ describe("acordo novo ou reativado depois da aprovacao", () => {
     await rpc(db, "public.juridico_lote_gerar(1)");
     const caso = await casoDe(db, a.al);
     await rpc(db, "public.juridico_caso_autorizar_documento($1,'autorizado pelo jurídico')", [caso.id]);
+    await revQ(db, caso);
     await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
     expect(await divs(db, caso)).not.toContain("ACORDO_NOVO");
     await db.close();
@@ -879,6 +995,7 @@ describe("acordo novo ou reativado depois da aprovacao", () => {
     await rpc(db, "public.juridico_lote_gerar(1)");
     const caso = await casoDe(db, a.al);
     await rpc(db, "public.juridico_caso_autorizar_documento($1,'autorizado pelo jurídico')", [caso.id]);
+    await revQ(db, caso);
     await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
     await db.query("update acordos set status='CANCELADO' where id=$1", [a.ac]);
     expect(await divs(db, caso)).not.toContain("ACORDO_REATIVADO");

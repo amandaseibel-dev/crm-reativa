@@ -165,6 +165,8 @@ export default function Juridico() {
 
   const acoesAnalise = (c) => {
     const pend = c.pendencias || [];
+    const quebradosRev = (c.conferencia?.acordos || []).filter((x) => x.situacao === "QUEBRADO");
+    const saldoQuebrado = quebradosRev.reduce((t, x) => t + Number(x.saldo || 0), 0);
     const termo = c.conferencia?.termo;
     const temDoc = pend.includes("TERMO_NAO_LOCALIZADO") || pend.includes("TERMO_A_VALIDAR");
     return (
@@ -176,6 +178,14 @@ export default function Juridico() {
             `${c.aluno}: aprovado. Cobrança bloqueada — manual, massiva e automática.`)}>
           Aprovar e bloquear cobrança
         </button>
+        {pend.includes("ACORDO_QUEBRADO_SEM_REVISAO") ? (
+          <button type="button" style={A.btnMini} onClick={() => pedir({
+            titulo: `Acordo quebrado — ${c.aluno}`,
+            texto: `Acordos quebrados: ${quebradosRev.map((x) => x.numero_acordo).join(", ")}. Saldo exigível: ${moeda(saldoQuebrado)}. Confirme a revisão financeira (títulos abrangidos e pagamentos) e informe a justificativa. Quem confirma e quando fica registrado.`,
+            campos: [{ chave: "motivo", rotulo: "Justificativa da revisão", obrigatorio: true, area: true }],
+            aoConfirmar: (v) => executar("juridico_caso_revisar_acordo_quebrado", { p_caso_id: c.caso_id, p_motivo: v.motivo, p_acordos: quebradosRev.map((x) => x.acordo_id), p_saldo: saldoQuebrado }, "Revisão do acordo quebrado registrada."),
+          })}>Revisar acordo quebrado</button>
+        ) : null}
         {["ACORDO_ATIVO_SEM_APROVACAO", "ACORDO_NOVO_APOS_GERACAO", "ACORDO_REATIVADO_APOS_GERACAO"].some((x) => pend.includes(x)) ? (
           <button type="button" style={A.btnMini} onClick={() => pedir({
             titulo: `Acordo ativo — ${c.aluno}`,

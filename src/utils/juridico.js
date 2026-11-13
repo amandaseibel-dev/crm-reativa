@@ -19,6 +19,7 @@ const PENDENCIAS = {
   SEM_SALDO_ELEGIVEL: "Sem saldo elegível",
   ACORDO_ATIVO_SEM_APROVACAO: "Acordo ativo: exige aprovação específica",
   ACORDO_REATIVADO_APOS_GERACAO: "Acordo da lista cancelado e reativado depois da revisão: exige nova revisão",
+  ACORDO_QUEBRADO_SEM_REVISAO: "Acordo quebrado: exige revisão financeira antes da aprovação",
   ACORDO_NOVO_APOS_GERACAO: "Acordo ativo novo ou reativado depois da lista: exige revisão e aprovação específica",
   TERMO_NAO_LOCALIZADO: "Termo do acordo não localizado",
   TERMO_A_VALIDAR: "Termo localizado, mas precisa de validação",

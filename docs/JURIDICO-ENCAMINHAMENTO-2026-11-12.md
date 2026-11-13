@@ -124,6 +124,13 @@ Fica, por decisão a tomar pela gestão:
   `trg_juridico_acordo_status` grava cada mudança de status em `juridico_historico`
   (evento `ACORDO_STATUS`) e a divergência `ACORDO_REATIVADO` lê esse histórico.
   Não movimenta carteira nem altera acordo; o envio fica recusado até a gestão revisar.
+- **Acordo QUEBRADO** (decisão da gestão, PR #934): o aluno entra na lista, mas a pendência
+  `ACORDO_QUEBRADO_SEM_REVISAO` impede a aprovação e o encaminhamento. A revisão
+  (`juridico_caso_revisar_acordo_quebrado`) exige a lista e o saldo exigível que a gestão viu, a
+  justificativa, e recusa se houver pagamento pendente ou não baixado. Grava quem, quando e por quê
+  (`quebrado_revisado_*`). Não cobra, não cancela, não move carteira nem responsável. A pendência
+  volta se o conjunto ou o saldo mudar; some se o acordo for regularizado, cancelado ou quitado.
+  Mensalidades incorporadas ao acordo não entram de novo no caso.
 - **Acordo ativo novo ou reativado depois da geração da lista** (`ACORDO_NOVO_APOS_GERACAO`):
   a pendência recusa a aprovação. A base revisada é `juridico_casos.acordos_na_geracao` (gravada na
   geração e renovada só pela aprovação específica de acordo ativo, com motivo). A aprovação trava o
@@ -142,8 +149,8 @@ Fica, por decisão a tomar pela gestão:
 - **Excel**: toda geração (envio e reexportação) registra `EXCEL_GERADO` com o lote. Só leva caso
   enviado ou confirmado. Os valores são os da aprovação; a coluna "Situação na data da geração"
   marca o caso em que algo mudou depois.
-- **Grants e rollback**: listas explícitas de 13 funções públicas e 15 internas (sem `service_role`); a
-  migration confere que o inventário tem exatamente 28. O rollback solta gatilhos, depois as 28 funções,
+- **Grants e rollback**: listas explícitas de 14 funções públicas e 15 internas (sem `service_role`); a
+  migration confere que o inventário tem exatamente 29. O rollback solta gatilhos, depois as 29 funções,
   depois as tabelas. Cópias em `_backup_juridico_*_20261112` com RLS e sem grant.
 - **Término do Contrato** não entra em evadidos (`_juridico_grupo` devolve nulo).
 

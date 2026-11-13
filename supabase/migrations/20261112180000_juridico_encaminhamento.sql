@@ -83,6 +83,13 @@ create table public.juridico_casos (
   -- IDs dos acordos ATIVOS que a gestao revisou (na geracao ou na ultima aprovacao
   -- de acordo ativo). Acordo fora dessa base bloqueia a aprovacao.
   acordos_na_geracao uuid[] not null default '{}',
+  -- revisao financeira de acordo QUEBRADO (decisao da gestao): quais acordos, saldo
+  -- confirmado, quem, quando e por que. Pendencia se o conjunto ou o saldo mudar.
+  quebrado_revisado_ids uuid[] not null default '{}',
+  quebrado_revisado_saldo numeric(14,2),
+  quebrado_revisado_por text,
+  quebrado_revisado_em timestamptz,
+  quebrado_revisado_motivo text,
   bloqueio_anterior jsonb,
   aprovado_por text,
   aprovado_em timestamptz,
@@ -349,6 +356,17 @@ begin
               where a.aluno_id = p_caso.aluno_id and upper(coalesce(a.status,'')) = 'ATIVO'
                 and a.duplicado_de is null and not (a.id = any(p_caso.acordos_na_geracao))) then
     v := array_append(v, 'ACORDO_NOVO_APOS_GERACAO'); end if;
+  -- acordo QUEBRADO: exige revisao financeira; conjunto e saldo precisam bater com a revisao
+  if exists (select 1 from jsonb_array_elements(p_conf->'acordos') a where a->>'situacao' = 'QUEBRADO')
+     and (
+       (select coalesce(array_agg((a->>'acordo_id')::uuid order by (a->>'acordo_id')::uuid), '{}'::uuid[])
+          from jsonb_array_elements(p_conf->'acordos') a where a->>'situacao' = 'QUEBRADO')
+       is distinct from (select coalesce(array_agg(x order by x), '{}'::uuid[]) from unnest(p_caso.quebrado_revisado_ids) x)
+       or (select coalesce(sum((a->>'saldo')::numeric), 0) from jsonb_array_elements(p_conf->'acordos') a
+            where a->>'situacao' = 'QUEBRADO') is distinct from p_caso.quebrado_revisado_saldo
+     ) then
+    v := array_append(v, 'ACORDO_QUEBRADO_SEM_REVISAO'); end if;
+
   -- acordo que estava na base, foi cancelado e voltou a ATIVO desde a ultima revisao
   if exists (select 1 from public.juridico_historico h
               where h.caso_id = p_caso.id and h.evento = 'ACORDO_STATUS'
@@ -926,6 +944,55 @@ begin
 end;
 $function$;
 
+-- Revisao financeira de acordo QUEBRADO. A gestao confirma os acordos e o saldo que
+-- viu. Nao cobra, nao baixa, nao cancela nem move carteira: so registra a revisao.
+create function public.juridico_caso_revisar_acordo_quebrado(p_caso_id uuid, p_motivo text, p_acordos uuid[], p_saldo numeric)
+returns jsonb
+language plpgsql security definer set search_path to 'public'
+as $function$
+declare v_email text := public._juridico_exigir_gestao(); v_caso public.juridico_casos;
+  v_conf jsonb; v_set uuid[]; v_saldo numeric;
+begin
+  if nullif(btrim(coalesce(p_motivo,'')), '') is null then
+    raise exception 'Informe a justificativa da revisão do acordo quebrado.' using errcode = '22023';
+  end if;
+  if p_acordos is null or p_saldo is null then
+    raise exception 'Informe os acordos e o saldo confirmados.' using errcode = '22023';
+  end if;
+  select * into v_caso from public.juridico_casos where id = p_caso_id for update;
+  if not found or v_caso.status <> 'EM_ANALISE' then
+    raise exception 'Só caso em análise recebe revisão de acordo quebrado.' using errcode = 'P0001';
+  end if;
+  perform 1 from public.alunos where id = v_caso.aluno_id for update;
+  v_conf := public._juridico_conferencia(v_caso.aluno_id);
+  if coalesce((v_conf->>'pagamento_pendente')::boolean, false)
+     or coalesce((v_conf->>'pagamento_nao_baixado')::boolean, false) then
+    raise exception 'Há pagamento pendente ou não baixado: resolva antes de revisar o acordo.' using errcode = 'P0001';
+  end if;
+  select coalesce(array_agg((a->>'acordo_id')::uuid order by (a->>'acordo_id')::uuid), '{}'::uuid[]),
+         coalesce(sum((a->>'saldo')::numeric), 0)
+    into v_set, v_saldo
+    from jsonb_array_elements(v_conf->'acordos') a where a->>'situacao' = 'QUEBRADO';
+  if coalesce(array_length(v_set, 1), 0) = 0 then
+    raise exception 'Não há acordo quebrado para revisar.' using errcode = 'P0001';
+  end if;
+  if (select coalesce(array_agg(x order by x), '{}'::uuid[]) from unnest(p_acordos) x) is distinct from v_set then
+    raise exception 'A lista de acordos quebrados mudou. Recarregue a tela.' using errcode = 'P0001';
+  end if;
+  if p_saldo is distinct from v_saldo then
+    raise exception 'O saldo exigível mudou (atual %). Recarregue a tela antes de revisar.', v_saldo using errcode = 'P0001';
+  end if;
+  update public.juridico_casos
+     set quebrado_revisado_ids = v_set, quebrado_revisado_saldo = v_saldo,
+         quebrado_revisado_por = v_email, quebrado_revisado_em = now(),
+         quebrado_revisado_motivo = btrim(p_motivo)
+   where id = p_caso_id;
+  perform public._juridico_registrar(p_caso_id, v_caso.lote_id, 'ACORDO_QUEBRADO_REVISADO',
+    jsonb_build_object('acordos', to_jsonb(v_set), 'saldo', v_saldo, 'motivo', btrim(p_motivo)), v_email);
+  return jsonb_build_object('caso_id', p_caso_id, 'acordos', to_jsonb(v_set), 'saldo', v_saldo);
+end;
+$function$;
+
 create function public.juridico_caso_aprovar_acordo_ativo(p_caso_id uuid, p_motivo text, p_acordos uuid[])
 returns jsonb
 language plpgsql security definer set search_path to 'public'
@@ -1478,6 +1545,7 @@ begin
   'public.juridico_caso_documento_vincular(uuid,text,text,text)',
   'public.juridico_caso_autorizar_documento(uuid,text)',
   'public.juridico_caso_aprovar_acordo_ativo(uuid,text,uuid[])',
+  'public.juridico_caso_revisar_acordo_quebrado(uuid,text,uuid[],numeric)',
   'public.juridico_caso_aprovar(uuid)',
   'public.juridico_lote_exportar(uuid)',
   'public.juridico_lote_enviar_financeiro(uuid)',
@@ -1520,8 +1588,8 @@ begin
   select count(*) into v_n from pg_proc p
    where p.pronamespace = 'public'::regnamespace
      and (p.proname like 'juridico\_%' or p.proname like '\_juridico\_%');
-  if v_n <> 28 then
-    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 28 esperadas).', v_n;
+  if v_n <> 29 then
+    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 29 esperadas).', v_n;
   end if;
 
   select count(*) into v_n
