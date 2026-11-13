@@ -124,9 +124,12 @@ function podeVerIndicadores(email) {
 const AZUL = "var(--rv-azul)", VERDE = "var(--rv-verde-ok)", VERMELHO = "var(--rv-vermelho)",
       AMBAR = "var(--rv-ambar)", CINZA = "var(--rv-texto-suave)";
 
-export default function CarteiraEfetividade() {
-  const [ano, setAno] = useState("2026");
-  const [sem, setSem] = useState("1");
+// `safraFixa` ("2026/2"): quem chama já escolheu a safra (a aba de relatórios
+// por semestre). A página abre nela, não mostra o seletor de safra e não
+// monta o comparativo entre safras, para não misturar os semestres na mesma tela.
+export default function CarteiraEfetividade({ safraFixa = null } = {}) {
+  const [ano, setAno] = useState(safraFixa ? safraFixa.slice(0, 4) : "2026");
+  const [sem, setSem] = useState(safraFixa ? safraFixa.slice(5) : "1");
   // 2026/2 tem duas leituras do MESMO dado: o consolidado do semestre e o
   // recorte por competência (mês de vencimento da mensalidade). As outras
   // safras têm só o consolidado.
@@ -514,6 +517,7 @@ export default function CarteiraEfetividade() {
 
       {/* Escolha do período e identidade do período no MESMO bloco: o que se
           seleciona e o que se está vendo não podem morar longe um do outro. */}
+      {!safraFixa && (
       <div style={S.painelPeriodo}>
         <div style={S.navegacao}>
           <div style={S.navBloco}>
@@ -567,6 +571,7 @@ export default function CarteiraEfetividade() {
           <span style={S.periodoNatureza}>· {natureza}</span>
         </div>
       </div>
+      )}
 
       {/* ÁREA GLOBAL — EM DESTAQUE, e fora da análise por safra.
           "Casos ainda pendentes" é indicador da CARTEIRA INTEIRA: caso sem
@@ -757,6 +762,7 @@ export default function CarteiraEfetividade() {
           {/* COMPARATIVO ENTRE SAFRAS — compacto e SOB DEMANDA. São três
               consultas ao vivo; abri-las em toda visita custaria caro sem
               ninguém ter pedido a comparação. Fechado, a página não as dispara. */}
+          {!safraFixa && (
           <div style={{ marginTop: 22 }}>
             <button onClick={() => setComparativo((v) => !v)} aria-expanded={comparativo}
                     style={S.linkMetodologia}>
@@ -767,6 +773,7 @@ export default function CarteiraEfetividade() {
               <ComparativoSafras selecionada={safra === "2026/1" ? "2026/1" : ano} recarga={recarga} />
             ) : null}
           </div>
+          )}
 
         </>
       )}

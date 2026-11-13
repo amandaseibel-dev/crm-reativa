@@ -803,7 +803,7 @@ export default function App() {
     { rota: "/taxa-conversao", label: "Taxa de Conversão", icone: "TrendingUp", secao: "Gestão" },
 
     { rota: "/relatorios", label: "Relatórios", icone: "TrendingUp", secao: "Gestão" },
-    { rota: "/relatorios-2026-1-sem-negociacao", label: "Jan–Jun/2026 sem negociação", icone: "TrendingUp", secao: "Gestão" },
+    { rota: "/relatorios-2026-1-sem-negociacao", label: "Relatórios 2026/1 e 2026/2", icone: "TrendingUp", secao: "Gestão" },
      { rota: "/acordos-duplicados", label: "Acordos duplicados", icone: "Copy", secao: "Gestão" }, { rota: "/ferramentas", label: "Ferramentas", icone: "FileStack", secao: "Gestão" }, 
     { rota: "/preventivo", label: "Preventivo", icone: "ShieldCheck", secao: "Gestão" },
     { rota: "/avisos", label: "Central de Avisos", icone: "Bell", secao: "Configurações" },
