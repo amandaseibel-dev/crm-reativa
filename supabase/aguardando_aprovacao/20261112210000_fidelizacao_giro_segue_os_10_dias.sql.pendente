@@ -149,8 +149,11 @@ AS $function$
                         and a.data_retorno <= (m.registrado_em at time zone 'America/Sao_Paulo')::date + 15)
                       -- (a') ESTOQUE ANTERIOR a correcao da Minha Carteira: ate 13/11/2026 a
                       -- tela gravava o retorno no ALUNO e no TEXTO da movimentacao, mas nao no
-                      -- campo. O texto e prova de agendamento HUMANO, e ausencia de campo NAO e
-                      -- prova de agendamento automatico. Mesmo teto de 15 dias.
+                      -- campo; a ausencia do campo NAO e prova de agendamento automatico.
+                      -- ATENCAO: o texto SOZINHO nao prova agendamento humano -- a mesma tela
+                      -- escreve "Retorno: DD/MM/AAAA" tambem para prazo automatico. O que prova
+                      -- e a COMBINACAO: origem OPERADOR% no aluno (exigida acima) + o texto do
+                      -- atendimento do responsavel. Mesmo teto de 15 dias.
                    or (m.descricao like '%Retorno: ' || to_char(a.data_retorno, 'DD/MM/YYYY') || '%'
                         and a.data_retorno <= (m.registrado_em at time zone 'America/Sao_Paulo')::date + 15)
                       -- (b) alternativa: atendimento do responsavel nos ultimos 10 dias

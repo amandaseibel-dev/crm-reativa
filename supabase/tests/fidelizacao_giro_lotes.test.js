@@ -759,6 +759,40 @@ describe("a unidade é o aluno — a cascata do gatilho, medida e tratada", () =
     await db.close();
   });
 
+  // N1 (achado da 10a auditoria): a consulta de medicao diz que caso AMBIGUO fica
+  // fora da liberacao. O backup tem de retê-lo de fato, senao a gestao aprova N e a
+  // execucao solta N + ambiguos.
+  it("RETORNO AMBÍGUO: o texto do responsável cita OUTRA data → RETIDO, não liberado", async () => {
+    const db = await abrir();
+    await mundo(db);
+    // caso 1: retorno de operador vigente, sem vinculo com a data atual, mas com
+    // atendimento do responsavel citando OUTRA data -> ambiguo
+    await db.query("update public.alunos set data_retorno = current_date + 3, retorno_origem = 'OPERADOR' where id = $1", [U(1)]);
+    await db.query(
+      `insert into public.aluno_movimentacoes (aluno_id, tipo, descricao, registrado_por_email, registrado_por_nome, registrado_em, data_retorno)
+       values ($1, 'FINALIZACAO_ATENDIMENTO', 'Mensagem enviada. Retorno: ' || to_char(current_date + 20, 'DD/MM/YYYY') || '.',
+               $2, 'DIEGO', now() - interval '20 days', null)`, [U(1), OPS[13].email]);
+    await db.exec(BACKUP);
+    const b = await tipoDe(db, 1);
+    expect(b.tipo).toBe("RETIDO");
+    expect(b.pulado_motivo).toBe("retorno_ambiguo_decisao_pendente");
+    for (const l of [1, 2, 3]) expect(await tenta(db, comLote(l))).toBeNull();
+    expect(await donoDe(db, 1)).toBe(OPS[13].email);          // continua com o operador
+    expect(await donoDe(db, 7)).toBeNull();                    // o resto do lote saiu
+    await db.close();
+  });
+
+  it("RETORNO AMBÍGUO: aluno sem nenhum atendimento do responsável → RETIDO", async () => {
+    const db = await abrir();
+    await mundo(db);
+    await db.query("update public.alunos set data_retorno = current_date + 3, retorno_origem = 'OPERADOR' where id = $1", [U(3)]);
+    await db.exec(BACKUP);
+    const b = await tipoDe(db, 3);
+    expect(b.tipo).toBe("RETIDO");
+    expect(b.pulado_motivo).toBe("retorno_ambiguo_decisao_pendente");
+    await db.close();
+  });
+
   it("aluno com outro caso que NÃO pode sair (acionado há 2 dias): RETIDO — o aluno inteiro fica fora dos lotes", async () => {
     const db = await abrir();
     await mundo(db);

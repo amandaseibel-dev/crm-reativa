@@ -365,6 +365,26 @@ Cada lote em uma noite, com conferência na manhã seguinte: **três noites**. O
 Se a gestão confirmar outro horário de encerramento do atendimento, a faixa muda junto
 — o que não muda é a regra: **nenhum lote durante o atendimento da equipe**.
 
+## MEDIÇÃO ATUAL — 13/11/2026, 13:37 BRT (somente leitura, consulta versionada)
+
+Executada com `supabase/audits/retorno_estoque_antigo_20261113.sql`, em janela de baixo tráfego (2 consultas ativas). **Substitui todos os números anteriores deste documento**, que são históricos.
+
+| Item | Valor |
+|---|---|
+| Casos elegíveis à liberação | **575** |
+| Alunos | **558** |
+| Valor em aberto | **R$ 893.385** |
+| Com retorno de operador vigente | 59 |
+| Protegidos pelo vínculo no campo (formato novo) | 0 |
+| **Recuperados pelo vínculo no texto** (estoque antigo) | **0** |
+| Protegidos só pela janela de 10 dias | 0 |
+| **AMBÍGUOS — retidos, fora da liberação** | **57** |
+| **LIBERÁVEIS** | **518** |
+
+**Leitura:** a correção do vínculo por texto **não recuperou nenhum caso**. O motivo aparece no bloco de ambíguos: em 57 dos 59 casos com retorno vigente, o atendimento do responsável cita **outra** data de retorno — ou seja, o retorno foi remarcado depois do atendimento, sem novo atendimento. Pela regra 4 da gestão, remarcar sem atender não renova a proteção; mas como há sinal de agendamento humano que não se amarra à data vigente, esses 57 **não são liberados**: ficam retidos com o motivo `retorno_ambiguo_decisao_pendente`, para decisão da gestão.
+
+**Correção aplicada junto (achado N1 da 10ª auditoria):** a consulta afirmava que os ambíguos ficavam fora da liberação, mas os scripts **não os excluíam** — eles entrariam no backup e seriam soltos pelo lote. O backup passou a retê-los. Dois testes cobrem os dois sinais de ambiguidade, e a mutação (retirar a retenção) derruba ambos.
+
 ## PACOTE FINAL — o que está pronto e o que depende da gestão
 
 **Pronto, nesta branch, sem nada aplicado em produção:**

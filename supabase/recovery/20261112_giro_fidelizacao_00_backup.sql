@@ -23,8 +23,11 @@
 --            já encerrado, fora dos 10 dias, sem giro vigente, NÃO congelado e
 --            NÃO protegido. Sai por gatilho; fica registrado para poder voltar;
 --   RETIDO   caso elegível cujo aluno fica FORA dos lotes, porque (a) tem outro
---            caso que não pode sair, ou (b) o responsável gravado no aluno não
---            é o operador do caso (a cascata do gatilho não funcionaria).
+--            caso que não pode sair, (b) o responsável gravado no aluno não
+--            é o operador do caso (a cascata do gatilho não funcionaria), ou
+--            (c) tem RETORNO AMBÍGUO: retorno de operador vigente, não protegido
+--            pela regra, mas com sinal de agendamento humano que não se amarra à
+--            data vigente. Fica fora até a gestão decidir.
 --
 -- TRAVAS (cada uma aborta sem criar nada):
 --   * a migration 20261112210000 tem de estar aplicada;
@@ -166,6 +169,29 @@ unidade_motivo as (
                          where a.id = k.unidade
                            and lower(a.responsavel_atual_email) is distinct from max(d.op))
              then 'responsavel_do_aluno_diverge_do_operador_do_caso'
+           -- RETORNO AMBIGUO (13/11/2026): o aluno tem retorno de operador vigente,
+           -- NAO protegido pela regra, mas ha sinal de agendamento humano que nao se
+           -- amarra a data vigente -- o atendimento do responsavel cita OUTRA data de
+           -- retorno, ou nao existe atendimento dele. Nao da para afirmar a origem:
+           -- fica FORA da liberacao ate a gestao decidir. Mesma definicao da consulta
+           -- supabase/audits/retorno_estoque_antigo_20261113.sql.
+           when exists (
+                 select 1 from public.alunos a
+                  where a.id = k.unidade
+                    and a.responsavel_atual_email is not null
+                    and a.data_retorno >= (now() at time zone 'America/Sao_Paulo')::date
+                    and upper(coalesce(a.retorno_origem, '')) like 'OPERADOR%'
+                    and a.retorno_confirmado_em is null
+                    and not public.aluno_retorno_operador_vigente(a.id)
+                    and ( exists (select 1 from public.aluno_movimentacoes m
+                                   where m.aluno_id = a.id::text and m.tipo = 'FINALIZACAO_ATENDIMENTO'
+                                     and lower(m.registrado_por_email) = lower(a.responsavel_atual_email)
+                                     and m.descricao ilike '%retorno%'
+                                     and m.descricao not like '%Retorno: ' || to_char(a.data_retorno, 'DD/MM/YYYY') || '%')
+                       or not exists (select 1 from public.aluno_movimentacoes m
+                                       where m.aluno_id = a.id::text and m.tipo = 'FINALIZACAO_ATENDIMENTO'
+                                         and lower(m.registrado_por_email) = lower(a.responsavel_atual_email)) ))
+             then 'retorno_ambiguo_decisao_pendente'
          end as motivo
     from classe k join dono d on d.unidade = k.unidade
    group by k.unidade
@@ -209,6 +235,7 @@ select b.lote, split_part(b.operador_email, '@', 1) operador,
        count(*) filter (where b.tipo = 'ARRASTO') casos_arrasto,
        count(*) filter (where b.pulado_motivo = 'aluno_com_outro_caso_fora_da_regra') retidos_outro_caso,
        count(*) filter (where b.pulado_motivo = 'responsavel_do_aluno_diverge_do_operador_do_caso') retidos_dessincronia,
+       count(*) filter (where b.pulado_motivo = 'retorno_ambiguo_decisao_pendente') retidos_retorno_ambiguo,
        round(sum(b.saldo_aberto) filter (where b.tipo = 'ALVO')) saldo_alvo
   from public._backup_fidelizacao_giro_20261112 b
  group by rollup (b.lote, split_part(b.operador_email, '@', 1))
