@@ -18,7 +18,7 @@ const PUBLICADO = ler("fixtures/acoes_massivas_valor_exigivel/prod_20261112_univ
 const MIG = ler("../aguardando_aprovacao/20261112235500_acoes_massivas_valor_exigivel.sql.pendente");
 const ROLLBACK = ler("../aguardando_aprovacao/20261112235500_acoes_massivas_valor_exigivel.rollback.sql");
 const MD5_PUBLICADO = "8f94a1687f0f3d13765ecf86db1d1e19";
-const MD5_FINAL = "cb43dc775c5b556a6a6c36ae5371d7f8";
+const MD5_FINAL = "512be32c9c2d7a5cee324e02dc3b8833";
 const emTransacao = (sql) => "BEGIN;\n" + sql + "\nCOMMIT;";
 
 let db;
@@ -93,6 +93,34 @@ describe("depois da migration", () => {
     await parcela(ac, { status: "A_VENCER", dias: 10, boleto: "5550001", v: 999 });
     const r = await universo(db, MENS());
     expect(valor(r, id)).toBe(0);
+  });
+
+  it("MENSALIDADES_E_ACORDOS com boleto igual e parcela VENCIDA: conta so a parcela (sem dupla contagem)", async () => {
+    const [id] = await alunos(db, 1, { ini: 1 });
+    await db.query("update public.acordos_titulos set documento = '0005550002' where aluno_id = $1", [id]);
+    const ac = await acordo(id);
+    await parcela(ac, { v: 320, boleto: "5550002" });
+    expect(valor(await universo(db, JUNT()), id)).toBe(320);
+    expect(valor(await universo(db, MENS()), id)).toBe(0);
+    expect(valor(await universo(db, ACORD()), id)).toBe(320);
+  });
+
+  it("LIMITE CONHECIDO: titulo sem documento e sem vinculo e tratado como independente e soma com o acordo", async () => {
+    // Sem vinculo e sem boleto em comum nao ha como provar que e a mesma divida. Soma as duas.
+    const [id] = await alunos(db, 1, { ini: 1 });
+    const ac = await acordo(id);
+    await parcela(ac, { v: 320 });
+    expect(valor(await universo(db, JUNT()), id)).toBe(420);
+  });
+
+  it("PENDENTE DE DECISAO: so titulo a vencer aparece disponivel com valor 0 (criterio de tipo herdado)", async () => {
+    // O criterio de tipo (acoes_massivas_tipo_cobranca_alunos) nao olha vencimento; o valor olha.
+    // Este teste fixa o comportamento atual para a divergencia nao passar despercebida.
+    const [id] = await alunos(db, 1, { ini: 1 });
+    await db.query("update public.acordos_titulos set vencimento = current_date + 15 where aluno_id = $1", [id]);
+    const l = linha(await universo(db, MENS()), id);
+    expect(Number(l.valor)).toBe(0);
+    expect(l.disponivel).toBe(true);
   });
 
   it("ACORDOS_VENCIDOS: valor = so as parcelas vencidas do acordo", async () => {

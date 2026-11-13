@@ -24,11 +24,12 @@ END $g$;
 -- 1. PATCHES ANCORADOS (ancora unica, mesma semantica de patch_funcao_ancorada) --
 SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_universo',
 $a1$  cls as materialized ($a1$,
-$n1$  -- VALOR EXIGIVEL (regra reformulada, 12/12). Dois componentes SOMADOS, sem dupla contagem:
+$n1$  -- VALOR EXIGIVEL (regra reformulada, 12/11). Dois componentes SOMADOS, sem dupla contagem:
   --   val_mens   : titulo ABERTO vencido, nao incorporado a acordo nao cancelado, cujo boleto
   --                nao e o de uma parcela de acordo ATIVO (mesma divida nao conta duas vezes);
   --   val_acordo : parcelas VENCIDAS de acordo ATIVO do responsavel escolhido.
-  -- Titulos NEGOCIADO (vinculados), DEVOLVIDO, CANCELADA, DUPLICADA e EM_CONFIRMACAO ficam fora.
+  -- So entra situacao ABERTO: NEGOCIADO (com ou sem vinculo), PAGO, DEVOLVIDO, CANCELADA,
+  -- DUPLICADA e EM_CONFIRMACAO ficam fora do valor.
   val_mens as materialized (
     select t.aluno_id, sum(coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0)) as v
       from public.acordos_titulos t
@@ -79,8 +80,8 @@ $n3$      left join mov mv on mv.aluno_id = p.id::text
 DO $m$
 BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') IS DISTINCT FROM 'cb43dc775c5b556a6a6c36ae5371d7f8' THEN
-    RAISE EXCEPTION 'MD5 final do universo diferente do validado (esperado cb43dc775c5b556a6a6c36ae5371d7f8).';
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') IS DISTINCT FROM '512be32c9c2d7a5cee324e02dc3b8833' THEN
+    RAISE EXCEPTION 'MD5 final do universo diferente do validado (esperado 512be32c9c2d7a5cee324e02dc3b8833).';
   END IF;
 END $m$;
 
