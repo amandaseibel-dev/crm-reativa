@@ -232,6 +232,7 @@ COMMENT ON FUNCTION public.relatorio_mensalidades_2026_2_capturar() IS
 
 -- Grants: mesmos usuários que 2026/1
 REVOKE ALL ON FUNCTION public._relatorio_2026_2_eleg() FROM public, anon, authenticated;
+REVOKE ALL ON FUNCTION public._cpf_valido_2026_2(text) FROM public, anon, authenticated;
 
 REVOKE ALL ON FUNCTION public.relatorio_mensalidades_2026_2_sem_negociacao() FROM public, anon;
 GRANT EXECUTE ON FUNCTION public.relatorio_mensalidades_2026_2_sem_negociacao() TO authenticated;

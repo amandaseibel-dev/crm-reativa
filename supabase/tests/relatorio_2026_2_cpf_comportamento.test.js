@@ -224,6 +224,16 @@ describe("relatorio 2026/2: classificacao de CPF e contagem por aluno", () => {
     }
   });
 
+  it("funcao de validacao de CPF nao e executavel por anon nem authenticated", async () => {
+    for (const role of ["anon", "authenticated"]) {
+      const { rows } = await db.query(
+        `SELECT has_function_privilege($1, 'public._cpf_valido_2026_2(text)', 'EXECUTE') AS ok`,
+        [role],
+      );
+      expect(rows[0].ok, role).toBe(false);
+    }
+  });
+
   it("helper de elegibilidade nao e executavel por authenticated nem anon (expoe CPF)", async () => {
     const q = async (role) => {
       const { rows } = await db.query(
