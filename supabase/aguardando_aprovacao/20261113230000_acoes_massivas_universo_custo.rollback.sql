@@ -6,7 +6,7 @@ BEGIN;
 DO $g$
 BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') IS DISTINCT FROM 'd625cb66f94d5eb9f9bf4cf281d466dd' THEN
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') IS DISTINCT FROM '941a3de82f87d03e08d4f14043f907fb' THEN
     RAISE EXCEPTION 'Rollback: universo nao esta na versao otimizada (esperado d625cb66...). Nada feito.';
   END IF;
 END $g$;
@@ -315,6 +315,10 @@ begin
     from cl;
 end;
 $function$;
+
+-- Reconfirmacao de ACL (mesmo conjunto da migration): CREATE OR REPLACE nao garante o ACL publicado.
+REVOKE ALL ON FUNCTION public.acoes_massivas_universo(jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.acoes_massivas_universo(jsonb) TO authenticated, service_role;
 
 DO $m$
 BEGIN

@@ -23,8 +23,6 @@ $a1$  tc as materialized (
     select t.aluno_id, t.tem_mensalidade, t.tem_acordo_vencido
       from public.acoes_massivas_tipo_cobranca_alunos(v_ids) t
   ),
-  -- BASE: quem tem divida ativa; o ano e o do vencimento do titulo em aberto
-  -- (ou da parcela vencida de acordo ativo).
 $a1$, '  -- tc: calculada depois de pop (otimizacao de custo)
 ', 1);
 SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_universo',
@@ -65,14 +63,16 @@ $n3$  mov as materialized (
     select t.aluno_id, t.tem_mensalidade, t.tem_acordo_vencido
       from public.acoes_massivas_tipo_cobranca_alunos(array(select p0.id from pop p0)) t
   ),
-  -- BASE: quem tem divida ativa; o ano e o do vencimento do titulo em aberto
-  -- (ou da parcela vencida de acordo ativo).
   cls as materialized ($n3$, 1);
+
+-- Reconfirmacao de ACL (CREATE OR REPLACE nao garante o ACL publicado): so authenticated e service_role.
+REVOKE ALL ON FUNCTION public.acoes_massivas_universo(jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.acoes_massivas_universo(jsonb) TO authenticated, service_role;
 
 DO $m$
 BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') IS DISTINCT FROM 'd625cb66f94d5eb9f9bf4cf281d466dd' THEN
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') IS DISTINCT FROM '941a3de82f87d03e08d4f14043f907fb' THEN
     RAISE EXCEPTION 'MD5 final otimizado diferente do validado.';
   END IF;
 END $m$;

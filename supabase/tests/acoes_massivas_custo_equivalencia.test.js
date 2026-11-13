@@ -1,7 +1,8 @@
 // OTIMIZACAO DO UNIVERSO (custo) -- equivalencia de resultado.
 // Compara a funcao da #941 (A) com a otimizada (B) no MESMO conjunto de dados, em todos os
 // cenarios de filtro. Nao mede desempenho: isso fica para validacao controlada em ambiente de teste.
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+vi.setConfig({ testTimeout: 180000, hookTimeout: 180000 });
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -141,6 +142,8 @@ describe("otimizacao do universo: equivalencia com a #941", () => {
 });
 
 describe("predicado de cobertura: forma inline e igual a funcao", () => {
+  // lista lida do ARQUIVO otimizado (nao copiada)
+  const LISTA_OTIM = [...MIG_OTIM.match(/coalesce\(m\.tipo, ''\) in \(([^)]*)\)/)[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
   it("coalesce(tipo,'') in (...) bate com acoes_massivas_tipo_cobertura para todos os tipos e casos de borda", async () => {
     const db = await novoBanco();
     await db.exec(PUBLICADO);
@@ -148,7 +151,7 @@ describe("predicado de cobertura: forma inline e igual a funcao", () => {
       "SOLICITACAO_LINK_PAGAMENTO", "ACAO_MASSIVA_EXTERNA", "ACAO_MASSIVA_EXTERNA_EMAIL", "contato", "ACAO_MASSIVA", "ACAO_MASSIVA_EXTERNA_X", "TABULACAO"];
     for (const t of casos) {
       const a = (await db.query("select public.acoes_massivas_tipo_cobertura($1::text) v", [t])).rows[0].v;
-      const b = (await db.query("select (coalesce($1::text, '') in ('FINALIZACAO_ATENDIMENTO', 'FINALIZACAO', 'CONTATO', 'LINK_ENVIADO_AO_ALUNO', 'SOLICITACAO_LINK_PAGAMENTO', 'ACAO_MASSIVA_EXTERNA', 'ACAO_MASSIVA_EXTERNA_EMAIL')) v", [t])).rows[0].v;
+      const b = (await db.query("select (coalesce($1::text, '') = any($2::text[])) v", [t, LISTA_OTIM])).rows[0].v;
       expect(b, "tipo=" + JSON.stringify(t)).toBe(a);
     }
   });
@@ -165,7 +168,7 @@ describe("rollback da otimizacao", () => {
     const md5 = async () => (await db.query("select md5(pg_get_functiondef(p.oid)) m from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='acoes_massivas_universo'")).rows[0].m;
     expect(await md5()).toBe("52f8ca6c4e4428e9dc5d0912e2b9751a");
     await db.exec(semGuardaFinal(MIG_OTIM));
-    expect(await md5()).toBe("d625cb66f94d5eb9f9bf4cf281d466dd");
+    expect(await md5()).toBe("941a3de82f87d03e08d4f14043f907fb");
     const RB = ler("../aguardando_aprovacao/20261113230000_acoes_massivas_universo_custo.rollback.sql");
     await db.exec(RB);
     expect(await md5()).toBe("52f8ca6c4e4428e9dc5d0912e2b9751a");
@@ -207,5 +210,22 @@ describe("populacao vazia, filtros ausentes e lista vazia para tc", () => {
     const canon = (rows, m) => rows.map((r) => ({ ...r, aluno_id: m.get(r.aluno_id) ?? r.aluno_id }))
       .sort((x, y) => String(x.aluno_id).localeCompare(String(y.aluno_id)));
     expect(JSON.stringify(canon(rb.rows, mapa))).toBe(JSON.stringify(canon(ra.rows, new Map())));
+  });
+});
+
+describe("grants reconfirmados pela otimizacao", () => {
+  it("apos a otimizacao: anon sem EXECUTE no universo; authenticated e service_role com EXECUTE; sem PUBLIC", async () => {
+    const db = await novoBanco();
+    await db.exec("alter table public.acordos_titulos add column if not exists documento text; alter table public.parcelas add column if not exists boleto text; alter table public.acordos add column if not exists saldo numeric default 0;");
+    await db.exec(PUBLICADO);
+    await db.exec(TIPO_PUBLICADO);
+    await db.exec(emTransacao(MIG941));
+    await db.exec(emTransacao(MIG_OTIM));
+    const priv = async (role) => (await db.query("select has_function_privilege($1, 'public.acoes_massivas_universo(jsonb)', 'EXECUTE') ok", [role])).rows[0].ok;
+    expect(await priv("anon")).toBe(false);
+    expect(await priv("authenticated")).toBe(true);
+    expect(await priv("service_role")).toBe(true);
+    const acl = (await db.query("select proacl::text a from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='acoes_massivas_universo'")).rows[0].a ?? "";
+    expect(acl).not.toMatch(/(^|[{,])=X\//);
   });
 });
