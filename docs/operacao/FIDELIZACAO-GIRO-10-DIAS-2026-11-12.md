@@ -192,6 +192,12 @@ A restauração devolve operador, responsável, marca do giro, retorno, hora, pr
 - Na reativação do cron 8, ele solta o que restou elegível. Os retidos por irmão **não saem na manhã seguinte**: só saem quando o irmão deixar de estar dentro dos 10 dias, sob giro, congelado ou protegido.
 - O espelho `alunos_unificados` continua mostrando o operador anterior depois da liberação (comportamento já existente em toda liberação diária).
 
+## Regressão conhecida e caminhos fora desta PR (decisão da gestão pendente)
+
+- **G1 — regressão conhecida, NÃO corrigida:** a regra de irmãos aplicada à troca de mão (F1) também se aplica à **livre assunção da Carteira Geral e do pool de ex-operador inativo**. Um caso da Carteira Geral com irmão também da Carteira Geral, encerrado e sem proteção, **passa a ser recusado** na assunção. A regra aprovada (migração 20261020230350) diz que esse caso é de livre assunção. Não há teste para esse cenário. Opções: (a) irmãos que também estão no pool não contam; (b) a gestão decide que irmão na Carteira Geral segura, e a regra aprovada é atualizada.
+- **G2 — caminhos de troca de responsável fora da regra de irmãos (não tratados):** `sistema_assumir_receptivo` (ligação do receptivo leva o aluno inteiro; usada em `src/pages/BaseReceptiva.jsx`), `carteira_geral_trocar_dono` (ação da gestão, move todos os casos do aluno), `vincular_responsavel_caso` e `desfazer_acao` (devolve o responsável anterior). Todos cascateiam via `set_resp_aluno` e nenhum passa por `caso_pode_soltar_com_aluno`. Não sondados. **Decisão da gestão:** ampliar esta PR a eles, ou tratá-los em PR separada.
+- **Cifras de produção:** 844, 63, 781, 753 e 7 foram medidas **antes** da regra da Carteira Geral. Remedir antes de qualquer execução.
+
 ## Riscos residuais (declarados)
 
 0. **Decisões pendentes da gestão (não tratadas nesta PR):**
