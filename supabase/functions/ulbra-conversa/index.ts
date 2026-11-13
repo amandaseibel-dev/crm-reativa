@@ -21,7 +21,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { ESCOPOS_MINIMOS, gerarPkce, renovarToken, revogarToken, trocarCodigo, urlDeAutorizacao, validarRetorno, type Fetch } from "./oauth.ts";
 import { chaveDeHex, cifrar, decifrar } from "./cripto.ts";
 import { estadoConexao, garantirConexao, type ProvedorOAuth, type RegistroConexao } from "./conexao.ts";
-import { RecusadoPelaUlbra, enviarResposta, type Envio, type PedidoEnvio, type RepositorioEnvio } from "./envio.ts";
+import { RecusadoPelaUlbra, enviarResposta, templateDoCorpo, type Envio, type PedidoEnvio, type RepositorioEnvio } from "./envio.ts";
 
 const MCP_URL = "https://crm.ulbra.ai/api/mcp";
 const ACCEPT_MCP = "application/json, text/event-stream";
@@ -106,6 +106,7 @@ Deno.serve(async (req: Request) => {
       expira_em_ms: c.expira_em ? Date.parse(c.expira_em) : 0,
       revogada_em_ms: c.revogada_em ? Date.parse(c.revogada_em) : null,
       pessoa_id: c.pessoa_id ?? null,
+      pessoa_nome: c.pessoa_nome ?? null,
     };
   }
   async function guardarTokens(t: { access_token: string; refresh_token: string | null; expira_em_ms: number }, extra: Record<string, unknown> = {}) {
@@ -191,7 +192,8 @@ Deno.serve(async (req: Request) => {
       if (!conn.ok) return responder({ ok: false, situacao: "BLOQUEADO", motivos: [conn.motivo] }, 403);
 
       // Contexto de permissão lido AGORA: atendimento -> cliente -> vínculo alta_cpf -> carteira/responsável.
-      const { data: at } = await sb.from("ulbra_atendimentos").select("ulbra_cliente_id, responsavel_email, dispensado_em").eq("ulbra_atendimento_id", atendimentoId).maybeSingle();
+      // atendente_ulbra: coluna do espelho com o atendente lido na Mensageria. Se ausente ou nula, o envio é bloqueado (fail-closed).
+      const { data: at } = await sb.from("ulbra_atendimentos").select("ulbra_cliente_id, responsavel_email, dispensado_em, atendente_ulbra").eq("ulbra_atendimento_id", atendimentoId).maybeSingle();
       if (!at) return responder({ ok: false, situacao: "BLOQUEADO", motivos: ["ATENDIMENTO_NAO_ESPELHADO"] }, 404);
       const { data: v } = await sb.from("ulbra_vinculos").select("aluno_id").eq("ulbra_cliente_id", at.ulbra_cliente_id).is("desvinculado_em", null).eq("confianca", "alta_cpf").maybeSingle();
       const alunoId = (v?.aluno_id as string | null) ?? null;
@@ -208,6 +210,9 @@ Deno.serve(async (req: Request) => {
         agora_ms: Date.now(), dono_carteira: dono,
         responsavel_atendimento: at.responsavel_email ? String(at.responsavel_email).toLowerCase() : null,
         identidade_confirmada: Boolean(alunoId),
+        atendente_ulbra: (at as { atendente_ulbra?: string | null }).atendente_ulbra ?? null,
+        conta_conectada: { pessoa_id: conn.registro.pessoa_id ?? null, pessoa_nome: conn.registro.pessoa_nome ?? null },
+        template: templateDoCorpo(corpo.template),
       };
 
       if (acao === "envio_previa") {
@@ -237,9 +242,14 @@ Deno.serve(async (req: Request) => {
       };
       const r = await enviarResposta(pedido, {
         repositorio, provedorOAuth, conexao: conn.registro, envioRealConfirmado: envioReal, agora: () => Date.now(),
+        templatesAprovados: (Deno.env.get("ULBRA_TEMPLATES_APROVADOS") ?? "").split(",").map((s) => s.trim()).filter((s) => s !== ""),
         provedorEnvio: {
           async enviar(p) {
-            const { dados, erro } = await chamarComoOperador(p.access_token, "enviar_mensagem_whatsapp", { atendimento: p.atendimento_id, texto: p.texto, previa: false, chave: p.chave });
+            // Template e texto livre usam a mesma ferramenta; o template vai no argumento próprio (nome e parâmetros não verificados ainda).
+            const args = p.template
+              ? { atendimento: p.atendimento_id, template: p.template.nome, variaveis: p.template.variaveis, previa: false, chave: p.chave }
+              : { atendimento: p.atendimento_id, texto: p.texto, previa: false, chave: p.chave };
+            const { dados, erro } = await chamarComoOperador(p.access_token, "enviar_mensagem_whatsapp", args);
             if (erro) throw new RecusadoPelaUlbra(erro);
             const d = dados as { mensagem?: { id?: string }; id?: string; situacao?: string };
             return { ulbra_mensagem_id: d?.mensagem?.id ?? d?.id ?? d?.situacao ?? "sem_id" };

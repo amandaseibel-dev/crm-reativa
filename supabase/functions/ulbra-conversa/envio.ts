@@ -48,12 +48,52 @@ export interface PedidoEnvio {
   /** Responsável pelo atendimento no ReATIVA (ulbra_atendimentos.responsavel_email), se houver. */
   responsavel_atendimento: string | null;
   identidade_confirmada: boolean;
+  /**
+   * Atendente do atendimento NA MENSAGERIA (campo `atendente` de listar/consultar_atendimento).
+   * Null quando não foi lido: sem ele o envio é bloqueado (fail-closed).
+   */
+  atendente_ulbra: string | null;
+  /** Conta conectada do operador (pessoa_id e pessoa_nome de meu_acesso). */
+  conta_conectada: { pessoa_id: string | null; pessoa_nome: string | null } | null;
+  /** Template usado FORA da janela de 24 h. Só aceito se estiver na lista aprovada. */
+  template: TemplateEnvio | null;
+}
+
+export interface TemplateEnvio {
+  nome: string;
+  /** Valores das variáveis, na ordem do template aprovado. */
+  variaveis: string[];
 }
 
 export interface ProvedorEnvio {
   enviar(
-    pedido: { access_token: string; atendimento_id: string; texto: string; chave: string },
+    pedido: {
+      access_token: string;
+      atendimento_id: string;
+      texto: string;
+      chave: string;
+      template: TemplateEnvio | null;
+    },
   ): Promise<{ ulbra_mensagem_id: string }>;
+}
+
+/**
+ * Lê o template do corpo da requisição. Ausente = null (texto livre). Presente mas malformado
+ * vira template com nome vazio, que a validação bloqueia: nunca cai em texto livre em silêncio.
+ */
+export function templateDoCorpo(v: unknown): TemplateEnvio | null {
+  if (v === undefined || v === null) return null;
+  if (typeof v !== "object") return { nome: "", variaveis: [] };
+  const o = v as { nome?: unknown; variaveis?: unknown };
+  const nome = typeof o.nome === "string" ? o.nome.trim() : "";
+  const variaveis = Array.isArray(o.variaveis) && o.variaveis.every((x) => typeof x === "string") ? (o.variaveis as string[]) : [];
+  if (Array.isArray(o.variaveis) && variaveis.length === 0 && o.variaveis.length > 0) return { nome: "", variaveis: [] };
+  return { nome, variaveis };
+}
+
+/** Normaliza para comparar identidade: minúsculas, sem espaços nas pontas e com espaços colapsados. */
+export function normalizarIdentidade(v: string | null | undefined): string {
+  return (v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 /** A Mensageria recusou a mensagem (regra de negócio). Não é falha de rede. */
@@ -77,6 +117,8 @@ export interface DependenciasEnvio {
    * e testes nunca passam true.
    */
   envioRealConfirmado: boolean;
+  /** Nomes de template aprovados para uso fora da janela. Vazia = nenhum template é aceito. */
+  templatesAprovados: readonly string[];
   agora: () => number;
   timeoutMs?: number;
 }
@@ -90,8 +132,15 @@ export type ResultadoEnvio =
 export function validarPedido(p: PedidoEnvio): string[] {
   const motivos: string[] = [];
   const texto = p.texto.trim();
-  if (texto.length === 0) motivos.push("TEXTO_VAZIO");
+  const dentroDaJanela = p.ultima_mensagem_cliente_em_ms !== null && p.agora_ms - p.ultima_mensagem_cliente_em_ms <= JANELA_MS;
+  // Texto livre só dentro da janela. Template é o caminho fora dela (e pode ir junto com texto, se a janela estiver aberta).
+  if (p.template === null && texto.length === 0) motivos.push("TEXTO_VAZIO");
   if (texto.length > TEXTO_MAX) motivos.push("TEXTO_LONGO");
+  if (p.template === null && !dentroDaJanela) motivos.push("JANELA_FECHADA_USAR_TEMPLATE");
+  if (p.template !== null) {
+    if (!p.template.nome.trim()) motivos.push("TEMPLATE_SEM_NOME");
+    if (p.template.variaveis.some((v) => typeof v !== "string" || v.trim() === "")) motivos.push("TEMPLATE_VARIAVEL_VAZIA");
+  }
   if (p.chave.length < CHAVE_MIN || p.chave.length > CHAVE_MAX) motivos.push("CHAVE_INVALIDA");
   if (!ATENDIMENTO_RE.test(p.atendimento_id)) motivos.push("ATENDIMENTO_INVALIDO");
   if (!p.identidade_confirmada) motivos.push("IDENTIDADE_NAO_CONFIRMADA");
@@ -99,9 +148,14 @@ export function validarPedido(p: PedidoEnvio): string[] {
   const eDono = (p.dono_carteira ?? "").toLowerCase() === operador;
   const eResponsavel = (p.responsavel_atendimento ?? "").toLowerCase() === operador;
   if (!eDono && !eResponsavel) motivos.push("SEM_PERMISSAO_NA_CONVERSA");
-  if (p.ultima_mensagem_cliente_em_ms === null || p.agora_ms - p.ultima_mensagem_cliente_em_ms > JANELA_MS) {
-    motivos.push("JANELA_FECHADA_USAR_TEMPLATE");
-  }
+  // Identidade do atendente: a Mensageria só aceita envio da conta atendente. Fail-closed:
+  // sem o atendente lido, ou sem a conta conectada identificada, não há como provar.
+  const atendente = normalizarIdentidade(p.atendente_ulbra);
+  const conta = p.conta_conectada;
+  const contaIds = [normalizarIdentidade(conta?.pessoa_id), normalizarIdentidade(conta?.pessoa_nome)].filter((x) => x !== "");
+  if (atendente === "") motivos.push("ATENDENTE_ULBRA_NAO_LIDO");
+  else if (contaIds.length === 0) motivos.push("CONTA_CONECTADA_NAO_IDENTIFICADA");
+  else if (!contaIds.includes(atendente)) motivos.push("ATENDENTE_DIFERENTE_DA_CONTA_CONECTADA");
   return motivos;
 }
 
@@ -111,6 +165,9 @@ export async function enviarResposta(
 ): Promise<ResultadoEnvio> {
   if (!deps.envioRealConfirmado) return { situacao: "BLOQUEADO", motivos: ["ENVIO_REAL_NAO_CONFIRMADO"] };
   const motivos = validarPedido(pedido);
+  if (pedido.template !== null && !deps.templatesAprovados.includes(pedido.template.nome)) {
+    motivos.push("TEMPLATE_NAO_APROVADO");
+  }
   if (motivos.length > 0) return { situacao: "BLOQUEADO", motivos };
 
   // Autoria: só a conexão DO PRÓPRIO operador. Nunca credencial central.
@@ -155,6 +212,7 @@ export async function enviarResposta(
         atendimento_id: pedido.atendimento_id,
         texto,
         chave: pedido.chave,
+        template: pedido.template,
       }),
       limite,
     );

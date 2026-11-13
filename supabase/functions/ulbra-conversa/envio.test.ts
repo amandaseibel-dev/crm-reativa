@@ -5,6 +5,7 @@ import {
   RecusadoPelaUlbra,
   TEXTO_MAX,
   enviarResposta,
+  templateDoCorpo,
   validarPedido,
   type Envio,
   type PedidoEnvio,
@@ -27,8 +28,13 @@ const pedido = (over: Partial<PedidoEnvio> = {}): PedidoEnvio => ({
   dono_carteira: OP,
   responsavel_atendimento: null,
   identidade_confirmada: true,
+  atendente_ulbra: "pessoa-do-operador-1",
+  conta_conectada: { pessoa_id: "pessoa-do-operador-1", pessoa_nome: "Operador Piloto" },
+  template: null,
   ...over,
 });
+
+const TEMPLATE_OK = "aviso_retorno_aluno";
 
 const conexao = (over: Partial<RegistroConexao> = {}): RegistroConexao => ({
   operador_email: OP,
@@ -62,10 +68,10 @@ class OAuthSimulado implements ProvedorOAuth {
 }
 
 class EnvioSimulado implements ProvedorEnvio {
-  chamadas: Array<{ access_token: string; texto: string }> = [];
+  chamadas: Array<{ access_token: string; texto: string; template: unknown }> = [];
   modo: "ok" | "recusa" | "lento" | "queda" = "ok";
-  async enviar(p: { access_token: string; atendimento_id: string; texto: string; chave: string }) {
-    this.chamadas.push({ access_token: p.access_token, texto: p.texto });
+  async enviar(p: { access_token: string; atendimento_id: string; texto: string; chave: string; template: unknown }) {
+    this.chamadas.push({ access_token: p.access_token, texto: p.texto, template: p.template });
     if (this.modo === "recusa") throw new RecusadoPelaUlbra("CONVERSA_ENCERRADA");
     if (this.modo === "queda") throw new Error("ECONNRESET");
     if (this.modo === "lento") await new Promise((r) => setTimeout(r, 200));
@@ -85,6 +91,7 @@ function deps(over: Partial<Parameters<typeof enviarResposta>[1]> = {}) {
       provedorEnvio,
       conexao: conexao(),
       envioRealConfirmado: true,
+      templatesAprovados: [TEMPLATE_OK],
       agora: () => AGORA,
       timeoutMs: 50,
       ...over,
@@ -244,5 +251,87 @@ describe("resultado do envio", () => {
     const again = await enviarResposta(pedido(), d);
     expect(again.situacao).toBe("JA_PROCESSADO");
     expect(provedorEnvio.chamadas.length).toBe(1);
+  });
+});
+
+describe("identidade do atendente: conferida contra a conta conectada (fail-closed)", () => {
+  it("atendente igual ao pessoa_id da conta: passa", () => {
+    expect(validarPedido(pedido())).toEqual([]);
+  });
+
+  it("atendente igual ao nome da conta (sem diferença de caixa/espaço): passa", () => {
+    const p = pedido({ atendente_ulbra: "  OPERADOR  piloto ", conta_conectada: { pessoa_id: null, pessoa_nome: "operador piloto" } });
+    expect(validarPedido(p)).toEqual([]);
+  });
+
+  it("atendente de OUTRA pessoa: bloqueia ATENDENTE_DIFERENTE_DA_CONTA_CONECTADA", () => {
+    const p = pedido({ atendente_ulbra: "outra-pessoa-9" });
+    expect(validarPedido(p)).toContain("ATENDENTE_DIFERENTE_DA_CONTA_CONECTADA");
+  });
+
+  it("atendente não lido (null): bloqueia ATENDENTE_ULBRA_NAO_LIDO", () => {
+    expect(validarPedido(pedido({ atendente_ulbra: null }))).toContain("ATENDENTE_ULBRA_NAO_LIDO");
+  });
+
+  it("conta sem identificação: bloqueia CONTA_CONECTADA_NAO_IDENTIFICADA", () => {
+    const p = pedido({ conta_conectada: { pessoa_id: null, pessoa_nome: null } });
+    expect(validarPedido(p)).toContain("CONTA_CONECTADA_NAO_IDENTIFICADA");
+  });
+
+  it("no envio: atendente divergente bloqueia e NÃO chama o provedor", async () => {
+    const { d, provedorEnvio } = deps();
+    const r = await enviarResposta(pedido({ atendente_ulbra: "outra-pessoa-9" }), d);
+    expect(r.situacao).toBe("BLOQUEADO");
+    expect(provedorEnvio.chamadas).toEqual([]);
+  });
+});
+
+describe("template fora da janela de 24 h", () => {
+  const FORA = { ultima_mensagem_cliente_em_ms: AGORA - 25 * 3600_000 };
+
+  it("fora da janela sem template: continua bloqueado com JANELA_FECHADA_USAR_TEMPLATE", () => {
+    expect(validarPedido(pedido({ ...FORA, texto: "oi" }))).toContain("JANELA_FECHADA_USAR_TEMPLATE");
+  });
+
+  it("fora da janela com template aprovado: passa na validação e envia o template", async () => {
+    const t = { nome: TEMPLATE_OK, variaveis: ["Maria"] };
+    const { d, provedorEnvio } = deps();
+    const r = await enviarResposta(pedido({ ...FORA, texto: "", template: t }), d);
+    expect(r.situacao).toBe("PROCESSADO");
+    expect(provedorEnvio.chamadas[0].template).toEqual(t);
+  });
+
+  it("template NÃO aprovado: bloqueia TEMPLATE_NAO_APROVADO e não chama o provedor", async () => {
+    const { d, provedorEnvio } = deps();
+    const r = await enviarResposta(pedido({ ...FORA, texto: "", template: { nome: "inventado", variaveis: [] } }), d);
+    expect(r.situacao === "BLOQUEADO" && r.motivos).toContain("TEMPLATE_NAO_APROVADO");
+    expect(provedorEnvio.chamadas).toEqual([]);
+  });
+
+  it("template sem variável preenchida: bloqueia TEMPLATE_VARIAVEL_VAZIA", () => {
+    const p = pedido({ ...FORA, texto: "", template: { nome: TEMPLATE_OK, variaveis: ["  "] } });
+    expect(validarPedido(p)).toContain("TEMPLATE_VARIAVEL_VAZIA");
+  });
+
+  it("dentro da janela, texto livre continua valendo sem template", () => {
+    expect(validarPedido(pedido({ texto: "oi" }))).toEqual([]);
+  });
+
+  it("texto vazio sem template: bloqueia TEXTO_VAZIO", () => {
+    expect(validarPedido(pedido({ texto: "  " }))).toContain("TEXTO_VAZIO");
+  });
+});
+
+describe("templateDoCorpo: malformado nunca vira texto livre em silêncio", () => {
+  it("ausente = null (texto livre)", () => {
+    expect(templateDoCorpo(undefined)).toBeNull();
+    expect(templateDoCorpo(null)).toBeNull();
+  });
+  it("válido: devolve nome e variáveis", () => {
+    expect(templateDoCorpo({ nome: "x", variaveis: ["a"] })).toEqual({ nome: "x", variaveis: ["a"] });
+  });
+  it("tipo errado ou variáveis não-texto: nome vazio (bloqueado depois)", () => {
+    expect(templateDoCorpo("texto")).toEqual({ nome: "", variaveis: [] });
+    expect(templateDoCorpo({ nome: "x", variaveis: [1, 2] })).toEqual({ nome: "", variaveis: [] });
   });
 });
