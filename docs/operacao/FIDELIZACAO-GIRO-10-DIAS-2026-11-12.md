@@ -3,7 +3,7 @@
 **Status:** migration PENDENTE, nada aplicado em produção. Nenhuma liberação
 executada, nenhum giro, nenhuma redistribuição.
 Arquivos: `supabase/aguardando_aprovacao/20261112210000_fidelizacao_giro_segue_os_10_dias.{sql.pendente,rollback.sql}`,
-teste `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (60 testes).
+teste `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (77 testes).
 Scripts de operação em `supabase/recovery/20261112_giro_fidelizacao_0{0,1,2}_*.sql`,
 teste `supabase/tests/fidelizacao_giro_lotes.test.js` (67 testes). **Sem alteração de tela** nesta PR.
 
@@ -206,6 +206,14 @@ A restauração devolve operador, responsável, marca do giro, retorno, hora, pr
 
 **Remedição em produção (12/11 21:19 BRT, somente leitura, com a regra final):** 851 elegíveis no cron; **7 retidos, todos por irmão congelado e todos de giro**; 0 sem giro; 844 passam pela regra; lotes 329 / 254 / 170 alunos (340 / 264 / 177 casos), total **753 alunos, 781 casos, R$ 1.018.960**. Nenhum caso da Carteira Geral entre os elegíveis. Medido depois das 21h BRT, quando a data do banco (UTC) já é a do dia seguinte: remedir na janela de execução.
 
+**H1 (6ª auditoria) — corrigido:** na troca por carteira cheia, o caso do próprio operador só é solto se estiver fora dos 10 dias e sem giro vigente (teste "H1", dois cenários).
+
+**Decisões de regra pendentes na assunção (6ª auditoria, não tratadas):**
+- **H2:** caso de pool de ex-operador acionado há 2 dias (ou congelado) é assumível "sem esperar os 10 dias" (regra de 20/10); o mesmo acionamento segura quando está no irmão. A gestão define qual vale para o próprio caso.
+- **H3:** outro operador pode assumir caso de giro vencido que tem **retorno marcado pelo operador**; a liberação recusa esse mesmo caso. Em 12/11 havia 63 casos nessa situação.
+- **H5/H6:** irmão da Carteira Geral acionado há 10 dias ou menos bloqueia a assunção (lido como regra 2); e irmão livre da Carteira Geral sai dela por cascata quando o aluno é assumido ou solto, sem passar pela movimentação da gestão.
+- **Medições:** a remedição das 21:19 repetiu os valores das 15h e não tem saída guardada no repositório. Remedir na janela e guardar a saída.
+
 **G2 — fora desta PR.** Receptivo (`sistema_assumir_receptivo`), movimentação da gestão (`carteira_geral_trocar_dono`) e vínculos de responsável (`vincular_responsavel_caso`, `desfazer_acao`) vão para PR separada, precedida de auditoria de cada caminho. Até lá, esses caminhos **continuam podendo mudar o responsável de irmão com fidelização vigente**: é risco residual da operação atual, não introduzido por esta PR.
 
 **Escopo desta PR:** liberação, cron, teto e assunção de caso.
@@ -231,7 +239,7 @@ A restauração devolve operador, responsável, marca do giro, retorno, hora, pr
 - `supabase/recovery/20261112_giro_fidelizacao_00_backup.sql`
 - `supabase/recovery/20261112_giro_fidelizacao_01_liberar_lote.sql`
 - `supabase/recovery/20261112_giro_fidelizacao_02_restaurar.sql`
-- Provas: `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (75) e `supabase/tests/fidelizacao_giro_lotes.test.js` (67)
+- Provas: `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (77) e `supabase/tests/fidelizacao_giro_lotes.test.js` (67)
 - Fixtures: `supabase/tests/fixtures/fidelizacao_giro_*_prod_20261112.{sql,md5.json}`
 
 ## Gate de segurança e CI

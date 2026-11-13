@@ -701,6 +701,19 @@ describe("achados da 3ª auditoria — A1 (assumir_caso_livre) e A2 (Carteira Ge
     await db.close();
   });
 
+  it.each([["acionado há 2 dias", { giro: null, dua: 2 }], ["sob giro vigente", { giro: 5, dua: 15 }]])(
+    "H1: carteira cheia — caso do próprio operador %s NÃO é solto na troca", async (_n, extra) => {
+      const db = await novo();
+      await db.query("update public.calibragem_parametros set valor = '1'::jsonb where chave = 'limite_carteira'");
+      await cenario(db, 1, { dono: OP2, ...extra });
+      await db.query("update public.casos set ultima_tabulacao_em = null where id = $1", [U(1)]);
+      await cenario(db, 3, { dono: null });
+      const r = await assumir(db, OP2, 3);
+      expect(r.sucesso).toBe(false);
+      expect((await caso(db, 1)).dono).toBe(OP2);
+      await db.close();
+    });
+
   it("A2 / G1 regra 5: irmão LIVRE na Carteira Geral (sem fidelização vigente) NÃO segura o aluno", async () => {
     const db = await novo();
     await cenario(db, 1, { giro: null, dua: 15 });
