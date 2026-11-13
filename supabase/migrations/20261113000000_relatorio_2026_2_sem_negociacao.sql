@@ -44,9 +44,8 @@ BEGIN
   END IF;
   RETURN QUERY
   SELECT t.id, t.aluno_id,
-         CASE WHEN regexp_replace(coalesce(t.cpf,''),'\D','','g') = '' THEN NULL
-              WHEN length(regexp_replace(t.cpf,'\D','','g')) > 11 THEN regexp_replace(t.cpf,'\D','','g')
-              ELSE lpad(regexp_replace(t.cpf,'\D','','g'),11,'0') END,
+         CASE WHEN regexp_replace(coalesce(t.cpf,''),'\D','','g') ~ '^0*$' THEN NULL
+              ELSE regexp_replace(t.cpf,'\D','','g') END,
          extract(month from t.vencimento)::int,
          coalesce(t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0),
          CASE
@@ -119,7 +118,7 @@ BEGIN
     SELECT aluno_id,
       regexp_replace(coalesce(cpf_raw,''),'\D','','g') AS dig,
       CASE
-        WHEN coalesce(btrim(cpf_raw),'') = '' THEN 'ausente'
+        WHEN regexp_replace(coalesce(cpf_raw,''),'\D','','g') ~ '^0*$' THEN 'ausente'
         WHEN regexp_replace(cpf_raw,'\D','','g') ~ '^\d{11}$'
          AND regexp_replace(cpf_raw,'\D','','g') !~ '^(\d)\1{10}$' THEN 'valido'
         ELSE 'invalido'

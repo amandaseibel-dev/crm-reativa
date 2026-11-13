@@ -153,6 +153,50 @@ describe("relatorio 2026/2: classificacao de CPF e contagem por aluno", () => {
     expect(rows.map((r) => r.cpf)).toEqual(["1234567890123"]);
   });
 
+  it("CPF invalido com menos de 11 digitos e preservado, sem completar com zeros", async () => {
+    const H = "00000000-0000-0000-0000-000000000011";
+    const TH = "10000000-0000-0000-0000-0000000000aa";
+    await db.exec(`SET app.email = '${GESTAO}'`);
+    await db.query("INSERT INTO alunos (id, unidade) VALUES ($1, 'OSASCO')", [H]);
+    await db.query(
+      `INSERT INTO acordos_titulos (id, aluno_id, cpf, vencimento, saldo_corrigido, valor_em_aberto, valor_original, tipo_boleto, situacao, status, acordo_id)
+       VALUES ($2, $1, '123.456.789-0', '2026-09-10', 5, 5, 5, 'Cursos de Graduação Presencial', 'ABERTO', 'em_aberto', NULL)`,
+      [H, TH],
+    );
+    const { rows } = await db.query(`SELECT DISTINCT cpf FROM public._relatorio_2026_2_eleg() WHERE aluno_id = $1`, [H]);
+    expect(rows.map((r) => r.cpf)).toEqual(["1234567890"]);
+  });
+
+  it("CPF vazio, ilegivel ou so zeros conta como sem CPF, nunca como CPF invalido nem 00000000000", async () => {
+    await db.exec(`SET app.email = '${GESTAO}'`);
+    const I = "00000000-0000-0000-0000-000000000021";
+    const J = "00000000-0000-0000-0000-000000000022";
+    const K = "00000000-0000-0000-0000-000000000023";
+    for (const id of [I, J, K]) await db.query("INSERT INTO alunos (id, unidade) VALUES ($1, 'OSASCO')", [id]);
+    const titulos = [
+      ["10000000-0000-0000-0000-0000000000b1", I, "-"],
+      ["10000000-0000-0000-0000-0000000000b2", J, "000.000.000-00"],
+      ["10000000-0000-0000-0000-0000000000b3", K, null],
+      ["10000000-0000-0000-0000-0000000000b4", K, "123.456.789-01"],
+    ];
+    for (const [id, aluno, cpf] of titulos) {
+      await db.query(
+        `INSERT INTO acordos_titulos (id, aluno_id, cpf, vencimento, saldo_corrigido, valor_em_aberto, valor_original, tipo_boleto, situacao, status, acordo_id)
+         VALUES ($1, $2, $3, '2026-09-10', 5, 5, 5, 'Cursos de Graduação Presencial', 'ABERTO', 'em_aberto', NULL)`,
+        [id, aluno, cpf],
+      );
+    }
+    const j = await chamarRelatorio(db);
+    // sem CPF: C (nulo), I (traco), J (zeros). K tem um CPF valido, entao nao e sem CPF.
+    expect(j.cpf_diagnostico.alunos_sem_cpf).toBe(3);
+    // invalidos: D (repetido) e E (13 digitos). Sem CPF nao entra aqui.
+    expect(j.cpf_diagnostico.alunos_cpf_invalido).toBe(2);
+    expect(j.cpf_diagnostico.cpfs_validos).toBe(3);
+    // 00000000000 nunca aparece como CPF distinto: distintos = 12345678901, 11111111111, 1234567890123, 98765432100, 11122233344 e 12345678901 de K (mesmo de A/B)
+    expect(j.cpfs_semestre).toBe(5);
+    expect(j.alunos_unicos_semestre).toBe(9);
+  });
+
   it("nao e gestao: a RPC recusa com 42501", async () => {
     await expect(chamarRelatorio(db, "outra.pessoa@aelbra.com.br")).rejects.toThrow(/restrito a gestao|42501/);
   });
