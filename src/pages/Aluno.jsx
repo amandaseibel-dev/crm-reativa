@@ -2763,7 +2763,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                     )
                   ).map((s) => (
                     <option key={s} value={s}>
-                      {s}
+                      {rotuloStatus(s)}
                     </option>
                   ))}
                 </select>
