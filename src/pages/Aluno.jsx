@@ -2266,7 +2266,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                     `origem=ulbra` -- a Central passava a consultar a Mensageria. */}
                 {consultaMensageriaNaFicha(location.search) ? <BlocoUlbra aluno={alunoSelecionado} /> : null}
               </TelefonesAluno>
-              <RegistroTermoFisico alunoId={alunoSelecionado.id} />
+              <RegistroTermoFisico key={alunoSelecionado.id} alunoId={alunoSelecionado.id} podeVer={podeVerTudo(usuarioLogado?.email)} />
               <div style={caixaTabular}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 13, fontWeight: 800, color: "var(--rv-azul-texto)", whiteSpace: "nowrap" }}>

@@ -1,26 +1,23 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "../services/supabase";
+import { rotuloSituacaoTermoFisico, classificarErroTermoFisico, SITUACOES_TERMO_FISICO } from "../utils/termoFisico";
 
 // Registro ADMINISTRATIVO da situação do termo físico. Não é tabulação e não
 // é status operacional: não conta como contato, não renova fidelização, não
 // muda retorno, fila nem situação financeira, e "arquivado" não comprova
 // quitação nem gera baixa.
 //
-// QUEM VÊ: a RPC `termo_fisico_ler` só responde para `usuario_e_gestao()` (no
-// banco). Para qualquer outro perfil ela recusa, e este componente então NÃO
-// renderiza nada. A restrição vale no backend; esconder aqui é só cosmético.
+// QUEM VÊ: só a gestão (`podeVer`, vindo de `podeVerTudo`). Para a operação o
+// componente não renderiza NADA e nem chama a RPC. Quem barra de verdade é o
+// banco (`usuario_e_gestao()` dentro das RPCs e na RLS); o `podeVer` é só
+// para não mostrar o componente a quem não pode usá-lo.
 //
-// ENQUANTO A MIGRATION NÃO ESTIVER APLICADA a RPC não existe e a chamada falha:
-// o componente fica invisível, sem erro na tela.
-
-export const SITUACOES_TERMO_FISICO = Object.freeze({
-  EM_ANDAMENTO: "Termo físico assinado, em andamento",
-  ARQUIVADO: "Termo físico arquivado",
-});
-
-export function rotuloSituacaoTermoFisico(situacao) {
-  return SITUACOES_TERMO_FISICO[situacao] || "Sem registro";
-}
+// FALTA DE PERMISSÃO x FALHA TÉCNICA (para a gestão):
+//   - 42501 (sem permissão): o componente some. A gestão nunca deveria cair
+//     aqui, então não há aviso para não confundir com erro.
+//   - qualquer outra falha (migração ainda não aplicada, função ausente, rede,
+//     erro de banco): o componente AVISA que o registro está indisponível.
+//     Não some em silêncio.
 
 function formatarQuando(iso) {
   if (!iso) return "";
@@ -29,33 +26,51 @@ function formatarQuando(iso) {
   return d.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
 
-export default function RegistroTermoFisico({ alunoId }) {
-  const [estado, setEstado] = useState({ carregando: true, indisponivel: false, situacao: null, eventos: [] });
+export default function RegistroTermoFisico({ alunoId, podeVer = false }) {
+  const [estado, setEstado] = useState({ carregando: true, sumir: false, falha: null, situacao: null, eventos: [] });
   const [escolha, setEscolha] = useState("EM_ANDAMENTO");
   const [notificar, setNotificar] = useState(false);
   const [salvando, setSalvando] = useState(false);
 
-  const carregar = useCallback(async () => {
-    if (!alunoId) return;
-    const { data, error } = await supabase.rpc("termo_fisico_ler", { p_aluno_id: String(alunoId) });
-    if (error || !data) {
-      setEstado({ carregando: false, indisponivel: true, situacao: null, eventos: [] });
-      return;
-    }
-    setEstado({
-      carregando: false,
-      indisponivel: false,
-      situacao: data.situacao || null,
-      eventos: Array.isArray(data.eventos) ? data.eventos : [],
+  // Leitura: só chamada da RPC, nunca escreve estado de forma síncrona no efeito.
+  const lerRegistro = useCallback(() => {
+    return supabase.rpc("termo_fisico_ler", { p_aluno_id: String(alunoId) }).then(({ data, error }) => {
+      if (error) {
+        const tipo = classificarErroTermoFisico(error);
+        return {
+          carregando: false,
+          sumir: tipo === "SEM_PERMISSAO",
+          falha: tipo === "FALHA_TECNICA" ? `${error.code || "erro"}: ${error.message || ""}` : null,
+          situacao: null,
+          eventos: [],
+        };
+      }
+      return {
+        carregando: false,
+        sumir: false,
+        falha: null,
+        situacao: data?.situacao || null,
+        eventos: Array.isArray(data?.eventos) ? data.eventos : [],
+      };
     });
   }, [alunoId]);
 
+  // A ficha remonta este componente por aluno (key={alunoId}), então o estado
+  // inicial já é "carregando" e nunca mostra o registro de outro aluno.
   useEffect(() => {
-    setEstado((e) => ({ ...e, carregando: true, indisponivel: false }));
-    carregar();
-  }, [carregar]);
+    if (!alunoId || !podeVer) return undefined;
+    let vivo = true;
+    lerRegistro().then((novo) => {
+      if (vivo) setEstado(novo);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [alunoId, podeVer, lerRegistro]);
 
-  if (estado.carregando || estado.indisponivel) return null;
+  // Operação: nada. Não há chamada, não há aviso.
+  if (!podeVer) return null;
+  if (estado.carregando || estado.sumir) return null;
 
   async function registrar() {
     setSalvando(true);
@@ -66,24 +81,43 @@ export default function RegistroTermoFisico({ alunoId }) {
     });
     setSalvando(false);
     if (error) {
-      alert("Não foi possível registrar o termo físico: " + (error.message || "erro"));
+      const tipo = classificarErroTermoFisico(error);
+      alert(
+        tipo === "SEM_PERMISSAO"
+          ? "Você não tem permissão para registrar o termo físico."
+          : "Registro do termo físico indisponível agora. Nada foi gravado. Avise a TI (" +
+              (error.code || "erro") + ")."
+      );
       return;
     }
     setNotificar(false);
-    await carregar();
+    setEstado(await lerRegistro());
+  }
+
+  const caixa = {
+    border: "1px solid #7c3aed",
+    background: "#f5f3ff",
+    borderRadius: 8,
+    padding: 12,
+    margin: "10px 0",
+  };
+
+  if (estado.falha) {
+    return (
+      <section aria-label="Termo físico (administrativo)" role="status" style={{ ...caixa, borderColor: "#b45309", background: "#fffbeb" }}>
+        <div style={{ fontWeight: 700, color: "#92400e" }}>
+          Registro do termo físico indisponível
+        </div>
+        <div style={{ fontSize: 13, marginTop: 4 }}>
+          Não é erro do aluno nem da sua conta. O recurso ainda não está disponível neste ambiente, ou houve falha técnica.
+          Avise a TI. Detalhe técnico: <code>{estado.falha}</code>
+        </div>
+      </section>
+    );
   }
 
   return (
-    <section
-      aria-label="Termo físico (administrativo)"
-      style={{
-        border: "1px solid #7c3aed",
-        background: "#f5f3ff",
-        borderRadius: 8,
-        padding: 12,
-        margin: "10px 0",
-      }}
-    >
+    <section aria-label="Termo físico (administrativo)" style={caixa}>
       <div style={{ fontWeight: 700, color: "#5b21b6", marginBottom: 6 }}>
         Termo físico · registro administrativo
       </div>
