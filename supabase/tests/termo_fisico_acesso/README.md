@@ -1,26 +1,28 @@
-# Teste de acesso — registro do termo físico
+# Teste de acesso — registro administrativo do termo físico
 
-Roda a migration `20261113120000_aluno_termo_fisico_registro.sql` (e, opcionalmente,
-o rollback) num Postgres **local em memória** (pglite), com um stub do Supabase:
-papéis `anon`, `authenticated`, `service_role`, privilégios padrão do schema `public`,
-`auth.jwt()`, RLS de `notificacoes` e a função `usuario_e_gestao()` com o mesmo corpo
-lido em produção (três e-mails).
+Roda no job `termo-fisico-acesso-sql` do CI, em Postgres 17 descartável, na ordem:
 
-**Não toca em nenhum banco real.** Não está no CI.
+1. `01_ambiente.sql` — **simulação** das dependências do Supabase (ver abaixo);
+2. migration `aguardando_aprovacao/20261113120000_aluno_termo_fisico_registro.sql.pendente`;
+3. `02_acesso.sql` — privilégios por papel e comportamento de cada perfil;
+4. rollback `aguardando_aprovacao/20261113120000_aluno_termo_fisico_registro.rollback.sql`;
+5. `03_apos_rollback.sql` — histórico preservado, acessos revogados e triggers ativas;
+6. migration de novo (reinstalação) e `04_reinstalacao.sql` — copia do histórico sem duplicar.
 
-Como rodar (fora do repositório, para não adicionar dependência ao projeto):
+## O que é simulado (NÃO é o Supabase real)
 
-```bash
-mkdir -p /tmp/pgtest && cd /tmp/pgtest && npm i @electric-sql/pglite@0.2
-node /caminho/do/repo/supabase/tests/termo_fisico_acesso/teste-acesso.mjs \
-  /caminho/do/repo/supabase/migrations/20261113120000_aluno_termo_fisico_registro.sql \
-  /caminho/do/repo/supabase/migrations/20261113120000_aluno_termo_fisico_registro.rollback.sql
-```
+- papéis `anon`, `authenticated`, `service_role` e privilégios padrão de `public`;
+- `auth.jwt()` lendo `request.jwt.claims`;
+- `usuarios` e `app_usuario_ativo()`;
+- `usuario_e_gestao()` com o corpo lido em produção por `pg_get_functiondef` (três e-mails);
+- `notificacoes` com RLS de leitura por destinatário e de escrita só para gestão.
 
-O que cobre: privilégios por papel (tabela e funções), comportamento de cada perfil
-(anon, operador, ADM, Fernanda, Amanda gestora), avisos só para os destinatários,
-UPDATE/DELETE/TRUNCATE bloqueados até para o dono, rollback que preserva o histórico
-e reinstalação sem duplicar.
+## O que NÃO é coberto
 
-**Não cobre:** a execução no Supabase real (staging), os grants reais depois de
-aplicar, nem o corpo de `usuario_e_gestao()` em produção (conferido à parte, por leitura).
+- outros triggers, grants e extensões reais de produção;
+- o comportamento do PostgREST (cabeçalhos, pool, erros HTTP);
+- a configuração real do projeto no Supabase.
+
+Por isso o teste prova o desenho do banco, não a instalação em produção. A conferência
+das dependências reais é feita por leitura (`pg_get_functiondef`, `information_schema`),
+e a validação após aplicação autorizada é descrita na PR de migration.

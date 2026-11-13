@@ -1099,3 +1099,48 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/04_depois_da_correcao.sql"
           psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
           psql -v ON_ERROR_STOP=1 -f "$DIR/05_apos_rollback.sql"
+
+  # Registro administrativo do termo físico (migration em aguardando_aprovacao).
+  # Postgres 17 descartável. Simula as dependências do Supabase (ver 01_ambiente.sql)
+  # e roda: migration, acesso por papel, rollback, reinstalação. NÃO aplica em produção.
+  termo-fisico-acesso-sql:
+    name: termo físico — acesso por papel, rollback e reinstalação (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/termo_fisico_acesso
+      MIGRATION: supabase/aguardando_aprovacao/20261113120000_aluno_termo_fisico_registro.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261113120000_aluno_termo_fisico_registro.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ambiente simulado, migration, acesso, rollback e reinstalação
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_acesso.sql"
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/03_apos_rollback.sql"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/04_reinstalacao.sql"
