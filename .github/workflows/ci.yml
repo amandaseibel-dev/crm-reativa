@@ -1099,3 +1099,28 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/04_depois_da_correcao.sql"
           psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
           psql -v ON_ERROR_STOP=1 -f "$DIR/05_apos_rollback.sql"
+
+  # ---------------------------------------------------------------------------
+  # ULBRA — deno check das cinco funções alteradas pela #945 (versão fixada, a
+  # mesma usada no CI de ulbra-sincronizar). Sem chamada à ULBRA nem a produção.
+  # ---------------------------------------------------------------------------
+  ulbra-cinco-funcoes-deno-check:
+    name: ulbra — deno check das cinco funções de identidade (versão fixada)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Instalar Deno (versão fixada)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.1.4
+
+      - name: deno check das cinco funções
+        run: |
+          set -euo pipefail
+          for f in ulbra-atendimento ulbra-consultar ulbra-diagnostico ulbra-leads-pendentes ulbra-historico; do
+            echo "== $f"
+            deno check "supabase/functions/$f/index.ts"
+          done
