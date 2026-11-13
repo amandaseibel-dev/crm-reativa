@@ -216,6 +216,20 @@ $novo$      and not public.caso_encerrado_operacional(c.cpf_limpo,c.status_atual
       and public.caso_pode_soltar_com_aluno(c.id)   -- A1 (12/11/2026): trocar este caso tambem solta os irmaos
     order by abs(public.saldo_titulos_aberto(c.cpf_limpo) - v_new_saldo) asc$novo$, 1);
 
+  -- F1 (12/11/2026): assumir_caso_livre, troca de mao de caso com dono: regra de irmaos.
+  PERFORM internal.patch_funcao_ancorada('public', 'assumir_caso_livre',
+$ancora$     or coalesce(v_new._saldo,0) <= 0 then
+    return query select false,'Caso nao elegivel (protegido, encerrado ou sem saldo).',null::uuid; return;
+  end if;$ancora$,
+$novo$     or coalesce(v_new._saldo,0) <= 0 then
+    return query select false,'Caso nao elegivel (protegido, encerrado ou sem saldo).',null::uuid; return;
+  end if;
+  -- F1 (12/11/2026): trocar a MAO de um caso com dono (giro vencido) muda o dono de
+  -- TODOS os casos do aluno (cascata por gatilho). So vale se nenhum irmao puder sair.
+  if coalesce(v_new.operador_email,'') <> '' and not public.caso_pode_soltar_com_aluno(p_caso_id) then
+    return query select false,'Caso com irmao que nao pode mudar de mao junto (proteção do aluno).',null::uuid; return;
+  end if;$novo$, 1);
+
   -- Retrato DEPOIS: nada de grant, dono, SECURITY DEFINER ou search_path muda.
   SELECT jsonb_object_agg(p.proname, jsonb_build_object(
            'acl', p.proacl::text, 'cfg', p.proconfig::text, 'def', p.prosecdef, 'dono', p.proowner::text))

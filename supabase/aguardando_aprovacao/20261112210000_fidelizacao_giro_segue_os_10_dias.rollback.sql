@@ -13,7 +13,7 @@
 -- id tirada de `historico_operadores_alunos` (acao = 'FIDELIZACAO_EXPIRADA',
 -- criado_em >= data da aplicação) e autorização própria.
 --
--- Reversão BYTE A BYTE: troca cada texto novo pelo texto antigo, exige
+-- Reversão POR MD5 DO CORPO: troca cada texto novo pelo texto antigo, exige
 -- exatamente 1 ocorrência e confere, no fim, que o md5(prosrc) das quatro
 -- funções voltou ao de produção em 12/11/2026. Divergiu, ABORTA.
 -- (Não usa internal.patch_funcao_ancorada: ele recusa patch que APAGA texto.)
@@ -88,6 +88,18 @@ $novo$      and not public.caso_encerrado_operacional(c.cpf_limpo,c.status_atual
     order by abs(public.saldo_titulos_aberto(c.cpf_limpo) - v_new_saldo) asc$novo$,
 $antigo$      and not public.caso_encerrado_operacional(c.cpf_limpo,c.status_atual,c.status_acionamento,c.status_financeiro,c.status_jornada)
     order by abs(public.saldo_titulos_aberto(c.cpf_limpo) - v_new_saldo) asc$antigo$),
+      (10, 'assumir_caso_livre',
+$novo$     or coalesce(v_new._saldo,0) <= 0 then
+    return query select false,'Caso nao elegivel (protegido, encerrado ou sem saldo).',null::uuid; return;
+  end if;
+  -- F1 (12/11/2026): trocar a MAO de um caso com dono (giro vencido) muda o dono de
+  -- TODOS os casos do aluno (cascata por gatilho). So vale se nenhum irmao puder sair.
+  if coalesce(v_new.operador_email,'') <> '' and not public.caso_pode_soltar_com_aluno(p_caso_id) then
+    return query select false,'Caso com irmao que nao pode mudar de mao junto (proteção do aluno).',null::uuid; return;
+  end if;$novo$,
+$antigo$     or coalesce(v_new._saldo,0) <= 0 then
+    return query select false,'Caso nao elegivel (protegido, encerrado ou sem saldo).',null::uuid; return;
+  end if;$antigo$),
       (3, 'trg_impor_teto_operador',
 $novo$AND NOT public.caso_em_giro_fidelizacao(c.giro_fidelizacao_ate)$novo$,
 $antigo$AND c.giro_fidelizacao_ate IS NULL$antigo$),

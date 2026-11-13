@@ -163,8 +163,12 @@ beforeAll(async () => {
   COM = await b.dumpDataDir();
   await b.close();
 });
+// Sessao no fuso de Sao Paulo, como as funcoes que comparam datas de negocio.
+// Sem isso, depois das 21h BRT o current_date (UTC) fica um dia a frente e a
+// suite quebra (mesma causa do N3 na suite dos lotes).
 const abrir = async (dump) => {
   const db = new PGlite({ loadDataDir: dump, extensions: ext });
+  await db.exec("set timezone to 'America/Sao_Paulo'");
   await como(db, GESTAO);
   return db;
 };
@@ -555,6 +559,71 @@ describe("achados da 3ª auditoria — A1 (assumir_caso_livre) e A2 (Carteira Ge
     expect(r.sucesso).toBe(true);
     expect((await caso(db, 1)).dono).toBeNull();                  // trocado, como antes
     expect((await caso(db, 3)).dono).toBe(OP2);
+    await db.close();
+  });
+
+  // F1: trocar a MAO de um caso de giro vencido (dono OP1 -> OP2) muda o dono de
+  // todos os casos do aluno. So pode se nenhum irmao puder mudar junto.
+  const irmaoDe = async (db, n, alunoN, dono, o) => {
+    const { dua, statusAtual, congelado } = o;
+    await db.exec("alter table public.casos disable trigger user");
+    await db.query(
+      `insert into public.casos (id, aluno_id, cpf, cpf_limpo, nome, chave_unificacao, operador_email, operador_nome,
+          status_atual, data_ultimo_acionamento, ultima_tabulacao_em, total_em_aberto, caso_codigo, caso_atualizado_em, nao_acionar, encerrado_operacional)
+       values ($1,$2,$3,$3,'Irmao',$3,$4,'DONO',$5, case when $6::int is null then null else current_date - $6::int end,
+          now(), 100, $7, now() - interval '30 days', false, $8)`,
+      [U(n), U(alunoN), CPF(alunoN), dono, statusAtual ?? null, dua ?? null, n, statusAtual === "SEM SALDO EM ABERTO"]);
+    if (congelado) await db.query("insert into public.caso_encerramento_sem_saldo (caso_id) values ($1)", [U(n)]);
+    await db.exec("alter table public.casos enable trigger user");
+  };
+
+  it("F1 / Q1b: troca de mão com irmão ENCERRADO dentro dos 10 dias → recusada, irmão fica", async () => {
+    const db = await novo();
+    await cenario(db, 1, { dono: OP1, giro: -17, dua: 15 });
+    await irmaoDe(db, 2, 1, OP1, { dua: 2, statusAtual: "SEM SALDO EM ABERTO" });
+    const r = await assumir(db, OP2, 1);
+    expect(r.sucesso).toBe(false);
+    expect((await caso(db, 1)).dono).toBe(OP1);
+    expect((await caso(db, 2)).dono).toBe(OP1);
+    await db.close();
+  });
+
+  it("F1 / Q2: troca de mão com irmão CONGELADO → recusada, irmão fica", async () => {
+    const db = await novo();
+    await cenario(db, 1, { dono: OP1, giro: -17, dua: 15 });
+    await irmaoDe(db, 2, 1, OP1, { dua: 30, statusAtual: "SEM SALDO EM ABERTO", congelado: true });
+    const r = await assumir(db, OP2, 1);
+    expect(r.sucesso).toBe(false);
+    expect((await caso(db, 2)).dono).toBe(OP1);
+    await db.close();
+  });
+
+  it("F1 / Q3: troca de mão com irmão na CARTEIRA GERAL → recusada, a gestão não perde o caso", async () => {
+    const db = await novo();
+    await cenario(db, 1, { dono: OP1, giro: -17, dua: 15 });
+    await irmaoDe(db, 2, 1, "carteira.geral@reativa.local", { dua: 40, statusAtual: "SEM SALDO EM ABERTO" });
+    const r = await assumir(db, OP2, 1);
+    expect(r.sucesso).toBe(false);
+    expect((await caso(db, 2)).dono).toBe("carteira.geral@reativa.local");
+    await db.close();
+  });
+
+  it("F1: troca de mão SEM irmão protegido continua valendo (giro vencido é transferido)", async () => {
+    const db = await novo();
+    await cenario(db, 1, { dono: OP1, giro: -17, dua: 15 });
+    const r = await assumir(db, OP2, 1);
+    expect(r.sucesso).toBe(true);
+    expect((await caso(db, 1)).dono).toBe(OP2);
+    await db.close();
+  });
+
+  it("F1: irmão encerrado, fora dos 10 dias e sem proteção → troca permitida (sai junto, fica registrado)", async () => {
+    const db = await novo();
+    await cenario(db, 1, { dono: OP1, giro: -17, dua: 15 });
+    await irmaoDe(db, 2, 1, OP1, { dua: 30, statusAtual: "SEM SALDO EM ABERTO" });
+    const r = await assumir(db, OP2, 1);
+    expect(r.sucesso).toBe(true);
+    expect((await caso(db, 2)).dono).toBe(OP2);
     await db.close();
   });
 

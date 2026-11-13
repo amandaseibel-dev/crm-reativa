@@ -107,6 +107,7 @@ Pontos a saber:
 | **N1** — guarda de irmão para TODOS os casos, com e sem giro | Regra única `public.caso_pode_soltar_com_aluno` (na migração), usada pela liberação e pelo teto. Irmão com interação válida nos últimos 10 dias, sob giro vigente, congelado ou protegido segura o aluno inteiro | 10 testes de regressão com/sem giro, incluindo a cascata de 2 dias; mutação: sem a regra, 10 testes falham |
 | **N2** — teto de operador por UPDATE direto | `trg_impor_teto_operador` passou a exigir `caso_pode_soltar_com_aluno` no filtro de candidatos | 3 testes separados; mutação: sem a regra, 3 testes falham |
 | **Concorrência** | `liberar_fidelizacao_caso` trava (`for update`, ordem por id) TODOS os casos do aluno antes de ler os irmãos; o lote trava as linhas do aluno antes de revalidar; `lock_timeout = 5 s` nos scripts 01 e 02 (o 00 só lê casos e escreve na tabela nova) | Estrutural: o teste de travamento não prova concorrência real. **Não comprovado em execução paralela** (ver "Não comprovado") |
+| **F1** — troca de mão no `assumir_caso_livre` (caso de giro vencido com dono de outro operador) | A troca só é permitida se `caso_pode_soltar_com_aluno` aprovar: irmão que não pode mudar de mão junto segura a troca. Antes, o cascade mudava o dono de todos os casos do aluno | 3 testes de recusa (irmão encerrado dentro dos 10 dias, congelado, Carteira Geral) e 2 de permissão; mutação derruba 3 |
 | Itens baixos do Guardião | Limite de erros (>10% dos alunos tentados desfaz o lote); invariante também pega troca de dono X→Y; conferência da restauração inclui status_jornada e data_ultimo_acionamento; trava de cron falha FECHADA nos três scripts (job precisa existir pelo nome); data do banco conferida nos três | Testes próprios, cada um com nome; mutação de 11 proteções: todas detectadas |
 | Fuso da suíte | Teste roda no fuso de São Paulo; antes quebrava das 21h às 24h BRT | Suíte verde em qualquer horário |
 
@@ -196,6 +197,7 @@ A restauração devolve operador, responsável, marca do giro, retorno, hora, pr
 0. **Decisões pendentes da gestão (não tratadas nesta PR):**
    - **Cron de nivelamento (09:20, `nivelamento_automatico_gestao`):** move casos por UPDATE direto e **não aplica a regra de irmãos**; o cascade leva os irmãos. Não medido quantos casos seriam afetados hoje. É redistribuição automática já existente: a gestão precisa decidir se entra nesta PR ou vira pendência separada.
    - **Cascata sem registro no cron e no teto:** `liberar_fidelizacao_caso` grava histórico só para o caso liberado; os irmãos que saem junto não ganham linha de histórico fora do lote. Rastreabilidade incompleta, não erro de dono.
+   - **Carteira Geral como irmão (retenção sem prazo):** um irmão na Carteira Geral segura o aluno **sem prazo** — o caso só sai quando a gestão move o irmão. Quantidade em produção **não medida**. Decidir se a retenção é aceita.
    - **Carteira Geral como irmão:** decidido nesta rodada que um irmão na Carteira Geral **segura** o aluno (conservador). Confirmar com a gestão.
    - **Teto sem travamento:** o teto lê os irmãos sem travar as linhas (não declarado antes). Custo do `EXISTS` não medido (roda só quando o teto dispara; hoje nenhum operador passa do teto).
 
@@ -213,7 +215,7 @@ A restauração devolve operador, responsável, marca do giro, retorno, hora, pr
 - `supabase/recovery/20261112_giro_fidelizacao_00_backup.sql`
 - `supabase/recovery/20261112_giro_fidelizacao_01_liberar_lote.sql`
 - `supabase/recovery/20261112_giro_fidelizacao_02_restaurar.sql`
-- Provas: `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (63) e `supabase/tests/fidelizacao_giro_lotes.test.js` (67)
+- Provas: `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (68) e `supabase/tests/fidelizacao_giro_lotes.test.js` (67)
 - Fixtures: `supabase/tests/fixtures/fidelizacao_giro_*_prod_20261112.{sql,md5.json}`
 
 ## Gate de segurança e CI
