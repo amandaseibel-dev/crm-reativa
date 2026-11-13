@@ -281,13 +281,43 @@ Desses 216, **182 vêm da tabulação `MENSAGEM_ENVIADA`** (prazo automático de
 
 **Consequência:** a via alternativa só muda o resultado quando o último acionamento está **dessincronizado** do atendimento. Os 62 casos auditados têm último atendimento do responsável há **14 a 38 dias** — nenhum nos últimos 10. Pela leitura de 13/11, **a alternativa de 10 dias não devolve proteção a nenhum deles**; quem pode devolver é a via explícita (até 15 dias), e só para os que tiverem a data gravada na movimentação. Isso **precisa ser remedido** (ver abaixo) e pode exigir nova decisão da gestão sobre a janela.
 
-### Auditoria pedida pela gestão — PENDENTE
+### Janela da via alternativa — decisão da gestão (13/11)
 
-Não executada: a conexão de leitura com produção (MCP Supabase) caiu durante esta rodada. Ficam pendentes, todas somente leitura:
-- remedir os 383 retornos sem data correspondente;
-- reavaliar os 62 casos com a regra final;
-- quantos passam a ter proteção legítima, separando via explícita e via alternativa;
-- medir quantos casos elegíveis têm atendimento do responsável nos últimos 10 dias (mede o tamanho real da dessincronização).
+Mantida **provisoriamente em 10 dias**, sem ampliar. A regra não deve ser alterada de novo antes da auditoria. A via explícita segue com 15 dias, também provisória.
+
+### Auditoria EXECUTADA em produção (13/11/2026, 09:04 BRT, somente leitura)
+
+Consulta versionada em **`supabase/audits/retorno_vinculo_auditoria_20261113.sql`**, rodada tal como está, em janela de baixo tráfego (2 consultas ativas no banco). Validada antes em bancada contra 4 cenários (explícita, alternativa, sem proteção, ex-operador), com a classificação batendo caso a caso com `aluno_retorno_operador_vigente`; um teste da suíte prende as duas.
+
+**Separação das três proteções, sem dupla contagem** (pergunta 7):
+
+| Proteção | Casos |
+|---|---|
+| Fidelização normal de 10 dias | **4.839** de 6.183 casos com operador |
+| Giro vigente | 0 (todas as marcas já venceram) |
+| Via **explícita**, em caso que a fidelização normal não protege | **0** |
+| Via **alternativa**, em caso que a fidelização normal não protege | **0** |
+| Sem proteção nenhuma (elegíveis ao cron) | **850** |
+
+**Respostas às 6 perguntas:**
+
+1. **Dessincronização:** **0** casos elegíveis têm atendimento do responsável nos últimos 10 dias. Não há dessincronização entre atendimento e último acionamento.
+2. **Protegidos exclusivamente pela via alternativa: 0.**
+3. **Dos 600 retornos de operador vigentes na base:** 217 com vínculo explícito válido, 177 sem explícito mas cobertos pela alternativa, 206 sem nenhuma via (11 deles com responsável inativo). **Nenhum desses 394 protegidos está entre os casos elegíveis** — todos já estão protegidos pela fidelização normal.
+4. **Dos 62 casos antes auditados: 0 ganham proteção** pela regra final. Seguem sem proteção.
+5. **Proteção extra da via explícita entre o 11º e o 15º dia: 0 casos.**
+6. Sem casos na faixa, não há tabulação a classificar.
+
+### Recomendação: eliminar a via alternativa
+
+A medição confirma o achado em produção. Como todo atendimento reinicia a fidelização de 10 dias, **nenhuma das duas vias protege um caso que a fidelização normal já não proteja**:
+
+- a **via alternativa** não protege exclusivamente nenhum caso (0 de 850) e a dessincronização que justificaria sua existência é **zero**. Pode ser **eliminada sem nenhuma perda**;
+- a **via explícita** também não protege nenhum caso hoje, mas é a única que pode vir a proteger: ela cobre o retorno marcado para **além do 10º dia** do atendimento, que é compromisso real com o aluno. Hoje são 0 casos porque nenhum retorno válido está nessa faixa (215 dos 216 medidos em 12/11 estavam entre 8 e 10 dias). **Recomendo manter**, com a janela de 15 dias ainda provisória.
+
+Observação: a correção da Minha Carteira (gravar a data na movimentação) tende a **aumentar** o número de retornos com vínculo explícito daqui para frente — hoje 217 de 600. Isso não muda a recomendação, porque a via explícita permanece.
+
+**Decisão da gestão necessária** antes de eliminar a alternativa: a regra está implementada como aprovada (opção 3, janela de 10 dias), e não a alterei.
 
 **G2 — fora desta PR.** Receptivo (`sistema_assumir_receptivo`), movimentação da gestão (`carteira_geral_trocar_dono`) e vínculos de responsável (`vincular_responsavel_caso`, `desfazer_acao`) vão para PR separada, precedida de auditoria de cada caminho. Até lá, esses caminhos **continuam podendo mudar o responsável de irmão com fidelização vigente**: é risco residual da operação atual, não introduzido por esta PR.
 
@@ -314,7 +344,7 @@ Não executada: a conexão de leitura com produção (MCP Supabase) caiu durante
 - `supabase/recovery/20261112_giro_fidelizacao_00_backup.sql`
 - `supabase/recovery/20261112_giro_fidelizacao_01_liberar_lote.sql`
 - `supabase/recovery/20261112_giro_fidelizacao_02_restaurar.sql`
-- Provas: `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (90) e `supabase/tests/fidelizacao_giro_lotes.test.js` (67)
+- Provas: `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (102) e `supabase/tests/fidelizacao_giro_lotes.test.js` (67)
 - Fixtures: `supabase/tests/fixtures/fidelizacao_giro_*_prod_20261112.{sql,md5.json}`
 
 ## Gate de segurança e CI

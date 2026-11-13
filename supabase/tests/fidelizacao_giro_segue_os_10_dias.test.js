@@ -43,6 +43,7 @@ const CADEIA = [
 ];
 const MD5_PROD = JSON.parse(ler(`${FX}fidelizacao_giro_prod_20261112.md5.json`));
 const PASTA = "supabase/aguardando_aprovacao/20261112210000_fidelizacao_giro_segue_os_10_dias";
+const AUDITORIA = ler("supabase/audits/retorno_vinculo_auditoria_20261113.sql");
 const MIGRATION = ler(`${PASTA}.sql.pendente`);
 const ROLLBACK = ler(`${PASTA}.rollback.sql`);
 
@@ -992,6 +993,38 @@ describe("vínculo do retorno — via explícita e alternativa de 10 dias (gest�
     const c = await q1(db, "select data_ultimo_acionamento dua, public.caso_dentro_prazo_fidelizacao(data_ultimo_acionamento) dentro from public.casos where id = $1", [U(1)]);
     expect(c.dentro).toBe(true);              // o atendimento reiniciou os 10 dias
     expect(await rodarCron(db)).toBe(0);      // protegido pela fidelizacao normal
+    await db.close();
+  });
+
+  // A consulta de auditoria versionada (supabase/audits/) tem de classificar
+  // exatamente como a funcao. Se uma das duas mudar sozinha, este teste quebra.
+  it("a consulta de auditoria roda e concorda com a regra, caso a caso", async () => {
+    const db = await novo();
+    await base(db);                                                    // 1: via explicita
+    await atendimento(db, 1, { email: OP1, diasAtras: 12, comDataRetornoEm: 3 });
+    await retornoEm(db, 1, 3);
+    await forcarParado(db, 1);
+    await cenario(db, 2, { dono: OP1, giro: -17, dua: 15, retorno: null, semMov: true });   // 2: via alternativa
+    await atendimento(db, 2, { email: OP1, diasAtras: 3 });
+    await retornoEm(db, 2, 3);
+    await forcarParado(db, 2);
+    await cenario(db, 3, { dono: OP1, giro: -17, dua: 15, retorno: null, semMov: true });   // 3: sem protecao
+    await atendimento(db, 3, { email: OP1, diasAtras: 20 });
+    await retornoEm(db, 3, 3);
+    await forcarParado(db, 3);
+
+    const vig = {};
+    for (const n of [1, 2, 3]) {
+      vig[n] = (await q1(db, "select public.aluno_retorno_operador_vigente($1) v", [U(n)])).v;
+    }
+    expect(vig).toEqual({ 1: true, 2: true, 3: false });
+
+    const linhas = await qn(db, AUDITORIA);
+    const achar = (item) => Number(linhas.find((l) => l.item.startsWith(item))?.valor);
+    expect(achar("total")).toBe(3);
+    expect(achar("protegidos SO pela via explicita")).toBe(1);
+    expect(achar("protegidos SO pela via alternativa")).toBe(1);
+    expect(achar("sem protecao")).toBe(1);
     await db.close();
   });
 
