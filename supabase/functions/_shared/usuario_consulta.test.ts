@@ -109,7 +109,7 @@ describe("limitações conhecidas (documentadas, não escondidas)", () => {
   });
 });
 
-describe("as cinco funções usam o helper e nenhuma usa ilike", () => {
+describe("as quatro funções usam o helper e nenhuma usa ilike", () => {
   // ulbra-leads-pendentes fica FORA desta republicação (divergência registrada, v5 mantida).
   const FUNCOES = ["ulbra-atendimento", "ulbra-consultar", "ulbra-diagnostico", "ulbra-historico"];
   for (const f of FUNCOES) {

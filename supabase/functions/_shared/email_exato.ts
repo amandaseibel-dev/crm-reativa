@@ -1,6 +1,6 @@
 // Identificação de usuário por e-mail, sem operadores de padrão.
 //
-// REGRA (única, usada pelas cinco funções e pela verificação de duplicidade):
+// REGRA (única, usada pelas quatro funções e pela verificação de duplicidade):
 //  1. o pedido é normalizado: espaços nas pontas removidos e tudo em minúsculas;
 //  2. a consulta usa `.eq` (igualdade exata). Nunca `.ilike`: `_`, `%` e `*` viram
 //     curingas e `\` escapa, e qualquer um deles casaria outra conta;
