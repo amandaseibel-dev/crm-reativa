@@ -242,7 +242,8 @@ export default function RelatorioMensalidadesSemNegociacao({ config }) {
           <Tot label="Alunos únicos (cadastro)" val={NUM(dados.alunos_unicos_semestre)} />
           <Tot label="CPFs válidos distintos" val={NUM(dados.cpf_diagnostico.cpfs_validos)} />
           <Tot label="CPFs compartilhados por mais de um aluno" val={NUM(dados.cpf_diagnostico.cpfs_compartilhados)} />
-          <Tot label="Alunos com CPF inválido ou ausente" val={NUM(dados.cpf_diagnostico.alunos_cpf_invalido_ou_ausente)} />
+          <Tot label="Alunos sem CPF" val={NUM(dados.cpf_diagnostico.alunos_sem_cpf)} />
+          <Tot label="Alunos com CPF inválido" val={NUM(dados.cpf_diagnostico.alunos_cpf_invalido)} />
         </div>
       )}
 

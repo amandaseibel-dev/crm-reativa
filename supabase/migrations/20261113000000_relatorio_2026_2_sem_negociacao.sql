@@ -44,7 +44,9 @@ BEGIN
   END IF;
   RETURN QUERY
   SELECT t.id, t.aluno_id,
-         lpad(regexp_replace(coalesce(t.cpf,''),'\D','','g'),11,'0'),
+         CASE WHEN regexp_replace(coalesce(t.cpf,''),'\D','','g') = '' THEN NULL
+              WHEN length(regexp_replace(t.cpf,'\D','','g')) > 11 THEN regexp_replace(t.cpf,'\D','','g')
+              ELSE lpad(regexp_replace(t.cpf,'\D','','g'),11,'0') END,
          extract(month from t.vencimento)::int,
          coalesce(t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0),
          CASE
@@ -111,6 +113,7 @@ BEGIN
   tot AS (SELECT count(distinct cpf) AS cpfs, count(distinct aluno_id) AS alunos, count(*) AS mens, round(coalesce(sum(saldo),0),2) AS saldo FROM eleg),
   conf AS (SELECT count(distinct s.aluno_id) AS n FROM public.solicitacoes_confirmacao_pagamento s
     WHERE s.status='AGUARDANDO_CONFIRMACAO'),
+  sem_cpf AS (SELECT count(*) AS n FROM (SELECT aluno_id FROM eleg GROUP BY aluno_id HAVING bool_and(cpf IS NULL)) x),
   brutos AS (SELECT e.aluno_id, t.cpf AS cpf_raw FROM eleg e JOIN public.acordos_titulos t ON t.id = e.id),
   cls AS (
     SELECT aluno_id,
@@ -126,16 +129,17 @@ BEGIN
   cpf_alunos AS (SELECT dig, count(DISTINCT aluno_id) AS n FROM cls WHERE classe = 'valido' GROUP BY dig),
   aluno_cpfs AS (
     SELECT aluno_id, count(DISTINCT dig) FILTER (WHERE classe = 'valido') AS n_validos,
-      bool_or(classe IN ('ausente','invalido')) AS tem_ruim
+      bool_or(classe = 'invalido') AS tem_invalido
     FROM cls GROUP BY aluno_id
   ),
   diag AS (
     SELECT jsonb_build_object(
       'cpfs_validos', (SELECT count(*) FROM cpf_alunos),
       'cpfs_compartilhados', (SELECT count(*) FROM cpf_alunos WHERE n > 1),
-      'alunos_cpf_invalido_ou_ausente', (SELECT count(*) FROM aluno_cpfs WHERE tem_ruim),
+      'alunos_sem_cpf', (SELECT n FROM sem_cpf),
+      'alunos_cpf_invalido', (SELECT count(*) FROM aluno_cpfs WHERE tem_invalido),
       'alunos_com_cpf_divergente', (SELECT count(*) FROM aluno_cpfs WHERE n_validos > 1),
-      'titulos_cpf_invalido_ou_ausente', (SELECT count(*) FROM cls WHERE classe <> 'valido')
+      'titulos_sem_cpf_ou_invalido', (SELECT count(*) FROM cls WHERE classe <> 'valido')
     ) AS j
   )
   SELECT jsonb_build_object(

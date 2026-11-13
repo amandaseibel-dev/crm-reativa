@@ -111,9 +111,10 @@ describe("relatorio 2026/2: classificacao de CPF e contagem por aluno", () => {
     const d = (await chamarRelatorio(db)).cpf_diagnostico;
     expect(d.cpfs_validos).toBe(3);
     expect(d.cpfs_compartilhados).toBe(1);
-    expect(d.alunos_cpf_invalido_ou_ausente).toBe(3);
+    expect(d.alunos_sem_cpf).toBe(1);
+    expect(d.alunos_cpf_invalido).toBe(2);
     expect(d.alunos_com_cpf_divergente).toBe(1);
-    expect(d.titulos_cpf_invalido_ou_ausente).toBe(3);
+    expect(d.titulos_sem_cpf_ou_invalido).toBe(3);
   });
 
   it("CPF compartilhado nao conta duas vezes nos CPFs validos", async () => {
@@ -121,6 +122,35 @@ describe("relatorio 2026/2: classificacao de CPF e contagem por aluno", () => {
     // 12345678901 aparece em A e B: conta uma vez como CPF valido e uma como compartilhado.
     expect(d.cpfs_validos).toBe(3);
     expect(d.cpfs_compartilhados).toBe(1);
+  });
+
+  it("aluno sem CPF fica no total de alunos e nao entra como CPF 00000000000", async () => {
+    const j = await chamarRelatorio(db);
+    expect(j.alunos_unicos_semestre).toBe(6);
+    // distintos: 12345678901 (A,B), 11111111111 (D), 13 digitos (E), 98765432100 e 11122233344 (F)
+    expect(j.cpfs_semestre).toBe(5);
+    expect(j.cpf_diagnostico.alunos_sem_cpf).toBe(1);
+  });
+
+  it("CPF compartilhado nao mistura saldo entre alunos: cada aluno soma so os proprios titulos", async () => {
+    await db.exec(`SET app.email = '${GESTAO}'`);
+    const { rows } = await db.query(
+      `SELECT aluno_id, sum(saldo)::numeric AS total, count(*)::int AS titulos
+       FROM public._relatorio_2026_2_eleg() WHERE aluno_id IN ($1, $2) GROUP BY aluno_id ORDER BY aluno_id`,
+      [A, B],
+    );
+    const porAluno = Object.fromEntries(rows.map((r) => [r.aluno_id, { total: Number(r.total), titulos: r.titulos }]));
+    expect(porAluno[A]).toEqual({ total: 150, titulos: 2 });
+    expect(porAluno[B]).toEqual({ total: 200, titulos: 1 });
+  });
+
+  it("CPF com mais de 11 digitos nao e truncado nem associado a outro CPF valido", async () => {
+    await db.exec(`SET app.email = '${GESTAO}'`);
+    const { rows } = await db.query(
+      `SELECT DISTINCT cpf FROM public._relatorio_2026_2_eleg() WHERE aluno_id = $1`,
+      [E],
+    );
+    expect(rows.map((r) => r.cpf)).toEqual(["1234567890123"]);
   });
 
   it("nao e gestao: a RPC recusa com 42501", async () => {
