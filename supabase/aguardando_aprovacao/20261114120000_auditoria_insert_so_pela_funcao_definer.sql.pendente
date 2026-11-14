@@ -1,0 +1,30 @@
+-- =============================================================================
+-- PENDENTE. NÃO APLICAR sem autorização expressa da gestão.
+-- Fecha INSERT direto em public.auditoria por usuário logado (authenticated) e por anon.
+--
+-- Motivo: o grant estava aberto (has_table_privilege = true para authenticated, observado em
+-- produção em 14/11/2026) e a política painel_negado (ALL, NOT eh_painel()) não barrava o INSERT
+-- fora do painel. Qualquer usuário logado podia gravar linhas de trilha.
+--
+-- Consumidores mapeados no catálogo de produção (14/11/2026):
+--   · funções que gravam em auditoria: todas SECURITY DEFINER, exceto _titulo_em_confirmacao_protegido;
+--   · Edge Functions (ulbra-consultar, prime-portador): gravam com cliente de SERVIÇO;
+--   · src/pages/ProjecaoHoraHora.jsx: apenas SELECT em auditoria;
+--   · trigger trg_titulo_em_confirmacao_protegido (acordos_titulos): INVOKER, grava a recusa como o
+--     usuário que tentou alterar o título. Por isso ela passa a DEFINER, com search_path fixo: a recusa
+--     continua sendo registrada, e a escrita deixa de depender do grant do usuário.
+--
+-- service_role mantém INSERT (Edge Functions e RPCs de serviço). Nada é concedido.
+-- =============================================================================
+
+-- Guarda: a função precisa existir como trigger, no estado esperado. Senão, aborta sem alterar nada.
+do $$
+begin
+  if to_regprocedure('public._titulo_em_confirmacao_protegido()') is null then
+    raise exception 'AUDITORIA_INSERT_20261114120000: função do trigger não existe; não aplicar sobre estado desconhecido';
+  end if;
+end $$;
+
+alter function public._titulo_em_confirmacao_protegido() security definer set search_path = public;
+
+revoke insert on public.auditoria from authenticated, anon;
