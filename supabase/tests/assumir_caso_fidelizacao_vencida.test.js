@@ -325,11 +325,22 @@ describe("operador assume caso com fidelização vencida", () => {
     await db.close();
   });
 
-  it("rollback remove a RPC e preserva a auditoria já gravada", async () => {
+  it("rollback RECUSA enquanto houver tomada nao revertida", async () => {
     const db = await abrirCom();
     const caso = await cenario(db, 20, { dono: MAURICIO });
     await como(db, LUANA);
     expect((await tomar(db, caso)).sucesso).toBe(true);
+    await expect(db.exec(ROLLBACK)).rejects.toThrow(/ROLLBACK RECUSADO/);
+    await db.close();
+  });
+
+  it("rollback remove a RPC e preserva a auditoria já gravada (após reverter)", async () => {
+    const db = await abrirCom();
+    const caso = await cenario(db, 20, { dono: MAURICIO });
+    await como(db, LUANA);
+    const r = await tomar(db, caso);
+    await como(db, GESTAO);
+    expect((await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [r.operacao_id, "x"])).sucesso).toBe(true);
     await db.exec(ROLLBACK);
     const existe = await q1(db, "select count(*)::int n from pg_proc where proname='assumir_caso_fidelizacao_vencida'");
     expect(existe.n).toBe(0);
@@ -599,6 +610,33 @@ describe("operador assume caso com fidelização vencida", () => {
     const rv = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [r.operacao_id, "x"]);
     expect(rv.sucesso).toBe(false);
     expect(rv.mensagem).toContain("limite de casos");
+    await db.close();
+  });
+
+  it("acionamento do ALUNO com hora (timestamptz) não causa conflito falso na reversão", async () => {
+    const db = await abrirCom();
+    const caso = await cenario(db, 71, { dono: MAURICIO, dua: null });
+    await db.query("update public.alunos set data_ultimo_acionamento = now() - interval '30 days' where id=$1", [U(71)]);
+    await como(db, LUANA);
+    const r = await tomar(db, caso);
+    expect(r.sucesso).toBe(true);
+    await como(db, GESTAO);
+    const rv = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [r.operacao_id, "x"]);
+    expect(rv.mensagem).not.toContain("Conflito");
+    expect(rv.sucesso).toBe(true);
+    await db.close();
+  });
+
+  it("retorno agendado depois da tomada impede a reversão (mudança posterior)", async () => {
+    const db = await abrirCom();
+    const caso = await cenario(db, 72, { dono: MAURICIO });
+    await como(db, LUANA);
+    const r = await tomar(db, caso);
+    await db.query("update public.alunos set proxima_acao='LIGAR', data_retorno = current_date + 2 where id=$1", [U(72)]);
+    await como(db, GESTAO);
+    const rv = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [r.operacao_id, "x"]);
+    expect(rv.sucesso).toBe(false);
+    expect(rv.mensagem).toContain("Conflito");
     await db.close();
   });
 });

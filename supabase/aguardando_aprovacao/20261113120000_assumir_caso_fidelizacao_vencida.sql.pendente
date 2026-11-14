@@ -186,7 +186,11 @@ begin
   end if;
 
   -- PRAZO: ultimo acionamento valido entre aluno e caso, lido depois do lock.
-  v_ultimo := greatest(v_al.data_ultimo_acionamento, v_c.data_ultimo_acionamento);
+  -- alunos.data_ultimo_acionamento e timestamptz: vira data de Brasilia. casos.data_ultimo_acionamento
+  -- e DATE: usa direto (converter date via timezone() passa por timestamptz em UTC e recua um dia).
+  v_ultimo := greatest(
+    (v_al.data_ultimo_acionamento at time zone 'America/Sao_Paulo')::date,
+    v_c.data_ultimo_acionamento);
   -- Prazo em DATA DE BRASILIA explicita (a sessao do banco esta em UTC).
   if v_ultimo is not null and v_ultimo + 10 >= (now() at time zone 'America/Sao_Paulo')::date then
     return query select false, v_msg, null::uuid; return;
@@ -233,7 +237,13 @@ begin
      responsavel_novo_email, responsavel_novo_nome, data_ultimo_acionamento_antes,
      snapshot_caso, snapshot_aluno, estado_anterior, motivo, autor_email)
   select p_aluno_id, v_c.id, v_ant_email, v_ant_nome, v_email, v_nome, v_ultimo,
-         to_jsonb(v_c), to_jsonb(a),
+         jsonb_build_object('id', v_c.id, 'operador_email', v_c.operador_email, 'operador_nome', v_c.operador_nome,
+                            'operador', v_c.operador, 'data_ultimo_acionamento', v_c.data_ultimo_acionamento,
+                            'status_acionamento', v_c.status_acionamento, 'caso_atualizado_em', v_c.caso_atualizado_em),
+         jsonb_build_object('id', a.id, 'responsavel_atual_email', a.responsavel_atual_email,
+                            'responsavel_atual_nome', a.responsavel_atual_nome, 'responsavel_atual_em', a.responsavel_atual_em,
+                            'data_ultimo_acionamento', a.data_ultimo_acionamento, 'status_acionamento', a.status_acionamento,
+                            'proxima_acao', a.proxima_acao, 'data_retorno', a.data_retorno, 'hora_retorno', a.hora_retorno),
          jsonb_build_object('proxima_acao', a.proxima_acao, 'data_retorno', a.data_retorno, 'hora_retorno', a.hora_retorno),
          v_motivo, v_email
     from public.alunos a where a.id = p_aluno_id
@@ -257,12 +267,16 @@ begin
 
   -- estado pos-tomada, para a reversao comparar com o que existe no momento de reverter
   update public.assumir_fidelizacao_operacoes
-     set estado_pos = jsonb_build_object('caso_operador_email', v_email,
+     set estado_pos = (select jsonb_build_object('caso_operador_email', v_email,
                                          'aluno_responsavel_email', v_email,
-                                         'data_ultimo_acionamento', v_ultimo)
+                                         'data_ultimo_acionamento', v_ultimo,
+                                         'proxima_acao', a.proxima_acao,
+                                         'data_retorno', a.data_retorno,
+                                         'hora_retorno', a.hora_retorno)
+                         from public.alunos a where a.id = p_aluno_id)
    where id = v_op;
 
-  return query select true, 'Caso assumido. A fidelizacao de 10 dias comeca no seu primeiro acionamento valido.', v_op;
+  return query select true, 'Caso assumido. Ele fica com voce por 10 dias a partir de agora, sem repasse.', v_op;
 end;
 $fn$;
 
@@ -321,14 +335,19 @@ begin
   -- Conflito 0: o estado atual nao e o estado que a propria tomada deixou (backup por operacao).
   if v_op.estado_pos is null
      or lower(coalesce(v_c.operador_email, '')) <> lower(v_op.estado_pos->>'caso_operador_email')
-     or lower(coalesce(v_al.responsavel_atual_email, '')) <> lower(v_op.estado_pos->>'aluno_responsavel_email') then
+     or lower(coalesce(v_al.responsavel_atual_email, '')) <> lower(v_op.estado_pos->>'aluno_responsavel_email')
+     or v_al.proxima_acao is distinct from v_op.estado_pos->>'proxima_acao'
+     or v_al.data_retorno::text is distinct from nullif(v_op.estado_pos->>'data_retorno', '')
+     or v_al.hora_retorno::text is distinct from nullif(v_op.estado_pos->>'hora_retorno', '') then
     return query select false, 'Conflito: o estado atual nao e o da tomada. Nao revertido.'; return;
   end if;
 
   -- Conflito 2: houve acionamento depois da tomada. O ultimo acionamento (aluno ou caso)
   -- tem de ser o mesmo que existia ANTES da tomada. Qualquer mudanca, de qualquer autor
   -- (inclusive data nula), conta como atendimento posterior.
-  if greatest(v_al.data_ultimo_acionamento, v_c.data_ultimo_acionamento)
+  if greatest(
+       (v_al.data_ultimo_acionamento at time zone 'America/Sao_Paulo')::date,
+       v_c.data_ultimo_acionamento)
        is distinct from v_op.data_ultimo_acionamento_antes then
     return query select false, 'Conflito: houve atendimento depois desta tomada. Nao revertido.'; return;
   end if;

@@ -1,4 +1,6 @@
--- COMPLEMENTO DE PRODUCAO para o teste de `assumir_caso_fidelizacao_vencida` -- 13/11/2026.
+-- COMPLEMENTO para o teste de `assumir_caso_fidelizacao_vencida` -- 13/11/2026.
+-- ATENCAO: o bloco de aluno_retorno_operador_vigente NAO e de producao: e a copia do arquivo da PR #936
+-- (md5 25412bfe...). So sera producao depois da #936 implantada e conferida.
 --
 -- Leitura somente de estrutura e corpo de funcao (information_schema, pg_constraint,
 -- pg_get_functiondef), feita no banco de producao sem nenhuma escrita. NENHUM DADO
