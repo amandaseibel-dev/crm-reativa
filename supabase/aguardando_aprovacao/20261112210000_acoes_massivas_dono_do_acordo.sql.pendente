@@ -1,0 +1,81 @@
+-- ACOES MASSIVAS: o universo passa a respeitar o RESPONSAVEL PELO ACORDO.
+--
+-- PROBLEMA (medido em producao, leitura, 12/11/2026)
+-- A tela exige escolher o "Responsavel pelo acordo" nas modalidades
+-- ACORDOS_VENCIDOS e MENSALIDADES_E_ACORDOS, e a previa grava a escolha em
+-- filtros.responsaveis_acordo. O universo publicado nao le esse campo: com
+-- caso = cobranca06, ACORDOS_VENCIDOS devolve 132 disponiveis com ou sem o
+-- filtro, e 77 deles so tem acordo vencido de OUTRO responsavel.
+--
+-- O QUE MUDA (e somente isto) em public.acoes_massivas_universo
+--   1. declara v_ra, lido de filtros.responsaveis_acordo;
+--   2. cria a CTE parc_dono: acordo ATIVO com parcela VENCIDA cujo responsavel
+--      esta na selecao ('sem_responsavel' = acordo sem dono);
+--   3. "tem acordo vencido" passa a valer so para acordo de quem foi escolhido.
+-- Sem responsaveis_acordo (v_ra nulo) NADA muda: MENSALIDADES, 'todos',
+-- 'livres' e os paineis de leitura seguem iguais.
+--
+-- O QUE NAO MUDA: responsavel pelo caso, fidelizacao ate o 10o dia (BRT),
+-- retorno futuro, liquidado no Prime, confirmacao pendente, acordo em dia,
+-- guard de zerados, previa, exportacao, registro, grants e search_path.
+--
+-- Origem do desenho: supabase/migrations/20260927143351 (parc_dono / tav), ja
+-- aprovado e coberto por supabase/tests/acoes_massivas_responsavel_caso_e_acordo.
+-- Parte da DEFINICAO PUBLICADA apos a combinada 20261112120000 (MD5 cefd2068...).
+--
+-- Executar em UMA transacao (BEGIN; ... COMMIT;). Qualquer guarda que falhe
+-- desfaz tudo. Rollback: 20261112210000_acoes_massivas_dono_do_acordo.rollback.sql
+
+-- 0. GUARDA: a funcao precisa estar exatamente como validada ------------------
+DO $g$
+BEGIN
+  IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') <> 'cefd206824186d4da8e6f1e35c14beb8' THEN
+    RAISE EXCEPTION 'Universo publicado mudou desde a validacao (esperado cefd2068...). Nada aplicado.';
+  END IF;
+END $g$;
+
+-- 1. v_ra: responsaveis pelo ACORDO ------------------------------------------
+SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_universo',
+$a1$                                         where nullif(btrim(x),'') is not null), '{}'::text[]) end;
+  v_tipo text :=$a1$,
+$n1$                                         where nullif(btrim(x),'') is not null), '{}'::text[]) end;
+  v_ra text[] := case when jsonb_typeof(f->'responsaveis_acordo') = 'array'
+                      then nullif(array(select lower(btrim(x))
+                                          from jsonb_array_elements_text(f->'responsaveis_acordo') x
+                                         where nullif(btrim(x),'') is not null), '{}'::text[]) end;
+  v_tipo text :=$n1$, 1);
+
+-- 2. parc_dono: acordo vencido CUJO RESPONSAVEL esta na selecao ---------------
+-- Separado de `parc` de proposito: `parc` define a base e o ano; recortar ali
+-- tiraria quem tem MENSALIDADE e, por acaso, um acordo de terceiro.
+SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_universo',
+$a2$  pre_base as ($a2$,
+$n2$  parc_dono as materialized (
+    select distinct a.aluno_id
+      from public.acordos a
+      join public.parcelas p on p.acordo_id = a.id
+     where a.status = 'ATIVO' and p.status = 'VENCIDA'
+       and (v_ids is null or a.aluno_id = any(v_ids))
+       and (v_ra is null
+            or lower(coalesce(a.operador_responsavel_email,'')) = any(v_ra)
+            or (nullif(btrim(coalesce(a.operador_responsavel_email,'')),'') is null
+                and 'sem_responsavel' = any(v_ra)))
+  ),
+  pre_base as ($n2$, 1);
+
+-- 3. tav: "tem acordo vencido" = acordo vencido DE QUEM FOI ESCOLHIDO ---------
+SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_universo',
+$a3$           coalesce(tc.tem_acordo_vencido, false) as tav$a3$,
+$n3$           (coalesce(tc.tem_acordo_vencido, false)
+            and (v_ra is null
+                 or exists (select 1 from parc_dono pd where pd.aluno_id = p.id))) as tav$n3$, 1);
+
+-- 4. MD5 FINAL: aborta se a composicao divergir do que foi validado -----------
+DO $m$
+BEGIN
+  IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_universo') <> '8f94a1687f0f3d13765ecf86db1d1e19' THEN
+    RAISE EXCEPTION 'MD5 final do universo diferente do validado.';
+  END IF;
+END $m$;
