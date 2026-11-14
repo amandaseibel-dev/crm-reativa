@@ -7,7 +7,7 @@ Status: **PENDENTE DE APROVAÇÃO EXPRESSA PARA APLICAÇÃO.** Não autoriza, po
 - Duas linhas em `public.tabulacoes` (catálogo existente), `somente_gestao = true`, ativas, retorno `NENHUM`, próxima ação `CONTATAR`, `efeito_desfecho` nulo:
   - `TERMO_FISICO_EM_ANDAMENTO` — "Possui termo físico assinado, em andamento"
   - `TERMO_FISICO_ARQUIVADO` — "Termo físico arquivado, quitado"
-- Trigger `aluno_mov_tabulacao_so_gestao` (`BEFORE INSERT OR UPDATE OF status_novo` em `aluno_movimentacoes`), função `aluno_movimentacao_tabulacao_so_gestao()` (SECURITY DEFINER, `search_path = public`). Recusa **apenas** os dois códigos acima para quem não é gestão (42501, "restrita à gestão"). Normalização por `[A-Z0-9_]`, para cobrir espaços e caracteres invisíveis.
+- Trigger `aluno_mov_tabulacao_so_gestao` (`BEFORE INSERT OR UPDATE OF status_novo` em `aluno_movimentacoes`); normalização em ASCII (`[^A-Za-z0-9_]`) **antes** do `upper()`, para não depender do locale, função `aluno_movimentacao_tabulacao_so_gestao()` (SECURITY DEFINER, `search_path = public`). Recusa **apenas** os dois códigos acima para quem não é gestão (42501, "restrita à gestão"). Normalização por `[A-Z0-9_]`, para cobrir espaços e caracteres invisíveis.
 - Gestão: os três e-mails de `usuario_e_gestao()` (Amanda gestora, Fernanda, Amanda ADM). Nenhuma permissão nova.
 - Bypass: `service_role` (claim) e chamada sem `SET ROLE` do PostgREST (sessão do dono, migrações, RPCs de sistema).
 
@@ -17,14 +17,14 @@ Status: **PENDENTE DE APROVAÇÃO EXPRESSA PARA APLICAÇÃO.** Não autoriza, po
 
 | PR | Branch | Head |
 |---|---|---|
-| #954 (banco) | `feat/termo-fisico-registro-migracao` | `0d706c00` (ver PR para o head atual) |
+| #954 (banco) | `feat/termo-fisico-registro-migracao` | `0090fdca` (commit de hashes: ver PR) |
 | #951 (front) | `feat/tabulacao-termo-fisico` | `9c4d870b` |
 
 | Arquivo | SHA-256 | Bytes |
 |---|---|---|
-| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `74137cb54eee7c2300e8d8939de9d10168df98187acf1cce1f4321223b281d2e` | 3387 |
+| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `5050e5bec6924a7969a1a5efedb930e8931aaaa2eebfca31a66b6d2196a2df5a` | 4449 |
 | `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql` | `a17b400205a740fb72c8729b87df8a97d337a057c2516eefbd388bcc60b4bc7c` | 670 |
-| `scripts/seguranca/auditoria_seguranca.sql` (Gate A, corrigido) | `002d706ea04fc69012a3adaa0a2eb09685257406ca14d7240af2a0b00d97557f` | 5347 |
+| `scripts/seguranca/auditoria_seguranca.sql` (Gate A, corrigido) | `87ed9b7326c6fdbdffd2956c1d3b3f448910ae2e0010f11954418de9c986dd85` | 5682 |
 
 Se algum arquivo mudar, este quadro precisa ser refeito.
 
@@ -39,6 +39,19 @@ Se algum arquivo mudar, este quadro precisa ser refeito.
 - `trg_tabulacao_redireciona`: só age em UPDATE de `alunos`.
 - `notificacoes`, `app_usuario_ativo()` e privilégios padrão de `public`: conferidos na sessão de auditoria anterior.
 
+## Estado do aluno (alunos.status_*): barreira de produção
+
+A trigger `trg_encerramento_so_gestao` está **ativa** em `public.alunos` (`BEFORE UPDATE OF status_atual, status_jornada, status_acionamento`, `tgenabled = O`). A função `_encerramento_so_gestao()` lida em produção nesta sessão lê o catálogo dinamicamente (`from public.tabulacoes where somente_gestao`). Logo, as duas linhas novas com `somente_gestao = true` passam a barrar também a gravação do **estado** do aluno por operador, não só o histórico. Sem essas linhas, o operador poderia gravar o estado antes do histórico. Este é o caminho que a auditoria pediu para provar (leitura de produção).
+
+## Desfazer do operador (limitação declarada)
+
+`desfazer_acao` grava `ACAO_DESFEITA` com o status restaurado. Se o status restaurado for um dos dois códigos restritos, a trigger recusa para o operador e o desfazer aborta. Só ocorre se a gestão tiver gravado um código restrito e o operador desfizer outra ação. **Decisão pendente:** aceitar e documentar, ou tratar (ver ressalvas).
+
+## Pré-condições (guardas na migração)
+
+- Aborta se já existir linha com os dois códigos e flags divergentes do esperado (não segue em silêncio).
+- Aborta se a trigger `aluno_mov_tabulacao_so_gestao` já existir.
+
 ## Testes (CI e simulação local)
 
 - `supabase/tests/tabulacao_termo_fisico_gestao/`: gestão permitida (três e-mails); operador recusado (código exato, com espaço e minúsculas, TAB/LF/CR, Unicode invisível, `FINALIZACAO_ATENDIMENTO` com código restrito); UPDATE do operador em `status_novo` recusado pela trigger; sem perfil, diretoria e anon recusados; escopo (`RETORNO_FINANCEIRO` não é barrado); ausência de efeitos; triagem Prime (descrição fixa não casa com as palavras-chave); não acionamento; rollback.
@@ -52,6 +65,9 @@ Se algum arquivo mudar, este quadro precisa ser refeito.
 - **Locale do Postgres de produção**, para os caracteres Unicode (a normalização não depende de locale).
 - **Gate A em produção:** a linha de base não foi executada (precisa de autorização). O `ORDER BY` foi corrigido e validado em pglite.
 - **Owner ou superuser** pode desabilitar a trigger; não coberto.
+- **Rollback** desativa o catálogo mas não repõe `somente_gestao` (a flag continua true nas linhas desativadas; a trigger de alunos lê a flag independentemente de `ativa`).
+- **Outros triggers BEFORE** em `aluno_movimentacoes` executados depois desta trigger (ordem alfabética): não listados em produção.
+- **Upper/locale do banco:** normalização em ASCII antes do upper; testado em pglite, não no locale de produção.
 - **Triagem Prime, efeito a jusante:** a descrição fixa não casa com as palavras-chave, mas não medi o efeito em produção.
 
 ## Reversão

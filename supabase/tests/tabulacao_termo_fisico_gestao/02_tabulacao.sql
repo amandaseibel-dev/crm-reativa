@@ -63,6 +63,18 @@ select public.teste_assert('operador: recusado com U+200B, U+FEFF, U+00A0 e U+30
   (public.teste_comando('authenticated', 'operador.teste@exemplo.local',
     E'insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email) values (\'a1\',\'FINALIZACAO_ATENDIMENTO\',E\'\\u200B\\uFEFFTERMO_FISICO_ARQUIVADO\\u00A0\\u3000\',\'operador.teste@exemplo.local\')')->>'code' = '42501'));
 
+
+-- Locale: caracteres que o upper() converte em ASCII em alguns locales (dotless i, long s).
+-- Remoção ASCII ANTES do upper: 'TERMO_FIıSICO_ARQUIVADO' vira 'TERMO_FISICO_ARQUIVADO' e é recusado.
+select public.teste_assert('operador: recusado com ı (U+0131) no meio do código (42501)',
+  public.teste_comando('authenticated', 'operador.teste@exemplo.local',
+    $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
+         values ('a1','FINALIZACAO_ATENDIMENTO','TERMO_FIıSICO_ARQUIVADO','operador.teste@exemplo.local')$sql$)->>'code' = '42501');
+select public.teste_assert('operador: recusado com ſ (U+017F) no código (42501)',
+  public.teste_comando('authenticated', 'operador.teste@exemplo.local',
+    $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
+         values ('a1','FINALIZACAO_ATENDIMENTO','TERMO_FISICOſ_ARQUIVADO','operador.teste@exemplo.local')$sql$)->>'code' = '42501');
+
 -- Sem perfil e diretoria: nenhum é gestão, a trigger recusa.
 select public.teste_assert('usuário sem perfil (fora de usuario_e_gestao): recusado (42501)',
   public.teste_comando('authenticated', 'semperfil@exemplo.local',

@@ -8,6 +8,22 @@ BEGIN;
 -- retorno, fila nem efeito financeiro (efeito_desfecho fica NULL).
 
 -- 1. Catálogo existente.
+do $$
+begin
+  -- Guarda: se já existir linha com estes códigos mas com flags diferentes do esperado,
+  -- NÃO seguir em silêncio (o 'not exists' abaixo não corrigiria). Aborta.
+  if exists (select 1 from public.tabulacoes
+              where codigo in ('TERMO_FISICO_EM_ANDAMENTO','TERMO_FISICO_ARQUIVADO')
+                and (ativa is distinct from true or somente_gestao is distinct from true
+                     or efeito_desfecho is not null or retorno_modo is distinct from 'NENHUM'
+                     or proxima_acao is distinct from 'CONTATAR')) then
+    raise exception 'pré-condição: tabulação de termo físico já existe com flags divergentes; não aplicar sem decisão';
+  end if;
+  if exists (select 1 from pg_trigger where tgname = 'aluno_mov_tabulacao_so_gestao'
+                and tgrelid = 'public.aluno_movimentacoes'::regclass) then
+    raise exception 'pré-condição: trigger aluno_mov_tabulacao_so_gestao já existe';
+  end if;
+end $$;
 insert into public.tabulacoes (
   codigo, rotulo, ativa, ordem, grupo, retorno_modo, retorno_dias_uteis, proxima_acao,
   bloco_ficha, exige_processo, bloqueia_acionamento, sistema, criado_em, criado_por,
@@ -38,7 +54,8 @@ declare
   v_restritos constant text[] := array['TERMO_FISICO_EM_ANDAMENTO','TERMO_FISICO_ARQUIVADO'];
   -- Normaliza para [A-Z0-9_]: remove espaço, tab, quebra, retorno e caracteres
   -- invisíveis (U+200B, U+FEFF, U+00A0, U+3000 etc.) antes de comparar.
-  v_codigo text := regexp_replace(upper(coalesce(new.status_novo, '')), '[^A-Z0-9_]', '', 'g');
+  -- ASCII ANTES do upper(): upper() depende do locale (ex.: 'ı' vira 'I' em tr_TR).
+  v_codigo text := upper(regexp_replace(coalesce(new.status_novo, ''), '[^A-Za-z0-9_]', '', 'g'));
 begin
   if v_codigo = '' or not (v_codigo = any(v_restritos)) then
     return new;
