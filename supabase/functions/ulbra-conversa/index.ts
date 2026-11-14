@@ -262,8 +262,9 @@ Deno.serve(async (req: Request) => {
       let pessoa: Record<string, unknown> = {};
       try {
         const { dados } = await chamarComoOperador(t.access_token, "meu_acesso", {});
-        const a = dados as { pessoa?: { nome?: string; id?: string }; nome?: string; escopos?: unknown; soLeitura?: unknown };
-        pessoa = { pessoa_nome: a?.pessoa?.nome ?? a?.nome ?? null, pessoa_id: a?.pessoa?.id ?? null, escopos: a?.escopos ?? null, so_leitura: typeof a?.soLeitura === "boolean" ? a.soLeitura : null };
+        const a = dados as { pessoa?: { nome?: string; email?: string }; nome?: string; escopos?: unknown; soLeitura?: unknown };
+        // Identidade estável COMPROVADA em meu_acesso: pessoa.email (pessoa.id não aparece no retorno).
+        pessoa = { pessoa_nome: a?.pessoa?.nome ?? null, pessoa_id: a?.pessoa?.email ?? null, escopos: a?.escopos ?? null, so_leitura: typeof a?.soLeitura === "boolean" ? a.soLeitura : null };
       } catch (e) {
         pessoa = { pessoa_nome: null, escopos: null, so_leitura: null };
         console.error("ulbra-conversa: meu_acesso do operador falhou", (e as Error).message);

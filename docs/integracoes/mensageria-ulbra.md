@@ -618,3 +618,22 @@ Evidência que falta, e forma mínima de obtê-la sem envio real:
 1. Prévia com `previa: true` num atendimento próprio do operador, sem texto de cliente: mostra o formato da resposta da prévia e o custo estimado, se houver.
 2. `consultar_atendimento` num atendimento próprio: só os nomes dos campos e o formato do campo de atendente, sem texto de conversa.
 3. Resposta do envio real (id e situação): só com contato de teste autorizado pela gestão. Não obtida nesta etapa.
+
+## Correções de 13/11/2026 (2): identidade, validações separadas e conta de chamadas
+
+**Identidade do operador.** `pessoa.id` NÃO aparece no retorno de `meu_acesso` e não é mais lido. O identificador estável comprovado é `pessoa.email`, e o código passou a usá-lo. Falta confirmar se ele é o mesmo valor que `consultar_atendimento` expõe no campo de atendente. Sem essa confirmação, a comparação continua fail-closed.
+
+**Pergunta objetiva à TI da ULBRA:** no campo de atendente de `consultar_atendimento`, qual valor é retornado: o e-mail do atendente, um id ou o nome? E esse valor é o mesmo que `meu_acesso` devolve em `pessoa.email`?
+
+**Duas validações separadas, que não se resolvem com o mesmo teste:**
+1. *Prévia* (`enviar_mensagem_whatsapp` com `previa: true`): comprova só que a ferramenta responde e qual é o formato da prévia. NÃO comprova que um envio efetivo chegou ao cliente, nem o id da mensagem enviada.
+2. *Envio efetivo* (`previa: false`): comprova o id e a situação da mensagem. Só pode ser feito com contato de teste autorizado pela gestão. Não está comprovado.
+
+**Chamadas necessárias, com consumo de cota separado:**
+- Descoberta de ferramentas (listagem de esquemas): 1 chamada de descoberta. Não está comprovado se ela consome cota de atendimento.
+- `meu_acesso`: 1 chamada de ferramenta. Consome cota.
+- `enviar_mensagem_whatsapp` com `previa: true`: 1 chamada de ferramenta. Consome cota, e pode ter custo estimado que a ULBRA não informou em valor.
+- `consultar_atendimento` num atendimento próprio: 1 chamada de ferramenta. Consome cota.
+- Total com consumo de cota: 3 chamadas, além da descoberta. Não há outras chamadas previstas nesta etapa.
+
+**Limites.** Os limites observados em `meu_acesso` (15 por minuto na conexão, 30 por minuto por pessoa, 10.000 por dia por pessoa) pertencem à conta consultada na sessão, que não é a do piloto. Os limites da conta do piloto precisam ser lidos na própria conta, por `meu_acesso`, antes de qualquer teste.
