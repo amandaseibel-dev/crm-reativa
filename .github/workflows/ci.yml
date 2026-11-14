@@ -1099,3 +1099,57 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/04_depois_da_correcao.sql"
           psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
           psql -v ON_ERROR_STOP=1 -f "$DIR/05_apos_rollback.sql"
+
+  # ---------------------------------------------------------------------------
+  # AÇÕES MASSIVAS — benchmark do universo (otimização de custo sobre #941 + R5 v2).
+  #
+  # Um banco descartável, mesmos dados, três estados: antes (#941+R5), depois
+  # (otimização) e rollback (volta à R5 v2). Confere resultados idênticos, ACL de
+  # EXECUTE, MD5 da definição e registra tempos e planos. Tempo de CI NÃO é garantia
+  # de produção. Não aplica nada fora deste banco descartável.
+  # ---------------------------------------------------------------------------
+  acoes-massivas-custo-benchmark:
+    name: ações massivas — benchmark do universo antes/depois/rollback (postgres 17 descartável)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Benchmark antes x depois x rollback (mesmo banco, mesmos dados)
+        run: node supabase/tests/acoes_massivas_custo_benchmark/bench.mjs
+
+      - name: Guardar resultado do benchmark
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-acoes-massivas-custo
+          path: benchmark-resultado/

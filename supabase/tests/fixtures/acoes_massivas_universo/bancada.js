@@ -250,9 +250,16 @@ function estadoProducao() {
   return RB3;
 }
 
+// Gancho opcional para o benchmark de CI: permite trocar o PGlite por um Postgres real
+// (adaptador com exec/query). Sem gancho, o comportamento e o de sempre (PGlite).
+let fabricaExterna = null;
+export function usarFabricaDeBanco(fabrica) {
+  fabricaExterna = fabrica;
+}
+
 /** fase: 'antes' = producao hoje; 'depois' = producao + migrations novas. */
 export async function novoBanco({ fase = "depois", registroAutomatico = false, semRetornoAutomatico = false } = {}) {
-  const db = await PGlite.create();
+  const db = fabricaExterna ? await fabricaExterna() : await PGlite.create();
   await db.exec(ESQUEMA);
   // funcoes vivas de producao (gatilho, registrar, exportar, concluir)
   await db.exec(estadoProducao());
