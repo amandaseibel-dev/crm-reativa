@@ -11,6 +11,8 @@ U1=00000000-0000-0000-0000-000000000001
 U2=00000000-0000-0000-0000-000000000002
 U3=00000000-0000-0000-0000-000000000003
 U7=00000000-0000-0000-0000-000000000007
+U8=00000000-0000-0000-0000-000000000008
+U9=00000000-0000-0000-0000-000000000009
 falhas=0
 ok()   { echo "  ok    $1"; }
 falha(){ echo "  FALHA $1"; falhas=$((falhas+1)); }
@@ -120,7 +122,7 @@ wait
 sa=$(grep -c '^t|' "$OUT/c6a.txt" || true); sb=$(grep -c '^t|' "$OUT/c6b.txt" || true)
 n=$(q "select count(*) from public.casos where operador_email='$LUANA'")
 [ "$n" -le 3 ] && ok "carteira de LUANA ficou em $n (limite 3) com duas tomadas livres" || falha "teto violado em assumir_caso_livre: $n casos (limite 3)"
-[ $((sa+sb)) -le 1 ] && ok "no maximo uma tomada livre passou" || falha "duas tomadas livres passaram no teto: A=$sa B=$sb"
+[ $((sa+sb)) -eq 1 ] && ok "exatamente uma tomada livre passou (havia uma vaga)" || falha "esperava 1 tomada livre, houve A=$sa B=$sb: $(cat "$OUT/c6a.txt") | $(cat "$OUT/c6b.txt")"
 
 echo "== C7: atribuicao DIRETA (trigger) disputa a vaga com tomada"
 ambiente_com_teto c7
