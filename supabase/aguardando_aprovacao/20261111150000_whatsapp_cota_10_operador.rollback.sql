@@ -1,0 +1,378 @@
+-- =====================================================================
+-- ROLLBACK de 20261111150000_whatsapp_cota_10_operador
+--
+-- Volta ao estado "CONTINUIDADE v2 aplicada, cota antiga, receptivo
+-- marcado pela tela no assumir":
+--   * trigger do atendimento receptivo removido
+--   * fila_receptivo_marcar_atendido = corpo de PRODUÇÃO lido em 11/11/2026
+--     (trava + registro numa função só); a função interna sai
+--   * whatsapp_cadencia_checar = corpo EXATO da v2 (20261109120000)
+--   * whatsapp_cadencia_consumo = corpo e assinatura de produção
+--   * teto_abordagens_operador 10 -> 3; limite por canal 10 -> fotografia
+--     de 11/11 (Comercial 2, Cobrança 15, Piloto 3), SÓ onde ainda estiver
+--     10 — valor mexido pela tela depois da aplicação não é sobrescrito
+--
+-- NENHUM DADO É APAGADO: os atendimentos que o trigger gravou em
+-- receptivo_atendimentos_log e em fila_receptivo são atendimentos reais
+-- (os mesmos que a tela gravava) e ficam.
+--
+-- ATENÇÃO À TELA: o front da mesma PR não marca mais no assumir. Com o
+-- banco revertido e o front novo no ar, o receptivo do WhatsApp deixa de
+-- mover a fila até o front ser revertido também.
+--
+-- GRANTS: checar volta ao estado de PRODUÇÃO (sem authenticated), e não ao
+-- da v2, que concedia authenticated.
+--
+-- Idempotente: pode rodar duas vezes.
+-- =====================================================================
+
+-- 1. Trigger fora primeiro: nada novo é contado durante o resto.
+DROP TRIGGER IF EXISTS trg_whatsapp_a0_receptivo_atendimento ON public.whatsapp_mensagens;
+DROP FUNCTION IF EXISTS public.whatsapp_receptivo_atendimento_na_resposta();
+
+-- 2. fila_receptivo_marcar_atendido: corpo de produção (11/11/2026)
+CREATE OR REPLACE FUNCTION public.fila_receptivo_marcar_atendido(
+  p_email text, p_conversa_id uuid DEFAULT NULL::uuid, p_canal text DEFAULT NULL::text)
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+declare
+  v_hoje           date := (now() at time zone 'America/Sao_Paulo')::date;
+  v_nome           text;
+  v_resp_desde     timestamptz;
+  v_rows           integer;
+begin
+  -- Guard de autenticação: operador só registra o próprio atendimento.
+  -- usuario_e_gestao_fila() cobre: allowlist de gestão + perfis gerencia,
+  -- supervisor e administrativo em public.usuarios (inclui supervisão).
+  -- Preserva: FilaReceptivo botão "Marcar" na linha alheia, usado por gestão/supervisão.
+  if lower(p_email) <> lower(coalesce(auth.email(), '')) then
+    if not coalesce(public.usuario_e_gestao_fila(), false) then
+      raise exception 'não autorizado: somente gestão ou supervisão pode registrar atendimento para outro operador'
+        using errcode = '42501';
+    end if;
+  end if;
+
+  -- Para chamadas WhatsApp: lê responsavel_desde da conversa para chave de
+  -- idempotência. Se a conversa não está com este operador, retorna sem registrar.
+  if p_conversa_id is not null then
+    select responsavel_desde into v_resp_desde
+      from public.whatsapp_conversas
+     where id = p_conversa_id
+       and lower(responsavel_email) = lower(p_email);
+
+    if not found or v_resp_desde is null then
+      return;
+    end if;
+  end if;
+
+  select nome into v_nome from public.fila_receptivo where email = p_email;
+  if not found then return; end if;
+
+  -- INSERT primeiro: ON CONFLICT DO NOTHING se mesmo ciclo já foi registrado
+  insert into public.receptivo_atendimentos_log
+    (operador_email, operador_nome, atendido_em, responsavel_desde, fonte)
+  values (
+    p_email,
+    v_nome,
+    now(),
+    v_resp_desde,
+    case when p_conversa_id is not null then 'WHATSAPP' else 'MANUAL' end
+  )
+  on conflict (operador_email, responsavel_desde)
+  where responsavel_desde is not null
+  do nothing;
+
+  get diagnostics v_rows = row_count;
+
+  -- Incrementa atendimentos_hoje SOMENTE se o INSERT foi efetivo.
+  -- Chamadas manuais/telefônicas (p_conversa_id NULL, v_resp_desde NULL)
+  -- sempre incrementam porque o conflito parcial não as alcança (v_rows = 1).
+  if v_rows > 0 then
+    update public.fila_receptivo
+       set atendimentos_hoje = case when data_referencia = v_hoje then atendimentos_hoje + 1 else 1 end,
+           data_referencia   = v_hoje,
+           ultimo_atendimento = now(),
+           online_em          = now()
+     where email = p_email;
+  end if;
+end;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fila_receptivo_marcar_atendido(text, uuid, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fila_receptivo_marcar_atendido(text, uuid, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fila_receptivo_marcar_atendido(text, uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fila_receptivo_marcar_atendido(text, uuid, text) TO service_role;
+
+DROP FUNCTION IF EXISTS public.fila_receptivo_registrar_atendimento(text, uuid);
+
+-- 3. whatsapp_cadencia_checar: corpo exato da v2
+CREATE OR REPLACE FUNCTION public.whatsapp_cadencia_checar(
+  p_canal_id    uuid,
+  p_conversa_id uuid,
+  p_operador    text)
+RETURNS text
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_canal          public.whatsapp_canais%ROWTYPE;
+  v_agora          timestamptz := now();
+  v_hoje           date        := (v_agora AT TIME ZONE 'America/Sao_Paulo')::date;
+  v_hora           time        := (v_agora AT TIME ZONE 'America/Sao_Paulo')::time;
+  v_resposta       boolean;
+  v_op             integer;
+  v_ch             integer;
+  v_extra          integer := 0;
+  v_limite_op      integer;
+  v_intervalo      integer;
+  v_janela_h       integer;
+  v_cont_h         integer;
+  v_cont_max       integer;
+  v_ultimo         timestamptz;
+  v_faltam         integer;
+  v_ult_entrada    timestamptz;
+  v_tem_saida_dele boolean;
+  v_sem_resposta   integer;
+  v_conv_bloqueada boolean;
+BEGIN
+  -- Lock da linha do canal: serializa toda a cadência deste canal.
+  -- Fica ANTES de qualquer contagem, de CONTINUIDADE e do INSERT.
+  SELECT * INTO v_canal FROM public.whatsapp_canais WHERE id = p_canal_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'canal inexistente'; END IF;
+
+  IF v_canal.modo = 'PAUSADO' THEN
+    RAISE EXCEPTION 'o numero % esta pausado: nenhuma mensagem sai por ele', v_canal.apelido
+      USING ERRCODE = '42501', DETAIL = 'MODO_PAUSADO';
+  END IF;
+
+  SELECT COALESCE(intervalo_minimo_envio_seg, 60),
+         COALESCE(resposta_janela_horas, 24),
+         COALESCE(continuidade_janela_horas, 72),
+         COALESCE(continuidade_max_sem_resposta, 3)
+    INTO v_intervalo, v_janela_h, v_cont_h, v_cont_max
+    FROM public.whatsapp_config LIMIT 1;
+  v_intervalo := COALESCE(v_intervalo, 60);
+  v_janela_h  := COALESCE(v_janela_h, 24);
+  v_cont_h    := COALESCE(v_cont_h, 72);
+  v_cont_max  := COALESCE(v_cont_max, 3);
+
+  -- RITMO: vale para abordagem E resposta, porque o WhatsApp olha o ritmo
+  -- do numero, nao a nossa classificacao. Mesma conversa nao conta.
+  IF v_intervalo > 0 THEN
+    SELECT max(m.criado_em) INTO v_ultimo
+      FROM public.whatsapp_mensagens m
+      JOIN public.whatsapp_conversas cv ON cv.id = m.conversa_id
+     WHERE m.direcao = 'SAIDA'
+       AND lower(m.enviado_por_email) = lower(p_operador)
+       AND cv.canal_id = p_canal_id
+       AND m.conversa_id IS DISTINCT FROM p_conversa_id
+       AND m.criado_em > v_agora - make_interval(secs => v_intervalo);
+
+    IF v_ultimo IS NOT NULL THEN
+      v_faltam := ceil(extract(epoch from (v_ultimo + make_interval(secs => v_intervalo) - v_agora)));
+      RAISE EXCEPTION 'espere % segundos antes de falar com outro aluno neste numero', GREATEST(v_faltam, 1)
+        USING ERRCODE = '42501', DETAIL = 'INTERVALO_MINIMO';
+    END IF;
+  END IF;
+
+  -- RESPOSTA: aluno escreveu nas ultimas v_janela_h horas (24h, inalterado)
+  v_resposta := p_conversa_id IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.whatsapp_mensagens m
+    WHERE m.conversa_id = p_conversa_id
+      AND m.direcao = 'ENTRADA'
+      AND m.timestamp_wa >= v_agora - make_interval(hours => v_janela_h)
+  );
+  IF v_resposta THEN RETURN 'RESPOSTA'; END IF;
+
+  -- Restricoes do canal prevalecem sobre continuidade.
+  IF v_canal.modo = 'SOMENTE_RESPOSTAS' THEN
+    RAISE EXCEPTION 'o numero % so responde quem escreveu nas ultimas %h', v_canal.apelido, v_janela_h
+      USING ERRCODE = '42501', DETAIL = 'MODO_SOMENTE_RESPOSTAS';
+  END IF;
+
+  IF v_canal.janela_inicio IS NOT NULL AND v_canal.janela_fim IS NOT NULL
+     AND (v_hora < v_canal.janela_inicio OR v_hora >= v_canal.janela_fim) THEN
+    RAISE EXCEPTION 'novas conversas so entre % e %, horario de Brasilia',
+      to_char(v_canal.janela_inicio, 'HH24:MI'), to_char(v_canal.janela_fim, 'HH24:MI')
+      USING ERRCODE = '42501', DETAIL = 'FORA_DA_JANELA';
+  END IF;
+
+  -- ===================================================================
+  -- CONTINUIDADE v2 — cinco condicoes, todas obrigatorias.
+  -- Nenhuma delas e renovavel por acao do operador.
+  -- ===================================================================
+  IF v_cont_h > 0 AND v_cont_max > 0 AND p_conversa_id IS NOT NULL THEN
+
+    -- cond. 5: conversa nao arquivada E nao encerrada (eixos independentes)
+    SELECT (cv.arquivada_em IS NOT NULL OR cv.status = 'ENCERRADO')
+      INTO v_conv_bloqueada
+      FROM public.whatsapp_conversas cv
+     WHERE cv.id = p_conversa_id;
+
+    IF COALESCE(v_conv_bloqueada, true) = false THEN
+
+      -- cond. 1: existe SAIDA anterior DESTE operador nesta conversa,
+      -- qualquer classificacao (e o que a v1 nao enxergava)
+      SELECT EXISTS (
+        SELECT 1 FROM public.whatsapp_mensagens m
+        WHERE m.conversa_id = p_conversa_id
+          AND m.direcao = 'SAIDA'
+          AND lower(m.enviado_por_email) = lower(p_operador)
+      ) INTO v_tem_saida_dele;
+
+      -- cond. 2 e 3: aluno ja respondeu, e a ultima resposta esta na janela.
+      -- ANCORA NAO RENOVAVEL: timestamp_wa de ENTRADA. O operador nao
+      -- consegue produzir uma ENTRADA, logo nenhum envio dele estende isto.
+      SELECT max(m.timestamp_wa) INTO v_ult_entrada
+        FROM public.whatsapp_mensagens m
+       WHERE m.conversa_id = p_conversa_id
+         AND m.direcao = 'ENTRADA';
+
+      IF v_tem_saida_dele
+         AND v_ult_entrada IS NOT NULL
+         AND v_ult_entrada >= v_agora - make_interval(hours => v_cont_h)
+      THEN
+        -- cond. 4: teto de insistencia desde a ultima ENTRADA do aluno
+        SELECT count(*) INTO v_sem_resposta
+          FROM public.whatsapp_mensagens m
+         WHERE m.conversa_id = p_conversa_id
+           AND m.direcao = 'SAIDA'
+           AND lower(m.enviado_por_email) = lower(p_operador)
+           AND m.criado_em > v_ult_entrada;
+
+        IF v_sem_resposta < v_cont_max THEN
+          -- Retorna ANTES do INSERT: nao consome cota e nao cria registro,
+          -- portanto nao realimenta nenhuma janela.
+          RETURN 'CONTINUIDADE';
+        END IF;
+      END IF;
+    END IF;
+  END IF;
+
+  INSERT INTO public.whatsapp_abordagens (canal_id, conversa_id, operador_email, dia)
+  VALUES (p_canal_id, p_conversa_id, lower(p_operador), v_hoje)
+  ON CONFLICT (canal_id, conversa_id, dia) DO NOTHING;
+
+  SELECT count(*) INTO v_op FROM public.whatsapp_abordagens
+   WHERE canal_id = p_canal_id AND operador_email = lower(p_operador) AND dia = v_hoje;
+  SELECT count(*) INTO v_ch FROM public.whatsapp_abordagens
+   WHERE canal_id = p_canal_id AND dia = v_hoje;
+
+  SELECT COALESCE(l.extra, 0) INTO v_extra FROM public.whatsapp_cadencia_liberacoes l
+   WHERE l.canal_id = p_canal_id AND l.operador_email = lower(p_operador) AND l.dia = v_hoje;
+  v_extra := COALESCE(v_extra, 0);
+  v_limite_op := v_canal.limite_abordagens_operador + v_extra;
+
+  IF v_canal.limite_abordagens_operador IS NOT NULL
+     AND v_op > v_limite_op THEN
+    RAISE EXCEPTION 'voce ja iniciou % conversas novas hoje neste numero. Responder quem escreveu nas ultimas %h continua liberado',
+      v_limite_op, v_janela_h
+      USING ERRCODE = '42501', DETAIL = 'LIMITE_OPERADOR';
+  END IF;
+
+  IF v_canal.limite_abordagens_canal IS NOT NULL
+     AND v_ch > v_canal.limite_abordagens_canal THEN
+    RAISE EXCEPTION 'o numero % ja iniciou % conversas novas hoje. Nenhum operador inicia novas ate amanha',
+      v_canal.apelido, v_canal.limite_abordagens_canal
+      USING ERRCODE = '42501', DETAIL = 'LIMITE_CANAL';
+  END IF;
+
+  RETURN 'NOVA_ABORDAGEM';
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.whatsapp_cadencia_checar(uuid, uuid, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.whatsapp_cadencia_checar(uuid, uuid, text) FROM anon;
+REVOKE ALL ON FUNCTION public.whatsapp_cadencia_checar(uuid, uuid, text) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.whatsapp_cadencia_checar(uuid, uuid, text) TO service_role;
+
+-- 4. whatsapp_cadencia_consumo: assinatura e corpo de produção (11/11/2026)
+DROP FUNCTION IF EXISTS public.whatsapp_cadencia_consumo();
+
+CREATE FUNCTION public.whatsapp_cadencia_consumo()
+RETURNS TABLE(canal_id uuid, canal_apelido text, modo text, limite_operador integer,
+              usadas_operador integer, limite_canal integer, usadas_canal integer,
+              janela_inicio time without time zone, janela_fim time without time zone,
+              dentro_da_janela boolean)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+  WITH agora AS (
+    SELECT (now() AT TIME ZONE 'America/Sao_Paulo')::date AS hoje,
+           (now() AT TIME ZONE 'America/Sao_Paulo')::time AS hora
+  )
+  SELECT k.id, k.apelido, k.modo,
+         CASE WHEN k.limite_abordagens_operador IS NULL THEN NULL
+              ELSE k.limite_abordagens_operador + COALESCE((
+                SELECT l.extra FROM public.whatsapp_cadencia_liberacoes l, agora g
+                 WHERE l.canal_id = k.id AND l.dia = g.hoje
+                   AND l.operador_email = lower(public.app_email())), 0)
+         END,
+         (SELECT count(*)::integer FROM public.whatsapp_abordagens a, agora g
+           WHERE a.canal_id = k.id AND a.dia = g.hoje
+             AND a.operador_email = public.app_email()),
+         k.limite_abordagens_canal,
+         (SELECT count(*)::integer FROM public.whatsapp_abordagens a, agora g
+           WHERE a.canal_id = k.id AND a.dia = g.hoje),
+         k.janela_inicio, k.janela_fim,
+         (SELECT k.janela_inicio IS NULL OR k.janela_fim IS NULL
+                 OR (g.hora >= k.janela_inicio AND g.hora < k.janela_fim) FROM agora g)
+  FROM public.whatsapp_canais k
+  WHERE public.app_usuario_ativo() AND k.ativo
+  ORDER BY k.apelido;
+$function$;
+
+REVOKE ALL ON FUNCTION public.whatsapp_cadencia_consumo() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.whatsapp_cadencia_consumo() FROM anon;
+GRANT EXECUTE ON FUNCTION public.whatsapp_cadencia_consumo() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.whatsapp_cadencia_consumo() TO service_role;
+
+-- 5. Helper de perfil: nada mais o referencia
+DROP FUNCTION IF EXISTS public.whatsapp_cadencia_sem_limite_individual(text);
+
+-- 6. Limites: fotografia de 11/11/2026, só onde a migration deixou 10
+UPDATE public.whatsapp_config
+   SET teto_abordagens_operador = 3
+ WHERE teto_abordagens_operador = 10;
+
+UPDATE public.whatsapp_canais k
+   SET limite_abordagens_operador = f.antes
+  FROM (VALUES ('b8f00c75-aee3-4d22-83b7-f0041be0ef71'::uuid, 2),   -- Comercial
+               ('9f5fc202-3a22-4b24-8794-65fd92858e31'::uuid, 15),  -- Cobrança
+               ('3628d3fd-ab44-4c47-bf42-3d344c1e9336'::uuid, 3))   -- Piloto
+       AS f(id, antes)
+ WHERE k.id = f.id AND k.limite_abordagens_operador = 10;
+
+-- 7. Conferência: falha fechado
+DO $verifica$
+DECLARE v_src text; v_n integer;
+BEGIN
+  SELECT p.prosrc INTO v_src
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'whatsapp_cadencia_checar';
+  IF v_src NOT ILIKE '%CONTINUIDADE%' OR v_src ILIKE '%sem_limite_individual%' THEN
+    RAISE EXCEPTION 'checar nao voltou ao corpo da v2' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT p.prosrc INTO v_src
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'fila_receptivo_marcar_atendido';
+  IF v_src ILIKE '%fila_receptivo_registrar_atendimento%' OR v_src NOT ILIKE '%receptivo_atendimentos_log%' THEN
+    RAISE EXCEPTION 'fila_receptivo_marcar_atendido nao voltou ao corpo de producao' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT count(*) INTO v_n FROM pg_trigger WHERE tgname = 'trg_whatsapp_a0_receptivo_atendimento';
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'trigger do atendimento receptivo continua de pe' USING ERRCODE = '22023';
+  END IF;
+
+  IF has_function_privilege('authenticated', 'public.whatsapp_cadencia_checar(uuid, uuid, text)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.whatsapp_cadencia_checar(uuid, uuid, text)', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.whatsapp_cadencia_consumo()', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.whatsapp_cadencia_consumo()', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.fila_receptivo_marcar_atendido(text, uuid, text)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.fila_receptivo_marcar_atendido(text, uuid, text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'grants fora do estado de producao' USING ERRCODE = '42501';
+  END IF;
+
+  RAISE NOTICE 'rollback cota 10 concluido: v2 de pe, cota antiga e fila pela RPC restauradas';
+END $verifica$;

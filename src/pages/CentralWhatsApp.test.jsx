@@ -646,6 +646,44 @@ describe("Central WhatsApp", () => {
     expect(botao.title).toMatch(/pausado/i);
   });
 
+  // Gerência, supervisão e administrativo: o backend não barra por cota
+  // individual, então a tela também não pode barrar.
+  it("perfil sem limite individual passa da cota sem ser barrado pela tela", async () => {
+    servico.cadencia = [{ ...CADENCIA_LIVRE, usadas_operador: 25, sem_limite_individual: true }];
+    servico.resumo = {
+      sem_retorno: 0, esperando_mais_1h: 0, esperando_mais_24h: 0, nao_lidas: 0,
+      sem_responsavel: 0, em_atendimento: 0, minhas: 0, pendencias_resgate: 0,
+      arquivadas_nao_lidas: 0,
+    };
+    render(<CentralWhatsApp />);
+    const botao = await screen.findByText("Nova conversa");
+    await waitFor(() => expect(botao.disabled).toBe(false));
+    expect(await screen.findByText(/sem limite individual · teto do número/)).toBeTruthy();
+    expect(screen.getByText("37/100")).toBeTruthy();
+    expect(screen.queryByText(/restam/)).toBeNull();
+  });
+
+  it("perfil sem limite individual continua parado pelo teto do número", async () => {
+    servico.cadencia = [{ ...CADENCIA_LIVRE, usadas_canal: 100, sem_limite_individual: true }];
+    render(<CentralWhatsApp />);
+    const botao = await screen.findByText("Nova conversa");
+    await waitFor(() => expect(botao.disabled).toBe(true));
+    expect(botao.title).toMatch(/atingiu 100 conversas novas hoje/i);
+  });
+
+  // limite_operador vem somado à liberação extra do dia de quem edita.
+  // Pré-preencher com ele e salvar transformaria a cota extra de uma pessoa
+  // no limite do canal inteiro.
+  it("editar o canal pré-preenche o limite CONFIGURADO, não o somado ao extra", async () => {
+    servico.gestao = true;
+    servico.cadencia = [{ ...CADENCIA_LIVRE, limite_operador: 18, limite_operador_canal: 10 }];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Números"));
+    fireEvent.click((await screen.findAllByText("Editar"))[0]);
+    expect(await screen.findByDisplayValue("10")).toBeTruthy();
+    expect(screen.queryByDisplayValue("18")).toBeNull();
+  });
+
 
   it("o resgate tem filtro proprio e o contador abre a lista", async () => {
     servico.resumo = {
@@ -1835,60 +1873,32 @@ describe("Fila de Receptivo na Central WhatsApp", () => {
     expect(await screen.findByText(/FilaReceptivo teste@reativa.com.br/)).toBeDefined();
   });
 
-  it("assumir conversa RECEPTIVA chama marcarAtendidoReceptivoWhatsApp", async () => {
-    const { marcarAtendidoReceptivoWhatsApp } = await import("../services/whatsapp");
-    servico.conversas = [conversa({ responsavel_email: null })];
+  // Decisão de 11/11/2026: assumir NÃO conta atendimento. A fila anda no
+  // banco, na primeira resposta ENVIADA do ciclo (trigger), não na tela.
+  it("assumir conversa RECEPTIVA não marca atendimento na fila", async () => {
+    const { marcarAtendidoReceptivoWhatsApp, assumirConversa } = await import("../services/whatsapp");
+    marcarAtendidoReceptivoWhatsApp.mockClear();
+    assumirConversa.mockClear();
+    servico.conversas = [conversa({ responsavel_email: null, aguardando_resposta: true })];
     render(<CentralWhatsApp />);
     fireEvent.click(await screen.findByText("Oi, quero negociar"));
     fireEvent.click(await screen.findByText("Assumir"));
-    await waitFor(() => expect(servico.atendidosReceptivos.length).toBe(1));
-    expect(marcarAtendidoReceptivoWhatsApp).toHaveBeenCalledWith("teste@reativa.com.br", "k1");
+    await waitFor(() => expect(assumirConversa).toHaveBeenCalledWith("k1"));
+    expect(marcarAtendidoReceptivoWhatsApp).not.toHaveBeenCalled();
+    expect(servico.atendidosReceptivos.length).toBe(0);
+    expect(screen.queryByText(/posição na fila/)).toBeNull();
   });
 
-  it("assumir conversa de ABORDAGEM ATIVA não chama marcarAtendidoReceptivoWhatsApp", async () => {
+  it("assumir conversa de ABORDAGEM ATIVA também não marca atendimento", async () => {
     const { marcarAtendidoReceptivoWhatsApp, assumirConversa } = await import("../services/whatsapp");
     marcarAtendidoReceptivoWhatsApp.mockClear();
+    assumirConversa.mockClear();
     servico.conversas = [conversa({ responsavel_email: null, aguardando_resposta: false })];
     render(<CentralWhatsApp />);
     fireEvent.click(await screen.findByText("Oi, quero negociar"));
     fireEvent.click(await screen.findByText("Assumir"));
     await waitFor(() => expect(assumirConversa).toHaveBeenCalled());
     expect(marcarAtendidoReceptivoWhatsApp).not.toHaveBeenCalled();
-  });
-
-  it("assumir com aguardando_resposta false não registra atendimento receptivo", async () => {
-    const { marcarAtendidoReceptivoWhatsApp, assumirConversa } = await import("../services/whatsapp");
-    marcarAtendidoReceptivoWhatsApp.mockClear();
-    servico.conversas = [conversa({ responsavel_email: null, aguardando_resposta: false })];
-    render(<CentralWhatsApp />);
-    fireEvent.click(await screen.findByText("Oi, quero negociar"));
-    fireEvent.click(await screen.findByText("Assumir"));
-    await waitFor(() => expect(assumirConversa).toHaveBeenCalled());
-    expect(marcarAtendidoReceptivoWhatsApp).not.toHaveBeenCalled();
-  });
-
-  it("falha na fila exibe avisoFila sem bloquear o atendimento", async () => {
-    const { marcarAtendidoReceptivoWhatsApp } = await import("../services/whatsapp");
-    marcarAtendidoReceptivoWhatsApp.mockClear();
-    marcarAtendidoReceptivoWhatsApp.mockRejectedValueOnce(new Error("timeout"));
-    servico.conversas = [conversa({ responsavel_email: null })];
-    render(<CentralWhatsApp />);
-    fireEvent.click(await screen.findByText("Oi, quero negociar"));
-    fireEvent.click(await screen.findByText("Assumir"));
-    expect(await screen.findByText(/posição na fila não foi atualizada/)).toBeDefined();
-    expect(screen.queryByText("timeout")).toBeNull();
-  });
-
-  it("assumir conversa receptiva chama marcarAtendidoReceptivoWhatsApp exatamente uma vez", async () => {
-    const { marcarAtendidoReceptivoWhatsApp } = await import("../services/whatsapp");
-    marcarAtendidoReceptivoWhatsApp.mockClear();
-    servico.conversas = [conversa({ responsavel_email: null })];
-    render(<CentralWhatsApp />);
-    fireEvent.click(await screen.findByText("Oi, quero negociar"));
-    fireEvent.click(await screen.findByText("Assumir"));
-    await waitFor(() => expect(servico.atendidosReceptivos.length).toBe(1));
-    expect(marcarAtendidoReceptivoWhatsApp).toHaveBeenCalledTimes(1);
-    expect(marcarAtendidoReceptivoWhatsApp).toHaveBeenCalledWith("teste@reativa.com.br", "k1");
   });
 
   it("falha ao assumir conversa não registra atendimento receptivo", async () => {
@@ -1906,7 +1916,7 @@ describe("Fila de Receptivo na Central WhatsApp", () => {
     expect(marcarAtendidoReceptivoWhatsApp).not.toHaveBeenCalled();
   });
 
-  it("dois cliques rápidos em Assumir geram apenas uma chamada a assumirConversa e um registro receptivo", async () => {
+  it("dois cliques rápidos em Assumir geram uma chamada a assumirConversa e nenhum registro receptivo", async () => {
     const { marcarAtendidoReceptivoWhatsApp, assumirConversa } = await import("../services/whatsapp");
     marcarAtendidoReceptivoWhatsApp.mockClear();
     assumirConversa.mockClear();
@@ -1917,9 +1927,8 @@ describe("Fila de Receptivo na Central WhatsApp", () => {
     // Dois cliques síncronos — o segundo deve ser bloqueado pela trava
     fireEvent.click(botao);
     fireEvent.click(botao);
-    await waitFor(() => expect(servico.atendidosReceptivos.length).toBe(1));
-    expect(assumirConversa).toHaveBeenCalledTimes(1);
-    expect(marcarAtendidoReceptivoWhatsApp).toHaveBeenCalledTimes(1);
-    expect(marcarAtendidoReceptivoWhatsApp).toHaveBeenCalledWith("teste@reativa.com.br", "k1");
+    await waitFor(() => expect(assumirConversa).toHaveBeenCalledTimes(1));
+    expect(marcarAtendidoReceptivoWhatsApp).not.toHaveBeenCalled();
+    expect(servico.atendidosReceptivos.length).toBe(0);
   });
 });

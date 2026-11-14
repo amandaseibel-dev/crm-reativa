@@ -39,7 +39,6 @@ import {
   TEMPOS_SEM_INTERACAO,
   ROTULO_STATUS,
   assumirConversa,
-  marcarAtendidoReceptivoWhatsApp,
   buscarAluno,
   carregarCandidatos,
   carregarFichaAluno,
@@ -173,7 +172,6 @@ export default function CentralWhatsApp() {
   const [anexo, setAnexo] = useState(null); // { nome, estado: ENVIANDO|ENVIADO|ERRO, erro }
   const seletorArquivoRef = useRef(null);
   const [erro, setErro] = useState("");
-  const [avisoFila, setAvisoFila] = useState(null);
   const [prefsAberto, setPrefsAberto] = useState(false);
 
   // Relógio de 1 min só para os contadores de espera reescreverem sozinhos.
@@ -458,24 +456,17 @@ export default function CentralWhatsApp() {
     }
   }
 
-  // Assumir conversa receptiva também movimenta o operador na fila telefônica.
-  // Receptivo = aguardando_resposta derivado por trigger no banco a partir da
-  // última mensagem real — ignora SYNC_INICIAL e reordenação de histórico.
+  // Assumir NÃO conta atendimento do receptivo (decisão de 11/11/2026). A
+  // fila anda no banco, uma vez por ciclo de responsabilidade, quando a
+  // PRIMEIRA resposta é ENVIADA com sucesso (trigger
+  // trg_whatsapp_a0_receptivo_atendimento). Marcar aqui contaria quem
+  // assume e não responde, e dependeria da tela.
   async function assumir() {
     if (!selecionada || assumirEmAndamentoRef.current) return;
     assumirEmAndamentoRef.current = true;
     setErro("");
-    setAvisoFila(null);
     try {
       await assumirConversa(selecionada.id);
-      if (selecionada.aguardando_resposta && emailOperador) {
-        try {
-          await marcarAtendidoReceptivoWhatsApp(emailOperador, selecionada.id);
-        } catch (eFila) {
-          console.warn("[fila-receptivo]", eFila.message);
-          setAvisoFila("Atendimento registrado, mas posição na fila não foi atualizada. Avisar gestão se persistir.");
-        }
-      }
       await carregarConversas();
     } catch (e) {
       setErro(e.message);
@@ -633,7 +624,9 @@ export default function CentralWhatsApp() {
     if (k.limite_canal != null && k.usadas_canal >= k.limite_canal) {
       return `${c.apelido} atingiu ${k.limite_canal} conversas novas hoje`;
     }
-    if (k.limite_operador != null && k.usadas_operador >= k.limite_operador) {
+    // Gerência, supervisão e administrativo não têm limite individual: o
+    // backend não os barra por LIMITE_OPERADOR, e a tela não pode barrar antes.
+    if (!k.sem_limite_individual && k.limite_operador != null && k.usadas_operador >= k.limite_operador) {
       return `você atingiu ${k.limite_operador} conversas novas hoje em ${c.apelido}`;
     }
     return null;
@@ -647,7 +640,10 @@ export default function CentralWhatsApp() {
 
   // Só os canais que o operador pode ACIONAR entram no contador da barra.
   const cadenciaAtiva = useMemo(
-    () => cadencia.filter((k) => k.modo === "ATIVO_CONTROLADO" && k.limite_operador != null),
+    () =>
+      cadencia.filter(
+        (k) => k.modo === "ATIVO_CONTROLADO" && (k.sem_limite_individual || k.limite_operador != null),
+      ),
     [cadencia],
   );
 
@@ -799,6 +795,21 @@ export default function CentralWhatsApp() {
           {cadenciaAtiva.map((k) => {
             const restam = Math.max(0, k.limite_operador - k.usadas_operador);
             const canalCheio = k.limite_canal != null && k.usadas_canal >= k.limite_canal;
+            if (k.sem_limite_individual) {
+              // Sem cota própria, o que ainda pode parar a gestão é o teto do número.
+              return (
+                <div key={k.canal_id} style={canalCheio ? S.tileCritico : S.tile}>
+                  <span style={S.tileNumero}>
+                    {k.usadas_canal}/{k.limite_canal ?? "–"}
+                  </span>
+                  <span style={S.tileRotulo}>
+                    {canalCheio
+                      ? `${k.canal_apelido} no teto do dia`
+                      : `${k.canal_apelido} · sem limite individual · teto do número`}
+                  </span>
+                </div>
+              );
+            }
             return (
               <div
                 key={k.canal_id}
@@ -900,13 +911,6 @@ export default function CentralWhatsApp() {
           variante="barra"
           usuarioLogado={{ email: emailOperador, perfil: gestao ? "gerencia" : undefined }}
         />
-      ) : null}
-
-      {avisoFila ? (
-        <div style={S.avisoFila}>
-          {avisoFila}
-          <button style={S.fecharErro} onClick={() => setAvisoFila(null)}>×</button>
-        </div>
       ) : null}
 
       {erro ? (
@@ -1466,7 +1470,7 @@ function ModalCanais({ canais, cadencia, onFechar, onSalvo }) {
                         {" · "}
                         {MODOS.find((m) => m.valor === porCanal.get(c.id).modo)?.valor}
                         {porCanal.get(c.id).modo === "ATIVO_CONTROLADO"
-                          ? ` ${porCanal.get(c.id).limite_operador ?? "–"}/operador · ${porCanal.get(c.id).limite_canal ?? "–"}/dia`
+                          ? ` ${porCanal.get(c.id).limite_operador_canal ?? porCanal.get(c.id).limite_operador ?? "–"}/operador · ${porCanal.get(c.id).limite_canal ?? "–"}/dia`
                           : ""}
                       </>
                     ) : null}
@@ -1479,7 +1483,13 @@ function ModalCanais({ canais, cadencia, onFechar, onSalvo }) {
                       id: c.id, apelido: c.apelido, numero: c.display_phone_number,
                       sessaoChave: c.sessao_chave, ativo: c.ativo,
                       modo: porCanal.get(c.id)?.modo || "SOMENTE_RESPOSTAS",
-                      limiteOperador: porCanal.get(c.id)?.limite_operador ?? "",
+                      // Valor CONFIGURADO no canal. limite_operador vem somado à
+                      // liberação extra do dia de quem edita: gravar ele de volta
+                      // transformaria a cota extra de uma pessoa no limite de todos.
+                      limiteOperador:
+                        porCanal.get(c.id)?.limite_operador_canal ??
+                        porCanal.get(c.id)?.limite_operador ??
+                        "",
                       limiteCanal: porCanal.get(c.id)?.limite_canal ?? "",
                       janelaInicio: porCanal.get(c.id)?.janela_inicio || null,
                       janelaFim: porCanal.get(c.id)?.janela_fim || null,
@@ -1954,12 +1964,6 @@ const S = {
     background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", color: "var(--rv-vermelho-texto)", fontSize: 13,
   },
   fecharErro: { border: "none", background: "transparent", cursor: "pointer", fontSize: 18, color: "var(--rv-vermelho-texto)" },
-  avisoFila: {
-    display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8,
-    padding: "9px 12px", marginBottom: 12, borderRadius: 8,
-    background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)", fontSize: 13,
-  },
-
   // ---- corpo ----
   corpo: { display: "grid", gridTemplateColumns: "minmax(300px, 380px) 1fr", gap: 14, alignItems: "start" },
   coluna: { border: `1px solid ${BORDA}`, borderRadius: 12, background: "var(--rv-superficie)", overflow: "hidden" },
