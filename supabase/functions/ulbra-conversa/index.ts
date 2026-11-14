@@ -22,6 +22,7 @@ import { chaveDeHex, cifrar, decifrar } from "./cripto.ts";
 import { estadoConexao, garantirConexao, type ProvedorOAuth, type RegistroConexao } from "./conexao.ts";
 import { enviarResposta, type Envio, type PedidoEnvio, type RepositorioEnvio, type ResultadoEnvio } from "./envio.ts";
 import { confirmarPrevia, criarPrevia, type PreviaRegistro, type RepositorioPrevia } from "./previa.ts";
+import { podeConferir } from "./conferencia.ts";
 
 const MCP_URL = "https://crm.ulbra.ai/api/mcp";
 const ACCEPT_MCP = "application/json, text/event-stream";
@@ -352,7 +353,7 @@ Deno.serve(async (req: Request) => {
       // em UMA transação: se a auditoria falhar, a decisão é desfeita. Nunca reenvia.
       // Perfil de quem está logado, pela função canônica (usa o JWT do próprio conferidor, sem lookup por texto).
       const { data: perfilAtual } = await sbUser.rpc("perfil_do_usuario_atual");
-      if (!["supervisor", "gerencia", "administrativo"].includes(String(perfilAtual))) {
+      if (!podeConferir(perfilAtual)) {
         return responder({ ok: false, motivo: "ACESSO_NEGADO" }, 403);
       }
       const { data, error } = await sb.rpc("ulbra_conferir_envio", {

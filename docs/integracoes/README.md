@@ -34,6 +34,15 @@ verdade nova for descoberta**, atualizar **na mesma alteração**:
 `prime-mapa-identificadores.md` (quando aplicável) + `prime-gaps.md` (quando
 aplicável). Nunca só um dos cinco.
 
+**Escopo da regra dos cinco.** Ela é do **Prime**. Documentos da **Mensageria**
+(`mensageria-ulbra.md`, `central-ulbra-operador.md`, `desenho-operacao-mensageria-ulbra.md`,
+`pacote-*`, `roteiro-*`, `reconciliacao-identidade-ulbra.md`) têm fonte própria e **não acionam**
+os cinco arquivos do Prime. Para eles valem as verificações comuns: base do ramo existente,
+alterações listadas, identificadores e limites registrados na própria fonte de Mensageria.
+Quando uma mudança de Mensageria criar identificador ou limite que também afete o Prime, o
+registro vai aos cinco do Prime na mesma alteração.
+(`plugins/reativa-one/scripts/integracoes-cinco.sh` aplica este escopo.)
+
 ## Documentos
 
 | Arquivo | Para que serve |

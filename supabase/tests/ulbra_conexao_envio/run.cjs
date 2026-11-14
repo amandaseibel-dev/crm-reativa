@@ -459,6 +459,28 @@ async function main() {
       await b.end();
     }
   });
+  await teste("duas decisões SIMULTÂNEAS (CONFIRMADO_ENVIADO) sobre o mesmo envio: uma resolve, a outra é barrada, UMA auditoria; contenção comprovada", async () => {
+    await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-dup-dec', $1, $2, 'texto-dup-dec', 'ENVIANDO')", [OP, AT]);
+    const a = await conectar("teste");
+    const b = await conectar("teste");
+    try {
+      // A executa a RPC dentro de uma transação aberta: segura a linha (FOR UPDATE) até o COMMIT.
+      await a.query("begin");
+      const ra = (await a.query(RPC_SQL, [OP, "chave-dup-dec", "CONFIRMADO_ENVIADO", MOT, "gestao-a@x", {}])).rows[0].r;
+      const pB = b.query(RPC_SQL, [OP, "chave-dup-dec", "CONFIRMADO_ENVIADO", MOT, "gestao-b@x", {}]).then((r) => r.rows[0].r);
+      await aguardarBloqueio(b);
+      await a.query("commit");
+      const rb = await pB;
+      igual(ra.situacao, "RESOLVIDO", "decisão de A");
+      igual(rb.situacao, "BLOQUEADO", "decisão de B (sem segunda decisão sobre envio já resolvido)");
+      const au = await c.query("select count(*)::int as n from public.auditoria where detalhes->>'chave' = 'chave-dup-dec'");
+      igual(au.rows[0].n, 1, "auditorias geradas");
+    } finally {
+      await a.end();
+      await b.end();
+    }
+  });
+
   await teste("conferência NÃO é executável por authenticated e anon; service_role executa", async () => {
     const r = await c.query("select has_function_privilege('authenticated', 'public.ulbra_conferir_envio(text,text,text,text,text,jsonb)', 'execute') as a, has_function_privilege('anon', 'public.ulbra_conferir_envio(text,text,text,text,text,jsonb)', 'execute') as n, has_function_privilege('service_role', 'public.ulbra_conferir_envio(text,text,text,text,text,jsonb)', 'execute') as s");
     igual([r.rows[0].a, r.rows[0].n, r.rows[0].s], [false, false, true], "privilégios de execução");
