@@ -14,10 +14,11 @@
 | ALERTA | POLICY_AMPLA | 21 | (21 itens) |
 | ALERTA | RLS_SEM_POLICY_COM_GRANT | 1073 | (1073 itens) |
 | ALERTA | RPC_SECDEF_EXECUTE_ANON | 24 | (24 itens) |
+| ALERTA | GRANT_ANON_ESCRITA | 0 | (nenhum grant de escrita a `anon` nas 10 tabelas listadas) |
 | ALERTA | TABELA_SEM_RLS | 5 | `_backup_dua_massiva_setembro_20261020`, `_backup_dua_massiva_setembro_20261020_casos`, `_backup_residuo_massiva_0210_alunos_20261005`, `_backup_residuo_massiva_0210_casos_20261005`, `saude_carteira_mv_meta` |
 
 ## Leitura
 
-- **Reprova pela regra do gate:** há 7 itens `BLOQUEIA`. Nenhum é a tabela de backup desta PR, que ainda não existe em produção (`to_regclass` nulo em 14/11). Esta PR não cria nenhum dos objetos listados.
+- **Reprova pela regra do gate:** há 7 itens `BLOQUEIA`. Esta PR não cria nenhum dos objetos listados: o diff não contém DDL sobre eles.
 - **Não comprovado:** se algum `BLOQUEIA` já é exceção aceita. Não há exceção versionada em `docs/seguranca/` para eles.
 - Esta saída registra o que foi medido em 14/11. Números mudam com a base.
