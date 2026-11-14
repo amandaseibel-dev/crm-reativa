@@ -78,5 +78,29 @@ sa=$(grep -c '^t|' "$OUT/c4a.txt" || true); sb=$(grep -c '^t|' "$OUT/c4b.txt" ||
 n=$(q "select count(*) from public.casos where operador_email='$LUANA' and aluno_id in ('00000000-0000-0000-0000-000000000004','00000000-0000-0000-0000-000000000005','00000000-0000-0000-0000-000000000006','00000000-0000-0000-0000-000000000007') and not public.caso_encerrado_operacional(cpf_limpo,status_atual,status_acionamento,status_financeiro,status_jornada)")
 [ "$n" -le 3 ] && ok "carteira de LUANA ficou em $n (limite 3)" || falha "carteira de LUANA em $n, acima do limite 3"
 
+echo "== C5: duas REVERSOES disputam a ultima vaga do teto do mesmo responsavel (MAURICIO)"
+ambiente c5
+GESTAO=amanda.seibel@aelbra.com.br
+# Preparo sequencial: LUANA assume U1 e U7 (de MAURICIO). MAURICIO fica com U2, U3, U6 = 3 casos.
+{ jwt $LUANA; echo "select sucesso from public.assumir_caso_fidelizacao_vencida('$U1','preparo 1');"; echo "select sucesso from public.assumir_caso_fidelizacao_vencida('$U7','preparo 7');"; } \
+  | psql -At -v ON_ERROR_STOP=1 > "$OUT/prep.txt" 2>&1
+[ "$(q "select count(*) from public.assumir_fidelizacao_operacoes where revertida_em is null")" = "2" ] && ok "duas operacoes de tomada gravadas" || falha "operacoes de preparo ausentes"
+psql -v ON_ERROR_STOP=1 -q -c "update public.calibragem_parametros set valor='4'::jsonb where chave='limite_carteira';" >/dev/null
+O1=$(q "select id from public.assumir_fidelizacao_operacoes where aluno_id='$U1' and revertida_em is null")
+O2=$(q "select id from public.assumir_fidelizacao_operacoes where aluno_id='$U7' and revertida_em is null")
+# A: reverte O1 e segura a transacao (e o lock do teto de MAURICIO) por 4s.
+( { echo "begin;"; jwt $GESTAO; echo "select sucesso, mensagem from public.reverter_assumir_fidelizacao('$O1','c5 A');"; echo "select pg_sleep(4);"; echo "commit;"; } \
+    | psql -At -v ON_ERROR_STOP=1 > "$OUT/c5a.txt" 2>&1 ) &
+sleep 1
+# B: reverte O2 logo depois. Tem de esperar o lock e ver o teto cheio.
+{ jwt $GESTAO; echo "select sucesso, mensagem from public.reverter_assumir_fidelizacao('$O2','c5 B');"; } \
+  | psql -At -v ON_ERROR_STOP=1 > "$OUT/c5b.txt" 2>&1 || true
+wait
+sa=$(grep -c '^t|' "$OUT/c5a.txt" || true); sb=$(grep -c '^t|' "$OUT/c5b.txt" || true)
+[ $((sa+sb)) -eq 1 ] && ok "exatamente uma reversao passou no teto" || falha "teto violado nas reversoes: A=$sa B=$sb"
+grep -q 'limite de casos' "$OUT/c5a.txt" "$OUT/c5b.txt" && ok "a recusada diz o conflito de teto" || falha "mensagem de teto ausente"
+n=$(q "select count(*) from public.casos where operador_email='$MAURICIO'")
+[ "$n" -le 4 ] && ok "carteira de MAURICIO ficou em $n (limite 4)" || falha "carteira de MAURICIO em $n, acima do limite 4"
+
 echo
 [ "$falhas" -eq 0 ] && echo "CONCORRENCIA: todos os cenarios passaram" || { echo "CONCORRENCIA: $falhas falha(s)"; exit 1; }
