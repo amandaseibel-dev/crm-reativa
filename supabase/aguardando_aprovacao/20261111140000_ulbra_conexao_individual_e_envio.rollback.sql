@@ -3,6 +3,8 @@
 -- Se houver conexões, prévias ou envios, recusa: após uso real, não se apaga histórico.
 -- Reversão com histórico = desativar (ULBRA_ENVIO_REAL e ULBRA_CONTRATO_PREVIA_CONFIRMADO
 -- desligados, conexões revogadas pela função), preservando registros e auditoria.
+drop function if exists public.ulbra_conferir_envio(text, text, text, text, text, jsonb);
+
 lock table public.ulbra_envios, public.ulbra_envio_previas, public.ulbra_conexoes_operador, public.ulbra_conexoes_pedidos in access exclusive mode;
 
 do $$

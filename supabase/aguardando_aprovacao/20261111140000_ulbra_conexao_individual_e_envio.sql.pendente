@@ -22,7 +22,8 @@ begin
      or to_regclass('public.ulbra_envio_previas') is not null
      or to_regclass('public.ulbra_envios') is not null
      or to_regclass('public.ulbra_envios_atendimento_idx') is not null
-     or to_regclass('public.ulbra_envios_texto_em_aberto_unica') is not null then
+     or to_regclass('public.ulbra_envios_texto_em_aberto_unica') is not null
+     or to_regprocedure('public.ulbra_conferir_envio(text,text,text,text,text,jsonb)') is not null then
     raise exception 'MIGRATION_20261111140000: objeto já existe; não aplicar sobre estado desconhecido';
   end if;
 end $$;
@@ -98,6 +99,8 @@ create table public.ulbra_envios (
   motivo               text,
   -- a prévia que autorizou este envio. Unique: uma prévia gera no máximo um envio.
   previa_id            uuid references public.ulbra_envio_previas (id),
+  -- 0 = envio comum. >0 = nova mensagem intencional com o mesmo texto (ação explícita e nova chave).
+  repeticao            integer not null default 0 check (repeticao >= 0),
   criado_em            timestamptz not null default now(),
   atualizado_em        timestamptz not null default now(),
   constraint ulbra_envios_chave_unica unique (operador_email, chave),
@@ -109,8 +112,57 @@ create table public.ulbra_envios (
 create index ulbra_envios_atendimento_idx on public.ulbra_envios (atendimento_id, criado_em desc);
 -- No máximo UM envio em aberto (PENDENTE, ENVIANDO ou FALHA_INCERTA) por atendimento e texto,
 -- entre todos os operadores. Fecha a corrida entre requisições concorrentes com chaves diferentes.
-create unique index ulbra_envios_texto_em_aberto_unica on public.ulbra_envios (atendimento_id, md5(texto))
-  where status in ('PENDENTE','ENVIANDO','FALHA_INCERTA');
+create unique index ulbra_envios_texto_em_aberto_unica on public.ulbra_envios (atendimento_id, md5(texto), repeticao)
+  where status in ('PENDENTE','ENVIANDO','FALHA_INCERTA','CONFIRMADO_ENVIADO');
 alter table public.ulbra_envios enable row level security;
 revoke all on public.ulbra_envios from public, anon, authenticated;
 grant select, insert, update on public.ulbra_envios to service_role;
+
+-- Conferência administrativa: grava a decisão e a auditoria NA MESMA transação.
+-- Uma chamada desta função é uma transação: se a auditoria falhar, a decisão é desfeita.
+-- Só altera envio em aberto (PENDENTE, ENVIANDO ou FALHA_INCERTA). Nunca reenvia.
+create function public.ulbra_conferir_envio(
+  p_operador text, p_chave text, p_decisao text, p_motivo text, p_conferido_por text, p_detalhes jsonb
+) returns jsonb
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  v_status text;
+begin
+  if p_decisao not in ('CONFIRMADO_ENVIADO', 'CONFIRMADO_NAO_ENVIADO') then
+    return jsonb_build_object('situacao', 'BLOQUEADO', 'motivos', jsonb_build_array('DECISAO_INVALIDA'));
+  end if;
+  if length(trim(coalesce(p_motivo, ''))) < 10 then
+    return jsonb_build_object('situacao', 'BLOQUEADO', 'motivos', jsonb_build_array('MOTIVO_OBRIGATORIO'));
+  end if;
+  -- trava a linha: conferências concorrentes sobre o mesmo envio se enfileiram
+  select status into v_status from public.ulbra_envios
+   where operador_email = p_operador and chave = p_chave for update;
+  if not found then
+    return jsonb_build_object('situacao', 'BLOQUEADO', 'motivos', jsonb_build_array('ENVIO_NAO_ENCONTRADO'));
+  end if;
+  if v_status not in ('PENDENTE', 'ENVIANDO', 'FALHA_INCERTA') then
+    return jsonb_build_object('situacao', 'BLOQUEADO', 'motivos', jsonb_build_array('ENVIO_JA_RESOLVIDO_OU_FECHADO'));
+  end if;
+  -- PENDENTE = chamada nunca começou (ENVIANDO é gravado antes da chamada e a transição é condicionada).
+  -- Não pode ser declarado enviado.
+  if v_status = 'PENDENTE' and p_decisao = 'CONFIRMADO_ENVIADO' then
+    return jsonb_build_object('situacao', 'BLOQUEADO', 'motivos', jsonb_build_array('PENDENTE_NUNCA_CHAMADO_NAO_PODE_SER_ENVIADO'));
+  end if;
+  update public.ulbra_envios
+     set status = p_decisao,
+         motivo = 'conferido por ' || p_conferido_por || ': ' || trim(p_motivo) || ' (status anterior: ' || v_status || ')',
+         atualizado_em = now()
+   where operador_email = p_operador and chave = p_chave;
+  insert into public.auditoria (usuario, acao, tabela_afetada, registro_id, detalhes)
+  values (p_conferido_por, 'ULBRA_ENVIO_CONFERIDO', 'ulbra_envios', null,
+          jsonb_build_object('chave', p_chave, 'operador_alvo', p_operador, 'decisao', p_decisao,
+                             'status_anterior', v_status) || coalesce(p_detalhes, '{}'::jsonb));
+  return jsonb_build_object('situacao', 'RESOLVIDO', 'status_anterior', v_status);
+end
+$$;
+
+revoke all on function public.ulbra_conferir_envio(text, text, text, text, text, jsonb) from public, anon, authenticated;
+grant execute on function public.ulbra_conferir_envio(text, text, text, text, text, jsonb) to service_role;

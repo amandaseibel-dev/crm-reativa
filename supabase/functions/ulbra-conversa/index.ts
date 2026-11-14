@@ -20,7 +20,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { ESCOPOS_MINIMOS, gerarPkce, renovarToken, revogarToken, trocarCodigo, urlDeAutorizacao, validarRetorno, type Fetch } from "./oauth.ts";
 import { chaveDeHex, cifrar, decifrar } from "./cripto.ts";
 import { estadoConexao, garantirConexao, type ProvedorOAuth, type RegistroConexao } from "./conexao.ts";
-import { enviarResposta, resolverEnvioAberto, type Envio, type PedidoEnvio, type RepositorioEnvio, type ResultadoEnvio } from "./envio.ts";
+import { enviarResposta, type Envio, type PedidoEnvio, type RepositorioEnvio, type ResultadoEnvio } from "./envio.ts";
 import { confirmarPrevia, criarPrevia, type PreviaRegistro, type RepositorioPrevia } from "./previa.ts";
 
 const MCP_URL = "https://crm.ulbra.ai/api/mcp";
@@ -144,10 +144,10 @@ Deno.serve(async (req: Request) => {
     async buscar(operador, ch) {
       const { data } = await sb.from("ulbra_envios").select("*").eq("operador_email", operador).eq("chave", ch).maybeSingle();
       if (!data) return null;
-      return { chave: data.chave, operador_email: data.operador_email, atendimento_id: data.atendimento_id, texto: data.texto, status: data.status, ulbra_mensagem_id: data.ulbra_mensagem_id, motivo: data.motivo, criado_em_ms: Date.parse(data.criado_em), previa_id: data.previa_id ?? null };
+      return { chave: data.chave, operador_email: data.operador_email, atendimento_id: data.atendimento_id, texto: data.texto, status: data.status, ulbra_mensagem_id: data.ulbra_mensagem_id, motivo: data.motivo, criado_em_ms: Date.parse(data.criado_em), previa_id: data.previa_id ?? null, repeticao: typeof data.repeticao === "number" ? data.repeticao : 0 };
     },
     async inserirSeNovo(e: Envio) {
-      const { error } = await sb.from("ulbra_envios").insert({ chave: e.chave, operador_email: e.operador_email, atendimento_id: e.atendimento_id, texto: e.texto, status: e.status, previa_id: e.previa_id });
+      const { error } = await sb.from("ulbra_envios").insert({ chave: e.chave, operador_email: e.operador_email, atendimento_id: e.atendimento_id, texto: e.texto, status: e.status, previa_id: e.previa_id, repeticao: e.repeticao });
       if (!error) return "NOVO" as const;
       if ((error as { code?: string }).code === "23505") {
         const msg = String((error as { message?: string }).message ?? "");
@@ -156,9 +156,15 @@ Deno.serve(async (req: Request) => {
       }
       throw new Error("ENVIO_NAO_GRAVADO");
     },
-    async existeFalhaIncerta(atendimentoId, texto) {
-      const { data } = await sb.from("ulbra_envios").select("chave").eq("atendimento_id", atendimentoId).eq("texto", texto).eq("status", "FALHA_INCERTA").limit(1);
+    async existeBloqueante(atendimentoId, texto, incluiConfirmados) {
+      const estados = ["PENDENTE", "ENVIANDO", "FALHA_INCERTA", ...(incluiConfirmados ? ["CONFIRMADO_ENVIADO"] : [])];
+      const { data } = await sb.from("ulbra_envios").select("chave").eq("atendimento_id", atendimentoId).eq("texto", texto).in("status", estados).limit(1);
       return (data?.length ?? 0) > 0;
+    },
+    async proximaRepeticao(atendimentoId, texto) {
+      const { data } = await sb.from("ulbra_envios").select("repeticao").eq("atendimento_id", atendimentoId).eq("texto", texto).order("repeticao", { ascending: false }).limit(1);
+      const maior = data?.[0]?.repeticao;
+      return typeof maior === "number" ? maior + 1 : 0;
     },
     async atualizar(operador, ch, campos, de) {
       // Condição de estado no próprio UPDATE: a transição só acontece se o status ainda for o esperado.
@@ -312,6 +318,8 @@ Deno.serve(async (req: Request) => {
       if (!conn.ok) return responder({ ok: false, situacao: "BLOQUEADO", motivos: [conn.motivo] }, 403);
       const m = await montarPedido(previa.atendimento_id, texto, chaveEnvio, conn.registro);
       if ("bloqueio" in m) return responder({ ok: false, ...m.bloqueio }, m.status);
+      // Nova mensagem com o mesmo texto só com ação explícita do operador (e nova chave).
+      m.pedido.repeticao_explicita = corpo.repeticao_explicita === true;
       const r = await confirmarPrevia(m.pedido, previaId, {
         repositorio, repositorioPrevia, provedorOAuth, conexao: conn.registro, envioRealConfirmado: envioReal, agora: () => Date.now(),
         gerarId: () => crypto.randomUUID(),
@@ -334,22 +342,26 @@ Deno.serve(async (req: Request) => {
     }
 
     if (acao === "envio_conferencia") {
-      // Resolve um envio em aberto (PENDENTE, ENVIANDO ou FALHA_INCERTA) com decisão humana auditada.
-      // Só perfis de gestão. Nunca reenvia: só registra a conferência.
+      // Só perfis de gestão. A decisão e a auditoria são gravadas pela função SQL ulbra_conferir_envio,
+      // em UMA transação: se a auditoria falhar, a decisão é desfeita. Nunca reenvia.
       if (!["supervisor", "gerencia", "administrativo"].includes(String(usuario.perfil))) {
         return responder({ ok: false, motivo: "ACESSO_NEGADO" }, 403);
       }
-      const operadorAlvo = String(corpo.operador_email ?? "").toLowerCase();
-      const chaveAlvo = String(corpo.chave ?? "");
-      const envioAlvo = await repositorio.buscar(operadorAlvo, chaveAlvo);
-      const res = await resolverEnvioAberto(envioAlvo, {
-        operador_email: operadorAlvo, chave: chaveAlvo,
-        decisao: String(corpo.decisao ?? "") as "CONFIRMADO_ENVIADO" | "CONFIRMADO_NAO_ENVIADO",
-        motivo: String(corpo.motivo ?? ""), conferido_por: email,
-      }, repositorio);
+      const { data, error } = await sb.rpc("ulbra_conferir_envio", {
+        p_operador: String(corpo.operador_email ?? "").toLowerCase(),
+        p_chave: String(corpo.chave ?? ""),
+        p_decisao: String(corpo.decisao ?? ""),
+        p_motivo: String(corpo.motivo ?? ""),
+        p_conferido_por: email,
+        p_detalhes: {},
+      });
+      if (error) {
+        console.error("ulbra-conversa: conferência NÃO gravada", error.message);
+        return responder({ ok: false, motivo: "CONFERENCIA_NAO_GRAVADA" }, 500);
+      }
+      const res = data as { situacao: string; motivos?: string[]; status_anterior?: string };
       if (res.situacao === "BLOQUEADO") return responder({ ok: false, ...res }, 422);
-      const auditoriaOk = await auditar("ULBRA_ENVIO_CONFERIDO", "ulbra_envios", { chave: chaveAlvo, operador_alvo: operadorAlvo, decisao: corpo.decisao });
-      return responder({ ok: true, ...res, auditoria_gravada: auditoriaOk }, auditoriaOk ? 200 : 500);
+      return responder({ ok: true, ...res, auditoria_gravada: true }, 200);
     }
 
     return responder({ erro: "ACAO_INVALIDA" }, 400);

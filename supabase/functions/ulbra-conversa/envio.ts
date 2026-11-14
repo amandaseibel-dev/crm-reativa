@@ -34,6 +34,8 @@ export interface Envio {
   motivo: string | null;
   criado_em_ms: number;
   previa_id: string | null;
+  /** 0 = envio comum; >0 = mensagem intencional repetida (ação explícita e nova chave). */
+  repeticao: number;
 }
 
 export interface PedidoEnvio {
@@ -52,6 +54,8 @@ export interface PedidoEnvio {
   /** Responsável pelo atendimento no ReATIVA (ulbra_atendimentos.responsavel_email), se houver. */
   responsavel_atendimento: string | null;
   identidade_confirmada: boolean;
+  /** Verdadeiro só quando o operador confirmou explicitamente uma NOVA mensagem com o mesmo texto. */
+  repeticao_explicita?: boolean;
   /**
    * Atendente do atendimento NA MENSAGERIA. Null quando não foi lido: sem ele o envio é bloqueado.
    * Fonte NÃO definida. Candidato: ulbra_conversas.responsavel_ulbra, equivalência NÃO comprovada.
@@ -78,8 +82,13 @@ export interface RepositorioEnvio {
   inserirSeNovo(envio: Envio): Promise<"NOVO" | "CHAVE_EXISTENTE" | "TEXTO_EM_ABERTO">;
   /** Atualiza SOMENTE se o status atual estiver em `de`. Devolve false se a linha não estava nesse estado. */
   atualizar(operador: string, chave: string, campos: Partial<Envio>, de?: readonly StatusEnvio[]): Promise<boolean>;
-  /** Há envio em FALHA_INCERTA para este atendimento e este texto (qualquer operador). */
-  existeFalhaIncerta(atendimento_id: string, texto: string): Promise<boolean>;
+  /**
+   * Há envio bloqueante para este atendimento e texto (qualquer operador): em aberto
+   * (PENDENTE, ENVIANDO, FALHA_INCERTA) e, se incluiConfirmados, também CONFIRMADO_ENVIADO.
+   */
+  existeBloqueante(atendimento_id: string, texto: string, incluiConfirmados: boolean): Promise<boolean>;
+  /** Próximo número de repetição intencional para este atendimento e texto (0 se nunca houve). */
+  proximaRepeticao(atendimento_id: string, texto: string): Promise<number>;
 }
 
 export interface DependenciasEnvio {
@@ -171,10 +180,13 @@ export async function enviarResposta(
     }
     return { situacao: "JA_PROCESSADO", envio: existente };
   }
-  // Falha incerta não reenvia, nem com outra chave: a mensagem pode ter saído.
-  if (await deps.repositorio.existeFalhaIncerta(pedido.atendimento_id, texto)) {
-    return { situacao: "BLOQUEADO", motivos: ["FALHA_INCERTA_PENDENTE_CONFERENCIA"] };
+  // Sem ação explícita: nada com o mesmo texto no atendimento pode ser repetido (nem com outra chave),
+  // inclusive envio já confirmado. Com ação explícita: só o que está EM ABERTO bloqueia.
+  const explicita = pedido.repeticao_explicita === true;
+  if (await deps.repositorio.existeBloqueante(pedido.atendimento_id, texto, !explicita)) {
+    return { situacao: "BLOQUEADO", motivos: [explicita ? "ENVIO_EM_ABERTO_OU_FALHA_INCERTA" : "REPETICAO_EXIGE_NOVA_MENSAGEM_INTENCIONAL"] };
   }
+  const repeticao = explicita ? await deps.repositorio.proximaRepeticao(pedido.atendimento_id, texto) : 0;
   const novo: Envio = {
     chave: pedido.chave,
     operador_email: pedido.operador,
@@ -185,6 +197,7 @@ export async function enviarResposta(
     motivo: null,
     criado_em_ms: agora,
     previa_id: previaId,
+    repeticao,
   };
   // Se a gravação falhar, a exceção sobe: não há envio e não há "já processado" falso.
   const insercao = await deps.repositorio.inserirSeNovo(novo);
@@ -259,6 +272,9 @@ export async function resolverEnvioAberto(
   const motivos: string[] = [];
   if (!envio) motivos.push("ENVIO_NAO_ENCONTRADO");
   else if (!STATUS_EM_ABERTO.includes(envio.status)) motivos.push("ENVIO_JA_RESOLVIDO_OU_FECHADO");
+  // PENDENTE = a chamada NUNCA começou (o ENVIANDO é gravado antes da chamada e a transição é condicionada).
+  // Logo não pode ser declarado enviado. ENVIANDO e FALHA_INCERTA são incertos: aceitam as duas decisões.
+  if (envio?.status === "PENDENTE" && r.decisao === "CONFIRMADO_ENVIADO") motivos.push("PENDENTE_NUNCA_CHAMADO_NAO_PODE_SER_ENVIADO");
   if (r.motivo.trim().length < 10) motivos.push("MOTIVO_OBRIGATORIO");
   if (r.decisao !== "CONFIRMADO_ENVIADO" && r.decisao !== "CONFIRMADO_NAO_ENVIADO") motivos.push("DECISAO_INVALIDA");
   if (motivos.length > 0) return { situacao: "BLOQUEADO", motivos };

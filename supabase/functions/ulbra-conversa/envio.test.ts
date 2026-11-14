@@ -210,7 +210,7 @@ describe("chave idempotente ligada ao conteúdo e falha incerta sem reenvio", ()
     await enviarResposta(pedido(), d);
     provedorEnvio.modo = "ok";
     const r = await enviarResposta(pedido({ chave: "outra-chave-clique-0003" }), d);
-    expect(r.situacao === "BLOQUEADO" && r.motivos).toEqual(["FALHA_INCERTA_PENDENTE_CONFERENCIA"]);
+    expect(r.situacao === "BLOQUEADO" && r.motivos).toEqual(["REPETICAO_EXIGE_NOVA_MENSAGEM_INTENCIONAL"]);
     expect(provedorEnvio.chamadas.length).toBe(1);
   });
   it("sem atendente lido, o envio nunca sai (fonte ainda não definida)", async () => {
@@ -227,7 +227,7 @@ describe("índice de texto em aberto: concorrência entre requisições com chav
     // Outra requisição já tem este texto em aberto (ainda não visível para a verificação prévia).
     repositorio.m.set("outro|chave-outra-requisicao", { chave: "chave-outra-requisicao", operador_email: "outro", atendimento_id: pedido().atendimento_id, texto: "Olá, em que posso ajudar?", status: "PENDENTE", ulbra_mensagem_id: null, motivo: null, criado_em_ms: AGORA, previa_id: null });
     const r = await enviarResposta(pedido({ chave: "chave-nova-0009" }), d);
-    expect(r.situacao === "BLOQUEADO" && r.motivos).toEqual(["ENVIO_EM_ABERTO_MESMO_TEXTO"]);
+    expect(r.situacao === "BLOQUEADO" && r.motivos).toEqual(["REPETICAO_EXIGE_NOVA_MENSAGEM_INTENCIONAL"]);
     expect(provedorEnvio.chamadas).toEqual([]);
   });
 });
@@ -295,5 +295,42 @@ describe("conferência administrativa de envio em aberto", () => {
     const fechado = { ...abertoFalha(), status: "ENVIADO" as const };
     const r = await resolverEnvioAberto(fechado, { operador_email: OP, chave: CHAVE, decisao: "CONFIRMADO_ENVIADO", motivo: "motivo suficiente aqui", conferido_por: "g" }, repo);
     expect(r.situacao === "BLOQUEADO" && r.motivos).toContain("ENVIO_JA_RESOLVIDO_OU_FECHADO");
+  });
+});
+
+describe("repetição intencional, envio confirmado e pendência comprovadamente não enviada", () => {
+  it("envio CONFIRMADO_ENVIADO: a mesma chave nunca reenvia, e outra chave com o mesmo texto é barrada", async () => {
+    const repo = new RepoMemoria();
+    repo.m.set(`${OP}|${CHAVE}`, { chave: CHAVE, operador_email: OP, atendimento_id: pedido().atendimento_id, texto: "Olá, em que posso ajudar?", status: "CONFIRMADO_ENVIADO", ulbra_mensagem_id: "m", motivo: null, criado_em_ms: AGORA, previa_id: null, repeticao: 0 });
+    const { d, provedorEnvio } = deps({ repositorio: repo });
+    expect((await enviarResposta(pedido(), d)).situacao).toBe("JA_PROCESSADO");
+    const outra = await enviarResposta(pedido({ chave: "outra-chave-depois-de-confirmado" }), d);
+    expect(outra.situacao === "BLOQUEADO" && outra.motivos).toEqual(["REPETICAO_EXIGE_NOVA_MENSAGEM_INTENCIONAL"]);
+    expect(provedorEnvio.chamadas).toEqual([]);
+  });
+  it("repetição explícita com nova chave envia, com repeticao 1, mesmo após CONFIRMADO_ENVIADO", async () => {
+    const repo = new RepoMemoria();
+    repo.m.set(`${OP}|${CHAVE}`, { chave: CHAVE, operador_email: OP, atendimento_id: pedido().atendimento_id, texto: "Olá, em que posso ajudar?", status: "CONFIRMADO_ENVIADO", ulbra_mensagem_id: "m", motivo: null, criado_em_ms: AGORA, previa_id: null, repeticao: 0 });
+    const { d, provedorEnvio } = deps({ repositorio: repo });
+    const r = await enviarResposta(pedido({ chave: "chave-intencional-nova-01", repeticao_explicita: true }), d);
+    expect(r.situacao === "PROCESSADO" && r.envio.repeticao).toBe(1);
+    expect(provedorEnvio.chamadas.length).toBe(1);
+  });
+  it("repetição explícita NÃO passa com envio em FALHA_INCERTA aberto", async () => {
+    const repo = new RepoMemoria();
+    repo.m.set(`${OP}|${CHAVE}`, { chave: CHAVE, operador_email: OP, atendimento_id: pedido().atendimento_id, texto: "Olá, em que posso ajudar?", status: "FALHA_INCERTA", ulbra_mensagem_id: null, motivo: "x", criado_em_ms: AGORA, previa_id: null, repeticao: 0 });
+    const { d, provedorEnvio } = deps({ repositorio: repo });
+    const r = await enviarResposta(pedido({ chave: "chave-intencional-nova-02", repeticao_explicita: true }), d);
+    expect(r.situacao === "BLOQUEADO" && r.motivos).toEqual(["ENVIO_EM_ABERTO_OU_FALHA_INCERTA"]);
+    expect(provedorEnvio.chamadas).toEqual([]);
+  });
+  it("PENDENTE (nunca chamado) pode ser conferido como NÃO enviado, mas NUNCA como enviado", async () => {
+    const pend: Envio = { chave: CHAVE, operador_email: OP, atendimento_id: pedido().atendimento_id, texto: "x", status: "PENDENTE", ulbra_mensagem_id: null, motivo: null, criado_em_ms: AGORA, previa_id: null, repeticao: 0 };
+    const repo = new RepoMemoria();
+    repo.m.set(`${OP}|${CHAVE}`, pend);
+    const como_enviado = await resolverEnvioAberto(pend, { operador_email: OP, chave: CHAVE, decisao: "CONFIRMADO_ENVIADO", motivo: "conferi e parece enviado", conferido_por: "g" }, repo);
+    expect(como_enviado.situacao === "BLOQUEADO" && como_enviado.motivos).toContain("PENDENTE_NUNCA_CHAMADO_NAO_PODE_SER_ENVIADO");
+    const como_nao = await resolverEnvioAberto(pend, { operador_email: OP, chave: CHAVE, decisao: "CONFIRMADO_NAO_ENVIADO", motivo: "nunca foi chamado, sem registro", conferido_por: "g" }, repo);
+    expect(como_nao.situacao).toBe("RESOLVIDO");
   });
 });

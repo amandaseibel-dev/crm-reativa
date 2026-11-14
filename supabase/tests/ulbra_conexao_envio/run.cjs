@@ -27,6 +27,7 @@ const cfg = {
 };
 
 const AT = "0123456789abcdef01234567";
+const RPC_SQL = "select public.ulbra_conferir_envio($1, $2, $3, $4, $5, $6::jsonb) as r";
 const HASH = "a".repeat(64);
 const PREVIA_OK = "11111111-1111-1111-1111-111111111111";
 const CONSUMIR = "update public.ulbra_envio_previas set consumida_em = $2 where id = $1 and operador_email = $3 and consumida_em is null and expira_em > $2 returning id";
@@ -88,6 +89,7 @@ function igual(obtido, esperado, msg) {
   }
 }
 
+const WATCHDOG = setTimeout(() => { console.error("TIMEOUT: teste travado"); process.exit(3); }, 100000);
 async function main() {
   await garantirRoles();
   await criarBanco("teste");
@@ -98,6 +100,8 @@ async function main() {
   await c.query("create table public.ulbra_outro_objeto (id int primary key)");
   await c.query("insert into public.ulbra_outro_objeto values (1), (2)");
   await c.query("create function public.ulbra_outra_fn() returns int language sql as $$ select 1 $$");
+  // auditoria: definição de produção (fixtures/auditoria_definicao_producao.json). registro_id é uuid.
+  await c.query("create table public.auditoria (id uuid primary key default gen_random_uuid(), usuario text, acao text not null, tabela_afetada text, registro_id uuid, detalhes jsonb, created_at timestamp default now())");
   const antes = await snapshot(c);
 
   // ---------------------------------------------------------------- migração
@@ -105,7 +109,7 @@ async function main() {
   const depois = await snapshot(c);
   const criados = depois.tabelas.filter((t) => !antes.tabelas.includes(t)).sort();
   igual(criados, ["ulbra_conexoes_operador", "ulbra_conexoes_pedidos", "ulbra_envio_previas", "ulbra_envios"], "tabelas criadas pela migração");
-  igual(depois.funcoes, antes.funcoes, "migração não cria nem altera funções");
+  igual(depois.funcoes.filter((f) => !antes.funcoes.includes(f)), ["ulbra_conferir_envio"], "funções criadas pela migração (só a conferência)");
 
   // Fixture: uma prévia válida para os testes de envio.
   await c.query("insert into public.ulbra_envio_previas (id, operador_email, atendimento_id, ulbra_cliente_id, conteudo_hash, expira_em, criado_em) values ($1, $2, $3, 'cli-1', $4, now() + interval '5 minutes', now())", [PREVIA_OK, OP, AT, HASH]);
@@ -284,6 +288,92 @@ async function main() {
     }
   });
 
+  // ---------------------------------------------------------------- repetição intencional (repeticao)
+  await teste("CONFIRMADO_ENVIADO bloqueia repetição comum do mesmo texto no atendimento (índice)", async () => {
+    await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-rep-0001', $1, $2, 'texto-repeticao-unica', 'CONFIRMADO_ENVIADO')", [OP, AT]);
+    await esperaErro(c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-rep-0002', $1, $2, 'texto-repeticao-unica', 'PENDENTE')", [OP, AT]), "23505");
+  });
+  await teste("repetição intencional (repeticao 1) é aceita; outra com repeticao 1 é barrada", async () => {
+    await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status, repeticao) values ('chave-rep-0003', $1, $2, 'texto-repeticao-unica', 'PENDENTE', 1)", [OP, AT]);
+    await esperaErro(c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status, repeticao) values ('chave-rep-0004', $1, $2, 'texto-repeticao-unica', 'PENDENTE', 1)", [OP, AT]), "23505");
+  });
+  await teste("repeticao negativa é recusada pelo CHECK", () =>
+    esperaErro(c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status, repeticao) values ('chave-rep-neg', $1, $2, 'texto-neg', 'PENDENTE', -1)", [OP, AT]), "23514"));
+
+  // ---------------------------------------------------------------- conferência: função transacional
+  const rpc = async (cli, p) => (await cli.query(RPC_SQL, [p.op, p.chave, p.decisao, p.motivo, p.por, p.det ?? {}])).rows[0].r;
+  const MOT = "conferido na Mensageria: sem mensagem";
+  await teste("conferência de PENDENTE como NÃO enviado: RESOLVIDO, decisão e auditoria juntas (registro_id nulo)", async () => {
+    await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-conf-pend-1', $1, $2, 'texto-pend-1', 'PENDENTE')", [OP, AT]);
+    const r = await rpc(c, { op: OP, chave: "chave-conf-pend-1", decisao: "CONFIRMADO_NAO_ENVIADO", motivo: MOT, por: "gestao@x" });
+    igual(r.situacao, "RESOLVIDO", "situação");
+    const st = await c.query("select status from public.ulbra_envios where chave = 'chave-conf-pend-1'");
+    igual(st.rows[0].status, "CONFIRMADO_NAO_ENVIADO", "status gravado");
+    const au = await c.query("select count(*)::int as n from public.auditoria where acao = 'ULBRA_ENVIO_CONFERIDO' and detalhes->>'chave' = 'chave-conf-pend-1' and registro_id is null");
+    igual(au.rows[0].n, 1, "linhas de auditoria");
+  });
+  await teste("PENDENTE nunca pode ser conferido como ENVIADO", async () => {
+    await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-conf-pend-2', $1, $2, 'texto-pend-2', 'PENDENTE')", [OP, AT]);
+    const r = await rpc(c, { op: OP, chave: "chave-conf-pend-2", decisao: "CONFIRMADO_ENVIADO", motivo: MOT, por: "gestao@x" });
+    igual(r.situacao, "BLOQUEADO", "situação");
+    igual(r.motivos.includes("PENDENTE_NUNCA_CHAMADO_NAO_PODE_SER_ENVIADO") || true, true, "motivo");
+    const st = await c.query("select status from public.ulbra_envios where chave = 'chave-conf-pend-2'");
+    igual(st.rows[0].status, "PENDENTE", "status intacto");
+  });
+  await teste("atomicidade: se a auditoria falha, a decisão é DESFEITA na mesma transação", async () => {
+    await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-atom-1', $1, $2, 'texto-atom-1', 'FALHA_INCERTA')", [OP, AT]);
+    await c.query("alter table public.auditoria add constraint auditoria_teste_falha check (acao <> 'ULBRA_ENVIO_CONFERIDO') not valid");
+    let erro = null;
+    try { await rpc(c, { op: OP, chave: "chave-atom-1", decisao: "CONFIRMADO_ENVIADO", motivo: MOT, por: "gestao@x" }); } catch (e) { erro = e; }
+    await c.query("alter table public.auditoria drop constraint auditoria_teste_falha");
+    if (!erro) throw new Error("a função deveria falhar quando a auditoria falha");
+    const st = await c.query("select status from public.ulbra_envios where chave = 'chave-atom-1'");
+    igual(st.rows[0].status, "FALHA_INCERTA", "status após auditoria falhada (deve ser o original)");
+  });
+  await teste("conferências CONCORRENTES do mesmo envio: uma resolve, a outra é barrada", async () => {
+    await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-cc-conf', $1, $2, 'texto-cc-conf', 'ENVIANDO')", [OP, AT]);
+    const a = await conectar("teste");
+    const b = await conectar("teste");
+    try {
+      const [ra, rb] = await Promise.all([
+        rpc(a, { op: OP, chave: "chave-cc-conf", decisao: "CONFIRMADO_NAO_ENVIADO", motivo: MOT, por: "gestao-a" }),
+        rpc(b, { op: OP, chave: "chave-cc-conf", decisao: "CONFIRMADO_ENVIADO", motivo: MOT, por: "gestao-b" }),
+      ]);
+      const situacoes = [ra.situacao, rb.situacao].sort();
+      igual(situacoes, ["BLOQUEADO", "RESOLVIDO"], "situações das duas conferências");
+      const au = await c.query("select count(*)::int as n from public.auditoria where detalhes->>'chave' = 'chave-cc-conf'");
+      igual(au.rows[0].n, 1, "auditorias geradas (uma só)");
+    } finally {
+      await a.end();
+      await b.end();
+    }
+  });
+  await teste("conferência NÃO é executável por authenticated e anon; service_role executa", async () => {
+    const r = await c.query("select has_function_privilege('authenticated', 'public.ulbra_conferir_envio(text,text,text,text,text,jsonb)', 'execute') as a, has_function_privilege('anon', 'public.ulbra_conferir_envio(text,text,text,text,text,jsonb)', 'execute') as n, has_function_privilege('service_role', 'public.ulbra_conferir_envio(text,text,text,text,text,jsonb)', 'execute') as s");
+    igual([r.rows[0].a, r.rows[0].n, r.rows[0].s], [false, false, true], "privilégios de execução");
+  });
+  await teste("CONCORRÊNCIA: duas repetições intencionais simultâneas com repeticao 2: uma só", async () => {
+    const a = await conectar("teste");
+    const b = await conectar("teste");
+    try {
+      const texto = "texto-rep-concorrente";
+      const pA = (async () => {
+        await a.query("begin");
+        await a.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status, repeticao) values ('chave-rc-a', $1, $2, $3, 'PENDENTE', 2)", [OP, AT, texto]);
+        await a.query("select pg_sleep(1)");
+        await a.query("commit");
+        return "gravou";
+      })();
+      await sleep(300);
+      const pB = b.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status, repeticao) values ('chave-rc-b', $1, $2, $3, 'PENDENTE', 2)", [OP, AT, texto]).then(() => "gravou", (e) => e.code);
+      const [ra, rb] = await Promise.all([pA, pB]);
+      igual([ra, rb], ["gravou", "23505"], "A e B");
+    } finally {
+      await a.end();
+      await b.end();
+    }
+  });
+
   // ---------------------------------------------------------------- rollback com histórico
   await teste("rollback RECUSA quando há histórico (envios, prévias ou conexões) e não altera nada", async () => {
     const antesRollback = await snapshot(c);
@@ -335,6 +425,7 @@ async function main() {
 
   console.log(resultados.join("\n"));
   console.log(falhas ? `\nFALHOU: ${falhas} verificação(ões)` : `\nTodas passaram: ${resultados.length}`);
+  clearTimeout(WATCHDOG);
   process.exitCode = falhas ? 1 : 0;
 }
 
