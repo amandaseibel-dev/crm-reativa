@@ -2,7 +2,7 @@
 
 **Consulta:** `supabase/audits/gate_seguranca_producao_20261114.sql` (somente leitura: só `SELECT`).
 **Projeto:** `ahattpqrjmhkzsmnbdzs` (produção). **Via:** conector de banco, papel `postgres`, sem DML.
-**Não é a execução do `run_security_gate.sh`** — esse script não roda aqui (`psql` ausente) e falha no Postgres por defeito próprio (ORDER BY sobre UNION; com erro ele imprime "SQL OK" e sai com código 0).
+**Não é a execução do `run_security_gate.sh`** — esse script não roda aqui (`psql` ausente) e falha no Postgres por defeito próprio (ORDER BY sobre UNION). Com erro, ele imprime "SQL OK" e sai com código 0: reproduzido por `scripts/seguranca/teste_gate_psql_falha.sh`, sem banco.
 
 ## Resultado
 
@@ -10,6 +10,7 @@
 |---|---|---|---|
 | BLOQUEIA | BUCKET_PUBLICO | 1 | `tv-imagens` |
 | BLOQUEIA | TABELA_SEM_RLS | 1 | `_tmp_fila2` |
+| BLOQUEIA | RPC_SECDEF_SEM_SEARCHPATH | 0 | (nenhuma função SECURITY DEFINER sem search_path em public; a consulta não devolveu linha para este critério) |
 | BLOQUEIA | VIEW_BYPASS_RLS | 5 | `vw_extracao_calibragem`, `vw_extracao_observabilidade`, `vw_extracao_validacao_trilha`, `vw_pagamento_suspeita_pendente`, `vw_titulo_presenca_historico` |
 | ALERTA | POLICY_AMPLA | 21 | (21 itens) |
 | ALERTA | RLS_SEM_POLICY_COM_GRANT | 1073 | (1073 itens) |
