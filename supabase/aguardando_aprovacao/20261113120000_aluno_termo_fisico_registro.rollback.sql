@@ -23,6 +23,11 @@
 drop function if exists public.termo_fisico_registrar(text, text, boolean);
 drop function if exists public.termo_fisico_ler(text);
 
+-- O índice também sai do nome: nomes de índice são únicos no schema, e a
+-- reinstalação precisa poder criar o índice de novo sem colidir.
+alter index if exists public.aluno_termo_fisico_eventos_aluno_idx
+  rename to aluno_termo_fisico_eventos_descartada_20261113_aluno_idx;
+
 alter table if exists public.aluno_termo_fisico_eventos
   rename to aluno_termo_fisico_eventos_descartada_20261113;
 

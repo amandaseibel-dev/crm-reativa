@@ -19,7 +19,9 @@ create table if not exists public.aluno_termo_fisico_eventos (
   aluno_id      text        not null,
   situacao      text        not null check (situacao in ('EM_ANDAMENTO', 'ARQUIVADO')),
   autor_email   text        not null,
-  registrado_em timestamptz not null default now()
+  -- clock_timestamp(): avança a cada gravação. now() é o início da transação e
+  -- empataria registros feitos na mesma transação, deixando a situação atual indefinida.
+  registrado_em timestamptz not null default clock_timestamp()
 );
 
 create index if not exists aluno_termo_fisico_eventos_aluno_idx
@@ -136,7 +138,6 @@ as $$
 declare
   v_email text := lower(coalesce(auth.jwt() ->> 'email', ''));
   v_dest  text;
-  v_titulo_situacao text;
 begin
   if not (public.app_usuario_ativo() and public.usuario_e_gestao()) then
     raise exception 'sem permissão para registrar o termo físico'
@@ -151,15 +152,14 @@ begin
     raise exception 'situação inválida' using errcode = '22023';
   end if;
 
+  if not exists (select 1 from public.alunos a where a.id::text = p_aluno_id) then
+    raise exception 'aluno não encontrado' using errcode = '22023';
+  end if;
+
   insert into public.aluno_termo_fisico_eventos (aluno_id, situacao, autor_email)
   values (p_aluno_id, p_situacao, v_email);
 
   if coalesce(p_notificar, false) then
-    v_titulo_situacao := case
-      when p_situacao = 'ARQUIVADO' then 'Termo físico arquivado'
-      else 'Termo físico assinado, em andamento'
-    end;
-
     -- Destinatários = os mesmos três e-mails de usuario_e_gestao(). Quem
     -- registrou não recebe o próprio aviso.
     foreach v_dest in array array[
@@ -168,15 +168,18 @@ begin
       'cobranca07@aelbra.com.br'
     ] loop
       if v_dest <> v_email then
+        -- Aviso SEM conteúdo sensível: a policy de SELECT de notificacoes libera
+        -- também os perfis gerencia/supervisor/administrativo (usuario_e_gestao_fila).
+        -- Por isso não levamos aluno_id, situação nem autor.
         insert into public.notificacoes (
           usuario_destino_email, tipo, titulo, mensagem,
           aluno_id, url_destino, lida, criado_em
         ) values (
           v_dest,
           'TERMO_FISICO',
-          '📄 Termo físico registrado',
-          v_titulo_situacao || ', registrado por ' || v_email || '.',
-          p_aluno_id,
+          'Registro administrativo atualizado',
+          'Há um registro administrativo novo para conferir na ficha do aluno.',
+          null,
           '/aluno',
           false,
           now()

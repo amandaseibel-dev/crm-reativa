@@ -36,6 +36,10 @@ alter default privileges in schema public grant all on tables to anon, authentic
 alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
 alter default privileges in schema public grant execute on functions to anon, authenticated, service_role;
 
+-- Aluno de teste (id uuid, como em produção).
+create table public.alunos (id uuid primary key);
+insert into public.alunos (id) values ('a0000000-0000-0000-0000-000000000042');
+
 create table public.usuarios (email text primary key, ativo boolean not null default true);
 insert into public.usuarios (email) values
   ('amanda.seibel@aelbra.com.br'),

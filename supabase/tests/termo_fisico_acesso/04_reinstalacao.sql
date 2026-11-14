@@ -18,12 +18,19 @@ select public.teste_assert('reinstalação: os ids são exatamente os da tabela 
     (select id from public.aluno_termo_fisico_eventos
      except select id from public.aluno_termo_fisico_eventos_descartada_20261113)));
 
-select public.teste_assert('reinstalação: a tabela arquivada continua sem privilégio para a aplicação',
+select public.teste_assert('reinstalação: a tabela arquivada continua sem privilégio para anon, authenticated e service_role',
   not exists (
     select 1
-      from unnest(array['public','anon','authenticated','service_role']) as p(papel),
-           unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE']) as o(op)
+      from unnest(array['anon','authenticated','service_role']) as p(papel),
+           unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) as o(op)
      where has_table_privilege(p.papel, 'public.aluno_termo_fisico_eventos_descartada_20261113', o.op)));
+select public.teste_assert('reinstalação: a tabela arquivada continua sem entrada de PUBLIC na ACL',
+  not exists (select 1 from aclexplode((select relacl from pg_class
+                 where oid = 'public.aluno_termo_fisico_eventos_descartada_20261113'::regclass)) a where a.grantee = 0));
+select public.teste_assert('reinstalação: o índice da tabela nova existe (nome livre após o rollback)',
+  exists (select 1 from pg_indexes where schemaname = 'public'
+            and tablename = 'aluno_termo_fisico_eventos'
+            and indexname = 'aluno_termo_fisico_eventos_aluno_idx'));
 
 select public.teste_assert('reinstalação: a tabela arquivada continua imutável',
   public.teste_comando(null, null,
