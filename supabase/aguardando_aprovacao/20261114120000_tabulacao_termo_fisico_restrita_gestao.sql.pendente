@@ -22,7 +22,7 @@ select v.codigo, v.rotulo, true, v.ordem, 'ADMINISTRATIVO', 'NENHUM', null, 'CON
   ) as v(codigo, rotulo, ordem)
  where not exists (select 1 from public.tabulacoes t where t.codigo = v.codigo);
 
--- 2. Proteção no servidor. Só a gestão grava código somente_gestao no histórico.
+-- 2. Proteção no servidor. Só a gestão grava estes dois códigos no histórico.
 -- Bypass: service_role (claim role) e o dono (current_user postgres). Gestão é a
 -- mesma função usuario_e_gestao() usada no resto do sistema.
 create or replace function public.aluno_movimentacao_tabulacao_so_gestao()
@@ -32,14 +32,20 @@ security definer
 set search_path to 'public'
 as $$
 declare
-  v_codigo text := upper(regexp_replace(coalesce(new.status_novo, ''), '[[:space:]]', '', 'g'));
+  -- Só as duas tabulações de termo físico. Outros códigos somente_gestao (ex.:
+  -- RETORNO_FINANCEIRO) NÃO são tocados: o desfazer do operador pode regravar o
+  -- status restaurado, e isso não pode ser barrado por esta mudança.
+  v_restritos constant text[] := array['TERMO_FISICO_EM_ANDAMENTO','TERMO_FISICO_ARQUIVADO'];
+  -- Normaliza para [A-Z0-9_]: remove espaço, tab, quebra, retorno e caracteres
+  -- invisíveis (U+200B, U+FEFF, U+00A0, U+3000 etc.) antes de comparar.
+  v_codigo text := regexp_replace(upper(coalesce(new.status_novo, '')), '[^A-Z0-9_]', '', 'g');
 begin
-  if v_codigo = '' then
+  if v_codigo = '' or not (v_codigo = any(v_restritos)) then
     return new;
   end if;
-  -- Dentro de SECURITY DEFINER, current_user é o dono (postgres): não serve para
-  -- distinguir o chamador. A GUC 'role' é a do chamador (SET ROLE do PostgREST).
-  -- Sem SET ROLE (sessão do dono, migrações, RPCs de sistema) a GUC é vazia/none.
+  -- Bypass: service_role (claim) e chamada sem SET ROLE do PostgREST (sessão do dono,
+  -- migrações, RPCs de sistema). Dentro de SECURITY DEFINER, current_user é o dono,
+  -- por isso usa-se a GUC role do chamador.
   if coalesce(auth.role(), '') = 'service_role'
      or coalesce(current_setting('role', true), 'none') in ('none', '', 'postgres') then
     return new;
@@ -47,14 +53,8 @@ begin
   if public.usuario_e_gestao() then
     return new;
   end if;
-  if exists (
-    select 1 from public.tabulacoes t
-     where t.somente_gestao and upper(regexp_replace(t.codigo, '[[:space:]]', '', 'g')) = v_codigo
-  ) then
-    raise exception 'A tabulação "%" é restrita à gestão. Registre a solicitação para Amanda, Fernanda ou Amanda ADM.', v_codigo
-      using errcode = '42501';
-  end if;
-  return new;
+  raise exception 'A tabulação "%" é restrita à gestão. Registre a solicitação para Amanda, Fernanda ou Amanda ADM.', v_codigo
+    using errcode = '42501';
 end;
 $$;
 

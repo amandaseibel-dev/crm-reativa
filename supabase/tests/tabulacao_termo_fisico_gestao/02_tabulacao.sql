@@ -24,11 +24,6 @@ select public.teste_assert('operador: não grava TERMO_FISICO_ARQUIVADO mesmo co
     $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
          values ('a1','FINALIZACAO_ATENDIMENTO',' termo_fisico_arquivado ','operador.teste@exemplo.local')$sql$)->>'code' = '42501');
 
-select public.teste_assert('operador: também não grava código só-gestão já existente, RETORNO_FINANCEIRO (42501)',
-  public.teste_comando('authenticated', 'operador.teste@exemplo.local',
-    $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
-         values ('a1','FINALIZACAO_ATENDIMENTO','RETORNO_FINANCEIRO','operador.teste@exemplo.local')$sql$)->>'code' = '42501');
-
 select public.teste_assert('operador: a mensagem de recusa diz que a tabulação é restrita à gestão',
   public.teste_comando('authenticated', 'operador.teste@exemplo.local',
     $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
@@ -52,15 +47,42 @@ select public.teste_assert('operador: recusado com TAB, quebra de linha e retorn
     E'insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email) values (\'a1\',\'FINALIZACAO_ATENDIMENTO\',E\'\\tTERMO_FISICO_ARQUIVADO\\n\\r\',\'operador.teste@exemplo.local\')')->>'code' = '42501');
 
 -- UPDATE do operador em status_novo: negado (sem privilégio, e a trigger cobre UPDATE OF status_novo).
--- Linha da gestão criada antes; o operador tenta mudar o status. Não pode mudar (RLS sem policy de UPDATE
--- para o operador afeta zero linhas; e, se o privilégio existir, a trigger cobre UPDATE OF status_novo).
+-- UPDATE do operador em status_novo de movimentação da gestão: a trigger (UPDATE OF status_novo) recusa.
 insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
-  values ('a2','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_EM_ANDAMENTO','amanda.seibel@aelbra.com.br');
-select public.teste_comando('authenticated', 'operador.teste@exemplo.local',
-  'update public.aluno_movimentacoes set status_novo = ''TERMO_FISICO_ARQUIVADO'' where aluno_id = ''a2''');
-select public.teste_assert('operador: não altera status_novo de movimentação da gestão',
-  (select count(*) from public.aluno_movimentacoes where aluno_id = 'a2' and status_novo = 'TERMO_FISICO_EM_ANDAMENTO') = 1
-  and (select count(*) from public.aluno_movimentacoes where aluno_id = 'a2' and status_novo = 'TERMO_FISICO_ARQUIVADO') = 0);
+  values ('a2','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_EM_ANDAMENTO','operador.teste@exemplo.local');
+select public.teste_assert('operador: UPDATE de status_novo para código restrito é recusado pela trigger (42501 e mensagem)',
+  (public.teste_comando('authenticated', 'operador.teste@exemplo.local',
+    'update public.aluno_movimentacoes set status_novo = ''TERMO_FISICO_ARQUIVADO'' where aluno_id = ''a2''')->>'code' = '42501')
+  and (public.teste_comando('authenticated', 'operador.teste@exemplo.local',
+    'update public.aluno_movimentacoes set status_novo = ''TERMO_FISICO_ARQUIVADO'' where aluno_id = ''a2''')->>'err' like '%restrita à gestão%'));
+select public.teste_assert('operador: o status da movimentação continua o mesmo após a tentativa',
+  (select count(*) from public.aluno_movimentacoes where aluno_id = 'a2' and status_novo = 'TERMO_FISICO_EM_ANDAMENTO') = 1);
+
+-- Unicode invisível: a normalização [A-Z0-9_] não deixa passar.
+select public.teste_assert('operador: recusado com U+200B, U+FEFF, U+00A0 e U+3000 ao redor do código (42501)',
+  (public.teste_comando('authenticated', 'operador.teste@exemplo.local',
+    E'insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email) values (\'a1\',\'FINALIZACAO_ATENDIMENTO\',E\'\\u200B\\uFEFFTERMO_FISICO_ARQUIVADO\\u00A0\\u3000\',\'operador.teste@exemplo.local\')')->>'code' = '42501'));
+
+-- Sem perfil e diretoria: nenhum é gestão, a trigger recusa.
+select public.teste_assert('usuário sem perfil (fora de usuario_e_gestao): recusado (42501)',
+  public.teste_comando('authenticated', 'semperfil@exemplo.local',
+    $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
+         values ('a1','FINALIZACAO_ATENDIMENTO','TERMO_FISICO_ARQUIVADO','semperfil@exemplo.local')$sql$)->>'code' = '42501');
+select public.teste_assert('diretoria (fora da lista de gestão): recusada (42501)',
+  public.teste_comando('authenticated', 'diretoria.teste@exemplo.local',
+    $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
+         values ('a1','FINALIZACAO_ATENDIMENTO','TERMO_FISICO_ARQUIVADO','diretoria.teste@exemplo.local')$sql$)->>'code' = '42501');
+
+-- anon: sem nenhum privilégio de INSERT no histórico.
+select public.teste_assert('anon: não grava no histórico (42501)',
+  public.teste_comando('anon', null,
+    $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo) values ('a1','FINALIZACAO_ATENDIMENTO','TERMO_FISICO_ARQUIVADO')$sql$)->>'code' = '42501');
+
+-- Código restrito que NÃO é dos dois (ex.: RETORNO_FINANCEIRO) não é barrado por esta mudança.
+select public.teste_assert('escopo: RETORNO_FINANCEIRO não é barrado por esta mudança (desfazer preservado)',
+  public.teste_comando('authenticated', 'operador.teste@exemplo.local',
+    $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
+         values ('a1','ACAO_DESFEITA','RETORNO_FINANCEIRO','operador.teste@exemplo.local')$sql$)->>'ok' = 'true');
 
 -- Inativo: a RLS de INSERT exige app_usuario_ativo().
 update public.usuarios set ativo = false where email = 'cobranca07@aelbra.com.br';

@@ -103,6 +103,12 @@ create policy aluno_movimentacoes_insert on public.aluno_movimentacoes for inser
               or lower(coalesce(registrado_por_email, '')) = lower(coalesce(auth.jwt() ->> 'email', ''))));
 create policy aluno_movimentacoes_select on public.aluno_movimentacoes for select to authenticated
   using (true);
+-- Simulação: UPDATE só para o próprio operador (para exercitar a trigger de UPDATE OF status_novo).
+-- Em produção a política de UPDATE de aluno_movimentacoes precisa ser lida (ver pacote).
+create policy aluno_movimentacoes_update_sim on public.aluno_movimentacoes for update to authenticated
+  using (lower(coalesce(registrado_por_email, '')) = lower(coalesce(auth.jwt() ->> 'email', '')))
+  with check (true);
+grant update on public.aluno_movimentacoes to authenticated;
 grant select, insert on public.aluno_movimentacoes to authenticated;
 
 -- Executa um COMANDO como papel e e-mail de JWT. Devolve {ok, code, err}.
