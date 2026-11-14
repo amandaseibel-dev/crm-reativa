@@ -17,13 +17,13 @@ Status: **PENDENTE DE APROVAÇÃO EXPRESSA PARA APLICAÇÃO.** Não autoriza, po
 
 | PR | Branch | Head |
 |---|---|---|
-| #954 (banco) | `feat/termo-fisico-registro-migracao` | `0090fdca` (commit de hashes: ver PR) |
+| #954 (banco) | `feat/termo-fisico-registro-migracao` | `b8babb84` |
 | #951 (front) | `feat/tabulacao-termo-fisico` | `9c4d870b` |
 
 | Arquivo | SHA-256 | Bytes |
 |---|---|---|
-| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `5050e5bec6924a7969a1a5efedb930e8931aaaa2eebfca31a66b6d2196a2df5a` | 4449 |
-| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql` | `a17b400205a740fb72c8729b87df8a97d337a057c2516eefbd388bcc60b4bc7c` | 670 |
+| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `38cc4da02e0047ad0c6ed89e6bc420d2d334b60201248cde5ff3bda59269d379` | 4878 |
+| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql` | `3864ff9f0d2238e068f36dc53017af8854e0dd58a2123780381c01e5ab324655` | 2480 |
 | `scripts/seguranca/auditoria_seguranca.sql` (Gate A, corrigido) | `87ed9b7326c6fdbdffd2956c1d3b3f448910ae2e0010f11954418de9c986dd85` | 5682 |
 
 Se algum arquivo mudar, este quadro precisa ser refeito.
@@ -70,12 +70,25 @@ A trigger `trg_encerramento_so_gestao` está **ativa** em `public.alunos` (`BEFO
 - **Upper/locale do banco:** normalização em ASCII antes do upper; testado em pglite, não no locale de produção.
 - **Triagem Prime, efeito a jusante:** a descrição fixa não casa com as palavras-chave, mas não medi o efeito em produção.
 
+## Decisões aplicadas nesta rodada
+
+- **Desfazer do operador:** se o status restaurado for código restrito, o desfazer é recusado **inteiro** (a trigger recusa `ACAO_DESFEITA`; a transação da `desfazer_acao` é desfeita junto, sem alteração parcial), com a mensagem "Não é possível desfazer esta ação ... Nada foi desfeito. A gestão trata pelo fluxo autorizado."
+- **Rollback exato:** antes da migração as linhas não existiam; o rollback as remove. Só o faz se (1) as linhas estiverem exatamente como a migração as deixou (qualquer campo alterado, inclusive `somente_gestao` e rótulo, recusa inteira) e (2) nenhum registro de histórico usar os códigos (o histórico é preservado; se houver, recusa inteira). Só então remove as linhas, a trigger e a função, em `BEGIN/COMMIT`.
+
+## Leituras de produção feitas nesta rodada (só SELECT, sem gravar)
+
+- Catálogo: nenhuma linha `TERMO_FISICO_%`; trigger `aluno_mov_tabulacao_so_gestao` e função ausentes (as guardas da migração passam).
+- Perfis: Amanda (`gerencia`), Fernanda (`supervisor`) e Amanda ADM (`administrativo`), todos ativos. Os dois `diretoria` (Gustavo e Angela) ficam fora da gestão.
+- **Gate A em produção (linha de base, só SELECT):** achados `BLOQUEIA` pré-existentes, **não causados por esta mudança**: `BUCKET_PUBLICO` = `tv-imagens` (1); `TABELA_SEM_RLS` = `_tmp_fila2` (1); `VIEW_BYPASS_RLS` = `vw_extracao_calibragem`, `vw_extracao_observabilidade`, `vw_extracao_validacao_trilha`, `vw_pagamento_suspeita_pendente`, `vw_titulo_presenca_historico` (5). O CHECKLIST diz que qualquer `BLOQUEIA` reprova o gate. **Decisão da gestão necessária:** tratar esses achados antes do deploy, ou registrar aceite explícito. Esta migração não os resolve.
+- Achados `ALERTA` pré-existentes (não bloqueiam): políticas amplas, RLS sem policy com grant, `RPC_SECDEF_EXECUTE_ANON` (24), tabelas de backup sem RLS.
+
 ## Reversão
 
 Rollback (`.rollback.sql`, em `BEGIN/COMMIT`): remove a trigger e a função; **desativa** (não apaga) as duas linhas do catálogo (`ativa = false`, `desativada_em`, `desativada_por = 'rollback_termo_fisico'`). O histórico gravado permanece. Não há tabela nem RPC a reverter.
 
 ## Ordem de implantação (explícita)
 
+0. Decisão da gestão sobre os achados `BLOQUEIA` pré-existentes do Gate A (acima).
 1. Aprovação final e linha em `migracoes-aprovadas.tsv` (RUNBOOK §6, com expiração e executor nominal). Não feito aqui.
 2. Aplicar a migration (executor único, sessão principal, autorização nominal).
 3. Validação somente leitura: as duas linhas do catálogo com `somente_gestao = true`; a trigger existe; sem linhas novas no histórico fora da gestão.
