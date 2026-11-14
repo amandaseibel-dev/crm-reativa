@@ -28,6 +28,19 @@ begin
   end if;
 end $$;
 
+-- Pré-condição de ACL: a conferência (função invoker) grava em public.auditoria sob service_role.
+-- Aborta se o privilégio faltar, em vez de criar uma função que falha em uso.
+do $$
+begin
+  if not has_table_privilege('service_role', 'public.auditoria', 'INSERT') then
+    raise exception 'MIGRATION_20261111140000: service_role sem INSERT em public.auditoria; conceder antes da migration';
+  end if;
+  -- As tabelas novas têm RLS sem política: a RPC só enxerga linhas se service_role tiver BYPASSRLS (true em produção, 14/11/2026).
+  if not (select rolbypassrls from pg_roles where rolname = 'service_role') then
+    raise exception 'MIGRATION_20261111140000: service_role sem BYPASSRLS; a conferência não enxergaria os envios';
+  end if;
+end $$;
+
 -- Pedido de conexão em andamento: nasce no clique "Conectar", morre no retorno
 -- do navegador (ou em 10 min). Guarda o verifier do PKCE, nunca token.
 create table public.ulbra_conexoes_pedidos (

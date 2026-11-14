@@ -637,6 +637,8 @@ Evidência que falta, e forma mínima de obtê-la sem envio real:
 - `consultar_atendimento` num atendimento próprio: 1 chamada de ferramenta. Consumo de cota NÃO comprovado.
 - Total com consumo de cota: 3 chamadas, além da descoberta. Não há outras chamadas previstas nesta etapa.
 
+**Dependências do banco para a conferência (pré-condições de aplicação, verificadas por leitura de catálogo em 14/11/2026, sem escrita):** a função `ulbra_conferir_envio` é `security invoker` e grava em `public.auditoria`, então `service_role` precisa de INSERT nessa tabela (observado: `has_table_privilege` = true) e de `BYPASSRLS` (observado: `rolbypassrls` = true), porque as tabelas de envio têm RLS sem política. A migration aborta se qualquer uma faltar. Nenhuma das duas está concedida pela migration; ambas são estado de produção, e a fixture `supabase/tests/fixtures/auditoria_definicao_producao.json` registra a evidência. A suíte reproduz esse estado no servidor descartável e não concede nada fora dele.
+
 **Envio preso em `ENVIANDO`.** Se o processo cair entre marcar `ENVIANDO` e gravar o retorno, o envio fica em `ENVIANDO` e bloqueia qualquer reenvio. A conferência administrativa NÃO pode declarar "não enviado" nesse caso (`NAO_ENVIADO_SO_DE_PENDENTE`). As saídas são: `CONFIRMADO_ENVIADO` quando a gestão verificar a conversa na Mensageria, ou manter o bloqueio até essa verificação. Não há procedimento automático de reconciliação; a decisão é humana e fica auditada.
 
 **Limites.** Os limites observados em `meu_acesso` (15 por minuto na conexão, 30 por minuto por pessoa, 10.000 por dia por pessoa) pertencem à conta consultada na sessão, que não é a do piloto. Os limites da conta do piloto precisam ser lidos na própria conta, por `meu_acesso`, antes de qualquer teste.

@@ -90,7 +90,9 @@ Deno.serve(async (req: Request) => {
   const { data: { user } } = await sbUser.auth.getUser();
   if (!user?.email) return responder({ erro: "ACESSO_NEGADO" }, 403);
   const email = user.email.toLowerCase();
-  const { data: usuario } = await sb.from("usuarios").select("email, perfil, ativo").ilike("email", email.replace(/[\\%_]/g, (c) => "\\" + c)).eq("ativo", true).limit(1).maybeSingle();
+  // ilike do PostgREST trata * % _ como curinga: e-mail com esses caracteres não pode casar com outra linha.
+  if (/[*%_\\]/.test(email)) return responder({ erro: "ACESSO_NEGADO" }, 403);
+  const { data: usuario } = await sb.from("usuarios").select("email, perfil, ativo").ilike("email", email).eq("ativo", true).limit(1).maybeSingle();
   if (!usuario) return responder({ erro: "ACESSO_NEGADO" }, 403);
 
   // Templates ficam fora desta entrega: recusa explícita, nunca envio silencioso como texto.
@@ -347,7 +349,9 @@ Deno.serve(async (req: Request) => {
     if (acao === "envio_conferencia") {
       // Só perfis de gestão. A decisão e a auditoria são gravadas pela função SQL ulbra_conferir_envio,
       // em UMA transação: se a auditoria falhar, a decisão é desfeita. Nunca reenvia.
-      if (!["supervisor", "gerencia", "administrativo"].includes(String(usuario.perfil))) {
+      // Perfil de quem está logado, pela função canônica (usa o JWT do próprio conferidor, sem lookup por texto).
+      const { data: perfilAtual } = await sbUser.rpc("perfil_do_usuario_atual");
+      if (!["supervisor", "gerencia", "administrativo"].includes(String(perfilAtual))) {
         return responder({ ok: false, motivo: "ACESSO_NEGADO" }, 403);
       }
       const { data, error } = await sb.rpc("ulbra_conferir_envio", {

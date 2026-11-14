@@ -80,6 +80,15 @@ async function aguardarPgSleep(cliA, limiteMs = 10000) {
 }
 const BANCOS_DESCARTAVEIS = ["teste", "teste_rollback", "teste_guarda"];
 // Antes de QUALQUER DROP: o servidor precisa ser declarado descartável, o nome da lista, e não pode ter schemas de Supabase.
+// auditoria: montada a partir da fixture de PRODUÇÃO (tipos, nulidade, padrões) e com o privilégio observado (service_role INSERT).
+async function prepararAuditoria(cli) {
+  await cli.query('create extension if not exists "uuid-ossp"');
+  const defAuditoria = JSON.parse(fs.readFileSync(AUDITORIA_FIXTURE, "utf8"));
+  const colunasAuditoria = defAuditoria.colunas.map((k) => `${k.nome} ${k.tipo}${k.anulavel ? "" : " not null"}${k.padrao ? " default " + k.padrao : ""}`);
+  colunasAuditoria[0] += " primary key";
+  await cli.query(`create table public.auditoria (${colunasAuditoria.join(", ")})`);
+  await cli.query("grant select, insert on public.auditoria to service_role");
+}
 async function criarBanco(nome) {
   if (process.env.ULBRA_TESTE_DESCARTAVEL !== "sim") {
     throw new Error("RECUSADO: defina ULBRA_TESTE_DESCARTAVEL=sim (servidor de teste descartável)");
@@ -102,6 +111,8 @@ async function garantirRoles() {
     if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon; end if;
     if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated; end if;
     if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role; end if;
+    -- Atributo observado em produção (pg_roles, 14/11/2026): service_role tem rolbypassrls = true. Sem ele, as RLS sem política escondem as linhas da RPC.
+    alter role service_role bypassrls;
   end $$`);
   await admin.end();
 }
@@ -143,6 +154,8 @@ function igual(obtido, esperado, msg) {
 
 const WATCHDOG = setTimeout(() => { console.error("TIMEOUT: teste travado em -> " + TESTE_ATUAL); process.exit(3); }, 100000);
 async function main() {
+  // Primeiro: nenhum papel criado e nenhum banco tocado sem a declaração de descartável.
+  if (process.env.ULBRA_TESTE_DESCARTAVEL !== "sim") throw new Error("RECUSADO: defina ULBRA_TESTE_DESCARTAVEL=sim (servidor de teste descartável)");
   await garantirRoles();
   await criarBanco("teste");
   const c = await conectar("teste");
@@ -154,22 +167,7 @@ async function main() {
   await c.query("create function public.ulbra_outra_fn() returns int language sql as $$ select 1 $$");
   // auditoria: definição de produção (fixtures/auditoria_definicao_producao.json). registro_id é uuid.
   // Montada a partir da fixture extraída de PRODUÇÃO (information_schema, 13/11/2026): mesmos tipos, nulidade e padrões.
-  await c.query('create extension if not exists "uuid-ossp"');
-  const defAuditoria = JSON.parse(fs.readFileSync(AUDITORIA_FIXTURE, "utf8"));
-  const colunasAuditoria = defAuditoria.colunas.map((k) => `${k.nome} ${k.tipo}${k.anulavel ? "" : " not null"}${k.padrao ? " default " + k.padrao : ""}`);
-  colunasAuditoria[0] += " primary key";
-  await c.query(`create table public.auditoria (${colunasAuditoria.join(", ")})`);
-  // Privilégio observado em produção (has_table_privilege, 13/11/2026): service_role tem INSERT. Reproduzido aqui.
-  await c.query("grant select, insert on public.auditoria to service_role");
-  await teste("dependência de produção: service_role consegue INSERT em auditoria (a RPC grava a auditoria como invoker)", async () => {
-    await c.query("set role service_role");
-    try {
-      await c.query("insert into public.auditoria (usuario, acao, tabela_afetada, detalhes) values ('teste', 'TESTE_DEPENDENCIA', 'ulbra_envios', '{}'::jsonb)");
-    } finally {
-      await c.query("reset role");
-    }
-    igual((await c.query("select has_table_privilege('service_role','public.auditoria','INSERT') as ok")).rows[0].ok, true, "privilégio");
-  });
+  await prepararAuditoria(c);
   const antes = await snapshot(c);
 
   // ---------------------------------------------------------------- migração
@@ -178,6 +176,19 @@ async function main() {
   const criados = depois.tabelas.filter((t) => !antes.tabelas.includes(t)).sort();
   igual(criados, ["ulbra_conexoes_operador", "ulbra_conexoes_pedidos", "ulbra_envio_previas", "ulbra_envios"], "tabelas criadas pela migração");
   igual(depois.funcoes.filter((f) => !antes.funcoes.includes(f)), ["ulbra_conferir_envio"], "funções criadas pela migração (só a conferência)");
+  await teste("dependência de produção: service_role executa a RPC de conferência e ela grava a auditoria (invoker)", async () => {
+    await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-dep-svc', $1, $2, 'texto-dep-svc', 'PENDENTE')", [OP, AT]);
+    let r;
+    await c.query("set role service_role");
+    try {
+      r = (await c.query(RPC_SQL, [OP, "chave-dep-svc", "CONFIRMADO_NAO_ENVIADO", "motivo de teste de dependência", "gestao@x", {}])).rows[0].r;
+    } finally {
+      await c.query("reset role");
+    }
+    igual(r.situacao, "RESOLVIDO", "RPC como service_role, resposta " + JSON.stringify(r));
+    const n = await c.query("select count(*)::int as n from public.auditoria where acao = 'ULBRA_ENVIO_CONFERIDO' and detalhes->>'chave' = 'chave-dep-svc'");
+    igual(n.rows[0].n, 1, "auditoria gravada pela RPC como service_role");
+  });
 
   // Fixture: uma prévia válida para os testes de envio.
   await c.query("insert into public.ulbra_envio_previas (id, operador_email, atendimento_id, ulbra_cliente_id, conteudo_hash, expira_em, criado_em) values ($1, $2, $3, 'cli-1', $4, now() + interval '5 minutes', now())", [PREVIA_OK, OP, AT, HASH]);
@@ -493,6 +504,7 @@ async function main() {
       await r.query("create table public.ulbra_outro_objeto (id int primary key)");
       await r.query("insert into public.ulbra_outro_objeto values (1), (2)");
       await r.query("create function public.ulbra_outra_fn() returns int language sql as $$ select 1 $$");
+      await prepararAuditoria(r);
       const antesMigracao = await snapshot(r);
       await r.query(fs.readFileSync(MIG, "utf8"));
       await r.query(fs.readFileSync(ROLL, "utf8"));

@@ -20,7 +20,7 @@ if ! git rev-parse --verify --quiet "$base" >/dev/null; then
   exit 2
 fi
 
-mudou="$(git diff --name-only "$base"...HEAD -- docs/integracoes/ 2>/dev/null)"
+mudou="$(git diff --no-renames --name-only "$base"...HEAD -- docs/integracoes/ 2>/dev/null)"
 if [ -z "$mudou" ]; then
   echo "docs/integracoes/: nada alterado neste ramo — nada a conferir."
   exit 0

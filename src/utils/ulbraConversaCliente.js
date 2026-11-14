@@ -57,7 +57,7 @@ export const MOTIVOS_HISTORICO = {
   SALDO_DESATUALIZADO: "A medida da cota venceu: leitura bloqueada até nova medida.",
   LIMITE_OPERADOR_DIA: "Você atingiu o limite diário de leituras de histórico.",
   RESERVA_GLOBAL: "A cota diária da Mensageria está reservada para a coleta: tente mais tarde.",
-  ULBRA_INDISPONIVEL: "A Mensageria não respondeu. A chamada contou na cota; não foi repetida.",
+  ULBRA_INDISPONIVEL: "A Mensageria não respondeu. A chamada pode ter sido contada na cota; não foi repetida.",
   CONVERSA_INVALIDA: "Conversa inválida.",
 };
 

@@ -10,5 +10,13 @@
     {"nome": "detalhes", "tipo": "jsonb", "anulavel": true, "padrao": null},
     {"nome": "created_at", "tipo": "timestamp without time zone", "anulavel": true, "padrao": "now()"}
   ],
-  "observacao": "registro_id é uuid. O id do atendimento da Mensageria é texto de 24 caracteres e NÃO cabe ali: vai em detalhes."
+  "observacao": "registro_id é uuid. O id do atendimento da Mensageria é texto de 24 caracteres e NÃO cabe ali: vai em detalhes.",
+  "acl_e_rls_observadas_em_producao": {
+    "origem": "consulta somente leitura (has_table_privilege, pg_class.relrowsecurity, pg_policies) em 14/11/2026, projeto ahattpqrjmhkzsmnbdzs",
+    "service_role_insert": true,
+    "authenticated_insert": true,
+    "anon_insert": false,
+    "rls_ligada": true,
+    "politicas": ["auditoria_select_amanda (SELECT)", "painel_negado (ALL)"]
+  }
 }
