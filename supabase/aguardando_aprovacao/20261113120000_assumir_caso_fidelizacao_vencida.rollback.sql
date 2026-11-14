@@ -4,7 +4,7 @@
 -- (historico de auditoria: nunca apagar linhas). NAO desfaz tomadas ja feitas:
 -- para desfazer uma tomada, usar reverter_assumir_fidelizacao(operacao_id) ANTES
 -- deste rollback, ou tratar caso a caso com a gestao. Desfazer tomadas em lote
--- exige backup por identificador de operacao, nunca snapshot cego. Esse backup AINDA NAO EXISTE: e pre-condicao antes de qualquer aplicacao.
+-- exige backup por identificador de operacao, nunca snapshot cego. O snapshot por operacao (snapshot_caso, snapshot_aluno, estado_anterior) EXISTE e e gravado antes de cada tomada. O que NAO existe e uma ferramenta de restauracao em lote: nao foi criada nesta entrega; cada reversao e feita por operacao, com as mesmas checagens de conflito.
 -- GUARDA: nao remove a unica via de desfazer enquanto houver tomada nao revertida.
 do $g$
 begin

@@ -816,4 +816,57 @@ describe("operador assume caso com fidelização vencida", () => {
       await db.close();
     });
   });
+
+  describe("prova de privilégio: os REVOKE do arquivo de migração realmente tiram o acesso", () => {
+    // Reproduz os grants de DEFAULT do Supabase (anon, authenticated e service_role recebem tudo em tabelas novas).
+    async function comDefaults(db) {
+      await db.exec(`
+        grant select, insert, update, delete, truncate on public.assumir_fidelizacao_operacoes to anon, authenticated, service_role;
+        grant execute on function public.assumir_caso_fidelizacao_vencida(uuid, text) to public, anon, authenticated, service_role;
+        grant execute on function public.reverter_assumir_fidelizacao(uuid, text) to public, anon, authenticated, service_role;`);
+    }
+    const REVOKES = MIGRATION.split("\n").filter((l) => /^\s*revoke\s/i.test(l) && /assumir_fidelizacao|assumir_caso_fidelizacao|reverter_assumir/.test(l));
+    it("o arquivo de migração contém os REVOKE esperados (tabela e as duas RPCs)", () => {
+      expect(REVOKES.length).toBeGreaterThanOrEqual(3);
+      expect(REVOKES.join("\n")).toMatch(/assumir_fidelizacao_operacoes.*service_role/);
+    });
+    it("CONTROLE: com os defaults e SEM o revoke, anon e authenticated AINDA têm acesso (o teste detecta)", async () => {
+      const db = await abrirCom();
+      await comDefaults(db);
+      const p = await q1(db, "select has_table_privilege('anon','public.assumir_fidelizacao_operacoes','select') a, has_table_privilege('authenticated','public.assumir_fidelizacao_operacoes','insert') b");
+      expect(p.a).toBe(true);
+      expect(p.b).toBe(true);
+      await db.close();
+    });
+    it("com os REVOKE do arquivo aplicados sobre os defaults, tabela e RPCs ficam sem acesso para anon, authenticated e service_role", async () => {
+      const db = await abrirCom();
+      await comDefaults(db);
+      for (const r of REVOKES) await db.exec(r);
+      for (const papel of ["anon", "authenticated", "service_role"]) {
+        for (const priv of ["select", "insert", "update", "delete", "truncate"]) {
+          const x = await q1(db, `select has_table_privilege('${papel}','public.assumir_fidelizacao_operacoes','${priv}') p`);
+          expect(x.p, `${papel} ${priv} na tabela`).toBe(false);
+        }
+      }
+      const anonRpc = await q1(db, "select has_function_privilege('anon','public.assumir_caso_fidelizacao_vencida(uuid,text)','execute') p");
+      expect(anonRpc.p).toBe(false);
+      const srRpc = await q1(db, "select has_function_privilege('service_role','public.reverter_assumir_fidelizacao(uuid,text)','execute') p");
+      expect(srRpc.p).toBe(false);
+      const authRpc = await q1(db, "select has_function_privilege('authenticated','public.assumir_caso_fidelizacao_vencida(uuid,text)','execute') p");
+      expect(authRpc.p).toBe(true);
+      await db.close();
+    });
+  });
+
+  it("ramo de retorno da tomada: retorno protegido pela regra (função devolve verdadeiro) recusa a tomada", async () => {
+    const db = await abrirCom();
+    const caso = await cenario(db, 150, { dono: MAURICIO });
+    await db.exec(`create or replace function public.aluno_retorno_operador_vigente(p_aluno_id uuid) returns boolean language sql as $f$ select true $f$`);
+    await como(db, LUANA);
+    const r = await tomar(db, caso);
+    expect(r.sucesso).toBe(false);
+    expect(r.mensagem).toContain("nao esta disponivel");
+    expect((await q1(db, "select operador_email e from public.casos where id=$1", [caso])).e).toBe(MAURICIO);
+    await db.close();
+  });
 });

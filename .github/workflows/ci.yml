@@ -210,7 +210,15 @@ jobs:
       - name: Cenarios de concorrencia
         run: bash supabase/tests/concorrencia_assumir_fidelizacao/cenarios.sh
       - name: Security gate sobre o banco com a migration aplicada no ambiente de teste
-        run: bash scripts/seguranca/run_security_gate.sh "postgres://postgres:postgres@localhost:5432/teste_c3"
+        run: |
+          set -uo pipefail
+          # O gate consulta storage.buckets: no banco de teste o schema nao existe e o SELECT inteiro
+          # abortava sem checagem. Criamos o schema minimo para o check de buckets rodar.
+          psql -v ON_ERROR_STOP=1 -d teste_c3 -q -c "create schema if not exists storage; create table if not exists storage.buckets (id text primary key, name text, public boolean);"
+          OUT=$(bash scripts/seguranca/run_security_gate.sh "postgres://postgres:postgres@localhost:5432/teste_c3" 2>&1); RC=$?
+          echo "$OUT"
+          # O gate nao le o proprio erro de SQL: qualquer ERROR no output reprova este step.
+          if [ "$RC" -ne 0 ] || grep -q "ERROR:" <<<"$OUT"; then echo "GATE NAO EXECUTOU LIMPO"; exit 1; fi
 
   # ---------------------------------------------------------------------------
   # migration 20261030090000 — CONTINUIDADE de 48h e limite 5 por operador
