@@ -20,7 +20,8 @@
 --   * ultimo acionamento valido = maior entre alunos.data_ultimo_acionamento e
 --     casos.data_ultimo_acionamento; nulo ou com mais de 10 dias;
 --   * responsavel do aluno sem troca nos ultimos 10 dias (impede repasses sucessivos:
---     quem recebeu o caso tem o prazo inteiro para atender);
+--     impede que a propria tomada tire o caso de quem o recebeu ha pouco; NAO renova prazo nem
+--     reinicia a fidelizacao do caso);
 --   * sem retorno agendado vigente pelo operador (aluno_retorno_operador_vigente, P2);
 --   * caso nao protegido, nao encerrado, nao congelado; saldo em aberto > 0;
 --   * caso de giro vigente fica FORA nesta entrega (documentado na tela e na PR);
@@ -101,7 +102,7 @@ create table if not exists public.assumir_fidelizacao_operacoes (
   motivo_reversao text
 );
 alter table public.assumir_fidelizacao_operacoes enable row level security;
-revoke all on public.assumir_fidelizacao_operacoes from public, anon, authenticated;
+revoke all on public.assumir_fidelizacao_operacoes from public, anon, authenticated, service_role;
 comment on table public.assumir_fidelizacao_operacoes is
   'Operacoes de assumir caso com fidelizacao vencida. Sem acesso direto; so pelas RPCs. Nunca apagar linhas.';
 
@@ -280,11 +281,11 @@ begin
                          from public.alunos a where a.id = p_aluno_id)
    where id = v_op;
 
-  return query select true, 'Caso assumido. Ele fica com voce por 10 dias a partir de agora, sem repasse.', v_op;
+  return query select true, 'Caso assumido. Assumir nao registra acionamento nem reinicia a fidelizacao: o caso segue as regras vigentes.', v_op;
 end;
 $fn$;
 
-revoke all on function public.assumir_caso_fidelizacao_vencida(uuid, text) from public, anon;
+revoke all on function public.assumir_caso_fidelizacao_vencida(uuid, text) from public, anon, service_role;
 grant execute on function public.assumir_caso_fidelizacao_vencida(uuid, text) to authenticated;
 
 -- ---------------------------------------------------------------------------
@@ -414,5 +415,5 @@ begin
 end;
 $fn$;
 
-revoke all on function public.reverter_assumir_fidelizacao(uuid, text) from public, anon;
+revoke all on function public.reverter_assumir_fidelizacao(uuid, text) from public, anon, service_role;
 grant execute on function public.reverter_assumir_fidelizacao(uuid, text) to authenticated;

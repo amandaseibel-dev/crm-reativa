@@ -49,6 +49,25 @@ const CPF = (n) => String(30000000000 + n);
 const hoje = new Date();
 const diasAtras = (n) => new Date(hoje.getTime() - n * 86400000).toISOString().slice(0, 10);
 
+async function comPapeis() {
+  const db = await abrirCom();
+  await db.exec(`
+    do $r$ begin
+      if not exists (select 1 from pg_roles where rolname='anon') then create role anon nologin; end if;
+      if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated nologin; end if;
+    end $r$;
+    grant usage on schema public, internal to anon, authenticated;
+    do $g$ declare r record; begin
+      for r in select tablename from pg_tables where schemaname='public' and tablename <> 'assumir_fidelizacao_operacoes' loop
+        execute format('grant select, insert, update, delete on public.%I to authenticated', r.tablename);
+      end loop;
+    end $g$;
+    grant usage, select on all sequences in schema public to authenticated;
+    grant execute on all functions in schema public to authenticated;
+    grant execute on all functions in schema internal to authenticated;`);
+  return db;
+}
+
 const como = (db, email) =>
   db.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ email })]);
 
@@ -672,20 +691,6 @@ describe("operador assume caso com fidelização vencida", () => {
   });
 
   describe("acessos reais por papel (anon, authenticated, operador, gestão)", () => {
-    async function comPapeis() {
-      const db = await abrirCom();
-      await db.exec(`
-        do $r$ begin
-          if not exists (select 1 from pg_roles where rolname='anon') then create role anon nologin; end if;
-          if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated nologin; end if;
-        end $r$;
-        grant usage on schema public, internal to anon, authenticated;
-        grant select, insert, update, delete on all tables in schema public to authenticated;
-        grant usage, select on all sequences in schema public to authenticated;
-        grant execute on all functions in schema public to authenticated;
-        grant execute on all functions in schema internal to authenticated;`);
-      return db;
-    }
 
     it("anon: a RPC é negada pelo banco e nada muda", async () => {
       const db = await comPapeis();
@@ -732,6 +737,82 @@ describe("operador assume caso com fidelização vencida", () => {
       expect(r.sucesso).toBe(false);
       expect(r.mensagem).toContain("exclusiva de operadores");
       expect((await q1(db, "select operador_email e from public.casos where id=$1", [caso])).e).toBe(MAURICIO);
+      await db.close();
+    });
+  });
+
+  describe("permissões da tabela de operações e das reversões (papéis reais)", () => {
+    async function comPapeisOps() {
+      const db = await comPapeis();
+      await db.exec(`
+        do $r$ begin
+          if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role nologin; end if;
+        end $r$;
+        grant usage on schema public, internal to service_role;
+        do $g$ declare r record; begin
+          for r in select tablename from pg_tables where schemaname='public' and tablename <> 'assumir_fidelizacao_operacoes' loop
+            execute format('grant select, insert, update, delete, truncate on public.%I to service_role', r.tablename);
+          end loop;
+        end $g$;`);
+      return db;
+    }
+    it("tabela de operações: anon e authenticated não leem, escrevem, apagam nem truncam", async () => {
+      const db = await comPapeisOps();
+      for (const papel of ["anon", "authenticated"]) {
+        for (const priv of ["select", "insert", "update", "delete", "truncate"]) {
+          const r = await q1(db, `select has_table_privilege('${papel}','public.assumir_fidelizacao_operacoes','${priv}') p`);
+          expect(r.p, `${papel} ${priv}`).toBe(false);
+        }
+      }
+      await db.close();
+    });
+    it("tabela de operações: service_role também não recebe grant direto (só pelas RPCs)", async () => {
+      const db = await comPapeisOps();
+      const r = await q1(db, "select has_table_privilege('service_role','public.assumir_fidelizacao_operacoes','select') p");
+      expect(r.p).toBe(false);
+      await db.close();
+    });
+    it("reversão como anon: negada pelo banco e nada muda", async () => {
+      const db = await comPapeis();
+      const caso = await cenario(db, 90, { dono: MAURICIO });
+      await como(db, LUANA);
+      const r = await tomar(db, caso);
+      await db.exec("set role anon");
+      await expect(db.query("select * from public.reverter_assumir_fidelizacao($1,$2)", [r.operacao_id, "x"])).rejects.toThrow(/permission denied/);
+      await db.exec("reset role");
+      expect((await q1(db, "select operador_email e from public.casos where id=$1", [caso])).e).toBe(LUANA);
+      await db.close();
+    });
+    it("Amanda ADM (administrativo) e Fernanda (supervisor) não usam a tomada: recusa R5", async () => {
+      const db = await comPapeis();
+      await db.exec(`
+        insert into public.usuarios (nome,email,perfil,ativo,operador_nome,recebe_novos_casos,pode_alterar_responsavel) values
+          ('FERNANDA','cobranca04@aelbra.com.br','supervisor',true,'FERNANDA',true,true),
+          ('AMANDA ADM','cobranca07@aelbra.com.br','administrativo',true,'AMANDA ADM',true,false);`);
+      for (const email of ["cobranca04@aelbra.com.br", "cobranca07@aelbra.com.br"]) {
+        const caso = await cenario(db, email.startsWith('cobranca04') ? 130 : 131, { dono: MAURICIO });
+        await como(db, email);
+        const r = await tomar(db, caso);
+        expect(r.sucesso, email).toBe(false);
+        expect(r.mensagem, email).toContain("exclusiva de operadores");
+      }
+      await db.close();
+    });
+    it("reversão: Fernanda (pode_alterar_responsavel) reverte; Amanda ADM (sem flag) não", async () => {
+      const db = await comPapeis();
+      await db.exec(`
+        insert into public.usuarios (nome,email,perfil,ativo,operador_nome,recebe_novos_casos,pode_alterar_responsavel) values
+          ('FERNANDA','cobranca04@aelbra.com.br','supervisor',true,'FERNANDA',true,true),
+          ('AMANDA ADM','cobranca07@aelbra.com.br','administrativo',true,'AMANDA ADM',true,false);`);
+      const caso = await cenario(db, 120, { dono: MAURICIO });
+      await como(db, LUANA);
+      const r = await tomar(db, caso);
+      await como(db, "cobranca07@aelbra.com.br");
+      const negada = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [r.operacao_id, "x"]);
+      expect(negada.sucesso).toBe(false);
+      await como(db, "cobranca04@aelbra.com.br");
+      const ok = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [r.operacao_id, "x"]);
+      expect(ok.sucesso).toBe(true);
       await db.close();
     });
   });

@@ -57,7 +57,7 @@ export default function AssumirCasoDisponivel({ alunoId, responsavelEmail, usuar
       <strong>Assumir caso disponível</strong>
       <p style={{ margin: "4px 0 8px", fontSize: 13 }}>
         Este aluno está com outro operador. Se o prazo de fidelização tiver vencido, o caso passa para você.
-        A fidelização de 10 dias começa no seu primeiro acionamento válido.
+        Assumir não registra acionamento nem reinicia a fidelização: o caso segue as regras vigentes.
         Casos fidelizados pelo giro de carteira não entram nesta ação nesta versão.
       </p>
       <label style={{ display: "block", fontSize: 13 }}>
