@@ -29,6 +29,7 @@ const COLUNAS = `
 const emTransacao = (sql) => "BEGIN;\n" + sql + "\nCOMMIT;";
 
 const MD5_COBERTURA_TESTADA = "5dcbd09deba6197cb6948d01f8b9caa5";
+const MD5_TIPO_COBRANCA_TESTADA = "d3e5dc840b72a6fc2d7d68b4dd3070c6"; // apos o #941 (producao antes: 323628b7)
 const MD5_UNIVERSO_R5 = "885583bc6a45d7e3c77d7add841ac11b";
 const md5De = async (db, nome) =>
   (await db.query("select md5(pg_get_functiondef(p.oid)) m from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname=$1", [nome])).rows[0].m;
@@ -47,6 +48,7 @@ describe("guarda de MD5 da otimizacao: a migration recusa definicao diferente", 
   it("base testada: a cobertura tem o MD5 esperado pela guarda (positivo)", async () => {
     const db = await baseR5();
     expect(await md5De(db, "acoes_massivas_tipo_cobertura")).toBe(MD5_COBERTURA_TESTADA);
+    expect(await md5De(db, "acoes_massivas_tipo_cobranca_alunos")).toBe(MD5_TIPO_COBRANCA_TESTADA);
     expect(await md5De(db, "acoes_massivas_universo")).toBe(MD5_UNIVERSO_R5);
   });
 
@@ -68,6 +70,22 @@ describe("guarda de MD5 da otimizacao: a migration recusa definicao diferente", 
     expect(erro, "a migration deveria ter sido recusada").not.toBeNull();
     expect(String(erro.message)).toMatch(/nao e a definicao testada/);
     // Nada foi aplicado: o universo continua na R5 v2 (885583bc).
+    expect(await md5De(db, "acoes_massivas_universo")).toBe(MD5_UNIVERSO_R5);
+  });
+
+  it("tipo de cobranca alterado: a migration aborta e o universo nao muda", async () => {
+    const db = await baseR5();
+    await db.exec("alter function public.acoes_massivas_tipo_cobranca_alunos(uuid[]) set work_mem = '64kB';");
+    expect(await md5De(db, "acoes_massivas_tipo_cobranca_alunos")).not.toBe(MD5_TIPO_COBRANCA_TESTADA);
+    let erro = null;
+    try {
+      await db.exec(MIG_OTIM);
+    } catch (e) {
+      erro = e;
+    }
+    await db.exec("rollback;").catch(() => {});
+    expect(erro, "a migration deveria ter sido recusada").not.toBeNull();
+    expect(String(erro.message)).toMatch(/acoes_massivas_tipo_cobranca_alunos nao e a definicao testada/);
     expect(await md5De(db, "acoes_massivas_universo")).toBe(MD5_UNIVERSO_R5);
   });
 });

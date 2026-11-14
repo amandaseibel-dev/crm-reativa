@@ -105,8 +105,6 @@ const CENARIOS = [
   { tipo_cobranca: "ACORDOS_VENCIDOS", aluno_ids: "__PRIMEIROS__", operador: OP_B },
 ];
 
-const ordenar = (rows) => [...rows].sort((a, b) => String(a.aluno_id).localeCompare(String(b.aluno_id)));
-
 describe("otimizacao do universo: equivalencia com a #941", () => {
   let A, B, idsA, idsB;
 
@@ -148,7 +146,6 @@ describe("otimizacao do universo: equivalencia com a #941", () => {
       const ra = await A.query("select * from public.acoes_massivas_universo($1::jsonb)", [JSON.stringify(filtroA)]);
       const rb = await B.query("select * from public.acoes_massivas_universo($1::jsonb)", [JSON.stringify(filtroB)]);
       // alunos: mapeamento por posicao de criacao (mesmos dados, ids diferentes entre bases)
-      const mapa = new Map(idsA.map((x, i) => [x, idsB[i]]));
       // comparacao de TODAS as colunas (valores, tipos, datas, flags), com o id de aluno mapeado para
       // o da base A; checa duplicidade de aluno nas duas bases
       const canon = (rows, m) => rows

@@ -119,6 +119,14 @@ const REPS = Number(process.env.BENCH_REPS ?? 3);
 const SAIDA = resolve(process.env.BENCH_SAIDA ?? "benchmark-resultado");
 mkdirSync(SAIDA, { recursive: true });
 
+// TRAVA DE DESTINO (fail-closed): o benchmark so roda contra um Postgres descartavel local.
+// Recusa host que nao seja localhost, banco que nao seja "teste", e banco que ja tenha o schema auth
+// (sinal de banco de verdade). Nunca aponta para producao.
+const HOSTS_LOCAIS = new Set(["localhost", "127.0.0.1", "::1"]);
+if (!HOSTS_LOCAIS.has(process.env.PGHOST ?? "") || process.env.PGDATABASE !== "teste") {
+  console.error(`RECUSADO: destino nao e o Postgres descartavel (PGHOST=${process.env.PGHOST}, PGDATABASE=${process.env.PGDATABASE}).`);
+  process.exit(2);
+}
 const cliente = new pg.Client({
   host: process.env.PGHOST, port: Number(process.env.PGPORT), user: process.env.PGUSER,
   password: process.env.PGPASSWORD, database: process.env.PGDATABASE,
@@ -214,6 +222,10 @@ async function capturarPlano(rotulo, ids) {
 async function main() {
   const t0 = Date.now();
   await cliente.connect();
+  const jaTemAuth = (await cliente.query("select exists(select 1 from pg_namespace where nspname = 'auth') as ok")).rows[0].ok;
+  if (jaTemAuth) {
+    throw new Error("RECUSADO: o banco ja tem o schema auth (nao e o banco descartavel do benchmark).");
+  }
   usarFabricaDeBanco(async () => ({
     exec: (sql) => q(sql),
     query: (sql, v) => q(sql, v),

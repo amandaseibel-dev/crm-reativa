@@ -26,6 +26,16 @@ BEGIN
   END IF;
 END $t$;
 
+-- Guarda da funcao de tipo de cobranca (a otimizacao passa a chama-la com a lista de pop).
+-- MD5 d3e5dc84... = definicao APOS o #941 (estado sobre o qual esta otimizacao atua). A 323628b7 e a de producao antes do #941.
+DO $tc$
+BEGIN
+  IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_tipo_cobranca_alunos') IS DISTINCT FROM 'd3e5dc840b72a6fc2d7d68b4dd3070c6' THEN
+    RAISE EXCEPTION 'acoes_massivas_tipo_cobranca_alunos nao e a definicao testada (esperado d3e5dc84...). Nada aplicado.';
+  END IF;
+END $tc$;
+
 SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_universo',
 $a1$  tc as materialized (
     select t.aluno_id, t.tem_mensalidade, t.tem_acordo_vencido
