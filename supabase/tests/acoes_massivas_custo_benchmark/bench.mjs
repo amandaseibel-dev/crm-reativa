@@ -117,7 +117,6 @@ const N = Number(process.env.BENCH_ALUNOS ?? 30000);
 const MOVS = Number(process.env.BENCH_MOVS ?? 275467);
 const REPS = Number(process.env.BENCH_REPS ?? 3);
 const SAIDA = resolve(process.env.BENCH_SAIDA ?? "benchmark-resultado");
-mkdirSync(SAIDA, { recursive: true });
 
 // TRAVA DE DESTINO (fail-closed): o benchmark so roda contra um Postgres descartavel local.
 // Recusa host que nao seja localhost, banco que nao seja "teste", e banco que ja tenha o schema auth
@@ -226,6 +225,7 @@ async function main() {
   if (jaTemAuth) {
     throw new Error("RECUSADO: o banco ja tem o schema auth (nao e o banco descartavel do benchmark).");
   }
+  mkdirSync(SAIDA, { recursive: true });
   usarFabricaDeBanco(async () => ({
     exec: (sql) => q(sql),
     query: (sql, v) => q(sql, v),

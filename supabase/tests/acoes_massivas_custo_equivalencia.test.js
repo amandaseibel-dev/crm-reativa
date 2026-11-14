@@ -290,13 +290,13 @@ describe("grants reconfirmados pela otimizacao", () => {
   it("negativo: operador comum nao executa o universo otimizado (portao de gestao)", async () => {
     const db = await bancoComMigracao(emTransacao(MIG941), emTransacao(MIG_R5), emTransacao(MIG_OTIM));
     await comoOperador(db, OP_A);
-    await expect(db.query("select * from public.acoes_massivas_universo('{}'::jsonb)")).rejects.toThrow();
+    await expect(db.query("select * from public.acoes_massivas_universo('{}'::jsonb)")).rejects.toThrow(/restrito a gestao/);
   });
 
   it("negativo: anon nao executa o universo otimizado", async () => {
     const db = await bancoComMigracao(emTransacao(MIG941), emTransacao(MIG_R5), emTransacao(MIG_OTIM));
     await db.exec("set role anon");
-    await expect(db.query("select * from public.acoes_massivas_universo('{}'::jsonb)")).rejects.toThrow();
+    await expect(db.query("select * from public.acoes_massivas_universo('{}'::jsonb)")).rejects.toThrow(/permission denied/);
     await db.exec("reset role");
   });
 });

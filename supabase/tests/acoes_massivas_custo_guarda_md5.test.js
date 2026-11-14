@@ -88,4 +88,19 @@ describe("guarda de MD5 da otimizacao: a migration recusa definicao diferente", 
     expect(String(erro.message)).toMatch(/acoes_massivas_tipo_cobranca_alunos nao e a definicao testada/);
     expect(await md5De(db, "acoes_massivas_universo")).toBe(MD5_UNIVERSO_R5);
   });
+
+  it("universo alterado (corpo da R5 divergente): a migration aborta e nada e aplicado", async () => {
+    const db = await baseR5();
+    await db.exec("alter function public.acoes_massivas_universo(jsonb) set work_mem = '64kB';");
+    expect(await md5De(db, "acoes_massivas_universo")).not.toBe(MD5_UNIVERSO_R5);
+    let erro = null;
+    try {
+      await db.exec(MIG_OTIM);
+    } catch (e) {
+      erro = e;
+    }
+    await db.exec("rollback;").catch(() => {});
+    expect(erro, "a migration deveria ter sido recusada").not.toBeNull();
+    expect(String(erro.message)).toMatch(/Universo nao esta na versao da R5 v2/);
+  });
 });
