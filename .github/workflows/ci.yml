@@ -175,6 +175,44 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
 
   # ---------------------------------------------------------------------------
+  # assumir caso com fidelizacao vencida -- concorrencia REAL (2 sessoes psql)
+  # Carrega as fixtures de producao (md5) e a migration pendente num Postgres
+  # descartavel e roda os cenarios C1 (disputa), C2 (acionamento so no aluno) e
+  # C3 (acionamento so no caso). Ver supabase/tests/concorrencia_assumir_fidelizacao/.
+  # ---------------------------------------------------------------------------
+  assumir-fidelizacao-concorrencia:
+    name: assumir caso fidelizacao vencida (postgres real, concorrencia)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+
+    steps:
+      - uses: actions/checkout@v5
+      - name: Cenarios de concorrencia
+        run: bash supabase/tests/concorrencia_assumir_fidelizacao/cenarios.sh
+      - name: Security gate sobre o banco com a migration aplicada no ambiente de teste
+        run: bash scripts/seguranca/run_security_gate.sh "postgres://postgres:postgres@localhost:5432/teste_c3"
+
+  # ---------------------------------------------------------------------------
   # migration 20261030090000 — CONTINUIDADE de 48h e limite 5 por operador
   #
   # Aplica a migration num Postgres descartável e roda os 11 cenários:

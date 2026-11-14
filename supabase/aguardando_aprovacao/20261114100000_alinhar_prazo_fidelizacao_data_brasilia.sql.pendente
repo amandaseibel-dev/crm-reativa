@@ -1,0 +1,62 @@
+-- ALINHAR O PRAZO DE 10 DIAS A DATA DE BRASILIA. STATUS: PENDENTE, NAO APLICAR.
+--
+-- PROBLEMA: caso_dentro_prazo_fidelizacao usa current_date, que e a data UTC (a sessao do
+-- banco esta em UTC). Entre 21h e 24h de Brasilia a data UTC ja e o dia seguinte, e o prazo
+-- de 10 dias vira um dia antes do que a operacao espera.
+--
+-- CONSUMIDORES MAPEADOS EM PRODUCAO (somente leitura, 14/11/2026), via pg_proc.prosrc:
+--   calibragem_executar_nivelamento, calibragem_executar_nivelamento_lote_impl,
+--   calibragem_executar_simulacao, calibragem_nivel_criticidade, calibragem_simular,
+--   casos_risco_perder, liberar_fidelizacao_caso, nivelamento_automatico_gestao,
+--   nivelar_medias_progressivo (2 usos), redistribuir_casos_operadores (2 usos),
+--   redistribuir_casos_operadores_faixas (3 usos), reforcar_teto_operadores,
+--   trg_impor_teto_operador.
+--   + public.casos_elegiveis_liberacao_fidelizacao: NAO usa a helper; calcula
+--     `c.data_ultimo_acionamento + 10 < current_date` direto. Precisa de patch proprio.
+--   Frontend (src/): nenhum uso direto.
+--
+-- O QUE ESTA MIGRATION FAZ (so depois de confirmado):
+--   1) troca a helper pela data de Brasilia. Mesma assinatura, mesma semantica
+--      (nulo nao protege; ultimo acionamento + 10 >= hoje protege).
+--   2) patch ancorado em casos_elegiveis_liberacao_fidelizacao: current_date -> data de Brasilia.
+--   Nao muda os dez dias, nem o hold de 24h, nem nenhuma protecao.
+--
+-- DEPENDENCIA: a helper NAO esta na lista de funcoes da #936 (verificado no arquivo da #936),
+-- entao este alinhamento pode ir separado. MAS liberar_fidelizacao_caso e trg_impor_teto_operador
+-- sao consumidores e a #936 os altera: aplicar este arquivo SO depois de a #936 estar em
+-- producao e conferida (ver a ordem na PR #953), para o patch ancorado pegar o corpo final.
+--
+-- EFEITO ESPERADO: o prazo passa a virar as 00h de Brasilia (3h UTC). Quem ficou 10 dias
+-- completos pela data de Brasilia continua protegido; o caso so solta no dia 11 de Brasilia.
+
+begin;
+
+create or replace function public.caso_dentro_prazo_fidelizacao(p_data_ultimo_acionamento date)
+returns boolean
+language sql
+stable
+set search_path to 'public'
+as $function$
+  select p_data_ultimo_acionamento is not null
+     and p_data_ultimo_acionamento + 10 >= (now() at time zone 'America/Sao_Paulo')::date;
+$function$;
+
+-- Patch ancorado: so troca o trecho da data, preserva o resto do corpo vivo.
+do $patch$
+declare
+  v_def text := pg_get_functiondef('public.casos_elegiveis_liberacao_fidelizacao()'::regprocedure);
+  v_ancora text := '(c.data_ultimo_acionamento is null or c.data_ultimo_acionamento + 10 < current_date)';
+  v_novo text := '(c.data_ultimo_acionamento is null or c.data_ultimo_acionamento + 10 < (now() at time zone ''America/Sao_Paulo'')::date)';
+begin
+  if position(v_novo in v_def) > 0 then
+    raise notice 'casos_elegiveis_liberacao_fidelizacao ja usa data de Brasilia; nada a fazer.';
+  else
+    if (length(v_def) - length(replace(v_def, v_ancora, ''))) / length(v_ancora) <> 1 then
+      raise exception 'ancora de casos_elegiveis_liberacao_fidelizacao nao encontrada exatamente uma vez: a funcao mudou, revisar antes.';
+    end if;
+    execute replace(v_def, v_ancora, v_novo);
+  end if;
+end
+$patch$;
+
+commit;
