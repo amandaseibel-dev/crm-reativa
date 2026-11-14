@@ -107,3 +107,18 @@ select public.teste_assert('service_role: grava histórico (bypass do sistema)',
   public.teste_comando('service_role', 'sistema@exemplo.local',
     $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
          values ('a1','SISTEMA','TERMO_FISICO_ARQUIVADO','sistema@exemplo.local')$sql$)->>'ok' = 'true');
+
+-- Triagem Prime: a descrição padronizada NÃO casa com as palavras que a triagem procura.
+-- Texto idêntico ao de DESCRICAO_REGISTRO_ADMINISTRATIVO (src/utils/tabulacoes.js).
+insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, descricao, registrado_por_email)
+  values ('a3','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO','Registro administrativo do termo físico.','amanda.seibel@aelbra.com.br');
+select public.teste_assert('triagem Prime: descrição padronizada não ativa nenhuma palavra-chave',
+  (select count(*) from public.aluno_movimentacoes
+    where aluno_id = 'a3'
+      and (descricao ilike '%fies%' or descricao ilike '%isen%' or descricao ilike '%bolsa%'
+           or descricao ilike '%tranc%' or (descricao ilike '%cancel%' and descricao ilike '%matr%')
+           or descricao ilike '%desist%')) = 0);
+
+-- Não é acionamento (lista de tipos de produção) e não tem efeito financeiro.
+select public.teste_assert('não é acionamento: tipo REGISTRO_ADMINISTRATIVO fora de eh_tipo_acionamento',
+  public.eh_tipo_acionamento('REGISTRO_ADMINISTRATIVO') = false);
