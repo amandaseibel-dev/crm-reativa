@@ -315,7 +315,7 @@ Deno.serve(async (req: Request) => {
           async enviar(p) {
             // Qualquer falha da chamada é AMBÍGUA: sem contrato comprovado, não se sabe se a mensagem saiu.
             // Por isso nunca vira recusa; vira FALHA_INCERTA, que bloqueia repetição.
-            const resultado = await chamarComoOperador(p.access_token, "enviar_mensagem_whatsapp", { atendimento: p.atendimento_id, texto: p.texto, chave: p.chave });
+            const resultado = await chamarComoOperador(p.access_token, "enviar_mensagem_whatsapp", { atendimento: p.atendimento_id, texto: p.texto, chave: p.chave, previa: false });
             if (resultado.erro) throw new Error("ENVIO_RESPOSTA_AMBIGUA");
             const d = resultado.dados as { mensagem?: { id?: string }; id?: string };
             const id = d?.mensagem?.id ?? d?.id;
