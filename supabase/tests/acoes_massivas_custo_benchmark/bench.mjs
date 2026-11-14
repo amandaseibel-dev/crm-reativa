@@ -71,6 +71,34 @@ const CENARIOS = [
   { tipo_cobranca: "ACORDOS_VENCIDOS", aluno_ids: "__PRIMEIROS__", operador: OP_B },
 ];
 
+// Indices de PRODUCAO nas tabelas que o universo le (pg_indexes, somente leitura, 14/11/2026).
+// Sem eles o plano do benchmark nao representa producao (o fixture so tem PKs).
+// Replicados apenas os que o universo usa; colunas conferidas contra o fixture.
+// NAO replicados: indices das demais tabelas e colunas de producao ausentes no fixture
+// (ex.: acoes_desfazer.criado_em); acoes_desfazer nao tem indice por movimentacao_id em producao.
+const INDICES_PRODUCAO = [
+  "create index idx_aluno_movimentacoes_aluno_id on public.aluno_movimentacoes (aluno_id)",
+  "create index idx_aluno_mov_registrado_em on public.aluno_movimentacoes (registrado_em)",
+  "create index ix_aluno_mov_tipo_data on public.aluno_movimentacoes (tipo, registrado_em)",
+  "create index idx_aluno_mov_reg_por on public.aluno_movimentacoes (registrado_por_email, registrado_em)",
+  "create index idx_casos_aluno_id on public.casos (aluno_id)",
+  "create index idx_casos_operador_email on public.casos (operador_email)",
+  "create unique index ux_casos_uma_ficha_aberta_por_aluno on public.casos (aluno_id) where ((aluno_id is not null) and (not coalesce(encerrado_operacional, false)))",
+  "create index acordos_aluno_id_idx on public.acordos (aluno_id)",
+  "create index acordos_status_idx on public.acordos (status)",
+  "create index idx_acordos_aluno_operador on public.acordos (aluno_id, lower(operador_responsavel_email))",
+  "create index ix_acordos_titulos_aluno_venc on public.acordos_titulos (aluno_id, vencimento)",
+  "create index parcelas_acordo_id_idx on public.parcelas (acordo_id)",
+  "create index ix_parcelas_acordo_status_venc on public.parcelas (acordo_id, status, vencimento)",
+  "create index ix_vinculo_acordo on public.acordo_titulo_vinculo (acordo_id)",
+  "create index idx_acordo_titulo_vinculo_titulo on public.acordo_titulo_vinculo (titulo_id)",
+  "create index idx_alunos_responsavel_atual_email on public.alunos (responsavel_atual_email)",
+  "create index idx_alunos_curso on public.alunos (curso)",
+  "create index idx_alunos_unidade on public.alunos (unidade)",
+  "create index idx_alunos_situacao_academica on public.alunos (situacao_academica)",
+  "create index idx_alunos_data_ultimo_acionamento on public.alunos (data_ultimo_acionamento)",
+];
+
 const ACL_SQL = `select coalesce(array(
   select distinct case when a.grantee = 0 then 'PUBLIC' else pg_get_userbyid(a.grantee) end
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -199,6 +227,8 @@ async function main() {
   await comoGestao(db);
   const ids = await alunos(db, N, { ini: 1 });
   for (const sql of semearVolume()) await db.exec(sql);
+  // Indices de producao antes do ANALYZE: o plano medido precisa refletir o acesso real.
+  for (const sql of INDICES_PRODUCAO) await db.exec(sql);
   await db.exec("analyze;");
   const estados = [];
   estados.push(await estado("sem_941_R5"));
@@ -245,7 +275,7 @@ async function main() {
   }));
   const relatorio = {
     gerado_em: new Date().toISOString(),
-    parametros: { alunos: N, movimentacoes: MOVS, repeticoes: REPS },
+    parametros: { alunos: N, movimentacoes: MOVS, repeticoes: REPS, indices_producao_replicados: INDICES_PRODUCAO.length },
     checks, estados, sumario, antes, depois, rollback,
     plano_linhas: { antes: planoAntes, depois: planoDepois },
     duracao_total_s: Math.round((Date.now() - t0) / 1000),
