@@ -1,3 +1,4 @@
+import { emailParaIlike } from "./ilike_email.ts";
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decidirAcessoUlbra } from "./portao.ts";
@@ -57,10 +58,12 @@ serve(async (req) => {
       );
       const { data: { user } } = await sb.auth.getUser();
       if (!user?.email) return null;
+      const emailLike = emailParaIlike(user.email);
+      if (emailLike === null) return null;
       const { data: usuario } = await sbService
         .from("usuarios")
         .select("email, perfil")
-        .ilike("email", user.email)
+        .ilike("email", emailLike)
         .eq("ativo", true)
         .limit(1)
         .maybeSingle();
@@ -68,11 +71,13 @@ serve(async (req) => {
       return { email: usuario.email as string, perfil: usuario.perfil as string };
     },
     verificarEscopoAluno: async (email, _perfil, id) => {
+      const emailDono = emailParaIlike(email);
+      if (emailDono === null) return false;
       const { data } = await sbService
         .from("alunos")
         .select("id")
         .eq("id", id)
-        .ilike("responsavel_atual_email", email)
+        .ilike("responsavel_atual_email", emailDono)
         .limit(1)
         .maybeSingle();
       return !!data;

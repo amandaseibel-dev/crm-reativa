@@ -1,3 +1,4 @@
+import { emailParaIlike } from "./ilike_email.ts";
 // Atendimento atual do aluno na Mensageria Ulbra, para a ficha.
 // Só consulta aluno com vínculo ativo em ulbra_vinculos (criado pela
 // ulbra-consultar). Mesmo portão da ulbra-consultar: JWT + usuário ativo;
@@ -42,13 +43,17 @@ serve(async (req) => {
   const { data: { user } } = await sbUser.auth.getUser();
   if (!user?.email) return responder({ erro: "ACESSO_NEGADO" }, 403);
 
+  const emailLike = emailParaIlike(user.email);
+  if (emailLike === null) return responder({ erro: "ACESSO_NEGADO" }, 403);
   const { data: usuario } = await sbService
-    .from("usuarios").select("email, perfil").ilike("email", user.email).eq("ativo", true).limit(1).maybeSingle();
+    .from("usuarios").select("email, perfil").ilike("email", emailLike).eq("ativo", true).limit(1).maybeSingle();
   if (!usuario) return responder({ erro: "ACESSO_NEGADO" }, 403);
 
   if (!PERFIS_AMPLOS.includes(usuario.perfil as string)) {
+    const emailDono = emailParaIlike(usuario.email as string);
+    if (emailDono === null) return responder({ erro: "ACESSO_NEGADO" }, 403);
     const { data: naCarteira } = await sbService
-      .from("alunos").select("id").eq("id", aluno_id).ilike("responsavel_atual_email", usuario.email as string).limit(1).maybeSingle();
+      .from("alunos").select("id").eq("id", aluno_id).ilike("responsavel_atual_email", emailDono).limit(1).maybeSingle();
     if (!naCarteira) return responder({ erro: "ACESSO_NEGADO", detalhe: "aluno_fora_da_carteira" }, 403);
   }
 

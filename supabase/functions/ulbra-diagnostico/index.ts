@@ -1,3 +1,4 @@
+import { emailParaIlike } from "./ilike_email.ts";
 // Diagnóstico de gestão: diz o que o TOKEN DE BACKEND pode fazer na
 // Mensageria. Existe porque o escopo do `ULBRA_MCP_TOKEN` não é visível de
 // fora — o valor do secret não é exibível no painel — e ele decide o desenho
@@ -72,10 +73,12 @@ serve(async (req) => {
   const { data: { user } } = await sbUser.auth.getUser();
   if (!user?.email) return responder({ erro: "ACESSO_NEGADO" }, 403);
 
+  const emailLike = emailParaIlike(user.email);
+  if (emailLike === null) return responder({ erro: "ACESSO_NEGADO" }, 403);
   const { data: usuario } = await sbService
     .from("usuarios")
     .select("perfil")
-    .ilike("email", user.email)
+    .ilike("email", emailLike)
     .eq("ativo", true)
     .limit(1)
     .maybeSingle();

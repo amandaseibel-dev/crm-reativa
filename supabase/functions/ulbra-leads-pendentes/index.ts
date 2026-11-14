@@ -1,3 +1,4 @@
+import { emailParaIlike } from "./ilike_email.ts";
 // SUPERADA PELA `ulbra-sincronizar` (08/11/2026). NAO USAR EM TELA NOVA.
 // -----------------------------------------------------------------------------
 // Esta funcao faz UMA chamada a Mensageria POR REQUISICAO, e foi desenhada
@@ -42,10 +43,12 @@ serve(async (req) => {
       const { data: { user } } = await sb.auth.getUser();
       if (!user?.email) return null;
 
+      const emailLike = emailParaIlike(user.email);
+      if (emailLike === null) return null;
       const { data: usuario } = await sb
         .from("usuarios")
         .select("receptivo")
-        .ilike("email", user.email)
+        .ilike("email", emailLike)
         .eq("ativo", true)
         .limit(1)
         .maybeSingle();
