@@ -222,6 +222,21 @@ export interface Janela {
   cursor: string | null;
   pendente: string | null;
   topo: string | null;
+  /** Limite INFERIOR opcional (ISO): mensagem mais antiga que isto está fora do
+   *  escopo da coleta. Usado na coleta por período (ex.: só novembro): a leitura
+   *  para quando a página só tem itens abaixo dele, e o ciclo fecha como
+   *  completo — o que ficou abaixo não é backlog, é fora do escopo. */
+  desde?: string | null;
+}
+
+/** Verdadeiro quando `em` é anterior ao início da janela (`desde`). Sem `desde`, nunca. */
+export function antesDoInicio(em: string, j: Janela): boolean {
+  const d = j.desde;
+  if (!d) return false;
+  const a = Date.parse(em);
+  const b = Date.parse(d);
+  if (Number.isNaN(a) || Number.isNaN(b)) return em < d;
+  return a < b;
 }
 
 export interface PaginaConversas {
@@ -242,6 +257,7 @@ export interface PaginaConversas {
  * o pendente nunca deixa um empate pela metade.
  */
 function dentroDaJanela(em: string, j: Janela): boolean {
+  if (antesDoInicio(em, j)) return false;
   if (j.cursor !== null && em <= j.cursor) return false;
   // Estrito no piso: o grupo com o horário do piso NÃO está garantido como
   // processado (pode ter atravessado a página em que o ciclo parou). Relê-lo
@@ -299,8 +315,12 @@ export function lerPaginaConversas(resposta: unknown, janela: Janela): PaginaCon
   }
 
   // Página cheia com itens ainda acima do cursor: pode haver mais.
+  // Com `desde`, uma página cujo piso já está abaixo do início não tem mais nada
+  // a coletar: tudo abaixo é fora do escopo, não backlog.
   const pode_ter_mais =
-    itens.length >= LIMITE_PAGINA && (janela.cursor === null || (piso !== null && piso > janela.cursor));
+    itens.length >= LIMITE_PAGINA &&
+    (janela.cursor === null || (piso !== null && piso > janela.cursor)) &&
+    !(piso !== null && antesDoInicio(piso, janela));
 
   return { conversas, piso, pode_ter_mais, total, ems };
 }
@@ -575,6 +595,8 @@ export async function colherConversas(
             maiorAbaixo = c.ultima_mensagem_em;
           }
         }
+        // Nada abaixo do grupo dentro do escopo e o piso já passou do início: completo.
+        if (maiorAbaixo === null && antesDoInicio(p.piso, janela)) return { terminou: true, pendente: null };
         return { terminou: false, pendente: maiorAbaixo ?? grupo };
       }
     }
@@ -909,4 +931,110 @@ export function custoDiarioEstimado(c: Cadencia, detalhePorCiclo: number = DETAL
     fichas,
     cabe: total <= TETO_DIARIO_SYNC && fichas <= RESERVA_FICHAS_DIA,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Parâmetros da chamada manual (coleta por período)
+// ---------------------------------------------------------------------------
+/** Teto de chamadas desta execução, lido do corpo JSON. Ausente = sem teto extra. */
+export const TETO_EXECUCAO_MAX = 12;
+/** Leituras de detalhe por execução quando o corpo pede (coleta por período). */
+export const DETALHES_EXECUCAO_MAX = 20;
+/** `desde` não pode ser mais antigo que isto: coleta por período é para o mês corrente, não para o histórico. */
+export const DESDE_MAX_DIAS = 120;
+
+/** Teto ACUMULADO de uma campanha (ex.: 110 para novembro), conferido contra `chamadas_dia`. */
+export const TETO_TOTAL_MAX = 500;
+
+export interface ParametrosExecucao {
+  teto_chamadas: number | null;
+  /** Teto acumulado da campanha; a execução recebe no máximo o que resta dele. */
+  teto_total: number | null;
+  /** Id da campanha (ex.: "novembro-2026"): a reserva atômica no banco vale por ele,
+   *  independente do dia. Exige `teto_total`. */
+  campanha: string | null;
+  /** Início da janela (ISO), ou null. Ver `Janela.desde`. */
+  desde: string | null;
+  detalhes: number | null;
+}
+
+/**
+ * Corpo JSON da chamada manual: `teto_chamadas` (1..12), `desde` (data ISO ou
+ * `AAAA-MM-DD`, até 120 dias atrás, nunca no futuro) e `detalhes` (1..20).
+ * Corpo ausente = sem parâmetros (cron). Qualquer campo inválido = INVALIDO.
+ */
+export function lerParametros(texto: string, agoraMs = Date.now()): ParametrosExecucao | "INVALIDO" | null {
+  if (!texto) return null;
+  let corpo: { teto_chamadas?: unknown; teto_total?: unknown; campanha?: unknown; desde?: unknown; detalhes?: unknown };
+  try {
+    corpo = JSON.parse(texto);
+  } catch {
+    return "INVALIDO";
+  }
+  const r: ParametrosExecucao = { teto_chamadas: null, teto_total: null, campanha: null, desde: null, detalhes: null };
+  if (corpo.campanha !== undefined) {
+    const c = corpo.campanha;
+    if (typeof c !== "string" || !/^[a-z0-9][a-z0-9-]{2,39}$/.test(c)) return "INVALIDO";
+    r.campanha = c;
+  }
+  if (corpo.teto_total !== undefined) {
+    const n = corpo.teto_total;
+    if (!(typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= TETO_TOTAL_MAX)) return "INVALIDO";
+    r.teto_total = n;
+  }
+  if (corpo.teto_chamadas !== undefined) {
+    const n = corpo.teto_chamadas;
+    if (!(typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= TETO_EXECUCAO_MAX)) return "INVALIDO";
+    r.teto_chamadas = n;
+  }
+  if (corpo.detalhes !== undefined) {
+    const n = corpo.detalhes;
+    if (!(typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= DETALHES_EXECUCAO_MAX)) return "INVALIDO";
+    r.detalhes = n;
+  }
+  if (r.campanha !== null && r.teto_total === null) return "INVALIDO";
+  if (corpo.desde !== undefined) {
+    const d = corpo.desde;
+    if (typeof d !== "string" || !/^\d{4}-\d{2}-\d{2}(T.*)?$/.test(d)) return "INVALIDO";
+    // Data pura vale como meia-noite de Brasília, não UTC: "novembro" é o mês daqui.
+    const iso = d.length === 10 ? `${d}T00:00:00-03:00` : d;
+    const ms = Date.parse(iso);
+    if (Number.isNaN(ms) || ms > agoraMs || agoraMs - ms > DESDE_MAX_DIAS * 86400000) return "INVALIDO";
+    r.desde = new Date(ms).toISOString();
+  }
+  return r;
+}
+
+// ---------------------------------------------------------------------------
+// Erro de resposta da Mensageria: PARADA DURA, sem repetição automática.
+// ---------------------------------------------------------------------------
+// 401/403 (autenticação), 429 (limite) e 5xx/rede (servidor) param a execução
+// no ato: nada mais é chamado, o que foi lido NÃO é gravado como ciclo e o
+// procedimento manual não deve continuar sem leitura humana. Outros códigos
+// (4xx de contrato) também param: não há caso em que repetir seja seguro.
+export interface ErroMcp extends Error {
+  codigo: string;
+  parada: true;
+  http: number | null;
+}
+
+export function classificarHttp(status: number | null): string {
+  if (status === null) return "ULBRA_INDISPONIVEL";
+  if (status === 401 || status === 403) return "ULBRA_AUTENTICACAO";
+  if (status === 429) return "ULBRA_LIMITE";
+  if (status >= 500) return "ULBRA_SERVIDOR";
+  return `ULBRA_HTTP_${status}`;
+}
+
+export function erroMcp(status: number | null): ErroMcp {
+  const codigo = classificarHttp(status);
+  const e = new Error(codigo) as ErroMcp;
+  e.codigo = codigo;
+  e.parada = true;
+  e.http = status;
+  return e;
+}
+
+export function ehParada(e: unknown): e is ErroMcp {
+  return typeof e === "object" && e !== null && (e as { parada?: unknown }).parada === true;
 }
