@@ -78,10 +78,20 @@ export default function CentralConversas({
   historico = { estado: "indisponivel", mensagens: [] },
   aoAbrirFicha,
   vazio = "nenhum item na fila",
+  // Histórico SOB DEMANDA (1 chamada por página): só com clique, nunca ao selecionar.
+  onCarregarHistorico,
+  // Conexão individual do operador: { estado, pessoa, envioReal }. Sem ATIVA/EXPIRANDO, não há envio.
+  conexao = null,
+  onConectar,
+  onDesconectar,
+  // Envio em duas etapas: prévia (custo/janela) e confirmação (chave idempotente).
+  onPrevia,
+  onEnviar,
 }) {
   const sel = itens.find((i) => i.chave === selecionadoChave) || null;
   const mostra = sel ? "conversa" : "lista";
   const mostraConversa = sel && (historico.estado === "parcial" || historico.estado === "ok");
+  const podeEnviar = Boolean(conexao && (conexao.estado === "ATIVA" || conexao.estado === "EXPIRANDO") && sel?.alunoId && onPrevia && onEnviar);
 
   return (
     <div className="ulbra-conv" data-testid="visao-conversas" data-mostra={mostra}>
@@ -150,14 +160,51 @@ export default function CentralConversas({
 
             <div className="ulbra-conv-historico">
               <EstadoHistorico historico={historico} />
-              {mostraConversa ? (
-                <ConversaUlbra mensagens={historico.mensagens} podeEnviar={false} />
+              {historico.estado === "indisponivel" && onCarregarHistorico ? (
+                sel.alunoId ? (
+                  <button type="button" className="ulbra-botao" data-campo="carregar-historico" onClick={() => onCarregarHistorico(sel)}>
+                    Carregar histórico (1 chamada à Mensageria)
+                  </button>
+                ) : (
+                  <span className="ulbra-texto-desativado" data-campo="historico-bloqueado">Histórico só com CPF confirmado.</span>
+                )
+              ) : null}
+              {(mostraConversa || historico.estado === "vazio") && podeEnviar ? (
+                <ConversaUlbra
+                  mensagens={historico.mensagens}
+                  antesDe={historico.antesDe || null}
+                  onCarregarAnteriores={historico.onCarregarAnteriores}
+                  podeEnviar
+                  onPrevia={(texto) => onPrevia(sel, texto)}
+                  onEnviar={(texto, chave, previa) => onEnviar(sel, texto, chave, previa)}
+                />
+              ) : mostraConversa ? (
+                <ConversaUlbra mensagens={historico.mensagens} antesDe={historico.antesDe || null} onCarregarAnteriores={historico.onCarregarAnteriores} podeEnviar={false} />
               ) : null}
             </div>
 
-            <p className="ulbra-conv-envio-aviso" data-campo="envio-bloqueado">
-              Envio bloqueado: não há conexão individual de operador. Esta tela não envia mensagem.
-            </p>
+            <div className="ulbra-conv-envio-aviso" data-campo="conexao" data-estado={conexao?.estado || "SEM_CONEXAO"}>
+              {!conexao || conexao.estado === "SEM_CONEXAO" || conexao.estado === "EXPIRADA" || conexao.estado === "REVOGADA" ? (
+                <>
+                  <span data-campo="envio-bloqueado">
+                    Envio bloqueado: {conexao?.estado === "EXPIRADA" ? "sua conexão expirou." : conexao?.estado === "REVOGADA" ? "sua conexão foi desfeita." : "não há conexão individual da sua conta."}{" "}
+                    Responder exige a sua própria conta da Mensageria (autoria sua).
+                  </span>
+                  {onConectar ? (
+                    <button type="button" className="ulbra-link" data-campo="conectar" onClick={onConectar}>
+                      Conectar minha conta da Mensageria (abre a ULBRA; 1 chamada da sua cota)
+                    </button>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <span data-campo="conexao-ativa">
+                    Conectado como <strong>{conexao.pessoa || "você"}</strong>{conexao.envioReal === false ? " · envio real desligado nesta etapa (só prévia)" : ""}.
+                  </span>
+                  {onDesconectar ? <button type="button" className="ulbra-link" data-campo="desconectar" onClick={onDesconectar}>Desconectar</button> : null}
+                </>
+              )}
+            </div>
           </>
         )}
       </section>

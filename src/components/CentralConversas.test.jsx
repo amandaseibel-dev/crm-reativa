@@ -88,7 +88,7 @@ describe("painel da conversa", () => {
     tela({ selecionadoChave: "r:c1", historico: { estado: "ok", mensagens: [{ direcao: "ENTRADA", texto: "oi", em: "2026-11-10T10:00:00Z" }] } });
     const painel = document.querySelector(".ulbra-conv-painel");
     expect(within(painel).getByRole("textbox").disabled).toBe(true);
-    expect(within(painel).getByRole("button", { name: /enviar/i }).disabled).toBe(true);
+    expect(within(painel).getByRole("button", { name: /prévia/i }).disabled).toBe(true);
     expect(document.querySelector('[data-campo="envio-bloqueado"]').textContent).toMatch(/Envio bloqueado/);
   });
 
@@ -148,5 +148,30 @@ describe("celular", () => {
     expect(document.querySelector('[data-testid="visao-conversas"]').getAttribute("data-mostra")).toBe("conversa");
     fireEvent.click(screen.getByLabelText("Voltar para a lista"));
     expect(onVoltar).toHaveBeenCalledTimes(1);
+  });
+});
+
+// TRAVA DE ETAPA: enquanto a `ulbra-conversa` nao estiver publicada, a Central
+// nao passa `onConectar`, e o caminho de OAuth nao vai para a tela. O segundo
+// caso e o GRUPO DE CONTROLE: sem ele, o primeiro passaria tambem se o painel
+// simplesmente nao renderizasse -- verde falso.
+describe("trava de etapa: OAuth e envio sem backend", () => {
+  const SEM_CONEXAO = { estado: "SEM_CONEXAO", pessoa: null, envioReal: false };
+
+  it("sem backend de conversa (onConectar ausente), nao oferece Conectar", () => {
+    tela({ selecionadoChave: "r:c1", conexao: SEM_CONEXAO });
+    expect(document.querySelector('[data-campo="conectar"]')).toBeNull();
+  });
+
+  it("GRUPO DE CONTROLE: com backend (onConectar presente), oferece Conectar", () => {
+    tela({ selecionadoChave: "r:c1", conexao: SEM_CONEXAO, onConectar: () => {} });
+    expect(document.querySelector('[data-campo="conectar"]')).toBeTruthy();
+  });
+
+  it("sem backend, o envio segue bloqueado: nada de previa nem de confirmar", () => {
+    tela({ selecionadoChave: "r:c1", conexao: SEM_CONEXAO });
+    expect(document.querySelector('[data-campo="confirmar"]')).toBeNull();
+    const area = screen.queryByLabelText("Resposta");
+    if (area) expect(area.disabled).toBe(true);
   });
 });

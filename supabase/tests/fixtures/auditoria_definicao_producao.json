@@ -1,0 +1,14 @@
+{
+  "origem": "information_schema.columns, projeto ahattpqrjmhkzsmnbdzs (produção), consulta somente leitura em 13/11/2026",
+  "tabela": "public.auditoria",
+  "colunas": [
+    {"nome": "id", "tipo": "uuid", "anulavel": false, "padrao": "uuid_generate_v4()"},
+    {"nome": "usuario", "tipo": "text", "anulavel": true, "padrao": null},
+    {"nome": "acao", "tipo": "text", "anulavel": false, "padrao": null},
+    {"nome": "tabela_afetada", "tipo": "text", "anulavel": true, "padrao": null},
+    {"nome": "registro_id", "tipo": "uuid", "anulavel": true, "padrao": null},
+    {"nome": "detalhes", "tipo": "jsonb", "anulavel": true, "padrao": null},
+    {"nome": "created_at", "tipo": "timestamp without time zone", "anulavel": true, "padrao": "now()"}
+  ],
+  "observacao": "registro_id é uuid. O id do atendimento da Mensageria é texto de 24 caracteres e NÃO cabe ali: vai em detalhes."
+}

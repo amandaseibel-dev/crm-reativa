@@ -26,6 +26,9 @@ import CentralConversas from "../components/CentralConversas";
 import MensageriaPeriodo from "../components/MensageriaPeriodo";
 import { supabase } from "../services/supabase";
 import { buscarFilaCarteira } from "../utils/filaCarteiraServidor";
+import {
+  conexaoDesconectar, conexaoEstado, conexaoIniciar, envioConfirmar, envioPrevia, lerHistorico, mapearHistorico, resumirPrevia,
+} from "../utils/ulbraConversaCliente";
 import usePolling from "../utils/polling";
 import { normalizarEmail } from "../utils/ulbraRecebimento";
 import {
@@ -136,6 +139,12 @@ export default function CentralUlbra({ usuario }) {
   const rolagemPendente = useRef(posicao?.rolagem ?? null);
   // Fila "sem interação" pela CARTEIRA, consultada no servidor (RLS + filtros).
   const [carteira, setCarteira] = useState({ linhas: [], temMais: false, erro: null, pagina: 0 });
+  // Histórico SOB DEMANDA por conversa (chave da lista -> estado). Nunca é lido ao selecionar.
+  const [historicos, setHistoricos] = useState({});
+  // Conexão individual do operador com a Mensageria (estado lido do servidor; nunca token).
+  const [conexao, setConexao] = useState(null);
+  // Backend de conversa publicado? Trava de etapa: ver o useEffect abaixo.
+  const [conversaNoAr, setConversaNoAr] = useState(false);
 
   const buscar = useCallback(async () => {
     const lidas = [];
@@ -219,6 +228,77 @@ export default function CentralUlbra({ usuario }) {
   }
   function voltarParaLista() {
     setParams(new URLSearchParams(paraBusca({ ...filtros, conv: "" }).replace(/^\?/, "")));
+  }
+
+  // Conexão: lida uma vez ao entrar na visão de conversas. Função ausente/sem
+  // configuração = estado SEM_CONEXAO com motivo, nunca "conectado".
+  //
+  // `conversaNoAr` é a trava desta etapa: só é true quando a `ulbra-conversa`
+  // RESPONDEU (`ok: true`). Enquanto ela não estiver publicada, a resposta é
+  // `ok` falso e o botão "Conectar minha conta" não é oferecido -- caminho sem
+  // backend não vai para a tela. O histórico não passa por aqui: ele fala com
+  // a `ulbra-historico`, por isso pode ser implantado sozinho.
+  useEffect(() => {
+    if (filtros.visao !== "conversas" || !email) return undefined;
+    let ativo = true;
+    (async () => {
+      const r = await conexaoEstado();
+      if (!ativo) return;
+      setConversaNoAr(r?.ok === true);
+      setConexao(r?.ok ? { estado: r.estado, pessoa: r.pessoa, envioReal: r.envio_real === true } :{ estado: "SEM_CONEXAO", pessoa: null, envioReal: false, motivo: r?.motivo || r?.erro || null });
+    })();
+    return () => { ativo = false; };
+  }, [filtros.visao, email]);
+
+  const conversaIdDe = (sel) => sel?.bruto?.conversa_id || (String(sel?.chave || "").startsWith("r:") ? String(sel.chave).slice(2) : null);
+
+  async function carregarHistorico(sel, antesDe = null) {
+    const conversaId = conversaIdDe(sel);
+    if (!conversaId) {
+      setHistoricos((h) => ({ ...h, [sel.chave]: { estado: "erro", mensagens: [], erro: "Esta linha não tem conversa coletada na Mensageria (só carteira interna)." } }));
+      return;
+    }
+    const anterior = antesDe ? historicos[sel.chave] : null;
+    setHistoricos((h) => ({ ...h, [sel.chave]: { ...(h[sel.chave] || { mensagens: [] }), estado: "carregando" } }));
+    const r = await lerHistorico(conversaId, antesDe);
+    const novo = mapearHistorico(r, anterior);
+    setHistoricos((h) => ({
+      ...h,
+      [sel.chave]: {
+        ...novo,
+        onTentar: () => carregarHistorico(sel, antesDe),
+        onCarregarAnteriores: novo.antesDe ? () => carregarHistorico(sel, novo.antesDe) : undefined,
+      },
+    }));
+  }
+
+  async function conectar() {
+    const r = await conexaoIniciar();
+    if (r?.ok && r.url) {
+      // A autorização é do OPERADOR, na tela da própria Mensageria. Abre em nova aba.
+      window.open(r.url, "_blank", "noopener,noreferrer");
+      setRecado("Autorize na aba da Mensageria. Ao voltar, a conexão aparece aqui.");
+    } else {
+      setRecado(`Não foi possível iniciar a conexão: ${r?.motivo || r?.erro || "função indisponível"}.`);
+    }
+  }
+  async function desconectar() {
+    const r = await conexaoDesconectar();
+    setConexao({ estado: r?.estado || "REVOGADA", pessoa: null, envioReal: conexao?.envioReal === true });
+  }
+  async function previaDe(sel, texto) {
+    const conversaId = conversaIdDe(sel);
+    if (!conversaId) return { ok: false, recusa: "Esta linha não tem conversa na Mensageria.", custo_usd: null, janela_aberta: null };
+    return resumirPrevia(await envioPrevia(conversaId, texto));
+  }
+  async function enviarDe(sel, texto, chave, previa) {
+    // Só confirma com a prévia registrada no servidor. Sem previa_id, nada sai.
+    if (!previa?.previa_id) return { situacao: "BLOQUEADO", motivos: ["PREVIA_AUSENTE"] };
+    const r = await envioConfirmar(previa.previa_id, texto, chave);
+    if (r?.situacao === "PROCESSADO" && r?.envio?.status === "ENVIADO") {
+      setRecado("Mensagem enviada em seu nome. A Central reflete a Mensageria só na próxima coleta.");
+    }
+    return r;
   }
 
   function aoAbrirFicha() {
@@ -363,9 +443,15 @@ export default function CentralUlbra({ usuario }) {
           selecionadoChave={filtros.conv}
           onSelecionar={selecionarConversa}
           onVoltar={voltarParaLista}
-          historico={{ estado: "indisponivel", mensagens: [] }}
+          historico={historicos[filtros.conv] || { estado: "indisponivel", mensagens: [] }}
           aoAbrirFicha={aoAbrirFicha}
           vazio="nenhuma conversa nesta fila"
+          onCarregarHistorico={carregarHistorico}
+          conexao={conexao}
+          onConectar={conversaNoAr ? conectar : undefined}
+          onDesconectar={conversaNoAr ? desconectar : undefined}
+          onPrevia={previaDe}
+          onEnviar={enviarDe}
         />
         {carteira.temMais ? (
           <button type="button" className="ulbra-botao" onClick={carregarMaisCarteira}>Carregar mais da carteira</button>
