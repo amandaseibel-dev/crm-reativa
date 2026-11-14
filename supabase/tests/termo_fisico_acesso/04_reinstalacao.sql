@@ -43,3 +43,22 @@ select public.teste_assert('reinstalação: a tabela nova continua imutável',
 select public.teste_assert('reinstalação: gestão lê a tabela nova pela RPC',
   public.teste_consulta('authenticated', 'amanda.seibel@aelbra.com.br',
     'select public.termo_fisico_ler(''42'') as r')->>'ok' = 'true');
+
+-- Reexecução dos acessos essenciais DEPOIS da reinstalação (sem depender da
+-- contagem de dados, que mudou com a cópia do histórico).
+select public.teste_assert('reinstalação: anon sem leitura nem execução',
+  public.teste_consulta('anon', null, 'select * from public.aluno_termo_fisico_eventos')->>'code' = '42501'
+  and public.teste_consulta('anon', null, 'select public.termo_fisico_ler(''a0000000-0000-0000-0000-000000000042'')')->>'code' = '42501');
+select public.teste_assert('reinstalação: operador não vê nenhuma linha pela RLS',
+  jsonb_array_length((public.teste_consulta('authenticated', 'operador.teste@exemplo.local',
+    'select * from public.aluno_termo_fisico_eventos')->'rows')) = 0);
+select public.teste_assert('reinstalação: operador não executa a RPC de leitura',
+  public.teste_consulta('authenticated', 'operador.teste@exemplo.local',
+    'select public.termo_fisico_ler(''a0000000-0000-0000-0000-000000000042'')')->>'code' = '42501');
+select public.teste_assert('reinstalação: service_role sem privilégio na tabela nem nas funções',
+  not has_table_privilege('service_role', 'public.aluno_termo_fisico_eventos', 'SELECT')
+  and not has_function_privilege('service_role', 'public.termo_fisico_ler(text)', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.termo_fisico_registrar(text,text,boolean)', 'EXECUTE'));
+select public.teste_assert('reinstalação: PUBLIC sem entrada na ACL das funções novas',
+  not exists (select 1 from aclexplode((select proacl from pg_proc
+                 where oid = 'public.termo_fisico_registrar(text,text,boolean)'::regprocedure)) a where a.grantee = 0));

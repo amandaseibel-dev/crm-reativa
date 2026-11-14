@@ -1144,3 +1144,4 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_apos_rollback.sql"
           psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
           psql -v ON_ERROR_STOP=1 -f "$DIR/04_reinstalacao.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/05_mesclagem_e_casos_extremos.sql"

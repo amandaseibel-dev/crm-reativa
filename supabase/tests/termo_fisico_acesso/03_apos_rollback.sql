@@ -27,7 +27,7 @@ select public.teste_assert('rollback: gestão não lê a tabela arquivada',
   public.teste_consulta('authenticated', 'amanda.seibel@aelbra.com.br',
     'select * from public.aluno_termo_fisico_eventos_descartada_20261113')->>'code' = '42501');
 
-select public.teste_assert('rollback: as três triggers continuam na tabela arquivada',
+select public.teste_assert('rollback: as duas triggers (linha e instrução) continuam na tabela arquivada',
   (select count(*) from pg_trigger t
      join pg_class c on c.oid = t.tgrelid
     where c.relname = 'aluno_termo_fisico_eventos_descartada_20261113'
