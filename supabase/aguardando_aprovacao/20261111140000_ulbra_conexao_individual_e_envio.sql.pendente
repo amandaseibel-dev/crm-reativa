@@ -110,8 +110,9 @@ create table public.ulbra_envios (
   constraint ulbra_envios_atendimento_formato check (atendimento_id ~ '^[a-f0-9]{24}$')
 );
 create index ulbra_envios_atendimento_idx on public.ulbra_envios (atendimento_id, criado_em desc);
--- No máximo UM envio em aberto (PENDENTE, ENVIANDO ou FALHA_INCERTA) por atendimento e texto,
--- entre todos os operadores. Fecha a corrida entre requisições concorrentes com chaves diferentes.
+-- No máximo UM envio por atendimento, texto e repetição nos estados que bloqueiam repetição
+-- (PENDENTE, ENVIANDO, FALHA_INCERTA, ENVIADO, CONFIRMADO_ENVIADO), entre todos os operadores.
+-- CONFIRMADO_NAO_ENVIADO NÃO bloqueia. Fecha a corrida entre requisições com chaves diferentes.
 create unique index ulbra_envios_texto_em_aberto_unica on public.ulbra_envios (atendimento_id, md5(texto), repeticao)
   where status in ('PENDENTE','ENVIANDO','FALHA_INCERTA','ENVIADO','CONFIRMADO_ENVIADO');
 alter table public.ulbra_envios enable row level security;
@@ -154,6 +155,11 @@ begin
   -- Não pode ser declarado enviado.
   if v_status = 'PENDENTE' and p_decisao = 'CONFIRMADO_ENVIADO' then
     return jsonb_build_object('situacao', 'BLOQUEADO', 'motivos', jsonb_build_array('PENDENTE_NUNCA_CHAMADO_NAO_PODE_SER_ENVIADO'));
+  end if;
+  -- "Não enviado" só com prova de que a chamada NUNCA começou: PENDENTE. ENVIANDO ou FALHA_INCERTA
+  -- podem já ter chegado ao provedor; declará-los não enviados libera um reenvio duplicado.
+  if v_status <> 'PENDENTE' and p_decisao = 'CONFIRMADO_NAO_ENVIADO' then
+    return jsonb_build_object('situacao', 'BLOQUEADO', 'motivos', jsonb_build_array('NAO_ENVIADO_SO_DE_PENDENTE'));
   end if;
   update public.ulbra_envios
      set status = p_decisao,

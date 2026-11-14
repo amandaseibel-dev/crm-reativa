@@ -34,6 +34,12 @@ const CONSUMIR = "update public.ulbra_envio_previas set consumida_em = $2 where 
 const OP = "op@x.com.br";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Guarda: o runner faz DROP DATABASE. Só roda contra Postgres LOCAL (CI ou máquina de teste).
+const HOSTS_LOCAIS = ["localhost", "127.0.0.1", "::1"];
+if (!HOSTS_LOCAIS.includes(cfg.host)) {
+  console.error(`RECUSADO: PGHOST=${cfg.host} não é local. O runner apaga bancos; use Postgres local.`);
+  process.exit(2);
+}
 async function conectar(database) {
   const c = new Client({ ...cfg, database });
   await c.connect();
@@ -321,6 +327,32 @@ async function main() {
     const st = await c.query("select status from public.ulbra_envios where chave = 'chave-conf-pend-2'");
     igual(st.rows[0].status, "PENDENTE", "status intacto");
   });
+  await teste("NÃO ENVIADO só de PENDENTE: em ENVIANDO e FALHA_INCERTA é barrado e o status fica intacto", async () => {
+    await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-naoenv-env', $1, $2, 'texto-naoenv-env', 'ENVIANDO')", [OP, AT]);
+    await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-naoenv-fi', $1, $2, 'texto-naoenv-fi', 'FALHA_INCERTA')", [OP, AT]);
+    for (const chave of ["chave-naoenv-env", "chave-naoenv-fi"]) {
+      const r = await rpc(c, { op: OP, chave, decisao: "CONFIRMADO_NAO_ENVIADO", motivo: MOT, por: "gestao@x" });
+      igual(r.situacao, "BLOQUEADO", "situação de " + chave);
+      if (!r.motivos.includes("NAO_ENVIADO_SO_DE_PENDENTE")) throw new Error("motivo ausente em " + chave + ": " + JSON.stringify(r.motivos));
+      const st = await c.query("select status from public.ulbra_envios where chave = $1", [chave]);
+      igual(st.rows[0].status, chave === "chave-naoenv-env" ? "ENVIANDO" : "FALHA_INCERTA", "status de " + chave);
+    }
+  });
+  await teste("conferidor vazio e motivo curto são recusados, sem alterar o envio", async () => {
+    await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-valid-0', $1, $2, 'texto-valid-0', 'PENDENTE')", [OP, AT]);
+    const semConferidor = await rpc(c, { op: OP, chave: "chave-valid-0", decisao: "CONFIRMADO_NAO_ENVIADO", motivo: MOT, por: "   " });
+    if (!semConferidor.motivos.includes("CONFERIDOR_OBRIGATORIO")) throw new Error("CONFERIDOR_OBRIGATORIO ausente: " + JSON.stringify(semConferidor));
+    const motivoCurto = await rpc(c, { op: OP, chave: "chave-valid-0", decisao: "CONFIRMADO_NAO_ENVIADO", motivo: "curto", por: "gestao@x" });
+    if (!motivoCurto.motivos.includes("MOTIVO_OBRIGATORIO")) throw new Error("MOTIVO_OBRIGATORIO ausente: " + JSON.stringify(motivoCurto));
+    const st = await c.query("select status from public.ulbra_envios where chave = 'chave-valid-0'");
+    igual(st.rows[0].status, "PENDENTE", "status intacto após recusas");
+  });
+  await teste("conferência preserva o motivo original do envio, ao lado da decisão", async () => {
+    await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status, motivo) values ('chave-motivo-0', $1, $2, 'texto-motivo-0', 'PENDENTE', 'motivo original do sistema')", [OP, AT]);
+    await rpc(c, { op: OP, chave: "chave-motivo-0", decisao: "CONFIRMADO_NAO_ENVIADO", motivo: MOT, por: "gestao@x" });
+    const st = await c.query("select motivo from public.ulbra_envios where chave = 'chave-motivo-0'");
+    if (!st.rows[0].motivo.includes("motivo original: motivo original do sistema")) throw new Error("motivo original não preservado: " + st.rows[0].motivo);
+  });
   await teste("atomicidade: se a auditoria falha, a decisão é DESFEITA na mesma transação", async () => {
     await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-atom-1', $1, $2, 'texto-atom-1', 'FALHA_INCERTA')", [OP, AT]);
     await c.query("alter table public.auditoria add constraint auditoria_teste_falha check (acao <> 'ULBRA_ENVIO_CONFERIDO') not valid");
@@ -340,8 +372,10 @@ async function main() {
         rpc(a, { op: OP, chave: "chave-cc-conf", decisao: "CONFIRMADO_NAO_ENVIADO", motivo: MOT, por: "gestao-a" }),
         rpc(b, { op: OP, chave: "chave-cc-conf", decisao: "CONFIRMADO_ENVIADO", motivo: MOT, por: "gestao-b" }),
       ]);
-      const situacoes = [ra.situacao, rb.situacao].sort();
-      igual(situacoes, ["BLOQUEADO", "RESOLVIDO"], "situações das duas conferências");
+      // Determinístico: "não enviado" é SEMPRE barrado sobre ENVIANDO, em qualquer ordem de execução.
+      igual(ra.situacao, "BLOQUEADO", "NAO_ENVIADO sobre ENVIANDO");
+      igual(rb.situacao, "RESOLVIDO", "ENVIADO sobre ENVIANDO");
+      igual((await c.query("select status from public.ulbra_envios where chave = 'chave-cc-conf'")).rows[0].status, "CONFIRMADO_ENVIADO", "status final");
       const au = await c.query("select count(*)::int as n from public.auditoria where detalhes->>'chave' = 'chave-cc-conf'");
       igual(au.rows[0].n, 1, "auditorias geradas (uma só)");
     } finally {

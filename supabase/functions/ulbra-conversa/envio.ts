@@ -140,7 +140,8 @@ export function validarPedido(p: PedidoEnvio): string[] {
   }
   // Identidade do atendente: a Mensageria só aceita envio da conta atendente. Fail-closed.
   const atendente = normalizarIdentidade(p.atendente_ulbra);
-  const contaIds = [normalizarIdentidade(p.conta_conectada?.pessoa_id), normalizarIdentidade(p.conta_conectada?.pessoa_nome)].filter((x) => x !== "");
+  // Só o e-mail (pessoa.email de meu_acesso) identifica a pessoa. Nome não identifica: não é comparado.
+  const contaIds = [normalizarIdentidade(p.conta_conectada?.pessoa_id)].filter((x) => x !== "");
   if (atendente === "") motivos.push("ATENDENTE_ULBRA_NAO_LIDO");
   else if (contaIds.length === 0) motivos.push("CONTA_CONECTADA_NAO_IDENTIFICADA");
   else if (!contaIds.includes(atendente)) motivos.push("ATENDENTE_DIFERENTE_DA_CONTA_CONECTADA");

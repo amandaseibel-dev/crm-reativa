@@ -263,10 +263,12 @@ Deno.serve(async (req: Request) => {
       try {
         const { dados } = await chamarComoOperador(t.access_token, "meu_acesso", {});
         const a = dados as { pessoa?: { nome?: string; email?: string }; nome?: string; escopos?: unknown; soLeitura?: unknown };
-        // Identidade estável COMPROVADA em meu_acesso: pessoa.email (pessoa.id não aparece no retorno).
+        // Campo de identidade disponível em meu_acesso: pessoa.email (pessoa.id não aparece no retorno).
+        // Estabilidade e equivalência com o atendente NÃO comprovadas: a comparação segue fail-closed.
         pessoa = { pessoa_nome: a?.pessoa?.nome ?? null, pessoa_id: a?.pessoa?.email ?? null, escopos: a?.escopos ?? null, so_leitura: typeof a?.soLeitura === "boolean" ? a.soLeitura : null };
       } catch (e) {
-        pessoa = { pessoa_nome: null, escopos: null, so_leitura: null };
+        // pessoa_id explícito: o upsert não pode herdar o e-mail de uma conexão anterior (outra conta).
+        pessoa = { pessoa_nome: null, pessoa_id: null, escopos: null, so_leitura: null };
         console.error("ulbra-conversa: meu_acesso do operador falhou", (e as Error).message);
       }
       await guardarTokens(t, { conectada_em: new Date().toISOString(), ...pessoa });

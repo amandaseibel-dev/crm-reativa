@@ -45,9 +45,9 @@ describe("identidade do atendente: conferida contra a conta conectada (fail-clos
   it("atendente igual ao pessoa_id da conta: passa", () => {
     expect(validarPedido(pedido())).toEqual([]);
   });
-  it("atendente igual ao nome da conta (sem diferença de caixa/espaço): passa", () => {
-    const p = pedido({ atendente_ulbra: "  OPERADOR  piloto ", conta_conectada: { pessoa_id: null, pessoa_nome: "operador piloto" } });
-    expect(validarPedido(p)).toEqual([]);
+  it("nome igual ao da conta, sem e-mail (pessoa_id): bloqueia — nome não identifica pessoa", () => {
+    const p = pedido({ atendente_ulbra: "operador piloto", conta_conectada: { pessoa_id: null, pessoa_nome: "operador piloto" } });
+    expect(validarPedido(p)).toContain("CONTA_CONECTADA_NAO_IDENTIFICADA");
   });
   it("atendente de OUTRA pessoa: bloqueia", () => {
     expect(validarPedido(pedido({ atendente_ulbra: "outra-pessoa-9" }))).toContain("ATENDENTE_DIFERENTE_DA_CONTA_CONECTADA");
@@ -307,16 +307,13 @@ describe("repetição intencional, envio confirmado e pendência comprovadamente
 });
 
 describe("transições condicionais: PENDENTE->ENVIANDO e a guarda de FALHA_INCERTA", () => {
-  it("se a linha não está mais em PENDENTE ao marcar ENVIANDO, o provedor NÃO é chamado", async () => {
-    class RepoSemPendente extends RepoMemoria {
-      async buscar() { return null; }
-      async inserirSeNovo() { return "NOVO" as const; }
-      async atualizar(o: string, c: string, campos: Partial<Envio>, de?: readonly StatusEnvio[]) {
-        if (de && de.includes("PENDENTE")) return false;
-        return super.atualizar(o, c, campos, de);
-      }
+  it("se a linha já está em CONFIRMADO_NAO_ENVIADO ao marcar ENVIANDO, o provedor NÃO é chamado", async () => {
+    // Linha REAL no estado de conferência: a transição condicional (de = PENDENTE) é que precisa barrar.
+    // Sem o filtro de estado em atualizar, este teste falha (provedor chamado).
+    class RepoJaConferido extends RepoMemoria {
+      async inserirSeNovo(novo: Envio) { return super.inserirSeNovo({ ...novo, status: "CONFIRMADO_NAO_ENVIADO" }); }
     }
-    const repo = new RepoSemPendente();
+    const repo = new RepoJaConferido();
     const { d, provedorEnvio } = deps({ repositorio: repo });
     await expect(enviarResposta(pedido(), d)).rejects.toThrow("ENVIO_ESTADO_CONCORRENTE");
     expect(provedorEnvio.chamadas).toEqual([]);
@@ -325,13 +322,13 @@ describe("transições condicionais: PENDENTE->ENVIANDO e a guarda de FALHA_INCE
     const repo = new RepoMemoria();
     const provedor: ProvedorEnvio = {
       async enviar() {
-        repo.m.set(`${OP}|${CHAVE}`, { ...repo.m.get(`${OP}|${CHAVE}`)!, status: "CONFIRMADO_NAO_ENVIADO" });
+        repo.m.set(`${OP}|${CHAVE}`, { ...repo.m.get(`${OP}|${CHAVE}`)!, status: "CONFIRMADO_ENVIADO" });
         throw new Error("ECONNRESET");
       },
     };
     const { d } = deps({ repositorio: repo, provedorEnvio: provedor });
     await expect(enviarResposta(pedido(), d)).rejects.toThrow("ENVIO_ESTADO_CONCORRENTE");
-    expect(repo.m.get(`${OP}|${CHAVE}`)!.status).toBe("CONFIRMADO_NAO_ENVIADO");
+    expect(repo.m.get(`${OP}|${CHAVE}`)!.status).toBe("CONFIRMADO_ENVIADO");
   });
 });
 
@@ -347,12 +344,12 @@ describe("ENVIADO bloqueia repetição; conferência durante a chamada não é s
     const repo = new RepoMemoria();
     const provedor: ProvedorEnvio = {
       async enviar() {
-        repo.m.set(`${OP}|${CHAVE}`, { ...repo.m.get(`${OP}|${CHAVE}`)!, status: "CONFIRMADO_NAO_ENVIADO" });
+        repo.m.set(`${OP}|${CHAVE}`, { ...repo.m.get(`${OP}|${CHAVE}`)!, status: "CONFIRMADO_ENVIADO" });
         return { ulbra_mensagem_id: "msg-1" };
       },
     };
     const { d } = deps({ repositorio: repo, provedorEnvio: provedor });
     await expect(enviarResposta(pedido(), d)).rejects.toThrow("ENVIO_ESTADO_CONCORRENTE");
-    expect(repo.m.get(`${OP}|${CHAVE}`)!.status).toBe("CONFIRMADO_NAO_ENVIADO");
+    expect(repo.m.get(`${OP}|${CHAVE}`)!.status).toBe("CONFIRMADO_ENVIADO");
   });
 });

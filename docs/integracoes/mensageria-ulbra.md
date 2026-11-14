@@ -602,11 +602,11 @@ proposta para aplicação.
 
 ## Catálogo por descoberta de esquemas (13/11/2026) — correção ao quadro acima
 
-As seções anteriores deste documento não listam `enviar_mensagem_whatsapp`. Na descoberta de 13/11/2026, feita só pela leitura dos esquemas da conexão MCP de uma sessão (nada foi executado), a ferramenta de envio existe e tem estes contratos:
+Na descoberta de 13/11/2026, feita só pela leitura dos esquemas da conexão MCP de uma sessão (nenhuma ferramenta de atendimento ou envio foi chamada), a ferramenta de envio existe e tem estes contratos:
 
 | Ferramenta | Argumentos (esquema) | Comprovado pelo esquema | NÃO comprovado |
 |---|---|---|---|
-| `enviar_mensagem_whatsapp` | `atendimento` (24 hex, obrigatório); `texto` (1 a 4096); `chave` (8 a 80); `previa` (booleano); `legenda` (até 1024); `arquivo` (base64, até 5 MB) | Padrão de `previa` é VERDADEIRO: sem `previa: false` a ferramenta só faz prévia e não envia. Repetir a mesma `chave` não manda de novo (descrição). Sai com o nome de quem atende (descrição). Só com janela de 24 h aberta; fora dela o caminho é `enviar_template_whatsapp`. | Formato da resposta (id da mensagem e situação); se a prévia consome cota ou tem custo para a ULBRA ("custo estimado" é o que a descrição diz, sem valor); se `chave` é aceita como idempotência de fato |
+| `enviar_mensagem_whatsapp` | `atendimento` (24 hex, obrigatório); `texto` (1 a 4096); `chave` (8 a 80); `previa` (booleano); `legenda` (até 1024); `arquivo` (base64, até 5 MB) | Padrão de `previa` é VERDADEIRO: sem `previa: false` a ferramenta só faz prévia e não envia. A descrição da ferramenta afirma que repetir a mesma `chave` não manda de novo, e que sai com o nome de quem atende (afirmações do fabricante, não testadas). Só com janela de 24 h aberta; fora dela o caminho é `enviar_template_whatsapp`. | Formato da resposta (id da mensagem e situação); se a prévia consome cota ou tem custo para a ULBRA ("custo estimado" é o que a descrição diz, sem valor); se `chave` é aceita como idempotência de fato |
 | `meu_acesso` | nenhum | Retorna `pessoa` (com `nome`, `email`, `perfis`), `conexao`, `escopos`, `soLeitura`, `limites` | `pessoa.id` NÃO aparece no retorno observado. O código que lê `pessoa.id` deve ser ajustado |
 | `consultar_atendimento` | `id` (24 hex) | Mostra cliente, situação, coluna, equipe, atendente, datas e histórico (descrição) | Nome e formato exatos do campo de atendente (texto, id ou e-mail) |
 | `ler_conversa` | `id`, `limite` (até 50), `antesDe` | Lê as mensagens de uma conversa; não altera nada (descrição) | Não usado pelo envio; nunca executar sem autorização específica para conversas de alunos |
@@ -621,7 +621,7 @@ Evidência que falta, e forma mínima de obtê-la sem envio real:
 
 ## Correções de 13/11/2026 (2): identidade, validações separadas e conta de chamadas
 
-**Identidade do operador.** `pessoa.id` NÃO aparece no retorno de `meu_acesso` e não é mais lido. O identificador estável comprovado é `pessoa.email`, e o código passou a usá-lo. Falta confirmar se ele é o mesmo valor que `consultar_atendimento` expõe no campo de atendente. Sem essa confirmação, a comparação continua fail-closed.
+**Identidade do operador.** `pessoa.id` NÃO aparece no retorno de `meu_acesso` e não é mais lido. O campo `pessoa.email` aparece no retorno de `meu_acesso` e o código passou a usá-lo como identificador. Que ele seja estável entre sessões e que seja o mesmo valor do atendente ainda NÃO está comprovado. Falta confirmar se ele é o mesmo valor que `consultar_atendimento` expõe no campo de atendente. Sem essa confirmação, a comparação continua fail-closed.
 
 **Pergunta objetiva à TI da ULBRA:** no campo de atendente de `consultar_atendimento`, qual valor é retornado: o e-mail do atendente, um id ou o nome? E esse valor é o mesmo que `meu_acesso` devolve em `pessoa.email`?
 
@@ -631,9 +631,9 @@ Evidência que falta, e forma mínima de obtê-la sem envio real:
 
 **Chamadas necessárias, com consumo de cota separado:**
 - Descoberta de ferramentas (listagem de esquemas): 1 chamada de descoberta. Não está comprovado se ela consome cota de atendimento.
-- `meu_acesso`: 1 chamada de ferramenta. Consome cota.
-- `enviar_mensagem_whatsapp` com `previa: true`: 1 chamada de ferramenta. Consome cota, e pode ter custo estimado que a ULBRA não informou em valor.
-- `consultar_atendimento` num atendimento próprio: 1 chamada de ferramenta. Consome cota.
+- `meu_acesso`: 1 chamada de ferramenta. Consumo de cota NÃO comprovado.
+- `enviar_mensagem_whatsapp` com `previa: true`: 1 chamada de ferramenta. Consumo de cota e custo NÃO comprovados (a descrição fala em "custo estimado", sem valor).
+- `consultar_atendimento` num atendimento próprio: 1 chamada de ferramenta. Consumo de cota NÃO comprovado.
 - Total com consumo de cota: 3 chamadas, além da descoberta. Não há outras chamadas previstas nesta etapa.
 
 **Limites.** Os limites observados em `meu_acesso` (15 por minuto na conexão, 30 por minuto por pessoa, 10.000 por dia por pessoa) pertencem à conta consultada na sessão, que não é a do piloto. Os limites da conta do piloto precisam ser lidos na própria conta, por `meu_acesso`, antes de qualquer teste.
