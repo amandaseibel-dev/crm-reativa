@@ -1,25 +1,19 @@
 # Tabulação de termo físico restrita à gestão — testes
 
-Job `tabulacao-termo-fisico-gestao-sql` no CI (Postgres 17 descartável), na ordem:
+Job `tabulacao-termo-fisico-gestao-sql` (Postgres 17 descartável). Dois caminhos:
 
-1. `01_ambiente.sql`: **simulação** das dependências do Supabase (não é o Supabase real).
-2. migração `aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente`.
-3. `02_tabulacao.sql`: gestão permitida, operador recusado, ausência de efeitos.
-4. rollback `...rollback.sql`.
-5. `03_rollback.sql`: trigger removida, catálogo desativado (não apagado), histórico preservado.
+**Caminho A — com histórico:** `01_ambiente.sql` → migração → `02_tabulacao.sql` (gestão permitida,
+operador recusado com todas as variantes, desfazer recusado inteiro, anon/sem perfil/diretoria,
+escopo, triagem, não acionamento) → rollback **deve falhar** (há histórico) → `03_rollback_recusado.sql`
+(nada removido nem alterado).
 
-## Simulado (não é o Supabase real)
+**Caminho B — banco limpo:** reinicia o schema → `01_ambiente.sql` → migração → rollback (deve passar)
+→ `04_rollback_limpo.sql` (linhas, trigger e função removidas; demais tabulações intactas).
 
-papéis e privilégios padrão de `public`; `auth.jwt()` e `auth.role()` lendo `request.jwt.claims`;
-`usuarios` e `app_usuario_ativo()`; `usuario_e_gestao()` com o corpo lido em produção;
-`eh_tipo_acionamento()` com a lista lida em produção; catálogo `tabulacoes` e histórico
-`aluno_movimentacoes` com colunas de produção, subconjunto de linhas e a policy de INSERT
-do operador.
+Simulado (não é o Supabase real): papéis e privilégios padrão de `public`; `auth.jwt()`/`auth.role()`;
+`usuarios`/`app_usuario_ativo()`; `usuario_e_gestao()` com o corpo lido em produção; `eh_tipo_acionamento()`
+com a lista lida em produção; `tabulacoes` e `aluno_movimentacoes` com colunas de produção (subconjunto
+de linhas). A policy de UPDATE de `aluno_movimentacoes` é simulada: a de produção não está versionada.
 
-## Não coberto
-
-- PostgREST (o `SET ROLE` vem do PostgREST no Supabase real; aqui é simulado).
-- RLS real de `tabulacoes` (na produção a leitura do operador filtra as linhas só-gestão;
-  a trigger usa função SECURITY DEFINER para ler o catálogo inteiro, como antes).
-- Outros triggers de `aluno_movimentacoes` em produção (ex.: `trg_zz_desfazer_cartao_tabulacao`).
-- Staging: inacessível nesta conta.
+Não coberto: PostgREST real, RLS real, grants reais, outros triggers de produção, locale de produção,
+staging (inacessível nesta conta).

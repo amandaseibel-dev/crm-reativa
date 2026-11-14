@@ -70,6 +70,12 @@ begin
   if public.usuario_e_gestao() then
     return new;
   end if;
+  -- Desfazer do operador que restauraria código restrito: recusado INTEIRO (a transação
+  -- da desfazer_acao é desfeita junto). A gestão trata pelo fluxo autorizado.
+  if new.tipo = 'ACAO_DESFEITA' then
+    raise exception 'Não é possível desfazer esta ação: o status anterior ("%") é restrito à gestão. Nada foi desfeito. A gestão trata pelo fluxo autorizado.', v_codigo
+      using errcode = '42501';
+  end if;
   raise exception 'A tabulação "%" é restrita à gestão. Registre a solicitação para Amanda, Fernanda ou Amanda ADM.', v_codigo
     using errcode = '42501';
 end;

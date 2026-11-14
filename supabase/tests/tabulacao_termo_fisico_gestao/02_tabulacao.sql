@@ -75,6 +75,13 @@ select public.teste_assert('operador: recusado com ſ (U+017F) no código (42501
     $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
          values ('a1','FINALIZACAO_ATENDIMENTO','TERMO_FISICOſ_ARQUIVADO','operador.teste@exemplo.local')$sql$)->>'code' = '42501');
 
+
+-- Desfazer do operador que restauraria código restrito: recusado inteiro, com mensagem clara.
+select public.teste_assert('desfazer: operador não restaura código restrito (42501 e "Nada foi desfeito")',
+  (public.teste_comando('authenticated', 'operador.teste@exemplo.local',
+    $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
+         values ('a1','ACAO_DESFEITA','TERMO_FISICO_ARQUIVADO','operador.teste@exemplo.local')$sql$)->>'err') like '%Nada foi desfeito%');
+
 -- Sem perfil e diretoria: nenhum é gestão, a trigger recusa.
 select public.teste_assert('usuário sem perfil (fora de usuario_e_gestao): recusado (42501)',
   public.teste_comando('authenticated', 'semperfil@exemplo.local',
