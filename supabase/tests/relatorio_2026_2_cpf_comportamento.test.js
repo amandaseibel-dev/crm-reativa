@@ -267,6 +267,22 @@ describe("relatorio 2026/2: classificacao de CPF por aluno e contagem por aluno_
     expect(t.rows[0].sumiu).toBe(true);
   });
 
+  it("reinstalacao apos rollback com historico: migration reaplicada preserva o snapshot sem recriar nem apagar a tabela", async () => {
+    await db.exec(`INSERT INTO relatorio_mens_2026_2_snapshot (dia, cpfs, alunos, mensalidades, saldo) VALUES ('2026-11-13', 3, 6, 8, 780)`);
+    await db.exec(ROLLBACK);
+    await db.exec(MIGRATION);
+    const { rows } = await db.query(
+      "SELECT count(*)::int AS n, min(cpfs)::int AS cpfs, to_regclass('public.relatorio_mens_2026_2_snapshot') IS NOT NULL AS existe FROM relatorio_mens_2026_2_snapshot",
+    );
+    expect(rows[0].existe).toBe(true);
+    expect(rows[0].n).toBe(1);
+    expect(rows[0].cpfs).toBe(3);
+    const rls = await db.query("SELECT relrowsecurity AS rls FROM pg_class WHERE oid = 'public.relatorio_mens_2026_2_snapshot'::regclass");
+    expect(rls.rows[0].rls).toBe(true);
+    const fn = await db.query("SELECT count(*)::int AS n FROM pg_proc WHERE proname = 'relatorio_mensalidades_2026_2_sem_negociacao'");
+    expect(fn.rows[0].n).toBe(1);
+  });
+
   it("rollback com historico preserva a tabela e remove so as funcoes", async () => {
     await db.exec(`INSERT INTO relatorio_mens_2026_2_snapshot (dia, cpfs, alunos, mensalidades, saldo) VALUES ('2026-11-13', 1, 1, 1, 1)`);
     await db.exec(ROLLBACK);
