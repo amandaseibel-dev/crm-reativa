@@ -753,6 +753,5 @@
    "priv": "UPDATE"
   }
  ],
- "usuario_e_gestao_definicao": "CREATE OR REPLACE FUNCTION public.usuario_e_gestao()\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  select lower(coalesce(auth.jwt()->>'email','')) in (\n    'amanda.seibel@aelbra.com.br',\n    'cobranca04@aelbra.com.br',\n    'cobranca07@aelbra.com.br'\n  );\n$function$\n",
- "_nota": "Saida de 14/11/2026, conector, somente leitura. aclexplode(relacl) expandido. PUBLIC nao aparece: nenhum privilegio para PUBLIC nas seis relacoes. anon nao aparece: nenhum privilegio para anon."
+ "usuario_e_gestao_definicao": "CREATE OR REPLACE FUNCTION public.usuario_e_gestao()\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  select lower(coalesce(auth.jwt()->>'email','')) in (\n    'amanda.seibel@aelbra.com.br',\n    'cobranca04@aelbra.com.br',\n    'cobranca07@aelbra.com.br'\n  );\n$function$\n"
 }
