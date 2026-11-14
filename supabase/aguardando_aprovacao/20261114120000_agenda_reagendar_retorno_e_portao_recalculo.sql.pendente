@@ -3,7 +3,7 @@
 -- NAO APLICADO. Pacote para aprovacao final. Ordem de aplicacao:
 --   1. 20261113120000_retorno_tratado_nao_herda_selo_do_operador.sql.pendente
 --      (parte 1: a origem nao herda o selo; corpo 41475103b8b7ad363dfdc76c4170c5a8 -> 03dacc0abb23490a8e060c4f86e0df94)
---   2. este arquivo (corpo 03dacc0abb23490a8e060c4f86e0df94 -> 42e9ddf7d9393d12e6d4078c14a6a2f1).
+--   2. este arquivo (corpo 03dacc0abb23490a8e060c4f86e0df94 -> dc95d29d8a76359e35228ee4977cf5b6).
 --
 -- O QUE FAZ
 --   A. BACKUP POR ID: copia data_retorno, hora_retorno, retorno_origem,
@@ -71,6 +71,9 @@ begin
   if auth.uid() is null or v_email = '' then
     raise exception 'Sem sessao autenticada';
   end if;
+  if not exists (select 1 from public.usuarios u where lower(u.email) = v_email and u.ativo is true) then
+    raise exception 'Sem permissao: usuario inativo ou sem cadastro';
+  end if;
   if p_data is null then
     raise exception 'Informe a data do retorno';
   end if;
@@ -95,18 +98,28 @@ end $function$;
 revoke all on function public.agenda_reagendar_retorno(uuid, date, text, boolean) from public, anon;
 grant execute on function public.agenda_reagendar_retorno(uuid, date, text, boolean) to authenticated;
 
+-- C0. GATILHO SEM ZERAGEM POR DATA ---------------------------------------------
+-- Somente a RPC agenda_reagendar_retorno (acao explicita "Reagendar") limpa
+-- "Ja falei". Qualquer outra gravacao de data (tabulacao automatica, lote de
+-- e-mail, alteracao de data na ficha) nao reativa aviso. Rollback recria o
+-- gatilho exatamente como estava (20260808150000).
+drop trigger if exists trg_aluno_reset_retorno_confirmado on public.alunos;
+
 -- C. PORTAO DO RECALCULO -------------------------------------------------------
 do $portao$
 declare
   v_assin constant text := 'public.recalcular_situacao_aluno(uuid,text)';
   v_ancora constant text := $a$  if p_aluno_id is null then return jsonb_build_object('erro','sem_aluno'); end if;$a$;
   v_troca constant text := $n$  if p_aluno_id is null then return jsonb_build_object('erro','sem_aluno'); end if;
-  -- PORTAO (14/11/2026): com sessao de usuario so recalcula o aluno dele, ou se for gestao.
-  -- Sem sessao (cron da virada, triggers de backend, service_role) passa como antes.
-  if auth.uid() is not null
-     and lower(coalesce(auth.email(), '')) <> all (array['amanda.seibel@aelbra.com.br','cobranca04@aelbra.com.br'])
-     and lower(coalesce(auth.email(), '')) is distinct from (select lower(responsavel_atual_email) from public.alunos where id = p_aluno_id) then
-    raise exception 'Sem permissao para recalcular a situacao deste aluno';
+  -- PORTAO (14/11/2026): so a CHAMADA DIRETA com sessao e checada.
+  -- Dentro de trigger (pg_trigger_depth > 0) e sem sessao (cron, backend) passa.
+  -- Chamada direta exige usuario ativo e (dono do aluno ou gestao).
+  if pg_trigger_depth() = 0 and auth.uid() is not null then
+    if not exists (select 1 from public.usuarios u where lower(u.email) = lower(coalesce(auth.email(), '')) and u.ativo is true)
+       or (lower(coalesce(auth.email(), '')) <> all (array['amanda.seibel@aelbra.com.br','cobranca04@aelbra.com.br'])
+           and lower(coalesce(auth.email(), '')) is distinct from (select lower(responsavel_atual_email) from public.alunos where id = p_aluno_id)) then
+      raise exception 'Sem permissao para recalcular a situacao deste aluno';
+    end if;
   end if;$n$;
   v_oid oid := to_regprocedure(v_assin);
   v_def text; v_nova text; v_md5_antes text; v_md5_depois text;
@@ -118,7 +131,7 @@ begin
          concat_ws('|', p.proowner::text, p.prosecdef::text, coalesce(p.proconfig::text, ''), coalesce(p.proacl::text, ''))
     into v_md5_antes, v_guarda_antes from pg_proc p where p.oid = v_oid;
 
-  if v_md5_antes = '42e9ddf7d9393d12e6d4078c14a6a2f1' then
+  if v_md5_antes = 'dc95d29d8a76359e35228ee4977cf5b6' then
     raise notice 'portao do recalculo: ja aplicado, nada a fazer.';
     return;
   end if;
@@ -140,8 +153,10 @@ begin
   if v_guarda_depois is distinct from v_guarda_antes then
     raise exception 'DONO/DEFINER/CONFIG/GRANTS mudaram em %', v_assin;
   end if;
-  if v_md5_depois <> '42e9ddf7d9393d12e6d4078c14a6a2f1' then
-    raise exception 'RESULTADO INESPERADO em %: md5(prosrc) ficou %, previsto 42e9ddf7d9393d12e6d4078c14a6a2f1', v_assin, v_md5_depois;
+  -- Recalculo nao fica aberto a anon/public: so authenticated (triggers) e servico.
+  revoke all on function public.recalcular_situacao_aluno(uuid, text) from public, anon;
+  if v_md5_depois <> 'dc95d29d8a76359e35228ee4977cf5b6' then
+    raise exception 'RESULTADO INESPERADO em %: md5(prosrc) ficou %, previsto dc95d29d8a76359e35228ee4977cf5b6', v_assin, v_md5_depois;
   end if;
 end $portao$;
 

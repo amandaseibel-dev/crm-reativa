@@ -33,7 +33,7 @@ const md5 = (t) => createHash("md5").update(t, "utf8").digest("hex");
 
 const MD5_VIVO = "41475103b8b7ad363dfdc76c4170c5a8";
 const MD5_PARTE1 = "03dacc0abb23490a8e060c4f86e0df94";
-const MD5_PORTAO = "42e9ddf7d9393d12e6d4078c14a6a2f1";
+const MD5_PORTAO = "dc95d29d8a76359e35228ee4977cf5b6";
 
 const CORPO_VIVO = ler("tests", "fixtures", "recalcular_situacao_aluno_prod_20261113.sql");
 const AGENDA_CONFIRMADO = ler("migrations", "20260808150000_agenda_retorno_confirmado.sql");
@@ -93,6 +93,7 @@ const ESQUEMA = `
     aluno_id uuid, proximo_vencimento date, data_retorno date, valor numeric, lote text,
     gerado_em timestamptz default now(), unique (aluno_id, proximo_vencimento)
   );
+  create table public.usuarios (email text primary key, ativo boolean default true);
   create table public.auditoria (acao text, detalhes jsonb);
   create table public.aluno_movimentacoes (tipo text, descricao text);
   create function public.titulo_superado_por_acordo(uuid, date) returns boolean language sql as $$ select false $$;
@@ -128,6 +129,7 @@ async function gravarRetornoAntigo(db, id, dias, hora) {
 async function montar({ comPacote }) {
   const db = new PGlite();
   await db.exec(ESQUEMA);
+  await db.exec("insert into public.usuarios (email, ativo) values ('" + OPERADOR + "', true), ('" + OUTRO + "', true), ('" + GESTAO + "', true);");
   await db.exec(AGENDA_CONFIRMADO);
   await db.exec(CORPO_VIVO);
   await db.exec("grant execute on function public.recalcular_situacao_aluno(uuid, text) to authenticated;");
@@ -322,7 +324,63 @@ describe("reagendamento explicito e salvar a ficha (fluxo real)", () => {
   });
 });
 
+describe("so a acao 'Reagendar' zera 'Ja falei'", () => {
+  it("gravacao comum que muda a data (tabulacao automatica, lote, ficha) NAO zera a confirmacao", async () => {
+    const db = await montar({ comPacote: true });
+    await reagendar(db, OPERADOR, ALUNA, 0, "10:00");
+    await como(db, OPERADOR);
+    await db.query("select public.agenda_confirmar_retorno($1, true)", [ALUNA]);
+    await como(db, null);
+    const antes = (await linha(db, ALUNA)).confirmado;
+    expect(antes).not.toBeNull();
+    // data mudada por fora da tela de reagendamento
+    await db.query("update public.alunos set data_retorno = current_date + 5 where id = $1", [ALUNA]);
+    expect((await linha(db, ALUNA)).confirmado).toBe(antes);
+  });
+
+  it("o gatilho de zeragem por data nao existe mais depois do pacote; o rollback o recria", async () => {
+    const db = await montar({ comPacote: true });
+    const r1 = await db.query("select count(*)::int as n from pg_trigger where tgrelid = 'public.alunos'::regclass and tgname = 'trg_aluno_reset_retorno_confirmado'");
+    expect(r1.rows[0].n).toBe(0);
+    await db.exec(P2_ROLL);
+    const r2 = await db.query("select count(*)::int as n from pg_trigger where tgrelid = 'public.alunos'::regclass and tgname = 'trg_aluno_reset_retorno_confirmado'");
+    expect(r2.rows[0].n).toBe(1);
+  });
+});
+
 describe("negativas de acesso", () => {
+  it("usuario INATIVO e recusado na RPC e no recalculo, mesmo sendo o dono", async () => {
+    const db = await montar({ comPacote: true });
+    await db.query("update public.usuarios set ativo = false where email = $1", [OPERADOR]);
+    await como(db, OPERADOR);
+    await expect(db.query("select public.agenda_reagendar_retorno($1, current_date, '16:00', false)", [ALUNA])).rejects.toThrow(/inativo ou sem cadastro/);
+    await expect(db.query("select public.recalcular_situacao_aluno($1, 'teste')", [ALUNA])).rejects.toThrow(/Sem permissao para recalcular/);
+    await como(db, null);
+  });
+
+  it("recalculo nao e executavel por anon (so authenticated e servico)", async () => {
+    const db = await montar({ comPacote: true });
+    const r = await db.query("select has_function_privilege('anon', 'public.recalcular_situacao_aluno(uuid,text)', 'EXECUTE') as anon, has_function_privilege('authenticated', 'public.recalcular_situacao_aluno(uuid,text)', 'EXECUTE') as auth");
+    expect(r.rows[0].anon).toBe(false);
+    expect(r.rows[0].auth).toBe(true);
+  });
+
+  it("gatilho disparado pela sessao de OUTRO operador roda o recalculo sem ser barrado (pg_trigger_depth)", async () => {
+    const db = await montar({ comPacote: true });
+    // gatilho de teste que recalcula o aluno de outro dono, como os de pagamento/acordo
+    await db.exec(`
+      create table public.pagamentos_teste (aluno_id uuid);
+      create function public.teste_recalc_no_gatilho() returns trigger language plpgsql security definer set search_path to 'public' as $$
+      begin perform public.recalcular_situacao_aluno(new.aluno_id, 'gatilho_pagamento'); return new; end $$;
+      create trigger trg_teste_recalc after insert on public.pagamentos_teste for each row execute function public.teste_recalc_no_gatilho();
+      grant insert on public.pagamentos_teste to authenticated;
+      grant execute on function public.teste_recalc_no_gatilho() to authenticated;
+    `);
+    await como(db, OUTRO);
+    await db.query("insert into public.pagamentos_teste (aluno_id) values ($1)", [ALUNA]);
+    await como(db, null);
+  });
+
   it("RPC: usuario que nao e dono nem gestao e recusado, e nada muda", async () => {
     const db = await montar({ comPacote: true });
     await reagendar(db, OPERADOR, ALUNA, 0, "10:00");
