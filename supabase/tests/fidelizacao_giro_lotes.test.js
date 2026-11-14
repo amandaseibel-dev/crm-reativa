@@ -320,7 +320,8 @@ describe("passo 0 — backup por id", () => {
     expect(cols.filter((c) => /cpf|nome_aluno|^nome$|telefone|email_aluno/.test(c))).toEqual([]);
     const t = await q1(db, `select relrowsecurity rls from pg_class where relname='_backup_fidelizacao_giro_20261112'`);
     expect(t.rls).toBe(true);
-    for (const papel of ["anon", "authenticated", "public"]) {
+    // service_role entra aqui: o privilegio padrao de producao lhe da TUDO em tabela nova
+    for (const papel of ["anon", "authenticated", "public", "service_role"]) {
       for (const priv of ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"]) {
         const r = await q1(db, `select has_table_privilege($1, 'public._backup_fidelizacao_giro_20261112', $2) ok`, [papel, priv]);
         expect(r.ok, `${papel} ${priv}`).toBe(false);
@@ -1021,6 +1022,27 @@ describe("achados da auditoria — cada um com o teste que o reproduzia", () => 
     expect(await tenta(db, comRestauro(1))).toBeNull();
     expect(String(await donoDe(db, 61)).toLowerCase()).toBe(OPS[13].email);
     expect((await noBackup(db, `caso_id = '${U(61)}'`))[0].restaurado_motivo).toBe("restaurado");
+    await db.close();
+  });
+
+  // ENTRE AS NOITES: cron 48 (nivelamento) ou receptivo podem trocar o operador
+  // de um caso ALVO depois do backup. A revalidacao compara o responsavel atual
+  // com o do backup, por aluno: o aluno inteiro e PULADO, nada e solto, e o caso
+  // segue com quem o recebeu. Os demais alunos do lote seguem normalmente.
+  it("ENTRE AS NOITES: caso ALVO trocado de operador depois do backup e PULADO, nunca solto", async () => {
+    const db = await abrir();
+    await mundo(db);
+    await db.exec(BACKUP);
+    await db.query("update public.casos set operador_email = $2 where id = $1", [U(1), OPS[12].email]);
+    expect(await tenta(db, comLote(1))).toBeNull();
+    expect(await donoDe(db, 1)).toBe(OPS[12].email);
+    const motivo = (await q1(db, "select pulado_motivo m from public._backup_fidelizacao_giro_20261112 where caso_id=$1", [U(1)])).m;
+    // O primeiro teste da revalidacao (elegibilidade na execucao) ja pega a troca:
+    // o caso deixa de ser elegivel para o operador do backup. A comparacao de dono
+    // dentro de "ganhou_protecao_desde_o_inicio" e a segunda barreira, para o caso
+    // em que a troca ocorre sem sair da elegibilidade.
+    expect(motivo).toBe("nao_elegivel_na_execucao");
+    expect(await donoDe(db, 7)).toBeNull();
     await db.close();
   });
 

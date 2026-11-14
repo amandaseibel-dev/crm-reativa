@@ -473,6 +473,39 @@ Medido pela via escopada em produção (`ahattpqrjmhkzsmnbdzs`), **somente leitu
 
 **Fora deste pacote, por decisão sua:** os caminhos do G2 (receptivo, movimentação da gestão, vínculos de responsável) e o nivelamento das 09:20, que seguem podendo mover irmão protegido e vão para PR separada.
 
+## Respostas da revisão (14/11/2026)
+
+Pedido da gestão: esclarecer cinco pontos sem alterar o SQL aprovado, salvo defeito técnico comprovado. Um defeito foi comprovado (item 5), e está corrigido com prova.
+
+**1. Concorrência real.** Provada no CI, com duas sessões em Postgres isolado: job `fidelizacao do giro — concorrencia real (postgres isolado)`, **verde** em `2cd785b4`: https://github.com/amandaseibel-dev/crm-reativa/actions/runs/43489938128/job/132128024155. Este commit reexecuta o mesmo job no novo head.
+
+**2. Gate de segurança (`scripts/seguranca/run_security_gate.sh`).** São verificações diferentes, e nenhuma substitui a outra. Resultado, por ambiente:
+- **Ambiente isolado:** não rodou. `psql` ausente nesta máquina, sem Docker e sem Homebrew para subir um Postgres local. Na CI, o gate roda contra o banco descartável do fixture **em outras jobs**; a job de fidelização desta branch não o inclui.
+- **Auditoria SQL em produção, somente leitura** (14/11, mesmo conteúdo do `auditoria_seguranca.sql`, por conector, só `SELECT`): **BLOQUEIA** — `tv-imagens` (bucket público), `_tmp_fila2` (sem RLS) e 5 views que contornam RLS (`vw_extracao_calibragem`, `vw_extracao_observabilidade`, `vw_extracao_validacao_trilha`, `vw_pagamento_suspeita_pendente`, `vw_titulo_presenca_historico`). Pela regra do gate, isso **reprova**. Os achados são anteriores a esta PR e não são introduzidos por ela. ALERTA: 21 policies amplas, 1.073 tabelas com RLS sem policy e com grant a `anon`/`authenticated`, 24 RPCs `SECURITY DEFINER` executáveis por `anon`/`PUBLIC`, 5 tabelas sem RLS.
+- **Checagens do bundle** (grep local): sem `service_role` no cliente, sem referência a staging em `dist/`, sem JWT hardcoded em `src/`. **OK.**
+- **Defeito do próprio gate, comprovado:** a consulta de `auditoria_seguranca.sql` falha no Postgres com `0A000: invalid UNION/INTERSECT/EXCEPT ORDER BY clause`. O script não verifica o código de saída do `psql`; ao receber essa falha, imprime **"SQL OK: nenhum achado BLOQUEIA"** e sai com código 0. Provado com um `psql` falso que reproduz o erro: o gate **aprova** sem ter auditado nada. Corrigir isso é outra mudança, fora deste pacote, e precisa de PR própria.
+
+**Conclusão:** o gate é obrigatório antes de deploy (skill `seguranca-rls`, "Use antes de todo deploy/merge"). Hoje ele **reprova** produção por achados antigos, e o defeito acima faz com que um resultado "aprovado" não seja confiável. A execução dos lotes **não pode começar** antes de uma decisão da gestão sobre os três `BLOQUEIA`: corrigi-los, ou documentar exceção em `docs/seguranca/` (exceção não é aprovação).
+
+**3. Cron 48 (nivelamento, 09:20) e caminhos G2 entre as noites.** Efeito real: podem trocar o operador de um caso ALVO depois do backup, por UPDATE direto. A execução não confia no backup para isso: revalida **por aluno, com as linhas travadas**, e compara o responsável atual com o do backup.
+- Troca de operador de caso ALVO → aluno **pulado** (primeiro teste da revalidação: o caso deixa de ser elegível para o operador do backup). Caso que trocou e voltou dentro de 24 h → segunda barreira (`responsavel_atual_em` recente bloqueia). Prova: teste "ENTRE AS NOITES: caso ALVO trocado de operador depois do backup é PULADO, nunca solto", na suíte de lotes.
+- Retorno marcado pelo operador, acordo, acionamento, aluno que ganhou caso novo → aluno **pulado**. Provas: testes "REVALIDAÇÃO".
+- O cron 48 **não é pausado** por esta execução, por decisão da gestão. O efeito é conservador: menos casos soltos, nunca mais.
+- Limite declarado: proteção criada em **outra tabela** (acordo, pagamento) no mesmo instante não é travada. Por isso a execução é fora do expediente.
+
+**4. Limiar de 10%.** O que o script faz, linha a linha:
+- **Erro de execução** (exceção num aluno) → aluno pulado e registrado. Conta para o limite de 10%. Se mais de 10% dos alunos tentados falharem, **o lote inteiro é desfeito**. Se houver nenhum aluno liberado e algum erro, o lote também é desfeito.
+- **Violação de proteção** (retorno, acordo, dono trocado, ambiguidade) → aluno **pulado**, registrado em `pulado_motivo`, **não** conta para o limite, e **não aborta** o lote. **Isto não atende ao que a gestão pediu**: o pedido é que violação de proteção aborte independentemente do percentual. O código hoje pula. Pular é seguro (nada indevido é solto), mas deixa o lote parcial.
+- **Invariante** (solto fora da lista, liberado com dono, livre que ganhou dono, troca X→Y fora da lista) → **aborta o lote inteiro**, independentemente do percentual. Prova: teste "troca de dono X→Y fora da lista → a invariante aborta o lote".
+- **Liberação parcial é possível:** se os erros ficarem em até 10% e nenhuma invariante falhar, os demais alunos são confirmados e os pulados ficam registrados. O script não roda o mesmo lote de novo (`lote já foi executado`); o aluno pulado é tratado manualmente.
+- **Decisão pendente da gestão:** transformar violação de proteção em aborto do lote. Isso é mudança de SQL aprovado e não foi feita aqui.
+
+**5. Acesso à tabela de backup.** Defeito comprovado e corrigido:
+- Medido em produção (14/11, `pg_default_acl`): tabela nova em `public` criada pelo `postgres` nasce com `ARWDDXTM` (inclui `TRUNCATE`) para **`service_role`**. O script revogava só de `public`, `anon` e `authenticated`, e a RLS não barra `service_role`. Ou seja, o backup ficaria gravável pela chave de serviço.
+- Correção: `revoke all ... from public, anon, authenticated, service_role` em `00_backup.sql`. A prova de privilégios agora confere os quatro papéis (antes conferia três, e o próprio comentário do teste dizia que `service_role` herdava tudo).
+- Prova de mutação: sem `service_role` no revoke, o teste falha em `service_role SELECT: expected true to be false`. Com a correção, passa.
+- Dados: sem CPF, nome, telefone ou e-mail; guarda `aluno_id`, saldo e status. RLS ligada, sem policy, e sem grant para papéis de cliente. O script de lote e o de restauração rodam como `postgres` (dono), que não é afetado pelo revoke.
+
 ## Riscos residuais (declarados)
 
 0. **Decisões pendentes da gestão (não tratadas nesta PR):**
@@ -481,12 +514,12 @@ Medido pela via escopada em produção (`ahattpqrjmhkzsmnbdzs`), **somente leitu
    - **Teto sem travamento:** o teto lê os irmãos sem travar as linhas (não declarado antes). Custo do `EXISTS` não medido (roda só quando o teto dispara; hoje nenhum operador passa do teto).
 
 
-1. **Concorrência real** não comprovada em execução paralela (ver acima).
+1. **Concorrência real** provada no CI em `2cd785b4` (ver "Respostas da revisão"), com limite declarado: proteção em outra tabela no mesmo instante não é travada.
 2. **Proteção criada em outra tabela** durante a execução pode passar pela revalidação.
 3. **Cron 8 pausado** deixa de soltar casos vencidos por todo o intervalo entre os lotes.
 4. **Caso de giro com irmão fora da regra** segura o aluno inteiro: o caso fica com o operador mesmo vencido, até o irmão deixar de estar fora da regra.
 5. **Tabela de backup** contém `aluno_id`, saldo e status. Descarte em 30 dias após o último lote, com autorização.
-6. **Gate de segurança do repositório** não executado (ver abaixo).
+6. **Gate de segurança do repositório:** reprova produção por três `BLOQUEIA` antigos, e o próprio gate tem defeito que o faz aprovar sem auditar. Ver "Respostas da revisão", item 2.
 
 ## Arquivos
 
@@ -502,7 +535,7 @@ Medido pela via escopada em produção (`ahattpqrjmhkzsmnbdzs`), **somente leitu
 - **CI da PR #936:** 24 checks verdes, 2 ignorados (regras de publicação da TV, sem relação). Inclui "testes, build e catracas". Este CI é de antes das mudanças desta rodada: **repetir**.
 - **Gate do repositório (`run_security_gate.sh`):** não roda nesta máquina (sem `psql`). Consulta equivalente executada por leitura em produção, critérios que bloqueiam:
   - **Reprova produção hoje** por achados antigos, sem relação com esta PR: bucket `tv-imagens` público, `_tmp_fila2` sem RLS e 5 views (`vw_extracao_calibragem`, `vw_extracao_observabilidade`, `vw_extracao_validacao_trilha`, `vw_pagamento_suspeita_pendente`, `vw_titulo_presenca_historico`). Não conferido se são exceções já aceitas.
-  - **Esta PR não acrescenta achado:** as funções são `SECURITY DEFINER` com `search_path` fixo e sem `EXECUTE` para `anon`/`PUBLIC`; a tabela de backup nasce com RLS e sem grant (inclui `TRUNCATE`); a regra de irmãos é revogada de `PUBLIC`, `anon` e `authenticated`.
+  - **Esta PR não acrescenta achado:** as funções são `SECURITY DEFINER` com `search_path` fixo e sem `EXECUTE` para `anon`/`PUBLIC`; a tabela de backup nasce com RLS e, após a correção de 14/11, sem grant para `public`, `anon`, `authenticated` **e** `service_role` (inclusive `TRUNCATE`); a regra de irmãos é revogada de `PUBLIC`, `anon` e `authenticated`. *(A versão anterior deste texto omitia `service_role`; a afirmação só vale depois da correção.)*
   - Critérios de alerta (policies amplas, etc.) não executados.
 - Checagens de código: sem `service_role` no cliente, sem segredo hardcoded, sem referência a staging. ✔
 

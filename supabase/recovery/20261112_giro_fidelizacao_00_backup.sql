@@ -119,7 +119,11 @@ create table public._backup_fidelizacao_giro_20261112 (
 );
 
 alter table public._backup_fidelizacao_giro_20261112 enable row level security;
-revoke all on table public._backup_fidelizacao_giro_20261112 from public, anon, authenticated;
+-- service_role entra no revoke: o privilegio padrao de producao (pg_default_acl,
+-- medido em 13/11/2026) concede a tabela nova ARWDDXTM a service_role, inclusive
+-- TRUNCATE, e a RLS nao barra service_role. Sem isto o backup ficava gravavel
+-- por qualquer chamada com a chave de servico.
+revoke all on table public._backup_fidelizacao_giro_20261112 from public, anon, authenticated, service_role;
 
 comment on table public._backup_fidelizacao_giro_20261112 is
   'Liberacao da fidelizacao do giro (12/11/2026): universo por aluno, lote fixo 1/2/3 e estado anterior de cada caso. Sem CPF/nome/telefone. Base da restauracao por id. Descartar 30 dias apos o ultimo lote.';
