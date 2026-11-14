@@ -24,6 +24,7 @@ export default function HistoricoFichaAluno({ alunoId, emailUsuario, leitor = le
   const [email, setEmail] = useState(emailUsuario ?? null);
   const [historico, setHistorico] = useState(null);
   const [consultadoEm, setConsultadoEm] = useState(null);
+  const [saldo, setSaldo] = useState(null);
   const [ocupado, setOcupado] = useState(false);
 
   useEffect(() => {
@@ -44,6 +45,7 @@ export default function HistoricoFichaAluno({ alunoId, emailUsuario, leitor = le
     try {
       const resposta = await leitor(alunoId, antesDe);
       if (resposta?.consultado_em) setConsultadoEm(resposta.consultado_em);
+      if (resposta?.saldo) setSaldo(resposta.saldo);
       setHistorico((anterior) => mapearHistorico(resposta, antesDe ? anterior : null));
     } finally {
       setOcupado(false);
@@ -54,13 +56,19 @@ export default function HistoricoFichaAluno({ alunoId, emailUsuario, leitor = le
     <section data-testid="historico-ficha" style={{ marginTop: 12 }}>
       {historico === null ? (
         <button type="button" data-campo="consultar-historico" disabled={ocupado} onClick={() => consultar()}>
-          {ocupado ? "Consultando…" : "Consultar conversa na Mensageria (1 consulta)"}
+          {ocupado ? "Consultando…" : "Consultar conversa na Mensageria"}
         </button>
       ) : (
         <div>
           {consultadoEm ? (
             <p data-campo="consultado-em">
               Consultado na Mensageria em <strong>{dataHora(consultadoEm)}</strong>. Não é um espelho salvo.
+            </p>
+          ) : null}
+          {saldo ? (
+            <p data-campo="saldo">
+              Saldo da cota: <strong>{saldo.restam}</strong>
+              {saldo.medido_em ? <> (medido em {dataHora(saldo.medido_em)})</> : null}
             </p>
           ) : null}
           {historico.erro ? <p role="alert">{historico.erro}</p> : null}
@@ -75,7 +83,7 @@ export default function HistoricoFichaAluno({ alunoId, emailUsuario, leitor = le
           </ul>
           {historico.antesDe ? (
             <button type="button" disabled={ocupado} onClick={() => consultar(historico.antesDe)}>
-              {ocupado ? "Consultando…" : "Carregar mensagens anteriores (1 consulta)"}
+              {ocupado ? "Consultando…" : "Carregar mensagens anteriores"}
             </button>
           ) : null}
         </div>

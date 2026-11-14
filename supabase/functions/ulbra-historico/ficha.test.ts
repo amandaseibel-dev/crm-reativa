@@ -136,41 +136,66 @@ describe("ficha: leitura quando a permissão existe", () => {
   });
 });
 
-describe("teto total do piloto: 3 chamadas, contando meu_acesso", () => {
-  it("com o teto esgotado, nada sai e a resposta diz TETO_PILOTO_ESGOTADO", async () => {
-    estado.banco.ulbra_historico_uso = [{ escopo: "*", dia: "2026-11-12", usadas: 3 }];
+describe("orçamento por usuário e compartilhado (valores propostos, aguardam aprovação)", () => {
+  it("usuário que já usou o limite do dia: negado, nada sai", async () => {
+    estado.banco.ulbra_historico_uso = [{ escopo: "cobranca10@aelbra.com.br", dia: "2026-11-14", usadas: 20 }];
     const r = await chamar("tok-dona", { aluno_id: A1 });
-    expect(r.corpo.motivo).toBe("TETO_PILOTO_ESGOTADO");
+    expect(r.corpo.motivo).toBe("LIMITE_OPERADOR_DIA");
     expect(estado.chamadasUlbra).toBe(0);
   });
-  it("saldo vencido: meu_acesso conta no teto; a leitura seguinte não passa do limite", async () => {
-    estado.banco.ulbra_sync_estado = [{ id: true, saldo_api_restam: 9000, saldo_api_em: "2026-11-01T00:00:00Z" }];
-    estado.banco.ulbra_historico_uso = [{ escopo: "*", dia: "2026-11-12", usadas: 2 }];
+  it("orçamento compartilhado esgotado (saldo menos reserva): negado, nada sai", async () => {
+    estado.banco.ulbra_sync_estado = [{ id: true, saldo_api_restam: 100, saldo_api_em: SALDO_FRESCO() }];
     const r = await chamar("tok-dona", { aluno_id: A1 });
-    expect(r.corpo.motivo).toBe("TETO_PILOTO_ESGOTADO");
-    expect(estado.chamadasUlbra).toBe(1); // só o meu_acesso; o total chegou a 3
+    expect(r.corpo.motivo).toBe("RESERVA_GLOBAL");
+    expect(estado.chamadasUlbra).toBe(0);
   });
-  it("3 leituras no total: a quarta é recusada sem chamada", async () => {
-    estado.banco.ulbra_historico_uso = [{ escopo: "*", dia: "2026-11-11", usadas: 2 }];
-    estado.banco.ulbra_historico_uso.push({ escopo: "cobranca10@aelbra.com.br", dia: "2026-11-11", usadas: 2 });
+  it("resposta traz o saldo medido e quando foi medido", async () => {
+    const r = await chamar("tok-dona", { aluno_id: A1 });
+    const saldo = r.corpo.saldo as { restam: number; medido_em: string };
+    expect(saldo.restam).toBe(9000);
+    expect(typeof saldo.medido_em).toBe("string");
+  });
+  it("saldo vencido: meu_acesso conta no orçamento do usuário e a leitura segue", async () => {
+    estado.banco.ulbra_sync_estado = [{ id: true, saldo_api_restam: 9000, saldo_api_em: "2026-11-01T00:00:00Z" }];
     const r = await chamar("tok-dona", { aluno_id: A1 });
     expect(r.corpo.ok).toBe(true);
-    expect(estado.chamadasUlbra).toBe(1);
-    const quarta = await chamar("tok-dona", { aluno_id: A1, antes_de: "2026-11-10T10:00:00Z" });
-    expect(quarta.corpo.motivo).toBe("TETO_PILOTO_ESGOTADO");
-    expect(estado.chamadasUlbra).toBe(1);
+    expect(estado.chamadasUlbra).toBe(2);
   });
 });
 
-describe("cliques simultâneos: o teto nunca passa de 3", () => {
-  it("5 leituras ao mesmo tempo (páginas diferentes): exatamente 3 chegam à ULBRA", async () => {
+describe("cliques simultâneos: o orçamento compartilhado nunca passa do limite", () => {
+  it("5 leituras ao mesmo tempo com 3 de orçamento: exatamente 3 chegam à ULBRA", async () => {
+    // saldo 103 menos reserva 100 = orçamento de 3 para o dia
+    estado.banco.ulbra_sync_estado = [{ id: true, saldo_api_restam: 103, saldo_api_em: SALDO_FRESCO() }];
     const cursores = ["2026-11-10T01:00:00Z", "2026-11-10T02:00:00Z", "2026-11-10T03:00:00Z", "2026-11-10T04:00:00Z", "2026-11-10T05:00:00Z"];
     const respostas = await Promise.all(cursores.map((c) => chamar("tok-dona", { aluno_id: A1, antes_de: c })));
     const motivos = respostas.map((r) => r.corpo.motivo ?? "ok");
     expect(estado.chamadasUlbra).toBe(3);
-    expect(motivos.filter((m) => m === "TETO_PILOTO_ESGOTADO")).toHaveLength(2);
-    const usadoNoBanco = (estado.banco.ulbra_historico_uso ?? []).filter((l) => l.escopo === "*").reduce((s, l) => s + Number(l.usadas), 0);
-    expect(usadoNoBanco).toBe(3);
+    expect(motivos.filter((m) => m === "RESERVA_GLOBAL")).toHaveLength(2);
+  });
+});
+
+describe("isolamento entre operadores: cada um vê só o que a carteira ou o responsável dá", () => {
+  it("dono da carteira lê; outro operador é negado sem chamada", async () => {
+    expect((await chamar("tok-dona", { aluno_id: A1 })).corpo.ok).toBe(true);
+    expect((await chamar("tok-outra", { aluno_id: A1 })).corpo.motivo).toBe("SEM_PERMISSAO_NA_CONVERSA");
+  });
+  it("dois donos na carteira: identidade do dono é ambígua e a leitura é negada", async () => {
+    estado.banco.casos = [{ aluno_id: A1, operador_email: "cobranca10@aelbra.com.br" }, { aluno_id: A1, operador_email: "cobranca11@aelbra.com.br" }];
+    expect((await chamar("tok-dona", { aluno_id: A1 })).corpo.motivo).toBe("SEM_PERMISSAO_NA_CONVERSA");
+    expect((await chamar("tok-outra", { aluno_id: A1 })).corpo.motivo).toBe("SEM_PERMISSAO_NA_CONVERSA");
+  });
+  it("responsável comprovado pelo atendimento lê mesmo sem ser dono da carteira", async () => {
+    estado.banco.casos = [];
+    estado.banco.ulbra_atendimentos = [{ ulbra_cliente_id: "C1", responsavel_email: "cobranca11@aelbra.com.br", dispensado_em: null }];
+    expect((await chamar("tok-outra", { aluno_id: A1 })).corpo.ok).toBe(true);
+  });
+  it("sem CPF confirmado, nenhum operador lê, nem a gestão", async () => {
+    expect((await chamar("tok-gestao", { aluno_id: A2 })).corpo.motivo).toBe("IDENTIDADE_NAO_CONFIRMADA");
+    expect((await chamar("tok-dona", { aluno_id: A2 })).corpo.motivo).toBe("IDENTIDADE_NAO_CONFIRMADA");
+  });
+  it("gestão lê o aluno de qualquer carteira, com CPF confirmado", async () => {
+    expect((await chamar("tok-gestao", { aluno_id: A1 })).corpo.ok).toBe(true);
   });
 });
 

@@ -10,7 +10,7 @@
 // ===========================================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  LIMITE_OPERADOR_DIA, LIMITE_TOTAL_PILOTO, RESERVA_GLOBAL, SALDO_VALIDADE_MS, TAMANHO_PAGINA,
+  LIMITE_OPERADOR_DIA, RESERVA_GLOBAL, SALDO_VALIDADE_MS, TAMANHO_PAGINA,
   lerHistoricoSomenteLeitura, type DependenciasHistorico, type FotografiaSaldo,
 } from "./historico.ts";
 import type { ContextoLeitura } from "./leitura.ts";
@@ -80,12 +80,6 @@ Deno.serve(async (req: Request) => {
   if (!usuario) return responder({ erro: "ACESSO_NEGADO" }, 403);
   const gestao = PERFIS_AMPLOS.includes(String(usuario.perfil));
 
-  // Soma de tudo já reservado no piloto (todos os dias). Vale para leituras e para meu_acesso.
-  const usoTotalAgora = async (): Promise<number> => {
-    const { data } = await sb.from("ulbra_historico_uso").select("usadas").eq("escopo", "*");
-    return (data ?? []).reduce((soma: number, l: { usadas?: number }) => soma + Number(l.usadas ?? 0), 0);
-  };
-
   // Resolve a conversa pelo ALUNO, no servidor. O operador nunca lê a tabela de conversas.
   let conversa_id = "";
   if (typeof aluno_id === "string") {
@@ -140,36 +134,18 @@ Deno.serve(async (req: Request) => {
         return null;
       }
     },
-    async usoTotal() {
-      return usoTotalAgora();
-    },
     async reservar(operador, quantidade, tetoOperador, tetoGlobal) {
-      // Teto do piloto, ATÔMICO: o que já foi usado em dias anteriores é fixo; o
-      // que resta para hoje é entregue como teto global à reserva do banco, que
-      // serializa as reservas do dia (advisory lock). Dois cliques simultâneos não
-      // passam juntos do limite, porque a checagem final é a do banco.
+      // Orçamento compartilhado e limite por usuário, ATÔMICOS no banco: a reserva
+      // serializa o dia (advisory lock). Dois cliques simultâneos não passam juntos
+      // do limite. Os valores vêm de LIMITE_OPERADOR_DIA e do saldo medido.
       const hoje = new Date().toISOString().slice(0, 10);
-      const { data: linhasUso } = await sb.from("ulbra_historico_uso").select("usadas, dia").eq("escopo", "*");
-      const usadoEmDiasAnteriores = (linhasUso ?? [])
-        .filter((l: { dia: string }) => String(l.dia) < hoje)
-        .reduce((soma: number, l: { usadas?: number }) => soma + Number(l.usadas ?? 0), 0);
-      const tetoHoje = LIMITE_TOTAL_PILOTO - usadoEmDiasAnteriores;
-      if (tetoHoje < quantidade) return { permitido: false, usadasOperador: 0, usadasGlobal: 0, motivo: "TETO_PILOTO_ESGOTADO" };
       const { data, error } = await sb.rpc("ulbra_historico_reservar", {
         p_operador: operador, p_dia: hoje, p_quantidade: quantidade,
-        p_teto_operador: tetoOperador, p_teto_global: Math.max(0, Math.min(tetoGlobal, tetoHoje)),
+        p_teto_operador: tetoOperador, p_teto_global: Math.max(0, tetoGlobal),
       });
       if (error) throw new Error(`RESERVA_FALHOU: ${error.message}`);
       const linha = Array.isArray(data) ? data[0] : data;
-      const usadasGlobal = Number(linha?.usadas_global ?? 0);
-      const permitido = Boolean(linha?.permitido);
-      const pilotoEsgotado = !permitido && usadasGlobal + quantidade > tetoHoje;
-      return {
-        permitido,
-        usadasOperador: Number(linha?.usadas_operador ?? 0),
-        usadasGlobal,
-        motivo: pilotoEsgotado ? "TETO_PILOTO_ESGOTADO" : undefined,
-      };
+      return { permitido: Boolean(linha?.permitido), usadasOperador: Number(linha?.usadas_operador ?? 0), usadasGlobal: Number(linha?.usadas_global ?? 0) };
     },
     lerConversa: (conversaId, antes, limite) => chamarMcp(token, "ler_conversa", antes ? { id: conversaId, limite, antesDe: antes } : { id: conversaId, limite }),
     agora: () => Date.now(),
@@ -179,7 +155,9 @@ Deno.serve(async (req: Request) => {
     const r = await lerHistoricoSomenteLeitura(email, conversa_id, antesDe, deps);
     if (!r.ok) return responder({ ok: false, motivo: r.motivo }, r.motivo === "SEM_PERMISSAO_NA_CONVERSA" || r.motivo === "IDENTIDADE_NAO_CONFIRMADA" ? 403 : 200);
     // consultado_em: quando a Mensageria foi lida. A tela mostra esta data, nunca um espelho antigo como atual.
-    return responder({ ok: true, origem: r.origem, chamadas: r.chamadas, pagina: r.pagina, tamanho: TAMANHO_PAGINA, alcance: r.alcance, consultado_em: new Date().toISOString(), conversa_id });
+    // saldo: a cota medida (e quando foi medida) para a tela mostrar o que resta.
+    const saldo = r.saldoRestam === undefined ? null : { restam: r.saldoRestam, medido_em: r.saldoEm ?? null };
+    return responder({ ok: true, origem: r.origem, chamadas: r.chamadas, pagina: r.pagina, tamanho: TAMANHO_PAGINA, alcance: r.alcance, consultado_em: new Date().toISOString(), conversa_id, saldo });
   } catch (e) {
     console.error("ulbra-historico: falhou", (e as Error).message);
     return responder({ ok: false, motivo: "ULBRA_INDISPONIVEL" }, 502);

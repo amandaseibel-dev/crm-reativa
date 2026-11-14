@@ -41,7 +41,6 @@ export const MOTIVOS_HISTORICO = {
   ULBRA_INDISPONIVEL: "A Mensageria não respondeu. A chamada contou na cota; não foi repetida.",
   CONVERSA_INVALIDA: "Conversa inválida.",
   CONVERSA_NAO_ENCONTRADA: "Este aluno ainda não tem conversa coletada na Mensageria.",
-  TETO_PILOTO_ESGOTADO: "O limite de consultas do piloto foi atingido. Nenhuma consulta foi feita.",
   ULBRA_LIMITE: "A Mensageria devolveu limite de uso (429). A consulta parou; não será repetida.",
   ALUNO_ID_INVALIDO: "Aluno inválido.",
 };

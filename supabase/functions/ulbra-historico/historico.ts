@@ -27,8 +27,6 @@ export const RESERVA_GLOBAL = 100; // PROPOSTA — saldo que o histórico nunca 
 export const SALDO_VALIDADE_MS = 15 * 60 * 1000; // PROPOSTA: saldo com mais de 15 min não serve
 export const CACHE_VALIDADE_MS = 5 * 60 * 1000;
 export const TAMANHO_PAGINA = 20;
-/** Teto TOTAL do piloto, somando leituras e a renovação de saldo (meu_acesso). Sem reset diário. */
-export const LIMITE_TOTAL_PILOTO = 3;
 
 export interface FotografiaSaldo {
   restam: number;
@@ -44,7 +42,6 @@ export type MotivoBloqueio =
   | "RESERVA_GLOBAL"
   | "ULBRA_INDISPONIVEL"
   | "ULBRA_LIMITE"
-  | "TETO_PILOTO_ESGOTADO"
   | "CONVERSA_NAO_ENCONTRADA";
 
 export interface Decisao {
@@ -82,15 +79,13 @@ export interface DependenciasHistorico {
   lerSaldo(): Promise<FotografiaSaldo | null>;
   /** Reserva atômica no banco: uma chamada externa = uma reserva. */
   reservar(operador: string, quantidade: number, tetoOperador: number, tetoGlobal: number): Promise<ResultadoReserva>;
-  /** Chamadas já reservadas em todo o período do piloto (somadas em todos os dias). */
-  usoTotal(): Promise<number>;
   /** Chamada real à ULBRA (credencial de backend, somente leitura). */
   lerConversa(conversaId: string, antesDe: string | null, limite: number): Promise<unknown>;
   agora(): number;
 }
 
 export type ResultadoHistorico =
-  | { ok: true; origem: "cache" | "ulbra"; pagina: PaginaMensagens; chamadas: number; saldoAte: string | null; alcance: string }
+  | { ok: true; origem: "cache" | "ulbra"; pagina: PaginaMensagens; chamadas: number; saldoAte: string | null; saldoRestam?: number; saldoEm?: string; alcance: string }
   | { ok: false; motivo: MotivoBloqueio };
 
 interface EntradaCache {
@@ -147,8 +142,6 @@ async function executar(
   if (!contexto) return { ok: false, motivo: "SEM_PERMISSAO_NA_CONVERSA" };
   const aut = autorizarHistorico(contexto);
   if (!aut.ok) return { ok: false, motivo: aut.motivo! };
-  // Teto do piloto antes de qualquer chamada externa (inclusive meu_acesso).
-  if ((await deps.usoTotal()) >= LIMITE_TOTAL_PILOTO) return { ok: false, motivo: "TETO_PILOTO_ESGOTADO" };
 
   const fotografia = await deps.lerSaldo();
   const saldo = avaliarSaldo(fotografia, deps.agora());
@@ -174,7 +167,10 @@ async function executar(
   }
   const pagina = mapearPagina(resposta);
   cache.set(chave, { expira: deps.agora() + CACHE_VALIDADE_MS, pagina });
-  return { ok: true, origem: "ulbra", pagina, chamadas: 1, saldoAte: saldo.validadeAte ?? null, alcance: ALCANCE };
+  return {
+    ok: true, origem: "ulbra", pagina, chamadas: 1, saldoAte: saldo.validadeAte ?? null,
+    saldoRestam: fotografia!.restam, saldoEm: fotografia!.em, alcance: ALCANCE,
+  };
 }
 
 export const TAMANHO = TAMANHO_PAGINA;
