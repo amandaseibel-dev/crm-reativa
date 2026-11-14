@@ -141,10 +141,18 @@ select public.teste_assert('gestão: aluno vazio é recusado (22023)',
     'select public.termo_fisico_registrar(''  '',''ARQUIVADO'',false)')->>'code' = '22023');
 
 -- ---------- Avisos: só para os destinatários, nunca para o autor ----------
-select public.teste_assert('aviso: registro da Amanda avisa ADM e Fernanda; o da ADM avisa Amanda e Fernanda',
+select public.teste_assert('aviso: cada registro gera um aviso para cada um dos três, incluindo o autor (6 no total)',
   (select array_agg(usuario_destino_email order by usuario_destino_email)
      from public.notificacoes where tipo = 'TERMO_FISICO')
-  = array['amanda.seibel@aelbra.com.br','cobranca04@aelbra.com.br','cobranca04@aelbra.com.br','cobranca07@aelbra.com.br']::text[]);
+  = array['amanda.seibel@aelbra.com.br','amanda.seibel@aelbra.com.br',
+          'cobranca04@aelbra.com.br','cobranca04@aelbra.com.br',
+          'cobranca07@aelbra.com.br','cobranca07@aelbra.com.br']::text[]);
+
+select public.teste_assert('aviso: o conteúdo não traz aluno, situação nem autor',
+  not exists (select 1 from public.notificacoes n where n.tipo = 'TERMO_FISICO'
+    and (n.aluno_id is not null
+         or n.mensagem ilike '%ARQUIVADO%' or n.mensagem ilike '%andamento%'
+         or n.mensagem ilike '%@%')));
 
 select public.teste_assert('Fernanda lê o próprio aviso',
   jsonb_array_length(public.teste_consulta('authenticated', 'cobranca04@aelbra.com.br',

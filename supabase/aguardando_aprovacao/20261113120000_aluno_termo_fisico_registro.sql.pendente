@@ -160,31 +160,28 @@ begin
   values (p_aluno_id, p_situacao, v_email);
 
   if coalesce(p_notificar, false) then
-    -- Destinatários = os mesmos três e-mails de usuario_e_gestao(). Quem
-    -- registrou não recebe o próprio aviso.
+    -- Destinatários = os três e-mails de usuario_e_gestao(), INCLUINDO quem
+    -- registrou. Decisão da gestão (opção A): não há anonimato do autor. Quem
+    -- lê notificacoes (usuario_e_gestao_fila) já vê o aviso; o aviso não traz
+    -- autor, situação nem aluno. Por isso o conteúdo é genérico.
     foreach v_dest in array array[
       'amanda.seibel@aelbra.com.br',
       'cobranca04@aelbra.com.br',
       'cobranca07@aelbra.com.br'
     ] loop
-      if v_dest <> v_email then
-        -- Aviso SEM conteúdo sensível: a policy de SELECT de notificacoes libera
-        -- também os perfis gerencia/supervisor/administrativo (usuario_e_gestao_fila).
-        -- Por isso não levamos aluno_id, situação nem autor.
-        insert into public.notificacoes (
-          usuario_destino_email, tipo, titulo, mensagem,
-          aluno_id, url_destino, lida, criado_em
-        ) values (
-          v_dest,
-          'TERMO_FISICO',
-          'Registro administrativo atualizado',
-          'Há um registro administrativo novo para conferir na ficha do aluno.',
-          null,
-          '/aluno',
-          false,
-          now()
-        );
-      end if;
+      insert into public.notificacoes (
+        usuario_destino_email, tipo, titulo, mensagem,
+        aluno_id, url_destino, lida, criado_em
+      ) values (
+        v_dest,
+        'TERMO_FISICO',
+        'Registro administrativo atualizado',
+        'Há um registro administrativo novo para conferir na ficha do aluno.',
+        null,
+        '/aluno',
+        false,
+        now()
+      );
     end loop;
   end if;
 
