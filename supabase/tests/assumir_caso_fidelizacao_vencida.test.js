@@ -719,16 +719,16 @@ describe("operador assume caso com fidelização vencida", () => {
       await db.close();
     });
 
-    it("gestão não usa a tomada, mas reverte pelo fluxo administrativo", async () => {
+    it("gestão não usa a tomada: recusada pelo banco e nenhum dado muda", async () => {
       const db = await comPapeis();
       const caso = await cenario(db, 83, { dono: MAURICIO });
       await db.exec("set role authenticated");
-      await como(db, LUANA);
-      const r = await q1(db, "select * from public.assumir_caso_fidelizacao_vencida($1,$2)", [U(83), "x"]);
       await como(db, GESTAO);
-      const neg = await q1(db, "select * from public.assumir_caso_fidelizacao_vencida($1,$2)", [U(83), "x"]);
+      const r = await q1(db, "select * from public.assumir_caso_fidelizacao_vencida($1,$2)", [U(83), "x"]);
       await db.exec("reset role");
-      expect(neg.sucesso).toBe(false);
+      expect(r.sucesso).toBe(false);
+      expect(r.mensagem).toContain("exclusiva de operadores");
+      expect((await q1(db, "select operador_email e from public.casos where id=$1", [caso])).e).toBe(MAURICIO);
       await db.close();
     });
   });
