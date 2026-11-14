@@ -97,44 +97,42 @@ $function$;
 -- ele entra no revoke (ninguem precisa chamar este predicado de fora).
 REVOKE ALL ON FUNCTION public.caso_pode_soltar_com_aluno(uuid) FROM PUBLIC, anon, authenticated, service_role;
 
--- RETORNO VALIDO DO RESPONSAVEL ATUAL (decisao da gestao, 13/11/2026). Regra UNICA,
--- usada pela liberacao, pelo cron, pelo teto, pela assuncao e pelo card de risco.
--- Protege enquanto, e somente enquanto:
---   * o aluno tem responsavel e o retorno e de hoje (Sao Paulo) ou futuro;
---   * a origem e do operador e o retorno nao foi concluido (retorno_confirmado_em);
---     cancelado = data nula; vencido = data passada: nenhum dos dois protege;
---   * o retorno nasceu de um ATENDIMENTO REAL (FINALIZACAO_ATENDIMENTO) registrado
---     pelo RESPONSAVEL ATUAL, com essa mesma data de retorno -- retorno de envio em
---     lote, de outro operador ou digitado sem atendimento nao protege; trocou o
---     responsavel, a protecao acaba;
---   * a data do retorno esta a no maximo 15 dias desse atendimento: remarcar o
---     retorno sem atender de novo nao prolonga a protecao. (15 dias e PARAMETRO
---     PROVISORIO, a confirmar pela gestao.)
+-- RETORNO PENDENTE DO OPERADOR PROTEGE O CASO (decisao da gestao, 14/11/2026,
+-- SUBSTITUI a orientacao de 13/11). Regra unica, usada pela liberacao, pelo cron,
+-- pelo teto, pela assuncao, pelo card de risco e pela revalidacao do lote.
+--
+-- PROTEGE enquanto, e somente enquanto:
+--   * o aluno tem responsavel e o retorno existe (data nao nula);
+--   * a origem e do operador e o retorno NAO foi concluido (retorno_confirmado_em);
+--   * existe REGISTRO EXPLICITO DE AGENDAMENTO HUMANO: um atendimento
+--     (FINALIZACAO_ATENDIMENTO) registrado pelo RESPONSAVEL ATUAL, depois de ele
+--     assumir o aluno, com o campo data_retorno gravado. Autor e aluno estao na
+--     propria movimentacao. A data da movimentacao NAO precisa repetir a data do
+--     retorno do aluno; so o retorno nao pode estar a mais de 15 dias depois do
+--     atendimento (associacao, nao expiracao).
+--
+-- NAO PROTEGE: cancelado (data nula), concluido, origem automatica, retorno de outro
+-- operador, atendimento sem campo de retorno, e texto "Retorno: DD/MM" sozinho (a
+-- mesma tela escreve esse texto tambem para prazo automatico).
+--
+-- NAO EXPIRA A PROTECAO: vencido (data passada) e responsavel inativo. Esses casos
+-- seguem protegidos e NAO sao liberados automaticamente; ficam para a gestao.
+--
+-- CASOS ANTIGOS sem registro explicito (so texto) NAO sao protegidos e NAO sao
+-- liberados: ficam RETIDOS para conferencia da gestao (ver aluno_retorno_ambiguo).
+-- Nenhum vinculo e inventado.
 CREATE OR REPLACE FUNCTION public.aluno_retorno_operador_vigente(p_aluno_id uuid)
  RETURNS boolean
  LANGUAGE sql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
-  -- Decisao da gestao (13/11/2026, opcao 3). Protege enquanto, e somente enquanto:
-  --   * o responsavel atual e um USUARIO ATIVO (ex-operador nao bloqueia: pool livre);
-  --   * o retorno e de hoje ou futuro (Sao Paulo), e a origem e do operador, nao concluido;
-  --   * ha ATENDIMENTO COMPROVADO do responsavel atual, feito DEPOIS de ele assumir o
-  --     aluno (responsavel_atual_em: X->Y->X nao revalida atendimento anterior a troca);
-  --   * e o atendimento satisfaz uma das duas vias:
-  --       (a) vinculo explicito: a movimentacao traz a MESMA data de retorno, ate 15 dias
-  --           depois do atendimento (15 dias = hipotese, parametro provisorio);
-  --       (b) alternativa: atendimento registrado nos ultimos 10 dias. Conta a data do
-  --           ATENDIMENTO, nao a do retorno: remarcar sem atender nao renova a protecao.
-  -- Nao cria protecao indefinida: sem atendimento novo, a protecao acaba.
   select exists (
     select 1
       from public.alunos a
      where a.id = p_aluno_id
        and a.responsavel_atual_email is not null
-       and exists (select 1 from public.usuarios u
-                    where lower(u.email) = lower(a.responsavel_atual_email) and u.ativo)
-       and a.data_retorno >= (now() at time zone 'America/Sao_Paulo')::date
+       and a.data_retorno is not null
        and upper(coalesce(a.retorno_origem, '')) like 'OPERADOR%'
        and a.retorno_confirmado_em is null
        and exists (
@@ -143,22 +141,10 @@ AS $function$
                 and m.tipo = 'FINALIZACAO_ATENDIMENTO'
                 and lower(m.registrado_por_email) = lower(a.responsavel_atual_email)
                 and m.registrado_em >= coalesce(a.responsavel_atual_em, '-infinity'::timestamptz)
-                and (
-                      -- (a) vinculo explicito pelo CAMPO da movimentacao
-                      ((m.data_retorno at time zone 'America/Sao_Paulo')::date = a.data_retorno
-                        and a.data_retorno <= (m.registrado_em at time zone 'America/Sao_Paulo')::date + 15)
-                      -- (a') ESTOQUE ANTERIOR a correcao da Minha Carteira: ate 13/11/2026 a
-                      -- tela gravava o retorno no ALUNO e no TEXTO da movimentacao, mas nao no
-                      -- campo; a ausencia do campo NAO e prova de agendamento automatico.
-                      -- ATENCAO: o texto SOZINHO nao prova agendamento humano -- a mesma tela
-                      -- escreve "Retorno: DD/MM/AAAA" tambem para prazo automatico. O que prova
-                      -- e a COMBINACAO: origem OPERADOR% no aluno (exigida acima) + o texto do
-                      -- atendimento do responsavel. Mesmo teto de 15 dias.
-                   or (m.descricao like '%Retorno: ' || to_char(a.data_retorno, 'DD/MM/YYYY') || '%'
-                        and a.data_retorno <= (m.registrado_em at time zone 'America/Sao_Paulo')::date + 15)
-                      -- (b) alternativa: atendimento do responsavel nos ultimos 10 dias
-                   or m.registrado_em >= now() - interval '10 days'
-                )
+                and m.data_retorno is not null
+                -- associacao (nao expiracao): o retorno nao pode estar a mais de 15 dias
+                -- depois do atendimento que o registrou. Parametro provisorio.
+                and a.data_retorno <= (m.registrado_em at time zone 'America/Sao_Paulo')::date + 15
        )
   );
 $function$;
@@ -199,23 +185,18 @@ CREATE OR REPLACE FUNCTION public.aluno_retorno_ambiguo(p_aluno_id uuid)
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
+  -- Retorno PENDENTE de origem do operador que NAO esta protegido (14/11/2026): nao ha
+  -- registro explicito de agendamento humano. Fica RETIDO para conferencia da gestao;
+  -- nunca e liberado automaticamente, e nenhum vinculo e inventado.
   select exists (
     select 1
       from public.alunos a
      where a.id = p_aluno_id
        and a.responsavel_atual_email is not null
-       and a.data_retorno >= (now() at time zone 'America/Sao_Paulo')::date
+       and a.data_retorno is not null
        and upper(coalesce(a.retorno_origem, '')) like 'OPERADOR%'
        and a.retorno_confirmado_em is null
        and not public.aluno_retorno_operador_vigente(a.id)
-       and ( exists (select 1 from public.aluno_movimentacoes m
-                      where m.aluno_id = a.id::text and m.tipo = 'FINALIZACAO_ATENDIMENTO'
-                        and lower(m.registrado_por_email) = lower(a.responsavel_atual_email)
-                        and m.descricao ilike '%retorno%'
-                        and m.descricao not like '%Retorno: ' || to_char(a.data_retorno, 'DD/MM/YYYY') || '%')
-          or not exists (select 1 from public.aluno_movimentacoes m
-                          where m.aluno_id = a.id::text and m.tipo = 'FINALIZACAO_ATENDIMENTO'
-                            and lower(m.registrado_por_email) = lower(a.responsavel_atual_email)) )
   );
 $function$;
 
@@ -284,7 +265,10 @@ $novo$  if public.caso_em_giro_fidelizacao(v_c.giro_fidelizacao_ate) then
 $ancora$  if public.caso_dentro_prazo_fidelizacao(v_c.data_ultimo_acionamento) then return false; end if;$ancora$,
 $novo$  if public.caso_dentro_prazo_fidelizacao(v_c.data_ultimo_acionamento) then return false; end if;
   if public.aluno_retorno_operador_vigente(v_c.aluno_id) then
-    return false;  -- retorno valido do responsavel atual: compromisso preservado
+    return false;  -- retorno pendente comprovado do responsavel atual: compromisso preservado
+  end if;
+  if public.aluno_retorno_ambiguo(v_c.aluno_id) then
+    return false;  -- retorno pendente de origem do operador SEM registro explicito: retido para a gestao (14/11)
   end if;
   -- Soltar este caso solta, por gatilho, TODOS os casos do mesmo aluno. Trava
   -- as linhas de todos eles ANTES de ler os irmaos: sem isso, um acionamento
@@ -356,6 +340,11 @@ $novo$     or coalesce(v_new._saldo,0) <= 0 then
   if coalesce(v_new.operador_email,'') <> '' and lower(v_new.operador_email) <> v_email
      and public.aluno_retorno_operador_vigente(v_new.aluno_id) then
     return query select false,'Caso com retorno agendado pelo responsavel atual.',null::uuid; return;
+  end if;
+  -- Retorno pendente SEM registro explicito (14/11): retido para a gestao, nao transferido.
+  if coalesce(v_new.operador_email,'') <> '' and lower(v_new.operador_email) <> v_email
+     and public.aluno_retorno_ambiguo(v_new.aluno_id) then
+    return query select false,'Caso com retorno pendente sem registro explicito: retido para a gestao.',null::uuid; return;
   end if;
   if not public.caso_pode_soltar_com_aluno(p_caso_id) then
     return query select false,'Caso com irmao protegido por fidelizacao vigente: a assuncao nao muda o responsavel dele.',null::uuid; return;

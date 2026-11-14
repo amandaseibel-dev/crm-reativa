@@ -327,10 +327,10 @@ describe("regra 5 — proteções legítimas continuam valendo", () => {
     await db.close();
   });
 
-  it("retorno do operador JÁ VENCIDO (ontem) não protege mais", async () => {
+  it("retorno do operador JÁ VENCIDO (ontem) COM registro explícito PROTEGE (decisão 14/11)", async () => {
     const db = await novo();
-    await cenario(db, 1, { retorno: -1, retornoOrigem: "OPERADOR" });
-    expect(await rodarCron(db)).toBe(1);
+    await cenario(db, 1, { dono: OP1, retorno: -1, retornoOrigem: "OPERADOR" });
+    expect(await rodarCron(db)).toBe(0);
     await db.close();
   });
 
@@ -773,17 +773,17 @@ describe("retorno agendado (decisão da gestão, 13/11) — liberação e assun�
     await db.close();
   });
 
-  it("retorno VENCIDO (ontem): não protege — cron solta", async () => {
+  it("retorno VENCIDO (ontem) com registro explícito: PROTEGE — cron não solta (decisão 14/11)", async () => {
     const db = await novo();
     await alvo(db, { retorno: -1 });
-    expect((await ambos(db)).cron).toBe(1);
+    expect((await ambos(db)).cron).toBe(0);
     await db.close();
   });
 
-  it("retorno vencido não protege a assunção: outro operador assume", async () => {
+  it("retorno vencido com registro explícito PROTEGE a assunção: outro operador NÃO assume (decisão 14/11)", async () => {
     const db = await novo();
     await alvo(db, { retorno: -1 });
-    expect((await assumir(db, OP2, 1)).sucesso).toBe(true);
+    expect((await assumir(db, OP2, 1)).sucesso).toBe(false);
     await db.close();
   });
 
@@ -803,10 +803,10 @@ describe("retorno agendado (decisão da gestão, 13/11) — liberação e assun�
     await db.close();
   });
 
-  it("retorno INVÁLIDO (sem atendimento real, ex.: envio em lote): não protege", async () => {
+  it("retorno INVÁLIDO (sem atendimento real, ex.: envio em lote): NÃO protege e fica RETIDO (decisão 14/11)", async () => {
     const db = await novo();
     await alvo(db, { retorno: 2, semAtendimento: true });
-    expect((await ambos(db)).cron).toBe(1);
+    expect((await ambos(db)).cron).toBe(0);
     await db.close();
   });
 
@@ -817,25 +817,25 @@ describe("retorno agendado (decisão da gestão, 13/11) — liberação e assun�
     await db.close();
   });
 
-  it("TROCA DE RESPONSÁVEL: retorno marcado pelo operador anterior não protege o atual", async () => {
+  it("TROCA DE RESPONSÁVEL: retorno marcado pelo operador anterior NÃO protege o atual e fica RETIDO (decisão 14/11)", async () => {
     const db = await novo();
     await alvo(db, { retorno: 2, atendidoPor: OP2 });       // quem atendeu e marcou foi outro; o dono hoje e OP1
-    expect((await ambos(db)).cron).toBe(1);
+    expect((await ambos(db)).cron).toBe(0);
     await db.close();
   });
 
-  it("SEM RENOVAÇÃO: retorno a mais de 15 dias do atendimento que o marcou não protege", async () => {
+  it("SEM ASSOCIAÇÃO: retorno a mais de 15 dias do atendimento não associa e fica RETIDO, sem liberação automática (decisão 14/11)", async () => {
     const db = await novo();
     await alvo(db, { dua: 20, retorno: 2 });                // atendimento ha 20 dias, retorno em +2 = 22 dias depois
-    expect((await ambos(db)).cron).toBe(1);
+    expect((await ambos(db)).cron).toBe(0);
     await db.close();
   });
 
-  it("remarcar o retorno SEM atender de novo não prolonga a proteção", async () => {
+  it("remarcar o retorno sem novo atendimento: segue protegido enquanto o registro explícito está na janela de 15 dias (decisão 14/11)", async () => {
     const db = await novo();
     await alvo(db, { retorno: 0 });
-    await db.query("update public.alunos set data_retorno = current_date + 10 where id = $1", [U(1)]);   // so empurrou a data
-    expect((await ambos(db)).cron).toBe(1);
+    await db.query("update public.alunos set data_retorno = current_date + 10 where id = $1", [U(1)]);
+    expect((await ambos(db)).cron).toBe(0);
     await db.close();
   });
 
@@ -888,7 +888,7 @@ describe("vínculo do retorno — via explícita e alternativa de 10 dias (gest�
   // caso de giro vencido, sem movimentacao propria; o teste monta o atendimento.
   const base = (db, extra = {}) => cenario(db, 1, { dono: OP1, giro: -17, dua: 15, retorno: null, semMov: true, ...extra });
 
-  it("ALTERNATIVA: atendimento do responsável há 3 dias, sem data na movimentação → protege", async () => {
+  it("SEM REGISTRO EXPLÍCITO: atendimento recente do responsável, sem campo de retorno, NÃO protege e fica RETIDO (a via de 10 dias saiu, decisão 14/11)", async () => {
     const db = await novo();
     await base(db);
     await atendimento(db, 1, { email: OP1, diasAtras: 3 });
@@ -898,23 +898,23 @@ describe("vínculo do retorno — via explícita e alternativa de 10 dias (gest�
     await db.close();
   });
 
-  it("ALTERNATIVA: atendimento há 12 dias (fora dos 10), sem data na movimentação → NÃO protege", async () => {
+  it("SEM REGISTRO EXPLÍCITO: atendimento há 12 dias, sem campo de retorno → NÃO protege e fica RETIDO (decisão 14/11)", async () => {
     const db = await novo();
     await base(db);
     await atendimento(db, 1, { email: OP1, diasAtras: 12 });
     await retornoEm(db, 1, 3);
     await forcarParado(db, 1);
-    expect((await ambos(db)).cron).toBe(1);
+    expect((await ambos(db)).cron).toBe(0);
     await db.close();
   });
 
-  it("REMARCAR sem atender não renova: atendimento há 12 dias e retorno empurrado para +3 → NÃO protege", async () => {
+  it("REMARCAR sem registro explícito: atendimento há 12 dias sem campo, retorno em +3 → NÃO protege e fica RETIDO (decisão 14/11)", async () => {
     const db = await novo();
     await base(db);
     await atendimento(db, 1, { email: OP1, diasAtras: 12, comDataRetornoEm: -9 });  // retorno antigo, ja vencido
     await retornoEm(db, 1, 3);                                                       // remarcado, sem atendimento novo
     await forcarParado(db, 1);
-    expect((await ambos(db)).cron).toBe(1);
+    expect((await ambos(db)).cron).toBe(0);
     await db.close();
   });
 
@@ -938,7 +938,7 @@ describe("vínculo do retorno — via explícita e alternativa de 10 dias (gest�
                $2, 'OP', (current_date - $3::int)::timestamp + interval '15 hours', null)`,
       [U(n), email, diasAtras, retornoEm]);
 
-  it("ESTOQUE ANTIGO: retorno humano gravado só no TEXTO (sem campo) protege", async () => {
+  it("ESTOQUE ANTIGO: retorno gravado só no TEXTO (sem campo) NÃO protege e fica RETIDO para a gestão (decisão 14/11)", async () => {
     const db = await novo();
     await base(db);
     await atendimentoTexto(db, 1, { email: OP1, diasAtras: 12, retornoEm: 3 });
@@ -948,33 +948,33 @@ describe("vínculo do retorno — via explícita e alternativa de 10 dias (gest�
     await db.close();
   });
 
-  it("ESTOQUE ANTIGO: texto com OUTRA data não protege (não é o retorno vigente)", async () => {
+  it("ESTOQUE ANTIGO: texto com OUTRA data NÃO protege e fica RETIDO (decisão 14/11)", async () => {
     const db = await novo();
     await base(db);
     await atendimentoTexto(db, 1, { email: OP1, diasAtras: 12, retornoEm: 9 });   // texto fala de +9
     await retornoEm(db, 1, 3);                                                     // mas o retorno e +3
     await forcarParado(db, 1);
-    expect((await ambos(db)).cron).toBe(1);
+    expect((await ambos(db)).cron).toBe(0);
     await db.close();
   });
 
-  it("ESTOQUE ANTIGO: o teto de 15 dias vale igual para o vínculo por texto", async () => {
+  it("ESTOQUE ANTIGO: texto NÃO vincula, nem dentro nem fora de 15 dias: RETIDO (decisão 14/11)", async () => {
     const db = await novo();
     await base(db);
     await atendimentoTexto(db, 1, { email: OP1, diasAtras: 12, retornoEm: 6 });   // 12 + 6 = 18 dias
     await retornoEm(db, 1, 6);
     await forcarParado(db, 1);
-    expect((await ambos(db)).cron).toBe(1);
+    expect((await ambos(db)).cron).toBe(0);
     await db.close();
   });
 
-  it("ESTOQUE ANTIGO: texto de OUTRO operador não protege o responsável atual", async () => {
+  it("ESTOQUE ANTIGO: texto de OUTRO operador NÃO protege e fica RETIDO (decisão 14/11)", async () => {
     const db = await novo();
     await base(db);
     await atendimentoTexto(db, 1, { email: OP2, diasAtras: 12, retornoEm: 3 });
     await retornoEm(db, 1, 3);
     await forcarParado(db, 1);
-    expect((await ambos(db)).cron).toBe(1);
+    expect((await ambos(db)).cron).toBe(0);
     await db.close();
   });
 
@@ -995,14 +995,15 @@ describe("vínculo do retorno — via explícita e alternativa de 10 dias (gest�
 
     const linhas = await qn(db, MEDICAO_ESTOQUE);
     const v = (item) => Number(linhas.find((l) => l.item.startsWith(item))?.valor);
+    // Regra de 14/11: so o registro explicito (campo) protege. Texto nao protege.
     expect(v("casos")).toBe(5);
     expect(v("protegidos pelo CAMPO")).toBe(1);
-    expect(v("RECUPERADOS pelo TEXTO")).toBe(1);
-    expect(v("LIBERAVEIS")).toBe(1);
+    expect(v("RECUPERADOS pelo TEXTO")).toBe(0);
+    expect(v("LIBERAVEIS")).toBe(0);
     const ambiguos = linhas.filter((l) => l.bloco.startsWith("D.") && l.item === "total");
-    expect(Number(ambiguos[0].valor)).toBe(2);
-    // e a função concorda com a consulta nos dois protegidos
-    for (const [n, esperado] of [[1, true], [2, true], [3, false]]) {
+    expect(Number(ambiguos[0].valor)).toBe(4);
+    // e a função concorda com a consulta: so o caso 1 e protegido
+    for (const [n, esperado] of [[1, true], [2, false], [3, false]]) {
       const r = await q1(db, "select public.aluno_retorno_operador_vigente($1) v", [U(n)]);
       expect(r.v, `aluno ${n}`).toBe(esperado);
     }
@@ -1010,34 +1011,34 @@ describe("vínculo do retorno — via explícita e alternativa de 10 dias (gest�
     // ambiguos (bloco D) e 1, 2 e 3 como nao-ambiguos; `aluno_retorno_ambiguo`,
     // que o backup e o lote usam, tem de dizer exatamente o mesmo. Sem isto, a
     // frase "a consulta e as funcoes devolvem o mesmo resultado" nao se sustenta.
-    for (const [n, esperado] of [[1, false], [2, false], [3, false], [4, true], [5, true]]) {
+    for (const [n, esperado] of [[1, false], [2, true], [3, true], [4, true], [5, true]]) {
       const r = await q1(db, "select public.aluno_retorno_ambiguo($1) v", [U(n)]);
       expect(r.v, `ambiguo? aluno ${n}`).toBe(esperado);
     }
     await db.close();
   });
 
-  it("EXPLÍCITA: retorno a mais de 15 dias do atendimento → NÃO protege", async () => {
+  it("EXPLÍCITA: retorno a mais de 15 dias do atendimento → fora da associação, RETIDO (decisão 14/11)", async () => {
     const db = await novo();
     await base(db);
     await atendimento(db, 1, { email: OP1, diasAtras: 12, comDataRetornoEm: 6 });   // 12 + 6 = 18 dias
     await retornoEm(db, 1, 6);
     await forcarParado(db, 1);
-    expect((await ambos(db)).cron).toBe(1);
+    expect((await ambos(db)).cron).toBe(0);
     await db.close();
   });
 
-  it("EX-OPERADOR (inativo): retorno com vínculo explícito NÃO bloqueia", async () => {
+  it("EX-OPERADOR (inativo): retorno com registro explícito PROTEGE — responsável inativo não expira a proteção (decisão 14/11)", async () => {
     const db = await novo();
     await base(db, { dono: "ex.operador@aelbra.com.br" });
     await atendimento(db, 1, { email: "ex.operador@aelbra.com.br", diasAtras: 12, comDataRetornoEm: 3 });
     await retornoEm(db, 1, 3);
     await forcarParado(db, 1);
-    expect((await ambos(db)).cron).toBe(1);
+    expect((await ambos(db)).cron).toBe(0);
     await db.close();
   });
 
-  it("X → Y → X: atendimento de X ANTERIOR à última troca não revalida o retorno", async () => {
+  it("X → Y → X: atendimento de X ANTERIOR à volta não se associa: caso RETIDO, sem liberação automática (decisão 14/11)", async () => {
     const db = await novo();
     await base(db);
     await atendimento(db, 1, { email: OP1, diasAtras: 12, comDataRetornoEm: 3 });
@@ -1047,7 +1048,7 @@ describe("vínculo do retorno — via explícita e alternativa de 10 dias (gest�
     await db.exec("alter table public.alunos disable trigger user");
     await db.query("update public.alunos set responsavel_atual_em = now() - interval '2 days' where id = $1", [U(1)]);
     await db.exec("alter table public.alunos enable trigger user");
-    expect((await ambos(db)).cron).toBe(1);
+    expect((await ambos(db)).cron).toBe(0);
     await db.close();
   });
 
@@ -1100,7 +1101,7 @@ describe("vínculo do retorno — via explícita e alternativa de 10 dias (gest�
   //       pedindo a classificacao por aluno, e compara com a funcao aluno a aluno;
   //   (2) AGREGADO: roda o arquivo inteiro e confere a cardinalidade de cada balde.
   // Se a consulta ou a regra mudar sozinha, este teste quebra.
-  it("a consulta de auditoria concorda com a regra, caso a caso e no agregado", async () => {
+  it("a consulta de auditoria concorda com a regra de 14/11, caso a caso e no agregado", async () => {
     const db = await novo();
     const montar = async (n, o) => {
       await cenario(db, n, { dono: o.dono ?? OP1, giro: -17, dua: 15, retorno: null, semMov: true });
@@ -1109,9 +1110,9 @@ describe("vínculo do retorno — via explícita e alternativa de 10 dias (gest�
       await forcarParado(db, n);
     };
     await montar(1, { diasAtras: 12, comData: 3 });                       // via explicita
-    await montar(2, { diasAtras: 3 });                                    // via alternativa
-    await montar(3, { diasAtras: 20 });                                   // sem protecao
-    await montar(4, { diasAtras: 12, comData: 3, dono: "ex.operador@aelbra.com.br" });  // ex-operador: nao protege
+    await montar(2, { diasAtras: 3 });                                    // sem campo: NAO protege (via de 10 dias saiu)
+    await montar(3, { diasAtras: 20 });                                   // sem campo, sem protecao
+    await montar(4, { diasAtras: 12, comData: 3, dono: "ex.operador@aelbra.com.br" });  // ex-operador COM campo: PROTEGE (inativo nao expira)
 
     // (1) caso a caso, com as CTEs do proprio arquivo versionado
     const corte = AUDITORIA.indexOf("-- BLOCO A");
@@ -1128,28 +1129,28 @@ describe("vínculo do retorno — via explícita e alternativa de 10 dias (gest�
     // e a via de cada um e a esperada, nao so o booleano final
     const via = Object.fromEntries(linhasCaso.map((r) => [r.aluno, [r.via_explicita, r.via_alternativa]]));
     expect(via[U(1)]).toEqual([true, false]);
-    expect(via[U(2)]).toEqual([false, true]);
+    expect(via[U(2)]).toEqual([false, false]);
     expect(via[U(3)]).toEqual([false, false]);
-    expect(via[U(4)]).toEqual([false, false]);
+    expect(via[U(4)]).toEqual([true, false]);
 
     // (2) agregado, com o arquivo inteiro
     const linhas = await qn(db, AUDITORIA);
     const achar = (item) => Number(linhas.find((l) => l.item.startsWith(item))?.valor);
     expect(achar("total")).toBe(4);
-    expect(achar("protegidos SO pela via explicita")).toBe(1);
-    expect(achar("protegidos SO pela via alternativa")).toBe(1);
+    expect(achar("protegidos SO pela via explicita")).toBe(2);
+    expect(achar("protegidos SO pela via alternativa")).toBe(0);
     expect(achar("sem protecao")).toBe(2);
     expect(achar("responsavel INATIVO")).toBe(1);
     await db.close();
   });
 
-  it("atendimento de OUTRO operador não protege o responsável atual", async () => {
+  it("atendimento de OUTRO operador NÃO protege o responsável atual e fica RETIDO (decisão 14/11)", async () => {
     const db = await novo();
     await base(db);
     await atendimento(db, 1, { email: OP2, diasAtras: 3, comDataRetornoEm: 3 });
     await retornoEm(db, 1, 3);
     await forcarParado(db, 1);
-    expect((await ambos(db)).cron).toBe(1);
+    expect((await ambos(db)).cron).toBe(0);
     await db.close();
   });
 });

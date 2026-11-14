@@ -1,5 +1,9 @@
 # Fidelização do giro de outubro segue os 10 dias (12/11/2026)
 
+> **ATENÇÃO (14/11/2026): a regra de retorno de 13/11 foi SUBSTITUÍDA.** Este documento mantém o histórico da decisão de 13/11, mas o que vale é o registro de substituição em `docs/seguranca/autorizacao-m1-20261112210000.md` (seção "SUBSTITUIÇÃO DE 14/11/2026"): retorno pendente de origem do operador protege mesmo vencido ou com responsável inativo, exige registro explícito de agendamento humano, e casos sem comprovação ficam retidos. Onde o texto abaixo disser que vencido não protege, que a via de 10 dias protege ou que o texto protege, essas frases estão superadas.
+
+
+
 **Status:** migration PENDENTE, nada aplicado em produção. Nenhuma liberação
 executada, nenhum giro, nenhuma redistribuição.
 Arquivos: `supabase/aguardando_aprovacao/20261112210000_fidelizacao_giro_segue_os_10_dias.{sql.pendente,rollback.sql}`,

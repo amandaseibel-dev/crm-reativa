@@ -52,7 +52,10 @@ $antigo$  if v_c.giro_fidelizacao_ate is not null then
       (5, 'liberar_fidelizacao_caso',
 $novo$  if public.caso_dentro_prazo_fidelizacao(v_c.data_ultimo_acionamento) then return false; end if;
   if public.aluno_retorno_operador_vigente(v_c.aluno_id) then
-    return false;  -- retorno valido do responsavel atual: compromisso preservado
+    return false;  -- retorno pendente comprovado do responsavel atual: compromisso preservado
+  end if;
+  if public.aluno_retorno_ambiguo(v_c.aluno_id) then
+    return false;  -- retorno pendente de origem do operador SEM registro explicito: retido para a gestao (14/11)
   end if;
   -- Soltar este caso solta, por gatilho, TODOS os casos do mesmo aluno. Trava
   -- as linhas de todos eles ANTES de ler os irmaos: sem isso, um acionamento
@@ -97,6 +100,11 @@ $novo$     or coalesce(v_new._saldo,0) <= 0 then
   if coalesce(v_new.operador_email,'') <> '' and lower(v_new.operador_email) <> v_email
      and public.aluno_retorno_operador_vigente(v_new.aluno_id) then
     return query select false,'Caso com retorno agendado pelo responsavel atual.',null::uuid; return;
+  end if;
+  -- Retorno pendente SEM registro explicito (14/11): retido para a gestao, nao transferido.
+  if coalesce(v_new.operador_email,'') <> '' and lower(v_new.operador_email) <> v_email
+     and public.aluno_retorno_ambiguo(v_new.aluno_id) then
+    return query select false,'Caso com retorno pendente sem registro explicito: retido para a gestao.',null::uuid; return;
   end if;
   if not public.caso_pode_soltar_com_aluno(p_caso_id) then
     return query select false,'Caso com irmao protegido por fidelizacao vigente: a assuncao nao muda o responsavel dele.',null::uuid; return;

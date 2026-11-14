@@ -40,7 +40,7 @@ retorno as (
                   where lower(u.email) = lower(a.responsavel_atual_email) and u.ativo) as resp_ativo
     from public.alunos a, hoje h
    where a.responsavel_atual_email is not null
-     and a.data_retorno >= h.d
+     and a.data_retorno is not null
      and upper(coalesce(a.retorno_origem, '')) like 'OPERADOR%'
      and a.retorno_confirmado_em is null
 ),
@@ -53,7 +53,7 @@ sinal as (
       where m.aluno_id = r.aluno_id::text and m.tipo = 'FINALIZACAO_ATENDIMENTO'
         and lower(m.registrado_por_email) = r.resp
         and m.registrado_em >= coalesce(r.resp_em, '-infinity'::timestamptz)
-        and (m.data_retorno at time zone 'America/Sao_Paulo')::date = r.ret) as dia_campo,
+        and m.data_retorno is not null) as dia_campo,
     -- vínculo pelo TEXTO (estoque antigo)
     (select max((m.registrado_em at time zone 'America/Sao_Paulo')::date)
        from public.aluno_movimentacoes m
@@ -83,9 +83,9 @@ sinal as (
 
 classificado as (
   select s.*,
-    (s.resp_ativo and s.dia_campo is not null and s.ret <= s.dia_campo + 15) as via_campo,
-    (s.resp_ativo and s.dia_texto is not null and s.ret <= s.dia_texto + 15) as via_texto,
-    (s.resp_ativo and s.dia_alt   is not null)                                as via_alt
+    (s.dia_campo is not null and s.ret <= s.dia_campo + 15) as via_campo,
+    false as via_texto,   -- texto NAO protege (decisao 14/11)
+    false as via_alt      -- via de 10 dias REMOVIDA (decisao 14/11)
   from sinal s
 ),
 
@@ -106,8 +106,7 @@ final as (
     (via_campo or via_texto or via_alt) as protegido,
     -- AMBÍGUO: tem retorno de operador vigente, NÃO está protegido, mas há sinal
     -- de que houve agendamento humano que não dá para amarrar à data vigente.
-    (tem_retorno and not (via_campo or via_texto or via_alt)
-       and (menciona_outra_data or sem_atendimento_do_resp)) as ambiguo
+    (tem_retorno and not (via_campo or via_texto or via_alt)) as ambiguo  -- pendente nao protegido: retido (decisao 14/11)
   from caso
 )
 

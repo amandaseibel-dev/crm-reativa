@@ -37,7 +37,7 @@ elegivel as (
    where c.aluno_id is not null
 ),
 
--- Alunos com retorno de operador vigente (hoje ou futuro, não concluído).
+-- Alunos com retorno PENDENTE de operador (decisao 14/11: vencido e responsavel inativo nao expiram).
 retorno as (
   select a.id as aluno_id, lower(a.responsavel_atual_email) as resp,
          a.data_retorno as ret, a.responsavel_atual_em as resp_em,
@@ -46,7 +46,7 @@ retorno as (
                   where lower(u.email) = lower(a.responsavel_atual_email) and u.ativo) as resp_ativo
     from public.alunos a, hoje h
    where a.responsavel_atual_email is not null
-     and a.data_retorno >= h.d
+     and a.data_retorno is not null
      and upper(coalesce(a.retorno_origem, '')) like 'OPERADOR%'
      and a.retorno_confirmado_em is null
 ),
@@ -61,7 +61,7 @@ atendimento as (
              and m.tipo = 'FINALIZACAO_ATENDIMENTO'
              and lower(m.registrado_por_email) = r.resp
              and m.registrado_em >= coalesce(r.resp_em, '-infinity'::timestamptz)
-             and (m.data_retorno at time zone 'America/Sao_Paulo')::date = r.ret) as dia_explicita,
+             and m.data_retorno is not null) as dia_explicita,
          -- via ALTERNATIVA: atendimento do responsável nos últimos 10 dias
          (select max((m.registrado_em at time zone 'America/Sao_Paulo')::date)
             from public.aluno_movimentacoes m
@@ -84,8 +84,8 @@ atendimento as (
 classificado as (
   select a.*,
          -- explícita vale se o retorno está a no máximo 15 dias do atendimento
-         (a.resp_ativo and a.dia_explicita is not null and a.ret <= a.dia_explicita + 15) as via_explicita,
-         (a.resp_ativo and a.dia_alternativa is not null)                                  as via_alternativa
+         (a.dia_explicita is not null and a.ret <= a.dia_explicita + 15) as via_explicita,
+         false as via_alternativa  -- via de 10 dias REMOVIDA (decisao 14/11)
     from atendimento a
 ),
 
