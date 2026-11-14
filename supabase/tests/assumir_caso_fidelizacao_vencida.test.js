@@ -108,14 +108,9 @@ async function cenario(db, n, o = {}) {
   return caso.id;
 }
 
-let SEM;
 let COM;
 
 beforeAll(async () => {
-  const b1 = await construir();
-  SEM = await b1.dumpDataDir();
-  await b1.close();
-
   const b2 = await construir();
   await b2.exec(MIGRATION);
   COM = await b2.dumpDataDir();
