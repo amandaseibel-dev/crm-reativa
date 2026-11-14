@@ -29,6 +29,7 @@ function fabrica(over: Partial<DependenciasHistorico> & { usadosOperador?: numbe
   const deps: DependenciasHistorico = {
     consultarPermissao: over.consultarPermissao ?? (async () => DONO),
     lerSaldo: over.lerSaldo ?? (async () => SALDO_FRESCO),
+    usoTotal: over.usoTotal ?? (async () => 0),
     reservar: async (operador, quantidade, tetoOp, tetoGl) => {
       reservas.push({ operador, tetoOp, tetoGl });
       if (usadoOp + quantidade > tetoOp || usadoGl + quantidade > tetoGl) {

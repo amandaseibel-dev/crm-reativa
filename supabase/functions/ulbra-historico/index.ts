@@ -64,18 +64,37 @@ Deno.serve(async (req: Request) => {
   const servico = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!token || !urlBanco || !anon || !servico) return responder({ erro: "CONFIG_AUSENTE" }, 500);
 
-  const { conversa_id, antes_de } = await req.json().catch(() => ({}));
-  if (typeof conversa_id !== "string" || !/^[a-f0-9]{24}$/.test(conversa_id)) return responder({ erro: "CONVERSA_INVALIDA" }, 400);
+  const { aluno_id, conversa_id: conversaPedida, antes_de } = await req.json().catch(() => ({}));
   const antesDe = typeof antes_de === "string" && antes_de ? antes_de : null;
+  if (typeof aluno_id !== "string" && typeof conversaPedida !== "string") return responder({ erro: "ALUNO_ID_OBRIGATORIO" }, 400);
 
   const sbUser = createClient(urlBanco, anon, { global: { headers: { Authorization: auth } } });
   const sb = createClient(urlBanco, servico, { auth: { persistSession: false } });
   const { data: { user } } = await sbUser.auth.getUser();
   if (!user?.email) return responder({ erro: "ACESSO_NEGADO" }, 403);
-  const email = user.email.toLowerCase();
-  const { data: usuario } = await sb.from("usuarios").select("email, perfil, ativo").ilike("email", email).eq("ativo", true).limit(1).maybeSingle();
+  const email = user.email.trim().toLowerCase();
+  // Correspondência EXATA (eq): ilike trata "_" e "%" como curingas e herdaria outra conta.
+  const { data: usuarioLinhas } = await sb.from("usuarios").select("email, perfil, ativo").eq("email", email).eq("ativo", true).limit(2);
+  // Exatamente uma linha ativa: zero ou duplicidade negam (identidade ambígua).
+  const usuario = Array.isArray(usuarioLinhas) && usuarioLinhas.length === 1 ? usuarioLinhas[0] : null;
   if (!usuario) return responder({ erro: "ACESSO_NEGADO" }, 403);
   const gestao = PERFIS_AMPLOS.includes(String(usuario.perfil));
+
+  // Resolve a conversa pelo ALUNO, no servidor. O operador nunca lê a tabela de conversas.
+  let conversa_id = "";
+  if (typeof aluno_id === "string") {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(aluno_id)) return responder({ erro: "ALUNO_ID_INVALIDO" }, 400);
+    // Identidade: exatamente um vínculo ATIVO por CPF confirmado. Sem ele, nada é lido.
+    const { data: vinculos } = await sb.from("ulbra_vinculos").select("ulbra_cliente_id").eq("aluno_id", aluno_id).is("desvinculado_em", null).eq("confianca", "alta_cpf").limit(2);
+    if (!Array.isArray(vinculos) || vinculos.length !== 1) return responder({ ok: false, motivo: "IDENTIDADE_NAO_CONFIRMADA" }, 403);
+    const { data: conversas } = await sb.from("ulbra_conversas").select("ulbra_conversa_id, ultima_mensagem_em").eq("aluno_id", aluno_id).eq("aluno_status", "vinculado").eq("equipe", "Reativa").limit(50);
+    const escolhida = (conversas ?? []).slice().sort((a, b) => String(b.ultima_mensagem_em).localeCompare(String(a.ultima_mensagem_em)))[0];
+    if (!escolhida) return responder({ ok: false, motivo: "CONVERSA_NAO_ENCONTRADA" }, 404);
+    conversa_id = String(escolhida.ulbra_conversa_id);
+  } else {
+    if (typeof conversaPedida !== "string" || !/^[a-f0-9]{24}$/.test(conversaPedida)) return responder({ erro: "CONVERSA_INVALIDA" }, 400);
+    conversa_id = conversaPedida;
+  }
 
   const deps: DependenciasHistorico = {
     async consultarPermissao(operador, conversaId): Promise<ContextoLeitura | null> {
@@ -116,8 +135,12 @@ Deno.serve(async (req: Request) => {
       }
     },
     async reservar(operador, quantidade, tetoOperador, tetoGlobal) {
+      // Orçamento compartilhado e limite por usuário, ATÔMICOS no banco: a reserva
+      // serializa o dia (advisory lock). Dois cliques simultâneos não passam juntos
+      // do limite. Os valores vêm de LIMITE_OPERADOR_DIA e do saldo medido.
+      const hoje = new Date().toISOString().slice(0, 10);
       const { data, error } = await sb.rpc("ulbra_historico_reservar", {
-        p_operador: operador, p_dia: new Date().toISOString().slice(0, 10), p_quantidade: quantidade,
+        p_operador: operador, p_dia: hoje, p_quantidade: quantidade,
         p_teto_operador: tetoOperador, p_teto_global: Math.max(0, tetoGlobal),
       });
       if (error) throw new Error(`RESERVA_FALHOU: ${error.message}`);
@@ -131,7 +154,10 @@ Deno.serve(async (req: Request) => {
   try {
     const r = await lerHistoricoSomenteLeitura(email, conversa_id, antesDe, deps);
     if (!r.ok) return responder({ ok: false, motivo: r.motivo }, r.motivo === "SEM_PERMISSAO_NA_CONVERSA" || r.motivo === "IDENTIDADE_NAO_CONFIRMADA" ? 403 : 200);
-    return responder({ ok: true, origem: r.origem, chamadas: r.chamadas, pagina: r.pagina, tamanho: TAMANHO_PAGINA, alcance: r.alcance });
+    // consultado_em: quando a Mensageria foi lida. A tela mostra esta data, nunca um espelho antigo como atual.
+    // saldo: a cota medida (e quando foi medida) para a tela mostrar o que resta.
+    const saldo = r.saldoRestam === undefined ? null : { restam: r.saldoRestam, medido_em: r.saldoEm ?? null };
+    return responder({ ok: true, origem: r.origem, chamadas: r.chamadas, pagina: r.pagina, tamanho: TAMANHO_PAGINA, alcance: r.alcance, consultado_em: new Date().toISOString(), conversa_id, saldo });
   } catch (e) {
     console.error("ulbra-historico: falhou", (e as Error).message);
     return responder({ ok: false, motivo: "ULBRA_INDISPONIVEL" }, 502);

@@ -40,7 +40,9 @@ export type MotivoBloqueio =
   | "SALDO_DESATUALIZADO"
   | "LIMITE_OPERADOR_DIA"
   | "RESERVA_GLOBAL"
-  | "ULBRA_INDISPONIVEL";
+  | "ULBRA_INDISPONIVEL"
+  | "ULBRA_LIMITE"
+  | "CONVERSA_NAO_ENCONTRADA";
 
 export interface Decisao {
   ok: boolean;
@@ -67,6 +69,7 @@ export interface ResultadoReserva {
   permitido: boolean;
   usadasOperador: number;
   usadasGlobal: number;
+  motivo?: MotivoBloqueio;
 }
 
 export interface DependenciasHistorico {
@@ -82,7 +85,7 @@ export interface DependenciasHistorico {
 }
 
 export type ResultadoHistorico =
-  | { ok: true; origem: "cache" | "ulbra"; pagina: PaginaMensagens; chamadas: number; saldoAte: string | null; alcance: string }
+  | { ok: true; origem: "cache" | "ulbra"; pagina: PaginaMensagens; chamadas: number; saldoAte: string | null; saldoRestam?: number; saldoEm?: string; alcance: string }
   | { ok: false; motivo: MotivoBloqueio };
 
 interface EntradaCache {
@@ -149,20 +152,25 @@ async function executar(
 
   const reserva = await deps.reservar(operador, 1, LIMITE_OPERADOR_DIA, tetoGlobal);
   if (!reserva.permitido) {
-    const motivo: MotivoBloqueio = reserva.usadasOperador + 1 > LIMITE_OPERADOR_DIA ? "LIMITE_OPERADOR_DIA" : "RESERVA_GLOBAL";
+    const motivo: MotivoBloqueio = reserva.motivo
+      ?? (reserva.usadasOperador + 1 > LIMITE_OPERADOR_DIA ? "LIMITE_OPERADOR_DIA" : "RESERVA_GLOBAL");
     return { ok: false, motivo };
   }
 
   let resposta: unknown;
   try {
     resposta = await deps.lerConversa(conversaId, antesDe, TAMANHO_PAGINA);
-  } catch {
+  } catch (e) {
     // A reserva já foi gasta: conta como chamada. Não repete automaticamente.
-    return { ok: false, motivo: "ULBRA_INDISPONIVEL" };
+    // 429 é parada: a função não tenta de novo e a resposta diz o motivo.
+    return { ok: false, motivo: (e as Error).message === "ULBRA_LIMITE" ? "ULBRA_LIMITE" : "ULBRA_INDISPONIVEL" };
   }
   const pagina = mapearPagina(resposta);
   cache.set(chave, { expira: deps.agora() + CACHE_VALIDADE_MS, pagina });
-  return { ok: true, origem: "ulbra", pagina, chamadas: 1, saldoAte: saldo.validadeAte ?? null, alcance: ALCANCE };
+  return {
+    ok: true, origem: "ulbra", pagina, chamadas: 1, saldoAte: saldo.validadeAte ?? null,
+    saldoRestam: fotografia!.restam, saldoEm: fotografia!.em, alcance: ALCANCE,
+  };
 }
 
 export const TAMANHO = TAMANHO_PAGINA;
