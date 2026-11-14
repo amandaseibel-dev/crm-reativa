@@ -3,9 +3,9 @@
 **Status:** migration PENDENTE, nada aplicado em produção. Nenhuma liberação
 executada, nenhum giro, nenhuma redistribuição.
 Arquivos: `supabase/aguardando_aprovacao/20261112210000_fidelizacao_giro_segue_os_10_dias.{sql.pendente,rollback.sql}`,
-teste `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (90 testes).
+teste `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (111 testes).
 Scripts de operação em `supabase/recovery/20261112_giro_fidelizacao_0{0,1,2}_*.sql`,
-teste `supabase/tests/fidelizacao_giro_lotes.test.js` (67 testes). **Sem alteração de tela** nesta PR.
+teste `supabase/tests/fidelizacao_giro_lotes.test.js` (72 testes). **Sem alteração de tela** nesta PR. Migração de bloqueios do gate (14/11): `supabase/tests/bloqueios_gate_tmp_views.test.js` (9 testes).
 
 ## Regra definitiva (gestão, 12/11/2026)
 
@@ -453,7 +453,7 @@ Medido pela via escopada em produção (`ahattpqrjmhkzsmnbdzs`), **somente leitu
 | Migration pendente + rollback (7 funções: 4 alteradas, 3 novas) | `supabase/aguardando_aprovacao/20261112210000_*` |
 | Scripts de execução: backup, liberação por lote, restauração | `supabase/recovery/20261112_giro_fidelizacao_0{0,1,2}_*.sql` |
 | Correção da Minha Carteira (grava a data do retorno na movimentação) | `src/components/PainelCarteira.jsx` |
-| Provas em bancada | 182 testes (111 migração + 71 lotes) |
+| Provas em bancada | 183 testes (111 migração + 72 lotes); migração de bloqueios: 9 testes à parte |
 | Prova de concorrência real, duas sessões, Postgres descartável | job de CI `fidelizacao do giro — concorrencia real` |
 | Auditoria de produção, somente leitura, com saída versionada | `supabase/audits/retorno_vinculo_auditoria_20261113*` |
 | Parecer do Guardião | 11ª rodada sobre o commit final (L1/L2 fechados; os quatro itens da 11ª corrigidos neste commit) |
@@ -518,7 +518,7 @@ Nada disto foi aplicado em produção. Cada item tem prova na bancada.
 
 **Os três BLOQUEIA e a correção preparada:**
 
-| Bloqueio | Evidência medida (14/11) | Impacto | Correção preparada | Decisão da gestão |
+| Bloqueio | Evidência medida (14/11; consultas versionadas em `supabase/audits/bloqueios_*_20261114*`) | Impacto | Correção preparada | Decisão da gestão |
 |---|---|---|---|---|
 | `tv-imagens` público | `public = true`; 1 objeto (PNG de 70.239 bytes, `image/png`, criado em 21/08); `tv_config.imagens` **vazio** (o objeto não é referenciado pela TV). Conteúdo conferido visualmente: tabela institucional de datas de matrícula por unidade, sem dado pessoal, financeiro ou de aluno. Uploads, alterações e exclusões: **só dois e-mails fixos na policy** (`amanda.seibel@` e `cobranca04@`). | Leitura pública sem autenticação, limitada ao objeto acima. | **Mantido público, de propósito** (a TV lê por URL pública). Exceção documentada aqui: leitura pública, somente deste bucket. Recomendação: a escrita sair da lista fixa de e-mails. | Aceitar a exceção; decidir quem envia imagens (hoje inclui `cobranca04`). |
 | `_tmp_fila2` sem RLS | 186 linhas de pagamento (`aluno_id`, `boleto`, `valor_pago`, …); `authenticated` com todos os privilégios; sem uso no código. | Qualquer usuário autenticado, inclusive operador, lê, altera e apaga essas linhas. | Revoga `public`, `anon` e `authenticated`. **Não apaga a tabela nem as linhas.** Remoção definitiva só depois de confirmação da gestão. | Confirmar que a tabela não é usada. |

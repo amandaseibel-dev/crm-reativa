@@ -6,8 +6,8 @@
 --      PUBLIC. NAO apaga a tabela e NAO apaga linhas (186 linhas de pagamento).
 --   2. As cinco views do gate: security_invoker = true. Elas passam a respeitar a
 --      RLS de QUEM CONSULTA, em vez de rodar com o dono e contornar a RLS.
---   3. As cinco views: revoga escrita (INSERT, UPDATE, DELETE, TRUNCATE,
---      REFERENCES, TRIGGER) de authenticated. Mantem SELECT (agora filtrado).
+--   3. As cinco views: authenticated fica so com SELECT (revoga tudo, inclusive
+--      MAINTAIN, que o Postgres 17 mostra nas ACLs medidas). Mantem SELECT (filtrado).
 --   4. public.pagamento_suspeita_duplicidade tem RLS e ZERO policies: depois do
 --      item 2, nem a gestao leria a view que a consulta. Cria uma policy de
 --      SELECT SO para usuario_e_gestao(). Operador continua sem ver nada dela.
@@ -29,14 +29,21 @@ alter view public.vw_extracao_validacao_trilha   set (security_invoker = true);
 alter view public.vw_pagamento_suspeita_pendente set (security_invoker = true);
 alter view public.vw_titulo_presenca_historico   set (security_invoker = true);
 
--- 3. sem escrita de authenticated nas views
-revoke insert, update, delete, truncate, references, trigger
+-- 3. authenticated fica so com SELECT nas views (revoga tudo, inclusive MAINTAIN)
+revoke all
   on public.vw_extracao_calibragem,
      public.vw_extracao_observabilidade,
      public.vw_extracao_validacao_trilha,
      public.vw_pagamento_suspeita_pendente,
      public.vw_titulo_presenca_historico
   from authenticated;
+grant select
+  on public.vw_extracao_calibragem,
+     public.vw_extracao_observabilidade,
+     public.vw_extracao_validacao_trilha,
+     public.vw_pagamento_suspeita_pendente,
+     public.vw_titulo_presenca_historico
+  to authenticated;
 
 -- 4. a gestao continua vendo a suspeita de duplicidade (so a gestao)
 create policy pagamento_suspeita_leitura_gestao
