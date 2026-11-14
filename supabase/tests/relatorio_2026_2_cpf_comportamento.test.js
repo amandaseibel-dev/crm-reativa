@@ -308,10 +308,19 @@ describe("relatorio 2026/2: classificacao de CPF por aluno e contagem por aluno_
     }
     const rls = await db.query("SELECT relrowsecurity AS rls FROM pg_class WHERE oid = 'public.relatorio_mens_2026_2_snapshot'::regclass");
     expect(rls.rows[0].rls).toBe(true);
-    await db.exec(`SET app.email = '${OUTRA}'`);
     await db.exec("SET ROLE authenticated");
-    await expect(db.query("SELECT relatorio_mensalidades_2026_2_sem_negociacao()")).rejects.toThrow(/restrito a gestao|42501/);
-    await db.exec("RESET ROLE");
+    try {
+      await db.exec(`SET app.email = '${OUTRA}'`);
+      await expect(db.query("SELECT relatorio_mensalidades_2026_2_sem_negociacao()")).rejects.toThrow(/restrito a gestao|42501/);
+      await expect(db.query("SELECT relatorio_mensalidades_2026_2_capturar()")).rejects.toThrow(/restrito a gestao|42501/);
+      await db.exec(`SET app.email = '${GESTAO}'`);
+      const { rows } = await db.query("SELECT relatorio_mensalidades_2026_2_sem_negociacao() AS j");
+      expect(rows[0].j.alunos_unicos_semestre).toBe(6);
+      const cap = await db.query("SELECT relatorio_mensalidades_2026_2_capturar() AS j");
+      expect(cap.rows[0].j.alunos).toBe(6);
+    } finally {
+      await db.exec("RESET ROLE");
+    }
   });
 
   it("rollback com historico preserva a tabela e remove so as funcoes", async () => {
