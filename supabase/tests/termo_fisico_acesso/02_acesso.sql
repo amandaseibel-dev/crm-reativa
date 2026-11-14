@@ -152,11 +152,11 @@ select public.teste_assert('Fernanda lê o próprio aviso',
 
 -- ---------- Dono e service_role: nenhuma alteração do histórico ----------
 select public.teste_assert('dono: UPDATE bloqueado por trigger',
-  public.teste_comando(null, null, 'update public.aluno_termo_fisico_eventos set situacao=''ARQUIVADO''')->>'err' like '%append-only%');
+  public.teste_comando(null, null, 'update public.aluno_termo_fisico_eventos set situacao=''ARQUIVADO''')->>'code' = '42501');
 select public.teste_assert('dono: DELETE bloqueado por trigger',
-  public.teste_comando(null, null, 'delete from public.aluno_termo_fisico_eventos')->>'err' like '%append-only%');
+  public.teste_comando(null, null, 'delete from public.aluno_termo_fisico_eventos')->>'code' = '42501');
 select public.teste_assert('dono: TRUNCATE bloqueado por trigger',
-  public.teste_comando(null, null, 'truncate public.aluno_termo_fisico_eventos')->>'err' like '%append-only%');
+  public.teste_comando(null, null, 'truncate public.aluno_termo_fisico_eventos')->>'code' = '42501');
 select public.teste_assert('service_role: não lê, não insere, não trunca',
   public.teste_consulta('service_role', null, 'select * from public.aluno_termo_fisico_eventos')->>'code' = '42501'
   and public.teste_comando('service_role', null,

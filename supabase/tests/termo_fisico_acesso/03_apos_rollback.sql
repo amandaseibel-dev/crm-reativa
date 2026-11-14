@@ -37,8 +37,8 @@ select public.teste_assert('rollback: as três triggers continuam na tabela arqu
 
 select public.teste_assert('rollback: UPDATE, DELETE e TRUNCATE continuam bloqueados na tabela arquivada (dono)',
   public.teste_comando(null, null,
-    'update public.aluno_termo_fisico_eventos_descartada_20261113 set situacao=''ARQUIVADO''')->>'err' like '%append-only%'
+    'update public.aluno_termo_fisico_eventos_descartada_20261113 set situacao=''ARQUIVADO''')->>'code' = '42501'
   and public.teste_comando(null, null,
-    'delete from public.aluno_termo_fisico_eventos_descartada_20261113')->>'err' like '%append-only%'
+    'delete from public.aluno_termo_fisico_eventos_descartada_20261113')->>'code' = '42501'
   and public.teste_comando(null, null,
-    'truncate public.aluno_termo_fisico_eventos_descartada_20261113')->>'err' like '%append-only%');
+    'truncate public.aluno_termo_fisico_eventos_descartada_20261113')->>'code' = '42501');

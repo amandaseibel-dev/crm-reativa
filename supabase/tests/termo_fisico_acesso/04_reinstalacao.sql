@@ -34,11 +34,11 @@ select public.teste_assert('reinstalação: o índice da tabela nova existe (nom
 
 select public.teste_assert('reinstalação: a tabela arquivada continua imutável',
   public.teste_comando(null, null,
-    'update public.aluno_termo_fisico_eventos_descartada_20261113 set situacao=''ARQUIVADO''')->>'err' like '%append-only%');
+    'update public.aluno_termo_fisico_eventos_descartada_20261113 set situacao=''ARQUIVADO''')->>'code' = '42501');
 
 select public.teste_assert('reinstalação: a tabela nova continua imutável',
   public.teste_comando(null, null,
-    'update public.aluno_termo_fisico_eventos set situacao=''ARQUIVADO''')->>'err' like '%append-only%');
+    'update public.aluno_termo_fisico_eventos set situacao=''ARQUIVADO''')->>'code' = '42501');
 
 select public.teste_assert('reinstalação: gestão lê a tabela nova pela RPC',
   public.teste_consulta('authenticated', 'amanda.seibel@aelbra.com.br',
