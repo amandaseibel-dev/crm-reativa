@@ -171,3 +171,51 @@ describe('tela: textos genéricos removidos e o que fica preservado', () => {
     expect(app).toMatch(/timeZone:'America\/Sao_Paulo'/);
   });
 });
+
+describe('card "Honorários em destaque": líder do mês, separado do Top honorários', () => {
+  const trecho = (txt, de, ate) => txt.slice(txt.indexOf(de), txt.indexOf(ate));
+  const lider = trecho(app, 'function renderLider', 'function renderQueue');
+  it('destaca o 1º do pódio (honorários pagos acumulados no mês), com foto e nome', () => {
+    expect(lider).toMatch(/D\.ranking\(dz&&dz\.podio_mes\)/);
+    expect(lider).toMatch(/const lider=podio\[0\]/);
+    expect(lider).toMatch(/avatar\(lider,'avatar-xl'\)/);
+    expect(lider).toMatch(/D\.nomeCurto\(lider\.nome\)/);
+    expect(app).toMatch(/CRITERIO_LIDER='Líder em honorários pagos acumulados no mês'/);
+  });
+  it('não mostra valor nem quantidade do líder', () => {
+    expect(lider).not.toMatch(/dinheiro|quantidade|money|count\(|\.valor|\.qtd|honorarios_mes/);
+  });
+  it('sem dado não inventa líder', () => {
+    expect(lider).toMatch(/Dado indisponível no momento/);
+    expect(lider).toMatch(/Ainda não há resultado registrado neste mês/);
+  });
+  it('o slide de honorários abre o card do líder; o Top honorários segue pelo pagamento único', () => {
+    expect(app).toMatch(/if\(f\.kind==='honorarios'\)renderLider\(\);else if\(f\.kind==='ranking'\)renderBoard\(f\.def\)/);
+    const top = D.RANKINGS.find((r) => r.chave === 'top_honorario_pagamento_mes');
+    expect(top.criterio).toBe('Maior honorário de cada operador em um único pagamento');
+    expect(lider).not.toMatch(/top_honorario_pagamento_mes/);
+  });
+  it('slide com dados é redesenhado a cada leitura (não fica em "—" até a rotação voltar)', () => {
+    expect(app).toMatch(/FRAMES_COM_DADOS=\['honorarios','resultados','ranking'\]/);
+    const leitura = trecho(app, 'async function readSnapshot', 'async function readQueue');
+    expect(leitura).toMatch(/refreshFrameData\(\)/);
+  });
+  it('o total da equipe no rodapé do slide segue identificado como ReATIVA', () => {
+    expect(app).toMatch(/footerTitle:'HONORÁRIOS PAGOS NO MÊS · REATIVA',footer:money\(r\.honorarios_mes\)/);
+  });
+});
+
+describe('coluna de resultados cabe no painel (TV 1080p cortava o card do mês)', () => {
+  const css = readFileSync(join(pasta, 'styles.css'), 'utf8');
+  it('ritmo em duas linhas fixas: situação e "esperado até hoje · dias úteis"', () => {
+    expect(app).toMatch(/pace\.replaceChildren\(linha1,linha2\)/);
+    expect(app).toMatch(/Esperado até hoje \$\{money\(ritmo\.esperado\)\} · \$\{dias\}/);
+    expect(app).not.toMatch(/do ritmo · esperado/);
+  });
+  it('as duas linhas não quebram e o espaçamento da coluna foi reduzido', () => {
+    expect(css).toMatch(/\.pace>b\{display:block;white-space:nowrap/);
+    expect(css).toMatch(/\.pace>small\{display:block;[^}]*white-space:nowrap/);
+    expect(css).toMatch(/\.result-panel\{gap:\.35vw\}/);
+    expect(css).toMatch(/@media\(max-height:780px\)\{\.result-panel\{gap:\.25vw\}/);
+  });
+});
