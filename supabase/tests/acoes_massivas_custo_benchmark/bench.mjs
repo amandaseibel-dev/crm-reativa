@@ -14,8 +14,9 @@
 //     autenticado real, em validacao controlada autorizada.
 //   - o banco de teste NAO tem indices alem das PKs (como no fixture). Producao pode ter indices;
 //     por isso o plano e comparado ANTES x DEPOIS no mesmo banco, nao contra producao.
-//   - dados 100% sinteticos; volume de movimentacoes = 228k (medido em producao), numero de alunos
-//     e um parametro (BENCH_ALUNOS), nao um valor medido de producao.
+//   - dados 100% sinteticos. Volume de movimentacoes padrao = 275.467, contagem de producao lida
+//     em 14/11/2026 (somente leitura: select count(*) em public.aluno_movimentacoes). O numero de
+//     alunos (BENCH_ALUNOS) nao foi medido em producao e e um parametro.
 import pg from "pg";
 import { readFileSync, mkdirSync, writeFileSync, appendFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -85,7 +86,7 @@ const DEF_SQL = `select md5(pg_get_functiondef(p.oid)) m from pg_proc p join pg_
   where n.nspname = 'public' and p.proname = 'acoes_massivas_universo'`;
 
 const N = Number(process.env.BENCH_ALUNOS ?? 30000);
-const MOVS = Number(process.env.BENCH_MOVS ?? 228000);
+const MOVS = Number(process.env.BENCH_MOVS ?? 275467);
 const REPS = Number(process.env.BENCH_REPS ?? 3);
 const SAIDA = resolve(process.env.BENCH_SAIDA ?? "benchmark-resultado");
 mkdirSync(SAIDA, { recursive: true });

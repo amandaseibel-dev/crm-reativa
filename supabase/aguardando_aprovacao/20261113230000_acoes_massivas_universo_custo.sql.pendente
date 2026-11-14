@@ -16,6 +16,16 @@ BEGIN
   END IF;
 END $g$;
 
+-- Guarda da funcao de cobertura (lista inline abaixo so e equivalente a ela).
+-- MD5 5dcbd09d... = producao (medido em 14/11/2026, somente leitura) = definicao testada na bancada.
+DO $t$
+BEGIN
+  IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_tipo_cobertura') IS DISTINCT FROM '5dcbd09deba6197cb6948d01f8b9caa5' THEN
+    RAISE EXCEPTION 'acoes_massivas_tipo_cobertura nao e a definicao testada (esperado 5dcbd09d...). Nada aplicado.';
+  END IF;
+END $t$;
+
 SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_universo',
 $a1$  tc as materialized (
     select t.aluno_id, t.tem_mensalidade, t.tem_acordo_vencido
