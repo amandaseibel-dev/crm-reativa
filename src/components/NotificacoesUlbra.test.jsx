@@ -256,7 +256,9 @@ describe("NotificacoesUlbra", () => {
     estado.conversas = [CONVERSA, { ...CONVERSA, ulbra_conversa_id: "c2" }];
     avisosRealtime.forEach((cb) => cb({}));
     await waitFor(() => expect(screen.getByText("2")).toBeTruthy());
-    expect(criarOsc).toHaveBeenCalled();
+    // O bip sai num useEffect que pode rodar depois do commit que mostra "2".
+    // Esperar o efeito, em vez de conferir no mesmo instante.
+    await waitFor(() => expect(criarOsc).toHaveBeenCalled());
   });
 
   it("com som desligado, a contagem sobe e nada toca", async () => {
