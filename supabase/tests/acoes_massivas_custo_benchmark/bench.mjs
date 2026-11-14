@@ -122,13 +122,13 @@ function semearVolume() {
      from (select id, row_number() over (order by id) n from public.alunos) x
      cross join generate_series(1, 2) as k where x.n % 6 = 4;`,
     `insert into public.aluno_movimentacoes (aluno_id, tipo, descricao, registrado_por_nome, registrado_por_email, registrado_em)
-     select '00000000-0000-4000-8000-' || lpad((((g.i * 7919) % ${N}) + 1)::text, 12, '0'),
+     select '00000000-0000-4000-8000-' || lpad((((g.i * 7919::bigint) % ${N}::bigint) + 1)::text, 12, '0'),
        (array['FINALIZACAO_ATENDIMENTO','CONTATO','LINK_ENVIADO_AO_ALUNO','SOLICITACAO_LINK_PAGAMENTO',
               'ACAO_MASSIVA_EXTERNA','ACAO_MASSIVA_EXTERNA_EMAIL','TIPO_FORA_DA_LISTA','FINALIZACAO',
               'OBSERVACAO','CONTATO_NAO_EFETIVO', null])[1 + (g.i % 11)],
        'bench', 'x', 'x@x',
        timestamptz '2026-08-01 10:00:00-03' + ((g.i % 120) || ' days')::interval + ((g.i % 24) || ' hours')::interval
-     from generate_series(1, ${MOVS}) g(i);`,
+     from generate_series(1::bigint, ${MOVS}::bigint) g(i);`,
     `insert into public.acoes_desfazer (movimentacao_id, desfeito_em)
      select id, timestamptz '2026-11-12 11:00:00-03' from public.aluno_movimentacoes where id % 100 = 0;`,
   ];
