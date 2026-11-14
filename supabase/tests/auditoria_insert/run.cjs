@@ -124,21 +124,17 @@ async function main() {
       igual((await c.query("select has_table_privilege('authenticated','public.auditoria','INSERT') as ok")).rows[0].ok, false, "authenticated");
       igual((await c.query("select has_table_privilege('anon','public.auditoria','INSERT') as ok")).rows[0].ok, false, "anon");
     });
-    await teste("DEPOIS: INSERT direto como authenticated é negado (42501)", async () => {
+    await teste("DEPOIS: INSERT direto como authenticated é negado pelo PRIVILÉGIO (permission denied, 42501)", async () => {
       await c.query("set role authenticated");
       let erro = null;
       try { await c.query("insert into public.auditoria (usuario, acao) values ('forjado', 'FORJADO2')"); }
       catch (e) { erro = e; }
       finally { await c.query("reset role"); }
       igual(erro && erro.code, "42501", "código do erro");
+      igual(/permission denied for table auditoria/.test(erro.message), true, "a negativa vem do grant, não da RLS");
     });
-    await teste("DEPOIS: INSERT direto como anon é negado (42501)", async () => {
-      await c.query("set role anon");
-      let erro = null;
-      try { await c.query("insert into public.auditoria (usuario, acao) values ('forjado', 'FORJADO3')"); }
-      catch (e) { erro = e; }
-      finally { await c.query("reset role"); }
-      igual(erro && erro.code, "42501", "código do erro");
+    await teste("DEPOIS: anon não tem o privilégio de INSERT (a RLS também barraria, por isso a prova é o privilégio)", async () => {
+      igual((await c.query("select has_table_privilege('anon','public.auditoria','INSERT') as ok")).rows[0].ok, false, "privilégio de anon");
     });
     await teste("DEPOIS: service_role mantém INSERT em auditoria", async () => {
       await c.query("set role service_role");
@@ -158,6 +154,11 @@ async function main() {
       const r = (await c.query("select prosecdef, proconfig::text as cfg from pg_proc where proname = '_titulo_em_confirmacao_protegido'")).rows[0];
       igual(r.prosecdef, true, "security definer");
       if (!/search_path=public/.test(r.cfg || "")) throw new Error("search_path fixo ausente: " + r.cfg);
+    });
+    await teste("ROLLBACK restaura o estado anterior (invoker, grant de authenticated e anon)", async () => {
+      await c.query(fs.readFileSync(path.join(ROOT, "supabase/aguardando_aprovacao/20261114120000_auditoria_insert_so_pela_funcao_definer.rollback.sql"), "utf8"));
+      igual((await c.query("select prosecdef from pg_proc where proname = '_titulo_em_confirmacao_protegido'")).rows[0].prosecdef, false, "volta a invoker");
+      igual((await c.query("select has_table_privilege('authenticated','public.auditoria','INSERT') as ok")).rows[0].ok, true, "volta o INSERT de authenticated");
     });
   } finally {
     await c.end();
