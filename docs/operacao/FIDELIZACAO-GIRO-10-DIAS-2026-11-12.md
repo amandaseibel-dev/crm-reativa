@@ -556,7 +556,7 @@ Nada disto foi aplicado em produção. Cada item tem prova na bancada.
 - `supabase/recovery/20261112_giro_fidelizacao_00_backup.sql`
 - `supabase/recovery/20261112_giro_fidelizacao_01_liberar_lote.sql`
 - `supabase/recovery/20261112_giro_fidelizacao_02_restaurar.sql`
-- Provas: `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (102) e `supabase/tests/fidelizacao_giro_lotes.test.js` (67)
+- Provas: `supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js` (111) e `supabase/tests/fidelizacao_giro_lotes.test.js` (72); bloqueios: `supabase/tests/bloqueios_gate_tmp_views.test.js` (9)
 - Fixtures: `supabase/tests/fixtures/fidelizacao_giro_*_prod_20261112.{sql,md5.json}`
 
 ## Gate de segurança e CI

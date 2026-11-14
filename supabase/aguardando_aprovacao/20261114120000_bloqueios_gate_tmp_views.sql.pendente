@@ -7,7 +7,7 @@
 --   2. As cinco views do gate: security_invoker = true. Elas passam a respeitar a
 --      RLS de QUEM CONSULTA, em vez de rodar com o dono e contornar a RLS.
 --   3. As cinco views: authenticated fica so com SELECT (revoga tudo, inclusive
---      MAINTAIN, que o Postgres 17 mostra nas ACLs medidas). Mantem SELECT (filtrado).
+--      MAINTAIN, que aparece na ACL medida: supabase/audits/bloqueios_acl_e_gestao_20261114_SAIDA.json). Mantem SELECT (filtrado).
 --   4. public.pagamento_suspeita_duplicidade tem RLS e ZERO policies: depois do
 --      item 2, nem a gestao leria a view que a consulta. Cria uma policy de
 --      SELECT SO para usuario_e_gestao(). Operador continua sem ver nada dela.

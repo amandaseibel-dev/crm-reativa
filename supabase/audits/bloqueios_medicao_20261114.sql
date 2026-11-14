@@ -9,5 +9,6 @@ select jsonb_build_object(
  'vw_titulo_presenca_historico_linhas', (select count(*) from public.vw_titulo_presenca_historico),
  'bucket_tv_imagens_public', (select public from storage.buckets where id='tv-imagens'),
  'bucket_tv_imagens_objetos', (select count(*) from storage.objects where bucket_id='tv-imagens'),
+ 'bucket_tv_imagens_objeto', (select jsonb_agg(jsonb_build_object('bytes', (metadata->>'size')::bigint, 'mimetype', metadata->>'mimetype', 'criado_em', created_at)) from storage.objects where bucket_id='tv-imagens'),
  'tv_config_imagens_itens', (select jsonb_array_length(valor->'itens') from public.tv_config where chave='imagens')
 ) as medicao;
