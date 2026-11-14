@@ -1,5 +1,5 @@
 // Fixtures compartilhados dos testes de envio e de prévia. Provedores simulados.
-import { enviarResposta, type Envio, type PedidoEnvio, type ProvedorEnvio, type RepositorioEnvio, RecusadoPelaUlbra } from "./envio.ts";
+import { enviarResposta, type Envio, type PedidoEnvio, type ProvedorEnvio, type RepositorioEnvio, type StatusEnvio } from "./envio.ts";
 import type { ProvedorOAuth, RegistroConexao } from "./conexao.ts";
 
 export const AGORA = Date.parse("2026-11-09T12:00:00Z");
@@ -50,9 +50,13 @@ export class RepoMemoria implements RepositorioEnvio {
   async existeFalhaIncerta(atendimento_id: string, texto: string) {
     return [...this.m.values()].some((e) => e.atendimento_id === atendimento_id && e.texto === texto && e.status === "FALHA_INCERTA");
   }
-  async atualizar(o: string, c: string, campos: Partial<Envio>) {
+  async atualizar(o: string, c: string, campos: Partial<Envio>, de?: readonly StatusEnvio[]) {
     const k = this.chaveDe(o, c);
-    this.m.set(k, { ...this.m.get(k)!, ...campos });
+    const atual = this.m.get(k);
+    if (!atual) return false;
+    if (de && !de.includes(atual.status)) return false;
+    this.m.set(k, { ...atual, ...campos });
+    return true;
   }
 }
 
@@ -66,7 +70,6 @@ export class EnvioSimulado implements ProvedorEnvio {
   modo: "ok" | "recusa" | "lento" | "queda" = "ok";
   async enviar(p: { access_token: string; atendimento_id: string; texto: string; chave: string }) {
     this.chamadas.push({ access_token: p.access_token, texto: p.texto, chave: p.chave });
-    if (this.modo === "recusa") throw new RecusadoPelaUlbra("CONVERSA_ENCERRADA");
     if (this.modo === "queda") throw new Error("ECONNRESET");
     if (this.modo === "lento") await new Promise((r) => setTimeout(r, 200));
     return { ulbra_mensagem_id: "msg-99" };

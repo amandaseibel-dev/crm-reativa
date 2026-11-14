@@ -68,8 +68,6 @@ export interface ProvedorEnvio {
   ): Promise<{ ulbra_mensagem_id: string }>;
 }
 
-/** A Mensageria recusou a mensagem (regra de negócio). Não é falha de rede. */
-export class RecusadoPelaUlbra extends Error {}
 
 export interface RepositorioEnvio {
   buscar(operador: string, chave: string): Promise<Envio | null>;
@@ -78,7 +76,8 @@ export interface RepositorioEnvio {
    * Qualquer outra falha de gravação deve lançar: nunca vira "já processado".
    */
   inserirSeNovo(envio: Envio): Promise<"NOVO" | "CHAVE_EXISTENTE" | "TEXTO_EM_ABERTO">;
-  atualizar(operador: string, chave: string, campos: Partial<Envio>): Promise<void>;
+  /** Atualiza SOMENTE se o status atual estiver em `de`. Devolve false se a linha não estava nesse estado. */
+  atualizar(operador: string, chave: string, campos: Partial<Envio>, de?: readonly StatusEnvio[]): Promise<boolean>;
   /** Há envio em FALHA_INCERTA para este atendimento e este texto (qualquer operador). */
   existeFalhaIncerta(atendimento_id: string, texto: string): Promise<boolean>;
 }
@@ -199,7 +198,8 @@ export async function enviarResposta(
     return { situacao: "BLOQUEADO", motivos: ["ENVIO_EM_ABERTO_MESMO_TEXTO"] };
   }
 
-  await deps.repositorio.atualizar(pedido.operador, pedido.chave, { status: "ENVIANDO" });
+  const marcou = await deps.repositorio.atualizar(pedido.operador, pedido.chave, { status: "ENVIANDO" }, ["PENDENTE"]);
+  if (!marcou) throw new Error("ENVIO_ESTADO_CONCORRENTE");
   const limite = deps.timeoutMs ?? TIMEOUT_ENVIO_MS;
   try {
     const resposta = await comTimeout(
@@ -214,17 +214,13 @@ export async function enviarResposta(
     await deps.repositorio.atualizar(pedido.operador, pedido.chave, {
       status: "ENVIADO",
       ulbra_mensagem_id: resposta.ulbra_mensagem_id,
-    });
+    }, ["ENVIANDO"]);
   } catch (e) {
-    if (e instanceof RecusadoPelaUlbra) {
-      await deps.repositorio.atualizar(pedido.operador, pedido.chave, { status: "RECUSADO", motivo: e.message });
-    } else {
-      // Timeout ou queda: a mensagem pode ter saído. Não se reenvia sozinho.
-      await deps.repositorio.atualizar(pedido.operador, pedido.chave, {
-        status: "FALHA_INCERTA",
-        motivo: (e as Error).message,
-      });
-    }
+    // Qualquer falha da chamada é ambígua: a mensagem pode ter saído. Não se reenvia sozinho.
+    await deps.repositorio.atualizar(pedido.operador, pedido.chave, {
+      status: "FALHA_INCERTA",
+      motivo: (e as Error).message,
+    }, ["ENVIANDO"]);
   }
   const final = await deps.repositorio.buscar(pedido.operador, pedido.chave);
   if (!final) throw new Error("ENVIO_SEM_REGISTRO");
@@ -266,6 +262,8 @@ export async function resolverEnvioAberto(
   if (r.motivo.trim().length < 10) motivos.push("MOTIVO_OBRIGATORIO");
   if (r.decisao !== "CONFIRMADO_ENVIADO" && r.decisao !== "CONFIRMADO_NAO_ENVIADO") motivos.push("DECISAO_INVALIDA");
   if (motivos.length > 0) return { situacao: "BLOQUEADO", motivos };
-  await repo.atualizar(r.operador_email, r.chave, { status: r.decisao, motivo: `conferido por ${r.conferido_por}: ${r.motivo.trim()}` });
+  const motivoOriginal = envio?.motivo ?? "nenhum";
+  const atualizou = await repo.atualizar(r.operador_email, r.chave, { status: r.decisao, motivo: `conferido por ${r.conferido_por}: ${r.motivo.trim()} (motivo original: ${motivoOriginal})` }, STATUS_EM_ABERTO);
+  if (!atualizou) return { situacao: "BLOQUEADO", motivos: ["ENVIO_MUDOU_DE_ESTADO"] };
   return { situacao: "RESOLVIDO" };
 }

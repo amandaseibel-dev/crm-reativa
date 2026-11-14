@@ -143,11 +143,14 @@ describe("resultado do envio", () => {
     expect(r.situacao === "PROCESSADO" && r.envio.status).toBe("ENVIADO");
     expect(repositorio.m.get(`${OP}|${CHAVE}`)!.ulbra_mensagem_id).toBe("msg-99");
   });
-  it("recusa da Mensageria grava RECUSADO e não é reenviada", async () => {
+  it("qualquer erro da chamada é ambíguo: vira FALHA_INCERTA e bloqueia repetição (sem recusa por código)", async () => {
     const { d, provedorEnvio } = deps();
-    provedorEnvio.modo = "recusa";
+    provedorEnvio.modo = "queda";
     const r = await enviarResposta(pedido(), d);
-    expect(r.situacao === "PROCESSADO" && r.envio.status).toBe("RECUSADO");
+    expect(r.situacao === "PROCESSADO" && r.envio.status).toBe("FALHA_INCERTA");
+    const again = await enviarResposta(pedido({ chave: "outra-chave-depois-do-erro" }), d);
+    expect(again.situacao).toBe("BLOQUEADO");
+    expect(provedorEnvio.chamadas.length).toBe(1);
   });
   it("timeout vira FALHA_INCERTA e NÃO reenvia automaticamente", async () => {
     const { d, provedorEnvio } = deps({ timeoutMs: 10 });

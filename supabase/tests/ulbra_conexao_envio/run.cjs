@@ -167,6 +167,7 @@ async function main() {
     await esperaErro(c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-longo-acento-2', $1, $2, $3, 'PENDENTE')", [OP, AT, texto]), "23505");
   });
   await teste("status de conferência (CONFIRMADO_ENVIADO / CONFIRMADO_NAO_ENVIADO) é aceito pelo CHECK e libera o índice", async () => {
+    await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-conf-0', $1, $2, 'texto-conferido-sim', 'CONFIRMADO_ENVIADO')", [OP, AT]);
     await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-conf-1', $1, $2, 'texto-conferido-unico', 'CONFIRMADO_NAO_ENVIADO')", [OP, AT]);
     await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-conf-2', $1, $2, 'texto-conferido-unico', 'PENDENTE')", [OP, AT]);
   });

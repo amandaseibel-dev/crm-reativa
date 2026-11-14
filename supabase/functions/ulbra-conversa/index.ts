@@ -160,10 +160,14 @@ Deno.serve(async (req: Request) => {
       const { data } = await sb.from("ulbra_envios").select("chave").eq("atendimento_id", atendimentoId).eq("texto", texto).eq("status", "FALHA_INCERTA").limit(1);
       return (data?.length ?? 0) > 0;
     },
-    async atualizar(operador, ch, campos) {
-      const { error } = await sb.from("ulbra_envios").update({ ...campos, atualizado_em: new Date().toISOString() }).eq("operador_email", operador).eq("chave", ch);
+    async atualizar(operador, ch, campos, de) {
+      // Condição de estado no próprio UPDATE: a transição só acontece se o status ainda for o esperado.
+      let q = sb.from("ulbra_envios").update({ ...campos, atualizado_em: new Date().toISOString() }).eq("operador_email", operador).eq("chave", ch);
+      if (de) q = q.in("status", [...de]);
+      const { data, error } = await q.select("chave");
       // Falha de atualização não pode ser silenciosa: o envio ficaria sem registro do resultado.
       if (error) throw new Error("ENVIO_NAO_ATUALIZADO");
+      return (data?.length ?? 0) === 1;
     },
   };
 
