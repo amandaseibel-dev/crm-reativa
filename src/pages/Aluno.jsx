@@ -1389,7 +1389,6 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
         await registrarAdministrativoNoHistorico({
           alunoId: alunoSelecionado.id,
           codigo: statusFinalizacao,
-          descricao: observacao.trim() || "Registro administrativo do termo físico.",
           operadorEmail: usuarioLogado?.email || null,
           operadorNome: usuarioLogado?.nome || null,
         });

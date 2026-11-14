@@ -2280,7 +2280,6 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         await registrarAdministrativoNoHistorico({
           alunoId: a.id,
           codigo: statusNovo,
-          descricao: `Registro administrativo: ${labelStatus(statusNovo)}.`,
           operadorEmail: email,
           operadorNome: usuarioLogado?.nome || null,
         });

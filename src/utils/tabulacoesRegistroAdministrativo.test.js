@@ -21,6 +21,7 @@ const from = vi.fn((tabela) => ({
 vi.mock("../services/supabase", () => ({ supabase: { from: (t) => from(t) } }));
 
 import {
+  DESCRICAO_REGISTRO_ADMINISTRATIVO,
   tabulacaoEhRegistroAdministrativo,
   registrarAdministrativoNoHistorico,
   TABULACOES_REGISTRO_ADMINISTRATIVO,
@@ -55,7 +56,6 @@ describe("registro administrativo do termo físico", () => {
     await registrarAdministrativoNoHistorico({
       alunoId: "a0000000-0000-0000-0000-000000000042",
       codigo: "TERMO_FISICO_ARQUIVADO",
-      descricao: "Registro administrativo.",
       operadorEmail: "amanda.seibel@aelbra.com.br",
       operadorNome: "Amanda",
     });
@@ -67,14 +67,15 @@ describe("registro administrativo do termo físico", () => {
     expect(payload.status_novo).toBe("TERMO_FISICO_ARQUIVADO");
     expect(payload.registrado_por_email).toBe("amanda.seibel@aelbra.com.br");
     expect(payload.registrado_em).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(payload.descricao).toBe("Registro administrativo.");
+    expect(payload.descricao).toBe(DESCRICAO_REGISTRO_ADMINISTRATIVO);
+    // Triagem Prime: nenhuma palavra-chave da leitura da triagem casa com a descrição.
+    expect(payload.descricao).not.toMatch(/fies|isen|bolsa|tranc|cancel.*matr|desist/i);
   });
 
   it("não escreve em alunos (sem contato, fidelização, retorno, fila nem status)", async () => {
     await registrarAdministrativoNoHistorico({
       alunoId: "a0000000-0000-0000-0000-000000000042",
       codigo: "TERMO_FISICO_EM_ANDAMENTO",
-      descricao: "x",
       operadorEmail: "cobranca07@aelbra.com.br",
       operadorNome: null,
     });
@@ -88,7 +89,7 @@ describe("registro administrativo do termo físico", () => {
     }));
     await expect(
       registrarAdministrativoNoHistorico({
-        alunoId: "x", codigo: "TERMO_FISICO_ARQUIVADO", descricao: "x", operadorEmail: "a@b", operadorNome: null,
+        alunoId: "x", codigo: "TERMO_FISICO_ARQUIVADO", operadorEmail: "a@b", operadorNome: null,
       })
     ).rejects.toMatchObject({ code: "42501" });
   });

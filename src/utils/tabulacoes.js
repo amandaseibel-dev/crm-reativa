@@ -205,13 +205,18 @@ export function tabulacaoEhRegistroAdministrativo(codigo) {
   return TABULACOES_REGISTRO_ADMINISTRATIVO.includes(String(codigo || "").trim().toUpperCase());
 }
 
+// Descrição FIXA do registro administrativo. Não recebe observação livre: o texto
+// de movimentações é lido pela triagem Prime (palavras como fies, isen, bolsa,
+// tranc, desist), e um texto livre poderia alterar essa leitura.
+export const DESCRICAO_REGISTRO_ADMINISTRATIVO = "Registro administrativo do termo físico.";
+
 // Grava o registro administrativo SÓ no histórico. Não usa FINALIZACAO_ATENDIMENTO
 // (que o sistema trata como acionamento) e não escreve em alunos.
-export async function registrarAdministrativoNoHistorico({ alunoId, codigo, descricao, operadorEmail, operadorNome }) {
+export async function registrarAdministrativoNoHistorico({ alunoId, codigo, operadorEmail, operadorNome }) {
   const { error } = await supabase.from("aluno_movimentacoes").insert({
     aluno_id: String(alunoId),
     tipo: TIPO_REGISTRO_ADMINISTRATIVO,
-    descricao,
+    descricao: DESCRICAO_REGISTRO_ADMINISTRATIVO,
     status_anterior: null,
     status_novo: String(codigo).trim().toUpperCase(),
     registrado_por_nome: operadorNome || null,
