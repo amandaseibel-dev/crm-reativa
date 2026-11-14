@@ -1,0 +1,451 @@
+-- NIVELAMENTO DE CARTEIRAS V2 (20261112120000) -- PENDENTE DE APROVACAO.
+--
+-- REGRAS CONFIRMADAS PELA GESTAO (12/11/2026):
+--  1. Unica entrada automatica na carteira = REPOSICAO por baixa REALIZADA
+--     (baixas_pagamento.status_baixa = 'REALIZADA'), com capacidade abaixo do teto.
+--     Caso livre e fonte da reposicao, nao autorizacao para distribuir.
+--  2. Negociacao e acordo NAO liberam vaga. Cada baixa elegivel gera no maximo
+--     uma reposicao; o mesmo pagamento (cpf + valor + dia) gera uma so.
+--     Baixas anteriores ao corte (calibragem_parametros.nivelamento_v2_desde)
+--     nunca geram reposicao retroativa.
+--  3. Operadores com ocupacao >= teto nao recebem reposicao. Esta migration NAO
+--     distribui nada: a rodada inicial e zero movimentacoes.
+--  4. Job 48 (nivelamento_automatico_gestao) e DESATIVADO nesta mesma migration.
+--     Estado anterior guardado em nivelamento_v2_backup para rollback.
+--  5. "Assumir atendimento" no teto ou acima: troca transacional por caso
+--     elegivel do PROPRIO operador de MESMO saldo cobravel (centavos). Sem
+--     correspondente: nada e alterado e a funcao responde sucesso = false.
+--
+-- DEFINICOES:
+--  * OCUPACAO = casos com operador, excluindo encerrados (acordo ativo e
+--    negociacao CONTAM).
+--  * PROTECAO (caso_protegido_redistribuicao) define quem PODE SAIR; nunca
+--    entra no calculo de vaga.
+--  * TETO = calibragem_teto_operador(email). Carteira geral
+--    (carteira.geral@reativa.local) e reserva: sem teto, sem reposicao.
+--  * SALDO COBRAVEL DO CASO = aluno_saldo_pendente_detalhe(aluno).total, que
+--    aplica coalesce(valor_cobranca_ajustado, saldo_corrigido, valor_em_aberto,
+--    valor_original, 0) por titulo e soma parcelas vivas. Comparado em centavos.
+--
+-- AUDITORIA (calibragem_auditoria, append-only):
+--   REPOSICAO_V2                   entrada automatica por baixa
+--   REPOSICAO_V2_SEM_VAGA          baixa processada, operador sem vaga
+--   REPOSICAO_V2_SEM_CASO_LIVRE    baixa processada, sem caso livre elegivel
+--   REPOSICAO_V2_SEM_CASO          baixa sem caso do aluno com operador
+--   REPOSICAO_V2_DUPLICADA         mesmo pagamento ja processado
+--   TROCA_V2_ENTRADA / TROCA_V2_SAIDA  troca no teto, vinculadas por troca_id
+
+-- ============================================================================
+-- 0. PARAMETRO DE CORTE E BACKUP PARA ROLLBACK
+-- ============================================================================
+
+create table if not exists public.nivelamento_v2_backup (
+  nome      text primary key,
+  definicao text not null,
+  criado_em timestamptz not null default now()
+);
+
+-- Definicao anterior de assumir_caso_livre (para o rollback restaurar).
+insert into public.nivelamento_v2_backup(nome, definicao)
+  select 'fn:assumir_caso_livre(uuid)', pg_get_functiondef(p.oid)
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'assumir_caso_livre'
+on conflict (nome) do nothing;
+
+-- Job 48 anterior (para o rollback reagendar exatamente igual).
+insert into public.nivelamento_v2_backup(nome, definicao)
+  select 'cron:48', format('%s|%s|%s', j.schedule, j.command, j.active)
+    from cron.job j where j.jobid = 48
+on conflict (nome) do nothing;
+
+insert into public.calibragem_parametros(chave, valor, descricao, atualizado_em, atualizado_por)
+values ('nivelamento_v2_desde', to_jsonb(now()::text),
+        'Corte da reposicao V2: so baixas REALIZADAS a partir deste instante geram reposicao.',
+        now(), 'migration 20261112120000')
+on conflict (chave) do update
+  set valor = excluded.valor, atualizado_em = now(), atualizado_por = excluded.atualizado_por;
+
+-- ============================================================================
+-- 1. OCUPACAO E SALDO
+-- ============================================================================
+
+create or replace function public.nivelamento_ocupacao(p_email text)
+returns int
+language sql stable security definer set search_path = public
+as $$
+  select count(*)::int
+    from public.casos c
+   where c.operador_email = lower(p_email)
+     and not public.caso_encerrado_operacional(c.cpf_limpo, c.status_atual,
+           c.status_acionamento, c.status_financeiro, c.status_jornada);
+$$;
+
+create or replace function public.nivelamento_acionaveis(p_email text)
+returns int
+language sql stable security definer set search_path = public
+as $$
+  select count(*)::int
+    from public.casos c
+   where c.operador_email = lower(p_email)
+     and not public.caso_encerrado_operacional(c.cpf_limpo, c.status_atual,
+           c.status_acionamento, c.status_financeiro, c.status_jornada)
+     and not public.caso_protegido_redistribuicao(c.cpf_limpo, c.status_acionamento,
+           c.nao_acionar, c.status_financeiro, c.valor_pago, c.quitado_em, c.valor_quitado);
+$$;
+
+-- Saldo cobravel do CASO em centavos. Referencia unica = ficha e cobranca.
+create or replace function public.nivelamento_saldo_caso_centavos(p_caso_id uuid)
+returns bigint
+language plpgsql stable security definer set search_path = public
+as $$
+declare v_aluno uuid; v_total numeric;
+begin
+  select c.aluno_id into v_aluno from public.casos c where c.id = p_caso_id;
+  if v_aluno is null then return 0; end if;
+  v_total := coalesce((public.aluno_saldo_pendente_detalhe(v_aluno)->>'total')::numeric, 0);
+  return round(v_total * 100)::bigint;
+end;
+$$;
+
+-- Caso pode mover (sair ou entrar)? Protecao, encerramento, giro, fidelizacao.
+create or replace function public.nivelamento_caso_movivel(p_caso_id uuid)
+returns boolean
+language plpgsql stable security definer set search_path = public
+as $$
+declare c record;
+begin
+  select * into c from public.casos where id = p_caso_id;
+  if not found then return false; end if;
+  if public.caso_encerrado_operacional(c.cpf_limpo, c.status_atual,
+       c.status_acionamento, c.status_financeiro, c.status_jornada) then return false; end if;
+  if public.caso_protegido_redistribuicao(c.cpf_limpo, c.status_acionamento, c.nao_acionar,
+       c.status_financeiro, c.valor_pago, c.quitado_em, c.valor_quitado) then return false; end if;
+  if public.caso_em_giro_fidelizacao(c.giro_fidelizacao_ate) then return false; end if;
+  if public.caso_dentro_prazo_fidelizacao(c.data_ultimo_acionamento) then return false; end if;
+  if internal.matricula_em_fidelizacao(c.aluno_id, c.matricula) then return false; end if;
+  return true;
+end;
+$$;
+
+-- ============================================================================
+-- 2. TROCA NO TETO (usada por assumir_caso_livre)
+-- ============================================================================
+-- Procura, na carteira do operador, um caso movivel de MESMO saldo em centavos.
+-- Se achar: tira o caso da carteira e grava as duas movimentacoes vinculadas.
+-- Se nao achar: nao escreve nada e devolve null. O chamador decide a resposta.
+-- A entrada (dono do caso que entra) e feita pelo chamador, na mesma transacao.
+
+create or replace function public.nivelamento_escolher_troca(
+  p_caso_entra uuid, p_operador text, p_troca uuid)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_ent record; v_sai record; v_saldo bigint; v_saldo_sai bigint; v_ocup int;
+begin
+  select * into v_ent from public.casos where id = p_caso_entra;
+  if not found then return null; end if;
+  v_saldo := public.nivelamento_saldo_caso_centavos(p_caso_entra);
+
+  select c.* into v_sai
+    from public.casos c
+   where c.operador_email = lower(p_operador)
+     and c.id <> p_caso_entra
+     and public.nivelamento_caso_movivel(c.id)
+     and public.nivelamento_saldo_caso_centavos(c.id) = v_saldo
+   order by c.id
+   limit 1
+     for update skip locked;
+  if not found then return null; end if;
+
+  v_saldo_sai := public.nivelamento_saldo_caso_centavos(v_sai.id);
+  if v_saldo_sai <> v_saldo then
+    raise exception 'Troca recusada: saldos diferentes (% x % centavos).', v_saldo, v_saldo_sai;
+  end if;
+  v_ocup := public.nivelamento_ocupacao(p_operador);
+
+  perform set_config('calibragem.bypass_teto', 'on', true);
+  update public.casos set operador_email = null, operador_nome = null, operador = null
+   where id = v_sai.id;
+
+  insert into public.calibragem_auditoria(evento, caso_id, caso_compensacao_id, cpf, nome_aluno,
+    operador_anterior_email, operador_novo_email, valor_caso, motivo, regra,
+    situacao_anterior, situacao_posterior, registrado_por_email)
+  values
+    ('TROCA_V2_ENTRADA', p_caso_entra, v_sai.id, v_ent.cpf_limpo, v_ent.nome,
+     v_ent.operador_email, lower(p_operador), v_saldo / 100.0,
+     'Assumir no teto: entrada compensada pela saida ' || v_sai.id::text, 'TROCA_V2',
+     jsonb_build_object('operador_email', v_ent.operador_email, 'ocupacao_antes', v_ocup,
+                        'troca_id', p_troca),
+     jsonb_build_object('operador_email', lower(p_operador), 'saldo_centavos', v_saldo,
+                        'troca_id', p_troca),
+     coalesce(auth.jwt() ->> 'email', 'sessao_admin:' || session_user)),
+    ('TROCA_V2_SAIDA', v_sai.id, p_caso_entra, v_sai.cpf_limpo, v_sai.nome,
+     lower(p_operador), null, v_saldo_sai / 100.0,
+     'Saida compensatoria da troca ' || p_troca::text, 'TROCA_V2',
+     jsonb_build_object('operador_email', lower(p_operador), 'saldo_centavos', v_saldo_sai,
+                        'troca_id', p_troca),
+     jsonb_build_object('operador_email', null, 'saldo_centavos', v_saldo_sai,
+                        'troca_id', p_troca),
+     coalesce(auth.jwt() ->> 'email', 'sessao_admin:' || session_user));
+
+  return v_sai.id;
+end;
+$$;
+
+-- ============================================================================
+-- 3. REPOSICAO POR BAIXA REALIZADA (unica entrada automatica)
+-- ============================================================================
+-- Gate: gestao autenticada, ou sessao de administrador do banco (job de cron,
+-- que roda como postgres). anon, authenticated e service_role nao passam.
+
+-- Idempotencia no banco: cada baixa e processada uma vez e cada pagamento
+-- (cpf + valor + dia) gera no maximo uma reposicao aplicada.
+create unique index if not exists calibragem_auditoria_v2_baixa_uq
+  on public.calibragem_auditoria ((situacao_posterior->>'baixa_id'))
+  where evento like 'REPOSICAO_V2%';
+
+create unique index if not exists calibragem_auditoria_v2_pagamento_uq
+  on public.calibragem_auditoria ((situacao_posterior->>'chave_pagamento'))
+  where evento = 'REPOSICAO_V2';
+-- (chave_pagamento = link de pagamento ou id da baixa: ver nivelamento_reposicao_por_baixas)
+
+create or replace function public.nivelamento_reposicao_por_baixas(p_limite int default 200)
+returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_desde timestamptz; v_b record; v_caso record; v_livre record;
+  v_op_email text; v_op_nome text; v_teto int; v_ocup int;
+  v_chave text; v_cpf text; v_saldo bigint; v_aplicadas int := 0; v_registros int := 0;
+  v_sessao text := 'job:' || session_user;
+begin
+  -- Gestao identificada por JWT, OU caminho tecnico explicito: sem JWT E sessao de
+  -- identidade privilegiada conhecida (mesmo padrao do repositorio). JWT ausente,
+  -- sozinho, nunca autoriza.
+  if not (public.calibragem_e_gestao()
+          or (auth.jwt() is null and session_user in ('postgres','reativa_responsavel_executor'))) then
+    raise exception 'Sem permissao para reposicao automatica.' using errcode = '42501';
+  end if;
+  perform pg_advisory_xact_lock(hashtext('nivelamento_carteiras_v2'));
+
+  select (valor #>> '{}')::timestamptz into v_desde
+    from public.calibragem_parametros where chave = 'nivelamento_v2_desde';
+  if v_desde is null then
+    raise exception 'Corte nivelamento_v2_desde ausente. Nada processado.';
+  end if;
+
+  perform set_config('calibragem.bypass_teto', 'on', true);
+
+  for v_b in
+    select b.* from public.baixas_pagamento b
+     where b.status_baixa = 'REALIZADA'
+       and b.baixado_em >= v_desde
+       and not exists (
+         select 1 from public.calibragem_auditoria a
+          where a.evento like 'REPOSICAO_V2%'
+            and a.situacao_posterior->>'baixa_id' = b.id::text)
+     order by b.baixado_em, b.id
+     limit p_limite
+  loop
+    v_cpf := lpad(regexp_replace(coalesce(v_b.aluno_cpf,''), '\D', '', 'g'), 11, '0');
+    -- Identificador ESTAVEL do pagamento: o link de pagamento que originou a baixa.
+    -- Duas baixas do mesmo link = um pagamento (reenvio/duplicata). Baixas de links
+    -- distintos = pagamentos distintos, mesmo com cpf, valor e dia iguais.
+    -- Sem link, o id da propria baixa e o identificador (cada linha e um evento).
+    v_chave := coalesce('link:' || v_b.solicitacao_link_id::text, 'baixa:' || v_b.id::text);
+    v_saldo := round(coalesce(v_b.valor_pago,0) * 100)::bigint;
+
+    -- pagamento ja aplicado (outra baixa com a mesma chave)
+    if exists (select 1 from public.calibragem_auditoria a
+                where a.evento = 'REPOSICAO_V2'
+                  and a.situacao_posterior->>'chave_pagamento' = v_chave) then
+      insert into public.calibragem_auditoria(evento, cpf, motivo, regra, situacao_posterior, registrado_por_email)
+      values ('REPOSICAO_V2_DUPLICADA', v_cpf, 'Pagamento ja gerou reposicao', 'REPOSICAO_V2',
+              jsonb_build_object('baixa_id', v_b.id::text, 'chave_pagamento', v_chave), v_sessao);
+      v_registros := v_registros + 1;
+      continue;
+    end if;
+
+    -- caso do aluno que tem operador (quem perdeu o caso pago)
+    select c.* into v_caso from public.casos c
+     where lpad(regexp_replace(coalesce(c.cpf_limpo,''), '\D', '', 'g'), 11, '0') = v_cpf
+       and c.operador_email is not null
+       and c.operador_email <> 'carteira.geral@reativa.local'
+     order by c.id limit 1;
+    if not found then
+      insert into public.calibragem_auditoria(evento, cpf, motivo, regra, situacao_posterior, registrado_por_email)
+      values ('REPOSICAO_V2_SEM_CASO', v_cpf, 'Baixa sem caso com operador', 'REPOSICAO_V2',
+              jsonb_build_object('baixa_id', v_b.id::text, 'chave_pagamento', v_chave), v_sessao);
+      v_registros := v_registros + 1;
+      continue;
+    end if;
+
+    v_op_email := lower(v_caso.operador_email);
+    v_teto := public.calibragem_teto_operador(v_op_email);
+    v_ocup := public.nivelamento_ocupacao(v_op_email);
+    if v_ocup >= v_teto then
+      insert into public.calibragem_auditoria(evento, caso_id, operador_novo_email, cpf, motivo, regra,
+        situacao_posterior, registrado_por_email)
+      values ('REPOSICAO_V2_SEM_VAGA', v_caso.id, v_op_email, v_cpf,
+              'Baixa sem reposicao: operador em ' || v_ocup || ' de ' || v_teto || ' casos', 'REPOSICAO_V2',
+              jsonb_build_object('baixa_id', v_b.id::text, 'chave_pagamento', v_chave,
+                                 'ocupacao', v_ocup, 'teto', v_teto), v_sessao);
+      v_registros := v_registros + 1;
+      continue;
+    end if;
+
+    -- caso livre elegivel (sem dono ou carteira geral reserva)
+    select c.* into v_livre from public.casos c
+     where (c.operador_email is null or lower(c.operador_email) = 'carteira.geral@reativa.local')
+       and public.nivelamento_caso_movivel(c.id)
+     order by c.id limit 1 for update skip locked;
+    if not found then
+      insert into public.calibragem_auditoria(evento, operador_novo_email, cpf, motivo, regra,
+        situacao_posterior, registrado_por_email)
+      values ('REPOSICAO_V2_SEM_CASO_LIVRE', v_op_email, v_cpf, 'Sem caso livre elegivel', 'REPOSICAO_V2',
+              jsonb_build_object('baixa_id', v_b.id::text, 'chave_pagamento', v_chave), v_sessao);
+      v_registros := v_registros + 1;
+      continue;
+    end if;
+
+    select u.nome into v_op_nome from public.usuarios u where lower(u.email) = v_op_email limit 1;
+    update public.casos
+       set operador_email = v_op_email, operador_nome = v_op_nome, operador = upper(coalesce(v_op_nome,''))
+     where id = v_livre.id;
+
+    insert into public.calibragem_auditoria(evento, caso_id, aluno_id, cpf, nome_aluno,
+      operador_anterior_email, operador_novo_email, operador_novo_nome, valor_caso, motivo, regra,
+      situacao_anterior, situacao_posterior, registrado_por_email)
+    values ('REPOSICAO_V2', v_livre.id, v_livre.aluno_id, v_livre.cpf_limpo, v_livre.nome,
+      v_livre.operador_email, v_op_email, v_op_nome, v_saldo / 100.0,
+      'Reposicao por baixa REALIZADA (capacidade ' || v_ocup || ' de ' || v_teto || ')', 'REPOSICAO_V2',
+      jsonb_build_object('operador_email', v_livre.operador_email),
+      jsonb_build_object('operador_email', v_op_email, 'baixa_id', v_b.id::text,
+                         'chave_pagamento', v_chave, 'ocupacao_antes', v_ocup, 'teto', v_teto,
+                         'saldo_centavos', v_saldo),
+      v_sessao);
+    v_aplicadas := v_aplicadas + 1;
+  end loop;
+
+  return jsonb_build_object('reposicoes_aplicadas', v_aplicadas, 'registros', v_registros,
+                            'corte', v_desde);
+end;
+$$;
+
+-- ============================================================================
+-- 4. ASSUMIR ATENDIMENTO COM TROCA (integra assumir_caso_livre)
+-- ============================================================================
+-- Mesmo corpo de producao, com 3 mudancas:
+--   a) ocupacao = nivelamento_ocupacao (acordo e negociacao contam)
+--   b) saldo = nivelamento_saldo_caso_centavos (ficha e cobranca)
+--   c) no teto: troca exata via nivelamento_escolher_troca; sem par, sucesso = false
+--      e nada e alterado (troca nao parcial).
+
+create or replace function public.assumir_caso_livre(p_caso_id uuid)
+returns table(sucesso boolean, mensagem text, caso_liberado uuid)
+language plpgsql
+security definer
+set search_path to 'public', 'internal'
+as $function$
+declare
+  v_email text; v_nome text; v_upper text; v_new record; v_new_centavos bigint;
+  v_count int; v_rel uuid := null; v_liberado uuid := null; v_teto int; v_pool text;
+  v_troca uuid := gen_random_uuid();
+begin
+  v_email := lower(coalesce(auth.jwt() ->> 'email',''));
+  if v_email = '' then return query select false,'Usuario nao identificado. Faca login novamente.',null::uuid; return; end if;
+  v_nome := public.nome_operador_por_email(v_email);
+  if v_nome is null then return query select false,'Operador nao ativo ou nao identificado.',null::uuid; return; end if;
+  if not internal.operador_pode_receber_caso(v_email) then return query select false,'Sua carteira esta fechada para casos novos. Fale com a gestao.',null::uuid; return; end if;
+  v_upper := upper(v_nome);
+  select c.* into v_new from public.casos c where c.id = p_caso_id for update;
+  if not found then return query select false,'Caso nao encontrado.',null::uuid; return; end if;
+  if coalesce(v_new.operador_email,'') <> '' then
+    select case
+             when lower(v_new.operador_email) = internal.carteira_geral_email()
+               then 'Carteira Geral'
+             when not exists (select 1 from public.usuarios u
+                               where lower(u.email) = lower(v_new.operador_email)
+                                 and u.ativo and u.perfil = 'operador')
+               then 'carteira de ' || coalesce((select u.nome from public.usuarios u
+                                                 where lower(u.email) = lower(v_new.operador_email)
+                                                 limit 1), v_new.operador_email)
+           end into v_pool;
+    if public.caso_em_giro_fidelizacao(v_new.giro_fidelizacao_ate) then
+      return query select false,'Este caso está fidelizado pelo giro de carteira até 26/10/2026.',null::uuid; return;
+    end if;
+    if v_pool is null and v_new.giro_fidelizacao_ate is null then
+      return query select false,'Este caso ja foi assumido por outro operador.',null::uuid; return;
+    end if;
+  end if;
+  v_new_centavos := public.nivelamento_saldo_caso_centavos(p_caso_id);
+  if public.caso_protegido_redistribuicao(v_new.cpf_limpo,v_new.status_acionamento,v_new.nao_acionar,v_new.status_financeiro,v_new.valor_pago,v_new.quitado_em,v_new.valor_quitado)
+     or public.caso_encerrado_operacional(v_new.cpf_limpo,v_new.status_atual,v_new.status_acionamento,v_new.status_financeiro,v_new.status_jornada)
+     or v_new_centavos <= 0 then
+    return query select false,'Caso nao elegivel (protegido, encerrado ou sem saldo).',null::uuid; return;
+  end if;
+
+  v_teto := public.calibragem_teto_operador(v_email);
+  v_count := public.nivelamento_ocupacao(v_email);
+  if v_count >= v_teto then
+    -- No teto ou acima: troca exata de mesmo saldo, ou recusa total.
+    v_rel := public.nivelamento_escolher_troca(p_caso_id, v_email, v_troca);
+    if v_rel is null then
+      return query select false,
+        'Carteira em '||v_count||' de '||v_teto||' casos e nenhum caso seu elegivel com o mesmo saldo cobravel ('||v_new_centavos||' centavos). Nada foi alterado; a gestao deve decidir.',
+        null::uuid;
+      return;
+    end if;
+    v_liberado := v_rel;
+    insert into public.historico_operadores_alunos (chave_unificacao,nome_aluno,cpf_referencia,acao,operador_anterior_nome,operador_anterior_email,observacao,criado_em)
+    select chave_unificacao,nome,cpf,'LIBERACAO_TROCA_ASSUMIR',v_nome,v_email,
+      'Liberado por troca de mesmo saldo ao assumir caso '||p_caso_id::text||'. troca_id='||v_troca::text,now()
+    from public.casos where id = v_liberado;
+  end if;
+
+  perform set_config('calibragem.bypass_teto','on',true);
+  update public.casos set operador_email=v_email, operador_nome=v_nome, operador=v_upper,
+    caso_atualizado_por=v_email, caso_atualizado_em=now()
+  where id = p_caso_id;
+  insert into public.historico_operadores_alunos (chave_unificacao,nome_aluno,cpf_referencia,acao,operador_nome,operador_email,observacao,criado_em)
+  select chave_unificacao,nome,cpf,'ASSUMIR_ATENDIMENTO',v_nome,v_email,
+    'Assumido de '||coalesce(v_pool,'fila livre')||'. assumido_por='||v_email||' assumido_em='||now()::text||'. troca_id='||coalesce(v_troca::text,'-')||'. Fidelizacao inicia apenas apos acionamento valido.', now()
+  from public.casos where id = p_caso_id;
+
+  if public.nivelamento_ocupacao(v_email) > v_teto then
+    raise exception 'ROLLBACK: operador ficaria com mais de % casos (teto vigente).', v_teto;
+  end if;
+  return query select true, 'Atendimento assumido. Acione dentro do prazo operacional para iniciar a fidelizacao de 10 dias.', v_liberado;
+end;
+$function$;
+
+-- ============================================================================
+-- 5. CUTOVER DO JOB: desativa o 48 antigo, agenda a reposicao V2 (uma vez por
+--    hora, no minuto 7). Nao pode haver dois mecanismos distribuindo.
+-- ============================================================================
+
+select cron.unschedule(48);
+select cron.schedule('nivelamento_v2_reposicao', '7 * * * *',
+                     'select public.nivelamento_reposicao_por_baixas(200)');
+
+-- ============================================================================
+-- 6. PRIVILEGIOS
+-- ============================================================================
+-- Novas funcoes: nada para PUBLIC nem anon. authenticated so pela RPC
+-- assumir_caso_livre (que tem gate proprio); as demais, so gestao/admin.
+
+revoke all on function public.nivelamento_ocupacao(text)              from public, anon;
+revoke all on function public.nivelamento_acionaveis(text)            from public, anon;
+revoke all on function public.nivelamento_saldo_caso_centavos(uuid)   from public, anon;
+revoke all on function public.nivelamento_caso_movivel(uuid)          from public, anon;
+-- escolher_troca: so chamada pela assumir_caso_livre (definer): authenticated fora.
+revoke all on function public.nivelamento_escolher_troca(uuid,text,uuid) from public, anon, authenticated;
+-- reposicao: authenticated PODE executar (gestao chama); o gate recusa operador comum.
+revoke all on function public.nivelamento_reposicao_por_baixas(int)   from public, anon;
+grant execute on function public.nivelamento_reposicao_por_baixas(int) to authenticated, service_role;
+
+-- assumir_caso_livre: CREATE OR REPLACE recoloca o grant padrao. Restaura o
+-- mesmo conjunto de antes (sem PUBLIC, sem anon).
+revoke all on function public.assumir_caso_livre(uuid) from public, anon;
+grant execute on function public.assumir_caso_livre(uuid) to authenticated, service_role;

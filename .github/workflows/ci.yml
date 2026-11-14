@@ -1099,3 +1099,196 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/04_depois_da_correcao.sql"
           psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
           psql -v ON_ERROR_STOP=1 -f "$DIR/05_apos_rollback.sql"
+
+  # ---------------------------------------------------------------------------
+  # NIVELAMENTO V2 (20261112120000 + gate 20261112120100): reposicao so por baixa
+  # REALIZADA com vaga, troca transacional de mesmo saldo no teto, corte sem
+  # retroativo, idempotencia, gate sem JWT, concorrencia real e rollback que
+  # restaura o job 48. Stubs das dependencias: ver 01_ambiente.sql (limite honesto).
+  # ---------------------------------------------------------------------------
+  nivelamento-v2-sql:
+    name: nivelamento v2 — reposicao, troca, gate, concorrencia e rollback (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/nivelamento_v2
+      M1: supabase/aguardando_aprovacao/20261112120000_nivelamento_v2.sql.pendente
+      M2: supabase/aguardando_aprovacao/20261112120100_calibragem_gate_somente_gestao.sql.pendente
+      RB: supabase/aguardando_aprovacao/20261112120000_nivelamento_v2.rollback.sql
+      GRB: supabase/aguardando_aprovacao/20261112120100_calibragem_gate_somente_gestao.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Guarda — nada de nivelamento em migrations/ e artefatos presentes
+        run: |
+          set -euo pipefail
+          if ls supabase/migrations/ | grep -qE "^20261112120" ; then
+            echo "FALHOU: ha migration da V2 (20261112120*) em supabase/migrations/"; exit 1
+          fi
+          for f in "$M1" "$M2" "$RB"; do test -f "$f" || { echo "FALHOU: ausente $f"; exit 1; }; done
+          echo "OK: artefatos presentes e fora de migrations/"
+
+      - name: Ambiente, migration V2 e gate calibragem/onda1
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$M1"
+          psql -v ON_ERROR_STOP=1 -f "$M2"
+
+      - name: Provas (14 secoes)
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_casos.sql"
+
+      - name: Concorrencia REAL — duas conexoes, uma baixa, exatamente uma reposicao
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/03_concorrencia_setup.sql"
+          psql -v ON_ERROR_STOP=1 -tAc "select public.nivelamento_reposicao_por_baixas(50);" > /tmp/c1.txt &
+          P1=$!
+          psql -v ON_ERROR_STOP=1 -tAc "select public.nivelamento_reposicao_por_baixas(50);" > /tmp/c2.txt &
+          P2=$!
+          wait $P1; wait $P2
+          N=$(psql -tAc "select count(*) from public.calibragem_auditoria where evento='REPOSICAO_V2' and situacao_posterior->>'baixa_id'='70000000-0000-0000-0000-000000000001'")
+          test "$N" = "1" || { echo "FALHOU: $N reposicoes para a mesma baixa (esperado 1)"; exit 1; }
+          echo "OK: duas conexoes concorrentes, uma reposicao"
+
+      - name: Gate com sessao anon e authenticated (privilegio e JWT)
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/05_gate.sql"
+
+      - name: Rollback completo e verificacao do estado anterior
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$RB"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/04_pos_rollback.sql"
+
+      - name: "Rollback do gate (explicito, reabre a brecha) e verificacao"
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$GRB"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/06_pos_rollback_gate.sql"
+
+      # Integracao com definicoes exportadas. FIXTURE SINTETICO (gerado dos stubs):
+      # valida o mecanismo export -> verificacao sha256 -> importacao -> checagem no
+      # banco -> migration -> smoke. NAO valida equivalencia com producao.
+      - name: "Integracao: importacao verificada + migration + smoke (fixture sintetico)"
+        run: |
+          set -euo pipefail
+          psql -d postgres -v ON_ERROR_STOP=1 -c "drop database if exists integracao" -c "create database integracao"
+          export PGDATABASE=integracao
+          node "$DIR/importar_prod_defs.mjs" "$DIR/fixtures/prod_defs_sintetico.json" /tmp/integ.sql
+          cat /tmp/integ.sql /tmp/integ.sql.hashes.sql "$DIR/07_integracao_defs.sql" > /tmp/integ_total.sql
+          psql -v ON_ERROR_STOP=1 -f "$DIR/00_base_integracao.sql"
+          psql -v ON_ERROR_STOP=1 -f /tmp/integ_total.sql
+          psql -v ON_ERROR_STOP=1 -f "$M1"
+          psql -v ON_ERROR_STOP=1 -f "$M2"
+          R=$(psql -tAc "select public.nivelamento_reposicao_por_baixas(10)")
+          echo "smoke: $R"
+          case "$R" in *reposicoes_aplicadas*) echo "OK: smoke executado";; *) echo "FALHOU smoke"; exit 1;; esac
+
+      - name: "Export de producao: PENDENTE se o arquivo real nao existir"
+        run: |
+          if [ -f "$DIR/prod_defs.json" ]; then
+            echo "prod_defs.json presente: verificar hashes e importar (passo a cargo da validacao com producao)"
+          else
+            echo "PENDENTE: prod_defs.json (export real de producao) ausente. Integracao com producao NAO validada."
+          fi
+
+      # O proprio export roda em Postgres real, em transacao read only, sobre o banco
+      # sintetico. Prova que o script de extracao funciona no PG16 e que a saida
+      # passa na verificacao (nao prova o conteudo de producao).
+      - name: "Export em Postgres real (read only) sobre o banco sintetico"
+        run: |
+          set -euo pipefail
+          export PGDATABASE=integracao
+          psql -X -q -At -v ON_ERROR_STOP=1 -f "$DIR/export_prod_defs.sql" > /tmp/export_ci.json
+          node "$DIR/importar_prod_defs.mjs" /tmp/export_ci.json /tmp/export_ci.sql
+          echo "OK: export real do PG16 verificado"
+
+  # ---------------------------------------------------------------------------
+  # EXTRATOR DE DEFINICOES — testado contra Postgres REAL com banco SINTETICO.
+  # Nao acessa producao. O papel leitor_defs e so do CI (senha sintetica).
+  # ---------------------------------------------------------------------------
+  extrator-prod-defs:
+    name: extrator de definicoes — sucesso, falhas, divergencia e privilegio minimo (postgres 16 sintetico)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/nivelamento_v2
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Driver pg em diretorio temporario (fora do projeto; sem alterar lockfile)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pgdrv" && cd "$RUNNER_TEMP/pgdrv"
+          npm init -y >/dev/null
+          npm install --silent pg@8
+          echo "PG_DRIVER=$RUNNER_TEMP/pgdrv/node_modules/pg/lib/index.js" >> "$GITHUB_ENV"
+
+      - name: Banco sintetico com fixture e papel de privilegio minimo
+        run: |
+          set -euo pipefail
+          psql -d postgres -v ON_ERROR_STOP=1 -c "drop database if exists integracao" -c "create database integracao"
+          psql -d integracao -v ON_ERROR_STOP=1 -f "$DIR/00_base_integracao.sql"
+          node "$DIR/importar_prod_defs.mjs" "$DIR/fixtures/prod_defs_sintetico.json" "$RUNNER_TEMP/integ.sql"
+          psql -d integracao -v ON_ERROR_STOP=1 -f "$RUNNER_TEMP/integ.sql"
+          psql -d integracao -v ON_ERROR_STOP=1 -v banco=integracao -f "$DIR/papel_temporario_criar.sql"
+          psql -d postgres -v ON_ERROR_STOP=1 -c "alter role leitor_defs password 'ci-sintetico-unico'"
+          psql -d integracao -v ON_ERROR_STOP=1 -c "select 1" >/dev/null
+
+      - name: Testes do extrator (sucesso, conexao, divergencia, sem URL, privilegio)
+        run: |
+          set -euo pipefail
+          bash "$DIR/teste_extrator.sh"
+
+      - name: Remocao do papel temporario (sempre, mesmo em falha)
+        if: always()
+        run: |
+          set -uo pipefail
+          psql -d integracao -v ON_ERROR_STOP=1 -v banco=integracao -f "$DIR/papel_temporario_remover.sql"
+          R=$(psql -d postgres -tAc "select count(*) from pg_roles where rolname='leitor_defs'")
+          test "$R" = "0" || { echo "FALHOU: papel ainda existe"; exit 1; }
+          echo "OK: papel removido"
