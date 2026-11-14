@@ -1134,7 +1134,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Caminho A — com histórico: gestão, operador, desfazer; rollback recusado inteiro
+      - name: "Caminho A (com histórico): gestão, operador, desfazer; rollback recusado inteiro"
         run: |
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
@@ -1144,7 +1144,7 @@ jobs:
           ! psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_rollback_recusado.sql"
 
-      - name: Caminho B — banco limpo: migração e rollback que restaura o estado anterior
+      - name: "Caminho B (banco limpo): migração e rollback que restaura o estado anterior"
         run: |
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -c "drop schema public cascade; create schema public;"
