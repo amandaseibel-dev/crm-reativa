@@ -55,6 +55,7 @@ import { registrarLoginSeNecessario, registrarLogout } from "./utils/ponto";
 // A Fila Unica de Confirmacao usa a MESMA regra de gestao financeira que a
 // ficha do aluno ja aplica para decidir sobre titulo em confirmacao.
 import { podeGerirFinanceiro, podeVerTudo } from "./utils/operadores";
+import { podeVerPreventivo } from "./utils/acessoPreventivo";
 import { podeVerCrmUlbra } from "./utils/ulbraPainel";
 import { podeVerCentralUlbra } from "./utils/ulbraCentral";
 const PainelAdm = lazy(() => import("./pages/PainelAdm"));
@@ -367,6 +368,17 @@ function RotaProtegida({ usuario, rota, children }) {
     if (!podeVerTudo(emailProd)) return <Navigate to="/" replace />;
     return children;
   }
+  // PREVENTIVO: tela por PESSOA, não por perfil -- Amanda (gerência) e a
+  // diretoria liberada no banco (Angela e Gustavo, perfil `diretoria`). Vem
+  // ANTES do gate por perfil de propósito, e "/preventivo" NÃO entra em
+  // DIRETORIA_ROTAS: isso abriria a tela a qualquer diretoria. O portão
+  // definitivo é `preventivo_e_gestao()` no banco (RLS + toda RPC).
+  if (rota === "/preventivo") {
+    const emailPrev = String(usuario?.perfil?.email || usuario?.auth?.email || "")
+      .toLowerCase().trim();
+    if (perfil === "operador" || !podeVerPreventivo(emailPrev)) return <Navigate to="/" replace />;
+    return children;
+  }
   if (!podeAcessar(perfil, rota)) {
     return <Navigate to="/" replace />;
   }
@@ -426,10 +438,7 @@ function RotaProtegida({ usuario, rota, children }) {
   // Borderôs e Importações: SOMENTE Amanda (regra operacional definitiva).
   // Fernanda, Amanda ADM, operadores e demais perfis ficam bloqueados aqui;
   // o backend tambem trava (importar_acordos exige app_pode_borderos_importacoes).
-  // Preventivo: SOMENTE Amanda da gestão. O banco recusa de novo em toda RPC e
-  // na RLS de toda tabela `prev_` (public.preventivo_e_gestao) -- isto aqui só
-  // evita abrir uma tela que voltaria vazia.
-  if (["/borderos","/importacoes","/importar-acordos","/importar-recuperacao","/preventivo"].includes(rota)) {
+  if (["/borderos","/importacoes","/importar-acordos","/importar-recuperacao"].includes(rota)) {
     const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
     if (email !== "amanda.seibel@aelbra.com.br") {
       return <Navigate to="/" replace />;
@@ -819,11 +828,12 @@ export default function App() {
       const em = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return (em === "amanda.seibel@aelbra.com.br" || perfil === "diretoria") && perfil !== "operador";
     }
-    // Preventivo: só a Amanda da gestão vê o item. A rota e o banco travam de
-    // novo -- este filtro é só para o menu não mostrar o que não abre.
+    // Preventivo: Amanda e a diretoria liberada no banco (`podeVerPreventivo`,
+    // espelho de `preventivo_e_gestao()`). A rota e o banco travam de novo --
+    // este filtro é só para o menu não mostrar o que não abre.
     if (item.rota === "/preventivo") {
       const em = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
-      return em === "amanda.seibel@aelbra.com.br" && perfil !== "operador";
+      return podeVerPreventivo(em) && perfil !== "operador";
     }
     if (item.rota === "/fechamento-remuneracao") {
       const em = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
