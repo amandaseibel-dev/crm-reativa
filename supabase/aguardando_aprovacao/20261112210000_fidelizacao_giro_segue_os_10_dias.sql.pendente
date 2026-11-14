@@ -1,0 +1,388 @@
+-- ============================================================================
+-- FIDELIZAÇÃO DO GIRO DE OUTUBRO PASSA A SEGUIR OS 10 DIAS
+-- ----------------------------------------------------------------------------
+-- PENDENTE DE AUTORIZAÇÃO. NÃO APLICADA EM BANCO NENHUM.
+-- Só o teste supabase/tests/fidelizacao_giro_segue_os_10_dias.test.js executa
+-- este arquivo, num PostgreSQL efêmero.
+--
+-- REGRA DEFINITIVA (gestão, 12/11/2026)
+--   1. A fidelização dura 10 dias, inclusive para caso distribuído pelo giro.
+--   2. A partir do 11º dia sem interação válida o caso perde a exclusividade.
+--   6. A marca histórica do giro não mantém fidelização indefinida.
+--
+-- O DEFEITO, MEDIDO EM PRODUÇÃO EM 12/11/2026 (somente leitura)
+--   `liberar_fidelizacao_caso` devolve false para QUALQUER caso com
+--   `giro_fidelizacao_ate` não nulo -- olha a MARCA, não a DATA. As datas
+--   venceram em 26/10 e 31/10, mas a marca só é limpa quando o dono muda.
+--   Resultado: 4.009 casos com marca ficaram fora do rodízio de 10 dias; 1.029
+--   deles estão parados há 11 dias ou mais e não protegidos (R$ 1,39 mi).
+--   `trg_impor_teto_operador` tem o mesmo defeito (`giro_fidelizacao_ate IS NULL`).
+--   `assumir_caso_livre` tem o defeito OPOSTO: marca vencida deixa outro
+--   operador assumir o caso SEM olhar os 10 dias -- um caso de giro acionado
+--   ontem pode ser tomado hoje.
+--
+-- O QUE MUDA -- quatro funções, por PATCH ANCORADO (recusa se o corpo mudou)
+--   A. liberar_fidelizacao_caso: a guarda do giro passa a olhar a DATA
+--      (`caso_em_giro_fidelizacao`), como o nivelamento já faz desde a M3.
+--      Vencida a data, vale só a regra comum: 10 dias do último acionamento.
+--      Ganha portão interno de gestão: a função é SECURITY DEFINER com EXECUTE
+--      para `authenticated` e não conferia quem chama. O único chamador é
+--      `liberar_casos_fidelizacao_vencida` (cron sem JWT, ou gestão).
+--      Tambem preserva o caso com retorno AGENDADO PELO OPERADOR para hoje ou
+--      depois (retorno automatico das acoes massivas nao protege).
+--      E NAO solta o caso cujo aluno tem OUTRO caso que nao pode sair. Medido em
+--      12/11: soltar um caso solta, por gatilho, todos os casos do mesmo aluno;
+--      7 alunos do universo tem caso CONGELADO (regra de 26/10) que sairia
+--      junto. Vale para qualquer liberacao, com ou sem giro.
+--   PRE-REQUISITO: o cron `fidelizacao_liberar_vencidos` PAUSADO. A migration
+--      aborta se ele estiver ativo.
+--   B. trg_impor_teto_operador: mesma troca de MARCA por DATA.
+--   D. casos_risco_perder: giro vigente e retorno do operador saem do card "risco
+--      de perder" (nao sao risco). Nao e espelho exato do cron (ver abaixo).
+--   C. assumir_caso_livre: caso de giro com dono só pode ser assumido por outro
+--      operador depois dos 10 dias do último acionamento.
+--
+-- O QUE NÃO MUDA
+--   * Nenhuma linha de dado: ZERO insert/update/delete. A liberação acontece
+--     depois, pelo cron 8 (`fidelizacao_liberar_vencidos`, 05:20 BRT) ou pela
+--     gestão em "Saúde da Base" -- não por este arquivo.
+--   * `caso_protegido_redistribuicao`, `caso_encerrado_operacional`,
+--     `caso_encerramento_congelado` e o hold de 24h: quem tem acordo ativo,
+--     pagamento em trânsito, confirmação aberta, jurídico/cancelado, quitação
+--     ou tratativa em andamento continua com o operador.
+--   * `casos_elegiveis_liberacao_fidelizacao`, `acoes_massivas_universo`,
+--     `nivelamento_automatico_gestao`: intocadas. `casos_risco_perder` muda SO nas
+--     duas guardas novas (giro vigente, retorno do operador); NAO vira espelho do
+--     cron: o card ainda lista Carteira Geral e caso em hold de 24h, que a
+--     liberacao nao solta (hold: some no dia seguinte).
+--   * Nenhum giro, nenhuma redistribuição: o caso solto fica LIVRE, sem dono.
+--     O job de reposição (43) segue pausado e esta migration não o toca.
+--   * Assinaturas, SECURITY DEFINER, search_path, dono e grants: o bloco final
+--     confere e ABORTA se qualquer um tiver mudado.
+--   * Nenhum agendamento: não chama cron.schedule/alter_job/unschedule.
+--
+-- Rollback: 20261112210000_fidelizacao_giro_segue_os_10_dias.rollback.sql
+-- ============================================================================
+
+BEGIN;
+
+-- REGRA UNICA DE IRMAOS (12/11/2026, decisao da gestao): soltar um caso solta, por
+-- gatilho, TODOS os casos do mesmo aluno. Este caso so pode sair se nenhum irmao
+-- com operador estiver dentro dos 10 dias, sob giro vigente, congelado ou protegido.
+-- Vale para TODA liberacao -- com ou sem giro --, pela liberacao, pelo cron e pelo
+-- teto. Somente leitura: quem chama trava as linhas antes (ordem por id).
+CREATE OR REPLACE FUNCTION public.caso_pode_soltar_com_aluno(p_caso_id uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select not exists (
+    select 1
+      from public.casos c
+      join public.casos o on o.aluno_id = c.aluno_id and o.id <> c.id
+     where c.id = p_caso_id
+       and o.operador_email is not null
+       and (public.caso_dentro_prazo_fidelizacao(o.data_ultimo_acionamento)
+         or public.caso_em_giro_fidelizacao(o.giro_fidelizacao_ate)
+         or public.caso_encerramento_congelado(o.id)
+         or public.caso_protegido_redistribuicao(o.cpf_limpo, o.status_acionamento, o.nao_acionar,
+              o.status_financeiro, o.valor_pago, o.quitado_em, o.valor_quitado))
+  );
+$function$;
+
+-- Predicado INTERNO: so e chamado de dentro de funcoes SECURITY DEFINER (dono
+-- postgres), entao revogar nao quebra a tela. Medido em prod em 13/11: o default
+-- privilege do schema public concede EXECUTE a service_role tambem -- por isso
+-- ele entra no revoke (ninguem precisa chamar este predicado de fora).
+REVOKE ALL ON FUNCTION public.caso_pode_soltar_com_aluno(uuid) FROM PUBLIC, anon, authenticated, service_role;
+
+-- RETORNO VALIDO DO RESPONSAVEL ATUAL (decisao da gestao, 13/11/2026). Regra UNICA,
+-- usada pela liberacao, pelo cron, pelo teto, pela assuncao e pelo card de risco.
+-- Protege enquanto, e somente enquanto:
+--   * o aluno tem responsavel e o retorno e de hoje (Sao Paulo) ou futuro;
+--   * a origem e do operador e o retorno nao foi concluido (retorno_confirmado_em);
+--     cancelado = data nula; vencido = data passada: nenhum dos dois protege;
+--   * o retorno nasceu de um ATENDIMENTO REAL (FINALIZACAO_ATENDIMENTO) registrado
+--     pelo RESPONSAVEL ATUAL, com essa mesma data de retorno -- retorno de envio em
+--     lote, de outro operador ou digitado sem atendimento nao protege; trocou o
+--     responsavel, a protecao acaba;
+--   * a data do retorno esta a no maximo 15 dias desse atendimento: remarcar o
+--     retorno sem atender de novo nao prolonga a protecao. (15 dias e PARAMETRO
+--     PROVISORIO, a confirmar pela gestao.)
+CREATE OR REPLACE FUNCTION public.aluno_retorno_operador_vigente(p_aluno_id uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  -- Decisao da gestao (13/11/2026, opcao 3). Protege enquanto, e somente enquanto:
+  --   * o responsavel atual e um USUARIO ATIVO (ex-operador nao bloqueia: pool livre);
+  --   * o retorno e de hoje ou futuro (Sao Paulo), e a origem e do operador, nao concluido;
+  --   * ha ATENDIMENTO COMPROVADO do responsavel atual, feito DEPOIS de ele assumir o
+  --     aluno (responsavel_atual_em: X->Y->X nao revalida atendimento anterior a troca);
+  --   * e o atendimento satisfaz uma das duas vias:
+  --       (a) vinculo explicito: a movimentacao traz a MESMA data de retorno, ate 15 dias
+  --           depois do atendimento (15 dias = hipotese, parametro provisorio);
+  --       (b) alternativa: atendimento registrado nos ultimos 10 dias. Conta a data do
+  --           ATENDIMENTO, nao a do retorno: remarcar sem atender nao renova a protecao.
+  -- Nao cria protecao indefinida: sem atendimento novo, a protecao acaba.
+  select exists (
+    select 1
+      from public.alunos a
+     where a.id = p_aluno_id
+       and a.responsavel_atual_email is not null
+       and exists (select 1 from public.usuarios u
+                    where lower(u.email) = lower(a.responsavel_atual_email) and u.ativo)
+       and a.data_retorno >= (now() at time zone 'America/Sao_Paulo')::date
+       and upper(coalesce(a.retorno_origem, '')) like 'OPERADOR%'
+       and a.retorno_confirmado_em is null
+       and exists (
+             select 1 from public.aluno_movimentacoes m
+              where m.aluno_id = a.id::text
+                and m.tipo = 'FINALIZACAO_ATENDIMENTO'
+                and lower(m.registrado_por_email) = lower(a.responsavel_atual_email)
+                and m.registrado_em >= coalesce(a.responsavel_atual_em, '-infinity'::timestamptz)
+                and (
+                      -- (a) vinculo explicito pelo CAMPO da movimentacao
+                      ((m.data_retorno at time zone 'America/Sao_Paulo')::date = a.data_retorno
+                        and a.data_retorno <= (m.registrado_em at time zone 'America/Sao_Paulo')::date + 15)
+                      -- (a') ESTOQUE ANTERIOR a correcao da Minha Carteira: ate 13/11/2026 a
+                      -- tela gravava o retorno no ALUNO e no TEXTO da movimentacao, mas nao no
+                      -- campo; a ausencia do campo NAO e prova de agendamento automatico.
+                      -- ATENCAO: o texto SOZINHO nao prova agendamento humano -- a mesma tela
+                      -- escreve "Retorno: DD/MM/AAAA" tambem para prazo automatico. O que prova
+                      -- e a COMBINACAO: origem OPERADOR% no aluno (exigida acima) + o texto do
+                      -- atendimento do responsavel. Mesmo teto de 15 dias.
+                   or (m.descricao like '%Retorno: ' || to_char(a.data_retorno, 'DD/MM/YYYY') || '%'
+                        and a.data_retorno <= (m.registrado_em at time zone 'America/Sao_Paulo')::date + 15)
+                      -- (b) alternativa: atendimento do responsavel nos ultimos 10 dias
+                   or m.registrado_em >= now() - interval '10 days'
+                )
+       )
+  );
+$function$;
+
+-- Predicado INTERNO: so e chamado de dentro de funcoes SECURITY DEFINER (dono
+-- postgres), entao revogar nao quebra a tela. Medido em prod em 13/11: o default
+-- privilege do schema public concede EXECUTE a service_role tambem -- por isso
+-- ele entra no revoke (ninguem precisa chamar este predicado de fora).
+REVOKE ALL ON FUNCTION public.aluno_retorno_operador_vigente(uuid) FROM PUBLIC, anon, authenticated, service_role;
+
+-- RETORNO AMBIGUO (13/11/2026). UMA definicao, usada pela medicao
+-- (supabase/audits/), pela selecao do backup e pela revalidacao do lote -- para que
+-- os tres apliquem exatamente a mesma exclusao.
+--
+-- Ambiguo = o aluno tem retorno de operador VIGENTE (hoje ou futuro, nao concluido),
+-- a regra NAO o protege, e mesmo assim ha sinal de agendamento humano que nao se
+-- amarra a data vigente: o atendimento do responsavel cita OUTRA data de retorno, ou
+-- nao existe atendimento dele. Nao da para afirmar a origem da data -- entao o caso
+-- NAO e liberado, e fica para decisao da gestao.
+--
+-- MEDIDO em 13/11/2026 15:31 (producao, somente leitura; consulta e saida em
+-- supabase/audits/retorno_ambiguo_origem_20261113.sql e _RESULTADO.md):
+-- 56 CASOS / 55 ALUNOS, todos com data de retorno = hoje, nenhum com data futura,
+-- e todos com a data citada no texto do atendimento JA VENCIDA.
+--
+-- Isso e COMPATIVEL com o recalculo automatico investigado na PR #949
+-- (`recalcular_situacao_aluno`, ramo COBRANCA_VENCIDA, reescreve a data para hoje
+-- e COPIA a origem antiga), mas NAO PROVA a origem: nao ha grupo de controle de
+-- retornos sabidamente humanos. Nao use "nenhum tem hora" como argumento --
+-- `alunos.data_retorno` e do tipo `date` e nunca guardou hora, entao esse sinal e
+-- vazio por construcao (catalogo de producao conferido em 13/11/2026).
+--
+-- Esta migration NAO corrige esse recalculo -- so evita liberar caso cuja origem
+-- da data nao esta estabelecida.
+CREATE OR REPLACE FUNCTION public.aluno_retorno_ambiguo(p_aluno_id uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select exists (
+    select 1
+      from public.alunos a
+     where a.id = p_aluno_id
+       and a.responsavel_atual_email is not null
+       and a.data_retorno >= (now() at time zone 'America/Sao_Paulo')::date
+       and upper(coalesce(a.retorno_origem, '')) like 'OPERADOR%'
+       and a.retorno_confirmado_em is null
+       and not public.aluno_retorno_operador_vigente(a.id)
+       and ( exists (select 1 from public.aluno_movimentacoes m
+                      where m.aluno_id = a.id::text and m.tipo = 'FINALIZACAO_ATENDIMENTO'
+                        and lower(m.registrado_por_email) = lower(a.responsavel_atual_email)
+                        and m.descricao ilike '%retorno%'
+                        and m.descricao not like '%Retorno: ' || to_char(a.data_retorno, 'DD/MM/YYYY') || '%')
+          or not exists (select 1 from public.aluno_movimentacoes m
+                          where m.aluno_id = a.id::text and m.tipo = 'FINALIZACAO_ATENDIMENTO'
+                            and lower(m.registrado_por_email) = lower(a.responsavel_atual_email)) )
+  );
+$function$;
+
+REVOKE ALL ON FUNCTION public.aluno_retorno_ambiguo(uuid) FROM PUBLIC, anon, authenticated, service_role;
+
+DO $mig$
+DECLARE
+  v_antes jsonb;
+  v_depois jsonb;
+  v_cron_ativo boolean;
+BEGIN
+  -- ORDEM OBRIGATORIA: o cron da fidelizacao tem de estar PAUSADO antes desta
+  -- migration. Com a regra nova e o cron ativo, ele solta sozinho, as 05:20
+  -- BRT, todos os casos de giro vencidos -- sem backup e sem lote. A liberacao
+  -- controlada esta em supabase/recovery/20261112_giro_fidelizacao_0*.sql.
+  -- (EXECUTE: onde nao ha pg_cron -- bancada, ambiente local -- a tabela nao
+  -- existe e uma referencia direta nao compilaria.)
+  if to_regclass('cron.job') is not null then
+    execute $q$select exists (select 1 from cron.job j
+                               where j.jobname = 'fidelizacao_liberar_vencidos' and j.active)$q$
+      into v_cron_ativo;
+    if v_cron_ativo then
+      raise exception 'fidelizacao_giro: o cron fidelizacao_liberar_vencidos esta ATIVO. Pause-o antes de aplicar esta migration.';
+    end if;
+  end if;
+
+  -- Retrato de dono, grants, SECURITY DEFINER e search_path ANTES.
+  SELECT jsonb_object_agg(p.proname, jsonb_build_object(
+           'acl', p.proacl::text, 'cfg', p.proconfig::text, 'def', p.prosecdef, 'dono', p.proowner::text))
+    INTO v_antes
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public'
+     AND p.proname IN ('liberar_fidelizacao_caso', 'trg_impor_teto_operador', 'assumir_caso_livre', 'casos_risco_perder', 'caso_pode_soltar_com_aluno', 'aluno_retorno_operador_vigente', 'aluno_retorno_ambiguo');
+
+  IF (SELECT count(*) FROM jsonb_object_keys(v_antes)) <> 7 THEN
+    RAISE EXCEPTION 'fidelizacao_giro: esperava as 7 funcoes, achei %.', v_antes;
+  END IF;
+
+  -- A1. liberar_fidelizacao_caso: portao interno de gestao.
+  PERFORM internal.patch_funcao_ancorada('public', 'liberar_fidelizacao_caso',
+$ancora$  select * into v_c from public.casos where id = p_caso_id for update;$ancora$,
+$novo$  -- Portao interno (12/11/2026): so o cron (sem JWT) e a gestao soltam caso.
+  if auth.jwt() is not null and not public.usuario_e_gestao_fila() then
+    raise exception 'sem_permissao' using errcode='42501';
+  end if;
+  select * into v_c from public.casos where id = p_caso_id for update;$novo$, 1);
+
+  -- A2. liberar_fidelizacao_caso: a guarda do giro olha a DATA, nao a marca.
+  PERFORM internal.patch_funcao_ancorada('public', 'liberar_fidelizacao_caso',
+$ancora$  if v_c.giro_fidelizacao_ate is not null then
+    -- Caso de giro: nao volta ao pool por rotina automatica. Ate a data da
+    -- fidelizacao por exclusividade; depois dela, para preservar o responsavel
+    -- ate que outro operador assuma pelo fluxo normal.
+    return false;$ancora$,
+$novo$  if public.caso_em_giro_fidelizacao(v_c.giro_fidelizacao_ate) then
+    -- Caso de giro: exclusivo ate a DATA da fidelizacao do lote. Vencida a
+    -- data, a marca historica nao segura mais nada -- vale a regra comum dos
+    -- 10 dias do ultimo acionamento, logo abaixo (regra da gestao, 12/11/2026).
+    return false;$novo$, 1);
+
+  -- A3. liberar_fidelizacao_caso: retorno AGENDADO PELO OPERADOR (hoje ou
+  --     futuro; prefixo OPERADOR%, como em utils/retornoOrigem.js) preserva o caso. Compromisso com o aluno nao se perde por
+  --     rotina. Retorno automatico (carimbado pelas acoes massivas) NAO e
+  --     compromisso e nao protege. Data em America/Sao_Paulo.
+  PERFORM internal.patch_funcao_ancorada('public', 'liberar_fidelizacao_caso',
+$ancora$  if public.caso_dentro_prazo_fidelizacao(v_c.data_ultimo_acionamento) then return false; end if;$ancora$,
+$novo$  if public.caso_dentro_prazo_fidelizacao(v_c.data_ultimo_acionamento) then return false; end if;
+  if public.aluno_retorno_operador_vigente(v_c.aluno_id) then
+    return false;  -- retorno valido do responsavel atual: compromisso preservado
+  end if;
+  -- Soltar este caso solta, por gatilho, TODOS os casos do mesmo aluno. Trava
+  -- as linhas de todos eles ANTES de ler os irmaos: sem isso, um acionamento
+  -- concorrente pode mudar a resposta depois da leitura. Ordem por id = sem impasse.
+  if v_c.aluno_id is not null then
+    perform 1 from public.casos o where o.aluno_id = v_c.aluno_id order by o.id for update;
+  end if;
+  if not public.caso_pode_soltar_com_aluno(p_caso_id) then
+    return false;  -- irmao que nao pode sair segura o aluno inteiro
+  end if;$novo$, 1);
+
+  -- D. casos_risco_perder: o card "risco de perder" deixa de listar o que a
+  --    liberacao NAO solta por giro vigente ou retorno do operador. Fonte unica no banco (Premissa 12): a tela
+  --    so exibe. Sem isto o card marcaria como "perdendo" casos que a rotina nao
+  --    solta (giro ainda vigente, retorno do operador).
+  PERFORM internal.patch_funcao_ancorada('public', 'casos_risco_perder',
+$ancora$    and not public.caso_dentro_prazo_fidelizacao(c.data_ultimo_acionamento)$ancora$,
+$novo$    and not public.caso_dentro_prazo_fidelizacao(c.data_ultimo_acionamento)
+    -- giro: exclusivo so ate a DATA do lote (12/11/2026)
+    and not public.caso_em_giro_fidelizacao(c.giro_fidelizacao_ate)
+    -- retorno agendado pelo operador (hoje ou futuro) e compromisso, nao risco
+    and not public.aluno_retorno_operador_vigente(c.aluno_id)$novo$, 1);
+
+  -- B. trg_impor_teto_operador: mesma troca de MARCA por DATA.
+  PERFORM internal.patch_funcao_ancorada('public', 'trg_impor_teto_operador',
+$ancora$AND c.giro_fidelizacao_ate IS NULL$ancora$,
+$novo$AND NOT public.caso_em_giro_fidelizacao(c.giro_fidelizacao_ate)$novo$, 1);
+
+  -- N2 (12/11/2026): o teto solta por UPDATE direto; tem a mesma regra de irmaos.
+  PERFORM internal.patch_funcao_ancorada('public', 'trg_impor_teto_operador',
+$ancora$AND NOT public.caso_em_giro_fidelizacao(c.giro_fidelizacao_ate)$ancora$,
+$novo$AND NOT public.caso_em_giro_fidelizacao(c.giro_fidelizacao_ate)
+      AND public.caso_pode_soltar_com_aluno(c.id)
+      AND NOT public.aluno_retorno_operador_vigente(c.aluno_id)$novo$, 1);
+
+  -- C. assumir_caso_livre: caso de giro com dono so troca de mao depois dos
+  --    10 dias do ultimo acionamento.
+  PERFORM internal.patch_funcao_ancorada('public', 'assumir_caso_livre',
+$ancora$    if v_pool is null and v_new.giro_fidelizacao_ate is null then$ancora$,
+$novo$    if v_pool is null and (v_new.giro_fidelizacao_ate is null
+         or public.caso_dentro_prazo_fidelizacao(v_new.data_ultimo_acionamento)) then$novo$, 1);
+
+  -- A1 (12/11/2026): assumir_caso_livre, quando a carteira esta cheia, troca um caso
+  -- do operador por outro. O caso trocado tem de passar pela regra de irmaos: soltar
+  -- ele solta, por gatilho, os irmaos dele.
+  PERFORM internal.patch_funcao_ancorada('public', 'assumir_caso_livre',
+$ancora$      and not public.caso_encerrado_operacional(c.cpf_limpo,c.status_atual,c.status_acionamento,c.status_financeiro,c.status_jornada)
+    order by abs(public.saldo_titulos_aberto(c.cpf_limpo) - v_new_saldo) asc$ancora$,
+$novo$      and not public.caso_encerrado_operacional(c.cpf_limpo,c.status_atual,c.status_acionamento,c.status_financeiro,c.status_jornada)
+      and public.caso_pode_soltar_com_aluno(c.id)   -- A1 (12/11/2026): trocar este caso tambem solta os irmaos
+      -- H1 (12/11/2026): o proprio caso trocado nao pode estar em fidelizacao vigente
+      and not public.caso_dentro_prazo_fidelizacao(c.data_ultimo_acionamento)
+      and not public.caso_em_giro_fidelizacao(c.giro_fidelizacao_ate)
+      and not public.aluno_retorno_operador_vigente(c.aluno_id)
+    order by abs(public.saldo_titulos_aberto(c.cpf_limpo) - v_new_saldo) asc$novo$, 1);
+
+  -- F1 (12/11/2026): assumir_caso_livre, troca de mao de caso com dono: regra de irmaos.
+  PERFORM internal.patch_funcao_ancorada('public', 'assumir_caso_livre',
+$ancora$     or coalesce(v_new._saldo,0) <= 0 then
+    return query select false,'Caso nao elegivel (protegido, encerrado ou sem saldo).',null::uuid; return;
+  end if;$ancora$,
+$novo$     or coalesce(v_new._saldo,0) <= 0 then
+    return query select false,'Caso nao elegivel (protegido, encerrado ou sem saldo).',null::uuid; return;
+  end if;
+  -- F1/G1 (12/11/2026): assumir QUALQUER caso muda o responsavel de TODOS os casos do
+  -- aluno (cascata por gatilho). Irmao protegido por fidelizacao vigente bloqueia; irmao livre
+  -- (sem dono, Carteira Geral ou pool sem protecao) nao bloqueia.
+  -- Retorno valido do responsavel atual impede que OUTRO operador assuma (mesma regra da liberacao).
+  if coalesce(v_new.operador_email,'') <> '' and lower(v_new.operador_email) <> v_email
+     and public.aluno_retorno_operador_vigente(v_new.aluno_id) then
+    return query select false,'Caso com retorno agendado pelo responsavel atual.',null::uuid; return;
+  end if;
+  if not public.caso_pode_soltar_com_aluno(p_caso_id) then
+    return query select false,'Caso com irmao protegido por fidelizacao vigente: a assuncao nao muda o responsavel dele.',null::uuid; return;
+  end if;$novo$, 1);
+
+  -- Retrato DEPOIS: nada de grant, dono, SECURITY DEFINER ou search_path muda.
+  SELECT jsonb_object_agg(p.proname, jsonb_build_object(
+           'acl', p.proacl::text, 'cfg', p.proconfig::text, 'def', p.prosecdef, 'dono', p.proowner::text))
+    INTO v_depois
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public'
+     AND p.proname IN ('liberar_fidelizacao_caso', 'trg_impor_teto_operador', 'assumir_caso_livre', 'casos_risco_perder', 'caso_pode_soltar_com_aluno', 'aluno_retorno_operador_vigente', 'aluno_retorno_ambiguo');
+
+  IF v_depois IS DISTINCT FROM v_antes THEN
+    RAISE EXCEPTION 'fidelizacao_giro: grants/dono/search_path mudaram. antes=% depois=%', v_antes, v_depois;
+  END IF;
+
+  -- Nenhuma das duas pode continuar decidindo pela MARCA nua.
+  IF EXISTS (
+    SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public'
+       AND ((p.proname = 'liberar_fidelizacao_caso' AND p.prosrc LIKE '%v_c.giro_fidelizacao_ate is not null%')
+         OR (p.proname = 'trg_impor_teto_operador'  AND p.prosrc LIKE '%c.giro_fidelizacao_ate IS NULL%'))
+  ) THEN
+    RAISE EXCEPTION 'fidelizacao_giro: ainda ha guarda pela marca nua do giro.';
+  END IF;
+END
+$mig$;
+
+COMMIT;

@@ -175,6 +175,56 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
 
   # ---------------------------------------------------------------------------
+  # PR #936 — CONCORRÊNCIA REAL da fidelização do giro.
+  #
+  # A bancada de PGlite roda em UMA sessão e nunca provou concorrência. Aqui são
+  # duas sessões psql num Postgres descartável, nos três caminhos afetados:
+  # liberação simultânea, lote com linha travada por operador, e assunção
+  # simultânea do mesmo caso. Nada toca produção.
+  # ---------------------------------------------------------------------------
+  concorrencia-fidelizacao-giro:
+    name: fidelizacao do giro — concorrencia real (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # ATENCAO: quando a migration sair de `aguardando_aprovacao` (ao ser aplicada),
+      # este passo passa a responder "nao" e o job fica VERDE SEM RODAR NADA. No PR
+      # que mover o arquivo, reaponte o caminho ou remova o job.
+      - name: Existe a migration pendente?
+        id: existe
+        run: |
+          ALVO=supabase/aguardando_aprovacao/20261112210000_fidelizacao_giro_segue_os_10_dias.sql.pendente
+          if [ -f "$ALVO" ]; then echo "roda=sim" >> "$GITHUB_OUTPUT"
+          else echo "roda=nao" >> "$GITHUB_OUTPUT"; echo "Migration pendente ausente — nada a validar."; fi
+
+      - name: Rodar os cenários de concorrência
+        if: steps.existe.outputs.roda == 'sim'
+        run: bash supabase/tests/concorrencia_fidelizacao_giro/cenarios.sh
+
+  # ---------------------------------------------------------------------------
   # migration 20261030090000 — CONTINUIDADE de 48h e limite 5 por operador
   #
   # Aplica a migration num Postgres descartável e roda os 11 cenários:
