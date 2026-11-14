@@ -964,6 +964,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
 
   // Formulario de tabulacao/finalizacao (Negociacao)
   const [statusNovo, setStatusNovo] = useState("");
+  // Reagendamento EXPLICITO: so este botao reativa um "Ja falei" (RPC agenda_reagendar_retorno).
+  const [reagendarRetorno, setReagendarRetorno] = useState(false);
   const [resumoConversa, setResumoConversa] = useState("");
   const [retornoData, setRetornoData] = useState("");
   const [retornoHora, setRetornoHora] = useState("");
@@ -1782,6 +1784,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     setStatusNovo(statusTabulavel(a.status_atual));
     setResumoConversa("");
     setRetornoData(retornoAgendadoPeloOperador(a));
+    setReagendarRetorno(false);
     setRetornoHora(retornoAgendadoPeloOperador(a) ? (a.hora_retorno || "") : "");
     setRetornoPrioritario(retornoAgendadoPeloOperador(a) ? Boolean(a.retorno_prioritario) : false);
     setObservacao(a.observacao || "");
@@ -2041,8 +2044,6 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
           camposAluno.hora_retorno = null;
           camposAluno.retorno_prioritario = false;
         }
-        // Reagendamento digitado = compromisso novo, pendente mesmo com a mesma data e hora.
-        if (desfecho.motivo === "DIGITADA") camposAluno.retorno_confirmado_em = null;
       }
       const textoRetorno = desfecho.data_retorno ? ` Retorno: ${formatarData(desfecho.data_retorno)}.` : "";
 
@@ -2252,6 +2253,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       setObservacao(row.observacao || "");
       setStatusNovo(statusTabulavel(row.status_atual));
       setRetornoData(retornoAgendadoPeloOperador(row));
+      setReagendarRetorno(false);
       setRetornoHora(retornoAgendadoPeloOperador(row) ? (row.hora_retorno || "") : "");
       setRetornoPrioritario(retornoAgendadoPeloOperador(row) ? Boolean(row.retorno_prioritario) : false);
       // Atualiza a linha correspondente na carteira sem recarregar tudo.
@@ -2305,11 +2307,6 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         // que ele mesmo marcou. Prazo automatico da tabulacao nunca nasce
         // prioritario, senao a fila inteira subiria junto.
         atualizacaoAluno.retorno_prioritario = desfecho.motivo === "DIGITADA" ? Boolean(retornoPrioritario) : false;
-        // Reagendar com data e hora digitadas e um compromisso NOVO: nasce
-        // pendente mesmo que data e hora sejam as mesmas do anterior (nesse
-        // caso o gatilho nao dispara). Gravacao sem retorno novo nao chega aqui
-        // e preserva o "Ja falei".
-        if (desfecho.motivo === "DIGITADA") atualizacaoAluno.retorno_confirmado_em = null;
       } else {
         // Tabulou sem agendar retorno: nao ha compromisso, nao ha prioridade.
         atualizacaoAluno.retorno_prioritario = false;
@@ -2320,6 +2317,16 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
 
       const { error: erroUp } = await supabase.from("alunos").update(atualizacaoAluno).eq("id", a.id);
       if (erroUp) throw erroUp;
+      // Reagendar de verdade: a RPC e o unico caminho que zera "Ja falei" por reagendamento.
+      if (reagendarRetorno && desfecho.motivo === "DIGITADA") {
+        const { error: erroReag } = await supabase.rpc("agenda_reagendar_retorno", {
+          p_aluno_id: a.id,
+          p_data: desfecho.data_retorno,
+          p_hora: retornoHora || null,
+          p_prioritario: Boolean(retornoPrioritario),
+        });
+        if (erroReag) throw erroReag;
+      }
 
       const { error: erroMov } = await supabase.from("aluno_movimentacoes").insert({
         aluno_id: String(a.id),
@@ -4567,6 +4574,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                   {!confirmacaoPendente && (
                     <>
                       <label style={S.label}>Agendar retorno</label>
+                      <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, margin: "4px 0" }}>
+                        <input type="checkbox" checked={reagendarRetorno} onChange={(e) => setReagendarRetorno(e.target.checked)} />
+                        Reagendar (novo compromisso: reativa o aviso, mesmo com a mesma data e hora)
+                      </label>
                       {/* A hora sempre esteve aqui e estava vazia em 13.293 de
                           13.293 registros: era uma caixinha de 120px sem nome
                           ao lado da data. Agora cada campo tem rotulo e a hora

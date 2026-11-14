@@ -98,28 +98,4 @@ begin
   raise notice 'rollback retorno tratado: revertida em % (md5 % -> %)', v_assin, v_md5_antes, v_md5_depois;
 end $$;
 
--- PARTE 2 -- o gatilho volta a olhar so a data (definicao de 20260808150000).
-do $$
-declare
-  v_def text;
-begin
-  select pg_get_triggerdef(t.oid) into v_def
-    from pg_trigger t
-   where t.tgrelid = 'public.alunos'::regclass and t.tgname = 'trg_aluno_reset_retorno_confirmado' and not t.tgisinternal;
-  if v_def is null then
-    raise exception 'GATILHO AUSENTE: trg_aluno_reset_retorno_confirmado em public.alunos';
-  end if;
-  if position('hora_retorno' in v_def) = 0 then
-    raise notice 'rollback gatilho de reset: ja olha so a data, nada a reverter.';
-    return;
-  end if;
-  set local lock_timeout = '5s';
-  create or replace trigger trg_aluno_reset_retorno_confirmado
-    before update of data_retorno on public.alunos
-    for each row
-    when (new.data_retorno is distinct from old.data_retorno)
-    execute function public.tg_aluno_reset_retorno_confirmado();
-  raise notice 'rollback gatilho de reset: volta a olhar so a data.';
-end $$;
-
 commit;
