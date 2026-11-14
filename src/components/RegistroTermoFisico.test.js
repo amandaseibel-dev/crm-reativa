@@ -3,6 +3,9 @@
 //  - a situação NÃO aparece como tabulação da operação;
 //  - a ficha usa o componente (e só ele, sem tabulação nova).
 import { describe, it, expect } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import RegistroTermoFisico from "./RegistroTermoFisico";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
@@ -44,6 +47,10 @@ describe("registro administrativo do termo físico", () => {
     const ficha = ler("../pages/Aluno.jsx");
     expect(ficha).toMatch(/import RegistroTermoFisico from "\.\.\/components\/RegistroTermoFisico"/);
     expect((ficha.match(/<RegistroTermoFisico /g) || []).length).toBe(1);
+  });
+
+  it("operação: renderização com podeVer=false é vazia (nada para quem não pode)", () => {
+    expect(renderToStaticMarkup(createElement(RegistroTermoFisico, { alunoId: "1", podeVer: false }))).toBe("");
   });
 
   it("falta de permissão some; qualquer outra falha avisa a gestão (não some em silêncio)", () => {

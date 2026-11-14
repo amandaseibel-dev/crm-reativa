@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import { rotuloSituacaoTermoFisico, classificarErroTermoFisico, SITUACOES_TERMO_FISICO } from "../utils/termoFisico";
 
@@ -7,17 +7,55 @@ import { rotuloSituacaoTermoFisico, classificarErroTermoFisico, SITUACOES_TERMO_
 // muda retorno, fila nem situação financeira, e "arquivado" não comprova
 // quitação nem gera baixa.
 //
-// QUEM VÊ: só a gestão (`podeVer`, vindo de `podeVerTudo`). Para a operação o
-// componente não renderiza NADA e nem chama a RPC. Quem barra de verdade é o
-// banco (`usuario_e_gestao()` dentro das RPCs e na RLS); o `podeVer` é só
-// para não mostrar o componente a quem não pode usá-lo.
+// QUEM VÊ: só quem passa `podeVer` (vindo de `podeVerTudo`). Para a operação o
+// componente não renderiza NADA e não chama a RPC. Quem barra de verdade é o
+// banco (`usuario_e_gestao()` dentro das RPCs); `podeVer` só evita mostrar o
+// componente a quem não pode usá-lo.
 //
-// FALTA DE PERMISSÃO x FALHA TÉCNICA (para a gestão):
-//   - 42501 (sem permissão): o componente some. A gestão nunca deveria cair
-//     aqui, então não há aviso para não confundir com erro.
-//   - qualquer outra falha (migração ainda não aplicada, função ausente, rede,
-//     erro de banco): o componente AVISA que o registro está indisponível.
-//     Não some em silêncio.
+// FALTA DE PERMISSÃO x FALHA TÉCNICA:
+//   - 42501 (sem permissão): o componente some (na leitura e na gravação).
+//   - qualquer outra falha (migração não aplicada, função ausente, rede): a
+//     leitura mostra aviso de indisponível; a gravação mostra que NÃO foi
+//     possível confirmar, e pede para conferir o histórico antes de repetir.
+
+async function lerRegistro(alunoId) {
+  try {
+    const { data, error } = await supabase.rpc("termo_fisico_ler", { p_aluno_id: String(alunoId) });
+    if (error) {
+      const tipo = classificarErroTermoFisico(error);
+      return {
+        carregando: false,
+        sumir: tipo === "SEM_PERMISSAO",
+        falha: tipo === "FALHA_TECNICA" ? `${error.code || "erro"}: ${error.message || ""}` : null,
+        situacao: null,
+        eventos: [],
+      };
+    }
+    return {
+      carregando: false,
+      sumir: false,
+      falha: null,
+      situacao: data?.situacao || null,
+      eventos: Array.isArray(data?.eventos) ? data.eventos : [],
+    };
+  } catch (e) {
+    return { carregando: false, sumir: false, falha: `cliente: ${e?.message || "falha desconhecida"}`, situacao: null, eventos: [] };
+  }
+}
+
+// Devolve o erro da gravação, ou null se gravou. Erro de cliente vira erro também.
+async function gravarRegistro(alunoId, situacao, notificar) {
+  try {
+    const { error } = await supabase.rpc("termo_fisico_registrar", {
+      p_aluno_id: String(alunoId),
+      p_situacao: situacao,
+      p_notificar: notificar,
+    });
+    return error || null;
+  } catch (e) {
+    return { message: e?.message || "falha de cliente", code: "" };
+  }
+}
 
 function formatarQuando(iso) {
   if (!iso) return "";
@@ -32,41 +70,19 @@ export default function RegistroTermoFisico({ alunoId, podeVer = false }) {
   const [notificar, setNotificar] = useState(false);
   const [salvando, setSalvando] = useState(false);
 
-  // Leitura: só chamada da RPC, nunca escreve estado de forma síncrona no efeito.
-  const lerRegistro = useCallback(() => {
-    return supabase.rpc("termo_fisico_ler", { p_aluno_id: String(alunoId) }).then(({ data, error }) => {
-      if (error) {
-        const tipo = classificarErroTermoFisico(error);
-        return {
-          carregando: false,
-          sumir: tipo === "SEM_PERMISSAO",
-          falha: tipo === "FALHA_TECNICA" ? `${error.code || "erro"}: ${error.message || ""}` : null,
-          situacao: null,
-          eventos: [],
-        };
-      }
-      return {
-        carregando: false,
-        sumir: false,
-        falha: null,
-        situacao: data?.situacao || null,
-        eventos: Array.isArray(data?.eventos) ? data.eventos : [],
-      };
-    });
-  }, [alunoId]);
-
+  // Só a resposta da RPC escreve estado (nunca de forma síncrona no efeito).
   // A ficha remonta este componente por aluno (key={alunoId}), então o estado
   // inicial já é "carregando" e nunca mostra o registro de outro aluno.
   useEffect(() => {
     if (!alunoId || !podeVer) return undefined;
     let vivo = true;
-    lerRegistro().then((novo) => {
+    lerRegistro(alunoId).then((novo) => {
       if (vivo) setEstado(novo);
     });
     return () => {
       vivo = false;
     };
-  }, [alunoId, podeVer, lerRegistro]);
+  }, [alunoId, podeVer]);
 
   // Operação: nada. Não há chamada, não há aviso.
   if (!podeVer) return null;
@@ -74,24 +90,26 @@ export default function RegistroTermoFisico({ alunoId, podeVer = false }) {
 
   async function registrar() {
     setSalvando(true);
-    const { error } = await supabase.rpc("termo_fisico_registrar", {
-      p_aluno_id: String(alunoId),
-      p_situacao: escolha,
-      p_notificar: notificar,
-    });
+    const erro = await gravarRegistro(alunoId, escolha, notificar);
     setSalvando(false);
-    if (error) {
-      const tipo = classificarErroTermoFisico(error);
+
+    if (erro) {
+      const tipo = classificarErroTermoFisico(erro);
+      if (tipo === "SEM_PERMISSAO") {
+        setEstado((e) => ({ ...e, sumir: true }));
+        alert("Você não tem permissão para registrar o termo físico.");
+        return;
+      }
+      // Não sabemos se a gravação chegou ao banco (pode ter caído a rede depois do commit).
       alert(
-        tipo === "SEM_PERMISSAO"
-          ? "Você não tem permissão para registrar o termo físico."
-          : "Registro do termo físico indisponível agora. Nada foi gravado. Avise a TI (" +
-              (error.code || "erro") + ")."
+        "Não foi possível confirmar o registro do termo físico (" +
+          (erro.code || "erro") +
+          "). Confira o histórico antes de repetir."
       );
       return;
     }
     setNotificar(false);
-    setEstado(await lerRegistro());
+    setEstado(await lerRegistro(alunoId));
   }
 
   const caixa = {
