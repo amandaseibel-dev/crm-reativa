@@ -11,13 +11,12 @@ import DadosAcademicos from "../components/DadosAcademicos";
 import ConfirmarPagamento from "../components/ConfirmarPagamento";
 import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 import EmailAlunoUnificado from "../components/EmailAlunoUnificado";
-import { carregarTabulacoes, desfechoDaTabulacao, retornoEhManual, camposDeRetorno, lerRetornoAtual, RETORNO_ORIGEM_OPERADOR, tabulacaoDisponivel } from "../utils/tabulacoes";
+import { carregarTabulacoes, desfechoDaTabulacao, retornoEhManual, camposDeRetorno, lerRetornoAtual, RETORNO_ORIGEM_OPERADOR, tabulacaoDisponivel, tabulacaoEhRegistroAdministrativo, registrarAdministrativoNoHistorico } from "../utils/tabulacoes";
 import { ehOrigemDoOperador } from "../utils/retornoOrigem";
 import { corMovimentacao, recortarMovimentacoes } from "../utils/movimentacoes";
 import LinhaMovimentacao from "../components/LinhaMovimentacao";
 import TelefonesAluno from "../components/TelefonesAluno";
 import BlocoUlbra from "../components/BlocoUlbra";
-import RegistroTermoFisico from "../components/RegistroTermoFisico";
 import { consultaMensageriaNaFicha } from "../utils/ulbraCentral";
 import AtendimentoUlbra from "../components/AtendimentoUlbra";
 import PainelDesfazer from "../components/PainelDesfazer";
@@ -65,6 +64,9 @@ const STATUS_FINALIZACAO = [
   // <select> usa `tabulacaoDisponivel`, a régua de quem é só-gestão mora em
   // src/utils/tabulacoes.js, e a trava de verdade está no banco
   // (`_encerramento_so_gestao`, que lê `tabulacoes.somente_gestao`).
+  // Registro administrativo do termo físico (só gestão; ver tabulacoes.js).
+  "TERMO_FISICO_EM_ANDAMENTO",
+  "TERMO_FISICO_ARQUIVADO",
   "RETORNO_FINANCEIRO",
   "TERMO_ENVIADO_ALUNO",
   "TERMO_ENVIADO_ADM",
@@ -1382,6 +1384,22 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       alert("Selecione o status da finalização.");
       return;
     }
+    if (tabulacaoEhRegistroAdministrativo(statusFinalizacao)) {
+      try {
+        await registrarAdministrativoNoHistorico({
+          alunoId: alunoSelecionado.id,
+          codigo: statusFinalizacao,
+          descricao: observacao.trim() || "Registro administrativo do termo físico.",
+          operadorEmail: usuarioLogado?.email || null,
+          operadorNome: usuarioLogado?.nome || null,
+        });
+        alert("Registro administrativo gravado no histórico.");
+      } catch (err) {
+        console.error("Registro administrativo:", err);
+        alert("Não foi possível confirmar o registro. Confira o histórico antes de repetir.");
+      }
+      return;
+    }
     const precisaRetorno = retornoEhManual(await carregarTabulacoes(), statusFinalizacao);
     if (precisaRetorno && !dataRetorno) {
       alert("Informe a data de retorno para esse status.");
@@ -2266,7 +2284,6 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                     `origem=ulbra` -- a Central passava a consultar a Mensageria. */}
                 {consultaMensageriaNaFicha(location.search) ? <BlocoUlbra aluno={alunoSelecionado} /> : null}
               </TelefonesAluno>
-              <RegistroTermoFisico key={alunoSelecionado.id} alunoId={alunoSelecionado.id} podeVer={podeVerTudo(usuarioLogado?.email)} />
               <div style={caixaTabular}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 13, fontWeight: 800, color: "var(--rv-azul-texto)", whiteSpace: "nowrap" }}>

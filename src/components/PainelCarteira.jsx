@@ -90,6 +90,8 @@ import {
   proximaAcaoDeTabulacao,
   retornoEhManual,
   tabulacaoDisponivel,
+  tabulacaoEhRegistroAdministrativo,
+  registrarAdministrativoNoHistorico,
 } from "../utils/tabulacoes";
 import VisaoGeralCarteira from "./VisaoGeralCarteira";
 import VisaoGestao360 from "./VisaoGestao360";
@@ -152,6 +154,9 @@ const STATUS_FINALIZACAO = [
   // Retorno do financeiro (gestão, 06/11/2026): só gestão escolhe -- o filtro
   // do <select> usa `tabulacaoDisponivel`, e a régua mora em
   // src/utils/tabulacoes.js.
+  // Registro administrativo do termo físico (só gestão; ver tabulacoes.js).
+  "TERMO_FISICO_EM_ANDAMENTO",
+  "TERMO_FISICO_ARQUIVADO",
   "RETORNO_FINANCEIRO",
   "TERMO_ENVIADO_ALUNO",
   "TERMO_ENVIADO_ADM",
@@ -2266,6 +2271,26 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     if (!a?.id || salvando) return;
     if (!statusNovo) {
       setFeedback({ tipo: "erro", texto: "Selecione o status do atendimento." });
+      return;
+    }
+    if (tabulacaoEhRegistroAdministrativo(statusNovo)) {
+      setSalvando(true);
+      setFeedback(null);
+      try {
+        await registrarAdministrativoNoHistorico({
+          alunoId: a.id,
+          codigo: statusNovo,
+          descricao: `Registro administrativo: ${labelStatus(statusNovo)}.`,
+          operadorEmail: email,
+          operadorNome: usuarioLogado?.nome || null,
+        });
+        setFeedback({ tipo: "ok", texto: "Registro administrativo gravado no histórico." });
+      } catch (err) {
+        console.error("Registro administrativo:", err);
+        setFeedback({ tipo: "erro", texto: "Não foi possível confirmar o registro. Confira o histórico antes de repetir." });
+      } finally {
+        setSalvando(false);
+      }
       return;
     }
     // Prazo e proxima acao pelo catalogo de tabulacoes -- a mesma regra do

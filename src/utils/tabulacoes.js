@@ -191,7 +191,39 @@ export function useTabulacoes() {
 // (`trg_tabulacao_efeito_financeiro`), a saída da cobrança, o borderô e a fila
 // continuam exatamente como estavam -- suspensão continua suspendendo e
 // cancelamento continua cancelando, quando a gestão escolhe.
+// Registro administrativo do termo físico (gestão, 14/11/2026). São tabulações
+// do catálogo `public.tabulacoes` com `somente_gestao = true`. Quem grava é só a
+// gestão, e o banco também recusa (trigger em aluno_movimentacoes). Gravam
+// apenas no histórico, com tipo REGISTRO_ADMINISTRATIVO, que NÃO é acionamento:
+// não atualizam contato, fidelização, retorno, fila nem situação financeira.
+export const TABULACOES_REGISTRO_ADMINISTRATIVO = Object.freeze([
+  "TERMO_FISICO_EM_ANDAMENTO",
+  "TERMO_FISICO_ARQUIVADO",
+]);
+export const TIPO_REGISTRO_ADMINISTRATIVO = "REGISTRO_ADMINISTRATIVO";
+export function tabulacaoEhRegistroAdministrativo(codigo) {
+  return TABULACOES_REGISTRO_ADMINISTRATIVO.includes(String(codigo || "").trim().toUpperCase());
+}
+
+// Grava o registro administrativo SÓ no histórico. Não usa FINALIZACAO_ATENDIMENTO
+// (que o sistema trata como acionamento) e não escreve em alunos.
+export async function registrarAdministrativoNoHistorico({ alunoId, codigo, descricao, operadorEmail, operadorNome }) {
+  const { error } = await supabase.from("aluno_movimentacoes").insert({
+    aluno_id: String(alunoId),
+    tipo: TIPO_REGISTRO_ADMINISTRATIVO,
+    descricao,
+    status_anterior: null,
+    status_novo: String(codigo).trim().toUpperCase(),
+    registrado_por_nome: operadorNome || null,
+    registrado_por_email: operadorEmail,
+    registrado_em: new Date().toISOString(),
+  });
+  if (error) throw error;
+}
+
 export const TABULACOES_SO_GESTAO = Object.freeze([
+  "TERMO_FISICO_EM_ANDAMENTO",
+  "TERMO_FISICO_ARQUIVADO",
   "RETORNO_FINANCEIRO",
   "ALEGA_FINANCIAMENTO_CONFIRMADO",
   "CANCELAMENTO_COBRANCA",
