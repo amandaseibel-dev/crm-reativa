@@ -15,15 +15,27 @@ Status: **PENDENTE DE APROVAÇÃO EXPRESSA PARA APLICAÇÃO.** Este documento re
 
 | PR | Branch | Commit (HEAD) |
 |---|---|---|
-| #954 (banco) | `feat/termo-fisico-registro-migracao` | a preencher no commit do pacote |
-| #951 (front) | `feat/tabulacao-termo-fisico` | a preencher |
+| #954 (banco) | `feat/termo-fisico-registro-migracao` | ver PR |
+| #951 (front) | `feat/tabulacao-termo-fisico` | `e83db419` |
 
 | Arquivo | SHA-256 | Bytes |
 |---|---|---|
-| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `fab2d078bcbb8ee78c4ffd625d278c041119cc639d9d9d7da4c645f53c6cd317` | 2979 |
-| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql` | `9c09136ace6a945293452a3f41ba95f66ab47db17ea75301413c68cb1dd2ac3d` | 654 |
+| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `640611f22ad9e4fe46e1c8d07ac6aa93ce832f2ed7826d73f5f55f65536c46f8` | 3086 |
+| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql` | `a17b400205a740fb72c8729b87df8a97d337a057c2516eefbd388bcc60b4bc7c` | 670 |
 
 Se algum arquivo mudar, este quadro precisa ser refeito.
+
+## Correções da auditoria (14/11/2026)
+
+- Normalização por `[[:space:]]` (tab, quebra de linha e retorno não passavam pelo `btrim`).
+- Trigger `BEFORE INSERT OR UPDATE OF status_novo`.
+- Migração e rollback em `BEGIN/COMMIT`.
+- Testes de tab/newline/CR e de UPDATE do operador.
+
+## Decisões pendentes (da gestão, antes da aprovação)
+
+1. **Alcance de Amanda ADM (`cobranca07`):** ela está no conjunto de gestão (`usuario_e_gestao()`) e grava código restrito. A Premissa de segurança §2 diz "não é gestão total". Confirmar se ela deve gravar ou só ler.
+2. **Efeito a jusante da triagem Prime:** a triagem lê o histórico e sinaliza palavras-chave na descrição (`prime_conferencia_triagem`). A observação livre gravada na tabulação entra na triagem. Medir antes de aprovar, ou gravar descrição padronizada.
 
 ## Pré-condições conferidas por leitura em produção (só SELECT)
 
