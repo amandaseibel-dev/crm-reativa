@@ -18,6 +18,7 @@ const { Client } = require("pg");
 const ROOT = path.resolve(__dirname, "../../..");
 const MIG = path.join(ROOT, "supabase/aguardando_aprovacao/20261111140000_ulbra_conexao_individual_e_envio.sql.pendente");
 const ROLL = path.join(ROOT, "supabase/aguardando_aprovacao/20261111140000_ulbra_conexao_individual_e_envio.rollback.sql");
+const AUDITORIA_FIXTURE = path.join(ROOT, "supabase/tests/fixtures/auditoria_definicao_producao.json");
 
 const cfg = {
   host: process.env.PGHOST || "localhost",
@@ -48,6 +49,21 @@ async function conectar(database) {
   return c;
 }
 // Espera a conexão A estar DENTRO da transação, no pg_sleep (depois do seu INSERT). Substitui sleep fixo.
+// Prova de contenção: B está BLOQUEADA por trava (wait_event_type = Lock) enquanto A segura a linha.
+async function aguardarBloqueio(cliB, limiteMs = 10000) {
+  const admin = await conectar("postgres");
+  try {
+    const inicio = Date.now();
+    while (Date.now() - inicio < limiteMs) {
+      const r = await admin.query("select wait_event_type from pg_stat_activity where pid = $1", [cliB.processID]);
+      if (r.rows[0] && r.rows[0].wait_event_type === "Lock") return;
+      await sleep(20);
+    }
+    throw new Error("B não ficou bloqueada por trava: a contenção não aconteceu");
+  } finally {
+    await admin.end();
+  }
+}
 async function aguardarPgSleep(cliA, limiteMs = 10000) {
   const admin = await conectar("postgres");
   try {
@@ -137,7 +153,23 @@ async function main() {
   await c.query("insert into public.ulbra_outro_objeto values (1), (2)");
   await c.query("create function public.ulbra_outra_fn() returns int language sql as $$ select 1 $$");
   // auditoria: definição de produção (fixtures/auditoria_definicao_producao.json). registro_id é uuid.
-  await c.query("create table public.auditoria (id uuid primary key default gen_random_uuid(), usuario text, acao text not null, tabela_afetada text, registro_id uuid, detalhes jsonb, created_at timestamp default now())");
+  // Montada a partir da fixture extraída de PRODUÇÃO (information_schema, 13/11/2026): mesmos tipos, nulidade e padrões.
+  await c.query('create extension if not exists "uuid-ossp"');
+  const defAuditoria = JSON.parse(fs.readFileSync(AUDITORIA_FIXTURE, "utf8"));
+  const colunasAuditoria = defAuditoria.colunas.map((k) => `${k.nome} ${k.tipo}${k.anulavel ? "" : " not null"}${k.padrao ? " default " + k.padrao : ""}`);
+  colunasAuditoria[0] += " primary key";
+  await c.query(`create table public.auditoria (${colunasAuditoria.join(", ")})`);
+  // Privilégio observado em produção (has_table_privilege, 13/11/2026): service_role tem INSERT. Reproduzido aqui.
+  await c.query("grant select, insert on public.auditoria to service_role");
+  await teste("dependência de produção: service_role consegue INSERT em auditoria (a RPC grava a auditoria como invoker)", async () => {
+    await c.query("set role service_role");
+    try {
+      await c.query("insert into public.auditoria (usuario, acao, tabela_afetada, detalhes) values ('teste', 'TESTE_DEPENDENCIA', 'ulbra_envios', '{}'::jsonb)");
+    } finally {
+      await c.query("reset role");
+    }
+    igual((await c.query("select has_table_privilege('service_role','public.auditoria','INSERT') as ok")).rows[0].ok, true, "privilégio");
+  });
   const antes = await snapshot(c);
 
   // ---------------------------------------------------------------- migração
@@ -268,6 +300,7 @@ async function main() {
       })();
       await aguardarPgSleep(a);
       const pB = b.query(CONSUMIR, [id, new Date().toISOString(), OP]).then((r) => r.rowCount);
+      await aguardarBloqueio(b);
       const [ra, rb] = await Promise.all([pA, pB]);
       igual([ra, rb], [1, 0], "linhas consumidas por A e por B");
     } finally {
@@ -291,6 +324,7 @@ async function main() {
       await aguardarPgSleep(a);
       const pB = b.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-cc-b-0002', $1, $2, $3, 'PENDENTE')", [OP, AT, texto])
         .then(() => "gravou", (e) => (e.constraint || e.message || "").includes("texto_em_aberto") ? "bloqueado_texto_em_aberto" : e.code);
+      await aguardarBloqueio(b);
       const [ra, rb] = await Promise.all([pA, pB]);
       igual([ra, rb], ["gravou", "bloqueado_texto_em_aberto"], "resultado de A e de B");
     } finally {
@@ -315,6 +349,7 @@ async function main() {
       // Textos DIFERENTES: a única restrição que pode barrar B é a chave única (não o índice de texto).
       const pB = b.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ($1, $2, $3, 'texto-mesma-chave-b', 'PENDENTE')", [chave, OP, AT])
         .then(() => "gravou", (e) => e.constraint);
+      await aguardarBloqueio(b);
       const [ra, rb] = await Promise.all([pA, pB]);
       igual([ra, rb], ["gravou", "ulbra_envios_chave_unica"], "resultado de A e de B (constraint que barrou B)");
       const n = await c.query("select count(*)::int as n from public.ulbra_envios where chave = $1", [chave]);
@@ -431,6 +466,7 @@ async function main() {
       })();
       await aguardarPgSleep(a);
       const pB = b.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status, repeticao) values ('chave-rc-b', $1, $2, $3, 'PENDENTE', 2)", [OP, AT, texto]).then(() => "gravou", (e) => e.code);
+      await aguardarBloqueio(b);
       const [ra, rb] = await Promise.all([pA, pB]);
       igual([ra, rb], ["gravou", "23505"], "A e B");
     } finally {

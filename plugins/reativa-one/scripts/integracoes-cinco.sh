@@ -30,9 +30,17 @@ echo "docs/integracoes/ alterado neste ramo:"
 printf '%s\n' "$mudou" | sed 's/^/  · /'
 echo
 
+# A regra dos cinco é do PRIME. Só mudança de documento prime-* a aciona.
+# Mensageria (mensageria-ulbra.md, central-*, pacote-*, roteiro-*) tem fonte própria e fica fora.
+mudou_prime="$(printf '%s\n' "$mudou" | grep -E '/prime-[^/]*$' || true)"
+if [ -z "$mudou_prime" ]; then
+  echo "Nenhum documento prime-* alterado: a regra dos cinco do Prime não se aplica a este ramo."
+  exit 0
+fi
+
 faltam=""
 for alvo in prime-api.md prime-api-catalog.json prime-mapa-fontes-verdade.md; do
-  if ! printf '%s' "$mudou" | grep -q "$alvo"; then
+  if ! printf '%s' "$mudou_prime" | grep -q "$alvo"; then
     faltam="$faltam $alvo"
   fi
 done
