@@ -599,3 +599,22 @@ trecho já processado, até 12 páginas. Acima de cerca de 600 conversas pendent
 o backlog para em INCOMPLETO e não drena. Para drenar, é preciso guardar o
 deslocamento de leitura em `ulbra_sync_estado`. Isso exige migration, ainda não
 proposta para aplicação.
+
+## Catálogo por descoberta de esquemas (13/11/2026) — correção ao quadro acima
+
+As seções anteriores deste documento não listam `enviar_mensagem_whatsapp`. Na descoberta de 13/11/2026, feita só pela leitura dos esquemas da conexão MCP de uma sessão (nada foi executado), a ferramenta de envio existe e tem estes contratos:
+
+| Ferramenta | Argumentos (esquema) | Comprovado pelo esquema | NÃO comprovado |
+|---|---|---|---|
+| `enviar_mensagem_whatsapp` | `atendimento` (24 hex, obrigatório); `texto` (1 a 4096); `chave` (8 a 80); `previa` (booleano); `legenda` (até 1024); `arquivo` (base64, até 5 MB) | Padrão de `previa` é VERDADEIRO: sem `previa: false` a ferramenta só faz prévia e não envia. Repetir a mesma `chave` não manda de novo (descrição). Sai com o nome de quem atende (descrição). Só com janela de 24 h aberta; fora dela o caminho é `enviar_template_whatsapp`. | Formato da resposta (id da mensagem e situação); se a prévia consome cota ou tem custo para a ULBRA ("custo estimado" é o que a descrição diz, sem valor); se `chave` é aceita como idempotência de fato |
+| `meu_acesso` | nenhum | Retorna `pessoa` (com `nome`, `email`, `perfis`), `conexao`, `escopos`, `soLeitura`, `limites` | `pessoa.id` NÃO aparece no retorno observado. O código que lê `pessoa.id` deve ser ajustado |
+| `consultar_atendimento` | `id` (24 hex) | Mostra cliente, situação, coluna, equipe, atendente, datas e histórico (descrição) | Nome e formato exatos do campo de atendente (texto, id ou e-mail) |
+| `ler_conversa` | `id`, `limite` (até 50), `antesDe` | Lê as mensagens de uma conversa; não altera nada (descrição) | Não usado pelo envio; nunca executar sem autorização específica para conversas de alunos |
+| `listar_templates` | `busca` (opcional) | Lista templates aprovados pela Meta, com `id`, variáveis e cabeçalho | Não usado nesta entrega |
+
+Consequência para o envio: a fonte do atendente e a equivalência com a conta conectada continuam NÃO comprovadas. Até lá o envio fica bloqueado (fail-closed), e `responsavel_ulbra` não é tratado como equivalente.
+
+Evidência que falta, e forma mínima de obtê-la sem envio real:
+1. Prévia com `previa: true` num atendimento próprio do operador, sem texto de cliente: mostra o formato da resposta da prévia e o custo estimado, se houver.
+2. `consultar_atendimento` num atendimento próprio: só os nomes dos campos e o formato do campo de atendente, sem texto de conversa.
+3. Resposta do envio real (id e situação): só com contato de teste autorizado pela gestão. Não obtida nesta etapa.

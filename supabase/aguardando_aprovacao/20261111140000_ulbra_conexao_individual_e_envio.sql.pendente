@@ -135,6 +135,9 @@ begin
   if p_decisao not in ('CONFIRMADO_ENVIADO', 'CONFIRMADO_NAO_ENVIADO') then
     return jsonb_build_object('situacao', 'BLOQUEADO', 'motivos', jsonb_build_array('DECISAO_INVALIDA'));
   end if;
+  if length(trim(coalesce(p_conferido_por, ''))) = 0 then
+    return jsonb_build_object('situacao', 'BLOQUEADO', 'motivos', jsonb_build_array('CONFERIDOR_OBRIGATORIO'));
+  end if;
   if length(trim(coalesce(p_motivo, ''))) < 10 then
     return jsonb_build_object('situacao', 'BLOQUEADO', 'motivos', jsonb_build_array('MOTIVO_OBRIGATORIO'));
   end if;

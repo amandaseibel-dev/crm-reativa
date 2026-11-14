@@ -2,7 +2,7 @@
 // e falha de gravação. PROVA SIMULADA: provedores fake. Não é envio real à Mensageria.
 // Templates não fazem parte desta entrega.
 import { describe, it, expect } from "vitest";
-import { TEXTO_MAX, enviarResposta, hashConteudo, validarPedido, resolverEnvioAberto, type Envio, type StatusEnvio } from "./envio.ts";
+import { TEXTO_MAX, enviarResposta, hashConteudo, validarPedido, type Envio, type StatusEnvio } from "./envio.ts";
 import { AGORA, CHAVE, OP, RepoMemoria, conexao, deps, pedido } from "./fixtures.ts";
 import type { ProvedorEnvio } from "./envio.ts";
 
@@ -231,7 +231,7 @@ describe("índice de texto em aberto: concorrência entre requisições com chav
     const repo = new RepoCorrida();
     const { d, provedorEnvio } = deps({ repositorio: repo });
     const r = await enviarResposta(pedido({ chave: "chave-nova-0009" }), d);
-    expect(r.situacao === "BLOQUEADO" && r.motivos).toEqual(["ENVIO_EM_ABERTO_MESMO_TEXTO"]);
+    expect(r.situacao === "BLOQUEADO" && r.motivos).toEqual(["TEXTO_JA_REGISTRADO_NO_ATENDIMENTO"]);
     expect(provedorEnvio.chamadas).toEqual([]);
   });
 });
@@ -278,30 +278,6 @@ describe("falhas de persistência antes e depois da chamada externa", () => {
   });
 });
 
-describe("conferência administrativa de envio em aberto", () => {
-  const abertoFalha = (): Envio => ({ chave: CHAVE, operador_email: OP, atendimento_id: pedido().atendimento_id, texto: "x", status: "FALHA_INCERTA", ulbra_mensagem_id: null, motivo: "ECONNRESET", criado_em_ms: AGORA, previa_id: null });
-  it("resolve FALHA_INCERTA com motivo, sem reenviar", async () => {
-    const repo = new RepoMemoria();
-    repo.m.set(`${OP}|${CHAVE}`, abertoFalha());
-    const { d, provedorEnvio } = deps({ repositorio: repo });
-    const r = await resolverEnvioAberto(abertoFalha(), { operador_email: OP, chave: CHAVE, decisao: "CONFIRMADO_NAO_ENVIADO", motivo: "conferido na Mensageria: não há mensagem", conferido_por: "gestao@x" }, repo);
-    expect(r.situacao).toBe("RESOLVIDO");
-    expect(repo.m.get(`${OP}|${CHAVE}`)!.status).toBe("CONFIRMADO_NAO_ENVIADO");
-    expect(provedorEnvio.chamadas).toEqual([]);
-  });
-  it("sem motivo, a conferência é recusada", async () => {
-    const repo = new RepoMemoria();
-    const r = await resolverEnvioAberto(abertoFalha(), { operador_email: OP, chave: CHAVE, decisao: "CONFIRMADO_ENVIADO", motivo: "ok", conferido_por: "g" }, repo);
-    expect(r.situacao === "BLOQUEADO" && r.motivos).toContain("MOTIVO_OBRIGATORIO");
-  });
-  it("envio já fechado (ENVIADO) não é reaberto por conferência", async () => {
-    const repo = new RepoMemoria();
-    const fechado = { ...abertoFalha(), status: "ENVIADO" as const };
-    const r = await resolverEnvioAberto(fechado, { operador_email: OP, chave: CHAVE, decisao: "CONFIRMADO_ENVIADO", motivo: "motivo suficiente aqui", conferido_por: "g" }, repo);
-    expect(r.situacao === "BLOQUEADO" && r.motivos).toContain("ENVIO_JA_RESOLVIDO_OU_FECHADO");
-  });
-});
-
 describe("repetição intencional, envio confirmado e pendência comprovadamente não enviada", () => {
   it("envio CONFIRMADO_ENVIADO: a mesma chave nunca reenvia, e outra chave com o mesmo texto é barrada", async () => {
     const repo = new RepoMemoria();
@@ -328,14 +304,34 @@ describe("repetição intencional, envio confirmado e pendência comprovadamente
     expect(r.situacao === "BLOQUEADO" && r.motivos).toEqual(["ENVIO_EM_ABERTO_OU_FALHA_INCERTA"]);
     expect(provedorEnvio.chamadas).toEqual([]);
   });
-  it("PENDENTE (nunca chamado) pode ser conferido como NÃO enviado, mas NUNCA como enviado", async () => {
-    const pend: Envio = { chave: CHAVE, operador_email: OP, atendimento_id: pedido().atendimento_id, texto: "x", status: "PENDENTE", ulbra_mensagem_id: null, motivo: null, criado_em_ms: AGORA, previa_id: null, repeticao: 0 };
+});
+
+describe("transições condicionais: PENDENTE->ENVIANDO e a guarda de FALHA_INCERTA", () => {
+  it("se a linha não está mais em PENDENTE ao marcar ENVIANDO, o provedor NÃO é chamado", async () => {
+    class RepoSemPendente extends RepoMemoria {
+      async buscar() { return null; }
+      async inserirSeNovo() { return "NOVO" as const; }
+      async atualizar(o: string, c: string, campos: Partial<Envio>, de?: readonly StatusEnvio[]) {
+        if (de && de.includes("PENDENTE")) return false;
+        return super.atualizar(o, c, campos, de);
+      }
+    }
+    const repo = new RepoSemPendente();
+    const { d, provedorEnvio } = deps({ repositorio: repo });
+    await expect(enviarResposta(pedido(), d)).rejects.toThrow("ENVIO_ESTADO_CONCORRENTE");
+    expect(provedorEnvio.chamadas).toEqual([]);
+  });
+  it("se a conferência muda o estado durante uma queda, FALHA_INCERTA não sobrescreve a decisão", async () => {
     const repo = new RepoMemoria();
-    repo.m.set(`${OP}|${CHAVE}`, pend);
-    const como_enviado = await resolverEnvioAberto(pend, { operador_email: OP, chave: CHAVE, decisao: "CONFIRMADO_ENVIADO", motivo: "conferi e parece enviado", conferido_por: "g" }, repo);
-    expect(como_enviado.situacao === "BLOQUEADO" && como_enviado.motivos).toContain("PENDENTE_NUNCA_CHAMADO_NAO_PODE_SER_ENVIADO");
-    const como_nao = await resolverEnvioAberto(pend, { operador_email: OP, chave: CHAVE, decisao: "CONFIRMADO_NAO_ENVIADO", motivo: "nunca foi chamado, sem registro", conferido_por: "g" }, repo);
-    expect(como_nao.situacao).toBe("RESOLVIDO");
+    const provedor: ProvedorEnvio = {
+      async enviar() {
+        repo.m.set(`${OP}|${CHAVE}`, { ...repo.m.get(`${OP}|${CHAVE}`)!, status: "CONFIRMADO_NAO_ENVIADO" });
+        throw new Error("ECONNRESET");
+      },
+    };
+    const { d } = deps({ repositorio: repo, provedorEnvio: provedor });
+    await expect(enviarResposta(pedido(), d)).rejects.toThrow("ENVIO_ESTADO_CONCORRENTE");
+    expect(repo.m.get(`${OP}|${CHAVE}`)!.status).toBe("CONFIRMADO_NAO_ENVIADO");
   });
 });
 

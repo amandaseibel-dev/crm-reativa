@@ -270,16 +270,17 @@ async function main() {
     try {
       const pA = (async () => {
         await a.query("begin");
-        await a.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ($1, $2, $3, 'texto-mesma-chave-concorrente', 'PENDENTE')", [chave, OP, AT]);
+        await a.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ($1, $2, $3, 'texto-mesma-chave-a', 'PENDENTE')", [chave, OP, AT]);
         await a.query("select pg_sleep(1)");
         await a.query("commit");
         return "gravou";
       })();
       await sleep(300);
-      const pB = b.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ($1, $2, $3, 'texto-mesma-chave-concorrente', 'PENDENTE')", [chave, OP, AT])
-        .then(() => "gravou", (e) => e.code);
+      // Textos DIFERENTES: a única restrição que pode barrar B é a chave única (não o índice de texto).
+      const pB = b.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ($1, $2, $3, 'texto-mesma-chave-b', 'PENDENTE')", [chave, OP, AT])
+        .then(() => "gravou", (e) => e.constraint);
       const [ra, rb] = await Promise.all([pA, pB]);
-      igual([ra, rb], ["gravou", "23505"], "resultado de A e de B");
+      igual([ra, rb], ["gravou", "ulbra_envios_chave_unica"], "resultado de A e de B (constraint que barrou B)");
       const n = await c.query("select count(*)::int as n from public.ulbra_envios where chave = $1", [chave]);
       igual(n.rows[0].n, 1, "envios gravados com a mesma chave");
     } finally {
