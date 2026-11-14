@@ -1100,11 +1100,11 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
           psql -v ON_ERROR_STOP=1 -f "$DIR/05_apos_rollback.sql"
 
-  # Registro administrativo do termo físico (migration em aguardando_aprovacao).
-  # Postgres 17 descartável. Simula as dependências do Supabase (ver 01_ambiente.sql)
-  # e roda: migration, acesso por papel, rollback, reinstalação. NÃO aplica em produção.
-  termo-fisico-acesso-sql:
-    name: termo físico — acesso por papel, rollback e reinstalação (postgres isolado)
+
+  # Tabulação de termo físico restrita à gestão (catálogo existente + trigger).
+  # Postgres 17 descartável; dependências simuladas (ver README do teste).
+  tabulacao-termo-fisico-gestao-sql:
+    name: tabulação termo físico — gestão permitida, operador recusado, sem efeitos (postgres isolado)
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -1127,21 +1127,18 @@ jobs:
       PGUSER: postgres
       PGPASSWORD: postgres
       PGDATABASE: teste
-      DIR: supabase/tests/termo_fisico_acesso
-      MIGRATION: supabase/aguardando_aprovacao/20261113120000_aluno_termo_fisico_registro.sql.pendente
-      ROLLBACK: supabase/aguardando_aprovacao/20261113120000_aluno_termo_fisico_registro.rollback.sql
+      DIR: supabase/tests/tabulacao_termo_fisico_gestao
+      MIGRATION: supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql
 
     steps:
       - uses: actions/checkout@v5
 
-      - name: Ambiente simulado, migration, acesso, rollback e reinstalação
+      - name: Ambiente simulado, migração, gestão e operador, rollback
         run: |
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
           psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
-          psql -v ON_ERROR_STOP=1 -f "$DIR/02_acesso.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_tabulacao.sql"
           psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
-          psql -v ON_ERROR_STOP=1 -f "$DIR/03_apos_rollback.sql"
-          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
-          psql -v ON_ERROR_STOP=1 -f "$DIR/04_reinstalacao.sql"
-          psql -v ON_ERROR_STOP=1 -f "$DIR/05_mesclagem_e_casos_extremos.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/03_rollback.sql"

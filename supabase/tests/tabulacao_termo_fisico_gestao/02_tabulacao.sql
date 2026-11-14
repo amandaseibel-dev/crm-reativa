@@ -1,0 +1,92 @@
+-- Tabulação restrita à gestão: gestão permitida, operador recusado, e ausência
+-- de efeitos fora do histórico. Roda DEPOIS da migration.
+\set ON_ERROR_STOP on
+
+-- ---------- Catálogo ----------
+select public.teste_assert('catálogo: as duas linhas existem, ativas, somente gestão, sem efeito financeiro e sem retorno',
+  (select count(*) from public.tabulacoes
+    where codigo in ('TERMO_FISICO_EM_ANDAMENTO','TERMO_FISICO_ARQUIVADO')
+      and ativa and somente_gestao and efeito_desfecho is null
+      and retorno_modo = 'NENHUM' and proxima_acao = 'CONTATAR') = 2);
+
+select public.teste_assert('catálogo: rótulos aprovados preservados',
+  (select rotulo from public.tabulacoes where codigo = 'TERMO_FISICO_EM_ANDAMENTO') = 'Possui termo físico assinado, em andamento'
+  and (select rotulo from public.tabulacoes where codigo = 'TERMO_FISICO_ARQUIVADO') = 'Termo físico arquivado, quitado');
+
+-- ---------- Operador recusado (servidor) ----------
+select public.teste_assert('operador: não grava TERMO_FISICO_EM_ANDAMENTO no histórico (42501)',
+  public.teste_comando('authenticated', 'operador.teste@exemplo.local',
+    $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
+         values ('a1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_EM_ANDAMENTO','operador.teste@exemplo.local')$sql$)->>'code' = '42501');
+
+select public.teste_assert('operador: não grava TERMO_FISICO_ARQUIVADO mesmo com espaço e minúsculas (42501)',
+  public.teste_comando('authenticated', 'operador.teste@exemplo.local',
+    $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
+         values ('a1','FINALIZACAO_ATENDIMENTO',' termo_fisico_arquivado ','operador.teste@exemplo.local')$sql$)->>'code' = '42501');
+
+select public.teste_assert('operador: também não grava código só-gestão já existente, RETORNO_FINANCEIRO (42501)',
+  public.teste_comando('authenticated', 'operador.teste@exemplo.local',
+    $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
+         values ('a1','FINALIZACAO_ATENDIMENTO','RETORNO_FINANCEIRO','operador.teste@exemplo.local')$sql$)->>'code' = '42501');
+
+select public.teste_assert('operador: a mensagem de recusa diz que a tabulação é restrita à gestão',
+  public.teste_comando('authenticated', 'operador.teste@exemplo.local',
+    $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
+         values ('a1','FINALIZACAO_ATENDIMENTO','TERMO_FISICO_ARQUIVADO','operador.teste@exemplo.local')$sql$)->>'err' like '%restrita à gestão%');
+
+-- Operador continua gravando tabulação comum (não foi bloqueado em geral).
+select public.teste_assert('operador: grava tabulação comum normalmente',
+  public.teste_comando('authenticated', 'operador.teste@exemplo.local',
+    $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
+         values ('a1','FINALIZACAO_ATENDIMENTO','CONTATAR','operador.teste@exemplo.local')$sql$)->>'ok' = 'true');
+
+select public.teste_assert('operador: grava movimentação sem status (ex.: observação) normalmente',
+  public.teste_comando('authenticated', 'operador.teste@exemplo.local',
+    $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, descricao, registrado_por_email)
+         values ('a1','CONTATO','obs','operador.teste@exemplo.local')$sql$)->>'ok' = 'true');
+
+-- Inativo: a RLS de INSERT exige app_usuario_ativo().
+update public.usuarios set ativo = false where email = 'cobranca07@aelbra.com.br';
+select public.teste_assert('gestão inativa: não grava (42501 pela RLS de INSERT)',
+  public.teste_comando('authenticated', 'cobranca07@aelbra.com.br',
+    $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
+         values ('a1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO','cobranca07@aelbra.com.br')$sql$)->>'code' = '42501');
+update public.usuarios set ativo = true where email = 'cobranca07@aelbra.com.br';
+
+-- ---------- Gestão permitida ----------
+select public.teste_assert('gestão (Amanda): grava TERMO_FISICO_EM_ANDAMENTO no histórico',
+  public.teste_comando('authenticated', 'amanda.seibel@aelbra.com.br',
+    $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, descricao, registrado_por_email, registrado_por_nome)
+         values ('a1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_EM_ANDAMENTO','registro','amanda.seibel@aelbra.com.br','Amanda')$sql$)->>'ok' = 'true');
+
+select public.teste_assert('gestão (ADM): grava TERMO_FISICO_ARQUIVADO no histórico',
+  public.teste_comando('authenticated', 'cobranca07@aelbra.com.br',
+    $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, descricao, registrado_por_email)
+         values ('a1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO','registro','cobranca07@aelbra.com.br')$sql$)->>'ok' = 'true');
+
+select public.teste_assert('gestão (Fernanda): grava TERMO_FISICO_ARQUIVADO no histórico',
+  public.teste_comando('authenticated', 'cobranca04@aelbra.com.br',
+    $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, descricao, registrado_por_email)
+         values ('a1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO','registro','cobranca04@aelbra.com.br')$sql$)->>'ok' = 'true');
+
+-- Histórico: data, hora e autor gravados.
+select public.teste_assert('histórico: registro tem autor, data e hora',
+  (select count(*) from public.aluno_movimentacoes
+    where status_novo = 'TERMO_FISICO_EM_ANDAMENTO' and registrado_por_email = 'amanda.seibel@aelbra.com.br'
+      and registrado_em is not null and tipo = 'REGISTRO_ADMINISTRATIVO') = 1);
+
+-- ---------- Ausência de efeitos ----------
+select public.teste_assert('sem contato: o tipo REGISTRO_ADMINISTRATIVO NÃO é acionamento',
+  public.eh_tipo_acionamento('REGISTRO_ADMINISTRATIVO') = false);
+
+select public.teste_assert('sem efeito financeiro: catálogo do registro tem efeito_desfecho NULL',
+  (select count(*) from public.tabulacoes where codigo like 'TERMO_FISICO_%' and efeito_desfecho is not null) = 0);
+
+select public.teste_assert('sem retorno: registro não define retorno nem próxima ação diferente de CONTATAR',
+  (select count(*) from public.tabulacoes where codigo like 'TERMO_FISICO_%' and (retorno_modo <> 'NENHUM' or proxima_acao <> 'CONTATAR')) = 0);
+
+-- Service role (sistema) continua gravando: bypass declarado.
+select public.teste_assert('service_role: grava histórico (bypass do sistema)',
+  public.teste_comando('service_role', 'sistema@exemplo.local',
+    $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
+         values ('a1','SISTEMA','TERMO_FISICO_ARQUIVADO','sistema@exemplo.local')$sql$)->>'ok' = 'true');

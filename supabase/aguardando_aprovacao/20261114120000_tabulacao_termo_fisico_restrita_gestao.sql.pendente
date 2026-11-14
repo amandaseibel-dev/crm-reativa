@@ -1,0 +1,65 @@
+-- Duas tabulações de termo físico, RESTRITAS À GESTÃO, no catálogo existente.
+-- NÃO APLICAR sem aprovação final. Mudança mínima:
+--   1. duas linhas em public.tabulacoes (somente_gestao = true);
+--   2. trigger em aluno_movimentacoes que recusa, no servidor, qualquer gravação
+--      de código somente_gestao por quem não é gestão.
+-- Não cria tabela nem RPC. Não altera alunos, baixa, contato, fidelização,
+-- retorno, fila nem efeito financeiro (efeito_desfecho fica NULL).
+
+-- 1. Catálogo existente.
+insert into public.tabulacoes (
+  codigo, rotulo, ativa, ordem, grupo, retorno_modo, retorno_dias_uteis, proxima_acao,
+  bloco_ficha, exige_processo, bloqueia_acionamento, sistema, criado_em, criado_por,
+  somente_gestao, redireciona_para_email, efeito_desfecho
+)
+select v.codigo, v.rotulo, true, v.ordem, 'ADMINISTRATIVO', 'NENHUM', null, 'CONTATAR',
+       null, false, false, false, now(), 'migration_termo_fisico',
+       true, null, null
+  from (values
+    ('TERMO_FISICO_EM_ANDAMENTO', 'Possui termo físico assinado, em andamento', 355),
+    ('TERMO_FISICO_ARQUIVADO',    'Termo físico arquivado, quitado',            356)
+  ) as v(codigo, rotulo, ordem)
+ where not exists (select 1 from public.tabulacoes t where t.codigo = v.codigo);
+
+-- 2. Proteção no servidor. Só a gestão grava código somente_gestao no histórico.
+-- Bypass: service_role (claim role) e o dono (current_user postgres). Gestão é a
+-- mesma função usuario_e_gestao() usada no resto do sistema.
+create or replace function public.aluno_movimentacao_tabulacao_so_gestao()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_codigo text := upper(btrim(coalesce(new.status_novo, '')));
+begin
+  if v_codigo = '' then
+    return new;
+  end if;
+  -- Dentro de SECURITY DEFINER, current_user é o dono (postgres): não serve para
+  -- distinguir o chamador. A GUC 'role' é a do chamador (SET ROLE do PostgREST).
+  -- Sem SET ROLE (sessão do dono, migrações, RPCs de sistema) a GUC é vazia/none.
+  if coalesce(auth.role(), '') = 'service_role'
+     or coalesce(current_setting('role', true), 'none') in ('none', '', 'postgres') then
+    return new;
+  end if;
+  if public.usuario_e_gestao() then
+    return new;
+  end if;
+  if exists (
+    select 1 from public.tabulacoes t
+     where t.somente_gestao and upper(btrim(t.codigo)) = v_codigo
+  ) then
+    raise exception 'A tabulação "%" é restrita à gestão. Registre a solicitação para Amanda, Fernanda ou Amanda ADM.', v_codigo
+      using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.aluno_movimentacao_tabulacao_so_gestao() from public, anon, authenticated, service_role;
+
+drop trigger if exists aluno_mov_tabulacao_so_gestao on public.aluno_movimentacoes;
+create trigger aluno_mov_tabulacao_so_gestao
+  before insert on public.aluno_movimentacoes
+  for each row execute function public.aluno_movimentacao_tabulacao_so_gestao();
