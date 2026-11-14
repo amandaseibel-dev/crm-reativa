@@ -82,6 +82,7 @@ sleep 1
   | psql -At -v ON_ERROR_STOP=1 > "$OUT/c4b.txt" 2>&1 || true
 wait
 sa=$(grep -c '^t|' "$OUT/c4a.txt" || true); sb=$(grep -c '^t|' "$OUT/c4b.txt" || true)
+[ "$(grep -c '^[tf]|' "$OUT/c4a.txt")" -eq 1 ] && [ "$(grep -c '^[tf]|' "$OUT/c4b.txt")" -eq 1 ] && ok "as duas sessoes devolveram resultado de negocio (sem erro silencioso)" || falha "uma sessao falhou sem resultado: $(cat "$OUT/c4a.txt") | $(cat "$OUT/c4b.txt")"
 [ $((sa+sb)) -eq 1 ] && ok "exatamente uma tomada passou no teto" || falha "teto violado: A=$sa B=$sb"
 n=$(q "select count(*) from public.casos where operador_email='$LUANA' and aluno_id in ('00000000-0000-0000-0000-000000000004','00000000-0000-0000-0000-000000000005','00000000-0000-0000-0000-000000000006','00000000-0000-0000-0000-000000000007') and not public.caso_encerrado_operacional(cpf_limpo,status_atual,status_acionamento,status_financeiro,status_jornada)")
 [ "$n" -le 3 ] && ok "carteira de LUANA ficou em $n (limite 3)" || falha "carteira de LUANA em $n, acima do limite 3"
@@ -120,6 +121,7 @@ sleep 1
   | psql -At -v ON_ERROR_STOP=1 > "$OUT/c6b.txt" 2>&1 || true
 wait
 sa=$(grep -c '^t|' "$OUT/c6a.txt" || true); sb=$(grep -c '^t|' "$OUT/c6b.txt" || true)
+[ "$(grep -c '^[tf]|' "$OUT/c6a.txt")" -eq 1 ] && [ "$(grep -c '^[tf]|' "$OUT/c6b.txt")" -eq 1 ] && ok "as duas tomadas livres devolveram resultado de negocio (sem erro silencioso)" || falha "uma tomada livre falhou sem resultado: $(cat "$OUT/c6a.txt") | $(cat "$OUT/c6b.txt")"
 n=$(q "select count(*) from public.casos where operador_email='$LUANA'")
 [ "$n" -le 3 ] && ok "carteira de LUANA ficou em $n (limite 3) com duas tomadas livres" || falha "teto violado em assumir_caso_livre: $n casos (limite 3)"
 [ $((sa+sb)) -eq 1 ] && ok "exatamente uma tomada livre passou (havia uma vaga)" || falha "esperava 1 tomada livre, houve A=$sa B=$sb: $(cat "$OUT/c6a.txt") | $(cat "$OUT/c6b.txt")"

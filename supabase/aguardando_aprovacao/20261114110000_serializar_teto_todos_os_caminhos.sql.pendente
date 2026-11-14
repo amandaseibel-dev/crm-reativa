@@ -9,7 +9,7 @@
 --   * assumir_caso_fidelizacao_vencida (#953): ja toma o lock.
 --   * reverter_assumir_fidelizacao (#953): ja toma o lock do anterior.
 --   * assumir_caso_livre: este arquivo (patch ancorado).
---   * trg_impor_teto_operador (trigger em casos, dispara em qualquer atribuicao): este arquivo.
+--   * trg_impor_teto_operador (trigger AFTER UPDATE em casos, quando o operador muda): este arquivo.
 --
 -- DEPENDENCIA: a #936 altera assumir_caso_livre e trg_impor_teto_operador. Esta migration
 -- so pode ser aplicada DEPOIS da #936 em producao e conferida. As ancoras abaixo foram

@@ -554,6 +554,7 @@ describe("operador assume caso com fidelização vencida", () => {
     const db = await abrirCom();
     const caso = await cenario(db, 66, { dono: MAURICIO });
     await db.query("update public.alunos set proxima_acao='LIGAR CEDO', data_retorno = current_date + 5 where id=$1", [U(66)]);
+    const antes = await q1(db, "select data_retorno::text d, hora_retorno::text h from public.alunos where id=$1", [U(66)]);
     await como(db, LUANA);
     const r = await tomar(db, caso);
     expect(r.sucesso).toBe(true);
@@ -561,6 +562,8 @@ describe("operador assume caso com fidelização vencida", () => {
     expect((await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [r.operacao_id, "x"])).sucesso).toBe(true);
     const a = await q1(db, "select proxima_acao, data_retorno::text d from public.alunos where id=$1", [U(66)]);
     expect(a.proxima_acao).toBe("LIGAR CEDO");
+    expect(a.d).toBe(antes.d);
+    expect(antes.d).not.toBeNull();
     await db.close();
   });
 
@@ -645,7 +648,7 @@ describe("operador assume caso com fidelização vencida", () => {
     await db.close();
   });
 
-  describe("serialização do teto em todos os caminhos (patch pendente, ancorado)", () => {
+  describe("serialização do teto nos caminhos do patch 20261114110000 (pendente, ancorado)", () => {
     it("o patch aplica sobre o corpo de produção: assumir_caso_livre e trigger de teto passam a travar", async () => {
       const db = await construir();
       await db.exec(TETO_PATCH);
