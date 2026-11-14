@@ -1135,23 +1135,21 @@ begin
     raise exception 'Caso já está %: não há o que aprovar.', v_caso.status using errcode = 'P0001';
   end if;
 
-  -- trava a linha do aluno: duas aprovacoes simultaneas nao se cruzam
-  perform 1 from public.alunos where id = v_caso.aluno_id for update;
-
-  -- conjunto de acordos ATIVOS, lido e travado ANTES da conferencia, da fotografia e do bloqueio
-  select array_agg(x.id) into v_acordos from (
-    select a.id from public.acordos a
-     where a.aluno_id = v_caso.aluno_id and upper(coalesce(a.status,'')) = 'ATIVO'
-       and a.duplicado_de is null
-     for update) x;
-  v_acordos := coalesce(v_acordos, '{}'::uuid[]);
-  -- parcelas desses acordos tambem travadas, e a assinatura lida antes da conferencia
-  -- NOWAIT: quem altera parcela trava na ordem inversa (parcela, depois aluno, pelo gatilho de
-  -- recalculo de situacao). Esperar poderia gerar deadlock; falhar rapido e pedir nova tentativa.
+  -- Aluno, acordos ATIVO e parcelas travados SEM ESPERA, antes de qualquer escrita. Esperar aqui
+  -- criava deadlock: o gatilho de recalculo (parcela -> aluno) e o FK parcela->acordo andam na
+  -- ordem oposta. Conflito falha rapido, nada e gravado, e a tela pede nova tentativa.
   begin
+    perform 1 from public.alunos where id = v_caso.aluno_id for update nowait;
+    select array_agg(x.id) into v_acordos from (
+      select a.id from public.acordos a
+       where a.aluno_id = v_caso.aluno_id and upper(coalesce(a.status,'')) = 'ATIVO'
+         and a.duplicado_de is null
+       for update nowait) x;
+    v_acordos := coalesce(v_acordos, '{}'::uuid[]);
     perform 1 from public.parcelas p where p.acordo_id = any(v_acordos) for update nowait;
   exception when lock_not_available then
-    raise exception 'Parcelas em uso por outra rotina. Tente novamente em instantes.' using errcode = '40001';
+    raise exception 'Caso em uso por outra rotina (aluno, acordo ou parcela). Tente novamente em instantes.'
+      using errcode = '40001';
   end;
   v_sig := public._juridico_acordos_assinatura(v_caso.aluno_id);
 
