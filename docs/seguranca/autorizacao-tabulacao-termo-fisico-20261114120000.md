@@ -32,7 +32,15 @@ Se algum arquivo mudar, este quadro precisa ser refeito.
 - Migração e rollback em `BEGIN/COMMIT`.
 - Testes de tab/newline/CR e de UPDATE do operador.
 
-## Decisões pendentes (da gestão, antes da aprovação)
+## Decisões da gestão (tomadas)
+
+1. **Gestão que grava as duas tabulações:** Amanda gestora, Fernanda e Amanda ADM (`cobranca07`), os três e-mails de `usuario_e_gestao()`, sem outras permissões.
+2. **Descrição do histórico:** fixa (`Registro administrativo do termo físico.`), sem observação livre. O helper grava o texto constante. Teste: nenhuma palavra-chave da triagem Prime casa com a descrição.
+
+## Pendências já resolvidas nesta rodada
+
+- ORDER BY do Gate A corrigido (subconsulta). Validado em pglite: roda e retorna achados.
+- Espaços em branco completos, UPDATE coberto, BEGIN/COMMIT (ver seção de correções).
 
 1. **Alcance de Amanda ADM (`cobranca07`):** ela está no conjunto de gestão (`usuario_e_gestao()`) e grava código restrito. A Premissa de segurança §2 diz "não é gestão total". Confirmar se ela deve gravar ou só ler.
 2. **Efeito a jusante da triagem Prime:** a triagem lê o histórico e sinaliza palavras-chave na descrição (`prime_conferencia_triagem`). A observação livre gravada na tabulação entra na triagem. Medir antes de aprovar, ou gravar descrição padronizada.
@@ -58,7 +66,8 @@ Se algum arquivo mudar, este quadro precisa ser refeito.
 
 - **Staging:** inacessível nesta conta. Nada contra o Supabase real.
 - **PostgREST:** o `SET ROLE` do Supabase é simulado.
-- **Gate A (`scripts/seguranca/auditoria_seguranca.sql`):** o script tem um defeito: o `ORDER BY` final, com expressão, é inválido depois de `UNION` no PostgreSQL (erro 0A000). Não roda como está. Execução de linha de base pendente após correção do script, com autorização.
+- **Gate A (`scripts/seguranca/auditoria_seguranca.sql`):** defeito corrigido nesta rodada (ORDER BY sobre subconsulta). Validado em pglite. **Linha de base em produção ainda não executada** (execução de leitura, a ser feita com autorização).
+- Pendente: sem autorização de produção, a linha de base não foi executada.
 - **Owner ou superuser** pode desabilitar a trigger; não coberto.
 - **Operadores que tenham movimentações históricas com códigos só-gestão** (os 8 casos citados na função de encerramento foram feitos pela gestão): a trigger passa a recusar também o operador nesses códigos. Esperado, mas precisa confirmação.
 
