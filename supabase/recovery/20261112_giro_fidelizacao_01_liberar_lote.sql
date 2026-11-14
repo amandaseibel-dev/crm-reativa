@@ -76,6 +76,7 @@ declare
   v_falta int;
   v_ganhou int;
   v_troca int;
+  v_viola int;
   v_exist int;
 begin
   if v_lote not in (1, 2, 3) then
@@ -292,6 +293,19 @@ begin
     join public.casos c on c.id = l.caso_id where c.operador_email is not null;
   select count(*) into v_ganhou from _sem_dono_antes s
     join public.casos c on c.id = s.id where c.operador_email is not null;
+  -- VIOLACAO DE PROTECAO -- ABORTA O LOTE INTEIRO (nao pula).
+  -- Caso PROTEGIDO na revalidacao e pulado sem alteracao: nao chega aqui. Chegar
+  -- aqui significa que a funcao de liberacao soltou um caso que ainda esta
+  -- protegido pela regra vigente. Isso nao se "pula": a transacao inteira cai.
+  select count(*) into v_viola from _liberados_agora l
+    join public.casos c on c.id = l.caso_id
+   where public.caso_dentro_prazo_fidelizacao(c.data_ultimo_acionamento)
+      or public.caso_em_giro_fidelizacao(c.giro_fidelizacao_ate)
+      or public.caso_encerramento_congelado(c.id);
+  if v_viola > 0 then
+    raise exception 'lote: VIOLACAO DE PROTECAO em % caso(s) liberado(s) que ainda estavam protegidos. Lote desfeito inteiro; nada foi solto.', v_viola;
+  end if;
+
   if v_extra > 0 or v_falta > 0 or v_ganhou > 0 or v_troca > 0 then
     raise exception 'lote: INVARIANTE violada. soltos_fora_da_lista=% liberados_ainda_com_dono=% livres_que_ganharam_dono=% trocas_de_dono_fora_da_lista=%. Lote desfeito.',
       v_extra, v_falta, v_ganhou, v_troca;

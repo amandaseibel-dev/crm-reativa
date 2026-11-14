@@ -1025,6 +1025,27 @@ describe("achados da auditoria — cada um com o teste que o reproduzia", () => 
     await db.close();
   });
 
+  // VIOLACAO DE PROTECAO != CASO PROTEGIDO. Caso protegido na revalidacao e PULADO
+  // sem alteracao (provas REVALIDACAO). Aqui a funcao de liberacao SOLTA um caso
+  // que ainda esta protegido depois de soltar: isso aborta o LOTE INTEIRO e nada
+  // e solto. Simulada trocando a funcao por uma que solta e deixa o caso protegido.
+  it("VIOLACAO DE PROTECAO: liberacao que deixa caso protegido ABORTA o lote inteiro", async () => {
+    const db = await abrir();
+    await mundo(db);
+    await db.exec(BACKUP);
+    await db.exec(`create or replace function public.liberar_fidelizacao_caso(p_caso_id uuid, p_motivo text default 'X', p_autor text default 'Y')
+                   returns boolean language plpgsql as $f$
+                   begin
+                     update public.casos set operador_email = null, data_ultimo_acionamento = current_date where id = p_caso_id;
+                     return true;
+                   end $f$;`);
+    const err = await tenta(db, comLote(1));
+    expect(err).toMatch(/VIOLACAO DE PROTECAO/);
+    for (const n of LOTES[1]) expect(await donoDe(db, n)).not.toBeNull();
+    expect((await noBackup(db, "lote = 1 and liberado_em is not null")).length).toBe(0);
+    await db.close();
+  });
+
   // ENTRE AS NOITES: cron 48 (nivelamento) ou receptivo podem trocar o operador
   // de um caso ALVO depois do backup. A revalidacao compara o responsavel atual
   // com o do backup, por aluno: o aluno inteiro e PULADO, nada e solto, e o caso

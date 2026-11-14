@@ -929,6 +929,10 @@ jobs:
       - name: Security Gate no banco descartavel
         run: |
           set -euo pipefail
+          # A auditoria le storage.buckets (existe no Supabase, nao no postgres da CI).
+          # Stub minimo so para a auditoria rodar; nao cria bucket nem dado.
+          psql "postgres://postgres:postgres@localhost:5432/teste" -v ON_ERROR_STOP=1 -c \
+            "create schema if not exists storage; create table if not exists storage.buckets (id text primary key, name text, public boolean default false);"
           DATABASE_URL="postgres://postgres:postgres@localhost:5432/teste" \
             scripts/seguranca/run_security_gate.sh
 
@@ -1005,6 +1009,10 @@ jobs:
       - name: Security Gate no banco descartavel
         run: |
           set -euo pipefail
+          # A auditoria le storage.buckets (existe no Supabase, nao no postgres da CI).
+          # Stub minimo so para a auditoria rodar; nao cria bucket nem dado.
+          psql "postgres://postgres:postgres@localhost:5432/teste" -v ON_ERROR_STOP=1 -c \
+            "create schema if not exists storage; create table if not exists storage.buckets (id text primary key, name text, public boolean default false);"
           DATABASE_URL="postgres://postgres:postgres@localhost:5432/teste" \
             scripts/seguranca/run_security_gate.sh
 

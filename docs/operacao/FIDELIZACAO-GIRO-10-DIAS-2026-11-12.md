@@ -506,6 +506,35 @@ Pedido da gestão: esclarecer cinco pontos sem alterar o SQL aprovado, salvo def
 - Prova de mutação: sem `service_role` no revoke, o teste falha em `service_role SELECT: expected true to be false`. Com a correção, passa.
 - Dados: sem CPF, nome, telefone ou e-mail; guarda `aluno_id`, saldo e status. RLS ligada, sem policy, e sem grant para papéis de cliente. O script de lote e o de restauração rodam como `postgres` (dono), que não é afetado pelo revoke.
 
+## Correções preparadas para os bloqueios do gate (14/11/2026) — NADA APLICADO
+
+Nada disto foi aplicado em produção. Cada item tem prova na bancada.
+
+**Ordem de dependência para aprovação:**
+1. **Gate corrigido** (`scripts/seguranca/run_security_gate.sh`, `auditoria_seguranca.sql`, stub de `storage` nas duas jobs de CI): pode ir a qualquer momento; é pré-requisito de qualquer deploy.
+2. **Migração de bloqueios** (`20261114120000_bloqueios_gate_tmp_views`): independente do giro.
+3. **Migração do giro** (`20261112210000`): sem dependência da 2.
+4. **Backup** (`00_backup`) depende de 3. **Lote** (`01`) depende de 3 e 4. **Restauração** (`02`) depende de 4.
+
+**Os três BLOQUEIA e a correção preparada:**
+
+| Bloqueio | Evidência medida (14/11) | Impacto | Correção preparada | Decisão da gestão |
+|---|---|---|---|---|
+| `tv-imagens` público | `public = true`; 1 objeto (PNG de 70.239 bytes, `image/png`, criado em 21/08); `tv_config.imagens` **vazio** (o objeto não é referenciado pela TV). Conteúdo conferido visualmente: tabela institucional de datas de matrícula por unidade, sem dado pessoal, financeiro ou de aluno. Uploads, alterações e exclusões: **só dois e-mails fixos na policy** (`amanda.seibel@` e `cobranca04@`). | Leitura pública sem autenticação, limitada ao objeto acima. | **Mantido público, de propósito** (a TV lê por URL pública). Exceção documentada aqui: leitura pública, somente deste bucket. Recomendação: a escrita sair da lista fixa de e-mails. | Aceitar a exceção; decidir quem envia imagens (hoje inclui `cobranca04`). |
+| `_tmp_fila2` sem RLS | 186 linhas de pagamento (`aluno_id`, `boleto`, `valor_pago`, …); `authenticated` com todos os privilégios; sem uso no código. | Qualquer usuário autenticado, inclusive operador, lê, altera e apaga essas linhas. | Revoga `public`, `anon` e `authenticated`. **Não apaga a tabela nem as linhas.** Remoção definitiva só depois de confirmação da gestão. | Confirmar que a tabela não é usada. |
+| 5 views com `security_invoker` desligado | Rodam com o dono e leem tabelas com RLS. `vw_pagamento_suspeita_pendente` lê `pagamento_suspeita_duplicidade`, que tem RLS e **zero policies**: 9 linhas entregues a `authenticated`. Nenhum consumidor de app ou Edge Function; o único consumidor SQL é `vw_extracao_observabilidade`, que é outra view. | Operador lê acordo, parcela, pagamento e extração de outros alunos. | `security_invoker = true`, revogação de escrita de `authenticated`, e policy de SELECT só para `usuario_e_gestao()` na tabela sem policy. Gestão continua lendo; operador não lê nada das cinco. | Confirmar que a gestão é só os três e-mails de `usuario_e_gestao()`. |
+
+**Duas observações que a gestão precisa ver:**
+- `usuario_e_gestao()` é uma lista fixa de e-mails: `amanda.seibel@`, `cobranca04@` e `cobranca07@`. Duas dessas contas têm nome de operador. Quem é gestão está no banco, não no cadastro de perfis.
+- Uma policy de `parcelas` também lista e-mails fixos (`amanda`, `cobranca04`, `cobranca07`) para UPDATE. Isso não está no escopo desta correção, mas é do mesmo tipo.
+
+**Gate:** o defeito está corrigido e provado. O script agora usa `ON_ERROR_STOP=1`, reprova se o `psql` falhar e reprova se houver `ERROR:` na saída. A consulta da auditoria foi corrigida (o `ORDER BY` ficou sobre uma subconsulta). Teste reproduzível: `scripts/seguranca/teste_gate_psql_falha.sh` (duas variantes, ambas reprovam). Consequência no CI: as duas jobs que rodam o gate contra o fixture ganharam um stub mínimo do schema `storage`; sem ele, a auditoria passaria a falhar por schema ausente.
+
+**Caso protegido x violação de proteção (distinção implementada):**
+- **Caso protegido** (acordo, acionamento, retorno do operador, giro vigente, congelado, dono trocado, aluno que ganhou caso novo): o aluno é **pulado sem alteração**, com `pulado_motivo`. Provas: testes "REVALIDAÇÃO".
+- **Violação** (uma liberação que deixa o caso protegido, ou escrita fora da lista): **aborta o lote inteiro**, com rollback da transação. Provas: "VIOLACAO DE PROTECAO" e "troca de dono X→Y fora da lista → a invariante aborta o lote".
+- **Erro técnico de um aluno** (exceção que não é violação): pulado e registrado; conta para o limite de 10%. Acima de 10%, o lote inteiro é desfeito. Este é o único caso em que o lote pode liberar parcialmente.
+
 ## Riscos residuais (declarados)
 
 0. **Decisões pendentes da gestão (não tratadas nesta PR):**
