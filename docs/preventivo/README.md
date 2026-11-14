@@ -40,7 +40,9 @@ título de cada linha. Ele **não** é público automático.
 **O mesmo aluno pode estar nas duas operações.** A separação é **por título**.
 Um título cujo valor mudou nunca atualiza os outros do mesmo aluno.
 
-**Acesso:** só a Amanda da gestão (`amanda.seibel@aelbra.com.br`). A trava está
+**Acesso:** Amanda (gestão) e, na diretoria, Ângela e Gustavo — só com cadastro ativo
+(`amanda.seibel`, `angela.ferreira`, `gustavo.ene`, todos `@aelbra.com.br`); nenhum outro
+perfil de diretoria. A tela espelha isso em `src/utils/acessoPreventivo.js`. A trava está
 no banco — `public.preventivo_e_gestao()` — e vale em três portas: a RLS de
 toda tabela `prev_*`, o início de **todas as 18 RPCs** `preventivo_*`, e o
 começo da Edge Function, que confere pelo banco antes de pedir a chave do Prime.
