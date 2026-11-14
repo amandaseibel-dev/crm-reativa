@@ -92,7 +92,8 @@ describe("guarda de MD5 da otimizacao: a migration recusa definicao diferente", 
   it("universo alterado (corpo da R5 divergente): a migration aborta e nada e aplicado", async () => {
     const db = await baseR5();
     await db.exec("alter function public.acoes_massivas_universo(jsonb) set work_mem = '64kB';");
-    expect(await md5De(db, "acoes_massivas_universo")).not.toBe(MD5_UNIVERSO_R5);
+    const md5Alterado = await md5De(db, "acoes_massivas_universo");
+    expect(md5Alterado).not.toBe(MD5_UNIVERSO_R5);
     let erro = null;
     try {
       await db.exec(MIG_OTIM);
@@ -102,5 +103,7 @@ describe("guarda de MD5 da otimizacao: a migration recusa definicao diferente", 
     await db.exec("rollback;").catch(() => {});
     expect(erro, "a migration deveria ter sido recusada").not.toBeNull();
     expect(String(erro.message)).toMatch(/Universo nao esta na versao da R5 v2/);
+    // Nada foi aplicado: o universo continua exatamente como foi alterado antes da migration.
+    expect(await md5De(db, "acoes_massivas_universo")).toBe(md5Alterado);
   });
 });
