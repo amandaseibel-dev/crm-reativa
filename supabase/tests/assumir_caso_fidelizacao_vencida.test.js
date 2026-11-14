@@ -26,6 +26,10 @@ const FIXTURE = ler("supabase/tests/fixtures/fidelizacao_por_dono_prod_20260930.
 const MD5_BASE = JSON.parse(ler("supabase/tests/fixtures/fidelizacao_por_dono_prod_20260930.md5.json"));
 const COMPLEMENTO = ler("supabase/tests/fixtures/assumir_caso_livre_prod_20261020.sql");
 const MD5_COMPL = JSON.parse(ler("supabase/tests/fixtures/assumir_caso_livre_prod_20261020.md5.json"));
+const TETO_PATCH = ler("supabase/aguardando_aprovacao/20261114110000_serializar_teto_todos_os_caminhos.sql.pendente");
+const TETO_ROLLBACK = ler("supabase/aguardando_aprovacao/20261114110000_serializar_teto_todos_os_caminhos.rollback.sql");
+const FIXTURE4 = ler("supabase/tests/fixtures/assumir_caso_livre_prod_20261113.sql");
+const MD5_FIX4 = JSON.parse(ler("supabase/tests/fixtures/assumir_caso_livre_prod_20261113.md5.json"));
 const FIXTURE3 = ler("supabase/tests/fixtures/assumir_caso_fidelizacao_vencida_prod_20261113.sql");
 const MD5_FIX3 = JSON.parse(ler("supabase/tests/fixtures/assumir_caso_fidelizacao_vencida_prod_20261113.md5.json"));
 const ROLLBACK = ler("supabase/aguardando_aprovacao/20261113120000_assumir_caso_fidelizacao_vencida.rollback.sql");
@@ -60,13 +64,14 @@ async function construir() {
   await db.exec(FIXTURE);
   await db.exec(COMPLEMENTO);
   await db.exec(FIXTURE3);
+  await db.exec(FIXTURE4);
 
   const rows = await qn(db,
     `select n.nspname||'.'||p.proname nome, md5(p.prosrc) md5
        from pg_proc p join pg_namespace n on n.oid = p.pronamespace
       where n.nspname in ('public','internal')`);
   const noBanco = Object.fromEntries(rows.map((r) => [r.nome, r.md5]));
-  for (const [nome, md5] of Object.entries({ ...MD5_BASE, ...MD5_COMPL, ...MD5_FIX3 })) {
+  for (const [nome, md5] of Object.entries({ ...MD5_BASE, ...MD5_COMPL, ...MD5_FIX3, ...MD5_FIX4 })) {
     if (noBanco[nome] !== md5) throw new Error(`fixture diverge de producao: ${nome}`);
   }
 
@@ -638,5 +643,93 @@ describe("operador assume caso com fidelização vencida", () => {
     expect(rv.sucesso).toBe(false);
     expect(rv.mensagem).toContain("Conflito");
     await db.close();
+  });
+
+  describe("serialização do teto em todos os caminhos (patch pendente, ancorado)", () => {
+    it("o patch aplica sobre o corpo de produção: assumir_caso_livre e trigger de teto passam a travar", async () => {
+      const db = await construir();
+      await db.exec(TETO_PATCH);
+      const a = await q1(db, "select prosrc like '%assumir_teto:%' t from pg_proc where proname='assumir_caso_livre'");
+      const b = await q1(db, "select prosrc like '%assumir_teto:%' t from pg_proc where proname='trg_impor_teto_operador'");
+      expect(a.t).toBe(true);
+      expect(b.t).toBe(true);
+      await db.close();
+    });
+
+    it("o rollback do patch remove as duas travas", async () => {
+      const db = await construir();
+      await db.exec(TETO_PATCH);
+      await db.exec(TETO_ROLLBACK);
+      const a = await q1(db, "select prosrc like '%assumir_teto:%' t from pg_proc where proname='assumir_caso_livre'");
+      const b = await q1(db, "select prosrc like '%assumir_teto:%' t from pg_proc where proname='trg_impor_teto_operador'");
+      expect(a.t).toBe(false);
+      expect(b.t).toBe(false);
+      await db.close();
+    });
+  });
+
+  describe("acessos reais por papel (anon, authenticated, operador, gestão)", () => {
+    async function comPapeis() {
+      const db = await abrirCom();
+      await db.exec(`
+        do $r$ begin
+          if not exists (select 1 from pg_roles where rolname='anon') then create role anon nologin; end if;
+          if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated nologin; end if;
+        end $r$;
+        grant usage on schema public, internal to anon, authenticated;
+        grant select, insert, update, delete on all tables in schema public to authenticated;
+        grant usage, select on all sequences in schema public to authenticated;
+        grant execute on all functions in schema public to authenticated;
+        grant execute on all functions in schema internal to authenticated;`);
+      return db;
+    }
+
+    it("anon: a RPC é negada pelo banco e nada muda", async () => {
+      const db = await comPapeis();
+      const caso = await cenario(db, 80, { dono: MAURICIO });
+      await db.exec("set role anon");
+      await expect(db.query("select * from public.assumir_caso_fidelizacao_vencida($1,$2)", [U(80), "x"])).rejects.toThrow(/permission denied/);
+      await db.exec("reset role");
+      expect((await q1(db, "select operador_email e from public.casos where id=$1", [caso])).e).toBe(MAURICIO);
+      await db.close();
+    });
+
+    it("authenticated sem perfil de operador: recusa estruturada e nenhum dado muda", async () => {
+      const db = await comPapeis();
+      const caso = await cenario(db, 81, { dono: MAURICIO });
+      await db.exec("set role authenticated");
+      await como(db, "visitante@exemplo.invalido");
+      const r = await q1(db, "select * from public.assumir_caso_fidelizacao_vencida($1,$2)", [U(81), "x"]);
+      await db.exec("reset role");
+      expect(r.sucesso).toBe(false);
+      expect(r.mensagem).toContain("exclusiva de operadores");
+      expect((await q1(db, "select operador_email e from public.casos where id=$1", [caso])).e).toBe(MAURICIO);
+      await db.close();
+    });
+
+    it("operador ativo com permissão: assume pelo papel authenticated", async () => {
+      const db = await comPapeis();
+      const caso = await cenario(db, 82, { dono: MAURICIO });
+      await db.exec("set role authenticated");
+      await como(db, LUANA);
+      const r = await q1(db, "select * from public.assumir_caso_fidelizacao_vencida($1,$2)", [U(82), "acesso real"]);
+      await db.exec("reset role");
+      expect(r.sucesso).toBe(true);
+      expect((await q1(db, "select operador_email e from public.casos where id=$1", [caso])).e).toBe(LUANA);
+      await db.close();
+    });
+
+    it("gestão não usa a tomada, mas reverte pelo fluxo administrativo", async () => {
+      const db = await comPapeis();
+      const caso = await cenario(db, 83, { dono: MAURICIO });
+      await db.exec("set role authenticated");
+      await como(db, LUANA);
+      const r = await q1(db, "select * from public.assumir_caso_fidelizacao_vencida($1,$2)", [U(83), "x"]);
+      await como(db, GESTAO);
+      const neg = await q1(db, "select * from public.assumir_caso_fidelizacao_vencida($1,$2)", [U(83), "x"]);
+      await db.exec("reset role");
+      expect(neg.sucesso).toBe(false);
+      await db.close();
+    });
   });
 });

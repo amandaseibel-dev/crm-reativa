@@ -10,6 +10,7 @@ MAURICIO=cobranca06@aelbra.com.br
 U1=00000000-0000-0000-0000-000000000001
 U2=00000000-0000-0000-0000-000000000002
 U3=00000000-0000-0000-0000-000000000003
+U7=00000000-0000-0000-0000-000000000007
 falhas=0
 ok()   { echo "  ok    $1"; }
 falha(){ echo "  FALHA $1"; falhas=$((falhas+1)); }
@@ -17,6 +18,11 @@ jwt()  { echo "select set_config('request.jwt.claims', '{\"email\":\"$1\"}', fal
 q()    { psql -At -v ON_ERROR_STOP=1 -c "$1"; }
 
 # Cada cenario roda num banco NOVO: as fixtures criam objetos e nao podem repetir.
+ambiente_com_teto() {
+  ambiente "$1"
+  psql -v ON_ERROR_STOP=1 -q -f "$DIR/03_patch_teto.sql" >/dev/null
+}
+
 ambiente() {
   export PGDATABASE="teste_$1"
   dropdb --if-exists "$PGDATABASE"; createdb "$PGDATABASE"
@@ -101,6 +107,33 @@ sa=$(grep -c '^t|' "$OUT/c5a.txt" || true); sb=$(grep -c '^t|' "$OUT/c5b.txt" ||
 grep -q 'limite de casos' "$OUT/c5a.txt" "$OUT/c5b.txt" && ok "a recusada diz o conflito de teto" || falha "mensagem de teto ausente"
 n=$(q "select count(*) from public.casos where operador_email='$MAURICIO'")
 [ "$n" -le 4 ] && ok "carteira de MAURICIO ficou em $n (limite 4)" || falha "carteira de MAURICIO em $n, acima do limite 4"
+
+echo "== C6: duas tomadas LIVRES (assumir_caso_livre) disputam a ultima vaga do teto de LUANA (limite 3; tem 2)"
+ambiente_com_teto c6
+psql -v ON_ERROR_STOP=1 -q -c "update public.calibragem_parametros set valor='3'::jsonb where chave='limite_carteira';" >/dev/null
+( { echo "begin;"; jwt $LUANA; echo "select sucesso, mensagem from public.assumir_caso_livre('$U8');"; echo "select pg_sleep(4);"; echo "commit;"; } \
+    | psql -At -v ON_ERROR_STOP=1 > "$OUT/c6a.txt" 2>&1 ) &
+sleep 1
+{ jwt $LUANA; echo "select sucesso, mensagem from public.assumir_caso_livre('$U9');"; } \
+  | psql -At -v ON_ERROR_STOP=1 > "$OUT/c6b.txt" 2>&1 || true
+wait
+sa=$(grep -c '^t|' "$OUT/c6a.txt" || true); sb=$(grep -c '^t|' "$OUT/c6b.txt" || true)
+n=$(q "select count(*) from public.casos where operador_email='$LUANA'")
+[ "$n" -le 3 ] && ok "carteira de LUANA ficou em $n (limite 3) com duas tomadas livres" || falha "teto violado em assumir_caso_livre: $n casos (limite 3)"
+[ $((sa+sb)) -le 1 ] && ok "no maximo uma tomada livre passou" || falha "duas tomadas livres passaram no teto: A=$sa B=$sb"
+
+echo "== C7: atribuicao DIRETA (trigger) disputa a vaga com tomada"
+ambiente_com_teto c7
+psql -v ON_ERROR_STOP=1 -q -c "update public.calibragem_parametros set valor='3'::jsonb where chave='limite_carteira';" >/dev/null
+( { echo "begin;"; echo "update public.casos set operador_email='$LUANA', operador_nome='LUANA', operador='LUANA' where aluno_id='$U8';"; echo "select pg_sleep(4);"; echo "commit;"; } \
+    | psql -At -v ON_ERROR_STOP=1 > "$OUT/c7a.txt" 2>&1 ) &
+sleep 1
+{ jwt $LUANA; echo "select sucesso, mensagem from public.assumir_caso_livre('$U9');"; } \
+  | psql -At -v ON_ERROR_STOP=1 > "$OUT/c7b.txt" 2>&1 || true
+wait
+grep -q '^f|Carteira cheia' "$OUT/c7b.txt" && ok "tomada esperou o trigger e recusou por teto (sem erro)" || falha "tomada nao recusou limpo: $(cat "$OUT/c7b.txt")"
+n=$(q "select count(*) from public.casos where operador_email='$LUANA'")
+[ "$n" -le 3 ] && ok "carteira de LUANA ficou em $n (limite 3) com atribuicao direta" || falha "teto violado com atribuicao direta: $n"
 
 echo
 [ "$falhas" -eq 0 ] && echo "CONCORRENCIA: todos os cenarios passaram" || { echo "CONCORRENCIA: $falhas falha(s)"; exit 1; }

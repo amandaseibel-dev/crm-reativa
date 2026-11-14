@@ -29,9 +29,14 @@
 --
 -- ATOMICIDADE: trava aluno e depois caso (ordem dos caminhos de acionamento). Um
 -- acionamento que grava so em alunos OU so em casos entra na leitura feita depois do lock.
--- Teto: pg_advisory_xact_lock por operador antes de contar.
+-- Teto: pg_advisory_xact_lock por operador antes de contar, nesta RPC e na reversao. Os demais
+-- caminhos que atribuem casos (assumir_caso_livre e o trigger de teto) so passam a travar com o
+-- patch 20261114110000 (pendente, depende da #936). Antes dele, a serializacao NAO e garantida
+-- contra esses caminhos. Ver C6 e C7 em supabase/tests/concorrencia_assumir_fidelizacao/.
 --
--- RECUSAS: mensagem unica. Quem nao e o dono nao aprende nada sobre o caso.
+-- RECUSAS DE NEGOCIO: retorno estruturado com mensagem unica (nao revela existencia, estado nem
+-- motivo). Nao controlamos o tempo de resposta: o texto e uniforme, o timing nao e garantido.
+-- Erros tecnicos NAO sao convertidos nessa mensagem: sobem como erro.
 --
 -- RECUPERACAO: cada tomada gera uma linha em public.assumir_fidelizacao_operacoes com id.
 -- A reversao (reverter_assumir_fidelizacao) so volta a tomada se o caso ainda estiver

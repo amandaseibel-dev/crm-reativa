@@ -40,3 +40,21 @@ begin
   end loop;
 end
 $seed4$;
+
+-- C6/C7: dois casos LIVRES (sem dono), com tabulacao, para disputar a vaga do teto de LUANA.
+do $seed67$
+declare r record;
+begin
+  for r in select * from (values
+      (8,'00000000-0000-0000-0000-000000000008'::uuid,'30000000008'),
+      (9,'00000000-0000-0000-0000-000000000009'::uuid,'30000000009')) v(n,id,cpf) loop
+    insert into public.alunos (id, cpf, nome, matricula, responsavel_atual_email, responsavel_atual_nome, responsavel_atual_em)
+      values (r.id, r.cpf, 'Aluno Sintetico '||r.n, 'M'||r.n, null, null, null);
+    insert into public.acordos_titulos (aluno_id, cpf, documento, vencimento, valor_original, saldo_corrigido, situacao, status)
+      values (r.id, r.cpf, 'DOC'||r.n, '2026-03-10', 500, 500, 'ABERTO', 'em_aberto');
+    insert into public.casos (aluno_id, cpf, cpf_limpo, nome, operador_email, operador_nome, data_ultimo_acionamento,
+        ultima_tabulacao_em, caso_codigo)
+      values (r.id, r.cpf, r.cpf, 'Aluno Sintetico '||r.n, null, null, null, '2026-08-01T10:00:00', r.n);
+  end loop;
+end
+$seed67$;
