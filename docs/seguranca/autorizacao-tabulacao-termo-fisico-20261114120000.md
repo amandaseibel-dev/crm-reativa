@@ -32,7 +32,9 @@ Se algum arquivo mudar, este quadro precisa ser refeito.
 - `_encerramento_so_gestao()` (trigger em `alunos`): já lê `somente_gestao` do catálogo dinamicamente. Mesmo padrão da nova trigger.
 - `trg_tabulacao_efeito_financeiro`: só dispara para códigos com `efeito_desfecho` preenchido. Linhas novas com `efeito_desfecho` nulo não geram efeito.
 - `fn_atualizar_ultimo_acionamento`: só aciona quando `eh_tipo_acionamento(tipo)` é verdadeiro. `REGISTRO_ADMINISTRATIVO` não está na lista (12 tipos lidos em produção).
-- Triggers de `aluno_movimentacoes` em produção: `trg_atualizar_ultimo_acionamento`, `trg_sincronizar_elogio_da_movimentacao`, `trg_zz_desfazer_cartao_tabulacao`. **Não conferido o corpo de `trg_zz_desfazer_cartao_tabulacao`** (ver limites).
+- `trg_zz_desfazer_cartao_tabulacao` (lido): só age quando `tipo = 'FINALIZACAO_ATENDIMENTO'`. O registro usa `REGISTRO_ADMINISTRATIVO`, então não reage.
+- `trg_tabulacao_redireciona` (lido): só age em UPDATE de `alunos` quando a tabulação muda e tem `redireciona_para_email`. O registro não atualiza `alunos` e a linha nova tem `redireciona_para_email` nulo, então não reage.
+- Triggers de `aluno_movimentacoes` em produção: `trg_atualizar_ultimo_acionamento` (só para tipos de acionamento; o registro não é), `trg_sincronizar_elogio_da_movimentacao`, `trg_zz_desfazer_cartao_tabulacao`.
 - Policy `aluno_movimentacoes_insert` (operador só grava com o próprio e-mail; gestão grava tudo): lida.
 
 ## Prova antes de aplicar (não aplicado)
@@ -44,8 +46,6 @@ Se algum arquivo mudar, este quadro precisa ser refeito.
 
 - **Staging:** inacessível nesta conta. Nada contra o Supabase real.
 - **PostgREST:** o `SET ROLE` do Supabase é simulado.
-- **`trg_zz_desfazer_cartao_tabulacao`** em produção: corpo não lido; pode reagir a `FINALIZACAO_ATENDIMENTO` e não ao tipo novo. Precisa de leitura antes da aplicação.
-- **Efeito de redirecionamento:** `trg_tabulacao_redireciona` (coluna `redireciona_para_email`) — nulo nas linhas novas; corpo não lido.
 - **Gate A (`scripts/seguranca/auditoria_seguranca.sql`):** o script tem um defeito: o `ORDER BY` final, com expressão, é inválido depois de `UNION` no PostgreSQL (erro 0A000). Não roda como está. Execução de linha de base pendente após correção do script, com autorização.
 - **Owner ou superuser** pode desabilitar a trigger; não coberto.
 - **Operadores que tenham movimentações históricas com códigos só-gestão** (os 8 casos citados na função de encerramento foram feitos pela gestão): a trigger passa a recusar também o operador nesses códigos. Esperado, mas precisa confirmação.
@@ -57,7 +57,7 @@ Rollback (`.rollback.sql`): remove a trigger e a função; **desativa** (não ap
 ## Ordem de implantação (explícita)
 
 1. Corrigir e rodar o Gate A (linha de base antes; após a aplicação, de novo), com autorização.
-2. Ler `trg_zz_desfazer_cartao_tabulacao` e `trg_tabulacao_redireciona` em produção (só SELECT) e confirmar que não reagem ao tipo novo.
+2. (Feito: os dois triggers foram lidos e não reagem ao tipo novo.)
 3. Aprovar a linha em `docs/seguranca/migracoes-aprovadas.tsv` (RUNBOOK §6, expiração e executor nominal). Não feito aqui.
 4. Aplicar a migration (executor único, sessão principal) com autorização nominal.
 5. Validação somente leitura: as duas linhas do catálogo existem com `somente_gestao = true`; a trigger existe; sem linhas novas no histórico.
