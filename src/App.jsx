@@ -81,7 +81,8 @@ const AcordosSemVinculo = lazy(() => import("./pages/AcordosSemVinculo"));
 const PagamentosSemAluno = lazy(() => import("./pages/PagamentosSemAluno"));
 const QuitacaoSugerida = lazy(() => import("./pages/QuitacaoSugerida"));
 const ConferenciaPrime = lazy(() => import("./pages/ConferenciaPrime"));
-const TvMensagem = lazy(() => import("./pages/TvMensagem"));
+// Aba "📺 TV ReATIVA": abre a TV publicada no Netlify (painel tv-v11).
+const URL_TV_REATIVA = "https://reativa-tv.netlify.app/";
 const Auditoria = lazy(() => import("./pages/Auditoria")); const RelatorioReceptivo = lazy(() => import("./pages/RelatorioReceptivo")); const MinhaAgendaPessoal = lazy(() => import("./pages/MinhaAgendaPessoal")); const EnvioGmailLote = lazy(() => import("./pages/EnvioGmailLote"));
 const MensalidadesSemNegociacao = lazy(() => import("./pages/MensalidadesSemNegociacao"));
 const DRE = lazy(() => import("./pages/DRE"));
@@ -200,7 +201,6 @@ function podeAcessar(perfil, rota) {
   // operador precisa registrar quem chamou, então liberado para todos os
   // perfis ativos (o banco confere de novo por app_usuario_ativo()).
   if (rota === "/leads-whatsapp") return true;
-  if (rota === "/tv-mensagem") return perfil !== "operador"; // escrita ainda restrita pela RLS
   if (rota === "/minhas-solicitacoes") return true; if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/a-entrar") return true; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/acordos-duplicados") return perfil !== "operador"; if (rota === "/acordos-sem-vinculo") return perfil !== "operador"; if (rota === "/pagamentos-sem-aluno") return perfil !== "operador"; if (rota === "/quitacao-sugerida") return perfil !== "operador"; if (rota === "/conferencia-prime") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador"; if (rota === "/acordos-operador") return perfil !== "operador"; if (rota === "/diagnostico-portador-166") return perfil !== "operador";
   const permissoes = {
     gerencia: [
@@ -770,8 +770,10 @@ export default function App() {
     { rota: "/efetividade", label: "📈 Efetividade", icone: "BarChart3", secao: "Operação" },
     { rota: "/meu-dashboard", label: "Meu Dashboard", icone: "BarChart3", secao: "Gestão" },
     { rota: "/projecao-hora-a-hora", label: "Projeção Hora a Hora", icone: "Clock", secao: "Gestão" },
-    { rota: "/portal-operacional", label: "Portal Operacional", icone: "FileStack", secao: "Gestão" }, { rota: "/tv", label: "📺 TV ReATIVA", icone: "LayoutPanelTop", secao: "Gestão", externo: true },
-    { rota: "/tv-mensagem", label: "📝 Mensagem da TV", icone: "MessageSquare", secao: "Gestão" },
+    { rota: "/portal-operacional", label: "Portal Operacional", icone: "FileStack", secao: "Gestão" }, { rota: "/tv", label: "📺 TV ReATIVA", icone: "LayoutPanelTop", secao: "Gestão", externo: true, href: URL_TV_REATIVA },
+    // "📝 Mensagem da TV" (/tv-mensagem) saiu do menu em 12/11/2026: configurava
+    // a TV antiga do CRM; a nova TV (Netlify) não lê essas configurações.
+    // Os dados (tv_config, tv_mensagem_especial) ficam intactos no banco.
     { rota: "/acoes-massivas", label: "Ações Massivas", icone: "Zap", secao: "Gestão" },
     { rota: "/carteira-geral", label: "Carteira Geral", icone: "Folder", secao: "Gestão" },
     { rota: "/envio-gmail", label: "Envio pelo meu Gmail", icone: "Contact", secao: "Gestão" },
@@ -866,7 +868,7 @@ export default function App() {
       const emA = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emA);
     }
-    if (item.rota === "/tv" || item.rota === "/tv-mensagem") {
+    if (item.rota === "/tv") {
       const emTv = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return ["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br"].includes(emTv);
     }
@@ -1008,7 +1010,7 @@ export default function App() {
                   )}
                   {item.externo ? (
                     <a
-                      href={item.rota}
+                      href={item.href || item.rota}
                       target="_blank"
                       rel="noreferrer"
                       title={sidebarRecolhida ? item.label : undefined}
@@ -1331,7 +1333,7 @@ export default function App() {
               <Route path="/log-nivelamento" element={<LogNivelamento />} />
               <Route path="/sugestoes-recebidas" element={<SugestoesRecebidas />} />
               <Route path="/taxa-conversao" element={<TaxaConversao />} />
-              <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} /> <Route path="/tv-mensagem" element={<RotaProtegida usuario={usuario} rota="/tv-mensagem"><TvMensagem /></RotaProtegida>} /> <Route path="/relatorio-receptivo" element={<RelatorioReceptivo />} /> <Route path="/central-whatsapp" element={<RotaProtegida usuario={usuario} rota="/central-whatsapp"><CentralWhatsApp /></RotaProtegida>} /> <Route path="/leads-whatsapp" element={<RotaProtegida usuario={usuario} rota="/leads-whatsapp"><LeadsWhatsApp /></RotaProtegida>} />
+              <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} /> <Route path="/tv-mensagem" element={<Navigate to="/" replace />} /> <Route path="/relatorio-receptivo" element={<RelatorioReceptivo />} /> <Route path="/central-whatsapp" element={<RotaProtegida usuario={usuario} rota="/central-whatsapp"><CentralWhatsApp /></RotaProtegida>} /> <Route path="/leads-whatsapp" element={<RotaProtegida usuario={usuario} rota="/leads-whatsapp"><LeadsWhatsApp /></RotaProtegida>} />
               <Route path="/dre" element={(["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) || perfil === "diretoria") ? <DRE /> : <Navigate to="/" replace />} />
               <Route path="/fechamento-remuneracao" element={["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) ? <FechamentoRemuneracao /> : <Navigate to="/" replace />} />
               <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} /> <Route path="/a-entrar" element={<HonorariosAEntrar />} /> <Route path="/envio-gmail" element={<EnvioGmailLote />} /> <Route path="/importar-acordos" element={<ImportacaoAcordos />} /> <Route path="/fila-acordos" element={<FilaAcordosConfirmar />} /> <Route path="/acordos-duplicados" element={<AcordosDuplicados />} /> <Route path="/acordos-sem-vinculo" element={<AcordosSemVinculo />} /> <Route path="/pagamentos-sem-aluno" element={<RotaProtegida usuario={usuario} rota="/pagamentos-sem-aluno"><PagamentosSemAluno /></RotaProtegida>} /> <Route path="/quitacao-sugerida" element={<QuitacaoSugerida />} /> <Route path="/conferencia-prime" element={<ConferenciaPrime />} /> <Route path="/ferramentas" element={<Ferramentas />} /> <Route path="/importar-academico" element={<ImportarAcademico />} />
