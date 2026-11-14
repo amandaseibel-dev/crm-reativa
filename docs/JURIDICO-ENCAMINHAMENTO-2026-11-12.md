@@ -226,3 +226,36 @@ R$ 126.231,70 na base geral e nenhum aluno do universo atual do Jurídico
 (`docs/juridico/IMPACTO-CRITERIO-DATA-2026-11-12.md`). Decisão separada da gestão; nada mudou.
 Exemplo: título importado em 02/07/2026 com `liquidado_em` = 02/07/2026 conta como pagamento hoje
 (barra o aluno); pela regra da conciliação seria artefato e não barraria.
+
+## Concorrência real (Postgres 17, duas conexões)
+
+Teste: `supabase/tests/juridico_concorrencia/run.mjs`, job `juridico-concorrencia` da CI
+(postgres 17, banco descartável, dados sintéticos). O PGlite tem sessão única e não prova trava.
+
+- **NOWAIT do aluno, dos acordos e das parcelas:** com a trava ocupada por outra sessão, a
+  aprovação falha em menos de 2 segundos com `40001` ("Tente novamente em instantes"), sem
+  nenhuma alteração parcial (caso, aluno, histórico e assinatura iguais ao estado anterior) e a
+  nova tentativa passa depois que a outra sessão solta a trava.
+- **Troca simultânea de parcelas vencidas do mesmo acordo:** uma sessão segura a primeira
+  parcela e a outra espera pela segunda; a espera termina sem erro e sem ciclo, e a marca
+  `PARCELA_QUEBROU` existe.
+- **Mutações (provam que o teste pega a regressão):** tirar o `NOWAIT` de alunos, de acordos ou
+  de parcelas faz o cenário correspondente falhar com "a aprovação esperou a trava". Tirar o
+  limite de tempo do teste não bastaria: o `lock_timeout` viraria `55P03` e o bloco o converteria
+  em `40001`; por isso a verificação de tempo está em cada cenário.
+- **Leitura de produção (somente leitura):** gatilhos de `parcelas`, `acordos` e `alunos`
+  listados; corpos de `_acordo_fecha_com_a_ultima_parcela`, `atualizar_parcelas_vencidas`,
+  `_trg_recalc_por_parcela`, `_trg_recalc_por_aluno_uuid`, `recalcular_situacao_aluno` (corpo
+  completo, lido em dois trechos) e `_reabrir_aluno_com_divida_nova`. Achado: os dois gatilhos de
+  recálculo engolem qualquer erro (`exception when others then null`); por isso a aprovação
+  nunca pode esperar uma trava (é o que o `NOWAIT` garante).
+
+**Pergunta objetiva para a gestão (não alterada):** acordo quebrado e revisado. Se uma parcela
+nova vence e outra sai de vencida no mesmo comando, mantendo o mesmo saldo e as mesmas
+condições, hoje não há alerta (o acordo já era quebrado e a regra só alerta a passagem de em dia
+para quebrado). Exemplo: revisão com `p1` vencida; depois `p1 -> A_VENCER` e `p2 -> VENCIDA` com o
+mesmo valor. Você quer que esse caso gere revisão (regra por parcela) ou fica como está (regra
+por acordo)? Sem sua resposta, a regra por acordo continua.
+
+**Critério de data (vigente, não alterado):** a diferença para o Prime e para as Ações Massivas
+está na seção "Critério de data do pagamento no extrato Prime" acima.
