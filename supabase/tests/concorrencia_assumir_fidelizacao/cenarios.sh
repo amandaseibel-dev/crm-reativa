@@ -113,10 +113,10 @@ n=$(q "select count(*) from public.casos where operador_email='$MAURICIO'")
 echo "== C6: duas tomadas LIVRES (assumir_caso_livre) disputam a ultima vaga do teto de LUANA (limite 3; tem 2)"
 ambiente_com_teto c6
 psql -v ON_ERROR_STOP=1 -q -c "update public.calibragem_parametros set valor='3'::jsonb where chave='limite_carteira';" >/dev/null
-( { echo "begin;"; jwt $LUANA; echo "select sucesso, mensagem from public.assumir_caso_livre('$U8');"; echo "select pg_sleep(4);"; echo "commit;"; } \
+( { echo "begin;"; jwt $LUANA; echo "select sucesso, mensagem from public.assumir_caso_livre((select id from public.casos where aluno_id='$U8'));"; echo "select pg_sleep(4);"; echo "commit;"; } \
     | psql -At -v ON_ERROR_STOP=1 > "$OUT/c6a.txt" 2>&1 ) &
 sleep 1
-{ jwt $LUANA; echo "select sucesso, mensagem from public.assumir_caso_livre('$U9');"; } \
+{ jwt $LUANA; echo "select sucesso, mensagem from public.assumir_caso_livre((select id from public.casos where aluno_id='$U9'));"; } \
   | psql -At -v ON_ERROR_STOP=1 > "$OUT/c6b.txt" 2>&1 || true
 wait
 sa=$(grep -c '^t|' "$OUT/c6a.txt" || true); sb=$(grep -c '^t|' "$OUT/c6b.txt" || true)
@@ -130,7 +130,7 @@ psql -v ON_ERROR_STOP=1 -q -c "update public.calibragem_parametros set valor='3'
 ( { echo "begin;"; echo "update public.casos set operador_email='$LUANA', operador_nome='LUANA', operador='LUANA' where aluno_id='$U8';"; echo "select pg_sleep(4);"; echo "commit;"; } \
     | psql -At -v ON_ERROR_STOP=1 > "$OUT/c7a.txt" 2>&1 ) &
 sleep 1
-{ jwt $LUANA; echo "select sucesso, mensagem from public.assumir_caso_livre('$U9');"; } \
+{ jwt $LUANA; echo "select sucesso, mensagem from public.assumir_caso_livre((select id from public.casos where aluno_id='$U9'));"; } \
   | psql -At -v ON_ERROR_STOP=1 > "$OUT/c7b.txt" 2>&1 || true
 wait
 grep -q '^f|Carteira cheia' "$OUT/c7b.txt" && ok "tomada esperou o trigger e recusou por teto (sem erro)" || falha "tomada nao recusou limpo: $(cat "$OUT/c7b.txt")"
