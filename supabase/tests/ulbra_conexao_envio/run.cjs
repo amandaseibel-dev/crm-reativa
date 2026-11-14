@@ -492,7 +492,10 @@ async function main() {
     let erro = null;
     try { await c.query(fs.readFileSync(ROLL, "utf8")); } catch (e) { erro = e; }
     if (!erro || !/ROLLBACK_RECUSADO_HA_HISTORICO/.test(erro.message)) throw new Error("rollback deveria recusar: " + (erro ? erro.message : "não recusou"));
+    // O arquivo abriu a transação e abortou: o cliente desfaz, como o psql faria ao fim da sessão.
+    await c.query("rollback");
     igual(await snapshot(c), antesRollback, "objetos depois do rollback recusado");
+    igual((await c.query("select count(*)::int as n from public.ulbra_envios")).rows[0].n >= 0, true, "histórico acessível depois da recusa");
   });
   await c.end();
 

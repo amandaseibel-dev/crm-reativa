@@ -36,7 +36,7 @@ begin
     raise exception 'MIGRATION_20261111140000: service_role sem INSERT em public.auditoria; conceder antes da migration';
   end if;
   -- As tabelas novas têm RLS sem política: a RPC só enxerga linhas se service_role tiver BYPASSRLS (true em produção, 14/11/2026).
-  if not (select rolbypassrls from pg_roles where rolname = 'service_role') then
+  if not coalesce((select rolbypassrls from pg_roles where rolname = 'service_role'), false) then
     raise exception 'MIGRATION_20261111140000: service_role sem BYPASSRLS; a conferência não enxergaria os envios';
   end if;
 end $$;

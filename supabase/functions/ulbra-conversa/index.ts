@@ -90,9 +90,10 @@ Deno.serve(async (req: Request) => {
   const { data: { user } } = await sbUser.auth.getUser();
   if (!user?.email) return responder({ erro: "ACESSO_NEGADO" }, 403);
   const email = user.email.toLowerCase();
-  // ilike do PostgREST trata * % _ como curinga: e-mail com esses caracteres não pode casar com outra linha.
-  if (/[*%_\\]/.test(email)) return responder({ erro: "ACESSO_NEGADO" }, 403);
-  const { data: usuario } = await sb.from("usuarios").select("email, perfil, ativo").ilike("email", email).eq("ativo", true).limit(1).maybeSingle();
+  // ilike do PostgREST trata * como curinga (recusado). \ % _ são escapados: e-mail legítimo com _ continua valendo.
+  if (email.includes("*")) return responder({ erro: "ACESSO_NEGADO" }, 403);
+  const emailLike = email.replace(/[\\%_]/g, (c) => "\\" + c);
+  const { data: usuario } = await sb.from("usuarios").select("email, perfil, ativo").ilike("email", emailLike).eq("ativo", true).limit(1).maybeSingle();
   if (!usuario) return responder({ erro: "ACESSO_NEGADO" }, 403);
 
   // Templates ficam fora desta entrega: recusa explícita, nunca envio silencioso como texto.

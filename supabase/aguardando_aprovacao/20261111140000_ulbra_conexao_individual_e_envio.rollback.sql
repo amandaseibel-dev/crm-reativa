@@ -1,11 +1,21 @@
--- EXECUTAR EM TRANSAÇÃO ÚNICA: psql -1 -f <arquivo>. Sem -1, cada instrução é commitada à parte
--- e a recusa por histórico não impede o DROP FUNCTION que vem antes.
 -- ROLLBACK da 20261111140000 — SOMENTE ANTES DE QUALQUER USO.
+-- Este arquivo abre a própria transação (begin ... commit): qualquer erro reverte tudo, com ou sem psql -1.
+-- Não depende de flag de execução. Rodar só com psql -f <arquivo>.
 -- Remove as quatro tabelas criadas por esta migração, e só enquanto elas estiverem VAZIAS.
 -- Se houver conexões, prévias ou envios, recusa: após uso real, não se apaga histórico.
 -- Reversão com histórico = desativar (ULBRA_ENVIO_REAL e ULBRA_CONTRATO_PREVIA_CONFIRMADO
 -- desligados, conexões revogadas pela função), preservando registros e auditoria.
+begin;
+
 lock table public.ulbra_envios, public.ulbra_envio_previas, public.ulbra_conexoes_operador, public.ulbra_conexoes_pedidos in access exclusive mode;
+
+-- Sem BYPASSRLS, a RLS sem política esconde as linhas: a checagem de histórico passaria com tabelas cheias.
+do $$
+begin
+  if not coalesce((select rolbypassrls from pg_roles where rolname = current_user), false) then
+    raise exception 'ROLLBACK_RECUSADO: papel % sem BYPASSRLS; a RLS esconderia o histórico', current_user;
+  end if;
+end $$;
 
 do $$
 begin
@@ -24,3 +34,5 @@ drop table if exists public.ulbra_envios;
 drop table if exists public.ulbra_envio_previas;
 drop table if exists public.ulbra_conexoes_operador;
 drop table if exists public.ulbra_conexoes_pedidos;
+
+commit;
