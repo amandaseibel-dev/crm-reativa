@@ -212,8 +212,11 @@ end $$;
 -- tratou. O gatilho passa a zerar a confirmacao quando a data OU a hora muda.
 -- A funcao do gatilho nao e tocada. O motor nao escreve `hora_retorno`, entao
 -- este disparo novo so acontece por gravacao da tela.
--- RESIDUO DECLARADO: reagendar para a mesma data E a mesma hora (ou ambos sem
--- hora) continua indistinguivel do combinado ja dado como tratado.
+-- O CASO MESMA DATA E MESMA HORA nao dispara o gatilho. Quem fecha esse caso e
+-- a TELA: no reagendamento digitado (motivo DIGITADA, PainelCarteira.jsx,
+-- gravacoes da tabulacao) a propria gravacao zera `retorno_confirmado_em`.
+-- Gravacao comum da ficha, sem retorno novo, nao zera. O recalculo automatico
+-- nunca escreve a confirmacao, entao nao pode ser lido como reagendamento.
 do $$
 declare
   v_def text;

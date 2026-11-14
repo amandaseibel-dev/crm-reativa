@@ -2041,6 +2041,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
           camposAluno.hora_retorno = null;
           camposAluno.retorno_prioritario = false;
         }
+        // Reagendamento digitado = compromisso novo, pendente mesmo com a mesma data e hora.
+        if (desfecho.motivo === "DIGITADA") camposAluno.retorno_confirmado_em = null;
       }
       const textoRetorno = desfecho.data_retorno ? ` Retorno: ${formatarData(desfecho.data_retorno)}.` : "";
 
@@ -2303,6 +2305,11 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         // que ele mesmo marcou. Prazo automatico da tabulacao nunca nasce
         // prioritario, senao a fila inteira subiria junto.
         atualizacaoAluno.retorno_prioritario = desfecho.motivo === "DIGITADA" ? Boolean(retornoPrioritario) : false;
+        // Reagendar com data e hora digitadas e um compromisso NOVO: nasce
+        // pendente mesmo que data e hora sejam as mesmas do anterior (nesse
+        // caso o gatilho nao dispara). Gravacao sem retorno novo nao chega aqui
+        // e preserva o "Ja falei".
+        if (desfecho.motivo === "DIGITADA") atualizacaoAluno.retorno_confirmado_em = null;
       } else {
         // Tabulou sem agendar retorno: nao ha compromisso, nao ha prioridade.
         atualizacaoAluno.retorno_prioritario = false;

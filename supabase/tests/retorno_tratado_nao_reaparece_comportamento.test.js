@@ -420,6 +420,37 @@ describe("corrigido: corpo de producao + SQL pendente", () => {
     expect(t.aviso?.id).toBe(ALUNA);
   });
 
+  it("novo agendamento com a MESMA data e a MESMA hora, depois do 'Ja falei', nasce pendente", async () => {
+    // A tela grava data, hora e origem e zera a confirmacao (motivo DIGITADA).
+    // Nada muda nos campos de data/hora, entao so o zeramento explicito conta.
+    const db = await montar({ corrigido: true });
+    await agendar(db, ALUNA, 0, "10:00");
+    await jaFalei(db, ALUNA);
+    await db.query(
+      `update public.alunos
+          set data_retorno = data_retorno, hora_retorno = hora_retorno,
+              retorno_origem = 'OPERADOR', retorno_confirmado_em = null
+        where id = $1`,
+      [ALUNA]
+    );
+    expect((await tela(db, "10:01")).linha(ALUNA).retorno_confirmado_em).toBeNull();
+    await amanhece(db);
+    const t = await tela(db, "10:00");
+    const a = t.linha(ALUNA);
+    expect(`${a.retorno_e_hoje}:${a.retorno_origem}:${a.hora_retorno}`).toBe("true:OPERADOR:10:00");
+    expect(t.aviso?.id).toBe(ALUNA);
+  });
+
+  it("a tela zera a confirmacao SO em reagendamento digitado; gravacao comum da ficha preserva o 'Ja falei'", () => {
+    const tela = readFileSync(resolve(AQUI, "..", "..", "src/components/PainelCarteira.jsx"), "utf8");
+    const digitadas = tela.match(/motivo === "DIGITADA"\) (atualizacaoAluno|camposAluno)\.retorno_confirmado_em = null;/g) ?? [];
+    expect(digitadas.length).toBe(2);
+    // nenhuma outra atribuicao da coluna na tela
+    expect(tela.match(/retorno_confirmado_em\s*=\s*null/g)?.length ?? 0).toBe(2);
+    // a gravacao comum da ficha (observacao) nao carrega a coluna
+    expect(tela).toMatch(/atualizacaoAluno\.observacao = observacao;/);
+  });
+
   it("sem a parte do gatilho, esse mesmo roteiro perderia o selo -- por isso ela existe", async () => {
     const db = await montar({ corrigido: true });
     // devolve so o gatilho ao que era (a funcao continua com o patch)
