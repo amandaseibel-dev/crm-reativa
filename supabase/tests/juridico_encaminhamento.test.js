@@ -1272,8 +1272,7 @@ describe("fechamento: alertas falsos, nova quebra, concorrencia simulada e confi
     await rpc(db, "public.juridico_caso_aprovar_acordo_ativo($1,'pedido',$2)", [caso.id, await ativos(db, a.al)]);
     await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
     await db.query("update acordos set valor_entrada=100.00 where id=$1", [a.ac]);
-    await db.query("update parcelas set boleto='99900001' where acordo_id=$1 and numero=1", [a.ac]);
-    await db.query("update parcelas set boleto=null where acordo_id=$1 and numero=1", [a.ac]);
+    await db.query("update parcelas set boleto='99900001' where acordo_id=$1 and numero=1", [a.ac]); // boleto reescrito e MANTIDO
     expect(await divs(db, caso)).toEqual([]);
     await db.close();
   });
@@ -1311,6 +1310,15 @@ describe("fechamento: alertas falsos, nova quebra, concorrencia simulada e confi
     await db.query("update parcelas set status='VENCIDA' where acordo_id=$1 and numero=1", [a.ac]);
     expect(await divs(db, caso)).toContain("ACORDO_QUEBRADO_SEM_REVISAO");
     expect((await falha(enviar(db, l)))?.message).toMatch(/ACORDO_QUEBRADO_SEM_REVISAO/);
+    await db.close();
+  });
+
+  it("F4b. quebra NATURAL de outra parcela de acordo ja quebrado e aprovado NAO gera alerta e o envio passa", async () => {
+    const db = await novo();
+    const { a, l, caso } = await quebradoAprovado(db);
+    await db.query("update parcelas set status='VENCIDA' where acordo_id=$1 and numero=2", [a.ac]);
+    expect(await divs(db, caso)).toEqual([]);
+    expect((await enviar(db, l)).enviados_agora).toBe(1);
     await db.close();
   });
 

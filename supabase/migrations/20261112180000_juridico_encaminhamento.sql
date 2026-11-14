@@ -1146,7 +1146,13 @@ begin
      for update) x;
   v_acordos := coalesce(v_acordos, '{}'::uuid[]);
   -- parcelas desses acordos tambem travadas, e a assinatura lida antes da conferencia
-  perform 1 from public.parcelas p where p.acordo_id = any(v_acordos) for update;
+  -- NOWAIT: quem altera parcela trava na ordem inversa (parcela, depois aluno, pelo gatilho de
+  -- recalculo de situacao). Esperar poderia gerar deadlock; falhar rapido e pedir nova tentativa.
+  begin
+    perform 1 from public.parcelas p where p.acordo_id = any(v_acordos) for update nowait;
+  exception when lock_not_available then
+    raise exception 'Parcelas em uso por outra rotina. Tente novamente em instantes.' using errcode = '40001';
+  end;
   v_sig := public._juridico_acordos_assinatura(v_caso.aluno_id);
 
   v_conf := public._juridico_conferencia(v_caso.aluno_id);
@@ -1557,7 +1563,14 @@ begin
     from new_t n join old_t o on o.id = n.id
     join public.acordos a on a.id = n.acordo_id and upper(coalesce(a.status,'')) = 'ATIVO' and a.duplicado_de is null
     join public.juridico_casos jc on jc.aluno_id = a.aluno_id and jc.status <> 'REMOVIDO'
-   where upper(coalesce(n.status,'')) = 'VENCIDA' and upper(coalesce(o.status,'')) <> 'VENCIDA';
+   where upper(coalesce(n.status,'')) = 'VENCIDA' and upper(coalesce(o.status,'')) <> 'VENCIDA'
+     -- so a passagem de EM DIA para QUEBRADO: se o acordo ja tinha outra parcela vencida antes
+     -- deste comando, a quebra natural de mais uma parcela nao e uma nova quebra
+     and not exists (select 1 from public.parcelas p
+                      where p.acordo_id = n.acordo_id and upper(coalesce(p.status,'')) = 'VENCIDA'
+                        and p.id not in (select id from new_t))
+     and not exists (select 1 from old_t o2
+                      where o2.acordo_id = n.acordo_id and upper(coalesce(o2.status,'')) = 'VENCIDA');
   insert into public.juridico_historico (caso_id, lote_id, evento, detalhe, por)
   select jc.id, jc.lote_id, 'PARCELA_MATERIAL',
          jsonb_build_object('parcela_id', n.id, 'acordo_id', n.acordo_id,
