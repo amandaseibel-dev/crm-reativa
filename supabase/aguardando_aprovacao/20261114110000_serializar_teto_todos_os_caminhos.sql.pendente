@@ -1,10 +1,11 @@
--- SERIALIZAR O TETO POR OPERADOR EM TODOS OS CAMINHOS. STATUS: PENDENTE, NAO APLICAR.
+-- SERIALIZAR O TETO POR OPERADOR NOS CAMINHOS LISTADOS ABAIXO (nao em todos). STATUS: PENDENTE, NAO APLICAR.
 --
 -- Mesmo mecanismo de todas as tomadas da #953: pg_advisory_xact_lock(hashtext('assumir_teto:' || email)),
 -- tomado ANTES de contar o teto. Sem ele, duas transacoes que atribuem casos ao mesmo operador
 -- contam o teto antes de qualquer uma gravar, e as duas passam.
 --
--- CAMINHOS COBERTOS (com esta migration + a #953):
+-- CAMINHOS COBERTOS (com esta migration + a #953). NAO COBERTOS: INSERT com operador (o trigger e so
+-- AFTER UPDATE) e qualquer atribuicao feita com calibragem.bypass_teto='on' (o trigger sai antes do lock).
 --   * assumir_caso_fidelizacao_vencida (#953): ja toma o lock.
 --   * reverter_assumir_fidelizacao (#953): ja toma o lock do anterior.
 --   * assumir_caso_livre: este arquivo (patch ancorado).
@@ -13,7 +14,7 @@
 -- DEPENDENCIA: a #936 altera assumir_caso_livre e trg_impor_teto_operador. Esta migration
 -- so pode ser aplicada DEPOIS da #936 em producao e conferida. As ancoras abaixo foram
 -- verificadas contra o corpo ATUAL de producao (assumir_caso_livre md5 607a8b4f...,
--- trg_impor_teto_operador md5 3d01bbd1...). Depois da #936 as ancoras precisam ser revalidadas:
+-- trg_impor_teto_operador md5 3d01bbd1..., medido na fixture; producao de 14/11 NAO CONFERIDA). Depois da #936 as ancoras precisam ser revalidadas:
 -- se nao baterem, a migration FALHA (patch_funcao_ancorada, falha fechada), sem aplicar pela metade.
 --
 -- Chave do lock: lower(email). A #953 usa lower(p_email) na tomada e na reversao; o trigger usa lower(NEW.operador_email).

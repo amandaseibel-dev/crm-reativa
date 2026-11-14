@@ -29,10 +29,9 @@
 --
 -- ATOMICIDADE: trava aluno e depois caso (ordem dos caminhos de acionamento). Um
 -- acionamento que grava so em alunos OU so em casos entra na leitura feita depois do lock.
--- Teto: pg_advisory_xact_lock por operador antes de contar, nesta RPC e na reversao. Os demais
--- caminhos que atribuem casos (assumir_caso_livre e o trigger de teto) so passam a travar com o
--- patch 20261114110000 (pendente, depende da #936). Antes dele, a serializacao NAO e garantida
--- contra esses caminhos. Ver C6 e C7 em supabase/tests/concorrencia_assumir_fidelizacao/.
+-- Teto: pg_advisory_xact_lock por operador antes de contar, nesta RPC e na reversao. assumir_caso_livre
+-- e o trigger de teto so travam com o patch 20261114110000 (pendente, depende da #936). Fora dos caminhos
+-- listados no patch (INSERT com operador, bypass de calibragem) a serializacao NAO e garantida. Ver C6 e C7 em supabase/tests/concorrencia_assumir_fidelizacao/.
 --
 -- RECUSAS DE NEGOCIO: retorno estruturado com mensagem unica (nao revela existencia, estado nem
 -- motivo). Nao controlamos o tempo de resposta: o texto e uniforme, o timing nao e garantido.
