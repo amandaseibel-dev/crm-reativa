@@ -89,7 +89,7 @@ echo "leitor=$R1 rollback=$R2 captura_concorrente=$R3"
 [ "$R1" -eq 0 ] || falha "leitor deveria concluir"
 [ "$R2" -eq 0 ] || { cat "$TMP/b2.out"; falha "rollback sem historico deveria concluir"; }
 [ "$R3" -ne 0 ] || falha "captura concorrente sem tabela deveria falhar, nao gravar em silencio"
-grep -q 'relation "relatorio_mens_2026_2_snapshot" does not exist' "$TMP/b3.out" || { cat "$TMP/b3.out"; falha "falha da captura concorrente deveria ser 'relation ... does not exist'"; }
+grep -qE 'relation "(public\.)?relatorio_mens_2026_2_snapshot" does not exist' "$TMP/b3.out" || { cat "$TMP/b3.out"; falha "falha da captura concorrente deveria ser 'relation ... does not exist'"; }
 [ "$(q "SELECT to_regclass('public.relatorio_mens_2026_2_snapshot') IS NULL")" = "t" ] || falha "tabela deveria ter sido removida sem historico"
 [ "$(q "SELECT count(*) FROM pg_proc WHERE proname LIKE 'relatorio_mensalidades_2026_2%' OR proname IN ('_relatorio_2026_2_eleg','_cpf_valido_2026_2')")" = "0" ] || falha "funcoes nao foram removidas"
 
