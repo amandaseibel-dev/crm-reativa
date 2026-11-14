@@ -6,12 +6,12 @@ Status: **PENDENTE DE APROVAÇÃO EXPRESSA PARA APLICAÇÃO.** Este documento re
 
 Cria a tabela `public.aluno_termo_fisico_eventos` (append-only), RLS, as RPCs `termo_fisico_ler` e `termo_fisico_registrar`, as triggers de bloqueio e avisos em `notificacoes` para os três e-mails de `usuario_e_gestao()`. Não altera alunos, movimentações, casos, fila, fidelização, retorno, acordos, parcelas, títulos, catálogo `tabulacoes` nem efeito financeiro.
 
-## Artefatos (branch `feat/termo-fisico-registro-migracao`, PR #954)
+## Artefatos (branch `feat/termo-fisico-registro-migracao`, PR #954, commit 4727c6f7705eea0a8401cd2db3f174f22696e55b)
 
 | Arquivo | SHA-256 | Bytes |
 |---|---|---|
-| `supabase/aguardando_aprovacao/20261113120000_aluno_termo_fisico_registro.sql.pendente` | `898a989b85a965b95a14e925ef4d50d43e44fcc43bb18dc9afb2c1a08f8b6844` | 8118 |
-| `supabase/aguardando_aprovacao/20261113120000_aluno_termo_fisico_registro.rollback.sql` | `8dcce04650aa8e65e98ab75230bd859ff92f9ab5cdf03b6ea1871a169e76aca9` | 1936 |
+| `supabase/aguardando_aprovacao/20261113120000_aluno_termo_fisico_registro.sql.pendente` | `463079e521bdb50bf6dfa8177f2e5b8d6514ade62bd328ae681cac57a1c8a5e1` | 8540 |
+| `supabase/aguardando_aprovacao/20261113120000_aluno_termo_fisico_registro.rollback.sql` | `8c0ac2be1b7526f227f17b945c6afe02a2065aa4c83263da87bcbac76eb300fb` | 2221 |
 
 O SHA-256 acima vale para o commit da PR. Se o arquivo mudar, este quadro precisa ser refeito.
 
@@ -29,8 +29,12 @@ O SHA-256 acima vale para o commit da PR. Se o arquivo mudar, este quadro precis
 
 ## Efeito e reversão
 
-- Rollback (`.rollback.sql`): remove as RPCs, **renomeia** a tabela para `aluno_termo_fisico_eventos_descartada_20261113`, mantém as triggers e retira todo acesso dos papéis da aplicação. Não apaga dados.
-- Reinstalação: documentada no próprio rollback (copia com `on conflict (id) do nothing`; a tabela arquivada continua sem acesso).
+- Rollback (`.rollback.sql`): remove as RPCs, **renomeia** a tabela e o índice (`aluno_termo_fisico_eventos_descartada_20261113` e `..._descartada_20261113_aluno_idx`), mantém as triggers e retira todo acesso dos papéis da aplicação, inclusive PUBLIC. Não apaga dados.
+- Reinstalação: documentada no próprio rollback (copia com `on conflict (id) do nothing`; a tabela arquivada continua sem acesso; o índice volta com o nome original, porque foi renomeado no rollback).
+
+## Aviso de notificação (decisão pendente da gestão)
+
+A policy `notificacoes_select` em produção (lida por leitura) libera a linha a `usuario_e_gestao_fila()`, que inclui os perfis `gerencia`, `supervisor` e `administrativo`. Por isso o aviso **não leva** `aluno_id`, situação nem autor: mensagem genérica, "Registro administrativo atualizado". Mesmo assim, esses perfis veem que existe um aviso de termo físico. Restringir isso exige mudar a policy existente, que afeta outros fluxos. Alternativa: não notificar pelo canal (a gestão combina por fora). **Decisão necessária antes da aplicação.**
 
 ## Aprovação
 
