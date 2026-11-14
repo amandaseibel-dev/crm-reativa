@@ -90,7 +90,7 @@ Deno.serve(async (req: Request) => {
   const { data: { user } } = await sbUser.auth.getUser();
   if (!user?.email) return responder({ erro: "ACESSO_NEGADO" }, 403);
   const email = user.email.toLowerCase();
-  const { data: usuario } = await sb.from("usuarios").select("email, perfil, ativo").ilike("email", email).eq("ativo", true).limit(1).maybeSingle();
+  const { data: usuario } = await sb.from("usuarios").select("email, perfil, ativo").ilike("email", email.replace(/[\\%_]/g, (c) => "\\" + c)).eq("ativo", true).limit(1).maybeSingle();
   if (!usuario) return responder({ erro: "ACESSO_NEGADO" }, 403);
 
   // Templates ficam fora desta entrega: recusa explícita, nunca envio silencioso como texto.

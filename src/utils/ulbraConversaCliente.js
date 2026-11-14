@@ -2,7 +2,7 @@
 // Cliente das funções `ulbra-historico` e `ulbra-conversa` para a tela.
 //
 // Toda chamada leva o JWT do usuário logado; nenhuma usa credencial central.
-// Cada chamada que vai à ULBRA custa cota: histórico (1 por página, cota da
+// Cada chamada que vai à ULBRA é chamada de ferramenta; o consumo de cota de cada uma ainda não está comprovado (mensageria-ulbra.md). Histórico (1 por página, cota da
 // credencial de backend), prévia e envio (1 cada, cota DO OPERADOR), conexão
 // (1 `meu_acesso` do operador ao conectar). A tela mostra isso antes do clique.
 // ===========================================================================

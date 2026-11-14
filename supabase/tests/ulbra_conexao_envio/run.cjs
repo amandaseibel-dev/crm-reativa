@@ -496,6 +496,6 @@ async function main() {
 
 main().catch((e) => {
   console.error("erro fatal:", e.message);
-  clearTimeout(WATCHDOG);
-  process.exitCode = 1;
+  // Saída explícita: conexões abertas no setup não podem manter o processo vivo.
+  process.exit(1);
 });

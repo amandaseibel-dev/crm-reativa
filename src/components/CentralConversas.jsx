@@ -192,7 +192,7 @@ export default function CentralConversas({
                   </span>
                   {onConectar ? (
                     <button type="button" className="ulbra-link" data-campo="conectar" onClick={onConectar}>
-                      Conectar minha conta da Mensageria (abre a ULBRA; 1 chamada da sua cota)
+                      Conectar minha conta da Mensageria (abre a ULBRA; consumo de cota ainda não comprovado)
                     </button>
                   ) : null}
                 </>

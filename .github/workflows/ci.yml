@@ -1161,6 +1161,8 @@ jobs:
       PGPORT: '5432'
       PGUSER: postgres
       PGPASSWORD: postgres
+      # O runner só apaga bancos em servidor declarado descartável (serviço postgres:17 do próprio job).
+      ULBRA_TESTE_DESCARTAVEL: 'sim'
 
     steps:
       - uses: actions/checkout@v5

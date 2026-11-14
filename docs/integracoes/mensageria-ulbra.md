@@ -82,6 +82,7 @@ prova de cadastro (tratado como `NAO_ENCONTRADO`).
 | Função | Ferramenta usada | Portão |
 |---|---|---|
 | `ulbra-consultar` | `conferir_duplicidade` (1 chamada, **telefone e CPF nas duas posições**) | JWT + usuário ativo; operador só aluno da própria carteira; grava `ulbra_vinculos` e `auditoria` (`ULBRA_CONSULTA`, `ULBRA_VINCULO_CRIADO`, `ULBRA_VINCULO_BLOQUEADO`) |
+| `ulbra-conversa` | conexão individual (OAuth por operador), histórico sob demanda, prévia e envio de texto livre (PENDENTE; migration `20261111140000` não aplicada) | JWT + usuário ativo; conexão e envio só da própria conta do operador; envio desligado por `ULBRA_ENVIO_REAL` e `ULBRA_CONTRATO_PREVIA_CONFIRMADO`; grava `ulbra_envios`, `ulbra_envio_previas`, `ulbra_conexoes_operador` e `auditoria` (`ULBRA_ENVIO_CONFERIDO`) |
 | `ulbra-leads-pendentes` | `listar_atendimentos {situacao:"waiting"}` | JWT; `receptivo` da própria linha ou `usuario_e_gestao()`; filtra equipe `"Reativa"`; devolve só id, nome, data |
 
 Componente da ficha: `src/components/BlocoUlbra.jsx` (botão "Abrir na
@@ -635,5 +636,7 @@ Evidência que falta, e forma mínima de obtê-la sem envio real:
 - `enviar_mensagem_whatsapp` com `previa: true`: 1 chamada de ferramenta. Consumo de cota e custo NÃO comprovados (a descrição fala em "custo estimado", sem valor).
 - `consultar_atendimento` num atendimento próprio: 1 chamada de ferramenta. Consumo de cota NÃO comprovado.
 - Total com consumo de cota: 3 chamadas, além da descoberta. Não há outras chamadas previstas nesta etapa.
+
+**Envio preso em `ENVIANDO`.** Se o processo cair entre marcar `ENVIANDO` e gravar o retorno, o envio fica em `ENVIANDO` e bloqueia qualquer reenvio. A conferência administrativa NÃO pode declarar "não enviado" nesse caso (`NAO_ENVIADO_SO_DE_PENDENTE`). As saídas são: `CONFIRMADO_ENVIADO` quando a gestão verificar a conversa na Mensageria, ou manter o bloqueio até essa verificação. Não há procedimento automático de reconciliação; a decisão é humana e fica auditada.
 
 **Limites.** Os limites observados em `meu_acesso` (15 por minuto na conexão, 30 por minuto por pessoa, 10.000 por dia por pessoa) pertencem à conta consultada na sessão, que não é a do piloto. Os limites da conta do piloto precisam ser lidos na própria conta, por `meu_acesso`, antes de qualquer teste.
