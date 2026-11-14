@@ -495,6 +495,59 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_depois_do_rollback.sql"
 
   # ---------------------------------------------------------------------------
+  # ULBRA — conversas do período (Mensageria de novembro): isolamento entre
+  # operadores, gestão, revogação de vínculo, direção e rollback, no Postgres real.
+  # ---------------------------------------------------------------------------
+  ulbra-central-conversas-periodo:
+    name: ulbra central conversas do periodo — isolamento, gestao, vinculo e rollback (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      REC: supabase/tests/ulbra_recebimento
+      DIR: supabase/tests/ulbra_central
+      VINC: supabase/tests/ulbra_identidade_concorrencia/00_stub_vinculos.sql
+      PILOTO: supabase/aguardando_aprovacao/20261108140000_ulbra_recebimento_e_fila.sql.pendente
+      CENTRAL: supabase/aguardando_aprovacao/20261109150000_ulbra_central_operador.sql.pendente
+      CONVERSAS: supabase/aguardando_aprovacao/20261111120000_ulbra_central_conversas_periodo.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261111120000_ulbra_central_conversas_periodo.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ambiente, piloto, seed, vinculos, central, conversas do periodo, provas, rollback e verificacao
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$REC/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$PILOTO"
+          psql -v ON_ERROR_STOP=1 -f "$REC/02_dados.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_complemento.sql"
+          psql -v ON_ERROR_STOP=1 -f "$VINC"
+          psql -v ON_ERROR_STOP=1 -f "$CENTRAL"
+          psql -v ON_ERROR_STOP=1 -f "$CONVERSAS"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/05_conversas_periodo.sql"
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/06_depois_do_rollback_conversas.sql"
+
+  # ---------------------------------------------------------------------------
   # ULBRA — verificação de TIPOS e IMPORTS da Edge Function com o Deno, em
   # versão FIXADA. O transform do Vitest não prova isso: ele não resolve
   # imports remotos (esm.sh) nem checa tipos do runtime Deno.
@@ -586,6 +639,50 @@ jobs:
         env:
           DENO_NO_PACKAGE_JSON: '1'
         run: deno check supabase/functions/tv-dados/index.ts
+
+
+  # ---------------------------------------------------------------------------
+  # ULBRA — leitura do vinculo para a ficha: AUTORIZACAO sobre o aluno, em
+  # Postgres 17 descartavel. Dois operadores, gestao, supervisor, inativo, painel e
+  # anon. Roda a migration CANDIDATA (aguardando_aprovacao), nao producao.
+  # ---------------------------------------------------------------------------
+  ulbra-vinculo-leitura-sql:
+    name: ulbra vinculo — autorizacao por aluno, perfis, painel e anon (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/ulbra_vinculo_leitura
+      MIGRATION: supabase/aguardando_aprovacao/20261109180000_ulbra_vinculo_leitura.sql.pendente
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ambiente, montagem, migration candidata e provas de autorizacao
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/00_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_montagem.sql"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_provas.sql"
 
   # ---------------------------------------------------------------------------
   # PROPOSTA_staging_acordos_prime.sql — RLS, grants e isolamento do staging
@@ -953,13 +1050,56 @@ jobs:
         run: bash supabase/tests/ulbra_identidade_concorrencia/run.sh
 
   # ---------------------------------------------------------------------------
-  # CONTINUIDADE v2 — proposta de 09/11/2026, NAO aplicada em producao.
-  # Ancora a continuidade no historico real de mensagens, nao em
-  # whatsapp_abordagens (foi o furo da v1).
+  # PROJEÇÃO — PDF hora a hora com o mesmo acesso da tela (20261112160000).
   #
-  # Ordem: guarda -> ambiente -> regra ATUAL -> migration v2 -> 17 casos ->
-  #        concorrencia com 2 conexoes -> rollback -> conferencia do rollback.
+  # Ordem: estado anterior (reproduz o bug) -> migration candidata -> regressão
+  # -> rollback -> bloqueios após rollback. Dados 100% sintéticos (.teste.local).
+  # A migration NÃO é aplicada em produção por este job.
   # ---------------------------------------------------------------------------
+  projecao-pdf-acesso-sql:
+    name: projecao pdf — acesso da tela, regressão diretoria e rollback (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/projecao_relatorio_pdf_acesso
+      ANTERIOR: supabase/migrations/20260729240000_projecao_relatorio_pdf.sql
+      MIGRATION: supabase/aguardando_aprovacao/20261112160000_projecao_relatorio_pdf_acesso_da_tela.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261112160000_projecao_relatorio_pdf_acesso_da_tela.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ambiente, versão anterior, bug reproduzido, migration, regressão, rollback e bloqueios
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$ANTERIOR"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_dados_sinteticos.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/03_antes_da_correcao.sql"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/04_depois_da_correcao.sql"
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/05_apos_rollback.sql"
+
   whatsapp-continuidade-v2:
     name: whatsapp continuidade v2 (postgres isolado)
     runs-on: ubuntu-latest

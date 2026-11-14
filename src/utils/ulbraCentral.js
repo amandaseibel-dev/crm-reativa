@@ -128,7 +128,21 @@ export const DESTINO = {
 
 // ------------------------------------------------------------------ filtros
 // Vivem na URL: abrir a ficha e voltar devolve a mesma lista.
-export const VISOES = ["cartoes", "conversas"];
+// `mensageria`: conversas da equipe Reativa no período (visão própria);
+// `conversas`: carteira interna (fila por tempo sem acionamento).
+export const VISOES = ["cartoes", "conversas", "mensageria"];
+
+const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+/** "novembro de 2026" a partir do início do período (ISO), em Brasília. Sem data: "período atual". */
+export function rotuloPeriodo(desdeIso) {
+  if (!desdeIso) return "período atual";
+  const d = new Date(desdeIso);
+  if (Number.isNaN(d.getTime())) return "período atual";
+  const partes = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "numeric" }).formatToParts(d);
+  const ano = partes.find((x) => x.type === "year")?.value;
+  const mes = Number(partes.find((x) => x.type === "month")?.value);
+  return mes >= 1 && mes <= 12 ? `${MESES[mes - 1]} de ${ano}` : "período atual";
+}
 
 export function lerFiltros(search) {
   const p = new URLSearchParams(search || "");

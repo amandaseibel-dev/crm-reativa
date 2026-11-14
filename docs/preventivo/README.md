@@ -429,3 +429,38 @@ O dublê **não tem como ir ao ar**: ele lança erro se for carregado num build 
 produção, só é ligado pela config exclusiva do preview, e há teste que reprova
 se algum arquivo de `src/` passar a importá-lo ou se o `index.html` da aplicação
 apontar para a entrada do preview.
+
+---
+
+## Visão geral, mudanças de valor e histórico do aluno (12/11/2026)
+
+Aba **Visão geral** (primeira aba do Preventivo). Só leitura; nenhuma tabela
+nova e nenhuma regra de cobrança alterada. Migration
+`20261112120000_preventivo_visao_geral_historico.sql` (não aplicada em produção;
+reversão em `supabase/rollbacks/`).
+
+| RPC | O que responde |
+|---|---|
+| `preventivo_visao_geral(periodo)` | matriculados, adimplentes, inadimplentes, valores a vencer e vencidos da **última remessa de cada carteira**, filtrável por período acadêmico (`2026/2`, `2027/1`) |
+| `preventivo_remessa_mudancas(lote)` | títulos presentes nas duas remessas consecutivas cujo **valor mudou** (completa entraram/permaneceram/saíram de `preventivo_remessa_comparar`). Sem ordem comprovada entre as remessas, recusa afirmar |
+| `preventivo_aluno_historico(busca)` | linha do tempo por título, por **matrícula ou CPF exatos** (nome nunca identifica). Fica depois de o título sair da base ou passar de 31 dias |
+
+**Regras que a tela e o banco seguram:**
+
+- **Período acadêmico** = semestre do vencimento de origem: jan–jun = `AAAA/1`,
+  jul–dez = `AAAA/2`. Convenção do Preventivo, não dado do Prime.
+- **Adimplente** = aluno da última remessa sem título vencido; **inadimplente** =
+  com ao menos um. Vale para o que o relatório importado traz: se o relatório for
+  só de inadimplência, todo aluno nele é inadimplente por construção.
+- **Pagos confirmados = 0, sempre.** A API do Prime não expõe situação do título
+  (`docs/integracoes/prime-mapa-fontes-verdade.md`). O título que sumiu do
+  relatório aparece como **"Saiu da base — conferir no Prime"**, nunca como pago.
+- **Não duplica:** reimportar atualiza o valor e registra a presença na remessa,
+  mantendo um título por (carteira, matrícula, chave). Com número de título
+  (`documento`) no arquivo, ele é a chave.
+- **Cobrança:** nada aqui transfere aluno. Passar de 31 dias muda só o status; o
+  histórico permanece. A entrada na carteira ReATIVA por borderô **não** foi
+  ligada nesta entrega.
+
+Testes: `supabase/tests/preventivo_visao_geral_historico.test.js`
+(deduplicação, histórico, pagamentos e permissões).
