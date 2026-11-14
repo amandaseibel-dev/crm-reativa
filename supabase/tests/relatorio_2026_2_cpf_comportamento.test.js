@@ -283,6 +283,37 @@ describe("relatorio 2026/2: classificacao de CPF por aluno e contagem por aluno_
     expect(fn.rows[0].n).toBe(1);
   });
 
+  it("apos reinstalacao com historico: grants, RLS e execucao como authenticated iguais aos da primeira aplicacao", async () => {
+    await db.exec(`INSERT INTO relatorio_mens_2026_2_snapshot (dia, cpfs, alunos, mensalidades, saldo) VALUES ('2026-11-13', 3, 6, 8, 780)`);
+    await db.exec(ROLLBACK);
+    await db.exec(MIGRATION);
+    const fnPriv = async (role, fn) =>
+      (await db.query(`SELECT has_function_privilege($1, $2, 'EXECUTE') AS ok`, [role, fn])).rows[0].ok;
+    expect(await fnPriv("authenticated", "public.relatorio_mensalidades_2026_2_sem_negociacao()")).toBe(true);
+    expect(await fnPriv("authenticated", "public.relatorio_mensalidades_2026_2_capturar()")).toBe(true);
+    for (const role of ["anon", "authenticated"]) {
+      for (const fn of ["public.relatorio_mensalidades_2026_2_sem_negociacao()", "public.relatorio_mensalidades_2026_2_capturar()"]) {
+        if (role === "anon") expect(await fnPriv(role, fn), `${role} ${fn}`).toBe(false);
+      }
+      for (const fn of ["public._relatorio_2026_2_eleg()", "public._cpf_valido_2026_2(text)"]) {
+        expect(await fnPriv(role, fn), `${role} ${fn}`).toBe(false);
+      }
+      for (const priv of ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"]) {
+        const { rows } = await db.query(
+          `SELECT has_table_privilege($1, 'public.relatorio_mens_2026_2_snapshot'::regclass, $2) AS ok`,
+          [role, priv],
+        );
+        expect(rows[0].ok, `${role} ${priv}`).toBe(false);
+      }
+    }
+    const rls = await db.query("SELECT relrowsecurity AS rls FROM pg_class WHERE oid = 'public.relatorio_mens_2026_2_snapshot'::regclass");
+    expect(rls.rows[0].rls).toBe(true);
+    await db.exec(`SET app.email = '${OUTRA}'`);
+    await db.exec("SET ROLE authenticated");
+    await expect(db.query("SELECT relatorio_mensalidades_2026_2_sem_negociacao()")).rejects.toThrow(/restrito a gestao|42501/);
+    await db.exec("RESET ROLE");
+  });
+
   it("rollback com historico preserva a tabela e remove so as funcoes", async () => {
     await db.exec(`INSERT INTO relatorio_mens_2026_2_snapshot (dia, cpfs, alunos, mensalidades, saldo) VALUES ('2026-11-13', 1, 1, 1, 1)`);
     await db.exec(ROLLBACK);
