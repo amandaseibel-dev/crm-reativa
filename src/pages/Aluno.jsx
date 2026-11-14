@@ -17,6 +17,7 @@ import { corMovimentacao, recortarMovimentacoes } from "../utils/movimentacoes";
 import LinhaMovimentacao from "../components/LinhaMovimentacao";
 import TelefonesAluno from "../components/TelefonesAluno";
 import BlocoUlbra from "../components/BlocoUlbra";
+import RegistroTermoFisico from "../components/RegistroTermoFisico";
 import { consultaMensageriaNaFicha } from "../utils/ulbraCentral";
 import AtendimentoUlbra from "../components/AtendimentoUlbra";
 import PainelDesfazer from "../components/PainelDesfazer";
@@ -2265,6 +2266,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                     `origem=ulbra` -- a Central passava a consultar a Mensageria. */}
                 {consultaMensageriaNaFicha(location.search) ? <BlocoUlbra aluno={alunoSelecionado} /> : null}
               </TelefonesAluno>
+              <RegistroTermoFisico key={alunoSelecionado.id} alunoId={alunoSelecionado.id} podeVer={podeVerTudo(usuarioLogado?.email)} />
               <div style={caixaTabular}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 13, fontWeight: 800, color: "var(--rv-azul-texto)", whiteSpace: "nowrap" }}>
@@ -2756,7 +2758,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                     )
                   ).map((s) => (
                     <option key={s} value={s}>
-                      {s}
+                      {rotuloStatus(s)}
                     </option>
                   ))}
                 </select>
