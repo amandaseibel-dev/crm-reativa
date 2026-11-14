@@ -83,7 +83,7 @@ ambiente c5
 GESTAO=amanda.seibel@aelbra.com.br
 # Preparo sequencial: LUANA assume U1 e U7 (de MAURICIO). MAURICIO fica com U2, U3, U6 = 3 casos.
 { jwt $LUANA; echo "select sucesso from public.assumir_caso_fidelizacao_vencida('$U1','preparo 1');"; echo "select sucesso from public.assumir_caso_fidelizacao_vencida('$U7','preparo 7');"; } \
-  | psql -At -v ON_ERROR_STOP=1 > "$OUT/prep.txt" 2>&1
+  | psql -At -v ON_ERROR_STOP=1 > "$OUT/prep.txt" 2>&1 || { echo "  PREPARO C5 FALHOU:"; cat "$OUT/prep.txt"; exit 1; }
 [ "$(q "select count(*) from public.assumir_fidelizacao_operacoes where revertida_em is null")" = "2" ] && ok "duas operacoes de tomada gravadas" || falha "operacoes de preparo ausentes"
 psql -v ON_ERROR_STOP=1 -q -c "update public.calibragem_parametros set valor='4'::jsonb where chave='limite_carteira';" >/dev/null
 O1=$(q "select id from public.assumir_fidelizacao_operacoes where aluno_id='$U1' and revertida_em is null")
