@@ -7,6 +7,7 @@ create extension if not exists "uuid-ossp";
 \i supabase/tests/fixtures/fidelizacao_por_dono_prod_20260930.sql
 \i supabase/tests/fixtures/assumir_caso_livre_prod_20261020.sql
 \i supabase/tests/fixtures/assumir_caso_fidelizacao_vencida_prod_20261113.sql
+\i supabase/tests/fixtures/assumir_caso_livre_prod_20261113.sql
 insert into public.usuarios (nome, email, perfil, ativo, operador_nome, recebe_novos_casos) values
   ('LUANA',    'cobranca05@aelbra.com.br', 'operador', true, 'LUANA', true),
   ('MAURICIO', 'cobranca06@aelbra.com.br', 'operador', true, 'MAURICIO', true),
