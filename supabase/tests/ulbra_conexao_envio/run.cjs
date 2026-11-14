@@ -43,10 +43,38 @@ if (!HOSTS_LOCAIS.includes(cfg.host)) {
 async function conectar(database) {
   const c = new Client({ ...cfg, database });
   await c.connect();
+  // Qualquer espera por trava vira erro com nome do teste, em vez de bloquear até o watchdog.
+  await c.query("set lock_timeout = '5s'");
   return c;
 }
-async function criarBanco(nome) {
+// Espera a conexão A estar DENTRO da transação, no pg_sleep (depois do seu INSERT). Substitui sleep fixo.
+async function aguardarPgSleep(cliA, limiteMs = 10000) {
   const admin = await conectar("postgres");
+  try {
+    const inicio = Date.now();
+    while (Date.now() - inicio < limiteMs) {
+      const r = await admin.query("select query from pg_stat_activity where pid = $1", [cliA.processID]);
+      if (r.rows[0] && /pg_sleep/.test(r.rows[0].query)) return;
+      await sleep(20);
+    }
+    throw new Error("A não chegou ao pg_sleep em " + limiteMs + " ms");
+  } finally {
+    await admin.end();
+  }
+}
+const BANCOS_DESCARTAVEIS = ["teste", "teste_rollback", "teste_guarda"];
+// Antes de QUALQUER DROP: o servidor precisa ser declarado descartável, o nome da lista, e não pode ter schemas de Supabase.
+async function criarBanco(nome) {
+  if (process.env.ULBRA_TESTE_DESCARTAVEL !== "sim") {
+    throw new Error("RECUSADO: defina ULBRA_TESTE_DESCARTAVEL=sim (servidor de teste descartável)");
+  }
+  if (!BANCOS_DESCARTAVEIS.includes(nome)) throw new Error("RECUSADO: banco fora da lista descartável: " + nome);
+  const admin = await conectar("postgres");
+  const supa = await admin.query("select nspname from pg_namespace where nspname in ('auth', 'storage', 'supabase_functions')");
+  if (supa.rowCount > 0) {
+    await admin.end();
+    throw new Error("RECUSADO: servidor tem schemas de Supabase (" + supa.rows.map((r) => r.nspname).join(",") + "); não é descartável");
+  }
   await admin.query(`drop database if exists ${nome} with (force)`);
   await admin.query(`create database ${nome}`);
   await admin.end();
@@ -71,7 +99,9 @@ async function snapshot(c) {
 
 const resultados = [];
 let falhas = 0;
+let TESTE_ATUAL = "(nenhum)";
 async function teste(nome, fn) {
+  TESTE_ATUAL = nome;
   try {
     await fn();
     resultados.push(`OK    ${nome}`);
@@ -95,7 +125,7 @@ function igual(obtido, esperado, msg) {
   }
 }
 
-const WATCHDOG = setTimeout(() => { console.error("TIMEOUT: teste travado"); process.exit(3); }, 100000);
+const WATCHDOG = setTimeout(() => { console.error("TIMEOUT: teste travado em -> " + TESTE_ATUAL); process.exit(3); }, 100000);
 async function main() {
   await garantirRoles();
   await criarBanco("teste");
@@ -236,7 +266,7 @@ async function main() {
         await a.query("commit");
         return r.rowCount;
       })();
-      await sleep(300);
+      await aguardarPgSleep(a);
       const pB = b.query(CONSUMIR, [id, new Date().toISOString(), OP]).then((r) => r.rowCount);
       const [ra, rb] = await Promise.all([pA, pB]);
       igual([ra, rb], [1, 0], "linhas consumidas por A e por B");
@@ -258,7 +288,7 @@ async function main() {
         await a.query("commit");
         return "gravou";
       })();
-      await sleep(300);
+      await aguardarPgSleep(a);
       const pB = b.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-cc-b-0002', $1, $2, $3, 'PENDENTE')", [OP, AT, texto])
         .then(() => "gravou", (e) => (e.constraint || e.message || "").includes("texto_em_aberto") ? "bloqueado_texto_em_aberto" : e.code);
       const [ra, rb] = await Promise.all([pA, pB]);
@@ -281,7 +311,7 @@ async function main() {
         await a.query("commit");
         return "gravou";
       })();
-      await sleep(300);
+      await aguardarPgSleep(a);
       // Textos DIFERENTES: a única restrição que pode barrar B é a chave única (não o índice de texto).
       const pB = b.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ($1, $2, $3, 'texto-mesma-chave-b', 'PENDENTE')", [chave, OP, AT])
         .then(() => "gravou", (e) => e.constraint);
@@ -399,7 +429,7 @@ async function main() {
         await a.query("commit");
         return "gravou";
       })();
-      await sleep(300);
+      await aguardarPgSleep(a);
       const pB = b.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status, repeticao) values ('chave-rc-b', $1, $2, $3, 'PENDENTE', 2)", [OP, AT, texto]).then(() => "gravou", (e) => e.code);
       const [ra, rb] = await Promise.all([pA, pB]);
       igual([ra, rb], ["gravou", "23505"], "A e B");
@@ -465,6 +495,7 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error("erro fatal:", e);
+  console.error("erro fatal:", e.message);
+  clearTimeout(WATCHDOG);
   process.exitCode = 1;
 });

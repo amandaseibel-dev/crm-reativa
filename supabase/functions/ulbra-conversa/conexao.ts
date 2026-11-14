@@ -30,7 +30,7 @@ export interface RegistroConexao {
   expira_em_ms: number;
   revogada_em_ms: number | null;
   /** Identidade da pessoa do token, segundo meu_acesso. Sem ela, o envio não prova autoria. */
-  pessoa_id?: string | null;
+  pessoa_email?: string | null;
   /** Nome da pessoa do token, segundo meu_acesso. Usado na conferência do atendente. */
   pessoa_nome?: string | null;
 }

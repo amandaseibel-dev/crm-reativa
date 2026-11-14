@@ -62,8 +62,8 @@ export interface PedidoEnvio {
    * Enquanto não houver fonte confirmada pelo contrato real, o envio fica bloqueado.
    */
   atendente_ulbra: string | null;
-  /** Conta conectada do operador (pessoa_id e pessoa_nome de meu_acesso). */
-  conta_conectada: { pessoa_id: string | null; pessoa_nome: string | null } | null;
+  /** Conta conectada do operador (pessoa_email e pessoa_nome de meu_acesso). */
+  conta_conectada: { pessoa_email: string | null; pessoa_nome: string | null } | null;
 }
 
 export interface ProvedorEnvio {
@@ -141,7 +141,7 @@ export function validarPedido(p: PedidoEnvio): string[] {
   // Identidade do atendente: a Mensageria só aceita envio da conta atendente. Fail-closed.
   const atendente = normalizarIdentidade(p.atendente_ulbra);
   // Só o e-mail (pessoa.email de meu_acesso) identifica a pessoa. Nome não identifica: não é comparado.
-  const contaIds = [normalizarIdentidade(p.conta_conectada?.pessoa_id)].filter((x) => x !== "");
+  const contaIds = [normalizarIdentidade(p.conta_conectada?.pessoa_email)].filter((x) => x !== "");
   if (atendente === "") motivos.push("ATENDENTE_ULBRA_NAO_LIDO");
   else if (contaIds.length === 0) motivos.push("CONTA_CONECTADA_NAO_IDENTIFICADA");
   else if (!contaIds.includes(atendente)) motivos.push("ATENDENTE_DIFERENTE_DA_CONTA_CONECTADA");
@@ -166,7 +166,7 @@ export async function enviarResposta(
   if (!deps.conexao || deps.conexao.operador_email.toLowerCase() !== pedido.operador.toLowerCase()) {
     return { situacao: "BLOQUEADO", motivos: ["SEM_CONEXAO_INDIVIDUAL"] };
   }
-  if (!deps.conexao.pessoa_id) {
+  if (!deps.conexao.pessoa_email) {
     return { situacao: "BLOQUEADO", motivos: ["CONEXAO_SEM_IDENTIDADE"] };
   }
   const conn = await garantirConexao(deps.conexao, deps.provedorOAuth, agora);

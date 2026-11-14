@@ -114,7 +114,7 @@ Deno.serve(async (req: Request) => {
       refresh_token: c.refresh_token_cifrado ? await decifrar(c.refresh_token_cifrado, chave!) : null,
       expira_em_ms: c.expira_em ? Date.parse(c.expira_em) : 0,
       revogada_em_ms: c.revogada_em ? Date.parse(c.revogada_em) : null,
-      pessoa_id: c.pessoa_id ?? null,
+      pessoa_email: c.pessoa_email ?? null,
       pessoa_nome: c.pessoa_nome ?? null,
     };
   }
@@ -231,7 +231,7 @@ Deno.serve(async (req: Request) => {
         // FONTE DO ATENDENTE NÃO DEFINIDA. Candidato: ulbra_conversas.responsavel_ulbra. A equivalência com o
         // atendente exigido pela Mensageria NÃO está comprovada. Null bloqueia o envio.
         atendente_ulbra: null,
-        conta_conectada: { pessoa_id: conta.pessoa_id ?? null, pessoa_nome: conta.pessoa_nome ?? null },
+        conta_conectada: { pessoa_email: conta.pessoa_email ?? null, pessoa_nome: conta.pessoa_nome ?? null },
       },
     };
   }
@@ -265,10 +265,10 @@ Deno.serve(async (req: Request) => {
         const a = dados as { pessoa?: { nome?: string; email?: string }; nome?: string; escopos?: unknown; soLeitura?: unknown };
         // Campo de identidade disponível em meu_acesso: pessoa.email (pessoa.id não aparece no retorno).
         // Estabilidade e equivalência com o atendente NÃO comprovadas: a comparação segue fail-closed.
-        pessoa = { pessoa_nome: a?.pessoa?.nome ?? null, pessoa_id: a?.pessoa?.email ?? null, escopos: a?.escopos ?? null, so_leitura: typeof a?.soLeitura === "boolean" ? a.soLeitura : null };
+        pessoa = { pessoa_nome: a?.pessoa?.nome ?? null, pessoa_email: a?.pessoa?.email ?? null, escopos: a?.escopos ?? null, so_leitura: typeof a?.soLeitura === "boolean" ? a.soLeitura : null };
       } catch (e) {
-        // pessoa_id explícito: o upsert não pode herdar o e-mail de uma conexão anterior (outra conta).
-        pessoa = { pessoa_nome: null, pessoa_id: null, escopos: null, so_leitura: null };
+        // pessoa_email explícito: o upsert não pode herdar o e-mail de uma conexão anterior (outra conta).
+        pessoa = { pessoa_nome: null, pessoa_email: null, escopos: null, so_leitura: null };
         console.error("ulbra-conversa: meu_acesso do operador falhou", (e as Error).message);
       }
       await guardarTokens(t, { conectada_em: new Date().toISOString(), ...pessoa });

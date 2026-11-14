@@ -48,7 +48,7 @@ create table public.ulbra_conexoes_operador (
   expira_em             timestamptz,
   -- quem a Mensageria diz que é a pessoa do token (meu_acesso), para provar autoria
   pessoa_nome           text,
-  pessoa_id             text,
+  pessoa_email             text,
   escopos               jsonb,
   so_leitura            boolean,
   conectada_em          timestamptz not null default now(),

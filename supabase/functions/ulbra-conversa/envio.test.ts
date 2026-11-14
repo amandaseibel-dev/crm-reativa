@@ -42,11 +42,11 @@ describe("validação do pedido", () => {
 });
 
 describe("identidade do atendente: conferida contra a conta conectada (fail-closed)", () => {
-  it("atendente igual ao pessoa_id da conta: passa", () => {
+  it("atendente igual ao pessoa_email da conta: passa", () => {
     expect(validarPedido(pedido())).toEqual([]);
   });
-  it("nome igual ao da conta, sem e-mail (pessoa_id): bloqueia — nome não identifica pessoa", () => {
-    const p = pedido({ atendente_ulbra: "operador piloto", conta_conectada: { pessoa_id: null, pessoa_nome: "operador piloto" } });
+  it("nome igual ao da conta, sem e-mail (pessoa_email): bloqueia — nome não identifica pessoa", () => {
+    const p = pedido({ atendente_ulbra: "operador piloto", conta_conectada: { pessoa_email: null, pessoa_nome: "operador piloto" } });
     expect(validarPedido(p)).toContain("CONTA_CONECTADA_NAO_IDENTIFICADA");
   });
   it("atendente de OUTRA pessoa: bloqueia", () => {
@@ -56,7 +56,7 @@ describe("identidade do atendente: conferida contra a conta conectada (fail-clos
     expect(validarPedido(pedido({ atendente_ulbra: null }))).toContain("ATENDENTE_ULBRA_NAO_LIDO");
   });
   it("conta sem identificação: bloqueia", () => {
-    expect(validarPedido(pedido({ conta_conectada: { pessoa_id: null, pessoa_nome: null } }))).toContain("CONTA_CONECTADA_NAO_IDENTIFICADA");
+    expect(validarPedido(pedido({ conta_conectada: { pessoa_email: null, pessoa_nome: null } }))).toContain("CONTA_CONECTADA_NAO_IDENTIFICADA");
   });
   it("no envio: atendente divergente bloqueia e NÃO chama o provedor", async () => {
     const { d, provedorEnvio } = deps();
@@ -82,7 +82,7 @@ describe("autoria: só a conexão do próprio operador", () => {
     expect(provedorEnvio.chamadas).toEqual([]);
   });
   it("conexão sem identidade da pessoa bloqueia e NÃO chama o provedor", async () => {
-    const { d, provedorEnvio } = deps({ conexao: conexao({ pessoa_id: null }) });
+    const { d, provedorEnvio } = deps({ conexao: conexao({ pessoa_email: null }) });
     const r = await enviarResposta(pedido(), d);
     expect(r.situacao === "BLOQUEADO" && r.motivos).toContain("CONEXAO_SEM_IDENTIDADE");
     expect(provedorEnvio.chamadas).toEqual([]);

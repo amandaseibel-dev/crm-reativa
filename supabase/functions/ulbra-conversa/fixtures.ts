@@ -18,7 +18,7 @@ export const pedido = (over: Partial<PedidoEnvio> = {}): PedidoEnvio => ({
   responsavel_atendimento: null,
   identidade_confirmada: true,
   atendente_ulbra: "pessoa-do-operador-1",
-  conta_conectada: { pessoa_id: "pessoa-do-operador-1", pessoa_nome: "Operador Piloto" },
+  conta_conectada: { pessoa_email: "pessoa-do-operador-1", pessoa_nome: "Operador Piloto" },
   ...over,
 });
 
@@ -28,7 +28,7 @@ export const conexao = (over: Partial<RegistroConexao> = {}): RegistroConexao =>
   refresh_token: "ref-do-operador",
   expira_em_ms: AGORA + 3600_000,
   revogada_em_ms: null,
-  pessoa_id: "pessoa-do-operador-1",
+  pessoa_email: "pessoa-do-operador-1",
   ...over,
 });
 
