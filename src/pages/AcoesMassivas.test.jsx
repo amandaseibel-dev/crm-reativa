@@ -6,7 +6,7 @@ import { render, screen, fireEvent, act, cleanup, within, waitFor } from "@testi
 // Prime usado para tirar quem já pagou, e a mensagem da exportação conta quantos
 // saíram por isso. A RELAÇÃO desses alunos não chega à tela de propósito —
 // quem consta liquidado não deve nem aparecer. E: exportar a planilha nunca
-// registra contato; só "Confirmar ação realizada" registra.
+// registra contato; só a confirmação do envio (total ou parcial) registra.
 const rpcMock = vi.fn();
 vi.mock("../services/supabase", () => ({
   supabase: {
@@ -64,6 +64,7 @@ let lotes = [];
 // fallback); lista = o que a função devolve.
 let lotesRegistro = null;
 let concluirExtra = {};
+let semConfirmarEnvio = false;
 let lotesWhats = [];
 let emailDoLote = null;
 
@@ -74,6 +75,7 @@ beforeEach(() => {
   lotes = [];
   lotesRegistro = null;
   concluirExtra = {};
+  semConfirmarEnvio = false;
   lotesWhats = [];
   emailDoLote = null;
   linhasPlanilha = null;
@@ -158,6 +160,23 @@ beforeEach(() => {
     }
     if (nome === "acoes_massivas_concluir_lote") {
       return { data: { lote_id: args.p_lote_id, registrados: 3, ...concluirExtra } };
+    }
+    if (nome === "acoes_massivas_concluir_envio") {
+      if (semConfirmarEnvio) return { data: null, error: { code: "PGRST202", message: "function not found" } };
+      return { data: { lote_id: args.p_lote_id, registrados: 3, confirmacao: args.p_acao, ...concluirExtra } };
+    }
+    if (nome === "acoes_massivas_lote_destinatarios") {
+      if (semConfirmarEnvio) return { data: null, error: { code: "PGRST202", message: "function not found" } };
+      return {
+        data: {
+          lote_id: args.p_lote_id, pendente: true,
+          destinatarios: [
+            { aluno_id: "d1", nome: "Davi", telefone: "51911111111", email: "d1@x.com" },
+            { aluno_id: "d2", nome: "Duda", telefone: "51922222222", email: "d2@x.com" },
+            { aluno_id: "d3", nome: "Dora", telefone: "51933333333", email: "d3@x.com" },
+          ],
+        },
+      };
     }
     return { data: null };
   });
@@ -468,38 +487,97 @@ describe("Ações Massivas — exportar já registra (02/10); lotes antigos fica
     await montar();
     await buscar();
     await gerar();
-    fireEvent.click(await screen.findByRole("button", { name: /Confirmar ação realizada/ }));
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Sim, o disparo foi concluído/ })); });
+    fireEvent.click(await screen.findByRole("button", { name: /Enviado para todos/ }));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Sim, enviado para todos/ })); });
     expect(nomesChamados()).not.toContain("registrar_acao_massiva");
   });
 
-  it("confirmar pede o sim explícito antes de chamar o banco", async () => {
+  it("confirmar envio total pede o sim explícito antes de chamar o banco", async () => {
     lotes = [LOTE];
     concluirExtra = { excluidos_acionados_apos_exportacao: 1 };
     await montar();
     expect(await screen.findByText("Registro das ações massivas")).toBeTruthy();
     expect(within(screen.getByTestId("resp-caso")).getByText(/Olga/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Confirmar ação realizada/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Enviado para todos/ }));
+    expect(nomesChamados()).not.toContain("acoes_massivas_concluir_envio");
+    expect(screen.getByText(/Confirme só se o disparo já foi feito para todos/)).toBeTruthy();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Sim, enviado para todos/ })); });
+    const c = rpcMock.mock.calls.filter(([n]) => n === "acoes_massivas_concluir_envio").at(-1)[1];
+    expect(c).toEqual({ p_lote_id: "lote-1", p_acao: "TOTAL", p_aluno_ids: null });
     expect(nomesChamados()).not.toContain("acoes_massivas_concluir_lote");
-    expect(screen.getByText(/Confirme só se o disparo já foi concluído/)).toBeTruthy();
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Sim, o disparo foi concluído/ })); });
-    const c = rpcMock.mock.calls.filter(([n]) => n === "acoes_massivas_concluir_lote").at(-1)[1];
-    expect(c).toEqual({ p_lote_id: "lote-1", p_acao: "CONFIRMAR" });
-    expect(screen.getByText(/Ação confirmada: 3 aluno\(s\) registrados como ação massiva e contados na cobertura/)).toBeTruthy();
+    expect(screen.getByText(/Envio confirmado: 3 aluno\(s\) registrados como ação massiva e contados na cobertura/)).toBeTruthy();
     expect(screen.getByText(/1 caso\(s\) foram acionados depois da exportação/)).toBeTruthy();
   });
 
   it("voltar não chama nada; descartar manda DESCARTAR", async () => {
     lotes = [LOTE];
     await montar();
-    fireEvent.click(await screen.findByRole("button", { name: /Confirmar ação realizada/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Enviado para todos/ }));
     fireEvent.click(screen.getByRole("button", { name: "Voltar" }));
-    expect(nomesChamados()).not.toContain("acoes_massivas_concluir_lote");
+    expect(nomesChamados()).not.toContain("acoes_massivas_concluir_envio");
     fireEvent.click(screen.getByRole("button", { name: "Descartar" }));
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Sim, descartar/ })); });
-    const c = rpcMock.mock.calls.filter(([n]) => n === "acoes_massivas_concluir_lote").at(-1)[1];
-    expect(c).toEqual({ p_lote_id: "lote-1", p_acao: "DESCARTAR" });
+    const c = rpcMock.mock.calls.filter(([n]) => n === "acoes_massivas_concluir_envio").at(-1)[1];
+    expect(c).toEqual({ p_lote_id: "lote-1", p_acao: "DESCARTAR", p_aluno_ids: null });
     expect(screen.getByText(/descartado. Nada foi registrado/)).toBeTruthy();
+  });
+
+  it("parcial: lista os destinatários do lote e manda só os marcados", async () => {
+    lotes = [LOTE];
+    concluirExtra = { registrados: 2, enviados_informados: 2, nao_enviados: 1 };
+    await montar();
+    await act(async () => { fireEvent.click(await screen.findByRole("button", { name: /Enviado só para alguns/ })); });
+    const lista = await screen.findByTestId("lista-destinatarios");
+    expect(within(lista).getAllByRole("checkbox")).toHaveLength(3);
+    // nenhum marcado: não confirma
+    expect(screen.getByRole("button", { name: /Confirmar envio para 0/ }).disabled).toBe(true);
+    fireEvent.click(within(lista).getByLabelText(/Davi/));
+    fireEvent.click(within(lista).getByLabelText(/Dora/));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Confirmar envio para 2/ })); });
+    const c = rpcMock.mock.calls.filter(([n]) => n === "acoes_massivas_concluir_envio").at(-1)[1];
+    expect(c.p_acao).toBe("PARCIAL");
+    expect([...c.p_aluno_ids].sort()).toEqual(["d1", "d3"]);
+    expect(screen.getByText(/Envio parcial: 2 marcado\(s\) como enviados; 1 não enviado/)).toBeTruthy();
+  });
+
+  it("parcial com todos marcados não confirma: manda usar Enviado para todos", async () => {
+    lotes = [LOTE];
+    await montar();
+    await act(async () => { fireEvent.click(await screen.findByRole("button", { name: /Enviado só para alguns/ })); });
+    const lista = await screen.findByTestId("lista-destinatarios");
+    for (const cb of within(lista).getAllByRole("checkbox")) fireEvent.click(cb);
+    expect(screen.getByRole("button", { name: /Confirmar envio para 3/ }).disabled).toBe(true);
+    expect(screen.getByText(/se todos receberam, use “Enviado para todos”/)).toBeTruthy();
+  });
+
+  it("sem a migration no banco: total cai no concluir_lote; parcial avisa e não grava", async () => {
+    lotes = [LOTE];
+    semConfirmarEnvio = true;
+    await montar();
+    await act(async () => { fireEvent.click(await screen.findByRole("button", { name: /Enviado só para alguns/ })); });
+    expect(await screen.findByText(/confirmação parcial ainda não está disponível/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Voltar" }));
+    fireEvent.click(screen.getByRole("button", { name: /Enviado para todos/ }));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Sim, enviado para todos/ })); });
+    const c = rpcMock.mock.calls.filter(([n]) => n === "acoes_massivas_concluir_lote").at(-1)[1];
+    expect(c).toEqual({ p_lote_id: "lote-1", p_acao: "CONFIRMAR" });
+  });
+
+  it("lote pendente é sinalizado no topo do painel", async () => {
+    lotes = [LOTE];
+    await montar();
+    expect(await screen.findByTestId("aviso-lotes-pendentes")).toBeTruthy();
+    expect(screen.getByText(/1 lote\(s\) aguardando confirmação de envio/)).toBeTruthy();
+  });
+
+  it("exportar com a migration aplicada: lote pendente de envio, nada registrado", async () => {
+    regExtra = { pendente_envio: true, registro_automatico: false, registrados: 0 };
+    await montar();
+    await buscar();
+    await gerar();
+    expect(screen.getByText(/O lote ficou PENDENTE DE ENVIO: nada foi registrado nos alunos ainda/)).toBeTruthy();
+    expect(screen.getByText("aguardando envio")).toBeTruthy();
+    expect(nomesChamados()).not.toContain("acoes_massivas_concluir_envio");
   });
 
   it("trocar de operador não esconde os lotes pendentes de registro", async () => {
@@ -526,7 +604,7 @@ describe("Ações Massivas — exportar já registra (02/10); lotes antigos fica
     expect(screen.getByText(/Registrado — 300 de 300/)).toBeTruthy();
     expect(screen.getByText(/no clique de Exportar/)).toBeTruthy();
     // nada a confirmar: o botão do fluxo antigo não aparece neste lote
-    expect(screen.queryByRole("button", { name: /Confirmar ação realizada/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Enviado para todos/ })).toBeNull();
     expect(screen.getByRole("button", { name: "Conferir registro" })).toBeTruthy();
   });
 
@@ -559,8 +637,8 @@ describe("Ações Massivas — exportar já registra (02/10); lotes antigos fica
     lotes = [LOTE];
     await montar();
     await screen.findByText("Registro das ações massivas");
-    expect(screen.getByText(/Pendente de registro/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Confirmar ação realizada/ })).toBeTruthy();
+    expect(screen.getByText(/Pendente de envio/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Enviado para todos/ })).toBeTruthy();
   });
 
   it("escolher operador NÃO aplica “Sem acionamento há” sozinho; o filtro segue opcional", async () => {
@@ -702,9 +780,9 @@ describe("Ações Massivas — filtro Tipo de cobrança", () => {
     expect(screen.getByRole("columnheader", { name: "Tipo de cobrança" })).toBeTruthy();
     expect(screen.getByRole("cell", { name: "Somente acordos vencidos" })).toBeTruthy();
     expect(screen.getByRole("cell", { name: "Sem tipo (tela anterior)" })).toBeTruthy();
-    fireEvent.click(screen.getAllByRole("button", { name: /Confirmar ação realizada/ })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /Enviado para todos/ })[0]);
     expect(screen.getByText(/deixou de estar disponível, fica de fora/)).toBeTruthy();
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Sim, o disparo foi concluído/ })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Sim, enviado para todos/ })); });
     expect(screen.getByText(/2 caso\(s\) não correspondem mais ao tipo de cobrança do lote/)).toBeTruthy();
   });
 });

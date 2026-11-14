@@ -1,0 +1,248 @@
+-- ACOES MASSIVAS: EXPORTAR NAO REGISTRA; O ENVIO E CONFIRMADO PELA GESTAO.
+--
+-- PENDENTE. Nao aplicar sem autorizacao expressa e sem linha em
+-- docs/seguranca/migracoes-aprovadas.tsv.
+--
+-- Decisao da gestao em 13/11/2026: desde 02/10 a exportacao registrava a acao
+-- no historico do aluno (tabulacao, ultimo acionamento e fidelizacao de 10
+-- dias) mesmo quando o disparo externo nao acontecia. Volta o fluxo com
+-- confirmacao:
+--   1. acoes_massivas_exportar cria o lote PENDENTE_ENVIO e NAO registra nada;
+--   2. acoes_massivas_concluir_envio(lote, acao, ids) registra so quem foi
+--      enviado, com data/hora da confirmacao e o e-mail de quem confirmou:
+--        TOTAL     -> todos os destinatarios do lote (ids deve vir nulo);
+--        PARCIAL   -> so os ids informados, que precisam estar no lote e nao
+--                     podem ser todos (parcial com todos e TOTAL);
+--        DESCARTAR -> nada e registrado; o lote fica descartado.
+--   3. confirmacao repetida devolve o resultado guardado, sem gravar de novo
+--      (lock do lote + indice unico (lote_id, aluno_id) ja existente);
+--   4. o registro usa registrar_acao_massiva sem alteracao: mesma revalidacao
+--      do universo, mesmo tipo de movimentacao, mesma regra de ultimo
+--      acionamento e fidelizacao -- contada a partir da CONFIRMACAO;
+--   5. lotes ja existentes nao sao tocados: nada e convertido em enviado.
+--
+-- Funcoes alteradas: acoes_massivas_exportar (patch ancorado, guarda de MD5).
+-- Funcao nova: acoes_massivas_concluir_envio (gestao ou sistema).
+-- Sem alteracao de tabela, de registrar_acao_massiva, de concluir_lote ou de dado.
+
+BEGIN;
+
+-- 0. GUARDA DE ORIGEM (NULL-safe) -----------------------------------------------
+DO $g$
+BEGIN
+  IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar') IS DISTINCT FROM 'c9cc7498d16ca250e85c4727c8bb05bd' THEN
+    RAISE EXCEPTION 'acoes_massivas_exportar mudou desde a validacao (esperado c9cc7498...). Nada aplicado.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+              WHERE n.nspname = 'public' AND p.proname IN ('acoes_massivas_concluir_envio', 'acoes_massivas_lote_destinatarios')) THEN
+    RAISE EXCEPTION 'acoes_massivas_concluir_envio ou acoes_massivas_lote_destinatarios ja existe. Nada aplicado.';
+  END IF;
+END $g$;
+
+-- 1. EXPORTAR DEIXA DE REGISTRAR -------------------------------------------------
+SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_exportar',
+$a1$    v_reg := public.registrar_acao_massiva(v_ok, v_canal, p_arquivo, null, null, v_op, v_lote, v_f);
+
+    update public.acoes_massivas_lotes
+       set confirmado_em       = now(),
+           confirmado_por_email = v_autor,
+           registrados         = coalesce((v_reg ->> 'registrados')::int, 0),
+           registro_automatico = true,
+           resultado           = (v_reg - 'contatos') || jsonb_build_object('lote_id', v_lote)
+     where id = v_lote;$a1$,
+$n1$    -- 13/11/2026: o lote nasce PENDENTE_ENVIO. Nada e registrado no aluno aqui;
+    -- quem registra e acoes_massivas_concluir_envio, depois do disparo externo.$n1$, 1);
+
+SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_exportar',
+$a2$    'registro_automatico', v_lote is not null,$a2$,
+$n2$    'registro_automatico', false,
+    'pendente_envio', v_lote is not null,$n2$, 1);
+
+-- 2. CONFIRMACAO DO ENVIO --------------------------------------------------------
+CREATE FUNCTION public.acoes_massivas_concluir_envio(p_lote_id uuid, p_acao text, p_aluno_ids text[] DEFAULT NULL)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+ SET statement_timeout TO '120s'
+AS $function$
+declare
+  v_sistema boolean := (auth.role() = 'service_role')
+                       or (auth.jwt() is null and session_user in ('postgres','reativa_responsavel_executor'));
+  v_acao text := upper(btrim(coalesce(p_acao, '')));
+  v_autor text;
+  v_lote public.acoes_massivas_lotes%rowtype;
+  v_informados text[];
+  v_fora text[];
+  v_enviados text[];
+  v_nao_enviados text[];
+  v_depois text[];
+  v_ids text[];
+  v_op text;
+  v_filtros jsonb;
+  v_reg jsonb;
+  v_res jsonb;
+begin
+  if not v_sistema and not public.usuario_e_gestao() then
+    raise exception 'Acesso negado: confirmar envio de acao massiva restrito a gestao.' using errcode = '42501';
+  end if;
+  if v_acao not in ('TOTAL', 'PARCIAL', 'DESCARTAR') then
+    raise exception 'Acao invalida: % (use TOTAL, PARCIAL ou DESCARTAR)', p_acao using errcode = '22023';
+  end if;
+  v_autor := case when v_sistema then 'SISTEMA' else lower(coalesce(auth.email(), '')) end;
+
+  select * into v_lote from public.acoes_massivas_lotes where id = p_lote_id for update;
+  if not found then
+    raise exception 'Lote de exportacao nao encontrado.' using errcode = 'P0002';
+  end if;
+  if v_lote.descartado_em is not null then
+    raise exception 'Este lote foi descartado em % e nao pode ser concluido.',
+      to_char(v_lote.descartado_em at time zone 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI') using errcode = '55000';
+  end if;
+  if v_lote.confirmado_em is not null then
+    if v_acao = 'DESCARTAR' then
+      raise exception 'Este lote ja foi registrado em % e nao pode ser descartado.',
+        to_char(v_lote.confirmado_em at time zone 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI') using errcode = '55000';
+    end if;
+    -- dupla confirmacao: devolve o que ja foi gravado, sem gravar nada
+    return coalesce(v_lote.resultado, '{}'::jsonb) || jsonb_build_object(
+      'lote_id', v_lote.id, 'ja_registrado', true, 'movimentacoes_criadas', 0,
+      'registrados', coalesce(v_lote.registrados,
+                              (select count(*)::int from public.aluno_movimentacoes m where m.lote_id = v_lote.id)));
+  end if;
+
+  if v_acao = 'DESCARTAR' then
+    if p_aluno_ids is not null then
+      raise exception 'Descartar vale para o lote inteiro: nao informe destinatarios.' using errcode = '22023';
+    end if;
+    update public.acoes_massivas_lotes
+       set descartado_em = now(), descartado_por_email = v_autor,
+           resultado = jsonb_build_object('lote_id', v_lote.id, 'confirmacao', 'DESCARTADO')
+     where id = v_lote.id;
+    return jsonb_build_object('lote_id', v_lote.id, 'descartado', true, 'registrados', 0);
+  end if;
+
+  if v_acao = 'TOTAL' then
+    if p_aluno_ids is not null then
+      raise exception 'Confirmacao total nao recebe destinatarios: use PARCIAL para informar quem foi enviado.' using errcode = '22023';
+    end if;
+    v_enviados := v_lote.aluno_ids;
+  else
+    v_informados := array(select distinct btrim(x) from unnest(coalesce(p_aluno_ids, '{}'::text[])) x
+                           where nullif(btrim(x), '') is not null);
+    if coalesce(array_length(v_informados, 1), 0) = 0 then
+      raise exception 'Confirmacao parcial exige a lista dos destinatarios enviados.' using errcode = '22023';
+    end if;
+    v_fora := array(select x from unnest(v_informados) x where not (x = any(v_lote.aluno_ids)) order by x);
+    if coalesce(array_length(v_fora, 1), 0) > 0 then
+      raise exception 'Destinatarios fora deste lote: %. Nada registrado.', array_to_string(v_fora, ', ')
+        using errcode = '22023';
+    end if;
+    v_enviados := array(select x.id_txt from unnest(v_lote.aluno_ids) with ordinality as x(id_txt, ord)
+                         where x.id_txt = any(v_informados) order by x.ord);
+    if array_length(v_enviados, 1) = (select count(distinct y) from unnest(v_lote.aluno_ids) y) then
+      raise exception 'A lista informada tem todos os destinatarios do lote: use TOTAL.' using errcode = '22023';
+    end if;
+  end if;
+
+  v_nao_enviados := array(select x.id_txt from unnest(v_lote.aluno_ids) with ordinality as x(id_txt, ord)
+                           where not (x.id_txt = any(v_enviados)) order by x.ord);
+
+  -- mesma regra do concluir_lote: quem foi acionado depois da exportacao nao
+  -- recebe registro retroativo deste lote
+  v_depois := array(select x.id_txt from unnest(v_enviados) with ordinality as x(id_txt, ord)
+                      join public.alunos a on a.id = x.id_txt::uuid
+                     where a.data_ultimo_acionamento > v_lote.exportado_em
+                     order by x.ord);
+  v_ids := array(select x from unnest(v_enviados) x where not (x = any(v_depois)));
+
+  v_op := coalesce(lower(nullif(btrim(v_lote.filtros ->> 'operador'), '')),
+                   lower(nullif(btrim(v_lote.operador_email), '')), 'livres');
+  v_filtros := coalesce(v_lote.filtros, '{}'::jsonb)
+               || jsonb_build_object('tipo_cobranca',
+                    case when coalesce(v_lote.tipo_cobranca, 'REGRA_ANTERIOR') = 'REGRA_ANTERIOR'
+                         then 'MENSALIDADES_E_ACORDOS' else v_lote.tipo_cobranca end);
+
+  v_reg := public.registrar_acao_massiva(v_ids, v_lote.canal, v_lote.arquivo, null, null, v_op, v_lote.id, v_filtros);
+
+  v_res := (v_reg - 'contatos') || jsonb_build_object(
+    'lote_id', v_lote.id,
+    'confirmacao', v_acao,
+    'confirmado_por_email', v_autor,
+    'enviados_informados', coalesce(array_length(v_enviados, 1), 0),
+    'nao_enviados', coalesce(array_length(v_nao_enviados, 1), 0),
+    'ids_enviados_informados', to_jsonb(v_enviados),
+    'ids_nao_enviados', to_jsonb(v_nao_enviados),
+    'excluidos_acionados_apos_exportacao', coalesce(array_length(v_depois, 1), 0),
+    'ids_acionados_apos_exportacao', to_jsonb(v_depois),
+    'tipo_cobranca', v_lote.tipo_cobranca);
+
+  update public.acoes_massivas_lotes
+     set confirmado_em = now(), confirmado_por_email = v_autor, resultado = v_res,
+         registrados = coalesce((v_reg ->> 'registrados')::int, 0)
+   where id = v_lote.id;
+
+  return v_res;
+end;
+$function$;
+
+-- 2b. DESTINATARIOS DO LOTE (para a gestao marcar quem foi enviado na parcial).
+-- Mesmos dados que a exportacao ja entrega a gestao (nome, telefone, e-mail).
+CREATE FUNCTION public.acoes_massivas_lote_destinatarios(p_lote_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_sistema boolean := (auth.role() = 'service_role')
+                       or (auth.jwt() is null and session_user in ('postgres','reativa_responsavel_executor'));
+  v_lote public.acoes_massivas_lotes%rowtype;
+begin
+  if not v_sistema and not public.usuario_e_gestao() then
+    raise exception 'Acesso negado: lotes de acao massiva restritos a gestao.' using errcode = '42501';
+  end if;
+  select * into v_lote from public.acoes_massivas_lotes where id = p_lote_id;
+  if not found then
+    raise exception 'Lote de exportacao nao encontrado.' using errcode = 'P0002';
+  end if;
+  return jsonb_build_object(
+    'lote_id', v_lote.id,
+    'pendente', v_lote.confirmado_em is null and v_lote.descartado_em is null,
+    'destinatarios', coalesce((
+      select jsonb_agg(jsonb_build_object('aluno_id', x.id_txt, 'nome', a.nome,
+                                          'telefone', a.telefone, 'email', a.email) order by x.ord)
+        from unnest(v_lote.aluno_ids) with ordinality as x(id_txt, ord)
+        left join public.alunos a on a.id::text = x.id_txt), '[]'::jsonb));
+end;
+$function$;
+
+-- 3. GRANTS: mesmos das irmas (postgres, authenticated, service_role; sem anon/PUBLIC)
+REVOKE ALL ON FUNCTION public.acoes_massivas_concluir_envio(uuid, text, text[]) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.acoes_massivas_lote_destinatarios(uuid) FROM PUBLIC;
+DO $r$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.acoes_massivas_concluir_envio(uuid, text, text[]) FROM anon';
+    EXECUTE 'REVOKE ALL ON FUNCTION public.acoes_massivas_lote_destinatarios(uuid) FROM anon';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.acoes_massivas_concluir_envio(uuid, text, text[]) TO authenticated';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.acoes_massivas_lote_destinatarios(uuid) TO authenticated';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.acoes_massivas_concluir_envio(uuid, text, text[]) TO service_role';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.acoes_massivas_lote_destinatarios(uuid) TO service_role';
+  END IF;
+END $r$;
+
+-- 4. MD5 FINAL -------------------------------------------------------------------
+DO $m$
+BEGIN
+  IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar') IS DISTINCT FROM '3861da11bfb0930fc698ce8e1ca05a35' THEN
+    RAISE EXCEPTION 'MD5 final de acoes_massivas_exportar diferente do validado.';
+  END IF;
+END $m$;
+
+COMMIT;
