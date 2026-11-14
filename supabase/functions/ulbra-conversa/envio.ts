@@ -224,16 +224,19 @@ export async function enviarResposta(
       }),
       limite,
     );
-    await deps.repositorio.atualizar(pedido.operador, pedido.chave, {
+    const gravou = await deps.repositorio.atualizar(pedido.operador, pedido.chave, {
       status: "ENVIADO",
       ulbra_mensagem_id: resposta.ulbra_mensagem_id,
     }, ["ENVIANDO"]);
+    // Se a linha já não está em ENVIANDO (ex.: conferência concorrente), NÃO sobrescreve a decisão.
+    if (!gravou) throw new Error("ENVIO_ESTADO_CONCORRENTE");
   } catch (e) {
     // Qualquer falha da chamada é ambígua: a mensagem pode ter saído. Não se reenvia sozinho.
-    await deps.repositorio.atualizar(pedido.operador, pedido.chave, {
+    const registrou = await deps.repositorio.atualizar(pedido.operador, pedido.chave, {
       status: "FALHA_INCERTA",
       motivo: (e as Error).message,
     }, ["ENVIANDO"]);
+    if (!registrou) throw new Error("ENVIO_ESTADO_CONCORRENTE");
   }
   const final = await deps.repositorio.buscar(pedido.operador, pedido.chave);
   if (!final) throw new Error("ENVIO_SEM_REGISTRO");

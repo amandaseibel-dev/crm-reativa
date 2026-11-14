@@ -42,13 +42,13 @@ export class RepoMemoria implements RepositorioEnvio {
     if (this.falharGravacao) throw new Error("ENVIO_NAO_GRAVADO");
     const k = this.chaveDe(e.operador_email, e.chave);
     if (this.m.has(k)) return "CHAVE_EXISTENTE" as const;
-    const emAberto = [...this.m.values()].some((x) => x.atendimento_id === e.atendimento_id && x.texto === e.texto && (x.repeticao ?? 0) === (e.repeticao ?? 0) && ["PENDENTE", "ENVIANDO", "FALHA_INCERTA", "CONFIRMADO_ENVIADO"].includes(x.status));
+    const emAberto = [...this.m.values()].some((x) => x.atendimento_id === e.atendimento_id && x.texto === e.texto && (x.repeticao ?? 0) === (e.repeticao ?? 0) && ["PENDENTE", "ENVIANDO", "FALHA_INCERTA", "ENVIADO", "CONFIRMADO_ENVIADO"].includes(x.status));
     if (emAberto) return "TEXTO_EM_ABERTO" as const;
     this.m.set(k, { ...e });
     return "NOVO" as const;
   }
   async existeBloqueante(atendimento_id: string, texto: string, incluiConfirmados: boolean) {
-    const estados: string[] = ["PENDENTE", "ENVIANDO", "FALHA_INCERTA", ...(incluiConfirmados ? ["CONFIRMADO_ENVIADO"] : [])];
+    const estados: string[] = ["PENDENTE", "ENVIANDO", "FALHA_INCERTA", ...(incluiConfirmados ? ["ENVIADO", "CONFIRMADO_ENVIADO"] : [])];
     return [...this.m.values()].some((e) => e.atendimento_id === atendimento_id && e.texto === texto && estados.includes(e.status));
   }
   async proximaRepeticao(atendimento_id: string, texto: string) {

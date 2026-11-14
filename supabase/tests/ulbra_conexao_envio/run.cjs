@@ -142,11 +142,11 @@ async function main() {
   await teste("prévia com validade anterior à criação é recusada", () =>
     esperaErro(c.query("insert into public.ulbra_envio_previas (operador_email, atendimento_id, ulbra_cliente_id, conteudo_hash, expira_em, criado_em) values ($1, $2, 'c', $3, now() - interval '1 minute', now())", [OP, AT, HASH]), "23514"));
   await teste("uma prévia gera no máximo um envio (previa_id único)", async () => {
-    await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status, previa_id) values ('chave-pv-0001', $1, $2, 'oi', 'ENVIADO', $3)", [OP, AT, PREVIA_OK]);
-    await esperaErro(c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status, previa_id) values ('chave-pv-0002', $1, $2, 'oi', 'PENDENTE', $3)", [OP, AT, PREVIA_OK]), "23505");
+    await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status, previa_id) values ('chave-pv-0001', $1, $2, 'texto-pv-1', 'ENVIADO', $3)", [OP, AT, PREVIA_OK]);
+    await esperaErro(c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status, previa_id) values ('chave-pv-0002', $1, $2, 'texto-pv-2', 'PENDENTE', $3)", [OP, AT, PREVIA_OK]), "23505");
   });
   await teste("previa_id inexistente é recusado pela chave estrangeira", () =>
-    esperaErro(c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status, previa_id) values ('chave-fk-0001', $1, $2, 'oi', 'PENDENTE', '22222222-2222-2222-2222-222222222222')", [OP, AT]), "23503"));
+    esperaErro(c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status, previa_id) values ('chave-fk-0001', $1, $2, 'texto-fk-1', 'PENDENTE', '22222222-2222-2222-2222-222222222222')", [OP, AT]), "23503"));
 
   await teste("expiração acima de 10 minutos é recusada pelo banco (validade máxima)", () =>
     esperaErro(c.query("insert into public.ulbra_envio_previas (operador_email, atendimento_id, ulbra_cliente_id, conteudo_hash, criado_em, expira_em) values ($1, $2, 'c', $3, now(), now() + interval '20 minutes')", [OP, AT, HASH]), "23514"));
@@ -154,9 +154,9 @@ async function main() {
     await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-aberto-01', $1, $2, 'texto-aberto-unico', 'FALHA_INCERTA')", [OP, AT]);
     await esperaErro(c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-aberto-02', $1, $2, 'texto-aberto-unico', 'PENDENTE')", [OP, AT]), "23505");
   });
-  await teste("depois de ENVIADO, o mesmo texto pode ser enviado de novo (índice só vale para aberto)", async () => {
+  await teste("depois de ENVIADO, o mesmo texto NÃO é reenviado sem nova ação explícita (índice inclui ENVIADO)", async () => {
     await c.query("update public.ulbra_envios set status = 'ENVIADO' where chave = 'chave-aberto-01'");
-    await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-aberto-02', $1, $2, 'texto-aberto-unico', 'PENDENTE')", [OP, AT]);
+    await esperaErro(c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-aberto-02', $1, $2, 'texto-aberto-unico', 'PENDENTE')", [OP, AT]), "23505");
   });
 
   await teste("texto de 4096 caracteres, acentuado e não repetitivo, grava e a duplicata em aberto é barrada", async () => {
@@ -270,13 +270,13 @@ async function main() {
     try {
       const pA = (async () => {
         await a.query("begin");
-        await a.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ($1, $2, $3, 'oi', 'PENDENTE')", [chave, OP, AT]);
+        await a.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ($1, $2, $3, 'texto-mesma-chave-concorrente', 'PENDENTE')", [chave, OP, AT]);
         await a.query("select pg_sleep(1)");
         await a.query("commit");
         return "gravou";
       })();
       await sleep(300);
-      const pB = b.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ($1, $2, $3, 'oi', 'PENDENTE')", [chave, OP, AT])
+      const pB = b.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ($1, $2, $3, 'texto-mesma-chave-concorrente', 'PENDENTE')", [chave, OP, AT])
         .then(() => "gravou", (e) => e.code);
       const [ra, rb] = await Promise.all([pA, pB]);
       igual([ra, rb], ["gravou", "23505"], "resultado de A e de B");
@@ -316,7 +316,7 @@ async function main() {
     await c.query("insert into public.ulbra_envios (chave, operador_email, atendimento_id, texto, status) values ('chave-conf-pend-2', $1, $2, 'texto-pend-2', 'PENDENTE')", [OP, AT]);
     const r = await rpc(c, { op: OP, chave: "chave-conf-pend-2", decisao: "CONFIRMADO_ENVIADO", motivo: MOT, por: "gestao@x" });
     igual(r.situacao, "BLOQUEADO", "situação");
-    igual(r.motivos.includes("PENDENTE_NUNCA_CHAMADO_NAO_PODE_SER_ENVIADO") || true, true, "motivo");
+    if (!r.motivos.includes("PENDENTE_NUNCA_CHAMADO_NAO_PODE_SER_ENVIADO")) throw new Error("motivo ausente: " + JSON.stringify(r.motivos));
     const st = await c.query("select status from public.ulbra_envios where chave = 'chave-conf-pend-2'");
     igual(st.rows[0].status, "PENDENTE", "status intacto");
   });

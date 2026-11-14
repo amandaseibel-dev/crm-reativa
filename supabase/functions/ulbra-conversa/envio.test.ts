@@ -2,8 +2,9 @@
 // e falha de gravação. PROVA SIMULADA: provedores fake. Não é envio real à Mensageria.
 // Templates não fazem parte desta entrega.
 import { describe, it, expect } from "vitest";
-import { TEXTO_MAX, enviarResposta, hashConteudo, validarPedido, resolverEnvioAberto, type Envio } from "./envio.ts";
+import { TEXTO_MAX, enviarResposta, hashConteudo, validarPedido, resolverEnvioAberto, type Envio, type StatusEnvio } from "./envio.ts";
 import { AGORA, CHAVE, OP, RepoMemoria, conexao, deps, pedido } from "./fixtures.ts";
+import type { ProvedorEnvio } from "./envio.ts";
 
 describe("validação do pedido", () => {
   it("texto vazio e texto longo são recusados (limite 4096, como no CHECK da migration)", () => {
@@ -115,7 +116,7 @@ describe("idempotência: repetir a chave não reenvia", () => {
   it("chaves diferentes são pedidos diferentes", async () => {
     const { d, provedorEnvio } = deps();
     await enviarResposta(pedido(), d);
-    await enviarResposta(pedido({ chave: "outra-chave-clique-0002" }), d);
+    await enviarResposta(pedido({ chave: "outra-chave-clique-0002", texto: "outro texto diferente" }), d);
     expect(provedorEnvio.chamadas.length).toBe(2);
   });
   it("a chave vale por operador", async () => {
@@ -222,21 +223,24 @@ describe("chave idempotente ligada ao conteúdo e falha incerta sem reenvio", ()
 });
 
 describe("índice de texto em aberto: concorrência entre requisições com chaves diferentes", () => {
-  it("se o banco recusa por texto em aberto, o envio não sai e a chave não é reutilizada", async () => {
-    const { d, provedorEnvio, repositorio } = deps();
-    // Outra requisição já tem este texto em aberto (ainda não visível para a verificação prévia).
-    repositorio.m.set("outro|chave-outra-requisicao", { chave: "chave-outra-requisicao", operador_email: "outro", atendimento_id: pedido().atendimento_id, texto: "Olá, em que posso ajudar?", status: "PENDENTE", ulbra_mensagem_id: null, motivo: null, criado_em_ms: AGORA, previa_id: null });
+  it("se o banco recusa por texto em aberto (corrida após a verificação prévia), o envio não sai", async () => {
+    class RepoCorrida extends RepoMemoria {
+      async existeBloqueante() { return false; }
+      async inserirSeNovo() { return "TEXTO_EM_ABERTO" as const; }
+    }
+    const repo = new RepoCorrida();
+    const { d, provedorEnvio } = deps({ repositorio: repo });
     const r = await enviarResposta(pedido({ chave: "chave-nova-0009" }), d);
-    expect(r.situacao === "BLOQUEADO" && r.motivos).toEqual(["REPETICAO_EXIGE_NOVA_MENSAGEM_INTENCIONAL"]);
+    expect(r.situacao === "BLOQUEADO" && r.motivos).toEqual(["ENVIO_EM_ABERTO_MESMO_TEXTO"]);
     expect(provedorEnvio.chamadas).toEqual([]);
   });
 });
 
 class RepoComFalha extends RepoMemoria {
   falharEm: string | null = null;
-  async atualizar(o: string, c: string, campos: Partial<Envio>) {
+  async atualizar(o: string, c: string, campos: Partial<Envio>, de?: readonly StatusEnvio[]) {
     if (this.falharEm && campos.status === this.falharEm) throw new Error("FALHA_DB_" + this.falharEm);
-    return super.atualizar(o, c, campos);
+    return super.atualizar(o, c, campos, de);
   }
 }
 
@@ -332,5 +336,27 @@ describe("repetição intencional, envio confirmado e pendência comprovadamente
     expect(como_enviado.situacao === "BLOQUEADO" && como_enviado.motivos).toContain("PENDENTE_NUNCA_CHAMADO_NAO_PODE_SER_ENVIADO");
     const como_nao = await resolverEnvioAberto(pend, { operador_email: OP, chave: CHAVE, decisao: "CONFIRMADO_NAO_ENVIADO", motivo: "nunca foi chamado, sem registro", conferido_por: "g" }, repo);
     expect(como_nao.situacao).toBe("RESOLVIDO");
+  });
+});
+
+describe("ENVIADO bloqueia repetição; conferência durante a chamada não é sobrescrita", () => {
+  it("após ENVIADO, outra chave com o mesmo texto é barrada sem nova ação explícita", async () => {
+    const { d, provedorEnvio } = deps();
+    expect((await enviarResposta(pedido(), d)).situacao).toBe("PROCESSADO");
+    const outra = await enviarResposta(pedido({ chave: "outra-chave-depois-do-envio" }), d);
+    expect(outra.situacao === "BLOQUEADO" && outra.motivos).toEqual(["REPETICAO_EXIGE_NOVA_MENSAGEM_INTENCIONAL"]);
+    expect(provedorEnvio.chamadas.length).toBe(1);
+  });
+  it("se a conferência muda o estado durante a chamada, o ENVIADO não sobrescreve a decisão humana", async () => {
+    const repo = new RepoMemoria();
+    const provedor: ProvedorEnvio = {
+      async enviar() {
+        repo.m.set(`${OP}|${CHAVE}`, { ...repo.m.get(`${OP}|${CHAVE}`)!, status: "CONFIRMADO_NAO_ENVIADO" });
+        return { ulbra_mensagem_id: "msg-1" };
+      },
+    };
+    const { d } = deps({ repositorio: repo, provedorEnvio: provedor });
+    await expect(enviarResposta(pedido(), d)).rejects.toThrow("ENVIO_ESTADO_CONCORRENTE");
+    expect(repo.m.get(`${OP}|${CHAVE}`)!.status).toBe("CONFIRMADO_NAO_ENVIADO");
   });
 });

@@ -1,3 +1,5 @@
+-- EXECUTAR EM TRANSAÇÃO ÚNICA: psql -1 -f <arquivo>. Sem -1, cada instrução é commitada à parte
+-- e a recusa por histórico não impede o DROP FUNCTION que vem antes.
 -- ROLLBACK da 20261111140000 — SOMENTE ANTES DE QUALQUER USO.
 -- Remove as quatro tabelas criadas por esta migração, e só enquanto elas estiverem VAZIAS.
 -- Se houver conexões, prévias ou envios, recusa: após uso real, não se apaga histórico.

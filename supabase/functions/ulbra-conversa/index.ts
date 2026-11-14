@@ -157,7 +157,7 @@ Deno.serve(async (req: Request) => {
       throw new Error("ENVIO_NAO_GRAVADO");
     },
     async existeBloqueante(atendimentoId, texto, incluiConfirmados) {
-      const estados = ["PENDENTE", "ENVIANDO", "FALHA_INCERTA", ...(incluiConfirmados ? ["CONFIRMADO_ENVIADO"] : [])];
+      const estados = ["PENDENTE", "ENVIANDO", "FALHA_INCERTA", ...(incluiConfirmados ? ["ENVIADO", "CONFIRMADO_ENVIADO"] : [])];
       const { data } = await sb.from("ulbra_envios").select("chave").eq("atendimento_id", atendimentoId).eq("texto", texto).in("status", estados).limit(1);
       return (data?.length ?? 0) > 0;
     },

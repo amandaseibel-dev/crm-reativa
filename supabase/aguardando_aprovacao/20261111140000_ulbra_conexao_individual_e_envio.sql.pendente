@@ -113,7 +113,7 @@ create index ulbra_envios_atendimento_idx on public.ulbra_envios (atendimento_id
 -- No máximo UM envio em aberto (PENDENTE, ENVIANDO ou FALHA_INCERTA) por atendimento e texto,
 -- entre todos os operadores. Fecha a corrida entre requisições concorrentes com chaves diferentes.
 create unique index ulbra_envios_texto_em_aberto_unica on public.ulbra_envios (atendimento_id, md5(texto), repeticao)
-  where status in ('PENDENTE','ENVIANDO','FALHA_INCERTA','CONFIRMADO_ENVIADO');
+  where status in ('PENDENTE','ENVIANDO','FALHA_INCERTA','ENVIADO','CONFIRMADO_ENVIADO');
 alter table public.ulbra_envios enable row level security;
 revoke all on public.ulbra_envios from public, anon, authenticated;
 grant select, insert, update on public.ulbra_envios to service_role;
@@ -130,6 +130,7 @@ set search_path = public
 as $$
 declare
   v_status text;
+  v_motivo_original text;
 begin
   if p_decisao not in ('CONFIRMADO_ENVIADO', 'CONFIRMADO_NAO_ENVIADO') then
     return jsonb_build_object('situacao', 'BLOQUEADO', 'motivos', jsonb_build_array('DECISAO_INVALIDA'));
@@ -138,7 +139,7 @@ begin
     return jsonb_build_object('situacao', 'BLOQUEADO', 'motivos', jsonb_build_array('MOTIVO_OBRIGATORIO'));
   end if;
   -- trava a linha: conferências concorrentes sobre o mesmo envio se enfileiram
-  select status into v_status from public.ulbra_envios
+  select status, motivo into v_status, v_motivo_original from public.ulbra_envios
    where operador_email = p_operador and chave = p_chave for update;
   if not found then
     return jsonb_build_object('situacao', 'BLOQUEADO', 'motivos', jsonb_build_array('ENVIO_NAO_ENCONTRADO'));
@@ -153,7 +154,7 @@ begin
   end if;
   update public.ulbra_envios
      set status = p_decisao,
-         motivo = 'conferido por ' || p_conferido_por || ': ' || trim(p_motivo) || ' (status anterior: ' || v_status || ')',
+         motivo = 'conferido por ' || p_conferido_por || ': ' || trim(p_motivo) || ' (status anterior: ' || v_status || '; motivo original: ' || coalesce(v_motivo_original, 'nenhum') || ')',
          atualizado_em = now()
    where operador_email = p_operador and chave = p_chave;
   insert into public.auditoria (usuario, acao, tabela_afetada, registro_id, detalhes)
