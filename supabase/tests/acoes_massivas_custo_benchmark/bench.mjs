@@ -75,7 +75,12 @@ const ACL_SQL = `select coalesce(array(
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
   cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
   where n.nspname = 'public' and p.proname = 'acoes_massivas_universo' and a.privilege_type = 'EXECUTE'
+    and a.grantee <> p.proowner
   order by 1), '{}') q`;
+// Atributos de seguranca da funcao: SECURITY DEFINER e search_path fixo (checklist de deploy §C).
+const SEGURANCA_SQL = `select p.prosecdef as definer, coalesce(array_to_string(p.proconfig, ','), '') as config
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'acoes_massivas_universo'`;
 const DEF_SQL = `select md5(pg_get_functiondef(p.oid)) m from pg_proc p join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public' and p.proname = 'acoes_massivas_universo'`;
 
@@ -131,7 +136,12 @@ function semearVolume() {
 async function estado(rotulo) {
   const acl = (await q(ACL_SQL)).rows[0].q;
   const def = (await q(DEF_SQL)).rows[0].m;
-  return { rotulo, md5_funcao: def, acl_execute: acl };
+  const seg = (await q(SEGURANCA_SQL)).rows[0];
+  return {
+    rotulo, md5_funcao: def, acl_execute: acl,
+    security_definer: seg.definer,
+    search_path_fixo: /search_path=public/.test(seg.config),
+  };
 }
 
 async function resolverFiltro(f, ids) {
@@ -222,6 +232,7 @@ async function main() {
     acl_antes_ok: aclOk(estados.find((e) => e.rotulo === "antes_941_R5")),
     acl_depois_ok: aclOk(estados.find((e) => e.rotulo === "depois_otimizacao")),
     acl_rollback_ok: aclOk(estados.find((e) => e.rotulo === "rollback")),
+    seguranca_depois_ok: estados.filter((e) => e.rotulo !== "sem_941_R5").every((e) => e.security_definer && e.search_path_fixo),
   };
   const sumario = antes.map((a, i) => ({
     cenario: i,
