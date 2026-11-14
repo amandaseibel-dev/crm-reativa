@@ -21,7 +21,7 @@ import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { retornosAgendados, retornosAtrasados, JANELA_RETORNOS_DIAS } from "../../src/utils/painelMeuDia";
+import { retornosAgendados, JANELA_RETORNOS_DIAS } from "../../src/utils/painelMeuDia";
 import { retornoParaAvisar } from "../../src/utils/alarmeRetorno";
 
 vi.setConfig({ testTimeout: 180000, hookTimeout: 180000 });
@@ -268,7 +268,7 @@ describe("reagendamento explicito e salvar a ficha (fluxo real)", () => {
     await db.query("select public.agenda_confirmar_retorno($1, true)", [ALUNA]);
     await como(db, null);
     expect(await avisoHoje(db, "14:31")).toBeNull();
-    for (const _ of [1, 2, 3]) {
+    for (let dia = 1; dia <= 3; dia += 1) {
       await amanhece(db);
       expect(await avisoHoje(db, "14:30")).toBeNull();
     }
