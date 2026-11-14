@@ -1,3 +1,4 @@
+BEGIN;
 -- Rollback de 20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.
 -- Remove a trigger e a função. Desativa (não apaga) as duas tabulações, como o
 -- catálogo manda ("excluir = desativar"): o histórico continua referenciando os códigos.
@@ -10,3 +11,5 @@ update public.tabulacoes
        desativada_por = 'rollback_termo_fisico'
  where codigo in ('TERMO_FISICO_EM_ANDAMENTO', 'TERMO_FISICO_ARQUIVADO')
    and criado_por = 'migration_termo_fisico';
+
+COMMIT;

@@ -45,6 +45,23 @@ select public.teste_assert('operador: grava movimentação sem status (ex.: obse
     $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, descricao, registrado_por_email)
          values ('a1','CONTATO','obs','operador.teste@exemplo.local')$sql$)->>'ok' = 'true');
 
+
+-- Espaços em branco que o btrim não removia (tab, quebra de linha, retorno).
+select public.teste_assert('operador: recusado com TAB, quebra de linha e retorno ao redor do código (42501)',
+  public.teste_comando('authenticated', 'operador.teste@exemplo.local',
+    E'insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email) values (\'a1\',\'FINALIZACAO_ATENDIMENTO\',E\'\\tTERMO_FISICO_ARQUIVADO\\n\\r\',\'operador.teste@exemplo.local\')')->>'code' = '42501');
+
+-- UPDATE do operador em status_novo: negado (sem privilégio, e a trigger cobre UPDATE OF status_novo).
+-- Linha da gestão criada antes; o operador tenta mudar o status. Não pode mudar (RLS sem policy de UPDATE
+-- para o operador afeta zero linhas; e, se o privilégio existir, a trigger cobre UPDATE OF status_novo).
+insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
+  values ('a2','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_EM_ANDAMENTO','amanda.seibel@aelbra.com.br');
+select public.teste_comando('authenticated', 'operador.teste@exemplo.local',
+  'update public.aluno_movimentacoes set status_novo = ''TERMO_FISICO_ARQUIVADO'' where aluno_id = ''a2''');
+select public.teste_assert('operador: não altera status_novo de movimentação da gestão',
+  (select count(*) from public.aluno_movimentacoes where aluno_id = 'a2' and status_novo = 'TERMO_FISICO_EM_ANDAMENTO') = 1
+  and (select count(*) from public.aluno_movimentacoes where aluno_id = 'a2' and status_novo = 'TERMO_FISICO_ARQUIVADO') = 0);
+
 -- Inativo: a RLS de INSERT exige app_usuario_ativo().
 update public.usuarios set ativo = false where email = 'cobranca07@aelbra.com.br';
 select public.teste_assert('gestão inativa: não grava (42501 pela RLS de INSERT)',
@@ -72,7 +89,7 @@ select public.teste_assert('gestão (Fernanda): grava TERMO_FISICO_ARQUIVADO no 
 -- Histórico: data, hora e autor gravados.
 select public.teste_assert('histórico: registro tem autor, data e hora',
   (select count(*) from public.aluno_movimentacoes
-    where status_novo = 'TERMO_FISICO_EM_ANDAMENTO' and registrado_por_email = 'amanda.seibel@aelbra.com.br'
+    where aluno_id = 'a1' and status_novo = 'TERMO_FISICO_EM_ANDAMENTO' and registrado_por_email = 'amanda.seibel@aelbra.com.br'
       and registrado_em is not null and tipo = 'REGISTRO_ADMINISTRATIVO') = 1);
 
 -- ---------- Ausência de efeitos ----------

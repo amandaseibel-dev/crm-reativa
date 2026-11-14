@@ -1,4 +1,5 @@
 -- Duas tabulações de termo físico, RESTRITAS À GESTÃO, no catálogo existente.
+BEGIN;
 -- NÃO APLICAR sem aprovação final. Mudança mínima:
 --   1. duas linhas em public.tabulacoes (somente_gestao = true);
 --   2. trigger em aluno_movimentacoes que recusa, no servidor, qualquer gravação
@@ -31,7 +32,7 @@ security definer
 set search_path to 'public'
 as $$
 declare
-  v_codigo text := upper(btrim(coalesce(new.status_novo, '')));
+  v_codigo text := upper(regexp_replace(coalesce(new.status_novo, ''), '[[:space:]]', '', 'g'));
 begin
   if v_codigo = '' then
     return new;
@@ -48,7 +49,7 @@ begin
   end if;
   if exists (
     select 1 from public.tabulacoes t
-     where t.somente_gestao and upper(btrim(t.codigo)) = v_codigo
+     where t.somente_gestao and upper(regexp_replace(t.codigo, '[[:space:]]', '', 'g')) = v_codigo
   ) then
     raise exception 'A tabulação "%" é restrita à gestão. Registre a solicitação para Amanda, Fernanda ou Amanda ADM.', v_codigo
       using errcode = '42501';
@@ -61,5 +62,7 @@ revoke all on function public.aluno_movimentacao_tabulacao_so_gestao() from publ
 
 drop trigger if exists aluno_mov_tabulacao_so_gestao on public.aluno_movimentacoes;
 create trigger aluno_mov_tabulacao_so_gestao
-  before insert on public.aluno_movimentacoes
+  before insert or update of status_novo on public.aluno_movimentacoes
   for each row execute function public.aluno_movimentacao_tabulacao_so_gestao();
+
+COMMIT;
