@@ -1172,7 +1172,14 @@ jobs:
           set -e
           psql -v ON_ERROR_STOP=1 -f "$DIR/11p_prep_contencao_off.sql"
           [ "$rc" -eq 0 ] || exit "$rc"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/13p_rls_role.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/12p_on.sql"
+          set +e
+          PGUSER=app_teste_rls PGPASSWORD=app_teste_rls_pw psql -v ON_ERROR_STOP=1 -f "$DIR/13_update_direto_rls.sql"
+          rc=$?
+          set -e
+          psql -v ON_ERROR_STOP=1 -f "$DIR/12p_off.sql"
+          [ "$rc" -eq 0 ] || exit "$rc"
           set +e
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/12_contencao_flag.sql"
           rc=$?

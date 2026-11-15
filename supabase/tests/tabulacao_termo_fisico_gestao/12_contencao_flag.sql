@@ -43,3 +43,10 @@ begin
   end;
   if not v_ok then raise exception 'FALHOU: app_teste conseguiu alterar contencao_ativa'; end if;
 end $$;
+
+-- authenticated: sem policy de UPDATE, a RLS filtra a zero linhas ANTES da trigger. Esta recusa é da RLS,
+-- não da trigger: o teste exige apenas que nada mude (a trigger é provada em 13).
+select public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
+  $sql$update public.aluno_movimentacoes set status_novo = 'TERMO_FISICO_EM_ANDAMENTO' where aluno_id = 'c1'$sql$);
+select public.teste_assert('RLS (não a trigger) impede UPDATE de authenticated: linha inalterada',
+  (select count(*) from public.aluno_movimentacoes where aluno_id = 'c1' and status_novo = 'TERMO_FISICO_ARQUIVADO') = 1);

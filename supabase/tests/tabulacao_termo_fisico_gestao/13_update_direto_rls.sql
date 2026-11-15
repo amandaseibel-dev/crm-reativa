@@ -1,4 +1,4 @@
--- UPDATE direto que ALCANÇA a trigger. Como authenticated não tem policy de UPDATE (RLS filtra a zero linhas
+-- Prova a TRIGGER isoladamente (login BYPASSRLS, descartável). UPDATE direto que alcança a trigger. Como authenticated não tem policy de UPDATE (RLS filtra a zero linhas
 -- antes da trigger), este teste roda como app_teste_rls: LOGIN com BYPASSRLS, não é postgres nem supabase_admin
 -- (portanto NÃO tem o bypass de manutenção). Zero linhas NÃO conta como prova: exigimos o erro específico.
 \set ON_ERROR_STOP on
