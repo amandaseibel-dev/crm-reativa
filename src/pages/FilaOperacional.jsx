@@ -780,8 +780,9 @@ export default function FilaOperador() {
     // NAO antecipa reagendamento: esse caminho e so da RPC agenda_reagendar_retorno.
     const dataAntiga = alunoSelecionado?.data_retorno ? String(alunoSelecionado.data_retorno).slice(0, 10) : "";
     const horaAntiga = alunoSelecionado?.hora_retorno ? String(alunoSelecionado.hora_retorno).slice(0, 5) : "";
-    const dataNova = atualizacaoAluno.data_retorno ? String(atualizacaoAluno.data_retorno).slice(0, 10) : "";
-    const horaNova = atualizacaoAluno.hora_retorno ? String(atualizacaoAluno.hora_retorno).slice(0, 5) : "";
+    // Campo ausente no payload = nao mexe (so a data digitada de tabulacao vai sozinha).
+    const dataNova = "data_retorno" in atualizacaoAluno ? String(atualizacaoAluno.data_retorno || "").slice(0, 10) : dataAntiga;
+    const horaNova = "hora_retorno" in atualizacaoAluno ? String(atualizacaoAluno.hora_retorno || "").slice(0, 5) : horaAntiga;
     // Esta tela nao reagenda: so a comparacao com a ficha carregada decide.
     if (dataNova === dataAntiga && horaNova === horaAntiga) {
       delete atualizacaoAluno.data_retorno;

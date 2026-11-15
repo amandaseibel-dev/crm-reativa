@@ -1179,14 +1179,6 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       data_retorno: retorno,
       ...extra,
     };
-    const { error: movError } = await supabase
-      .from("aluno_movimentacoes")
-      .insert(movimento);
-    if (movError) {
-      console.error("Erro ao registrar movimentação:", movError);
-      alert("Erro ao registrar movimentação: " + movError.message);
-      throw movError;
-    }
     const atualizacaoAluno = {
       registrado_por_nome: usuario.nome,
       registrado_por_email: usuario.email,
@@ -1242,18 +1234,32 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     // NAO antecipa reagendamento: esse caminho e so da RPC agenda_reagendar_retorno.
     const dataAntiga = alunoSelecionado?.data_retorno ? String(alunoSelecionado.data_retorno).slice(0, 10) : "";
     const horaAntiga = alunoSelecionado?.hora_retorno ? String(alunoSelecionado.hora_retorno).slice(0, 5) : "";
-    const dataNova = atualizacaoAluno.data_retorno ? String(atualizacaoAluno.data_retorno).slice(0, 10) : "";
-    const horaNova = atualizacaoAluno.hora_retorno ? String(atualizacaoAluno.hora_retorno).slice(0, 5) : "";
+    // Campo ausente no payload = nao mexe: sem isso, um caminho que so manda a data
+    // (tabulacao com data digitada) era lido como troca de hora e recusado.
+    const dataNova = "data_retorno" in atualizacaoAluno ? String(atualizacaoAluno.data_retorno || "").slice(0, 10) : dataAntiga;
+    const horaNova = "hora_retorno" in atualizacaoAluno ? String(atualizacaoAluno.hora_retorno || "").slice(0, 5) : horaAntiga;
     const mudouRetorno = dataNova !== dataAntiga || horaNova !== horaAntiga;
-    if (!reagendarRetorno && mudouRetorno && atualizacaoAluno.retorno_origem === "OPERADOR") {
+    if (!reagendarRetorno && mudouRetorno && ehOrigemDoOperador(atualizacaoAluno.retorno_origem)) {
       // Data/hora digitadas por humano so mudam com a acao Reagendar (RPC).
-      throw new Error("Para mudar a data ou a hora do retorno, marque Reagendar. Nada foi salvo.");
+      // Avisa antes de lancar: o chamador so loga erro, e sem o aviso o operador nao via nada.
+      const msgRecusa = "Para mudar a data ou a hora do retorno, marque Reagendar. Nada foi salvo.";
+      alert(msgRecusa);
+      throw new Error(msgRecusa);
     }
     if (reagendarRetorno || !mudouRetorno) {
       delete atualizacaoAluno.data_retorno;
       delete atualizacaoAluno.hora_retorno;
       delete atualizacaoAluno.retorno_origem;
       delete atualizacaoAluno.retorno_prioritario;
+    }
+    // Movimentacao so e gravada depois da checagem de retorno (recusa antes de qualquer escrita).
+    const { error: movError } = await supabase
+      .from("aluno_movimentacoes")
+      .insert(movimento);
+    if (movError) {
+      console.error("Erro ao registrar movimentação:", movError);
+      alert("Erro ao registrar movimentação: " + movError.message);
+      throw movError;
     }
     const { error: updateError } = await supabase
       .from("alunos")

@@ -40,6 +40,8 @@ const md5 = (t) => createHash("md5").update(t, "utf8").digest("hex");
 
 const MD5_VIVO = "41475103b8b7ad363dfdc76c4170c5a8";
 const MD5_PARTE1 = "03dacc0abb23490a8e060c4f86e0df94";
+// Corpo final (parte 1 + leitura travada da parte 2, secao D do pacote).
+const MD5_FINAL = "c3e38ac06719b886297369e1f0e507aa";
 
 const CORPO_VIVO = ler("tests", "fixtures", "recalcular_situacao_aluno_prod_20261113.sql");
 const AGENDA_CONFIRMADO = ler("migrations", "20260808150000_agenda_retorno_confirmado.sql");
@@ -138,7 +140,7 @@ const como = (db, email) =>
       : `select set_config('teste.email', '', false), set_config('teste.uid', '', false);`
   );
 
-async function montar({ comPacote }) {
+async function montar({ comPacote, soParte1 = false }) {
   const db = new PGlite();
   await db.exec(ESQUEMA);
   await db.exec(
@@ -151,7 +153,7 @@ async function montar({ comPacote }) {
   await db.exec("grant execute on function public.recalcular_situacao_aluno(uuid, text) to authenticated;");
   if (comPacote) {
     await db.exec(P1_PEND);
-    await db.exec(P2_PEND);
+    if (!soParte1) await db.exec(P2_PEND);
   }
   for (const [id, nome, dono] of [
     [ALUNA, "Aluna Ficticia Um", OPERADOR],
@@ -239,12 +241,14 @@ async function avisoHoje(db, horaAgora) {
 }
 
 describe("cadeia de md5 e rollback", () => {
-  it("o fixture e o corpo vivo; a parte 1 leva a 03dacc0a e a parte 2 NAO muda o corpo", async () => {
+  it("o fixture e o corpo vivo; a parte 1 leva a 03dacc0a; a parte 2 (leitura travada) leva a c3e38ac0", async () => {
     const i = CORPO_VIVO.indexOf("AS $function$") + "AS $function$".length;
     const prosrc = CORPO_VIVO.slice(i, CORPO_VIVO.lastIndexOf("$function$"));
     expect(md5(prosrc)).toBe(MD5_VIVO);
-    const db = await montar({ comPacote: true });
-    expect(await md5Corpo(db)).toBe(MD5_PARTE1);
+    const so1 = await montar({ comPacote: true, soParte1: true });
+    expect(await md5Corpo(so1)).toBe(MD5_PARTE1);
+    const pacote = await montar({ comPacote: true });
+    expect(await md5Corpo(pacote)).toBe(MD5_FINAL);
   });
 
   it("o rollback volta ao corpo vivo e recria o gatilho de zeragem", async () => {
@@ -477,5 +481,75 @@ describe("backup por id", () => {
     await expect(
       db.exec(RESTAURA_PEND.replace("array[]::uuid[];   -- PREENCHER com os ids aprovados", "array['a1000000-0000-4000-8000-0000000000ee']::uuid[];"))
     ).rejects.toThrow(/RESTAURACAO RECUSADA/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PAPEIS NAO PRIVILEGIADOS: a autorizacao da RPC e provada trocando de role
+// (SET ROLE anon / authenticated) com claims, e NAO como superuser. O ACL
+// (EXECUTE) e checado pelo proprio banco no papel; a regra de negocio roda na
+// RPC (security definer), com auth.uid/auth.email vindos das claims do teste.
+// ---------------------------------------------------------------------------
+async function comPapel(db, role, quem, fn) {
+  await como(db, quem);
+  await db.exec(`set role ${role}`);
+  try {
+    return await fn();
+  } finally {
+    await db.exec("reset role");
+    await como(db, null);
+  }
+}
+const CHAMADA_RPC = "select public.agenda_reagendar_retorno($1, current_date + 1, '18:00', false)";
+
+describe("autorizacao da RPC com papeis nao privilegiados", () => {
+  it("anon (SET ROLE anon) nao tem EXECUTE: o banco recusa e nada muda", async () => {
+    const db = await montar({ comPacote: true });
+    await reagendar(db, OPERADOR, ALUNA, 0, "10:00");
+    const antes = await linha(db, ALUNA);
+    await expect(comPapel(db, "anon", null, () => db.query(CHAMADA_RPC, [ALUNA])))
+      .rejects.toThrow(/permission denied/i);
+    expect(await linha(db, ALUNA)).toEqual(antes);
+  });
+
+  it("authenticated sem claims (sem sessao) e recusado", async () => {
+    const db = await montar({ comPacote: true });
+    await expect(comPapel(db, "authenticated", null, () => db.query(CHAMADA_RPC, [ALUNA])))
+      .rejects.toThrow(/Sem sessao/);
+  });
+
+  it("authenticated sem perfil em usuarios e recusado", async () => {
+    const db = await montar({ comPacote: true });
+    await expect(comPapel(db, "authenticated", SEM_PERFIL, () => db.query(CHAMADA_RPC, [ALUNA])))
+      .rejects.toThrow(/inativo ou sem cadastro/);
+  });
+
+  it("authenticated com perfil INATIVO e recusado", async () => {
+    const db = await montar({ comPacote: true });
+    await expect(comPapel(db, "authenticated", INATIVO, () => db.query(CHAMADA_RPC, [ALUNA])))
+      .rejects.toThrow(/inativo ou sem cadastro/);
+  });
+
+  it("operador NAO dono (SET ROLE authenticated) e recusado e nada muda", async () => {
+    const db = await montar({ comPacote: true });
+    await reagendar(db, OPERADOR, ALUNA, 0, "10:00");
+    const antes = await linha(db, ALUNA);
+    await expect(comPapel(db, "authenticated", OUTRO, () => db.query(CHAMADA_RPC, [ALUNA])))
+      .rejects.toThrow(/Sem permissao para reagendar/);
+    expect(await linha(db, ALUNA)).toEqual(antes);
+  });
+
+  it("operador DONO (SET ROLE authenticated) reagenda o proprio caso", async () => {
+    const db = await montar({ comPacote: true });
+    await comPapel(db, "authenticated", OPERADOR, () => db.query(CHAMADA_RPC, [ALUNA]));
+    expect((await linha(db, ALUNA)).hora_retorno).toBe("18:00");
+  });
+
+  it("Amanda, Fernanda e Amanda ADM (SET ROLE authenticated) reagendam caso alheio, cada uma com seu perfil", async () => {
+    for (const gestor of GESTAO) {
+      const db = await montar({ comPacote: true });
+      await comPapel(db, "authenticated", gestor, () => db.query(CHAMADA_RPC, [OUTRA]));
+      expect((await linha(db, OUTRA)).hora_retorno).toBe("18:00");
+    }
   });
 });

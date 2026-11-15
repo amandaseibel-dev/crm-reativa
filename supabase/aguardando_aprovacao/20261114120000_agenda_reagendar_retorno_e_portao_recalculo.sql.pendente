@@ -3,7 +3,8 @@
 -- NAO APLICADO. Pacote para aprovacao final. Ordem:
 --   1. 20261113120000_retorno_tratado_nao_herda_selo_do_operador.sql.pendente
 --      (parte 1: corpo de recalcular 41475103 -> 03dacc0a)
---   2. este arquivo (corpo de recalcular NAO muda; so ACL e gatilho).
+--   2. este arquivo (muda o corpo de recalcular so na leitura travada, secao D:
+--      03dacc0a -> c3e38ac0; ACL e gatilho como descrito abaixo).
 --
 -- O QUE FAZ
 --   A. BACKUP POR ID dos campos de retorno, antes de qualquer troca. Tabela com
@@ -21,7 +22,7 @@
 --      authenticated e continuam funcionando).
 --
 -- TRAVAS: md5(prosrc) de recalcular antes = 03dacc0a... (parte 1) e depois =
--- o mesmo (o corpo nao muda). ACL muda de forma prevista (anon sai).
+-- c3e38ac0... (secao D). ACL muda de forma prevista (anon sai).
 --
 -- ROLLBACK: 20261114120000_agenda_reagendar_retorno_e_portao_recalculo.rollback.sql
 
