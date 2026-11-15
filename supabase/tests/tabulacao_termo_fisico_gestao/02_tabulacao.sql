@@ -128,10 +128,12 @@ select public.teste_assert('gestão (Fernanda): grava TERMO_FISICO_ARQUIVADO no 
          values ('a1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO','registro','cobranca04@aelbra.com.br')$sql$)->>'ok' = 'true');
 
 -- Histórico: data, hora e autor gravados.
+-- Leitura como gestão (select using true): visibilidade completa; controle positivo = 1 linha.
 select public.teste_assert('histórico: registro tem autor, data e hora',
-  (select count(*) from public.aluno_movimentacoes
+  (select jsonb_array_length((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',
+    $q$select 1 from public.aluno_movimentacoes
     where aluno_id = 'a1' and status_novo = 'TERMO_FISICO_EM_ANDAMENTO' and registrado_por_email = 'amanda.seibel@aelbra.com.br'
-      and registrado_em is not null and tipo = 'REGISTRO_ADMINISTRATIVO') = 1);
+      and registrado_em is not null and tipo = 'REGISTRO_ADMINISTRATIVO'$q$))->'rows')) = 1);
 
 -- ---------- Ausência de efeitos ----------
 select public.teste_assert('sem contato: o tipo REGISTRO_ADMINISTRATIVO NÃO é acionamento',
@@ -157,12 +159,17 @@ select public.teste_assert('fixture: gestão grava REGISTRO para a3 (descrição
   public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
     $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, descricao, registrado_por_email)
          values ('a3','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO','Registro administrativo do termo físico.','amanda.seibel@aelbra.com.br')$sql$)->>'ok' = 'true');
+-- Controle positivo: o fixture a3 existe e é visível à gestão (1 linha) antes de afirmar 0 palavras-chave.
+select public.teste_assert('triagem Prime: fixture a3 visível (controle positivo)',
+  (select jsonb_array_length((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',
+    $q$select 1 from public.aluno_movimentacoes where aluno_id = 'a3'$q$))->'rows')) = 1);
 select public.teste_assert('triagem Prime: descrição padronizada não ativa nenhuma palavra-chave',
-  (select count(*) from public.aluno_movimentacoes
+  (select jsonb_array_length((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',
+    $q$select 1 from public.aluno_movimentacoes
     where aluno_id = 'a3'
       and (descricao ilike '%fies%' or descricao ilike '%isen%' or descricao ilike '%bolsa%'
            or descricao ilike '%tranc%' or (descricao ilike '%cancel%' and descricao ilike '%matr%')
-           or descricao ilike '%desist%')) = 0);
+           or descricao ilike '%desist%')$q$))->'rows')) = 0);
 
 -- Não é acionamento (lista de tipos de produção) e não tem efeito financeiro.
 select public.teste_assert('não é acionamento: tipo REGISTRO_ADMINISTRATIVO fora de eh_tipo_acionamento',
