@@ -65,8 +65,8 @@ select public.teste_assert('burla: código restrito com espaço/tab/Unicode no R
 select public.teste_assert('burla: UPDATE do operador mudando tipo ou código não altera nenhuma linha da gestão',
   (public.teste_comando('authenticated','operador.teste@exemplo.local',
     $sql$update public.aluno_movimentacoes set tipo = 'FINALIZACAO_ATENDIMENTO', status_novo = 'TERMO_FISICO_ARQUIVADO' where aluno_id = 'r1' and registrado_por_email = 'amanda.seibel@aelbra.com.br'$sql$)->>'ok') in ('true','false')
-  and (select count(*) from public.aluno_movimentacoes where aluno_id = 'r1' and tipo = 'REGISTRO_ADMINISTRATIVO') >= 1
-  and (select count(*) from public.aluno_movimentacoes where aluno_id = 'r1' and tipo = 'FINALIZACAO_ATENDIMENTO') = 0);
+  and (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'r1' and tipo = 'REGISTRO_ADMINISTRATIVO'$q$))->'rows')) >= 1
+  and (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'r1' and tipo = 'FINALIZACAO_ATENDIMENTO'$q$))->'rows')) = 0);
 -- UPDATE do operador que tenta criar REGISTRO a partir de FINALIZACAO: nenhuma linha muda (sem policy de UPDATE).
 select public.teste_assert('operador: grava FINALIZACAO normal para r9',
   public.teste_comando('authenticated','operador.teste@exemplo.local',
@@ -75,8 +75,8 @@ select public.teste_assert('operador: grava FINALIZACAO normal para r9',
 select public.teste_comando('authenticated','operador.teste@exemplo.local',
   $sql$update public.aluno_movimentacoes set tipo = 'REGISTRO_ADMINISTRATIVO', status_novo = 'TERMO_FISICO_ARQUIVADO' where aluno_id = 'r9'$sql$);
 select public.teste_assert('burla: UPDATE do operador não criou REGISTRO a partir de FINALIZACAO',
-  (select count(*) from public.aluno_movimentacoes where aluno_id = 'r9' and tipo = 'REGISTRO_ADMINISTRATIVO') = 0
-  and (select count(*) from public.aluno_movimentacoes where aluno_id = 'r9' and tipo = 'FINALIZACAO_ATENDIMENTO') = 1);
+  (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'r9' and tipo = 'REGISTRO_ADMINISTRATIVO'$q$))->'rows')) = 0
+  and (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'r9' and tipo = 'FINALIZACAO_ATENDIMENTO'$q$))->'rows')) = 1);
 
 -- ---------- Ausência de efeitos operacionais no aluno ----------
 select public.teste_assert('efeito: gravar REGISTRO não altera o estado do aluno (status_atual, jornada, acionamento)',
@@ -89,7 +89,7 @@ select public.teste_assert('operação: gestão registra via função e o histó
   (public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',
     $sql$select public.registrar_administrativo_termo_fisico('a0000000-0000-0000-0000-000000000042','TERMO_FISICO_ARQUIVADO') as r$sql$)->'rows'->0->'r'->>'ok') = 'true');
 select public.teste_assert('operação: o registro gravado tem tipo REGISTRO e autor do servidor',
-  (select count(*) from public.aluno_movimentacoes where tipo = 'REGISTRO_ADMINISTRATIVO' and registrado_por_email = 'amanda.seibel@aelbra.com.br' and aluno_id = 'a0000000-0000-0000-0000-000000000042' and status_novo = 'TERMO_FISICO_ARQUIVADO') >= 1);
+  (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where tipo = 'REGISTRO_ADMINISTRATIVO' and registrado_por_email = 'amanda.seibel@aelbra.com.br' and aluno_id = 'a0000000-0000-0000-0000-000000000042' and status_novo = 'TERMO_FISICO_ARQUIVADO'$q$))->'rows')) >= 1);
 select public.teste_assert('operação negada: operador (42501)',
   public.teste_comando('authenticated','operador.teste@exemplo.local',
     $sql$select public.registrar_administrativo_termo_fisico('a0000000-0000-0000-0000-000000000042','TERMO_FISICO_ARQUIVADO')$sql$)->>'code' = '42501');

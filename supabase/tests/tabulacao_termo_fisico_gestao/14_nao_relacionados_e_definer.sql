@@ -7,7 +7,7 @@
 select public.teste_assert('definer lê flag desligada: RPC da gestão grava REGISTRO (uma linha)',
   (public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
     $sql$select public.registrar_administrativo_termo_fisico('d1','TERMO_FISICO_ARQUIVADO')$sql$)->>'ok' = 'true')
-  and (select count(*) from public.aluno_movimentacoes where aluno_id = 'd1' and tipo = 'REGISTRO_ADMINISTRATIVO') = 1);
+  and (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'd1' and tipo = 'REGISTRO_ADMINISTRATIVO'$q$))->'rows')) = 1);
 -- (b) operacional não relacionado: operador grava CONTATO/CONTATAR e gestão grava OBSERVACAO sem código.
 select public.teste_assert('não relacionado: operador grava CONTATAR',
   public.teste_comando('authenticated','operador.teste@exemplo.local',

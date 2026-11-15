@@ -4,22 +4,22 @@
 select public.teste_assert('contenção: RPC recusada à gestão (42501), sem linha nova',
   (public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
     $sql$select public.registrar_administrativo_termo_fisico('c2','TERMO_FISICO_ARQUIVADO')$sql$)->>'code' = '42501')
-  and (select count(*) from public.aluno_movimentacoes where aluno_id = 'c2') = 0);
+  and (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'c2'$q$))->'rows')) = 0);
 -- INSERT direto pela gestão: REGISTRO de cada código restrito recusado.
 select public.teste_assert('contenção: INSERT direto REGISTRO (EM_ANDAMENTO) recusado à gestão',
   (public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
     $sql$insert into public.aluno_movimentacoes (aluno_id,tipo,status_novo,descricao,registrado_por_email) values ('c2','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_EM_ANDAMENTO','Registro administrativo do termo físico.','amanda.seibel@aelbra.com.br')$sql$)->>'code' = '42501')
-  and (select count(*) from public.aluno_movimentacoes where aluno_id = 'c2') = 0);
+  and (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'c2'$q$))->'rows')) = 0);
 -- INSERT direto de CONTATO com código restrito pela gestão: recusado.
 select public.teste_assert('contenção: INSERT de código restrito em CONTATO recusado à gestão',
   (public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
     $sql$insert into public.aluno_movimentacoes (aluno_id,tipo,status_novo,registrado_por_email) values ('c2','CONTATO','TERMO_FISICO_ARQUIVADO','amanda.seibel@aelbra.com.br')$sql$)->>'code' = '42501')
-  and (select count(*) from public.aluno_movimentacoes where aluno_id = 'c2') = 0);
+  and (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'c2'$q$))->'rows')) = 0);
 -- UPDATE pela gestão de linha restrita existente: nada muda (sem policy de UPDATE; e a trigger recusa).
 select public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
   $sql$update public.aluno_movimentacoes set status_novo = 'TERMO_FISICO_EM_ANDAMENTO' where aluno_id = 'c1'$sql$);
 select public.teste_assert('contenção: UPDATE de linha restrita não altera o código',
-  (select count(*) from public.aluno_movimentacoes where aluno_id = 'c1' and status_novo = 'TERMO_FISICO_ARQUIVADO') = 1);
+  (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'c1' and status_novo = 'TERMO_FISICO_ARQUIVADO'$q$))->'rows')) = 1);
 -- Operacional não relacionado continua gravando durante a contenção.
 select public.teste_assert('contenção: operador grava CONTATAR normal (não relacionado)',
   public.teste_comando('authenticated','operador.teste@exemplo.local',
@@ -49,4 +49,4 @@ end $$;
 select public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
   $sql$update public.aluno_movimentacoes set status_novo = 'TERMO_FISICO_EM_ANDAMENTO' where aluno_id = 'c1'$sql$);
 select public.teste_assert('RLS (não a trigger) impede UPDATE de authenticated: linha inalterada',
-  (select count(*) from public.aluno_movimentacoes where aluno_id = 'c1' and status_novo = 'TERMO_FISICO_ARQUIVADO') = 1);
+  (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'c1' and status_novo = 'TERMO_FISICO_ARQUIVADO'$q$))->'rows')) = 1);

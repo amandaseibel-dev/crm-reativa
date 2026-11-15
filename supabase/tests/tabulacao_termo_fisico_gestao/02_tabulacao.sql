@@ -149,7 +149,7 @@ select public.teste_assert('service_role (claim): recusado com mensagem exata, s
   (public.teste_comando('service_role', 'sistema@exemplo.local',
     $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
          values ('a1','SISTEMA','TERMO_FISICO_ARQUIVADO','sistema@exemplo.local')$sql$)->>'code' = '42501')
-  and (select count(*) from public.aluno_movimentacoes where aluno_id = 'a1' and tipo = 'SISTEMA') = 0);
+  and (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'a1' and tipo = 'SISTEMA'$q$))->'rows')) = 0);
 
 -- Triagem Prime: a descrição padronizada NÃO casa com as palavras que a triagem procura.
 -- Texto idêntico ao de DESCRICAO_REGISTRO_ADMINISTRATIVO (src/utils/tabulacoes.js).
