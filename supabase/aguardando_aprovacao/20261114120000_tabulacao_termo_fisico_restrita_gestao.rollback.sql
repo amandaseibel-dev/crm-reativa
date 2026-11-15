@@ -4,9 +4,10 @@
 -- Motivo: as duas linhas do catálogo são lidas pela barreira de estado em alunos
 -- (_encerramento_so_gestao, em produção). Removê-las reabriria a gravação de TERMO_* no
 -- estado do aluno pelo operador. Reverter é correção para frente, com decisão e migração próprias.
+\set VERBOSITY verbose
 BEGIN;
 do $$
 begin
-  raise exception 'rollback recusado por decisão registrada: as linhas do catálogo são lidas pela barreira de estado em alunos. Nada foi alterado nem removido. Reverter é correção para frente, com decisão e migração próprias.';
+  raise exception 'rollback recusado por decisão registrada: as linhas do catálogo são lidas pela barreira de estado em alunos. Nada foi alterado nem removido. Reverter é correção para frente, com decisão e migração próprias.' using errcode = 'P0001';
 end $$;
 COMMIT;

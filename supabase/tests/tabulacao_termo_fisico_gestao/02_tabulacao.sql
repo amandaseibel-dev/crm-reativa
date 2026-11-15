@@ -50,11 +50,9 @@ select public.teste_assert('operador: recusado com TAB, quebra de linha e retorn
 -- UPDATE do operador em status_novo de movimentação da gestão: a trigger (UPDATE OF status_novo) recusa.
 insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
   values ('a2','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_EM_ANDAMENTO','operador.teste@exemplo.local');
-select public.teste_assert('operador: UPDATE de status_novo para código restrito é recusado pela trigger (42501 e mensagem)',
-  (public.teste_comando('authenticated', 'operador.teste@exemplo.local',
-    'update public.aluno_movimentacoes set status_novo = ''TERMO_FISICO_ARQUIVADO'' where aluno_id = ''a2''')->>'code' = '42501')
-  and (public.teste_comando('authenticated', 'operador.teste@exemplo.local',
-    'update public.aluno_movimentacoes set status_novo = ''TERMO_FISICO_ARQUIVADO'' where aluno_id = ''a2''')->>'err' like '%restrita à gestão%'));
+-- UPDATE do operador: sem policy de UPDATE (como em produção) a RLS afeta zero linhas; a linha da gestão não muda.
+select public.teste_comando('authenticated', 'operador.teste@exemplo.local',
+  'update public.aluno_movimentacoes set status_novo = ''TERMO_FISICO_ARQUIVADO'' where aluno_id = ''a2''');
 select public.teste_assert('operador: o status da movimentação continua o mesmo após a tentativa',
   (select count(*) from public.aluno_movimentacoes where aluno_id = 'a2' and status_novo = 'TERMO_FISICO_EM_ANDAMENTO') = 1);
 

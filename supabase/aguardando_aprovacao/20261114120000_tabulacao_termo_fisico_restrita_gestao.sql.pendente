@@ -48,33 +48,51 @@ security definer
 set search_path to 'public'
 as $$
 declare
-  -- Só as duas tabulações de termo físico. Outros códigos somente_gestao (ex.:
-  -- RETORNO_FINANCEIRO) NÃO são tocados: o desfazer do operador pode regravar o
-  -- status restaurado, e isso não pode ser barrado por esta mudança.
+  -- Só os dois códigos de termo físico. Outros códigos somente_gestao (ex.: RETORNO_FINANCEIRO)
+  -- NÃO são tocados: o desfazer do operador pode regravar o status restaurado.
   v_restritos constant text[] := array['TERMO_FISICO_EM_ANDAMENTO','TERMO_FISICO_ARQUIVADO'];
-  -- Normaliza para [A-Z0-9_]: remove espaço, tab, quebra, retorno e caracteres
-  -- invisíveis (U+200B, U+FEFF, U+00A0, U+3000 etc.) antes de comparar.
-  -- ASCII ANTES do upper(): upper() depende do locale (ex.: 'ı' vira 'I' em tr_TR).
-  -- Locale determinístico: filtra para ASCII ANTES e compara com COLLATE "C".
-  -- Mesma expressão usada no rollback.
+  -- Mesma normalização do rollback: ASCII antes do upper, COLLATE "C" (locale determinístico).
   v_codigo text := upper(regexp_replace(coalesce(new.status_novo, ''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C");
+  v_tipo text := upper(regexp_replace(coalesce(new.tipo, ''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C");
 begin
-  if v_codigo = '' or not (v_codigo = any(v_restritos)) then
-    return new;
-  end if;
-  -- Bypass: service_role (claim) e chamada sem SET ROLE do PostgREST (sessão do dono,
-  -- migrações, RPCs de sistema). Dentro de SECURITY DEFINER, current_user é o dono,
-  -- por isso usa-se a GUC role do chamador.
+  -- Bypass: service_role (claim) e sessão do dono / sem SET ROLE do PostgREST. Dentro de
+  -- SECURITY DEFINER, current_user é o dono; usa-se a GUC role do chamador.
   if coalesce(auth.role(), '') = 'service_role'
      or coalesce(current_setting('role', true), 'none') in ('none', '', 'postgres') then
     return new;
   end if;
+
+  -- REGISTRO_ADMINISTRATIVO (autorização e ausência de efeitos IMPOSTAS NO BANCO):
+  if v_tipo = 'REGISTRO_ADMINISTRATIVO' then
+    if not public.usuario_e_gestao() then
+      raise exception 'Registro administrativo é restrito à gestão. Nada foi gravado.' using errcode = '42501';
+    end if;
+    if not (v_codigo = any(v_restritos)) then
+      raise exception 'Registro administrativo exige um dos dois códigos de termo físico. Nada foi gravado.' using errcode = '42501';
+    end if;
+    -- Sem efeito operacional: nenhum campo que dispare fluxo de cobrança, retorno, pagamento ou status.
+    if new.status_anterior is not null
+       or new.data_retorno is not null
+       or new.valor_movimentacao is not null
+       or new.baixa_pagamento_id is not null
+       or new.solicitacao_link_id is not null
+       or new.link_pagamento is not null
+       or new.motivo_devolucao is not null then
+      raise exception 'Registro administrativo não aceita campos operacionais (status anterior, retorno, valor, baixa, link ou devolução). Nada foi gravado.' using errcode = '42501';
+    end if;
+    return new;
+  end if;
+
+  if v_codigo = '' or not (v_codigo = any(v_restritos)) then
+    return new;
+  end if;
+
   if public.usuario_e_gestao() then
     return new;
   end if;
-  -- Desfazer do operador que restauraria código restrito: recusado INTEIRO (a transação
-  -- da desfazer_acao é desfeita junto). A gestão trata pelo fluxo autorizado.
-  if new.tipo = 'ACAO_DESFEITA' then
+
+  -- Desfazer do operador que restauraria código restrito: recusado INTEIRO.
+  if v_tipo = 'ACAO_DESFEITA' then
     raise exception 'Não é possível desfazer esta ação: o status anterior ("%") é restrito à gestão. Nada foi desfeito. A gestão trata pelo fluxo autorizado.', v_codigo
       using errcode = '42501';
   end if;
@@ -87,7 +105,7 @@ revoke all on function public.aluno_movimentacao_tabulacao_so_gestao() from publ
 
 drop trigger if exists aluno_mov_tabulacao_so_gestao on public.aluno_movimentacoes;
 create trigger aluno_mov_tabulacao_so_gestao
-  before insert or update of status_novo on public.aluno_movimentacoes
+  before insert or update on public.aluno_movimentacoes
   for each row execute function public.aluno_movimentacao_tabulacao_so_gestao();
 
 COMMIT;

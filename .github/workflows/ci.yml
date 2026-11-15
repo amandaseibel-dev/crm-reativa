@@ -1134,34 +1134,42 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: "Caminho A (com histórico): gestão, operador, desfazer; rollback recusado inteiro"
+      - name: "Caminho A (com histórico): contrato do teste, barreira, registro, rollback recusado, preservação"
         run: |
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
           psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
           psql -v ON_ERROR_STOP=1 -f "$DIR/02_tabulacao.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/00_barreira_producao.sql"
-          psql -v ON_ERROR_STOP=1 -c "create role app_teste login password 'app_teste_pw'; grant usage on schema public to app_teste; grant select on public.tabulacoes, public.alunos to app_teste; grant update on public.alunos to app_teste; grant select, insert on public.aluno_movimentacoes to app_teste;"
+          psql -v ON_ERROR_STOP=1 -c "do \$\$ begin if not exists (select 1 from pg_roles where rolname='app_teste') then create role app_teste login password 'app_teste_pw'; end if; end \$\$;"
+          psql -v ON_ERROR_STOP=1 -c "grant usage on schema public to app_teste; grant select on public.tabulacoes, public.alunos to app_teste; grant update on public.alunos to app_teste; grant select, insert on public.aluno_movimentacoes to app_teste;"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/05_barreira_alunos.sql"
-          # O rollback DEVE falhar (há histórico usando os códigos).
+          psql -v ON_ERROR_STOP=1 -f "$DIR/07_registro_administrativo.sql"
           set +e
           out=$(psql -v ON_ERROR_STOP=1 -f "$ROLLBACK" 2>&1)
           code=$?
           set -e
           echo "$out"
-          [ "$code" -ne 0 ] && echo "$out" | grep -q "rollback recusado:" || { echo "rollback deveria ser recusado pela regra de histórico"; exit 1; }
+          [ "$code" -ne 0 ] && echo "$out" | grep -qF "ERROR:  P0001: rollback recusado por decisão registrada" || { echo "contrato do rollback violado (SQLSTATE P0001 e mensagem exatos)"; exit 1; }
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_rollback_recusado.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/06_preservacao_rollback.sql"
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/05_barreira_alunos.sql"
 
-      - name: "Caminho B (banco limpo): rollback recusado por decisão, nada removido"
+      - name: "Caminho B (banco limpo, sem histórico): rollback recusado, preservação e barreira"
         run: |
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -c "drop schema public cascade; create schema public;"
           psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
           psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/00_barreira_producao.sql"
+          psql -v ON_ERROR_STOP=1 -c "do \$\$ begin if not exists (select 1 from pg_roles where rolname='app_teste') then create role app_teste login password 'app_teste_pw'; end if; end \$\$;"
+          psql -v ON_ERROR_STOP=1 -c "grant usage on schema public to app_teste; grant select on public.tabulacoes, public.alunos to app_teste; grant update on public.alunos to app_teste; grant select, insert on public.aluno_movimentacoes to app_teste;"
           set +e
           out=$(psql -v ON_ERROR_STOP=1 -f "$ROLLBACK" 2>&1)
           code=$?
           set -e
           echo "$out"
-          [ "$code" -ne 0 ] && echo "$out" | grep -q "rollback recusado por decisão" || { echo "rollback deveria ser recusado por decisão"; exit 1; }
+          [ "$code" -ne 0 ] && echo "$out" | grep -qF "ERROR:  P0001: rollback recusado por decisão registrada" || { echo "contrato do rollback violado (SQLSTATE P0001 e mensagem exatos)"; exit 1; }
           psql -v ON_ERROR_STOP=1 -f "$DIR/04_rollback_limpo.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/06_preservacao_rollback.sql"
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/05_barreira_alunos.sql"
