@@ -1,16 +1,17 @@
 -- ROLLBACK da 20261110100000_ulbra_historico_orcamento
 -- ATENÇÃO: a Edge Function ulbra-historico v1 publicada em produção (docs/integracoes/rollback-ulbra-historico-v1/)
--- chama ulbra_historico_reservar e lê ulbra_historico_uso. Executar este arquivo com a v1 no ar quebra a função (RESERVA_FALHOU).
--- Por isso ele é recusado por padrão. Ordem obrigatória:
---   1) retirar a v1 do projeto (supabase functions delete ulbra-historico) ou publicar versão que não chame o orçamento;
---   2) executar dentro de uma transação com a confirmação explícita:
+-- chama a RPC ulbra_historico_reservar (service_role). Remover a RPC e a tabela com a v1 no ar quebra a função (RESERVA_FALHOU).
+-- Por isso o bloco abaixo recusa por padrão. Os DROP ficam DENTRO do mesmo bloco: a recusa vale em qualquer forma de execução
+-- (psql com ou sem begin, sem ON_ERROR_STOP, ou arquivo inteiro). Ordem obrigatória:
+--   1) retirar a v1 do projeto (supabase functions delete ulbra-historico) ou publicar versão que não chame a RPC;
+--   2) executar dentro de uma transação, com a confirmação:
 --        begin; set local app.confirma_retirada_ulbra_historico = 'sim'; \i <este arquivo>; commit;
--- Sem a confirmação, o bloco abaixo levanta exceção e nada é removido.
+-- Sem begin, o set local não vale; sem a confirmação, nada é removido.
 do $$
 begin
   if coalesce(current_setting('app.confirma_retirada_ulbra_historico', true), '') <> 'sim' then
-    raise exception 'ROLLBACK_BLOQUEADO: retire a Edge Function ulbra-historico antes e confirme com set local app.confirma_retirada_ulbra_historico';
+    raise exception 'ROLLBACK_BLOQUEADO: retire a Edge Function ulbra-historico e confirme com set local app.confirma_retirada_ulbra_historico';
   end if;
+  drop function if exists public.ulbra_historico_reservar(text, date, integer, integer, integer);
+  drop table if exists public.ulbra_historico_uso;
 end $$;
-drop function if exists public.ulbra_historico_reservar(text, date, integer, integer, integer);
-drop table if exists public.ulbra_historico_uso;

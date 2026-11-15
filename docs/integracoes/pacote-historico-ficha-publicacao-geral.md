@@ -83,8 +83,8 @@ Esta é a única sequência válida. Não há outra no pacote. Os passos 5 a 10 
 - Função: versão 1 em `docs/integracoes/rollback-ulbra-historico-v1/` (`SHA256SUMS`). Redeploy sem `--no-verify-jwt`.
 - Dependências reais da v1 publicada: a RPC `ulbra_historico_reservar` e a tabela `ulbra_historico_uso`. A v1 **não ignora o orçamento**: chama a RPC (`rollback-ulbra-historico-v1/supabase/functions/ulbra-historico/index.ts`, `sb.rpc("ulbra_historico_reservar")`).
 - Rollback de `20261115120000` (guarda e colunas de bloqueio): compatível com a v1. Restaura a RPC sem a guarda, não remove função nem tabela.
-- Rollback de `20261110100000` (remove a RPC e a tabela de uso): **só depois de retirar a v1 do projeto**, com a confirmação explícita dentro da transação (`app.confirma_retirada_ulbra_historico`). Sem isso, o próprio arquivo recusa a execução.
-- Tela: a porta deixa de exibir o botão com uma linha de código.
+- Rollback de `20261110100000` (remove a RPC e a tabela de uso): **só depois de retirar a v1 do projeto**. Os `DROP` ficam dentro do mesmo bloco que confere a confirmação, então o bloco recusa sem remover nada quando a confirmação falta, em qualquer forma de execução. Executar dentro de `begin` com `set local app.confirma_retirada_ulbra_historico = 'sim'`.
+- Tela: a ficha é montada sem porta própria (`FichaAlunoUnificada.jsx:288`, `Aluno.jsx:2423` e `:2703`). `HISTORICO_DISPONIVEL` só controla a Central. Reverter a tela exige novo deploy do front.
 
 ## O que não está feito
 - Nenhum limite de produção foi alterado.
@@ -144,7 +144,8 @@ Esta é a única sequência válida. Não há outra no pacote. Os passos 5 a 10 
 ## Hashes desta correção (P6 e M1)
 | arquivo | sha256 |
 |---|---|
-| `supabase/aguardando_aprovacao/20261110100000_ulbra_historico_orcamento.rollback.sql` | `d2730ac73d4a18cbb63a06443392f47e137154e18b551d6d76b1ef9adf73018e` |
+| `supabase/aguardando_aprovacao/20261110100000_ulbra_historico_orcamento.rollback.sql` | `026e825ff15d3c995f763d79a84fa8808468e997cfb982e7284516c4bf122535` |
+| `supabase/tests/ulbra_historico_rollback_orcamento/run.mjs` | `84a1994449ce1abf9e3f05b14301188ca4b862d5ffbd13b41d12b27e76fe7487` |
 | `docs/seguranca/CHECKLIST_SEGURANCA_DEPLOY.md` | `2861f80b2334ecd2aa045b508624321f05c5d2869fdd371decb9297c9894170c` |
 | `plugins/reativa-one/scripts/integracoes-cinco.sh` | `0c603c231c8288f38140d6eae4ee283ed29d94c1457dd818d752c87d0e6774fc` |
 
