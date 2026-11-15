@@ -35,7 +35,7 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 
 **Saldo medido:** 9.821 em 11/11/2026, defasado. É usado no teto de saldo (fotografia guardada pela coleta); a primeira consulta depois da publicação renova o saldo.
 
-**Pergunta para aprovação:** confirmar, alterar ou recusar os cinco valores (operador/dia 20, reserva 100, validade 15 min, teto diário 150) e autorizar a chamada única de `meu_acesso` para confirmar o limite da credencial de backend. Até a aprovação, a publicação usa os valores acima exatamente como estão no código.
+**Pergunta para aprovação:** confirmar, alterar ou recusar os quatro valores (operador/dia 20, reserva 100, validade 15 min, teto diário 150) e autorizar a chamada única de `meu_acesso` para confirmar o limite da credencial de backend. Até a aprovação, a publicação usa os valores acima exatamente como estão no código.
 
 ## Proteções
 - **Concorrência:** o orçamento é reservado no banco, por dia, com trava. Teste em PostgreSQL 17 com contador inicial conhecido: 12 cliques simultâneos de 2 unidades com teto 20 → 10 permitidos; 200 tentativas de 20 operadores com teto global 150 → 150 permitidas (dia vazio) e 128 com 22 de partida (dia parcialmente consumido), sempre igual ao contador final menos o inicial.
@@ -69,11 +69,12 @@ Esta é a única sequência válida. Não há outra no pacote.
 1. Pré-condição: rotação do `ULBRA_MCP_TOKEN` concluída pela TI, com revogação do token antigo registrada.
 2. Pré-condição: diagnóstico único de `/ulbra-diagnostico` executado por Amanda após a rotação; registrar só limites, saldo, escopos e data.
 3. Aprovação final dos quatro valores de orçamento e desta versão do pacote.
-4. Aplicar a migration `20261115120000` **antes** de qualquer deploy (com o rollback pronto). Comando seu: `psql -1 -f supabase/aguardando_aprovacao/20261115120000_ulbra_historico_bloqueio_e_guarda_reserva.sql.pendente`. Sem ela, a função lê colunas inexistentes e responde 502 em todo clique que não vem do cache.
-5. Mesclar a #948 (clique humano).
-6. Publicar `ulbra-historico` com `supabase functions deploy ulbra-historico --project-ref ahattpqrjmhkzsmnbdzs`, **sem** `--no-verify-jwt`. Conferir `verify_jwt = true` e os três hashes de publicação.
-7. Conferir sem chamar a ULBRA: sem token dá 401; aluno sem CPF confirmado dá 403.
-8. Validação com operadores e gestão na tela logada.
+4. **Teste em staging antes de produção:** aplicar a migration em staging pelo caminho do ledger e rodar o teste de PostgREST real (`supabase/tests/ulbra_historico_bloqueio/postgrest_guarda.cjs`) com o formato de claim do projeto. Só avança se passar. Sem esse teste, o formato do claim não está comprovado.
+5. **Aplicar em produção pelo caminho do ledger**, não por `psql`: `apply_migration` com o arquivo, gravar a versão registrada em `schema_migrations`, o sha256 (2956c60210a8d3dece24a46ee8e6e80249428f567ea4292d83b9baca167801cd) e a verificação de `schema_migrations`. Com `psql` a versão não entra no ledger e a verificação fica impossível. Rollback pronto antes.
+6. Mesclar a #948 (clique humano).
+7. Publicar `ulbra-historico` com `supabase functions deploy ulbra-historico --project-ref ahattpqrjmhkzsmnbdzs`, **sem** `--no-verify-jwt`. Conferir `verify_jwt = true` e os três hashes de publicação.
+8. Conferir sem chamar a ULBRA: sem token dá 401; aluno sem CPF confirmado dá 403.
+9. Validação com operadores e gestão na tela logada.
 
 **Ponto não comprovado:** se o limite de 500/dia por pessoa vale para a credencial de backend. O probe de `meu_acesso` (uma chamada, sob autorização sua) responde isso; não foi executado.
 
@@ -164,7 +165,7 @@ Esta é a única sequência válida. Não há outra no pacote.
 | `supabase/functions/ulbra-historico/leitura.ts` | `2bb97fa41b8d606c2b545e689c60238f984e622083d638cd48a90049a8e0067b` |
 | `supabase/functions/ulbra-historico/ficha.test.ts` | `62b275a7671ee0bfea86fdbfba04a2e6e2dc35ca7bedea788e1b18fb02fad020` |
 | `supabase/functions/ulbra-historico/historico.test.ts` | `dd4f831d1a1ac7603f0fdf7cf0f5a68e30a726a1a8b2262193e58c04ca17c5a3` |
-| `supabase/aguardando_aprovacao/20261115120000_ulbra_historico_bloqueio_e_guarda_reserva.sql.pendente` | `95d5a8c4633e822f95e42111ccac3429b66ca2530610f6c26b77d94f875a6e2f` |
+| `supabase/aguardando_aprovacao/20261115120000_ulbra_historico_bloqueio_e_guarda_reserva.sql.pendente` | `2956c60210a8d3dece24a46ee8e6e80249428f567ea4292d83b9baca167801cd` |
 | `supabase/aguardando_aprovacao/20261115120000_ulbra_historico_bloqueio_e_guarda_reserva.rollback.sql` | `c076033d9ef0e6280481b8181fdda53ef4101b9cea4b13ca70e7c2493c2a736c` |
 | `src/utils/ulbraHistoricoCliente.js` | `f6a1e055191d877bb310cd14fa956a26de1c803c5e82e20bfba39080658141a4` |
 | `src/pages/Aluno.jsx` | `4675fca9694540b87ad920c47bc80607b8bf18080d02c19e4f67c187be3e9366` |
