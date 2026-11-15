@@ -1110,4 +1110,13 @@ describe("operador assume caso com fidelização vencida", () => {
       await operacaoComEstado(db, 183, "update public.assumir_fidelizacao_operacoes set estado_anterior = jsonb_set(estado_anterior, '{responsavel_atual_em}', 'true'::jsonb) where id=$1");
     });
   });
+
+  it("rollback do TETO recusa com a #953 aplicada (ordem reversa), e nada e removido", async () => {
+    const db = await abrirCom();
+    await expect(db.exec(TETO_ROLLBACK)).rejects.toThrow(/ROLLBACK DO TETO RECUSADO/);
+    await db.query("rollback"); // a recusa abortou a transacao: desfaz antes de verificar
+    const t = await q1(db, "select prosrc like '%assumir_teto:%' t from pg_proc where proname='assumir_caso_livre'");
+    expect(t.t).toBe(true);
+    await db.close();
+  });
 });
