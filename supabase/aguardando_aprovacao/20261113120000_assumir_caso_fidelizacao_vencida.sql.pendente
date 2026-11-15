@@ -329,7 +329,7 @@ begin
   end if;
   -- Operacao SEM a data original da troca (estado_anterior sem responsavel_atual_em): NAO reverte.
   -- Nao usamos o instante da reversao como substituto. Recuperacao so por procedimento especifico.
-  if not (v_op.estado_anterior ? 'responsavel_atual_em') then
+  if jsonb_typeof(v_op.estado_anterior->'responsavel_atual_em') is distinct from 'string' then
     return query select false, 'Conflito: operacao sem a data original da troca. Recuperacao so por procedimento especifico. Nada alterado.'; return;
   end if;
 
@@ -414,11 +414,10 @@ begin
   -- Restaura o que a troca de dono mexeu: retorno, proxima acao e a data da troca de responsavel (valor exato).
   update public.alunos a
      set proxima_acao = r.proxima_acao, data_retorno = r.data_retorno, hora_retorno = r.hora_retorno,
-         responsavel_atual_em = case when v_op.estado_anterior ? 'responsavel_atual_em'
-                                     then r.responsavel_atual_em else a.responsavel_atual_em end
+         responsavel_atual_em = r.responsavel_atual_em
     from jsonb_populate_record(null::public.alunos, v_op.estado_anterior) r
    where a.id = v_op.aluno_id;
-  -- (operacoes antigas, sem a chave responsavel_atual_em, nao zeram a data da troca)
+  -- (operacoes sem a chave responsavel_atual_em ja foram recusadas acima: este update so roda com o valor exato)
 
 
   update public.assumir_fidelizacao_operacoes
