@@ -775,6 +775,20 @@ export default function FilaOperador() {
       }
     }
 
+    // Gravacao comum NAO envia campos de retorno que nao mudaram em relacao a ficha
+    // carregada (ficha desatualizada nao sobrescreve reagendamento recente), e
+    // NAO antecipa reagendamento: esse caminho e so da RPC agenda_reagendar_retorno.
+    const dataAntiga = alunoSelecionado?.data_retorno ? String(alunoSelecionado.data_retorno).slice(0, 10) : "";
+    const horaAntiga = alunoSelecionado?.hora_retorno ? String(alunoSelecionado.hora_retorno).slice(0, 5) : "";
+    const dataNova = atualizacaoAluno.data_retorno ? String(atualizacaoAluno.data_retorno).slice(0, 10) : "";
+    const horaNova = atualizacaoAluno.hora_retorno ? String(atualizacaoAluno.hora_retorno).slice(0, 5) : "";
+    // Esta tela nao reagenda: so a comparacao com a ficha carregada decide.
+    if (dataNova === dataAntiga && horaNova === horaAntiga) {
+      delete atualizacaoAluno.data_retorno;
+      delete atualizacaoAluno.hora_retorno;
+      delete atualizacaoAluno.retorno_origem;
+      delete atualizacaoAluno.retorno_prioritario;
+    }
     const { error: updateError } = await supabase
       .from("alunos")
       .update(atualizacaoAluno)

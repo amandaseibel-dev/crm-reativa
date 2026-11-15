@@ -1237,6 +1237,24 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       atualizacaoAluno.responsavel_atual_email = usuario.email;
       atualizacaoAluno.responsavel_atual_em = agora;
     }
+    // Gravacao comum NAO envia campos de retorno que nao mudaram em relacao a ficha
+    // carregada (ficha desatualizada nao sobrescreve reagendamento recente), e
+    // NAO antecipa reagendamento: esse caminho e so da RPC agenda_reagendar_retorno.
+    const dataAntiga = alunoSelecionado?.data_retorno ? String(alunoSelecionado.data_retorno).slice(0, 10) : "";
+    const horaAntiga = alunoSelecionado?.hora_retorno ? String(alunoSelecionado.hora_retorno).slice(0, 5) : "";
+    const dataNova = atualizacaoAluno.data_retorno ? String(atualizacaoAluno.data_retorno).slice(0, 10) : "";
+    const horaNova = atualizacaoAluno.hora_retorno ? String(atualizacaoAluno.hora_retorno).slice(0, 5) : "";
+    const mudouRetorno = dataNova !== dataAntiga || horaNova !== horaAntiga;
+    if (!reagendarRetorno && mudouRetorno && atualizacaoAluno.retorno_origem === "OPERADOR") {
+      // Data/hora digitadas por humano so mudam com a acao Reagendar (RPC).
+      throw new Error("Para mudar a data ou a hora do retorno, marque Reagendar. Nada foi salvo.");
+    }
+    if (reagendarRetorno || !mudouRetorno) {
+      delete atualizacaoAluno.data_retorno;
+      delete atualizacaoAluno.hora_retorno;
+      delete atualizacaoAluno.retorno_origem;
+      delete atualizacaoAluno.retorno_prioritario;
+    }
     const { error: updateError } = await supabase
       .from("alunos")
       .update(atualizacaoAluno)
@@ -1256,7 +1274,11 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
         p_hora: (horaIso || "").slice(0, 5) || null,
         p_prioritario: false,
       });
-      if (erroReagendar) throw erroReagendar;
+      if (erroReagendar) {
+        alert("Ficha salva, mas o reagendamento NAO foi aplicado: " + erroReagendar.message);
+        throw erroReagendar;
+      }
+      setReagendarRetorno(false);
     }
   }
   async function assumirAtendimento() {
