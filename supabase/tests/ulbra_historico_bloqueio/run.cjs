@@ -35,6 +35,7 @@ async function main() {
     await c.query("grant select, insert, update on public.ulbra_sync_estado to service_role");
     const antes = (await c.query("select count(*)::int as n from information_schema.columns where table_name='ulbra_sync_estado' and column_name like 'historico_bloqueado%'")).rows[0].n;
     igual(antes, 0, "colunas antes");
+    await c.query(fs.readFileSync(path.join(ROOT, "supabase/tests/ulbra_historico_bloqueio/auth_plataforma.sql"), "utf8"));
     await c.query(fs.readFileSync(MIG, "utf8"));
     const chamar = async (claim) => { if (claim) await c.query(`set local request.jwt.claim.role = '${claim}'`); return c.query("select * from public.ulbra_historico_reservar('op@x', current_date, 1, 20, 150)"); };
     await teste("migração adiciona as duas colunas de bloqueio", async () => {

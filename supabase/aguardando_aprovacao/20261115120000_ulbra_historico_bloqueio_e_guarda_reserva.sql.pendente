@@ -36,9 +36,8 @@ declare
   uo integer;
   ug integer;
 begin
-  -- Contexto do chamador: JSON de claims (formato atual) ou chave legada. Qualquer outro valor é recusado.
-  if coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role',
-              current_setting('request.jwt.claim.role', true), '') <> 'service_role' then
+  -- Contexto do chamador: helper OFICIAL da plataforma auth.role() (lê claim.role e claims JSON; definição em produção, 15/11/2026).
+  if coalesce(auth.role(), '') <> 'service_role' then
     raise exception 'RESERVA_NAO_AUTORIZADA';
   end if;
   if p_quantidade is null or p_quantidade < 1 then

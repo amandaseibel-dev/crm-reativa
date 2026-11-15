@@ -43,6 +43,7 @@ async function chamar(token, corpo) {
   await c.query("create table public.ulbra_sync_estado (id boolean primary key, saldo_api_restam integer, saldo_api_em timestamptz)");
   await c.query("insert into public.ulbra_sync_estado (id) values (true)");
   await c.query(fs.readFileSync(INST, "utf8"));
+  await c.query(fs.readFileSync(path.join(ROOT, "supabase/tests/ulbra_historico_bloqueio/auth_plataforma.sql"), "utf8"));
   await c.query(fs.readFileSync(MIG, "utf8"));
   await c.query("grant usage on schema public to anon, authenticated, service_role");
   await c.query("grant anon, authenticated, service_role to authenticator");
