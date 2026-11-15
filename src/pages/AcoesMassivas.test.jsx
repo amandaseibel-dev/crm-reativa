@@ -29,7 +29,7 @@ vi.mock("xlsx", () => ({
     book_new: () => ({}),
     book_append_sheet: () => {},
   },
-  writeFile: () => {},
+  writeFile: () => { if (globalThis.__falhaArquivo) throw Object.assign(new Error("falha simulada ao gravar"), { code: "EGRAVA" }); },
 }));
 
 import AcoesMassivas from "./AcoesMassivas";
@@ -1013,6 +1013,43 @@ describe("Ações Massivas — e-mail a partir de um lote de WhatsApp", () => {
     // erro sem codigo de validacao = resultado incerto (mesma regra da planilha)
     expect(screen.getAllByText(/Resultado do registro desconhecido/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/com e-mail válido e/)).toBeNull();
+  });
+
+  it("falha de arquivo depois do registro do e-mail: lote registrado, arquivo nao baixado, sem 'gerada'", async () => {
+    lotesWhats = [LOTE_WHATS];
+    emailDoLote = {};
+    globalThis.__falhaArquivo = true;
+    try {
+      await montar();
+      await abrirConfirmacao();
+      await act(async () => {
+        fireEvent.click(within(painel()).getByRole("button", { name: /Sim, exportar e registrar/ }));
+      });
+      expect(screen.getByText(/Lote registrado, arquivo não baixado/)).toBeTruthy();
+      expect(screen.queryByText(/Planilha de e-mail gerada/)).toBeNull();
+    } finally {
+      globalThis.__falhaArquivo = false;
+    }
+  });
+
+  it("Baixar do e-mail falhando nao vira sucesso e mostra arquivo nao baixado", async () => {
+    lotesWhats = [LOTE_WHATS];
+    emailDoLote = {};
+    await montar();
+    await abrirConfirmacao();
+    await act(async () => {
+      fireEvent.click(within(painel()).getByRole("button", { name: /Sim, exportar e registrar/ }));
+    });
+    expect(screen.getByText(/Planilha de e-mail gerada/)).toBeTruthy();
+    globalThis.__falhaArquivo = true;
+    try {
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /Baixar planilha novamente/ }));
+      });
+      expect(screen.getByText(/Lote registrado, arquivo não baixado/)).toBeTruthy();
+    } finally {
+      globalThis.__falhaArquivo = false;
+    }
   });
 
   it("resultado incerto do e-mail do lote bloqueia novo envio de e-mail deste lote na mesma tela", async () => {

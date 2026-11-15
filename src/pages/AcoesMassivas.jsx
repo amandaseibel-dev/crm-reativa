@@ -703,12 +703,21 @@ export default function AcoesMassivas() {
     setErro("");
     setSucesso("");
     let loteRegistrado = false;
+    // O arquivo da tentativa anterior nao pertence a esta: descarta antes de tentar.
+    setRelatorioEmailLote(null);
     try {
       const nomeArquivo = `acao-massiva-email-do-lote-whatsapp-${new Date().toISOString().slice(0, 10)}.xlsx`;
-      const { data: res, error } = await supabase.rpc("acoes_massivas_exportar_emails_do_lote", {
-        p_lote_id: lote.id,
-        p_arquivo: nomeArquivo,
-      });
+      let res;
+      let error = null;
+      try {
+        ({ data: res, error } = await supabase.rpc("acoes_massivas_exportar_emails_do_lote", {
+          p_lote_id: lote.id,
+          p_arquivo: nomeArquivo,
+        }));
+      } catch (excecao) {
+        // Falha de transporte: sem codigo de validacao = resultado incerto (nao "nada registrado").
+        error = excecao;
+      }
       if (error) {
         // Mesma regra da planilha: validacao recusada nao registra; qualquer outra falha e resultado incerto.
         const f = classificarFalhaExportacao("rpc", error);
