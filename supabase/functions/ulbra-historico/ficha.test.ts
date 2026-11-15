@@ -50,6 +50,8 @@ beforeEach(() => {
     "tok-outra": "cobranca11@aelbra.com.br",
     "tok-gestao": "cobranca04@aelbra.com.br",
     "tok-supervisor-fora": "supervisor-fora@aelbra.com.br",
+    "tok-adm": "cobranca07@aelbra.com.br",
+    "tok-gestora": "amanda.seibel@aelbra.com.br",
     "tok-inativo": "inativo@aelbra.com.br",
   };
   estado.banco = {
@@ -58,6 +60,8 @@ beforeEach(() => {
       { email: "cobranca11@aelbra.com.br", perfil: "operador", ativo: true },
       { email: "cobranca04@aelbra.com.br", perfil: "gerencia", ativo: true },
       { email: "supervisor-fora@aelbra.com.br", perfil: "supervisor", ativo: true },
+      { email: "cobranca07@aelbra.com.br", perfil: "operador", ativo: true },
+      { email: "amanda.seibel@aelbra.com.br", perfil: "gerencia", ativo: true },
       { email: "inativo@aelbra.com.br", perfil: "operador", ativo: false },
     ],
     ulbra_vinculos: [
@@ -216,5 +220,27 @@ describe("429: parada imediata, sem nova tentativa", () => {
     expect(estado.chamadasUlbra).toBe(1);
     // próxima requisição da ficha também não repete sozinha: o clique é explícito
     expect(estado.chamadasUlbra).toBe(1);
+  });
+});
+
+// Regra da #948: cobranca07 (ADM) NÃO tem leitura global; gestora (amanda.seibel) e cobranca04 têm.
+describe("alcance de leitura: ADM (cobranca07) só da própria carteira; gestora mantém leitura global", () => {
+  it("ADM lê aluno da PRÓPRIA carteira (positivo)", async () => {
+    const A4 = "44444444-4444-4444-8444-444444444444"; // CPF confirmado, caso da cobranca07
+    estado.banco.ulbra_vinculos = [...estado.banco.ulbra_vinculos, { aluno_id: A4, ulbra_cliente_id: "C4", confianca: "alta_cpf", desvinculado_em: null }];
+    estado.banco.ulbra_conversas = [...estado.banco.ulbra_conversas, { ulbra_conversa_id: "bbbbbbbbbbbbbbbbbbbbbbb4", ulbra_cliente_id: "C4", aluno_id: A4, aluno_status: "vinculado", equipe: "Reativa", ultima_mensagem_em: "2026-11-11T10:00:00Z" }];
+    estado.banco.casos = [...estado.banco.casos, { aluno_id: A4, operador_email: "cobranca07@aelbra.com.br" }];
+    const r = await chamar("tok-adm", { aluno_id: A4 });
+    expect(r.corpo.ok).toBe(true);
+    expect(estado.chamadasUlbra).toBeGreaterThan(0);
+  });
+  it("ADM NÃO lê aluno de outra carteira, mesmo estando na lista de gestão financeira (negativo, sem chamada)", async () => {
+    const r = await chamar("tok-adm", { aluno_id: A1 });
+    expect(r.corpo.ok).toBe(false);
+    expect(estado.chamadasUlbra).toBe(0);
+  });
+  it("gestora (amanda.seibel) lê aluno de qualquer carteira (positivo)", async () => {
+    const r = await chamar("tok-gestora", { aluno_id: A1 });
+    expect(r.corpo.ok).toBe(true);
   });
 });

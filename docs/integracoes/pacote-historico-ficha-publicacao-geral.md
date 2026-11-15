@@ -138,3 +138,10 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 - **Liberação pela gestão:** basta limpar `historico_bloqueado_sem_prazo` no banco; não é preciso reiniciar instâncias. Teste: 429 gravado, liberação no banco, mesma instância volta a chamar a ULBRA.
 - **Cache:** entradas vencidas saem a cada gravação e o total não passa de 200 entradas. Texto de conversa fica em memória só enquanto válido, por no máximo 5 minutos.
 - **Regra dos cinco:** a Mensageria segue a própria fonte (mensageria-ulbra.md). Esta PR não é descoberta de API Prime; integracoes-cinco.sh sai com 1 para esta PR por desenho do script, e a aceitação dessa exceção é decisão da gestão, ainda não registrada.
+
+## Regra de alcance de leitura (registrada para a #948)
+
+- **Leitura global** (qualquer carteira, com CPF confirmado): `amanda.seibel@aelbra.com.br` (gestora) e `cobranca04@aelbra.com.br` (mapeada como Fernanda — **premissa a confirmar com a gestão**).
+- **cobranca07 (ADM)**: sem leitura global. Lê somente alunos da própria carteira ou atendimentos sob sua responsabilidade. Imposto no servidor, antes do cache (`index.ts`, `GESTAO_EMAILS`; `ficha.test.ts`, bloco "alcance de leitura").
+- Testes: positivo (cobranca07 na própria carteira), negativo (cobranca07 em carteira alheia, sem chamada à ULBRA), positivo global (amanda.seibel).
+- **Legado**: `supabase/tests/ulbra_historico_teto/reservas_simultaneas.sh` e `migracao.sql` provam o piloto antigo (limite 3, compartilhado 3). Não são o orçamento vigente (20 por usuário, 150 compartilhado, reserva 100, saldo 15 min). O orçamento vigente é provado por `ulbra-historico-orcamento-postgres` (`run.cjs`) e pelo Vitest. Nenhuma restrição de piloto foi recriada.

@@ -23,7 +23,9 @@ const CORS = {
 };
 // Gestão = lista dos três e-mails ativos (mesma lista de usuario_e_gestao() em produção, 15/11/2026).
 // NÃO é por perfil: supervisor/gerencia/administrativo fora desta lista não ganham leitura de carteira alheia.
-const GESTAO_EMAILS = ["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br", "cobranca07@aelbra.com.br"];
+// Leitura GLOBAL (qualquer carteira, com CPF confirmado): gestora e Fernanda (regra da #948).
+// cobranca07 (ADM) NÃO está aqui: lê só a própria carteira ou atendimento sob sua responsabilidade.
+const GESTAO_EMAILS = ["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br"];
 
 function responder(corpo: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(corpo), { status, headers: { ...CORS, "Content-Type": "application/json" } });
