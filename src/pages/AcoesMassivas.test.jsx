@@ -1010,8 +1010,24 @@ describe("Ações Massivas — e-mail a partir de um lote de WhatsApp", () => {
     await act(async () => {
       fireEvent.click(within(painel()).getByRole("button", { name: /Sim, exportar e registrar/ }));
     });
-    expect(screen.getByText(/Erro ao exportar e-mails do lote/)).toBeTruthy();
+    // erro sem codigo de validacao = resultado incerto (mesma regra da planilha)
+    expect(screen.getAllByText(/Resultado do registro desconhecido/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/com e-mail válido e/)).toBeNull();
+  });
+
+  it("resultado incerto do e-mail do lote bloqueia novo envio de e-mail deste lote na mesma tela", async () => {
+    lotesWhats = [LOTE_WHATS];
+    emailDoLote = { erro: "falha de rede simulada" };
+    await montar();
+    await abrirConfirmacao();
+    await act(async () => {
+      fireEvent.click(within(painel()).getByRole("button", { name: /Sim, exportar e registrar/ }));
+    });
+    expect(screen.getAllByText(/Resultado do registro desconhecido/).length).toBeGreaterThan(0);
+    // o painel fecha depois da falha; reabrindo a confirmacao, o envio segue bloqueado
+    await abrirConfirmacao();
+    const confirmar = within(painel()).getByRole("button", { name: /Sim, exportar e registrar/ });
+    expect(confirmar.disabled).toBe(true);
   });
 
   it("a planilha leva nome e e-mail dos alunos do lote", async () => {

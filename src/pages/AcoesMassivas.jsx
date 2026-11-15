@@ -702,13 +702,22 @@ export default function AcoesMassivas() {
     setDerivandoEmail(true);
     setErro("");
     setSucesso("");
+    let loteRegistrado = false;
     try {
       const nomeArquivo = `acao-massiva-email-do-lote-whatsapp-${new Date().toISOString().slice(0, 10)}.xlsx`;
       const { data: res, error } = await supabase.rpc("acoes_massivas_exportar_emails_do_lote", {
         p_lote_id: lote.id,
         p_arquivo: nomeArquivo,
       });
-      if (error) throw error;
+      if (error) {
+        // Mesma regra da planilha: validacao recusada nao registra; qualquer outra falha e resultado incerto.
+        const f = classificarFalhaExportacao("rpc", error);
+        console.error("Exportacao de e-mails do lote falhou", { etapa: f.etapa, codigo: f.codigo });
+        setFaseExport(f.etapa === "validacao" ? FASE.RECUSADA : FASE.INCERTA);
+        setErro(f.etapa === "validacao" ? f.mensagem : mensagemDaFase(FASE.INCERTA));
+        return;
+      }
+      loteRegistrado = true;
 
       const contatos = res?.contatos || [];
       const total = Number(res?.total_lote_whatsapp || 0);
@@ -728,7 +737,12 @@ export default function AcoesMassivas() {
         try {
           baixarPlanilha(relGerado);
         } catch (e) {
-          console.warn("Download automático falhou; use o botão Baixar planilha.", e);
+          console.warn(`[acoes-massivas] etapa=arquivo codigo=${e?.code ?? "-"} tipo=${e?.name ?? "-"} (e-mail do lote)`);
+          // Lote JA registrado: nao dizer que a planilha foi gerada.
+          setFaseExport(FASE.ARQUIVO_FALHOU);
+          setErro(mensagemDaFase(FASE.ARQUIVO_FALHOU));
+          carregarLotesWhats();
+          return;
         }
       }
 
@@ -744,10 +758,19 @@ export default function AcoesMassivas() {
           `Planilha de e-mail gerada a partir do lote de WhatsApp: ${comEmail} de ${total} aluno(s) com e-mail válido e ${registrados} registrado(s) no CRM como ação massiva de e-mail.${semEmailTexto} O lote de WhatsApp não foi alterado. O disparo é externo; se o download não abriu, use o botão “Baixar planilha novamente” abaixo.`
         );
       }
+      if (contatos.length > 0) setFaseExport(FASE.CONCLUIDA);
       carregarLotesWhats();
-    } catch (e) {
-      console.error("Erro ao exportar e-mails do lote de WhatsApp:", e);
-      setErro("Erro ao exportar e-mails do lote: " + (e.message || "tente novamente"));
+    } catch {
+      // Depois do registro bem-sucedido, o erro nao pode virar "nao exportado".
+      if (loteRegistrado) {
+        console.error("Falha depois do registro do e-mail do lote", { etapa: "arquivo" });
+        setFaseExport(FASE.ARQUIVO_FALHOU);
+        setErro(mensagemDaFase(FASE.ARQUIVO_FALHOU));
+      } else {
+        console.error("Erro ao preparar a exportacao de e-mails do lote", { etapa: "validacao" });
+        setFaseExport(FASE.RECUSADA);
+        setErro("Não foi possível preparar a exportação. Nada foi registrado.");
+      }
     } finally {
       setLoteEmailConfirmar(null);
       setDerivandoEmail(false);
@@ -1446,7 +1469,17 @@ export default function AcoesMassivas() {
               </div>
               <button
                 style={{ ...estilos.botaoGerar, background: "#16a34a" }}
-                onClick={() => baixarPlanilha(relatorioEmailLote)}
+                disabled={faseExport === FASE.INCERTA}
+                onClick={() => {
+                  try {
+                    baixarPlanilha(relatorioEmailLote);
+                    setFaseExport(FASE.CONCLUIDA);
+                    setErro("");
+                  } catch {
+                    setFaseExport(FASE.ARQUIVO_FALHOU);
+                    setErro(mensagemDaFase(FASE.ARQUIVO_FALHOU));
+                  }
+                }}
               >
                 ⬇️ Baixar planilha novamente
               </button>
