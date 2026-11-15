@@ -48,14 +48,16 @@ beforeEach(() => {
   estado.tokens = {
     "tok-dona": "cobranca10@aelbra.com.br",
     "tok-outra": "cobranca11@aelbra.com.br",
-    "tok-gestao": "gestao@aelbra.com.br",
+    "tok-gestao": "cobranca04@aelbra.com.br",
+    "tok-supervisor-fora": "supervisor-fora@aelbra.com.br",
     "tok-inativo": "inativo@aelbra.com.br",
   };
   estado.banco = {
     usuarios: [
       { email: "cobranca10@aelbra.com.br", perfil: "operador", ativo: true },
       { email: "cobranca11@aelbra.com.br", perfil: "operador", ativo: true },
-      { email: "gestao@aelbra.com.br", perfil: "gerencia", ativo: true },
+      { email: "cobranca04@aelbra.com.br", perfil: "gerencia", ativo: true },
+      { email: "supervisor-fora@aelbra.com.br", perfil: "supervisor", ativo: true },
       { email: "inativo@aelbra.com.br", perfil: "operador", ativo: false },
     ],
     ulbra_vinculos: [
@@ -195,6 +197,11 @@ describe("isolamento entre operadores: cada um vê só o que a carteira ou o res
   it("sem CPF confirmado, nenhum operador lê, nem a gestão", async () => {
     expect((await chamar("tok-gestao", { aluno_id: A2 })).corpo.motivo).toBe("IDENTIDADE_NAO_CONFIRMADA");
     expect((await chamar("tok-dona", { aluno_id: A2 })).corpo.motivo).toBe("IDENTIDADE_NAO_CONFIRMADA");
+  });
+  it("supervisor FORA da lista de gestão não lê aluno de outra carteira (perfil não concede)", async () => {
+    const r = await chamar("tok-supervisor-fora", { aluno_id: A1 });
+    expect(r.corpo.ok).toBe(false);
+    expect(estado.chamadasUlbra).toBe(0);
   });
   it("gestão lê o aluno de qualquer carteira, com CPF confirmado", async () => {
     expect((await chamar("tok-gestao", { aluno_id: A1 })).corpo.ok).toBe(true);

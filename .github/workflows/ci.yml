@@ -1152,3 +1152,42 @@ jobs:
 
       - name: Reservas simultâneas no teto de 3
         run: bash supabase/tests/ulbra_historico_teto/reservas_simultaneas.sh
+
+  ulbra-historico-orcamento-postgres:
+    name: ulbra-historico — orçamento, bloqueio após 429, concorrência e guarda da RPC (postgres 17 descartável)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      # O runner apaga bancos: só roda contra o postgres descartável deste job.
+      ULBRA_TESTE_DESCARTAVEL: 'sim'
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Dependências dos testes (pg e vitest, versões fixadas)
+        run: |
+          mkdir -p "$RUNNER_TEMP/deps"
+          npm install --prefix "$RUNNER_TEMP/deps" pg@8.16.3 vitest@2.1.9 --no-audit --no-fund
+
+      - name: Testes do servidor (orçamento, bloqueio após 429, dia de São Paulo, Retry-After)
+        run: "$RUNNER_TEMP/deps/node_modules/.bin/vitest run supabase/functions/ulbra-historico"
+
+      - name: Migration pendente, guarda da RPC e concorrência (contador inicial conhecido)
+        env:
+          NODE_PATH: '${{ runner.temp }}/deps/node_modules'
+        run: node supabase/tests/ulbra_historico_bloqueio/run.cjs

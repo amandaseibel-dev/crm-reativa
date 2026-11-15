@@ -60,8 +60,8 @@ Saldo medido hoje: **9.821**, medido em **11/11/2026**. Esse valor está antigo:
 ## Hashes dos arquivos que a publicação envia
 | arquivo | sha256 |
 |---|---|
-| `supabase/functions/ulbra-historico/index.ts` | `fc8c6f29bdd884ed9f82dd1f3e454cf35737412cd3f92834c1537433bcaa7d85` |
-| `supabase/functions/ulbra-historico/historico.ts` | `cfee9404e1753bf551439c96380460d4d2c2bdd72622f463bb54c647b00f7706` |
+| `supabase/functions/ulbra-historico/index.ts` | `bff338315e122883d19999a2e96c9875d05f41f41575baf60ee596da9e6a119a` |
+| `supabase/functions/ulbra-historico/historico.ts` | `6034f406701d7c32cdd8b3353fa0b85cfa290bf373ad430db3cffbe1382251fd` |
 | `supabase/functions/ulbra-historico/leitura.ts` (igual à v1) | `20cc12d353c7278c9951208d740312831bffe92fcf2533856474be01bbb2f05f` |
 
 ## Publicação (cada passo com autorização)
@@ -94,14 +94,14 @@ Saldo medido hoje: **9.821**, medido em **11/11/2026**. Esse valor está antigo:
 
 **Dia do orçamento:** calendário de São Paulo (`diaDoOrcamento`), testado na virada 02:59:59Z → 14 e 03:00:00Z → 15.
 
-**Testes do servidor:** 52/52 (ficha, histórico, ausência, orçamento, bloqueio e dia), com relógio fixo e expectativas escritas à mão. `deno check` do `index.ts`: passa.
+**Testes do servidor:** 57/57 (ficha, histórico, ausência, orçamento, bloqueio e dia), com relógio fixo e expectativas escritas à mão. `deno check` do `index.ts`: passa.
 
 **Hashes finais (sha256, o que a publicação envia):**
 
 | arquivo | sha256 |
 |---|---|
-| `supabase/functions/ulbra-historico/index.ts` | `fc8c6f29bdd884ed9f82dd1f3e454cf35737412cd3f92834c1537433bcaa7d85` |
-| `supabase/functions/ulbra-historico/historico.ts` | `cfee9404e1753bf551439c96380460d4d2c2bdd72622f463bb54c647b00f7706` |
+| `supabase/functions/ulbra-historico/index.ts` | `bff338315e122883d19999a2e96c9875d05f41f41575baf60ee596da9e6a119a` |
+| `supabase/functions/ulbra-historico/historico.ts` | `6034f406701d7c32cdd8b3353fa0b85cfa290bf373ad430db3cffbe1382251fd` |
 | `supabase/functions/ulbra-historico/leitura.ts` | `20cc12d353c7278c9951208d740312831bffe92fcf2533856474be01bbb2f05f` |
 
 **Sequência de implantação (cada passo depende de aprovação sua):**
@@ -115,3 +115,18 @@ Saldo medido hoje: **9.821**, medido em **11/11/2026**. Esse valor está antigo:
 **Ponto ainda não comprovado:** se o limite de 500/dia por pessoa vale para a credencial de backend. O probe de `meu_acesso` (uma chamada, sob sua autorização) responde isso; ele não foi executado por esta sessão.
 
 **Reversão:** função versão 1 em `docs/integracoes/rollback-ulbra-historico-v1/` (SHA256SUMS). Banco: o rollback da migration `20261115120000` e o rollback da `20261110100000`, este último só se a gestão decidir remover a tabela de uso.
+
+
+## Atualização de 15/11/2026 (correções do parecer do Guardião 364ea36b e do head 218bdcad)
+
+**Gestão:** a gestão é a lista dos três e-mails ativos (`amanda.seibel@aelbra.com.br`, `cobranca04@aelbra.com.br`, `cobranca07@aelbra.com.br`), a mesma lista de `usuario_e_gestao()` em produção. Não é por perfil: supervisor, gerência e administrativo fora dessa lista não leem carteira alheia. Operadores leem conversas que o servidor permite (dono da carteira ou responsável comprovado).
+
+**Guarda da RPC:** a reserva só aceita contexto de serviço (`request.jwt.claims` com role `service_role`, ou a chave legada `request.jwt.claim.role`). Testada em PostgreSQL 17 (chamada legítima nos dois formatos; recusa de `authenticated` e de contexto ausente). **Pré-condição não comprovada:** qual formato o PostgREST do projeto injeta de fato. Só um teste em staging com PostgREST real comprova isso.
+
+**429 e Retry-After (comportamento implementado, não contrato da ULBRA):** 429 para na hora, sem repetição. Retry-After aceito em segundos ou em data HTTP. Sem Retry-After interpretável, o bloqueio fica ativo sem prazo até a gestão limpar `historico_bloqueado_sem_prazo` em `ulbra_sync_estado`. Falha ao ler ou gravar o bloqueio fecha a chamada (não libera). **Nenhum contrato publicado pela ULBRA foi encontrado para 429 ou Retry-After**; o comportamento acima é decisão de implementação, e a gestão deve aprová-lo como tal.
+
+**Orçamento:** saldo vencido reserva 2 (renovação + leitura) antes da primeira chamada. Testes de concorrência em PostgreSQL 17 com contador inicial lido do banco: dia vazio (150 permitidas = contador final − inicial) e dia parcialmente consumido (22 de partida; 128 permitidas; 20 + 2 + 128 = 150). A divergência anterior de 128 × 130 foi explicada: o teste esperava 150 novas permissões num dia que já tinha consumo de outros testes; o servidor estava correto.
+
+**Testes e CI:** servidor 57/57 (Vitest); PostgreSQL 17: 11/11 (`supabase/tests/ulbra_historico_bloqueio/run.cjs`); front da tela 7/7; build de produção ok; `deno check` ok. O job `ulbra-historico-orcamento-postgres` do CI roda os testes de orçamento, bloqueio, guarda e concorrência.
+
+**Probe de meu_acesso:** `scripts/ulbra/probe_meu_acesso.mjs`. **NÃO executado.** A credencial de backend não está no ambiente desta sessão e não foi solicitada pelo chat. Sem o resultado, o limite real da credencial continua **não comprovado**.

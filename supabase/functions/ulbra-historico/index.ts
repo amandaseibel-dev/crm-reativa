@@ -21,7 +21,9 @@ const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-const PERFIS_AMPLOS = ["supervisor", "gerencia", "administrativo"];
+// Gestão = lista dos três e-mails ativos (mesma lista de usuario_e_gestao() em produção, 15/11/2026).
+// NÃO é por perfil: supervisor/gerencia/administrativo fora desta lista não ganham leitura de carteira alheia.
+const GESTAO_EMAILS = ["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br", "cobranca07@aelbra.com.br"];
 
 function responder(corpo: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(corpo), { status, headers: { ...CORS, "Content-Type": "application/json" } });
@@ -82,7 +84,7 @@ Deno.serve(async (req: Request) => {
   // Exatamente uma linha ativa: zero ou duplicidade negam (identidade ambígua).
   const usuario = Array.isArray(usuarioLinhas) && usuarioLinhas.length === 1 ? usuarioLinhas[0] : null;
   if (!usuario) return responder({ erro: "ACESSO_NEGADO" }, 403);
-  const gestao = PERFIS_AMPLOS.includes(String(usuario.perfil));
+  const gestao = GESTAO_EMAILS.includes(email);
 
   // Resolve a conversa pelo ALUNO, no servidor. O operador nunca lê a tabela de conversas.
   let conversa_id = "";
