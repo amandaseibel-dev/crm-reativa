@@ -1,7 +1,8 @@
 # Evidencia D5 - Postgres 17.6 real (embedded-postgres 17.6.0-beta.15), duas conexoes
-# producao: 17.6 (lido em 15/11/2026, somente leitura)
+# Producao: 17.6 (leitura somente leitura em 15/11/2026)
+# Sincronizacao: B so dispara com A dormindo dentro do recalculo (pg_stat_activity wait_event=PgSleep); bloqueio medido por wait_event_type=Lock
 ## modo=sem_correcao
-instantes_ms (relativos ao inicio de A): A_terminou=1506 B_terminou=1506 B_iniciou=412
+a_dormindo_dentro_do_recalculo=true b_bloqueada_por_lock=false
 {
  "modo": "sem_correcao",
  "antes": {
@@ -10,7 +11,6 @@ instantes_ms (relativos ao inicio de A): A_terminou=1506 B_terminou=1506 B_inici
   "o": "OPERADOR",
   "c": null
  },
- "b_reagendou_em_ms": 1094,
  "erro_b": null,
  "depois_da_virada_concorrente": {
   "d": "2026-11-15",
@@ -20,17 +20,16 @@ instantes_ms (relativos ao inicio de A): A_terminou=1506 B_terminou=1506 B_inici
  }
 }
 RESULTADO: perda de atualizacao (o recalculo sobrescreveu o reagendamento confirmado)
-## modo=for_update
-instantes_ms (relativos ao inicio de A): A_terminou=1506 B_terminou=1507 B_iniciou=1506
+## modo=pacote
+a_dormindo_dentro_do_recalculo=true b_bloqueada_por_lock=true
 {
- "modo": "for_update",
+ "modo": "pacote",
  "antes": {
   "d": "2026-11-15",
   "h": "10:00",
   "o": "OPERADOR",
   "c": null
  },
- "b_reagendou_em_ms": 1,
  "erro_b": null,
  "depois_da_virada_concorrente": {
   "d": "2026-11-16",
