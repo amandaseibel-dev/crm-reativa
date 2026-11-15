@@ -4,7 +4,7 @@
 //
 // Portão: JWT do usuário (verify_jwt = true) + cadastro ativo; identidade por
 // vínculo alta_cpf lida AGORA; permissão = dono da carteira ou responsável
-// comprovado (operador) ou perfil amplo (gestão); orçamento reservado no banco
+// comprovado (operador) ou lista fixa de três e-mails (gestão, GESTAO_EMAILS); orçamento reservado no banco
 // ANTES da chamada (ulbra_historico_reservar); credencial de backend, só leitura.
 // Nada é gravado com texto de mensagem. Nenhum envio.
 // ===========================================================================

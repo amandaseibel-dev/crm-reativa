@@ -62,7 +62,7 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 |---|---|
 | `supabase/functions/ulbra-historico/index.ts` | `bff338315e122883d19999a2e96c9875d05f41f41575baf60ee596da9e6a119a` |
 | `supabase/functions/ulbra-historico/historico.ts` | `1355a8b08446cfe56874f44d4c766b24706acb78806aadd88255cd7706d1b93c` |
-| `supabase/functions/ulbra-historico/leitura.ts` (igual à v1) | `2bb97fa41b8d606c2b545e689c60238f984e622083d638cd48a90049a8e0067b` |
+| `supabase/functions/ulbra-historico/leitura.ts` (diferente da v1 só por comentário; v1 = 20cc12d3…) | `2bb97fa41b8d606c2b545e689c60238f984e622083d638cd48a90049a8e0067b` |
 
 ## Publicação (cada passo com autorização)
 1. Aprovação dos quatro valores acima e do pacote.
@@ -137,4 +137,4 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 - **Bloqueio após 429:** se a gravação do bloqueio funcionou, o banco decide em todas as instâncias, inclusive nas que já estavam quentes. Se a gravação falhou, a instância que recebeu o 429 fica fechada até conseguir gravar; as outras instâncias não ficam bloqueadas. O bloqueio não é global quando a gravação falha.
 - **Liberação pela gestão:** basta limpar `historico_bloqueado_sem_prazo` no banco; não é preciso reiniciar instâncias. Teste: 429 gravado, liberação no banco, mesma instância volta a chamar a ULBRA.
 - **Cache:** entradas vencidas saem a cada gravação e o total não passa de 200 entradas. Texto de conversa fica em memória só enquanto válido, por no máximo 5 minutos.
-- **Regra dos cinco:** a exceção para a Mensageria é decisão da gestão, já registrada no README de integrações.
+- **Regra dos cinco:** a Mensageria segue a própria fonte (mensageria-ulbra.md). Esta PR não é descoberta de API Prime; integracoes-cinco.sh sai com 1 para esta PR por desenho do script, e a aceitação dessa exceção é decisão da gestão, ainda não registrada.
