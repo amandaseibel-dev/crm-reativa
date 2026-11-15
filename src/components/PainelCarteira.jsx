@@ -2280,8 +2280,6 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         await registrarAdministrativoNoHistorico({
           alunoId: a.id,
           codigo: statusNovo,
-          operadorEmail: email,
-          operadorNome: usuarioLogado?.nome || null,
         });
         setFeedback({ tipo: "ok", texto: "Registro administrativo gravado no histórico." });
       } catch (err) {

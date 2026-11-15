@@ -210,20 +210,16 @@ export function tabulacaoEhRegistroAdministrativo(codigo) {
 // tranc, desist), e um texto livre poderia alterar essa leitura.
 export const DESCRICAO_REGISTRO_ADMINISTRATIVO = "Registro administrativo do termo físico.";
 
-// Grava o registro administrativo SÓ no histórico. Não usa FINALIZACAO_ATENDIMENTO
-// (que o sistema trata como acionamento) e não escreve em alunos.
-export async function registrarAdministrativoNoHistorico({ alunoId, codigo, operadorEmail, operadorNome }) {
-  const { error } = await supabase.from("aluno_movimentacoes").insert({
-    aluno_id: String(alunoId),
-    tipo: TIPO_REGISTRO_ADMINISTRATIVO,
-    descricao: DESCRICAO_REGISTRO_ADMINISTRATIVO,
-    status_anterior: null,
-    status_novo: String(codigo).trim().toUpperCase(),
-    registrado_por_nome: operadorNome || null,
-    registrado_por_email: operadorEmail,
-    registrado_em: new Date().toISOString(),
+// Registro administrativo: o front APENAS SOLICITA. A operação do banco
+// (registrar_administrativo_termo_fisico) verifica a gestão, os dois códigos e grava
+// só no histórico, com autor e data do servidor. Nada é escrito em alunos.
+export async function registrarAdministrativoNoHistorico({ alunoId, codigo }) {
+  const { data, error } = await supabase.rpc("registrar_administrativo_termo_fisico", {
+    p_aluno_id: String(alunoId),
+    p_codigo: String(codigo || "").trim().toUpperCase(),
   });
   if (error) throw error;
+  return data;
 }
 
 export const TABULACOES_SO_GESTAO = Object.freeze([
