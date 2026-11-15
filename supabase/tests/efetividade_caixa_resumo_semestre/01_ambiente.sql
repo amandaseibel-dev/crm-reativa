@@ -41,5 +41,12 @@ $$;
 create or replace function public.carteira_efetividade_ler(p_bloco text, p_ano text, p_semestre text)
 returns jsonb language sql stable as $$
   select jsonb_build_object('situacoes', jsonb_build_object(
-           'entrou', jsonb_build_object('valor', 1000, 'titulos', 3)))
+           'entrou',   jsonb_build_object('valor', 1000, 'titulos', 3),
+           'em_aberto', jsonb_build_object('valor', 600),
+           'negociado', jsonb_build_object('valor', 200)))
+$$;
+-- Negociações 2026/2 (stub): só o bloco total.negociado que a RPC lê.
+create or replace function public.carteira_2026_2_negociacoes()
+returns jsonb language sql stable as $$
+  select jsonb_build_object('total', jsonb_build_object('negociado', 300))
 $$;

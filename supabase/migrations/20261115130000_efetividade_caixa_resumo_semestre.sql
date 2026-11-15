@@ -46,6 +46,9 @@ declare
   v_carteira numeric := null;
   v_titulos bigint := null;
   v_fonte text := null;
+  v_saldo_aberto numeric := null;
+  v_negociado numeric := null;
+  f jsonb;
 begin
   if not (
     coalesce(public.usuario_e_gestao(), false)
@@ -73,15 +76,18 @@ begin
       'saldo_acordos_ativos', round(coalesce(sum(c.saldo) filter (
           where c.faixa <> 'CANCELADO' and c.acordo_id is not null
             and c.acordo_estado in ('regular','atraso','quebrado')), 0), 2)
-    ), round(sum(c.valor_original), 2), count(*)
-      into v_saldo, v_carteira, v_titulos
+    ), round(sum(c.valor_original), 2), count(*),
+       round(coalesce(sum(c.saldo) filter (where c.faixa <> 'CANCELADO'), 0), 2)
+      into v_saldo, v_carteira, v_titulos, v_saldo_aberto
       from public.carteira_2026_2_classificar() c;
+    v_negociado := (public.carteira_2026_2_negociacoes() -> 'total' ->> 'negociado')::numeric;
     v_fonte := 'classificador_2026_2';
   elsif p_semestre = '2026/1' then
-    v_carteira := (public.carteira_efetividade_ler('seis_linhas', '2026', '1')
-                    -> 'situacoes' -> 'entrou' ->> 'valor')::numeric;
-    v_titulos  := (public.carteira_efetividade_ler('seis_linhas', '2026', '1')
-                    -> 'situacoes' -> 'entrou' ->> 'titulos')::bigint;
+    f := public.carteira_efetividade_ler('seis_linhas', '2026', '1');
+    v_carteira     := (f -> 'situacoes' -> 'entrou'  ->> 'valor')::numeric;
+    v_titulos      := (f -> 'situacoes' -> 'entrou'  ->> 'titulos')::bigint;
+    v_saldo_aberto := (f -> 'situacoes' -> 'em_aberto' ->> 'valor')::numeric;
+    v_negociado    := (f -> 'situacoes' -> 'negociado' ->> 'valor')::numeric;
     v_fonte := 'fotografia_seis_linhas_2026_1';
   end if;
 
@@ -113,6 +119,8 @@ begin
   v := v || jsonb_build_object(
     'carteira_original', v_carteira,
     'titulos_carteira', v_titulos,
+    'saldo_em_aberto', v_saldo_aberto,
+    'negociado', v_negociado,
     'carteira_fonte', v_fonte,
     'percentual_recuperado_caixa',
       case when coalesce(v_carteira, 0) > 0
