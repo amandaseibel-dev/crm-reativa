@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { classificarFalhaExportacao, montarLinhasContatos, gerarArquivoExportacao } from "../utils/exportacaoMassiva.js";
+import { FASE, bloqueiaNovaExportacao, mensagemDaFase } from "../utils/exportacaoFluxo.js";
 import { supabase } from "../services/supabase";
 import {
   detalheSelecao,
@@ -253,6 +254,8 @@ export default function AcoesMassivas() {
   const [soSemTelefone, setSoSemTelefone] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [gerando, setGerando] = useState(false);
+  // Fase do ultimo registro: incerta bloqueia nova exportacao ate o operador conferir o historico.
+  const [faseExport, setFaseExport] = useState(FASE.OCIOSO);
   const [resultados, setResultados] = useState(null);
   const [erro, setErro] = useState("");
   const [sucesso, setSucesso] = useState("");
@@ -583,7 +586,9 @@ export default function AcoesMassivas() {
       } catch (e) {
         const f = classificarFalhaExportacao("rpc", e);
         console.error("Exportacao da acao massiva falhou", { etapa: f.etapa, codigo: f.codigo });
-        setErro(f.mensagem);
+        // Validacao recusada: nada registrado, pode tentar. Demais: resultado desconhecido, bloqueia.
+        setFaseExport(f.etapa === "validacao" ? FASE.RECUSADA : FASE.INCERTA);
+        setErro(f.etapa === "validacao" ? f.mensagem : mensagemDaFase(FASE.INCERTA));
         return;
       }
 
@@ -638,7 +643,8 @@ export default function AcoesMassivas() {
 
       // O lote ja foi registrado pela RPC. Sem arquivo, nao dizer que a planilha foi exportada.
       if (falhaArquivo) {
-        setErro(classificarFalhaExportacao("arquivo").mensagem + " Use o botão Baixar planilha.");
+        setFaseExport(FASE.ARQUIVO_FALHOU);
+        setErro(mensagemDaFase(FASE.ARQUIVO_FALHOU));
         carregarLotesRegistro();
         return;
       }
@@ -1731,9 +1737,19 @@ export default function AcoesMassivas() {
               )}
             </div>
             {resultados.length > 0 && (
-              <button style={estilos.botaoGerar} onClick={exportarPlanilha} disabled={gerando}>
+              <>
+              <button style={estilos.botaoGerar} onClick={exportarPlanilha} disabled={gerando || bloqueiaNovaExportacao(faseExport)}>
                 {gerando ? "Exportando..." : "⬇️ Exportar planilha (não registra contato)"}
               </button>
+              {faseExport === FASE.INCERTA && (
+                <div style={{ marginTop: 8 }}>
+                  <p style={{ margin: "0 0 6px" }}>{mensagemDaFase(FASE.INCERTA)} Esta proteção vale só nesta tela e até recarregar a página.</p>
+                  <button style={estilos.botaoGerar} onClick={() => { setFaseExport(FASE.OCIOSO); setErro(""); carregarLotesRegistro(); }}>
+                    Conferi o histórico de lotes
+                  </button>
+                </div>
+              )}
+              </>
             )}
           </div>
 
