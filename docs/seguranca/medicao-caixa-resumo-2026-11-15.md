@@ -32,3 +32,57 @@ Nenhuma função foi criada, nenhum snapshot foi atualizado, nada foi escrito.
 - O percentual é caixa confirmado identificado ÷ carteira original. Não é recuperação total.
 - Os testes SQL usam stubs de view, classificador e fotografia. Não provam a execução contra
   a view real.
+
+## Anexo — consultas exatas e saídas (leitura, 15/11/2026)
+
+Saídas copiadas do retorno das consultas, sem arredondamento além do que o banco devolveu.
+
+A. Caixa por semestre (critério PROVADA + BAIXADO):
+```sql
+select s.sem,
+       count(*) filter (where coalesce(confianca='PROVADA' and status_conciliacao='BAIXADO',false)) pagamentos_confirmados,
+       coalesce(sum(valor_pago) filter (where coalesce(confianca='PROVADA' and status_conciliacao='BAIXADO',false)),0) caixa_confirmado,
+       count(*) filter (where not coalesce(confianca='PROVADA' and status_conciliacao='BAIXADO',false)) pagamentos_pendentes,
+       coalesce(sum(valor_pago) filter (where not coalesce(confianca='PROVADA' and status_conciliacao='BAIXADO',false)),0) pendente_classificacao,
+       max(data_pagamento) data_referencia
+  from (values ('2026/1'),('2026/2')) s(sem)
+  left join efetividade_caixa_origem e on e.semestre_origem = s.sem
+ group by s.sem order by s.sem;
+```
+Saída: 2026/1 — 639 / 535206.14 / 1340 / 3314532.12 / 2026-11-13. 2026/2 — 594 / 653066.80 / 84 / 120444.29 / 2026-11-13.
+
+B. Sem origem determinada:
+```sql
+select coalesce(sum(valor_pago),0), count(*) from efetividade_caixa_origem where confianca='INDETERMINADA';
+```
+Saída: 9908460.55 em 8675 pagamentos.
+
+C. Carteira 2026/2 e saldo pelo classificador:
+```sql
+select count(*) titulos, round(sum(valor_original),2) carteira,
+       round(sum(saldo) filter (where faixa<>'CANCELADO'),2) saldo_total_nao_cancelado,
+       round(sum(saldo) filter (where faixa='EM_CONFERENCIA'),2) saldo_em_conferencia,
+       round(sum(saldo) filter (where faixa='ACADEMICO'),2) saldo_academico,
+       round(sum(saldo) filter (where faixa in ('SEM_NEGOCIACAO','CONVERTIDO')),2) saldo_sem_pendencia,
+       round(sum(saldo) filter (where acordo_id is not null and acordo_estado in ('regular','atraso','quebrado') and faixa<>'CANCELADO'),2) saldo_acordo_ativo
+  from carteira_2026_2_classificar();
+```
+Saída: 10822 / 17232872.41 / 16042642.07 / 7232872.33 / 111923.90 / 8697845.84 / 239654.71.
+
+D. Negociações 2026/2 (total):
+```sql
+select carteira_2026_2_negociacoes();
+```
+Saída (campo total): saldo 245326.06, negociado 1232903.01, recebido 987576.95.
+Decomposição: saldo de acordos ativos 239654.71 (C) + cancelados 5671.35 = 245326.06.
+
+E. Fotografia 2026/1:
+```sql
+select carteira_efetividade_ler('seis_linhas','2026','1');
+```
+Saída: entrou 21710447.29 com 14979 títulos; em_aberto 9055032.58; negociado 4535961.61; pago (rateio) 6219804.34; `atualizacao_pendente = true`.
+
+F. Percentuais derivados (caixa ÷ carteira, em %):
+- 2026/1: 535206.14 ÷ 21710447.29 × 100 = 2,46 → 2,5%.
+- 2026/2: 653066.80 ÷ 17232872.41 × 100 = 3,79 → 3,8%.
+Observação: o denominador de 2026/2 inclui títulos cancelados (a carteira original soma todos). Os percentuais são de fontes com datas diferentes: 2026/1 é fotografia desatualizada, 2026/2 é leitura ao vivo.

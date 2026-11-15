@@ -765,15 +765,17 @@ export default function CarteiraEfetividade({ safraFixa = null } = {}) {
               ninguém ter pedido a comparação. Fechado, a página não as dispara. */}
           {!safraFixa && (
           <div style={{ marginTop: 22 }}>
-            <ComparativoSemestres2026 fotografia2026_1={safra === "2026/1" ? situacoes : null}
-                                       negociacoes2026_2={vigente} recarga={recarga} />
             <button onClick={() => setComparativo((v) => !v)} aria-expanded={comparativo}
                     style={S.linkMetodologia}>
               <span aria-hidden="true">{comparativo ? "▾" : "▸"}</span>
               {comparativo ? "Ocultar comparativo entre safras" : "Comparar as safras"}
             </button>
             {comparativo ? (
-              <ComparativoSafras selecionada={safra === "2026/1" ? "2026/1" : ano} recarga={recarga} />
+              <>
+                <ComparativoSemestres2026 fotografia2026_1={safra === "2026/1" ? situacoes : null}
+                                           negociacoes2026_2={vigente} recarga={recarga} />
+                <ComparativoSafras selecionada={safra === "2026/1" ? "2026/1" : ano} recarga={recarga} />
+              </>
             ) : null}
           </div>
           )}
