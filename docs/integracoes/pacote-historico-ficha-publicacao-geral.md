@@ -23,7 +23,7 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 
 **Dimensionamento (14/11/2026, leitura de produção, somente leitura):**
 - 7 operadores (perfil `operador`): até 20 chamadas por usuário/dia cada; pior caso 140.
-- 3 de gestão (lista de três e-mails ativos, a mesma de `usuario_e_gestao()`; não é por perfil): acesso amplo; até 20 chamadas cada; pior caso 60.
+- 2 de leitura global (amanda.seibel e cobranca04; lista própria da #948, não é por perfil): acesso amplo; até 20 chamadas cada; cobranca07 (ADM) só lê a própria carteira. Pior caso de cota: 60 chamadas.
 - 4 de outros perfis (`carteira`, `diretoria`, `juridico`, `painel`): leem só quando são dono da carteira ou responsáveis pelo atendimento; até 20 cada; pior caso 80.
 - Pior caso por usuário: 280 chamadas/dia. O teto compartilhado de 150/dia limita o total real.
 
@@ -60,7 +60,7 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 ## Hashes dos arquivos que a publicação envia
 | arquivo | sha256 |
 |---|---|
-| `supabase/functions/ulbra-historico/index.ts` | `a83215f625d88a52fa3e4e028c0412ed57379d4dfe8cc23e19c2484999ab5bb5` |
+| `supabase/functions/ulbra-historico/index.ts` | `7476300f3dbbf10685519363728a0027ab9a0224d7be270ca806c1ad48c0fe81` |
 | `supabase/functions/ulbra-historico/historico.ts` | `1355a8b08446cfe56874f44d4c766b24706acb78806aadd88255cd7706d1b93c` |
 | `supabase/functions/ulbra-historico/leitura.ts` (diferente da v1 só por comentário; v1 = 20cc12d3…) | `2bb97fa41b8d606c2b545e689c60238f984e622083d638cd48a90049a8e0067b` |
 
@@ -100,7 +100,7 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 
 | arquivo | sha256 |
 |---|---|
-| `supabase/functions/ulbra-historico/index.ts` | `a83215f625d88a52fa3e4e028c0412ed57379d4dfe8cc23e19c2484999ab5bb5` |
+| `supabase/functions/ulbra-historico/index.ts` | `7476300f3dbbf10685519363728a0027ab9a0224d7be270ca806c1ad48c0fe81` |
 | `supabase/functions/ulbra-historico/historico.ts` | `1355a8b08446cfe56874f44d4c766b24706acb78806aadd88255cd7706d1b93c` |
 | `supabase/functions/ulbra-historico/leitura.ts` | `2bb97fa41b8d606c2b545e689c60238f984e622083d638cd48a90049a8e0067b` |
 
@@ -119,7 +119,7 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 
 ## Atualização de 15/11/2026 (correções do parecer do Guardião 364ea36b e do head 218bdcad)
 
-**Gestão:** a gestão é a lista dos três e-mails ativos (`amanda.seibel@aelbra.com.br`, `cobranca04@aelbra.com.br`, `cobranca07@aelbra.com.br`), a mesma lista de `usuario_e_gestao()` em produção. Não é por perfil: supervisor, gerência e administrativo fora dessa lista não leem carteira alheia. Operadores leem conversas que o servidor permite (dono da carteira ou responsável comprovado).
+**Leitura global:** lista de dois e-mails (`amanda.seibel@aelbra.com.br`, `cobranca04@aelbra.com.br`). É decisão própria desta PR e **diverge** de `usuario_e_gestao()` em produção, que inclui a cobranca07; a cobranca07 (ADM) não tem leitura global. Não é por perfil: supervisor, gerência e administrativo fora dessa lista não leem carteira alheia. Operadores leem conversas que o servidor permite (dono da carteira ou responsável comprovado).
 
 **Guarda da RPC:** a reserva só aceita contexto de serviço (`request.jwt.claims` com role `service_role`, ou a chave legada `request.jwt.claim.role`). Testada em PostgreSQL 17 (chamada legítima nos dois formatos; recusa de `authenticated` e de contexto ausente). **Pré-condição não comprovada:** qual formato o PostgREST do projeto injeta de fato. Só um teste em staging com PostgREST real comprova isso.
 
@@ -133,7 +133,7 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 
 
 ## Correções do parecer 8174167f (sem mudança de regra)
-- **Lista de gestão igual à de produção, por evidência:** `usuario_e_gestao()` em produção (catálogo somente leitura, 15/11/2026) tem md5(prosrc) `889cfa4a82e9046b4322e8c85ee07b7d` (o mesmo registrado em `supabase/ledger/2026-10/INDICE.tsv`) e lista exatamente os três e-mails de `GESTAO_EMAILS`. Permanece limitação: se a lista mudar em produção, o código precisa mudar junto.
+- **Lista divergente de produção, por decisão:** `usuario_e_gestao()` em produção inclui a cobranca07; a lista desta PR não. Não há igualdade comprovada e este texto não a alega. A decisão de alcance da ADM é da gestão.
 - **Bloqueio após 429:** se a gravação do bloqueio funcionou, o banco decide em todas as instâncias, inclusive nas que já estavam quentes. Se a gravação falhou, a instância que recebeu o 429 fica fechada até conseguir gravar; as outras instâncias não ficam bloqueadas. O bloqueio não é global quando a gravação falha.
 - **Liberação pela gestão:** basta limpar `historico_bloqueado_sem_prazo` no banco; não é preciso reiniciar instâncias. Teste: 429 gravado, liberação no banco, mesma instância volta a chamar a ULBRA.
 - **Cache:** entradas vencidas saem a cada gravação e o total não passa de 200 entradas. Texto de conversa fica em memória só enquanto válido, por no máximo 5 minutos.

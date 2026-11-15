@@ -4,7 +4,7 @@
 //
 // Portão: JWT do usuário (verify_jwt = true) + cadastro ativo; identidade por
 // vínculo alta_cpf lida AGORA; permissão = dono da carteira ou responsável
-// comprovado (operador) ou lista fixa de três e-mails (gestão, GESTAO_EMAILS); orçamento reservado no banco
+// comprovado (operador) ou lista fixa de dois e-mails de leitura global (GESTAO_EMAILS); orçamento reservado no banco
 // ANTES da chamada (ulbra_historico_reservar); credencial de backend, só leitura.
 // Nada é gravado com texto de mensagem. Nenhum envio.
 // ===========================================================================
@@ -21,7 +21,7 @@ const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-// Gestão = lista dos três e-mails ativos (mesma lista de usuario_e_gestao() em produção, 15/11/2026).
+// Leitura global = lista de dois e-mails (decisão própria da #948; diverge de usuario_e_gestao() em produção, que inclui a cobranca07).
 // NÃO é por perfil: supervisor/gerencia/administrativo fora desta lista não ganham leitura de carteira alheia.
 // Leitura GLOBAL (qualquer carteira, com CPF confirmado): gestora e Fernanda (regra da #948).
 // cobranca07 (ADM) NÃO está aqui: lê só a própria carteira ou atendimento sob sua responsabilidade.
