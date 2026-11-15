@@ -1,0 +1,14 @@
+-- CONTENÇÃO B1 (PENDENTE, NÃO APLICADA). Suspende NOVOS registros de termo físico sem apagar nada.
+-- Preserva: catálogo de tabulações, histórico (aluno_movimentacoes), trigger e função de registro,
+-- barreira de alunos. Efeito: authenticated deixa de poder executar registrar_administrativo_termo_fisico.
+-- Reversão: 20261114140000_contencao_registro_termo_fisico.rollback.sql (reconcede EXECUTE a authenticated).
+BEGIN;
+do $$
+begin
+  if not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                 where n.nspname = 'public' and p.proname = 'registrar_administrativo_termo_fisico') then
+    raise exception 'pré-condição: função registrar_administrativo_termo_fisico ausente. Nada alterado.';
+  end if;
+end $$;
+revoke execute on function public.registrar_administrativo_termo_fisico(text, text) from authenticated;
+COMMIT;

@@ -1,0 +1,20 @@
+-- AÇÕES do login não privilegiado (app_teste). B1 (contenção) e B4 (aluno que já contém código restrito).
+-- Estado do aluno a0000000-...042 é preparado como TERMO_FISICO_ARQUIVADO por 11p_prep_contencao_on.sql (postgres).
+\set ON_ERROR_STOP on
+
+-- B1: com a contenção, a gestão NÃO registra mais (42501 de permissão); nada é gravado.
+select public.teste_assert('B1 contenção: gestão recusada na RPC (42501 de permissão), sem linha gravada',
+  (public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
+    $sql$select public.registrar_administrativo_termo_fisico('a0000000-0000-0000-0000-000000000042','TERMO_FISICO_ARQUIVADO')$sql$)->>'code' = '42501')
+  and (select count(*) from public.aluno_movimentacoes where aluno_id = 'a0000000-0000-0000-0000-000000000042' and tipo = 'REGISTRO_ADMINISTRATIVO') = 0);
+
+-- B4a: aluno já em código restrito. Operador tenta trocar para outro código restrito: recusa exata, sem alteração parcial.
+select public.teste_assert('B4a: operador recusado ao trocar código restrito por outro (42501, mensagem exata)',
+  (public.teste_comando('authenticated','operador.teste@exemplo.local',
+    $sql$update public.alunos set status_atual = 'TERMO_FISICO_EM_ANDAMENTO' where id = 'a0000000-0000-0000-0000-000000000042'$sql$)->>'code' = '42501')
+  and (select count(*) from public.alunos where id = 'a0000000-0000-0000-0000-000000000042' and status_atual = 'TERMO_FISICO_ARQUIVADO') = 1);
+
+-- B4b: alteração legítima do mesmo aluno (sair do código restrito para CONTATAR) é permitida ao operador.
+select public.teste_assert('B4b: operador sai do código restrito para CONTATAR (legítimo)',
+  public.teste_comando('authenticated','operador.teste@exemplo.local',
+    $sql$update public.alunos set status_atual = 'CONTATAR' where id = 'a0000000-0000-0000-0000-000000000042'$sql$)->>'ok' = 'true');
