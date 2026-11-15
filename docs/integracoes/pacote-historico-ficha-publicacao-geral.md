@@ -61,7 +61,7 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 | arquivo | sha256 |
 |---|---|
 | `supabase/functions/ulbra-historico/index.ts` | `bff338315e122883d19999a2e96c9875d05f41f41575baf60ee596da9e6a119a` |
-| `supabase/functions/ulbra-historico/historico.ts` | `6034f406701d7c32cdd8b3353fa0b85cfa290bf373ad430db3cffbe1382251fd` |
+| `supabase/functions/ulbra-historico/historico.ts` | `ad3598d12ff3f1156ba0a1627b6438c6c54c634a22c813092dbb227b7fbee39d` |
 | `supabase/functions/ulbra-historico/leitura.ts` (igual à v1) | `20cc12d353c7278c9951208d740312831bffe92fcf2533856474be01bbb2f05f` |
 
 ## Publicação (cada passo com autorização)
@@ -101,7 +101,7 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 | arquivo | sha256 |
 |---|---|
 | `supabase/functions/ulbra-historico/index.ts` | `bff338315e122883d19999a2e96c9875d05f41f41575baf60ee596da9e6a119a` |
-| `supabase/functions/ulbra-historico/historico.ts` | `6034f406701d7c32cdd8b3353fa0b85cfa290bf373ad430db3cffbe1382251fd` |
+| `supabase/functions/ulbra-historico/historico.ts` | `ad3598d12ff3f1156ba0a1627b6438c6c54c634a22c813092dbb227b7fbee39d` |
 | `supabase/functions/ulbra-historico/leitura.ts` | `20cc12d353c7278c9951208d740312831bffe92fcf2533856474be01bbb2f05f` |
 
 **Sequência de implantação (cada passo depende de aprovação sua):**
