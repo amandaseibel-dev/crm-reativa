@@ -31,13 +31,16 @@
 -- RATEIO NÃO ENTRA AQUI. O recuperado por rateio é outra grandeza e continua nas RPCs
 -- de efetividade, identificado como tal.
 --
+-- VOLATILIDADE. Declarada VOLATILE porque chama carteira_2026_2_negociacoes(), que escreve
+-- (cria e apaga uma tabela temporária). Declarar STABLE seria inconsistente com essa chamada.
+--
 -- PORTÃO. Gestão ativa autorizada: e-mail na lista de `usuario_e_gestao()` E linha
 -- em `usuarios` com `ativo = true`. Diretoria NÃO entra por este caminho.
 
 create or replace function public.efetividade_caixa_resumo_semestre(p_semestre text)
 returns jsonb
 language plpgsql
-stable
+volatile
 security definer
 set search_path = public, pg_temp
 as $$

@@ -17,7 +17,7 @@ Entrega final = #966 (SQL) + #965 (tela). A tela só deve ser mesclada depois da
 ## Artefatos (SHA-256 integral)
 
 - Migration `supabase/migrations/20261115130000_efetividade_caixa_resumo_semestre.sql`:
-  `c38f5a0ec956bed2001b37e0940913588805ea5f461459efbe7b193a86cb105d`
+  `4c65a4149f8a03d0f995271d792de28b3e9263ca78a68528e0967c05445eef1f`
 - Rollback `docs/rollbacks/efetividade-caixa-resumo-semestre-rollback.sql`:
   `4bf1b0ffe2dd009809fc929b13ac336cce0d09541f48663f8181c0022fdb88b5`
 
@@ -25,7 +25,7 @@ Entrega final = #966 (SQL) + #965 (tela). A tela só deve ser mesclada depois da
 
 Linha de `docs/seguranca/migracoes-aprovadas.tsv`, 6 colunas separadas por TAB:
 `ahattpqrjmhkzsmnbdzs` · `20261115130000_efetividade_caixa_resumo_semestre` ·
-`c38f5a0ec956bed2001b37e0940913588805ea5f461459efbe7b193a86cb105d` ·
+`4c65a4149f8a03d0f995271d792de28b3e9263ca78a68528e0967c05445eef1f` ·
 `amanda.seibel@aelbra.com.br` · `expira_em` = aprovação + 30 min (UTC) · `pendente`.
 
 ## Executor nominal
@@ -34,7 +34,7 @@ Amanda Prado Seibel (`amanda.seibel@aelbra.com.br`). A sessão principal executa
 
 ## Sequência (ordem obrigatória)
 
-0. Medição antes de aplicar: medir o custo de uma leitura da RPC (classificador de 2026/2 e a view) em produção, sem snapshot novo. Sem essa medição, a aplicação não é liberada.
+0. Custo medido antes de aplicar (ver Anexo J da medição): o classificador de 2026/2 leva ≈2,4 s por chamada em leitura; a RPC chama o classificador e a função de negociações, que escreve e não foi medida em leitura. O limite do `authenticated` é 8 s. Bloqueio: decidir como limitar o custo antes de aplicar.
 
 1. Aprovação desta proposta pela Amanda.
 2. Merge da #966 (só SQL; não publica tela).
@@ -96,6 +96,8 @@ Conferência do `version` efetivamente aplicado: ver a seção do `RUNBOOK-MIGRA
 Nada disso é feito antes da aprovação.
 
 ## Estado
+
+- Declarada VOLATILE: chama carteira_2026_2_negociacoes(), que escreve. Hash atualizado.
 
 - Migration e rollback: hashes acima, neste commit. Correção: revoke de service_role condicionado à existência do papel (falha comprovada no log do job SQL).
 - Heads e CI/Guardião: obtidos depois do congelamento; sem parecer, nada é liberado.

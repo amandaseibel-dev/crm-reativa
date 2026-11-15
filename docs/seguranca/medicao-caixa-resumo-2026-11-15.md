@@ -112,3 +112,14 @@ em `usuario_e_gestao()`. A migration da RPC restringe a função a `authenticate
 Leitura de `pg_get_functiondef`: retorna `lower(coalesce(auth.jwt()->>'email',''))` contra a lista fixa de
 amanda.seibel, cobranca04 e cobranca07. Não verifica `usuarios.ativo`. As três contas existem em `usuarios`
 com `ativo = true`. A RPC acrescenta a checagem de `ativo` e não aceita diretoria.
+
+
+## Anexo J — custo em leitura (15/11/2026)
+
+- `explain (analyze, summary, costs off, timing off)` sobre `carteira_2026_2_classificar()` em transação
+  `read only`, statement_timeout 30 s: Execution Time 2436,551 ms, 10.822 linhas.
+- Uma tentativa com o corpo completo da RPC, em `read only` e com statement_timeout de 8 s, estourou o limite
+  dentro do classificador (57014). A RPC chama o classificador e a função de negociações; a soma passa de 8 s.
+- `carteira_2026_2_negociacoes()` NÃO foi medida em leitura: a função cria e apaga uma tabela (`_n22`). Em
+  `read only` ela falha com 25006. O custo dela não está medido.
+- Conclusão: o custo completo da RPC não está medido e pode passar do limite de 8 s do `authenticated`.
