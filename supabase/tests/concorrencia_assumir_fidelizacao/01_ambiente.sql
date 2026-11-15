@@ -5,6 +5,9 @@ create extension if not exists unaccent;
 create extension if not exists pg_trgm;
 create extension if not exists "uuid-ossp";
 \i supabase/tests/fixtures/fidelizacao_por_dono_prod_20260930.sql
+-- Definicao VIGENTE do trigger de teto (corpo de producao, md5 3d01bbd1, conferido em 15/11/2026).
+-- Sobrepoe a definicao antiga do arquivo 20260930 (md5 5027a7fa, historica). Demais objetos vem do 20260930.
+\i supabase/tests/fixtures/trg_impor_teto_operador_prod_20261115.sql
 \i supabase/tests/fixtures/assumir_caso_livre_prod_20261020.sql
 \i supabase/tests/fixtures/assumir_caso_fidelizacao_vencida_prod_20261113.sql
 \i supabase/tests/fixtures/assumir_caso_livre_prod_20261113.sql

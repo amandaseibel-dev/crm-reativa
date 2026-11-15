@@ -21,6 +21,15 @@
 
 do $teto$
 begin
+-- GUARDA DE ORDEM (#936 -> teto -> prazo -> #953): recusa ANTES de alterar qualquer objeto.
+do $g$ begin
+  if to_regprocedure('public.aluno_retorno_operador_vigente(uuid)') is null then
+    raise exception 'ORDEM: #936 ausente (aluno_retorno_operador_vigente). Aplicar a #936 antes do teto.';
+  end if;
+  if obj_description(to_regprocedure('public.trg_impor_teto_operador()'), 'pg_proc') is not null then
+    raise exception 'ORDEM: teto ja marcado como aplicado; migration nao reexecutavel.';
+  end if;
+end $g$;
   perform internal.patch_funcao_ancorada(
     'public', 'assumir_caso_livre',
     '  v_teto := public.calibragem_teto_operador(v_email);',
@@ -36,3 +45,6 @@ begin
     1);
 end
 $teto$;
+
+-- MARCADOR DE ORDEM (lido pelas guardas do prazo e da #953).
+comment on function public.trg_impor_teto_operador() is 'ordem-953:teto-20261114110000';

@@ -1145,3 +1145,39 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/04_depois_da_correcao.sql"
           psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
           psql -v ON_ERROR_STOP=1 -f "$DIR/05_apos_rollback.sql"
+
+
+  ordem-dependencias-953:
+    name: ordem #936 -> teto -> prazo -> #953 (artefato da #936 pelo SHA 9e840586; recusa de ordem errada)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Fixar o artefato da #936 pelo SHA (não por branch)
+        run: |
+          git fetch --no-tags origin 9e8405869d3fe20ce24f6c50be890076a231a0c1
+          test "$(git rev-parse 9e8405869d3fe20ce24f6c50be890076a231a0c1^{commit})" = "9e8405869d3fe20ce24f6c50be890076a231a0c1"
+          git worktree add --detach "$RUNNER_TEMP/a936" 9e8405869d3fe20ce24f6c50be890076a231a0c1
+
+      - name: Ordem de dependências e recusa fora de ordem
+        run: bash supabase/tests/ordem_dependencias_953/cenarios.sh "$RUNNER_TEMP/a936" "$GITHUB_WORKSPACE"

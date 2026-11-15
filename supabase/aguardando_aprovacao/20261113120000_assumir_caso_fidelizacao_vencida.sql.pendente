@@ -48,6 +48,12 @@
 -- ---------------------------------------------------------------------------
 do $pre$
 begin
+-- GUARDA DE ORDEM: exige o prazo (marcador) antes da #953.
+do $g$ begin
+  if obj_description(to_regprocedure('public.caso_dentro_prazo_fidelizacao(date)'), 'pg_proc') is distinct from 'ordem-953:prazo-20261114100000' then
+    raise exception 'ORDEM: prazo (20261114100000) nao aplicado; aplicar o prazo antes da #953.';
+  end if;
+end $g$;
   if not exists (select 1 from pg_trigger t join pg_class c on c.oid = t.tgrelid
                   where c.relname = 'alunos' and t.tgname = 'trg_acionamento_nao_volta_para_nulo' and not t.tgisinternal) then
     raise exception 'PRE-CONDICAO P1 ausente: trigger trg_acionamento_nao_volta_para_nulo em public.alunos (migration 20260828010000).';

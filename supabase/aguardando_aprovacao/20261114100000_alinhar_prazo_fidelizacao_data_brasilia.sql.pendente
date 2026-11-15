@@ -31,6 +31,18 @@
 
 begin;
 
+-- GUARDA DE ORDEM: exige #936 e o teto (marcador) antes do prazo.
+do $g$ begin
+  if to_regprocedure('public.aluno_retorno_operador_vigente(uuid)') is null then
+    raise exception 'ORDEM: #936 ausente. Aplicar a #936 antes do prazo.';
+  end if;
+  if obj_description(to_regprocedure('public.trg_impor_teto_operador()'), 'pg_proc') is distinct from 'ordem-953:teto-20261114110000' then
+    raise exception 'ORDEM: teto (20261114110000) nao aplicado; aplicar o teto antes do prazo.';
+  end if;
+  if obj_description(to_regprocedure('public.caso_dentro_prazo_fidelizacao(date)'), 'pg_proc') is not null then
+    raise exception 'ORDEM: prazo ja marcado como aplicado; migration nao reexecutavel.';
+  end if;
+end $g$;
 create or replace function public.caso_dentro_prazo_fidelizacao(p_data_ultimo_acionamento date)
 returns boolean
 language sql
@@ -58,5 +70,8 @@ begin
   end if;
 end
 $patch$;
+
+-- MARCADOR DE ORDEM (lido pela guarda da #953).
+comment on function public.caso_dentro_prazo_fidelizacao(date) is 'ordem-953:prazo-20261114100000';
 
 commit;
