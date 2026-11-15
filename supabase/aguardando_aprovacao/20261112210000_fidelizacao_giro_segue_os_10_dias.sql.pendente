@@ -187,12 +187,12 @@ CREATE OR REPLACE FUNCTION public.aluno_retorno_ambiguo(p_aluno_id uuid)
 AS $function$
   -- Retorno PENDENTE de origem do operador que NAO esta protegido (14/11/2026): nao ha
   -- registro explicito de agendamento humano. Fica RETIDO para conferencia da gestao;
-  -- nunca e liberado automaticamente, e nenhum vinculo e inventado.
+  -- nunca e liberado automaticamente, e nenhum vinculo e inventado. Vale tambem SEM
+  -- responsavel atual: o retorno continua pendente de origem do operador (14/11).
   select exists (
     select 1
       from public.alunos a
      where a.id = p_aluno_id
-       and a.responsavel_atual_email is not null
        and a.data_retorno is not null
        and upper(coalesce(a.retorno_origem, '')) like 'OPERADOR%'
        and a.retorno_confirmado_em is null

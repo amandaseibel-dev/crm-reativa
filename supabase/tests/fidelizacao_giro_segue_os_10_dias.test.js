@@ -1065,6 +1065,20 @@ describe("vínculo do retorno — via explícita e alternativa de 10 dias (gest�
     await db.close();
   });
 
+  it("retorno pendente do operador SEM responsável atual: não protege, mas fica RETIDO (nada liberado automaticamente, decisão 14/11)", async () => {
+    const db = await novo();
+    await base(db);
+    await atendimento(db, 1, { email: OP1, diasAtras: 12, comDataRetornoEm: 3 });
+    await retornoEm(db, 1, 3);
+    await db.exec("alter table public.alunos disable trigger user");
+    await db.query("update public.alunos set responsavel_atual_email = null where id = $1", [U(1)]);
+    await db.exec("alter table public.alunos enable trigger user");
+    await forcarParado(db, 1);
+    expect(await q1(db, "select public.aluno_retorno_ambiguo($1) v", [U(1)])).toEqual({ v: true });
+    expect((await ambos(db)).cron).toBe(0);
+    await db.close();
+  });
+
   it("retorno CONCLUÍDO não protege, mesmo com vínculo explícito", async () => {
     const db = await novo();
     await base(db);
