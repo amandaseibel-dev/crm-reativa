@@ -60,7 +60,7 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 ## Hashes dos arquivos que a publicação envia
 | arquivo | sha256 |
 |---|---|
-| `supabase/functions/ulbra-historico/index.ts` | `bff338315e122883d19999a2e96c9875d05f41f41575baf60ee596da9e6a119a` |
+| `supabase/functions/ulbra-historico/index.ts` | `a83215f625d88a52fa3e4e028c0412ed57379d4dfe8cc23e19c2484999ab5bb5` |
 | `supabase/functions/ulbra-historico/historico.ts` | `1355a8b08446cfe56874f44d4c766b24706acb78806aadd88255cd7706d1b93c` |
 | `supabase/functions/ulbra-historico/leitura.ts` (diferente da v1 só por comentário; v1 = 20cc12d3…) | `2bb97fa41b8d606c2b545e689c60238f984e622083d638cd48a90049a8e0067b` |
 
@@ -100,7 +100,7 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 
 | arquivo | sha256 |
 |---|---|
-| `supabase/functions/ulbra-historico/index.ts` | `bff338315e122883d19999a2e96c9875d05f41f41575baf60ee596da9e6a119a` |
+| `supabase/functions/ulbra-historico/index.ts` | `a83215f625d88a52fa3e4e028c0412ed57379d4dfe8cc23e19c2484999ab5bb5` |
 | `supabase/functions/ulbra-historico/historico.ts` | `1355a8b08446cfe56874f44d4c766b24706acb78806aadd88255cd7706d1b93c` |
 | `supabase/functions/ulbra-historico/leitura.ts` | `2bb97fa41b8d606c2b545e689c60238f984e622083d638cd48a90049a8e0067b` |
 
