@@ -62,7 +62,7 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 |---|---|
 | `supabase/functions/ulbra-historico/index.ts` | `bff338315e122883d19999a2e96c9875d05f41f41575baf60ee596da9e6a119a` |
 | `supabase/functions/ulbra-historico/historico.ts` | `1355a8b08446cfe56874f44d4c766b24706acb78806aadd88255cd7706d1b93c` |
-| `supabase/functions/ulbra-historico/leitura.ts` (igual à v1) | `20cc12d353c7278c9951208d740312831bffe92fcf2533856474be01bbb2f05f` |
+| `supabase/functions/ulbra-historico/leitura.ts` (igual à v1) | `2bb97fa41b8d606c2b545e689c60238f984e622083d638cd48a90049a8e0067b` |
 
 ## Publicação (cada passo com autorização)
 1. Aprovação dos quatro valores acima e do pacote.
@@ -102,7 +102,7 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 |---|---|
 | `supabase/functions/ulbra-historico/index.ts` | `bff338315e122883d19999a2e96c9875d05f41f41575baf60ee596da9e6a119a` |
 | `supabase/functions/ulbra-historico/historico.ts` | `1355a8b08446cfe56874f44d4c766b24706acb78806aadd88255cd7706d1b93c` |
-| `supabase/functions/ulbra-historico/leitura.ts` | `20cc12d353c7278c9951208d740312831bffe92fcf2533856474be01bbb2f05f` |
+| `supabase/functions/ulbra-historico/leitura.ts` | `2bb97fa41b8d606c2b545e689c60238f984e622083d638cd48a90049a8e0067b` |
 
 **Sequência de implantação (cada passo depende de aprovação sua):**
 1. Aprovar os valores (20 por usuário, 150 compartilhados, reserva 100, saldo 15 min) e esta versão.
