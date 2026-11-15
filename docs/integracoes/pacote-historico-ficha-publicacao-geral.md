@@ -65,16 +65,17 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 | `supabase/functions/ulbra-historico/leitura.ts` (diferente da v1 só por comentário; v1 = 20cc12d3…) | `2bb97fa41b8d606c2b545e689c60238f984e622083d638cd48a90049a8e0067b` |
 
 ## Publicação (sequência ÚNICA, cada passo com autorização)
-Esta é a única sequência válida. Não há outra no pacote.
+Esta é a única sequência válida. Não há outra no pacote. Os passos 5 a 10 não avançam enquanto o passo 4 não tiver prova ou uma decisão explícita da gestão aceitando sua ausência.
 1. Pré-condição: rotação do `ULBRA_MCP_TOKEN` concluída pela TI, com revogação do token antigo registrada.
 2. Pré-condição: diagnóstico único de `/ulbra-diagnostico` executado por Amanda após a rotação; registrar só limites, saldo, escopos e data.
 3. Aprovação final dos quatro valores de orçamento e desta versão do pacote.
-4. **Teste em staging antes de produção (pré-condição NÃO COMPROVADA até o ref ser informado):** o ref do projeto de staging não está identificado no repositório, e o checkout está ligado à produção. Antes deste passo, informar o ref de staging, confirmá-lo por `ambiente.sh`, aplicar a migration nele pelo caminho do ledger e rodar um teste PostgREST que leia o formato de claim desse projeto (o `postgrest_guarda.cjs` atual gera segredo próprio e não prova o claim do projeto). Só avança se passar.
-5. **Aplicar em produção pelo caminho do ledger**, não por `psql`: `apply_migration` com o arquivo; depois registrar o SQL aplicado em `supabase/ledger/2026-11/<version>__<nome>.sql` e uma linha em `supabase/ledger/2026-11/INDICE.tsv` (version, nome, arquivo, md5 e bytes conforme `supabase/ledger/LEIA-ME.md`); conferir `schema_migrations`. Sha256 do arquivo: 1e4bb622… Rollback pronto antes.
-6. Mesclar a #948 (clique humano).
-7. Publicar `ulbra-historico` com `supabase functions deploy ulbra-historico --project-ref ahattpqrjmhkzsmnbdzs`, **sem** `--no-verify-jwt`. Conferir `verify_jwt = true` e os três hashes de publicação.
-8. Conferir sem chamar a ULBRA: sem token dá 401; aluno sem CPF confirmado dá 403.
-9. Validação com operadores e gestão na tela logada.
+4. **Teste PostgREST em projeto de staging: PRÉ-CONDIÇÃO NÃO COMPROVADA.** Não há ref de staging confirmado. Não usar produção como substituto. Quando o ref for informado e confirmado por `ambiente.sh`, aplicar a migration nele e rodar um teste PostgREST que leia o formato de claim desse projeto. A prova isolada PG17/PostgREST do CI (`run.cjs`, `postgrest_guarda.cjs`) cobre a função e a guarda em instância descartável com segredo próprio; **não é equivalente** ao staging do projeto e não comprova o claim real.
+5. **Aplicação em produção (executor autorizado, único):** a sessão principal sob autorização específica. Executa a migration `20261115120000` com `apply_migration` (ou o caminho que a autorização indicar), com o rollback pronto e o sha256 `1e4bb622…` conferido antes. O ledger não executa nada.
+6. **Registro posterior (depois da aplicação):** gravar o SQL que efetivamente rodou em `supabase/ledger/2026-11/<version>__<nome>.sql`, e a linha em `supabase/ledger/2026-11/INDICE.tsv` (version, nome, arquivo, md5 e bytes conforme `supabase/ledger/LEIA-ME.md`). Conferir `schema_migrations` como prova da versão aplicada.
+7. Mesclar a #948 (clique humano).
+8. Publicar `ulbra-historico` com `supabase functions deploy ulbra-historico --project-ref ahattpqrjmhkzsmnbdzs`, **sem** `--no-verify-jwt`. Conferir `verify_jwt = true` e os três hashes de publicação.
+9. Conferir sem chamar a ULBRA: sem token dá 401; aluno sem CPF confirmado dá 403.
+10. Validação com operadores e gestão na tela logada.
 
 **Ponto não comprovado:** se o limite de 500/dia por pessoa vale para a credencial de backend. O probe de `meu_acesso` (uma chamada, sob autorização sua) responde isso; não foi executado.
 
