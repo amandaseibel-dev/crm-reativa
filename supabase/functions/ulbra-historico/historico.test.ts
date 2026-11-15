@@ -6,6 +6,7 @@ import {
   LIMITE_OPERADOR_DIA,
   RESERVA_GLOBAL,
   SALDO_VALIDADE_MS,
+  TETO_HISTORICO_DIA,
   avaliarSaldo,
   autorizarHistorico,
   limparCacheParaTeste,
@@ -95,6 +96,11 @@ describe("orçamento: cada chamada externa conta, inclusive 'Carregar anteriores
     const f = fabrica({ lerSaldo: async () => ({ restam: 150, em: SALDO_FRESCO.em }) });
     await lerHistoricoSomenteLeitura(DONO.operador, "c1", null, f.deps);
     expect(f.reservas[0]).toEqual({ operador: DONO.operador, tetoOp: LIMITE_OPERADOR_DIA, tetoGl: 150 - RESERVA_GLOBAL });
+  });
+  it("teto diário fixo: com saldo alto, o teto global do histórico é TETO_HISTORICO_DIA, não o saldo menos a reserva", async () => {
+    const f = fabrica({ lerSaldo: async () => ({ restam: 9821, em: SALDO_FRESCO.em }) });
+    await lerHistoricoSomenteLeitura(DONO.operador, "c1", null, f.deps);
+    expect(f.reservas[0]).toEqual({ operador: DONO.operador, tetoOp: LIMITE_OPERADOR_DIA, tetoGl: TETO_HISTORICO_DIA });
   });
   it("limite por operador bloqueia sem chamar a ULBRA", async () => {
     const f = fabrica({ usadosOperador: LIMITE_OPERADOR_DIA, usadosGlobal: LIMITE_OPERADOR_DIA });

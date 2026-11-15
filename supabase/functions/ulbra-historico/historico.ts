@@ -24,6 +24,7 @@ import { permitirLeitura, mapearPagina, type ContextoLeitura, type PaginaMensage
 
 export const LIMITE_OPERADOR_DIA = 20; // PROPOSTA — aguarda decisão da gestão
 export const RESERVA_GLOBAL = 100; // PROPOSTA — saldo que o histórico nunca gasta; teto = restam - reserva
+export const TETO_HISTORICO_DIA = 150; // PROPOSTA — teto TOTAL do histórico no dia (todos os operadores), mesmo com saldo alto
 export const SALDO_VALIDADE_MS = 15 * 60 * 1000; // PROPOSTA: saldo com mais de 15 min não serve
 export const CACHE_VALIDADE_MS = 5 * 60 * 1000;
 export const TAMANHO_PAGINA = 20;
@@ -148,7 +149,7 @@ async function executar(
   if (!saldo.ok) return { ok: false, motivo: saldo.motivo! };
   // Teto global do histórico = saldo medido menos a reserva. A reserva nunca é
   // gasta pelo histórico. O saldo é uma fotografia: a coleta também gasta.
-  const tetoGlobal = Math.max(0, fotografia!.restam - RESERVA_GLOBAL);
+  const tetoGlobal = Math.max(0, Math.min(fotografia!.restam - RESERVA_GLOBAL, TETO_HISTORICO_DIA));
 
   const reserva = await deps.reservar(operador, 1, LIMITE_OPERADOR_DIA, tetoGlobal);
   if (!reserva.permitido) {

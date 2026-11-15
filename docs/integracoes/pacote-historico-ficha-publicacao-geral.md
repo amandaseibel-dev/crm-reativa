@@ -17,10 +17,17 @@
 | reserva do saldo que o histórico nunca gasta | **100** | `RESERVA_GLOBAL` |
 | orçamento compartilhado do dia | saldo medido menos a reserva | cálculo no servidor |
 | validade da medida de saldo | **15 minutos** | `SALDO_VALIDADE_MS` |
+| **teto diário total do histórico (todos os operadores)** | **150 leituras** | `TETO_HISTORICO_DIA` (novo: teto fixo, independe do saldo) |
 
 Saldo medido hoje: **9.821**, medido em **11/11/2026**. Esse valor está antigo: a primeira consulta depois da publicação renova o saldo com uma chamada `meu_acesso`, que conta no orçamento do usuário que consultou.
 
-**Pergunta para aprovação:** confirmar, alterar ou recusar esses quatro valores. Até a aprovação, a publicação usa os valores acima exatamente como estão no código.
+**Dimensionamento (14/11/2026, leitura de produção):** 14 usuários ativos (7 com perfil `operador`, 3 de gestão, 4 de outros perfis). Pior caso por operador: 14 × 20 = 280 leituras/dia; o teto diário de 150 limita o total, então o pior caso real é 150 leituras + as renovações de saldo (no máximo uma a cada 15 minutos enquanto houver uso). Tabela `ulbra_historico_uso` e função de reserva já existem em produção (ledger aplicado); nenhum consumo registrado hoje.
+
+**Ponto em aberto que muda o número:** a ULBRA mediu 500 chamadas/dia por pessoa na conexão OAuth do piloto, e não confirmou se o limite vale também para a credencial de backend (que é o que o histórico usa). Se valer, o orçamento compartilhado precisa caber nesse teto junto com a coleta. O teto de 150 foi escolhido para caber nos dois cenários; a confirmação é uma chamada de `meu_acesso` com a credencial de backend (1 chamada, sob orçamento aprovado).
+
+**Saldo medido:** 9.821 em 11/11/2026, defasado. Não é usado para decidir; a primeira consulta depois da publicação renova o saldo.
+
+**Pergunta para aprovação:** confirmar, alterar ou recusar os cinco valores (operador/dia 20, reserva 100, validade 15 min, teto diário 150) e autorizar a chamada única de `meu_acesso` para confirmar o limite da credencial de backend. Até a aprovação, a publicação usa os valores acima exatamente como estão no código.
 
 ## Proteções
 - **Concorrência:** o orçamento é reservado no banco, por dia, com trava. Teste em Postgres isolado com o SQL real: 6 cliques de um operador com limite de 3 deixam 3 aprovados; 8 operadores com orçamento de 3 deixam 3 aprovados e 5 negados.

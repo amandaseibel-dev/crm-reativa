@@ -10,7 +10,7 @@
 // ===========================================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  LIMITE_OPERADOR_DIA, RESERVA_GLOBAL, SALDO_VALIDADE_MS, TAMANHO_PAGINA,
+  LIMITE_OPERADOR_DIA, RESERVA_GLOBAL, SALDO_VALIDADE_MS, TAMANHO_PAGINA, TETO_HISTORICO_DIA,
   lerHistoricoSomenteLeitura, type DependenciasHistorico, type FotografiaSaldo,
 } from "./historico.ts";
 import type { ContextoLeitura } from "./leitura.ts";
@@ -121,7 +121,7 @@ Deno.serve(async (req: Request) => {
       const fresco = Date.now() - Date.parse(e.saldo_api_em) <= SALDO_VALIDADE_MS;
       if (fresco) return { restam: Number(e.saldo_api_restam), em: String(e.saldo_api_em) };
       // Fotografia vencida: 1 chamada de meu_acesso (reservada antes) para não presumir saldo.
-      const r = await deps.reservar(email, 1, LIMITE_OPERADOR_DIA, Number(e.saldo_api_restam) - RESERVA_GLOBAL);
+      const r = await deps.reservar(email, 1, LIMITE_OPERADOR_DIA, Math.max(0, Math.min(Number(e.saldo_api_restam) - RESERVA_GLOBAL, TETO_HISTORICO_DIA)));
       if (!r.permitido) return null;
       try {
         const acesso = await chamarMcp(token, "meu_acesso", {}) as { limites?: { pessoaPorDia?: { restam?: number } } };
