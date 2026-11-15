@@ -138,7 +138,7 @@ Deno.serve(async (req: Request) => {
       // Orçamento compartilhado e limite por usuário, ATÔMICOS no banco: a reserva
       // serializa o dia (advisory lock). Dois cliques simultâneos não passam juntos
       // do limite. Os valores vêm de LIMITE_OPERADOR_DIA e do saldo medido.
-      const hoje = new Date().toISOString().slice(0, 10);
+      const hoje = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
       const { data, error } = await sb.rpc("ulbra_historico_reservar", {
         p_operador: operador, p_dia: hoje, p_quantidade: quantidade,
         p_teto_operador: tetoOperador, p_teto_global: Math.max(0, tetoGlobal),
