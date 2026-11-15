@@ -137,7 +137,7 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 - **Bloqueio após 429:** se a gravação do bloqueio funcionou, o banco decide em todas as instâncias, inclusive nas que já estavam quentes. Se a gravação falhou, a instância que recebeu o 429 fica fechada até conseguir gravar; as outras instâncias não ficam bloqueadas. O bloqueio não é global quando a gravação falha.
 - **Liberação pela gestão:** basta limpar `historico_bloqueado_sem_prazo` no banco; não é preciso reiniciar instâncias. Teste: 429 gravado, liberação no banco, mesma instância volta a chamar a ULBRA.
 - **Cache:** entradas vencidas saem a cada gravação e o total não passa de 200 entradas. Texto de conversa fica em memória só enquanto válido, por no máximo 5 minutos.
-- **Regra dos cinco:** a Mensageria segue a própria fonte (mensageria-ulbra.md). Esta PR não é descoberta de API Prime; integracoes-cinco.sh sai com 1 para esta PR por desenho do script, e a aceitação dessa exceção é decisão da gestão, ainda não registrada.
+- **Regra dos cinco (exceção registrada, só para esta PR):** a #948 altera a Mensageria ULBRA e o inventário de Edge Functions. Não altera contratos da API Prime nem os três documentos Prime (`prime-api.md`, `prime-api-catalog.json`, `prime-mapa-fontes-verdade.md`). A verificação `integracoes-cinco.sh` aceita a PR só com a flag `--excecao-948`, e apenas se o diff de `docs/integracoes/` estiver dentro de `mensageria-ulbra.md`, `prime-edge-functions.md` e este pacote. Qualquer outro arquivo volta a exigir os três. A exceção não autoriza implantação nem dispensa os demais gates.
 
 ## Regra de alcance de leitura (registrada para a #948)
 
@@ -145,3 +145,32 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 - **cobranca07 (ADM)**: sem leitura global. Lê somente alunos da própria carteira ou atendimentos sob sua responsabilidade. Imposto no servidor, antes do cache (`index.ts`, `GESTAO_EMAILS`; `ficha.test.ts`, bloco "alcance de leitura").
 - Testes: positivo (cobranca07 na própria carteira), negativo (cobranca07 em carteira alheia, sem chamada à ULBRA), positivo global (amanda.seibel).
 - **Legado**: `supabase/tests/ulbra_historico_teto/reservas_simultaneas.sh` e `migracao.sql` provam o piloto antigo (limite 3, compartilhado 3). Não são o orçamento vigente (20 por usuário, 150 compartilhado, reserva 100, saldo 15 min). O orçamento vigente é provado por `ulbra-historico-orcamento-postgres` (`run.cjs`) e pelo Vitest. Nenhuma restrição de piloto foi recriada.
+
+
+## Consolidação final da PR #948 (exceção, limitações e hashes)
+
+**Limitação conhecida (R1):** o servidor responde `403 IDENTIDADE_NAO_CONFIRMADA` e `404 CONVERSA_NAO_ENCONTRADA` antes de checar a carteira (`index.ts`, `ficha.test.ts` fixa esse comportamento). Isso permite a um operador com token saber se um `aluno_id` tem conversa coletada. **Não há isolamento completo da resposta.** A resposta neutra fica como melhoria posterior, sem prometer que esconde a existência.
+
+**Pré-condições obrigatórias (não dispensáveis por esta PR):**
+1. Rotação do `ULBRA_MCP_TOKEN` concluída pela TI, com revogação do token antigo registrada.
+2. Diagnóstico único de `/ulbra-diagnostico` executado por Amanda somente após a rotação, registrando só limites, saldo, escopos e data.
+
+**Gates:** esta seção não autoriza implantação, merge, aplicação de migration ou publicação da função. Esses continuam exigindo autorização final específica.
+
+**Hashes do head desta consolidação (sha256):**
+
+| arquivo | sha256 |
+|---|---|
+| `supabase/functions/ulbra-historico/index.ts` | `7476300f3dbbf10685519363728a0027ab9a0224d7be270ca806c1ad48c0fe81` |
+| `supabase/functions/ulbra-historico/historico.ts` | `1355a8b08446cfe56874f44d4c766b24706acb78806aadd88255cd7706d1b93c` |
+| `supabase/functions/ulbra-historico/leitura.ts` | `2bb97fa41b8d606c2b545e689c60238f984e622083d638cd48a90049a8e0067b` |
+| `supabase/functions/ulbra-historico/ficha.test.ts` | `62b275a7671ee0bfea86fdbfba04a2e6e2dc35ca7bedea788e1b18fb02fad020` |
+| `supabase/functions/ulbra-historico/historico.test.ts` | `dd4f831d1a1ac7603f0fdf7cf0f5a68e30a726a1a8b2262193e58c04ca17c5a3` |
+| `supabase/aguardando_aprovacao/20261115120000_ulbra_historico_bloqueio_e_guarda_reserva.sql.pendente` | `95d5a8c4633e822f95e42111ccac3429b66ca2530610f6c26b77d94f875a6e2f` |
+| `supabase/aguardando_aprovacao/20261115120000_ulbra_historico_bloqueio_e_guarda_reserva.rollback.sql` | `c076033d9ef0e6280481b8181fdda53ef4101b9cea4b13ca70e7c2493c2a736c` |
+| `src/utils/ulbraHistoricoCliente.js` | `f6a1e055191d877bb310cd14fa956a26de1c803c5e82e20bfba39080658141a4` |
+| `src/pages/Aluno.jsx` | `4675fca9694540b87ad920c47bc80607b8bf18080d02c19e4f67c187be3e9366` |
+| `docs/integracoes/mensageria-ulbra.md` | `6a316699696f5a9e17c9724d03f292431888426fa446b257d031ba38c27f4867` |
+| `docs/integracoes/prime-edge-functions.md` | `02845bd40942429a41a45462378ff5762fd84900e00fd133d42d9b5a6e52405f` |
+
+Hashes de publicação conferidos no head: `index.ts`, `historico.ts`, `leitura.ts` (os três enviados à função). Os demais são referência de revisão.

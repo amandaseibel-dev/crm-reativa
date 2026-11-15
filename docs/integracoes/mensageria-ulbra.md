@@ -83,6 +83,7 @@ prova de cadastro (tratado como `NAO_ENCONTRADO`).
 |---|---|---|
 | `ulbra-consultar` | `conferir_duplicidade` (1 chamada, **telefone e CPF nas duas posições**) | JWT + usuário ativo; operador só aluno da própria carteira; grava `ulbra_vinculos` e `auditoria` (`ULBRA_CONSULTA`, `ULBRA_VINCULO_CRIADO`, `ULBRA_VINCULO_BLOQUEADO`) |
 | `ulbra-leads-pendentes` | `listar_atendimentos {situacao:"waiting"}` | JWT; `receptivo` da própria linha ou `usuario_e_gestao()`; filtra equipe `"Reativa"`; devolve só id, nome, data |
+| `ulbra-historico` | Conversa da Mensageria na ficha do aluno: histórico paginado por conversa, somente leitura, sob demanda no clique (PR #948, ainda não publicada) | `ler_conversa` (1 por página) e `meu_acesso` (renovação do saldo quando vencido); ambas reservadas no orçamento antes da chamada (20 por usuário/dia, 150 compartilhado, reserva 100, saldo válido por 15 min) | JWT + usuário ativo; leitura global só para `amanda.seibel` e `cobranca04` (`GESTAO_EMAILS`, lista própria da #948, **diverge** de `usuario_e_gestao()` em produção, que inclui a cobranca07); cobranca07 e demais só com carteira ou responsabilidade comprovadas; CPF confirmado obrigatório; 429 bloqueia no banco (`ulbra_sync_estado`) | Lê Mensageria; escreve `ulbra_historico_uso` e `ulbra_sync_estado`; nunca grava texto de mensagem | `src/components/HistoricoFichaAluno.jsx` (aba em `src/pages/Aluno.jsx`) |
 
 Componente da ficha: `src/components/BlocoUlbra.jsx` (botão "Abrir na
 Mensageria Ulbra"). `NotificacoesUlbra.jsx` existe mas **não está montado**
