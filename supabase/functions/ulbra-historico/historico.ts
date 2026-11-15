@@ -80,6 +80,16 @@ export function diaDoOrcamento(agoraMs: number): string {
 }
 
 // Bloqueio compartilhado após 429. Retry-After só é usado quando a ULBRA o informa.
+// Retry-After (RFC 9110): segundos OU data HTTP. Devolve segundos restantes, ou null quando não interpretável (sem prazo).
+export function parseRetryAfter(valor: string | null, agoraMs: number): number | null {
+  if (valor === null) return null;
+  const v = valor.trim();
+  if (/^\d+$/.test(v)) return Number(v);
+  const ateMs = Date.parse(v);
+  if (!Number.isFinite(ateMs)) return null;
+  return Math.max(0, Math.ceil((ateMs - agoraMs) / 1000));
+}
+
 export interface EstadoBloqueio { ativo: boolean; ateMs: number | null; semPrazo: boolean }
 
 export interface DependenciasHistorico {

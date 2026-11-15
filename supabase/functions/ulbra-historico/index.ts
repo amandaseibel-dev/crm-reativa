@@ -11,7 +11,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   LIMITE_OPERADOR_DIA, RESERVA_GLOBAL, SALDO_VALIDADE_MS, TAMANHO_PAGINA, TETO_HISTORICO_DIA,
-  diaDoOrcamento, lerHistoricoSomenteLeitura, type DependenciasHistorico, type EstadoBloqueio, type FotografiaSaldo,
+  diaDoOrcamento, parseRetryAfter, lerHistoricoSomenteLeitura, type DependenciasHistorico, type EstadoBloqueio, type FotografiaSaldo,
 } from "./historico.ts";
 import type { ContextoLeitura } from "./leitura.ts";
 
@@ -52,7 +52,7 @@ async function chamarMcp(token: string, nome: string, args: Record<string, unkno
   });
   if (resp.status === 429) {
     const ra = resp.headers.get("retry-after");
-    throw Object.assign(new Error("ULBRA_LIMITE"), { retryAfterSegundos: ra !== null && /^\d+$/.test(ra.trim()) ? Number(ra.trim()) : null });
+    throw Object.assign(new Error("ULBRA_LIMITE"), { retryAfterSegundos: parseRetryAfter(ra, Date.now()) });
   }
   if (!resp.ok) throw new Error(`ULBRA_HTTP_${resp.status}`);
   return extrairResultado(lerCorpoMcp(resp.headers.get("content-type"), await resp.text()));
@@ -135,14 +135,17 @@ Deno.serve(async (req: Request) => {
       return { restam, em };
     },
     async lerBloqueio(): Promise<EstadoBloqueio> {
-      const { data: e } = await sb.from("ulbra_sync_estado").select("historico_bloqueado_ate, historico_bloqueado_sem_prazo").eq("id", true).maybeSingle();
+      const { data: e, error } = await sb.from("ulbra_sync_estado").select("historico_bloqueado_ate, historico_bloqueado_sem_prazo").eq("id", true).maybeSingle();
+      // Falha de leitura NÃO libera a chamada: vira erro (fail-closed).
+      if (error) throw new Error("BLOQUEIO_LEITURA_FALHOU");
       const ativo = Boolean(e?.historico_bloqueado_sem_prazo) || e?.historico_bloqueado_ate != null;
       return { ativo, ateMs: e?.historico_bloqueado_ate ? Date.parse(String(e.historico_bloqueado_ate)) : null, semPrazo: Boolean(e?.historico_bloqueado_sem_prazo) };
     },
     async registrarBloqueio(retryAfterSegundos: number | null): Promise<void> {
       // Retry-After informado: bloqueia até esse instante. Ausente: sem prazo (gestão libera). Nunca inventa prazo.
       const ate = retryAfterSegundos !== null ? new Date(Date.now() + retryAfterSegundos * 1000).toISOString() : null;
-      await sb.from("ulbra_sync_estado").update({ historico_bloqueado_ate: ate, historico_bloqueado_sem_prazo: retryAfterSegundos === null }).eq("id", true);
+      const { error } = await sb.from("ulbra_sync_estado").update({ historico_bloqueado_ate: ate, historico_bloqueado_sem_prazo: retryAfterSegundos === null }).eq("id", true);
+      if (error) { console.error("ulbra-historico: bloqueio NÃO gravado", error.message); throw new Error("BLOQUEIO_GRAVACAO_FALHOU"); }
     },
     async reservar(operador, quantidade, tetoOperador, tetoGlobal) {
       // Orçamento compartilhado e limite por usuário, ATÔMICOS no banco: a reserva

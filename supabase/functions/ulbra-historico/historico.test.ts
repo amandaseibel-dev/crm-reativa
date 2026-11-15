@@ -1,6 +1,7 @@
 // Garantias do histórico somente leitura, sem rede e sem chamada real.
 import { describe, it, expect, beforeEach } from "vitest";
 import {
+  parseRetryAfter,
   ALCANCE,
   CACHE_VALIDADE_MS,
   LIMITE_OPERADOR_DIA,
@@ -290,5 +291,22 @@ describe("tetos e dia de Brasília (valores fixos da especificação)", () => {
   it("virada do dia: 2026-11-15T02:59:59Z ainda é 14 em São Paulo; 03:00:00Z já é 15", () => {
     expect(diaDoOrcamento(Date.parse("2026-11-15T02:59:59Z"))).toBe("2026-11-14");
     expect(diaDoOrcamento(Date.parse("2026-11-15T03:00:00Z"))).toBe("2026-11-15");
+  });
+});
+
+describe("Retry-After: segundos ou data HTTP; sem prazo quando não interpretável", () => {
+  const AGORA_MS = Date.parse("2026-11-15T12:00:00Z");
+  it("segundos inteiros valem como estão", () => {
+    expect(parseRetryAfter("120", AGORA_MS)).toBe(120);
+  });
+  it("data HTTP vira segundos restantes (60 s à frente)", () => {
+    expect(parseRetryAfter("Sun, 15 Nov 2026 12:01:00 GMT", AGORA_MS)).toBe(60);
+  });
+  it("data HTTP já passada vira zero (não bloqueia)", () => {
+    expect(parseRetryAfter("Sun, 15 Nov 2026 11:00:00 GMT", AGORA_MS)).toBe(0);
+  });
+  it("ausente ou não interpretável vira null (sem prazo, nunca inventado)", () => {
+    expect(parseRetryAfter(null, AGORA_MS)).toBeNull();
+    expect(parseRetryAfter("amanhã cedo", AGORA_MS)).toBeNull();
   });
 });
