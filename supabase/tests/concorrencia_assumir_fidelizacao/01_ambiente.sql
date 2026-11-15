@@ -18,4 +18,6 @@ insert into public.usuarios (nome, email, perfil, ativo, operador_nome, recebe_n
 update public.usuarios set pode_alterar_responsavel = true where lower(email) = 'amanda.seibel@aelbra.com.br';
 insert into public.calibragem_parametros (chave, valor) values ('limite_carteira', '700'::jsonb)
   on conflict (chave) do update set valor = excluded.valor;
+\i supabase/aguardando_aprovacao/20261114110000_serializar_teto_todos_os_caminhos.sql.pendente
+\i supabase/aguardando_aprovacao/20261114100000_alinhar_prazo_fidelizacao_data_brasilia.sql.pendente
 \i supabase/aguardando_aprovacao/20261113120000_assumir_caso_fidelizacao_vencida.sql.pendente

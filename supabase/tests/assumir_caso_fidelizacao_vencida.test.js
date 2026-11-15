@@ -1081,6 +1081,14 @@ describe("operador assume caso com fidelização vencida", () => {
       const db = await abrirCom();
       await operacaoComEstado(db, 182, "update public.assumir_fidelizacao_operacoes set estado_anterior = jsonb_set(estado_anterior, '{responsavel_atual_em}', '12345'::jsonb) where id=$1");
     });
+    it("responsavel_atual_em com texto que NAO e data (\"abc\")", async () => {
+      const db = await abrirCom();
+      await operacaoComEstado(db, 184, "update public.assumir_fidelizacao_operacoes set estado_anterior = jsonb_set(estado_anterior, '{responsavel_atual_em}', '\"abc\"'::jsonb) where id=$1");
+    });
+    it("responsavel_atual_em com string VAZIA", async () => {
+      const db = await abrirCom();
+      await operacaoComEstado(db, 185, "update public.assumir_fidelizacao_operacoes set estado_anterior = jsonb_set(estado_anterior, '{responsavel_atual_em}', '\"\"'::jsonb) where id=$1");
+    });
     it("responsavel_atual_em com booleano (não é string)", async () => {
       const db = await abrirCom();
       await operacaoComEstado(db, 183, "update public.assumir_fidelizacao_operacoes set estado_anterior = jsonb_set(estado_anterior, '{responsavel_atual_em}', 'true'::jsonb) where id=$1");

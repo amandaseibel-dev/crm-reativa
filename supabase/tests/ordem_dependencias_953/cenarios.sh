@@ -57,6 +57,7 @@ fi
 [ "$antes" = "$(snap)" ] && echo "  ok   nenhum objeto alterado pela recusa do prazo" || { echo "  FALHA: objetos alterados pela recusa do prazo"; falhou=1; }
 
 echo "== ordem correta: teto -> prazo -> #953"
+p -f "$R953/supabase/tests/fixtures/assumir_caso_fidelizacao_vencida_prod_20261113.sql"  # internal.pode_alterar_responsavel (P3)
 p -f "$R953/supabase/aguardando_aprovacao/20261114110000_serializar_teto_todos_os_caminhos.sql.pendente"
 p -f "$R953/supabase/aguardando_aprovacao/20261114100000_alinhar_prazo_fidelizacao_data_brasilia.sql.pendente"
 p -f "$R953/supabase/aguardando_aprovacao/20261113120000_assumir_caso_fidelizacao_vencida.sql.pendente"

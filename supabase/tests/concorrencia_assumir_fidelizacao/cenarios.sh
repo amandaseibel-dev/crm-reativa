@@ -21,8 +21,8 @@ q()    { psql -At -v ON_ERROR_STOP=1 -c "$1"; }
 
 # Cada cenario roda num banco NOVO: as fixtures criam objetos e nao podem repetir.
 ambiente_com_teto() {
+  # O teto ja vem aplicado pelo 01_ambiente.sql (ordem #936 -> teto -> prazo -> #953).
   ambiente "$1"
-  psql -v ON_ERROR_STOP=1 -q -f "$DIR/03_patch_teto.sql" >/dev/null
 }
 
 ambiente() {

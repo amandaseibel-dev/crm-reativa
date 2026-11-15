@@ -1,3 +1,4 @@
+begin;
 -- ROLLBACK da serializacao do teto. Remove exatamente as linhas de lock, com contagem exata
 -- (falha se nao achar exatamente uma ocorrencia). O patch_funcao_ancorada nao serve aqui: recusa
 -- substituir quando o texto novo contem a ancora.
@@ -32,3 +33,4 @@ do $rbm$ begin
   end if;
   comment on function public.trg_impor_teto_operador() is null;
 end $rbm$;
+commit;
