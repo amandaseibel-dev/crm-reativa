@@ -933,8 +933,9 @@ jobs:
           # Stub minimo so para a auditoria rodar; nao cria bucket nem dado.
           psql "postgres://postgres:postgres@localhost:5432/teste" -v ON_ERROR_STOP=1 -c \
             "create schema if not exists storage; create table if not exists storage.buckets (id text primary key, name text, public boolean default false);"
+          SECURITY_GATE_TESTE_DESCARTAVEL=sim \
           DATABASE_URL="postgres://postgres:postgres@localhost:5432/teste" \
-            scripts/seguranca/run_security_gate.sh
+            bash scripts/seguranca/teste_gate_fixture.sh
 
   # ---------------------------------------------------------------------------
   # `acordos_pos_importacao` deixa de criar tabela de backup com TRUNCATE
@@ -1013,8 +1014,9 @@ jobs:
           # Stub minimo so para a auditoria rodar; nao cria bucket nem dado.
           psql "postgres://postgres:postgres@localhost:5432/teste" -v ON_ERROR_STOP=1 -c \
             "create schema if not exists storage; create table if not exists storage.buckets (id text primary key, name text, public boolean default false);"
+          SECURITY_GATE_TESTE_DESCARTAVEL=sim \
           DATABASE_URL="postgres://postgres:postgres@localhost:5432/teste" \
-            scripts/seguranca/run_security_gate.sh
+            bash scripts/seguranca/teste_gate_fixture.sh
 
   # ---------------------------------------------------------------------------
   # O MESMO patch, agora sobre o CORPO REAL da função e no MESMO major de
