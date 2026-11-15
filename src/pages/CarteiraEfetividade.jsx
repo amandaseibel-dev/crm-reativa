@@ -8,6 +8,7 @@ import SeisLinhasDaSafra from "../components/SeisLinhasDaSafra";
 import ComposicaoAcademicaDoSaldo from "../components/ComposicaoAcademicaDoSaldo";
 import PendenciasDeValidacao from "../components/PendenciasDeValidacao";
 import ComparativoSafras from "../components/ComparativoSafras";
+import ComparativoSemestres2026 from "../components/ComparativoSemestres2026";
 import CasosPendentes from "../components/CasosPendentes";
 
 // EFETIVIDADE DA COBRANÇA — visão executiva, um layout só para toda safra.
@@ -764,6 +765,8 @@ export default function CarteiraEfetividade({ safraFixa = null } = {}) {
               ninguém ter pedido a comparação. Fechado, a página não as dispara. */}
           {!safraFixa && (
           <div style={{ marginTop: 22 }}>
+            <ComparativoSemestres2026 fotografia2026_1={safra === "2026/1" ? situacoes : null}
+                                       contexto2026_2={contexto} negociacoes2026_2={vigente} recarga={recarga} />
             <button onClick={() => setComparativo((v) => !v)} aria-expanded={comparativo}
                     style={S.linkMetodologia}>
               <span aria-hidden="true">{comparativo ? "▾" : "▸"}</span>
