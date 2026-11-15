@@ -409,9 +409,11 @@ begin
   -- Restaura o que a troca de dono mexeu: retorno, proxima acao e a data da troca de responsavel (valor exato).
   update public.alunos a
      set proxima_acao = r.proxima_acao, data_retorno = r.data_retorno, hora_retorno = r.hora_retorno,
-         responsavel_atual_em = r.responsavel_atual_em
+         responsavel_atual_em = case when v_op.estado_anterior ? 'responsavel_atual_em'
+                                     then r.responsavel_atual_em else a.responsavel_atual_em end
     from jsonb_populate_record(null::public.alunos, v_op.estado_anterior) r
    where a.id = v_op.aluno_id;
+  -- (operacoes antigas, sem a chave responsavel_atual_em, nao zeram a data da troca)
 
 
   update public.assumir_fidelizacao_operacoes
