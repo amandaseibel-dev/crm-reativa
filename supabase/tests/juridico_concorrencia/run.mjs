@@ -288,6 +288,11 @@ async function main() {
 
   // Fecha TODAS as conexoes, inclusive as de cenarios que falharam (senao o processo nao sai).
   await Promise.allSettled(abertos.map((c) => c.end()));
+  // Apaga o banco descartavel deste run (nao deixa lixo no cluster)
+  const limpeza = new pg.Client({ ...cfg, database: "postgres" });
+  await limpeza.connect();
+  await limpeza.query(`drop database if exists ${DB} with (force)`);
+  await limpeza.end();
   console.log(resultados.join("\n"));
   const falhas = resultados.filter((r) => r.startsWith("FALHA")).length;
   console.log(`\n${resultados.length - falhas}/${resultados.length} cenarios passaram`);

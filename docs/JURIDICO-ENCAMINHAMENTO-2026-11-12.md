@@ -257,6 +257,9 @@ Teste: `supabase/tests/juridico_concorrencia/run.mjs`, job `juridico-concorrenci
   -> `update casos` está coberto pelo cenário 5 do teste. A transação é revertida inteira. O `NOWAIT`
   continua só em aluno, acordos e parcelas, onde foi testado. Não há prova de ausência de deadlock em
   ordem inversa de duas transações (comportamento pré-existente dos gatilhos): NÃO COMPROVADO.
+  Residual (auditoria 1d1c1377): os gatilhos `_juridico_guarda_bloqueio` e `_juridico_guarda_caso_novo`
+  levantam 42501 por linha. Um UPDATE ou INSERT em lote que atinja um único aluno com caso vivo aborta o
+  comando inteiro (nada parcial). Comportamento intencional da guarda, a ser lembrado por quem roda lotes.
 
 **Conjunto de dívidas elegíveis (X4, decidido pela gestão):** o conjunto é o das parcelas
 VENCIDAS dos acordos ativos do aluno, gravado na revisão (`quebrado_revisado_parcelas`). Parcela nova
