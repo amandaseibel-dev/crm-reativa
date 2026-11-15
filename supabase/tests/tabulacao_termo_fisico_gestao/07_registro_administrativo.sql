@@ -102,3 +102,10 @@ select public.teste_assert('operação negada: aluno inexistente (22023)',
     $sql$select public.registrar_administrativo_termo_fisico('a0000000-0000-0000-0000-0000000000ff','TERMO_FISICO_ARQUIVADO')$sql$)->>'code' = '22023');
 select public.teste_assert('operação: a função não altera o estado do aluno',
   (select status_atual||'|'||status_jornada||'|'||status_acionamento from public.alunos where id = 'a0000000-0000-0000-0000-000000000042') = 'CONTATAR|CONTATAR|CONTATAR');
+
+-- Gestão desativada: a operação também deve recusar (o owner ignora RLS dentro da função DEFINER).
+update public.usuarios set ativo = false where email = 'cobranca07@aelbra.com.br';
+select public.teste_assert('operação negada: gestão inativa (42501)',
+  public.teste_comando('authenticated','cobranca07@aelbra.com.br',
+    $sql$select public.registrar_administrativo_termo_fisico('a0000000-0000-0000-0000-000000000042','TERMO_FISICO_ARQUIVADO')$sql$)->>'code' = '42501');
+update public.usuarios set ativo = true where email = 'cobranca07@aelbra.com.br';
