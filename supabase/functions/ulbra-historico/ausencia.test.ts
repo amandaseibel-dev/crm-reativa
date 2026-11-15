@@ -2,8 +2,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 
-const ARQUIVOS = ["index.ts", "historico.ts", "leitura.ts"];
-const PROIBIDOS = ["conexao_", "envio_", "envioPrevia", "envioConfirmar", "conexaoIniciar", "oauth", "OAuth", "ULBRA_ENVIO_REAL", "ulbra-conversa"];
+const ARQUIVOS = ["index.ts", "historico.ts", "leitura.ts", "acesso.ts"];
+const PROIBIDOS = ["conexao_", "envio_", "envioPrevia", "envioConfirmar", "conexaoIniciar", "oauth", "OAuth", "ULBRA_ENVIO_REAL", "ulbra-conversa", "ilike"];
 
 describe("ulbra-historico: ausencia de OAuth e envio", () => {
   for (const f of ARQUIVOS) {

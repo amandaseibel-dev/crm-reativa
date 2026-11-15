@@ -90,3 +90,12 @@ verify_jwt = true
 # sem ele a funcao responde 403 e nao toca na Mensageria.
 [functions.ulbra-sincronizar]
 verify_jwt = false
+
+# -----------------------------------------------------------------------------
+# ulbra-historico -- leitura somente leitura de uma conversa, sob demanda
+# -----------------------------------------------------------------------------
+# JWT obrigatório: a função faz auth.getUser() e responde 401 sem token. Sem
+# cadastro ativo em public.usuarios, 403. O token da Mensageria
+# (ULBRA_MCP_TOKEN) fica no secret de backend e nunca sai da função.
+[functions.ulbra-historico]
+verify_jwt = true
