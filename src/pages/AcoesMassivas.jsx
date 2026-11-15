@@ -256,8 +256,6 @@ export default function AcoesMassivas() {
   const [gerando, setGerando] = useState(false);
   // Fase do ultimo registro: incerta bloqueia nova exportacao ate o operador conferir o historico.
   const [faseExport, setFaseExport] = useState(FASE.OCIOSO);
-  const [conferiuLotes, setConferiuLotes] = useState(false);
-  const [historicoConferido, setHistoricoConferido] = useState(false);
   const [erroHistorico, setErroHistorico] = useState("");
   const [resultados, setResultados] = useState(null);
   const [erro, setErro] = useState("");
@@ -416,6 +414,8 @@ export default function AcoesMassivas() {
   async function buscar(over = {}) {
     setErro("");
     setSucesso("");
+    // Depois de um lote concluido, uma nova previa libera a exportacao. Incerto e arquivo falho NAO se liberam aqui.
+    setFaseExport((f) => (f === FASE.CONCLUIDA ? FASE.OCIOSO : f));
     const min = valorMin.trim() ? converterValor(valorMin) : 0;
     const max = valorMax.trim() ? converterValor(valorMax) : null;
     const qtd = Math.max(1, Math.min(5000, Number(quantidade) || 100));
@@ -683,7 +683,7 @@ export default function AcoesMassivas() {
       if (loteRegistrado) {
         console.error("Falha depois do registro da acao massiva", { etapa: "arquivo" });
         setFaseExport(FASE.ARQUIVO_FALHOU);
-        setErro("Lote registrado, mas a planilha não foi gerada. Use Baixar planilha novamente.");
+        setErro("Lote registrado, mas a planilha não foi gerada. Confira o histórico de lotes antes de exportar de novo.");
       } else {
         console.error("Erro ao preparar a exportacao da acao massiva", { etapa: "validacao" });
         setFaseExport(FASE.RECUSADA);
@@ -1407,7 +1407,7 @@ export default function AcoesMassivas() {
                           <div style={{ display: "flex", gap: 6 }}>
                             <button
                               style={estilos.botaoGerar}
-                              disabled={derivandoEmail}
+                              disabled={derivandoEmail || bloqueiaNovaExportacao(faseExport)}
                               onClick={() => exportarEmailsDoLote(l)}
                             >
                               {derivandoEmail ? "Exportando..." : "Sim, exportar e registrar"}
@@ -1552,7 +1552,7 @@ export default function AcoesMassivas() {
                           <div style={{ display: "flex", gap: 6 }}>
                             <button
                               style={estilos.botaoGerar}
-                              disabled={concluindoLote}
+                              disabled={concluindoLote || bloqueiaNovaExportacao(faseExport)}
                               onClick={() => concluirLote(l, acaoLote.acao)}
                             >
                               {acaoLote.acao === "CONFIRMAR" ? "Sim, o disparo foi concluído" : "Sim, descartar"}
@@ -1778,30 +1778,12 @@ export default function AcoesMassivas() {
                     onClick={async () => {
                       setErroHistorico("");
                       const r = await carregarLotesRegistro();
-                      setHistoricoConferido(r.ok);
-                      setConferiuLotes(false);
                       if (!r.ok) setErroHistorico("Histórico indisponível: a conferência não foi concluída. A exportação segue bloqueada.");
                     }}
                   >
                     Consultar histórico de lotes
                   </button>
                   {erroHistorico && <p style={{ margin: "6px 0", color: "#b91c1c" }}>{erroHistorico}</p>}
-                  <label style={{ display: "flex", gap: 6, alignItems: "center", margin: "8px 0" }}>
-                    <input
-                      type="checkbox"
-                      checked={conferiuLotes}
-                      disabled={!historicoConferido}
-                      onChange={(e) => setConferiuLotes(e.target.checked)}
-                    />
-                    Confirmo, por minha conta, que este lote NÃO aparece no histórico. O sistema não comprova essa ausência.
-                  </label>
-                  <button
-                    style={estilos.botaoGerar}
-                    disabled={!historicoConferido || !conferiuLotes}
-                    onClick={() => { setFaseExport(FASE.OCIOSO); setConferiuLotes(false); setHistoricoConferido(false); setErro(""); }}
-                  >
-                    Liberar nova exportação
-                  </button>
                 </div>
               )}
               </>

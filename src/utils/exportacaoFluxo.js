@@ -12,12 +12,12 @@ export const FASE = Object.freeze({
 });
 
 /**
- * Bloqueia nova exportacao (interface) quando o registro esta incerto ou ja foi feito sem arquivo.
+ * Bloqueia nova exportacao (interface) quando o registro esta incerto, ja foi feito sem arquivo, ou ja foi concluido nesta tela.
  * Em ARQUIVO_FALHOU so resta "Baixar planilha novamente". Recarregar a pagina libera a tela,
  * mas NAO desfaz o lote registrado.
  */
 export function bloqueiaNovaExportacao(fase) {
-  return fase === FASE.INCERTA || fase === FASE.ARQUIVO_FALHOU;
+  return fase === FASE.INCERTA || fase === FASE.ARQUIVO_FALHOU || fase === FASE.CONCLUIDA;
 }
 
 /** Texto para o operador, sem dados pessoais. Separa "arquivo nao baixado" de "resultado desconhecido". */

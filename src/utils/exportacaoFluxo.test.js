@@ -7,8 +7,9 @@ describe("bloqueio de interface", () => {
     expect(bloqueiaNovaExportacao(FASE.ARQUIVO_FALHOU)).toBe(true);
   });
 
-  it("ocioso, concluida e recusada nao bloqueiam", () => {
-    for (const f of [FASE.OCIOSO, FASE.CONCLUIDA, FASE.RECUSADA]) {
+  it("ocioso e recusada nao bloqueiam; concluida bloqueia ate nova previa", () => {
+    expect(bloqueiaNovaExportacao(FASE.CONCLUIDA)).toBe(true);
+    for (const f of [FASE.OCIOSO, FASE.RECUSADA]) {
       expect(bloqueiaNovaExportacao(f)).toBe(false);
     }
   });

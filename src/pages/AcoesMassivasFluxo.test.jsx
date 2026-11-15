@@ -150,7 +150,8 @@ describe("Exportação — fluxo da página (xlsx real; gravação interceptada 
     await waitFor(() => expect(screen.getAllByText(/Resultado do registro desconhecido/).length).toBeGreaterThan(0));
     const exportar = screen.getByRole("button", { name: /Exportar planilha/ });
     expect(exportar.disabled).toBe(true);
-    expect(screen.getByRole("button", { name: /Liberar nova exportação/ }).disabled).toBe(true);
+    // não existe mais liberação por caixa de confirmação: só recarregar a página libera a tela
+    expect(screen.queryByRole("button", { name: /Liberar nova exportação/ })).toBeNull();
     expect(controle.gravacoes.length).toBe(0);
     // o log não traz dados pessoais
     const registro = erros.mock.calls.map((c) => String(c[0]) + JSON.stringify(c[1] ?? {})).join("\n");
@@ -167,5 +168,15 @@ describe("Exportação — fluxo da página (xlsx real; gravação interceptada 
     expect(screen.getByRole("button", { name: /Exportar planilha/ }).disabled).toBe(false);
     expect(controle.gravacoes.length).toBe(0);
     erros.mockRestore();
+  });
+
+  it("exportação concluída bloqueia nova exportação até nova prévia", async () => {
+    await montarEBuscar();
+    await gerarPlanilha();
+    await waitFor(() => expect(controle.gravacoes.length).toBe(1));
+    expect(screen.getByRole("button", { name: /Exportar planilha/ }).disabled).toBe(true);
+    // nova prévia (novo recorte) libera a exportação; a regra de recência do banco continua valendo
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Buscar/ })); });
+    await waitFor(() => expect(screen.getByRole("button", { name: /Exportar planilha/ }).disabled).toBe(false));
   });
 });
