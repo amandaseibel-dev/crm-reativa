@@ -60,10 +60,14 @@ end $$;
 
 -- Sessão 4: RPC direta como operador (PostgREST simulado: authenticated + claim do operador).
 select set_config('request.jwt.claims', '{"email":"operador.teste@exemplo.local","role":"authenticated"}', false);
+-- EXECUTE da RPC é do papel authenticated (app_teste NOINHERIT não o tem). Chamada como o PostgREST:
+-- SET ROLE authenticated, para que a recusa seja a da função (regra de gestão), não falta de grant.
 do $$
 declare r text;
 begin
+  set role authenticated;
   r := pg_temp.negado($sql$select public.registrar_administrativo_termo_fisico('r1','TERMO_FISICO_ARQUIVADO')$sql$);
+  reset role;
   if r not like '42501|Registro administrativo é restrito à gestão ativa.%' then
     raise exception 'FALHOU RPC como operador: %', r; end if;
 end $$;
