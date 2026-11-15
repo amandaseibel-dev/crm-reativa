@@ -340,8 +340,10 @@ begin
   --     como substituto. Recuperacao so por procedimento especifico.
   --   * as demais recusas (dono, atendimento posterior, movimentacao, anterior, teto, situacao do caso)
   --     vem depois, e tambem antes de qualquer escrita.
-  -- Data real: string que o Postgres aceita como timestamptz (rejeita 2026-13-45, texto, vazio).
+  -- Data REAL no formato AAAA-MM-DD (regex) E aceita pelo Postgres. So a regex deixava passar 2026-13-45;
+  -- so pg_input_is_valid deixava passar now, today, epoch, infinity (instante da reversao: proibido).
   if jsonb_typeof(v_op.estado_anterior->'responsavel_atual_em') is distinct from 'string'
+     or (v_op.estado_anterior->>'responsavel_atual_em') !~ '^\d{4}-\d{2}-\d{2}'
      or not pg_input_is_valid(v_op.estado_anterior->>'responsavel_atual_em', 'timestamp with time zone') then
     return query select false, 'Conflito: operacao sem a data original da troca. Recuperacao so por procedimento especifico. Nada alterado.'; return;
   end if;

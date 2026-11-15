@@ -1089,6 +1089,18 @@ describe("operador assume caso com fidelização vencida", () => {
       const db = await abrirCom();
       await operacaoComEstado(db, 186, "update public.assumir_fidelizacao_operacoes set estado_anterior = jsonb_set(estado_anterior, '{responsavel_atual_em}', '\"2026-13-45\"'::jsonb) where id=$1");
     });
+    it("responsavel_atual_em com \"now\" (now (instante da reversao, proibido)): recusada, nao grava o instante da reversao", async () => {
+      const db = await abrirCom();
+      await operacaoComEstado(db, 187, "update public.assumir_fidelizacao_operacoes set estado_anterior = jsonb_set(estado_anterior, '{responsavel_atual_em}', '\"now\"'::jsonb) where id=$1");
+    });
+    it("responsavel_atual_em com \"today\" (today): recusada, nao grava o instante da reversao", async () => {
+      const db = await abrirCom();
+      await operacaoComEstado(db, 188, "update public.assumir_fidelizacao_operacoes set estado_anterior = jsonb_set(estado_anterior, '{responsavel_atual_em}', '\"today\"'::jsonb) where id=$1");
+    });
+    it("responsavel_atual_em com \"epoch\" (epoch): recusada, nao grava o instante da reversao", async () => {
+      const db = await abrirCom();
+      await operacaoComEstado(db, 189, "update public.assumir_fidelizacao_operacoes set estado_anterior = jsonb_set(estado_anterior, '{responsavel_atual_em}', '\"epoch\"'::jsonb) where id=$1");
+    });
     it("responsavel_atual_em com string VAZIA", async () => {
       const db = await abrirCom();
       await operacaoComEstado(db, 185, "update public.assumir_fidelizacao_operacoes set estado_anterior = jsonb_set(estado_anterior, '{responsavel_atual_em}', '\"\"'::jsonb) where id=$1");
