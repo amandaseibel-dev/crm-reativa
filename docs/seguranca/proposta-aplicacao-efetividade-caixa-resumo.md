@@ -17,7 +17,7 @@ Entrega final = #966 (SQL) + #965 (tela). A tela só deve ser mesclada depois da
 ## Artefatos (SHA-256 integral)
 
 - Migration `supabase/migrations/20261115130000_efetividade_caixa_resumo_semestre.sql`:
-  `dc57935d6ccb27e116e8b3e395dfbca5e8e76145c5962686d909f3fc30e8fe1b`
+  `58a162ed2e0ab13bc9e1bfcd104389df1d54911d57d2e921058bdf83dfb914d0`
 - Rollback `docs/rollbacks/efetividade-caixa-resumo-semestre-rollback.sql`:
   `4bf1b0ffe2dd009809fc929b13ac336cce0d09541f48663f8181c0022fdb88b5`
 
@@ -25,7 +25,7 @@ Entrega final = #966 (SQL) + #965 (tela). A tela só deve ser mesclada depois da
 
 Linha de `docs/seguranca/migracoes-aprovadas.tsv`, 6 colunas separadas por TAB:
 `ahattpqrjmhkzsmnbdzs` · `20261115130000_efetividade_caixa_resumo_semestre` ·
-`dc57935d6ccb27e116e8b3e395dfbca5e8e76145c5962686d909f3fc30e8fe1b` ·
+`58a162ed2e0ab13bc9e1bfcd104389df1d54911d57d2e921058bdf83dfb914d0` ·
 `amanda.seibel@aelbra.com.br` · `expira_em` = aprovação + 30 min (UTC) · `pendente`.
 
 ## Executor nominal
@@ -65,15 +65,36 @@ da tela NÃO foi medido. O tempo de 0,5 s refere-se ao SELECT isolado, não ao c
 
 Os números acima foram lidos do banco. Os testes SQL usam stubs, com valores de teste (carteira 2.100, caixa 100, 4,8%) que não são números de produção.
 
-## Pendências que bloqueiam a aprovação
+## Acesso (decisão registrada)
 
-1. **Acesso.** Hoje o relatório lê com `gestão + diretoria`. A RPC aceita só gestão ativa. Diretoria perde esses indicadores.
-   Decisão sua: manter gestão ativa (como está) ou também liberar diretoria, o que muda a RPC e exige nova aprovação.
-2. **CI e parecer do Guardião** nos dois heads congelados acima (ainda não obtidos neste estado).
-3. **Experimento autenticado** nos passos 5 e 7 ainda não rodou (depende da aplicação).
+Acesso somente de gestão ativa: e-mail na lista de `usuario_e_gestao()` **e** `usuarios.ativo = true`.
+Diretoria não recebe os indicadores. Não há decisão pendente de acesso.
+Os relatórios de Mensalidades sem Negociação e a tela de Efetividade seguem a mesma regra da RPC.
+A tela de Efetividade continua com o bloco "Em breve" para quem não tem acesso total, como já era.
 
-## Limites
+## Base do denominador de 2026/2
 
-- Fotografia de 2026/1 com atualização pendente.
-- Percentual = caixa confirmado identificado ÷ carteira original, não recuperação total.
-- Custo do classificador de 2026/2 por leitura não medido.
+A carteira original de 2026/2 soma todos os títulos do universo, inclusive os cancelados
+(`carteira_2026_2_classificar`, 10.822 títulos). O saldo em aberto exclui os cancelados. O percentual
+é caixa confirmado ÷ carteira original, com essa base declarada no campo `base_carteira` da RPC.
+
+## Fotografia de 2026/1
+
+A RPC repassa `fotografia_atualizacao_pendente` e `fotografia_gerada_em`. Com `true`, a tela avisa
+que carteira, saldo e negociado de 2026/1 podem estar defasados.
+
+## Privilégios
+
+A RPC é restrita a `authenticated`: revoga de `PUBLIC`, `anon` e `service_role`, e do papel
+`reativa_responsavel_executor` quando existir. Ver Anexo H em `medicao-caixa-resumo-2026-11-15.md`.
+
+## Registro do version no ledger
+
+Conferência do `version` efetivamente aplicado: ver a seção do `RUNBOOK-MIGRATIONS.md`.
+Nada disso é feito antes da aprovação.
+
+## Estado
+
+- Migration e rollback: hashes acima, neste commit.
+- Heads e CI/Guardião: obtidos depois do congelamento; sem parecer, nada é liberado.
+- Bloqueio conhecido: nenhum no código. Sem aplicação, sem registro e sem merge até a autorização.

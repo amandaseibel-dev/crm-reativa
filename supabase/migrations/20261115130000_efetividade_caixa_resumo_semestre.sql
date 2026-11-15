@@ -49,6 +49,8 @@ declare
   v_fonte text := null;
   v_saldo_aberto numeric := null;
   v_negociado numeric := null;
+  v_def_fotografia boolean := null;
+  v_gerado_fotografia text := null;
   f jsonb;
 begin
   if not (
@@ -89,6 +91,8 @@ begin
     v_saldo_aberto := (f -> 'situacoes' -> 'em_aberto' ->> 'valor')::numeric;
     v_negociado    := (f -> 'situacoes' -> 'negociado' ->> 'valor')::numeric;
     v_fonte := 'fotografia_seis_linhas_2026_1';
+    v_def_fotografia := coalesce((f -> 'snapshot' ->> 'atualizacao_pendente')::boolean, false);
+    v_gerado_fotografia := f ->> 'gerado_em';
   end if;
 
   select jsonb_build_object(
@@ -120,6 +124,11 @@ begin
     'carteira_original', v_carteira,
     'titulos_carteira', v_titulos,
     'saldo_em_aberto', v_saldo_aberto,
+    'fotografia_atualizacao_pendente', v_def_fotografia,
+    'fotografia_gerada_em', v_gerado_fotografia,
+    'base_carteira', case when p_semestre = '2026/2'
+      then 'todos os títulos do universo, inclusive cancelados (denominador)'
+      else 'fotografia seis_linhas, entrou' end,
     'negociado', v_negociado,
     'carteira_fonte', v_fonte,
     'percentual_recuperado_caixa',
@@ -132,5 +141,17 @@ begin
 end;
 $$;
 
-revoke all on function public.efetividade_caixa_resumo_semestre(text) from public, anon;
+-- Contrato restrito: só authenticated (com o portão interno). PUBLIC, anon e
+-- service_role saem; outros papéis herdados por privilégio padrão também saem,
+-- se existirem neste projeto.
+revoke all on function public.efetividade_caixa_resumo_semestre(text) from public, anon, service_role;
+do $$
+declare r text;
+begin
+  foreach r in array array['reativa_responsavel_executor'] loop
+    if exists (select 1 from pg_roles where rolname = r) then
+      execute format('revoke all on function public.efetividade_caixa_resumo_semestre(text) from %I', r);
+    end if;
+  end loop;
+end $$;
 grant execute on function public.efetividade_caixa_resumo_semestre(text) to authenticated;

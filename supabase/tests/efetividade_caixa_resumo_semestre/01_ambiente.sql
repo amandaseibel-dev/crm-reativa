@@ -40,7 +40,7 @@ $$;
 -- Fotografia 2026/1 (stub): só o bloco que a RPC lê, situacoes.entrou.
 create or replace function public.carteira_efetividade_ler(p_bloco text, p_ano text, p_semestre text)
 returns jsonb language sql stable as $$
-  select jsonb_build_object('situacoes', jsonb_build_object(
+  select jsonb_build_object('gerado_em', '2026-10-29T13:10:00Z', 'snapshot', jsonb_build_object('atualizacao_pendente', true), 'situacoes', jsonb_build_object(
            'entrou',   jsonb_build_object('valor', 1000, 'titulos', 3),
            'em_aberto', jsonb_build_object('valor', 600),
            'negociado', jsonb_build_object('valor', 200)))

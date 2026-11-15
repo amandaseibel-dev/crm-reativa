@@ -85,3 +85,30 @@ F. Percentuais derivados (caixa ÷ carteira, em %):
 - 2026/1: 535206.14 ÷ 21710447.29 × 100 = 2,46 → 2,5%.
 - 2026/2: 653066.80 ÷ 17232872.41 × 100 = 3,79 → 3,8%.
 Observação: o denominador de 2026/2 inclui títulos cancelados (a carteira original soma todos). Os percentuais são de fontes com datas diferentes: 2026/1 é fotografia desatualizada, 2026/2 é leitura ao vivo.
+
+
+## Anexo G — reconciliação dos 11.630 pagamentos (todos os semestres, sem origem)
+
+Consulta (leitura):
+```sql
+select coalesce(semestre_origem,'(sem origem)') sem, confianca, count(*) n, round(sum(valor_pago),2) valor
+  from efetividade_caixa_origem group by 1,2 order by 1,2;
+```
+Saída e soma: sem origem INDETERMINADA 8.675 / R$ 9.908.460,55; 2024/1 22 / R$ 21.654,71; 2024/2 18 / R$ 17.202,54;
+2025/1 84 / R$ 60.160,71; 2025/2 174 / R$ 153.895,83; 2026/1 1.979 / R$ 3.849.738,26; 2026/2 678 / R$ 773.511,09.
+Total: 11.630 pagamentos e R$ 14.784.623,69, igual à view. Os 298 pagamentos que faltavam são 2024 e 2025
+(22 + 18 + 84 + 174), somando R$ 252.913,79.
+
+## Anexo H — privilégios efetivos (leitura)
+
+Consulta: `has_function_privilege` e ACL de `usuario_e_gestao()`, `carteira_2026_2_classificar()` e
+`carteira_2026_2_negociacoes()`. Resultado: `service_role` tem EXECUTE nas três; `authenticated` nas duas últimas
+e em `usuario_e_gestao()`. `PUBLIC` não aparece nas ACLs. Há o papel `reativa_responsavel_executor` com EXECUTE
+em `usuario_e_gestao()`. A migration da RPC restringe a função a `authenticated`: revoga de `PUBLIC`, `anon` e
+`service_role`, e de `reativa_responsavel_executor` quando existir.
+
+## Anexo I — definição de usuario_e_gestao() em produção
+
+Leitura de `pg_get_functiondef`: retorna `lower(coalesce(auth.jwt()->>'email',''))` contra a lista fixa de
+amanda.seibel, cobranca04 e cobranca07. Não verifica `usuarios.ativo`. As três contas existem em `usuarios`
+com `ativo = true`. A RPC acrescenta a checagem de `ativo` e não aceita diretoria.

@@ -738,3 +738,17 @@ Acrescentar linha em `supabase/ledger/YYYY-MM/INDICE.tsv`:
 - Ledger sem a verificação do Passo 4
 - Mais de uma migration por autorização
 - Qualquer migration não nomeada na autorização
+
+## Conferência do `version` efetivamente aplicado (antes do registro no ledger)
+
+Objetivo: registrar no ledger o `version` que o servidor gerou de fato, e não o nome do arquivo.
+Esta seção descreve o procedimento. Não é uma aplicação.
+
+1. Logo após a aplicação, na mesma janela de 30 minutos, ler o histórico de migrações (somente leitura):
+   `select version, name from supabase_migrations.schema_migrations order by version desc limit 5;`
+2. Localizar a linha cujo `name` corresponde ao nome do arquivo da migration (sem a versão).
+3. Comparar o `version` encontrado com o prefixo do arquivo (`20261115130000`). Se forem diferentes, o
+   registro no ledger usa o `version` do servidor e a correspondência é anotada na PR que muda o status.
+4. Confirmar o hash: a função `public.efetividade_caixa_resumo_semestre` existe e o texto do corpo
+   corresponde ao aprovado (SHA-256 da migration registrada no TSV).
+5. Só então criar a linha no ledger, em PR própria. Nada disso é feito antes da autorização.
