@@ -17,13 +17,13 @@ Status: **PENDENTE DE APROVAÇÃO EXPRESSA PARA APLICAÇÃO.** Não autoriza, po
 
 | PR | Branch | Head |
 |---|---|---|
-| #954 (banco) | `feat/termo-fisico-registro-migracao` | `b8babb84` |
+| #954 (banco) | `feat/termo-fisico-registro-migracao` | `ec2d55ab` (head do commit deste pacote) |
 | #951 (front) | `feat/tabulacao-termo-fisico` | `9c4d870b` |
 
 | Arquivo | SHA-256 | Bytes |
 |---|---|---|
-| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `38cc4da02e0047ad0c6ed89e6bc420d2d334b60201248cde5ff3bda59269d379` | 4878 |
-| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql` | `3864ff9f0d2238e068f36dc53017af8854e0dd58a2123780381c01e5ab324655` | 2480 |
+| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `ccc028ea65110d2cbdbfb48bfee184d35b8f32fc61b4071b325ce90ccc5def82` | 4909 |
+| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql` | `03114cfdc1f282ebf44cd20a51b1031b29aceabdb39b08bf5e1f490436d234ef` | 3650 |
 | `scripts/seguranca/auditoria_seguranca.sql` (Gate A, corrigido) | `87ed9b7326c6fdbdffd2956c1d3b3f448910ae2e0010f11954418de9c986dd85` | 5682 |
 
 Se algum arquivo mudar, este quadro precisa ser refeito.
@@ -39,7 +39,9 @@ Se algum arquivo mudar, este quadro precisa ser refeito.
 - `trg_tabulacao_redireciona`: só age em UPDATE de `alunos`.
 - `notificacoes`, `app_usuario_ativo()` e privilégios padrão de `public`: conferidos na sessão de auditoria anterior.
 
-## Estado do aluno (alunos.status_*): barreira de produção
+## Estado do aluno (alunos.status_*): barreira de produção (divergência declarada)
+
+DIVERGÊNCIA: a função `_encerramento_so_gestao()` **em produção** lê o catálogo (lida nesta sessão). A versão **versionada no repositório** (`supabase/migrations/20261007143000_antecipacao_semestre_quita_responsabilidade.sql`) usa array fixo (`CANCELAMENTO_COBRANCA`, `SUSPENSAO_COBRANCA`, `JURIDICO`, `ANTECIPACAO_SEMESTRE`, `ALEGA_*`), sem os códigos de termo. A versão dinâmica está em `supabase/aguardando_aprovacao/20261106140000_tabulacao_so_gestao_no_banco.sql.pendente` e não tem entrada no ledger. Logo, a barreira depende de estado de produção que o repositório não reproduz. **Não testada** nos testes desta migração (os testes não criam `alunos` nem a trigger). Decisão: reconciliar o repositório com produção antes da aplicação, ou aceitar explicitamente.
 
 A trigger `trg_encerramento_so_gestao` está **ativa** em `public.alunos` (`BEFORE UPDATE OF status_atual, status_jornada, status_acionamento`, `tgenabled = O`). A função `_encerramento_so_gestao()` lida em produção nesta sessão lê o catálogo dinamicamente (`from public.tabulacoes where somente_gestao`). Logo, as duas linhas novas com `somente_gestao = true` passam a barrar também a gravação do **estado** do aluno por operador, não só o histórico. Sem essas linhas, o operador poderia gravar o estado antes do histórico. Este é o caminho que a auditoria pediu para provar (leitura de produção).
 
@@ -65,6 +67,8 @@ A trigger `trg_encerramento_so_gestao` está **ativa** em `public.alunos` (`BEFO
 - **Locale do Postgres de produção**, para os caracteres Unicode (a normalização não depende de locale).
 - **Gate A em produção:** a linha de base não foi executada (precisa de autorização). O `ORDER BY` foi corrigido e validado em pglite.
 - **Owner ou superuser** pode desabilitar a trigger; não coberto.
+- **`usuario_e_gestao()`** não tem definição versionada no repositório. O corpo usado aqui é o lido em produção nesta sessão (três e-mails); a definição deve ser versionada antes da aplicação.
+- **Simulação de `anon`:** o ambiente de teste dá privilégios padrão a `anon`, como produção (default ACL lida). A proteção de `anon` nesta migração vem da RLS (`app_usuario_ativo()`), não de ausência de grant; o teste confirma o efeito, não o grant.
 - **Rollback** desativa o catálogo mas não repõe `somente_gestao` (a flag continua true nas linhas desativadas; a trigger de alunos lê a flag independentemente de `ativa`).
 - **Outros triggers BEFORE** em `aluno_movimentacoes` executados depois desta trigger (ordem alfabética): não listados em produção.
 - **Upper/locale do banco:** normalização em ASCII antes do upper; testado em pglite, não no locale de produção.

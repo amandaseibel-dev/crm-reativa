@@ -1141,7 +1141,12 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
           psql -v ON_ERROR_STOP=1 -f "$DIR/02_tabulacao.sql"
           # O rollback DEVE falhar (há histórico usando os códigos).
-          ! psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          set +e
+          out=$(psql -v ON_ERROR_STOP=1 -f "$ROLLBACK" 2>&1)
+          code=$?
+          set -e
+          echo "$out"
+          [ "$code" -ne 0 ] && echo "$out" | grep -q "rollback recusado:" || { echo "rollback deveria ser recusado pela regra de histórico"; exit 1; }
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_rollback_recusado.sql"
 
       - name: "Caminho B (banco limpo): migração e rollback que restaura o estado anterior"

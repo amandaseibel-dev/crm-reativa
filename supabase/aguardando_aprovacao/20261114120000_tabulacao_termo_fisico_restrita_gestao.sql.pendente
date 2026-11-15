@@ -30,7 +30,7 @@ insert into public.tabulacoes (
   somente_gestao, redireciona_para_email, efeito_desfecho
 )
 select v.codigo, v.rotulo, true, v.ordem, 'ADMINISTRATIVO', 'NENHUM', null, 'CONTATAR',
-       null, false, false, false, now(), 'migration_termo_fisico',
+       null, false, false, false, timestamptz '2026-11-14 00:00:00-03', 'migration_termo_fisico',
        true, null, null
   from (values
     ('TERMO_FISICO_EM_ANDAMENTO', 'Possui termo físico assinado, em andamento', 355),
