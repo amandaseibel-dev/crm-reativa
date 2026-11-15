@@ -967,8 +967,7 @@ describe("operador assume caso com fidelização vencida", () => {
       await como(db, GESTAO);
       const rv = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [r.operacao_id, "x"]);
       expect(rv.sucesso).toBe(false);
-      // Aceita qualquer conflito: o gatilho de protecao pode tirar o operador antes (conflito de dono).
-      expect(rv.mensagem).toMatch(/Conflito/);
+      expect(rv.mensagem).toContain("situacao do caso mudou");
       const depois = await q1(db, "select operador_email e, (select responsavel_atual_email from public.alunos where id=$1) re from public.casos where id=$2", [U(n), caso]);
       expect(depois).toEqual(antes);
       const op = await q1(db, "select revertida_em is null aberta from public.assumir_fidelizacao_operacoes where id=$1", [r.operacao_id]);
@@ -978,6 +977,8 @@ describe("operador assume caso com fidelização vencida", () => {
     it("caso PROTEGIDO (acordo em andamento) não é devolvido e nada muda", async () => {
       const db = await abrirCom();
       await tomadaEMudanca(db, 170, async (d, c) => {
+        // Desliga o gatilho que zera o operador ao proteger o caso: assim a recusa tem de vir do Conflito 4.
+        await d.query("alter table public.casos disable trigger trigger_repor_caso_operador");
         await d.query("update public.casos set status_acionamento = 'ACORDO FECHADO' where id=$1", [c]);
       });
     });
