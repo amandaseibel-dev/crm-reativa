@@ -1012,21 +1012,27 @@ describe("operador assume caso com fidelização vencida", () => {
     });
   });
 
-  // DECISÃO PENDENTE DA GESTÃO: numa operação antiga (sem a chave), o valor de responsavel_atual_em depois da
-  // reversão é o instante da reversão (set_resp_aluno), não o de antes. O teste prova só que o campo NÃO fica nulo.
-  it("operação ANTIGA (sem responsavel_atual_em em estado_anterior) não zera a data atual da troca", async () => {
+  // Operação antiga, sem a data original da troca: a reversão é recusada inteira (nada muda). Recuperação só por
+  // procedimento específico com evidência; não usamos o instante da reversão como substituto.
+  it("operação ANTIGA (sem responsavel_atual_em no estado de origem): reversão RECUSADA inteira, sem nenhuma alteração, com o gatilho real ativo", async () => {
     const db = await abrirCom();
     const caso = await cenario(db, 173, { dono: MAURICIO });
     await como(db, LUANA);
     const r = await tomar(db, caso);
-    // simula operacao gravada pela versao anterior: sem a chave responsavel_atual_em
+    expect(r.sucesso).toBe(true);
     await db.query("update public.assumir_fidelizacao_operacoes set estado_anterior = estado_anterior - 'responsavel_atual_em' where id=$1", [r.operacao_id]);
-    await db.query("update public.alunos set responsavel_atual_em = now() - interval '40 days' where id=$1", [U(173)]);
+    const snap = () => q1(db, `select
+        (select operador_email from public.casos where id=$1) dono,
+        (select responsavel_atual_email from public.alunos where id=$2) resp,
+        (select responsavel_atual_em::text from public.alunos where id=$2) resp_em,
+        (select count(*)::int from public.historico_operadores_alunos) hist,
+        (select revertida_em is null from public.assumir_fidelizacao_operacoes where id=$3) aberta`, [caso, U(173), r.operacao_id]);
+    const antes = await snap();
     await como(db, GESTAO);
     const rv = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [r.operacao_id, "x"]);
-    expect(rv.sucesso).toBe(true);
-    const depois = await q1(db, "select responsavel_atual_em::text e from public.alunos where id=$1", [U(173)]);
-    expect(depois.e).not.toBeNull();
+    expect(rv.sucesso).toBe(false);
+    expect(rv.mensagem).toContain("sem a data original da troca");
+    expect(await snap()).toEqual(antes);
     await db.close();
   });
 });

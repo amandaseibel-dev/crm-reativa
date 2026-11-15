@@ -327,6 +327,11 @@ begin
   if v_op.revertida_em is not null then
     return query select false, 'Esta operacao ja foi revertida.'; return;
   end if;
+  -- Operacao SEM a data original da troca (estado_anterior sem responsavel_atual_em): NAO reverte.
+  -- Nao usamos o instante da reversao como substituto. Recuperacao so por procedimento especifico.
+  if not (v_op.estado_anterior ? 'responsavel_atual_em') then
+    return query select false, 'Conflito: operacao sem a data original da troca. Recuperacao so por procedimento especifico. Nada alterado.'; return;
+  end if;
 
   select a.* into v_al from public.alunos a where a.id = v_op.aluno_id for update;
   select c.* into v_c from public.casos c where c.id = v_op.caso_id for update;
