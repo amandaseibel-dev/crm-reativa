@@ -20,3 +20,15 @@ begin
   execute replace(v_def, v_lock_trig, '');
 end
 $rb$;
+
+-- MARCADOR: reverte o marcador do teto SOMENTE se o prazo ja foi revertido e o marcador e exatamente o gravado.
+-- Nao usa COMMENT IS NULL indiscriminado: recusa se o comentario for outro (metadado de terceiro).
+do $rbm$ begin
+  if obj_description(to_regprocedure('public.caso_dentro_prazo_fidelizacao(date)'), 'pg_proc') is not null then
+    raise exception 'ROLLBACK TETO: o prazo (20261114100000) ainda esta aplicado; reverter o prazo antes.';
+  end if;
+  if obj_description(to_regprocedure('public.trg_impor_teto_operador()'), 'pg_proc') is distinct from 'ordem-953:teto-20261114110000' then
+    raise exception 'ROLLBACK TETO: marcador ausente ou alterado; nao remover.';
+  end if;
+  comment on function public.trg_impor_teto_operador() is null;
+end $rbm$;

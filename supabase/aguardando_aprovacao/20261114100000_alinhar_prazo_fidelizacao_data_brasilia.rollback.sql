@@ -22,4 +22,12 @@ begin
   end if;
 end
 $rb$;
+-- MARCADOR: reverte o marcador do prazo somente se for exatamente o gravado (comentario anterior era nulo, verificado pela guarda).
+do $rbm$ begin
+  if obj_description(to_regprocedure('public.caso_dentro_prazo_fidelizacao(date)'), 'pg_proc') is distinct from 'ordem-953:prazo-20261114100000' then
+    raise exception 'ROLLBACK PRAZO: marcador ausente ou alterado; nao remover.';
+  end if;
+  comment on function public.caso_dentro_prazo_fidelizacao(date) is null;
+end $rbm$;
+
 commit;
