@@ -29,19 +29,25 @@ describe("IndicadoresCarteiraSemestre (contrato único: RPC efetividade_caixa_re
     expect(screen.getByText(/inclui/)).toBeTruthy();
   });
 
-  it("não chama nenhuma RPC antiga de carteira", async () => {
-    rpcMock.mockResolvedValue({ data: RESP_2026_2, error: null });
+  it("exibe os valores de 2026/1 vindos da RPC", async () => {
+    rpcMock.mockResolvedValue({ data: { ...RESP_2026_2, carteira_original: 21710447.29, saldo_em_aberto: 9055032.58, caixa_confirmado: 535206.14, percentual_recuperado_caixa: 2.5, saldo_2026_2: null }, error: null });
     render(<IndicadoresCarteiraSemestre fonte={{ semestre: "2026/1" }} />);
-    await screen.findByText("Carteira original");
-    for (const c of rpcMock.mock.calls) {
-      expect(c[0]).toBe("efetividade_caixa_resumo_semestre");
-    }
+    expect(await screen.findByText("2,5%")).toBeTruthy();
+    expect(screen.getByText("R$ 535.206,14")).toBeTruthy();
+  });
+
+  it("falha de rede vira aviso neutro, não 'sem dados'", async () => {
+    rpcMock.mockRejectedValue(new Error("network down"));
+    render(<IndicadoresCarteiraSemestre fonte={{ semestre: "2026/2" }} />);
+    expect(await screen.findByText(/indisponíveis para o seu acesso ou no momento/)).toBeTruthy();
+    expect(screen.queryByText(/Sem dados de carteira/)).toBeNull();
   });
 
   it("erro de acesso vira aviso neutro, sem vazar a mensagem bruta como permanente", async () => {
     rpcMock.mockResolvedValue({ data: null, error: { message: "sem permissão para o resumo de caixa" } });
     render(<IndicadoresCarteiraSemestre fonte={{ semestre: "2026/2" }} />);
-    expect(await screen.findByText(/Indicadores indisponíveis para o seu acesso/)).toBeTruthy();
+    expect(await screen.findByText(/indisponíveis para o seu acesso ou no momento/)).toBeTruthy();
+    expect(screen.queryByText(/sem permissão/)).toBeNull();
   });
 
   it("dado ausente aparece como travessão, não como zero", async () => {

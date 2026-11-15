@@ -26,17 +26,18 @@ export default function IndicadoresCarteiraSemestre({ fonte }) {
     supabase.rpc("efetividade_caixa_resumo_semestre", { p_semestre: fonte.semestre })
       .then(({ data, error }) => {
         if (!ativo) return;
-        if (error) setErro(error.message || "Falha ao consultar os indicadores de carteira.");
+        if (error) setErro("indisponível");
         else setDados(data || null);
       })
+      .catch(() => { if (ativo) setErro("indisponível"); })
       .finally(() => { if (ativo) setCarregando(false); });
     return () => { ativo = false; };
   }, [fonte.semestre]);
 
   if (carregando) return <Bloco><p style={textoSuave}>Carregando indicadores de carteira…</p></Bloco>;
   if (erro) {
-    return <Bloco><p style={{ color: "var(--rv-vermelho-texto)", margin: 0 }}>
-      Indicadores indisponíveis para o seu acesso ou no momento: {erro}
+    return <Bloco><p style={textoSuave}>
+      Indicadores de carteira indisponíveis para o seu acesso ou no momento.
     </p></Bloco>;
   }
   if (!dados) return <Bloco><p style={textoSuave}>Sem dados de carteira para este semestre.</p></Bloco>;
