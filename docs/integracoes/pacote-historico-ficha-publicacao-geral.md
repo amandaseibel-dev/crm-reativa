@@ -21,7 +21,15 @@
 
 Saldo medido hoje: **9.821**, medido em **11/11/2026**. Esse valor está antigo: a primeira consulta depois da publicação renova o saldo com uma chamada `meu_acesso`, que conta no orçamento do usuário que consultou.
 
-**Dimensionamento (14/11/2026, leitura de produção):** 14 usuários ativos (7 com perfil `operador`, 3 de gestão, 4 de outros perfis). Pior caso por operador: 14 × 20 = 280 leituras/dia; o teto diário de 150 limita o total, então o pior caso real é 150 leituras + as renovações de saldo (no máximo uma a cada 15 minutos enquanto houver uso). Tabela `ulbra_historico_uso` e função de reserva já existem em produção (ledger aplicado); nenhum consumo registrado hoje.
+**Dimensionamento (14/11/2026, leitura de produção, somente leitura):**
+- 7 operadores (perfil `operador`): até 20 chamadas por usuário/dia cada; pior caso 140.
+- 3 de gestão (`supervisor`, `gerencia`, `administrativo`): acesso amplo; até 20 chamadas cada; pior caso 60.
+- 4 de outros perfis (`carteira`, `diretoria`, `juridico`, `painel`): leem só quando são dono da carteira ou responsáveis pelo atendimento; até 20 cada; pior caso 80.
+- Pior caso por usuário: 280 chamadas/dia. O teto compartilhado de 150/dia limita o total real.
+
+**O que conta no orçamento compartilhado:** toda chamada que consome cota da ULBRA: leitura de histórico, renovação de saldo (`meu_acesso`) e tentativa, inclusive a que falha depois da reserva. Nenhuma delas é contada como 'leitura' à parte.
+
+**Compatibilidade com coleta e demais funções:** não comprovada. A reserva de 100 não garante capacidade para a coleta: o saldo é uma foto do dia e a coleta consome do mesmo saldo. Antes da publicação, o consumo real da coleta precisa ser lido e comparado com o saldo medido.
 
 **Ponto em aberto que muda o número:** a ULBRA mediu 500 chamadas/dia por pessoa na conexão OAuth do piloto, e não confirmou se o limite vale também para a credencial de backend (que é o que o histórico usa). Se valer, o orçamento compartilhado precisa caber nesse teto junto com a coleta. O teto de 150 é uma proposta: não há prova de que ele caiba no cenário de 500/dia por pessoa, porque isso depende de a ULBRA confirmar o limite. A confirmação é uma chamada de `meu_acesso` com a credencial de backend (1 chamada, sob orçamento aprovado).
 
