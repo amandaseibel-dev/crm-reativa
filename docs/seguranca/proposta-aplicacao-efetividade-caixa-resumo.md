@@ -6,8 +6,8 @@ Status: PENDENTE DE APROVAÇÃO. Nada foi mesclado, aplicado em produção nem r
 
 | PR | Branch | Head congelado | Conteúdo |
 |---|---|---|---|
-| #966 (SQL) | `claude/indicadores-recuperacao-2026-semestres-4ec789` | `1044acfeee423184dcf4e3abecef909676fbb860` | RPC `efetividade_caixa_resumo_semestre`, testes SQL, job de CI, rollback, medição e esta proposta |
-| #965 (tela) | `feat/mensalidades-sem-negociacao-indicadores` | `ab37e93b36574707bf719f02ec84eb2830c483f4` | Abas 2026/1 e 2026/2 de Mensalidades sem Negociação, lendo só a RPC acima |
+| #966 (SQL) | `claude/indicadores-recuperacao-2026-semestres-4ec789` | `55f52d081e20d8070e5b8ee17163b7c880d2be55` | RPC `efetividade_caixa_resumo_semestre`, testes SQL, job de CI, rollback, medição e esta proposta |
+| #965 (tela) | `feat/mensalidades-sem-negociacao-indicadores` | `d9eaf66abe17fc35a62861a66bc80d61178b0c49` | Abas 2026/1 e 2026/2 de Mensalidades sem Negociação, lendo só a RPC acima |
 
 Histórico preservado: nenhum commit foi reescrito ou apagado. A #966 deixou de expor a tela na Efetividade
 (`CarteiraEfetividade.jsx` volta ao estado de `origin/main`). A #965 é a única PR que publica indicadores na tela.
@@ -34,6 +34,8 @@ Amanda Prado Seibel (`amanda.seibel@aelbra.com.br`). A sessão principal executa
 
 ## Sequência (ordem obrigatória)
 
+0. Medição antes de aplicar: medir o custo de uma leitura da RPC (classificador de 2026/2 e a view) em produção, sem snapshot novo. Sem essa medição, a aplicação não é liberada.
+
 1. Aprovação desta proposta pela Amanda.
 2. Merge da #966 (só SQL; não publica tela).
 3. PR de registro M1 com a linha acima; merge.
@@ -47,7 +49,7 @@ Amanda Prado Seibel (`amanda.seibel@aelbra.com.br`). A sessão principal executa
 ## Rollback
 
 - Banco: `docs/rollbacks/efetividade-caixa-resumo-semestre-rollback.sql` (`drop function if exists`). Não toca em dados nem na view.
-- Frontend: reverter o commit `ab37e93b` na #965 ou não mesclar a #965. Sem a RPC, a aba mostra um aviso neutro e o resto do relatório segue.
+- Frontend: reverter os commits da #965 até `d9eaf66a` (inclusive `6d370af` e `d9eaf66`), ou não mesclar a #965. Sem a RPC, a aba mostra um aviso neutro e o resto do relatório segue.
 
 ## Números (leitura em produção, 15/11/2026; ver `medicao-caixa-resumo-2026-11-15.md`)
 
@@ -69,7 +71,7 @@ Os números acima foram lidos do banco. Os testes SQL usam stubs, com valores de
 
 Acesso somente de gestão ativa: e-mail na lista de `usuario_e_gestao()` **e** `usuarios.ativo = true`.
 Diretoria não recebe os indicadores. Não há decisão pendente de acesso.
-Os relatórios de Mensalidades sem Negociação e a tela de Efetividade seguem a mesma regra da RPC.
+A RPC nova é só de gestão ativa. O relatório de 2026/1 (`relatorio_mensalidades_2026_1_sem_negociacao`) aceita diretoria, então a diretoria vê o aviso de indisponível no bloco novo. Isso não é vazamento.
 A tela de Efetividade continua com o bloco "Em breve" para quem não tem acesso total, como já era.
 
 ## Base do denominador de 2026/2
