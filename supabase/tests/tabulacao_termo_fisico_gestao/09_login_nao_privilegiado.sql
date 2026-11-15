@@ -73,8 +73,11 @@ begin
 end $$;
 
 -- Positivo legítimo permitido ao login não privilegiado: CONTATAR segue o fluxo normal.
+-- Como o PostgREST: SET ROLE authenticated (a policy de INSERT é to authenticated).
+set role authenticated;
 insert into public.aluno_movimentacoes (aluno_id,tipo,status_novo,registrado_por_email)
   values ('r1','CONTATO','CONTATAR','operador.teste@exemplo.local');
+reset role;
 
 
 -- Harness: app_teste não tem helper de gestão ativa nem DML em usuarios (negativas exatas).
