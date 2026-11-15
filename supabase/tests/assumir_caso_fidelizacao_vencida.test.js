@@ -26,6 +26,7 @@ const FIXTURE = ler("supabase/tests/fixtures/fidelizacao_por_dono_prod_20260930.
 const MD5_BASE = JSON.parse(ler("supabase/tests/fixtures/fidelizacao_por_dono_prod_20260930.md5.json"));
 const COMPLEMENTO = ler("supabase/tests/fixtures/assumir_caso_livre_prod_20261020.sql");
 const MD5_COMPL = JSON.parse(ler("supabase/tests/fixtures/assumir_caso_livre_prod_20261020.md5.json"));
+const PRAZO_PATCH = ler("supabase/aguardando_aprovacao/20261114100000_alinhar_prazo_fidelizacao_data_brasilia.sql.pendente");
 const TETO_PATCH = ler("supabase/aguardando_aprovacao/20261114110000_serializar_teto_todos_os_caminhos.sql.pendente");
 const TETO_ROLLBACK = ler("supabase/aguardando_aprovacao/20261114110000_serializar_teto_todos_os_caminhos.rollback.sql");
 const FIXTURE4 = ler("supabase/tests/fixtures/assumir_caso_livre_prod_20261113.sql");
@@ -80,6 +81,10 @@ async function fotografia(db, n, casoId, opId) {
     (select coalesce(jsonb_agg(to_jsonb(m) order by m.id), '[]'::jsonb) from public.aluno_movimentacoes m where m.aluno_id = $5::text) movimentacoes`,
     [U(n), casoId, opId, CPF(n), U(n)]);
 }
+// Ordem obrigatoria (guardas nas migracoes): #936 -> teto -> prazo -> #953.
+async function construirTeto(db) { await db.exec(TETO_PATCH); return db; }
+async function construirOrdenado(db) { await db.exec(TETO_PATCH); await db.exec(PRAZO_PATCH); return db; }
+
 const como = (db, email) =>
   db.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ email })]);
 
@@ -147,7 +152,7 @@ async function cenario(db, n, o = {}) {
 let COM;
 
 beforeAll(async () => {
-  const b2 = await construir();
+  const b2 = await construirOrdenado(await construir());
   await b2.exec(MIGRATION);
   COM = await b2.dumpDataDir();
   await b2.close();
@@ -457,14 +462,14 @@ describe("operador assume caso com fidelização vencida", () => {
   });
 
   it("pré-condição P1: gatilho com corpo divergente faz a migration FALHAR", async () => {
-    const db = await construir();
+    const db = await construirOrdenado(await construir());
     await db.exec(`create or replace function public._acionamento_nao_volta_para_nulo() returns trigger language plpgsql as $f$ begin return new; end; $f$`);
     await expect(db.exec(MIGRATION)).rejects.toThrow(/divergente/);
     await db.close();
   });
 
   it("pré-condição P1: gatilho ausente faz a migration FALHAR", async () => {
-    const db = await construir();
+    const db = await construirOrdenado(await construir());
     await db.exec(`drop trigger trg_acionamento_nao_volta_para_nulo on public.alunos`);
     await expect(db.exec(MIGRATION)).rejects.toThrow(/ausente/);
     await db.close();
@@ -612,14 +617,14 @@ describe("operador assume caso com fidelização vencida", () => {
   });
 
   it("pré-condição P2 divergente: migration FALHA", async () => {
-    const db = await construir();
+    const db = await construirOrdenado(await construir());
     await db.exec(`create or replace function public.aluno_retorno_operador_vigente(p_aluno_id uuid) returns boolean language sql as $f$ select false $f$`);
     await expect(db.exec(MIGRATION)).rejects.toThrow(/P2 divergente/);
     await db.close();
   });
 
   it("pré-condição P2 ausente: migration FALHA", async () => {
-    const db = await construir();
+    const db = await construirOrdenado(await construir());
     await db.exec(`drop function public.aluno_retorno_operador_vigente(uuid)`);
     await expect(db.exec(MIGRATION)).rejects.toThrow(/P2 ausente/);
     await db.close();
@@ -883,17 +888,17 @@ describe("operador assume caso com fidelização vencida", () => {
   });
 
   describe("alinhamento do prazo para data de Brasília (patch pendente)", () => {
-    const PRAZO = ler("supabase/aguardando_aprovacao/20261114100000_alinhar_prazo_fidelizacao_data_brasilia.sql.pendente");
+    const PRAZO = PRAZO_PATCH;
     const PRAZO_RB = ler("supabase/aguardando_aprovacao/20261114100000_alinhar_prazo_fidelizacao_data_brasilia.rollback.sql");
     it("o patch aplica sobre o corpo atual e a helper passa a usar a data de Brasília", async () => {
-      const db = await construir();
+      const db = await construirTeto(await construir());
       await db.exec(PRAZO);
       const h = await q1(db, "select prosrc like '%America/Sao_Paulo%' t from pg_proc where proname='caso_dentro_prazo_fidelizacao'");
       expect(h.t).toBe(true);
       await db.close();
     });
     it("o contrato de dez dias se mantém: no 10º dia protege, no 11º libera (data de Brasília)", async () => {
-      const db = await construir();
+      const db = await construirTeto(await construir());
       await db.exec(PRAZO);
       const r = await q1(db, `select
         public.caso_dentro_prazo_fidelizacao(((now() at time zone 'America/Sao_Paulo')::date - 10)) as dia10,
@@ -905,7 +910,7 @@ describe("operador assume caso com fidelização vencida", () => {
       await db.close();
     });
     it("rollback do alinhamento volta a helper ao current_date", async () => {
-      const db = await construir();
+      const db = await construirTeto(await construir());
       await db.exec(PRAZO);
       await db.exec(PRAZO_RB);
       const h = await q1(db, "select prosrc like '%current_date%' t from pg_proc where proname='caso_dentro_prazo_fidelizacao'");
