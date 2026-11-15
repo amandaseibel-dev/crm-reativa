@@ -42,3 +42,7 @@ dist-ssr
 # nem conteudo (sem dado de aluno, valor ou trecho de conversa).
 .claude/reativa-one.local.md
 .claude/reativa-one.marcos.local.md
+
+# Playwright (artefatos de execucao local e do CI)
+test-results/
+playwright-report/
