@@ -61,7 +61,7 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 | arquivo | sha256 |
 |---|---|
 | `supabase/functions/ulbra-historico/index.ts` | `bff338315e122883d19999a2e96c9875d05f41f41575baf60ee596da9e6a119a` |
-| `supabase/functions/ulbra-historico/historico.ts` | `ad3598d12ff3f1156ba0a1627b6438c6c54c634a22c813092dbb227b7fbee39d` |
+| `supabase/functions/ulbra-historico/historico.ts` | `1355a8b08446cfe56874f44d4c766b24706acb78806aadd88255cd7706d1b93c` |
 | `supabase/functions/ulbra-historico/leitura.ts` (igual à v1) | `20cc12d353c7278c9951208d740312831bffe92fcf2533856474be01bbb2f05f` |
 
 ## Publicação (cada passo com autorização)
@@ -94,14 +94,14 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 
 **Dia do orçamento:** calendário de São Paulo (`diaDoOrcamento`), testado na virada 02:59:59Z → 14 e 03:00:00Z → 15.
 
-**Testes do servidor:** 57/57 (ficha, histórico, ausência, orçamento, bloqueio e dia), com relógio fixo e expectativas escritas à mão. `deno check` do `index.ts`: passa.
+**Testes do servidor:** 61/61 (ficha, histórico, ausência, orçamento, bloqueio e dia), com relógio fixo e expectativas escritas à mão. `deno check` do `index.ts`: passa.
 
 **Hashes finais (sha256, o que a publicação envia):**
 
 | arquivo | sha256 |
 |---|---|
 | `supabase/functions/ulbra-historico/index.ts` | `bff338315e122883d19999a2e96c9875d05f41f41575baf60ee596da9e6a119a` |
-| `supabase/functions/ulbra-historico/historico.ts` | `ad3598d12ff3f1156ba0a1627b6438c6c54c634a22c813092dbb227b7fbee39d` |
+| `supabase/functions/ulbra-historico/historico.ts` | `1355a8b08446cfe56874f44d4c766b24706acb78806aadd88255cd7706d1b93c` |
 | `supabase/functions/ulbra-historico/leitura.ts` | `20cc12d353c7278c9951208d740312831bffe92fcf2533856474be01bbb2f05f` |
 
 **Sequência de implantação (cada passo depende de aprovação sua):**
@@ -127,7 +127,7 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 
 **Orçamento:** saldo vencido reserva 2 (renovação + leitura) antes da primeira chamada. Testes de concorrência em PostgreSQL 17 com contador inicial lido do banco: dia vazio (150 permitidas = contador final − inicial) e dia parcialmente consumido (22 de partida; 128 permitidas; 20 + 2 + 128 = 150). A divergência anterior de 128 × 130 foi explicada: o teste esperava 150 novas permissões num dia que já tinha consumo de outros testes; o servidor estava correto.
 
-**Testes e CI:** servidor 57/57 (Vitest); PostgreSQL 17: 11/11 (`supabase/tests/ulbra_historico_bloqueio/run.cjs`); front da tela 7/7; build de produção ok; `deno check` ok. O job `ulbra-historico-orcamento-postgres` do CI roda os testes de orçamento, bloqueio, guarda e concorrência.
+**Testes e CI:** servidor 61/61 (Vitest); PostgreSQL 17: 11/11 (`supabase/tests/ulbra_historico_bloqueio/run.cjs`); front da tela 7/7; build de produção ok; `deno check` ok. O job `ulbra-historico-orcamento-postgres` do CI roda os testes de orçamento, bloqueio, guarda e concorrência.
 
 **Probe de meu_acesso:** `scripts/ulbra/probe_meu_acesso.mjs`. **NÃO executado.** A credencial de backend não está no ambiente desta sessão e não foi solicitada pelo chat. Sem o resultado, o limite real da credencial continua **não comprovado**.
 

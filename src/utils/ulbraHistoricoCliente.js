@@ -42,6 +42,7 @@ export const MOTIVOS_HISTORICO = {
   CONVERSA_INVALIDA: "Conversa inválida.",
   CONVERSA_NAO_ENCONTRADA: "Este aluno ainda não tem conversa coletada na Mensageria.",
   ULBRA_LIMITE: "A Mensageria devolveu limite de uso (429). A consulta parou; não será repetida.",
+  ULBRA_BLOQUEADA: "A leitura está bloqueada após um limite de uso da Mensageria. Tente mais tarde ou procure a gestão.",
   ALUNO_ID_INVALIDO: "Aluno inválido.",
 };
 
