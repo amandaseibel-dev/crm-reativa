@@ -52,7 +52,7 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 - duplicidade ativa do e-mail é negada.
 
 ## Testes e CI
-- Servidor: 59 testes passam no diretório da função (Vitest 2.1.9, na raiz com link de dependências no CI).
+- Servidor: 61 testes passam no diretório da função (Vitest 2.1.9, na raiz com link de dependências no CI).
 - Front: 175 arquivos e 2538 testes passam; lint sem erros nos arquivos alterados.
 - Postgres isolado com reservas simultâneas: job `ulbra-historico-teto-postgres`.
 - `deno check` da função: job `ulbra-historico-deno-check`.
@@ -130,3 +130,11 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 **Testes e CI:** servidor 57/57 (Vitest); PostgreSQL 17: 11/11 (`supabase/tests/ulbra_historico_bloqueio/run.cjs`); front da tela 7/7; build de produção ok; `deno check` ok. O job `ulbra-historico-orcamento-postgres` do CI roda os testes de orçamento, bloqueio, guarda e concorrência.
 
 **Probe de meu_acesso:** `scripts/ulbra/probe_meu_acesso.mjs`. **NÃO executado.** A credencial de backend não está no ambiente desta sessão e não foi solicitada pelo chat. Sem o resultado, o limite real da credencial continua **não comprovado**.
+
+
+## Correções do parecer 8174167f (sem mudança de regra)
+- **Lista de gestão igual à de produção, por evidência:** `usuario_e_gestao()` em produção (catálogo somente leitura, 15/11/2026) tem md5(prosrc) `889cfa4a82e9046b4322e8c85ee07b7d` (o mesmo registrado em `supabase/ledger/2026-10/INDICE.tsv`) e lista exatamente os três e-mails de `GESTAO_EMAILS`. Permanece limitação: se a lista mudar em produção, o código precisa mudar junto.
+- **Bloqueio após 429:** se a gravação do bloqueio funcionou, o banco decide em todas as instâncias, inclusive nas que já estavam quentes. Se a gravação falhou, a instância que recebeu o 429 fica fechada até conseguir gravar; as outras instâncias não ficam bloqueadas. O bloqueio não é global quando a gravação falha.
+- **Liberação pela gestão:** basta limpar `historico_bloqueado_sem_prazo` no banco; não é preciso reiniciar instâncias. Teste: 429 gravado, liberação no banco, mesma instância volta a chamar a ULBRA.
+- **Cache:** entradas vencidas saem a cada gravação e o total não passa de 200 entradas. Texto de conversa fica em memória só enquanto válido, por no máximo 5 minutos.
+- **Regra dos cinco:** a exceção para a Mensageria é decisão da gestão, já registrada no README de integrações.

@@ -14,7 +14,7 @@ import {
   lerHistoricoSomenteLeitura,
   type DependenciasHistorico,
   type FotografiaSaldo,
-  diaDoOrcamento,
+  diaDoOrcamento, guardarCache, CACHE_MAX_ENTRADAS, cacheTamanhoParaTeste,
 } from "./historico.ts";
 import type { ContextoLeitura } from "./leitura.ts";
 
@@ -331,5 +331,31 @@ describe("429 com falha ao gravar o bloqueio: a memória da instância ainda blo
     dono = SO_VE;
     const r = await lerHistoricoSomenteLeitura(DONO.operador, "c1", null, f.deps);
     expect(r).toEqual({ ok: false, motivo: "SEM_PERMISSAO_NA_CONVERSA" });
+  });
+});
+
+describe("liberação pelo banco vale em instância quente; cache com retenção limitada", () => {
+  it("429 gravado; a gestão libera no banco; a MESMA instância volta a chamar a ULBRA", async () => {
+    let banco = { ativo: false, ateMs: null as number | null, semPrazo: false };
+    let chamadas = 0;
+    const f = fabrica({
+      lerBloqueio: async () => banco,
+      registrarBloqueio: async (ra) => { banco = ra === null ? { ativo: true, ateMs: null, semPrazo: true } : { ativo: true, ateMs: AGORA + ra * 1000, semPrazo: false }; },
+      lerConversa: async () => { chamadas++; if (chamadas === 1) throw Object.assign(new Error("ULBRA_LIMITE"), { retryAfterSegundos: null }); return { mensagens: [], paginacao: { maisAntigas: false } }; },
+    });
+    await expect(lerHistoricoSomenteLeitura(DONO.operador, "c1", null, f.deps)).resolves.toEqual({ ok: false, motivo: "ULBRA_LIMITE" });
+    expect(await lerHistoricoSomenteLeitura(DONO.operador, "c2", null, f.deps)).toEqual({ ok: false, motivo: "ULBRA_BLOQUEADA" });
+    banco = { ativo: false, ateMs: null, semPrazo: false }; // gestão limpou no banco
+    const r = await lerHistoricoSomenteLeitura(DONO.operador, "c3", null, f.deps);
+    expect(r.ok).toBe(true);
+    expect(chamadas).toBe(2);
+  });
+  it("cache: entradas vencidas saem e o total nunca passa de CACHE_MAX_ENTRADAS", async () => {
+    const h = await import("./historico.ts");
+    limparCacheParaTeste();
+    const pag = { mensagens: [], paginacao: { maisAntigas: false } } as any;
+    for (let i = 0; i < h.CACHE_MAX_ENTRADAS + 50; i++) h.guardarCache("k" + i, { expira: AGORA + 1000, pagina: pag }, AGORA);
+    h.guardarCache("velha", { expira: AGORA - 1, pagina: pag }, AGORA + 10);
+    expect(h.cacheTamanhoParaTeste()).toBeLessThanOrEqual(h.CACHE_MAX_ENTRADAS);
   });
 });

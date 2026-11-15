@@ -121,11 +121,19 @@ interface EntradaCache {
 
 /** Cache por conversa+cursor, em memória de UMA instância. É só otimização: o limite vem do banco. */
 const cache = new Map<string, EntradaCache>();
+// Retenção: texto de conversa em memória só enquanto válido, e no máximo CACHE_MAX_ENTRADAS.
+export const CACHE_MAX_ENTRADAS = 200;
+export function guardarCache(chave: string, entrada: EntradaCache, agoraMs: number): void {
+  for (const [k, v] of cache) if (v.expira <= agoraMs) cache.delete(k);
+  cache.set(chave, entrada);
+  while (cache.size > CACHE_MAX_ENTRADAS) cache.delete(cache.keys().next().value as string);
+}
 /** Pedidos idênticos em curso: um só faz a chamada e os demais esperam o mesmo resultado. */
 const emCurso = new Map<string, Promise<ResultadoHistorico>>();
 
+export function cacheTamanhoParaTeste(): number { return cache.size; }
 export function limparCacheParaTeste(): void {
-  bloqueioLocal = { ativo: false, ateMs: null, semPrazo: false };
+  bloqueioLocal = { ativo: false, ateMs: null, semPrazo: false, pendente: false };
   cache.clear();
   emCurso.clear();
 }
@@ -184,8 +192,17 @@ async function executar(
   const tetoGlobal = Math.max(0, Math.min(fotografia!.restam - RESERVA_GLOBAL, TETO_HISTORICO_DIA));
 
   // Bloqueio após 429: nenhuma chamada e nenhuma reserva enquanto ele vigorar.
-  if (bloqueioLocal.ativo && (bloqueioLocal.semPrazo || (bloqueioLocal.ateMs !== null && deps.agora() < bloqueioLocal.ateMs))) {
-    return { ok: false, motivo: "ULBRA_BLOQUEADA" };
+  // Se a gravação do último 429 FALHOU (pendente), tenta gravar de novo antes de qualquer decisão;
+  // se não conseguir, fecha (fail-closed). Quando não há pendência, o BANCO decide: a liberação
+  // feita pela gestão vale em todas as instâncias, inclusive nas que já estavam quentes.
+  if (bloqueioLocal.pendente) {
+    const restante = bloqueioLocal.ateMs === null ? null : Math.max(0, Math.ceil((bloqueioLocal.ateMs - deps.agora()) / 1000));
+    try {
+      await deps.registrarBloqueio(bloqueioLocal.ateMs === null ? null : restante);
+      bloqueioLocal = { ativo: false, ateMs: null, semPrazo: false, pendente: false };
+    } catch {
+      return { ok: false, motivo: "ULBRA_BLOQUEADA" };
+    }
   }
   const bloqueio = await deps.lerBloqueio();
   if (bloqueio.ativo && (bloqueio.semPrazo || (bloqueio.ateMs !== null && deps.agora() < bloqueio.ateMs))) {
@@ -224,7 +241,7 @@ async function executar(
     return { ok: false, motivo: await motivoDe429(e, deps) };
   }
   const pagina = mapearPagina(resposta);
-  cache.set(chave, { expira: deps.agora() + CACHE_VALIDADE_MS, pagina });
+  guardarCache(chave, { expira: deps.agora() + CACHE_VALIDADE_MS, pagina }, deps.agora());
   return {
     ok: true, origem: "ulbra", pagina, chamadas: quantidade, saldoAte: avaliarSaldo(saldoAtual, deps.agora()).validadeAte ?? null,
     saldoRestam: saldoAtual.restam, saldoEm: saldoAtual.em, alcance: ALCANCE,
@@ -233,14 +250,21 @@ async function executar(
 
 // 429 vira bloqueio compartilhado. Retry-After (segundos) só quando a ULBRA informa; senão, sem prazo.
 // Bloqueio na memória da instância: vale mesmo se a gravação no banco falhar.
-let bloqueioLocal: { ativo: boolean; ateMs: number | null; semPrazo: boolean } = { ativo: false, ateMs: null, semPrazo: false };
+let bloqueioLocal: { ativo: boolean; ateMs: number | null; semPrazo: boolean; pendente: boolean } = { ativo: false, ateMs: null, semPrazo: false, pendente: false };
 
 async function motivoDe429(e: unknown, deps: DependenciasHistorico): Promise<MotivoBloqueio> {
   const msg = (e as Error).message;
   if (msg !== "ULBRA_LIMITE") return "ULBRA_INDISPONIVEL";
   const ra = (e as { retryAfterSegundos?: number | null }).retryAfterSegundos ?? null;
-  bloqueioLocal = ra === null ? { ativo: true, ateMs: null, semPrazo: true } : { ativo: true, ateMs: deps.agora() + ra * 1000, semPrazo: false };
-  await deps.registrarBloqueio(ra);
+  const ateMs = ra === null ? null : deps.agora() + ra * 1000;
+  try {
+    await deps.registrarBloqueio(ra);
+    bloqueioLocal = { ativo: false, ateMs: null, semPrazo: false, pendente: false };
+  } catch (erroGravacao) {
+    // Gravação falhou: a instância fica bloqueada (pendente) até gravar; a chamada sobe como erro.
+    bloqueioLocal = { ativo: true, ateMs, semPrazo: ra === null, pendente: true };
+    throw erroGravacao;
+  }
   return "ULBRA_LIMITE";
 }
 
