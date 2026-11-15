@@ -3,6 +3,14 @@ begin;
 -- (falha se nao achar exatamente uma ocorrencia). O patch_funcao_ancorada nao serve aqui: recusa
 -- substituir quando o texto novo contem a ancora.
 do $rb$
+begin
+  -- Ordem reversa: a #953 usa o lock do teto. Se ela estiver aplicada, o teto NAO e removido.
+  if to_regprocedure('public.reverter_assumir_fidelizacao(uuid,text)') is not null then
+    raise exception 'ROLLBACK DO TETO RECUSADO: a #953 esta aplicada (reverter_assumir_fidelizacao existe). Reverter a #953 antes.';
+  end if;
+end
+$rb$;
+do $rb$
 declare
   v_def text;
   v_lock_assumir text := '  perform pg_advisory_xact_lock(hashtext(''assumir_teto:'' || v_email));' || E'\n';

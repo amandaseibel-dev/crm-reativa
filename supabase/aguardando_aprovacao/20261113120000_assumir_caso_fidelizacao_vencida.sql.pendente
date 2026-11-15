@@ -333,14 +333,16 @@ begin
   if v_op.revertida_em is not null then
     return query select false, 'Esta operacao ja foi revertida.'; return;
   end if;
-  -- Recusas ANTES de qualquer escrita (esta guarda e a primeira checagem apos a leitura da operacao (for update)):
+  -- Recusas ANTES de qualquer escrita (apos a leitura da operacao com for update; as recusas de dono,
+  -- atendimento, movimentacao, anterior, teto e situacao vem em seguida, tambem antes de qualquer escrita):
   --   * operacao sem a data original da troca: a chave responsavel_atual_em de estado_anterior
   --     ausente, JSON null ou que nao seja string. NAO reverte; NAO usamos o instante da reversao
   --     como substituto. Recuperacao so por procedimento especifico.
   --   * as demais recusas (dono, atendimento posterior, movimentacao, anterior, teto, situacao do caso)
   --     vem depois, e tambem antes de qualquer escrita.
+  -- Data real: string que o Postgres aceita como timestamptz (rejeita 2026-13-45, texto, vazio).
   if jsonb_typeof(v_op.estado_anterior->'responsavel_atual_em') is distinct from 'string'
-     or (v_op.estado_anterior->>'responsavel_atual_em') !~ '^\d{4}-\d{2}-\d{2}' then
+     or not pg_input_is_valid(v_op.estado_anterior->>'responsavel_atual_em', 'timestamp with time zone') then
     return query select false, 'Conflito: operacao sem a data original da troca. Recuperacao so por procedimento especifico. Nada alterado.'; return;
   end if;
 
