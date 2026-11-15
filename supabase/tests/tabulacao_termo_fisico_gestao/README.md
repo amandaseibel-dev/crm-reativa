@@ -10,6 +10,8 @@ escopo, triagem, não acionamento) → rollback **deve falhar** (há histórico)
 **Caminho B — banco limpo:** reinicia o schema → `01_ambiente.sql` → migração → rollback (deve passar)
 → `04_rollback_limpo.sql` (linhas, trigger e função removidas; demais tabulações intactas).
 
+Barreira de estado (alunos): `00_barreira_producao.sql` carrega a função de produção (`docs/seguranca/evidencias/prod_encerramento_so_gestao.sql`) e a trigger real; `05_barreira_alunos.sql` roda com papel de LOGIN, porque a função deixa passar `session_user = postgres`.
+
 Simulado (não é o Supabase real): papéis e privilégios padrão de `public`; `auth.jwt()`/`auth.role()`;
 `usuarios`/`app_usuario_ativo()`; `usuario_e_gestao()` com o corpo lido em produção; `eh_tipo_acionamento()`
 com a lista lida em produção; `tabulacoes` e `aluno_movimentacoes` com colunas de produção (subconjunto

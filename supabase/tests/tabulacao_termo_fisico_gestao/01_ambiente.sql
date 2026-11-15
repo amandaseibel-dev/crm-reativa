@@ -28,6 +28,17 @@ alter default privileges in schema public grant all on tables to anon, authentic
 alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
 alter default privileges in schema public grant execute on functions to anon, authenticated, service_role;
 
+-- Alunos (bancada da barreira de estado): colunas de estado e uma linha de teste.
+create table public.alunos (
+  id uuid primary key,
+  status_atual text,
+  status_jornada text,
+  status_acionamento text
+);
+insert into public.alunos (id, status_atual, status_jornada, status_acionamento)
+  values ('a0000000-0000-0000-0000-000000000042', 'CONTATAR', 'CONTATAR', 'CONTATAR');
+grant select, update on public.alunos to authenticated;
+
 create table public.usuarios (email text primary key, ativo boolean not null default true);
 insert into public.usuarios (email) values
   ('amanda.seibel@aelbra.com.br'), ('cobranca04@aelbra.com.br'),

@@ -39,6 +39,21 @@ Se algum arquivo mudar, este quadro precisa ser refeito.
 - `trg_tabulacao_redireciona`: só age em UPDATE de `alunos`.
 - `notificacoes`, `app_usuario_ativo()` e privilégios padrão de `public`: conferidos na sessão de auditoria anterior.
 
+## Reconciliação com produção (evidências versionadas)
+
+| Objeto | Arquivo | md5 do corpo (produção = arquivo) | chars |
+|---|---|---|---|
+| `usuario_e_gestao()` | `docs/seguranca/evidencias/prod_usuario_e_gestao.sql` | `af3d391f4234e6a352585777897568e4` | 321 bytes |
+| `_encerramento_so_gestao()` | `docs/seguranca/evidencias/prod_encerramento_so_gestao.sql` | `5ff3be8222f1f33d6a679be8b313fec5` | 5346 |
+
+O md5 foi calculado no próprio banco (`md5(pg_get_functiondef(...))`, só leitura) e comparado com o md5 do arquivo. Iguais. Sem aplicação retroativa: os arquivos são evidência, não migração.
+
+**Divergência declarada, reconciliada por evidência:** a versão de `_encerramento_so_gestao()` no repositório (`supabase/migrations/20261007143000_...`) é um array fixo; a de produção lê o catálogo. A versão dinâmica está em `supabase/aguardando_aprovacao/20261106140000_tabulacao_so_gestao_no_banco.sql.pendente`, sem entrada no ledger. **A reconciliação completa do repositório (versionar a função de produção) fica como pré-requisito de aplicação.**
+
+## Barreira de estado em alunos (testada, no CI)
+
+`supabase/tests/tabulacao_termo_fisico_gestao/00_barreira_producao.sql` carrega a função de produção e a trigger real `trg_encerramento_so_gestao`. `05_barreira_alunos.sql` roda com um papel de LOGIN (`app_teste`), porque a função deixa passar `session_user = postgres`. Confirma: operador não grava código restrito no estado do aluno (42501); código comum passa. **Não executado localmente** (pglite tem um único usuário); a prova é o job de CI.
+
 ## Estado do aluno (alunos.status_*): barreira de produção (divergência declarada)
 
 DIVERGÊNCIA: a função `_encerramento_so_gestao()` **em produção** lê o catálogo (lida nesta sessão). A versão **versionada no repositório** (`supabase/migrations/20261007143000_antecipacao_semestre_quita_responsabilidade.sql`) usa array fixo (`CANCELAMENTO_COBRANCA`, `SUSPENSAO_COBRANCA`, `JURIDICO`, `ANTECIPACAO_SEMESTRE`, `ALEGA_*`), sem os códigos de termo. A versão dinâmica está em `supabase/aguardando_aprovacao/20261106140000_tabulacao_so_gestao_no_banco.sql.pendente` e não tem entrada no ledger. Logo, a barreira depende de estado de produção que o repositório não reproduz. **Não testada** nos testes desta migração (os testes não criam `alunos` nem a trigger). Decisão: reconciliar o repositório com produção antes da aplicação, ou aceitar explicitamente.
@@ -74,6 +89,14 @@ A trigger `trg_encerramento_so_gestao` está **ativa** em `public.alunos` (`BEFO
 - **Upper/locale do banco:** normalização em ASCII antes do upper; testado em pglite, não no locale de produção.
 - **Triagem Prime, efeito a jusante:** a descrição fixa não casa com as palavras-chave, mas não medi o efeito em produção.
 
+## Gate A: 7 achados `BLOQUEIA` pré-existentes (encaminhamento de outra frente)
+
+- `BUCKET_PUBLICO` `tv-imagens`: exceção limitada da TV após revisão do conteúdo público. **Não feito nesta frente.**
+- `TABELA_SEM_RLS` `_tmp_fila2`: revogação de acesso sem apagar a tabela. **Não feito nesta frente.**
+- `VIEW_BYPASS_RLS` (5 views): correção com testes dos consumidores. **Não feito nesta frente.**
+
+Esta frente não duplica essas mudanças. **O Gate A não é declarado aprovado** enquanto esses 7 achados não forem tratados e o gate for reexecutado com resultado zero `BLOQUEIA`.
+
 ## Decisões aplicadas nesta rodada
 
 - **Desfazer do operador:** se o status restaurado for código restrito, o desfazer é recusado **inteiro** (a trigger recusa `ACAO_DESFEITA`; a transação da `desfazer_acao` é desfeita junto, sem alteração parcial), com a mensagem "Não é possível desfazer esta ação ... Nada foi desfeito. A gestão trata pelo fluxo autorizado."
@@ -85,6 +108,15 @@ A trigger `trg_encerramento_so_gestao` está **ativa** em `public.alunos` (`BEFO
 - Perfis: Amanda (`gerencia`), Fernanda (`supervisor`) e Amanda ADM (`administrativo`), todos ativos. Os dois `diretoria` (Gustavo e Angela) ficam fora da gestão.
 - **Gate A em produção (linha de base, só SELECT):** achados `BLOQUEIA` pré-existentes, **não causados por esta mudança**: `BUCKET_PUBLICO` = `tv-imagens` (1); `TABELA_SEM_RLS` = `_tmp_fila2` (1); `VIEW_BYPASS_RLS` = `vw_extracao_calibragem`, `vw_extracao_observabilidade`, `vw_extracao_validacao_trilha`, `vw_pagamento_suspeita_pendente`, `vw_titulo_presenca_historico` (5). O CHECKLIST diz que qualquer `BLOQUEIA` reprova o gate. **Decisão da gestão necessária:** tratar esses achados antes do deploy, ou registrar aceite explícito. Esta migração não os resolve.
 - Achados `ALERTA` pré-existentes (não bloqueiam): políticas amplas, RLS sem policy com grant, `RPC_SECDEF_EXECUTE_ANON` (24), tabelas de backup sem RLS.
+
+## Dependências de aplicação (todas precisam estar cumpridas)
+
+1. Gate A sem `BLOQUEIA` (7 achados acima, tratados pela frente responsável e reexecutados).
+2. Reconciliação do repositório com produção para `_encerramento_so_gestao()` (versionar o corpo real; hoje há divergência).
+3. Versionamento de `usuario_e_gestao()` no repositório (o corpo está em evidência, sem migração).
+4. CI verde do head da migração, com os jobs `tabulacao-termo-fisico-gestao-sql` e `trava tabulacao somente gestao` (confirmação pelo conector ou `gh`; nesta sessão o acesso ao GitHub não estava autenticado).
+5. Auditoria do Guardião sem `REPROVADO` sobre o head final.
+6. Autorização nominal, linha em `migracoes-aprovadas.tsv`, executor único.
 
 ## Reversão
 

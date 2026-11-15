@@ -1140,6 +1140,9 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
           psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
           psql -v ON_ERROR_STOP=1 -f "$DIR/02_tabulacao.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/00_barreira_producao.sql"
+          psql -v ON_ERROR_STOP=1 -c "create role app_teste login password 'app_teste_pw'; grant usage on schema public to app_teste; grant select on public.tabulacoes, public.alunos to app_teste; grant update on public.alunos to app_teste; grant select, insert on public.aluno_movimentacoes to app_teste;"
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/05_barreira_alunos.sql"
           # O rollback DEVE falhar (há histórico usando os códigos).
           set +e
           out=$(psql -v ON_ERROR_STOP=1 -f "$ROLLBACK" 2>&1)
