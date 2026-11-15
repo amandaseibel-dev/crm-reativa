@@ -1198,6 +1198,9 @@ jobs:
           set +e
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/15_dono_teste_flag.sql"
           rc=$?
+          psql -v ON_ERROR_STOP=1 -f "$DIR/12p_on.sql"
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/15b_dono_contido.sql" || rc=$?
+          psql -v ON_ERROR_STOP=1 -f "$DIR/12p_off.sql"
           set -e
           psql -v ON_ERROR_STOP=1 -f "$DIR/15p_dono_restore.sql"
           [ "$rc" -eq 0 ] || exit "$rc"
