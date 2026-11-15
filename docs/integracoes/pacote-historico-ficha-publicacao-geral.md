@@ -23,7 +23,7 @@ Saldo medido hoje: **9.821**, medido em **11/11/2026**. Esse valor está antigo:
 
 **Dimensionamento (14/11/2026, leitura de produção):** 14 usuários ativos (7 com perfil `operador`, 3 de gestão, 4 de outros perfis). Pior caso por operador: 14 × 20 = 280 leituras/dia; o teto diário de 150 limita o total, então o pior caso real é 150 leituras + as renovações de saldo (no máximo uma a cada 15 minutos enquanto houver uso). Tabela `ulbra_historico_uso` e função de reserva já existem em produção (ledger aplicado); nenhum consumo registrado hoje.
 
-**Ponto em aberto que muda o número:** a ULBRA mediu 500 chamadas/dia por pessoa na conexão OAuth do piloto, e não confirmou se o limite vale também para a credencial de backend (que é o que o histórico usa). Se valer, o orçamento compartilhado precisa caber nesse teto junto com a coleta. O teto de 150 foi escolhido para caber nos dois cenários; a confirmação é uma chamada de `meu_acesso` com a credencial de backend (1 chamada, sob orçamento aprovado).
+**Ponto em aberto que muda o número:** a ULBRA mediu 500 chamadas/dia por pessoa na conexão OAuth do piloto, e não confirmou se o limite vale também para a credencial de backend (que é o que o histórico usa). Se valer, o orçamento compartilhado precisa caber nesse teto junto com a coleta. O teto de 150 é uma proposta: não há prova de que ele caiba no cenário de 500/dia por pessoa, porque isso depende de a ULBRA confirmar o limite. A confirmação é uma chamada de `meu_acesso` com a credencial de backend (1 chamada, sob orçamento aprovado).
 
 **Saldo medido:** 9.821 em 11/11/2026, defasado. Não é usado para decidir; a primeira consulta depois da publicação renova o saldo.
 
