@@ -869,4 +869,36 @@ describe("operador assume caso com fidelização vencida", () => {
     expect((await q1(db, "select operador_email e from public.casos where id=$1", [caso])).e).toBe(MAURICIO);
     await db.close();
   });
+
+  describe("alinhamento do prazo para data de Brasília (patch pendente)", () => {
+    const PRAZO = ler("supabase/aguardando_aprovacao/20261114100000_alinhar_prazo_fidelizacao_data_brasilia.sql.pendente");
+    const PRAZO_RB = ler("supabase/aguardando_aprovacao/20261114100000_alinhar_prazo_fidelizacao_data_brasilia.rollback.sql");
+    it("o patch aplica sobre o corpo atual e a helper passa a usar a data de Brasília", async () => {
+      const db = await construir();
+      await db.exec(PRAZO);
+      const h = await q1(db, "select prosrc like '%America/Sao_Paulo%' t from pg_proc where proname='caso_dentro_prazo_fidelizacao'");
+      expect(h.t).toBe(true);
+      await db.close();
+    });
+    it("o contrato de dez dias se mantém: no 10º dia protege, no 11º libera (data de Brasília)", async () => {
+      const db = await construir();
+      await db.exec(PRAZO);
+      const r = await q1(db, `select
+        public.caso_dentro_prazo_fidelizacao(((now() at time zone 'America/Sao_Paulo')::date - 10)) as dia10,
+        public.caso_dentro_prazo_fidelizacao(((now() at time zone 'America/Sao_Paulo')::date - 11)) as dia11,
+        public.caso_dentro_prazo_fidelizacao(null::date) as nulo`);
+      expect(r.dia10).toBe(true);
+      expect(r.dia11).toBe(false);
+      expect(r.nulo).toBe(false);
+      await db.close();
+    });
+    it("rollback do alinhamento volta a helper ao current_date", async () => {
+      const db = await construir();
+      await db.exec(PRAZO);
+      await db.exec(PRAZO_RB);
+      const h = await q1(db, "select prosrc like '%current_date%' t from pg_proc where proname='caso_dentro_prazo_fidelizacao'");
+      expect(h.t).toBe(true);
+      await db.close();
+    });
+  });
 });
