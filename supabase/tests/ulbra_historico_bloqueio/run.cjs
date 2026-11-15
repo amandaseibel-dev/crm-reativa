@@ -65,6 +65,38 @@ async function main() {
       await c.query("commit");
       igual(r.permitido, true, "volta a funcionar sem claim (versão instalada)");
     });
+    // Concorrência real: cada clique tem a SUA conexão; a reserva é uma instrução atômica (advisory lock por dia).
+    const reservarNaConexao = async (cli, op, qtd, tOp, tGl, dia = null) => {
+      await cli.query("begin");
+      try {
+        await cli.query("set local request.jwt.claim.role = 'service_role'");
+        const r = (await cli.query("select * from public.ulbra_historico_reservar($1, coalesce($5::date, current_date), $2, $3, $4)", [op, qtd, tOp, tGl, dia])).rows[0];
+        await cli.query("commit");
+        return r.permitido === true;
+      } catch (e) { await cli.query("rollback").catch(() => {}); throw e; }
+    };
+    await teste("CONCORRÊNCIA por usuário: 12 cliques simultâneos de 2 unidades (renovação+leitura) com teto 20 → exatamente 10 permitidos", async () => {
+      const cli = await Promise.all(Array.from({ length: 12 }, () => conectar(BANCO)));
+      try {
+        const res = await Promise.all(cli.map((x) => reservarNaConexao(x, "conc-user@x", 2, 20, 1000)));
+        igual(res.filter(Boolean).length, 10, "permitidos");
+      } finally { await Promise.all(cli.map((x) => x.end())); }
+      igual((await c.query("select usadas from public.ulbra_historico_uso where escopo = 'conc-user@x' and dia = current_date")).rows[0].usadas, 20, "usadas = 20, nunca acima");
+    });
+    await teste("CONCORRÊNCIA global: 200 tentativas de 20 operadores (10 cada, 1 unidade) com teto 150 → exatamente 150 permitidas", async () => {
+      const ops = Array.from({ length: 20 }, (_, i) => `conc-glob-${i}@x`);
+      const cli = await Promise.all(ops.map(() => conectar(BANCO)));
+      try {
+        const tarefas = ops.map(async (op, i) => {
+          const permitidos = [];
+          for (let k = 0; k < 10; k++) permitidos.push(await reservarNaConexao(cli[i], op, 1, 20, 150, "2026-11-14"));
+          return permitidos.filter(Boolean).length;
+        });
+        const total = (await Promise.all(tarefas)).reduce((a, b) => a + b, 0);
+        igual(total, 150, "permitidas no total");
+      } finally { await Promise.all(cli.map((x) => x.end())); }
+      igual((await c.query("select usadas from public.ulbra_historico_uso where escopo = '*' and dia = '2026-11-14'")).rows[0].usadas, 150, "global = 150, nunca acima");
+    });
   } finally { await c.end(); }
   console.log(resultados.join("\n")); console.log(falhas ? `\nFALHOU: ${falhas}` : `\nTodas passaram: ${resultados.length}`);
   process.exitCode = falhas ? 1 : 0;
