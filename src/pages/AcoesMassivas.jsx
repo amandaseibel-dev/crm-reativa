@@ -1628,7 +1628,7 @@ export default function AcoesMassivas() {
       {resultados && resumoPrevia && (
         <div style={estilos.card} data-testid="painel-previa">
           <h3 style={{ margin: "0 0 10px", fontFamily: FONTE_TITULO, fontSize: 15, fontWeight: 800 }}>
-            Painel da prévia <span style={{ fontSize: 11, fontWeight: 800, color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)", borderRadius: 6, padding: "1px 8px", marginLeft: 6 }}>PRÉVIA — nada foi enviado nem registrado</span>
+            Painel da prévia <span style={{ fontSize: 11, fontWeight: 800, color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)", borderRadius: 6, padding: "1px 8px", marginLeft: 6 }}>PRÉVIA — nada foi enviado nem registrado como acionamento (só a auditoria da prévia é gravada)</span>
           </h3>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
             <div style={estilos.miniCard}><div style={estilos.miniVal}>{Number(resumoPrevia.solicitado || 0).toLocaleString("pt-BR")}</div><div style={estilos.miniRot}>Solicitado</div></div>
