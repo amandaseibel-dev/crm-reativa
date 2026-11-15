@@ -94,7 +94,7 @@ const LINHA = (aluno, tipo, status, email) => ({ aluno_id: aluno, tipo, status_n
     try { await c.query("insert into public.aluno_movimentacoes (aluno_id,tipo,status_novo,registrado_por_email) values ('r1','CONTATO','TERMO_FISICO_ARQUIVADO',$1)", [OP]); }
     catch (e) { adm = e.message; }
     await c.query("reset role");
-    registrar(adm === "ok", "DOCUMENTADO: sessão postgres (manutenção) + SET ROLE authenticated é aceita pelo gatilho (caminho administrativo)", adm);
+    registrar(adm === "ok", "CARACTERIZAÇÃO, NÃO APROVADA: sessão postgres (manutenção) + SET ROLE authenticated é aceita pelo gatilho; não é decisão da gestão", adm);
   } finally {
     srv.kill("SIGTERM"); await c.end().catch(() => {});
   }

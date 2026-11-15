@@ -48,8 +48,11 @@ select public.teste_assert('operador: recusado com TAB, quebra de linha e retorn
 
 -- UPDATE do operador em status_novo: negado (sem privilégio, e a trigger cobre UPDATE OF status_novo).
 -- UPDATE do operador em status_novo de movimentação da gestão: a trigger (UPDATE OF status_novo) recusa.
-insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
-  values ('a2','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_EM_ANDAMENTO','operador.teste@exemplo.local');
+-- Fixture legítimo: a movimentação de REGISTRO é da GESTÃO ATIVA (Amanda), não do operador.
+select public.teste_assert('fixture: gestão ativa grava REGISTRO de termo para o aluno a2',
+  public.teste_comando('authenticated', 'amanda.seibel@aelbra.com.br',
+    $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, descricao, registrado_por_email)
+         values ('a2','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_EM_ANDAMENTO','Registro administrativo do termo físico.','amanda.seibel@aelbra.com.br')$sql$)->>'ok' = 'true');
 -- UPDATE do operador: sem policy de UPDATE (como em produção) a RLS afeta zero linhas; a linha da gestão não muda.
 select public.teste_comando('authenticated', 'operador.teste@exemplo.local',
   'update public.aluno_movimentacoes set status_novo = ''TERMO_FISICO_ARQUIVADO'' where aluno_id = ''a2''');
