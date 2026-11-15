@@ -139,7 +139,7 @@ describe("acordo quebrado", () => {
     fireEvent.click(within(dlg).getByRole("button", { name: "Confirmar" }));
     await waitFor(() => expect(chamadas("juridico_caso_revisar_acordo_quebrado")).toHaveLength(1));
     expect(chamadas("juridico_caso_revisar_acordo_quebrado")[0][1]).toEqual({
-      p_caso_id: "c1", p_motivo: "saldo conferido", p_acordos: ["x1", "x2"], p_saldo: 300.3,
+      p_caso_id: "c1", p_motivo: "saldo conferido", p_acordos: ["x1", "x2"], p_saldo: 300.3, p_parcelas: [],
     });
   });
 });

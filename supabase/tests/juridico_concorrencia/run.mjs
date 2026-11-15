@@ -6,7 +6,8 @@
 //     parcial (caso, aluno, historico e acordo ficam como estavam).
 //  2. Depois que a outra sessao solta a trava, a MESMA aprovacao passa (nova tentativa).
 //  3. Troca simultanea de parcelas vencidas do mesmo acordo: as duas atualizacoes terminam
-//     sem erro (uma espera a outra, sem ciclo), e a marca PARCELA_QUEBROU existe.
+//     sem erro (uma espera a outra), e a marca PARCELA_QUEBROU existe. NAO prova ausencia de deadlock
+//     em ordem inversa (duas parcelas em ordens opostas): isso e comportamento pre-existente, nao coberto.
 //
 // Ambiente: monta o schema e as funcoes do fixture confirmacao_d2 (corpo de producao) mais o
 // portao canonico, aplica a migration do Juridico e roda. Dados FICTICIOS.
@@ -226,7 +227,7 @@ async function main() {
   });
 
   // ---- 4. TROCA SIMULTANEA DE PARCELAS VENCIDAS ---------------------------------------
-  await caso("troca simultanea de parcelas vencidas do mesmo acordo: sem erro, sem ciclo, com marca", async () => {
+  await caso("troca simultanea de parcelas vencidas do mesmo acordo: sem erro, com marca", async () => {
     const s = await cliente(); await comoGestao(s);
     const H1 = await cliente(), H2 = await cliente();
     const x = await criarAlunoComCaso(s, { acordo: "EM_DIA" });
@@ -235,13 +236,21 @@ async function main() {
     await H1.query("begin");
     await H1.query("update parcelas set status='VENCIDA' where id=$1", [x.parcelas[0]]);
     console.error("  t4: H1 updated"); // H1 segura aluno/acordo pelo gatilho
-    // H2 quer a OUTRA parcela do mesmo acordo: tem que esperar H1 (sem ciclo), nunca falhar por deadlock
+    // H2 quer a OUTRA parcela do mesmo acordo: espera H1 e termina sem erro (nao prova ausencia de deadlock em ordem inversa)
+    // PID obtido ANTES de H2 bloquear (uma consulta enfileirada atras do UPDATE travaria o teste)
+    const pidH2 = (await H2.query("select pg_backend_pid() p")).rows[0].p;
     const h2 = H2.query("update parcelas set status='VENCIDA' where id=$1", [x.parcelas[1]]);
-    // H2 ainda NAO terminou enquanto H1 segura a trava (prova de espera, sem depender de pg_stat)
-    let h2Terminou = false;
-    h2.then(() => { h2Terminou = true; }, () => { h2Terminou = true; });
-    await new Promise((r) => setTimeout(r, 500));
-    assert.equal(h2Terminou, false, "H2 devia estar esperando a trava da H1 antes do commit");
+    // Sincronizacao VERIFICAVEL: a H2 precisa aparecer ESPERANDO uma trava (pg_stat_activity)
+    // enquanto a H1 segura a linha. Monitor proprio, com limite de 5 s.
+    const M = await cliente();
+    let esperando = false;
+    for (let k = 0; k < 100 && !esperando; k++) {
+      const r = await M.query("select wait_event_type t from pg_stat_activity where pid=$1", [pidH2]);
+      esperando = r.rows[0]?.t === "Lock";
+      if (!esperando) await new Promise((r2) => setTimeout(r2, 50));
+    }
+    await M.end();
+    assert.ok(esperando, "H2 devia aparecer esperando uma trava (Lock) enquanto a H1 segura a linha");
     await H1.query("commit");
     await h2;
     console.error("  t4: h2 ok"); // resolve sem erro
@@ -251,6 +260,29 @@ async function main() {
     // Cada transacao gravou a quebra vista no SEU snapshot: 1 ou 2 marcas, ambas reais. Nunca 0.
     assert.ok(marcas >= 1 && marcas <= 2, `marcas de quebra fora do esperado: ${marcas}`);
     await H1.end(); await H2.end(); await s.end();
+  });
+
+  // ---- 5. CASCATA: o update do aluno para JURIDICO atualiza casos; casos travados -----------
+  await caso("casos do aluno travados por outra sessao: aprovacao recusada em tempo limitado, sem alteracao", async () => {
+    const s5 = await cliente(); await comoGestao(s5);
+    const H = await cliente();
+    const x = await criarAlunoComCaso(s5);
+    await s5.query("insert into casos(id,aluno_id,nome,cpf_limpo,cpf,operador_email,operador_nome,status_atual,status_acionamento) values (gen_random_uuid(),$1,'Aluno Conc',$2,$2,'op1@x','Op Um','CONTATAR','CONTATAR')", [x.al, x.cpf]);
+    const antes = await foto(s5, x);
+    await H.query("begin");
+    await H.query("select 1 from casos where aluno_id=$1 for update", [x.al]);
+    const t0 = Date.now();
+    let err = null;
+    try { await s5.query("select public.juridico_caso_aprovar($1)", [x.caso]); } catch (e) { err = e; }
+    const dt = Date.now() - t0;
+    assert.ok(err, "a aprovacao devia ser recusada com casos travados");
+    assert.equal(err.code, "40001");
+    assert.match(err.message, /Nada foi gravado/);
+    assert.ok(dt >= 2500 && dt < 10000, `espera limitada (~3 s), medida ${dt} ms`);
+    assert.deepEqual(await foto(s5, x), antes, "nenhuma alteracao parcial (aluno volta ao estado anterior)");
+    await H.query("rollback");
+    assert.equal((await s5.query("select public.juridico_caso_aprovar($1) j", [x.caso])).rows[0].j.status, "APROVADO");
+    await H.end(); await s5.end();
   });
 
   // Fecha TODAS as conexoes, inclusive as de cenarios que falharam (senao o processo nao sai).

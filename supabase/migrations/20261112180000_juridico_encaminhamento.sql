@@ -91,6 +91,9 @@ create table public.juridico_casos (
   -- confirmado, quem, quando e por que. Pendencia se o conjunto ou o saldo mudar.
   quebrado_revisado_ids uuid[] not null default '{}',
   quebrado_revisado_saldo numeric(14,2),
+  -- conjunto de DIVIDAS ELEGIVEIS revisado: parcelas VENCIDAS dos acordos ativos do aluno.
+  -- Parcela nova vencida que muda este conjunto exige nova revisao, mesmo com o saldo igual.
+  quebrado_revisado_parcelas uuid[] not null default '{}',
   quebrado_revisado_por text,
   quebrado_revisado_em timestamptz,
   quebrado_revisado_motivo text,
@@ -373,6 +376,12 @@ begin
        is distinct from (select coalesce(array_agg(x order by x), '{}'::uuid[]) from unnest(p_caso.quebrado_revisado_ids) x)
        or (select coalesce(sum((a->>'saldo')::numeric), 0) from jsonb_array_elements(p_conf->'acordos') a
             where a->>'situacao' = 'QUEBRADO') is distinct from p_caso.quebrado_revisado_saldo
+       -- conjunto de dividas elegiveis (parcelas vencidas): parcela nova vencida muda o conjunto
+       or (select coalesce(array_agg(y.x order by y.x), '{}'::uuid[])
+             from (select (p->>'parcela_id')::uuid x from jsonb_array_elements(p_conf->'acordos') a,
+                                                          jsonb_array_elements(a->'parcelas') p
+                    where a->>'situacao' = 'QUEBRADO' and upper(p->>'status') = 'VENCIDA') y)
+          is distinct from (select coalesce(array_agg(x order by x), '{}'::uuid[]) from unnest(p_caso.quebrado_revisado_parcelas) x)
        -- regularizou e quebrou de novo depois da revisao, com as mesmas condicoes e o mesmo saldo
        or exists (select 1 from public.juridico_historico h
                    where h.caso_id = p_caso.id and h.evento = 'PARCELA_QUEBROU'
@@ -630,6 +639,11 @@ begin
      where array_length(v.ids, 1) > 0
        and (v.ids is distinct from (select coalesce(array_agg(x order by x), '{}'::uuid[]) from unnest(p_caso.quebrado_revisado_ids) x)
             or v.saldo is distinct from p_caso.quebrado_revisado_saldo
+            or (select coalesce(array_agg(pv.id order by pv.id), '{}'::uuid[])
+                  from public.parcelas pv join public.acordos av on av.id = pv.acordo_id
+                 where av.aluno_id = p_caso.aluno_id and upper(coalesce(av.status,'')) = 'ATIVO'
+                   and av.duplicado_de is null and upper(coalesce(pv.status,'')) = 'VENCIDA')
+               is distinct from (select coalesce(array_agg(x order by x), '{}'::uuid[]) from unnest(p_caso.quebrado_revisado_parcelas) x)
             -- regularizado e quebrou de novo com as mesmas condicoes: o historico das parcelas sabe
             or exists (select 1 from public.juridico_historico h
                         where h.caso_id = p_caso.id and h.evento = 'PARCELA_QUEBROU'
@@ -1031,13 +1045,16 @@ $function$;
 
 -- Revisao financeira de acordo QUEBRADO. A gestao confirma os acordos e o saldo que
 -- viu. Nao cobra, nao baixa, nao cancela nem move carteira: so registra a revisao.
-create function public.juridico_caso_revisar_acordo_quebrado(p_caso_id uuid, p_motivo text, p_acordos uuid[], p_saldo numeric)
+create function public.juridico_caso_revisar_acordo_quebrado(p_caso_id uuid, p_motivo text, p_acordos uuid[], p_saldo numeric, p_parcelas uuid[])
 returns jsonb
 language plpgsql security definer set search_path to 'public'
 as $function$
 declare v_email text := public._juridico_exigir_gestao(); v_caso public.juridico_casos;
-  v_conf jsonb; v_set uuid[]; v_saldo numeric;
+  v_conf jsonb; v_set uuid[]; v_saldo numeric; v_pset uuid[];
 begin
+  -- espera LIMITADA: nenhum conflito de trava fica pendurado; o erro reverte a transacao inteira
+  set local lock_timeout = '3s';
+  begin
   if nullif(btrim(coalesce(p_motivo,'')), '') is null then
     raise exception 'Informe a justificativa da revisão do acordo quebrado.' using errcode = '22023';
   end if;
@@ -1067,15 +1084,26 @@ begin
   if round(p_saldo, 2) is distinct from round(v_saldo, 2) then
     raise exception 'O saldo exigível mudou (atual %). Recarregue a tela antes de revisar.', v_saldo using errcode = 'P0001';
   end if;
+  select coalesce(array_agg(y.x order by y.x), '{}'::uuid[]) into v_pset
+    from (select (p->>'parcela_id')::uuid x from jsonb_array_elements(v_conf->'acordos') a,
+                                                 jsonb_array_elements(a->'parcelas') p
+           where a->>'situacao' = 'QUEBRADO' and upper(p->>'status') = 'VENCIDA') y;
+  if (select coalesce(array_agg(x order by x), '{}'::uuid[]) from unnest(coalesce(p_parcelas, '{}'::uuid[])) x) is distinct from v_pset then
+    raise exception 'As parcelas vencidas mudaram. Recarregue a tela antes de revisar.' using errcode = 'P0001';
+  end if;
   update public.juridico_casos
-     set quebrado_revisado_ids = v_set, quebrado_revisado_saldo = v_saldo,
+     set quebrado_revisado_ids = v_set, quebrado_revisado_saldo = v_saldo, quebrado_revisado_parcelas = v_pset,
          quebrado_revisado_por = v_email, quebrado_revisado_em = now(),
          quebrado_revisado_motivo = btrim(p_motivo)
    where id = p_caso_id;
   perform public._juridico_registrar(p_caso_id, v_caso.lote_id, 'ACORDO_QUEBRADO_REVISADO',
     jsonb_build_object('acordos', to_jsonb(v_set), 'saldo', v_saldo, 'motivo', btrim(p_motivo)), v_email);
   return jsonb_build_object('caso_id', p_caso_id, 'acordos', to_jsonb(v_set), 'saldo', v_saldo);
+  exception when lock_not_available then
+    raise exception 'Caso em uso por outra rotina (aluno, caso, acordo ou parcela). Nada foi gravado. Tente novamente em instantes.' using errcode = '40001';
+  end;
 end;
+
 $function$;
 
 create function public.juridico_caso_aprovar_acordo_ativo(p_caso_id uuid, p_motivo text, p_acordos uuid[])
@@ -1084,6 +1112,9 @@ language plpgsql security definer set search_path to 'public'
 as $function$
 declare v_email text := public._juridico_exigir_gestao(); v_lote uuid;
 begin
+  -- espera LIMITADA: nenhum conflito de trava fica pendurado; o erro reverte a transacao inteira
+  set local lock_timeout = '3s';
+  begin
   if nullif(btrim(coalesce(p_motivo,'')), '') is null then
     raise exception 'Informe o motivo para encaminhar um aluno com acordo ativo.' using errcode = '22023';
   end if;
@@ -1116,7 +1147,11 @@ begin
   perform public._juridico_registrar(p_caso_id, v_lote, 'ACORDO_ATIVO_APROVADO',
     jsonb_build_object('motivo', btrim(p_motivo)), v_email);
   return jsonb_build_object('caso_id', p_caso_id, 'acordo_ativo_aprovado', true);
+  exception when lock_not_available then
+    raise exception 'Caso em uso por outra rotina (aluno, caso, acordo ou parcela). Nada foi gravado. Tente novamente em instantes.' using errcode = '40001';
+  end;
 end;
+
 $function$;
 
 -- APROVAR: fotografa os titulos e BLOQUEIA a cobranca do aluno.
@@ -1129,6 +1164,9 @@ declare
   v_caso public.juridico_casos; v_conf jsonb; v_pend text[]; v_ant jsonb; v_n int;
   v_acordos uuid[]; v_sig text;
 begin
+  -- espera LIMITADA: nenhum conflito de trava fica pendurado; o erro reverte a transacao inteira
+  set local lock_timeout = '3s';
+  begin
   select * into v_caso from public.juridico_casos where id = p_caso_id for update;
   if not found then raise exception 'Caso não encontrado.' using errcode = 'P0002'; end if;
   if v_caso.status <> 'EM_ANALISE' then
@@ -1235,7 +1273,11 @@ begin
                        'termo', v_conf->'termo'->>'status'), v_email);
   return jsonb_build_object('caso_id', p_caso_id, 'status', 'APROVADO',
                             'valor', v_conf->'total', 'titulos', v_n);
+  exception when lock_not_available then
+    raise exception 'Caso em uso por outra rotina (aluno, caso, acordo ou parcela). Nada foi gravado. Tente novamente em instantes.' using errcode = '40001';
+  end;
 end;
+
 $function$;
 
 -- Payload do Excel: so casos aprovados em diante. Nunca caso em analise.
@@ -1712,7 +1754,7 @@ begin
   'public.juridico_caso_documento_vincular(uuid,text,text,text)',
   'public.juridico_caso_autorizar_documento(uuid,text)',
   'public.juridico_caso_aprovar_acordo_ativo(uuid,text,uuid[])',
-  'public.juridico_caso_revisar_acordo_quebrado(uuid,text,uuid[],numeric)',
+  'public.juridico_caso_revisar_acordo_quebrado(uuid,text,uuid[],numeric,uuid[])',
   'public.juridico_caso_aprovar(uuid)',
   'public.juridico_lote_exportar(uuid)',
   'public.juridico_lote_enviar_financeiro(uuid)',

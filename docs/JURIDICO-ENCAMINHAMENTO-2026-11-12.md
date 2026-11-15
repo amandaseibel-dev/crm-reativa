@@ -237,7 +237,7 @@ Teste: `supabase/tests/juridico_concorrencia/run.mjs`, job `juridico-concorrenci
   nenhuma alteração parcial (caso, aluno, histórico e assinatura iguais ao estado anterior) e a
   nova tentativa passa depois que a outra sessão solta a trava.
 - **Troca simultânea de parcelas vencidas do mesmo acordo:** uma sessão segura a primeira
-  parcela e a outra espera pela segunda; a espera termina sem erro e sem ciclo, e a marca
+  parcela e a outra espera pela segunda; a espera termina sem erro, e a marca
   `PARCELA_QUEBROU` existe.
 - **Mutações (provam que o teste pega a regressão):** tirar o `NOWAIT` de alunos, de acordos ou
   de parcelas faz o cenário correspondente falhar: a verificação de tempo (< 2 s) reprova porque a aprovação esperou a trava. Tirar o
@@ -247,20 +247,23 @@ Teste: `supabase/tests/juridico_concorrencia/run.mjs`, job `juridico-concorrenci
   listados; corpos de `_acordo_fecha_com_a_ultima_parcela`, `atualizar_parcelas_vencidas`,
   `_trg_recalc_por_parcela`, `_trg_recalc_por_aluno_uuid`, `recalcular_situacao_aluno` (corpo
   completo, lido em dois trechos) e `_reabrir_aluno_com_divida_nova`. Achado: os dois gatilhos de
-  recálculo engolem qualquer erro (`exception when others then null`); por isso a aprovação
-  espera em alguns pontos, e o `NOWAIT` cobre só aluno, acordos e parcelas da própria aprovação. Ficam
-  SEM cobertura: (a) o `FOR UPDATE` de `juridico_casos` no início da aprovação (espera); (b) o `update
-  alunos` da aprovação dispara `alunos_propaga_encerramento_para_caso`, que atualiza `casos` sem `NOWAIT`,
-  e `sincronizar_alunos_unificados`; um ciclo com outra transação pode virar `40P01` (deadlock detectado
-  pelo Postgres, transação abortada sem alteração parcial), não `40001`. Decisão para a gestão e o
-  desenvolvedor: travar `casos` com `NOWAIT` também, ou aceitar `40P01` como falha segura.
+  recálculo engolem qualquer erro (`exception when others then null`).
 
-**Pergunta objetiva para a gestão (não alterada):** acordo quebrado e revisado. Se uma parcela
-nova vence e outra sai de vencida no mesmo comando, mantendo o mesmo saldo e as mesmas
-condições, hoje não há alerta (o acordo já era quebrado e a regra só alerta a passagem de em dia
-para quebrado). Exemplo: revisão com `p1` vencida; depois `p1 -> A_VENCER` e `p2 -> VENCIDA` com o
-mesmo valor. Você quer que esse caso gere revisão (regra por parcela) ou fica como está (regra
-por acordo)? Sem sua resposta, a regra por acordo continua.
+  **Espera limitada (corrigido):** as três RPCs que travam aluno e casos (`juridico_caso_aprovar`,
+  `juridico_caso_aprovar_acordo_ativo`, `juridico_caso_revisar_acordo_quebrado`) passam a ter
+  `set local lock_timeout = '3s'` e o corpo dentro de um bloco que converte `lock_not_available` em
+  `40001` ("Caso em uso por outra rotina ... Nada foi gravado"). Assim nenhuma espera fica indefinida,
+  inclusive a que nasce dentro de gatilho: o cascade `update alunos` -> `alunos_propaga_encerramento_para_caso`
+  -> `update casos` está coberto pelo cenário 5 do teste. A transação é revertida inteira. O `NOWAIT`
+  continua só em aluno, acordos e parcelas, onde foi testado. Não há prova de ausência de deadlock em
+  ordem inversa de duas transações (comportamento pré-existente dos gatilhos): NÃO COMPROVADO.
+
+**Conjunto de dívidas elegíveis (X4, decidido pela gestão):** o conjunto é o das parcelas
+VENCIDAS dos acordos ativos do aluno, gravado na revisão (`quebrado_revisado_parcelas`). Parcela nova
+vencida que muda esse conjunto exige nova revisão, mesmo com saldo total igual (teste X1). Sem mudança
+nenhuma, nenhum alerta (X2). Regularizar e quebrar de novo com o mesmo conjunto gera um único alerta,
+sem duplicar (X2). Efeito: a quebra natural de uma parcela de acordo já revisado passa a exigir revisão
+antes do envio (F4b) — decisão da gestão, que substitui a regra anterior.
 
 **Critério de data (vigente, não alterado):** a diferença para o Prime e para as Ações Massivas
 está na seção "Critério de data do pagamento no extrato Prime" acima.

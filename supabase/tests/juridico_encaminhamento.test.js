@@ -76,11 +76,14 @@ const revQ = async (db, caso) => {
     const q = (c.acordos || []).filter((a) => a.situacao === "QUEBRADO");
     if (!q.length) return;
     const saldo = q.reduce((t, a) => t + Number(a.saldo || 0), 0);
-    const ja = (await db.query("select quebrado_revisado_ids ids, quebrado_revisado_saldo sa from juridico_casos where id=$1", [caso.id])).rows[0];
-    const ids = q.map((x) => x.acordo_id).sort();
-    if (ja && [...ja.ids].sort().join() === ids.join() && Number(ja.sa) === saldo) return; // ja revisado com o mesmo conjunto e saldo
-    await rpc(db, "public.juridico_caso_revisar_acordo_quebrado($1,$2,$3,$4)",
-      [caso.id, "revisado nos testes: saldo confirmado", q.map((x) => x.acordo_id), saldo]);
+    const vencidas = q.flatMap((a) => (a.parcelas || []).filter((p) => p.status === "VENCIDA").map((p) => p.parcela_id));
+    // ja revisado com o MESMO conjunto, saldo e parcelas: nao sobrescreve a revisao (motivo e data originais)
+    const ja = (await db.query("select quebrado_revisado_ids ids, quebrado_revisado_saldo sa, quebrado_revisado_parcelas pv from juridico_casos where id=$1", [caso.id])).rows[0];
+    const igual = ja && [...ja.ids].sort().join() === q.map((x) => x.acordo_id).sort().join()
+      && Number(ja.sa) === saldo && [...ja.pv].sort().join() === [...vencidas].sort().join();
+    if (igual) return;
+    await rpc(db, "public.juridico_caso_revisar_acordo_quebrado($1,$2,$3,$4,$5)",
+      [caso.id, "revisado nos testes: saldo confirmado", q.map((x) => x.acordo_id), saldo, vencidas]);
   }
 };
 
@@ -104,7 +107,7 @@ describe("acesso: exclusivo da gestao", () => {
         `public.juridico_caso_documento_vincular('${U(1, 1)}','a','b','DRIVE')`,
         `public.juridico_caso_autorizar_documento('${U(1, 1)}','x')`,
         `public.juridico_caso_aprovar_acordo_ativo('${U(1, 1)}','x', array[]::uuid[])`,
-        `public.juridico_caso_revisar_acordo_quebrado('${U(1, 1)}','x', array[]::uuid[], 0)`,
+        `public.juridico_caso_revisar_acordo_quebrado('${U(1, 1)}','x', array[]::uuid[], 0, array[]::uuid[])`,
         `public.juridico_lote_exportar('${U(1, 1)}')`, `public.juridico_lote_enviar_financeiro('${U(1, 1)}')`,
         `public.juridico_casos_confirmar_juridico(array['${U(1, 1)}']::uuid[])`,
       ]) {
@@ -848,8 +851,15 @@ describe("acordo quebrado: revisao financeira antes da aprovacao", () => {
   const conf = async (db, al) => (await db.query("select public._juridico_conferencia($1) c", [al])).rows[0].c;
   const quebrados = (c) => (c.acordos || []).filter((a) => a.situacao === "QUEBRADO");
   const saldoDe = (qs) => qs.reduce((t, a) => t + Number(a.saldo || 0), 0);
-  const revisar = (db, caso, motivo, ids, saldo) =>
-    rpc(db, "public.juridico_caso_revisar_acordo_quebrado($1,$2,$3,$4)", [caso.id, motivo, ids, saldo]);
+  const vencidasDe = async (db, al) => {
+    const c = (await db.query("select public._juridico_conferencia($1) c", [al])).rows[0].c;
+    return (c.acordos || []).filter((a) => a.situacao === "QUEBRADO")
+      .flatMap((a) => (a.parcelas || []).filter((p) => p.status === "VENCIDA").map((p) => p.parcela_id));
+  };
+  const revisar = async (db, caso, motivo, ids, saldo, parcelas) => {
+    const pv = parcelas === undefined ? await vencidasDe(db, caso.aluno_id) : parcelas;
+    return rpc(db, "public.juridico_caso_revisar_acordo_quebrado($1,$2,$3,$4,$5)", [caso.id, motivo, ids, saldo, pv]);
+  };
   const semPendencia = async (db, al) => expect(await pend(db, al)).not.toContain("ACORDO_QUEBRADO_SEM_REVISAO");
 
   it("quebrado na geracao: pendencia, aprovacao recusada; revisao com responsavel, data e motivo libera; carteira e operador intactos", async () => {
@@ -1313,12 +1323,32 @@ describe("fechamento: alertas falsos, nova quebra, concorrencia simulada e confi
     await db.close();
   });
 
-  it("F4b. quebra NATURAL de outra parcela de acordo ja quebrado e aprovado NAO gera alerta e o envio passa", async () => {
+  it("F4b. parcela NOVA vencida (quebra natural) muda o conjunto de dividas elegiveis: revisao obrigatoria e envio recusado", async () => {
     const db = await novo();
     const { a, l, caso } = await quebradoAprovado(db);
     await db.query("update parcelas set status='VENCIDA' where acordo_id=$1 and numero=2", [a.ac]);
+    expect(await divs(db, caso)).toContain("ACORDO_QUEBRADO_SEM_REVISAO");
+    expect((await falha(enviar(db, l)))?.message).toMatch(/ACORDO_QUEBRADO_SEM_REVISAO/);
+    await db.close();
+  });
+
+  it("X1. parcela vencida TROCADA (mesmo saldo, mesmo acordo): o conjunto de dividas mudou, revisao obrigatoria", async () => {
+    const db = await novo();
+    const { a, caso } = await quebradoAprovado(db);
+    await db.query("update parcelas set status='A_VENCER' where acordo_id=$1 and numero=1", [a.ac]);
+    await db.query("update parcelas set status='VENCIDA' where acordo_id=$1 and numero=2 and valor=300", [a.ac]);
+    expect(await divs(db, caso)).toContain("ACORDO_QUEBRADO_SEM_REVISAO");
+    await db.close();
+  });
+
+  it("X2. sem mudanca nenhuma: nenhum alerta; regularizou e quebrou de novo com o MESMO conjunto: um unico alerta, sem duplicar", async () => {
+    const db = await novo();
+    const { a, caso } = await quebradoAprovado(db);
     expect(await divs(db, caso)).toEqual([]);
-    expect((await enviar(db, l)).enviados_agora).toBe(1);
+    await db.query("update parcelas set status='A_VENCER' where acordo_id=$1 and numero=1", [a.ac]);
+    await db.query("update parcelas set status='VENCIDA' where acordo_id=$1 and numero=1", [a.ac]);
+    const d = await divs(db, caso);
+    expect(d.filter((x) => x === "ACORDO_QUEBRADO_SEM_REVISAO")).toHaveLength(1);
     await db.close();
   });
 

@@ -1105,7 +1105,7 @@ jobs:
   #
   # Prova o NOWAIT de aluno, de acordos e de parcelas na aprovação (falha rápido com
   # 40001, sem alteração parcial, nova tentativa passa), e a troca simultânea de
-  # parcelas vencidas do mesmo acordo (sem erro e sem ciclo). O PGlite, sessão única,
+  # parcelas vencidas do mesmo acordo (sem erro). O PGlite, sessão única,
   # não consegue provar isso. Dados 100% sintéticos.
   # ---------------------------------------------------------------------------
   juridico-concorrencia:

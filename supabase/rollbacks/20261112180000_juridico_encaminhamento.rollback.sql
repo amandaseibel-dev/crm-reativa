@@ -75,7 +75,7 @@ drop function public.juridico_caso_substituir(uuid,text);
 drop function public.juridico_caso_remover(uuid,text);
 drop function public.juridico_caso_documento_vincular(uuid,text,text,text);
 drop function public.juridico_caso_autorizar_documento(uuid,text);
-drop function public.juridico_caso_revisar_acordo_quebrado(uuid,text,uuid[],numeric);
+drop function public.juridico_caso_revisar_acordo_quebrado(uuid,text,uuid[],numeric,uuid[]);
 drop function public.juridico_caso_aprovar_acordo_ativo(uuid,text,uuid[]);
 drop function public.juridico_caso_aprovar(uuid);
 drop function public.juridico_lote_exportar(uuid);
