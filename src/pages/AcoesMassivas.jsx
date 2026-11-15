@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
+import { classificarFalhaExportacao, montarLinhasContatos, gerarArquivoExportacao } from "../utils/exportacaoMassiva.js";
 import { supabase } from "../services/supabase";
 import {
   detalheSelecao,
@@ -538,10 +539,7 @@ export default function AcoesMassivas() {
   // registrar) quanto pelo botão manual (gesto novo do usuário) de fallback.
   function baixarPlanilha(rel) {
     if (!rel || !rel.linhas || rel.linhas.length === 0) return;
-    const planilha = XLSX.utils.json_to_sheet(rel.linhas);
-    const livro = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(livro, planilha, "Ação Massiva");
-    XLSX.writeFile(livro, rel.nomeArquivo);
+    gerarArquivoExportacao(XLSX, rel);
   }
 
   // EXPORTAR NÃO É CONTATO REALIZADO. O disparo acontece numa ferramenta
@@ -577,8 +575,17 @@ export default function AcoesMassivas() {
       if (previaId) argsExportar.p_previa_id = previaId;
       // O banco revalida o tipo e o grava no lote; a confirmação revalida de novo.
       if (tipoLote) argsExportar.p_tipo_cobranca = tipoLote;
-      const { data: exp, error: erroExp } = await supabase.rpc("acoes_massivas_exportar", argsExportar);
-      if (erroExp) throw erroExp;
+      let exp;
+      try {
+        const { data, error: erroExp } = await supabase.rpc("acoes_massivas_exportar", argsExportar);
+        if (erroExp) throw erroExp;
+        exp = data;
+      } catch (e) {
+        const f = classificarFalhaExportacao("rpc", e);
+        console.error("Exportacao da acao massiva falhou", { etapa: f.etapa, codigo: f.codigo });
+        setErro(f.mensagem);
+        return;
+      }
 
       const excluidosEnvio = Number(exp?.excluidos_confirmacao || 0);
       const excluidosPrime = Number(exp?.excluidos_liquidados_prime || 0);
@@ -590,19 +597,15 @@ export default function AcoesMassivas() {
       // Os contatos completos só vêm desta RPC (gestão, auditada pelo lote); a
       // prévia nunca os expõe.
       const contatos = exp?.contatos || [];
+      let falhaArquivo = false;
       if (contatos.length > 0) {
-        const linhas = contatos.map((c) => {
-          const telFmt = normalizarTelefone(c.telefone);
-          return canal === "WHATSAPP"
-            ? { "Nome do aluno": c.nome, Telefone: telFmt }
-            : { "Nome do aluno": c.nome, "E-mail": (c.email || "").trim(), Telefone: telFmt || "" };
-        });
-        const relGerado = { linhas, nomeArquivo };
+        const relGerado = { linhas: montarLinhasContatos(contatos, canal, normalizarTelefone), nomeArquivo };
         setRelatorioPronto(relGerado);
         try {
           baixarPlanilha(relGerado);
-        } catch (e) {
-          console.warn("Download automático falhou; use o botão Baixar planilha.", e);
+        } catch {
+          falhaArquivo = true;
+          console.warn("Falha ao gerar o arquivo da acao massiva", { etapa: "arquivo" });
         }
       }
 
@@ -633,6 +636,12 @@ export default function AcoesMassivas() {
         automatico: !!exp?.registro_automatico,
       });
 
+      // O lote ja foi registrado pela RPC. Sem arquivo, nao dizer que a planilha foi exportada.
+      if (falhaArquivo) {
+        setErro(classificarFalhaExportacao("arquivo").mensagem + " Use o botão Baixar planilha.");
+        carregarLotesRegistro();
+        return;
+      }
       if (contatos.length === 0) {
         setSucesso(`Nenhum aluno na planilha.${sufixoExcluidos}`);
       } else {
@@ -642,8 +651,9 @@ export default function AcoesMassivas() {
       }
       carregarLotesRegistro();
     } catch (e) {
-      console.error("Erro ao exportar planilha da ação massiva:", e);
-      setErro("Erro ao exportar planilha: " + (e.message || "tente novamente"));
+      const f = classificarFalhaExportacao("rpc", e);
+      console.error("Erro ao exportar planilha da ação massiva", { etapa: f.etapa, codigo: f.codigo });
+      setErro(f.mensagem);
     } finally {
       setGerando(false);
     }
