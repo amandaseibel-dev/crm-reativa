@@ -144,11 +144,13 @@ $$;
 -- Contrato restrito: só authenticated (com o portão interno). PUBLIC, anon e
 -- service_role saem; outros papéis herdados por privilégio padrão também saem,
 -- se existirem neste projeto.
-revoke all on function public.efetividade_caixa_resumo_semestre(text) from public, anon, service_role;
+revoke all on function public.efetividade_caixa_resumo_semestre(text) from public, anon;
+-- service_role e papéis de executor só existem em alguns ambientes (no Supabase sim;
+-- num Postgres puro de CI não). Revoga apenas os que existem.
 do $$
 declare r text;
 begin
-  foreach r in array array['reativa_responsavel_executor'] loop
+  foreach r in array array['service_role', 'reativa_responsavel_executor'] loop
     if exists (select 1 from pg_roles where rolname = r) then
       execute format('revoke all on function public.efetividade_caixa_resumo_semestre(text) from %I', r);
     end if;

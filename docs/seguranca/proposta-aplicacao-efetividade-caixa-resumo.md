@@ -17,7 +17,7 @@ Entrega final = #966 (SQL) + #965 (tela). A tela só deve ser mesclada depois da
 ## Artefatos (SHA-256 integral)
 
 - Migration `supabase/migrations/20261115130000_efetividade_caixa_resumo_semestre.sql`:
-  `58a162ed2e0ab13bc9e1bfcd104389df1d54911d57d2e921058bdf83dfb914d0`
+  `c38f5a0ec956bed2001b37e0940913588805ea5f461459efbe7b193a86cb105d`
 - Rollback `docs/rollbacks/efetividade-caixa-resumo-semestre-rollback.sql`:
   `4bf1b0ffe2dd009809fc929b13ac336cce0d09541f48663f8181c0022fdb88b5`
 
@@ -25,7 +25,7 @@ Entrega final = #966 (SQL) + #965 (tela). A tela só deve ser mesclada depois da
 
 Linha de `docs/seguranca/migracoes-aprovadas.tsv`, 6 colunas separadas por TAB:
 `ahattpqrjmhkzsmnbdzs` · `20261115130000_efetividade_caixa_resumo_semestre` ·
-`58a162ed2e0ab13bc9e1bfcd104389df1d54911d57d2e921058bdf83dfb914d0` ·
+`c38f5a0ec956bed2001b37e0940913588805ea5f461459efbe7b193a86cb105d` ·
 `amanda.seibel@aelbra.com.br` · `expira_em` = aprovação + 30 min (UTC) · `pendente`.
 
 ## Executor nominal
@@ -95,6 +95,6 @@ Nada disso é feito antes da aprovação.
 
 ## Estado
 
-- Migration e rollback: hashes acima, neste commit.
+- Migration e rollback: hashes acima, neste commit. Correção: revoke de service_role condicionado à existência do papel (falha comprovada no log do job SQL).
 - Heads e CI/Guardião: obtidos depois do congelamento; sem parecer, nada é liberado.
 - Bloqueio conhecido: nenhum no código. Sem aplicação, sem registro e sem merge até a autorização.
