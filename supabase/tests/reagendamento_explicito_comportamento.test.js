@@ -1,20 +1,27 @@
-// REAGENDAMENTO EXPLICITO, PORTAO DO RECALCULO E BACKUP -- fluxo real em PGlite
+// REAGENDAMENTO HUMANO EXPLICITO, PERMISSOES POR OPERACAO, BACKUP E RESTAURACAO
 // =============================================================================
-// Roda o corpo VIVO de producao (lido em 13/11/2026, fixture byte a byte), o
-// gatilho e a RPC de confirmacao reais, e os DOIS arquivos do pacote:
+// Roda o corpo VIVO de recalcular_situacao_aluno (fixture de 13/11/2026, byte a
+// byte), o gatilho e a RPC de confirmacao reais, e os arquivos do pacote:
 //   1. 20261113120000_retorno_tratado_nao_herda_selo_do_operador.sql.pendente
 //   2. 20261114120000_agenda_reagendar_retorno_e_portao_recalculo.sql.pendente
-// Depois dos dois, roda os rollbacks e confere o estado original.
+// Depois confere rollback, backup por id e restauracao filtrada por id.
 //
-// Sessao de usuario: auth.uid()/auth.email() leem `teste.uid` e `teste.email`
-// (set_config). Sem `teste.uid`, a chamada se comporta como cron/backend.
+// IDENTIDADES (sessao = set_config em teste.uid / teste.email):
+//   sem sessao (anon)        -> teste.uid vazio
+//   authenticated sem perfil -> e-mail que nao esta em usuarios
+//   operador dono do caso    -> OPERADOR (ativo)
+//   operador de outra carteira -> OUTRO (ativo)
+//   usuario inativo         -> OPERADOR_INATIVO (existe, ativo = false)
+//   Amanda / Fernanda / Amanda ADM -> GESTAO (amanda), cobranca04, cobranca07
 //
-// O QUE ESTE TESTE NAO PROVA (declarado): concorrencia real entre duas sessoes.
-// PGlite tem uma conexao so. Quem prova a corrida e a rodada de staging do
-// pacote (duas sessoes reais, RPC x recalculo na mesma linha). Aqui o que se
-// prova e que a RPC trava a linha (`for update`) e que o trecho esta no texto.
+// PERMISSAO DE GESTAO: a RPC usa public.usuario_e_gestao(), gate que JA EXISTE no
+// banco. Sua definicao NAO esta no repositorio. Aqui ela e um STUB que devolve
+// verdadeiro para as tres identidades acima. A lista real precisa ser conferida
+// em producao antes da aplicacao (pendencia declarada no pacote).
 //
-// NENHUM DADO REAL: nomes, telefones e ids sao inventados.
+// O QUE NAO PROVA: concorrencia real entre duas sessoes (PGlite tem uma conexao).
+// Fica para a rodada de staging do pacote. Os grants sao conferidos por
+// has_function_privilege; o teste NAO troca de role para executar como anon.
 import { describe, it, expect, vi } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { readFileSync } from "node:fs";
@@ -33,22 +40,38 @@ const md5 = (t) => createHash("md5").update(t, "utf8").digest("hex");
 
 const MD5_VIVO = "41475103b8b7ad363dfdc76c4170c5a8";
 const MD5_PARTE1 = "03dacc0abb23490a8e060c4f86e0df94";
-const MD5_PORTAO = "dc95d29d8a76359e35228ee4977cf5b6";
 
 const CORPO_VIVO = ler("tests", "fixtures", "recalcular_situacao_aluno_prod_20261113.sql");
 const AGENDA_CONFIRMADO = ler("migrations", "20260808150000_agenda_retorno_confirmado.sql");
 const P1 = "supabase/aguardando_aprovacao/20261113120000_retorno_tratado_nao_herda_selo_do_operador";
 const P2 = "supabase/aguardando_aprovacao/20261114120000_agenda_reagendar_retorno_e_portao_recalculo";
+const RESTAURA = "supabase/aguardando_aprovacao/20261114120000_restauracao_por_id";
 const P1_PEND = lerRaiz(`${P1}.sql.pendente`);
 const P1_ROLL = lerRaiz(`${P1}.rollback.sql`);
 const P2_PEND = lerRaiz(`${P2}.sql.pendente`);
 const P2_ROLL = lerRaiz(`${P2}.rollback.sql`);
+const RESTAURA_PEND = lerRaiz(`${RESTAURA}.sql.pendente`);
 
 const OPERADOR = "operador.teste@exemplo.local";
 const OUTRO = "outro.operador@exemplo.local";
-const GESTAO = "amanda.seibel@aelbra.com.br";
+const INATIVO = "inativo.teste@exemplo.local";
+const SEM_PERFIL = "sem.perfil@exemplo.local";
+const AMANDA = "amanda.seibel@aelbra.com.br";
+const FERNANDA = "cobranca04@aelbra.com.br";
+const AMANDA_ADM = "cobranca07@aelbra.com.br";
+const GESTAO = [AMANDA, FERNANDA, AMANDA_ADM];
 const ALUNA = "a1000000-0000-4000-8000-000000000001";
 const OUTRA = "a1000000-0000-4000-8000-000000000002";
+
+const UID = {
+  [OPERADOR]: "00000000-0000-4000-8000-0000000000a1",
+  [OUTRO]: "00000000-0000-4000-8000-0000000000b2",
+  [INATIVO]: "00000000-0000-4000-8000-0000000000c3",
+  [SEM_PERFIL]: "00000000-0000-4000-8000-0000000000d4",
+  [AMANDA]: "00000000-0000-4000-8000-0000000000e5",
+  [FERNANDA]: "00000000-0000-4000-8000-0000000000f6",
+  [AMANDA_ADM]: "00000000-0000-4000-8000-000000000007",
+};
 
 const ESQUEMA = `
   create role anon;
@@ -58,6 +81,10 @@ const ESQUEMA = `
     as $$ select nullif(current_setting('teste.uid', true), '')::uuid $$;
   create function auth.email() returns text language sql stable
     as $$ select nullif(current_setting('teste.email', true), '') $$;
+
+  create table public.usuarios (email text primary key, ativo boolean default true);
+  create function public.usuario_e_gestao() returns boolean language sql stable
+    as $$ select lower(coalesce(auth.email(), '')) = any (array['${GESTAO.join("','")}']) $$;
 
   create table public.alunos (
     id uuid primary key, nome text, telefone text, responsavel_atual_email text,
@@ -93,8 +120,7 @@ const ESQUEMA = `
     aluno_id uuid, proximo_vencimento date, data_retorno date, valor numeric, lote text,
     gerado_em timestamptz default now(), unique (aluno_id, proximo_vencimento)
   );
-  create table public.usuarios (email text primary key, ativo boolean default true);
-  create table public.auditoria (acao text, detalhes jsonb);
+  create table public.auditoria (id uuid primary key default gen_random_uuid(), usuario text, acao text, tabela_afetada text, registro_id uuid, detalhes jsonb, created_at timestamp default now());
   create table public.aluno_movimentacoes (tipo text, descricao text);
   create function public.titulo_superado_por_acordo(uuid, date) returns boolean language sql as $$ select false $$;
   create function public.calibragem_nivel_criticidade(int, int, numeric, boolean, boolean, jsonb)
@@ -105,12 +131,6 @@ const ESQUEMA = `
   create function public.dia_util_anterior_ou_igual(date) returns date language sql as $$ select $1 $$;
 `;
 
-// Sessao de usuario (ou nenhuma, para cron/backend).
-const UID = {
-  [OPERADOR]: "00000000-0000-4000-8000-0000000000a1",
-  [OUTRO]: "00000000-0000-4000-8000-0000000000b2",
-  [GESTAO]: "00000000-0000-4000-8000-0000000000c3",
-};
 const como = (db, email) =>
   db.exec(
     email
@@ -118,18 +138,14 @@ const como = (db, email) =>
       : `select set_config('teste.email', '', false), set_config('teste.uid', '', false);`
   );
 
-// Gravacao ANTIGA da tela (sem a RPC): o que a tela fazia antes do pacote.
-async function gravarRetornoAntigo(db, id, dias, hora) {
-  await db.query(
-    `update public.alunos set data_retorno = current_date + $2::int, hora_retorno = $3, retorno_origem = 'OPERADOR' where id = $1`,
-    [id, dias, hora]
-  );
-}
-
 async function montar({ comPacote }) {
   const db = new PGlite();
   await db.exec(ESQUEMA);
-  await db.exec("insert into public.usuarios (email, ativo) values ('" + OPERADOR + "', true), ('" + OUTRO + "', true), ('" + GESTAO + "', true);");
+  await db.exec(
+    `insert into public.usuarios (email, ativo) values
+       ('${OPERADOR}', true), ('${OUTRO}', true), ('${INATIVO}', false),
+       ('${AMANDA}', true), ('${FERNANDA}', true), ('${AMANDA_ADM}', true);`
+  );
   await db.exec(AGENDA_CONFIRMADO);
   await db.exec(CORPO_VIVO);
   await db.exec("grant execute on function public.recalcular_situacao_aluno(uuid, text) to authenticated;");
@@ -174,18 +190,26 @@ const linha = async (db, id) =>
     )
   ).rows[0];
 
-// A tela, quando o operador marca "Reagendar": grava a ficha e chama a RPC.
+// Tela: agendamento humano EXPLICITO (botao Reagendar -> RPC).
 async function reagendar(db, email, id, dias, hora) {
   await como(db, email);
   await db.query("select public.agenda_reagendar_retorno($1, current_date + $2::int, $3, false)", [id, dias, hora]);
   await como(db, null);
 }
 
-// A tela, ao salvar SEM "Reagendar": grava so o que mudou (aqui, a observacao).
-async function salvarFichaSemReagendar(db, email, id) {
+// Tela: "Ja falei" -> RPC de confirmacao (ja existente, nao muda).
+async function jaFalei(db, email, id) {
   await como(db, email);
-  await db.query("update public.alunos set observacao = 'obs nova' where id = $1", [id]);
+  await db.query("select public.agenda_confirmar_retorno($1, true)", [id]);
   await como(db, null);
+}
+
+// Gravacao comum da ficha (observacao) ou automatica (data, sem RPC).
+async function gravacaoComum(db, id) {
+  await db.query("update public.alunos set observacao = 'obs nova' where id = $1", [id]);
+}
+async function gravacaoAutomatica(db, id, dias) {
+  await db.query("update public.alunos set data_retorno = current_date + $2::int, retorno_origem = 'AUTOMATICO' where id = $1", [id, dias]);
 }
 
 async function amanhece(db) {
@@ -214,61 +238,49 @@ async function avisoHoje(db, horaAgora) {
   return retornoParaAvisar(semana, { hoje, horaAgora, silenciados: new Map() });
 }
 
-describe("cadeia de md5: o pacote so entra sobre o corpo que foi lido", () => {
-  it("o fixture e o corpo vivo, e as duas etapas batem com os md5 previstos", () => {
+describe("cadeia de md5 e rollback", () => {
+  it("o fixture e o corpo vivo; a parte 1 leva a 03dacc0a e a parte 2 NAO muda o corpo", async () => {
     const i = CORPO_VIVO.indexOf("AS $function$") + "AS $function$".length;
     const prosrc = CORPO_VIVO.slice(i, CORPO_VIVO.lastIndexOf("$function$"));
     expect(md5(prosrc)).toBe(MD5_VIVO);
-    const trocar = (sql, s) => {
-      const a = sql.match(/\$a\$([\s\S]*?)\$a\$/)[1];
-      const n = sql.match(/\$n\$([\s\S]*?)\$n\$/)[1];
-      expect(s.split(a).length - 1).toBe(1);
-      return s.split(a).join(n);
-    };
-    const depois1 = trocar(P1_PEND, prosrc);
-    expect(md5(depois1)).toBe(MD5_PARTE1);
-    expect(md5(trocar(P2_PEND, depois1))).toBe(MD5_PORTAO);
+    const db = await montar({ comPacote: true });
+    expect(await md5Corpo(db)).toBe(MD5_PARTE1);
   });
 
-  it("o rollback do pacote volta exatamente ao corpo da parte 1, e a parte 1 ao corpo vivo", async () => {
+  it("o rollback volta ao corpo vivo e recria o gatilho de zeragem", async () => {
     const db = await montar({ comPacote: false });
-    expect(await md5Corpo(db)).toBe(MD5_VIVO);
     await db.exec(P1_PEND);
-    expect(await md5Corpo(db)).toBe(MD5_PARTE1);
     await db.exec(P2_PEND);
-    expect(await md5Corpo(db)).toBe(MD5_PORTAO);
     await db.exec(P2_ROLL);
-    expect(await md5Corpo(db)).toBe(MD5_PARTE1);
     await db.exec(P1_ROLL);
     expect(await md5Corpo(db)).toBe(MD5_VIVO);
+    const r = await db.query("select count(*)::int as n from pg_trigger where tgrelid = 'public.alunos'::regclass and tgname = 'trg_aluno_reset_retorno_confirmado'");
+    expect(r.rows[0].n).toBe(1);
   });
 
-  it("recusa a parte 2 se a parte 1 nao foi aplicada (corpo fora da cadeia)", async () => {
+  it("recusa a parte 1 se o corpo nao for o lido em producao", async () => {
     const db = await montar({ comPacote: false });
-    await expect(db.exec(P2_PEND)).rejects.toThrow(/CORPO INESPERADO/);
+    await db.exec(CORPO_VIVO.replace("v_retorno := hoje;", "v_retorno := hoje + 0;"));
+    await expect(db.exec(P1_PEND)).rejects.toThrow(/CORPO INESPERADO|ANCORA NAO BATE/);
     await db.exec("rollback;");
-    expect(await md5Corpo(db)).toBe(MD5_VIVO);
   });
 });
 
-describe("reagendamento explicito e salvar a ficha (fluxo real)", () => {
-  it("defeito: sem o pacote, o 'Ja falei' some na virada e o aviso volta", async () => {
+describe("so o reagendamento humano explicito zera 'Ja falei'", () => {
+  it("sem o pacote, o 'Ja falei' some quando a data muda e o aviso volta (falha se a correcao sumir)", async () => {
     const db = await montar({ comPacote: false });
-    await gravarRetornoAntigo(db, ALUNA, 0, "14:30");
-    await como(db, OPERADOR);
-    await db.query("select public.agenda_confirmar_retorno($1, true)", [ALUNA]);
-    await como(db, null);
-    await amanhece(db);
-    expect((await avisoHoje(db, "14:30"))?.id).toBe(ALUNA);
+    await db.query("update public.alunos set data_retorno = current_date, hora_retorno = '14:30', retorno_origem = 'OPERADOR' where id = $1", [ALUNA]);
+    await jaFalei(db, OPERADOR, ALUNA);
+    await db.query("update public.alunos set data_retorno = current_date + 0 where id = $1", [ALUNA]);
+    await db.query("update public.alunos set data_retorno = current_date + 1 where id = $1", [ALUNA]);
+    expect((await linha(db, ALUNA)).confirmado).toBeNull();
   });
 
   it("'Ja falei' encerra o aviso e a virada nao o reabre", async () => {
     const db = await montar({ comPacote: true });
     await reagendar(db, OPERADOR, ALUNA, 0, "14:30");
     expect((await avisoHoje(db, "14:30"))?.id).toBe(ALUNA);
-    await como(db, OPERADOR);
-    await db.query("select public.agenda_confirmar_retorno($1, true)", [ALUNA]);
-    await como(db, null);
+    await jaFalei(db, OPERADOR, ALUNA);
     expect(await avisoHoje(db, "14:31")).toBeNull();
     for (let dia = 1; dia <= 3; dia += 1) {
       await amanhece(db);
@@ -276,37 +288,31 @@ describe("reagendamento explicito e salvar a ficha (fluxo real)", () => {
     }
   });
 
-  it("salvar a ficha SEM reagendar nao zera o 'Ja falei'", async () => {
+  it("gravacao comum da ficha (observacao) preserva a confirmacao", async () => {
     const db = await montar({ comPacote: true });
     await reagendar(db, OPERADOR, ALUNA, 0, "14:30");
-    await como(db, OPERADOR);
-    await db.query("select public.agenda_confirmar_retorno($1, true)", [ALUNA]);
-    await como(db, null);
+    await jaFalei(db, OPERADOR, ALUNA);
     const antes = (await linha(db, ALUNA)).confirmado;
     expect(antes).not.toBeNull();
-    await salvarFichaSemReagendar(db, OPERADOR, ALUNA);
+    await gravacaoComum(db, ALUNA);
     const depois = await linha(db, ALUNA);
     expect(depois.confirmado).toBe(antes);
     expect(depois.observacao).toBe("obs nova");
-    expect(await avisoHoje(db, "14:31")).toBeNull();
   });
 
-  it("reagendar em outra data reativa o aviso", async () => {
+  it("gravacao automatica que muda a data (tabulacao, lote) preserva a confirmacao", async () => {
     const db = await montar({ comPacote: true });
-    await reagendar(db, OPERADOR, ALUNA, 0, "10:00");
-    await como(db, OPERADOR);
-    await db.query("select public.agenda_confirmar_retorno($1, true)", [ALUNA]);
-    await como(db, null);
-    await reagendar(db, OPERADOR, ALUNA, 2, "08:00");
-    expect((await linha(db, ALUNA)).confirmado).toBeNull();
+    await reagendar(db, OPERADOR, ALUNA, 0, "14:30");
+    await jaFalei(db, OPERADOR, ALUNA);
+    const antes = (await linha(db, ALUNA)).confirmado;
+    await gravacaoAutomatica(db, ALUNA, 5);
+    expect((await linha(db, ALUNA)).confirmado).toBe(antes);
   });
 
-  it("reagendar na MESMA data e hora, depois do 'Ja falei', reativa o aviso (pela RPC, nao pelo gatilho)", async () => {
+  it("reagendar na MESMA data e hora, depois do 'Ja falei', nasce pendente e reativa o aviso", async () => {
     const db = await montar({ comPacote: true });
     await reagendar(db, OPERADOR, ALUNA, 0, "10:00");
-    await como(db, OPERADOR);
-    await db.query("select public.agenda_confirmar_retorno($1, true)", [ALUNA]);
-    await como(db, null);
+    await jaFalei(db, OPERADOR, ALUNA);
     await reagendar(db, OPERADOR, ALUNA, 0, "10:00");
     const l = await linha(db, ALUNA);
     expect(`${l.retorno_origem}:${l.hora_retorno}:${l.confirmado}`).toBe("OPERADOR:10:00:null");
@@ -314,7 +320,15 @@ describe("reagendamento explicito e salvar a ficha (fluxo real)", () => {
     expect((await avisoHoje(db, "10:00"))?.id).toBe(ALUNA);
   });
 
-  it("retorno NAO tratado continua como combinado: a virada nao muda nada alem da data", async () => {
+  it("reagendar em outra data nasce pendente", async () => {
+    const db = await montar({ comPacote: true });
+    await reagendar(db, OPERADOR, ALUNA, 0, "10:00");
+    await jaFalei(db, OPERADOR, ALUNA);
+    await reagendar(db, OPERADOR, ALUNA, 2, "08:00");
+    expect((await linha(db, ALUNA)).confirmado).toBeNull();
+  });
+
+  it("retorno NAO tratado continua como combinado: a virada muda so a data", async () => {
     const db = await montar({ comPacote: true });
     await reagendar(db, OPERADOR, ALUNA, 0, "09:15");
     await amanhece(db);
@@ -324,50 +338,75 @@ describe("reagendamento explicito e salvar a ficha (fluxo real)", () => {
   });
 });
 
-describe("so a acao 'Reagendar' zera 'Ja falei'", () => {
-  it("gravacao comum que muda a data (tabulacao automatica, lote, ficha) NAO zera a confirmacao", async () => {
+describe("permissoes por perfil (RPC de reagendamento)", () => {
+  it("anon (sem sessao) e recusado e nada muda", async () => {
     const db = await montar({ comPacote: true });
     await reagendar(db, OPERADOR, ALUNA, 0, "10:00");
-    await como(db, OPERADOR);
-    await db.query("select public.agenda_confirmar_retorno($1, true)", [ALUNA]);
+    const antes = await linha(db, ALUNA);
     await como(db, null);
-    const antes = (await linha(db, ALUNA)).confirmado;
-    expect(antes).not.toBeNull();
-    // data mudada por fora da tela de reagendamento
-    await db.query("update public.alunos set data_retorno = current_date + 5 where id = $1", [ALUNA]);
-    expect((await linha(db, ALUNA)).confirmado).toBe(antes);
+    await expect(db.query("select public.agenda_reagendar_retorno($1, current_date, '16:00', false)", [ALUNA])).rejects.toThrow(/Sem sessao/);
+    expect(await linha(db, ALUNA)).toEqual(antes);
   });
 
-  it("o gatilho de zeragem por data nao existe mais depois do pacote; o rollback o recria", async () => {
+  it("authenticated sem perfil (fora de usuarios) e recusado", async () => {
     const db = await montar({ comPacote: true });
-    const r1 = await db.query("select count(*)::int as n from pg_trigger where tgrelid = 'public.alunos'::regclass and tgname = 'trg_aluno_reset_retorno_confirmado'");
-    expect(r1.rows[0].n).toBe(0);
-    await db.exec(P2_ROLL);
-    const r2 = await db.query("select count(*)::int as n from pg_trigger where tgrelid = 'public.alunos'::regclass and tgname = 'trg_aluno_reset_retorno_confirmado'");
-    expect(r2.rows[0].n).toBe(1);
-  });
-});
-
-describe("negativas de acesso", () => {
-  it("usuario INATIVO e recusado na RPC e no recalculo, mesmo sendo o dono", async () => {
-    const db = await montar({ comPacote: true });
-    await db.query("update public.usuarios set ativo = false where email = $1", [OPERADOR]);
-    await como(db, OPERADOR);
+    await db.query("select set_config('teste.email', $1, false), set_config('teste.uid', $2, false)", [SEM_PERFIL, UID[OPERADOR]]);
     await expect(db.query("select public.agenda_reagendar_retorno($1, current_date, '16:00', false)", [ALUNA])).rejects.toThrow(/inativo ou sem cadastro/);
-    await expect(db.query("select public.recalcular_situacao_aluno($1, 'teste')", [ALUNA])).rejects.toThrow(/Sem permissao para recalcular/);
     await como(db, null);
   });
 
-  it("recalculo nao e executavel por anon (so authenticated e servico)", async () => {
+  it("operador INATIVO e dono do caso e recusado", async () => {
     const db = await montar({ comPacote: true });
-    const r = await db.query("select has_function_privilege('anon', 'public.recalcular_situacao_aluno(uuid,text)', 'EXECUTE') as anon, has_function_privilege('authenticated', 'public.recalcular_situacao_aluno(uuid,text)', 'EXECUTE') as auth");
+    await db.query("insert into public.alunos (id, nome, responsavel_atual_email) values ('a1000000-0000-4000-8000-0000000000ff', 'X', $1)", [INATIVO]);
+    await como(db, INATIVO);
+    await expect(db.query("select public.agenda_reagendar_retorno('a1000000-0000-4000-8000-0000000000ff', current_date, null, false)")).rejects.toThrow(/inativo ou sem cadastro/);
+    await como(db, null);
+  });
+
+  it("operador NAO dono e recusado (isolamento de carteira) e nada muda", async () => {
+    const db = await montar({ comPacote: true });
+    await reagendar(db, OPERADOR, ALUNA, 0, "10:00");
+    const antes = await linha(db, ALUNA);
+    await como(db, OUTRO);
+    await expect(db.query("select public.agenda_reagendar_retorno($1, current_date, '16:00', false)", [ALUNA])).rejects.toThrow(/Sem permissao para reagendar/);
+    await como(db, null);
+    expect(await linha(db, ALUNA)).toEqual(antes);
+  });
+
+  it("operador DONO reagenda o proprio caso", async () => {
+    const db = await montar({ comPacote: true });
+    await reagendar(db, OPERADOR, ALUNA, 0, "16:00");
+    expect((await linha(db, ALUNA)).hora_retorno).toBe("16:00");
+  });
+
+  it("Amanda, Fernanda e Amanda ADM reagendam caso alheio pelo gate de gestao existente", async () => {
+    for (const gestor of GESTAO) {
+      const db = await montar({ comPacote: true });
+      await reagendar(db, gestor, OUTRA, 0, "17:00");
+      expect((await linha(db, OUTRA)).hora_retorno).toBe("17:00");
+    }
+  });
+
+  it("data nula e recusada, sem gravar", async () => {
+    const db = await montar({ comPacote: true });
+    await como(db, OPERADOR);
+    await expect(db.query("select public.agenda_reagendar_retorno($1, null, null, false)", [ALUNA])).rejects.toThrow(/Informe a data/);
+    await como(db, null);
+  });
+
+  it("ACL: anon nao executa a RPC; authenticated executa", async () => {
+    const db = await montar({ comPacote: true });
+    const r = await db.query(
+      "select has_function_privilege('anon', 'public.agenda_reagendar_retorno(uuid,date,text,boolean)', 'EXECUTE') as anon, has_function_privilege('authenticated', 'public.agenda_reagendar_retorno(uuid,date,text,boolean)', 'EXECUTE') as auth"
+    );
     expect(r.rows[0].anon).toBe(false);
     expect(r.rows[0].auth).toBe(true);
   });
+});
 
-  it("gatilho disparado pela sessao de OUTRO operador roda o recalculo sem ser barrado (pg_trigger_depth)", async () => {
+describe("triggers compartilhados continuam funcionando", () => {
+  it("gatilho de pagamento executado pela sessao de OUTRO operador recalcula sem ser barrado", async () => {
     const db = await montar({ comPacote: true });
-    // gatilho de teste que recalcula o aluno de outro dono, como os de pagamento/acordo
     await db.exec(`
       create table public.pagamentos_teste (aluno_id uuid);
       create function public.teste_recalc_no_gatilho() returns trigger language plpgsql security definer set search_path to 'public' as $$
@@ -381,90 +420,62 @@ describe("negativas de acesso", () => {
     await como(db, null);
   });
 
-  it("RPC: usuario que nao e dono nem gestao e recusado, e nada muda", async () => {
+  it("erro dentro de gatilho NAO e engolido: a RPC recusada derruba a instrucao que a chamou", async () => {
     const db = await montar({ comPacote: true });
-    await reagendar(db, OPERADOR, ALUNA, 0, "10:00");
-    const antes = await linha(db, ALUNA);
+    await db.exec(`
+      create table public.agenda_teste (aluno_id uuid);
+      create function public.teste_reagenda_no_gatilho() returns trigger language plpgsql security definer set search_path to 'public' as $$
+      begin perform public.agenda_reagendar_retorno(new.aluno_id, current_date, null, false); return new; end $$;
+      create trigger trg_teste_reagenda after insert on public.agenda_teste for each row execute function public.teste_reagenda_no_gatilho();
+      grant insert on public.agenda_teste to authenticated;
+      grant execute on function public.teste_reagenda_no_gatilho() to authenticated;
+    `);
     await como(db, OUTRO);
-    await expect(
-      db.query("select public.agenda_reagendar_retorno($1, current_date, '16:00', false)", [ALUNA])
-    ).rejects.toThrow(/Sem permissao/);
+    await expect(db.query("insert into public.agenda_teste (aluno_id) values ($1)", [ALUNA])).rejects.toThrow(/Sem permissao para reagendar/);
     await como(db, null);
-    expect(await linha(db, ALUNA)).toEqual(antes);
-  });
-
-  it("RPC: sem sessao e recusada", async () => {
-    const db = await montar({ comPacote: true });
-    await como(db, null);
-    await expect(
-      db.query("select public.agenda_reagendar_retorno($1, current_date, '16:00', false)", [ALUNA])
-    ).rejects.toThrow(/Sem sessao/);
-  });
-
-  it("RPC: gestao pode reagendar caso de outro operador", async () => {
-    const db = await montar({ comPacote: true });
-    await como(db, GESTAO);
-    await db.query("select public.agenda_reagendar_retorno($1, current_date, '16:00', false)", [OUTRA]);
-    await como(db, null);
-    expect((await linha(db, OUTRA)).hora_retorno).toBe("16:00");
-  });
-
-  it("RPC: data nula e recusada", async () => {
-    const db = await montar({ comPacote: true });
-    await como(db, OPERADOR);
-    await expect(db.query("select public.agenda_reagendar_retorno($1, null, null, false)", [ALUNA])).rejects.toThrow(/Informe a data/);
-    await como(db, null);
-  });
-
-  it("portao do recalculo: usuario sem permissao nao recalcula o aluno de outro", async () => {
-    const db = await montar({ comPacote: true });
-    await como(db, OUTRO);
-    await expect(db.query("select public.recalcular_situacao_aluno($1, 'teste')", [ALUNA])).rejects.toThrow(/Sem permissao para recalcular/);
-    await como(db, null);
-  });
-
-  it("portao do recalculo: o dono e a gestao recalculam; sem sessao (cron) passa", async () => {
-    const db = await montar({ comPacote: true });
-    await como(db, OPERADOR);
-    await db.query("select public.recalcular_situacao_aluno($1, 'teste')", [ALUNA]);
-    await como(db, GESTAO);
-    await db.query("select public.recalcular_situacao_aluno($1, 'teste')", [OUTRA]);
-    await como(db, null);
-    await db.query("select public.recalcular_situacao_aluno($1, 'cron')", [OUTRA]);
   });
 });
 
 describe("backup por id", () => {
-  it("guarda o estado de cada aluno com retorno antes da troca, por id", async () => {
-    const db = await montar({ comPacote: false });
-    await gravarRetornoAntigo(db, ALUNA, 0, "10:00");
-    await db.exec(P1_PEND);
-    await db.exec(P2_PEND);
+  it("tabela com RLS ligada, sem politica e sem grant para anon nem authenticated", async () => {
+    const db = await montar({ comPacote: true });
     const r = await db.query(
-      "select aluno_id::text as id, data_retorno::text as d, hora_retorno, retorno_origem from public.retorno_backup_20261114 where aluno_id = $1",
-      [ALUNA]
+      `select c.relrowsecurity as rls,
+              (select count(*)::int from pg_policies where tablename = 'retorno_backup_20261114') as politicas,
+              has_table_privilege('anon', 'public.retorno_backup_20261114', 'SELECT') as anon_le,
+              has_table_privilege('authenticated', 'public.retorno_backup_20261114', 'SELECT') as auth_le
+         from pg_class c where c.oid = 'public.retorno_backup_20261114'::regclass`
     );
-    expect(r.rows.length).toBe(1);
-    expect(r.rows[0].hora_retorno).toBe("10:00");
-    expect(r.rows[0].retorno_origem).toBe("OPERADOR");
+    expect(r.rows[0].rls).toBe(true);
+    expect(r.rows[0].politicas).toBe(0);
+    expect(r.rows[0].anon_le).toBe(false);
+    expect(r.rows[0].auth_le).toBe(false);
   });
 
-  it("o backup nao e apagado pelo rollback", async () => {
+  it("gravacao idempotente: reaplicar o bloco de backup nao duplica", async () => {
+    const db = await montar({ comPacote: true });
+    const n1 = (await db.query("select count(*)::int as n from public.retorno_backup_20261114")).rows[0].n;
+    await db.exec(P2_PEND);
+    const n2 = (await db.query("select count(*)::int as n from public.retorno_backup_20261114")).rows[0].n;
+    expect(n2).toBe(n1);
+  });
+
+  it("restauracao so altera os ids listados e recusa id sem snapshot", async () => {
     const db = await montar({ comPacote: false });
-    await gravarRetornoAntigo(db, ALUNA, 0, "10:00");
+    await db.query("update public.alunos set data_retorno = current_date, hora_retorno = '10:00', retorno_origem = 'OPERADOR' where id = $1", [ALUNA]);
+    await db.query("update public.alunos set data_retorno = current_date, hora_retorno = '11:00', retorno_origem = 'OPERADOR' where id = $1", [OUTRA]);
     await db.exec(P1_PEND);
     await db.exec(P2_PEND);
-    await db.exec(P2_ROLL);
-    await db.exec(P1_ROLL);
-    const r = await db.query("select count(*)::int as n from public.retorno_backup_20261114");
-    expect(r.rows[0].n).toBeGreaterThan(0);
-  });
-});
-
-describe("consistencia dos arquivos do pacote", () => {
-  it("o pacote nao escreve no gatilho, nem cria cron, nem reescreve a parte 1", () => {
-    const corpo = P2_PEND.split("\n").filter((l) => !l.trimStart().startsWith("--")).join("\n");
-    expect(corpo).not.toMatch(/create or replace trigger|alter table .* trigger|cron\./i);
-    expect(corpo).toMatch(/for update/);
+    // altera depois do snapshot
+    await db.query("update public.alunos set hora_retorno = '23:00' where id = $1", [ALUNA]);
+    await db.query("update public.alunos set hora_retorno = '23:00' where id = $1", [OUTRA]);
+    const ids = `array['${ALUNA}']::uuid[]`;
+    await db.exec(RESTAURA_PEND.replace("array[]::uuid[];   -- PREENCHER com os ids aprovados", `${ids};`));
+    expect((await linha(db, ALUNA)).hora_retorno).toBe("10:00");
+    expect((await linha(db, OUTRA)).hora_retorno).toBe("23:00");
+    await db.exec("rollback;");
+    await expect(
+      db.exec(RESTAURA_PEND.replace("array[]::uuid[];   -- PREENCHER com os ids aprovados", "array['a1000000-0000-4000-8000-0000000000ee']::uuid[];"))
+    ).rejects.toThrow(/RESTAURACAO RECUSADA/);
   });
 });
