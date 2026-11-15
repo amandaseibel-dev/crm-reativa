@@ -1047,6 +1047,7 @@ describe("Ações Massivas — e-mail a partir de um lote de WhatsApp", () => {
         fireEvent.click(screen.getByRole("button", { name: /Baixar planilha novamente/ }));
       });
       expect(screen.getByText(/Lote registrado, arquivo não baixado/)).toBeTruthy();
+      expect(screen.queryByText(/Planilha de e-mail gerada/)).toBeNull();
     } finally {
       globalThis.__falhaArquivo = false;
     }

@@ -179,4 +179,16 @@ describe("Exportação — fluxo da página (xlsx real; gravação interceptada 
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Buscar/ })); });
     await waitFor(() => expect(screen.getByRole("button", { name: /Exportar planilha/ }).disabled).toBe(false));
   });
+
+  it("sucesso seguido de falha no 'Baixar de novo': nao deixa 'Lote registrado' ao lado do erro", async () => {
+    await montarEBuscar();
+    await gerarPlanilha();
+    await waitFor(() => expect(controle.gravacoes.length).toBe(1));
+    expect(screen.getByText(/Lote registrado: 2 aluno/)).toBeTruthy();
+    controle.falhaGravacaoAte = 1;
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Baixar planilha novamente/ })); });
+    await waitFor(() => expect(screen.getByText(/Lote registrado, arquivo não baixado/)).toBeTruthy());
+    expect(screen.queryByText(/Lote registrado: 2 aluno/)).toBeNull();
+    expect(exportacoes()).toBe(1);
+  });
 });

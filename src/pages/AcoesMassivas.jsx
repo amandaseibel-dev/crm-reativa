@@ -557,6 +557,8 @@ export default function AcoesMassivas() {
       setFaseExport(FASE.CONCLUIDA);
       setErro("");
     } catch {
+      // Nao deixar "Lote registrado: ..." de um sucesso anterior ao lado do erro.
+      setSucesso("");
       setFaseExport(FASE.ARQUIVO_FALHOU);
       setErro(mensagemDaFase(FASE.ARQUIVO_FALHOU));
     }
@@ -1485,6 +1487,7 @@ export default function AcoesMassivas() {
                     setFaseExport(FASE.CONCLUIDA);
                     setErro("");
                   } catch {
+                    setSucesso("");
                     setFaseExport(FASE.ARQUIVO_FALHOU);
                     setErro(mensagemDaFase(FASE.ARQUIVO_FALHOU));
                   }
