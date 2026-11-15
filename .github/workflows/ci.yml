@@ -47,7 +47,7 @@ jobs:
     # saída que este comentário sugeria acima — "separar os testes de banco em
     # outro job" — renderia um job de 2,3% e outro de 97,7%. O ganho real está em
     # repartir o PRÓPRIO grupo de Postgres em vários jobs paralelos.
-    timeout-minutes: 40
+    timeout-minutes: 60
 
     steps:
       # fetch-depth: 0 porque a catraca das migrations compara este ramo com o

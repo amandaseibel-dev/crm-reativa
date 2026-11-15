@@ -175,7 +175,7 @@ async function main() {
     assert.ok(err, "a aprovacao devia falhar com a trava ocupada");
     assert.equal(err.code, "40001");
     assert.match(err.message, /Tente novamente/);
-    assert.ok(dt < 5000, `falha devia ser imediata, levou ${dt} ms`);
+    assert.ok(dt < 2000, `falha devia ser imediata (espera nao permitida), levou ${dt} ms`);
     assert.deepEqual(await foto(s, x), antes, "nenhuma alteracao parcial");
     await H.query("rollback");
     const ok = (await s.query("select public.juridico_caso_aprovar($1) j", [x.caso])).rows[0].j;
@@ -233,16 +233,23 @@ async function main() {
     await s.query("select public.juridico_caso_aprovar_acordo_ativo($1,'pedido do juridico',$2)", [x.caso, [x.ac]]);
     await s.query("select public.juridico_caso_aprovar($1)", [x.caso]);
     await H1.query("begin");
-    await H1.query("update parcelas set status='VENCIDA' where id=$1", [x.parcelas[0]]); // H1 segura aluno/acordo pelo gatilho
+    await H1.query("update parcelas set status='VENCIDA' where id=$1", [x.parcelas[0]]);
+    console.error("  t4: H1 updated"); // H1 segura aluno/acordo pelo gatilho
     // H2 quer a OUTRA parcela do mesmo acordo: tem que esperar H1 (sem ciclo), nunca falhar por deadlock
     const h2 = H2.query("update parcelas set status='VENCIDA' where id=$1", [x.parcelas[1]]);
-    await new Promise((r) => setTimeout(r, 300));
+    // H2 ainda NAO terminou enquanto H1 segura a trava (prova de espera, sem depender de pg_stat)
+    let h2Terminou = false;
+    h2.then(() => { h2Terminou = true; }, () => { h2Terminou = true; });
+    await new Promise((r) => setTimeout(r, 500));
+    assert.equal(h2Terminou, false, "H2 devia estar esperando a trava da H1 antes do commit");
     await H1.query("commit");
-    await h2; // resolve sem erro
+    await h2;
+    console.error("  t4: h2 ok"); // resolve sem erro
     const st = (await s.query("select status from parcelas where acordo_id=$1 order by numero", [x.ac])).rows.map((r) => r.status);
     assert.deepEqual(st, ["VENCIDA", "VENCIDA"]);
     const marcas = (await s.query("select count(*)::int n from juridico_historico where caso_id=$1 and evento='PARCELA_QUEBROU'", [x.caso])).rows[0].n;
-    assert.ok(marcas >= 1, `devia haver marca de quebra, houve ${marcas}`);
+    // Cada transacao gravou a quebra vista no SEU snapshot: 1 ou 2 marcas, ambas reais. Nunca 0.
+    assert.ok(marcas >= 1 && marcas <= 2, `marcas de quebra fora do esperado: ${marcas}`);
     await H1.end(); await H2.end(); await s.end();
   });
 

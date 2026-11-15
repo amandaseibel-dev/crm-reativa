@@ -240,7 +240,7 @@ Teste: `supabase/tests/juridico_concorrencia/run.mjs`, job `juridico-concorrenci
   parcela e a outra espera pela segunda; a espera termina sem erro e sem ciclo, e a marca
   `PARCELA_QUEBROU` existe.
 - **Mutações (provam que o teste pega a regressão):** tirar o `NOWAIT` de alunos, de acordos ou
-  de parcelas faz o cenário correspondente falhar com "a aprovação esperou a trava". Tirar o
+  de parcelas faz o cenário correspondente falhar: a verificação de tempo (< 2 s) reprova porque a aprovação esperou a trava. Tirar o
   limite de tempo do teste não bastaria: o `lock_timeout` viraria `55P03` e o bloco o converteria
   em `40001`; por isso a verificação de tempo está em cada cenário.
 - **Leitura de produção (somente leitura):** gatilhos de `parcelas`, `acordos` e `alunos`
@@ -248,7 +248,12 @@ Teste: `supabase/tests/juridico_concorrencia/run.mjs`, job `juridico-concorrenci
   `_trg_recalc_por_parcela`, `_trg_recalc_por_aluno_uuid`, `recalcular_situacao_aluno` (corpo
   completo, lido em dois trechos) e `_reabrir_aluno_com_divida_nova`. Achado: os dois gatilhos de
   recálculo engolem qualquer erro (`exception when others then null`); por isso a aprovação
-  nunca pode esperar uma trava (é o que o `NOWAIT` garante).
+  espera em alguns pontos, e o `NOWAIT` cobre só aluno, acordos e parcelas da própria aprovação. Ficam
+  SEM cobertura: (a) o `FOR UPDATE` de `juridico_casos` no início da aprovação (espera); (b) o `update
+  alunos` da aprovação dispara `alunos_propaga_encerramento_para_caso`, que atualiza `casos` sem `NOWAIT`,
+  e `sincronizar_alunos_unificados`; um ciclo com outra transação pode virar `40P01` (deadlock detectado
+  pelo Postgres, transação abortada sem alteração parcial), não `40001`. Decisão para a gestão e o
+  desenvolvedor: travar `casos` com `NOWAIT` também, ou aceitar `40P01` como falha segura.
 
 **Pergunta objetiva para a gestão (não alterada):** acordo quebrado e revisado. Se uma parcela
 nova vence e outra sai de vencida no mesmo comando, mantendo o mesmo saldo e as mesmas
