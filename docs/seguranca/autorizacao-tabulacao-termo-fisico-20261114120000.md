@@ -30,7 +30,7 @@ Status: **PENDENTE DE APROVAÇÃO EXPRESSA PARA APLICAÇÃO.** Este pacote não 
 | Arquivo | SHA-256 | Bytes |
 |---|---|---|
 | `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `e8a495412d770ca6bd230d13bfa5e8a5a0a92c3bb6a71650176048d0f4693b25` | 5042 |
-| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql` | `43dce0cfd3c7f0d84ad49920721629693f04dcf19245dd69b571648b65793375` | 4029 |
+| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql` | `5f2122f0b51ace4eb632b2979a2f674d4a8b62d968e3b9c9529483b77092026b` | 729 |
 | `scripts/seguranca/auditoria_seguranca.sql` (Gate A, corrigido) | `87ed9b7326c6fdbdffd2956c1d3b3f448910ae2e0010f11954418de9c986dd85` | 5682 |
 
 ## Evidências de produção (somente leitura, versionadas)
