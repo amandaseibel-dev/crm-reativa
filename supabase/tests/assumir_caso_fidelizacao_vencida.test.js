@@ -497,7 +497,7 @@ describe("operador assume caso com fidelização vencida", () => {
       await como(db, GESTAO);
       const r = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [op, "x"]);
       expect(r.sucesso).toBe(false);
-      expect(r.mensagem).toContain("Conflito");
+      expect(r.mensagem).toContain("Conflito: houve atendimento");
       expect((await q1(db, "select operador_email e from public.casos where id=$1", [caso])).e).toBe(LUANA);
       await db.close();
     });
@@ -565,7 +565,7 @@ describe("operador assume caso com fidelização vencida", () => {
     await como(db, GESTAO);
     const rv = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [r.operacao_id, "x"]);
     expect(rv.sucesso).toBe(false);
-    expect(rv.mensagem).toContain("Conflito");
+    expect(rv.mensagem).toContain("Conflito: ");
     await db.close();
   });
 
@@ -663,7 +663,7 @@ describe("operador assume caso com fidelização vencida", () => {
     await como(db, GESTAO);
     const rv = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [r.operacao_id, "x"]);
     expect(rv.sucesso).toBe(false);
-    expect(rv.mensagem).toContain("Conflito");
+    expect(rv.mensagem).toContain("Conflito: ");
     await db.close();
   });
 
@@ -982,6 +982,21 @@ describe("operador assume caso com fidelização vencida", () => {
         await d.query("update public.casos set status_acionamento = 'ACORDO FECHADO' where id=$1", [c]);
       });
     });
+    it("caso PROTEGIDO com o gatilho ATIVO (estado real): a reversão é recusada e nada muda", async () => {
+      const db = await abrirCom();
+      const caso = await cenario(db, 174, { dono: MAURICIO });
+      await como(db, LUANA);
+      const r = await tomar(db, caso);
+      expect(r.sucesso).toBe(true);
+      await db.query("update public.casos set status_acionamento = 'ACORDO FECHADO' where id=$1", [caso]);
+      await como(db, GESTAO);
+      const rv = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [r.operacao_id, "x"]);
+      expect(rv.sucesso).toBe(false);
+      expect(rv.mensagem).toContain("Conflito: o caso mudou de responsavel");
+      const op = await q1(db, "select revertida_em is null aberta from public.assumir_fidelizacao_operacoes where id=$1", [r.operacao_id]);
+      expect(op.aberta).toBe(true);
+      await db.close();
+    });
     it("caso ENCERRADO (cancelado) não é devolvido e nada muda", async () => {
       const db = await abrirCom();
       await tomadaEMudanca(db, 171, async (d, c) => {
@@ -997,6 +1012,8 @@ describe("operador assume caso com fidelização vencida", () => {
     });
   });
 
+  // DECISÃO PENDENTE DA GESTÃO: numa operação antiga (sem a chave), o valor de responsavel_atual_em depois da
+  // reversão é o instante da reversão (set_resp_aluno), não o de antes. O teste prova só que o campo NÃO fica nulo.
   it("operação ANTIGA (sem responsavel_atual_em em estado_anterior) não zera a data atual da troca", async () => {
     const db = await abrirCom();
     const caso = await cenario(db, 173, { dono: MAURICIO });
