@@ -92,33 +92,20 @@ AS $function$
   select coalesce((select u.pode_alterar_responsavel and u.ativo from public.usuarios u
      where lower(u.email)=lower(coalesce(auth.jwt()->>'email','')) limit 1), false); $function$;
 
--- PRE-CONDICAO P2 (PR #936, NAO producao ainda): funcao copiada do arquivo da #936 para o teste.
--- Quando a #936 for aplicada, esta fixture deve ser trocada pela leitura de producao com md5.
+-- PRE-CONDICAO P2 (PR #936, head 7670f20c, candidato a artefato final): copia do arquivo da #936.
+-- Quando a #936 for aplicada, confirmar o md5 abaixo contra producao antes de aplicar a #953.
 CREATE OR REPLACE FUNCTION public.aluno_retorno_operador_vigente(p_aluno_id uuid)
  RETURNS boolean
  LANGUAGE sql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
-  -- Decisao da gestao (13/11/2026, opcao 3). Protege enquanto, e somente enquanto:
-  --   * o responsavel atual e um USUARIO ATIVO (ex-operador nao bloqueia: pool livre);
-  --   * o retorno e de hoje ou futuro (Sao Paulo), e a origem e do operador, nao concluido;
-  --   * ha ATENDIMENTO COMPROVADO do responsavel atual, feito DEPOIS de ele assumir o
-  --     aluno (responsavel_atual_em: X->Y->X nao revalida atendimento anterior a troca);
-  --   * e o atendimento satisfaz uma das duas vias:
-  --       (a) vinculo explicito: a movimentacao traz a MESMA data de retorno, ate 15 dias
-  --           depois do atendimento (15 dias = hipotese, parametro provisorio);
-  --       (b) alternativa: atendimento registrado nos ultimos 10 dias. Conta a data do
-  --           ATENDIMENTO, nao a do retorno: remarcar sem atender nao renova a protecao.
-  -- Nao cria protecao indefinida: sem atendimento novo, a protecao acaba.
   select exists (
     select 1
       from public.alunos a
      where a.id = p_aluno_id
        and a.responsavel_atual_email is not null
-       and exists (select 1 from public.usuarios u
-                    where lower(u.email) = lower(a.responsavel_atual_email) and u.ativo)
-       and a.data_retorno >= (now() at time zone 'America/Sao_Paulo')::date
+       and a.data_retorno is not null
        and upper(coalesce(a.retorno_origem, '')) like 'OPERADOR%'
        and a.retorno_confirmado_em is null
        and exists (
@@ -127,22 +114,11 @@ AS $function$
                 and m.tipo = 'FINALIZACAO_ATENDIMENTO'
                 and lower(m.registrado_por_email) = lower(a.responsavel_atual_email)
                 and m.registrado_em >= coalesce(a.responsavel_atual_em, '-infinity'::timestamptz)
-                and (
-                      -- (a) vinculo explicito pelo CAMPO da movimentacao
-                      ((m.data_retorno at time zone 'America/Sao_Paulo')::date = a.data_retorno
-                        and a.data_retorno <= (m.registrado_em at time zone 'America/Sao_Paulo')::date + 15)
-                      -- (a') ESTOQUE ANTERIOR a correcao da Minha Carteira: ate 13/11/2026 a
-                      -- tela gravava o retorno no ALUNO e no TEXTO da movimentacao, mas nao no
-                      -- campo; a ausencia do campo NAO e prova de agendamento automatico.
-                      -- ATENCAO: o texto SOZINHO nao prova agendamento humano -- a mesma tela
-                      -- escreve "Retorno: DD/MM/AAAA" tambem para prazo automatico. O que prova
-                      -- e a COMBINACAO: origem OPERADOR% no aluno (exigida acima) + o texto do
-                      -- atendimento do responsavel. Mesmo teto de 15 dias.
-                   or (m.descricao like '%Retorno: ' || to_char(a.data_retorno, 'DD/MM/YYYY') || '%'
-                        and a.data_retorno <= (m.registrado_em at time zone 'America/Sao_Paulo')::date + 15)
-                      -- (b) alternativa: atendimento do responsavel nos ultimos 10 dias
-                   or m.registrado_em >= now() - interval '10 days'
-                )
+                and m.data_retorno is not null
+                -- associacao (nao expiracao): o retorno nao pode estar a mais de 15 dias
+                -- depois do atendimento que o registrou. Parametro provisorio.
+                and a.data_retorno <= (m.registrado_em at time zone 'America/Sao_Paulo')::date + 15
        )
   );
 $function$;
+

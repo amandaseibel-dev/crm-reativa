@@ -61,10 +61,10 @@ begin
                   where n.nspname = 'public' and p.proname = 'aluno_retorno_operador_vigente') then
     raise exception 'PRE-CONDICAO P2 ausente: public.aluno_retorno_operador_vigente(uuid). Aplicar a PR #936 antes.';
   end if;
-  -- P2 DIVERGENTE: tem de ser o corpo da #936 (md5 25412bfe...), nao outra versao.
+  -- P2 DIVERGENTE: tem de ser o corpo da #936 (md5 a37260b0...), nao outra versao.
   if coalesce((select md5(p.prosrc) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-                where n.nspname = 'public' and p.proname = 'aluno_retorno_operador_vigente'), '') <> '25412bfe933b6abcf9194a216a2e6fcd' then
-    raise exception 'PRE-CONDICAO P2 divergente: aluno_retorno_operador_vigente nao confere com a PR #936 (md5 25412bfe...).';
+                where n.nspname = 'public' and p.proname = 'aluno_retorno_operador_vigente'), '') <> 'a37260b0e181523184424dbaa17c5fe4' then
+    raise exception 'PRE-CONDICAO P2 divergente: aluno_retorno_operador_vigente nao confere com a PR #936 (md5 a37260b0...).';
   end if;
   if not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                   where n.nspname = 'internal' and p.proname = 'operador_pode_receber_caso')
