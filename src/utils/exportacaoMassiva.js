@@ -8,7 +8,7 @@ const CODIGOS_VALIDACAO = new Set(["22023", "42501", "P0002"]);
 export function classificarFalhaExportacao(etapa, erro) {
   const codigo = erro?.code ?? erro?.status ?? null;
   if (etapa === "arquivo") {
-    return { etapa: "arquivo", codigo: null, mensagem: "O arquivo não pôde ser gerado no navegador. O lote já foi registrado; use Baixar planilha." };
+    return { etapa: "arquivo", codigo: null, mensagem: "O arquivo não pôde ser gerado no navegador. O lote já foi registrado; use Baixar planilha novamente." };
   }
   if (etapa === "rpc" && String(codigo) === "42501") {
     return { etapa: "validacao", codigo: "42501", mensagem: "Sem permissão de gestão para exportar nesta sessão. Nada foi registrado." };

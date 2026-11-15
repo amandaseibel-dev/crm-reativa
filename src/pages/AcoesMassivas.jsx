@@ -679,7 +679,7 @@ export default function AcoesMassivas() {
       if (loteRegistrado) {
         console.error("Falha depois do registro da acao massiva", { etapa: "arquivo" });
         setFaseExport(FASE.ARQUIVO_FALHOU);
-        setErro("Lote registrado, mas a planilha não foi gerada. Use Baixar planilha ou confira o histórico antes de exportar de novo.");
+        setErro("Lote registrado, mas a planilha não foi gerada. Use Baixar planilha novamente.");
       } else {
         console.error("Erro ao preparar a exportacao da acao massiva", { etapa: "validacao" });
         setFaseExport(FASE.RECUSADA);

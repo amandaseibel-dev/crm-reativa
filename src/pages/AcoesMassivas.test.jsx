@@ -247,7 +247,7 @@ describe("Ações Massivas — liquidados no Prime", () => {
     await buscar();
     await gerar();
     expect(screen.queryByText(/liquidados no Prime\./)).toBeNull();
-    expect(screen.getByText(/Planilha exportada com 1 aluno\(s\)/)).toBeTruthy();
+    expect(screen.getByText(/Lote registrado: 1 aluno\(s\)/)).toBeTruthy();
   });
 });
 
