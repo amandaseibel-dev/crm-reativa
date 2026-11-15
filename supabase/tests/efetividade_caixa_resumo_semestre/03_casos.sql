@@ -75,7 +75,6 @@ begin
   if (s->>'saldo_em_aberto_total')::numeric <> 950 then raise exception 'FALHA saldo total (cancelado excluído): %', s->>'saldo_em_aberto_total'; end if;
   if (s->>'saldo_em_conferencia')::numeric <> 100 then raise exception 'FALHA conferência'; end if;
   if (s->>'saldo_academico')::numeric <> 50 then raise exception 'FALHA acadêmico'; end if;
-  if (s->>'saldo_sem_pendencia')::numeric <> 800 then raise exception 'FALHA sem pendência'; end if;
   if (s->>'saldo_acordos_ativos')::numeric <> 200 then raise exception 'FALHA acordos ativos'; end if;
   if (r->>'saldo_em_aberto')::numeric <> 950 then raise exception 'FALHA saldo_em_aberto 2026/2'; end if;
   if (r->>'negociado')::numeric <> 300 then raise exception 'FALHA negociado 2026/2'; end if;

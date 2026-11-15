@@ -24,8 +24,9 @@
 -- recuperação total: o valor sem classificação fica separado e visível.
 --
 -- SALDO DE 2026/2 (bloco `saldo_2026_2`). Saldo total em aberto = soma de `saldo`
--- fora de CANCELADO, com decomposição (conferência, acadêmico, sem pendência,
--- acordos ativos). Os acordos ativos não substituem o total.
+-- fora de CANCELADO. Conferência, acadêmico e acordos ativos são subconjuntos
+-- informativos, NÃO partição do total: não somam ao total. Acordos ativos não
+-- substituem o total.
 --
 -- RATEIO NÃO ENTRA AQUI. O recuperado por rateio é outra grandeza e continua nas RPCs
 -- de efetividade, identificado como tal.
@@ -72,7 +73,6 @@ begin
       'saldo_em_aberto_total', round(coalesce(sum(c.saldo) filter (where c.faixa <> 'CANCELADO'), 0), 2),
       'saldo_em_conferencia', round(coalesce(sum(c.saldo) filter (where c.faixa = 'EM_CONFERENCIA'), 0), 2),
       'saldo_academico', round(coalesce(sum(c.saldo) filter (where c.faixa = 'ACADEMICO'), 0), 2),
-      'saldo_sem_pendencia', round(coalesce(sum(c.saldo) filter (where c.faixa in ('SEM_NEGOCIACAO','CONVERTIDO')), 0), 2),
       'saldo_acordos_ativos', round(coalesce(sum(c.saldo) filter (
           where c.faixa <> 'CANCELADO' and c.acordo_id is not null
             and c.acordo_estado in ('regular','atraso','quebrado')), 0), 2)

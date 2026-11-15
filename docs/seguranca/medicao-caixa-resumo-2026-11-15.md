@@ -17,7 +17,7 @@ Nenhuma função foi criada, nenhum snapshot foi atualizado, nada foi escrito.
 3. Carteira 2026/2 pelo classificador `carteira_2026_2_classificar()`:
    - 10.822 títulos, valor original R$ 17.232.872,41 (bate com `carteira_2026_2_contexto`).
    - Saldo fora de CANCELADO: R$ 16.042.642,07.
-   - Conferência R$ 7.232.872,33; acadêmico R$ 111.923,90; sem pendência R$ 8.697.845,84;
+   - Conferência R$ 7.232.872,33; acadêmico R$ 111.923,90; (sem pendência removido do contrato: incluía CONVERTIDO e não é partição);
      acordos ativos R$ 239.654,71.
    - `carteira_2026_2_negociacoes().total.saldo` = R$ 245.326,06 = acordos ativos
      (R$ 239.654,71) + acordos cancelados (R$ 5.671,35). Não é o saldo total.
@@ -63,7 +63,6 @@ select count(*) titulos, round(sum(valor_original),2) carteira,
        round(sum(saldo) filter (where faixa<>'CANCELADO'),2) saldo_total_nao_cancelado,
        round(sum(saldo) filter (where faixa='EM_CONFERENCIA'),2) saldo_em_conferencia,
        round(sum(saldo) filter (where faixa='ACADEMICO'),2) saldo_academico,
-       round(sum(saldo) filter (where faixa in ('SEM_NEGOCIACAO','CONVERTIDO')),2) saldo_sem_pendencia,
        round(sum(saldo) filter (where acordo_id is not null and acordo_estado in ('regular','atraso','quebrado') and faixa<>'CANCELADO'),2) saldo_acordo_ativo
   from carteira_2026_2_classificar();
 ```

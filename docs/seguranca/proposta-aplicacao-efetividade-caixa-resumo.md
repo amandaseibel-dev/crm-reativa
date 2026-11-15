@@ -17,7 +17,7 @@ Entrega final = #966 (SQL) + #965 (tela). A tela só deve ser mesclada depois da
 ## Artefatos (SHA-256 integral)
 
 - Migration `supabase/migrations/20261115130000_efetividade_caixa_resumo_semestre.sql`:
-  `87619453887271ff31a53fbdffa688380618d41f8249bb41c7fe50df7f86d1ff`
+  `dc57935d6ccb27e116e8b3e395dfbca5e8e76145c5962686d909f3fc30e8fe1b`
 - Rollback `docs/rollbacks/efetividade-caixa-resumo-semestre-rollback.sql`:
   `4bf1b0ffe2dd009809fc929b13ac336cce0d09541f48663f8181c0022fdb88b5`
 
@@ -25,7 +25,7 @@ Entrega final = #966 (SQL) + #965 (tela). A tela só deve ser mesclada depois da
 
 Linha de `docs/seguranca/migracoes-aprovadas.tsv`, 6 colunas separadas por TAB:
 `ahattpqrjmhkzsmnbdzs` · `20261115130000_efetividade_caixa_resumo_semestre` ·
-`87619453887271ff31a53fbdffa688380618d41f8249bb41c7fe50df7f86d1ff` ·
+`dc57935d6ccb27e116e8b3e395dfbca5e8e76145c5962686d909f3fc30e8fe1b` ·
 `amanda.seibel@aelbra.com.br` · `expira_em` = aprovação + 30 min (UTC) · `pendente`.
 
 ## Executor nominal
@@ -50,6 +50,9 @@ Amanda Prado Seibel (`amanda.seibel@aelbra.com.br`). A sessão principal executa
 - Frontend: reverter o commit `ab37e93b` na #965 ou não mesclar a #965. Sem a RPC, a aba mostra um aviso neutro e o resto do relatório segue.
 
 ## Números (leitura em produção, 15/11/2026; ver `medicao-caixa-resumo-2026-11-15.md`)
+
+Medição feita com SELECTs de leitura. A função da RPC ainda não existe em produção, e o custo por visita
+da tela NÃO foi medido. O tempo de 0,5 s refere-se ao SELECT isolado, não ao comportamento da página.
 
 | | 2026/1 | 2026/2 |
 |---|---|---|
