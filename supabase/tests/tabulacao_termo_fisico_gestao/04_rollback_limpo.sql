@@ -1,11 +1,8 @@
--- Rollback BEM-SUCEDIDO (banco sem histórico dos códigos). Restaura o estado anterior:
--- as linhas somem, a trigger e a função somem.
+-- Rollback recusado por decisão (opção A): nada removido; barreira de estado e de histórico intactas.
 \set ON_ERROR_STOP on
-select public.teste_assert('rollback limpo: linhas do catálogo removidas (estado anterior)',
-  (select count(*) from public.tabulacoes where codigo like 'TERMO_FISICO_%') = 0);
-select public.teste_assert('rollback limpo: barreira PERMANECE (trigger instalada)',
+select public.teste_assert('rollback: linhas do catálogo permanecem (barreira de estado depende delas)',
+  (select count(*) from public.tabulacoes where codigo in ('TERMO_FISICO_EM_ANDAMENTO','TERMO_FISICO_ARQUIVADO') and somente_gestao) = 2);
+select public.teste_assert('rollback: trigger de histórico permanece',
   exists (select 1 from pg_trigger where tgname = 'aluno_mov_tabulacao_so_gestao' and not tgisinternal));
-select public.teste_assert('rollback limpo: função da barreira permanece',
-  to_regprocedure('public.aluno_movimentacao_tabulacao_so_gestao()') is not null);
-select public.teste_assert('rollback limpo: linhas de outras tabulações intactas',
+select public.teste_assert('rollback: outras tabulações intactas',
   (select count(*) from public.tabulacoes where codigo = 'CONTATAR') = 1);

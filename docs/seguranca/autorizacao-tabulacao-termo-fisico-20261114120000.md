@@ -11,13 +11,14 @@ Status: **PENDENTE DE APROVAÇÃO EXPRESSA PARA APLICAÇÃO.** Este pacote não 
 - **Não cria** tabela nem RPC.
 - **Desfazer do operador:** se o status restaurado for um dos dois códigos, o desfazer é **recusado inteiro** (mensagem "Nada foi desfeito"). Decisão aplicada e testada no CI.
 
-## Rollback (reversão)
+## Rollback (reversão) — decisão: opção A
 
-- **Remove só as duas linhas do catálogo**, e só se: (1) cada coluna bater com o que a migração gravou (`IS DISTINCT FROM`, inclui `criado_em` fixo, `criado_por`, `ordem`, `somente_gestao`, rótulo); e (2) nenhuma tabela pública tiver texto que cite os códigos, com a mesma normalização da trigger. Qualquer falha recusa a operação inteira, sem alteração.
-- **Locks:** `LOCK TABLE tabulacoes, aluno_movimentacoes IN EXCLUSIVE MODE` antes das checagens, em `BEGIN/COMMIT`.
-- **Não remove a trigger nem a função.** A barreira contra gravação dos códigos restritos permanece enquanto eles puderem ser enviados. Remover a barreira é decisão separada, depois da reversão do front e de evidência de que nenhum cliente envia os códigos.
-- **Coordenação obrigatória:** o rollback do banco não impede o operador de gravar pelo front (a barreira permanece, então a gravação é recusada pelo banco; o front só deixaria a opção visível). A reversão do #951 deve ser feita junto, por decisão da gestão, para remover a opção da tela.
-- Testes: caminho A (com histórico: rollback recusado, nada alterado) e caminho B (banco limpo: rollback remove só as linhas, barreira permanece). Variantes de recusa testadas: coluna alterada (ordem, criado_em, criado_por nulo), histórico em `status_anterior`.
+**O rollback NÃO remove nada e recusa sempre**, com mensagem clara ("rollback recusado por decisão registrada"). Motivo: as duas linhas do catálogo são lidas pela barreira de estado em `alunos` (`_encerramento_so_gestao`, em produção). Removê-las reabriria a gravação de `TERMO_*` no estado do aluno pelo operador. Por isso a reversão é **correção para frente**, com decisão e migração próprias.
+
+- Testes: CI, caminho B (banco limpo) confirma que o rollback recusa e que as linhas, a trigger de histórico e a barreira de estado permanecem.
+- Coordenação com o frontend: a barreira no banco impede gravação dos códigos restritos independentemente do front. A remoção da opção na tela (#951) é decisão separada.
+- O item "rollback preparado" do §13 fica **preparado como recusa segura**, não como reversão completa.
+
 
 ## Artefatos
 
@@ -78,7 +79,7 @@ Os md5 de `usuario_e_gestao()` e `_encerramento_so_gestao()` foram calculados no
 
 ## Ordem de implantação (explícita)
 
-1. Resolver as dependências 1 a 8 (Gate A pela frente responsável; reconciliação de versionamento; CI; Guardião).
+1. Resolver as dependências 1 a 8 (a dependência de rollback foi substituída pela opção A) (Gate A pela frente responsável; reconciliação de versionamento; CI; Guardião).
 2. **Aprovação final** e publicação da linha M1 no momento da aprovação, com executor nominal e validade de 30 minutos a partir dela.
 3. Aplicar a migração (executor único, sessão principal).
 4. Validação somente leitura: duas linhas com `somente_gestao = true`; trigger ativa; nenhuma linha nova no histórico fora da gestão.
@@ -87,4 +88,4 @@ Os md5 de `usuario_e_gestao()` e `_encerramento_so_gestao()` foram calculados no
 
 ## Reversão (resumo)
 
-Rollback (`.rollback.sql`): remove só as duas linhas, se seguro. Barreira permanece. Reversão do #951 junto, por decisão da gestão.
+Rollback recusa sempre (opção A). Reversão é correção para frente, com decisão e migração próprias.

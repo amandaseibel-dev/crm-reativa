@@ -1152,11 +1152,16 @@ jobs:
           [ "$code" -ne 0 ] && echo "$out" | grep -q "rollback recusado:" || { echo "rollback deveria ser recusado pela regra de histórico"; exit 1; }
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_rollback_recusado.sql"
 
-      - name: "Caminho B (banco limpo): migração e rollback que restaura o estado anterior"
+      - name: "Caminho B (banco limpo): rollback recusado por decisão, nada removido"
         run: |
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -c "drop schema public cascade; create schema public;"
           psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
           psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
-          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          set +e
+          out=$(psql -v ON_ERROR_STOP=1 -f "$ROLLBACK" 2>&1)
+          code=$?
+          set -e
+          echo "$out"
+          [ "$code" -ne 0 ] && echo "$out" | grep -q "rollback recusado por decisão" || { echo "rollback deveria ser recusado por decisão"; exit 1; }
           psql -v ON_ERROR_STOP=1 -f "$DIR/04_rollback_limpo.sql"
