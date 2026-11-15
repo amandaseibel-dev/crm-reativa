@@ -60,8 +60,8 @@ Saldo medido hoje: **9.821**, medido em **11/11/2026**. Esse valor está antigo:
 ## Hashes dos arquivos que a publicação envia
 | arquivo | sha256 |
 |---|---|
-| `supabase/functions/ulbra-historico/index.ts` | `a9d8a5f20ee15446816fe06114fed9e3a01a118d00b06aeb5314fff921fac093` |
-| `supabase/functions/ulbra-historico/historico.ts` | `ab3aac759ae76146391a4f5cc3dab24a181131dd58c0a4af5ff225697c654f38` |
+| `supabase/functions/ulbra-historico/index.ts` | `fc8c6f29bdd884ed9f82dd1f3e454cf35737412cd3f92834c1537433bcaa7d85` |
+| `supabase/functions/ulbra-historico/historico.ts` | `cfee9404e1753bf551439c96380460d4d2c2bdd72622f463bb54c647b00f7706` |
 | `supabase/functions/ulbra-historico/leitura.ts` (igual à v1) | `20cc12d353c7278c9951208d740312831bffe92fcf2533856474be01bbb2f05f` |
 
 ## Publicação (cada passo com autorização)
@@ -79,3 +79,39 @@ Saldo medido hoje: **9.821**, medido em **11/11/2026**. Esse valor está antigo:
 ## O que não está feito
 - Nenhum limite de produção foi alterado.
 - A validação visual na tela logada depende de sessão de operador, que não tenho aqui.
+
+## Versão final para aprovação (15/11/2026)
+
+**Ligação na tela:** a aba "💬 Conversa ULBRA" fica em `src/pages/Aluno.jsx`, a ficha que os operadores usam. A tela recebe `key` por aluno, então o estado não passa de um aluno para outro. Nada é consultado ao abrir a ficha; a consulta é só no clique. Build de produção: passa. Testes da tela: 7/7.
+
+**Banco instalado (verificado por ledger):** `20261112111006__20261110100000_ulbra_historico_orcamento.sql` já aplicada. Tabela `ulbra_historico_uso` e função `ulbra_historico_reservar`, com grant só para `service_role`. Nada é reaplicado aqui.
+
+**Migration pendente (pré-requisito da publicação):** `supabase/aguardando_aprovacao/20261115120000_ulbra_historico_bloqueio_e_guarda_reserva.sql.pendente`, com rollback. Ela (a) adiciona em `ulbra_sync_estado` as colunas de bloqueio após 429 (`historico_bloqueado_ate`, `historico_bloqueado_sem_prazo`); (b) põe uma guarda dentro da função de reserva, que só aceita o papel de serviço no JWT. Grants recriados, sem ampliação. Testada em Postgres descartável (5/5): colunas, recusa sem o papel, reserva com o papel, `authenticated`/`anon` sem EXECUTE, rollback.
+
+**Orçamento antes de qualquer chamada externa:** saldo vencido reserva 2 unidades (renovação + leitura) antes da primeira chamada. Com saldo válido, reserva 1. Tentativa que falha depois da reserva conta. Teto por usuário 20/dia; teto compartilhado 150/dia (mínimo com reserva de 100).
+
+**429 e bloqueio compartilhado:** 429 para na hora, sem repetição. Se a ULBRA informa `Retry-After` em segundos, o bloqueio dura esse prazo. Sem `Retry-After`, o bloqueio não tem prazo inventado: fica ativo até a gestão limpar `historico_bloqueado_sem_prazo`. Enquanto vigora, nenhum clique chama a ULBRA nem reserva orçamento.
+
+**Dia do orçamento:** calendário de São Paulo (`diaDoOrcamento`), testado na virada 02:59:59Z → 14 e 03:00:00Z → 15.
+
+**Testes do servidor:** 52/52 (ficha, histórico, ausência, orçamento, bloqueio e dia), com relógio fixo e expectativas escritas à mão. `deno check` do `index.ts`: passa.
+
+**Hashes finais (sha256, o que a publicação envia):**
+
+| arquivo | sha256 |
+|---|---|
+| `supabase/functions/ulbra-historico/index.ts` | `fc8c6f29bdd884ed9f82dd1f3e454cf35737412cd3f92834c1537433bcaa7d85` |
+| `supabase/functions/ulbra-historico/historico.ts` | `cfee9404e1753bf551439c96380460d4d2c2bdd72622f463bb54c647b00f7706` |
+| `supabase/functions/ulbra-historico/leitura.ts` | `20cc12d353c7278c9951208d740312831bffe92fcf2533856474be01bbb2f05f` |
+
+**Sequência de implantação (cada passo depende de aprovação sua):**
+1. Aprovar os valores (20 por usuário, 150 compartilhados, reserva 100, saldo 15 min) e esta versão.
+2. Aplicar a migration `20261115120000` (com o rollback pronto). Comando seu: `psql -1 -f supabase/aguardando_aprovacao/20261115120000_ulbra_historico_bloqueio_e_guarda_reserva.sql.pendente`.
+3. Mesclar a #948 (clique seu no GitHub).
+4. Publicar `ulbra-historico` com a verificação de JWT ligada: `supabase functions deploy ulbra-historico --project-ref ahattpqrjmhkzsmnbdzs` (sem `--no-verify-jwt`). Conferir os três hashes acima.
+5. Conferir sem chamar a ULBRA: sem token dá 401; aluno sem CPF confirmado dá 403.
+6. Validação com operadores e gestão na tela logada.
+
+**Ponto ainda não comprovado:** se o limite de 500/dia por pessoa vale para a credencial de backend. O probe de `meu_acesso` (uma chamada, sob sua autorização) responde isso; ele não foi executado por esta sessão.
+
+**Reversão:** função versão 1 em `docs/integracoes/rollback-ulbra-historico-v1/` (SHA256SUMS). Banco: o rollback da migration `20261115120000` e o rollback da `20261110100000`, este último só se a gestão decidir remover a tabela de uso.

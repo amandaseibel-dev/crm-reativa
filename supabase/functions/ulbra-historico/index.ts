@@ -11,7 +11,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   LIMITE_OPERADOR_DIA, RESERVA_GLOBAL, SALDO_VALIDADE_MS, TAMANHO_PAGINA, TETO_HISTORICO_DIA,
-  lerHistoricoSomenteLeitura, type DependenciasHistorico, type FotografiaSaldo,
+  diaDoOrcamento, lerHistoricoSomenteLeitura, type DependenciasHistorico, type EstadoBloqueio, type FotografiaSaldo,
 } from "./historico.ts";
 import type { ContextoLeitura } from "./leitura.ts";
 
@@ -50,7 +50,11 @@ async function chamarMcp(token: string, nome: string, args: Record<string, unkno
     headers: { "Content-Type": "application/json", Accept: ACCEPT_MCP, Authorization: `Bearer ${token}` },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: nome, arguments: args } }),
   });
-  if (!resp.ok) throw new Error(resp.status === 429 ? "ULBRA_LIMITE" : `ULBRA_HTTP_${resp.status}`);
+  if (resp.status === 429) {
+    const ra = resp.headers.get("retry-after");
+    throw Object.assign(new Error("ULBRA_LIMITE"), { retryAfterSegundos: ra !== null && /^\d+$/.test(ra.trim()) ? Number(ra.trim()) : null });
+  }
+  if (!resp.ok) throw new Error(`ULBRA_HTTP_${resp.status}`);
   return extrairResultado(lerCorpoMcp(resp.headers.get("content-type"), await resp.text()));
 }
 
@@ -116,29 +120,35 @@ Deno.serve(async (req: Request) => {
       return { operador, identidade_confirmada: true, dono_carteira: gestao ? operador : dono, responsavel_atendimento: responsavel };
     },
     async lerSaldo(): Promise<FotografiaSaldo | null> {
+      // Só a fotografia guardada pela coleta. Não chama a ULBRA e não reserva.
       const { data: e } = await sb.from("ulbra_sync_estado").select("saldo_api_restam, saldo_api_em").eq("id", true).maybeSingle();
       if (!e || e.saldo_api_restam == null || !e.saldo_api_em) return null;
-      const fresco = Date.now() - Date.parse(e.saldo_api_em) <= SALDO_VALIDADE_MS;
-      if (fresco) return { restam: Number(e.saldo_api_restam), em: String(e.saldo_api_em) };
-      // Fotografia vencida: 1 chamada de meu_acesso (reservada antes) para não presumir saldo.
-      const r = await deps.reservar(email, 1, LIMITE_OPERADOR_DIA, Math.max(0, Math.min(Number(e.saldo_api_restam) - RESERVA_GLOBAL, TETO_HISTORICO_DIA)));
-      if (!r.permitido) return null;
-      try {
-        const acesso = await chamarMcp(token, "meu_acesso", {}) as { limites?: { pessoaPorDia?: { restam?: number } } };
-        const restam = acesso?.limites?.pessoaPorDia?.restam;
-        if (typeof restam !== "number") return null;
-        const em = new Date().toISOString();
-        await sb.from("ulbra_sync_estado").update({ saldo_api_restam: restam, saldo_api_em: em }).eq("id", true);
-        return { restam, em };
-      } catch {
-        return null;
-      }
+      return { restam: Number(e.saldo_api_restam), em: String(e.saldo_api_em) };
+    },
+    async renovarSaldo(): Promise<FotografiaSaldo | null> {
+      // 1 chamada meu_acesso. A reserva foi feita por quem chama (orçamento antes da chamada).
+      const acesso = await chamarMcp(token, "meu_acesso", {}) as { limites?: { pessoaPorDia?: { restam?: number } } };
+      const restam = acesso?.limites?.pessoaPorDia?.restam;
+      if (typeof restam !== "number") return null;
+      const em = new Date().toISOString();
+      await sb.from("ulbra_sync_estado").update({ saldo_api_restam: restam, saldo_api_em: em }).eq("id", true);
+      return { restam, em };
+    },
+    async lerBloqueio(): Promise<EstadoBloqueio> {
+      const { data: e } = await sb.from("ulbra_sync_estado").select("historico_bloqueado_ate, historico_bloqueado_sem_prazo").eq("id", true).maybeSingle();
+      const ativo = Boolean(e?.historico_bloqueado_sem_prazo) || e?.historico_bloqueado_ate != null;
+      return { ativo, ateMs: e?.historico_bloqueado_ate ? Date.parse(String(e.historico_bloqueado_ate)) : null, semPrazo: Boolean(e?.historico_bloqueado_sem_prazo) };
+    },
+    async registrarBloqueio(retryAfterSegundos: number | null): Promise<void> {
+      // Retry-After informado: bloqueia até esse instante. Ausente: sem prazo (gestão libera). Nunca inventa prazo.
+      const ate = retryAfterSegundos !== null ? new Date(Date.now() + retryAfterSegundos * 1000).toISOString() : null;
+      await sb.from("ulbra_sync_estado").update({ historico_bloqueado_ate: ate, historico_bloqueado_sem_prazo: retryAfterSegundos === null }).eq("id", true);
     },
     async reservar(operador, quantidade, tetoOperador, tetoGlobal) {
       // Orçamento compartilhado e limite por usuário, ATÔMICOS no banco: a reserva
       // serializa o dia (advisory lock). Dois cliques simultâneos não passam juntos
       // do limite. Os valores vêm de LIMITE_OPERADOR_DIA e do saldo medido.
-      const hoje = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+      const hoje = diaDoOrcamento(Date.now());
       const { data, error } = await sb.rpc("ulbra_historico_reservar", {
         p_operador: operador, p_dia: hoje, p_quantidade: quantidade,
         p_teto_operador: tetoOperador, p_teto_global: Math.max(0, tetoGlobal),

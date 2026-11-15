@@ -43,6 +43,7 @@ export type MotivoBloqueio =
   | "RESERVA_GLOBAL"
   | "ULBRA_INDISPONIVEL"
   | "ULBRA_LIMITE"
+  | "ULBRA_BLOQUEADA"
   | "CONVERSA_NAO_ENCONTRADA";
 
 export interface Decisao {
@@ -73,11 +74,25 @@ export interface ResultadoReserva {
   motivo?: MotivoBloqueio;
 }
 
+// Dia do orçamento: calendário de São Paulo (a cota da ULBRA não vira à meia-noite UTC).
+export function diaDoOrcamento(agoraMs: number): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date(agoraMs));
+}
+
+// Bloqueio compartilhado após 429. Retry-After só é usado quando a ULBRA o informa.
+export interface EstadoBloqueio { ativo: boolean; ateMs: number | null; semPrazo: boolean }
+
 export interface DependenciasHistorico {
   /** Consulta de hoje: carteira e responsável comprovados para (operador, conversa). */
   consultarPermissao(operador: string, conversaId: string): Promise<ContextoLeitura | null>;
-  /** Fotografia do saldo guardada pela coleta (ulbra_sync_estado). */
+  /** Fotografia do saldo guardada pela coleta (ulbra_sync_estado). Não chama a ULBRA. */
   lerSaldo(): Promise<FotografiaSaldo | null>;
+  /** Renovação do saldo: 1 chamada meu_acesso. NÃO reserva: quem chama já reservou. */
+  renovarSaldo(): Promise<FotografiaSaldo | null>;
+  /** Estado do bloqueio compartilhado (após 429). */
+  lerBloqueio(): Promise<EstadoBloqueio>;
+  /** Grava o bloqueio após 429. retryAfterSegundos = null quando a ULBRA não informou prazo. */
+  registrarBloqueio(retryAfterSegundos: number | null): Promise<void>;
   /** Reserva atômica no banco: uma chamada externa = uma reserva. */
   reservar(operador: string, quantidade: number, tetoOperador: number, tetoGlobal: number): Promise<ResultadoReserva>;
   /** Chamada real à ULBRA (credencial de backend, somente leitura). */
@@ -146,16 +161,40 @@ async function executar(
 
   const fotografia = await deps.lerSaldo();
   const saldo = avaliarSaldo(fotografia, deps.agora());
-  if (!saldo.ok) return { ok: false, motivo: saldo.motivo! };
+  // Saldo vencido NÃO nega aqui: ele é renovado (com reserva) mais adiante.
+  if (!fotografia) return { ok: false, motivo: "SALDO_SEM_INFORMACAO" };
   // Teto global do histórico = saldo medido menos a reserva. A reserva nunca é
   // gasta pelo histórico. O saldo é uma fotografia: a coleta também gasta.
   const tetoGlobal = Math.max(0, Math.min(fotografia!.restam - RESERVA_GLOBAL, TETO_HISTORICO_DIA));
 
-  const reserva = await deps.reservar(operador, 1, LIMITE_OPERADOR_DIA, tetoGlobal);
+  // Bloqueio após 429: nenhuma chamada e nenhuma reserva enquanto ele vigorar.
+  const bloqueio = await deps.lerBloqueio();
+  if (bloqueio.ativo && (bloqueio.semPrazo || (bloqueio.ateMs !== null && deps.agora() < bloqueio.ateMs))) {
+    return { ok: false, motivo: "ULBRA_BLOQUEADA" };
+  }
+
+  // Orçamento ANTES de qualquer chamada externa. Saldo vencido: a renovação conta como 1 tentativa,
+  // então reserva 2 (renovação + leitura). Tentativa que falha depois da reserva também conta.
+  const quantidade = saldo.ok ? 1 : 2;
+  const reserva = await deps.reservar(operador, quantidade, LIMITE_OPERADOR_DIA, tetoGlobal);
   if (!reserva.permitido) {
     const motivo: MotivoBloqueio = reserva.motivo
-      ?? (reserva.usadasOperador + 1 > LIMITE_OPERADOR_DIA ? "LIMITE_OPERADOR_DIA" : "RESERVA_GLOBAL");
+      ?? (reserva.usadasOperador + quantidade > LIMITE_OPERADOR_DIA ? "LIMITE_OPERADOR_DIA" : "RESERVA_GLOBAL");
     return { ok: false, motivo };
+  }
+
+  let saldoAtual = fotografia!;
+  if (!saldo.ok) {
+    let nova: FotografiaSaldo | null;
+    try {
+      nova = await deps.renovarSaldo();
+    } catch (e) {
+      return { ok: false, motivo: await motivoDe429(e, deps) };
+    }
+    if (!nova) return { ok: false, motivo: "SALDO_SEM_INFORMACAO" };
+    const v = avaliarSaldo(nova, deps.agora());
+    if (!v.ok) return { ok: false, motivo: v.motivo! };
+    saldoAtual = nova;
   }
 
   let resposta: unknown;
@@ -163,15 +202,23 @@ async function executar(
     resposta = await deps.lerConversa(conversaId, antesDe, TAMANHO_PAGINA);
   } catch (e) {
     // A reserva já foi gasta: conta como chamada. Não repete automaticamente.
-    // 429 é parada: a função não tenta de novo e a resposta diz o motivo.
-    return { ok: false, motivo: (e as Error).message === "ULBRA_LIMITE" ? "ULBRA_LIMITE" : "ULBRA_INDISPONIVEL" };
+    return { ok: false, motivo: await motivoDe429(e, deps) };
   }
   const pagina = mapearPagina(resposta);
   cache.set(chave, { expira: deps.agora() + CACHE_VALIDADE_MS, pagina });
   return {
-    ok: true, origem: "ulbra", pagina, chamadas: 1, saldoAte: saldo.validadeAte ?? null,
-    saldoRestam: fotografia!.restam, saldoEm: fotografia!.em, alcance: ALCANCE,
+    ok: true, origem: "ulbra", pagina, chamadas: quantidade, saldoAte: avaliarSaldo(saldoAtual, deps.agora()).validadeAte ?? null,
+    saldoRestam: saldoAtual.restam, saldoEm: saldoAtual.em, alcance: ALCANCE,
   };
+}
+
+// 429 vira bloqueio compartilhado. Retry-After (segundos) só quando a ULBRA informa; senão, sem prazo.
+async function motivoDe429(e: unknown, deps: DependenciasHistorico): Promise<MotivoBloqueio> {
+  const msg = (e as Error).message;
+  if (msg !== "ULBRA_LIMITE") return "ULBRA_INDISPONIVEL";
+  const ra = (e as { retryAfterSegundos?: number | null }).retryAfterSegundos ?? null;
+  await deps.registrarBloqueio(ra);
+  return "ULBRA_LIMITE";
 }
 
 export const TAMANHO = TAMANHO_PAGINA;
