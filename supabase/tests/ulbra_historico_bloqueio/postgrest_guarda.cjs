@@ -38,6 +38,8 @@ async function chamar(token, corpo) {
     if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated nologin; end if;
     if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role nologin; end if;
   end $$`);
+  const SENHA_TESTE = crypto.randomBytes(24).toString("hex"); // exclusiva deste teste; não guardada
+  await admin.query(`alter role authenticator password '${SENHA_TESTE}'`);
   await admin.query(`drop database if exists ${BANCO} with (force)`); await admin.query(`create database ${BANCO}`); await admin.end();
   const c = new Client({ ...cfg, database: BANCO }); await c.connect();
   await c.query("create table public.ulbra_sync_estado (id boolean primary key, saldo_api_restam integer, saldo_api_em timestamptz)");
@@ -48,7 +50,7 @@ async function chamar(token, corpo) {
   await c.query("grant usage on schema public to anon, authenticated, service_role");
   await c.query("grant anon, authenticated, service_role to authenticator");
   const SEGREDO = crypto.randomBytes(48).toString("hex"); // exclusivo deste teste
-  const srv = spawn(BIN, [], { env: { ...process.env, PGRST_DB_URI: `postgres://authenticator@${cfg.host}:${cfg.port}/${BANCO}`, PGRST_DB_SCHEMAS: "public", PGRST_DB_ANON_ROLE: "anon", PGRST_JWT_SECRET: SEGREDO, PGRST_SERVER_PORT: String(PORTA) }, stdio: ["ignore", "pipe", "pipe"] });
+  const srv = spawn(BIN, [], { env: { ...process.env, PGRST_DB_URI: `postgres://authenticator:${SENHA_TESTE}@${cfg.host}:${cfg.port}/${BANCO}`, PGRST_DB_SCHEMAS: "public", PGRST_DB_ANON_ROLE: "anon", PGRST_JWT_SECRET: SEGREDO, PGRST_SERVER_PORT: String(PORTA) }, stdio: ["ignore", "pipe", "pipe"] });
   let logs = ""; srv.stderr.on("data", (d) => (logs += d)); srv.stdout.on("data", (d) => (logs += d));
   try {
     for (let i = 0; i < 60; i++) { try { const r = await fetch(`http://localhost:${PORTA}/`); if (r.status) break; } catch {} await new Promise((r) => setTimeout(r, 250)); }

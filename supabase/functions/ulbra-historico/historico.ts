@@ -125,6 +125,7 @@ const cache = new Map<string, EntradaCache>();
 const emCurso = new Map<string, Promise<ResultadoHistorico>>();
 
 export function limparCacheParaTeste(): void {
+  bloqueioLocal = { ativo: false, ateMs: null, semPrazo: false };
   cache.clear();
   emCurso.clear();
 }
@@ -137,6 +138,11 @@ export async function lerHistoricoSomenteLeitura(
 ): Promise<ResultadoHistorico> {
   const chave = `${operador}|${conversaId}|${antesDe ?? ""}`;
   const agora = deps.agora();
+  // Autorização ANTES do cache: quem perdeu a carteira ou a responsabilidade não lê nem do cache.
+  const contextoAgora = await deps.consultarPermissao(operador, conversaId);
+  if (!contextoAgora) return { ok: false, motivo: "SEM_PERMISSAO_NA_CONVERSA" };
+  const autAgora = autorizarHistorico(contextoAgora);
+  if (!autAgora.ok) return { ok: false, motivo: autAgora.motivo! };
   const hit = cache.get(chave);
   if (hit && hit.expira > agora) {
     return { ok: true, origem: "cache", pagina: hit.pagina, chamadas: 0, saldoAte: null, alcance: ALCANCE };
@@ -178,6 +184,9 @@ async function executar(
   const tetoGlobal = Math.max(0, Math.min(fotografia!.restam - RESERVA_GLOBAL, TETO_HISTORICO_DIA));
 
   // Bloqueio após 429: nenhuma chamada e nenhuma reserva enquanto ele vigorar.
+  if (bloqueioLocal.ativo && (bloqueioLocal.semPrazo || (bloqueioLocal.ateMs !== null && deps.agora() < bloqueioLocal.ateMs))) {
+    return { ok: false, motivo: "ULBRA_BLOQUEADA" };
+  }
   const bloqueio = await deps.lerBloqueio();
   if (bloqueio.ativo && (bloqueio.semPrazo || (bloqueio.ateMs !== null && deps.agora() < bloqueio.ateMs))) {
     return { ok: false, motivo: "ULBRA_BLOQUEADA" };
@@ -223,10 +232,14 @@ async function executar(
 }
 
 // 429 vira bloqueio compartilhado. Retry-After (segundos) só quando a ULBRA informa; senão, sem prazo.
+// Bloqueio na memória da instância: vale mesmo se a gravação no banco falhar.
+let bloqueioLocal: { ativo: boolean; ateMs: number | null; semPrazo: boolean } = { ativo: false, ateMs: null, semPrazo: false };
+
 async function motivoDe429(e: unknown, deps: DependenciasHistorico): Promise<MotivoBloqueio> {
   const msg = (e as Error).message;
   if (msg !== "ULBRA_LIMITE") return "ULBRA_INDISPONIVEL";
   const ra = (e as { retryAfterSegundos?: number | null }).retryAfterSegundos ?? null;
+  bloqueioLocal = ra === null ? { ativo: true, ateMs: null, semPrazo: true } : { ativo: true, ateMs: deps.agora() + ra * 1000, semPrazo: false };
   await deps.registrarBloqueio(ra);
   return "ULBRA_LIMITE";
 }

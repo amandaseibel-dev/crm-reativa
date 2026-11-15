@@ -19,7 +19,7 @@
 | validade da medida de saldo | **15 minutos** | `SALDO_VALIDADE_MS` |
 | **teto diário total do histórico (todos os operadores)** | **150 leituras** | `TETO_HISTORICO_DIA` (novo: teto fixo, independe do saldo) |
 
-Saldo medido hoje: **9.821**, medido em **11/11/2026**. Esse valor está antigo: a primeira consulta depois da publicação renova o saldo com uma chamada `meu_acesso`, que conta no orçamento do usuário que consultou.
+Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo usa a fotografia guardada pela coleta; a primeira renovação depois da publicação atualiza o saldo com uma chamada `meu_acesso`, dentro da reserva do próprio clique.
 
 **Dimensionamento (14/11/2026, leitura de produção, somente leitura):**
 - 7 operadores (perfil `operador`): até 20 chamadas por usuário/dia cada; pior caso 140.
@@ -38,7 +38,7 @@ Saldo medido hoje: **9.821**, medido em **11/11/2026**. Esse valor está antigo:
 **Pergunta para aprovação:** confirmar, alterar ou recusar os cinco valores (operador/dia 20, reserva 100, validade 15 min, teto diário 150) e autorizar a chamada única de `meu_acesso` para confirmar o limite da credencial de backend. Até a aprovação, a publicação usa os valores acima exatamente como estão no código.
 
 ## Proteções
-- **Concorrência:** o orçamento é reservado no banco, por dia, com trava. Teste em Postgres isolado com o SQL real: 6 cliques de um operador com limite de 3 deixam 3 aprovados; 8 operadores com orçamento de 3 deixam 3 aprovados e 5 negados.
+- **Concorrência:** o orçamento é reservado no banco, por dia, com trava. Teste em PostgreSQL 17 com contador inicial conhecido: 12 cliques simultâneos de 2 unidades com teto 20 → 10 permitidos; 200 tentativas de 20 operadores com teto global 150 → 150 permitidas (dia vazio) e 128 com 22 de partida (dia parcialmente consumido), sempre igual ao contador final menos o inicial.
 - **429:** parada imediata. A função não repete. A resposta informa `ULBRA_LIMITE`.
 - **Falha após a reserva:** conta como chamada e não é repetida automaticamente.
 
@@ -52,7 +52,7 @@ Saldo medido hoje: **9.821**, medido em **11/11/2026**. Esse valor está antigo:
 - duplicidade ativa do e-mail é negada.
 
 ## Testes e CI
-- Servidor: 192 testes passam no diretório da função.
+- Servidor: 59 testes passam no diretório da função (Vitest 2.1.9, na raiz com link de dependências no CI).
 - Front: 175 arquivos e 2538 testes passam; lint sem erros nos arquivos alterados.
 - Postgres isolado com reservas simultâneas: job `ulbra-historico-teto-postgres`.
 - `deno check` da função: job `ulbra-historico-deno-check`.

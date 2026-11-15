@@ -1127,7 +1127,7 @@ jobs:
   # SQL real da migração pendente, em Postgres isolado. Não chama a ULBRA.
   # ---------------------------------------------------------------------------
   ulbra-historico-teto-postgres:
-    name: ulbra-historico — teto atômico do piloto (postgres isolado, reservas simultâneas)
+    name: ulbra-historico — teto de 3 do piloto (cópia de teste da migração de piloto, postgres isolado)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
@@ -1183,6 +1183,8 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/deps"
           npm install --prefix "$RUNNER_TEMP/deps" pg@8.16.3 vitest@2.1.9 --no-audit --no-fund
+          # vitest.config.js da raiz importa "vitest/config": o link faz a raiz enxergar as dependências.
+          ln -sfn "$RUNNER_TEMP/deps/node_modules" node_modules
 
       - name: Testes do servidor (orçamento, bloqueio após 429, dia de São Paulo, Retry-After)
         run: "$RUNNER_TEMP/deps/node_modules/.bin/vitest run supabase/functions/ulbra-historico"

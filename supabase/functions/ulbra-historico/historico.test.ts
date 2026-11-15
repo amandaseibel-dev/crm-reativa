@@ -310,3 +310,26 @@ describe("Retry-After: segundos ou data HTTP; sem prazo quando não interpretáv
     expect(parseRetryAfter("amanhã cedo", AGORA_MS)).toBeNull();
   });
 });
+
+describe("429 com falha ao gravar o bloqueio: a memória da instância ainda bloqueia", () => {
+  it("gravação do bloqueio falha; o próximo clique é barrado sem chamar a ULBRA", async () => {
+    const f = fabrica({
+      lerConversa: async () => { throw Object.assign(new Error("ULBRA_LIMITE"), { retryAfterSegundos: 300 }); },
+      registrarBloqueio: async () => { throw new Error("BLOQUEIO_GRAVACAO_FALHOU"); },
+    });
+    // A gravação falha: a chamada do operador sobe como erro (502 na função); nada mais sai.
+    await expect(lerHistoricoSomenteLeitura(DONO.operador, "c1", null, f.deps)).rejects.toThrow("BLOQUEIO_GRAVACAO_FALHOU");
+    const chamadasAntes = f.chamadas.length;
+    const segundo = await lerHistoricoSomenteLeitura(DONO.operador, "c2", null, f.deps);
+    expect(segundo).toEqual({ ok: false, motivo: "ULBRA_BLOQUEADA" });
+    expect(f.chamadas.length).toBe(chamadasAntes);
+  });
+  it("revogação: quem perdeu a carteira não lê nem do cache", async () => {
+    let dono = DONO;
+    const f = fabrica({ consultarPermissao: async () => dono });
+    await lerHistoricoSomenteLeitura(DONO.operador, "c1", null, f.deps);
+    dono = SO_VE;
+    const r = await lerHistoricoSomenteLeitura(DONO.operador, "c1", null, f.deps);
+    expect(r).toEqual({ ok: false, motivo: "SEM_PERMISSAO_NA_CONVERSA" });
+  });
+});
