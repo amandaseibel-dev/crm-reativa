@@ -55,7 +55,9 @@ declare
   -- Normaliza para [A-Z0-9_]: remove espaço, tab, quebra, retorno e caracteres
   -- invisíveis (U+200B, U+FEFF, U+00A0, U+3000 etc.) antes de comparar.
   -- ASCII ANTES do upper(): upper() depende do locale (ex.: 'ı' vira 'I' em tr_TR).
-  v_codigo text := upper(regexp_replace(coalesce(new.status_novo, ''), '[^A-Za-z0-9_]', '', 'g'));
+  -- Locale determinístico: filtra para ASCII ANTES e compara com COLLATE "C".
+  -- Mesma expressão usada no rollback.
+  v_codigo text := upper(regexp_replace(coalesce(new.status_novo, ''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C");
 begin
   if v_codigo = '' or not (v_codigo = any(v_restritos)) then
     return new;
