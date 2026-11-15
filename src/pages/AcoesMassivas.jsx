@@ -558,9 +558,6 @@ export default function AcoesMassivas() {
     setErro("");
     setSucesso("");
     setExcluidosNoEnvio(0);
-    // Etapa atual, só para diagnóstico: validação (monta o pedido), banco (RPC
-    // respondeu com erro) ou arquivo (gerar/baixar a planilha no navegador).
-    let etapa = "validacao";
 
     try {
       const sufixoOperador = /^CASO:/i.test(String(operadorDaPrevia ?? ""))
@@ -580,10 +577,8 @@ export default function AcoesMassivas() {
       if (previaId) argsExportar.p_previa_id = previaId;
       // O banco revalida o tipo e o grava no lote; a confirmação revalida de novo.
       if (tipoLote) argsExportar.p_tipo_cobranca = tipoLote;
-      etapa = "banco";
       const { data: exp, error: erroExp } = await supabase.rpc("acoes_massivas_exportar", argsExportar);
       if (erroExp) throw erroExp;
-      etapa = "arquivo";
 
       const excluidosEnvio = Number(exp?.excluidos_confirmacao || 0);
       const excluidosPrime = Number(exp?.excluidos_liquidados_prime || 0);
@@ -607,7 +602,7 @@ export default function AcoesMassivas() {
         try {
           baixarPlanilha(relGerado);
         } catch (e) {
-          console.warn(`[acoes-massivas] etapa=arquivo codigo=${e?.code ?? "-"} tipo=${e?.name ?? "-"}. Download automático falhou; use o botão Baixar planilha.`);
+          console.warn("Download automático falhou; use o botão Baixar planilha.", e);
         }
       }
 
@@ -647,10 +642,8 @@ export default function AcoesMassivas() {
       }
       carregarLotesRegistro();
     } catch (e) {
-      // Sem dados pessoais: só etapa, código e tipo do erro.
-      console.error(`[acoes-massivas] exportar falhou etapa=${etapa} codigo=${e?.code ?? "-"} tipo=${e?.name ?? "-"}`);
-      const rotuloEtapa = { validacao: "validação", banco: "banco", arquivo: "arquivo" }[etapa] ?? etapa;
-      setErro(`Erro ao exportar planilha (${rotuloEtapa}): ` + (e.message || "tente novamente"));
+      console.error("Erro ao exportar planilha da ação massiva:", e);
+      setErro("Erro ao exportar planilha: " + (e.message || "tente novamente"));
     } finally {
       setGerando(false);
     }
