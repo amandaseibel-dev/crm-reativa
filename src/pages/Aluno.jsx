@@ -2767,6 +2767,9 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                       sem RPC de tabulação e sem validação de catálogo. Sem o
                       filtro, a tabulação só-gestão vazaria por aqui. */}
                   {STATUS_FINALIZACAO.filter((s) =>
+                    // Códigos de registro administrativo NÃO entram no estado do aluno
+                    // por esta aba (gravariam status sem histórico). Só pela tabulação.
+                    !tabulacaoEhRegistroAdministrativo(s) &&
                     tabulacaoDisponivel(
                       s,
                       podeVerTudo(usuarioLogado?.email),
