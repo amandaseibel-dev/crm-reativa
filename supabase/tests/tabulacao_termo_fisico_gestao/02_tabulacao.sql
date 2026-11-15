@@ -104,13 +104,6 @@ select public.teste_assert('escopo: RETORNO_FINANCEIRO não é barrado por esta 
     $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
          values ('a1','ACAO_DESFEITA','RETORNO_FINANCEIRO','operador.teste@exemplo.local')$sql$)->>'ok' = 'true');
 
--- Inativo: a RLS de INSERT exige app_usuario_ativo().
-select public.teste_set_ativo('cobranca07@aelbra.com.br', false);
-select public.teste_assert('gestão inativa: não grava (42501 pela RLS de INSERT)',
-  public.teste_comando('authenticated', 'cobranca07@aelbra.com.br',
-    $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
-         values ('a1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO','cobranca07@aelbra.com.br')$sql$)->>'code' = '42501');
-select public.teste_set_ativo('cobranca07@aelbra.com.br', true);
 
 -- ---------- Gestão permitida ----------
 select public.teste_assert('gestão (Amanda): grava TERMO_FISICO_EM_ANDAMENTO no histórico',

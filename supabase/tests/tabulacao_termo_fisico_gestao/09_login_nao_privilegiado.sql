@@ -72,4 +72,14 @@ end $$;
 insert into public.aluno_movimentacoes (aluno_id,tipo,status_novo,registrado_por_email)
   values ('r1','CONTATO','CONTATAR','operador.teste@exemplo.local');
 
+
+-- Harness: app_teste não tem helper de gestão ativa nem DML em usuarios (negativas exatas).
+do $$
+declare r text;
+begin
+  r := pg_temp.negado($sql$select public.teste_set_ativo('operador.teste@exemplo.local', true)$sql$);
+  if r not like '42883|%' then raise exception 'FALHOU: app_teste chamou teste_set_ativo: %', r; end if;
+  r := pg_temp.negado($sql$update public.usuarios set ativo = true where email = 'operador.teste@exemplo.local'$sql$);
+  if r not like '42501|%' then raise exception 'FALHOU: app_teste alterou usuarios: %', r; end if;
+end $$;
 select 'OK 09_login_nao_privilegiado' as resultado;
