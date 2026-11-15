@@ -454,6 +454,8 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   // contexto onde ela nao serve, em vez de perseguir um efeito por vez.
   const podeRolarSozinho = !fichaEmbedId;
   const [dataRetorno, setDataRetorno] = useState("");
+  // Reagendar EXPLICITO: so este checkbox usa a RPC agenda_reagendar_retorno (zera "Ja falei").
+  const [reagendarRetorno, setReagendarRetorno] = useState(false);
   const [numeroProcesso, setNumeroProcesso] = useState("");
   const [prazoTipo, setPrazoTipo] = useState("DATA");
   const [prazoData, setPrazoData] = useState("");
@@ -953,6 +955,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       ehOrigemDoOperador(aluno.retorno_origem) &&
       (paraDataLocalBR(aluno.data_retorno) || "") >= paraDataLocalBR(new Date());
     setDataRetorno(compromisso ? paraInputDateTime(aluno.data_retorno) : "");
+    setReagendarRetorno(false);
   }
   function abrirEdicaoCadastro() {
     if (!alunoSelecionado) return;
@@ -1242,6 +1245,18 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       console.error("Erro ao atualizar aluno:", updateError);
       alert("Movimentação registrada, mas houve erro ao atualizar a ficha.");
       throw updateError;
+    }
+    // Reagendar explicito: a RPC e o unico caminho que zera "Ja falei" por reagendamento.
+    if (reagendarRetorno) {
+      if (!dataRetorno) throw new Error("Informe a data e a hora do retorno para reagendar.");
+      const [dataIso, horaIso] = String(dataRetorno).split("T");
+      const { error: erroReagendar } = await supabase.rpc("agenda_reagendar_retorno", {
+        p_aluno_id: alunoId,
+        p_data: dataIso,
+        p_hora: (horaIso || "").slice(0, 5) || null,
+        p_prioritario: false,
+      });
+      if (erroReagendar) throw erroReagendar;
     }
   }
   async function assumirAtendimento() {
@@ -2372,6 +2387,10 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                       onChange={(e) => setDataRetorno(e.target.value)}
                       style={{ ...inputCheio, marginBottom: 0 }}
                     />
+                    <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, marginTop: 6 }}>
+                      <input type="checkbox" checked={reagendarRetorno} onChange={(e) => setReagendarRetorno(e.target.checked)} />
+                      Reagendar (novo compromisso: reativa o aviso, mesmo com a mesma data e hora)
+                    </label>
                   </div>
                   <div>
                     <label style={label}>Observação da finalização</label>
