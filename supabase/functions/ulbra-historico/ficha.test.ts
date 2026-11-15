@@ -18,6 +18,8 @@ const A3 = "33333333-3333-4333-8333-333333333333"; // CPF confirmado, sem conver
 const CONV_ANTIGA = "aaaaaaaaaaaaaaaaaaaaaaa1";
 const CONV_RECENTE = "aaaaaaaaaaaaaaaaaaaaaaa2";
 const SALDO_FRESCO = () => new Date().toISOString();
+// Dia do orçamento: America/Sao_Paulo (o mesmo que a função usa).
+const HOJE_SP = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
 
 function pedido(token: string | null, corpo: Record<string, unknown>) {
   const headers: Record<string, string> = { "content-type": "application/json" };
@@ -138,7 +140,7 @@ describe("ficha: leitura quando a permissão existe", () => {
 
 describe("orçamento por usuário e compartilhado (valores propostos, aguardam aprovação)", () => {
   it("usuário que já usou o limite do dia: negado, nada sai", async () => {
-    estado.banco.ulbra_historico_uso = [{ escopo: "cobranca10@aelbra.com.br", dia: "2026-11-14", usadas: 20 }];
+    estado.banco.ulbra_historico_uso = [{ escopo: "cobranca10@aelbra.com.br", dia: HOJE_SP, usadas: 20 }];
     const r = await chamar("tok-dona", { aluno_id: A1 });
     expect(r.corpo.motivo).toBe("LIMITE_OPERADOR_DIA");
     expect(estado.chamadasUlbra).toBe(0);
