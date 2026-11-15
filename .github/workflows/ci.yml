@@ -1181,3 +1181,38 @@ jobs:
 
       - name: Ordem de dependências e recusa fora de ordem
         run: bash supabase/tests/ordem_dependencias_953/cenarios.sh "$RUNNER_TEMP/a936" "$GITHUB_WORKSPACE"
+
+  relatorio-2026-2-rollback-concorrencia:
+    name: relatorio 2026/2 — rollback concorrente e reinstalacao (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/relatorio_2026_2_rollback_concorrencia
+      MIG: supabase/migrations/20261113000000_relatorio_2026_2_sem_negociacao.sql
+      RB: supabase/rollbacks/20261113000000_relatorio_2026_2_sem_negociacao.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # Duas conexoes reais: captura antes do lock, rollback, captura concorrente, reinstalacao.
+      - name: Rodar rollback concorrente e reinstalacao (duas conexoes)
+        run: bash "$DIR/run.sh"
