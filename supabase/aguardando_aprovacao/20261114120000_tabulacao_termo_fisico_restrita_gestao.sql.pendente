@@ -55,10 +55,11 @@ declare
   v_codigo text := upper(regexp_replace(coalesce(new.status_novo, ''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C");
   v_tipo text := upper(regexp_replace(coalesce(new.tipo, ''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C");
 begin
-  -- Bypass: service_role (claim) e sessão do dono / sem SET ROLE do PostgREST. Dentro de
-  -- SECURITY DEFINER, current_user é o dono; usa-se a GUC role do chamador.
-  if coalesce(auth.role(), '') = 'service_role'
-     or coalesce(current_setting('role', true), 'none') in ('none', '', 'postgres') then
+  -- Bypass ÚNICO e explícito: identidade de LOGIN da conexão (session_user), que não muda com
+  -- SET ROLE nem com SECURITY DEFINER e não é forjável por claim. Ausência de SET ROLE NUNCA
+  -- concede acesso: a conexão authenticator (login do PostgREST) é recusada e cai na regra.
+  -- postgres/supabase_admin: manutenção da plataforma. Nenhum caminho de serviço por claim.
+  if session_user in ('postgres', 'supabase_admin') then
     return new;
   end if;
 
