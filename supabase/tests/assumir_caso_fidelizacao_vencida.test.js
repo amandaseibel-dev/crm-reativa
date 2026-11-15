@@ -928,4 +928,31 @@ describe("operador assume caso com fidelização vencida", () => {
     expect(aceita.sucesso).toBe(true);
     await db.close();
   });
+
+  it("reversão revalida o caso: se o saldo foi zerado depois da tomada, NÃO reverte", async () => {
+    const db = await abrirCom();
+    const caso = await cenario(db, 160, { dono: MAURICIO });
+    await como(db, LUANA);
+    const r = await tomar(db, caso);
+    expect(r.sucesso).toBe(true);
+    await db.query("delete from public.acordos_titulos where aluno_id=$1", [U(160)]);
+    await como(db, GESTAO);
+    const rv = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [r.operacao_id, "x"]);
+    expect(rv.sucesso).toBe(false);
+    expect(rv.mensagem).toContain("situacao do caso mudou");
+    await db.close();
+  });
+
+  it("reversão restaura a data da troca de responsável ao valor exato anterior", async () => {
+    const db = await abrirCom();
+    const caso = await cenario(db, 161, { dono: MAURICIO });
+    const antes = await q1(db, "select responsavel_atual_em::text e from public.alunos where id=$1", [U(161)]);
+    await como(db, LUANA);
+    const r = await tomar(db, caso);
+    await como(db, GESTAO);
+    expect((await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [r.operacao_id, "x"])).sucesso).toBe(true);
+    const depois = await q1(db, "select responsavel_atual_em::text e from public.alunos where id=$1", [U(161)]);
+    expect(depois.e).toBe(antes.e);
+    await db.close();
+  });
 });

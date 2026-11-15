@@ -88,7 +88,8 @@ create table if not exists public.assumir_fidelizacao_operacoes (
   responsavel_novo_email text not null,
   responsavel_novo_nome text,
   data_ultimo_acionamento_antes date,
-  -- BACKUP por operacao, gravado ANTES da troca: linha do caso e do aluno como estavam.
+  -- SNAPSHOT MINIMO por operacao, gravado ANTES da troca: so os campos listados (sem CPF nem nome de aluno).
+  -- A reversao usa estado_anterior (abaixo), nao o snapshot.
   snapshot_caso jsonb,
   snapshot_aluno jsonb,
   -- estado de origem que a troca de dono zera (proxima_acao, data_retorno, hora_retorno)
@@ -249,7 +250,8 @@ begin
                             'responsavel_atual_nome', a.responsavel_atual_nome, 'responsavel_atual_em', a.responsavel_atual_em,
                             'data_ultimo_acionamento', a.data_ultimo_acionamento, 'status_acionamento', a.status_acionamento,
                             'proxima_acao', a.proxima_acao, 'data_retorno', a.data_retorno, 'hora_retorno', a.hora_retorno),
-         jsonb_build_object('proxima_acao', a.proxima_acao, 'data_retorno', a.data_retorno, 'hora_retorno', a.hora_retorno),
+         jsonb_build_object('proxima_acao', a.proxima_acao, 'data_retorno', a.data_retorno, 'hora_retorno', a.hora_retorno,
+                            'responsavel_atual_em', a.responsavel_atual_em),
          v_motivo, v_email
     from public.alunos a where a.id = p_aluno_id
   returning id into v_op;
@@ -383,21 +385,34 @@ begin
   end if;
 
   v_nome := public.nome_operador_por_email(v_email);
+  -- Conflito 4: o caso precisa continuar elegivel a voltar: nao protegido, nao encerrado, nao congelado, com saldo.
+  if public.caso_protegido_redistribuicao(v_c.cpf_limpo, v_c.status_acionamento, v_c.nao_acionar,
+       v_c.status_financeiro, v_c.valor_pago, v_c.quitado_em, v_c.valor_quitado)
+     or public.caso_encerrado_operacional(v_c.cpf_limpo, v_c.status_atual, v_c.status_acionamento,
+       v_c.status_financeiro, v_c.status_jornada)
+     or public.caso_encerramento_congelado(v_c.id)
+     or coalesce(public.saldo_titulos_aberto(v_c.cpf_limpo), 0) <= 0 then
+    return query select false, 'Conflito: a situacao do caso mudou depois desta tomada. Nao revertido.'; return;
+  end if;
+
   v_ant_nome := coalesce(v_op.responsavel_anterior_nome, v_op.responsavel_anterior_email);
 
   perform internal.set_resp_aluno(v_op.aluno_id, v_op.responsavel_anterior_email, v_ant_nome,
     'REVERTER_ASSUMIR_FIDELIZACAO', 'Reversao da operacao '||v_op.id::text||'. Motivo: '||v_motivo,
     v_email, v_nome);
 
-  -- Restaura o que a troca de dono zerou (retorno e proxima acao do operador de origem).
-  update public.alunos a
-     set proxima_acao = r.proxima_acao, data_retorno = r.data_retorno, hora_retorno = r.hora_retorno
-    from jsonb_populate_record(null::public.alunos, v_op.estado_anterior) r
-   where a.id = v_op.aluno_id;
-
   update public.casos set operador_email = lower(v_op.responsavel_anterior_email), operador_nome = v_ant_nome,
     operador = upper(v_ant_nome), caso_atualizado_por = v_email, caso_atualizado_em = now()
   where id = v_op.caso_id;
+
+  -- Depois do update em casos (que sincroniza alunos e grava now()), restaura o valor exato da troca.
+  -- Restaura o que a troca de dono mexeu: retorno, proxima acao e a data da troca de responsavel (valor exato).
+  update public.alunos a
+     set proxima_acao = r.proxima_acao, data_retorno = r.data_retorno, hora_retorno = r.hora_retorno,
+         responsavel_atual_em = r.responsavel_atual_em
+    from jsonb_populate_record(null::public.alunos, v_op.estado_anterior) r
+   where a.id = v_op.aluno_id;
+
 
   update public.assumir_fidelizacao_operacoes
      set revertida_em = now(), revertida_por = v_email, motivo_reversao = v_motivo
