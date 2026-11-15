@@ -114,12 +114,16 @@ amanda.seibel, cobranca04 e cobranca07. Não verifica `usuarios.ativo`. As três
 com `ativo = true`. A RPC acrescenta a checagem de `ativo` e não aceita diretoria.
 
 
-## Anexo J — custo em leitura (15/11/2026)
+## Anexo J — custo em leitura (corrigido)
 
-- `explain (analyze, summary, costs off, timing off)` sobre `carteira_2026_2_classificar()` em transação
-  `read only`, statement_timeout 30 s: Execution Time 2436,551 ms, 10.822 linhas.
-- Uma tentativa com o corpo completo da RPC, em `read only` e com statement_timeout de 8 s, estourou o limite
-  dentro do classificador (57014). A RPC chama o classificador e a função de negociações; a soma passa de 8 s.
-- `carteira_2026_2_negociacoes()` NÃO foi medida em leitura: a função cria e apaga uma tabela (`_n22`). Em
-  `read only` ela falha com 25006. O custo dela não está medido.
-- Conclusão: o custo completo da RPC não está medido e pode passar do limite de 8 s do `authenticated`.
+Medições em transação `read only`, com `explain (analyze, summary)`:
+- Classificador de 2026/2 (`carteira_2026_2_classificar()`, 10.822 linhas): 2.436,551 ms.
+- Consulta equivalente de negociado de 2026/2 (sem tabela temporária): 2.362,733 ms; resultado idêntico ao da
+  função: negociado 1.232.903,01; recebido 987.576,95; saldo 245.326,06; 784 títulos; 637 CPFs; 693 acordos.
+- SELECT completo (classificador, negociado e contagem de caixa) com `statement_timeout` de 8 s: 4.571,787 ms.
+  O classificador aparece duas vezes nessa medição; a RPC chama uma vez.
+- Lacuna declarada: a agregação de caixa por semestre não foi medida isoladamente (só a contagem da view). A
+  medição não é da RPC criada, que não existe em produção.
+- A tentativa anterior de 8 s que falhou no classificador não se repetiu com a mesma consulta.
+- Causa da função escritora: `carteira_2026_2_negociacoes()` cria `_n22` com `create temp table ... on commit drop`.
+  É temporária da transação, não compartilhada. A RPC não a usa mais.

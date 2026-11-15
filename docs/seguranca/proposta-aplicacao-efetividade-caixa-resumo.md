@@ -6,8 +6,8 @@ Status: PENDENTE DE APROVAÇÃO. Nada foi mesclado, aplicado em produção nem r
 
 | PR | Branch | Head congelado | Conteúdo |
 |---|---|---|---|
-| #966 (SQL) | `claude/indicadores-recuperacao-2026-semestres-4ec789` | `55f52d081e20d8070e5b8ee17163b7c880d2be55` | RPC `efetividade_caixa_resumo_semestre`, testes SQL, job de CI, rollback, medição e esta proposta |
-| #965 (tela) | `feat/mensalidades-sem-negociacao-indicadores` | `d9eaf66abe17fc35a62861a66bc80d61178b0c49` | Abas 2026/1 e 2026/2 de Mensalidades sem Negociação, lendo só a RPC acima |
+| #966 (SQL) | `claude/indicadores-recuperacao-2026-semestres-4ec789` | verificar com `gh pr view 966` na aprovação (não é o commit que contém esta linha) | RPC `efetividade_caixa_resumo_semestre`, testes SQL, job de CI, rollback, medição e esta proposta |
+| #965 (tela) | `feat/mensalidades-sem-negociacao-indicadores` | `d9eaf66abe17fc35a62861a66bc80d61178b0c49` (sem alteração desde a última revisão) | Abas 2026/1 e 2026/2 de Mensalidades sem Negociação, lendo só a RPC acima |
 
 Histórico preservado: nenhum commit foi reescrito ou apagado. A #966 deixou de expor a tela na Efetividade
 (`CarteiraEfetividade.jsx` volta ao estado de `origin/main`). A #965 é a única PR que publica indicadores na tela.
@@ -17,7 +17,7 @@ Entrega final = #966 (SQL) + #965 (tela). A tela só deve ser mesclada depois da
 ## Artefatos (SHA-256 integral)
 
 - Migration `supabase/migrations/20261115130000_efetividade_caixa_resumo_semestre.sql`:
-  `4c65a4149f8a03d0f995271d792de28b3e9263ca78a68528e0967c05445eef1f`
+  `b4e4d343d0dc5036eca1f99fe451b66bd5ebb74a6deeb9ad09f891b76a5644cd`
 - Rollback `docs/rollbacks/efetividade-caixa-resumo-semestre-rollback.sql`:
   `4bf1b0ffe2dd009809fc929b13ac336cce0d09541f48663f8181c0022fdb88b5`
 
@@ -25,7 +25,7 @@ Entrega final = #966 (SQL) + #965 (tela). A tela só deve ser mesclada depois da
 
 Linha de `docs/seguranca/migracoes-aprovadas.tsv`, 6 colunas separadas por TAB:
 `ahattpqrjmhkzsmnbdzs` · `20261115130000_efetividade_caixa_resumo_semestre` ·
-`4c65a4149f8a03d0f995271d792de28b3e9263ca78a68528e0967c05445eef1f` ·
+`b4e4d343d0dc5036eca1f99fe451b66bd5ebb74a6deeb9ad09f891b76a5644cd` ·
 `amanda.seibel@aelbra.com.br` · `expira_em` = aprovação + 30 min (UTC) · `pendente`.
 
 ## Executor nominal
@@ -34,7 +34,7 @@ Amanda Prado Seibel (`amanda.seibel@aelbra.com.br`). A sessão principal executa
 
 ## Sequência (ordem obrigatória)
 
-0. Custo medido antes de aplicar (ver Anexo J da medição): o classificador de 2026/2 leva ≈2,4 s por chamada em leitura; a RPC chama o classificador e a função de negociações, que escreve e não foi medida em leitura. O limite do `authenticated` é 8 s. Bloqueio: decidir como limitar o custo antes de aplicar.
+0. Custo medido em leitura (ver Anexo J da medição): o SELECT completo, com classificador e consulta de negociado, leva 4.571,8 ms com limite de 8 s. A RPC não está criada em produção, então a medição é do SELECT equivalente, e o classificador aparece duas vezes na medição (a RPC chama uma vez). O limite de 8 s é o comentário do próprio código (CarteiraEfetividade.jsx, teto de 8 s do papel authenticated).
 
 1. Aprovação desta proposta pela Amanda.
 2. Merge da #966 (só SQL; não publica tela).
@@ -96,6 +96,8 @@ Conferência do `version` efetivamente aplicado: ver a seção do `RUNBOOK-MIGRA
 Nada disso é feito antes da aprovação.
 
 ## Estado
+
+- Acesso de diretoria a funções pré-existentes (fora desta PR): `carteira_2026_2_negociacoes()` e `carteira_2026_2_detalhe()` usam `carteira_2026_1_pode_ler()`, que aceita diretoria. `detalhe` expõe nome e 6 dígitos de CPF por título. Decisão da gestão, não desta PR.
 
 - Declarada VOLATILE: chama carteira_2026_2_negociacoes(), que escreve. Hash atualizado.
 

@@ -45,8 +45,11 @@ returns jsonb language sql stable as $$
            'em_aberto', jsonb_build_object('valor', 600),
            'negociado', jsonb_build_object('valor', 200)))
 $$;
--- Negociações 2026/2 (stub): só o bloco total.negociado que a RPC lê.
-create or replace function public.carteira_2026_2_negociacoes()
-returns jsonb language sql stable as $$
-  select jsonb_build_object('total', jsonb_build_object('negociado', 300))
-$$;
+
+-- Tabelas que a consulta de negociado lê (mesmos nomes e colunas usados pela migration).
+create table public.prime_titulo_semestre (boleto text, semestre text);
+create table public.acordos (id uuid primary key, status text);
+create table public.parcelas (acordo_id uuid, status text, valor numeric, vencimento date);
+create table public.acordos_titulos (id uuid primary key, aluno_id uuid, cpf text, documento text,
+  valor_original numeric, situacao text, tipo_boleto text, vencimento date, acordo_id uuid);
+create table public.acordo_titulo_vinculo (titulo_id uuid, acordo_id uuid, ativo boolean);

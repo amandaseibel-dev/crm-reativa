@@ -24,3 +24,13 @@ language sql stable as $$
   union all select gen_random_uuid(), 200,  50, 'ACADEMICO', null, null
   union all select gen_random_uuid(), 100,  40, 'CANCELADO', null, null
 $$;
+
+-- Negociado 2026/2 conhecido: um acordo com 100 pago e 100 a vencer (ratio 0,5); um título de 400
+-- em 2026/2 sem série no Prime (cai no fallback por vencimento). Esperado: negociado 400, recebido 200,
+-- saldo 200, 1 título, 1 CPF, 1 acordo.
+insert into public.acordos (id, status) values ('00000000-0000-0000-0000-00000000a001', 'ATIVO');
+insert into public.parcelas (acordo_id, status, valor, vencimento) values
+  ('00000000-0000-0000-0000-00000000a001', 'PAGO', 100, '2026-08-01'),
+  ('00000000-0000-0000-0000-00000000a001', 'A_VENCER', 100, '2026-12-01');
+insert into public.acordos_titulos (id, aluno_id, cpf, documento, valor_original, situacao, tipo_boleto, vencimento, acordo_id) values
+  ('00000000-0000-0000-0000-00000000b001', gen_random_uuid(), '11122233344', 'DOC-NEG-1', 400, 'ABERTO', null, '2026-08-10', '00000000-0000-0000-0000-00000000a001');

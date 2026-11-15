@@ -77,7 +77,7 @@ begin
   if (s->>'saldo_academico')::numeric <> 50 then raise exception 'FALHA acadêmico'; end if;
   if (s->>'saldo_acordos_ativos')::numeric <> 200 then raise exception 'FALHA acordos ativos'; end if;
   if (r->>'saldo_em_aberto')::numeric <> 950 then raise exception 'FALHA saldo_em_aberto 2026/2'; end if;
-  if (r->>'negociado')::numeric <> 300 then raise exception 'FALHA negociado 2026/2'; end if;
+  if (r->>'negociado')::numeric <> 400 then raise exception 'FALHA negociado 2026/2'; end if;
   if (r->>'fotografia_atualizacao_pendente') is not null then raise exception 'FALHA: 2026/2 não usa fotografia'; end if;
   -- Nenhuma chave de identificação individual pode existir na saída.
   if r::text ~* '(cpf|aluno_id|titulo_id|acordo_id|pagamento_id|documento|nome)' then
@@ -99,6 +99,13 @@ begin
   if (r->>'fotografia_gerada_em') is null then raise exception 'FALHA: 2026/1 sem data da fotografia'; end if;
   if (r->>'negociado')::numeric <> 200 then raise exception 'FALHA negociado 2026/1'; end if;
   if r->'saldo_2026_2' <> 'null'::jsonb then raise exception 'FALHA: 2026/1 não deveria trazer saldo 2026/2'; end if;
+end $$;
+
+-- 10a. volatilidade declarada (não pode ser STABLE com escrita possível).
+do $$ begin
+  if (select provolatile from pg_proc where oid = 'public.efetividade_caixa_resumo_semestre(text)'::regprocedure) <> 'v' then
+    raise exception 'FALHA: RPC deve ser VOLATILE';
+  end if;
 end $$;
 
 -- 10. grants: authenticated tem EXECUTE; anon não. Falha explícita, sem \quit.

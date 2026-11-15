@@ -31,8 +31,8 @@
 -- RATEIO NÃO ENTRA AQUI. O recuperado por rateio é outra grandeza e continua nas RPCs
 -- de efetividade, identificado como tal.
 --
--- VOLATILIDADE. Declarada VOLATILE porque chama carteira_2026_2_negociacoes(), que escreve
--- (cria e apaga uma tabela temporária). Declarar STABLE seria inconsistente com essa chamada.
+-- VOLATILIDADE. Declarada VOLATILE por cautela: carteira_efetividade_ler pode recalcular snapshot.
+-- O negociado de 2026/2 é consulta de leitura própria, sem chamar carteira_2026_2_negociacoes().
 --
 -- PORTÃO. Gestão ativa autorizada: e-mail na lista de `usuario_e_gestao()` E linha
 -- em `usuarios` com `ativo = true`. Diretoria NÃO entra por este caminho.
@@ -85,7 +85,43 @@ begin
        round(coalesce(sum(c.saldo) filter (where c.faixa <> 'CANCELADO'), 0), 2)
       into v_saldo, v_carteira, v_titulos, v_saldo_aberto
       from public.carteira_2026_2_classificar() c;
-    v_negociado := (public.carteira_2026_2_negociacoes() -> 'total' ->> 'negociado')::numeric;
+    -- Negociado de 2026/2 por consulta de leitura equivalente à de carteira_2026_2_negociacoes()
+    -- (mesmos filtros e critérios), SEM a função escritora. Não usa tabela temporária.
+    with serie as (
+      select regexp_replace(coalesce(boleto,''), '\D', '', 'g') b, max(semestre) semestre
+        from public.prime_titulo_semestre where coalesce(semestre,'') <> '' group by 1
+    ),
+    parc as (
+      select acordo_id,
+             coalesce(sum(valor) filter (where status = 'PAGO'), 0) pagas,
+             coalesce(sum(valor) filter (where status in ('A_VENCER','VENCIDA')), 0) abertas,
+             count(*) filter (where status = 'VENCIDA' and vencimento >= current_date - 30) venc_ate30,
+             count(*) filter (where status = 'VENCIDA' and vencimento <  current_date - 30) venc_mais30
+        from public.parcelas group by 1
+    ),
+    acordo as (
+      select a.id,
+             case when coalesce(p.pagas,0) + coalesce(p.abertas,0) > 0
+                  then coalesce(p.pagas,0) / (coalesce(p.pagas,0) + coalesce(p.abertas,0))
+                  when a.status = 'QUITADO' then 1 else 0 end ratio
+        from public.acordos a left join parc p on p.acordo_id = a.id
+    ),
+    n as (
+      select t.id titulo_id, t.valor_original vo, ac.id acordo_id,
+             round(t.valor_original * ac.ratio, 2) recebido,
+             round(t.valor_original * (1 - ac.ratio), 2) saldo,
+             lpad(regexp_replace(coalesce(t.cpf,''), '\D', '', 'g'), 11, '0') cpf
+        from public.acordos_titulos t
+        left join public.acordo_titulo_vinculo v on v.titulo_id = t.id and v.ativo
+        left join serie s on s.b = regexp_replace(coalesce(t.documento,''), '\D', '', 'g')
+        join acordo ac on ac.id = coalesce(t.acordo_id, v.acordo_id)
+       where t.situacao <> 'DUPLICADA'
+         and coalesce(t.tipo_boleto,'') <> 'Acordo'
+         and coalesce(s.semestre,
+               case when t.vencimento >= date '2026-07-01' and t.vencimento < date '2027-01-01'
+                    then '2026/2' end) = '2026/2'
+    )
+    select round(coalesce(sum(vo),0),2) into v_negociado from n;
     v_fonte := 'classificador_2026_2';
   elsif p_semestre = '2026/1' then
     f := public.carteira_efetividade_ler('seis_linhas', '2026', '1');
