@@ -23,7 +23,7 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 
 **Dimensionamento (14/11/2026, leitura de produção, somente leitura):**
 - 7 operadores (perfil `operador`): até 20 chamadas por usuário/dia cada; pior caso 140.
-- 3 de gestão (`supervisor`, `gerencia`, `administrativo`): acesso amplo; até 20 chamadas cada; pior caso 60.
+- 3 de gestão (lista de três e-mails ativos, a mesma de `usuario_e_gestao()`; não é por perfil): acesso amplo; até 20 chamadas cada; pior caso 60.
 - 4 de outros perfis (`carteira`, `diretoria`, `juridico`, `painel`): leem só quando são dono da carteira ou responsáveis pelo atendimento; até 20 cada; pior caso 80.
 - Pior caso por usuário: 280 chamadas/dia. O teto compartilhado de 150/dia limita o total real.
 
@@ -33,7 +33,7 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 
 **Ponto em aberto que muda o número:** a ULBRA mediu 500 chamadas/dia por pessoa na conexão OAuth do piloto, e não confirmou se o limite vale também para a credencial de backend (que é o que o histórico usa). Se valer, o orçamento compartilhado precisa caber nesse teto junto com a coleta. O teto de 150 é uma proposta: não há prova de que ele caiba no cenário de 500/dia por pessoa, porque isso depende de a ULBRA confirmar o limite. A confirmação é uma chamada de `meu_acesso` com a credencial de backend (1 chamada, sob orçamento aprovado).
 
-**Saldo medido:** 9.821 em 11/11/2026, defasado. Não é usado para decidir; a primeira consulta depois da publicação renova o saldo.
+**Saldo medido:** 9.821 em 11/11/2026, defasado. É usado no teto de saldo (fotografia guardada pela coleta); a primeira consulta depois da publicação renova o saldo.
 
 **Pergunta para aprovação:** confirmar, alterar ou recusar os cinco valores (operador/dia 20, reserva 100, validade 15 min, teto diário 150) e autorizar a chamada única de `meu_acesso` para confirmar o limite da credencial de backend. Até a aprovação, a publicação usa os valores acima exatamente como estão no código.
 
