@@ -149,6 +149,26 @@ begin
   return jsonb_build_object('ok', true);
 end $$;
 
+
+-- Consulta como papel e JWT: devolve {ok, rows} ou {ok:false, code, err}.
+create or replace function public.teste_consulta(p_papel text, p_email text, p_sql text)
+returns jsonb language plpgsql as $$
+declare v_rows jsonb;
+begin
+  perform set_config('request.jwt.claims',
+    case when coalesce(p_email, '') = '' then '{}'
+         else json_build_object('email', p_email, 'role', coalesce(p_papel, 'postgres'))::text end, false);
+  if p_papel is not null then execute format('set role %I', p_papel); end if;
+  begin
+    execute format('select coalesce(jsonb_agg(t), ''[]''::jsonb) from (%s) t', p_sql) into v_rows;
+  exception when others then
+    if p_papel is not null then execute 'reset role'; end if;
+    return jsonb_build_object('ok', false, 'code', sqlstate, 'err', sqlerrm);
+  end;
+  if p_papel is not null then execute 'reset role'; end if;
+  return jsonb_build_object('ok', true, 'rows', v_rows);
+end $$;
+
 create or replace function public.teste_assert(p_nome text, p_cond boolean) returns void
 language plpgsql as $$
 begin

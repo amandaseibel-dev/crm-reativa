@@ -1129,6 +1129,7 @@ jobs:
       PGDATABASE: teste
       DIR: supabase/tests/tabulacao_termo_fisico_gestao
       MIGRATION: supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente
+      BARREIRA: supabase/aguardando_aprovacao/20261114130000_barreira_alunos_normalizacao.sql.pendente
       ROLLBACK: supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql
 
     steps:
@@ -1141,9 +1142,11 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
           psql -v ON_ERROR_STOP=1 -f "$DIR/02_tabulacao.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/00_barreira_producao.sql"
+          psql -v ON_ERROR_STOP=1 -f "$BARREIRA"
           psql -v ON_ERROR_STOP=1 -c "do \$\$ begin if not exists (select 1 from pg_roles where rolname='app_teste') then create role app_teste login password 'app_teste_pw'; end if; end \$\$;"
           psql -v ON_ERROR_STOP=1 -c "grant usage on schema public to app_teste; grant select on public.tabulacoes, public.alunos to app_teste; grant update on public.alunos to app_teste; grant select, insert on public.aluno_movimentacoes to app_teste;"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/05_barreira_alunos.sql"
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/08_barreira_normalizacao.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/07_registro_administrativo.sql"
           set +e
           out=$(psql -v ON_ERROR_STOP=1 -f "$ROLLBACK" 2>&1)
@@ -1154,6 +1157,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_rollback_recusado.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/06_preservacao_rollback.sql"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/05_barreira_alunos.sql"
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/08_barreira_normalizacao.sql"
 
       - name: "Caminho B (banco limpo, sem histórico): rollback recusado, preservação e barreira"
         run: |
@@ -1162,6 +1166,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
           psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
           psql -v ON_ERROR_STOP=1 -f "$DIR/00_barreira_producao.sql"
+          psql -v ON_ERROR_STOP=1 -f "$BARREIRA"
           psql -v ON_ERROR_STOP=1 -c "do \$\$ begin if not exists (select 1 from pg_roles where rolname='app_teste') then create role app_teste login password 'app_teste_pw'; end if; end \$\$;"
           psql -v ON_ERROR_STOP=1 -c "grant usage on schema public to app_teste; grant select on public.tabulacoes, public.alunos to app_teste; grant update on public.alunos to app_teste; grant select, insert on public.aluno_movimentacoes to app_teste;"
           set +e
@@ -1173,3 +1178,4 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/04_rollback_limpo.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/06_preservacao_rollback.sql"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/05_barreira_alunos.sql"
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/08_barreira_normalizacao.sql"

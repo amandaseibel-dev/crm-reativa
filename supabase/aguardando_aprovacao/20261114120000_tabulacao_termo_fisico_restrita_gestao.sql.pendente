@@ -108,4 +108,40 @@ create trigger aluno_mov_tabulacao_so_gestao
   before insert or update on public.aluno_movimentacoes
   for each row execute function public.aluno_movimentacao_tabulacao_so_gestao();
 
+-- Operação de registro administrativo (Premissa 12): a ÚNICA forma de gravar o registro.
+-- Imposta no banco: gestão (usuario_e_gestao), dois códigos, histórico apenas. Não toca em
+-- alunos, acionamento, retorno, fidelização, fila nem saldo. O front apenas chama esta função.
+create or replace function public.registrar_administrativo_termo_fisico(p_aluno_id text, p_codigo text)
+returns jsonb
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_codigo text := upper(regexp_replace(coalesce(p_codigo, ''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C");
+  v_aluno text := btrim(coalesce(p_aluno_id, ''));
+  v_email text := lower(coalesce(auth.jwt() ->> 'email', ''));
+  v_id bigint;
+begin
+  if not public.usuario_e_gestao() then
+    raise exception 'Registro administrativo é restrito à gestão. Nada foi gravado.' using errcode = '42501';
+  end if;
+  if not (v_codigo = any (array['TERMO_FISICO_EM_ANDAMENTO', 'TERMO_FISICO_ARQUIVADO'])) then
+    raise exception 'Registro administrativo exige um dos dois códigos de termo físico. Nada foi gravado.' using errcode = '42501';
+  end if;
+  if v_aluno = '' or not exists (select 1 from public.alunos a where a.id::text = v_aluno) then
+    raise exception 'aluno não encontrado. Nada foi gravado.' using errcode = '22023';
+  end if;
+  insert into public.aluno_movimentacoes
+    (aluno_id, tipo, status_novo, descricao, registrado_por_email, registrado_por_nome, registrado_em)
+  values
+    (v_aluno, 'REGISTRO_ADMINISTRATIVO', v_codigo, 'Registro administrativo do termo físico.', v_email, null, now())
+  returning id into v_id;
+  return jsonb_build_object('ok', true, 'id', v_id, 'codigo', v_codigo, 'autor', v_email);
+end;
+$$;
+
+revoke all on function public.registrar_administrativo_termo_fisico(text, text) from public, anon, service_role;
+grant execute on function public.registrar_administrativo_termo_fisico(text, text) to authenticated;
+
 COMMIT;

@@ -81,3 +81,24 @@ select public.teste_assert('efeito: gravar REGISTRO não altera o estado do alun
   (select status_atual||'|'||status_jornada||'|'||status_acionamento from public.alunos where id = 'a0000000-0000-0000-0000-000000000042') = 'CONTATAR|CONTATAR|CONTATAR');
 select public.teste_assert('efeito: tipo REGISTRO_ADMINISTRATIVO não é acionamento',
   public.eh_tipo_acionamento('REGISTRO_ADMINISTRATIVO') = false);
+
+-- ---------- Operação de registro (Premissa 12): o front só chama esta função ----------
+select public.teste_assert('operação: gestão registra via função e o histórico recebe autor e código',
+  (public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',
+    $sql$select public.registrar_administrativo_termo_fisico('a0000000-0000-0000-0000-000000000042','TERMO_FISICO_ARQUIVADO') as r$sql$)->'rows'->0->'r'->>'ok') = 'true');
+select public.teste_assert('operação: o registro gravado tem tipo REGISTRO e autor do servidor',
+  (select count(*) from public.aluno_movimentacoes where tipo = 'REGISTRO_ADMINISTRATIVO' and registrado_por_email = 'amanda.seibel@aelbra.com.br' and aluno_id = 'a0000000-0000-0000-0000-000000000042' and status_novo = 'TERMO_FISICO_ARQUIVADO') >= 1);
+select public.teste_assert('operação negada: operador (42501)',
+  public.teste_comando('authenticated','operador.teste@exemplo.local',
+    $sql$select public.registrar_administrativo_termo_fisico('a0000000-0000-0000-0000-000000000042','TERMO_FISICO_ARQUIVADO')$sql$)->>'code' = '42501');
+select public.teste_assert('operação negada: sem perfil (42501)',
+  public.teste_comando('authenticated','semperfil@exemplo.local',
+    $sql$select public.registrar_administrativo_termo_fisico('a0000000-0000-0000-0000-000000000042','TERMO_FISICO_ARQUIVADO')$sql$)->>'code' = '42501');
+select public.teste_assert('operação negada: código comum (42501)',
+  public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
+    $sql$select public.registrar_administrativo_termo_fisico('a0000000-0000-0000-0000-000000000042','CONTATAR')$sql$)->>'code' = '42501');
+select public.teste_assert('operação negada: aluno inexistente (22023)',
+  public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
+    $sql$select public.registrar_administrativo_termo_fisico('a0000000-0000-0000-0000-0000000000ff','TERMO_FISICO_ARQUIVADO')$sql$)->>'code' = '22023');
+select public.teste_assert('operação: a função não altera o estado do aluno',
+  (select status_atual||'|'||status_jornada||'|'||status_acionamento from public.alunos where id = 'a0000000-0000-0000-0000-000000000042') = 'CONTATAR|CONTATAR|CONTATAR');
