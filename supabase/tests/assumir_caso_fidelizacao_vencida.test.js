@@ -955,4 +955,60 @@ describe("operador assume caso com fidelização vencida", () => {
     expect(depois.e).toBe(antes.e);
     await db.close();
   });
+
+  describe("reversão recusada quando a situação do caso mudou (sem alterar nada)", () => {
+    async function tomadaEMudanca(db, n, mudanca) {
+      const caso = await cenario(db, n, { dono: MAURICIO });
+      await como(db, LUANA);
+      const r = await tomar(db, caso);
+      expect(r.sucesso).toBe(true);
+      await mudanca(db, caso, n);
+      const antes = await q1(db, "select operador_email e, (select responsavel_atual_email from public.alunos where id=$1) re from public.casos where id=$2", [U(n), caso]);
+      await como(db, GESTAO);
+      const rv = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [r.operacao_id, "x"]);
+      expect(rv.sucesso).toBe(false);
+      // Aceita qualquer conflito: o gatilho de protecao pode tirar o operador antes (conflito de dono).
+      expect(rv.mensagem).toMatch(/Conflito/);
+      const depois = await q1(db, "select operador_email e, (select responsavel_atual_email from public.alunos where id=$1) re from public.casos where id=$2", [U(n), caso]);
+      expect(depois).toEqual(antes);
+      const op = await q1(db, "select revertida_em is null aberta from public.assumir_fidelizacao_operacoes where id=$1", [r.operacao_id]);
+      expect(op.aberta).toBe(true);
+      await db.close();
+    }
+    it("caso PROTEGIDO (acordo em andamento) não é devolvido e nada muda", async () => {
+      const db = await abrirCom();
+      await tomadaEMudanca(db, 170, async (d, c) => {
+        await d.query("update public.casos set status_acionamento = 'ACORDO FECHADO' where id=$1", [c]);
+      });
+    });
+    it("caso ENCERRADO (cancelado) não é devolvido e nada muda", async () => {
+      const db = await abrirCom();
+      await tomadaEMudanca(db, 171, async (d, c) => {
+        await d.query("update public.casos set status_atual = 'CANCELADO' where id=$1", [c]);
+      });
+    });
+    it("caso CONGELADO (encerramento sem saldo não resolvido) não é devolvido e nada muda", async () => {
+      const db = await abrirCom();
+      await tomadaEMudanca(db, 172, async (d, c) => {
+        await d.query(`insert into public.caso_encerramento_sem_saldo (escopo, caso_id, classificacao, estado_anterior, justificativa, origem)
+                       values ('CASO', $1, 'MANTIDO_PELA_GESTAO', '{}'::jsonb, 'teste de reversao', 'GESTAO')`, [c]);
+      });
+    });
+  });
+
+  it("operação ANTIGA (sem responsavel_atual_em em estado_anterior) não zera a data atual da troca", async () => {
+    const db = await abrirCom();
+    const caso = await cenario(db, 173, { dono: MAURICIO });
+    await como(db, LUANA);
+    const r = await tomar(db, caso);
+    // simula operacao gravada pela versao anterior: sem a chave responsavel_atual_em
+    await db.query("update public.assumir_fidelizacao_operacoes set estado_anterior = estado_anterior - 'responsavel_atual_em' where id=$1", [r.operacao_id]);
+    await db.query("update public.alunos set responsavel_atual_em = now() - interval '40 days' where id=$1", [U(173)]);
+    await como(db, GESTAO);
+    const rv = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [r.operacao_id, "x"]);
+    expect(rv.sucesso).toBe(true);
+    const depois = await q1(db, "select responsavel_atual_em::text e from public.alunos where id=$1", [U(173)]);
+    expect(depois.e).not.toBeNull();
+    await db.close();
+  });
 });
