@@ -32,20 +32,21 @@ const pct = (parte, todo) =>
 const valorOuTraco = (v, disponivel) => (disponivel ? moeda(v) : "—");
 
 // Monta as linhas a partir das leituras já feitas. Função pura: é o que os testes cobrem.
-export function montarLinhasSemestres({ fotografia2026_1, contexto2026_2, negociacoes2026_2, caixa }) {
+// Carteira e saldo de 2026/2 vêm do MESMO classificador oficial (`carteira_2026_2_classificar`),
+// dentro da RPC de resumo. Assim carteira, saldo, caixa e negociado saem de um único recorte.
+export function montarLinhasSemestres({ fotografia2026_1, negociacoes2026_2, caixa }) {
   const sit = fotografia2026_1?.situacoes || null;
   const c1 = caixa?.["2026/1"] || null;
   const c2 = caixa?.["2026/2"] || null;
-  const ctx = contexto2026_2 || null;
+  const s2 = c2?.saldo_2026_2 || null;
   const neg = negociacoes2026_2?.total || null;
 
   const linha1 = {
     chave: "2026/1",
     rotulo: "2026/1",
-    nota: "carteira consolidada",
+    nota: "carteira consolidada · fotografia",
     carteira: sit?.entrou?.valor ?? null,
     saldoAberto: sit?.em_aberto?.valor ?? null,
-    saldoAbertoRotulo: "Saldo em aberto",
     negociado: sit?.negociado?.valor ?? null,
     caixa: c1 ? Number(c1.caixa_confirmado) : null,
     pagamentosCaixa: c1 ? Number(c1.pagamentos_confirmados) : null,
@@ -60,12 +61,12 @@ export function montarLinhasSemestres({ fotografia2026_1, contexto2026_2, negoci
   const linha2 = {
     chave: "2026/2",
     rotulo: "2026/2",
-    nota: "semestre vigente",
-    carteira: ctx?.carteira_valor != null ? Number(ctx.carteira_valor) : null,
-    saldoAberto: null,
-    saldoAbertoRotulo: "Saldo em aberto",
-    // Saldo total indisponível: o número disponível é só o dos acordos.
-    saldoAcordos: neg?.saldo != null ? Number(neg.saldo) : null,
+    nota: "semestre vigente · classificador",
+    carteira: s2?.carteira_original != null ? Number(s2.carteira_original) : null,
+    saldoAberto: s2?.saldo_em_aberto_total != null ? Number(s2.saldo_em_aberto_total) : null,
+    saldoConferencia: s2?.saldo_em_conferencia != null ? Number(s2.saldo_em_conferencia) : null,
+    saldoAcademico: s2?.saldo_academico != null ? Number(s2.saldo_academico) : null,
+    saldoAcordosAtivos: s2?.saldo_acordos_ativos != null ? Number(s2.saldo_acordos_ativos) : null,
     negociado: neg?.negociado != null ? Number(neg.negociado) : null,
     caixa: c2 ? Number(c2.caixa_confirmado) : null,
     pagamentosCaixa: c2 ? Number(c2.pagamentos_confirmados) : null,
@@ -73,7 +74,7 @@ export function montarLinhasSemestres({ fotografia2026_1, contexto2026_2, negoci
     pendentes: c2 ? Number(c2.pagamentos_pendentes) : null,
     rateio: neg?.recebido != null ? Number(neg.recebido) : null,
     dataReferencia: c2?.data_referencia ?? null,
-    geradoEm: ctx?.atualizado_em ?? null,
+    geradoEm: null,
     atualizacaoPendente: false,
   };
 
@@ -84,8 +85,7 @@ export function montarLinhasSemestres({ fotografia2026_1, contexto2026_2, negoci
 // o semestre selecionado é 2026/1. Passada aqui para não repetir a consulta. Sem
 // ela (outro semestre selecionado), o componente lê a fotografia por conta própria.
 export default function ComparativoSemestres2026({ fotografia2026_1: fotoDaPagina = null,
-                                                   contexto2026_2 = null, negociacoes2026_2 = null,
-                                                   recarga = 0 }) {
+                                                   negociacoes2026_2 = null, recarga = 0 }) {
   const [fotografiaLida, setFotografiaLida] = useState(null);
   const [caixa, setCaixa] = useState(null);
   const [erro, setErro] = useState("");
@@ -124,7 +124,7 @@ export default function ComparativoSemestres2026({ fotografia2026_1: fotoDaPagin
     );
   }
 
-  const linhas = montarLinhasSemestres({ fotografia2026_1, contexto2026_2, negociacoes2026_2, caixa });
+  const linhas = montarLinhasSemestres({ fotografia2026_1, negociacoes2026_2, caixa });
 
   return (
     <section style={{ marginTop: 22 }}>
@@ -158,11 +158,11 @@ export default function ComparativoSemestres2026({ fotografia2026_1: fotoDaPagin
                   </td>
                   <td style={E.tdValor}>{valorOuTraco(l.carteira, temCarteira)}</td>
                   <td style={E.tdValor}>
-                    {l.chave === "2026/2"
-                      ? "—"
-                      : valorOuTraco(l.saldoAberto, l.saldoAberto != null)}
-                    {l.chave === "2026/2" && l.saldoAcordos != null ? (
-                      <div style={E.nota}>só acordos vigentes: {moeda(l.saldoAcordos)}</div>
+                    {valorOuTraco(l.saldoAberto, l.saldoAberto != null)}
+                    {l.saldoConferencia != null ? (
+                      <div style={E.nota}>
+                        inclui {moeda(l.saldoConferencia)} em conferência (sem confirmação)
+                      </div>
                     ) : null}
                   </td>
                   <td style={E.tdValor}>
@@ -197,8 +197,9 @@ export default function ComparativoSemestres2026({ fotografia2026_1: fotoDaPagin
         Pagamento com chave exata ainda sem baixa, em revisão ou já pago na parcela não conta como recebido.
       </p>
       <p style={S.rodape}>
-        <strong>2026/2 não tem saldo total confiável nesta tela.</strong> O número de R$ acima é só o saldo
-        dos acordos vigentes, não a carteira inteira em aberto.
+        <strong>2026/2:</strong> carteira, saldo e caixa vêm do mesmo recorte do classificador oficial
+        (10.822 títulos). O saldo em aberto inclui valor em conferência e ajuste acadêmico ainda não
+        confirmados. Os acordos ativos são só uma parte dele e não substituem o total.
       </p>
       {linhas.some((l) => l.atualizacaoPendente) ? (
         <p style={{ ...S.rodape, color: "var(--rv-ambar-texto)" }}>

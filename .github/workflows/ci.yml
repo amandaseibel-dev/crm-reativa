@@ -1134,3 +1134,49 @@ jobs:
       # Duas conexoes reais: captura antes do lock, rollback, captura concorrente, reinstalacao.
       - name: Rodar rollback concorrente e reinstalacao (duas conexoes)
         run: bash "$DIR/run.sh"
+
+  # ---------------------------------------------------------------------------
+  # efetividade_caixa_resumo_semestre — PENDENTE, não aplicada em produção.
+  #
+  # Testa a RPC num Postgres descartável com stubs só das dependências externas
+  # (view de caixa, classificador 2026/2, auth). Cobre: anon sem EXECUTE, sessão
+  # sem e-mail, diretoria fora da gestão, gestão inativa, semestre inválido,
+  # agregados de 2026/2 e regressão de 2026/1, e ausência de dado individual.
+  # ---------------------------------------------------------------------------
+  efetividade-caixa-resumo-semestre:
+    name: efetividade caixa resumo semestre (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/efetividade_caixa_resumo_semestre
+      MIGRATION: supabase/migrations/20261115130000_efetividade_caixa_resumo_semestre.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Montar ambiente, aplicar a migration descartável e rodar os casos
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_baseline.sql"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"

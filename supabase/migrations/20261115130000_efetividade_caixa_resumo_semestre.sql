@@ -1,26 +1,32 @@
--- EFETIVIDADE — RESUMO DE CAIXA CONFIRMADO POR SEMESTRE (leitura agregada).
+-- EFETIVIDADE — RESUMO DE CAIXA CONFIRMADO E SALDO POR SEMESTRE (leitura agregada).
 --
--- PENDENTE: esta migration foi escrita nesta branch e NÃO foi aplicada em
--- produção. Aplicação e registro no ledger dependem de autorização específica.
--- Rollback em docs/rollbacks/efetividade-caixa-resumo-semestre-rollback.sql.
+-- PENDENTE: escrita nesta branch e NÃO aplicada em produção. Aplicação e registro
+-- no ledger dependem de autorização específica (ver docs/seguranca/migracoes-aprovadas.tsv).
+-- Rollback: docs/rollbacks/efetividade-caixa-resumo-semestre-rollback.sql.
 --
--- POR QUE EXISTE. A tela autenticada não consegue ler `efetividade_caixa_origem`
--- (sem grant para `authenticated`) e não deve receber linhas de pagamento. Esta
--- função devolve SOMENTE agregados por semestre de origem: nenhum CPF, aluno,
+-- O QUE DEVOLVE. Somente agregados por semestre de origem. Nenhum CPF, aluno,
 -- título, acordo ou pagamento individual sai daqui.
 --
--- CRITÉRIO DE CAIXA CONFIRMADO. Mesmo critério medido em 15/11/2026 sobre a view:
---   confianca = 'PROVADA' AND status_conciliacao = 'BAIXADO'.
--- Tudo o mais é "pendente de classificação" e NÃO é contado como recebido:
--- CHAVE_EXATA sem status ou em revisão, parcela já paga, aguardando amarração.
--- Pagamento sem origem determinada (confianca = 'INDETERMINADA') não é atribuído
--- a semestre nenhum: sai como total à parte, nunca como zero.
+-- CAIXA CONFIRMADO. confianca = 'PROVADA' AND status_conciliacao = 'BAIXADO' na
+-- view `efetividade_caixa_origem` (medido em 15/11/2026: 639 pagamentos em 2026/1,
+-- 594 em 2026/2). Todo o resto é "pendente de classificação" e NÃO é recebido.
+-- Pagamento sem origem determinada (INDETERMINADA) não é atribuído a semestre: sai
+-- como total à parte, nunca como zero.
 --
--- RATEIO NÃO ENTRA AQUI. O "recuperado por rateio" é outra grandeza (status da
--- parcela, não dinheiro) e continua nas RPCs de efetividade, identificado como tal.
+-- SALDO DE 2026/2 (só este semestre). Vem do classificador oficial
+-- `carteira_2026_2_classificar()`, o mesmo universo da carteira original: 10.822
+-- títulos, R$ 17.232.872,41, batendo com `carteira_2026_2_contexto`. O saldo total
+-- em aberto é a soma de `saldo` fora de CANCELADO. Ele é decomposto em conferência,
+-- ajuste acadêmico, sem pendência e acordos. Os acordos ativos NÃO substituem o
+-- saldo total. Em 2026/1 estes campos ficam nulos: o saldo vem da fotografia
+-- `seis_linhas`, sem recálculo ao vivo aqui.
 --
--- PORTÃO. Gestão ativa ou diretoria, como `carteira_2026_1_pode_ler`, sem o
--- atalho de `auth.jwt() is null`. Sem sessão autorizada, levanta erro.
+-- RATEIO NÃO ENTRA AQUI. O recuperado por rateio é outra grandeza e continua nas RPCs
+-- de efetividade, identificado como tal.
+--
+-- PORTÃO. Gestão ativa autorizada: e-mail na lista de `usuario_e_gestao()` E linha
+-- correspondente em `usuarios` com `ativo = true`. Diretoria NÃO entra por este
+-- caminho. Usuário anon e sessão sem e-mail são negados.
 
 create or replace function public.efetividade_caixa_resumo_semestre(p_semestre text)
 returns jsonb
@@ -31,13 +37,38 @@ set search_path = public, pg_temp
 as $$
 declare
   v jsonb;
+  v_saldo jsonb := null;
+  v_conf boolean;
 begin
-  if not (coalesce(public.usuario_e_gestao(), false) or coalesce(public.usuario_e_diretoria(), false)) then
+  if not (
+    coalesce(public.usuario_e_gestao(), false)
+    and exists (
+      select 1 from public.usuarios u
+       where lower(u.email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+         and u.ativo is true
+    )
+  ) then
     raise exception 'sem permissão para o resumo de caixa' using errcode = '42501';
   end if;
 
   if p_semestre is null or p_semestre not in ('2024/1','2024/2','2025/1','2025/2','2026/1','2026/2') then
     raise exception 'semestre inválido: %', p_semestre using errcode = '22023';
+  end if;
+
+  if p_semestre = '2026/2' then
+    select jsonb_build_object(
+      'carteira_original', round(sum(c.valor_original), 2),
+      'titulos_carteira', count(*),
+      'saldo_em_aberto_total', round(coalesce(sum(c.saldo) filter (where c.faixa <> 'CANCELADO'), 0), 2),
+      'saldo_em_conferencia', round(coalesce(sum(c.saldo) filter (where c.faixa = 'EM_CONFERENCIA'), 0), 2),
+      'saldo_academico', round(coalesce(sum(c.saldo) filter (where c.faixa = 'ACADEMICO'), 0), 2),
+      'saldo_sem_pendencia', round(coalesce(sum(c.saldo) filter (where c.faixa in ('SEM_NEGOCIACAO','CONVERTIDO')), 0), 2),
+      'saldo_acordos_ativos', round(coalesce(sum(c.saldo) filter (
+          where c.faixa <> 'CANCELADO' and c.acordo_id is not null
+            and c.acordo_estado in ('regular','atraso','quebrado')), 0), 2)
+    )
+      into v_saldo
+      from public.carteira_2026_2_classificar() c;
   end if;
 
   select jsonb_build_object(
@@ -59,7 +90,8 @@ begin
       select coalesce(sum(valor_pago), 0)
         from public.efetividade_caixa_origem
        where confianca = 'INDETERMINADA'
-    )
+    ),
+    'saldo_2026_2', v_saldo
   )
     into v
     from public.efetividade_caixa_origem

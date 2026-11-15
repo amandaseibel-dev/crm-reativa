@@ -766,7 +766,7 @@ export default function CarteiraEfetividade({ safraFixa = null } = {}) {
           {!safraFixa && (
           <div style={{ marginTop: 22 }}>
             <ComparativoSemestres2026 fotografia2026_1={safra === "2026/1" ? situacoes : null}
-                                       contexto2026_2={contexto} negociacoes2026_2={vigente} recarga={recarga} />
+                                       negociacoes2026_2={vigente} recarga={recarga} />
             <button onClick={() => setComparativo((v) => !v)} aria-expanded={comparativo}
                     style={S.linkMetodologia}>
               <span aria-hidden="true">{comparativo ? "▾" : "▸"}</span>
