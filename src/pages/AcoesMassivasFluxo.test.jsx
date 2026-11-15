@@ -131,6 +131,8 @@ describe("Exportação — fluxo da página (xlsx real; gravação interceptada 
     expect(controle.gravacoes.length).toBe(0);
     // não diz que a planilha foi exportada
     expect(screen.queryByText(/Lote registrado e planilha baixada/)).toBeNull();
+    // após o arquivo falhar, nova exportação fica bloqueada nesta tela (regra desta PR)
+    expect(screen.getByRole("button", { name: /Exportar planilha/ }).disabled).toBe(true);
 
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Baixar planilha novamente/ })); });
     await waitFor(() => expect(controle.gravacoes.length).toBe(1));
