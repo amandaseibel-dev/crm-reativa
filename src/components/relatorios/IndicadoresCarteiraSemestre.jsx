@@ -71,8 +71,15 @@ export default function IndicadoresCarteiraSemestre({ fonte }) {
       </div>
       <p style={{ ...textoSuave, fontSize: 12, marginTop: 8, marginBottom: 0 }}>
         Percentual é recuperação por caixa confirmado identificado, não recuperação total. Os valores não se somam entre si.
+        Base da carteira original: {dados.base_carteira || "—"}.
         Data de referência: {dados.data_referencia || "—"}.
       </p>
+      {dados.fotografia_atualizacao_pendente ? (
+        <p style={{ fontSize: 12, marginTop: 6, marginBottom: 0, color: "var(--rv-ambar-texto)" }}>
+          A fotografia de carteira deste semestre tem atualização pendente: carteira, saldo e negociado podem estar
+          defasados. Gerada em {dados.fotografia_gerada_em || "—"}. O caixa confirmado é lido na hora.
+        </p>
+      ) : null}
     </Bloco>
   );
 }

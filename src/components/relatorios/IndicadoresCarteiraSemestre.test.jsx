@@ -56,4 +56,11 @@ describe("IndicadoresCarteiraSemestre (contrato único: RPC efetividade_caixa_re
     await screen.findByText("Saldo em aberto");
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
   });
+
+  it("mostra aviso de defasagem quando a fotografia está pendente", async () => {
+    rpcMock.mockResolvedValue({ data: { ...RESP_2026_2, fotografia_atualizacao_pendente: true, fotografia_gerada_em: "2026-10-29T13:10:00Z", base_carteira: "fotografia seis_linhas, entrou" }, error: null });
+    render(<IndicadoresCarteiraSemestre fonte={{ semestre: "2026/1" }} />);
+    expect(await screen.findByText(/atualização pendente/)).toBeTruthy();
+    expect(screen.getByText(/Base da carteira original: fotografia seis_linhas, entrou/)).toBeTruthy();
+  });
 });
