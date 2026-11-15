@@ -2,7 +2,7 @@
 //
 // O que prova (que o PGlite, sessao unica, nao consegue provar):
 //  1. NOWAIT de aluno, de acordos e de parcelas: com a trava ocupada por outra sessao, a
-//     aprovacao falha RAPIDO com 40001, sem esperar, sem deadlock e sem nenhuma alteracao
+//     aprovacao falha RAPIDO com 40001, sem esperar e sem nenhuma alteracao
 //     parcial (caso, aluno, historico e acordo ficam como estavam).
 //  2. Depois que a outra sessao solta a trava, a MESMA aprovacao passa (nova tentativa).
 //  3. Troca simultanea de parcelas vencidas do mesmo acordo: as duas atualizacoes terminam
@@ -278,7 +278,8 @@ async function main() {
     assert.ok(err, "a aprovacao devia ser recusada com casos travados");
     assert.equal(err.code, "40001");
     assert.match(err.message, /Nada foi gravado/);
-    assert.ok(dt >= 2500 && dt < 10000, `espera limitada (~3 s), medida ${dt} ms`);
+    // 3 s do lock_timeout da funcao; a sessao tem 5 s. Limite < 4500 separa os dois: sem o da funcao, falha.
+    assert.ok(dt >= 2500 && dt < 4500, `espera limitada (~3 s, nao 5 s da sessao), medida ${dt} ms`);
     assert.deepEqual(await foto(s5, x), antes, "nenhuma alteracao parcial (aluno volta ao estado anterior)");
     await H.query("rollback");
     assert.equal((await s5.query("select public.juridico_caso_aprovar($1) j", [x.caso])).rows[0].j.status, "APROVADO");

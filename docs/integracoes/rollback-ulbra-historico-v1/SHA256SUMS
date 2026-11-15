@@ -1,0 +1,3 @@
+20cc12d353c7278c9951208d740312831bffe92fcf2533856474be01bbb2f05f  supabase/functions/ulbra-conversa/leitura.ts
+4836a2e5173c4eca17d25add216dbd4cd9428a02eb86037f98342f0ec597d36c  supabase/functions/ulbra-historico/historico.ts
+2e50b8de076ae048834cdf810d0053790691142b29432a59f9020112442f1e79  supabase/functions/ulbra-historico/index.ts

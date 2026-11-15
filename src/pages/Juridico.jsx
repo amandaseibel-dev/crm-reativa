@@ -169,7 +169,8 @@ export default function Juridico() {
     const idsQuebrados = c.conferencia?.quebrados?.ids || [];
     const saldoQuebrado = Number(c.conferencia?.quebrados?.saldo || 0);
     const quebradosRev = (c.conferencia?.acordos || []).filter((x) => idsQuebrados.includes(x.acordo_id));
-    const parcelasVencidas = quebradosRev.flatMap((x) => (x.parcelas || []).filter((p) => p.status === "VENCIDA").map((p) => p.parcela_id));
+    // a RPC compara com upper(status): a tela usa a mesma regra, para nao recusar revisao legitima
+    const parcelasVencidas = quebradosRev.flatMap((x) => (x.parcelas || []).filter((p) => String(p.status || "").toUpperCase() === "VENCIDA").map((p) => p.parcela_id));
     const termo = c.conferencia?.termo;
     const temDoc = pend.includes("TERMO_NAO_LOCALIZADO") || pend.includes("TERMO_A_VALIDAR");
     return (

@@ -1352,6 +1352,30 @@ describe("fechamento: alertas falsos, nova quebra, concorrencia simulada e confi
     await db.close();
   });
 
+  it("X3. troca de parcelas vencidas NUM UNICO comando (saldo igual): so o conjunto de parcelas detecta; pendencia e divergencia", async () => {
+    const db = await novo();
+    const { a, caso } = await quebradoAprovado(db);
+    await db.query("update parcelas set status = case when numero = 1 then 'A_VENCER' else 'VENCIDA' end where acordo_id=$1", [a.ac]);
+    expect(await divs(db, caso)).toContain("ACORDO_QUEBRADO_SEM_REVISAO");
+    expect(await pend(db, a.al)).toContain("ACORDO_QUEBRADO_SEM_REVISAO"); // a pendencia tambem olha o conjunto
+    await db.close();
+  });
+
+  it("X4. revisao com o conjunto de parcelas desatualizado e recusada, sem gravar", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000], acordo: "QUEBRADO" });
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_autorizar_documento($1,'autorizado pelo jurídico')", [caso.id]);
+    const c = (await db.query("select public._juridico_conferencia($1) c", [a.al])).rows[0].c;
+    const q = (c.acordos || []).filter((x) => x.situacao === "QUEBRADO");
+    const saldo = q.reduce((t, x) => t + Number(x.saldo || 0), 0);
+    const e = await falha(rpc(db, "public.juridico_caso_revisar_acordo_quebrado($1,$2,$3,$4,$5)", [caso.id, "revisado", q.map((x) => x.acordo_id), saldo, [U(999, 9)]]));
+    expect(e?.message).toMatch(/As parcelas vencidas mudaram/);
+    expect((await db.query("select quebrado_revisado_em from juridico_casos where id=$1", [caso.id])).rows[0].quebrado_revisado_em).toBeNull();
+    await db.close();
+  });
+
   it("F5. vencimento prorrogado e REVERTIDO depois da aprovacao deixa marca (ACORDO_CONDICOES_ALTERADAS)", async () => {
     const db = await novo();
     const { a, caso } = await emDiaAprovado(db);
