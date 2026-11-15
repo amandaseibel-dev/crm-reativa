@@ -17,7 +17,7 @@ Status: **PENDENTE DE APROVAÇÃO EXPRESSA PARA APLICAÇÃO.** Não autoriza, po
 
 | PR | Branch | Head |
 |---|---|---|
-| #954 (banco) | `feat/termo-fisico-registro-migracao` | `ec2d55ab` (head do commit deste pacote) |
+| #954 (banco) | `feat/termo-fisico-registro-migracao` | `f88a24b9` (head com estes artefatos; o commit de docs que registra este head é posterior) |
 | #951 (front) | `feat/tabulacao-termo-fisico` | `9c4d870b` |
 
 | Arquivo | SHA-256 | Bytes |
