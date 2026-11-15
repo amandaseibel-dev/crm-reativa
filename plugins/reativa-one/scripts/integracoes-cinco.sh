@@ -50,7 +50,7 @@ if [ "$excecao_948" = 1 ]; then
     exit 1
   fi
   echo "EXCEÇÃO 948 aplicada (uso explícito): diff só em $excecao_948_permitidos."
-  echo "Sem alteração nos três documentos Prime; sem mudança de contrato da API Prime."
+  echo "Este script verifica só a lista de arquivos; não verifica o conteúdo de contratos Prime."
   exit 0
 fi
 

@@ -64,12 +64,18 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 | `supabase/functions/ulbra-historico/historico.ts` | `1355a8b08446cfe56874f44d4c766b24706acb78806aadd88255cd7706d1b93c` |
 | `supabase/functions/ulbra-historico/leitura.ts` (diferente da v1 só por comentário; v1 = 20cc12d3…) | `2bb97fa41b8d606c2b545e689c60238f984e622083d638cd48a90049a8e0067b` |
 
-## Publicação (cada passo com autorização)
-1. Aprovação dos quatro valores acima e do pacote.
-2. Mesclar a #948 (clique humano).
-3. Publicar `ulbra-historico` com `functions deploy`, **sem** `--no-verify-jwt`. Conferir `verify_jwt = true` e os três hashes.
-4. Conferir sem chamada à ULBRA: sem token dá 401; aluno sem CPF confirmado dá 403.
-5. Validação com operadores reais na tela logada, feita pela gestão.
+## Publicação (sequência ÚNICA, cada passo com autorização)
+Esta é a única sequência válida. Não há outra no pacote.
+1. Pré-condição: rotação do `ULBRA_MCP_TOKEN` concluída pela TI, com revogação do token antigo registrada.
+2. Pré-condição: diagnóstico único de `/ulbra-diagnostico` executado por Amanda após a rotação; registrar só limites, saldo, escopos e data.
+3. Aprovação final dos quatro valores de orçamento e desta versão do pacote.
+4. Aplicar a migration `20261115120000` **antes** de qualquer deploy (com o rollback pronto). Comando seu: `psql -1 -f supabase/aguardando_aprovacao/20261115120000_ulbra_historico_bloqueio_e_guarda_reserva.sql.pendente`. Sem ela, a função lê colunas inexistentes e responde 502 em todo clique que não vem do cache.
+5. Mesclar a #948 (clique humano).
+6. Publicar `ulbra-historico` com `supabase functions deploy ulbra-historico --project-ref ahattpqrjmhkzsmnbdzs`, **sem** `--no-verify-jwt`. Conferir `verify_jwt = true` e os três hashes de publicação.
+7. Conferir sem chamar a ULBRA: sem token dá 401; aluno sem CPF confirmado dá 403.
+8. Validação com operadores e gestão na tela logada.
+
+**Ponto não comprovado:** se o limite de 500/dia por pessoa vale para a credencial de backend. O probe de `meu_acesso` (uma chamada, sob autorização sua) responde isso; não foi executado.
 
 ## Reversão
 - Função: versão 1 em `docs/integracoes/rollback-ulbra-historico-v1/` (`SHA256SUMS`). Redeploy sem `--no-verify-jwt`.
@@ -104,15 +110,7 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 | `supabase/functions/ulbra-historico/historico.ts` | `1355a8b08446cfe56874f44d4c766b24706acb78806aadd88255cd7706d1b93c` |
 | `supabase/functions/ulbra-historico/leitura.ts` | `2bb97fa41b8d606c2b545e689c60238f984e622083d638cd48a90049a8e0067b` |
 
-**Sequência de implantação (cada passo depende de aprovação sua):**
-1. Aprovar os valores (20 por usuário, 150 compartilhados, reserva 100, saldo 15 min) e esta versão.
-2. Aplicar a migration `20261115120000` (com o rollback pronto). Comando seu: `psql -1 -f supabase/aguardando_aprovacao/20261115120000_ulbra_historico_bloqueio_e_guarda_reserva.sql.pendente`.
-3. Mesclar a #948 (clique seu no GitHub).
-4. Publicar `ulbra-historico` com a verificação de JWT ligada: `supabase functions deploy ulbra-historico --project-ref ahattpqrjmhkzsmnbdzs` (sem `--no-verify-jwt`). Conferir os três hashes acima.
-5. Conferir sem chamar a ULBRA: sem token dá 401; aluno sem CPF confirmado dá 403.
-6. Validação com operadores e gestão na tela logada.
-
-**Ponto ainda não comprovado:** se o limite de 500/dia por pessoa vale para a credencial de backend. O probe de `meu_acesso` (uma chamada, sob sua autorização) responde isso; ele não foi executado por esta sessão.
+**Sequência de publicação:** ver a seção "Publicação" acima (única válida).
 
 **Reversão:** função versão 1 em `docs/integracoes/rollback-ulbra-historico-v1/` (SHA256SUMS). Banco: o rollback da migration `20261115120000` e o rollback da `20261110100000`, este último só se a gestão decidir remover a tabela de uso.
 
@@ -149,7 +147,7 @@ Saldo medido em **11/11/2026** (valor de referência, defasado). O teto de saldo
 
 ## Consolidação final da PR #948 (exceção, limitações e hashes)
 
-**Limitação conhecida (R1):** o servidor responde `403 IDENTIDADE_NAO_CONFIRMADA` e `404 CONVERSA_NAO_ENCONTRADA` antes de checar a carteira (`index.ts`, `ficha.test.ts` fixa esse comportamento). Isso permite a um operador com token saber se um `aluno_id` tem conversa coletada. **Não há isolamento completo da resposta.** A resposta neutra fica como melhoria posterior, sem prometer que esconde a existência.
+**Limitação conhecida (R1):** o servidor revela três estados a qualquer usuário ativo com token: `403 IDENTIDADE_NAO_CONFIRMADA` (sem vínculo confirmado), `404 CONVERSA_NAO_ENCONTRADA` (sem conversa coletada) e `403 SEM_PERMISSAO_NA_CONVERSA` (com conversa, sem carteira). Isso permite inferir a existência de conversa coletada para um `aluno_id`. **Não há isolamento completo da resposta.** A resposta neutra fica como melhoria posterior, sem prometer que esconde a existência.
 
 **Pré-condições obrigatórias (não dispensáveis por esta PR):**
 1. Rotação do `ULBRA_MCP_TOKEN` concluída pela TI, com revogação do token antigo registrada.
