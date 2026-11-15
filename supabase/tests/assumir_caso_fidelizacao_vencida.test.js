@@ -901,4 +901,31 @@ describe("operador assume caso com fidelização vencida", () => {
       await db.close();
     });
   });
+
+  it("regra REAL de retorno com dados: retorno do operador sustentado por atendimento recusa; sem o atendimento, passa (controle)", async () => {
+    const db = await abrirCom();
+    const caso = await cenario(db, 151, { dono: MAURICIO });
+    const BR = "(now() at time zone 'America/Sao_Paulo')::date";
+    await db.query(`update public.alunos set data_retorno = ${BR} + 3, retorno_origem = 'OPERADOR', retorno_confirmado_em = null where id=$1`, [U(151)]);
+    await db.query(`insert into public.aluno_movimentacoes (aluno_id, tipo, descricao, registrado_por_email, registrado_em, data_retorno)
+                    values ($1, 'FINALIZACAO_ATENDIMENTO', 'atendimento do responsavel', $2, now(), now() + interval '3 days')`, [U(151), MAURICIO]);
+    // O atendimento acima dispara o acionamento (trigger) e joga o caso para dentro do prazo.
+    // Devolvemos o acionamento para 20 dias atras, para que SO a regra de retorno possa recusar.
+    const VELHO = `((${BR}) - 20)`;
+    await db.query(`update public.alunos set data_ultimo_acionamento = (${VELHO})::timestamptz, status_acionamento = null where id=$1`, [U(151)]);
+    await db.query(`update public.casos set data_ultimo_acionamento = ${VELHO} where id=$1`, [caso]);
+    const ret1 = await q1(db, "select public.aluno_retorno_operador_vigente($1) v", [U(151)]);
+    expect(ret1.v).toBe(true);
+    await como(db, LUANA);
+    const recusada = await tomar(db, caso);
+    expect(recusada.sucesso).toBe(false);
+    expect(recusada.mensagem).toContain("nao esta disponivel");
+    // CONTROLE: sem o atendimento que sustenta o retorno, a regra nao protege e a tomada passa.
+    await db.query(`delete from public.aluno_movimentacoes where aluno_id=$1`, [U(151)]);
+    const ret2 = await q1(db, "select public.aluno_retorno_operador_vigente($1) v", [U(151)]);
+    expect(ret2.v).toBe(false);
+    const aceita = await tomar(db, caso);
+    expect(aceita.sucesso).toBe(true);
+    await db.close();
+  });
 });
