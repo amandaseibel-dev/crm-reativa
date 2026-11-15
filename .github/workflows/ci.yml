@@ -1141,7 +1141,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
           psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
           psql -v ON_ERROR_STOP=1 -c "do \$\$ begin if not exists (select 1 from pg_roles where rolname='app_teste') then create role app_teste login noinherit password 'app_teste_pw'; end if; end \$\$;"
-          psql -v ON_ERROR_STOP=1 -c "alter role app_teste noinherit; grant usage on schema public to app_teste; grant select on public.tabulacoes, public.alunos, public.usuarios to app_teste; grant update on public.alunos to app_teste; grant anon, authenticated, service_role to app_teste; grant select, insert on public.aluno_movimentacoes to app_teste;"
+          psql -v ON_ERROR_STOP=1 -c "alter role app_teste noinherit; grant anon, authenticated, service_role to app_teste with inherit false, set true, admin false; grant usage on schema public to app_teste; grant select on public.tabulacoes, public.alunos, public.usuarios to app_teste; grant update on public.alunos to app_teste; grant select, insert on public.aluno_movimentacoes to app_teste;"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/02_tabulacao.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/prep_gestao_inativa_off.sql"
           set +e
@@ -1242,7 +1242,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/00_barreira_producao.sql"
           psql -v ON_ERROR_STOP=1 -f "$BARREIRA"
           psql -v ON_ERROR_STOP=1 -c "do \$\$ begin if not exists (select 1 from pg_roles where rolname='app_teste') then create role app_teste login noinherit password 'app_teste_pw'; end if; end \$\$;"
-          psql -v ON_ERROR_STOP=1 -c "alter role app_teste noinherit; grant usage on schema public to app_teste; grant select on public.tabulacoes, public.alunos, public.usuarios to app_teste; grant update on public.alunos to app_teste; grant anon, authenticated, service_role to app_teste; grant select, insert on public.aluno_movimentacoes to app_teste;"
+          psql -v ON_ERROR_STOP=1 -c "alter role app_teste noinherit; grant anon, authenticated, service_role to app_teste with inherit false, set true, admin false; grant usage on schema public to app_teste; grant select on public.tabulacoes, public.alunos, public.usuarios to app_teste; grant update on public.alunos to app_teste; grant select, insert on public.aluno_movimentacoes to app_teste;"
           set +e
           out=$(psql -v ON_ERROR_STOP=1 -f "$ROLLBACK" 2>&1)
           code=$?
