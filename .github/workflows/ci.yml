@@ -1190,6 +1190,11 @@ jobs:
           [ "$rc" -eq 0 ] || exit "$rc"
           psql -v ON_ERROR_STOP=1 -f "$DIR/12p_reaplica.sql"
           set +e
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/14_nao_relacionados_e_definer.sql"
+          rc=$?
+          set -e
+          [ "$rc" -eq 0 ] || exit "$rc"
+          set +e
           out=$(psql -v ON_ERROR_STOP=1 -f "$ROLLBACK" 2>&1)
           code=$?
           set -e
