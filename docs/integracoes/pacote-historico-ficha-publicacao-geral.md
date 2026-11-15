@@ -69,8 +69,8 @@ Esta é a única sequência válida. Não há outra no pacote.
 1. Pré-condição: rotação do `ULBRA_MCP_TOKEN` concluída pela TI, com revogação do token antigo registrada.
 2. Pré-condição: diagnóstico único de `/ulbra-diagnostico` executado por Amanda após a rotação; registrar só limites, saldo, escopos e data.
 3. Aprovação final dos quatro valores de orçamento e desta versão do pacote.
-4. **Teste em staging antes de produção:** aplicar a migration em staging pelo caminho do ledger e rodar o teste de PostgREST real (`supabase/tests/ulbra_historico_bloqueio/postgrest_guarda.cjs`) com o formato de claim do projeto. Só avança se passar. Sem esse teste, o formato do claim não está comprovado.
-5. **Aplicar em produção pelo caminho do ledger**, não por `psql`: `apply_migration` com o arquivo, gravar a versão registrada em `schema_migrations`, o sha256 (2956c60210a8d3dece24a46ee8e6e80249428f567ea4292d83b9baca167801cd) e a verificação de `schema_migrations`. Com `psql` a versão não entra no ledger e a verificação fica impossível. Rollback pronto antes.
+4. **Teste em staging antes de produção (pré-condição NÃO COMPROVADA até o ref ser informado):** o ref do projeto de staging não está identificado no repositório, e o checkout está ligado à produção. Antes deste passo, informar o ref de staging, confirmá-lo por `ambiente.sh`, aplicar a migration nele pelo caminho do ledger e rodar um teste PostgREST que leia o formato de claim desse projeto (o `postgrest_guarda.cjs` atual gera segredo próprio e não prova o claim do projeto). Só avança se passar.
+5. **Aplicar em produção pelo caminho do ledger**, não por `psql`: `apply_migration` com o arquivo; depois registrar o SQL aplicado em `supabase/ledger/2026-11/<version>__<nome>.sql` e uma linha em `supabase/ledger/2026-11/INDICE.tsv` (version, nome, arquivo, md5 e bytes conforme `supabase/ledger/LEIA-ME.md`); conferir `schema_migrations`. Sha256 do arquivo: 1e4bb622… Rollback pronto antes.
 6. Mesclar a #948 (clique humano).
 7. Publicar `ulbra-historico` com `supabase functions deploy ulbra-historico --project-ref ahattpqrjmhkzsmnbdzs`, **sem** `--no-verify-jwt`. Conferir `verify_jwt = true` e os três hashes de publicação.
 8. Conferir sem chamar a ULBRA: sem token dá 401; aluno sem CPF confirmado dá 403.
@@ -165,7 +165,7 @@ Esta é a única sequência válida. Não há outra no pacote.
 | `supabase/functions/ulbra-historico/leitura.ts` | `2bb97fa41b8d606c2b545e689c60238f984e622083d638cd48a90049a8e0067b` |
 | `supabase/functions/ulbra-historico/ficha.test.ts` | `62b275a7671ee0bfea86fdbfba04a2e6e2dc35ca7bedea788e1b18fb02fad020` |
 | `supabase/functions/ulbra-historico/historico.test.ts` | `dd4f831d1a1ac7603f0fdf7cf0f5a68e30a726a1a8b2262193e58c04ca17c5a3` |
-| `supabase/aguardando_aprovacao/20261115120000_ulbra_historico_bloqueio_e_guarda_reserva.sql.pendente` | `2956c60210a8d3dece24a46ee8e6e80249428f567ea4292d83b9baca167801cd` |
+| `supabase/aguardando_aprovacao/20261115120000_ulbra_historico_bloqueio_e_guarda_reserva.sql.pendente` | `1e4bb6220994ba3f4e47f72631b0317b4acd6c63f03dbd1aee15d619560fb222` |
 | `supabase/aguardando_aprovacao/20261115120000_ulbra_historico_bloqueio_e_guarda_reserva.rollback.sql` | `c076033d9ef0e6280481b8181fdda53ef4101b9cea4b13ca70e7c2493c2a736c` |
 | `src/utils/ulbraHistoricoCliente.js` | `f6a1e055191d877bb310cd14fa956a26de1c803c5e82e20bfba39080658141a4` |
 | `src/pages/Aluno.jsx` | `4675fca9694540b87ad920c47bc80607b8bf18080d02c19e4f67c187be3e9366` |

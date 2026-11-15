@@ -64,7 +64,7 @@ revoke all on function public.ulbra_historico_reservar(text, date, integer, inte
 grant execute on function public.ulbra_historico_reservar(text, date, integer, integer, integer) to service_role;
 
 -- Asserção de grant no próprio arquivo (skill seguranca-rls): falha a migração se o privilégio não ficou como previsto.
-do $
+do $$
 begin
   if has_function_privilege('anon', 'public.ulbra_historico_reservar(text,date,integer,integer,integer)', 'EXECUTE')
      or has_function_privilege('authenticated', 'public.ulbra_historico_reservar(text,date,integer,integer,integer)', 'EXECUTE') then
@@ -74,4 +74,4 @@ begin
     raise exception 'GRANT_ASSERT_FALHOU: service_role sem EXECUTE em ulbra_historico_reservar';
   end if;
 end
-$;
+$$;
