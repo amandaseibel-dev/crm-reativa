@@ -1,75 +1,53 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, cleanup } from "@testing-library/react";
+import IndicadoresCarteiraSemestre from "./IndicadoresCarteiraSemestre";
 
 const rpcMock = vi.fn();
 vi.mock("../../services/supabase", () => ({
   supabase: { rpc: (...a) => rpcMock(...a) },
 }));
 
-import IndicadoresCarteiraSemestre from "./IndicadoresCarteiraSemestre";
-
-const seis = {
-  situacoes: {
-    entrou: { valor: 1000000, alunos: 500, titulos: 900 },
-    pago: { valor: 250000, alunos: 120, titulos: 200 },
-    negociado: { valor: 300000, alunos: 150, titulos: 260 },
-  },
-};
-const comp = { total: { valor: 400000, alunos: 210, titulos: 330 } };
-
 afterEach(() => { cleanup(); rpcMock.mockReset(); });
 
-describe("IndicadoresCarteiraSemestre — 2026/1 (efetividade)", () => {
-  it("mostra saldo original, recuperado, negociado, aberto e % sobre o saldo original", async () => {
-    rpcMock.mockImplementation((nome, args) => {
-      if (nome !== "carteira_efetividade_ler") return Promise.resolve({ data: null, error: { message: "inesperada" } });
-      return Promise.resolve({ data: args.p_bloco === "seis_linhas" ? seis : comp, error: null });
-    });
-    render(<IndicadoresCarteiraSemestre fonte={{ tipo: "efetividade", ano: "2026", semestre: "1" }} />);
-    expect(await screen.findByText("Indicadores de carteira")).toBeTruthy();
-    expect(screen.getByText("Saldo original recebido na carteira")).toBeTruthy();
-    expect(screen.getByText("Percentual de recuperação")).toBeTruthy();
-    // 250 mil ÷ 1 mi = 25,0%; negociado não entra no percentual
-    expect(screen.getByText("25,0%")).toBeTruthy();
-    expect(screen.getByText("ainda não é recebimento")).toBeTruthy();
-    expect(rpcMock).toHaveBeenCalledWith("carteira_efetividade_ler", { p_bloco: "seis_linhas", p_ano: "2026", p_semestre: "1" });
-    expect(rpcMock).toHaveBeenCalledWith("carteira_efetividade_ler", { p_bloco: "composicao_academica", p_ano: "2026", p_semestre: "1" });
+// Dados de stub: só para provar o mapeamento. Não são números de produção.
+const RESP_2026_2 = {
+  carteira_original: 2100, titulos_carteira: 5, saldo_em_aberto: 950, negociado: 300,
+  caixa_confirmado: 100, pagamentos_confirmados: 2, pendente_classificacao: 50,
+  pagamentos_pendentes: 1, percentual_recuperado_caixa: 4.8, carteira_fonte: "classificador_2026_2",
+  data_referencia: "2026-11-13",
+  saldo_2026_2: { saldo_em_conferencia: 100 },
+};
+
+describe("IndicadoresCarteiraSemestre (contrato único: RPC efetividade_caixa_resumo_semestre)", () => {
+  it("chama a RPC com o semestre da config e exibe os campos prontos", async () => {
+    rpcMock.mockResolvedValue({ data: RESP_2026_2, error: null });
+    render(<IndicadoresCarteiraSemestre fonte={{ semestre: "2026/2" }} />);
+    expect(rpcMock).toHaveBeenCalledWith("efetividade_caixa_resumo_semestre", { p_semestre: "2026/2" });
+    expect(await screen.findByText("4,8%")).toBeTruthy();
+    expect(screen.getByText("Carteira original")).toBeTruthy();
+    expect(screen.getByText(/inclui/)).toBeTruthy();
   });
 
-  it("sem fotografia oficial mostra traço no saldo em aberto, sem inventar número", async () => {
-    rpcMock.mockImplementation((nome, args) =>
-      Promise.resolve({ data: args.p_bloco === "seis_linhas" ? seis : { sem_snapshot: true }, error: null }));
-    render(<IndicadoresCarteiraSemestre fonte={{ tipo: "efetividade", ano: "2026", semestre: "1" }} />);
-    expect(await screen.findByText("sem fotografia oficial")).toBeTruthy();
-  });
-});
-
-describe("IndicadoresCarteiraSemestre — 2026/2 (negociações)", () => {
-  it("percentual é recebido ÷ negociado, sem usar a carteira inteira", async () => {
-    rpcMock.mockResolvedValue({
-      data: { total: { negociado: 94714.96, recebido: 71066.83, saldo: 23648.13, cpfs: 56, acordos: 56 } },
-      error: null,
-    });
-    render(<IndicadoresCarteiraSemestre fonte={{ tipo: "negociacoes" }} />);
-    expect(await screen.findByText("Percentual de recuperação")).toBeTruthy();
-    // 71.066,83 ÷ 94.714,96 = 75,0%
-    expect(screen.getByText("75,0%")).toBeTruthy();
-    expect(screen.getByText(/saldo original da carteira ainda não é medido/)).toBeTruthy();
-    expect(rpcMock).toHaveBeenCalledWith("carteira_2026_2_negociacoes");
-  });
-});
-
-describe("IndicadoresCarteiraSemestre — erros e vazio", () => {
-  it("mostra a mensagem de erro da RPC", async () => {
-    rpcMock.mockResolvedValue({ data: null, error: { message: "Acesso negado." } });
-    render(<IndicadoresCarteiraSemestre fonte={{ tipo: "negociacoes" }} />);
-    await waitFor(() => expect(screen.getByText("Acesso negado.")).toBeTruthy());
+  it("não chama nenhuma RPC antiga de carteira", async () => {
+    rpcMock.mockResolvedValue({ data: RESP_2026_2, error: null });
+    render(<IndicadoresCarteiraSemestre fonte={{ semestre: "2026/1" }} />);
+    await screen.findByText("Carteira original");
+    for (const c of rpcMock.mock.calls) {
+      expect(c[0]).toBe("efetividade_caixa_resumo_semestre");
+    }
   });
 
-  it("sem payload reconhecível mostra aviso, sem números", async () => {
-    rpcMock.mockResolvedValue({ data: { ok: true }, error: null });
-    render(<IndicadoresCarteiraSemestre fonte={{ tipo: "negociacoes" }} />);
-    expect(await screen.findByText("Sem fotografia de carteira para este semestre ainda.")).toBeTruthy();
+  it("erro de acesso vira aviso neutro, sem vazar a mensagem bruta como permanente", async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { message: "sem permissão para o resumo de caixa" } });
+    render(<IndicadoresCarteiraSemestre fonte={{ semestre: "2026/2" }} />);
+    expect(await screen.findByText(/Indicadores indisponíveis para o seu acesso/)).toBeTruthy();
+  });
+
+  it("dado ausente aparece como travessão, não como zero", async () => {
+    rpcMock.mockResolvedValue({ data: { ...RESP_2026_2, saldo_em_aberto: null, saldo_2026_2: null }, error: null });
+    render(<IndicadoresCarteiraSemestre fonte={{ semestre: "2026/2" }} />);
+    await screen.findByText("Saldo em aberto");
+    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
   });
 });
