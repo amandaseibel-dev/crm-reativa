@@ -144,11 +144,13 @@ select public.teste_assert('sem efeito financeiro: catálogo do registro tem efe
 select public.teste_assert('sem retorno: registro não define retorno nem próxima ação diferente de CONTATAR',
   (select count(*) from public.tabulacoes where codigo like 'TERMO_FISICO_%' and (retorno_modo <> 'NENHUM' or proxima_acao <> 'CONTATAR')) = 0);
 
--- Service role (sistema) continua gravando: bypass declarado.
-select public.teste_assert('service_role: grava histórico (bypass do sistema)',
-  public.teste_comando('service_role', 'sistema@exemplo.local',
+-- service_role (claim) NÃO tem bypass: a claim não é prova de identidade (B2). Sem caminho de serviço
+-- documentado para estes códigos, a recusa é a regra. Mensagem e SQLSTATE exatos; nada gravado.
+select public.teste_assert('service_role (claim): recusado com mensagem exata, sem linha gravada',
+  (public.teste_comando('service_role', 'sistema@exemplo.local',
     $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
-         values ('a1','SISTEMA','TERMO_FISICO_ARQUIVADO','sistema@exemplo.local')$sql$)->>'ok' = 'true');
+         values ('a1','SISTEMA','TERMO_FISICO_ARQUIVADO','sistema@exemplo.local')$sql$)->>'code' = '42501')
+  and (select count(*) from public.aluno_movimentacoes where aluno_id = 'a1' and tipo = 'SISTEMA') = 0);
 
 -- Triagem Prime: a descrição padronizada NÃO casa com as palavras que a triagem procura.
 -- Texto idêntico ao de DESCRICAO_REGISTRO_ADMINISTRATIVO (src/utils/tabulacoes.js).
