@@ -38,6 +38,20 @@ select v.codigo, v.rotulo, true, v.ordem, 'ADMINISTRATIVO', 'NENHUM', null, 'CON
   ) as v(codigo, rotulo, ordem)
  where not exists (select 1 from public.tabulacoes t where t.codigo = v.codigo);
 
+-- 1b. Contenção por flag (controle único). Uma linha; RLS deny-all; sem grants a usuários.
+-- contencao_ativa = false: registros abertos (estado inicial). Ausente ou inválida = CONTIDO (fecha).
+create table if not exists public.termo_fisico_contencao (
+  id boolean primary key default true check (id),
+  contencao_ativa boolean not null default true,
+  alterado_em timestamptz not null default clock_timestamp(),
+  alterado_por text not null default 'migration_termo_fisico'
+);
+alter table public.termo_fisico_contencao enable row level security;
+alter table public.termo_fisico_contencao force row level security;
+revoke all on public.termo_fisico_contencao from public, anon, authenticated, service_role;
+insert into public.termo_fisico_contencao (id, contencao_ativa, alterado_por)
+  values (true, false, 'migration_termo_fisico') on conflict (id) do nothing;
+
 -- 2. Proteção no servidor. Só a gestão grava estes dois códigos no histórico.
 -- Bypass: service_role (claim role) e o dono (current_user postgres). Gestão é a
 -- mesma função usuario_e_gestao() usada no resto do sistema.
@@ -61,6 +75,13 @@ begin
   -- postgres/supabase_admin: manutenção da plataforma. Nenhum caminho de serviço por claim.
   if session_user in ('postgres', 'supabase_admin') then
     return new;
+  end if;
+
+  -- Contenção por flag (B1): vale para INSERT e UPDATE, inclusive para a gestão. Ausente = contido.
+  if v_codigo = any(v_restritos) or v_tipo = 'REGISTRO_ADMINISTRATIVO' then
+    if not exists (select 1 from public.termo_fisico_contencao where id and contencao_ativa is false) then
+      raise exception 'Registro de termo físico suspenso pela gestão (contenção). Nada foi gravado.' using errcode = '42501';
+    end if;
   end if;
 
   -- REGISTRO_ADMINISTRATIVO (autorização e ausência de efeitos IMPOSTAS NO BANCO):

@@ -1172,6 +1172,21 @@ jobs:
           set -e
           psql -v ON_ERROR_STOP=1 -f "$DIR/11p_prep_contencao_off.sql"
           [ "$rc" -eq 0 ] || exit "$rc"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/12p_on.sql"
+          set +e
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/12_contencao_flag.sql"
+          rc=$?
+          set -e
+          psql -v ON_ERROR_STOP=1 -f "$DIR/12p_off.sql"
+          [ "$rc" -eq 0 ] || exit "$rc"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/12p_ausente_off.sql"
+          set +e
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/12u_ausente.sql"
+          rc=$?
+          set -e
+          psql -v ON_ERROR_STOP=1 -f "$DIR/12p_ausente_restore.sql"
+          [ "$rc" -eq 0 ] || exit "$rc"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/12p_reaplica.sql"
           set +e
           out=$(psql -v ON_ERROR_STOP=1 -f "$ROLLBACK" 2>&1)
           code=$?
