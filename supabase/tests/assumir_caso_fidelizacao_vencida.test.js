@@ -68,6 +68,18 @@ async function comPapeis() {
   return db;
 }
 
+
+// Foto completa dos registros envolvidos na reversao: aluno, caso, operacao, historico do CPF e
+// movimentacoes do aluno. Serve para provar que uma recusa NAO altera nada (comparacao integral).
+async function fotografia(db, n, casoId, opId) {
+  return q1(db, `select
+    (select to_jsonb(a) from public.alunos a where a.id = $1) aluno,
+    (select to_jsonb(c) from public.casos c where c.id = $2) caso,
+    (select to_jsonb(o) from public.assumir_fidelizacao_operacoes o where o.id = $3) operacao,
+    (select coalesce(jsonb_agg(to_jsonb(h) order by h.id), '[]'::jsonb) from public.historico_operadores_alunos h where h.cpf_referencia = $4) historico,
+    (select coalesce(jsonb_agg(to_jsonb(m) order by m.id), '[]'::jsonb) from public.aluno_movimentacoes m where m.aluno_id = $5::text) movimentacoes`,
+    [U(n), casoId, opId, CPF(n), U(n)]);
+}
 const como = (db, email) =>
   db.query("select set_config('request.jwt.claims', $1, false)", [JSON.stringify({ email })]);
 
@@ -1034,5 +1046,39 @@ describe("operador assume caso com fidelização vencida", () => {
     expect(rv.mensagem).toContain("sem a data original da troca");
     expect(await snap()).toEqual(antes);
     await db.close();
+  });
+
+  describe("operação sem data original válida: recusa INTEGRAL, nada muda (foto completa)", () => {
+    async function operacaoComEstado(db, n, alterarEstado) {
+      const caso = await cenario(db, n, { dono: MAURICIO });
+      await como(db, LUANA);
+      const r = await tomar(db, caso);
+      expect(r.sucesso).toBe(true);
+      await db.query(alterarEstado, [r.operacao_id]);
+      const antes = await fotografia(db, n, caso, r.operacao_id);
+      await como(db, GESTAO);
+      const rv = await q1(db, "select * from public.reverter_assumir_fidelizacao($1,$2)", [r.operacao_id, "x"]);
+      expect(rv.sucesso).toBe(false);
+      expect(rv.mensagem).toContain("sem a data original da troca");
+      const depois = await fotografia(db, n, caso, r.operacao_id);
+      expect(depois).toEqual(antes);
+      await db.close();
+    }
+    it("chave responsavel_atual_em AUSENTE em estado_anterior", async () => {
+      const db = await abrirCom();
+      await operacaoComEstado(db, 180, "update public.assumir_fidelizacao_operacoes set estado_anterior = estado_anterior - 'responsavel_atual_em' where id=$1");
+    });
+    it("responsavel_atual_em com JSON null", async () => {
+      const db = await abrirCom();
+      await operacaoComEstado(db, 181, "update public.assumir_fidelizacao_operacoes set estado_anterior = jsonb_set(estado_anterior, '{responsavel_atual_em}', 'null'::jsonb) where id=$1");
+    });
+    it("responsavel_atual_em com valor que NÃO é string (número)", async () => {
+      const db = await abrirCom();
+      await operacaoComEstado(db, 182, "update public.assumir_fidelizacao_operacoes set estado_anterior = jsonb_set(estado_anterior, '{responsavel_atual_em}', '12345'::jsonb) where id=$1");
+    });
+    it("responsavel_atual_em com booleano (não é string)", async () => {
+      const db = await abrirCom();
+      await operacaoComEstado(db, 183, "update public.assumir_fidelizacao_operacoes set estado_anterior = jsonb_set(estado_anterior, '{responsavel_atual_em}', 'true'::jsonb) where id=$1");
+    });
   });
 });

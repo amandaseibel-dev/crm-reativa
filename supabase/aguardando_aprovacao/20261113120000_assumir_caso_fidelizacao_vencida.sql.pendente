@@ -333,8 +333,12 @@ begin
   if v_op.revertida_em is not null then
     return query select false, 'Esta operacao ja foi revertida.'; return;
   end if;
-  -- Operacao SEM a data original da troca (estado_anterior sem responsavel_atual_em): NAO reverte.
-  -- Nao usamos o instante da reversao como substituto. Recuperacao so por procedimento especifico.
+  -- Recusas ANTES de qualquer escrita (esta guarda e a primeira checagem apos o lock da operacao):
+  --   * operacao sem a data original da troca: a chave responsavel_atual_em de estado_anterior
+  --     ausente, JSON null ou que nao seja string. NAO reverte; NAO usamos o instante da reversao
+  --     como substituto. Recuperacao so por procedimento especifico.
+  --   * as demais recusas (dono, atendimento posterior, movimentacao, anterior, teto, situacao do caso)
+  --     vem depois, e tambem antes de qualquer escrita.
   if jsonb_typeof(v_op.estado_anterior->'responsavel_atual_em') is distinct from 'string' then
     return query select false, 'Conflito: operacao sem a data original da troca. Recuperacao so por procedimento especifico. Nada alterado.'; return;
   end if;
