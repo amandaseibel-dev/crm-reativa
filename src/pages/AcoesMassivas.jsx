@@ -257,6 +257,8 @@ export default function AcoesMassivas() {
   // Fase do ultimo registro: incerta bloqueia nova exportacao ate o operador conferir o historico.
   const [faseExport, setFaseExport] = useState(FASE.OCIOSO);
   const [conferiuLotes, setConferiuLotes] = useState(false);
+  const [historicoConferido, setHistoricoConferido] = useState(false);
+  const [erroHistorico, setErroHistorico] = useState("");
   const [resultados, setResultados] = useState(null);
   const [erro, setErro] = useState("");
   const [sucesso, setSucesso] = useState("");
@@ -345,16 +347,18 @@ export default function AcoesMassivas() {
     })();
   }, []);
 
+  // Devolve { ok }. ok=true SOMENTE quando a consulta de registro concluiu sem erro.
+  // Lista vazia com ok=true e ausencia de resultados; erro = conferencia indisponivel.
+  // O fallback (so pendentes) serve para exibir, nunca como conferencia: nao mostra lote recem-fechado.
   async function carregarLotesRegistro() {
     const { data, error } = await supabase.rpc("acoes_massivas_lotes_registro", { p_dias: 7 });
     if (!error && Array.isArray(data)) {
       setLotesRegistro(data);
-      return;
+      return { ok: true };
     }
-    // Enquanto a função do painel não estiver no banco, cai na antiga: ela só
-    // conhece pendentes. Melhor um painel incompleto do que a tela sem painel.
-    const { data: pend } = await supabase.rpc("acoes_massivas_lotes_pendentes");
-    setLotesRegistro((Array.isArray(pend) ? pend : []).map((l) => ({ ...l, situacao: "PENDENTE" })));
+    const { data: pend, error: errPend } = await supabase.rpc("acoes_massivas_lotes_pendentes");
+    setLotesRegistro(errPend ? [] : (Array.isArray(pend) ? pend : []).map((l) => ({ ...l, situacao: "PENDENTE" })));
+    return { ok: false };
   }
 
   async function carregarLotesWhats() {
@@ -1769,17 +1773,32 @@ export default function AcoesMassivas() {
               {faseExport === FASE.INCERTA && (
                 <div style={{ marginTop: 8 }}>
                   <p style={{ margin: "0 0 6px" }}>{mensagemDaFase(FASE.INCERTA)} Esta proteção vale só nesta tela e até recarregar a página.</p>
-                  <button style={{ ...estilos.botaoGerar, background: "#64748b" }} onClick={() => carregarLotesRegistro()}>
-                    Ver histórico de lotes
+                  <button
+                    style={{ ...estilos.botaoGerar, background: "#64748b" }}
+                    onClick={async () => {
+                      setErroHistorico("");
+                      const r = await carregarLotesRegistro();
+                      setHistoricoConferido(r.ok);
+                      setConferiuLotes(false);
+                      if (!r.ok) setErroHistorico("Histórico indisponível: a conferência não foi concluída. A exportação segue bloqueada.");
+                    }}
+                  >
+                    Consultar histórico de lotes
                   </button>
+                  {erroHistorico && <p style={{ margin: "6px 0", color: "#b91c1c" }}>{erroHistorico}</p>}
                   <label style={{ display: "flex", gap: 6, alignItems: "center", margin: "8px 0" }}>
-                    <input type="checkbox" checked={conferiuLotes} onChange={(e) => setConferiuLotes(e.target.checked)} />
-                    Conferi no histórico que este lote NÃO foi registrado
+                    <input
+                      type="checkbox"
+                      checked={conferiuLotes}
+                      disabled={!historicoConferido}
+                      onChange={(e) => setConferiuLotes(e.target.checked)}
+                    />
+                    Confirmo, por minha conta, que este lote NÃO aparece no histórico. O sistema não comprova essa ausência.
                   </label>
                   <button
                     style={estilos.botaoGerar}
-                    disabled={!conferiuLotes}
-                    onClick={() => { setFaseExport(FASE.OCIOSO); setConferiuLotes(false); setErro(""); }}
+                    disabled={!historicoConferido || !conferiuLotes}
+                    onClick={() => { setFaseExport(FASE.OCIOSO); setConferiuLotes(false); setHistoricoConferido(false); setErro(""); }}
                   >
                     Liberar nova exportação
                   </button>

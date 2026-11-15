@@ -2,9 +2,13 @@ import { describe, it, expect } from "vitest";
 import { bloqueiaNovaExportacao, mensagemDaFase, FASE } from "./exportacaoFluxo.js";
 
 describe("bloqueio de interface", () => {
-  it("so o resultado incerto bloqueia nova exportacao", () => {
+  it("resultado incerto e lote sem arquivo bloqueiam nova exportacao", () => {
     expect(bloqueiaNovaExportacao(FASE.INCERTA)).toBe(true);
-    for (const f of [FASE.OCIOSO, FASE.CONCLUIDA, FASE.ARQUIVO_FALHOU, FASE.RECUSADA]) {
+    expect(bloqueiaNovaExportacao(FASE.ARQUIVO_FALHOU)).toBe(true);
+  });
+
+  it("ocioso, concluida e recusada nao bloqueiam", () => {
+    for (const f of [FASE.OCIOSO, FASE.CONCLUIDA, FASE.RECUSADA]) {
       expect(bloqueiaNovaExportacao(f)).toBe(false);
     }
   });

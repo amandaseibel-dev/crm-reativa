@@ -11,9 +11,13 @@ export const FASE = Object.freeze({
   RECUSADA: "recusada", // validacao recusou: nada foi registrado
 });
 
-/** Enquanto o resultado do registro for desconhecido, a tela nao permite nova exportacao. */
+/**
+ * Bloqueia nova exportacao (interface) quando o registro esta incerto ou ja foi feito sem arquivo.
+ * Em ARQUIVO_FALHOU so resta "Baixar planilha novamente". Recarregar a pagina libera a tela,
+ * mas NAO desfaz o lote registrado.
+ */
 export function bloqueiaNovaExportacao(fase) {
-  return fase === FASE.INCERTA;
+  return fase === FASE.INCERTA || fase === FASE.ARQUIVO_FALHOU;
 }
 
 /** Texto para o operador, sem dados pessoais. Separa "arquivo nao baixado" de "resultado desconhecido". */
@@ -22,7 +26,7 @@ export function mensagemDaFase(fase) {
     case FASE.CONCLUIDA:
       return "Lote registrado e planilha baixada.";
     case FASE.ARQUIVO_FALHOU:
-      return "Lote registrado, arquivo não baixado. Use Baixar planilha novamente; não exporte de novo para obter o mesmo arquivo.";
+      return "Lote registrado, arquivo não baixado. Use Baixar planilha novamente. Nova exportação bloqueada nesta tela; recarregar a página libera a tela, mas não desfaz o registro.";
     case FASE.INCERTA:
       return "Resultado do registro desconhecido. Confira o histórico de lotes antes de exportar de novo.";
     case FASE.RECUSADA:
