@@ -11,6 +11,7 @@ export const CONFIG_2026_1 = {
   nomeArquivoPdf: "relatorio-2026-1-sem-negociacao",
   rodapePdf: "Base Reativa · por data de vencimento (pode incluir antecipadas de 2026/2). Não contempla Prime.",
   mostrarDiagnosticoCpf: false,
+  fonteCarteira: { tipo: "efetividade", ano: "2026", semestre: "1" },
 };
 
 export const CONFIG_2026_2 = {
@@ -26,4 +27,5 @@ export const CONFIG_2026_2 = {
   nomeArquivoPdf: "relatorio-2026-2-sem-negociacao",
   rodapePdf: "Base Reativa · por data de vencimento. Não contempla Prime.",
   mostrarDiagnosticoCpf: true,
+  fonteCarteira: { tipo: "negociacoes" },
 };
