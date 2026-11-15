@@ -19,6 +19,13 @@ set -uo pipefail
 excecao_948=0
 if [ "${1:-}" = "--excecao-948" ]; then excecao_948=1; shift; fi
 excecao_948_permitidos="mensageria-ulbra.md prime-edge-functions.md pacote-historico-ficha-publicacao-geral.md"
+if [ "$excecao_948" = 1 ]; then
+  ramo_atual="$(git branch --show-current 2>/dev/null)"
+  if [ "$ramo_atual" != "feat/historico-ficha-piloto" ]; then
+    echo "Exceção 948 recusada: só vale na PR #948 (branch feat/historico-ficha-piloto). Ramo atual: ${ramo_atual:-desanexado}." >&2
+    exit 1
+  fi
+fi
 
 base="${1:-origin/main}"
 raiz="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"

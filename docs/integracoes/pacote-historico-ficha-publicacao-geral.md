@@ -81,8 +81,10 @@ Esta é a única sequência válida. Não há outra no pacote. Os passos 5 a 10 
 
 ## Reversão
 - Função: versão 1 em `docs/integracoes/rollback-ulbra-historico-v1/` (`SHA256SUMS`). Redeploy sem `--no-verify-jwt`.
+- Dependências reais da v1 publicada: a RPC `ulbra_historico_reservar` e a tabela `ulbra_historico_uso`. A v1 **não ignora o orçamento**: chama a RPC (`rollback-ulbra-historico-v1/supabase/functions/ulbra-historico/index.ts`, `sb.rpc("ulbra_historico_reservar")`).
+- Rollback de `20261115120000` (guarda e colunas de bloqueio): compatível com a v1. Restaura a RPC sem a guarda, não remove função nem tabela.
+- Rollback de `20261110100000` (remove a RPC e a tabela de uso): **só depois de retirar a v1 do projeto**, com a confirmação explícita dentro da transação (`app.confirma_retirada_ulbra_historico`). Sem isso, o próprio arquivo recusa a execução.
 - Tela: a porta deixa de exibir o botão com uma linha de código.
-- Banco: nada é apagado. A tabela de uso continua; a versão 1 ignora o orçamento.
 
 ## O que não está feito
 - Nenhum limite de produção foi alterado.
@@ -139,9 +141,16 @@ Esta é a única sequência válida. Não há outra no pacote. Os passos 5 a 10 
 - **Cache:** entradas vencidas saem a cada gravação e o total não passa de 200 entradas. Texto de conversa fica em memória só enquanto válido, por no máximo 5 minutos.
 - **Regra dos cinco (exceção registrada, só para esta PR):** a #948 altera a Mensageria ULBRA e o inventário de Edge Functions. Não altera contratos da API Prime nem os três documentos Prime (`prime-api.md`, `prime-api-catalog.json`, `prime-mapa-fontes-verdade.md`). A verificação `integracoes-cinco.sh` aceita a PR só com a flag `--excecao-948`, e apenas se o diff de `docs/integracoes/` estiver dentro de `mensageria-ulbra.md`, `prime-edge-functions.md` e este pacote. Qualquer outro arquivo volta a exigir os três. A exceção não autoriza implantação nem dispensa os demais gates.
 
+## Hashes desta correção (P6 e M1)
+| arquivo | sha256 |
+|---|---|
+| `supabase/aguardando_aprovacao/20261110100000_ulbra_historico_orcamento.rollback.sql` | `d2730ac73d4a18cbb63a06443392f47e137154e18b551d6d76b1ef9adf73018e` |
+| `docs/seguranca/CHECKLIST_SEGURANCA_DEPLOY.md` | `2861f80b2334ecd2aa045b508624321f05c5d2869fdd371decb9297c9894170c` |
+| `plugins/reativa-one/scripts/integracoes-cinco.sh` | `0c603c231c8288f38140d6eae4ee283ed29d94c1457dd818d752c87d0e6774fc` |
+
 ## Regra de alcance de leitura (registrada para a #948)
 
-- **Leitura global** (qualquer carteira, com CPF confirmado): `amanda.seibel@aelbra.com.br` (gestora) e `cobranca04@aelbra.com.br` (mapeada como Fernanda — **premissa a confirmar com a gestão**).
+- **Leitura global** (qualquer carteira, com CPF confirmado): `amanda.seibel@aelbra.com.br` (gestora) e `cobranca04@aelbra.com.br` (Fernanda; definição da gestora registrada, não pendente).
 - **cobranca07 (ADM)**: sem leitura global. Lê somente alunos da própria carteira ou atendimentos sob sua responsabilidade. Imposto no servidor, antes do cache (`index.ts`, `GESTAO_EMAILS`; `ficha.test.ts`, bloco "alcance de leitura").
 - Testes: positivo (cobranca07 na própria carteira), negativo (cobranca07 em carteira alheia, sem chamada à ULBRA), positivo global (amanda.seibel).
 - **Legado**: `supabase/tests/ulbra_historico_teto/reservas_simultaneas.sh` e `migracao.sql` provam o piloto antigo (limite 3, compartilhado 3). Não são o orçamento vigente (20 por usuário, 150 compartilhado, reserva 100, saldo 15 min). O orçamento vigente é provado por `ulbra-historico-orcamento-postgres` (`run.cjs`) e pelo Vitest. Nenhuma restrição de piloto foi recriada.
