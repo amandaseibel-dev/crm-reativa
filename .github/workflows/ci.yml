@@ -1200,6 +1200,7 @@ jobs:
           rc=$?
           psql -v ON_ERROR_STOP=1 -f "$DIR/12p_on.sql"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/15b_dono_contido.sql" || rc=$?
+          PGUSER=app_teste_rls PGPASSWORD=app_teste_rls_pw psql -v ON_ERROR_STOP=1 -f "$DIR/15c_update_dono.sql" || rc=$?
           psql -v ON_ERROR_STOP=1 -f "$DIR/12p_off.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/15p_dono_restore.sql"
           [ "$rc" -eq 0 ] || exit "$rc"
