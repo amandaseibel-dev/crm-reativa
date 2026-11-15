@@ -545,6 +545,18 @@ export default function AcoesMassivas() {
     gerarArquivoExportacao(XLSX, rel);
   }
 
+  // Baixa de novo o arquivo ja gerado. Nao chama a RPC: o lote ja foi registrado.
+  function baixarNovamenteArquivo() {
+    try {
+      baixarPlanilha(relatorioPronto);
+      setFaseExport(FASE.CONCLUIDA);
+      setErro("");
+    } catch {
+      setFaseExport(FASE.ARQUIVO_FALHOU);
+      setErro(mensagemDaFase(FASE.ARQUIVO_FALHOU));
+    }
+  }
+
   // EXPORTAR NÃO É CONTATO REALIZADO. O disparo acontece numa ferramenta
   // externa; baixar a planilha não muda nada no aluno (tabulação, retorno,
   // fidelização, acionamento). O banco revalida, devolve os contatos e guarda um
@@ -560,6 +572,7 @@ export default function AcoesMassivas() {
     setSucesso("");
     setExcluidosNoEnvio(0);
 
+    let loteRegistrado = false;
     try {
       const sufixoOperador = /^CASO:/i.test(String(operadorDaPrevia ?? ""))
         ? sufixoArquivoResponsavel(operadorDaPrevia)
@@ -583,6 +596,7 @@ export default function AcoesMassivas() {
         const { data, error: erroExp } = await supabase.rpc("acoes_massivas_exportar", argsExportar);
         if (erroExp) throw erroExp;
         exp = data;
+        loteRegistrado = true;
       } catch (e) {
         const f = classificarFalhaExportacao("rpc", e);
         console.error("Exportacao da acao massiva falhou", { etapa: f.etapa, codigo: f.codigo });
@@ -652,14 +666,22 @@ export default function AcoesMassivas() {
         setSucesso(`Nenhum aluno na planilha.${sufixoExcluidos}`);
       } else {
         setSucesso(
-          `Planilha exportada com ${selecionados} aluno(s) selecionados e ${registrados} registrado(s) no CRM como ação massiva, com data, hora e canal no histórico de cada aluno. Esses registros contam como último acionamento e tabulam o caso, com retorno agendado para 10 dias. Se o download não abriu, use o botão “Baixar planilha novamente” abaixo.${sufixoExcluidos}`
+          `Lote registrado: ${selecionados} aluno(s) selecionados e ${registrados} registrado(s) no CRM como ação massiva, com data, hora e canal no histórico de cada aluno. Esses registros contam como último acionamento e tabulam o caso, com retorno agendado para 10 dias. Se o download não abriu, use o botão “Baixar planilha novamente” abaixo.${sufixoExcluidos}`
         );
       }
+      setFaseExport(FASE.CONCLUIDA);
       carregarLotesRegistro();
-    } catch (e) {
-      const f = classificarFalhaExportacao("rpc", e);
-      console.error("Erro ao exportar planilha da ação massiva", { etapa: f.etapa, codigo: f.codigo });
-      setErro(f.mensagem);
+    } catch {
+      // Depois da RPC bem-sucedida o lote JA foi registrado: nao dizer que o servidor nao confirmou.
+      if (loteRegistrado) {
+        console.error("Falha depois do registro da acao massiva", { etapa: "arquivo" });
+        setFaseExport(FASE.ARQUIVO_FALHOU);
+        setErro("Lote registrado, mas a planilha não foi gerada. Use Baixar planilha ou confira o histórico antes de exportar de novo.");
+      } else {
+        console.error("Erro ao preparar a exportacao da acao massiva", { etapa: "validacao" });
+        setFaseExport(FASE.RECUSADA);
+        setErro("Não foi possível preparar a exportação. Nada foi registrado.");
+      }
     } finally {
       setGerando(false);
     }
@@ -1744,7 +1766,15 @@ export default function AcoesMassivas() {
               {faseExport === FASE.INCERTA && (
                 <div style={{ marginTop: 8 }}>
                   <p style={{ margin: "0 0 6px" }}>{mensagemDaFase(FASE.INCERTA)} Esta proteção vale só nesta tela e até recarregar a página.</p>
-                  <button style={estilos.botaoGerar} onClick={() => { setFaseExport(FASE.OCIOSO); setErro(""); carregarLotesRegistro(); }}>
+                  <button style={estilos.botaoGerar} onClick={async () => {
+                    try {
+                      await carregarLotesRegistro();
+                      setFaseExport(FASE.OCIOSO);
+                      setErro("");
+                    } catch {
+                      setErro("Não foi possível carregar o histórico. A exportação segue bloqueada.");
+                    }
+                  }}>
                     Conferi o histórico de lotes
                   </button>
                 </div>
@@ -1762,7 +1792,7 @@ export default function AcoesMassivas() {
               </div>
               <button
                 style={{ ...estilos.botaoGerar, background: "#16a34a" }}
-                onClick={() => baixarPlanilha(relatorioPronto)}
+                onClick={baixarNovamenteArquivo}
               >
                 ⬇️ Baixar planilha novamente
               </button>

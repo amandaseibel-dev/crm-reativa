@@ -10,6 +10,9 @@ export function classificarFalhaExportacao(etapa, erro) {
   if (etapa === "arquivo") {
     return { etapa: "arquivo", codigo: null, mensagem: "O arquivo não pôde ser gerado no navegador. O lote já foi registrado; use Baixar planilha." };
   }
+  if (etapa === "rpc" && String(codigo) === "42501") {
+    return { etapa: "validacao", codigo: "42501", mensagem: "Sem permissão de gestão para exportar nesta sessão. Nada foi registrado." };
+  }
   if (etapa === "rpc" && codigo && CODIGOS_VALIDACAO.has(String(codigo))) {
     return { etapa: "validacao", codigo: String(codigo), mensagem: "A exportação foi recusada pela validação. Gere a prévia de novo e tente outra vez." };
   }
