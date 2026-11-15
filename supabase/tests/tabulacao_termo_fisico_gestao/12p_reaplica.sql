@@ -10,3 +10,14 @@ do $$ begin
     raise exception 'FALHOU reaplicação: estado final não é contido'; end if;
 end $$;
 \i supabase/aguardando_aprovacao/20261114140000_contencao_registro_termo_fisico.rollback.sql
+-- Valor NULL não é armazenável: a coluna é NOT NULL. Prova direta (postgres) de que a flag não pode ficar nula.
+do $$
+declare v_state text;
+begin
+  begin
+    update public.termo_fisico_contencao set contencao_ativa = null where id;
+    raise exception 'FALHOU: flag aceitou NULL';
+  exception when not_null_violation then
+    null;
+  end;
+end $$;
