@@ -68,8 +68,10 @@ select public.teste_assert('burla: UPDATE do operador mudando tipo ou código n�
   and (select count(*) from public.aluno_movimentacoes where aluno_id = 'r1' and tipo = 'REGISTRO_ADMINISTRATIVO') >= 1
   and (select count(*) from public.aluno_movimentacoes where aluno_id = 'r1' and tipo = 'FINALIZACAO_ATENDIMENTO') = 0);
 -- UPDATE do operador que tenta criar REGISTRO a partir de FINALIZACAO: nenhuma linha muda (sem policy de UPDATE).
-insert into public.aluno_movimentacoes (aluno_id,tipo,status_novo,registrado_por_email)
-  values ('r9','FINALIZACAO_ATENDIMENTO','CONTATAR','operador.teste@exemplo.local');
+select public.teste_assert('operador: grava FINALIZACAO normal para r9',
+  public.teste_comando('authenticated','operador.teste@exemplo.local',
+    $sql$insert into public.aluno_movimentacoes (aluno_id,tipo,status_novo,registrado_por_email)
+         values ('r9','FINALIZACAO_ATENDIMENTO','CONTATAR','operador.teste@exemplo.local')$sql$)->>'ok' = 'true');
 select public.teste_comando('authenticated','operador.teste@exemplo.local',
   $sql$update public.aluno_movimentacoes set tipo = 'REGISTRO_ADMINISTRATIVO', status_novo = 'TERMO_FISICO_ARQUIVADO' where aluno_id = 'r9'$sql$);
 select public.teste_assert('burla: UPDATE do operador não criou REGISTRO a partir de FINALIZACAO',
@@ -104,8 +106,8 @@ select public.teste_assert('operação: a função não altera o estado do aluno
   (select status_atual||'|'||status_jornada||'|'||status_acionamento from public.alunos where id = 'a0000000-0000-0000-0000-000000000042') = 'CONTATAR|CONTATAR|CONTATAR');
 
 -- Gestão desativada: a operação também deve recusar (o owner ignora RLS dentro da função DEFINER).
-update public.usuarios set ativo = false where email = 'cobranca07@aelbra.com.br';
+select public.teste_set_ativo('cobranca07@aelbra.com.br', false);
 select public.teste_assert('operação negada: gestão inativa (42501)',
   public.teste_comando('authenticated','cobranca07@aelbra.com.br',
     $sql$select public.registrar_administrativo_termo_fisico('a0000000-0000-0000-0000-000000000042','TERMO_FISICO_ARQUIVADO')$sql$)->>'code' = '42501');
-update public.usuarios set ativo = true where email = 'cobranca07@aelbra.com.br';
+select public.teste_set_ativo('cobranca07@aelbra.com.br', true);

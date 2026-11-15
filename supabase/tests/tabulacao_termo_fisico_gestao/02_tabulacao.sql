@@ -105,12 +105,12 @@ select public.teste_assert('escopo: RETORNO_FINANCEIRO não é barrado por esta 
          values ('a1','ACAO_DESFEITA','RETORNO_FINANCEIRO','operador.teste@exemplo.local')$sql$)->>'ok' = 'true');
 
 -- Inativo: a RLS de INSERT exige app_usuario_ativo().
-update public.usuarios set ativo = false where email = 'cobranca07@aelbra.com.br';
+select public.teste_set_ativo('cobranca07@aelbra.com.br', false);
 select public.teste_assert('gestão inativa: não grava (42501 pela RLS de INSERT)',
   public.teste_comando('authenticated', 'cobranca07@aelbra.com.br',
     $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
          values ('a1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO','cobranca07@aelbra.com.br')$sql$)->>'code' = '42501');
-update public.usuarios set ativo = true where email = 'cobranca07@aelbra.com.br';
+select public.teste_set_ativo('cobranca07@aelbra.com.br', true);
 
 -- ---------- Gestão permitida ----------
 select public.teste_assert('gestão (Amanda): grava TERMO_FISICO_EM_ANDAMENTO no histórico',
@@ -154,8 +154,10 @@ select public.teste_assert('service_role (claim): recusado com mensagem exata, s
 
 -- Triagem Prime: a descrição padronizada NÃO casa com as palavras que a triagem procura.
 -- Texto idêntico ao de DESCRICAO_REGISTRO_ADMINISTRATIVO (src/utils/tabulacoes.js).
-insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, descricao, registrado_por_email)
-  values ('a3','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO','Registro administrativo do termo físico.','amanda.seibel@aelbra.com.br');
+select public.teste_assert('fixture: gestão grava REGISTRO para a3 (descrição padronizada)',
+  public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
+    $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, descricao, registrado_por_email)
+         values ('a3','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO','Registro administrativo do termo físico.','amanda.seibel@aelbra.com.br')$sql$)->>'ok' = 'true');
 select public.teste_assert('triagem Prime: descrição padronizada não ativa nenhuma palavra-chave',
   (select count(*) from public.aluno_movimentacoes
     where aluno_id = 'a3'

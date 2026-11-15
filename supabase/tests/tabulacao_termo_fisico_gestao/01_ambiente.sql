@@ -175,3 +175,9 @@ begin
   if p_cond is not true then raise exception 'FALHOU: %', p_nome; end if;
   raise notice 'PASS: %', p_nome;
 end $$;
+
+-- Fixture administrativo: liga/desliga a gestão para o teste de gestão inativa. Owner = postgres.
+create or replace function public.teste_set_ativo(p_email text, p_ativo boolean)
+returns void language sql security definer set search_path to 'public' as $$
+  update public.usuarios set ativo = p_ativo where email = p_email;
+$$;
