@@ -1,4 +1,4 @@
--- CASOS. Cada falha levanta exceção e derruba o job (ON_ERROR_STOP).
+-- CASOS. Cada falha levanta exceção (P0001) e derruba o job com ON_ERROR_STOP.
 create or replace function pg_temp.espera_negado(p_sem text, p_motivo text) returns void
 language plpgsql as $$
 begin
@@ -8,7 +8,16 @@ exception when sqlstate '42501' then
   null; -- negado como esperado
 end $$;
 
--- 1. anon: sem EXECUTE. Falha de permissão do Postgres (42501), antes da função.
+create or replace function pg_temp.espera_ok(p_email text, p_motivo text) returns void
+language plpgsql as $$
+begin
+  perform set_config('request.jwt.claims', json_build_object('email', p_email)::text, false);
+  perform public.efetividade_caixa_resumo_semestre('2026/2');
+exception when sqlstate '42501' then
+  raise exception 'FALHA [%]: gestão autorizada foi negada', p_motivo;
+end $$;
+
+-- 1. anon: sem EXECUTE. Falha de permissão do Postgres antes da função.
 set role anon;
 select set_config('request.jwt.claims', '', false);
 do $$ begin
@@ -18,20 +27,28 @@ do $$ begin
 end $$;
 reset role;
 
--- 2. authenticated sem e-mail na sessão: negado pelo portão.
+-- 2..5 authenticated com diferentes sessões.
 set role authenticated;
-select set_config('request.jwt.claims', '{}', false);
-select pg_temp.espera_negado('2026/2', 'authenticated sem e-mail');
+select pg_temp.espera_negado('2026/2', 'authenticated sem e-mail')
+  from (select set_config('request.jwt.claims', '{}', false)) x;
 
--- 3. diretoria ativa, fora da gestão: NEGADO (diretoria não entra por este caminho).
+-- diretoria ativa, fora da gestão: negada.
 select set_config('request.jwt.claims', '{"email":"angela.ferreira@aelbra.com.br"}', false);
 select pg_temp.espera_negado('2026/2', 'diretoria ativa');
 
--- 4. gestão na lista MAS inativa em usuarios: negado.
+-- operador comum ativo, fora da gestão: negado.
+select set_config('request.jwt.claims', '{"email":"operador@aelbra.com.br"}', false);
+select pg_temp.espera_negado('2026/2', 'operador comum');
+
+-- gestão na lista mas inativa em usuarios: negada.
 select set_config('request.jwt.claims', '{"email":"cobranca07@aelbra.com.br"}', false);
 select pg_temp.espera_negado('2026/2', 'gestão inativa');
 
--- 5. semestre inválido: erro 22023 mesmo para gestão autorizada.
+-- 6. gestão ativa (duas contas): autorizadas.
+select pg_temp.espera_ok('amanda.seibel@aelbra.com.br', 'gestão ativa amanda');
+select pg_temp.espera_ok('cobranca04@aelbra.com.br', 'gestão ativa cobranca04');
+
+-- 7. semestre inválido, mesmo para gestão autorizada: 22023.
 select set_config('request.jwt.claims', '{"email":"amanda.seibel@aelbra.com.br"}', false);
 do $$ begin
   begin perform public.efetividade_caixa_resumo_semestre('2030/1');
@@ -39,7 +56,7 @@ do $$ begin
   exception when sqlstate '22023' then null; end;
 end $$;
 
--- 6. gestão ativa 2026/2: agregados corretos, sem dado pessoal.
+-- 8. agregados de 2026/2 e percentual calculado no banco.
 do $$
 declare r jsonb; s jsonb;
 begin
@@ -50,7 +67,11 @@ begin
   if (r->>'pendente_classificacao')::numeric <> 50 then raise exception 'FALHA pendente 2026/2'; end if;
   if (r->>'pagamentos_pendentes')::int <> 1 then raise exception 'FALHA qtd pendentes 2026/2'; end if;
   if (r->>'sem_origem_determinada')::numeric <> 30 then raise exception 'FALHA sem origem'; end if;
-  if (s->>'carteira_original')::numeric <> 2100 then raise exception 'FALHA carteira 2026/2: %', s->>'carteira_original'; end if;
+  if (r->>'carteira_original')::numeric <> 2100 then raise exception 'FALHA carteira 2026/2: %', r->>'carteira_original'; end if;
+  if (r->>'titulos_carteira')::int <> 5 then raise exception 'FALHA títulos 2026/2'; end if;
+  if (r->>'carteira_fonte') <> 'classificador_2026_2' then raise exception 'FALHA fonte 2026/2'; end if;
+  -- 100 / 2100 = 4,8%. Percentual calculado no banco, não na tela.
+  if (r->>'percentual_recuperado_caixa')::numeric <> 4.8 then raise exception 'FALHA percentual: %', r->>'percentual_recuperado_caixa'; end if;
   if (s->>'saldo_em_aberto_total')::numeric <> 950 then raise exception 'FALHA saldo total (cancelado excluído): %', s->>'saldo_em_aberto_total'; end if;
   if (s->>'saldo_em_conferencia')::numeric <> 100 then raise exception 'FALHA conferência'; end if;
   if (s->>'saldo_academico')::numeric <> 50 then raise exception 'FALHA acadêmico'; end if;
@@ -62,27 +83,27 @@ begin
   end if;
 end $$;
 
--- 7. regressão 2026/1: caixa próprio, sem bloco de saldo de 2026/2.
+-- 9. regressão 2026/1: caixa próprio, carteira da fotografia, sem bloco de 2026/2.
 do $$
 declare r jsonb;
 begin
   r := public.efetividade_caixa_resumo_semestre('2026/1');
   if (r->>'caixa_confirmado')::numeric <> 10 then raise exception 'FALHA regressão 2026/1 caixa'; end if;
   if (r->>'pagamentos_confirmados')::int <> 1 then raise exception 'FALHA regressão 2026/1 qtd'; end if;
+  if (r->>'carteira_original')::numeric <> 1000 then raise exception 'FALHA carteira 2026/1'; end if;
+  if (r->>'percentual_recuperado_caixa')::numeric <> 1.0 then raise exception 'FALHA percentual 2026/1'; end if;
   if r->'saldo_2026_2' <> 'null'::jsonb then raise exception 'FALHA: 2026/1 não deveria trazer saldo 2026/2'; end if;
 end $$;
 
--- 8. grants: authenticated executa, anon não.
-select has_function_privilege('authenticated', 'public.efetividade_caixa_resumo_semestre(text)', 'EXECUTE') as auth_ok \gset
-select has_function_privilege('anon', 'public.efetividade_caixa_resumo_semestre(text)', 'EXECUTE') as anon_ok \gset
-\if :auth_ok
-\else
-  \echo FALHA: authenticated sem EXECUTE
-  \quit 1
-\endif
-\if :anon_ok
-  \echo FALHA: anon com EXECUTE
-  \quit 1
-\endif
+-- 10. grants: authenticated tem EXECUTE; anon não. Falha explícita, sem \quit.
+do $$
+begin
+  if not has_function_privilege('authenticated', 'public.efetividade_caixa_resumo_semestre(text)', 'EXECUTE') then
+    raise exception 'FALHA: authenticated sem EXECUTE';
+  end if;
+  if has_function_privilege('anon', 'public.efetividade_caixa_resumo_semestre(text)', 'EXECUTE') then
+    raise exception 'FALHA: anon com EXECUTE';
+  end if;
+end $$;
 reset role;
-\echo OK efetividade_caixa_resumo_semestre: todos os casos passaram
+select 'OK efetividade_caixa_resumo_semestre: todos os casos passaram' as resultado;

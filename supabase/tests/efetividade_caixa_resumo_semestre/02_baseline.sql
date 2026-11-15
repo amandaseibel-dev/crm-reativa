@@ -1,6 +1,8 @@
 -- Dados fixos. Valores e contagens são conhecidos pelo caso de teste.
 insert into public.usuarios (email, perfil, ativo) values
   ('amanda.seibel@aelbra.com.br', 'gerencia', true),       -- gestão ativa
+  ('cobranca04@aelbra.com.br',    'supervisor', true),     -- gestão ativa (2ª)
+  ('operador@aelbra.com.br',      'operador', true),       -- operador comum, fora da gestão
   ('cobranca07@aelbra.com.br',    'administrativo', false), -- gestão INATIVA
   ('angela.ferreira@aelbra.com.br','diretoria', true);      -- diretoria ativa, fora da gestão
 -- Caixa: 2026/2 tem 2 PROVADA+BAIXADO (60+40), 1 CHAVE_EXATA sem status (50),

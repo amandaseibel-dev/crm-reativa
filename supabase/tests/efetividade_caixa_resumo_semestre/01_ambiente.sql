@@ -37,3 +37,9 @@ language sql stable security definer set search_path to 'public' as $$
   select lower(coalesce(auth.jwt()->>'email','')) in (
     'amanda.seibel@aelbra.com.br', 'cobranca04@aelbra.com.br', 'cobranca07@aelbra.com.br');
 $$;
+-- Fotografia 2026/1 (stub): só o bloco que a RPC lê, situacoes.entrou.
+create or replace function public.carteira_efetividade_ler(p_bloco text, p_ano text, p_semestre text)
+returns jsonb language sql stable as $$
+  select jsonb_build_object('situacoes', jsonb_build_object(
+           'entrou', jsonb_build_object('valor', 1000, 'titulos', 3)))
+$$;

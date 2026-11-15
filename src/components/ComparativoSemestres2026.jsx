@@ -4,36 +4,26 @@ import { S, moeda } from "./situacoesDaSafraFormato";
 
 // COMPARATIVO 2026/1 × 2026/2 NA MESMA TELA.
 //
-// Uma linha por semestre, colunas que dizem o que medem. Nenhuma coluna soma
-// semestres: os CPFs se sobrepõem entre safras, então cada linha é fechada em si.
+// A TELA SÓ EXIBE. Carteira, saldo, caixa, percentual e contagem de títulos vêm
+// prontos da RPC `efetividade_caixa_resumo_semestre`. Nenhuma métrica de negócio
+// é calculada aqui.
 //
-//   • Carteira original  — valor que entrou na carteira do semestre.
-//   • Saldo em aberto    — 2026/1: saldo total da carteira (fotografia).
-//                          2026/2: NÃO há saldo total confiável; mostra o saldo
-//                          só dos acordos vigentes, com o nome dito.
+//   • Carteira original  — valor que entrou na carteira do semestre (`carteira_original`).
+//   • Saldo em aberto    — 2026/2: saldo total do classificador, com conferência visível.
+//                          2026/1: saldo da fotografia `seis_linhas`.
 //   • Negociado          — valor coberto por acordo. NÃO é dinheiro recebido.
-//   • Caixa confirmado   — pagamento provado e baixado (fonte: efetividade_caixa_origem,
-//                          lido pela RPC efetividade_caixa_resumo_semestre).
-//   • % recuperado       — caixa confirmado ÷ carteira original. Só o caixa.
-//
-// RATEIO fica numa coluna à parte, identificada como rateio: é o status da parcela
-// rateado, não dinheiro. Nunca entra no percentual.
+//   • Caixa confirmado   — pagamento provado e baixado (`caixa_confirmado`).
+//   • % recuperado       — `percentual_recuperado_caixa`: caixa confirmado identificado
+//                          ÷ carteira original. Não é recuperação total conhecida.
+//   • Rateio             — coluna à parte, identificada como não-caixa.
 //
 // Dado indisponível aparece como "—", nunca como R$ 0,00.
 
 const SEMESTRES = ["2026/1", "2026/2"];
 
-const pct = (parte, todo) =>
-  Number(todo) > 0
-    ? ((100 * Number(parte)) / Number(todo)).toLocaleString("pt-BR",
-        { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + "%"
-    : "—";
+const numOuNulo = (v) => (v == null ? null : Number(v));
 
-const valorOuTraco = (v, disponivel) => (disponivel ? moeda(v) : "—");
-
-// Monta as linhas a partir das leituras já feitas. Função pura: é o que os testes cobrem.
-// Carteira e saldo de 2026/2 vêm do MESMO classificador oficial (`carteira_2026_2_classificar`),
-// dentro da RPC de resumo. Assim carteira, saldo, caixa e negociado saem de um único recorte.
+// Monta as linhas a partir das leituras. Função pura: é o que os testes cobrem.
 export function montarLinhasSemestres({ fotografia2026_1, negociacoes2026_2, caixa }) {
   const sit = fotografia2026_1?.situacoes || null;
   const c1 = caixa?.["2026/1"] || null;
@@ -45,16 +35,16 @@ export function montarLinhasSemestres({ fotografia2026_1, negociacoes2026_2, cai
     chave: "2026/1",
     rotulo: "2026/1",
     nota: "carteira consolidada · fotografia",
-    carteira: sit?.entrou?.valor ?? null,
-    saldoAberto: sit?.em_aberto?.valor ?? null,
-    negociado: sit?.negociado?.valor ?? null,
-    caixa: c1 ? Number(c1.caixa_confirmado) : null,
-    pagamentosCaixa: c1 ? Number(c1.pagamentos_confirmados) : null,
-    pendente: c1 ? Number(c1.pendente_classificacao) : null,
-    pendentes: c1 ? Number(c1.pagamentos_pendentes) : null,
-    rateio: sit?.pago?.valor ?? null,
-    dataReferencia: c1?.data_referencia ?? null,
-    geradoEm: fotografia2026_1?.gerado_em ?? null,
+    carteira: numOuNulo(c1?.carteira_original),
+    titulos: numOuNulo(c1?.titulos_carteira),
+    saldoAberto: numOuNulo(sit?.em_aberto?.valor),
+    negociado: numOuNulo(sit?.negociado?.valor),
+    caixa: numOuNulo(c1?.caixa_confirmado),
+    pagamentosCaixa: numOuNulo(c1?.pagamentos_confirmados),
+    pendente: numOuNulo(c1?.pendente_classificacao),
+    pendentes: numOuNulo(c1?.pagamentos_pendentes),
+    percentual: c1?.percentual_recuperado_caixa ?? null,
+    rateio: numOuNulo(sit?.pago?.valor),
     atualizacaoPendente: Boolean(fotografia2026_1?.snapshot?.atualizacao_pendente),
   };
 
@@ -62,28 +52,23 @@ export function montarLinhasSemestres({ fotografia2026_1, negociacoes2026_2, cai
     chave: "2026/2",
     rotulo: "2026/2",
     nota: "semestre vigente · classificador",
-    carteira: s2?.carteira_original != null ? Number(s2.carteira_original) : null,
-    saldoAberto: s2?.saldo_em_aberto_total != null ? Number(s2.saldo_em_aberto_total) : null,
-    saldoConferencia: s2?.saldo_em_conferencia != null ? Number(s2.saldo_em_conferencia) : null,
-    saldoAcademico: s2?.saldo_academico != null ? Number(s2.saldo_academico) : null,
-    saldoAcordosAtivos: s2?.saldo_acordos_ativos != null ? Number(s2.saldo_acordos_ativos) : null,
-    negociado: neg?.negociado != null ? Number(neg.negociado) : null,
-    caixa: c2 ? Number(c2.caixa_confirmado) : null,
-    pagamentosCaixa: c2 ? Number(c2.pagamentos_confirmados) : null,
-    pendente: c2 ? Number(c2.pendente_classificacao) : null,
-    pendentes: c2 ? Number(c2.pagamentos_pendentes) : null,
-    rateio: neg?.recebido != null ? Number(neg.recebido) : null,
-    dataReferencia: c2?.data_referencia ?? null,
-    geradoEm: null,
+    carteira: numOuNulo(c2?.carteira_original),
+    titulos: numOuNulo(c2?.titulos_carteira),
+    saldoAberto: numOuNulo(s2?.saldo_em_aberto_total),
+    saldoConferencia: numOuNulo(s2?.saldo_em_conferencia),
+    negociado: numOuNulo(neg?.negociado),
+    caixa: numOuNulo(c2?.caixa_confirmado),
+    pagamentosCaixa: numOuNulo(c2?.pagamentos_confirmados),
+    pendente: numOuNulo(c2?.pendente_classificacao),
+    pendentes: numOuNulo(c2?.pagamentos_pendentes),
+    percentual: c2?.percentual_recuperado_caixa ?? null,
+    rateio: numOuNulo(neg?.recebido),
     atualizacaoPendente: false,
   };
 
   return [linha1, linha2];
 }
 
-// `fotografia2026_1`: a payload `seis_linhas` de 2026/1 que a página já leu quando
-// o semestre selecionado é 2026/1. Passada aqui para não repetir a consulta. Sem
-// ela (outro semestre selecionado), o componente lê a fotografia por conta própria.
 export default function ComparativoSemestres2026({ fotografia2026_1: fotoDaPagina = null,
                                                    negociacoes2026_2 = null, recarga = 0 }) {
   const [fotografiaLida, setFotografiaLida] = useState(null);
@@ -125,6 +110,7 @@ export default function ComparativoSemestres2026({ fotografia2026_1: fotoDaPagin
   }
 
   const linhas = montarLinhasSemestres({ fotografia2026_1, negociacoes2026_2, caixa });
+  const exibe = (v) => (v == null ? "—" : moeda(v));
 
   return (
     <section style={{ marginTop: 22 }}>
@@ -142,69 +128,69 @@ export default function ComparativoSemestres2026({ fotografia2026_1: fotoDaPagin
               <th style={E.th}>Saldo em aberto</th>
               <th style={E.th}>Negociado</th>
               <th style={E.th}>Caixa confirmado</th>
-              <th style={E.th}>% recuperado</th>
+              <th style={E.th}>% recuperado por caixa</th>
               <th style={E.th}>Rateio (não é caixa)</th>
             </tr>
           </thead>
           <tbody>
-            {linhas.map((l) => {
-              const temCarteira = l.carteira != null;
-              const temCaixa = l.caixa != null;
-              return (
-                <tr key={l.chave}>
-                  <td style={E.tdSafra}>
-                    {l.rotulo}
-                    <div style={E.nota}>{l.nota}</div>
-                  </td>
-                  <td style={E.tdValor}>{valorOuTraco(l.carteira, temCarteira)}</td>
-                  <td style={E.tdValor}>
-                    {valorOuTraco(l.saldoAberto, l.saldoAberto != null)}
-                    {l.saldoConferencia != null ? (
-                      <div style={E.nota}>
-                        inclui {moeda(l.saldoConferencia)} em conferência (sem confirmação)
-                      </div>
-                    ) : null}
-                  </td>
-                  <td style={E.tdValor}>
-                    {valorOuTraco(l.negociado, l.negociado != null)}
-                    <div style={E.nota}>não é recebido</div>
-                  </td>
-                  <td style={{ ...E.tdValor, color: "var(--rv-verde-ok)" }}>
-                    {valorOuTraco(l.caixa, temCaixa)}
-                    {temCaixa ? (
-                      <div style={E.nota}>{l.pagamentosCaixa} pagamentos provados e baixados</div>
-                    ) : null}
-                  </td>
-                  <td style={E.tdPct}>
-                    {temCaixa && temCarteira ? pct(l.caixa, l.carteira) : "—"}
-                    <div style={E.nota}>caixa ÷ carteira original</div>
-                  </td>
-                  <td style={{ ...E.tdValor, color: "var(--rv-texto-suave)" }}>
-                    {valorOuTraco(l.rateio, l.rateio != null)}
-                    <div style={E.nota}>rateio do status, não caixa</div>
-                  </td>
-                </tr>
-              );
-            })}
+            {linhas.map((l) => (
+              <tr key={l.chave}>
+                <td style={E.tdSafra}>
+                  {l.rotulo}
+                  <div style={E.nota}>{l.nota}</div>
+                </td>
+                <td style={E.tdValor}>
+                  {exibe(l.carteira)}
+                  {l.titulos != null ? <div style={E.nota}>{l.titulos.toLocaleString("pt-BR")} títulos</div> : null}
+                </td>
+                <td style={E.tdValor}>
+                  {exibe(l.saldoAberto)}
+                  {l.saldoConferencia != null ? (
+                    <div style={E.nota}>inclui {moeda(l.saldoConferencia)} em conferência</div>
+                  ) : null}
+                </td>
+                <td style={E.tdValor}>
+                  {exibe(l.negociado)}
+                  <div style={E.nota}>não é recebido</div>
+                </td>
+                <td style={{ ...E.tdValor, color: "var(--rv-verde-ok)" }}>
+                  {exibe(l.caixa)}
+                  {l.pagamentosCaixa != null ? (
+                    <div style={E.nota}>{l.pagamentosCaixa} pagamentos provados e baixados</div>
+                  ) : null}
+                </td>
+                <td style={E.tdPct}>
+                  {l.percentual != null ? `${String(l.percentual).replace(".", ",")}%` : "—"}
+                  <div style={E.nota}>caixa identificado ÷ carteira</div>
+                </td>
+                <td style={{ ...E.tdValor, color: "var(--rv-texto-suave)" }}>
+                  {exibe(l.rateio)}
+                  <div style={E.nota}>rateio do status, não caixa</div>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
 
       <p style={S.rodape}>
         <strong>Pendente de classificação, fora do caixa:</strong>{" "}
-        {linhas.map((l) => `${l.rotulo} ${l.pendente != null ? moeda(l.pendente) : "—"}` +
+        {linhas.map((l) => `${l.rotulo} ${exibe(l.pendente)}` +
           (l.pendentes != null ? ` (${l.pendentes} pagamentos)` : "")).join(" · ")}.
         Pagamento com chave exata ainda sem baixa, em revisão ou já pago na parcela não conta como recebido.
       </p>
       <p style={S.rodape}>
-        <strong>2026/2:</strong> carteira, saldo e caixa vêm do mesmo recorte do classificador oficial
-        (10.822 títulos). O saldo em aberto inclui valor em conferência e ajuste acadêmico ainda não
-        confirmados. Os acordos ativos são só uma parte dele e não substituem o total.
+        <strong>O percentual é recuperação por caixa confirmado identificado.</strong> Não é recuperação total
+        conhecida: o valor pendente de classificação não entra nele.
+      </p>
+      <p style={S.rodape}>
+        <strong>2026/2:</strong> carteira, saldo e caixa vêm do mesmo recorte do classificador oficial. O saldo
+        em aberto inclui valor em conferência ainda não confirmado. Os acordos ativos são só uma parte dele.
       </p>
       {linhas.some((l) => l.atualizacaoPendente) ? (
         <p style={{ ...S.rodape, color: "var(--rv-ambar-texto)" }}>
-          A fotografia de 2026/1 tem atualização pendente. Os valores de carteira, saldo e negociado de 2026/1
-          podem estar defasados; o caixa confirmado é lido na hora.
+          A fotografia de 2026/1 tem atualização pendente. Carteira, saldo e negociado de 2026/1 podem estar
+          defasados; o caixa confirmado é lido na hora.
         </p>
       ) : null}
     </section>
