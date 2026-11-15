@@ -56,8 +56,14 @@ select public.teste_assert('fixture: gestão ativa grava REGISTRO de termo para 
 -- UPDATE do operador: sem policy de UPDATE (como em produção) a RLS afeta zero linhas; a linha da gestão não muda.
 select public.teste_comando('authenticated', 'operador.teste@exemplo.local',
   'update public.aluno_movimentacoes set status_novo = ''TERMO_FISICO_ARQUIVADO'' where aluno_id = ''a2''');
+-- Verificação como AUTHENTICATED (a policy de SELECT é 'to authenticated'; app_teste NOINHERIT não a aplica).
 select public.teste_assert('operador: o status da movimentação continua o mesmo após a tentativa',
-  (select count(*) from public.aluno_movimentacoes where aluno_id = 'a2' and status_novo = 'TERMO_FISICO_EM_ANDAMENTO') = 1);
+  (public.teste_consulta('authenticated','operador.teste@exemplo.local',
+    $sql$select 1 from public.aluno_movimentacoes where aluno_id = 'a2' and status_novo = 'TERMO_FISICO_EM_ANDAMENTO'$sql$)->>'ok') = 'true'
+  and (public.teste_consulta('authenticated','operador.teste@exemplo.local',
+    $sql$select 1 from public.aluno_movimentacoes where aluno_id = 'a2' and status_novo = 'TERMO_FISICO_EM_ANDAMENTO'$sql$)->'rows') is not null
+  and (select jsonb_array_length((public.teste_consulta('authenticated','operador.teste@exemplo.local',
+    $sql$select 1 from public.aluno_movimentacoes where aluno_id = 'a2' and status_novo = 'TERMO_FISICO_EM_ANDAMENTO'$sql$))->'rows')) = 1);
 
 -- Unicode invisível: a normalização [A-Z0-9_] não deixa passar.
 select public.teste_assert('operador: recusado com U+200B, U+FEFF, U+00A0 e U+3000 ao redor do código (42501)',
