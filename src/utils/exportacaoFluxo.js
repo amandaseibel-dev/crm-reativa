@@ -22,7 +22,7 @@ export function mensagemDaFase(fase) {
     case FASE.CONCLUIDA:
       return "Lote registrado e planilha baixada.";
     case FASE.ARQUIVO_FALHOU:
-      return "Lote registrado, arquivo não baixado. Use Baixar planilha: ele não registra o lote de novo.";
+      return "Lote registrado, arquivo não baixado. Use Baixar planilha novamente; não exporte de novo para obter o mesmo arquivo.";
     case FASE.INCERTA:
       return "Resultado do registro desconhecido. Confira o histórico de lotes antes de exportar de novo.";
     case FASE.RECUSADA:

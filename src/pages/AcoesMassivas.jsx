@@ -256,6 +256,7 @@ export default function AcoesMassivas() {
   const [gerando, setGerando] = useState(false);
   // Fase do ultimo registro: incerta bloqueia nova exportacao ate o operador conferir o historico.
   const [faseExport, setFaseExport] = useState(FASE.OCIOSO);
+  const [conferiuLotes, setConferiuLotes] = useState(false);
   const [resultados, setResultados] = useState(null);
   const [erro, setErro] = useState("");
   const [sucesso, setSucesso] = useState("");
@@ -572,6 +573,8 @@ export default function AcoesMassivas() {
     setSucesso("");
     setExcluidosNoEnvio(0);
 
+    // O arquivo anterior nao pertence a nova exportacao: descarta antes de registrar.
+    setRelatorioPronto(null);
     let loteRegistrado = false;
     try {
       const sufixoOperador = /^CASO:/i.test(String(operadorDaPrevia ?? ""))
@@ -1766,16 +1769,19 @@ export default function AcoesMassivas() {
               {faseExport === FASE.INCERTA && (
                 <div style={{ marginTop: 8 }}>
                   <p style={{ margin: "0 0 6px" }}>{mensagemDaFase(FASE.INCERTA)} Esta proteção vale só nesta tela e até recarregar a página.</p>
-                  <button style={estilos.botaoGerar} onClick={async () => {
-                    try {
-                      await carregarLotesRegistro();
-                      setFaseExport(FASE.OCIOSO);
-                      setErro("");
-                    } catch {
-                      setErro("Não foi possível carregar o histórico. A exportação segue bloqueada.");
-                    }
-                  }}>
-                    Conferi o histórico de lotes
+                  <button style={{ ...estilos.botaoGerar, background: "#64748b" }} onClick={() => carregarLotesRegistro()}>
+                    Ver histórico de lotes
+                  </button>
+                  <label style={{ display: "flex", gap: 6, alignItems: "center", margin: "8px 0" }}>
+                    <input type="checkbox" checked={conferiuLotes} onChange={(e) => setConferiuLotes(e.target.checked)} />
+                    Conferi no histórico que este lote NÃO foi registrado
+                  </label>
+                  <button
+                    style={estilos.botaoGerar}
+                    disabled={!conferiuLotes}
+                    onClick={() => { setFaseExport(FASE.OCIOSO); setConferiuLotes(false); setErro(""); }}
+                  >
+                    Liberar nova exportação
                   </button>
                 </div>
               )}
@@ -1793,6 +1799,7 @@ export default function AcoesMassivas() {
               <button
                 style={{ ...estilos.botaoGerar, background: "#16a34a" }}
                 onClick={baixarNovamenteArquivo}
+                disabled={faseExport === FASE.INCERTA}
               >
                 ⬇️ Baixar planilha novamente
               </button>
