@@ -101,7 +101,7 @@ async function main() {
   }
   await c.query("rollback").catch(() => {});
   afirma(erroInvalida !== null, "ordem inválida: migração recusada sem RETORNO_FINANCEIRO");
-  afirma(erroInvalida && /RETORNO_FINANCEIRO/.test(erroInvalida.message), "dependência ausente: a mensagem nomeia RETORNO_FINANCEIRO");
+  afirma(erroInvalida && erroInvalida.message === "DEPENDENCIA: RETORNO_FINANCEIRO ausente, inativa ou sem somente_gestao em public.tabulacoes. Sem ela a trava nao a cobriria. Aplique 20261106120000 antes desta migration. Nada foi alterado.", "dependência ausente: mensagem exata da migração");
   afirma((await fotografia(c)) === antes, "ordem inválida: nenhuma alteração no banco (função, catálogo, gatilhos, alunos)");
 
   // 3. ORDEM CORRETA: com a linha da tabulação, aplica e o corpo final é o medido
@@ -154,9 +154,14 @@ async function main() {
           await app.query("rollback");
         } catch (e) {
           await app.query("rollback").catch(() => {});
-          const mensagemDoRamo = base === "RETORNO_FINANCEIRO" ? /restrita . gest.o/ : /decis.o da gest.o/;
-          const outraMensagem = base === "RETORNO_FINANCEIRO" ? /Encerrar cobran/ : /restrita . gest.o/;
-          if (e.code === "42501" && mensagemDoRamo.test(e.message) && !outraMensagem.test(e.message)) recusadas++;
+          // Mensagem EXATA por ramo (mesmo normalizador do banco). Nunca aceita a outra.
+          const norm = String(v).replace(/[^A-Za-z0-9_]/g, '').toUpperCase();
+          const ENCERRA = ['CANCELAMENTO_COBRANCA','SUSPENSAO_COBRANCA','JURIDICO','ANTECIPACAO_SEMESTRE',
+            'ALEGA_FIES_CONFIRMADO','ALEGA_CREDIES_CONFIRMADO','ALEGA_FINANCIAMENTO_CONFIRMADO'];
+          const esperada = ENCERRA.includes(norm)
+            ? 'Encerrar cobrança (cancelamento, suspensão, jurídico ou antecipação de semestre) é decisão da gestão. Registre a solicitação para Amanda, Fernanda ou Amanda ADM.'
+            : `A tabulação "${norm}" é restrita à gestão. Registre a solicitação para Amanda, Fernanda ou Amanda ADM.`;
+          if (e.code === "42501" && e.message === esperada) recusadas++;
           else naoRecusadas.push(`${campo}=${JSON.stringify(v)} (erro ${e.code}: ${e.message})`);
         }
       }
