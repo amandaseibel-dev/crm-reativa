@@ -2,10 +2,12 @@
 \set ON_ERROR_STOP on
 -- RPC pela gestão: recusada (42501), sem linha nova.
 -- A RPC exige aluno existente (22023 antes da contenção): usa o aluno real da fixture; a recusa é da CONTENÇÃO.
-select public.teste_assert('contenção: RPC recusada pela mensagem da contenção, sem linha em c2',
+-- Contagem ANTES da tentativa, do MESMO aluno enviado à RPC (a0000000-0000-0000-0000-000000000042).
+select (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'a0000000-0000-0000-0000-000000000042'$q$))->'rows')) as n_antes_42 \gset
+select public.teste_assert('contenção: RPC recusada pela mensagem da contenção, sem linha nova do aluno enviado',
   ((public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
     $sql$select public.registrar_administrativo_termo_fisico('a0000000-0000-0000-0000-000000000042','TERMO_FISICO_ARQUIVADO')$sql$)->>'err') like 'Registro de termo físico suspenso%')
-  and (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'c2'$q$))->'rows')) = 0);
+  and (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'a0000000-0000-0000-0000-000000000042'$q$))->'rows')) = :n_antes_42);
 -- INSERT direto pela gestão: REGISTRO de cada código restrito recusado.
 select public.teste_assert('contenção: INSERT direto REGISTRO (EM_ANDAMENTO) recusado à gestão',
   (public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
