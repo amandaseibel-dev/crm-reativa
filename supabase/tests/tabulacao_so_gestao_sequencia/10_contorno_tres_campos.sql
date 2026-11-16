@@ -17,9 +17,11 @@ begin
   return coalesce(v, '<null>');
 end $$;
 
--- Contorno: variantes de CANCELAMENTO_COBRANCA em cada coluna, com caracteres de contorno.
+-- Contorno: cada tentativa proibida exige 42501 + mensagem EXATA + estado posterior IGUAL ao anterior.
+-- Nenhum SEM_ERRO é aceito: se a normalização deixar passar, o teste falha.
 do $$
 declare
+  v_msg constant text := 'Encerrar cobrança (cancelamento, suspensão, jurídico ou antecipação de semestre) é decisão da gestão. Registre a solicitação para Amanda, Fernanda ou Amanda ADM.';
   v_cols text[] := array['status_atual','status_jornada','status_acionamento'];
   v_var text[] := array[
     'CANCELAMENTO_COBRANCA',
@@ -27,10 +29,10 @@ declare
     E'\tCANCELAMENTO_COBRANCA',
     E'CANCELAMENTO_COBRANCA\n',
     E'CANCELAMENTO_COBRANCA\r',
-    E'​CANCELAMENTO_COBRANCA',
-    E'CANCELAMENTO_COBRANCA﻿',
-    E' CANCELAMENTO_COBRANCA',
-    E'　CANCELAMENTO_COBRANCA',
+    E'\u200BCANCELAMENTO_COBRANCA',
+    E'CANCELAMENTO_COBRANCA\uFEFF',
+    E'\u00A0CANCELAMENTO_COBRANCA',
+    E'\u3000CANCELAMENTO_COBRANCA',
     'cancelamento_cobranca'];
   c text; v text; r text; antes text; depois text;
 begin
@@ -39,11 +41,10 @@ begin
       antes := pg_temp.valor(c);
       r := pg_temp.tentar(format('update public.alunos set %I = %L where id = %L', c, v, 'a0000000-0000-0000-0000-000000000042'));
       depois := pg_temp.valor(c);
-      -- Recusa exata OU, se a normalização não reconhecer o valor, linha inalterada (nunca alteração parcial).
-      if r not like '42501|Encerrar cobrança%' and r <> 'SEM_ERRO' then
-        raise exception 'FALHOU contorno %/%: erro inesperado %', c, v, r; end if;
-      if r = 'SEM_ERRO' and depois is distinct from antes and depois <> v then
-        raise exception 'FALHOU contorno %/%: alterou sem recusa', c, v; end if;
+      if r is distinct from ('42501|' || v_msg) then
+        raise exception 'FALHOU contorno %/%: esperado 42501 exato, obtido %', c, v, r; end if;
+      if depois is distinct from antes then
+        raise exception 'FALHOU contorno %/%: estado mudou (% -> %)', c, v, antes, depois; end if;
     end loop;
   end loop;
 end $$;
