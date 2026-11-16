@@ -152,6 +152,9 @@ async function montar({ comPacote, soParte1 = false }) {
        ('${AMANDA}', true), ('${FERNANDA}', true), ('${AMANDA_ADM}', true);`
   );
   await db.exec(AGENDA_CONFIRMADO);
+  // Default privilege do Supabase: funcao nova ja nasce com EXECUTE para anon.
+  // O pacote tem de revogar; sem isto, a prova de anon nao discrimina.
+  await db.exec("grant execute on function public.agenda_confirmar_retorno(uuid, boolean) to anon;");
   await db.exec(CORPO_VIVO);
   await db.exec("grant execute on function public.recalcular_situacao_aluno(uuid, text) to authenticated;");
   if (comPacote) {
@@ -846,5 +849,21 @@ describe("agenda_confirmar_retorno: gestao e ACL", () => {
       has_function_privilege('authenticated', 'public.agenda_confirmar_retorno(uuid,boolean)', 'EXECUTE') as authenticated,
       has_function_privilege('service_role', 'public.agenda_confirmar_retorno(uuid,boolean)', 'EXECUTE') as service_role`);
     expect(r.rows[0]).toEqual({ anon: false, authenticated: true, service_role: true });
+  });
+});
+
+// PROVA DO REVOKE DE ANON (agenda_confirmar_retorno): anon tem EXECUTE antes do pacote
+// (default privilege), e perde depois. Chamada direta como anon e recusada por permissao.
+describe("revoke de anon em agenda_confirmar_retorno: prova que discrimina", () => {
+  const ANON_EXEC = `select has_function_privilege('anon', 'public.agenda_confirmar_retorno(uuid,boolean)', 'EXECUTE') as a`;
+  it("antes do pacote anon tem EXECUTE; depois do pacote nao tem; chamada direta como anon e recusada", async () => {
+    const antes = await montar({ comPacote: false });
+    expect((await antes.query(ANON_EXEC)).rows[0].a).toBe(true);
+    const depois = await montar({ comPacote: true });
+    expect((await depois.query(ANON_EXEC)).rows[0].a).toBe(false);
+    await expect(
+      comPapel(depois, "anon", null, () =>
+        depois.query("select public.agenda_confirmar_retorno($1, true)", [ALUNA]))
+    ).rejects.toThrow(/permission denied/i);
   });
 });
