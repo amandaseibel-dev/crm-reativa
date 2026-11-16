@@ -138,3 +138,14 @@ Consulta somente leitura. Resultado:
 Correção: o Anexo H dizia que authenticated tinha EXECUTE em `carteira_2026_2_classificar()`. Isso estava errado,
 e a medição acima mostra o contrário. A exposição de `carteira_2026_2_negociacoes()` e `carteira_2026_2_detalhe()`
 a diretoria é pré-existente e fora desta PR.
+
+
+## Anexo L — medição do corpo completo (leitura, read only, timeout 8 s)
+
+Corpo final da RPC para 2026/2, com o classificador numa única referência (`materialized`):
+- Tempo total do SELECT completo (`explain analyze`, Execution Time): 4.370,921 ms.
+- Chamadas efetivas ao classificador: 1 (`Function Scan on carteira_2026_2_classificar ... loops=1`).
+- Resultados (equivalência com a RPC esperada): carteira 17.232.872,41 em 10.822 títulos; saldo total
+  16.042.642,07; negociado 1.232.903,01; recebido 987.576,95; saldo de acordos 245.326,06; 784 títulos;
+  637 CPFs; 693 acordos; caixa 2026/2 653.066,80 em 594 pagamentos.
+- A RPC não foi criada em produção. A medição é do SELECT equivalente.
