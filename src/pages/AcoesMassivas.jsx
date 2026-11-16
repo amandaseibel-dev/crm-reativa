@@ -667,8 +667,9 @@ export default function AcoesMassivas() {
   // não depende de "Acionados hoje" e não encosta no lote de WhatsApp — a ação
   // nova nasce como um lote próprio de canal E-mail.
   // Lote de WhatsApp ainda PENDENTE DE ENVIO não deriva e-mail. A regra é do
-  // banco (migration 20261113100100); esta função só esconde o botão quando o
-  // painel já sabe do estado. Se o painel estiver cortado, o banco recusa.
+  // banco (migration 20261113100100). Esta função só esconde o botão e antecipa a
+  // mensagem quando o painel já sabe do estado. O painel tem janela de 7 dias e
+  // limite de 50 lotes: fora dele, o banco é quem recusa.
   function loteWhatsPendente(loteId) {
     return lotesRegistro.some((r) => r.id === loteId && r.situacao === "PENDENTE");
   }
