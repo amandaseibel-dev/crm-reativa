@@ -257,7 +257,7 @@ export default function CentralUlbra({ usuario }) {
   // RESPONDEU (`ok: true`). Enquanto ela não estiver publicada, a resposta é
   // `ok` falso e o botão "Conectar minha conta" não é oferecido -- caminho sem
   // backend não vai para a tela. O histórico não passa por aqui: ele fala com
-  // a `ulbra-historico`, por isso pode ser implantado sozinho.
+  // a ação `historico_ler` da `ulbra-conversa` (conexão individual).
   useEffect(() => {
     if (filtros.visao !== "conversas" || !email) return undefined;
     let ativo = true;

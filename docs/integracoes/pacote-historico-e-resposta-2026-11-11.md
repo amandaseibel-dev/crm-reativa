@@ -44,15 +44,15 @@ Preparado em 11/11/2026. **Nenhuma mensagem enviada, nenhuma credencial alterada
 | Renovar/revogar token | — | 0 (servidor OAuth, não é o MCP) |
 
 ## 6. Testes (sem rede)
-- Lógica: `oauth.test.ts` (PKCE, URL, troca/renovação/revogação com fetch simulado, retorno do navegador), `cripto` (AES-GCM), `conexao.test.ts` (11), `envio.test.ts` (20), `leitura.test.ts` (10), `historico.test.ts` (18).
+- Lógica: `oauth.test.ts` (PKCE, URL, troca/renovação/revogação com fetch simulado, retorno do navegador), `cripto` (AES-GCM), `conexao.test.ts` (11), `envio.test.ts` (45), `leitura.test.ts` (17). Não há mais `historico.test.ts`: a função `ulbra-historico` foi removida do repositório.
 - Tela: `ulbraConversaCliente.test.js` (chamadas com JWT, mapeamento, prévia), `ConversaUlbra.test.jsx` (duas etapas, idempotência, falha incerta, bloqueio), `UlbraConectado.test.jsx`, `CentralUlbra.test.jsx` (histórico só com clique, conectar abre a URL, prévia → confirmação com chave, carteira interna sem histórico/envio), `CentralConversas.test.jsx`.
-- CI: `deno check` das duas funções novas (jobs adicionados).
+- CI: `deno check` de `ulbra-conversa` (job `ulbra-conversa-deno-check`); `ulbra-historico` foi removida do repositório e não tem job. Teste de acesso da RPC: job `ulbra-historico-portao-pglite` (npm ci + run.mjs).
 - **Não provado:** forma exata das respostas de `meu_acesso`/`enviar_mensagem_whatsapp` (campos de custo/janela/id); a função trata ausências sem inventar valores e a prévia mostra "não informado".
 
 ## 7. Ordem após aprovação (cada passo com a sua autorização)
 1. TI da ULBRA: `client_id` + `redirect_uri` registrados (único item externo).
 2. Merge desta PR (deploy da tela; sem função publicada a Central mostra "função indisponível"/"conexão não configurada").
-3. M1 + `apply_migration` de `20261110100000` e `20261111140000`; conferir grants (só service_role) e `search_path`.
+3. NÃO reaplicar `20261110100000` (já aplicada, versão 20261112111006). Aplicação de `20261111140000` e da corretiva `20261116150000`, cada uma com aprovação específica; conferir grants (só service_role) e `search_path`.
 4. Segredos `ULBRA_OAUTH_CLIENT_ID`, `ULBRA_OAUTH_REDIRECT_URI`, `ULBRA_TOKENS_CHAVE` (gestão, fora de transcript); publicar `ulbra-conversa` (verify_jwt ligado). `ULBRA_HISTORICO_HABILITADO` fica ausente (leitura desligada) até decisão da gestão. A `ulbra-historico` não entra neste pacote.
 5. Validação de leitura com a gestão e com um operador (histórico de 1 conversa: 1 chamada).
 6. Conexão de 1 operador piloto (1 `meu_acesso` da cota dele) e **prévia** de uma resposta (1 chamada) — sem `ULBRA_ENVIO_REAL`.
@@ -74,7 +74,7 @@ Campanhas, criação de atendimentos, transferências, administração de operad
 - Pré-condição do rollback: a v1 de `ulbra-historico` precisa estar contida em produção; senão a exposição já existe por outro caminho.
 - A2 (texto exato): divergência de identidade BLOQUEIA a conexão (com revogação do token de acesso no provedor), a leitura e o envio (sem revogação). A revogação por divergência existe só na conexão.
 - A9 (ilike sem escape em `ulbra-historico`) não é item separado: resolvido pela remoção da função do repositório. A v1 em produção segue com o problema até a contenção.
-- `supabase/tests/ulbra_historico_portao/run.mjs` roda manualmente (PGlite) e NÃO está no CI. A condição ANTES do teste simula o grant a PUBLIC; não é prova do estado de produção.
+- `supabase/tests/ulbra_historico_portao/run.mjs` roda no CI (job `ulbra-historico-portao-pglite`) e também manualmente (PGlite). A condição ANTES do teste simula o grant a PUBLIC; não é prova do estado de produção.
 
 ## Migrations: estado correto (revisão 16/11)
 - `20261110100000_ulbra_historico_orcamento`: APLICADA em produção (ledger 20261112111006). O `.sql.pendente` foi restaurado ao original (sha 163f3b55…); não é a versão aplicada nem deve ser reaplicado.
@@ -104,3 +104,10 @@ Sequência de implantação (NÃO executada; cada passo exige aprovação espec�
 3. Aplicar a corretiva em produção (SQL), com a conferência pós-grants do próprio arquivo.
 4. Verificação pós-aplicação: ACL e dono medidos de novo, e teste de acesso.
 Rollback: `20261116150000_*.rollback.sql` restaura a versão sem portão. NÃO é recuperação automática. Alternativa segura: manter `ULBRA_HISTORICO_HABILITADO` ausente.
+
+## Riscos da v1 em produção (a declarar à gestão; não corrigidos por esta PR)
+- A v1 publicada (`ulbra-historico`) concede leitura global aos perfis `supervisor`, `gerencia` e `administrativo` (preservação, `index.ts:24`, `:78`, `:97`). Isso é mais largo que a regra de 16/11. Quem tem esses perfis em produção: NÃO CONFERIDO.
+- A v1 casa o e-mail com `ilike` sem escape (`index.ts:76`) e usa o perfil da linha casada. Inferência de código, não reproduzida em banco.
+- A UI desligada (`HISTORICO_DISPONIVEL=false`) não fecha o endpoint: a v1 responde por HTTP a qualquer JWT de usuário ativo.
+- A cópia preservada em `docs/integracoes/preservacao-ulbra-historico-v1-producao/` foi reconstruída a partir do retorno da leitura. Diferenças em relação à versão do histórico do repositório: `historico.ts` (import e texto de cota). Não é prova byte a byte da produção.
+- Pré-requisito explícito: contenção (remoção de `ulbra-historico`) antes de qualquer outra ação.

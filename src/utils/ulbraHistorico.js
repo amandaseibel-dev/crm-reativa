@@ -2,7 +2,7 @@
 // Histórico ULBRA na Central — porta de tela e regra de quem vê o botão.
 //
 // HISTORICO_DISPONIVEL: a tela só monta o botão "Histórico" quando a função
-// `ulbra-historico` estiver publicada E a migration `20261110100000` aplicada.
+// ação `historico_ler` da `ulbra-conversa` estiver publicada com ULBRA_HISTORICO_HABILITADO=true.
 // Enquanto for `false`, nada muda na Central (nem botão, nem chamada). Ligar é
 // uma PR de uma linha, depois da publicação — ordem do pacote
 // `docs/integracoes/pacote-historico-isolado.md`.
