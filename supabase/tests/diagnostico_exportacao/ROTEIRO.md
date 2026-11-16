@@ -33,7 +33,7 @@ A identidade vem do ambiente e não fica no repositório. Ela precisa estar na l
 
 ## Limites conhecidos
 
-- `usuario_e_gestao` em produção é uma lista fixa de três e-mails. Ela não existe em nenhuma migração do repositório. Qualquer mudança de acesso precisa ser tratada como tal.
+- `usuario_e_gestao` em produção é uma lista fixa de três e-mails. Os três e-mails dessa lista aparecem em várias migrações do repositório (ver a seção de procedência abaixo), mas a definição vigente em produção é esta lista fixa, e não uma consulta de perfil. Qualquer mudança de acesso precisa ser tratada como tal.
 - A definição de `acoes_massivas_exportar` em produção tem `statement_timeout` de 120 s; o repositório tem 60 s em migrações anteriores. Não igualar arquivos alterando o timeout produtivo.
 
 ## Procedência das fixtures
