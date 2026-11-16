@@ -15,8 +15,9 @@
 -- 48, que chama nivelamento_automatico_gestao, FORA deste escopo e desativado
 -- pela migration 20261116120000).
 --
--- NAO ALTERADO (forma de gate diferente; revisar em outra etapa):
+-- ALTERADAS TAMBEM (mesma forma antiga "auth.jwt() is null"; o loop as reescreve):
 --   calibragem_simular, calibragem_simular_ano, calibragem_recomputar_snapshot.
+-- Os testes de simulacao (02_casos.sql, 8b) exercitam um STUB, nao estas funcoes.
 
 do $$
 declare

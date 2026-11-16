@@ -5,12 +5,14 @@
 --     (baixas_pagamento.status_baixa = 'REALIZADA'), com capacidade abaixo do teto.
 --     Caso livre e fonte da reposicao, nao autorizacao para distribuir.
 --  2. Negociacao e acordo NAO liberam vaga. Cada baixa elegivel gera no maximo
---     uma reposicao; o mesmo pagamento (cpf + valor + dia) gera uma so.
+--     uma reposicao; a chave e o link do pagamento (ou o id da baixa, quando
+--     nao ha link). Sem link, duplicata do mesmo pagamento NAO e deduplicada.
 --     Baixas anteriores ao corte (calibragem_parametros.nivelamento_v2_desde)
 --     nunca geram reposicao retroativa.
 --  3. Operadores com ocupacao >= teto nao recebem reposicao. Esta migration NAO
 --     distribui nada: a rodada inicial e zero movimentacoes.
---  4. Job 48 (nivelamento_automatico_gestao) e DESATIVADO nesta mesma migration.
+--  4. Job 48 (nivelamento_automatico_gestao) e REMOVIDO nesta mesma migration
+--     (cron.unschedule); o rollback recria o job com novo jobid.
 --     Estado anterior guardado em nivelamento_v2_backup para rollback.
 --  5. "Assumir atendimento" no teto ou acima: troca transacional por caso
 --     elegivel do PROPRIO operador de MESMO saldo cobravel (centavos). Sem
@@ -339,7 +341,7 @@ $$;
 -- ============================================================================
 -- 4. ASSUMIR ATENDIMENTO COM TROCA (integra assumir_caso_livre)
 -- ============================================================================
--- REESCRITA COMPLETA, NAO SO TRES MUDANCAS. Referencia de producao (12/11, md5 607a8b4f...):
+-- REESCRITA COMPLETA, NAO SO TRES MUDANCAS. Referencia de producao (12/11, md5(prosrc) 607a8b4f..., com o \n inicial do $function$):
 --   supabase/tests/fixtures/assumir_caso_livre_prod_20261112.body.sql
 -- Delta completo contra a producao: docs/seguranca/delta-assumir-caso-livre-v2-vs-prod-20261112.diff
 --   (36 linhas removidas, 23 adicionadas). Mudancas de regra, alem das previstas:

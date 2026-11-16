@@ -89,3 +89,14 @@ begin
   end;
 end $$;
 reset session authorization;
+-- B1: prova por catalogo (nao pelo gate): service_role sem EXECUTE na reposicao.
+do $$
+begin
+  if has_function_privilege('service_role', 'public.nivelamento_reposicao_por_baixas(int)', 'EXECUTE') then
+    raise exception 'FALHOU: service_role tem EXECUTE na reposicao (catalogo)';
+  end if;
+  if not has_function_privilege('authenticated', 'public.nivelamento_reposicao_por_baixas(int)', 'EXECUTE') then
+    raise exception 'FALHOU: authenticated sem EXECUTE na reposicao (gestao nao chama)';
+  end if;
+  raise notice 'OK: catalogo - reposicao so para authenticated';
+end $$;
