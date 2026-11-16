@@ -239,4 +239,19 @@ describe("Exportação — fluxo da página (xlsx real; gravação interceptada 
     expect(screen.queryByText(/Lote registrado: 2 aluno/)).toBeNull();
     expect(screen.getByRole("button", { name: /Exportar planilha/ }).disabled).toBe(true);
   });
+
+  it("arquivo falhou: trocar o responsavel nao descarta o arquivo do lote registrado", async () => {
+    controle.falhaGravacaoAte = 1;
+    const avisos = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await montarEBuscar();
+    await gerarPlanilha();
+    await waitFor(() => expect(screen.getByText(/Lote registrado, arquivo não baixado/)).toBeTruthy());
+    // trocar o responsavel limpa a previa; o arquivo do lote registrado precisa continuar disponivel
+    await act(async () => { fireEvent.click(document.getElementById("resp-caso-cobranca05@teste.local")); });
+    const baixar = screen.getByRole("button", { name: /Baixar planilha novamente/ });
+    await act(async () => { fireEvent.click(baixar); });
+    await waitFor(() => expect(controle.gravacoes.length).toBe(1));
+    expect(exportacoes()).toBe(1);
+    avisos.mockRestore();
+  });
 });

@@ -388,7 +388,8 @@ export default function AcoesMassivas() {
     setContagemTipo(null);
     setResumoPrevia(null);
     setPreviaId(null);
-    setRelatorioPronto(null);
+    // Lote registrado com arquivo que nao foi baixado: o arquivo e a unica forma de recupera-lo. Nao descartar.
+    if (faseExport !== FASE.ARQUIVO_FALHOU) setRelatorioPronto(null);
     setExcluidosConfirmacao([]);
     setPrimeExtratoEm(null);
     setMostrarExcluidos(false);
@@ -1778,6 +1779,23 @@ export default function AcoesMassivas() {
         </div>
       )}
 
+      {relatorioPronto && relatorioPronto.linhas?.length > 0 && (
+        <div style={{ marginTop: 12, padding: "12px 14px", border: "1px solid #1e6b3a", borderRadius: 12, background: "#0e2318", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <div style={{ color: "#bbf7d0", fontSize: 13 }}>
+            Planilha de <strong>{relatorioPronto.linhas.length}</strong> aluno(s) pronta
+            (<span style={{ color: "var(--rv-texto-fraco)" }}>{relatorioPronto.nomeArquivo}</span>).
+            {" "}Se o download não abriu sozinho, clique aqui:
+          </div>
+          <button
+            style={{ ...estilos.botaoGerar, background: "#16a34a" }}
+            onClick={baixarNovamenteArquivo}
+            disabled={faseExport === FASE.INCERTA}
+          >
+            ⬇️ Baixar planilha novamente
+          </button>
+        </div>
+      )}
+
       {resultados && (
         <div style={estilos.card}>
           <div style={estilos.resumoTopo}>
@@ -1840,23 +1858,6 @@ export default function AcoesMassivas() {
               </>
             )}
           </div>
-
-          {relatorioPronto && relatorioPronto.linhas?.length > 0 && (
-            <div style={{ marginTop: 12, padding: "12px 14px", border: "1px solid #1e6b3a", borderRadius: 12, background: "#0e2318", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-              <div style={{ color: "#bbf7d0", fontSize: 13 }}>
-                Planilha de <strong>{relatorioPronto.linhas.length}</strong> aluno(s) pronta
-                (<span style={{ color: "var(--rv-texto-fraco)" }}>{relatorioPronto.nomeArquivo}</span>).
-                {" "}Se o download não abriu sozinho, clique aqui:
-              </div>
-              <button
-                style={{ ...estilos.botaoGerar, background: "#16a34a" }}
-                onClick={baixarNovamenteArquivo}
-                disabled={faseExport === FASE.INCERTA}
-              >
-                ⬇️ Baixar planilha novamente
-              </button>
-            </div>
-          )}
 
 
           {resultados.length === 0 ? (
