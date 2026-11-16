@@ -82,7 +82,7 @@ const LINHA = (aluno, tipo, status, email) => ({ aluno_id: aluno, tipo, status_n
     r = await http("POST", "/rpc/registrar_administrativo_termo_fisico", opTok, { p_aluno_id: "r1", p_codigo: "TERMO_FISICO_ARQUIVADO" });
     registrar(r.status >= 400 && /restrito à gestão ativa/.test(r.texto) && (await contar()) === n0, "RPC como operador recusada com mensagem específica", `status ${r.status}`);
     // 7) positivos: gestão grava pela RPC; operador grava CONTATAR normal
-    r = await http("POST", "/rpc/registrar_administrativo_termo_fisico", gestTok, { p_aluno_id: "r1", p_codigo: "TERMO_FISICO_ARQUIVADO" });
+    r = await http("POST", "/rpc/registrar_administrativo_termo_fisico", gestTok, { p_aluno_id: "a0000000-0000-0000-0000-000000000042", p_codigo: "TERMO_FISICO_ARQUIVADO" });
     registrar(r.status === 200 && (await contar()) === n0 + 1, "gestão (Amanda) registra pela RPC: uma linha", `status ${r.status}`);
     r = await http("POST", "/aluno_movimentacoes", opTok, LINHA("r1", "CONTATO", "CONTATAR", OP));
     registrar(r.status === 201 && (await contar()) === n0 + 2, "operador grava CONTATAR normal (não restrito)", `status ${r.status}`);
