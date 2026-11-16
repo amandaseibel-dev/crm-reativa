@@ -1042,6 +1042,39 @@ describe("Ações Massivas — e-mail a partir de um lote de WhatsApp", () => {
     });
   }
 
+  it("lote de WhatsApp PENDENTE: o botão de e-mails some e nada é chamado", async () => {
+    lotesWhats = [LOTE_WHATS];
+    lotesRegistro = [{ ...LOTE_WHATS, canal: "WHATSAPP", situacao: "PENDENTE" }];
+    await montar();
+    expect(within(painel()).queryByRole("button", { name: /Exportar e-mails deste lote/ })).toBeNull();
+    expect(within(painel()).getByTestId("email-lote-pendente")).toBeTruthy();
+    expect(chamadas("acoes_massivas_exportar_emails_do_lote")).toHaveLength(0);
+  });
+
+  it("lote já tabulado: o botão de e-mails continua e a exportação chama o banco", async () => {
+    lotesWhats = [LOTE_WHATS];
+    lotesRegistro = [{ ...LOTE_WHATS, canal: "WHATSAPP", situacao: "REGISTRADO", confirmado_em: "2026-10-19T19:54:17Z", registrados: 10 }];
+    await montar();
+    await abrirConfirmacao();
+    await act(async () => {
+      fireEvent.click(within(painel()).getByRole("button", { name: /Sim, exportar e registrar/ }));
+    });
+    expect(chamadas("acoes_massivas_exportar_emails_do_lote")).toHaveLength(1);
+  });
+
+  it("handler bloqueia: tela achava tabulado, mas o banco diz pendente — não exporta", async () => {
+    lotesWhats = [LOTE_WHATS];
+    lotesRegistro = []; // painel velho/cortado: a tela não sabe que está pendente
+    lotes = [{ ...LOTE_WHATS, canal: "WHATSAPP" }]; // o banco, relido, diz pendente
+    await montar();
+    await abrirConfirmacao();
+    await act(async () => {
+      fireEvent.click(within(painel()).getByRole("button", { name: /Sim, exportar e registrar/ }));
+    });
+    expect(chamadas("acoes_massivas_exportar_emails_do_lote")).toHaveLength(0);
+    expect(screen.getByText(/ainda está pendente de envio.*Nada foi exportado nem registrado/)).toBeTruthy();
+  });
+
   it("sem lote de WhatsApp recente, o painel não aparece", async () => {
     await montar();
     expect(screen.queryByTestId("lotes-whatsapp-email")).toBeNull();

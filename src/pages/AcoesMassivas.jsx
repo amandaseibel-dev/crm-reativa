@@ -666,11 +666,37 @@ export default function AcoesMassivas() {
   // GRAVADOS no lote e tira só quem não tem e-mail válido. Não refaz filtro,
   // não depende de "Acionados hoje" e não encosta no lote de WhatsApp — a ação
   // nova nasce como um lote próprio de canal E-mail.
+  // Lote de WhatsApp ainda PENDENTE DE ENVIO não deriva e-mail: o registro do
+  // e-mail contaria como acionamento mais novo e a tabulação do WhatsApp, feita
+  // depois, excluiria esses alunos (sem status e sem retorno de 10 dias).
+  // A função de e-mails do banco não muda; a trava é desta tela.
+  function loteWhatsPendente(loteId) {
+    return lotesRegistro.some((r) => r.id === loteId && r.situacao === "PENDENTE");
+  }
+
   async function exportarEmailsDoLote(lote) {
-    setDerivandoEmail(true);
     setErro("");
     setSucesso("");
+    const AVISO_PENDENTE = "Este lote de WhatsApp ainda está pendente de envio. Use “Tabular lote enviado” (ou descarte o lote) antes de exportar os e-mails. Nada foi exportado nem registrado.";
+    if (loteWhatsPendente(lote.id)) {
+      setLoteEmailConfirmar(null);
+      setErro(AVISO_PENDENTE);
+      return;
+    }
+    setDerivandoEmail(true);
     try {
+      // Relê do banco antes de registrar: o estado da tela pode estar velho
+      // (outra aba exportou, painel cortado). Sem conseguir conferir, não exporta.
+      const { data: pend, error: erroPend } = await supabase.rpc("acoes_massivas_lotes_pendentes");
+      if (erroPend || !Array.isArray(pend)) {
+        setErro("Não foi possível conferir se o lote de WhatsApp já foi tabulado. Nada foi exportado nem registrado; tente novamente.");
+        return;
+      }
+      if (pend.some((r) => r.id === lote.id)) {
+        setErro(AVISO_PENDENTE);
+        carregarLotesRegistro();
+        return;
+      }
       const nomeArquivo = `acao-massiva-email-do-lote-whatsapp-${new Date().toISOString().slice(0, 10)}.xlsx`;
       const { data: res, error } = await supabase.rpc("acoes_massivas_exportar_emails_do_lote", {
         p_lote_id: lote.id,
@@ -1427,6 +1453,10 @@ export default function AcoesMassivas() {
                         <span style={{ fontSize: 12, color: "var(--rv-texto-fraco)" }}>
                           E-mail já exportado deste lote em{" "}
                           {new Date(l.email_exportado_em).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+                        </span>
+                      ) : loteWhatsPendente(l.id) ? (
+                        <span data-testid="email-lote-pendente" style={{ fontSize: 12, color: "var(--rv-ambar-texto)" }}>
+                          ⏳ Lote pendente de envio. Tabule ou descarte o lote de WhatsApp antes de exportar os e-mails.
                         </span>
                       ) : loteEmailConfirmar === l.id ? (
                         <div style={{ display: "flex", flexDirection: "column", gap: 6, maxWidth: 360 }}>
