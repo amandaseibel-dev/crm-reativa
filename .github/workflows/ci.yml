@@ -813,9 +813,10 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/02_baseline.sql"
           # Dependência real: 20261106120000 cria a linha RETORNO_FINANCEIRO antes
           # da trava. Sem ela a proposta recusa (checagem de existência da linha).
-          psql -v ON_ERROR_STOP=1 -c "insert into public.tabulacoes (codigo, rotulo, ordem, grupo, retorno_modo, proxima_acao, ativa, somente_gestao, sistema, bloqueia_acionamento, exige_processo) values ('RETORNO_FINANCEIRO','Retorno do financeiro',340,'FINANCEIRO','NENHUM','CONTATAR',true,true,false,false,false) on conflict (codigo) do nothing;"
+          psql -v ON_ERROR_STOP=1 -f "supabase/aguardando_aprovacao/20261106120000_tabulacao_retorno_financeiro.sql.pendente"
           psql -v ON_ERROR_STOP=1 -f "$ALVO"
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
+          psql -v ON_ERROR_STOP=1 -f "supabase/tests/tabulacao_so_gestao_sequencia/20_rollback_retorno_baseline.sql"
 
   # ---------------------------------------------------------------------------
   # Revoke de TRUNCATE nas 545 tabelas _backup_pos_import_* que o tinham aberto
