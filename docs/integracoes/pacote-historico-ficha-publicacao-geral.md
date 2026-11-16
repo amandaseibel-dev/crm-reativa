@@ -145,7 +145,7 @@ Esta é a única sequência válida. Não há outra no pacote. Os passos 5 a 10 
 | arquivo | sha256 |
 |---|---|
 | `supabase/aguardando_aprovacao/20261110100000_ulbra_historico_orcamento.rollback.sql` | `026e825ff15d3c995f763d79a84fa8808468e997cfb982e7284516c4bf122535` |
-| `supabase/tests/ulbra_historico_rollback_orcamento/run.mjs` | `84a1994449ce1abf9e3f05b14301188ca4b862d5ffbd13b41d12b27e76fe7487` |
+| `supabase/tests/ulbra_historico_rollback_orcamento/run.mjs` | `3584244e353422c8e4a6ce2d4bdc7a5e7b0113593e696782b978715b2c9ed728` |
 | `docs/seguranca/CHECKLIST_SEGURANCA_DEPLOY.md` | `2861f80b2334ecd2aa045b508624321f05c5d2869fdd371decb9297c9894170c` |
 | `plugins/reativa-one/scripts/integracoes-cinco.sh` | `0c603c231c8288f38140d6eae4ee283ed29d94c1457dd818d752c87d0e6774fc` |
 

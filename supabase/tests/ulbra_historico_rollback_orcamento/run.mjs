@@ -1,6 +1,7 @@
 // Teste do rollback 20261110100000 (ulbra_historico_orcamento) em PGlite.
-// Reproduz formas de execução: psql por instrução (sem begin, sem ON_ERROR_STOP,
-// continua após erro) e arquivo dentro de transação com confirmação.
+// Formas de execução: psql por instrução (sem begin, sem ON_ERROR_STOP, segue após erro),
+// confirmação sem begin, begin com confirmação e begin com valor errado.
+// Inclui um caso de regressão: sem a guarda, o caso A tem de detectar a remoção.
 // Execução manual: node supabase/tests/ulbra_historico_rollback_orcamento/run.mjs
 // (requer @electric-sql/pglite instalado; não roda no CI desta PR).
 import { PGlite } from "@electric-sql/pglite";
@@ -13,7 +14,9 @@ const RB = path.resolve(aqui, "../../aguardando_aprovacao/20261110100000_ulbra_h
 const rollback = fs.readFileSync(RB, "utf8");
 
 // Divide por ';' fora de blocos $$ (como o psql faz ao ler um arquivo).
-function instrucoes(texto) {
+function instrucoes(textoBruto) {
+  // Comentários de linha (--) saem antes de dividir: um ";" dentro de comentário não é fim de instrução.
+  const texto = textoBruto.replace(/--[^\n]*/g, "");
   const out = [];
   let atual = "";
   let dentroDolar = false;
@@ -68,6 +71,13 @@ const ok = (nome, cond, detalhe) => { casos.push({ nome, cond }); console.log((c
 { const db = await montar();
   try { await db.exec("begin; set local app.confirma_retirada_ulbra_historico = 'nao';\n" + rollback + "\ncommit;"); } catch { await db.exec("rollback").catch(() => {}); }
   const e = await estado(db); ok("D begin + valor errado: nada removido", e.funcao === 1 && e.tabela === 1, e); }
+
+// Regressão: com a guarda removida, o caso A TEM de falhar (remove função e tabela). Se passar, o teste não prova nada.
+const mutante = rollback.replace(/if coalesce[\s\S]*?end if;\n/, "");
+if (mutante === rollback) throw new Error("mutante nao gerou alteracao");
+{ const db = await montar(); await psqlPorInstrucao(db, mutante); const e = await estado(db);
+  const detectou = !(e.funcao === 1 && e.tabela === 1);
+  ok("R sem guarda (mutante): caso A deve detectar a remoção", detectou, e); }
 
 const falhas = casos.filter((c) => !c.cond).length;
 console.log(falhas === 0 ? "TODOS OS CASOS PASSARAM (" + casos.length + ")" : falhas + " caso(s) falharam");
