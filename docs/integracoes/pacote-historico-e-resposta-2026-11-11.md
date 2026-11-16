@@ -80,3 +80,27 @@ Campanhas, criação de atendimentos, transferências, administração de operad
 - `20261110100000_ulbra_historico_orcamento`: APLICADA em produção (ledger 20261112111006). O `.sql.pendente` foi restaurado ao original (sha 163f3b55…); não é a versão aplicada nem deve ser reaplicado.
 - `20261116150000_ulbra_historico_reservar_portao_interno`: CORRETIVA, NÃO aplicada. `.sql.pendente` e `.rollback.sql` no diretório aguardando_aprovacao.
 - A exposição da RPC em produção NÃO foi comprovada: o ledger já revoga EXECUTE de public/anon/authenticated. A corretiva é defesa em profundidade.
+
+## Cobertura do teste da RPC e alcance da corretiva (medido em 16/11)
+Medido em PRODUÇÃO por leitura (`pg_proc`, sem escrita):
+- `public.ulbra_historico_reservar`: dono `postgres`, SECURITY DEFINER, ACL `{postgres=X/postgres, service_role=X/postgres}`.
+- EXECUTE: `anon` = false, `authenticated` = false, `service_role` = true.
+- Portão interno (texto "acesso negado"): AUSENTE.
+
+Conclusão: a RPC em produção NÃO é executável por anon nem authenticated. A corretiva é defesa em profundidade para o caso de service_role indevido. Ela NÃO fecha a exposição da v1.
+
+Cenários cobertos por `supabase/tests/ulbra_historico_portao/run.mjs` (rodado no CI, job `ulbra-historico-portao-pglite`):
+1. **Definição e grants de produção:** reproduzidos pelo estado do ledger 20261112111006 + ACL medida acima. Mede-se a forma, não o banco real.
+2. **Cenário defensivo (simulação):** EXECUTE concedido a PUBLIC (não é o estado de produção). Serve só para provar que anon e authenticated seriam barrados pelo portão.
+3. **Contexto da v1 (service_role):** papel `service_role` no JWT. Com a corretiva, a chamada de service_role é PERMITIDA. Ou seja, o portão não bloqueia o caminho que a v1 usa.
+
+Alcance exato da corretiva `20261116150000`: barra authenticated/anon com EXECUTE indevido e reafirma grants mínimos. NÃO barra service_role. O caminho exposto é a função `ulbra-historico` v1 (service_role + credencial central), que só a CONTENÇÃO fecha.
+
+Bloqueio explícito de produção: a contenção da v1 (remoção do endpoint `ulbra-historico`) está AUTORIZADA e BLOQUEADA POR ACESSO. Não está comprovadamente executada. Até a remoção ou substituição segura ser verificada (listagem sem a função e endpoint indisponível), a exposição do histórico com credencial central permanece.
+
+Sequência de implantação (NÃO executada; cada passo exige aprovação específica):
+1. Aprovar a corretiva e rodar o CI do job `ulbra-historico-portao-pglite`.
+2. Contenção da v1 (remoção exclusiva de `ulbra-historico`), pela gestão, com executor único. Verificar: função ausente na listagem e endpoint indisponível.
+3. Aplicar a corretiva em produção (SQL), com a conferência pós-grants do próprio arquivo.
+4. Verificação pós-aplicação: ACL e dono medidos de novo, e teste de acesso.
+Rollback: `20261116150000_*.rollback.sql` restaura a versão sem portão. NÃO é recuperação automática. Alternativa segura: manter `ULBRA_HISTORICO_HABILITADO` ausente.

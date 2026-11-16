@@ -1204,3 +1204,18 @@ jobs:
   # cada regra dos rankings, o fuso de Brasília, os centavos, que o pódio não
   # devolve valor e que o rollback remove só a função.
   # ---------------------------------------------------------------------------
+
+  ulbra-historico-portao-pglite:
+    name: ulbra histórico — portão da RPC (PGlite, dependências fixadas pelo lockfile)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Instalar dependências (npm ci, lockfile)
+        run: npm ci
+      - name: Prova de acesso da RPC ulbra_historico_reservar (falha reprova o job)
+        run: node supabase/tests/ulbra_historico_portao/run.mjs "$GITHUB_WORKSPACE"
