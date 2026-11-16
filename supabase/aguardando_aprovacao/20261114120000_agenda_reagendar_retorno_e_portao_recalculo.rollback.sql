@@ -1,7 +1,7 @@
 -- ROLLBACK de 20261114120000_agenda_reagendar_retorno_e_portao_recalculo
 -- Remove a RPC, recria o gatilho de zeragem por data e reverte o FOR UPDATE do
--- recalculo (c3e38ac0 -> 03dacc0a). NAO concede nem devolve EXECUTE a anon:
--- na ACL de origem anon ja nao tinha EXECUTE.
+-- recalculo (c3e38ac0 -> 03dacc0a). NAO restaura ACL: se PUBLIC ou anon tinham
+-- EXECUTE na origem, isso NAO foi medido e NAO e restaurado aqui.
 -- O BACKUP retorno_backup_20261114 NAO e apagado: e a evidencia. Restaurar dados
 -- e etapa separada, com aprovacao: ver 20261114120000_restauracao_por_id.sql.pendente.
 begin;
@@ -50,7 +50,7 @@ begin
   end if;
 end $lockr$;
 
--- Nota: na ACL de origem (fixture 20261113) anon NAO tinha EXECUTE em
--- recalcular_situacao_aluno. O revoke da parte D e no-op e o rollback nao concede nada.
+-- Nota: a ACL de origem de recalcular_situacao_aluno NAO foi medida em producao.
+-- O revoke da parte D pode ter efeito real; este rollback nao restaura ACL.
 
 commit;

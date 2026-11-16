@@ -1638,8 +1638,11 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       if (Object.keys(extraAluno).length > 0) { await supabase.from("alunos").update(extraAluno).eq("id", alunoSelecionado.id); }
       setNovoOperadorEmail("");
       setMotivoAlteracaoOperador("");
-      setNovaDataRetornoAlteracao("");
-      setNovaTabulacaoAlteracao("");
+      // Na falha da RPC a data e a tabulacao digitadas ficam no formulario para nova tentativa.
+      if (!reagendamentoFalhou) {
+        setNovaDataRetornoAlteracao("");
+        setNovaTabulacaoAlteracao("");
+      }
       await recarregarAlunoSelecionado(alunoSelecionado.id);
       await carregarMovimentacoes(alunoSelecionado.id);
       if (!reagendamentoFalhou) alert("Operador responsável alterado com sucesso.");

@@ -18,10 +18,12 @@
 --      Autorizacao por operacao: sessao + usuario ativo + (dono atual do caso
 --      OU public.usuario_e_gestao(), gate ja existente). Nada de lista nova.
 --   D. Recalcular_situacao_aluno: NAO recebe portao. O revoke de anon e
---      defensivo: na ACL de origem anon ja nao tinha EXECUTE (no-op).
+--      defensivo. NAO COMPROVADO se anon tinha EXECUTE na producao: a ACL
+--      real nao foi medida (o fixture nao tem linha de ACL). Pre-condicao: medir
+--      has_function_privilege('anon', ...) em producao antes de aplicar.
 --
 -- TRAVAS: md5(prosrc) de recalcular antes = 03dacc0a... (parte 1) e depois =
--- c3e38ac0... (secao D). ACL nao muda na pratica (revoke de anon e no-op).
+-- c3e38ac0... (secao D). A mudanca de ACL (revoke de public e anon) NAO foi medida.
 --
 -- ROLLBACK: 20261114120000_agenda_reagendar_retorno_e_portao_recalculo.rollback.sql
 
@@ -154,7 +156,7 @@ begin
 end $locka$;
 
 -- E. RECALCULO FORA DO ALCANCE DE ANON -----------------------------------------
--- Na ACL de origem anon ja nao tinha EXECUTE: o revoke e defensivo (no-op).
+-- Efeito na ACL NAO COMPROVADO (ver cabecalho D). Revoke de public e anon.
 revoke all on function public.recalcular_situacao_aluno(uuid, text) from public, anon;
 
 commit;
