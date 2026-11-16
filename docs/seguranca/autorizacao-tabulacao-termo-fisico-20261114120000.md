@@ -14,11 +14,12 @@
 - **Front** (`src/utils/tabulacoes.js`) apenas chama a operação (`rpc`). Não há `insert` direto (teste `tabulacoesRegistroAdministrativo.test.js`).
 - **Trigger** `aluno_mov_tabulacao_so_gestao` (INSERT OR UPDATE) mantém a barreira mesmo para gravação direta.
 
-## Barreira de alunos — migração própria (`20261114130000`)
-- Recria `_encerramento_so_gestao()` com normalização **consistente** `upper(regexp_replace(valor, '[^A-Za-z0-9_]', '', 'g') COLLATE "C")` no catálogo e nos três status (no lugar de `upper(btrim(...))`, que deixava passar tab, quebra, retorno e caracteres invisíveis).
-- **Guarda:** só substitui se o `md5(pg_get_functiondef)` atual for `5ff3be8222f1f33d6a679be8b313fec5` (corpo lido em produção). Sem alteração de dados.
-- Testes: `08_barreira_normalizacao.sql` (11 variantes: espaço, tab, LF, CR, ZWSP, BOM, NBSP, U+3000, caixa, sufixo invisível), rodando como `app_teste` (fora do bypass de dono).
-- **Verificado localmente:** guarda de md5 passa e a migração aplica sem erro. **Não verificado localmente:** o comportamento da barreira sob papel de LOGIN (só no CI).
+## Barreira de alunos — dentro de `20261106140000` (guarda em `20261114130000`)
+- A única migração que substitui `_encerramento_so_gestao()` é `20261106140000` (pendente). Ela aplica a normalização `upper(regexp_replace(valor, '[^A-Za-z0-9_]', '', 'g') COLLATE "C")` no catálogo e nos três status, e checa a pré-condição da linha `RETORNO_FINANCEIRO` (ativa e `somente_gestao`). Essa checagem prova só a existência da linha, não a aplicação de `20261106120000`.
+- Corpo de referência de produção: `docs/seguranca/evidencias/prod_encerramento_so_gestao.sql`, `md5(prosrc) = ae0382adc0eaf11fbe68d9ed0fc4a9b4`. O rollback de `20261106140000` restaura esse corpo e confere o md5 pelo seu VIGIA, incluindo a ACL (`postgres`, `authenticated`, `service_role` com EXECUTE; `public` e `anon` sem).
+- `20261114130000` não substitui função: só verifica `md5(prosrc) = d4a7f02cbcb0657defe69b9598e1e157` depois de `20261106140000`. Esse hash foi medido na sequência de CI do head `8d8387bb` (job `133194160527`).
+- Testes: `supabase/tests/tabulacao_so_gestao_sequencia/run.mjs` (dependência ausente, ordem correta com md5 final, normalização nos três campos com mensagem específica de cada ramo) e `08_barreira_normalizacao.sql` como `app_teste`.
+- **Não verificado localmente:** o comportamento da barreira sob papel de LOGIN e o VIGIA de ACL. A validação é do CI.
 
 ## Auth — confirmação e troca de e-mail
 **NÃO VERIFICADO.** As ferramentas desta sessão não expõem a configuração de Auth do projeto (confirmação de e-mail obrigatória, troca de e-mail, origem da identidade). Nenhuma conta ou configuração foi alterada. `usuario_e_gestao()` confia no claim `email` do JWT. **Não tratado como vulnerabilidade comprovada.** Bloqueio externo: leitura da configuração de Auth por quem tem acesso ao painel do projeto.
@@ -28,15 +29,17 @@
 |---|---|---|
 | `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `d363a6aab3f837b5678725186c1a932cfed00c78615af7a09aecbaa251bfedc8` | 7722 |
 | `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql` | `e224e6f206471775eb4f45126d11d68393434d6e32b1a867aa61ba1b1f46cfaa` | 776 |
-| `supabase/aguardando_aprovacao/20261114130000_barreira_alunos_normalizacao.sql.pendente` | `7c178a98e4e8f807c36cd9335072765d8a8acfb5f5cf1efe5d62783ca0f6b7a1` | 6349 |
+| `supabase/aguardando_aprovacao/20261114130000_barreira_alunos_normalizacao.sql.pendente` | `a680a1477fe2bfad6d45d1f99f5458d830fff9901bd2f4ed29f4b1082053ed50` | 1038 |
+| `supabase/aguardando_aprovacao/20261106140000_tabulacao_so_gestao_no_banco.sql.pendente` | `9fb3ab74529dc95752cdf39b5de205993068fe58ce3775f587ed95573da1e6ab` | 19101 |
+| `supabase/aguardando_aprovacao/20261106140000_tabulacao_so_gestao_no_banco.rollback.sql` | `20bb66495e1d33299d86e2bf2d6343f15d1ed020c3bc5c957d4d930e4320c23f` | 9180 |
 | `scripts/seguranca/auditoria_seguranca.sql` | `87ed9b7326c6fdbdffd2956c1d3b3f448910ae2e0010f11954418de9c986dd85` | 5682 |
 | `docs/seguranca/evidencias/prod_encerramento_so_gestao.sql` | `cae8f5422b93341fb62debd5e524d10182054ffca7a968cf5b749928ecd3aea9` | 5366 |
 | `docs/seguranca/evidencias/prod_usuario_e_gestao.sql` | `83191ea84a90cc0e098d8d33da6179a9c7b6ab4a73c23b2113d4007fbabdb288` | 321 |
 | `docs/seguranca/evidencias/prod_schema_rls_grants_movimentacoes_tabulacoes.md` | `cc16b9d3fe38b58b86d842a17835faf131e0c383dc98f174a532f1deca2f4491` | 3944 |
 
-Heads: #954 = `aed2ed95db09c12690578e0963f144dc4a9af95f` (este commit). #951 = `ad895092860ef5d24adf6e949371395bc6cbc435`.
+Heads: #954 = o último commit de `feat/termo-fisico-registro-migracao` (ver `git log`); #951 = `ad895092860ef5d24adf6e949371395bc6cbc435`.
 
-Evidências (md5 conferido no banco, só leitura): `usuario_e_gestao()` = `af3d391f4234e6a352585777897568e4`; `_encerramento_so_gestao()` = `5ff3be8222f1f33d6a679be8b313fec5`.
+Evidências (somente leitura, em 06/11/2026): `usuario_e_gestao()` = `af3d391f4234e6a352585777897568e4`; `_encerramento_so_gestao()` com `md5(pg_get_functiondef) = 5ff3be8222f1f33d6a679be8b313fec5` e `md5(prosrc) = ae0382adc0eaf11fbe68d9ed0fc4a9b4`.
 
 ## Gate A — 7 achados BLOQUEIA (abertos, frente responsável)
 - `BUCKET_PUBLICO` `tv-imagens` — exceção limitada da TV após revisão do conteúdo público (frente TV). **Não resolvido.**
@@ -46,7 +49,7 @@ Evidências (md5 conferido no banco, só leitura): `usuario_e_gestao()` = `af3d3
 
 ## Bloqueios externos de implantação (comprovados)
 1. Gate A: 7 `BLOQUEIA` abertos (frentes acima).
-2. Reconciliação do repositório: `_encerramento_so_gestao()` e `usuario_e_gestao()` versionados como migração (hoje só evidência); divergência com `20261106140000_*.pendente`.
+2. Reconciliação: `usuario_e_gestao()` ainda só como evidência (sem migração versionada). `_encerramento_so_gestao()` versionada em `20261106140000` a partir do corpo `ae0382…`; a guarda final é `d4a7…` em `20261114130000`.
 3. Auth: configuração de confirmação e troca de e-mail (não lida).
 4. Papel `reativa_responsavel_executor` (INSERT irrestrito): não lido se é usado com `SET ROLE` por cliente.
 5. `tabulacoes` sem DDL base versionado.

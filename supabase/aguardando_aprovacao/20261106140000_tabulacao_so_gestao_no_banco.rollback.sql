@@ -72,18 +72,17 @@ begin
   --
   -- A pergunta certa e por COLUNA: esta coluna esta RECEBENDO AGORA um codigo
   -- bloqueado que ela nao tinha? Isso preserva o que importava na regra antiga
-  -- -- reescrever o que ja estava la passa, e por isso os 182 alunos de
-  -- producao que carregam codigo so-gestao continuam editaveis pelo operador --
+  -- -- reescrever o que ja estava la passa, e por isso os alunos que já
+  -- carregam código só-gestão continuam editáveis pelo operador --
   -- e fecha a brecha.
   --
   -- MAIS ESTRITO QUE ANTES EM DOIS PONTOS, declarados de propósito:
   --   1. trocar um codigo bloqueado por OUTRO (ex.: suspensao -> juridico)
   --      passa a ser barrado para quem nao e gestao;
   --   2. copiar um codigo bloqueado de uma coluna para outra tambem.
-  -- Medido em producao em 06/11/2026: existem 8 transicoes entre codigos
-  -- bloqueados no historico (`aluno_movimentacoes`), e TODAS AS 8 foram feitas
-  -- pela gestao -- que passa pelo bypass acima. Logo nenhum fluxo real de
-  -- operador e interrompido por este endurecimento.
+  -- NAO MEDIDO: a afirmacao de que nenhum fluxo real de operador e interrompido
+  -- por este endurecimento ainda nao tem consulta de suporte (historico em
+  -- aluno_movimentacoes). Pendencia de prova antes de liberar.
   -- `btrim` NOS DOIS LADOS. `v_bloqueadas` normaliza com `upper(btrim(codigo))`;
   -- se aqui fosse só `upper()`, 'CANCELAMENTO_COBRANCA ' com espaco passaria o
   -- portao. No servidor o valor ficaria inerte (os consumidores comparam por
@@ -173,7 +172,13 @@ begin
   if has_function_privilege('anon', 'public._encerramento_so_gestao()', 'EXECUTE') then
     raise exception 'rollback deixou anon com EXECUTE em _encerramento_so_gestao';
   end if;
+  -- ACL completa: quem deve ter EXECUTE tem, e os demais nao.
+  if not (has_function_privilege('postgres', 'public._encerramento_so_gestao()', 'EXECUTE')
+      and has_function_privilege('authenticated', 'public._encerramento_so_gestao()', 'EXECUTE')
+      and has_function_privilege('service_role', 'public._encerramento_so_gestao()', 'EXECUTE')) then
+    raise exception 'rollback: ACL de _encerramento_so_gestao diferente de postgres/authenticated/service_role';
+  end if;
 end
-$$;
+$;
 
 commit;

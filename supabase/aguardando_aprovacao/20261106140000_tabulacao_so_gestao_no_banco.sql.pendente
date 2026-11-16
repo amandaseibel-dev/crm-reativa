@@ -79,9 +79,8 @@
 --   4. Trocar um código bloqueado por OUTRO (suspensão -> jurídico) passa a ser
 --      barrado para quem não é gestão. Antes passava, por causa do `&&`.
 --   5. Copiar um código bloqueado de uma coluna de status para outra também.
---      Medido: as 8 transições entre códigos bloqueados que existem no
---      histórico foram TODAS feitas pela gestão, que não é barrada. Nenhum
---      fluxo real de operador para de funcionar.
+--      Não medido: a afirmação de que nenhum fluxo real de operador para de
+--      funcionar ainda não tem consulta de suporte. Pendência de prova.
 --
 -- NÃO MUDA: parcela, acordo, pagamento, fidelização, distribuição, nem o
 -- efeito de nenhuma tabulação. `RETORNO_FINANCEIRO` segue NEUTRA
@@ -89,9 +88,8 @@
 -- `exige_processo = false`) -- condição da aprovação desta frente.
 --
 -- Reescrever um código já gravado continua passando: a cláusula
--- "só barra quando é NOVO" é a de sempre, e 182 alunos em produção carregam
--- hoje um código só-gestão (medido em 06/11/2026). Sem ela, qualquer edição
--- na ficha desses 182 passaria a falhar para o operador.
+-- "só barra quando é NOVO" é a de sempre, e alunos que já carregam um código só-gestão
+-- continuam editáveis pelo operador (quantidade não medida aqui).
 --
 -- ===========================================================================
 -- ORDEM DE IMPLANTAÇÃO
@@ -219,18 +217,17 @@ begin
   --
   -- A pergunta certa e por COLUNA: esta coluna esta RECEBENDO AGORA um codigo
   -- bloqueado que ela nao tinha? Isso preserva o que importava na regra antiga
-  -- -- reescrever o que ja estava la passa, e por isso os 182 alunos de
-  -- producao que carregam codigo so-gestao continuam editaveis pelo operador --
+  -- -- reescrever o que ja estava la passa, e por isso os alunos que já
+  -- carregam código só-gestão continuam editáveis pelo operador --
   -- e fecha a brecha.
   --
   -- MAIS ESTRITO QUE ANTES EM DOIS PONTOS, declarados de propósito:
   --   1. trocar um codigo bloqueado por OUTRO (ex.: suspensao -> juridico)
   --      passa a ser barrado para quem nao e gestao;
   --   2. copiar um codigo bloqueado de uma coluna para outra tambem.
-  -- Medido em producao em 06/11/2026: existem 8 transicoes entre codigos
-  -- bloqueados no historico (`aluno_movimentacoes`), e TODAS AS 8 foram feitas
-  -- pela gestao -- que passa pelo bypass acima. Logo nenhum fluxo real de
-  -- operador e interrompido por este endurecimento.
+  -- NAO MEDIDO: a afirmacao de que nenhum fluxo real de operador e interrompido
+  -- por este endurecimento ainda nao tem consulta de suporte (historico em
+  -- aluno_movimentacoes). Pendencia de prova antes de liberar.
   -- `btrim` NOS DOIS LADOS. `v_bloqueadas` normaliza com `upper(regexp_replace(codigo, '[^A-Za-z0-9_]', '', 'g') COLLATE "C")`;
   -- se aqui fosse só `upper()`, 'CANCELAMENTO_COBRANCA ' com espaco passaria o
   -- portao. No servidor o valor ficaria inerte (os consumidores comparam por

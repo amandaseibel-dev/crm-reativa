@@ -154,7 +154,9 @@ async function main() {
           await app.query("rollback");
         } catch (e) {
           await app.query("rollback").catch(() => {});
-          if (e.code === "42501" && /(decis.o da gest.o|restrita . gest.o)/.test(e.message)) recusadas++;
+          const mensagemDoRamo = base === "RETORNO_FINANCEIRO" ? /restrita . gest.o/ : /decis.o da gest.o/;
+          const outraMensagem = base === "RETORNO_FINANCEIRO" ? /Encerrar cobran/ : /restrita . gest.o/;
+          if (e.code === "42501" && mensagemDoRamo.test(e.message) && !outraMensagem.test(e.message)) recusadas++;
           else naoRecusadas.push(`${campo}=${JSON.stringify(v)} (erro ${e.code}: ${e.message})`);
         }
       }
