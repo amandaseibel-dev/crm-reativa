@@ -811,6 +811,9 @@ jobs:
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/02_baseline.sql"
+          # Dependência real: 20261106120000 cria a linha RETORNO_FINANCEIRO antes
+          # da trava. Sem ela a proposta recusa (checagem de existência da linha).
+          psql -v ON_ERROR_STOP=1 -c "insert into public.tabulacoes (codigo, rotulo, ordem, grupo, retorno_modo, proxima_acao, ativa, somente_gestao, sistema, bloqueia_acionamento, exige_processo) values ('RETORNO_FINANCEIRO','Retorno do financeiro',340,'FINANCEIRO','NENHUM','CONTATAR',true,true,false,false,false) on conflict (codigo) do nothing;"
           psql -v ON_ERROR_STOP=1 -f "$ALVO"
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
 
