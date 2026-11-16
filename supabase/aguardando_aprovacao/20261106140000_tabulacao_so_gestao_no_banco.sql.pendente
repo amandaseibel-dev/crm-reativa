@@ -110,13 +110,15 @@ begin;
 
 -- ── DEPENDÊNCIA — a linha RETORNO_FINANCEIRO tem de existir ─────────────────
 -- Esta trava lê o catálogo; a linha é criada por 20261106120000. Este bloco
--- checa SOMENTE a EXISTÊNCIA da linha: não prova que 20261106120000 foi aplicada
--- inteira (colunas, policies, grants). A ordem de implantação continua sendo
--- responsabilidade do pacote. Se a linha faltar, a transação volta e nada muda.
+-- checa a linha ativa e com somente_gestao=true, que é a única forma de a trava
+-- cobri-la. NÃO prova que 20261106120000 foi aplicada inteira (colunas, policies,
+-- grants). A ordem de implantação continua sendo responsabilidade do pacote.
+-- Se a condição faltar, a transação volta e nada muda.
 do $$
 begin
-  if not exists (select 1 from public.tabulacoes where codigo = 'RETORNO_FINANCEIRO') then
-    raise exception 'ORDEM: RETORNO_FINANCEIRO nao existe em public.tabulacoes. Aplique 20261106120000 antes desta migration. Nada foi alterado.';
+  if not exists (select 1 from public.tabulacoes
+                  where codigo = 'RETORNO_FINANCEIRO' and ativa and somente_gestao) then
+    raise exception 'DEPENDENCIA: RETORNO_FINANCEIRO ausente, inativa ou sem somente_gestao em public.tabulacoes. Sem ela a trava nao a cobriria. Aplique 20261106120000 antes desta migration. Nada foi alterado.';
   end if;
 end
 $$;

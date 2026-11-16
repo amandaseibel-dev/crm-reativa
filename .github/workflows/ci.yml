@@ -817,6 +817,8 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$ALVO"
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
           psql -v ON_ERROR_STOP=1 -f "supabase/tests/tabulacao_so_gestao_sequencia/20_rollback_retorno_baseline.sql"
+          # Rollback: volta ao corpo de produção (ae0382…) e confere o md5 pelo próprio VIGIA.
+          psql -v ON_ERROR_STOP=1 -f "supabase/aguardando_aprovacao/20261106140000_tabulacao_so_gestao_no_banco.rollback.sql"
 
   # ---------------------------------------------------------------------------
   # Revoke de TRUNCATE nas 545 tabelas _backup_pos_import_* que o tinham aberto

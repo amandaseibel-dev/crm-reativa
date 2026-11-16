@@ -114,9 +114,9 @@ async function main() {
     erroCorreta = e;
   }
   if (erroCorreta) await c.query("rollback").catch(() => {});
-  afirma(erroCorreta === null, `ordem correta: migração aplicada${erroCorreta ? ` (erro: ${erroCorreta.message})` : ""}`);
+  afirma(erroCorreta === null, `dependência presente: migração aplicada sem erro${erroCorreta ? ` (erro: ${erroCorreta.message})` : ""}`);
   const depois = await c.query("select md5(p.prosrc) as m from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='_encerramento_so_gestao'");
-  afirma(depois.rows[0].m === MD5_FINAL, `ordem correta: md5(prosrc) final = ${MD5_FINAL} (medido: ${depois.rows[0].m})`);
+  afirma(depois.rows[0].m === MD5_FINAL, `md5(prosrc) final = ${MD5_FINAL} (medido: ${depois.rows[0].m})`);
   await c.end();
 
   // 4. NORMALIZAÇÃO nos três campos, como papel de aplicação (não é dono: o gatilho decide)
@@ -145,7 +145,7 @@ async function main() {
   const naoRecusadas = [];
   for (const campo of CAMPOS) {
     for (const base of RESTRITOS) {
-      for (const v of variantes(base)) {
+      for (const v of new Set(variantes(base))) {
         tentativas++;
         try {
           await app.query("begin");
@@ -154,7 +154,7 @@ async function main() {
           await app.query("rollback");
         } catch (e) {
           await app.query("rollback").catch(() => {});
-          if (e.code === "42501") recusadas++;
+          if (e.code === "42501" && /(decis.o da gest.o|restrita . gest.o)/.test(e.message)) recusadas++;
           else naoRecusadas.push(`${campo}=${JSON.stringify(v)} (erro ${e.code}: ${e.message})`);
         }
       }
@@ -166,9 +166,9 @@ async function main() {
   let comumOk = 0;
   for (const campo of CAMPOS) {
     await app.query("begin");
-    await app.query(`update public.alunos set ${campo} = 'CONTATAR' where id = $1`, [ALUNO]);
+    const r = await app.query(`update public.alunos set ${campo} = 'CONTATAR' where id = $1`, [ALUNO]);
     await app.query("rollback");
-    comumOk++;
+    if (r.rowCount === 1) comumOk++;
   }
   afirma(comumOk === CAMPOS.length, "normalização: código comum (CONTATAR) passa nos três campos");
 
@@ -176,9 +176,9 @@ async function main() {
   let gestaoOk = 0;
   for (const campo of CAMPOS) {
     await app.query("begin");
-    await app.query(`update public.alunos set ${campo} = 'CANCELAMENTO_COBRANCA' where id = $1`, [ALUNO]);
+    const r = await app.query(`update public.alunos set ${campo} = 'CANCELAMENTO_COBRANCA' where id = $1`, [ALUNO]);
     await app.query("rollback");
-    gestaoOk++;
+    if (r.rowCount === 1) gestaoOk++;
   }
   afirma(gestaoOk === CAMPOS.length, "normalização: gestão passa com código restrito nos três campos");
 

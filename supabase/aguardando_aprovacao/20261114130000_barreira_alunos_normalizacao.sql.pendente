@@ -1,8 +1,9 @@
 -- GUARDA DE ORDEM (sem substituir função). A barreira de alunos (normalização [A-Za-z0-9_] + catálogo)
 -- passou a fazer parte de 20261106140000, que é a ÚNICA migração que substitui _encerramento_so_gestao().
 -- Sequência suportada: 00_barreira_producao.sql -> 20261106140000 -> ESTA guarda.
--- Esta migração só VERIFICA o estado final por md5(prosrc), medido em PostgreSQL 17 (job
--- tabulacao-so-gestao-sequencia-md5 de 8d8387bb, run 43836450828). Fora de ordem, a verificação recusa.
+-- Esta migração só VERIFICA o estado final por md5(prosrc) = d4a7f02cbcb0657defe69b9598e1e157,
+-- medido em PostgreSQL 17 na sequência de CI do head 8d8387bb (job 133194160527, run 43836450828).
+-- Fora de ordem, a verificação recusa.
 -- Não altera função, trigger, grant ou dado.
 BEGIN;
 do $$
