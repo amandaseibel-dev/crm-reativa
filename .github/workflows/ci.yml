@@ -1322,6 +1322,7 @@ jobs:
         run: |
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -f "$TDIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$TDIR/00_barreira_producao.sql"
           psql -v ON_ERROR_STOP=1 -f "$ORDEM1"
           psql -v ON_ERROR_STOP=1 -tA -f "$SDIR/md5_definicao.sql" | tee "$RUNNER_TEMP/md5.txt"
           test -s "$RUNNER_TEMP/md5.txt"
