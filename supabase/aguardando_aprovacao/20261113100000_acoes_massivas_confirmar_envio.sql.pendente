@@ -188,7 +188,8 @@ end;
 $function$;
 
 -- 2b. DESTINATARIOS DO LOTE (para a gestao marcar quem foi enviado na parcial).
--- Mesmos dados que a exportacao ja entrega a gestao (nome, telefone, e-mail).
+-- Minimo necessario (premissa de seguranca, secao 7): so lote PENDENTE, e so o
+-- contato do canal do lote (telefone no WhatsApp, e-mail no E-mail).
 CREATE FUNCTION public.acoes_massivas_lote_destinatarios(p_lote_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -207,12 +208,18 @@ begin
   if not found then
     raise exception 'Lote de exportacao nao encontrado.' using errcode = 'P0002';
   end if;
+  if v_lote.confirmado_em is not null or v_lote.descartado_em is not null then
+    raise exception 'Lote ja concluido: a lista de destinatarios so e lida para confirmar lote pendente.'
+      using errcode = 'P0001';
+  end if;
   return jsonb_build_object(
     'lote_id', v_lote.id,
-    'pendente', v_lote.confirmado_em is null and v_lote.descartado_em is null,
+    'pendente', true,
     'destinatarios', coalesce((
-      select jsonb_agg(jsonb_build_object('aluno_id', x.id_txt, 'nome', a.nome,
-                                          'telefone', a.telefone, 'email', a.email) order by x.ord)
+      select jsonb_agg(jsonb_build_object(
+               'aluno_id', x.id_txt, 'nome', a.nome,
+               'telefone', case when upper(v_lote.canal) = 'EMAIL' then null else a.telefone end,
+               'email',    case when upper(v_lote.canal) = 'EMAIL' then a.email else null end) order by x.ord)
         from unnest(v_lote.aluno_ids) with ordinality as x(id_txt, ord)
         left join public.alunos a on a.id::text = x.id_txt), '[]'::jsonb));
 end;

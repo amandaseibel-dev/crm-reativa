@@ -277,6 +277,12 @@ describe("depois da migration", () => {
     expect(r.pendente).toBe(true);
     expect(r.destinatarios.map((d) => d.aluno_id)).toEqual(ids);
     expect(r.destinatarios[0].nome).toBeTruthy();
+    // minimo necessario: lote de WhatsApp nao devolve e-mail
+    expect(r.destinatarios.every((d) => d.email === null)).toBe(true);
+    // lote ja concluido nao entrega a lista de novo
+    await concluirEnvio(ex.lote_id, "TOTAL");
+    await expect(db.query(`select public.acoes_massivas_lote_destinatarios($1::uuid)`, [ex.lote_id]))
+      .rejects.toThrow(/Lote ja concluido/);
     await comoOperador(db, OP_A);
     await expect(db.query(`select public.acoes_massivas_lote_destinatarios($1::uuid)`, [ex.lote_id]))
       .rejects.toThrow(/Acesso negado/);
