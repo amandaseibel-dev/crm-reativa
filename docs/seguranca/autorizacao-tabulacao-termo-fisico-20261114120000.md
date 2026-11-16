@@ -14,11 +14,11 @@
 - **Front** (`src/utils/tabulacoes.js`) apenas chama a operação (`rpc`). Não há `insert` direto (teste `tabulacoesRegistroAdministrativo.test.js`).
 - **Trigger** `aluno_mov_tabulacao_so_gestao` (INSERT OR UPDATE) mantém a barreira mesmo para gravação direta.
 
-## Barreira de alunos — dentro de `20261106140000` (guarda em `20261114130000`)
+## Barreira de alunos — dentro de `20261106140000`
 - A única migração que substitui `_encerramento_so_gestao()` é `20261106140000` (pendente). Ela aplica a normalização `upper(regexp_replace(valor, '[^A-Za-z0-9_]', '', 'g') COLLATE "C")` no catálogo e nos três status, e checa a pré-condição da linha `RETORNO_FINANCEIRO` (ativa e `somente_gestao`). Essa checagem prova só a existência da linha, não a aplicação de `20261106120000`.
 - Corpo de referência de produção: `docs/seguranca/evidencias/prod_encerramento_so_gestao.sql`, `md5(prosrc) = ae0382adc0eaf11fbe68d9ed0fc4a9b4`. O rollback de `20261106140000` restaura esse corpo e confere o md5 pelo seu VIGIA, incluindo a ACL (`postgres`, `authenticated`, `service_role` com EXECUTE; `public` e `anon` sem).
-- `20261114130000` não substitui função: só verifica `md5(prosrc) = d4a7f02cbcb0657defe69b9598e1e157` depois de `20261106140000`. Esse hash foi medido na sequência de CI do head `8d8387bb` (job `133194160527`).
-- Testes: `supabase/tests/tabulacao_so_gestao_sequencia/run.mjs` (dependência ausente, ordem correta com md5 final, normalização nos três campos com mensagem específica de cada ramo) e `08_barreira_normalizacao.sql` como `app_teste`.
+- A guarda md5 `20261114130000` foi retirada deste recorte: não substituía função, apenas verificava `d4a7…`.
+- Testes: `08_barreira_normalizacao.sql` como `app_teste`. A prova de sequência (`run.mjs`) foi retirada deste recorte.
 - **Não verificado localmente:** o comportamento da barreira sob papel de LOGIN e o VIGIA de ACL. A validação é do CI.
 
 ## Auth — confirmação e troca de e-mail
@@ -29,7 +29,6 @@
 |---|---|---|
 | `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `5e53b8bf27055e040aec6ab1540c25b8184e549b1bc6cfcb420772378e323302` | 9669 |
 | `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql` | `e224e6f206471775eb4f45126d11d68393434d6e32b1a867aa61ba1b1f46cfaa` | 776 |
-| `supabase/aguardando_aprovacao/20261114130000_barreira_alunos_normalizacao.sql.pendente` | `a680a1477fe2bfad6d45d1f99f5458d830fff9901bd2f4ed29f4b1082053ed50` | 1038 |
 | `supabase/aguardando_aprovacao/20261106140000_tabulacao_so_gestao_no_banco.sql.pendente` | `8bdae4f01b8803834eebe72e1e73c100aa7285bbc53d6a105c6f485245298769` | 19209 |
 | `supabase/aguardando_aprovacao/20261106140000_tabulacao_so_gestao_no_banco.rollback.sql` | `b4d24a777e9e5ff1391d608158f062113b769df937f8f17cfa74dda28f929af0` | 9250 |
 | `scripts/seguranca/auditoria_seguranca.sql` | `87ed9b7326c6fdbdffd2956c1d3b3f448910ae2e0010f11954418de9c986dd85` | 5682 |
@@ -49,7 +48,7 @@ Evidências (somente leitura, em 06/11/2026): `usuario_e_gestao()` = `af3d391f42
 
 ## Bloqueios externos de implantação (comprovados)
 1. Gate A: 7 `BLOQUEIA` abertos (frentes acima).
-2. Reconciliação: `usuario_e_gestao()` ainda só como evidência (sem migração versionada). `_encerramento_so_gestao()` versionada em `20261106140000` a partir do corpo `ae0382…`; a guarda final é `d4a7…` em `20261114130000`.
+2. Reconciliação: `usuario_e_gestao()` ainda só como evidência (sem migração versionada). `_encerramento_so_gestao()` versionada em `20261106140000` a partir do corpo `ae0382…`; a guarda md5 foi retirada deste recorte.
 3. Auth: configuração de confirmação e troca de e-mail (não lida).
 4. Papel `reativa_responsavel_executor` (INSERT irrestrito): não lido se é usado com `SET ROLE` por cliente.
 5. `tabulacoes` sem DDL base versionado.
@@ -58,7 +57,7 @@ Evidências (somente leitura, em 06/11/2026): `usuario_e_gestao()` = `af3d391f42
 
 ## Sequência de implantação
 1. Resolver os bloqueios 1–7.
-2. **Banco:** aprovação final → aplicar `20261106120000` (dependência) → `20261106140000` → `20261114120000` → validação somente leitura. `20261114130000` e a cadeia de sequência/md5 foram retiradas deste recorte.
+2. **Banco:** aprovação final → aplicar `20261106120000` (dependência) → `20261106140000` → `20261114120000` → validação somente leitura. A guarda `20261114130000` e a prova de sequência/md5 foram retiradas deste recorte.
 3. **Frontend (#951):** merge somente após validação do banco.
 
 ## Resultados por SHA

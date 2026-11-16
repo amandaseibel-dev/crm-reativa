@@ -1,4 +1,4 @@
--- Barreira de estado com normalização consistente (migração 20261114130000). Roda como app_teste (LOGIN),
+-- Barreira de estado com normalização consistente (migração 20261106140000). Roda como app_teste (LOGIN),
 -- fora do bypass de dono. Operador: toda variante de código restrito é recusada (42501).
 \set ON_ERROR_STOP on
 select set_config('request.jwt.claims', '{"email":"operador.teste@exemplo.local","role":"authenticated"}', false);
