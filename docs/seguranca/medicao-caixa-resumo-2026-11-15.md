@@ -101,11 +101,9 @@ Total: 11.630 pagamentos e R$ 14.784.623,69, igual à view. Os 298 pagamentos qu
 
 ## Anexo H — privilégios efetivos (leitura)
 
-Consulta: `has_function_privilege` e ACL de `usuario_e_gestao()`, `carteira_2026_2_classificar()` e
-`carteira_2026_2_negociacoes()`. Resultado: `service_role` tem EXECUTE nas três; `authenticated` nas duas últimas
-e em `usuario_e_gestao()`. `PUBLIC` não aparece nas ACLs. Há o papel `reativa_responsavel_executor` com EXECUTE
-em `usuario_e_gestao()`. A migration da RPC restringe a função a `authenticated`: revoga de `PUBLIC`, `anon` e
-`service_role`, e de `reativa_responsavel_executor` quando existir.
+Corrigido pelo Anexo K (medição direta com `has_function_privilege`). Não usar a versão anterior deste anexo.
+A RPC nova é restrita a `authenticated` por grant; `PUBLIC`, `anon` e `service_role` são revogados
+(quando o papel existe). Ver a migration.
 
 ## Anexo I — definição de usuario_e_gestao() em produção
 

@@ -112,9 +112,9 @@ Nada disso é feito antes da aprovação.
 - 2026/2 — **Valor original dos títulos em acordo**: soma do valor original dos títulos ligados a acordo.
 Os valores são exibidos cada um no seu semestre, com o rótulo devolvido pela RPC (`negociado_definicao`).
 
-## Dependência comprovada: usuario_e_gestao()
+## Dependência: usuario_e_gestao() (lida em produção; não versionada no repositório)
 
-Versionada como fixture de referência em `supabase/tests/fixtures/usuario_e_gestao_producao_2026-11-15.sql`
+Registrada como fixture de referência (leitura de produção; a equivalência com produção não foi reproduzida no repositório) em `supabase/tests/fixtures/usuario_e_gestao_producao_2026-11-15.sql`
 (origem: leitura de produção, 15/11/2026; sha256 `94319be4318c91f0723759f645369356ad104d95abb239216843e87fc66cd523`).
 Não é migration e não substitui a função de produção. A RPC acrescenta a checagem de `usuarios.ativo`;
 o caso "gestão inativa" em `03_casos.sql` prova essa checagem.
