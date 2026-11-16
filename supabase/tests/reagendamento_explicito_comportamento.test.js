@@ -85,7 +85,7 @@ const ESQUEMA = `
   create function auth.email() returns text language sql stable
     as $$ select nullif(current_setting('teste.email', true), '') $$;
 
-  create table public.usuarios (email text primary key, ativo boolean default true);
+  create table public.usuarios (email text primary key, nome text, ativo boolean default true);
   create function public.usuario_e_gestao() returns boolean language sql stable
     as $$ select lower(coalesce(auth.email(), '')) = any (array['${GESTAO.join("','")}']) $$;
 
@@ -871,5 +871,19 @@ describe("revoke de anon em agenda_confirmar_retorno: prova que discrimina", () 
       comPapel(depois, "anon", null, () =>
         depois.query("select public.agenda_confirmar_retorno($1, true)", [ALUNA]))
     ).rejects.toThrow(/permission denied/i);
+  });
+});
+
+// NOME DE QUEM REGISTROU VEM DO BANCO (sessao), NAO DO PARAMETRO DA TELA (premissa 4).
+describe("atendimento: nome e e-mail de quem registrou vem da sessao", () => {
+  it("registrado_por_nome e o nome de usuarios; o valor enviado pela tela e ignorado", async () => {
+    const db = await montar({ comPacote: true });
+    await db.exec(`update public.usuarios set nome = 'Operador Verdadeiro' where email = '${OPERADOR}';`);
+    await comPapel(db, "authenticated", OPERADOR, () =>
+      db.query(
+        "select public.atendimento_reagendar_com_status($1, current_date + 4, null, false, $2::jsonb)",
+        [ALUNA, JSON.stringify({ status_atual: "OK", registrado_por_nome: "Nome Forjado" })]));
+    const r = await db.query("select registrado_por_nome from public.alunos where id = $1", [ALUNA]);
+    expect(r.rows[0].registrado_por_nome).toBe("Operador Verdadeiro");
   });
 });
