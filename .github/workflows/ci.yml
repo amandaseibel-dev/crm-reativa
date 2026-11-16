@@ -1336,3 +1336,10 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$BARREIRA"
           psql -v ON_ERROR_STOP=1 -tA -f "$SDIR/md5_definicao.sql" | tee "$RUNNER_TEMP/md5.txt"
           test -s "$RUNNER_TEMP/md5.txt"
+
+      - name: "run.mjs: sequência completa em banco próprio (dependência RETORNO, ordem correta, normalização nos três campos)"
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -c "create database sequencia_run_mjs"
+          npm i --no-save pg@8.16.3
+          PGDATABASE=sequencia_run_mjs node "$SDIR/run.mjs"

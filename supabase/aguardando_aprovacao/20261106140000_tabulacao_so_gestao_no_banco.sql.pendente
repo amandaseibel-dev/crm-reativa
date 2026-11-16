@@ -108,6 +108,19 @@
 
 begin;
 
+-- ── DEPENDÊNCIA — a linha RETORNO_FINANCEIRO tem de existir ─────────────────
+-- Esta trava lê o catálogo; a linha é criada por 20261106120000. Este bloco
+-- checa SOMENTE a EXISTÊNCIA da linha: não prova que 20261106120000 foi aplicada
+-- inteira (colunas, policies, grants). A ordem de implantação continua sendo
+-- responsabilidade do pacote. Se a linha faltar, a transação volta e nada muda.
+do $$
+begin
+  if not exists (select 1 from public.tabulacoes where codigo = 'RETORNO_FINANCEIRO') then
+    raise exception 'ORDEM: RETORNO_FINANCEIRO nao existe em public.tabulacoes. Aplique 20261106120000 antes desta migration. Nada foi alterado.';
+  end if;
+end
+$$;
+
 -- ── GUARDA DE MD5 — §4 do RUNBOOK ───────────────────────────────────────────
 -- "Toda substituição de função existente carrega guarda de md5(prosrc) medido
 -- em produção, que interrompe a migration antes de qualquer create or replace
@@ -321,6 +334,7 @@ begin
 
   -- CONTRAPROVA DA GUARDA: o corpo tem de ter MUDADO (senao o create or replace
   -- nao pegou) e tem de ler o catalogo (senao a trava nao cobre tabulacao nova).
+  -- O hash final medido (d4a7f02...) é verificado pela 20261114130000.
   if (select md5(p.prosrc) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = '_encerramento_so_gestao')
      = 'ae0382adc0eaf11fbe68d9ed0fc4a9b4' then
