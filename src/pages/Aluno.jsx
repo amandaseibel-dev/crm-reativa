@@ -1421,6 +1421,11 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   }
   async function finalizarAtendimento() {
     if (!alunoSelecionado?.id) return;
+    // Reagendar sem data: recusa ANTES de qualquer upload ou escrita (print, movimentacao, ficha).
+    if (reagendarRetorno && !dataRetorno) {
+      alert("Informe a data e a hora do retorno para reagendar. Nada foi salvo.");
+      return;
+    }
     if (!statusFinalizacao) {
       alert("Selecione o status da finalização.");
       return;

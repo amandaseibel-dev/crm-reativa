@@ -72,6 +72,7 @@ const UID = {
   [SEM_PERFIL]: "00000000-0000-4000-8000-0000000000d4",
   [AMANDA]: "00000000-0000-4000-8000-0000000000e5",
   [FERNANDA]: "00000000-0000-4000-8000-0000000000f6",
+  ["painel.teste@exemplo.local"]: "00000000-0000-4000-8000-0000000000f9",
   [AMANDA_ADM]: "00000000-0000-4000-8000-000000000007",
 };
 
@@ -86,6 +87,8 @@ const ESQUEMA = `
     as $$ select nullif(current_setting('teste.email', true), '') $$;
 
   create table public.usuarios (email text primary key, nome text, ativo boolean default true);
+  create function public.eh_painel() returns boolean language sql stable
+    as $$ select lower(coalesce(auth.email(), '')) = 'painel.teste@exemplo.local' $$;
   create function public.usuario_e_gestao() returns boolean language sql stable
     as $$ select lower(coalesce(auth.email(), '')) = any (array['${GESTAO.join("','")}']) $$;
 
@@ -990,5 +993,24 @@ describe("atendimento gravado no servidor: autoria, acionamento e reagendamento"
         db.query(RPC_ATEND("null", "false", "$3::jsonb"), [ALUNA, "{}",
           JSON.stringify({ tipo: "QUITADO_MANUAL", descricao: "x" })]))
     ).rejects.toThrow(/nao permitido/);
+  });
+});
+
+// CONTA DE PAINEL NAO ATENDE ALUNO (mesma regra da policy alunos_update: not eh_painel()).
+describe("conta de painel nao atende aluno nas RPCs", () => {
+  it("painel dono do aluno e recusado no atendimento e no reagendamento; nada muda", async () => {
+    const db = await montar({ comPacote: true });
+    await db.exec("insert into public.usuarios (email, ativo) values ('painel.teste@exemplo.local', true);");
+    await db.exec(`update public.alunos set responsavel_atual_email = 'painel.teste@exemplo.local' where id = '${ALUNA}';`);
+    const antes = await linha(db, ALUNA);
+    await expect(
+      comPapel(db, "authenticated", "painel.teste@exemplo.local", () =>
+        db.query("select public.atendimento_reagendar_com_status($1, current_date + 4, null, false, '{}'::jsonb)", [ALUNA]))
+    ).rejects.toThrow(/painel/);
+    await expect(
+      comPapel(db, "authenticated", "painel.teste@exemplo.local", () =>
+        db.query("select public.agenda_reagendar_retorno($1, current_date + 4, null, false)", [ALUNA]))
+    ).rejects.toThrow(/painel/);
+    expect(await linha(db, ALUNA)).toEqual(antes);
   });
 });

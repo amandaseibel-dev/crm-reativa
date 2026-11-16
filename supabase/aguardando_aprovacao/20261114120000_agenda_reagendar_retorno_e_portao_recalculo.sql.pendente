@@ -140,6 +140,9 @@ begin
   if not exists (select 1 from public.usuarios u where lower(u.email) = v_email and u.ativo is true) then
     raise exception 'Sem permissao: usuario inativo ou sem cadastro' using errcode = '42501';
   end if;
+  if public.eh_painel() then
+    raise exception 'Conta de painel nao atende alunos' using errcode = '42501';
+  end if;
   if p_data is null then
     raise exception 'Informe a data do retorno';
   end if;
@@ -188,6 +191,9 @@ begin
   end if;
   if not exists (select 1 from public.usuarios u where lower(u.email) = v_email and u.ativo is true) then
     raise exception 'Sem permissao: usuario inativo ou sem cadastro' using errcode = '42501';
+  end if;
+  if public.eh_painel() then
+    raise exception 'Conta de painel nao atende alunos' using errcode = '42501';
   end if;
   select lower(responsavel_atual_email) into v_dono
     from public.alunos where id = p_aluno_id;
@@ -251,6 +257,9 @@ begin
   end if;
   if not exists (select 1 from public.usuarios u where lower(u.email) = v_email and u.ativo is true) then
     raise exception 'Sem permissao: usuario inativo ou sem cadastro' using errcode = '42501';
+  end if;
+  if public.eh_painel() then
+    raise exception 'Conta de painel nao atende alunos' using errcode = '42501';
   end if;
   select lower(responsavel_atual_email) into v_dono from public.alunos where id = p_aluno_id for update;
   if not found then

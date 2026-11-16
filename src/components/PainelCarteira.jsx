@@ -2284,6 +2284,11 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       dataDigitada: retornoData,
       retornoAtual: { data: a.data_retorno, origem: a.retorno_origem },
     });
+    // Reagendar sem data (ou sem retorno DIGITADA): recusa antes de qualquer escrita.
+    if (reagendarRetorno && !(desfecho.motivo === "DIGITADA" && desfecho.data_retorno)) {
+      setFeedback({ tipo: "erro", texto: "Informe a data e a hora do retorno para reagendar. Nada foi salvo." });
+      return;
+    }
     setSalvando(true);
     setFeedback(null);
     try {
