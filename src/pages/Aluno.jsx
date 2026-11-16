@@ -1577,23 +1577,23 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   async function alterarOperadorResponsavel() {
     if (!alunoSelecionado?.id) {
       alert("Selecione um aluno antes de alterar o operador.");
-      return;
+      return false;
     }
     if (!novoOperadorEmail) {
       alert("Selecione o novo operador responsável.");
-      return;
+      return false;
     }
     const motivo = motivoAlteracaoOperador.trim();
     if (false) {
       alert("Informe o motivo da alteração.");
-      return;
+      return false;
     }
     const novoOperador = OPERADORES_REATIVA.find(
       (op) => op.email === novoOperadorEmail
     );
     if (!novoOperador) {
       alert("Operador não encontrado.");
-      return;
+      return false;
     }
     setSalvando(true);
     try {
@@ -1613,7 +1613,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       });
       if (updateError || !rResp?.ok) {
         alert("Nao foi possivel alterar o responsavel: " + (rResp?.erro || updateError?.message || "erro"));
-        return;
+        return false;
       }
       const extraAluno = {};
       if (novaTabulacaoAlteracao) { extraAluno.status_jornada = novaTabulacaoAlteracao; extraAluno.status_atual = novaTabulacaoAlteracao; }
@@ -1636,7 +1636,8 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
         }
       }
       if (Object.keys(extraAluno).length > 0) { await supabase.from("alunos").update(extraAluno).eq("id", alunoSelecionado.id); }
-      // Na falha da RPC operador, motivo, data e tabulacao digitados ficam no formulario.
+      // Na falha da RPC operador, motivo, data e tabulacao digitados ficam no formulario
+      // (aba ADM e editor rapido, que so fecha quando a funcao retorna true).
       if (!reagendamentoFalhou) {
         setNovoOperadorEmail("");
         setMotivoAlteracaoOperador("");
@@ -1646,9 +1647,11 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       await recarregarAlunoSelecionado(alunoSelecionado.id);
       await carregarMovimentacoes(alunoSelecionado.id);
       if (!reagendamentoFalhou) alert("Operador responsável alterado com sucesso.");
+      return !reagendamentoFalhou;
     } catch (e) {
       console.error(e);
       alert("Erro inesperado ao alterar operador.");
+      return false;
     } finally {
       setSalvando(false);
     }
@@ -2197,8 +2200,8 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                             <button
                               type="button"
                               onClick={async () => {
-                                await alterarOperadorResponsavel();
-                                setEditandoOperadorRapido(false);
+                                const ok = await alterarOperadorResponsavel();
+                                if (ok !== false) setEditandoOperadorRapido(false);
                               }}
                               disabled={salvando || !novoOperadorEmail}
                               style={{ border: "none", background: "#16a34a", color: "#fff", borderRadius: 6, padding: "4px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
