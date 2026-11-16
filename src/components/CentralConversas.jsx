@@ -142,8 +142,8 @@ export default function CentralConversas({
                   Abrir ficha
                 </Link>
               ) : (
-                <span className="ulbra-texto-desativado" data-campo="ficha-bloqueada">
-                  Ficha indisponível: CPF não confirmado
+                <span className="ulbra-texto-desativado" data-campo="vinculo-pendente">
+                  Vínculo pendente
                 </span>
               )}
             </header>

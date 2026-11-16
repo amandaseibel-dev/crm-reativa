@@ -28,6 +28,7 @@ import { supabase } from "../services/supabase";
 import { buscarFilaCarteira } from "../utils/filaCarteiraServidor";
 import usePolling from "../utils/polling";
 import { normalizarEmail } from "../utils/ulbraRecebimento";
+import { lerHistorico, mapearHistorico } from "../utils/ulbraHistoricoCliente";
 import {
   DESTINO,
   FAIXAS,
@@ -214,6 +215,25 @@ export default function CentralUlbra({ usuario }) {
   }
 
   // Seleção e voltar empilham histórico: o "voltar" do navegador desfaz a escolha.
+  // Histórico da conversa selecionada. Só conversa de aluno com vínculo (aluno_id) é lida;
+  // sem vínculo a tela mostra "Vínculo pendente" e nada é consultado. O servidor confere a permissão.
+  const [historicoSel, setHistoricoSel] = useState({ estado: "indisponivel", mensagens: [] });
+  const itensPrioridade = listaPrioridade({ ...dados, sem_interacao: carteira.linhas }, filtros.faixa);
+  const selItem = itensPrioridade.find((i) => i.chave === filtros.conv) || null;
+  const conversaParaLer = selItem && selItem.tipo === "resposta" && selItem.alunoId ? selItem.bruto.conversa_id : null;
+  useEffect(() => {
+    if (!conversaParaLer) {
+      setHistoricoSel({ estado: "indisponivel", mensagens: [] });
+      return undefined;
+    }
+    let vivo = true;
+    setHistoricoSel({ estado: "carregando", mensagens: [] });
+    lerHistorico(conversaParaLer)
+      .then((resp) => { if (vivo) setHistoricoSel(mapearHistorico(resp)); })
+      .catch(() => { if (vivo) setHistoricoSel({ estado: "erro", mensagens: [], erro: "não foi possível carregar o histórico" }); });
+    return () => { vivo = false; };
+  }, [conversaParaLer]);
+
   function selecionarConversa(chave) {
     setParams(new URLSearchParams(paraBusca({ ...filtros, conv: chave }).replace(/^\?/, "")));
   }
@@ -363,7 +383,7 @@ export default function CentralUlbra({ usuario }) {
           selecionadoChave={filtros.conv}
           onSelecionar={selecionarConversa}
           onVoltar={voltarParaLista}
-          historico={{ estado: "indisponivel", mensagens: [] }}
+          historico={historicoSel}
           aoAbrirFicha={aoAbrirFicha}
           vazio="nenhuma conversa nesta fila"
         />
