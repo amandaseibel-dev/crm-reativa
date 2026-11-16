@@ -1619,6 +1619,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       if (novaTabulacaoAlteracao) { extraAluno.status_jornada = novaTabulacaoAlteracao; extraAluno.status_atual = novaTabulacaoAlteracao; }
       // Data digitada na troca de responsavel e compromisso humano: passa SO pela RPC
       // (unico caminho que zera "Ja falei" por reagendamento). Nunca por gravacao comum.
+      let reagendamentoFalhou = false;
       if (novaDataRetornoAlteracao) {
         const [dataIso, horaIso] = String(novaDataRetornoAlteracao).split("T");
         const { error: erroReag } = await supabase.rpc("agenda_reagendar_retorno", {
@@ -1629,12 +1630,9 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
         });
         if (erroReag) {
           // Sem "sucesso": o operador mudou, mas a nova data NAO foi aplicada.
+          // Nao retorna antes: a tabulacao (extraAluno) ainda precisa ser gravada.
+          reagendamentoFalhou = true;
           alert("Responsavel alterado, mas o reagendamento NAO foi aplicado: " + erroReag.message);
-          setNovoOperadorEmail("");
-          setMotivoAlteracaoOperador("");
-          await recarregarAlunoSelecionado(alunoSelecionado.id);
-          await carregarMovimentacoes(alunoSelecionado.id);
-          return;
         }
       }
       if (Object.keys(extraAluno).length > 0) { await supabase.from("alunos").update(extraAluno).eq("id", alunoSelecionado.id); }
@@ -1644,7 +1642,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       setNovaTabulacaoAlteracao("");
       await recarregarAlunoSelecionado(alunoSelecionado.id);
       await carregarMovimentacoes(alunoSelecionado.id);
-      alert("Operador responsável alterado com sucesso.");
+      if (!reagendamentoFalhou) alert("Operador responsável alterado com sucesso.");
     } catch (e) {
       console.error(e);
       alert("Erro inesperado ao alterar operador.");
