@@ -569,40 +569,6 @@ jobs:
         run: deno check supabase/functions/ulbra-sincronizar/index.ts
 
   # ---------------------------------------------------------------------------
-  ulbra-historico-deno-check:
-    name: ulbra-historico — deno check (versão fixada)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Instalar Deno (versão fixada)
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: 2.1.4
-
-      - name: deno check da função e de tudo que ela importa
-        run: deno check supabase/functions/ulbra-historico/index.ts
-
-  # ---------------------------------------------------------------------------
-  ulbra-conversa-deno-check:
-    name: ulbra-conversa — deno check (versão fixada)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Instalar Deno (versão fixada)
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: 2.1.4
-
-      - name: deno check da função e de tudo que ela importa
-        run: deno check supabase/functions/ulbra-conversa/index.ts
-
-  # ---------------------------------------------------------------------------
   # TV — tv_painel_operadores (20261110200000), migration CANDIDATA (ainda em
   # aguardando_aprovacao/), num Postgres descartável. Prova grants (anon e
   # PUBLIC sem EXECUTE apesar do default privileges), o portão da allowlist,
@@ -1134,6 +1100,41 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
           psql -v ON_ERROR_STOP=1 -f "$DIR/05_apos_rollback.sql"
 
+  relatorio-2026-2-rollback-concorrencia:
+    name: relatorio 2026/2 — rollback concorrente e reinstalacao (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/relatorio_2026_2_rollback_concorrencia
+      MIG: supabase/migrations/20261113000000_relatorio_2026_2_sem_negociacao.sql
+      RB: supabase/rollbacks/20261113000000_relatorio_2026_2_sem_negociacao.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # Duas conexoes reais: captura antes do lock, rollback, captura concorrente, reinstalacao.
+      - name: Rodar rollback concorrente e reinstalacao (duas conexoes)
+        run: bash "$DIR/run.sh"
+
   # ---------------------------------------------------------------------------
   # ULBRA — conexão e envio (20261111140000): persistência contra Postgres real,
   # consumo único e idempotência com duas conexões, guarda e rollback.
@@ -1175,3 +1176,47 @@ jobs:
 
       - name: Persistência, consumo único, concorrência, guarda e rollback
         run: NODE_PATH="$RUNNER_TEMP/pg/node_modules" node supabase/tests/ulbra_conexao_envio/run.cjs
+
+  # ---------------------------------------------------------------------------
+  ulbra-historico-deno-check:
+    name: ulbra-historico — deno check (versão fixada)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Instalar Deno (versão fixada)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.1.4
+
+      - name: deno check da função e de tudo que ela importa
+        run: deno check supabase/functions/ulbra-historico/index.ts
+
+  # ---------------------------------------------------------------------------
+
+  # ---------------------------------------------------------------------------
+  ulbra-conversa-deno-check:
+    name: ulbra-conversa — deno check (versão fixada)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Instalar Deno (versão fixada)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.1.4
+
+      - name: deno check da função e de tudo que ela importa
+        run: deno check supabase/functions/ulbra-conversa/index.ts
+
+  # ---------------------------------------------------------------------------
+  # TV — tv_painel_operadores (20261110200000), migration CANDIDATA (ainda em
+  # aguardando_aprovacao/), num Postgres descartável. Prova grants (anon e
+  # PUBLIC sem EXECUTE apesar do default privileges), o portão da allowlist,
+  # cada regra dos rankings, o fuso de Brasília, os centavos, que o pódio não
+  # devolve valor e que o rollback remove só a função.
+  # ---------------------------------------------------------------------------

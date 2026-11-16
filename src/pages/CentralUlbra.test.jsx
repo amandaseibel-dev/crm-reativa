@@ -16,6 +16,11 @@ import CentralUlbra from "./CentralUlbra";
 
 const rpc = vi.fn();
 const fromMock = vi.fn();
+// Porta HISTORICO_DISPONIVEL (#969): desligada por padrão; o bloco sob demanda liga por globalThis.__HIST_ON.
+vi.mock("../utils/ulbraHistorico", async (orig) => {
+  const m = await orig();
+  return { ...m, get HISTORICO_DISPONIVEL() { return globalThis.__HIST_ON === true; } };
+});
 vi.mock("../services/supabase", () => ({ supabase: { rpc: (...a) => rpc(...a), from: (...a) => fromMock(...a) } }));
 // Cliente das funções de conversa: simulado por nome. Nada chega à rede.
 const cliente = {
@@ -475,6 +480,17 @@ describe("recorte da carteira não muda pelo filtro nem pela URL", () => {
 });
 
 describe("histórico sob demanda, conexão individual e resposta em duas etapas", () => {
+  beforeEach(() => { globalThis.__HIST_ON = true; });
+  afterEach(() => { globalThis.__HIST_ON = false; });
+  it("porta desligada: sem botão Carregar histórico e sem chamada à Mensageria", async () => {
+    globalThis.__HIST_ON = false;
+    rpc.mockResolvedValue({ data: resposta(), error: null });
+    const conv = resposta().respostas[0].conversa_id;
+    montar(OPERADOR, `/central-ulbra?visao=conversas&conv=r%3A${conv}`);
+    const painel = await screen.findByLabelText("Conversa selecionada");
+    expect(painel.querySelector("[data-campo='carregar-historico']")).toBeNull();
+    expect(cliente.lerHistorico).not.toHaveBeenCalled();
+  });
   const RESP = () => resposta();
   it("selecionar a conversa NÃO lê a Mensageria; o botão 'Carregar histórico' lê uma vez e mostra as mensagens", async () => {
     rpc.mockResolvedValue({ data: RESP(), error: null });
@@ -533,8 +549,8 @@ describe("histórico sob demanda, conexão individual e resposta em duas etapas"
     cliente.conexaoEstado.mockResolvedValue({ ok: true, estado: "ATIVA", pessoa: "Maria", envio_real: true });
     montar(OPERADOR, "/central-ulbra?visao=conversas&conv=s%3Aal-1");
     const painel = await screen.findByLabelText("Conversa selecionada");
-    fireEvent.click(painel.querySelector("[data-campo='carregar-historico']"));
-    expect(await screen.findByText(/não tem conversa coletada na Mensageria/)).toBeTruthy();
+    // Linha só de carteira interna: sem leitura de conversa, sem botão de histórico (regra da #969).
+    expect(painel.querySelector("[data-campo='carregar-historico']")).toBeNull();
     expect(cliente.lerHistorico).not.toHaveBeenCalled();
   });
 });

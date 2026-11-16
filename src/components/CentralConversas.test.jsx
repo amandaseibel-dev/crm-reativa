@@ -74,7 +74,7 @@ describe("painel da conversa", () => {
     cleanup();
     tela({ selecionadoChave: "r:c2" });
     expect(screen.queryByText("Abrir ficha")).toBeNull();
-    expect(document.querySelector('[data-campo="ficha-bloqueada"]').textContent).toMatch(/CPF não confirmado/);
+    expect(document.querySelector('[data-campo="vinculo-pendente"]').textContent).toMatch(/Vínculo pendente/);
   });
 
   it("abrir a ficha chama o gancho que guarda a posição", () => {

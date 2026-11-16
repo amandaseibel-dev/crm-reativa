@@ -90,7 +90,7 @@ export default function CentralConversas({
 }) {
   const sel = itens.find((i) => i.chave === selecionadoChave) || null;
   const mostra = sel ? "conversa" : "lista";
-  const mostraConversa = sel && (historico.estado === "parcial" || historico.estado === "ok");
+  const mostraConversa = sel && sel.alunoId && (historico.estado === "parcial" || historico.estado === "ok");
   const podeEnviar = Boolean(conexao && (conexao.estado === "ATIVA" || conexao.estado === "EXPIRANDO") && sel?.alunoId && onPrevia && onEnviar);
 
   return (
@@ -152,8 +152,8 @@ export default function CentralConversas({
                   Abrir ficha
                 </Link>
               ) : (
-                <span className="ulbra-texto-desativado" data-campo="ficha-bloqueada">
-                  Ficha indisponível: CPF não confirmado
+                <span className="ulbra-texto-desativado" data-campo="vinculo-pendente">
+                  Vínculo pendente
                 </span>
               )}
             </header>

@@ -176,11 +176,15 @@ sem essa confirmação.**
 
 ### Pendente
 
-- **Rotação da credencial da Mensageria, com a TI da ULBRA.** O valor do token
-  havia sido cadastrado no campo **nome** de um secret, e nome de secret é
-  legível em texto puro no painel para qualquer pessoa com acesso ao projeto. O
-  cadastro malformado foi removido em 07/11 e o `ULBRA_MCP_TOKEN` correto está
-  no lugar, mas **o valor esteve exposto e segue válido** até ser trocado.
+- **Rotação da credencial da Mensageria, com a TI da ULBRA (pendente).** Ocorrência registrada:
+  o valor do token ficou no campo **nome** de um secret. Nome de secret é legível no painel para
+  quem tem acesso ao projeto. O cadastro malformado foi removido em 07/11 e o `ULBRA_MCP_TOKEN`
+  correto está no lugar. **Remover o cadastro não revoga o token**: o valor anterior segue válido
+  até ser trocado. Não há evidência, no histórico do Git (todas as refs), de que o valor tenha sido
+  gravado em arquivo versionado, nem de acesso indevido. **Os logs do painel não foram verificados.**
+  Esta ocorrência não é vazamento externo comprovado nem incidente resolvido. A gestão informou em
+  16/11 que o token permanece o mesmo e seguro; essa informação não encerra o risco residual. A
+  rotação continua pendente e é pré-condição de publicação.
 - **Confirmar com a ULBRA** por que `listar_atendimentos` volta vazia para um
   cliente que existe e tem equipe.
 - A view `ulbra_vinculos_confirmados` (`20261106190000`) segue **não aplicada**

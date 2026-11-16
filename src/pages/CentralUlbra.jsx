@@ -31,6 +31,7 @@ import {
 } from "../utils/ulbraConversaCliente";
 import usePolling from "../utils/polling";
 import { normalizarEmail } from "../utils/ulbraRecebimento";
+import { conversaParaLer, criarLeituraHistorico, historicoInicial, podeLerHistoricoNaCentral } from "../utils/ulbraHistoricoSelecao";
 import {
   DESTINO,
   FAIXAS,
@@ -223,7 +224,30 @@ export default function CentralUlbra({ usuario }) {
   }
 
   // Seleção e voltar empilham histórico: o "voltar" do navegador desfaz a escolha.
+  // Histórico da conversa selecionada: lido só no clique "Ver conversa" (ver ulbraHistoricoSelecao).
+  // Nada é lido ao selecionar ou abrir a Central. Sem vínculo, nada é lido.
+  const [historicoSel, setHistoricoSel] = useState(historicoInicial);
+  const leituraRef = useRef(null);
+  if (leituraRef.current === null) leituraRef.current = criarLeituraHistorico();
+  const itensPrioridade = listaPrioridade({ ...dados, sem_interacao: carteira.linhas }, filtros.faixa);
+  const selItem = itensPrioridade.find((i) => i.chave === filtros.conv) || null;
+  const podeVerConversa = podeLerHistoricoNaCentral(selItem);
+  function verConversa() {
+    const id = conversaParaLer(selItem);
+    if (id) leituraRef.current.ver(id, setHistoricoSel);
+  }
+
+  // A seleção vem da URL: troca por qualquer caminho (clique, voltar/avançar) cancela a leitura
+  // pendente e limpa o histórico anterior. Não lê nada.
+  useEffect(() => {
+    leituraRef.current.cancelar();
+    setHistoricoSel(historicoInicial());
+  }, [filtros.conv]);
+
   function selecionarConversa(chave) {
+    // Trocar de seleção: cancela leitura pendente e limpa o histórico anterior.
+    leituraRef.current.cancelar();
+    setHistoricoSel(historicoInicial());
     setParams(new URLSearchParams(paraBusca({ ...filtros, conv: chave }).replace(/^\?/, "")));
   }
   function voltarParaLista() {
@@ -253,6 +277,8 @@ export default function CentralUlbra({ usuario }) {
   const conversaIdDe = (sel) => sel?.bruto?.conversa_id || (String(sel?.chave || "").startsWith("r:") ? String(sel.chave).slice(2) : null);
 
   async function carregarHistorico(sel, antesDe = null) {
+    // Porta da #969: sem HISTORICO_DISPONIVEL ou sem vínculo confirmado, nenhuma chamada à Mensageria.
+    if (!podeLerHistoricoNaCentral(sel)) return;
     const conversaId = conversaIdDe(sel);
     if (!conversaId) {
       setHistoricos((h) => ({ ...h, [sel.chave]: { estado: "erro", mensagens: [], erro: "Esta linha não tem conversa coletada na Mensageria (só carteira interna)." } }));
@@ -446,7 +472,7 @@ export default function CentralUlbra({ usuario }) {
           historico={historicos[filtros.conv] || { estado: "indisponivel", mensagens: [] }}
           aoAbrirFicha={aoAbrirFicha}
           vazio="nenhuma conversa nesta fila"
-          onCarregarHistorico={carregarHistorico}
+          onCarregarHistorico={podeVerConversa ? carregarHistorico : undefined}
           conexao={conexao}
           onConectar={conversaNoAr ? conectar : undefined}
           onDesconectar={conversaNoAr ? desconectar : undefined}
