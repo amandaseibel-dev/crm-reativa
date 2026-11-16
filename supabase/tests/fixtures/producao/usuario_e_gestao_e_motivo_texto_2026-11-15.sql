@@ -1,3 +1,4 @@
+-- USO EXCLUSIVO DE BANCO DESCARTAVEL (PGlite ou Postgres local de teste). NUNCA aplicar em producao nem em staging. Nao e migration.
 CREATE OR REPLACE FUNCTION public.acoes_massivas_motivo_texto(p_motivo text)
  RETURNS text
  LANGUAGE sql

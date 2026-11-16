@@ -142,7 +142,7 @@ describe("Exportação — fluxo da página (xlsx real; gravação interceptada 
     avisos.mockRestore();
   });
 
-  it("resultado incerto (sem código de validação): bloqueia nova exportação até conferir o histórico", async () => {
+  it("resultado incerto: Exportar fica desabilitado nesta tela (proteção de interface, não do servidor)", async () => {
     controle.rpcErro = Object.assign(new Error("Failed to fetch"), {});
     const erros = vi.spyOn(console, "error").mockImplementation(() => {});
     await montarEBuscar();
@@ -168,6 +168,27 @@ describe("Exportação — fluxo da página (xlsx real; gravação interceptada 
     expect(screen.getByRole("button", { name: /Exportar planilha/ }).disabled).toBe(false);
     expect(controle.gravacoes.length).toBe(0);
     erros.mockRestore();
+  });
+
+  it("lote concluído + busca inválida (valor mínimo inválido): a busca recusada não libera Exportar nem repete a RPC", async () => {
+    await montarEBuscar();
+    await gerarPlanilha();
+    await waitFor(() => expect(controle.gravacoes.length).toBe(1));
+    expect(screen.getByRole("button", { name: /Exportar planilha/ }).disabled).toBe(true);
+    const previasAntes = rpcMock.mock.calls.filter(([n]) => n === "acoes_massivas_previa").length;
+    // busca inválida: valor mínimo não numérico. A validação local recusa antes de qualquer RPC
+    // e os resultados da busca anterior continuam na tela (caminho do ALTO-1).
+    await act(async () => {
+      fireEvent.change(document.getElementById("filtro-valor-min"), { target: { value: "abc" } });
+    });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Buscar/ })); });
+    await waitFor(() => expect(screen.getByText(/Valor mínimo inválido/)).toBeTruthy());
+    // continua bloqueado: nenhuma nova previa foi pedida e Exportar segue desabilitado
+    expect(rpcMock.mock.calls.filter(([n]) => n === "acoes_massivas_previa").length).toBe(previasAntes);
+    expect(screen.getByRole("button", { name: /Exportar planilha/ }).disabled).toBe(true);
+    // nenhuma exportação extra foi registrada
+    expect(exportacoes()).toBe(1);
+    expect(controle.gravacoes.length).toBe(1);
   });
 
   it("exportação concluída bloqueia nova exportação até nova prévia", async () => {
