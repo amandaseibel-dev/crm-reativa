@@ -1,3 +1,4 @@
+-- USO EXCLUSIVO DE BANCO DESCARTAVEL (PGlite ou Postgres local de teste). NUNCA aplicar em producao nem em staging. Nao e migration.
 -- CORPO VIVO DE PRODUCAO de public.acoes_massivas_tipo_cobranca_alunos, lido por
 -- pg_get_functiondef em 13/11/2026 (leitura somente leitura). md5 = 323628b786a44f2a108210f8beafea8b.
 -- ACL publicada: postgres, service_role. Consumidores: acoes_massivas_universo (SECURITY DEFINER).

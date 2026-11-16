@@ -254,7 +254,7 @@ export default function AcoesMassivas() {
   const [soSemTelefone, setSoSemTelefone] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [gerando, setGerando] = useState(false);
-  // Fase do ultimo registro: incerta bloqueia nova exportacao ate o operador conferir o historico.
+  // Fase do ultimo registro: incerta bloqueia nova exportacao nesta tela. Consultar o historico NAO libera; so recarregar a pagina remove o bloqueio local.
   const [faseExport, setFaseExport] = useState(FASE.OCIOSO);
   const [erroHistorico, setErroHistorico] = useState("");
   const [resultados, setResultados] = useState(null);

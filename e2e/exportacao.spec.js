@@ -263,7 +263,7 @@ test.describe("exportacao de Acoes Massivas no navegador (dados ficticios, sem p
     await expect(page.getByRole("button", { name: /Exportar planilha/ })).toBeDisabled();
   });
 
-  test("6. resultado incerto: historico consultado nao libera pela interface; recarregar limpa o bloqueio local (limite declarado, nao garantia)", async ({ page }) => {
+  test("6. resultado incerto: consultar o historico nao libera pela interface (recarga nao e caminho de liberacao e nao e assertada aqui)", async ({ page }) => {
     await prepararPagina(page, { exportar: "perdida", historico: "ok" });
     await abrirEPrevisar(page);
     await page.getByRole("button", { name: /Exportar planilha/ }).click();
@@ -271,10 +271,7 @@ test.describe("exportacao de Acoes Massivas no navegador (dados ficticios, sem p
     await page.getByRole("button", { name: "Consultar histórico de lotes" }).click();
     // Mesmo com o historico consultado, a interface nao libera: nao ha liberacao por caixa.
     await expect(page.getByRole("button", { name: /Exportar planilha/ })).toBeDisabled();
-    // Limite declarado: o bloqueio e so local. Recarregar a pagina o perde; nao ha prova de servidor.
-    await page.reload();
-    // Apos recarregar a previa some: e preciso gerar uma nova para ver o botao de exportar.
-    await abrirEPrevisar(page);
-    await expect(page.getByRole("button", { name: /Exportar planilha/ })).toBeEnabled();
+    // Limite conhecido (nao e contrato): recarregar a pagina limpa o bloqueio local e nao prova nada no servidor.
+    // Por isso este teste nao recarrega a pagina nem afirma que o botao volta a ficar habilitado.
   });
 });

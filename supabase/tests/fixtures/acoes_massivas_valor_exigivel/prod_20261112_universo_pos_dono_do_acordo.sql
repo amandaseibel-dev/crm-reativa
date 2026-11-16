@@ -1,3 +1,4 @@
+-- USO EXCLUSIVO DE BANCO DESCARTAVEL (PGlite ou Postgres local de teste). NUNCA aplicar em producao nem em staging. Nao e migration.
 CREATE OR REPLACE FUNCTION public.acoes_massivas_fidelizacao_protege(p_dua timestamp with time zone, p_agora timestamp with time zone DEFAULT now())
  RETURNS boolean
  LANGUAGE sql

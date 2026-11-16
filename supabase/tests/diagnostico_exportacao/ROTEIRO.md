@@ -45,8 +45,8 @@ Todas foram lidas de `pg_get_functiondef` do projeto de produção em 15/11/2026
 | `acoes_massivas_exportar/prod_20261115_definicao_vigente.sql` | exportação (RPC que registra o lote) | `3cb34134…` | `c9cc7498…` |
 | `producao/registrar_acao_massiva_2026-11-15.sql` | registro das movimentações e tabulação | `f0ec7ea8…` | `6eb41bf1…` |
 | `producao/usuario_e_gestao_e_motivo_texto_2026-11-15.sql` | gate de gestão e textos de motivo | `3efe65c3…` | `af3d391f…` (gate), `d12cf7a6…` (motivo) |
-| `acoes_massivas_valor_exigivel/prod_20261112_universo_pos_dono_do_acordo.sql` | universo (estado pré-#941) | `a17abb74…` | `8f94a168…` |
-| `acoes_massivas_valor_exigivel/prod_20261113_tipo_cobranca_alunos.sql` | tipo de cobrança (estado pré-#941) | `ac641ead…` | `323628b7…` |
+| `acoes_massivas_valor_exigivel/prod_20261112_universo_pos_dono_do_acordo.sql` | universo (estado pré-#941) | `1e34590e…` | `8f94a168…` |
+| `acoes_massivas_valor_exigivel/prod_20261113_tipo_cobranca_alunos.sql` | tipo de cobrança (estado pré-#941) | `9f69133a…` | `323628b7…` |
 
 **Uso exclusivo de banco descartável (PGlite ou Postgres local de teste).** Estas fixtures NUNCA são aplicadas em produção nem em staging. Não são migrations e não entram no ledger. O cabeçalho de cada `.sql` diz isso. O MD5 do arquivo foi recalculado depois de incluir o cabeçalho; o MD5 da definição (`pg_get_functiondef`) não muda, porque o cabeçalho é comentário fora da função.
 
