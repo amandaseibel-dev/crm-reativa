@@ -278,3 +278,84 @@ begin
   perform pg_temp.afirma(exists (select 1 from public.calibragem_parametros where chave = 'nivelamento_v2_desde'),
     'corte nivelamento_v2_desde gravado pela migration');
 end $$;
+
+-- ------------------------------------ 12. B1 / B3 / B6 / B10 / B12 (14/11) ----
+-- B10: a migration removeu o job 48 e agendou a V2 (um so mecanismo).
+do $$
+begin
+  perform pg_temp.afirma(not exists (select 1 from cron.job where jobname = 'nivelamento_automatico_gestao'),
+    'B10: job 48 removido pela migration');
+  perform pg_temp.afirma(exists (select 1 from cron.job where jobname = 'nivelamento_v2_reposicao'),
+    'B10: reposicao V2 agendada (um so mecanismo)');
+end $$;
+
+-- B12: o corte nao se move ao reexecutar o statement da migration (copiado).
+do $$
+declare v_antes text; v_depois text;
+begin
+  select valor #>> '{}' into v_antes from public.calibragem_parametros where chave = 'nivelamento_v2_desde';
+  insert into public.calibragem_parametros(chave, valor, descricao, atualizado_em, atualizado_por)
+  values ('nivelamento_v2_desde', to_jsonb(now()::text), 'reexec', now(), 'reexec')
+  on conflict (chave) do nothing;
+  select valor #>> '{}' into v_depois from public.calibragem_parametros where chave = 'nivelamento_v2_desde';
+  perform pg_temp.afirma(v_antes = v_depois, 'B12: reexecutar a migration nao move o corte');
+end $$;
+
+-- B1: operador ACIMA do teto (3 casos, teto 2) assume com troca de mesmo saldo:
+-- sucesso, e a carteira nao aumenta (continua 3).
+update public.calibragem_parametros set valor = to_jsonb(2) where chave = 'limite_carteira';
+insert into public.acordos_titulos(aluno_id, situacao, valor_original, saldo_corrigido)
+select a, 'ABERTO', 200, 200 from (values
+  ('00000000-0000-0000-0000-00000000a0c1'::uuid),('00000000-0000-0000-0000-00000000a0c2'::uuid),
+  ('00000000-0000-0000-0000-00000000a0c3'::uuid),('00000000-0000-0000-0000-00000000a0c4'::uuid)) t(a);
+insert into public.usuarios(email,nome) values ('opf@t.local','OPF') on conflict do nothing;
+insert into public.casos(id, aluno_id, cpf_limpo, nome, operador_email, operador_nome, status_atual) values
+ ('a0000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-00000000a0c1','f01','F1','opf@t.local','OPF','Sem contato'),
+ ('a0000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-00000000a0c2','f02','F2','opf@t.local','OPF','Sem contato'),
+ ('a0000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-00000000a0c3','f03','F3','opf@t.local','OPF','Sem contato'),
+ ('a0000000-0000-0000-0000-000000000004','00000000-0000-0000-0000-00000000a0c4','f04','F4',null,null,'Sem contato');
+update public.casos set operador_email = null, operador_nome = null where id = 'a0000000-0000-0000-0000-000000000004';
+
+do $$
+declare r record; v_antes int; v_depois int;
+begin
+  perform set_config('teste.email', 'opf@t.local', false);
+  v_antes := public.nivelamento_ocupacao('opf@t.local');
+  select * into r from public.assumir_caso_livre('a0000000-0000-0000-0000-000000000004');
+  perform set_config('teste.email', '', false);
+  v_depois := public.nivelamento_ocupacao('opf@t.local');
+  perform pg_temp.afirma(v_antes = 3, 'B1: operador acima do teto com 3 casos (teto 2)');
+  perform pg_temp.afirma(r.sucesso, 'B1: assumir acima do teto com troca de mesmo saldo: SUCESSO');
+  perform pg_temp.afirma(v_depois = v_antes, 'B1: carteira nao aumenta (continua 3)');
+end $$;
+update public.calibragem_parametros set valor = to_jsonb(700) where chave = 'limite_carteira';
+
+-- B6: erro numa baixa nao aborta o lote. Trigger de teste derruba so o update
+-- do caso de um operador marcado; a baixa seguinte do outro pagamento e processada.
+insert into public.usuarios(email,nome) values ('erro@t.local','ERRO') on conflict do nothing;
+insert into public.casos(id, aluno_id, cpf_limpo, nome, operador_email, operador_nome, status_atual) values
+ ('b0000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-00000000a00a','888','HOLD','erro@t.local','ERRO','Sem contato');
+insert into public.baixas_pagamento(id, aluno_id, aluno_cpf, solicitacao_link_id, valor_pago, status_baixa, baixado_em)
+values ('c0000000-0000-0000-0000-000000000001','x','888','d0000000-0000-0000-0000-000000000001',50,'REALIZADA',now()),
+       ('c0000000-0000-0000-0000-000000000002','x','111','d0000000-0000-0000-0000-000000000002',60,'REALIZADA',now());
+create function pg_temp.derruba_erro() returns trigger language plpgsql as $$
+begin
+  if new.operador_email = 'erro@t.local' and old.operador_email is distinct from 'erro@t.local' then
+    raise exception 'erro de teste (B6)';
+  end if;
+  return new;
+end $$;
+create trigger teste_b6 before update on public.casos for each row execute function pg_temp.derruba_erro();
+
+do $$
+declare v_erro int; v_ok int;
+begin
+  perform internal.nivelamento_reposicao_core(50);
+  select count(*) into v_erro from public.calibragem_auditoria
+   where evento = 'REPOSICAO_V2_ERRO' and situacao_posterior->>'baixa_id' = 'c0000000-0000-0000-0000-000000000001';
+  select count(*) into v_ok from public.calibragem_auditoria
+   where evento = 'REPOSICAO_V2' and situacao_posterior->>'baixa_id' = 'c0000000-0000-0000-0000-000000000002';
+  perform pg_temp.afirma(v_erro = 1, 'B6: baixa com erro vira REPOSICAO_V2_ERRO (sem abortar o lote)');
+  perform pg_temp.afirma(v_ok = 1, 'B6: a baixa seguinte do lote foi processada apesar do erro');
+end $$;
+drop trigger teste_b6 on public.casos;

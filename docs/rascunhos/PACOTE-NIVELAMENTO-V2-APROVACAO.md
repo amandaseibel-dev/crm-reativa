@@ -8,12 +8,12 @@ Branch `feat/nivelamento-v2`. Commit atual: ver `git log -1`.
 
 | Artefato | SHA-256 |
 |---|---|
-| `supabase/aguardando_aprovacao/20261116120000_nivelamento_v2.sql.pendente` | 8454c449a2a32475 |
+| `supabase/aguardando_aprovacao/20261116120000_nivelamento_v2.sql.pendente` | 4b440856b9aa337f |
 | `supabase/aguardando_aprovacao/20261116120100_calibragem_gate_somente_gestao.sql.pendente` | 1e062e0746a5f351 |
-| `supabase/aguardando_aprovacao/20261116120000_nivelamento_v2.rollback.sql` | 5e796f605cdff0f1 |
+| `supabase/aguardando_aprovacao/20261116120000_nivelamento_v2.rollback.sql` | a4ea5aba7e9a914a |
 | `supabase/aguardando_aprovacao/20261116120100_calibragem_gate_somente_gestao.rollback.sql` | 059089893dd364e8 |
-| `supabase/tests/nivelamento_v2/01_ambiente.sql` | 45136e8cd570264a |
-| `supabase/tests/nivelamento_v2/02_casos.sql` | 9c4ed1d02c68a32f |
+| `supabase/tests/nivelamento_v2/01_ambiente.sql` | 60116b22ea24086d |
+| `supabase/tests/nivelamento_v2/02_casos.sql` | 9eea9c936c1af8be |
 | `supabase/tests/nivelamento_v2/03_concorrencia_setup.sql` | 7bf3881bd81f3438 |
 | `supabase/tests/nivelamento_v2/04_pos_rollback.sql` | 4ef1fde3f4f431dc |
 | `supabase/tests/nivelamento_v2/05_gate.sql` | f2638a6607c7e0a4 |
@@ -75,3 +75,12 @@ Ver `docs/rascunhos/PACOTE-NIVELAMENTO-V2-STATUS-2026-11-12.md`: 7 operadores de
 - **Backup por assinatura:** `nivelamento_v2_backup` e o gate gravam `fn:schema.nome(args)`, então sobrecargas não se perdem.
 - **Senha:** o SQL do papel não tem senha; o teste do extrator usa `PG_SENHA_LEITOR_CI`, gerada a cada execução no CI (`openssl rand`) e mascarada. Nenhuma credencial real versionada.
 - **Ainda não provado:** dependências reais de produção (export pendente), colunas de `baixas_pagamento` em produção, e se a quitação administrativa realmente deixa `solicitacao_link_id` nulo. Essas três são pré-condição de aplicação, não de revisão.
+
+## Correções desta rodada (bloqueios B1, B3, B6, B10–B12)
+- **B1 (assumir acima do teto):** a guarda final compara com `greatest(teto, ocupação anterior)`; troca no teto ou acima mantém a carteira. Teste na seção 12 (operador com 3 casos, teto 2).
+- **B3 (concorrência com executores):** a V2 toma primeiro a chave `calibragem_executar_nivelamento` (usada por calibragem e onda1) e depois `nivelamento_carteiras_v2`. Ordem fixa. Não há teste de duas sessões contra o executor; a prova é de leitura do lock.
+- **B6 (isolamento por baixa):** cada baixa roda em bloco com exceção; erro vira `REPOSICAO_V2_ERRO` e não aborta o lote. Teste com trigger de teste na seção 12.
+- **B10 (unschedule):** só remove o job 48 se `jobid=48` e `jobname='nivelamento_automatico_gestao'`; senão aborta sem agendar a V2.
+- **B11 (rollback do cron):** restaura `active` do backup com `cron.alter_job`.
+- **B12 (corte):** `on conflict do nothing`; reexecutar não move o corte. Teste na seção 12.
+- **Pendente de decisão (não implementado):** B2/D1 (base de ocupação da V2 inclui protegidos; o gatilho vivo exclui) e D4 (remoção do caminho de sessão postgres no gate). Ver mensagem à gestão.

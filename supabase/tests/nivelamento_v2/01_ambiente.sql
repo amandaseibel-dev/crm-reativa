@@ -58,6 +58,13 @@ create or replace function cron.unschedule(p_id bigint) returns boolean language
 $$;
 
 -- 4. TABELAS -------------------------------------------------------------------
+-- alter_job (pg_cron): stub minimo para o rollback de 'active'
+create or replace function cron.alter_job(job_id bigint, active boolean default null)
+returns void language plpgsql as $$
+begin
+  update cron.job j set active = coalesce(alter_job.active, j.active) where j.jobid = alter_job.job_id;
+end $$;
+
 create table public.usuarios (
   email              text primary key,
   nome               text,

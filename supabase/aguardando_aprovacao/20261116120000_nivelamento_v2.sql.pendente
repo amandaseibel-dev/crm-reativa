@@ -67,8 +67,9 @@ insert into public.calibragem_parametros(chave, valor, descricao, atualizado_em,
 values ('nivelamento_v2_desde', to_jsonb(now()::text),
         'Corte da reposicao V2: so baixas REALIZADAS a partir deste instante geram reposicao.',
         now(), 'migration 20261116120000')
-on conflict (chave) do update
-  set valor = excluded.valor, atualizado_em = now(), atualizado_por = excluded.atualizado_por;
+-- B12: on conflict DO NOTHING. Reexecutar a migration NAO move o corte (moveria a janela
+-- e poderia pular baixas do intervalo).
+on conflict (chave) do nothing;
 
 -- ============================================================================
 -- 1. OCUPACAO E SALDO
@@ -230,6 +231,9 @@ declare
   v_chave text; v_cpf text; v_saldo bigint; v_aplicadas int := 0; v_registros int := 0;
   v_sessao text := 'job:' || session_user;
 begin
+  -- B3: executores calibragem_executar_nivelamento e onda1 usam a MESMA chave; a V2
+  -- toma essa chave primeiro (ordem fixa: sem deadlock), depois a propria.
+  perform pg_advisory_xact_lock(hashtext('calibragem_executar_nivelamento'));
   perform pg_advisory_xact_lock(hashtext('nivelamento_carteiras_v2'));
 
   select (valor #>> '{}')::timestamptz into v_desde
@@ -254,11 +258,12 @@ begin
      order by b.baixado_em, b.id
      limit p_limite
   loop
+    begin
     v_cpf := lpad(regexp_replace(coalesce(v_b.aluno_cpf,''), '\D', '', 'g'), 11, '0');
     -- Identificador ESTAVEL do pagamento: o link de pagamento que originou a baixa.
     -- Duas baixas do mesmo link = um pagamento (reenvio/duplicata). Baixas de links
     -- distintos = pagamentos distintos, mesmo com cpf, valor e dia iguais.
-    -- Sem link, o id da propria baixa e o identificador (cada linha e um evento).
+    -- O filtro exige link, entao o ramo 'baixa:' e defensivo e nao e alcancado.
     v_chave := coalesce('link:' || v_b.solicitacao_link_id::text, 'baixa:' || v_b.id::text);
     v_saldo := round(coalesce(v_b.valor_pago,0) * 100)::bigint;
 
@@ -345,6 +350,14 @@ begin
                          'saldo_centavos', v_saldo),
       v_sessao);
     v_aplicadas := v_aplicadas + 1;
+    exception when others then
+      -- B6: erro numa baixa vira evento e NAO aborta o lote. O evento _ERRO conta como
+      -- processado (filtro de idempotencia por baixa_id), entao nao repete na hora seguinte.
+      insert into public.calibragem_auditoria(evento, cpf, motivo, regra, situacao_posterior, registrado_por_email)
+      values ('REPOSICAO_V2_ERRO', v_cpf, 'Erro ao processar a baixa: ' || sqlerrm, 'REPOSICAO_V2',
+              jsonb_build_object('baixa_id', v_b.id::text, 'chave_pagamento', v_chave), v_sessao);
+      v_registros := v_registros + 1;
+    end;
   end loop;
 
   return jsonb_build_object('reposicoes_aplicadas', v_aplicadas, 'registros', v_registros,
@@ -395,6 +408,9 @@ begin
   v_upper := upper(v_nome);
   -- A4: mesmo lock da reposicao. Serializa assumir x assumir e assumir x reposicao
   -- (ocupacao e lida depois do lock; em READ COMMITTED isso so vale com o lock).
+  -- B3: executores calibragem_executar_nivelamento e onda1 usam a MESMA chave; a V2
+  -- toma essa chave primeiro (ordem fixa: sem deadlock), depois a propria.
+  perform pg_advisory_xact_lock(hashtext('calibragem_executar_nivelamento'));
   perform pg_advisory_xact_lock(hashtext('nivelamento_carteiras_v2'));
   select c.* into v_new from public.casos c where c.id = p_caso_id for update;
   if not found then return query select false,'Caso nao encontrado.',null::uuid; return; end if;
@@ -450,8 +466,10 @@ begin
     'Assumido de '||coalesce(v_pool,'fila livre')||'. assumido_por='||v_email||' assumido_em='||now()::text||'. troca_id='||coalesce(v_troca::text,'-')||'. Fidelizacao inicia apenas apos acionamento valido.', now()
   from public.casos where id = p_caso_id;
 
-  if public.nivelamento_ocupacao(v_email) > v_teto then
-    raise exception 'ROLLBACK: operador ficaria com mais de % casos (teto vigente).', v_teto;
+  -- B1: no teto ou acima, a troca mantem a contagem. A guarda compara com a ocupacao ANTES
+  -- (nao so com o teto), senao toda troca acima do teto daria excecao.
+  if public.nivelamento_ocupacao(v_email) > greatest(v_teto, v_count) then
+    raise exception 'ROLLBACK: carteira aumentaria (ocupacao maior que o teto e que a ocupacao anterior).';
   end if;
   return query select true, 'Atendimento assumido. Acione dentro do prazo operacional para iniciar a fidelizacao de 10 dias.', v_liberado;
 end;
@@ -462,6 +480,12 @@ $function$;
 --    hora, no minuto 7). Nao pode haver dois mecanismos distribuindo.
 -- ============================================================================
 
+do $$
+begin
+  if not exists (select 1 from cron.job where jobid = 48 and jobname = 'nivelamento_automatico_gestao') then
+    raise exception 'job 48 nao e nivelamento_automatico_gestao: aborta sem agendar a V2';
+  end if;
+end $$;
 select cron.unschedule(48);
 select cron.schedule('nivelamento_v2_reposicao', '7 * * * *',
                      'select internal.nivelamento_reposicao_core(200)');

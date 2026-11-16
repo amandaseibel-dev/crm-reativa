@@ -41,13 +41,17 @@ grant execute on function public.assumir_caso_livre(uuid) to authenticated, serv
 --    (Nao ha como reatribuir o id 48 pelo SQL do pg_cron.)
 select cron.unschedule(jobid) from cron.job where jobname = 'nivelamento_v2_reposicao';
 do $$
-declare v_partes text[];
+declare v_partes text[]; v_id bigint;
 begin
   select string_to_array(definicao, '|') into v_partes
     from public.nivelamento_v2_backup where nome = 'cron:48';
   -- formato: schedule|command|active  (command pode conter '|': juntar o meio)
-  perform cron.schedule('nivelamento_automatico_gestao', v_partes[1],
+  v_id := cron.schedule('nivelamento_automatico_gestao', v_partes[1],
            array_to_string(v_partes[2:array_length(v_partes,1)-1], '|'));
+  -- B11: restaura o estado 'active' salvo no backup (desativado fica desativado)
+  if v_partes[array_length(v_partes,1)] = 'false' then
+    perform cron.alter_job(v_id, active := false);
+  end if;
 end $$;
 
 -- 4. Remove funcoes V2 (nao usadas pelo estado anterior).
