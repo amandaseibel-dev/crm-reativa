@@ -7,9 +7,10 @@ select public.teste_assert('config ausente: gestão recusada (fecha)',
 -- Linha ausente: RPC e UPDATE direto também recusados (fail closed), sem alteração.
 -- Contagem ANTES da tentativa, do MESMO aluno enviado à RPC (a0000000-0000-0000-0000-000000000042).
 select (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'a0000000-0000-0000-0000-000000000042'$q$))->'rows')) as n_antes_42 \gset
-select public.teste_assert('config ausente: RPC recusada à gestão (42501), sem linha',
-  (public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
-    $sql$select public.registrar_administrativo_termo_fisico('a0000000-0000-0000-0000-000000000042','TERMO_FISICO_ARQUIVADO')$sql$)->>'code' = '42501')
+select public.teste_assert('config ausente: RPC recusada à gestão (42501), mensagem exata da contenção, sem linha',
+  ((select (r->>'code') = '42501' and (r->>'err') = 'Registro de termo físico suspenso pela gestão (contenção). Nada foi gravado.'
+    from (select public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
+      $sql$select public.registrar_administrativo_termo_fisico('a0000000-0000-0000-0000-000000000042','TERMO_FISICO_ARQUIVADO')$sql$) as r) x)
   and (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'a0000000-0000-0000-0000-000000000042'$q$))->'rows')) = :n_antes_42);
 select public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
   $sql$update public.aluno_movimentacoes set status_novo = 'TERMO_FISICO_EM_ANDAMENTO' where aluno_id = 'c1'$sql$);
