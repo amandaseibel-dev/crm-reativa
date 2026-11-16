@@ -31,8 +31,8 @@ begin
     raise exception 'RESTAURACAO RECUSADA: % de % ids tem snapshot pre_20261114.', v_com_snapshot, v_esperado;
   end if;
 
-  -- Restaura o snapshot inclusive "Ja falei" (pode voltar para nulo): liga a GUC da trava B2.
-  perform set_config('reativa.reagendar_retorno', 'on', true);
+  -- Restaura o snapshot inclusive "Ja falei" (pode voltar para nulo). Executa como o
+  -- deployer (dono), fora de papel authenticated: a trava B2 nao recusa.
   with snap as (
     select distinct on (aluno_id) aluno_id, data_retorno, hora_retorno, retorno_origem,
            retorno_confirmado_em, retorno_prioritario

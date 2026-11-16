@@ -13,6 +13,7 @@
 -- e etapa separada, com aprovacao: ver 20261114120000_restauracao_por_id.sql.pendente.
 begin;
 
+drop function if exists public.atendimento_reagendar_com_status(uuid, date, text, boolean, jsonb);
 drop function if exists public.agenda_reagendar_retorno(uuid, date, text, boolean);
 
 -- Remove a trava B2 ("Ja falei" so zera pela RPC), que nao existia na origem.

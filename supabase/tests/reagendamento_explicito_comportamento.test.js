@@ -95,7 +95,9 @@ const ESQUEMA = `
     data_retorno date, hora_retorno text, retorno_origem text,
     retorno_prioritario boolean default false, retorno_confirmado_em timestamptz,
     nivel_criticidade text, situacao_operacional text, proxima_acao text,
-    saldo_vencido numeric, saldo_total numeric, valor_em_aberto numeric, observacao text
+    saldo_vencido numeric, saldo_total numeric, valor_em_aberto numeric, observacao text,
+    status_jornada text, status_atual text, ultimo_contato timestamptz,
+    registrado_por_nome text, registrado_por_email text, registrado_em timestamptz
   );
   create table public.casos (
     id uuid primary key default gen_random_uuid(), aluno_id uuid,
@@ -683,6 +685,105 @@ describe("trava B2: 'Ja falei' nao zera por UPDATE direto, so pela RPC", () => {
     const { d } = (await db.query("select (data_retorno - current_date)::int as d from public.alunos where id = $1", [ALUNA])).rows[0];
     const antes = await linha(db, ALUNA);
     await reagendar(db, OPERADOR, ALUNA, d + 1, antes.hora_retorno ?? null);
+    expect((await linha(db, ALUNA)).confirmado).toBeNull();
+  });
+});
+
+// TRAVA POR PAPEL (sem GUC): authenticated/anon nao zeram "Ja falei" por UPDATE;
+// as RPCs SECURITY DEFINER (dono postgres) zeram, cada uma com a propria autorizacao.
+describe("trava por papel: confirmar, desfazer, reagendar, recusas e contorno", () => {
+  it("desfazer (agenda_confirmar_retorno false) pelo dono zera a confirmacao", async () => {
+    const db = await montar({ comPacote: true });
+    await jaFalei(db, OPERADOR, ALUNA);
+    expect((await linha(db, ALUNA)).confirmado).not.toBeNull();
+    await comPapel(db, "authenticated", OPERADOR, () =>
+      db.query("select public.agenda_confirmar_retorno($1, false)", [ALUNA]));
+    expect((await linha(db, ALUNA)).confirmado).toBeNull();
+  });
+
+  it("desfazer por usuario NAO dono e recusado e mantem a confirmacao", async () => {
+    const db = await montar({ comPacote: true });
+    await jaFalei(db, OPERADOR, ALUNA);
+    const antes = (await linha(db, ALUNA)).confirmado;
+    await expect(
+      comPapel(db, "authenticated", OUTRO, () =>
+        db.query("select public.agenda_confirmar_retorno($1, false)", [ALUNA]))
+    ).rejects.toThrow(/Sem permissao/);
+    expect((await linha(db, ALUNA)).confirmado).toBe(antes);
+  });
+
+  it("contorno: UPDATE direto como authenticated com set_config no WHERE continua recusado", async () => {
+    const db = await montar({ comPacote: true });
+    await db.exec("grant select, update on public.alunos to authenticated;");
+    await jaFalei(db, OPERADOR, ALUNA);
+    const antes = (await linha(db, ALUNA)).confirmado;
+    await expect(
+      comPapel(db, "authenticated", OPERADOR, () =>
+        db.query(
+          "update public.alunos set retorno_confirmado_em = null where id = $1 and set_config('reativa.reagendar_retorno','on',true) is not null",
+          [ALUNA]))
+    ).rejects.toThrow(/Ja falei so zera/);
+    expect((await linha(db, ALUNA)).confirmado).toBe(antes);
+  });
+
+  it("atendimento_reagendar_com_status pelo dono: reagenda, zera a confirmacao e grava o status", async () => {
+    const db = await montar({ comPacote: true });
+    await jaFalei(db, OPERADOR, ALUNA);
+    await comPapel(db, "authenticated", OPERADOR, () =>
+      db.query(
+        "select public.atendimento_reagendar_com_status($1, current_date + 4, '18:00', false, $2::jsonb)",
+        [ALUNA, JSON.stringify({ status_jornada: "RETORNO_OK", status_atual: "RETORNO_OK" })]));
+    const depois = await db.query("select status_atual, retorno_confirmado_em from public.alunos where id = $1", [ALUNA]);
+    expect(depois.rows[0].status_atual).toBe("RETORNO_OK");
+    expect(depois.rows[0].retorno_confirmado_em).toBeNull();
+  });
+
+  it("atendimento_reagendar_com_status: falha no status desfaz o reagendamento (uma transacao)", async () => {
+    const db = await montar({ comPacote: true });
+    await jaFalei(db, OPERADOR, ALUNA);
+    const antes = await linha(db, ALUNA);
+    const antesStatus = (await db.query("select status_atual from public.alunos where id = $1", [ALUNA])).rows[0].status_atual;
+    await expect(
+      comPapel(db, "authenticated", OPERADOR, () =>
+        db.query(
+          "select public.atendimento_reagendar_com_status($1, current_date + 4, '18:00', false, $2::jsonb)",
+          [ALUNA, JSON.stringify({ status_atual: "X", registrado_em: "nao-e-data" })]))
+    ).rejects.toThrow();
+    expect(await linha(db, ALUNA)).toEqual(antes);
+    expect((await db.query("select status_atual from public.alunos where id = $1", [ALUNA])).rows[0].status_atual).toBe(antesStatus);
+  });
+
+  it("atendimento_reagendar_com_status por usuario NAO dono e recusado e nada muda", async () => {
+    const db = await montar({ comPacote: true });
+    await jaFalei(db, OPERADOR, ALUNA);
+    const antes = await linha(db, ALUNA);
+    await expect(
+      comPapel(db, "authenticated", OUTRO, () =>
+        db.query("select public.atendimento_reagendar_com_status($1, current_date + 4, null, false, '{}'::jsonb)", [ALUNA]))
+    ).rejects.toThrow(/Sem permissao/);
+    expect(await linha(db, ALUNA)).toEqual(antes);
+  });
+
+  it("restauracao/backend (papel postgres) zera a confirmacao: a trava nao recusa fora de authenticated", async () => {
+    const db = await montar({ comPacote: true });
+    await jaFalei(db, OPERADOR, ALUNA);
+    await db.exec("update public.alunos set retorno_confirmado_em = null where id = '" + ALUNA + "';");
+    expect((await linha(db, ALUNA)).confirmado).toBeNull();
+  });
+
+  it("reversao completa: o rollback retira a trava, a funcao de atendimento e a RPC; o zeramento direto volta a valer", async () => {
+    const db = await montar({ comPacote: true });
+    await db.exec("grant select, update on public.alunos to authenticated;");
+    await db.exec(P2_ROLL);
+    const trava = await db.query("select count(*)::int as n from pg_trigger where tgname = 'trg_alunos_confirmacao_so_reagendamento'");
+    expect(trava.rows[0].n).toBe(0);
+    const f = await db.query(`select to_regprocedure('public.tg_alunos_confirmacao_so_reagendamento()') as t,
+        to_regprocedure('public.atendimento_reagendar_com_status(uuid,date,text,boolean,jsonb)') as a,
+        to_regprocedure('public.agenda_reagendar_retorno(uuid,date,text,boolean)') as r`);
+    expect(f.rows[0]).toEqual({ t: null, a: null, r: null });
+    await jaFalei(db, OPERADOR, ALUNA);
+    await comPapel(db, "authenticated", OPERADOR, () =>
+      db.query("update public.alunos set retorno_confirmado_em = null where id = $1", [ALUNA]));
     expect((await linha(db, ALUNA)).confirmado).toBeNull();
   });
 });

@@ -90,21 +90,23 @@ end $backup$;
 -- B. SEM GATILHO DE ZERAGEM POR DATA --------------------------------------------
 drop trigger if exists trg_aluno_reset_retorno_confirmado on public.alunos;
 
--- B2. "JA FALEI" SO ZERA PELA RPC (IMPOSTO NO BANCO, NAO NA TELA) ---------------
--- A policy alunos_update deixa o responsavel atual alterar qualquer coluna. Sem esta
+-- B2. "JA FALEI" ZERA SO POR ACAO EXPLICITA AUTORIZADA (IMPOSTO NO BANCO) -------
+-- A policy alunos_update deixa o responsavel atual alterar qualquer coluna. Sem a
 -- trava, um UPDATE direto zerava retorno_confirmado_em. A trava recusa nao-nulo ->
--- nulo, exceto quando a propria RPC liga a GUC transacional reativa.reagendar_retorno
--- (set_config ... true: vale so dentro da transacao da RPC). Restauracao por id tambem liga.
+-- nulo quando o PAPEL ATUAL e authenticated ou anon. Dentro de funcao SECURITY DEFINER
+-- (dono postgres) o papel atual e o dono: passam as RPCs agenda_confirmar_retorno
+-- (confirmar e desfazer), agenda_reagendar_retorno e atendimento_reagendar_com_status,
+-- cada uma com a propria autorizacao. Nao usa GUC: GUC e controlavel pelo cliente.
 create or replace function public.tg_alunos_confirmacao_so_reagendamento()
 returns trigger
 language plpgsql
 as $f$
 begin
-  if coalesce(current_setting('reativa.reagendar_retorno', true), '') = 'on' then
-    return new;
+  if current_user in ('authenticated', 'anon') then
+    raise exception 'Ja falei so zera por acao explicita autorizada (confirmar, desfazer ou reagendar)'
+      using errcode = '42501';
   end if;
-  raise exception 'Ja falei so zera pelo reagendamento explicito (RPC agenda_reagendar_retorno)'
-    using errcode = '42501';
+  return new;
 end
 $f$;
 
@@ -148,8 +150,6 @@ begin
   if not (v_email = coalesce(v_dono, '') or public.usuario_e_gestao()) then
     raise exception 'Sem permissao para reagendar o retorno deste aluno' using errcode = '42501';
   end if;
-  -- Unica porta que zera "Ja falei": liga a GUC que a trava B2 exige (so nesta transacao).
-  perform set_config('reativa.reagendar_retorno', 'on', true);
   update public.alunos
      set data_retorno = p_data,
          hora_retorno = nullif(p_hora, ''),
@@ -162,6 +162,45 @@ end $function$;
 
 revoke all on function public.agenda_reagendar_retorno(uuid, date, text, boolean) from public, anon;
 grant execute on function public.agenda_reagendar_retorno(uuid, date, text, boolean) to authenticated;
+
+-- C2. REAGENDAMENTO + STATUS DO ATENDIMENTO EM UMA TRANSACAO -------------------
+-- Antes, a tela chamava a RPC e depois fazia UPDATE de status: duas transacoes. Esta
+-- funcao roda as duas na mesma transacao: se a escrita de status falhar, o
+-- reagendamento tambem e desfeito. Autorizacao: a da RPC interna (sessao, usuario
+-- ativo, dono ou gestao). Campos de status: lista fixa abaixo.
+create or replace function public.atendimento_reagendar_com_status(
+  p_aluno_id uuid,
+  p_data date,
+  p_hora text default null,
+  p_prioritario boolean default false,
+  p_status jsonb default '{}'::jsonb
+)
+ returns timestamptz
+ language plpgsql
+ security definer
+ set search_path to 'public', 'auth'
+as $function$
+declare
+  v_ret timestamptz;
+begin
+  v_ret := public.agenda_reagendar_retorno(p_aluno_id, p_data, p_hora, p_prioritario);
+  update public.alunos
+     set status_jornada = coalesce(p_status->>'status_jornada', status_jornada),
+         status_atual = coalesce(p_status->>'status_atual', status_atual),
+         proxima_acao = coalesce(p_status->>'proxima_acao', proxima_acao),
+         data_ultimo_acionamento = coalesce((p_status->>'data_ultimo_acionamento')::timestamptz, data_ultimo_acionamento),
+         ultimo_contato = coalesce((p_status->>'ultimo_contato')::timestamptz, ultimo_contato),
+         registrado_por_nome = coalesce(p_status->>'registrado_por_nome', registrado_por_nome),
+         registrado_por_email = coalesce(p_status->>'registrado_por_email', registrado_por_email),
+         registrado_em = coalesce((p_status->>'registrado_em')::timestamptz, registrado_em),
+         observacao = coalesce(p_status->>'observacao', observacao)
+   where id = p_aluno_id;
+  return v_ret;
+end
+$function$;
+
+revoke all on function public.atendimento_reagendar_com_status(uuid, date, text, boolean, jsonb) from public, anon;
+grant execute on function public.atendimento_reagendar_com_status(uuid, date, text, boolean, jsonb) to authenticated;
 
 -- D. LEITURA TRAVADA NO RECALCULO (correcao do D5) -----------------------------
 -- A leitura inicial do recalculo passa a travar a linha do aluno (for update).

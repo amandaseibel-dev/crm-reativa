@@ -2318,19 +2318,21 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         atualizacaoAluno.observacao = observacao;
       }
 
-      // Reagendar de verdade: a RPC vem ANTES do UPDATE de status. Se ela falhar, nada
-      // foi gravado (nem tabulacao, nem data): o operador ve erro e o caso segue como estava.
+      // Reagendar de verdade: UMA RPC grava reagendamento e status na mesma transacao.
+      // Se qualquer escrita falhar, nada e gravado. Sem reagendamento: UPDATE comum.
       if (reagendando) {
-        const { error: erroReag } = await supabase.rpc("agenda_reagendar_retorno", {
+        const { error: erroReag } = await supabase.rpc("atendimento_reagendar_com_status", {
           p_aluno_id: a.id,
           p_data: desfecho.data_retorno,
           p_hora: retornoHora || null,
           p_prioritario: Boolean(retornoPrioritario),
+          p_status: atualizacaoAluno,
         });
         if (erroReag) throw erroReag;
+      } else {
+        const { error: erroUp } = await supabase.from("alunos").update(atualizacaoAluno).eq("id", a.id);
+        if (erroUp) throw erroUp;
       }
-      const { error: erroUp } = await supabase.from("alunos").update(atualizacaoAluno).eq("id", a.id);
-      if (erroUp) throw erroUp;
 
       const { error: erroMov } = await supabase.from("aluno_movimentacoes").insert({
         aluno_id: String(a.id),
