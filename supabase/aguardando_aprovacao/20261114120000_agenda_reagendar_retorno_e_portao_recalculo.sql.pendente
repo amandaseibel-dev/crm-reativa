@@ -17,14 +17,35 @@
 --      que zera retorno_confirmado_em. Vale mesmo com data e hora iguais.
 --      Autorizacao por operacao: sessao + usuario ativo + (dono atual do caso
 --      OU public.usuario_e_gestao(), gate ja existente). Nada de lista nova.
---   D. Recalcular_situacao_aluno: NAO recebe portao. O revoke de anon e
---      defensivo. NAO COMPROVADO se anon ou PUBLIC tinham EXECUTE na producao: a
---      ACL real nao foi medida (o fixture nao tem linha de ACL). Pre-condicao:
---      medir has_function_privilege('anon'|'public', ...) em producao antes de aplicar.
+--   D. Recalcular_situacao_aluno: NAO recebe portao de dono no corpo. ACL MEDIDA
+--      em producao (catalogo, 15/11/2026, so leitura): dono postgres; EXECUTE para
+--      authenticated e service_role; public e anon SEM EXECUTE. Logo o revoke de
+--      public/anon e no-op medido. O revoke de authenticated (secao E) e o efeito
+--      real, e preserva service_role e os caminhos internos (chamadores SECURITY
+--      DEFINER de dono postgres; nenhum chamada a funcao por RPC no front).
 --
 -- TRAVAS: md5(prosrc) de recalcular antes = 03dacc0a... (parte 1) e depois =
--- c3e38ac0... (secao D). A mudanca de ACL (revoke de public e anon) NAO foi medida.
+-- c3e38ac0... (secao D). A mudanca de ACL (secao E) nao altera md5(prosrc).
 --
+-- CONTRATO DE "JA FALEI" (confirmado no pacote, sem bloquear toda mudanca de data):
+--   * gravacoes AUTOMATICAS (tabulacao, lote, virada diaria) podem mudar
+--     data_retorno e NAO zeram retorno_confirmado_em. Nenhum gatilho de banco
+--     zera "Ja falei" por mudanca de data (trg_aluno_reset_retorno_confirmado sai).
+--   * somente o REAGENDAMENTO EXPLICITO, pela RPC agenda_reagendar_retorno,
+--     zera retorno_confirmado_em (mesmo com data e hora iguais).
+--   * a regra "data so muda com Reagendar" fica na tela (Aluno.jsx). O banco
+--     NAO a impoe: R3 aceito como decisao de desenho, nao como lacuna.
+--
+-- MEDICAO DE PRODUCAO (catalogo, leitura, 15/11/2026): recalcular_situacao_aluno
+--   md5 41475103 (corpo ainda o anterior; parte 1 nao aplicada); ACL: authenticated
+--   e service_role com EXECUTE; anon e PUBLIC SEM EXECUTE. agenda_reagendar_retorno
+--   NAO existe em producao (pacote nao aplicado). usuario_e_gestao(): lista literal
+--   de tres e-mails, search_path=public.
+--
+-- ACHADO PREEXISTENTE, SEPARADO DESTE PACOTE: na troca de responsavel
+--   (alterarOperadorResponsavel, Aluno.jsx) o resultado do update da tabulacao
+--   nao e checado; uma falha ali segue para o alerta de sucesso. Nao corrigido aqui.
+
 -- ROLLBACK: 20261114120000_agenda_reagendar_retorno_e_portao_recalculo.rollback.sql
 
 begin;
@@ -155,8 +176,12 @@ begin
   end if;
 end $locka$;
 
--- E. RECALCULO FORA DO ALCANCE DE ANON -----------------------------------------
--- Efeito na ACL NAO COMPROVADO (ver cabecalho D). Revoke de public e anon.
-revoke all on function public.recalcular_situacao_aluno(uuid, text) from public, anon;
+-- E. RECALCULO SEM EXECUCAO DIRETA DE AUTHENTICATED ----------------------------
+-- ACL de origem medida (ver cabecalho D): authenticated e service_role com EXECUTE.
+-- Chamadores internos sao SECURITY DEFINER de dono postgres (medido), que nao
+-- dependem do EXECUTE de authenticated. Sem chamada por RPC no front.
+-- Revoga public, anon e authenticated; service_role permanece (explicito abaixo).
+revoke all on function public.recalcular_situacao_aluno(uuid, text) from public, anon, authenticated;
+grant execute on function public.recalcular_situacao_aluno(uuid, text) to service_role;
 
 commit;

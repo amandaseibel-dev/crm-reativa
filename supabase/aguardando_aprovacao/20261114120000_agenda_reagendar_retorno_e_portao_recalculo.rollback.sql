@@ -1,7 +1,8 @@
 -- ROLLBACK de 20261114120000_agenda_reagendar_retorno_e_portao_recalculo
 -- Remove a RPC, recria o gatilho de zeragem por data e reverte o FOR UPDATE do
--- recalculo (c3e38ac0 -> 03dacc0a). NAO restaura ACL: se PUBLIC ou anon tinham
--- EXECUTE na origem, isso NAO foi medido e NAO e restaurado aqui.
+-- recalculo (c3e38ac0 -> 03dacc0a) e restaura a ACL de origem medida em producao
+-- (15/11/2026): EXECUTE para authenticated (revogado na secao E). public e anon
+-- nao tinham EXECUTE na origem e NAO recebem nada aqui. service_role nao muda.
 -- O BACKUP retorno_backup_20261114 NAO e apagado: e a evidencia. Restaurar dados
 -- e etapa separada, com aprovacao: ver 20261114120000_restauracao_por_id.sql.pendente.
 begin;
@@ -50,7 +51,21 @@ begin
   end if;
 end $lockr$;
 
--- Nota: a ACL de origem de recalcular_situacao_aluno NAO foi medida em producao.
--- O revoke da parte D pode ter efeito real; este rollback nao restaura ACL.
+-- ACL: restaura exatamente a origem medida. Antes, public/anon sem EXECUTE e
+-- authenticated/service_role com EXECUTE. O pacote revoga authenticated; aqui volta.
+grant execute on function public.recalcular_situacao_aluno(uuid, text) to authenticated;
+do $acl$
+declare v_oid oid := to_regprocedure('public.recalcular_situacao_aluno(uuid,text)');
+begin
+  if exists (select 1 from pg_proc p, aclexplode(p.proacl) a
+              where p.oid = v_oid and a.grantee = 0 and a.privilege_type = 'EXECUTE') then
+    raise exception 'ACL NAO RESTAURADA: PUBLIC tem EXECUTE, origem medida nao tinha';
+  end if;
+  if has_function_privilege('anon', v_oid, 'EXECUTE')
+     or not has_function_privilege('authenticated', v_oid, 'EXECUTE')
+     or not has_function_privilege('service_role', v_oid, 'EXECUTE') then
+    raise exception 'ACL NAO RESTAURADA: esperado anon sem, authenticated e service_role com EXECUTE';
+  end if;
+end $acl$;
 
 commit;

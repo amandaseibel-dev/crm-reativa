@@ -78,6 +78,7 @@ const UID = {
 const ESQUEMA = `
   create role anon;
   create role authenticated;
+  create role service_role;
   create schema auth;
   create function auth.uid() returns uuid language sql stable
     as $$ select nullif(current_setting('teste.uid', true), '')::uuid $$;
@@ -554,5 +555,81 @@ describe("autorizacao da RPC com papeis nao privilegiados", () => {
       await comPapel(db, "authenticated", gestor, () => db.query(CHAMADA_RPC, [OUTRA]));
       expect((await linha(db, OUTRA)).hora_retorno).toBe("18:00");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// REVOGACAO DE EXECUTE DE AUTHENTICATED NO RECALCULO (corpo real + chamador real)
+// Medido em producao (catalogo, 15/11/2026): public/anon sem EXECUTE; authenticated
+// e service_role com EXECUTE; todos os chamadores sao SECURITY DEFINER de dono
+// postgres. Aqui: o corpo real, os gatilhos reais da migration de origem, e o
+// rollback restaurando a ACL medida. Os gatilhos reais ENGOLEM erro (when others),
+// entao o teste confere o EFEITO no caso, nao so a ausencia de erro.
+// ---------------------------------------------------------------------------
+const MIG_RECALC = lerRaiz("supabase/migrations/20260801120000_recalcular_situacao_aluno.sql");
+const TRIGGERS_REAIS = MIG_RECALC.slice(
+  MIG_RECALC.indexOf("create or replace function public._trg_recalc_por_parcela()"),
+  MIG_RECALC.indexOf("drop trigger if exists trg_recalc_baixa")
+);
+const ASSIN_RECALC = "public.recalcular_situacao_aluno(uuid,text)";
+
+async function privilegiosRecalc(db) {
+  const r = await db.query(`
+    select
+      has_function_privilege('anon', '${ASSIN_RECALC}', 'EXECUTE') as anon,
+      has_function_privilege('authenticated', '${ASSIN_RECALC}', 'EXECUTE') as authenticated,
+      has_function_privilege('service_role', '${ASSIN_RECALC}', 'EXECUTE') as service_role,
+      exists (select 1 from pg_proc p, aclexplode(p.proacl) a
+               where p.oid = '${ASSIN_RECALC}'::regprocedure and a.grantee = 0
+                 and a.privilege_type = 'EXECUTE') as public`);
+  return r.rows[0];
+}
+
+describe("revogacao de authenticated no recalculo: corpo real e chamadores reais", () => {
+  it("apos o pacote: authenticated sem EXECUTE; service_role com; anon e public sem", async () => {
+    const db = await montar({ comPacote: true });
+    expect(await privilegiosRecalc(db)).toEqual({
+      anon: false, authenticated: false, service_role: true, public: false,
+    });
+  });
+
+  it("chamada DIRETA ao recalculo por authenticated e recusada e nada muda", async () => {
+    const db = await montar({ comPacote: true });
+    const antes = await linha(db, ALUNA);
+    await expect(
+      comPapel(db, "authenticated", OPERADOR, () =>
+        db.query("select public.recalcular_situacao_aluno($1, 'teste_direto')", [ALUNA]))
+    ).rejects.toThrow(/permission denied/i);
+    expect(await linha(db, ALUNA)).toEqual(antes);
+  });
+
+  it("gatilho REAL de parcelas (SECURITY DEFINER) recalcula para authenticated: o efeito aparece no caso", async () => {
+    const db = await montar({ comPacote: true });
+    await db.exec(TRIGGERS_REAIS);
+    const ac = await db.query(
+      "insert into public.acordos (id, aluno_id, status) values (gen_random_uuid(), $1, 'ativo') returning id",
+      [ALUNA]
+    );
+    const acordoId = ac.rows[0].id;
+    await db.exec("grant insert on public.parcelas to authenticated;");
+    const saldo = async () =>
+      Number((await db.query("select saldo_total from public.casos where aluno_id = $1", [ALUNA])).rows[0].saldo_total);
+    const s0 = await saldo();
+    await comPapel(db, "authenticated", OPERADOR, () =>
+      db.query(
+        "insert into public.parcelas (acordo_id, numero, valor, vencimento, status, is_entrada) values ($1, 1, 300, current_date - 5, 'ABERTA', false)",
+        [acordoId]
+      )
+    );
+    expect(await saldo()).toBeCloseTo(s0 + 300, 2);
+  });
+
+  it("rollback da secao E restaura a ACL de origem medida (authenticated volta; public e anon nao)", async () => {
+    const db = await montar({ comPacote: true });
+    expect((await privilegiosRecalc(db)).authenticated).toBe(false);
+    await db.exec(P2_ROLL);
+    expect(await privilegiosRecalc(db)).toEqual({
+      anon: false, authenticated: true, service_role: true, public: false,
+    });
   });
 });
