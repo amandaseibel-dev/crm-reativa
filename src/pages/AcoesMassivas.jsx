@@ -681,6 +681,8 @@ export default function AcoesMassivas() {
       setFaseExport(FASE.CONCLUIDA);
       carregarLotesRegistro();
     } catch {
+      // Nada de sucesso antigo ao lado da falha: a mensagem atual e a unica.
+      setSucesso("");
       // Depois da RPC bem-sucedida o lote JA foi registrado: nao dizer que o servidor nao confirmou.
       if (loteRegistrado) {
         console.error("Falha depois do registro da acao massiva", { etapa: "arquivo" });
@@ -772,6 +774,8 @@ export default function AcoesMassivas() {
       if (contatos.length > 0) setFaseExport(FASE.CONCLUIDA);
       carregarLotesWhats();
     } catch {
+      // Nada de sucesso antigo ao lado da falha: a mensagem atual e a unica.
+      setSucesso("");
       // Depois do registro bem-sucedido, o erro nao pode virar "nao exportado".
       if (loteRegistrado) {
         console.error("Falha depois do registro do e-mail do lote", { etapa: "arquivo" });
@@ -1817,7 +1821,7 @@ export default function AcoesMassivas() {
               </button>
               {faseExport === FASE.INCERTA && (
                 <div style={{ marginTop: 8 }}>
-                  <p style={{ margin: "0 0 6px" }}>{mensagemDaFase(FASE.INCERTA)} Esta proteção vale só nesta tela e até recarregar a página.</p>
+                  <p style={{ margin: "0 0 6px" }}>{mensagemDaFase(FASE.INCERTA)} Recarregar a página remove só o bloqueio local: não confirma o registro nem dispensa a conferência do histórico de lotes.</p>
                   <button
                     style={{ ...estilos.botaoGerar, background: "#64748b" }}
                     onClick={async () => {

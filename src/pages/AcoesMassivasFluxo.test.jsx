@@ -150,7 +150,7 @@ describe("Exportação — fluxo da página (xlsx real; gravação interceptada 
     await waitFor(() => expect(screen.getAllByText(/Resultado do registro desconhecido/).length).toBeGreaterThan(0));
     const exportar = screen.getByRole("button", { name: /Exportar planilha/ });
     expect(exportar.disabled).toBe(true);
-    // não existe mais liberação por caixa de confirmação: só recarregar a página libera a tela
+    // não existe mais liberação por caixa de confirmação; recarregar remove só o bloqueio local
     expect(screen.queryByRole("button", { name: /Liberar nova exportação/ })).toBeNull();
     expect(controle.gravacoes.length).toBe(0);
     // o log não traz dados pessoais
@@ -190,5 +190,32 @@ describe("Exportação — fluxo da página (xlsx real; gravação interceptada 
     await waitFor(() => expect(screen.getByText(/Lote registrado, arquivo não baixado/)).toBeTruthy());
     expect(screen.queryByText(/Lote registrado: 2 aluno/)).toBeNull();
     expect(exportacoes()).toBe(1);
+  });
+
+  it("falha depois de um sucesso anterior: nao mantem 'Lote registrado' antigo ao lado da falha atual", async () => {
+    await montarEBuscar();
+    await gerarPlanilha();
+    await waitFor(() => expect(screen.getByText(/Lote registrado: 2 aluno/)).toBeTruthy());
+    // nova previa libera a exportacao (regra desta PR); a proxima tentativa falha por validacao
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Buscar/ })); });
+    await waitFor(() => expect(screen.getByRole("button", { name: /Exportar planilha/ }).disabled).toBe(false));
+    controle.rpcErro = Object.assign(new Error("Selecao diverge da previa autorizada. Gere a previa de novo."), { code: "22023" });
+    await gerarPlanilha();
+    await waitFor(() => expect(screen.getByText(/recusada pela validação/)).toBeTruthy());
+    expect(screen.queryByText(/Lote registrado: 2 aluno/)).toBeNull();
+    expect(controle.gravacoes.length).toBe(1);
+  });
+
+  it("falha de transporte depois de um sucesso anterior: fica resultado incerto, sem sucesso antigo", async () => {
+    await montarEBuscar();
+    await gerarPlanilha();
+    await waitFor(() => expect(screen.getByText(/Lote registrado: 2 aluno/)).toBeTruthy());
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Buscar/ })); });
+    await waitFor(() => expect(screen.getByRole("button", { name: /Exportar planilha/ }).disabled).toBe(false));
+    controle.rpcErro = Object.assign(new Error("Failed to fetch"), {});
+    await gerarPlanilha();
+    await waitFor(() => expect(screen.getAllByText(/Resultado do registro desconhecido/).length).toBeGreaterThan(0));
+    expect(screen.queryByText(/Lote registrado: 2 aluno/)).toBeNull();
+    expect(screen.getByRole("button", { name: /Exportar planilha/ }).disabled).toBe(true);
   });
 });
