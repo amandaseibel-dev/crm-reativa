@@ -37,10 +37,6 @@ declare
   uo integer;
   ug integer;
 begin
-  -- A8: portão interno. Mesmo com EXECUTE restrito, a função recusa qualquer papel que não seja service_role.
-  if coalesce(auth.role(), '') is distinct from 'service_role' then
-    raise exception 'acesso negado à reserva do histórico' using errcode = '42501';
-  end if;
   if p_quantidade is null or p_quantidade < 1 then
     raise exception 'quantidade inválida';
   end if;

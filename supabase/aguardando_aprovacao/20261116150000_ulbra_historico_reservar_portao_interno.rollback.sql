@@ -1,5 +1,5 @@
 -- ROLLBACK da 20261116150000 — NÃO APLICADO. Restaura a definição aplicada em 20261112111006 (sem portão).
--- Só use se o portão causar problema comprovado; a versão sem portão tem a exposição descrita na revisão.
+-- Só use se o portão causar problema comprovado; a versão sem portão não tem o portão interno (exposição em produção não comprovada).
 do $$
 begin
   if position('acesso negado à reserva do histórico' in pg_get_functiondef('public.ulbra_historico_reservar(text,date,integer,integer,integer)'::regprocedure)) = 0 then

@@ -14,7 +14,7 @@ Preparado em 11/11/2026. **Nenhuma mensagem enviada, nenhuma credencial alterada
 - Leitura do histórico: ação `historico_ler` da Edge Function `ulbra-conversa`, com a **conexão individual do operador** (nunca a credencial central). Cada leitura gera `ULBRA_HISTORICO_LEITURA` na `auditoria`, sem texto de conversa. Desligada por padrão no backend (`ULBRA_HISTORICO_HABILITADO`). A função `ulbra-historico` saiu deste pacote. A versão 1 segue ATIVA em produção: a contenção está BLOQUEADA POR ACESSO (instrução na seção de deploy).
 **Resposta (envio, token DO OPERADOR, nunca a credencial central):**
 - Edge Function `ulbra-conversa` (nova; `conexao.ts`, `envio.ts`, `oauth.ts`, `cripto.ts` testados sem rede). Ações: `conexao_iniciar` (PKCE + state, URL de autorização), `conexao_concluir` (troca do código, cifra AES-256-GCM, **1 `meu_acesso` da cota do operador para gravar quem é a pessoa e os escopos**), `conexao_estado`, `conexao_desconectar` (revogação no provedor + local), `envio_previa`, `envio_confirmar`.
-- **Permissões** (lidas do banco no momento): identidade confirmada por CPF, operador é dono da carteira **ou** responsável do atendimento. Leitura global só para `amanda.seibel@aelbra.com.br` e `cobranca04@aelbra.com.br` (A3); Amanda ADM, supervisor e administrativo leem apenas a própria carteira. Conexão própria ativa e identidade da conta conferida com o JWT (A2).
+- **Permissões** (lidas do banco no momento): identidade confirmada por CPF, operador é dono da carteira **ou** responsável do atendimento. Leitura global fechada até confirmação específica da gestão (ver seção abaixo).seibel@aelbra.com.br` e `cobranca04@aelbra.com.br` (A3); Amanda ADM, supervisor e administrativo leem apenas a própria carteira. Conexão própria ativa e identidade da conta conferida com o JWT (A2).
 - **Duas etapas na tela:** prévia local e registrada no servidor (não há custo nem janela comprovados pelo provedor; nada é inventado). Só então "Confirmar envio" com **chave idempotente**; a mesma chave com outro texto é recusada (A5). Sucesso só com contrato de sucesso comprovado; até lá todo resultado de envio é FALHA_INCERTA (A6).
 - Registro: `ulbra_envios` (status e id da mensagem quando houver, sem tratar o id como prova) e linha `ULBRA_ENVIO` na `auditoria`.
 - Página `/ulbra/conectado` (retorno do OAuth) — só entrega `code`/`state` à função; nenhum token passa pela tela.
@@ -72,3 +72,8 @@ Campanhas, criação de atendimentos, transferências, administração de operad
 - Rollback: restaura a versão de 20261112111006 (sem portão). **Não é recuperação automática.** Use só com aprovação específica e comprovação do motivo.
 - Alternativa segura em caso de falha: manter o histórico desativado no backend (`ULBRA_HISTORICO_HABILITADO` ausente) e não chamar a RPC. A RPC não é chamada por nenhum código da branch.
 - Pré-condição do rollback: a v1 de `ulbra-historico` precisa estar contida em produção; senão a exposição já existe por outro caminho.
+
+## Migrations: estado correto (revisão 16/11)
+- `20261110100000_ulbra_historico_orcamento`: APLICADA em produção (ledger 20261112111006). O `.sql.pendente` foi restaurado ao original (sha 163f3b55…); não é a versão aplicada nem deve ser reaplicado.
+- `20261116150000_ulbra_historico_reservar_portao_interno`: CORRETIVA, NÃO aplicada. `.sql.pendente` e `.rollback.sql` no diretório aguardando_aprovacao.
+- A exposição da RPC em produção NÃO foi comprovada: o ledger já revoga EXECUTE de public/anon/authenticated. A corretiva é defesa em profundidade.
