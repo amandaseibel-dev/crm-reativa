@@ -141,6 +141,12 @@ Esta é a única sequência válida. Não há outra no pacote. Os passos 5 a 10 
 - **Cache:** entradas vencidas saem a cada gravação e o total não passa de 200 entradas. Texto de conversa fica em memória só enquanto válido, por no máximo 5 minutos.
 - **Regra dos cinco (exceção registrada, só para esta PR):** a #948 altera a Mensageria ULBRA e o inventário de Edge Functions. Não altera contratos da API Prime nem os três documentos Prime (`prime-api.md`, `prime-api-catalog.json`, `prime-mapa-fontes-verdade.md`). A verificação `integracoes-cinco.sh` aceita a PR só com a flag `--excecao-948`, e apenas se o diff de `docs/integracoes/` estiver dentro de `mensageria-ulbra.md`, `prime-edge-functions.md` e este pacote. Qualquer outro arquivo volta a exigir os três. A exceção não autoriza implantação nem dispensa os demais gates.
 
+## Decisões registradas (15/11/2026)
+
+**Exceção `--excecao-948` (mantida no script após o merge).** Decisão da autora da PR. A flag só vale para a PR #948 e para a branch `feat/historico-ficha-piloto`; a lista permitida (`mensageria-ulbra.md`, `prime-edge-functions.md`, este pacote) e a validação do diff completo (`origin/main...HEAD`) continuam aplicadas. Em outra branch, em HEAD desanexado ou sem a flag, a regra dos cinco segue integral. A flag permanece no script depois do merge e **não dispensa a regra dos cinco em outras PRs**.
+
+**R1 (enumeração entre estados de negativa): limitação conhecida.** O servidor responde `403 IDENTIDADE_NAO_CONFIRMADA`, `404 CONVERSA_NAO_ENCONTRADA` e `403 SEM_PERMISSAO_NA_CONVERSA`. Esta documentação registra a limitação. **Não é aceite formal de risco** e não substitui assinatura da gestão.
+
 ## Hashes desta correção (P6 e M1)
 | arquivo | sha256 |
 |---|---|
