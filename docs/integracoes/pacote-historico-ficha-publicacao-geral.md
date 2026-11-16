@@ -147,6 +147,12 @@ Esta é a única sequência válida. Não há outra no pacote. Os passos 5 a 10 
 
 **R1 (enumeração entre estados de negativa): limitação conhecida.** O servidor responde `403 IDENTIDADE_NAO_CONFIRMADA`, `404 CONVERSA_NAO_ENCONTRADA` e `403 SEM_PERMISSAO_NA_CONVERSA`. Esta documentação registra a limitação. **Não é aceite formal de risco** e não substitui assinatura da gestão.
 
+## Aceite da gestora registrado (exceção documental)
+
+> Eu, Amanda Prado Seibel, na qualidade de gestora, aprovo exclusivamente a exceção documental `--excecao-948` da PR #948, ciente de que permanecerá em main, restrita ao nome da branch `feat/historico-ficha-piloto` e à lista de arquivos permitidos, sem gate de CI. Este aceite não autoriza merge, aplicação de migration ou publicação, não aprova os valores de orçamento e não constitui aceite do risco R1.
+>
+> Data: ________ · Assinatura: ________ (registro textual no pacote; não há outro formato exigido pelos documentos de segurança do repositório)
+
 ## Hashes desta correção (P6 e M1)
 | arquivo | sha256 |
 |---|---|
