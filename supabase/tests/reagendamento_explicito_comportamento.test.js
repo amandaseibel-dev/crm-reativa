@@ -787,3 +787,39 @@ describe("trava por papel: confirmar, desfazer, reagendar, recusas e contorno", 
     expect((await linha(db, ALUNA)).confirmado).toBeNull();
   });
 });
+
+// GATE DE AGENDA_CONFIRMAR_RETORNO (secao B3): usuario ativo, e-mail nao vazio,
+// e o atendimento grava o e-mail da SESSAO (nao o que a tela envia).
+describe("gate de confirmar/desfazer: usuario ativo, e-mail da sessao, sem fail-open", () => {
+  it("dono INATIVO nao desfaz (mesmo sendo o responsavel atual)", async () => {
+    const db = await montar({ comPacote: true });
+    await jaFalei(db, OPERADOR, ALUNA);
+    const antes = (await linha(db, ALUNA)).confirmado;
+    await db.exec(`update public.usuarios set ativo = false where email = '${OPERADOR}';`);
+    await expect(
+      comPapel(db, "authenticated", OPERADOR, () =>
+        db.query("select public.agenda_confirmar_retorno($1, false)", [ALUNA]))
+    ).rejects.toThrow(/inativo ou sem cadastro/);
+    expect((await linha(db, ALUNA)).confirmado).toBe(antes);
+  });
+
+  it("sessao SEM e-mail nao confirma nem desfaz aluno sem responsavel (fail-open fechado)", async () => {
+    const db = await montar({ comPacote: true });
+    await db.exec("update public.alunos set responsavel_atual_email = null, retorno_confirmado_em = now() where id = '" + ALUNA + "';");
+    await expect(
+      comPapel(db, "authenticated", null, () =>
+        db.query("select public.agenda_confirmar_retorno($1, false)", [ALUNA]))
+    ).rejects.toThrow(/e-mail/);
+    expect((await linha(db, ALUNA)).confirmado).not.toBeNull();
+  });
+
+  it("atendimento grava registrado_por_email da SESSAO, nao o valor forjado pela tela", async () => {
+    const db = await montar({ comPacote: true });
+    await comPapel(db, "authenticated", OPERADOR, () =>
+      db.query(
+        "select public.atendimento_reagendar_com_status($1, current_date + 4, null, false, $2::jsonb)",
+        [ALUNA, JSON.stringify({ status_atual: "OK", registrado_por_email: "forjado@exemplo.com" })]));
+    const r = await db.query("select registrado_por_email from public.alunos where id = $1", [ALUNA]);
+    expect(r.rows[0].registrado_por_email).toBe(OPERADOR);
+  });
+});

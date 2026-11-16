@@ -163,6 +163,50 @@ end $function$;
 revoke all on function public.agenda_reagendar_retorno(uuid, date, text, boolean) from public, anon;
 grant execute on function public.agenda_reagendar_retorno(uuid, date, text, boolean) to authenticated;
 
+-- B3. CONFIRMAR/DESFAZER: GATE COM USUARIO ATIVO E E-MAIL (fecha fail-open) ----
+-- Corpo igual ao da migration 20260808150000, com duas correcoes de autorizacao:
+-- (a) exige usuario ativo em usuarios; (b) recusa sessao sem e-mail (antes,
+-- '' = coalesce(dono,'') autorizava aluno sem responsavel). Lista de gestao NAO muda.
+create or replace function public.agenda_confirmar_retorno(
+  p_aluno_id uuid,
+  p_confirmar boolean default true
+)
+ returns timestamptz
+ language plpgsql
+ security definer
+ set search_path to 'public', 'auth'
+as $function$
+declare
+  v_email text := lower(coalesce(auth.email(), ''));
+  v_gestao text[] := array['amanda.seibel@aelbra.com.br','cobranca04@aelbra.com.br'];
+  v_dono text;
+  v_novo timestamptz;
+begin
+  if v_email = '' then
+    raise exception 'Sem sessao autenticada com e-mail' using errcode = '42501';
+  end if;
+  if not exists (select 1 from public.usuarios u where lower(u.email) = v_email and u.ativo is true) then
+    raise exception 'Sem permissao: usuario inativo ou sem cadastro' using errcode = '42501';
+  end if;
+  select lower(responsavel_atual_email) into v_dono
+    from public.alunos where id = p_aluno_id;
+  if not found then
+    raise exception 'Aluno nao encontrado';
+  end if;
+  if not (v_email = coalesce(v_dono, '') or v_email = any(v_gestao)) then
+    raise exception 'Sem permissao para confirmar o retorno deste aluno';
+  end if;
+  v_novo := case when p_confirmar then now() else null end;
+  update public.alunos
+    set retorno_confirmado_em = v_novo
+    where id = p_aluno_id;
+  return v_novo;
+end
+$function$;
+
+revoke all on function public.agenda_confirmar_retorno(uuid, boolean) from public;
+grant execute on function public.agenda_confirmar_retorno(uuid, boolean) to authenticated, service_role;
+
 -- C2. REAGENDAMENTO + STATUS DO ATENDIMENTO EM UMA TRANSACAO -------------------
 -- Antes, a tela chamava a RPC e depois fazia UPDATE de status: duas transacoes. Esta
 -- funcao roda as duas na mesma transacao: se a escrita de status falhar, o
@@ -191,7 +235,7 @@ begin
          data_ultimo_acionamento = coalesce((p_status->>'data_ultimo_acionamento')::timestamptz, data_ultimo_acionamento),
          ultimo_contato = coalesce((p_status->>'ultimo_contato')::timestamptz, ultimo_contato),
          registrado_por_nome = coalesce(p_status->>'registrado_por_nome', registrado_por_nome),
-         registrado_por_email = coalesce(p_status->>'registrado_por_email', registrado_por_email),
+         registrado_por_email = lower(coalesce(auth.email(), '')),
          registrado_em = coalesce((p_status->>'registrado_em')::timestamptz, registrado_em),
          observacao = coalesce(p_status->>'observacao', observacao)
    where id = p_aluno_id;

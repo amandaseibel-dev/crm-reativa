@@ -79,4 +79,43 @@ begin
   end if;
 end $acl$;
 
+-- Restaura agenda_confirmar_retorno ao corpo original (migration 20260808150000), sem o
+-- gate de usuario ativo e de e-mail acrescentado na secao B3 do pacote.
+create or replace function public.agenda_confirmar_retorno(
+  p_aluno_id uuid,
+  p_confirmar boolean default true
+)
+ returns timestamptz
+ language plpgsql
+ security definer
+ set search_path to 'public', 'auth'
+as $function$
+declare
+  v_email text := auth.email();
+  v_gestao text[] := array['amanda.seibel@aelbra.com.br','cobranca04@aelbra.com.br'];
+  v_dono text;
+  v_novo timestamptz;
+begin
+  select lower(responsavel_atual_email) into v_dono
+    from public.alunos where id = p_aluno_id;
+
+  if v_dono is null and not exists (select 1 from public.alunos where id = p_aluno_id) then
+    raise exception 'Aluno nao encontrado';
+  end if;
+
+  if not (lower(coalesce(v_email,'')) = coalesce(v_dono,'') or lower(coalesce(v_email,'')) = any(v_gestao)) then
+    raise exception 'Sem permissao para confirmar o retorno deste aluno';
+  end if;
+
+  v_novo := case when p_confirmar then now() else null end;
+
+  update public.alunos
+    set retorno_confirmado_em = v_novo
+    where id = p_aluno_id;
+
+  return v_novo;
+end $function$;
+
+revoke all on function public.agenda_confirmar_retorno(uuid, boolean) from public;
+
 commit;
