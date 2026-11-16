@@ -1286,3 +1286,42 @@ jobs:
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/05_barreira_alunos.sql"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/08_barreira_normalizacao.sql"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/09_login_nao_privilegiado.sql"
+
+  tabulacao-so-gestao-sequencia-md5:
+    name: sequência _encerramento_so_gestao — aplica 20261106140000 e imprime o MD5 do catálogo (postgres 17 descartável; PREPARAÇÃO INCOMPLETA)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      TDIR: supabase/tests/tabulacao_termo_fisico_gestao
+      SDIR: supabase/tests/tabulacao_so_gestao_sequencia
+      ORDEM1: supabase/aguardando_aprovacao/20261106140000_tabulacao_so_gestao_no_banco.sql.pendente
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: "Ambiente simulado + 20261106140000 (aplicação) + MD5 do catálogo"
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$TDIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$ORDEM1"
+          psql -v ON_ERROR_STOP=1 -tA -f "$SDIR/md5_definicao.sql" | tee "$RUNNER_TEMP/md5.txt"
+          test -s "$RUNNER_TEMP/md5.txt"

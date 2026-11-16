@@ -176,7 +176,7 @@ begin
   -- dona postgres, tabela sem FORCE ROW LEVEL SECURITY), entao `somente_gestao`
   -- e legivel por inteiro. `coalesce` para array vazio: leitura vazia nao pode
   -- virar NULL e anular o `&&` do piso.
-  select coalesce(array_agg(upper(btrim(codigo))), '{}'::text[])
+  select coalesce(array_agg(upper(regexp_replace(codigo, '[^A-Za-z0-9_]', '', 'g') COLLATE "C")), '{}'::text[])
     into v_catalogo
     from public.tabulacoes
    where somente_gestao;
@@ -216,7 +216,7 @@ begin
   -- bloqueados no historico (`aluno_movimentacoes`), e TODAS AS 8 foram feitas
   -- pela gestao -- que passa pelo bypass acima. Logo nenhum fluxo real de
   -- operador e interrompido por este endurecimento.
-  -- `btrim` NOS DOIS LADOS. `v_bloqueadas` normaliza com `upper(btrim(codigo))`;
+  -- `btrim` NOS DOIS LADOS. `v_bloqueadas` normaliza com `upper(regexp_replace(codigo, '[^A-Za-z0-9_]', '', 'g') COLLATE "C")`;
   -- se aqui fosse só `upper()`, 'CANCELAMENTO_COBRANCA ' com espaco passaria o
   -- portao. No servidor o valor ficaria inerte (os consumidores comparam por
   -- igualdade exata), mas `casoNoKpi` em src/components/PainelCarteira.jsx
@@ -224,12 +224,12 @@ begin
   -- apareceria como encerrado na tela. Simetria e mais barata que a duvida.
   select x.novo into v_tentou
     from (values
-            (upper(btrim(coalesce(new.status_atual,''))),
-             case when tg_op = 'INSERT' then '' else upper(btrim(coalesce(old.status_atual,''))) end),
-            (upper(btrim(coalesce(new.status_jornada,''))),
-             case when tg_op = 'INSERT' then '' else upper(btrim(coalesce(old.status_jornada,''))) end),
-            (upper(btrim(coalesce(new.status_acionamento,''))),
-             case when tg_op = 'INSERT' then '' else upper(btrim(coalesce(old.status_acionamento,''))) end)
+            (upper(regexp_replace(coalesce(new.status_atual,''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C"),
+             case when tg_op = 'INSERT' then '' else upper(regexp_replace(coalesce(old.status_atual,''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C") end),
+            (upper(regexp_replace(coalesce(new.status_jornada,''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C"),
+             case when tg_op = 'INSERT' then '' else upper(regexp_replace(coalesce(old.status_jornada,''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C") end),
+            (upper(regexp_replace(coalesce(new.status_acionamento,''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C"),
+             case when tg_op = 'INSERT' then '' else upper(regexp_replace(coalesce(old.status_acionamento,''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C") end)
          ) as x(novo, antigo)
    where x.novo <> x.antigo
      and x.novo = any(v_bloqueadas)
