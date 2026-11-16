@@ -87,7 +87,13 @@ export async function confirmarPrevia(
 ): Promise<ResultadoEnvio | { situacao: "BLOQUEADO"; motivos: string[] }> {
   const operador = pedido.operador.toLowerCase();
   const existente = await deps.repositorio.buscar(pedido.operador, pedido.chave);
-  if (existente) return { situacao: "JA_PROCESSADO", envio: existente };
+  if (existente) {
+    // A5: a chave só vale para o MESMO atendimento e o MESMO texto. Outro conteúdo não devolve "já processado".
+    if (existente.atendimento_id !== pedido.atendimento_id || existente.texto !== pedido.texto.trim()) {
+      return bloqueado(["CHAVE_COM_OUTRO_CONTEUDO"]);
+    }
+    return { situacao: "JA_PROCESSADO", envio: existente };
+  }
 
   const previa = await deps.repositorioPrevia.buscar(previaId);
   const agora = deps.agora();

@@ -11,19 +11,19 @@ Preparado em 11/11/2026. **Nenhuma mensagem enviada, nenhuma credencial alterada
 
 ## 2. O que a entrega faz (menor conjunto integrado)
 **Histórico (leitura, credencial de backend, só leitura):**
-- Edge Function `ulbra-historico` (nova; lógica `historico.ts` já preparada e testada). Botão **"Carregar histórico (1 chamada à Mensageria)"** na Central — nada é lido ao selecionar a conversa. Portão: cadastro ativo; **CPF confirmado** (vínculo ativo `alta_cpf` lido agora); **permissão** = dono da carteira ou responsável comprovado pelo atendimento (operador), ou perfil amplo (gestão); **orçamento reservado no banco antes da chamada** (`ulbra_historico_reservar`: 20 por operador/dia, reserva global de 100 que o histórico nunca gasta); saldo com mais de 15 min é renovado por 1 `meu_acesso` (reservado). Páginas de 20; "Carregar anteriores" = 1 chamada. Texto não é persistido.
+- Leitura do histórico: ação `historico_ler` da Edge Function `ulbra-conversa`, com a **conexão individual do operador** (nunca a credencial central). Cada leitura gera `ULBRA_HISTORICO_LEITURA` na `auditoria`, sem texto de conversa. Desligada por padrão no backend (`ULBRA_HISTORICO_HABILITADO`). A função `ulbra-historico` saiu deste pacote; a versão 1 publicada em produção está em contenção (ver relatório).
 **Resposta (envio, token DO OPERADOR, nunca a credencial central):**
 - Edge Function `ulbra-conversa` (nova; `conexao.ts`, `envio.ts`, `oauth.ts`, `cripto.ts` testados sem rede). Ações: `conexao_iniciar` (PKCE + state, URL de autorização), `conexao_concluir` (troca do código, cifra AES-256-GCM, **1 `meu_acesso` da cota do operador para gravar quem é a pessoa e os escopos**), `conexao_estado`, `conexao_desconectar` (revogação no provedor + local), `envio_previa`, `envio_confirmar`.
-- **Permissões** (lidas do banco no momento): identidade confirmada, operador é dono da carteira **ou** responsável do atendimento, janela de 24 h (última mensagem do aluno), conexão própria ativa. A Mensageria ainda exige que a pessoa seja **quem atende** o atendimento — a prévia devolve a recusa real quando não for.
-- **Duas etapas na tela:** "Ver prévia (1 chamada da sua cota)" → a própria Mensageria devolve custo estimado (US$) e janela; só então "Confirmar envio" com **chave idempotente** por clique (repetir não reenvia; `FALHA_INCERTA` nunca reenvia sozinha). Envio real **só com `ULBRA_ENVIO_REAL=true`** no ambiente da função; sem isso, `BLOQUEADO: ENVIO_REAL_NAO_CONFIRMADO` mesmo com tudo configurado.
-- Registro: `ulbra_envios` (status, id da mensagem, custo e janela da prévia) e linha `ULBRA_ENVIO` na `auditoria`.
+- **Permissões** (lidas do banco no momento): identidade confirmada por CPF, operador é dono da carteira **ou** responsável do atendimento. Leitura global só para `amanda.seibel@aelbra.com.br` e `cobranca04@aelbra.com.br` (A3); Amanda ADM, supervisor e administrativo leem apenas a própria carteira. Conexão própria ativa e identidade da conta conferida com o JWT (A2).
+- **Duas etapas na tela:** prévia local e registrada no servidor (não há custo nem janela comprovados pelo provedor; nada é inventado). Só então "Confirmar envio" com **chave idempotente**; a mesma chave com outro texto é recusada (A5). Sucesso só com contrato de sucesso comprovado; até lá todo resultado de envio é FALHA_INCERTA (A6).
+- Registro: `ulbra_envios` (status e id da mensagem quando houver, sem tratar o id como prova) e linha `ULBRA_ENVIO` na `auditoria`.
 - Página `/ulbra/conectado` (retorno do OAuth) — só entrega `code`/`state` à função; nenhum token passa pela tela.
 
 ## 3. Banco (migrations pendentes, NÃO aplicadas)
 | Arquivo | sha256 `.sql.pendente` | rollback |
 | --- | --- | --- |
-| `20261110100000_ulbra_historico_orcamento` (tabela de uso diário + `ulbra_historico_reservar`, só service_role) | `163f3b551bd62f18dca519310b76e0cb58d78f4235bde7cff7ff7210bc82622b` | `1aa486a1…8b801` |
-| `20261111140000_ulbra_conexao_individual_e_envio` (pedidos PKCE, conexões com tokens cifrados + pessoa/escopos, envios; RLS sem política para authenticated/anon; só service_role) — substitui a proposta 20261109170000, nunca aplicada | `fdfb781a83582163b38f0bf3bcbf6db96af5c24e9bc446bf30a4d0fa48bc50ab` | `04da9ea8…6d55f` |
+| `20261110100000_ulbra_historico_orcamento` (tabela de uso diário + `ulbra_historico_reservar`, só service_role; portão interno exige service_role — A8) | pendente `544cdb0e55f40f6f3fff0993d7abeb3e50b220485ab110382103e14ac8842da3` | rollback `1aa486a119b5fe86e2fc8b304308ff1f784b22db9094946e52ecd775cd18b801` |
+| `20261111140000_ulbra_conexao_individual_e_envio` (pedidos PKCE, conexões com tokens cifrados + pessoa/escopos, envios; RLS sem política para authenticated/anon; só service_role) — substitui a proposta 20261109170000, nunca aplicada | pendente `fcd270305358c69db33e25072c1c0288fd0cbf7dc129bd1b6147fef1dbb6e691`, rollback `f6b8013e8c43ff2f917dbf8839ac103b93e53c991b299b1cd1bc83e09d8e760f` | `04da9ea8…6d55f` |
 
 ## 4. Segredos e configuração (a criar pela gestão no deploy; nenhum criado agora)
 - `ULBRA_OAUTH_CLIENT_ID` — **vem da TI da ULBRA**.
@@ -51,7 +51,7 @@ Preparado em 11/11/2026. **Nenhuma mensagem enviada, nenhuma credencial alterada
 1. TI da ULBRA: `client_id` + `redirect_uri` registrados (único item externo).
 2. Merge desta PR (deploy da tela; sem função publicada a Central mostra "função indisponível"/"conexão não configurada").
 3. M1 + `apply_migration` de `20261110100000` e `20261111140000`; conferir grants (só service_role) e `search_path`.
-4. Segredos `ULBRA_OAUTH_CLIENT_ID`, `ULBRA_OAUTH_REDIRECT_URI`, `ULBRA_TOKENS_CHAVE` (gestão, fora de transcript); publicar `ulbra-historico` e `ulbra-conversa` (verify_jwt ligado).
+4. Segredos `ULBRA_OAUTH_CLIENT_ID`, `ULBRA_OAUTH_REDIRECT_URI`, `ULBRA_TOKENS_CHAVE` (gestão, fora de transcript); publicar `ulbra-conversa` (verify_jwt ligado). `ULBRA_HISTORICO_HABILITADO` fica ausente (leitura desligada) até decisão da gestão. A `ulbra-historico` não entra neste pacote.
 5. Validação de leitura com a gestão e com um operador (histórico de 1 conversa: 1 chamada).
 6. Conexão de 1 operador piloto (1 `meu_acesso` da cota dele) e **prévia** de uma resposta (1 chamada) — sem `ULBRA_ENVIO_REAL`.
 7. Primeiro envio real só pelo roteiro aprovado (destinatário interno, texto fixo, 1 mensagem, autoria conferida na Mensageria), ligando `ULBRA_ENVIO_REAL=true` para a janela e desligando depois, até decisão de liberação.

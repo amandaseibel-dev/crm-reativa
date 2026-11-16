@@ -20,14 +20,14 @@ function respondeCom(json, status = 200) {
 }
 
 describe("chamadas às funções (JWT do usuário, nunca credencial central)", () => {
-  it("histórico: função ulbra-historico com conversa_id e antes_de e o Bearer da sessão", async () => {
+  it("histórico: ação historico_ler da ulbra-conversa (conexão individual), com conversa_id, antes_de e o Bearer da sessão", async () => {
     respondeCom({ ok: true, origem: "ulbra", chamadas: 1, pagina: { mensagens: [], antes_de: null } });
     const r = await lerHistorico("a".repeat(24), "cursor-1");
     expect(r.ok).toBe(true);
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe("http://localhost:54321/functions/v1/ulbra-historico");
+    expect(url).toBe("http://localhost:54321/functions/v1/ulbra-conversa");
     expect(init.headers.Authorization).toBe("Bearer tok-op");
-    expect(JSON.parse(init.body)).toEqual({ conversa_id: "a".repeat(24), antes_de: "cursor-1" });
+    expect(JSON.parse(init.body)).toEqual({ acao: "historico_ler", conversa_id: "a".repeat(24), antes_de: "cursor-1" });
   });
   it("conexão e envio vão à ulbra-conversa com a ação certa; a confirmação leva chave e prévia", async () => {
     respondeCom({ ok: true, url: "https://crm.ulbra.ai/api/oauth/auth?x=1" });

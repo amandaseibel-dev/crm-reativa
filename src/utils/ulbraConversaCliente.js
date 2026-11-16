@@ -1,5 +1,5 @@
 // ===========================================================================
-// Cliente das funções `ulbra-historico` e `ulbra-conversa` para a tela.
+// Cliente da função `ulbra-conversa` para a tela (inclui a leitura de histórico, ação historico_ler).
 //
 // Toda chamada leva o JWT do usuário logado; nenhuma usa credencial central.
 // Cada chamada que vai à ULBRA é chamada de ferramenta; o consumo de cota de cada uma ainda não está comprovado (mensageria-ulbra.md). Histórico (1 por página, cota da
@@ -25,7 +25,7 @@ async function chamar(funcao, corpo) {
 
 /** Histórico sob demanda: 1 chamada por página (cota da credencial de backend). */
 export function lerHistorico(conversaId, antesDe = null) {
-  return chamar("ulbra-historico", { conversa_id: conversaId, antes_de: antesDe });
+  return chamar("ulbra-conversa", { acao: "historico_ler", conversa_id: conversaId, antes_de: antesDe });
 }
 
 export function conexaoEstado() { return chamar("ulbra-conversa", { acao: "conexao_estado" }); }

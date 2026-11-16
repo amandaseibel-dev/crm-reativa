@@ -1178,22 +1178,6 @@ jobs:
         run: NODE_PATH="$RUNNER_TEMP/pg/node_modules" node supabase/tests/ulbra_conexao_envio/run.cjs
 
   # ---------------------------------------------------------------------------
-  ulbra-historico-deno-check:
-    name: ulbra-historico — deno check (versão fixada)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Instalar Deno (versão fixada)
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: 2.1.4
-
-      - name: deno check da função e de tudo que ela importa
-        run: deno check supabase/functions/ulbra-historico/index.ts
-
   # ---------------------------------------------------------------------------
 
   # ---------------------------------------------------------------------------

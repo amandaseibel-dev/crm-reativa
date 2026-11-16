@@ -31,7 +31,7 @@ import {
 } from "../utils/ulbraConversaCliente";
 import usePolling from "../utils/polling";
 import { normalizarEmail } from "../utils/ulbraRecebimento";
-import { conversaParaLer, criarLeituraHistorico, historicoInicial, podeLerHistoricoNaCentral } from "../utils/ulbraHistoricoSelecao";
+import { criarLeituraHistorico, historicoInicial, podeLerHistoricoNaCentral } from "../utils/ulbraHistoricoSelecao";
 import {
   DESTINO,
   FAIXAS,
@@ -232,10 +232,6 @@ export default function CentralUlbra({ usuario }) {
   const itensPrioridade = listaPrioridade({ ...dados, sem_interacao: carteira.linhas }, filtros.faixa);
   const selItem = itensPrioridade.find((i) => i.chave === filtros.conv) || null;
   const podeVerConversa = podeLerHistoricoNaCentral(selItem);
-  function verConversa() {
-    const id = conversaParaLer(selItem);
-    if (id) leituraRef.current.ver(id, setHistoricoSel);
-  }
 
   // A seleção vem da URL: troca por qualquer caminho (clique, voltar/avançar) cancela a leitura
   // pendente e limpa o histórico anterior. Não lê nada.

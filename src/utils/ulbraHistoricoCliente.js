@@ -1,5 +1,5 @@
 // ===========================================================================
-// Cliente SOMENTE LEITURA do histórico ULBRA (função ulbra-historico).
+// Cliente SOMENTE LEITURA do histórico ULBRA (ação historico_ler da função ulbra-conversa).
 // Não há conexão, prévia de envio, confirmação nem rota de autorização externa neste módulo.
 // Toda chamada leva o JWT do usuário; nenhuma usa credencial central.
 // Cada página consome 1 chamada da cota de backend da ULBRA: só ao clicar.
@@ -23,7 +23,8 @@ async function chamar(funcao, corpo) {
 
 /** Histórico sob demanda: 1 chamada por página. Só deve ser chamada por clique do usuário. */
 export function lerHistorico(conversaId, antesDe = null) {
-  return chamar("ulbra-historico", { conversa_id: conversaId, antes_de: antesDe });
+  // A1: leitura com a CONEXÃO INDIVIDUAL do operador, pela função ulbra-conversa (não há mais função central).
+  return chamar("ulbra-conversa", { acao: "historico_ler", conversa_id: conversaId, antes_de: antesDe });
 }
 
 export const MOTIVOS_HISTORICO = {

@@ -23,6 +23,11 @@ import { estadoConexao, garantirConexao, type ProvedorOAuth, type RegistroConexa
 import { enviarResposta, type Envio, type PedidoEnvio, type RepositorioEnvio, type ResultadoEnvio } from "./envio.ts";
 import { confirmarPrevia, criarPrevia, type PreviaRegistro, type RepositorioPrevia } from "./previa.ts";
 import { podeConferir } from "./conferencia.ts";
+import { mapearPagina, permitirLeitura, type ContextoLeitura } from "./leitura.ts";
+
+// A3: leitura GLOBAL do histórico só para quem a regra vigente autoriza (memória: Amanda gestora + Fernanda).
+// Amanda ADM e os demais perfis (inclusive administrativo e supervisor) leem apenas a própria carteira/responsabilidade.
+const LEITURA_GLOBAL_HISTORICO = ["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br"];
 
 const MCP_URL = "https://crm.ulbra.ai/api/mcp";
 const ACCEPT_MCP = "application/json, text/event-stream";
@@ -103,7 +108,7 @@ Deno.serve(async (req: Request) => {
   }
 
   // Dependências que exigem configuração: só quando a ação precisa delas.
-  const precisaOauth = ["conexao_iniciar", "conexao_concluir", "conexao_desconectar", "envio_previa", "envio_confirmar", "conexao_estado"].includes(acao);
+  const precisaOauth = ["conexao_iniciar", "conexao_concluir", "conexao_desconectar", "envio_previa", "envio_confirmar", "conexao_estado", "historico_ler"].includes(acao);
   if (precisaOauth && (!clientId || !redirectUri || !chaveHex)) {
     return responder({ ok: false, motivo: "CONEXAO_NAO_CONFIGURADA", detalhe: "client_id/redirect_uri/chave de cifra ausentes no ambiente da função" }, 503);
   }
@@ -275,6 +280,12 @@ Deno.serve(async (req: Request) => {
         pessoa = { pessoa_nome: null, pessoa_email: null, escopos: null, so_leitura: null };
         console.error("ulbra-conversa: meu_acesso do operador falhou", (e as Error).message);
       }
+      // A2: o operador A não pode conectar a conta B. Pessoa divergente ou ausente: revoga e não guarda nada.
+      if (((pessoa.pessoa_email as string | null) ?? "").toLowerCase() !== email) {
+        let revogadaNoProvedor = false;
+        try { await provedorOAuth.revogar(t.access_token); revogadaNoProvedor = true; } catch { revogadaNoProvedor = false; }
+        return responder({ ok: false, motivo: "IDENTIDADE_DIVERGENTE", revogada_no_provedor: revogadaNoProvedor }, 403);
+      }
       await guardarTokens(t, { conectada_em: new Date().toISOString(), ...pessoa });
       return responder({ ok: true, estado: "ATIVA", pessoa: pessoa.pessoa_nome ?? null, escopos: pessoa.escopos ?? null, escopo_token: t.escopo });
     }
@@ -284,8 +295,55 @@ Deno.serve(async (req: Request) => {
       if (!r) return responder({ ok: true, estado: "SEM_CONEXAO" });
       let noProvedor = false;
       try { await provedorOAuth.revogar(r.refresh_token ?? r.access_token); noProvedor = true; } catch { noProvedor = false; }
-      await sb.from("ulbra_conexoes_operador").update({ revogada_em: new Date().toISOString(), revogada_no_provedor: noProvedor, access_token_cifrado: null, refresh_token_cifrado: null, atualizado_em: new Date().toISOString() }).eq("operador_email", email);
+      // A4: sem confirmação do provedor, a credencial CONTINUA guardada (cifrada) para tentar a revogação de novo.
+      // Localmente ela já está revogada (revogada_em): nenhuma leitura ou envio a usa.
+      const apagar = noProvedor ? { access_token_cifrado: null, refresh_token_cifrado: null } : {};
+      await sb.from("ulbra_conexoes_operador").update({ revogada_em: new Date().toISOString(), revogada_no_provedor: noProvedor, ...apagar, atualizado_em: new Date().toISOString() }).eq("operador_email", email);
       return responder({ ok: true, estado: "REVOGADA", revogada_no_provedor: noProvedor });
+    }
+
+    // Histórico sob demanda com a CONEXÃO INDIVIDUAL do operador (nunca a credencial central). Só leitura.
+    if (acao === "historico_ler") {
+      // A10: porta no BACKEND, não só na tela. Desligada por padrão; ligar exige a variável no ambiente.
+      if (Deno.env.get("ULBRA_HISTORICO_HABILITADO") !== "true") return responder({ ok: false, motivo: "HISTORICO_DESLIGADO" }, 403);
+      const conversaId = typeof corpo.conversa_id === "string" ? corpo.conversa_id : "";
+      if (!/^[a-f0-9]{24}$/.test(conversaId)) return responder({ ok: false, motivo: "CONVERSA_INVALIDA" }, 400);
+      const antesDe = typeof corpo.antes_de === "string" && corpo.antes_de ? corpo.antes_de : null;
+      // Permissão pelos dados do banco AGORA: identidade por vínculo alta_cpf, dono da carteira ou responsável comprovado.
+      const { data: c } = await sb.from("ulbra_conversas").select("ulbra_cliente_id").eq("ulbra_conversa_id", conversaId).maybeSingle();
+      if (!c) return responder({ ok: false, motivo: "SEM_PERMISSAO_NA_CONVERSA" }, 403);
+      const { data: v } = await sb.from("ulbra_vinculos").select("aluno_id").eq("ulbra_cliente_id", c.ulbra_cliente_id).is("desvinculado_em", null).eq("confianca", "alta_cpf").maybeSingle();
+      const alunoId = (v?.aluno_id as string | null) ?? null;
+      let contexto: ContextoLeitura = { operador: email, identidade_confirmada: false, dono_carteira: null, responsavel_atendimento: null };
+      if (alunoId) {
+        const { data: casos } = await sb.from("casos").select("operador_email").eq("aluno_id", alunoId).not("operador_email", "is", null);
+        const donos = [...new Set((casos ?? []).map((k) => String(k.operador_email).toLowerCase()))];
+        const { data: ats } = await sb.from("ulbra_atendimentos").select("responsavel_email").eq("ulbra_cliente_id", c.ulbra_cliente_id).is("dispensado_em", null).not("responsavel_email", "is", null);
+        const resps = [...new Set((ats ?? []).map((a) => String(a.responsavel_email).toLowerCase()))];
+        const globalOk = LEITURA_GLOBAL_HISTORICO.includes(email);
+        contexto = {
+          operador: email,
+          identidade_confirmada: true,
+          dono_carteira: globalOk ? email : (donos.length === 1 ? donos[0] : null),
+          responsavel_atendimento: resps.length === 1 ? resps[0] : null,
+        };
+      }
+      const p = permitirLeitura(contexto);
+      if (!p.ok) return responder({ ok: false, motivo: p.motivo }, 403);
+      // Conexão individual do próprio operador. Divergência de identidade bloqueia.
+      const r = await lerRegistro();
+      const conn = await garantirConexao(r, provedorOAuth, Date.now());
+      if (!conn.ok) return responder({ ok: false, motivo: conn.motivo }, 403);
+      if ((conn.registro.pessoa_email ?? "").toLowerCase() !== email) return responder({ ok: false, motivo: "IDENTIDADE_DIVERGENTE" }, 403);
+      const args = antesDe ? { id: conversaId, limite: 20, antesDe } : { id: conversaId, limite: 20 };
+      let resultado;
+      try { resultado = await chamarComoOperador(conn.registro.access_token, "ler_conversa", args); }
+      catch { return responder({ ok: false, motivo: "ULBRA_INDISPONIVEL" }, 502); }
+      if (resultado.erro) return responder({ ok: false, motivo: "ULBRA_INDISPONIVEL" }, 502);
+      const pagina = mapearPagina(resultado.dados);
+      // Auditoria da operação, SEM texto de conversa nem token.
+      await auditar("ULBRA_HISTORICO_LEITURA", "ulbra_conversas", { conversa_id: conversaId, mensagens: pagina.mensagens.length });
+      return responder({ ok: true, pagina });
     }
 
     if (acao === "envio_previa") {
@@ -304,6 +362,8 @@ Deno.serve(async (req: Request) => {
       if (!envioReal) return responder({ ok: false, situacao: "BLOQUEADO", motivos: ["ENVIO_DESATIVADO"] }, 403);
       const conn = await garantirConexao(await lerRegistro(), provedorOAuth, Date.now());
       if (!conn.ok) return responder({ ok: false, situacao: "BLOQUEADO", motivos: [conn.motivo] }, 403);
+      // A2: a conta conectada precisa ser a do próprio usuário autenticado. Divergência bloqueia, sem envio nem leitura.
+      if ((conn.registro.pessoa_email ?? "").toLowerCase() !== email) return responder({ ok: false, situacao: "BLOQUEADO", motivos: ["IDENTIDADE_DIVERGENTE"] }, 403);
       const m = await montarPedido(atendimentoId, texto, "previa-sem-envio", conn.registro);
       if ("bloqueio" in m) return responder({ ok: false, ...m.bloqueio }, m.status);
       const r = await criarPrevia(m.pedido, { repositorioPrevia, gerarId: () => crypto.randomUUID(), agora: () => Date.now() });
@@ -323,6 +383,8 @@ Deno.serve(async (req: Request) => {
       if (!previa) return responder({ ok: false, situacao: "BLOQUEADO", motivos: ["PREVIA_NAO_ENCONTRADA"] }, 403);
       const conn = await garantirConexao(await lerRegistro(), provedorOAuth, Date.now());
       if (!conn.ok) return responder({ ok: false, situacao: "BLOQUEADO", motivos: [conn.motivo] }, 403);
+      // A2: a conta conectada precisa ser a do próprio usuário autenticado. Divergência bloqueia, sem envio nem leitura.
+      if ((conn.registro.pessoa_email ?? "").toLowerCase() !== email) return responder({ ok: false, situacao: "BLOQUEADO", motivos: ["IDENTIDADE_DIVERGENTE"] }, 403);
       const m = await montarPedido(previa.atendimento_id, texto, chaveEnvio, conn.registro);
       if ("bloqueio" in m) return responder({ ok: false, ...m.bloqueio }, m.status);
       // Nova mensagem com o mesmo texto só com ação explícita do operador (e nova chave).
@@ -339,7 +401,10 @@ Deno.serve(async (req: Request) => {
             const d = resultado.dados as { mensagem?: { id?: string }; id?: string };
             const id = d?.mensagem?.id ?? d?.id;
             if (typeof id !== "string" || id === "") throw new Error("ENVIO_RESPOSTA_AMBIGUA");
-            return { ulbra_mensagem_id: id };
+            // A6: o contrato de sucesso do provedor NÃO está comprovado. Um id não é prova de envio:
+            // o resultado fica em FALHA_INCERTA (conferência na Mensageria), nunca em ENVIADO.
+            void id;
+            throw new Error("ENVIO_CONTRATO_SUCESSO_NAO_COMPROVADO");
           },
         },
       });

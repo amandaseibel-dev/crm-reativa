@@ -83,6 +83,17 @@ describe("confirmar consome a prévia e envia uma vez", () => {
     expect(s.provedorEnvio.chamadas.length).toBe(1);
   });
 
+  it("A5: chave já usada com OUTRO texto não devolve JA_PROCESSADO; recusa CHAVE_COM_OUTRO_CONTEUDO e não envia", async () => {
+    const s = setup();
+    const previaId = await previaCriada(s);
+    await confirmarPrevia(pedido(), previaId, s.d);
+    // Mesma chave, texto diferente: reprodução do bloqueio A5 (antes devolvia JA_PROCESSADO).
+    const outroTexto = await confirmarPrevia({ ...pedido(), texto: "outro texto diferente" }, previaId, s.d);
+    expect(outroTexto.situacao).toBe("BLOQUEADO");
+    expect((outroTexto as { motivos: string[] }).motivos).toContain("CHAVE_COM_OUTRO_CONTEUDO");
+    expect(s.provedorEnvio.chamadas.length).toBe(1);
+  });
+
   it("a MESMA prévia com OUTRA chave não envia: PREVIA_JA_USADA", async () => {
     const s = setup();
     const previaId = await previaCriada(s);
