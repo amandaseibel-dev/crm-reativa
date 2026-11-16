@@ -1,5 +1,5 @@
--- ROLLBACK DO NIVELAMENTO V2 (20261112120000 + 20261112120100).
--- Restaura o estado ANTERIOR a aplicacao da 20261112120000 (V2): assumir_caso_livre
+-- ROLLBACK DO NIVELAMENTO V2 (20261116120000 + 20261116120100).
+-- Restaura o estado ANTERIOR a aplicacao da 20261116120000 (V2): assumir_caso_livre
 -- (definicao e grants anteriores), job 48 (nome, agendamento e comando) e remove
 -- a reposicao V2. NAO reabre o gate corrigido.
 -- PERMISSOES RESTAURADAS: assumir_caso_livre volta a ter EXECUTE para authenticated e
@@ -24,7 +24,7 @@ begin
 end $$;
 
 -- (O gate NAO e restaurado aqui: ele tem rollback proprio, separado e explicito:
---  20261112120100_calibragem_gate_somente_gestao.rollback.sql. Este rollback nao reabre o gate.)
+--  20261116120100_calibragem_gate_somente_gestao.rollback.sql. Este rollback nao reabre o gate.)
 
 -- 2. assumir_caso_livre: definicao anterior + grants anteriores.
 do $$

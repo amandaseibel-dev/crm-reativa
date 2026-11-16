@@ -1,4 +1,4 @@
--- NIVELAMENTO DE CARTEIRAS V2 (20261112120000) -- PENDENTE DE APROVACAO.
+-- NIVELAMENTO DE CARTEIRAS V2 (20261116120000) -- PENDENTE DE APROVACAO.
 --
 -- REGRAS CONFIRMADAS PELA GESTAO (12/11/2026):
 --  1. Unica entrada automatica na carteira = REPOSICAO por baixa REALIZADA
@@ -61,7 +61,7 @@ on conflict (nome) do nothing;
 insert into public.calibragem_parametros(chave, valor, descricao, atualizado_em, atualizado_por)
 values ('nivelamento_v2_desde', to_jsonb(now()::text),
         'Corte da reposicao V2: so baixas REALIZADAS a partir deste instante geram reposicao.',
-        now(), 'migration 20261112120000')
+        now(), 'migration 20261116120000')
 on conflict (chave) do update
   set valor = excluded.valor, atualizado_em = now(), atualizado_por = excluded.atualizado_por;
 

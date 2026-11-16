@@ -1,4 +1,4 @@
--- AMBIENTE ISOLADO — NIVELAMENTO V2 (20261112120000)
+-- AMBIENTE ISOLADO — NIVELAMENTO V2 (20261116120000)
 --
 -- Roda num Postgres descartavel do CI. NAO fala com producao, NAO usa segredo.
 --
@@ -9,8 +9,8 @@
 -- logica NOVA (ocupacao, reposicao, troca, auditoria, gate, idempotencia), nao o
 -- comportamento das funcoes reais. Equivalencia com producao: ver o pacote.
 --
--- ORDEM: 01_ambiente.sql -> migration 20261112120000 -> 02_casos.sql
---        (a migration 20261112120100 e rodada no CI logo apos a primeira)
+-- ORDEM: 01_ambiente.sql -> migration 20261116120000 -> 02_casos.sql
+--        (a migration 20261116120100 e rodada no CI logo apos a primeira)
 
 \set ON_ERROR_STOP on
 

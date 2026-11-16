@@ -13,7 +13,7 @@
 -- ESCOPO: so funcoes calibragem_% e onda1_%. Nenhum cron chama essas funcoes
 -- sem JWT (verificado em cron.job: unica chamada de calibragem/onda1 era o job
 -- 48, que chama nivelamento_automatico_gestao, FORA deste escopo e desativado
--- pela migration 20261112120000).
+-- pela migration 20261116120000).
 --
 -- NAO ALTERADO (forma de gate diferente; revisar em outra etapa):
 --   calibragem_simular, calibragem_simular_ano, calibragem_recomputar_snapshot.

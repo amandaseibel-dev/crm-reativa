@@ -8,10 +8,10 @@ Branch `feat/nivelamento-v2`. Commit atual: ver `git log -1`.
 
 | Artefato | SHA-256 |
 |---|---|
-| `supabase/aguardando_aprovacao/20261112120000_nivelamento_v2.sql.pendente` | 41610d8161b65005 |
-| `supabase/aguardando_aprovacao/20261112120100_calibragem_gate_somente_gestao.sql.pendente` | 945b57ec16b3f472 |
-| `supabase/aguardando_aprovacao/20261112120000_nivelamento_v2.rollback.sql` | 464946fa5a8d7dd4 |
-| `supabase/aguardando_aprovacao/20261112120100_calibragem_gate_somente_gestao.rollback.sql` | b6042c3efd0843e7 |
+| `supabase/aguardando_aprovacao/20261116120000_nivelamento_v2.sql.pendente` | 66aa2cd0bc9a0552 |
+| `supabase/aguardando_aprovacao/20261116120100_calibragem_gate_somente_gestao.sql.pendente` | a2491a91bfe872a3 |
+| `supabase/aguardando_aprovacao/20261116120000_nivelamento_v2.rollback.sql` | 464366e4b79bf1f4 |
+| `supabase/aguardando_aprovacao/20261116120100_calibragem_gate_somente_gestao.rollback.sql` | 059089893dd364e8 |
 | `supabase/tests/nivelamento_v2/01_ambiente.sql` | 66d64b67312b509f |
 | `supabase/tests/nivelamento_v2/02_casos.sql` | 673a3859bddec633 |
 | `supabase/tests/nivelamento_v2/03_concorrencia_setup.sql` | 096a3b516578e0e6 |
@@ -41,8 +41,8 @@ Hash comprova identidade do código, **não** equivalência de comportamento dos
 ## Ordem de implantação (quando autorizada)
 
 1. Confirmar backup lógico do estado atual (funções `assumir_caso_livre`, as 3 simulações, as 5 `calibragem_*`/`onda1_*` alteradas, job 48).
-2. Aplicar `20261112120000_nivelamento_v2.sql.pendente` (grava `nivelamento_v2_backup`, corte `nivelamento_v2_desde = now()`, desativa job 48, agenda `nivelamento_v2_reposicao` a cada hora no minuto 7).
-3. Aplicar `20261112120100_calibragem_gate_somente_gestao.sql.pendente` (fecha o gate).
+2. Aplicar `20261116120000_nivelamento_v2.sql.pendente` (grava `nivelamento_v2_backup`, corte `nivelamento_v2_desde = now()`, desativa job 48, agenda `nivelamento_v2_reposicao` a cada hora no minuto 7).
+3. Aplicar `20261116120100_calibragem_gate_somente_gestao.sql.pendente` (fecha o gate).
 4. Verificar: job 48 inativo, job V2 agendado, `assumir_caso_livre` com ACL `postgres/authenticated/service_role` (sem PUBLIC/anon), gate das simulações recusa sessão sem JWT.
 
 ## Troca dos jobs
@@ -52,8 +52,8 @@ Hash comprova identidade do código, **não** equivalência de comportamento dos
 
 ## Reversão
 
-- **Principal** (`20261112120000_nivelamento_v2.rollback.sql`): restaura `assumir_caso_livre` (definição e grants anteriores: EXECUTE só `authenticated` e `service_role`), reagenda o job antigo com mesmo **nome, agendamento e comando** (o **jobid muda**), remove funções/índices V2, remove o corte. **Não reabre o gate.** Não apaga linhas de `calibragem_auditoria` (append-only).
-- **Gate** (`20261112120100_calibragem_gate_somente_gestao.rollback.sql`): **reabre a brecha** — restaura a definição anterior das funções alteradas, inclusive "or auth.jwt() is null". Executar só com decisão expressa.
+- **Principal** (`20261116120000_nivelamento_v2.rollback.sql`): restaura `assumir_caso_livre` (definição e grants anteriores: EXECUTE só `authenticated` e `service_role`), reagenda o job antigo com mesmo **nome, agendamento e comando** (o **jobid muda**), remove funções/índices V2, remove o corte. **Não reabre o gate.** Não apaga linhas de `calibragem_auditoria` (append-only).
+- **Gate** (`20261116120100_calibragem_gate_somente_gestao.rollback.sql`): **reabre a brecha** — restaura a definição anterior das funções alteradas, inclusive "or auth.jwt() is null". Executar só com decisão expressa.
 
 ## Simulação com dados atuais
 

@@ -1,5 +1,5 @@
 -- CASOS DO NIVELAMENTO V2. Roda DEPOIS de 01_ambiente.sql e da migration
--- 20261112120000 e da 20261112120100. Cada bloco falha com RAISE EXCEPTION.
+-- 20261116120000 e da 20261116120100. Cada bloco falha com RAISE EXCEPTION.
 \set ON_ERROR_STOP on
 
 create or replace function pg_temp.afirma(p_ok boolean, p_msg text) returns void

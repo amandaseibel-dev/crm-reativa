@@ -1137,7 +1137,7 @@ jobs:
 
 
   # ---------------------------------------------------------------------------
-  # NIVELAMENTO V2 (20261112120000 + gate 20261112120100): reposicao so por baixa
+  # NIVELAMENTO V2 (20261116120000 + gate 20261116120100): reposicao so por baixa
   # REALIZADA com vaga, troca transacional de mesmo saldo no teto, corte sem
   # retroativo, idempotencia, gate sem JWT, concorrencia real e rollback que
   # restaura o job 48. Stubs das dependencias: ver 01_ambiente.sql (limite honesto).
@@ -1167,10 +1167,10 @@ jobs:
       PGPASSWORD: postgres
       PGDATABASE: teste
       DIR: supabase/tests/nivelamento_v2
-      M1: supabase/aguardando_aprovacao/20261112120000_nivelamento_v2.sql.pendente
-      M2: supabase/aguardando_aprovacao/20261112120100_calibragem_gate_somente_gestao.sql.pendente
-      RB: supabase/aguardando_aprovacao/20261112120000_nivelamento_v2.rollback.sql
-      GRB: supabase/aguardando_aprovacao/20261112120100_calibragem_gate_somente_gestao.rollback.sql
+      M1: supabase/aguardando_aprovacao/20261116120000_nivelamento_v2.sql.pendente
+      M2: supabase/aguardando_aprovacao/20261116120100_calibragem_gate_somente_gestao.sql.pendente
+      RB: supabase/aguardando_aprovacao/20261116120000_nivelamento_v2.rollback.sql
+      GRB: supabase/aguardando_aprovacao/20261116120100_calibragem_gate_somente_gestao.rollback.sql
 
     steps:
       - uses: actions/checkout@v5
