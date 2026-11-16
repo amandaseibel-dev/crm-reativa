@@ -279,6 +279,8 @@ describe("depois da migration", () => {
     expect(r.destinatarios[0].nome).toBeTruthy();
     // minimo necessario: lote de WhatsApp nao devolve e-mail
     expect(r.destinatarios.every((d) => d.email === null)).toBe(true);
+    // telefone NUNCA integral: so a mascara (ultimos 4 digitos), como na tela de ficha
+    expect(r.destinatarios.every((d) => d.telefone === undefined && /^••••\d{4}$/.test(d.telefone_mascarado))).toBe(true);
     // lote ja concluido nao entrega a lista de novo
     await concluirEnvio(ex.lote_id, "TOTAL");
     await expect(db.query(`select public.acoes_massivas_lote_destinatarios($1::uuid)`, [ex.lote_id]))

@@ -1,5 +1,9 @@
 -- ACOES MASSIVAS: EXPORTAR NAO REGISTRA; O ENVIO E CONFIRMADO PELA GESTAO.
 --
+-- ORDEM DE APLICACAO: 20261113100100 ANTES (ou junto, nesta ordem) desta migration.
+-- Sem a guarda de e-mail, esta migration cria lotes pendentes que a exportacao de
+-- e-mail passaria a derivar (B1).
+--
 -- PENDENTE. Nao aplicar sem autorizacao expressa e sem linha em
 -- docs/seguranca/migracoes-aprovadas.tsv.
 --
@@ -218,7 +222,8 @@ begin
     'destinatarios', coalesce((
       select jsonb_agg(jsonb_build_object(
                'aluno_id', x.id_txt, 'nome', a.nome,
-               'telefone', case when upper(v_lote.canal) = 'EMAIL' then null else a.telefone end,
+               'telefone_mascarado', case when upper(v_lote.canal) = 'EMAIL' or a.telefone is null then null
+                                          else '••••' || right(regexp_replace(a.telefone, '\D', '', 'g'), 4) end,
                'email',    case when upper(v_lote.canal) = 'EMAIL' then a.email else null end) order by x.ord)
         from unnest(v_lote.aluno_ids) with ordinality as x(id_txt, ord)
         left join public.alunos a on a.id::text = x.id_txt), '[]'::jsonb));

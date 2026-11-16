@@ -685,8 +685,9 @@ export default function AcoesMassivas() {
     setDerivandoEmail(true);
     try {
       // A REGRA MORA NO BANCO (migration 20261113100100): acoes_massivas_exportar_emails_do_lote
-      // recusa lote de WhatsApp pendente para qualquer chamador. A tela não relê
-      // listas (elas vêm cortadas em 50) e não decide nada aqui: só mostra a recusa.
+      // recusa lote de WhatsApp pendente para qualquer chamador. O painel de lotes pode
+      // estar cortado em 50: o botão então pode aparecer para um lote pendente, e o banco
+      // recusa. A tela só mostra a recusa.
       const nomeArquivo = `acao-massiva-email-do-lote-whatsapp-${new Date().toISOString().slice(0, 10)}.xlsx`;
       const { data: res, error } = await supabase.rpc("acoes_massivas_exportar_emails_do_lote", {
         p_lote_id: lote.id,
@@ -1624,7 +1625,7 @@ export default function AcoesMassivas() {
                                     />
                                     <span>{d.nome || d.aluno_id}</span>
                                     <span style={{ color: "var(--rv-texto-fraco)" }}>
-                                      {l.canal === "EMAIL" ? (d.email || "") : (normalizarTelefone(d.telefone) || "")}
+                                      {l.canal === "EMAIL" ? (d.email || "") : (d.telefone_mascarado || "")}
                                     </span>
                                   </label>
                                 ))}

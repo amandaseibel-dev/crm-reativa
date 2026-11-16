@@ -109,6 +109,20 @@ describe("e-mail do lote de WhatsApp: a regra e do banco", () => {
     expect(await contagens(db)).toEqual(antes);
   });
 
+  it("sistema (service_role, sem usuario de gestao) e recusado para lote pendente, com SQLSTATE 55000", async () => {
+    const db = await banco();
+    await db.exec(MIGRACAO);
+    const ids = await idsAlunos(db, 2);
+    const lote = await loteWhats(db, ids, { pendente: true });
+    // sessao de servico: role service_role, sem e-mail de gestao
+    await db.query(`select set_config('request.jwt.claims', $1, false)`, [JSON.stringify({ role: "service_role" })]);
+    const erro = await deriva(db, lote).then(() => null, (e) => e);
+    expect(erro).not.toBeNull();
+    expect(String(erro.message)).toMatch(/ainda esta pendente de envio/);
+    expect(erro.code).toBe("55000");
+    expect((await contagens(db)).lotes_email).toBe(0);
+  });
+
   it("chamada sem sessao de usuario (sistema) tambem e recusada para lote pendente", async () => {
     const db = await banco();
     await db.exec(MIGRACAO);

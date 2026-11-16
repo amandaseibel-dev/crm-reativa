@@ -1,5 +1,7 @@
 -- ACOES MASSIVAS: E-MAIL DO LOTE DE WHATSAPP SO DEPOIS DA TABULACAO DO ENVIO.
 --
+-- ORDEM DE APLICACAO: esta migration ANTES (ou junto, nesta ordem) de 20261113100000.
+--
 -- PENDENTE. Nao aplicar sem autorizacao expressa e sem linha em
 -- docs/seguranca/migracoes-aprovadas.tsv. Depende de 20261113100000 apenas no
 -- pacote; o patch aqui nao usa nada daquela migration.
