@@ -1,3 +1,3 @@
 -- RESTAURAÇÃO ADMINISTRATIVA (postgres): reverte a contenção. Roda sempre.
 \set ON_ERROR_STOP on
-\i supabase/aguardando_aprovacao/20261114140000_contencao_registro_termo_fisico.rollback.sql
+update public.termo_fisico_contencao set contencao_ativa = false, alterado_em = clock_timestamp(), alterado_por = 'teste_prep' where id;
