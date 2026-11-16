@@ -1075,6 +1075,19 @@ describe("Ações Massivas — e-mail a partir de um lote de WhatsApp", () => {
     expect(screen.getByText(/ainda está pendente de envio.*Nada foi exportado nem registrado/)).toBeTruthy();
   });
 
+  it("handler falha fechado: lista de pendentes cheia (50) não prova nada — não exporta", async () => {
+    lotesWhats = [LOTE_WHATS];
+    lotesRegistro = [];
+    lotes = Array.from({ length: 50 }, (_, i) => ({ ...LOTE_WHATS, id: `outro-${i}`, canal: "WHATSAPP" }));
+    await montar();
+    await abrirConfirmacao();
+    await act(async () => {
+      fireEvent.click(within(painel()).getByRole("button", { name: /Sim, exportar e registrar/ }));
+    });
+    expect(chamadas("acoes_massivas_exportar_emails_do_lote")).toHaveLength(0);
+    expect(screen.getByText(/Não foi possível conferir se o lote de WhatsApp já foi tabulado/)).toBeTruthy();
+  });
+
   it("sem lote de WhatsApp recente, o painel não aparece", async () => {
     await montar();
     expect(screen.queryByTestId("lotes-whatsapp-email")).toBeNull();

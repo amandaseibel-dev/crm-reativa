@@ -688,7 +688,9 @@ export default function AcoesMassivas() {
       // Relê do banco antes de registrar: o estado da tela pode estar velho
       // (outra aba exportou, painel cortado). Sem conseguir conferir, não exporta.
       const { data: pend, error: erroPend } = await supabase.rpc("acoes_massivas_lotes_pendentes");
-      if (erroPend || !Array.isArray(pend)) {
+      // A lista de pendentes do banco vem cortada em 50: lista cheia não prova
+      // que o lote está fora dela, então conta como "não deu para conferir".
+      if (erroPend || !Array.isArray(pend) || pend.length >= 50) {
         setErro("Não foi possível conferir se o lote de WhatsApp já foi tabulado. Nada foi exportado nem registrado; tente novamente.");
         return;
       }
