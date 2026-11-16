@@ -1254,6 +1254,23 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       alert(msgSemData);
       throw new Error(msgSemData);
     }
+    // RPC PRIMEIRO: se falhar, nada e gravado (sem movimentacao duplicada no reenvio).
+    // Reagendar explicito: a RPC e o unico caminho que zera "Ja falei" por reagendamento.
+    if (reagendar) {
+      if (!dataRetorno) throw new Error("Informe a data e a hora do retorno para reagendar.");
+      const [dataIso, horaIso] = String(dataRetorno).split("T");
+      const { error: erroReagendar } = await supabase.rpc("agenda_reagendar_retorno", {
+        p_aluno_id: alunoId,
+        p_data: dataIso,
+        p_hora: (horaIso || "").slice(0, 5) || null,
+        p_prioritario: false,
+      });
+      if (erroReagendar) {
+        alert("Reagendamento NAO foi aplicado. Nada foi salvo: " + erroReagendar.message);
+        throw erroReagendar;
+      }
+      setReagendarRetorno(false);
+    }
     // Movimentacao so e gravada depois dessa checagem.
     const { error: movError } = await supabase
       .from("aluno_movimentacoes")
@@ -1271,22 +1288,6 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       console.error("Erro ao atualizar aluno:", updateError);
       alert("Movimentação registrada, mas houve erro ao atualizar a ficha.");
       throw updateError;
-    }
-    // Reagendar explicito: a RPC e o unico caminho que zera "Ja falei" por reagendamento.
-    if (reagendar) {
-      if (!dataRetorno) throw new Error("Informe a data e a hora do retorno para reagendar.");
-      const [dataIso, horaIso] = String(dataRetorno).split("T");
-      const { error: erroReagendar } = await supabase.rpc("agenda_reagendar_retorno", {
-        p_aluno_id: alunoId,
-        p_data: dataIso,
-        p_hora: (horaIso || "").slice(0, 5) || null,
-        p_prioritario: false,
-      });
-      if (erroReagendar) {
-        alert("Ficha salva, mas o reagendamento NAO foi aplicado: " + erroReagendar.message);
-        throw erroReagendar;
-      }
-      setReagendarRetorno(false);
     }
   }
   async function assumirAtendimento() {

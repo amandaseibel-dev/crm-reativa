@@ -211,15 +211,16 @@ describe("Aluno.jsx: retorno e Reagendar", () => {
     expect(payload).not.toHaveProperty("retorno_confirmado_em");
   });
 
-  it("falha da RPC: avisa que o reagendamento NAO foi aplicado (ficha ja salva) e mantem o checkbox marcado", async () => {
+  it("falha da RPC: avisa que o reagendamento NAO foi aplicado, nada e gravado (sem movimentacao nem ficha) e mantem o checkbox marcado", async () => {
     montarSupabase({ erroRpcReagendar: { message: "Sem permissao para reagendar o retorno deste aluno" } });
     await abrirFicha();
     await act(async () => { fireEvent.click(checkboxReagendar()); });
 
     await clicarAtualizar();
 
-    expect(updateMock).toHaveBeenCalledTimes(1);
-    expect(alertMock).toHaveBeenCalledWith(expect.stringMatching(/Ficha salva, mas o reagendamento NAO foi aplicado/));
+    expect(insertMock).not.toHaveBeenCalled();
+    expect(updateMock).not.toHaveBeenCalled();
+    expect(alertMock).toHaveBeenCalledWith(expect.stringMatching(/Reagendamento NAO foi aplicado\. Nada foi salvo/));
     expect(alertMock).not.toHaveBeenCalledWith(expect.stringMatching(/Atendimento assumido|sucesso/i));
     expect(checkboxReagendar().checked).toBe(true);
   });

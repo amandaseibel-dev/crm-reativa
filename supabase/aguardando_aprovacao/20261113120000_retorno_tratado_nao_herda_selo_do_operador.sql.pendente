@@ -113,6 +113,13 @@
 --   4. dono, SECURITY DEFINER, configuracao e GRANTs identicos aos de antes.
 --
 -- ROLLBACK: supabase/aguardando_aprovacao/20261113120000_retorno_tratado_nao_herda_selo_do_operador.rollback.sql
+-- PRE-CONDICAO: public.eh_painel() precisa existir (a policy alunos_update ja a usa).
+do $pre$ begin
+  if to_regprocedure('public.eh_painel()') is null then
+    raise exception 'PRE-CONDICAO: public.eh_painel() ausente; abortar sem alterar nada';
+  end if;
+end $pre$;
+
 begin;
 
 do $$
