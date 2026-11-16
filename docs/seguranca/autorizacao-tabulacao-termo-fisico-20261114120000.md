@@ -43,7 +43,7 @@ Evidências (somente leitura, em 06/11/2026): `usuario_e_gestao()` = `af3d391f42
 
 ## Bloqueios externos de implantação (comprovados)
 1. Gate A: 7 `BLOQUEIA` abertos (frentes acima).
-2. Reconciliação: `usuario_e_gestao()` e `_encerramento_so_gestao()` só como evidência nesta #954 (a versão da trava está no branch preservado).
+2. Reconciliação: `usuario_e_gestao()` só como evidência (sem migração versionada), chamada pela migration `20261114120000`; `_encerramento_so_gestao()` fora desta #954 (a versão da trava está no branch preservado).
 3. Auth: configuração de confirmação e troca de e-mail (não lida).
 4. Papel `reativa_responsavel_executor` (INSERT irrestrito): não lido se é usado com `SET ROLE` por cliente.
 5. `tabulacoes` sem DDL base versionado.

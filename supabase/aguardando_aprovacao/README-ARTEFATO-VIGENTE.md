@@ -1,8 +1,7 @@
-# Artefato vigente da #954
+# Recorte da #954
 
-Os arquivos SQL-EDITOR_* foram removidos do caminho executável. Não usar como referência.
+Esta #954 é o registro informativo de termo físico. Nenhuma proposta da trava de tabulação só gestão é aplicada por ela.
 
-Artefato vigente, a aplicar somente após autorização específica:
-- Migração: 20261106140000_tabulacao_so_gestao_no_banco.sql.pendente
-- Rollback: 20261106140000_tabulacao_so_gestao_no_banco.rollback.sql
-- Pré-requisito: 20261106120000 (RETORNO_FINANCEIRO) aplicada, conforme a mensagem de dependência da migração.
+- A trava `20261106140000` (migração e rollback) está preservada, igual à base da main, e preservada também no branch `wip/trava-so-gestao-20261106140000`.
+- Os arquivos SQL-EDITOR_* não são referência executável.
+- Nenhum artefato desta pasta é "vigente" para a #954.
