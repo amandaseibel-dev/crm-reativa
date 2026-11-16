@@ -633,3 +633,30 @@ describe("revogacao de authenticated no recalculo: corpo real e chamadores reais
     });
   });
 });
+
+// CONTRATO INDEPENDENTE DA TELA: mudanca comum de data (UPDATE direto, como authenticated,
+// sem a RPC) preserva "Ja falei". So agenda_reagendar_retorno zera a confirmacao.
+describe("contrato de 'Ja falei': imposto no banco, independente da tela", () => {
+  it("UPDATE direto de data_retorno por authenticated preserva retorno_confirmado_em", async () => {
+    const db = await montar({ comPacote: true });
+    await db.exec("grant select, update on public.alunos to authenticated;");
+    await jaFalei(db, OPERADOR, ALUNA);
+    const antes = await linha(db, ALUNA);
+    expect(antes.confirmado).not.toBeNull();
+    await comPapel(db, "authenticated", OPERADOR, () =>
+      db.query("update public.alunos set data_retorno = current_date + 9 where id = $1", [ALUNA])
+    );
+    const depois = await linha(db, ALUNA);
+    expect(depois.data_retorno).not.toBe(antes.data_retorno);
+    expect(depois.confirmado).toBe(antes.confirmado);
+  });
+
+  it("so a RPC zera: reagendar na MESMA data e hora zera a confirmacao", async () => {
+    const db = await montar({ comPacote: true });
+    await jaFalei(db, OPERADOR, ALUNA);
+    const antes = await linha(db, ALUNA);
+    const { d } = (await db.query("select (data_retorno - current_date)::int as d from public.alunos where id = $1", [ALUNA])).rows[0];
+    await reagendar(db, OPERADOR, ALUNA, d, antes.hora_retorno ?? null);
+    expect((await linha(db, ALUNA)).confirmado).toBeNull();
+  });
+});

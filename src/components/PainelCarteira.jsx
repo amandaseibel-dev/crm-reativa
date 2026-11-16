@@ -2299,7 +2299,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         registrado_por_email: email,
         registrado_em: agora,
       };
-      if (desfecho.data_retorno) {
+      // Reagendar explicito (DIGITADA + checkbox): a RPC e a UNICA escritora de data,
+      // hora, origem e prioridade, e zera "Ja falei". Nao antecipa por UPDATE direto.
+      const reagendando = reagendarRetorno && desfecho.motivo === "DIGITADA" && Boolean(desfecho.data_retorno);
+      if (desfecho.data_retorno && !reagendando) {
         atualizacaoAluno.data_retorno = desfecho.data_retorno;
         atualizacaoAluno.retorno_origem = desfecho.retorno_origem;
         atualizacaoAluno.hora_retorno = desfecho.motivo === "DIGITADA" ? (retornoHora || null) : null;
@@ -2307,7 +2310,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         // que ele mesmo marcou. Prazo automatico da tabulacao nunca nasce
         // prioritario, senao a fila inteira subiria junto.
         atualizacaoAluno.retorno_prioritario = desfecho.motivo === "DIGITADA" ? Boolean(retornoPrioritario) : false;
-      } else {
+      } else if (!desfecho.data_retorno) {
         // Tabulou sem agendar retorno: nao ha compromisso, nao ha prioridade.
         atualizacaoAluno.retorno_prioritario = false;
       }
@@ -2318,7 +2321,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       const { error: erroUp } = await supabase.from("alunos").update(atualizacaoAluno).eq("id", a.id);
       if (erroUp) throw erroUp;
       // Reagendar de verdade: a RPC e o unico caminho que zera "Ja falei" por reagendamento.
-      if (reagendarRetorno && desfecho.motivo === "DIGITADA") {
+      if (reagendando) {
         const { error: erroReag } = await supabase.rpc("agenda_reagendar_retorno", {
           p_aluno_id: a.id,
           p_data: desfecho.data_retorno,

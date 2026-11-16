@@ -33,8 +33,12 @@
 --     zera "Ja falei" por mudanca de data (trg_aluno_reset_retorno_confirmado sai).
 --   * somente o REAGENDAMENTO EXPLICITO, pela RPC agenda_reagendar_retorno,
 --     zera retorno_confirmado_em (mesmo com data e hora iguais).
---   * a regra "data so muda com Reagendar" fica na tela (Aluno.jsx). O banco
---     NAO a impoe: R3 aceito como decisao de desenho, nao como lacuna.
+--   * mudanca comum de data/hora NAO e recusada (nem na tela nem no banco) e NAO
+--     zera "Ja falei": o banco nao tem gatilho que zere, e a gravacao comum nao
+--     envia retorno_confirmado_em. Provado no banco por UPDATE direto como
+--     authenticated (supabase/tests/reagendamento_explicito_comportamento.test.js).
+--   * reagendamento humano explicito (PainelCarteira e checkbox da Aluno) usa so a RPC:
+--     a RPC e a unica escritora de data/hora/origem/prioridade nesse caminho.
 --
 -- MEDICAO DE PRODUCAO (catalogo, leitura, 15/11/2026): recalcular_situacao_aluno
 --   md5 41475103 (corpo ainda o anterior; parte 1 nao aplicada); ACL: authenticated

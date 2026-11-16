@@ -2,8 +2,8 @@
 //
 // Comportamento do retorno na ficha do aluno (Aluno.jsx), provado na pagina:
 //   1. salvar sem Reagendar preserva a confirmacao ("Ja falei") e nao chama a RPC;
-//   2. mudar data/hora sem Reagendar e recusado ANTES de qualquer escrita
-//      (nem movimentacao, nem update de alunos);
+//   2. mudar data/hora sem Reagendar e gravacao comum: a data muda, a confirmacao
+//      ("Ja falei") nao e tocada e nao ha RPC (contrato: so a RPC zera);
 //   3. Reagendar com a MESMA data e hora chama agenda_reagendar_retorno;
 //   4. falha da RPC: a ficha salva, o aviso diz que o reagendamento NAO foi
 //      aplicado, e o checkbox continua marcado (nao anuncia sucesso);
@@ -176,7 +176,7 @@ describe("Aluno.jsx: retorno e Reagendar", () => {
     expect(chamadasRpc("agenda_reagendar_retorno")).toHaveLength(0);
   });
 
-  it("mudar data sem Reagendar e recusado antes de qualquer escrita (sem movimentacao e sem update)", async () => {
+  it("mudar data sem Reagendar grava a data comum, sem recusa, sem RPC e sem tocar na confirmacao (contrato)", async () => {
     await abrirFicha();
     await act(async () => {
       fireEvent.change(campoData(), { target: { value: "2099-12-05T09:00" } });
@@ -184,9 +184,11 @@ describe("Aluno.jsx: retorno e Reagendar", () => {
 
     await clicarAtualizar();
 
-    expect(alertMock).toHaveBeenCalledWith(expect.stringMatching(/marque Reagendar/));
-    expect(insertMock).not.toHaveBeenCalled();
-    expect(updateMock).not.toHaveBeenCalled();
+    expect(alertMock).not.toHaveBeenCalledWith(expect.stringMatching(/marque Reagendar/));
+    expect(updateMock).toHaveBeenCalledTimes(1);
+    const payload = updateMock.mock.calls[0][0];
+    expect(payload.data_retorno).toMatch(/^2099-12-05/);
+    expect(payload).not.toHaveProperty("retorno_confirmado_em");
     expect(chamadasRpc("agenda_reagendar_retorno")).toHaveLength(0);
   });
 

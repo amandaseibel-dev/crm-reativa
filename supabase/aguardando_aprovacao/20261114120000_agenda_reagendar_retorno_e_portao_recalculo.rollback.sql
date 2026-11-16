@@ -1,4 +1,10 @@
 -- ROLLBACK de 20261114120000_agenda_reagendar_retorno_e_portao_recalculo
+-- REVERSAO COORDENADA (ordem obrigatoria; banco por ultimo):
+--   1. publicar o FRONTEND sem chamadas a agenda_reagendar_retorno: PainelCarteira.jsx
+--      (atendimento, reagendando) e Aluno.jsx (checkbox Reagendar e troca de responsavel).
+--      Sem isso, a tela chama uma RPC que deixa de existir.
+--   2. so entao rodar este arquivo, que remove a RPC e recria o gatilho antigo.
+--   Reverter so o banco deixa a tela quebrada; reverter so o front deixa o gatilho ausente.
 -- Remove a RPC, recria o gatilho de zeragem por data e reverte o FOR UPDATE do
 -- recalculo (c3e38ac0 -> 03dacc0a) e restaura a ACL de origem medida em producao
 -- (15/11/2026): EXECUTE para authenticated (revogado na secao E). public e anon

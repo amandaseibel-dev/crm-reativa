@@ -1239,13 +1239,8 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     const dataNova = "data_retorno" in atualizacaoAluno ? String(atualizacaoAluno.data_retorno || "").slice(0, 10) : dataAntiga;
     const horaNova = "hora_retorno" in atualizacaoAluno ? String(atualizacaoAluno.hora_retorno || "").slice(0, 5) : horaAntiga;
     const mudouRetorno = dataNova !== dataAntiga || horaNova !== horaAntiga;
-    if (!reagendarRetorno && mudouRetorno && ehOrigemDoOperador(atualizacaoAluno.retorno_origem)) {
-      // Data/hora digitadas por humano so mudam com a acao Reagendar (RPC).
-      // Avisa antes de lancar: o chamador so loga erro, e sem o aviso o operador nao via nada.
-      const msgRecusa = "Para mudar a data ou a hora do retorno, marque Reagendar. Nada foi salvo.";
-      alert(msgRecusa);
-      throw new Error(msgRecusa);
-    }
+    // Contrato: mudanca comum de data/hora NAO zera "Ja falei" (o banco nao zera; so a RPC
+    // agenda_reagendar_retorno zera, com Reagendar). Nao ha recusa aqui.
     if (reagendarRetorno || !mudouRetorno) {
       delete atualizacaoAluno.data_retorno;
       delete atualizacaoAluno.hora_retorno;
