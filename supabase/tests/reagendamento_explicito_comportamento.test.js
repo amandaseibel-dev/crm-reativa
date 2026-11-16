@@ -743,6 +743,7 @@ describe("trava por papel: confirmar, desfazer, reagendar, recusas e contorno", 
 
   it("atendimento_reagendar_com_status: falha no status desfaz o reagendamento (uma transacao)", async () => {
     const db = await montar({ comPacote: true });
+    await db.exec("alter table public.alunos add constraint ck_teste_bloq check (status_atual is distinct from 'BLOQ');");
     await jaFalei(db, OPERADOR, ALUNA);
     const antes = await linha(db, ALUNA);
     const antesStatus = (await db.query("select status_atual from public.alunos where id = $1", [ALUNA])).rows[0].status_atual;
@@ -750,7 +751,7 @@ describe("trava por papel: confirmar, desfazer, reagendar, recusas e contorno", 
       comPapel(db, "authenticated", OPERADOR, () =>
         db.query(
           "select public.atendimento_reagendar_com_status($1, current_date + 4, '18:00', false, $2::jsonb)",
-          [ALUNA, JSON.stringify({ status_atual: "X", registrado_em: "nao-e-data" })]))
+          [ALUNA, JSON.stringify({ status_atual: "BLOQ" })]))
     ).rejects.toThrow();
     expect(await linha(db, ALUNA)).toEqual(antes);
     expect((await db.query("select status_atual from public.alunos where id = $1", [ALUNA])).rows[0].status_atual).toBe(antesStatus);
@@ -885,5 +886,23 @@ describe("atendimento: nome e e-mail de quem registrou vem da sessao", () => {
         [ALUNA, JSON.stringify({ status_atual: "OK", registrado_por_nome: "Nome Forjado" })]));
     const r = await db.query("select registrado_por_nome from public.alunos where id = $1", [ALUNA]);
     expect(r.rows[0].registrado_por_nome).toBe("Operador Verdadeiro");
+  });
+});
+
+// AUTORIA E DATAS DO ATENDIMENTO VEM DO BANCO: nome nulo nao herda o nome anterior;
+// registrado_em e ultimo_contato enviados pela tela sao ignorados (relogio do servidor).
+describe("atendimento: nome nulo nao herda; datas de autoria sao do servidor", () => {
+  it("nome nulo grava nulo (nao herda o de outra pessoa) e registrado_em ignora valor da tela", async () => {
+    const db = await montar({ comPacote: true });
+    await db.exec(`update public.usuarios set nome = null where email = '${OPERADOR}';`);
+    await db.exec(`update public.alunos set registrado_por_nome = 'Outra Pessoa' where id = '${ALUNA}';`);
+    await comPapel(db, "authenticated", OPERADOR, () =>
+      db.query(
+        "select public.atendimento_reagendar_com_status($1, current_date + 4, null, false, $2::jsonb)",
+        [ALUNA, JSON.stringify({ status_atual: "OK", registrado_em: "2000-01-01T00:00:00Z", ultimo_contato: "2000-01-01T00:00:00Z" })]));
+    const r = await db.query("select registrado_por_nome, registrado_em, ultimo_contato from public.alunos where id = $1", [ALUNA]);
+    expect(r.rows[0].registrado_por_nome).toBeNull();
+    expect(new Date(r.rows[0].registrado_em).getUTCFullYear()).toBeGreaterThan(2020);
+    expect(new Date(r.rows[0].ultimo_contato).getUTCFullYear()).toBeGreaterThan(2020);
   });
 });

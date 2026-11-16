@@ -233,11 +233,11 @@ begin
      set status_jornada = coalesce(p_status->>'status_jornada', status_jornada),
          status_atual = coalesce(p_status->>'status_atual', status_atual),
          proxima_acao = coalesce(p_status->>'proxima_acao', proxima_acao),
-         data_ultimo_acionamento = coalesce((p_status->>'data_ultimo_acionamento')::timestamptz, data_ultimo_acionamento),
-         ultimo_contato = coalesce((p_status->>'ultimo_contato')::timestamptz, ultimo_contato),
-         registrado_por_nome = coalesce((select u.nome from public.usuarios u where lower(u.email) = lower(coalesce(auth.email(), ''))), registrado_por_nome),
+         data_ultimo_acionamento = now(),
+         ultimo_contato = now(),
+         registrado_por_nome = (select u.nome from public.usuarios u where lower(u.email) = lower(coalesce(auth.email(), '')) limit 1),
          registrado_por_email = lower(coalesce(auth.email(), '')),
-         registrado_em = coalesce((p_status->>'registrado_em')::timestamptz, registrado_em),
+         registrado_em = now(),
          observacao = coalesce(p_status->>'observacao', observacao)
    where id = p_aluno_id;
   return v_ret;
