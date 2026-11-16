@@ -26,21 +26,22 @@ declare
   v_n integer;
   v_codigos constant text[] := array['TERMO_FISICO_EM_ANDAMENTO','TERMO_FISICO_ARQUIVADO'];
 begin
-  -- 1. histórico
+  -- 1. histórico. Mesma normalização da trigger (ASCII antes do upper, COLLATE "C"): variantes de caixa/espaço contam.
   select count(*) into v_n
     from public.aluno_movimentacoes
-   where tipo = 'REGISTRO_ADMINISTRATIVO' or status_novo = any (v_codigos);
+   where upper(regexp_replace(coalesce(tipo, ''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C") = 'REGISTRO_ADMINISTRATIVO'
+      or upper(regexp_replace(coalesce(status_novo, ''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C") = any (v_codigos);
   if v_n > 0 then
     raise exception 'rollback recusado: % registro(s) de termo físico em aluno_movimentacoes. Reverter removeria o histórico. Nada foi alterado. Alternativa operacional: ativar a contenção (termo_fisico_contencao.contencao_ativa = true).', v_n
       using errcode = 'P0001';
   end if;
 
-  -- 2. estado do aluno
+  -- 2. estado do aluno (mesma normalização)
   select count(*) into v_n
     from public.alunos
-   where status_atual = any (v_codigos)
-      or status_jornada = any (v_codigos)
-      or status_acionamento = any (v_codigos);
+   where upper(regexp_replace(coalesce(status_atual, ''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C") = any (v_codigos)
+      or upper(regexp_replace(coalesce(status_jornada, ''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C") = any (v_codigos)
+      or upper(regexp_replace(coalesce(status_acionamento, ''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C") = any (v_codigos);
   if v_n > 0 then
     raise exception 'rollback recusado: % aluno(s) com código de termo físico no estado do aluno. Nada foi alterado. Alternativa operacional: ativar a contenção (termo_fisico_contencao.contencao_ativa = true).', v_n
       using errcode = 'P0001';

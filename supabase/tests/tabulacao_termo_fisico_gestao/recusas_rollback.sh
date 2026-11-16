@@ -65,4 +65,14 @@ sql "update public.termo_fisico_contencao set alterado_por = 'gestao_manual'"
 recusa "contenção foi alterada por outro autor" "contenção alterada"
 sql "update public.termo_fisico_contencao set alterado_por = 'migration_termo_fisico'"
 
-echo "OK recusas do rollback: 4 cenários, cada um recusado com motivo específico, impressão idêntica antes e depois, restaurado"
+# 5. histórico com VARIANTE de código gravado pela gestão (espaço e caixa): a normalização da trigger também vale no rollback
+sql "insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email) values ('c9', 'CONTATO', ' termo_fisico_arquivado ', 'variante.teste@exemplo.local')"
+recusa "registro(s) de termo físico em aluno_movimentacoes" "histórico com variante"
+sql "delete from public.aluno_movimentacoes where aluno_id = 'c9' and status_novo = ' termo_fisico_arquivado '"
+
+# 6. aluno no estado com VARIANTE de caixa
+sql "update public.alunos set status_atual = 'TERMO_FISICO_arquivado' where id = '$ALUNO'"
+recusa "aluno(s) com código de termo físico" "aluno com variante"
+sql "update public.alunos set status_atual = 'CONTATAR' where id = '$ALUNO'"
+
+echo "OK recusas do rollback: 6 cenários (incl. variantes de caixa e espaço), cada um recusado com motivo específico, impressão idêntica antes e depois, restaurado"

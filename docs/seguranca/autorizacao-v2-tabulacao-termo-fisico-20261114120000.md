@@ -14,7 +14,7 @@
 - **Referência "Resultado":** a autorização anterior (registro `1ac94a6f`) diz "ver seção 'Resultado'", e o título da seção de resultados nela é "Resultados por SHA". A referência deve ser lida como essa seção. A anterior não foi corrigida; esta v2 registra os resultados por head na seção "Resultados por head".
 - **Correções e atualizações registradas nesta v2 (a anterior não é reescrita):**
   - Hash da auditoria: a anterior cita `scripts/seguranca/auditoria_seguranca.sql` com SHA-256 `87ed9b7326c6fdbdffd2956c1d3b3f448910ae2e0010f11954418de9c986dd85` (5682 bytes). O arquivo atual, idêntico ao `origin/main` e não alterado por esta #954, tem `d2a4c33179e9b0a05f63b33469bcbdd3a35c5e108dc587845bce9ac8f7ab0c67` (5629 bytes). A correção é de registro; o pacote não altera o arquivo.
-  - Texto de cobertura do CI: a anterior fala em "recusas" sem detalhar. Esta v2 lista as quatro recusas do `recusas_rollback.sh` (aluno, catálogo, contenção ativa, contenção alterada por outro autor).
+  - Texto de cobertura do CI: a anterior fala em "recusas" sem detalhar. Esta v2 lista as seis recusas do `recusas_rollback.sh` (aluno, catálogo, contenção ativa, contenção alterada por outro autor, histórico com variante e aluno com variante).
   - Preparações de teste da contenção (`11p_*`, `12p_on`, `12p_off`): usam atualização direta da flag, com o mesmo efeito sobre `contencao_ativa`, e não a migration B1 nem a sua pré-condição/transação.
   - Evidências novas que a anterior não listava: `recusas_rollback.sh`, `fingerprint_dados_termo.sql`, `snapshot_termo_fisico.sql`, `12n_contencao_flag_fixture.sql`.
 
@@ -29,9 +29,9 @@
 | Arquivo | SHA-256 | Bytes | Situação |
 |---|---|---|---|
 | `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `1c81eb7155009f9a8e68cd22404a526c647c83018d58e87bac5eb3f1fe2c2589` | 10313 | igual ao autorizado |
-| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql` | `96871b2e876b4a89de5ed6e1661d6ba7484e1ab36148e9b6fd8b5ad002dd75a0` | 6215 | **diferente do autorizado** (`d4f41e31…`, 5000) |
-| `supabase/tests/tabulacao_termo_fisico_gestao/recusas_rollback.sh` | `71387c35c0412b9981622587b6313b35d412955cbdf79a4f98ad145d54123fe8` | 3124 | evidência (novo) |
-| `supabase/tests/tabulacao_termo_fisico_gestao/fingerprint_dados_termo.sql` | `dd17f9124eb4310d17fd011543e4414f4dcd7aa331fd7c749512ccc375dd411b` | 1267 | evidência (novo) |
+| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql` | `30315b81d0b9346741daf100927e3d4ed49ebceafa053a6169c12f03e62cf0fe` | 6724 | **diferente do autorizado** (`d4f41e31…`, 5000); versão com normalização de variantes (B3) |
+| `supabase/tests/tabulacao_termo_fisico_gestao/recusas_rollback.sh` | `a42f9f9a54339eaa92b3000cf4a6448333bd9ed84ea724010633d4d66b697696` | 3956 | evidência (novo; seis cenários) |
+| `supabase/tests/tabulacao_termo_fisico_gestao/fingerprint_dados_termo.sql` | `be702c3b4e653a52ea4910a6854b15ef4bc3c74c51a0ee9c436ed57ef3759476` | 1690 | evidência (novo; normalizado) |
 | `supabase/tests/tabulacao_termo_fisico_gestao/snapshot_termo_fisico.sql` | `7181ce340942ee18c2035c54af6d2b242139a25a0fe34b30024ea8d1ce6f129b` | 1973 | evidência |
 | `supabase/tests/tabulacao_termo_fisico_gestao/12n_contencao_flag_fixture.sql` | `848891fb90c68888be72e08e15e308cc7683a2c21daf3a6b6d096a6ad363aff8` | 1719 | evidência (novo) |
 
@@ -41,15 +41,16 @@ Hashes calculados com `shasum -a 256` no head final. Qualquer alteração poster
 
 | | Autorizado (anterior) | Proposto (esta v2) |
 |---|---|---|
-| Commit | `be990338` | `c0d217d1` (conteúdo mantido nos heads seguintes) |
-| SHA-256 | `d4f41e313a08f64cc6b746072f13d9a65bc8a62e3ea976248277165f1409bdc4` | `96871b2e876b4a89de5ed6e1661d6ba7484e1ab36148e9b6fd8b5ad002dd75a0` |
-| Bytes | 5000 | 6215 |
+| Commit | `be990338` | versão final desta v2 (com normalização). Versão anterior sem normalização: `c0d217d1` (`96871b2e…`, 6215 bytes), substituída por esta correção. |
+| SHA-256 | `d4f41e313a08f64cc6b746072f13d9a65bc8a62e3ea976248277165f1409bdc4` | `30315b81d0b9346741daf100927e3d4ed49ebceafa053a6169c12f03e62cf0fe` |
+| Bytes | 5000 | 6724 |
 
 ### Diferenças funcionais
 
 1. **Catálogo (comportamento, mais restritivo):** a versão autorizada conferia código, `criado_por`, `criado_em` e datas. A proposta confere o conteúdo exato gravado pela migração (rótulo, ordem, `ativa`, `somente_gestao`, grupo, retorno, bloco, flags, e-mail de redirecionamento, `atualizado_por` e `desativada_por`). **Motivo:** sem isso, o rollback apagaria uma linha de catálogo editada pela gestão sem recusa. **Efeito:** mais recusas; nenhuma remoção de dado editado.
 2. **Mensagem da recusa de contenção (texto):** "contenção foi alterada por outro autor (alterado_por diferente da migração)". A verificação é a mesma.
 3. **Comentários do cabeçalho (texto):** explicam a detecção de alteração da contenção por `alterado_por`, e que o snapshot do CI cobre ACL e RLS.
+4. **Normalização de variantes (comportamento, B3):** a trigger normaliza o código (ASCII antes do upper, `COLLATE "C"`), e a gestão pode gravar `' termo_fisico_arquivado '` ou `'TERMO_FISICO_arquivado'`. A versão anterior comparava de forma exata e aceitava o rollback com esses registros. **Motivo:** o rollback removeria a barreira com registros de código não canônico. **Correção:** a mesma normalização da trigger no histórico (`tipo` e `status_novo`) e no estado do aluno (`status_atual`, `status_jornada`, `status_acionamento`), e na impressão de dados do teste. **Efeito:** mais recusas; nenhum valor armazenado é alterado nem limpo. Reproduzido em banco descartável antes da correção (rollback aceito) e depois (recusado com o motivo específico).
 
 **Sem diferença:** ordem (todas as recusas antes de qualquer `DROP`), `begin`/`commit`, GRANT/REVOKE/POLICY (nenhum), objetos removidos no caminho de sucesso.
 
@@ -68,9 +69,9 @@ Hashes calculados com `shasum -a 256` no head final. Qualquer alteração poster
 
 ## Evidências a apresentar com esta proposta
 
-1. **CI do head final, job `tabulação termo físico`** (rodado no GitHub Actions, PostgreSQL 17 do job, papéis `app_teste` LOGIN e `app_teste_inh` LOGIN com herança, criados pelo job). Inclui: registro autorizado pela gestão (`07_registro_administrativo.sql`); recusa a operador (`02_tabulacao.sql`, `09_login_nao_privilegiado.sql`, `10_login_inherit_defensivo.sql`); barreira de alunos com login não privilegiado (`05_barreira_alunos.sql`); PostgREST 16.5 real com JWT (operador recusado, gestão aceita, claims forjadas recusadas); rollback recusado por histórico (`03`); rollback limpo com igualdade de snapshot antes e depois (`Caminho B`, `04_rollback_limpo.sql`); recusas por aluno, catálogo, contenção ativa e contenção alterada (`recusas_rollback.sh`) com impressão idêntica antes e depois; flag NOT NULL e ligar/desligar por fixture idempotente (`12n_contencao_flag_fixture.sql`).
+1. **CI do head final, job `tabulação termo físico`** (rodado no GitHub Actions, PostgreSQL 17 do job, papéis `app_teste` LOGIN e `app_teste_inh` LOGIN com herança, criados pelo job). Inclui: registro autorizado pela gestão (`07_registro_administrativo.sql`); recusa a operador (`02_tabulacao.sql`, `09_login_nao_privilegiado.sql`, `10_login_inherit_defensivo.sql`); barreira de alunos com login não privilegiado (`05_barreira_alunos.sql`); PostgREST 16.5 real com JWT (operador recusado, gestão aceita, claims forjadas recusadas); rollback recusado por histórico (`03`); rollback limpo com igualdade de snapshot antes e depois (`Caminho B`, `04_rollback_limpo.sql`); recusas por aluno, catálogo, contenção ativa, contenção alterada, histórico com variante e aluno com variante (`recusas_rollback.sh`, seis cenários) com impressão idêntica antes e depois; flag NOT NULL e ligar/desligar por fixture idempotente (`12n_contencao_flag_fixture.sql`).
 2. **Ambiente de teste (CI):** `dono_teste` é NOLOGIN com `bypassrls`, criado apenas para simular o dono das funções; nenhum papel de teste existe em produção.
-3. **Produção:** dono das funções `postgres` (rolsuper=false, rolbypassrls=true, medido em leitura); clientes `anon`, `authenticated`, `service_role` do PostgREST. Nenhuma alteração de privilégio neste pacote.
+3. **Produção:** dono das funções `postgres` (rolsuper=false, rolbypassrls=true, medido em leitura); clientes `anon`, `authenticated`, `service_role` do PostgREST. **Privilégios do pacote (corrigido, antes afirmava "nenhuma alteração"):** a migração faz `revoke` e `grant` apenas em objetos criados por ela: tabela `termo_fisico_contencao` (`revoke all`, sem grant a usuários), função da trigger (`revoke`, sem `execute` para ninguém) e RPC `registrar_administrativo_termo_fisico` (`revoke` de `public`, `anon` e `service_role`, `grant execute` apenas a `authenticated`, com gate interno por `app_usuario_ativo()` e `usuario_e_gestao()`). Nenhum grant ou revoke em tabela ou função existente. O rollback não tem GRANT, REVOKE nem POLICY.
 4. **Bancada PGlite (não substitui o CI; não reconferida nesta v2):** executa como `postgres`, que o gatilho ignora. Usada só para validar a lógica das recusas e a sensibilidade da impressão digital (ela muda com cada ajuste e fica igual antes e depois de cada recusa).
 5. **Guardião:** parecer sobre o head final, em texto, sem usar resultados de commits anteriores.
 
