@@ -3,7 +3,7 @@
 **Status: PREPARAÇÃO CONCLUÍDA — IMPLANTAÇÃO BLOQUEADA** por bloqueios externos listados abaixo. Não autoriza execução em produção. Sem linha em `migracoes-aprovadas.tsv`. Linha M1 apenas em rascunho (`docs/seguranca/linha-m1-rascunho-20261114120000.md`), sem validade.
 
 ## Decisões registradas (não reabertas)
-- **Rollback recusa sempre** (SQLSTATE P0001), sem remover objeto nem dado. Reversão = correção para frente, revisada e autorizada separadamente. **Limitação:** este desenho **não cumpre automaticamente** a exigência de rollback do CHECKLIST; o parecer explícito do Guardião é necessário.
+- **Rollback reversível** (`20261114120000.rollback.sql`): remove somente o que a migração criou (função da trigger, trigger, RPC, tabela `termo_fisico_contencao`, duas linhas do catálogo com marcador `migration_termo_fisico`). Não apaga histórico (`aluno_movimentacoes`) e não altera objeto preexistente. **Recusa com motivo específico (P0001), sem alterar nada,** se houver registros de termo em `aluno_movimentacoes`, alunos com código de termo no estado, catálogo ou contenção alterados depois da migração, ou contenção ativa. Alternativa operacional quando recusado: ativar a contenção (`contencao_ativa = true`). Validado em PostgreSQL 17 (UTF8) local nos dois caminhos: rollback limpo com igualdade de estado antes/depois, e rollback recusado com histórico presente.
 - Gestão: os três e-mails de `usuario_e_gestao()`; sem permissões novas.
 - Desfazer do operador com código restrito: recusado inteiro ("Nada foi desfeito").
 - Descrição fixa do registro; rótulos aprovados preservados.
@@ -24,8 +24,8 @@
 ## Artefatos (SHA-256 integral)
 | Arquivo | SHA-256 | Bytes |
 |---|---|---|
-| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `5e53b8bf27055e040aec6ab1540c25b8184e549b1bc6cfcb420772378e323302` | 9669 |
-| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql` | `e224e6f206471775eb4f45126d11d68393434d6e32b1a867aa61ba1b1f46cfaa` | 776 |
+| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `1c81eb7155009f9a8e68cd22404a526c647c83018d58e87bac5eb3f1fe2c2589` | 10313 |
+| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql` | `d4f41e313a08f64cc6b746072f13d9a65bc8a62e3ea976248277165f1409bdc4` | 5000 |
 | `scripts/seguranca/auditoria_seguranca.sql` | `87ed9b7326c6fdbdffd2956c1d3b3f448910ae2e0010f11954418de9c986dd85` | 5682 |
 | `docs/seguranca/evidencias/prod_encerramento_so_gestao.sql` | `cae8f5422b93341fb62debd5e524d10182054ffca7a968cf5b749928ecd3aea9` | 5366 |
 | `docs/seguranca/evidencias/prod_usuario_e_gestao.sql` | `83191ea84a90cc0e098d8d33da6179a9c7b6ab4a73c23b2113d4007fbabdb288` | 321 |

@@ -23,6 +23,16 @@ begin
                 and tgrelid = 'public.aluno_movimentacoes'::regclass) then
     raise exception 'pré-condição: trigger aluno_mov_tabulacao_so_gestao já existe';
   end if;
+  -- Objetos novos: o rollback só os remove se esta migração foi quem os criou.
+  if to_regclass('public.termo_fisico_contencao') is not null then
+    raise exception 'pré-condição: public.termo_fisico_contencao já existe';
+  end if;
+  if to_regprocedure('public.aluno_movimentacao_tabulacao_so_gestao()') is not null then
+    raise exception 'pré-condição: função aluno_movimentacao_tabulacao_so_gestao já existe';
+  end if;
+  if to_regprocedure('public.registrar_administrativo_termo_fisico(text,text)') is not null then
+    raise exception 'pré-condição: função registrar_administrativo_termo_fisico já existe';
+  end if;
 end $$;
 insert into public.tabulacoes (
   codigo, rotulo, ativa, ordem, grupo, retorno_modo, retorno_dias_uteis, proxima_acao,

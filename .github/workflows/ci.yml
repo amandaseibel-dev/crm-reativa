@@ -1244,7 +1244,7 @@ jobs:
           code=$?
           set -e
           echo "$out"
-          [ "$code" -ne 0 ] && echo "$out" | grep -qF "ERROR:  P0001: rollback recusado por decisão registrada" || { echo "contrato do rollback violado (SQLSTATE P0001 e mensagem exatos)"; exit 1; }
+          [ "$code" -ne 0 ] && echo "$out" | grep -qF "ERROR:  P0001: rollback recusado: " || { echo "contrato do rollback violado (SQLSTATE P0001 e mensagem exatos)"; exit 1; }
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_rollback_recusado.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/06_preservacao_rollback.sql"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/09_login_nao_privilegiado.sql"
@@ -1264,23 +1264,20 @@ jobs:
           TERMO_TESTE_DESCARTAVEL: 'sim'
         run: node "$DIR/postgrest_termo_fisico.cjs"
 
-      - name: "Caminho B (banco limpo, sem histórico): rollback recusado, preservação e barreira"
+      - name: "Caminho B (banco limpo, sem histórico): rollback reversível com igualdade de estado antes/depois, e barreira"
         run: |
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -c "drop schema public cascade; create schema public;"
           psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
-          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
           psql -v ON_ERROR_STOP=1 -f "$DIR/00_barreira_producao.sql"
-          # (sem proposta de trava nesta #954)
           psql -v ON_ERROR_STOP=1 -f "supabase/aguardando_aprovacao/20261106120000_tabulacao_retorno_financeiro.sql.pendente"
+          psql -tA -v ON_ERROR_STOP=1 -f "$DIR/snapshot_termo_fisico.sql" > "$RUNNER_TEMP/termo_pre.txt"
+          test -s "$RUNNER_TEMP/termo_pre.txt"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
           psql -v ON_ERROR_STOP=1 -c "do \$\$ begin if not exists (select 1 from pg_roles where rolname='app_teste') then create role app_teste login noinherit password 'app_teste_pw'; end if; end \$\$;"
           psql -v ON_ERROR_STOP=1 -c "alter role app_teste noinherit; grant anon, authenticated, service_role to app_teste with inherit false, set true, admin false; grant usage on schema public to app_teste; grant select on public.tabulacoes, public.alunos, public.usuarios to app_teste; grant update on public.alunos to app_teste; grant select, insert on public.aluno_movimentacoes to app_teste;"
-          set +e
-          out=$(psql -v ON_ERROR_STOP=1 -f "$ROLLBACK" 2>&1)
-          code=$?
-          set -e
-          echo "$out"
-          [ "$code" -ne 0 ] && echo "$out" | grep -qF "ERROR:  P0001: rollback recusado por decisão registrada" || { echo "contrato do rollback violado (SQLSTATE P0001 e mensagem exatos)"; exit 1; }
-          psql -v ON_ERROR_STOP=1 -f "$DIR/04_rollback_limpo.sql"
-          psql -v ON_ERROR_STOP=1 -f "$DIR/06_preservacao_rollback.sql"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/09_login_nao_privilegiado.sql"
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          psql -tA -v ON_ERROR_STOP=1 -f "$DIR/snapshot_termo_fisico.sql" > "$RUNNER_TEMP/termo_post.txt"
+          cmp -s "$RUNNER_TEMP/termo_pre.txt" "$RUNNER_TEMP/termo_post.txt" || { echo "rollback nao volta ao estado anterior"; diff "$RUNNER_TEMP/termo_pre.txt" "$RUNNER_TEMP/termo_post.txt"; exit 1; }
+          psql -v ON_ERROR_STOP=1 -f "$DIR/04_rollback_limpo.sql"

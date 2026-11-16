@@ -1,13 +1,101 @@
--- Rollback de 20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.
+-- ROLLBACK REVERSÍVEL de 20261114120000_tabulacao_termo_fisico_restrita_gestao.sql
 --
--- DECISÃO (opção A, registrada no pacote): este rollback NÃO remove nada. Recusa sempre.
--- Motivo: as duas linhas do catálogo são lidas pela barreira de estado em alunos
--- (_encerramento_so_gestao, em produção). Removê-las reabriria a gravação de TERMO_* no
--- estado do aluno pelo operador. Reverter é correção para frente, com decisão e migração próprias.
+-- Restaura o estado anterior à migração: remove SOMENTE os objetos que ela criou
+-- (função da trigger, trigger, RPC, tabela de contenção) e as duas linhas do catálogo
+-- que ela gravou. Não apaga histórico (aluno_movimentacoes) e não altera objeto
+-- preexistente (a migração não alterou nenhum; as pré-condições dela garantem isso).
+--
+-- Recusa com motivo específico (P0001), SEM alterar nada, quando:
+--   1. há registros de termo físico em aluno_movimentacoes (reverter removeria o histórico);
+--   2. há alunos com código de termo físico no estado (alunos);
+--   3. o catálogo de termo físico não é exatamente as duas linhas gravadas pela migração;
+--   4. a contenção foi alterada depois da migração ou está ativa.
+--
+-- Alternativa operacional quando recusado: ativar a contenção
+-- (termo_fisico_contencao.contencao_ativa = true), que suspende novos registros
+-- sem remover nada.
+
 \set VERBOSITY verbose
-BEGIN;
+begin;
+
 do $$
+declare
+  v_n integer;
+  v_codigos constant text[] := array['TERMO_FISICO_EM_ANDAMENTO','TERMO_FISICO_ARQUIVADO'];
 begin
-  raise exception 'rollback recusado por decisão registrada: as linhas do catálogo são lidas pela barreira de estado em alunos. Nada foi alterado nem removido. Reverter é correção para frente, com decisão e migração próprias.' using errcode = 'P0001';
-end $$;
-COMMIT;
+  -- 1. histórico
+  select count(*) into v_n
+    from public.aluno_movimentacoes
+   where tipo = 'REGISTRO_ADMINISTRATIVO' or status_novo = any (v_codigos);
+  if v_n > 0 then
+    raise exception 'rollback recusado: % registro(s) de termo físico em aluno_movimentacoes. Reverter removeria o histórico. Nada foi alterado. Alternativa operacional: ativar a contenção (termo_fisico_contencao.contencao_ativa = true).', v_n
+      using errcode = 'P0001';
+  end if;
+
+  -- 2. estado do aluno
+  select count(*) into v_n
+    from public.alunos
+   where status_atual = any (v_codigos)
+      or status_jornada = any (v_codigos)
+      or status_acionamento = any (v_codigos);
+  if v_n > 0 then
+    raise exception 'rollback recusado: % aluno(s) com código de termo físico no estado do aluno. Nada foi alterado. Alternativa operacional: ativar a contenção (termo_fisico_contencao.contencao_ativa = true).', v_n
+      using errcode = 'P0001';
+  end if;
+
+  -- 3. catálogo: exatamente as duas linhas gravadas pela migração, sem alteração posterior
+  select count(*) into v_n from public.tabulacoes where codigo = any (v_codigos);
+  if v_n <> 2 then
+    raise exception 'rollback recusado: o catálogo de termo físico tem % linha(s), e o esperado são 2. Nada foi alterado.', v_n
+      using errcode = 'P0001';
+  end if;
+  select count(*) into v_n
+    from public.tabulacoes
+   where codigo = any (v_codigos)
+     and criado_por = 'migration_termo_fisico'
+     and criado_em = timestamptz '2026-11-14 00:00:00-03'
+     and atualizado_em is null and desativada_em is null;
+  if v_n <> 2 then
+    raise exception 'rollback recusado: o catálogo de termo físico foi alterado depois da migração (% de 2 linhas íntegras). Nada foi alterado.', v_n
+      using errcode = 'P0001';
+  end if;
+
+  -- 4. contenção
+  if to_regclass('public.termo_fisico_contencao') is not null then
+    if exists (select 1 from public.termo_fisico_contencao
+                where alterado_por is distinct from 'migration_termo_fisico') then
+      raise exception 'rollback recusado: a contenção foi alterada depois da migração. Nada foi alterado. Decisão da gestão antes de reverter.'
+        using errcode = 'P0001';
+    end if;
+    if exists (select 1 from public.termo_fisico_contencao where contencao_ativa is true) then
+      raise exception 'rollback recusado: a contenção de termo físico está ativa. Nada foi alterado. Reverter exige decisão da gestão.'
+        using errcode = 'P0001';
+    end if;
+  end if;
+
+  -- Remoção: somente o que esta migração criou.
+  drop trigger if exists aluno_mov_tabulacao_so_gestao on public.aluno_movimentacoes;
+  drop function if exists public.registrar_administrativo_termo_fisico(text, text);
+  drop function if exists public.aluno_movimentacao_tabulacao_so_gestao();
+  drop table if exists public.termo_fisico_contencao;
+  delete from public.tabulacoes
+   where codigo = any (v_codigos) and criado_por = 'migration_termo_fisico';
+
+  -- VIGIA: nada desta migração sobrou.
+  if exists (select 1 from pg_trigger where tgname = 'aluno_mov_tabulacao_so_gestao' and not tgisinternal) then
+    raise exception 'rollback: trigger aluno_mov_tabulacao_so_gestao ainda existe';
+  end if;
+  if to_regprocedure('public.registrar_administrativo_termo_fisico(text,text)') is not null
+     or to_regprocedure('public.aluno_movimentacao_tabulacao_so_gestao()') is not null then
+    raise exception 'rollback: função de termo físico ainda existe';
+  end if;
+  if to_regclass('public.termo_fisico_contencao') is not null then
+    raise exception 'rollback: tabela termo_fisico_contencao ainda existe';
+  end if;
+  if exists (select 1 from public.tabulacoes where codigo = any (v_codigos)) then
+    raise exception 'rollback: linhas de termo físico ainda existem no catálogo';
+  end if;
+end
+$$;
+
+commit;
