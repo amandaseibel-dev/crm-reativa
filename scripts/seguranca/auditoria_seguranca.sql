@@ -92,7 +92,6 @@ bucket_publico as (
   from storage.buckets b where b.public=true
 )
 
-select * from (
 select * from tab_sem_rls
 union all select * from rls_sem_policy_com_grant
 union all select * from policy_ampla
@@ -101,8 +100,7 @@ union all select * from rpc_sem_searchpath
 union all select * from rpc_execute_amplo
 union all select * from view_bypass
 union all select * from bucket_publico
-) as achados
-order by case achados.gravidade when 'BLOQUEIA' then 0 when 'ALERTA' then 1 else 2 end, achados.check_id, achados.obj;
+order by case gravidade when 'BLOQUEIA' then 0 when 'ALERTA' then 1 else 2 end, check_id, obj;
 
 -- Complementos fora do SQL (rodar no CI/host, ver CHECKLIST §B):
 --   grep -rniE 'service_role|SERVICE_ROLE' src/            -> service_role no bundle
