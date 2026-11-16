@@ -823,3 +823,28 @@ describe("gate de confirmar/desfazer: usuario ativo, e-mail da sessao, sem fail-
     expect(r.rows[0].registrado_por_email).toBe(OPERADOR);
   });
 });
+
+// GESTAO E ACL DE AGENDA_CONFIRMAR_RETORNO (B3): amanda e cobranca04 agem em caso alheio;
+// anon nao tem EXECUTE; authenticated tem.
+describe("agenda_confirmar_retorno: gestao e ACL", () => {
+  it("gestao (amanda e cobranca04) confirma e desfaz caso alheio", async () => {
+    const db = await montar({ comPacote: true });
+    for (const gestor of [AMANDA, FERNANDA]) {
+      await comPapel(db, "authenticated", gestor, () =>
+        db.query("select public.agenda_confirmar_retorno($1, true)", [ALUNA]));
+      expect((await linha(db, ALUNA)).confirmado).not.toBeNull();
+      await comPapel(db, "authenticated", gestor, () =>
+        db.query("select public.agenda_confirmar_retorno($1, false)", [ALUNA]));
+      expect((await linha(db, ALUNA)).confirmado).toBeNull();
+    }
+  });
+
+  it("ACL: anon sem EXECUTE; authenticated e service_role com EXECUTE", async () => {
+    const db = await montar({ comPacote: true });
+    const r = await db.query(`select
+      has_function_privilege('anon', 'public.agenda_confirmar_retorno(uuid,boolean)', 'EXECUTE') as anon,
+      has_function_privilege('authenticated', 'public.agenda_confirmar_retorno(uuid,boolean)', 'EXECUTE') as authenticated,
+      has_function_privilege('service_role', 'public.agenda_confirmar_retorno(uuid,boolean)', 'EXECUTE') as service_role`);
+    expect(r.rows[0]).toEqual({ anon: false, authenticated: true, service_role: true });
+  });
+});

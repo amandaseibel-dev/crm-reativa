@@ -194,7 +194,7 @@ begin
     raise exception 'Aluno nao encontrado';
   end if;
   if not (v_email = coalesce(v_dono, '') or v_email = any(v_gestao)) then
-    raise exception 'Sem permissao para confirmar o retorno deste aluno';
+    raise exception 'Sem permissao para confirmar o retorno deste aluno' using errcode = '42501';
   end if;
   v_novo := case when p_confirmar then now() else null end;
   update public.alunos
@@ -204,7 +204,7 @@ begin
 end
 $function$;
 
-revoke all on function public.agenda_confirmar_retorno(uuid, boolean) from public;
+revoke all on function public.agenda_confirmar_retorno(uuid, boolean) from public, anon;
 grant execute on function public.agenda_confirmar_retorno(uuid, boolean) to authenticated, service_role;
 
 -- C2. REAGENDAMENTO + STATUS DO ATENDIMENTO EM UMA TRANSACAO -------------------

@@ -117,5 +117,6 @@ begin
 end $function$;
 
 revoke all on function public.agenda_confirmar_retorno(uuid, boolean) from public;
+grant execute on function public.agenda_confirmar_retorno(uuid, boolean) to authenticated, service_role;
 
 commit;
