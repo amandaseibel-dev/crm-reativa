@@ -82,7 +82,7 @@ export default function CentralConversas({
 }) {
   const sel = itens.find((i) => i.chave === selecionadoChave) || null;
   const mostra = sel ? "conversa" : "lista";
-  const mostraConversa = sel && (historico.estado === "parcial" || historico.estado === "ok");
+  const mostraConversa = sel && sel.alunoId && (historico.estado === "parcial" || historico.estado === "ok");
 
   return (
     <div className="ulbra-conv" data-testid="visao-conversas" data-mostra={mostra}>

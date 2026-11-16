@@ -28,7 +28,7 @@ import { supabase } from "../services/supabase";
 import { buscarFilaCarteira } from "../utils/filaCarteiraServidor";
 import usePolling from "../utils/polling";
 import { normalizarEmail } from "../utils/ulbraRecebimento";
-import { conversaParaLer, criarLeituraHistorico, historicoInicial } from "../utils/ulbraHistoricoSelecao";
+import { conversaParaLer, criarLeituraHistorico, historicoInicial, podeLerHistoricoNaCentral } from "../utils/ulbraHistoricoSelecao";
 import {
   DESTINO,
   FAIXAS,
@@ -222,11 +222,18 @@ export default function CentralUlbra({ usuario }) {
   if (leituraRef.current === null) leituraRef.current = criarLeituraHistorico();
   const itensPrioridade = listaPrioridade({ ...dados, sem_interacao: carteira.linhas }, filtros.faixa);
   const selItem = itensPrioridade.find((i) => i.chave === filtros.conv) || null;
-  const podeVerConversa = conversaParaLer(selItem) !== null;
+  const podeVerConversa = podeLerHistoricoNaCentral(selItem);
   function verConversa() {
     const id = conversaParaLer(selItem);
     if (id) leituraRef.current.ver(id, setHistoricoSel);
   }
+
+  // A seleção vem da URL: troca por qualquer caminho (clique, voltar/avançar) cancela a leitura
+  // pendente e limpa o histórico anterior. Não lê nada.
+  useEffect(() => {
+    leituraRef.current.cancelar();
+    setHistoricoSel(historicoInicial());
+  }, [filtros.conv]);
 
   function selecionarConversa(chave) {
     // Trocar de seleção: cancela leitura pendente e limpa o histórico anterior.

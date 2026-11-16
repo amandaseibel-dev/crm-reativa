@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { conversaParaLer, criarLeituraHistorico, historicoInicial } from "./ulbraHistoricoSelecao";
+import { conversaParaLer, criarLeituraHistorico, historicoInicial, podeLerHistoricoNaCentral } from "./ulbraHistoricoSelecao";
 
 const resposta = (id) => ({ ok: true, pagina: { mensagens: [{ quem: "cliente", texto: `msg ${id}` }] } });
 
@@ -68,5 +68,11 @@ describe("conversa sem vínculo nunca é lida", () => {
 
   it("item que não é resposta não lê histórico", () => {
     expect(conversaParaLer({ tipo: "sem_interacao", alunoId: "al-3", bruto: {} })).toBeNull();
+  });
+});
+
+describe("porta da Central", () => {
+  it("com HISTORICO_DISPONIVEL desligada, nenhum item pode ler o histórico (nem botão nem chamada)", () => {
+    expect(podeLerHistoricoNaCentral({ tipo: "resposta", alunoId: "al-1", bruto: { conversa_id: "c1" } })).toBe(false);
   });
 });

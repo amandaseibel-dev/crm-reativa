@@ -174,3 +174,14 @@ describe("Ver conversa: leitura só no clique", () => {
     expect(ver).not.toHaveBeenCalled();
   });
 });
+
+describe("sem vínculo nunca mostra mensagens", () => {
+  it("conversa sem aluno_id não exibe o histórico mesmo quando ele chega", () => {
+    tela({
+      selecionadoChave: "r:c2",
+      historico: { estado: "ok", mensagens: [{ quem: "cliente", texto: "mensagem de outra conversa", em: "2026-11-16T10:00:00Z" }] },
+    });
+    expect(screen.queryByText("mensagem de outra conversa")).toBeNull();
+    expect(document.querySelector('[data-campo="vinculo-pendente"]')).toBeTruthy();
+  });
+});

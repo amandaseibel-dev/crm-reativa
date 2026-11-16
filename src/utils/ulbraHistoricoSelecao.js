@@ -6,9 +6,18 @@
 // - Ao trocar de seleção, o histórico anterior some e respostas atrasadas são ignoradas.
 // A permissão continua no servidor (ulbra-historico); aqui só controlamos a chamada.
 import { lerHistorico as lerPadrao, mapearHistorico } from "./ulbraHistoricoCliente";
+import { HISTORICO_DISPONIVEL } from "./ulbraHistorico";
 
 export function historicoInicial() {
   return { estado: "indisponivel", mensagens: [] };
+}
+
+/**
+ * Pode a Central ler o histórico deste item? Só com a porta HISTORICO_DISPONIVEL ligada,
+ * e só para resposta de aluno com vínculo. Com a porta desligada, nem botão nem chamada.
+ */
+export function podeLerHistoricoNaCentral(item) {
+  return HISTORICO_DISPONIVEL === true && conversaParaLer(item) !== null;
 }
 
 /** Id da conversa a ler, ou null. Só respostas de aluno com vínculo confirmado. */
