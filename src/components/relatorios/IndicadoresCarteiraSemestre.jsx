@@ -49,7 +49,8 @@ export default function IndicadoresCarteiraSemestre({ fonte }) {
     { rotulo: "Saldo em aberto", valor: BRL(dados.saldo_em_aberto),
       apoio: s2?.saldo_em_conferencia != null
         ? "inclui " + BRL(s2.saldo_em_conferencia) + " em conferência" : "fonte: " + (dados.carteira_fonte || "—") },
-    { rotulo: "Negociado", valor: BRL(dados.negociado), apoio: "ainda não é recebimento" },
+    { rotulo: dados.negociado_definicao || "Negociado", valor: BRL(dados.negociado),
+      apoio: "ainda não é recebimento · não comparável entre semestres" },
     { rotulo: "Caixa confirmado", valor: BRL(dados.caixa_confirmado),
       apoio: NUM(dados.pagamentos_confirmados) + " pagamentos provados e baixados" },
     { rotulo: "% recuperado por caixa", valor: PCT(dados.percentual_recuperado_caixa),

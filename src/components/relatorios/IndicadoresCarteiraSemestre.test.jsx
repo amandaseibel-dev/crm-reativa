@@ -63,4 +63,11 @@ describe("IndicadoresCarteiraSemestre (contrato único: RPC efetividade_caixa_re
     expect(await screen.findByText(/atualização pendente/)).toBeTruthy();
     expect(screen.getByText(/Base da carteira original: fotografia seis_linhas, entrou/)).toBeTruthy();
   });
+
+  it("usa o rótulo de negociado vindo da RPC e não compara as métricas", async () => {
+    rpcMock.mockResolvedValue({ data: { ...RESP_2026_2, negociado_definicao: "Valor original dos títulos em acordo" }, error: null });
+    render(<IndicadoresCarteiraSemestre fonte={{ semestre: "2026/2" }} />);
+    expect(await screen.findByText("Valor original dos títulos em acordo")).toBeTruthy();
+    expect(screen.getAllByText(/não comparável entre semestres/).length).toBeGreaterThan(0);
+  });
 });
