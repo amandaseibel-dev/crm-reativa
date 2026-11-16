@@ -76,6 +76,7 @@ export default function CentralConversas({
   onSelecionar,
   onVoltar,
   historico = { estado: "indisponivel", mensagens: [] },
+  onVerConversa,
   aoAbrirFicha,
   vazio = "nenhum item na fila",
 }) {
@@ -149,7 +150,11 @@ export default function CentralConversas({
             </header>
 
             <div className="ulbra-conv-historico">
-              <EstadoHistorico historico={historico} />
+              {!sel.alunoId ? null : historico.estado === "indisponivel" && onVerConversa ? (
+                <button type="button" className="ulbra-botao" onClick={onVerConversa}>Ver conversa</button>
+              ) : (
+                <EstadoHistorico historico={historico} />
+              )}
               {mostraConversa ? (
                 <ConversaUlbra mensagens={historico.mensagens} podeEnviar={false} />
               ) : null}

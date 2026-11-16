@@ -150,3 +150,27 @@ describe("celular", () => {
     expect(onVoltar).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("Ver conversa: leitura só no clique", () => {
+  it("com vínculo e sem clique, não chama a leitura: só mostra o botão", () => {
+    const ver = vi.fn();
+    tela({ selecionadoChave: "r:c1", onVerConversa: ver });
+    expect(screen.getByRole("button", { name: "Ver conversa" })).toBeTruthy();
+    expect(ver).not.toHaveBeenCalled();
+  });
+
+  it("o clique chama onVerConversa uma vez", () => {
+    const ver = vi.fn();
+    tela({ selecionadoChave: "r:c1", onVerConversa: ver });
+    fireEvent.click(screen.getByRole("button", { name: "Ver conversa" }));
+    expect(ver).toHaveBeenCalledTimes(1);
+  });
+
+  it("sem vínculo: diz 'Vínculo pendente' e não oferece leitura", () => {
+    const ver = vi.fn();
+    tela({ selecionadoChave: "r:c2", onVerConversa: ver });
+    expect(document.querySelector('[data-campo="vinculo-pendente"]')).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Ver conversa" })).toBeNull();
+    expect(ver).not.toHaveBeenCalled();
+  });
+});
