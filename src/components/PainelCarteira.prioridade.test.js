@@ -26,7 +26,7 @@ describe("PainelCarteira: prioridade do retorno", () => {
     const bloco = SRC.slice(inicio, inicio + 1200);
     expect(bloco).toMatch(/atualizacaoAluno\.retorno_prioritario = desfecho\.motivo === "DIGITADA" \? Boolean\(retornoPrioritario\) : false;/);
     // Tabulou sem agendar: a marca cai.
-    expect(bloco).toMatch(/\} else \{[\s\S]{0,200}atualizacaoAluno\.retorno_prioritario = false;/);
+    expect(bloco).toMatch(/\} else (if \(!desfecho\.data_retorno\) )?\{[\s\S]{0,200}atualizacaoAluno\.retorno_prioritario = false;/);
   });
 
   it("na tabulacao rapida, prazo automatico tambem derruba a marca", () => {
