@@ -22,7 +22,10 @@ vi.setConfig({ testTimeout: 180000, hookTimeout: 180000 });
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const ler = (...p) => readFileSync(resolve(AQUI, ...p), "utf8");
 const EXPORTAR_PUBLICADO = ler("fixtures/acoes_massivas_confirmar_envio/prod_20261113_exportar.sql");
-const REGISTRAR_PROD = ler("fixtures/acoes_massivas_universo/prod_20261019_registrar_acao_massiva.sql");
+// Definicao VIGENTE em producao (lida em 15/11, reconferida em 16/11 por MD5).
+// Substitui a fixture de 19/10, que tinha o mesmo comportamento mas outro hash.
+const REGISTRAR_PROD = ler("fixtures/producao/registrar_acao_massiva_2026-11-15.sql");
+const MD5_REGISTRAR_PROD = "6eb41bf1dd68fcfb4eb44b9022b43e44";
 const MIG = ler("../aguardando_aprovacao/20261113100000_acoes_massivas_confirmar_envio.sql.pendente");
 const ROLLBACK = ler("../aguardando_aprovacao/20261113100000_acoes_massivas_confirmar_envio.rollback.sql");
 const MD5_PUBLICADO = "c9cc7498d16ca250e85c4727c8bb05bd";
@@ -33,6 +36,15 @@ let db;
 beforeEach(async () => {
   db = await novoBanco({ registroAutomatico: true });
   await db.exec(EXPORTAR_PUBLICADO);
+  // A definicao vigente TABULA (status + retorno em 10 dias, no aluno e no
+  // caso). A bancada compartilhada nasceu antes disso: completa aqui, so para
+  // este arquivo, as colunas que o corpo de producao escreve.
+  await db.exec(`
+    alter table public.alunos add column if not exists status_acionamento text;
+    alter table public.alunos add column if not exists data_retorno date;
+    alter table public.alunos add column if not exists retorno_origem text;
+    alter table public.casos  add column if not exists data_retorno date;
+  `);
   await db.exec(REGISTRAR_PROD);
   await comoGestao(db);
 });
@@ -56,6 +68,12 @@ const lote = async (id) => (await db.query(
 const ultimoAcionamento = async (ids) => (await db.query(
   `select id::text, data_ultimo_acionamento d from public.alunos where id = any($1::uuid[]) order by id`,
   [`{${ids.join(",")}}`])).rows;
+const tabulacao = async (ids) => (await db.query(
+  `select a.id::text, a.status_acionamento s, (a.data_retorno - current_date) dias, a.retorno_origem o,
+          (select bool_and(c.data_retorno = a.data_retorno) from public.casos c where c.aluno_id = a.id) caso_igual
+     from public.alunos a where a.id = any($1::uuid[]) order by a.id`,
+  [`{${ids.join(",")}}`])).rows;
+const STATUS_MASSIVA = "Ação massiva externa enviada — aguardando retorno";
 const concluirEnvio = async (id, acao, ids = null) => (await db.query(
   `select public.acoes_massivas_concluir_envio($1::uuid, $2, $3::text[]) r`,
   [id, acao, ids === null ? null : `{${ids.join(",")}}`])).rows[0].r;
@@ -69,6 +87,11 @@ async function exportarLote(n, ini = 1) {
 }
 
 describe("publicado hoje (antes da migration)", () => {
+  it("registrar_acao_massiva da bancada e a definicao vigente de producao (MD5)", async () => {
+    expect(await md5("registrar_acao_massiva")).toBe(MD5_REGISTRAR_PROD);
+    await aplicar();
+    expect(await md5("registrar_acao_massiva")).toBe(MD5_REGISTRAR_PROD);
+  });
   it("MD5 de origem confere com producao", async () => {
     expect(await md5()).toBe(MD5_PUBLICADO);
   });
@@ -152,6 +175,34 @@ describe("depois da migration", () => {
     await expect(concluirEnvio(ex.lote_id, "OUTRA")).rejects.toThrow(/Acao invalida/);
     expect(await movs(ex.lote_id)).toHaveLength(0);
     expect((await lote(ex.lote_id)).confirmado_em).toBeNull();
+  });
+
+  it("tabulacao vigente: exportar nao tabula; confirmar grava status e retorno em 10 dias; repetir nao muda nada", async () => {
+    const { ex, ids } = await exportarLote(4);
+    for (const t of await tabulacao(ids)) {
+      expect(t.s).toBeNull();
+      expect(t.dias).toBeNull();
+    }
+    const r = await concluirEnvio(ex.lote_id, "PARCIAL", ids.slice(0, 3));
+    expect(r.tabulados).toBe(3);
+    const depois = await tabulacao(ids);
+    const enviados = depois.filter((t) => ids.slice(0, 3).includes(t.id));
+    const fora = depois.filter((t) => !ids.slice(0, 3).includes(t.id));
+    expect(enviados.length).toBe(3);
+    for (const t of enviados) {
+      expect(t.s).toBe(STATUS_MASSIVA);
+      expect(t.dias).toBe(10);
+      expect(t.o).toBe("AUTOMATICO");
+      expect(t.caso_igual).not.toBe(false);
+    }
+    // quem nao recebeu nao e tabulado
+    expect(fora.length).toBe(1);
+    expect(fora[0].s).toBeNull();
+    expect(fora[0].dias).toBeNull();
+    // repeticao: resultado guardado, nenhuma tabulacao nova (nem para o nao enviado)
+    const r2 = await concluirEnvio(ex.lote_id, "TOTAL");
+    expect(r2.ja_registrado).toBe(true);
+    expect(await tabulacao(ids)).toEqual(depois);
   });
 
   it("5. dupla confirmacao devolve o resultado guardado e nao grava de novo", async () => {
