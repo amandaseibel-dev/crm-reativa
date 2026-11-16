@@ -10,7 +10,8 @@
 --   A. BACKUP POR ID dos campos de retorno, antes de qualquer troca. Tabela com
 --      RLS ligada e SEM politica (deny-all), sem grant para anon/authenticated.
 --      Gravacao idempotente: so grava se ainda nao houver snapshot desta
---      migration. Restauracao fica em arquivo proprio, por id, com aprovacao.
+--      migration. A restauracao por id NAO faz parte deste pacote executavel (proposta
+--      em docs/seguranca/propostas-nao-executaveis/, nao aplicada).
 --   B. Remove o gatilho trg_aluno_reset_retorno_confirmado. Nenhuma mudanca de
 --      data por gravacao comum ou automatica zera "Ja falei".
 --   C. RPC public.agenda_reagendar_retorno: UNICO caminho de agendamento humano

@@ -9,8 +9,9 @@
 -- recalculo (c3e38ac0 -> 03dacc0a) e restaura a ACL de origem medida em producao
 -- (15/11/2026): EXECUTE para authenticated (revogado na secao E). public e anon
 -- nao tinham EXECUTE na origem e NAO recebem nada aqui. service_role nao muda.
--- O BACKUP retorno_backup_20261114 NAO e apagado: e a evidencia. Restaurar dados
--- e etapa separada, com aprovacao: ver 20261114120000_restauracao_por_id.sql.pendente.
+-- O BACKUP retorno_backup_20261114 NAO e apagado: e a evidencia (nenhum snapshot e
+-- apagado). A restauracao de dados por id NAO faz parte deste pacote executavel; a
+-- proposta fica em docs/seguranca/propostas-nao-executaveis/ e nao e aplicada por este rollback.
 begin;
 
 drop function if exists public.atendimento_reagendar_com_status(uuid, date, text, boolean, jsonb);
@@ -116,7 +117,23 @@ begin
   return v_novo;
 end $function$;
 
-revoke all on function public.agenda_confirmar_retorno(uuid, boolean) from public;
+revoke all on function public.agenda_confirmar_retorno(uuid, boolean) from public, anon;
 grant execute on function public.agenda_confirmar_retorno(uuid, boolean) to authenticated, service_role;
+
+-- ACL comprovada no catalogo de producao (15/11/2026, leitura): dono postgres, EXECUTE para
+-- authenticated e service_role; sem anon nem public. Limitacao FAIL-OPEN ORIGINAL, documentada:
+-- este corpo da migration 20260808150000 autoriza sessao sem e-mail quando o aluno nao tem
+-- responsavel ('' = coalesce(dono,'')). O gate corrigido (B3) so volta com o pacote.
+do $acl_confirmar$
+declare v_oid oid := to_regprocedure('public.agenda_confirmar_retorno(uuid,boolean)');
+begin
+  if has_function_privilege('anon', v_oid, 'EXECUTE')
+     or exists (select 1 from pg_proc p, aclexplode(p.proacl) a
+                 where p.oid = v_oid and a.grantee = 0 and a.privilege_type = 'EXECUTE')
+     or not has_function_privilege('authenticated', v_oid, 'EXECUTE')
+     or not has_function_privilege('service_role', v_oid, 'EXECUTE') then
+    raise exception 'ACL NAO RESTAURADA em agenda_confirmar_retorno (esperado authenticated e service_role, sem anon e public)';
+  end if;
+end $acl_confirmar$;
 
 commit;

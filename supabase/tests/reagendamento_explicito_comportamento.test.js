@@ -47,12 +47,12 @@ const CORPO_VIVO = ler("tests", "fixtures", "recalcular_situacao_aluno_prod_2026
 const AGENDA_CONFIRMADO = ler("migrations", "20260808150000_agenda_retorno_confirmado.sql");
 const P1 = "supabase/aguardando_aprovacao/20261113120000_retorno_tratado_nao_herda_selo_do_operador";
 const P2 = "supabase/aguardando_aprovacao/20261114120000_agenda_reagendar_retorno_e_portao_recalculo";
-const RESTAURA = "supabase/aguardando_aprovacao/20261114120000_restauracao_por_id";
+const RESTAURA = "docs/seguranca/propostas-nao-executaveis/20261114120000_restauracao_por_id.PROPOSTA";
 const P1_PEND = lerRaiz(`${P1}.sql.pendente`);
 const P1_ROLL = lerRaiz(`${P1}.rollback.sql`);
 const P2_PEND = lerRaiz(`${P2}.sql.pendente`);
 const P2_ROLL = lerRaiz(`${P2}.rollback.sql`);
-const RESTAURA_PEND = lerRaiz(`${RESTAURA}.sql.pendente`);
+const RESTAURA_PEND = lerRaiz(`${RESTAURA}.sql.txt`);
 
 const OPERADOR = "operador.teste@exemplo.local";
 const OUTRO = "outro.operador@exemplo.local";
@@ -784,6 +784,12 @@ describe("trava por papel: confirmar, desfazer, reagendar, recusas e contorno", 
         to_regprocedure('public.atendimento_reagendar_com_status(uuid,date,text,boolean,jsonb)') as a,
         to_regprocedure('public.agenda_reagendar_retorno(uuid,date,text,boolean)') as r`);
     expect(f.rows[0]).toEqual({ t: null, a: null, r: null });
+    // ACL comprovada de agenda_confirmar_retorno apos o rollback: sem anon nem public.
+    const acl = await db.query(`select
+      has_function_privilege('anon', 'public.agenda_confirmar_retorno(uuid,boolean)', 'EXECUTE') as anon,
+      has_function_privilege('authenticated', 'public.agenda_confirmar_retorno(uuid,boolean)', 'EXECUTE') as authenticated,
+      has_function_privilege('service_role', 'public.agenda_confirmar_retorno(uuid,boolean)', 'EXECUTE') as service_role`);
+    expect(acl.rows[0]).toEqual({ anon: false, authenticated: true, service_role: true });
     await jaFalei(db, OPERADOR, ALUNA);
     await comPapel(db, "authenticated", OPERADOR, () =>
       db.query("update public.alunos set retorno_confirmado_em = null where id = $1", [ALUNA]));
