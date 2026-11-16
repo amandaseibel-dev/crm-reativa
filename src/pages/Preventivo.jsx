@@ -18,6 +18,7 @@ import { supabase } from "../services/supabase";
 import { S } from "../ui/estilosFila";
 import AbaImportacoes from "../components/preventivo/AbaImportacoes";
 import AbaResultados from "../components/preventivo/AbaResultados";
+import AbaVisaoGeral from "../components/preventivo/AbaVisaoGeral";
 import { moeda, dataCurta } from "../utils/preventivoFormato";
 
 // NOMENCLATURA OPERACIONAL, pedida pela gestão em 28/09/2026: a tela fala a
@@ -26,13 +27,14 @@ import { moeda, dataCurta } from "../utils/preventivoFormato";
 // de AMBIGUO, "Regularizados" no lugar de pagamentos. Os nomes técnicos
 // continuam existindo no banco — só não aparecem aqui.
 const ABAS = [
+  { id: "visao", rotulo: "Visão geral" },
   { id: "importacoes", rotulo: "Remessas" },
   { id: "resultados", rotulo: "Resultados" },
 ];
 
 export default function Preventivo() {
   const [params, setParams] = useSearchParams();
-  const aba = ABAS.some((a) => a.id === params.get("aba")) ? params.get("aba") : "importacoes";
+  const aba = ABAS.some((a) => a.id === params.get("aba")) ? params.get("aba") : "visao";
   const carteiraDaUrl = params.get("carteira") || "";
 
   const [carteiras, setCarteiras] = useState(null);
@@ -159,6 +161,7 @@ export default function Preventivo() {
 
           {carteira ? (
             <>
+              {aba === "visao" && <AbaVisaoGeral carteira={carteira} />}
               {aba === "importacoes" && <AbaImportacoes carteira={carteira} aoImportar={carregar} />}
               {aba === "resultados" && <AbaResultados carteira={carteira} />}
             </>

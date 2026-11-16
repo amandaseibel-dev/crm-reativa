@@ -12,13 +12,23 @@
 //      direção da última mensagem (recebida do aluno / enviada pela equipe).
 // "Abrir ficha" só com vínculo confirmado por CPF (`aluno_id`). O que não tem
 // CPF confirmado não chega aqui: a gestão vê só a contagem e trata na
-// conferência do CRM ULBRA. Histórico completo e resposta pelo CRM NÃO estão
-// disponíveis nesta etapa, e a tela diz isso.
+// conferência do CRM ULBRA. Resposta pelo CRM NÃO está disponível nesta etapa,
+// e a tela diz isso.
+//
+// HISTÓRICO SOB DEMANDA (porta `HISTORICO_DISPONIVEL`, nasce desligada): com a
+// porta ligada, a linha com CPF confirmado de quem pode ler (gestão ou o
+// responsável da linha) ganha o botão "Histórico", que só ABRE o painel
+// `HistoricoUlbraLeitura` — zero chamada. A leitura da Mensageria (1 chamada
+// por página, cota da credencial de backend, bloqueio por saldo desatualizado
+// decidido na função) só acontece no clique "Carregar histórico" do painel.
 // ===========================================================================
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { descreverColeta, fmtDataHora, fmtEspera, hrefFicha, nomeCurto, rotuloPeriodo } from "../utils/ulbraCentral";
+import { HISTORICO_DISPONIVEL, podeVerHistorico } from "../utils/ulbraHistorico";
+import { lerHistorico } from "../utils/ulbraHistoricoCliente";
+import HistoricoUlbraLeitura from "./HistoricoUlbraLeitura";
 
 /** dd/mm/aaaa em Brasília, a partir de ISO. */
 function dataBr(iso) {
@@ -45,8 +55,36 @@ function ehFuncaoAusente(error) {
   return error?.code === "42883" || error?.code === "PGRST202" || /ulbra_central_conversas/.test(error?.message || "");
 }
 
-export default function MensageriaPeriodo({ ehGestao = false, operador = "", respostas = [], coleta = null, aoAbrirFicha }) {
+/** Botão "Histórico" + painel somente leitura. Abrir o painel não chama nada; só o clique dentro dele lê. */
+function Historico({ linha, ehGestao, disponivel, aberto, aoAlternar, leitor }) {
+  if (!disponivel || !podeVerHistorico(linha, ehGestao)) return null;
+  return (
+    <>
+      <button
+        type="button"
+        className="ulbra-link"
+        data-campo="historico"
+        aria-expanded={aberto}
+        onClick={() => aoAlternar(linha.conversa_id)}
+      >
+        {aberto ? "Fechar histórico" : "Histórico"}
+      </button>
+      {aberto ? (
+        <div className="ulbra-historico" data-campo="historico-painel">
+          <HistoricoUlbraLeitura conversaId={linha.conversa_id} leitor={leitor} />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+export default function MensageriaPeriodo({
+  ehGestao = false, operador = "", respostas = [], coleta = null, aoAbrirFicha,
+  historicoDisponivel = HISTORICO_DISPONIVEL, leitorHistorico = lerHistorico,
+}) {
   const [situacao, setSituacao] = useState("carregando"); // carregando | pronto | indisponivel | negado | erro
+  const [historicoAberto, setHistoricoAberto] = useState(null); // conversa_id com o painel aberto (um por vez)
+  const alternarHistorico = (id) => setHistoricoAberto((atual) => (atual === id ? null : id));
   const [erro, setErro] = useState(null);
   const [cabecalho, setCabecalho] = useState(null);
   const [linhas, setLinhas] = useState([]);
@@ -108,7 +146,17 @@ export default function MensageriaPeriodo({ ehGestao = false, operador = "", res
           </>
         ) : null}
         {" "}<strong>Não é o histórico completo de novembro:</strong> só conversas ativas no WhatsApp, só a última mensagem de cada uma, e só
-        alunos com CPF confirmado. <strong>Histórico completo e resposta pelo CRM ainda não estão disponíveis:</strong>{" "}
+        alunos com CPF confirmado.{" "}
+        {historicoDisponivel ? (
+          <>
+            <strong>Histórico só por clique:</strong> cada "Carregar histórico" faz 1 consulta à Mensageria, dentro da cota.{" "}
+            <strong>Resposta pelo CRM ainda não está disponível:</strong>{" "}
+          </>
+        ) : (
+          <>
+            <strong>Histórico completo e resposta pelo CRM ainda não estão disponíveis:</strong>{" "}
+          </>
+        )}
         responder ao aluno é na Mensageria ULBRA; aqui você vê, abre a ficha e registra.
       </p>
 
@@ -132,6 +180,7 @@ export default function MensageriaPeriodo({ ehGestao = false, operador = "", res
                   <span>atendente na Mensageria: <strong>{r.atendente_ulbra || "não informado"}</strong></span>
                   <span>responsável no ReATIVA: <strong>{nomeCurto(r.responsavel_reativa) || (r.responsabilidade === "A_DEFINIR" ? "a definir" : "ninguém")}</strong></span>
                   <Ficha alunoId={r.aluno_id} aoAbrirFicha={aoAbrirFicha} />
+                  <Historico linha={r} ehGestao={ehGestao} disponivel={historicoDisponivel} aberto={historicoAberto === r.conversa_id} aoAlternar={alternarHistorico} leitor={leitorHistorico} />
                 </div>
               </li>
             ))}
@@ -175,6 +224,7 @@ export default function MensageriaPeriodo({ ehGestao = false, operador = "", res
                   <span>atendente na Mensageria: <strong>{c.atendente_ulbra || "não informado"}</strong></span>
                   <span>responsável no ReATIVA: <strong>{nomeCurto(c.responsavel_reativa) || (c.responsabilidade === "A_DEFINIR" ? "a definir" : "ninguém")}</strong></span>
                   <Ficha alunoId={c.aluno_id} aoAbrirFicha={aoAbrirFicha} />
+                  <Historico linha={c} ehGestao={ehGestao} disponivel={historicoDisponivel} aberto={historicoAberto === c.conversa_id} aoAlternar={alternarHistorico} leitor={leitorHistorico} />
                 </div>
               </li>
             ))}
