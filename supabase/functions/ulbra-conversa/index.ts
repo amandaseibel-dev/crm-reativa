@@ -342,7 +342,9 @@ Deno.serve(async (req: Request) => {
       if (resultado.erro) return responder({ ok: false, motivo: "ULBRA_INDISPONIVEL" }, 502);
       const pagina = mapearPagina(resultado.dados);
       // Auditoria da operação, SEM texto de conversa nem token.
-      await auditar("ULBRA_HISTORICO_LEITURA", "ulbra_conversas", { conversa_id: conversaId, mensagens: pagina.mensagens.length });
+      const auditoriaOk = await auditar("ULBRA_HISTORICO_LEITURA", "ulbra_conversas", { conversa_id: conversaId, mensagens: pagina.mensagens.length });
+      // Sem auditoria gravada, o texto não sai: leitura sem rastro não é entregue.
+      if (!auditoriaOk) return responder({ ok: false, motivo: "AUDITORIA_NAO_GRAVADA" }, 500);
       return responder({ ok: true, pagina });
     }
 

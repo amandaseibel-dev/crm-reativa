@@ -11,7 +11,7 @@ Preparado em 11/11/2026. **Nenhuma mensagem enviada, nenhuma credencial alterada
 
 ## 2. O que a entrega faz (menor conjunto integrado)
 **Histórico (leitura, credencial de backend, só leitura):**
-- Leitura do histórico: ação `historico_ler` da Edge Function `ulbra-conversa`, com a **conexão individual do operador** (nunca a credencial central). Cada leitura gera `ULBRA_HISTORICO_LEITURA` na `auditoria`, sem texto de conversa. Desligada por padrão no backend (`ULBRA_HISTORICO_HABILITADO`). A função `ulbra-historico` saiu deste pacote; a versão 1 publicada em produção está em contenção (ver relatório).
+- Leitura do histórico: ação `historico_ler` da Edge Function `ulbra-conversa`, com a **conexão individual do operador** (nunca a credencial central). Cada leitura gera `ULBRA_HISTORICO_LEITURA` na `auditoria`, sem texto de conversa. Desligada por padrão no backend (`ULBRA_HISTORICO_HABILITADO`). A função `ulbra-historico` saiu deste pacote. A versão 1 segue ATIVA em produção: a contenção está BLOQUEADA POR ACESSO (instrução na seção de deploy).
 **Resposta (envio, token DO OPERADOR, nunca a credencial central):**
 - Edge Function `ulbra-conversa` (nova; `conexao.ts`, `envio.ts`, `oauth.ts`, `cripto.ts` testados sem rede). Ações: `conexao_iniciar` (PKCE + state, URL de autorização), `conexao_concluir` (troca do código, cifra AES-256-GCM, **1 `meu_acesso` da cota do operador para gravar quem é a pessoa e os escopos**), `conexao_estado`, `conexao_desconectar` (revogação no provedor + local), `envio_previa`, `envio_confirmar`.
 - **Permissões** (lidas do banco no momento): identidade confirmada por CPF, operador é dono da carteira **ou** responsável do atendimento. Leitura global só para `amanda.seibel@aelbra.com.br` e `cobranca04@aelbra.com.br` (A3); Amanda ADM, supervisor e administrativo leem apenas a própria carteira. Conexão própria ativa e identidade da conta conferida com o JWT (A2).
@@ -19,11 +19,13 @@ Preparado em 11/11/2026. **Nenhuma mensagem enviada, nenhuma credencial alterada
 - Registro: `ulbra_envios` (status e id da mensagem quando houver, sem tratar o id como prova) e linha `ULBRA_ENVIO` na `auditoria`.
 - Página `/ulbra/conectado` (retorno do OAuth) — só entrega `code`/`state` à função; nenhum token passa pela tela.
 
-## 3. Banco (migrations pendentes, NÃO aplicadas)
+## 3. Banco (migrations)
+
+> **Correção (revisão do Guardião, 16/11):** a `20261110100000_ulbra_historico_orcamento` está APLICADA em produção (ledger, versão `20261112111006`), sem o portão interno do A8. A versão com o portão está só no `.sql.pendente` e não foi autorizada para aplicação. A `20261111140000` NÃO está aplicada.
 | Arquivo | sha256 `.sql.pendente` | rollback |
 | --- | --- | --- |
 | `20261110100000_ulbra_historico_orcamento` (tabela de uso diário + `ulbra_historico_reservar`, só service_role; portão interno exige service_role — A8) | pendente `544cdb0e55f40f6f3fff0993d7abeb3e50b220485ab110382103e14ac8842da3` | rollback `1aa486a119b5fe86e2fc8b304308ff1f784b22db9094946e52ecd775cd18b801` |
-| `20261111140000_ulbra_conexao_individual_e_envio` (pedidos PKCE, conexões com tokens cifrados + pessoa/escopos, envios; RLS sem política para authenticated/anon; só service_role) — substitui a proposta 20261109170000, nunca aplicada | pendente `fcd270305358c69db33e25072c1c0288fd0cbf7dc129bd1b6147fef1dbb6e691`, rollback `f6b8013e8c43ff2f917dbf8839ac103b93e53c991b299b1cd1bc83e09d8e760f` | `04da9ea8…6d55f` |
+| `20261111140000_ulbra_conexao_individual_e_envio` (pedidos PKCE, conexões com tokens cifrados + pessoa/escopos, envios; RLS sem política para authenticated/anon; só service_role) — substitui a proposta 20261109170000, nunca aplicada | pendente `fcd270305358c69db33e25072c1c0288fd0cbf7dc129bd1b6147fef1dbb6e691`, rollback `f6b8013e8c43ff2f917dbf8839ac103b93e53c991b299b1cd1bc83e09d8e760f` | `f6b8013e8c43ff2f917dbf8839ac103b93e53c991b299b1cd1bc83e09d8e760f` |
 
 ## 4. Segredos e configuração (a criar pela gestão no deploy; nenhum criado agora)
 - `ULBRA_OAUTH_CLIENT_ID` — **vem da TI da ULBRA**.
