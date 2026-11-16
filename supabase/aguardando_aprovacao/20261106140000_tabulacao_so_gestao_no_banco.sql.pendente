@@ -114,7 +114,7 @@ begin;
 -- se o texto divergir."
 --
 -- Medido em produção (projeto ahattpqrjmhkzsmnbdzs) em 06/11/2026:
---   md5(prosrc) = d962319f021e9e3fe78b838730fadad7
+--   md5(prosrc) = ae0382adc0eaf11fbe68d9ed0fc4a9b4
 --   length(prosrc) = 1424 caracteres (1434 bytes em UTF-8: a mensagem de erro
 --   tem acentos, e `length()` conta caractere, não byte -- não confundir os dois
 --   números ao reconferir)
@@ -125,7 +125,7 @@ begin;
 -- de que a transcrição do corpo abaixo é fiel.
 do $$
 declare
-  v_md5_esperado constant text := 'd962319f021e9e3fe78b838730fadad7';
+  v_md5_esperado constant text := 'ae0382adc0eaf11fbe68d9ed0fc4a9b4';
   v_md5_atual text;
 begin
   select md5(p.prosrc) into v_md5_atual
@@ -323,7 +323,7 @@ begin
   -- nao pegou) e tem de ler o catalogo (senao a trava nao cobre tabulacao nova).
   if (select md5(p.prosrc) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = '_encerramento_so_gestao')
-     = 'd962319f021e9e3fe78b838730fadad7' then
+     = 'ae0382adc0eaf11fbe68d9ed0fc4a9b4' then
     raise exception 'o corpo de _encerramento_so_gestao continua o anterior: o create or replace nao pegou';
   end if;
 
