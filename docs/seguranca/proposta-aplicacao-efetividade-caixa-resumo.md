@@ -17,7 +17,7 @@ Entrega final = #966 (SQL) + #965 (tela). A tela só deve ser mesclada depois da
 ## Artefatos (SHA-256 integral)
 
 - Migration `supabase/migrations/20261115130000_efetividade_caixa_resumo_semestre.sql`:
-  `b4e4d343d0dc5036eca1f99fe451b66bd5ebb74a6deeb9ad09f891b76a5644cd`
+  `3a41b15b1dcf6f992b960e28f2af2155fc5121509e1ad8051b7870e83d7485a8`
 - Rollback `docs/rollbacks/efetividade-caixa-resumo-semestre-rollback.sql`:
   `4bf1b0ffe2dd009809fc929b13ac336cce0d09541f48663f8181c0022fdb88b5`
 
@@ -25,7 +25,7 @@ Entrega final = #966 (SQL) + #965 (tela). A tela só deve ser mesclada depois da
 
 Linha de `docs/seguranca/migracoes-aprovadas.tsv`, 6 colunas separadas por TAB:
 `ahattpqrjmhkzsmnbdzs` · `20261115130000_efetividade_caixa_resumo_semestre` ·
-`b4e4d343d0dc5036eca1f99fe451b66bd5ebb74a6deeb9ad09f891b76a5644cd` ·
+`3a41b15b1dcf6f992b960e28f2af2155fc5121509e1ad8051b7870e83d7485a8` ·
 `amanda.seibel@aelbra.com.br` · `expira_em` = aprovação + 30 min (UTC) · `pendente`.
 
 ## Executor nominal
