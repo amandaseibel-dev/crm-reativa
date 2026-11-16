@@ -786,7 +786,7 @@ jobs:
         id: existe
         run: |
           APLICADA=$(ls supabase/migrations/*_tabulacao_so_gestao_no_banco.sql 2>/dev/null | head -1 || true)
-          PROPOSTA=  # fora do recorte da #954 (trava preservada em wip/trava-so-gestao-20261106140000)
+          PROPOSTA=supabase/aguardando_aprovacao/20261106140000_tabulacao_so_gestao_no_banco.sql.pendente
           if   [ -n "$APLICADA" ] && [ -f "$APLICADA" ]; then ALVO="$APLICADA"
           elif [ -f "$PROPOSTA" ]; then ALVO="$PROPOSTA"
           else ALVO=""
@@ -811,11 +811,8 @@ jobs:
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/02_baseline.sql"
-          # (sem proposta de trava nesta #954)
-          psql -v ON_ERROR_STOP=1 -f "supabase/aguardando_aprovacao/20261106120000_tabulacao_retorno_financeiro.sql.pendente"
           psql -v ON_ERROR_STOP=1 -f "$ALVO"
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
-
 
   # ---------------------------------------------------------------------------
   # Revoke de TRUNCATE nas 545 tabelas _backup_pos_import_* que o tinham aberto
@@ -1234,6 +1231,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/12p_on.sql"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/15b_dono_contido.sql" || rc=$?
           PGUSER=app_teste_rls PGPASSWORD=app_teste_rls_pw psql -v ON_ERROR_STOP=1 -f "$DIR/15c_update_dono.sql" || rc=$?
+          set -e
           psql -v ON_ERROR_STOP=1 -f "$DIR/12p_off.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/15p_dono_restore.sql"
           [ "$rc" -eq 0 ] || exit "$rc"
