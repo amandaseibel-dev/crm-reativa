@@ -10,6 +10,9 @@ grant select on public.usuarios, public.alunos, public.tabulacoes, public.aluno_
 -- Fixture de teste: em producao o dono e postgres, dono da tabela; aqui o dono_teste precisa do INSERT (prova em bancada: sem ele a RPC falha com 42501).
 grant insert on public.aluno_movimentacoes to dono_teste;
 grant usage on sequence public.aluno_movimentacoes_id_seq to dono_teste;
+-- Fixture de teste: auth.jwt()/auth.role() (stubs do 01) e o schema auth. Em producao o dono e postgres, que ja tem acesso.
+grant usage on schema auth to dono_teste;
+grant execute on function auth.jwt(), auth.role() to dono_teste;
 alter table public.termo_fisico_contencao owner to dono_teste;
 alter function public.usuario_e_gestao() owner to dono_teste;
 alter function public.app_usuario_ativo() owner to dono_teste;
