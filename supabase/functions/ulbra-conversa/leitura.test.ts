@@ -1,7 +1,7 @@
 // Leitura sob demanda: portão de identidade e permissão, mapeamento e paginação.
 // PROVA SIMULADA: provedor fake. Não é leitura real da Mensageria.
 import { describe, it, expect } from "vitest";
-import { lerHistorico, mapearPagina, permitirLeitura, type ContextoLeitura, type ProvedorLeitura } from "./leitura.ts";
+import { lerHistorico, mapearPagina, permitirLeitura, temLeituraGlobal, type ContextoLeitura, type ProvedorLeitura } from "./leitura.ts";
 
 const OP = "cobranca10@aelbra.com.br";
 const base = (over: Partial<ContextoLeitura> = {}): ContextoLeitura => ({
@@ -90,5 +90,36 @@ describe("mapeamento da página", () => {
     expect(mapearPagina({ paginacao: { maisAntigas: true, antesDe: "t" } }).antes_de).toBe("t");
     expect(mapearPagina({ paginacao: { maisAntigas: false, antesDe: "t" } }).antes_de).toBeNull();
     expect(mapearPagina(null).mensagens).toEqual([]);
+  });
+});
+
+describe("leitura global do histórico (decisão da gestão)", () => {
+  const ATIVO = { ativo: true };
+  it("amanda.seibel (gestão) tem leitura global", () => {
+    expect(temLeituraGlobal("amanda.seibel@aelbra.com.br", ATIVO)).toBe(true);
+  });
+  it("cobranca04 (Fernanda, supervisão) tem leitura global", () => {
+    expect(temLeituraGlobal("cobranca04@aelbra.com.br", ATIVO)).toBe(true);
+  });
+  it("identidade é normalizada só por caixa e espaço, não por prefixo", () => {
+    expect(temLeituraGlobal("  AMANDA.SEIBEL@aelbra.com.br ", ATIVO)).toBe(true);
+    expect(temLeituraGlobal("amanda.seibel@aelbra.com.br.evil.com", ATIVO)).toBe(false);
+    expect(temLeituraGlobal("x.amanda.seibel@aelbra.com.br", ATIVO)).toBe(false);
+  });
+  it("cobranca07 (Amanda ADM) NÃO tem leitura global", () => {
+    expect(temLeituraGlobal("cobranca07@aelbra.com.br", ATIVO)).toBe(false);
+  });
+  it("operador comum NÃO tem leitura global", () => {
+    expect(temLeituraGlobal("operador@aelbra.com.br", ATIVO)).toBe(false);
+  });
+  it("usuário inativo ou inexistente NÃO tem leitura global, mesmo na lista", () => {
+    expect(temLeituraGlobal("amanda.seibel@aelbra.com.br", { ativo: false })).toBe(false);
+    expect(temLeituraGlobal("amanda.seibel@aelbra.com.br", null)).toBe(false);
+  });
+  it("Amanda ADM e operador seguem restritos à própria carteira: fora dela, negado", () => {
+    const ctx = (op: string, dono: string | null): ContextoLeitura => ({ operador: op, identidade_confirmada: true, dono_carteira: dono, responsavel_atendimento: null });
+    expect(permitirLeitura(ctx("cobranca07@aelbra.com.br", "outro@aelbra.com.br")).ok).toBe(false);
+    expect(permitirLeitura(ctx("cobranca07@aelbra.com.br", "cobranca07@aelbra.com.br")).ok).toBe(true);
+    expect(permitirLeitura(ctx("operador@aelbra.com.br", "outro@aelbra.com.br")).ok).toBe(false);
   });
 });

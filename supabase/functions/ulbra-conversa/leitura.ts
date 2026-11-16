@@ -40,6 +40,16 @@ export type ResultadoPermissao =
   | { ok: true }
   | { ok: false; motivo: "IDENTIDADE_NAO_CONFIRMADA" | "SEM_PERMISSAO_NA_CONVERSA" };
 
+/** Leitura GLOBAL do histórico (decisão da gestão): gestão (amanda.seibel) e supervisão (cobranca04 — Fernanda).
+ *  Só leitura. Identidade por e-mail EXATO do JWT (sem prefixo, sem curinga). Não reusa usuario_e_gestao().
+ *  cobranca07 (Amanda ADM) e os demais: só carteira/responsabilidade. */
+export const LEITURA_GLOBAL_HISTORICO_EMAILS: readonly string[] = ["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br"];
+
+export function temLeituraGlobal(email: string, usuario: { ativo: boolean } | null): boolean {
+  if (!usuario || usuario.ativo !== true) return false;
+  return LEITURA_GLOBAL_HISTORICO_EMAILS.includes(email.trim().toLowerCase());
+}
+
 export function permitirLeitura(c: ContextoLeitura): ResultadoPermissao {
   if (!c.identidade_confirmada) return { ok: false, motivo: "IDENTIDADE_NAO_CONFIRMADA" };
   const op = c.operador.toLowerCase();

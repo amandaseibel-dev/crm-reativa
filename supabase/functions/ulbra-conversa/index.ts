@@ -23,12 +23,10 @@ import { estadoConexao, garantirConexao, type ProvedorOAuth, type RegistroConexa
 import { enviarResposta, type Envio, type PedidoEnvio, type RepositorioEnvio, type ResultadoEnvio } from "./envio.ts";
 import { confirmarPrevia, criarPrevia, type PreviaRegistro, type RepositorioPrevia } from "./previa.ts";
 import { podeConferir } from "./conferencia.ts";
-import { mapearPagina, permitirLeitura, type ContextoLeitura } from "./leitura.ts";
+import { mapearPagina, permitirLeitura, temLeituraGlobal, type ContextoLeitura } from "./leitura.ts";
 
-// A3: leitura GLOBAL do histórico. Proposta (não aprovada): amanda.seibel e cobranca04. Enquanto não confirmada, fechada.
-// Amanda ADM e os demais perfis (inclusive administrativo e supervisor) leem apenas a própria carteira/responsabilidade.
-// Vazia até confirmação específica da gestão (revisão do Guardião): nenhuma leitura global. Quem não está aqui lê só a própria carteira/responsabilidade.
-const LEITURA_GLOBAL_HISTORICO: string[] = [];
+// A3: leitura GLOBAL só pela regra temLeituraGlobal (leitura.ts): amanda.seibel e cobranca04. O restante lê só a própria carteira/responsabilidade.
+
 
 const MCP_URL = "https://crm.ulbra.ai/api/mcp";
 const ACCEPT_MCP = "application/json, text/event-stream";
@@ -321,7 +319,7 @@ Deno.serve(async (req: Request) => {
         const donos = [...new Set((casos ?? []).map((k) => String(k.operador_email).toLowerCase()))];
         const { data: ats } = await sb.from("ulbra_atendimentos").select("responsavel_email").eq("ulbra_cliente_id", c.ulbra_cliente_id).is("dispensado_em", null).not("responsavel_email", "is", null);
         const resps = [...new Set((ats ?? []).map((a) => String(a.responsavel_email).toLowerCase()))];
-        const globalOk = LEITURA_GLOBAL_HISTORICO.includes(email);
+        const globalOk = temLeituraGlobal(email, usuario ? { ativo: usuario.ativo === true } : null);
         contexto = {
           operador: email,
           identidade_confirmada: true,

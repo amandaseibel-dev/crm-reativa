@@ -60,3 +60,15 @@ Preparado em 11/11/2026. **Nenhuma mensagem enviada, nenhuma credencial alterada
 
 ## 8. Fora deste pacote
 Campanhas, criação de atendimentos, transferências, administração de operadores (ver `mensageria-ulbra-capacidades-mcp-2026-11-11.md`); coleta automática; o pacote de 12/11.
+
+## Leitura global do histórico (decisão da gestão, 16/11)
+- Alcance: `amanda.seibel@aelbra.com.br` (gestão) e `cobranca04@aelbra.com.br` (supervisão, Fernanda): leitura global. Só leitura.
+- `cobranca07@aelbra.com.br` (Amanda ADM) e demais operadores: somente carteira ou responsabilidade.
+- Regra: `temLeituraGlobal` em `supabase/functions/ulbra-conversa/leitura.ts`. E-mail exato do JWT (sem prefixo), usuário ativo obrigatório, não reutiliza `usuario_e_gestao()`.
+- Não amplia envio, transferência ou atuação. A conexão individual continua obrigatória; a leitura global não usa credencial central.
+
+## Migration corretiva 20261116150000 (NÃO aplicada)
+- Acesso de service_role: a função é chamada com papel `service_role` no JWT (`request.jwt.claims`), como o PostgREST faz com a chave de serviço. O teste reproduz esse contexto.
+- Rollback: restaura a versão de 20261112111006 (sem portão). **Não é recuperação automática.** Use só com aprovação específica e comprovação do motivo.
+- Alternativa segura em caso de falha: manter o histórico desativado no backend (`ULBRA_HISTORICO_HABILITADO` ausente) e não chamar a RPC. A RPC não é chamada por nenhum código da branch.
+- Pré-condição do rollback: a v1 de `ulbra-historico` precisa estar contida em produção; senão a exposição já existe por outro caminho.
