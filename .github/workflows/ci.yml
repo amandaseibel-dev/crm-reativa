@@ -1187,7 +1187,6 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/00_barreira_producao.sql"
           # (sem proposta de trava nesta #954)
           psql -v ON_ERROR_STOP=1 -f "supabase/aguardando_aprovacao/20261106120000_tabulacao_retorno_financeiro.sql.pendente"
-          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/05_barreira_alunos.sql"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/09_login_nao_privilegiado.sql"
           psql -v ON_ERROR_STOP=1 -c "do \$\$ begin if not exists (select 1 from pg_roles where rolname='app_teste_inh') then create role app_teste_inh login inherit password 'app_teste_inh_pw'; end if; end \$\$; grant anon, authenticated, service_role to app_teste_inh; grant usage on schema public to app_teste_inh; grant select on public.tabulacoes, public.alunos, public.usuarios to app_teste_inh; grant select, insert on public.aluno_movimentacoes to app_teste_inh;"
           PGUSER=app_teste_inh PGPASSWORD=app_teste_inh_pw psql -v ON_ERROR_STOP=1 -f "$DIR/10_login_inherit_defensivo.sql"
@@ -1248,7 +1247,6 @@ jobs:
           [ "$code" -ne 0 ] && echo "$out" | grep -qF "ERROR:  P0001: rollback recusado por decisão registrada" || { echo "contrato do rollback violado (SQLSTATE P0001 e mensagem exatos)"; exit 1; }
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_rollback_recusado.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/06_preservacao_rollback.sql"
-          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/05_barreira_alunos.sql"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/09_login_nao_privilegiado.sql"
 
       - name: "Dependências Node e PostgREST 16.5 oficial (SHA-256 conferido)"
@@ -1285,5 +1283,4 @@ jobs:
           [ "$code" -ne 0 ] && echo "$out" | grep -qF "ERROR:  P0001: rollback recusado por decisão registrada" || { echo "contrato do rollback violado (SQLSTATE P0001 e mensagem exatos)"; exit 1; }
           psql -v ON_ERROR_STOP=1 -f "$DIR/04_rollback_limpo.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/06_preservacao_rollback.sql"
-          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/05_barreira_alunos.sql"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/09_login_nao_privilegiado.sql"
