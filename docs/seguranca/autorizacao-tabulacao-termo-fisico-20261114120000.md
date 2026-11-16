@@ -51,6 +51,13 @@ Evidências (somente leitura, em 06/11/2026): `usuario_e_gestao()` = `af3d391f42
 6. CI verde no head final (ver abaixo) e parecer do Guardião sem `REPROVADO`.
 7. Autorização nominal, executor único, janela M1 publicada só na aprovação.
 
+## Aprovação pendente (não concedida)
+- Parecer do Guardião no head final, sem `REPROVADO`.
+- CI verde no head final, com as recusas do rollback cobertas por `recusas_rollback.sh`.
+- Escopo da `20261114140000` (contenção): confirmação de que pertence ou não a esta #954.
+- Autorização nominal, executor único e janela. Nenhuma aplicação em produção e nenhum M1 foram autorizados.
+- Rollback reversível validado no CI (caminho limpo, recusa por histórico e as demais recusas).
+
 ## Sequência de implantação
 1. Resolver os bloqueios 1–7.
 2. **Banco:** aprovação final → aplicar `20261114120000` (a trava de tabulação só gestão está em `wip/trava-so-gestao-20261106140000`) → validação somente leitura. A guarda `20261114130000` e a prova de sequência/md5 foram retiradas deste recorte.
