@@ -1626,7 +1626,7 @@ export default function AcoesMassivas() {
                                     />
                                     <span>{d.nome || d.aluno_id}</span>
                                     <span style={{ color: "var(--rv-texto-fraco)" }}>
-                                      {l.canal === "EMAIL" ? (d.email || "") : (d.telefone_mascarado || "")}
+                                      {l.canal === "EMAIL" ? (d.email_mascarado || "") : (d.telefone_mascarado || "")}
                                     </span>
                                   </label>
                                 ))}

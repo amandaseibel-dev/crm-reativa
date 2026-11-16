@@ -175,9 +175,9 @@ beforeEach(() => {
         data: {
           lote_id: args.p_lote_id, pendente: true,
           destinatarios: [
-            { aluno_id: "d1", nome: "Davi", telefone_mascarado: "••••1111", email: "d1@x.com" },
-            { aluno_id: "d2", nome: "Duda", telefone_mascarado: "••••2222", email: "d2@x.com" },
-            { aluno_id: "d3", nome: "Dora", telefone_mascarado: "••••3333", email: "d3@x.com" },
+            { aluno_id: "d1", nome: "Davi", telefone_mascarado: "••••1111", email_mascarado: "d•••@x.com" },
+            { aluno_id: "d2", nome: "Duda", telefone_mascarado: "••••2222", email_mascarado: "d•••@x.com" },
+            { aluno_id: "d3", nome: "Dora", telefone_mascarado: "••••3333", email_mascarado: "d•••@x.com" },
           ],
         },
       };

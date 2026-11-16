@@ -193,7 +193,8 @@ $function$;
 
 -- 2b. DESTINATARIOS DO LOTE (para a gestao marcar quem foi enviado na parcial).
 -- Minimo necessario (premissa de seguranca, secao 7): so lote PENDENTE, e so o
--- contato do canal do lote (telefone no WhatsApp, e-mail no E-mail).
+-- contato do canal do lote, SEMPRE mascarado (telefone: ultimos 4 digitos; e-mail:
+-- primeira letra e dominio). O endereco original fica no cadastro do aluno.
 CREATE FUNCTION public.acoes_massivas_lote_destinatarios(p_lote_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -224,7 +225,9 @@ begin
                'aluno_id', x.id_txt, 'nome', a.nome,
                'telefone_mascarado', case when upper(v_lote.canal) = 'EMAIL' or a.telefone is null then null
                                           else '••••' || right(regexp_replace(a.telefone, '\D', '', 'g'), 4) end,
-               'email',    case when upper(v_lote.canal) = 'EMAIL' then a.email else null end) order by x.ord)
+               'email_mascarado', case when upper(v_lote.canal) = 'EMAIL' and a.email is not null and strpos(a.email, '@') > 1
+                                       then left(a.email, 1) || '•••' || substring(a.email from strpos(a.email, '@'))
+                                       else null end) order by x.ord)
         from unnest(v_lote.aluno_ids) with ordinality as x(id_txt, ord)
         left join public.alunos a on a.id::text = x.id_txt), '[]'::jsonb));
 end;

@@ -278,7 +278,7 @@ describe("depois da migration", () => {
     expect(r.destinatarios.map((d) => d.aluno_id)).toEqual(ids);
     expect(r.destinatarios[0].nome).toBeTruthy();
     // minimo necessario: lote de WhatsApp nao devolve e-mail
-    expect(r.destinatarios.every((d) => d.email === null)).toBe(true);
+    expect(r.destinatarios.every((d) => d.email === undefined && d.email_mascarado === null)).toBe(true);
     // telefone NUNCA integral: so a mascara (ultimos 4 digitos), como na tela de ficha
     expect(r.destinatarios.every((d) => d.telefone === undefined && /^••••\d{4}$/.test(d.telefone_mascarado))).toBe(true);
     // lote ja concluido nao entrega a lista de novo
@@ -290,6 +290,42 @@ describe("depois da migration", () => {
       .rejects.toThrow(/Acesso negado/);
     await comoGestao(db);
   });
+  it("destinatarios: nenhuma resposta traz telefone ou e-mail completos; identificacao e marcacao seguem", async () => {
+    const { ex, ids } = await exportarLote(3);
+    const cadastro = (await db.query(`select email, telefone from public.alunos where id = any($1::uuid[])`,
+      [`{${ids.join(",")}}`])).rows;
+    const r = (await db.query(`select public.acoes_massivas_lote_destinatarios($1::uuid) r`, [ex.lote_id])).rows[0].r;
+    const texto = JSON.stringify(r);
+    for (const c of cadastro) {
+      if (c.email) expect(texto.includes(c.email)).toBe(false);
+      if (c.telefone) expect(texto.includes(c.telefone)).toBe(false);
+    }
+    // identificacao: nome e aluno_id presentes, na ordem da planilha
+    expect(r.destinatarios.map((d) => d.aluno_id)).toEqual(ids);
+    expect(r.destinatarios.every((d) => d.nome)).toBe(true);
+    // marcacao: confirmacao parcial funciona so com os aluno_id
+    const parcial = await concluirEnvio(ex.lote_id, "PARCIAL", ids.slice(0, 2));
+    expect(parcial.enviados_informados).toBe(2);
+  });
+
+  it("lote de e-mail PENDENTE: lista so com e-mail mascarado, e a marcacao continua por aluno_id", async () => {
+    const { ids } = await exportarLote(2);
+    const lote = (await db.query(
+      `insert into public.acoes_massivas_lotes
+         (canal, arquivo, aluno_ids, total, exportado_por_email, tipo_cobranca, recencia_dias)
+       values ('EMAIL', 'email-pendente.xlsx', $1::text[], $2, 'gestao@teste.local', 'MENSALIDADES', 10)
+       returning id`,
+      [`{${ids.join(",")}}`, ids.length])).rows[0].id;
+    const cadastro = (await db.query(`select email from public.alunos where id = any($1::uuid[])`, [`{${ids.join(",")}}`])).rows;
+    const r = (await db.query(`select public.acoes_massivas_lote_destinatarios($1::uuid) r`, [lote])).rows[0].r;
+    const texto = JSON.stringify(r);
+    for (const c of cadastro) if (c.email) expect(texto.includes(c.email)).toBe(false);
+    expect(r.destinatarios.every((d) => d.email === undefined && /^[^@]•••@/.test(d.email_mascarado))).toBe(true);
+    expect(r.destinatarios.map((d) => d.aluno_id)).toEqual(ids);
+    const parcial = await concluirEnvio(lote, "PARCIAL", [ids[0]]);
+    expect(parcial.enviados_informados).toBe(1);
+  });
+
 });
 
 describe("lotes existentes nao sao convertidos (criterio 8)", () => {
