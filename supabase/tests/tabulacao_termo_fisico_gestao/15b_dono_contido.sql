@@ -3,7 +3,7 @@
 \set ON_ERROR_STOP on
 select public.teste_assert('dono_teste + contenção: RPC recusada pela TRIGGER (mensagem da contenção)',
   (public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
-    $sql$select public.registrar_administrativo_termo_fisico('e2','TERMO_FISICO_ARQUIVADO')$sql$)->>'err') like 'Registro de termo físico suspenso%');
+    $sql$select public.registrar_administrativo_termo_fisico('a0000000-0000-0000-0000-000000000042','TERMO_FISICO_ARQUIVADO')$sql$)->>'err') like 'Registro de termo físico suspenso%');
 select public.teste_assert('dono_teste + contenção: INSERT direto REGISTRO recusado pela TRIGGER',
   (public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
     $sql$insert into public.aluno_movimentacoes (aluno_id,tipo,status_novo,descricao,registrado_por_email) values ('e2','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_EM_ANDAMENTO','Registro administrativo do termo físico.','amanda.seibel@aelbra.com.br')$sql$)->>'err') like 'Registro de termo físico suspenso%');
