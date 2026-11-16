@@ -34,7 +34,7 @@ Amanda Prado Seibel (`amanda.seibel@aelbra.com.br`). A sessão principal executa
 
 ## Sequência (ordem obrigatória)
 
-0. Custo medido em leitura (ver Anexo J da medição): o SELECT completo, com classificador e consulta de negociado, leva 4.571,8 ms com limite de 8 s. A RPC não está criada em produção, então a medição é do SELECT equivalente, e o classificador aparece duas vezes na medição (a RPC chama uma vez). O limite de 8 s é o comentário do próprio código (CarteiraEfetividade.jsx, teto de 8 s do papel authenticated).
+0. Custo medido em leitura (ver Anexo L da medição): o corpo completo da chamada de 2026/2, com uma única chamada ao classificador, levou 4.370,9 ms com limite de 8 s. A RPC não está criada em produção; a medição é do SELECT equivalente.
 
 1. Aprovação desta proposta pela Amanda.
 2. Merge da #966 (só SQL; não publica tela).
@@ -54,13 +54,13 @@ Amanda Prado Seibel (`amanda.seibel@aelbra.com.br`). A sessão principal executa
 ## Números (leitura em produção, 15/11/2026; ver `medicao-caixa-resumo-2026-11-15.md`)
 
 Medição feita com SELECTs de leitura. A função da RPC ainda não existe em produção, e o custo por visita
-da tela NÃO foi medido. O tempo de 0,5 s refere-se ao SELECT isolado, não ao comportamento da página.
+da tela NÃO foi medido. 
 
 | | 2026/1 | 2026/2 |
 |---|---|---|
 | Carteira original | R$ 21.710.447,29 (14.979 títulos; fotografia **desatualizada**) | R$ 17.232.872,41 (10.822 títulos) |
 | Saldo em aberto | R$ 9.055.032,58 (fotografia) | R$ 16.042.642,07 (inclui R$ 7.232.872,33 em conferência) |
-| Negociado | R$ 4.535.961,61 | R$ 1.232.903,01 |
+| Negociado | R$ 4.535.961,61 (saldo não pago de acordo; grandeza diferente) | R$ 1.232.903,01 (valor original dos títulos em acordo; grandeza diferente) |
 | Caixa confirmado | R$ 535.206,14 (639 pagamentos) | R$ 653.066,80 (594 pagamentos) |
 | Pendente de classificação | R$ 3.314.532,12 (1.340) | R$ 120.444,29 (84) |
 | % recuperado por caixa | 2,5% | 3,8% |

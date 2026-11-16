@@ -142,7 +142,7 @@ a diretoria é pré-existente e fora desta PR.
 
 ## Anexo L — medição do corpo completo (leitura, read only, timeout 8 s)
 
-Corpo final da RPC para 2026/2, com o classificador numa única referência (`materialized`):
+Consulta equivalente ao corpo da RPC para 2026/2 (a migration referencia o classificador uma vez; a consulta medida usa `materialized` para forçar avaliação única):
 - Tempo total do SELECT completo (`explain analyze`, Execution Time): 4.370,921 ms.
 - Chamadas efetivas ao classificador: 1 (`Function Scan on carteira_2026_2_classificar ... loops=1`).
 - Resultados (equivalência com a RPC esperada): carteira 17.232.872,41 em 10.822 títulos; saldo total

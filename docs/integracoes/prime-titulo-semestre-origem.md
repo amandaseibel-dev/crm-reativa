@@ -12,7 +12,7 @@ Fonte: código do repositório. Verificado em 15/11/2026. Nenhuma classificaçã
 
 1. `semestreDe(validFrom)` (linhas 86-92): ano do contrato e `1` se o mês for até 6, senão `2`. Resultado no formato `AAAA/1` ou `AAAA/2`.
 2. Os títulos são agrupados por série (prefixo do documento, linhas 133-139).
-3. Para cada série, cada vencimento é associado ao contrato Prime que o cobre (linhas 161-164). O semestre da série é o que recebe mais votos (linhas 165-170). Empate e série sem votos ficam `null`.
+3. Para cada série, cada vencimento é associado ao contrato Prime que o cobre (linhas 161-164). O semestre da série é o que recebe mais votos (linhas 165-170). Em empate, vale o primeiro semestre contado (comparação estrita `n > melhor`). Série sem votos fica `null`.
 4. O boleto recebe o `semestre` da sua série (linhas 172-175).
 
 ## O que isso significa
