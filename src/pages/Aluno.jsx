@@ -1247,7 +1247,13 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       delete atualizacaoAluno.retorno_origem;
       delete atualizacaoAluno.retorno_prioritario;
     }
-    // Movimentacao so e gravada depois da checagem de retorno (recusa antes de qualquer escrita).
+    // Reagendar sem data e recusado ANTES de qualquer escrita (movimentacao ou ficha).
+    if (reagendarRetorno && !dataRetorno) {
+      const msgSemData = "Informe a data e a hora do retorno para reagendar. Nada foi salvo.";
+      alert(msgSemData);
+      throw new Error(msgSemData);
+    }
+    // Movimentacao so e gravada depois dessa checagem.
     const { error: movError } = await supabase
       .from("aluno_movimentacoes")
       .insert(movimento);

@@ -233,6 +233,23 @@ describe("Aluno.jsx: retorno e Reagendar", () => {
     await waitFor(() => expect(checkboxReagendar().checked).toBe(false));
   });
 
+  it("Reagendar sem data e recusado antes de qualquer escrita (sem movimentacao, sem update, sem RPC)", async () => {
+    await abrirFicha();
+    await act(async () => {
+      fireEvent.change(campoData(), { target: { value: "" } });
+    });
+    await act(async () => {
+      fireEvent.click(checkboxReagendar());
+    });
+
+    await clicarAtualizar();
+
+    expect(alertMock).toHaveBeenCalledWith(expect.stringMatching(/Informe a data/));
+    expect(insertMock).not.toHaveBeenCalled();
+    expect(updateMock).not.toHaveBeenCalled();
+    expect(chamadasRpc("agenda_reagendar_retorno")).toHaveLength(0);
+  });
+
   it("checkbox reinicia ao trocar de aluno (sem reagendar o aluno anterior)", async () => {
     montarSupabase({ alunos: [ALUNO, OUTRO] });
     await abrirFicha();

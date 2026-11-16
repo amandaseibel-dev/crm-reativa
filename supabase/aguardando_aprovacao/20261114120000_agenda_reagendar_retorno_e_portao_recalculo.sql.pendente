@@ -223,7 +223,7 @@ grant execute on function public.agenda_confirmar_retorno(uuid, boolean) to auth
 --     (eh_tipo_acionamento). Esta RPC nao grava esse campo diretamente.
 -- Tipos de movimentacao aceitos: FINALIZACAO_ATENDIMENTO (acionamento) e
 -- REAGENDAMENTO_RETORNO (nao acionamento). Qualquer outro tipo e recusado.
-drop function if exists public.atendimento_reagendar_com_status(uuid, date, text, boolean, jsonb);
+-- Sem drop da assinatura antiga de 5 argumentos: nao existe no repositorio; a de 8 argumentos e sobrecarga, nao colide.
 
 create or replace function public.atendimento_reagendar_com_status(
   p_aluno_id uuid,
