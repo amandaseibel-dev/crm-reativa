@@ -1599,7 +1599,7 @@ export default function AcoesMassivas() {
                           <div style={{ display: "flex", gap: 6 }}>
                             <button
                               style={estilos.botaoGerar}
-                              disabled={concluindoLote}
+                              disabled={concluindoLote || faseExport === FASE.INCERTA}
                               onClick={() => concluirLote(l, acaoLote.acao)}
                             >
                               {acaoLote.acao === "CONFIRMAR" ? "Sim, o disparo foi concluído" : "Sim, descartar"}
