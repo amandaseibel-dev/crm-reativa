@@ -144,7 +144,8 @@ beforeEach(() => {
     if (nome === "acoes_massivas_lotes_pendentes") return { data: lotes };
     if (nome === "acoes_massivas_lotes_whatsapp") return { data: lotesWhats };
     if (nome === "acoes_massivas_exportar_emails_do_lote") {
-      if (emailDoLote?.erro) return { data: null, error: new Error(emailDoLote.erro) };
+      // recusa do banco traz o SQLSTATE (codigo); falha sem codigo e falha de transporte
+      if (emailDoLote?.erro) return { data: null, error: Object.assign(new Error(emailDoLote.erro), emailDoLote.codigo ? { code: emailDoLote.codigo } : {}) };
       return {
         data: {
           lote_id: "lote-email-1",
@@ -1154,7 +1155,7 @@ describe("Ações Massivas — e-mail a partir de um lote de WhatsApp", () => {
     lotesWhats = [LOTE_WHATS];
     lotesRegistro = []; // painel cortado: a tela não sabe que o lote está pendente
     lotes = Array.from({ length: 50 }, (_, i) => ({ ...LOTE_WHATS, id: `outro-${i}`, canal: "WHATSAPP" }));
-    emailDoLote = { erro: "Este lote de WhatsApp ainda esta pendente de envio. Tabule o envio (ou descarte o lote) antes de exportar os e-mails." };
+    emailDoLote = { codigo: "55000", erro: "Este lote de WhatsApp ainda esta pendente de envio. Tabule o envio (ou descarte o lote) antes de exportar os e-mails." };
     await montar();
     await abrirConfirmacao();
     await act(async () => {
@@ -1176,7 +1177,7 @@ describe("Ações Massivas — e-mail a partir de um lote de WhatsApp", () => {
 
   it("erro do banco aparece na tela e não vira sucesso", async () => {
     lotesWhats = [LOTE_WHATS];
-    emailDoLote = { erro: "Este lote de WhatsApp ja gerou a acao de e-mail" };
+    emailDoLote = { codigo: "55000", erro: "Este lote de WhatsApp ja gerou a acao de e-mail" };
     await montar();
     await abrirConfirmacao();
     await act(async () => {
