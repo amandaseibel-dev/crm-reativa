@@ -666,10 +666,9 @@ export default function AcoesMassivas() {
   // GRAVADOS no lote e tira só quem não tem e-mail válido. Não refaz filtro,
   // não depende de "Acionados hoje" e não encosta no lote de WhatsApp — a ação
   // nova nasce como um lote próprio de canal E-mail.
-  // Lote de WhatsApp ainda PENDENTE DE ENVIO não deriva e-mail: o registro do
-  // e-mail contaria como acionamento mais novo e a tabulação do WhatsApp, feita
-  // depois, excluiria esses alunos (sem status e sem retorno de 10 dias).
-  // A função de e-mails do banco não muda; a trava é desta tela.
+  // Lote de WhatsApp ainda PENDENTE DE ENVIO não deriva e-mail. A regra é do
+  // banco (migration 20261113100100); esta função só esconde o botão quando o
+  // painel já sabe do estado. Se o painel estiver cortado, o banco recusa.
   function loteWhatsPendente(loteId) {
     return lotesRegistro.some((r) => r.id === loteId && r.situacao === "PENDENTE");
   }
@@ -685,20 +684,9 @@ export default function AcoesMassivas() {
     }
     setDerivandoEmail(true);
     try {
-      // Relê do banco antes de registrar: o estado da tela pode estar velho
-      // (outra aba exportou, painel cortado). Sem conseguir conferir, não exporta.
-      const { data: pend, error: erroPend } = await supabase.rpc("acoes_massivas_lotes_pendentes");
-      // A lista de pendentes do banco vem cortada em 50: lista cheia não prova
-      // que o lote está fora dela, então conta como "não deu para conferir".
-      if (erroPend || !Array.isArray(pend) || pend.length >= 50) {
-        setErro("Não foi possível conferir se o lote de WhatsApp já foi tabulado. Nada foi exportado nem registrado; tente novamente.");
-        return;
-      }
-      if (pend.some((r) => r.id === lote.id)) {
-        setErro(AVISO_PENDENTE);
-        carregarLotesRegistro();
-        return;
-      }
+      // A REGRA MORA NO BANCO (migration 20261113100100): acoes_massivas_exportar_emails_do_lote
+      // recusa lote de WhatsApp pendente para qualquer chamador. A tela não relê
+      // listas (elas vêm cortadas em 50) e não decide nada aqui: só mostra a recusa.
       const nomeArquivo = `acao-massiva-email-do-lote-whatsapp-${new Date().toISOString().slice(0, 10)}.xlsx`;
       const { data: res, error } = await supabase.rpc("acoes_massivas_exportar_emails_do_lote", {
         p_lote_id: lote.id,

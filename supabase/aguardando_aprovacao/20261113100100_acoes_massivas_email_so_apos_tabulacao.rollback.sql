@@ -1,0 +1,55 @@
+-- ROLLBACK de 20261113100100_acoes_massivas_email_so_apos_tabulacao.
+-- Remove a guarda de lote pendente e devolve o lote de origem a leitura sem FOR
+-- SHARE, reconstruindo o corpo publicado (md5 00d3370a...). Nao toca dado.
+--
+-- A segunda alteracao e removida por substituicao exata do bloco de guarda na
+-- definicao viva (o helper de patch recusa remover texto que e pedaco da ancora).
+
+BEGIN;
+
+DO $g$
+BEGIN
+  IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar_emails_do_lote') IS DISTINCT FROM 'eb960a2445b786514ad8bcd0d07c102b' THEN
+    RAISE EXCEPTION 'Rollback abortado: acoes_massivas_exportar_emails_do_lote nao esta na versao da migration 20261113100100.';
+  END IF;
+END $g$;
+
+-- 2. remove o bloco de guarda (substituicao exata, uma ocorrencia)
+DO $r2$
+DECLARE
+  v_src text;
+  v_guarda text := $guarda$  -- 16/11/2026: lote de WhatsApp ainda PENDENTE de envio nao deriva e-mail.
+  -- Vale para qualquer chamador. Quem confirma e acoes_massivas_concluir_envio.
+  if v_origem.confirmado_em is null then
+    raise exception 'Este lote de WhatsApp ainda esta pendente de envio. Tabule o envio (ou descarte o lote) antes de exportar os e-mails.'
+      using errcode = '55000';
+  end if;
+
+$guarda$;
+  v_n int;
+BEGIN
+  SELECT pg_get_functiondef(p.oid) INTO v_src
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar_emails_do_lote' LIMIT 1;
+  v_n := (length(v_src) - length(replace(v_src, v_guarda, ''))) / length(v_guarda);
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'Rollback abortado: bloco de guarda encontrado % vez(es), esperado 1.', v_n;
+  END IF;
+  EXECUTE replace(v_src, v_guarda, '');
+END $r2$;
+
+-- 1. volta o FOR SHARE da leitura do lote de origem
+SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_exportar_emails_do_lote',
+$n1$  select * into v_origem from public.acoes_massivas_lotes where id = p_lote_id for share;$n1$,
+$a1$  select * into v_origem from public.acoes_massivas_lotes where id = p_lote_id;$a1$, 1);
+
+DO $f$
+BEGIN
+  IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar_emails_do_lote') IS DISTINCT FROM '00d3370a7800bd334292808e1573a57d' THEN
+    RAISE EXCEPTION 'Rollback: acoes_massivas_exportar_emails_do_lote nao voltou ao corpo publicado.';
+  END IF;
+END $f$;
+
+COMMIT;

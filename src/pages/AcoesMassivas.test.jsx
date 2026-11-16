@@ -188,6 +188,24 @@ afterEach(cleanup);
 
 // Por padrão escolhe "Somente mensalidades": a tela não busca sem tipo de
 // cobrança. `montar({ tipo: null })` deixa sem escolher.
+// Espera TODAS as RPCs disparadas pela montagem (inclusive as que chegam depois
+// de um efeito) e deixa o React assentar. Sem isto, um teste lia o painel de
+// e-mail (carregado por RPC) antes de ele existir: corrida que deixava o teste
+// intermitente conforme a carga da máquina.
+async function assentar() {
+  let vistos = 0;
+  for (let i = 0; i < 20; i++) {
+    const novos = rpcMock.mock.results.slice(vistos).map((r) => r.value);
+    vistos = rpcMock.mock.results.length;
+    if (novos.length === 0) {
+      await act(async () => {});
+      if (rpcMock.mock.results.length === vistos) return;
+      continue;
+    }
+    await act(async () => { await Promise.allSettled(novos); });
+  }
+}
+
 async function montar({ tipo = "MENSALIDADES", responsavel = "SEM_RESPONSAVEL",
                         donoAcordo = "amanda.seibel@teste.local" } = {}) {
   await act(async () => { render(<AcoesMassivas />); });
@@ -200,6 +218,7 @@ async function montar({ tipo = "MENSALIDADES", responsavel = "SEM_RESPONSAVEL",
     await act(async () => { fireEvent.click(document.getElementById(`resp-caso-${responsavel}`)); });
   }
   if (tipo) await escolherTipo(tipo, { donoAcordo });
+  await assentar();
 }
 // O controle deixou de ser <select> e virou lista de marcação, com duas
 // dimensões independentes. Marcar é o equivalente a escolher.
@@ -1062,31 +1081,7 @@ describe("Ações Massivas — e-mail a partir de um lote de WhatsApp", () => {
     expect(chamadas("acoes_massivas_exportar_emails_do_lote")).toHaveLength(1);
   });
 
-  it("handler bloqueia: tela achava tabulado, mas o banco diz pendente — não exporta", async () => {
-    lotesWhats = [LOTE_WHATS];
-    lotesRegistro = []; // painel velho/cortado: a tela não sabe que está pendente
-    lotes = [{ ...LOTE_WHATS, canal: "WHATSAPP" }]; // o banco, relido, diz pendente
-    await montar();
-    await abrirConfirmacao();
-    await act(async () => {
-      fireEvent.click(within(painel()).getByRole("button", { name: /Sim, exportar e registrar/ }));
-    });
-    expect(chamadas("acoes_massivas_exportar_emails_do_lote")).toHaveLength(0);
-    expect(screen.getByText(/ainda está pendente de envio.*Nada foi exportado nem registrado/)).toBeTruthy();
-  });
 
-  it("handler falha fechado: lista de pendentes cheia (50) não prova nada — não exporta", async () => {
-    lotesWhats = [LOTE_WHATS];
-    lotesRegistro = [];
-    lotes = Array.from({ length: 50 }, (_, i) => ({ ...LOTE_WHATS, id: `outro-${i}`, canal: "WHATSAPP" }));
-    await montar();
-    await abrirConfirmacao();
-    await act(async () => {
-      fireEvent.click(within(painel()).getByRole("button", { name: /Sim, exportar e registrar/ }));
-    });
-    expect(chamadas("acoes_massivas_exportar_emails_do_lote")).toHaveLength(0);
-    expect(screen.getByText(/Não foi possível conferir se o lote de WhatsApp já foi tabulado/)).toBeTruthy();
-  });
 
   it("sem lote de WhatsApp recente, o painel não aparece", async () => {
     await montar();
@@ -1155,11 +1150,28 @@ describe("Ações Massivas — e-mail a partir de um lote de WhatsApp", () => {
     expect(within(painel()).getByRole("button", { name: /Exportar e-mails deste lote/ }).disabled).toBe(true);
   });
 
+  it("lista de pendentes truncada não libera nem bloqueia por conta própria: quem decide é o banco", async () => {
+    lotesWhats = [LOTE_WHATS];
+    lotesRegistro = []; // painel cortado: a tela não sabe que o lote está pendente
+    lotes = Array.from({ length: 50 }, (_, i) => ({ ...LOTE_WHATS, id: `outro-${i}`, canal: "WHATSAPP" }));
+    emailDoLote = { erro: "Este lote de WhatsApp ainda esta pendente de envio. Tabule o envio (ou descarte o lote) antes de exportar os e-mails." };
+    await montar();
+    await abrirConfirmacao();
+    await act(async () => {
+      fireEvent.click(within(painel()).getByRole("button", { name: /Sim, exportar e registrar/ }));
+    });
+    // a tela pergunta ao banco (a chamada acontece) e mostra a recusa do banco
+    await waitFor(() => expect(chamadas("acoes_massivas_exportar_emails_do_lote")).toHaveLength(1));
+    expect(await screen.findByText(/Erro ao exportar e-mails do lote: Este lote de WhatsApp ainda esta pendente/)).toBeTruthy();
+    expect(screen.queryByText(/Planilha de e-mail com/)).toBeNull();
+  });
+
   it("lote que já derivou e-mail não oferece o botão de novo", async () => {
     lotesWhats = [{ ...LOTE_WHATS, email_lote_id: "lote-email-1", email_exportado_em: "2026-10-06T15:00:00Z" }];
     await montar();
+    // o painel carrega por RPC depois da montagem: espera o conteúdo, não o instante
+    await waitFor(() => expect(within(painel()).getByText(/E-mail já exportado deste lote/)).toBeTruthy());
     expect(within(painel()).queryByRole("button", { name: /Exportar e-mails deste lote/ })).toBeNull();
-    expect(within(painel()).getByText(/E-mail já exportado deste lote/)).toBeTruthy();
   });
 
   it("erro do banco aparece na tela e não vira sucesso", async () => {
@@ -1170,7 +1182,7 @@ describe("Ações Massivas — e-mail a partir de um lote de WhatsApp", () => {
     await act(async () => {
       fireEvent.click(within(painel()).getByRole("button", { name: /Sim, exportar e registrar/ }));
     });
-    expect(screen.getByText(/Erro ao exportar e-mails do lote/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(/Erro ao exportar e-mails do lote/)).toBeTruthy());
     expect(screen.queryByText(/com e-mail válido e/)).toBeNull();
   });
 
@@ -1188,9 +1200,9 @@ describe("Ações Massivas — e-mail a partir de um lote de WhatsApp", () => {
     await act(async () => {
       fireEvent.click(within(painel()).getByRole("button", { name: /Sim, exportar e registrar/ }));
     });
-    expect(linhasPlanilha).toEqual([
+    await waitFor(() => expect(linhasPlanilha).toEqual([
       { "Nome do aluno": "Ana", "E-mail": "ana@x.com" },
       { "Nome do aluno": "Bia", "E-mail": "bia@x.com" },
-    ]);
+    ]));
   });
 });
