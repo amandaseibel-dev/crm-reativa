@@ -11,6 +11,11 @@
   - o rollback atual (`96871b2e…`, 6215 bytes, commit `c0d217d1`) é mais restritivo;
   - a anterior listava os artefatos de teste de contenção sem SHA-256;
   - a menção à contenção `20261114140000` na anterior foi resolvida pela separação (ver abaixo).
+- **Correções e atualizações registradas nesta v2 (a anterior não é reescrita):**
+  - Hash da auditoria: a anterior cita `scripts/seguranca/auditoria_seguranca.sql` com SHA-256 `87ed9b7326c6fdbdffd2956c1d3b3f448910ae2e0010f11954418de9c986dd85` (5682 bytes). O arquivo atual, idêntico ao `origin/main` e não alterado por esta #954, tem `d2a4c33179e9b0a05f63b33469bcbdd3a35c5e108dc587845bce9ac8f7ab0c67` (5629 bytes). A correção é de registro; o pacote não altera o arquivo.
+  - Texto de cobertura do CI: a anterior fala em "recusas" sem detalhar. Esta v2 lista as quatro recusas do `recusas_rollback.sh` (aluno, catálogo, contenção ativa, contenção alterada por outro autor).
+  - Preparações de teste da contenção (`11p_*`, `12p_on`, `12p_off`): usam atualização direta da flag, com o mesmo efeito sobre `contencao_ativa`, e não a migration B1 nem a sua pré-condição/transação.
+  - Evidências novas que a anterior não listava: `recusas_rollback.sh`, `fingerprint_dados_termo.sql`, `snapshot_termo_fisico.sql`, `12n_contencao_flag_fixture.sql`.
 
 ## Escopo final
 
