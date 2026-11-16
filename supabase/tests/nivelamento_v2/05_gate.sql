@@ -78,3 +78,14 @@ begin
   end;
 end $$;
 reset session authorization;
+set session authorization service_role;
+do $$
+begin
+  begin
+    perform public.nivelamento_reposicao_por_baixas(1);
+    raise exception 'FALHOU: service_role executou reposicao';
+  exception when sqlstate '42501' then
+    raise notice 'OK: reposicao negada para service_role (permissao)';
+  end;
+end $$;
+reset session authorization;

@@ -44,6 +44,9 @@ create table if not exists public.nivelamento_v2_backup (
   definicao text not null,
   criado_em timestamptz not null default now()
 );
+-- A1 (premissa §3): backup com RLS ligada sem policy (deny-all) e sem grant a anon/authenticated.
+alter table public.nivelamento_v2_backup enable row level security;
+revoke all on public.nivelamento_v2_backup from public, anon, authenticated;
 
 -- Definicao anterior de assumir_caso_livre (para o rollback restaurar).
 insert into public.nivelamento_v2_backup(nome, definicao)
@@ -445,7 +448,7 @@ revoke all on function public.nivelamento_caso_movivel(uuid)          from publi
 -- escolher_troca: so chamada pela assumir_caso_livre (definer): authenticated fora.
 revoke all on function public.nivelamento_escolher_troca(uuid,text,uuid) from public, anon, authenticated, service_role;
 -- reposicao: authenticated PODE executar (gestao chama); o gate recusa operador comum.
-revoke all on function public.nivelamento_reposicao_por_baixas(int)   from public, anon;
+revoke all on function public.nivelamento_reposicao_por_baixas(int)   from public, anon, service_role;
 grant execute on function public.nivelamento_reposicao_por_baixas(int) to authenticated;  -- gestao (gate por JWT); cron usa o dono postgres
 
 -- assumir_caso_livre: CREATE OR REPLACE recoloca o grant padrao. Restaura o

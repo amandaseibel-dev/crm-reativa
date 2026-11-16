@@ -8,15 +8,15 @@ Branch `feat/nivelamento-v2`. Commit atual: ver `git log -1`.
 
 | Artefato | SHA-256 |
 |---|---|
-| `supabase/aguardando_aprovacao/20261116120000_nivelamento_v2.sql.pendente` | 5dae04db7844238f |
+| `supabase/aguardando_aprovacao/20261116120000_nivelamento_v2.sql.pendente` | d266ebbaaa4848e2 |
 | `supabase/aguardando_aprovacao/20261116120100_calibragem_gate_somente_gestao.sql.pendente` | 0f75661377b7f3c5 |
 | `supabase/aguardando_aprovacao/20261116120000_nivelamento_v2.rollback.sql` | 464366e4b79bf1f4 |
 | `supabase/aguardando_aprovacao/20261116120100_calibragem_gate_somente_gestao.rollback.sql` | 059089893dd364e8 |
 | `supabase/tests/nivelamento_v2/01_ambiente.sql` | 45136e8cd570264a |
-| `supabase/tests/nivelamento_v2/02_casos.sql` | 673a3859bddec633 |
+| `supabase/tests/nivelamento_v2/02_casos.sql` | c86b45fa7d144c90 |
 | `supabase/tests/nivelamento_v2/03_concorrencia_setup.sql` | 096a3b516578e0e6 |
 | `supabase/tests/nivelamento_v2/04_pos_rollback.sql` | 4ef1fde3f4f431dc |
-| `supabase/tests/nivelamento_v2/05_gate.sql` | 0587afe1b2602064 |
+| `supabase/tests/nivelamento_v2/05_gate.sql` | e771177951c8c487 |
 | `supabase/tests/nivelamento_v2/06_pos_rollback_gate.sql` | 8a266acd8ada3ad6 |
 | `supabase/tests/fixtures/assumir_caso_livre_prod_20261112.body.sql` | 56a88589c983b9c0 |
 | `docs/seguranca/delta-assumir-caso-livre-v2-vs-prod-20261112.diff` | ccac1777747c8c6c |
