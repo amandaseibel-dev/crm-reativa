@@ -1,5 +1,6 @@
--- Depois do rollback REVERSÍVEL em banco SEM histórico: o que a migração criou não existe mais,
--- o que já existia continua. A igualdade completa do estado é conferida no CI (snapshot antes/depois).
+-- Depois do rollback REVERSÍVEL em banco SEM histórico de termo: o que a migração criou não existe mais,
+-- o que já existia continua. A igualdade do estado de termo, da barreira e de ACL/RLS das tabelas tocadas
+-- é conferida pelo snapshot antes/depois (snapshot_termo_fisico.sql), não por estes asserts.
 \set ON_ERROR_STOP on
 select public.teste_assert('rollback limpo: trigger de histórico removida',
   not exists (select 1 from pg_trigger where tgname = 'aluno_mov_tabulacao_so_gestao' and not tgisinternal));

@@ -1264,7 +1264,7 @@ jobs:
           TERMO_TESTE_DESCARTAVEL: 'sim'
         run: node "$DIR/postgrest_termo_fisico.cjs"
 
-      - name: "Caminho B (banco limpo, sem histórico): rollback reversível com igualdade de estado antes/depois, e barreira"
+      - name: "Caminho B (banco limpo): rollback reversível com igualdade de estado de termo, barreira, ACL e RLS antes/depois"
         run: |
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -c "drop schema public cascade; create schema public;"

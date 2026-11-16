@@ -14,6 +14,8 @@ select md5(coalesce(string_agg(x, '|' order by x), '')) from (
   union all select 'tabulacoes_total:' || count(*)::text from public.tabulacoes
   union all select 'enc_prosrc:' || md5(p.prosrc) from pg_proc p
    where p.proname = '_encerramento_so_gestao' and p.pronamespace = 'public'::regnamespace
+  union all select 'rls:' || c.relname || ':' || c.relrowsecurity::text || ':' || c.relforcerowsecurity::text from pg_class c where c.oid in ('public.alunos'::regclass, 'public.tabulacoes'::regclass, 'public.aluno_movimentacoes'::regclass)
+  union all select 'relacl:' || c.relname || ':' || coalesce(c.relacl::text, '') from pg_class c where c.oid in ('public.alunos'::regclass, 'public.tabulacoes'::regclass, 'public.aluno_movimentacoes'::regclass)
   union all select 'enc_acl:' || coalesce(p.proacl::text, '') from pg_proc p
    where p.proname = '_encerramento_so_gestao' and p.pronamespace = 'public'::regnamespace
 ) s;
