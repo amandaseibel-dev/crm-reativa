@@ -1279,7 +1279,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/05_barreira_alunos.sql"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/09_login_nao_privilegiado.sql"
-          ROLLBACK="$ROLLBACK" bash "$DIR/recusas_rollback.sh"
+          TERMO_TESTE_DESCARTAVEL=sim ROLLBACK="$ROLLBACK" bash "$DIR/recusas_rollback.sh"
           psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
           psql -tA -v ON_ERROR_STOP=1 -f "$DIR/snapshot_termo_fisico.sql" > "$RUNNER_TEMP/termo_post.txt"
           cmp -s "$RUNNER_TEMP/termo_pre.txt" "$RUNNER_TEMP/termo_post.txt" || { echo "rollback nao volta ao estado anterior"; diff "$RUNNER_TEMP/termo_pre.txt" "$RUNNER_TEMP/termo_post.txt"; exit 1; }
