@@ -1318,7 +1318,9 @@ jobs:
           SENHA=$(openssl rand -hex 24)
           echo "::add-mask::$SENHA"
           echo "PG_SENHA_LEITOR_CI=$SENHA" >> "$GITHUB_ENV"
-          psql -d postgres -v ON_ERROR_STOP=1 -v senha="$SENHA" -c "alter role leitor_defs password :'senha'"
+          printf "alter role leitor_defs password :'senha';\n" > "$RUNNER_TEMP/senha.sql"
+          psql -d postgres -v ON_ERROR_STOP=1 -v senha="$SENHA" -f "$RUNNER_TEMP/senha.sql"
+          rm -f "$RUNNER_TEMP/senha.sql"
           psql -d integracao -v ON_ERROR_STOP=1 -c "select 1" >/dev/null
 
       - name: Testes do extrator (sucesso, conexao, divergencia, sem URL, privilegio)
