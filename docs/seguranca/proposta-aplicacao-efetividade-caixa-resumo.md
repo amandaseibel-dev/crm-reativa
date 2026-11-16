@@ -99,7 +99,7 @@ Nada disso é feito antes da aprovação.
 
 - Acesso de diretoria a funções pré-existentes (fora desta PR): `carteira_2026_2_negociacoes()` e `carteira_2026_2_detalhe()` usam `carteira_2026_1_pode_ler()`, que aceita diretoria. `detalhe` expõe nome e 6 dígitos de CPF por título. Decisão da gestão, não desta PR.
 
-- Declarada VOLATILE: chama carteira_2026_2_negociacoes(), que escreve. Hash atualizado.
+- Declarada VOLATILE por cautela. A versão final não chama função escritora. Hash atualizado.
 
 - Migration e rollback: hashes acima, neste commit. Correção: revoke de service_role condicionado à existência do papel (falha comprovada no log do job SQL).
 - Heads e CI/Guardião: obtidos depois do congelamento; sem parecer, nada é liberado.

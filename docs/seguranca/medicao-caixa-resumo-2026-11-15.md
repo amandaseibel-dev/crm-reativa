@@ -127,3 +127,14 @@ Medições em transação `read only`, com `explain (analyze, summary)`:
 - A tentativa anterior de 8 s que falhou no classificador não se repetiu com a mesma consulta.
 - Causa da função escritora: `carteira_2026_2_negociacoes()` cria `_n22` com `create temp table ... on commit drop`.
   É temporária da transação, não compartilhada. A RPC não a usa mais.
+
+## Anexo K — ACL medida em produção (leitura, `has_function_privilege`, 15/11/2026)
+
+Consulta somente leitura. Resultado:
+- `carteira_2026_2_classificar()`: authenticated = false; anon = false; PUBLIC = false; service_role = true.
+- `carteira_2026_2_negociacoes()`: authenticated = true (já existia; portão interno de gestão ou diretoria).
+- `carteira_2026_2_detalhe(text,int,int)`: authenticated = true (já existia; portão interno de gestão ou diretoria).
+
+Correção: o Anexo H dizia que authenticated tinha EXECUTE em `carteira_2026_2_classificar()`. Isso estava errado,
+e a medição acima mostra o contrário. A exposição de `carteira_2026_2_negociacoes()` e `carteira_2026_2_detalhe()`
+a diretoria é pré-existente e fora desta PR.

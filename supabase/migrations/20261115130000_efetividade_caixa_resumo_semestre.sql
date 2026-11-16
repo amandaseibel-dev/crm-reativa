@@ -31,8 +31,8 @@
 -- RATEIO NÃO ENTRA AQUI. O recuperado por rateio é outra grandeza e continua nas RPCs
 -- de efetividade, identificado como tal.
 --
--- VOLATILIDADE. Declarada VOLATILE por cautela: carteira_efetividade_ler pode recalcular snapshot.
--- O negociado de 2026/2 é consulta de leitura própria, sem chamar carteira_2026_2_negociacoes().
+-- VOLATILIDADE. Declarada VOLATILE por cautela. A versão final só lê: não chama carteira_2026_2_negociacoes()
+-- nem nenhuma função que escreva. O negociado de 2026/2 é consulta de leitura própria.
 --
 -- PORTÃO. Gestão ativa autorizada: e-mail na lista de `usuario_e_gestao()` E linha
 -- em `usuarios` com `ativo = true`. Diretoria NÃO entra por este caminho.
