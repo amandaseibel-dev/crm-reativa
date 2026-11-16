@@ -147,3 +147,14 @@ Consulta equivalente ao corpo da RPC para 2026/2 (a migration referencia o class
   16.042.642,07; negociado 1.232.903,01; recebido 987.576,95; saldo de acordos 245.326,06; 784 títulos;
   637 CPFs; 693 acordos; caixa 2026/2 653.066,80 em 594 pagamentos.
 - A RPC não foi criada em produção. A medição é do SELECT equivalente.
+
+## Anexo M — unicidade do vínculo ativo (fotografia atual, leitura)
+
+Consulta agregada, somente leitura, sem dado pessoal:
+- Títulos com vínculo ativo em `acordo_titulo_vinculo`: 5.973.
+- Títulos com mais de um vínculo ativo: 0.
+- Confirmação por `GROUP BY titulo_id HAVING count(*) > 1`: 0.
+- Valor duplicável pelo join da RPC: 0.
+
+Conclusão: nesta fotografia o join não multiplica valores. Não é garantia estrutural: não há índice único nem
+constraint que impeça um segundo vínculo ativo por título.
