@@ -1202,9 +1202,9 @@ jobs:
         run: |
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_concorrencia_setup.sql"
-          psql -v ON_ERROR_STOP=1 -tAc "select public.nivelamento_reposicao_por_baixas(50);" > /tmp/c1.txt &
+          psql -v ON_ERROR_STOP=1 -tAc "select internal.nivelamento_reposicao_core(50);" > /tmp/c1.txt &
           P1=$!
-          psql -v ON_ERROR_STOP=1 -tAc "select public.nivelamento_reposicao_por_baixas(50);" > /tmp/c2.txt &
+          psql -v ON_ERROR_STOP=1 -tAc "select internal.nivelamento_reposicao_core(50);" > /tmp/c2.txt &
           P2=$!
           wait $P1; wait $P2
           N=$(psql -tAc "select count(*) from public.calibragem_auditoria where evento='REPOSICAO_V2' and situacao_posterior->>'baixa_id'='70000000-0000-0000-0000-000000000001'")
@@ -1242,7 +1242,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f /tmp/integ_total.sql
           psql -v ON_ERROR_STOP=1 -f "$M1"
           psql -v ON_ERROR_STOP=1 -f "$M2"
-          R=$(psql -tAc "select public.nivelamento_reposicao_por_baixas(10)")
+          R=$(psql -tAc "select internal.nivelamento_reposicao_core(10)")
           echo "smoke: $R"
           case "$R" in *reposicoes_aplicadas*) echo "OK: smoke executado";; *) echo "FALHOU smoke"; exit 1;; esac
 
