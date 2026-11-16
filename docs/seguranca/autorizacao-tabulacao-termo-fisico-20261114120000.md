@@ -4,6 +4,7 @@
 
 ## Decisões registradas (não reabertas)
 - **Rollback reversível** (`20261114120000.rollback.sql`): remove somente o que a migração criou (função da trigger, trigger, RPC, tabela `termo_fisico_contencao`, duas linhas do catálogo com marcador `migration_termo_fisico`). Não apaga histórico (`aluno_movimentacoes`) e não altera objeto preexistente. **Recusa com motivo específico (P0001), sem alterar nada,** se houver registros de termo em `aluno_movimentacoes`, alunos com código de termo no estado, catálogo alterado depois da migração, contenção ativa, ou contenção alterada por outro autor (detecção por `alterado_por`). Alternativa operacional quando recusado: ativar a contenção (`contencao_ativa = true`). Validado localmente em PostgreSQL 17 (UTF8): caminho limpo com igualdade de estado antes/depois; recusas por histórico, aluno no estado, catálogo alterado, contenção ativa e contenção alterada, com o rollback passando depois da restauração. ACL de coluna (`attacl`) não é coberta pelo snapshot de propósito: a migração não emite GRANT nem REVOKE de coluna (só de tabela e função, sobre objetos novos; ver `grep -n -i "grant\|revoke"` no .pendente e no rollback), e o rollback não altera ACL de coluna. No CI estão cobertos o caminho limpo e a recusa por histórico; as demais recusas ficam como verificação local.
+- Ressalva operacional: se a contenção de `20261114140000` for aplicada e revertida, `alterado_por` fica `reversao_b1` e o rollback de `20261114120000` passa a recusar até decisão da gestão. Isso é intencional (detecção de alteração), não defeito.
 - Gestão: os três e-mails de `usuario_e_gestao()`; sem permissões novas.
 - Desfazer do operador com código restrito: recusado inteiro ("Nada foi desfeito").
 - Descrição fixa do registro; rótulos aprovados preservados.
@@ -16,7 +17,7 @@
 
 ## Trava de tabulação só gestão (`20261106140000`) — fora do escopo desta #954
 - Retirada do diff da #954 pelo recorte informativo. Preservada, sem reescrita de histórico, no branch `wip/trava-so-gestao-20261106140000` (commit `8a03e089`).
-- A migration desta #954 (`20261114120000`) não chama `_encerramento_so_gestao()` nem objetos de `20261106140000`. O CI não aplica mais `20261106140000`.
+- A migration desta #954 (`20261114120000`) não chama `_encerramento_so_gestao()` nem objetos de `20261106140000`. O job termo físico não aplica `20261106140000`. O job `tabulacao-so-gestao` (igual à base) continua aplicando a proposta da trava em job próprio; isso não é parte desta #954.
 
 ## Auth — confirmação e troca de e-mail
 **NÃO VERIFICADO.** As ferramentas desta sessão não expõem a configuração de Auth do projeto (confirmação de e-mail obrigatória, troca de e-mail, origem da identidade). Nenhuma conta ou configuração foi alterada. `usuario_e_gestao()` confia no claim `email` do JWT. **Não tratado como vulnerabilidade comprovada.** Bloqueio externo: leitura da configuração de Auth por quem tem acesso ao painel do projeto.
