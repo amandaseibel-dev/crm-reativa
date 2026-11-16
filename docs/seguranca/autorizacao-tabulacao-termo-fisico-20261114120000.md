@@ -58,7 +58,7 @@ Evidências (somente leitura, em 06/11/2026): `usuario_e_gestao()` = `af3d391f42
 
 ## Sequência de implantação
 1. Resolver os bloqueios 1–7.
-2. **Banco:** aprovação final → aplicar `20261114120000` → aplicar `20261114130000` (guarda md5) → validação somente leitura.
+2. **Banco:** aprovação final → aplicar `20261106120000` (dependência) → `20261106140000` → `20261114120000` → validação somente leitura. `20261114130000` e a cadeia de sequência/md5 foram retiradas deste recorte.
 3. **Frontend (#951):** merge somente após validação do banco.
 
 ## Resultados por SHA

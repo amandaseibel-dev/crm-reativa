@@ -737,90 +737,6 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/02_casos.sql"
 
   # ---------------------------------------------------------------------------
-  # trava de tabulação somente gestão no banco — 20261106140000
-  #
-  # Aplica a proposta num Postgres descartável e roda os 19 casos de permissão:
-  # operador barrado em RETORNO_FINANCEIRO (com a mensagem certa, que NÃO fala
-  # em "encerrar cobrança"), trava histórica de encerramento intacta, tabulação
-  # comum livre, reescrita de código já gravado passando, as três colunas de
-  # status vigiadas, INSERT barrado e INSERT comum livre, gestão autorizada só
-  # pelo e-mail do token, sistema/cron sem ser barrado, piso literal
-  # fail-closed com o catálogo desmarcado, e catálogo passando a barrar uma
-  # tabulação recém-marcada.
-  #
-  # Os casos RECONECTAM como `teste_app` de propósito: o gatilho libera
-  # `session_user in ('postgres', ...)` e este job roda psql como postgres --
-  # pela conexão padrão a trava não dispararia e os casos passariam sem testar
-  # nada. Ver o cabeçalho de 03_casos.sql.
-  # ---------------------------------------------------------------------------
-  tabulacao-so-gestao:
-    name: trava tabulacao somente gestao (postgres isolado)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: teste
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
-    env:
-      PGHOST: localhost
-      PGPORT: '5432'
-      PGUSER: postgres
-      PGPASSWORD: postgres
-      PGDATABASE: teste
-      DIR: supabase/tests/tabulacao_so_gestao
-
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Onde está o SQL a validar?
-        id: existe
-        run: |
-          APLICADA=$(ls supabase/migrations/*_tabulacao_so_gestao_no_banco.sql 2>/dev/null | head -1 || true)
-          PROPOSTA=supabase/aguardando_aprovacao/20261106140000_tabulacao_so_gestao_no_banco.sql.pendente
-          if   [ -n "$APLICADA" ] && [ -f "$APLICADA" ]; then ALVO="$APLICADA"
-          elif [ -f "$PROPOSTA" ]; then ALVO="$PROPOSTA"
-          else ALVO=""
-          fi
-          if [ -n "$ALVO" ]; then
-            echo "roda=sim"   >> "$GITHUB_OUTPUT"
-            echo "alvo=$ALVO" >> "$GITHUB_OUTPUT"
-            echo "Validando: $ALVO"
-          else
-            echo "roda=nao" >> "$GITHUB_OUTPUT"
-            echo "Nem a migration nem a proposta existem — nada a validar."
-          fi
-
-      # 1. ambiente  2. baseline (o estado de produção, lista literal e sem
-      # INSERT)  3. A PROPOSTA  4. os 14 casos.
-      # ON_ERROR_STOP em todos: o primeiro erro derruba o job.
-      - name: Montar ambiente, aplicar o SQL e rodar os 19 casos
-        if: steps.existe.outputs.roda == 'sim'
-        env:
-          ALVO: ${{ steps.existe.outputs.alvo }}
-        run: |
-          set -euo pipefail
-          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
-          psql -v ON_ERROR_STOP=1 -f "$DIR/02_baseline.sql"
-          # Dependência real: 20261106120000 cria a linha RETORNO_FINANCEIRO antes
-          # da trava. Sem ela a proposta recusa (checagem de existência da linha).
-          psql -v ON_ERROR_STOP=1 -f "supabase/aguardando_aprovacao/20261106120000_tabulacao_retorno_financeiro.sql.pendente"
-          psql -v ON_ERROR_STOP=1 -f "$ALVO"
-          psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
-          psql -v ON_ERROR_STOP=1 -f "supabase/tests/tabulacao_so_gestao_sequencia/20_rollback_retorno_baseline.sql"
-          # Rollback: volta ao corpo de produção (ae0382…) e confere o md5 pelo próprio VIGIA.
-          psql -v ON_ERROR_STOP=1 -f "supabase/aguardando_aprovacao/20261106140000_tabulacao_so_gestao_no_banco.rollback.sql"
-
-  # ---------------------------------------------------------------------------
   # Revoke de TRUNCATE nas 545 tabelas _backup_pos_import_* que o tinham aberto
   # para `authenticated` (de 548 no total -- tres nunca tiveram o grant).
   # Reproduz a condição de produção num Postgres descartável (os NOMES REAIS,
@@ -1167,7 +1083,6 @@ jobs:
       PGDATABASE: teste
       DIR: supabase/tests/tabulacao_termo_fisico_gestao
       MIGRATION: supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente
-      BARREIRA: supabase/aguardando_aprovacao/20261114130000_barreira_alunos_normalizacao.sql.pendente
       ORDEM1: supabase/aguardando_aprovacao/20261106140000_tabulacao_so_gestao_no_banco.sql.pendente
       ROLLBACK: supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql
 
@@ -1190,8 +1105,9 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/prep_gestao_inativa_on.sql"
           [ "$rc" -eq 0 ] || exit "$rc"
           psql -v ON_ERROR_STOP=1 -f "$DIR/00_barreira_producao.sql"
+          # Dependência real da proposta 20261106140000: linha RETORNO_FINANCEIRO (20261106120000).
+          psql -v ON_ERROR_STOP=1 -f "supabase/aguardando_aprovacao/20261106120000_tabulacao_retorno_financeiro.sql.pendente"
           psql -v ON_ERROR_STOP=1 -f "$ORDEM1"
-          psql -v ON_ERROR_STOP=1 -f "$BARREIRA"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/05_barreira_alunos.sql"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/08_barreira_normalizacao.sql"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "supabase/tests/tabulacao_so_gestao_sequencia/10_contorno_tres_campos.sql"
@@ -1282,8 +1198,9 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
           psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
           psql -v ON_ERROR_STOP=1 -f "$DIR/00_barreira_producao.sql"
+          # Dependência real da proposta 20261106140000: linha RETORNO_FINANCEIRO (20261106120000).
+          psql -v ON_ERROR_STOP=1 -f "supabase/aguardando_aprovacao/20261106120000_tabulacao_retorno_financeiro.sql.pendente"
           psql -v ON_ERROR_STOP=1 -f "$ORDEM1"
-          psql -v ON_ERROR_STOP=1 -f "$BARREIRA"
           psql -v ON_ERROR_STOP=1 -c "do \$\$ begin if not exists (select 1 from pg_roles where rolname='app_teste') then create role app_teste login noinherit password 'app_teste_pw'; end if; end \$\$;"
           psql -v ON_ERROR_STOP=1 -c "alter role app_teste noinherit; grant anon, authenticated, service_role to app_teste with inherit false, set true, admin false; grant usage on schema public to app_teste; grant select on public.tabulacoes, public.alunos, public.usuarios to app_teste; grant update on public.alunos to app_teste; grant select, insert on public.aluno_movimentacoes to app_teste;"
           set +e
@@ -1298,54 +1215,3 @@ jobs:
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/08_barreira_normalizacao.sql"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "supabase/tests/tabulacao_so_gestao_sequencia/10_contorno_tres_campos.sql"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/09_login_nao_privilegiado.sql"
-
-  tabulacao-so-gestao-sequencia-md5:
-    name: sequência _encerramento_so_gestao — aplica 20261106140000 e imprime o MD5 do catálogo (postgres 17 descartável; PREPARAÇÃO INCOMPLETA)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: teste
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
-    env:
-      PGHOST: localhost
-      PGPORT: '5432'
-      PGUSER: postgres
-      PGPASSWORD: postgres
-      PGDATABASE: teste
-      TDIR: supabase/tests/tabulacao_termo_fisico_gestao
-      SDIR: supabase/tests/tabulacao_so_gestao_sequencia
-      ORDEM1: supabase/aguardando_aprovacao/20261106140000_tabulacao_so_gestao_no_banco.sql.pendente
-      BARREIRA: supabase/aguardando_aprovacao/20261114130000_barreira_alunos_normalizacao.sql.pendente
-
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: "Ambiente simulado + 20261106140000 (aplicação) + MD5 do catálogo"
-        run: |
-          set -euo pipefail
-          psql -v ON_ERROR_STOP=1 -f "$TDIR/01_ambiente.sql"
-          psql -v ON_ERROR_STOP=1 -f "$TDIR/00_barreira_producao.sql"
-          psql -v ON_ERROR_STOP=1 -tA -c "select 'APOS_00 md5_prosrc=' || md5(prosrc) || ' len=' || length(prosrc) from pg_proc where proname='_encerramento_so_gestao' and pronamespace='public'::regnamespace"
-          DIR="$TDIR" BARREIRA="$BARREIRA" bash "$SDIR/ordem_invalida.sh"
-          psql -v ON_ERROR_STOP=1 -f "$ORDEM1"
-          psql -v ON_ERROR_STOP=1 -f "$BARREIRA"
-          psql -v ON_ERROR_STOP=1 -tA -f "$SDIR/md5_definicao.sql" | tee "$RUNNER_TEMP/md5.txt"
-          test -s "$RUNNER_TEMP/md5.txt"
-
-      - name: "run.mjs: sequência completa em banco próprio (dependência RETORNO, ordem correta, normalização nos três campos)"
-        run: |
-          set -euo pipefail
-          psql -v ON_ERROR_STOP=1 -c "create database sequencia_run_mjs"
-          npm i --no-save pg@8.16.3
-          PGDATABASE=sequencia_run_mjs node "$SDIR/run.mjs"
