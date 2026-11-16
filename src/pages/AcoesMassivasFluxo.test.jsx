@@ -254,4 +254,13 @@ describe("Exportação — fluxo da página (xlsx real; gravação interceptada 
     expect(exportacoes()).toBe(1);
     avisos.mockRestore();
   });
+
+  it("nova busca depois de um lote concluido nao mantem o botao de baixar o arquivo do lote anterior", async () => {
+    await montarEBuscar();
+    await gerarPlanilha();
+    await waitFor(() => expect(controle.gravacoes.length).toBe(1));
+    expect(screen.getByRole("button", { name: /Baixar planilha novamente/ })).toBeTruthy();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Buscar/ })); });
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Baixar planilha novamente/ })).toBeNull());
+  });
 });

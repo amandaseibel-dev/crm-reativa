@@ -437,6 +437,7 @@ export default function AcoesMassivas() {
 
     setCarregando(true);
     setResultados(null);
+    setRelatorioPronto((r) => (faseExport === FASE.ARQUIVO_FALHOU ? r : null));
     setOperadorDaPrevia(null);
     setTipoDaPrevia(null);
     setContagemTipo(null);
@@ -583,7 +584,7 @@ export default function AcoesMassivas() {
     setExcluidosNoEnvio(0);
 
     // O arquivo anterior nao pertence a nova exportacao: descarta antes de registrar.
-    setRelatorioPronto(null);
+    setRelatorioPronto((r) => (faseExport === FASE.ARQUIVO_FALHOU ? r : null));
     let loteRegistrado = false;
     try {
       const sufixoOperador = /^CASO:/i.test(String(operadorDaPrevia ?? ""))
@@ -929,6 +930,7 @@ export default function AcoesMassivas() {
           onClick={() => {
             setCanal("WHATSAPP");
             setResultados(null);
+            setRelatorioPronto((r) => (faseExport === FASE.ARQUIVO_FALHOU ? r : null));
           }}
         >
           📱 WhatsApp
@@ -938,6 +940,7 @@ export default function AcoesMassivas() {
           onClick={() => {
             setCanal("EMAIL");
             setResultados(null);
+            setRelatorioPronto((r) => (faseExport === FASE.ARQUIVO_FALHOU ? r : null));
           }}
         >
           📧 E-mail
