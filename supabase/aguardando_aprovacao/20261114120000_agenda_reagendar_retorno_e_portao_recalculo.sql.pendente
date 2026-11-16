@@ -18,9 +18,9 @@
 --      Autorizacao por operacao: sessao + usuario ativo + (dono atual do caso
 --      OU public.usuario_e_gestao(), gate ja existente). Nada de lista nova.
 --   D. Recalcular_situacao_aluno: NAO recebe portao. O revoke de anon e
---      defensivo. NAO COMPROVADO se anon tinha EXECUTE na producao: a ACL
---      real nao foi medida (o fixture nao tem linha de ACL). Pre-condicao: medir
---      has_function_privilege('anon', ...) em producao antes de aplicar.
+--      defensivo. NAO COMPROVADO se anon ou PUBLIC tinham EXECUTE na producao: a
+--      ACL real nao foi medida (o fixture nao tem linha de ACL). Pre-condicao:
+--      medir has_function_privilege('anon'|'public', ...) em producao antes de aplicar.
 --
 -- TRAVAS: md5(prosrc) de recalcular antes = 03dacc0a... (parte 1) e depois =
 -- c3e38ac0... (secao D). A mudanca de ACL (revoke de public e anon) NAO foi medida.

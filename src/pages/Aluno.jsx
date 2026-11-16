@@ -1636,10 +1636,10 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
         }
       }
       if (Object.keys(extraAluno).length > 0) { await supabase.from("alunos").update(extraAluno).eq("id", alunoSelecionado.id); }
-      setNovoOperadorEmail("");
-      setMotivoAlteracaoOperador("");
-      // Na falha da RPC a data e a tabulacao digitadas ficam no formulario para nova tentativa.
+      // Na falha da RPC operador, motivo, data e tabulacao digitados ficam no formulario.
       if (!reagendamentoFalhou) {
+        setNovoOperadorEmail("");
+        setMotivoAlteracaoOperador("");
         setNovaDataRetornoAlteracao("");
         setNovaTabulacaoAlteracao("");
       }
