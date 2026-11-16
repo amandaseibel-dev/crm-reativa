@@ -10,7 +10,9 @@
 --   1. há registros de termo físico em aluno_movimentacoes (reverter removeria o histórico);
 --   2. há alunos com código de termo físico no estado (alunos);
 --   3. o catálogo de termo físico não é exatamente as duas linhas gravadas pela migração;
---   4. a contenção foi alterada depois da migração ou está ativa.
+--   4. a contenção está ativa, ou foi alterada por outro autor (alterado_por diferente).
+--      A detecção de alteração é por alterado_por: uma mudança que volta ao valor original
+--      sem alterar alterado_por não é detectada, e não precisa ser, porque o estado final é o gravado.
 --
 -- Alternativa operacional quando recusado: ativar a contenção
 -- (termo_fisico_contencao.contencao_ativa = true), que suspende novos registros
@@ -76,7 +78,7 @@ begin
   if to_regclass('public.termo_fisico_contencao') is not null then
     if exists (select 1 from public.termo_fisico_contencao
                 where alterado_por is distinct from 'migration_termo_fisico') then
-      raise exception 'rollback recusado: a contenção foi alterada depois da migração. Nada foi alterado. Decisão da gestão antes de reverter.'
+      raise exception 'rollback recusado: a contenção foi alterada por outro autor (alterado_por diferente da migração). Nada foi alterado. Decisão da gestão antes de reverter.'
         using errcode = 'P0001';
     end if;
     if exists (select 1 from public.termo_fisico_contencao where contencao_ativa is true) then
