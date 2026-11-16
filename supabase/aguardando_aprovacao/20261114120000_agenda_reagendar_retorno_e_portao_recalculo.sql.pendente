@@ -17,12 +17,11 @@
 --      que zera retorno_confirmado_em. Vale mesmo com data e hora iguais.
 --      Autorizacao por operacao: sessao + usuario ativo + (dono atual do caso
 --      OU public.usuario_e_gestao(), gate ja existente). Nada de lista nova.
---   D. Recalcular_situacao_aluno: NAO recebe portao. Apenas deixa de ser
---      executavel por anon (triggers e RPCs de pagamento/acordo rodam como
---      authenticated e continuam funcionando).
+--   D. Recalcular_situacao_aluno: NAO recebe portao. O revoke de anon e
+--      defensivo: na ACL de origem anon ja nao tinha EXECUTE (no-op).
 --
 -- TRAVAS: md5(prosrc) de recalcular antes = 03dacc0a... (parte 1) e depois =
--- c3e38ac0... (secao D). ACL muda de forma prevista (anon sai).
+-- c3e38ac0... (secao D). ACL nao muda na pratica (revoke de anon e no-op).
 --
 -- ROLLBACK: 20261114120000_agenda_reagendar_retorno_e_portao_recalculo.rollback.sql
 

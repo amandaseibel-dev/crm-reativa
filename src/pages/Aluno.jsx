@@ -1628,7 +1628,13 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
           p_prioritario: false,
         });
         if (erroReag) {
+          // Sem "sucesso": o operador mudou, mas a nova data NAO foi aplicada.
           alert("Responsavel alterado, mas o reagendamento NAO foi aplicado: " + erroReag.message);
+          setNovoOperadorEmail("");
+          setMotivoAlteracaoOperador("");
+          await recarregarAlunoSelecionado(alunoSelecionado.id);
+          await carregarMovimentacoes(alunoSelecionado.id);
+          return;
         }
       }
       if (Object.keys(extraAluno).length > 0) { await supabase.from("alunos").update(extraAluno).eq("id", alunoSelecionado.id); }
