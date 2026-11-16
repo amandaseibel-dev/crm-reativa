@@ -15,6 +15,10 @@ begin;
 
 drop function if exists public.agenda_reagendar_retorno(uuid, date, text, boolean);
 
+-- Remove a trava B2 ("Ja falei" so zera pela RPC), que nao existia na origem.
+drop trigger if exists trg_alunos_confirmacao_so_reagendamento on public.alunos;
+drop function if exists public.tg_alunos_confirmacao_so_reagendamento();
+
 drop trigger if exists trg_aluno_reset_retorno_confirmado on public.alunos;
 create trigger trg_aluno_reset_retorno_confirmado
   before update of data_retorno on public.alunos

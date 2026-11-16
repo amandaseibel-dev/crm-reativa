@@ -660,3 +660,29 @@ describe("contrato de 'Ja falei': imposto no banco, independente da tela", () =>
     expect((await linha(db, ALUNA)).confirmado).toBeNull();
   });
 });
+
+// TRAVA NO BANCO (B2): a policy alunos_update deixa o responsavel alterar qualquer coluna.
+// Um UPDATE direto que zera "Ja falei" tem de falhar e manter o valor. So a RPC zera.
+describe("trava B2: 'Ja falei' nao zera por UPDATE direto, so pela RPC", () => {
+  it("UPDATE direto zerando retorno_confirmado_em por authenticated e recusado e mantem o valor", async () => {
+    const db = await montar({ comPacote: true });
+    await db.exec("grant select, update on public.alunos to authenticated;");
+    await jaFalei(db, OPERADOR, ALUNA);
+    const antes = await linha(db, ALUNA);
+    expect(antes.confirmado).not.toBeNull();
+    await expect(
+      comPapel(db, "authenticated", OPERADOR, () =>
+        db.query("update public.alunos set retorno_confirmado_em = null where id = $1", [ALUNA]))
+    ).rejects.toThrow(/Ja falei so zera/);
+    expect((await linha(db, ALUNA)).confirmado).toBe(antes.confirmado);
+  });
+
+  it("a RPC de reagendamento continua zerando (a GUC liga a trava so dentro da RPC)", async () => {
+    const db = await montar({ comPacote: true });
+    await jaFalei(db, OPERADOR, ALUNA);
+    const { d } = (await db.query("select (data_retorno - current_date)::int as d from public.alunos where id = $1", [ALUNA])).rows[0];
+    const antes = await linha(db, ALUNA);
+    await reagendar(db, OPERADOR, ALUNA, d + 1, antes.hora_retorno ?? null);
+    expect((await linha(db, ALUNA)).confirmado).toBeNull();
+  });
+});

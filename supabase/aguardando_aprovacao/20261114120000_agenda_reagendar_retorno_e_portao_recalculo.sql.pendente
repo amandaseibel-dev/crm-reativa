@@ -90,6 +90,31 @@ end $backup$;
 -- B. SEM GATILHO DE ZERAGEM POR DATA --------------------------------------------
 drop trigger if exists trg_aluno_reset_retorno_confirmado on public.alunos;
 
+-- B2. "JA FALEI" SO ZERA PELA RPC (IMPOSTO NO BANCO, NAO NA TELA) ---------------
+-- A policy alunos_update deixa o responsavel atual alterar qualquer coluna. Sem esta
+-- trava, um UPDATE direto zerava retorno_confirmado_em. A trava recusa nao-nulo ->
+-- nulo, exceto quando a propria RPC liga a GUC transacional reativa.reagendar_retorno
+-- (set_config ... true: vale so dentro da transacao da RPC). Restauracao por id tambem liga.
+create or replace function public.tg_alunos_confirmacao_so_reagendamento()
+returns trigger
+language plpgsql
+as $f$
+begin
+  if coalesce(current_setting('reativa.reagendar_retorno', true), '') = 'on' then
+    return new;
+  end if;
+  raise exception 'Ja falei so zera pelo reagendamento explicito (RPC agenda_reagendar_retorno)'
+    using errcode = '42501';
+end
+$f$;
+
+drop trigger if exists trg_alunos_confirmacao_so_reagendamento on public.alunos;
+create trigger trg_alunos_confirmacao_so_reagendamento
+  before update of retorno_confirmado_em on public.alunos
+  for each row
+  when (old.retorno_confirmado_em is not null and new.retorno_confirmado_em is null)
+  execute function public.tg_alunos_confirmacao_so_reagendamento();
+
 -- C. RPC DE REAGENDAMENTO HUMANO EXPLICITO -------------------------------------
 create or replace function public.agenda_reagendar_retorno(
   p_aluno_id uuid,
@@ -123,6 +148,8 @@ begin
   if not (v_email = coalesce(v_dono, '') or public.usuario_e_gestao()) then
     raise exception 'Sem permissao para reagendar o retorno deste aluno' using errcode = '42501';
   end if;
+  -- Unica porta que zera "Ja falei": liga a GUC que a trava B2 exige (so nesta transacao).
+  perform set_config('reativa.reagendar_retorno', 'on', true);
   update public.alunos
      set data_retorno = p_data,
          hora_retorno = nullif(p_hora, ''),
