@@ -1164,7 +1164,6 @@ jobs:
       PGDATABASE: teste
       DIR: supabase/tests/tabulacao_termo_fisico_gestao
       MIGRATION: supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente
-      ORDEM1: supabase/aguardando_aprovacao/20261106140000_tabulacao_so_gestao_no_banco.sql.pendente
       ROLLBACK: supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql
 
     steps:
@@ -1188,7 +1187,6 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/00_barreira_producao.sql"
           # Dependência real da proposta 20261106140000: linha RETORNO_FINANCEIRO (20261106120000).
           psql -v ON_ERROR_STOP=1 -f "supabase/aguardando_aprovacao/20261106120000_tabulacao_retorno_financeiro.sql.pendente"
-          psql -v ON_ERROR_STOP=1 -f "$ORDEM1"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/05_barreira_alunos.sql"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/08_barreira_normalizacao.sql"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "supabase/tests/tabulacao_so_gestao_sequencia/10_contorno_tres_campos.sql"
@@ -1281,7 +1279,6 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/00_barreira_producao.sql"
           # Dependência real da proposta 20261106140000: linha RETORNO_FINANCEIRO (20261106120000).
           psql -v ON_ERROR_STOP=1 -f "supabase/aguardando_aprovacao/20261106120000_tabulacao_retorno_financeiro.sql.pendente"
-          psql -v ON_ERROR_STOP=1 -f "$ORDEM1"
           psql -v ON_ERROR_STOP=1 -c "do \$\$ begin if not exists (select 1 from pg_roles where rolname='app_teste') then create role app_teste login noinherit password 'app_teste_pw'; end if; end \$\$;"
           psql -v ON_ERROR_STOP=1 -c "alter role app_teste noinherit; grant anon, authenticated, service_role to app_teste with inherit false, set true, admin false; grant usage on schema public to app_teste; grant select on public.tabulacoes, public.alunos, public.usuarios to app_teste; grant update on public.alunos to app_teste; grant select, insert on public.aluno_movimentacoes to app_teste;"
           set +e
