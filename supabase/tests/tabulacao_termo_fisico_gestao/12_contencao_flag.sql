@@ -1,9 +1,10 @@
 -- AÇÕES do login não privilegiado (app_teste) com a contenção LIGADA. Negativas exatas, sem alteração.
 \set ON_ERROR_STOP on
 -- RPC pela gestão: recusada (42501), sem linha nova.
-select public.teste_assert('contenção: RPC recusada à gestão (42501), sem linha nova',
-  (public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
-    $sql$select public.registrar_administrativo_termo_fisico('c2','TERMO_FISICO_ARQUIVADO')$sql$)->>'code' = '42501')
+-- A RPC exige aluno existente (22023 antes da contenção): usa o aluno real da fixture; a recusa é da CONTENÇÃO.
+select public.teste_assert('contenção: RPC recusada pela mensagem da contenção, sem linha em c2',
+  ((public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
+    $sql$select public.registrar_administrativo_termo_fisico('a0000000-0000-0000-0000-000000000042','TERMO_FISICO_ARQUIVADO')$sql$)->>'err') like 'Registro de termo físico suspenso%')
   and (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'c2'$q$))->'rows')) = 0);
 -- INSERT direto pela gestão: REGISTRO de cada código restrito recusado.
 select public.teste_assert('contenção: INSERT direto REGISTRO (EM_ANDAMENTO) recusado à gestão',

@@ -1330,6 +1330,7 @@ jobs:
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -f "$TDIR/01_ambiente.sql"
           psql -v ON_ERROR_STOP=1 -f "$TDIR/00_barreira_producao.sql"
+          psql -v ON_ERROR_STOP=1 -tA -c "select 'APOS_00 md5_prosrc=' || md5(prosrc) || ' len=' || length(prosrc) from pg_proc where proname='_encerramento_so_gestao' and pronamespace='public'::regnamespace"
           DIR="$TDIR" BARREIRA="$BARREIRA" bash "$SDIR/ordem_invalida.sh"
           psql -v ON_ERROR_STOP=1 -f "$ORDEM1"
           psql -v ON_ERROR_STOP=1 -f "$BARREIRA"
