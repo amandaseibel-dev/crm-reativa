@@ -263,7 +263,7 @@ test.describe("exportacao de Acoes Massivas no navegador (dados ficticios, sem p
     await expect(page.getByRole("button", { name: /Exportar planilha/ })).toBeDisabled();
   });
 
-  test("6. resultado incerto: consultar o historico nao libera pela interface (recarga nao e caminho de liberacao e nao e assertada aqui)", async ({ page }) => {
+  test("6. resultado incerto: consultar o historico nao libera pela interface (a recarga nao e testada aqui)", async ({ page }) => {
     await prepararPagina(page, { exportar: "perdida", historico: "ok" });
     await abrirEPrevisar(page);
     await page.getByRole("button", { name: /Exportar planilha/ }).click();

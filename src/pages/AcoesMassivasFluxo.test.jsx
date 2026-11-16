@@ -263,4 +263,25 @@ describe("Exportação — fluxo da página (xlsx real; gravação interceptada 
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Buscar/ })); });
     await waitFor(() => expect(screen.queryByRole("button", { name: /Baixar planilha novamente/ })).toBeNull());
   });
+
+  it("arquivo de e-mail de lote some em nova busca (mesma regra da planilha de WhatsApp)", async () => {
+    const LOTE = { id: "lote-email-1", total: 2, com_email: 2, sem_email: 0, exportado_em: new Date().toISOString(),
+      exportado_por_email: "gestao@reativa", email_lote_id: null };
+    const base = rpcMock.getMockImplementation();
+    rpcMock.mockImplementation(async (nome, args) => {
+      if (nome === "acoes_massivas_lotes_whatsapp") return { data: [LOTE] };
+      if (nome === "acoes_massivas_exportar_emails_do_lote") {
+        return { data: { contatos: CONTATOS.map((c) => ({ nome: c.nome, email: c.email })), total_lote_whatsapp: 2,
+                         com_email: 2, sem_email: 0, registrados: 2, arquivo: "email-teste.xlsx" } };
+      }
+      return base(nome, args);
+    });
+    await montarEBuscar();
+    await act(async () => { fireEvent.click(await screen.findByRole("button", { name: /Exportar e-mails deste lote/ })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Sim, exportar e registrar" })); });
+    await waitFor(() => expect(screen.getByText(/Planilha de e-mail com/)).toBeTruthy());
+    // nova busca: o arquivo do lote de e-mail anterior nao pode continuar disponivel
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Buscar/ })); });
+    await waitFor(() => expect(screen.queryByText(/Planilha de e-mail com/)).toBeNull());
+  });
 });

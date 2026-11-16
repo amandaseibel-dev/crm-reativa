@@ -581,13 +581,14 @@ export default function AcoesMassivas() {
   // Desde 19/10 esse registro também TABULA o caso, com retorno em 10 dias.
   async function exportarPlanilha() {
     if (!resultados || resultados.length === 0) return;
+    if (bloqueiaNovaExportacao(faseExport)) return;
 
     setGerando(true);
     setErro("");
     setSucesso("");
     setExcluidosNoEnvio(0);
 
-    // O arquivo anterior nao pertence a nova exportacao: descarta antes de registrar.
+    // Fases bloqueantes ja foram recusadas acima; aqui o arquivo anterior nao pertence a nova exportacao.
     setRelatorioPronto((r) => (faseExport === FASE.ARQUIVO_FALHOU ? r : null));
     setRelatorioEmailLote((r) => (faseExport === FASE.ARQUIVO_FALHOU ? r : null));
     let loteRegistrado = false;
@@ -712,6 +713,7 @@ export default function AcoesMassivas() {
   // não depende de "Acionados hoje" e não encosta no lote de WhatsApp — a ação
   // nova nasce como um lote próprio de canal E-mail.
   async function exportarEmailsDoLote(lote) {
+    if (bloqueiaNovaExportacao(faseExport)) return;
     setDerivandoEmail(true);
     setErro("");
     setSucesso("");
