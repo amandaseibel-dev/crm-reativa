@@ -75,4 +75,14 @@ sql "update public.alunos set status_atual = 'TERMO_FISICO_arquivado' where id =
 recusa "aluno(s) com código de termo físico" "aluno com variante"
 sql "update public.alunos set status_atual = 'CONTATAR' where id = '$ALUNO'"
 
-echo "OK recusas do rollback: 6 cenários (incl. variantes de caixa e espaço), cada um recusado com motivo específico, impressão idêntica antes e depois, restaurado"
+# 7. aluno com VARIANTE de caixa em status_jornada
+sql "update public.alunos set status_jornada = 'termo_fisico_em_andamento' where id = '$ALUNO'"
+recusa "aluno(s) com código de termo físico" "aluno jornada com variante"
+sql "update public.alunos set status_jornada = 'CONTATAR' where id = '$ALUNO'"
+
+# 8. aluno com VARIANTE de espaço em status_acionamento
+sql "update public.alunos set status_acionamento = ' TERMO_FISICO_ARQUIVADO ' where id = '$ALUNO'"
+recusa "aluno(s) com código de termo físico" "aluno acionamento com variante"
+sql "update public.alunos set status_acionamento = 'CONTATAR' where id = '$ALUNO'"
+
+echo "OK recusas do rollback: 8 cenários (incl. variantes de caixa e espaço), cada um recusado com motivo específico, impressão idêntica antes e depois, restaurado"

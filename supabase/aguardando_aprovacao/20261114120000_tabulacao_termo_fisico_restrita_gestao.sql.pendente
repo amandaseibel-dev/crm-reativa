@@ -66,7 +66,7 @@ insert into public.termo_fisico_contencao (id, contencao_ativa, alterado_por)
   values (true, false, 'migration_termo_fisico') on conflict (id) do nothing;
 
 -- 2. Proteção no servidor. Só a gestão grava estes dois códigos no histórico.
--- Bypass: service_role (claim role) e o dono (current_user postgres). Gestão é a
+-- Bypass: somente session_user postgres/supabase_admin (identidade de login); nenhum bypass por claim role. Gestão é a
 -- mesma função usuario_e_gestao() usada no resto do sistema.
 create or replace function public.aluno_movimentacao_tabulacao_so_gestao()
 returns trigger

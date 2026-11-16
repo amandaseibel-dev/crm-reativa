@@ -14,7 +14,7 @@
 - **Referência "Resultado":** a autorização anterior (registro `1ac94a6f`) diz "ver seção 'Resultado'", e o título da seção de resultados nela é "Resultados por SHA". A referência deve ser lida como essa seção. A anterior não foi corrigida; esta v2 registra os resultados por head na seção "Resultados por head".
 - **Correções e atualizações registradas nesta v2 (a anterior não é reescrita):**
   - Hash da auditoria: a anterior cita `scripts/seguranca/auditoria_seguranca.sql` com SHA-256 `87ed9b7326c6fdbdffd2956c1d3b3f448910ae2e0010f11954418de9c986dd85` (5682 bytes). O arquivo atual, idêntico ao `origin/main` e não alterado por esta #954, tem `d2a4c33179e9b0a05f63b33469bcbdd3a35c5e108dc587845bce9ac8f7ab0c67` (5629 bytes). A correção é de registro; o pacote não altera o arquivo.
-  - Texto de cobertura do CI: a anterior fala em "recusas" sem detalhar. Esta v2 lista as seis recusas do `recusas_rollback.sh` (aluno, catálogo, contenção ativa, contenção alterada por outro autor, histórico com variante e aluno com variante).
+  - Texto de cobertura do CI: a anterior fala em "recusas" sem detalhar. Esta v2 lista as oito recusas do `recusas_rollback.sh` (aluno, catálogo, contenção ativa, contenção alterada por outro autor, histórico com variante e aluno com variante).
   - Preparações de teste da contenção (`11p_*`, `12p_on`, `12p_off`): usam atualização direta da flag, com o mesmo efeito sobre `contencao_ativa`, e não a migration B1 nem a sua pré-condição/transação.
   - Evidências novas que a anterior não listava: `recusas_rollback.sh`, `fingerprint_dados_termo.sql`, `snapshot_termo_fisico.sql`, `12n_contencao_flag_fixture.sql`.
 
@@ -28,9 +28,9 @@
 
 | Arquivo | SHA-256 | Bytes | Situação |
 |---|---|---|---|
-| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `1c81eb7155009f9a8e68cd22404a526c647c83018d58e87bac5eb3f1fe2c2589` | 10313 | igual ao autorizado |
+| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `b18494a173df48c18f8333f2882286146e10c558d7e00018a32f891b99eb5a00` | 10351 | **alterado em relação ao autorizado** (`1c81eb71…`, 10313): só comentário (R1 do Guardião, referência de bypass corrigida para session_user) |
 | `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql` | `30315b81d0b9346741daf100927e3d4ed49ebceafa053a6169c12f03e62cf0fe` | 6724 | **diferente do autorizado** (`d4f41e31…`, 5000); versão com normalização de variantes (B3) |
-| `supabase/tests/tabulacao_termo_fisico_gestao/recusas_rollback.sh` | `a42f9f9a54339eaa92b3000cf4a6448333bd9ed84ea724010633d4d66b697696` | 3956 | evidência (novo; seis cenários) |
+| `supabase/tests/tabulacao_termo_fisico_gestao/recusas_rollback.sh` | `de4e3e00a9e3fb6016714a1a592685eb2e497e29cb37103dd77516f0ecd48c49` | 4579 | evidência (novo; oito cenários) |
 | `supabase/tests/tabulacao_termo_fisico_gestao/fingerprint_dados_termo.sql` | `be702c3b4e653a52ea4910a6854b15ef4bc3c74c51a0ee9c436ed57ef3759476` | 1690 | evidência (novo; normalizado) |
 | `supabase/tests/tabulacao_termo_fisico_gestao/snapshot_termo_fisico.sql` | `7181ce340942ee18c2035c54af6d2b242139a25a0fe34b30024ea8d1ce6f129b` | 1973 | evidência |
 | `supabase/tests/tabulacao_termo_fisico_gestao/12n_contencao_flag_fixture.sql` | `848891fb90c68888be72e08e15e308cc7683a2c21daf3a6b6d096a6ad363aff8` | 1719 | evidência (novo) |
@@ -69,7 +69,7 @@ Hashes calculados com `shasum -a 256` no head final. Qualquer alteração poster
 
 ## Evidências a apresentar com esta proposta
 
-1. **CI do head final, job `tabulação termo físico`** (rodado no GitHub Actions, PostgreSQL 17 do job, papéis `app_teste` LOGIN e `app_teste_inh` LOGIN com herança, criados pelo job). Inclui: registro autorizado pela gestão (`07_registro_administrativo.sql`); recusa a operador (`02_tabulacao.sql`, `09_login_nao_privilegiado.sql`, `10_login_inherit_defensivo.sql`); barreira de alunos com login não privilegiado (`05_barreira_alunos.sql`); PostgREST 16.5 real com JWT (operador recusado, gestão aceita, claims forjadas recusadas); rollback recusado por histórico (`03`); rollback limpo com igualdade de snapshot antes e depois (`Caminho B`, `04_rollback_limpo.sql`); recusas por aluno, catálogo, contenção ativa, contenção alterada, histórico com variante e aluno com variante (`recusas_rollback.sh`, seis cenários) com impressão idêntica antes e depois; flag NOT NULL e ligar/desligar por fixture idempotente (`12n_contencao_flag_fixture.sql`).
+1. **CI do head final, job `tabulação termo físico`** (rodado no GitHub Actions, PostgreSQL 17 do job, papéis `app_teste` LOGIN e `app_teste_inh` LOGIN com herança, criados pelo job). Inclui: registro autorizado pela gestão (`07_registro_administrativo.sql`); recusa a operador (`02_tabulacao.sql`, `09_login_nao_privilegiado.sql`, `10_login_inherit_defensivo.sql`); barreira de alunos com login não privilegiado (`05_barreira_alunos.sql`); PostgREST 16.5 real com JWT (operador recusado, gestão aceita, claims forjadas recusadas); rollback recusado por histórico (`03`); rollback limpo com igualdade de snapshot antes e depois (`Caminho B`, `04_rollback_limpo.sql`); recusas por aluno, catálogo, contenção ativa, contenção alterada, histórico com variante e aluno com variante (`recusas_rollback.sh`, oito cenários) com impressão idêntica antes e depois; flag NOT NULL e ligar/desligar por fixture idempotente (`12n_contencao_flag_fixture.sql`).
 2. **Ambiente de teste (CI):** `dono_teste` é NOLOGIN com `bypassrls`, criado apenas para simular o dono das funções; nenhum papel de teste existe em produção.
 3. **Produção:** dono das funções `postgres` (rolsuper=false, rolbypassrls=true, medido em leitura); clientes `anon`, `authenticated`, `service_role` do PostgREST. **Privilégios do pacote (corrigido, antes afirmava "nenhuma alteração"):** a migração faz `revoke` e `grant` apenas em objetos criados por ela: tabela `termo_fisico_contencao` (`revoke all`, sem grant a usuários), função da trigger (`revoke`, sem `execute` para ninguém) e RPC `registrar_administrativo_termo_fisico` (`revoke` de `public`, `anon` e `service_role`, `grant execute` apenas a `authenticated`, com gate interno por `app_usuario_ativo()` e `usuario_e_gestao()`). Nenhum grant ou revoke em tabela ou função existente. O rollback não tem GRANT, REVOKE nem POLICY.
 4. **Bancada PGlite (não substitui o CI; não reconferida nesta v2):** executa como `postgres`, que o gatilho ignora. Usada só para validar a lógica das recusas e a sensibilidade da impressão digital (ela muda com cada ajuste e fica igual antes e depois de cada recusa).
@@ -95,3 +95,10 @@ Hashes calculados com `shasum -a 256` no head final. Qualquer alteração poster
 
 - Não há aprovação em nome de nenhuma pessoa. Esta proposta fica pendente até decisão explícita da gestão.
 - Não autoriza aplicar `20261114140000` nem reverter `20261114120000`.
+
+## Resultados por head
+
+- **Head `f725c5cb`** (parecer do Guardião, 16/11): APROVADO COM RESSALVA para o merge; publicação da 20261114120000 **não liberada** (Gate A, Auth, papel `reativa_responsavel_executor` e decisão da gestão sobre `cobranca07`/`cobranca04`). Job `tabulação termo físico` verde no run `43939378742`/`43935743277`; job `testes, build e catracas` verde no mesmo run (`43939378742`, head `f725c5cb`, conclusão success em todos os jobs).
+- **Correções posteriores ao parecer (R1–R4):** comentário do bypass corrigido (R1; altera o SHA-256 do `.pendente`, registrado acima); esta seção (R2); nota de execução via psql (R3, abaixo); cenários de variante em `status_jornada` e `status_acionamento` (R4).
+- **Execução do rollback (R3):** `20261114120000.rollback.sql` só roda via `psql` (`\\set VERBOSITY` é comando de psql). Não roda no SQL Editor do Supabase.
+- **Head final desta rodada:** ver o bloco de CI e Guardião publicado junto com esta versão; nenhuma aprovação registrada.
