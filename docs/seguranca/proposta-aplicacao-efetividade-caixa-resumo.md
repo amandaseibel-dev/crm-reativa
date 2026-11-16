@@ -17,7 +17,7 @@ Entrega final = #966 (SQL) + #965 (tela). A tela só deve ser mesclada depois da
 ## Artefatos (SHA-256 integral)
 
 - Migration `supabase/migrations/20261115130000_efetividade_caixa_resumo_semestre.sql`:
-  `3a41b15b1dcf6f992b960e28f2af2155fc5121509e1ad8051b7870e83d7485a8`
+  `aa3a3b1051259cb59af3e89d99478efd8defb574099166d98aa88fdf379c5372`
 - Rollback `docs/rollbacks/efetividade-caixa-resumo-semestre-rollback.sql`:
   `4bf1b0ffe2dd009809fc929b13ac336cce0d09541f48663f8181c0022fdb88b5`
 
@@ -25,7 +25,7 @@ Entrega final = #966 (SQL) + #965 (tela). A tela só deve ser mesclada depois da
 
 Linha de `docs/seguranca/migracoes-aprovadas.tsv`, 6 colunas separadas por TAB:
 `ahattpqrjmhkzsmnbdzs` · `20261115130000_efetividade_caixa_resumo_semestre` ·
-`3a41b15b1dcf6f992b960e28f2af2155fc5121509e1ad8051b7870e83d7485a8` ·
+`aa3a3b1051259cb59af3e89d99478efd8defb574099166d98aa88fdf379c5372` ·
 `amanda.seibel@aelbra.com.br` · `expira_em` = aprovação + 30 min (UTC) · `pendente`.
 
 ## Executor nominal
@@ -60,7 +60,8 @@ da tela NÃO foi medido.
 |---|---|---|
 | Carteira original | R$ 21.710.447,29 (14.979 títulos; fotografia **desatualizada**) | R$ 17.232.872,41 (10.822 títulos) |
 | Saldo em aberto | R$ 9.055.032,58 (fotografia) | R$ 16.042.642,07 (inclui R$ 7.232.872,33 em conferência) |
-| Negociado | R$ 4.535.961,61 (saldo não pago de acordo; grandeza diferente) | R$ 1.232.903,01 (valor original dos títulos em acordo; grandeza diferente) |
+| Saldo de acordos a receber (2026/1) | R$ 4.535.961,61 | — |
+| Valor original dos títulos em acordo (2026/2) | — | R$ 1.232.903,01 |
 | Caixa confirmado | R$ 535.206,14 (639 pagamentos) | R$ 653.066,80 (594 pagamentos) |
 | Pendente de classificação | R$ 3.314.532,12 (1.340) | R$ 120.444,29 (84) |
 | % recuperado por caixa | 2,5% | 3,8% |
@@ -104,3 +105,25 @@ Nada disso é feito antes da aprovação.
 - Migration e rollback: hashes acima, neste commit. Correção: revoke de service_role condicionado à existência do papel (falha comprovada no log do job SQL).
 - Heads e CI/Guardião: obtidos depois do congelamento; sem parecer, nada é liberado.
 - Bloqueio conhecido: nenhum no código. Sem aplicação, sem registro e sem merge até a autorização.
+
+## Negociado: duas grandezas, não comparáveis
+
+- 2026/1 — **Saldo de acordos a receber**: saldo ainda não pago de acordo (fotografia `seis_linhas`).
+- 2026/2 — **Valor original dos títulos em acordo**: soma do valor original dos títulos ligados a acordo.
+Os valores são exibidos cada um no seu semestre, com o rótulo devolvido pela RPC (`negociado_definicao`).
+
+## Dependência comprovada: usuario_e_gestao()
+
+Versionada como fixture de referência em `supabase/tests/fixtures/usuario_e_gestao_producao_2026-11-15.sql`
+(origem: leitura de produção, 15/11/2026; sha256 `94319be4318c91f0723759f645369356ad104d95abb239216843e87fc66cd523`).
+Não é migration e não substitui a função de produção. A RPC acrescenta a checagem de `usuarios.ativo`;
+o caso "gestão inativa" em `03_casos.sql` prova essa checagem.
+
+## Documentação Prime
+
+Atualizados neste change: `prime-mapa-fontes-verdade.md` (linha de semestre do título), `prime-api.md` (seção
+de origem derivada) e `prime-api-catalog.json` (chave `derivados_crm`). Origem detalhada em `prime-titulo-semestre-origem.md`.
+
+## Exposição preexistente (achado separado, não alterado)
+
+`carteira_2026_2_negociacoes()` e `carteira_2026_2_detalhe()` aceitam `authenticated` em produção (Anexo K da medição).

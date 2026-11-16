@@ -31,12 +31,8 @@ returns table(titulo_id uuid, valor_original numeric, saldo numeric, faixa text,
 language sql stable as $$
   select null::uuid, null::numeric, null::numeric, null::text, null::uuid, null::text where false
 $$;
--- Mesma definição de produção (lista de e-mails de gestão, sem checar ativo).
-create or replace function public.usuario_e_gestao() returns boolean
-language sql stable security definer set search_path to 'public' as $$
-  select lower(coalesce(auth.jwt()->>'email','')) in (
-    'amanda.seibel@aelbra.com.br', 'cobranca04@aelbra.com.br', 'cobranca07@aelbra.com.br');
-$$;
+-- Definição de produção comprovada (fixture de referência, não migration).
+\i supabase/tests/fixtures/usuario_e_gestao_producao_2026-11-15.sql
 -- Fotografia 2026/1 (stub): só o bloco que a RPC lê, situacoes.entrou.
 create or replace function public.carteira_efetividade_ler(p_bloco text, p_ano text, p_semestre text)
 returns jsonb language sql stable as $$

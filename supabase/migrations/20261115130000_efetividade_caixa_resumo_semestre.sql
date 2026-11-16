@@ -6,6 +6,10 @@
 -- momento da aprovação, com a janela de 30 minutos do runbook.
 -- Rollback: docs/rollbacks/efetividade-caixa-resumo-semestre-rollback.sql.
 --
+-- NEGOCIADO NÃO É A MESMA GRANDEZA NOS DOIS SEMESTRES. 2026/1: saldo ainda não pago de acordo
+-- (fotografia). 2026/2: valor original dos títulos em acordo. A RPC devolve `negociado_definicao`
+-- com o nome de cada uma. Não são diretamente comparáveis.
+--
 -- O QUE DEVOLVE. Somente agregados por semestre. Nenhum CPF, aluno, título, acordo
 -- ou pagamento individual sai daqui. A tela só exibe estes campos: não calcula nada.
 --
@@ -169,6 +173,9 @@ begin
       then 'todos os títulos do universo, inclusive cancelados (denominador)'
       else 'fotografia seis_linhas, entrou' end,
     'negociado', v_negociado,
+    'negociado_definicao', case when p_semestre = '2026/2'
+      then 'Valor original dos títulos em acordo'
+      else 'Saldo de acordos a receber' end,
     'carteira_fonte', v_fonte,
     'percentual_recuperado_caixa',
       case when coalesce(v_carteira, 0) > 0

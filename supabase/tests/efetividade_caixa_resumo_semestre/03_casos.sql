@@ -101,6 +101,16 @@ begin
   if r->'saldo_2026_2' <> 'null'::jsonb then raise exception 'FALHA: 2026/1 não deveria trazer saldo 2026/2'; end if;
 end $$;
 
+-- 9b. rótulos de negociado por semestre (grandezas diferentes, não comparáveis).
+do $$
+declare r26 jsonb; r21 jsonb;
+begin
+  r26 := public.efetividade_caixa_resumo_semestre('2026/2');
+  r21 := public.efetividade_caixa_resumo_semestre('2026/1');
+  if r26->>'negociado_definicao' <> 'Valor original dos títulos em acordo' then raise exception 'FALHA rótulo 2026/2'; end if;
+  if r21->>'negociado_definicao' <> 'Saldo de acordos a receber' then raise exception 'FALHA rótulo 2026/1'; end if;
+end $$;
+
 -- 10a. volatilidade declarada (não pode ser STABLE com escrita possível).
 do $$ begin
   if (select provolatile from pg_proc where oid = 'public.efetividade_caixa_resumo_semestre(text)'::regprocedure) <> 'v' then
