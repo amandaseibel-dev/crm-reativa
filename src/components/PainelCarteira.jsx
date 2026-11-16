@@ -2287,72 +2287,40 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     setSalvando(true);
     setFeedback(null);
     try {
-      const agora = new Date().toISOString();
       const statusAntigo = a.status_atual || a.status_jornada || null;
-      const atualizacaoAluno = {
-        status_jornada: statusNovo,
-        status_atual: statusNovo,
-        proxima_acao: desfecho.proxima_acao,
-        data_ultimo_acionamento: agora,
-        ultimo_contato: agora,
-        registrado_por_nome: usuarioLogado?.nome || nomeOperadorPorEmail(email),
-        registrado_por_email: email,
-        registrado_em: agora,
-      };
-      // Reagendar explicito (DIGITADA + checkbox): a RPC e a UNICA escritora de data,
-      // hora, origem e prioridade, e zera "Ja falei". Nao antecipa por UPDATE direto.
+      // Gravacao do atendimento no servidor, em UMA transacao: a RPC valida acesso, define
+      // autoria e horarios, grava atendimento, movimentacao e (se houver) reagendamento.
+      // Tabular e acionamento (FINALIZACAO_ATENDIMENTO); reagendar e um flag da mesma RPC.
       const reagendando = reagendarRetorno && desfecho.motivo === "DIGITADA" && Boolean(desfecho.data_retorno);
-      if (desfecho.data_retorno && !reagendando) {
-        atualizacaoAluno.data_retorno = desfecho.data_retorno;
-        atualizacaoAluno.retorno_origem = desfecho.retorno_origem;
-        atualizacaoAluno.hora_retorno = desfecho.motivo === "DIGITADA" ? (retornoHora || null) : null;
-        // Prioridade pertence ao compromisso do operador: so vale no retorno
-        // que ele mesmo marcou. Prazo automatico da tabulacao nunca nasce
-        // prioritario, senao a fila inteira subiria junto.
-        atualizacaoAluno.retorno_prioritario = desfecho.motivo === "DIGITADA" ? Boolean(retornoPrioritario) : false;
-      } else if (!desfecho.data_retorno) {
-        // Tabulou sem agendar retorno: nao ha compromisso, nao ha prioridade.
-        atualizacaoAluno.retorno_prioritario = false;
-      }
+      const statusPayload = { status_jornada: statusNovo, status_atual: statusNovo, proxima_acao: desfecho.proxima_acao };
       if (observacao !== (a.observacao || "")) {
-        atualizacaoAluno.observacao = observacao;
+        statusPayload.observacao = observacao;
       }
-
-      // Reagendar de verdade: UMA RPC grava reagendamento e status na mesma transacao.
-      // Se qualquer escrita falhar, nada e gravado. Sem reagendamento: UPDATE comum.
-      if (reagendando) {
-        const { error: erroReag } = await supabase.rpc("atendimento_reagendar_com_status", {
-          p_aluno_id: a.id,
-          p_data: desfecho.data_retorno,
-          p_hora: retornoHora || null,
-          p_prioritario: Boolean(retornoPrioritario),
-          p_status: atualizacaoAluno,
-        });
-        if (erroReag) throw erroReag;
-      } else {
-        const { error: erroUp } = await supabase.from("alunos").update(atualizacaoAluno).eq("id", a.id);
-        if (erroUp) throw erroUp;
-      }
-
-      const { error: erroMov } = await supabase.from("aluno_movimentacoes").insert({
-        aluno_id: String(a.id),
-        tipo: "FINALIZACAO_ATENDIMENTO",
-        descricao:
-          (resumoConversa.trim() ? resumoConversa.trim() + " " : "") +
-          `Atendimento finalizado como "${labelStatus(statusNovo)}".` +
-          (desfecho.data_retorno
-            ? ` Retorno: ${formatarData(desfecho.data_retorno)}` +
-              (desfecho.motivo === "DIGITADA" && retornoHora ? " " + retornoHora : "") +
-              (desfecho.motivo === "AUTOMATICA" ? ` (automático: ${descreverPrazo(catalogo, statusNovo)})` : "") +
-              "."
-            : ""),
-        status_anterior: statusAntigo,
-        status_novo: statusNovo,
-        registrado_por_nome: usuarioLogado?.nome || nomeOperadorPorEmail(email),
-        registrado_por_email: email,
-        registrado_em: agora,
+      const descricaoMov =
+        (resumoConversa.trim() ? resumoConversa.trim() + " " : "") +
+        `Atendimento finalizado como "${labelStatus(statusNovo)}".` +
+        (desfecho.data_retorno
+          ? ` Retorno: ${formatarData(desfecho.data_retorno)}` +
+            (desfecho.motivo === "DIGITADA" && retornoHora ? " " + retornoHora : "") +
+            (desfecho.motivo === "AUTOMATICA" ? ` (automático: ${descreverPrazo(catalogo, statusNovo)})` : "") +
+            "."
+          : "");
+      const { error: erroAtend } = await supabase.rpc("atendimento_reagendar_com_status", {
+        p_aluno_id: a.id,
+        p_data: desfecho.data_retorno || null,
+        p_hora: desfecho.motivo === "DIGITADA" ? (retornoHora || null) : null,
+        p_prioritario: desfecho.motivo === "DIGITADA" ? Boolean(retornoPrioritario) : false,
+        p_status: statusPayload,
+        p_reagendar: reagendando,
+        p_movimento: {
+          tipo: "FINALIZACAO_ATENDIMENTO",
+          descricao: descricaoMov,
+          status_anterior: statusAntigo,
+          status_novo: statusNovo,
+        },
+        p_origem: desfecho.retorno_origem || null,
       });
-      if (erroMov) throw erroMov;
+      if (erroAtend) throw erroAtend;
 
       // Tabulou como "aguardando baixa" (pago) direto no modal da carteira,
       // sem passar pelo card dedicado "Confirmar pagamento" -- sem isso o
@@ -2414,7 +2382,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         guiadoFeitosRef.current.add(String(a.id));
         setGuiadoAcionados(guiadoFeitosRef.current.size);
         // Tira o tabulado da lista local na hora (sem esperar recarga).
-        setCasos((atual) => atual.map((x) => (String(x.id) === String(a.id) ? { ...x, ...atualizacaoAluno } : x)));
+        setCasos((atual) => atual.map((x) => (String(x.id) === String(a.id) ? { ...x, ...statusPayload, ...(desfecho.data_retorno ? { data_retorno: desfecho.data_retorno } : {}) } : x)));
         await avancarGuiadoRapido(a.id);
       } else {
         await atualizarTudo(a.id);

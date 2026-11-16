@@ -128,7 +128,7 @@ create or replace function public.agenda_reagendar_retorno(
  returns timestamptz
  language plpgsql
  security definer
- set search_path to 'public', 'auth'
+ set search_path to 'public'
 as $function$
 declare
   v_email text := lower(coalesce(auth.email(), ''));
@@ -175,7 +175,7 @@ create or replace function public.agenda_confirmar_retorno(
  returns timestamptz
  language plpgsql
  security definer
- set search_path to 'public', 'auth'
+ set search_path to 'public'
 as $function$
 declare
   v_email text := lower(coalesce(auth.email(), ''));
@@ -208,44 +208,111 @@ $function$;
 revoke all on function public.agenda_confirmar_retorno(uuid, boolean) from public, anon;
 grant execute on function public.agenda_confirmar_retorno(uuid, boolean) to authenticated, service_role;
 
--- C2. REAGENDAMENTO + STATUS DO ATENDIMENTO EM UMA TRANSACAO -------------------
--- Antes, a tela chamava a RPC e depois fazia UPDATE de status: duas transacoes. Esta
--- funcao roda as duas na mesma transacao: se a escrita de status falhar, o
--- reagendamento tambem e desfeito. Autorizacao: a da RPC interna (sessao, usuario
--- ativo, dono ou gestao). Campos de status: lista fixa abaixo.
+-- C2. ATENDIMENTO GRAVADO NO SERVIDOR, EM UMA TRANSACAO ------------------------
+-- Uma RPC para o atendimento do PainelCarteira, com ou sem reagendamento. O servidor:
+--   * valida acesso (sessao, usuario ativo, dono atual ou usuario_e_gestao(), a mesma
+--     regra que alunos_update ja aplica);
+--   * define autoria (registrado_por_* = sessao e usuarios.nome) e horarios (now());
+--   * grava atendimento (alunos), movimentacao e eventual reagendamento na mesma transacao.
+-- Regras preservadas:
+--   * reagendar (p_reagendar = true) chama agenda_reagendar_retorno: data futura escolhida,
+--     origem OPERADOR, zera "Ja falei". Reagendar sozinho NAO atualiza data_ultimo_acionamento;
+--   * data automatica (p_reagendar = false) grava data/origem sem tocar em "Ja falei";
+--   * data_ultimo_acionamento e fidelizacao so mudam pelo gatilho EXISTENTE
+--     fn_atualizar_ultimo_acionamento, quando a movimentacao e de tipo de acionamento
+--     (eh_tipo_acionamento). Esta RPC nao grava esse campo diretamente.
+-- Tipos de movimentacao aceitos: FINALIZACAO_ATENDIMENTO (acionamento) e
+-- REAGENDAMENTO_RETORNO (nao acionamento). Qualquer outro tipo e recusado.
+drop function if exists public.atendimento_reagendar_com_status(uuid, date, text, boolean, jsonb);
+
 create or replace function public.atendimento_reagendar_com_status(
   p_aluno_id uuid,
-  p_data date,
+  p_data date default null,
   p_hora text default null,
   p_prioritario boolean default false,
-  p_status jsonb default '{}'::jsonb
+  p_status jsonb default '{}'::jsonb,
+  p_reagendar boolean default false,
+  p_movimento jsonb default null,
+  p_origem text default null
 )
- returns timestamptz
+ returns jsonb
  language plpgsql
  security definer
- set search_path to 'public', 'auth'
+ set search_path to 'public'
 as $function$
 declare
-  v_ret timestamptz;
+  v_email text := lower(coalesce(auth.email(), ''));
+  v_nome text;
+  v_dono text;
+  v_tipo text;
 begin
-  v_ret := public.agenda_reagendar_retorno(p_aluno_id, p_data, p_hora, p_prioritario);
+  if v_email = '' then
+    raise exception 'Sem sessao autenticada com e-mail' using errcode = '42501';
+  end if;
+  if not exists (select 1 from public.usuarios u where lower(u.email) = v_email and u.ativo is true) then
+    raise exception 'Sem permissao: usuario inativo ou sem cadastro' using errcode = '42501';
+  end if;
+  select lower(responsavel_atual_email) into v_dono from public.alunos where id = p_aluno_id for update;
+  if not found then
+    raise exception 'Aluno nao encontrado';
+  end if;
+  if not (v_email = coalesce(v_dono, '') or public.usuario_e_gestao()) then
+    raise exception 'Sem permissao para atender este aluno' using errcode = '42501';
+  end if;
+
+  v_tipo := p_movimento->>'tipo';
+  if p_movimento is not null and v_tipo not in ('FINALIZACAO_ATENDIMENTO', 'REAGENDAMENTO_RETORNO') then
+    raise exception 'Tipo de movimentacao nao permitido nesta acao' using errcode = '22023';
+  end if;
+
+  -- Retorno: reagendamento explicito (zera Ja falei) ou data automatica (preserva).
+  if p_reagendar then
+    if p_data is null then
+      raise exception 'Informe a data do retorno para reagendar' using errcode = '22023';
+    end if;
+    perform public.agenda_reagendar_retorno(p_aluno_id, p_data, p_hora, p_prioritario);
+  elsif p_data is not null then
+    update public.alunos
+       set data_retorno = p_data,
+           hora_retorno = nullif(p_hora, ''),
+           retorno_origem = coalesce(nullif(p_origem, ''), 'AUTOMATICO'),
+           retorno_prioritario = coalesce(p_prioritario, false)
+     where id = p_aluno_id;
+  else
+    -- tabulou sem agendar retorno: nao ha compromisso, nao ha prioridade
+    update public.alunos set retorno_prioritario = false where id = p_aluno_id;
+  end if;
+
+  -- Atendimento: status, observacao e autoria do servidor.
+  v_nome := (select u.nome from public.usuarios u where lower(u.email) = v_email limit 1);
   update public.alunos
      set status_jornada = coalesce(p_status->>'status_jornada', status_jornada),
          status_atual = coalesce(p_status->>'status_atual', status_atual),
          proxima_acao = coalesce(p_status->>'proxima_acao', proxima_acao),
-         data_ultimo_acionamento = now(),
-         ultimo_contato = now(),
-         registrado_por_nome = (select u.nome from public.usuarios u where lower(u.email) = lower(coalesce(auth.email(), '')) limit 1),
-         registrado_por_email = lower(coalesce(auth.email(), '')),
-         registrado_em = now(),
-         observacao = coalesce(p_status->>'observacao', observacao)
+         observacao = coalesce(p_status->>'observacao', observacao),
+         ultimo_contato = case when v_tipo = 'FINALIZACAO_ATENDIMENTO' then now() else ultimo_contato end,
+         registrado_por_nome = v_nome,
+         registrado_por_email = v_email,
+         registrado_em = now()
    where id = p_aluno_id;
-  return v_ret;
+
+  -- Movimentacao: na mesma transacao. Se for de acionamento, o gatilho EXISTENTE atualiza
+  -- data_ultimo_acionamento e a fidelizacao; reagendar sozinho nao passa por aqui.
+  if p_movimento is not null then
+    insert into public.aluno_movimentacoes
+      (aluno_id, tipo, descricao, status_anterior, status_novo, data_retorno,
+       registrado_por_nome, registrado_por_email, registrado_em)
+    values
+      (p_aluno_id::text, v_tipo, p_movimento->>'descricao', p_movimento->>'status_anterior',
+       p_movimento->>'status_novo', p_data, v_nome, v_email, now());
+  end if;
+
+  return jsonb_build_object('ok', true, 'aluno_id', p_aluno_id, 'reagendou', p_reagendar);
 end
 $function$;
 
-revoke all on function public.atendimento_reagendar_com_status(uuid, date, text, boolean, jsonb) from public, anon;
-grant execute on function public.atendimento_reagendar_com_status(uuid, date, text, boolean, jsonb) to authenticated;
+revoke all on function public.atendimento_reagendar_com_status(uuid, date, text, boolean, jsonb, boolean, jsonb, text) from public, anon;
+grant execute on function public.atendimento_reagendar_com_status(uuid, date, text, boolean, jsonb, boolean, jsonb, text) to authenticated;
 
 -- D. LEITURA TRAVADA NO RECALCULO (correcao do D5) -----------------------------
 -- A leitura inicial do recalculo passa a travar a linha do aluno (for update).

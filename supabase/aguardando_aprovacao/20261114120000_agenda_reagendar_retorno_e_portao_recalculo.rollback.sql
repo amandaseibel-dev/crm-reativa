@@ -1,3 +1,5 @@
+-- ATENCAO: este rollback RESTAURA O FAIL-OPEN ANTERIOR de agenda_confirmar_retorno (sessao sem
+-- e-mail autoriza aluno sem responsavel). Nao usar sem decisao especifica registrada da gestao.
 -- ROLLBACK de 20261114120000_agenda_reagendar_retorno_e_portao_recalculo
 -- REVERSAO COORDENADA (ordem obrigatoria; banco por ultimo):
 --   1. publicar o FRONTEND sem chamadas a agenda_reagendar_retorno: PainelCarteira.jsx
@@ -14,7 +16,7 @@
 -- proposta fica em docs/seguranca/propostas-nao-executaveis/ e nao e aplicada por este rollback.
 begin;
 
-drop function if exists public.atendimento_reagendar_com_status(uuid, date, text, boolean, jsonb);
+drop function if exists public.atendimento_reagendar_com_status(uuid, date, text, boolean, jsonb, boolean, jsonb, text);
 drop function if exists public.agenda_reagendar_retorno(uuid, date, text, boolean);
 
 -- Remove a trava B2 ("Ja falei" so zera pela RPC), que nao existia na origem.

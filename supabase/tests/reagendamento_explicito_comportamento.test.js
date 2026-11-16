@@ -104,7 +104,7 @@ const ESQUEMA = `
     status_termo text default 'Sem termo', termo_status_validacao text, criticidade text,
     situacao_operacional text, proxima_acao_automatica text, proximo_vencimento date,
     parcela_a_vencer numeric, parcelas_vencidas int, saldo_vencido numeric, saldo_total numeric,
-    data_retorno date, quitado_em timestamptz, caso_atualizado_em timestamptz
+    data_retorno date, quitado_em timestamptz, caso_atualizado_em timestamptz, data_ultimo_acionamento date
   );
   create table public.acordos (id uuid primary key, aluno_id uuid, status text, criado_em timestamptz default now());
   create table public.pagamentos (aluno_id uuid, data_pagamento date);
@@ -126,7 +126,7 @@ const ESQUEMA = `
     gerado_em timestamptz default now(), unique (aluno_id, proximo_vencimento)
   );
   create table public.auditoria (id uuid primary key default gen_random_uuid(), usuario text, acao text, tabela_afetada text, registro_id uuid, detalhes jsonb, created_at timestamp default now());
-  create table public.aluno_movimentacoes (tipo text, descricao text);
+  create table public.aluno_movimentacoes (aluno_id text, tipo text, descricao text, status_anterior text, status_novo text, data_retorno date, registrado_por_nome text, registrado_por_email text, registrado_em timestamptz default now());
   create function public.titulo_superado_por_acordo(uuid, date) returns boolean language sql as $$ select false $$;
   create function public.calibragem_nivel_criticidade(int, int, numeric, boolean, boolean, jsonb)
     returns text language sql as $$ select 'ATENCAO'::text $$;
@@ -734,7 +734,7 @@ describe("trava por papel: confirmar, desfazer, reagendar, recusas e contorno", 
     await jaFalei(db, OPERADOR, ALUNA);
     await comPapel(db, "authenticated", OPERADOR, () =>
       db.query(
-        "select public.atendimento_reagendar_com_status($1, current_date + 4, '18:00', false, $2::jsonb)",
+        "select public.atendimento_reagendar_com_status($1, current_date + 4, '18:00', false, $2::jsonb, true)",
         [ALUNA, JSON.stringify({ status_jornada: "RETORNO_OK", status_atual: "RETORNO_OK" })]));
     const depois = await db.query("select status_atual, retorno_confirmado_em from public.alunos where id = $1", [ALUNA]);
     expect(depois.rows[0].status_atual).toBe("RETORNO_OK");
@@ -750,7 +750,7 @@ describe("trava por papel: confirmar, desfazer, reagendar, recusas e contorno", 
     await expect(
       comPapel(db, "authenticated", OPERADOR, () =>
         db.query(
-          "select public.atendimento_reagendar_com_status($1, current_date + 4, '18:00', false, $2::jsonb)",
+          "select public.atendimento_reagendar_com_status($1, current_date + 4, '18:00', false, $2::jsonb, true)",
           [ALUNA, JSON.stringify({ status_atual: "BLOQ" })]))
     ).rejects.toThrow();
     expect(await linha(db, ALUNA)).toEqual(antes);
@@ -782,7 +782,7 @@ describe("trava por papel: confirmar, desfazer, reagendar, recusas e contorno", 
     const trava = await db.query("select count(*)::int as n from pg_trigger where tgname = 'trg_alunos_confirmacao_so_reagendamento'");
     expect(trava.rows[0].n).toBe(0);
     const f = await db.query(`select to_regprocedure('public.tg_alunos_confirmacao_so_reagendamento()') as t,
-        to_regprocedure('public.atendimento_reagendar_com_status(uuid,date,text,boolean,jsonb)') as a,
+        to_regprocedure('public.atendimento_reagendar_com_status(uuid,date,text,boolean,jsonb,boolean,jsonb,text)') as a,
         to_regprocedure('public.agenda_reagendar_retorno(uuid,date,text,boolean)') as r`);
     expect(f.rows[0]).toEqual({ t: null, a: null, r: null });
     // ACL comprovada de agenda_confirmar_retorno apos o rollback: sem anon nem public.
@@ -903,6 +903,87 @@ describe("atendimento: nome nulo nao herda; datas de autoria sao do servidor", (
     const r = await db.query("select registrado_por_nome, registrado_em, ultimo_contato from public.alunos where id = $1", [ALUNA]);
     expect(r.rows[0].registrado_por_nome).toBeNull();
     expect(new Date(r.rows[0].registrado_em).getUTCFullYear()).toBeGreaterThan(2020);
-    expect(new Date(r.rows[0].ultimo_contato).getUTCFullYear()).toBeGreaterThan(2020);
+    // ultimo_contato so e carimbado com tabulacao; aqui basta provar que o valor da tela (2000) nao e gravado.
+    expect(r.rows[0].ultimo_contato === null || new Date(r.rows[0].ultimo_contato).getUTCFullYear() !== 2000).toBe(true);
+  });
+});
+
+// ATENDIMENTO GRAVADO NO SERVIDOR (uma RPC). Gatilho de acionamento e o EXISTENTE
+// (migration 20261003083400), carregado do repositorio, nao reimplementado.
+const MIG_ACIONAMENTO = lerRaiz("supabase/migrations/20261003083400_acao_massiva_sem_retorno_automatico.sql");
+const FN_ACIONAMENTO = (() => {
+  const i = MIG_ACIONAMENTO.indexOf("create or replace function public.fn_atualizar_ultimo_acionamento()");
+  const f = MIG_ACIONAMENTO.indexOf("$function$;", i) + "$function$;".length;
+  return MIG_ACIONAMENTO.slice(i, f);
+})();
+const ESQ_ACIONAMENTO = `
+  create function public.eh_tipo_acionamento(p text) returns boolean language sql immutable
+    as $$ select coalesce(p,'') in ('FINALIZACAO_ATENDIMENTO','FINALIZACAO','ACAO_MASSIVA_EXTERNA','ACAO_MASSIVA_EXTERNA_EMAIL','CONTATO') $$;
+`;
+async function comGatilhoAcionamento(db) {
+  await db.exec(ESQ_ACIONAMENTO);
+  await db.exec(FN_ACIONAMENTO);
+  await db.exec("create trigger trg_ult_acion after insert on public.aluno_movimentacoes for each row execute function public.fn_atualizar_ultimo_acionamento();");
+}
+const RPC_ATEND = (data, reagendar, mov, origem = null) =>
+  `select public.atendimento_reagendar_com_status($1, ${data}, '18:00', false, $2::jsonb, ${reagendar}, ${mov}, ${origem ? `'${origem}'` : "null"})`;
+
+describe("atendimento gravado no servidor: autoria, acionamento e reagendamento", () => {
+  it("tabulacao (acionamento): movimentacao com autoria da sessao e o gatilho existente atualiza data_ultimo_acionamento", async () => {
+    const db = await montar({ comPacote: true });
+    await comGatilhoAcionamento(db);
+    await comPapel(db, "authenticated", OPERADOR, () =>
+      db.query(RPC_ATEND("null", "false", "$3::jsonb"), [ALUNA, JSON.stringify({ status_atual: "OK" }),
+        JSON.stringify({ tipo: "FINALIZACAO_ATENDIMENTO", descricao: "x", status_anterior: "A", status_novo: "OK" })]));
+    const mov = await db.query("select registrado_por_email, tipo from public.aluno_movimentacoes where aluno_id = $1", [ALUNA]);
+    expect(mov.rows.length).toBe(1);
+    expect(mov.rows[0].registrado_por_email).toBe(OPERADOR);
+    expect(mov.rows[0].tipo).toBe("FINALIZACAO_ATENDIMENTO");
+    const a = await db.query("select data_ultimo_acionamento from public.alunos where id = $1", [ALUNA]);
+    expect(new Date(a.rows[0].data_ultimo_acionamento).getUTCFullYear()).toBeGreaterThan(2020);
+  });
+
+  it("reagendar sozinho (movimentacao nao-acionamento) NAO atualiza data_ultimo_acionamento e zera Ja falei", async () => {
+    const db = await montar({ comPacote: true });
+    await comGatilhoAcionamento(db);
+    await jaFalei(db, OPERADOR, ALUNA);
+    const antes = (await db.query("select data_ultimo_acionamento from public.alunos where id = $1", [ALUNA])).rows[0].data_ultimo_acionamento;
+    await comPapel(db, "authenticated", OPERADOR, () =>
+      db.query(RPC_ATEND("current_date + 7", "true", "$3::jsonb"), [ALUNA, "{}",
+        JSON.stringify({ tipo: "REAGENDAMENTO_RETORNO", descricao: "r", status_anterior: "A", status_novo: "A" })]));
+    const depois = await db.query("select data_ultimo_acionamento, data_retorno, retorno_confirmado_em from public.alunos where id = $1", [ALUNA]);
+    expect(depois.rows[0].data_ultimo_acionamento).toEqual(antes);
+    expect(depois.rows[0].retorno_confirmado_em).toBeNull();
+    expect(depois.rows[0].data_retorno).not.toBeNull();
+  });
+
+  it("tabulacao com reagendamento preserva a data futura escolhida, mesmo com o gatilho existente", async () => {
+    const db = await montar({ comPacote: true });
+    await comGatilhoAcionamento(db);
+    const { d } = (await db.query("select (current_date + 7)::text as d")).rows[0];
+    await comPapel(db, "authenticated", OPERADOR, () =>
+      db.query(RPC_ATEND("current_date + 7", "true", "$3::jsonb"), [ALUNA, "{}",
+        JSON.stringify({ tipo: "FINALIZACAO_ATENDIMENTO", descricao: "x", status_anterior: "A", status_novo: "OK" })]));
+    const r = await db.query("select data_retorno::text as dr from public.alunos where id = $1", [ALUNA]);
+    expect(r.rows[0].dr).toBe(d);
+  });
+
+  it("data automatica (sem reagendar) grava data e origem e preserva Ja falei", async () => {
+    const db = await montar({ comPacote: true });
+    await jaFalei(db, OPERADOR, ALUNA);
+    await comPapel(db, "authenticated", OPERADOR, () =>
+      db.query(RPC_ATEND("current_date + 3", "false", "null", "AUTOMATICO"), [ALUNA, "{}"]));
+    const r = await db.query("select data_retorno::text as dr, retorno_origem, retorno_confirmado_em from public.alunos where id = $1", [ALUNA]);
+    expect(r.rows[0].retorno_origem).toBe("AUTOMATICO");
+    expect(r.rows[0].retorno_confirmado_em).not.toBeNull();
+  });
+
+  it("tipo de movimentacao fora da lista e recusado", async () => {
+    const db = await montar({ comPacote: true });
+    await expect(
+      comPapel(db, "authenticated", OPERADOR, () =>
+        db.query(RPC_ATEND("null", "false", "$3::jsonb"), [ALUNA, "{}",
+          JSON.stringify({ tipo: "QUITADO_MANUAL", descricao: "x" })]))
+    ).rejects.toThrow(/nao permitido/);
   });
 });
