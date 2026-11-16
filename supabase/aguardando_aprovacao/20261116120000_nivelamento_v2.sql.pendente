@@ -336,11 +336,12 @@ $$;
 -- ============================================================================
 -- 4. ASSUMIR ATENDIMENTO COM TROCA (integra assumir_caso_livre)
 -- ============================================================================
--- Mesmo corpo de producao, com 3 mudancas:
---   a) ocupacao = nivelamento_ocupacao (acordo e negociacao contam)
---   b) saldo = nivelamento_saldo_caso_centavos (ficha e cobranca)
---   c) no teto: troca exata via nivelamento_escolher_troca; sem par, sucesso = false
---      e nada e alterado (troca nao parcial).
+-- REESCRITA COMPLETA, NAO SO TRES MUDANCAS. Referencia de producao (12/11, md5 607a8b4f...):
+--   supabase/tests/fixtures/assumir_caso_livre_prod_20261112.body.sql
+-- Delta completo contra a producao: docs/seguranca/delta-assumir-caso-livre-v2-vs-prod-20261112.diff
+--   (36 linhas removidas, 23 adicionadas). Mudancas de regra, alem das previstas:
+--   ocupacao (nivelamento_ocupacao), saldo em centavos, troca exata no teto, e a regra de
+--   pool/giro e de carteira fechada conforme o corpo desta migration (ver o diff).
 
 create or replace function public.assumir_caso_livre(p_caso_id uuid)
 returns table(sucesso boolean, mensagem text, caso_liberado uuid)
@@ -435,15 +436,17 @@ select cron.schedule('nivelamento_v2_reposicao', '7 * * * *',
 -- Novas funcoes: nada para PUBLIC nem anon. authenticated so pela RPC
 -- assumir_caso_livre (que tem gate proprio); as demais, so gestao/admin.
 
-revoke all on function public.nivelamento_ocupacao(text)              from public, anon;
-revoke all on function public.nivelamento_acionaveis(text)            from public, anon;
-revoke all on function public.nivelamento_saldo_caso_centavos(uuid)   from public, anon;
-revoke all on function public.nivelamento_caso_movivel(uuid)          from public, anon;
+-- B1 (14/11): helpers internos NAO sao chamados por anon/authenticated/service_role.
+-- Chamadores legitimos sao so funcoes SECURITY DEFINER (dono = postgres executa).
+revoke all on function public.nivelamento_ocupacao(text)              from public, anon, authenticated, service_role;
+revoke all on function public.nivelamento_acionaveis(text)            from public, anon, authenticated, service_role;
+revoke all on function public.nivelamento_saldo_caso_centavos(uuid)   from public, anon, authenticated, service_role;
+revoke all on function public.nivelamento_caso_movivel(uuid)          from public, anon, authenticated, service_role;
 -- escolher_troca: so chamada pela assumir_caso_livre (definer): authenticated fora.
-revoke all on function public.nivelamento_escolher_troca(uuid,text,uuid) from public, anon, authenticated;
+revoke all on function public.nivelamento_escolher_troca(uuid,text,uuid) from public, anon, authenticated, service_role;
 -- reposicao: authenticated PODE executar (gestao chama); o gate recusa operador comum.
 revoke all on function public.nivelamento_reposicao_por_baixas(int)   from public, anon;
-grant execute on function public.nivelamento_reposicao_por_baixas(int) to authenticated, service_role;
+grant execute on function public.nivelamento_reposicao_por_baixas(int) to authenticated;  -- gestao (gate por JWT); cron usa o dono postgres
 
 -- assumir_caso_livre: CREATE OR REPLACE recoloca o grant padrao. Restaura o
 -- mesmo conjunto de antes (sem PUBLIC, sem anon).

@@ -53,3 +53,28 @@ begin
 end $$;
 reset session authorization;
 
+
+-- B1: helpers internos NAO executam por authenticated (nem por service_role).
+-- Chamada direta de operador/app tem de ser recusada por PERMISSAO (42501), nao por gate.
+set session authorization authenticated;
+do $$
+begin
+  begin
+    perform public.nivelamento_saldo_caso_centavos('10000000-0000-0000-0000-000000000001'::uuid);
+    raise exception 'FALHOU: authenticated executou o helper de saldo';
+  exception when sqlstate '42501' then
+    raise notice 'OK: helper de saldo negado para authenticated (permissao)';
+  end;
+end $$;
+reset session authorization;
+set session authorization service_role;
+do $$
+begin
+  begin
+    perform public.nivelamento_escolher_troca('10000000-0000-0000-0000-000000000001'::uuid, 'opa@t.local', gen_random_uuid());
+    raise exception 'FALHOU: service_role executou escolher_troca';
+  exception when sqlstate '42501' then
+    raise notice 'OK: escolher_troca negada para service_role (permissao)';
+  end;
+end $$;
+reset session authorization;

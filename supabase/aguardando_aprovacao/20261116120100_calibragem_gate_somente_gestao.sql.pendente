@@ -29,6 +29,10 @@ declare
   v_new2 constant text := '';
   r record; v_def text; v_novo text; v_n1 int; v_n2 int;
 begin
+  -- B2 (14/11): fotografia dos grants ANTES; conferida DEPOIS. Mudou ACL: aborta.
+  create temp table _acl_antes on commit drop as
+    select p.oid, p.proname, p.proacl::text acl from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and (p.proname like 'calibragem\_%' or p.proname like 'onda1\_%');
   for r in
     select p.oid, p.proname
       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -47,4 +51,13 @@ begin
     execute v_novo;
     raise notice 'gate ajustado: % (forma1=% forma2=%)', r.proname, v_n1, v_n2;
   end loop;
+  -- B2/R4: pos-condicao. ACL inalterada e nenhuma forma antiga restante na familia.
+  if exists (select 1 from _acl_antes a join pg_proc p on p.oid = a.oid where p.proacl::text is distinct from a.acl) then
+    raise exception 'gate: ACL de funcao da familia mudou. Aborta.';
+  end if;
+  if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public' and (p.proname like 'calibragem\_%' or p.proname like 'onda1\_%')
+                and (position(v_old1 in pg_get_functiondef(p.oid)) > 0 or position(v_old2 in pg_get_functiondef(p.oid)) > 0)) then
+    raise exception 'gate: ainda ha forma antiga de auth.jwt() is null na familia. Aborta.';
+  end if;
 end $$;
