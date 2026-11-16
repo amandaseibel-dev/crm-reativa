@@ -25,9 +25,10 @@ import { confirmarPrevia, criarPrevia, type PreviaRegistro, type RepositorioPrev
 import { podeConferir } from "./conferencia.ts";
 import { mapearPagina, permitirLeitura, type ContextoLeitura } from "./leitura.ts";
 
-// A3: leitura GLOBAL do histórico só para quem a regra vigente autoriza (memória: Amanda gestora + Fernanda).
+// A3: leitura GLOBAL do histórico. Proposta (não aprovada): amanda.seibel e cobranca04. Enquanto não confirmada, fechada.
 // Amanda ADM e os demais perfis (inclusive administrativo e supervisor) leem apenas a própria carteira/responsabilidade.
-const LEITURA_GLOBAL_HISTORICO = ["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br"];
+// Vazia até confirmação específica da gestão (revisão do Guardião): nenhuma leitura global. Quem não está aqui lê só a própria carteira/responsabilidade.
+const LEITURA_GLOBAL_HISTORICO: string[] = [];
 
 const MCP_URL = "https://crm.ulbra.ai/api/mcp";
 const ACCEPT_MCP = "application/json, text/event-stream";

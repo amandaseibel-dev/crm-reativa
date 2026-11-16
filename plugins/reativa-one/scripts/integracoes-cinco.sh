@@ -20,9 +20,11 @@ if ! git rev-parse --verify --quiet "$base" >/dev/null; then
   exit 2
 fi
 
-mudou="$(git diff --no-renames --name-only "$base"...HEAD -- docs/integracoes/ 2>/dev/null)"
+# Escopo: só a família Prime (prime-*). Docs de Mensageria, pacotes e rollbacks não são descoberta Prime.
+# Antes, qualquer arquivo sob docs/integracoes/ acionava a checagem: erro de seleção, não dependência real.
+mudou="$(git diff --no-renames --name-only "$base"...HEAD -- docs/integracoes/ 2>/dev/null | grep -E '^docs/integracoes/prime-[^/]*$' || true)"
 if [ -z "$mudou" ]; then
-  echo "docs/integracoes/: nada alterado neste ramo — nada a conferir."
+  echo "Nenhum arquivo prime-* de docs/integracoes/ alterado neste ramo — nada a conferir."
   exit 0
 fi
 

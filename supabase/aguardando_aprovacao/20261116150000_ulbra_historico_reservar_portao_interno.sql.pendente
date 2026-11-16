@@ -1,0 +1,71 @@
+-- =============================================================================
+-- MIGRATION CORRETIVA — NÃO APLICADA. Aguarda autorização explícita da gestão.
+-- Corrige o portão interno de public.ulbra_historico_reservar. A versão aplicada
+-- em produção (ledger 20261112111006, 20261110100000_ulbra_historico_orcamento)
+-- NÃO tem o portão. Esta migration NÃO edita a histórica: recria a função com o
+-- portão e reafirma os grants mínimos (CREATE OR REPLACE pode restaurar grants
+-- padrão — CLAUDE.md/memória: reconferir sempre).
+--
+-- Pré-condição (aborta se não for a versão aplicada): a função existe e NÃO tem o portão.
+-- =============================================================================
+do $$
+begin
+  if to_regprocedure('public.ulbra_historico_reservar(text,date,integer,integer,integer)') is null then
+    raise exception 'PRE: ulbra_historico_reservar ausente';
+  end if;
+  if position('acesso negado à reserva do histórico' in pg_get_functiondef('public.ulbra_historico_reservar(text,date,integer,integer,integer)'::regprocedure)) > 0 then
+    raise exception 'PRE: portão já presente — não reaplicar';
+  end if;
+end $$;
+
+create or replace function public.ulbra_historico_reservar(
+  p_operador text,
+  p_dia date,
+  p_quantidade integer,
+  p_teto_operador integer,
+  p_teto_global integer
+)
+returns table (permitido boolean, usadas_operador integer, usadas_global integer)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  uo integer;
+  ug integer;
+begin
+  -- A8: portão interno. Mesmo com EXECUTE restrito, a função recusa qualquer papel que não seja service_role.
+  if coalesce(auth.role(), '') is distinct from 'service_role' then
+    raise exception 'acesso negado à reserva do histórico' using errcode = '42501';
+  end if;
+  if p_quantidade is null or p_quantidade < 1 then
+    raise exception 'quantidade inválida';
+  end if;
+  perform pg_advisory_xact_lock(hashtext('ulbra_historico_' || p_dia::text));
+  insert into public.ulbra_historico_uso (escopo, dia)
+       values (p_operador, p_dia), ('*', p_dia)
+  on conflict do nothing;
+  select usadas into uo from public.ulbra_historico_uso where escopo = p_operador and dia = p_dia;
+  select usadas into ug from public.ulbra_historico_uso where escopo = '*' and dia = p_dia;
+  if uo + p_quantidade > p_teto_operador or ug + p_quantidade > p_teto_global then
+    return query select false, uo, ug;
+    return;
+  end if;
+  update public.ulbra_historico_uso
+     set usadas = usadas + p_quantidade
+   where dia = p_dia and escopo in (p_operador, '*');
+  return query select true, uo + p_quantidade, ug + p_quantidade;
+end;
+$$;
+
+revoke all on function public.ulbra_historico_reservar(text, date, integer, integer, integer) from public, anon, authenticated;
+grant execute on function public.ulbra_historico_reservar(text, date, integer, integer, integer) to service_role;
+
+-- Conferência de grants (aborta se divergir)
+do $$
+begin
+  if has_function_privilege('anon', 'public.ulbra_historico_reservar(text,date,integer,integer,integer)', 'EXECUTE')
+     or has_function_privilege('authenticated', 'public.ulbra_historico_reservar(text,date,integer,integer,integer)', 'EXECUTE') then
+    raise exception 'POS: EXECUTE indevido';
+  end if;
+end $$;
