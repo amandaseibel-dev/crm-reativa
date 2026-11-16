@@ -1068,6 +1068,19 @@ describe("Ações Massivas — e-mail a partir de um lote de WhatsApp", () => {
     expect(confirmar.disabled).toBe(true);
   });
 
+  it("nova busca depois de exportar e-mails do lote nao mantem o botao de baixar esse arquivo", async () => {
+    lotesWhats = [LOTE_WHATS];
+    emailDoLote = {};
+    await montar();
+    await abrirConfirmacao();
+    await act(async () => {
+      fireEvent.click(within(painel()).getByRole("button", { name: /Sim, exportar e registrar/ }));
+    });
+    expect(screen.getByRole("button", { name: /Baixar planilha novamente/ })).toBeTruthy();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Buscar/ })); });
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Baixar planilha novamente/ })).toBeNull());
+  });
+
   it("a planilha leva nome e e-mail dos alunos do lote", async () => {
     lotesWhats = [LOTE_WHATS];
     emailDoLote = {

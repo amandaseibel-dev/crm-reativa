@@ -389,7 +389,10 @@ export default function AcoesMassivas() {
     setResumoPrevia(null);
     setPreviaId(null);
     // Lote registrado com arquivo que nao foi baixado: o arquivo e a unica forma de recupera-lo. Nao descartar.
-    if (faseExport !== FASE.ARQUIVO_FALHOU) setRelatorioPronto(null);
+    if (faseExport !== FASE.ARQUIVO_FALHOU) {
+      setRelatorioPronto(null);
+      setRelatorioEmailLote(null);
+    }
     setExcluidosConfirmacao([]);
     setPrimeExtratoEm(null);
     setMostrarExcluidos(false);
@@ -438,6 +441,7 @@ export default function AcoesMassivas() {
     setCarregando(true);
     setResultados(null);
     setRelatorioPronto((r) => (faseExport === FASE.ARQUIVO_FALHOU ? r : null));
+    setRelatorioEmailLote((r) => (faseExport === FASE.ARQUIVO_FALHOU ? r : null));
     setOperadorDaPrevia(null);
     setTipoDaPrevia(null);
     setContagemTipo(null);
@@ -585,6 +589,7 @@ export default function AcoesMassivas() {
 
     // O arquivo anterior nao pertence a nova exportacao: descarta antes de registrar.
     setRelatorioPronto((r) => (faseExport === FASE.ARQUIVO_FALHOU ? r : null));
+    setRelatorioEmailLote((r) => (faseExport === FASE.ARQUIVO_FALHOU ? r : null));
     let loteRegistrado = false;
     try {
       const sufixoOperador = /^CASO:/i.test(String(operadorDaPrevia ?? ""))
@@ -931,6 +936,7 @@ export default function AcoesMassivas() {
             setCanal("WHATSAPP");
             setResultados(null);
             setRelatorioPronto((r) => (faseExport === FASE.ARQUIVO_FALHOU ? r : null));
+            setRelatorioEmailLote((r) => (faseExport === FASE.ARQUIVO_FALHOU ? r : null));
           }}
         >
           📱 WhatsApp
@@ -941,6 +947,7 @@ export default function AcoesMassivas() {
             setCanal("EMAIL");
             setResultados(null);
             setRelatorioPronto((r) => (faseExport === FASE.ARQUIVO_FALHOU ? r : null));
+            setRelatorioEmailLote((r) => (faseExport === FASE.ARQUIVO_FALHOU ? r : null));
           }}
         >
           📧 E-mail
@@ -1493,9 +1500,8 @@ export default function AcoesMassivas() {
                 disabled={faseExport === FASE.INCERTA}
                 onClick={() => {
                   try {
+                    // Sucesso NAO muda a fase: ARQUIVO_FALHOU pode vir do arquivo do WhatsApp.
                     baixarPlanilha(relatorioEmailLote);
-                    setFaseExport(FASE.CONCLUIDA);
-                    setErro("");
                   } catch {
                     setSucesso("");
                     setFaseExport(FASE.ARQUIVO_FALHOU);
