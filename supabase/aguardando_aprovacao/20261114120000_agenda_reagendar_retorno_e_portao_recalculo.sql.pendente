@@ -261,7 +261,7 @@ begin
   end if;
 
   v_tipo := p_movimento->>'tipo';
-  if p_movimento is not null and v_tipo not in ('FINALIZACAO_ATENDIMENTO', 'REAGENDAMENTO_RETORNO') then
+  if p_movimento is not null and coalesce(v_tipo, '') not in ('FINALIZACAO_ATENDIMENTO', 'REAGENDAMENTO_RETORNO') then
     raise exception 'Tipo de movimentacao nao permitido nesta acao' using errcode = '22023';
   end if;
 
@@ -300,11 +300,11 @@ begin
   -- data_ultimo_acionamento e a fidelizacao; reagendar sozinho nao passa por aqui.
   if p_movimento is not null then
     insert into public.aluno_movimentacoes
-      (aluno_id, tipo, descricao, status_anterior, status_novo, data_retorno,
+      (aluno_id, tipo, descricao, status_anterior, status_novo,
        registrado_por_nome, registrado_por_email, registrado_em)
     values
       (p_aluno_id::text, v_tipo, p_movimento->>'descricao', p_movimento->>'status_anterior',
-       p_movimento->>'status_novo', p_data, v_nome, v_email, now());
+       p_movimento->>'status_novo', v_nome, v_email, now());
   end if;
 
   return jsonb_build_object('ok', true, 'aluno_id', p_aluno_id, 'reagendou', p_reagendar);

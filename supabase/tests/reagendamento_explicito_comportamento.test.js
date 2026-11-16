@@ -979,6 +979,11 @@ describe("atendimento gravado no servidor: autoria, acionamento e reagendamento"
   });
 
   it("tipo de movimentacao fora da lista e recusado", async () => {
+    const db0 = await montar({ comPacote: true });
+    await expect(
+      comPapel(db0, "authenticated", OPERADOR, () =>
+        db0.query(RPC_ATEND("null", "false", "$3::jsonb"), [ALUNA, "{}", JSON.stringify({ descricao: "sem tipo" })]))
+    ).rejects.toThrow(/nao permitido/);
     const db = await montar({ comPacote: true });
     await expect(
       comPapel(db, "authenticated", OPERADOR, () =>
