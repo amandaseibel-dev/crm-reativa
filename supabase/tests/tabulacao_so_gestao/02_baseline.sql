@@ -115,7 +115,7 @@ begin
 
   return new;
 end;
-$function$
+$function$;
 
 revoke all on function public._encerramento_so_gestao() from public;
 revoke all on function public._encerramento_so_gestao() from anon;
