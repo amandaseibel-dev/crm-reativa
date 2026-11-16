@@ -811,6 +811,8 @@ jobs:
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/02_baseline.sql"
+          # Dependência real da proposta 20261106140000: RETORNO_FINANCEIRO (20261106120000) antes da proposta.
+          psql -v ON_ERROR_STOP=1 -f "supabase/aguardando_aprovacao/20261106120000_tabulacao_retorno_financeiro.sql.pendente"
           psql -v ON_ERROR_STOP=1 -f "$ALVO"
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
 

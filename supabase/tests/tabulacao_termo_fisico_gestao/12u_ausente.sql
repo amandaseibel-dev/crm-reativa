@@ -11,7 +11,7 @@ select public.teste_assert('config ausente: RPC recusada à gestão (42501), men
   ((select (r->>'code') = '42501' and (r->>'err') = 'Registro de termo físico suspenso pela gestão (contenção). Nada foi gravado.'
     from (select public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
       $sql$select public.registrar_administrativo_termo_fisico('a0000000-0000-0000-0000-000000000042','TERMO_FISICO_ARQUIVADO')$sql$) as r) x)
-  and (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'a0000000-0000-0000-0000-000000000042'$q$))->'rows')) = :n_antes_42);
+  and (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'a0000000-0000-0000-0000-000000000042'$q$))->'rows')) = :n_antes_42));
 select public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
   $sql$update public.aluno_movimentacoes set status_novo = 'TERMO_FISICO_EM_ANDAMENTO' where aluno_id = 'c1'$sql$);
 select public.teste_assert('config ausente: UPDATE de linha restrita não altera o código',
