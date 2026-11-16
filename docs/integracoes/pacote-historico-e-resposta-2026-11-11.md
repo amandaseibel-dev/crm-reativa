@@ -14,17 +14,17 @@ Preparado em 11/11/2026. **Nenhuma mensagem enviada, nenhuma credencial alterada
 - Leitura do histórico: ação `historico_ler` da Edge Function `ulbra-conversa`, com a **conexão individual do operador** (nunca a credencial central). Cada leitura gera `ULBRA_HISTORICO_LEITURA` na `auditoria`, sem texto de conversa. Desligada por padrão no backend (`ULBRA_HISTORICO_HABILITADO`). A função `ulbra-historico` saiu deste pacote. A versão 1 segue ATIVA em produção: a contenção está BLOQUEADA POR ACESSO (instrução na seção de deploy).
 **Resposta (envio, token DO OPERADOR, nunca a credencial central):**
 - Edge Function `ulbra-conversa` (nova; `conexao.ts`, `envio.ts`, `oauth.ts`, `cripto.ts` testados sem rede). Ações: `conexao_iniciar` (PKCE + state, URL de autorização), `conexao_concluir` (troca do código, cifra AES-256-GCM, **1 `meu_acesso` da cota do operador para gravar quem é a pessoa e os escopos**), `conexao_estado`, `conexao_desconectar` (revogação no provedor + local), `envio_previa`, `envio_confirmar`.
-- **Permissões** (lidas do banco no momento): identidade confirmada por CPF, operador é dono da carteira **ou** responsável do atendimento. Leitura global conforme a definição da gestão (ver seção abaixo).seibel@aelbra.com.br` e `cobranca04@aelbra.com.br` (A3); Amanda ADM, supervisor e administrativo leem apenas a própria carteira. Conexão própria ativa e identidade da conta conferida com o JWT (A2).
+- **Permissões** (lidas do banco no momento): identidade confirmada por CPF; operador é dono da carteira **ou** responsável do atendimento. Leitura global: `amanda.seibel@aelbra.com.br` e `cobranca04@aelbra.com.br` (definição da gestão, 16/11, só leitura); `cobranca07` (Amanda ADM) e os demais só a própria carteira/responsabilidade (A3). Conexão própria ativa; a conta conectada precisa ser a do JWT (A2).
 - **Duas etapas na tela:** prévia local e registrada no servidor (não há custo nem janela comprovados pelo provedor; nada é inventado). Só então "Confirmar envio" com **chave idempotente**; a mesma chave com outro texto é recusada (A5). Sucesso só com contrato de sucesso comprovado; até lá todo resultado de envio é FALHA_INCERTA (A6).
 - Registro: `ulbra_envios` (status e id da mensagem quando houver, sem tratar o id como prova) e linha `ULBRA_ENVIO` na `auditoria`.
 - Página `/ulbra/conectado` (retorno do OAuth) — só entrega `code`/`state` à função; nenhum token passa pela tela.
 
 ## 3. Banco (migrations)
 
-> **Correção (revisão do Guardião, 16/11):** a `20261110100000_ulbra_historico_orcamento` está APLICADA em produção (ledger, versão `20261112111006`), sem o portão interno do A8. A versão com o portão está só no `.sql.pendente` e não foi autorizada para aplicação. A `20261111140000` NÃO está aplicada.
+> **Estado das migrations (16/11):** a `20261110100000_ulbra_historico_orcamento` está APLICADA em produção (ledger, versão `20261112111006`), SEM o portão interno. O `.sql.pendente` desta migration está no original (sha `163f3b55…`); não deve ser reaplicado. O portão está só na corretiva `20261116150000` (NÃO aplicada).
 | Arquivo | sha256 `.sql.pendente` | rollback |
 | --- | --- | --- |
-| `20261110100000_ulbra_historico_orcamento` (tabela de uso diário + `ulbra_historico_reservar`, só service_role; portão interno exige service_role — A8) | pendente `544cdb0e55f40f6f3fff0993d7abeb3e50b220485ab110382103e14ac8842da3` | rollback `1aa486a119b5fe86e2fc8b304308ff1f784b22db9094946e52ecd775cd18b801` |
+| `20261110100000_ulbra_historico_orcamento` (aplicada em produção, versão 20261112111006; tabela de uso diário + `ulbra_historico_reservar`) | pendente (original, não reaplicar) `163f3b551bd62f18dca519310b76e0cb58d78f4235bde7cff7ff7210bc82622b` | rollback `1aa486a119b5fe86e2fc8b304308ff1f784b22db9094946e52ecd775cd18b801` |
 | `20261111140000_ulbra_conexao_individual_e_envio` (pedidos PKCE, conexões com tokens cifrados + pessoa/escopos, envios; RLS sem política para authenticated/anon; só service_role) — substitui a proposta 20261109170000, nunca aplicada | pendente `fcd270305358c69db33e25072c1c0288fd0cbf7dc129bd1b6147fef1dbb6e691`, rollback `f6b8013e8c43ff2f917dbf8839ac103b93e53c991b299b1cd1bc83e09d8e760f` | `f6b8013e8c43ff2f917dbf8839ac103b93e53c991b299b1cd1bc83e09d8e760f` |
 
 ## 4. Segredos e configuração (a criar pela gestão no deploy; nenhum criado agora)
@@ -70,8 +70,11 @@ Campanhas, criação de atendimentos, transferências, administração de operad
 ## Migration corretiva 20261116150000 (NÃO aplicada)
 - Acesso de service_role: a função é chamada com papel `service_role` no JWT (`request.jwt.claims`), como o PostgREST faz com a chave de serviço. O teste reproduz esse contexto.
 - Rollback: restaura a versão de 20261112111006 (sem portão). **Não é recuperação automática.** Use só com aprovação específica e comprovação do motivo.
-- Alternativa segura em caso de falha: manter o histórico desativado no backend (`ULBRA_HISTORICO_HABILITADO` ausente) e não chamar a RPC. A RPC não é chamada por nenhum código da branch.
+- Alternativa segura em caso de falha: manter o histórico desativado no backend (`ULBRA_HISTORICO_HABILITADO` ausente). Nenhum código em `supabase/functions` da branch chama a RPC; a v1 publicada em produção, preservada em `docs/integracoes/preservacao-ulbra-historico-v1-producao/`, chama (com service_role), por isso a v1 precisa estar contida.
 - Pré-condição do rollback: a v1 de `ulbra-historico` precisa estar contida em produção; senão a exposição já existe por outro caminho.
+- A2 (texto exato): divergência de identidade BLOQUEIA a conexão (com revogação do token de acesso no provedor), a leitura e o envio (sem revogação). A revogação por divergência existe só na conexão.
+- A9 (ilike sem escape em `ulbra-historico`) não é item separado: resolvido pela remoção da função do repositório. A v1 em produção segue com o problema até a contenção.
+- `supabase/tests/ulbra_historico_portao/run.mjs` roda manualmente (PGlite) e NÃO está no CI. A condição ANTES do teste simula o grant a PUBLIC; não é prova do estado de produção.
 
 ## Migrations: estado correto (revisão 16/11)
 - `20261110100000_ulbra_historico_orcamento`: APLICADA em produção (ledger 20261112111006). O `.sql.pendente` foi restaurado ao original (sha 163f3b55…); não é a versão aplicada nem deve ser reaplicado.
