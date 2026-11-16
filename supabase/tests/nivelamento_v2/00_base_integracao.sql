@@ -52,3 +52,9 @@ create table if not exists public.casos (
   quitado_em date, valor_quitado numeric, data_ultimo_acionamento date,
   giro_fidelizacao_ate date, chave_unificacao text, ultima_tabulacao_em timestamptz,
   caso_atualizado_em timestamptz, caso_atualizado_por text, encerrado_operacional boolean default false);
+
+-- Job 48 como em producao (nivelamento_automatico_gestao, 09:20). A migration V2
+-- exige esse job e aborta se nao existir (B10: falha fechada).
+insert into cron.job(jobid, jobname, schedule, command)
+values (48, 'nivelamento_automatico_gestao', '20 9 * * *', 'select public.nivelamento_automatico_gestao(10, true)')
+on conflict (jobname) do nothing;
