@@ -1616,11 +1616,21 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
         return;
       }
       const extraAluno = {};
-      // A data digitada na troca de responsável é compromisso do operador --
-      // carimba OPERADOR para o "Meu dia" enxergar. Hora e prioridade ficam
-      // como estão: esta tela não tem os dois campos.
-      if (novaDataRetornoAlteracao) { Object.assign(extraAluno, camposDeRetorno(RETORNO_ORIGEM_OPERADOR, paraDataLocalBR(new Date(novaDataRetornoAlteracao).toISOString()))); }
       if (novaTabulacaoAlteracao) { extraAluno.status_jornada = novaTabulacaoAlteracao; extraAluno.status_atual = novaTabulacaoAlteracao; }
+      // Data digitada na troca de responsavel e compromisso humano: passa SO pela RPC
+      // (unico caminho que zera "Ja falei" por reagendamento). Nunca por gravacao comum.
+      if (novaDataRetornoAlteracao) {
+        const [dataIso, horaIso] = String(novaDataRetornoAlteracao).split("T");
+        const { error: erroReag } = await supabase.rpc("agenda_reagendar_retorno", {
+          p_aluno_id: alunoSelecionado.id,
+          p_data: dataIso,
+          p_hora: (horaIso || "").slice(0, 5) || null,
+          p_prioritario: false,
+        });
+        if (erroReag) {
+          alert("Responsavel alterado, mas o reagendamento NAO foi aplicado: " + erroReag.message);
+        }
+      }
       if (Object.keys(extraAluno).length > 0) { await supabase.from("alunos").update(extraAluno).eq("id", alunoSelecionado.id); }
       setNovoOperadorEmail("");
       setMotivoAlteracaoOperador("");

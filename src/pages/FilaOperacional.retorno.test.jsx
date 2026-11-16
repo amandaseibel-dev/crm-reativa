@@ -1,9 +1,8 @@
 // @vitest-environment jsdom
 //
-// Gravacao comum da FilaOperacional: payload capturado na chamada real do
-// supabase.from("alunos").update(). Prova que campos de retorno carregados na
-// ficha NAO voltam ao banco, mesmo quando outro processo reagendou entre a
-// leitura e o salvamento.
+// FilaOperacional: o unico teste aqui prova que clicar numa linha da fila nao
+// grava nada (navega para /aluno). NAO prova omissao de campos de retorno no
+// payload: os handlers de gravacao da fila nao tem call site na JSX.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act, cleanup } from "@testing-library/react";

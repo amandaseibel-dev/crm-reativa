@@ -1,6 +1,7 @@
 -- ROLLBACK de 20261114120000_agenda_reagendar_retorno_e_portao_recalculo
--- Remove a RPC, recria o gatilho de zeragem por data e devolve a execucao de
--- recalcular a anon (estado de 20260808150000 e da fixture 20261113).
+-- Remove a RPC, recria o gatilho de zeragem por data e reverte o FOR UPDATE do
+-- recalculo (c3e38ac0 -> 03dacc0a). NAO concede nem devolve EXECUTE a anon:
+-- na ACL de origem anon ja nao tinha EXECUTE.
 -- O BACKUP retorno_backup_20261114 NAO e apagado: e a evidencia. Restaurar dados
 -- e etapa separada, com aprovacao: ver 20261114120000_restauracao_por_id.sql.pendente.
 begin;

@@ -21,7 +21,7 @@
 //
 // O QUE NAO PROVA: concorrencia real entre duas sessoes (PGlite tem uma conexao).
 // Fica para a rodada de staging do pacote. Os grants sao conferidos por
-// has_function_privilege; o teste NAO troca de role para executar como anon.
+// has_function_privilege; os testes de autorizacao do bloco final trocam de role (SET ROLE); os demais usam superuser com stubs de auth.
 import { describe, it, expect, vi } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { readFileSync } from "node:fs";
@@ -255,7 +255,10 @@ describe("cadeia de md5 e rollback", () => {
     const db = await montar({ comPacote: false });
     await db.exec(P1_PEND);
     await db.exec(P2_PEND);
+    // cadeia: vivo -> 03dacc0a (P1) -> c3e38ac0 (P2) -> 03dacc0a (rollback P2) -> vivo (rollback P1)
+    expect(await md5Corpo(db)).toBe(MD5_FINAL);
     await db.exec(P2_ROLL);
+    expect(await md5Corpo(db)).toBe(MD5_PARTE1);
     await db.exec(P1_ROLL);
     expect(await md5Corpo(db)).toBe(MD5_VIVO);
     const r = await db.query("select count(*)::int as n from pg_trigger where tgrelid = 'public.alunos'::regclass and tgname = 'trg_aluno_reset_retorno_confirmado'");
