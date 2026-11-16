@@ -11,7 +11,7 @@
 
 ## Premissa 12 — resolvida no banco
 - **Operação** `public.registrar_administrativo_termo_fisico(p_aluno_id, p_codigo)` (na migração `20261114120000`): SECURITY DEFINER, `search_path = public`, EXECUTE só para `authenticated`. Impõe: gestão (`usuario_e_gestao()`), dois códigos, aluno existente, histórico apenas (`REGISTRO_ADMINISTRATIVO`, `registrado_em = now()` do servidor, autor do JWT). Não toca em `alunos`, acionamento, retorno, fidelização, fila nem saldo.
-- **Front** (`src/utils/tabulacoes.js`) apenas chama a operação (`rpc`). Não há `insert` direto (teste `tabulacoesRegistroAdministrativo.test.js`).
+- **Front** (`src/utils/tabulacoes.js`) apenas chama a operação (`rpc`). Não há `insert` direto. Não existe teste dedicado a essa tela nesta #954 (`tabulacoesRegistroAdministrativo.test.js` não existe no repositório).
 - **Trigger** `aluno_mov_tabulacao_so_gestao` (INSERT OR UPDATE) mantém a barreira mesmo para gravação direta.
 
 ## Trava de tabulação só gestão (`20261106140000`) — fora do escopo desta #954
