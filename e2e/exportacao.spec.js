@@ -238,7 +238,7 @@ test.describe("exportacao de Acoes Massivas no navegador (dados ficticios, sem p
     expect(rpc.filter((n) => n === "acoes_massivas_exportar")).toHaveLength(1);
   });
 
-  test("4. resposta perdida: resultado incerto, sem repeticao automatica nem clique repetido", async ({ page }) => {
+  test("4. resposta perdida: resultado incerto apos um clique; nenhuma repeticao automatica observada na janela de 3 s", async ({ page }) => {
     const { rpc } = await prepararPagina(page, { exportar: "perdida" });
     await abrirEPrevisar(page);
     await page.getByRole("button", { name: /Exportar planilha/ }).click();
@@ -263,7 +263,7 @@ test.describe("exportacao de Acoes Massivas no navegador (dados ficticios, sem p
     await expect(page.getByRole("button", { name: /Exportar planilha/ })).toBeDisabled();
   });
 
-  test("6. resultado incerto: historico conferido nao libera; recarregar perde o bloqueio local (limite declarado)", async ({ page }) => {
+  test("6. resultado incerto: historico consultado nao libera pela interface; recarregar limpa o bloqueio local (limite declarado, nao garantia)", async ({ page }) => {
     await prepararPagina(page, { exportar: "perdida", historico: "ok" });
     await abrirEPrevisar(page);
     await page.getByRole("button", { name: /Exportar planilha/ }).click();

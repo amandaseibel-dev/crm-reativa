@@ -414,8 +414,8 @@ export default function AcoesMassivas() {
   async function buscar(over = {}) {
     setErro("");
     setSucesso("");
-    // Depois de um lote concluido, uma nova previa libera a exportacao. Incerto e arquivo falho NAO se liberam aqui.
-    setFaseExport((f) => (f === FASE.CONCLUIDA ? FASE.OCIOSO : f));
+    // NAO libera a exportacao aqui. Busca invalida ou malsucedida nao e nova previa:
+    // so uma previa aceita (abaixo) libera a fase CONCLUIDA.
     const min = valorMin.trim() ? converterValor(valorMin) : 0;
     const max = valorMax.trim() ? converterValor(valorMax) : null;
     const qtd = Math.max(1, Math.min(5000, Number(quantidade) || 100));
@@ -510,6 +510,8 @@ export default function AcoesMassivas() {
       setResumoPrevia(previa?.resumo || null);
       setPorResponsavel(previa?.por_responsavel || []);
       setPreviaId(previa?.previa_id || null);
+      // So a previa aceita (validada acima) libera a exportacao depois de um lote concluido.
+      setFaseExport((f) => (f === FASE.CONCLUIDA ? FASE.OCIOSO : f));
 
       setExcluidosConfirmacao(previa?.excluidos_confirmacao || []);
       setPrimeExtratoEm(previa?.prime_extrato_em || null);
@@ -1597,7 +1599,7 @@ export default function AcoesMassivas() {
                           <div style={{ display: "flex", gap: 6 }}>
                             <button
                               style={estilos.botaoGerar}
-                              disabled={concluindoLote || bloqueiaNovaExportacao(faseExport)}
+                              disabled={concluindoLote}
                               onClick={() => concluirLote(l, acaoLote.acao)}
                             >
                               {acaoLote.acao === "CONFIRMAR" ? "Sim, o disparo foi concluído" : "Sim, descartar"}

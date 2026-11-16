@@ -1,3 +1,4 @@
+-- USO EXCLUSIVO DE BANCO DESCARTAVEL (PGlite ou Postgres local de teste). NUNCA aplicar em producao nem em staging. Nao e migration.
 -- FIXTURE DE PRODUCAO: definicao vigente de public.acoes_massivas_exportar (somente leitura).
 -- Origem: pg_get_functiondef no projeto ahattpqrjmhkzsmnbdzs (producao), consulta de leitura em 2026-11-15 (18:03 UTC).
 -- MD5 de pg_get_functiondef: c9cc7498d16ca250e85c4727c8bb05bd (6426 caracteres).
