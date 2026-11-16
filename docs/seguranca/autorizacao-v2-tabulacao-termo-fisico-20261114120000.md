@@ -74,12 +74,21 @@ Hashes calculados com `shasum -a 256` no head final. Qualquer alteração poster
 4. **Bancada PGlite (não substitui o CI; não reconferida nesta v2):** executa como `postgres`, que o gatilho ignora. Usada só para validar a lógica das recusas e a sensibilidade da impressão digital (ela muda com cada ajuste e fica igual antes e depois de cada recusa).
 5. **Guardião:** parecer sobre o head final, em texto, sem usar resultados de commits anteriores.
 
-## Bloqueios que permanecem (herdados da v1, não resolvidos por esta v2)
-- **Gate A** (v1, linhas 38-42): 7 achados `BLOQUEIA` abertos, de outras frentes (bucket `tv-imagens`, `_tmp_fila2`, 5 views com `VIEW_BYPASS_RLS`). Não resolvidos.
-- **Auth** (v1, linha 22): configuração de confirmação e troca de e-mail **não verificada**.
-- **`usuario_e_gestao()`** (v1, bloqueio 2): a função é chamada pela migration `20261114120000` (linhas do `.pendente` que a usam), mas **não há migration versionada que a defina** em `supabase/migrations`. Há apenas evidência de leitura em produção. Precisa de decisão e de versionamento antes da aplicação.
-- **Rollback sem `trap`:** `recusas_rollback.sh` sai com erro sem restaurar o fator alterado. Em banco descartável isso é aceitável; não deve ser executado em outro ambiente.
-- **`\set` no rollback:** o arquivo só roda via `psql`, não pelo SQL Editor do Supabase.
+## Bloqueios que permanecem
+
+### Herdados da v1 (`autorizacao-tabulacao-termo-fisico-20261114120000.md`, bloqueios 1–7), não resolvidos por esta v2
+1. **Gate A:** 7 achados `BLOQUEIA` abertos, de outras frentes: `BUCKET_PUBLICO` `tv-imagens`, `TABELA_SEM_RLS` `_tmp_fila2`, 5 views com `VIEW_BYPASS_RLS`. Sem exceção nem declaração de resolução.
+2. **Reconciliação:** `usuario_e_gestao()` só como evidência (sem migration versionada em `supabase/migrations`), mas chamada pela migration `20261114120000`. `_encerramento_so_gestao()` fora desta #954.
+3. **Auth:** configuração de confirmação e troca de e-mail não lida (não verificada).
+4. **Papel `reativa_responsavel_executor`** (INSERT irrestrito): não lido se é usado com `SET ROLE` por cliente.
+5. **`tabulacoes` sem DDL base versionado.**
+6. **CI verde no head final e parecer do Guardião sem `REPROVADO`:** pendente até a conclusão desta rodada.
+7. **Autorização nominal, executor único e janela M1:** só na aprovação.
+
+### Achados desta v2 (não estavam na v1)
+- **Script de recusas sem `trap`:** `recusas_rollback.sh` sai com `exit 1` sem restaurar o fator alterado. Aceitável só em banco descartável.
+- **`\\set` no rollback:** `20261114120000.rollback.sql` só roda via `psql`, não pelo SQL Editor.
+- **Falha de restauração no teste 15:** se `12p_off` falhar sob `set -e`, `15p_dono_restore` é pulado. O comentário do CI não diz isso.
 
 ## Não aprovado
 
