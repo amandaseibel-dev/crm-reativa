@@ -285,6 +285,9 @@ export default function AcoesMassivas() {
   // Lote + ação ("CONFIRMAR" | "DESCARTAR") aguardando o "sim" explícito.
   const [acaoLote, setAcaoLote] = useState(null);
   const [concluindoLote, setConcluindoLote] = useState(false);
+  // Trava síncrona da confirmação: o estado só desabilita o botão no próximo
+  // render, e dois cliques no mesmo instante passariam os dois.
+  const concluindoRef = useRef(false);
   // Confirmação parcial: { loteId, itens, marcados:Set, carregando, erro }
   const [destinatariosLote, setDestinatariosLote] = useState(null);
   // Lotes de WhatsApp recentes, com quantos daqueles alunos têm e-mail válido.
@@ -643,7 +646,7 @@ export default function AcoesMassivas() {
         setSucesso(`Nenhum aluno na planilha.${sufixoExcluidos}`);
       } else if (pendenteEnvio) {
         setSucesso(
-          `Planilha exportada com ${selecionados} aluno(s). O lote ficou PENDENTE DE ENVIO: nada foi registrado nos alunos ainda. Depois do disparo, confirme o envio no painel “Registro das ações massivas” — para todos, só para os que receberam, ou descarte se não foi enviado. Só a confirmação conta como acionamento e inicia a fidelização. Se o download não abriu, use o botão “Baixar planilha novamente” abaixo.${sufixoExcluidos}`
+          `Planilha exportada com ${selecionados} aluno(s). O lote ficou PENDENTE DE ENVIO: nada foi registrado nos alunos ainda. Depois do disparo, use o botão “Tabular lote enviado” no painel “Registro das ações massivas” (ou marque só quem recebeu, ou descarte se não foi enviado). Só a confirmação conta como acionamento e inicia a fidelização. Se o download não abriu, use o botão “Baixar planilha novamente” abaixo.${sufixoExcluidos}`
         );
       } else {
         setSucesso(
@@ -755,6 +758,8 @@ export default function AcoesMassivas() {
   // uma vez só. Sem a migration 20261113100000 no banco, TOTAL e DESCARTAR caem
   // no acoes_massivas_concluir_lote de sempre; PARCIAL não tem equivalente.
   async function concluirLote(lote, acao) {
+    if (concluindoRef.current) return;
+    concluindoRef.current = true;
     setConcluindoLote(true);
     setErro("");
     setSucesso("");
@@ -774,6 +779,12 @@ export default function AcoesMassivas() {
       if (error) throw error;
       if (acao === "DESCARTAR") {
         setSucesso(`Lote ${lote.arquivo || ""} descartado. Nada foi registrado nos alunos.`);
+      } else if (res?.ja_registrado) {
+        // Outra aba, outro usuário ou um clique anterior já confirmou este lote:
+        // o banco devolve o resultado guardado e não grava de novo.
+        setSucesso(
+          `Lote já tabulado: ${Number(res?.registrados || 0)} aluno(s) já estavam registrados neste lote. Nada foi gravado agora.`
+        );
       } else {
         const registrados = Number(res?.registrados || 0);
         const jaListados = ["confirmacao_pendente", "liquidado_prime", "outro_responsavel", "fora_tipo_cobranca"];
@@ -803,6 +814,7 @@ export default function AcoesMassivas() {
     } finally {
       setAcaoLote(null);
       setDestinatariosLote(null);
+      concluindoRef.current = false;
       setConcluindoLote(false);
       carregarLotesRegistro();
     }
@@ -1540,7 +1552,7 @@ export default function AcoesMassivas() {
                         </span>
                       ) : (
                         <span style={{ fontSize: 12.5, fontWeight: 700 }}>
-                          ✅ Registrado — {registrados} de {l.total}
+                          ✅ Lote já tabulado — {registrados} de {l.total}
                           <div style={{ fontWeight: 400, color: "var(--rv-texto-fraco)", fontSize: 11 }}>
                             {l.confirmado_em
                               ? new Date(l.confirmado_em).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
@@ -1609,7 +1621,7 @@ export default function AcoesMassivas() {
                                 {acaoLote.acao === "PARCIAL" && totalItens > 0 && (
                                   <span style={{ fontSize: 11.5, color: "var(--rv-texto-fraco)" }}>
                                     {marcados} de {totalItens} marcado(s)
-                                    {marcados >= totalItens ? " — se todos receberam, use “Enviado para todos”." : ""}
+                                    {marcados >= totalItens ? " — se todos receberam, use “Tabular lote enviado”." : ""}
                                   </span>
                                 )}
                                 <div style={{ display: "flex", gap: 6 }}>
@@ -1619,7 +1631,7 @@ export default function AcoesMassivas() {
                                     onClick={() => concluirLote(l, acaoLote.acao)}
                                   >
                                     {acaoLote.acao === "TOTAL"
-                                      ? "Sim, enviado para todos"
+                                      ? "Sim, tabular o lote"
                                       : acaoLote.acao === "PARCIAL"
                                         ? `Confirmar envio para ${marcados}`
                                         : "Sim, descartar"}
@@ -1639,7 +1651,7 @@ export default function AcoesMassivas() {
                       ) : (
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                           <button style={estilos.botaoGerar} onClick={() => setAcaoLote({ id: l.id, acao: "TOTAL" })}>
-                            ✅ Enviado para todos
+                            ✅ Tabular lote enviado
                           </button>
                           <button style={estilos.botaoSecundario} onClick={() => abrirConfirmacaoParcial(l)}>
                             ☑️ Enviado só para alguns
