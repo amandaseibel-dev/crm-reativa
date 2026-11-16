@@ -11,6 +11,7 @@
   - o rollback atual (`96871b2e…`, 6215 bytes, commit `c0d217d1`) é mais restritivo;
   - a anterior listava os artefatos de teste de contenção sem SHA-256;
   - a menção à contenção `20261114140000` na anterior foi resolvida pela separação (ver abaixo).
+- **Referência "Resultado":** a autorização anterior (registro `1ac94a6f`) diz "ver seção 'Resultado'", e o título da seção de resultados nela é "Resultados por SHA". A referência deve ser lida como essa seção. A anterior não foi corrigida; esta v2 registra os resultados por head na seção "Resultados por head".
 - **Correções e atualizações registradas nesta v2 (a anterior não é reescrita):**
   - Hash da auditoria: a anterior cita `scripts/seguranca/auditoria_seguranca.sql` com SHA-256 `87ed9b7326c6fdbdffd2956c1d3b3f448910ae2e0010f11954418de9c986dd85` (5682 bytes). O arquivo atual, idêntico ao `origin/main` e não alterado por esta #954, tem `d2a4c33179e9b0a05f63b33469bcbdd3a35c5e108dc587845bce9ac8f7ab0c67` (5629 bytes). A correção é de registro; o pacote não altera o arquivo.
   - Texto de cobertura do CI: a anterior fala em "recusas" sem detalhar. Esta v2 lista as quatro recusas do `recusas_rollback.sh` (aluno, catálogo, contenção ativa, contenção alterada por outro autor).
@@ -70,7 +71,7 @@ Hashes calculados com `shasum -a 256` no head final. Qualquer alteração poster
 1. **CI do head final, job `tabulação termo físico`** (rodado no GitHub Actions, PostgreSQL 17 do job, papéis `app_teste` LOGIN e `app_teste_inh` LOGIN com herança, criados pelo job). Inclui: registro autorizado pela gestão (`07_registro_administrativo.sql`); recusa a operador (`02_tabulacao.sql`, `09_login_nao_privilegiado.sql`, `10_login_inherit_defensivo.sql`); barreira de alunos com login não privilegiado (`05_barreira_alunos.sql`); PostgREST 16.5 real com JWT (operador recusado, gestão aceita, claims forjadas recusadas); rollback recusado por histórico (`03`); rollback limpo com igualdade de snapshot antes e depois (`Caminho B`, `04_rollback_limpo.sql`); recusas por aluno, catálogo, contenção ativa e contenção alterada (`recusas_rollback.sh`) com impressão idêntica antes e depois; flag NOT NULL e ligar/desligar por fixture idempotente (`12n_contencao_flag_fixture.sql`).
 2. **Ambiente de teste (CI):** `dono_teste` é NOLOGIN com `bypassrls`, criado apenas para simular o dono das funções; nenhum papel de teste existe em produção.
 3. **Produção:** dono das funções `postgres` (rolsuper=false, rolbypassrls=true, medido em leitura); clientes `anon`, `authenticated`, `service_role` do PostgREST. Nenhuma alteração de privilégio neste pacote.
-4. **Bancada PGlite (não substitui o CI):** executa como `postgres`, que o gatilho ignora. Usada só para validar a lógica das recusas e a sensibilidade da impressão digital (ela muda com cada ajuste e fica igual antes e depois de cada recusa).
+4. **Bancada PGlite (não substitui o CI; não reconferida nesta v2):** executa como `postgres`, que o gatilho ignora. Usada só para validar a lógica das recusas e a sensibilidade da impressão digital (ela muda com cada ajuste e fica igual antes e depois de cada recusa).
 5. **Guardião:** parecer sobre o head final, em texto, sem usar resultados de commits anteriores.
 
 ## Não aprovado
