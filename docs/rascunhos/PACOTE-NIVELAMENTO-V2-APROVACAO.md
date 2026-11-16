@@ -8,15 +8,15 @@ Branch `feat/nivelamento-v2`. Commit atual: ver `git log -1`.
 
 | Artefato | SHA-256 |
 |---|---|
-| `supabase/aguardando_aprovacao/20261116120000_nivelamento_v2.sql.pendente` | c04a4adf0c4a1979 |
-| `supabase/aguardando_aprovacao/20261116120100_calibragem_gate_somente_gestao.sql.pendente` | 2f5a318a4fc254b0 |
-| `supabase/aguardando_aprovacao/20261116120000_nivelamento_v2.rollback.sql` | 464366e4b79bf1f4 |
+| `supabase/aguardando_aprovacao/20261116120000_nivelamento_v2.sql.pendente` | 8454c449a2a32475 |
+| `supabase/aguardando_aprovacao/20261116120100_calibragem_gate_somente_gestao.sql.pendente` | 1e062e0746a5f351 |
+| `supabase/aguardando_aprovacao/20261116120000_nivelamento_v2.rollback.sql` | 5e796f605cdff0f1 |
 | `supabase/aguardando_aprovacao/20261116120100_calibragem_gate_somente_gestao.rollback.sql` | 059089893dd364e8 |
 | `supabase/tests/nivelamento_v2/01_ambiente.sql` | 45136e8cd570264a |
-| `supabase/tests/nivelamento_v2/02_casos.sql` | c86b45fa7d144c90 |
-| `supabase/tests/nivelamento_v2/03_concorrencia_setup.sql` | 096a3b516578e0e6 |
+| `supabase/tests/nivelamento_v2/02_casos.sql` | 9c4ed1d02c68a32f |
+| `supabase/tests/nivelamento_v2/03_concorrencia_setup.sql` | 7bf3881bd81f3438 |
 | `supabase/tests/nivelamento_v2/04_pos_rollback.sql` | 4ef1fde3f4f431dc |
-| `supabase/tests/nivelamento_v2/05_gate.sql` | 7416926cf3f1ad2e |
+| `supabase/tests/nivelamento_v2/05_gate.sql` | f2638a6607c7e0a4 |
 | `supabase/tests/nivelamento_v2/06_pos_rollback_gate.sql` | 8a266acd8ada3ad6 |
 | `supabase/tests/fixtures/assumir_caso_livre_prod_20261112.body.sql` | 56a88589c983b9c0 |
 | `docs/seguranca/delta-assumir-caso-livre-v2-vs-prod-20261112.diff` | ccac1777747c8c6c |
@@ -66,3 +66,12 @@ Ver `docs/rascunhos/PACOTE-NIVELAMENTO-V2-STATUS-2026-11-12.md`: 7 operadores de
 - **Integração com dependências reais de produção:** não executada. As funções-dependência (`caso_protegido_redistribuicao`, `aluno_saldo_pendente_detalhe` etc.) são stubs no CI. Validação em ambiente isolado com definições de produção exige export das definições e cadeia completa de dependências — não concluída.
 - CI do commit final: pendente no momento deste documento.
 - Não há merge nem aplicação em produção nesta preparação.
+
+
+## Correções desta rodada (reprovação de bda3eb9c)
+- **Núcleo sem gate por sessão:** a lógica da reposição vive em `internal.nivelamento_reposicao_core`, sem EXECUTE para anon/authenticated/service_role. O cron (`nivelamento_v2_reposicao`, 7 * * * *) chama o núcleo como dono `postgres`. Fica removido o ramo "JWT ausente + sessão postgres/reativa_responsavel_executor" da função pública; a pública só aceita gestão identificada por `calibragem_e_gestao()`. Isso fecha R1 do lado da pública e mantém só o executor que o cron já usa.
+- **Elegibilidade da reposição:** só baixa `REALIZADA` com `solicitacao_link_id` (pagamento real de link; quitação administrativa sem link não gera reposição); operador que recebe deve estar `ativo`, com `perfil = 'operador'` e carteira aberta; caso livre precisa de saldo > 0; vaga é `ocupação < calibragem_teto_operador` (700, com acordos e negociações na ocupação).
+- **Concorrência (A4):** `assumir_caso_livre` toma o mesmo advisory lock da reposição antes de ler a ocupação.
+- **Backup por assinatura:** `nivelamento_v2_backup` e o gate gravam `fn:schema.nome(args)`, então sobrecargas não se perdem.
+- **Senha:** o SQL do papel não tem senha; o teste do extrator usa `PG_SENHA_LEITOR_CI`, gerada a cada execução no CI (`openssl rand`) e mascarada. Nenhuma credencial real versionada.
+- **Ainda não provado:** dependências reais de produção (export pendente), colunas de `baixas_pagamento` em produção, e se a quitação administrativa realmente deixa `solicitacao_link_id` nulo. Essas três são pré-condição de aplicação, não de revisão.

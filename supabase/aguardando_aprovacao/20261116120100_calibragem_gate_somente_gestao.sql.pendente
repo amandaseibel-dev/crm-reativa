@@ -46,8 +46,9 @@ begin
     v_n1 := (length(v_def) - length(replace(v_def, v_old1, ''))) / length(v_old1);
     v_n2 := (length(v_def) - length(replace(v_def, v_old2, ''))) / length(v_old2);
     v_novo := replace(replace(v_def, v_old1, v_new1), v_old2, v_new2);
+    -- backup POR ASSINATURA (sobrecargas do mesmo nome nao se perdem)
     insert into public.nivelamento_v2_backup(nome, definicao)
-      values ('fn:' || r.proname, v_def)
+      values ('fn:public.' || r.proname || '(' || pg_get_function_identity_arguments(r.oid) || ')', v_def)
       on conflict (nome) do nothing;
     execute v_novo;
     raise notice 'gate ajustado: % (forma1=% forma2=%)', r.proname, v_n1, v_n2;

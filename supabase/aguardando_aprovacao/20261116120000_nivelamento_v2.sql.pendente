@@ -215,7 +215,12 @@ create unique index if not exists calibragem_auditoria_v2_pagamento_uq
   where evento = 'REPOSICAO_V2';
 -- (chave_pagamento = link de pagamento ou id da baixa: ver nivelamento_reposicao_por_baixas)
 
-create or replace function public.nivelamento_reposicao_por_baixas(p_limite int default 200)
+-- Nucleo interno: SEM gate proprio. Executa como dono (postgres) e so e chamado
+-- pelo cron (job nivelamento_v2_reposicao) e pela funcao publica abaixo, que tem
+-- o gate de gestao. Sem EXECUTE para PUBLIC/anon/authenticated/service_role.
+-- Nao existe mais caminho "sem JWT" para usuario ou sessao comum.
+create schema if not exists internal;
+create or replace function internal.nivelamento_reposicao_core(p_limite int default 200)
 returns jsonb
 language plpgsql security definer set search_path = public
 as $$
@@ -225,13 +230,6 @@ declare
   v_chave text; v_cpf text; v_saldo bigint; v_aplicadas int := 0; v_registros int := 0;
   v_sessao text := 'job:' || session_user;
 begin
-  -- Gestao identificada por JWT, OU caminho tecnico explicito: sem JWT E sessao de
-  -- identidade privilegiada conhecida (mesmo padrao do repositorio). JWT ausente,
-  -- sozinho, nunca autoriza.
-  if not (public.calibragem_e_gestao()
-          or (auth.jwt() is null and session_user in ('postgres','reativa_responsavel_executor'))) then
-    raise exception 'Sem permissao para reposicao automatica.' using errcode = '42501';
-  end if;
   perform pg_advisory_xact_lock(hashtext('nivelamento_carteiras_v2'));
 
   select (valor #>> '{}')::timestamptz into v_desde
@@ -245,6 +243,9 @@ begin
   for v_b in
     select b.* from public.baixas_pagamento b
      where b.status_baixa = 'REALIZADA'
+       -- pagamento real: vem de link de cobranca. Quitacao administrativa (sem link)
+       -- NAO gera reposicao.
+       and b.solicitacao_link_id is not null
        and b.baixado_em >= v_desde
        and not exists (
          select 1 from public.calibragem_auditoria a
@@ -287,6 +288,18 @@ begin
     end if;
 
     v_op_email := lower(v_caso.operador_email);
+    -- operador que recebe a reposicao precisa estar ativo, ser operador e aceitar casos
+    if not exists (select 1 from public.usuarios u
+                    where lower(u.email) = v_op_email and u.ativo and u.perfil = 'operador')
+       or not internal.operador_pode_receber_caso(v_op_email) then
+      insert into public.calibragem_auditoria(evento, operador_novo_email, cpf, motivo, regra,
+        situacao_posterior, registrado_por_email)
+      values ('REPOSICAO_V2_OPERADOR_NAO_HABILITADO', v_op_email, v_cpf,
+              'Operador inativo, sem perfil de operador ou com carteira fechada', 'REPOSICAO_V2',
+              jsonb_build_object('baixa_id', v_b.id::text, 'chave_pagamento', v_chave), v_sessao);
+      v_registros := v_registros + 1;
+      continue;
+    end if;
     v_teto := public.calibragem_teto_operador(v_op_email);
     v_ocup := public.nivelamento_ocupacao(v_op_email);
     if v_ocup >= v_teto then
@@ -304,6 +317,7 @@ begin
     select c.* into v_livre from public.casos c
      where (c.operador_email is null or lower(c.operador_email) = 'carteira.geral@reativa.local')
        and public.nivelamento_caso_movivel(c.id)
+       and public.nivelamento_saldo_caso_centavos(c.id) > 0
      order by c.id limit 1 for update skip locked;
     if not found then
       insert into public.calibragem_auditoria(evento, operador_novo_email, cpf, motivo, regra,
@@ -338,6 +352,20 @@ begin
 end;
 $$;
 
+-- Funcao publica (gestao): unico ponto de entrada manual. Gate SOMENTE de gestao
+-- identificada por JWT. Sem caminho por sessao nem por JWT ausente.
+create or replace function public.nivelamento_reposicao_por_baixas(p_limite int default 200)
+returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not public.calibragem_e_gestao() then
+    raise exception 'Sem permissao para reposicao automatica.' using errcode = '42501';
+  end if;
+  return internal.nivelamento_reposicao_core(p_limite);
+end;
+$$;
+
 -- ============================================================================
 -- 4. ASSUMIR ATENDIMENTO COM TROCA (integra assumir_caso_livre)
 -- ============================================================================
@@ -365,6 +393,9 @@ begin
   if v_nome is null then return query select false,'Operador nao ativo ou nao identificado.',null::uuid; return; end if;
   if not internal.operador_pode_receber_caso(v_email) then return query select false,'Sua carteira esta fechada para casos novos. Fale com a gestao.',null::uuid; return; end if;
   v_upper := upper(v_nome);
+  -- A4: mesmo lock da reposicao. Serializa assumir x assumir e assumir x reposicao
+  -- (ocupacao e lida depois do lock; em READ COMMITTED isso so vale com o lock).
+  perform pg_advisory_xact_lock(hashtext('nivelamento_carteiras_v2'));
   select c.* into v_new from public.casos c where c.id = p_caso_id for update;
   if not found then return query select false,'Caso nao encontrado.',null::uuid; return; end if;
   if coalesce(v_new.operador_email,'') <> '' then
@@ -433,7 +464,7 @@ $function$;
 
 select cron.unschedule(48);
 select cron.schedule('nivelamento_v2_reposicao', '7 * * * *',
-                     'select public.nivelamento_reposicao_por_baixas(200)');
+                     'select internal.nivelamento_reposicao_core(200)');
 
 -- ============================================================================
 -- 6. PRIVILEGIOS
@@ -449,9 +480,11 @@ revoke all on function public.nivelamento_saldo_caso_centavos(uuid)   from publi
 revoke all on function public.nivelamento_caso_movivel(uuid)          from public, anon, authenticated, service_role;
 -- escolher_troca: so chamada pela assumir_caso_livre (definer): authenticated fora.
 revoke all on function public.nivelamento_escolher_troca(uuid,text,uuid) from public, anon, authenticated, service_role;
--- reposicao: authenticated PODE executar (gestao chama); o gate recusa operador comum.
-revoke all on function public.nivelamento_reposicao_por_baixas(int)   from public, anon, service_role;
-grant execute on function public.nivelamento_reposicao_por_baixas(int) to authenticated;  -- gestao (gate por JWT); cron usa o dono postgres
+-- nucleo: so o dono (postgres, via cron) executa. Ninguem mais.
+revoke all on function internal.nivelamento_reposicao_core(int) from public, anon, authenticated, service_role;
+-- publica: authenticated (gestao) executa; o gate por calibragem_e_gestao() recusa o resto.
+revoke all on function public.nivelamento_reposicao_por_baixas(int) from public, anon, service_role;
+grant execute on function public.nivelamento_reposicao_por_baixas(int) to authenticated;
 
 -- assumir_caso_livre: CREATE OR REPLACE recoloca o grant padrao. Restaura o
 -- mesmo conjunto de antes (sem PUBLIC, sem anon).

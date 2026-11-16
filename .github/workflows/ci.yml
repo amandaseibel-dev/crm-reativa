@@ -1314,7 +1314,11 @@ jobs:
           node "$DIR/importar_prod_defs.mjs" "$DIR/fixtures/prod_defs_sintetico.json" "$RUNNER_TEMP/integ.sql"
           psql -d integracao -v ON_ERROR_STOP=1 -f "$RUNNER_TEMP/integ.sql"
           psql -d integracao -v ON_ERROR_STOP=1 -v banco=integracao -f "$DIR/papel_temporario_criar.sql"
-          psql -d postgres -v ON_ERROR_STOP=1 -c "alter role leitor_defs password 'ci-sintetico-unico'"
+          # senha gerada a cada execucao (nunca versionada); sai so para o step seguinte
+          SENHA=$(openssl rand -hex 24)
+          echo "::add-mask::$SENHA"
+          echo "PG_SENHA_LEITOR_CI=$SENHA" >> "$GITHUB_ENV"
+          psql -d postgres -v ON_ERROR_STOP=1 -v senha="$SENHA" -c "alter role leitor_defs password :'senha'"
           psql -d integracao -v ON_ERROR_STOP=1 -c "select 1" >/dev/null
 
       - name: Testes do extrator (sucesso, conexao, divergencia, sem URL, privilegio)

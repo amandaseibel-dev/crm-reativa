@@ -11,7 +11,7 @@ FALHAS=0
 ok()   { echo "OK   $1"; }
 nok()  { echo "FAIL $1"; FALHAS=$((FALHAS+1)); }
 hash_arq() { if [ -f "$1" ]; then if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; else echo "AUSENTE"; fi; }
-URL_OK="postgres://leitor_defs:ci-sintetico-unico@localhost:5432/integracao"
+URL_OK="postgres://leitor_defs:${PG_SENHA_LEITOR_CI}@localhost:5432/integracao"
 
 # 1) sucesso com papel de privilegio minimo
 rm -f "$FINAL"
@@ -20,7 +20,7 @@ PROD_READONLY_URL="$URL_OK" node "$D/extrair_prod_defs.mjs" >"$TMPD/a.log" 2>&1;
 REF=$(hash_arq "$FINAL")
 
 # 2) falha de conexao: arquivo anterior preservado
-PROD_READONLY_URL="postgres://leitor_defs:ci-sintetico-unico@localhost:1/integracao" \
+PROD_READONLY_URL="postgres://leitor_defs:${PG_SENHA_LEITOR_CI}@localhost:1/integracao" \
   node "$D/extrair_prod_defs.mjs" >"$TMPD/b.log" 2>&1; rc=$?
 [ $rc -ne 0 ] && [ "$(hash_arq "$FINAL")" = "$REF" ] && ! ls "$FINAL".tmp-* >/dev/null 2>&1 \
   && ok "falha de conexao: rc=$rc, arquivo anterior preservado, sem temporario" \
@@ -41,7 +41,7 @@ env -u PROD_READONLY_URL node "$D/extrair_prod_defs.mjs" >"$TMPD/d.log" 2>&1; rc
 [ $rc -eq 3 ] && [ "$(hash_arq "$FINAL")" = "$REF" ] && ok "sem URL: rc=3, arquivo preservado" || nok "sem URL (rc=$rc)"
 
 # 5) privilegio minimo: o papel NAO le dados de tabela
-if PGPASSWORD=ci-sintetico-unico psql -h localhost -U leitor_defs -d integracao -X -q -At -c "select count(*) from public.casos" >/dev/null 2>"$TMPD/e.log"; then
+if PGPASSWORD="${PG_SENHA_LEITOR_CI:?defina PG_SENHA_LEITOR_CI (gerada pelo CI)}" psql -h localhost -U leitor_defs -d integracao -X -q -At -c "select count(*) from public.casos" >/dev/null 2>"$TMPD/e.log"; then
   nok "papel leitor_defs leu dados de public.casos (privilegio excessivo)"
 else
   grep -q "permission denied" "$TMPD/e.log" && ok "papel leitor_defs sem acesso a dados (permission denied)" || { nok "erro inesperado no teste de privilegio"; cat "$TMPD/e.log"; }

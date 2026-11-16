@@ -52,6 +52,7 @@ end $$;
 
 -- 4. Remove funcoes V2 (nao usadas pelo estado anterior).
 drop function if exists public.nivelamento_reposicao_por_baixas(int);
+drop function if exists internal.nivelamento_reposicao_core(int);
 drop function if exists public.nivelamento_escolher_troca(uuid, text, uuid);
 drop function if exists public.nivelamento_caso_movivel(uuid);
 drop function if exists public.nivelamento_saldo_caso_centavos(uuid);

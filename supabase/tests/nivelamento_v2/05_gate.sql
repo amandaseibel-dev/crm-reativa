@@ -1,6 +1,17 @@
 -- GATE (sessao autenticada). Roda POR ULTIMO na suite: SET SESSION AUTHORIZATION
 -- nao muda a sessao de volta no PGlite; no Postgres real o reset funciona.
 \set ON_ERROR_STOP on
+-- NUCLEO: so o dono (cron) executa internal.nivelamento_reposicao_core. Catalogo.
+do $$
+begin
+  if has_function_privilege('authenticated', 'internal.nivelamento_reposicao_core(int)', 'EXECUTE')
+     or has_function_privilege('service_role', 'internal.nivelamento_reposicao_core(int)', 'EXECUTE')
+     or has_function_privilege('anon', 'internal.nivelamento_reposicao_core(int)', 'EXECUTE') then
+    raise exception 'FALHOU: nucleo da reposicao executavel por papel nao-dono';
+  end if;
+  raise notice 'OK: nucleo da reposicao sem EXECUTE para anon/authenticated/service_role';
+end $$;
+
 
 -- ---------------------------------------- 8. GATE: SEM JWT NAO AUTORIZA ----
 -- Sessao muda em comandos de nivel superior (nao dentro de DO/funcao).

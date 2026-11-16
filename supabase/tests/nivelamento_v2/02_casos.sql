@@ -65,7 +65,7 @@ end $$;
 do $$
 declare r jsonb;
 begin
-  r := public.nivelamento_reposicao_por_baixas(50);
+  r := internal.nivelamento_reposicao_core(50);
   perform pg_temp.afirma((r->>'reposicoes_aplicadas')::int = 0,
     'sem baixa REALIZADA: zero reposicoes (acordo/negociacao nao libera vaga)');
   perform pg_temp.afirma(not exists (select 1 from public.calibragem_auditoria
@@ -74,18 +74,21 @@ begin
 end $$;
 
 -- ------------------------------------------ 4. REPOSICAO POR BAIXA ----------
+insert into public.baixas_pagamento(aluno_id, aluno_cpf, solicitacao_link_id, valor_pago, status_baixa, baixado_em)
+values ('a', '111', gen_random_uuid(), 100, 'REALIZADA', now());
+-- quitacao administrativa (sem link) NAO gera reposicao
 insert into public.baixas_pagamento(aluno_id, aluno_cpf, valor_pago, status_baixa, baixado_em)
-values ('a', '111', 100, 'REALIZADA', now());
+values ('a', '111', 999, 'REALIZADA', now());
 
 do $$
 declare r jsonb; v_owner text;
 begin
-  r := public.nivelamento_reposicao_por_baixas(50);
+  r := internal.nivelamento_reposicao_core(50);
   perform pg_temp.afirma((r->>'reposicoes_aplicadas')::int = 1,
     'baixa REALIZADA de capacidade livre gera exatamente 1 reposicao');
   select operador_email into v_owner from public.casos where id = '20000000-0000-0000-0000-000000000001';
   perform pg_temp.afirma(v_owner = 'opa@t.local', 'reposicao entregue ao operador do pagamento (opa)');
-  r := public.nivelamento_reposicao_por_baixas(50);
+  r := internal.nivelamento_reposicao_core(50);
   perform pg_temp.afirma((r->>'reposicoes_aplicadas')::int = 0,
     'segunda rodada nao repete a mesma baixa (idempotencia)');
 end $$;
@@ -101,7 +104,7 @@ values ('90000000-0000-0000-0000-000000000001','a','111','a0000000-0000-0000-000
 do $$
 declare r jsonb;
 begin
-  r := public.nivelamento_reposicao_por_baixas(50);
+  r := internal.nivelamento_reposicao_core(50);
   perform pg_temp.afirma((r->>'reposicoes_aplicadas')::int = 1,
     'mesmo link: UMA reposicao (a primeira baixa), a segunda nao gera outra');
   perform pg_temp.afirma((select count(*) from public.calibragem_auditoria
@@ -119,20 +122,20 @@ values ('90000000-0000-0000-0000-000000000003','a','111','a0000000-0000-0000-000
 do $$
 declare r jsonb;
 begin
-  r := public.nivelamento_reposicao_por_baixas(50);
+  r := internal.nivelamento_reposicao_core(50);
   perform pg_temp.afirma((r->>'reposicoes_aplicadas')::int = 2,
     'dois pagamentos distintos (links diferentes), mesmo cpf/valor/dia: DUAS reposicoes (nao suprime evento legitimo)');
 end $$;
 
 -- ---------------------------------------- 6. OPERADOR ACIMA DO TETO ---------
 update public.calibragem_parametros set valor = to_jsonb(2) where chave = 'limite_carteira';
-insert into public.baixas_pagamento(id, aluno_id, aluno_cpf, valor_pago, status_baixa, baixado_em)
-values ('90000000-0000-0000-0000-000000000005','a','111',50,'REALIZADA',now());
+insert into public.baixas_pagamento(id, aluno_id, aluno_cpf, solicitacao_link_id, valor_pago, status_baixa, baixado_em)
+values ('90000000-0000-0000-0000-000000000005','a','111',gen_random_uuid(),50,'REALIZADA',now());
 
 do $$
 declare r jsonb;
 begin
-  r := public.nivelamento_reposicao_por_baixas(50);
+  r := internal.nivelamento_reposicao_core(50);
   perform pg_temp.afirma((r->>'reposicoes_aplicadas')::int = 0,
     'operador no teto (2 de 2): baixa nao gera reposicao');
   perform pg_temp.afirma(exists (select 1 from public.calibragem_auditoria where evento = 'REPOSICAO_V2_SEM_VAGA'),
@@ -146,7 +149,7 @@ insert into public.casos(id, aluno_id, cpf_limpo, nome, status_atual) values
 do $$
 declare r jsonb;
 begin
-  r := public.nivelamento_reposicao_por_baixas(50);
+  r := internal.nivelamento_reposicao_core(50);
   perform pg_temp.afirma((r->>'reposicoes_aplicadas')::int = 0,
     '6b: vaga abriu depois, mas a baixa ja processada no teto NAO gera credito (zero reposicao)');
   perform pg_temp.afirma((select operador_email from public.casos where id = '20000000-0000-0000-0000-000000000009') is null,
@@ -161,7 +164,7 @@ values ('a','111',70,'REALIZADA','2020-01-01'),       -- anterior ao corte
 do $$
 declare r jsonb;
 begin
-  r := public.nivelamento_reposicao_por_baixas(50);
+  r := internal.nivelamento_reposicao_core(50);
   perform pg_temp.afirma((r->>'reposicoes_aplicadas')::int = 0,
     'baixa historica (antes do corte) e baixa DEVOLVIDA nao geram reposicao');
   perform pg_temp.afirma(not exists (select 1 from public.calibragem_auditoria a
