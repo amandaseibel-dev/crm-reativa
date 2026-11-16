@@ -1149,6 +1149,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     observacaoAluno = null,
     extra = {},
     extraAluno = {},
+    reagendar = false,
   }) {
     if (!alunoId) {
       alert("Aluno sem ID. Não foi possível registrar.");
@@ -1241,14 +1242,14 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     const mudouRetorno = dataNova !== dataAntiga || horaNova !== horaAntiga;
     // Contrato: mudanca comum de data/hora NAO zera "Ja falei" (o banco nao zera; so a RPC
     // agenda_reagendar_retorno zera, com Reagendar). Nao ha recusa aqui.
-    if (reagendarRetorno || !mudouRetorno) {
+    if (reagendar || !mudouRetorno) {
       delete atualizacaoAluno.data_retorno;
       delete atualizacaoAluno.hora_retorno;
       delete atualizacaoAluno.retorno_origem;
       delete atualizacaoAluno.retorno_prioritario;
     }
     // Reagendar sem data e recusado ANTES de qualquer escrita (movimentacao ou ficha).
-    if (reagendarRetorno && !dataRetorno) {
+    if (reagendar && !dataRetorno) {
       const msgSemData = "Informe a data e a hora do retorno para reagendar. Nada foi salvo.";
       alert(msgSemData);
       throw new Error(msgSemData);
@@ -1272,7 +1273,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       throw updateError;
     }
     // Reagendar explicito: a RPC e o unico caminho que zera "Ja falei" por reagendamento.
-    if (reagendarRetorno) {
+    if (reagendar) {
       if (!dataRetorno) throw new Error("Informe a data e a hora do retorno para reagendar.");
       const [dataIso, horaIso] = String(dataRetorno).split("T");
       const { error: erroReagendar } = await supabase.rpc("agenda_reagendar_retorno", {
@@ -1506,6 +1507,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
         }
       }
       await registrarMovimentacao({
+        reagendar: reagendarRetorno,
         alunoId: alunoSelecionado.id,
         tipo: "FINALIZACAO_ATENDIMENTO",
         descricao:

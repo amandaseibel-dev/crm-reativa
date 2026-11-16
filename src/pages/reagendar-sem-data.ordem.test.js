@@ -27,3 +27,17 @@ describe("Reagendar sem data: recusa antes de qualquer escrita", () => {
     expect(guarda).toBeLessThan(PAINEL.indexOf('supabase.rpc("atendimento_reagendar_com_status"', ini));
   });
 });
+
+describe("Reagendar: so o atendimento explicito consome o checkbox", () => {
+  it("registrarMovimentacao so reagenda quando recebe reagendar; so finalizarAtendimento o envia", () => {
+    const sig = ALUNO.indexOf("async function registrarMovimentacao({");
+    const fim = ALUNO.indexOf("\n  async function ", sig + 10);
+    const corpo = ALUNO.slice(sig, fim);
+    expect(corpo).not.toMatch(/reagendarRetorno/);
+    expect(corpo).toMatch(/if \(reagendar\) \{/);
+    const envios = [...ALUNO.matchAll(/reagendar: reagendarRetorno/g)].map((m) => m.index);
+    const ini = ALUNO.indexOf("async function finalizarAtendimento()");
+    expect(envios.length).toBe(1);
+    expect(envios[0]).toBeGreaterThan(ini);
+  });
+});
