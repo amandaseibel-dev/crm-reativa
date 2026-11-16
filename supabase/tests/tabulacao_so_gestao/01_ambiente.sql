@@ -83,6 +83,7 @@ create table if not exists public.tabulacoes (
   bloqueia_acionamento boolean not null default false,
   exige_processo  boolean not null default false,
   efeito_desfecho text,
+  criado_por text,
   constraint tabulacoes_codigo_formato check (codigo ~ '^[A-Z][A-Z0-9_]{2,59}$'),
   constraint tabulacoes_grupo_valido check (grupo = any (array['CONTATO','LINK','TERMO','FINANCEIRO','ENCERRAMENTO','ALEGACAO'])),
   constraint tabulacoes_retorno_modo_valido check (retorno_modo = any (array['NENHUM','MANUAL','DIAS_UTEIS'])),
