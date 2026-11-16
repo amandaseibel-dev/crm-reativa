@@ -27,11 +27,11 @@
 ## Artefatos (SHA-256 integral)
 | Arquivo | SHA-256 | Bytes |
 |---|---|---|
-| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `d363a6aab3f837b5678725186c1a932cfed00c78615af7a09aecbaa251bfedc8` | 7722 |
+| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `5e53b8bf27055e040aec6ab1540c25b8184e549b1bc6cfcb420772378e323302` | 9669 |
 | `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql` | `e224e6f206471775eb4f45126d11d68393434d6e32b1a867aa61ba1b1f46cfaa` | 776 |
 | `supabase/aguardando_aprovacao/20261114130000_barreira_alunos_normalizacao.sql.pendente` | `a680a1477fe2bfad6d45d1f99f5458d830fff9901bd2f4ed29f4b1082053ed50` | 1038 |
-| `supabase/aguardando_aprovacao/20261106140000_tabulacao_so_gestao_no_banco.sql.pendente` | `9fb3ab74529dc95752cdf39b5de205993068fe58ce3775f587ed95573da1e6ab` | 19101 |
-| `supabase/aguardando_aprovacao/20261106140000_tabulacao_so_gestao_no_banco.rollback.sql` | `20bb66495e1d33299d86e2bf2d6343f15d1ed020c3bc5c957d4d930e4320c23f` | 9180 |
+| `supabase/aguardando_aprovacao/20261106140000_tabulacao_so_gestao_no_banco.sql.pendente` | `8bdae4f01b8803834eebe72e1e73c100aa7285bbc53d6a105c6f485245298769` | 19209 |
+| `supabase/aguardando_aprovacao/20261106140000_tabulacao_so_gestao_no_banco.rollback.sql` | `b4d24a777e9e5ff1391d608158f062113b769df937f8f17cfa74dda28f929af0` | 9250 |
 | `scripts/seguranca/auditoria_seguranca.sql` | `87ed9b7326c6fdbdffd2956c1d3b3f448910ae2e0010f11954418de9c986dd85` | 5682 |
 | `docs/seguranca/evidencias/prod_encerramento_so_gestao.sql` | `cae8f5422b93341fb62debd5e524d10182054ffca7a968cf5b749928ecd3aea9` | 5366 |
 | `docs/seguranca/evidencias/prod_usuario_e_gestao.sql` | `83191ea84a90cc0e098d8d33da6179a9c7b6ab4a73c23b2113d4007fbabdb288` | 321 |

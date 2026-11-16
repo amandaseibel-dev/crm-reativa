@@ -9,8 +9,8 @@
 --
 -- `_encerramento_so_gestao` roda em `public.alunos` desde 28/08/2026 e já
 -- barra o operador. O que ele tinha era um ARRAY LITERAL de códigos, mantido
--- à mão -- e medido em produção em 06/11/2026, esse array é EXATAMENTE o
--- conjunto `tabulacoes.somente_gestao = true`:
+-- à mão. A equivalência com `tabulacoes.somente_gestao = true` NÃO está
+-- comprovada no repositório (nenhuma consulta de catálogo versionada):
 --
 --   array['CANCELAMENTO_COBRANCA','SUSPENSAO_COBRANCA','JURIDICO',
 --         'ANTECIPACAO_SEMESTRE','ALEGA_FIES_CONFIRMADO',
@@ -40,8 +40,8 @@
 -- AQUI dentro a mesma coluna é legível por inteiro: a função é SECURITY
 -- DEFINER, dona `postgres` (= dona de `public.tabulacoes`), e a tabela está
 -- com `relforcerowsecurity = false` -- conferido em produção em 06/11/2026.
--- Dona de tabela não é filtrada pela própria RLS. Logo o gatilho vê as 8
--- linhas, e o catálogo pode ser a fonte da verdade.
+-- Dona de tabela não é filtrada pela própria RLS, então o gatilho lê o catálogo
+-- inteiro. (Afirmação da evidência de RLS; não reconferida nesta entrega.)
 --
 -- ===========================================================================
 -- FAIL-CLOSED: O PISO LITERAL NÃO ENCOLHE
@@ -128,9 +128,9 @@ $$;
 --
 -- Medido em produção (projeto ahattpqrjmhkzsmnbdzs) em 06/11/2026:
 --   md5(prosrc) = ae0382adc0eaf11fbe68d9ed0fc4a9b4
---   length(prosrc) = 1424 caracteres (1434 bytes em UTF-8: a mensagem de erro
---   tem acentos, e `length()` conta caractere, não byte -- não confundir os dois
---   números ao reconferir)
+--   length(prosrc) = 5180 caracteres (5200 bytes em UTF-8), conforme o arquivo
+--   de evidência docs/seguranca/evidencias/prod_encerramento_so_gestao.sql.
+--   `length()` conta caractere, não byte: não confundir os dois ao reconferir.
 --
 -- Se a função tiver mudado depois da revisão, esta migration NÃO roda. É o que
 -- impede de substituir por cima de uma proteção que alguém acrescentou no meio
