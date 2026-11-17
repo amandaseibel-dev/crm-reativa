@@ -35,6 +35,18 @@ Uma exportacao que **comece depois da checagem e antes do COMMIT** nao e vista p
 - Se o passo 6 achar pendente: nao reverter a protecao. Tratar o lote pela operacao (tabular ou descartar) pela funcao `acoes_massivas_concluir_lote`, que existe em producao; **esse caminho para lote PENDENTE_ENVIO ainda NAO foi confirmado** e deve ser conferido antes da janela. Registrar a ocorrencia e repetir a janela.
 - Se o passo 8 achar pendente apos a reversao da protecao: tratar como incidente; o lote fica pendente e a exportacao de e-mail ja nao o protege. Registrar e decidir a recomposicao com a gestao.
 
+## Inventario por leitura (17/11/2026, sem alterar producao)
+- **Grants efetivos** das funcoes: `service_role`, `authenticated` e `postgres` tem EXECUTE em `acoes_massivas_exportar`, `acoes_massivas_exportar_emails_do_lote` e `acoes_massivas_concluir_lote`. **Revogar so de `authenticated` nao pausa `service_role`.** `anon` nao tem EXECUTE nessas tres.
+- **Cron (pg_cron, 60+ jobs ativos e inativos):** nenhum comando menciona `acoes_massivas`. Nenhum job de cron dispara exportacao.
+- **Edge Functions implantadas (38):** nenhuma tem fonte no repositorio chamando `acoes_massivas`. **Ha funcoes implantadas sem fonte no repositorio**, entre elas `exportar-gestao`, `prime-buscar-nome`, `prime-titular`, `prime-extrato`, `prime-acordo`. Nao e possivel afirmar que nenhuma delas chama a exportacao: a fonte nao esta disponivel para leitura. **Pendencia para a gestao.**
+- **Chamadores no front:** somente `src/pages/AcoesMassivas.jsx`.
+
+## Tratamento de lote PENDENTE_ENVIO (decisao de negocio, nao automatica)
+- `acoes_massivas_concluir_lote(lote, 'CONFIRMAR')` **aceita** lote pendente (testado em banco descartavel): registra todos os destinatarios do lote como acionados (equivale a TOTAL). **Isso presume que o disparo ocorreu para todos.**
+- `DESCARTAR` marca o lote como descartado, sem registro.
+- Nao existe tratamento parcial por `acoes_massivas_concluir_lote`; a confirmacao parcial e da funcao `acoes_massivas_concluir_envio`, que e removida pelo rollback da confirmacao.
+- **Escolha a fazer pela gestao, por lote:** (a) confirmar como enviado para todos, se o disparo ocorreu; (b) descartar, se nao ocorreu; (c) manter pendente e adiar a janela. Nao ha regra automatica no procedimento.
+
 ## Testes e evidencias
 - Local (PGlite, conexao unica): `supabase/tests/acoes_massivas_ordem_aplicacao.test.js`, `acoes_massivas_confirmar_envio.test.js` e `acoes_massivas_email_so_apos_tabulacao.test.js` (43 casos no total, nos tres arquivos). Cobrem logica, ordem e preservacao; **nao cobrem concorrencia**.
 - Concorrencia (duas conexoes): `scripts/ci/teste-reversao-concorrencia.sh`. **NAO executado** (sem PostgreSQL no ambiente local). Pendente de banco de teste; ver o cabecalho do script.
