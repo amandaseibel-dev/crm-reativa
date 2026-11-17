@@ -496,9 +496,10 @@ Deno.serve(async (req: Request) => {
       return decidirResposta({
         envioReal,
         conexaoOk: conn.ok,
-        pessoaConexao: conn.ok ? conn.registro.pessoa_email : null,
+        pessoaConexao: conn.ok ? (conn.registro.pessoa_email ?? null) : null,
         email,
-        espelhada: conversaEspelhada,
+        // Espelhada = o atendimento existe no espelho e está ativo (não uma suposição do chamador).
+        espelhada: ativo !== null,
         atendimentoAtivoId: ativo,
         responsavelAtivo: responsavel,
       });

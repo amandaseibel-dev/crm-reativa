@@ -34,6 +34,14 @@ verdade nova for descoberta**, atualizar **na mesma alteração**:
 `prime-mapa-identificadores.md` (quando aplicável) + `prime-gaps.md` (quando
 aplicável). Nunca só um dos cinco.
 
+**Alcance da regra dos cinco (decisão de gestão).** Ela vale para descobertas e alterações relevantes da
+integração **Prime**, nos caminhos `docs/integracoes/prime-*`, `supabase/functions/prime-*`, `src/utils/prime*` e
+migrações/ledger com `prime` no nome, além dos compartilhados com regra Prime (`docs/PREMISSAS.md`,
+`docs/BACKLOG-TECNICO.md`, este README). Documentação exclusiva da Mensageria não exige atualização dos cinco.
+Mudança mista com impacto Prime aciona a regra. Quando o script não consegue distinguir descoberta de ajuste
+(código ou compartilhado sem os três obrigatórios), o resultado é `REVISAO_HUMANA`, nunca `COMPLETO`.
+(`plugins/reativa-one/scripts/integracoes-cinco.sh` aplica este alcance.)
+
 ## Documentos
 
 | Arquivo | Para que serve |

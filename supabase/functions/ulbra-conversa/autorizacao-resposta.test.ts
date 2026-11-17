@@ -37,6 +37,11 @@ describe("autorização de resposta por conversa", () => {
     expect(decidirResposta({ ...BASE, pessoaConexao: "outra@aelbra.com.br" }).motivo).toBe("IDENTIDADE_DIVERGENTE");
   });
 
+  it("conexão sem identidade conhecida (pessoa_email ausente): RECUSA, nunca passa por ser nulo", () => {
+    expect(decidirResposta({ ...BASE, pessoaConexao: null })).toEqual({ pode: false, motivo: "IDENTIDADE_DIVERGENTE" });
+    expect(decidirResposta({ ...BASE, pessoaConexao: "" }).pode).toBe(false);
+  });
+
   it("conversa não espelhada ou sem atendimento ativo: bloqueia", () => {
     expect(decidirResposta({ ...BASE, espelhada: false }).motivo).toBe("CONVERSA_NAO_ESPELHADA");
     expect(decidirResposta({ ...BASE, atendimentoAtivoId: null }).motivo).toBe("SEM_ATENDIMENTO_ATIVO");

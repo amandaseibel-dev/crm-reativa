@@ -11,4 +11,4 @@
 ## Registro na repositório
 - Esta cópia é a referência durável, versionada no repositório, do código publicado em produção em 2026-11-16 (sem credenciais).
 - CONTENÇÃO CONCLUÍDA (confirmada pela gestão): a função `ulbra-historico` foi excluída pelo painel do Supabase, após o download do ZIP desta cópia. Verificado: função ausente da listagem e endpoint respondendo HTTP 404. Não há restauração. Esta cópia é apenas referência; não é código publicado.
-- Os testes da v1 (`historico.test.ts`, `ausencia.test.ts`) saíram do `supabase/functions/` e estão preservados em `functions/ulbra-historico/` desta pasta, para referência, sem serem implantados.
+- Os testes da v1 (`historico.test.ts.ref`, `ausencia.test.ts.ref`) saíram do `supabase/functions/` e estão preservados como referência em `functions/ulbra-historico/`. Têm extensão `.ref` para que o Vitest não os execute: não são testes do sistema atual, e checam código antigo da v1.

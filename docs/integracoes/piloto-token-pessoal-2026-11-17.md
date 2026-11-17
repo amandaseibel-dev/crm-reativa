@@ -114,7 +114,7 @@ Não revogar nem substituir sem sua decisão específica.
 
 Rodado localmente com vitest. O Deno do `ulbra-conversa` roda só no CI.
 
-## Sobrescrita de conexão OAuth (trilha A, caso do Guardião)
+## Sobrescrita de conexão OAuth (trilha A, caso do Guardião; histórico, superado pela seção "Proteção atômica")
 
 - Risco: o `upsert` de `ulbra_conexoes_operador` é por e-mail. Gravar token pessoal sobre uma
   linha OAuth com `refresh_token` apagaria a cópia do refresh, deixando o grant válido no provedor
@@ -128,8 +128,7 @@ Rodado localmente com vitest. O Deno do `ulbra-conversa` roda só no CI.
 - **Fail-closed em erro de leitura:** a consulta da conexão atual trata o erro do banco. Se não
   conseguir ler, responde `503 CONEXAO_NAO_VERIFICADA` e não grava.
 - **Limites declarados do guard:**
-  - não é atômico: uma conclusão OAuth concorrente entre a leitura e o upsert não é bloqueada.
-    Probabilidade baixa para uma operadora; registrado;
+  - (Superado nesta revisão: a leitura prévia foi substituída pela gravação atômica de `ulbra_gravar_conexao`; ver a seção "Proteção atômica" abaixo.)
   - o guard só considera conexão com `refresh_token`. Uma conexão OAuth **sem refresh** (trilha B,
     caso raro) é sobrescrita sem recusa, e o grant segue válido no provedor até expirar. Registrado;
 - Estado real, consulta read-only em produção: a tabela `ulbra_conexoes_operador` **ainda não existe**
@@ -293,3 +292,15 @@ necessária para decifrá-los e para desconectar com segurança. Ela é preserva
 - Autoria real da mensagem e permissões mínimas: só com envio real controlado, aprovado.
 - Comportamento do token revogado na Mensageria: só com teste real.
 - Leitura real da conversa com o token pessoal: só com o token criado por você.
+
+## Grant sem cópia quando a revogação falha (declarado, não corrigido)
+
+- Quarentena (guarda cifrado para revogar depois) só existe no ramo **indisponível** (`grant.ts`).
+- Nos ramos IDENTIDADE_DIVERGENTE, erro de banco (conclusão OAuth) e renovação recusada por conexão mudada,
+  o `descartarGrant` tenta revogar access e refresh. Se a revogação no provedor falhar, o token fica válido
+  no provedor sem cópia no CRM.
+- Por que não há quarentena nesses ramos: em divergência o token pertence a outra conta e não deve ser guardado;
+  nos demais, guardar de novo reabriria a sobrescrita que a gravação atômica impede.
+- Recuperação manual: em MCP › Conexões da Mensageria, revogar a conexão do aplicativo do ReATIVA.
+- Vale para o piloto? Não. O piloto usa token pessoal, sem grant OAuth. Afeta só a trilha OAuth.
+- Espelhamento: `envio_previa` e `envio_confirmar` derivam `espelhada` do atendimento ativo encontrado no banco.
