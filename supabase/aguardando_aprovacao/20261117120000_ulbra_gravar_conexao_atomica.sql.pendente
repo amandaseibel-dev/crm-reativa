@@ -1,0 +1,76 @@
+-- =============================================================================
+-- PENDENTE DE APROVAÇÃO. NÃO APLICAR EM PRODUÇÃO SEM AUTORIZAÇÃO ESPECÍFICA.
+-- Pré-requisito: 20261111140000_ulbra_conexao_individual_e_envio (cria ulbra_conexoes_operador).
+--
+-- Grava uma conexão individual de forma ATÔMICA: a checagem "já existe credencial?" e a
+-- gravação acontecem sob a trava da linha (FOR UPDATE). Duas gravações concorrentes para o
+-- mesmo operador não se sobrescrevem: a segunda espera a primeira e recebe 'EXISTENTE'.
+--
+-- Regra: se o operador já tem access ou refresh cifrado (ativo OU revogado, sem confirmação
+-- de remoção), NÃO grava. Serve para OAuth e token pessoal, com ou sem refresh_token.
+-- Só grava quando não há credencial guardada (primeira conexão, ou após desconexão confirmada).
+--
+-- Tudo que vem de fora chega já cifrado pela aplicação (ULBRA_TOKENS_CHAVE); o banco não vê token em claro.
+-- =============================================================================
+
+create or replace function public.ulbra_gravar_conexao(
+  p_operador      text,
+  p_access        text,
+  p_refresh       text,
+  p_expira        timestamptz,
+  p_pessoa_nome   text,
+  p_pessoa_email  text,
+  p_escopos       jsonb,
+  p_so_leitura    boolean
+) returns text
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  r public.ulbra_conexoes_operador;
+begin
+  if p_operador is null or p_operador <> lower(p_operador) then
+    raise exception 'operador inválido' using errcode = '22023';
+  end if;
+  -- Garante a linha (sem efeito se já existe); a trava vem do SELECT ... FOR UPDATE.
+  insert into public.ulbra_conexoes_operador (operador_email)
+    values (p_operador)
+    on conflict (operador_email) do nothing;
+  select * into r from public.ulbra_conexoes_operador
+    where operador_email = p_operador
+    for update;
+  -- Credencial guardada (ativa ou não confirmada como removida): não sobrescreve.
+  if r.access_token_cifrado is not null or r.refresh_token_cifrado is not null then
+    return 'EXISTENTE';
+  end if;
+  update public.ulbra_conexoes_operador
+     set access_token_cifrado  = p_access,
+         refresh_token_cifrado = p_refresh,
+         expira_em             = p_expira,
+         pessoa_nome           = p_pessoa_nome,
+         pessoa_email          = p_pessoa_email,
+         escopos               = p_escopos,
+         so_leitura            = p_so_leitura,
+         conectada_em          = now(),
+         revogada_em           = null,
+         revogada_no_provedor  = null,
+         atualizado_em         = now()
+   where operador_email = p_operador;
+  return 'GRAVADA';
+end;
+$$;
+
+revoke all on function public.ulbra_gravar_conexao(text, text, text, timestamptz, text, text, jsonb, boolean) from public, anon, authenticated;
+grant execute on function public.ulbra_gravar_conexao(text, text, text, timestamptz, text, text, jsonb, boolean) to service_role;
+
+-- Pós-checagem: grants e search_path conferidos (lista da skill seguranca-rls).
+do $$
+begin
+  if has_function_privilege('authenticated', 'public.ulbra_gravar_conexao(text, text, text, timestamptz, text, text, jsonb, boolean)', 'EXECUTE') then
+    raise exception 'ulbra_gravar_conexao executável por authenticated';
+  end if;
+  if has_function_privilege('anon', 'public.ulbra_gravar_conexao(text, text, text, timestamptz, text, text, jsonb, boolean)', 'EXECUTE') then
+    raise exception 'ulbra_gravar_conexao executável por anon';
+  end if;
+end $$;

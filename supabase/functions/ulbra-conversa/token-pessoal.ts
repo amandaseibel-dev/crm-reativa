@@ -38,8 +38,11 @@ export interface DepsTokenPessoal {
   email: string;
   /** Chamada meu_acesso com o próprio token. Lança erro quando a Mensageria recusa. */
   identidadeDoToken(token: string): Promise<IdentidadeToken>;
-  /** Grava cifrado. Nunca recebe nem devolve o token em claro para fora do backend. */
-  guardar(dados: { access_token: string; expira_em_ms: number }, extra: Record<string, unknown>): Promise<void>;
+  /**
+   * Grava cifrado de forma ATÔMICA (ulbra_gravar_conexao): 'GRAVADA' ou 'EXISTENTE' (já há credencial,
+   * ativa ou não confirmada como removida; nada é sobrescrito). Erro de leitura/gravação lança e não grava.
+   */
+  guardar(dados: { access_token: string; expira_em_ms: number }, extra: Record<string, unknown>): Promise<"GRAVADA" | "EXISTENTE">;
   agoraMs: number;
 }
 
@@ -48,7 +51,8 @@ export type MotivoTokenPessoal =
   | "VALIDADE_NAO_PERMITIDA"
   | "TOKEN_RECUSADO_PELA_MENSAGERIA"
   | "MENSAGERIA_INDISPONIVEL"
-  | "IDENTIDADE_DIVERGENTE";
+  | "IDENTIDADE_DIVERGENTE"
+  | "CONEXAO_EXISTENTE";
 
 export type ResultadoTokenPessoal =
   | { ok: true; pessoa: string | null; expira_em: string; estado: "ATIVA" }
@@ -78,7 +82,7 @@ export async function cadastrarTokenPessoal(
   }
 
   const expiraEmMs = deps.agoraMs + validadeDias * 24 * 60 * 60 * 1000;
-  await deps.guardar(
+  const gravacao = await deps.guardar(
     { access_token: t, expira_em_ms: expiraEmMs },
     {
       conectada_em: new Date(deps.agoraMs).toISOString(),
@@ -88,6 +92,8 @@ export async function cadastrarTokenPessoal(
       so_leitura: identidade.so_leitura,
     },
   );
+  // Credencial já existente (OAuth ou token): não substitui silenciosamente. Troca exige desconexão explícita.
+  if (gravacao === "EXISTENTE") return { ok: false, motivo: "CONEXAO_EXISTENTE" };
   return {
     ok: true,
     pessoa: identidade.pessoa_nome,

@@ -142,6 +142,23 @@ Deno.serve(async (req: Request) => {
       ...extra,
     });
   }
+  // Gravação ATÔMICA (migration 20261117120000, pendente): checa e grava sob trava da linha.
+  // Devolve 'EXISTENTE' se já há credencial (ativa ou não confirmada como removida): nada é sobrescrito.
+  // Erro do banco lança VERIFICACAO_INDISPONIVEL e nada é gravado.
+  async function gravarConexaoAtomica(t: { access_token: string; refresh_token: string | null; expira_em_ms: number }, extra: Record<string, unknown>): Promise<"GRAVADA" | "EXISTENTE"> {
+    const { data, error } = await sb.rpc("ulbra_gravar_conexao", {
+      p_operador: email,
+      p_access: await cifrar(t.access_token, chave!),
+      p_refresh: t.refresh_token ? await cifrar(t.refresh_token, chave!) : null,
+      p_expira: new Date(t.expira_em_ms).toISOString(),
+      p_pessoa_nome: (extra.pessoa_nome as string | null) ?? null,
+      p_pessoa_email: (extra.pessoa_email as string | null) ?? null,
+      p_escopos: (extra.escopos as unknown) ?? null,
+      p_so_leitura: (extra.so_leitura as boolean | null) ?? null,
+    });
+    if (error) throw new Error("VERIFICACAO_INDISPONIVEL");
+    return data === "GRAVADA" ? "GRAVADA" : "EXISTENTE";
+  }
   const provedorOAuth: ProvedorOAuth = {
     async renovar(refreshToken) {
       const t = await renovarToken({ clientId: clientId!, refreshToken }, fetchForm, Date.now());
@@ -260,18 +277,8 @@ Deno.serve(async (req: Request) => {
       const token = typeof corpo.token === "string" ? corpo.token : "";
       const validade = Number(corpo.validade_dias);
       try {
-        // Não sobrescreve uma conexão OAuth ativa (grant com refresh): o upsert zeraria o refresh local,
-        // e o grant seguiria válido no provedor sem cópia nem revogação. Desconecte o OAuth antes.
-        // Fail-closed: se não consegue ler a conexão atual, não grava (sem isso, uma falha de leitura
-        // deixaria passar a sobrescrita). Consulta direta, para tratar o erro do banco.
-        const { data: atual, error: erroLeitura } = await sb.from("ulbra_conexoes_operador")
-          .select("refresh_token_cifrado, revogada_em").eq("operador_email", email).maybeSingle();
-        if (erroLeitura) return responder({ ok: false, motivo: "CONEXAO_NAO_VERIFICADA" }, 503);
-        // Vale enquanto houver refresh cifrado, mesmo com revogada_em: desconexão sem confirmação do
-        // provedor mantém o refresh (A4) e é a única cópia que permite tentar a revogação de novo.
-        if (atual && atual.refresh_token_cifrado) {
-          return responder({ ok: false, motivo: "CONEXAO_OAUTH_ATIVA" }, 409);
-        }
+        // Sem leitura prévia: a checagem e a gravação são UMA operação atômica no banco
+        // (ulbra_gravar_conexao, com trava da linha). Erro do banco = nada gravado (503).
         const r = await cadastrarTokenPessoal({
           email,
           agoraMs: Date.now(),
@@ -294,17 +301,19 @@ Deno.serve(async (req: Request) => {
               escopos: extra.escopos ?? null,
             });
             if (!audito) throw new Error("AUDITORIA_NAO_GRAVADA");
-            await guardarTokens({ access_token: dados.access_token, refresh_token: null, expira_em_ms: dados.expira_em_ms }, extra);
+            return await gravarConexaoAtomica({ access_token: dados.access_token, refresh_token: null, expira_em_ms: dados.expira_em_ms }, extra);
           },
         }, token, validade);
         if (!r.ok) {
-          const status = r.motivo === "MENSAGERIA_INDISPONIVEL" ? 502 : r.motivo === "IDENTIDADE_DIVERGENTE" ? 403 : 400;
+          const status = r.motivo === "MENSAGERIA_INDISPONIVEL" ? 502 : r.motivo === "IDENTIDADE_DIVERGENTE" ? 403 : r.motivo === "CONEXAO_EXISTENTE" ? 409 : 400;
           return responder({ ok: false, motivo: r.motivo }, status);
         }
         return responder({ ok: true, ...r });
       } catch (e) {
-        if ((e as Error).message === "AUDITORIA_NAO_GRAVADA") return responder({ ok: false, motivo: "AUDITORIA_NAO_GRAVADA" }, 500);
-        console.error("ulbra-conversa: cadastro de token pessoal falhou", (e as Error).message);
+        const msg = (e as Error).message;
+        if (msg === "AUDITORIA_NAO_GRAVADA") return responder({ ok: false, motivo: "AUDITORIA_NAO_GRAVADA" }, 500);
+        if (msg === "VERIFICACAO_INDISPONIVEL") return responder({ ok: false, motivo: "CONEXAO_NAO_VERIFICADA" }, 503);
+        console.error("ulbra-conversa: cadastro de token pessoal falhou", msg);
         return responder({ ok: false, motivo: "FALHA_CADASTRO_TOKEN" }, 500);
       }
     }
@@ -348,7 +357,18 @@ Deno.serve(async (req: Request) => {
         try { await provedorOAuth.revogar(t.access_token); revogadaNoProvedor = true; } catch { revogadaNoProvedor = false; }
         return responder({ ok: false, motivo: "IDENTIDADE_DIVERGENTE", revogada_no_provedor: revogadaNoProvedor }, 403);
       }
-      await guardarTokens(t, { conectada_em: new Date().toISOString(), ...pessoa });
+      // Gravação atômica: se já há credencial (token pessoal ou OAuth), não substitui. O grant recém-emitido
+      // não será guardado, então é revogado (melhor esforço). Troca exige desconexão explícita antes.
+      let gravacao: "GRAVADA" | "EXISTENTE";
+      try {
+        gravacao = await gravarConexaoAtomica(t, { conectada_em: new Date().toISOString(), ...pessoa });
+      } catch {
+        return responder({ ok: false, motivo: "CONEXAO_NAO_VERIFICADA" }, 503);
+      }
+      if (gravacao === "EXISTENTE") {
+        try { await provedorOAuth.revogar(t.access_token); } catch { /* melhor esforço: o token expira */ }
+        return responder({ ok: false, motivo: "CONEXAO_EXISTENTE" }, 409);
+      }
       return responder({ ok: true, estado: "ATIVA", pessoa: pessoa.pessoa_nome ?? null, escopos: pessoa.escopos ?? null, escopo_token: t.escopo });
     }
 

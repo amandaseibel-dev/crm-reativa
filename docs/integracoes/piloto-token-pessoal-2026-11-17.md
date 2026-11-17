@@ -158,6 +158,43 @@ Rodado localmente com vitest. O Deno do `ulbra-conversa` roda só no CI.
   `chamarComoOperador` devolve `{ dados, erro }` (`extrairResultado`, `index.ts:50-58`).
   Não há defeito de envelope: uma correção errada nesse ponto foi revertida.
 
+## Proteção atômica da conexão (pré-requisito de implantação; NÃO ativa)
+
+**Estado:** pendente de aprovação. Nada aplicado em produção. Enquanto a migration não for
+aplicada, a tabela `ulbra_conexoes_operador` não existe e **nenhuma conexão pode ser gravada**
+(fail-closed). Não há proteção ativa hoje.
+
+**Migration:** `supabase/aguardando_aprovacao/20261117120000_ulbra_gravar_conexao_atomica.sql.pendente`
+(+ `.rollback.sql`). Depende de `20261111140000` (cria a tabela). Cria `ulbra_gravar_conexao`:
+- checagem e gravação **na mesma transação**, sob trava da linha (`SELECT ... FOR UPDATE`);
+- recusa (`EXISTENTE`) quando já há access **ou** refresh cifrado, ativo ou revogado: não substitui
+  silenciosamente nenhuma conexão, com ou sem refresh (trata o caso A4 também);
+- só grava quando não há credencial (primeira conexão, ou após desconexão confirmada);
+- execução só por `service_role`; `anon` e `authenticated` sem EXECUTE (conferido na própria migration).
+
+**Usada por:** cadastro de token pessoal e conclusão OAuth. Erro de banco lança e **nada é gravado**;
+no cadastro responde 503 `CONEXAO_NAO_VERIFICADA`. Conclusão OAuth recusada revoga o grant recém-emitido
+(melhor esforço), porque ele não será guardado.
+
+**Testes:**
+- Unitários (local, Vitest): `token-pessoal.test.ts` (9) e `token-pessoal-atomico.test.ts` (8),
+  com armazenamento falso que serializa gravações. Erro de gravação sem gravação; OAuth com e sem
+  refresh preservado; concorrência token x token e token x OAuth. Modelam a trava, não a provam.
+- Banco real (CI, Postgres 17, job `ulbra-conexao-envio-sql`, passo novo):
+  `supabase/tests/ulbra_conexao_token/run.cjs`. Duas conexões; a contenção é confirmada por
+  `pg_stat_activity` antes da segunda gravar. **Não executado localmente** (sem Postgres nesta máquina).
+  Só vale quando o job rodar verde.
+
+**Limites que permanecem:**
+- Tentativa recusada continua **auditada** como `ULBRA_CONEXAO_TOKEN_PESSOAL` (a auditoria vem antes
+  da gravação, para falhar fechado). Registro de tentativa, não de cadastro.
+- Troca de modalidade (OAuth para token, ou o inverso) exige **desconexão explícita** antes. A
+  desconexão sem confirmação do provedor mantém o refresh e continua bloqueando (ver acima).
+- Credencial OAuth ainda válida no provedor, em caso de falha de revogação, precisa de revogação
+  manual na Mensageria. O CRM não a elimina sozinho.
+
+**Rollback:** remove só a função. Sem ela, nenhuma conexão é gravada (fail-closed).
+
 ## O que continua não comprovado
 
 - Autoria real da mensagem e permissões mínimas: só com envio real controlado, aprovado.

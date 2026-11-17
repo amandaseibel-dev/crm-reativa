@@ -1177,6 +1177,9 @@ jobs:
       - name: Persistência, consumo único, concorrência, guarda e rollback
         run: NODE_PATH="$RUNNER_TEMP/pg/node_modules" node supabase/tests/ulbra_conexao_envio/run.cjs
 
+      - name: Atomicidade da gravação de conexão (duas conexões, Postgres 17)
+        run: NODE_PATH="$RUNNER_TEMP/pg/node_modules" node supabase/tests/ulbra_conexao_token/run.cjs
+
   # ---------------------------------------------------------------------------
   # ---------------------------------------------------------------------------
 
