@@ -124,6 +124,10 @@ Rodado localmente com vitest. O Deno do `ulbra-conversa` roda só no CI.
 - **Conclusão OAuth com erro da ferramenta** (`conexao_concluir`): responde 502
   `MENSAGERIA_INDISPONIVEL` e **não** grava nem revoga. O token OAuth recém-emitido fica sem
   uso até expirar. Não é divergência de identidade, e não se revoga por erro transitório.
+  - Inclui **401/403** logo após emitir o token (`ULBRA_AUTENTICACAO`): também vira 502 e não
+    recusa. Fail-closed; caso não separado antes desta revisão.
+  - O `refresh_token` OAuth, se emitido, **continua válido no provedor** até expirar. O CRM não
+    o guarda, mas não o revoga neste caminho.
 - **Wiring sem teste automatizado:** os caminhos de `index.ts` (identidade OAuth, token pessoal,
   wiring de `lerConversa`) não são cobertos pelos testes, que usam dependências simuladas.
   Verificados só por leitura e pela revisão do Guardião. Gap registrado.
