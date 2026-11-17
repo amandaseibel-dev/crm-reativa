@@ -111,6 +111,22 @@ Não revogar nem substituir sem sua decisão específica.
 
 Rodado localmente com vitest. O Deno do `ulbra-conversa` roda só no CI.
 
+## Limitações declaradas
+
+- **Conexão OAuth sem `refresh_token`** é tratada como "pessoal" em `conexao_desconectar`
+  (`refresh_token === null`). Para ela, o CRM apaga a cópia local e pede revogação manual,
+  sem chamar o provedor. Não há coluna de tipo na tabela (criar uma exige migration, não feita).
+- **Sem `ULBRA_OAUTH_CLIENT_ID`**, a renovação OAuth falha e a conexão vira `EXPIRADA`
+  (fail-closed). Antes, a ação devolvia 503 `CONEXAO_NAO_CONFIGURADA`; agora o erro sai pela
+  renovação. Isso é mudança de comportamento e está declarada aqui.
+- **Auditoria antes da gravação:** se a gravação falhar depois da auditoria, a auditoria
+  registra uma tentativa que não se concretizou. Preferível a gravar sem auditoria.
+- **Correção desta revisão:** `chamarComoOperador` devolve o resultado da ferramenta, sem
+  envelope `{dados}`. Os pontos de identidade (`conexao_concluir` e token pessoal) e o wiring
+  de leitura do histórico estavam lendo `undefined`, o que faria a identidade falhar sempre
+  e o histórico voltar vazio. Corrigido nesta revisão, com a identidade ainda protegida por
+  `pessoa_email` exato.
+
 ## O que continua não comprovado
 
 - Autoria real da mensagem e permissões mínimas: só com envio real controlado, aprovado.

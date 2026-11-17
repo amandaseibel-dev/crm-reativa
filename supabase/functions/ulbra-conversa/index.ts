@@ -264,8 +264,8 @@ Deno.serve(async (req: Request) => {
           email,
           agoraMs: Date.now(),
           identidadeDoToken: async (t) => {
-            const { dados } = await chamarComoOperador(t, "meu_acesso", {});
-            const a = dados as { pessoa?: { nome?: string; email?: string }; escopos?: unknown; soLeitura?: unknown };
+            // chamarComoOperador devolve o resultado da ferramenta (não há envelope {dados}).
+            const a = (await chamarComoOperador(t, "meu_acesso", {})) as { pessoa?: { nome?: string; email?: string }; escopos?: unknown; soLeitura?: unknown };
             return {
               pessoa_email: a?.pessoa?.email ?? null,
               pessoa_nome: a?.pessoa?.nome ?? null,
@@ -313,8 +313,8 @@ Deno.serve(async (req: Request) => {
       // Quem é a pessoa do token: 1 chamada da cota DO OPERADOR. Prova a autoria antes de qualquer envio.
       let pessoa: Record<string, unknown> = {};
       try {
-        const { dados } = await chamarComoOperador(t.access_token, "meu_acesso", {});
-        const a = dados as { pessoa?: { nome?: string; email?: string }; nome?: string; escopos?: unknown; soLeitura?: unknown };
+        // chamarComoOperador devolve o resultado da ferramenta (não há envelope {dados}).
+        const a = (await chamarComoOperador(t.access_token, "meu_acesso", {})) as { pessoa?: { nome?: string; email?: string }; nome?: string; escopos?: unknown; soLeitura?: unknown };
         // Campo de identidade disponível em meu_acesso: pessoa.email (pessoa.id não aparece no retorno).
         // Estabilidade e equivalência com o atendente NÃO comprovadas: a comparação segue fail-closed.
         pessoa = { pessoa_nome: a?.pessoa?.nome ?? null, pessoa_email: a?.pessoa?.email ?? null, escopos: a?.escopos ?? null, so_leitura: typeof a?.soLeitura === "boolean" ? a.soLeitura : null };
@@ -388,7 +388,8 @@ Deno.serve(async (req: Request) => {
           if (!conn.ok) return { ok: false as const, motivo: conn.motivo };
           return { ok: true as const, access_token: conn.registro.access_token, pessoa_email: conn.registro.pessoa_email };
         },
-        lerConversa: (token, args) => chamarComoOperador(token, "ler_conversa", args),
+        // historico-leitura espera o envelope { dados }; erro da Mensageria lança e vira ULBRA_INDISPONIVEL.
+        lerConversa: async (token, args) => ({ dados: await chamarComoOperador(token, "ler_conversa", args) }),
         auditar: (detalhes) => auditar("ULBRA_HISTORICO_LEITURA", "ulbra_conversas", detalhes),
       };
       if (acao === "historico_capacidade") {
