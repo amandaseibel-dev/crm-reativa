@@ -61,7 +61,7 @@ describe("aprovação", () => {
     fireEvent.click(screen.getByRole("button", { name: "Aprovar e bloquear cobrança" }));
     await waitFor(() => expect(chamadas("juridico_caso_aprovar")).toHaveLength(1));
     expect(chamadas("juridico_caso_aprovar")[0][1]).toEqual({ p_caso_id: "c1" });
-    expect(await screen.findByText(/Cobrança bloqueada — manual, massiva e automática/)).toBeTruthy();
+    expect(await screen.findByText(/Cobrança bloqueada no portão \(massivas e elegibilidade\)/)).toBeTruthy();
     expect(rpc).toHaveBeenCalledWith("juridico_varrer_alertas");
   });
 
