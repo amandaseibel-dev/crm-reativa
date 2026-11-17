@@ -3,5 +3,5 @@
 # a linha e publicada com status=pendente e expira_em de 30 min a partir da aprovacao.
 # Ordem: 20261113100100 ANTES de 20261113100000 (o banco impoe; ver guardas).
 projeto	nome	sha256	executor	expira_em	status
-ahattpqrjmhkzsmnbdzs	20261113100100_acoes_massivas_email_so_apos_tabulacao	f72dd948969869997872673990cf9ed16f6f587a47b77fa9b55e836589ee71de	amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente
-ahattpqrjmhkzsmnbdzs	20261113100000_acoes_massivas_confirmar_envio	415978244f0380e6f55a9f82f4f622e6dac02403b08b820665e1ab195ea2fded	amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente
+ahattpqrjmhkzsmnbdzs	20261113100100_acoes_massivas_email_so_apos_tabulacao	0bbbd589d15b741083cb5f325071bf2fbb82e29baf0d4c065b740c628b85f72e	amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente
+ahattpqrjmhkzsmnbdzs	20261113100000_acoes_massivas_confirmar_envio	14defdc038e36466fb3507d65a217bf5552747ee8a06862d6f18bde7dde4f405	amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente

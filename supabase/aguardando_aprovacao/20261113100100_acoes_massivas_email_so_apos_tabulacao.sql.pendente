@@ -50,7 +50,7 @@ $a2$  select o.id, o.exportado_em into v_derivado, v_derivado_em$a2$,
 $n2$  -- 16/11/2026: lote de WhatsApp ainda PENDENTE de envio nao deriva e-mail.
   -- Vale para qualquer chamador. Quem confirma e acoes_massivas_concluir_envio.
   if v_origem.confirmado_em is null then
-    raise exception 'Este lote de WhatsApp ainda esta pendente de envio. Tabule o envio (ou descarte o lote) antes de exportar os e-mails.'
+    raise exception 'Este lote de WhatsApp ainda esta pendente de envio. Tabule o envio antes de exportar os e-mails.'
       using errcode = '55000';
   end if;
 
@@ -60,7 +60,7 @@ $n2$  -- 16/11/2026: lote de WhatsApp ainda PENDENTE de envio nao deriva e-mail.
 DO $f$
 BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar_emails_do_lote') IS DISTINCT FROM 'eb960a2445b786514ad8bcd0d07c102b' THEN
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar_emails_do_lote') IS DISTINCT FROM '1881bd1d0f362be586233264a396fcfd' THEN
     RAISE EXCEPTION 'MD5 final de acoes_massivas_exportar_emails_do_lote diferente do validado.';
   END IF;
 END $f$;

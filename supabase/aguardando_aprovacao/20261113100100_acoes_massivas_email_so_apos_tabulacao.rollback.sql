@@ -13,7 +13,7 @@ BEGIN;
 DO $g$
 BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar_emails_do_lote') IS DISTINCT FROM 'eb960a2445b786514ad8bcd0d07c102b' THEN
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar_emails_do_lote') IS DISTINCT FROM '1881bd1d0f362be586233264a396fcfd' THEN
     RAISE EXCEPTION 'Rollback abortado: acoes_massivas_exportar_emails_do_lote nao esta na versao da migration 20261113100100.';
   END IF;
   -- A confirmacao (20261113100000) depende desta protecao: se a funcao nova existe, recusa.
@@ -21,6 +21,8 @@ BEGIN
     RAISE EXCEPTION 'Rollback recusado: acoes_massivas_concluir_envio depende desta protecao. Reverta 20261113100000 antes. Nada alterado.';
   END IF;
   -- Condicao de reversao: zero lotes pendentes (estado efetivo).
+  -- Trava de tabela ANTES da checagem: serializa com a exportacao (que insere lote).
+  LOCK TABLE public.acoes_massivas_lotes IN SHARE ROW EXCLUSIVE MODE;
   IF EXISTS (SELECT 1 FROM public.acoes_massivas_lotes WHERE confirmado_em IS NULL AND descartado_em IS NULL) THEN
     RAISE EXCEPTION 'Rollback recusado: ha lotes de WhatsApp/e-mail pendentes de envio. Nada alterado.';
   END IF;
@@ -33,7 +35,7 @@ DECLARE
   v_guarda text := $guarda$  -- 16/11/2026: lote de WhatsApp ainda PENDENTE de envio nao deriva e-mail.
   -- Vale para qualquer chamador. Quem confirma e acoes_massivas_concluir_envio.
   if v_origem.confirmado_em is null then
-    raise exception 'Este lote de WhatsApp ainda esta pendente de envio. Tabule o envio (ou descarte o lote) antes de exportar os e-mails.'
+    raise exception 'Este lote de WhatsApp ainda esta pendente de envio. Tabule o envio antes de exportar os e-mails.'
       using errcode = '55000';
   end if;
 

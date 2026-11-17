@@ -13,6 +13,8 @@ BEGIN
     RAISE EXCEPTION 'Rollback abortado: acoes_massivas_exportar nao esta na versao da migration 20261113100000.';
   END IF;
   -- Condicao de reversao: zero lotes pendentes (estado efetivo, nao marca).
+  -- Trava de tabela ANTES da checagem: serializa com a exportacao (que insere lote).
+  LOCK TABLE public.acoes_massivas_lotes IN SHARE ROW EXCLUSIVE MODE;
   IF EXISTS (SELECT 1 FROM public.acoes_massivas_lotes WHERE confirmado_em IS NULL AND descartado_em IS NULL) THEN
     RAISE EXCEPTION 'Rollback recusado: ha lotes de WhatsApp/e-mail pendentes de envio. Nada alterado.';
   END IF;

@@ -33,7 +33,7 @@ const GESTAO_EMAIL = "gestao.teste@reativa.local";
 const MD5_EXPORTAR_PUBLICADO = "c9cc7498d16ca250e85c4727c8bb05bd";
 const MD5_EXPORTAR_FINAL = "3861da11bfb0930fc698ce8e1ca05a35";
 const MD5_EMAIL_PUBLICADO = "00d3370a7800bd334292808e1573a57d";
-const MD5_EMAIL_FINAL = "eb960a2445b786514ad8bcd0d07c102b";
+const MD5_EMAIL_FINAL = "1881bd1d0f362be586233264a396fcfd";
 
 async function banco() {
   const db = await novoBanco({ registroAutomatico: true });
@@ -103,6 +103,19 @@ describe("ordem de aplicacao: 20261113100100 antes de 20261113100000", () => {
 });
 
 describe("ordem de reversao: confirmacao antes da protecao; zero pendentes", () => {
+  it("NAO BLOQUEIA: lote descartado nem lote confirmado impedem a reversao (so o pendente)", async () => {
+    const db = await banco();
+    await db.exec(PROTECAO);
+    await db.exec(CONFIRMACAO);
+    const ids = (await db.query(`select id::text id from public.alunos where id::text like '00000000-0000-4000-8000-%' order by id limit 2`)).rows.map((r) => r.id);
+    await db.query(
+      `insert into public.acoes_massivas_lotes (canal, arquivo, aluno_ids, total, exportado_por_email, tipo_cobranca, recencia_dias, descartado_em, descartado_por_email)
+       values ('WHATSAPP', 'descartado.xlsx', $1::text[], 2, $2, 'MENSALIDADES', 10, now(), $2)`, [`{${ids.join(",")}}`, GESTAO_EMAIL]);
+    await db.exec(CONFIRMACAO_RB);
+    expect((await estado(db)).pendentes).toBe(0);
+    expect((await estado(db)).exportar).toBe(MD5_EXPORTAR_PUBLICADO);
+  });
+
   it("PROIBIDA: reverter a protecao enquanto a confirmacao depende dela e recusado, e nada muda", async () => {
     const db = await banco();
     await db.exec(PROTECAO);
