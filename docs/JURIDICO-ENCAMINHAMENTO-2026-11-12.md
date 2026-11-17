@@ -35,6 +35,19 @@ policy e sem grant: só se lê e escreve pelas RPCs.
 - **Fora da seleção**: aluno já em lote vivo, com bloqueio administrativo, com título
   `EM_CONFIRMACAO` ou solicitação de confirmação de pagamento pendente.
 
+## LIGAÇÃO AOS ENVIOS (17/11/2026)
+
+Ligado (com teste): `whatsapp-send` (texto) e `whatsapp-enviar-documento` (documento) chamam
+`juridico_checar_envio` com o hash do conteúdo enviado ANTES do gateway e do upload.
+Falha em qualquer etapa impede o envio (fail-closed). Só `service_role` executa a checagem.
+
+Requisito obrigatório antes de habilitar envio real da ULBRA (#913, `ulbra-conversa`): ligar
+`juridico_checar_envio` ao caminho de envio real, com `p_aluno` = `alunos.id` confirmado por leitura,
+e hash SHA-256 hexadecimal igual ao da prévia. Hoje o envio da #913 está desligado.
+
+Compatibilidade com a #754 (wpp/v18-e-limites): ambas mexem em `whatsapp-send/index.ts`, em blocos
+diferentes. Conflito esperado só na linha de import logo após `createClient`. Resolução: manter os dois imports.
+
 ## DISPONIBILIZAÇÃO BLOQUEADA (17/11/2026)
 
 A aba Jurídico **não está disponível** (`JURIDICO_LIBERADO = false` em `src/App.jsx`). Motivo: o envio
