@@ -885,7 +885,7 @@ begin
   -- Se outro fluxo tambem ligou nao_acionar durante o encaminhamento, a flag NAO e deste fluxo:
   -- fica ligada (o bloqueio dele continua). Ver _juridico_marca_bloqueio_compartilhado.
   select bloqueio_compartilhado into v_comp from public.juridico_casos where id = p_caso.id;
-  if coalesce(v_comp, false) then return 'MANTIDO_OUTRO_FLUXO'; end if;
+  if coalesce(v_comp, false) then return 'MANTIDO_OUTRO_BLOQUEIO'; end if;
 
   -- Unica porta que libera nao_acionar: a guarda de casos so deixa passar com esta GUC.
   perform set_config('juridico.desbloqueio', 'on', true);
@@ -900,12 +900,16 @@ begin
 
   perform set_config('juridico.desbloqueio', '', true);
 
-  -- Validacao: nenhum caso que estava livre continua barrado por este fluxo.
+  -- Validacao e retorno pelo ESTADO REAL: nenhum caso que estava livre continua barrado.
   if exists (select 1 from public.casos c
                join jsonb_to_recordset(p_caso.bloqueio_anterior) as x(id uuid, nao_acionar boolean) on x.id = c.id
               where coalesce(x.nao_acionar, false) = false and c.nao_acionar = true) then
     raise exception 'Não foi possível levantar o bloqueio jurídico do aluno %. Nada foi alterado.', p_caso.aluno_id
       using errcode = 'P0001';
+  end if;
+  -- Se ainda sobra alguma flag ligada (ja estava ligada antes, ou outro fluxo a mantem), nao se diz "levantado".
+  if exists (select 1 from public.casos c where c.aluno_id = p_caso.aluno_id and c.nao_acionar = true) then
+    return 'MANTIDO_OUTRO_BLOQUEIO';
   end if;
   return 'LIBERADO';
 end;
@@ -934,7 +938,7 @@ begin
       (aluno_id, tipo, descricao, status_anterior, status_novo, registrado_por_nome, registrado_por_email)
     values (v_caso.aluno_id::text, 'JURIDICO_BLOQUEIO_LEVANTADO',
             'Caso retirado da análise jurídica antes do envio ao financeiro. ' ||
-            case when v_bloq = 'MANTIDO_OUTRO_FLUXO' then 'Bloqueio de cobrança MANTIDO: outro fluxo também o aplicou durante o encaminhamento. '
+            case when v_bloq = 'MANTIDO_OUTRO_BLOQUEIO' then 'Bloqueio de cobrança MANTIDO: ainda há bloqueio de cobrança ligado no caso (outro fluxo ou bloqueio anterior). '
                  else 'Bloqueio de cobrança levantado. ' end || 'Motivo: ' || btrim(p_motivo),
             null, null, v_email, v_email);
   end if;

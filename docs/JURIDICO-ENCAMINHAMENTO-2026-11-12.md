@@ -53,13 +53,14 @@ da carteira. A seção abaixo, que grava `JURIDICO` em `alunos.status_*`, está 
 - Não verificado no repositório: as rotinas de cadência WhatsApp e de tarefas leem
   `nao_acionar`. Nas funções versionadas, só giro, redistribuição e acionamento leem; as de
   cadência estão só em produção e não foram lidas.
-- Remoção: retorna `bloqueio` = `LIBERADO` ou `MANTIDO_OUTRO_FLUXO` (quando outro fluxo também
-  gravou `nao_acionar` durante o encaminhamento; a flag fica ligada e o registro diz isso).
+- Remoção: retorna `bloqueio` = `LIBERADO` só quando nenhuma flag do aluno ficou ligada; caso contrário
+  `MANTIDO_OUTRO_BLOQUEIO` (outro fluxo gravou a flag durante o encaminhamento, ou já havia bloqueio).
   Nem sempre a remoção libera: confira o retorno.
 - Residual, não resolvido: (1) rollback não reconcilia flags de casos vivos (ele recusa
-  com caso APROVADO; flags compartilhadas ficam ligadas por desenho); (2) a marcação escreve em
-  `juridico_casos` a partir de `casos`, com ordem de trava diferente da remoção; pode haver
-  deadlock, não reproduzido; (3) a prova de concorrência da aprovação não cobre o marcador.
+  com caso APROVADO; flags compartilhadas ficam ligadas por desenho); (2) o marcador é BEFORE UPDATE e
+  escreve em `juridico_casos` antes de a linha de `casos` ser travada (ordem juridico_casos->casos, igual à remoção).
+  Um writer que espera a aprovação pode ver o caso já encerrado como EM_ANALISE e não marcar: a flag
+  compartilhada cairia na remoção. Não verificado sob espera (PG 17); (3) a prova de concorrência da aprovação não cobre o marcador.
 - Pendente: indicação visual do bloqueio jurídico na carteira (PainelCarteira não lê o
   bloqueio do caso).
 
@@ -223,8 +224,8 @@ Fica, por decisão a tomar pela gestão:
 - **Excel**: toda geração (envio e reexportação) registra `EXCEL_GERADO` com o lote. Só leva caso
   enviado ou confirmado. Os valores são os da aprovação; a coluna "Situação na data da geração"
   marca o caso em que algo mudou depois.
-- **Grants e rollback**: listas explícitas de 14 funções públicas e 18 internas (sem `service_role`); a
-  migration confere que o inventário tem exatamente 32. O rollback solta gatilhos, depois as 32 funções,
+- **Grants e rollback**: listas explícitas de 14 funções públicas e 20 internas (sem `service_role`); a
+  migration confere que o inventário tem exatamente 34. O rollback solta gatilhos, depois as 32 funções,
   depois as tabelas. Cópias em `_backup_juridico_*_20261112` com RLS e sem grant.
 - **Término do Contrato** não entra em evadidos (`_juridico_grupo` devolve nulo).
 
