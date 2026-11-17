@@ -60,7 +60,11 @@ create table public.operador_agenda (
 create table public.aluno_movimentacoes (
   id bigserial primary key, aluno_id text not null, tipo text not null, descricao text,
   operador_anterior_nome text, operador_anterior_email text, operador_novo_nome text, operador_novo_email text,
-  registrado_por_nome text, registrado_por_email text, registrado_em timestamptz default now()
+  registrado_por_nome text, registrado_por_email text, registrado_em timestamptz default now(),
+  -- colunas de producao (information_schema, 17/11/2026) que a #936 le
+  status_anterior text, status_novo text, data_retorno timestamptz, solicitacao_link_id uuid,
+  baixa_pagamento_id uuid, link_pagamento text, motivo_devolucao text, valor_movimentacao numeric,
+  lote_id uuid
 );
 create table public.auditoria (
   id uuid primary key default gen_random_uuid(), usuario text, acao text not null,
