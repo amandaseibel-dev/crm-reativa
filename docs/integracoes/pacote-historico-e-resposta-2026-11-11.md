@@ -112,3 +112,22 @@ Rollback: `20261116150000_*.rollback.sql` restaura a versão sem portão. NÃO �
 - A UI desligada (`HISTORICO_DISPONIVEL=false`) não fecha o endpoint: a v1 responde por HTTP a qualquer JWT de usuário ativo.
 - A cópia preservada em `docs/integracoes/preservacao-ulbra-historico-v1-producao/` foi reconstruída a partir do retorno da leitura. Diferenças em relação à versão do histórico do repositório: `historico.ts` (import e texto de cota). Não é prova byte a byte da produção.
 - Pré-requisito explícito: contenção (remoção de `ulbra-historico`) antes de qualquer outra ação.
+
+## Tabela de migrations (conferida em 17/11/2026, leitura de produção sem escrita)
+| Migration | Estado em produção | Arquivos (sha256) | Dependências / ordem |
+|---|---|---|---|
+| `20261110100000_ulbra_historico_orcamento` | APLICADA (ledger `20261112111006`); tabela `ulbra_historico_uso` e `ulbra_historico_reservar` existem, dono postgres, sem portão | pendente original `163f3b55…`; rollback `1aa486a1…` | Histórica. NÃO reaplicar nem editar. |
+| `20261111140000_ulbra_conexao_individual_e_envio` | NÃO APLICADA (tabelas `ulbra_conexoes_pedidos`, `ulbra_conexoes_operador`, `ulbra_envio_previas`, `ulbra_envios` e função `ulbra_conferir_envio` ausentes) | pendente `fcd27030…`; rollback `f6b8013e…` | Depende de `ulbra_vinculos`/`ulbra_conversas` já existentes. Aplicação exige aprovação. |
+| `20261116150000_ulbra_historico_reservar_portao_interno` | NÃO APLICADA (sem registro no ledger) | pendente `1b448d8b…`; rollback `be7b2c64…` | Depende de `20261110100000` aplicada (pré-condição checa a função). Aplicação exige aprovação. |
+
+Ordem sugerida, cada passo com aprovação específica: (1) `20261111140000`; (2) `20261116150000`, depois de a contenção da v1 estar verificada. Recuperação: rollback de cada uma, na ordem inversa. O rollback de `20261110100000` apaga `ulbra_historico_uso` e NÃO deve ser executado.
+
+## Deno check (CI)
+- Jobs: `ulbra-conversa-deno-check` (sem `DENO_NO_PACKAGE_JSON`) e `tv-dados-deno-check` (com `DENO_NO_PACKAGE_JSON=1`, pelo motivo documentado no próprio job: `npm:openai` no package.json da raiz).
+- Evidência do CI no head `35417eb2`: `ulbra-conversa — deno check` = SUCCESS, sem a variável. Não há import `npm:` em `supabase/functions/ulbra-conversa` (só `https://esm.sh/...`). Por isso a variável NÃO é necessária nesse job. Não foi adicionada.
+- Deno não está instalado localmente; a evidência é o próprio CI.
+
+## Resultado do CI e do Guardião (registrar na PR, não em commit)
+- CI do `35417eb2`: 24/24 jobs SUCCESS, incluindo `ulbra-conversa — deno check` e `ulbra histórico — portão da RPC (PGlite)`.
+- CI do `042a476b`: removido do histórico desta branch — esse commit removeu 13 jobs do workflow por erro de edição, depois revertido (estado restaurado pelo `ci.yml` de `35417eb2`).
+- Guardião: ver a revisão final no head registrado na PR.
