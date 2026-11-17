@@ -121,6 +121,12 @@ Rodado localmente com vitest. O Deno do `ulbra-conversa` roda só no CI.
   renovação. Isso é mudança de comportamento e está declarada aqui.
 - **Auditoria antes da gravação:** se a gravação falhar depois da auditoria, a auditoria
   registra uma tentativa que não se concretizou. Preferível a gravar sem auditoria.
+- **Conclusão OAuth com erro da ferramenta** (`conexao_concluir`): responde 502
+  `MENSAGERIA_INDISPONIVEL` e **não** grava nem revoga. O token OAuth recém-emitido fica sem
+  uso até expirar. Não é divergência de identidade, e não se revoga por erro transitório.
+- **Wiring sem teste automatizado:** os caminhos de `index.ts` (identidade OAuth, token pessoal,
+  wiring de `lerConversa`) não são cobertos pelos testes, que usam dependências simuladas.
+  Verificados só por leitura e pela revisão do Guardião. Gap registrado.
 - **Erro da ferramenta na identidade do token pessoal** é tratado como indisponibilidade
   (`ULBRA_MCP_ERRO` → `MENSAGERIA_INDISPONIVEL`), e não como `IDENTIDADE_DIVERGENTE`.
   `chamarComoOperador` devolve `{ dados, erro }` (`extrairResultado`, `index.ts:50-58`).

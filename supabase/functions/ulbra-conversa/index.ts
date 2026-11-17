@@ -314,8 +314,11 @@ Deno.serve(async (req: Request) => {
       await sb.from("ulbra_conexoes_pedidos").delete().eq("state", state);
       // Quem é a pessoa do token: 1 chamada da cota DO OPERADOR. Prova a autoria antes de qualquer envio.
       let pessoa: Record<string, unknown> = {};
+      let indisponivel = false;
       try {
-        const { dados } = await chamarComoOperador(t.access_token, "meu_acesso", {});
+        const { dados, erro } = await chamarComoOperador(t.access_token, "meu_acesso", {});
+        // Erro da ferramenta NÃO é divergência de identidade: não revoga o token, só informa indisponibilidade.
+        if (erro) throw new Error("ULBRA_MCP_ERRO");
         const a = dados as { pessoa?: { nome?: string; email?: string }; nome?: string; escopos?: unknown; soLeitura?: unknown };
         // Campo de identidade disponível em meu_acesso: pessoa.email (pessoa.id não aparece no retorno).
         // Estabilidade e equivalência com o atendente NÃO comprovadas: a comparação segue fail-closed.
@@ -323,8 +326,10 @@ Deno.serve(async (req: Request) => {
       } catch (e) {
         // pessoa_email explícito: o upsert não pode herdar o e-mail de uma conexão anterior (outra conta).
         pessoa = { pessoa_nome: null, pessoa_email: null, escopos: null, so_leitura: null };
+        indisponivel = true;
         console.error("ulbra-conversa: meu_acesso do operador falhou", (e as Error).message);
       }
+      if (indisponivel) return responder({ ok: false, motivo: "MENSAGERIA_INDISPONIVEL" }, 502);
       // A2: o operador A não pode conectar a conta B. Pessoa divergente ou ausente: revoga e não guarda nada.
       if (((pessoa.pessoa_email as string | null) ?? "").toLowerCase() !== email) {
         let revogadaNoProvedor = false;
