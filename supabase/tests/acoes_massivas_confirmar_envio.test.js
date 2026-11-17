@@ -55,7 +55,10 @@ const md5 = async (nome = "acoes_massivas_exportar") => (await db.query(
 const existe = async (nome) => (await db.query(
   `select count(*)::int c from pg_proc p join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public' and p.proname = $1`, [nome])).rows[0].c > 0;
-const aplicar = () => db.exec(MIG);
+// ORDEM imposta pelo banco: a protecao de e-mail (100100) precisa estar efetiva antes.
+const PROTECAO = ler("../aguardando_aprovacao/20261113100100_acoes_massivas_email_so_apos_tabulacao.sql.pendente");
+const EMAIL_PROD = ler("fixtures/acoes_massivas_email_so_apos_tabulacao/prod_20261116_exportar_emails_do_lote.sql");
+const aplicar = async () => { await db.exec(EMAIL_PROD); await db.exec(PROTECAO); await db.exec(MIG); };
 const movs = async (lote) => (await db.query(
   `select aluno_id, tipo, registrado_por_email, registrado_em from public.aluno_movimentacoes
     where lote_id = $1 order by aluno_id`, [lote])).rows;
@@ -362,15 +365,21 @@ describe("guardas e rollback", () => {
     expect(await md5()).toBe(MD5_FINAL);
   });
 
-  it("rollback volta ao publicado, remove a funcao nova e preserva os lotes", async () => {
+  it("rollback recusado com lote pendente (preserva tudo); depois de tabular, volta ao publicado e preserva os lotes", async () => {
     await aplicar();
     const { ex } = await exportarLote(3);
+    // condicao de reversao: zero lotes pendentes. Com o pendente, recusa e nada muda.
+    await expect(db.exec(ROLLBACK)).rejects.toThrow(/ha lotes de WhatsApp\/e-mail pendentes/);
+    await db.exec("ROLLBACK;").catch(() => {});
+    expect(await md5()).toBe(MD5_FINAL);
+    expect(await existe("acoes_massivas_concluir_envio")).toBe(true);
+    expect((await lote(ex.lote_id)).confirmado_em).toBeNull();
+    // tabula o envio (TOTAL) e so entao reverte
+    await concluirEnvio(ex.lote_id, "TOTAL");
     await db.exec(ROLLBACK);
     expect(await md5()).toBe(MD5_PUBLICADO);
     expect(await existe("acoes_massivas_concluir_envio")).toBe(false);
     expect(await existe("acoes_massivas_lote_destinatarios")).toBe(false);
-    expect((await lote(ex.lote_id)).confirmado_em).toBeNull();    // pendente continua pendente
-    await expect(db.exec(ROLLBACK)).rejects.toThrow(/Rollback abortado/);
-    await db.exec("ROLLBACK;").catch(() => {});
+    expect((await lote(ex.lote_id)).confirmado_em).not.toBeNull();
   });
 });

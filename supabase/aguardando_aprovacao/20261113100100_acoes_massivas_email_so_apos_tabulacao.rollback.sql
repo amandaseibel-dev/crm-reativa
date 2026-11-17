@@ -16,6 +16,14 @@ BEGIN
        WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar_emails_do_lote') IS DISTINCT FROM 'eb960a2445b786514ad8bcd0d07c102b' THEN
     RAISE EXCEPTION 'Rollback abortado: acoes_massivas_exportar_emails_do_lote nao esta na versao da migration 20261113100100.';
   END IF;
+  -- A confirmacao (20261113100000) depende desta protecao: se a funcao nova existe, recusa.
+  IF to_regprocedure('public.acoes_massivas_concluir_envio(uuid,text,text[])') IS NOT NULL THEN
+    RAISE EXCEPTION 'Rollback recusado: acoes_massivas_concluir_envio depende desta protecao. Reverta 20261113100000 antes. Nada alterado.';
+  END IF;
+  -- Condicao de reversao: zero lotes pendentes (estado efetivo).
+  IF EXISTS (SELECT 1 FROM public.acoes_massivas_lotes WHERE confirmado_em IS NULL AND descartado_em IS NULL) THEN
+    RAISE EXCEPTION 'Rollback recusado: ha lotes de WhatsApp/e-mail pendentes de envio. Nada alterado.';
+  END IF;
 END $g$;
 
 -- 2. remove o bloco de guarda (substituicao exata, uma ocorrencia)

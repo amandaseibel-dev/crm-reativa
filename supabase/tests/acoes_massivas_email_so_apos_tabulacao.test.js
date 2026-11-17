@@ -202,13 +202,19 @@ describe("e-mail do lote de WhatsApp: a regra e do banco", () => {
     expect(await md5(db)).toBe(antes);
   });
 
-  it("rollback volta ao corpo de producao: a regra some e o lote pendente volta a derivar como antes", async () => {
+  it("rollback volta ao corpo de producao: recusado com lote pendente; com o lote confirmado, a regra some", async () => {
     const db = await banco();
     await db.exec(MIGRACAO);
     const ids = await idsAlunos(db, 2);
     const lote = await loteWhats(db, ids, { pendente: true });
     await comoGestao(db);
     await expect(deriva(db, lote)).rejects.toThrow(/pendente/);
+    // reversao recusada enquanto ha lote pendente (zero pendentes e condicao de reversao)
+    await expect(db.exec(ROLLBACK)).rejects.toThrow(/ha lotes de WhatsApp\/e-mail pendentes/);
+    await db.exec("ROLLBACK").catch(() => {});
+    expect(await md5(db)).toBe(MD5_FINAL);
+    // o lote e tabulado (confirmado); so entao a reversao e permitida
+    await db.query(`update public.acoes_massivas_lotes set confirmado_em = now(), confirmado_por_email = $2 where id = $1`, [lote, GESTAO_EMAIL]);
     await db.exec(ROLLBACK);
     expect(await md5(db)).toBe(MD5_PROD);
     expect((await deriva(db, lote)).rows[0].r.registrados).toBe(2);
