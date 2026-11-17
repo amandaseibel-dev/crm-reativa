@@ -176,6 +176,12 @@ aplicada, a tabela `ulbra_conexoes_operador` não existe e **nenhuma conexão po
 no cadastro responde 503 `CONEXAO_NAO_VERIFICADA`. Conclusão OAuth **recusada ou com erro de banco**
 revoga o grant recém-emitido (melhor esforço), porque ele não será guardado.
 
+**Erro ambíguo do banco (commit seguido de falha de resposta):** se a função commita e a conexão
+cai antes da resposta, o handler vê erro, revoga o grant novo e responde 503. A linha local fica
+com os tokens de um grant **já revogado**. Efeito: a próxima leitura ou envio falha (fail-closed
+para o uso), mas o estado local fica inconsistente. Recuperação: desconectar pela Central (apaga a
+cópia local) e conectar de novo. Não há reconciliação automática. Registrado.
+
 **Renovação OAuth ainda é upsert (não atômica com a desconexão):** `guardarTokens` na renovação
 (`garantirConexao`, só com refresh, estado EXPIRANDO) rotaciona o mesmo grant e zera
 `revogada_em`. Uma renovação que chega depois de uma desconexão confirmada poderia reativar a
