@@ -10,7 +10,7 @@
 --
 -- Regras:
 --   1. Se a função NÃO existe: cria com o corpo de referência e concede EXECUTE a authenticated e
---      service_role (e a reativa_responsavel_executor somente se o papel existir neste banco).
+--      service_role. NÃO concede EXECUTE a reativa_responsavel_executor (decisão da gestão, ver v2).
 --      Revoga PUBLIC e anon.
 --   2. Se a função EXISTE e diverge da referência (corpo, dono, SECURITY DEFINER, STABLE, search_path,
 --      ou EXECUTE para PUBLIC/anon): ABORTA com exceção. Nada é alterado. NUNCA sobrescreve.

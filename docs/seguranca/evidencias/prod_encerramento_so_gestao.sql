@@ -1,3 +1,5 @@
+-- EVIDÊNCIA DE LEITURA DE PRODUÇÃO. NÃO EXECUTAR FORA DA FIXTURE DE TESTE (00_barreira_producao.sql, que a carrega por \i).
+-- Executar em banco real substitui a função de produção: é proibido fora de um banco descartável de teste.
 CREATE OR REPLACE FUNCTION public._encerramento_so_gestao()
  RETURNS trigger
  LANGUAGE plpgsql

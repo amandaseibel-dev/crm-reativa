@@ -4,7 +4,7 @@ BEGIN;
 --   1. duas linhas em public.tabulacoes (somente_gestao = true);
 --   2. trigger em aluno_movimentacoes que recusa, no servidor, qualquer gravação
 --      de código somente_gestao por quem não é gestão.
--- Não cria tabela nem RPC. Não altera alunos, baixa, contato, fidelização,
+-- Cria a tabela de contenção e as RPCs/funções de registro (ver os objetos criados abaixo). Não altera alunos, baixa, contato, fidelização,
 -- retorno, fila nem efeito financeiro (efeito_desfecho fica NULL).
 
 -- 1. Catálogo existente.
