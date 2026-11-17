@@ -30,3 +30,12 @@ a aprovação específica de cada etapa. Este registro é referenciado pela PR #
 - Migrations `20261111140000` e `20261117120000`: aplicação com aprovação específica.
 - Publicação de `ulbra-conversa`, segredo `ULBRA_TOKENS_CHAVE`, merge da PR, ativação de flags: cada um com aprovação específica.
 - Coerência dos cinco artefatos quando houver descoberta Prime: revisão humana (ver README).
+
+## Decisões de 17/11/2026 (piloto de leitura, rodada de conclusão)
+
+- **Dono da carteira = caso ativo.** Caso encerrado (`caso_encerrado_operacional` verdadeiro) não autoriza leitura, nem o antigo dono nem o antigo responsável. Erro na verificação também não autoriza (fail-closed). Implementado em `index.ts` (`donosDoAluno`) e provado em `index-handler.test.ts` (caso g).
+- **Leitura global mantida**: `amanda.seibel@aelbra.com.br` e `cobranca04@aelbra.com.br` (Fernanda), exigindo usuário ativo. Sem mudança nesta rodada.
+- **Porta de tela (`HISTORICO_DISPONIVEL = true`) acompanha o merge.** O servidor é o portão: com `ULBRA_HISTORICO_HABILITADO` ausente, a capacidade é negada e nada chega à Mensageria (caso c1b). Não há mais passo de "ligar a porta" como etapa separada.
+- **A2 (v1 `ulbra-historico`) está CONTIDA**: função excluída, ausente da listagem, HTTP 404. Evidência preservada; não é pendência.
+- **A3 (INSERT em `auditoria`)**: grant de INSERT para `authenticated` existe, mas a RLS nega a inserção direta (não há política permissiva de INSERT). Não bloqueia o piloto. A revogação do grant depende de migrar o insert de `src/pages/ProjecaoHoraHora.jsx`; correção mínima preparada para revisão, NÃO aplicada.
+- **B5 (ordem de envio vs confirmação) é bloqueio obrigatório do envio real**, separado do piloto de leitura. Não alterado nesta rodada; flags de envio continuam desligadas.

@@ -74,7 +74,7 @@ O token atual é um **token pessoal da gestora** (aparece na aba Tokens pessoais
 | `ulbra-diagnostico` | `supabase/functions/ulbra-diagnostico/index.ts` | diagnóstico (gestão) |
 | `ulbra-leads-pendentes` | `supabase/functions/ulbra-leads-pendentes/index.ts` | leads pendentes |
 | `ulbra-sincronizar` | `supabase/functions/ulbra-sincronizar/index.ts` | sincronização |
-| `ulbra-historico` (v1) | preservada em `docs/integracoes/preservacao-ulbra-historico-v1-producao/`; **ativa em produção** | histórico com credencial central |
+| `ulbra-historico` (v1) | **CONTIDA**: função excluída pela gestão (ausente da listagem; endpoint HTTP 404). Cópia preservada em `docs/integracoes/preservacao-ulbra-historico-v1-producao/`, sem restauração | histórico com credencial central (já não ativa) |
 
 A `ulbra-conversa` (novo) **não** lê esse token para envio nem leitura individual.
 
@@ -88,8 +88,8 @@ lugar, mas **o valor exposto segue válido até ser trocado**. Este pacote não 
 ## Rotação (não executada nesta etapa)
 
 1. Criar o token de substituição na Mensageria (escopos mínimos, com a gestora).
-2. Migrar as cinco funções e a `ulbra-historico` v1 para o novo valor, **ou** desligar a v1
-   (contenção já autorizada).
+2. Migrar as cinco funções para o novo valor. A `ulbra-historico` v1 já está CONTIDA (excluída;
+   ausente da listagem; HTTP 404), então não há migração a fazer para ela.
 3. Revogar o token antigo na aba Tokens pessoais.
 4. Conferir que nenhuma função ainda lê o valor antigo.
 
@@ -98,9 +98,11 @@ Não revogar nem substituir sem sua decisão específica.
 ## Pré-condições para testar o piloto
 
 - `ULBRA_TOKENS_CHAVE` configurada no ambiente da função `ulbra-conversa` (já prevista no pacote).
-- Flags seguem desligadas até a decisão: `ULBRA_ENVIO_REAL`, `ULBRA_CONTRATO_PREVIA_CONFIRMADO`,
-  `ULBRA_HISTORICO_HABILITADO`, `HISTORICO_DISPONIVEL`.
-- Contenção da v1 `ulbra-historico` (autorizada; pendente de execução).
+- Flags do servidor seguem desligadas até a decisão: `ULBRA_ENVIO_REAL`, `ULBRA_CONTRATO_PREVIA_CONFIRMADO`,
+  `ULBRA_HISTORICO_HABILITADO` (leitura). `HISTORICO_DISPONIVEL` é só a porta de tela: fica `true` no merge, e
+  o servidor nega a capacidade enquanto `ULBRA_HISTORICO_HABILITADO` estiver ausente (teste `index-handler.test.ts`, caso c1b).
+- Contenção da v1 `ulbra-historico`: CONCLUÍDA (função excluída; ausente da listagem; endpoint HTTP 404). Evidência preservada; não é pendência.
+- Grant de INSERT em `auditoria` para `authenticated` (A3): ver "Verificação A3" em `pacote-historico-e-resposta-2026-11-11.md`. Não bloqueia o piloto (RLS nega a inserção direta), mas o grant excessivo é pendência de higiene com dependência do frontend.
 - Migrations `20261111140000` e `20261117120000` pendentes de aplicação com aprovação, nesta ordem.
   (`20261116150000`, corretiva da RPC de reserva, não é pré-requisito do piloto.)
 
@@ -259,11 +261,17 @@ necessária para decifrá-los e para desconectar com segurança. Ela é preserva
 ## Quem consegue ler (verificado por teste)
 
 - **Sem conexão individual ativa, não há leitura, mesmo com a flag ligada.** `historico-sem-conexao.test.ts`:
-  a função pura `lerHistoricoAutorizado` devolve 403 `SEM_CONEXAO`, não chama a Mensageria e não grava auditoria de leitura. Prova de **função pura com dependências simuladas**, não do handler: o wiring de `index.ts` não tem teste (gap declarado).
+  a função pura `lerHistoricoAutorizado` devolve 403 `SEM_CONEXAO`, não chama a Mensageria e não grava auditoria de leitura. Também coberto no handler real por `index-handler.test.ts` (execução de `index.ts` com banco e Mensageria falsos).
 - **Sem fallback de credencial central.** Nenhum arquivo da função lê `ULBRA_MCP_TOKEN` fora de comentário,
   e a leitura usa só o token do próprio operador (`chamarComoOperador`). Verificação **estrutural** (texto do código atual, não prova de comportamento em execução nem de ausência de fallback futuro).
 - **Habilitada ≠ apta.** Habilitada = `ULBRA_HISTORICO_HABILITADO=true`. Apta = habilitada + identidade
-  na lista do piloto + conexão individual ativa + permissão da regra permanente (carteira ou responsável).
+  na lista do piloto + conexão individual ativa + permissão da regra permanente.
+  - **Dono da carteira** = operador de caso ATIVO. Caso encerrado (`caso_encerrado_operacional` verdadeiro) não autoriza
+    leitura, mesmo que o operador tenha sido o dono. Erro ao verificar também não autoriza (fail-closed).
+  - **Responsável atual** = responsável do atendimento não dispensado. Caso encerrado não autoriza antigo responsável.
+  - **Leitura global** (decisão de gestão, sem mudança nesta rodada): `amanda.seibel@aelbra.com.br` e
+    `cobranca04@aelbra.com.br` (Fernanda), exigindo usuário ativo. Qualquer outro operador segue a regra acima.
+  - Prova no handler real: `index-handler.test.ts` (casos de encerrado, negado sem auditoria, e positivo com auditoria gravada antes do texto).
 - **Configurar só o token do João não limita o piloto:** a flag é global, e qualquer operador com
   carteira ou responsabilidade e conexão ativa passaria nas regras permanentes.
 - **Restrição de piloto:** `ULBRA_HISTORICO_PILOTO_EMAILS` (e-mails separados por vírgula). Fail-closed:

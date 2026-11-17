@@ -462,9 +462,19 @@ Deno.serve(async (req: Request) => {
           const { data } = await sb.from("ulbra_vinculos").select("aluno_id").eq("ulbra_cliente_id", cid).is("desvinculado_em", null).eq("confianca", "alta_cpf").maybeSingle();
           return (data?.aluno_id as string | undefined) ?? null;
         },
+        // Dono da carteira = operador de caso ATIVO. Caso encerrado (regra canônica caso_encerrado_operacional)
+        // não autoriza leitura; erro ao verificar também não autoriza (fail-closed).
         donosDoAluno: async (aid: string) => {
-          const { data } = await sb.from("casos").select("operador_email").eq("aluno_id", aid).not("operador_email", "is", null);
-          return (data ?? []).map((k) => String(k.operador_email));
+          const { data } = await sb.from("casos").select("operador_email, cpf_limpo, status_atual, status_acionamento, status_financeiro, status_jornada").eq("aluno_id", aid).not("operador_email", "is", null);
+          const donos: string[] = [];
+          for (const k of data ?? []) {
+            const { data: encerrado, error } = await sb.rpc("caso_encerrado_operacional", {
+              p_cpf: k.cpf_limpo, p_status_atual: k.status_atual, p_status_acionamento: k.status_acionamento, p_status_financeiro: k.status_financeiro, p_status_jornada: k.status_jornada,
+            });
+            if (error || encerrado !== false) continue;
+            donos.push(String(k.operador_email));
+          }
+          return donos;
         },
         responsaveisDoCliente: async (cid: string) => {
           const { data } = await sb.from("ulbra_atendimentos").select("responsavel_email").eq("ulbra_cliente_id", cid).is("dispensado_em", null).not("responsavel_email", "is", null);

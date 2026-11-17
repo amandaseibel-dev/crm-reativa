@@ -1,11 +1,14 @@
 // ===========================================================================
 // Histórico ULBRA na Central — porta de tela e regra de quem vê o botão.
 //
-// HISTORICO_DISPONIVEL: a tela só monta o botão "Histórico" quando a função
-// ação `historico_ler` da `ulbra-conversa` estiver publicada com ULBRA_HISTORICO_HABILITADO=true.
-// Enquanto for `false`, nada muda na Central (nem botão, nem chamada). Ligar é
-// uma PR de uma linha, depois da publicação — ordem do pacote
-// `docs/integracoes/pacote-historico-e-resposta-2026-11-11.md`.
+// HISTORICO_DISPONIVEL = true é a PORTA DE TELA que acompanha o merge. Ela NÃO é o portão de
+// leitura: quem decide é o SERVIDOR. Com ULBRA_HISTORICO_HABILITADO ausente ou fora da lista do piloto,
+// `historico_capacidade` responde HISTORICO_DESLIGADO (pode=false) e `historico_ler` nega antes da
+// Mensageria; a linha da lista só recebe capacidade_historico=true quando o servidor concede.
+// Por isso, com o piloto desligado, a lista não mostra o botão e a conversa, se pedir, recebe negativa
+// do servidor sem nenhuma chamada à Mensageria.
+// Ordem de implantação: docs/integracoes/pacote-historico-e-resposta-2026-11-11.md (passo 9)
+// e docs/integracoes/piloto-token-pessoal-2026-11-17.md.
 //
 // podeVerHistorico: só mostra o botão quando o servidor marca a linha com
 // capacidade_historico === true. Esse campo é o contrato da lista: a RPC

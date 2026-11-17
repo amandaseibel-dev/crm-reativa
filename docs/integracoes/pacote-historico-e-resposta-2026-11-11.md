@@ -74,7 +74,7 @@ Campanhas, criação de atendimentos, transferências, administração de operad
 - Alternativa segura em caso de falha: manter o histórico desativado no backend (`ULBRA_HISTORICO_HABILITADO` ausente). Nenhum código em `supabase/functions` da branch chama a RPC; a v1 publicada em produção, preservada em `docs/integracoes/preservacao-ulbra-historico-v1-producao/`, chama (com service_role), por isso a v1 precisa estar contida.
 - Pré-condição do rollback: a v1 de `ulbra-historico` precisa estar contida em produção; senão a exposição já existe por outro caminho.
 - A2 (texto exato): divergência de identidade BLOQUEIA a conexão (com revogação do token de acesso no provedor), a leitura e o envio (sem revogação). A revogação por divergência existe só na conexão.
-- A9 (ilike sem escape em `ulbra-historico`) não é item separado: resolvido pela remoção da função do repositório. A v1 em produção segue com o problema até a contenção.
+- A9 (ilike sem escape em `ulbra-historico`) não é item separado: resolvido pela remoção da função do repositório e pela contenção da v1 em produção (função excluída; HTTP 404).
 - `supabase/tests/ulbra_historico_portao/run.mjs` roda no CI (job `ulbra-historico-portao-pglite`) e também manualmente (PGlite). A condição ANTES do teste simula o grant a PUBLIC; não é prova do estado de produção.
 
 ## Migrations: estado correto (revisão 16/11)
@@ -106,12 +106,32 @@ Sequência de implantação (NÃO executada; cada passo exige aprovação espec�
 4. Verificação pós-aplicação: ACL e dono medidos de novo, e teste de acesso.
 Rollback: `20261116150000_*.rollback.sql` restaura a versão sem portão. NÃO é recuperação automática. Alternativa segura: manter `ULBRA_HISTORICO_HABILITADO` ausente.
 
-## Riscos da v1 em produção (a declarar à gestão; não corrigidos por esta PR)
-- A v1 publicada (`ulbra-historico`) concede leitura global aos perfis `supervisor`, `gerencia` e `administrativo` (preservação, `index.ts:24`, `:78`, `:97`). Isso é mais largo que a regra de 16/11. Quem tem esses perfis em produção: NÃO CONFERIDO.
-- A v1 casa o e-mail com `ilike` sem escape (`index.ts:76`) e usa o perfil da linha casada. Inferência de código, não reproduzida em banco.
-- A UI desligada (`HISTORICO_DISPONIVEL=false`) não fecha o endpoint: a v1 responde por HTTP a qualquer JWT de usuário ativo.
-- A cópia preservada em `docs/integracoes/preservacao-ulbra-historico-v1-producao/` foi reconstruída a partir do retorno da leitura. Diferenças em relação à versão do histórico do repositório: `historico.ts` (import e texto de cota). Não é prova byte a byte da produção.
-- Pré-requisito explícito: contenção (remoção de `ulbra-historico`) antes de qualquer outra ação.
+## Riscos da v1 `ulbra-historico` (CONTIDA)
+
+**Estado: CONTIDA.** A função foi excluída pela gestão; a listagem não a mostra mais e o endpoint responde HTTP 404. Essa evidência está preservada e não é pendência. Não há restauração.
+
+Registro histórico do que a v1 permitia (para a gestão saber o que foi fechado):
+- Concedia leitura global aos perfis `supervisor`, `gerencia` e `administrativo` (preservação, `index.ts:24`, `:78`, `:97`), mais larga que a regra de 16/11.
+- Casava o e-mail com `ilike` sem escape (`index.ts:76`) e usava o perfil da linha casada (inferência de código, não reproduzida em banco).
+- Respondia a qualquer JWT de usuário ativo, mesmo com a UI desligada.
+- A cópia preservada foi reconstruída a partir do retorno da leitura; não é prova byte a byte da produção.
+
+## Verificação A3 — grants e políticas de `auditoria` (produção, somente leitura, 17/11/2026)
+
+Consulta de leitura em `information_schema.role_table_grants`, `pg_policies`, `pg_policy` e `pg_class`:
+- Grants: `authenticated` tem INSERT, UPDATE e DELETE em `public.auditoria`. `service_role` e `postgres` têm os seus.
+- RLS: habilitado (`relrowsecurity = true`), não forçado para o dono.
+- Políticas: `auditoria_select_amanda` (PERMISSIVE, SELECT, para `amanda.seibel` e auditor ativo) e `painel_negado` (RESTRICTIVE, ALL, para `authenticated`, `NOT eh_painel()`).
+- Não há política PERMISSIVE de INSERT. Com RLS ligado, a inserção direta por `authenticated` é NEGADA pelo banco, apesar do grant.
+
+**Conclusão:** a hipótese de "qualquer autenticado forja auditoria" NÃO se confirma pela política. O grant excessivo continua existindo e é pendência de higiene.
+
+**Caminho de auditoria do piloto:** `auditar()` em `index.ts:262` usa o cliente `service_role` (`sb`), que não depende de RLS nem de grant de `authenticated`.
+
+**Dependência que bloqueia a revogação simples:** `src/pages/ProjecaoHoraHora.jsx` insere em `auditoria` com a sessão do usuário. Revogar INSERT de `authenticated` quebraria essa tela. A correção mínima (rascunho, NÃO aplicado) é: (1) migrar o insert de `ProjecaoHoraHora` para uma função de servidor; (2) então `REVOKE INSERT, UPDATE, DELETE ON public.auditoria FROM authenticated`. Rollback: `GRANT INSERT, UPDATE, DELETE ON public.auditoria TO authenticated`. Exige aprovação específica e validação do grant final.
+
+## Pré-requisito de contenção — atendido
+- A contenção da v1 está concluída (ver acima). Não há pré-requisito pendente para o piloto por esse motivo.
 
 ## Tabela de migrations (conferida em 17/11/2026, leitura de produção sem escrita)
 | Migration | Estado em produção | Arquivos (sha256) | Dependências / ordem |
@@ -147,10 +167,10 @@ Tipos de ação, que NÃO são a mesma coisa: **merge** (código na main, sem ef
 | 2. Aplicar corretiva `20261116150000` (portão da RPC) | aplicação manual (SQL) | passo 0 e `20261110100000` aplicada (já está) | pós-conferência do próprio arquivo; EXECUTE só service_role |
 | 3. Publicar `ulbra-conversa` com segredos (`ULBRA_OAUTH_*`, `ULBRA_TOKENS_CHAVE`) e `verify_jwt` | aplicação manual (função) | passos 1 e 2 (a função grava nas tabelas do passo 1) | `historico_capacidade` e `historico_ler` respondem como o teste prevê |
 | 4. Merge desta PR na main (inclui a tela) | merge | passos 0 a 3 | CI da PR verde; a tela sem a porta não chama nada |
-| 5. Deploy do front a partir da main | deploy automático | passo 4 | Central com `HISTORICO_DISPONIVEL` ainda `false` |
+| 5. Deploy do front a partir da main | deploy automático | passo 4 | Central com `HISTORICO_DISPONIVEL = true` (porta de tela); cada botão só aparece com `capacidade` do servidor, que nega enquanto `ULBRA_HISTORICO_HABILITADO` estiver ausente |
 | 6. Conexão de 1 operador piloto | manual (usuário) | passos 3 e 5 | conexão ATIVA, `pessoa_email` igual ao JWT |
 | 7. Ativar `ULBRA_HISTORICO_HABILITADO` (leitura) | aplicação manual (segredo) | passo 6 e aprovação | leitura de 1 conversa com auditoria gravada |
-| 8. Ativar `ULBRA_ENVIO_REAL` e `ULBRA_CONTRATO_PREVIA_CONFIRMADO` (prévia e envio) | aplicação manual (segredo) | passo 7 e aprovação do roteiro | prévia sem mensagem enviada; envio só pelo roteiro |
-| 9. Ligar `HISTORICO_DISPONIVEL` na tela | merge (uma linha) | passo 7 e migration da lista (ver item acima) | conversa: botão onde `historico_capacidade` concede; lista: só após a RPC produzir `capacidade_historico` |
+| 8. Ativar `ULBRA_ENVIO_REAL` e `ULBRA_CONTRATO_PREVIA_CONFIRMADO` (prévia e envio) | aplicação manual (segredo) | passo 7, aprovação do roteiro e **B5 corrigido** (bloqueio obrigatório, separado do piloto de leitura) | prévia sem mensagem enviada; envio só pelo roteiro |
+| 9. (antigo "ligar `HISTORICO_DISPONIVEL`") | **não há mais passo de merge de porta**: a porta já está `true` no passo 4 | — | a conversa só mostra o botão onde `historico_capacidade` concede; a lista só após a RPC produzir `capacidade_historico` (migration própria) |
 
 Recuperação: cada passo tem rollback no próprio arquivo, exceto a v1 (não restaurar a versão vulnerável). O rollback de `20261110100000` NÃO deve ser executado (apaga `ulbra_historico_uso`).

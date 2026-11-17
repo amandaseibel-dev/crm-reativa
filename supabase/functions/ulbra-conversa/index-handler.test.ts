@@ -18,8 +18,10 @@ const estado: {
   conexao: Record<string, unknown> | null;
   responsavel: string;
   dono: string | null;
+  encerrado: boolean;
   auditoriaFalha: boolean;
-} = { env: {}, user: null, usuario: null, conexao: null, responsavel: EU, dono: EU, auditoriaFalha: false };
+  auditorias: Record<string, unknown>[];
+} = { env: {}, user: null, usuario: null, conexao: null, responsavel: EU, dono: EU, encerrado: false, auditoriaFalha: false, auditorias: [] };
 
 // Dados por tabela: maybeSingle devolve um registro; "then" (sem maybeSingle) devolve lista.
 const UNICO: Record<string, () => unknown> = {
@@ -29,7 +31,7 @@ const UNICO: Record<string, () => unknown> = {
   ulbra_conexoes_operador: () => estado.conexao,
 };
 const LISTA: Record<string, () => unknown[]> = {
-  casos: () => (estado.dono ? [{ operador_email: estado.dono }] : []),
+  casos: () => (estado.dono ? [{ operador_email: estado.dono, cpf_limpo: "00000000000", status_atual: "ATIVO", status_acionamento: "EM ANDAMENTO", status_financeiro: "EM ABERTO", status_jornada: "ATIVO" }] : []),
   ulbra_atendimentos: () => [{ responsavel_email: estado.responsavel }],
 };
 
@@ -39,10 +41,13 @@ function builder(tabela: string) {
     b[m] = () => b;
   }
   // Auditoria: o insert é aguardado; com falha simulada devolve erro (o handler então não entrega o texto).
-  b.insert = () => ({
-    then: (res: (v: unknown) => unknown) =>
-      Promise.resolve({ data: null, error: estado.auditoriaFalha && tabela === "auditoria" ? { message: "falha simulada" } : null }).then(res),
-  });
+  b.insert = (linha: Record<string, unknown>) => {
+    if (tabela === "auditoria" && !estado.auditoriaFalha) estado.auditorias.push(linha);
+    return {
+      then: (res: (v: unknown) => unknown) =>
+        Promise.resolve({ data: null, error: estado.auditoriaFalha && tabela === "auditoria" ? { message: "falha simulada" } : null }).then(res),
+    };
+  };
   b.maybeSingle = async () => ({ data: UNICO[tabela]?.() ?? null, error: null });
   b.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: LISTA[tabela]?.() ?? UNICO[tabela]?.() ?? null, error: null }).then(res);
   return b;
@@ -51,7 +56,7 @@ function builder(tabela: string) {
 const fakeClient = () => ({
   auth: { getUser: async () => ({ data: { user: estado.user } }) },
   from: (tabela: string) => builder(tabela),
-  rpc: async () => ({ data: "GRAVADA", error: null }),
+  rpc: async (fn: string) => ({ data: fn === "caso_encerrado_operacional" ? estado.encerrado : "GRAVADA", error: null }),
 });
 
 vi.mock("https://esm.sh/@supabase/supabase-js@2", () => ({ createClient: () => fakeClient() }));
@@ -83,7 +88,9 @@ beforeEach(() => {
   estado.conexao = null;
   estado.responsavel = EU;
   estado.dono = EU;
+  estado.encerrado = false;
   estado.auditoriaFalha = false;
+  estado.auditorias = [];
 });
 
 function req(corpo: unknown, auth = "Bearer token-do-usuario"): Request {
@@ -143,6 +150,15 @@ describe("handler real (index.ts): caminhos negados do histórico", () => {
     const r = await chamar({ acao: "historico_ler", conversa_id: CONV });
     expect(r.corpo.motivo).toBe("HISTORICO_DESLIGADO");
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(estado.auditorias.filter((a) => a.acao === "ULBRA_HISTORICO_LEITURA")).toHaveLength(0);
+  });
+
+  it("(c1b) flag desligada: a CAPACIDADE também é negada pelo servidor (a UI não libera nada)", async () => {
+    estado.env.ULBRA_HISTORICO_HABILITADO = "false";
+    const r = await chamar({ acao: "historico_capacidade", conversa_id: CONV });
+    expect(r.corpo.pode).toBe(false);
+    expect(r.corpo.motivo).toBe("HISTORICO_DESLIGADO");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("(c2) e-mail fora de ULBRA_HISTORICO_PILOTO_EMAILS: HISTORICO_DESLIGADO, sem chamada à Mensageria", async () => {
@@ -187,5 +203,29 @@ describe("handler real (index.ts): caminhos negados do histórico", () => {
     expect(r.status).toBe(500);
     expect(r.corpo.motivo).toBe("AUDITORIA_NAO_GRAVADA");
     expect(JSON.stringify(r.corpo)).not.toContain("TEXTO-SECRETO");
+  });
+
+  it("(g) caso ENCERRADO de antigo dono, sem responsabilidade atual: SEM_PERMISSAO_NA_CONVERSA, sem chamada e sem auditoria", async () => {
+    estado.responsavel = OUTRO;
+    estado.dono = EU;
+    estado.encerrado = true; // caso encerrado (caso_encerrado_operacional) não autoriza leitura
+    estado.conexao = await conexaoIndividual("token-individual-do-operador");
+    const r = await chamar({ acao: "historico_ler", conversa_id: CONV });
+    expect(r.corpo.motivo).toBe("SEM_PERMISSAO_NA_CONVERSA");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(estado.auditorias).toHaveLength(0);
+  });
+});
+
+describe("handler real (index.ts): caminho positivo completo", () => {
+  it("(h) dono ativo + conexão individual: texto sai SOMENTE depois da auditoria ULBRA_HISTORICO_LEITURA gravada", async () => {
+    estado.conexao = await conexaoIndividual("token-individual-do-operador");
+    fetchMock.mockResolvedValueOnce(LEITURA_OK());
+    const r = await chamar({ acao: "historico_ler", conversa_id: CONV });
+    expect(r.status).toBe(200);
+    expect(JSON.stringify(r.corpo)).toContain("TEXTO-SECRETO");
+    const leituras = estado.auditorias.filter((a) => a.acao === "ULBRA_HISTORICO_LEITURA");
+    expect(leituras).toHaveLength(1);
+    expect(JSON.stringify(leituras[0])).not.toContain("TEXTO-SECRETO");
   });
 });
