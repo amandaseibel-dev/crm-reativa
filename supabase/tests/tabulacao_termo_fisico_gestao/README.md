@@ -17,5 +17,5 @@ Simulado (não é o Supabase real): papéis e privilégios padrão de `public`; 
 com a lista lida em produção; `tabulacoes` e `aluno_movimentacoes` com colunas de produção (subconjunto
 de linhas). A policy de UPDATE de `aluno_movimentacoes` é simulada: a de produção não está versionada.
 
-Não coberto: PostgREST real, RLS real, grants reais, outros triggers de produção, locale de produção,
+Coberto no CI com PostgREST 16.5 real (job `tabulação termo físico`, passo PostgREST). Não coberto: RLS real, grants reais, outros triggers de produção, locale de produção,
 staging (inacessível nesta conta).
