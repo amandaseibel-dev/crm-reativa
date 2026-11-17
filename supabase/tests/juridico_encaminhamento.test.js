@@ -513,9 +513,12 @@ describe("auditoria: pendencia de pagamento, coluna divergente e valor atual", (
     await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
     // outro fluxo (ex.: saldo zero) grava a mesma flag, que ja esta ligada
     await db.query("update casos set nao_acionar=true where id=$1", [a.cs]);
-    await rpc(db, "public.juridico_caso_remover($1,'desistencia')", [caso.id]);
+    const r = await rpc(db, "public.juridico_caso_remover($1,'desistencia')", [caso.id]);
+    expect(r.bloqueio).toBe("MANTIDO_OUTRO_FLUXO");
     const cs = (await db.query("select nao_acionar from casos where id=$1", [a.cs])).rows[0];
     expect(cs.nao_acionar).toBe(true);
+    const mv = (await db.query("select descricao from aluno_movimentacoes where aluno_id=$1 and tipo='JURIDICO_BLOQUEIO_LEVANTADO'", [a.al])).rows[0];
+    expect(mv.descricao).toMatch(/MANTIDO/);
     expect(await bloqueio(db, a.al)).toBe("NAO_ACIONAR_EXPLICITO");
     await db.close();
   });

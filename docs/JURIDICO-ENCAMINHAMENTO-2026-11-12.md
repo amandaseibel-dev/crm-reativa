@@ -53,6 +53,13 @@ da carteira. A seção abaixo, que grava `JURIDICO` em `alunos.status_*`, está 
 - Não verificado no repositório: as rotinas de cadência WhatsApp e de tarefas leem
   `nao_acionar`. Nas funções versionadas, só giro, redistribuição e acionamento leem; as de
   cadência estão só em produção e não foram lidas.
+- Remoção: retorna `bloqueio` = `LIBERADO` ou `MANTIDO_OUTRO_FLUXO` (quando outro fluxo também
+  gravou `nao_acionar` durante o encaminhamento; a flag fica ligada e o registro diz isso).
+  Nem sempre a remoção libera: confira o retorno.
+- Residual, não resolvido: (1) rollback não reconcilia flags de casos vivos (ele recusa
+  com caso APROVADO; flags compartilhadas ficam ligadas por desenho); (2) a marcação escreve em
+  `juridico_casos` a partir de `casos`, com ordem de trava diferente da remoção; pode haver
+  deadlock, não reproduzido; (3) a prova de concorrência da aprovação não cobre o marcador.
 - Pendente: indicação visual do bloqueio jurídico na carteira (PainelCarteira não lê o
   bloqueio do caso).
 
@@ -72,7 +79,7 @@ jurídico em produção em 12/11/2026 têm o código nas três colunas. Quem já
 O bloqueio é **por aluno**: todos os títulos dele saem da cobrança, não só os aprovados.
 Nenhuma linha de `acordos_titulos`, `parcelas` ou `acordos` é escrita. O estado anterior
 fica em `juridico_casos.bloqueio_anterior` e é restaurado por `juridico_caso_remover`
-enquanto o caso está `APROVADO`. Depois do envio ao financeiro a aba não desfaz.
+enquanto o caso está `APROVADO` (seção superada abaixo: o bloqueio agora é `nao_acionar`). Depois do envio ao financeiro a aba não desfaz.
 
 Fail-closed: se a tabulação JURIDICO ganhar `efeito_desfecho` ou `redireciona_para_email`,
 a aprovação recusa (os gatilhos de `status_jornada` passariam a ter efeito financeiro).
@@ -159,8 +166,8 @@ Fica, por decisão a tomar pela gestão:
   divergência `ACORDO_ATIVO_SEM_APROVACAO` e o envio é recusado. Em caso já enviado ou confirmado,
   essas divergências são só alerta para a gestão: não há revisão nem remoção pela aba.
   **Divergências impeditivas depois da aprovação (decisão da gestão):** todas recusam o envio ao
-  financeiro e aparecem no painel, no alerta e no Excel; a saída é remover o caso (o que libera o
-  aluno) e gerar nova seleção, com nova conferência. Nenhuma altera responsável, carteira,
+  financeiro e aparecem no painel, no alerta e no Excel; a saída é remover o caso (libera o bloqueio
+  deste fluxo) e gerar nova seleção, com nova conferência. Nenhuma altera responsável, carteira,
   fidelização, cobrança ou encerramento.
   - `TERMO_INVALIDADO`: avalia o termo que SUSTENTOU a aprovação (`juridico_casos.termo_aprovado_id`,
     gravado na aprovação), não qualquer termo do aluno: rejeitado, removido ou fora da etapa

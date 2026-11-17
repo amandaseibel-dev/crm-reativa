@@ -875,17 +875,17 @@ $function$;
 
 -- Desfaz o bloqueio de um caso APROVADO. So restaura o que ESTE caso gravou.
 create function public._juridico_desbloquear(p_caso public.juridico_casos)
-returns void
+returns text
 language plpgsql security definer set search_path to 'public'
 as $function$
 declare v_comp boolean;
 begin
-  if p_caso.bloqueio_anterior is null or jsonb_typeof(p_caso.bloqueio_anterior) <> 'array' then return; end if;
+  if p_caso.bloqueio_anterior is null or jsonb_typeof(p_caso.bloqueio_anterior) <> 'array' then return 'LIBERADO'; end if;
 
   -- Se outro fluxo tambem ligou nao_acionar durante o encaminhamento, a flag NAO e deste fluxo:
   -- fica ligada (o bloqueio dele continua). Ver _juridico_marca_bloqueio_compartilhado.
   select bloqueio_compartilhado into v_comp from public.juridico_casos where id = p_caso.id;
-  if coalesce(v_comp, false) then return; end if;
+  if coalesce(v_comp, false) then return 'MANTIDO_OUTRO_FLUXO'; end if;
 
   -- Unica porta que libera nao_acionar: a guarda de casos so deixa passar com esta GUC.
   perform set_config('juridico.desbloqueio', 'on', true);
@@ -907,6 +907,7 @@ begin
     raise exception 'Não foi possível levantar o bloqueio jurídico do aluno %. Nada foi alterado.', p_caso.aluno_id
       using errcode = 'P0001';
   end if;
+  return 'LIBERADO';
 end;
 $function$;
 
@@ -914,7 +915,7 @@ create function public.juridico_caso_remover(p_caso_id uuid, p_motivo text)
 returns jsonb
 language plpgsql security definer set search_path to 'public'
 as $function$
-declare v_email text := public._juridico_exigir_gestao(); v_caso public.juridico_casos;
+declare v_email text := public._juridico_exigir_gestao(); v_caso public.juridico_casos; v_bloq text := null;
 begin
   if nullif(btrim(coalesce(p_motivo,'')), '') is null then
     raise exception 'Informe o motivo da remoção.' using errcode = '22023';
@@ -927,12 +928,14 @@ begin
   end if;
 
   if v_caso.status = 'APROVADO' then
-    perform public._juridico_desbloquear(v_caso);
+    v_bloq := public._juridico_desbloquear(v_caso);
     update public.juridico_casos_titulos set ativo = false where caso_id = p_caso_id and ativo;
     insert into public.aluno_movimentacoes
       (aluno_id, tipo, descricao, status_anterior, status_novo, registrado_por_nome, registrado_por_email)
     values (v_caso.aluno_id::text, 'JURIDICO_BLOQUEIO_LEVANTADO',
-            'Caso retirado da análise jurídica antes do envio ao financeiro. Motivo: ' || btrim(p_motivo),
+            'Caso retirado da análise jurídica antes do envio ao financeiro. ' ||
+            case when v_bloq = 'MANTIDO_OUTRO_FLUXO' then 'Bloqueio de cobrança MANTIDO: outro fluxo também o aplicou durante o encaminhamento. '
+                 else 'Bloqueio de cobrança levantado. ' end || 'Motivo: ' || btrim(p_motivo),
             null, null, v_email, v_email);
   end if;
 
@@ -943,7 +946,8 @@ begin
 
   perform public._juridico_registrar(p_caso_id, v_caso.lote_id, 'CASO_REMOVIDO',
     jsonb_build_object('de', v_caso.status, 'motivo', btrim(p_motivo)), v_email);
-  return jsonb_build_object('caso_id', p_caso_id, 'status', 'REMOVIDO');
+  return jsonb_build_object('caso_id', p_caso_id, 'status', 'REMOVIDO',
+                            'bloqueio', coalesce(v_bloq, 'NAO_HAVIA_BLOQUEIO'));
 end;
 $function$;
 
@@ -1235,6 +1239,8 @@ begin
   end if;
 
   -- Estado ANTERIOR de cada caso do aluno (nao_acionar), para desfazer SO o que este fluxo gravar.
+  -- Trava os casos antes de ler: sem isso, outro fluxo poderia gravar a flag entre a leitura e o update.
+  perform 1 from public.casos c where c.aluno_id = v_caso.aluno_id for update;
   select coalesce(jsonb_agg(jsonb_build_object('id', c.id, 'nao_acionar', coalesce(c.nao_acionar, false))
                             order by c.id), '[]'::jsonb)
     into v_ant
@@ -1693,7 +1699,8 @@ begin
     update public.juridico_casos
        set bloqueio_compartilhado = true
      where aluno_id = old.aluno_id
-       and status in ('APROVADO','ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO');
+       and status in ('APROVADO','ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO')
+       and bloqueio_compartilhado = false;
   end if;
   return new;
 end;
