@@ -4,9 +4,9 @@
 // - segue para a função por HTTPS e é cifrado no backend. A resposta não traz o valor.
 import { useState } from "react";
 
-export const VALIDADES = [7, 30, 60, 90];
+const VALIDADES = [7, 30, 60, 90];
 
-export const ROTULO_MOTIVO_TOKEN = {
+const ROTULO_MOTIVO_TOKEN = {
   TOKEN_FORMATO_INVALIDO: "O token colado não tem o formato esperado. Confira se copiou o valor inteiro, sem espaços.",
   VALIDADE_NAO_PERMITIDA: "Escolha uma validade de 7, 30, 60 ou 90 dias.",
   TOKEN_RECUSADO_PELA_MENSAGERIA: "A Mensageria recusou este token. Crie outro em MCP › Tokens pessoais e cole de novo.",

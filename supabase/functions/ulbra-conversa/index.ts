@@ -308,7 +308,7 @@ Deno.serve(async (req: Request) => {
           const status = r.motivo === "MENSAGERIA_INDISPONIVEL" ? 502 : r.motivo === "IDENTIDADE_DIVERGENTE" ? 403 : r.motivo === "CONEXAO_EXISTENTE" ? 409 : 400;
           return responder({ ok: false, motivo: r.motivo }, status);
         }
-        return responder({ ok: true, ...r });
+        return responder({ ...r });
       } catch (e) {
         const msg = (e as Error).message;
         if (msg === "AUDITORIA_NAO_GRAVADA") return responder({ ok: false, motivo: "AUDITORIA_NAO_GRAVADA" }, 500);
