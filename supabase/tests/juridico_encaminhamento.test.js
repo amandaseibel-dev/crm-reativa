@@ -536,6 +536,28 @@ describe("auditoria: pendencia de pagamento, coluna divergente e valor atual", (
     await db.close();
   });
 
+  it("carteira: operador da propria carteira ve o bloqueio; inativo nao; lista acima do limite recusa", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    // o responsavel do aluno vira operador ativo do sistema (mesma regra de usuarios.ativo)
+    const resp = (await db.query("select responsavel_atual_email e from alunos where id=$1", [a.al])).rows[0].e;
+    await db.query("insert into usuarios (nome, email, perfil, ativo) values ('Dono da carteira', $1, 'operador', true)", [resp]);
+    await H.como(db, resp);
+    expect((await db.query("select public.juridico_bloqueio_ids($1::uuid[]) id", [[a.al]])).rows.map((x) => x.id)).toEqual([a.al]);
+    await H.como(db, H.GESTAO);
+    await db.query("update usuarios set ativo=false where email=$1", [resp]);
+    await H.como(db, resp);
+    expect((await db.query("select public.juridico_bloqueio_ids($1::uuid[]) id", [[a.al]])).rows).toEqual([]);
+    await H.como(db, H.GESTAO);
+    const grande = Array.from({ length: 2001 }, (_, i) => U(950, i + 1));
+    const e = await falha(db.query("select public.juridico_bloqueio_ids($1::uuid[])", [grande]));
+    expect(e?.code).toBe("22023");
+    await db.close();
+  });
+
   it("carteira: juridico_bloqueio_ids devolve so o id do aluno com bloqueio efetivo", async () => {
     const db = await novo();
     const a = await mk(db, { valores: [1000] });

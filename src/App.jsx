@@ -48,6 +48,9 @@ const FilaConfirmacaoPagamento = lazy(() => import("./pages/FilaConfirmacaoPagam
 // "Presença × produção" da tela nova, agora cruzado com os acionamentos do dia.
 const ProdutividadeOperacional = lazy(() => import("./pages/ProdutividadeOperacional"));
 const Juridico = lazy(() => import("./pages/Juridico"));
+// Disponibilização da aba Jurídico. Fica FALSA até a regra de WhatsApp/documentos de cobrança estar
+// resolvida (o envio por WhatsApp não bloqueia o aluno com encaminhamento jurídico hoje).
+const JURIDICO_LIBERADO = false;
 const MeuPerfil = lazy(() => import("./pages/MeuPerfil"));
 const Borderos = lazy(() => import("./pages/Borderos"));
 const ConsultaFinanceira = lazy(() => import("./pages/ConsultaFinanceira"));
@@ -367,6 +370,7 @@ function RotaProtegida({ usuario, rota, children }) {
   // `usuario_e_gestao()`, que é quem toda RPC `juridico_*` confere). Chamado só
   // com o e-mail de propósito: diretoria não entra nesta primeira fase.
   if (rota === "/juridico") {
+    if (!JURIDICO_LIBERADO) return <Navigate to="/" replace />;
     const emailJur = String(usuario?.perfil?.email || usuario?.auth?.email || "")
       .toLowerCase().trim();
     if (!podeVerTudo(emailJur)) return <Navigate to="/" replace />;
@@ -912,6 +916,7 @@ export default function App() {
       return podeVerCentralUlbra(emCu, usuario?.perfil);
     }
     if (item.rota === "/juridico") {
+      if (!JURIDICO_LIBERADO) return false;
       const emJu = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return podeVerTudo(emJu);
     }

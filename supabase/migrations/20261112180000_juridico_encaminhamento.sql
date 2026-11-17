@@ -1466,8 +1466,10 @@ declare
   v_email text := lower(coalesce(auth.jwt()->>'email',''));
   v_gestao boolean := coalesce(public.usuario_e_gestao(), false);
 begin
-  -- sem e-mail: nada. Gestao ve todos; operador so os alunos da PROPRIA carteira.
+  -- sem e-mail ou usuario inativo (usuarios.ativo): nada. Gestao (usuario_e_gestao) ve todos;
+  -- operador so os alunos da PROPRIA carteira (responsavel_atual_email).
   if v_email = '' then return; end if;
+  if not exists (select 1 from public.usuarios u where lower(u.email) = v_email and u.ativo is true) then return; end if;
   if coalesce(array_length(p_ids, 1), 0) > 2000 then
     raise exception 'Lista grande demais (máximo 2000 alunos por consulta).' using errcode = '22023';
   end if;

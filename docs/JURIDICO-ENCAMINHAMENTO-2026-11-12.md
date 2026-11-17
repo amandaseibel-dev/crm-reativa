@@ -35,6 +35,18 @@ policy e sem grant: só se lê e escreve pelas RPCs.
 - **Fora da seleção**: aluno já em lote vivo, com bloqueio administrativo, com título
   `EM_CONFIRMACAO` ou solicitação de confirmação de pagamento pendente.
 
+## DISPONIBILIZAÇÃO BLOQUEADA (17/11/2026)
+
+A aba Jurídico **não está disponível** (`JURIDICO_LIBERADO = false` em `src/App.jsx`). Motivo: o envio
+por WhatsApp e o envio de documentos não distinguem finalidade (cobrança ou atendimento). Hoje, um
+aluno com bloqueio jurídico efetivo pode receber mensagem pelo canal.
+
+Decisão da gestão: aluno com bloqueio jurídico não recebe cobrança (manual, massiva, automática),
+inclusive respostas e documentos de cobrança. Atendimento acadêmico ou administrativo continua possível.
+Não se classifica finalidade por prazo de mensagem.
+
+Exceção: quem autoriza e como não estão definidos. Até lá, a aba não é liberada.
+
 ## Atualização (17/11/2026): bloqueio por `nao_acionar`, carteira preservada
 
 Decisão da gestão: aprovar bloqueia a cobrança, mas NÃO encerra o caso nem retira o aluno
