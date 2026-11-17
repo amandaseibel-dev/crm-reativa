@@ -1,0 +1,49 @@
+// Testes do helper de bloqueio jurídico nos envios (roda no vitest; sem Deno).
+import { describe, it, expect } from "vitest";
+import { sha256Hex, checarEnvioJuridico, alunoDaConversa } from "./juridico-envio";
+
+const base = { alunoId: "a1", conversaId: "c1", operador: "op@x", tipo: "MENSAGEM" as const, hash: "h" };
+
+describe("sha256Hex", () => {
+  it("vetor conhecido em hexadecimal (texto e bytes do mesmo conteudo)", async () => {
+    expect(await sha256Hex("abc")).toBe("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    expect(await sha256Hex(new TextEncoder().encode("abc"))).toBe(await sha256Hex("abc"));
+  });
+});
+
+describe("checarEnvioJuridico (fail-closed)", () => {
+  it("passa quando o banco nao recusa e chama a funcao certa com os argumentos certos", async () => {
+    const chamadas: Array<[string, any]> = [];
+    const r = await checarEnvioJuridico(async (n, a) => { chamadas.push([n, a]); return { error: null }; }, base);
+    expect(r).toEqual({ ok: true });
+    expect(chamadas[0][0]).toBe("juridico_checar_envio");
+    expect(chamadas[0][1]).toEqual({ p_aluno: "a1", p_conversa: "c1", p_operador: "op@x", p_tipo: "MENSAGEM", p_conteudo_hash: "h" });
+  });
+
+  it("recusa quando o banco devolve erro (bloqueio, aluno ausente, autorizacao ausente)", async () => {
+    const r = await checarEnvioJuridico(async () => ({ error: { message: "Envio bloqueado: aluno com bloqueio jurídico." } }), base);
+    expect(r.ok).toBe(false);
+  });
+
+  it("recusa quando a chamada lanca excecao (rede, RPC indisponivel)", async () => {
+    const r = await checarEnvioJuridico(async () => { throw new Error("rede caiu"); }, base);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.erro).toMatch(/envio não realizado/);
+  });
+});
+
+describe("alunoDaConversa", () => {
+  const admin = (resp: { data?: any; error?: any }) => ({
+    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => resp }) }) }),
+  });
+  it("devolve o aluno da conversa", async () => {
+    expect(await alunoDaConversa(admin({ data: { aluno_id: "a9" }, error: null }), "c1")).toEqual({ ok: true, alunoId: "a9" });
+  });
+  it("conversa sem aluno devolve null (a checagem recusa depois)", async () => {
+    expect(await alunoDaConversa(admin({ data: { aluno_id: null }, error: null }), "c1")).toEqual({ ok: true, alunoId: null });
+  });
+  it("erro de leitura recusa (nao segue sem identificar o aluno)", async () => {
+    const r = await alunoDaConversa(admin({ data: null, error: { message: "x" } }), "c1");
+    expect(r.ok).toBe(false);
+  });
+});

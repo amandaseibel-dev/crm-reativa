@@ -1465,7 +1465,7 @@ $function$;
 create table public.juridico_envio_autorizacoes (
   id uuid primary key default gen_random_uuid(),
   aluno_id uuid not null,
-  conversa_id uuid not null,
+  conversa_id uuid,  -- null = vale para qualquer conversa do aluno (conversa nova ainda nao tem id)
   tipo text not null check (tipo in ('MENSAGEM','DOCUMENTO')),
   conteudo_hash text not null check (length(conteudo_hash) >= 16),
   motivo text not null check (length(btrim(motivo)) >= 10),
@@ -1508,7 +1508,7 @@ begin
   end if;
   if not public._juridico_bloqueio_efetivo(p_aluno) then return; end if;
   select a.id into v_id from public.juridico_envio_autorizacoes a
-   where a.aluno_id = p_aluno and a.conversa_id = p_conversa
+   where a.aluno_id = p_aluno and (a.conversa_id is null or a.conversa_id = p_conversa)
      and a.tipo = p_tipo and a.conteudo_hash = btrim(p_conteudo_hash)
      and a.usado_em is null and a.valido_ate > now()
    order by a.autorizado_em desc limit 1
@@ -1976,6 +1976,9 @@ begin
   ] loop
     execute format('revoke all on function %s from public, anon, authenticated, service_role', sig);
   end loop;
+  -- Unico papel que chama a checagem: a edge de envio (service_role), ANTES do efeito externo.
+  -- Operador (authenticated) nao executa: nao da para consumir a autorizacao por fora do envio.
+  grant execute on function public.juridico_checar_envio(uuid,uuid,text,text,text) to service_role;
 end
 $grants$;
 
@@ -1999,7 +2002,7 @@ begin
      and (p.proname like 'juridico\_%' or p.proname like '\_juridico\_%')
      and (has_function_privilege('anon', p.oid, 'execute')
        or ((p.proname like '\_%' or p.proname = 'juridico_checar_envio') and has_function_privilege('authenticated', p.oid, 'execute'))
-       or ((p.proname like '\_%' or p.proname = 'juridico_checar_envio') and has_function_privilege('service_role', p.oid, 'execute'))
+       or (p.proname like '\_%' and has_function_privilege('service_role', p.oid, 'execute'))
        or not coalesce(p.proconfig @> array['search_path=public'], false));
   if v_n > 0 then
     raise exception 'juridico: % funcao(oes) com grant indevido ou sem search_path fixo.', v_n;

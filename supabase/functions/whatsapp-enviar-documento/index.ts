@@ -37,6 +37,7 @@
 //
 // Secrets: WHATSAPP_GATEWAY_URL, WHATSAPP_GATEWAY_TOKEN.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { alunoDaConversa, checarEnvioJuridico, sha256Hex } from "../_shared/juridico-envio.ts";
 import { LIMITE_BYTES, caminhoNovo, validarPdf } from "../_shared/pdf.ts";
 
 const BUCKET = "whatsapp-midia";
@@ -149,6 +150,20 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     { auth: { persistSession: false } },
   );
+
+  // BLOQUEIO JURÍDICO (decisão da gestão): checagem NO BANCO com o conteúdo EXATO do arquivo, antes do
+  // upload e do envio externo. Falha em qualquer etapa = nada é guardado nem enviado (fail-closed).
+  const alunoRes = await alunoDaConversa(admin, conversaId);
+  const checagem = alunoRes.ok
+    ? await checarEnvioJuridico((nome, args) => admin.rpc(nome, args), {
+        alunoId: alunoRes.alunoId,
+        conversaId,
+        operador: dados.operador_email,
+        tipo: "DOCUMENTO",
+        hash: await sha256Hex(bytes),
+      })
+    : alunoRes;
+  if (!checagem.ok) return jsonResp({ erro: checagem.erro, conversa_id: conversaId }, 403);
 
   // Upload com a chave de serviço. O bucket não tem policy de INSERT para
   // `authenticated` — de propósito: o navegador nunca escreve nele.

@@ -49,6 +49,7 @@
 //
 // Secrets: WHATSAPP_GATEWAY_URL, WHATSAPP_GATEWAY_TOKEN.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { alunoDaConversa, checarEnvioJuridico, sha256Hex } from "../_shared/juridico-envio.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -178,6 +179,23 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     { auth: { persistSession: false } },
   );
+
+  // BLOQUEIO JURÍDICO (decisão da gestão): checagem NO BANCO antes do efeito externo (gateway).
+  // Aluno da conversa existente: lido aqui; conversa nova: o aluno informado (o banco confere alunos.id).
+  // Falha em qualquer etapa = nada é enviado (fail-closed).
+  const alunoRes = conversaNova
+    ? { ok: true as const, alunoId: corpo.aluno_id ?? null }
+    : await alunoDaConversa(admin, conversaId);
+  const checagem = alunoRes.ok
+    ? await checarEnvioJuridico((nome, args) => admin.rpc(nome, args), {
+        alunoId: alunoRes.alunoId,
+        conversaId,
+        operador: dados.operador_email,
+        tipo: "MENSAGEM",
+        hash: await sha256Hex(texto),
+      })
+    : alunoRes;
+  if (!checagem.ok) return jsonResp({ erro: checagem.erro, conversa_id: conversaId }, 403);
 
   const registrar = (status: string, wamid: string | null, erro: string | null) =>
     admin.rpc("whatsapp_registrar_mensagem", {
