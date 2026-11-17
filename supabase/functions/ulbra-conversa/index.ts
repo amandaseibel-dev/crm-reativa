@@ -267,7 +267,9 @@ Deno.serve(async (req: Request) => {
         const { data: atual, error: erroLeitura } = await sb.from("ulbra_conexoes_operador")
           .select("refresh_token_cifrado, revogada_em").eq("operador_email", email).maybeSingle();
         if (erroLeitura) return responder({ ok: false, motivo: "CONEXAO_NAO_VERIFICADA" }, 503);
-        if (atual && atual.refresh_token_cifrado && !atual.revogada_em) {
+        // Vale enquanto houver refresh cifrado, mesmo com revogada_em: desconexão sem confirmação do
+        // provedor mantém o refresh (A4) e é a única cópia que permite tentar a revogação de novo.
+        if (atual && atual.refresh_token_cifrado) {
           return responder({ ok: false, motivo: "CONEXAO_OAUTH_ATIVA" }, 409);
         }
         const r = await cadastrarTokenPessoal({

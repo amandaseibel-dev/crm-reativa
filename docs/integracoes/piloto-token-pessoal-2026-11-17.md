@@ -118,6 +118,10 @@ Rodado localmente com vitest. O Deno do `ulbra-conversa` roda só no CI.
   sem controle.
 - Correção: `conexao_token_pessoal` **recusa** com `409 CONEXAO_OAUTH_ATIVA` quando há conexão OAuth
   ativa com refresh. O operador desconecta o OAuth antes (o que tenta a revogação no provedor).
+- **Desconexão OAuth sem confirmação do provedor:** o refresh cifrado fica guardado (A4) e
+  `revogada_em` é preenchido. O guard **recusa** enquanto houver refresh cifrado, mesmo revogado,
+  com `409 CONEXAO_OAUTH_ATIVA`. Para liberar, é preciso nova tentativa de desconexão que confirme a
+  revogação no provedor. Não é liberado automaticamente.
 - **Fail-closed em erro de leitura:** a consulta da conexão atual trata o erro do banco. Se não
   conseguir ler, responde `503 CONEXAO_NAO_VERIFICADA` e não grava.
 - **Limites declarados do guard:**
