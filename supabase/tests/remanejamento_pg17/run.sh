@@ -38,8 +38,13 @@ passo() { echo; echo "== $*"; }
 
 # psql com timeout, erro fatal e log proprio
 psqlt() { # psqlt <log> <db> <arquivo> [args...]
+  # Em falha, imprime o fim do log no proprio job (o artefato pode nao existir).
   local log="$1" db="$2" arq="$3"; shift 3
-  timeout "$T" psql -X -q -v ON_ERROR_STOP=1 -d "$db" -f "$arq" "$@" >"$log" 2>&1
+  if ! timeout "$T" psql -X -q -v ON_ERROR_STOP=1 -d "$db" -f "$arq" "$@" >"$log" 2>&1; then
+    echo "--- falha em $(basename "$arq") (banco $db). Fim do log:" >&2
+    tail -n 60 "$log" >&2 || true
+    return 1
+  fi
 }
 banco_novo() { # banco_novo <db>
   psql -X -q -d postgres -v ON_ERROR_STOP=1 -c "drop database if exists $1" -c "create database $1" >/dev/null
@@ -52,7 +57,7 @@ banco_novo rem_sem936
 psqlt "$LOGS/s1_base.log" rem_sem936 "$FIX" || falha "base (fixture) nao carrega: ver $LOGS/s1_base.log"
 psqlt "$LOGS/s1_acl.log" rem_sem936 "$ACL" || falha "ACL de producao nao aplicou"
 antes="$(md5_mover rem_sem936)"
-if psqlt "$LOGS/s1_migration.log" rem_sem936 "$OURS"; then
+if timeout "$T" psql -X -q -v ON_ERROR_STOP=1 -d rem_sem936 -f "$OURS" >"$LOGS/s1_migration.log" 2>&1; then
   falha "a migration APLICOU sem a #936 (deveria recusar)"
 fi
 grep -q "requer a PR #936" "$LOGS/s1_migration.log" || falha "recusa sem a mensagem do gate: ver $LOGS/s1_migration.log"
