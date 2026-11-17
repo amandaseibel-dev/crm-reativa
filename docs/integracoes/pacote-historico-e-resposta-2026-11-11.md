@@ -53,11 +53,12 @@ Preparado em 11/11/2026. **Nenhuma mensagem enviada, nenhuma credencial alterada
 ## 7. Ordem após aprovação (cada passo com a sua autorização)
 1. TI da ULBRA: `client_id` + `redirect_uri` registrados (único item externo).
 2. Merge desta PR (deploy da tela; sem função publicada a Central mostra "função indisponível"/"conexão não configurada").
+0. CONTENÇÃO da v1 `ulbra-historico` (pré-condição de TODOS os passos abaixo; o merge não ocorre antes).
 3. NÃO reaplicar `20261110100000` (já aplicada, versão 20261112111006). Aplicação de `20261111140000` e da corretiva `20261116150000`, cada uma com aprovação específica; conferir grants (só service_role) e `search_path`.
 4. Segredos `ULBRA_OAUTH_CLIENT_ID`, `ULBRA_OAUTH_REDIRECT_URI`, `ULBRA_TOKENS_CHAVE` (gestão, fora de transcript); publicar `ulbra-conversa` (verify_jwt ligado). `ULBRA_HISTORICO_HABILITADO` fica ausente (leitura desligada) até decisão da gestão. A `ulbra-historico` não entra neste pacote.
 5. Validação de leitura com a gestão e com um operador (histórico de 1 conversa: 1 chamada).
 6. Conexão de 1 operador piloto (1 `meu_acesso` da cota dele) e **prévia** de uma resposta (1 chamada) — sem `ULBRA_ENVIO_REAL`.
-7. Pré-condição (antes de QUALQUER passo acima): contenção da v1 `ulbra-historico` verificada (função ausente e endpoint indisponível). Primeiro envio real só pelo roteiro aprovado (destinatário interno, texto fixo, 1 mensagem, autoria conferida na Mensageria), ligando `ULBRA_ENVIO_REAL=true` para a janela e desligando depois, até decisão de liberação.
+7. Pré-condição (antes de QUALQUER passo acima, inclusive merge e publicação): contenção da v1 `ulbra-historico` verificada (função ausente e endpoint indisponível). Primeiro envio real só pelo roteiro aprovado (destinatário interno, texto fixo, 1 mensagem, autoria conferida na Mensageria), ligando `ULBRA_ENVIO_REAL=true` para a janela e desligando depois, até decisão de liberação.
 
 ## 8. Fora deste pacote
 Campanhas, criação de atendimentos, transferências, administração de operadores (ver `mensageria-ulbra-capacidades-mcp-2026-11-11.md`); coleta automática; o pacote de 12/11.
@@ -129,5 +130,7 @@ Ordem sugerida, cada passo com aprovação específica: (1) `20261111140000`; (2
 
 ## Resultado do CI e do Guardião (registrar na PR, não em commit)
 - CI do `35417eb2`: 24/24 jobs SUCCESS, incluindo `ulbra-conversa — deno check` e `ulbra histórico — portão da RPC (PGlite)`.
-- CI do `042a476b`: removido do histórico desta branch — esse commit removeu 13 jobs do workflow por erro de edição, depois revertido (estado restaurado pelo `ci.yml` de `35417eb2`).
+- CI do `042a476b`: é ancestral desta branch; esse commit removeu 13 jobs do workflow por erro de edição, depois revertido (estado restaurado pelo `ci.yml` de `35417eb2`).
 - Guardião: ver a revisão final no head registrado na PR.
+- CI do `60e9e194`: em andamento no momento desta escrita. Só vale o resultado concluído.
+- Ligar `HISTORICO_DISPONIVEL` exige antes: a visibilidade do botão em tela (`CentralUlbra.jsx`, `ulbraHistorico.js`) coincidir com a regra do backend (hoje a tela usa `eh_gestao`, perfil amplo).

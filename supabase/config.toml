@@ -26,10 +26,11 @@ verify_jwt = true
 # que o JWT corresponde a um usuario ativo em public.usuarios. O token MCP
 # (ULBRA_MCP_TOKEN) fica exclusivamente no secret de backend -- nunca sai da
 # funcao nem aparece em resposta ou log.
-[functions.ulbra-conversa]
+[functions.ulbra-consultar]
 verify_jwt = true
 
-[functions.ulbra-consultar]
+# ulbra-conversa: conexão individual, envio e leitura do histórico (verify_jwt explícito).
+[functions.ulbra-conversa]
 verify_jwt = true
 
 # -----------------------------------------------------------------------------
