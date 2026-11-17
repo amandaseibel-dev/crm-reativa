@@ -34,6 +34,8 @@
 | `supabase/tests/tabulacao_termo_fisico_gestao/fingerprint_dados_termo.sql` | `be702c3b4e653a52ea4910a6854b15ef4bc3c74c51a0ee9c436ed57ef3759476` | 1690 | evidência (novo; normalizado) |
 | `supabase/tests/tabulacao_termo_fisico_gestao/snapshot_termo_fisico.sql` | `7181ce340942ee18c2035c54af6d2b242139a25a0fe34b30024ea8d1ce6f129b` | 1973 | evidência |
 | `supabase/tests/tabulacao_termo_fisico_gestao/12n_contencao_flag_fixture.sql` | `848891fb90c68888be72e08e15e308cc7683a2c21daf3a6b6d096a6ad363aff8` | 1719 | evidência (novo) |
+| `supabase/tests/tabulacao_termo_fisico_gestao/executa_contencao_15.sh` | `ad4ee361d7299f9260f1197cf9037a530d30485a1d6fd8bb19765beda1a0fb61` | 1389 | evidência (novo) |
+| `supabase/tests/tabulacao_termo_fisico_gestao/postgrest_termo_fisico.cjs` | `dd6062bd36c7129d53bddf9b750c559464ee7f3fb4984f914aa5ad7891b5a502` | 9954 | evidência (novo) |
 
 Hashes calculados com `shasum -a 256` no head final. Qualquer alteração posterior invalida esta tabela.
 
@@ -70,6 +72,7 @@ Hashes calculados com `shasum -a 256` no head final. Qualquer alteração poster
 ## Evidências a apresentar com esta proposta
 
 1. **CI do head final, job `tabulação termo físico`** (rodado no GitHub Actions, PostgreSQL 17 do job, papéis `app_teste` LOGIN e `app_teste_inh` LOGIN com herança, criados pelo job). Inclui: registro autorizado pela gestão (`07_registro_administrativo.sql`); recusa a operador (`02_tabulacao.sql`, `09_login_nao_privilegiado.sql`, `10_login_inherit_defensivo.sql`); barreira de alunos com login não privilegiado (`05_barreira_alunos.sql`); PostgREST 16.5 real com JWT (operador recusado, gestão aceita, claims forjadas recusadas); rollback recusado por histórico (`03`); rollback limpo com igualdade de snapshot antes e depois (`Caminho B`, `04_rollback_limpo.sql`); recusas por aluno, catálogo, contenção ativa, contenção alterada, histórico com variante e aluno com variante (`recusas_rollback.sh`, oito cenários) com impressão idêntica antes e depois; flag NOT NULL e ligar/desligar por fixture idempotente (`12n_contencao_flag_fixture.sql`).
+   - **PostgREST com JWT:** a evidência vem do log do CI (passo `PostgREST 16.5 real`, job `133952977625`, head `dd85340a`, concluído com sucesso). A revisão do Guardião não executou o PostgREST pessoalmente; a execução real do JWT é comprovada pelo log do CI, não pela revisão.
 2. **Ambiente de teste (CI):** `dono_teste` é NOLOGIN com `bypassrls`, criado apenas para simular o dono das funções; nenhum papel de teste existe em produção.
 3. **Produção:** dono das funções `postgres` (rolsuper=false, rolbypassrls=true, medido em leitura); clientes `anon`, `authenticated`, `service_role` do PostgREST. **Privilégios do pacote (corrigido, antes afirmava "nenhuma alteração"):** a migração faz `revoke` e `grant` apenas em objetos criados por ela: tabela `termo_fisico_contencao` (`revoke all`, sem grant a usuários), função da trigger (`revoke`, sem `execute` para ninguém) e RPC `registrar_administrativo_termo_fisico` (`revoke` de `public`, `anon` e `service_role`, `grant execute` apenas a `authenticated`, com gate interno por `app_usuario_ativo()` e `usuario_e_gestao()`). Nenhum grant ou revoke em tabela ou função existente. O rollback não tem GRANT, REVOKE nem POLICY.
 4. **Bancada PGlite (não substitui o CI; não reconferida nesta v2):** executa como `postgres`, que o gatilho ignora. Usada só para validar a lógica das recusas e a sensibilidade da impressão digital (ela muda com cada ajuste e fica igual antes e depois de cada recusa).
@@ -89,7 +92,8 @@ Hashes calculados com `shasum -a 256` no head final. Qualquer alteração poster
 ### Achados desta v2 (não estavam na v1)
 - **Script de recusas sem `trap`:** `recusas_rollback.sh` sai com `exit 1` sem restaurar o fator alterado. Aceitável só em banco descartável.
 - **`\\set` no rollback:** `20261114120000.rollback.sql` só roda via `psql`, não pelo SQL Editor.
-- **Falha de restauração no teste 15:** se `12p_off` falhar sob `set -e`, `15p_dono_restore` é pulado. O comentário do CI não diz isso.
+- **Falha de restauração no teste 15 — RESOLVIDA no head `dd85340a`:** o bloco de contenção está em `executa_contencao_15.sh`, que restaura por `trap EXIT` (`12p_off` e `15p_dono_restore`) em sucesso e em falha, preserva o código da primeira falha e sinaliza falha de restauração em stderr. Validado localmente em banco descartável (sucesso, falha do teste, falha da restauração e ambas). O job `tabulação termo físico` do CI do head `dd85340a` concluiu com sucesso (run `44058185214`, job `133952977625`).
+- **Limitação do harness PostgREST (`postgrest_termo_fisico.cjs`, `lerSql`):** resolve apenas `\i` no início da linha. `\ir` e `\set` são descartados em silêncio. O `01_ambiente.sql` atual não usa essas meta-linhas, então não há efeito hoje; nenhum teste exercita esse ramo.
 
 ## Dependência de `usuario_e_gestao()` (verificada no SQL efetivo, sem alterar a função)
 - A migration `20261114120000` **exige** a função: a pré-condição aborta se `to_regprocedure('public.usuario_e_gestao()')` for nulo (linhas 40–41 do `.pendente`).
