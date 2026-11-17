@@ -64,11 +64,21 @@ echo "C3 ok: reversao da protecao recusada com a exportacao em andamento"
 # quem executa. A comparacao que vale e has_function_privilege por papel, antes e depois.
 F1="public.acoes_massivas_exportar(text[],text,text,text,text,uuid)"
 F2="public.acoes_massivas_exportar_emails_do_lote(uuid,text)"
+# Papeis: TODOS os roles do banco (pg_roles), nao uma lista fixa. has_function_privilege herda memberships.
+# PUBLIC nao e role: has_function_privilege('public',...) nao e valido. Efetivo de PUBLIC = EXECUTE na ACL
+# com grantee 0 (aclexplode) ou, com proacl NULL, o padrao do Postgres (EXECUTE para PUBLIC).
 efetivas() {
-  P -tA -c "select string_agg(f||':'||r||'='||has_function_privilege(r,f,'EXECUTE')::text, ';' order by f,r) from (values ('$F1'),('$F2')) as x(f), (values ('anon'),('authenticated'),('service_role'),('public')) as y(r)"
+  P -tA -c "select string_agg(x, ';' order by x) from (
+      select f||':'||r.rolname||'='||has_function_privilege(r.rolname, f, 'EXECUTE')::text as x
+        from (values ('$F1'),('$F2')) as fx(f), pg_roles r
+      union all
+      select p.oid::regprocedure::text||':PUBLIC='||(p.proacl is null or exists (select 1 from aclexplode(p.proacl) a where a.grantee=0 and a.privilege_type='EXECUTE'))::text
+        from pg_proc p where p.oid in ('$F1'::regprocedure,'$F2'::regprocedure)
+  ) t"
 }
 catalogo() { P -tA -c "select string_agg(coalesce(proacl::text,'NULL'), ' | ' order by proname) from pg_proc where oid in ('$F1'::regprocedure,'$F2'::regprocedure)"; }
 E_ANTES=$(efetivas); C_ANTES=$(catalogo)
+[ -n "$E_ANTES" ] || falha "C4: snapshot de permissoes efetivas vazio (consulta falhou)"
 restaurar() { P -c "grant execute on function $F1 to authenticated; grant execute on function $F2 to authenticated;" >/dev/null 2>&1 || true; }
 trap 'restaurar' EXIT
 P -c "revoke execute on function $F1 from authenticated; revoke execute on function $F2 from authenticated;"
