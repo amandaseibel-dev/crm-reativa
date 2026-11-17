@@ -34,8 +34,10 @@
 | `supabase/tests/tabulacao_termo_fisico_gestao/fingerprint_dados_termo.sql` | `be702c3b4e653a52ea4910a6854b15ef4bc3c74c51a0ee9c436ed57ef3759476` | 1690 | evidência (novo; normalizado) |
 | `supabase/tests/tabulacao_termo_fisico_gestao/snapshot_termo_fisico.sql` | `7181ce340942ee18c2035c54af6d2b242139a25a0fe34b30024ea8d1ce6f129b` | 1973 | evidência |
 | `supabase/tests/tabulacao_termo_fisico_gestao/12n_contencao_flag_fixture.sql` | `848891fb90c68888be72e08e15e308cc7683a2c21daf3a6b6d096a6ad363aff8` | 1719 | evidência (novo) |
-| `supabase/tests/tabulacao_termo_fisico_gestao/executa_contencao_15.sh` | `ad4ee361d7299f9260f1197cf9037a530d30485a1d6fd8bb19765beda1a0fb61` | 1389 | evidência (novo) |
+| `supabase/tests/tabulacao_termo_fisico_gestao/executa_contencao_15.sh` | `f748dccc82fc9cce483822346a099b35daaa6944e88281d108acec1296bc7f91` | 1550 | evidência (novo; 15b e 15c rodam ambos; restauração sempre) |
 | `supabase/tests/tabulacao_termo_fisico_gestao/postgrest_termo_fisico.cjs` | `dd6062bd36c7129d53bddf9b750c559464ee7f3fb4984f914aa5ad7891b5a502` | 9954 | evidência (novo) |
+| `.github/workflows/ci.yml` | `cfd2c5da6c1c5af8770296b7b6396c3126535a7ac3c97f96243de17eeb77fdff` | 55011 | evidência do CI (job do termo) |
+| `supabase/tests/tabulacao_termo_fisico_gestao/fixtures/prod_encerramento_so_gestao.sql` | `cae8f5422b93341fb62debd5e524d10182054ffca7a968cf5b749928ecd3aea9` | 5366 | **fixture de teste**, executável só em banco descartável; `CREATE OR REPLACE`; não é migration nem instrução de produção |
 
 Hashes calculados com `shasum -a 256` no head final. Qualquer alteração posterior invalida esta tabela.
 
@@ -109,7 +111,7 @@ Hashes calculados com `shasum -a 256` no head final. Qualquer alteração poster
 ## Recorte e estado de validação
 
 - **Esta v2 está no recorte `termo-fisico-recorte`** (branch nova a partir de `origin/main` `979de7b6`). A PR #954 (`feat/termo-fisico-registro-migracao`) permanece como referência, com o histórico preservado; seus heads `f725c5cb`, `f94d25c8` e `4dca987a` não são o pacote desta v2.
-- **Escopo do recorte:** 49 arquivos do diff `origin/main...feat/termo-fisico-registro-migracao` (verificado), todos de termo físico. O número 321 que apareceu antes vinha de um `main` local desatualizado, não do diff da PR.
+- **Escopo do recorte:** 50 arquivos do diff `origin/main...termo-fisico-recorte` (verificado), todos de termo físico. O número 321 que apareceu antes vinha de um `main` local desatualizado, não do diff da PR.
 - **Validação:** CI e Guardião do head do recorte são registrados na PR de recorte, não nesta seção. Nenhum parecer anterior é considerado validação deste head.
 - **Ressalvas de publicação (não de merge):** Gate A, Auth, `usuario_e_gestao()` sem migration versionada (catálogo em `docs/seguranca/evidencias/catalogo_usuario_e_gestao_20261116.md`), papel `reativa_responsavel_executor`, `tabulacoes` sem DDL versionado; higiene dos `.sql` de evidência com `CREATE OR REPLACE` (carregados por `\\i` no CI, não renomeados).
 - **Nenhuma aprovação registrada.**
@@ -137,5 +139,5 @@ Hashes calculados com `shasum -a 256` no head final. Qualquer alteração poster
 4. **`tabulacoes`:** sem DDL versionado. Ação: confirmar as colunas e restrições reais de produção (leitura) antes da implantação.
 5. **`app_usuario_ativo()`:** corpo e ACL não conferidos. Ação: leitura de catálogo de produção.
 6. **Papel `reativa_responsavel_executor`:** INSERT irrestrito. Ação: verificar se algum cliente assume o papel.
-7. **Evidências SQL com `CREATE OR REPLACE`** (`docs/seguranca/evidencias/prod_encerramento_so_gestao.sql`): não executar em produção. O CI carrega este arquivo com `\\i` (`00_barreira_producao.sql`). A cópia exata de `prod_usuario_e_gestao.sql` foi retirada desta entrega (referência com SHA-256 em `docs/seguranca/evidencias/REFERENCIA_prod_usuario_e_gestao.md`; cópia restrita local).
+7. **Fixture com `CREATE OR REPLACE`** (`supabase/tests/tabulacao_termo_fisico_gestao/fixtures/prod_encerramento_so_gestao.sql`): não executar em produção. O CI carrega este arquivo com `\\i` (`00_barreira_producao.sql`). A cópia exata de `prod_usuario_e_gestao.sql` foi retirada desta entrega (referência com SHA-256 em `docs/seguranca/evidencias/REFERENCIA_prod_usuario_e_gestao.md`; cópia restrita local).
 8. **Identificadores institucionais:** a cópia exata de `prod_usuario_e_gestao.sql` foi retirada da entrega e está em acesso restrito; a referência com SHA-256 está em `docs/seguranca/evidencias/REFERENCIA_prod_usuario_e_gestao.md`. Ação: a gestão define o destino de equipe.

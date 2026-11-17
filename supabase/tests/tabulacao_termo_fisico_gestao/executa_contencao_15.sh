@@ -30,6 +30,11 @@ finish() {
 trap finish EXIT
 
 psql -v ON_ERROR_STOP=1 -f "$DIR/12p_on.sql" || exit $?
-PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/15b_dono_contido.sql" || exit $?
-PGUSER=app_teste_rls PGPASSWORD=app_teste_rls_pw psql -v ON_ERROR_STOP=1 -f "$DIR/15c_update_dono.sql" || exit $?
-echo "OK contenção 15b/15c"
+# 15b e 15c rodam ambos: falha de 15b não suprime 15c (cobertura); o código é o da primeira falha.
+rc=0
+PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/15b_dono_contido.sql" || rc=$?
+c=0
+PGUSER=app_teste_rls PGPASSWORD=app_teste_rls_pw psql -v ON_ERROR_STOP=1 -f "$DIR/15c_update_dono.sql" || c=$?
+[ "$rc" -eq 0 ] && rc=$c
+[ "$rc" -eq 0 ] && echo "OK contenção 15b/15c"
+exit "$rc"
