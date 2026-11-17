@@ -1229,16 +1229,8 @@ jobs:
           set +e
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/15_dono_teste_flag.sql"
           rc=$?
-          psql -v ON_ERROR_STOP=1 -f "$DIR/12p_on.sql"
-          set -e  # a partir daqui, falha de restauração aborta o caminho (o teste 15b é o que pega a falha de ligar a contenção)
-          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/15b_dono_contido.sql" || rc=$?
-          PGUSER=app_teste_rls PGPASSWORD=app_teste_rls_pw psql -v ON_ERROR_STOP=1 -f "$DIR/15c_update_dono.sql" || rc=$?
-          set -e
-          psql -v ON_ERROR_STOP=1 -f "$DIR/12p_off.sql"
-          psql -v ON_ERROR_STOP=1 -f "$DIR/15p_dono_restore.sql"
+          bash "$DIR/executa_contencao_15.sh" || rc=$?
           [ "$rc" -eq 0 ] || exit "$rc"
-          set -e
-          [ "$rc" -eq 0 ] || { psql -v ON_ERROR_STOP=1 -f "$DIR/15p_dono_restore.sql"; exit "$rc"; }
           set +e
           out=$(psql -v ON_ERROR_STOP=1 -f "$ROLLBACK" 2>&1)
           code=$?

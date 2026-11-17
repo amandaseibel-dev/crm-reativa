@@ -28,7 +28,7 @@
 
 | Arquivo | SHA-256 | Bytes | Situação |
 |---|---|---|---|
-| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `fb24afa4138710d7010ec3db73d2e21f1dffa8e0c36963a39469b446aafce713` | 11118 | **alterado em relação ao autorizado** (`1c81eb71…`, 10313): R1 (comentário) e pré-condições de dependências de produção (`tabulacoes`, `usuario_e_gestao()`, `app_usuario_ativo()`) |
+| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `c5c1a6e2a5ad12a2d1c09bb99579c3cd0984401078f8ce64d99f6c159987da37` | 11155 | **alterado em relação ao autorizado** (`1c81eb71…`, 10313): R1 (comentário) e pré-condições de dependências de produção (`tabulacoes`, `usuario_e_gestao()`, `app_usuario_ativo()`) |
 | `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql` | `30315b81d0b9346741daf100927e3d4ed49ebceafa053a6169c12f03e62cf0fe` | 6724 | **diferente do autorizado** (`d4f41e31…`, 5000); versão com normalização de variantes (B3) |
 | `supabase/tests/tabulacao_termo_fisico_gestao/recusas_rollback.sh` | `de4e3e00a9e3fb6016714a1a592685eb2e497e29cb37103dd77516f0ecd48c49` | 4579 | evidência (novo; oito cenários) |
 | `supabase/tests/tabulacao_termo_fisico_gestao/fingerprint_dados_termo.sql` | `be702c3b4e653a52ea4910a6854b15ef4bc3c74c51a0ee9c436ed57ef3759476` | 1690 | evidência (novo; normalizado) |
@@ -90,6 +90,12 @@ Hashes calculados com `shasum -a 256` no head final. Qualquer alteração poster
 - **Script de recusas sem `trap`:** `recusas_rollback.sh` sai com `exit 1` sem restaurar o fator alterado. Aceitável só em banco descartável.
 - **`\\set` no rollback:** `20261114120000.rollback.sql` só roda via `psql`, não pelo SQL Editor.
 - **Falha de restauração no teste 15:** se `12p_off` falhar sob `set -e`, `15p_dono_restore` é pulado. O comentário do CI não diz isso.
+
+## Dependência de `usuario_e_gestao()` (verificada no SQL efetivo, sem alterar a função)
+- A migration `20261114120000` **exige** a função: a pré-condição aborta se `to_regprocedure('public.usuario_e_gestao()')` for nulo (linhas 40–41 do `.pendente`).
+- A migration também **chama** a função nas RPC e na trigger (linhas 112, 135, 172 do `.pendente`). Sem ela, registro e barreira não funcionam.
+- Na fixture de CI, a função existe porque `01_ambiente.sql` (linha 55) a define como stub com e-mails de teste. Esse stub **não** é a função de produção.
+- Conclusão: esta PR **depende** de `usuario_e_gestao()` para funcionar. Em banco novo, sem stub, a migration aborta pela pré-condição. Regularizar a função é proposta separada, fora deste pacote.
 
 ## Não aprovado
 

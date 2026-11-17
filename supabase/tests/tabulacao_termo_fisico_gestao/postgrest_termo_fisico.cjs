@@ -8,6 +8,16 @@ const fs = require("fs"); const path = require("path"); const crypto = require("
 const { spawn } = require("child_process"); const { Client } = require("pg");
 const ROOT = path.resolve(__dirname, "../../..");
 const AMBIENTE = path.join(__dirname, "01_ambiente.sql");
+
+// Lê um .sql resolvendo \i (meta do psql) em relação à raiz do repo; descarta outras meta-linhas.
+const RAIZ_REPO = path.resolve(__dirname, "..", "..", "..");
+function lerSql(f) {
+  return fs.readFileSync(f, "utf8").split("\n").map((l) => {
+    const m = l.match(/^\\i\s+(\S+)\s*$/);
+    if (m) return lerSql(path.resolve(RAIZ_REPO, m[1]));
+    return l.startsWith("\\") ? "" : l;
+  }).join("\n");
+}
 const MIG = path.join(ROOT, "supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente");
 const BIN = process.env.POSTGREST_BIN; const BANCO = "teste_termo_postgrest"; const PORTA = 3998;
 const cfg = { host: process.env.PGHOST || "localhost", port: Number(process.env.PGPORT || 5432), user: process.env.PGUSER || "postgres", password: process.env.PGPASSWORD || "postgres" };
@@ -43,7 +53,7 @@ const LINHA = (aluno, tipo, status, email) => ({ aluno_id: aluno, tipo, status_n
   end $$`);
   await admin.query(`drop database if exists ${BANCO} with (force)`); await admin.query(`create database ${BANCO}`); await admin.end();
   const c = new Client({ ...cfg, database: BANCO }); await c.connect();
-  await c.query(fs.readFileSync(AMBIENTE, "utf8"));
+  await c.query(lerSql(AMBIENTE));
   await c.query(fs.readFileSync(MIG, "utf8"));
   await c.query("grant anon, authenticated, service_role to authenticator");
   await c.query("alter role authenticator password 'auth_teste_pw'");
