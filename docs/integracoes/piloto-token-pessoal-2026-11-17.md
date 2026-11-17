@@ -266,16 +266,19 @@ necessária para decifrá-los e para desconectar com segurança. Ela é preserva
 ## Quem consegue ler (verificado por teste)
 
 - **Sem conexão individual ativa, não há leitura, mesmo com a flag ligada.** `historico-sem-conexao.test.ts`:
-  o handler responde 403 `SEM_CONEXAO`, não chama a Mensageria e não grava auditoria de leitura.
+  a função pura `lerHistoricoAutorizado` devolve 403 `SEM_CONEXAO`, não chama a Mensageria e não grava auditoria de leitura. Prova de **função pura com dependências simuladas**, não do handler: o wiring de `index.ts` não tem teste (gap declarado).
 - **Sem fallback de credencial central.** Nenhum arquivo da função lê `ULBRA_MCP_TOKEN` fora de comentário,
-  e a leitura usa só o token do próprio operador (`chamarComoOperador`). Verificado pelo mesmo teste.
+  e a leitura usa só o token do próprio operador (`chamarComoOperador`). Verificação **estrutural** (texto do código atual, não prova de comportamento em execução nem de ausência de fallback futuro).
 - **Habilitada ≠ apta.** Habilitada = `ULBRA_HISTORICO_HABILITADO=true`. Apta = habilitada + identidade
   na lista do piloto + conexão individual ativa + permissão da regra permanente (carteira ou responsável).
 - **Configurar só o token do João não limita o piloto:** a flag é global, e qualquer operador com
   carteira ou responsabilidade e conexão ativa passaria nas regras permanentes.
 - **Restrição de piloto:** `ULBRA_HISTORICO_PILOTO_EMAILS` (e-mails separados por vírgula). Fail-closed:
   lista ausente ou vazia = ninguém lê. Não altera as regras permanentes. `piloto-leitura.ts` e
-  `piloto-leitura.test.ts`. Para o piloto: `cobranca10@aelbra.com.br` (João, identidade conferida em CRM e Mensageria).
+  `piloto-leitura.test.ts`. Para o piloto: `cobranca10@aelbra.com.br`. Identidade observada na interface (CRM: usuário
+  ativo com nome João; Mensageria: mesmo e-mail na fila de atendimento). **Não versionado no repositório**; informado e
+  observado pela gestora, não verificado por teste. O wiring de `index.ts` (linha de `flagLigada`) não tem teste: gap declarado.
+  Usuário fora da lista recebe `HISTORICO_DESLIGADO` (mensagem genérica, não motivo de piloto).
 
 ## Atribuição do aluno a João (leitura, sem execução)
 
