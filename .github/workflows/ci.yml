@@ -1179,8 +1179,10 @@ jobs:
         run: |
           TOKEN=$(openssl rand -hex 16)
           echo "DESCARTAVEL_TOKEN=$TOKEN" >> "$GITHUB_ENV"
-          node scripts/ci/gerar-sql-banco-reversao.mjs "$TOKEN" > "$RUNNER_TEMP/banco.sql"
-          psql -X -v ON_ERROR_STOP=1 -f "$RUNNER_TEMP/banco.sql"
+          node scripts/ci/gerar-sql-banco-reversao.mjs "$TOKEN" pre > "$RUNNER_TEMP/banco_pre.sql"
+          node scripts/ci/gerar-sql-banco-reversao.mjs "$TOKEN" fin > "$RUNNER_TEMP/banco_fin.sql"
+          psql -X -v ON_ERROR_STOP=1 -f "$RUNNER_TEMP/banco_pre.sql"
+          echo "FIN_SQL=$RUNNER_TEMP/banco_fin.sql" >> "$GITHUB_ENV"
 
       - name: Recusas do script (cada uma deve sair com codigo 2, sem escrever)
         run: |

@@ -573,7 +573,7 @@ describe("Ações Massivas — exportar já registra (02/10); lotes antigos fica
     expect(screen.getByText(/se todos receberam, use “Tabular lote enviado”/)).toBeTruthy();
   });
 
-  it("sem a migration no banco: total cai no concluir_lote; parcial avisa e não grava", async () => {
+  it("sem a função de confirmação: TOTAL é BLOQUEADO com mensagem; nunca cai no concluir_lote (R2)", async () => {
     lotes = [LOTE];
     semConfirmarEnvio = true;
     await montar();
@@ -582,8 +582,8 @@ describe("Ações Massivas — exportar já registra (02/10); lotes antigos fica
     fireEvent.click(screen.getByRole("button", { name: "Voltar" }));
     fireEvent.click(screen.getByRole("button", { name: /Tabular lote enviado/ }));
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Sim, tabular o lote/ })); });
-    const c = rpcMock.mock.calls.filter(([n]) => n === "acoes_massivas_concluir_lote").at(-1)[1];
-    expect(c).toEqual({ p_lote_id: "lote-1", p_acao: "CONFIRMAR" });
+    expect(await screen.findByText(/Confirmação indisponível no servidor agora\. Nada foi registrado/)).toBeTruthy();
+    expect(nomesChamados()).not.toContain("acoes_massivas_concluir_lote");
   });
 
   it("repetição (outra aba já tabulou): avisa “Lote já tabulado” e não anuncia gravação nova", async () => {
@@ -623,7 +623,24 @@ describe("Ações Massivas — exportar já registra (02/10); lotes antigos fica
     lotes = [LOTE];
     await montar();
     expect(await screen.findByTestId("aviso-lotes-pendentes")).toBeTruthy();
-    expect(screen.getByText(/1 lote\(s\) aguardando confirmação de envio/)).toBeTruthy();
+    // B2: sem total exato (a lista pode estar cortada)
+    expect(screen.getByText(/Há lote\(s\) pendente\(s\) de confirmação de envio/)).toBeTruthy();
+    expect(screen.queryByText(/\d+ lote\(s\) aguardando/)).toBeNull();
+  });
+
+  it("B2: lista cheia (50) sem pendentes NÃO afirma que não há pendências", async () => {
+    lotesRegistro = Array.from({ length: 50 }, (_, i) => ({ ...LOTE, id: `reg-${i}`, total: 300, registrados: 300, registro_automatico: true, situacao: "REGISTRADO", confirmado_em: "2026-10-19T19:54:17Z", excluidos: {}, excluidos_por_motivo: {} }));
+    await montar();
+    expect(await screen.findByTestId("aviso-registro-parcial")).toBeTruthy();
+    expect(screen.queryByTestId("aviso-lotes-pendentes")).toBeNull();
+  });
+
+  it("B2: falha ao consultar o painel NÃO vira ausência de pendentes", async () => {
+    lotesRegistro = null;
+    lotes = null;
+    await montar();
+    expect(await screen.findByTestId("aviso-registro-parcial")).toBeTruthy();
+    expect(screen.queryByTestId("aviso-lotes-pendentes")).toBeNull();
   });
 
   it("exportar com a migration aplicada: lote pendente de envio, nada registrado", async () => {

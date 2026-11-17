@@ -278,6 +278,8 @@ export default function AcoesMassivas() {
   // de Exportar, então o normal é não haver pendente nenhum — e o painel existe
   // para MOSTRAR o registro que aconteceu, não só para cobrar confirmação.
   const [lotesRegistro, setLotesRegistro] = useState([]);
+  // true quando a lista pode estar incompleta (limite de 50, fallback ou falha de consulta).
+  const [registroParcial, setRegistroParcial] = useState(false);
   // Resultado do último lote, com os números SEPARADOS. "Selecionados" nunca é
   // sinônimo de "enviados": o disparo é externo e não devolve confirmação de
   // entrega, então Enviados e Falhas ficam explicitamente indisponíveis.
@@ -349,12 +351,16 @@ export default function AcoesMassivas() {
     const { data, error } = await supabase.rpc("acoes_massivas_lotes_registro", { p_dias: 7 });
     if (!error && Array.isArray(data)) {
       setLotesRegistro(data);
+      // A RPC limita a 50 linhas: lista cheia pode estar cortada.
+      setRegistroParcial(data.length >= 50);
       return;
     }
     // Enquanto a função do painel não estiver no banco, cai na antiga: ela só
-    // conhece pendentes. Melhor um painel incompleto do que a tela sem painel.
-    const { data: pend } = await supabase.rpc("acoes_massivas_lotes_pendentes");
-    setLotesRegistro((Array.isArray(pend) ? pend : []).map((l) => ({ ...l, situacao: "PENDENTE" })));
+    // conhece pendentes e também é limitada. Lista parcial por definição.
+    const { data: pend, error: errPend } = await supabase.rpc("acoes_massivas_lotes_pendentes");
+    const lista = !errPend && Array.isArray(pend) ? pend : [];
+    setLotesRegistro(lista.map((l) => ({ ...l, situacao: "PENDENTE" })));
+    setRegistroParcial(true);
   }
 
   async function carregarLotesWhats() {
@@ -788,11 +794,10 @@ export default function AcoesMassivas() {
         p_acao: acao,
         p_aluno_ids: ids,
       });
-      if (error && error.code === "PGRST202" && acao !== "PARCIAL") {
-        ({ data: res, error } = await supabase.rpc("acoes_massivas_concluir_lote", {
-          p_lote_id: lote.id,
-          p_acao: acao === "TOTAL" ? "CONFIRMAR" : "DESCARTAR",
-        }));
+      // Sem fallback: a função de confirmação por destinatário é a única que registra só o
+      // envio confirmado. Se não estiver no banco, bloqueia com mensagem clara.
+      if (error && error.code === "PGRST202") {
+        throw new Error("Confirmação indisponível no servidor agora. Nada foi registrado; tente de novo após a atualização do banco.");
       }
       if (error) throw error;
       if (acao === "DESCARTAR") {
@@ -1506,7 +1511,7 @@ export default function AcoesMassivas() {
         </div>
       )}
 
-      {lotesRegistro.length > 0 && (
+      {(lotesRegistro.length > 0 || registroParcial) && (
         <div style={estilos.card}>
           <h3 style={{ margin: "0 0 4px", fontFamily: FONTE_TITULO, fontSize: 15, fontWeight: 800 }}>
             Registro das ações massivas
@@ -1519,10 +1524,18 @@ export default function AcoesMassivas() {
             nunca some deste painel.
           </p>
           {(() => {
-            const pendentes = lotesRegistro.filter((l) => l.situacao === "PENDENTE").length;
-            return pendentes > 0 ? (
-              <p data-testid="aviso-lotes-pendentes" style={{ margin: "0 0 12px", padding: "8px 12px", borderRadius: 10, fontSize: 13, fontWeight: 700, background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)" }}>
-                ⏳ {pendentes} lote(s) aguardando confirmação de envio. Enquanto não forem confirmados, os alunos não contam como acionados.
+            const algumPendente = lotesRegistro.some((l) => l.situacao === "PENDENTE");
+            const estilo = { margin: "0 0 12px", padding: "8px 12px", borderRadius: 10, fontSize: 13, fontWeight: 700, background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)" };
+            if (algumPendente) {
+              return (
+                <p data-testid="aviso-lotes-pendentes" style={estilo}>
+                  ⏳ Há lote(s) pendente(s) de confirmação de envio. Enquanto não forem confirmados, os alunos não contam como acionados. A lista pode estar incompleta: confira os lotes antes de considerar que não há pendências.
+                </p>
+              );
+            }
+            return registroParcial ? (
+              <p data-testid="aviso-registro-parcial" style={estilo}>
+                ⚠️ Não é possível confirmar que não há lotes pendentes: a lista pode estar incompleta (mostra só os lotes mais recentes dos últimos 7 dias) ou a consulta falhou.
               </p>
             ) : null;
           })()}

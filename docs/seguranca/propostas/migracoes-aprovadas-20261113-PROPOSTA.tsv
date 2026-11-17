@@ -5,3 +5,6 @@
 projeto	nome	sha256	executor	expira_em	status
 ahattpqrjmhkzsmnbdzs	20261113100100_acoes_massivas_email_so_apos_tabulacao	0bbbd589d15b741083cb5f325071bf2fbb82e29baf0d4c065b740c628b85f72e	amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente
 ahattpqrjmhkzsmnbdzs	20261113100000_acoes_massivas_confirmar_envio	14defdc038e36466fb3507d65a217bf5552747ee8a06862d6f18bde7dde4f405	amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente
+# ROLLBACKS (proposta; nao registrados). Tamanhos em bytes: 20261113100000.rollback.sql=3242; 20261113100100.rollback.sql=4117.
+ahattpqrjmhkzsmnbdzs	20261113100000_acoes_massivas_confirmar_envio.rollback	c27d61d06853beebd0fccff6b75a82dea4e20d6e45e80da0b768ff037a4491a9	amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente
+ahattpqrjmhkzsmnbdzs	20261113100100_acoes_massivas_email_so_apos_tabulacao.rollback	77cc8fcbe1ba0634a1d82fb41e9a15009163c69afb13a56da958e489e07ec833	amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente

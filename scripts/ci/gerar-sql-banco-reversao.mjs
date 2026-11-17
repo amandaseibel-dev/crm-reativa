@@ -1,15 +1,20 @@
 // Gera o SQL completo do banco DESCARTAVEL de teste da reversao (PostgreSQL real, CI).
 // Ordem = a mesma do teste de ordem (supabase/tests/acoes_massivas_ordem_aplicacao.test.js):
 // base + repo + colunas + fidelizacao/exportar de producao + protecao (100100) + confirmacao (100000).
-// Uso: node scripts/ci/gerar-sql-banco-reversao.mjs <token> > banco.sql
+// Uso: node scripts/ci/gerar-sql-banco-reversao.mjs <token> pre|fin > arquivo.sql
+//   pre = estado ANTES da confirmacao 20261113100000 (inclui a protecao 100100 ja aplicada);
+//   fin = a propria 20261113100000 (aplicada pelo teste DEPOIS de capturar o estado anterior).
+// O teste compara permissoes efetivas: antes (pre) / depois da aplicacao (fin) / depois do rollback.
 import { sqlBase } from "../../supabase/tests/fixtures/acoes_massivas_universo/bancada.js";
 import { readFileSync } from "node:fs";
 const r = (p) => readFileSync(p, "utf8");
 const token = process.argv[2];
+const modo = process.argv[3];
 if (!token || !/^[a-f0-9]{32}$/.test(token)) { console.error("token invalido"); process.exit(2); }
+if (modo !== "pre" && modo !== "fin") { console.error("modo deve ser pre ou fin"); process.exit(2); }
 const T = "supabase/tests/fixtures";
 const A = "supabase/aguardando_aprovacao";
-const parts = [
+const pre = [
   ...sqlBase({ registroAutomatico: true }),
   r("supabase/migrations/20261006160000_acoes_massivas_email_do_lote_whatsapp.sql"),
   `alter table public.alunos add column if not exists status_acionamento text;
@@ -21,8 +26,9 @@ const parts = [
   r(`${T}/acoes_massivas_confirmar_envio/prod_20261113_exportar.sql`),
   r(`${T}/producao/registrar_acao_massiva_2026-11-15.sql`),
   r(`${A}/20261113100100_acoes_massivas_email_so_apos_tabulacao.sql.pendente`),
-  r(`${A}/20261113100000_acoes_massivas_confirmar_envio.sql.pendente`),
   `create table public.ambiente_descartavel (token text primary key);
    insert into public.ambiente_descartavel values ('${token}');`,
 ];
+const fin = [ r(`${A}/20261113100000_acoes_massivas_confirmar_envio.sql.pendente`) ];
+const parts = modo === "pre" ? pre : fin;
 process.stdout.write(parts.join("\n;\n") + "\n");
