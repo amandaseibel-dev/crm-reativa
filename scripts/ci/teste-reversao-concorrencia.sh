@@ -59,25 +59,28 @@ grep -q "lock timeout" "$LOG/c3" || falha "C3: a recusa nao foi lock timeout"
 wait $H3 || falha "C3: sessao da exportacao falhou"
 echo "C3 ok: reversao da protecao recusada com a exportacao em andamento"
 
-# C4: grants. Snapshot -> REVOKE authenticated -> verificacao -> restauracao EXATA (trap em qualquer falha).
-A1=$(acl acoes_massivas_exportar); A2=$(acl acoes_massivas_exportar_emails_do_lote)
-# Restauracao EXATA: grava de volta o proacl do snapshot (inclusive NULL = padrao). GRANT nao basta:
-# ele cria um proacl explicito que difere do NULL original.
-restaurar_acl() {
-  local f1="public.acoes_massivas_exportar(text[],text,text,text,text,uuid)" f2="public.acoes_massivas_exportar_emails_do_lote(uuid,text)"
-  P -c "update pg_proc set proacl = case when '$A1' = '' then null else '$A1'::aclitem[] end where oid = '$f1'::regprocedure;
-        update pg_proc set proacl = case when '$A2' = '' then null else '$A2'::aclitem[] end where oid = '$f2'::regprocedure;" >/dev/null 2>&1 || true
+# C4: permissoes EFETIVAS. Mecanismos suportados apenas: REVOKE/GRANT. Nao escreve em pg_proc.
+# Catalogo (proacl) e registrado so como informacao: GRANT pode trocar NULL por ACL explicita sem mudar
+# quem executa. A comparacao que vale e has_function_privilege por papel, antes e depois.
+F1="public.acoes_massivas_exportar(text[],text,text,text,text,uuid)"
+F2="public.acoes_massivas_exportar_emails_do_lote(uuid,text)"
+efetivas() {
+  P -tA -c "select string_agg(f||':'||r||'='||has_function_privilege(r,f,'EXECUTE')::text, ';' order by f,r) from (values ('$F1'),('$F2')) as x(f), (values ('anon'),('authenticated'),('service_role'),('public')) as y(r)"
 }
-restaurar() { restaurar_acl; }
+catalogo() { P -tA -c "select string_agg(coalesce(proacl::text,'NULL'), ' | ' order by proname) from pg_proc where oid in ('$F1'::regprocedure,'$F2'::regprocedure)"; }
+E_ANTES=$(efetivas); C_ANTES=$(catalogo)
+restaurar() { P -c "grant execute on function $F1 to authenticated; grant execute on function $F2 to authenticated;" >/dev/null 2>&1 || true; }
 trap 'restaurar' EXIT
-P -c "revoke execute on function public.acoes_massivas_exportar(text[],text,text,text,text,uuid) from authenticated; revoke execute on function public.acoes_massivas_exportar_emails_do_lote(uuid,text) from authenticated;"
-[ "$(P -tA -c "select has_function_privilege('authenticated','public.acoes_massivas_exportar(text[],text,text,text,text,uuid)','EXECUTE')")" = "f" ] || falha "C4: revoke nao aplicado"
-[ "$(P -tA -c "select has_function_privilege('service_role','public.acoes_massivas_exportar(text[],text,text,text,text,uuid)','EXECUTE')")" = "t" ] || falha "C4: service_role foi afetado pelo revoke de authenticated (inesperado)"
+P -c "revoke execute on function $F1 from authenticated; revoke execute on function $F2 from authenticated;"
+[ "$(P -tA -c "select has_function_privilege('authenticated','$F1','EXECUTE')")" = "f" ] || falha "C4: revoke nao aplicado"
+[ "$(P -tA -c "select has_function_privilege('service_role','$F1','EXECUTE')")" = "t" ] || falha "C4: service_role foi afetado pelo revoke de authenticated (inesperado)"
 restaurar
-[ "$(acl acoes_massivas_exportar)" = "$A1" ] || falha "C4: ACL de acoes_massivas_exportar nao restaurada exatamente"
-[ "$(acl acoes_massivas_exportar_emails_do_lote)" = "$A2" ] || falha "C4: ACL de acoes_massivas_exportar_emails_do_lote nao restaurada exatamente"
+E_DEPOIS=$(efetivas)
+[ "$E_DEPOIS" = "$E_ANTES" ] || falha "C4: permissoes efetivas divergentes apos restauracao: antes=[$E_ANTES] depois=[$E_DEPOIS]"
 trap - EXIT
-echo "C4 ok: revoke de authenticated e restauracao exata da ACL (sem ampliar permissoes)"
+C_DEPOIS=$(catalogo)
+if [ "$C_DEPOIS" != "$C_ANTES" ]; then echo "C4 info: representacao do catalogo difere (esperado pelo GRANT): antes=[$C_ANTES] depois=[$C_DEPOIS]"; fi
+echo "C4 ok: permissoes efetivas identicas por papel apos REVOKE/GRANT (sem ampliar nem perder acesso)"
 
 # Residuos: nenhum lote pendente, nenhuma transacao aberta deixada pelos cenarios.
 [ "$(P -tA -c "select count(*) from public.acoes_massivas_lotes where confirmado_em is null and descartado_em is null")" = "0" ] || falha "residuo: lote pendente restou"

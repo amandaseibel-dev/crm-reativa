@@ -15,7 +15,7 @@ Uma exportacao que **comece depois da checagem e antes do COMMIT** nao e vista p
 
 ## Passos (operacionais; cada um depende de autorizacao)
 1. **Backup** do banco antes da janela. PITR nao esta confirmado como habilitado: confirmar antes.
-2. **Pausar novas chamadas**, em todos os caminhos de execucao, nao so no front. Antes, **registrar a ACL atual** das funcoes (snapshot para restauracao exata):
+2. **Pausar novas chamadas**, em todos os caminhos de execucao, nao so no front. Antes, **registrar as permissoes efetivas** (`has_function_privilege` por papel: anon, authenticated, service_role, public) e, como informacao, o `proacl` atual. A restauracao e por GRANT/REVOKE; o `proacl` pode mudar de representacao (NULL vs ACL explicita) sem mudar quem executa, e isso e documentado, nao escondido:
    `select proname, proacl from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and proname in ('acoes_massivas_exportar','acoes_massivas_exportar_emails_do_lote');`
    - revogar EXECUTE de `authenticated` nessas funcoes durante a janela;
    - inventariar e pausar tambem `service_role`, cron e edge functions que chamem essas funcoes (inventario a fazer; NAO conferido);
@@ -29,7 +29,7 @@ Uma exportacao que **comece depois da checagem e antes do COMMIT** nao e vista p
 6. **Verificar pendentes ANTES de reverter a protecao:** repetir o passo 4. Se houver pendente, **parar**: nao executar o passo 7. A protecao de e-mail continua vigente.
 7. **Reverter a protecao** (`20261113100100` rollback). Recusa sozinha se houver pendente ou se a confirmacao ainda existir.
 8. **Verificacao pos-COMMIT:** repetir o passo 4 (esperado zero) e conferir os md5 das funcoes (`c9cc7498…` para a exportacao; `00d3370a…` para a funcao de e-mails).
-9. **Restaurar a ACL** registrada no passo 2 (mesmos grantees, nada a mais) somente depois do passo 8, e conferir o `proacl` contra o snapshot.
+9. **Restaurar as permissoes** com GRANT EXECUTE para os mesmos papeis do passo 2, somente depois do passo 8 (nada a mais). Conferir as permissoes **efetivas** por papel contra o snapshot; divergencia de `proacl` so e aceita se as efetivas forem iguais e a diferenca estiver registrada.
 
 ## Se algo falhar
 - Se o passo 6 achar pendente: nao reverter a protecao. Tratar o lote pela operacao (tabular ou descartar) pela funcao `acoes_massivas_concluir_lote`, que existe em producao; **esse caminho para lote PENDENTE_ENVIO ainda NAO foi confirmado** e deve ser conferido antes da janela. Registrar a ocorrencia e repetir a janela.
