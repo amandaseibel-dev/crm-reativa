@@ -31,7 +31,7 @@ Preparado em 11/11/2026. **Nenhuma mensagem enviada, nenhuma credencial alterada
 - `ULBRA_OAUTH_CLIENT_ID` — **vem da TI da ULBRA**.
 - `ULBRA_OAUTH_REDIRECT_URI` — `https://crm-reativa.vercel.app/ulbra/conectado` (igual ao registrado).
 - `ULBRA_TOKENS_CHAVE` — 64 hex (32 bytes) gerados fora do banco; cifra os tokens em repouso. Sem ela, a função responde `CONEXAO_NAO_CONFIGURADA` e nada funciona.
-- `ULBRA_ENVIO_REAL` — ausente/`false` por padrão: só prévia; `true` só após o roteiro do primeiro envio real (`docs/integracoes/roteiro-envio-real-ulbra.md`).
+- `ULBRA_ENVIO_REAL` e `ULBRA_CONTRATO_PREVIA_CONFIRMADO` — ambas ausentes/`false` por padrão. A prévia (`envio_previa`) só funciona com AS DUAS ligadas (`index.ts:87`, `:363`). Ligar as duas também libera `envio_confirmar`. Por isso a etapa de prévia exige a aprovação do roteiro (`docs/integracoes/roteiro-envio-real-ulbra.md`).
 - `ULBRA_CONTRATO_PREVIA_CONFIRMADO` — também obrigatório: o envio real exige as DUAS chaves (`ulbra-conversa/index.ts:85-87`). Sem o contrato da prévia confirmado, nenhum envio sai.
 - `ULBRA_MCP_TOKEN` (já existe) — usado **só** pelo histórico (leitura).
 
@@ -57,7 +57,7 @@ Preparado em 11/11/2026. **Nenhuma mensagem enviada, nenhuma credencial alterada
 3. NÃO reaplicar `20261110100000` (já aplicada, versão 20261112111006). Aplicação de `20261111140000` e da corretiva `20261116150000`, cada uma com aprovação específica; conferir grants (só service_role) e `search_path`.
 4. Segredos `ULBRA_OAUTH_CLIENT_ID`, `ULBRA_OAUTH_REDIRECT_URI`, `ULBRA_TOKENS_CHAVE` (gestão, fora de transcript); publicar `ulbra-conversa` (verify_jwt ligado). `ULBRA_HISTORICO_HABILITADO` fica ausente (leitura desligada) até decisão da gestão. A `ulbra-historico` não entra neste pacote.
 5. Validação de leitura com a gestão e com um operador (histórico de 1 conversa: 1 chamada).
-6. Conexão de 1 operador piloto (1 `meu_acesso` da cota dele) e **prévia** de uma resposta (1 chamada) — sem `ULBRA_ENVIO_REAL`.
+6. Conexão de 1 operador piloto (1 `meu_acesso` da cota dele). A **prévia** só é possível com `ULBRA_ENVIO_REAL` e `ULBRA_CONTRATO_PREVIA_CONFIRMADO` ligadas: essa ativação exige aprovação específica, e o envio continua bloqueado por `envio_confirmar` até a aprovação do roteiro.
 7. Pré-condição (antes de QUALQUER passo acima, inclusive merge e publicação): contenção da v1 `ulbra-historico` verificada (função ausente e endpoint indisponível). Primeiro envio real só pelo roteiro aprovado (destinatário interno, texto fixo, 1 mensagem, autoria conferida na Mensageria), ligando `ULBRA_ENVIO_REAL=true` para a janela e desligando depois, até decisão de liberação.
 
 ## 8. Fora deste pacote
@@ -79,7 +79,7 @@ Campanhas, criação de atendimentos, transferências, administração de operad
 - `supabase/tests/ulbra_historico_portao/run.mjs` roda no CI (job `ulbra-historico-portao-pglite`) e também manualmente (PGlite). A condição ANTES do teste simula o grant a PUBLIC; não é prova do estado de produção.
 
 ## Migrations: estado correto (revisão 16/11)
-- `20261110100000_ulbra_historico_orcamento`: APLICADA em produção (ledger 20261112111006). O `.sql.pendente` foi restaurado ao original (sha 163f3b55…); não é a versão aplicada nem deve ser reaplicado.
+- `20261110100000_ulbra_historico_orcamento`: APLICADA em produção (ledger 20261112111006). O `.sql.pendente` foi restaurado ao original (sha 163f3b55…); é a MESMA versão aplicada em produção (sha `163f3b55…`, igual ao ledger `20261112111006`). Não deve ser reaplicado.
 - `20261116150000_ulbra_historico_reservar_portao_interno`: CORRETIVA, NÃO aplicada. `.sql.pendente` e `.rollback.sql` no diretório aguardando_aprovacao.
 - A exposição da RPC em produção NÃO foi comprovada: o ledger já revoga EXECUTE de public/anon/authenticated. A corretiva é defesa em profundidade.
 
@@ -134,3 +134,16 @@ Ordem sugerida, cada passo com aprovação específica: (1) `20261111140000`; (2
 - Guardião: ver a revisão final no head registrado na PR.
 - CI do `60e9e194`: em andamento no momento desta escrita. Só vale o resultado concluído.
 - Ligar `HISTORICO_DISPONIVEL` exige antes: a visibilidade do botão em tela (`CentralUlbra.jsx`, `ulbraHistorico.js`) coincidir com a regra do backend (hoje a tela usa `eh_gestao`, perfil amplo).
+
+## Ação `envio_conferencia` (documentada aqui)
+- `ulbra-conversa` tem a ação `envio_conferencia` (`index.ts`, bloco de conferência): leitura do estado de um envio pelo servidor, restrita pelos perfis de `conferencia.ts`. Não altera a Mensageria. Está fora do cabeçalho de `index.ts`, por isso fica registrada aqui.
+
+## Ordem de implantação (lista única e explícita)
+0. CONTENÇÃO da v1 `ulbra-historico` verificada (pré-condição de todos os passos). Hoje: BLOQUEADA POR ACESSO, não executada.
+1. Aprovação e aplicação da `20261111140000` (SQL, com aprovação específica).
+2. Aprovação e aplicação da corretiva `20261116150000` (SQL, com aprovação específica).
+3. Publicação de `ulbra-conversa` com segredos (passo de deploy, com aprovação específica).
+4. Merge desta PR. Só depois dos passos 0 a 3, e nunca antes da contenção.
+5. Conexão de 1 operador piloto e, se aprovado, ativação de `ULBRA_ENVIO_REAL` e `ULBRA_CONTRATO_PREVIA_CONFIRMADO` para a prévia.
+6. Envio real: somente pelo roteiro aprovado, com aprovação específica.
+7. Ligar `HISTORICO_DISPONIVEL` só depois de alinhar a visibilidade da tela à regra do backend (`eh_gestao` hoje é perfil amplo).
