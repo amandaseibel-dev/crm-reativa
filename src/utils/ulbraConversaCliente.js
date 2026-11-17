@@ -23,7 +23,12 @@ async function chamar(funcao, corpo) {
   return { ...json, http: resp.status, ok: json.ok ?? resp.ok };
 }
 
-/** Histórico sob demanda: 1 chamada por página (cota da credencial de backend). */
+/** Capacidade de ler o histórico desta conversa, calculada pelo servidor (sem ler a Mensageria). */
+export function historicoCapacidade(conversaId) {
+  return chamar("ulbra-conversa", { acao: "historico_capacidade", conversa_id: conversaId });
+}
+
+/** Histórico sob demanda: 1 chamada por página, com a conexão individual do operador. */
 export function lerHistorico(conversaId, antesDe = null) {
   return chamar("ulbra-conversa", { acao: "historico_ler", conversa_id: conversaId, antes_de: antesDe });
 }

@@ -14,8 +14,8 @@
 // ===========================================================================
 export const HISTORICO_DISPONIVEL = false;
 
-export function podeVerHistorico(linha, ehGestao = false) {
-  if (!linha || !linha.aluno_id) return false;
-  if (ehGestao === true) return true;
-  return linha.minha === true;
+// A visibilidade vem do SERVIDOR: a linha traz capacidade_historico, calculada pela mesma regra de historico_capacidade.
+// Não há lista de perfil nem regra de responsável duplicada aqui.
+export function podeVerHistorico(linha) {
+  return Boolean(linha) && linha.capacidade_historico === true;
 }

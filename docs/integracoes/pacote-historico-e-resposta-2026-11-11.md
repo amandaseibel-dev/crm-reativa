@@ -138,12 +138,20 @@ Ordem sugerida, cada passo com aprovação específica: (1) `20261111140000`; (2
 ## Ação `envio_conferencia` (documentada aqui)
 - `ulbra-conversa` tem a ação `envio_conferencia` (`index.ts`, bloco de conferência): leitura do estado de um envio pelo servidor, restrita pelos perfis de `conferencia.ts`. Não altera a Mensageria. Está fora do cabeçalho de `index.ts`, por isso fica registrada aqui.
 
-## Ordem de implantação (lista única e explícita)
-0. CONTENÇÃO da v1 `ulbra-historico` verificada (pré-condição de todos os passos). Hoje: BLOQUEADA POR ACESSO, não executada.
-1. Aprovação e aplicação da `20261111140000` (SQL, com aprovação específica).
-2. Aprovação e aplicação da corretiva `20261116150000` (SQL, com aprovação específica).
-3. Publicação de `ulbra-conversa` com segredos (passo de deploy, com aprovação específica).
-4. Merge desta PR. Só depois dos passos 0 a 3, e nunca antes da contenção.
-5. Conexão de 1 operador piloto e, se aprovado, ativação de `ULBRA_ENVIO_REAL` e `ULBRA_CONTRATO_PREVIA_CONFIRMADO` para a prévia.
-6. Envio real: somente pelo roteiro aprovado, com aprovação específica.
-7. Ligar `HISTORICO_DISPONIVEL` só depois de alinhar a visibilidade da tela à regra do backend (`eh_gestao` hoje é perfil amplo).
+## Ordem de implantação (dependências explícitas)
+Tipos de ação, que NÃO são a mesma coisa: **merge** (código na main, sem efeito em produção), **deploy automático** (CI publica função/front), **aplicação manual** (SQL em produção ou publicação de função com aprovação específica). Nada abaixo é automático.
+
+| Passo | Tipo | Depende de | Verificação antes de avançar |
+|---|---|---|---|
+| 0. Contenção da v1 `ulbra-historico` (remover só essa função) | aplicação manual, pela gestão | nada | listagem sem `ulbra-historico` e endpoint indisponível |
+| 1. Aplicar `20261111140000` (tabelas de conexão/prévia/envio e `ulbra_conferir_envio`) | aplicação manual (SQL) | passo 0 | tabelas existem; RLS ligada; sem grant a anon/authenticated |
+| 2. Aplicar corretiva `20261116150000` (portão da RPC) | aplicação manual (SQL) | passo 0 e `20261110100000` aplicada (já está) | pós-conferência do próprio arquivo; EXECUTE só service_role |
+| 3. Publicar `ulbra-conversa` com segredos (`ULBRA_OAUTH_*`, `ULBRA_TOKENS_CHAVE`) e `verify_jwt` | aplicação manual (função) | passos 1 e 2 (a função grava nas tabelas do passo 1) | `historico_capacidade` e `historico_ler` respondem como o teste prevê |
+| 4. Merge desta PR na main (inclui a tela) | merge | passos 0 a 3 | CI da PR verde; a tela sem a porta não chama nada |
+| 5. Deploy do front a partir da main | deploy automático | passo 4 | Central com `HISTORICO_DISPONIVEL` ainda `false` |
+| 6. Conexão de 1 operador piloto | manual (usuário) | passos 3 e 5 | conexão ATIVA, `pessoa_email` igual ao JWT |
+| 7. Ativar `ULBRA_HISTORICO_HABILITADO` (leitura) | aplicação manual (segredo) | passo 6 e aprovação | leitura de 1 conversa com auditoria gravada |
+| 8. Ativar `ULBRA_ENVIO_REAL` e `ULBRA_CONTRATO_PREVIA_CONFIRMADO` (prévia e envio) | aplicação manual (segredo) | passo 7 e aprovação do roteiro | prévia sem mensagem enviada; envio só pelo roteiro |
+| 9. Ligar `HISTORICO_DISPONIVEL` na tela | merge (uma linha) | passo 7 | botão aparece apenas onde `historico_capacidade` concede |
+
+Recuperação: cada passo tem rollback no próprio arquivo, exceto a v1 (não restaurar a versão vulnerável). O rollback de `20261110100000` NÃO deve ser executado (apaga `ulbra_historico_uso`).

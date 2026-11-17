@@ -24,6 +24,7 @@ import { enviarResposta, type Envio, type PedidoEnvio, type RepositorioEnvio, ty
 import { confirmarPrevia, criarPrevia, type PreviaRegistro, type RepositorioPrevia } from "./previa.ts";
 import { podeConferir } from "./conferencia.ts";
 import { mapearPagina, permitirLeitura, temLeituraGlobal, type ContextoLeitura } from "./leitura.ts";
+import { capacidadeHistorico, lerHistoricoAutorizado, type DepsHistorico } from "./historico-leitura.ts";
 
 // A3: leitura GLOBAL só pela regra temLeituraGlobal (leitura.ts): amanda.seibel e cobranca04. O restante lê só a própria carteira/responsabilidade.
 
@@ -302,49 +303,47 @@ Deno.serve(async (req: Request) => {
     }
 
     // Histórico sob demanda com a CONEXÃO INDIVIDUAL do operador (nunca a credencial central). Só leitura.
-    if (acao === "historico_ler") {
-      // A10: porta no BACKEND, não só na tela. Desligada por padrão; ligar exige a variável no ambiente.
-      if (Deno.env.get("ULBRA_HISTORICO_HABILITADO") !== "true") return responder({ ok: false, motivo: "HISTORICO_DESLIGADO" }, 403);
+    // Histórico: a decisão vive em historico-leitura.ts (testada). Aqui só monta as dependências reais.
+    if (acao === "historico_ler" || acao === "historico_capacidade") {
       const conversaId = typeof corpo.conversa_id === "string" ? corpo.conversa_id : "";
-      if (!/^[a-f0-9]{24}$/.test(conversaId)) return responder({ ok: false, motivo: "CONVERSA_INVALIDA" }, 400);
       const antesDe = typeof corpo.antes_de === "string" && corpo.antes_de ? corpo.antes_de : null;
-      // Permissão pelos dados do banco AGORA: identidade por vínculo alta_cpf, dono da carteira ou responsável comprovado.
-      const { data: c } = await sb.from("ulbra_conversas").select("ulbra_cliente_id").eq("ulbra_conversa_id", conversaId).maybeSingle();
-      if (!c) return responder({ ok: false, motivo: "SEM_PERMISSAO_NA_CONVERSA" }, 403);
-      const { data: v } = await sb.from("ulbra_vinculos").select("aluno_id").eq("ulbra_cliente_id", c.ulbra_cliente_id).is("desvinculado_em", null).eq("confianca", "alta_cpf").maybeSingle();
-      const alunoId = (v?.aluno_id as string | null) ?? null;
-      let contexto: ContextoLeitura = { operador: email, identidade_confirmada: false, dono_carteira: null, responsavel_atendimento: null };
-      if (alunoId) {
-        const { data: casos } = await sb.from("casos").select("operador_email").eq("aluno_id", alunoId).not("operador_email", "is", null);
-        const donos = [...new Set((casos ?? []).map((k) => String(k.operador_email).toLowerCase()))];
-        const { data: ats } = await sb.from("ulbra_atendimentos").select("responsavel_email").eq("ulbra_cliente_id", c.ulbra_cliente_id).is("dispensado_em", null).not("responsavel_email", "is", null);
-        const resps = [...new Set((ats ?? []).map((a) => String(a.responsavel_email).toLowerCase()))];
-        const globalOk = temLeituraGlobal(email, usuario ? { ativo: usuario.ativo === true } : null);
-        contexto = {
-          operador: email,
-          identidade_confirmada: true,
-          dono_carteira: globalOk ? email : (donos.length === 1 ? donos[0] : null),
-          responsavel_atendimento: resps.length === 1 ? resps[0] : null,
-        };
+      const deps: DepsHistorico = {
+        email,
+        usuarioAtivo: usuario?.ativo === true,
+        flagLigada: Deno.env.get("ULBRA_HISTORICO_HABILITADO") === "true",
+        conversaId,
+        antesDe,
+        buscarClienteDaConversa: async (id: string) => {
+          const { data } = await sb.from("ulbra_conversas").select("ulbra_cliente_id").eq("ulbra_conversa_id", id).maybeSingle();
+          return (data?.ulbra_cliente_id as string | undefined) ?? null;
+        },
+        alunoDoCliente: async (cid: string) => {
+          const { data } = await sb.from("ulbra_vinculos").select("aluno_id").eq("ulbra_cliente_id", cid).is("desvinculado_em", null).eq("confianca", "alta_cpf").maybeSingle();
+          return (data?.aluno_id as string | undefined) ?? null;
+        },
+        donosDoAluno: async (aid: string) => {
+          const { data } = await sb.from("casos").select("operador_email").eq("aluno_id", aid).not("operador_email", "is", null);
+          return (data ?? []).map((k) => String(k.operador_email));
+        },
+        responsaveisDoCliente: async (cid: string) => {
+          const { data } = await sb.from("ulbra_atendimentos").select("responsavel_email").eq("ulbra_cliente_id", cid).is("dispensado_em", null).not("responsavel_email", "is", null);
+          return (data ?? []).map((a) => String(a.responsavel_email));
+        },
+        conexao: async () => {
+          const r = await lerRegistro();
+          const conn = await garantirConexao(r, provedorOAuth, Date.now());
+          if (!conn.ok) return { ok: false as const, motivo: conn.motivo };
+          return { ok: true as const, access_token: conn.registro.access_token, pessoa_email: conn.registro.pessoa_email };
+        },
+        lerConversa: (token, args) => chamarComoOperador(token, "ler_conversa", args),
+        auditar: (detalhes) => auditar("ULBRA_HISTORICO_LEITURA", "ulbra_conversas", detalhes),
+      };
+      if (acao === "historico_capacidade") {
+        const c = await capacidadeHistorico(deps);
+        return responder({ ok: true, ...c });
       }
-      const p = permitirLeitura(contexto);
-      if (!p.ok) return responder({ ok: false, motivo: p.motivo }, 403);
-      // Conexão individual do próprio operador. Divergência de identidade bloqueia.
-      const r = await lerRegistro();
-      const conn = await garantirConexao(r, provedorOAuth, Date.now());
-      if (!conn.ok) return responder({ ok: false, motivo: conn.motivo }, 403);
-      if ((conn.registro.pessoa_email ?? "").toLowerCase() !== email) return responder({ ok: false, motivo: "IDENTIDADE_DIVERGENTE" }, 403);
-      const args = antesDe ? { id: conversaId, limite: 20, antesDe } : { id: conversaId, limite: 20 };
-      let resultado;
-      try { resultado = await chamarComoOperador(conn.registro.access_token, "ler_conversa", args); }
-      catch { return responder({ ok: false, motivo: "ULBRA_INDISPONIVEL" }, 502); }
-      if (resultado.erro) return responder({ ok: false, motivo: "ULBRA_INDISPONIVEL" }, 502);
-      const pagina = mapearPagina(resultado.dados);
-      // Auditoria da operação, SEM texto de conversa nem token.
-      const auditoriaOk = await auditar("ULBRA_HISTORICO_LEITURA", "ulbra_conversas", { conversa_id: conversaId, mensagens: pagina.mensagens.length });
-      // Sem auditoria gravada, o texto não sai: leitura sem rastro não é entregue.
-      if (!auditoriaOk) return responder({ ok: false, motivo: "AUDITORIA_NAO_GRAVADA" }, 500);
-      return responder({ ok: true, pagina });
+      const s = await lerHistoricoAutorizado(deps);
+      return responder(s.corpo, s.status);
     }
 
     if (acao === "envio_previa") {

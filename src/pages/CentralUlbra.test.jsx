@@ -26,6 +26,7 @@ vi.mock("../services/supabase", () => ({ supabase: { rpc: (...a) => rpc(...a), f
 const cliente = {
   conexaoEstado: vi.fn(), conexaoIniciar: vi.fn(), conexaoDesconectar: vi.fn(),
   lerHistorico: vi.fn(), envioPrevia: vi.fn(), envioConfirmar: vi.fn(),
+  historicoCapacidade: vi.fn(async () => ({ ok: true, pode: true })),
 };
 vi.mock("../utils/ulbraConversaCliente", async () => {
   const real = await vi.importActual("../utils/ulbraConversaCliente");
@@ -37,6 +38,8 @@ vi.mock("../utils/ulbraConversaCliente", async () => {
     lerHistorico: (...a) => cliente.lerHistorico(...a),
     envioPrevia: (...a) => cliente.envioPrevia(...a),
     envioConfirmar: (...a) => cliente.envioConfirmar(...a),
+    // Capacidade do servidor: nos testes do bloco sob demanda, a gestão de teste pode ler.
+    historicoCapacidade: (...a) => cliente.historicoCapacidade(...a),
   };
 });
 
@@ -482,6 +485,16 @@ describe("recorte da carteira não muda pelo filtro nem pela URL", () => {
 describe("histórico sob demanda, conexão individual e resposta em duas etapas", () => {
   beforeEach(() => { globalThis.__HIST_ON = true; });
   afterEach(() => { globalThis.__HIST_ON = false; });
+  it("capacidade negada pelo servidor: sem botão de histórico e sem chamada, mesmo com a porta ligada", async () => {
+    cliente.historicoCapacidade.mockResolvedValueOnce({ ok: true, pode: false, motivo: "SEM_PERMISSAO_NA_CONVERSA" });
+    rpc.mockResolvedValue({ data: resposta(), error: null });
+    const conv = resposta().respostas[0].conversa_id;
+    montar(OPERADOR, `/central-ulbra?visao=conversas&conv=r%3A${conv}`);
+    const painel = await screen.findByLabelText("Conversa selecionada");
+    await waitFor(() => expect(cliente.historicoCapacidade).toHaveBeenCalled());
+    expect(painel.querySelector("[data-campo='carregar-historico']")).toBeNull();
+    expect(cliente.lerHistorico).not.toHaveBeenCalled();
+  });
   it("porta desligada: sem botão Carregar histórico e sem chamada à Mensageria", async () => {
     globalThis.__HIST_ON = false;
     rpc.mockResolvedValue({ data: resposta(), error: null });
@@ -500,6 +513,8 @@ describe("histórico sob demanda, conexão individual e resposta em duas etapas"
     const painel = await screen.findByLabelText("Conversa selecionada");
     expect(cliente.lerHistorico).not.toHaveBeenCalled();
     expect(painel.querySelector("[data-estado='indisponivel']")).toBeTruthy();
+    // O botão só aparece depois que o servidor concede a capacidade (historico_capacidade).
+    await waitFor(() => expect(painel.querySelector("[data-campo='carregar-historico']")).toBeTruthy());
     fireEvent.click(painel.querySelector("[data-campo='carregar-historico']"));
     await waitFor(() => expect(cliente.lerHistorico).toHaveBeenCalledTimes(1));
     expect(cliente.lerHistorico).toHaveBeenCalledWith(conv, null);
