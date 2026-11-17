@@ -29,9 +29,9 @@
 
 | Arquivo | SHA-256 | Bytes | Situação |
 |---|---|---|---|
-| `supabase/aguardando_aprovacao/20261114110000_usuario_e_gestao_regularizacao.sql.pendente` | `ea266b1d883d9712ad0de99e2ed43a531f418048e9740e056ae88680a172b4c6` | 4248 |
+| `supabase/aguardando_aprovacao/20261114110000_usuario_e_gestao_regularizacao.sql.pendente` | `ffa8aa15467c7dc24c3f77db5c44fa65a2ff2d6dba7683c227d49e59a8d2c985` | 4257 |
 | `supabase/aguardando_aprovacao/20261114110000_usuario_e_gestao_regularizacao.rollback.sql` | `7793980155bdc09f8297ca8c0a116ec4452ecef43cc1cd0c16038a16d4935172` | 667 |
-| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `b18494a173df48c18f8333f2882286146e10c558d7e00018a32f891b99eb5a00` | 10351 |
+| `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `1663956a2bda3a5dd2718266420faba39e2c13dac6bc054e550f14dc7c9b296e` | 10419 |
 | `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql` | `30315b81d0b9346741daf100927e3d4ed49ebceafa053a6169c12f03e62cf0fe` | 6724 |
 | `supabase/tests/tabulacao_termo_fisico_gestao/recusas_rollback.sh` | `de4e3e00a9e3fb6016714a1a592685eb2e497e29cb37103dd77516f0ecd48c49` | 4579 |
 | `supabase/tests/tabulacao_termo_fisico_gestao/executa_contencao_15.sh` | `ad4ee361d7299f9260f1197cf9037a530d30485a1d6fd8bb19765beda1a0fb61` | 1389 |
