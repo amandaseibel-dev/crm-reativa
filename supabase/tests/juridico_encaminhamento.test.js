@@ -595,6 +595,10 @@ describe("auditoria: pendencia de pagamento, coluna divergente e valor atual", (
     await db.query("update usuarios set ativo=false where email=$1", [resp]);
     await H.como(db, resp);
     expect((await db.query("select public.juridico_bloqueio_ids($1::uuid[]) id", [[a.al]])).rows).toEqual([]);
+    // gestao inativa tambem nao ve (regra vigente: usuarios.ativo)
+    await db.query("update usuarios set ativo=false where email=$1", [H.GESTAO]);
+    expect((await db.query("select public.juridico_bloqueio_ids($1::uuid[]) id", [[a.al]])).rows).toEqual([]);
+    await db.query("update usuarios set ativo=true where email=$1", [H.GESTAO]);
     await H.como(db, H.GESTAO);
     const grande = Array.from({ length: 2001 }, (_, i) => U(950, i + 1));
     const e = await falha(db.query("select public.juridico_bloqueio_ids($1::uuid[])", [grande]));

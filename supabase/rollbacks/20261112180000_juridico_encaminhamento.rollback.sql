@@ -4,7 +4,7 @@
 --   1. RECUSA rodar se houver caso com cobranca bloqueada pela aba. Levante antes
 --      (juridico_caso_remover alcanca APROVADO) ou decida com a gestao o destino
 --      dos ja enviados. Nao ha como desfazer o envio ao financeiro por aqui.
---   2. guarda copia das cinco tabelas em `_backup_juridico_*_20261112` (RLS ligada,
+--   2. guarda copia das seis tabelas em `_backup_juridico_*_20261112` (RLS ligada,
 --      sem grant) antes de remover;
 --   3. solta, nesta ordem: triggers nas tabelas do sistema, funcoes (lista
 --      explicita de 38 assinaturas), tabelas, sequences. Nenhum titulo, parcela
@@ -28,6 +28,9 @@ create table public._backup_juridico_lotes_20261112 as table public.juridico_lot
 create table public._backup_juridico_casos_20261112 as table public.juridico_casos;
 create table public._backup_juridico_casos_titulos_20261112 as table public.juridico_casos_titulos;
 create table public._backup_juridico_historico_20261112 as table public.juridico_historico;
+create table public._backup_juridico_envio_autorizacoes_20261112 as table public.juridico_envio_autorizacoes;
+alter table public._backup_juridico_envio_autorizacoes_20261112 enable row level security;
+revoke all on public._backup_juridico_envio_autorizacoes_20261112 from public, anon, authenticated;
 create table public._backup_juridico_documentos_20261112 as table public.juridico_documentos;
 alter table public._backup_juridico_lotes_20261112 enable row level security;
 alter table public._backup_juridico_casos_20261112 enable row level security;

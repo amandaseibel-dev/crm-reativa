@@ -1539,8 +1539,8 @@ begin
   -- sem e-mail ou usuario inativo (usuarios.ativo): nada. Gestao (usuario_e_gestao) ve todos;
   -- operador so os alunos da PROPRIA carteira (responsavel_atual_email).
   if v_email = '' then return; end if;
-  -- Gestao vale pela lista de usuario_e_gestao (JWT); operador precisa de usuarios.ativo.
-  if not v_gestao and not exists (select 1 from public.usuarios u where lower(u.email) = v_email and u.ativo is true) then return; end if;
+  -- Regra vigente (app_usuario_ativo): usuarios.ativo para todos, inclusive gestao.
+  if not exists (select 1 from public.usuarios u where lower(u.email) = v_email and u.ativo is true) then return; end if;
   if coalesce(array_length(p_ids, 1), 0) > 2000 then
     raise exception 'Lista grande demais (máximo 2000 alunos por consulta).' using errcode = '22023';
   end if;
@@ -1991,7 +1991,7 @@ begin
   select count(*) into v_n
     from pg_class c
    where c.relnamespace = 'public'::regnamespace
-     and c.relname in ('juridico_lotes','juridico_casos','juridico_casos_titulos','juridico_historico','juridico_documentos')
+     and c.relname in ('juridico_lotes','juridico_casos','juridico_casos_titulos','juridico_historico','juridico_documentos','juridico_envio_autorizacoes')
      and (not c.relrowsecurity
        or has_table_privilege('authenticated', c.oid, 'select,insert,update,delete,truncate')
        or has_table_privilege('anon', c.oid, 'select,insert,update,delete,truncate'));

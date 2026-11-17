@@ -45,7 +45,12 @@ Decisão da gestão: aluno com bloqueio jurídico não recebe cobrança (manual,
 inclusive respostas e documentos de cobrança. Atendimento acadêmico ou administrativo continua possível.
 Não se classifica finalidade por prazo de mensagem.
 
-Exceção: quem autoriza e como não estão definidos. Até lá, a aba não é liberada.
+Exceção (implementada no banco, NÃO ligada a nenhum caminho de envio): `juridico_autorizar_envio`
+(só gestão, com motivo; uso único para uma conversa; válida 30 min) grava `juridico_envio_autorizacoes`,
+e `juridico_checar_envio` recusa envio a aluno com bloqueio sem essa autorização. O campo `finalidade`
+é só registro: a checagem NÃO distingue cobrança de atendimento, e a autorização não restringe o conteúdo
+da mensagem. Ligação ao WhatsApp compartilhado e tratamento de aluno nulo (hoje a checagem deixa passar)
+são decisões pendentes da gestão.
 
 ## Atualização (17/11/2026): bloqueio por `nao_acionar`, carteira preservada
 
