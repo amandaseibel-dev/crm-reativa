@@ -42,6 +42,13 @@ Mudança mista com impacto Prime aciona a regra. Quando o script não consegue d
 (código ou compartilhado sem os três obrigatórios), o resultado é `REVISAO_HUMANA`, nunca `COMPLETO`.
 (`plugins/reativa-one/scripts/integracoes-cinco.sh` aplica este alcance.)
 
+**Revisão humana dos cinco (onde e como se resolve).** O seletor devolve `REVISAO_HUMANA` (saída 3) quando há
+código, migração ou compartilhado Prime alterado sem os três obrigatórios, ou só documento Prime auxiliar. Isso é uma
+pendência, não aprovação. Resolve-se na revisão da PR: o Guardião a reporta como pendente, e um humano registra a decisão
+(descoberta documentada nos cinco, ou ajuste sem descoberta com justificativa) no próprio texto da PR. `PRESENCA_VERIFICADA`
+(saída 0) confere só presença e toque dos três; conteúdo e necessidade de atualização não são verificados, e a revisão de
+coerência continua obrigatória quando houver possível descoberta Prime.
+
 ## Documentos
 
 | Arquivo | Para que serve |

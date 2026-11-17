@@ -293,14 +293,22 @@ necessária para decifrá-los e para desconectar com segurança. Ela é preserva
 - Comportamento do token revogado na Mensageria: só com teste real.
 - Leitura real da conversa com o token pessoal: só com o token criado por você.
 
-## Grant sem cópia quando a revogação falha (declarado, não corrigido)
+## Grant OAuth sem cópia quando a revogação falha (caminho exclusivo do OAuth; indisponível no piloto)
 
-- Quarentena (guarda cifrado para revogar depois) só existe no ramo **indisponível** (`grant.ts`).
-- Nos ramos IDENTIDADE_DIVERGENTE, erro de banco (conclusão OAuth) e renovação recusada por conexão mudada,
-  o `descartarGrant` tenta revogar access e refresh. Se a revogação no provedor falhar, o token fica válido
-  no provedor sem cópia no CRM.
-- Por que não há quarentena nesses ramos: em divergência o token pertence a outra conta e não deve ser guardado;
-  nos demais, guardar de novo reabriria a sobrescrita que a gravação atômica impede.
-- Recuperação manual: em MCP › Conexões da Mensageria, revogar a conexão do aplicativo do ReATIVA.
-- Vale para o piloto? Não. O piloto usa token pessoal, sem grant OAuth. Afeta só a trilha OAuth.
-- Espelhamento: `envio_previa` e `envio_confirmar` derivam `espelhada` do atendimento ativo encontrado no banco.
+- **Caminhos exatos** (`supabase/functions/ulbra-conversa/index.ts`): conclusão OAuth (`conexao_concluir`) nos ramos
+  de identidade divergente, erro de banco e conexão existente, e a renovação recusada por conexão mudada.
+  A quarentena (guarda cifrado para revogar depois) só existe no ramo indisponível (`grant.ts`).
+- **Tipo de token afetado:** access e refresh de um grant OAuth. Nunca o token pessoal: o caminho do token
+  pessoal não chama `descartarGrant` nem `revogar` (ver as linhas de `conexao_token_pessoal`).
+- **Pode ocorrer no piloto?** Não. Três fatos comprovados:
+  1. `conexao_iniciar` e `conexao_concluir` exigem `ULBRA_OAUTH_CLIENT_ID` e `ULBRA_OAUTH_REDIRECT_URI`
+     (`configuracao-acao.ts`, teste `configuracao-acao.test.ts`). No piloto essas variáveis **não são configuradas**:
+     a ação responde 503 `CONEXAO_NAO_CONFIGURADA` antes de trocar o código. Nenhum grant é emitido.
+  2. A renovação só roda com `refresh_token` e estado `EXPIRANDO` (`conexao.ts`). Token pessoal não tem refresh:
+     vira `EXPIRADA`, sem renovação.
+  3. Sem grant OAuth gravado, não há linha OAuth para renovar.
+- **Regra de implantação do piloto:** NÃO configurar `ULBRA_OAUTH_CLIENT_ID` nem `ULBRA_OAUTH_REDIRECT_URI`.
+  Verificação pós-deploy: `conexao_iniciar` responde 503 `CONEXAO_NAO_CONFIGURADA`.
+- **Antes de qualquer habilitação futura do OAuth:** decisão da gestão sobre o risco (ver decisoes-integracao-ulbra.md).
+  Esta entrega não desenvolve solução ampla de OAuth.
+

@@ -2,32 +2,36 @@
 # ============================================================================
 # "Nunca só um dos cinco" — docs/integracoes/README.md
 #
-# Descoberta ou mudança de contrato da integração PRIME tem de atualizar, NA MESMA ALTERAÇÃO:
+# Descoberta ou mudança de contrato da integração PRIME exige coerência entre os CINCO artefatos:
 #   prime-api.md · prime-api-catalog.json · prime-mapa-fontes-verdade.md
 #   · prime-mapa-identificadores.md (quando aplicável) · prime-gaps.md (idem)
 #
-# Alcance (decisão de gestão): a regra é da PRIME. Documentação exclusiva da Mensageria não aciona a regra.
+# Alcance (decisão de gestão, registrada em docs/integracoes/decisoes-integracao-ulbra.md):
+#   Documentação exclusiva da Mensageria não aciona a regra.
 #
 # Caminhos Prime (inventário real):
-#   docs/integracoes/prime-*            documentos Prime
-#   supabase/functions/prime-*/         funções Prime
-#   src/utils/prime*                    contrato e utilitários Prime
+#   docs/integracoes/prime-*             documentos Prime
+#   supabase/functions/prime-*/          funções Prime
+#   src/utils/prime*                     contrato e utilitários Prime
 #   supabase/(migrations|ledger)/*prime* migrações Prime
-# Compartilhados com regra Prime (mudança aqui exige revisão humana):
+# Compartilhados com regra Prime (mudança aqui também aciona a revisão):
 #   docs/PREMISSAS.md, docs/BACKLOG-TECNICO.md, docs/integracoes/README.md, este script
 #
-# Resultados:
-#   NAO_APLICA      nenhum caminho Prime nem compartilhado relevante foi alterado.
-#   COMPLETO        algum dos três obrigatórios foi tocado e os três estão no ramo.
-#   FALTAM:<lista>  algum dos três obrigatórios foi tocado, mas faltam outros dos três.
-#   REVISAO_HUMANA  há código, migração ou compartilhado Prime alterado sem os três obrigatórios,
-#                   ou só documento Prime auxiliar foi alterado. O script não distingue descoberta
-#                   de ajuste: quem revisa decide. Nunca é apresentado como COMPLETO.
+# Resultados e códigos de saída:
+#   NAO_APLICA            (0) nenhum caminho Prime nem compartilhado relevante foi alterado.
+#   PRESENCA_VERIFICADA   (0) algum dos três obrigatórios foi tocado e os três estão no ramo.
+#                             Verifica SÓ presença e toque. Conteúdo e necessidade de atualização
+#                             dos cinco NÃO são verificados: a revisão humana de coerência continua.
+#   REVISAO_HUMANA        (3) há código, migração ou compartilhado Prime alterado sem os três
+#                             obrigatórios, ou só documento Prime auxiliar foi alterado. Exige revisão
+#                             humana antes de qualquer aprovação. Não é aprovação automática.
+#   FALTAM:<lista>        (2) algum dos três obrigatórios foi tocado e outros dos três faltam no ramo.
 #
-# Os três obrigatórios são os que o script exige. prime-mapa-identificadores.md e prime-gaps.md
-# entram "quando aplicável", por decisão humana: o script lembra, não cobra.
+# Onde REVISAO_HUMANA é resolvido: a revisão do Guardião (plugins/reativa-one/agents/guardiao.md) o
+# reporta como pendência e a PR só é aprovada depois que um humano registra a decisão (ver a seção
+# de revisão humana em docs/integracoes/README.md).
 #
-# Não bloqueia nada. Uso: integracoes-cinco.sh [<base>]   (base padrão: origin/main)
+# Não bloqueia o CI sozinho; a exigência é a revisão acima. Uso: integracoes-cinco.sh [<base>]
 #   Teste sem git: integracoes-cinco.sh --lista <arquivo>   (formato de git diff --name-status)
 # ============================================================================
 set -uo pipefail
@@ -63,20 +67,21 @@ if [ -z "$prime_docs" ] && [ -z "$prime_codigo" ] && [ -z "$compartilhado" ]; th
   exit 0
 fi
 
-# Sem os três obrigatórios: código, migração, compartilhado ou só documento auxiliar Prime -> revisão humana.
+# Sem os três obrigatórios tocados: código, migração, compartilhado ou só auxiliar -> revisão humana (3).
 if [ -z "$obrigatorios_tocados" ]; then
   echo "REVISAO_HUMANA: alterado Prime sem prime-api.md, prime-api-catalog.json nem prime-mapa-fontes-verdade.md:"
   printf '%s\n' "$prime_docs" "$prime_codigo" "$compartilhado" | grep -v '^$' | sed 's/^/  · /'
-  echo "Confirme se há descoberta ou mudança de contrato. Se houver, atualize os cinco na mesma alteração."
-  exit 0
+  echo "Revisão humana obrigatória: confirme se há descoberta ou mudança de contrato; se houver, atualize os cinco na mesma alteração. Não é aprovação automática."
+  exit 3
 fi
 
-# Algum dos três foi tocado: exige os três, existentes no ramo.
+# Algum dos três foi tocado: presença dos três no ramo.
 echo "Obrigatórios tocados:"; printf '%s\n' "$obrigatorios_tocados" | sed 's/^/  · /'
 faltam=""
 for alvo in prime-api.md prime-api-catalog.json prime-mapa-fontes-verdade.md; do
   printf '%s\n' "$existentes" | grep -qx "docs/integracoes/$alvo" || faltam="$faltam $alvo"
 done
-if [ -n "$faltam" ]; then echo "FALTAM:$faltam"; else echo "COMPLETO: os três obrigatórios estão no ramo."; fi
+if [ -n "$faltam" ]; then echo "FALTAM:$faltam"; exit 2; fi
+echo "PRESENCA_VERIFICADA: os três obrigatórios estão no ramo. Presença e toque conferidos; conteúdo e necessidade de atualização dos cinco NÃO verificados. Revisão humana de coerência continua obrigatória."
 echo "(prime-mapa-identificadores.md e prime-gaps.md: conferir quando aplicável.)"
 exit 0

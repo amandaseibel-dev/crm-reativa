@@ -1,0 +1,32 @@
+# Decisões da integração ULBRA / Mensageria (registro versionado)
+
+Registro das decisões tomadas pela gestão, com a data e o escopo do que foi decidido. Não é ata nem
+aprovação de implantação. Aprovações de implantação ficam no pacote e na mensagem de implantação, com
+a aprovação específica de cada etapa. Este registro é referenciado pela PR #913.
+
+## Decisões registradas
+
+| Data | Decisão | Escopo | Fonte |
+|---|---|---|---|
+| 2026-11-17 | Alcance da regra dos cinco: vale para descobertas e alterações relevantes da integração Prime. Documentação exclusiva da Mensageria não exige atualização dos cinco. | README (`docs/integracoes/README.md`) e seletor (`plugins/reativa-one/scripts/integracoes-cinco.sh`) | mensagem da gestão nesta sessão |
+| 2026-11-17 | Seletor com resultados distintos: NAO_APLICA (0), PRESENCA_VERIFICADA (0), REVISAO_HUMANA (3), FALTAM (2). PRESENCA_VERIFICADA não significa conteúdo correto. | seletor | mensagem da gestão nesta sessão |
+| 2026-11-17 | Leitura do histórico primeiro, envio desligado durante a validação de leitura. | piloto | mensagem da gestão nesta sessão |
+| 2026-11-17 | Leitura limitada às identidades listadas em `ULBRA_HISTORICO_PILOTO_EMAILS` (fail-closed), sem alterar as regras permanentes de carteira e responsabilidade. | piloto | mensagem da gestão nesta sessão |
+| 2026-11-17 | Contenção da função antiga `ulbra-historico` concluída: função excluída pelo painel, ausente da listagem, endpoint HTTP 404. Não restaurar. | produção | informado pela gestão; verificado por leitura |
+| 2026-11-17 | Aluno de teste entra na fila do operador João como CONTATAR. CPF obrigatório preenchido pela gestão, no cadastro. | piloto | mensagem da gestão nesta sessão |
+
+## Dependência de envio real: bloqueio jurídico (registrada; envio real NÃO habilitado)
+
+- Antes de habilitar `ULBRA_ENVIO_REAL`, a `ulbra-conversa` deve respeitar o **bloqueio jurídico efetivo** do aluno na prévia e na confirmação.
+- Não é proibição definitiva: fica prevista uma **exceção específica, auditada e autorizada pela gestão**, para atendimento não relacionado à cobrança.
+- Contrato da verificação a coordenar com a sessão do Jurídico (sem edição paralela dos mesmos arquivos). Proposta: função de decisão pura `decidirBloqueioJuridico(aluno, tipoAtendimento, excecao)` na ulbra-conversa, chamada antes de `envio_previa` e `envio_confirmar`; retorno `BLOQUEADO_JURIDICO` (403) sem efeito; exceção só com registro de autorização e auditoria.
+- Esta dependência **não** impede o piloto de leitura com envio desligado.
+
+## Pendente de decisão (não decidido, não aceito)
+
+- **Grant OAuth sem cópia quando a revogação falha** (ramos de divergência, erro de banco e renovação
+  recusada): o risco não foi aceito. Pelo piloto, o caminho fica indisponível (ver piloto-token-pessoal-2026-11-17.md).
+  Antes de habilitar o OAuth, a gestão precisa decidir: aceitar o risco com registro, ou corrigir.
+- Migrations `20261111140000` e `20261117120000`: aplicação com aprovação específica.
+- Publicação de `ulbra-conversa`, segredo `ULBRA_TOKENS_CHAVE`, merge da PR, ativação de flags: cada um com aprovação específica.
+- Coerência dos cinco artefatos quando houver descoberta Prime: revisão humana (ver README).

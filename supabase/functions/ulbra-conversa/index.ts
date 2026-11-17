@@ -25,6 +25,7 @@ import { confirmarPrevia, criarPrevia, type PreviaRegistro, type RepositorioPrev
 import { podeConferir } from "./conferencia.ts";
 import { executarAcaoHistorico } from "./historico-acao.ts";
 import { decidirResposta } from "./autorizacao-resposta.ts";
+import { configuracaoFaltando } from "./configuracao-acao.ts";
 import { cadastrarTokenPessoal } from "./token-pessoal.ts";
 import { descartarGrant } from "./grant.ts";
 import { gravarRenovacaoSe, type EstadoLinha, type GuardaRenovacao } from "./renovacao.ts";
@@ -113,9 +114,7 @@ Deno.serve(async (req: Request) => {
   // Dependências que exigem configuração: só quando a ação precisa delas.
   // OAuth (client_id e redirect_uri) só nas ações do fluxo OAuth. As demais precisam só da chave de cifra:
   // o token pessoal (piloto) não passa pelo OAuth, e envio/histórico usam a conexão já gravada.
-  const precisaOauth = ["conexao_iniciar", "conexao_concluir"].includes(acao);
-  const precisaChave = ["conexao_token_pessoal", "conexao_desconectar", "conexao_estado", "envio_previa", "envio_confirmar", "envio_capacidade", "historico_ler", "historico_capacidade"].includes(acao);
-  if ((precisaOauth && (!clientId || !redirectUri || !chaveHex)) || (precisaChave && !chaveHex)) {
+  if (configuracaoFaltando(acao, { clientId, redirectUri, chave: chaveHex })) {
     return responder({ ok: false, motivo: "CONEXAO_NAO_CONFIGURADA", detalhe: "configuração ausente no ambiente da função (client_id/redirect_uri para OAuth; chave de cifra para as demais)" }, 503);
   }
   const chave = chaveHex ? chaveDeHex(chaveHex) : null;
