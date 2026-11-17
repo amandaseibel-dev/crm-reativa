@@ -76,12 +76,13 @@ export default function CentralConversas({
   onSelecionar,
   onVoltar,
   historico = { estado: "indisponivel", mensagens: [] },
+  onVerConversa,
   aoAbrirFicha,
   vazio = "nenhum item na fila",
 }) {
   const sel = itens.find((i) => i.chave === selecionadoChave) || null;
   const mostra = sel ? "conversa" : "lista";
-  const mostraConversa = sel && (historico.estado === "parcial" || historico.estado === "ok");
+  const mostraConversa = sel && sel.alunoId && (historico.estado === "parcial" || historico.estado === "ok");
 
   return (
     <div className="ulbra-conv" data-testid="visao-conversas" data-mostra={mostra}>
@@ -142,14 +143,18 @@ export default function CentralConversas({
                   Abrir ficha
                 </Link>
               ) : (
-                <span className="ulbra-texto-desativado" data-campo="ficha-bloqueada">
-                  Ficha indisponível: CPF não confirmado
+                <span className="ulbra-texto-desativado" data-campo="vinculo-pendente">
+                  Vínculo pendente
                 </span>
               )}
             </header>
 
             <div className="ulbra-conv-historico">
-              <EstadoHistorico historico={historico} />
+              {!sel.alunoId ? null : historico.estado === "indisponivel" && onVerConversa ? (
+                <button type="button" className="ulbra-botao" onClick={onVerConversa}>Ver conversa</button>
+              ) : (
+                <EstadoHistorico historico={historico} />
+              )}
               {mostraConversa ? (
                 <ConversaUlbra mensagens={historico.mensagens} podeEnviar={false} />
               ) : null}
