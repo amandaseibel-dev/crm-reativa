@@ -505,6 +505,21 @@ describe("auditoria: pendencia de pagamento, coluna divergente e valor atual", (
     await db.close();
   });
 
+  it("outro fluxo que liga nao_acionar durante o encaminhamento: a remocao nao derruba a flag dele", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    // outro fluxo (ex.: saldo zero) grava a mesma flag, que ja esta ligada
+    await db.query("update casos set nao_acionar=true where id=$1", [a.cs]);
+    await rpc(db, "public.juridico_caso_remover($1,'desistencia')", [caso.id]);
+    const cs = (await db.query("select nao_acionar from casos where id=$1", [a.cs])).rows[0];
+    expect(cs.nao_acionar).toBe(true);
+    expect(await bloqueio(db, a.al)).toBe("NAO_ACIONAR_EXPLICITO");
+    await db.close();
+  });
+
   it("remover o caso libera so o bloqueio deste fluxo; suspensao criada depois continua valendo", async () => {
     const db = await novo();
     const a = await mk(db, { valores: [1000] });

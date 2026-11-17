@@ -99,6 +99,8 @@ create table public.juridico_casos (
   quebrado_revisado_em timestamptz,
   quebrado_revisado_motivo text,
   bloqueio_anterior jsonb,
+  -- true quando OUTRO fluxo gravou nao_acionar=true durante o encaminhamento: a remocao nao libera essa flag
+  bloqueio_compartilhado boolean not null default false,
   aprovado_por text,
   aprovado_em timestamptz,
   enviado_financeiro_em timestamptz,
@@ -876,8 +878,14 @@ create function public._juridico_desbloquear(p_caso public.juridico_casos)
 returns void
 language plpgsql security definer set search_path to 'public'
 as $function$
+declare v_comp boolean;
 begin
   if p_caso.bloqueio_anterior is null or jsonb_typeof(p_caso.bloqueio_anterior) <> 'array' then return; end if;
+
+  -- Se outro fluxo tambem ligou nao_acionar durante o encaminhamento, a flag NAO e deste fluxo:
+  -- fica ligada (o bloqueio dele continua). Ver _juridico_marca_bloqueio_compartilhado.
+  select bloqueio_compartilhado into v_comp from public.juridico_casos where id = p_caso.id;
+  if coalesce(v_comp, false) then return; end if;
 
   -- Unica porta que libera nao_acionar: a guarda de casos so deixa passar com esta GUC.
   perform set_config('juridico.desbloqueio', 'on', true);
@@ -1671,6 +1679,29 @@ begin
 end;
 $function$;
 
+-- MARCA DE FLAG COMPARTILHADA. Um UPDATE que grava nao_acionar=true numa flag JA ligada e
+-- sinal de OUTRO fluxo (ex.: confirmacao de saldo zero, antecipacao) que tambem a usa. Se
+-- ocorrer com caso encaminhado, a remocao do caso nao pode desliga-la. O gatilho dispara em
+-- todo UPDATE OF nao_acionar, mesmo sem mudanca de valor.
+create function public._juridico_marca_bloqueio_compartilhado()
+returns trigger
+language plpgsql security definer set search_path to 'public'
+as $function$
+begin
+  if coalesce(old.nao_acionar, false) is true and coalesce(new.nao_acionar, false) is true
+     and coalesce(current_setting('juridico.desbloqueio', true), '') <> 'on' then
+    update public.juridico_casos
+       set bloqueio_compartilhado = true
+     where aluno_id = old.aluno_id
+       and status in ('APROVADO','ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO');
+  end if;
+  return new;
+end;
+$function$;
+
+create trigger trg_juridico_marca_bloqueio_compartilhado before update of nao_acionar on public.casos
+  for each row execute function public._juridico_marca_bloqueio_compartilhado();
+
 -- GUARDA DO BLOQUEIO DE COBRANCA (nao_acionar). Enquanto houver caso APROVADO/ENVIADO/CONFIRMADO,
 -- ninguem libera nao_acionar por outra tela ou rotina. So a GUC juridico.desbloqueio (remocao do caso).
 create function public._juridico_guarda_nao_acionar()
@@ -1796,6 +1827,7 @@ begin
   'public._juridico_guarda_bloqueio()',
   'public._juridico_guarda_caso_novo()',
   'public._juridico_guarda_nao_acionar()',
+  'public._juridico_marca_bloqueio_compartilhado()',
   'public._juridico_so_anexa()',
   'public._juridico_registra_acordo_status()'
   ] loop
@@ -1814,8 +1846,8 @@ begin
   select count(*) into v_n from pg_proc p
    where p.pronamespace = 'public'::regnamespace
      and (p.proname like 'juridico\_%' or p.proname like '\_juridico\_%');
-  if v_n <> 33 then
-    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 33 esperadas).', v_n;
+  if v_n <> 34 then
+    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 34 esperadas).', v_n;
   end if;
 
   select count(*) into v_n

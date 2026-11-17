@@ -106,6 +106,10 @@ async function criarAlunoComCaso(c, { acordo = null } = {}) {
       "insert into acordos_titulos(id,aluno_id,cpf,documento,vencimento,valor_original,saldo_corrigido,situacao,tipo_boleto) values (gen_random_uuid(),$1,$2,$3,'2025-06-10',500,500,'ABERTO','Cursos de Graduação Presencial')",
       [al, cpf, `DOC${n}-${i}`]);
   }
+  // caso de cobranca da carteira (a aprovacao so bloqueia a cobranca de quem tem caso)
+  const cs = (await c.query(
+    "insert into casos(id,aluno_id,nome,cpf_limpo,cpf,operador_email,operador_nome,status_atual,status_acionamento) values (gen_random_uuid(),$1,'Aluno Conc',$2,$2,'op1@x','Op Um','CONTATAR','CONTATAR') returning id",
+    [al, cpf])).rows[0].id;
   let ac = null, parcelas = [];
   if (acordo) {
     ac = (await c.query(
@@ -125,7 +129,7 @@ async function criarAlunoComCaso(c, { acordo = null } = {}) {
     `insert into juridico_casos(lote_id,aluno_id,criado_por,acordos_na_geracao)
      values ($1,$2,$3,coalesce((select array_agg(a.id) from acordos a where a.aluno_id=$2 and upper(a.status)='ATIVO' and a.duplicado_de is null),'{}'::uuid[]))
      returning id`, [lote, al, GESTAO])).rows[0].id;
-  return { al, cpf, caso, ac, parcelas };
+  return { al, cpf, caso, cs, ac, parcelas };
 }
 
 async function comoGestao(c) {
@@ -267,7 +271,6 @@ async function main() {
     const s5 = await cliente(); await comoGestao(s5);
     const H = await cliente();
     const x = await criarAlunoComCaso(s5);
-    await s5.query("insert into casos(id,aluno_id,nome,cpf_limpo,cpf,operador_email,operador_nome,status_atual,status_acionamento) values (gen_random_uuid(),$1,'Aluno Conc',$2,$2,'op1@x','Op Um','CONTATAR','CONTATAR')", [x.al, x.cpf]);
     const antes = await foto(s5, x);
     await H.query("begin");
     await H.query("select 1 from casos where aluno_id=$1 for update", [x.al]);

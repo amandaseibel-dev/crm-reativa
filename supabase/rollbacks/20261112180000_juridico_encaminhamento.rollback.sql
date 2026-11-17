@@ -7,7 +7,7 @@
 --   2. guarda copia das cinco tabelas em `_backup_juridico_*_20261112` (RLS ligada,
 --      sem grant) antes de remover;
 --   3. solta, nesta ordem: triggers nas tabelas do sistema, funcoes (lista
---      explicita de 32 assinaturas), tabelas, sequences. Nenhum titulo, parcela
+--      explicita de 34 assinaturas), tabelas, sequences. Nenhum titulo, parcela
 --      ou acordo e tocado -- a migration tambem nao os tocou.
 
 begin;
@@ -44,6 +44,7 @@ drop trigger if exists trg_juridico_guarda_bloqueio on public.alunos;
 drop trigger if exists trg_juridico_guarda_bloqueio on public.casos;
 drop trigger if exists trg_juridico_guarda_caso_novo on public.casos;
 drop trigger if exists trg_juridico_guarda_nao_acionar on public.casos;
+drop trigger if exists trg_juridico_marca_bloqueio_compartilhado on public.casos;
 drop trigger if exists trg_juridico_so_anexa_historico on public.juridico_historico;
 drop trigger if exists trg_juridico_so_anexa_documentos on public.juridico_documentos;
 drop trigger if exists trg_juridico_so_anexa_truncate_historico on public.juridico_historico;
@@ -51,7 +52,7 @@ drop trigger if exists trg_juridico_so_anexa_truncate_documentos on public.jurid
 drop trigger if exists trg_juridico_acordo_status on public.acordos;
 drop trigger if exists trg_juridico_parcela_historico on public.parcelas;
 
--- 2. funcoes: lista explicita, 32 assinaturas (conferidas pela migration)
+-- 2. funcoes: lista explicita, 34 assinaturas (conferidas pela migration)
 drop function public._juridico_exigir_gestao();
 drop function public._juridico_grupo(text);
 drop function public._juridico_conferencia(uuid);
@@ -67,6 +68,7 @@ drop function public._juridico_desbloquear(public.juridico_casos);
 drop function public._juridico_guarda_bloqueio();
 drop function public._juridico_guarda_caso_novo();
 drop function public._juridico_guarda_nao_acionar();
+drop function public._juridico_marca_bloqueio_compartilhado();
 drop function public._juridico_so_anexa();
 drop function public._juridico_registra_acordo_status();
 drop function public._juridico_pagamento_nao_baixado(uuid);
