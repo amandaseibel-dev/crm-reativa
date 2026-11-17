@@ -559,6 +559,17 @@ describe("auditoria: pendencia de pagamento, coluna divergente e valor atual", (
     await db.close();
   });
 
+  it("envio: aluno inexistente recusa; documento autorizado passa uma vez; hash com espacos e normalizado", async () => {
+    const db = await novo();
+    const { a } = await casoAprovado(db);
+    const conv = U(960, 7);
+    expect((await falha(chec(db, U(999, 9), conv)))?.code).toBe("42501");
+    await autor(db, a.al, conv, "DOCUMENTO", HASH);
+    await chec(db, a.al, conv, "DOCUMENTO", "  " + HASH + "  ");
+    expect((await falha(chec(db, a.al, conv, "DOCUMENTO", HASH)))?.code).toBe("42501");
+    await db.close();
+  });
+
   it("envio: bloqueio sem autorizacao recusa; operador nao autoriza; gestao autoriza uma vez", async () => {
     const db = await novo();
     const { a } = await casoAprovado(db);

@@ -1500,7 +1500,7 @@ language plpgsql security definer set search_path to 'public'
 as $function$
 declare v_id uuid;
 begin
-  if p_aluno is null then
+  if p_aluno is null or not exists (select 1 from public.alunos al where al.id = p_aluno) then
     raise exception 'Envio recusado: aluno não identificado. Vincule o contato a um aluno antes de enviar.' using errcode = '42501';
   end if;
   if p_tipo is null or p_tipo not in ('MENSAGEM','DOCUMENTO') or nullif(btrim(coalesce(p_conteudo_hash,'')), '') is null then
@@ -1509,7 +1509,7 @@ begin
   if not public._juridico_bloqueio_efetivo(p_aluno) then return; end if;
   select a.id into v_id from public.juridico_envio_autorizacoes a
    where a.aluno_id = p_aluno and a.conversa_id = p_conversa
-     and a.tipo = p_tipo and a.conteudo_hash = p_conteudo_hash
+     and a.tipo = p_tipo and a.conteudo_hash = btrim(p_conteudo_hash)
      and a.usado_em is null and a.valido_ate > now()
    order by a.autorizado_em desc limit 1
    for update;
@@ -1998,8 +1998,8 @@ begin
    where p.pronamespace = 'public'::regnamespace
      and (p.proname like 'juridico\_%' or p.proname like '\_juridico\_%')
      and (has_function_privilege('anon', p.oid, 'execute')
-       or (p.proname like '\_%' and has_function_privilege('authenticated', p.oid, 'execute'))
-       or (p.proname like '\_%' and has_function_privilege('service_role', p.oid, 'execute'))
+       or ((p.proname like '\_%' or p.proname = 'juridico_checar_envio') and has_function_privilege('authenticated', p.oid, 'execute'))
+       or ((p.proname like '\_%' or p.proname = 'juridico_checar_envio') and has_function_privilege('service_role', p.oid, 'execute'))
        or not coalesce(p.proconfig @> array['search_path=public'], false));
   if v_n > 0 then
     raise exception 'juridico: % funcao(oes) com grant indevido ou sem search_path fixo.', v_n;
