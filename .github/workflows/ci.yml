@@ -1276,3 +1276,7 @@ jobs:
           psql -tA -v ON_ERROR_STOP=1 -f "$DIR/snapshot_termo_fisico.sql" > "$RUNNER_TEMP/termo_post.txt"
           cmp -s "$RUNNER_TEMP/termo_pre.txt" "$RUNNER_TEMP/termo_post.txt" || { echo "rollback nao volta ao estado anterior"; diff "$RUNNER_TEMP/termo_pre.txt" "$RUNNER_TEMP/termo_post.txt"; exit 1; }
           psql -v ON_ERROR_STOP=1 -f "$DIR/04_rollback_limpo.sql"
+      - name: "Recuperação do trap do teste 15 em PostgreSQL real (falhas injetadas, estado restaurado por consulta independente)"
+        run: |
+          set -euo pipefail
+          bash supabase/tests/tabulacao_termo_fisico_gestao/recuperacao_trap_real.sh

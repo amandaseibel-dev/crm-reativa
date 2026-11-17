@@ -34,9 +34,10 @@
 | `supabase/tests/tabulacao_termo_fisico_gestao/fingerprint_dados_termo.sql` | `be702c3b4e653a52ea4910a6854b15ef4bc3c74c51a0ee9c436ed57ef3759476` | 1690 | evidência (novo; normalizado) |
 | `supabase/tests/tabulacao_termo_fisico_gestao/snapshot_termo_fisico.sql` | `7181ce340942ee18c2035c54af6d2b242139a25a0fe34b30024ea8d1ce6f129b` | 1973 | evidência |
 | `supabase/tests/tabulacao_termo_fisico_gestao/12n_contencao_flag_fixture.sql` | `848891fb90c68888be72e08e15e308cc7683a2c21daf3a6b6d096a6ad363aff8` | 1719 | evidência (novo) |
-| `supabase/tests/tabulacao_termo_fisico_gestao/executa_contencao_15.sh` | `f748dccc82fc9cce483822346a099b35daaa6944e88281d108acec1296bc7f91` | 1550 | evidência (novo; 15b e 15c rodam ambos; restauração sempre) |
+| `supabase/tests/tabulacao_termo_fisico_gestao/executa_contencao_15.sh` | `26b09f005e161349af0cc9fedb063b5393c58634e79f2c03c947714dd41224af` | 2422 | evidência (restauração por trap: flag, autoria e proprietário; 15b e 15c rodam ambos; ganchos de falha) |
 | `supabase/tests/tabulacao_termo_fisico_gestao/postgrest_termo_fisico.cjs` | `dd6062bd36c7129d53bddf9b750c559464ee7f3fb4984f914aa5ad7891b5a502` | 9954 | evidência (novo) |
-| `.github/workflows/ci.yml` | `cfd2c5da6c1c5af8770296b7b6396c3126535a7ac3c97f96243de17eeb77fdff` | 55011 | evidência do CI (job do termo) |
+| `.github/workflows/ci.yml` | `c43259b03869aa4b4d9da9b8984a35e4798a4650ac0e9f77f1f736e9fe8e7917` | 55272 | evidência do CI (job do termo, inclui a etapa de recuperação do trap) |
+| `supabase/tests/tabulacao_termo_fisico_gestao/recuperacao_trap_real.sh` | `fcaf7b9ede6fd29162981dbccd47e36adc2611729ff73852344ee546b77a80f1` | 4093 | evidência: recuperação do trap em PostgreSQL real descartável (falhas injetadas, consulta independente) |
 | `supabase/tests/tabulacao_termo_fisico_gestao/fixtures/prod_encerramento_so_gestao.sql` | `cae8f5422b93341fb62debd5e524d10182054ffca7a968cf5b749928ecd3aea9` | 5366 | **fixture de teste**, executável só em banco descartável; `CREATE OR REPLACE`; não é migration nem instrução de produção |
 
 Hashes calculados com `shasum -a 256` no head final. Qualquer alteração posterior invalida esta tabela.
@@ -94,7 +95,7 @@ Hashes calculados com `shasum -a 256` no head final. Qualquer alteração poster
 ### Achados desta v2 (não estavam na v1)
 - **Script de recusas sem `trap`:** `recusas_rollback.sh` sai com `exit 1` sem restaurar o fator alterado. Aceitável só em banco descartável.
 - **`\\set` no rollback:** `20261114120000.rollback.sql` só roda via `psql`, não pelo SQL Editor.
-- **Falha de restauração no teste 15 — RESOLVIDA no head `dd85340a`:** o bloco de contenção está em `executa_contencao_15.sh`, que restaura por `trap EXIT` (`12p_off` e `15p_dono_restore`) em sucesso e em falha, preserva o código da primeira falha e sinaliza falha de restauração em stderr. Validado localmente em banco descartável (sucesso, falha do teste, falha da restauração e ambas). O job `tabulação termo físico` do CI do head `dd85340a` concluiu com sucesso (run `44058185214`, job `133952977625`).
+- **Falha de restauração no teste 15 — tratada no trap (`executa_contencao_15.sh`) e a provar em banco real:** o bloco restaura flag, autoria e proprietário por `trap EXIT` em sucesso e em falha, preserva o código da primeira falha e sinaliza falha de restauração em stderr. **Prova real:** `recuperacao_trap_real.sh` roda, como etapa do CI, em PostgreSQL real descartável, com falhas injetadas (15b, 15b+15c, falha de restauração) e confere o estado final por consulta independente. **Prova de fluxo (NÃO é de banco):** um `psql` falso em `scratchpad/teste15/` exercita só a lógica do shell. O estado da prova real está registrado no commit e no CI do head da PR.
 - **Limitação do harness PostgREST (`postgrest_termo_fisico.cjs`, `lerSql`):** resolve apenas `\i` no início da linha. `\ir` e `\set` são descartados em silêncio. O `01_ambiente.sql` atual não usa essas meta-linhas, então não há efeito hoje; nenhum teste exercita esse ramo.
 
 ## Dependência de `usuario_e_gestao()` (verificada no SQL efetivo, sem alterar a função)
@@ -111,7 +112,7 @@ Hashes calculados com `shasum -a 256` no head final. Qualquer alteração poster
 ## Recorte e estado de validação
 
 - **Esta v2 está no recorte `termo-fisico-recorte`** (branch nova a partir de `origin/main` `979de7b6`). A PR #954 (`feat/termo-fisico-registro-migracao`) permanece como referência, com o histórico preservado; seus heads `f725c5cb`, `f94d25c8` e `4dca987a` não são o pacote desta v2.
-- **Escopo do recorte:** 50 arquivos do diff `origin/main...termo-fisico-recorte` (verificado), todos de termo físico. O número 321 que apareceu antes vinha de um `main` local desatualizado, não do diff da PR.
+- **Escopo do recorte:** 52 arquivos do diff `origin/main...termo-fisico-recorte` (verificado), todos de termo físico. O número 321 que apareceu antes vinha de um `main` local desatualizado, não do diff da PR.
 - **Validação:** CI e Guardião do head do recorte são registrados na PR de recorte, não nesta seção. Nenhum parecer anterior é considerado validação deste head.
 - **Ressalvas de publicação (não de merge):** Gate A, Auth, `usuario_e_gestao()` sem migration versionada (catálogo em `docs/seguranca/evidencias/catalogo_usuario_e_gestao_20261116.md`), papel `reativa_responsavel_executor`, `tabulacoes` sem DDL versionado; higiene dos `.sql` de evidência com `CREATE OR REPLACE` (carregados por `\\i` no CI, não renomeados).
 - **Nenhuma aprovação registrada.**
