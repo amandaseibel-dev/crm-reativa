@@ -17,7 +17,8 @@
 --   3. Se existe e confere: não altera nada (idempotente).
 --
 -- Não usa CREATE OR REPLACE (restauraria grants padrão). Não altera o alcance de cobranca07 nem
--- as permissões de reativa_responsavel_executor: a lista de e-mails é a de produção, copiada como está.
+-- as permissões de reativa_responsavel_executor (nem na criação: ver a nota no ramo de criação).
+-- A lista de e-mails é a de produção, copiada como está (necessária para reproduzir a função).
 
 begin;
 
@@ -50,16 +51,19 @@ $body$
     $f$;
     revoke all on function public.usuario_e_gestao() from public, anon;
     grant execute on function public.usuario_e_gestao() to authenticated, service_role;
-    if exists (select 1 from pg_roles where rolname = 'reativa_responsavel_executor') then
-      grant execute on function public.usuario_e_gestao() to reativa_responsavel_executor;
-    else
-      raise notice 'regularização: papel reativa_responsavel_executor ausente neste banco; EXECUTE para ele não concedido aqui';
-    end if;
+    -- EXECUTE para reativa_responsavel_executor NÃO é concedido aqui: a ACL de produção o inclui, mas a
+    -- decisão sobre esse papel é da gestão (ver catálogo). Divergência de ACL registrada na v2.
+    raise notice 'regularização: reativa_responsavel_executor sem EXECUTE nesta criação (decisão pendente da gestão)';
     raise notice 'regularização: usuario_e_gestao() criada a partir da referência';
     return;
   end if;
 
   if v_md5 <> '889cfa4a82e9046b4322e8c85ee07b7d'
+     or (select l.lanname from pg_proc p join pg_language l on l.oid = p.prolang
+          join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public' and p.proname = 'usuario_e_gestao' and p.pronargs = 0) <> 'sql'
+     or (select p.prorettype from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname = 'public' and p.proname = 'usuario_e_gestao' and p.pronargs = 0) <> 'boolean'::regtype
      or not v_secdef
      or v_vol <> 's'
      or v_cfg is distinct from array['search_path=public']

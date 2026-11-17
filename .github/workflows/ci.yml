@@ -1182,7 +1182,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/prep_gestao_inativa_on.sql"
           [ "$rc" -eq 0 ] || exit "$rc"
           psql -v ON_ERROR_STOP=1 -f "$DIR/00_barreira_producao.sql"
-          # (sem proposta de trava nesta #954)
+          # (sem proposta de trava nesta PR)
           psql -v ON_ERROR_STOP=1 -f "supabase/aguardando_aprovacao/20261106120000_tabulacao_retorno_financeiro.sql.pendente"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/05_barreira_alunos.sql"
           PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/09_login_nao_privilegiado.sql"

@@ -29,7 +29,7 @@
 
 | Arquivo | SHA-256 | Bytes | Situação |
 |---|---|---|---|
-| `supabase/aguardando_aprovacao/20261114110000_usuario_e_gestao_regularizacao.sql.pendente` | `d7efc22f4d7843fde881da186c55abb3a4a0dc2f680edf930ed118c992e8c341` | 3710 |
+| `supabase/aguardando_aprovacao/20261114110000_usuario_e_gestao_regularizacao.sql.pendente` | `ea266b1d883d9712ad0de99e2ed43a531f418048e9740e056ae88680a172b4c6` | 4248 |
 | `supabase/aguardando_aprovacao/20261114110000_usuario_e_gestao_regularizacao.rollback.sql` | `7793980155bdc09f8297ca8c0a116ec4452ecef43cc1cd0c16038a16d4935172` | 667 |
 | `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente` | `b18494a173df48c18f8333f2882286146e10c558d7e00018a32f891b99eb5a00` | 10351 |
 | `supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql` | `30315b81d0b9346741daf100927e3d4ed49ebceafa053a6169c12f03e62cf0fe` | 6724 |
@@ -84,7 +84,7 @@ Hashes calculados com `shasum -a 256` sobre os arquivos do commit desta PR (ver 
 
 ### Herdados da v1 (`autorizacao-tabulacao-termo-fisico-20261114120000.md`, bloqueios 1–7), não resolvidos por esta v2
 1. **Gate A:** 7 achados `BLOQUEIA` abertos, de outras frentes: `BUCKET_PUBLICO` `tv-imagens`, `TABELA_SEM_RLS` `_tmp_fila2`, 5 views com `VIEW_BYPASS_RLS`. Sem exceção nem declaração de resolução.
-2. **Reconciliação:** `usuario_e_gestao()` tem regularização criada nesta PR (`20261114110000`, ver seção própria), ainda não aplicada e não autorizada para produção. `_encerramento_so_gestao()` fora desta #954.
+2. **Reconciliação:** `usuario_e_gestao()` tem regularização criada nesta PR (`20261114110000`, ver seção própria), ainda não aplicada e não autorizada para produção. `_encerramento_so_gestao()` fora desta PR. A fixture `00_barreira_producao.sql` carrega `docs/seguranca/evidencias/prod_encerramento_so_gestao.sql` (\i) apenas como referência de teste, sem alterar produção.
 3. **Auth:** configuração de confirmação e troca de e-mail não lida (não verificada).
 4. **Papel `reativa_responsavel_executor`** (INSERT irrestrito): não lido se é usado com `SET ROLE` por cliente.
 5. **`tabulacoes` sem DDL base versionado.**
@@ -101,7 +101,9 @@ Hashes calculados com `shasum -a 256` sobre os arquivos do commit desta PR (ver 
 - **Efeito proposto:** `20261114110000_usuario_e_gestao_regularizacao.sql.pendente` cria a função **somente se não existir**, com o corpo de referência e a mesma ACL. Se existir e divergir (corpo, dono, `SECURITY DEFINER`, volatilidade, `search_path` ou EXECUTE para `PUBLIC`/`anon`), **aborta sem alterar nada**. Não usa `CREATE OR REPLACE`.
 - **Por que bloqueia a #954 sem isto:** a migration `20261114120000` chama a função; um banco novo não reproduz a instalação.
 - **Validado em banco descartável:** criação (md5 de referência, flags, dono e ACL conferidos); reexecução idempotente; corpo divergente aborta; EXECUTE para PUBLIC aborta; após revogar, reexecução passa.
-- **Não alterado:** a lista de e-mails de produção (inclui `cobranca07`, sem decisão de alcance nesta PR) e o papel `reativa_responsavel_executor` (EXECUTE só se o papel existir neste banco; em produção, a ACL de referência).
+- **Não alterado:** a lista de e-mails de produção (inclui `cobranca07`, sem decisão de alcance nesta PR) e o papel `reativa_responsavel_executor`.
+- **Divergência de ACL registrada (decisão da gestão):** em produção a ACL inclui `reativa_responsavel_executor`. Na criação em banco novo, a regularização **não** concede EXECUTE a esse papel. Sem essa decisão, um banco novo não reproduz a ACL de produção nesse ponto. Não é bloqueio para o termo físico, mas precisa de decisão antes da aplicação.
+- **Guarda:** também aborta se a linguagem não for `sql` ou o retorno não for `boolean`.
 - **Rollback:** não-op por desenho (a função é dependência de políticas e funções; remover reabriria acesso).
 - **Decisão de gestão ainda necessária:** nenhuma para criar o arquivo; a aplicação em produção **não** é necessária, porque a função já existe e confere.
 
