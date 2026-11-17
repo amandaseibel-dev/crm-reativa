@@ -17,7 +17,7 @@ Entrega final = #966 (SQL) + #965 (tela). A tela só deve ser mesclada depois da
 ## Artefatos (SHA-256 integral)
 
 - Migration `supabase/migrations/20261115130000_efetividade_caixa_resumo_semestre.sql`:
-  `a22f1c22da8809e01dcbd21a693afd2f32a5c963050c947d940f67e6feeae984`
+  `dd3579329725d8a89d16929d8492c3c43b99505809f0af4b3eff8f2f34525a24`
 - Rollback `docs/rollbacks/efetividade-caixa-resumo-semestre-rollback.sql`:
   `4bf1b0ffe2dd009809fc929b13ac336cce0d09541f48663f8181c0022fdb88b5`
 
@@ -25,7 +25,7 @@ Entrega final = #966 (SQL) + #965 (tela). A tela só deve ser mesclada depois da
 
 Linha de `docs/seguranca/migracoes-aprovadas.tsv`, 6 colunas separadas por TAB:
 `ahattpqrjmhkzsmnbdzs` · `20261115130000_efetividade_caixa_resumo_semestre` ·
-`a22f1c22da8809e01dcbd21a693afd2f32a5c963050c947d940f67e6feeae984` ·
+`dd3579329725d8a89d16929d8492c3c43b99505809f0af4b3eff8f2f34525a24` ·
 `amanda.seibel@aelbra.com.br` · `expira_em` = aprovação + 30 min (UTC) · `pendente`.
 
 ## Executor nominal
@@ -71,8 +71,8 @@ Os números acima foram lidos do banco. Os testes SQL usam stubs, com valores de
 ## Acesso (decisão registrada)
 
 Acesso somente de gestão ativa: e-mail na lista de `usuario_e_gestao()` **e** `usuarios.ativo = true`.
-Diretoria não recebe os indicadores. Não há decisão pendente de acesso.
-A RPC nova é só de gestão ativa. O relatório de 2026/1 (`relatorio_mensalidades_2026_1_sem_negociacao`) aceita diretoria, então a diretoria vê o aviso de indisponível no bloco novo. Isso não é vazamento.
+A diretoria recebe os indicadores apenas em 2026/1 (ver a seção de acesso por semestre abaixo).
+A RPC é de gestão ativa em 2026/2 e de gestão ativa ou diretoria em 2026/1, espelhando os dois relatórios.
 A tela de Efetividade continua com o bloco "Em breve" para quem não tem acesso total, como já era.
 
 ## Base do denominador de 2026/2

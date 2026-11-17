@@ -70,7 +70,7 @@ begin
          select 1 from public.usuarios u
           where lower(u.email) = lower(coalesce(auth.jwt() ->> 'email', ''))
             and u.ativo is true))
-    or (p_semestre = '2026/1' and coalesce(public.usuario_e_diretoria(), false))
+    or (coalesce(p_semestre = '2026/1', false) and coalesce(public.usuario_e_diretoria(), false))
   ) then
     raise exception 'sem permissão para o resumo de caixa' using errcode = '42501';
   end if;
