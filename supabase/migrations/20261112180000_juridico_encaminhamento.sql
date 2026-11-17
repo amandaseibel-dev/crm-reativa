@@ -1456,6 +1456,19 @@ end;
 $function$;
 
 -- Painel da aba: indicadores, lotes e casos com a conferencia.
+-- CARTEIRA: ids dos alunos com bloqueio jurídico EFETIVO (caso encaminhado e nao_acionar ligado).
+-- Devolve so o id, sem nome, CPF ou valor. Para operador da carteira; nao le nada alem disso.
+create function public.juridico_bloqueio_ids(p_ids uuid[])
+returns setof uuid
+language sql stable security definer set search_path to 'public'
+as $function$
+  select distinct jc.aluno_id
+    from public.juridico_casos jc
+   where jc.aluno_id = any(coalesce(p_ids, '{}'::uuid[]))
+     and jc.status in ('APROVADO','ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO')
+     and exists (select 1 from public.casos c where c.aluno_id = jc.aluno_id and c.nao_acionar is true);
+$function$;
+
 create function public.juridico_painel()
 returns jsonb
 language plpgsql stable security definer set search_path to 'public'
@@ -1710,7 +1723,9 @@ begin
 end;
 $function$;
 
-create trigger trg_juridico_marca_bloqueio_compartilhado before update of nao_acionar on public.casos
+-- AFTER: roda depois que a linha foi travada e, se houve espera por aprovacao em outra sessao,
+-- le o estado ja commitado (o BEFORE leria o snapshot de antes da espera).
+create trigger trg_juridico_marca_bloqueio_compartilhado after update of nao_acionar on public.casos
   for each row execute function public._juridico_marca_bloqueio_compartilhado();
 
 -- GUARDA DO BLOQUEIO DE COBRANCA (nao_acionar). Enquanto houver caso APROVADO/ENVIADO/CONFIRMADO,
@@ -1815,7 +1830,8 @@ begin
   'public.juridico_lote_enviar_financeiro(uuid)',
   'public.juridico_casos_confirmar_juridico(uuid[],date,text)',
   'public.juridico_painel()',
-  'public.juridico_varrer_alertas()'
+  'public.juridico_varrer_alertas()',
+  'public.juridico_bloqueio_ids(uuid[])'
   ] loop
     execute format('revoke all on function %s from public, anon, authenticated', sig);
     execute format('grant execute on function %s to authenticated', sig);
@@ -1857,8 +1873,8 @@ begin
   select count(*) into v_n from pg_proc p
    where p.pronamespace = 'public'::regnamespace
      and (p.proname like 'juridico\_%' or p.proname like '\_juridico\_%');
-  if v_n <> 34 then
-    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 34 esperadas).', v_n;
+  if v_n <> 35 then
+    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 35 esperadas).', v_n;
   end if;
 
   select count(*) into v_n

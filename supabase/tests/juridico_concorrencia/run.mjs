@@ -266,6 +266,34 @@ async function main() {
     await H1.end(); await H2.end(); await s.end();
   });
 
+  // ---- 6. MARCADOR SOB ESPERA: outra sessao grava nao_acionar enquanto a aprovacao nao commitou ----
+  await caso("marcador sob espera: gravacao que espera a aprovacao marca a flag compartilhada; remocao mantem o bloqueio", async () => {
+    const s = await cliente(); await comoGestao(s);
+    const H = await cliente(), W = await cliente(), M = await cliente();
+    const x = await criarAlunoComCaso(s);
+    await comoGestao(H);
+    await H.query("begin");
+    await H.query("select public.juridico_caso_aprovar($1)", [x.caso]); // segura casos/alunos ate o commit
+    const pidW = (await W.query("select pg_backend_pid() p")).rows[0].p;
+    const w = W.query("update casos set nao_acionar = true where id = $1", [x.cs]);
+    let esperando = false;
+    for (let k = 0; k < 100 && !esperando; k++) {
+      const r2 = await M.query("select wait_event_type t from pg_stat_activity where pid=$1", [pidW]);
+      esperando = r2.rows[0]?.t === "Lock";
+      if (!esperando) await new Promise((q) => setTimeout(q, 50));
+    }
+    assert.ok(esperando, "a gravacao devia esperar a aprovacao (Lock)");
+    await H.query("commit");
+    await w;
+    const mk = (await s.query("select bloqueio_compartilhado from juridico_casos where id=$1", [x.caso])).rows[0].bloqueio_compartilhado;
+    assert.equal(mk, true, "a flag gravada durante a aprovacao devia ficar marcada");
+    const r = (await s.query("select public.juridico_caso_remover($1,'desistencia') j", [x.caso])).rows[0].j;
+    assert.equal(r.bloqueio, "MANTIDO_OUTRO_BLOQUEIO");
+    const nao = (await s.query("select nao_acionar from casos where id=$1", [x.cs])).rows[0].nao_acionar;
+    assert.equal(nao, true, "a remocao nao pode derrubar a flag de outro fluxo");
+    await H.end(); await W.end(); await M.end(); await s.end();
+  });
+
   // ---- 5. CASCATA: o update do aluno para JURIDICO atualiza casos; casos travados -----------
   await caso("casos do aluno travados por outra sessao: aprovacao recusada em tempo limitado, sem alteracao", async () => {
     const s5 = await cliente(); await comoGestao(s5);

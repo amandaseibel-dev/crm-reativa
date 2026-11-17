@@ -524,6 +524,22 @@ describe("auditoria: pendencia de pagamento, coluna divergente e valor atual", (
     await db.close();
   });
 
+  it("carteira: juridico_bloqueio_ids devolve so o id do aluno com bloqueio efetivo", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    const antes = (await db.query("select public.juridico_bloqueio_ids($1::uuid[]) id", [[a.al]])).rows;
+    expect(antes).toEqual([]);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    const durante = (await db.query("select public.juridico_bloqueio_ids($1::uuid[]) id", [[a.al]])).rows.map((r) => r.id);
+    expect(durante).toEqual([a.al]);
+    await rpc(db, "public.juridico_caso_remover($1,'desistencia')", [caso.id]);
+    const depois = (await db.query("select public.juridico_bloqueio_ids($1::uuid[]) id", [[a.al]])).rows;
+    expect(depois).toEqual([]);
+    await db.close();
+  });
+
   it("remover o caso libera so o bloqueio deste fluxo; suspensao criada depois continua valendo", async () => {
     const db = await novo();
     const a = await mk(db, { valores: [1000] });
