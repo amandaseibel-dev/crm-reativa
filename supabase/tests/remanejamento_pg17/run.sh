@@ -31,6 +31,9 @@ FIX="$RAIZ/supabase/tests/fixtures/remanejamento_fidelizacao_prod_20261117.sql"
 ACL="$DIR/fixture_acl.sql"
 TD="$DIR"
 
+# \i lib.sql dentro dos testes e relativo ao diretorio atual: entra la antes de rodar.
+cd "$TD"
+
 export PGHOST="${PGHOST:-localhost}" PGPORT="${PGPORT:-5432}" PGUSER="${PGUSER:-postgres}" PGPASSWORD="${PGPASSWORD:-postgres}"
 
 falha() { echo "FALHA: $*" >&2; exit 1; }
