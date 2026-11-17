@@ -95,6 +95,7 @@ export const ROTULO_CONFLITO = {
   RETORNO_AGENDADO_SEGUE: "Retorno agendado que segue com o aluno",
   CASO_ENCERRADO: "Caso já encerrado operacionalmente",
   TETO_DO_OPERADOR: "Teto do operador de destino",
+  BLOQUEADO_PARA_OPERADOR: "Caso que NÃO será movido para o operador",
 };
 
 // Acordo de terceiro é decisão item a item: a tela lista um por um, com
@@ -134,6 +135,7 @@ export function agruparConflitos(conflitos) {
 
   // Mais grave primeiro: o que muda dinheiro/atribuição antes do que é aviso.
   const ordem = [
+    "BLOQUEADO_PARA_OPERADOR",
     "TETO_DO_OPERADOR",
     "ACORDO_DO_DONO_FICA",
     "TITULARIDADE_DIVERGENTE",
@@ -145,6 +147,46 @@ export function agruparConflitos(conflitos) {
   return [...mapa.values()].sort(
     (a, b) => ordem.indexOf(a.tipo) - ordem.indexOf(b.tipo)
   );
+}
+
+// Filtros que seguem para a prévia. A liberação da fidelização só existe para
+// destino OPERADOR e só para o responsável que está filtrado na lista — é uma
+// decisão sobre UM dono, nunca um "liberar tudo". Quem decide de verdade é o
+// banco; aqui só se monta o pedido.
+export function filtrosDaPrevia(filtrosRpc, { destinoTipo, liberarFidelizacao, responsavel } = {}) {
+  const base = { ...(filtrosRpc || {}) };
+  const dono = String(responsavel || "").trim().toLowerCase();
+  if (
+    destinoTipo === "OPERADOR" &&
+    liberarFidelizacao === true &&
+    dono.includes("@") &&
+    dono !== CARTEIRA_GERAL_EMAIL
+  ) {
+    base.liberar_fidelizacao_de = [dono];
+  }
+  return base;
+}
+
+// A capacidade é CALCULADA NO SERVIDOR (internal.cg_capacidade_sequencial), pela
+// mesma regra que autoriza a transferência. A tela só exibe. Nulo quando o
+// destino não é operador ou a prévia não trouxe o bloco.
+export function resumoCapacidade(previa) {
+  const c = previa?.capacidade;
+  if (!c || c.teto == null) return null;
+  return {
+    teto: Number(c.teto || 0),
+    ocupacao: Number(c.ocupacao || 0),
+    vagas: Number(c.vagas || 0),
+    cabem: Number(c.cabem || 0),
+    sobram: Number(c.sobram || 0),
+    alunosRecusados: Number(c.alunos_recusados || 0),
+  };
+}
+
+// "2026-11-27" -> "27/11/2026", sem passar por Date (que desloca o dia no fuso).
+export function dataCurta(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : "";
 }
 
 // Trava de tela. A regra definitiva é do banco (calibragem_e_gestao +

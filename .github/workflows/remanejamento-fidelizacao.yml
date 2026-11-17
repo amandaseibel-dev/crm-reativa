@@ -1,0 +1,86 @@
+# Prova do remanejamento com fidelizacao de 10 dias, em PostgreSQL 17 descartavel.
+# Depende da PR #936 FIXADA no commit 9e8405869d3fe20ce24f6c50be890076a231a0c1
+# (o arquivo e buscado por hash; nada e copiado a mao).
+name: remanejamento fidelizacao (postgres 17)
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: remanejamento-fidelizacao-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  prova:
+    name: remanejamento com fidelizacao (postgres 17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      T: "300"
+      LOGS: ${{ runner.temp }}/remanejamento-logs
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: obter o commit fixado da #936
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          SHA=9e8405869d3fe20ce24f6c50be890076a231a0c1
+          git fetch --no-tags origin "$SHA" 2>/dev/null || git fetch --no-tags origin fix/fidelizacao-giro-10-dias
+          test "$(git cat-file -t "$SHA")" = commit
+          ARQ=supabase/aguardando_aprovacao/20261112210000_fidelizacao_giro_segue_os_10_dias.sql.pendente
+          mkdir -p "$RUNNER_TEMP/936/$(dirname "$ARQ")"
+          git show "$SHA:$ARQ" > "$RUNNER_TEMP/936/$ARQ"
+          echo "$RUNNER_TEMP/936" > "$RUNNER_TEMP/dir936"
+          echo "#936 em $SHA extraida"
+
+      - name: instalar cliente psql 17
+        timeout-minutes: 5
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17 || true
+          psql --version
+
+      - name: aguardar o postgres
+        timeout-minutes: 2
+        run: |
+          until pg_isready -h localhost -p 5432 -U postgres; do sleep 1; done
+          psql -X -A -t -c "select version()" | head -1
+
+      - name: prova (dependencia, perfis, prazo, destinos, saldo, concorrencia, rollback)
+        timeout-minutes: 25
+        run: |
+          set -uo pipefail
+          mkdir -p "$LOGS"
+          bash supabase/tests/remanejamento_pg17/run.sh "$(cat "$RUNNER_TEMP/dir936")" 2>&1 | tee "$LOGS/run.log"
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" | tee -a "$LOGS/run.log"
+          exit "$rc"
+
+      - name: logs (sempre)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: remanejamento-logs
+          path: ${{ runner.temp }}/remanejamento-logs
+          if-no-files-found: ignore
