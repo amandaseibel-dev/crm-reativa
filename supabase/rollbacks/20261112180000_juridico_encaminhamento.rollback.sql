@@ -43,6 +43,7 @@ revoke all on public._backup_juridico_lotes_20261112, public._backup_juridico_ca
 drop trigger if exists trg_juridico_guarda_bloqueio on public.alunos;
 drop trigger if exists trg_juridico_guarda_bloqueio on public.casos;
 drop trigger if exists trg_juridico_guarda_caso_novo on public.casos;
+drop trigger if exists trg_juridico_guarda_nao_acionar on public.casos;
 drop trigger if exists trg_juridico_so_anexa_historico on public.juridico_historico;
 drop trigger if exists trg_juridico_so_anexa_documentos on public.juridico_documentos;
 drop trigger if exists trg_juridico_so_anexa_truncate_historico on public.juridico_historico;
@@ -65,6 +66,7 @@ drop function public._juridico_lote_payload(uuid);
 drop function public._juridico_desbloquear(public.juridico_casos);
 drop function public._juridico_guarda_bloqueio();
 drop function public._juridico_guarda_caso_novo();
+drop function public._juridico_guarda_nao_acionar();
 drop function public._juridico_so_anexa();
 drop function public._juridico_registra_acordo_status();
 drop function public._juridico_pagamento_nao_baixado(uuid);

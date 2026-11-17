@@ -321,18 +321,20 @@ describe("aprovacao bloqueia a cobranca sem tocar em titulo", () => {
       a: (await db.query("select to_jsonb(x) j from acordos x where id=$1", [a.ac])).rows,
     });
     const antes = await foto();
+    const alAntes = (await db.query("select status_atual, status_jornada, status_acionamento, responsavel_atual_email from alunos where id=$1", [a.al])).rows[0];
+    const csAntes = (await db.query("select status_atual, operador_email, nao_acionar from casos where id=$1", [a.cs])).rows[0];
     expect(await bloqueio(db, a.al)).toBeNull();
 
     await revQ(db, caso);
     await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
 
-    // 1. o portao canonico -- lido por elegibilidade, massivas e automaticos
-    expect(await bloqueio(db, a.al)).toBe("JURIDICO");
-    // 2. o estado que a ficha e a fila leem
-    const al = (await db.query("select status_atual, status_jornada, status_acionamento from alunos where id=$1", [a.al])).rows[0];
-    expect(al).toEqual({ status_atual: "JURIDICO", status_jornada: "JURIDICO", status_acionamento: "JURIDICO" });
-    const cs = (await db.query("select status_atual from casos where id=$1", [a.cs])).rows[0];
-    expect(cs.status_atual).toBe("JURIDICO");
+    // 1. o portao canonico -- lido por elegibilidade, massivas e automaticos: cobranca bloqueada
+    expect(await bloqueio(db, a.al)).toBe("NAO_ACIONAR_EXPLICITO");
+    // 2. aluno, responsavel e caso NAO mudam de status: continuam na carteira
+    const al = (await db.query("select status_atual, status_jornada, status_acionamento, responsavel_atual_email from alunos where id=$1", [a.al])).rows[0];
+    expect(al).toEqual(alAntes);
+    const cs = (await db.query("select status_atual, operador_email, nao_acionar from casos where id=$1", [a.cs])).rows[0];
+    expect(cs).toEqual({ ...csAntes, nao_acionar: true });
     // 3. nenhum titulo cancelado, encerrado ou alterado
     expect(await foto()).toEqual(antes);
     // 4. fotografia do que foi aprovado: 2 mensalidades + 2 parcelas vivas
@@ -340,7 +342,7 @@ describe("aprovacao bloqueia a cobranca sem tocar em titulo", () => {
     expect(jt.map((x) => [x.tipo, x.n, Number(x.v)])).toEqual([["MENSALIDADE", 2, 1500], ["PARCELA_ACORDO", 2, 600]]);
     // 5. historico na ficha
     const mov = (await db.query("select tipo, status_anterior, status_novo from aluno_movimentacoes where aluno_id=$1 and tipo like 'JURIDICO%'", [a.al])).rows;
-    expect(mov).toEqual([{ tipo: "JURIDICO_APROVADO", status_anterior: "CONTATAR", status_novo: "JURIDICO" }]);
+    expect(mov).toEqual([{ tipo: "JURIDICO_APROVADO", status_anterior: null, status_novo: null }]);
     // 6. bloqueado nao volta a ser candidato
     const ids = (await db.query("select aluno_id from public.juridico_candidatos(50)")).rows.map((l) => l.aluno_id);
     expect(ids).not.toContain(a.al);
@@ -413,7 +415,7 @@ describe("Excel, envio ao financeiro e confirmacao ao juridico", () => {
     expect(h.map((x) => x.evento)).toEqual(["CASO_APROVADO", "ENCAMINHADO_AO_JURIDICO"]);
     expect(h[1].nota).toMatch(/Não indica ajuizamento/);
     // segue bloqueado depois de confirmado
-    expect(await bloqueio(db, a.al)).toBe("JURIDICO");
+    expect(await bloqueio(db, a.al)).toBe("NAO_ACIONAR_EXPLICITO");
     await db.close();
   });
 });
@@ -470,24 +472,50 @@ describe("auditoria: pendencia de pagamento, coluna divergente e valor atual", (
     await db.close();
   });
 
-  it("retabulacao que tira JURIDICO de uma coluna e recusada; remover libera tudo, inclusive coluna que ficou divergente", async () => {
+  it("liberar nao_acionar por fora e recusado; remover libera so o bloqueio deste fluxo", async () => {
     const db = await novo();
     const a = await mk(db, { valores: [1000], status: "PROMESSA_PAGAMENTO" });
     await rpc(db, "public.juridico_lote_gerar(1)");
     const caso = await casoDe(db, a.al);
     await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
-    // a retabulacao pela ficha grava so status_atual e status_jornada: recusada
-    const e = await falha(db.query("update alunos set status_atual='RETORNO_FINANCEIRO', status_jornada='RETORNO_FINANCEIRO' where id=$1", [a.al]));
+    const e = await falha(db.query("update casos set nao_acionar=false where id=$1", [a.cs]));
     expect(e?.code).toBe("42501");
-    // estado legado (coluna divergente, criado antes da guarda): simulado com a guarda desligada
-    await db.query("select set_config('juridico.desbloqueio','on',false)");
-    await db.query("update alunos set status_acionamento='RETORNO_FINANCEIRO' where id=$1", [a.al]);
-    await db.query("select set_config('juridico.desbloqueio','',false)");
     await rpc(db, "public.juridico_caso_remover($1,'desistencia')", [caso.id]);
     expect(await bloqueio(db, a.al)).toBeNull();
-    const al = (await db.query("select status_atual, status_jornada, status_acionamento from alunos where id=$1", [a.al])).rows[0];
-    // so colunas que ainda eram JURIDICO voltam; a que o operador ja mudou fica como esta
-    expect(al).toEqual({ status_atual: "PROMESSA_PAGAMENTO", status_jornada: "PROMESSA_PAGAMENTO", status_acionamento: "RETORNO_FINANCEIRO" });
+    const cs = (await db.query("select nao_acionar from casos where id=$1", [a.cs])).rows[0];
+    expect(cs.nao_acionar).toBe(false);
+    const al = (await db.query("select status_atual from alunos where id=$1", [a.al])).rows[0];
+    expect(al.status_atual).toBe("PROMESSA_PAGAMENTO");
+    await db.close();
+  });
+
+  it("bloqueio que cai depois da aprovacao (so por fora da guarda) recusa o envio ao financeiro", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    // simulacao de uma brecha: a guarda desligada so para este teste
+    await db.query("select set_config('juridico.desbloqueio','on',false)");
+    await db.query("update casos set nao_acionar=false where id=$1", [a.cs]);
+    await db.query("select set_config('juridico.desbloqueio','',false)");
+    const e = await falha(rpc(db, "public.juridico_lote_enviar_financeiro($1)", [caso.lote_id]));
+    expect(e?.code).toBe("P0001");
+    expect(e?.message).toMatch(/BLOQUEIO_PERDIDO/);
+    await db.close();
+  });
+
+  it("remover o caso libera so o bloqueio deste fluxo; suspensao criada depois continua valendo", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    await db.query("update alunos set status_atual='SUSPENSAO COBRANCA' where id=$1", [a.al]);
+    await rpc(db, "public.juridico_caso_remover($1,'desistencia')", [caso.id]);
+    const cs = (await db.query("select nao_acionar from casos where id=$1", [a.cs])).rows[0];
+    expect(cs.nao_acionar).toBe(false);
+    expect(await bloqueio(db, a.al)).toBe("SUSPENSAO_COBRANCA");
     await db.close();
   });
 });
@@ -588,17 +616,17 @@ describe("correcoes da reauditoria (12/11/2026)", () => {
     const caso = await casoDe(db, a.al);
     await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
     const tentativas = [
-      "update alunos set status_atual='CONTATAR' where id='" + a.al + "'",
-      "update alunos set status_jornada='RETORNO_FINANCEIRO' where id='" + a.al + "'",
-      "update alunos set status_acionamento='CONTATAR' where id='" + a.al + "'",
-      "update casos set status_atual='CONTATAR' where id='" + a.cs + "'",
+      "update casos set nao_acionar=false where id='" + a.cs + "'",
       "insert into casos(id,aluno_id,nome,cpf_limpo,cpf,operador_email,status_atual) values ('" + U(900, 1) + "','" + a.al + "','x','" + a.cpf + "','" + a.cpf + "','op1@x','CONTATAR')",
     ];
+    // mudar o status do aluno nao libera a cobranca: o bloqueio e o nao_acionar do caso
+    await db.query("update alunos set status_atual='RETORNO_FINANCEIRO' where id=$1", [a.al]);
+    expect(await bloqueio(db, a.al)).toBe("NAO_ACIONAR_EXPLICITO");
     for (const sql of tentativas) {
       const e = await falha(db.query(sql));
       expect(e?.code, sql).toBe("42501");
     }
-    expect(await bloqueio(db, a.al)).toBe("JURIDICO");
+    expect(await bloqueio(db, a.al)).toBe("NAO_ACIONAR_EXPLICITO");
     await db.close();
   });
 
@@ -881,7 +909,7 @@ describe("acordo quebrado: revisao financeira antes da aprovacao", () => {
     expect(r.quebrado_revisado_por).toBe(H.GESTAO);
     expect(r.quebrado_revisado_em).not.toBeNull();
     expect(r.quebrado_revisado_motivo).toMatch(/saldo confere/);
-    expect((await db.query("select responsavel_atual_email, status_atual from alunos where id=$1", [a.al])).rows[0]).toEqual({ ...resp, status_atual: "JURIDICO" });
+    expect((await db.query("select responsavel_atual_email, status_atual from alunos where id=$1", [a.al])).rows[0]).toEqual(resp);
     // nenhuma parcela aparece duas vezes no caso (sem duplicar)
     const dup = (await db.query("select count(*)::int n from juridico_casos_titulos where caso_id=$1 and parcela_id is not null group by parcela_id having count(*) > 1", [caso.id])).rows;
     expect(dup).toHaveLength(0);

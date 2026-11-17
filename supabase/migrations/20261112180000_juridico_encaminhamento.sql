@@ -7,14 +7,15 @@
 -- do financeiro; depois registrar que o caso foi encaminhado ao juridico.
 --
 -- O QUE E REAPROVEITADO, e por que nao ha mecanismo de bloqueio novo:
---   * BLOQUEIO: a aprovacao grava o status 'JURIDICO' no aluno, exatamente como
---     a tabulacao JURIDICO (so-gestao) ja faz -- 65 dos 69 alunos em juridico em
---     producao carregam o codigo nas tres colunas. Quem ja le esse estado
---     continua lendo: `aluno_bloqueio_administrativo` (portao canonico, base de
---     `aluno_elegibilidade_cobranca` e das acoes massivas),
---     `alunos_propaga_encerramento_para_caso` -> `casos.encerrado_operacional`
---     (fila, giro, nivelamento, redistribuicao), `aluno_bloqueado_para_d2`
---     (alertas automaticos) e a ficha (`STATUS_BLOQUEADOS_ACIONAMENTO`).
+--   * BLOQUEIO (decisao da gestao): a aprovacao NAO grava status JURIDICO. Ela liga
+--     `casos.nao_acionar` nos casos do aluno: a cobranca fica bloqueada (portao
+--     `aluno_bloqueio_administrativo` devolve NAO_ACIONAR_EXPLICITO) e o aluno
+--     PERMANECE na carteira, com responsavel e historico. Gravar JURIDICO em
+--     `alunos.status_*` acionaria `alunos_propaga_encerramento_para_caso` ->
+--     `casos.encerrado_operacional` (sai da carteira) e foi evitado de proposito.
+--     A guarda `_juridico_guarda_nao_acionar` impede liberar esse bloqueio fora da
+--     remocao do caso; `_juridico_divergencias` recusa envio se o bloqueio cair.
+--     Os 69 alunos com status JURIDICO historico (tabulacao) NAO sao alterados.
 --   * NENHUM TITULO E ESCRITO. `acordos_titulos`, `parcelas` e `acordos` nao
 --     recebem UPDATE: nada e cancelado, encerrado ou devolvido. O que a
 --     aprovacao guarda e uma FOTOGRAFIA dos titulos aprovados
@@ -586,6 +587,12 @@ language plpgsql stable security definer set search_path to 'public'
 as $function$
 declare v text[] := '{}'::text[];
 begin
+  -- O bloqueio de cobranca tem que continuar valendo enquanto o caso estiver encaminhado.
+  if p_caso.status in ('APROVADO','ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO')
+     and public.aluno_bloqueio_administrativo(p_caso.aluno_id) is null then
+    v := array_append(v, 'BLOQUEIO_PERDIDO');
+  end if;
+
   if exists (
     select 1
       from public.juridico_casos_titulos jt
@@ -869,40 +876,26 @@ create function public._juridico_desbloquear(p_caso public.juridico_casos)
 returns void
 language plpgsql security definer set search_path to 'public'
 as $function$
-declare v_ant jsonb := p_caso.bloqueio_anterior->'aluno';
 begin
-  if v_ant is null then return; end if;
+  if p_caso.bloqueio_anterior is null or jsonb_typeof(p_caso.bloqueio_anterior) <> 'array' then return; end if;
 
-  -- Mesma guarda que a reativacao da suspensao usa: restaurar o codigo antigo
-  -- em `status_jornada` nao pode reaplicar efeito financeiro de tabulacao.
-  perform set_config('parcela_efeito_sem_pagamento.aplicando', 'on', true);
-  -- Unica porta que libera o bloqueio: a guarda de bloqueio so deixa passar com esta GUC.
+  -- Unica porta que libera nao_acionar: a guarda de casos so deixa passar com esta GUC.
   perform set_config('juridico.desbloqueio', 'on', true);
 
-  -- Cada coluna volta sozinha, se ainda for JURIDICO: a retabulacao pela ficha
-  -- grava so status_atual/status_jornada e deixava status_acionamento preso.
-  update public.alunos al
-     set status_atual       = case when upper(coalesce(al.status_atual,'')) = 'JURIDICO'
-                                   then coalesce(nullif(v_ant->>'status_atual',''), 'CONTATAR') else al.status_atual end,
-         status_jornada     = case when upper(coalesce(al.status_jornada,'')) = 'JURIDICO'
-                                   then coalesce(nullif(v_ant->>'status_jornada',''), 'CONTATAR') else al.status_jornada end,
-         status_acionamento = case when upper(coalesce(al.status_acionamento,'')) = 'JURIDICO'
-                                   then coalesce(nullif(v_ant->>'status_acionamento',''), 'CONTATAR') else al.status_acionamento end
-   where al.id = p_caso.aluno_id
-     and (upper(coalesce(al.status_atual,'')) = 'JURIDICO'
-       or upper(coalesce(al.status_jornada,'')) = 'JURIDICO'
-       or upper(coalesce(al.status_acionamento,'')) = 'JURIDICO');
-
+  -- Restaura SO os casos que estavam livres antes da aprovacao. Quem ja estava bloqueado
+  -- por outro motivo (nao_acionar anterior = true) continua bloqueado.
   update public.casos c
-     set status_atual = x.status_atual
-    from jsonb_to_recordset(coalesce(p_caso.bloqueio_anterior->'casos', '[]'::jsonb))
-           as x(id uuid, status_atual text)
-   where c.id = x.id and c.aluno_id = p_caso.aluno_id and upper(coalesce(c.status_atual,'')) = 'JURIDICO';
+     set nao_acionar = false
+    from jsonb_to_recordset(p_caso.bloqueio_anterior) as x(id uuid, nao_acionar boolean)
+   where c.id = x.id and c.aluno_id = p_caso.aluno_id
+     and coalesce(x.nao_acionar, false) = false and c.nao_acionar = true;
 
-  perform set_config('parcela_efeito_sem_pagamento.aplicando', '', true);
   perform set_config('juridico.desbloqueio', '', true);
 
-  if public.aluno_bloqueio_administrativo(p_caso.aluno_id) = 'JURIDICO' then
+  -- Validacao: nenhum caso que estava livre continua barrado por este fluxo.
+  if exists (select 1 from public.casos c
+               join jsonb_to_recordset(p_caso.bloqueio_anterior) as x(id uuid, nao_acionar boolean) on x.id = c.id
+              where coalesce(x.nao_acionar, false) = false and c.nao_acionar = true) then
     raise exception 'Não foi possível levantar o bloqueio jurídico do aluno %. Nada foi alterado.', p_caso.aluno_id
       using errcode = 'P0001';
   end if;
@@ -932,7 +925,7 @@ begin
       (aluno_id, tipo, descricao, status_anterior, status_novo, registrado_por_nome, registrado_por_email)
     values (v_caso.aluno_id::text, 'JURIDICO_BLOQUEIO_LEVANTADO',
             'Caso retirado da análise jurídica antes do envio ao financeiro. Motivo: ' || btrim(p_motivo),
-            'JURIDICO', v_caso.bloqueio_anterior->'aluno'->>'status_atual', v_email, v_email);
+            null, null, v_email, v_email);
   end if;
 
   update public.juridico_casos
@@ -1233,23 +1226,21 @@ begin
     raise exception 'Nenhum título elegível para aprovar.' using errcode = 'P0001';
   end if;
 
-  select jsonb_build_object(
-           'aluno', jsonb_build_object('status_atual', al.status_atual,
-                                       'status_jornada', al.status_jornada,
-                                       'status_acionamento', al.status_acionamento),
-           'casos', coalesce((select jsonb_agg(jsonb_build_object('id', c.id, 'status_atual', c.status_atual))
-                                from public.casos c
-                               where c.aluno_id = al.id
-                                 and upper(coalesce(c.status_atual,'')) <> 'JURIDICO'), '[]'::jsonb))
+  -- Estado ANTERIOR de cada caso do aluno (nao_acionar), para desfazer SO o que este fluxo gravar.
+  select coalesce(jsonb_agg(jsonb_build_object('id', c.id, 'nao_acionar', coalesce(c.nao_acionar, false))
+                            order by c.id), '[]'::jsonb)
     into v_ant
-    from public.alunos al where al.id = v_caso.aluno_id;
+    from public.casos c where c.aluno_id = v_caso.aluno_id;
+  if jsonb_array_length(v_ant) = 0 then
+    raise exception 'Aluno sem caso de cobrança: não há como bloquear a cobrança. Nada foi alterado.' using errcode = 'P0001';
+  end if;
 
-  -- BLOQUEIO: o mesmo estado que a tabulacao JURIDICO grava.
-  update public.alunos
-     set status_atual = 'JURIDICO', status_jornada = 'JURIDICO', status_acionamento = 'JURIDICO'
-   where id = v_caso.aluno_id;
+  -- BLOQUEIO SEM ENCERRAMENTO: nao_acionar barra a cobrança (manual, massiva, automática) e
+  -- NAO mexe em responsavel, carteira, status do aluno nem do caso. Nao se grava JURIDICO em status.
+  update public.casos set nao_acionar = true where aluno_id = v_caso.aluno_id;
 
-  if public.aluno_bloqueio_administrativo(v_caso.aluno_id) is distinct from 'JURIDICO' then
+  -- VALIDACAO CENTRAL: o portao canonico tem que acusar bloqueio depois da gravacao.
+  if public.aluno_bloqueio_administrativo(v_caso.aluno_id) is null then
     raise exception 'O bloqueio de cobrança não foi efetivado para o aluno %. Aprovação desfeita.', v_caso.aluno_id
       using errcode = 'P0001';
   end if;
@@ -1257,8 +1248,8 @@ begin
   insert into public.aluno_movimentacoes
     (aluno_id, tipo, descricao, status_anterior, status_novo, registrado_por_nome, registrado_por_email)
   values (v_caso.aluno_id::text, 'JURIDICO_APROVADO',
-          'Aprovado para análise de ajuizamento. Cobrança bloqueada (manual, massiva e automática). Títulos não foram cancelados.',
-          v_ant->'aluno'->>'status_atual', 'JURIDICO', v_email, v_email);
+          'Aprovado para análise de ajuizamento. Cobrança bloqueada (manual, massiva e automática). Aluno permanece na carteira e com o responsável; títulos não foram cancelados.',
+          null, null, v_email, v_email);
 
   update public.juridico_casos
      set status = 'APROVADO', aprovado_por = v_email, aprovado_em = now(),
@@ -1680,6 +1671,28 @@ begin
 end;
 $function$;
 
+-- GUARDA DO BLOQUEIO DE COBRANCA (nao_acionar). Enquanto houver caso APROVADO/ENVIADO/CONFIRMADO,
+-- ninguem libera nao_acionar por outra tela ou rotina. So a GUC juridico.desbloqueio (remocao do caso).
+create function public._juridico_guarda_nao_acionar()
+returns trigger
+language plpgsql security definer set search_path to 'public'
+as $function$
+begin
+  if coalesce(old.nao_acionar, false) is true and coalesce(new.nao_acionar, false) is false
+     and coalesce(current_setting('juridico.desbloqueio', true), '') <> 'on'
+     and exists (select 1 from public.juridico_casos jc
+                  where jc.aluno_id = old.aluno_id
+                    and jc.status in ('APROVADO','ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO')) then
+    raise exception 'Cobrança jurídica ativa: o bloqueio de cobrança só é liberado pela remoção do caso na aba Jurídico.'
+      using errcode = '42501';
+  end if;
+  return new;
+end;
+$function$;
+
+create trigger trg_juridico_guarda_nao_acionar before update of nao_acionar on public.casos
+  for each row execute function public._juridico_guarda_nao_acionar();
+
 -- Caso de cobranca novo para aluno que ja tem encaminhamento ativo: recusa.
 create function public._juridico_guarda_caso_novo()
 returns trigger
@@ -1782,6 +1795,7 @@ begin
   'public._juridico_desbloquear(public.juridico_casos)',
   'public._juridico_guarda_bloqueio()',
   'public._juridico_guarda_caso_novo()',
+  'public._juridico_guarda_nao_acionar()',
   'public._juridico_so_anexa()',
   'public._juridico_registra_acordo_status()'
   ] loop
@@ -1800,8 +1814,8 @@ begin
   select count(*) into v_n from pg_proc p
    where p.pronamespace = 'public'::regnamespace
      and (p.proname like 'juridico\_%' or p.proname like '\_juridico\_%');
-  if v_n <> 32 then
-    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 32 esperadas).', v_n;
+  if v_n <> 33 then
+    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 33 esperadas).', v_n;
   end if;
 
   select count(*) into v_n

@@ -53,8 +53,8 @@ export default function Juridico() {
   const [marcados, setMarcados] = useState([]);
   // seleção
   const [qtd, setQtd] = useState(40);
-  const [ano, setAno] = useState("");
-  const [semestre, setSemestre] = useState("");
+  const [ano, setAno] = useState("2025");
+  const [semestre, setSemestre] = useState("1");
   const [grupos, setGrupos] = useState(GRUPOS.map((g) => g.chave));
   const [observacao, setObservacao] = useState("");
   const [previa, setPrevia] = useState(null);
@@ -233,7 +233,7 @@ export default function Juridico() {
   const remover = (c) => pedir({
     titulo: `Remover — ${c.aluno}`,
     texto: c.status === "APROVADO"
-      ? "O caso sai do lote, o bloqueio de cobrança é levantado e o aluno volta ao status anterior."
+      ? "O caso sai do lote e o bloqueio de cobrança é levantado. Carteira e responsável não mudam."
       : "O caso sai do lote sem substituto.",
     campos: [{ chave: "motivo", rotulo: "Motivo", obrigatorio: true }],
     aoConfirmar: (v) => executar("juridico_caso_remover", { p_caso_id: c.caso_id, p_motivo: v.motivo }, "Caso removido."),

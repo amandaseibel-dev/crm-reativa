@@ -35,6 +35,27 @@ policy e sem grant: só se lê e escreve pelas RPCs.
 - **Fora da seleção**: aluno já em lote vivo, com bloqueio administrativo, com título
   `EM_CONFIRMACAO` ou solicitação de confirmação de pagamento pendente.
 
+## Atualização (17/11/2026): bloqueio por `nao_acionar`, carteira preservada
+
+Decisão da gestão: aprovar bloqueia a cobrança, mas NÃO encerra o caso nem retira o aluno
+da carteira. A seção abaixo, que grava `JURIDICO` em `alunos.status_*`, está **superada**.
+
+- A aprovação liga `casos.nao_acionar` nos casos do aluno (estado anterior em
+  `juridico_casos.bloqueio_anterior`). O portão `aluno_bloqueio_administrativo` devolve
+  `NAO_ACIONAR_EXPLICITO`; cobrança, campanhas e massivas leem esse portão.
+- Responsável, carteira, histórico, títulos e acordos ficam como estão. Nenhum status de
+  aluno ou caso é gravado como `JURIDICO` pela aba.
+- `_juridico_guarda_nao_acionar` (gatilho em `casos`) impede liberar o bloqueio fora da
+  remoção do caso. A remoção restaura só o que este fluxo mudou; um bloqueio que já existia
+  ou que veio depois (ex.: suspensão) continua valendo.
+- `_juridico_divergencias` recusa o envio com `BLOQUEIO_PERDIDO` se o bloqueio cair.
+- Os alunos com status `JURIDICO` gravado pela tabulação (histórico) não foram alterados.
+- Não verificado no repositório: as rotinas de cadência WhatsApp e de tarefas leem
+  `nao_acionar`. Nas funções versionadas, só giro, redistribuição e acionamento leem; as de
+  cadência estão só em produção e não foram lidas.
+- Pendente: indicação visual do bloqueio jurídico na carteira (PainelCarteira não lê o
+  bloqueio do caso).
+
 ## Bloqueio — por que não há mecanismo novo
 
 A aprovação grava `JURIDICO` em `alunos.status_atual`, `status_jornada` e

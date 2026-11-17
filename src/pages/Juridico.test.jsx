@@ -197,12 +197,14 @@ describe("seleção e acesso", () => {
     fireEvent.change(qtd, { target: { value: "0" } });
     expect(screen.getByRole("button", { name: "Gerar lista preliminar" }).disabled).toBe(true);
     fireEvent.change(qtd, { target: { value: "25" } });
-    fireEvent.change(screen.getByLabelText("Ano da dívida (prioriza formados)"), { target: { value: "2025" } });
+    // filtro inicial: 2025/1 e lote padrao de 40 (a quantidade foi trocada acima para 25)
+    expect(screen.getByLabelText("Ano da dívida (prioriza formados)").value).toBe("2025");
+    expect(screen.getByLabelText("Semestre").value).toBe("1");
     fireEvent.click(screen.getByLabelText("Evadidos"));
     fireEvent.click(screen.getByRole("button", { name: "Gerar lista preliminar" }));
     await waitFor(() => expect(chamadas("juridico_lote_gerar")).toHaveLength(1));
     expect(chamadas("juridico_lote_gerar")[0][1]).toEqual({
-      p_qtd: 25, p_ano: 2025, p_semestre: null, p_grupos: ["FORMADO", "TRANCADO"], p_observacao: null,
+      p_qtd: 25, p_ano: 2025, p_semestre: 1, p_grupos: ["FORMADO", "TRANCADO"], p_observacao: null,
     });
   });
 
