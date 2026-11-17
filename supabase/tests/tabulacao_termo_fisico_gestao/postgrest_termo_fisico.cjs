@@ -50,7 +50,7 @@ const LINHA = (aluno, tipo, status, email) => ({ aluno_id: aluno, tipo, status_n
   const SEGREDO = crypto.randomBytes(48).toString("hex");
   const srv = spawn(BIN, [], { env: { ...process.env, PGRST_DB_URI: `postgres://authenticator:auth_teste_pw@${cfg.host}:${cfg.port}/${BANCO}`, PGRST_DB_SCHEMAS: "public", PGRST_DB_ANON_ROLE: "anon", PGRST_JWT_SECRET: SEGREDO, PGRST_SERVER_PORT: String(PORTA) }, stdio: ["ignore", "pipe", "pipe"] });
   let logs = ""; srv.stderr.on("data", (d) => (logs += d)); srv.stdout.on("data", (d) => (logs += d));
-  const OP = "operador.teste@exemplo.local", AMANDA = "amanda.seibel@aelbra.com.br";
+  const OP = "operador.teste@exemplo.local", AMANDA = "gestao.titular@exemplo.local";
   const opTok = jwt(SEGREDO, { role: "authenticated", email: OP });
   const gestTok = jwt(SEGREDO, { role: "authenticated", email: AMANDA });
   const contar = async () => Number((await c.query("select count(*)::int n from public.aluno_movimentacoes")).rows[0].n);

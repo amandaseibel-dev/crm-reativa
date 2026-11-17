@@ -41,8 +41,8 @@ grant select, update on public.alunos to authenticated;
 
 create table public.usuarios (email text primary key, ativo boolean not null default true);
 insert into public.usuarios (email) values
-  ('amanda.seibel@aelbra.com.br'), ('cobranca04@aelbra.com.br'),
-  ('cobranca07@aelbra.com.br'), ('operador.teste@exemplo.local');
+  ('gestao.titular@exemplo.local'), ('gestao.b@exemplo.local'),
+  ('gestao.c@exemplo.local'), ('operador.teste@exemplo.local');
 grant select on public.usuarios to authenticated;
 
 create or replace function public.app_usuario_ativo() returns boolean
@@ -55,7 +55,7 @@ $$;
 create or replace function public.usuario_e_gestao() returns boolean
 language sql stable security definer set search_path to 'public' as $$
   select lower(coalesce(auth.jwt()->>'email','')) in (
-    'amanda.seibel@aelbra.com.br', 'cobranca04@aelbra.com.br', 'cobranca07@aelbra.com.br')
+    'gestao.titular@exemplo.local', 'gestao.b@exemplo.local', 'gestao.c@exemplo.local')
 $$;
 
 -- Lista de eh_tipo_acionamento lida em produção (só SELECT).

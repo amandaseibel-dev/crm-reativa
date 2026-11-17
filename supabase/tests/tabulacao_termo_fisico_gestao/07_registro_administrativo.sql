@@ -4,17 +4,17 @@
 
 -- ---------- Legítimos: gestão, dois códigos ----------
 select public.teste_assert('legítimo: gestão (Amanda) grava REGISTRO + EM_ANDAMENTO',
-  public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
+  public.teste_comando('authenticated','gestao.titular@exemplo.local',
     $sql$insert into public.aluno_movimentacoes (aluno_id,tipo,status_novo,descricao,registrado_por_email)
-         values ('r1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_EM_ANDAMENTO','Registro administrativo do termo físico.','amanda.seibel@aelbra.com.br')$sql$)->>'ok' = 'true');
+         values ('r1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_EM_ANDAMENTO','Registro administrativo do termo físico.','gestao.titular@exemplo.local')$sql$)->>'ok' = 'true');
 select public.teste_assert('legítimo: gestão (ADM) grava REGISTRO + ARQUIVADO',
-  public.teste_comando('authenticated','cobranca07@aelbra.com.br',
+  public.teste_comando('authenticated','gestao.c@exemplo.local',
     $sql$insert into public.aluno_movimentacoes (aluno_id,tipo,status_novo,descricao,registrado_por_email)
-         values ('r1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO','Registro administrativo do termo físico.','cobranca07@aelbra.com.br')$sql$)->>'ok' = 'true');
+         values ('r1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO','Registro administrativo do termo físico.','gestao.c@exemplo.local')$sql$)->>'ok' = 'true');
 select public.teste_assert('legítimo: gestão (Fernanda) grava REGISTRO + ARQUIVADO',
-  public.teste_comando('authenticated','cobranca04@aelbra.com.br',
+  public.teste_comando('authenticated','gestao.b@exemplo.local',
     $sql$insert into public.aluno_movimentacoes (aluno_id,tipo,status_novo,descricao,registrado_por_email)
-         values ('r1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO','Registro administrativo do termo físico.','cobranca04@aelbra.com.br')$sql$)->>'ok' = 'true');
+         values ('r1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO','Registro administrativo do termo físico.','gestao.b@exemplo.local')$sql$)->>'ok' = 'true');
 
 -- ---------- Negados: operador e quem não é gestão ----------
 select public.teste_assert('negado: operador não grava REGISTRO com código restrito (42501)',
@@ -32,27 +32,27 @@ select public.teste_assert('negado: diretoria não grava REGISTRO (42501)',
 
 -- ---------- Negados: gestão, mas código não permitido para o registro ----------
 select public.teste_assert('negado: gestão não grava REGISTRO com código comum (42501)',
-  public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
+  public.teste_comando('authenticated','gestao.titular@exemplo.local',
     $sql$insert into public.aluno_movimentacoes (aluno_id,tipo,status_novo,registrado_por_email)
-         values ('r1','REGISTRO_ADMINISTRATIVO','CONTATAR','amanda.seibel@aelbra.com.br')$sql$)->>'code' = '42501');
+         values ('r1','REGISTRO_ADMINISTRATIVO','CONTATAR','gestao.titular@exemplo.local')$sql$)->>'code' = '42501');
 select public.teste_assert('negado: gestão não grava REGISTRO sem código (42501)',
-  public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
+  public.teste_comando('authenticated','gestao.titular@exemplo.local',
     $sql$insert into public.aluno_movimentacoes (aluno_id,tipo,status_novo,registrado_por_email)
-         values ('r1','REGISTRO_ADMINISTRATIVO',null,'amanda.seibel@aelbra.com.br')$sql$)->>'code' = '42501');
+         values ('r1','REGISTRO_ADMINISTRATIVO',null,'gestao.titular@exemplo.local')$sql$)->>'code' = '42501');
 
 -- ---------- Negados: campos operacionais no registro (sem efeito operacional) ----------
 select public.teste_assert('negado: REGISTRO com data de retorno é recusado (42501)',
-  public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
+  public.teste_comando('authenticated','gestao.titular@exemplo.local',
     $sql$insert into public.aluno_movimentacoes (aluno_id,tipo,status_novo,data_retorno,registrado_por_email)
-         values ('r1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO',now()+interval '2 days','amanda.seibel@aelbra.com.br')$sql$)->>'code' = '42501');
+         values ('r1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO',now()+interval '2 days','gestao.titular@exemplo.local')$sql$)->>'code' = '42501');
 select public.teste_assert('negado: REGISTRO com status anterior é recusado (42501)',
-  public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
+  public.teste_comando('authenticated','gestao.titular@exemplo.local',
     $sql$insert into public.aluno_movimentacoes (aluno_id,tipo,status_anterior,status_novo,registrado_por_email)
-         values ('r1','REGISTRO_ADMINISTRATIVO','CONTATAR','TERMO_FISICO_ARQUIVADO','amanda.seibel@aelbra.com.br')$sql$)->>'code' = '42501');
+         values ('r1','REGISTRO_ADMINISTRATIVO','CONTATAR','TERMO_FISICO_ARQUIVADO','gestao.titular@exemplo.local')$sql$)->>'code' = '42501');
 select public.teste_assert('negado: REGISTRO com valor é recusado (42501)',
-  public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
+  public.teste_comando('authenticated','gestao.titular@exemplo.local',
     $sql$insert into public.aluno_movimentacoes (aluno_id,tipo,status_novo,valor_movimentacao,registrado_por_email)
-         values ('r1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO',100,'amanda.seibel@aelbra.com.br')$sql$)->>'code' = '42501');
+         values ('r1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO',100,'gestao.titular@exemplo.local')$sql$)->>'code' = '42501');
 
 -- ---------- Burla por tipo, código, espaço e Unicode ----------
 select public.teste_assert('burla: FINALIZACAO com código restrito é recusada para operador (42501)',
@@ -64,9 +64,9 @@ select public.teste_assert('burla: código restrito com espaço/tab/Unicode no R
     E'insert into public.aluno_movimentacoes (aluno_id,tipo,status_novo,registrado_por_email) values (\'r1\',\'REGISTRO_ADMINISTRATIVO\',\'\\u200B TERMO_FISICO_ARQUIVADO\\t\',\'operador.teste@exemplo.local\')')->>'code' = '42501');
 select public.teste_assert('burla: UPDATE do operador mudando tipo ou código não altera nenhuma linha da gestão',
   (public.teste_comando('authenticated','operador.teste@exemplo.local',
-    $sql$update public.aluno_movimentacoes set tipo = 'FINALIZACAO_ATENDIMENTO', status_novo = 'TERMO_FISICO_ARQUIVADO' where aluno_id = 'r1' and registrado_por_email = 'amanda.seibel@aelbra.com.br'$sql$)->>'ok') in ('true','false')
-  and (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'r1' and tipo = 'REGISTRO_ADMINISTRATIVO'$q$))->'rows')) >= 1
-  and (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'r1' and tipo = 'FINALIZACAO_ATENDIMENTO'$q$))->'rows')) = 0);
+    $sql$update public.aluno_movimentacoes set tipo = 'FINALIZACAO_ATENDIMENTO', status_novo = 'TERMO_FISICO_ARQUIVADO' where aluno_id = 'r1' and registrado_por_email = 'gestao.titular@exemplo.local'$sql$)->>'ok') in ('true','false')
+  and (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','gestao.titular@exemplo.local',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'r1' and tipo = 'REGISTRO_ADMINISTRATIVO'$q$))->'rows')) >= 1
+  and (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','gestao.titular@exemplo.local',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'r1' and tipo = 'FINALIZACAO_ATENDIMENTO'$q$))->'rows')) = 0);
 -- UPDATE do operador que tenta criar REGISTRO a partir de FINALIZACAO: nenhuma linha muda (sem policy de UPDATE).
 select public.teste_assert('operador: grava FINALIZACAO normal para r9',
   public.teste_comando('authenticated','operador.teste@exemplo.local',
@@ -75,8 +75,8 @@ select public.teste_assert('operador: grava FINALIZACAO normal para r9',
 select public.teste_comando('authenticated','operador.teste@exemplo.local',
   $sql$update public.aluno_movimentacoes set tipo = 'REGISTRO_ADMINISTRATIVO', status_novo = 'TERMO_FISICO_ARQUIVADO' where aluno_id = 'r9'$sql$);
 select public.teste_assert('burla: UPDATE do operador não criou REGISTRO a partir de FINALIZACAO',
-  (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'r9' and tipo = 'REGISTRO_ADMINISTRATIVO'$q$))->'rows')) = 0
-  and (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'r9' and tipo = 'FINALIZACAO_ATENDIMENTO'$q$))->'rows')) = 1);
+  (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','gestao.titular@exemplo.local',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'r9' and tipo = 'REGISTRO_ADMINISTRATIVO'$q$))->'rows')) = 0
+  and (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','gestao.titular@exemplo.local',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'r9' and tipo = 'FINALIZACAO_ATENDIMENTO'$q$))->'rows')) = 1);
 
 -- ---------- Ausência de efeitos operacionais no aluno ----------
 select public.teste_assert('efeito: gravar REGISTRO não altera o estado do aluno (status_atual, jornada, acionamento)',
@@ -86,10 +86,10 @@ select public.teste_assert('efeito: tipo REGISTRO_ADMINISTRATIVO não é acionam
 
 -- ---------- Operação de registro (Premissa 12): o front só chama esta função ----------
 select public.teste_assert('operação: gestão registra via função e o histórico recebe autor e código',
-  (public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',
+  (public.teste_consulta('authenticated','gestao.titular@exemplo.local',
     $sql$select public.registrar_administrativo_termo_fisico('a0000000-0000-0000-0000-000000000042','TERMO_FISICO_ARQUIVADO') as r$sql$)->'rows'->0->'r'->>'ok') = 'true');
 select public.teste_assert('operação: o registro gravado tem tipo REGISTRO e autor do servidor',
-  (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where tipo = 'REGISTRO_ADMINISTRATIVO' and registrado_por_email = 'amanda.seibel@aelbra.com.br' and aluno_id = 'a0000000-0000-0000-0000-000000000042' and status_novo = 'TERMO_FISICO_ARQUIVADO'$q$))->'rows')) >= 1);
+  (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','gestao.titular@exemplo.local',$q$select 1 from public.aluno_movimentacoes where tipo = 'REGISTRO_ADMINISTRATIVO' and registrado_por_email = 'gestao.titular@exemplo.local' and aluno_id = 'a0000000-0000-0000-0000-000000000042' and status_novo = 'TERMO_FISICO_ARQUIVADO'$q$))->'rows')) >= 1);
 select public.teste_assert('operação negada: operador (42501)',
   public.teste_comando('authenticated','operador.teste@exemplo.local',
     $sql$select public.registrar_administrativo_termo_fisico('a0000000-0000-0000-0000-000000000042','TERMO_FISICO_ARQUIVADO')$sql$)->>'code' = '42501');
@@ -97,10 +97,10 @@ select public.teste_assert('operação negada: sem perfil (42501)',
   public.teste_comando('authenticated','semperfil@exemplo.local',
     $sql$select public.registrar_administrativo_termo_fisico('a0000000-0000-0000-0000-000000000042','TERMO_FISICO_ARQUIVADO')$sql$)->>'code' = '42501');
 select public.teste_assert('operação negada: código comum (42501)',
-  public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
+  public.teste_comando('authenticated','gestao.titular@exemplo.local',
     $sql$select public.registrar_administrativo_termo_fisico('a0000000-0000-0000-0000-000000000042','CONTATAR')$sql$)->>'code' = '42501');
 select public.teste_assert('operação negada: aluno inexistente (22023)',
-  public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
+  public.teste_comando('authenticated','gestao.titular@exemplo.local',
     $sql$select public.registrar_administrativo_termo_fisico('a0000000-0000-0000-0000-0000000000ff','TERMO_FISICO_ARQUIVADO')$sql$)->>'code' = '22023');
 select public.teste_assert('operação: a função não altera o estado do aluno',
   (select status_atual||'|'||status_jornada||'|'||status_acionamento from public.alunos where id = 'a0000000-0000-0000-0000-000000000042') = 'CONTATAR|CONTATAR|CONTATAR');

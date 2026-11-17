@@ -103,3 +103,29 @@ Hashes calculados com `shasum -a 256` no head final. Qualquer alteração poster
 - **Validação:** CI e Guardião do head do recorte são registrados na PR de recorte, não nesta seção. Nenhum parecer anterior é considerado validação deste head.
 - **Ressalvas de publicação (não de merge):** Gate A, Auth, `usuario_e_gestao()` sem migration versionada (catálogo em `docs/seguranca/evidencias/catalogo_usuario_e_gestao_20261116.md`), papel `reativa_responsavel_executor`, `tabulacoes` sem DDL versionado; higiene dos `.sql` de evidência com `CREATE OR REPLACE` (carregados por `\\i` no CI, não renomeados).
 - **Nenhuma aprovação registrada.**
+
+## O que o merge desta PR faz (e não faz)
+
+- **Não aplica SQL.** O CI (`.github/workflows/ci.yml`) roda somente com `PGHOST: localhost`, sem `supabase link`, sem `supabase db push`, sem token de Supabase e sem segredo de acesso ao projeto. Lido em 61f9737d.
+- **Não aplica a migration.** O arquivo `20261114120000_*.sql.pendente` fica em `supabase/aguardando_aprovacao/`. O Supabase CLI aplica apenas `supabase/migrations/`, que esta PR não altera.
+- **Não ativa funcionalidade.** Nenhum arquivo de `src/`, `.jsx` ou `supabase/migrations/` é alterado. Nenhuma tela chama `registrar_administrativo_termo_fisico`.
+- **Deploy de frontend.** `vercel.json` implanta `main`, mas esta PR não altera frontend, então não há mudança de comportamento. `netlify.toml` publica só `tv-v11`, sem relação.
+- **Limite não verificável no repositório:** se houver integração Supabase-GitHub configurada no painel do projeto que aplique migrations no merge, ela não aparece no repositório. A ação necessária é confirmar no painel do projeto de produção, antes do merge, que nenhuma integração aplica `aguardando_aprovacao/` ou faz deploy automático de banco. Não confirmei isso.
+
+## Limites dos testes (CI)
+
+- `usuario_e_gestao()`, `app_usuario_ativo()` e `tabulacoes` são **simulados** no CI (stubs em `01_ambiente.sql`). Os testes provam a lógica desta entrega com esses stubs. **Não provam** a lista de identificadores, o corpo, os grants, o dono nem a ACL reais de produção.
+- Os identificadores de teste foram substituídos por valores de `@exemplo.local` nos testes, para não repetir identificadores institucionais. O stub não reproduz a lista real de produção.
+- Papéis `app_teste`, `app_teste_inh` e `dono_teste` existem só no banco descartável do CI.
+- PGlite roda como `postgres`, que o gatilho ignora; não serve de prova de autorização.
+
+## Bloqueios de implantação (abertos; não são de merge)
+
+1. **Gate A:** 7 achados `BLOQUEIA` abertos (ver seção de bloqueios herdados). Ação: a gestão declara resolução ou exceção formal antes da publicação.
+2. **Auth:** confirmação de e-mail e troca de e-mail não verificadas. A força da gestão depende de `auth.jwt()->>email`. Ação: verificar a configuração de Auth no painel do projeto; não alterar sem autorização.
+3. **`usuario_e_gestao()`:** sem migration versionada. Ação: decisão da gestão sobre a lista e o versionamento (ver `docs/seguranca/evidencias/catalogo_usuario_e_gestao_20261116.md`).
+4. **`tabulacoes`:** sem DDL versionado. Ação: confirmar as colunas e restrições reais de produção (leitura) antes da implantação.
+5. **`app_usuario_ativo()`:** corpo e ACL não conferidos. Ação: leitura de catálogo de produção.
+6. **Papel `reativa_responsavel_executor`:** INSERT irrestrito. Ação: verificar se algum cliente assume o papel.
+7. **Evidências SQL com `CREATE OR REPLACE`** (`docs/seguranca/evidencias/prod_encerramento_so_gestao.sql` e `prod_usuario_e_gestao.sql`): não executar em produção. O CI carrega o primeiro com `\\i`.
+8. **Identificadores institucionais** em `prod_usuario_e_gestao.sql`: mantidos por ser evidência exata. Ação: decisão da gestão (ver catálogo).

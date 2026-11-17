@@ -10,7 +10,7 @@ exception when others then
   get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
   return v_state || '|' || v_msg;
 end $$;
-select set_config('request.jwt.claims', '{"email":"amanda.seibel@aelbra.com.br","role":"authenticated"}', false);
+select set_config('request.jwt.claims', '{"email":"gestao.titular@exemplo.local","role":"authenticated"}', false);
 do $$
 declare r text; v_antes text; v_depois text;
 begin

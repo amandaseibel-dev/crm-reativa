@@ -50,9 +50,9 @@ select public.teste_assert('operador: recusado com TAB, quebra de linha e retorn
 -- UPDATE do operador em status_novo de movimentação da gestão: a trigger (UPDATE OF status_novo) recusa.
 -- Fixture legítimo: a movimentação de REGISTRO é da GESTÃO ATIVA (Amanda), não do operador.
 select public.teste_assert('fixture: gestão ativa grava REGISTRO de termo para o aluno a2',
-  public.teste_comando('authenticated', 'amanda.seibel@aelbra.com.br',
+  public.teste_comando('authenticated', 'gestao.titular@exemplo.local',
     $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, descricao, registrado_por_email)
-         values ('a2','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_EM_ANDAMENTO','Registro administrativo do termo físico.','amanda.seibel@aelbra.com.br')$sql$)->>'ok' = 'true');
+         values ('a2','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_EM_ANDAMENTO','Registro administrativo do termo físico.','gestao.titular@exemplo.local')$sql$)->>'ok' = 'true');
 -- UPDATE do operador: sem policy de UPDATE (como em produção) a RLS afeta zero linhas; a linha da gestão não muda.
 select public.teste_comando('authenticated', 'operador.teste@exemplo.local',
   'update public.aluno_movimentacoes set status_novo = ''TERMO_FISICO_ARQUIVADO'' where aluno_id = ''a2''');
@@ -113,26 +113,26 @@ select public.teste_assert('escopo: RETORNO_FINANCEIRO não é barrado por esta 
 
 -- ---------- Gestão permitida ----------
 select public.teste_assert('gestão (Amanda): grava TERMO_FISICO_EM_ANDAMENTO no histórico',
-  public.teste_comando('authenticated', 'amanda.seibel@aelbra.com.br',
+  public.teste_comando('authenticated', 'gestao.titular@exemplo.local',
     $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, descricao, registrado_por_email, registrado_por_nome)
-         values ('a1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_EM_ANDAMENTO','registro','amanda.seibel@aelbra.com.br','Amanda')$sql$)->>'ok' = 'true');
+         values ('a1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_EM_ANDAMENTO','registro','gestao.titular@exemplo.local','Amanda')$sql$)->>'ok' = 'true');
 
 select public.teste_assert('gestão (ADM): grava TERMO_FISICO_ARQUIVADO no histórico',
-  public.teste_comando('authenticated', 'cobranca07@aelbra.com.br',
+  public.teste_comando('authenticated', 'gestao.c@exemplo.local',
     $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, descricao, registrado_por_email)
-         values ('a1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO','registro','cobranca07@aelbra.com.br')$sql$)->>'ok' = 'true');
+         values ('a1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO','registro','gestao.c@exemplo.local')$sql$)->>'ok' = 'true');
 
 select public.teste_assert('gestão (Fernanda): grava TERMO_FISICO_ARQUIVADO no histórico',
-  public.teste_comando('authenticated', 'cobranca04@aelbra.com.br',
+  public.teste_comando('authenticated', 'gestao.b@exemplo.local',
     $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, descricao, registrado_por_email)
-         values ('a1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO','registro','cobranca04@aelbra.com.br')$sql$)->>'ok' = 'true');
+         values ('a1','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO','registro','gestao.b@exemplo.local')$sql$)->>'ok' = 'true');
 
 -- Histórico: data, hora e autor gravados.
 -- Leitura como gestão (select using true): visibilidade completa; controle positivo = 1 linha.
 select public.teste_assert('histórico: registro tem autor, data e hora',
-  (select jsonb_array_length((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',
+  (select jsonb_array_length((public.teste_consulta('authenticated','gestao.titular@exemplo.local',
     $q$select 1 from public.aluno_movimentacoes
-    where aluno_id = 'a1' and status_novo = 'TERMO_FISICO_EM_ANDAMENTO' and registrado_por_email = 'amanda.seibel@aelbra.com.br'
+    where aluno_id = 'a1' and status_novo = 'TERMO_FISICO_EM_ANDAMENTO' and registrado_por_email = 'gestao.titular@exemplo.local'
       and registrado_em is not null and tipo = 'REGISTRO_ADMINISTRATIVO'$q$))->'rows')) = 1);
 
 -- ---------- Ausência de efeitos ----------
@@ -151,20 +151,20 @@ select public.teste_assert('service_role (claim): recusado com mensagem exata, s
   (public.teste_comando('service_role', 'sistema@exemplo.local',
     $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, registrado_por_email)
          values ('a1','SISTEMA','TERMO_FISICO_ARQUIVADO','sistema@exemplo.local')$sql$)->>'code' = '42501')
-  and (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'a1' and tipo = 'SISTEMA'$q$))->'rows')) = 0);
+  and (select count(*) from jsonb_array_elements((public.teste_consulta('authenticated','gestao.titular@exemplo.local',$q$select 1 from public.aluno_movimentacoes where aluno_id = 'a1' and tipo = 'SISTEMA'$q$))->'rows')) = 0);
 
 -- Triagem Prime: a descrição padronizada NÃO casa com as palavras que a triagem procura.
 -- Texto idêntico ao de DESCRICAO_REGISTRO_ADMINISTRATIVO (src/utils/tabulacoes.js).
 select public.teste_assert('fixture: gestão grava REGISTRO para a3 (descrição padronizada)',
-  public.teste_comando('authenticated','amanda.seibel@aelbra.com.br',
+  public.teste_comando('authenticated','gestao.titular@exemplo.local',
     $sql$insert into public.aluno_movimentacoes (aluno_id, tipo, status_novo, descricao, registrado_por_email)
-         values ('a3','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO','Registro administrativo do termo físico.','amanda.seibel@aelbra.com.br')$sql$)->>'ok' = 'true');
+         values ('a3','REGISTRO_ADMINISTRATIVO','TERMO_FISICO_ARQUIVADO','Registro administrativo do termo físico.','gestao.titular@exemplo.local')$sql$)->>'ok' = 'true');
 -- Controle positivo: o fixture a3 existe e é visível à gestão (1 linha) antes de afirmar 0 palavras-chave.
 select public.teste_assert('triagem Prime: fixture a3 visível (controle positivo)',
-  (select jsonb_array_length((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',
+  (select jsonb_array_length((public.teste_consulta('authenticated','gestao.titular@exemplo.local',
     $q$select 1 from public.aluno_movimentacoes where aluno_id = 'a3'$q$))->'rows')) = 1);
 select public.teste_assert('triagem Prime: descrição padronizada não ativa nenhuma palavra-chave',
-  (select jsonb_array_length((public.teste_consulta('authenticated','amanda.seibel@aelbra.com.br',
+  (select jsonb_array_length((public.teste_consulta('authenticated','gestao.titular@exemplo.local',
     $q$select 1 from public.aluno_movimentacoes
     where aluno_id = 'a3'
       and (descricao ilike '%fies%' or descricao ilike '%isen%' or descricao ilike '%bolsa%'
