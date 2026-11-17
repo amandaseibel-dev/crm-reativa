@@ -10,6 +10,12 @@
 
 BEGIN;
 
+-- lock_timeout restrito a ESTA transacao (SET LOCAL). Se a trava de lotes nao
+-- for obtida em 5 s, o LOCK falha e a transacao inteira aborta sem alterar nada.
+-- Justificativa operacional: a janela de reversao deve ser curta; a espera longa
+-- atras de transacao aberta e recusada, e a reversao repete em outra janela.
+SET LOCAL lock_timeout = '5s';
+
 DO $g$
 BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -23,6 +29,15 @@ BEGIN
   -- Condicao de reversao: zero lotes pendentes (estado efetivo).
   -- Trava de tabela ANTES da checagem: serializa com a exportacao (que insere lote).
   LOCK TABLE public.acoes_massivas_lotes IN SHARE ROW EXCLUSIVE MODE;
+  -- Sessao em andamento que executa as funcoes de exportacao (ativa ou
+  -- ociosa dentro de transacao) recusa a reversao: ela pode inserir lote apos a
+  -- checagem. Verificado no estado efetivo (pg_stat_activity), na mesma transacao.
+  IF EXISTS (SELECT 1 FROM pg_stat_activity
+              WHERE datname = current_database() AND pid <> pg_backend_pid()
+                AND state IS DISTINCT FROM 'idle'
+                AND query ILIKE '%acoes_massivas_exportar%') THEN
+    RAISE EXCEPTION 'Rollback recusado: ha sessao em andamento executando a exportacao de acao massiva. Pausar chamadas e aguardar o termino. Nada alterado.';
+  END IF;
   IF EXISTS (SELECT 1 FROM public.acoes_massivas_lotes WHERE confirmado_em IS NULL AND descartado_em IS NULL) THEN
     RAISE EXCEPTION 'Rollback recusado: ha lotes de WhatsApp/e-mail pendentes de envio. Nada alterado.';
   END IF;
