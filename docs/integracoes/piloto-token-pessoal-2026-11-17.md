@@ -173,8 +173,13 @@ aplicada, a tabela `ulbra_conexoes_operador` não existe e **nenhuma conexão po
 - execução só por `service_role`; `anon` e `authenticated` sem EXECUTE (conferido na própria migration).
 
 **Usada por:** cadastro de token pessoal e conclusão OAuth. Erro de banco lança e **nada é gravado**;
-no cadastro responde 503 `CONEXAO_NAO_VERIFICADA`. Conclusão OAuth recusada revoga o grant recém-emitido
-(melhor esforço), porque ele não será guardado.
+no cadastro responde 503 `CONEXAO_NAO_VERIFICADA`. Conclusão OAuth **recusada ou com erro de banco**
+revoga o grant recém-emitido (melhor esforço), porque ele não será guardado.
+
+**Renovação OAuth ainda é upsert (não atômica com a desconexão):** `guardarTokens` na renovação
+(`garantirConexao`, só com refresh, estado EXPIRANDO) rotaciona o mesmo grant e zera
+`revogada_em`. Uma renovação que chega depois de uma desconexão confirmada poderia reativar a
+linha. Não afeta o piloto (token pessoal não renova). Registrado; tratar em frente própria.
 
 **Testes:**
 - Unitários (local, Vitest): `token-pessoal.test.ts` (9) e `token-pessoal-atomico.test.ts` (8),

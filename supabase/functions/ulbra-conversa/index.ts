@@ -363,6 +363,8 @@ Deno.serve(async (req: Request) => {
       try {
         gravacao = await gravarConexaoAtomica(t, { conectada_em: new Date().toISOString(), ...pessoa });
       } catch {
+        // Erro do banco: o grant novo não foi guardado. Revoga (melhor esforço) para não ficar válido sem cópia.
+        try { await provedorOAuth.revogar(t.access_token); } catch { /* melhor esforço */ }
         return responder({ ok: false, motivo: "CONEXAO_NAO_VERIFICADA" }, 503);
       }
       if (gravacao === "EXISTENTE") {
