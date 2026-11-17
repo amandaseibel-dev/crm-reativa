@@ -111,6 +111,17 @@ Não revogar nem substituir sem sua decisão específica.
 
 Rodado localmente com vitest. O Deno do `ulbra-conversa` roda só no CI.
 
+## Sobrescrita de conexão OAuth (trilha A, caso do Guardião)
+
+- Risco: o `upsert` de `ulbra_conexoes_operador` é por e-mail. Gravar token pessoal sobre uma
+  linha OAuth com `refresh_token` apagaria a cópia do refresh, deixando o grant válido no provedor
+  sem controle.
+- Correção: `conexao_token_pessoal` **recusa** com `409 CONEXAO_OAUTH_ATIVA` quando há conexão OAuth
+  ativa com refresh. O operador desconecta o OAuth antes (o que tenta a revogação no provedor).
+- Estado real, consulta read-only em produção: a tabela `ulbra_conexoes_operador` **ainda não existe**
+  (migration `20261111140000` não aplicada). Portanto não há linha OAuth da gestora hoje. O caso só
+  se torna possível após aplicar a migration e conectar por OAuth; a recusa acima o cobre.
+
 ## Limitações declaradas
 
 - **Conexão OAuth sem `refresh_token`** é tratada como "pessoal" em `conexao_desconectar`

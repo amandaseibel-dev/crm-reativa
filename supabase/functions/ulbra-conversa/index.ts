@@ -260,6 +260,12 @@ Deno.serve(async (req: Request) => {
       const token = typeof corpo.token === "string" ? corpo.token : "";
       const validade = Number(corpo.validade_dias);
       try {
+        // Não sobrescreve uma conexão OAuth ativa (grant com refresh): o upsert zeraria o refresh local,
+        // e o grant seguiria válido no provedor sem cópia nem revogação. Desconecte o OAuth antes.
+        const atual = await lerRegistro();
+        if (atual && atual.refresh_token !== null && atual.revogada_em_ms === null) {
+          return responder({ ok: false, motivo: "CONEXAO_OAUTH_ATIVA" }, 409);
+        }
         const r = await cadastrarTokenPessoal({
           email,
           agoraMs: Date.now(),

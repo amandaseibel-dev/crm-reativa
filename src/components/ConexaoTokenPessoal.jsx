@@ -12,7 +12,8 @@ export const ROTULO_MOTIVO_TOKEN = {
   TOKEN_RECUSADO_PELA_MENSAGERIA: "A Mensageria recusou este token. Crie outro em MCP › Tokens pessoais e cole de novo.",
   IDENTIDADE_DIVERGENTE: "Este token pertence a outra pessoa. Use um token criado na sua própria conta da Mensageria.",
   MENSAGERIA_INDISPONIVEL: "A Mensageria não respondeu agora. Tente de novo em instantes.",
-  AUDITORIA_NAO_GRAVADA: "Não foi possível registrar a auditoria, então nada foi guardado. Tente de novo.",
+  CONEXAO_OAUTH_ATIVA: "Você já tem uma conexão OAuth ativa. Desconecte-a antes de cadastrar o token pessoal, para não deixar acesso válido sem controle.",
+  AUDITORIA_NAO_GRAVADA:"Não foi possível registrar a auditoria, então nada foi guardado. Tente de novo.",
   FALHA_CADASTRO_TOKEN: "Não foi possível cadastrar o token agora. Nada foi guardado.",
 };
 

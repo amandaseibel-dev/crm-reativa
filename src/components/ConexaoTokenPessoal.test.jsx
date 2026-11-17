@@ -51,6 +51,14 @@ describe("ConexaoTokenPessoal", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 
+  it("conexão OAuth ativa: aviso para desconectar antes, nada substituído", async () => {
+    const onCadastrar = vi.fn().mockResolvedValue({ ok: false, motivo: "CONEXAO_OAUTH_ATIVA" });
+    render(<ConexaoTokenPessoal onCadastrar={onCadastrar} />);
+    preencher(TOKEN);
+    fireEvent.click(screen.getByRole("button", { name: /Cadastrar token/i }));
+    expect((await screen.findByRole("alert")).textContent).toMatch(/Desconecte-a antes/);
+  });
+
   it("falha de rede (exceção): mensagem genérica, campo apagado", async () => {
     const onCadastrar = vi.fn().mockRejectedValue(new Error("rede"));
     render(<ConexaoTokenPessoal onCadastrar={onCadastrar} />);
