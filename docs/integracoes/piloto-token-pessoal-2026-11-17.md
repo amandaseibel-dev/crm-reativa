@@ -268,7 +268,8 @@ necessária para decifrá-los e para desconectar com segurança. Ela é preserva
   na lista do piloto + conexão individual ativa + permissão da regra permanente.
   - **Dono da carteira** = operador de caso ATIVO. Caso encerrado (`caso_encerrado_operacional` verdadeiro) não autoriza
     leitura, mesmo que o operador tenha sido o dono. Erro ao verificar também não autoriza (fail-closed).
-  - **Responsável atual** = responsável do atendimento não dispensado. Caso encerrado não autoriza antigo responsável.
+  - **Responsável atual** = responsável do atendimento não dispensado, comprovado pelo atendimento. A situação do caso não o afeta (decisão registrada em `decisoes-integracao-ulbra.md`). Antigo dono de caso encerrado não autoriza.
+  - **Erro na verificação de encerramento** de qualquer caso: ninguém é dono (fail-closed).
   - **Leitura global** (decisão de gestão, sem mudança nesta rodada): `amanda.seibel@aelbra.com.br` e
     `cobranca04@aelbra.com.br` (Fernanda), exigindo usuário ativo. Qualquer outro operador segue a regra acima.
   - Prova no handler real: `index-handler.test.ts` (casos de encerrado, negado sem auditoria, e positivo com auditoria gravada antes do texto).

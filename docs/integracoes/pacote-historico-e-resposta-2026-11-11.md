@@ -128,7 +128,9 @@ Consulta de leitura em `information_schema.role_table_grants`, `pg_policies`, `p
 
 **Caminho de auditoria do piloto:** `auditar()` em `index.ts:262` usa o cliente `service_role` (`sb`), que não depende de RLS nem de grant de `authenticated`.
 
-**Dependência que bloqueia a revogação simples:** `src/pages/ProjecaoHoraHora.jsx` insere em `auditoria` com a sessão do usuário. Revogar INSERT de `authenticated` quebraria essa tela. A correção mínima (rascunho, NÃO aplicado) é: (1) migrar o insert de `ProjecaoHoraHora` para uma função de servidor; (2) então `REVOKE INSERT, UPDATE, DELETE ON public.auditoria FROM authenticated`. Rollback: `GRANT INSERT, UPDATE, DELETE ON public.auditoria TO authenticated`. Exige aprovação específica e validação do grant final.
+**Pré-condição da revogação:** a busca em `src/` e `supabase/functions/` não encontrou INSERT em `auditoria` feito com a sessão do usuário. `src/pages/ProjecaoHoraHora.jsx:631-632` só faz SELECT. Os inserts encontrados usam `service_role` (`index.ts:263`, `supabase/functions/ulbra-consultar/index.ts:95`). **O inventário completo ainda NÃO foi feito** e precisa ser concluído antes de qualquer revogação.
+
+Correção mínima (rascunho, NÃO aplicado): (1) concluir o inventário; (2) `REVOKE INSERT, UPDATE, DELETE ON public.auditoria FROM authenticated`. Rollback: `GRANT INSERT, UPDATE, DELETE ON public.auditoria TO authenticated`. Exige aprovação específica e validação do grant final.
 
 ## Pré-requisito de contenção — atendido
 - A contenção da v1 está concluída (ver acima). Não há pré-requisito pendente para o piloto por esse motivo.
@@ -166,7 +168,7 @@ Tipos de ação, que NÃO são a mesma coisa: **merge** (código na main, sem ef
 | 1. Aplicar `20261111140000` (tabelas de conexão/prévia/envio e `ulbra_conferir_envio`) | aplicação manual (SQL) | passo 0 | tabelas existem; RLS ligada; sem grant a anon/authenticated |
 | 2. Aplicar corretiva `20261116150000` (portão da RPC) | aplicação manual (SQL) | passo 0 e `20261110100000` aplicada (já está) | pós-conferência do próprio arquivo; EXECUTE só service_role |
 | 3. Publicar `ulbra-conversa` com segredos (`ULBRA_OAUTH_*`, `ULBRA_TOKENS_CHAVE`) e `verify_jwt` | aplicação manual (função) | passos 1 e 2 (a função grava nas tabelas do passo 1) | `historico_capacidade` e `historico_ler` respondem como o teste prevê |
-| 4. Merge desta PR na main (inclui a tela) | merge | passos 0 a 3 | CI da PR verde; a tela sem a porta não chama nada |
+| 4. Merge desta PR na main (inclui a tela) | merge | passos 0 a 3 | CI da PR verde. Com a porta `true`, a Central chama `historico_capacidade` ao selecionar resposta com vínculo (`CentralUlbra.jsx`); o servidor nega sem `ULBRA_HISTORICO_HABILITADO`, sem qualquer chamada à Mensageria |
 | 5. Deploy do front a partir da main | deploy automático | passo 4 | Central com `HISTORICO_DISPONIVEL = true` (porta de tela); cada botão só aparece com `capacidade` do servidor, que nega enquanto `ULBRA_HISTORICO_HABILITADO` estiver ausente |
 | 6. Conexão de 1 operador piloto | manual (usuário) | passos 3 e 5 | conexão ATIVA, `pessoa_email` igual ao JWT |
 | 7. Ativar `ULBRA_HISTORICO_HABILITADO` (leitura) | aplicação manual (segredo) | passo 6 e aprovação | leitura de 1 conversa com auditoria gravada |

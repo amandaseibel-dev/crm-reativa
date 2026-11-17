@@ -471,7 +471,8 @@ Deno.serve(async (req: Request) => {
             const { data: encerrado, error } = await sb.rpc("caso_encerrado_operacional", {
               p_cpf: k.cpf_limpo, p_status_atual: k.status_atual, p_status_acionamento: k.status_acionamento, p_status_financeiro: k.status_financeiro, p_status_jornada: k.status_jornada,
             });
-            if (error || encerrado !== false) continue;
+            if (error) return []; // fail-closed: se qualquer caso não pôde ser verificado, ninguém é dono
+            if (encerrado !== false) continue;
             donos.push(String(k.operador_email));
           }
           return donos;
