@@ -128,4 +128,4 @@ Hashes calculados com `shasum -a 256` no head final. Qualquer alteração poster
 5. **`app_usuario_ativo()`:** corpo e ACL não conferidos. Ação: leitura de catálogo de produção.
 6. **Papel `reativa_responsavel_executor`:** INSERT irrestrito. Ação: verificar se algum cliente assume o papel.
 7. **Evidências SQL com `CREATE OR REPLACE`** (`docs/seguranca/evidencias/prod_encerramento_so_gestao.sql` e `prod_usuario_e_gestao.sql`): não executar em produção. O CI carrega o primeiro com `\\i`.
-8. **Identificadores institucionais** em `prod_usuario_e_gestao.sql`: mantidos por ser evidência exata. Ação: decisão da gestão (ver catálogo).
+8. **Identificadores institucionais:** a cópia exata de `prod_usuario_e_gestao.sql` foi retirada da entrega e está em acesso restrito; a referência com SHA-256 está em `docs/seguranca/evidencias/REFERENCIA_prod_usuario_e_gestao.md`. Ação: a gestão define o destino de equipe.

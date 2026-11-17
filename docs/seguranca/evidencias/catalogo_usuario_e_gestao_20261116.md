@@ -14,7 +14,7 @@
 | ACL (proacl) | `postgres`, `authenticated`, `service_role` e `reativa_responsavel_executor` com EXECUTE (sem `PUBLIC` nem `anon`) |
 | `md5(prosrc)` | `889cfa4a82e9046b4322e8c85ee07b7d` |
 
-O corpo é uma comparação do e-mail do JWT com uma lista fixa de três identificadores institucionais. **A lista não é reproduzida neste documento.** A referência exata é `docs/seguranca/evidencias/prod_usuario_e_gestao.sql` (acesso ao repositório; ver pendência abaixo).
+O corpo é uma comparação do e-mail do JWT com uma lista fixa de três identificadores institucionais. **A lista não é reproduzida neste documento.** A cópia exata fica em acesso restrito; a referência (SHA-256 e tamanho) está em `docs/seguranca/evidencias/REFERENCIA_prod_usuario_e_gestao.md`.
 
 ## Versionamento no repositório
 
@@ -34,6 +34,6 @@ O corpo é uma comparação do e-mail do JWT com uma lista fixa de três identif
 
 ## Pendências
 
-- **Evidência SQL com identificadores institucionais:** `docs/seguranca/evidencias/prod_usuario_e_gestao.sql` contém a lista exata. Mantida sem alteração porque é evidência de leitura. Ação: a gestão decide se a mantém, se a move para acesso restrito, ou se a substitui por uma referência de hash.
+- **Cópia exata com identificadores institucionais:** retirada do repositório e mantida em acesso restrito (ver referência). Ação: a gestão define o destino de equipe.
 - O papel `reativa_responsavel_executor` tem EXECUTE. Não há evidência de que cliente o assuma com `SET ROLE` (ver bloqueio do papel na v2).
 - Os identificadores da lista de gestão não são usados nem decididos por esta entrega. Qualquer alteração de alcance é decisão da gestão, fora desta #954.
