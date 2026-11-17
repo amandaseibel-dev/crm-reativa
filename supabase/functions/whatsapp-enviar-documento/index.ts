@@ -37,7 +37,7 @@
 //
 // Secrets: WHATSAPP_GATEWAY_URL, WHATSAPP_GATEWAY_TOKEN.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { alunoDaConversa, checarEnvioJuridico, sha256Hex } from "../_shared/juridico-envio.ts";
+import { alunoDaConversa, checarEnvioJuridico, hashDocumento } from "../_shared/juridico-envio.ts";
 import { LIMITE_BYTES, caminhoNovo, validarPdf } from "../_shared/pdf.ts";
 
 const BUCKET = "whatsapp-midia";
@@ -160,7 +160,7 @@ Deno.serve(async (req) => {
         conversaId,
         operador: dados.operador_email,
         tipo: "DOCUMENTO",
-        hash: await sha256Hex(bytes),
+        hash: await hashDocumento(validacao.nome, validacao.mime, bytes),
       })
     : alunoRes;
   if (!checagem.ok) return jsonResp({ erro: checagem.erro, conversa_id: conversaId }, 403);

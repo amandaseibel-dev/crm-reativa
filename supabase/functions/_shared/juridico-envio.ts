@@ -24,6 +24,16 @@ export async function sha256Hex(dados: string | Uint8Array): Promise<string> {
     .join("");
 }
 
+// Hash do DOCUMENTO enviado: bytes + nome + tipo MIME (o gateway recebe os três). Qualquer mudança
+// em um deles invalida a autorização.
+export async function hashDocumento(nome: string, mime: string, bytes: Uint8Array): Promise<string> {
+  const cab = new TextEncoder().encode(`${nome}\u0000${mime}\u0000`);
+  const todo = new Uint8Array(cab.length + bytes.length);
+  todo.set(cab, 0);
+  todo.set(bytes, cab.length);
+  return sha256Hex(todo);
+}
+
 export async function checarEnvioJuridico(
   rpc: RpcChamador,
   p: {

@@ -1,6 +1,6 @@
 // Testes do helper de bloqueio jurídico nos envios (roda no vitest; sem Deno).
 import { describe, it, expect } from "vitest";
-import { sha256Hex, checarEnvioJuridico, alunoDaConversa } from "./juridico-envio";
+import { sha256Hex, checarEnvioJuridico, alunoDaConversa, hashDocumento } from "./juridico-envio";
 
 const base = { alunoId: "a1", conversaId: "c1", operador: "op@x", tipo: "MENSAGEM" as const, hash: "h" };
 
@@ -45,5 +45,16 @@ describe("alunoDaConversa", () => {
   it("erro de leitura recusa (nao segue sem identificar o aluno)", async () => {
     const r = await alunoDaConversa(admin({ data: null, error: { message: "x" } }), "c1");
     expect(r.ok).toBe(false);
+  });
+});
+
+describe("hashDocumento", () => {
+  const b = new TextEncoder().encode("PDF-conteudo");
+  it("muda se o nome ou o mime mudar (ambos vao para o gateway)", async () => {
+    const h = await hashDocumento("a.pdf", "application/pdf", b);
+    expect(await hashDocumento("a.pdf", "application/pdf", b)).toBe(h);
+    expect(await hashDocumento("b.pdf", "application/pdf", b)).not.toBe(h);
+    expect(await hashDocumento("a.pdf", "text/plain", b)).not.toBe(h);
+    expect(await hashDocumento("a.pdf", "application/pdf", new TextEncoder().encode("outro"))).not.toBe(h);
   });
 });

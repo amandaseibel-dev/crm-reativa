@@ -559,12 +559,11 @@ describe("auditoria: pendencia de pagamento, coluna divergente e valor atual", (
     await db.close();
   });
 
-  it("envio: autorizacao sem conversa (conversa nova) vale para uma conversa do aluno, uma vez", async () => {
+  it("envio: autorizacao sem conversa e recusada; so vale para o atendimento exato", async () => {
     const db = await novo();
     const { a } = await casoAprovado(db);
-    await rpc(db, "public.juridico_autorizar_envio($1,null,'MENSAGEM',$2,'cadastro do aluno, resposta administrativa')", [a.al, HASH]);
-    await chec(db, a.al, U(960, 8));
-    expect((await falha(chec(db, a.al, U(960, 9))))?.code).toBe("42501");
+    const e = await falha(db.query("select public.juridico_autorizar_envio($1,null,'MENSAGEM',$2,'cadastro do aluno, resposta administrativa')", [a.al, HASH]));
+    expect(e?.code).toBe("22023");
     await db.close();
   });
 

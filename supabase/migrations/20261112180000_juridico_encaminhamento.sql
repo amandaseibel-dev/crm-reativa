@@ -1465,7 +1465,7 @@ $function$;
 create table public.juridico_envio_autorizacoes (
   id uuid primary key default gen_random_uuid(),
   aluno_id uuid not null,
-  conversa_id uuid,  -- null = vale para qualquer conversa do aluno (conversa nova ainda nao tem id)
+  conversa_id uuid not null,
   tipo text not null check (tipo in ('MENSAGEM','DOCUMENTO')),
   conteudo_hash text not null check (length(conteudo_hash) >= 16),
   motivo text not null check (length(btrim(motivo)) >= 10),
@@ -1508,7 +1508,7 @@ begin
   end if;
   if not public._juridico_bloqueio_efetivo(p_aluno) then return; end if;
   select a.id into v_id from public.juridico_envio_autorizacoes a
-   where a.aluno_id = p_aluno and (a.conversa_id is null or a.conversa_id = p_conversa)
+   where a.aluno_id = p_aluno and a.conversa_id = p_conversa
      and a.tipo = p_tipo and a.conteudo_hash = btrim(p_conteudo_hash)
      and a.usado_em is null and a.valido_ate > now()
    order by a.autorizado_em desc limit 1
@@ -1531,8 +1531,10 @@ begin
   if not exists (select 1 from public.usuarios u where lower(u.email) = v_email and u.ativo is true) then
     raise exception 'Gestão inativa: autorização não concedida.' using errcode = '42501';
   end if;
-  if p_tipo not in ('MENSAGEM','DOCUMENTO') or nullif(btrim(coalesce(p_conteudo_hash,'')), '') is null then
-    raise exception 'Tipo ou conteúdo não informado.' using errcode = '22023';
+  -- Conversa e obrigatoria: a autorizacao vale so para ESTE atendimento. Conversa nova precisa existir
+  -- antes de a gestao autorizar (nao ha autorizacao sem conversa).
+  if p_conversa is null or p_tipo not in ('MENSAGEM','DOCUMENTO') or nullif(btrim(coalesce(p_conteudo_hash,'')), '') is null then
+    raise exception 'Conversa, tipo ou conteúdo não informado.' using errcode = '22023';
   end if;
   if not public._juridico_bloqueio_efetivo(p_aluno) then
     raise exception 'O aluno não tem bloqueio jurídico efetivo: não há o que autorizar.' using errcode = 'P0001';
