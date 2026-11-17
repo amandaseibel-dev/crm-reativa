@@ -99,7 +99,8 @@ Não revogar nem substituir sem sua decisão específica.
 - Flags seguem desligadas até a decisão: `ULBRA_ENVIO_REAL`, `ULBRA_CONTRATO_PREVIA_CONFIRMADO`,
   `ULBRA_HISTORICO_HABILITADO`, `HISTORICO_DISPONIVEL`.
 - Contenção da v1 `ulbra-historico` (autorizada; pendente de execução).
-- Migrations `20261111140000` e `20261116150000` pendentes de aplicação com aprovação.
+- Migrations `20261111140000` e `20261117120000` pendentes de aplicação com aprovação, nesta ordem.
+  (`20261116150000`, corretiva da RPC de reserva, não é pré-requisito do piloto.)
 
 ## Testes
 
@@ -180,7 +181,7 @@ revoga o grant recém-emitido (melhor esforço), porque ele não será guardado.
 
 **Erro ambíguo do banco (commit seguido de falha de resposta):** se a função commita e a conexão
 cai antes da resposta, o handler vê erro, revoga o grant novo e responde 503. A linha local fica
-com os tokens de um grant **já revogado**. Efeito: a próxima leitura ou envio falha (fail-closed
+com os tokens de um grant **já revogado** (**só no caso OAuth**; no token pessoal não há revogação e o token gravado continua válido no provedor). Efeito: a próxima leitura ou envio falha (fail-closed
 para o uso), mas o estado local fica inconsistente. Recuperação: desconectar pela Central (apaga a
 cópia local) e conectar de novo. Não há reconciliação automática. Registrado.
 
