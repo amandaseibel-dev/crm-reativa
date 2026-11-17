@@ -426,7 +426,7 @@ describe("PainelCarteira — fiacao do guiado (trava estrutural)", () => {
     const escritas = ocorrencias.filter((m) => m[1]);
     expect(escritas).toHaveLength(1); // listaFiltradaRef.current = listaFiltrada
     expect(leituras).toHaveLength(1); // e SO a foto le a lista viva
-    expect(fonte).toContain("guiadoSnapshotRef.current = snapshotDoGuiado(listaFiltradaRef.current)");
+    expect(fonte).toContain("guiadoSnapshotRef.current = snapshotDoGuiado(listaFiltradaRef.current, prioridadeBordero)");
   });
 
   it("avancarGuiadoRapido faz SELECT por id e abre o objeto FRESCO do banco", () => {
@@ -442,7 +442,7 @@ describe("PainelCarteira — fiacao do guiado (trava estrutural)", () => {
   it("iniciarGuiado NAO troca a ordenacao escolhida pela operadora", () => {
     const inicio = corpoDe("function iniciarGuiado() {", "\n  }\n");
     expect(inicio).not.toContain("setOrdenacao");
-    expect(inicio).toContain("snapshotDoGuiado(listaFiltradaRef.current)");
+    expect(inicio).toContain("snapshotDoGuiado(listaFiltradaRef.current, prioridadeBordero)");
     expect(inicio).toContain("guiadoLiberado");
   });
 

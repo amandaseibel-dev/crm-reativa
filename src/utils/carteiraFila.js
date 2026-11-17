@@ -472,6 +472,31 @@ export function finAlunosDoSemestre(finAlunos, mapa, semestre) {
   return out;
 }
 
+// Prioridade do guiado por borderô (migration carteira_prioridade_bordero).
+// `mapa` vem de carteira_prioridade_bordero, indexado pelo CPF normalizado.
+// Ausência no mapa = sem prioridade (nunca penaliza a fila).
+export function normCpfFila(c) {
+  return String(c || "").replace(/\D/g, "").padStart(11, "0");
+}
+export function prioridadeBorderoDe(a, mapa) {
+  if (!mapa || !a) return null;
+  return mapa[normCpfFila(a.cpf)] || null;
+}
+// Elegível para prioridade: 2026, saldo aberto, elegível, sem bloqueio,
+// sem pagamento pendente e sem acionamento desde a entrada do borderô.
+export function ehPrioridadeBordero(a, mapa) {
+  const p = prioridadeBorderoDe(a, mapa);
+  return Boolean(
+    p && p.elegivel && !p.bloqueado && !p.pagamento_pendente &&
+    p.sem_acionamento_desde_entrada && Number(p.saldo_bordero_2026) > 0
+  );
+}
+// Exclusão SÓ do guiado (a lista continua mostrando o caso).
+export function excluidoDoGuiado(a, mapa) {
+  const p = prioridadeBorderoDe(a, mapa);
+  return Boolean(p && (p.bloqueado || p.pagamento_pendente));
+}
+
 export const ORDENACOES = [
   "inteligente",
   "prioridade",
@@ -628,6 +653,7 @@ export function ordenarCasos(lista, entrada) {
     finAlunos = {},
     hoje = hojeLocalBR(),
     agoraMs = Date.now(),
+    prioridadeBordero = null,
   } = entrada || {};
 
   // Chave de ordenacao precisa (milissegundos), nao em dias inteiros -- com
@@ -675,6 +701,7 @@ export function ordenarCasos(lista, entrada) {
     arr.sort((a, b) =>
       (rankPrioridade(a) - rankPrioridade(b)) ||
       (faixa(a) - faixa(b)) ||
+      ((ehPrioridadeBordero(a, prioridadeBordero) ? 0 : 1) - (ehPrioridadeBordero(b, prioridadeBordero) ? 0 : 1)) ||
       (rankSemestre(a) - rankSemestre(b)) ||
       (critRank(a) - critRank(b)) ||
       (diasParado(b) - diasParado(a)) ||
@@ -786,11 +813,12 @@ export function recorteProntoParaGuiado({
 // A FOTO: ids visiveis, na ordem visivel, no instante do clique. Nada de
 // objeto -- so o id, porque o estado de cada aluno e reconferido no banco
 // antes de abrir.
-export function snapshotDoGuiado(listaVisivel) {
+export function snapshotDoGuiado(listaVisivel, prioridadeBordero = null) {
   const vistos = new Set();
   const ids = [];
   for (const a of listaVisivel || []) {
     if (!a?.id) continue;
+    if (excluidoDoGuiado(a, prioridadeBordero)) continue;
     const id = String(a.id);
     if (vistos.has(id)) continue;
     vistos.add(id);

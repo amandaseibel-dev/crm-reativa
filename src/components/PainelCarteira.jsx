@@ -1878,7 +1878,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     // NAO troca a ordenacao escolhida pela operadora. A sequencia do guiado e a
     // sequencia que ela ja esta vendo.
     if (!guiadoLiberado) return;
-    guiadoSnapshotRef.current = snapshotDoGuiado(listaFiltradaRef.current);
+    guiadoSnapshotRef.current = snapshotDoGuiado(listaFiltradaRef.current, prioridadeBordero);
     if (!guiadoSnapshotRef.current.length) return;
     guiadoFeitosRef.current = new Set();
     setGuiadoAcionados(0);
@@ -2782,6 +2782,22 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     })();
     return () => { ativo = false; };
   }, [casos, email, veTudo, operadorFiltro]);
+  // Prioridade do guiado por borderô (RPC carteira_prioridade_bordero, somente
+  // leitura). Indexada pelo CPF normalizado, igual ao saldoView.
+  const [prioridadeBordero, setPrioridadeBordero] = useState(null);
+  useEffect(() => {
+    let ativo = true;
+    (async () => {
+      const alvo = operadorFiltro && operadorFiltro !== "TODOS" ? operadorFiltro : (veTudo ? null : email);
+      const { data, error } = await supabase.rpc("carteira_prioridade_bordero", { p_operador_email: alvo || null });
+      if (!ativo) return;
+      if (error) { setPrioridadeBordero(null); return; }
+      const m = {};
+      (data || []).forEach((r) => { m[normCpf(r.cpf_limpo)] = r; });
+      setPrioridadeBordero(m);
+    })();
+    return () => { ativo = false; };
+  }, [casos, email, veTudo, operadorFiltro]);
   const saldoDe = (a) => {
     const v = saldoView[normCpf(a && a.cpf)];
     if (v && Number.isFinite(v.saldo)) return v.saldo;
@@ -2830,11 +2846,12 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     // passa a ser o DAQUELE semestre -- num lugar so, para os tres
     // concordarem. Em "Ambos" e o proprio `finAlunos`, por identidade.
     finAlunos: finAlunosDoRecorte,
+    prioridadeBordero,
   };
   const listaFiltrada = useMemo(
     () => (recorteSemDados ? [] : montarListaFiltrada(recorteAtual)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [recorteSemDados, casos, casosForaDaFila, casosEspeciais, filtroStatus, filtroPrioridade, filtroTabulacao, busca, filtroKpi, ordenacao, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, alunosDoCurso, alunosDoSemestre, finAlunosDoRecorte]
+    [recorteSemDados, casos, casosForaDaFila, casosEspeciais, filtroStatus, filtroPrioridade, filtroTabulacao, busca, filtroKpi, ordenacao, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, alunosDoCurso, alunosDoSemestre, finAlunosDoRecorte, prioridadeBordero]
   );
   listaFiltradaRef.current = listaFiltrada;
 
