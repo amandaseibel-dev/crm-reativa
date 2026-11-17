@@ -1099,3 +1099,69 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/04_depois_da_correcao.sql"
           psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
           psql -v ON_ERROR_STOP=1 -f "$DIR/05_apos_rollback.sql"
+
+  # ---------------------------------------------------------------------------
+  # Reversao das migrations 20261113100000 / 20261113100100 em PostgreSQL REAL
+  # descartavel: concorrencia (duas conexoes), grants e residuos. Nunca producao:
+  # o banco e criado aqui, o nome e fixo e o token e gravado por este job.
+  # ---------------------------------------------------------------------------
+  reversao-concorrencia:
+    name: reversao concorrencia (postgres descartavel)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: reversao_ci_teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: reversao_ci_teste
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Gerar token do ambiente descartavel e montar o banco
+        run: |
+          TOKEN=$(openssl rand -hex 16)
+          echo "DESCARTAVEL_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          node scripts/ci/gerar-sql-banco-reversao.mjs "$TOKEN" > "$RUNNER_TEMP/banco.sql"
+          psql -X -v ON_ERROR_STOP=1 -f "$RUNNER_TEMP/banco.sql"
+
+      - name: Recusas do script (cada uma deve sair com codigo 2, sem escrever)
+        run: |
+          set +e
+          D=$(printf '%s' "$DESCARTAVEL_TOKEN")
+          run() { CONFIRMAR_BANCO_DESCARTAVEL="$1" PG_URL="$2" DESCARTAVEL_TOKEN="$3" bash scripts/ci/teste-reversao-concorrencia.sh >/dev/null 2>&1; echo $?; }
+          OK_URL="postgresql://postgres:postgres@localhost:5432/reversao_ci_teste"
+          [ "$(run "" "$OK_URL" "$D")" = "2" ] || { echo "sem confirmacao deveria recusar"; exit 1; }
+          [ "$(run sim-descartavel "postgresql://postgres:postgres@localhost:5432/producao" "$D")" = "2" ] || { echo "banco nao-teste deveria recusar"; exit 1; }
+          [ "$(run sim-descartavel "postgresql://postgres:postgres@db.exemplo.supabase.co:5432/reversao_ci_teste" "$D")" = "2" ] || { echo "host nao autorizado deveria recusar"; exit 1; }
+          [ "$(run sim-descartavel "$OK_URL" "00000000000000000000000000000000")" = "2" ] || { echo "token errado deveria recusar"; exit 1; }
+          [ "$(run sim-descartavel "postgresql://postgres:senhaerrada@localhost:5432/reversao_ci_teste" "$D")" != "0" ] || { echo "autenticacao errada nao pode passar"; exit 1; }
+          echo "recusas ok"
+
+      - name: Cenarios C1-C4 (concorrencia, timeout, grants, residuos)
+        env:
+          CONFIRMAR_BANCO_DESCARTAVEL: sim-descartavel
+          PG_URL: postgresql://postgres:postgres@localhost:5432/reversao_ci_teste
+        run: bash scripts/ci/teste-reversao-concorrencia.sh

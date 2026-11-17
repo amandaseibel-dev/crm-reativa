@@ -454,3 +454,16 @@ export async function titularidade(db) {
     (await db.query(`select id, responsavel_atual_email from public.alunos order by id`)).rows,
     (await db.query(`select id, operador_email from public.casos order by id`)).rows]);
 }
+
+// SQL da mesma base que novoBanco({fase:"depois"}) monta, como lista de statements
+// (usado pelo gerador de SQL para PostgreSQL real no CI). Nao altera novoBanco.
+export function sqlBase({ registroAutomatico = false } = {}) {
+  const parts = [ESQUEMA, estadoProducao(), GATILHO, MIG1, MIG2, MIG3, INTERNAL, MIG4, MIG5, MIG6];
+  if (registroAutomatico) parts.push(MIG7);
+  parts.push(`insert into public.prime_extrato values ('2026-09-05 10:00:00+00');
+                 insert into public.usuarios values ('${GESTAO}','Gestao','gerencia',true),
+                   ('${OP_A}','Ana','operador',true), ('${OP_B}','Bruno','operador',true),
+                   ('${OP_INATIVA}','Olga','operador',false),
+                   ('${CG}','Carteira Geral','carteira',false);`);
+  return parts;
+}
