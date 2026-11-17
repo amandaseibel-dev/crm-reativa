@@ -61,7 +61,14 @@ echo "C3 ok: reversao da protecao recusada com a exportacao em andamento"
 
 # C4: grants. Snapshot -> REVOKE authenticated -> verificacao -> restauracao EXATA (trap em qualquer falha).
 A1=$(acl acoes_massivas_exportar); A2=$(acl acoes_massivas_exportar_emails_do_lote)
-restaurar() { P -c "grant execute on function public.acoes_massivas_exportar(text[],text,text,text,text,uuid) to authenticated; grant execute on function public.acoes_massivas_exportar_emails_do_lote(uuid,text) to authenticated;" >/dev/null 2>&1 || true; }
+# Restauracao EXATA: grava de volta o proacl do snapshot (inclusive NULL = padrao). GRANT nao basta:
+# ele cria um proacl explicito que difere do NULL original.
+restaurar_acl() {
+  local f1="public.acoes_massivas_exportar(text[],text,text,text,text,uuid)" f2="public.acoes_massivas_exportar_emails_do_lote(uuid,text)"
+  P -c "update pg_proc set proacl = case when '$A1' = '' then null else '$A1'::aclitem[] end where oid = '$f1'::regprocedure;
+        update pg_proc set proacl = case when '$A2' = '' then null else '$A2'::aclitem[] end where oid = '$f2'::regprocedure;" >/dev/null 2>&1 || true
+}
+restaurar() { restaurar_acl; }
 trap 'restaurar' EXIT
 P -c "revoke execute on function public.acoes_massivas_exportar(text[],text,text,text,text,uuid) from authenticated; revoke execute on function public.acoes_massivas_exportar_emails_do_lote(uuid,text) from authenticated;"
 [ "$(P -tA -c "select has_function_privilege('authenticated','public.acoes_massivas_exportar(text[],text,text,text,text,uuid)','EXECUTE')")" = "f" ] || falha "C4: revoke nao aplicado"
