@@ -524,6 +524,18 @@ describe("auditoria: pendencia de pagamento, coluna divergente e valor atual", (
     await db.close();
   });
 
+  it("carteira: operador fora da carteira e sem e-mail nao descobrem bloqueio juridico alheio", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    await H.como(db, OPERADOR);
+    const outro = (await db.query("select public.juridico_bloqueio_ids($1::uuid[]) id", [[a.al]])).rows;
+    expect(outro).toEqual([]);
+    await db.close();
+  });
+
   it("carteira: juridico_bloqueio_ids devolve so o id do aluno com bloqueio efetivo", async () => {
     const db = await novo();
     const a = await mk(db, { valores: [1000] });

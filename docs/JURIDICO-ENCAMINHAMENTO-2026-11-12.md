@@ -57,12 +57,7 @@ da carteira. A seção abaixo, que grava `JURIDICO` em `alunos.status_*`, está 
   `MANTIDO_OUTRO_BLOQUEIO` (outro fluxo gravou a flag durante o encaminhamento, ou já havia bloqueio).
   Nem sempre a remoção libera: confira o retorno.
 - Residual, não resolvido: (1) rollback não reconcilia flags de casos vivos (ele recusa
-  com caso APROVADO; flags compartilhadas ficam ligadas por desenho); (2) o marcador é BEFORE UPDATE e
-  escreve em `juridico_casos` antes de a linha de `casos` ser travada (ordem juridico_casos->casos, igual à remoção).
-  Um writer que espera a aprovação pode ver o caso já encerrado como EM_ANALISE e não marcar: a flag
-  compartilhada cairia na remoção. Não verificado sob espera (PG 17); (3) a prova de concorrência da aprovação não cobre o marcador.
-- Pendente: indicação visual do bloqueio jurídico na carteira (PainelCarteira não lê o
-  bloqueio do caso).
+  com caso APROVADO; flags compartilhadas ficam ligadas por desenho); (2) o marcador é AFTER UPDATE: roda depois de a linha ser travada e lê o estado commitado. A ordem de travas é casos->juridico_casos, enquanto a remoção faz juridico_casos->casos (possível deadlock, não reproduzido). A guarda que impede liberar a flag continua BEFORE e não tem teste sob espera; (3) a prova de concorrência da aprovação não cobre o marcador.
 
 ## Bloqueio — por que não há mecanismo novo
 

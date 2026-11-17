@@ -1266,7 +1266,7 @@ begin
   insert into public.aluno_movimentacoes
     (aluno_id, tipo, descricao, status_anterior, status_novo, registrado_por_nome, registrado_por_email)
   values (v_caso.aluno_id::text, 'JURIDICO_APROVADO',
-          'Aprovado para análise de ajuizamento. Cobrança bloqueada (manual, massiva e automática). Aluno permanece na carteira e com o responsável; títulos não foram cancelados.',
+          'Aprovado para análise de ajuizamento. Cobrança bloqueada no portão (massivas e elegibilidade). Envio por WhatsApp NÃO é bloqueado por esta aba (decisão pendente). Aluno permanece na carteira e com o responsável; títulos não foram cancelados.',
           null, null, v_email, v_email);
 
   update public.juridico_casos
@@ -1456,17 +1456,30 @@ end;
 $function$;
 
 -- Painel da aba: indicadores, lotes e casos com a conferencia.
--- CARTEIRA: ids dos alunos com bloqueio jurídico EFETIVO (caso encaminhado e nao_acionar ligado).
--- Devolve so o id, sem nome, CPF ou valor. Para operador da carteira; nao le nada alem disso.
+-- CARTEIRA: ids dos alunos com bloqueio jurídico EFETIVO. Gestao ve todos; operador so os da propria
+-- carteira (responsavel_atual_email). Devolve so o id, sem nome, CPF ou valor.
 create function public.juridico_bloqueio_ids(p_ids uuid[])
 returns setof uuid
-language sql stable security definer set search_path to 'public'
+language plpgsql stable security definer set search_path to 'public'
 as $function$
-  select distinct jc.aluno_id
-    from public.juridico_casos jc
-   where jc.aluno_id = any(coalesce(p_ids, '{}'::uuid[]))
-     and jc.status in ('APROVADO','ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO')
-     and exists (select 1 from public.casos c where c.aluno_id = jc.aluno_id and c.nao_acionar is true);
+declare
+  v_email text := lower(coalesce(auth.jwt()->>'email',''));
+  v_gestao boolean := coalesce(public.usuario_e_gestao(), false);
+begin
+  -- sem e-mail: nada. Gestao ve todos; operador so os alunos da PROPRIA carteira.
+  if v_email = '' then return; end if;
+  if coalesce(array_length(p_ids, 1), 0) > 2000 then
+    raise exception 'Lista grande demais (máximo 2000 alunos por consulta).' using errcode = '22023';
+  end if;
+  return query
+    select distinct jc.aluno_id
+      from public.juridico_casos jc
+      join public.alunos al on al.id = jc.aluno_id
+     where jc.aluno_id = any(coalesce(p_ids, '{}'::uuid[]))
+       and jc.status in ('APROVADO','ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO')
+       and exists (select 1 from public.casos c where c.aluno_id = jc.aluno_id and c.nao_acionar is true)
+       and (v_gestao or lower(coalesce(al.responsavel_atual_email, '')) = v_email);
+end;
 $function$;
 
 create function public.juridico_painel()

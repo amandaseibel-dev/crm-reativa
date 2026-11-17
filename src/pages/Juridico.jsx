@@ -179,7 +179,7 @@ export default function Juridico() {
           disabled={Boolean(pend.length) || ocupado}
           title={pend.length ? "Resolva as pendências antes de aprovar" : "Aprova e bloqueia a cobrança"}
           onClick={() => executar("juridico_caso_aprovar", { p_caso_id: c.caso_id },
-            `${c.aluno}: aprovado. Cobrança bloqueada — manual, massiva e automática.`)}>
+            `${c.aluno}: aprovado. Cobrança bloqueada no portão (massivas e elegibilidade); WhatsApp não é bloqueado (decisão pendente).`)}>
           Aprovar e bloquear cobrança
         </button>
         {pend.includes("ACORDO_QUEBRADO_SEM_REVISAO") ? (
