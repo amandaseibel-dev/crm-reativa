@@ -172,7 +172,9 @@ aplicada, a tabela `ulbra_conexoes_operador` não existe e **nenhuma conexão po
 - só grava quando não há credencial (primeira conexão, ou após desconexão confirmada);
 - execução só por `service_role`; `anon` e `authenticated` sem EXECUTE (conferido na própria migration).
 
-**Usada por:** cadastro de token pessoal e conclusão OAuth. Erro de banco lança e **nada é gravado**;
+**Usada por:** cadastro de token pessoal e conclusão OAuth. Erro **antes** da gravação não grava nada;
+**erro depois do commit** (rede cai com a resposta) deixa a linha gravada, e o cadastro responde 503 mesmo assim
+(ver "Erro ambíguo do banco" abaixo). Recuperação: desconectar e conectar de novo;
 no cadastro responde 503 `CONEXAO_NAO_VERIFICADA`. Conclusão OAuth **recusada ou com erro de banco**
 revoga o grant recém-emitido (melhor esforço), porque ele não será guardado.
 
@@ -181,6 +183,11 @@ cai antes da resposta, o handler vê erro, revoga o grant novo e responde 503. A
 com os tokens de um grant **já revogado**. Efeito: a próxima leitura ou envio falha (fail-closed
 para o uso), mas o estado local fica inconsistente. Recuperação: desconectar pela Central (apaga a
 cópia local) e conectar de novo. Não há reconciliação automática. Registrado.
+
+**Renovação em voo sobre conexão nova (trilha OAuth, separada):** uma renovação iniciada com o
+refresh antigo pode gravar **depois** de uma nova conexão e sobrescrever os tokens novos com os
+antigos (`index.ts:165`, `guardarTokens`, sem condição). Só existe com OAuth; o token pessoal não
+renova. Limitação registrada; não corrigida nesta entrega.
 
 **Renovação OAuth ainda é upsert (não atômica com a desconexão):** `guardarTokens` na renovação
 (`garantirConexao`, só com refresh, estado EXPIRANDO) rotaciona o mesmo grant e zera
