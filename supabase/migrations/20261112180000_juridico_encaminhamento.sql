@@ -1458,14 +1458,16 @@ $function$;
 -- Painel da aba: indicadores, lotes e casos com a conferencia.
 -- CARTEIRA: ids dos alunos com bloqueio jurídico EFETIVO. Gestao ve todos; operador so os da propria
 -- carteira (responsavel_atual_email). Devolve so o id, sem nome, CPF ou valor.
--- AUTORIZACAO EXCEPCIONAL DE ENVIO (WhatsApp/documento) para aluno com bloqueio juridico efetivo.
--- So a gestao cria (_juridico_exigir_gestao). Vale para UMA conversa e UMA mensagem, por 30 minutos.
--- Nao remove o bloqueio e nao libera mensagens futuras. Nunca pelo proprio operador.
+-- AUTORIZACAO EXCEPCIONAL DE ENVIO a aluno com bloqueio juridico efetivo.
+-- Regras: so a GESTAO ATIVA cria; vinculada ao aluno, a conversa, ao TIPO (MENSAGEM ou DOCUMENTO) e ao
+-- HASH do conteudo aprovado; uso UNICO; valida 30 minutos. Alterar o conteudo exige nova autorizacao.
+-- Nao remove o bloqueio, nao altera carteira, responsavel nem status do caso. Cobranca permanece bloqueada.
 create table public.juridico_envio_autorizacoes (
   id uuid primary key default gen_random_uuid(),
   aluno_id uuid not null,
   conversa_id uuid not null,
-  finalidade text not null check (finalidade in ('ACADEMICA','ADMINISTRATIVA')),
+  tipo text not null check (tipo in ('MENSAGEM','DOCUMENTO')),
+  conteudo_hash text not null check (length(conteudo_hash) >= 16),
   motivo text not null check (length(btrim(motivo)) >= 10),
   autorizado_por text not null,
   autorizado_em timestamptz not null default now(),
@@ -1488,41 +1490,56 @@ as $function$
                     and exists (select 1 from public.casos c where c.aluno_id = jc.aluno_id and c.nao_acionar is true));
 $function$;
 
--- Checagem para os caminhos de envio (WhatsApp/documento). Sem bloqueio: passa. Com bloqueio: so com
--- autorizacao da gestao vigente para ESTA conversa; a autorizacao e gasta aqui (uma vez).
-create function public.juridico_checar_envio(p_aluno uuid, p_conversa uuid, p_operador text)
+-- Checagem do envio (mensagem ou documento). FAIL-CLOSED: qualquer erro aqui impede o envio.
+--  * sem aluno identificado: recusa (nao cria vinculo automatico)
+--  * sem bloqueio efetivo: passa
+--  * com bloqueio: so com autorizacao vigente para aluno + conversa + tipo + hash, ainda nao usada; gasta-a
+create function public.juridico_checar_envio(p_aluno uuid, p_conversa uuid, p_operador text, p_tipo text, p_conteudo_hash text)
 returns void
 language plpgsql security definer set search_path to 'public'
 as $function$
 declare v_id uuid;
 begin
-  if p_aluno is null or not public._juridico_bloqueio_efetivo(p_aluno) then return; end if;
+  if p_aluno is null then
+    raise exception 'Envio recusado: aluno não identificado. Vincule o contato a um aluno antes de enviar.' using errcode = '42501';
+  end if;
+  if p_tipo is null or p_tipo not in ('MENSAGEM','DOCUMENTO') or nullif(btrim(coalesce(p_conteudo_hash,'')), '') is null then
+    raise exception 'Envio recusado: tipo ou conteúdo não informado para a checagem.' using errcode = '22023';
+  end if;
+  if not public._juridico_bloqueio_efetivo(p_aluno) then return; end if;
   select a.id into v_id from public.juridico_envio_autorizacoes a
    where a.aluno_id = p_aluno and a.conversa_id = p_conversa
+     and a.tipo = p_tipo and a.conteudo_hash = p_conteudo_hash
      and a.usado_em is null and a.valido_ate > now()
    order by a.autorizado_em desc limit 1
    for update;
   if v_id is null then
-    raise exception 'Envio bloqueado: aluno com bloqueio jurídico. Só com autorização específica da gestão para este atendimento.'
+    raise exception 'Envio bloqueado: aluno com bloqueio jurídico. Só com autorização específica da gestão para este conteúdo.'
       using errcode = '42501';
   end if;
   update public.juridico_envio_autorizacoes set usado_em = now(), usado_por = p_operador where id = v_id;
 end;
 $function$;
 
--- Gestao autoriza UM envio academico ou administrativo para este aluno e conversa.
-create function public.juridico_autorizar_envio(p_aluno uuid, p_conversa uuid, p_finalidade text, p_motivo text)
+-- Gestao ativa autoriza UM envio (mensagem ou documento) deste conteudo para este aluno e conversa.
+create function public.juridico_autorizar_envio(p_aluno uuid, p_conversa uuid, p_tipo text, p_conteudo_hash text, p_motivo text)
 returns uuid
 language plpgsql security definer set search_path to 'public'
 as $function$
 declare v_email text := public._juridico_exigir_gestao(); v_id uuid;
 begin
+  if not exists (select 1 from public.usuarios u where lower(u.email) = v_email and u.ativo is true) then
+    raise exception 'Gestão inativa: autorização não concedida.' using errcode = '42501';
+  end if;
+  if p_tipo not in ('MENSAGEM','DOCUMENTO') or nullif(btrim(coalesce(p_conteudo_hash,'')), '') is null then
+    raise exception 'Tipo ou conteúdo não informado.' using errcode = '22023';
+  end if;
   if not public._juridico_bloqueio_efetivo(p_aluno) then
     raise exception 'O aluno não tem bloqueio jurídico efetivo: não há o que autorizar.' using errcode = 'P0001';
   end if;
   insert into public.juridico_envio_autorizacoes
-    (aluno_id, conversa_id, finalidade, motivo, autorizado_por, valido_ate)
-  values (p_aluno, p_conversa, p_finalidade, btrim(p_motivo), v_email, now() + interval '30 minutes')
+    (aluno_id, conversa_id, tipo, conteudo_hash, motivo, autorizado_por, valido_ate)
+  values (p_aluno, p_conversa, p_tipo, btrim(p_conteudo_hash), btrim(p_motivo), v_email, now() + interval '30 minutes')
   returning id into v_id;
   return v_id;
 end;
@@ -1928,7 +1945,7 @@ begin
   'public.juridico_painel()',
   'public.juridico_varrer_alertas()',
   'public.juridico_bloqueio_ids(uuid[])',
-  'public.juridico_autorizar_envio(uuid,uuid,text,text)'
+  'public.juridico_autorizar_envio(uuid,uuid,text,text,text)'
   ] loop
     execute format('revoke all on function %s from public, anon, authenticated', sig);
     execute format('grant execute on function %s to authenticated', sig);
@@ -1952,7 +1969,7 @@ begin
   'public._juridico_guarda_caso_novo()',
   'public._juridico_guarda_nao_acionar()',
   'public._juridico_bloqueio_efetivo(uuid)',
-  'public.juridico_checar_envio(uuid,uuid,text)',
+  'public.juridico_checar_envio(uuid,uuid,text,text,text)',
   'public._juridico_marca_bloqueio_compartilhado()',
   'public._juridico_so_anexa()',
   'public._juridico_registra_acordo_status()'

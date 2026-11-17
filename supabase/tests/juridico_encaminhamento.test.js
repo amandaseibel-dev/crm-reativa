@@ -536,47 +536,79 @@ describe("auditoria: pendencia de pagamento, coluna divergente e valor atual", (
     await db.close();
   });
 
-  it("envio: sem bloqueio passa; com bloqueio recusa; gestao autoriza uma vez por conversa; operador nao autoriza", async () => {
-    const db = await novo();
+  // ---- envio: checagem no servidor, fail-closed ----
+  const HASH = "sha256-conteudo-aprovado-0001";
+  const chec = (db, aluno, conv, tipo = "MENSAGEM", h = HASH) =>
+    db.query("select public.juridico_checar_envio($1,$2,'op',$3,$4)", [aluno, conv, tipo, h]);
+  const autor = (db, aluno, conv, tipo = "MENSAGEM", h = HASH) =>
+    rpc(db, "public.juridico_autorizar_envio($1,$2,$3,$4,'resposta administrativa sobre cadastro')", [aluno, conv, tipo, h]);
+  async function casoAprovado(db) {
     const a = await mk(db, { valores: [1000] });
-    const conv = U(960, 1);
-    // sem bloqueio: passa
-    await db.query("select public.juridico_checar_envio($1,$2,'op')", [a.al, conv]);
     await rpc(db, "public.juridico_lote_gerar(1)");
     const caso = await casoDe(db, a.al);
     await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
-    // com bloqueio: recusa
-    const e1 = await falha(db.query("select public.juridico_checar_envio($1,$2,'op')", [a.al, conv]));
-    expect(e1?.code).toBe("42501");
-    // operador nao autoriza
+    return { a, caso };
+  }
+
+  it("envio: sem bloqueio passa; sem aluno identificado recusa; tipo/hash vazio recusa", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    await chec(db, a.al, U(960, 1));
+    expect((await falha(chec(db, null, U(960, 1))))?.code).toBe("42501");
+    expect((await falha(chec(db, a.al, U(960, 1), "MENSAGEM", "")))?.code).toBe("22023");
+    await db.close();
+  });
+
+  it("envio: bloqueio sem autorizacao recusa; operador nao autoriza; gestao autoriza uma vez", async () => {
+    const db = await novo();
+    const { a } = await casoAprovado(db);
+    const conv = U(960, 2);
+    expect((await falha(chec(db, a.al, conv)))?.code).toBe("42501");
     await H.como(db, OPERADOR);
-    const e2 = await falha(db.query("select public.juridico_autorizar_envio($1,$2,'ADMINISTRATIVA','pedido da gestao para cadastro')", [a.al, conv]));
-    expect(e2?.code).toBe("42501");
-    // gestao autoriza UMA mensagem para ESTA conversa
+    expect((await falha(autor(db, a.al, conv)))?.code).toBe("42501");
     await H.como(db, H.GESTAO);
-    await rpc(db, "public.juridico_autorizar_envio($1,$2,'ADMINISTRATIVA','pedido da gestao para cadastro')", [a.al, conv]);
-    await db.query("select public.juridico_checar_envio($1,$2,'op')", [a.al, conv]);
-    const e3 = await falha(db.query("select public.juridico_checar_envio($1,$2,'op')", [a.al, conv]));
-    expect(e3?.code).toBe("42501");
-    // outra conversa nao herda a autorizacao
-    const e4 = await falha(db.query("select public.juridico_checar_envio($1,$2,'op')", [a.al, U(960, 2)]));
-    expect(e4?.code).toBe("42501");
-    // bloqueio continua: autorizacao nao remove o bloqueio
-    expect(await bloqueio(db, a.al)).toBe("NAO_ACIONAR_EXPLICITO");
+    await autor(db, a.al, conv);
+    await chec(db, a.al, conv);
+    expect((await falha(chec(db, a.al, conv)))?.code).toBe("42501"); // reutilizacao
+    expect(await bloqueio(db, a.al)).toBe("NAO_ACIONAR_EXPLICITO");  // autorizar nao remove o bloqueio
+    await db.close();
+  });
+
+  it("envio: conteudo alterado, outra conversa, tipo diferente e gestao inativa nao passam", async () => {
+    const db = await novo();
+    const { a } = await casoAprovado(db);
+    const conv = U(960, 3);
+    await autor(db, a.al, conv, "DOCUMENTO", HASH);
+    expect((await falha(chec(db, a.al, conv, "DOCUMENTO", HASH + "-alterado")))?.code).toBe("42501");
+    expect((await falha(chec(db, a.al, U(960, 4), "DOCUMENTO", HASH)))?.code).toBe("42501");
+    expect((await falha(chec(db, a.al, conv, "MENSAGEM", HASH)))?.code).toBe("42501");
+    await db.query("update usuarios set ativo=false where email=$1", [H.GESTAO]);
+    expect((await falha(autor(db, a.al, conv, "MENSAGEM", "outro-conteudo-aprovado-0002")))?.code).toBe("42501");
+    await db.query("update usuarios set ativo=true where email=$1", [H.GESTAO]);
     await db.close();
   });
 
   it("envio: autorizacao vencida nao vale", async () => {
     const db = await novo();
-    const a = await mk(db, { valores: [1000] });
-    const conv = U(961, 1);
-    await rpc(db, "public.juridico_lote_gerar(1)");
-    const caso = await casoDe(db, a.al);
-    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
-    await rpc(db, "public.juridico_autorizar_envio($1,$2,'ACADEMICA','resposta sobre matricula do aluno')", [a.al, conv]);
+    const { a } = await casoAprovado(db);
+    const conv = U(960, 5);
+    await autor(db, a.al, conv);
     await db.query("update juridico_envio_autorizacoes set valido_ate = now() - interval '1 minute'");
-    const e = await falha(db.query("select public.juridico_checar_envio($1,$2,'op')", [a.al, conv]));
-    expect(e?.code).toBe("42501");
+    expect((await falha(chec(db, a.al, conv)))?.code).toBe("42501");
+    await db.close();
+  });
+
+  it("envio: autorizacao nao altera carteira, responsavel nem status do caso", async () => {
+    const db = await novo();
+    const { a, caso } = await casoAprovado(db);
+    const antes = (await db.query("select responsavel_atual_email, status_atual from alunos where id=$1", [a.al])).rows[0];
+    const casoAntes = (await db.query("select status_atual, operador_email from casos where id=$1", [a.cs])).rows[0];
+    const conv = U(960, 6);
+    await autor(db, a.al, conv);
+    await chec(db, a.al, conv);
+    expect((await db.query("select responsavel_atual_email, status_atual from alunos where id=$1", [a.al])).rows[0]).toEqual(antes);
+    expect((await db.query("select status_atual, operador_email from casos where id=$1", [a.cs])).rows[0]).toEqual(casoAntes);
+    expect((await db.query("select status from juridico_casos where id=$1", [caso.id])).rows[0].status).toBe("APROVADO");
     await db.close();
   });
 
