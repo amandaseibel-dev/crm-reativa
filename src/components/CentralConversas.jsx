@@ -5,6 +5,7 @@
 // (aluno_id). O envio fica bloqueado: esta tela não tem conexão individual.
 import { Link } from "react-router-dom";
 import ConversaUlbra from "./ConversaUlbra";
+import ConexaoTokenPessoal from "./ConexaoTokenPessoal";
 import { fmtEspera, hrefFicha, nomeCurto } from "../utils/ulbraCentral";
 
 const ROTULO_TIPO = {
@@ -83,6 +84,7 @@ export default function CentralConversas({
   // Conexão individual do operador: { estado, pessoa, envioReal }. Sem ATIVA/EXPIRANDO, não há envio.
   conexao = null,
   onConectar,
+  onCadastrarToken,
   onDesconectar,
   // Envio em duas etapas: prévia (custo/janela) e confirmação (chave idempotente).
   onPrevia,
@@ -195,6 +197,7 @@ export default function CentralConversas({
                       Conectar minha conta da Mensageria (abre a ULBRA; consumo de cota ainda não comprovado)
                     </button>
                   ) : null}
+                  {onCadastrarToken ? <ConexaoTokenPessoal onCadastrar={onCadastrarToken} /> : null}
                 </>
               ) : (
                 <>

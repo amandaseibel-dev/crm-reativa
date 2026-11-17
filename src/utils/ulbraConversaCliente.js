@@ -37,6 +37,8 @@ export function conexaoEstado() { return chamar("ulbra-conversa", { acao: "conex
 export function conexaoIniciar() { return chamar("ulbra-conversa", { acao: "conexao_iniciar" }); }
 export function conexaoConcluir(code, state) { return chamar("ulbra-conversa", { acao: "conexao_concluir", code, state }); }
 export function conexaoDesconectar() { return chamar("ulbra-conversa", { acao: "conexao_desconectar" }); }
+/** Token pessoal (piloto). O valor segue só no corpo da chamada HTTPS; a resposta nunca o devolve. */
+export function conexaoTokenPessoal(token, validadeDias) { return chamar("ulbra-conversa", { acao: "conexao_token_pessoal", token, validade_dias: validadeDias }); }
 
 /**
  * Prévia registrada no servidor: valida agora e guarda por validade curta. Nada é enviado

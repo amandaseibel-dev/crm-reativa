@@ -24,6 +24,7 @@ import { type Envio, type PedidoEnvio, type RepositorioEnvio, type ResultadoEnvi
 import { confirmarPrevia, criarPrevia, type PreviaRegistro, type RepositorioPrevia } from "./previa.ts";
 import { podeConferir } from "./conferencia.ts";
 import { capacidadeHistorico, lerHistoricoAutorizado, type DepsHistorico } from "./historico-leitura.ts";
+import { cadastrarTokenPessoal } from "./token-pessoal.ts";
 
 // A3: leitura GLOBAL só pela regra temLeituraGlobal (leitura.ts): amanda.seibel e cobranca04. O restante lê só a própria carteira/responsabilidade.
 
@@ -107,9 +108,12 @@ Deno.serve(async (req: Request) => {
   }
 
   // Dependências que exigem configuração: só quando a ação precisa delas.
-  const precisaOauth = ["conexao_iniciar", "conexao_concluir", "conexao_desconectar", "envio_previa", "envio_confirmar", "conexao_estado", "historico_ler"].includes(acao);
-  if (precisaOauth && (!clientId || !redirectUri || !chaveHex)) {
-    return responder({ ok: false, motivo: "CONEXAO_NAO_CONFIGURADA", detalhe: "client_id/redirect_uri/chave de cifra ausentes no ambiente da função" }, 503);
+  // OAuth (client_id e redirect_uri) só nas ações do fluxo OAuth. As demais precisam só da chave de cifra:
+  // o token pessoal (piloto) não passa pelo OAuth, e envio/histórico usam a conexão já gravada.
+  const precisaOauth = ["conexao_iniciar", "conexao_concluir"].includes(acao);
+  const precisaChave = ["conexao_token_pessoal", "conexao_desconectar", "conexao_estado", "envio_previa", "envio_confirmar", "historico_ler", "historico_capacidade"].includes(acao);
+  if ((precisaOauth && (!clientId || !redirectUri || !chaveHex)) || (precisaChave && !chaveHex)) {
+    return responder({ ok: false, motivo: "CONEXAO_NAO_CONFIGURADA", detalhe: "configuração ausente no ambiente da função (client_id/redirect_uri para OAuth; chave de cifra para as demais)" }, 503);
   }
   const chave = chaveHex ? chaveDeHex(chaveHex) : null;
 
@@ -251,6 +255,46 @@ Deno.serve(async (req: Request) => {
       return responder({ ok: true, estado: estadoConexao(r, Date.now()), pessoa: c?.pessoa_nome ?? null, escopos: c?.escopos ?? null, so_leitura: c?.so_leitura ?? null, conectada_em: c?.conectada_em ?? null, envio_real: envioReal });
     }
 
+    // Token pessoal (piloto): a pessoa dona do token precisa ser o usuário logado. Auditoria ANTES de gravar.
+    if (acao === "conexao_token_pessoal") {
+      const token = typeof corpo.token === "string" ? corpo.token : "";
+      const validade = Number(corpo.validade_dias);
+      try {
+        const r = await cadastrarTokenPessoal({
+          email,
+          agoraMs: Date.now(),
+          identidadeDoToken: async (t) => {
+            const { dados } = await chamarComoOperador(t, "meu_acesso", {});
+            const a = dados as { pessoa?: { nome?: string; email?: string }; escopos?: unknown; soLeitura?: unknown };
+            return {
+              pessoa_email: a?.pessoa?.email ?? null,
+              pessoa_nome: a?.pessoa?.nome ?? null,
+              escopos: a?.escopos ?? null,
+              so_leitura: typeof a?.soLeitura === "boolean" ? a.soLeitura : null,
+            };
+          },
+          guardar: async (dados, extra) => {
+            const audito = await auditar("ULBRA_CONEXAO_TOKEN_PESSOAL", "ulbra_conexoes_operador", {
+              pessoa_email: extra.pessoa_email ?? null,
+              validade_dias: validade,
+              escopos: extra.escopos ?? null,
+            });
+            if (!audito) throw new Error("AUDITORIA_NAO_GRAVADA");
+            await guardarTokens({ access_token: dados.access_token, refresh_token: null, expira_em_ms: dados.expira_em_ms }, extra);
+          },
+        }, token, validade);
+        if (!r.ok) {
+          const status = r.motivo === "MENSAGERIA_INDISPONIVEL" ? 502 : r.motivo === "IDENTIDADE_DIVERGENTE" ? 403 : 400;
+          return responder({ ok: false, motivo: r.motivo }, status);
+        }
+        return responder({ ok: true, ...r });
+      } catch (e) {
+        if ((e as Error).message === "AUDITORIA_NAO_GRAVADA") return responder({ ok: false, motivo: "AUDITORIA_NAO_GRAVADA" }, 500);
+        console.error("ulbra-conversa: cadastro de token pessoal falhou", (e as Error).message);
+        return responder({ ok: false, motivo: "FALHA_CADASTRO_TOKEN" }, 500);
+      }
+    }
+
     if (acao === "conexao_iniciar") {
       const p = await gerarPkce();
       await sb.from("ulbra_conexoes_pedidos").delete().eq("operador_email", email);
@@ -292,13 +336,23 @@ Deno.serve(async (req: Request) => {
     if (acao === "conexao_desconectar") {
       const r = await lerRegistro();
       if (!r) return responder({ ok: true, estado: "SEM_CONEXAO" });
+      // Token pessoal (sem refresh_token): não há revogação por API neste backend. Apaga a cópia local
+      // e pede a revogação na Mensageria. NÃO se afirma revogação no provedor.
+      const pessoal = r.refresh_token === null;
       let noProvedor = false;
-      try { await provedorOAuth.revogar(r.refresh_token ?? r.access_token); noProvedor = true; } catch { noProvedor = false; }
+      if (!pessoal) {
+        try { await provedorOAuth.revogar(r.refresh_token ?? r.access_token); noProvedor = true; } catch { noProvedor = false; }
+      }
       // A4: sem confirmação do provedor, a credencial CONTINUA guardada (cifrada) para tentar a revogação de novo.
       // Localmente ela já está revogada (revogada_em): nenhuma leitura ou envio a usa.
-      const apagar = noProvedor ? { access_token_cifrado: null, refresh_token_cifrado: null } : {};
+      const apagar = noProvedor || pessoal ? { access_token_cifrado: null, refresh_token_cifrado: null } : {};
       await sb.from("ulbra_conexoes_operador").update({ revogada_em: new Date().toISOString(), revogada_no_provedor: noProvedor, ...apagar, atualizado_em: new Date().toISOString() }).eq("operador_email", email);
-      return responder({ ok: true, estado: "REVOGADA", revogada_no_provedor: noProvedor });
+      return responder({
+        ok: true,
+        estado: "REVOGADA",
+        revogada_no_provedor: noProvedor,
+        revogacao_manual_necessaria: pessoal ? "Revogue o token em MCP › Tokens pessoais na Mensageria. Desconectar aqui apaga só a cópia do CRM." : null,
+      });
     }
 
     // Histórico sob demanda com a CONEXÃO INDIVIDUAL do operador (nunca a credencial central). Só leitura.

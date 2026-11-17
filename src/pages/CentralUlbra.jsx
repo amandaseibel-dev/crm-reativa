@@ -27,7 +27,7 @@ import MensageriaPeriodo from "../components/MensageriaPeriodo";
 import { supabase } from "../services/supabase";
 import { buscarFilaCarteira } from "../utils/filaCarteiraServidor";
 import {
-  conexaoDesconectar, conexaoEstado, conexaoIniciar, envioConfirmar, envioPrevia, historicoCapacidade, lerHistorico, mapearHistorico, resumirPrevia,
+  conexaoDesconectar, conexaoEstado, conexaoIniciar, conexaoTokenPessoal, envioConfirmar, envioPrevia, historicoCapacidade, lerHistorico, mapearHistorico, resumirPrevia,
 } from "../utils/ulbraConversaCliente";
 import usePolling from "../utils/polling";
 import { normalizarEmail } from "../utils/ulbraRecebimento";
@@ -320,6 +320,12 @@ export default function CentralUlbra({ usuario }) {
     const r = await conexaoDesconectar();
     setConexao({ estado: r?.estado || "REVOGADA", pessoa: null, envioReal: conexao?.envioReal === true });
   }
+  // Token pessoal: o valor vai só para a função (HTTPS) e não fica em estado nem em storage.
+  async function cadastrarToken(token, validadeDias) {
+    const r = await conexaoTokenPessoal(token, validadeDias);
+    if (r?.ok) setConexao({ estado: "ATIVA", pessoa: r.pessoa ?? null, envioReal: conexao?.envioReal === true });
+    return r;
+  }
   async function previaDe(sel, texto) {
     const conversaId = conversaIdDe(sel);
     if (!conversaId) return { ok: false, recusa: "Esta linha não tem conversa na Mensageria.", custo_usd: null, janela_aberta: null };
@@ -483,6 +489,7 @@ export default function CentralUlbra({ usuario }) {
           onCarregarHistorico={podeVerConversa ? carregarHistorico : undefined}
           conexao={conexao}
           onConectar={conversaNoAr ? conectar : undefined}
+          onCadastrarToken={conversaNoAr ? cadastrarToken : undefined}
           onDesconectar={conversaNoAr ? desconectar : undefined}
           onPrevia={previaDe}
           onEnviar={enviarDe}
