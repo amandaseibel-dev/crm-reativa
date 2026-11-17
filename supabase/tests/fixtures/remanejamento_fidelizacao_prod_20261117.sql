@@ -1434,7 +1434,7 @@ CREATE TRIGGER trigger_impor_teto_operador AFTER UPDATE ON public.casos FOR EACH
 -- ADENDO: funcoes de producao que a #936 exige no estado anterior (precheck
 -- "esperava as 7 funcoes"). Definicoes por pg_get_functiondef em 17/11/2026,
 -- md5(prosrc) conferido abaixo. Sem edicao manual.
-create role if not exists reativa_responsavel_executor nologin;
+do $$ begin if not exists (select 1 from pg_roles where rolname = 'reativa_responsavel_executor') then create role reativa_responsavel_executor nologin; end if; end $$;
 
 -- public.assumir_caso_livre · md5(prosrc) 607a8b4fb8a0aba2f0ecda830b1c6e2c · owner postgres · acl {postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}
 CREATE OR REPLACE FUNCTION public.assumir_caso_livre(p_caso_id uuid)
