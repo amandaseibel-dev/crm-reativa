@@ -4,7 +4,7 @@
 // Portão, nesta ordem:
 //  1. identidade confirmada (aluno vinculado por CPF). Sem isso, nada é lido;
 //  2. permissão: o operador é o dono da carteira do aluno OU o responsável
-//     pelo atendimento. Gestão tem acesso pela própria tela, não por este caminho;
+//     pelo atendimento. Leitura global só pela regra temLeituraGlobal (amanda.seibel e cobranca04);
 //  3. só então a conversa é lida na Mensageria, uma página por vez.
 //
 // Nada é gravado em massa: o texto volta para a tela e não é persistido aqui.

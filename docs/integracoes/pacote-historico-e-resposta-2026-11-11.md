@@ -32,6 +32,7 @@ Preparado em 11/11/2026. **Nenhuma mensagem enviada, nenhuma credencial alterada
 - `ULBRA_OAUTH_REDIRECT_URI` — `https://crm-reativa.vercel.app/ulbra/conectado` (igual ao registrado).
 - `ULBRA_TOKENS_CHAVE` — 64 hex (32 bytes) gerados fora do banco; cifra os tokens em repouso. Sem ela, a função responde `CONEXAO_NAO_CONFIGURADA` e nada funciona.
 - `ULBRA_ENVIO_REAL` — ausente/`false` por padrão: só prévia; `true` só após o roteiro do primeiro envio real (`docs/integracoes/roteiro-envio-real-ulbra.md`).
+- `ULBRA_CONTRATO_PREVIA_CONFIRMADO` — também obrigatório: o envio real exige as DUAS chaves (`ulbra-conversa/index.ts:85-87`). Sem o contrato da prévia confirmado, nenhum envio sai.
 - `ULBRA_MCP_TOKEN` (já existe) — usado **só** pelo histórico (leitura).
 
 ## 5. Custos por ação (cota de 500/dia por pessoa)
@@ -47,7 +48,7 @@ Preparado em 11/11/2026. **Nenhuma mensagem enviada, nenhuma credencial alterada
 - Lógica: `oauth.test.ts` (PKCE, URL, troca/renovação/revogação com fetch simulado, retorno do navegador), `cripto` (AES-GCM), `conexao.test.ts` (11), `envio.test.ts` (45), `leitura.test.ts` (17). Não há mais `historico.test.ts`: a função `ulbra-historico` foi removida do repositório.
 - Tela: `ulbraConversaCliente.test.js` (chamadas com JWT, mapeamento, prévia), `ConversaUlbra.test.jsx` (duas etapas, idempotência, falha incerta, bloqueio), `UlbraConectado.test.jsx`, `CentralUlbra.test.jsx` (histórico só com clique, conectar abre a URL, prévia → confirmação com chave, carteira interna sem histórico/envio), `CentralConversas.test.jsx`.
 - CI: `deno check` de `ulbra-conversa` (job `ulbra-conversa-deno-check`); `ulbra-historico` foi removida do repositório e não tem job. Teste de acesso da RPC: job `ulbra-historico-portao-pglite` (npm ci + run.mjs).
-- **Não provado:** forma exata das respostas de `meu_acesso`/`enviar_mensagem_whatsapp` (campos de custo/janela/id); a função trata ausências sem inventar valores e a prévia mostra "não informado".
+- **Não provado:** forma exata das respostas de `meu_acesso`/`enviar_mensagem_whatsapp` (campos de custo/janela/id); a função trata ausências sem inventar valores e a prévia mostra "validade não informada" (custo não exibido).
 
 ## 7. Ordem após aprovação (cada passo com a sua autorização)
 1. TI da ULBRA: `client_id` + `redirect_uri` registrados (único item externo).
@@ -56,7 +57,7 @@ Preparado em 11/11/2026. **Nenhuma mensagem enviada, nenhuma credencial alterada
 4. Segredos `ULBRA_OAUTH_CLIENT_ID`, `ULBRA_OAUTH_REDIRECT_URI`, `ULBRA_TOKENS_CHAVE` (gestão, fora de transcript); publicar `ulbra-conversa` (verify_jwt ligado). `ULBRA_HISTORICO_HABILITADO` fica ausente (leitura desligada) até decisão da gestão. A `ulbra-historico` não entra neste pacote.
 5. Validação de leitura com a gestão e com um operador (histórico de 1 conversa: 1 chamada).
 6. Conexão de 1 operador piloto (1 `meu_acesso` da cota dele) e **prévia** de uma resposta (1 chamada) — sem `ULBRA_ENVIO_REAL`.
-7. Primeiro envio real só pelo roteiro aprovado (destinatário interno, texto fixo, 1 mensagem, autoria conferida na Mensageria), ligando `ULBRA_ENVIO_REAL=true` para a janela e desligando depois, até decisão de liberação.
+7. Pré-condição (antes de QUALQUER passo acima): contenção da v1 `ulbra-historico` verificada (função ausente e endpoint indisponível). Primeiro envio real só pelo roteiro aprovado (destinatário interno, texto fixo, 1 mensagem, autoria conferida na Mensageria), ligando `ULBRA_ENVIO_REAL=true` para a janela e desligando depois, até decisão de liberação.
 
 ## 8. Fora deste pacote
 Campanhas, criação de atendimentos, transferências, administração de operadores (ver `mensageria-ulbra-capacidades-mcp-2026-11-11.md`); coleta automática; o pacote de 12/11.
