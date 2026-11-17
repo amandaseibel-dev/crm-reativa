@@ -72,7 +72,8 @@ describe("conversa sem vínculo nunca é lida", () => {
 });
 
 describe("porta da Central", () => {
-  it("com HISTORICO_DISPONIVEL desligada, nenhum item pode ler o histórico (nem botão nem chamada)", () => {
-    expect(podeLerHistoricoNaCentral({ tipo: "resposta", alunoId: "al-1", bruto: { conversa_id: "c1" } })).toBe(false);
+  it("com a porta ligada, só item com vínculo confirmado pode ler; sem vínculo, nunca (nem chamada)", () => {
+    expect(podeLerHistoricoNaCentral({ tipo: "resposta", alunoId: "al-1", bruto: { conversa_id: "c1" } })).toBe(true);
+    expect(podeLerHistoricoNaCentral({ tipo: "resposta", alunoId: null, bruto: { conversa_id: "c1" } })).toBe(false);
   });
 });

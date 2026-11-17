@@ -10,7 +10,9 @@ describe("podeVerHistorico — visibilidade vem do servidor (capacidade_historic
   it("com capacidade concedida pelo servidor, a linha mostra o botão", () => {
     expect(podeVerHistorico({ aluno_id: "al-1", capacidade_historico: true })).toBe(true);
   });
-  it("a porta nasce desligada: sem função publicada não há botão", () => {
-    expect(HISTORICO_DISPONIVEL).toBe(false);
+  it("a porta de tela está ligada, mas sem capacidade do servidor não há botão (bloqueio efetivo no backend)", () => {
+    expect(HISTORICO_DISPONIVEL).toBe(true);
+    expect(podeVerHistorico({ aluno_id: "al-1", minha: true, capacidade_historico: false })).toBe(false);
+    expect(podeVerHistorico({ aluno_id: "al-1", minha: true })).toBe(false);
   });
 });

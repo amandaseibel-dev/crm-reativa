@@ -47,9 +47,9 @@ describe("visão Mensageria — botão Histórico", () => {
   beforeEach(() => { rpc.mockReset(); rpc.mockResolvedValue({ data: PERIODO_OPERADOR, error: null }); });
   afterEach(() => cleanup());
 
-  it("porta desligada (padrão): nenhum botão, nenhuma chamada, e o aviso diz que o histórico não está disponível", async () => {
+  it("porta desligada na tela: nenhum botão, nenhuma chamada, e o aviso diz que o histórico não está disponível", async () => {
     const leitor = vi.fn();
-    montar({ leitorHistorico: leitor });
+    montar({ leitorHistorico: leitor, historicoDisponivel: false });
     await waitFor(() => expect(screen.getByTestId("mensageria-conversas").querySelectorAll("li").length).toBe(3));
     expect(botoes()).toHaveLength(0);
     expect(screen.getByTestId("mensageria-limites").textContent).toMatch(/Histórico completo e resposta pelo CRM ainda não estão disponíveis/);

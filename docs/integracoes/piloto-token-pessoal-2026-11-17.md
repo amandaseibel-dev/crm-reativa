@@ -214,7 +214,60 @@ linha. Não afeta o piloto (token pessoal não renova). Registrado; tratar em fr
 
 **Rollback:** remove só a função. Sem ela, nenhuma conexão é gravada (fail-closed).
 
+## Habilitação da interface (HISTORICO_DISPONIVEL) e bloqueio efetivo
+
+- `src/utils/ulbraHistorico.js`: `HISTORICO_DISPONIVEL = true` **neste commit**, testado e revisado,
+  e não na hora do merge.
+- O bloqueio efetivo continua no backend: sem `ULBRA_HISTORICO_HABILITADO=true`, a função
+  `historico_capacidade` responde `pode: false` (`historico-leitura.ts`, `capacidadeHistorico`).
+  Sem capacidade, a Central não mostra o botão e não chama `historico_ler`.
+- Testes desta combinação: `ulbraHistorico.test.js` (porta de tela ligada e sem capacidade = sem botão);
+  `ulbraHistoricoSelecao.test.js` (vínculo confirmado é pré-requisito); `MensageriaPeriodo.historico.test.jsx`
+  (porta desligada explícita = sem botão); `CentralUlbra.test.jsx` (capacidade negada = sem chamada).
+- Observação de teste: no conjunto completo, `CentralUlbra.test.jsx` e `bordero.test.js` tiveram
+  falha de tempo limite sob carga paralela; passaram isolados (93 testes). Declarado, não ignorado.
+
+## Recuperação (corrigida)
+
+**Não** usar "remover `ULBRA_TOKENS_CHAVE`" como recuperação: se houver tokens cifrados, a chave é
+necessária para decifrá-los e para desconectar com segurança. Ela é preservada em todos os casos.
+
+| Situação | Ação | Efeito | Não faz |
+|---|---|---|---|
+| Parar a leitura | remover `ULBRA_HISTORICO_HABILITADO` | leitura recusada (`HISTORICO_DESLIGADO`); botão some | não apaga dados |
+| Parar o envio | `ULBRA_ENVIO_REAL` e `ULBRA_CONTRATO_PREVIA_CONFIRMADO` ausentes (estado inicial) | prévia e envio bloqueados | não apaga dados |
+| Desconectar um operador | `conexao_desconectar` pela Central | apaga a cópia cifrada local; OAuth tenta revogar no provedor; token pessoal exige revogação manual em MCP › Tokens pessoais | não afeta outros operadores |
+| Tirar a função de conexão do ar | despublicar `ulbra-conversa` | "função indisponível" na tela; nenhuma leitura nem gravação | não apaga tabelas nem segredos |
+| Reverter a função atômica | `…atomica.rollback.sql` (só `DROP FUNCTION`) | nenhuma conexão nova é gravada (fail-closed) | não apaga conexões existentes |
+| Reverter as tabelas | `…conexao_individual_e_envio.rollback.sql` | **recusa** se houver linhas em `ulbra_conexoes_operador`, `ulbra_conexoes_pedidos`, `ulbra_envio_previas` ou `ulbra_envios`; só executa com as quatro vazias | não é reversão com histórico: após uso real, desativar em vez de reverter |
+
+- "Reimplantar versão anterior" **não se aplica**: `ulbra-conversa` não existe em produção, então não há
+  versão anterior. A recuperação é despublicar (tabela de linha acima).
+- Auditoria (`ULBRA_CONEXAO_TOKEN_PESSOAL`, `ULBRA_HISTORICO_LEITURA`) **não** é apagada por nenhum rollback.
+- Aluno de teste: **nunca** excluído automaticamente na recuperação se já houver vínculo, atendimento ou
+  histórico. A exclusão é decisão manual, caso a caso.
+- A função antiga `ulbra-historico` **não** é restaurada em nenhum caminho.
+
+## Aluno, vínculo e atendimento (etapas separadas)
+
+1. **Cadastro do aluno:** pelo formulário existente, com CPF preenchido por você. Responsável inicial:
+   a gestora. Não cria caso, título, acordo ou pagamento.
+2. **Vínculo alta_cpf:** pela `ulbra-consultar` (publicada). Exige que o CPF bata com o cliente da Mensageria
+   (conferido por leitura, sem repetir o valor). Não depende de atendimento.
+3. **Atribuição do aluno a João:** mecanismo existente do CRM, a verificar antes de executar. **Não comprova**
+   responsabilidade na Mensageria.
+4. **Atendimento espelhado:** a sincronização (`ulbra-sincronizar`, publicada) espelha só atendimentos em
+   espera (`situacao: "waiting"`). **Não** presumir que uma mensagem sua cria atendimento novo em espera;
+   confirmar por leitura depois do envio.
+5. **João assume:** `ulbra_atendimento_assumir` (publicada) exige espelho + vínculo `alta_cpf` + João logado.
+   Só depois, `ulbra_atendimentos.responsavel_email` = João, e a leitura da ficha fica autorizada para ele.
+6. **Leitura:** João usa a própria credencial individual. Não há leitura global para João.
+
 ## O que continua não comprovado
+
+- Criação de atendimento em espera por mensagem recebida (etapa 4).
+- Formato de sucesso e recusa da Mensageria no envio (permanece desligado).
+- Itens da lista anterior.
 
 - Autoria real da mensagem e permissões mínimas: só com envio real controlado, aprovado.
 - Comportamento do token revogado na Mensageria: só com teste real.

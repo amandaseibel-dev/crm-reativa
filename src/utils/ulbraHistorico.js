@@ -13,7 +13,7 @@
 // hoje a lista fica fechada. A conversa usa historico_capacidade do servidor.
 // A função reconfere tudo no servidor; aqui é só para não oferecer um clique negado.
 // ===========================================================================
-export const HISTORICO_DISPONIVEL = false;
+export const HISTORICO_DISPONIVEL = true;
 
 // Visibilidade vem do SERVIDOR, não de lista de perfil nem de regra de responsável duplicada aqui.
 export function podeVerHistorico(linha) {
