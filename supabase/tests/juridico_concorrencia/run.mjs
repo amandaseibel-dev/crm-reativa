@@ -294,6 +294,32 @@ async function main() {
     await H.end(); await W.end(); await M.end(); await s.end();
   });
 
+  // ---- 7. GUARDA BEFORE SOB ESPERA: liberar nao_acionar enquanto a aprovacao nao commitou NAO pode passar ----
+  await caso("liberacao de nao_acionar que espera a aprovacao e recusada depois do commit; a protecao fica", async () => {
+    const s = await cliente(); await comoGestao(s);
+    const H = await cliente(), W = await cliente(), M = await cliente();
+    const x = await criarAlunoComCaso(s);
+    await comoGestao(H);
+    await H.query("begin");
+    await H.query("select public.juridico_caso_aprovar($1)", [x.caso]);
+    const pidW = (await W.query("select pg_backend_pid() p")).rows[0].p;
+    const w = W.query("update casos set nao_acionar = false where id = $1", [x.cs]).then(() => null, (e) => e);
+    let esperando = false;
+    for (let k = 0; k < 100 && !esperando; k++) {
+      const r2 = await M.query("select wait_event_type t from pg_stat_activity where pid=$1", [pidW]);
+      esperando = r2.rows[0]?.t === "Lock";
+      if (!esperando) await new Promise((q) => setTimeout(q, 50));
+    }
+    assert.ok(esperando, "a liberacao devia esperar a aprovacao (Lock)");
+    await H.query("commit");
+    const err = await w;
+    assert.ok(err, "a liberacao nao pode passar depois da aprovacao commitada");
+    assert.equal(err.code, "42501");
+    const nao = (await s.query("select nao_acionar from casos where id=$1", [x.cs])).rows[0].nao_acionar;
+    assert.equal(nao, true, "a protecao tem que continuar ligada");
+    await H.end(); await W.end(); await M.end(); await s.end();
+  });
+
   // ---- 5. CASCATA: o update do aluno para JURIDICO atualiza casos; casos travados -----------
   await caso("casos do aluno travados por outra sessao: aprovacao recusada em tempo limitado, sem alteracao", async () => {
     const s5 = await cliente(); await comoGestao(s5);

@@ -1748,13 +1748,22 @@ returns trigger
 language plpgsql security definer set search_path to 'public'
 as $function$
 begin
-  if coalesce(old.nao_acionar, false) is true and coalesce(new.nao_acionar, false) is false
-     and coalesce(current_setting('juridico.desbloqueio', true), '') <> 'on'
-     and exists (select 1 from public.juridico_casos jc
-                  where jc.aluno_id = old.aluno_id
-                    and jc.status in ('APROVADO','ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO')) then
-    raise exception 'Cobrança jurídica ativa: o bloqueio de cobrança só é liberado pela remoção do caso na aba Jurídico.'
-      using errcode = '42501';
+  -- Liberacao (nao_acionar = false) sem a GUC da remocao: so passa se NAO houver encaminhamento ativo.
+  -- Trava ANTES de decidir: a aprovacao em outra sessao pode ainda nao ter commitado quando este
+  -- gatilho roda (BEFORE). O FOR SHARE espera a aprovacao terminar e le o estado commitado.
+  -- Nao usa old.nao_acionar: esse valor e o de antes da espera e pode estar desatualizado.
+  if coalesce(new.nao_acionar, false) is false
+     and coalesce(current_setting('juridico.desbloqueio', true), '') <> 'on' then
+    perform 1 from public.juridico_casos jc
+     where jc.aluno_id = new.aluno_id
+       and jc.status in ('APROVADO','ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO')
+     for share;
+    if exists (select 1 from public.juridico_casos jc
+                where jc.aluno_id = new.aluno_id
+                  and jc.status in ('APROVADO','ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO')) then
+      raise exception 'Cobrança jurídica ativa: o bloqueio de cobrança só é liberado pela remoção do caso na aba Jurídico.'
+        using errcode = '42501';
+    end if;
   end if;
   return new;
 end;
