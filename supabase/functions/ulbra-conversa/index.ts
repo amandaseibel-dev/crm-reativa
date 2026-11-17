@@ -262,8 +262,12 @@ Deno.serve(async (req: Request) => {
       try {
         // Não sobrescreve uma conexão OAuth ativa (grant com refresh): o upsert zeraria o refresh local,
         // e o grant seguiria válido no provedor sem cópia nem revogação. Desconecte o OAuth antes.
-        const atual = await lerRegistro();
-        if (atual && atual.refresh_token !== null && atual.revogada_em_ms === null) {
+        // Fail-closed: se não consegue ler a conexão atual, não grava (sem isso, uma falha de leitura
+        // deixaria passar a sobrescrita). Consulta direta, para tratar o erro do banco.
+        const { data: atual, error: erroLeitura } = await sb.from("ulbra_conexoes_operador")
+          .select("refresh_token_cifrado, revogada_em").eq("operador_email", email).maybeSingle();
+        if (erroLeitura) return responder({ ok: false, motivo: "CONEXAO_NAO_VERIFICADA" }, 503);
+        if (atual && atual.refresh_token_cifrado && !atual.revogada_em) {
           return responder({ ok: false, motivo: "CONEXAO_OAUTH_ATIVA" }, 409);
         }
         const r = await cadastrarTokenPessoal({

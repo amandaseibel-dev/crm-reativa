@@ -118,6 +118,13 @@ Rodado localmente com vitest. O Deno do `ulbra-conversa` roda só no CI.
   sem controle.
 - Correção: `conexao_token_pessoal` **recusa** com `409 CONEXAO_OAUTH_ATIVA` quando há conexão OAuth
   ativa com refresh. O operador desconecta o OAuth antes (o que tenta a revogação no provedor).
+- **Fail-closed em erro de leitura:** a consulta da conexão atual trata o erro do banco. Se não
+  conseguir ler, responde `503 CONEXAO_NAO_VERIFICADA` e não grava.
+- **Limites declarados do guard:**
+  - não é atômico: uma conclusão OAuth concorrente entre a leitura e o upsert não é bloqueada.
+    Probabilidade baixa para uma operadora; registrado;
+  - o guard só considera conexão com `refresh_token`. Uma conexão OAuth **sem refresh** (trilha B,
+    caso raro) é sobrescrita sem recusa, e o grant segue válido no provedor até expirar. Registrado;
 - Estado real, consulta read-only em produção: a tabela `ulbra_conexoes_operador` **ainda não existe**
   (migration `20261111140000` não aplicada). Portanto não há linha OAuth da gestora hoje. O caso só
   se torna possível após aplicar a migration e conectar por OAuth; a recusa acima o cobre.
