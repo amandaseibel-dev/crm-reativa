@@ -20,7 +20,7 @@
 # Resultados e códigos de saída:
 #   NAO_APLICA            (0) nenhum caminho Prime nem compartilhado relevante foi alterado.
 #   PRESENCA_VERIFICADA   (0) algum dos três obrigatórios foi tocado e os três estão no ramo.
-#                             Verifica SÓ presença e toque. Conteúdo e necessidade de atualização
+#                             Verifica SÓ presença dos três e toque de pelo menos um. Conteúdo e necessidade de atualização
 #                             dos cinco NÃO são verificados: a revisão humana de coerência continua.
 #   REVISAO_HUMANA        (3) há código, migração ou compartilhado Prime alterado sem os três
 #                             obrigatórios, ou só documento Prime auxiliar foi alterado. Exige revisão
@@ -82,6 +82,6 @@ for alvo in prime-api.md prime-api-catalog.json prime-mapa-fontes-verdade.md; do
   printf '%s\n' "$existentes" | grep -qx "docs/integracoes/$alvo" || faltam="$faltam $alvo"
 done
 if [ -n "$faltam" ]; then echo "FALTAM:$faltam"; exit 2; fi
-echo "PRESENCA_VERIFICADA: os três obrigatórios estão no ramo. Presença e toque conferidos; conteúdo e necessidade de atualização dos cinco NÃO verificados. Revisão humana de coerência continua obrigatória."
+echo "PRESENCA_VERIFICADA: os três obrigatórios estão no ramo. Presença dos três conferida e toque de pelo menos um conferido; conteúdo e necessidade de atualização dos cinco NÃO verificados. Revisão humana de coerência continua obrigatória."
 echo "(prime-mapa-identificadores.md e prime-gaps.md: conferir quando aplicável.)"
 exit 0

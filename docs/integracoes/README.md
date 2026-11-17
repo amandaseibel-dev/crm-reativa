@@ -46,7 +46,7 @@ Mudança mista com impacto Prime aciona a regra. Quando o script não consegue d
 código, migração ou compartilhado Prime alterado sem os três obrigatórios, ou só documento Prime auxiliar. Isso é uma
 pendência, não aprovação. Resolve-se na revisão da PR: o Guardião a reporta como pendente, e um humano registra a decisão
 (descoberta documentada nos cinco, ou ajuste sem descoberta com justificativa) no próprio texto da PR. `PRESENCA_VERIFICADA`
-(saída 0) confere só presença e toque dos três; conteúdo e necessidade de atualização não são verificados, e a revisão de
+(saída 0) confere só presença dos três e toque de pelo menos um; conteúdo e necessidade de atualização não são verificados, e a revisão de
 coerência continua obrigatória quando houver possível descoberta Prime.
 
 ## Documentos
