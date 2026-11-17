@@ -34,7 +34,6 @@ jobs:
       PGUSER: postgres
       PGPASSWORD: postgres
       T: "300"
-      LOGS: ${{ runner.temp }}/remanejamento-logs
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -69,6 +68,8 @@ jobs:
 
       - name: prova (dependencia, perfis, prazo, destinos, saldo, concorrencia, rollback)
         timeout-minutes: 25
+        env:
+          LOGS: ${{ runner.temp }}/remanejamento-logs
         run: |
           set -uo pipefail
           mkdir -p "$LOGS"
