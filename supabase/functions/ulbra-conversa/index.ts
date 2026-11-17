@@ -23,7 +23,6 @@ import { estadoConexao, garantirConexao, type ProvedorOAuth, type RegistroConexa
 import { enviarResposta, type Envio, type PedidoEnvio, type RepositorioEnvio, type ResultadoEnvio } from "./envio.ts";
 import { confirmarPrevia, criarPrevia, type PreviaRegistro, type RepositorioPrevia } from "./previa.ts";
 import { podeConferir } from "./conferencia.ts";
-import { mapearPagina, permitirLeitura, temLeituraGlobal, type ContextoLeitura } from "./leitura.ts";
 import { capacidadeHistorico, lerHistoricoAutorizado, type DepsHistorico } from "./historico-leitura.ts";
 
 // A3: leitura GLOBAL só pela regra temLeituraGlobal (leitura.ts): amanda.seibel e cobranca04. O restante lê só a própria carteira/responsabilidade.

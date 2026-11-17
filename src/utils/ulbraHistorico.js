@@ -7,15 +7,15 @@
 // uma PR de uma linha, depois da publicação — ordem do pacote
 // `docs/integracoes/pacote-historico-e-resposta-2026-11-11.md`.
 //
-// podeVerHistorico: só conversa com CPF confirmado (`aluno_id`) e só quem a
-// função também aceita — gestão (perfil amplo) ou o responsável da linha
-// (`minha`). A função reconfere tudo no servidor; aqui é só para não oferecer
-// um clique que seria negado.
+// podeVerHistorico: só mostra o botão quando o servidor marca a linha com
+// capacidade_historico === true. Esse campo é o contrato da lista: a RPC
+// ulbra_central_conversas_periodo AINDA NÃO o produz (migration pendente), então
+// hoje a lista fica fechada. A conversa usa historico_capacidade do servidor.
+// A função reconfere tudo no servidor; aqui é só para não oferecer um clique negado.
 // ===========================================================================
 export const HISTORICO_DISPONIVEL = false;
 
-// A visibilidade vem do SERVIDOR: a linha traz capacidade_historico, calculada pela mesma regra de historico_capacidade.
-// Não há lista de perfil nem regra de responsável duplicada aqui.
+// Visibilidade vem do SERVIDOR, não de lista de perfil nem de regra de responsável duplicada aqui.
 export function podeVerHistorico(linha) {
   return Boolean(linha) && linha.capacidade_historico === true;
 }
