@@ -28,6 +28,11 @@ export function historicoCapacidade(conversaId) {
   return chamar("ulbra-conversa", { acao: "historico_capacidade", conversa_id: conversaId });
 }
 
+/** Resposta pela conversa: capacidade calculada pelo SERVIDOR. A prévia e o envio revalidam tudo. */
+export function envioCapacidade(conversaId) {
+  return chamar("ulbra-conversa", { acao: "envio_capacidade", conversa_id: conversaId });
+}
+
 /** Histórico sob demanda: 1 chamada por página, com a conexão individual do operador. */
 export function lerHistorico(conversaId, antesDe = null) {
   return chamar("ulbra-conversa", { acao: "historico_ler", conversa_id: conversaId, antes_de: antesDe });

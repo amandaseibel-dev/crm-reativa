@@ -27,6 +27,8 @@ const cliente = {
   conexaoEstado: vi.fn(), conexaoIniciar: vi.fn(), conexaoDesconectar: vi.fn(),
   lerHistorico: vi.fn(), envioPrevia: vi.fn(), envioConfirmar: vi.fn(),
   historicoCapacidade: vi.fn(async () => ({ ok: true, pode: true })),
+  // Resposta: capacidade do servidor por conversa. Padrão: pode (os testes de composer dependem disso).
+  envioCapacidade: vi.fn(async () => ({ ok: true, pode: true })),
 };
 vi.mock("../utils/ulbraConversaCliente", async () => {
   const real = await vi.importActual("../utils/ulbraConversaCliente");
@@ -40,6 +42,7 @@ vi.mock("../utils/ulbraConversaCliente", async () => {
     envioConfirmar: (...a) => cliente.envioConfirmar(...a),
     // Capacidade do servidor: nos testes do bloco sob demanda, a gestão de teste pode ler.
     historicoCapacidade: (...a) => cliente.historicoCapacidade(...a),
+    envioCapacidade: (...a) => cliente.envioCapacidade(...a),
   };
 });
 

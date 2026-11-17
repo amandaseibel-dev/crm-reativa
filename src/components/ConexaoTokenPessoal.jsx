@@ -17,6 +17,7 @@ const ROTULO_MOTIVO_TOKEN = {
   CONEXAO_OAUTH_ATIVA:"Você já tem uma conexão OAuth ativa. Desconecte-a antes de cadastrar o token pessoal, para não deixar acesso válido sem controle.",
   AUDITORIA_NAO_GRAVADA:"Não foi possível registrar a auditoria, então nada foi guardado. Tente de novo.",
   FALHA_CADASTRO_TOKEN: "Não foi possível cadastrar o token agora. Nada foi guardado.",
+  RESULTADO_INCERTO: "Não foi possível confirmar se o token foi guardado. Antes de tentar de novo, veja o estado da conexão na Central (ou desconecte e cadastre outra vez).",
 };
 
 export default function ConexaoTokenPessoal({ onCadastrar }) {

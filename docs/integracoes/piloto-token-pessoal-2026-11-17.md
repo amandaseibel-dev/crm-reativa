@@ -11,8 +11,10 @@ sem envio real e sem alterar o OAuth existente, que fica para evolução posteri
   2. `meu_acesso` com o próprio token; a pessoa dona do token precisa ser o usuário
      logado (e-mail comparado sem maiúsculas, nunca pelo nome);
   3. só então grava, cifrado, sem `refresh_token`, com validade fixa.
-- `index.ts`, ação `conexao_token_pessoal`: auditoria `ULBRA_CONEXAO_TOKEN_PESSOAL`
-  **antes** de gravar; se a auditoria falhar, nada é guardado. A resposta não traz o token.
+- `index.ts`, ação `conexao_token_pessoal`: auditoria `ULBRA_CONEXAO_TOKEN_PESSOAL` em três registros,
+  `TENTATIVA` (antes; se falhar, nada é tentado), depois `SUCESSO` ou `RECUSA` com o motivo, ou
+  `RESULTADO_INCERTO` quando o banco não confirma. Sucesso só é registrado após a gravação atômica confirmada.
+  A resposta não traz o token.
 - `index.ts`, `conexao_desconectar`: para token pessoal, apaga a cópia local e **não**
   afirma revogação no provedor. Devolve `revogacao_manual_necessaria`.
 - Configuração: envio, leitura e conexão de token pessoal exigem só `ULBRA_TOKENS_CHAVE`.
@@ -142,15 +144,13 @@ Rodado localmente com vitest. O Deno do `ulbra-conversa` roda só no CI.
 - **Sem `ULBRA_OAUTH_CLIENT_ID`**, a renovação OAuth deve falhar e a conexão deve virar
   `EXPIRADA` (fail-closed). Não testado: nenhum teste prova a falha do provedor com `client_id` ausente. Antes, a ação devolvia 503 `CONEXAO_NAO_CONFIGURADA`; agora o erro sai pela
   renovação. Isso é mudança de comportamento e está declarada aqui.
-- **Auditoria antes da gravação:** se a gravação falhar depois da auditoria, a auditoria
-  registra uma tentativa que não se concretizou. Preferível a gravar sem auditoria.
-- **Conclusão OAuth com erro da ferramenta** (`conexao_concluir`): responde 502
-  `MENSAGERIA_INDISPONIVEL` e **não** grava nem revoga. O token OAuth recém-emitido fica sem
-  uso até expirar. Não é divergência de identidade, e não se revoga por erro transitório.
-  - Inclui **401/403** logo após emitir o token (`ULBRA_AUTENTICACAO`): também vira 502 e não
-    recusa. Fail-closed; caso não separado antes desta revisão.
-  - O `refresh_token` OAuth, se emitido, **continua válido no provedor** até expirar. O CRM não
-    o guarda, mas não o revoga neste caminho.
+- **Auditoria:** tentativa, sucesso, recusa e resultado incerto são registros distintos (ver topo).
+  Falha ao gravar a tentativa impede a tentativa. Sucesso não é registrado antes da gravação confirmada.
+- **Conclusão OAuth com erro da ferramenta** (`conexao_concluir`): responde 502 `MENSAGERIA_INDISPONIVEL`.
+  O grant recém-emitido é descartado: revoga **access e refresh**, cada um por chamada, sem presumir cascata
+  (`grant.ts`). Se a revogação falhar, o grant vai para **quarentena** (cifrado, marcado como revogado,
+  sem pessoa), para que desconectar possa tentar revogar depois. Nunca é usado para leitura ou envio.
+  Inclui 401/403 logo após emitir o token.
 - **Wiring sem teste automatizado:** os caminhos de `index.ts` (identidade OAuth, token pessoal,
   wiring de `lerConversa`) não são cobertos pelos testes, que usam dependências simuladas.
   Verificados só por leitura e pela revisão do Guardião. Gap registrado.
@@ -179,24 +179,19 @@ aplicada, a tabela `ulbra_conexoes_operador` não existe e **nenhuma conexão po
 no cadastro responde 503 `CONEXAO_NAO_VERIFICADA`. Conclusão OAuth **recusada ou com erro de banco**
 revoga o grant recém-emitido (melhor esforço), porque ele não será guardado.
 
-**Erro ambíguo do banco (commit seguido de falha de resposta):** se a função commita e a conexão
-cai antes da resposta, o handler vê erro, revoga o grant novo e responde 503. A linha local fica
-com os tokens de um grant **já revogado** (**só no caso OAuth**; no token pessoal não há revogação e o token gravado continua válido no provedor). Efeito: a próxima leitura ou envio falha (fail-closed
-para o uso), mas o estado local fica inconsistente. Recuperação: desconectar pela Central (apaga a
-cópia local) e conectar de novo. Não há reconciliação automática. Registrado.
+**Erro ambíguo do banco (commit seguido de falha de resposta):** o token pessoal responde
+`RESULTADO_INCERTO` (503) e **não afirma sucesso nem falha**; a auditoria registra `RESULTADO_INCERTO`.
+Na conclusão OAuth, o handler descarta o grant novo, mas a linha pode ter sido gravada antes da falha:
+fica com tokens de um grant já revogado (fail-closed para o uso; estado local inconsistente).
+Recuperação: ver o estado na Central, desconectar e conectar de novo. Não há reconciliação automática.
 
-**Renovação em voo sobre conexão nova (trilha OAuth, separada):** uma renovação iniciada com o
-refresh antigo pode gravar **depois** de uma nova conexão e sobrescrever os tokens novos com os
-antigos (`index.ts:165`, `guardarTokens`, sem condição). Só existe com OAuth; o token pessoal não
-renova. Limitação registrada; não corrigida nesta entrega.
-
-**Renovação OAuth ainda é upsert (não atômica com a desconexão):** `guardarTokens` na renovação
-(`garantirConexao`, só com refresh, estado EXPIRANDO) rotaciona o mesmo grant e zera
-`revogada_em`. Uma renovação que chega depois de uma desconexão confirmada poderia reativar a
-linha. Não afeta o piloto (token pessoal não renova). Registrado; tratar em frente própria.
+**Renovação OAuth com compare-and-set (corrigida nesta revisão):** a renovação lê o estado (refresh cifrado e
+`revogada_em`) antes da troca e grava **só se a linha continuar igual** (`UPDATE ... WHERE refresh_token_cifrado = <lido> AND revogada_em IS NULL`).
+Uma desconexão ou conexão nova no meio da renovação faz a gravação não acontecer e os tokens recém-emitidos
+são descartados (`renovacao.ts`). Não há mais `upsert` na renovação. Testado com linha em memória que simula a concorrência.
 
 **Testes:**
-- Unitários (local, Vitest): `token-pessoal.test.ts` (9) e `token-pessoal-atomico.test.ts` (8),
+- Unitários (local, Vitest): `grant.test.ts` (4: revoga access e refresh, quarentena, pendente), `renovacao.test.ts` (4: concorrência de desconexão e de conexão nova), `token-pessoal.test.ts` (9) e `token-pessoal-atomico.test.ts` (8),
   com armazenamento falso que serializa gravações. Erro de gravação sem gravação; OAuth com e sem
   refresh preservado; concorrência token x token e token x OAuth. Modelam a trava, não a provam.
 - Banco real (CI, Postgres 17, job `ulbra-conexao-envio-sql`, passo novo):
@@ -205,12 +200,11 @@ linha. Não afeta o piloto (token pessoal não renova). Registrado; tratar em fr
   Só vale quando o job rodar verde.
 
 **Limites que permanecem:**
-- Tentativa recusada continua **auditada** como `ULBRA_CONEXAO_TOKEN_PESSOAL` (a auditoria vem antes
-  da gravação, para falhar fechado). Registro de tentativa, não de cadastro.
+- Tentativa recusada fica auditada como `RECUSA` (com o motivo). Sucesso só como `SUCESSO`.
 - Troca de modalidade (OAuth para token, ou o inverso) exige **desconexão explícita** antes. A
   desconexão sem confirmação do provedor mantém o refresh e continua bloqueando (ver acima).
 - Credencial OAuth ainda válida no provedor, em caso de falha de revogação, precisa de revogação
-  manual na Mensageria. O CRM não a elimina sozinho.
+  manual na Mensageria, ou de desconexão posterior (quarentena). O comportamento do provedor ao revogar não foi comprovado.
 
 **Rollback:** remove só a função. Sem ela, nenhuma conexão é gravada (fail-closed).
 

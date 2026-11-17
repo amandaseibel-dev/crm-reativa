@@ -168,6 +168,30 @@ describe("trava de etapa: OAuth e envio sem backend", () => {
     expect(document.querySelector('[data-campo="conectar"]')).toBeTruthy();
   });
 
+  it("conexão ATIVA mas envio real desligado no servidor: resposta bloqueada (capacidade do servidor)", () => {
+    const ativa = { estado: "ATIVA", pessoa: "Operador", envioReal: false };
+    tela({ selecionadoChave: "r:c1", conexao: ativa, onConectar: () => {}, onPrevia: () => {}, onEnviar: () => {} });
+    const area = screen.queryByLabelText("Resposta");
+    if (area) expect(area.disabled).toBe(true);
+    expect(document.querySelector('[data-campo="confirmar"]')).toBeNull();
+  });
+
+  it("conexão ATIVA, envio real e capacidade do servidor para esta conversa: resposta liberada", () => {
+    const ativa = { estado: "ATIVA", pessoa: "Operador", envioReal: true };
+    tela({ selecionadoChave: "r:c1", conexao: ativa, podeResponder: true, historico: { estado: "ok", mensagens: [] }, onConectar: () => {}, onPrevia: () => {}, onEnviar: () => {} });
+    const area = screen.queryByLabelText("Resposta");
+    expect(area).toBeTruthy();
+    expect(area.disabled).toBe(false);
+  });
+
+  it("conexão ATIVA sem capacidade do servidor para a conversa: resposta fechada (padrão)", () => {
+    const ativa = { estado: "ATIVA", pessoa: "Operador", envioReal: true };
+    tela({ selecionadoChave: "r:c1", conexao: ativa, historico: { estado: "ok", mensagens: [] }, onConectar: () => {}, onPrevia: () => {}, onEnviar: () => {} });
+    const area = screen.queryByLabelText("Resposta");
+    if (area) expect(area.disabled).toBe(true);
+    expect(document.querySelector('[data-campo="confirmar"]')).toBeNull();
+  });
+
   it("sem backend, o envio segue bloqueado: nada de previa nem de confirmar", () => {
     tela({ selecionadoChave: "r:c1", conexao: SEM_CONEXAO });
     expect(document.querySelector('[data-campo="confirmar"]')).toBeNull();

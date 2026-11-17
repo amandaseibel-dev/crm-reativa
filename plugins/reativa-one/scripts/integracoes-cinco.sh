@@ -20,11 +20,9 @@ if ! git rev-parse --verify --quiet "$base" >/dev/null; then
   exit 2
 fi
 
-# Escopo: só a família Prime (prime-*). Docs de Mensageria, pacotes e rollbacks não são descoberta Prime.
-# Antes, qualquer arquivo sob docs/integracoes/ acionava a checagem: erro de seleção, não dependência real.
-mudou="$(git diff --no-renames --name-only "$base"...HEAD -- docs/integracoes/ 2>/dev/null | grep -E '^docs/integracoes/prime-[^/]*$' || true)"
+mudou="$(git diff --name-only "$base"...HEAD -- docs/integracoes/ 2>/dev/null)"
 if [ -z "$mudou" ]; then
-  echo "Nenhum arquivo prime-* de docs/integracoes/ alterado neste ramo — nada a conferir."
+  echo "docs/integracoes/: nada alterado neste ramo — nada a conferir."
   exit 0
 fi
 
@@ -32,17 +30,9 @@ echo "docs/integracoes/ alterado neste ramo:"
 printf '%s\n' "$mudou" | sed 's/^/  · /'
 echo
 
-# A regra dos cinco é do PRIME. Só mudança de documento prime-* a aciona.
-# Mensageria (mensageria-ulbra.md, central-*, pacote-*, roteiro-*) tem fonte própria e fica fora.
-mudou_prime="$(printf '%s\n' "$mudou" | grep -E '/prime-[^/]*$' || true)"
-if [ -z "$mudou_prime" ]; then
-  echo "Nenhum documento prime-* alterado: a regra dos cinco do Prime não se aplica a este ramo."
-  exit 0
-fi
-
 faltam=""
 for alvo in prime-api.md prime-api-catalog.json prime-mapa-fontes-verdade.md; do
-  if ! printf '%s' "$mudou_prime" | grep -q "$alvo"; then
+  if ! printf '%s' "$mudou" | grep -q "$alvo"; then
     faltam="$faltam $alvo"
   fi
 done

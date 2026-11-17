@@ -23,9 +23,11 @@ import { estadoConexao, garantirConexao, type ProvedorOAuth, type RegistroConexa
 import { type Envio, type PedidoEnvio, type RepositorioEnvio, type ResultadoEnvio } from "./envio.ts";
 import { confirmarPrevia, criarPrevia, type PreviaRegistro, type RepositorioPrevia } from "./previa.ts";
 import { podeConferir } from "./conferencia.ts";
-import { capacidadeHistorico, lerHistoricoAutorizado, type DepsHistorico } from "./historico-leitura.ts";
-import { pilotoPermiteLeitura } from "./piloto-leitura.ts";
+import { executarAcaoHistorico } from "./historico-acao.ts";
+import { decidirResposta } from "./autorizacao-resposta.ts";
 import { cadastrarTokenPessoal } from "./token-pessoal.ts";
+import { descartarGrant } from "./grant.ts";
+import { gravarRenovacaoSe, type EstadoLinha, type GuardaRenovacao } from "./renovacao.ts";
 
 // A3: leitura GLOBAL só pela regra temLeituraGlobal (leitura.ts): amanda.seibel e cobranca04. O restante lê só a própria carteira/responsabilidade.
 
@@ -112,7 +114,7 @@ Deno.serve(async (req: Request) => {
   // OAuth (client_id e redirect_uri) só nas ações do fluxo OAuth. As demais precisam só da chave de cifra:
   // o token pessoal (piloto) não passa pelo OAuth, e envio/histórico usam a conexão já gravada.
   const precisaOauth = ["conexao_iniciar", "conexao_concluir"].includes(acao);
-  const precisaChave = ["conexao_token_pessoal", "conexao_desconectar", "conexao_estado", "envio_previa", "envio_confirmar", "historico_ler", "historico_capacidade"].includes(acao);
+  const precisaChave = ["conexao_token_pessoal", "conexao_desconectar", "conexao_estado", "envio_previa", "envio_confirmar", "envio_capacidade", "historico_ler", "historico_capacidade"].includes(acao);
   if ((precisaOauth && (!clientId || !redirectUri || !chaveHex)) || (precisaChave && !chaveHex)) {
     return responder({ ok: false, motivo: "CONEXAO_NAO_CONFIGURADA", detalhe: "configuração ausente no ambiente da função (client_id/redirect_uri para OAuth; chave de cifra para as demais)" }, 503);
   }
@@ -131,17 +133,11 @@ Deno.serve(async (req: Request) => {
       pessoa_nome: c.pessoa_nome ?? null,
     };
   }
-  async function guardarTokens(t: { access_token: string; refresh_token: string | null; expira_em_ms: number }, extra: Record<string, unknown> = {}) {
-    await sb.from("ulbra_conexoes_operador").upsert({
-      operador_email: email,
-      access_token_cifrado: await cifrar(t.access_token, chave!),
-      refresh_token_cifrado: t.refresh_token ? await cifrar(t.refresh_token, chave!) : null,
-      expira_em: new Date(t.expira_em_ms).toISOString(),
-      revogada_em: null,
-      revogada_no_provedor: null,
-      atualizado_em: new Date().toISOString(),
-      ...extra,
-    });
+  // Estado mínimo da linha para a renovação com compare-and-set (renovacao.ts).
+  async function lerEstadoLinha(): Promise<EstadoLinha | null> {
+    const { data: c } = await sb.from("ulbra_conexoes_operador").select("refresh_token_cifrado, revogada_em").eq("operador_email", email).maybeSingle();
+    if (!c) return null;
+    return { refresh_cifrado: (c.refresh_token_cifrado as string | null) ?? null, revogada: c.revogada_em != null };
   }
   // Gravação ATÔMICA (migration 20261117120000, pendente): checa e grava sob trava da linha.
   // Devolve 'EXISTENTE' se já há credencial (ativa ou não confirmada como removida): nada é sobrescrito.
@@ -160,10 +156,43 @@ Deno.serve(async (req: Request) => {
     if (error) throw new Error("VERIFICACAO_INDISPONIVEL");
     return data === "GRAVADA" ? "GRAVADA" : "EXISTENTE";
   }
+  const revogarTokenNoProvedor = async (tk: string) => { await provedorOAuth.revogar(tk); };
   const provedorOAuth: ProvedorOAuth = {
     async renovar(refreshToken) {
+      // Estado ANTES da troca. A gravação só acontece se a linha ainda estiver igual (CAS).
+      const antes = await lerEstadoLinha();
       const t = await renovarToken({ clientId: clientId!, refreshToken }, fetchForm, Date.now());
-      await guardarTokens(t);
+      const novo = {
+        access_cifrado: await cifrar(t.access_token, chave!),
+        refresh_cifrado: t.refresh_token ? await cifrar(t.refresh_token, chave!) : null,
+        expira_em_ms: t.expira_em_ms,
+      };
+      const guarda: GuardaRenovacao = {
+        ler: lerEstadoLinha,
+        async gravarSe(esperado, n) {
+          let q = sb.from("ulbra_conexoes_operador")
+            .update({ access_token_cifrado: n.access_cifrado, refresh_token_cifrado: n.refresh_cifrado, expira_em: new Date(n.expira_em_ms).toISOString(), atualizado_em: new Date().toISOString() })
+            .eq("operador_email", email)
+            .is("revogada_em", null);
+          q = esperado.refresh_cifrado === null ? q.is("refresh_token_cifrado", null) : q.eq("refresh_token_cifrado", esperado.refresh_cifrado);
+          const { data, error } = await q.select("operador_email");
+          if (error) throw new Error("RENOVACAO_NAO_GRAVADA");
+          return (data?.length ?? 0) === 1;
+        },
+      };
+      let r: "GRAVADA" | "CONEXAO_MUDOU";
+      try {
+        r = await gravarRenovacaoSe(guarda, antes, novo);
+      } catch (e) {
+        // Não gravou: os tokens novos não têm cópia. Descarta (revoga) e falha a renovação.
+        await descartarGrant(t, { revogar: revogarTokenNoProvedor });
+        throw e;
+      }
+      if (r !== "GRAVADA") {
+        // Conexão mudou (desconectada ou substituída) durante a renovação: não reativa nem sobrescreve.
+        await descartarGrant(t, { revogar: revogarTokenNoProvedor });
+        throw new Error("CONEXAO_MUDOU");
+      }
       return t;
     },
     async revogar(tk) { await revogarToken({ clientId: clientId!, token: tk }, fetchForm); },
@@ -273,13 +302,17 @@ Deno.serve(async (req: Request) => {
       return responder({ ok: true, estado: estadoConexao(r, Date.now()), pessoa: c?.pessoa_nome ?? null, escopos: c?.escopos ?? null, so_leitura: c?.so_leitura ?? null, conectada_em: c?.conectada_em ?? null, envio_real: envioReal });
     }
 
-    // Token pessoal (piloto): a pessoa dona do token precisa ser o usuário logado. Auditoria ANTES de gravar.
+    // Token pessoal (piloto). Auditoria em TRÊS registros, nunca um sucesso antes da hora:
+    //  TENTATIVA (antes; falha = nada é tentado), depois SUCESSO ou RECUSA conforme o resultado
+    //  já confirmado pela gravação atômica, ou RESULTADO_INCERTO quando o banco não confirma.
     if (acao === "conexao_token_pessoal") {
       const token = typeof corpo.token === "string" ? corpo.token : "";
       const validade = Number(corpo.validade_dias);
+      const tentativa = await auditar("ULBRA_CONEXAO_TOKEN_PESSOAL", "ulbra_conexoes_operador", { resultado: "TENTATIVA", validade_dias: validade });
+      if (!tentativa) return responder({ ok: false, motivo: "AUDITORIA_NAO_GRAVADA" }, 500);
       try {
         // Sem leitura prévia: a checagem e a gravação são UMA operação atômica no banco
-        // (ulbra_gravar_conexao, com trava da linha). Erro do banco = nada gravado (503).
+        // (ulbra_gravar_conexao, com trava da linha). Erro do banco = resultado incerto (503).
         const r = await cadastrarTokenPessoal({
           email,
           agoraMs: Date.now(),
@@ -296,26 +329,31 @@ Deno.serve(async (req: Request) => {
             };
           },
           guardar: async (dados, extra) => {
-            const audito = await auditar("ULBRA_CONEXAO_TOKEN_PESSOAL", "ulbra_conexoes_operador", {
-              pessoa_email: extra.pessoa_email ?? null,
-              validade_dias: validade,
-              escopos: extra.escopos ?? null,
-            });
-            if (!audito) throw new Error("AUDITORIA_NAO_GRAVADA");
+            // Só grava. A auditoria de sucesso/recusa é feita depois, com o resultado confirmado.
             return await gravarConexaoAtomica({ access_token: dados.access_token, refresh_token: null, expira_em_ms: dados.expira_em_ms }, extra);
           },
         }, token, validade);
+        const aud = await auditar("ULBRA_CONEXAO_TOKEN_PESSOAL", "ulbra_conexoes_operador", {
+          resultado: r.ok ? "SUCESSO" : "RECUSA",
+          motivo: r.ok ? null : r.motivo,
+          validade_dias: validade,
+        });
         if (!r.ok) {
           const status = r.motivo === "MENSAGERIA_INDISPONIVEL" ? 502 : r.motivo === "IDENTIDADE_DIVERGENTE" ? 403 : r.motivo === "CONEXAO_EXISTENTE" ? 409 : 400;
           return responder({ ok: false, motivo: r.motivo }, status);
         }
-        return responder({ ...r });
+        // A gravação já está confirmada. Se só a auditoria falhou, o sucesso continua real: sinaliza a lacuna.
+        return responder({ ...r, auditoria_registrada: aud });
       } catch (e) {
         const msg = (e as Error).message;
-        if (msg === "AUDITORIA_NAO_GRAVADA") return responder({ ok: false, motivo: "AUDITORIA_NAO_GRAVADA" }, 500);
-        if (msg === "VERIFICACAO_INDISPONIVEL") return responder({ ok: false, motivo: "CONEXAO_NAO_VERIFICADA" }, 503);
+        if (msg === "VERIFICACAO_INDISPONIVEL") {
+          // Resultado NÃO confirmado: o banco pode ter gravado. Não se afirma sucesso nem falha.
+          await auditar("ULBRA_CONEXAO_TOKEN_PESSOAL", "ulbra_conexoes_operador", { resultado: "RESULTADO_INCERTO", validade_dias: validade });
+          return responder({ ok: false, motivo: "RESULTADO_INCERTO" }, 503);
+        }
         console.error("ulbra-conversa: cadastro de token pessoal falhou", msg);
-        return responder({ ok: false, motivo: "FALHA_CADASTRO_TOKEN" }, 500);
+        await auditar("ULBRA_CONEXAO_TOKEN_PESSOAL", "ulbra_conexoes_operador", { resultado: "RESULTADO_INCERTO", validade_dias: validade });
+        return responder({ ok: false, motivo: "RESULTADO_INCERTO" }, 503);
       }
     }
 
@@ -351,25 +389,36 @@ Deno.serve(async (req: Request) => {
         indisponivel = true;
         console.error("ulbra-conversa: meu_acesso do operador falhou", (e as Error).message);
       }
-      if (indisponivel) return responder({ ok: false, motivo: "MENSAGERIA_INDISPONIVEL" }, 502);
-      // A2: o operador A não pode conectar a conta B. Pessoa divergente ou ausente: revoga e não guarda nada.
-      if (((pessoa.pessoa_email as string | null) ?? "").toLowerCase() !== email) {
-        let revogadaNoProvedor = false;
-        try { await provedorOAuth.revogar(t.access_token); revogadaNoProvedor = true; } catch { revogadaNoProvedor = false; }
-        return responder({ ok: false, motivo: "IDENTIDADE_DIVERGENTE", revogada_no_provedor: revogadaNoProvedor }, 403);
+      if (indisponivel) {
+        // Identidade não conferida: o grant não pode virar conexão sem prova de autoria.
+        // Descarta (revoga access e refresh). Se a revogação falhar, guarda em quarentena REVOGADA
+        // para que desconectar possa revogar depois. Nunca é usado para envio ou leitura.
+        const d = await descartarGrant(t, {
+          revogar: revogarTokenNoProvedor,
+          quarentena: () => gravarConexaoAtomica(t, { conectada_em: new Date().toISOString(), pessoa_nome: null, pessoa_email: null, escopos: null, so_leitura: null }),
+          marcarRevogada: async () => {
+            const { error } = await sb.from("ulbra_conexoes_operador").update({ revogada_em: new Date().toISOString(), revogada_no_provedor: false }).eq("operador_email", email).is("pessoa_email", null);
+            if (error) throw new Error("QUARENTENA_NAO_MARCADA");
+          },
+        });
+        return responder({ ok: false, motivo: "MENSAGERIA_INDISPONIVEL", revogado_no_provedor: d.revogado, em_quarentena: d.quarentena }, 502);
       }
-      // Gravação atômica: se já há credencial (token pessoal ou OAuth), não substitui. O grant recém-emitido
-      // não será guardado, então é revogado (melhor esforço). Troca exige desconexão explícita antes.
+      // A2: o operador A não pode conectar a conta B. Pessoa divergente ou ausente: descarta e não guarda nada.
+      if (((pessoa.pessoa_email as string | null) ?? "").toLowerCase() !== email) {
+        const d = await descartarGrant(t, { revogar: revogarTokenNoProvedor });
+        return responder({ ok: false, motivo: "IDENTIDADE_DIVERGENTE", revogada_no_provedor: d.revogado }, 403);
+      }
+      // Gravação atômica: se já há credencial, não substitui. O grant novo é descartado (revoga access e refresh).
       let gravacao: "GRAVADA" | "EXISTENTE";
       try {
         gravacao = await gravarConexaoAtomica(t, { conectada_em: new Date().toISOString(), ...pessoa });
       } catch {
-        // Erro do banco: o grant novo não foi guardado. Revoga (melhor esforço) para não ficar válido sem cópia.
-        try { await provedorOAuth.revogar(t.access_token); } catch { /* melhor esforço */ }
+        // Erro do banco: o grant novo não foi guardado. Descarta (melhor esforço).
+        await descartarGrant(t, { revogar: revogarTokenNoProvedor });
         return responder({ ok: false, motivo: "CONEXAO_NAO_VERIFICADA" }, 503);
       }
       if (gravacao === "EXISTENTE") {
-        try { await provedorOAuth.revogar(t.access_token); } catch { /* melhor esforço: o token expira */ }
+        await descartarGrant(t, { revogar: revogarTokenNoProvedor });
         return responder({ ok: false, motivo: "CONEXAO_EXISTENTE" }, 409);
       }
       return responder({ ok: true, estado: "ATIVA", pessoa: pessoa.pessoa_nome ?? null, escopos: pessoa.escopos ?? null, escopo_token: t.escopo });
@@ -398,17 +447,14 @@ Deno.serve(async (req: Request) => {
     }
 
     // Histórico sob demanda com a CONEXÃO INDIVIDUAL do operador (nunca a credencial central). Só leitura.
-    // Histórico: a decisão vive em historico-leitura.ts (testada). Aqui só monta as dependências reais.
+    // A decisão (flag, piloto, capacidade, leitura, auditoria) vive em historico-acao.ts, testada com
+    // transporte simulado. Aqui ficam só os adaptadores reais.
     if (acao === "historico_ler" || acao === "historico_capacidade") {
-      const conversaId = typeof corpo.conversa_id === "string" ? corpo.conversa_id : "";
-      const antesDe = typeof corpo.antes_de === "string" && corpo.antes_de ? corpo.antes_de : null;
-      const deps: DepsHistorico = {
+      const s = await executarAcaoHistorico(acao, corpo, {
         email,
         usuarioAtivo: usuario?.ativo === true,
-        // Piloto: além da flag, só quem está em ULBRA_HISTORICO_PILOTO_EMAILS (fail-closed se vazia).
-        flagLigada: Deno.env.get("ULBRA_HISTORICO_HABILITADO") === "true" && pilotoPermiteLeitura(email, Deno.env.get("ULBRA_HISTORICO_PILOTO_EMAILS")),
-        conversaId,
-        antesDe,
+        habilitadoEnv: Deno.env.get("ULBRA_HISTORICO_HABILITADO") === "true",
+        listaPilotoEnv: Deno.env.get("ULBRA_HISTORICO_PILOTO_EMAILS"),
         buscarClienteDaConversa: async (id: string) => {
           const { data } = await sb.from("ulbra_conversas").select("ulbra_cliente_id").eq("ulbra_conversa_id", id).maybeSingle();
           return (data?.ulbra_cliente_id as string | undefined) ?? null;
@@ -433,13 +479,41 @@ Deno.serve(async (req: Request) => {
         },
         lerConversa: (token, args) => chamarComoOperador(token, "ler_conversa", args),
         auditar: (detalhes) => auditar("ULBRA_HISTORICO_LEITURA", "ulbra_conversas", detalhes),
-      };
-      if (acao === "historico_capacidade") {
-        const c = await capacidadeHistorico(deps);
-        return responder({ ok: true, ...c });
-      }
-      const s = await lerHistoricoAutorizado(deps);
+      });
       return responder(s.corpo, s.status);
+    }
+
+    // Decisão de RESPONDER um atendimento (regra única: autorizacao-resposta.ts). Usada pela capacidade,
+    // pela prévia e pela confirmação. Não cria nada; só lê o espelho e a conexão.
+    async function decisaoParaAtendimento(atendimentoId: string | null, conversaEspelhada: boolean) {
+      const conn = await garantirConexao(await lerRegistro(), provedorOAuth, Date.now());
+      let ativo: string | null = null;
+      let responsavel: string | null = null;
+      if (atendimentoId) {
+        const { data: at } = await sb.from("ulbra_atendimentos").select("responsavel_email, dispensado_em").eq("ulbra_atendimento_id", atendimentoId).maybeSingle();
+        if (at && !at.dispensado_em) { ativo = atendimentoId; responsavel = (at.responsavel_email as string | null) ?? null; }
+      }
+      return decidirResposta({
+        envioReal,
+        conexaoOk: conn.ok,
+        pessoaConexao: conn.ok ? conn.registro.pessoa_email : null,
+        email,
+        espelhada: conversaEspelhada,
+        atendimentoAtivoId: ativo,
+        responsavelAtivo: responsavel,
+      });
+    }
+
+    if (acao === "envio_capacidade") {
+      const conversaId = typeof corpo.conversa_id === "string" && /^[a-f0-9]{24}$/.test(corpo.conversa_id) ? corpo.conversa_id : "";
+      const { data: cv } = conversaId ? await sb.from("ulbra_conversas").select("ulbra_cliente_id").eq("ulbra_conversa_id", conversaId).maybeSingle() : { data: null };
+      let atendimentoAtivo: string | null = null;
+      if (cv) {
+        const { data: ativo } = await sb.from("ulbra_atendimentos").select("ulbra_atendimento_id").eq("ulbra_cliente_id", cv.ulbra_cliente_id).is("dispensado_em", null).order("entrou_em", { ascending: false }).limit(1).maybeSingle();
+        atendimentoAtivo = (ativo?.ulbra_atendimento_id as string | undefined) ?? null;
+      }
+      const d = await decisaoParaAtendimento(atendimentoAtivo, cv !== null);
+      return responder({ ok: true, pode: d.pode, motivo: d.motivo });
     }
 
     if (acao === "envio_previa") {
@@ -460,6 +534,8 @@ Deno.serve(async (req: Request) => {
       if (!conn.ok) return responder({ ok: false, situacao: "BLOQUEADO", motivos: [conn.motivo] }, 403);
       // A2: a conta conectada precisa ser a do próprio usuário autenticado. Divergência bloqueia, sem envio nem leitura.
       if ((conn.registro.pessoa_email ?? "").toLowerCase() !== email) return responder({ ok: false, situacao: "BLOQUEADO", motivos: ["IDENTIDADE_DIVERGENTE"] }, 403);
+      const dP = await decisaoParaAtendimento(atendimentoId, true);
+      if (dP.motivo === "ATENDIMENTO_NAO_RESPONSAVEL" || dP.motivo === "SEM_ATENDIMENTO_ATIVO") return responder({ ok: false, situacao: "BLOQUEADO", motivos: [dP.motivo] }, 403);
       const m = await montarPedido(atendimentoId, texto, "previa-sem-envio", conn.registro);
       if ("bloqueio" in m) return responder({ ok: false, ...m.bloqueio }, m.status);
       const r = await criarPrevia(m.pedido, { repositorioPrevia, gerarId: () => crypto.randomUUID(), agora: () => Date.now() });
@@ -481,6 +557,8 @@ Deno.serve(async (req: Request) => {
       if (!conn.ok) return responder({ ok: false, situacao: "BLOQUEADO", motivos: [conn.motivo] }, 403);
       // A2: a conta conectada precisa ser a do próprio usuário autenticado. Divergência bloqueia, sem envio nem leitura.
       if ((conn.registro.pessoa_email ?? "").toLowerCase() !== email) return responder({ ok: false, situacao: "BLOQUEADO", motivos: ["IDENTIDADE_DIVERGENTE"] }, 403);
+      const dC = await decisaoParaAtendimento(previa.atendimento_id, true);
+      if (dC.motivo === "ATENDIMENTO_NAO_RESPONSAVEL" || dC.motivo === "SEM_ATENDIMENTO_ATIVO") return responder({ ok: false, situacao: "BLOQUEADO", motivos: [dC.motivo] }, 403);
       const m = await montarPedido(previa.atendimento_id, texto, chaveEnvio, conn.registro);
       if ("bloqueio" in m) return responder({ ok: false, ...m.bloqueio }, m.status);
       // Nova mensagem com o mesmo texto só com ação explícita do operador (e nova chave).

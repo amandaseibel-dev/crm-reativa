@@ -1201,11 +1201,10 @@ jobs:
         run: deno check supabase/functions/ulbra-conversa/index.ts
 
   # ---------------------------------------------------------------------------
-  # TV — tv_painel_operadores (20261110200000), migration CANDIDATA (ainda em
-  # aguardando_aprovacao/), num Postgres descartável. Prova grants (anon e
-  # PUBLIC sem EXECUTE apesar do default privileges), o portão da allowlist,
-  # cada regra dos rankings, o fuso de Brasília, os centavos, que o pódio não
-  # devolve valor e que o rollback remove só a função.
+  # ULBRA histórico — portão da RPC ulbra_historico_reservar (migration
+  # 20261116150000, CORRETIVA pendente, fora do piloto), em PGlite com as
+  # dependências fixadas pelo lockfile. Prova que a função recusa authenticated
+  # e anon e aceita service_role, e que os grants são os mínimos.
   # ---------------------------------------------------------------------------
 
   ulbra-historico-portao-pglite:

@@ -89,11 +89,15 @@ export default function CentralConversas({
   // Envio em duas etapas: prévia (custo/janela) e confirmação (chave idempotente).
   onPrevia,
   onEnviar,
+  // Capacidade de RESPONDER esta conversa, informada pelo servidor (envio_capacidade). Padrão: fechado.
+  podeResponder = false,
 }) {
   const sel = itens.find((i) => i.chave === selecionadoChave) || null;
   const mostra = sel ? "conversa" : "lista";
   const mostraConversa = sel && sel.alunoId && (historico.estado === "parcial" || historico.estado === "ok");
-  const podeEnviar = Boolean(conexao && (conexao.estado === "ATIVA" || conexao.estado === "EXPIRANDO") && sel?.alunoId && onPrevia && onEnviar);
+  // Capacidade do SERVIDOR (conexao_estado.envio_real): a tela só libera a resposta quando o backend
+  // informa envio real ligado. A validação real continua no backend (envio_previa e envio_confirmar).
+  const podeEnviar = Boolean(conexao && conexao.envioReal === true && (conexao.estado === "ATIVA" || conexao.estado === "EXPIRANDO") && sel?.alunoId && podeResponder === true && onPrevia && onEnviar);
 
   return (
     <div className="ulbra-conv" data-testid="visao-conversas" data-mostra={mostra}>

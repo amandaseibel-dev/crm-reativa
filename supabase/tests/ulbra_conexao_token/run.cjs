@@ -228,6 +228,35 @@ async function main() {
     esperar((await linha(admin)) === null, "algo foi gravado mesmo com erro");
   });
 
+  // RENOVAÇÃO CONDICIONAL (compare-and-set): a mesma condição que o handler usa em provedorOAuth.renovar.
+  const RENOVA = "update public.ulbra_conexoes_operador set access_token_cifrado = $2, refresh_token_cifrado = $3, atualizado_em = now() where operador_email = $1 and refresh_token_cifrado = $4 and revogada_em is null returning operador_email";
+
+  await teste("renovação com o refresh vigente: grava (1 linha)", async () => {
+    await limpar(admin);
+    await admin.query(FN, args("a0", "r1"));
+    const r = await admin.query(RENOVA, [OP, "a1", "r2", "r1"]);
+    esperar(r.rowCount === 1, "esperado 1 linha, veio " + r.rowCount);
+    esperar((await linha(admin)).r === "r2", "refresh não foi rotacionado");
+  });
+
+  await teste("renovação antiga após NOVA conexão: não sobrescreve (0 linhas)", async () => {
+    await limpar(admin);
+    await admin.query(FN, args("a0", "r1"));
+    await admin.query("update public.ulbra_conexoes_operador set refresh_token_cifrado = 'r_nova' where operador_email = $1", [OP]);
+    const r = await admin.query(RENOVA, [OP, "a_velha", "r_velho", "r1"]);
+    esperar(r.rowCount === 0, "renovação antiga sobrescreveu a conexão nova");
+    esperar((await linha(admin)).r === "r_nova", "conexão nova foi alterada");
+  });
+
+  await teste("renovação após DESCONEXÃO (revogada): não reativa (0 linhas)", async () => {
+    await limpar(admin);
+    await admin.query(FN, args("a0", "r1"));
+    await admin.query("update public.ulbra_conexoes_operador set revogada_em = now() where operador_email = $1", [OP]);
+    const r = await admin.query(RENOVA, [OP, "a_velha", "r_velho", "r1"]);
+    esperar(r.rowCount === 0, "renovação reativou conexão desconectada");
+    esperar((await linha(admin)).revogada_em !== null, "linha voltou a ativa");
+  });
+
   await admin.end();
   const total = resultados.length;
   console.log(`\n${total - falhas}/${total} verificações passaram.`);

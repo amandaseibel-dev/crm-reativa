@@ -11,7 +11,7 @@ Preparado em 11/11/2026. **Nenhuma mensagem enviada, nenhuma credencial alterada
 
 ## 2. O que a entrega faz (menor conjunto integrado)
 **Histórico (leitura, credencial de backend, só leitura):**
-- Leitura do histórico: ação `historico_ler` da Edge Function `ulbra-conversa`, com a **conexão individual do operador** (nunca a credencial central). Cada leitura gera `ULBRA_HISTORICO_LEITURA` na `auditoria`, sem texto de conversa. Desligada por padrão no backend (`ULBRA_HISTORICO_HABILITADO`). A função `ulbra-historico` saiu deste pacote. A versão 1 segue ATIVA em produção: a contenção está BLOQUEADA POR ACESSO (instrução na seção de deploy).
+- Leitura do histórico: ação `historico_ler` da Edge Function `ulbra-conversa`, com a **conexão individual do operador** (nunca a credencial central). Cada leitura gera `ULBRA_HISTORICO_LEITURA` na `auditoria`, sem texto de conversa. Desligada por padrão no backend (`ULBRA_HISTORICO_HABILITADO`). A função `ulbra-historico` saiu deste pacote. A versão 1 foi CONTIDA: função excluída e endpoint HTTP 404 (evidência em `preservacao-ulbra-historico-v1-producao/MANIFESTO.md`).
 **Resposta (envio, token DO OPERADOR, nunca a credencial central):**
 - Edge Function `ulbra-conversa` (nova; `conexao.ts`, `envio.ts`, `oauth.ts`, `cripto.ts` testados sem rede). Ações: `conexao_iniciar` (PKCE + state, URL de autorização), `conexao_concluir` (troca do código, cifra AES-256-GCM, **1 `meu_acesso` da cota do operador para gravar quem é a pessoa e os escopos**), `conexao_estado`, `conexao_desconectar` (revogação no provedor + local), `envio_previa`, `envio_confirmar`.
 - **Permissões** (lidas do banco no momento): identidade confirmada por CPF; operador é dono da carteira **ou** responsável do atendimento. Leitura global: `amanda.seibel@aelbra.com.br` e `cobranca04@aelbra.com.br` (definição da gestão, 16/11, só leitura); `cobranca07` (Amanda ADM) e os demais só a própria carteira/responsabilidade (A3). Conexão própria ativa; a conta conectada precisa ser a do JWT (A2).
@@ -51,14 +51,13 @@ Preparado em 11/11/2026. **Nenhuma mensagem enviada, nenhuma credencial alterada
 - **Não provado:** forma exata das respostas de `meu_acesso`/`enviar_mensagem_whatsapp` (campos de custo/janela/id); a função trata ausências sem inventar valores e a prévia mostra "validade não informada" (custo não exibido).
 
 ## 7. Ordem após aprovação (cada passo com a sua autorização)
+0. CONTENÇÃO da v1 `ulbra-historico`: **CONCLUÍDA** pela gestão (função excluída pelo painel após download do ZIP; ausente da listagem; endpoint HTTP 404). Evidência e referência em `docs/integracoes/preservacao-ulbra-historico-v1-producao/MANIFESTO.md`. Não há restauração.
 1. TI da ULBRA: `client_id` + `redirect_uri` registrados (único item externo).
-2. Merge desta PR (deploy da tela; sem função publicada a Central mostra "função indisponível"/"conexão não configurada").
-0. CONTENÇÃO da v1 `ulbra-historico` (pré-condição de TODOS os passos abaixo; o merge não ocorre antes).
-3. NÃO reaplicar `20261110100000` (já aplicada, versão 20261112111006). Aplicação de `20261111140000` e da corretiva `20261116150000`, cada uma com aprovação específica; conferir grants (só service_role) e `search_path`.
-4. Segredos `ULBRA_OAUTH_CLIENT_ID`, `ULBRA_OAUTH_REDIRECT_URI`, `ULBRA_TOKENS_CHAVE` (gestão, fora de transcript); publicar `ulbra-conversa` (verify_jwt ligado). `ULBRA_HISTORICO_HABILITADO` fica ausente (leitura desligada) até decisão da gestão. A `ulbra-historico` não entra neste pacote.
-5. Validação de leitura com a gestão e com um operador (histórico de 1 conversa: 1 chamada).
-6. Conexão de 1 operador piloto (1 `meu_acesso` da cota dele). A **prévia** só é possível com `ULBRA_ENVIO_REAL` e `ULBRA_CONTRATO_PREVIA_CONFIRMADO` ligadas: essa ativação exige aprovação específica, e o envio continua bloqueado por `envio_confirmar` até a aprovação do roteiro.
-7. Pré-condição (antes de QUALQUER passo acima, inclusive merge e publicação): contenção da v1 `ulbra-historico` verificada (função ausente e endpoint indisponível). Primeiro envio real só pelo roteiro aprovado (destinatário interno, texto fixo, 1 mensagem, autoria conferida na Mensageria), ligando `ULBRA_ENVIO_REAL=true` para a janela e desligando depois, até decisão de liberação.
+2. Migrations `20261111140000` (conexão individual e envio) e `20261117120000` (`ulbra_gravar_conexao`, depende da anterior), cada uma com aprovação específica; conferir grants (só service_role) e `search_path`. `20261110100000` já está aplicada e não é reaplicada. `20261116150000` **fica fora** deste piloto: nenhum caminho do `ulbra-conversa` a chama.
+3. Segredos `ULBRA_OAUTH_CLIENT_ID`, `ULBRA_OAUTH_REDIRECT_URI`, `ULBRA_TOKENS_CHAVE` (gestão, fora de transcript); publicar `ulbra-conversa` (verify_jwt ligado).
+4. Merge da #913 (habilita a tela; sem função publicada, a Central mostra "função indisponível"/"conexão não configurada").
+5. Piloto de leitura: `ULBRA_HISTORICO_HABILITADO=true` e `ULBRA_HISTORICO_PILOTO_EMAILS` com a lista restrita aprovada. Lista ausente ou vazia = ninguém (fail-closed). Sem conexão individual ativa do próprio operador, a leitura responde 403 `SEM_CONEXAO`, sem chamar a Mensageria.
+6. Envio: `ULBRA_ENVIO_REAL` e `ULBRA_CONTRATO_PREVIA_CONFIRMADO` **desligadas**. Só com aprovação específica, contato de teste autorizado e roteiro aprovado.
 
 ## 8. Fora deste pacote
 Campanhas, criação de atendimentos, transferências, administração de operadores (ver `mensageria-ulbra-capacidades-mcp-2026-11-11.md`); coleta automática; o pacote de 12/11.
@@ -98,11 +97,11 @@ Cenários cobertos por `supabase/tests/ulbra_historico_portao/run.mjs` (rodado n
 
 Alcance exato da corretiva `20261116150000`: barra authenticated/anon com EXECUTE indevido e reafirma grants mínimos. NÃO barra service_role. O caminho exposto é a função `ulbra-historico` v1 (service_role + credencial central), que só a CONTENÇÃO fecha.
 
-Bloqueio explícito de produção: a contenção da v1 (remoção do endpoint `ulbra-historico`) está AUTORIZADA e BLOQUEADA POR ACESSO. Não está comprovadamente executada. Até a remoção ou substituição segura ser verificada (listagem sem a função e endpoint indisponível), a exposição do histórico com credencial central permanece.
+Contenção da v1 (`ulbra-historico`): CONCLUÍDA (função excluída pelo painel; ausente da listagem; endpoint HTTP 404). Por isso a corretiva não é pré-condição do piloto.
 
 Sequência de implantação (NÃO executada; cada passo exige aprovação específica):
 1. Aprovar a corretiva e rodar o CI do job `ulbra-historico-portao-pglite`.
-2. Contenção da v1 (remoção exclusiva de `ulbra-historico`), pela gestão, com executor único. Verificar: função ausente na listagem e endpoint indisponível.
+2. Contenção da v1: CONCLUÍDA (ver acima).
 3. Aplicar a corretiva em produção (SQL), com a conferência pós-grants do próprio arquivo.
 4. Verificação pós-aplicação: ACL e dono medidos de novo, e teste de acesso.
 Rollback: `20261116150000_*.rollback.sql` restaura a versão sem portão. NÃO é recuperação automática. Alternativa segura: manter `ULBRA_HISTORICO_HABILITADO` ausente.

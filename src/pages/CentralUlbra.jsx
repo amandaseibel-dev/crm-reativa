@@ -27,7 +27,7 @@ import MensageriaPeriodo from "../components/MensageriaPeriodo";
 import { supabase } from "../services/supabase";
 import { buscarFilaCarteira } from "../utils/filaCarteiraServidor";
 import {
-  conexaoDesconectar, conexaoEstado, conexaoIniciar, conexaoTokenPessoal, envioConfirmar, envioPrevia, historicoCapacidade, lerHistorico, mapearHistorico, resumirPrevia,
+  conexaoDesconectar, conexaoEstado, conexaoIniciar, conexaoTokenPessoal, envioConfirmar, envioPrevia, envioCapacidade, historicoCapacidade, lerHistorico, mapearHistorico, resumirPrevia,
 } from "../utils/ulbraConversaCliente";
 import usePolling from "../utils/polling";
 import { normalizarEmail } from "../utils/ulbraRecebimento";
@@ -241,6 +241,18 @@ export default function CentralUlbra({ usuario }) {
     if (!id) return undefined;
     let ativo = true;
     historicoCapacidade(id).then((r) => { if (ativo) setCapacidadeHist({ chave: selItem.chave, pode: r?.ok === true && r?.pode === true }); });
+    return () => { ativo = false; };
+  }, [selItem?.chave]);
+
+  // Resposta: a capacidade vem do SERVIDOR, por conversa selecionada. Sem ela, o composer fica fechado.
+  const [capacidadeEnvio, setCapacidadeEnvio] = useState({ chave: null, pode: false });
+  const podeResponder = capacidadeEnvio.chave === filtros.conv && capacidadeEnvio.pode === true;
+  useEffect(() => {
+    if (!selItem || !conversaNoAr || !selItem.alunoId) return undefined;
+    const id = selItem?.bruto?.conversa_id || (String(selItem?.chave || "").startsWith("r:") ? String(selItem.chave).slice(2) : null);
+    if (!id) return undefined;
+    let ativo = true;
+    envioCapacidade(id).then((r) => { if (ativo) setCapacidadeEnvio({ chave: selItem.chave, pode: r?.ok === true && r?.pode === true }); });
     return () => { ativo = false; };
   }, [selItem?.chave]);
 
@@ -493,6 +505,7 @@ export default function CentralUlbra({ usuario }) {
           onDesconectar={conversaNoAr ? desconectar : undefined}
           onPrevia={previaDe}
           onEnviar={enviarDe}
+          podeResponder={podeResponder}
         />
         {carteira.temMais ? (
           <button type="button" className="ulbra-botao" onClick={carregarMaisCarteira}>Carregar mais da carteira</button>
