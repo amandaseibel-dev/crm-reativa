@@ -263,6 +263,30 @@ necessária para decifrá-los e para desconectar com segurança. Ela é preserva
    Só depois, `ulbra_atendimentos.responsavel_email` = João, e a leitura da ficha fica autorizada para ele.
 6. **Leitura:** João usa a própria credencial individual. Não há leitura global para João.
 
+## Quem consegue ler (verificado por teste)
+
+- **Sem conexão individual ativa, não há leitura, mesmo com a flag ligada.** `historico-sem-conexao.test.ts`:
+  o handler responde 403 `SEM_CONEXAO`, não chama a Mensageria e não grava auditoria de leitura.
+- **Sem fallback de credencial central.** Nenhum arquivo da função lê `ULBRA_MCP_TOKEN` fora de comentário,
+  e a leitura usa só o token do próprio operador (`chamarComoOperador`). Verificado pelo mesmo teste.
+- **Habilitada ≠ apta.** Habilitada = `ULBRA_HISTORICO_HABILITADO=true`. Apta = habilitada + identidade
+  na lista do piloto + conexão individual ativa + permissão da regra permanente (carteira ou responsável).
+- **Configurar só o token do João não limita o piloto:** a flag é global, e qualquer operador com
+  carteira ou responsabilidade e conexão ativa passaria nas regras permanentes.
+- **Restrição de piloto:** `ULBRA_HISTORICO_PILOTO_EMAILS` (e-mails separados por vírgula). Fail-closed:
+  lista ausente ou vazia = ninguém lê. Não altera as regras permanentes. `piloto-leitura.ts` e
+  `piloto-leitura.test.ts`. Para o piloto: `cobranca10@aelbra.com.br` (João, identidade conferida em CRM e Mensageria).
+
+## Atribuição do aluno a João (leitura, sem execução)
+
+- Mecanismo existente encontrado: `vincular_responsavel_caso(uuid[], text)` (migration `20260911100000`).
+  Só Amanda e Fernanda podem chamá-la, e só define o responsável de aluno **sem responsável**
+  (`responsavel_atual_email is null`).
+- O cadastro pelo formulário grava a criadora como responsável inicial. Logo, esse caminho **não se aplica
+  diretamente** ao aluno de teste. Não encontrei outro mecanismo verificado de troca de responsável.
+- Nada foi executado. A atribuição a João fica pendente de definição do caminho, e não é comprovação de
+  responsabilidade na Mensageria.
+
 ## O que continua não comprovado
 
 - Criação de atendimento em espera por mensagem recebida (etapa 4).

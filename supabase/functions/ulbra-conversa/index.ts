@@ -24,6 +24,7 @@ import { type Envio, type PedidoEnvio, type RepositorioEnvio, type ResultadoEnvi
 import { confirmarPrevia, criarPrevia, type PreviaRegistro, type RepositorioPrevia } from "./previa.ts";
 import { podeConferir } from "./conferencia.ts";
 import { capacidadeHistorico, lerHistoricoAutorizado, type DepsHistorico } from "./historico-leitura.ts";
+import { pilotoPermiteLeitura } from "./piloto-leitura.ts";
 import { cadastrarTokenPessoal } from "./token-pessoal.ts";
 
 // A3: leitura GLOBAL só pela regra temLeituraGlobal (leitura.ts): amanda.seibel e cobranca04. O restante lê só a própria carteira/responsabilidade.
@@ -404,7 +405,8 @@ Deno.serve(async (req: Request) => {
       const deps: DepsHistorico = {
         email,
         usuarioAtivo: usuario?.ativo === true,
-        flagLigada: Deno.env.get("ULBRA_HISTORICO_HABILITADO") === "true",
+        // Piloto: além da flag, só quem está em ULBRA_HISTORICO_PILOTO_EMAILS (fail-closed se vazia).
+        flagLigada: Deno.env.get("ULBRA_HISTORICO_HABILITADO") === "true" && pilotoPermiteLeitura(email, Deno.env.get("ULBRA_HISTORICO_PILOTO_EMAILS")),
         conversaId,
         antesDe,
         buscarClienteDaConversa: async (id: string) => {
