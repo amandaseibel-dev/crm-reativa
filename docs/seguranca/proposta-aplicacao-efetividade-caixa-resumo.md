@@ -17,7 +17,7 @@ Entrega final = #966 (SQL) + #965 (tela). A tela só deve ser mesclada depois da
 ## Artefatos (SHA-256 integral)
 
 - Migration `supabase/migrations/20261115130000_efetividade_caixa_resumo_semestre.sql`:
-  `aa3a3b1051259cb59af3e89d99478efd8defb574099166d98aa88fdf379c5372`
+  `a22f1c22da8809e01dcbd21a693afd2f32a5c963050c947d940f67e6feeae984`
 - Rollback `docs/rollbacks/efetividade-caixa-resumo-semestre-rollback.sql`:
   `4bf1b0ffe2dd009809fc929b13ac336cce0d09541f48663f8181c0022fdb88b5`
 
@@ -25,7 +25,7 @@ Entrega final = #966 (SQL) + #965 (tela). A tela só deve ser mesclada depois da
 
 Linha de `docs/seguranca/migracoes-aprovadas.tsv`, 6 colunas separadas por TAB:
 `ahattpqrjmhkzsmnbdzs` · `20261115130000_efetividade_caixa_resumo_semestre` ·
-`aa3a3b1051259cb59af3e89d99478efd8defb574099166d98aa88fdf379c5372` ·
+`a22f1c22da8809e01dcbd21a693afd2f32a5c963050c947d940f67e6feeae984` ·
 `amanda.seibel@aelbra.com.br` · `expira_em` = aprovação + 30 min (UTC) · `pendente`.
 
 ## Executor nominal
@@ -127,3 +127,10 @@ de origem derivada) e `prime-api-catalog.json` (chave `derivados_crm`). Origem d
 ## Exposição preexistente (achado separado, não alterado)
 
 `carteira_2026_2_negociacoes()` e `carteira_2026_2_detalhe()` aceitam `authenticated` em produção (Anexo K da medição).
+
+## Acesso por semestre (preserva a leitura já existente)
+
+- 2026/1: gestão ativa (lista de `usuario_e_gestao()` e `usuarios.ativo`) **ou** diretoria (`usuario_e_diretoria()`). Espelha `relatorio_mensalidades_2026_1_sem_negociacao()`, que aceita diretoria.
+- 2026/2: somente gestão ativa. Espelha `relatorio_mensalidades_2026_2_sem_negociacao()`, que é só de gestão, então a diretoria não entra.
+- Nenhum outro perfil entra. Nenhuma permissão de escrita muda.
+- Testes: `03_casos.sql` cobre diretoria ativa permitida em 2026/1 e recusada em 2026/2; operador recusado; gestão inativa recusada.

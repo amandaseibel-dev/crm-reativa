@@ -36,6 +36,13 @@ select pg_temp.espera_negado('2026/2', 'authenticated sem e-mail')
 select set_config('request.jwt.claims', '{"email":"angela.ferreira@aelbra.com.br"}', false);
 select pg_temp.espera_negado('2026/2', 'diretoria ativa');
 
+-- diretoria ativa em 2026/1: PERMITIDA (o relatório de 2026/1 aceita diretoria).
+select set_config('request.jwt.claims', '{"email":"angela.ferreira@aelbra.com.br"}', false);
+do $$ declare r jsonb; begin
+  r := public.efetividade_caixa_resumo_semestre('2026/1');
+  if r is null then raise exception 'FALHA: diretoria devia ler 2026/1'; end if;
+end $$;
+
 -- operador comum ativo, fora da gestão: negado.
 select set_config('request.jwt.claims', '{"email":"operador@aelbra.com.br"}', false);
 select pg_temp.espera_negado('2026/2', 'operador comum');

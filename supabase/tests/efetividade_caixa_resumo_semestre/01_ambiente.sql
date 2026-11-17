@@ -15,6 +15,13 @@ create table public.usuarios (
   perfil text not null,
   ativo boolean not null
 );
+-- Definição de produção de usuario_e_diretoria() (lida em produção, somente leitura).
+create or replace function public.usuario_e_diretoria() returns boolean
+language sql stable security definer set search_path to 'public' as $$
+  select exists (select 1 from public.usuarios u
+    where lower(u.email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+      and u.ativo is true and u.perfil = 'diretoria');
+$$;
 -- Colunas da view que a RPC lê. A view real tem mais colunas; só estas importam aqui.
 create table public.efetividade_caixa_origem (
   pagamento_id uuid primary key default gen_random_uuid(),

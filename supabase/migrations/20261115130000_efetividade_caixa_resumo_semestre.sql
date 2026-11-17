@@ -38,8 +38,8 @@
 -- VOLATILIDADE. Declarada VOLATILE por cautela. A versão final só lê: não chama carteira_2026_2_negociacoes()
 -- nem nenhuma função que escreva. O negociado de 2026/2 é consulta de leitura própria.
 --
--- PORTÃO. Gestão ativa autorizada: e-mail na lista de `usuario_e_gestao()` E linha
--- em `usuarios` com `ativo = true`. Diretoria NÃO entra por este caminho.
+-- PORTÃO POR SEMESTRE. Gestão ativa (lista de `usuario_e_gestao()` E linha
+-- em `usuarios` com `ativo = true`). Diretoria (`usuario_e_diretoria()`) só em 2026/1.
 
 create or replace function public.efetividade_caixa_resumo_semestre(p_semestre text)
 returns jsonb
@@ -60,13 +60,17 @@ declare
   v_gerado_fotografia text := null;
   f jsonb;
 begin
+  -- Gestão ativa: lista de usuario_e_gestao() E usuarios.ativo = true (como antes).
+  -- Diretoria: só em 2026/1, espelhando relatorio_mensalidades_2026_1_sem_negociacao()
+  -- (que aceita usuario_e_diretoria()). Em 2026/2 o relatório é só de gestão, então a
+  -- diretoria NÃO entra. Nenhum outro perfil entra.
   if not (
-    coalesce(public.usuario_e_gestao(), false)
-    and exists (
-      select 1 from public.usuarios u
-       where lower(u.email) = lower(coalesce(auth.jwt() ->> 'email', ''))
-         and u.ativo is true
-    )
+    (coalesce(public.usuario_e_gestao(), false)
+       and exists (
+         select 1 from public.usuarios u
+          where lower(u.email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+            and u.ativo is true))
+    or (p_semestre = '2026/1' and coalesce(public.usuario_e_diretoria(), false))
   ) then
     raise exception 'sem permissão para o resumo de caixa' using errcode = '42501';
   end if;
