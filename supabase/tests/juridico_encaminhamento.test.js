@@ -536,6 +536,50 @@ describe("auditoria: pendencia de pagamento, coluna divergente e valor atual", (
     await db.close();
   });
 
+  it("envio: sem bloqueio passa; com bloqueio recusa; gestao autoriza uma vez por conversa; operador nao autoriza", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    const conv = U(960, 1);
+    // sem bloqueio: passa
+    await db.query("select public.juridico_checar_envio($1,$2,'op')", [a.al, conv]);
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    // com bloqueio: recusa
+    const e1 = await falha(db.query("select public.juridico_checar_envio($1,$2,'op')", [a.al, conv]));
+    expect(e1?.code).toBe("42501");
+    // operador nao autoriza
+    await H.como(db, OPERADOR);
+    const e2 = await falha(db.query("select public.juridico_autorizar_envio($1,$2,'ADMINISTRATIVA','pedido da gestao para cadastro')", [a.al, conv]));
+    expect(e2?.code).toBe("42501");
+    // gestao autoriza UMA mensagem para ESTA conversa
+    await H.como(db, H.GESTAO);
+    await rpc(db, "public.juridico_autorizar_envio($1,$2,'ADMINISTRATIVA','pedido da gestao para cadastro')", [a.al, conv]);
+    await db.query("select public.juridico_checar_envio($1,$2,'op')", [a.al, conv]);
+    const e3 = await falha(db.query("select public.juridico_checar_envio($1,$2,'op')", [a.al, conv]));
+    expect(e3?.code).toBe("42501");
+    // outra conversa nao herda a autorizacao
+    const e4 = await falha(db.query("select public.juridico_checar_envio($1,$2,'op')", [a.al, U(960, 2)]));
+    expect(e4?.code).toBe("42501");
+    // bloqueio continua: autorizacao nao remove o bloqueio
+    expect(await bloqueio(db, a.al)).toBe("NAO_ACIONAR_EXPLICITO");
+    await db.close();
+  });
+
+  it("envio: autorizacao vencida nao vale", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    const conv = U(961, 1);
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    await rpc(db, "public.juridico_autorizar_envio($1,$2,'ACADEMICA','resposta sobre matricula do aluno')", [a.al, conv]);
+    await db.query("update juridico_envio_autorizacoes set valido_ate = now() - interval '1 minute'");
+    const e = await falha(db.query("select public.juridico_checar_envio($1,$2,'op')", [a.al, conv]));
+    expect(e?.code).toBe("42501");
+    await db.close();
+  });
+
   it("carteira: operador da propria carteira ve o bloqueio; inativo nao; lista acima do limite recusa", async () => {
     const db = await novo();
     const a = await mk(db, { valores: [1000] });

@@ -38,8 +38,8 @@ policy e sem grant: só se lê e escreve pelas RPCs.
 ## DISPONIBILIZAÇÃO BLOQUEADA (17/11/2026)
 
 A aba Jurídico **não está disponível** (`JURIDICO_LIBERADO = false` em `src/App.jsx`). Motivo: o envio
-por WhatsApp e o envio de documentos não distinguem finalidade (cobrança ou atendimento). Hoje, um
-aluno com bloqueio jurídico efetivo pode receber mensagem pelo canal.
+por WhatsApp e o envio de documentos não distinguem finalidade (cobrança ou atendimento). NÃO VERIFICADO se um
+aluno com bloqueio jurídico efetivo recebe mensagem pelo canal: a cadência e o gateway estão fora do repositório.
 
 Decisão da gestão: aluno com bloqueio jurídico não recebe cobrança (manual, massiva, automática),
 inclusive respostas e documentos de cobrança. Atendimento acadêmico ou administrativo continua possível.
@@ -69,7 +69,7 @@ da carteira. A seção abaixo, que grava `JURIDICO` em `alunos.status_*`, está 
   `MANTIDO_OUTRO_BLOQUEIO` (outro fluxo gravou a flag durante o encaminhamento, ou já havia bloqueio).
   Nem sempre a remoção libera: confira o retorno.
 - Residual, não resolvido: (1) rollback não reconcilia flags de casos vivos (ele recusa
-  com caso APROVADO; flags compartilhadas ficam ligadas por desenho); (2) o marcador é AFTER UPDATE: roda depois de a linha ser travada e lê o estado commitado. A ordem de travas é casos->juridico_casos, enquanto a remoção faz juridico_casos->casos (possível deadlock, não reproduzido). A guarda que impede liberar a flag continua BEFORE e não tem teste sob espera; (3) a prova de concorrência da aprovação não cobre o marcador.
+  com caso APROVADO; flags compartilhadas ficam ligadas por desenho); (2) o marcador é AFTER UPDATE (há teste sob espera: cenário 6 do runner): roda depois de a linha ser travada e lê o estado commitado. A ordem de travas é casos->juridico_casos, enquanto a remoção faz juridico_casos->casos (possível deadlock, não reproduzido). A guarda que impede liberar a flag continua BEFORE e não tem teste sob espera; (3) a prova de concorrência da aprovação não cobre o marcador.
 
 ## Bloqueio — por que não há mecanismo novo
 

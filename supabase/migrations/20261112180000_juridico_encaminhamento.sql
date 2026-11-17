@@ -1458,6 +1458,76 @@ $function$;
 -- Painel da aba: indicadores, lotes e casos com a conferencia.
 -- CARTEIRA: ids dos alunos com bloqueio jurídico EFETIVO. Gestao ve todos; operador so os da propria
 -- carteira (responsavel_atual_email). Devolve so o id, sem nome, CPF ou valor.
+-- AUTORIZACAO EXCEPCIONAL DE ENVIO (WhatsApp/documento) para aluno com bloqueio juridico efetivo.
+-- So a gestao cria (_juridico_exigir_gestao). Vale para UMA conversa e UMA mensagem, por 30 minutos.
+-- Nao remove o bloqueio e nao libera mensagens futuras. Nunca pelo proprio operador.
+create table public.juridico_envio_autorizacoes (
+  id uuid primary key default gen_random_uuid(),
+  aluno_id uuid not null,
+  conversa_id uuid not null,
+  finalidade text not null check (finalidade in ('ACADEMICA','ADMINISTRATIVA')),
+  motivo text not null check (length(btrim(motivo)) >= 10),
+  autorizado_por text not null,
+  autorizado_em timestamptz not null default now(),
+  valido_ate timestamptz not null,
+  usado_em timestamptz,
+  usado_por text
+);
+create index juridico_envio_aut_aluno on public.juridico_envio_autorizacoes (aluno_id, conversa_id);
+alter table public.juridico_envio_autorizacoes enable row level security;
+revoke all on public.juridico_envio_autorizacoes from public, anon, authenticated;
+
+-- Bloqueio juridico EFETIVO de um aluno (caso encaminhado com nao_acionar ligado).
+create function public._juridico_bloqueio_efetivo(p_aluno uuid)
+returns boolean
+language sql stable security definer set search_path to 'public'
+as $function$
+  select exists (select 1 from public.juridico_casos jc
+                  where jc.aluno_id = p_aluno
+                    and jc.status in ('APROVADO','ENVIADO_FINANCEIRO','CONFIRMADO_JURIDICO')
+                    and exists (select 1 from public.casos c where c.aluno_id = jc.aluno_id and c.nao_acionar is true));
+$function$;
+
+-- Checagem para os caminhos de envio (WhatsApp/documento). Sem bloqueio: passa. Com bloqueio: so com
+-- autorizacao da gestao vigente para ESTA conversa; a autorizacao e gasta aqui (uma vez).
+create function public.juridico_checar_envio(p_aluno uuid, p_conversa uuid, p_operador text)
+returns void
+language plpgsql security definer set search_path to 'public'
+as $function$
+declare v_id uuid;
+begin
+  if p_aluno is null or not public._juridico_bloqueio_efetivo(p_aluno) then return; end if;
+  select a.id into v_id from public.juridico_envio_autorizacoes a
+   where a.aluno_id = p_aluno and a.conversa_id = p_conversa
+     and a.usado_em is null and a.valido_ate > now()
+   order by a.autorizado_em desc limit 1
+   for update;
+  if v_id is null then
+    raise exception 'Envio bloqueado: aluno com bloqueio jurídico. Só com autorização específica da gestão para este atendimento.'
+      using errcode = '42501';
+  end if;
+  update public.juridico_envio_autorizacoes set usado_em = now(), usado_por = p_operador where id = v_id;
+end;
+$function$;
+
+-- Gestao autoriza UM envio academico ou administrativo para este aluno e conversa.
+create function public.juridico_autorizar_envio(p_aluno uuid, p_conversa uuid, p_finalidade text, p_motivo text)
+returns uuid
+language plpgsql security definer set search_path to 'public'
+as $function$
+declare v_email text := public._juridico_exigir_gestao(); v_id uuid;
+begin
+  if not public._juridico_bloqueio_efetivo(p_aluno) then
+    raise exception 'O aluno não tem bloqueio jurídico efetivo: não há o que autorizar.' using errcode = 'P0001';
+  end if;
+  insert into public.juridico_envio_autorizacoes
+    (aluno_id, conversa_id, finalidade, motivo, autorizado_por, valido_ate)
+  values (p_aluno, p_conversa, p_finalidade, btrim(p_motivo), v_email, now() + interval '30 minutes')
+  returning id into v_id;
+  return v_id;
+end;
+$function$;
+
 create function public.juridico_bloqueio_ids(p_ids uuid[])
 returns setof uuid
 language plpgsql stable security definer set search_path to 'public'
@@ -1469,7 +1539,8 @@ begin
   -- sem e-mail ou usuario inativo (usuarios.ativo): nada. Gestao (usuario_e_gestao) ve todos;
   -- operador so os alunos da PROPRIA carteira (responsavel_atual_email).
   if v_email = '' then return; end if;
-  if not exists (select 1 from public.usuarios u where lower(u.email) = v_email and u.ativo is true) then return; end if;
+  -- Gestao vale pela lista de usuario_e_gestao (JWT); operador precisa de usuarios.ativo.
+  if not v_gestao and not exists (select 1 from public.usuarios u where lower(u.email) = v_email and u.ativo is true) then return; end if;
   if coalesce(array_length(p_ids, 1), 0) > 2000 then
     raise exception 'Lista grande demais (máximo 2000 alunos por consulta).' using errcode = '22023';
   end if;
@@ -1751,9 +1822,10 @@ language plpgsql security definer set search_path to 'public'
 as $function$
 begin
   -- Liberacao (nao_acionar = false) sem a GUC da remocao: so passa se NAO houver encaminhamento ativo.
-  -- Trava ANTES de decidir: a aprovacao em outra sessao pode ainda nao ter commitado quando este
-  -- gatilho roda (BEFORE). O FOR SHARE espera a aprovacao terminar e le o estado commitado.
-  -- Nao usa old.nao_acionar: esse valor e o de antes da espera e pode estar desatualizado.
+  -- Decide pelo estado da linha de casos DEPOIS de ela ser travada, nao por old.nao_acionar (que pode
+  -- ser o valor de antes de uma espera). Que o cenario 7 do runner (duas conexoes, PG17) recuse a
+  -- liberacao depois do commit e verificado no CI; o mecanismo exato (se e o recheque apos a espera ou
+  -- o FOR SHARE) NAO foi isolado. O FOR SHARE fica como trava explicita sobre o encaminhamento.
   if coalesce(new.nao_acionar, false) is false
      and coalesce(current_setting('juridico.desbloqueio', true), '') <> 'on' then
     perform 1 from public.juridico_casos jc
@@ -1855,7 +1927,8 @@ begin
   'public.juridico_casos_confirmar_juridico(uuid[],date,text)',
   'public.juridico_painel()',
   'public.juridico_varrer_alertas()',
-  'public.juridico_bloqueio_ids(uuid[])'
+  'public.juridico_bloqueio_ids(uuid[])',
+  'public.juridico_autorizar_envio(uuid,uuid,text,text)'
   ] loop
     execute format('revoke all on function %s from public, anon, authenticated', sig);
     execute format('grant execute on function %s to authenticated', sig);
@@ -1878,6 +1951,8 @@ begin
   'public._juridico_guarda_bloqueio()',
   'public._juridico_guarda_caso_novo()',
   'public._juridico_guarda_nao_acionar()',
+  'public._juridico_bloqueio_efetivo(uuid)',
+  'public.juridico_checar_envio(uuid,uuid,text)',
   'public._juridico_marca_bloqueio_compartilhado()',
   'public._juridico_so_anexa()',
   'public._juridico_registra_acordo_status()'
@@ -1897,8 +1972,8 @@ begin
   select count(*) into v_n from pg_proc p
    where p.pronamespace = 'public'::regnamespace
      and (p.proname like 'juridico\_%' or p.proname like '\_juridico\_%');
-  if v_n <> 35 then
-    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 35 esperadas).', v_n;
+  if v_n <> 38 then
+    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 38 esperadas).', v_n;
   end if;
 
   select count(*) into v_n
