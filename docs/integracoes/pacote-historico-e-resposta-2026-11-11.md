@@ -133,7 +133,7 @@ Ordem sugerida, cada passo com aprovação específica: (1) `20261111140000`; (2
 - CI do `042a476b`: é ancestral desta branch; esse commit removeu 13 jobs do workflow por erro de edição, depois revertido (estado restaurado pelo `ci.yml` de `35417eb2`).
 - Guardião: ver a revisão final no head registrado na PR.
 - CI do `60e9e194`: em andamento no momento desta escrita. Só vale o resultado concluído.
-- Ligar `HISTORICO_DISPONIVEL` exige antes: a visibilidade do botão em tela (`CentralUlbra.jsx`, `ulbraHistorico.js`) coincidir com a regra do backend (hoje a tela usa `eh_gestao`, perfil amplo).
+- Ligar `HISTORICO_DISPONIVEL` exige antes: a visibilidade do botão em tela coincidir com a regra do backend. A conversa (`CentralUlbra.jsx`) já usa `historico_capacidade` do servidor. A LISTA (`MensageriaPeriodo.jsx`) usa `capacidade_historico` por linha, e a RPC `ulbra_central_conversas_periodo` ainda NÃO produz esse campo: sem ele o botão da lista fica fechado (fail-closed). Mudar essa RPC é migration nova, que exige autorização própria; não foi feita.
 
 ## Ação `envio_conferencia` (documentada aqui)
 - `ulbra-conversa` tem a ação `envio_conferencia` (`index.ts`, bloco de conferência): leitura do estado de um envio pelo servidor, restrita pelos perfis de `conferencia.ts`. Não altera a Mensageria. Está fora do cabeçalho de `index.ts`, por isso fica registrada aqui.
@@ -152,6 +152,6 @@ Tipos de ação, que NÃO são a mesma coisa: **merge** (código na main, sem ef
 | 6. Conexão de 1 operador piloto | manual (usuário) | passos 3 e 5 | conexão ATIVA, `pessoa_email` igual ao JWT |
 | 7. Ativar `ULBRA_HISTORICO_HABILITADO` (leitura) | aplicação manual (segredo) | passo 6 e aprovação | leitura de 1 conversa com auditoria gravada |
 | 8. Ativar `ULBRA_ENVIO_REAL` e `ULBRA_CONTRATO_PREVIA_CONFIRMADO` (prévia e envio) | aplicação manual (segredo) | passo 7 e aprovação do roteiro | prévia sem mensagem enviada; envio só pelo roteiro |
-| 9. Ligar `HISTORICO_DISPONIVEL` na tela | merge (uma linha) | passo 7 | botão aparece apenas onde `historico_capacidade` concede |
+| 9. Ligar `HISTORICO_DISPONIVEL` na tela | merge (uma linha) | passo 7 e migration da lista (ver item acima) | conversa: botão onde `historico_capacidade` concede; lista: só após a RPC produzir `capacidade_historico` |
 
 Recuperação: cada passo tem rollback no próprio arquivo, exceto a v1 (não restaurar a versão vulnerável). O rollback de `20261110100000` NÃO deve ser executado (apaga `ulbra_historico_uso`).

@@ -26,10 +26,10 @@ export interface DepsHistorico {
   donosDoAluno(alunoId: string): Promise<string[]>;
   responsaveisDoCliente(clienteId: string): Promise<string[]>;
   conexao(): Promise<
-    | { ok: true; access_token: string; pessoa_email: string | null }
+    | { ok: true; access_token: string; pessoa_email?: string | null }
     | { ok: false; motivo: string }
   >;
-  lerConversa(accessToken: string, args: Record<string, unknown>): Promise<{ erro?: boolean; dados?: unknown }>;
+  lerConversa(accessToken: string, args: Record<string, unknown>): Promise<{ erro?: boolean | string | null; dados?: unknown }>;
   auditar(detalhes: Record<string, unknown>): Promise<boolean>;
 }
 
@@ -84,7 +84,7 @@ export async function lerHistoricoAutorizado(d: DepsHistorico): Promise<Saida> {
   const args: Record<string, unknown> = d.antesDe
     ? { id: d.conversaId, limite: 20, antesDe: d.antesDe }
     : { id: d.conversaId, limite: 20 };
-  let resultado: { erro?: boolean; dados?: unknown };
+  let resultado: { erro?: boolean | string | null; dados?: unknown };
   try {
     resultado = await d.lerConversa(conn.access_token, args);
   } catch {

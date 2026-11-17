@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
-// Botão "Histórico" na visão Mensageria: só com a porta ligada, só CPF
-// confirmado, só quem pode ler; abrir o painel não chama nada; 1 clique = 1 chamada.
+// Botão "Histórico" na visão Mensageria: só com a porta ligada, só onde o SERVIDOR
+// informa capacidade_historico=true; abrir o painel não chama nada; 1 clique = 1 chamada.
+// Sem o campo, a tela fecha (fail-closed): é o estado atual, porque a RPC da lista
+// ainda não produz capacidade_historico (ver pacote de implantação).
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -9,7 +11,7 @@ import MensageriaPeriodo from "./MensageriaPeriodo";
 const rpc = vi.fn();
 vi.mock("../services/supabase", () => ({ supabase: { rpc: (...a) => rpc(...a) } }));
 
-const PERIODO = {
+const PERIODO_BASE = {
   ok: true, eh_gestao: false, operador: "cobranca10@aelbra.com.br", desde: "2026-11-01T03:00:00+00:00",
   limite: 100, pagina: 0, totais: { conversas: 3, aguardando: 0, sem_cpf: null },
   conversas: [
@@ -18,16 +20,23 @@ const PERIODO = {
     { conversa_id: "c-sem-cpf", aluno_id: null, nome: "Carla Souza", previa: "ok", mensagem_em: "2026-11-08T13:00:00Z", quem: "operador", direcao: "enviada", aguardando: false, responsabilidade: "SEM_CARTEIRA", responsavel_reativa: null, minha: false, lida: false },
   ],
 };
-const RESPOSTAS = [
+const RESPOSTAS_BASE = [
   { conversa_id: "r-minha", aluno_id: "al-5", nome: "Sofia Prado", previa: "posso pagar?", mensagem_em: "2026-11-10T08:00:00Z", espera_min: 30, responsabilidade: "CARTEIRA", responsavel_reativa: "cobranca10@aelbra.com.br", minha: true },
   { conversa_id: "r-sem-cpf", aluno_id: null, nome: "Marina Ferraz", previa: "oi", mensagem_em: "2026-11-10T09:00:00Z", espera_min: 10, responsabilidade: "SEM_CARTEIRA", minha: false },
 ];
+// Capacidade como o servidor deveria enviar, por linha (true só onde a função aceita).
+const CAP_OPERADOR = { "c-minha": true, "r-minha": true };
+const CAP_GESTAO = { "c-minha": true, "c-outro": true, "r-minha": true };
+const com = (lista, mapa) => lista.map((l) => ({ ...l, capacidade_historico: mapa[l.conversa_id] === true }));
+const PERIODO_OPERADOR = { ...PERIODO_BASE, conversas: com(PERIODO_BASE.conversas, CAP_OPERADOR) };
+const RESPOSTAS_OPERADOR = com(RESPOSTAS_BASE, CAP_OPERADOR);
+
 const PAGINA = { ok: true, origem: "ulbra", chamadas: 1, pagina: { mensagens: [{ direcao: "ENTRADA", em: "2026-11-10T13:00:00Z", texto: "pode me ligar?", autor: null, anexos: [] }], antes_de: null } };
 
 function montar(props = {}) {
   return render(
     <MemoryRouter>
-      <MensageriaPeriodo respostas={RESPOSTAS} coleta={null} aoAbrirFicha={() => {}} {...props} />
+      <MensageriaPeriodo respostas={RESPOSTAS_OPERADOR} coleta={null} aoAbrirFicha={() => {}} {...props} />
     </MemoryRouter>,
   );
 }
@@ -35,7 +44,7 @@ const botoes = () => screen.queryAllByRole("button", { name: /^Histórico$/ });
 const linha = (id) => document.querySelector(`[data-conversa='${id}']`);
 
 describe("visão Mensageria — botão Histórico", () => {
-  beforeEach(() => { rpc.mockReset(); rpc.mockResolvedValue({ data: PERIODO, error: null }); });
+  beforeEach(() => { rpc.mockReset(); rpc.mockResolvedValue({ data: PERIODO_OPERADOR, error: null }); });
   afterEach(() => cleanup());
 
   it("porta desligada (padrão): nenhum botão, nenhuma chamada, e o aviso diz que o histórico não está disponível", async () => {
@@ -47,7 +56,16 @@ describe("visão Mensageria — botão Histórico", () => {
     expect(leitor).not.toHaveBeenCalled();
   });
 
-  it("porta ligada, operador: botão só na linha com CPF confirmado de que é responsável; abrir o painel NÃO chama a Mensageria", async () => {
+  it("porta ligada, sem capacidade informada pelo servidor: nenhum botão (fechado por padrão)", async () => {
+    const leitor = vi.fn();
+    rpc.mockResolvedValue({ data: PERIODO_BASE, error: null });
+    montar({ historicoDisponivel: true, leitorHistorico: leitor, respostas: RESPOSTAS_BASE });
+    await waitFor(() => expect(screen.getByTestId("mensageria-conversas").querySelectorAll("li").length).toBe(3));
+    expect(botoes()).toHaveLength(0);
+    expect(leitor).not.toHaveBeenCalled();
+  });
+
+  it("porta ligada, operador: botão só onde o servidor informa capacidade; abrir o painel NÃO chama a Mensageria", async () => {
     const leitor = vi.fn().mockResolvedValue(PAGINA);
     montar({ historicoDisponivel: true, leitorHistorico: leitor });
     await waitFor(() => expect(screen.getByTestId("mensageria-conversas").querySelectorAll("li").length).toBe(3));
@@ -75,10 +93,10 @@ describe("visão Mensageria — botão Histórico", () => {
     expect(leitor).toHaveBeenCalledTimes(1);
   });
 
-  it("porta ligada, gestão: botão em toda linha com CPF confirmado, nunca na linha sem CPF", async () => {
+  it("porta ligada, gestão: botão nas linhas que o servidor marca, nunca na linha sem CPF", async () => {
     const leitor = vi.fn();
-    rpc.mockResolvedValue({ data: { ...PERIODO, eh_gestao: true, operador: null, totais: { conversas: 3, aguardando: 0, sem_cpf: 7 } }, error: null });
-    montar({ ehGestao: true, historicoDisponivel: true, leitorHistorico: leitor });
+    rpc.mockResolvedValue({ data: { ...PERIODO_BASE, eh_gestao: true, operador: null, conversas: com(PERIODO_BASE.conversas, CAP_GESTAO), totais: { conversas: 3, aguardando: 0, sem_cpf: 7 } }, error: null });
+    montar({ ehGestao: true, historicoDisponivel: true, leitorHistorico: leitor, respostas: com(RESPOSTAS_BASE, CAP_GESTAO) });
     await waitFor(() => expect(screen.getByTestId("mensageria-conversas").querySelectorAll("li").length).toBe(3));
     expect(linha("c-minha").querySelector("[data-campo='historico']")).toBeTruthy();
     expect(linha("c-outro").querySelector("[data-campo='historico']")).toBeTruthy();
