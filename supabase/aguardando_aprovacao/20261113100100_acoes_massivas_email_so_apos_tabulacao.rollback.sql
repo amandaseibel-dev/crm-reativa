@@ -36,7 +36,7 @@ BEGIN
   END IF;
 END $g$;
 
--- 2. remove o bloco de guarda (substituicao exata, uma ocorrencia)
+-- 1. remove o bloco de guarda (substituicao exata, uma ocorrencia)
 DO $r2$
 DECLARE
   v_src text;
@@ -60,7 +60,7 @@ BEGIN
   EXECUTE replace(v_src, v_guarda, '');
 END $r2$;
 
--- 1. volta o FOR SHARE da leitura do lote de origem
+-- 2. remove o FOR SHARE da leitura do lote de origem (volta a leitura simples)
 SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_exportar_emails_do_lote',
 $n1$  select * into v_origem from public.acoes_massivas_lotes where id = p_lote_id for share;$n1$,
 $a1$  select * into v_origem from public.acoes_massivas_lotes where id = p_lote_id;$a1$, 1);
