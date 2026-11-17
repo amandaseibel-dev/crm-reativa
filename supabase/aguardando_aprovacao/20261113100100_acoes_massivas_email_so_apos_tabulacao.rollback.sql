@@ -1,3 +1,5 @@
+-- SEM guarda de sessao: nao ha controle comprovado por texto de consulta. A pausa das
+-- chamadas e obrigatoria (ver docs/seguranca/propostas/PROCEDIMENTO-REVERSAO-20261113.md).
 -- ROLLBACK de 20261113100100_acoes_massivas_email_so_apos_tabulacao.
 -- ORDEM DE REVERSAO: este rollback so depois do rollback de 20261113100000, e
 -- so com zero lotes de WhatsApp pendentes. Com lote pendente, reverter esta
@@ -29,15 +31,6 @@ BEGIN
   -- Condicao de reversao: zero lotes pendentes (estado efetivo).
   -- Trava de tabela ANTES da checagem: serializa com a exportacao (que insere lote).
   LOCK TABLE public.acoes_massivas_lotes IN SHARE ROW EXCLUSIVE MODE;
-  -- Sessao em andamento que executa as funcoes de exportacao (ativa ou
-  -- ociosa dentro de transacao) recusa a reversao: ela pode inserir lote apos a
-  -- checagem. Verificado no estado efetivo (pg_stat_activity), na mesma transacao.
-  IF EXISTS (SELECT 1 FROM pg_stat_activity
-              WHERE datname = current_database() AND pid <> pg_backend_pid()
-                AND state IS DISTINCT FROM 'idle'
-                AND query ILIKE '%acoes_massivas_exportar%') THEN
-    RAISE EXCEPTION 'Rollback recusado: ha sessao em andamento executando a exportacao de acao massiva. Pausar chamadas e aguardar o termino. Nada alterado.';
-  END IF;
   IF EXISTS (SELECT 1 FROM public.acoes_massivas_lotes WHERE confirmado_em IS NULL AND descartado_em IS NULL) THEN
     RAISE EXCEPTION 'Rollback recusado: ha lotes de WhatsApp/e-mail pendentes de envio. Nada alterado.';
   END IF;

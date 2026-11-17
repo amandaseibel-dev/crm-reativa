@@ -1,42 +1,40 @@
 #!/usr/bin/env bash
-# Teste de CONCORRENCIA da reversao (20261113100000 / 20261113100100) com DUAS conexoes psql
-# independentes. Requer PostgreSQL de teste (nunca producao):
-#   PG_URL=postgres://postgres:postgres@localhost:5432/teste_reversao ./scripts/ci/teste-reversao-concorrencia.sh
-# Pre-condicao: banco de teste com as migrations 20261113100100 e 20261113100000 JA APLICADAS
-# (ordem imposta pelo banco) e pelo menos um aluno com e-mail valido.
-# NAO EXECUTADO no ambiente de desenvolvimento local (sem PostgreSQL). Status: pendente.
+# Teste de CONCORRENCIA das reversoes (20261113100000 / 20261113100100) com conexoes psql
+# independentes. SOMENTE em banco de TESTE recem-criado, com as duas migrations aplicadas
+# na ordem (100100 antes de 100000). Nunca producao.
+#   PG_URL=postgres://... scripts/ci/teste-reversao-concorrencia.sh
+# NAO EXECUTADO no ambiente local (sem PostgreSQL). Status: pendente.
+# Cada cenario exige o resultado esperado: recusa (erro) ou conclusao (sucesso).
 set -euo pipefail
 : "${PG_URL:?defina PG_URL apontando para um banco de TESTE}"
 D=supabase/aguardando_aprovacao
 RB_CONF="$D/20261113100000_acoes_massivas_confirmar_envio.rollback.sql"
 RB_PROT="$D/20261113100100_acoes_massivas_email_so_apos_tabulacao.rollback.sql"
-q() { psql "$PG_URL" -qtAX -c "$1"; }
-md5_exp() { q "select md5(pg_get_functiondef(p.oid)) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='acoes_massivas_exportar'"; }
+LOG=$(mktemp -d)
+# ON_ERROR_STOP=1: um erro aborta o script com exit != 0 (sem falso sucesso).
+P() { psql "$PG_URL" -X -q -v ON_ERROR_STOP=1 "$@"; }
+md5_exp() { P -tA -c "select md5(pg_get_functiondef(p.oid)) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='acoes_massivas_exportar'"; }
 fail() { echo "FALHA: $1" >&2; exit 1; }
 
-# ---- Cenario 1: trava concorrente causa timeout; nada muda (preservacao) ----
+# C1: trava ocupada por outra sessao -> reversao RECUSADA (lock_timeout 5 s), dados e objetos preservados.
 ANTES=$(md5_exp)
-psql "$PG_URL" -qX -c "BEGIN; LOCK TABLE public.acoes_massivas_lotes IN ROW EXCLUSIVE MODE; SELECT pg_sleep(15); COMMIT;" &
-HOLDER=$!
+P -c "BEGIN; LOCK TABLE public.acoes_massivas_lotes IN ROW EXCLUSIVE MODE; SELECT pg_sleep(15); COMMIT;" >"$LOG/holder1" 2>&1 & HOLDER=$!
 sleep 2
-set +e; psql "$PG_URL" -qX -f "$RB_CONF" >/tmp/c1.log 2>&1; RC=$?; set -e
-[ "$RC" -ne 0 ] || fail "C1: reversao NAO devia concluir com a trava ocupada"
-grep -qi "lock timeout\|could not obtain lock\|55P03" /tmp/c1.log || fail "C1: erro nao e lock timeout (ver /tmp/c1.log)"
-[ "$(md5_exp)" = "$ANTES" ] || fail "C1: funcao alterada apesar do timeout"
-wait $HOLDER
+if P -f "$RB_CONF" >"$LOG/c1" 2>&1; then fail "C1: reversao concluiu com a trava ocupada"; fi
+grep -q "55P03\|lock timeout" "$LOG/c1" || fail "C1: a recusa nao foi lock timeout (ver $LOG/c1)"
+[ "$(md5_exp)" = "$ANTES" ] || fail "C1: funcao alterada apesar da recusa"
+wait $HOLDER || fail "C1: sessao segurando a trava falhou"
+echo "C1 ok: lock timeout recusou a reversao e nada mudou"
 
-# ---- Cenario 2: trava disponivel -> reversao conclui ----
-psql "$PG_URL" -qX -f "$RB_CONF" >/dev/null || fail "C2: reversao deveria concluir com a trava livre"
-[ "$(md5_exp)" != "$ANTES" ] || fail "C2: reversao concluida, mas a funcao nao mudou"
-echo "C2 ok (reaplicar a confirmacao antes de testar C3 se o banco precisar)"
+# C2: trava livre -> reversao CONCLUI (a funcao volta ao corpo publicado de 13/11).
+P -f "$RB_CONF" >"$LOG/c2" 2>&1 || fail "C2: reversao deveria concluir com a trava livre (ver $LOG/c2)"
+[ "$(md5_exp)" != "$ANTES" ] || fail "C2: reversao 'concluiu' mas a funcao nao mudou"
+echo "C2 ok: reversao concluiu com a trava livre"
 
-# ---- Cenario 3: exportacao iniciada ANTES da reversao, tentando concluir DEPOIS ----
-# Sessao exportadora abre transacao e segura ROW EXCLUSIVE em lotes (como o INSERT da exportacao).
-psql "$PG_URL" -qX -c "BEGIN; INSERT INTO public.acoes_massivas_lotes (canal,arquivo,aluno_ids,total,exportado_por_email,tipo_cobranca,recencia_dias) SELECT 'WHATSAPP','c3.xlsx','{}'::text[],0,'teste@x',NULL,10; SELECT pg_sleep(12); ROLLBACK;" &
-EXP=$!
+# C3: exportacao (INSERT = ROW EXCLUSIVE) segura a trava durante a reversao -> reversao RECUSADA.
+P -c "BEGIN; INSERT INTO public.acoes_massivas_lotes (canal,arquivo,aluno_ids,total,exportado_por_email,tipo_cobranca,recencia_dias) SELECT 'WHATSAPP','c3.xlsx','{}'::text[],0,'teste@x',NULL,10; SELECT pg_sleep(15); COMMIT;" >"$LOG/holder3" 2>&1 & EXP=$!
 sleep 2
-set +e; psql "$PG_URL" -qX -f "$RB_PROT" >/tmp/c3.log 2>&1; RC=$?; set -e
-[ "$RC" -ne 0 ] || fail "C3: reversao NAO devia concluir enquanto a exportacao segura a trava"
-wait $EXP
-echo "C3 ok: reversao recusada pela trava/guarda enquanto a exportacao estava em andamento"
-echo "TODOS OS CENARIOS PASSARAM (quando executados em banco de teste)."
+if P -f "$RB_PROT" >"$LOG/c3" 2>&1; then fail "C3: reversao concluiu enquanto a exportacao segurava a trava"; fi
+wait $EXP || fail "C3: sessao da exportacao falhou"
+echo "C3 ok: reversao recusada enquanto a exportacao estava em andamento"
+echo "CENARIOS C1-C3 OK (executados contra o banco de teste informado)."

@@ -1,7 +1,9 @@
+-- SEM guarda de sessao: nao ha controle comprovado por texto de consulta. A pausa das
+-- chamadas e obrigatoria (ver docs/seguranca/propostas/PROCEDIMENTO-REVERSAO-20261113.md).
 -- ROLLBACK de 20261113100000_acoes_massivas_confirmar_envio.
 -- Volta acoes_massivas_exportar ao corpo publicado (c9cc7498..., registro
 -- automatico) e remove acoes_massivas_concluir_envio. Nao toca dado: lotes
--- confirmados continuam confirmados; lotes PENDENTE_ENVIO continuam pendentes
+-- confirmados continuam confirmados; lotes PENDENTE_ENVIO nao sao aceitos: a reversao recusa se houver pendente
 -- e podem ser concluidos pelo acoes_massivas_concluir_lote de sempre.
 
 BEGIN;
@@ -21,15 +23,6 @@ BEGIN
   -- Condicao de reversao: zero lotes pendentes (estado efetivo, nao marca).
   -- Trava de tabela ANTES da checagem: serializa com a exportacao (que insere lote).
   LOCK TABLE public.acoes_massivas_lotes IN SHARE ROW EXCLUSIVE MODE;
-  -- Sessao em andamento que executa as funcoes de exportacao (ativa ou
-  -- ociosa dentro de transacao) recusa a reversao: ela pode inserir lote apos a
-  -- checagem. Verificado no estado efetivo (pg_stat_activity), na mesma transacao.
-  IF EXISTS (SELECT 1 FROM pg_stat_activity
-              WHERE datname = current_database() AND pid <> pg_backend_pid()
-                AND state IS DISTINCT FROM 'idle'
-                AND query ILIKE '%acoes_massivas_exportar%') THEN
-    RAISE EXCEPTION 'Rollback recusado: ha sessao em andamento executando a exportacao de acao massiva. Pausar chamadas e aguardar o termino. Nada alterado.';
-  END IF;
   IF EXISTS (SELECT 1 FROM public.acoes_massivas_lotes WHERE confirmado_em IS NULL AND descartado_em IS NULL) THEN
     RAISE EXCEPTION 'Rollback recusado: ha lotes de WhatsApp/e-mail pendentes de envio. Nada alterado.';
   END IF;
