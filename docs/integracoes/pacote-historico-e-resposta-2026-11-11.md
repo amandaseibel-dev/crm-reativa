@@ -143,6 +143,9 @@ Correção mínima (rascunho, NÃO aplicado): (1) concluir o inventário; (2) `R
 | `20261110100000_ulbra_historico_orcamento` | APLICADA (ledger `20261112111006`); tabela `ulbra_historico_uso` e `ulbra_historico_reservar` existem, dono postgres, sem portão | pendente original `163f3b55…`; rollback `1aa486a1…` | Histórica. NÃO reaplicar nem editar. |
 | `20261111140000_ulbra_conexao_individual_e_envio` | NÃO APLICADA (tabelas `ulbra_conexoes_pedidos`, `ulbra_conexoes_operador`, `ulbra_envio_previas`, `ulbra_envios` e função `ulbra_conferir_envio` ausentes) | pendente `fcd27030…`; rollback `f6b8013e…` | Depende de `ulbra_vinculos`/`ulbra_conversas` já existentes. Aplicação exige aprovação. |
 | `20261116150000_ulbra_historico_reservar_portao_interno` | NÃO APLICADA (sem registro no ledger) | pendente `1b448d8b…`; rollback `be7b2c64…` | Depende de `20261110100000` aplicada (pré-condição checa a função). Aplicação exige aprovação. |
+| `20261117120000_ulbra_gravar_conexao_atomica` | NÃO APLICADA | pendente `dcd8df53…`; rollback `8f3b4449…` (sha256 de `supabase/aguardando_aprovacao/`, em `279dc9f9`) | Depende de `20261111140000`. Aplicação exige aprovação. |
+
+Localização dos arquivos: `supabase/aguardando_aprovacao/` (convenção do repositório para migrations pendentes de aprovação; não estão em `supabase/migrations/`, por isso não passam pelo CI de migrations nem pelo ledger). Essa localização é decisão pendente da gestão (R4).
 
 Ordem sugerida, cada passo com aprovação específica: (1) `20261111140000`; (2) `20261116150000`, depois de a contenção da v1 estar verificada. Recuperação: rollback de cada uma, na ordem inversa. O rollback de `20261110100000` apaga `ulbra_historico_uso` e NÃO deve ser executado.
 
