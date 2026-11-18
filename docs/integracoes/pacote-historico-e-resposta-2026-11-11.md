@@ -35,7 +35,7 @@ Preparado em 11/11/2026. **Nenhuma mensagem enviada, nenhuma credencial alterada
 - `ULBRA_CONTRATO_PREVIA_CONFIRMADO` — também obrigatório: o envio real exige as DUAS chaves (`ulbra-conversa/index.ts:85-87`). Sem o contrato da prévia confirmado, nenhum envio sai.
 - `ULBRA_MCP_TOKEN` (já existe) — usado **só** pelo histórico (leitura).
 
-## 5. Custos por ação (cota de 500/dia por pessoa)
+## 5. Custos por ação (cota: 50/dia por operador e 500/dia global, por padrão)
 | Ação | Quem paga | Chamadas |
 | --- | --- | --- |
 | Carregar histórico / anteriores | conexão individual do operador (não a credencial de backend) | 1 por página (+1 `meu_acesso` se a medida do saldo venceu) |
@@ -234,7 +234,7 @@ Padrão do repositório: `supabase/ledger/DUAS-TRILHAS.md` (Fluxo B, o padrão) 
 3. **Aplicar** `20261111140000` e depois `20261117120000` por `apply_migration`, uma vez cada (aprovação específica). Antes disso, a gravação de conexão não funciona.
 4. **Publicar** `ulbra-conversa` com `verify_jwt` a partir da `main` (aprovação específica). Sem `ULBRA_TOKENS_CHAVE`, as ações de conexão respondem 503 `CONEXAO_NAO_CONFIGURADA`.
 5. **Configurar** `ULBRA_TOKENS_CHAVE` (aprovação específica; pré-requisito de implantação, hoje AUSENTE).
-6. **Configurar** `ULBRA_HISTORICO_PILOTO_EMAILS=cobranca10.com.br` (aprovação específica). Sem ela, o cadastro de token é negado (`PILOTO_NAO_AUTORIZADO`).
+6. **Configurar** `ULBRA_HISTORICO_PILOTO_EMAILS=cobranca10@aelbra.com.br` (aprovação específica). Sem ela, o cadastro de token é negado (`PILOTO_NAO_AUTORIZADO`).
 7. Cadastro do token do operador piloto, pelo próprio operador, com `ULBRA_HISTORICO_HABILITADO` AINDA DESLIGADA (a leitura continua bloqueada).
 8. **Ativar** `ULBRA_HISTORICO_HABILITADO=true` (aprovação específica). Só a partir daqui há leitura.
 9. Verificar: uma conversa lida, com auditoria `ULBRA_HISTORICO_LEITURA` gravada antes do texto, e cota reservada antes da chamada.
@@ -261,7 +261,8 @@ Padrão do repositório: `supabase/ledger/DUAS-TRILHAS.md` (Fluxo B, o padrão) 
 ### Correções desta rodada (comportamento comprovado por teste)
 - **Cadastro de token restrito ao piloto, no servidor:** `conexao_token_pessoal` nega com `PILOTO_NAO_AUTORIZADO` (403) ANTES de validar ou gravar, se o usuário não estiver em `ULBRA_HISTORICO_PILOTO_EMAILS` (lista ausente = negado). Independe de `ULBRA_HISTORICO_HABILITADO`. Testes (t1), (t2), (t3).
 - **Cota antes da chamada externa:** `historico_ler` reserva 1 unidade em `ulbra_historico_reservar` (service_role, migration `20261110100000`, já aplicada em produção) antes de chamar a Mensageria. Esgotada = 429 `COTA_ESGOTADA`; falha ao reservar = 503 `COTA_INDISPONIVEL`. Tetos por dia (fuso de São Paulo) por variáveis: `ULBRA_HISTORICO_TETO_OPERADOR_DIA` (padrão 50) e `ULBRA_HISTORICO_TETO_GLOBAL_DIA` (padrão 500). **Configuração ainda não definida em produção.** Testes (q1), (q2), (q3).
-- **Erro de banco na autorização:** nega com 503 `AUTORIZACAO_INDISPONIVEL`, sem texto e sem chamada à Mensageria. O diagnóstico no log tem só o passo e o código do erro, nunca dados. Teste (b1).
+- **Erro de banco na autorização (cobertura real):** erros nas consultas de conversa, vínculo, casos e responsáveis negam com 503 `AUTORIZACAO_INDISPONIVEL`, sem texto; o log tem só o passo e o código. Erro na verificação de encerramento de caso nega o dono (sem 503). Erro ao ler a conexão e a consulta de usuário NÃO são cobertos por 503 nesta rodada: pendente. Teste (b1) cobre só a conversa; falta cobrir os demais passos.
+- **Teto inválido (não numérico, zero ou negativo):** a cota nega com 503 `COTA_INDISPONIVEL`, sem chamada à Mensageria. Teste (q4).
 - **Retentativa de revogação:** cada token é tentado até duas vezes antes de se considerar a revogação pendente (`grant-retry.test.ts`, `grant.test.ts`).
 - **Credencial órfã (residual, decisão pendente):** quando a revogação não se confirma e a quarentena não é possível, o sistema registra `ULBRA_OAUTH_REVOGACAO_PENDENTE` na auditoria com os tokens CIFRADOS (`ULBRA_TOKENS_CHAVE`), sem texto. NÃO há procedimento automático de recuperação: a revogação posterior é manual e depende de decisão da gestão sobre guardar token cifrado em auditoria. OAuth fica indisponível no piloto, por configuração.
 - **Não há teste de handler para a pendência de revogação**: o caminho de OAuth exige PKCE e não é executado pelos testes de handler. Coberto só em unidade (`grant`).

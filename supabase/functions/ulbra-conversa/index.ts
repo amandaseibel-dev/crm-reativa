@@ -284,6 +284,18 @@ Deno.serve(async (req: Request) => {
     return d;
   }
 
+  // Teto da cota a partir de variável: inteiro positivo; ausente = padrão; inválido = null (nega).
+  function teto(nome: string, padrao: number): number | null {
+    const bruto = Deno.env.get(nome);
+    if (bruto === undefined || bruto.trim() === "") return padrao;
+    const n = Number(bruto);
+    if (!Number.isInteger(n) || n < 1) {
+      console.error("ulbra-conversa: teto de cota inválido em", nome);
+      return null;
+    }
+    return n;
+  }
+
   // Erro de banco na autorização do histórico: diagnóstico SEM dados (só o passo e o código), e falha fechada.
   function bancoHistoricoFalhou(passo: string, error: { code?: string }): never {
     console.error("ulbra-conversa: histórico, leitura de", passo, "falhou; código:", error.code ?? "sem código");
@@ -533,8 +545,9 @@ Deno.serve(async (req: Request) => {
         // Tetos por dia (fuso de São Paulo) configuráveis; valor inválido ou erro = INDISPONIVEL (fail-closed).
         reservarCota: async () => {
           const dia = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
-          const tetoOperador = Number(Deno.env.get("ULBRA_HISTORICO_TETO_OPERADOR_DIA") ?? "50");
-          const tetoGlobal = Number(Deno.env.get("ULBRA_HISTORICO_TETO_GLOBAL_DIA") ?? "500");
+          const tetoOperador = teto("ULBRA_HISTORICO_TETO_OPERADOR_DIA", 50);
+          const tetoGlobal = teto("ULBRA_HISTORICO_TETO_GLOBAL_DIA", 500);
+          if (tetoOperador === null || tetoGlobal === null) return "INDISPONIVEL" as const; // teto inválido: nega (fail-closed)
           const { data, error } = await sb.rpc("ulbra_historico_reservar", {
             p_operador: email, p_dia: dia, p_quantidade: 1, p_teto_operador: tetoOperador, p_teto_global: tetoGlobal,
           });

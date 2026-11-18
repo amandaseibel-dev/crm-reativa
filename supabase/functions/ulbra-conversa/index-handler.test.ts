@@ -374,6 +374,15 @@ describe("histórico: erro de banco e cota antes da chamada externa", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("(q4) teto de cota NÃO numérico: nega com 503 COTA_INDISPONIVEL (fail-closed), sem chamada à Mensageria", async () => {
+    estado.conexao = await conexaoIndividual("token-individual-do-operador");
+    estado.env.ULBRA_HISTORICO_TETO_OPERADOR_DIA = "abc";
+    const r = await chamar({ acao: "historico_ler", conversa_id: CONV });
+    expect(r.status).toBe(503);
+    expect(r.corpo.motivo).toBe("COTA_INDISPONIVEL");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("(q3) cota disponível: a reserva acontece ANTES da chamada à Mensageria", async () => {
     estado.conexao = await conexaoIndividual("token-individual-do-operador");
     fetchMock.mockImplementationOnce(async () => {
