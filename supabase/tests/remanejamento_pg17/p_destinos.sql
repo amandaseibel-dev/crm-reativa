@@ -40,4 +40,6 @@ begin
   perform pg_temp.afirma(pg_temp.dono(s.caso) = 'carteira.geral@reativa.local', 'caso nao saiu da Carteira Geral');
   update public.usuarios set recebe_novos_casos = true where email = 'cobranca05@aelbra.com.br';
 end $$;
+-- restaura o recebimento do Mauricio: o banco e compartilhado pelos proximos arquivos
+update public.usuarios set recebe_novos_casos = true where email = 'cobranca06@aelbra.com.br';
 select 'DESTINOS OK' as resultado;
