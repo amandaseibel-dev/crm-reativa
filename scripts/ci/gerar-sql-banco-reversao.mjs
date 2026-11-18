@@ -13,13 +13,13 @@ if (!token || !/^[a-f0-9]{32}$/.test(token)) { console.error("token invalido"); 
 const T = "supabase/tests/fixtures";
 const A = "supabase/aguardando_aprovacao";
 const pre = [
-  // Papeis de sistema da bancada descartavel: sem eles as permissoes nao podem ser testadas.
+  ...sqlBase({ registroAutomatico: true }),
+  // Papeis de sistema: sqlBase ja os cria; este bloco so completa os que faltarem (idempotente).
   `do $r$ begin
      if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if;
      if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated nologin; end if;
      if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role nologin; end if;
    end $r$;`,
-  ...sqlBase({ registroAutomatico: true }),
   r("supabase/migrations/20261006160000_acoes_massivas_email_do_lote_whatsapp.sql"),
   `alter table public.alunos add column if not exists status_acionamento text;
    alter table public.alunos add column if not exists data_retorno date;
