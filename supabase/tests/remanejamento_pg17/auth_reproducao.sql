@@ -3,6 +3,8 @@
 -- Diferenca declarada: o Supabase real le as claims assinadas pelo gateway; aqui as
 -- claims sao definidas pelo teste (pg_temp.como), sem assinatura.
 create schema if not exists auth;
+-- Supabase concede USAGE no esquema auth a authenticated/anon/service_role (leitura das funcoes auth.*)
+grant usage on schema auth to anon, authenticated, service_role;
 create or replace function auth.jwt() returns jsonb language sql stable as $$
   select coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb, '{}'::jsonb)
 $$;
