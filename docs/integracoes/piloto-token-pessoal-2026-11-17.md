@@ -85,15 +85,8 @@ cadastrado no **campo de nome** de um secret, legível em texto puro no painel p
 acesso ao projeto. O cadastro malformado foi removido em 07/11, e o valor correto está no
 lugar, mas **o valor exposto segue válido até ser trocado**. Este pacote não reproduz o valor.
 
-## Rotação (não executada nesta etapa)
-
-1. Criar o token de substituição na Mensageria (escopos mínimos, com a gestora).
-2. Migrar as cinco funções para o novo valor. A `ulbra-historico` v1 já está CONTIDA (excluída;
-   ausente da listagem; HTTP 404), então não há migração a fazer para ela.
-3. Revogar o token antigo na aba Tokens pessoais.
-4. Conferir que nenhuma função ainda lê o valor antigo.
-
-Não revogar nem substituir sem sua decisão específica.
+## Rotação do token central (FORA desta implantação)
+A rotação do `ULBRA_MCP_TOKEN` é pendência separada, com decisão e execução próprias. Não faz parte da implantação da leitura pessoal e não é pré-requisito dela. Nada foi rotacionado nem revogado.
 
 ## Pré-condições para testar o piloto
 
@@ -104,7 +97,7 @@ Não revogar nem substituir sem sua decisão específica.
 - Contenção da v1 `ulbra-historico`: CONCLUÍDA (função excluída; ausente da listagem; endpoint HTTP 404). Evidência preservada; não é pendência.
 - Grant de INSERT em `auditoria` para `authenticated` (A3): ver "Verificação A3" em `pacote-historico-e-resposta-2026-11-11.md`. Não bloqueia o piloto (RLS nega a inserção direta), mas o grant excessivo é pendência de higiene com dependência do frontend.
 - Migrations `20261111140000` e `20261117120000` pendentes de aplicação com aprovação, nesta ordem.
-  (`20261116150000`, corretiva da RPC de reserva, é pré-requisito do passo de leitura; ver a ordem única no pacote.)
+  (`20261116150000`, corretiva da RPC de reserva, deve estar aplicada e verificada antes da publicação de ulbra-conversa; ver a ordem única no pacote.)
 
 ## Testes
 
@@ -243,20 +236,8 @@ necessária para decifrá-los e para desconectar com segurança. Ela é preserva
   histórico. A exclusão é decisão manual, caso a caso.
 - A função antiga `ulbra-historico` **não** é restaurada em nenhum caminho.
 
-## Aluno, vínculo e atendimento (etapas separadas)
-
-1. **Cadastro do aluno:** pelo formulário existente, com CPF preenchido por você. Responsável inicial:
-   a gestora. Não cria caso, título, acordo ou pagamento.
-2. **Vínculo alta_cpf:** pela `ulbra-consultar` (publicada). Exige que o CPF bata com o cliente da Mensageria
-   (conferido por leitura, sem repetir o valor). Não depende de atendimento.
-3. **Atribuição do aluno a João:** mecanismo existente do CRM, a verificar antes de executar. **Não comprova**
-   responsabilidade na Mensageria.
-4. **Atendimento espelhado:** a sincronização (`ulbra-sincronizar`, publicada) espelha só atendimentos em
-   espera (`situacao: "waiting"`). **Não** presumir que uma mensagem sua cria atendimento novo em espera;
-   confirmar por leitura depois do envio.
-5. **João assume:** `ulbra_atendimento_assumir` (publicada) exige espelho + vínculo `alta_cpf` + João logado.
-   Só depois, `ulbra_atendimentos.responsavel_email` = João, e a leitura da ficha fica autorizada para ele.
-6. **Leitura:** João usa a própria credencial individual. Não há leitura global para João.
+## Preparação do aluno e responsabilidade (validação operacional posterior)
+Seção posterior de validação operacional. NÃO executada nesta implantação. Não cria atribuição artificial de aluno nem de responsável; o mecanismo de atribuição a João ainda precisa ser verificado antes de qualquer execução.
 
 ## Quem consegue ler (verificado por teste)
 
@@ -282,15 +263,8 @@ necessária para decifrá-los e para desconectar com segurança. Ela é preserva
   observado pela gestora, não verificado por teste. O wiring de `index.ts` (linha de `flagLigada`) não tem teste: gap declarado.
   Usuário fora da lista recebe `HISTORICO_DESLIGADO` (mensagem genérica, não motivo de piloto).
 
-## Atribuição do aluno a João (leitura, sem execução)
-
-- Mecanismo existente encontrado: `vincular_responsavel_caso(uuid[], text)` (migration `20260911100000`).
-  Só Amanda e Fernanda podem chamá-la, e só define o responsável de aluno **sem responsável**
-  (`responsavel_atual_email is null`).
-- O cadastro pelo formulário grava a criadora como responsável inicial. Logo, esse caminho **não se aplica
-  diretamente** ao aluno de teste. Não encontrei outro mecanismo verificado de troca de responsável.
-- Nada foi executado. A atribuição a João fica pendente de definição do caminho, e não é comprovação de
-  responsabilidade na Mensageria.
+## Atribuição do aluno a João
+Tratada na seção "Preparação do aluno e responsabilidade" (validação posterior). Sem execução nesta implantação.
 
 ## O que continua não comprovado
 

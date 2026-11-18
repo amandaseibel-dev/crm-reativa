@@ -62,9 +62,9 @@ Campanhas, criação de atendimentos, transferências, administração de operad
 - Regra: `temLeituraGlobal` em `supabase/functions/ulbra-conversa/leitura.ts`. E-mail exato do JWT (sem prefixo), usuário ativo obrigatório, não reutiliza `usuario_e_gestao()`.
 - Não amplia envio, transferência ou atuação. A conexão individual continua obrigatória; a leitura global não usa credencial central.
 
-## Migration corretiva 20261116150000 (pré-requisito do passo de leitura; NÃO aplicada)
+## Migration corretiva 20261116150000 (NÃO aplicada; deve estar aplicada e verificada ANTES da publicação de ulbra-conversa)
 - Efeito exato: recria `ulbra_historico_reservar` com portão interno: aceita apenas `auth.role() = 'service_role'`, e recusa qualquer outro papel com 42501. Nossa chamada usa a chave de service_role, então PASSA; a corretiva bloqueia chamadas indevidas por outro papel, caso o EXECUTE seja concedido por engano.
-- Portanto é pré-requisito do passo de leitura (premissa de portão interno), não do cadastro de token.
+- Verificação em banco descartável (PGlite, em memória, nesta revisão): `node supabase/tests/ulbra_historico_portao/run.mjs` passou todas as asserções: service_role permitido; authenticated e anon negados; portão recusa authenticated mesmo com EXECUTE concedido. Ordem exigida: aplicar e verificar a corretiva antes de publicar ulbra-conversa (a função nova chama a RPC com service_role).
 - Testes: `supabase/tests/ulbra_historico_portao/run.mjs` (PGlite, job `ulbra-historico-portao-pglite`) cobre o portão.
 - Arquivos: `.sql.pendente` e `.rollback.sql` em `supabase/aguardando_aprovacao/`. Hashes na seção de migrations pendentes.
 - Rollback: restaura a versão SEM portão. Não é recuperação automática.
@@ -91,7 +91,7 @@ Alcance exato da corretiva `20261116150000`: barra authenticated/anon com EXECUT
 
 Contenção da v1 (`ulbra-historico`): CONCLUÍDA (função excluída pelo painel; ausente da listagem; endpoint HTTP 404). A contenção da v1 não substitui a corretiva: o portão interno da RPC de reserva é pré-requisito do passo de leitura.
 
-Sequência de implantação: ver "Ordem de implantação da leitura" (ÚNICA, no fim deste documento). A corretiva 20261116150000 é pré-requisito do passo de leitura.
+Sequência de implantação: ver "Ordem de implantação da leitura" (ÚNICA, no fim deste documento). A corretiva 20261116150000 deve estar aplicada e verificada antes da publicação de ulbra-conversa.
 
 Rollback: `20261116150000_*.rollback.sql` restaura a versão sem portão. NÃO é recuperação automática. Alternativa segura: manter `ULBRA_HISTORICO_HABILITADO` ausente.
 
@@ -168,7 +168,7 @@ Ver "Ordem de implantação da leitura", no fim deste documento. A tabela anteri
 | `20261111140000_ulbra_conexao_individual_e_envio` | `.rollback.sql` | `f6b8013e8c43ff2f917dbf8839ac103b93e53c991b299b1cd1bc83e09d8e760f` |
 | `20261117120000_ulbra_gravar_conexao_atomica` | `.sql.pendente` | `dcd8df5388cbdc5e2c20576b0dd9044b23dcd9667ad8f230f2e653b461671ed8` |
 | `20261117120000_ulbra_gravar_conexao_atomica` | `.rollback.sql` | `8f3b4449b527bcfb6d1125b51371336ef1112d49a0e1b9f2933a22ff97d04942` |
-| `20261116150000_ulbra_historico_reservar_portao_interno` (corretiva; pré-requisito do passo de leitura) | `.sql.pendente` | `1b448d8b0c2be6b5feca9e1900fa772b919c22da62d0752540e20cbd02f58402` |
+| `20261116150000_ulbra_historico_reservar_portao_interno` (corretiva; aplicada e verificada antes da publicação) | `.sql.pendente` | `1b448d8b0c2be6b5feca9e1900fa772b919c22da62d0752540e20cbd02f58402` |
 | `20261116150000_ulbra_historico_reservar_portao_interno` (corretiva) | `.rollback.sql` | `be7b2c64ad7d7e0c4dddb1627a3989678dcbd80537edfd59814f2538e2517113` |
 
 Migrations já aplicadas e fora deste pacote: `20261110100000_ulbra_historico_orcamento` (ledger `20261112111006`). Não reaplicar, e não executar o rollback dela.
@@ -187,7 +187,12 @@ Ver "Ordem de implantação da leitura" (única). Não há outra ordem neste doc
 Padrão do repositório: `supabase/ledger/DUAS-TRILHAS.md` (Fluxo B, o padrão) e `supabase/ledger/LEIA-ME.md`. A `20261117120000` cai no Fluxo B porque a função `ulbra-conversa` (nova nesta PR) depende dela (dependência simultânea de backend e banco).
 Os passos de mesclagem, `READY`, aplicação, validação e publicação estão na seção "Ordem de implantação da leitura" (ÚNICA). Esta subseção acrescenta só a etapa de ledger, executada DEPOIS da aplicação e da validação:
 - Registro do drift no ledger em PR própria: `supabase/ledger/2026-11/<timestamp>__<name>.sql`, com o `.sql` byte a byte igual aos `statements` e explicação em arquivo `__NOTA.md` ao lado. Atualizar `INDICE.tsv`.
-- Versão: `apply_migration` gera o timestamp que fica em `supabase_migrations.schema_migrations`. O arquivo de ledger usa o `name` que produção registrou (`supabase/ledger/LEIA-ME.md`, regra 4). A correspondência entre a versão gerada e o nome do arquivo é conferida na validação (md5 prova apenas o conteúdo; a conferência de versão e nome é feita em `schema_migrations` (DUAS-TRILHAS.md, Fluxo B, passo 6).
+- Mapeamento arquivo → sha256 → name → versão gerada: preencher APÓS a aplicação, com a versão que o mecanismo devolver. Não se inventa versão antecipadamente. Tabela a preencher:
+  | arquivo | sha256 | name | versão gerada | validação |
+  | --- | --- | --- | --- | --- |
+  | 20261111140000 | fcd27030... | ulbra_conexao_individual_e_envio | (a registrar) | (a registrar) |
+  | 20261117120000 | dcd8df53... | ulbra_gravar_conexao_atomica | (a registrar) | (a registrar) |
+  | 20261116150000 | 1b448d8b... | ulbra_historico_reservar_portao_interno | (a registrar) | (a registrar) |
 - **Vetado nos dois fluxos:** `supabase db push`, `supabase db pull`, `supabase migration repair`, e escrita manual em `schema_migrations`.
 - Os arquivos pendentes NÃO devem ser copiados para `supabase/migrations/` para contornar a revisão (a catraca de migrations reprova o sufixo `__` nesse diretório).
 
@@ -197,16 +202,21 @@ Os passos de mesclagem, `READY`, aplicação, validação e publicação estão 
 - `ULBRA_OAUTH_CLIENT_ID` e `ULBRA_OAUTH_REDIRECT_URI` ausentes: OAuth fica indisponível no piloto (por configuração).
 - `ULBRA_HISTORICO_PILOTO_EMAILS` ainda não configurada: a leitura só existe depois dela, com a lista restrita ao operador piloto.
 
-### Ordem de implantação da leitura (ÚNICA; Fluxo B; nenhuma etapa libera leitura antes dos pré-requisitos)
-1. **Mesclar** a PR (aprovação específica). O front publicado só consulta `historico_capacidade`; sem a flag de servidor, nada é lido.
+### Ordem de implantação da leitura (ÚNICA; Fluxo B; envio DESLIGADO em todos os passos)
+1. **Mesclar** a PR (aprovação específica). Sem a flag de servidor, nada é lido.
 2. Esperar o deploy de produção ficar `READY`.
-3. **Aplicar, nesta ordem e uma vez cada, por `apply_migration`** (aprovação específica para cada uma): (a) `20261111140000`; (b) `20261117120000`; (c) `20261116150000` (corretiva do portão; pré-requisito do passo de leitura). A `20261110100000` já está aplicada e não é reaplicada.
-4. **Publicar** `ulbra-conversa` com `verify_jwt` a partir da `main` (aprovação específica). Sem `ULBRA_TOKENS_CHAVE`, as ações de conexão respondem 503 `CONEXAO_NAO_CONFIGURADA`.
-5. **Configurar** `ULBRA_TOKENS_CHAVE` (aprovação específica; pré-requisito de implantação, hoje AUSENTE).
-6. **Configurar** `ULBRA_HISTORICO_PILOTO_EMAILS=cobranca10@aelbra.com.br` (aprovação específica). Antes do cadastro: sem ela, o cadastro é negado (`PILOTO_NAO_AUTORIZADO`).
-7. **Cadastro** do token do operador piloto, pelo próprio operador, com `ULBRA_HISTORICO_HABILITADO` ainda DESLIGADA.
-8. **Configurar** `ULBRA_HISTORICO_TETO_OPERADOR_DIA` e `ULBRA_HISTORICO_TETO_GLOBAL_DIA` (opcionais; padrões 50 e 500).
-9. **Ativar por último** `ULBRA_HISTORICO_HABILITADO=true` (aprovação específica). Só a partir daqui há leitura.
+3. **Aplicar** por `apply_migration`, uma vez cada, nesta ordem, cada uma com aprovação específica. Nome de aplicação (`name`) fixo; a VERSÃO é a gerada pelo mecanismo e NÃO é inventada aqui:
+   a. arquivo `20261111140000_ulbra_conexao_individual_e_envio.sql.pendente` (sha256 `fcd27030...`), name `ulbra_conexao_individual_e_envio`;
+   b. arquivo `20261117120000_ulbra_gravar_conexao_atomica.sql.pendente` (sha256 `dcd8df53...`), name `ulbra_gravar_conexao_atomica`;
+   c. arquivo `20261116150000_ulbra_historico_reservar_portao_interno.sql.pendente` (sha256 `1b448d8b...`), name `ulbra_historico_reservar_portao_interno`. Pré-condição: `20261110100000` já aplicada (ledger 20261112111006).
+4. **Validar, em leitura, a corretiva (c) ANTES de qualquer publicação:** o portão está presente na definição; `authenticated` e `anon` sem EXECUTE; `service_role` com EXECUTE. Confirmar também a presença de (a) e (b). Qualquer falha interrompe a sequência.
+5. **Configurar** `ULBRA_TOKENS_CHAVE` (aprovação específica; hoje AUSENTE).
+6. **Publicar** `ulbra-conversa` com `verify_jwt`, a partir da `main` (aprovação específica).
+7. **Configurar** `ULBRA_HISTORICO_PILOTO_EMAILS=cobranca10@aelbra.com.br` (aprovação específica), ANTES do cadastro.
+8. **Cadastro** do token pelo operador piloto, com `ULBRA_HISTORICO_HABILITADO` ainda DESLIGADA.
+9. Tetos da cota: opcionais (padrões 50 e 500).
+10. **Ativar por último** `ULBRA_HISTORICO_HABILITADO=true` (aprovação específica). Só a partir daqui há leitura.
+11. Ledger: após a validação, PR própria de registro do drift (ver a seção de promoção). Envio segue DESLIGADO: `ULBRA_ENVIO_REAL` e `ULBRA_CONTRATO_PREVIA_CONFIRMADO` não são configuradas.
 
 ### Verificação
 - Antes de qualquer flag: `historico_capacidade` e `historico_ler` respondem negado com `HISTORICO_DESLIGADO`, sem chamada à Mensageria.
