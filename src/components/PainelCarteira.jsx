@@ -4979,7 +4979,7 @@ const S = {
   tagCadastroRepetido: { fontSize: 10, fontWeight: 700, color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", borderRadius: 6, padding: "1px 6px", whiteSpace: "nowrap" },
   tagCpfConflitante: { fontSize: 10, fontWeight: 700, color: "var(--rv-vermelho-texto)", background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", borderRadius: 6, padding: "1px 6px", whiteSpace: "nowrap" },
   badgeSituacao: { display: "inline-block", padding: "4px 10px", borderRadius: 999, background: "var(--rv-roxo-fundo)", color: "var(--rv-azul)", fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap", letterSpacing: "0.01em" },
-  badgeNovo: { display: "inline-block", padding: "2px 8px", borderRadius: 999, background: "var(--rv-azul-fundo,rgba(30,58,138,0.28))", color: "var(--rv-azul-texto,#bfdbfe)", fontSize: 10.5, fontWeight: 800, whiteSpace: "nowrap", letterSpacing: "0.03em" },
+  badgeNovo: { display: "inline-block", padding: "2px 8px", borderRadius: 999, background: "var(--rv-azul-fundo)", color: "var(--rv-azul)", border: "1px solid var(--rv-azul-borda)", fontSize: 10.5, fontWeight: 800, whiteSpace: "nowrap", letterSpacing: "0.03em" },
   badgeStatus: { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap" },
   bolinha: { width: 7, height: 7, borderRadius: "50%", display: "inline-block" },
   vazio: { padding: 28, textAlign: "center", color: "var(--rv-texto-fraco)" },
