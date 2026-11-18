@@ -7,7 +7,7 @@ Regra: cada gatilho de producao das tabelas alunos, casos e acordos deve estar C
 ou CLASSIFICADO na triagem (INCLUIR ou EXCLUIR). Avaliar zero gatilhos e falha.
 """
 import json, pathlib, sys
-B = pathlib.Path(__file__).resolve().parents[2] / "fixtures" / "protecao_prod_20261118"
+B = pathlib.Path(__file__).resolve().parents[1] / "fixtures" / "protecao_prod_20261118"
 carregados = {l.strip() for l in open(sys.argv[1]) if l.strip()}
 producao = [t for t in json.loads((B / "estruturas_prod.json").read_text())["estruturas"]["gatilhos"]
             if t["tabela"] in ("alunos", "casos", "acordos")]
