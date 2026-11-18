@@ -8,6 +8,9 @@ do $$
 declare c record; pa jsonb; pb jsonb; e1 record; e2 record; f1 record; f2 record; pe jsonb; pf jsonb;
 begin
   update public.calibragem_parametros set valor = '2'::jsonb where chave = 'limite_carteira';
+  -- zera a ocupacao de Luana e Mauricio deixada pelos testes anteriores (estado de teste)
+  update public.casos set operador_email = 'carteira.geral@reativa.local', operador_nome = 'CARTEIRA GERAL', operador = 'CARTEIRA GERAL'
+   where operador_email in ('cobranca05@aelbra.com.br','cobranca06@aelbra.com.br');
   select * into c from pg_temp.semear('carteira.geral@reativa.local', 400, null, 2);
   pa := pg_temp.previa(array[c.aluno], 'OPERADOR', 'cobranca05@aelbra.com.br');  -- Luana
   pb := pg_temp.previa(array[c.aluno], 'OPERADOR', 'cobranca05@aelbra.com.br');  -- Luana (mesmo destino: so um vence)
