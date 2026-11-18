@@ -1254,6 +1254,15 @@ export default function AcoesMassivas() {
                 <option key={o.valor} value={o.valor}>{o.rotulo}</option>
               ))}
             </select>
+            {acionamentoFiltro !== "NUNCA" && (
+              <button
+                type="button"
+                style={{ marginTop: 6, background: "rgba(30,58,138,0.28)", color: "#bfdbfe", border: "none", borderRadius: 999, padding: "3px 12px", fontSize: 11, fontWeight: 800, cursor: "pointer", letterSpacing: "0.03em" }}
+                onClick={() => setAcionamentoFiltro("NUNCA")}
+              >
+                ✦ Alunos novos (nunca acionados)
+              </button>
+            )}
           </div>
           <div style={estilos.campo}>
             <label style={estilos.label} htmlFor="filtro-recencia">Recência da ação massiva (dias, por canal)</label>
@@ -1792,7 +1801,7 @@ export default function AcoesMassivas() {
                       )}
                       <td style={estilos.tdNum}>
                         {r.diasSemContato === null ? (
-                          <span style={{ color: "var(--rv-vermelho-texto)", fontWeight: 800 }}>Nunca acionado</span>
+                          <span style={{ display: "inline-block", background: "rgba(30,58,138,0.28)", color: "#bfdbfe", borderRadius: 999, padding: "2px 10px", fontSize: 11, fontWeight: 800, letterSpacing: "0.03em" }}>1º contato</span>
                         ) : (
                           `${r.diasSemContato} dia(s)`
                         )}
