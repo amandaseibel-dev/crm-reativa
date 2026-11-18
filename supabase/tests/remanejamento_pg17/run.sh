@@ -89,7 +89,7 @@ psqlt "$LOGS/s2_migration.log" rem_com936 "$OURS" || falha "migration nao aplico
 echo "  ok: migration aplicada sobre a #936"
 
 passo "3. Testes sequenciais (um banco, mesma sessao de cada arquivo)"
-for t in p_destinos p_perfis p_prazo p_saldo_capacidade; do
+for t in p_destinos p_perfis p_prazo p_saldo_capacidade p_terceiros; do
   psqlt "$LOGS/$t.log" rem_com936 "$TD/$t.sql" || falha "$t: ver $LOGS/$t.log"
   echo "  ok: $t"
 done
