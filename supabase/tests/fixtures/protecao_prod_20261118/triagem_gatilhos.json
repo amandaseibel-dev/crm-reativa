@@ -146,43 +146,43 @@
  {
   "tabela": "acordos",
   "gatilho": "trg_acordo_alerta_resolve_acordo",
-  "decisao": "PENDENTE",
-  "justificativa": "UPDATE OF status; corpo nao lido nesta triagem."
+  "decisao": "EXCLUIR",
+  "justificativa": "UPDATE OF status. O remanejamento grava em acordos apenas operador_responsavel_email e atualizado_em (set_resp_acordo); status nao e escrito no caminho, logo o gatilho nao dispara (filtro de coluna do PostgreSQL)."
  },
  {
   "tabela": "acordos",
   "gatilho": "trg_acordo_status_reavalia_titulos",
-  "decisao": "PENDENTE",
-  "justificativa": "UPDATE OF status; reavalia titulos (saldo). Corpo lido: chama titulo_reavaliar; efeito sobre saldo nao medido."
+  "decisao": "EXCLUIR",
+  "justificativa": "UPDATE OF status (filtro de coluna): o remanejamento nao escreve status de acordo. Corpo: chama titulo_reavaliar (saldo), so relevante quando o status muda."
  },
  {
   "tabela": "acordos",
   "gatilho": "trg_fila_acordo_fecha_ao_encerrar",
-  "decisao": "PENDENTE",
-  "justificativa": "UPDATE OF status; atualiza fila_acordos_confirmar; corpo parcialmente lido."
+  "decisao": "EXCLUIR",
+  "justificativa": "UPDATE OF status (filtro de coluna); caminho nao escreve status."
  },
  {
   "tabela": "acordos",
   "gatilho": "trg_titulo_quita_com_o_acordo",
-  "decisao": "PENDENTE",
-  "justificativa": "titulos quitados por acordo quitado; efeito sobre saldo."
+  "decisao": "EXCLUIR",
+  "justificativa": "UPDATE OF status (filtro de coluna); caminho nao escreve status."
  },
  {
   "tabela": "acordos",
   "gatilho": "trg_titulos_por_status_acordo",
-  "decisao": "PENDENTE",
-  "justificativa": "atualiza acordos_titulos quando status=QUITADO; efeito sobre saldo."
+  "decisao": "EXCLUIR",
+  "justificativa": "UPDATE OF status (filtro de coluna); corpo atua so quando status=QUITADO; caminho nao escreve status."
  },
  {
   "tabela": "acordos",
   "gatilho": "trg_recalc_acordo",
-  "decisao": "PENDENTE",
-  "justificativa": "AFTER INSERT OR UPDATE sem filtro; corpo nao lido."
+  "decisao": "INCLUIR",
+  "justificativa": "AFTER INSERT OR UPDATE sem filtro; chama recalcular_situacao_aluno, que escreve alunos.data_retorno/retorno_origem. Carregado; teste de retorno preservado passou no CI em 2b36afa4."
  },
  {
   "tabela": "acordos",
   "gatilho": "trg_efetividade_invalidar_acordos",
-  "decisao": "PENDENTE",
-  "justificativa": "invalida snapshot de efetividade; corpo nao lido (provavelmente sem efeito na protecao)."
+  "decisao": "EXCLUIR",
+  "justificativa": "corpo: chama carteira_efetividade_invalidar, que insere so em carteira_efetividade_invalidacao. Nao altera responsavel, protecao, capacidade, elegibilidade nem rollback."
  }
 ]
