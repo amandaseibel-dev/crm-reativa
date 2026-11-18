@@ -126,7 +126,7 @@ Rodado localmente com vitest. O Deno do `ulbra-conversa` roda só no CI.
   - (Superado nesta revisão: a leitura prévia foi substituída pela gravação atômica de `ulbra_gravar_conexao`; ver a seção "Proteção atômica" abaixo.)
   - o guard só considera conexão com `refresh_token`. Uma conexão OAuth **sem refresh** (trilha B,
     caso raro) é sobrescrita sem recusa, e o grant segue válido no provedor até expirar. Registrado;
-- Estado real, consulta read-only em produção: a tabela `ulbra_conexoes_operador` **ainda não existe**
+- Estado real, observado em produção (consulta NÃO versionada): a tabela `ulbra_conexoes_operador` **ainda não existe**
   (migration `20261111140000` não aplicada). Portanto não há linha OAuth da gestora hoje. O caso só
   se torna possível após aplicar a migration e conectar por OAuth; a recusa acima o cobre.
 
@@ -229,7 +229,7 @@ necessária para decifrá-los e para desconectar com segurança. Ela é preserva
 | Reverter a função atômica | `…atomica.rollback.sql` (só `DROP FUNCTION`) | nenhuma conexão nova é gravada (fail-closed) | não apaga conexões existentes |
 | Reverter as tabelas | `…conexao_individual_e_envio.rollback.sql` | **recusa** se houver linhas em `ulbra_conexoes_operador`, `ulbra_conexoes_pedidos`, `ulbra_envio_previas` ou `ulbra_envios`; só executa com as quatro vazias | não é reversão com histórico: após uso real, desativar em vez de reverter |
 
-- "Reimplantar versão anterior" **não se aplica**: `ulbra-conversa` não existe em produção, então não há
+- "Reimplantar versão anterior" **não se aplica**: a existência de `ulbra-conversa` em produção NÃO foi verificada nesta revisão, então não há
   versão anterior. A recuperação é despublicar (tabela de linha acima).
 - Auditoria (`ULBRA_CONEXAO_TOKEN_PESSOAL`, `ULBRA_HISTORICO_LEITURA`) **não** é apagada por nenhum rollback.
 - Aluno de teste: **nunca** excluído automaticamente na recuperação se já houver vínculo, atendimento ou
