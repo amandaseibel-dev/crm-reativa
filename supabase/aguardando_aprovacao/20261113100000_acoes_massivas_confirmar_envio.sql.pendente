@@ -37,7 +37,7 @@ BEGIN;
 DO $ordem$
 BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar_emails_do_lote') IS DISTINCT FROM '1881bd1d0f362be586233264a396fcfd' THEN
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar_emails_do_lote') IS DISTINCT FROM '23664a52cf92257c25a5a837006db582' THEN
     RAISE EXCEPTION 'Ordem: aplique 20261113100100 (protecao de e-mail) antes desta migration. Nada aplicado.';
   END IF;
 END $ordem$;

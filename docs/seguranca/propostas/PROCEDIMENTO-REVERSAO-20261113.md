@@ -49,6 +49,7 @@ Uma exportacao que **comece depois da checagem e antes do COMMIT** nao e vista p
 - `acoes_massivas_concluir_lote(lote, 'CONFIRMAR')` **aceita** lote pendente (testado em banco descartavel) **antes da `20261113100200`**: registra todos os destinatarios do lote como acionados (equivale a TOTAL). **Isso presume que o disparo ocorreu para todos.** Com a `20261113100200` aplicada, CONFIRMAR de lote pendente e recusado.
 - `DESCARTAR` marca o lote como descartado, sem registro.
 - Nao existe tratamento parcial por `acoes_massivas_concluir_lote`; a confirmacao parcial e da funcao `acoes_massivas_concluir_envio`, que e removida pelo rollback da confirmacao.
+- **Derivacao de e-mail apos confirmacao parcial** (`20261113100100`, patch 2c): so entram no lote de e-mail os destinatarios informados como enviados. Nao enviados nao recebem registro, nem tabulacao, nem entram no e-mail. Isso **nao comprova envio de e-mail**; define apenas quem entra no lote de e-mail.
 - **Escolha a fazer pela gestao, por lote:** (a) confirmar como enviado para todos, se o disparo ocorreu; (b) descartar, se nao ocorreu; (c) manter pendente e adiar a janela. Nao ha regra automatica no procedimento.
 
 ## Testes e evidencias

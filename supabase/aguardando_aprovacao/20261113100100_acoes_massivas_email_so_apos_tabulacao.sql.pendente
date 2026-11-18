@@ -56,11 +56,22 @@ $n2$  -- 16/11/2026: lote de WhatsApp ainda PENDENTE de envio nao deriva e-mail.
 
   select o.id, o.exportado_em into v_derivado, v_derivado_em$n2$, 1);
 
+-- 2c. CONFIRMACAO PARCIAL: DERIVA E-MAIL SO PARA QUEM FOI ENVIADO ----------------
+-- Em lote confirmado como PARCIAL (resultado.confirmacao = 'PARCIAL'), a derivacao usa
+-- exclusivamente resultado.ids_enviados_informados. Quem foi marcado como nao enviado
+-- nao recebe e-mail, nem registro, nem tabulacao. TOTAL e lote antigo seguem com aluno_ids.
+-- Isso NAO comprova envio de e-mail: e so a lista de quem recebeu o disparo do WhatsApp.
+SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_exportar_emails_do_lote',
+$a4$            from unnest(v_origem.aluno_ids) with ordinality as t(id_txt, ord)$a4$,
+$n4$            from unnest(case when v_origem.resultado ->> 'confirmacao' = 'PARCIAL'
+                             then array(select jsonb_array_elements_text(v_origem.resultado -> 'ids_enviados_informados'))
+                             else v_origem.aluno_ids end) with ordinality as t(id_txt, ord)$n4$, 1);
+
 -- 3. MD5 FINAL ----------------------------------------------------------------------
 DO $f$
 BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar_emails_do_lote') IS DISTINCT FROM '1881bd1d0f362be586233264a396fcfd' THEN
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar_emails_do_lote') IS DISTINCT FROM '23664a52cf92257c25a5a837006db582' THEN
     RAISE EXCEPTION 'MD5 final de acoes_massivas_exportar_emails_do_lote diferente do validado.';
   END IF;
 END $f$;

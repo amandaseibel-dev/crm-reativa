@@ -383,3 +383,63 @@ describe("guardas e rollback", () => {
     expect((await lote(ex.lote_id)).confirmado_em).not.toBeNull();
   });
 });
+
+// DERIVACAO DE E-MAIL APOS CONFIRMACAO (100100 + 100000). Em PARCIAL, so quem foi enviado
+// deriva. Nao comprova envio de e-mail: so define quem entra no lote de e-mail.
+describe("derivacao de e-mail depois da confirmacao do envio (WhatsApp)", () => {
+  beforeEach(async () => {
+    // schema do canal e-mail (coluna lote_origem_id) da migration do repositorio
+    await db.exec(ler("../migrations/20261006160000_acoes_massivas_email_do_lote_whatsapp.sql"));
+    await db.exec(ler("fixtures/acoes_massivas_email_so_apos_tabulacao/prod_20261116_fidelizacao_protege.sql"));
+    await aplicar();
+  });
+  const deriva = (lote) => db.query(
+    `select public.acoes_massivas_exportar_emails_do_lote($1::uuid, 'email.xlsx') r`, [lote]).then((r) => r.rows[0].r);
+  const movsEmail = async (loteEmail) => (await db.query(
+    `select aluno_id::text id from public.aluno_movimentacoes where lote_id = $1 order by aluno_id`, [loteEmail])).rows.map((r) => r.id);
+  const lotesEmail = async () => (await db.query(
+    `select count(*)::int c from public.acoes_massivas_lotes where canal = 'EMAIL'`)).rows[0].c;
+
+  it("confirmacao PARCIAL: e-mail so para os enviados; nao enviados sem registro nem tabulacao", async () => {
+    const { ex, ids } = await exportarLote(4, 500);
+    const enviados = ids.slice(0, 2);
+    const naoEnviados = ids.slice(2);
+    await concluirEnvio(ex.lote_id, "PARCIAL", enviados);
+    const r = await deriva(ex.lote_id);
+    expect(r.total_lote_whatsapp).toBe(2);
+    expect((await movsEmail(r.lote_id))).toEqual([...enviados].sort());
+    for (const id of naoEnviados) {
+      const t = (await tabulacao([id]))[0];
+      expect(t.s).toBeNull();
+    }
+  });
+
+  it("confirmacao TOTAL: e-mail para todo o lote", async () => {
+    const { ex, ids } = await exportarLote(3, 600);
+    await concluirEnvio(ex.lote_id, "TOTAL");
+    const r = await deriva(ex.lote_id);
+    expect(r.total_lote_whatsapp).toBe(3);
+    expect((await movsEmail(r.lote_id)).length).toBe(ids.length);
+  });
+
+  it("nenhum enviado (DESCARTAR): e-mail recusado e nenhum lote de e-mail criado", async () => {
+    const { ex } = await exportarLote(2, 700);
+    await concluirEnvio(ex.lote_id, "DESCARTAR");
+    const antes = await lotesEmail();
+    await expect(deriva(ex.lote_id)).rejects.toThrow(/descartado/);
+    expect(await lotesEmail()).toBe(antes);
+  });
+
+  it("repeticao: segunda derivacao e segunda confirmacao nao duplicam nada", async () => {
+    const { ex, ids } = await exportarLote(3, 800);
+    await concluirEnvio(ex.lote_id, "PARCIAL", ids.slice(0, 2));
+    const r = await deriva(ex.lote_id);
+    const lotesAntes = await lotesEmail();
+    const movsAntes = (await movsEmail(r.lote_id)).length;
+    await expect(deriva(ex.lote_id)).rejects.toThrow(/ja|exportad/i);
+    expect(await lotesEmail()).toBe(lotesAntes);
+    expect((await movsEmail(r.lote_id)).length).toBe(movsAntes);
+    const again = await concluirEnvio(ex.lote_id, "PARCIAL", ids.slice(0, 2));
+    expect(again.ja_registrado).toBe(true);
+  });
+});

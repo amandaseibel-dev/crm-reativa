@@ -21,7 +21,7 @@ SET LOCAL lock_timeout = '5s';
 DO $g$
 BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar_emails_do_lote') IS DISTINCT FROM '1881bd1d0f362be586233264a396fcfd' THEN
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar_emails_do_lote') IS DISTINCT FROM '23664a52cf92257c25a5a837006db582' THEN
     RAISE EXCEPTION 'Rollback abortado: acoes_massivas_exportar_emails_do_lote nao esta na versao da migration 20261113100100.';
   END IF;
   -- A confirmacao (20261113100000) depende desta protecao: se a funcao nova existe, recusa.
@@ -64,6 +64,13 @@ END $r2$;
 SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_exportar_emails_do_lote',
 $n1$  select * into v_origem from public.acoes_massivas_lotes where id = p_lote_id for share;$n1$,
 $a1$  select * into v_origem from public.acoes_massivas_lotes where id = p_lote_id;$a1$, 1);
+
+-- 2c. remove a derivacao por confirmacao parcial (volta ao aluno_ids do lote)
+SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_exportar_emails_do_lote',
+$n4$            from unnest(case when v_origem.resultado ->> 'confirmacao' = 'PARCIAL'
+                             then array(select jsonb_array_elements_text(v_origem.resultado -> 'ids_enviados_informados'))
+                             else v_origem.aluno_ids end) with ordinality as t(id_txt, ord)$n4$,
+$a4$            from unnest(v_origem.aluno_ids) with ordinality as t(id_txt, ord)$a4$, 1);
 
 DO $f$
 BEGIN

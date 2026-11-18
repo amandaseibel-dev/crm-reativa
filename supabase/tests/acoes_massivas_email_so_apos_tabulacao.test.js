@@ -27,7 +27,7 @@ const PROD = ler("supabase/tests/fixtures/acoes_massivas_email_so_apos_tabulacao
 const MIGRACAO = ler("supabase/aguardando_aprovacao/20261113100100_acoes_massivas_email_so_apos_tabulacao.sql.pendente");
 const ROLLBACK = ler("supabase/aguardando_aprovacao/20261113100100_acoes_massivas_email_so_apos_tabulacao.rollback.sql");
 const MD5_PROD = "00d3370a7800bd334292808e1573a57d";
-const MD5_FINAL = "1881bd1d0f362be586233264a396fcfd";
+const MD5_FINAL = "23664a52cf92257c25a5a837006db582";
 const COLUNAS_TABULACAO = `
   alter table public.alunos add column if not exists status_acionamento text;
   alter table public.alunos add column if not exists data_retorno date;

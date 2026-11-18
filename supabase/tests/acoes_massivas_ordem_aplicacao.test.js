@@ -33,7 +33,7 @@ const GESTAO_EMAIL = "gestao.teste@reativa.local";
 const MD5_EXPORTAR_PUBLICADO = "c9cc7498d16ca250e85c4727c8bb05bd";
 const MD5_EXPORTAR_FINAL = "3861da11bfb0930fc698ce8e1ca05a35";
 const MD5_EMAIL_PUBLICADO = "00d3370a7800bd334292808e1573a57d";
-const MD5_EMAIL_FINAL = "1881bd1d0f362be586233264a396fcfd";
+const MD5_EMAIL_FINAL = "23664a52cf92257c25a5a837006db582";
 
 async function banco() {
   const db = await novoBanco({ registroAutomatico: true });
