@@ -2,7 +2,7 @@
 -- chamadas e obrigatoria (ver docs/seguranca/propostas/PROCEDIMENTO-REVERSAO-20261113.md).
 -- ROLLBACK de 20261113100100_acoes_massivas_email_so_apos_tabulacao.
 -- ORDEM DE REVERSAO: este rollback so depois do rollback de 20261113100000, e
--- so com zero lotes de WhatsApp pendentes. Com lote pendente, reverter esta
+-- so com zero lotes pendentes de qualquer canal. Com lote pendente, reverter esta
 -- migration reabre o B1 (exportacao de e-mail sem a checagem de confirmacao).
 -- Remove a guarda de lote pendente e devolve o lote de origem a leitura sem FOR
 -- SHARE, reconstruindo o corpo publicado (md5 00d3370a...). Nao toca dado.

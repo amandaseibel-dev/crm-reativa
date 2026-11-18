@@ -22,8 +22,11 @@
 --      linha) e so le o estado ja confirmado;
 --   2. antes da checagem de derivado, recusa lote pendente (errcode 55000).
 --
--- Nao altera acoes_massivas_exportar_emails_do_lote alem disso, nao muda o
--- contrato de retorno, nao toca lote de WhatsApp e nao toca a tela.
+--   3. (patch 2c) em confirmacao PARCIAL, a derivacao usa so
+--      resultado.ids_enviados_informados; TOTAL e lote antigo seguem com aluno_ids.
+--      Isso define quem entra no lote de e-mail; NAO comprova envio de e-mail.
+--
+-- Nao altera o contrato de retorno, nao toca lote de WhatsApp e nao toca a tela.
 --
 -- Em producao (16/11/2026) nao ha nenhum lote de WhatsApp pendente: 54 de 54
 -- estao confirmados ou descartados. A regra nao muda dado existente.

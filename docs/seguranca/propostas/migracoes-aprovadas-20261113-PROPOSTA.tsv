@@ -4,11 +4,11 @@
 # 20261113100100 inclui a derivacao de e-mail so para quem foi enviado em confirmacao PARCIAL (nao comprova envio de e-mail).
 # Ordem de APLICACAO: 20261113100100 -> 20261113100000 -> 20261113100200 (o banco impoe; ver guardas).
 projeto	nome	sha256	executor	expira_em	status
-ahattpqrjmhkzsmnbdzs	20261113100100_acoes_massivas_email_so_apos_tabulacao	51afd93e77881d975d03cf9b7656a864123e58564dd7e96ecb45b7e781c1c7e3	amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente
+ahattpqrjmhkzsmnbdzs	20261113100100_acoes_massivas_email_so_apos_tabulacao	ad035c52c51dae7fa9baf64efa4c49714328bca954617deadc1c0e1db81b9556	amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente
 ahattpqrjmhkzsmnbdzs	20261113100000_acoes_massivas_confirmar_envio	627d479bbcb477d75c6e2a34dcb6ecd1a5233c7b6f1138147b58ef4a7c1f6199	amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente
-# ROLLBACKS (proposta; nao registrados). Tamanhos em bytes: 20261113100000.rollback.sql=3242; 20261113100100.rollback.sql=4685.
-ahattpqrjmhkzsmnbdzs	20261113100000_acoes_massivas_confirmar_envio.rollback	c27d61d06853beebd0fccff6b75a82dea4e20d6e45e80da0b768ff037a4491a9	amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente
-ahattpqrjmhkzsmnbdzs	20261113100100_acoes_massivas_email_so_apos_tabulacao.rollback	7825c49aefbad4488a0867d99d03ae1923239a36a1141c5d6d879de2ebe13ae2	amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente
-# 20261113100200 (recusa de CONFIRMAR de lote pendente em concluir_lote). Tamanhos: rollback=2942; sql.pendente=2612.
-ahattpqrjmhkzsmnbdzs	20261113100200_acoes_massivas_concluir_lote_bloqueia_pendente	b08e5302b8bfabdda1bf2a1cee58d5c0e5048798317a2953b4315c31d91ca39b	amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente
+# ROLLBACKS (proposta; nao registrados). Tamanhos em bytes: 20261113100000.rollback.sql=3759; 20261113100100.rollback.sql=4691.
+ahattpqrjmhkzsmnbdzs	20261113100000_acoes_massivas_confirmar_envio.rollback	538aa2bfc989d88a0e2b6e1465385214875e5daaa72a50d413023c980ab2d5b2	amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente
+ahattpqrjmhkzsmnbdzs	20261113100100_acoes_massivas_email_so_apos_tabulacao.rollback	bcd7a39d639ba4d3c44bca1b03649598a7d1e153c1f6962079c2d28007a12dee	amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente
+# 20261113100200 (recusa de CONFIRMAR de lote pendente em concluir_lote; ordem com 20261113100000). Tamanhos: rollback=2942; sql.pendente=3324. md5 de concluir_lote apos a 100200: 57818ede179b6a1cf82a0bdd343f27d3.
+ahattpqrjmhkzsmnbdzs	20261113100200_acoes_massivas_concluir_lote_bloqueia_pendente	f5d6e06a45eae15b2ecbc478e59d43b6c770d301f7d2a57245a361c582ac47b1	amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente
 ahattpqrjmhkzsmnbdzs	20261113100200_acoes_massivas_concluir_lote_bloqueia_pendente.rollback	88f5f11cf0a2ed2d38ef551c2b6ce077baa082397abe04a1e25a357ec36af955	amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente

@@ -76,8 +76,8 @@ catalogo() { P -tA -c "select string_agg(coalesce(proacl::text,'NULL'), ' | ' or
 E_ANTES_100100=$(efetivas "$F_EML")
 [ -n "$E_ANTES_100100" ] || falha_prep "B1: snapshot de permissoes vazio antes da 100100 (consulta falhou)"
 
-# Passo 1: aplica a 100100 (protecao de e-mail). Efetivo de exportar_emails deve ser o mesmo de antes? NAO exigido:
-# a 100100 so muda o corpo; medimos e comparamos apos cada etapa abaixo.
+# Passo 1: aplica a 100100 (protecao de e-mail). A 100100 muda o corpo de exportar_emails;
+# a permissao efetiva precisa permanecer igual, e isso e medido logo abaixo.
 P -f "$PROT_F" >"$LOG/b1_100100" 2>&1 || falha "B1: aplicacao da 100100 falhou (log: $LOG/b1_100100)"
 [ "$(efetivas "$F_EML")" = "$E_ANTES_100100" ] || falha "B1: aplicacao da 100100 ALTEROU permissoes efetivas de exportar_emails"
 E_PRE=$(efetivas "${TODAS[@]}")   # referencia ANTES da 100000 (FC/FD ABSENTE)
@@ -171,4 +171,4 @@ echo "C5 ok: rollback da 100100 concluiu e restaurou o efetivo anterior"
 [ "$(P -tA -c "select count(*) from public.acoes_massivas_lotes where confirmado_em is null and descartado_em is null")" = "0" ] || falha "residuo: lote pendente restou"
 [ "$(P -tA -c "select count(*) from pg_stat_activity where datname=current_database() and pid<>pg_backend_pid() and state='idle in transaction'")" = "0" ] || falha "residuo: transacao aberta restou"
 echo "RESIDUOS ok: nenhum lote pendente e nenhuma transacao aberta"
-echo "C1-C4 OK no banco descartavel $DB."
+echo "B1 e C1-C5 OK no banco descartavel $DB."

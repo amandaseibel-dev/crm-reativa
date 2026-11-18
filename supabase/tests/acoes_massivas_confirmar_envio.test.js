@@ -436,7 +436,7 @@ describe("derivacao de e-mail depois da confirmacao do envio (WhatsApp)", () => 
     const r = await deriva(ex.lote_id);
     const lotesAntes = await lotesEmail();
     const movsAntes = (await movsEmail(r.lote_id)).length;
-    await expect(deriva(ex.lote_id)).rejects.toThrow(/ja|exportad/i);
+    await expect(deriva(ex.lote_id)).rejects.toThrow(/ja gerou a acao de e-mail/);
     expect(await lotesEmail()).toBe(lotesAntes);
     expect((await movsEmail(r.lote_id)).length).toBe(movsAntes);
     const again = await concluirEnvio(ex.lote_id, "PARCIAL", ids.slice(0, 2));

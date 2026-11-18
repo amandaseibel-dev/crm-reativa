@@ -1,10 +1,11 @@
 -- SEM guarda de sessao: nao ha controle comprovado por texto de consulta. A pausa das
 -- chamadas e obrigatoria (ver docs/seguranca/propostas/PROCEDIMENTO-REVERSAO-20261113.md).
 -- ROLLBACK de 20261113100000_acoes_massivas_confirmar_envio.
--- Volta acoes_massivas_exportar ao corpo publicado (c9cc7498..., registro
--- automatico) e remove acoes_massivas_concluir_envio. Nao toca dado: lotes
--- confirmados continuam confirmados; lotes PENDENTE_ENVIO nao sao aceitos: a reversao recusa se houver pendente
--- e podem ser concluidos pelo acoes_massivas_concluir_lote de sempre.
+-- ORDEM DE REVERSAO: depois do rollback de 20261113100200 (recusa se ela ainda estiver aplicada).
+-- Volta acoes_massivas_exportar ao corpo publicado (c9cc7498...) e remove
+-- acoes_massivas_concluir_envio. Nao toca dado: lotes confirmados continuam confirmados.
+-- Recusa se houver lote pendente de qualquer canal: tratar o lote antes (confirmar por
+-- destinatario ou descartar).
 
 BEGIN;
 
@@ -19,6 +20,12 @@ BEGIN
   IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
        WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar') IS DISTINCT FROM '3861da11bfb0930fc698ce8e1ca05a35' THEN
     RAISE EXCEPTION 'Rollback abortado: acoes_massivas_exportar nao esta na versao da migration 20261113100000.';
+  END IF;
+  -- Ordem: a recusa de CONFIRMAR de lote pendente (20261113100200) depende desta confirmacao.
+  IF EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+              WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_concluir_lote'
+                AND pg_get_functiondef(p.oid) LIKE '%Confirme o envio destinatario a destinatario%') THEN
+    RAISE EXCEPTION 'Rollback recusado: reverta 20261113100200 antes. Nada alterado.';
   END IF;
   -- Condicao de reversao: zero lotes pendentes (estado efetivo, nao marca).
   -- Trava de tabela ANTES da checagem: serializa com a exportacao (que insere lote).

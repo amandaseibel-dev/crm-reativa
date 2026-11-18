@@ -22,9 +22,12 @@ const EMAIL_PROD = ler("fixtures/acoes_massivas_email_so_apos_tabulacao/prod_202
 const PROTECAO = ler("../aguardando_aprovacao/20261113100100_acoes_massivas_email_so_apos_tabulacao.sql.pendente");
 const CONFIRMAR = ler("../aguardando_aprovacao/20261113100000_acoes_massivas_confirmar_envio.sql.pendente");
 const NOVA = ler("../aguardando_aprovacao/20261113100200_acoes_massivas_concluir_lote_bloqueia_pendente.sql.pendente");
+const ROLLBACK_CONFIRMAR = ler("../aguardando_aprovacao/20261113100000_acoes_massivas_confirmar_envio.rollback.sql");
 const ROLLBACK_NOVA = ler("../aguardando_aprovacao/20261113100200_acoes_massivas_concluir_lote_bloqueia_pendente.rollback.sql");
 // Definicao VIGENTE publicada de acoes_massivas_concluir_lote (producao, leitura de 17/11/2026).
 const MD5_CONCLUIR_LOTE_PUBLICADO = "3a94002240236f6ccd63296ccc4b6a42";
+// Definicao apos a 100200 (validada em PGlite, 18/11/2026).
+const MD5_CONCLUIR_LOTE_POS_200 = "57818ede179b6a1cf82a0bdd343f27d3";
 
 let db;
 beforeEach(async () => {
@@ -46,6 +49,9 @@ const md5 = async (nome) => (await db.query(
     where n.nspname = 'public' and p.proname = $1`, [nome])).rows[0]?.m ?? null;
 const aplicarAteConfirmar = async () => { await db.exec(EMAIL_PROD); await db.exec(PROTECAO); await db.exec(CONFIRMAR); };
 const aplicar = async () => { await aplicarAteConfirmar(); await db.exec(NOVA); };
+const existe = async (nome) => (await db.query(
+  `select count(*)::int c from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = $1`, [nome])).rows[0].c > 0;
 const movs = async (lote) => (await db.query(
   `select aluno_id from public.aluno_movimentacoes where lote_id = $1`, [lote])).rows;
 const lote = async (id) => (await db.query(
@@ -66,6 +72,12 @@ async function exportarLote(n, ini = 1) {
 
 describe("antes da 100200 (publicado)", () => {
   it("concluir_lote carregado e a definicao publicada de producao (MD5)", async () => {
+    expect(await md5("acoes_massivas_concluir_lote")).toBe(MD5_CONCLUIR_LOTE_PUBLICADO);
+  });
+  it("ORDEM: 100200 sem a confirmacao por destinatario (100000) e recusada, nada alterado", async () => {
+    expect(await md5("acoes_massivas_concluir_lote")).toBe(MD5_CONCLUIR_LOTE_PUBLICADO);
+    await expect(db.exec(NOVA)).rejects.toThrow(/Ordem: aplique 20261113100000/);
+    await db.exec("ROLLBACK").catch(() => {});
     expect(await md5("acoes_massivas_concluir_lote")).toBe(MD5_CONCLUIR_LOTE_PUBLICADO);
   });
 });
@@ -136,12 +148,24 @@ describe("depois da 100200", () => {
   });
 });
 
+describe("ORDEM de reversao: 100000 nao reverte enquanto 100200 estiver aplicada", () => {
+  it("rollback da 100000 e recusado com a 100200 aplicada (nada alterado)", async () => {
+    await aplicar();
+    const m = await md5("acoes_massivas_exportar");
+    await expect(db.exec(ROLLBACK_CONFIRMAR)).rejects.toThrow(/reverta 20261113100200 antes/);
+    await db.exec("ROLLBACK").catch(() => {});
+    expect(await md5("acoes_massivas_exportar")).toBe(m);
+    expect(await existe("acoes_massivas_concluir_envio")).toBe(true);
+  });
+});
+
 describe("100200 aplicada e revertida", () => {
   it("aplicar altera o corpo; o rollback sem lote pendente devolve o MD5 publicado", async () => {
     await aplicarAteConfirmar();
     const antes = await md5("acoes_massivas_concluir_lote");
     expect(antes).toBe(MD5_CONCLUIR_LOTE_PUBLICADO);
     await db.exec(NOVA);
+    expect(await md5("acoes_massivas_concluir_lote")).toBe(MD5_CONCLUIR_LOTE_POS_200);
     expect(await md5("acoes_massivas_concluir_lote")).not.toBe(MD5_CONCLUIR_LOTE_PUBLICADO);
     await db.exec(ROLLBACK_NOVA);
     expect(await md5("acoes_massivas_concluir_lote")).toBe(MD5_CONCLUIR_LOTE_PUBLICADO);

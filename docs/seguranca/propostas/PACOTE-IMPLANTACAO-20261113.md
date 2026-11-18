@@ -5,17 +5,17 @@
 ## 1. Migrations e hashes (sha256 completo, bytes)
 | # | Arquivo | sha256 | bytes | Acao |
 |---|---|---|---|---|
-| 1 | `supabase/aguardando_aprovacao/20261113100100_acoes_massivas_email_so_apos_tabulacao.sql.pendente` | `51afd93e77881d975d03cf9b7656a864123e58564dd7e96ecb45b7e781c1c7e3` | 4604 | aplicar primeiro |
-| 2 | `supabase/aguardando_aprovacao/20261113100000_acoes_massivas_confirmar_envio.sql.pendente` | `627d479bbcb477d75c6e2a34dcb6ecd1a5233c7b6f1138147b58ef4a7c1f6199` | 14570 | aplicar depois de 1 |
-| 3 | `supabase/aguardando_aprovacao/20261113100200_acoes_massivas_concluir_lote_bloqueia_pendente.sql.pendente` | `b08e5302b8bfabdda1bf2a1cee58d5c0e5048798317a2953b4315c31d91ca39b` | 2612 | aplicar depois de 2 |
+| 1 | `20261113100100_acoes_massivas_email_so_apos_tabulacao.sql.pendente` | `ad035c52c51dae7fa9baf64efa4c49714328bca954617deadc1c0e1db81b9556` | 4771 | aplicar primeiro |
+| 2 | `20261113100000_acoes_massivas_confirmar_envio.sql.pendente` | `627d479bbcb477d75c6e2a34dcb6ecd1a5233c7b6f1138147b58ef4a7c1f6199` | 14570 | aplicar depois de 1 |
+| 3 | `20261113100200_acoes_massivas_concluir_lote_bloqueia_pendente.sql.pendente` | `f5d6e06a45eae15b2ecbc478e59d43b6c770d301f7d2a57245a361c582ac47b1` | 3324 | aplicar depois de 2 |
 | R3 | `...100200...rollback.sql` | `88f5f11cf0a2ed2d38ef551c2b6ce077baa082397abe04a1e25a357ec36af955` | 2942 | reverter primeiro |
-| R2 | `...100000...rollback.sql` | `c27d61d06853beebd0fccff6b75a82dea4e20d6e45e80da0b768ff037a4491a9` | 3242 | reverter depois de R3 |
-| R1 | `...100100...rollback.sql` | `7825c49aefbad4488a0867d99d03ae1923239a36a1141c5d6d879de2ebe13ae2` | 4685 | reverter por ultimo |
+| R2 | `...100000...rollback.sql` | `538aa2bfc989d88a0e2b6e1465385214875e5daaa72a50d413023c980ab2d5b2` | 3759 | reverter depois de R3 |
+| R1 | `...100100...rollback.sql` | `bcd7a39d639ba4d3c44bca1b03649598a7d1e153c1f6962079c2d28007a12dee` | 4691 | reverter por ultimo |
 
 Md5 de verificacao apos cada etapa (pg_get_functiondef):
 - `acoes_massivas_exportar_emails_do_lote`: `00d3370a7800bd334292808e1573a57d` antes; `23664a52cf92257c25a5a837006db582` apos a 1.
 - `acoes_massivas_exportar`: `c9cc7498d16ca250e85c4727c8bb05bd` antes; `3861da11bfb0930fc698ce8e1ca05a35` apos a 2.
-- `acoes_massivas_concluir_lote`: `3a94002240236f6ccd63296ccc4b6a42` antes (publicado); alterado apos a 3.
+- `acoes_massivas_concluir_lote`: `3a94002240236f6ccd63296ccc4b6a42` antes (publicado); `57818ede179b6a1cf82a0bdd343f27d3` apos a 3.
 
 ## 2. Ordem
 - **Aplicar:** 1 → 2 → 3. A 2 recusa se a 1 nao estiver aplicada (guarda de md5); a 3 recusa se a 2 nao estiver.
@@ -47,5 +47,6 @@ Md5 de verificacao apos cada etapa (pg_get_functiondef):
 - **Ressalva:** no repositorio, "grupo B" nao esta definido no contexto de lotes de acoes massivas (aparece apenas em rotinas Prime). Preciso que a gestao confirme qual conjunto e o grupo B antes de qualquer registro. Nao registrado nesta rodada.
 
 ## 7. Fora deste pacote
+- Os 247 IDs originais do grupo B estao apenas na pasta restrita da gestao; nao fazem parte desta PR nem do repositorio. A reconciliacao com o relatorio real de envio ainda nao foi feita.
 - Nenhuma exportacao, registro de lote ou envio de mensagem foi feito.
 - Pendencias de producao nao verificadas: grants de `acoes_massivas_fidelizacao_protege` (anon/public), Edge Functions sem fonte, bucket `tv-imagens`, `_tmp_fila2` sem RLS, views com bypass.

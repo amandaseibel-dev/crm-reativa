@@ -2,7 +2,8 @@
 // Ordem = a mesma do teste de ordem (supabase/tests/acoes_massivas_ordem_aplicacao.test.js):
 // base + repo + colunas + fidelizacao/exportar de producao + protecao (100100) + confirmacao (100000).
 // Uso: node scripts/ci/gerar-sql-banco-reversao.mjs <token> > banco.sql
-// Gera o estado ANTES da 20261113100100 (corpo publicado de e-mail, 00d3370a). As migrations
+// Gera o estado ANTES da 20261113100100 (corpo publicado de e-mail, 00d3370a), com os papeis
+// de sistema e os corpos publicados de concluir_lote. As migrations
 // pendentes (100100, 100000, 100200) e os rollbacks sao aplicados pelo teste, que mede as
 // permissoes efetivas antes, depois e apos cada rollback.
 import { sqlBase } from "../../supabase/tests/fixtures/acoes_massivas_universo/bancada.js";
