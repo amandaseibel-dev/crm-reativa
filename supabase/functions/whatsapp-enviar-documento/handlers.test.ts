@@ -12,6 +12,7 @@ const estado = {
   acesso: true,
   ativo: true,
   desligado: false,
+  bloqueioAtivo: true,
   handler: null as null | ((req: Request) => Promise<Response>),
   gatewayChamadas: 0,
   uploads: 0,
@@ -62,6 +63,7 @@ vi.mock("https://esm.sh/@supabase/supabase-js@2", () => ({
       WHATSAPP_GATEWAY_URL: "http://gateway.local",
       WHATSAPP_GATEWAY_TOKEN: "tok",
       ENVIO_WHATSAPP_DESLIGADO: estado.desligado ? "true" : undefined,
+      JURIDICO_BLOQUEIO_ENVIO_ATIVO: estado.bloqueioAtivo ? "true" : undefined,
     } as Record<string, string>)[k],
   },
   serve: (h: any) => { estado.handler = h; },
@@ -80,6 +82,7 @@ beforeEach(async () => {
   estado.acesso = true;
   estado.ativo = true;
   estado.desligado = false;
+  estado.bloqueioAtivo = true;
   estado.gatewayChamadas = 0;
   estado.uploads = 0;
   (globalThis as any).fetch = vi.fn(async () => {

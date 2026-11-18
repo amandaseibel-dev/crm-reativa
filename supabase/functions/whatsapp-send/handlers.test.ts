@@ -13,6 +13,7 @@ const estado = {
   acesso: true,
   ativo: true,
   desligado: false,
+  bloqueioAtivo: true,
   handler: null as null | ((req: Request) => Promise<Response>),
   gatewayChamadas: 0,
   gatewayResposta: { ok: true, wamid: "W-1" } as any,
@@ -58,6 +59,7 @@ vi.mock("https://esm.sh/@supabase/supabase-js@2", () => ({
       WHATSAPP_GATEWAY_URL: "http://gateway.local",
       WHATSAPP_GATEWAY_TOKEN: "tok",
       ENVIO_WHATSAPP_DESLIGADO: estado.desligado ? "true" : undefined,
+      JURIDICO_BLOQUEIO_ENVIO_ATIVO: estado.bloqueioAtivo ? "true" : undefined,
     } as Record<string, string>)[k],
   },
   serve: (h: any) => { estado.handler = h; },
@@ -73,6 +75,7 @@ beforeEach(async () => {
   estado.acesso = true;
   estado.ativo = true;
   estado.desligado = false;
+  estado.bloqueioAtivo = true;
   estado.gatewayChamadas = 0;
   estado.gatewayResposta = { ok: true, wamid: "W-1" };
   (globalThis as any).fetch = vi.fn(async () => {
@@ -172,5 +175,17 @@ describe("whatsapp-send (handler real): texto com bloqueio jurídico", () => {
     expect(r.status).toBe(503);
     expect(estado.chamadas).toHaveLength(0);
     expect(estado.gatewayChamadas).toBe(0);
+  });
+});
+
+describe("whatsapp-send: flag JURIDICO_BLOQUEIO_ENVIO_ATIVO desligada", () => {
+  it("flag desligada + RPC juridico inexistente + conversa sem aluno_id: envio sai normalmente", async () => {
+    estado.bloqueioAtivo = false;
+    estado.conversaAluno = null;
+    // Simula RPC inexistente: juridico_checar_envio nunca deve ser chamado.
+    const r = await estado.handler!(pedido({ conversa_id: "c-2", texto: "Oi" }));
+    expect(r.status).toBe(200);
+    expect(nomes()).not.toContain("juridico_checar_envio");
+    expect(estado.gatewayChamadas).toBe(1);
   });
 });
