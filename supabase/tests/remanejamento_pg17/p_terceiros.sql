@@ -38,7 +38,9 @@ begin
   -- (c) previa ok; ANTES da execucao o responsavel da ficha muda: recusa
   select * into m from _t3;
   p := pg_temp.previa(array[m.aluno], 'OPERADOR', 'cobranca05@aelbra.com.br');
-  update public.alunos set responsavel_atual_email = 'cobranca06@aelbra.com.br' where id = m.aluno;
+  -- troca de responsavel pelo CAMINHO OFICIAL (internal.set_resp_aluno, dono = executor).
+  -- A escrita direta e barrada por trg_guard_resp_aluno de producao.
+  perform internal.set_resp_aluno(m.aluno, 'cobranca06@aelbra.com.br', 'Mauricio', 'TROCA_TESTE', 'troca entre previa e execucao', 'amanda.seibel@aelbra.com.br', 'Amanda');
   update public.casos set operador_email = 'cobranca06@aelbra.com.br' where id = m.caso;
   r := public.carteira_geral_mover((p->>'previa_id')::uuid, 'troca');
   perform pg_temp.afirma((r->>'alunos_movidos')::int = 0, 'troca de responsavel entre previa e execucao: recusado');

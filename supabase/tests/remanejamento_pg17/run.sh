@@ -102,6 +102,8 @@ PROT="$RAIZ/supabase/tests/fixtures/protecao_prod_20261118"
 psqlt "$LOGS/s2_estr.log" rem_com936 "$PROT/estruturas_prod.sql" || falha "estruturas reais nao aplicaram"
 psqlt "$LOGS/s2_auth.log" rem_com936 "$TD/auth_reproducao.sql" || falha "auth reproduzido nao aplicou"
 psqlt "$LOGS/s2_funcs.log" rem_com936 "$PROT/funcoes_prod.sql" || falha "funcoes reais nao aplicaram"
+psqlt "$LOGS/s2_resp_funcs.log" rem_com936 "$PROT/funcoes_responsavel_prod.sql" || falha "funcoes de responsavel nao aplicaram"
+psqlt "$LOGS/s2_resp.log" rem_com936 "$PROT/responsavel_prod.sql" || falha "camada de responsavel e acordo nao aplicou"
 if ! psqlt "$LOGS/s2_936.log" rem_com936 "$MIG936"; then
   echo "  #936 NAO aplica sobre a bancada de producao de 17/11: ver $LOGS/s2_936.log"
   exit 2

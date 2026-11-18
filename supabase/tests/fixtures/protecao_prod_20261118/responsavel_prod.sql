@@ -16,7 +16,6 @@ alter table public.notificacoes add column if not exists criado_em timestamptz n
 alter table public.notificacoes add column if not exists lida_em timestamptz;
 alter table public.notificacoes add column if not exists caso_id uuid;
 alter table public.notificacoes add column if not exists link_pagamento_id uuid;
-\i funcoes_responsavel_prod.sql
 alter function internal.set_resp_aluno(uuid,text,text,text,text,text,text) owner to reativa_responsavel_executor;
 alter function internal.set_resp_acordo(uuid,text,text,text,text,text,text) owner to reativa_responsavel_executor;
 grant reativa_responsavel_executor to postgres;
