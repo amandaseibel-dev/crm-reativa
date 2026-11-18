@@ -61,9 +61,6 @@
 --    esta migration nao concorre com ela.
 --  * Cadastro de usuarios, agendamentos (cron), grants das funcoes existentes.
 --
--- NUMEROS DE CAPACIDADE (833-861 e 535-562 casos): medidos por consulta de leitura
--- em 17/11/2026, NAO versionada no repositorio.
---
 -- DEPENDENCIA DECLARADA (PRE-REQUISITO: PR #936)
 --
 -- Com os corpos de HOJE em producao, liberar_fidelizacao_caso e
