@@ -1,0 +1,44 @@
+-- RESPONSAVEL e ACORDO: camada de producao (2026-11-18). Definicoes de funcoes_responsavel_prod.json
+-- e gatilhos com pg_get_triggerdef de producao. Donos e grants reproduzidos do levantamento de papeis.
+do $$ begin if not exists (select 1 from pg_roles where rolname='reativa_responsavel_executor') then create role reativa_responsavel_executor nologin; end if; end $$;
+create table if not exists public.notificacoes (id uuid primary key default gen_random_uuid());
+alter table public.notificacoes add column if not exists usuario_destino_nome text;
+alter table public.notificacoes add column if not exists usuario_destino_email text not null;
+alter table public.notificacoes add column if not exists tipo text not null;
+alter table public.notificacoes add column if not exists titulo text not null;
+alter table public.notificacoes add column if not exists mensagem text;
+alter table public.notificacoes add column if not exists aluno_id text;
+alter table public.notificacoes add column if not exists solicitacao_link_id uuid;
+alter table public.notificacoes add column if not exists baixa_id uuid;
+alter table public.notificacoes add column if not exists url_destino text;
+alter table public.notificacoes add column if not exists lida boolean not null;
+alter table public.notificacoes add column if not exists criado_em timestamptz not null;
+alter table public.notificacoes add column if not exists lida_em timestamptz;
+alter table public.notificacoes add column if not exists caso_id uuid;
+alter table public.notificacoes add column if not exists link_pagamento_id uuid;
+\i funcoes_responsavel_prod.sql
+alter function internal.set_resp_aluno(uuid,text,text,text,text,text,text) owner to reativa_responsavel_executor;
+alter function internal.set_resp_acordo(uuid,text,text,text,text,text,text) owner to reativa_responsavel_executor;
+grant reativa_responsavel_executor to postgres;
+grant select, update on public.alunos to reativa_responsavel_executor;
+grant select on public.acordos to reativa_responsavel_executor;
+grant select, insert on public.aluno_movimentacoes to reativa_responsavel_executor;
+grant select on public.usuarios to reativa_responsavel_executor;
+drop trigger if exists trg_guard_resp_aluno on public.alunos;
+CREATE TRIGGER trg_guard_resp_aluno BEFORE UPDATE ON public.alunos FOR EACH ROW EXECUTE FUNCTION _guard_resp_aluno();
+drop trigger if exists trg_nome_do_operador_no_aluno on public.alunos;
+CREATE TRIGGER trg_nome_do_operador_no_aluno BEFORE INSERT OR UPDATE OF operador_email, operador_nome, responsavel_atual_email, responsavel_atual_nome ON public.alunos FOR EACH ROW EXECUTE FUNCTION _nome_do_operador_no_aluno();
+drop trigger if exists trg_sync_casos_resp_aluno on public.alunos;
+CREATE TRIGGER trg_sync_casos_resp_aluno AFTER UPDATE OF responsavel_atual_email ON public.alunos FOR EACH ROW EXECUTE FUNCTION _sync_casos_resp_aluno();
+drop trigger if exists trg_nome_do_operador_no_caso on public.casos;
+CREATE TRIGGER trg_nome_do_operador_no_caso BEFORE INSERT OR UPDATE OF operador_email, operador_nome, operador ON public.casos FOR EACH ROW EXECUTE FUNCTION _nome_do_operador_no_caso();
+drop trigger if exists trg_sync_alunos_apos_casos on public.casos;
+CREATE TRIGGER trg_sync_alunos_apos_casos AFTER UPDATE ON public.casos FOR EACH ROW WHEN ((new.operador_email IS DISTINCT FROM old.operador_email)) EXECUTE FUNCTION trg_sincronizar_alunos_apos_casos();
+drop trigger if exists trg_acordo_herda_responsavel on public.acordos;
+CREATE TRIGGER trg_acordo_herda_responsavel BEFORE INSERT ON public.acordos FOR EACH ROW EXECUTE FUNCTION _acordo_herda_responsavel_do_aluno();
+drop trigger if exists trg_aluno_segue_dono_do_acordo on public.acordos;
+CREATE TRIGGER trg_aluno_segue_dono_do_acordo AFTER INSERT OR UPDATE OF operador_responsavel_email, status ON public.acordos FOR EACH ROW EXECUTE FUNCTION _aluno_segue_dono_do_acordo();
+drop trigger if exists trg_atribuir_responsavel_por_acordo on public.acordos;
+CREATE TRIGGER trg_atribuir_responsavel_por_acordo AFTER INSERT OR UPDATE OF operador_responsavel_email, status ON public.acordos FOR EACH ROW EXECUTE FUNCTION atribuir_responsavel_por_acordo();
+drop trigger if exists trg_guard_resp_acordo on public.acordos;
+CREATE TRIGGER trg_guard_resp_acordo BEFORE UPDATE ON public.acordos FOR EACH ROW EXECUTE FUNCTION _guard_resp_acordo();

@@ -1,0 +1,209 @@
+{
+ "meta": {
+  "origem": "Supabase ahattpqrjmhkzsmnbdzs (producao), leitura somente",
+  "data_leitura": "2026-11-18",
+  "conteudo": "gatilhos e funcoes de responsavel/acordo e dependencias"
+ },
+ "funcoes": [
+  {
+   "nome": "internal.set_resp_acordo(p_acordo_id uuid, p_novo_email text, p_novo_nome text, p_tipo text, p_descricao text, p_autor_email text, p_autor_nome text)",
+   "def": "CREATE OR REPLACE FUNCTION internal.set_resp_acordo(p_acordo_id uuid, p_novo_email text, p_novo_nome text, p_tipo text, p_descricao text, p_autor_email text, p_autor_nome text)\n RETURNS void\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\ndeclare v_ant text; v_aluno uuid; v_email text := case when p_novo_email is null then null else lower(p_novo_email) end;\nbegin\n  select operador_responsavel_email, aluno_id into v_ant, v_aluno from public.acordos where id=p_acordo_id;\n  update public.acordos set operador_responsavel_email=v_email, atualizado_em=now() where id=p_acordo_id;\n  insert into public.aluno_movimentacoes (aluno_id,tipo,descricao,operador_anterior_email,operador_novo_email,operador_novo_nome,registrado_por_nome,registrado_por_email,registrado_em)\n  values (v_aluno::text, p_tipo, p_descricao, v_ant, v_email, p_novo_nome, coalesce(p_autor_nome,p_autor_email), p_autor_email, now());\nend;$function$\n",
+   "md5": "fbb188b5e3486f6bdbae395aa274f2dc",
+   "owner": "reativa_responsavel_executor",
+   "acl": "{=X/reativa_responsavel_executor,reativa_responsavel_executor=X/reativa_responsavel_executor}",
+   "secdef": true,
+   "cfg": "{search_path=public}",
+   "md5_def": "887c80f288461dce1bea8fa141727349"
+  },
+  {
+   "nome": "internal.set_resp_aluno(p_aluno_id uuid, p_novo_email text, p_novo_nome text, p_tipo text, p_descricao text, p_autor_email text, p_autor_nome text)",
+   "def": "CREATE OR REPLACE FUNCTION internal.set_resp_aluno(p_aluno_id uuid, p_novo_email text, p_novo_nome text, p_tipo text, p_descricao text, p_autor_email text, p_autor_nome text)\n RETURNS void\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\ndeclare v_ant_email text; v_ant_nome text; v_email text := case when p_novo_email is null then null else lower(p_novo_email) end;\nbegin\n  select responsavel_atual_email, responsavel_atual_nome into v_ant_email, v_ant_nome from public.alunos where id=p_aluno_id;\n  update public.alunos set\n    responsavel_atual_email=v_email,\n    responsavel_atual_nome=p_novo_nome,\n    responsavel_atual_em=now(),\n    data_ultimo_acionamento = case when v_ant_email is distinct from v_email then null else data_ultimo_acionamento end,\n    status_acionamento      = case when v_ant_email is distinct from v_email then null else status_acionamento end,\n    proxima_acao            = case when v_ant_email is distinct from v_email then null else proxima_acao end,\n    data_retorno            = case when v_ant_email is distinct from v_email then null else data_retorno end,\n    hora_retorno            = case when v_ant_email is distinct from v_email then null else hora_retorno end\n  where id=p_aluno_id;\n  insert into public.aluno_movimentacoes (aluno_id,tipo,descricao,operador_anterior_nome,operador_anterior_email,operador_novo_nome,operador_novo_email,registrado_por_nome,registrado_por_email,registrado_em)\n  values (p_aluno_id::text, p_tipo, p_descricao, coalesce(v_ant_nome,'(sem)'), v_ant_email, p_novo_nome, v_email, coalesce(p_autor_nome,p_autor_email), p_autor_email, now());\nend;$function$\n",
+   "md5": "f50a76ebc90ccf90ad3eff87aa5566e4",
+   "owner": "reativa_responsavel_executor",
+   "acl": "{=X/reativa_responsavel_executor,reativa_responsavel_executor=X/reativa_responsavel_executor}",
+   "secdef": true,
+   "cfg": "{search_path=public}",
+   "md5_def": "3df6baeb68f4a63844780b8b9a22ca25"
+  },
+  {
+   "nome": "public._acordo_herda_responsavel_do_aluno()",
+   "def": "CREATE OR REPLACE FUNCTION public._acordo_herda_responsavel_do_aluno()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\ndeclare v_email text; v_nome text; v_ctx text;\nbegin\n  -- ACORDO SEM CREDITO INDIVIDUAL (18/09/2026): pagamento de origem externa que\n  -- a gestao autorizou. So vale com a chave transacional acesa E o registrador\n  -- do acordo a vista na pilha de chamada; fora disso, nada muda.\n  if coalesce(current_setting('reativa.acordo_sem_credito', true), 'off') = 'on' then\n    get diagnostics v_ctx = pg_context;\n    if position('function acordo_avista_registrar(uuid,uuid[],boolean)' in v_ctx) > 0 then\n      return new;\n    end if;\n  end if;\n  if new.operador_responsavel_email is not null then return new; end if;\n  select al.responsavel_atual_email, al.responsavel_atual_nome\n    into v_email, v_nome\n    from public.alunos al where al.id = new.aluno_id;\n  if v_email is not null then\n    new.operador_responsavel_email := v_email;\n    new.operador_responsavel_nome  := coalesce(new.operador_responsavel_nome, v_nome);\n  end if;\n  return new;\nend;\n$function$\n",
+   "md5": "7b72a88e9113d5e52b3fb1abcf4cf8a2",
+   "owner": "postgres",
+   "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "secdef": true,
+   "cfg": "{search_path=public}",
+   "md5_def": "f81d6494d37bcb2b4010c9d492c03dbe"
+  },
+  {
+   "nome": "public._aluno_segue_dono_do_acordo()",
+   "def": "CREATE OR REPLACE FUNCTION public._aluno_segue_dono_do_acordo()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public', 'internal'\nAS $function$\ndeclare v_mensalidade numeric; v_e_operador boolean;\nbegin\n  -- Remanejamento de ACORDO em curso: quem move o acordo decidiu mover SO o\n  -- acordo. A ficha e o caso ficam onde estao -- e a propria funcao que move\n  -- confere isso depois, comparando o antes e o depois.\n  --\n  -- A CHAVE SOZINHA NAO BASTA. `authenticated` tem UPDATE em acordos (RLS\n  -- permite os proprios e os sem dono), e qualquer um pode chamar set_config\n  -- na propria sessao -- a flag seria forjavel. Ela nao daria acesso novo (o\n  -- efeito de forjar e a ficha NAO vir junto, ou seja, ganhar menos), mas\n  -- tambem nao e de graca: desacopla acordo e ficha fora do fluxo previsto.\n  -- Entao a flag so vale se a PILHA provar que a chamada veio de dentro das\n  -- funcoes de remanejamento de acordo. pg_context nao e forjavel por quem nao\n  -- pode criar funcao, e `authenticated` nao pode.\n  if coalesce(current_setting('reativa.remanejando_acordo', true), '') = '1' then\n    declare v_ctx text;\n    begin\n      get diagnostics v_ctx = pg_context;\n      if v_ctx like '%carteira_geral_acordos_mover%'\n         or v_ctx like '%carteira_geral_acordos_desfazer_lote%' then\n        return new;\n      end if;\n    end;\n  end if;\n\n  if nullif(trim(coalesce(new.operador_responsavel_email,'')),'') is null then return new; end if;\n  if upper(coalesce(new.status,'')) <> 'ATIVO' then return new; end if;\n  if exists (select 1 from public.alunos al where al.id = new.aluno_id and lower(coalesce(al.responsavel_atual_email,'')) = internal.carteira_geral_email()) then return new; end if;\n\n  -- lancamento feito pela bancada (gerencia/ADM/supervisao) NAO muda o dono\n  select (u.perfil = 'operador' and u.ativo) into v_e_operador\n    from public.usuarios u where lower(u.email) = lower(new.operador_responsavel_email);\n  if coalesce(v_e_operador, false) = false then return new; end if;\n\n  select (public.aluno_saldo_pendente_detalhe(new.aluno_id)->>'titulos_abertos')::numeric\n    into v_mensalidade;\n  -- com mensalidade em aberto o nivelamento continua livre para redistribuir\n  if coalesce(v_mensalidade, 0) > 0.005 then return new; end if;\n\n  begin\n    perform set_config('reativa.dono_por_acordo', '1', true);\n    update public.alunos\n       set responsavel_atual_email = new.operador_responsavel_email,\n           responsavel_atual_nome = coalesce(new.operador_responsavel_nome, responsavel_atual_nome)\n     where id = new.aluno_id\n       and lower(coalesce(responsavel_atual_email,'')) is distinct from lower(new.operador_responsavel_email);\n    perform set_config('reativa.dono_por_acordo', '0', true);\n  exception when others then\n    -- nunca bloquear a troca do acordo por causa do alinhamento do aluno\n    perform set_config('reativa.dono_por_acordo', '0', true);\n  end;\n\n  return new;\nend;\n$function$\n",
+   "md5": "12ee44bae0a09ec3806eb483aa39035a",
+   "owner": "postgres",
+   "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "secdef": true,
+   "cfg": "{\"search_path=public, internal\"}",
+   "md5_def": "0ce59a2e3f76b93dc737e5cad3c00bb8"
+  },
+  {
+   "nome": "public._guard_resp_acordo()",
+   "def": "CREATE OR REPLACE FUNCTION public._guard_resp_acordo()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO 'public'\nAS $function$\nbegin\n  if new.operador_responsavel_email is distinct from old.operador_responsavel_email then\n    if current_user = 'reativa_responsavel_executor' then return new; end if;\n    if coalesce(current_setting('app.vinculo_resp_acordo_ok', true), 'off') = 'on' then\n      return new;\n    end if;\n    raise exception 'SEM_PERMISSAO_ALTERAR_RESPONSAVEL_ACORDO';\n  end if;\n  return new;\nend;\n$function$\n",
+   "md5": "9f2f4eef4c2233c41eb9dbf21bff514b",
+   "owner": "postgres",
+   "acl": "{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}",
+   "secdef": false,
+   "cfg": "{search_path=public}",
+   "md5_def": "c0b39ac2e15a34f81ffe4d6a4d9649ab"
+  },
+  {
+   "nome": "public._guard_resp_aluno()",
+   "def": "CREATE OR REPLACE FUNCTION public._guard_resp_aluno()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO 'public'\nAS $function$\nbegin\n  if new.responsavel_atual_email is distinct from old.responsavel_atual_email then\n    if current_user = 'reativa_responsavel_executor' then return new; end if;\n    -- alinhamento automatico do dono quando a divida e so de acordo\n    if coalesce(current_setting('reativa.dono_por_acordo', true), '') = '1' then return new; end if;\n    -- auto-atribuicao de caso livre (regra existente)\n    if old.responsavel_atual_email is null\n       and lower(coalesce(new.responsavel_atual_email,'')) = lower(coalesce(auth.jwt()->>'email','')) then\n      return new;\n    end if;\n    raise exception 'SEM_PERMISSAO_ALTERAR_RESPONSAVEL_ALUNO';\n  end if;\n  return new;\nend;\n$function$\n",
+   "md5": "3bea001e4da32a1d88f2a57a0419e6d8",
+   "owner": "postgres",
+   "acl": "{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}",
+   "secdef": false,
+   "cfg": "{search_path=public}",
+   "md5_def": "6ed1881f4f01f57a3a7481eb5e8f406f"
+  },
+  {
+   "nome": "public._nome_do_operador_no_aluno()",
+   "def": "CREATE OR REPLACE FUNCTION public._nome_do_operador_no_aluno()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO 'public'\nAS $function$\ndeclare v_nome text;\nbegin\n  if new.operador_email is not null then\n    v_nome := public.nome_do_operador(new.operador_email);\n    if v_nome is not null then new.operador_nome := v_nome; end if;\n  end if;\n  if new.responsavel_atual_email is not null then\n    v_nome := public.nome_do_operador(new.responsavel_atual_email);\n    if v_nome is not null then new.responsavel_atual_nome := v_nome; end if;\n  end if;\n  return new;\nend;\n$function$\n",
+   "md5": "da8cd7aa6cd92344f067dd020f53a79e",
+   "owner": "postgres",
+   "acl": "{=X/postgres,postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "secdef": false,
+   "cfg": "{search_path=public}",
+   "md5_def": "5ddfa946c14e5f0ec7424a8b755ec740"
+  },
+  {
+   "nome": "public._nome_do_operador_no_caso()",
+   "def": "CREATE OR REPLACE FUNCTION public._nome_do_operador_no_caso()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO 'public'\nAS $function$\ndeclare v_nome text;\nbegin\n  if new.operador_email is not null then\n    v_nome := public.nome_do_operador(new.operador_email);\n    if v_nome is not null then\n      new.operador_nome := v_nome;\n      new.operador := v_nome;\n    end if;\n  end if;\n  return new;\nend;\n$function$\n",
+   "md5": "eeb95272b1fb43a5d97736033b1ac948",
+   "owner": "postgres",
+   "acl": "{=X/postgres,postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "secdef": false,
+   "cfg": "{search_path=public}",
+   "md5_def": "c3f114e1270d11f8800cfb1365f1471e"
+  },
+  {
+   "nome": "public._sync_casos_resp_aluno()",
+   "def": "CREATE OR REPLACE FUNCTION public._sync_casos_resp_aluno()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\nbegin\n  if new.responsavel_atual_email is distinct from old.responsavel_atual_email then\n    update public.casos\n       set operador_email = lower(new.responsavel_atual_email),\n           operador_nome  = new.responsavel_atual_nome,\n           operador       = new.responsavel_atual_nome,\n           caso_atualizado_por = coalesce(new.registrado_por_email, lower(coalesce(auth.jwt() ->> 'email',''))),\n           caso_atualizado_em  = now()\n     where aluno_id = new.id;\n  end if;\n  return new;\nend;\n$function$\n",
+   "md5": "d48308c15206fed5ac702d23e4a6d92f",
+   "owner": "postgres",
+   "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "secdef": true,
+   "cfg": "{search_path=public}",
+   "md5_def": "5467e024e4d6781518f484967900396b"
+  },
+  {
+   "nome": "public.atribuir_responsavel_por_acordo()",
+   "def": "CREATE OR REPLACE FUNCTION public.atribuir_responsavel_por_acordo()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public', 'internal'\nAS $function$\ndeclare\n  v_aid uuid; v_atual text; v_nome text; v_aluno_nome text;\n  v_valor_br text; v_mudou boolean; v_aluno_id text; v_e_operador boolean;\nbegin\n  if coalesce(new.operador_responsavel_email,'') = '' then return new; end if;\n  if lower(new.operador_responsavel_email) = internal.carteira_geral_email() then return new; end if;\n\n  v_aluno_id := nullif(btrim(coalesce(new.aluno_id::text, '')), '');\n  begin v_aid := v_aluno_id::uuid; exception when others then v_aid := null; end;\n\n  select coalesce(nome, new.operador_responsavel_email),\n         (ativo and perfil = 'operador')\n    into v_nome, v_e_operador\n    from public.usuarios where lower(email) = lower(new.operador_responsavel_email) limit 1;\n\n  v_mudou := (TG_OP = 'INSERT')\n             or (TG_OP = 'UPDATE'\n                 and coalesce(old.operador_responsavel_email,'') is distinct from coalesce(new.operador_responsavel_email,''));\n\n  if v_mudou then\n    if v_aid is not null then\n      select nome into v_aluno_nome from public.alunos where id = v_aid;\n    end if;\n    v_valor_br := replace(to_char(coalesce(new.valor_total,0), 'FM999999990.00'), '.', ',');\n\n    insert into public.notificacoes\n      (usuario_destino_nome, usuario_destino_email, tipo, titulo, mensagem, aluno_id, url_destino, lida)\n    values (\n      coalesce(v_nome, new.operador_responsavel_email), new.operador_responsavel_email,\n      'RESPONSAVEL_ACORDO', '🤝 Novo acordo sob sua responsabilidade',\n      'Você é o responsável por um acordo de R$ ' || v_valor_br\n        || ' do aluno ' || coalesce(v_aluno_nome, new.cpf, 'aluno')\n        || '. Clique em Abrir para tratar o caso.',\n      v_aid,\n      case when v_aluno_id is not null then '/aluno?alunoId=' || v_aluno_id else '/painel-carteira' end,\n      false);\n  end if;\n\n  if v_aid is not null and coalesce(v_e_operador, false) then\n    select responsavel_atual_email into v_atual from public.alunos where id = v_aid;\n    if coalesce(trim(v_atual),'') = '' then\n      perform internal.set_resp_aluno(\n        v_aid, new.operador_responsavel_email, coalesce(v_nome, new.operador_responsavel_email),\n        'ATRIBUICAO_ACORDO', 'Responsavel definido pelo acordo',\n        new.operador_responsavel_email, coalesce(v_nome, new.operador_responsavel_email));\n    end if;\n  end if;\n\n  return new;\nend;\n$function$\n",
+   "md5": "7d3fccce47cff3ca31a5f98833101cb0",
+   "owner": "postgres",
+   "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "secdef": true,
+   "cfg": "{\"search_path=public, internal\"}",
+   "md5_def": "63f7bc390f00b46ee3252ae22f0b2ec1"
+  },
+  {
+   "nome": "public.nome_do_operador(p_email text)",
+   "def": "CREATE OR REPLACE FUNCTION public.nome_do_operador(p_email text)\n RETURNS text\n LANGUAGE sql\n STABLE\n SET search_path TO 'public'\nAS $function$\n  select coalesce(nullif(btrim(u.operador_nome), ''), nullif(btrim(u.nome), ''))\n  from public.usuarios u\n  where lower(u.email) = lower(btrim(p_email))\n  limit 1;\n$function$\n",
+   "md5": "8f8738dd17902f48ca897674d9e1fb9c",
+   "owner": "postgres",
+   "acl": "{=X/postgres,postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "secdef": false,
+   "cfg": "{search_path=public}",
+   "md5_def": "ed9461d5a898969056575f9cf04af7ee"
+  },
+  {
+   "nome": "public.trg_sincronizar_alunos_apos_casos()",
+   "def": "CREATE OR REPLACE FUNCTION public.trg_sincronizar_alunos_apos_casos()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public', 'internal'\nAS $function$\nDECLARE\n  v_nome text;\n  mapa_nomes jsonb := '{\n    \"cobranca03@aelbra.com.br\": \"OLGA\", \"cobranca04@aelbra.com.br\": \"FERNANDA\",\n    \"cobranca05@aelbra.com.br\": \"LUANA\", \"cobranca06@aelbra.com.br\": \"MAURICIO\",\n    \"cobranca07@aelbra.com.br\": \"AMANDA ADM\", \"cobranca08@aelbra.com.br\": \"NATALI\",\n    \"cobranca10@aelbra.com.br\": \"JOÃO\", \"cobranca11@aelbra.com.br\": \"ALLAN\",\n    \"cobranca12@aelbra.com.br\": \"RAFAELLA\", \"cobranca13@aelbra.com.br\": \"DIEGO\",\n    \"amanda.seibel@aelbra.com.br\": \"AMANDA GESTORA\"\n  }'::jsonb;\nBEGIN\n  IF NEW.aluno_id IS NULL THEN RETURN NEW; END IF;\n  IF NEW.operador_email IS DISTINCT FROM OLD.operador_email THEN\n    v_nome := CASE WHEN NEW.operador_email IS NULL THEN NULL\n                   ELSE COALESCE(mapa_nomes ->> lower(NEW.operador_email), NEW.operador_nome) END;\n    PERFORM internal.set_resp_aluno(NEW.aluno_id, NEW.operador_email, v_nome,\n      'REDISTRIBUICAO_SINCRONIZACAO', 'Sincronizacao automatica em tempo real (gatilho).',\n      'sistema@reativaone', 'Sistema');\n  END IF;\n  RETURN NEW;\nEND;\n$function$\n",
+   "md5": "158f905cba8f85d19f8a51b052f8b556",
+   "owner": "postgres",
+   "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "secdef": true,
+   "cfg": "{\"search_path=public, internal\"}",
+   "md5_def": "06a1b9a9fbce97edf6593ddc7d2f776d"
+  }
+ ],
+ "notificacoes": {
+  "tabela": "notificacoes",
+  "cols": [
+   {
+    "c": "id",
+    "t": "uuid",
+    "nn": true
+   },
+   {
+    "c": "usuario_destino_nome",
+    "t": "text",
+    "nn": false
+   },
+   {
+    "c": "usuario_destino_email",
+    "t": "text",
+    "nn": true
+   },
+   {
+    "c": "tipo",
+    "t": "text",
+    "nn": true
+   },
+   {
+    "c": "titulo",
+    "t": "text",
+    "nn": true
+   },
+   {
+    "c": "mensagem",
+    "t": "text",
+    "nn": false
+   },
+   {
+    "c": "aluno_id",
+    "t": "text",
+    "nn": false
+   },
+   {
+    "c": "solicitacao_link_id",
+    "t": "uuid",
+    "nn": false
+   },
+   {
+    "c": "baixa_id",
+    "t": "uuid",
+    "nn": false
+   },
+   {
+    "c": "url_destino",
+    "t": "text",
+    "nn": false
+   },
+   {
+    "c": "lida",
+    "t": "boolean",
+    "nn": true
+   },
+   {
+    "c": "criado_em",
+    "t": "timestamp with time zone",
+    "nn": true
+   },
+   {
+    "c": "lida_em",
+    "t": "timestamp with time zone",
+    "nn": false
+   },
+   {
+    "c": "caso_id",
+    "t": "uuid",
+    "nn": false
+   },
+   {
+    "c": "link_pagamento_id",
+    "t": "uuid",
+    "nn": false
+   }
+  ]
+ }
+}
