@@ -20,7 +20,7 @@ do $$ begin
 end $$;
 
 -- 3) dados sinteticos
-insert into usuarios values ('op.a@teste.local', true), ('op.b@teste.local', true),
+insert into usuarios values ('cobranca04@aelbra.com.br', true), ('op.a@teste.local', true), ('op.b@teste.local', true),
   ('inativo@teste.local', false), ('amanda.seibel@aelbra.com.br', true);
 insert into importacoes (id, tipo, created_at) values
   ('00000000-0000-4000-8000-000000000900', 'BORDERO', timestamp '2026-11-06 14:00:00');

@@ -128,6 +128,12 @@ describe("carteira_prioridade_bordero: autorização", () => {
     expect(rows.map((r) => r.aluno_id).sort()).toEqual([UUID(1), UUID(2)].sort());
   });
 
+  it("perfis limitados de gestão (cobranca04, cobranca07) NÃO têm escopo amplo", async () => {
+    await db.exec(`insert into usuarios values ('cobranca04@aelbra.com.br', true), ('cobranca07@aelbra.com.br', true)`);
+    await aluno(db, 3, { resp: "op@b.local" });
+    expect(await chamar(db, "cobranca04@aelbra.com.br", [UUID(3)])).toHaveLength(0);
+    expect(await chamar(db, "cobranca07@aelbra.com.br", [UUID(3)])).toHaveLength(0);
+  });
   it("parâmetro do cliente não amplia o operador: ids alheios não voltam", async () => {
     const rows = await chamar(db, "op@a.local", [UUID(1), UUID(2)]);
     expect(rows.map((r) => r.aluno_id)).toEqual([UUID(1)]);

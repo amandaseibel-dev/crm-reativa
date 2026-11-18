@@ -9,7 +9,8 @@
 --   - o chamador precisa estar ATIVO em public.usuarios (pelo JWT);
 --   - operador: só alunos cujo responsável atual (alunos.responsavel_atual_email,
 --     a mesma chave usada pela tela) é o próprio chamador;
---   - gestão (public.usuario_e_gestao()): pode consultar o escopo permitido.
+--   - gestora total (amanda.seibel@aelbra.com.br, PREMISSA §2): consulta qualquer id.
+--     Demais perfis de gestão (cobranca04, cobranca07) ficam só com a própria carteira.
 --   A tabela de lotes não é aberta: é lida aqui dentro, só para os alunos autorizados.
 --
 -- Regras (PREMISSAS §9 e §12):
@@ -69,7 +70,10 @@ as $function$
 #variable_conflict use_column
 declare
   v_email text := lower(coalesce(auth.email(), ''));
-  v_gestao boolean := public.usuario_e_gestao();
+  -- Escopo amplo só para a gestora total (PREMISSA_SEGURANCA §2). usuario_e_gestao()
+  -- também inclui perfis limitados (cobranca04 e cobranca07): para eles o escopo é
+  -- a própria carteira, sem exceção.
+  v_gestao boolean := public.usuario_e_gestao() and v_email = 'amanda.seibel@aelbra.com.br';
   v_ativo boolean;
 begin
   if coalesce(cardinality(p_aluno_ids), 0) > 500 then

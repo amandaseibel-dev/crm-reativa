@@ -60,3 +60,9 @@ Resultado de `information_schema.columns` para as colunas usadas pela migration 
 
 Cobertura: somente as colunas listadas acima (as referenciadas pela migration). Não é inventário completo do banco.
 Consulta de `casos.responsavel_atual_email` não existe em produção; a titularidade usa `alunos.responsavel_atual_email`.
+
+## Escopo de gestão (decisão desta PR, fundamentada na PREMISSA_SEGURANCA §2)
+
+- Escopo amplo da RPC: somente `amanda.seibel@aelbra.com.br` (gestora total, §2).
+- `usuario_e_gestao()` inclui também cobranca04 e cobranca07, que §2 não trata como gestão total. Para eles a RPC devolve somente a própria carteira.
+- Efeito: Fernanda (cobranca04) e Amanda ADM (cobranca07) veem prioridade e guiado apenas da própria carteira. Se o escopo de cada um precisar ser ampliado, a PREMISSA §2 deve definir a regra antes.
