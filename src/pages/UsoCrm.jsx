@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { podeVerTudo } from "../utils/operadores";
 
 // Tela "Uso do CRM" — exclusiva para a gestão.
 //
@@ -9,9 +10,9 @@ import { supabase } from "../services/supabase";
 // FONTE: RPC `uso_telas_por_rota()` — security definer, verifica
 // `usuario_e_gestao()` internamente e retorna vazio para não-gestão.
 //
+// PORTÃO: `podeVerTudo(email)` — mesma regra da rota em App.jsx e da RPC no banco.
+//
 // NÃO altera nenhuma regra operacional, fila, carteira ou pagamento.
-
-const PERFIS_GESTAO = ["gerencia", "administrativo"];
 
 const S = {
   pagina: { padding: 24, maxWidth: 900, margin: "0 auto" },
@@ -92,11 +93,11 @@ const S = {
 };
 
 export default function UsoCrm({ usuario }) {
-  const perfil = usuario?.perfil?.perfil;
+  const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
   // { linhas: null | array, erro: null | string, carregando: bool }
   const [estado, setEstado] = useState({ linhas: null, erro: null, carregando: true });
 
-  const ehGestao = PERFIS_GESTAO.includes(perfil);
+  const ehGestao = podeVerTudo(email);
 
   useEffect(() => {
     if (!ehGestao) return;

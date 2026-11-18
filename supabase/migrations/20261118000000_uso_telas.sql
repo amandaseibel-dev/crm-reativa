@@ -64,9 +64,11 @@ begin
   v_email := nullif(btrim(coalesce(auth.jwt() ->> 'email', '')), '');
   if v_email is null then return; end if;
 
-  -- Rota obrigatória e limitada para evitar dados inúteis.
+  -- Rota obrigatória: deve começar com '/' e conter apenas chars de URL seguros.
+  -- Rejeita silenciosamente rotas nulas, vazias, longas demais ou malformadas.
   if p_rota is null or btrim(p_rota) = '' then return; end if;
   if length(p_rota) > 300 then return; end if;
+  if btrim(p_rota) !~ '^/[a-zA-Z0-9/_\-\.]*$' then return; end if;
 
   insert into public.uso_telas (usuario_email, rota, dia, acessos)
   values (v_email, btrim(p_rota), current_date, 1)
