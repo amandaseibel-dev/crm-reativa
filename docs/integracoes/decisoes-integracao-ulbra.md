@@ -41,9 +41,12 @@ a aprovação específica de cada etapa. Este registro é referenciado pela PR #
 - **A3 (INSERT em `auditoria`)**: grant de INSERT para `authenticated` existe, mas a RLS nega a inserção direta (não há política permissiva de INSERT). Não bloqueia o piloto. A revogação do grant exige inventário completo dos inserts (até agora nenhum insert por sessão de usuário foi encontrado; `ProjecaoHoraHora.jsx` só lê). Correção mínima preparada para revisão, NÃO aplicada.
 - **B5** (ordem de envio vs confirmação): a ordem ENVIANDO → enviar → gravar está em `envio.ts:215-237`; uma falha depois do envio deixa a linha em `FALHA_INCERTA`. É bloqueio obrigatório do envio real, separado do piloto de leitura. Não alterado nesta rodada; flags de envio continuam desligadas.
 
-## Aceite pendente (registro formal; não aceito ainda)
+## Aceite de governança (registro versionado)
 
 - **Regra dos cinco — alcance.** Texto exato para aceite formal:
   > "Mensageria não exige atualização artificial dos artefatos Prime (prime-api.md, prime-api-catalog.json, prime-mapa-fontes-verdade.md, prime-mapa-identificadores.md, prime-gaps.md). Mudanças Prime continuam sujeitas à regra dos cinco e à revisão de coerência."
-  - Origem: decisão da gestão nesta sessão de trabalho. Aceite formal da gestão: PENDENTE.
+  - Origem: decisão da gestão nesta sessão de trabalho.
+  - CONFIRMADO em 2026-11-18 pela responsável pela decisão, nesta sessão, com o texto acima. Esta confirmação aprova SOMENTE a decisão de governança (alcance da regra dos cinco). Não autoriza merge, migrations, segredos, publicação, cadastro de token nem ativação de flags.
+  - Exigência de assinatura externa: nenhum documento de governança consultado a exige (`docs/seguranca/PREMISSA_SEGURANCA_PROJETO.md`, `CLAUDE.md`, `docs/PREMISSAS.md`, `docs/integracoes/README.md`: busca por "assinatura externa", "assinatura formal" e "aceite formal" sem resultado). Por isso não há assinatura externa registrada.
+  - Ressalva: a conversa não é fonte primária pelo CLAUDE.md, item 4. A confirmação fica registrada aqui, com a data e a origem, e a fonte primária passa a ser este registro versionado.
   - Conversa não é fonte primária pelo CLAUDE.md, item 4. Por isso a decisão precisa de registro formal assinado pela gestão antes de ser tratada como definitiva.
