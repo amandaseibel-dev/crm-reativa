@@ -42,7 +42,8 @@ select c.relname, t.tgname, p.proname, l.lanname,
   coalesce((select e.calls from public.cg_evid e where e.fn = p.proname), 0),
   t.tgname in ('trg_guard_resp_aluno','trg_nome_do_operador_no_aluno','trg_sync_casos_resp_aluno','trg_nome_do_operador_no_caso',
                'trg_sync_alunos_apos_casos','trg_acordo_herda_responsavel','trg_aluno_segue_dono_do_acordo',
-               'trg_atribuir_responsavel_por_acordo','trg_guard_resp_acordo','trg_giro_limpar_marca','trigger_impor_teto_operador')
+               'trg_atribuir_responsavel_por_acordo','trg_guard_resp_acordo','trg_giro_limpar_marca','trigger_impor_teto_operador',
+               'trg_acionamento_nao_volta_para_nulo','trg_alunos_retorno_origem','trg_aluno_reset_retorno_confirmado','trg_cg_marcador_segue_a_marca')
 from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
 join pg_proc p on p.oid = t.tgfoid join pg_language l on l.oid = p.prolang
 where c.relname in ('alunos','casos','acordos') and not t.tgisinternal;

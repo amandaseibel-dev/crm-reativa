@@ -1,0 +1,27 @@
+{
+ "meta": {
+  "origem": "Supabase ahattpqrjmhkzsmnbdzs (producao), leitura somente, 2026-11-18",
+  "md5_prosrc_producao": {
+   "_acionamento_nao_volta_para_nulo": "ccbc6aea6bb27b7497b008abb53bb58a",
+   "limpar_retorno_origem": "51a567a4bc0b3bdaa7b7c49d5abf25d4",
+   "tg_aluno_reset_retorno_confirmado": "40179eefc9337beec899326b50f0206b"
+  }
+ },
+ "funcoes": [
+  {
+   "nome": "public._acionamento_nao_volta_para_nulo()",
+   "def": "CREATE OR REPLACE FUNCTION public._acionamento_nao_volta_para_nulo()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nbegin\n  -- Acionamento e fato consumado: uma vez registrado, nao se apaga.\n  if old.data_ultimo_acionamento is not null and new.data_ultimo_acionamento is null then\n    new.data_ultimo_acionamento := old.data_ultimo_acionamento;\n  end if;\n\n  -- A tabulacao do contato acompanha o acionamento.\n  if old.status_acionamento is not null\n     and nullif(btrim(old.status_acionamento),'') is not null\n     and new.status_acionamento is null then\n    new.status_acionamento := old.status_acionamento;\n  end if;\n\n  return new;\nend;\n$function$\n",
+   "md5_def": "41a3659e9e85cf23ae1f0a9d52bbbb51"
+  },
+  {
+   "nome": "public.limpar_retorno_origem()",
+   "def": "CREATE OR REPLACE FUNCTION public.limpar_retorno_origem()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO 'public'\nAS $function$\nbegin\n  if new.data_retorno is null then\n    new.retorno_origem := null;\n  end if;\n  return new;\nend;\n$function$\n",
+   "md5_def": "55d292f0b8adb37f9c13b89acbb342f2"
+  },
+  {
+   "nome": "public.tg_aluno_reset_retorno_confirmado()",
+   "def": "CREATE OR REPLACE FUNCTION public.tg_aluno_reset_retorno_confirmado()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nbegin\n  new.retorno_confirmado_em := null;\n  return new;\nend $function$\n",
+   "md5_def": "1786b7caee37e0c6309a88d39200111b"
+  }
+ ]
+}

@@ -104,6 +104,7 @@ psqlt "$LOGS/s2_auth.log" rem_com936 "$TD/auth_reproducao.sql" || falha "auth re
 psqlt "$LOGS/s2_funcs.log" rem_com936 "$PROT/funcoes_prod.sql" || falha "funcoes reais nao aplicaram"
 psqlt "$LOGS/s2_resp_funcs.log" rem_com936 "$PROT/funcoes_responsavel_prod.sql" || falha "funcoes de responsavel nao aplicaram"
 psqlt "$LOGS/s2_resp.log" rem_com936 "$PROT/responsavel_prod.sql" || falha "camada de responsavel e acordo nao aplicou"
+psqlt "$LOGS/s2_gat.log" rem_com936 "$PROT/gatilhos_alunos_prod.sql" || falha "gatilhos de alunos (retorno/acionamento) nao aplicaram"
 if ! psqlt "$LOGS/s2_936.log" rem_com936 "$MIG936"; then
   echo "  #936 NAO aplica sobre a bancada de producao de 17/11: ver $LOGS/s2_936.log"
   exit 2
@@ -146,6 +147,7 @@ psqlt "$LOGS/rb_auth.log" rem_rollback "$TD/auth_reproducao.sql" || falha "auth 
 psqlt "$LOGS/rb_funcs.log" rem_rollback "$PROT/funcoes_prod.sql" || falha "funcoes (rollback)"
 psqlt "$LOGS/rb_resp_funcs.log" rem_rollback "$PROT/funcoes_responsavel_prod.sql" || falha "funcoes resp (rollback)"
 psqlt "$LOGS/rb_resp.log" rem_rollback "$PROT/responsavel_prod.sql" || falha "camada resp (rollback)"
+psqlt "$LOGS/rb_gat.log" rem_rollback "$PROT/gatilhos_alunos_prod.sql" || falha "gatilhos alunos (rollback)"
 psqlt "$LOGS/rb_936.log" rem_rollback "$MIG936" || falha "#936 (rollback)"
 psqlt "$LOGS/rb_mig.log" rem_rollback "$OURS" || falha "migration (rollback)"
 psqlt "$LOGS/rb_a.log" rem_rollback "$TD/p_rollback_a.sql" || falha "rollback parte A: ver $LOGS/rb_a.log"
