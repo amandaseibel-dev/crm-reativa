@@ -38,7 +38,6 @@ import {
   faltamNoSnapshot,
   candidatoSegueValido,
   excluidoDoGuiado,
-  normCpfFila,
   recorteProntoParaGuiado,
   alunosDoCursoEscolhido,
   alunosDoSemestreEscolhido,
@@ -1927,22 +1926,18 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         guiadoFeitosRef.current.add(candId);
         continue;
       }
-      // Revalidação da prioridade no banco, ANTES de abrir: bloqueio ou pagamento
-      // pendente posterior à foto exclui o caso. Erro encerra o guiado: sem
-      // dado não se abre ficha.
-      let prio;
+      // Revalidação no banco, ANTES de abrir: decisão por aluno_id. Ausência de
+      // linha = não autorizado/não consultado = NÃO abre. Erro encerra o guiado.
+      let decisao;
       try {
-        const { data, error } = await supabase.rpc("carteira_prioridade_bordero", {
-          p_operador_email: meuEmail,
-          p_cpf_limpo: normCpfFila(fresco.cpf),
-        });
+        const { data, error } = await supabase.rpc("carteira_prioridade_bordero", { p_aluno_ids: [candId] });
         if (error) throw error;
-        prio = (data || [])[0] || null;
+        decisao = (data || []).find((r) => String(r.aluno_id) === String(candId)) || null;
       } catch {
         encerrarGuiadoSemProximo(true);
         return;
       }
-      if (prio && excluidoDoGuiado(fresco, { [normCpfFila(fresco.cpf)]: prio })) {
+      if (!decisao || decisao.exclui_guiado) {
         guiadoFeitosRef.current.add(candId);
         continue;
       }
@@ -2806,21 +2801,27 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     })();
     return () => { ativo = false; };
   }, [casos, email, veTudo, operadorFiltro]);
-  // Prioridade do guiado por borderô (RPC carteira_prioridade_bordero, somente
-  // leitura). Indexada pelo CPF normalizado, igual ao saldoView.
+  // Decisão de prioridade e exclusão do guiado: RPC carteira_prioridade_bordero,
+  // por aluno_id da lista visível, em lotes de 500. Falha = null = guiado fechado.
   useEffect(() => {
     let ativo = true;
     (async () => {
-      const alvo = operadorFiltro && operadorFiltro !== "TODOS" ? operadorFiltro : (veTudo ? null : email);
-      const { data, error } = await supabase.rpc("carteira_prioridade_bordero", { p_operador_email: alvo || null });
-      if (!ativo) return;
-      if (error) { setPrioridadeBordero(null); return; }
-      const m = {};
-      (data || []).forEach((r) => { m[normCpf(r.cpf_limpo)] = r; });
-      setPrioridadeBordero(m);
+      const ids = [...new Set((casos || []).map((c) => c && c.id).filter(Boolean))];
+      if (!ids.length) { if (ativo) setPrioridadeBordero({}); return; }
+      try {
+        const mapa = {};
+        for (let i = 0; i < ids.length; i += 500) {
+          const { data, error } = await supabase.rpc("carteira_prioridade_bordero", { p_aluno_ids: ids.slice(i, i + 500) });
+          if (error) throw error;
+          (data || []).forEach((r) => { mapa[String(r.aluno_id)] = r; });
+        }
+        if (ativo) setPrioridadeBordero(mapa);
+      } catch {
+        if (ativo) setPrioridadeBordero(null);
+      }
     })();
     return () => { ativo = false; };
-  }, [casos, email, veTudo, operadorFiltro]);
+  }, [casos]);
   const saldoDe = (a) => {
     const v = saldoView[normCpf(a && a.cpf)];
     if (v && Number.isFinite(v.saldo)) return v.saldo;

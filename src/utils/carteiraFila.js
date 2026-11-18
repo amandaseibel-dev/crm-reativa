@@ -472,29 +472,23 @@ export function finAlunosDoSemestre(finAlunos, mapa, semestre) {
   return out;
 }
 
-// Prioridade do guiado por borderô (migration carteira_prioridade_bordero).
-// `mapa` vem de carteira_prioridade_bordero, indexado pelo CPF normalizado.
-// Ausência no mapa = sem prioridade (nunca penaliza a fila).
-export function normCpfFila(c) {
-  return String(c || "").replace(/\D/g, "").padStart(11, "0");
-}
-export function prioridadeBorderoDe(a, mapa) {
+// Prioridade e exclusão do guiado vêm do BANCO (RPC carteira_prioridade_bordero),
+// indexadas pelo aluno_id. O cliente não decide regra: só lê a decisão.
+//   mapa === undefined  -> teste/compatibilidade: sem decisão de banco ainda
+//   mapa === null       -> dados não carregaram ou falharam: NADA libera
+//   mapa[id] ausente    -> não autorizado ou não consultado: EXCLUÍDO
+export function decisaoBorderoDe(a, mapa) {
   if (!mapa || !a) return null;
-  return mapa[normCpfFila(a.cpf)] || null;
+  return mapa[String(a.id)] || null;
 }
-// Elegível para prioridade: 2026, saldo aberto, elegível, sem bloqueio,
-// sem pagamento pendente e sem acionamento desde a entrada do borderô.
 export function ehPrioridadeBordero(a, mapa) {
-  const p = prioridadeBorderoDe(a, mapa);
-  return Boolean(
-    p && p.elegivel && !p.bloqueado && !p.pagamento_pendente &&
-    p.sem_acionamento_desde_entrada && Number(p.saldo_bordero_2026) > 0
-  );
+  const d = decisaoBorderoDe(a, mapa);
+  return Boolean(d && d.prioridade);
 }
-// Exclusão SÓ do guiado (a lista continua mostrando o caso).
 export function excluidoDoGuiado(a, mapa) {
-  const p = prioridadeBorderoDe(a, mapa);
-  return Boolean(p && (p.bloqueado || p.pagamento_pendente || p.lote_pendente));
+  if (mapa === undefined) return false;
+  const d = decisaoBorderoDe(a, mapa);
+  return !d || Boolean(d.exclui_guiado);
 }
 
 export const ORDENACOES = [
@@ -819,7 +813,7 @@ export function recorteProntoParaGuiado({
 // antes de abrir.
 export function snapshotDoGuiado(listaVisivel, prioridadeBordero) {
   // null = dados de prioridade ainda não carregaram ou falharam: NÃO é
-  // liberação. Sem foto, o guiado não abre.
+  // liberação. Sem foto, o guiado não abre. Ausência de linha = excluído.
   if (prioridadeBordero === null) return [];
   const vistos = new Set();
   const ids = [];
