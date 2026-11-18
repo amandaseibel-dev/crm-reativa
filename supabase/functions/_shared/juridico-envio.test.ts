@@ -25,6 +25,14 @@ describe("checarEnvioJuridico (fail-closed)", () => {
     expect(r.ok).toBe(false);
   });
 
+  it("recusa juridica (42501) e marcada como bloqueio; erro de infraestrutura nao", async () => {
+    const juridica = await checarEnvioJuridico(async () => ({ error: { message: "Envio bloqueado", code: "42501" } as any }), base);
+    expect(juridica.ok).toBe(false);
+    if (!juridica.ok) expect(juridica.bloqueio).toBe(true);
+    const infra = await checarEnvioJuridico(async () => ({ error: { message: "timeout", code: "57014" } as any }), base);
+    if (!infra.ok) expect(infra.bloqueio).toBe(false);
+  });
+
   it("recusa quando a chamada lanca excecao (rede, RPC indisponivel)", async () => {
     const r = await checarEnvioJuridico(async () => { throw new Error("rede caiu"); }, base);
     expect(r.ok).toBe(false);

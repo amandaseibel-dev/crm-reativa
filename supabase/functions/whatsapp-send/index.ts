@@ -121,6 +121,43 @@ Deno.serve(async (req) => {
     { global: { headers: { Authorization: autorizacao } }, auth: { persistSession: false } },
   );
 
+  const admin = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    { auth: { persistSession: false } },
+  );
+
+  // BLOQUEIO JURÍDICO (decisão da gestão). ANTES de preparar: o preparo assume a conversa e pode
+  // reatribuir aluno_id no banco. O aluno vem SOMENTE da conversa existente (nunca do corpo do pedido).
+  // Conversa nova sem aluno confirmado é recusada: identificação não confiável não libera envio.
+  // Falha em qualquer etapa = nada é preparado nem enviado (fail-closed).
+  if (conversaNova) {
+    return jsonResp({ erro: "Envio para contato novo exige identificação confiável do aluno. Abra a conversa existente do aluno." }, 403);
+  }
+  const alunoRes = await alunoDaConversa(admin, corpo.conversa_id!);
+  const operadorEmail = (await comoOperador.auth.getUser()).data.user?.email ?? "desconhecido";
+  const checagem = alunoRes.ok
+    ? await checarEnvioJuridico((nome, args) => admin.rpc(nome, args), {
+        alunoId: alunoRes.alunoId,
+        conversaId: corpo.conversa_id!,
+        operador: operadorEmail,
+        tipo: "MENSAGEM",
+        hash: await sha256Hex(texto),
+      })
+    : alunoRes;
+  if (!checagem.ok) {
+    // Recusa JURÍDICA: registrada na trilha do aluno como bloqueio (não é falha do gateway).
+    if (checagem.bloqueio && alunoRes.ok) {
+      const { error: erroReg } = await admin.rpc("juridico_registrar_recusa_envio", {
+        p_aluno: alunoRes.alunoId,
+        p_conversa: corpo.conversa_id!,
+        p_tipo: "MENSAGEM",
+      });
+      if (erroReg) console.error("recusa juridica nao registrada", erroReg.code);
+    }
+    return jsonResp({ erro: checagem.erro, conversa_id: corpo.conversa_id }, 403);
+  }
+
   // Qual RPC prepara o envio depende de a conversa já existir. As duas aplicam
   // as MESMAS travas (usuário ativo, canal ativo e conectado, dono da conversa)
   // e as duas decidem o número de saída no banco — nunca aqui.
@@ -173,29 +210,6 @@ Deno.serve(async (req) => {
   // conversa existente ele já é conhecido, mas devolver sempre mantém o
   // contrato igual nos dois caminhos.
   const conversaId: string = dados.conversa_id ?? corpo.conversa_id!;
-
-  const admin = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    { auth: { persistSession: false } },
-  );
-
-  // BLOQUEIO JURÍDICO (decisão da gestão): checagem NO BANCO antes do efeito externo (gateway).
-  // Aluno da conversa existente: lido aqui; conversa nova: o aluno informado (o banco confere alunos.id).
-  // Falha em qualquer etapa = nada é enviado (fail-closed).
-  const alunoRes = conversaNova
-    ? { ok: true as const, alunoId: corpo.aluno_id ?? null }
-    : await alunoDaConversa(admin, conversaId);
-  const checagem = alunoRes.ok
-    ? await checarEnvioJuridico((nome, args) => admin.rpc(nome, args), {
-        alunoId: alunoRes.alunoId,
-        conversaId,
-        operador: dados.operador_email,
-        tipo: "MENSAGEM",
-        hash: await sha256Hex(texto),
-      })
-    : alunoRes;
-  if (!checagem.ok) return jsonResp({ erro: checagem.erro, conversa_id: conversaId }, 403);
 
   const registrar = (status: string, wamid: string | null, erro: string | null) =>
     admin.rpc("whatsapp_registrar_mensagem", {

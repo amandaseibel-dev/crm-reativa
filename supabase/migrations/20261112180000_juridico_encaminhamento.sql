@@ -1521,6 +1521,23 @@ begin
 end;
 $function$;
 
+-- Registro da RECUSA jurídica de envio na trilha do aluno (não é falha do gateway). Sem conteúdo e sem telefone.
+-- Só o service_role (edge de envio) executa.
+create function public.juridico_registrar_recusa_envio(p_aluno uuid, p_conversa uuid, p_tipo text)
+returns void
+language plpgsql security definer set search_path to 'public'
+as $function$
+begin
+  if p_aluno is null then return; end if;
+  insert into public.aluno_movimentacoes
+    (aluno_id, tipo, descricao, status_anterior, status_novo, registrado_por_nome, registrado_por_email)
+  values (p_aluno::text, 'JURIDICO_ENVIO_RECUSADO',
+          'Envio (' || coalesce(p_tipo, '?') || ') recusado pelo bloqueio jurídico. Nenhum conteúdo registrado.' ||
+          case when p_conversa is null then '' else ' Conversa ' || p_conversa::text end,
+          null, null, 'sistema:whatsapp', 'sistema:whatsapp');
+end;
+$function$;
+
 -- Gestao ativa autoriza UM envio (mensagem ou documento) deste conteudo para este aluno e conversa.
 create function public.juridico_autorizar_envio(p_aluno uuid, p_conversa uuid, p_tipo text, p_conteudo_hash text, p_motivo text)
 returns uuid
@@ -1972,6 +1989,7 @@ begin
   'public._juridico_guarda_nao_acionar()',
   'public._juridico_bloqueio_efetivo(uuid)',
   'public.juridico_checar_envio(uuid,uuid,text,text,text)',
+  'public.juridico_registrar_recusa_envio(uuid,uuid,text)',
   'public._juridico_marca_bloqueio_compartilhado()',
   'public._juridico_so_anexa()',
   'public._juridico_registra_acordo_status()'
@@ -1981,6 +1999,7 @@ begin
   -- Unico papel que chama a checagem: a edge de envio (service_role), ANTES do efeito externo.
   -- Operador (authenticated) nao executa: nao da para consumir a autorizacao por fora do envio.
   grant execute on function public.juridico_checar_envio(uuid,uuid,text,text,text) to service_role;
+  grant execute on function public.juridico_registrar_recusa_envio(uuid,uuid,text) to service_role;
 end
 $grants$;
 
@@ -1994,8 +2013,8 @@ begin
   select count(*) into v_n from pg_proc p
    where p.pronamespace = 'public'::regnamespace
      and (p.proname like 'juridico\_%' or p.proname like '\_juridico\_%');
-  if v_n <> 38 then
-    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 38 esperadas).', v_n;
+  if v_n <> 39 then
+    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 39 esperadas).', v_n;
   end if;
 
   select count(*) into v_n

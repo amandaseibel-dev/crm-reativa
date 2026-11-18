@@ -567,6 +567,16 @@ describe("auditoria: pendencia de pagamento, coluna divergente e valor atual", (
     await db.close();
   });
 
+  it("recusa juridica registrada na trilha do aluno, sem conteudo", async () => {
+    const db = await novo();
+    const { a } = await casoAprovado(db);
+    await db.query("select public.juridico_registrar_recusa_envio($1,$2,'MENSAGEM')", [a.al, U(970, 1)]);
+    const mv = (await db.query("select tipo, descricao from aluno_movimentacoes where aluno_id=$1 and tipo='JURIDICO_ENVIO_RECUSADO'", [a.al])).rows;
+    expect(mv).toHaveLength(1);
+    expect(mv[0].descricao).toMatch(/Nenhum conteúdo registrado/);
+    await db.close();
+  });
+
   it("envio: aluno inexistente recusa; documento autorizado passa uma vez; hash com espacos e normalizado", async () => {
     const db = await novo();
     const { a } = await casoAprovado(db);

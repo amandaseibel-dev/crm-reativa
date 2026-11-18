@@ -48,6 +48,26 @@ e hash SHA-256 hexadecimal igual ao da prévia. Hoje o envio da #913 está desli
 Compatibilidade com a #754 (wpp/v18-e-limites): ambas mexem em `whatsapp-send/index.ts`, em blocos
 diferentes. Conflito esperado só na linha de import logo após `createClient`. Resolução: manter os dois imports.
 
+## ENVIO COM BLOQUEIO: ORDEM, RECUSA, RESULTADO INCERTO E #754 (18/11/2026)
+
+- Ordem: a checagem roda ANTES do preparo (que assume a conversa e pode reatribuir aluno). O aluno vem
+  SOMENTE de `whatsapp_conversas.aluno_id` da conversa existente (FK para alunos.id, confirmada por leitura
+  na produção), nunca do corpo do pedido.
+- Recusa jurídica (42501): registrada na trilha do aluno como `JURIDICO_ENVIO_RECUSADO`, sem conteúdo e sem
+  telefone. NÃO é registrada como falha do gateway. Erro de infraestrutura não é marcado como bloqueio.
+- Resultado incerto: a autorização é consumida ANTES da tentativa externa. Falha ou timeout do gateway NÃO
+  gera reenvio automático e NÃO libera a autorização. Para enviar de novo, a gestão autoriza outro envio.
+  Risco residual: o gateway pode ter entregue a mensagem e a resposta se perdido.
+- Limitação TEMPORÁRIA para revisão (não decisão definitiva): contato novo é recusado mesmo com identificação
+  segura, porque hoje não há caminho de identificação confiável para conversa nova.
+- Compatibilidade com a #754 (wpp/v18-e-limites): simulada com merge-file (base da3d7aff). 5 trechos em
+  conflito em `whatsapp-send/index.ts`: (1) import; (2) constante MOTIVOS_DE_BLOQUEIO, removida pela #754 e
+  substituída por motivoRegistravel/registrarBloqueio; (3) bloco de checagem antes do preparo; (4) registro de
+  erro do preparo, reescrito pela #754; (5) admin, que aqui sobe antes do preparo e lá fica depois.
+  Resolução proposta: manter os dois imports; manter a versão da #754 do registro de bloqueio de cadência;
+  manter a checagem antes do preparo com admin definido antes dela; remover o admin duplicado depois do
+  preparo. A branch da #754 não foi alterada. Quem integrar por último resolve.
+
 ## DISPONIBILIZAÇÃO BLOQUEADA (17/11/2026)
 
 A aba Jurídico **não está disponível** (`JURIDICO_LIBERADO = false` em `src/App.jsx`). Motivo: o envio

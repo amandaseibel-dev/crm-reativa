@@ -121,6 +121,38 @@ Deno.serve(async (req) => {
     { global: { headers: { Authorization: autorizacao } }, auth: { persistSession: false } },
   );
 
+  const admin = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    { auth: { persistSession: false } },
+  );
+
+  // BLOQUEIO JURÍDICO (decisão da gestão). ANTES de preparar o envio e antes do upload. Aluno SOMENTE da
+  // conversa existente. Hash = bytes + nome + mime: é o que vai ao gateway. Falha = nada é preparado nem enviado.
+  const alunoRes = await alunoDaConversa(admin, conversaId);
+  const operadorEmail = (await comoOperador.auth.getUser()).data.user?.email ?? "desconhecido";
+  const checagem = alunoRes.ok
+    ? await checarEnvioJuridico((nome, args) => admin.rpc(nome, args), {
+        alunoId: alunoRes.alunoId,
+        conversaId,
+        operador: operadorEmail,
+        tipo: "DOCUMENTO",
+        hash: await hashDocumento(validacao.nome, validacao.mime, bytes),
+      })
+    : alunoRes;
+  if (!checagem.ok) {
+    // Recusa JURÍDICA: registrada na trilha do aluno como bloqueio (não é falha do gateway).
+    if (checagem.bloqueio && alunoRes.ok) {
+      const { error: erroReg } = await admin.rpc("juridico_registrar_recusa_envio", {
+        p_aluno: alunoRes.alunoId,
+        p_conversa: conversaId,
+        p_tipo: "DOCUMENTO",
+      });
+      if (erroReg) console.error("recusa juridica nao registrada", erroReg.code);
+    }
+    return jsonResp({ erro: checagem.erro, conversa_id: conversaId }, 403);
+  }
+
   // Canal, dono e cadência — as MESMAS travas do envio de texto, na mesma RPC.
   // É isto que mantém o Comercial pausado bloqueado sem regra nova aqui.
   const { data: preparo, error: erroPreparo } = await comoOperador.rpc(
@@ -144,26 +176,6 @@ Deno.serve(async (req) => {
 
   const dados = Array.isArray(preparo) ? preparo[0] : preparo;
   if (!dados?.sessao_chave) return jsonResp({ erro: "conversa sem canal valido" }, 400);
-
-  const admin = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    { auth: { persistSession: false } },
-  );
-
-  // BLOQUEIO JURÍDICO (decisão da gestão): checagem NO BANCO com o conteúdo EXATO do arquivo, antes do
-  // upload e do envio externo. Falha em qualquer etapa = nada é guardado nem enviado (fail-closed).
-  const alunoRes = await alunoDaConversa(admin, conversaId);
-  const checagem = alunoRes.ok
-    ? await checarEnvioJuridico((nome, args) => admin.rpc(nome, args), {
-        alunoId: alunoRes.alunoId,
-        conversaId,
-        operador: dados.operador_email,
-        tipo: "DOCUMENTO",
-        hash: await hashDocumento(validacao.nome, validacao.mime, bytes),
-      })
-    : alunoRes;
-  if (!checagem.ok) return jsonResp({ erro: checagem.erro, conversa_id: conversaId }, 403);
 
   // Upload com a chave de serviço. O bucket não tem policy de INSERT para
   // `authenticated` — de propósito: o navegador nunca escreve nele.

@@ -8,7 +8,11 @@
 //
 // Sem dependência do Deno: usa só crypto.subtle e TextEncoder, para que os testes rodem no vitest.
 
-export type ChecagemJuridica = { ok: true } | { ok: false; erro: string };
+// bloqueio = recusa JURIDICA (42501 do banco: sem autorizacao, sem aluno identificado, gestao inativa etc.).
+// Nao e falha do gateway. Erro de infraestrutura (rede, RPC indisponivel, excecao) tem bloqueio = false.
+export type ChecagemJuridica =
+  | { ok: true }
+  | { ok: false; erro: string; bloqueio: boolean };
 
 export type RpcChamador = (
   nome: string,
@@ -52,12 +56,15 @@ export async function checarEnvioJuridico(
       p_tipo: p.tipo,
       p_conteudo_hash: p.hash,
     });
-    if (error) return { ok: false, erro: error.message };
+    if (error) {
+      return { ok: false, erro: error.message, bloqueio: (error as { code?: string }).code === "42501" };
+    }
     return { ok: true };
   } catch (e) {
     return {
       ok: false,
       erro: `não foi possível verificar o bloqueio jurídico; envio não realizado (${String((e as Error)?.message || e)})`,
+      bloqueio: false,
     };
   }
 }
@@ -66,16 +73,16 @@ export async function checarEnvioJuridico(
 export async function alunoDaConversa(
   admin: { from: (t: string) => any },
   conversaId: string,
-): Promise<{ ok: true; alunoId: string | null } | { ok: false; erro: string }> {
+): Promise<{ ok: true; alunoId: string | null } | { ok: false; erro: string; bloqueio: boolean }> {
   try {
     const { data, error } = await admin
       .from("whatsapp_conversas")
       .select("aluno_id")
       .eq("id", conversaId)
       .maybeSingle();
-    if (error) return { ok: false, erro: "não foi possível identificar o aluno da conversa; envio não realizado" };
+    if (error) return { ok: false, erro: "não foi possível identificar o aluno da conversa; envio não realizado", bloqueio: false };
     return { ok: true, alunoId: (data?.aluno_id as string | null) ?? null };
   } catch {
-    return { ok: false, erro: "não foi possível identificar o aluno da conversa; envio não realizado" };
+    return { ok: false, erro: "não foi possível identificar o aluno da conversa; envio não realizado", bloqueio: false };
   }
 }
