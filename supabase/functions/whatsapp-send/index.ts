@@ -132,7 +132,7 @@ Deno.serve(async (req) => {
   // Conversa nova sem aluno confirmado é recusada: identificação não confiável não libera envio.
   // Falha em qualquer etapa = nada é preparado nem enviado (fail-closed).
   if (conversaNova) {
-    return jsonResp({ erro: "Contato sem vínculo confiável com um aluno: o envio por este fluxo não é permitido. Nenhum vínculo é criado automaticamente. Recebimento e leitura seguem disponíveis." }, 403);
+    return jsonResp({ erro: "Contato sem vínculo confiável com um aluno: o envio por este fluxo não é permitido. Nenhum vínculo é criado automaticamente." }, 403);
   }
   const alunoRes = await alunoDaConversa(admin, corpo.conversa_id!);
   const operadorEmail = (await comoOperador.auth.getUser()).data.user?.email ?? "desconhecido";

@@ -80,10 +80,10 @@ Exceção (implementada no banco e ligada aos caminhos de envio de texto e docum
   Risco residual: o gateway pode ter entregue a mensagem e a resposta se perdido.
 - Limitação TEMPORÁRIA para revisão (não decisão definitiva): contato novo é recusado mesmo com identificação
   segura, porque hoje não há caminho de identificação confiável para conversa nova.
-  APROVAÇÃO REGISTRADA (18/11/2026, indicada pela gestão): limitação TEMPORÁRIA. Contato novo ou conversa sem
+  APROVAÇÃO REGISTRADA (18/11/2026, indicada pela gestão; canal e data não registrados): limitação TEMPORÁRIA. Contato novo ou conversa sem
   vínculo confiável com aluno não envia por este fluxo; nenhum vínculo é criado automaticamente. Recebimento e
-  leitura: NÃO VERIFICADO no webhook (não lido). A passagem a definitiva depende de nova decisão da gestão. A aprovação
-  existe apenas neste registro textual; não há documento anexo no repositório.
+  leitura: NÃO VERIFICADO no webhook (não lido). A passagem a definitiva depende de nova decisão da gestão, que segue PENDENTE. A aprovação
+  existe apenas neste registro textual; canal e data da indicação NÃO estão registrados no repositório.
 - Compatibilidade com a #754 (wpp/v18-e-limites): `git merge-file` com base da3d7aff, em `whatsapp-send/index.ts`.
   Medido em 18/11/2026 no head f5d2aa61: 3 regiões em conflito no padrão e 4 com `--diff3`. Regiões: import;
   constante MOTIVOS_DE_BLOQUEIO (a #754 a tira de index.ts e a move para bloqueio.ts); registro de bloqueio da
