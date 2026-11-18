@@ -222,6 +222,51 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
 
   # ---------------------------------------------------------------------------
+  # Carteira — prioridade do guiado (RPC carteira_prioridade_bordero), num Postgres 16
+  # descartável: grants, perfis, RLS via função definer, search_path efetivo,
+  # mais de 1000 alunos em lotes, lote pendente. Usa dependências REAIS (corpos lidos
+  # de producao em 18/11/2026) em fixtures/carteira_prioridade/.
+  # ---------------------------------------------------------------------------
+  carteira-prioridade-sql:
+    name: carteira prioridade do guiado — grants, perfis e lote (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/carteira_prioridade_bordero
+      FIXTURES: supabase/tests/fixtures/carteira_prioridade
+      MIGRATION: supabase/migrations/20261117100000_carteira_prioridade_bordero.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ambiente, dependencias reais, migration e permissoes
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$FIXTURES/dependencias_prod_20261118.sql"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_permissoes.sql"
+
+  # ---------------------------------------------------------------------------
   # ULBRA — recebimento (etapa 1): leitura por usuario, grants e rollback,
   # num Postgres 16 descartavel. Roda a migration CANDIDATA (ainda em
   # aguardando_aprovacao/), nao producao.

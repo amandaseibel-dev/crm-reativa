@@ -69,6 +69,9 @@ declare
   v_gestao boolean := public.usuario_e_gestao();
   v_ativo boolean;
 begin
+  if coalesce(array_length(p_aluno_ids, 1), 0) > 500 then
+    raise exception 'lote acima de 500 ids: consulte em partes' using errcode = '22023';
+  end if;
   select coalesce(bool_or(u.ativo), false) into v_ativo
     from public.usuarios u
    where lower(u.email) = v_email;
@@ -88,7 +91,7 @@ begin
              select 1 from public.casos c
               where c.aluno_id = i.id
                 and not coalesce(c.encerrado_operacional, false)
-                and lower(coalesce(c.responsavel_atual_email, '')) = v_email)
+                and lower(coalesce(c.operador_email, '')) = v_email)
         or exists (
              select 1 from public.alunos a
               where a.id = i.id
@@ -184,7 +187,6 @@ $function$;
 revoke all on function public.carteira_prioridade_bordero(uuid[]) from public;
 revoke all on function public.carteira_prioridade_bordero(uuid[]) from anon;
 grant execute on function public.carteira_prioridade_bordero(uuid[]) to authenticated;
-grant execute on function public.carteira_prioridade_bordero(uuid[]) to service_role;
 
 -- ROLLBACK (somente se aplicada e precisar ser revertida; não altera dado):
 --   drop function if exists public.carteira_prioridade_bordero(uuid[]);

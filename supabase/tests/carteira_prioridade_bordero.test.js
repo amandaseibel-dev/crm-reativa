@@ -11,6 +11,7 @@
 // grants por role (anon/authenticated) e search_path efetivo em role real.
 import { describe, it, expect, beforeAll } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
+import { unaccent } from "@electric-sql/pglite/contrib/unaccent";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,39 +27,19 @@ create schema if not exists auth;
 create or replace function auth.email() returns text language sql stable as $$
   select nullif(lower(coalesce(current_setting('request.jwt.claims', true)::json->>'email', '')), '')
 $$;
+create or replace function auth.jwt() returns json language sql stable as $$
+  select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::json
+$$;
 
-create table usuarios (email text primary key, ativo boolean not null);
-create table alunos (id uuid primary key, cpf text, responsavel_atual_email text);
-create table casos (id uuid primary key default gen_random_uuid(), aluno_id uuid not null,
-  responsavel_atual_email text, encerrado_operacional boolean default false);
+create table if not exists usuarios (email text primary key, ativo boolean not null);
 create table importacoes (id uuid primary key default gen_random_uuid(), tipo text, created_at timestamp);
-create table acordos_titulos (id uuid primary key default gen_random_uuid(), aluno_id uuid, importacao_id uuid,
-  situacao text, vencimento date, valor_em_aberto numeric, saldo_corrigido numeric);
 create table aluno_movimentacoes (id bigserial primary key, aluno_id text, tipo text,
   registrado_em timestamptz, lote_id uuid);
 create table whatsapp_conversas (id uuid primary key default gen_random_uuid(), aluno_id uuid);
 create table whatsapp_mensagens (id uuid primary key default gen_random_uuid(), conversa_id uuid,
   direcao text, status text, timestamp_wa timestamptz, criado_em timestamptz);
-create table solicitacoes_confirmacao_pagamento (id bigserial primary key, aluno_id text, status text);
 create table acoes_massivas_lotes (id uuid primary key default gen_random_uuid(), aluno_ids text[],
   confirmado_em timestamptz, descartado_em timestamptz);
-
--- dubles de dependências (assinatura e retorno reais; corpo de teste)
-create table dbl_gestao (email text primary key);
-create or replace function public.usuario_e_gestao() returns boolean language sql stable security definer
-  set search_path = public as $$
-  select exists (select 1 from dbl_gestao where email = lower(coalesce(auth.email(), '')))
-$$;
-
-create type elegibilidade_cobranca as (aluno_id uuid, motivo_principal text, elegivel boolean);
-create table dbl_eleg (aluno_id uuid primary key, motivo_principal text);
-create or replace function public.aluno_elegibilidade_cobranca(p_aluno_id uuid)
-  returns elegibilidade_cobranca language sql stable security definer set search_path = public as $$
-  select p_aluno_id, d.motivo_principal, d.motivo_principal is null
-    from (select p_aluno_id) x
-    left join dbl_eleg d on d.aluno_id = p_aluno_id
-$$;
-
 create role anon;
 create role authenticated;
 create role service_role;
@@ -66,9 +47,15 @@ create role service_role;
 
 const jwt = (email) => (email ? JSON.stringify({ email }) : "{}");
 
+const FIXTURE = readFileSync(
+  resolve(AQUI, "fixtures/carteira_prioridade/dependencias_prod_20261118.sql"),
+  "utf8",
+);
+
 async function novoBanco() {
-  const db = new PGlite();
+  const db = new PGlite({ extensions: { unaccent } });
   await db.exec(DUBLES);
+  await db.exec(FIXTURE);
   await db.exec(MIGRATION);
   return db;
 }
@@ -88,9 +75,8 @@ const UUID = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 // Cenário mínimo: um operador (op@a), um caso e um borderô de 2026.
 async function cenarioBase(db) {
   await db.exec(`
-    insert into usuarios values ('op@a.local', true), ('op@b.local', true), ('inativo@a.local', false), ('gestao@x.local', true);
-    insert into dbl_gestao values ('gestao@x.local');
-    insert into importacoes (id, tipo, created_at) values
+    insert into usuarios values ('op@a.local', true), ('op@b.local', true), ('inativo@a.local', false), ('amanda.seibel@aelbra.com.br', true);
+        insert into importacoes (id, tipo, created_at) values
       ('${UUID(900)}', 'BORDERO', timestamp '2026-11-06 14:00:00');
   `);
 }
@@ -99,9 +85,9 @@ async function aluno(db, n, { resp = "op@a.local", saldo = 500, venc = "2026-03-
   const id = UUID(n);
   await db.exec(`
     insert into alunos (id, cpf, responsavel_atual_email) values ('${id}', '${String(n).padStart(11, "0")}', '${resp}');
-    insert into casos (aluno_id, responsavel_atual_email) values ('${id}', '${resp}');
-    insert into acordos_titulos (aluno_id, importacao_id, situacao, vencimento, valor_em_aberto)
-      values ('${id}', '${bordero}', 'ABERTO', date '${venc}', ${saldo});
+    insert into casos (aluno_id, operador_email) values ('${id}', '${resp}');
+    insert into acordos_titulos (aluno_id, importacao_id, situacao, vencimento, valor_em_aberto, saldo_corrigido, valor_original)
+      values ('${id}', '${bordero}', 'ABERTO', date '${venc}', ${saldo}, ${saldo}, ${saldo});
   `);
   return id;
 }
@@ -138,7 +124,7 @@ describe("carteira_prioridade_bordero: autorização", () => {
   });
 
   it("gestão consulta o escopo solicitado, inclusive de outro operador", async () => {
-    const rows = await chamar(db, "gestao@x.local", [UUID(1), UUID(2)]);
+    const rows = await chamar(db, "amanda.seibel@aelbra.com.br", [UUID(1), UUID(2)]);
     expect(rows.map((r) => r.aluno_id).sort()).toEqual([UUID(1), UUID(2)].sort());
   });
 
@@ -165,7 +151,7 @@ describe("carteira_prioridade_bordero: regras de decisão", () => {
 
   it("bloqueado é excluído do guiado e perde a prioridade", async () => {
     const id = await aluno(db, 11);
-    await db.exec(`insert into dbl_eleg values ('${id}', 'SUSPENSAO_COBRANCA')`);
+    await db.exec(`update alunos set status_atual = 'SUSPENSAO COBRANCA' where id = '${id}'`);
     const [r] = await chamar(db, "op@a.local", [id]);
     expect(r.exclui_guiado).toBe(true);
     expect(r.motivo_exclusao).toBe("BLOQUEADO");
@@ -221,8 +207,8 @@ describe("carteira_prioridade_bordero: regras de decisão", () => {
     await db.exec(`insert into importacoes (id, tipo, created_at) values
                    ('${UUID(901)}', 'BORDERO', timestamp '2026-11-16 09:00:00')`);
     const id = await aluno(db, 18, { bordero: UUID(900) });
-    await db.exec(`insert into acordos_titulos (aluno_id, importacao_id, situacao, vencimento, valor_em_aberto)
-                   values ('${id}', '${UUID(901)}', 'ABERTO', date '2026-04-10', 300)`);
+    await db.exec(`insert into acordos_titulos (aluno_id, importacao_id, situacao, vencimento, valor_em_aberto, saldo_corrigido, valor_original)
+                   values ('${id}', '${UUID(901)}', 'ABERTO', date '2026-04-10', 300, 300, 300)`);
     await db.exec(`insert into aluno_movimentacoes (aluno_id, tipo, registrado_em)
                    values ('${id}', 'FINALIZACAO_ATENDIMENTO', timestamp '2026-11-08 10:00:00+00')`);
     const [r] = await chamar(db, "op@a.local", [id]);
@@ -261,7 +247,7 @@ describe("carteira_prioridade_bordero: população grande e revalidação", () =
     const id = await aluno(db, 30);
     const antes = await chamar(db, "op@a.local", [id]);
     expect(antes[0].prioridade).toBe(true);
-    await db.exec(`insert into dbl_eleg values ('${id}', 'JURIDICO')`);
+    await db.exec(`update alunos set status_atual = 'JURIDICO' where id = '${id}'`);
     const depois = await chamar(db, "op@a.local", [id]);
     expect(depois[0].exclui_guiado).toBe(true);
     expect(depois[0].motivo_exclusao).toBe("BLOQUEADO");
