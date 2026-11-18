@@ -184,10 +184,10 @@ Ver "Ordem de implantação da leitura" (única). Não há outra ordem neste doc
 - **Job `ulbra-historico-portao-pglite`**: `supabase/tests/ulbra_historico_portao/run.mjs` cobre a corretiva `20261116150000` (PGlite, não Postgres real).
 
 ### Promoção e ledger (procedimento POSTERIOR, NÃO executado)
-Padrão do repositório: `supabase/ledger/DUAS-TRILHAS.md` (Fluxo B, o padrão) e `supabase/ledger/LEIA-ME.md`. A `20261117120000` cai no Fluxo B porque o código publicado da `ulbra-conversa` depende dela (dependência simultânea de backend e banco).
+Padrão do repositório: `supabase/ledger/DUAS-TRILHAS.md` (Fluxo B, o padrão) e `supabase/ledger/LEIA-ME.md`. A `20261117120000` cai no Fluxo B porque a função `ulbra-conversa` (nova nesta PR) depende dela (dependência simultânea de backend e banco).
 Os passos de mesclagem, `READY`, aplicação, validação e publicação estão na seção "Ordem de implantação da leitura" (ÚNICA). Esta subseção acrescenta só a etapa de ledger, executada DEPOIS da aplicação e da validação:
 - Registro do drift no ledger em PR própria: `supabase/ledger/2026-11/<timestamp>__<name>.sql`, com o `.sql` byte a byte igual aos `statements` e explicação em arquivo `__NOTA.md` ao lado. Atualizar `INDICE.tsv`.
-- Versão: `apply_migration` gera o timestamp que fica em `supabase_migrations.schema_migrations`. O arquivo de ledger usa o `name` que produção registrou (`supabase/ledger/LEIA-ME.md`, regra 4). A correspondência entre a versão gerada e o nome do arquivo é conferida na validação (md5 igual ao arquivo).
+- Versão: `apply_migration` gera o timestamp que fica em `supabase_migrations.schema_migrations`. O arquivo de ledger usa o `name` que produção registrou (`supabase/ledger/LEIA-ME.md`, regra 4). A correspondência entre a versão gerada e o nome do arquivo é conferida na validação (md5 prova apenas o conteúdo; a conferência de versão e nome é feita em `schema_migrations` (DUAS-TRILHAS.md, Fluxo B, passo 6).
 - **Vetado nos dois fluxos:** `supabase db push`, `supabase db pull`, `supabase migration repair`, e escrita manual em `schema_migrations`.
 - Os arquivos pendentes NÃO devem ser copiados para `supabase/migrations/` para contornar a revisão (a catraca de migrations reprova o sufixo `__` nesse diretório).
 
@@ -227,7 +227,7 @@ Os passos de mesclagem, `READY`, aplicação, validação e publicação estão 
 
 **Consultas de produção de 17/11/2026 (somente leitura), versionadas em `docs/seguranca/consultas-producao-ulbra-2026-11-17.sql`.** Os resultados citados acima foram obtidos com essas consultas. A "cerca de 60 funções" vem da consulta (3); a INVOKER `_titulo_em_confirmacao_protegido()` vem da consulta (4), que mostra `insert into public.auditoria` e dono `postgres`.
 
-### Correções desta rodada (comportamento comprovado por teste)
+### Correções desta rodada (comportamento coberto por testes locais, não executados nesta revisão (ver o CI do head))
 - **Cadastro de token restrito ao piloto, no servidor:** `conexao_token_pessoal` nega com `PILOTO_NAO_AUTORIZADO` (403) ANTES de validar ou gravar, se o usuário não estiver em `ULBRA_HISTORICO_PILOTO_EMAILS` (lista ausente = negado). Independe de `ULBRA_HISTORICO_HABILITADO`. Testes (t1), (t2), (t3).
 - **Cota OBRIGATÓRIA antes da chamada externa:** adaptador de cota ausente nega com 503 `COTA_INDISPONIVEL` antes de qualquer chamada à Mensageria (teste unitário `historico-cota-obrigatoria.test.ts`).  `historico_ler` reserva 1 unidade em `ulbra_historico_reservar` (service_role, migration `20261110100000`, já aplicada em produção) antes de chamar a Mensageria. Esgotada = 429 `COTA_ESGOTADA`; falha ao reservar = 503 `COTA_INDISPONIVEL`. Tetos por dia (fuso de São Paulo) por variáveis: `ULBRA_HISTORICO_TETO_OPERADOR_DIA` (padrão 50) e `ULBRA_HISTORICO_TETO_GLOBAL_DIA` (padrão 500). **Configuração ainda não definida em produção.** Testes (q1), (q2), (q3).
 - **Falha de banco na autorização:** usuário, conexão, conversa, vínculo, casos e responsáveis negam com 503 `AUTORIZACAO_INDISPONIVEL`, sem texto, sem liberar acesso e sem dados no log (só passo e código). Testado no handler: usuário (u1), conexão (u2) e conversa (b1). Vínculo, casos e responsáveis: cobertos no código, sem teste de handler nesta rodada. Erro na verificação de encerramento de caso nega o dono.

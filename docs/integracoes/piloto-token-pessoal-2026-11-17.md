@@ -278,7 +278,7 @@ necessária para decifrá-los e para desconectar com segurança. Ela é preserva
 - **Restrição de piloto:** `ULBRA_HISTORICO_PILOTO_EMAILS` (e-mails separados por vírgula). Fail-closed:
   lista ausente ou vazia = ninguém lê. Não altera as regras permanentes. `piloto-leitura.ts` e
   `piloto-leitura.test.ts`. Para o piloto: `cobranca10@aelbra.com.br`. Identidade observada na interface (CRM: usuário
-  ativo com nome João; Mensageria: mesmo e-mail na fila de atendimento). **Não versionado no repositório**; informado e
+  ativo com nome João; Mensageria: mesmo e-mail na fila de atendimento). **Identidade registrada nesta documentação**; informado e
   observado pela gestora, não verificado por teste. O wiring de `index.ts` (linha de `flagLigada`) não tem teste: gap declarado.
   Usuário fora da lista recebe `HISTORICO_DESLIGADO` (mensagem genérica, não motivo de piloto).
 
@@ -300,7 +300,7 @@ necessária para decifrá-los e para desconectar com segurança. Ela é preserva
 
 - Autoria real da mensagem e permissões mínimas: só com envio real controlado, aprovado.
 - Comportamento do token revogado na Mensageria: só com teste real.
-- Leitura real da conversa com o token pessoal: só com o token criado por você.
+- Leitura real da conversa com o token pessoal: com o token criado pelo próprio operador.
 
 ## Grant OAuth sem cópia quando a revogação falha (caminho exclusivo do OAuth; indisponível no piloto)
 
