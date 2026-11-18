@@ -59,6 +59,7 @@ passo "1. SEM #936: a migration deve recusar sem alteracao parcial"
 banco_novo rem_sem936
 psqlt "$LOGS/s1_base.log" rem_sem936 "$FIX" || falha "base (fixture) nao carrega: ver $LOGS/s1_base.log"
 psqlt "$LOGS/s1_acl.log" rem_sem936 "$ACL" || falha "ACL de producao nao aplicou"
+psqlt "$LOGS/s1_seed.log" rem_sem936 "$TD/seed.sql" || falha "seed"
 antes="$(md5_mover rem_sem936)"
 if timeout "$T" psql -X -q -v ON_ERROR_STOP=1 -d rem_sem936 -f "$OURS" >"$LOGS/s1_migration.log" 2>&1; then
   falha "a migration APLICOU sem a #936 (deveria recusar)"
@@ -78,6 +79,7 @@ echo "  ok: md5 da migration da #936 confere"
 banco_novo rem_com936
 psqlt "$LOGS/s2_base.log" rem_com936 "$FIX" || falha "base (fixture) nao carrega"
 psqlt "$LOGS/s2_acl.log" rem_com936 "$ACL" || falha "ACL nao aplicou"
+psqlt "$LOGS/s2_seed.log" rem_com936 "$TD/seed.sql" || falha "seed"
 if ! psqlt "$LOGS/s2_936.log" rem_com936 "$MIG936"; then
   echo "  #936 NAO aplica sobre a bancada de producao de 17/11: ver $LOGS/s2_936.log"
   exit 2
@@ -114,6 +116,7 @@ passo "5. Rollback: marcas alheias preservadas, so as nossas saem"
 banco_novo rem_rollback
 psqlt "$LOGS/rb_base.log" rem_rollback "$FIX" || falha "base"
 psqlt "$LOGS/rb_acl.log" rem_rollback "$ACL" || falha "acl"
+psqlt "$LOGS/rb_seed.log" rem_rollback "$TD/seed.sql" || falha "seed"
 psqlt "$LOGS/rb_936.log" rem_rollback "$MIG936" || falha "#936 (rollback)"
 psqlt "$LOGS/rb_mig.log" rem_rollback "$OURS" || falha "migration (rollback)"
 psqlt "$LOGS/rb_a.log" rem_rollback "$TD/p_rollback_a.sql" || falha "rollback parte A: ver $LOGS/rb_a.log"
