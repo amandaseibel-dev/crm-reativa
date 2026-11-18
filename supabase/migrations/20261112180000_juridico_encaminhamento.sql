@@ -1501,7 +1501,7 @@ as $function$
 declare v_id uuid;
 begin
   if p_aluno is null or not exists (select 1 from public.alunos al where al.id = p_aluno) then
-    raise exception 'Envio recusado: aluno não identificado. Vincule o contato a um aluno antes de enviar.' using errcode = '42501';
+    raise exception 'Envio recusado: aluno não identificado. Vincule o contato a um aluno antes de enviar.' using errcode = 'JUR01';
   end if;
   if p_tipo is null or p_tipo not in ('MENSAGEM','DOCUMENTO') or nullif(btrim(coalesce(p_conteudo_hash,'')), '') is null then
     raise exception 'Envio recusado: tipo ou conteúdo não informado para a checagem.' using errcode = '22023';
@@ -1515,7 +1515,7 @@ begin
    for update;
   if v_id is null then
     raise exception 'Envio bloqueado: aluno com bloqueio jurídico. Só com autorização específica da gestão para este conteúdo.'
-      using errcode = '42501';
+      using errcode = 'JUR01';
   end if;
   update public.juridico_envio_autorizacoes set usado_em = now(), usado_por = p_operador where id = v_id;
 end;

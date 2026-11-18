@@ -163,13 +163,13 @@ Deno.serve(async (req) => {
   if (erroPreparo) {
     const motivo = (erroPreparo as { details?: string }).details;
     if (motivo && MOTIVOS_DE_BLOQUEIO.has(motivo)) {
-      await comoOperador
-        .rpc("whatsapp_cadencia_registrar_bloqueio", {
-          p_canal_id: null,
-          p_conversa_id: conversaId,
-          p_motivo: motivo,
-        })
-        .catch(() => {});
+      // Sem .catch encadeado: .rpc() devolve PostgrestFilterBuilder, não Promise (ver whatsapp-send).
+      const { error: erroLog } = await comoOperador.rpc("whatsapp_cadencia_registrar_bloqueio", {
+        p_canal_id: null,
+        p_conversa_id: conversaId,
+        p_motivo: motivo,
+      });
+      if (erroLog) console.error("[cadencia] falha ao registrar bloqueio:", erroLog.code);
     }
     return jsonResp({ erro: erroPreparo.message }, 403);
   }

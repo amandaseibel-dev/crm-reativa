@@ -554,7 +554,7 @@ describe("auditoria: pendencia de pagamento, coluna divergente e valor atual", (
     const db = await novo();
     const a = await mk(db, { valores: [1000] });
     await chec(db, a.al, U(960, 1));
-    expect((await falha(chec(db, null, U(960, 1))))?.code).toBe("42501");
+    expect((await falha(chec(db, null, U(960, 1))))?.code).toBe("JUR01");
     expect((await falha(chec(db, a.al, U(960, 1), "MENSAGEM", "")))?.code).toBe("22023");
     await db.close();
   });
@@ -564,6 +564,21 @@ describe("auditoria: pendencia de pagamento, coluna divergente e valor atual", (
     const { a } = await casoAprovado(db);
     const e = await falha(db.query("select public.juridico_autorizar_envio($1,null,'MENSAGEM',$2,'cadastro do aluno, resposta administrativa')", [a.al, HASH]));
     expect(e?.code).toBe("22023");
+    await db.close();
+  });
+
+  it("grants (catalogo): authenticated nao executa checagem nem registro de recusa; service_role executa", async () => {
+    const db = await novo();
+    const pr = async (role, fn) => (await db.query(
+      "select has_function_privilege($1, $2::regprocedure, 'execute') p", [role, fn])).rows[0].p;
+    const CHEC = "public.juridico_checar_envio(uuid,uuid,text,text,text)";
+    const REG = "public.juridico_registrar_recusa_envio(uuid,uuid,text)";
+    expect(await pr("authenticated", CHEC)).toBe(false);
+    expect(await pr("anon", CHEC)).toBe(false);
+    expect(await pr("service_role", CHEC)).toBe(true);
+    expect(await pr("authenticated", REG)).toBe(false);
+    expect(await pr("anon", REG)).toBe(false);
+    expect(await pr("service_role", REG)).toBe(true);
     await db.close();
   });
 
@@ -581,10 +596,10 @@ describe("auditoria: pendencia de pagamento, coluna divergente e valor atual", (
     const db = await novo();
     const { a } = await casoAprovado(db);
     const conv = U(960, 7);
-    expect((await falha(chec(db, U(999, 9), conv)))?.code).toBe("42501");
+    expect((await falha(chec(db, U(999, 9), conv)))?.code).toBe("JUR01");
     await autor(db, a.al, conv, "DOCUMENTO", HASH);
     await chec(db, a.al, conv, "DOCUMENTO", "  " + HASH + "  ");
-    expect((await falha(chec(db, a.al, conv, "DOCUMENTO", HASH)))?.code).toBe("42501");
+    expect((await falha(chec(db, a.al, conv, "DOCUMENTO", HASH)))?.code).toBe("JUR01");
     await db.close();
   });
 
@@ -592,13 +607,13 @@ describe("auditoria: pendencia de pagamento, coluna divergente e valor atual", (
     const db = await novo();
     const { a } = await casoAprovado(db);
     const conv = U(960, 2);
-    expect((await falha(chec(db, a.al, conv)))?.code).toBe("42501");
+    expect((await falha(chec(db, a.al, conv)))?.code).toBe("JUR01");
     await H.como(db, OPERADOR);
     expect((await falha(autor(db, a.al, conv)))?.code).toBe("42501");
     await H.como(db, H.GESTAO);
     await autor(db, a.al, conv);
     await chec(db, a.al, conv);
-    expect((await falha(chec(db, a.al, conv)))?.code).toBe("42501"); // reutilizacao
+    expect((await falha(chec(db, a.al, conv)))?.code).toBe("JUR01"); // reutilizacao
     expect(await bloqueio(db, a.al)).toBe("NAO_ACIONAR_EXPLICITO");  // autorizar nao remove o bloqueio
     await db.close();
   });
@@ -608,9 +623,9 @@ describe("auditoria: pendencia de pagamento, coluna divergente e valor atual", (
     const { a } = await casoAprovado(db);
     const conv = U(960, 3);
     await autor(db, a.al, conv, "DOCUMENTO", HASH);
-    expect((await falha(chec(db, a.al, conv, "DOCUMENTO", HASH + "-alterado")))?.code).toBe("42501");
-    expect((await falha(chec(db, a.al, U(960, 4), "DOCUMENTO", HASH)))?.code).toBe("42501");
-    expect((await falha(chec(db, a.al, conv, "MENSAGEM", HASH)))?.code).toBe("42501");
+    expect((await falha(chec(db, a.al, conv, "DOCUMENTO", HASH + "-alterado")))?.code).toBe("JUR01");
+    expect((await falha(chec(db, a.al, U(960, 4), "DOCUMENTO", HASH)))?.code).toBe("JUR01");
+    expect((await falha(chec(db, a.al, conv, "MENSAGEM", HASH)))?.code).toBe("JUR01");
     await db.query("update usuarios set ativo=false where email=$1", [H.GESTAO]);
     expect((await falha(autor(db, a.al, conv, "MENSAGEM", "outro-conteudo-aprovado-0002")))?.code).toBe("42501");
     await db.query("update usuarios set ativo=true where email=$1", [H.GESTAO]);
@@ -623,7 +638,7 @@ describe("auditoria: pendencia de pagamento, coluna divergente e valor atual", (
     const conv = U(960, 5);
     await autor(db, a.al, conv);
     await db.query("update juridico_envio_autorizacoes set valido_ate = now() - interval '1 minute'");
-    expect((await falha(chec(db, a.al, conv)))?.code).toBe("42501");
+    expect((await falha(chec(db, a.al, conv)))?.code).toBe("JUR01");
     await db.close();
   });
 

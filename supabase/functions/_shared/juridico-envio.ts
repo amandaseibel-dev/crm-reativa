@@ -8,7 +8,8 @@
 //
 // Sem dependência do Deno: usa só crypto.subtle e TextEncoder, para que os testes rodem no vitest.
 
-// bloqueio = recusa JURIDICA (42501 do banco: sem autorizacao, sem aluno identificado, gestao inativa etc.).
+// bloqueio = recusa JURIDICA (SQLSTATE proprio JUR01 da checagem: sem autorizacao ou sem aluno identificado).
+// NAO usa 42501: esse codigo tambem sai para falta de grant/RLS, que e infraestrutura.
 // Nao e falha do gateway. Erro de infraestrutura (rede, RPC indisponivel, excecao) tem bloqueio = false.
 export type ChecagemJuridica =
   | { ok: true }
@@ -57,7 +58,7 @@ export async function checarEnvioJuridico(
       p_conteudo_hash: p.hash,
     });
     if (error) {
-      return { ok: false, erro: error.message, bloqueio: (error as { code?: string }).code === "42501" };
+      return { ok: false, erro: error.message, bloqueio: (error as { code?: string }).code === "JUR01" };
     }
     return { ok: true };
   } catch (e) {

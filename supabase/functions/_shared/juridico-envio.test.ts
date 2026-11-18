@@ -26,11 +26,15 @@ describe("checarEnvioJuridico (fail-closed)", () => {
   });
 
   it("recusa juridica (42501) e marcada como bloqueio; erro de infraestrutura nao", async () => {
-    const juridica = await checarEnvioJuridico(async () => ({ error: { message: "Envio bloqueado", code: "42501" } as any }), base);
+    const juridica = await checarEnvioJuridico(async () => ({ error: { message: "Envio bloqueado", code: "JUR01" } as any }), base);
     expect(juridica.ok).toBe(false);
     if (!juridica.ok) expect(juridica.bloqueio).toBe(true);
     const infra = await checarEnvioJuridico(async () => ({ error: { message: "timeout", code: "57014" } as any }), base);
+    expect(infra.ok).toBe(false);
     if (!infra.ok) expect(infra.bloqueio).toBe(false);
+    const semGrant = await checarEnvioJuridico(async () => ({ error: { message: "permission denied", code: "42501" } as any }), base);
+    expect(semGrant.ok).toBe(false);
+    if (!semGrant.ok) expect(semGrant.bloqueio).toBe(false);
   });
 
   it("recusa quando a chamada lanca excecao (rede, RPC indisponivel)", async () => {
