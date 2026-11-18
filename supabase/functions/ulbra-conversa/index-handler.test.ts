@@ -22,9 +22,10 @@ const estado: {
   encerrado: boolean;
   donoExtra: string | null;
   rpcErro: boolean;
+  rpcNulo: boolean;
   auditoriaFalha: boolean;
   auditorias: Record<string, unknown>[];
-} = { env: {}, user: null, usuario: null, conexao: null, responsavel: EU, dono: EU, encerrado: false, donoExtra: null, rpcErro: false, auditoriaFalha: false, auditorias: [] };
+} = { env: {}, user: null, usuario: null, conexao: null, responsavel: EU, dono: EU, encerrado: false, donoExtra: null, rpcErro: false, rpcNulo: false, auditoriaFalha: false, auditorias: [] };
 
 // Dados por tabela: maybeSingle devolve um registro; "then" (sem maybeSingle) devolve lista.
 const UNICO: Record<string, () => unknown> = {
@@ -62,10 +63,12 @@ function builder(tabela: string) {
 const fakeClient = () => ({
   auth: { getUser: async () => ({ data: { user: estado.user } }) },
   from: (tabela: string) => builder(tabela),
-  rpc: async (fn: string, args?: { p_cpf?: string }) =>
-    fn === "caso_encerrado_operacional" && estado.rpcErro && args?.p_cpf === CPF_FALHA
-      ? { data: null, error: { message: "falha simulada na verificação" } }
-      : { data: fn === "caso_encerrado_operacional" ? estado.encerrado : "GRAVADA", error: null },
+  rpc: async (fn: string, args?: { p_cpf?: string }) => {
+    const falha = fn === "caso_encerrado_operacional" && args?.p_cpf === CPF_FALHA;
+    if (falha && estado.rpcErro) return { data: null, error: { message: "falha simulada na verificação" } };
+    if (fn === "caso_encerrado_operacional" && estado.rpcNulo) return { data: null, error: null }; // retorno nulo, sem erro, em qualquer caso
+    return { data: fn === "caso_encerrado_operacional" ? estado.encerrado : "GRAVADA", error: null };
+  },
 });
 
 vi.mock("https://esm.sh/@supabase/supabase-js@2", () => ({ createClient: () => fakeClient() }));
@@ -100,6 +103,7 @@ beforeEach(() => {
   estado.encerrado = false;
   estado.donoExtra = null;
   estado.rpcErro = false;
+  estado.rpcNulo = false;
   estado.auditoriaFalha = false;
   estado.auditorias = [];
 });
@@ -232,6 +236,19 @@ describe("handler real (index.ts): erro na verificação de caso não autoriza",
   it("(i) dois casos do aluno (EU e OUTRO) e a verificação falha em um: NINGUÉM é dono; sem leitura, sem auditoria", async () => {
     estado.donoExtra = OUTRO;
     estado.rpcErro = true;
+    estado.responsavel = OUTRO;
+    estado.conexao = await conexaoIndividual("token-individual-do-operador");
+    const r = await chamar({ acao: "historico_ler", conversa_id: CONV });
+    expect(r.corpo.motivo).toBe("SEM_PERMISSAO_NA_CONVERSA");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(estado.auditorias).toHaveLength(0);
+  });
+});
+
+describe("handler real (index.ts): retorno não booleano também nega", () => {
+  it("(j) ÚNICO caso do dono devolve nulo sem erro: não é dono (não se ignora o caso e se mantém o outro); sem leitura, sem auditoria", async () => {
+    estado.donoExtra = null; // só o próprio operador, com um único caso
+    estado.rpcNulo = true;
     estado.responsavel = OUTRO;
     estado.conexao = await conexaoIndividual("token-individual-do-operador");
     const r = await chamar({ acao: "historico_ler", conversa_id: CONV });

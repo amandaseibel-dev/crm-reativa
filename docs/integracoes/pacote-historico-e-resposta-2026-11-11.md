@@ -128,7 +128,9 @@ Consulta de leitura em `information_schema.role_table_grants`, `pg_policies`, `p
 
 **Caminho de auditoria do piloto:** `auditar()` em `index.ts:262` usa o cliente `service_role` (`sb`), que não depende de RLS nem de grant de `authenticated`.
 
-**Pré-condição da revogação:** a busca em `src/` e `supabase/functions/` não encontrou INSERT em `auditoria` feito com a sessão do usuário. `src/pages/ProjecaoHoraHora.jsx:631-632` só faz SELECT. Os inserts encontrados usam `service_role` (`index.ts:263`, `supabase/functions/ulbra-consultar/index.ts:95`). **O inventário completo ainda NÃO foi feito** e precisa ser concluído antes de qualquer revogação.
+**Pré-condição da revogação:** a busca em `src/` e `supabase/functions/` não encontrou INSERT em `auditoria` feito com a sessão do usuário. `src/pages/ProjecaoHoraHora.jsx:631-632` só faz SELECT. Os inserts encontrados nas edge functions usam `service_role`: `supabase/functions/ulbra-conversa/index.ts:263`, `supabase/functions/ulbra-consultar/index.ts:95` e `supabase/functions/prime-portador/index.ts:306` (cliente `supa` com a chave de service role, linhas 118-120).
+
+**Inventário de funções SQL NÃO fechado.** Consulta de `pg_proc` em produção (17/11) encontrou cerca de 60 funções cujo corpo menciona `auditoria` em insert; a maioria é `SECURITY DEFINER`, mas o modo de cada uma não foi conferido em todas. Uma função `SECURITY INVOKER` confirmada, `_titulo_em_confirmacao_protegido()`, insere em `auditoria` e é executável por `authenticated`. Por isso o inventário precisa ser concluído antes de qualquer revogação.
 
 Correção mínima (rascunho, NÃO aplicado): (1) concluir o inventário; (2) `REVOKE INSERT, UPDATE, DELETE ON public.auditoria FROM authenticated`. Rollback: `GRANT INSERT, UPDATE, DELETE ON public.auditoria TO authenticated`. Exige aprovação específica e validação do grant final.
 
