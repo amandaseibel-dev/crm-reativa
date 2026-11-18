@@ -22,7 +22,8 @@
 --   - INFORMATIVOS (não alteram a prioridade): envio_realizado (WhatsApp de saída
 --     com status ENVIADO) e resposta_recebida (WhatsApp de entrada). Ficam
 --     separados para a tela e a gestão; não são tipos de §9.
---   - EXCLUSÃO DO GUIADO (a ficha não abre): bloqueio efetivo; pagamento ou
+--   - EXCLUSÃO DO GUIADO (a ficha não abre): qualquer motivo da elegibilidade canônica
+--     (inelegível por qualquer motivo); bloqueio efetivo; pagamento ou
 --     confirmação PENDENTE (estado atual, não evento histórico); lote de exportação
 --     não confirmado nem descartado (contato duplicado). Lote pendente não conta
 --     como envio realizado.
@@ -71,7 +72,7 @@ declare
   v_gestao boolean := public.usuario_e_gestao();
   v_ativo boolean;
 begin
-  if coalesce(array_length(p_aluno_ids, 1), 0) > 500 then
+  if coalesce(cardinality(p_aluno_ids), 0) > 500 then
     raise exception 'lote acima de 500 ids: consulte em partes' using errcode = '22023';
   end if;
   select coalesce(bool_or(u.ativo), false) into v_ativo
@@ -165,11 +166,12 @@ begin
          f.pop,
          (f.pop and f.canon and f.motivo is null and not f.bloq and not f.pagto and not f.lote
             and f.saldo > 0 and not f.acion) as prioridade,
-         (f.bloq or f.pagto or f.lote) as exclui_guiado,
+         (f.bloq or f.pagto or f.lote or f.motivo is not null) as exclui_guiado,
          case
            when f.bloq then 'BLOQUEADO'
            when f.pagto then 'PAGAMENTO_PENDENTE'
            when f.lote then 'LOTE_PENDENTE'
+           when f.motivo is not null then 'INELEGIVEL:' || f.motivo
            else null
          end as motivo_exclusao,
          f.ent,

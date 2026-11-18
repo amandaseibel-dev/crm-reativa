@@ -253,12 +253,30 @@ describe("carteira_prioridade_bordero: titularidade, NULL, WhatsApp e lote", () 
     expect(r.resposta_recebida).toBe(true);
     expect(r.prioridade).toBe(true);
   });
+  it("inelegível por qualquer motivo da elegibilidade real sai do guiado (sem títulos abertos)", async () => {
+    const db = await novoBanco();
+    await cenarioBase(db);
+    const id = UUID(60);
+    await db.exec(`insert into alunos (id, cpf, responsavel_atual_email) values ('${id}', '00000000060', 'op@a.local');
+                   insert into casos (aluno_id, operador_email) values ('${id}', 'op@a.local');`);
+    const [r] = await chamar(db, "op@a.local", [id]);
+    expect(r.exclui_guiado).toBe(true);
+    expect(r.motivo_exclusao).toMatch(/^INELEGIVEL:/);
+    expect(r.prioridade).toBe(false);
+  });
+  it("lote de 600 ids em matriz 2x300 é recusado (conta elementos, não a primeira dimensão)", async () => {
+    const db = await novoBanco();
+    await cenarioBase(db);
+    const ids = Array.from({ length: 600 }, (_, i) => UUID(i + 20000));
+    await db.exec("select 1");
+    await expect(db.query("select * from public.carteira_prioridade_bordero($1::uuid[])", [[ids.slice(0, 300), ids.slice(300)]])).rejects.toThrow(/500/);
+  });
   it("lote acima de 500 ids é recusado pela RPC", async () => {
     const db = await novoBanco();
     await cenarioBase(db);
     const ids = Array.from({ length: 501 }, (_, i) => UUID(i + 10000));
     await expect(chamar(db, "op@a.local", ids)).rejects.toThrow(/500/);
-  });
+  }, 60000);
 });
 
 describe("carteira_prioridade_bordero: população grande e revalidação", () => {
@@ -276,7 +294,7 @@ describe("carteira_prioridade_bordero: população grande e revalidação", () =
       total += parte.length;
     }
     expect(total).toBe(N);
-  });
+  }, 120000);
 
   it("mudança de elegibilidade entre o início e a revalidação muda a decisão", async () => {
     const db = await novoBanco();

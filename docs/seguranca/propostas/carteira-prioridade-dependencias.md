@@ -30,3 +30,33 @@ A ordem da lista visível (Fila inteligente) continua calculada no cliente, a pa
 - Grupo B: sem referência no CRM. Nenhum aluno do grupo B é excluído automaticamente.
 - Acionado hoje: a revalidação antes de abrir a ficha continua usando a regra existente (`candidatoSegueValido`); a prioridade não usa janela de contato recente.
 - Escopo de `usuario_e_gestao()`: inclui a cobranca07, cujo perfil é administrativo. Decisão de gestão, já registrada como pendência.
+
+## Consulta de colunas em produção (somente leitura, 18/11/2026)
+
+Resultado de `information_schema.columns` para as colunas usadas pela migration (fuso da sessão: UTC):
+
+| tabela | coluna | tipo | default |
+|---|---|---|---|
+| importacoes | created_at | timestamp sem fuso | now() |
+| importacoes | tipo | text | — |
+| acordos_titulos | aluno_id | uuid | — |
+| acordos_titulos | importacao_id | uuid | — |
+| acordos_titulos | situacao | text | — |
+| acordos_titulos | vencimento | date | — |
+| acordos_titulos | valor_em_aberto | numeric | — |
+| acordos_titulos | saldo_corrigido | numeric | — |
+| aluno_movimentacoes | registrado_em | timestamptz | now() |
+| aluno_movimentacoes | tipo | text | — |
+| alunos | responsavel_atual_email | text | — |
+| whatsapp_conversas | aluno_id | uuid | — |
+| whatsapp_mensagens | conversa_id | uuid | — |
+| whatsapp_mensagens | direcao | text | — |
+| whatsapp_mensagens | status | text | — |
+| whatsapp_mensagens | timestamp_wa | timestamptz | — |
+| solicitacoes_confirmacao_pagamento | status | text | 'AGUARDANDO_CONFIRMACAO' |
+| acoes_massivas_lotes | confirmado_em | timestamptz | — |
+| acoes_massivas_lotes | descartado_em | timestamptz | — |
+| usuarios | ativo | boolean | true |
+
+Cobertura: somente as colunas listadas acima (as referenciadas pela migration). Não é inventário completo do banco.
+Consulta de `casos.responsavel_atual_email` não existe em produção; a titularidade usa `alunos.responsavel_atual_email`.
