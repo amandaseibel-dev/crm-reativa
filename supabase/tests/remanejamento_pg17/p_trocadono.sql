@@ -14,10 +14,10 @@ begin
   select * into x from _t;
   update public.alunos
      set data_retorno = pg_temp.hoje() + 3, hora_retorno = '10:00', retorno_origem = 'OPERADOR',
-         proxima_acao = 'LIGAR', data_ultimo_acionamento = now() - interval '2 days'
+         proxima_acao = 'LIGAR', data_ultimo_acionamento = now() - interval '12 days'
    where id = x.aluno;
   update public.casos set data_retorno = pg_temp.hoje() + 3,
-         data_ultimo_acionamento = (now() - interval '2 days')::date
+         data_ultimo_acionamento = (now() - interval '12 days')::date
    where id = x.caso;
   insert into public.operador_agenda (aluno_id, aluno_nome, operador_email, operador_nome, retorno_em, status)
   values (x.aluno::text, 'Aluno T', 'cobranca05@aelbra.com.br', 'Luana', (now() + interval '3 days')::timestamptz, 'PENDENTE');
