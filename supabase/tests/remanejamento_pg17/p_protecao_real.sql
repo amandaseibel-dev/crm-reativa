@@ -2,6 +2,8 @@
 -- real impede a movimentacao; a liberacao positiva e idempotente.
 \i lib.sql
 select pg_temp.como('amanda.seibel@aelbra.com.br');
+-- teto explicito para este arquivo (estado de outros arquivos nao vale aqui)
+update public.calibragem_parametros set valor = '700'::jsonb where chave = 'limite_carteira';
 
 -- 1) confirmacao financeira aberta (solicitacoes_confirmacao_pagamento)
 create temp table _r1 on commit preserve rows as select * from pg_temp.semear('carteira.geral@reativa.local', 300, null, 2);
