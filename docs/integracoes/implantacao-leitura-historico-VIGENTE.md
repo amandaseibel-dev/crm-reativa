@@ -2,7 +2,7 @@
 
 Este é o ÚNICO procedimento vigente. Os documentos `pacote-historico-e-resposta-2026-11-11.md`, `piloto-token-pessoal-2026-11-17.md` e `corretiva-reserva-historico-2026-11-18.md` são HISTÓRICO DE REVISÃO: não definem ordem nem configuração. Em caso de conflito, vale este documento.
 
-**Escopo:** leitura do histórico pela conexão individual do operador. **Envio permanece DESLIGADO** (não há configuração de envio neste procedimento). **OAuth permanece desabilitado.** Nenhuma etapa aqui é executada sem aprovação específica.
+**Escopo:** leitura do histórico pela conexão individual do operador. Este procedimento não configura envio nem OAuth (configuração não definida aqui; o estado atual de produção não foi verificado). Nenhuma etapa aqui é executada sem aprovação específica.
 
 ## 1. Arquivos, hashes e ordem
 Todos em `supabase/aguardando_aprovacao/` (não em `supabase/migrations/`). Hashes sha256 do conteúdo revisado:
@@ -47,13 +47,15 @@ Fluxo B (`supabase/ledger/DUAS-TRILHAS.md`). Cada passo tem aprovação própria
 ## 4. Verificações (com fonte)
 - **Código:** `ulbra-conversa` não lê `ULBRA_MCP_TOKEN` em código executável (grep; a única ocorrência fora de comentário é a dos testes que afirmam a ausência: `historico-sem-conexao.test.ts`, `index-historico-ligacao.test.ts`). Leitura usa só a conexão individual do operador.
 - **Testes locais (vitest, pasta `supabase/functions/ulbra-conversa`):** 226 testes passaram no commit `ab9cce24`. Não reconferidos no head final.
-- **Teste da corretiva local (PGlite, em memória):** `node supabase/tests/ulbra_historico_portao/run.mjs <raiz>` passou em todas as asserções nesta revisão.
+- **Teste da corretiva local (PGlite, em memória):** `node supabase/tests/ulbra_historico_portao/run.mjs <raiz>` passou em todas as asserções em execução local nesta revisão (sem log versionado).
 - **CI do head final:** jobs `ulbra-conexao-envio-sql` (run.cjs de envio e de token, Postgres 17), `ulbra-historico-portao-pglite`, `ulbra-conversa-deno-check`, e `testes, build e catracas`. Status: registrar pelo CI do head final. NÃO declarar verde antes da conclusão.
 
 ## 5. Recuperação
 - **Flag:** `ULBRA_HISTORICO_HABILITADO` ausente ou `false` nega a leitura imediatamente (sem chamada à Mensageria).
+- **Pré-requisito da migration 1:** o `service_role` precisa de INSERT em `public.auditoria` e de `BYPASSRLS` (checagens de pré-condição do próprio arquivo; aborta se faltarem).
+- **Leitura global (fora da lista):** `leitura.ts` fixa a leitura global para `amanda.seibel.com.br` e `cobranca04.com.br`. Incluir um e-mail em `ULBRA_HISTORICO_PILOTO_EMAILS` NÃO concede leitura global a esse e-mail; a lista só restringe quem pode ler.
 - **Lista do piloto:** remover o e-mail de `ULBRA_HISTORICO_PILOTO_EMAILS` nega o acesso.
-- **Rollbacks, ordem inversa de aplicação (3 → 2 → 1):** cada `.rollback.sql` restaura o estado anterior. A corretiva (2) restaura a versão SEM portão: NÃO é recuperação automática e exige decisão expressa. O rollback de `20261110100000` NÃO deve ser executado (apaga `ulbra_historico_uso`).
+- **Rollbacks, ordem inversa de aplicação (3 → 2 → 1), SOMENTE antes de qualquer uso: `20261111140000.rollback.sql` recusa (`ROLLBACK_RECUSADO_HA_HISTORICO`) se houver conexões, prévias, envios ou pedidos. Depois do uso (passo 10 em diante), a saída é desativar as flags, não rollback. A corretiva (2) restaura a versão SEM portão: NÃO é recuperação automática e exige decisão expressa. O rollback de `20261110100000` NÃO deve ser executado (apaga `ulbra_historico_uso`).
 - **Não restaurar** a função `ulbra-historico` v1.
 
 ## 6. Pré-requisitos e pendências separadas

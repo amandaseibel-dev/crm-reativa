@@ -147,3 +147,5 @@ classificado como teste de verificação, não regra de reconstrução.
 - Não chamou a API Prime diretamente a partir desta sessão. Toda evidência
   usada aqui vem de código já em produção, memórias de sessões anteriores
   (medições já feitas, citadas com data) e `docs/PREMISSAS.md`.
+
+> Procedimento VIGENTE de implantação da leitura do histórico: `docs/integracoes/implantacao-leitura-historico-VIGENTE.md`. Os demais documentos da integração que tratam de implantação são histórico de revisão.
