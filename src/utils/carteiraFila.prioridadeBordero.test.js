@@ -97,3 +97,50 @@ describe("ordenação Fila inteligente", () => {
     expect(com.map((x) => x.id)).toEqual(sem.map((x) => x.id));
   });
 });
+
+import { recorteProntoParaGuiado } from "./carteiraFila";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+describe("ausência de dados nunca libera o guiado", () => {
+  it("mapa null (carregando ou falhou) faz o snapshot vir vazio", () => {
+    const lista = [caso("a", CPF_A), caso("b", CPF_B)];
+    expect(snapshotDoGuiado(lista, null)).toEqual([]);
+  });
+  it("recorte não libera enquanto a prioridade não carregou", () => {
+    expect(recorteProntoParaGuiado({ prioridadeCarregada: false })).toBe(false);
+    expect(recorteProntoParaGuiado({ prioridadeCarregada: true })).toBe(true);
+  });
+  it("lote pendente também exclui do guiado", () => {
+    const m = { [CPF_A]: base({ lote_pendente: true }) };
+    expect(excluidoDoGuiado(caso("a", CPF_A), m)).toBe(true);
+  });
+});
+
+describe("migration carteira_prioridade_bordero (guardas de leitura)", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const sql = readFileSync(join(here, "../../supabase/migrations/20261117100000_carteira_prioridade_bordero.sql"), "utf-8");
+  it("trata created_at como UTC, sem conversão por suposição de Brasília", () => {
+    expect(sql).toContain("at time zone 'UTC'");
+    expect(sql).not.toContain("America/Sao_Paulo");
+  });
+  it("usa a entrada mais recente, não a primeira", () => {
+    expect(sql).toContain("max((i.created_at at time zone 'UTC'))");
+    expect(sql).not.toMatch(/min\(\(i\.created_at/);
+  });
+  it("tem revalidação por CPF e sem acesso para anon", () => {
+    expect(sql).toContain("p_cpf_limpo");
+    expect(sql).toContain("revoke all on function public.carteira_prioridade_bordero(text, text) from anon");
+    expect(sql).toContain("security invoker");
+  });
+  it("escopo pela identidade do JWT; parâmetro do cliente não amplia o operador", () => {
+    expect(sql).toContain("public.usuario_e_gestao()");
+    expect(sql).toContain("auth.email()");
+    expect(sql).toContain("ROLLBACK");
+  });
+  it("pagamento pendente é estado atual, não evento histórico por regex", () => {
+    expect(sql).toContain("solicitacoes_confirmacao_pagamento");
+    expect(sql).not.toMatch(/m\.tipo ~ 'PAGAMENTO\|COMPROVANTE/);
+  });
+});

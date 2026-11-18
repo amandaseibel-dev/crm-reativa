@@ -1,26 +1,35 @@
 -- Prioridade do Acionamento Guiado: alunos com mensalidade de 2026 recebida
 -- por borderô, saldo aberto, elegíveis e SEM acionamento registrado desde a
--- entrada desse borderô.
+-- entrada do borderô MAIS RECENTE desse aluno.
 --
--- Somente leitura: não grava nada e não duplica dado armazenado. Lê os
--- títulos (acordos_titulos + importacoes), a elegibilidade canônica
--- (aluno_elegibilidade_cobranca) e as movimentações desde a entrada.
+-- Somente leitura: não grava nada e não duplica dado armazenado.
+--
+-- Fuso (confirmado por leitura em 18/11/2026):
+--   importacoes.created_at é timestamp SEM fuso e tem default now(); o
+--   servidor está em UTC. Portanto o valor é UTC. Convertido com
+--   `at time zone 'UTC'`, nunca por suposição de horário de Brasília.
 --
 -- Regras:
---   - contato ANTERIOR à entrada do borderô NÃO conta como acionamento
---     (a dívida entrou depois; o contato antigo não trabalhou este lote);
---   - bloqueio efetivo (suspensão, cancelamento, jurídico, não acionar)
---     e pagamento/comprovante pendente são sinalizados para exclusão do guiado;
---   - a fidelização não aparece aqui: ela não impede o próprio responsável.
+--   - usa a entrada MAIS RECENTE (max), não a primeira: um contato depois de
+--     um borderô antigo não esconde títulos que entraram depois;
+--   - contato ANTERIOR à entrada não conta como acionamento;
+--   - pagamento pendente = estado ATUAL em conferência (solicitação de
+--     confirmação aguardando), não evento histórico já resolvido;
+--   - lote pendente = aluno está em lote de exportação ainda não confirmado
+--     nem descartado (referência verificável, sem IDs fixos no código);
+--   - bloqueio efetivo (suspensão, cancelamento, jurídico, não acionar).
 --
--- Fuso: importacoes.created_at é tratado como horário de Brasília (America/Sao_Paulo).
--- Confirmar esta premissa antes da aplicação (ver PR).
+-- Parâmetro p_cpf_limpo: revalidação de UM aluno antes de abrir a ficha.
+-- Sem linha = aluno fora da população de prioridade (não bloqueia).
+-- Erro = o cliente NÃO deve abrir a ficha (ausência de dado não é liberação).
 --
--- Não aplicar em produção sem aprovação. Verificações de grant e search_path
--- seguem seguranca-rls.
+-- Não aplicar em produção sem aprovação. Grants e search_path seguem seguranca-rls.
+
+drop function if exists public.carteira_prioridade_bordero(text);
 
 create or replace function public.carteira_prioridade_bordero(
-  p_operador_email text default null
+  p_operador_email text default null,
+  p_cpf_limpo text default null
 )
 returns table (
   cpf_limpo text,
@@ -30,6 +39,7 @@ returns table (
   elegivel boolean,
   bloqueado boolean,
   pagamento_pendente boolean,
+  lote_pendente boolean,
   sem_acionamento_desde_entrada boolean
 )
 language sql
@@ -39,7 +49,7 @@ set search_path = public
 as $function$
   with titulos as (
     select t.aluno_id,
-           min((i.created_at at time zone 'America/Sao_Paulo')) as entrada,
+           max((i.created_at at time zone 'UTC')) as entrada_mais_recente,
            sum(coalesce(t.valor_em_aberto, t.saldo_corrigido, 0)) as saldo
       from public.acordos_titulos t
       join public.importacoes i on i.id = t.importacao_id
@@ -50,16 +60,30 @@ as $function$
     having sum(coalesce(t.valor_em_aberto, t.saldo_corrigido, 0)) > 0
   ),
   base as (
-    select tt.aluno_id, tt.entrada, tt.saldo, a.cpf,
-           e.motivo_principal,
-           e.elegivel as elegivel_canonica
+    select tt.aluno_id, tt.entrada_mais_recente as entrada, tt.saldo, a.cpf,
+           e.motivo_principal, e.elegivel as elegivel_canonica
       from titulos tt
       join public.alunos a on a.id = tt.aluno_id
       left join lateral public.aluno_elegibilidade_cobranca(tt.aluno_id) e on true
-      left join public.casos c on c.aluno_id = tt.aluno_id and not coalesce(c.encerrado_operacional, false)
-     where p_operador_email is null
-        or lower(coalesce(c.responsavel_atual_email, a.responsavel_atual_email, '')) = lower(p_operador_email)
-     group by tt.aluno_id, tt.entrada, tt.saldo, a.cpf, e.motivo_principal, e.elegivel
+     where (p_cpf_limpo is null or regexp_replace(coalesce(a.cpf, ''), '\D', '', 'g') = p_cpf_limpo)
+       and (
+         -- Escopo pela identidade do JWT. Só a gestão pode filtrar por outro
+         -- operador; o parâmetro do cliente nunca amplia o escopo do operador.
+         (public.usuario_e_gestao() and (
+            p_operador_email is null
+            or exists (
+              select 1 from public.casos c
+               where c.aluno_id = tt.aluno_id
+                 and not coalesce(c.encerrado_operacional, false)
+                 and lower(coalesce(c.responsavel_atual_email, '')) = lower(p_operador_email)
+            )))
+         or exists (
+           select 1 from public.casos c
+            where c.aluno_id = tt.aluno_id
+              and not coalesce(c.encerrado_operacional, false)
+              and lower(coalesce(c.responsavel_atual_email, '')) = lower(coalesce(auth.email(), ''))
+         )
+       )
   )
   select
     regexp_replace(coalesce(b.cpf, ''), '\D', '', 'g') as cpf_limpo,
@@ -68,13 +92,20 @@ as $function$
     b.saldo,
     coalesce(b.elegivel_canonica, false) and b.motivo_principal is null as elegivel,
     coalesce(b.motivo_principal in ('SUSPENSAO_COBRANCA', 'CANCELAMENTO_COBRANCA', 'JURIDICO', 'NAO_ACIONAR_EXPLICITO'), false) as bloqueado,
-    coalesce(b.motivo_principal = 'CONFIRMACAO_PAGAMENTO_PENDENTE', false)
+    (
+      coalesce(b.motivo_principal = 'CONFIRMACAO_PAGAMENTO_PENDENTE', false)
       or exists (
-        select 1 from public.aluno_movimentacoes m
-         where m.aluno_id = b.aluno_id::text
-           and m.registrado_em >= b.entrada
-           and m.tipo ~ 'PAGAMENTO|COMPROVANTE|BAIXA|CONFIRMACAO|QUITA'
-      ) as pagamento_pendente,
+        select 1 from public.solicitacoes_confirmacao_pagamento s
+         where s.aluno_id = b.aluno_id::text
+           and s.status in ('AGUARDANDO_CONFIRMACAO', 'PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO')
+      )
+    ) as pagamento_pendente,
+    exists (
+      select 1 from public.acoes_massivas_lotes l
+       where l.confirmado_em is null
+         and l.descartado_em is null
+         and b.aluno_id::text = any (l.aluno_ids)
+    ) as lote_pendente,
     not exists (
       select 1 from public.aluno_movimentacoes m
        where m.aluno_id = b.aluno_id::text
@@ -91,7 +122,12 @@ as $function$
   from base b;
 $function$;
 
-revoke all on function public.carteira_prioridade_bordero(text) from public;
-revoke all on function public.carteira_prioridade_bordero(text) from anon;
-grant execute on function public.carteira_prioridade_bordero(text) to authenticated;
-grant execute on function public.carteira_prioridade_bordero(text) to service_role;
+revoke all on function public.carteira_prioridade_bordero(text, text) from public;
+revoke all on function public.carteira_prioridade_bordero(text, text) from anon;
+grant execute on function public.carteira_prioridade_bordero(text, text) to authenticated;
+grant execute on function public.carteira_prioridade_bordero(text, text) to service_role;
+
+-- ROLLBACK (executar somente se a migration tiver sido aplicada e precisar ser revertida):
+--   drop function if exists public.carteira_prioridade_bordero(text, text);
+-- A função é somente leitura: o rollback não toca dado. A tela trata erro
+-- da RPC como "guiado não abre", então remover a função não libera casos.

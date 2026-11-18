@@ -37,6 +37,8 @@ import {
   proximoIdDoSnapshot,
   faltamNoSnapshot,
   candidatoSegueValido,
+  excluidoDoGuiado,
+  normCpfFila,
   recorteProntoParaGuiado,
   alunosDoCursoEscolhido,
   alunosDoSemestreEscolhido,
@@ -791,6 +793,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // Financeiro consolidado por aluno (valor em aberto sem duplicidade).
   // { [aluno_id]: { mensalidades, acordos, total, temDetalhe, temAtraso, acordoDonos, acordoSemResponsavel } }
   const [finAlunos, setFinAlunos] = useState({});
+  // Prioridade do guiado por borderô (null = não carregou ou falhou).
+  const [prioridadeBordero, setPrioridadeBordero] = useState(null);
   const finAlunosRef = useRef({});
   useEffect(() => { finAlunosRef.current = finAlunos; }, [finAlunos]);
   // Linhas com o detalhamento das mensalidades aberto. Set, nao um id so: o
@@ -1862,6 +1866,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // do card ainda estao carregando, o botao fica indisponivel -- comecar ali
   // percorreria a carteira inteira (ano) ou o card ANTERIOR (KPI).
   const guiadoLiberado = recorteProntoParaGuiado({
+    prioridadeCarregada: prioridadeBordero !== null,
     filtroAnoVencimento,
     alunosDoAnoVencimento,
     filtroCurso,
@@ -1919,6 +1924,25 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       if (!veredito.ok) {
         // saiu por fora (nao e meu / nao acionavel / ja acionado / sumiu):
         // marca e vai pro proximo DA FOTO.
+        guiadoFeitosRef.current.add(candId);
+        continue;
+      }
+      // Revalidação da prioridade no banco, ANTES de abrir: bloqueio ou pagamento
+      // pendente posterior à foto exclui o caso. Erro encerra o guiado: sem
+      // dado não se abre ficha.
+      let prio;
+      try {
+        const { data, error } = await supabase.rpc("carteira_prioridade_bordero", {
+          p_operador_email: meuEmail,
+          p_cpf_limpo: normCpfFila(fresco.cpf),
+        });
+        if (error) throw error;
+        prio = (data || [])[0] || null;
+      } catch {
+        encerrarGuiadoSemProximo(true);
+        return;
+      }
+      if (prio && excluidoDoGuiado(fresco, { [normCpfFila(fresco.cpf)]: prio })) {
         guiadoFeitosRef.current.add(candId);
         continue;
       }
@@ -2784,7 +2808,6 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   }, [casos, email, veTudo, operadorFiltro]);
   // Prioridade do guiado por borderô (RPC carteira_prioridade_bordero, somente
   // leitura). Indexada pelo CPF normalizado, igual ao saldoView.
-  const [prioridadeBordero, setPrioridadeBordero] = useState(null);
   useEffect(() => {
     let ativo = true;
     (async () => {
