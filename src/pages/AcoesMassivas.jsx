@@ -1254,6 +1254,15 @@ export default function AcoesMassivas() {
                 <option key={o.valor} value={o.valor}>{o.rotulo}</option>
               ))}
             </select>
+            {acionamentoFiltro !== "NUNCA" && (
+              <button
+                type="button"
+                style={{ marginTop: 6, background: "rgba(30,58,138,0.28)", color: "#bfdbfe", border: "none", borderRadius: 999, padding: "3px 12px", fontSize: 11, fontWeight: 800, cursor: "pointer", letterSpacing: "0.03em" }}
+                onClick={() => setAcionamentoFiltro("NUNCA")}
+              >
+                ✦ Alunos novos (nunca acionados)
+              </button>
+            )}
           </div>
           <div style={estilos.campo}>
             <label style={estilos.label} htmlFor="filtro-recencia">Recência da ação massiva (dias, por canal)</label>
