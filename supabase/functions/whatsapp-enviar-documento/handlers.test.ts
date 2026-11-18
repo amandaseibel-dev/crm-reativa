@@ -9,6 +9,9 @@ const estado = {
   chamadas: [] as Chamada[],
   checar: null as null | { code: string; message: string },
   conversaAluno: "aluno-1" as string | null,
+  acesso: true,
+  ativo: true,
+  desligado: false,
   handler: null as null | ((req: Request) => Promise<Response>),
   gatewayChamadas: 0,
   uploads: 0,
@@ -20,6 +23,7 @@ vi.mock("https://esm.sh/@supabase/supabase-js@2", () => ({
       then: (ok: any, ko: any) => {
         estado.chamadas.push({ nome, args });
         let r: any = { data: null, error: null };
+        if (nome === "app_usuario_ativo") r = { data: estado.ativo, error: null };
         if (nome === "juridico_checar_envio" && estado.checar) r = { data: null, error: estado.checar };
         if (nome === "whatsapp_preparar_envio") {
           r = { data: [{ sessao_chave: "sessao-1", telefone_e164: "5511999000001", operador_email: "op1@x", conversa_id: args.p_conversa_id, ja_existia: true }], error: null };
@@ -28,10 +32,11 @@ vi.mock("https://esm.sh/@supabase/supabase-js@2", () => ({
       },
     }),
     from: (tabela: string) => ({
-      select: () => ({
+      select: (campo: string) => ({
         eq: () => ({
           maybeSingle: async () => {
             estado.chamadas.push({ nome: `from:${tabela}` });
+            if (campo === "id") return { data: estado.acesso ? { id: "c-1" } : null, error: null };
             return { data: { aluno_id: estado.conversaAluno }, error: null };
           },
         }),
@@ -55,6 +60,7 @@ vi.mock("https://esm.sh/@supabase/supabase-js@2", () => ({
       SUPABASE_SERVICE_ROLE_KEY: "service",
       WHATSAPP_GATEWAY_URL: "http://gateway.local",
       WHATSAPP_GATEWAY_TOKEN: "tok",
+      ENVIO_WHATSAPP_DESLIGADO: estado.desligado ? "true" : undefined,
     } as Record<string, string>)[k],
   },
   serve: (h: any) => { estado.handler = h; },
@@ -70,6 +76,9 @@ beforeEach(async () => {
   estado.chamadas = [];
   estado.checar = null;
   estado.conversaAluno = "aluno-1";
+  estado.acesso = true;
+  estado.ativo = true;
+  estado.desligado = false;
   estado.gatewayChamadas = 0;
   estado.uploads = 0;
   (globalThis as any).fetch = vi.fn(async () => {
@@ -139,5 +148,23 @@ describe("whatsapp-enviar-documento (handler real): bloqueio jurídico", () => {
     expect(r.status).toBe(400);
     expect(estado.uploads).toBe(0);
     expect(estado.gatewayChamadas).toBe(0);
+  });
+
+  it("documento: JUR01 sem acesso gera recusa generica, sem upload nem gateway", async () => {
+    estado.checar = { code: "JUR01", message: "Envio bloqueado: aluno com bloqueio jurídico." };
+    estado.acesso = false;
+    const r = await estado.handler!(pedido());
+    const corpo = await r.json();
+    expect(r.status).toBe(403);
+    expect(corpo.erro).toBe("Envio não permitido por este fluxo para esta conversa.");
+    expect(estado.uploads).toBe(0);
+    expect(estado.gatewayChamadas).toBe(0);
+  });
+
+  it("documento: recuperacao com envio desligado recusa (503) sem banco", async () => {
+    estado.desligado = true;
+    const r = await estado.handler!(pedido());
+    expect(r.status).toBe(503);
+    expect(estado.chamadas).toHaveLength(0);
   });
 });

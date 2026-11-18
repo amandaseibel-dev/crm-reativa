@@ -37,7 +37,7 @@
 //
 // Secrets: WHATSAPP_GATEWAY_URL, WHATSAPP_GATEWAY_TOKEN.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { alunoDaConversa, checarEnvioJuridico, hashDocumento } from "../_shared/juridico-envio.ts";
+import { alunoDaConversa, checarEnvioJuridico, hashDocumento, temAcessoConversa, MENSAGEM_RECUSA_GENERICA, envioDesligado } from "../_shared/juridico-envio.ts";
 import { LIMITE_BYTES, caminhoNovo, validarPdf } from "../_shared/pdf.ts";
 
 const BUCKET = "whatsapp-midia";
@@ -75,6 +75,10 @@ function aleatorio(): string {
 }
 
 Deno.serve(async (req) => {
+  // Recuperacao: envio desligado recusa tudo, antes de qualquer acesso a banco.
+  if (envioDesligado(Deno.env.get("ENVIO_WHATSAPP_DESLIGADO"))) {
+    return jsonResp({ erro: "Envio do WhatsApp desligado pela operação." }, 503);
+  }
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return jsonResp({ erro: "metodo nao suportado" }, 405);
 
@@ -150,7 +154,9 @@ Deno.serve(async (req) => {
       });
       if (erroReg) console.error("recusa juridica nao registrada", erroReg.code);
     }
-    return jsonResp({ erro: checagem.erro, conversa_id: conversaId }, 403);
+    const acesso = await temAcessoConversa(comoOperador, conversaId);
+    const msg = checagem.bloqueio && !acesso ? MENSAGEM_RECUSA_GENERICA : checagem.erro;
+    return jsonResp({ erro: msg, conversa_id: conversaId }, 403);
   }
 
   // Canal, dono e cadência — as MESMAS travas do envio de texto, na mesma RPC.

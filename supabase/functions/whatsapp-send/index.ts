@@ -49,7 +49,7 @@
 //
 // Secrets: WHATSAPP_GATEWAY_URL, WHATSAPP_GATEWAY_TOKEN.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { alunoDaConversa, checarEnvioJuridico, sha256Hex } from "../_shared/juridico-envio.ts";
+import { alunoDaConversa, checarEnvioJuridico, sha256Hex, temAcessoConversa, MENSAGEM_RECUSA_GENERICA, envioDesligado } from "../_shared/juridico-envio.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -78,6 +78,10 @@ const MOTIVOS_DE_BLOQUEIO = new Set([
 ]);
 
 Deno.serve(async (req) => {
+  // Recuperacao: envio desligado recusa tudo, antes de qualquer acesso a banco.
+  if (envioDesligado(Deno.env.get("ENVIO_WHATSAPP_DESLIGADO"))) {
+    return jsonResp({ erro: "Envio do WhatsApp desligado pela operação." }, 503);
+  }
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return jsonResp({ erro: "metodo nao suportado" }, 405);
 
@@ -155,7 +159,10 @@ Deno.serve(async (req) => {
       });
       if (erroReg) console.error("recusa juridica nao registrada", erroReg.code);
     }
-    return jsonResp({ erro: checagem.erro, conversa_id: corpo.conversa_id }, 403);
+    // Detalhe SO para quem tem acesso (usuario ativo + conversa visivel). Quem nao tem: recusa generica.
+    const acesso = await temAcessoConversa(comoOperador, corpo.conversa_id ?? null);
+    const msg = checagem.bloqueio && !acesso ? MENSAGEM_RECUSA_GENERICA : checagem.erro;
+    return jsonResp({ erro: msg, conversa_id: corpo.conversa_id }, 403);
   }
 
   // Qual RPC prepara o envio depende de a conversa já existir. As duas aplicam

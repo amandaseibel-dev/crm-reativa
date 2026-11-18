@@ -104,14 +104,9 @@ Recuperação:
 - Edges novas no ar ANTES da migration: todo envio é recusado (RPC inexistente, fail-closed). Sem perda de dados.
   Recuperação: aplicar a migration e reconferir o passo 3.
 - Migration aplicada e edges novas no ar: o bloqueio vale. Nenhum aluno bloqueado recebe envio sem autorização.
-- Rollback da migration: NÃO executar com as edges novas no ar, porque `juridico_checar_envio` some e todo envio é
-  recusado. Ordem obrigatória:
-  (a) decisão da gestão sobre os alunos com bloqueio ativo;
-  (b) republicar `whatsapp-send` na versão 23 e `whatsapp-enviar-documento` na versão 10. ESTE PASSO NÃO ESTÁ
-      LIBERADO: o vínculo dessas versões com um commit do git não foi identificado. Sem ele, o rollback não é executável;
-  (c) só então executar o rollback da migration.
-  O rollback foi validado no banco de teste PGlite (describe "rollback"). Não validado em produção.
-  Até (b) estar confirmado, a migration NÃO deve ser revertida.
+- Rollback da migration: NÃO executar com as edges novas no ar (o rollback remove `juridico_checar_envio`). Antes,
+  ligar `ENVIO_WHATSAPP_DESLIGADO=true` nas edges novas (ver "Recuperação executável"). O rollback só depois de decisão
+  da gestão sobre os alunos com bloqueio ativo. Validado no PGlite; não validado em produção.
 - Resultado incerto no gateway: a autorização já foi consumida. Não há reenvio automático. Nova autorização exige a gestão.
 
 Identificação pelo telefone (medida em produção, leitura, 500 conversas mais recentes com `whatsapp_identificar_aluno`):
@@ -441,14 +436,33 @@ está na seção "Critério de data do pagamento no extrato Prime" acima.
 - Aberto: vincular uma conversa SEM aluno a um aluno sem bloqueio continua permitido pelo operador. Isso é
   afirmação de identidade pelo operador, do mesmo tipo do contato novo. Decisão da gestão pendente.
 
-### Contornos e limites conhecidos (reauditoria de ccb21e5e)
+### Contornos e limites (reauditoria de ccb21e5e, fechada em 606ee6c8 e na rodada final)
 
-- Corrigido: troca de `aluno_id` de caso de aluno bloqueado (gatilho `trg_juridico_guarda_troca_aluno_caso`, erro JUR03),
-  com teste no banco.
-- Aberto: a mensagem JUR01 ("aluno com bloqueio") é devolvida a qualquer operador que informe um `conversa_id`, antes
-  da checagem de dono do preparo. Quem não é dono recebe essa informação. Decisão pendente: checar dono antes, ou
-  mensagem genérica.
-- Não verificado em produção: gatilhos e policies vivos de `casos` (a policy `casos_update_todos` permite o UPDATE
-  pelo dono no repositório), `verify_jwt` das duas edges (fora de `supabase/config.toml`) e grants de coluna.
-- Aberto: telefone de responsáveis e normalização real de telefone (a fixture só casa `alunos.telefone` e
-  simula AMBIGUO com dois alunos de mesmo telefone).
+- CORRIGIDO: troca de `aluno_id` de caso de aluno bloqueado (gatilho `trg_juridico_guarda_troca_aluno_caso`, JUR03).
+  Produção (leitura): `authenticated` tem UPDATE em `casos.aluno_id` e `casos.nao_acionar`, e a policy
+  `casos_update_todos` deixa o dono atualizar a própria linha. O gatilho restritivo existente
+  (`bloquear_alteracoes_restritas_casos`) NÃO cobre essas colunas. Logo, as guardas da migration são a única barreira,
+  e só valem depois de aplicadas.
+- CORRIGIDO: JUR01 e o detalhe de bloqueio só vão ao operador com usuário ativo (`app_usuario_ativo`) E conversa
+  visível pelo próprio JWT (RLS). Quem não tem acesso recebe `Envio não permitido por este fluxo para esta conversa.`,
+  sem menção a bloqueio, aluno ou motivo. Testado com transporte simulado (handlers).
+- Verificado por leitura em produção: `verify_jwt = true` em `whatsapp-send` e `whatsapp-enviar-documento`.
+- Normalização de telefone em produção (`whatsapp_chave_telefone`): remove não-dígitos, tira o DDI 55 quando há 12
+  ou 13 dígitos, aceita 10 ou 11 dígitos locais e completa o nono dígito de celular. A identificação
+  (`whatsapp_identificar_aluno`) casa o telefone com `alunos.telefone` e com `telefone_resp1`/`telefone_resp2`.
+  A fixture de teste NÃO reproduz essa normalização nem os telefones de responsável: é lacuna de teste, declarada.
+- Aberto: a regra "identificação pelo telefone só com aluno bloqueado envolvido" usa o mecanismo de produção, mas
+  a medição de 52 conversas sem prova (403 com aluno_id) foi feita sobre 500 conversas recentes, não sobre a base inteira.
+- Aberto: policies de `casos` com `casos_update_todos` permitem ao dono alterar outras colunas; a decisão de restringir
+  isso é outra mudança de RLS e fica fora desta entrega.
+
+### Recuperação executável (versões atuais em produção, medidas por leitura em 18/11/2026)
+
+- `whatsapp-send`: versão 23 (2026-10-26). `whatsapp-enviar-documento`: versão 10 (2026-08-22). NÃO têm checagem jurídica.
+  Restaurar essas versões REABRE o envio para alunos bloqueados. Portanto NÃO são o alvo de recuperação.
+- Alvo de recuperação: a edge NOVA deste commit, com a variável `ENVIO_WHATSAPP_DESLIGADO=true` configurada. Com ela, as
+  duas funções recusam TODO envio com 503 antes de qualquer acesso a banco ou gateway. Isso mantém o envio bloqueado.
+- Desligar a checagem de alunos bloqueados sem reabrir o envio: não há caminho executável além de manter a variável ligada.
+- Migration: NÃO reverter com as edges novas no ar (o rollback remove `juridico_checar_envio`; com ela ausente as edges
+  recusam tudo, o que também mantém o envio bloqueado). O rollback só é executado depois de decisão da gestão.
+- Vínculo entre as versões 23/10 e commits do git: NÃO identificado por leitura. Não é necessário para a recuperação acima.

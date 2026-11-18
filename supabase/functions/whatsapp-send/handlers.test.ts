@@ -10,6 +10,9 @@ const estado = {
   checar: null as null | { code: string; message: string },
   preparoLanca: false,
   conversaAluno: "aluno-1" as string | null,
+  acesso: true,
+  ativo: true,
+  desligado: false,
   handler: null as null | ((req: Request) => Promise<Response>),
   gatewayChamadas: 0,
   gatewayResposta: { ok: true, wamid: "W-1" } as any,
@@ -21,6 +24,7 @@ vi.mock("https://esm.sh/@supabase/supabase-js@2", () => ({
       then: (ok: any, ko: any) => {
         estado.chamadas.push({ nome, args });
         let r: any = { data: null, error: null };
+        if (nome === "app_usuario_ativo") r = { data: estado.ativo, error: null };
         if (nome === "juridico_checar_envio" && estado.checar) r = { data: null, error: estado.checar };
         if (nome === "whatsapp_preparar_envio") {
           if (estado.preparoLanca) throw new Error("preparo falhou");
@@ -30,10 +34,11 @@ vi.mock("https://esm.sh/@supabase/supabase-js@2", () => ({
       },
     }),
     from: (tabela: string) => ({
-      select: () => ({
+      select: (campo: string) => ({
         eq: () => ({
           maybeSingle: async () => {
             estado.chamadas.push({ nome: `from:${tabela}`, args: {} });
+            if (campo === "id") return { data: estado.acesso ? { id: "c-1" } : null, error: null };
             return { data: { aluno_id: estado.conversaAluno }, error: null };
           },
         }),
@@ -51,6 +56,7 @@ vi.mock("https://esm.sh/@supabase/supabase-js@2", () => ({
       SUPABASE_SERVICE_ROLE_KEY: "service",
       WHATSAPP_GATEWAY_URL: "http://gateway.local",
       WHATSAPP_GATEWAY_TOKEN: "tok",
+      ENVIO_WHATSAPP_DESLIGADO: estado.desligado ? "true" : undefined,
     } as Record<string, string>)[k],
   },
   serve: (h: any) => { estado.handler = h; },
@@ -63,6 +69,9 @@ beforeEach(async () => {
   estado.checar = null;
   estado.preparoLanca = false;
   estado.conversaAluno = "aluno-1";
+  estado.acesso = true;
+  estado.ativo = true;
+  estado.desligado = false;
   estado.gatewayChamadas = 0;
   estado.gatewayResposta = { ok: true, wamid: "W-1" };
   (globalThis as any).fetch = vi.fn(async () => {
@@ -130,5 +139,37 @@ describe("whatsapp-send (handler real): texto com bloqueio jurídico", () => {
     expect(r.status).toBe(502);
     expect(estado.gatewayChamadas).toBe(1);
     expect(nomes().filter((n) => n === "juridico_checar_envio")).toHaveLength(1);
+  });
+
+  it("JUR01 sem acesso a conversa (ou usuario inativo): recusa generica, sem revelar bloqueio nem aluno", async () => {
+    estado.checar = { code: "JUR01", message: "Envio bloqueado: aluno com bloqueio jurídico." };
+    estado.acesso = false;
+    const r = await estado.handler!(pedido({ conversa_id: "c-1", texto: "Oi" }));
+    const corpo = await r.json();
+    expect(r.status).toBe(403);
+    expect(corpo.erro).toBe("Envio não permitido por este fluxo para esta conversa.");
+    expect(JSON.stringify(corpo)).not.toMatch(/jur[ií]dico|bloque/i);
+  });
+
+  it("JUR01 com acesso (usuario ativo e conversa visivel): mensagem detalhada", async () => {
+    estado.checar = { code: "JUR01", message: "Envio bloqueado: aluno com bloqueio jurídico." };
+    const r = await estado.handler!(pedido({ conversa_id: "c-1", texto: "Oi" }));
+    const corpo = await r.json();
+    expect(corpo.erro).toMatch(/jurídico/);
+  });
+
+  it("usuario inativo nao recebe o detalhe mesmo com conversa visivel", async () => {
+    estado.checar = { code: "JUR01", message: "Envio bloqueado: aluno com bloqueio jurídico." };
+    estado.ativo = false;
+    const r = await estado.handler!(pedido({ conversa_id: "c-1", texto: "Oi" }));
+    expect((await r.json()).erro).toBe("Envio não permitido por este fluxo para esta conversa.");
+  });
+
+  it("recuperacao: envio desligado recusa tudo (503) antes de qualquer acesso a banco ou gateway", async () => {
+    estado.desligado = true;
+    const r = await estado.handler!(pedido({ conversa_id: "c-1", texto: "Oi" }));
+    expect(r.status).toBe(503);
+    expect(estado.chamadas).toHaveLength(0);
+    expect(estado.gatewayChamadas).toBe(0);
   });
 });
