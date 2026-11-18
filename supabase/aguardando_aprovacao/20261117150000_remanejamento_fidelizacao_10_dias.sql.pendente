@@ -267,13 +267,14 @@ revoke all on function internal.cg_destino_recusado(text) from public, anon, aut
 
 -- O marcador so vale enquanto a MARCA foi gravada pelo proprio remanejamento.
 -- Qualquer outra gravacao em giro_fidelizacao_ate (outra rotina, mesmo com a
--- mesma data) que nao traga um marcador novo SOLTA o marcador. Assim, o
+-- MESMA data e o MESMO valor) que nao traga um marcador novo SOLTA o marcador. Assim, o
 -- rollback nunca enxerga como "nossa" uma marca que outra rotina reescreveu.
 create or replace function internal.cg_marcador_segue_a_marca() returns trigger
 language plpgsql set search_path = public as $fn$
 begin
-  if new.giro_fidelizacao_ate is distinct from old.giro_fidelizacao_ate
-     and new.remanejamento_lote_id is not distinct from old.remanejamento_lote_id then
+  -- UPDATE OF giro dispara quando a COLUNA e escrita, mesmo com o mesmo valor.
+  -- Quem escreve o marcador junto (o remanejamento) nao cai aqui.
+  if new.remanejamento_lote_id is not distinct from old.remanejamento_lote_id then
     new.remanejamento_lote_id := null;
   end if;
   return new;
