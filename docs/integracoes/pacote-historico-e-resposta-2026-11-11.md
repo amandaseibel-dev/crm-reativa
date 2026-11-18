@@ -54,7 +54,7 @@ Preparado em 11/11/2026. **Nenhuma mensagem enviada, nenhuma credencial alterada
 A ordem única está na seção "Ordem de implantação da leitura", no fim deste documento. Esta seção não define ordem.
 
 ## 8. Fora deste pacote
-Campanhas, criação de atendimentos, transferências, administração de operadores (ver `mensageria-ulbra-capacidades-mcp-2026-11-11.md`); coleta automática; o pacote de 12/11.
+Campanhas, criação de atendimentos, transferências, administração de operadores (ver a documentação de capacidades da Mensageria (arquivo a localizar; referência anterior quebrada)); coleta automática; o pacote de 12/11.
 
 ## Leitura global do histórico (decisão da gestão, 16/11)
 - Alcance: `amanda.seibel@aelbra.com.br` (gestão) e `cobranca04@aelbra.com.br` (supervisão, Fernanda): leitura global. Só leitura.
@@ -178,18 +178,16 @@ Ver "Ordem de implantação da leitura" (única). Não há outra ordem neste doc
 
 ### Cobertura de CI (o que roda, em qual ordem)
 - **Job `ulbra-conexao-envio-sql`** (Postgres 17): `supabase/tests/ulbra_conexao_envio/run.cjs` aplica `20261111140000` (`.sql.pendente`) e testa persistência, consumo único, concorrência, guarda e rollback (`.rollback.sql`), inclusive a recusa de rollback com histórico.
-- **Job `ulbra conexão e envio` / atomicidade** (Postgres 17): `supabase/tests/ulbra_conexao_token/run.cjs` aplica `20261111140000` e, em seguida, `20261117120000` (ordem correta). Cobre concorrência de cadastro e conclusão OAuth.
+- **Step "Atomicidade da gravação de conexão" do job `ulbra-conexao-envio-sql`** (Postgres 17): `supabase/tests/ulbra_conexao_token/run.cjs` aplica `20261111140000` e, em seguida, `20261117120000` (ordem correta). Cobre concorrência de cadastro e conclusão OAuth.
   - **Adicionado nesta rodada:** asserções de grants (anon e authenticated sem EXECUTE; service_role com EXECUTE; PUBLIC sem EXECUTE), de `SECURITY INVOKER` e de `search_path = public, pg_temp`, e teste de ROLLBACK da `20261117120000` em transação descartada (remove só a função e preserva a tabela).
   - **Limite:** esses testes só rodam no CI; não foram executados localmente (não há Postgres local neste ambiente).
 - **Job `ulbra-historico-portao-pglite`**: `supabase/tests/ulbra_historico_portao/run.mjs` cobre a corretiva `20261116150000` (PGlite, não Postgres real).
 
 ### Promoção e ledger (procedimento POSTERIOR, NÃO executado)
 Padrão do repositório: `supabase/ledger/DUAS-TRILHAS.md` (Fluxo B, o padrão) e `supabase/ledger/LEIA-ME.md`. A `20261117120000` cai no Fluxo B porque o código publicado da `ulbra-conversa` depende dela (dependência simultânea de backend e banco).
-1. Mesclar a PR (somente com aprovação).
-2. Esperar o deploy de produção ficar `READY`.
-3. Aplicar por `apply_migration`, uma única vez, aceitando o timestamp gerado (não forçar número). Executor único: a sessão principal, com aprovação específica.
-4. Validar em leitura: registro único em `supabase_migrations.schema_migrations`, md5 igual ao arquivo, objetos criados, grants e `search_path` conferidos.
-5. Registrar o drift no ledger em PR própria: `supabase/ledger/2026-11/<timestamp>__<name>.sql`, com o `.sql` byte a byte igual aos `statements` e explicação em arquivo `__NOTA.md` ao lado. Atualizar `INDICE.tsv`.
+Os passos de mesclagem, `READY`, aplicação, validação e publicação estão na seção "Ordem de implantação da leitura" (ÚNICA). Esta subseção acrescenta só a etapa de ledger, executada DEPOIS da aplicação e da validação:
+- Registro do drift no ledger em PR própria: `supabase/ledger/2026-11/<timestamp>__<name>.sql`, com o `.sql` byte a byte igual aos `statements` e explicação em arquivo `__NOTA.md` ao lado. Atualizar `INDICE.tsv`.
+- Versão: `apply_migration` gera o timestamp que fica em `supabase_migrations.schema_migrations`. O arquivo de ledger usa o `name` que produção registrou (`supabase/ledger/LEIA-ME.md`, regra 4). A correspondência entre a versão gerada e o nome do arquivo é conferida na validação (md5 igual ao arquivo).
 - **Vetado nos dois fluxos:** `supabase db push`, `supabase db pull`, `supabase migration repair`, e escrita manual em `schema_migrations`.
 - Os arquivos pendentes NÃO devem ser copiados para `supabase/migrations/` para contornar a revisão (a catraca de migrations reprova o sufixo `__` nesse diretório).
 

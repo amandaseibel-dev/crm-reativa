@@ -1,7 +1,7 @@
 # Piloto com token pessoal da Mensageria (17/11/2026)
 
 Alternativa ao OAuth, enquanto o `client_id` do ReATIVA não existe na Mensageria.
-Escopo: **só a conta da gestora**, para leitura e resposta pela ficha. Sem implantação,
+Escopo: **a conta do operador piloto João (`cobranca10@aelbra.com.br`)**, para leitura pela ficha. A gestora não lê pela credencial do piloto. Envio desligado. Sem implantação,
 sem envio real e sem alterar o OAuth existente, que fica para evolução posterior.
 
 ## O que foi implementado (branch da #913, sem deploy)
@@ -211,7 +211,7 @@ são descartados (`renovacao.ts`). Não há mais `upsert` na renovação. Testad
 
 ## Habilitação da interface (HISTORICO_DISPONIVEL) e bloqueio efetivo
 
-- `src/utils/ulbraHistorico.js`: `HISTORICO_DISPONIVEL = true` **neste commit**, testado e revisado,
+- `src/utils/ulbraHistorico.js`: `HISTORICO_DISPONIVEL = true` **neste commit**, implementado; a revisão e o CI são os do head da PR, não registrados neste documento,
   e não na hora do merge.
 - O bloqueio efetivo continua no backend: sem `ULBRA_HISTORICO_HABILITADO=true`, a função
   `historico_capacidade` responde `pode: false` (`historico-leitura.ts`, `capacidadeHistorico`).
