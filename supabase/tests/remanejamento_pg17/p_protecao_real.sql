@@ -45,7 +45,7 @@ begin
   perform pg_temp.afirma(p->'itens'->0->>'bloqueio' is null, 'liberacao positiva: previa aceita com liberacao do responsavel filtrado');
   r := public.carteira_geral_mover((p->>'previa_id')::uuid, 'liberacao autorizada');
   perform pg_temp.afirma((r->>'alunos_movidos')::int = 1 and pg_temp.dono(m.caso) = 'cobranca05@aelbra.com.br',
-    'liberacao positiva: caso movido para a Luana');
+    'liberacao positiva: caso movido para a Luana. execucao='||r::text||' previa_item='||(p->'itens'->0)::text||' dono='||coalesce(pg_temp.dono(m.caso),'-'));
   perform pg_temp.afirma(pg_temp.marca(m.caso) = pg_temp.hoje() + 10, 'liberacao positiva: marca de 10 dias gravada');
 end $$;
 
