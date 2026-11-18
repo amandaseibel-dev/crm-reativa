@@ -113,7 +113,7 @@ psqlt "$LOGS/s2_migration.log" rem_com936 "$OURS" || falha "migration nao aplico
 echo "  ok: migration aplicada sobre a #936"
 
 passo "3. Testes sequenciais (um banco, mesma sessao de cada arquivo)"
-for t in p_destinos p_perfis p_prazo p_saldo_capacidade p_terceiros p_protecao_real p_perfis_extra p_responsavel; do
+for t in p_destinos p_perfis p_prazo p_saldo_capacidade p_terceiros p_protecao_real p_perfis_extra p_responsavel p_evidencia_gatilhos; do
   psqlt "$LOGS/$t.log" rem_com936 "$TD/$t.sql" || falha "$t: ver $LOGS/$t.log"
   echo "  ok: $t"
 done
@@ -141,11 +141,18 @@ banco_novo rem_rollback
 psqlt "$LOGS/rb_base.log" rem_rollback "$FIX" || falha "base"
 psqlt "$LOGS/rb_acl.log" rem_rollback "$ACL" || falha "acl"
 psqlt "$LOGS/rb_seed.log" rem_rollback "$TD/seed.sql" || falha "seed"
+psqlt "$LOGS/rb_estr.log" rem_rollback "$PROT/estruturas_prod.sql" || falha "estruturas (rollback)"
+psqlt "$LOGS/rb_auth.log" rem_rollback "$TD/auth_reproducao.sql" || falha "auth (rollback)"
+psqlt "$LOGS/rb_funcs.log" rem_rollback "$PROT/funcoes_prod.sql" || falha "funcoes (rollback)"
+psqlt "$LOGS/rb_resp_funcs.log" rem_rollback "$PROT/funcoes_responsavel_prod.sql" || falha "funcoes resp (rollback)"
+psqlt "$LOGS/rb_resp.log" rem_rollback "$PROT/responsavel_prod.sql" || falha "camada resp (rollback)"
 psqlt "$LOGS/rb_936.log" rem_rollback "$MIG936" || falha "#936 (rollback)"
 psqlt "$LOGS/rb_mig.log" rem_rollback "$OURS" || falha "migration (rollback)"
 psqlt "$LOGS/rb_a.log" rem_rollback "$TD/p_rollback_a.sql" || falha "rollback parte A: ver $LOGS/rb_a.log"
+psqlt "$LOGS/rb_orfao.log" rem_rollback "$TD/p_marcador_orfao.sql" || falha "marcador orfao: ver $LOGS/rb_orfao.log"
 psqlt "$LOGS/rb_roll.log" rem_rollback "$ROLL" || falha "rollback nao aplicou (recusou ou erro): ver $LOGS/rb_roll.log"
 psqlt "$LOGS/rb_b.log" rem_rollback "$TD/p_rollback_b.sql" || falha "rollback parte B: ver $LOGS/rb_b.log"
+psqlt "$LOGS/rb_orfao_b.log" rem_rollback "$TD/p_orfao_rollback_b.sql" || falha "orfao apos rollback"
 echo "  ok: rollback"
 
 echo
