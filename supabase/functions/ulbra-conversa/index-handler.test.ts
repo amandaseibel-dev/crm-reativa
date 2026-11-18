@@ -23,9 +23,10 @@ const estado: {
   donoExtra: string | null;
   rpcErro: boolean;
   rpcNulo: boolean;
+  rpcNuloCpf: string | null;
   auditoriaFalha: boolean;
   auditorias: Record<string, unknown>[];
-} = { env: {}, user: null, usuario: null, conexao: null, responsavel: EU, dono: EU, encerrado: false, donoExtra: null, rpcErro: false, rpcNulo: false, auditoriaFalha: false, auditorias: [] };
+} = { env: {}, user: null, usuario: null, conexao: null, responsavel: EU, dono: EU, encerrado: false, donoExtra: null, rpcErro: false, rpcNulo: false, rpcNuloCpf: null, auditoriaFalha: false, auditorias: [] };
 
 // Dados por tabela: maybeSingle devolve um registro; "then" (sem maybeSingle) devolve lista.
 const UNICO: Record<string, () => unknown> = {
@@ -67,6 +68,7 @@ const fakeClient = () => ({
     const falha = fn === "caso_encerrado_operacional" && args?.p_cpf === CPF_FALHA;
     if (falha && estado.rpcErro) return { data: null, error: { message: "falha simulada na verificação" } };
     if (fn === "caso_encerrado_operacional" && estado.rpcNulo) return { data: null, error: null }; // retorno nulo, sem erro, em qualquer caso
+    if (fn === "caso_encerrado_operacional" && estado.rpcNuloCpf && args?.p_cpf === estado.rpcNuloCpf) return { data: null, error: null };
     return { data: fn === "caso_encerrado_operacional" ? estado.encerrado : "GRAVADA", error: null };
   },
 });
@@ -104,6 +106,7 @@ beforeEach(() => {
   estado.donoExtra = null;
   estado.rpcErro = false;
   estado.rpcNulo = false;
+  estado.rpcNuloCpf = null;
   estado.auditoriaFalha = false;
   estado.auditorias = [];
 });
@@ -249,6 +252,19 @@ describe("handler real (index.ts): retorno não booleano também nega", () => {
   it("(j) ÚNICO caso do dono devolve nulo sem erro: não é dono (não se ignora o caso e se mantém o outro); sem leitura, sem auditoria", async () => {
     estado.donoExtra = null; // só o próprio operador, com um único caso
     estado.rpcNulo = true;
+    estado.responsavel = OUTRO;
+    estado.conexao = await conexaoIndividual("token-individual-do-operador");
+    const r = await chamar({ acao: "historico_ler", conversa_id: CONV });
+    expect(r.corpo.motivo).toBe("SEM_PERMISSAO_NA_CONVERSA");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(estado.auditorias).toHaveLength(0);
+  });
+});
+
+describe("handler real (index.ts): nulo em um caso e dono ATIVO no outro", () => {
+  it("(k) caso de OUTRO devolve nulo (sem erro) e o do próprio operador é ativo: NINGUÉM é dono; sem leitura, sem auditoria", async () => {
+    estado.donoExtra = OUTRO; // dois casos do mesmo aluno: EU (false) e OUTRO (nulo)
+    estado.rpcNuloCpf = CPF_FALHA;
     estado.responsavel = OUTRO;
     estado.conexao = await conexaoIndividual("token-individual-do-operador");
     const r = await chamar({ acao: "historico_ler", conversa_id: CONV });

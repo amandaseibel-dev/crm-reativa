@@ -171,6 +171,7 @@ Tipos de ação, que NÃO são a mesma coisa: **merge** (código na main, sem ef
 |---|---|---|---|
 | 0. Contenção da v1 `ulbra-historico` (remover só essa função) | aplicação manual, pela gestão | nada | listagem sem `ulbra-historico` e endpoint indisponível |
 | 1. Aplicar `20261111140000` (tabelas de conexão/prévia/envio e `ulbra_conferir_envio`) | aplicação manual (SQL) | passo 0 | tabelas existem; RLS ligada; sem grant a anon/authenticated |
+| 1b. Aplicar `20261117120000` (função `ulbra_gravar_conexao`, chamada por `index.ts`) | aplicação manual (SQL) | passo 1 | função existe; EXECUTE só service_role; `SECURITY INVOKER`; `search_path` fixo. Sem ela, a gravação de conexão falha (503), sem vazamento |
 | 2. Aplicar corretiva `20261116150000` (portão da RPC) | aplicação manual (SQL) | passo 0 e `20261110100000` aplicada (já está) | pós-conferência do próprio arquivo; EXECUTE só service_role |
 | 3. Publicar `ulbra-conversa` com segredos (`ULBRA_OAUTH_*`, `ULBRA_TOKENS_CHAVE`) e `verify_jwt` | aplicação manual (função) | passos 1 e 2 (a função grava nas tabelas do passo 1) | `historico_capacidade` e `historico_ler` respondem como o teste prevê |
 | 4. Merge desta PR na main (inclui a tela) | merge | passos 0 a 3 | CI da PR verde. Com a porta `true`, a Central chama `historico_capacidade` ao selecionar resposta com vínculo (`CentralUlbra.jsx`); o servidor nega sem `ULBRA_HISTORICO_HABILITADO`, sem qualquer chamada à Mensageria |
@@ -252,3 +253,5 @@ Padrão do repositório: `supabase/ledger/DUAS-TRILHAS.md` (Fluxo B, o padrão) 
 - Inventário das funções SQL que inserem em `auditoria` (não fechado) antes de qualquer revogação de grant (A3).
 - B5 (ordem envio vs confirmação): bloqueio obrigatório do envio real, separado do piloto de leitura.
 - Localização das migrations (R4): decisão de gestão. Hoje ficam em `supabase/aguardando_aprovacao/`, por convenção do repositório.
+
+**Consultas de produção de 17/11/2026 (somente leitura), versionadas em `docs/seguranca/consultas-producao-ulbra-2026-11-17.sql`.** Os resultados citados acima foram obtidos com essas consultas. A "cerca de 60 funções" vem da consulta (3); a INVOKER `_titulo_em_confirmacao_protegido()` vem da consulta (4), que mostra `insert into public.auditoria` e dono `postgres`.
