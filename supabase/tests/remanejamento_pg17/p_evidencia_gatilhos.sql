@@ -64,25 +64,24 @@ create temp table carregado on commit preserve rows as
    where not t.tgisinternal and c.relname in ('alunos','casos','acordos');
 
 do $$
-declare e record; g record;
-  n_total int; n_av int := 0; n_ok int := 0; n_fal int := 0; n_extra int := 0;
+declare ex record; cl record; n_total int; n_av int := 0; n_ok int := 0; n_fal int := 0; n_extra int := 0;
 begin
   select count(*) into n_total from esperado;
-  for e in select * from esperado loop
+  for ex in select * from esperado loop
     n_av := n_av + 1;
-    if exists (select 1 from carregado c where c.tabela = e.tabela and c.gatilho = e.gatilho) then
+    if exists (select 1 from carregado k where k.tabela = ex.tabela and k.gatilho = ex.gatilho) then
       n_ok := n_ok + 1;
-    elsif e.decisao = 'INCLUIR' then
-      n_fal := n_fal + 1; raise notice 'FALHA: % (%) e INCLUIR e nao esta carregado', e.gatilho, e.tabela;
-    elsif e.decisao = 'EXCLUIR' and coalesce(e.justificativa, '') <> '' then
+    elsif ex.decisao = 'INCLUIR' then
+      n_fal := n_fal + 1; raise notice 'FALHA: % (%) e INCLUIR e nao esta carregado', ex.gatilho, ex.tabela;
+    elsif ex.decisao = 'EXCLUIR' and coalesce(ex.justificativa, '') <> '' then
       n_ok := n_ok + 1;
     else
-      n_fal := n_fal + 1; raise notice 'FALHA: % (%) sem classificacao valida (%)', e.gatilho, e.tabela, e.decisao;
+      n_fal := n_fal + 1; raise notice 'FALHA: % (%) sem classificacao valida (%)', ex.gatilho, ex.tabela, ex.decisao;
     end if;
   end loop;
-  for g in select * from carregado c where not exists (
-        select 1 from esperado e where e.tabela = c.tabela and e.gatilho = c.gatilho) loop
-    n_extra := n_extra + 1; raise notice 'FALHA: % (%) carregado mas ausente da lista de producao', g.gatilho, g.tabela;
+  for cl in select * from carregado k where not exists (
+        select 1 from esperado x where x.tabela = k.tabela and x.gatilho = k.gatilho) loop
+    n_extra := n_extra + 1; raise notice 'FALHA: % (%) carregado mas ausente da lista de producao', cl.gatilho, cl.tabela;
   end loop;
   raise notice 'gatilhos: %/% avaliados, % aprovados, % falhas, % extras', n_av, n_total, n_ok, n_fal, n_extra;
   perform pg_temp.afirma(n_total = 45 and n_av = n_total and n_fal = 0 and n_extra = 0,
