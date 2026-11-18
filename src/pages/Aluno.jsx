@@ -2485,18 +2485,18 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                                   style={{ marginTop: 6 }}
                                 >
                                   <div style={tabNegHead}>
-                                    <span>Documento</span>
-                                    <span>Competência</span>
-                                    <span>Vencimento</span>
-                                    <span>Situação</span>
+                                    <span style={tabNegCelula}>Documento</span>
+                                    <span style={tabNegCelula}>Competência</span>
+                                    <span style={tabNegCelula}>Vencimento</span>
+                                    <span style={tabNegCelula}>Situação</span>
                                     <span style={{ textAlign: "right" }}>Valor</span>
                                   </div>
                                   {a._titulos.map((t) => (
                                     <div key={t.id} style={tabNegLinha}>
-                                      <span>{t.documento || "—"}</span>
-                                      <span>{t.competencia || "—"}</span>
-                                      <span>{dataCurta(t.vencimento)}</span>
-                                      <span>{t.situacao || "—"}</span>
+                                      <span style={tabNegCelula}>{t.documento || "—"}</span>
+                                      <span style={tabNegCelula}>{t.competencia || "—"}</span>
+                                      <span style={tabNegCelula}>{dataCurta(t.vencimento)}</span>
+                                      <span style={tabNegCelula}>{t.situacao || "—"}</span>
                                       <span style={{ textAlign: "right", fontWeight: 600 }}>
                                         {moeda(valorTitulo(t))}
                                       </span>
@@ -2950,10 +2950,15 @@ const gradeCards = {
 // alinhado a direita porque e o que se le em coluna.
 const tabNegGrade = {
   display: "grid",
-  gridTemplateColumns: "1.4fr 0.8fr 0.9fr 0.9fr 1fr",
+  gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 0.8fr) minmax(0, 0.9fr) minmax(0, 0.9fr) minmax(0, 1fr)",
   gap: 8,
   fontSize: 12.5,
   alignItems: "center",
+};
+const tabNegCelula = {
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
 };
 const tabNegHead = {
   ...tabNegGrade,
