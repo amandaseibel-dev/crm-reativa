@@ -10,6 +10,7 @@ select pg_temp.como('amanda.seibel@aelbra.com.br');
 -- (a) escrita direta de responsavel por authenticated: barrada pelo guard
 create temp table _a on commit preserve rows as select * from pg_temp.semear('cobranca05@aelbra.com.br', 100, null, 40);
 grant select, update on public.alunos to authenticated;
+grant select on _a to authenticated;  -- o teste le a tabela ja como o papel em teste
 set role authenticated;
 select pg_temp.como('cobranca05@aelbra.com.br');
 do $$
