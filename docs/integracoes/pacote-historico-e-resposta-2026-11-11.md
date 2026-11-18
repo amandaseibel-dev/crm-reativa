@@ -38,7 +38,7 @@ Preparado em 11/11/2026. **Nenhuma mensagem enviada, nenhuma credencial alterada
 ## 5. Custos por ação (cota de 500/dia por pessoa)
 | Ação | Quem paga | Chamadas |
 | --- | --- | --- |
-| Carregar histórico / anteriores | credencial de backend | 1 por página (+1 `meu_acesso` se a medida do saldo venceu) |
+| Carregar histórico / anteriores | conexão individual do operador (não a credencial de backend) | 1 por página (+1 `meu_acesso` se a medida do saldo venceu) |
 | Conectar a conta | operador | 1 (`meu_acesso`, prova de autoria) |
 | Ver prévia | operador | 1 |
 | Confirmar envio | operador | 1 |
@@ -228,14 +228,15 @@ Padrão do repositório: `supabase/ledger/DUAS-TRILHAS.md` (Fluxo B, o padrão) 
 - `ULBRA_OAUTH_CLIENT_ID` e `ULBRA_OAUTH_REDIRECT_URI` ausentes: OAuth fica indisponível no piloto (por configuração).
 - `ULBRA_HISTORICO_PILOTO_EMAILS` ainda não configurada: a leitura só existe depois dela, com a lista restrita ao operador piloto.
 
-### Ordem de implantação da leitura
-1. Aplicar `20261111140000` (aprovação específica) e depois `20261117120000` (idem).
-2. Publicar `ulbra-conversa` com `verify_jwt` (aprovação específica).
-3. Configurar `ULBRA_TOKENS_CHAVE` (aprovação específica; pré-requisito).
-4. Mesclar a PR (aprovação específica).
-5. Conexão do operador piloto (manual, pelo próprio operador).
-6. Configurar `ULBRA_HISTORICO_PILOTO_EMAILS` e `ULBRA_HISTORICO_HABILITADO=true` (aprovação específica).
-7. Verificar: uma conversa lida, com auditoria `ULBRA_HISTORICO_LEITURA` gravada antes do texto.
+### Ordem de implantação da leitura (Fluxo B: mesclar antes de aplicar; nenhuma etapa libera leitura antes dos pré-requisitos)
+1. **Mesclar** a PR (aprovação específica). O front publicado só consulta `historico_capacidade`; sem a flag de servidor, nada é lido.
+2. Esperar o deploy de produção ficar `READY`.
+3. **Aplicar** `20261111140000` e depois `20261117120000` por `apply_migration`, uma vez cada (aprovação específica; ordem obrigatória). Antes disso, `ulbra-conversa` não grava conexão.
+4. **Publicar** `ulbra-conversa` com `verify_jwt` a partir da `main` (aprovação específica). Sem `ULBRA_TOKENS_CHAVE`, as ações de conexão respondem 503 `CONEXAO_NAO_CONFIGURADA`.
+5. **Configurar** `ULBRA_TOKENS_CHAVE` (aprovação específica; pré-requisito de implantação, hoje AUSENTE).
+6. Conexão do operador piloto (manual, pelo próprio operador).
+7. Configurar `ULBRA_HISTORICO_PILOTO_EMAILS` e `ULBRA_HISTORICO_HABILITADO=true` (aprovação específica). Só a partir daqui há leitura.
+8. Verificar: uma conversa lida, com auditoria `ULBRA_HISTORICO_LEITURA` gravada antes do texto.
 
 ### Verificação
 - Antes de qualquer flag: `historico_capacidade` e `historico_ler` respondem negado com `HISTORICO_DESLIGADO`, sem chamada à Mensageria.
