@@ -634,10 +634,10 @@ export default function AcoesMassivas() {
         ? ` ${excluidosTipo} caso(s) ficaram fora por não corresponderem mais ao tipo de cobrança.`
         : "");
 
-      // Desde a migration 20261113100000 a exportação cria o lote PENDENTE DE
-      // ENVIO e não registra nada: quem registra é a confirmação do envio, no
-      // painel "Registro das ações massivas". Enquanto a migration não estiver
-      // aplicada, o banco ainda registra no clique (registro_automatico).
+      // Com a migration 20261113100000 aplicada, a exportação cria o lote PENDENTE
+      // DE ENVIO e não registra nada: quem registra é a confirmação do envio, no
+      // painel "Registro das ações massivas". Na versão publicada hoje, o banco
+      // ainda registra no clique (registro_automatico).
       const selecionados = Number(exp?.selecionados ?? exp?.exportados ?? contatos.length);
       const registrados = Number(exp?.registrados || 0);
       const pendenteEnvio = !!exp?.pendente_envio;
@@ -673,6 +673,7 @@ export default function AcoesMassivas() {
   // GRAVADOS no lote e tira só quem não tem e-mail válido. Não refaz filtro,
   // não depende de "Acionados hoje" e não encosta no lote de WhatsApp — a ação
   // nova nasce como um lote próprio de canal E-mail.
+  // (Função de exportação de e-mail, usada abaixo.)
   // Lote de WhatsApp ainda PENDENTE DE ENVIO não deriva e-mail. A regra é do
   // banco (migration 20261113100100). Esta função só esconde o botão e antecipa a
   // mensagem quando o painel já sabe do estado. O painel tem janela de 7 dias e
@@ -1518,11 +1519,11 @@ export default function AcoesMassivas() {
             Registro das ações massivas
           </h3>
           <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--rv-texto-fraco)" }}>
-            As planilhas dos últimos 7 dias e o que o CRM registrou em cada uma. Exportar <strong>não</strong>{" "}
-            registra: o lote fica <strong>pendente de envio</strong> até a gestão confirmar o disparo — para
-            todos, só para quem recebeu, ou descartando se não foi enviado. Só a confirmação conta como
-            acionamento e inicia a fidelização de 10 dias. Registrar nunca altera responsável. Lote pendente
-            nunca some deste painel.
+            As planilhas dos últimos 7 dias e o que o CRM registrou em cada uma. Na versão publicada, a exportação
+            ainda registra no clique. Com a confirmação por destinatário aplicada, exportar só <strong>prepara</strong>{" "}
+            o lote como <strong>pendente de envio</strong> até a gestão confirmar o disparo — para todos, só para
+            quem recebeu, ou descartando se não foi enviado. Só a confirmação conta como acionamento e inicia a
+            fidelização de 10 dias. Registrar nunca altera responsável. Lote pendente nunca some deste painel.
           </p>
           {(() => {
             const algumPendente = lotesRegistro.some((l) => l.situacao === "PENDENTE");

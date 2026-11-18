@@ -2,7 +2,7 @@
 -- ORDEM DE REVERSAO: este rollback ANTES de reverter 20261113100000 e 20261113100100.
 -- Remove a recusa de CONFIRMAR de lote pendente e devolve o corpo publicado (md5 3a940022...).
 -- Nao toca dado. Com lote pendente, reverter esta migration reabre a confirmacao integral
--- sem destinatario: por isso o rollback recusa se houver lote de WhatsApp pendente.
+-- sem destinatario: por isso o rollback recusa se houver lote pendente de qualquer canal.
 --
 -- lock_timeout restrito a ESTA transacao (SET LOCAL). Se a trava nao for obtida em 5 s,
 -- a transacao aborta sem alterar nada.
@@ -16,9 +16,12 @@ BEGIN
        WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_concluir_lote') IS NULL THEN
     RAISE EXCEPTION 'Rollback abortado: acoes_massivas_concluir_lote nao existe.';
   END IF;
+  -- Trava ANTES da checagem (serializa com a exportacao, que insere lote).
+  LOCK TABLE public.acoes_massivas_lotes IN SHARE ROW EXCLUSIVE MODE;
+  -- Sem filtro de canal: lote de e-mail pendente tambem reabriria a confirmacao integral.
   IF EXISTS (SELECT 1 FROM public.acoes_massivas_lotes
-              WHERE canal = 'WHATSAPP' AND confirmado_em IS NULL AND descartado_em IS NULL) THEN
-    RAISE EXCEPTION 'Rollback recusado: ha lote de WhatsApp pendente de envio. Tratar o lote antes. Nada alterado.';
+              WHERE confirmado_em IS NULL AND descartado_em IS NULL) THEN
+    RAISE EXCEPTION 'Rollback recusado: ha lote pendente de envio (qualquer canal). Tratar o lote antes. Nada alterado.';
   END IF;
 END $g$;
 

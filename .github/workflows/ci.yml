@@ -1195,7 +1195,7 @@ jobs:
           [ "$(run sim-descartavel "postgresql://postgres:senhaerrada@localhost:5432/reversao_ci_teste" "$D")" != "0" ] || { echo "autenticacao errada nao pode passar"; exit 1; }
           echo "recusas ok"
 
-      - name: Cenarios C1-C4 (concorrencia, timeout, grants, residuos)
+      - name: Cenarios B1 e C1-C5 (concorrencia, timeout, grants, residuos)
         env:
           CONFIRMAR_BANCO_DESCARTAVEL: sim-descartavel
           PG_URL: postgresql://postgres:postgres@localhost:5432/reversao_ci_teste

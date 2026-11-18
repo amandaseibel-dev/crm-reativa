@@ -473,7 +473,7 @@ describe("Ações Massivas — filtro por operador responsável", () => {
   });
 });
 
-describe("Ações Massivas — exportar já registra (02/10); lotes antigos ficam pendentes de registro", () => {
+describe("Ações Massivas — exportação publicada registra no clique; lotes antigos ficam pendentes de registro", () => {
   const LOTE = {
     id: "lote-1", canal: "WHATSAPP", operador_email: "cobranca03@teste.local", operador_nome: "Olga",
     arquivo: "acao-massiva-whatsapp-cobranca03-2026-09-16.xlsx", total: 3,

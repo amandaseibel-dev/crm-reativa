@@ -24,15 +24,15 @@ TOK=$(P -tA -c "select token from public.ambiente_descartavel where token = '$DE
 [ "$TOK" = "$DESCARTAVEL_TOKEN" ] || recusa "token de ambiente descartavel nao confere"
 
 D=supabase/aguardando_aprovacao
-for R in anon authenticated service_role; do
-  [ "$(P -tA -c "select count(*) from pg_roles where rolname='$R'")" = "1" ] || falha_prep "papel '$R' ausente na bancada"
-done
 RB_CONF="$D/20261113100000_acoes_massivas_confirmar_envio.rollback.sql"
 RB_PROT="$D/20261113100100_acoes_massivas_email_so_apos_tabulacao.rollback.sql"
 LOG=$(mktemp -d)
 # Duas classes de falha, rotuladas: PREPARACAO (bancada incompleta; nada foi testado) e SEGURANCA (comportamento errado).
 falha() { echo "FALHA DE SEGURANCA/COMPORTAMENTO: $1 (logs em $LOG)" >&2; exit 1; }
 falha_prep() { echo "FALHA DE PREPARACAO: $1 (logs em $LOG). Nada foi testado; nao e prova de ausencia de acesso." >&2; exit 1; }
+for R in anon authenticated service_role; do
+  [ "$(P -tA -c "select count(*) from pg_roles where rolname='$R'")" = "1" ] || falha_prep "papel '$R' ausente na bancada"
+done
 md5_exp() { P -tA -c "select md5(pg_get_functiondef(p.oid)) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='acoes_massivas_exportar'"; }
 acl() { P -tA -c "select proacl::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname=\$\$$1\$\$"; }
 espera_trava() { for _ in $(seq 1 100); do
@@ -138,7 +138,7 @@ grep -q "lock timeout" "$LOG/c3" || falha "C3: a recusa nao foi lock timeout"
 wait $H3 || falha "C3: sessao da exportacao falhou"
 echo "C3 ok: reversao da protecao recusada com a exportacao em andamento"
 
-# C4: permissoes EFETIVAS. Mecanismos suportados apenas: REVOKE/GRANT. Nao escreve em pg_proc.
+# C4: permissoes EFETIVAS. Mecanismos suportados apenas: REVOKE/GRANT. Nao escreve em pg_proc diretamente (so REVOKE/GRANT).
 # Catalogo (proacl) e registrado so como informacao: GRANT pode trocar NULL por ACL explicita sem mudar
 # quem executa. A comparacao que vale e has_function_privilege por papel, antes e depois.
 E_ANTES=$(efetivas "$F1" "$F2"); C_ANTES=$(catalogo)

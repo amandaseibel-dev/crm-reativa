@@ -206,6 +206,7 @@ $function$;
 -- Minimo necessario (premissa de seguranca, secao 7): so lote PENDENTE, e so o
 -- contato do canal do lote, SEMPRE mascarado (telefone: ultimos 4 digitos; e-mail:
 -- primeira letra e dominio). O endereco original fica no cadastro do aluno.
+-- O NOME completo fica em claro, restrito a gestao (decisao da gestao, 17/11/2026).
 CREATE FUNCTION public.acoes_massivas_lote_destinatarios(p_lote_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql

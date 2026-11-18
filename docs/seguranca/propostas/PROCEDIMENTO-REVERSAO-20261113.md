@@ -9,7 +9,7 @@ Hashes completos (sha256) e tamanhos estao em `docs/seguranca/propostas/migracoe
 ## O que os rollbacks garantem (no banco)
 - `SET LOCAL lock_timeout = '5s'` na transacao: se a trava de `acoes_massivas_lotes` nao for obtida em 5 s, a transacao aborta sem alterar nada.
 - `LOCK TABLE ... IN SHARE ROW EXCLUSIVE MODE` antes da checagem: serializa com qualquer insercao de lote (`ROW EXCLUSIVE`) que ja esteja em curso.
-- Recusa se houver **qualquer lote pendente** (`confirmado_em` e `descartado_em` nulos), checado depois da trava.
+- Recusa se houver **qualquer lote pendente** (`confirmado_em` e `descartado_em` nulos, **qualquer canal**), checado depois da trava. Os tres rollbacks (`20261113100000`, `20261113100100`, `20261113100200`) tem a mesma trava e a mesma checagem sem filtro de canal.
 - Recusa antes de qualquer DROP ou patch; `BEGIN`/`COMMIT` garantem tudo-ou-nada.
 
 **O que NAO garantem:** nao ha guarda que identifique, por consulta a `pg_stat_activity`, uma exportacao em andamento. Tentamos e removemos: detecta por texto e nao foi testada. A protecao contra exportacao em andamento e **operacional** (pausa abaixo).
@@ -29,7 +29,7 @@ Uma exportacao que **comece depois da checagem e antes do COMMIT** nao e vista p
    Sessao `idle in transaction` com essa query **conta como pendencia**: encerrar somente com autorizacao, nunca por conta propria. Sessao `idle` (pool) nao conta.
 4. **Contagem momentanea de pendentes por canal, com data e hora** (evidencia; nao substitui a checagem do rollback):
    `select now(), canal, count(*) from public.acoes_massivas_lotes where confirmado_em is null and descartado_em is null group by canal;`
-5. **Reverter a recusa de confirmacao integral** (`20261113100200` rollback), antes de reverter a confirmacao. Recusa sozinho se houver lote de WhatsApp pendente. Depois, **reverter a confirmacao** (`20261113100000` rollback). Ele recusa sozinho se houver pendente.
+5. **Reverter a recusa de confirmacao integral** (`20261113100200` rollback), antes de reverter a confirmacao. Recusa sozinho se houver lote pendente de qualquer canal. Depois, **reverter a confirmacao** (`20261113100000` rollback). Ele recusa sozinho se houver pendente.
 6. **Verificar pendentes ANTES de reverter a protecao:** repetir o passo 4. Se houver pendente, **parar**: nao executar o passo 7. A protecao de e-mail continua vigente.
 7. **Reverter a protecao** (`20261113100100` rollback). Recusa sozinha se houver pendente ou se a confirmacao ainda existir.
 8. **Verificacao pos-COMMIT:** repetir o passo 4 (esperado zero) e conferir os md5 das funcoes (`c9cc7498…` para a exportacao; `00d3370a…` para a funcao de e-mails).
@@ -46,11 +46,11 @@ Uma exportacao que **comece depois da checagem e antes do COMMIT** nao e vista p
 - **Chamadores no front:** somente `src/pages/AcoesMassivas.jsx`.
 
 ## Tratamento de lote PENDENTE_ENVIO (decisao de negocio, nao automatica)
-- `acoes_massivas_concluir_lote(lote, 'CONFIRMAR')` **aceita** lote pendente (testado em banco descartavel): registra todos os destinatarios do lote como acionados (equivale a TOTAL). **Isso presume que o disparo ocorreu para todos.**
+- `acoes_massivas_concluir_lote(lote, 'CONFIRMAR')` **aceita** lote pendente (testado em banco descartavel) **antes da `20261113100200`**: registra todos os destinatarios do lote como acionados (equivale a TOTAL). **Isso presume que o disparo ocorreu para todos.** Com a `20261113100200` aplicada, CONFIRMAR de lote pendente e recusado.
 - `DESCARTAR` marca o lote como descartado, sem registro.
 - Nao existe tratamento parcial por `acoes_massivas_concluir_lote`; a confirmacao parcial e da funcao `acoes_massivas_concluir_envio`, que e removida pelo rollback da confirmacao.
 - **Escolha a fazer pela gestao, por lote:** (a) confirmar como enviado para todos, se o disparo ocorreu; (b) descartar, se nao ocorreu; (c) manter pendente e adiar a janela. Nao ha regra automatica no procedimento.
 
 ## Testes e evidencias
-- Local (PGlite, conexao unica): `supabase/tests/acoes_massivas_ordem_aplicacao.test.js`, `acoes_massivas_confirmar_envio.test.js` e `acoes_massivas_email_so_apos_tabulacao.test.js` (43 casos no total, nos tres arquivos). Cobrem logica, ordem e preservacao; **nao cobrem concorrencia**.
-- Concorrencia (duas conexoes): `scripts/ci/teste-reversao-concorrencia.sh`. **NAO executado** (sem PostgreSQL no ambiente local). Pendente de banco de teste; ver o cabecalho do script.
+- Local (PGlite, conexao unica): `supabase/tests/acoes_massivas_ordem_aplicacao.test.js`, `acoes_massivas_confirmar_envio.test.js` e `acoes_massivas_email_so_apos_tabulacao.test.js` (quatro arquivos, 52 casos no total, incluindo `acoes_massivas_concluir_lote_bloqueia_pendente.test.js`). Cobrem logica, ordem e preservacao; **nao cobrem concorrencia**.
+- Concorrencia (duas conexoes): `scripts/ci/teste-reversao-concorrencia.sh`. **Executado no CI** (job `reversao concorrencia`, head `c73dc1b8`): B1 e C1 a C5 OK. Sem PostgreSQL no ambiente local, por isso o teste roda so no CI, em banco descartavel.

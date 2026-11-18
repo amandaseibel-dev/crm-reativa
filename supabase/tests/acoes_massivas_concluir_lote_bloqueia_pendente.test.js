@@ -108,10 +108,28 @@ describe("depois da 100200", () => {
     expect((await movs(ex.lote_id)).length).toBe(antes);
   });
 
+  it("CONFIRMAR de lote PENDENTE DE E-MAIL tambem e recusado (sem filtro de canal)", async () => {
+    const r = await db.query(`insert into public.acoes_massivas_lotes
+      (canal, arquivo, aluno_ids, total, exportado_por_email, tipo_cobranca, recencia_dias, registro_automatico)
+      values ('EMAIL', 'email-pendente.xlsx', '{}'::text[], 0, 'teste@x', null, 10, false) returning id`);
+    await expect(concluirLote(r.rows[0].id, "CONFIRMAR")).rejects.toThrow(/pendente de envio/);
+    expect((await lote(r.rows[0].id)).confirmado_em).toBeNull();
+  });
+
+  it("ROLLBACK da 100200 recusa com lote de E-MAIL pendente (nada alterado)", async () => {
+    await db.query(`insert into public.acoes_massivas_lotes
+      (canal, arquivo, aluno_ids, total, exportado_por_email, tipo_cobranca, recencia_dias, registro_automatico)
+      values ('EMAIL', 'email-pendente2.xlsx', '{}'::text[], 0, 'teste@x', null, 10, false)`);
+    const m = await md5("acoes_massivas_concluir_lote");
+    await expect(db.exec(ROLLBACK_NOVA)).rejects.toThrow(/pendente de envio/);
+    await db.exec("ROLLBACK").catch(() => {});
+    expect(await md5("acoes_massivas_concluir_lote")).toBe(m);
+  });
+
   it("ROLLBACK da 100200 recusa com lote pendente (nada alterado)", async () => {
     const { ex } = await exportarLote(2, 400);
     const m = await md5("acoes_massivas_concluir_lote");
-    await expect(db.exec(ROLLBACK_NOVA)).rejects.toThrow(/lote de WhatsApp pendente/);
+    await expect(db.exec(ROLLBACK_NOVA)).rejects.toThrow(/lote pendente de envio/);
     await db.exec("ROLLBACK").catch(() => {}); // transacao do arquivo ficou abortada
     expect(await md5("acoes_massivas_concluir_lote")).toBe(m);
     expect((await lote(ex.lote_id)).confirmado_em).toBeNull();
