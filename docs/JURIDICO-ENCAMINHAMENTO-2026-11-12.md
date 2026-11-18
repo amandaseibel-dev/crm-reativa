@@ -45,7 +45,6 @@ Requisito obrigatório antes de habilitar envio real da ULBRA (#913, `ulbra-conv
 `juridico_checar_envio` ao caminho de envio real, com `p_aluno` = `alunos.id` confirmado por leitura,
 e hash SHA-256 hexadecimal igual ao da prévia. Hoje o envio da #913 está desligado.
 
-Compatibilidade com a #754 (wpp/v18-e-limites): ambas mexem em `whatsapp-send/index.ts`, em blocos
 
 ## DISPONIBILIZAÇÃO BLOQUEADA (17/11/2026)
 
@@ -57,15 +56,15 @@ Decisão da gestão: aluno com bloqueio jurídico não recebe cobrança (manual,
 inclusive respostas e documentos de cobrança. Atendimento acadêmico ou administrativo continua possível.
 Não se classifica finalidade por prazo de mensagem.
 
-Exceção (implementada no banco; NÃO ligada aos caminhos de envio ainda):
+Exceção (implementada no banco e ligada aos caminhos de envio de texto e documento; testes do helper e do banco):
 - `juridico_checar_envio(aluno, conversa, operador, tipo, hash)`: FAIL-CLOSED. Sem aluno identificado recusa
   (não cria vínculo). Sem bloqueio efetivo passa. Com bloqueio exige autorização vigente para aluno,
   conversa, TIPO (MENSAGEM ou DOCUMENTO) e HASH do conteúdo aprovado; uso único.
 - `juridico_autorizar_envio(aluno, conversa, tipo, hash, motivo)`: só gestão ativa; valida 30 minutos.
 - Operador não escolhe finalidade. Alterar o conteúdo (outro hash) exige nova autorização. Cobrança permanece
   bloqueada. Autorização não remove o bloqueio nem altera carteira, responsável ou status do caso.
-- Pendente: ligar a checagem a `whatsapp_preparar_envio(_novo)` e ao envio de documento (o hash só existe no
-  envio, então a chamada precisa do conteúdo: contrato a combinar com a sessão de WhatsApp e com a #913).
+- Ligação feita: `whatsapp-send` (texto) chama a checagem antes do preparo; `whatsapp-enviar-documento`
+  (documento) antes do preparo e do upload. A prova de execução é o CI, não o helper.
 
 ## ENVIO COM BLOQUEIO: ORDEM, RECUSA, RESULTADO INCERTO E #754 (18/11/2026)
 
@@ -81,23 +80,23 @@ Exceção (implementada no banco; NÃO ligada aos caminhos de envio ainda):
   Risco residual: o gateway pode ter entregue a mensagem e a resposta se perdido.
 - Limitação TEMPORÁRIA para revisão (não decisão definitiva): contato novo é recusado mesmo com identificação
   segura, porque hoje não há caminho de identificação confiável para conversa nova.
-  APROVAÇÃO REGISTRADA (18/11/2026, pela gestão, a pedido de Amanda Seibel): contato novo ou conversa
-  sem vínculo confiável com aluno não envia por este fluxo. Nenhum vínculo é criado automaticamente. Recebimento
-  e leitura seguem disponíveis conforme as permissões. A mensagem de recusa na interface diz isso.
+  APROVAÇÃO REGISTRADA (18/11/2026, indicada pela gestão): limitação TEMPORÁRIA. Contato novo ou conversa sem
+  vínculo confiável com aluno não envia por este fluxo; nenhum vínculo é criado automaticamente. Recebimento e
+  leitura: NÃO VERIFICADO no webhook (não lido). A passagem a definitiva depende de nova decisão da gestão. A aprovação
+  existe apenas neste registro textual; não há documento anexo no repositório.
 - Compatibilidade com a #754 (wpp/v18-e-limites): `git merge-file` com base da3d7aff, em `whatsapp-send/index.ts`.
-  A contagem depende do estilo: 5 regiões no padrão e 2 com `--diff3` (medido em 18/11/2026). Regiões envolvidas:
-  import; constante MOTIVOS_DE_BLOQUEIO (a #754 a tira de index.ts e a move para bloqueio.ts); registro de bloqueio
-  da cadência (reescrito pela #754); e o bloco de checagem com `admin` (aqui antes do preparo). A #754 também traz
-  bloqueio.ts e bloqueio.test.js. Quem integrar por último resolve, mantendo a checagem antes do preparo e os dois
-  conjuntos de registro.
+  Medido em 18/11/2026 no head f5d2aa61: 3 regiões em conflito no padrão e 4 com `--diff3`. Regiões: import;
+  constante MOTIVOS_DE_BLOQUEIO (a #754 a tira de index.ts e a move para bloqueio.ts); registro de bloqueio da
+  cadência (reescrito pela #754). O bloco de checagem com `admin` não conflita. A #754 também traz bloqueio.ts e
+  bloqueio.test.js. Quem integrar por último resolve, mantendo a checagem antes do preparo e os dois conjuntos de registro.
 - `juridico_checar_envio(aluno, conversa, operador, tipo, hash)`: FAIL-CLOSED. Sem aluno identificado recusa
   (não cria vínculo). Sem bloqueio efetivo passa. Com bloqueio exige autorização vigente para aluno,
   conversa, TIPO (MENSAGEM ou DOCUMENTO) e HASH do conteúdo aprovado; uso único.
 - `juridico_autorizar_envio(aluno, conversa, tipo, hash, motivo)`: só gestão ativa; valida 30 minutos.
 - Operador não escolhe finalidade. Alterar o conteúdo (outro hash) exige nova autorização. Cobrança permanece
   bloqueada. Autorização não remove o bloqueio nem altera carteira, responsável ou status do caso.
-- Pendente: ligar a checagem a `whatsapp_preparar_envio(_novo)` e ao envio de documento (o hash só existe no
-  envio, então a chamada precisa do conteúdo: contrato a combinar com a sessão de WhatsApp e com a #913).
+- Ligação feita: `whatsapp-send` (texto) chama a checagem antes do preparo; `whatsapp-enviar-documento`
+  (documento) antes do preparo e do upload. A prova de execução é o CI, não o helper.
 
 ## Atualização (17/11/2026): bloqueio por `nao_acionar`, carteira preservada
 
@@ -366,7 +365,7 @@ está na seção "Critério de data do pagamento no extrato Prime" acima.
   porque conversa nova é recusada (o front não manda `conversa_id`). É efeito amplo e precisa de decisão de produto.
 - Conversa sem `aluno_id` é RECUSADA para QUALQUER envio, com ou sem bloqueio jurídico (a checagem recusa aluno nulo).
   Essa recusa NÃO deixa trilha: `juridico_registrar_recusa_envio` retorna sem gravar quando o aluno é nulo.
-  Isso é mais amplo que o bloqueio: é decisão pendente da gestão, não aprovada.
+  Isso é mais amplo que o bloqueio. A gestão aprovou essa limitação como temporária (ver APROVAÇÃO REGISTRADA).
 - A autorização é consumida na checagem, que roda ANTES do preparo. Portanto, uma recusa do preparo
   (responsável de outro operador, cadência, canal) também consome a autorização. Não há como desfazer.
 - Ordem de implantação: a migration precisa estar aplicada antes das funções de envio. Função publicada
