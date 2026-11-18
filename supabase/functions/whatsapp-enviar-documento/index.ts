@@ -37,7 +37,7 @@
 //
 // Secrets: WHATSAPP_GATEWAY_URL, WHATSAPP_GATEWAY_TOKEN.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { alunoDaConversa, checarEnvioJuridico, hashDocumento, temAcessoConversa, MENSAGEM_RECUSA_GENERICA, envioDesligado } from "../_shared/juridico-envio.ts";
+import { alunoDaConversa, checarEnvioJuridico, hashDocumento, temAcessoConversa, MENSAGEM_RECUSA_GENERICA, envioDesligado, bloqueioJuridicoAtivo } from "../_shared/juridico-envio.ts";
 import { LIMITE_BYTES, caminhoNovo, validarPdf } from "../_shared/pdf.ts";
 
 const BUCKET = "whatsapp-midia";
@@ -131,6 +131,8 @@ Deno.serve(async (req) => {
     { auth: { persistSession: false } },
   );
 
+  // Flag JURIDICO_BLOQUEIO_ENVIO_ATIVO: desligada => não chama a checagem jurídica (envio como antes).
+  if (bloqueioJuridicoAtivo(Deno.env.get("JURIDICO_BLOQUEIO_ENVIO_ATIVO"))) {
   // BLOQUEIO JURÍDICO (decisão da gestão). ANTES de preparar o envio e antes do upload. Aluno SOMENTE da
   // conversa existente. Hash = bytes + nome + mime: é o que vai ao gateway. Falha = nada é preparado nem enviado.
   const alunoRes = await alunoDaConversa(admin, conversaId);
@@ -157,6 +159,7 @@ Deno.serve(async (req) => {
     const acesso = await temAcessoConversa(comoOperador, conversaId, operadorEmail);
     const msg = checagem.bloqueio && !acesso ? MENSAGEM_RECUSA_GENERICA : checagem.erro;
     return jsonResp({ erro: msg, conversa_id: conversaId }, 403);
+  }
   }
 
   // Canal, dono e cadência — as MESMAS travas do envio de texto, na mesma RPC.

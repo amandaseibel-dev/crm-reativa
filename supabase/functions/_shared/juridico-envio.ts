@@ -120,3 +120,11 @@ export function envioDesligado(valor: string | undefined): boolean {
   if (v === "") return false;
   return !["false", "0", "no", "off", "nao", "não"].includes(v);
 }
+
+// Flag JURIDICO_BLOQUEIO_ENVIO_ATIVO. DESLIGADA quando ausente, vazia ou qualquer valor fora da lista abaixo.
+// Desligada: os envios NÃO chamam a checagem jurídica e seguem como antes (inclusive conversa sem aluno_id).
+// Ligada só com valor explícito. Ordem de ativação: migration 20261112180000 -> funções -> esta flag por último.
+export function bloqueioJuridicoAtivo(valor: string | undefined): boolean {
+  const v = (valor ?? "").trim().toLowerCase();
+  return ["true", "1", "on", "yes", "sim"].includes(v);
+}

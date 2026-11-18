@@ -49,7 +49,7 @@
 //
 // Secrets: WHATSAPP_GATEWAY_URL, WHATSAPP_GATEWAY_TOKEN.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { alunoDaConversa, checarEnvioJuridico, sha256Hex, temAcessoConversa, MENSAGEM_RECUSA_GENERICA, envioDesligado } from "../_shared/juridico-envio.ts";
+import { alunoDaConversa, checarEnvioJuridico, sha256Hex, temAcessoConversa, MENSAGEM_RECUSA_GENERICA, envioDesligado, bloqueioJuridicoAtivo } from "../_shared/juridico-envio.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -131,6 +131,8 @@ Deno.serve(async (req) => {
     { auth: { persistSession: false } },
   );
 
+  // Flag JURIDICO_BLOQUEIO_ENVIO_ATIVO: desligada => não chama a checagem jurídica (envio como antes).
+  if (bloqueioJuridicoAtivo(Deno.env.get("JURIDICO_BLOQUEIO_ENVIO_ATIVO"))) {
   // BLOQUEIO JURÍDICO (decisão da gestão). ANTES de preparar: o preparo assume a conversa e pode
   // reatribuir aluno_id no banco (só o caminho de conversa nova faz isso). O aluno vem SOMENTE da conversa existente (nunca do corpo do pedido).
   // Conversa nova sem aluno confirmado é recusada: identificação não confiável não libera envio.
@@ -163,6 +165,7 @@ Deno.serve(async (req) => {
     const acesso = await temAcessoConversa(comoOperador, corpo.conversa_id ?? null, operadorEmail);
     const msg = checagem.bloqueio && !acesso ? MENSAGEM_RECUSA_GENERICA : checagem.erro;
     return jsonResp({ erro: msg, conversa_id: corpo.conversa_id }, 403);
+  }
   }
 
   // Qual RPC prepara o envio depende de a conversa já existir. As duas aplicam
