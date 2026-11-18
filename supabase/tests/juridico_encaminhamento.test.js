@@ -25,7 +25,7 @@ language sql stable as $$
   select case when count(*) = 1 then max(a.id::text)::uuid end,
          null::text,
          case when count(*) = 0 then 'NAO_ENCONTRADO' when count(*) = 1 then 'IDENTIFICADO' else 'AMBIGUO' end,
-         null::jsonb
+         case when count(*) > 1 then jsonb_agg(jsonb_build_object('id', a.id, 'nome', a.nome) order by a.id) end
     from public.alunos a
    where p_telefone is not null and a.telefone = p_telefone;
 $$;`;
@@ -1742,6 +1742,34 @@ describe("vinculo de conversa e identificacao confiavel", () => {
     const caso = await casoDe(db, a.al);
     await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
     const e = await falha(db.query("select public.juridico_checar_envio($1,$2,'op','MENSAGEM','hash-alias-0001')", [x.al, U(970, 1)]));
+    expect(e?.code).toBe("JUR01");
+    await db.close();
+  });
+
+  it("caso: trocar o aluno_id de caso de aluno bloqueado e recusado (JUR03) e o bloqueio se preserva", async () => {
+    const db = await novo();
+    const { a } = await aprovado(db);
+    const outro = await mk(db, { valores: [500] });
+    const e = await falha(db.query("update casos set aluno_id=$1 where id=$2", [outro.al, a.cs]));
+    expect(e?.code).toBe("JUR03");
+    const c = (await db.query("select aluno_id, nao_acionar from casos where id=$1", [a.cs])).rows[0];
+    expect(c.aluno_id).toBe(a.al);
+    expect(c.nao_acionar).toBe(true);
+    expect(await bloqueio(db, a.al)).toBe("NAO_ACIONAR_EXPLICITO");
+    await db.close();
+  });
+
+  it("identificacao: telefone AMBIGUO com aluno bloqueado entre os candidatos recusa o outro aluno", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });      // A, sera bloqueado
+    const x = await mk(db, { valores: [500] });       // X sem bloqueio
+    const telA = (await db.query("select telefone from alunos where id=$1", [a.al])).rows[0].telefone;
+    await db.query("update alunos set telefone=$1 where id=$2", [telA, x.al]); // mesmo telefone: AMBIGUO
+    await db.query("update whatsapp_conversas set telefone_e164=$1, aluno_id=$2 where id=$3", [telA, x.al, U(970, 1)]);
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    const e = await falha(db.query("select public.juridico_checar_envio($1,$2,'op','MENSAGEM','hash-ambiguo-0001')", [x.al, U(970, 1)]));
     expect(e?.code).toBe("JUR01");
     await db.close();
   });

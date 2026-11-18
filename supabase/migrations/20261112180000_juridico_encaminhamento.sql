@@ -1924,6 +1924,25 @@ begin
 end
 $guarda_conversa$;
 
+-- Contorno (reauditoria): quem e dono da linha de casos poderia trocar aluno_id e tirar a flag de cobranca
+-- de um aluno bloqueado. Recusado enquanto o aluno ANTIGO tem bloqueio juridico efetivo.
+create function public._juridico_guarda_troca_aluno_caso()
+returns trigger
+language plpgsql security definer set search_path to 'public'
+as $function$
+begin
+  if old.aluno_id is not null and new.aluno_id is distinct from old.aluno_id
+     and public._juridico_bloqueio_efetivo(old.aluno_id) then
+    raise exception 'Caso de aluno com bloqueio jurídico efetivo: o vínculo do caso não pode ser trocado.'
+      using errcode = 'JUR03';
+  end if;
+  return new;
+end;
+$function$;
+
+create trigger trg_juridico_guarda_troca_aluno_caso before update of aluno_id on public.casos
+  for each row execute function public._juridico_guarda_troca_aluno_caso();
+
 create function public._juridico_guarda_caso_novo()
 returns trigger
 language plpgsql security definer set search_path to 'public'
@@ -2029,6 +2048,7 @@ begin
   'public._juridico_guarda_caso_novo()',
   'public._juridico_guarda_nao_acionar()',
   'public._juridico_guarda_troca_aluno_conversa()',
+  'public._juridico_guarda_troca_aluno_caso()',
   'public._juridico_bloqueio_efetivo(uuid)',
   'public.juridico_checar_envio(uuid,uuid,text,text,text)',
   'public.juridico_registrar_recusa_envio(uuid,uuid,text)',
@@ -2055,8 +2075,8 @@ begin
   select count(*) into v_n from pg_proc p
    where p.pronamespace = 'public'::regnamespace
      and (p.proname like 'juridico\_%' or p.proname like '\_juridico\_%');
-  if v_n <> 40 then
-    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 40 esperadas).', v_n;
+  if v_n <> 41 then
+    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 41 esperadas).', v_n;
   end if;
 
   select count(*) into v_n

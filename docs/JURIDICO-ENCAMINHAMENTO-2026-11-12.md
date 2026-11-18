@@ -16,7 +16,7 @@ autorização específica (RUNBOOK-MIGRATIONS).
 | Excel + envio | `juridico_lote_enviar_financeiro`, `juridico_lote_exportar` | `APROVADO → ENVIADO_FINANCEIRO`; Excel só com aprovados |
 | Confirmar | `juridico_casos_confirmar_juridico` | `ENVIADO_FINANCEIRO → CONFIRMADO_JURIDICO` (encaminhado; **não** é ajuizamento) |
 
-Toda RPC confere `usuario_e_gestao()`. As cinco tabelas `juridico_*` têm RLS ligada, sem
+Toda RPC confere `usuario_e_gestao()`. As seis tabelas `juridico_*` têm RLS ligada, sem
 policy e sem grant: só se lê e escreve pelas RPCs.
 
 ## Regras medidas, não presumidas
@@ -69,7 +69,7 @@ Exceção (implementada no banco e ligada aos caminhos de envio de texto e docum
 ## IMPLANTAÇÃO E RECUPERAÇÃO (contagens do código e versões de produção medidas em 18/11/2026)
 
 Conteúdo da migration `supabase/migrations/20261112180000_juridico_encaminhamento.sql` (contado no arquivo):
-- 40 funções do módulo (a própria migration confere `v_n <> 40`).
+- 41 funções do módulo (a própria migration confere `v_n <> 41`).
 - 6 tabelas `public.juridico_*` (lotes, casos, casos_titulos, historico, documentos, envio_autorizacoes).
 - Gatilhos do módulo: `trg_juridico_so_anexa_historico`, `trg_juridico_so_anexa_documentos`,
   `trg_juridico_so_anexa_truncate_historico`, `trg_juridico_so_anexa_truncate_documentos`,
@@ -93,10 +93,11 @@ Ordem de implantação (cada passo só com autorização):
 1. Conferir por leitura, em cada ambiente: `schema_migrations` (versão ausente), `pg_proc` (contagem e
    `prosecdef`), `pg_trigger` (gatilhos acima) e o grant de `juridico_checar_envio` só para `service_role`.
 2. Aplicar a migration.
-3. Reconferir: 40 funções, os gatilhos listados e os grants.
-4. Publicar `whatsapp-send` e `whatsapp-enviar-documento` JUNTAS, da revisão acima.
-5. Validar os caminhos de envio em ambiente de teste (os handlers reais estão testados no CI em
-   `supabase/functions/*/handlers.test.ts`, com transporte simulado).
+3. Reconferir: 41 funções, os gatilhos listados e os grants.
+4. Publicar `whatsapp-send` e `whatsapp-enviar-documento` JUNTAS, do MESMO commit do head validado pelo CI (o SHA
+   é informado no parecer final). A integração com a #754 NÃO está incluída; é outra revisão, sem CI.
+5. Validar os caminhos de envio. Única validação disponível: o CI do head publicado (handlers reais com transporte
+   simulado em `supabase/functions/*/handlers.test.ts`). Nenhum ambiente de staging foi identificado.
 6. Só então liberar a aba (`JURIDICO_LIBERADO`).
 
 Recuperação:
@@ -106,15 +107,16 @@ Recuperação:
 - Rollback da migration: NÃO executar com as edges novas no ar, porque `juridico_checar_envio` some e todo envio é
   recusado. Ordem obrigatória:
   (a) decisão da gestão sobre os alunos com bloqueio ativo;
-  (b) republicar `whatsapp-send` na versão 23 e `whatsapp-enviar-documento` na versão 10 (o que está no ar hoje,
-      sem checagem), após confirmar o vínculo com o código no git;
+  (b) republicar `whatsapp-send` na versão 23 e `whatsapp-enviar-documento` na versão 10. ESTE PASSO NÃO ESTÁ
+      LIBERADO: o vínculo dessas versões com um commit do git não foi identificado. Sem ele, o rollback não é executável;
   (c) só então executar o rollback da migration.
   O rollback foi validado no banco de teste PGlite (describe "rollback"). Não validado em produção.
+  Até (b) estar confirmado, a migration NÃO deve ser revertida.
 - Resultado incerto no gateway: a autorização já foi consumida. Não há reenvio automático. Nova autorização exige a gestão.
 
 Identificação pelo telefone (medida em produção, leitura, 500 conversas mais recentes com `whatsapp_identificar_aluno`):
-- 401 com `aluno_id`: 344 confirmadas pelo telefone; 52 sem prova (3 IDENTIFICADO com outro aluno, 41 de 46 MANUAL,
-  6 NAO_ENCONTRADO, 2 AMBIGUO).
+- 403 com `aluno_id`: 351 confirmadas pelo telefone (344 IDENTIFICADO, 5 MANUAL, 2 NAO_ENCONTRADO); 52 sem prova
+  (3 IDENTIFICADO com outro aluno, 41 de 46 MANUAL, 6 NAO_ENCONTRADO, 2 AMBIGUO).
 - Exigir prova para TODO envio afetaria essas 52 conversas, inclusive envio comum. Por isso a checagem exige prova
   só quando um aluno BLOQUEADO está envolvido (o vinculado, ou um que o telefone identifica, inclusive entre os
   candidatos de telefone ambíguo). Envio comum não muda. Essa garantia é do código; produção não foi reexecutada com
@@ -338,9 +340,10 @@ Fica, por decisão a tomar pela gestão:
 - **Excel**: toda geração (envio e reexportação) registra `EXCEL_GERADO` com o lote. Só leva caso
   enviado ou confirmado. Os valores são os da aprovação; a coluna "Situação na data da geração"
   marca o caso em que algo mudou depois.
-- **Grants e rollback**: listas explícitas de 14 funções públicas e 20 internas (sem `service_role`); a
-  migration confere que o inventário tem exatamente 34. O rollback solta gatilhos, depois as 32 funções,
-  depois as tabelas. Cópias em `_backup_juridico_*_20261112` com RLS e sem grant.
+- **Grants e rollback**: listas explícitas de 14 funções públicas e 20 internas nas listas de revoke; a
+  migration confere que o inventário tem exatamente 41. Na seção de checagem de envio, só `service_role`
+  executa `juridico_checar_envio` e `juridico_registrar_recusa_envio`. O rollback solta gatilhos, depois as
+  41 funções, depois as tabelas. Cópias em `_backup_juridico_*_20261112` com RLS e sem grant.
 - **Término do Contrato** não entra em evadidos (`_juridico_grupo` devolve nulo).
 
 ## O que não está nesta entrega
@@ -355,7 +358,7 @@ Fica, por decisão a tomar pela gestão:
 ## Rollback
 
 `supabase/rollbacks/20261112180000_juridico_encaminhamento.rollback.sql` — recusa rodar
-enquanto houver caso com cobrança bloqueada pela aba; guarda cópia das cinco tabelas.
+enquanto houver caso com cobrança bloqueada pela aba; guarda cópia das seis tabelas.
 
 
 ## Critério de data do pagamento no extrato Prime (vigente, não alterado)
@@ -437,3 +440,15 @@ está na seção "Critério de data do pagamento no extrato Prime" acima.
   cujo aluno tem bloqueio efetivo. Não testado no PGlite (a fixture não tem `whatsapp_conversas`); CI não prova.
 - Aberto: vincular uma conversa SEM aluno a um aluno sem bloqueio continua permitido pelo operador. Isso é
   afirmação de identidade pelo operador, do mesmo tipo do contato novo. Decisão da gestão pendente.
+
+### Contornos e limites conhecidos (reauditoria de ccb21e5e)
+
+- Corrigido: troca de `aluno_id` de caso de aluno bloqueado (gatilho `trg_juridico_guarda_troca_aluno_caso`, erro JUR03),
+  com teste no banco.
+- Aberto: a mensagem JUR01 ("aluno com bloqueio") é devolvida a qualquer operador que informe um `conversa_id`, antes
+  da checagem de dono do preparo. Quem não é dono recebe essa informação. Decisão pendente: checar dono antes, ou
+  mensagem genérica.
+- Não verificado em produção: gatilhos e policies vivos de `casos` (a policy `casos_update_todos` permite o UPDATE
+  pelo dono no repositório), `verify_jwt` das duas edges (fora de `supabase/config.toml`) e grants de coluna.
+- Aberto: telefone de responsáveis e normalização real de telefone (a fixture só casa `alunos.telefone` e
+  simula AMBIGUO com dois alunos de mesmo telefone).
