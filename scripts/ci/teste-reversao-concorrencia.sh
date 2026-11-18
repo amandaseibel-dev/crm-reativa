@@ -24,10 +24,15 @@ TOK=$(P -tA -c "select token from public.ambiente_descartavel where token = '$DE
 [ "$TOK" = "$DESCARTAVEL_TOKEN" ] || recusa "token de ambiente descartavel nao confere"
 
 D=supabase/aguardando_aprovacao
+for R in anon authenticated service_role; do
+  [ "$(P -tA -c "select count(*) from pg_roles where rolname='$R'")" = "1" ] || falha_prep "papel '$R' ausente na bancada"
+done
 RB_CONF="$D/20261113100000_acoes_massivas_confirmar_envio.rollback.sql"
 RB_PROT="$D/20261113100100_acoes_massivas_email_so_apos_tabulacao.rollback.sql"
 LOG=$(mktemp -d)
-falha() { echo "FALHA: $1 (logs em $LOG)" >&2; exit 1; }
+# Duas classes de falha, rotuladas: PREPARACAO (bancada incompleta; nada foi testado) e SEGURANCA (comportamento errado).
+falha() { echo "FALHA DE SEGURANCA/COMPORTAMENTO: $1 (logs em $LOG)" >&2; exit 1; }
+falha_prep() { echo "FALHA DE PREPARACAO: $1 (logs em $LOG). Nada foi testado; nao e prova de ausencia de acesso." >&2; exit 1; }
 md5_exp() { P -tA -c "select md5(pg_get_functiondef(p.oid)) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='acoes_massivas_exportar'"; }
 acl() { P -tA -c "select proacl::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname=\$\$$1\$\$"; }
 espera_trava() { for _ in $(seq 1 100); do
@@ -69,7 +74,7 @@ catalogo() { P -tA -c "select string_agg(coalesce(proacl::text,'NULL'), ' | ' or
 
 # Passo 0: o banco nasce ANTES da 100100 (corpo publicado de e-mail, 00d3370a). Referencia = esse estado.
 E_ANTES_100100=$(efetivas "$F_EML")
-[ -n "$E_ANTES_100100" ] || falha "B1: snapshot vazio antes da 100100"
+[ -n "$E_ANTES_100100" ] || falha_prep "B1: snapshot de permissoes vazio antes da 100100 (consulta falhou)"
 
 # Passo 1: aplica a 100100 (protecao de e-mail). Efetivo de exportar_emails deve ser o mesmo de antes? NAO exigido:
 # a 100100 so muda o corpo; medimos e comparamos apos cada etapa abaixo.
@@ -84,12 +89,9 @@ E_100000=$(efetivas "${TODAS[@]}")
 [ "$(efetivas "$F_EXP" "$F_EML" "$F_LOT")" = "$(printf '%s' "$E_PRE" | tr ';' '\n' | grep -E '^(public\.acoes_massivas_(exportar|exportar_emails_do_lote|concluir_lote)\()' | tr '\n' ';' | sed 's/;$//')" ] || falha "B1: 100000 alterou permissoes efetivas de funcao existente"
 for f in "$F_ENV" "$F_DST"; do
   for r in anon PUBLIC; do
-    # grep -F: a assinatura tem parenteses e colchetes (regex). Papel anon pode nao existir nesta bancada.
-    if [ "$r" = "anon" ] && [ "$(P -tA -c "select count(*) from pg_roles where rolname='anon'")" = "0" ]; then
-      echo "B1 info: papel anon inexistente nesta bancada; nao ha concessao possivel a anon"
-      continue
-    fi
-    v=$(printf '%s' "$E_100000" | tr ';' '\n' | grep -F "$f:$r=" | cut -d= -f2 || true)  # vazio = falha abaixo, nao saida silenciosa
+    # PUBLIC pela ACL (aclexplode); anon existe (preflight). grep -F: assinatura tem regex.
+    v=$(printf '%s' "$E_100000" | tr ';' '\n' | grep -F "$f:$r=" | cut -d= -f2 || true)
+    [ -n "$v" ] || falha_prep "B1: resultado vazio para $f/$r apos 100000 (preparacao incompleta)"
     [ "$v" = "false" ] || falha "B1: 100000 expos $f a $r (valor='$v', esperado: false)"
   done
   for r in authenticated service_role; do
@@ -140,7 +142,7 @@ echo "C3 ok: reversao da protecao recusada com a exportacao em andamento"
 # Catalogo (proacl) e registrado so como informacao: GRANT pode trocar NULL por ACL explicita sem mudar
 # quem executa. A comparacao que vale e has_function_privilege por papel, antes e depois.
 E_ANTES=$(efetivas "$F1" "$F2"); C_ANTES=$(catalogo)
-[ -n "$E_ANTES" ] || falha "C4: snapshot de permissoes efetivas vazio (consulta falhou)"
+[ -n "$E_ANTES" ] || falha_prep "C4: snapshot de permissoes efetivas vazio (consulta falhou)"
 # Limpeza: tenta reconceder EXECUTE a authenticated. Falha de recuperacao e sinalizada a parte (nao engole).
 restaurar() {
   if ! P -c "grant execute on function $F1 to authenticated; grant execute on function $F2 to authenticated;" >"$LOG/restaurar" 2>&1; then
