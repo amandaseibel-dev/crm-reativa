@@ -1498,13 +1498,22 @@ create function public.juridico_checar_envio(p_aluno uuid, p_conversa uuid, p_op
 returns void
 language plpgsql security definer set search_path to 'public'
 as $function$
-declare v_id uuid;
+declare v_id uuid; v_tel text;
 begin
   if p_aluno is null or not exists (select 1 from public.alunos al where al.id = p_aluno) then
     raise exception 'Contato sem vínculo confiável com um aluno: o envio por este fluxo não é permitido. Nenhum vínculo é criado automaticamente.' using errcode = 'JUR01';
   end if;
   if p_tipo is null or p_tipo not in ('MENSAGEM','DOCUMENTO') or nullif(btrim(coalesce(p_conteudo_hash,'')), '') is null then
     raise exception 'Envio recusado: tipo ou conteúdo não informado para a checagem.' using errcode = '22023';
+  end if;
+  -- Identificacao CONFIAVEL pelo mecanismo existente, para TODO envio deste fluxo: o telefone da propria
+  -- conversa tem de identificar ESTE aluno de forma unica (whatsapp_identificar_aluno -> IDENTIFICADO).
+  -- A escolha do operador (vinculo manual) nao basta. Sem prova: recusa, sem bloqueio e sem vinculo automatico.
+  select c.telefone_e164 into v_tel from public.whatsapp_conversas c where c.id = p_conversa;
+  if not exists (select 1 from public.whatsapp_identificar_aluno(v_tel) i
+                  where i.situacao = 'IDENTIFICADO' and i.aluno_id = p_aluno) then
+    raise exception 'Contato sem identificação confiável do aluno pelo telefone da conversa: envio não permitido por este fluxo. Nenhum vínculo é criado automaticamente.'
+      using errcode = 'JUR01';
   end if;
   if not public._juridico_bloqueio_efetivo(p_aluno) then return; end if;
   select a.id into v_id from public.juridico_envio_autorizacoes a

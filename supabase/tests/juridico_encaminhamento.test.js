@@ -16,6 +16,19 @@ let BASE;
 
 // `termos_acordo` nao faz parte da fixture (ela nasceu do fluxo de confirmacao).
 // So as colunas que a conferencia le.
+const WHATSAPP = `create table if not exists public.whatsapp_conversas (
+  id uuid primary key, telefone_e164 text, aluno_id uuid, aluno_nome text, aluno_status text,
+  aluno_candidatos jsonb, aluno_identificado_em timestamptz, atualizado_em timestamptz);
+create or replace function public.whatsapp_identificar_aluno(p_telefone text)
+returns table (aluno_id uuid, aluno_nome text, situacao text, candidatos jsonb)
+language sql stable as $$
+  select case when count(*) = 1 then max(a.id::text)::uuid end,
+         null::text,
+         case when count(*) = 0 then 'NAO_ENCONTRADO' when count(*) = 1 then 'IDENTIFICADO' else 'AMBIGUO' end,
+         null::jsonb
+    from public.alunos a
+   where p_telefone is not null and a.telefone = p_telefone;
+$$;`;
 const TERMOS = `create table if not exists public.termos_acordo (
   id uuid default gen_random_uuid() primary key, aluno_id text, status text,
   arquivo_nome text, arquivo_url text, etapa_assinatura text,
@@ -25,6 +38,9 @@ beforeAll(async () => {
   const db = await H.montarProd();
   await db.exec(PORTAO_BLOQUEIO_ADMINISTRATIVO);
   await db.exec(TERMOS);
+  // Fixture do WhatsApp (mesmas colunas e assinatura usadas pela checagem). A identificacao casa o telefone
+  // unicamente com alunos.telefone, como o mecanismo real faz com os tres telefones da base.
+  await db.exec(WHATSAPP);
   await db.exec(H.MIG(M));
   BASE = await db.dumpDataDir();
   await db.close();
@@ -66,7 +82,13 @@ async function mk(db, { sit = "Formado", valores = [1000], venc = "2025-06-10", 
       "insert into parcelas(id,acordo_id,numero,valor,vencimento,status) values ($1,$3,1,300,'2025-08-10',$4),($2,$3,2,300,'2099-01-10','A_VENCER')",
       [U(n, 51), U(n, 52), ac, acordo === "QUEBRADO" ? "VENCIDA" : "A_VENCER"]);
   }
-  return { al, cs, cpf, titulos, ac };
+  // Telefone da base e conversas de teste ligadas a este aluno (identificacao pelo telefone da conversa).
+  const tel = "5511" + String(900000000 + n);
+  await db.query("update alunos set telefone=$1 where id=$2", [tel, al]);
+  for (const cid of [U(960,1),U(960,2),U(960,3),U(960,4),U(960,5),U(960,6),U(960,7),U(960,8),U(960,9),U(961,1),U(970,1)]) {
+    await db.query("insert into whatsapp_conversas(id,telefone_e164,aluno_id) values ($1,$2,$3) on conflict (id) do nothing", [cid, tel, al]);
+  }
+  return { al, cs, cpf, titulos, ac, tel };
 }
 // Revisao financeira de acordo quebrado (decisao da gestao) feita com o que esta no banco
 // agora. Sem acordo quebrado, nao faz nada. Usada antes das aprovacoes dos testes antigos.
@@ -1673,6 +1695,48 @@ describe("rollback", () => {
       (select bool_or(has_table_privilege('authenticated', oid, 'select')) from pg_class where relname like '\\_backup\\_juridico\\_%') copia_aberta`)).rows[0];
     expect(r).toEqual({ funcs: 0, tabelas: 0, copia: 1, copia_aberta: false });
     expect(await bloqueio(db, a.al)).toBeNull();
+    await db.close();
+  });
+});
+
+describe("vinculo de conversa e identificacao confiavel", () => {
+  const aprovado = async (db) => {
+    const a = await mk(db, { valores: [1000] });
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    return { a };
+  };
+  it("gatilho: trocar o aluno de conversa de aluno bloqueado e recusado (JUR02) e o bloqueio se preserva", async () => {
+    const db = await novo();
+    const { a } = await aprovado(db);
+    const outro = await mk(db, { valores: [500] });
+    const e = await falha(db.query("update whatsapp_conversas set aluno_id=$1 where id=$2", [outro.al, U(960, 1)]));
+    expect(e?.code).toBe("JUR02");
+    const c = (await db.query("select aluno_id from whatsapp_conversas where id=$1", [U(960, 1)])).rows[0];
+    expect(c.aluno_id).toBe(a.al);
+    expect(await bloqueio(db, a.al)).toBe("NAO_ACIONAR_EXPLICITO");
+    await db.close();
+  });
+
+  it("gatilho: vinculo de conversa sem aluno e de aluno sem bloqueio segue permitido", async () => {
+    const db = await novo();
+    const b = await mk(db, { valores: [500] });
+    const c = await mk(db, { valores: [500] });
+    await db.query("update whatsapp_conversas set aluno_id=null where id=$1", [U(961, 1)]);
+    await db.query("update whatsapp_conversas set aluno_id=$1 where id=$2", [b.al, U(961, 1)]);
+    await db.query("update whatsapp_conversas set aluno_id=$1 where id=$2", [c.al, U(961, 1)]);
+    const r = (await db.query("select aluno_id from whatsapp_conversas where id=$1", [U(961, 1)])).rows[0];
+    expect(r.aluno_id).toBe(c.al);
+    await db.close();
+  });
+
+  it("identificacao: telefone da conversa que nao identifica o aluno recusa o envio mesmo sem bloqueio", async () => {
+    const db = await novo();
+    const c = await mk(db, { valores: [500] });
+    await db.query("update whatsapp_conversas set telefone_e164=$1 where id=$2", ["5500000000000", U(970, 1)]);
+    const e = await falha(db.query("select public.juridico_checar_envio($1,$2,'op','MENSAGEM','hash-identificacao-0001')", [c.al, U(970, 1)]));
+    expect(e?.code).toBe("JUR01");
     await db.close();
   });
 });
