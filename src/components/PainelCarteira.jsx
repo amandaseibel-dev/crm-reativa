@@ -37,7 +37,6 @@ import {
   proximoIdDoSnapshot,
   faltamNoSnapshot,
   candidatoSegueValido,
-  excluidoDoGuiado,
   recorteProntoParaGuiado,
   alunosDoCursoEscolhido,
   alunosDoSemestreEscolhido,
