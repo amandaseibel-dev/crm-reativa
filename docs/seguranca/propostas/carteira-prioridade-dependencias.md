@@ -19,8 +19,7 @@ Saída bruta (consultas, resultados e md5 dos sete corpos): `docs/seguranca/evid
 - Colunas confirmadas: `casos.operador_email` existe e `casos.responsavel_atual_email` NÃO existe; `alunos.responsavel_atual_email` existe; `aluno_movimentacoes.aluno_id` é text; `solicitacoes_confirmacao_pagamento.aluno_id` é text; `whatsapp_mensagens.timestamp_wa` e `criado_em` são timestamptz; `acoes_massivas_lotes.aluno_ids` é text[].
 - Fuso: fuso da sessão do servidor = UTC; `importacoes.created_at` é timestamp sem fuso com default `now()`.
 - Default de privilégio para funções criadas por `postgres` em `public`: EXECUTE para authenticated e service_role (não para PUBLIC, anon ou `reativa_responsavel_executor`). A migration revoga service_role e reativa_responsavel_executor e concede só a authenticated.
-- Escopo de titularidade: 9 casos ativos divergem entre `casos.operador_email` e `alunos.responsavel_atual_email`. A autorização usa a chave da tela (`alunos.responsavel_atual_email`).
-- Carga medida (somente leitura): elegibilidade canônica de 500 alunos com casos ativos, cerca de 9 ms de execução. A função de prioridade completa ainda não está em produção, então não há medida dela.
+- Titularidade: a autorização usa a chave da tela (`alunos.responsavel_atual_email`). A divergência com `casos.operador_email` e a medida de carga foram removidas desta proposta por não estarem versionadas com saída; voltam só com consulta e saída bruta arquivadas.
 
 ## Exceção registrada à PREMISSAS §12
 
@@ -60,7 +59,7 @@ Resultado de `information_schema.columns` para as colunas usadas pela migration 
 | acoes_massivas_lotes | descartado_em | timestamptz | — |
 | usuarios | ativo | boolean | true |
 
-Cobertura: somente as colunas listadas acima (as referenciadas pela migration). Não é inventário completo do banco.
+Cobertura: as colunas de tabela referenciadas pela migration, com saída na evidência (seções 1 e 3). Não é inventário completo do banco.
 Consulta de `casos.responsavel_atual_email` não existe em produção; a titularidade usa `alunos.responsavel_atual_email`.
 
 ## Escopo de gestão (decisão desta PR, fundamentada na PREMISSA_SEGURANCA §2)
