@@ -12,3 +12,14 @@ revoke all on function public.casos_risco_perder(text) from public, anon;
 revoke all on function public.usuario_e_gestao() from public, anon;
 revoke all on function public.liberar_fidelizacao_caso(uuid, text, text) from public, anon;
 revoke all on function public.trg_impor_teto_operador() from public, anon;
+-- producao: EXECUTE para authenticated e service_role (postgres e dono)
+grant execute on function public.carteira_geral_previa(uuid[], text, text, boolean, jsonb, uuid[]) to authenticated, service_role;
+grant execute on function public.carteira_geral_mover(uuid, text) to authenticated, service_role;
+grant execute on function public.calibragem_executar_simulacao(uuid) to authenticated, service_role;
+grant execute on function public.carteira_geral_definir_recebimento(text, boolean, text) to authenticated, service_role;
+grant execute on function public.liberar_casos_fidelizacao_vencida(integer) to authenticated, service_role;
+grant execute on function public.assumir_caso_livre(uuid) to authenticated, service_role;
+grant execute on function public.casos_risco_perder(text) to authenticated, service_role;
+grant execute on function public.usuario_e_gestao() to authenticated, service_role;
+grant execute on function public.liberar_fidelizacao_caso(uuid, text, text) to authenticated, service_role;
+grant execute on function public.trg_impor_teto_operador() to authenticated, service_role;
