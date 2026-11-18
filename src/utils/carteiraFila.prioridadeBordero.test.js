@@ -115,3 +115,19 @@ describe("migration carteira_prioridade_bordero (guardas de texto; comportamento
     expect(sql).toContain("drop function if exists public.carteira_prioridade_bordero(uuid[])");
   });
 });
+
+describe("integração da tela com a RPC (guardas de texto)", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const tela = readFileSync(join(here, "../components/PainelCarteira.jsx"), "utf-8");
+  it("consulta pelos IDs da lista em lotes de 500, sem limite fixo", () => {
+    expect(tela).toContain("i += 500");
+    expect(tela).toContain("p_aluno_ids: ids.slice(i, i + 500)");
+  });
+  it("erro da consulta deixa o guiado fechado (mapa null)", () => {
+    expect(tela).toMatch(/catch \{\s*if \(ativo\) setPrioridadeBordero\(null\);/);
+  });
+  it("revalida cada ficha por aluno_id antes de abrir e ausência não libera", () => {
+    expect(tela).toContain("p_aluno_ids: [candId]");
+    expect(tela).toContain("if (!decisao || decisao.exclui_guiado) {");
+  });
+});

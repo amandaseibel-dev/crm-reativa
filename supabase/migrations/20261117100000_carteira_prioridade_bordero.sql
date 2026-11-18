@@ -125,9 +125,9 @@ begin
            b.motivo,
            b.ent,
            b.saldo,
-           (b.motivo in ('SUSPENSAO_COBRANCA', 'CANCELAMENTO_COBRANCA', 'JURIDICO', 'NAO_ACIONAR_EXPLICITO')) as bloq,
+           coalesce(b.motivo in ('SUSPENSAO_COBRANCA', 'CANCELAMENTO_COBRANCA', 'JURIDICO', 'NAO_ACIONAR_EXPLICITO'), false) as bloq,
            (
-             b.motivo = 'CONFIRMACAO_PAGAMENTO_PENDENTE'
+             coalesce(b.motivo = 'CONFIRMACAO_PAGAMENTO_PENDENTE', false)
              or exists (
                select 1 from public.solicitacoes_confirmacao_pagamento s
                 where s.aluno_id = b.bid::text
