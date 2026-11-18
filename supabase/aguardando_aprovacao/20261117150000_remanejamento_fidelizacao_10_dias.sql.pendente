@@ -20,8 +20,7 @@
 --
 -- Segundo furo: a previa avisava de teto contando TODO caso nao encerrado do
 -- destino, protegidos inclusive, enquanto o gatilho `trg_impor_teto_operador`
--- conta so caso nao protegido e nao encerrado. Com teto 700, a previa via 833 a
--- 861 casos por operador e o gatilho via 535 a 562. E quando o teto de fato
+-- conta so caso nao protegido e nao encerrado. A previa contava outra base. E quando o teto de fato
 -- estourava, quem pagava era o destino: o gatilho soltava casos DELE.
 --
 -- O QUE MUDA
