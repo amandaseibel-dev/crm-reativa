@@ -181,3 +181,74 @@ Tipos de ação, que NÃO são a mesma coisa: **merge** (código na main, sem ef
 | 9. (antigo "ligar `HISTORICO_DISPONIVEL`") | **não há mais passo de merge de porta**: a porta já está `true` no passo 4 | — | a conversa só mostra o botão onde `historico_capacidade` concede; a lista só após a RPC produzir `capacidade_historico` (migration própria) |
 
 Recuperação: cada passo tem rollback no próprio arquivo, exceto a v1 (não restaurar a versão vulnerável). O rollback de `20261110100000` NÃO deve ser executado (apaga `ulbra_historico_uso`).
+
+## Pacote de implantação consolidado da leitura (consolidado em 18/11/2026, head de revisão)
+
+**Escopo:** leitura do histórico com token pessoal por operador. Envio DESLIGADO. Nenhuma migration está aplicada ou aprovada por este documento.
+
+### Migrations pendentes (sha256 completo dos arquivos revisados, em `supabase/aguardando_aprovacao/`)
+
+| Migration | Arquivo | sha256 |
+|---|---|---|
+| `20261111140000_ulbra_conexao_individual_e_envio` | `.sql.pendente` | `fcd270305358c69db33e25072c1c0288fd0cbf7dc129bd1b6147fef1dbb6e691` |
+| `20261111140000_ulbra_conexao_individual_e_envio` | `.rollback.sql` | `f6b8013e8c43ff2f917dbf8839ac103b93e53c991b299b1cd1bc83e09d8e760f` |
+| `20261117120000_ulbra_gravar_conexao_atomica` | `.sql.pendente` | `dcd8df5388cbdc5e2c20576b0dd9044b23dcd9667ad8f230f2e653b461671ed8` |
+| `20261117120000_ulbra_gravar_conexao_atomica` | `.rollback.sql` | `8f3b4449b527bcfb6d1125b51371336ef1112d49a0e1b9f2933a22ff97d04942` |
+| `20261116150000_ulbra_historico_reservar_portao_interno` (corretiva, fora do pré-requisito do piloto) | `.sql.pendente` | `1b448d8b0c2be6b5feca9e1900fa772b919c22da62d0752540e20cbd02f58402` |
+| `20261116150000_ulbra_historico_reservar_portao_interno` (corretiva) | `.rollback.sql` | `be7b2c64ad7d7e0c4dddb1627a3989678dcbd80537edfd59814f2538e2517113` |
+
+Migrations já aplicadas e fora deste pacote: `20261110100000_ulbra_historico_orcamento` (ledger `20261112111006`). Não reaplicar, e não executar o rollback dela.
+
+### Ordem de aplicação (quando houver aprovação específica)
+1. `20261111140000` (tabelas de conexão, prévia e envio).
+2. `20261117120000` (função `ulbra_gravar_conexao`; depende da 1).
+3. `20261116150000` (corretiva do portão da RPC de reserva; não é pré-requisito do piloto de leitura).
+
+### Cobertura de CI (o que roda, em qual ordem)
+- **Job `ulbra-conexao-envio-sql`** (Postgres 17): `supabase/tests/ulbra_conexao_envio/run.cjs` aplica `20261111140000` (`.sql.pendente`) e testa persistência, consumo único, concorrência, guarda e rollback (`.rollback.sql`), inclusive a recusa de rollback com histórico.
+- **Job `ulbra conexão e envio` / atomicidade** (Postgres 17): `supabase/tests/ulbra_conexao_token/run.cjs` aplica `20261111140000` e, em seguida, `20261117120000` (ordem correta). Cobre concorrência de cadastro e conclusão OAuth.
+  - **Adicionado nesta rodada:** asserções de grants (anon e authenticated sem EXECUTE; service_role com EXECUTE; PUBLIC sem EXECUTE), de `SECURITY INVOKER` e de `search_path = public, pg_temp`, e teste de ROLLBACK da `20261117120000` em transação descartada (remove só a função e preserva a tabela).
+  - **Limite:** esses testes só rodam no CI; não foram executados localmente (não há Postgres local neste ambiente).
+- **Job `ulbra-historico-portao-pglite`**: `supabase/tests/ulbra_historico_portao/run.mjs` cobre a corretiva `20261116150000` (PGlite, não Postgres real).
+
+### Promoção e ledger (procedimento POSTERIOR, NÃO executado)
+Padrão do repositório: `supabase/ledger/DUAS-TRILHAS.md` (Fluxo B, o padrão) e `supabase/ledger/LEIA-ME.md`. A `20261117120000` cai no Fluxo B porque o código publicado da `ulbra-conversa` depende dela (dependência simultânea de backend e banco).
+1. Mesclar a PR (somente com aprovação).
+2. Esperar o deploy de produção ficar `READY`.
+3. Aplicar por `apply_migration`, uma única vez, aceitando o timestamp gerado (não forçar número). Executor único: a sessão principal, com aprovação específica.
+4. Validar em leitura: registro único em `supabase_migrations.schema_migrations`, md5 igual ao arquivo, objetos criados, grants e `search_path` conferidos.
+5. Registrar o drift no ledger em PR própria: `supabase/ledger/2026-11/<timestamp>__<name>.sql`, com o `.sql` byte a byte igual aos `statements` e explicação em arquivo `__NOTA.md` ao lado. Atualizar `INDICE.tsv`.
+- **Vetado nos dois fluxos:** `supabase db push`, `supabase db pull`, `supabase migration repair`, e escrita manual em `schema_migrations`.
+- Os arquivos pendentes NÃO devem ser copiados para `supabase/migrations/` para contornar a revisão (a catraca de migrations reprova o sufixo `__` nesse diretório).
+
+### Pré-requisitos de configuração (NÃO são defeito de código)
+- **`ULBRA_TOKENS_CHAVE` ausente** no Supabase de produção (conferido em 18/11 pela tela de Secrets, só nomes). Sem ela, nenhuma conexão individual é gravada. Criar só com aprovação específica.
+- Flags de servidor desligadas: `ULBRA_HISTORICO_HABILITADO`, `ULBRA_ENVIO_REAL`, `ULBRA_CONTRATO_PREVIA_CONFIRMADO` (ausentes, por conferência de nomes).
+- `ULBRA_OAUTH_CLIENT_ID` e `ULBRA_OAUTH_REDIRECT_URI` ausentes: OAuth fica indisponível no piloto (por configuração).
+- `ULBRA_HISTORICO_PILOTO_EMAILS` ainda não configurada: a leitura só existe depois dela, com a lista restrita ao operador piloto.
+
+### Ordem de implantação da leitura
+1. Aplicar `20261111140000` (aprovação específica) e depois `20261117120000` (idem).
+2. Publicar `ulbra-conversa` com `verify_jwt` (aprovação específica).
+3. Configurar `ULBRA_TOKENS_CHAVE` (aprovação específica; pré-requisito).
+4. Mesclar a PR (aprovação específica).
+5. Conexão do operador piloto (manual, pelo próprio operador).
+6. Configurar `ULBRA_HISTORICO_PILOTO_EMAILS` e `ULBRA_HISTORICO_HABILITADO=true` (aprovação específica).
+7. Verificar: uma conversa lida, com auditoria `ULBRA_HISTORICO_LEITURA` gravada antes do texto.
+
+### Verificação
+- Antes de qualquer flag: `historico_capacidade` e `historico_ler` respondem negado com `HISTORICO_DESLIGADO`, sem chamada à Mensageria.
+- Com o piloto: leitura de uma conversa permitida, auditoria gravada, e negativa para usuário fora da lista.
+
+### Recuperação
+- Desligar `ULBRA_HISTORICO_HABILITADO` (ou remover da lista) restaura o estado negado imediatamente.
+- Remover a função pública `ulbra-conversa` é a contenção de último recurso.
+- Rollbacks, na ordem inversa: `20261116150000` → `20261117120000` → `20261111140000`. O rollback da `20261111140000` recusa se houver histórico (conexões, prévias ou envios).
+- **Não** executar o rollback de `20261110100000` (apaga `ulbra_historico_uso`).
+- **Não** restaurar a função `ulbra-historico` v1 (contida).
+
+### Bloqueios restantes (antes de qualquer aplicação)
+- Aprovação específica para cada migration, para a publicação, para o segredo e para as flags.
+- Inventário das funções SQL que inserem em `auditoria` (não fechado) antes de qualquer revogação de grant (A3).
+- B5 (ordem envio vs confirmação): bloqueio obrigatório do envio real, separado do piloto de leitura.
+- Localização das migrations (R4): decisão de gestão. Hoje ficam em `supabase/aguardando_aprovacao/`, por convenção do repositório.

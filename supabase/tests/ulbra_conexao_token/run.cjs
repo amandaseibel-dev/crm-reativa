@@ -257,6 +257,47 @@ async function main() {
     esperar((await linha(admin)).revogada_em !== null, "linha voltou a ativa");
   });
 
+  // ---------------------------------------------------------------- grants, search_path e rollback da função (20261117120000)
+  const ASSINATURA = "public.ulbra_gravar_conexao(text,text,text,timestamptz,text,text,jsonb,boolean)";
+
+  await teste("função: anon e authenticated SEM execute; service_role COM execute; PUBLIC sem execute", async () => {
+    const r = await admin.query(
+      `select has_function_privilege('anon', $1, 'execute') as anon_exec,
+              has_function_privilege('authenticated', $1, 'execute') as auth_exec,
+              has_function_privilege('service_role', $1, 'execute') as servico_exec,
+              exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = to_regprocedure($1) and a.grantee = 0 and a.privilege_type = 'EXECUTE') as public_exec`,
+      [ASSINATURA],
+    );
+    const x = r.rows[0];
+    esperar(x.anon_exec === false, "anon tem execute");
+    esperar(x.auth_exec === false, "authenticated tem execute");
+    esperar(x.servico_exec === true, "service_role sem execute");
+    esperar(x.public_exec === false, "PUBLIC tem execute");
+  });
+
+  await teste("função: SECURITY INVOKER e search_path fixo (public, pg_temp)", async () => {
+    const r = await admin.query(
+      `select p.prosecdef as definer, p.proconfig as config from pg_proc p where p.oid = to_regprocedure($1)`,
+      [ASSINATURA],
+    );
+    esperar(r.rowCount === 1, "função não encontrada");
+    esperar(r.rows[0].definer === false, "função é SECURITY DEFINER (deveria ser INVOKER)");
+    esperar((r.rows[0].config || []).some((c) => c.replace(/\s/g, "") === "search_path=public,pg_temp"), "search_path não fixado em public, pg_temp");
+  });
+
+  await teste("ROLLBACK da 20261117120000 remove SÓ a função e preserva a tabela (transação descartada)", async () => {
+    const rollback = fs.readFileSync(path.join(ROOT, "supabase/aguardando_aprovacao/20261117120000_ulbra_gravar_conexao_atomica.rollback.sql"), "utf8");
+    await admin.query("begin");
+    try {
+      await admin.query(rollback);
+      esperar((await admin.query("select to_regprocedure($1) as f", [ASSINATURA])).rows[0].f === null, "função ainda existe após o rollback");
+      esperar((await admin.query("select to_regclass('public.ulbra_conexoes_operador') as t")).rows[0].t !== null, "rollback apagou a tabela, que é da 20261111140000");
+    } finally {
+      await admin.query("rollback");
+    }
+    esperar((await admin.query("select to_regprocedure($1) as f", [ASSINATURA])).rows[0].f !== null, "a transação descartada não restaurou a função");
+  });
+
   await admin.end();
   const total = resultados.length;
   console.log(`\n${total - falhas}/${total} verificações passaram.`);
