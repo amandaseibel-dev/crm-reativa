@@ -13,7 +13,8 @@ begin
   perform pg_temp.afirma(m = pg_temp.hoje() + 10, 'marca = hoje + 10 ('||m||')');
   perform pg_temp.afirma(pg_temp.dono(s.caso) = 'cobranca05@aelbra.com.br', 'caso com a Luana');
   perform pg_temp.afirma((select remanejamento_lote_id from public.casos where id = s.caso) is not null, 'marcador do lote gravado');
-  -- dia 9: ainda protegido (marca no futuro)
+  -- dia 9: ainda protegido (marca no futuro). Ficha parada ha 2 dias: so a MARCA pode segurar.
+  update public.alunos set responsavel_atual_em = now() - interval '2 days' where id = s.aluno;
   update public.casos set giro_fidelizacao_ate = pg_temp.hoje() + 1 where id = s.caso;
   perform public.liberar_casos_fidelizacao_vencida(100000);
   perform pg_temp.afirma(pg_temp.dono(s.caso) = 'cobranca05@aelbra.com.br', 'dentro dos 10 dias: nao solta');

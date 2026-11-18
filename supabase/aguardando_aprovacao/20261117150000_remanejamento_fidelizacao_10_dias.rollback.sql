@@ -11,10 +11,9 @@
 -- 17/11/2026. Se outra frente alterou a funcao depois, o trecho nao bate ou o
 -- md5 final diverge, e o rollback aborta inteiro sem escrever por cima.
 --
--- Marcas: o rollback apaga SOMENTE as marcas que esta operacao gravou (casos
--- cuja marca bate com a protecao_ate da auditoria e cujo responsavel ainda e o
--- destino daquela auditoria). Marca de outra origem, ou de caso que mudou de
--- dono depois, nao e tocada.
+-- Marcas: o rollback apaga SOMENTE as marcas cujo MARCADOR e o deste lote E cuja
+-- data e a que o lote gravou. Nao olha o dono atual: a marca e do lote enquanto
+-- nenhuma outra escrita de giro a tiver regravado (o gatilho solta o marcador).
 --
 -- O que NAO e desfeito, de proposito:
 --   * a coluna carteira_geral_auditoria.protecao_ate fica (e registro do que

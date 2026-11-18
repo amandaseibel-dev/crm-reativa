@@ -60,6 +60,20 @@ banco_novo rem_sem936
 psqlt "$LOGS/s1_base.log" rem_sem936 "$FIX" || falha "base (fixture) nao carrega: ver $LOGS/s1_base.log"
 psqlt "$LOGS/s1_acl.log" rem_sem936 "$ACL" || falha "ACL de producao nao aplicou"
 psqlt "$LOGS/s1_seed.log" rem_sem936 "$TD/seed.sql" || falha "seed"
+# A fixture e o manifesto de md5 (pg_get_functiondef de producao) tem de bater.
+MAN="$RAIZ/supabase/tests/fixtures/remanejamento_fidelizacao_prod_20261117.md5.json"
+psql -X -A -t -F' ' -d rem_sem936 -c "select n.nspname||'.'||p.proname, md5(p.prosrc) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('public','internal')" > "$LOGS/md5_fixture.txt"
+python3 - "$MAN" "$LOGS/md5_fixture.txt" <<'PYEOF' || falha "md5 da fixture nao confere com o manifesto de producao"
+import json, sys
+man = json.load(open(sys.argv[1]))
+got = dict(l.split(' ', 1) for l in open(sys.argv[2]).read().splitlines() if ' ' in l)
+esperados = dict(man.get('md5_prosrc', {}))
+esperados.update(man.get('adendo_936_precheck', {}))
+bad = [(k, v, got.get(k)) for k, v in esperados.items() if got.get(k) != v]
+for k, v, g in bad: print(f"  DIVERGE {k}: manifesto {v} fixture {g}")
+print(f"  ok: {len(esperados)-len(bad)}/{len(esperados)} md5 conferem com o manifesto")
+sys.exit(1 if bad else 0)
+PYEOF
 antes="$(md5_mover rem_sem936)"
 if timeout "$T" psql -X -q -v ON_ERROR_STOP=1 -d rem_sem936 -f "$OURS" >"$LOGS/s1_migration.log" 2>&1; then
   falha "a migration APLICOU sem a #936 (deveria recusar)"
