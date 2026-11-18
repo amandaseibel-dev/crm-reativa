@@ -9,6 +9,8 @@ do $$
 declare x record; p jsonb;
 begin
   select * into x from _g1;
+  -- producao: quitado so encerra com saldo conferido zero (_caso_sem_saldo_conferido); zera o saldo
+  update public.acordos_titulos set situacao = 'PAGO', status = 'quitada', valor_em_aberto = 0, saldo_corrigido = 0 where aluno_id = x.aluno;
   update public.casos set status_atual = 'QUITADO' where id = x.caso;
   perform pg_temp.afirma((select encerrado_operacional from public.casos where id = x.caso) is true,
     'encerramento: trg_casos_set_encerrado_operacional marca o caso quitado como encerrado');
