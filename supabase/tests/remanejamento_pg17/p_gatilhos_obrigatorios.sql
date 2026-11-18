@@ -18,16 +18,17 @@ begin
   perform pg_temp.afirma(p->'itens'->0->>'bloqueio' = 'ENCERRADO', 'encerramento: previa bloqueia o caso encerrado (ENCERRADO)');
 end $$;
 
--- (2) REPOSICAO: a protecao do caso cai (de protegido para nao protegido) -> o gatilho libera o caso e grava reposicao
-create temp table _g2 on commit preserve rows as select * from pg_temp.semear('cobranca05@aelbra.com.br', 400, null, 40, 'ACORDO_FECHADO');  -- status protegido em producao (lista de caso_protegido_redistribuicao)
+-- (2) REPOSICAO (corpo de producao): caso que passa de NAO protegido para PROTEGIDO (fechou por acordo) e
+--     liberado do operador e gravado em reposicao_carteira_fila.
+create temp table _g2 on commit preserve rows as select * from pg_temp.semear('cobranca05@aelbra.com.br', 400, null, 40, 'MENSAGEM_ENVIADA');  -- antes: nao protegido
 do $$
 declare x record; n0 int; n1 int;
 begin
   select * into x from _g2;
   n0 := (select count(*) from public.reposicao_carteira_fila);
-  update public.casos set status_acionamento = 'MENSAGEM_ENVIADA' where id = x.caso;
+  update public.casos set status_acionamento = 'ACORDO_FECHADO' where id = x.caso;  -- depois: protegido (fechou)
   n1 := (select count(*) from public.reposicao_carteira_fila);
-  perform pg_temp.afirma(n1 > n0, 'reposicao: trigger_repor grava reposicao_carteira_fila quando a protecao cai');
+  perform pg_temp.afirma(n1 > n0, 'reposicao: trigger_repor grava reposicao_carteira_fila quando o caso fecha (fica protegido)');
   perform pg_temp.afirma((select operador_email from public.casos where id = x.caso) is null,
     'reposicao: o caso sai do operador (volta para a fila)');
 end $$;
