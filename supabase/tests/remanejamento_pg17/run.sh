@@ -105,6 +105,7 @@ psqlt "$LOGS/s2_funcs.log" rem_com936 "$PROT/funcoes_prod.sql" || falha "funcoes
 psqlt "$LOGS/s2_resp_funcs.log" rem_com936 "$PROT/funcoes_responsavel_prod.sql" || falha "funcoes de responsavel nao aplicaram"
 psqlt "$LOGS/s2_resp.log" rem_com936 "$PROT/responsavel_prod.sql" || falha "camada de responsavel e acordo nao aplicou"
 psqlt "$LOGS/s2_gat.log" rem_com936 "$PROT/gatilhos_alunos_prod.sql" || falha "gatilhos de alunos (retorno/acionamento) nao aplicaram"
+psqlt "$LOGS/s2_obrig.log" rem_com936 "$PROT/gatilhos_obrigatorios_prod.sql" || falha "gatilhos obrigatorios nao aplicaram"
 if ! psqlt "$LOGS/s2_936.log" rem_com936 "$MIG936"; then
   echo "  #936 NAO aplica sobre a bancada de producao de 17/11: ver $LOGS/s2_936.log"
   exit 2
@@ -114,7 +115,7 @@ psqlt "$LOGS/s2_migration.log" rem_com936 "$OURS" || falha "migration nao aplico
 echo "  ok: migration aplicada sobre a #936"
 
 passo "3. Testes sequenciais (um banco, mesma sessao de cada arquivo)"
-for t in p_destinos p_perfis p_prazo p_saldo_capacidade p_terceiros p_protecao_real p_perfis_extra p_responsavel p_evidencia_gatilhos; do
+for t in p_destinos p_perfis p_prazo p_saldo_capacidade p_terceiros p_protecao_real p_perfis_extra p_responsavel p_gatilhos_obrigatorios p_evidencia_gatilhos; do
   psqlt "$LOGS/$t.log" rem_com936 "$TD/$t.sql" || falha "$t: ver $LOGS/$t.log"
   echo "  ok: $t"
 done
