@@ -60,25 +60,12 @@ diferentes. Conflito esperado só na linha de import logo após `createClient`. 
   Risco residual: o gateway pode ter entregue a mensagem e a resposta se perdido.
 - Limitação TEMPORÁRIA para revisão (não decisão definitiva): contato novo é recusado mesmo com identificação
   segura, porque hoje não há caminho de identificação confiável para conversa nova.
-- Compatibilidade com a #754 (wpp/v18-e-limites): merge-file com base da3d7aff dá 4 blocos em conflito em
-  `whatsapp-send/index.ts`: (1) import; (2) constante MOTIVOS_DE_BLOQUEIO, removida pela #754 e substituída por
-  motivoRegistravel/registrarBloqueio; (3) registro de cadência após erro do preparo, reescrito pela #754;
-  (4) bloco de checagem e admin, que aqui ficam antes do preparo. A #754 também traz bloqueio.ts e bloqueio.test.js.
-  Resolução proposta: manter os dois imports; manter a versão da #754 do registro de bloqueio de cadência;
-  manter a checagem antes do preparo com admin definido antes dela; remover o admin duplicado depois do
-  preparo. A branch da #754 não foi alterada. Quem integrar por último resolve.
-
-## DISPONIBILIZAÇÃO BLOQUEADA (17/11/2026)
-
-A aba Jurídico **não está disponível** (`JURIDICO_LIBERADO = false` em `src/App.jsx`). Motivo: o envio
-por WhatsApp e o envio de documentos não distinguem finalidade (cobrança ou atendimento). NÃO VERIFICADO se um
-aluno com bloqueio jurídico efetivo recebe mensagem pelo canal: a cadência e o gateway estão fora do repositório.
-
-Decisão da gestão: aluno com bloqueio jurídico não recebe cobrança (manual, massiva, automática),
-inclusive respostas e documentos de cobrança. Atendimento acadêmico ou administrativo continua possível.
-Não se classifica finalidade por prazo de mensagem.
-
-Exceção (implementada no banco; NÃO ligada aos caminhos de envio ainda):
+- Compatibilidade com a #754 (wpp/v18-e-limites): a simulação com `git merge-file` (base da3d7aff) dá
+  2 regiões de conflito em `whatsapp-send/index.ts` (reproduzidas pelo Guardião). Não é só o import: a região
+  de registro de bloqueio da cadência também conflita, porque a #754 o reescreve em `bloqueio.ts`, e a constante
+  MOTIVOS_DE_BLOQUEIO sai de `index.ts`. A #754 também traz `bloqueio.ts` e `bloqueio.test.js`. A contagem
+  anterior de 4 blocos estava errada. Quem integrar por último resolve, mantendo a checagem antes do preparo e
+  os dois conjuntos de registro.
 - `juridico_checar_envio(aluno, conversa, operador, tipo, hash)`: FAIL-CLOSED. Sem aluno identificado recusa
   (não cria vínculo). Sem bloqueio efetivo passa. Com bloqueio exige autorização vigente para aluno,
   conversa, TIPO (MENSAGEM ou DOCUMENTO) e HASH do conteúdo aprovado; uso único.
@@ -348,12 +335,13 @@ antes do envio (F4b) — decisão da gestão, que substitui a regra anterior.
 **Critério de data (vigente, não alterado):** a diferença para o Prime e para as Ações Massivas
 está na seção "Critério de data do pagamento no extrato Prime" acima.
 
-### Declarações desta revisão (6b1a10e4)
+### Declarações desta revisão (f0ae1a35)
 
 - A recusa jurídica usa SQLSTATE próprio `JUR01`. `42501` continua significando permissão negada (infraestrutura).
 - Iniciar conversa nova pelo front (`src/services/whatsapp.js`) passa a receber 403 para todos os operadores,
-  porque conversa nova é recusada. É efeito amplo e precisa de decisão de produto.
-- Conversa sem `aluno_id` não recebe envio protegido: a checagem recusa aluno nulo.
+  porque conversa nova é recusada (o front não manda `conversa_id`). É efeito amplo e precisa de decisão de produto.
+- Conversa sem `aluno_id` é RECUSADA para QUALQUER envio, com ou sem bloqueio jurídico (a checagem recusa aluno nulo).
+  Isso é mais amplo que o bloqueio: é decisão pendente da gestão, não aprovada.
 - A autorização é consumida na checagem, que roda ANTES do preparo. Portanto, uma recusa do preparo
   (responsável de outro operador, cadência, canal) também consome a autorização. Não há como desfazer.
 - Ordem de implantação: a migration precisa estar aplicada antes das funções de envio. Função publicada

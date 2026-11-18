@@ -25,7 +25,7 @@ describe("checarEnvioJuridico (fail-closed)", () => {
     expect(r.ok).toBe(false);
   });
 
-  it("recusa juridica (42501) e marcada como bloqueio; erro de infraestrutura nao", async () => {
+  it("recusa juridica (JUR01) e marcada como bloqueio; erro de infraestrutura nao", async () => {
     const juridica = await checarEnvioJuridico(async () => ({ error: { message: "Envio bloqueado", code: "JUR01" } as any }), base);
     expect(juridica.ok).toBe(false);
     if (!juridica.ok) expect(juridica.bloqueio).toBe(true);
