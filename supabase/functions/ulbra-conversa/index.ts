@@ -273,8 +273,8 @@ Deno.serve(async (req: Request) => {
     return !error;
   }
 
-  // Descarte COM REGISTRO quando a revogação não se confirma: a pendência vai para a auditoria com os tokens
-  // CIFRADOS (ULBRA_TOKENS_CHAVE), sem texto. Assim o grant não fica órfão sem nenhum registro.
+  // Descarte COM REGISTRO quando a revogação não se confirma: a auditoria recebe SOMENTE METADADOS da pendência
+  // (nenhum token, nem cifrado). Recuperar a revogação exige armazenamento restrito próprio (decisão pendente).
   async function descartarComRegistro(t: { access_token: string; refresh_token: string | null }, deps: Parameters<typeof descartarGrant>[1]) {
     const d = await descartarGrant(t, deps);
     if ("pendente" in d && d.pendente) {

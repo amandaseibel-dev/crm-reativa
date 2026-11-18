@@ -170,7 +170,7 @@ aplicada, a tabela `ulbra_conexoes_operador` não existe e **nenhuma conexão po
 **Usada por:** cadastro de token pessoal e conclusão OAuth. Erro **antes** da gravação não grava nada;
 **erro depois do commit** (rede cai com a resposta) deixa a linha gravada, e o cadastro responde 503 mesmo assim
 (ver "Erro ambíguo do banco" abaixo). Recuperação: desconectar e conectar de novo;
-no cadastro responde 503 `CONEXAO_NAO_VERIFICADA`. Conclusão OAuth **recusada ou com erro de banco**
+no cadastro responde 503 `RESULTADO_INCERTO` (código real em `index.ts`). Conclusão OAuth **recusada ou com erro de banco**
 revoga o grant recém-emitido (melhor esforço), porque ele não será guardado.
 
 **Erro ambíguo do banco (commit seguido de falha de resposta):** o token pessoal responde
