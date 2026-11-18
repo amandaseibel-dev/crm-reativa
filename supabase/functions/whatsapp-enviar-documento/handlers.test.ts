@@ -118,6 +118,27 @@ describe("whatsapp-enviar-documento (handler real): bloqueio jurídico", () => {
     expect(chec.args.p_conteudo_hash).toBe(sha(PDF, "contrato.pdf", "application/pdf"));
   });
 
+  it("flag JURIDICO_BLOQUEIO_ENVIO_ATIVO desligada: nao chama a checagem e segue o caminho anterior", async () => {
+    estado.bloqueioAtivo = false;
+    const r = await estado.handler!(pedido());
+    expect(r.status).toBe(200);
+    expect(nomes()).not.toContain("juridico_checar_envio");
+    expect(nomes()).not.toContain("juridico_registrar_recusa_envio");
+    expect(nomes()).toContain("whatsapp_preparar_envio");
+    expect(nomes()).toContain("storage.upload");
+    expect(estado.uploads).toBe(1);
+    expect(estado.gatewayChamadas).toBe(1);
+  });
+
+  it("flag desligada + RPC juridico_checar_envio inexistente: o envio de documento sai normalmente", async () => {
+    estado.bloqueioAtivo = false;
+    estado.checar = { code: "42883", message: "function juridico_checar_envio does not exist" };
+    const r = await estado.handler!(pedido());
+    expect(r.status).toBe(200);
+    expect(estado.gatewayChamadas).toBe(1);
+    expect(nomes()).not.toContain("juridico_checar_envio");
+  });
+
   it("recusa jurídica: 403 sem preparo, sem upload, sem gateway, e sem FALHOU", async () => {
     estado.checar = { code: "JUR01", message: "Envio bloqueado: aluno com bloqueio jurídico." };
     const r = await estado.handler!(pedido());
@@ -170,5 +191,39 @@ describe("whatsapp-enviar-documento (handler real): bloqueio jurídico", () => {
     const r = await estado.handler!(pedido());
     expect(r.status).toBe(503);
     expect(estado.chamadas).toHaveLength(0);
+  });
+});
+
+describe("whatsapp-enviar-documento: flag JURIDICO_BLOQUEIO_ENVIO_ATIVO desligada", () => {
+  beforeEach(() => {
+    estado.bloqueioAtivo = false;
+    // JURIDICO_LIBERADO não é definido aqui (confirma o default: ausente/false)
+    // Deno.env.get("JURIDICO_LIBERADO") retorna undefined pelo mock acima
+  });
+
+  it("flag desligada: envia sem nenhuma checagem jurídica", async () => {
+    const r = await estado.handler!(pedido());
+    expect(r.status).toBe(200);
+    expect(nomes().filter((n) => n.startsWith("juridico_"))).toEqual([]);
+    expect(estado.uploads).toBe(1);
+    expect(estado.gatewayChamadas).toBe(1);
+  });
+
+  it("flag desligada + caso jurídico aberto (JUR01 no RPC): envia normalmente, sem bloquear", async () => {
+    estado.checar = { code: "JUR01", message: "Envio bloqueado: aluno com bloqueio jurídico." };
+    const r = await estado.handler!(pedido());
+    expect(r.status).toBe(200);
+    expect(nomes().filter((n) => n.startsWith("juridico_"))).toEqual([]);
+    expect(estado.uploads).toBe(1);
+    expect(estado.gatewayChamadas).toBe(1);
+  });
+
+  it("flag desligada + RPC juridico inexistente: envia normalmente", async () => {
+    estado.checar = { code: "42883", message: "function juridico_checar_envio does not exist" };
+    const r = await estado.handler!(pedido());
+    expect(r.status).toBe(200);
+    expect(nomes()).not.toContain("juridico_checar_envio");
+    expect(estado.uploads).toBe(1);
+    expect(estado.gatewayChamadas).toBe(1);
   });
 });
