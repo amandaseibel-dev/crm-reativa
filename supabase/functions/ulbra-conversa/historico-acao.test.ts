@@ -41,6 +41,7 @@ function monta(c: Cen = {}) {
         ? { ok: true as const, access_token: TOKEN_INDIVIDUAL, pessoa_email: email }
         : { ok: false as const, motivo: "SEM_CONEXAO" },
     lerConversa: transporte as unknown as AdaptadoresHistorico["lerConversa"],
+    reservarCota: async () => "OK" as const,
     auditar,
   };
   return { a, transporte, auditar };

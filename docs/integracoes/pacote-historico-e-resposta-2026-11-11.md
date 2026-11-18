@@ -50,14 +50,8 @@ Preparado em 11/11/2026. **Nenhuma mensagem enviada, nenhuma credencial alterada
 - CI: `deno check` de `ulbra-conversa` (job `ulbra-conversa-deno-check`); `ulbra-historico` foi removida do repositório e não tem job. Teste de acesso da RPC: job `ulbra-historico-portao-pglite` (npm ci + run.mjs).
 - **Não provado:** forma exata das respostas de `meu_acesso`/`enviar_mensagem_whatsapp` (campos de custo/janela/id); a função trata ausências sem inventar valores e a prévia mostra "validade não informada" (custo não exibido).
 
-## 7. Ordem após aprovação (cada passo com a sua autorização)
-0. CONTENÇÃO da v1 `ulbra-historico`: **CONCLUÍDA** pela gestão (função excluída pelo painel após download do ZIP; ausente da listagem; endpoint HTTP 404). Evidência e referência em `docs/integracoes/preservacao-ulbra-historico-v1-producao/MANIFESTO.md`. Não há restauração.
-1. TI da ULBRA: `client_id` + `redirect_uri` registrados (único item externo).
-2. Migrations `20261111140000` (conexão individual e envio) e `20261117120000` (`ulbra_gravar_conexao`, depende da anterior), cada uma com aprovação específica; conferir grants (só service_role) e `search_path`. `20261110100000` já está aplicada e não é reaplicada. `20261116150000` **fica fora** deste piloto: nenhum caminho do `ulbra-conversa` a chama.
-3. Segredos `ULBRA_OAUTH_CLIENT_ID`, `ULBRA_OAUTH_REDIRECT_URI`, `ULBRA_TOKENS_CHAVE` (gestão, fora de transcript); publicar `ulbra-conversa` (verify_jwt ligado).
-4. Merge da #913 (habilita a tela; sem função publicada, a Central mostra "função indisponível"/"conexão não configurada").
-5. Piloto de leitura: `ULBRA_HISTORICO_HABILITADO=true` e `ULBRA_HISTORICO_PILOTO_EMAILS` com a lista restrita aprovada. Lista ausente ou vazia = ninguém (fail-closed). Sem conexão individual ativa do próprio operador, a leitura responde 403 `SEM_CONEXAO`, sem chamar a Mensageria.
-6. Envio: `ULBRA_ENVIO_REAL` e `ULBRA_CONTRATO_PREVIA_CONFIRMADO` **desligadas**. Só com aprovação específica, contato de teste autorizado e roteiro aprovado.
+## 7. Ordem de implantação
+A ordem única está na seção "Ordem de implantação da leitura", no fim deste documento. Esta seção não define ordem.
 
 ## 8. Fora deste pacote
 Campanhas, criação de atendimentos, transferências, administração de operadores (ver `mensageria-ulbra-capacidades-mcp-2026-11-11.md`); coleta automática; o pacote de 12/11.
@@ -68,14 +62,12 @@ Campanhas, criação de atendimentos, transferências, administração de operad
 - Regra: `temLeituraGlobal` em `supabase/functions/ulbra-conversa/leitura.ts`. E-mail exato do JWT (sem prefixo), usuário ativo obrigatório, não reutiliza `usuario_e_gestao()`.
 - Não amplia envio, transferência ou atuação. A conexão individual continua obrigatória; a leitura global não usa credencial central.
 
-## Migration corretiva 20261116150000 (NÃO aplicada)
-- Acesso de service_role: a função é chamada com papel `service_role` no JWT (`request.jwt.claims`), como o PostgREST faz com a chave de serviço. O teste reproduz esse contexto.
-- Rollback: restaura a versão de 20261112111006 (sem portão). **Não é recuperação automática.** Use só com aprovação específica e comprovação do motivo.
-- Alternativa segura em caso de falha: manter o histórico desativado no backend (`ULBRA_HISTORICO_HABILITADO` ausente). Nenhum código em `supabase/functions` da branch chama a RPC; a v1 publicada em produção, preservada em `docs/integracoes/preservacao-ulbra-historico-v1-producao/`, chama (com service_role), por isso a v1 precisa estar contida.
-- Pré-condição do rollback: a v1 de `ulbra-historico` precisa estar contida em produção; senão a exposição já existe por outro caminho.
-- A2 (texto exato): divergência de identidade BLOQUEIA a conexão (com revogação do token de acesso no provedor), a leitura e o envio (sem revogação). A revogação por divergência existe só na conexão.
-- A9 (ilike sem escape em `ulbra-historico`) não é item separado: resolvido pela remoção da função do repositório e pela contenção da v1 em produção (função excluída; HTTP 404).
-- `supabase/tests/ulbra_historico_portao/run.mjs` roda no CI (job `ulbra-historico-portao-pglite`) e também manualmente (PGlite). A condição ANTES do teste simula o grant a PUBLIC; não é prova do estado de produção.
+## Migration corretiva 20261116150000 (pré-requisito do passo de leitura; NÃO aplicada)
+- Efeito exato: recria `ulbra_historico_reservar` com portão interno: aceita apenas `auth.role() = 'service_role'`, e recusa qualquer outro papel com 42501. Nossa chamada usa a chave de service_role, então PASSA; a corretiva bloqueia chamadas indevidas por outro papel, caso o EXECUTE seja concedido por engano.
+- Portanto é pré-requisito do passo de leitura (premissa de portão interno), não do cadastro de token.
+- Testes: `supabase/tests/ulbra_historico_portao/run.mjs` (PGlite, job `ulbra-historico-portao-pglite`) cobre o portão.
+- Arquivos: `.sql.pendente` e `.rollback.sql` em `supabase/aguardando_aprovacao/`. Hashes na seção de migrations pendentes.
+- Rollback: restaura a versão SEM portão. Não é recuperação automática.
 
 ## Migrations: estado correto (revisão 16/11)
 - `20261110100000_ulbra_historico_orcamento`: APLICADA em produção (ledger 20261112111006). O `.sql.pendente` foi restaurado ao original (sha 163f3b55…); é a MESMA versão aplicada em produção (sha `163f3b55…`, igual ao ledger `20261112111006`). Não deve ser reaplicado.
@@ -147,7 +139,7 @@ Correção mínima (rascunho, NÃO aplicado): (1) concluir o inventário; (2) `R
 
 Localização dos arquivos: `supabase/aguardando_aprovacao/` (convenção do repositório para migrations pendentes de aprovação; não estão em `supabase/migrations/`, por isso não passam pelo CI de migrations nem pelo ledger). Essa localização é decisão pendente da gestão (R4).
 
-Ordem sugerida, cada passo com aprovação específica: (1) `20261111140000`; (2) `20261116150000`, depois de a contenção da v1 estar verificada. Recuperação: rollback de cada uma, na ordem inversa. O rollback de `20261110100000` apaga `ulbra_historico_uso` e NÃO deve ser executado.
+Ordem: ver "Ordem de implantação da leitura" (única).
 
 ## Deno check (CI)
 - Jobs: `ulbra-conversa-deno-check` (sem `DENO_NO_PACKAGE_JSON`) e `tv-dados-deno-check` (com `DENO_NO_PACKAGE_JSON=1`, pelo motivo documentado no próprio job: `npm:openai` no package.json da raiz).
@@ -164,24 +156,8 @@ Ordem sugerida, cada passo com aprovação específica: (1) `20261111140000`; (2
 ## Ação `envio_conferencia` (documentada aqui)
 - `ulbra-conversa` tem a ação `envio_conferencia` (`index.ts`, bloco de conferência): leitura do estado de um envio pelo servidor, restrita pelos perfis de `conferencia.ts`. Não altera a Mensageria. Está fora do cabeçalho de `index.ts`, por isso fica registrada aqui.
 
-## Ordem de implantação (dependências explícitas)
-Tipos de ação, que NÃO são a mesma coisa: **merge** (código na main, sem efeito em produção), **deploy automático** (CI publica função/front), **aplicação manual** (SQL em produção ou publicação de função com aprovação específica). Nada abaixo é automático.
-
-| Passo | Tipo | Depende de | Verificação antes de avançar |
-|---|---|---|---|
-| 0. Contenção da v1 `ulbra-historico` (remover só essa função) | aplicação manual, pela gestão | nada | listagem sem `ulbra-historico` e endpoint indisponível |
-| 1. Aplicar `20261111140000` (tabelas de conexão/prévia/envio e `ulbra_conferir_envio`) | aplicação manual (SQL) | passo 0 | tabelas existem; RLS ligada; sem grant a anon/authenticated |
-| 1b. Aplicar `20261117120000` (função `ulbra_gravar_conexao`, chamada por `index.ts`) | aplicação manual (SQL) | passo 1 | função existe; EXECUTE só service_role; `SECURITY INVOKER`; `search_path` fixo. Sem ela, a gravação de conexão falha (503), sem vazamento |
-| 2. Aplicar corretiva `20261116150000` (portão da RPC) | aplicação manual (SQL) | passo 0 e `20261110100000` aplicada (já está) | pós-conferência do próprio arquivo; EXECUTE só service_role |
-| 3. Publicar `ulbra-conversa` com segredos (`ULBRA_OAUTH_*`, `ULBRA_TOKENS_CHAVE`) e `verify_jwt` | aplicação manual (função) | passos 1 e 2 (a função grava nas tabelas do passo 1) | `historico_capacidade` e `historico_ler` respondem como o teste prevê |
-| 4. Merge desta PR na main (inclui a tela) | merge | passos 0 a 3 | CI da PR verde. Com a porta `true`, a Central chama `historico_capacidade` ao selecionar resposta com vínculo (`CentralUlbra.jsx`); o servidor nega sem `ULBRA_HISTORICO_HABILITADO`, sem qualquer chamada à Mensageria |
-| 5. Deploy do front a partir da main | deploy automático | passo 4 | Central com `HISTORICO_DISPONIVEL = true` (porta de tela); cada botão só aparece com `capacidade` do servidor, que nega enquanto `ULBRA_HISTORICO_HABILITADO` estiver ausente |
-| 6. Conexão de 1 operador piloto | manual (usuário) | passos 3 e 5 | conexão ATIVA, `pessoa_email` igual ao JWT |
-| 7. Ativar `ULBRA_HISTORICO_HABILITADO` (leitura) | aplicação manual (segredo) | passo 6 e aprovação | leitura de 1 conversa com auditoria gravada |
-| 8. Ativar `ULBRA_ENVIO_REAL` e `ULBRA_CONTRATO_PREVIA_CONFIRMADO` (prévia e envio) | aplicação manual (segredo) | passo 7, aprovação do roteiro e **B5 corrigido** (bloqueio obrigatório, separado do piloto de leitura) | prévia sem mensagem enviada; envio só pelo roteiro |
-| 9. (antigo "ligar `HISTORICO_DISPONIVEL`") | **não há mais passo de merge de porta**: a porta já está `true` no passo 4 | — | a conversa só mostra o botão onde `historico_capacidade` concede; a lista só após a RPC produzir `capacidade_historico` (migration própria) |
-
-Recuperação: cada passo tem rollback no próprio arquivo, exceto a v1 (não restaurar a versão vulnerável). O rollback de `20261110100000` NÃO deve ser executado (apaga `ulbra_historico_uso`).
+## Ordem de implantação
+Ver "Ordem de implantação da leitura", no fim deste documento. A tabela anterior foi removida por divergir.
 
 ## Pacote de implantação consolidado da leitura (consolidado em 18/11/2026, head de revisão)
 
@@ -200,10 +176,8 @@ Recuperação: cada passo tem rollback no próprio arquivo, exceto a v1 (não re
 
 Migrations já aplicadas e fora deste pacote: `20261110100000_ulbra_historico_orcamento` (ledger `20261112111006`). Não reaplicar, e não executar o rollback dela.
 
-### Ordem de aplicação (quando houver aprovação específica)
-1. `20261111140000` (tabelas de conexão, prévia e envio).
-2. `20261117120000` (função `ulbra_gravar_conexao`; depende da 1).
-3. `20261116150000` (corretiva do portão da RPC de reserva; não é pré-requisito do piloto de leitura).
+### Ordem de aplicação
+Ver "Ordem de implantação da leitura" (única). Não há outra ordem neste documento.
 
 ### Cobertura de CI (o que roda, em qual ordem)
 - **Job `ulbra-conexao-envio-sql`** (Postgres 17): `supabase/tests/ulbra_conexao_envio/run.cjs` aplica `20261111140000` (`.sql.pendente`) e testa persistência, consumo único, concorrência, guarda e rollback (`.rollback.sql`), inclusive a recusa de rollback com histórico.
@@ -228,16 +202,16 @@ Padrão do repositório: `supabase/ledger/DUAS-TRILHAS.md` (Fluxo B, o padrão) 
 - `ULBRA_OAUTH_CLIENT_ID` e `ULBRA_OAUTH_REDIRECT_URI` ausentes: OAuth fica indisponível no piloto (por configuração).
 - `ULBRA_HISTORICO_PILOTO_EMAILS` ainda não configurada: a leitura só existe depois dela, com a lista restrita ao operador piloto.
 
-### Ordem de implantação da leitura (Fluxo B: nenhuma etapa libera leitura antes dos pré-requisitos)
+### Ordem de implantação da leitura (ÚNICA; Fluxo B; nenhuma etapa libera leitura antes dos pré-requisitos)
 1. **Mesclar** a PR (aprovação específica). O front publicado só consulta `historico_capacidade`; sem a flag de servidor, nada é lido.
 2. Esperar o deploy de produção ficar `READY`.
-3. **Aplicar** `20261111140000` e depois `20261117120000` por `apply_migration`, uma vez cada (aprovação específica). Antes disso, a gravação de conexão não funciona.
+3. **Aplicar, nesta ordem e uma vez cada, por `apply_migration`** (aprovação específica para cada uma): (a) `20261111140000`; (b) `20261117120000`; (c) `20261116150000` (corretiva do portão; pré-requisito do passo de leitura). A `20261110100000` já está aplicada e não é reaplicada.
 4. **Publicar** `ulbra-conversa` com `verify_jwt` a partir da `main` (aprovação específica). Sem `ULBRA_TOKENS_CHAVE`, as ações de conexão respondem 503 `CONEXAO_NAO_CONFIGURADA`.
 5. **Configurar** `ULBRA_TOKENS_CHAVE` (aprovação específica; pré-requisito de implantação, hoje AUSENTE).
-6. **Configurar** `ULBRA_HISTORICO_PILOTO_EMAILS=cobranca10@aelbra.com.br` (aprovação específica). Sem ela, o cadastro de token é negado (`PILOTO_NAO_AUTORIZADO`).
-7. Cadastro do token do operador piloto, pelo próprio operador, com `ULBRA_HISTORICO_HABILITADO` AINDA DESLIGADA (a leitura continua bloqueada).
-8. **Ativar** `ULBRA_HISTORICO_HABILITADO=true` (aprovação específica). Só a partir daqui há leitura.
-9. Verificar: uma conversa lida, com auditoria `ULBRA_HISTORICO_LEITURA` gravada antes do texto, e cota reservada antes da chamada.
+6. **Configurar** `ULBRA_HISTORICO_PILOTO_EMAILS=cobranca10@aelbra.com.br` (aprovação específica). Antes do cadastro: sem ela, o cadastro é negado (`PILOTO_NAO_AUTORIZADO`).
+7. **Cadastro** do token do operador piloto, pelo próprio operador, com `ULBRA_HISTORICO_HABILITADO` ainda DESLIGADA.
+8. **Configurar** `ULBRA_HISTORICO_TETO_OPERADOR_DIA` e `ULBRA_HISTORICO_TETO_GLOBAL_DIA` (opcionais; padrões 50 e 500).
+9. **Ativar por último** `ULBRA_HISTORICO_HABILITADO=true` (aprovação específica). Só a partir daqui há leitura.
 
 ### Verificação
 - Antes de qualquer flag: `historico_capacidade` e `historico_ler` respondem negado com `HISTORICO_DESLIGADO`, sem chamada à Mensageria.
@@ -260,10 +234,10 @@ Padrão do repositório: `supabase/ledger/DUAS-TRILHAS.md` (Fluxo B, o padrão) 
 
 ### Correções desta rodada (comportamento comprovado por teste)
 - **Cadastro de token restrito ao piloto, no servidor:** `conexao_token_pessoal` nega com `PILOTO_NAO_AUTORIZADO` (403) ANTES de validar ou gravar, se o usuário não estiver em `ULBRA_HISTORICO_PILOTO_EMAILS` (lista ausente = negado). Independe de `ULBRA_HISTORICO_HABILITADO`. Testes (t1), (t2), (t3).
-- **Cota antes da chamada externa:** `historico_ler` reserva 1 unidade em `ulbra_historico_reservar` (service_role, migration `20261110100000`, já aplicada em produção) antes de chamar a Mensageria. Esgotada = 429 `COTA_ESGOTADA`; falha ao reservar = 503 `COTA_INDISPONIVEL`. Tetos por dia (fuso de São Paulo) por variáveis: `ULBRA_HISTORICO_TETO_OPERADOR_DIA` (padrão 50) e `ULBRA_HISTORICO_TETO_GLOBAL_DIA` (padrão 500). **Configuração ainda não definida em produção.** Testes (q1), (q2), (q3).
-- **Erro de banco na autorização (cobertura real):** erros nas consultas de conversa, vínculo, casos e responsáveis negam com 503 `AUTORIZACAO_INDISPONIVEL`, sem texto; o log tem só o passo e o código. Erro na verificação de encerramento de caso nega o dono (sem 503). Erro ao ler a conexão e a consulta de usuário NÃO são cobertos por 503 nesta rodada: pendente. Teste (b1) cobre só a conversa; falta cobrir os demais passos.
+- **Cota OBRIGATÓRIA antes da chamada externa:** adaptador de cota ausente nega com 503 `COTA_INDISPONIVEL` antes de qualquer chamada à Mensageria (teste unitário `historico-cota-obrigatoria.test.ts`).  `historico_ler` reserva 1 unidade em `ulbra_historico_reservar` (service_role, migration `20261110100000`, já aplicada em produção) antes de chamar a Mensageria. Esgotada = 429 `COTA_ESGOTADA`; falha ao reservar = 503 `COTA_INDISPONIVEL`. Tetos por dia (fuso de São Paulo) por variáveis: `ULBRA_HISTORICO_TETO_OPERADOR_DIA` (padrão 50) e `ULBRA_HISTORICO_TETO_GLOBAL_DIA` (padrão 500). **Configuração ainda não definida em produção.** Testes (q1), (q2), (q3).
+- **Falha de banco na autorização:** usuário, conexão, conversa, vínculo, casos e responsáveis negam com 503 `AUTORIZACAO_INDISPONIVEL`, sem texto, sem liberar acesso e sem dados no log (só passo e código). Testado no handler: usuário (u1), conexão (u2) e conversa (b1). Vínculo, casos e responsáveis: cobertos no código, sem teste de handler nesta rodada. Erro na verificação de encerramento de caso nega o dono.
 - **Teto inválido (não numérico, zero ou negativo):** a cota nega com 503 `COTA_INDISPONIVEL`, sem chamada à Mensageria. Teste (q4).
 - **Retentativa de revogação:** cada token é tentado até duas vezes antes de se considerar a revogação pendente (`grant-retry.test.ts`, `grant.test.ts`).
-- **Credencial órfã (residual, decisão pendente):** quando a revogação não se confirma e a quarentena não é possível, o sistema registra `ULBRA_OAUTH_REVOGACAO_PENDENTE` na auditoria com os tokens CIFRADOS (`ULBRA_TOKENS_CHAVE`), sem texto. NÃO há procedimento automático de recuperação: a revogação posterior é manual e depende de decisão da gestão sobre guardar token cifrado em auditoria. OAuth fica indisponível no piloto, por configuração.
+- **Credencial órfã (decisão pendente, NÃO aceita pela gestão):** a pendência de revogação grava na auditoria SOMENTE METADADOS (`ULBRA_OAUTH_REVOGACAO_PENDENTE`, contagem de tokens candidatos). Nenhum token é guardado, nem cifrado. Recuperar a revogação exige armazenamento restrito próprio, que depende de migration e aprovação específicas. OAuth permanece DESABILITADO no piloto.
 - **Não há teste de handler para a pendência de revogação**: o caminho de OAuth exige PKCE e não é executado pelos testes de handler. Coberto só em unidade (`grant`).
 - **Pré-requisitos adicionais:** `ULBRA_HISTORICO_PILOTO_EMAILS` (ainda não configurada), `ULBRA_HISTORICO_TETO_OPERADOR_DIA` e `ULBRA_HISTORICO_TETO_GLOBAL_DIA` (opcionais; padrões acima).

@@ -104,7 +104,12 @@ Deno.serve(async (req: Request) => {
   // ilike do PostgREST trata * como curinga (recusado). \ % _ são escapados: e-mail legítimo com _ continua valendo.
   if (email.includes("*")) return responder({ erro: "ACESSO_NEGADO" }, 403);
   const emailLike = email.replace(/[\\%_]/g, (c) => "\\" + c);
-  const { data: usuario } = await sb.from("usuarios").select("email, perfil, ativo").ilike("email", emailLike).eq("ativo", true).limit(1).maybeSingle();
+  const { data: usuario, error: erroUsuario } = await sb.from("usuarios").select("email, perfil, ativo").ilike("email", emailLike).eq("ativo", true).limit(1).maybeSingle();
+  if (erroUsuario) {
+    // Falha de banco não libera acesso e não é "usuário inexistente": indisponibilidade, sem detalhe ao cliente.
+    console.error("ulbra-conversa: consulta de usuário falhou; código:", erroUsuario.code ?? "sem código");
+    return responder({ ok: false, motivo: "AUTORIZACAO_INDISPONIVEL" }, 503);
+  }
   if (!usuario) return responder({ erro: "ACESSO_NEGADO" }, 403);
 
   // Templates ficam fora desta entrega: recusa explícita, nunca envio silencioso como texto.
@@ -121,7 +126,9 @@ Deno.serve(async (req: Request) => {
   const chave = chaveHex ? chaveDeHex(chaveHex) : null;
 
   async function lerRegistro(): Promise<RegistroConexao | null> {
-    const { data: c } = await sb.from("ulbra_conexoes_operador").select("*").eq("operador_email", email).maybeSingle();
+    const { data: c, error: erroConexao } = await sb.from("ulbra_conexoes_operador").select("*").eq("operador_email", email).maybeSingle();
+    // Erro de banco ao ler a conexão NÃO é "sem conexão": lança, e o histórico responde 503 (sem liberar nada).
+    if (erroConexao) bancoHistoricoFalhou("conexão", erroConexao);
     if (!c || !c.access_token_cifrado) return null;
     return {
       operador_email: email,
@@ -271,14 +278,10 @@ Deno.serve(async (req: Request) => {
   async function descartarComRegistro(t: { access_token: string; refresh_token: string | null }, deps: Parameters<typeof descartarGrant>[1]) {
     const d = await descartarGrant(t, deps);
     if ("pendente" in d && d.pendente) {
-      let cifrados: Record<string, string> = {};
-      try {
-        const chave = chaveDeHex(chaveHex ?? "");
-        cifrados = { access: await cifrar(t.access_token, chave), ...(t.refresh_token ? { refresh: await cifrar(t.refresh_token, chave) } : {}) };
-      } catch {
-        cifrados = {}; // sem chave: a pendência ainda é registrada, sem o token
-      }
-      const ok = await auditar("ULBRA_OAUTH_REVOGACAO_PENDENTE", "ulbra_conexoes_operador", { resultado: "PENDENTE", tokens_cifrados: cifrados });
+      // Só METADADOS na auditoria: nenhum token, nem cifrado. A recuperação da revogação exige armazenamento
+      // restrito próprio (decisão pendente, com migration própria). OAuth permanece desabilitado no piloto.
+      const pendentes = (t.refresh_token ? 1 : 0) + (t.access_token ? 1 : 0);
+      const ok = await auditar("ULBRA_OAUTH_REVOGACAO_PENDENTE", "ulbra_conexoes_operador", { resultado: "PENDENTE", tokens_nao_revogados: pendentes });
       if (!ok) console.error("ulbra-conversa: pendência de revogação NÃO registrada");
     }
     return d;

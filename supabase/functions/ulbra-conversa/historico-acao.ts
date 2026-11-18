@@ -19,7 +19,7 @@ export interface AdaptadoresHistorico {
   conexao: DepsHistorico["conexao"];
   lerConversa: DepsHistorico["lerConversa"];
   auditar: DepsHistorico["auditar"];
-  reservarCota?: DepsHistorico["reservarCota"];
+  reservarCota: DepsHistorico["reservarCota"];
 }
 
 export async function executarAcaoHistorico(

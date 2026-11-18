@@ -394,3 +394,24 @@ describe("histórico: erro de banco e cota antes da chamada externa", () => {
     expect(estado.ordem).toEqual(["reserva", "fetch"]);
   });
 });
+
+describe("handler real (index.ts): falha de banco na consulta do usuário e na conexão", () => {
+  it("(u1) erro na consulta do usuário: 503 AUTORIZACAO_INDISPONIVEL, sem acesso, sem chamada à Mensageria", async () => {
+    estado.bancoErroTabela = "usuarios";
+    estado.conexao = await conexaoIndividual("token-individual-do-operador");
+    const r = await chamar({ acao: "historico_ler", conversa_id: CONV });
+    expect(r.status).toBe(503);
+    expect(r.corpo.motivo).toBe("AUTORIZACAO_INDISPONIVEL");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(JSON.stringify(r.corpo)).not.toContain("falha simulada");
+  });
+
+  it("(u2) erro ao ler a conexão individual: 503 AUTORIZACAO_INDISPONIVEL (não é SEM_CONEXAO), sem chamada à Mensageria", async () => {
+    estado.bancoErroTabela = "ulbra_conexoes_operador";
+    estado.conexao = await conexaoIndividual("token-individual-do-operador");
+    const r = await chamar({ acao: "historico_ler", conversa_id: CONV });
+    expect(r.status).toBe(503);
+    expect(r.corpo.motivo).toBe("AUTORIZACAO_INDISPONIVEL");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

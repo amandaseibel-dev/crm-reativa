@@ -31,8 +31,8 @@ export interface DepsHistorico {
   >;
   lerConversa(accessToken: string, args: Record<string, unknown>): Promise<{ erro?: boolean | string | null; dados?: unknown }>;
   auditar(detalhes: Record<string, unknown>): Promise<boolean>;
-  /** Cota compartilhada, reservada ANTES da chamada externa. Ausente = sem controle de cota (só testes). */
-  reservarCota?(): Promise<"OK" | "ESGOTADA" | "INDISPONIVEL">;
+  /** Cota compartilhada, reservada ANTES da chamada externa. OBRIGATÓRIA: adaptador ausente nega. */
+  reservarCota(): Promise<"OK" | "ESGOTADA" | "INDISPONIVEL">;
 }
 
 export interface Saida {
@@ -87,11 +87,10 @@ export async function lerHistoricoAutorizado(d: DepsHistorico): Promise<Saida> {
     ? { id: d.conversaId, limite: 20, antesDe: d.antesDe }
     : { id: d.conversaId, limite: 20 };
   // Cota ANTES da chamada externa: esgotada ou indisponível = nada sai da Mensageria.
-  if (d.reservarCota) {
-    const cota = await d.reservarCota();
-    if (cota === "ESGOTADA") return { status: 429, corpo: { ok: false, motivo: "COTA_ESGOTADA" } };
-    if (cota === "INDISPONIVEL") return { status: 503, corpo: { ok: false, motivo: "COTA_INDISPONIVEL" } };
-  }
+  // Sem adaptador de cota, nega (fail-closed): a leitura nunca ocorre sem reserva.
+  const cota = d.reservarCota ? await d.reservarCota() : "INDISPONIVEL";
+  if (cota === "ESGOTADA") return { status: 429, corpo: { ok: false, motivo: "COTA_ESGOTADA" } };
+  if (cota === "INDISPONIVEL") return { status: 503, corpo: { ok: false, motivo: "COTA_INDISPONIVEL" } };
   let resultado: { erro?: boolean | string | null; dados?: unknown };
   try {
     resultado = await d.lerConversa(conn.access_token, args);

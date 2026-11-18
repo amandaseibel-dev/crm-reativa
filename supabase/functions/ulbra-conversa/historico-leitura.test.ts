@@ -38,6 +38,7 @@ function monta(c: Cenario = {}) {
         ? { ok: true as const, access_token: "tok-individual", pessoa_email: c.pessoaConexao === undefined ? (c.email ?? "operador@aelbra.com.br") : c.pessoaConexao }
         : { ok: false as const, motivo: "SEM_CONEXAO" },
     lerConversa: lerConversa as unknown as DepsHistorico["lerConversa"],
+    reservarCota: async () => "OK" as const,
     auditar,
   };
   return { deps, lerConversa, auditar };

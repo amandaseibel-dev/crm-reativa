@@ -23,6 +23,7 @@ function semConexao(email = "cobranca10@aelbra.com.br") {
     responsaveisDoCliente: async () => [email],
     conexao: async () => ({ ok: false as const, motivo: "SEM_CONEXAO" }),
     lerConversa: lerConversa as unknown as DepsHistorico["lerConversa"],
+    reservarCota: async () => "OK" as const,
     auditar,
   };
   return { deps, lerConversa, auditar };
