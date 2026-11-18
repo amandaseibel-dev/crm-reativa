@@ -1,3 +1,4 @@
+-- defaults de notificacoes (information_schema de producao, 2026-11-18): lida=false, criado_em=now(), id=gen_random_uuid()
 -- RESPONSAVEL e ACORDO: camada de producao (2026-11-18). Definicoes de funcoes_responsavel_prod.json
 -- e gatilhos com pg_get_triggerdef de producao. Donos e grants reproduzidos do levantamento de papeis.
 do $$ begin if not exists (select 1 from pg_roles where rolname='reativa_responsavel_executor') then create role reativa_responsavel_executor nologin; end if; end $$;
@@ -11,8 +12,8 @@ alter table public.notificacoes add column if not exists aluno_id text;
 alter table public.notificacoes add column if not exists solicitacao_link_id uuid;
 alter table public.notificacoes add column if not exists baixa_id uuid;
 alter table public.notificacoes add column if not exists url_destino text;
-alter table public.notificacoes add column if not exists lida boolean not null;
-alter table public.notificacoes add column if not exists criado_em timestamptz not null;
+alter table public.notificacoes add column if not exists lida boolean not null default false;
+alter table public.notificacoes add column if not exists criado_em timestamptz not null default now();
 alter table public.notificacoes add column if not exists lida_em timestamptz;
 alter table public.notificacoes add column if not exists caso_id uuid;
 alter table public.notificacoes add column if not exists link_pagamento_id uuid;
