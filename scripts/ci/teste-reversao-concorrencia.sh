@@ -84,7 +84,13 @@ E_100000=$(efetivas "${TODAS[@]}")
 [ "$(efetivas "$F_EXP" "$F_EML" "$F_LOT")" = "$(printf '%s' "$E_PRE" | tr ';' '\n' | grep -E '^(public\.acoes_massivas_(exportar|exportar_emails_do_lote|concluir_lote)\()' | tr '\n' ';' | sed 's/;$//')" ] || falha "B1: 100000 alterou permissoes efetivas de funcao existente"
 for f in "$F_ENV" "$F_DST"; do
   for r in anon PUBLIC; do
-    [ "$(printf '%s' "$E_100000" | tr ';' '\n' | grep -E "^$f:$r=" | cut -d= -f2)" = "false" ] || falha "B1: 100000 expos $f a $r (esperado: nao)"
+    # grep -F: a assinatura tem parenteses e colchetes (regex). Papel anon pode nao existir nesta bancada.
+    if [ "$r" = "anon" ] && [ "$(P -tA -c "select count(*) from pg_roles where rolname='anon'")" = "0" ]; then
+      echo "B1 info: papel anon inexistente nesta bancada; nao ha concessao possivel a anon"
+      continue
+    fi
+    v=$(printf '%s' "$E_100000" | tr ';' '\n' | grep -F "$f:$r=" | cut -d= -f2 || true)  # vazio = falha abaixo, nao saida silenciosa
+    [ "$v" = "false" ] || falha "B1: 100000 expos $f a $r (valor='$v', esperado: false)"
   done
   for r in authenticated service_role; do
     [ "$(P -tA -c "select has_function_privilege('$r','$f','EXECUTE')::text")" = "true" ] || falha "B1: 100000 nao concede $f a $r"
