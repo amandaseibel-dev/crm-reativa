@@ -1,3 +1,5 @@
+> **HISTÓRICO DE REVISÃO — NÃO É O PROCEDIMENTO VIGENTE.** Ordem, configuração e aprovações deste documento foram substituídas pelo `docs/integracoes/implantacao-leitura-historico-VIGENTE.md`. Em caso de conflito, vale o procedimento vigente.
+
 # Corretiva da RPC de reserva do histórico (`ulbra_historico_reservar`) — pacote separado, NÃO aplicado
 
 **Status:** preparado para revisão. **Nada foi aplicado em produção.** Aplicação exige aprovação específica da gestão.

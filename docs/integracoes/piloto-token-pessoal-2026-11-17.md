@@ -1,3 +1,5 @@
+> **HISTÓRICO DE REVISÃO — NÃO É O PROCEDIMENTO VIGENTE.** Ordem, configuração e aprovações deste documento foram substituídas pelo `docs/integracoes/implantacao-leitura-historico-VIGENTE.md`. Em caso de conflito, vale o procedimento vigente.
+
 # Piloto com token pessoal da Mensageria (17/11/2026)
 
 Alternativa ao OAuth, enquanto o `client_id` do ReATIVA não existe na Mensageria.

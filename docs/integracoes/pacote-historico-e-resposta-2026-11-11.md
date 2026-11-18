@@ -1,3 +1,5 @@
+> **HISTÓRICO DE REVISÃO — NÃO É O PROCEDIMENTO VIGENTE.** Ordem, configuração e aprovações deste documento foram substituídas pelo `docs/integracoes/implantacao-leitura-historico-VIGENTE.md`. Em caso de conflito, vale o procedimento vigente.
+
 # Pacote — histórico e resposta pela Central ULBRA, com autoria individual (para revisão)
 
 Preparado em 11/11/2026. **Nenhuma mensagem enviada, nenhuma credencial alterada, nada publicado nem aplicado.** Frente separada do pacote de 12/11 (#904), que fica intocado.
