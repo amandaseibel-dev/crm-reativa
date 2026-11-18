@@ -1,0 +1,188 @@
+[
+ {
+  "tabela": "casos",
+  "gatilho": "trigger_repor_caso_operador",
+  "decisao": "INCLUIR",
+  "justificativa": "libera o caso (operador_email=null) e grava reposicao_carteira_fila quando a protecao muda; afeta capacidade e fidelizacao. Pendente: carregar com dependencias reais (tipo_fechamento_caso, historico_operadores_alunos, reposicao_carteira_fila)."
+ },
+ {
+  "tabela": "alunos",
+  "gatilho": "trg_sync_acionamento_alunos_para_casos",
+  "decisao": "INCLUIR",
+  "justificativa": "grava casos.data_ultimo_acionamento a partir de alunos (relogio da fidelizacao de 10 dias). Pendente: carregar fn_sync_acionamento_alunos_para_casos."
+ },
+ {
+  "tabela": "alunos",
+  "gatilho": "trg_encerramento_so_gestao",
+  "decisao": "INCLUIR",
+  "justificativa": "dispara em UPDATE OF status_acionamento, que set_resp_aluno zera na troca de responsavel do caminho oficial; valida transicao de encerramento (elegibilidade). Pendente: carregar _encerramento_so_gestao e dependencias."
+ },
+ {
+  "tabela": "casos",
+  "gatilho": "trg_casos_set_encerrado_operacional",
+  "decisao": "INCLUIR",
+  "justificativa": "sem filtro de coluna; define encerrado_operacional, que exclui o caso da elegibilidade do remanejamento. Pendente: carregar casos_set_encerrado_operacional."
+ },
+ {
+  "tabela": "alunos",
+  "gatilho": "trg_tabulacao_redireciona",
+  "decisao": "EXCLUIR",
+  "justificativa": "UPDATE OF status_jornada; os caminhos testados nao escrevem status_jornada."
+ },
+ {
+  "tabela": "alunos",
+  "gatilho": "trg_tabulacao_efeito_financeiro",
+  "decisao": "EXCLUIR",
+  "justificativa": "UPDATE OF status_jornada."
+ },
+ {
+  "tabela": "alunos",
+  "gatilho": "trg_aluno_concluir_retorno_adm_link",
+  "decisao": "EXCLUIR",
+  "justificativa": "UPDATE OF status_atual."
+ },
+ {
+  "tabela": "alunos",
+  "gatilho": "trg_aluno_encerramento_propaga",
+  "decisao": "EXCLUIR",
+  "justificativa": "UPDATE OF status_atual."
+ },
+ {
+  "tabela": "alunos",
+  "gatilho": "trg_atualizar_nome_normalizado",
+  "decisao": "EXCLUIR",
+  "justificativa": "UPDATE OF nome."
+ },
+ {
+  "tabela": "alunos",
+  "gatilho": "trg_fechar_confirmacao_ao_quitar",
+  "decisao": "EXCLUIR",
+  "justificativa": "UPDATE OF status_atual,status_jornada."
+ },
+ {
+  "tabela": "casos",
+  "gatilho": "trg_auditar_nao_acionar",
+  "decisao": "EXCLUIR",
+  "justificativa": "UPDATE OF nao_acionar (filtro) e grava so auditoria."
+ },
+ {
+  "tabela": "casos",
+  "gatilho": "trg_fechar_confirmacao_ao_quitar_caso",
+  "decisao": "EXCLUIR",
+  "justificativa": "UPDATE OF status_atual,quitado_em,origem_quitacao; os caminhos nao escrevem essas colunas."
+ },
+ {
+  "tabela": "alunos",
+  "gatilho": "trg_tabulacao_so_gestao_insert",
+  "decisao": "EXCLUIR",
+  "justificativa": "BEFORE INSERT em alunos; os caminhos testados nao inserem alunos em tabulacao (semeadura de teste: fora do caminho de producao)."
+ },
+ {
+  "tabela": "alunos",
+  "gatilho": "trg_audit_responsavel_aluno",
+  "decisao": "EXCLUIR",
+  "justificativa": "corpo: insere so em audit_log (TROCA_RESPONSAVEL); nao altera responsavel."
+ },
+ {
+  "tabela": "alunos",
+  "gatilho": "trg_audit_del",
+  "decisao": "EXCLUIR",
+  "justificativa": "corpo: fn_audit_generic, insere so em audit_log; so em DELETE."
+ },
+ {
+  "tabela": "casos",
+  "gatilho": "trg_audit_del",
+  "decisao": "EXCLUIR",
+  "justificativa": "corpo: fn_audit_generic; so em DELETE."
+ },
+ {
+  "tabela": "acordos",
+  "gatilho": "trg_audit",
+  "decisao": "EXCLUIR",
+  "justificativa": "corpo: fn_audit_generic, insere so em audit_log."
+ },
+ {
+  "tabela": "casos",
+  "gatilho": "trg_auditar_encerramento_operacional",
+  "decisao": "EXCLUIR",
+  "justificativa": "corpo: insere so em casos_encerramento_auditoria."
+ },
+ {
+  "tabela": "alunos",
+  "gatilho": "trg_aluno_estado_anterior",
+  "decisao": "EXCLUIR",
+  "justificativa": "corpo: insere so em alunos_estado_anterior."
+ },
+ {
+  "tabela": "alunos",
+  "gatilho": "trg_sincronizar_alunos_unificados",
+  "decisao": "EXCLUIR",
+  "justificativa": "corpo: escreve so em alunos_unificados (operador/responsavel espelhados); nao altera alunos.responsavel nem casos."
+ },
+ {
+  "tabela": "casos",
+  "gatilho": "trg_bloquear_alteracoes_restritas_casos",
+  "decisao": "EXCLUIR",
+  "justificativa": "corpo: levanta excecao so se mudam status_financeiro, quitado_em, valor_quitado, valor_cobranca_ajustado e campos de ajuste; o caminho do remanejamento nao escreve essas colunas."
+ },
+ {
+  "tabela": "casos",
+  "gatilho": "trg_zz_caso_nao_duplica_aluno",
+  "decisao": "EXCLUIR",
+  "justificativa": "corpo: levanta excecao so com dois casos abertos para o mesmo aluno; o indice unico ux_casos_uma_ficha_aberta_por_aluno (carregado) ja impede isso; os testes criam um caso aberto por aluno."
+ },
+ {
+  "tabela": "casos",
+  "gatilho": "trg_zz_caso_nao_duplica_aluno_before",
+  "decisao": "EXCLUIR",
+  "justificativa": "idem trg_zz_caso_nao_duplica_aluno (mesma funcao de guarda)."
+ },
+ {
+  "tabela": "acordos",
+  "gatilho": "trg_acordo_bloquear_duplicado",
+  "decisao": "EXCLUIR",
+  "justificativa": "corpo: levanta excecao so com outro acordo ativo do mesmo aluno; os testes criam um acordo por aluno."
+ },
+ {
+  "tabela": "acordos",
+  "gatilho": "trg_acordo_alerta_resolve_acordo",
+  "decisao": "PENDENTE",
+  "justificativa": "UPDATE OF status; corpo nao lido nesta triagem."
+ },
+ {
+  "tabela": "acordos",
+  "gatilho": "trg_acordo_status_reavalia_titulos",
+  "decisao": "PENDENTE",
+  "justificativa": "UPDATE OF status; reavalia titulos (saldo). Corpo lido: chama titulo_reavaliar; efeito sobre saldo nao medido."
+ },
+ {
+  "tabela": "acordos",
+  "gatilho": "trg_fila_acordo_fecha_ao_encerrar",
+  "decisao": "PENDENTE",
+  "justificativa": "UPDATE OF status; atualiza fila_acordos_confirmar; corpo parcialmente lido."
+ },
+ {
+  "tabela": "acordos",
+  "gatilho": "trg_titulo_quita_com_o_acordo",
+  "decisao": "PENDENTE",
+  "justificativa": "titulos quitados por acordo quitado; efeito sobre saldo."
+ },
+ {
+  "tabela": "acordos",
+  "gatilho": "trg_titulos_por_status_acordo",
+  "decisao": "PENDENTE",
+  "justificativa": "atualiza acordos_titulos quando status=QUITADO; efeito sobre saldo."
+ },
+ {
+  "tabela": "acordos",
+  "gatilho": "trg_recalc_acordo",
+  "decisao": "PENDENTE",
+  "justificativa": "AFTER INSERT OR UPDATE sem filtro; corpo nao lido."
+ },
+ {
+  "tabela": "acordos",
+  "gatilho": "trg_efetividade_invalidar_acordos",
+  "decisao": "PENDENTE",
+  "justificativa": "invalida snapshot de efetividade; corpo nao lido (provavelmente sem efeito na protecao)."
+ }
+]
