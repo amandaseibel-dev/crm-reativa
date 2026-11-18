@@ -1,77 +1,91 @@
--- EVIDENCIA DE EXECUCAO dos gatilhos de alunos, casos e acordos nos caminhos testados.
--- Medicao: pg_stat_xact_user_functions com track_functions='all' (somente funcoes plpgsql
--- sao contadas de forma confiavel). Para cada gatilho NAO carregado na fixture:
---  - se UPDATE OF <colunas> e nenhuma coluna da lista e escrita nos caminhos, o gatilho nao
---    pode disparar (filtro de coluna do proprio PostgreSQL) -> justificativa pelo catalogo;
---  - se dispara (contagem > 0) e nao esta carregado -> FALHA (a exclusao nao se sustenta);
---  - se e SQL (contagem nao confiavel) e nao ha filtro de coluna -> FALHA (evidencia insuficiente).
--- Ausencia de contagem em plpgsql NAO e tratada como ausencia de execucao.
+-- EVIDENCIA dos gatilhos de alunos, casos e acordos (B3).
+-- A lista ESPERADA sao os gatilhos de producao de 18/11 (estruturas_prod.json), com a decisao da
+-- triagem (triagem_gatilhos.json). A comparacao e ELEMENTO A ELEMENTO com pg_trigger do CI:
+--   (1) cada gatilho esperado: esta carregado, OU foi EXCLUIDO com justificativa;
+--   (2) cada INCLUIR esperado tem que estar carregado;
+--   (3) gatilho carregado que nao esta na lista de producao e falha.
+-- Conta avaliados e aprovados e exige avaliados = total da lista (nao pode ser vazio).
+-- Contagem de execucao NAO e prova de ausencia e nao entra na decisao.
 \i lib.sql
-set track_functions = 'all';
 select pg_temp.como('amanda.seibel@aelbra.com.br');
-create table if not exists public.cg_evid (fn text primary key, calls bigint);
-delete from public.cg_evid;
-begin;
-create temp table _e on commit preserve rows as select * from pg_temp.semear('carteira.geral@reativa.local', 500, null, 2);
--- caminho 1: remanejamento do aluno (escreve responsavel, data, casos)
-do $$
-declare x record; p jsonb; r jsonb;
-begin
-  select * into x from _e;
-  update public.calibragem_parametros set valor = '700'::jsonb where chave = 'limite_carteira';
-  p := pg_temp.previa(array[x.aluno], 'OPERADOR', 'cobranca05@aelbra.com.br');
-  r := public.carteira_geral_mover((p->>'previa_id')::uuid, 'evidencia');
-end $$;
--- caminho 2: escrita direta de casos (operador)
-update public.casos set operador_email = 'cobranca06@aelbra.com.br', operador_nome = 'Mauricio', operador = 'Mauricio'
- where aluno_id = (select aluno from _e);
--- caminho 3: acordo ativo de operador (escreve acordos)
-insert into public.acordos (id, aluno_id, cpf, status, tipo, forma_pagamento, qtd_parcelas, entrada_paga, criado_em, atualizado_em, numero_acordo, valor_total, operador_responsavel_email, operador_responsavel_nome)
-select gen_random_uuid(), aluno, (select cpf from public.alunos where id = aluno), 'ATIVO', 'PARCELADO', 'BOLETO', 1, false, now(), now(), floor(random()*1e9)::bigint, 100, 'cobranca06@aelbra.com.br', 'Mauricio' from _e;
-insert into public.cg_evid select funcname::text, calls from pg_stat_xact_user_functions where schemaname = 'public';
-commit;
 
--- catalogo: gatilhos das tabelas dos caminhos, com colunas de UPDATE OF e contagem
-create table if not exists public.cg_evid_gatilhos (tabela text, gatilho text, fn text, linguagem text,
-  colunas_update_of text, chamadas bigint, carregado boolean);
-delete from public.cg_evid_gatilhos;
-insert into public.cg_evid_gatilhos
-select c.relname, t.tgname, p.proname, l.lanname,
-  case when t.tgattr::text = '' then null else
-    (select string_agg(a.attname::text, ',') from pg_attribute a where a.attrelid = t.tgrelid and a.attnum = any(t.tgattr)) end,
-  coalesce((select e.calls from public.cg_evid e where e.fn = p.proname), 0),
-  t.tgname in ('trg_guard_resp_aluno','trg_nome_do_operador_no_aluno','trg_sync_casos_resp_aluno','trg_nome_do_operador_no_caso',
-               'trg_sync_alunos_apos_casos','trg_acordo_herda_responsavel','trg_aluno_segue_dono_do_acordo',
-               'trg_atribuir_responsavel_por_acordo','trg_guard_resp_acordo','trg_giro_limpar_marca','trigger_impor_teto_operador',
-               'trg_acionamento_nao_volta_para_nulo','trg_alunos_retorno_origem','trg_aluno_reset_retorno_confirmado','trg_cg_marcador_segue_a_marca',
-               'trigger_repor_caso_operador','trg_sync_acionamento_alunos_para_casos','trg_casos_set_encerrado_operacional','trg_encerramento_so_gestao','trg_recalc_acordo')
-from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
-join pg_proc p on p.oid = t.tgfoid join pg_language l on l.oid = p.prolang
-where c.relname in ('alunos','casos','acordos') and not t.tgisinternal;
+create temp table esperado (tabela text, gatilho text, decisao text, justificativa text) on commit preserve rows;
+insert into esperado values
+('acordos', 'trg_acordo_alerta_resolve_acordo', 'EXCLUIR', 'UPDATE OF status. O remanejamento grava em acordos apenas operador_responsavel_email e atualizado_em (set_resp_acordo); status nao e escrito no caminho, logo o gatilho nao dispara (filtro de coluna do PostgreSQL).'),
+('acordos', 'trg_acordo_bloquear_duplicado', 'EXCLUIR', 'corpo: levanta excecao so com outro acordo ativo do mesmo aluno; os testes criam um acordo por aluno.'),
+('acordos', 'trg_acordo_herda_responsavel', 'SEM_CLASSE', ''),
+('acordos', 'trg_acordo_status_reavalia_titulos', 'EXCLUIR', 'UPDATE OF status (filtro de coluna): o remanejamento nao escreve status de acordo. Corpo: chama titulo_reavaliar (saldo), so relevante quando o status muda.'),
+('acordos', 'trg_aluno_segue_dono_do_acordo', 'SEM_CLASSE', ''),
+('acordos', 'trg_atribuir_responsavel_por_acordo', 'SEM_CLASSE', ''),
+('acordos', 'trg_audit', 'EXCLUIR', 'corpo: fn_audit_generic, insere so em audit_log.'),
+('acordos', 'trg_efetividade_invalidar_acordos', 'EXCLUIR', 'corpo: chama carteira_efetividade_invalidar, que insere so em carteira_efetividade_invalidacao. Nao altera responsavel, protecao, capacidade, elegibilidade nem rollback.'),
+('acordos', 'trg_fila_acordo_fecha_ao_encerrar', 'EXCLUIR', 'UPDATE OF status (filtro de coluna); caminho nao escreve status.'),
+('acordos', 'trg_guard_resp_acordo', 'SEM_CLASSE', ''),
+('acordos', 'trg_recalc_acordo', 'INCLUIR', 'AFTER INSERT OR UPDATE sem filtro; chama recalcular_situacao_aluno, que escreve alunos.data_retorno/retorno_origem. Carregado; teste de retorno preservado passou no CI em 2b36afa4.'),
+('acordos', 'trg_titulo_quita_com_o_acordo', 'EXCLUIR', 'UPDATE OF status (filtro de coluna); caminho nao escreve status.'),
+('acordos', 'trg_titulos_por_status_acordo', 'EXCLUIR', 'UPDATE OF status (filtro de coluna); corpo atua so quando status=QUITADO; caminho nao escreve status.'),
+('alunos', 'trg_acionamento_nao_volta_para_nulo', 'SEM_CLASSE', ''),
+('alunos', 'trg_aluno_concluir_retorno_adm_link', 'EXCLUIR', 'UPDATE OF status_atual.'),
+('alunos', 'trg_aluno_encerramento_propaga', 'EXCLUIR', 'UPDATE OF status_atual.'),
+('alunos', 'trg_aluno_estado_anterior', 'EXCLUIR', 'corpo: insere so em alunos_estado_anterior.'),
+('alunos', 'trg_aluno_reset_retorno_confirmado', 'SEM_CLASSE', ''),
+('alunos', 'trg_alunos_retorno_origem', 'SEM_CLASSE', ''),
+('alunos', 'trg_atualizar_nome_normalizado', 'EXCLUIR', 'UPDATE OF nome.'),
+('alunos', 'trg_audit_del', 'EXCLUIR', 'corpo: fn_audit_generic, insere so em audit_log; so em DELETE.'),
+('alunos', 'trg_audit_responsavel_aluno', 'EXCLUIR', 'corpo: insere so em audit_log (TROCA_RESPONSAVEL); nao altera responsavel.'),
+('alunos', 'trg_encerramento_so_gestao', 'INCLUIR', 'dispara em UPDATE OF status_acionamento, que set_resp_aluno zera na troca de responsavel do caminho oficial; valida transicao de encerramento (elegibilidade). Pendente: carregar _encerramento_so_gestao e dependencias.'),
+('alunos', 'trg_fechar_confirmacao_ao_quitar', 'EXCLUIR', 'UPDATE OF status_atual,status_jornada.'),
+('alunos', 'trg_guard_resp_aluno', 'SEM_CLASSE', ''),
+('alunos', 'trg_nome_do_operador_no_aluno', 'SEM_CLASSE', ''),
+('alunos', 'trg_sincronizar_alunos_unificados', 'EXCLUIR', 'corpo: escreve so em alunos_unificados (operador/responsavel espelhados); nao altera alunos.responsavel nem casos.'),
+('alunos', 'trg_sync_acionamento_alunos_para_casos', 'INCLUIR', 'grava casos.data_ultimo_acionamento a partir de alunos (relogio da fidelizacao de 10 dias). Pendente: carregar fn_sync_acionamento_alunos_para_casos.'),
+('alunos', 'trg_sync_casos_resp_aluno', 'SEM_CLASSE', ''),
+('alunos', 'trg_tabulacao_efeito_financeiro', 'EXCLUIR', 'UPDATE OF status_jornada.'),
+('alunos', 'trg_tabulacao_redireciona', 'EXCLUIR', 'UPDATE OF status_jornada; os caminhos testados nao escrevem status_jornada.'),
+('alunos', 'trg_tabulacao_so_gestao_insert', 'EXCLUIR', 'BEFORE INSERT em alunos; os caminhos testados nao inserem alunos em tabulacao (semeadura de teste: fora do caminho de producao).'),
+('casos', 'trg_audit_del', 'EXCLUIR', 'corpo: fn_audit_generic; so em DELETE.'),
+('casos', 'trg_auditar_encerramento_operacional', 'EXCLUIR', 'corpo: insere so em casos_encerramento_auditoria.'),
+('casos', 'trg_auditar_nao_acionar', 'EXCLUIR', 'UPDATE OF nao_acionar (filtro) e grava so auditoria.'),
+('casos', 'trg_bloquear_alteracoes_restritas_casos', 'EXCLUIR', 'corpo: levanta excecao so se mudam status_financeiro, quitado_em, valor_quitado, valor_cobranca_ajustado e campos de ajuste; o caminho do remanejamento nao escreve essas colunas.'),
+('casos', 'trg_casos_set_encerrado_operacional', 'INCLUIR', 'sem filtro de coluna; define encerrado_operacional, que exclui o caso da elegibilidade do remanejamento. Pendente: carregar casos_set_encerrado_operacional.'),
+('casos', 'trg_fechar_confirmacao_ao_quitar_caso', 'EXCLUIR', 'UPDATE OF status_atual,quitado_em,origem_quitacao; os caminhos nao escrevem essas colunas.'),
+('casos', 'trg_giro_limpar_marca', 'SEM_CLASSE', ''),
+('casos', 'trg_nome_do_operador_no_caso', 'SEM_CLASSE', ''),
+('casos', 'trg_sync_alunos_apos_casos', 'SEM_CLASSE', ''),
+('casos', 'trg_zz_caso_nao_duplica_aluno', 'EXCLUIR', 'corpo: levanta excecao so com dois casos abertos para o mesmo aluno; o indice unico ux_casos_uma_ficha_aberta_por_aluno (carregado) ja impede isso; os testes criam um caso aberto por aluno.'),
+('casos', 'trg_zz_caso_nao_duplica_aluno_before', 'EXCLUIR', 'idem trg_zz_caso_nao_duplica_aluno (mesma funcao de guarda).'),
+('casos', 'trigger_impor_teto_operador', 'SEM_CLASSE', ''),
+('casos', 'trigger_repor_caso_operador', 'INCLUIR', 'libera o caso (operador_email=null) e grava reposicao_carteira_fila quando a protecao muda; afeta capacidade e fidelizacao. Pendente: carregar com dependencias reais (tipo_fechamento_caso, historico_operadores_alunos, reposicao_carteira_fila).');
+
+create temp table carregado on commit preserve rows as
+  select c.relname::text as tabela, t.tgname::text as gatilho
+    from pg_trigger t join pg_class c on c.oid = t.tgrelid
+    join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
+   where not t.tgisinternal and c.relname in ('alunos','casos','acordos');
 
 do $$
-declare g record; escritas text[] := array['responsavel_atual_email','responsavel_atual_nome','responsavel_atual_em',
-  'data_ultimo_acionamento','status_acionamento','proxima_acao','data_retorno','hora_retorno','operador_email','operador_nome',
-  'operador','caso_atualizado_por','caso_atualizado_em','giro_fidelizacao_ate','remanejamento_lote_id','operador_responsavel_email','status'];
-  n_nao_carregado int := 0; n_justif int := 0; n_falha int := 0;
+declare e record; g record;
+  n_total int; n_av int := 0; n_ok int := 0; n_fal int := 0; n_extra int := 0;
 begin
-  for g in select * from public.cg_evid_gatilhos where not carregado loop
-    n_nao_carregado := n_nao_carregado + 1;
-    if g.colunas_update_of is not null and not exists (
-         select 1 from unnest(string_to_array(g.colunas_update_of, ',')) c where c = any(escritas)) then
-      n_justif := n_justif + 1;   -- nao pode disparar: filtro de coluna do PostgreSQL
-      raise notice 'justificado pelo catalogo: % (%) colunas %', g.gatilho, g.tabela, g.colunas_update_of;
-    elsif g.linguagem = 'plpgsql' and g.chamadas > 0 then
-      n_falha := n_falha + 1;
-      raise notice 'FALHA: % disparou (% chamadas) e nao esta carregado', g.gatilho, g.chamadas;
-    elsif g.linguagem <> 'plpgsql' then
-      n_falha := n_falha + 1;
-      raise notice 'FALHA: % (linguagem %) sem filtro de coluna: contagem nao confiavel', g.gatilho, g.linguagem;
+  select count(*) into n_total from esperado;
+  for e in select * from esperado loop
+    n_av := n_av + 1;
+    if exists (select 1 from carregado c where c.tabela = e.tabela and c.gatilho = e.gatilho) then
+      n_ok := n_ok + 1;
+    elsif e.decisao = 'INCLUIR' then
+      n_fal := n_fal + 1; raise notice 'FALHA: % (%) e INCLUIR e nao esta carregado', e.gatilho, e.tabela;
+    elsif e.decisao = 'EXCLUIR' and coalesce(e.justificativa, '') <> '' then
+      n_ok := n_ok + 1;
     else
-      n_justif := n_justif + 1;   -- plpgsql, sem filtro de coluna, sem contagem: observado NAO disparar
-      raise notice 'observado nao disparar nos caminhos: % (plpgsql, contagem 0)', g.gatilho;
+      n_fal := n_fal + 1; raise notice 'FALHA: % (%) sem classificacao valida (%)', e.gatilho, e.tabela, e.decisao;
     end if;
   end loop;
-  perform pg_temp.afirma(n_falha = 0, format('gatilhos omitidos: %s avaliados, %s justificados, %s falhas', n_nao_carregado, n_justif, n_falha));
+  for g in select * from carregado c where not exists (
+        select 1 from esperado e where e.tabela = c.tabela and e.gatilho = c.gatilho) loop
+    n_extra := n_extra + 1; raise notice 'FALHA: % (%) carregado mas ausente da lista de producao', g.gatilho, g.tabela;
+  end loop;
+  raise notice 'gatilhos: %/% avaliados, % aprovados, % falhas, % extras', n_av, n_total, n_ok, n_fal, n_extra;
+  perform pg_temp.afirma(n_total = 45 and n_av = n_total and n_fal = 0 and n_extra = 0,
+    format('gatilhos: %s avaliados, %s aprovados, %s falhas, %s extras', n_av, n_ok, n_fal, n_extra));
 end $$;
 select 'EVIDENCIA OK' as resultado;

@@ -3,175 +3,175 @@
   "tabela": "casos",
   "gatilho": "trigger_repor_caso_operador",
   "decisao": "INCLUIR",
-  "justificativa": "libera o caso (operador_email=null) e grava reposicao_carteira_fila quando a protecao muda; afeta capacidade e fidelizacao. Pendente: carregar com dependencias reais (tipo_fechamento_caso, historico_operadores_alunos, reposicao_carteira_fila)."
+  "justificativa": "libera o caso (operador_email=null) e grava reposicao_carteira_fila quando a protecao muda; afeta capacidade e fidelizacao."
  },
  {
   "tabela": "alunos",
   "gatilho": "trg_sync_acionamento_alunos_para_casos",
   "decisao": "INCLUIR",
-  "justificativa": "grava casos.data_ultimo_acionamento a partir de alunos (relogio da fidelizacao de 10 dias). Pendente: carregar fn_sync_acionamento_alunos_para_casos."
+  "justificativa": "grava casos.data_ultimo_acionamento a partir de alunos (relogio da fidelizacao de 10 dias)."
  },
  {
   "tabela": "alunos",
   "gatilho": "trg_encerramento_so_gestao",
   "decisao": "INCLUIR",
-  "justificativa": "dispara em UPDATE OF status_acionamento, que set_resp_aluno zera na troca de responsavel do caminho oficial; valida transicao de encerramento (elegibilidade). Pendente: carregar _encerramento_so_gestao e dependencias."
+  "justificativa": "dispara em UPDATE OF status_acionamento, que set_resp_aluno zera na troca de responsavel do caminho oficial; valida transicao de encerramento (elegibilidade)."
  },
  {
   "tabela": "casos",
   "gatilho": "trg_casos_set_encerrado_operacional",
   "decisao": "INCLUIR",
-  "justificativa": "sem filtro de coluna; define encerrado_operacional, que exclui o caso da elegibilidade do remanejamento. Pendente: carregar casos_set_encerrado_operacional."
+  "justificativa": "sem filtro de coluna; define encerrado_operacional, que exclui o caso da elegibilidade do remanejamento."
  },
  {
   "tabela": "alunos",
   "gatilho": "trg_tabulacao_redireciona",
   "decisao": "EXCLUIR",
-  "justificativa": "UPDATE OF status_jornada; os caminhos testados nao escrevem status_jornada."
+  "justificativa": "UPDATE OF status_jornada: o remanejamento (set_resp_aluno, trocar_dono) nao escreve status_jornada. Corpo nao lido nesta rodada; filtro de coluna da definicao em producao."
  },
  {
   "tabela": "alunos",
   "gatilho": "trg_tabulacao_efeito_financeiro",
   "decisao": "EXCLUIR",
-  "justificativa": "UPDATE OF status_jornada."
+  "justificativa": "UPDATE OF status_jornada: o remanejamento nao escreve status_jornada (filtro de coluna da definicao em producao)."
  },
  {
   "tabela": "alunos",
   "gatilho": "trg_aluno_concluir_retorno_adm_link",
   "decisao": "EXCLUIR",
-  "justificativa": "UPDATE OF status_atual."
+  "justificativa": "UPDATE OF status_atual com WHEN old.status_atual = LINK_PRONTO_PARA_ENVIO: o remanejamento nao escreve status_atual (definicao em producao)."
  },
  {
   "tabela": "alunos",
   "gatilho": "trg_aluno_encerramento_propaga",
   "decisao": "EXCLUIR",
-  "justificativa": "UPDATE OF status_atual."
+  "justificativa": "UPDATE OF status_atual. Corpo lido em producao (md5 37baf683): so age quando status_atual vira JURIDICO, CANCELAMENTO_COBRANCA ou SUSPENSAO_COBRANCA. O remanejamento nao escreve status_atual."
  },
  {
   "tabela": "alunos",
   "gatilho": "trg_atualizar_nome_normalizado",
   "decisao": "EXCLUIR",
-  "justificativa": "UPDATE OF nome."
+  "justificativa": "UPDATE OF nome (filtro da definicao em producao). O remanejamento nao escreve nome; so age na insercao ou troca de nome."
  },
  {
   "tabela": "alunos",
   "gatilho": "trg_fechar_confirmacao_ao_quitar",
   "decisao": "EXCLUIR",
-  "justificativa": "UPDATE OF status_atual,status_jornada."
+  "justificativa": "UPDATE OF status_atual, status_jornada (filtro da definicao em producao). O remanejamento nao escreve essas colunas."
  },
  {
   "tabela": "casos",
   "gatilho": "trg_auditar_nao_acionar",
   "decisao": "EXCLUIR",
-  "justificativa": "UPDATE OF nao_acionar (filtro) e grava so auditoria."
+  "justificativa": "UPDATE OF nao_acionar (filtro da definicao em producao). O remanejamento nao escreve nao_acionar."
  },
  {
   "tabela": "casos",
   "gatilho": "trg_fechar_confirmacao_ao_quitar_caso",
   "decisao": "EXCLUIR",
-  "justificativa": "UPDATE OF status_atual,quitado_em,origem_quitacao; os caminhos nao escrevem essas colunas."
+  "justificativa": "UPDATE OF status_atual, quitado_em, origem_quitacao (filtro da definicao em producao). O remanejamento nao escreve essas colunas."
  },
  {
   "tabela": "alunos",
   "gatilho": "trg_tabulacao_so_gestao_insert",
   "decisao": "EXCLUIR",
-  "justificativa": "BEFORE INSERT em alunos; os caminhos testados nao inserem alunos em tabulacao (semeadura de teste: fora do caminho de producao)."
+  "justificativa": "BEFORE INSERT em alunos -> _encerramento_so_gestao (md5 5ff3be82, corpo lido em producao). Portao so-gestao com bypass quando session_user e postgres ou service_role. A semeadura de teste roda como postgres, entao o bypass se aplica; nao e exercido pelos caminhos do remanejamento."
  },
  {
   "tabela": "alunos",
   "gatilho": "trg_audit_responsavel_aluno",
   "decisao": "EXCLUIR",
-  "justificativa": "corpo: insere so em audit_log (TROCA_RESPONSAVEL); nao altera responsavel."
+  "justificativa": "Dispara na troca de responsavel (UPDATE OF responsavel_atual_email). Corpo lido em producao (18/11, md5 62eec59f): so grava audit_log TROCA_RESPONSAVEL; nao altera alunos, casos nem acordos."
  },
  {
   "tabela": "alunos",
   "gatilho": "trg_audit_del",
   "decisao": "EXCLUIR",
-  "justificativa": "corpo: fn_audit_generic, insere so em audit_log; so em DELETE."
+  "justificativa": "So em DELETE (AFTER DELETE). Corpo fn_audit_generic lido em producao (md5 8cda58d5): grava so audit_log. O remanejamento nao apaga aluno."
  },
  {
   "tabela": "casos",
   "gatilho": "trg_audit_del",
   "decisao": "EXCLUIR",
-  "justificativa": "corpo: fn_audit_generic; so em DELETE."
+  "justificativa": "So em DELETE. fn_audit_generic (md5 8cda58d5): grava so audit_log. O remanejamento nao apaga caso."
  },
  {
   "tabela": "acordos",
   "gatilho": "trg_audit",
   "decisao": "EXCLUIR",
-  "justificativa": "corpo: fn_audit_generic, insere so em audit_log."
+  "justificativa": "Dispara em acordos quando set_resp_acordo grava operador_responsavel_email. fn_audit_generic (md5 8cda58d5) grava so audit_log; nao altera acordos."
  },
  {
   "tabela": "casos",
   "gatilho": "trg_auditar_encerramento_operacional",
   "decisao": "EXCLUIR",
-  "justificativa": "corpo: insere so em casos_encerramento_auditoria."
+  "justificativa": "WHEN implicito: so age quando encerrado_operacional muda (checado no corpo, md5 c84584c0). Grava so casos_encerramento_auditoria. O remanejamento nao altera encerrado_operacional."
  },
  {
   "tabela": "alunos",
   "gatilho": "trg_aluno_estado_anterior",
   "decisao": "EXCLUIR",
-  "justificativa": "corpo: insere so em alunos_estado_anterior."
+  "justificativa": "BEFORE UPDATE com WHEN old.status_atual IS DISTINCT FROM new.status_atual (filtro da definicao em producao). O remanejamento nao escreve status_atual. Corpo grava so alunos_estado_anterior."
  },
  {
   "tabela": "alunos",
   "gatilho": "trg_sincronizar_alunos_unificados",
   "decisao": "EXCLUIR",
-  "justificativa": "corpo: escreve so em alunos_unificados (operador/responsavel espelhados); nao altera alunos.responsavel nem casos."
+  "justificativa": "Dispara ao trocar dono e retorno (UPDATE OF data_retorno, responsavel_atual_email). Corpo lido em producao (md5 8705c4d0): atualiza so alunos_unificados (espelho de operador e retorno). Nao altera alunos, casos, acordos, protecao, capacidade ou elegibilidade."
  },
  {
   "tabela": "casos",
   "gatilho": "trg_bloquear_alteracoes_restritas_casos",
   "decisao": "EXCLUIR",
-  "justificativa": "corpo: levanta excecao so se mudam status_financeiro, quitado_em, valor_quitado, valor_cobranca_ajustado e campos de ajuste; o caminho do remanejamento nao escreve essas colunas."
+  "justificativa": "BEFORE UPDATE sem filtro de coluna: dispara em todo UPDATE de casos. Corpo lido em producao (md5 06edb227): levanta excecao so se mudam colunas de ajuste, financeiras ou caso_atualizado_por/em, e retorna cedo se crm_usuario_acesso_restrito_amanda() (true para postgres, supabase_admin, service_role e a Amanda). No caminho do remanejamento, caso_atualizado_por/em sao gravados por _sync_casos_resp_aluno (SECURITY DEFINER, dono postgres), que roda como postgres. Justificado por leitura de codigo; nao coberto por teste (gatilho nao carregado)."
  },
  {
   "tabela": "casos",
   "gatilho": "trg_zz_caso_nao_duplica_aluno",
   "decisao": "EXCLUIR",
-  "justificativa": "corpo: levanta excecao so com dois casos abertos para o mesmo aluno; o indice unico ux_casos_uma_ficha_aberta_por_aluno (carregado) ja impede isso; os testes criam um caso aberto por aluno."
+  "justificativa": "Corpo lido em producao (md5 b06f5ef7): levanta excecao so com outro caso aberto do mesmo aluno, e so reabre caso encerrado (BEFORE, old.encerrado=true). O indice unico ux_casos_uma_ficha_aberta_por_aluno, carregado no CI, ja impede a duplicidade; o remanejamento nao reabre caso encerrado."
  },
  {
   "tabela": "casos",
   "gatilho": "trg_zz_caso_nao_duplica_aluno_before",
   "decisao": "EXCLUIR",
-  "justificativa": "idem trg_zz_caso_nao_duplica_aluno (mesma funcao de guarda)."
+  "justificativa": "Mesma funcao _caso_nao_duplica_aluno (md5 b06f5ef7) em BEFORE. Mesma justificativa de trg_zz_caso_nao_duplica_aluno."
  },
  {
   "tabela": "acordos",
   "gatilho": "trg_acordo_bloquear_duplicado",
   "decisao": "EXCLUIR",
-  "justificativa": "corpo: levanta excecao so com outro acordo ativo do mesmo aluno; os testes criam um acordo por aluno."
+  "justificativa": "Corpo lido em producao (md5 ad2a92b4): no INSERT barra so acordo ATIVO duplicado (mesmo aluno, valor_total e qtd_parcelas); no UPDATE so age quando status, valor, parcelas ou aluno mudam. O remanejamento grava so operador_responsavel_email e atualizado_em. Os testes criam um acordo por aluno (p_responsavel, p_evidencia)."
  },
  {
   "tabela": "acordos",
   "gatilho": "trg_acordo_alerta_resolve_acordo",
   "decisao": "EXCLUIR",
-  "justificativa": "UPDATE OF status. O remanejamento grava em acordos apenas operador_responsavel_email e atualizado_em (set_resp_acordo); status nao e escrito no caminho, logo o gatilho nao dispara (filtro de coluna do PostgreSQL)."
+  "justificativa": "UPDATE OF status com WHEN status muda para QUITADO/CANCELADO (definicao em producao). O remanejamento nao escreve status de acordo."
  },
  {
   "tabela": "acordos",
   "gatilho": "trg_acordo_status_reavalia_titulos",
   "decisao": "EXCLUIR",
-  "justificativa": "UPDATE OF status (filtro de coluna): o remanejamento nao escreve status de acordo. Corpo: chama titulo_reavaliar (saldo), so relevante quando o status muda."
+  "justificativa": "UPDATE OF status com WHEN status muda (definicao em producao). O remanejamento nao escreve status de acordo."
  },
  {
   "tabela": "acordos",
   "gatilho": "trg_fila_acordo_fecha_ao_encerrar",
   "decisao": "EXCLUIR",
-  "justificativa": "UPDATE OF status (filtro de coluna); caminho nao escreve status."
+  "justificativa": "UPDATE OF status (filtro da definicao em producao). O remanejamento nao escreve status de acordo."
  },
  {
   "tabela": "acordos",
   "gatilho": "trg_titulo_quita_com_o_acordo",
   "decisao": "EXCLUIR",
-  "justificativa": "UPDATE OF status (filtro de coluna); caminho nao escreve status."
+  "justificativa": "UPDATE OF status (filtro da definicao em producao). O remanejamento nao escreve status de acordo."
  },
  {
   "tabela": "acordos",
   "gatilho": "trg_titulos_por_status_acordo",
   "decisao": "EXCLUIR",
-  "justificativa": "UPDATE OF status (filtro de coluna); corpo atua so quando status=QUITADO; caminho nao escreve status."
+  "justificativa": "UPDATE OF status (filtro da definicao em producao). O remanejamento nao escreve status de acordo."
  },
  {
   "tabela": "acordos",
@@ -183,6 +183,6 @@
   "tabela": "acordos",
   "gatilho": "trg_efetividade_invalidar_acordos",
   "decisao": "EXCLUIR",
-  "justificativa": "corpo: chama carteira_efetividade_invalidar, que insere so em carteira_efetividade_invalidacao. Nao altera responsavel, protecao, capacidade, elegibilidade nem rollback."
+  "justificativa": "Statement-level. Corpo lido em producao (md5 135fbc0e): chama carteira_efetividade_invalidar, que grava so carteira_efetividade_invalidacao; excecao capturada (raise warning). Nao altera responsavel, protecao, capacidade, elegibilidade nem rollback."
  }
 ]

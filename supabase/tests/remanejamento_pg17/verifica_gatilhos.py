@@ -24,6 +24,8 @@ for t in producao:
     elif r["decisao"] == "INCLUIR":
         incluir_sem_carga.append(chave)
 for r in triagem.values():
+    if r["decisao"] not in ("INCLUIR", "EXCLUIR"):
+        print("DECISAO INVALIDA:", r["tabela"], r["gatilho"], r["decisao"]); sys.exit(1)
     if r["decisao"] == "INCLUIR" and f"{r['tabela']}.{r['gatilho']}" not in carregados:
         incluir_sem_carga.append(f"{r['tabela']}.{r['gatilho']}")
 print(f"gatilhos de producao avaliados: {avaliados}")

@@ -115,7 +115,7 @@ psqlt "$LOGS/s2_migration.log" rem_com936 "$OURS" || falha "migration nao aplico
 echo "  ok: migration aplicada sobre a #936"
 
 passo "3. Testes sequenciais (um banco, mesma sessao de cada arquivo)"
-for t in p_destinos p_perfis p_prazo p_saldo_capacidade p_terceiros p_protecao_real p_perfis_extra p_responsavel p_gatilhos_obrigatorios p_evidencia_gatilhos; do
+for t in p_destinos p_perfis p_prazo p_trocadono p_saldo_capacidade p_terceiros p_protecao_real p_perfis_extra p_responsavel p_gatilhos_obrigatorios p_grants p_evidencia_gatilhos; do
   psqlt "$LOGS/$t.log" rem_com936 "$TD/$t.sql" || falha "$t: ver $LOGS/$t.log"
   echo "  ok: $t"
 done
@@ -153,6 +153,10 @@ psqlt "$LOGS/rb_funcs.log" rem_rollback "$PROT/funcoes_prod.sql" || falha "funco
 psqlt "$LOGS/rb_resp_funcs.log" rem_rollback "$PROT/funcoes_responsavel_prod.sql" || falha "funcoes resp (rollback)"
 psqlt "$LOGS/rb_resp.log" rem_rollback "$PROT/responsavel_prod.sql" || falha "camada resp (rollback)"
 psqlt "$LOGS/rb_gat.log" rem_rollback "$PROT/gatilhos_alunos_prod.sql" || falha "gatilhos alunos (rollback)"
+psqlt "$LOGS/rb_obrig.log" rem_rollback "$PROT/gatilhos_obrigatorios_prod.sql" || falha "gatilhos obrigatorios (rollback)"
+# O DML do rollback (UPDATE de casos) so prova algo se os dois gatilhos que reagem a ele estiverem carregados.
+n_dml=$(psql -X -A -t -d rem_rollback -c "select count(*) from pg_trigger t join pg_class c on c.oid = t.tgrelid where not t.tgisinternal and c.relname = 'casos' and t.tgname in ('trigger_repor_caso_operador','trg_casos_set_encerrado_operacional')")
+[ "$n_dml" = 2 ] || falha "rollback: gatilhos do DML carregados = $n_dml de 2"
 psqlt "$LOGS/rb_936.log" rem_rollback "$MIG936" || falha "#936 (rollback)"
 psqlt "$LOGS/rb_mig.log" rem_rollback "$OURS" || falha "migration (rollback)"
 psqlt "$LOGS/rb_a.log" rem_rollback "$TD/p_rollback_a.sql" || falha "rollback parte A: ver $LOGS/rb_a.log"

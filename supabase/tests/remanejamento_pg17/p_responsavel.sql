@@ -62,14 +62,22 @@ begin
     'segue_dono: com mensalidade em aberto o aluno NAO muda de dono');
 end $$;
 
--- (e) preservacao: mover o aluno nao altera o responsavel do acordo
+-- (e) preservacao: o aluno e MOVIDO (acordo CANCELADO, sem protecao) e o responsavel do acordo nao muda.
+-- Com acordo ATIVO o mover recusa (protecao), entao o caso ativo nao prova preservacao: aqui o aluno sai.
+create temp table _e on commit preserve rows as select * from pg_temp.semear('cobranca05@aelbra.com.br', 500, null, 40);
+insert into public.acordos (id, aluno_id, cpf, status, tipo, forma_pagamento, qtd_parcelas, entrada_paga, criado_em, atualizado_em, numero_acordo, valor_total, operador_responsavel_email, operador_responsavel_nome)
+select gen_random_uuid(), aluno, (select cpf from public.alunos where id = aluno), 'CANCELADO', 'PARCELADO', 'BOLETO', 1, false, now(), now(), floor(random()*1e9)::bigint, 100, 'cobranca05@aelbra.com.br', 'Amanda' from _e;
 do $$
 declare x record; p jsonb; r jsonb; antes text;
 begin
-  select * into x from _d;
+  select * into x from _e;
   select operador_responsavel_email into antes from public.acordos where aluno_id = x.aluno limit 1;
   p := pg_temp.previa(array[x.aluno], 'OPERADOR', 'cobranca06@aelbra.com.br');
   r := public.carteira_geral_mover((p->>'previa_id')::uuid, 'preservacao');
+  perform pg_temp.afirma((r->>'alunos_movidos')::int = 1,
+    format('preservacao: o aluno foi movido (alunos_movidos=%s)', r->>'alunos_movidos'));
+  perform pg_temp.afirma((select responsavel_atual_email from public.alunos where id = x.aluno) = 'cobranca06@aelbra.com.br',
+    'preservacao: o aluno de fato trocou de dono');
   perform pg_temp.afirma((select operador_responsavel_email from public.acordos where aluno_id = x.aluno limit 1) = antes,
     'preservacao: responsavel do acordo nao mudou com a movimentacao do aluno');
 end $$;
