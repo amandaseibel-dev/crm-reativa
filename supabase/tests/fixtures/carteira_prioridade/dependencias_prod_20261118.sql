@@ -8,15 +8,12 @@
 --   aluno_pendencia_operacional(uuid)   md5 f1389aa0ce8e017f7ffec5297925b909  DEFINER owner postgres  ACL postgres,service_role
 --   normalizar_status_acionamento(text) md5 5e37ad78f61f9d1853819de6ce18b65c  INVOKER owner postgres  ACL postgres,authenticated,service_role
 --
--- DEPENDENCIAS NAO VERSIONADAS NO REPOSITORIO (stubs de estrutura, nao de regra):
---   tabelas: alunos, casos, acordos_titulos, acordo_titulo_vinculo, acordos,
---            parcelas, baixas_pagamento, solicitacoes_confirmacao_pagamento;
---   tipo: elegibilidade_cobranca (colunas lidas da assinatura da funcao);
---   funcao: parcela_viva(text) lida de producao (md5 21d1dd16...).
---   Por isso a suite marca o que depende de parcela_viva como NAO VALIDADO.
---
--- Este arquivo NAO e prova da elegibilidade de producao: e a estrutura do
--- corpo lido, com dados sinteticos nas tabelas.
+-- DEPENDENCIAS NAO VERSIONADAS NO REPOSITORIO: as TABELAS abaixo sao stubs de
+-- estrutura, criados so com as colunas que as funcoes lidas referenciam. Os
+-- CORPOS das funcoes (abaixo) sao os lidos de producao. parcela_viva (md5
+-- 21d1dd16ff680c8bf0d13523d5780202) foi lida de producao via pg_get_functiondef
+-- em 18/11/2026; a versao da migration 20261007211500 e a mesma no corpo.
+-- Este arquivo NAO e prova de elegibilidade de producao: os dados das tabelas sao sinteticos.
 
 create extension if not exists unaccent;
 

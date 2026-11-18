@@ -57,7 +57,7 @@ describe("exclusão do guiado é fail-closed", () => {
   it("mapa null (carregando ou falhou) exclui todos", () => {
     expect(excluidoDoGuiado(caso("a"), null)).toBe(true);
   });
-  it("contato e resposta não excluem do guiado, só tiram a prioridade", () => {
+  it("(mock de cliente) contato e resposta no mapa não excluem; a regra real está no SQL, testada em PGlite", () => {
     expect(excluidoDoGuiado(caso("f"), mapa)).toBe(false);
   });
   it("snapshot só traz quem tem decisão liberada, na ordem visível", () => {
@@ -112,7 +112,8 @@ describe("migration carteira_prioridade_bordero (guardas de texto; comportamento
   });
   it("grants restritos e rollback escrito", () => {
     expect(sql).toContain("revoke all on function public.carteira_prioridade_bordero(uuid[]) from anon");
-    expect(sql).toContain("drop function if exists public.carteira_prioridade_bordero(uuid[])");
+    const rb = readFileSync(join(here, "../../supabase/rollbacks/20261117100000_carteira_prioridade_bordero.rollback.sql"), "utf-8");
+    expect(rb).toContain("drop function if exists public.carteira_prioridade_bordero(uuid[])");
   });
 });
 
@@ -124,7 +125,7 @@ describe("integração da tela com a RPC (guardas de texto)", () => {
     expect(tela).toContain("p_aluno_ids: ids.slice(i, i + 500)");
   });
   it("erro da consulta deixa o guiado fechado (mapa null)", () => {
-    expect(tela).toMatch(/catch \{\s*if \(ativo\) setPrioridadeBordero\(null\);/);
+    expect(tela).toMatch(/catch \{\s*if \(ativo\) \{ ultimaChaveDecisaoRef\.current = null; setPrioridadeBordero\(null\); \}/);
   });
   it("revalida cada ficha por aluno_id antes de abrir e ausência não libera", () => {
     expect(tela).toContain("p_aluno_ids: [candId]");

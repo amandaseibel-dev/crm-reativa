@@ -2802,27 +2802,30 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   }, [casos, email, veTudo, operadorFiltro]);
   // Decisão de prioridade e exclusão do guiado: RPC carteira_prioridade_bordero,
   // por aluno_id da lista visível, em lotes de 500. Falha = null = guiado fechado.
+  // A chave do último conjunto CARREGADO com sucesso. Gravada só quando a resposta
+  // é aplicada; uma busca cancelada (mudança de casos no meio) não marca a chave.
   const ultimaChaveDecisaoRef = useRef(null);
   useEffect(() => {
     let ativo = true;
     (async () => {
       const ids = [...new Set((casos || []).map((c) => c && c.id).filter(Boolean))];
-      // Só recarrega quando o CONJUNTO de ids muda; recarregar após cada ficha
-      // não deve refazer a consulta inteira.
       const chave = ids.slice().sort().join(',');
       if (chave === ultimaChaveDecisaoRef.current && prioridadeBordero !== null) return;
-      ultimaChaveDecisaoRef.current = chave;
-      if (!ids.length) { if (ativo) setPrioridadeBordero({}); return; }
+      if (!ids.length) {
+        if (ativo) { ultimaChaveDecisaoRef.current = chave; setPrioridadeBordero({}); }
+        return;
+      }
       try {
         const mapa = {};
         for (let i = 0; i < ids.length; i += 500) {
           const { data, error } = await supabase.rpc("carteira_prioridade_bordero", { p_aluno_ids: ids.slice(i, i + 500) });
           if (error) throw error;
+          if (!ativo) return;
           (data || []).forEach((r) => { mapa[String(r.aluno_id)] = r; });
         }
-        if (ativo) setPrioridadeBordero(mapa);
+        if (ativo) { ultimaChaveDecisaoRef.current = chave; setPrioridadeBordero(mapa); }
       } catch {
-        if (ativo) setPrioridadeBordero(null);
+        if (ativo) { ultimaChaveDecisaoRef.current = null; setPrioridadeBordero(null); }
       }
     })();
     return () => { ativo = false; };

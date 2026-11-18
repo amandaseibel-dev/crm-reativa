@@ -1,49 +1,51 @@
--- Decisão de prioridade e de exclusão do Acionamento Guiado, centralizada no banco.
+-- Decisão de prioridade e de exclusão do Acionamento Guiado, no banco.
 --
--- Chave: aluno_id. Sem CPF no retorno.
--- Entrada: lista de aluno_id da carteira visível (o cliente envia em lotes).
--- Saída: UMA linha por aluno autorizado. Aluno sem linha = não autorizado ou
---   não consultado: o cliente trata como EXCLUÍDO (ausência nunca libera).
+-- Chave: aluno_id. Sem CPF nem nome no retorno.
+-- Entrada: lista de aluno_id da carteira visível (o cliente envia em lotes de até 500).
+-- Saída: UMA linha por aluno autorizado. Aluno sem linha = não autorizado ou não
+--   consultado: o cliente trata como EXCLUÍDO (ausência nunca libera).
 --
 -- Autorização interna (SECURITY DEFINER, search_path fixo):
 --   - o chamador precisa estar ATIVO em public.usuarios (pelo JWT);
---   - operador: só alunos com caso ativo sob a própria responsabilidade
---     ou aluno cujo responsável atual é ele;
+--   - operador: só alunos cujo responsável atual (alunos.responsavel_atual_email,
+--     a mesma chave usada pela tela) é o próprio chamador;
 --   - gestão (public.usuario_e_gestao()): pode consultar o escopo permitido.
---   Nenhuma tabela de lotes é aberta: a leitura de acoes_massivas_lotes
---   acontece aqui dentro, restrita aos alunos já autorizados.
+--   A tabela de lotes não é aberta: é lida aqui dentro, só para os alunos autorizados.
 --
--- Regras:
---   - PRIORIDADE (sobe na Fila inteligente): em população 2026 (títulos
---     abertos de borderô com vencimento em 2026, saldo > 0), elegível pela
---     elegibilidade canônica, sem bloqueio, sem pagamento pendente, sem lote
---     pendente e SEM acionamento desde a entrada mais recente desse aluno.
---   - Acionamento desde a entrada = os TRÊS tipos da PREMISSAS §9
---     (FINALIZACAO_ATENDIMENTO, ACAO_MASSIVA_EXTERNA, ACAO_MASSIVA_EXTERNA_EMAIL),
---     ou envio WhatsApp confirmado, ou resposta recebida. WhatsApp não consta
---     em §9; é tratado como evidência de contato porque o envio já ocorreu.
---   - EXCLUSÃO DO GUIADO (nunca abre a ficha): bloqueio efetivo; pagamento ou
---     confirmação PENDENTE (estado atual, não evento histórico); lote de
---     exportação não confirmado nem descartado (contato duplicado).
---   - Lote pendente NÃO conta como envio realizado.
---   - Resposta recebida e envio realizado são campos separados.
---   - Quitação NÃO é contato.
---   - eh_tipo_acionamento NÃO é alterada por esta migration.
+-- Regras (PREMISSAS §9 e §12):
+--   - PRIORIDADE (sobe na Fila inteligente): população 2026 (títulos abertos de
+--     borderô com vencimento em 2026, saldo > 0), elegível pela elegibilidade
+--     canônica, sem bloqueio, sem pagamento pendente, sem lote pendente e SEM
+--     acionamento desde a entrada mais recente do aluno. "Acionamento" = somente
+--     os três tipos da PREMISSAS §9 (FINALIZACAO_ATENDIMENTO, ACAO_MASSIVA_EXTERNA,
+--     ACAO_MASSIVA_EXTERNA_EMAIL).
+--   - INFORMATIVOS (não alteram a prioridade): envio_realizado (WhatsApp de saída
+--     com status ENVIADO) e resposta_recebida (WhatsApp de entrada). Ficam
+--     separados para a tela e a gestão; não são tipos de §9.
+--   - EXCLUSÃO DO GUIADO (a ficha não abre): bloqueio efetivo; pagamento ou
+--     confirmação PENDENTE (estado atual, não evento histórico); lote de exportação
+--     não confirmado nem descartado (contato duplicado). Lote pendente não conta
+--     como envio realizado.
+--   - Quitação NÃO é contato. eh_tipo_acionamento NÃO é alterada por esta migration.
+--   - Exceção registrada à §12: a ORDEM da lista visível continua no cliente; as
+--     decisões de quem é prioridade, quem é excluído e de que população são
+--     calculadas aqui. Ver docs/seguranca/propostas/carteira-prioridade-dependencias.md.
 --
--- Fuso: importacoes.created_at é timestamp sem fuso com default now(); o
--- servidor está em UTC. Convertido com `at time zone 'UTC'`.
+-- Fuso (evidência em produção, 18/11/2026): importacoes.created_at é timestamp
+-- SEM fuso com default now(), e o fuso da sessão do servidor é UTC. Por isso o
+-- valor armazenado é UTC, e a conversão usada é `at time zone 'UTC'`.
 --
--- Definições reais de dependências (lidas em produção, somente leitura,
--- 18/11/2026; ver docs/seguranca/propostas/carteira-prioridade-dependencias.md):
---   aluno_elegibilidade_cobranca(uuid) - SECURITY DEFINER, owner postgres,
---     search_path=public, md5 d87c10aac1d733bbf2bdd4683265f3e3.
---     ACL: postgres, service_role (authenticated NÃO tem EXECUTE; por isso
---     esta função a chama como definer).
---   usuario_e_gestao() - SECURITY DEFINER, owner postgres, search_path=public,
---     md5 af3d391f4234e6a352585777897568e4. ACL inclui authenticated.
---     Gestão = lista fixa de três e-mails no corpo da função.
+-- Dependências lidas em produção (corpos e md5 em
+-- supabase/tests/fixtures/carteira_prioridade/dependencias_prod_20261118.sql):
+--   aluno_elegibilidade_cobranca(uuid), usuario_e_gestao(), saldo_cobravel_aluno(uuid),
+--   aluno_bloqueio_administrativo(uuid), aluno_pendencia_operacional(uuid),
+--   normalizar_status_acionamento(text), parcela_viva(text).
+--   Tipos reais confirmados: aluno_movimentacoes.aluno_id text;
+--   solicitacoes_confirmacao_pagamento.aluno_id text; whatsapp_mensagens com
+--   timestamptz; acoes_massivas_lotes.aluno_ids text[].
 --
--- Não aplicar em produção sem aprovação. Rollback abaixo.
+-- Não aplicar em produção sem aprovação. Rollback: supabase/rollbacks/
+-- 20261117100000_carteira_prioridade_bordero.rollback.sql.
 
 create or replace function public.carteira_prioridade_bordero(p_aluno_ids uuid[])
 returns table (
@@ -182,8 +184,9 @@ $function$;
 revoke all on function public.carteira_prioridade_bordero(uuid[]) from public;
 revoke all on function public.carteira_prioridade_bordero(uuid[]) from anon;
 revoke all on function public.carteira_prioridade_bordero(uuid[]) from service_role;
+do $$ begin
+  if exists (select 1 from pg_roles where rolname = 'reativa_responsavel_executor') then
+    execute 'revoke all on function public.carteira_prioridade_bordero(uuid[]) from reativa_responsavel_executor';
+  end if;
+end $$;
 grant execute on function public.carteira_prioridade_bordero(uuid[]) to authenticated;
-
--- ROLLBACK (somente se aplicada e precisar ser revertida; não altera dado):
---   drop function if exists public.carteira_prioridade_bordero(uuid[]);
--- Sem a função, a tela não consegue revalidar: o guiado fica fechado (fail-closed).

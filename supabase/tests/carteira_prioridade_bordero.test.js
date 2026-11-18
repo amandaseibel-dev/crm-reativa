@@ -224,6 +224,43 @@ describe("carteira_prioridade_bordero: regras de decisão", () => {
   });
 });
 
+describe("carteira_prioridade_bordero: titularidade, NULL, WhatsApp e lote", () => {
+  it("titularidade usa alunos.responsavel_atual_email (chave da tela), não casos.operador_email", async () => {
+    const db = await novoBanco();
+    await cenarioBase(db);
+    const id = await aluno(db, 50, { resp: "op@a.local" });
+    await db.exec(`update casos set operador_email = 'op@b.local' where aluno_id = '${id}'`);
+    const rowsA = await chamar(db, "op@a.local", [id]);
+    expect(rowsA.map((r) => r.aluno_id)).toEqual([id]);
+    const rowsB = await chamar(db, "op@b.local", [id]);
+    expect(rowsB).toHaveLength(0);
+  });
+  it("id NULL nunca gera linha", async () => {
+    const db = await novoBanco();
+    await cenarioBase(db);
+    const id = await aluno(db, 51);
+    const rows = await chamar(db, "op@a.local", [null, id]);
+    expect(rows.map((r) => r.aluno_id)).toEqual([id]);
+  });
+  it("WhatsApp de entrada após a entrada informa resposta mas NÃO tira a prioridade (§9)", async () => {
+    const db = await novoBanco();
+    await cenarioBase(db);
+    const id = await aluno(db, 52);
+    const conv = await db.query("insert into whatsapp_conversas (aluno_id) values ($1) returning id", [id]);
+    await db.exec(`insert into whatsapp_mensagens (conversa_id, direcao, status, timestamp_wa, criado_em)
+                   values ('${conv.rows[0].id}', 'ENTRADA', 'RECEBIDA', timestamp '2026-11-10 10:00:00+00', now())`);
+    const [r] = await chamar(db, "op@a.local", [id]);
+    expect(r.resposta_recebida).toBe(true);
+    expect(r.prioridade).toBe(true);
+  });
+  it("lote acima de 500 ids é recusado pela RPC", async () => {
+    const db = await novoBanco();
+    await cenarioBase(db);
+    const ids = Array.from({ length: 501 }, (_, i) => UUID(i + 10000));
+    await expect(chamar(db, "op@a.local", ids)).rejects.toThrow(/500/);
+  });
+});
+
 describe("carteira_prioridade_bordero: população grande e revalidação", () => {
   it("mais de 1.000 alunos em lotes de 500, sem truncamento", async () => {
     const db = await novoBanco();
@@ -268,7 +305,7 @@ describe("migration: propriedades estáticas", () => {
     expect(MIGRATION).toMatch(/security definer/i);
     expect(MIGRATION).toMatch(/set search_path = public/i);
   });
-  it("grants: revoga de public e anon, concede a authenticated e service_role", () => {
+  it("grants: revoga de public, anon e service_role; concede a authenticated", () => {
     expect(MIGRATION).toMatch(/revoke all on function public\.carteira_prioridade_bordero\(uuid\[\]\) from public/);
     expect(MIGRATION).toMatch(/revoke all on function public\.carteira_prioridade_bordero\(uuid\[\]\) from anon/);
     expect(MIGRATION).toMatch(/grant execute on function public\.carteira_prioridade_bordero\(uuid\[\]\) to authenticated/);
