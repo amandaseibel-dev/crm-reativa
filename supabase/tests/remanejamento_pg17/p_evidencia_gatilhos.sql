@@ -79,9 +79,15 @@ begin
       n_fal := n_fal + 1; raise notice 'FALHA: % (%) sem classificacao valida (%)', ex.gatilho, ex.tabela, ex.decisao;
     end if;
   end loop;
+  -- Unico gatilho carregado fora da lista de producao: o que a PROPRIA migracao cria (ainda nao existe em
+  -- producao). Excecao explicita e nomeada; qualquer outro extra e falha.
   for cl in select * from carregado k where not exists (
         select 1 from esperado x where x.tabela = k.tabela and x.gatilho = k.gatilho) loop
-    n_extra := n_extra + 1; raise notice 'FALHA: % (%) carregado mas ausente da lista de producao', cl.gatilho, cl.tabela;
+    if cl.gatilho = 'trg_cg_marcador_segue_a_marca' then
+      raise notice 'novo desta migracao (fora da producao, esperado): % (%)', cl.gatilho, cl.tabela;
+    else
+      n_extra := n_extra + 1; raise notice 'FALHA: % (%) carregado mas ausente da lista de producao', cl.gatilho, cl.tabela;
+    end if;
   end loop;
   raise notice 'gatilhos: %/% avaliados, % aprovados, % falhas, % extras', n_av, n_total, n_ok, n_fal, n_extra;
   perform pg_temp.afirma(n_total = 45 and n_av = n_total and n_fal = 0 and n_extra = 0,
