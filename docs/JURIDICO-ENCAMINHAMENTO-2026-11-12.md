@@ -114,7 +114,8 @@ Identificação pelo telefone (medida em produção, leitura, 500 conversas mais
   (3 IDENTIFICADO com outro aluno, 41 de 46 MANUAL, 6 NAO_ENCONTRADO, 2 AMBIGUO).
 - Exigir prova para TODO envio afetaria essas 52 conversas, inclusive envio comum. Por isso a checagem exige prova
   só quando um aluno BLOQUEADO está envolvido (o vinculado, ou um que o telefone identifica, inclusive entre os
-  candidatos de telefone ambíguo). Envio comum não muda. Essa garantia é do código; produção não foi reexecutada com
+  candidatos de telefone ambíguo). A identificação não é exigida em envio sem bloqueio envolvido. MAS a recusa de conversa SEM aluno_id vale para
+  todo envio pelo fluxo, com ou sem bloqueio (impacto operacional NÃO medido em produção). Essa garantia é do código; produção não foi reexecutada com
   a regra nova.
 - Não provado por teste: a normalização de telefone e os telefones de responsáveis em produção. A fixture do
   banco de teste casa só `alunos.telefone`.
@@ -466,3 +467,15 @@ está na seção "Critério de data do pagamento no extrato Prime" acima.
 - Migration: NÃO reverter com as edges novas no ar (o rollback remove `juridico_checar_envio`; com ela ausente as edges
   recusam tudo, o que também mantém o envio bloqueado). O rollback só é executado depois de decisão da gestão.
 - Vínculo entre as versões 23/10 e commits do git: NÃO identificado por leitura. Não é necessário para a recuperação acima.
+
+### Acesso e mensagem de recusa (rodada final, após reprovação de 3f366f81)
+
+- Acesso ao detalhe de bloqueio: gestão (`usuario_e_gestao`) OU responsável da conversa = e-mail do operador,
+  com usuário ativo (`app_usuario_ativo`). É a mesma régua de `juridico_bloqueio_ids`. Quem não tem acesso recebe
+  `Envio não permitido por este fluxo para esta conversa.`
+- Chave de recuperação `ENVIO_WHATSAPP_DESLIGADO`: desliga com qualquer valor que não seja vazio nem falso explícito
+  (`false`, `0`, `no`, `off`, `nao`). Fail-closed para digitação errada.
+- LIMITE ABERTO (decisão fora deste delta): o preparo (`whatsapp_preparar_envio`) permite enviar a conversa SEM
+  responsável a qualquer operador ativo. Nesse caso, a diferença entre "recusa genérica" (aluno bloqueado) e
+  "envio realizado" (aluno sem bloqueio) ainda revela o bloqueio a quem não é responsável. Só se fecha mudando a regra
+  de conversa sem responsável no módulo de WhatsApp. Não alterado nesta entrega.

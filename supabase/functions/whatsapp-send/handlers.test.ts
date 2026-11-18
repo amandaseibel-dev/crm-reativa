@@ -25,6 +25,7 @@ vi.mock("https://esm.sh/@supabase/supabase-js@2", () => ({
         estado.chamadas.push({ nome, args });
         let r: any = { data: null, error: null };
         if (nome === "app_usuario_ativo") r = { data: estado.ativo, error: null };
+        if (nome === "usuario_e_gestao") r = { data: false, error: null };
         if (nome === "juridico_checar_envio" && estado.checar) r = { data: null, error: estado.checar };
         if (nome === "whatsapp_preparar_envio") {
           if (estado.preparoLanca) throw new Error("preparo falhou");
@@ -38,7 +39,7 @@ vi.mock("https://esm.sh/@supabase/supabase-js@2", () => ({
         eq: () => ({
           maybeSingle: async () => {
             estado.chamadas.push({ nome: `from:${tabela}`, args: {} });
-            if (campo === "id") return { data: estado.acesso ? { id: "c-1" } : null, error: null };
+            if (campo === "responsavel_email") return { data: { responsavel_email: estado.acesso ? "op1@x" : "outro@x" }, error: null };
             return { data: { aluno_id: estado.conversaAluno }, error: null };
           },
         }),

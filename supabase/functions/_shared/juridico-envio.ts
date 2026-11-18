@@ -92,24 +92,31 @@ export async function alunoDaConversa(
 // aluno, nem o motivo: so diz que o envio nao e permitido por este fluxo.
 export const MENSAGEM_RECUSA_GENERICA = "Envio não permitido por este fluxo para esta conversa.";
 
-// Acesso de leitura do operador a conversa, pelo JWT dele (RLS). Ativo em usuarios (app_usuario_ativo) E a
-// conversa visivel. Erro = sem acesso (fail-closed).
+// Acesso do operador a conversa, com a MESMA regra de juridico_bloqueio_ids: gestao (usuario_e_gestao) ou
+// responsavel da conversa = e-mail do operador. Usuario inativo (app_usuario_ativo) nao tem acesso. Erro = sem acesso.
 export async function temAcessoConversa(
   cliente: { rpc: any; from: any },
   conversaId: string | null,
+  emailOperador: string,
 ): Promise<boolean> {
-  if (!conversaId) return false;
+  if (!conversaId || !emailOperador) return false;
   try {
     const { data: ativo, error: erroAtivo } = await cliente.rpc("app_usuario_ativo");
     if (erroAtivo || ativo !== true) return false;
-    const { data, error } = await cliente.from("whatsapp_conversas").select("id").eq("id", conversaId).maybeSingle();
-    return !error && !!data;
+    const { data: gestao, error: erroGestao } = await cliente.rpc("usuario_e_gestao");
+    if (!erroGestao && gestao === true) return true;
+    const { data, error } = await cliente.from("whatsapp_conversas").select("responsavel_email").eq("id", conversaId).maybeSingle();
+    if (error || !data || !data.responsavel_email) return false;
+    return String(data.responsavel_email).toLowerCase() === emailOperador.toLowerCase();
   } catch {
     return false;
   }
 }
 
-// Recuperacao: se a variavel estiver ligada, a funcao recusa TODO envio (fail-closed) sem tocar em banco.
+// Recuperacao: envio DESLIGADO por padrao quando a variavel tem qualquer valor que nao seja "falso" explicito.
+// Fail-closed: "true", "1", "sim", "on" e digitacao errada desligam o envio. Vazio = ligado (estado normal).
 export function envioDesligado(valor: string | undefined): boolean {
-  return (valor || "").toLowerCase() === "true";
+  const v = (valor ?? "").trim().toLowerCase();
+  if (v === "") return false;
+  return !["false", "0", "no", "off", "nao", "não"].includes(v);
 }

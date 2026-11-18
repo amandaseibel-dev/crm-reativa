@@ -160,7 +160,7 @@ Deno.serve(async (req) => {
       if (erroReg) console.error("recusa juridica nao registrada", erroReg.code);
     }
     // Detalhe SO para quem tem acesso (usuario ativo + conversa visivel). Quem nao tem: recusa generica.
-    const acesso = await temAcessoConversa(comoOperador, corpo.conversa_id ?? null);
+    const acesso = await temAcessoConversa(comoOperador, corpo.conversa_id ?? null, operadorEmail);
     const msg = checagem.bloqueio && !acesso ? MENSAGEM_RECUSA_GENERICA : checagem.erro;
     return jsonResp({ erro: msg, conversa_id: corpo.conversa_id }, 403);
   }

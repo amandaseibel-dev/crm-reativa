@@ -154,7 +154,7 @@ Deno.serve(async (req) => {
       });
       if (erroReg) console.error("recusa juridica nao registrada", erroReg.code);
     }
-    const acesso = await temAcessoConversa(comoOperador, conversaId);
+    const acesso = await temAcessoConversa(comoOperador, conversaId, operadorEmail);
     const msg = checagem.bloqueio && !acesso ? MENSAGEM_RECUSA_GENERICA : checagem.erro;
     return jsonResp({ erro: msg, conversa_id: conversaId }, 403);
   }
