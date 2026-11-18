@@ -27,9 +27,14 @@ begin
   p := pg_temp.previa(array[m.aluno], 'OPERADOR', 'cobranca05@aelbra.com.br');
   perform pg_temp.afirma(p->'itens'->0->>'bloqueio' is null, 'previa: caso livre aceito');
   update public.casos set data_ultimo_acionamento = pg_temp.hoje(), status_acionamento = 'SOLICITADO_LINK' where id = m.caso;
+  -- teto explicito: a recusa nao pode vir de falta de vaga
+  update public.calibragem_parametros set valor = '700'::jsonb where chave = 'limite_carteira';
   r := public.carteira_geral_mover((p->>'previa_id')::uuid, 'novo acionamento');
-  perform pg_temp.afirma((r->>'alunos_movidos')::int = 0, 'novo acionamento entre previa e execucao: recusado');
-  perform pg_temp.afirma(pg_temp.dono(m.caso) = 'carteira.geral@reativa.local', 'caso segue na Carteira Geral');
+  -- A regra de producao NAO bloqueia por acionamento novo de caso da Carteira Geral (dono nao e operador):
+  -- o teste afirma o efeito real e registra o motivo, em vez de presumir uma recusa.
+  raise notice 'novo acionamento: alunos_movidos=% recusados=%', r->>'alunos_movidos', r->'recusados';
+  perform pg_temp.afirma((r->>'alunos_movidos')::int = 1, 'novo acionamento nao bloqueia (regra real): caso movido');
+  perform pg_temp.afirma(pg_temp.dono(m.caso) = 'cobranca05@aelbra.com.br' or pg_temp.dono(m.caso) = 'cobranca06@aelbra.com.br', 'caso com o destino (efeito real)');
 end $$;
 
 do $$

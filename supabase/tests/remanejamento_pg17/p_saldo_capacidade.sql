@@ -30,4 +30,5 @@ begin
   perform pg_temp.afirma((r->>'alunos_movidos')::int = 0, 'execucao: nao move quando nao ha vaga');
   perform pg_temp.afirma(pg_temp.dono(x.caso) = 'carteira.geral@reativa.local', 'caso segue na Carteira Geral');
 end $$;
+update public.calibragem_parametros set valor = '700'::jsonb where chave = 'limite_carteira';  -- restaura: nao vaza para o proximo arquivo
 select 'SALDO E CAPACIDADE OK' as resultado;

@@ -120,6 +120,10 @@ for t in p_destinos p_perfis p_prazo p_saldo_capacidade p_terceiros p_protecao_r
   echo "  ok: $t"
 done
 
+passo "3b. Gatilhos carregados no CI x lista de producao"
+psql -X -A -t -d rem_com936 -c "select c.relname||'.'||t.tgname from pg_trigger t join pg_class c on c.oid=t.tgrelid where not t.tgisinternal and c.relname in ('alunos','casos','acordos')" > "$LOGS/gatilhos_carregados.txt"
+python3 "$DIR/verifica_gatilhos.py" "$LOGS/gatilhos_carregados.txt" | tee "$LOGS/verifica_gatilhos.txt" || falha "gatilhos: avaliacao contra a lista de producao"
+
 passo "4. Concorrencia: duas sessoes psql em paralelo"
 psqlt "$LOGS/conc_setup.log" rem_com936 "$TD/p_conc_setup.sql" || falha "preparo da concorrencia: ver $LOGS/conc_setup.log"
 ( psqlt "$LOGS/conc_a.log" rem_com936 "$TD/p_conc_a.sql"; echo $? > "$LOGS/conc_a.rc" ) &
