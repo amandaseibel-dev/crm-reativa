@@ -19,7 +19,7 @@ begin
 end $$;
 
 -- (2) REPOSICAO: a protecao do caso cai (de protegido para nao protegido) -> o gatilho libera o caso e grava reposicao
-create temp table _g2 on commit preserve rows as select * from pg_temp.semear('cobranca05@aelbra.com.br', 400, null, 40, 'SOLICITADO_LINK');
+create temp table _g2 on commit preserve rows as select * from pg_temp.semear('cobranca05@aelbra.com.br', 400, null, 40, 'ACORDO_FECHADO');  -- status protegido em producao (lista de caso_protegido_redistribuicao)
 do $$
 declare x record; n0 int; n1 int;
 begin
