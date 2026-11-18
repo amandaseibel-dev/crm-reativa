@@ -2,7 +2,7 @@
 --  (a) retorno agendado (data, hora, origem, proxima acao) fica exatamente como estava;
 --  (b) casos.data_retorno fica como estava;
 --  (c) a agenda do operador e reapontada para o novo dono, com data/hora (retorno_em) intactas;
---  (d) data_ultimo_acionamento e zerado na troca de dono (regra: troca de operador apaga acionamento).
+--  (d) data_ultimo_acionamento e PRESERVADO na troca de dono (trg_acionamento_nao_volta_para_nulo, producao).
 \i lib.sql
 select pg_temp.como('amanda.seibel@aelbra.com.br');
 update public.calibragem_parametros set valor = '700'::jsonb where chave = 'limite_carteira';
@@ -55,11 +55,12 @@ begin
   perform pg_temp.afirma((select status from public.operador_agenda where aluno_id = x.aluno::text) = 'PENDENTE',
     'agenda: compromisso continua PENDENTE (nao foi cancelado)');
 
-  -- (d) acionamento zerado na troca de dono (aluno e caso)
-  perform pg_temp.afirma((select data_ultimo_acionamento from public.alunos where id = x.aluno) is null,
-    'acionamento: alunos.data_ultimo_acionamento zerado na troca de dono');
-  perform pg_temp.afirma((select data_ultimo_acionamento from public.casos where id = x.caso) is null,
-    'acionamento: casos.data_ultimo_acionamento zerado na troca de dono');
+  -- (d) acionamento PRESERVADO na troca de dono: trg_acionamento_nao_volta_para_nulo (corpo lido em
+  -- producao) restaura o valor antigo quando o novo e nulo. A premissa anterior (zerar) nao se confirmou.
+  perform pg_temp.afirma((select data_ultimo_acionamento::date from public.alunos where id = x.aluno) = (now() - interval '12 days')::date,
+    'acionamento: alunos.data_ultimo_acionamento preservado na troca de dono');
+  perform pg_temp.afirma((select data_ultimo_acionamento from public.casos where id = x.caso) = (now() - interval '12 days')::date,
+    'acionamento: casos.data_ultimo_acionamento preservado na troca de dono');
 end $$;
 
 select 'TROCA DONO OK' as resultado;
