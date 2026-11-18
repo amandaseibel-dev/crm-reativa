@@ -13,9 +13,12 @@ begin
   perform pg_temp.afirma(pg_temp.marca(c) = pg_temp.hoje() + 10, 'caso vencedor com 10 dias');
   select resultado into ra from public.cg_teste_res where sessao = 'cap_e';
   select resultado into rb from public.cg_teste_res where sessao = 'cap_f';
+  perform pg_temp.afirma(ra is not null and rb is not null, 'capacidade: as DUAS sessoes registraram resultado (nao vazio)');
+  perform pg_temp.afirma(ra ? 'alunos_movidos' and rb ? 'alunos_movidos', 'capacidade: as duas sessoes terminaram sem erro');
   mov := coalesce((ra->>'casos_movidos')::int,0) + coalesce((rb->>'casos_movidos')::int,0);
-  perform pg_temp.afirma(mov <= 2, 'capacidade: duas previas juntas nao passam do teto (moveram '||mov||')');
+  -- teto 2, duas previas que cabem cada uma: juntas, EXATAMENTE 2 casos entram
+  perform pg_temp.afirma(mov = 2, 'capacidade: exatamente o teto (2) entra na concorrencia (moveram '||mov||')');
   select count(*) into ocup from public.casos where operador_email = 'cobranca06@aelbra.com.br' and not encerrado_operacional;
-  perform pg_temp.afirma(ocup <= 2, 'capacidade: Mauricio nao ficou acima do teto (ocupacao '||ocup||')');
+  perform pg_temp.afirma(ocup = 2, 'capacidade: ocupacao final do destino = teto (ocupacao '||ocup||')');
 end $$;
 select 'CONCORRENCIA OK' as resultado;
