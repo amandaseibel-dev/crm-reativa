@@ -2,6 +2,7 @@
 -- de liberacao nao aceita mais de um responsavel.
 \i lib.sql
 create temp table _s2 on commit preserve rows as select * from pg_temp.semear('carteira.geral@reativa.local');
+grant select on _s2 to authenticated, anon;  -- o teste le a tabela ja como o papel em teste
 
 -- 1) anon NAO tem EXECUTE (ACL de producao)
 do $$ begin
