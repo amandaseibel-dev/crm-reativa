@@ -1266,7 +1266,7 @@ begin
   insert into public.aluno_movimentacoes
     (aluno_id, tipo, descricao, status_anterior, status_novo, registrado_por_nome, registrado_por_email)
   values (v_caso.aluno_id::text, 'JURIDICO_APROVADO',
-          'Aprovado para análise de ajuizamento. Cobrança bloqueada no portão (massivas e elegibilidade). Envio por WhatsApp NÃO é bloqueado por esta aba (decisão pendente). Aluno permanece na carteira e com o responsável; títulos não foram cancelados.',
+          'Aprovado para análise de ajuizamento. Cobrança bloqueada no portão (massivas e elegibilidade). Envio (WhatsApp e documento) é recusado pela checagem de envio sem autorização da gestão. Aluno permanece na carteira e com o responsável; títulos não foram cancelados.',
           null, null, v_email, v_email);
 
   update public.juridico_casos
@@ -1883,6 +1883,32 @@ create trigger trg_juridico_guarda_nao_acionar before update of nao_acionar on p
   for each row execute function public._juridico_guarda_nao_acionar();
 
 -- Caso de cobranca novo para aluno que ja tem encaminhamento ativo: recusa.
+-- A1 (reauditoria): vinculo de conversa nao pode ser trocado para outro aluno enquanto o aluno atual tem bloqueio
+-- juridico efetivo. Impede contornar a checagem reatribuindo a conversa de aluno bloqueado a outro aluno.
+create function public._juridico_guarda_troca_aluno_conversa()
+returns trigger
+language plpgsql security definer set search_path to 'public'
+as $function$
+begin
+  if old.aluno_id is not null and new.aluno_id is distinct from old.aluno_id
+     and public._juridico_bloqueio_efetivo(old.aluno_id) then
+    raise exception 'Conversa de aluno com bloqueio jurídico efetivo: o vínculo não pode ser trocado por este fluxo.'
+      using errcode = 'JUR02';
+  end if;
+  return new;
+end;
+$function$;
+
+-- Gatilho so onde a tabela de conversas existe (producao). Sem a tabela, nao ha vinculo a proteger.
+do $guarda_conversa$
+begin
+  if to_regclass('public.whatsapp_conversas') is not null then
+    execute 'create trigger trg_juridico_guarda_troca_aluno before update of aluno_id on public.whatsapp_conversas '
+         || 'for each row execute function public._juridico_guarda_troca_aluno_conversa()';
+  end if;
+end
+$guarda_conversa$;
+
 create function public._juridico_guarda_caso_novo()
 returns trigger
 language plpgsql security definer set search_path to 'public'
@@ -1987,6 +2013,7 @@ begin
   'public._juridico_guarda_bloqueio()',
   'public._juridico_guarda_caso_novo()',
   'public._juridico_guarda_nao_acionar()',
+  'public._juridico_guarda_troca_aluno_conversa()',
   'public._juridico_bloqueio_efetivo(uuid)',
   'public.juridico_checar_envio(uuid,uuid,text,text,text)',
   'public.juridico_registrar_recusa_envio(uuid,uuid,text)',
@@ -2013,8 +2040,8 @@ begin
   select count(*) into v_n from pg_proc p
    where p.pronamespace = 'public'::regnamespace
      and (p.proname like 'juridico\_%' or p.proname like '\_juridico\_%');
-  if v_n <> 39 then
-    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 39 esperadas).', v_n;
+  if v_n <> 40 then
+    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 40 esperadas).', v_n;
   end if;
 
   select count(*) into v_n

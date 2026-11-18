@@ -128,7 +128,7 @@ Deno.serve(async (req) => {
   );
 
   // BLOQUEIO JURÍDICO (decisão da gestão). ANTES de preparar: o preparo assume a conversa e pode
-  // reatribuir aluno_id no banco. O aluno vem SOMENTE da conversa existente (nunca do corpo do pedido).
+  // reatribuir aluno_id no banco (só o caminho de conversa nova faz isso). O aluno vem SOMENTE da conversa existente (nunca do corpo do pedido).
   // Conversa nova sem aluno confirmado é recusada: identificação não confiável não libera envio.
   // Falha em qualquer etapa = nada é preparado nem enviado (fail-closed).
   if (conversaNova) {

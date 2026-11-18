@@ -80,7 +80,7 @@ Exceção (implementada no banco e ligada aos caminhos de envio de texto e docum
   Risco residual: o gateway pode ter entregue a mensagem e a resposta se perdido.
 - Limitação TEMPORÁRIA para revisão (não decisão definitiva): contato novo é recusado mesmo com identificação
   segura, porque hoje não há caminho de identificação confiável para conversa nova.
-  APROVAÇÃO REGISTRADA (18/11/2026, indicada pela gestão; canal e data não registrados): limitação TEMPORÁRIA. Contato novo ou conversa sem
+  APROVAÇÃO REGISTRADA (indicada pela gestão nesta conversa; sem data de ata nem canal registrados): limitação TEMPORÁRIA. Contato novo ou conversa sem
   vínculo confiável com aluno não envia por este fluxo; nenhum vínculo é criado automaticamente. Recebimento e
   leitura: NÃO VERIFICADO no webhook (não lido). A passagem a definitiva depende de nova decisão da gestão, que segue PENDENTE. A aprovação
   existe apenas neste registro textual; canal e data da indicação NÃO estão registrados no repositório.
@@ -365,7 +365,7 @@ está na seção "Critério de data do pagamento no extrato Prime" acima.
   porque conversa nova é recusada (o front não manda `conversa_id`). É efeito amplo e precisa de decisão de produto.
 - Conversa sem `aluno_id` é RECUSADA para QUALQUER envio, com ou sem bloqueio jurídico (a checagem recusa aluno nulo).
   Essa recusa NÃO deixa trilha: `juridico_registrar_recusa_envio` retorna sem gravar quando o aluno é nulo.
-  Isso é mais amplo que o bloqueio. A gestão aprovou essa limitação como temporária (ver APROVAÇÃO REGISTRADA).
+  Isso é mais amplo que o bloqueio. A gestão indicou essa limitação como temporária (ver APROVAÇÃO REGISTRADA).
 - A autorização é consumida na checagem, que roda ANTES do preparo. Portanto, uma recusa do preparo
   (responsável de outro operador, cadência, canal) também consome a autorização. Não há como desfazer.
 - Ordem de implantação: a migration precisa estar aplicada antes das funções de envio. Função publicada
@@ -373,3 +373,11 @@ está na seção "Critério de data do pagamento no extrato Prime" acima.
 - Não verificado: execução dos testes neste worktree (sem deno/vitest local nas funções); estado da migration
   na produção; DDL real de `aluno_movimentacoes`.
 - Pré-existente, corrigido nesta revisão: `.catch` encadeado em `rpc()` no envio de documento.
+
+### Contorno pela troca de vínculo (A1, reauditoria de 4838141d)
+
+- `whatsapp_vincular_aluno` (migration 20260817120000) troca o aluno de uma conversa e não confere bloqueio.
+  Fechado nesta revisão: gatilho `trg_juridico_guarda_troca_aluno` (erro JUR02) recusa trocar o aluno de conversa
+  cujo aluno tem bloqueio efetivo. Não testado no PGlite (a fixture não tem `whatsapp_conversas`); CI não prova.
+- Aberto: vincular uma conversa SEM aluno a um aluno sem bloqueio continua permitido pelo operador. Isso é
+  afirmação de identidade pelo operador, do mesmo tipo do contato novo. Decisão da gestão pendente.
