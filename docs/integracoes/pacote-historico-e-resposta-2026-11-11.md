@@ -89,13 +89,10 @@ Cenários cobertos por `supabase/tests/ulbra_historico_portao/run.mjs` (rodado n
 
 Alcance exato da corretiva `20261116150000`: barra authenticated/anon com EXECUTE indevido e reafirma grants mínimos. NÃO barra service_role. O caminho exposto é a função `ulbra-historico` v1 (service_role + credencial central), que só a CONTENÇÃO fecha.
 
-Contenção da v1 (`ulbra-historico`): CONCLUÍDA (função excluída pelo painel; ausente da listagem; endpoint HTTP 404). Por isso a corretiva não é pré-condição do piloto.
+Contenção da v1 (`ulbra-historico`): CONCLUÍDA (função excluída pelo painel; ausente da listagem; endpoint HTTP 404). A contenção da v1 não substitui a corretiva: o portão interno da RPC de reserva é pré-requisito do passo de leitura.
 
-Sequência de implantação (NÃO executada; cada passo exige aprovação específica):
-1. Aprovar a corretiva e rodar o CI do job `ulbra-historico-portao-pglite`.
-2. Contenção da v1: CONCLUÍDA (ver acima).
-3. Aplicar a corretiva em produção (SQL), com a conferência pós-grants do próprio arquivo.
-4. Verificação pós-aplicação: ACL e dono medidos de novo, e teste de acesso.
+Sequência de implantação: ver "Ordem de implantação da leitura" (ÚNICA, no fim deste documento). A corretiva 20261116150000 é pré-requisito do passo de leitura.
+
 Rollback: `20261116150000_*.rollback.sql` restaura a versão sem portão. NÃO é recuperação automática. Alternativa segura: manter `ULBRA_HISTORICO_HABILITADO` ausente.
 
 ## Riscos da v1 `ulbra-historico` (CONTIDA)
@@ -171,7 +168,7 @@ Ver "Ordem de implantação da leitura", no fim deste documento. A tabela anteri
 | `20261111140000_ulbra_conexao_individual_e_envio` | `.rollback.sql` | `f6b8013e8c43ff2f917dbf8839ac103b93e53c991b299b1cd1bc83e09d8e760f` |
 | `20261117120000_ulbra_gravar_conexao_atomica` | `.sql.pendente` | `dcd8df5388cbdc5e2c20576b0dd9044b23dcd9667ad8f230f2e653b461671ed8` |
 | `20261117120000_ulbra_gravar_conexao_atomica` | `.rollback.sql` | `8f3b4449b527bcfb6d1125b51371336ef1112d49a0e1b9f2933a22ff97d04942` |
-| `20261116150000_ulbra_historico_reservar_portao_interno` (corretiva, fora do pré-requisito do piloto) | `.sql.pendente` | `1b448d8b0c2be6b5feca9e1900fa772b919c22da62d0752540e20cbd02f58402` |
+| `20261116150000_ulbra_historico_reservar_portao_interno` (corretiva; pré-requisito do passo de leitura) | `.sql.pendente` | `1b448d8b0c2be6b5feca9e1900fa772b919c22da62d0752540e20cbd02f58402` |
 | `20261116150000_ulbra_historico_reservar_portao_interno` (corretiva) | `.rollback.sql` | `be7b2c64ad7d7e0c4dddb1627a3989678dcbd80537edfd59814f2538e2517113` |
 
 Migrations já aplicadas e fora deste pacote: `20261110100000_ulbra_historico_orcamento` (ledger `20261112111006`). Não reaplicar, e não executar o rollback dela.

@@ -104,7 +104,7 @@ Não revogar nem substituir sem sua decisão específica.
 - Contenção da v1 `ulbra-historico`: CONCLUÍDA (função excluída; ausente da listagem; endpoint HTTP 404). Evidência preservada; não é pendência.
 - Grant de INSERT em `auditoria` para `authenticated` (A3): ver "Verificação A3" em `pacote-historico-e-resposta-2026-11-11.md`. Não bloqueia o piloto (RLS nega a inserção direta), mas o grant excessivo é pendência de higiene com dependência do frontend.
 - Migrations `20261111140000` e `20261117120000` pendentes de aplicação com aprovação, nesta ordem.
-  (`20261116150000`, corretiva da RPC de reserva, não é pré-requisito do piloto.)
+  (`20261116150000`, corretiva da RPC de reserva, é pré-requisito do passo de leitura; ver a ordem única no pacote.)
 
 ## Testes
 
