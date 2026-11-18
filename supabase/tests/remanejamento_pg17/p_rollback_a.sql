@@ -11,6 +11,9 @@ begin
   insert into public.cg_teste_ids values ('Z', z.caso, z.aluno), ('X', x.caso, x.aluno), ('Y', y.caso, y.aluno);
   p := pg_temp.previa(array[z.aluno, x.aluno, y.aluno], 'OPERADOR', 'cobranca05@aelbra.com.br');
   perform public.carteira_geral_mover((p->>'previa_id')::uuid, 'rollback teste');
+  perform pg_temp.afirma((select remanejamento_lote_id from public.casos where id = x.caso) is not null
+    and (select remanejamento_lote_id from public.casos where id = y.caso) is not null,
+    'precondicao: X e Y estavam marcados pelo nosso lote antes da regravacao');
   -- outra rotina regrava a marca SEM marcador (como o giro faria)
   update public.casos set giro_fidelizacao_ate = pg_temp.hoje() + 10 where id = x.caso;
   update public.casos set giro_fidelizacao_ate = pg_temp.hoje() + 3 where id = y.caso;

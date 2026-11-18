@@ -5,7 +5,12 @@ Arquivos: `funcoes_prod.json` / `funcoes_prod.sql` (14 funcoes, definicao comple
 `estruturas_prod.json` / `estruturas_prod.sql` (colunas, indice unico, extensoes), `verifica_funcoes.py`
 (confere por assinatura, definicao e hash; `python3 verifica_funcoes.py`).
 
-## Gatilhos carregados (exatamente estes dois, de producao)
+## Gatilhos carregados na fixture
+A fixture base `remanejamento_fidelizacao_prod_20261117.sql` cria SEIS gatilhos em `alunos`/`casos`:
+`alunos`: trg_guard_resp_aluno, trg_nome_do_operador_no_aluno, trg_sync_casos_resp_aluno (estas tres em
+secao de copias/dublês); `casos`: trg_giro_limpar_marca e trigger_impor_teto_operador (producao).
+A auditoria de 18/11 do parecer (Guardiao, 55d943c4) apontou que a classificacao anterior estava errada.
+Os dois de `casos` abaixo sao os de producao carregados e validados por leitura.
 - `trg_giro_limpar_marca` (casos, BEFORE UPDATE): zera a marca de giro ao trocar de dono. Afeta a
   fidelizacao, por isso entra.
 - `trigger_impor_teto_operador` (casos, AFTER UPDATE): libera excedente de teto. Afeta a capacidade, por isso entra.

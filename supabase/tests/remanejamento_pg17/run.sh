@@ -55,6 +55,9 @@ banco_novo() { # banco_novo <db>
 md5_mover() { psql -X -A -t -d "$1" -c "select md5(prosrc) from pg_proc where proname='carteira_geral_mover'"; }
 
 # ----------------------------------------------------------------- CENARIO 1
+passo "0. Verificador das 14 funcoes de producao (definicao, md5, assinatura)"
+python3 "$RAIZ/supabase/tests/fixtures/protecao_prod_20261118/verifica_funcoes.py" || falha "verificador das funcoes reais"
+
 passo "1. SEM #936: a migration deve recusar sem alteracao parcial"
 banco_novo rem_sem936
 psqlt "$LOGS/s1_base.log" rem_sem936 "$FIX" || falha "base (fixture) nao carrega: ver $LOGS/s1_base.log"

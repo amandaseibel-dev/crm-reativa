@@ -78,6 +78,7 @@ begin
   update public.casos set giro_fidelizacao_ate = pg_temp.hoje() - 1 where id = m.caso;
   a := public.liberar_casos_fidelizacao_vencida(100000);
   b := public.liberar_casos_fidelizacao_vencida(100000);
+  perform pg_temp.afirma(a >= 1, 'idempotencia diaria: a primeira rodada solta o caso (soltou '||a||')');
   perform pg_temp.afirma(b = 0, 'idempotencia diaria: segunda rodada nao solta nada (primeira '||a||', segunda '||b||')');
 end $$;
 
