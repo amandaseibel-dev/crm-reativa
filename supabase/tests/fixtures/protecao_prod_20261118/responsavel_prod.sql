@@ -23,6 +23,9 @@ grant select, update on public.alunos to reativa_responsavel_executor;
 grant select on public.acordos to reativa_responsavel_executor;
 grant select, insert on public.aluno_movimentacoes to reativa_responsavel_executor;
 grant select on public.usuarios to reativa_responsavel_executor;
+-- sequencia do id de aluno_movimentacoes (insert pelo caminho oficial exige uso). Grant reproduzido
+-- por evidencia de erro de permissao no CI (permission denied for sequence), nao por levantamento de producao.
+grant usage, select on sequence public.aluno_movimentacoes_id_seq to reativa_responsavel_executor;
 drop trigger if exists trg_guard_resp_aluno on public.alunos;
 CREATE TRIGGER trg_guard_resp_aluno BEFORE UPDATE ON public.alunos FOR EACH ROW EXECUTE FUNCTION _guard_resp_aluno();
 drop trigger if exists trg_nome_do_operador_no_aluno on public.alunos;
