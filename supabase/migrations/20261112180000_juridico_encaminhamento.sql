@@ -1501,7 +1501,7 @@ as $function$
 declare v_id uuid;
 begin
   if p_aluno is null or not exists (select 1 from public.alunos al where al.id = p_aluno) then
-    raise exception 'Envio recusado: aluno não identificado. Vincule o contato a um aluno antes de enviar.' using errcode = 'JUR01';
+    raise exception 'Contato sem vínculo confiável com um aluno: o envio por este fluxo não é permitido. Nenhum vínculo é criado automaticamente. Recebimento e leitura seguem disponíveis.' using errcode = 'JUR01';
   end if;
   if p_tipo is null or p_tipo not in ('MENSAGEM','DOCUMENTO') or nullif(btrim(coalesce(p_conteudo_hash,'')), '') is null then
     raise exception 'Envio recusado: tipo ou conteúdo não informado para a checagem.' using errcode = '22023';
