@@ -28,6 +28,7 @@ import { decidirResposta } from "./autorizacao-resposta.ts";
 import { configuracaoFaltando } from "./configuracao-acao.ts";
 import { cadastrarTokenPessoal } from "./token-pessoal.ts";
 import { descartarGrant } from "./grant.ts";
+import { pilotoPermiteLeitura } from "./piloto-leitura.ts";
 import { gravarRenovacaoSe, type EstadoLinha, type GuardaRenovacao } from "./renovacao.ts";
 
 // A3: leitura GLOBAL só pela regra temLeituraGlobal (leitura.ts): amanda.seibel e cobranca04. O restante lê só a própria carteira/responsabilidade.
@@ -184,12 +185,12 @@ Deno.serve(async (req: Request) => {
         r = await gravarRenovacaoSe(guarda, antes, novo);
       } catch (e) {
         // Não gravou: os tokens novos não têm cópia. Descarta (revoga) e falha a renovação.
-        await descartarGrant(t, { revogar: revogarTokenNoProvedor });
+        await descartarComRegistro(t, { revogar: revogarTokenNoProvedor });
         throw e;
       }
       if (r !== "GRAVADA") {
         // Conexão mudou (desconectada ou substituída) durante a renovação: não reativa nem sobrescreve.
-        await descartarGrant(t, { revogar: revogarTokenNoProvedor });
+        await descartarComRegistro(t, { revogar: revogarTokenNoProvedor });
         throw new Error("CONEXAO_MUDOU");
       }
       return t;
@@ -265,6 +266,30 @@ Deno.serve(async (req: Request) => {
     return !error;
   }
 
+  // Descarte COM REGISTRO quando a revogação não se confirma: a pendência vai para a auditoria com os tokens
+  // CIFRADOS (ULBRA_TOKENS_CHAVE), sem texto. Assim o grant não fica órfão sem nenhum registro.
+  async function descartarComRegistro(t: { access_token: string; refresh_token: string | null }, deps: Parameters<typeof descartarGrant>[1]) {
+    const d = await descartarGrant(t, deps);
+    if ("pendente" in d && d.pendente) {
+      let cifrados: Record<string, string> = {};
+      try {
+        const chave = chaveDeHex(chaveHex ?? "");
+        cifrados = { access: await cifrar(t.access_token, chave), ...(t.refresh_token ? { refresh: await cifrar(t.refresh_token, chave) } : {}) };
+      } catch {
+        cifrados = {}; // sem chave: a pendência ainda é registrada, sem o token
+      }
+      const ok = await auditar("ULBRA_OAUTH_REVOGACAO_PENDENTE", "ulbra_conexoes_operador", { resultado: "PENDENTE", tokens_cifrados: cifrados });
+      if (!ok) console.error("ulbra-conversa: pendência de revogação NÃO registrada");
+    }
+    return d;
+  }
+
+  // Erro de banco na autorização do histórico: diagnóstico SEM dados (só o passo e o código), e falha fechada.
+  function bancoHistoricoFalhou(passo: string, error: { code?: string }): never {
+    console.error("ulbra-conversa: histórico, leitura de", passo, "falhou; código:", error.code ?? "sem código");
+    throw new Error("BANCO_HISTORICO");
+  }
+
   /** Monta o pedido com o estado AGORA: atendimento, responsável, carteira, janela e conta conectada. */
   async function montarPedido(atendimentoId: string, texto: string, chaveEnvio: string, conta: RegistroConexao): Promise<{ pedido: PedidoEnvio } | { bloqueio: ResultadoEnvio; status: number }> {
     const { data: at } = await sb.from("ulbra_atendimentos").select("ulbra_cliente_id, responsavel_email, dispensado_em").eq("ulbra_atendimento_id", atendimentoId).maybeSingle();
@@ -305,6 +330,12 @@ Deno.serve(async (req: Request) => {
     //  TENTATIVA (antes; falha = nada é tentado), depois SUCESSO ou RECUSA conforme o resultado
     //  já confirmado pela gravação atômica, ou RESULTADO_INCERTO quando o banco não confirma.
     if (acao === "conexao_token_pessoal") {
+      // Gate do PILOTO no servidor, ANTES de validar ou gravar qualquer token. Não depende da flag de leitura:
+      // o operador autorizado pode cadastrar durante a preparação; a leitura continua bloqueada até a ativação.
+      if (!pilotoPermiteLeitura(email, Deno.env.get("ULBRA_HISTORICO_PILOTO_EMAILS"))) {
+        await auditar("ULBRA_CONEXAO_TOKEN_PESSOAL", "ulbra_conexoes_operador", { resultado: "RECUSA", motivo: "PILOTO_NAO_AUTORIZADO" });
+        return responder({ ok: false, motivo: "PILOTO_NAO_AUTORIZADO" }, 403);
+      }
       const token = typeof corpo.token === "string" ? corpo.token : "";
       const validade = Number(corpo.validade_dias);
       const tentativa = await auditar("ULBRA_CONEXAO_TOKEN_PESSOAL", "ulbra_conexoes_operador", { resultado: "TENTATIVA", validade_dias: validade });
@@ -392,7 +423,7 @@ Deno.serve(async (req: Request) => {
         // Identidade não conferida: o grant não pode virar conexão sem prova de autoria.
         // Descarta (revoga access e refresh). Se a revogação falhar, guarda em quarentena REVOGADA
         // para que desconectar possa revogar depois. Nunca é usado para envio ou leitura.
-        const d = await descartarGrant(t, {
+        const d = await descartarComRegistro(t, {
           revogar: revogarTokenNoProvedor,
           quarentena: () => gravarConexaoAtomica(t, { conectada_em: new Date().toISOString(), pessoa_nome: null, pessoa_email: null, escopos: null, so_leitura: null }),
           marcarRevogada: async () => {
@@ -404,7 +435,7 @@ Deno.serve(async (req: Request) => {
       }
       // A2: o operador A não pode conectar a conta B. Pessoa divergente ou ausente: descarta e não guarda nada.
       if (((pessoa.pessoa_email as string | null) ?? "").toLowerCase() !== email) {
-        const d = await descartarGrant(t, { revogar: revogarTokenNoProvedor });
+        const d = await descartarComRegistro(t, { revogar: revogarTokenNoProvedor });
         return responder({ ok: false, motivo: "IDENTIDADE_DIVERGENTE", revogada_no_provedor: d.revogado }, 403);
       }
       // Gravação atômica: se já há credencial, não substitui. O grant novo é descartado (revoga access e refresh).
@@ -413,11 +444,11 @@ Deno.serve(async (req: Request) => {
         gravacao = await gravarConexaoAtomica(t, { conectada_em: new Date().toISOString(), ...pessoa });
       } catch {
         // Erro do banco: o grant novo não foi guardado. Descarta (melhor esforço).
-        await descartarGrant(t, { revogar: revogarTokenNoProvedor });
+        await descartarComRegistro(t, { revogar: revogarTokenNoProvedor });
         return responder({ ok: false, motivo: "CONEXAO_NAO_VERIFICADA" }, 503);
       }
       if (gravacao === "EXISTENTE") {
-        await descartarGrant(t, { revogar: revogarTokenNoProvedor });
+        await descartarComRegistro(t, { revogar: revogarTokenNoProvedor });
         return responder({ ok: false, motivo: "CONEXAO_EXISTENTE" }, 409);
       }
       return responder({ ok: true, estado: "ATIVA", pessoa: pessoa.pessoa_nome ?? null, escopos: pessoa.escopos ?? null, escopo_token: t.escopo });
@@ -449,37 +480,46 @@ Deno.serve(async (req: Request) => {
     // A decisão (flag, piloto, capacidade, leitura, auditoria) vive em historico-acao.ts, testada com
     // transporte simulado. Aqui ficam só os adaptadores reais.
     if (acao === "historico_ler" || acao === "historico_capacidade") {
-      const s = await executarAcaoHistorico(acao, corpo, {
+      let s: Awaited<ReturnType<typeof executarAcaoHistorico>>;
+      try {
+      s = await executarAcaoHistorico(acao, corpo, {
         email,
         usuarioAtivo: usuario?.ativo === true,
         habilitadoEnv: Deno.env.get("ULBRA_HISTORICO_HABILITADO") === "true",
         listaPilotoEnv: Deno.env.get("ULBRA_HISTORICO_PILOTO_EMAILS"),
         buscarClienteDaConversa: async (id: string) => {
-          const { data } = await sb.from("ulbra_conversas").select("ulbra_cliente_id").eq("ulbra_conversa_id", id).maybeSingle();
+          const { data, error } = await sb.from("ulbra_conversas").select("ulbra_cliente_id").eq("ulbra_conversa_id", id).maybeSingle();
+          if (error) bancoHistoricoFalhou("conversa", error);
           return (data?.ulbra_cliente_id as string | undefined) ?? null;
         },
         alunoDoCliente: async (cid: string) => {
-          const { data } = await sb.from("ulbra_vinculos").select("aluno_id").eq("ulbra_cliente_id", cid).is("desvinculado_em", null).eq("confianca", "alta_cpf").maybeSingle();
+          const { data, error } = await sb.from("ulbra_vinculos").select("aluno_id").eq("ulbra_cliente_id", cid).is("desvinculado_em", null).eq("confianca", "alta_cpf").maybeSingle();
+          if (error) bancoHistoricoFalhou("vínculo", error);
           return (data?.aluno_id as string | undefined) ?? null;
         },
         // Dono da carteira = operador de caso ATIVO. Caso encerrado (regra canônica caso_encerrado_operacional)
         // não autoriza leitura; erro ao verificar também não autoriza (fail-closed).
         donosDoAluno: async (aid: string) => {
-          const { data } = await sb.from("casos").select("operador_email, cpf_limpo, status_atual, status_acionamento, status_financeiro, status_jornada").eq("aluno_id", aid).not("operador_email", "is", null);
+          const { data, error: erroCasos } = await sb.from("casos").select("operador_email, cpf_limpo, status_atual, status_acionamento, status_financeiro, status_jornada").eq("aluno_id", aid).not("operador_email", "is", null);
+          if (erroCasos) bancoHistoricoFalhou("casos", erroCasos);
           const donos: string[] = [];
           for (const k of data ?? []) {
             const { data: encerrado, error } = await sb.rpc("caso_encerrado_operacional", {
               p_cpf: k.cpf_limpo, p_status_atual: k.status_atual, p_status_acionamento: k.status_acionamento, p_status_financeiro: k.status_financeiro, p_status_jornada: k.status_jornada,
             });
             // fail-closed: se qualquer caso não pôde ser verificado (erro ou retorno não booleano), ninguém é dono
-            if (error || typeof encerrado !== "boolean") return [];
+            if (error || typeof encerrado !== "boolean") {
+              console.error("ulbra-conversa: encerramento de caso não verificado; código:", error?.code ?? "retorno inválido");
+              return [];
+            }
             if (encerrado) continue;
             donos.push(String(k.operador_email));
           }
           return donos;
         },
         responsaveisDoCliente: async (cid: string) => {
-          const { data } = await sb.from("ulbra_atendimentos").select("responsavel_email").eq("ulbra_cliente_id", cid).is("dispensado_em", null).not("responsavel_email", "is", null);
+          const { data, error } = await sb.from("ulbra_atendimentos").select("responsavel_email").eq("ulbra_cliente_id", cid).is("dispensado_em", null).not("responsavel_email", "is", null);
+          if (error) bancoHistoricoFalhou("responsável", error);
           return (data ?? []).map((a) => String(a.responsavel_email));
         },
         conexao: async () => {
@@ -489,8 +529,27 @@ Deno.serve(async (req: Request) => {
           return { ok: true as const, access_token: conn.registro.access_token, pessoa_email: conn.registro.pessoa_email };
         },
         lerConversa: (token, args) => chamarComoOperador(token, "ler_conversa", args),
+        // Cota compartilhada (ulbra_historico_reservar, service_role): reserva ANTES da chamada à Mensageria.
+        // Tetos por dia (fuso de São Paulo) configuráveis; valor inválido ou erro = INDISPONIVEL (fail-closed).
+        reservarCota: async () => {
+          const dia = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+          const tetoOperador = Number(Deno.env.get("ULBRA_HISTORICO_TETO_OPERADOR_DIA") ?? "50");
+          const tetoGlobal = Number(Deno.env.get("ULBRA_HISTORICO_TETO_GLOBAL_DIA") ?? "500");
+          const { data, error } = await sb.rpc("ulbra_historico_reservar", {
+            p_operador: email, p_dia: dia, p_quantidade: 1, p_teto_operador: tetoOperador, p_teto_global: tetoGlobal,
+          });
+          if (error || !Array.isArray(data) || typeof data[0]?.permitido !== "boolean") {
+            console.error("ulbra-conversa: reserva de cota falhou; código:", error?.code ?? "resposta inválida");
+            return "INDISPONIVEL" as const;
+          }
+          return (data[0].permitido ? "OK" : "ESGOTADA") as "OK" | "ESGOTADA";
+        },
         auditar: (detalhes) => auditar("ULBRA_HISTORICO_LEITURA", "ulbra_conversas", detalhes),
       });
+      } catch {
+        // Falha de banco ou de infraestrutura na autorização: nega, sem texto e sem detalhe ao cliente.
+        return responder({ ok: false, motivo: "AUTORIZACAO_INDISPONIVEL" }, 503);
+      }
       return responder(s.corpo, s.status);
     }
 

@@ -17,7 +17,8 @@ describe("descartarGrant", () => {
     const r = await descartarGrant(T, {
       revogar: async (tk) => { chamadas.push(tk); if (tk === "ref-1") throw new Error("X"); },
     });
-    expect(chamadas).toEqual(["ref-1", "acc-1"]);
+    // Com retentativa: o refresh é tentado duas vezes antes de desistir; depois o access.
+    expect(chamadas).toEqual(["ref-1", "ref-1", "acc-1"]);
     expect(r).toEqual({ revogado: false, quarentena: false, pendente: true });
   });
 

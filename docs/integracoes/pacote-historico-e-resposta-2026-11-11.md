@@ -228,15 +228,16 @@ Padrão do repositório: `supabase/ledger/DUAS-TRILHAS.md` (Fluxo B, o padrão) 
 - `ULBRA_OAUTH_CLIENT_ID` e `ULBRA_OAUTH_REDIRECT_URI` ausentes: OAuth fica indisponível no piloto (por configuração).
 - `ULBRA_HISTORICO_PILOTO_EMAILS` ainda não configurada: a leitura só existe depois dela, com a lista restrita ao operador piloto.
 
-### Ordem de implantação da leitura (Fluxo B: mesclar antes de aplicar; nenhuma etapa libera leitura antes dos pré-requisitos)
+### Ordem de implantação da leitura (Fluxo B: nenhuma etapa libera leitura antes dos pré-requisitos)
 1. **Mesclar** a PR (aprovação específica). O front publicado só consulta `historico_capacidade`; sem a flag de servidor, nada é lido.
 2. Esperar o deploy de produção ficar `READY`.
-3. **Aplicar** `20261111140000` e depois `20261117120000` por `apply_migration`, uma vez cada (aprovação específica; ordem obrigatória). Antes disso, `ulbra-conversa` não grava conexão.
+3. **Aplicar** `20261111140000` e depois `20261117120000` por `apply_migration`, uma vez cada (aprovação específica). Antes disso, a gravação de conexão não funciona.
 4. **Publicar** `ulbra-conversa` com `verify_jwt` a partir da `main` (aprovação específica). Sem `ULBRA_TOKENS_CHAVE`, as ações de conexão respondem 503 `CONEXAO_NAO_CONFIGURADA`.
 5. **Configurar** `ULBRA_TOKENS_CHAVE` (aprovação específica; pré-requisito de implantação, hoje AUSENTE).
-6. Conexão do operador piloto (manual, pelo próprio operador).
-7. Configurar `ULBRA_HISTORICO_PILOTO_EMAILS` e `ULBRA_HISTORICO_HABILITADO=true` (aprovação específica). Só a partir daqui há leitura.
-8. Verificar: uma conversa lida, com auditoria `ULBRA_HISTORICO_LEITURA` gravada antes do texto.
+6. **Configurar** `ULBRA_HISTORICO_PILOTO_EMAILS=cobranca10.com.br` (aprovação específica). Sem ela, o cadastro de token é negado (`PILOTO_NAO_AUTORIZADO`).
+7. Cadastro do token do operador piloto, pelo próprio operador, com `ULBRA_HISTORICO_HABILITADO` AINDA DESLIGADA (a leitura continua bloqueada).
+8. **Ativar** `ULBRA_HISTORICO_HABILITADO=true` (aprovação específica). Só a partir daqui há leitura.
+9. Verificar: uma conversa lida, com auditoria `ULBRA_HISTORICO_LEITURA` gravada antes do texto, e cota reservada antes da chamada.
 
 ### Verificação
 - Antes de qualquer flag: `historico_capacidade` e `historico_ler` respondem negado com `HISTORICO_DESLIGADO`, sem chamada à Mensageria.
@@ -256,3 +257,12 @@ Padrão do repositório: `supabase/ledger/DUAS-TRILHAS.md` (Fluxo B, o padrão) 
 - Localização das migrations (R4): decisão de gestão. Hoje ficam em `supabase/aguardando_aprovacao/`, por convenção do repositório.
 
 **Consultas de produção de 17/11/2026 (somente leitura), versionadas em `docs/seguranca/consultas-producao-ulbra-2026-11-17.sql`.** Os resultados citados acima foram obtidos com essas consultas. A "cerca de 60 funções" vem da consulta (3); a INVOKER `_titulo_em_confirmacao_protegido()` vem da consulta (4), que mostra `insert into public.auditoria` e dono `postgres`.
+
+### Correções desta rodada (comportamento comprovado por teste)
+- **Cadastro de token restrito ao piloto, no servidor:** `conexao_token_pessoal` nega com `PILOTO_NAO_AUTORIZADO` (403) ANTES de validar ou gravar, se o usuário não estiver em `ULBRA_HISTORICO_PILOTO_EMAILS` (lista ausente = negado). Independe de `ULBRA_HISTORICO_HABILITADO`. Testes (t1), (t2), (t3).
+- **Cota antes da chamada externa:** `historico_ler` reserva 1 unidade em `ulbra_historico_reservar` (service_role, migration `20261110100000`, já aplicada em produção) antes de chamar a Mensageria. Esgotada = 429 `COTA_ESGOTADA`; falha ao reservar = 503 `COTA_INDISPONIVEL`. Tetos por dia (fuso de São Paulo) por variáveis: `ULBRA_HISTORICO_TETO_OPERADOR_DIA` (padrão 50) e `ULBRA_HISTORICO_TETO_GLOBAL_DIA` (padrão 500). **Configuração ainda não definida em produção.** Testes (q1), (q2), (q3).
+- **Erro de banco na autorização:** nega com 503 `AUTORIZACAO_INDISPONIVEL`, sem texto e sem chamada à Mensageria. O diagnóstico no log tem só o passo e o código do erro, nunca dados. Teste (b1).
+- **Retentativa de revogação:** cada token é tentado até duas vezes antes de se considerar a revogação pendente (`grant-retry.test.ts`, `grant.test.ts`).
+- **Credencial órfã (residual, decisão pendente):** quando a revogação não se confirma e a quarentena não é possível, o sistema registra `ULBRA_OAUTH_REVOGACAO_PENDENTE` na auditoria com os tokens CIFRADOS (`ULBRA_TOKENS_CHAVE`), sem texto. NÃO há procedimento automático de recuperação: a revogação posterior é manual e depende de decisão da gestão sobre guardar token cifrado em auditoria. OAuth fica indisponível no piloto, por configuração.
+- **Não há teste de handler para a pendência de revogação**: o caminho de OAuth exige PKCE e não é executado pelos testes de handler. Coberto só em unidade (`grant`).
+- **Pré-requisitos adicionais:** `ULBRA_HISTORICO_PILOTO_EMAILS` (ainda não configurada), `ULBRA_HISTORICO_TETO_OPERADOR_DIA` e `ULBRA_HISTORICO_TETO_GLOBAL_DIA` (opcionais; padrões acima).

@@ -35,7 +35,12 @@ export async function descartarGrant(t: TokensGrant, deps: DepsDescarte): Promis
   let revogado = true;
   const tokens = [t.refresh_token, t.access_token].filter((x): x is string => typeof x === "string" && x.length > 0);
   for (const tk of tokens) {
-    try { await deps.revogar(tk); } catch { revogado = false; }
+    // Até duas tentativas por token: uma falha transitória não deve deixar o grant vivo no provedor.
+    let ok = false;
+    for (let i = 0; i < 2 && !ok; i++) {
+      try { await deps.revogar(tk); ok = true; } catch { /* nova tentativa, se houver */ }
+    }
+    if (!ok) revogado = false;
   }
   if (revogado) return { revogado: true, quarentena: false };
   if (deps.quarentena && deps.marcarRevogada) {

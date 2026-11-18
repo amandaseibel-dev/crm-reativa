@@ -24,9 +24,13 @@ const estado: {
   rpcErro: boolean;
   rpcNulo: boolean;
   rpcNuloCpf: string | null;
+  cotaOk: boolean;
+  cotaErro: boolean;
+  bancoErroTabela: string | null;
+  ordem: string[];
   auditoriaFalha: boolean;
   auditorias: Record<string, unknown>[];
-} = { env: {}, user: null, usuario: null, conexao: null, responsavel: EU, dono: EU, encerrado: false, donoExtra: null, rpcErro: false, rpcNulo: false, rpcNuloCpf: null, auditoriaFalha: false, auditorias: [] };
+} = { env: {}, user: null, usuario: null, conexao: null, responsavel: EU, dono: EU, encerrado: false, donoExtra: null, rpcErro: false, rpcNulo: false, rpcNuloCpf: null, cotaOk: true, cotaErro: false, bancoErroTabela: null, ordem: [], auditoriaFalha: false, auditorias: [] };
 
 // Dados por tabela: maybeSingle devolve um registro; "then" (sem maybeSingle) devolve lista.
 const UNICO: Record<string, () => unknown> = {
@@ -56,7 +60,10 @@ function builder(tabela: string) {
         Promise.resolve({ data: null, error: estado.auditoriaFalha && tabela === "auditoria" ? { message: "falha simulada" } : null }).then(res),
     };
   };
-  b.maybeSingle = async () => ({ data: UNICO[tabela]?.() ?? null, error: null });
+  b.maybeSingle = async () =>
+    tabela === estado.bancoErroTabela
+      ? { data: null, error: { code: "08006", message: "falha simulada de banco" } }
+      : { data: UNICO[tabela]?.() ?? null, error: null };
   b.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: LISTA[tabela]?.() ?? UNICO[tabela]?.() ?? null, error: null }).then(res);
   return b;
 }
@@ -65,6 +72,12 @@ const fakeClient = () => ({
   auth: { getUser: async () => ({ data: { user: estado.user } }) },
   from: (tabela: string) => builder(tabela),
   rpc: async (fn: string, args?: { p_cpf?: string }) => {
+    if (fn === "ulbra_historico_reservar") {
+      estado.ordem.push("reserva");
+      if (estado.cotaErro) return { data: null, error: { code: "08006", message: "falha simulada de cota" } };
+      return { data: [{ permitido: estado.cotaOk, usadas_operador: 1, usadas_global: 1 }], error: null };
+    }
+    if (fn === "ulbra_gravar_conexao") estado.ordem.push("gravar");
     const falha = fn === "caso_encerrado_operacional" && args?.p_cpf === CPF_FALHA;
     if (falha && estado.rpcErro) return { data: null, error: { message: "falha simulada na verificação" } };
     if (fn === "caso_encerrado_operacional" && estado.rpcNulo) return { data: null, error: null }; // retorno nulo, sem erro, em qualquer caso
@@ -107,6 +120,10 @@ beforeEach(() => {
   estado.rpcErro = false;
   estado.rpcNulo = false;
   estado.rpcNuloCpf = null;
+  estado.cotaOk = true;
+  estado.cotaErro = false;
+  estado.bancoErroTabela = null;
+  estado.ordem = [];
   estado.auditoriaFalha = false;
   estado.auditorias = [];
 });
@@ -284,5 +301,87 @@ describe("handler real (index.ts): caminho positivo completo", () => {
     const leituras = estado.auditorias.filter((a) => a.acao === "ULBRA_HISTORICO_LEITURA");
     expect(leituras).toHaveLength(1);
     expect(JSON.stringify(leituras[0])).not.toContain("TEXTO-SECRETO");
+  });
+});
+
+const MEU_ACESSO_EU = () =>
+  new Response(JSON.stringify({ result: { content: [{ text: JSON.stringify({ pessoa: { email: EU, nome: "João" }, escopos: ["leitura"], soLeitura: true }) }] } }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+
+describe("cadastro de token: gate do piloto no servidor (independe da flag de leitura)", () => {
+  const TOKEN = "token-pessoal-de-teste-0123456789";
+
+  it("(t1) usuário FORA da lista do piloto: 403 PILOTO_NAO_AUTORIZADO, sem validar, sem chamar a Mensageria e sem gravar", async () => {
+    estado.env.ULBRA_HISTORICO_PILOTO_EMAILS = OUTRO;
+    const r = await chamar({ acao: "conexao_token_pessoal", token: TOKEN, validade_dias: 30 });
+    expect(r.status).toBe(403);
+    expect(r.corpo.motivo).toBe("PILOTO_NAO_AUTORIZADO");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(estado.ordem).not.toContain("gravar");
+  });
+
+  it("(t2) lista AUSENTE: negado (fail-closed), sem validar e sem gravar", async () => {
+    delete estado.env.ULBRA_HISTORICO_PILOTO_EMAILS;
+    const r = await chamar({ acao: "conexao_token_pessoal", token: TOKEN, validade_dias: 30 });
+    expect(r.corpo.motivo).toBe("PILOTO_NAO_AUTORIZADO");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(estado.ordem).not.toContain("gravar");
+  });
+
+  it("(t3) usuário na lista com a FLAG DE LEITURA DESLIGADA: o cadastro funciona; a leitura continua negada", async () => {
+    estado.env.ULBRA_HISTORICO_HABILITADO = "false";
+    estado.env.ULBRA_HISTORICO_PILOTO_EMAILS = EU;
+    fetchMock.mockResolvedValueOnce(MEU_ACESSO_EU());
+    const r = await chamar({ acao: "conexao_token_pessoal", token: TOKEN, validade_dias: 30 });
+    expect(r.status).toBe(200);
+    expect(r.corpo.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1); // só a validação (meu_acesso), nenhuma leitura
+    expect(estado.ordem).toContain("gravar");
+    const leitura = await chamar({ acao: "historico_ler", conversa_id: CONV });
+    expect(leitura.corpo.motivo).toBe("HISTORICO_DESLIGADO");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("histórico: erro de banco e cota antes da chamada externa", () => {
+  it("(b1) erro de banco na autorização: 503 AUTORIZACAO_INDISPONIVEL, sem chamada à Mensageria e sem auditoria de leitura", async () => {
+    estado.conexao = await conexaoIndividual("token-individual-do-operador");
+    estado.bancoErroTabela = "ulbra_conversas";
+    const r = await chamar({ acao: "historico_ler", conversa_id: CONV });
+    expect(r.status).toBe(503);
+    expect(r.corpo.motivo).toBe("AUTORIZACAO_INDISPONIVEL");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(estado.auditorias.filter((a) => a.acao === "ULBRA_HISTORICO_LEITURA")).toHaveLength(0);
+  });
+
+  it("(q1) cota ESGOTADA: 429 COTA_ESGOTADA, sem chamada à Mensageria", async () => {
+    estado.conexao = await conexaoIndividual("token-individual-do-operador");
+    estado.cotaOk = false;
+    const r = await chamar({ acao: "historico_ler", conversa_id: CONV });
+    expect(r.status).toBe(429);
+    expect(r.corpo.motivo).toBe("COTA_ESGOTADA");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("(q2) falha ao reservar a cota: 503 COTA_INDISPONIVEL, sem chamada à Mensageria (fail-closed)", async () => {
+    estado.conexao = await conexaoIndividual("token-individual-do-operador");
+    estado.cotaErro = true;
+    const r = await chamar({ acao: "historico_ler", conversa_id: CONV });
+    expect(r.status).toBe(503);
+    expect(r.corpo.motivo).toBe("COTA_INDISPONIVEL");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("(q3) cota disponível: a reserva acontece ANTES da chamada à Mensageria", async () => {
+    estado.conexao = await conexaoIndividual("token-individual-do-operador");
+    fetchMock.mockImplementationOnce(async () => {
+      estado.ordem.push("fetch");
+      return LEITURA_OK();
+    });
+    const r = await chamar({ acao: "historico_ler", conversa_id: CONV });
+    expect(r.status).toBe(200);
+    expect(estado.ordem).toEqual(["reserva", "fetch"]);
   });
 });
