@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import Aluno from "./Aluno";
+import { BLOQUEIO_ENVIO_JURIDICO_ATIVO } from "../config/juridicoBloqueio";
 import { Carregando } from "../ui/estados";
 import { S as A } from "../ui/estilosFila";
 import {
@@ -365,6 +366,11 @@ export default function Juridico() {
 
   return (
     <div style={A.wrap}>
+      {!BLOQUEIO_ENVIO_JURIDICO_ATIVO && (
+        <div data-campo="aviso-bloqueio-desligado" style={{ background: "#fff4e5", border: "1px solid #f0b060", padding: "8px 12px", marginBottom: 12, borderRadius: 6 }}>
+          Bloqueio de envio desligado: alunos marcados aqui ainda recebem cobrança por WhatsApp.
+        </div>
+      )}
       <div style={A.topo}>
         <div>
           <h2 style={A.titulo}>Jurídico</h2>
