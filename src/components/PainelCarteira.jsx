@@ -2802,10 +2802,16 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   }, [casos, email, veTudo, operadorFiltro]);
   // Decisão de prioridade e exclusão do guiado: RPC carteira_prioridade_bordero,
   // por aluno_id da lista visível, em lotes de 500. Falha = null = guiado fechado.
+  const ultimaChaveDecisaoRef = useRef(null);
   useEffect(() => {
     let ativo = true;
     (async () => {
       const ids = [...new Set((casos || []).map((c) => c && c.id).filter(Boolean))];
+      // Só recarrega quando o CONJUNTO de ids muda; recarregar após cada ficha
+      // não deve refazer a consulta inteira.
+      const chave = ids.slice().sort().join(',');
+      if (chave === ultimaChaveDecisaoRef.current && prioridadeBordero !== null) return;
+      ultimaChaveDecisaoRef.current = chave;
       if (!ids.length) { if (ativo) setPrioridadeBordero({}); return; }
       try {
         const mapa = {};
@@ -2820,7 +2826,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       }
     })();
     return () => { ativo = false; };
-  }, [casos]);
+  }, [casos, prioridadeBordero]);
   const saldoDe = (a) => {
     const v = saldoView[normCpf(a && a.cpf)];
     if (v && Number.isFinite(v.saldo)) return v.saldo;

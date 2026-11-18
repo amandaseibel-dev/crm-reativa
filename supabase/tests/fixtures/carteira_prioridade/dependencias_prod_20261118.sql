@@ -12,7 +12,7 @@
 --   tabelas: alunos, casos, acordos_titulos, acordo_titulo_vinculo, acordos,
 --            parcelas, baixas_pagamento, solicitacoes_confirmacao_pagamento;
 --   tipo: elegibilidade_cobranca (colunas lidas da assinatura da funcao);
---   funcao: parcela_viva(text) -> stub; o corpo real NAO foi extraido ainda.
+--   funcao: parcela_viva(text) lida de producao (md5 21d1dd16...).
 --   Por isso a suite marca o que depende de parcela_viva como NAO VALIDADO.
 --
 -- Este arquivo NAO e prova da elegibilidade de producao: e a estrutura do
@@ -51,9 +51,25 @@ create type elegibilidade_cobranca as (
   motivo_principal text, motivos_secundarios text[], elegivel boolean
 );
 
--- stub de parcela_viva: o corpo real nao foi extraido (pendencia explicita)
-create or replace function public.parcela_viva(p_status text) returns boolean
-  language sql immutable as $$ select upper(coalesce(p_status,'')) not in ('PAGA','CANCELADA','DEVOLVIDA') $$;
+-- parcela_viva: corpo REAL lido de producao em 18/11/2026 (md5 21d1dd16ff680c8bf0d13523d5780202,
+-- INVOKER, ACL PUBLIC/postgres/authenticated/service_role).
+CREATE OR REPLACE FUNCTION public.parcela_viva(p_status text)
+ RETURNS boolean
+ LANGUAGE sql
+ IMMUTABLE
+ SET search_path TO 'public'
+AS $function$
+  select upper(coalesce(p_status, '')) not in (
+    -- pagamento real (regra 1: so aqui entra dinheiro)
+    'PAGO', 'PAGA',
+    -- saida por cancelamento/estorno
+    'CANCELADA', 'CANCELADO', 'ESTORNADA', 'ESTORNADO',
+    -- regra 2: saiu definitivamente da nossa responsabilidade, SEM pagamento
+    'DEVOLVIDA',
+    -- regra 3: cobranca suspensa temporariamente, SEM pagamento
+    'SUSPENSA'
+  );
+$function$;
 
 -- ---------------------------------------------------------------- corpos reais
 CREATE OR REPLACE FUNCTION public.normalizar_status_acionamento(p_status text)

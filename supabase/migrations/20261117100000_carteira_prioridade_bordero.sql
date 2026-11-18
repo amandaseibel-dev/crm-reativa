@@ -81,17 +81,12 @@ begin
 
   return query
   with ids as (
-    select distinct x as id from unnest(coalesce(p_aluno_ids, '{}'::uuid[])) x
+    select distinct x as id from unnest(coalesce(p_aluno_ids, '{}'::uuid[])) x where x is not null
   ),
   autorizados as (
     select i.id
       from ids i
      where v_gestao
-        or exists (
-             select 1 from public.casos c
-              where c.aluno_id = i.id
-                and not coalesce(c.encerrado_operacional, false)
-                and lower(coalesce(c.operador_email, '')) = v_email)
         or exists (
              select 1 from public.alunos a
               where a.id = i.id
@@ -167,7 +162,7 @@ begin
   select f.bid,
          f.pop,
          (f.pop and f.canon and f.motivo is null and not f.bloq and not f.pagto and not f.lote
-            and f.saldo > 0 and not f.acion and not f.envio_wa and not f.resp_wa) as prioridade,
+            and f.saldo > 0 and not f.acion) as prioridade,
          (f.bloq or f.pagto or f.lote) as exclui_guiado,
          case
            when f.bloq then 'BLOQUEADO'
