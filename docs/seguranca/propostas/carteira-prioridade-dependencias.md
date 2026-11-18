@@ -14,6 +14,8 @@ Observações:
 
 ## Evidências de produção (leitura, 18/11/2026)
 
+Saída bruta (consultas, resultados e md5 dos sete corpos): `docs/seguranca/evidencias/carteira-prioridade-prod-20261118.md`. As tabelas abaixo são resumo dessa saída.
+
 - Colunas confirmadas: `casos.operador_email` existe e `casos.responsavel_atual_email` NÃO existe; `alunos.responsavel_atual_email` existe; `aluno_movimentacoes.aluno_id` é text; `solicitacoes_confirmacao_pagamento.aluno_id` é text; `whatsapp_mensagens.timestamp_wa` e `criado_em` são timestamptz; `acoes_massivas_lotes.aluno_ids` é text[].
 - Fuso: fuso da sessão do servidor = UTC; `importacoes.created_at` é timestamp sem fuso com default `now()`.
 - Default de privilégio para funções criadas por `postgres` em `public`: EXECUTE para authenticated e service_role (não para PUBLIC, anon ou `reativa_responsavel_executor`). A migration revoga service_role e reativa_responsavel_executor e concede só a authenticated.
@@ -33,7 +35,7 @@ A ordem da lista visível (Fila inteligente) continua calculada no cliente, a pa
 
 ## Consulta de colunas em produção (somente leitura, 18/11/2026)
 
-Resultado de `information_schema.columns` para as colunas usadas pela migration (fuso da sessão: UTC):
+Resultado de `information_schema.columns` para as colunas usadas pela migration (fuso da sessão: UTC). Consulta e saída bruta em `docs/seguranca/evidencias/carteira-prioridade-prod-20261118.md`:
 
 | tabela | coluna | tipo | default |
 |---|---|---|---|

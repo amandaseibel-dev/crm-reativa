@@ -9,7 +9,11 @@
 //
 // O que NÃO roda aqui (fica para o CI com PostgreSQL descartável): RLS real,
 // grants por role (anon/authenticated) e search_path efetivo em role real.
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
+
+// PGlite carrega fixture e migration a cada bloco; em máquina sob carga o padrão de 5 s/10 s
+// estoura sem haver falha de lógica. Limites explícitos, sem mascarar asserções.
+vi.setConfig({ testTimeout: 60000, hookTimeout: 120000 });
 import { PGlite } from "@electric-sql/pglite";
 import { unaccent } from "@electric-sql/pglite/contrib/unaccent";
 import { readFileSync } from "node:fs";
