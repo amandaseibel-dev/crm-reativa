@@ -1,0 +1,50 @@
+-- ACOES MASSIVAS: acoes_massivas_concluir_lote NAO confirma integralmente lote PENDENTE de envio.
+--
+-- ORDEM DE APLICACAO: depois de 20261113100100 e de 20261113100000 (a confirmacao por
+-- destinatario, acoes_massivas_concluir_envio, precisa existir antes desta protecao).
+--
+-- PENDENTE. Nao aplicar sem autorizacao expressa e sem linha em
+-- docs/seguranca/migracoes-aprovadas.tsv. Nao altera lote existente nem transforma
+-- exportacao em comprovacao de envio.
+--
+-- Problema (Guardiao, 17/11/2026): acoes_massivas_concluir_lote com CONFIRMAR registra
+-- todos os alunos do lote sem a confirmacao por destinatario. Num lote PENDENTE (sem
+-- confirmado_em, sem descartado_em, registro_automatico falso) essa chamada direta
+-- contornaria a regra de envio confirmado.
+--
+-- Regra nova (valida para QUALQUER chamador): CONFIRMAR em lote pendente e recusado
+-- (errcode 55000) ANTES de qualquer gravacao. Preservados: DESCARTAR de pendente;
+-- CONFIRMAR/DESCARTAR de lote ja confirmado (resposta guardada, sem escrita); descarte
+-- de lote ja descartado; demais caminhos da funcao.
+--
+-- Producao (17/11/2026, leitura): nenhum lote pendente; os 19 lotes de WhatsApp com
+-- registro_automatico falso ja estao confirmados. Esta migration nao altera dado.
+--
+-- Mudanca: patch ancorado com guarda de MD5 da definicao publicada (3a940022...).
+
+BEGIN;
+
+-- 0. GUARDA DE ORIGEM ------------------------------------------------------------
+DO $g$
+BEGIN
+  IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_concluir_lote') IS DISTINCT FROM '3a94002240236f6ccd63296ccc4b6a42' THEN
+    RAISE EXCEPTION 'acoes_massivas_concluir_lote mudou desde a validacao (esperado 3a940022...). Nada aplicado.';
+  END IF;
+END $g$;
+
+-- 1. RECUSA CONFIRMAR DE LOTE PENDENTE ------------------------------------------
+SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_concluir_lote',
+$a1$  if v_acao = 'DESCARTAR' then
+    update public.acoes_massivas_lotes$a1$,
+$n1$  -- 17/11/2026: CONFIRMAR de lote PENDENTE de envio contorna a confirmacao por destinatario.
+  -- Recusa antes de qualquer gravacao. Quem confirma e acoes_massivas_concluir_envio.
+  if v_acao = 'CONFIRMAR' and coalesce(v_lote.registro_automatico, false) = false then
+    raise exception 'Este lote esta pendente de envio. Confirme o envio destinatario a destinatario ou descarte o lote. Nada foi registrado.'
+      using errcode = '55000';
+  end if;
+
+  if v_acao = 'DESCARTAR' then
+    update public.acoes_massivas_lotes$n1$, 1);
+
+COMMIT;

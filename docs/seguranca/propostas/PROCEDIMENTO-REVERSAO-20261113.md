@@ -1,4 +1,8 @@
-# Procedimento operacional — reversao de 20261113100000 / 20261113100100
+# Procedimento operacional — reversao de 20261113100000 / 20261113100100 / 20261113100200
+
+**Ordem de APLICACAO:** `20261113100100` → `20261113100000` → `20261113100200`.
+**Ordem de REVERSAO:** `20261113100200` rollback → `20261113100000` rollback → `20261113100100` rollback.
+Hashes completos (sha256) e tamanhos estao em `docs/seguranca/propostas/migracoes-aprovadas-20261113-PROPOSTA.tsv`.
 
 **Status: PROPOSTA. Nao executado. Nao autorizado. Exige autorizacao expressa da gestao antes de qualquer uso.**
 
@@ -25,14 +29,14 @@ Uma exportacao que **comece depois da checagem e antes do COMMIT** nao e vista p
    Sessao `idle in transaction` com essa query **conta como pendencia**: encerrar somente com autorizacao, nunca por conta propria. Sessao `idle` (pool) nao conta.
 4. **Contagem momentanea de pendentes por canal, com data e hora** (evidencia; nao substitui a checagem do rollback):
    `select now(), canal, count(*) from public.acoes_massivas_lotes where confirmado_em is null and descartado_em is null group by canal;`
-5. **Reverter a confirmacao** (`20261113100000` rollback). Ele recusa sozinho se houver pendente.
+5. **Reverter a recusa de confirmacao integral** (`20261113100200` rollback), antes de reverter a confirmacao. Recusa sozinho se houver lote de WhatsApp pendente. Depois, **reverter a confirmacao** (`20261113100000` rollback). Ele recusa sozinho se houver pendente.
 6. **Verificar pendentes ANTES de reverter a protecao:** repetir o passo 4. Se houver pendente, **parar**: nao executar o passo 7. A protecao de e-mail continua vigente.
 7. **Reverter a protecao** (`20261113100100` rollback). Recusa sozinha se houver pendente ou se a confirmacao ainda existir.
 8. **Verificacao pos-COMMIT:** repetir o passo 4 (esperado zero) e conferir os md5 das funcoes (`c9cc7498…` para a exportacao; `00d3370a…` para a funcao de e-mails).
 9. **Restaurar as permissoes** com GRANT EXECUTE para os mesmos papeis do passo 2, somente depois do passo 8 (nada a mais). Conferir as permissoes **efetivas** por papel contra o snapshot; divergencia de `proacl` so e aceita se as efetivas forem iguais e a diferenca estiver registrada.
 
 ## Se algo falhar
-- Se o passo 6 achar pendente: nao reverter a protecao. Tratar o lote pela operacao (tabular ou descartar) pela funcao `acoes_massivas_concluir_lote`, que existe em producao; **esse caminho para lote PENDENTE_ENVIO ainda NAO foi confirmado** e deve ser conferido antes da janela. Registrar a ocorrencia e repetir a janela.
+- Se o passo 6 achar pendente: nao reverter a protecao. Tratar o lote: confirmar por destinatario (`acoes_massivas_concluir_envio`) ou descartar (`acoes_massivas_concluir_lote` com DESCARTAR). Com a `20261113100200` aplicada, `acoes_massivas_concluir_lote` com CONFIRMAR e **recusado** para lote pendente; sem ela, esse caminho ainda registra todos e nao deve ser usado para pendente. Registrar a ocorrencia e repetir a janela.
 - Se o passo 8 achar pendente apos a reversao da protecao: tratar como incidente; o lote fica pendente e a exportacao de e-mail ja nao o protege. Registrar e decidir a recomposicao com a gestao.
 
 ## Inventario por leitura (17/11/2026, sem alterar producao)

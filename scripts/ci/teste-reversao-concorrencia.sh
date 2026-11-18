@@ -34,31 +34,74 @@ espera_trava() { for _ in $(seq 1 100); do
   n=$(P -tA -c "select count(*) from pg_locks l join pg_class c on c.oid=l.relation where c.relname='acoes_massivas_lotes' and l.mode='RowExclusiveLock' and l.granted")
   [ "$n" -ge 1 ] && return 0; sleep 0.2; done; falha "a sessao seguradora nao obteve a trava"; }
 
-# B1: permissoes EFETIVAS. Referencia = estado ANTES da 20261113100000, capturado aqui (nunca o posterior ao rollback).
-# Esperado: aplicar a 100000 NAO altera o efetivo; o rollback (C2) restaura exatamente o efetivo anterior.
-F1="public.acoes_massivas_exportar(text[],text,text,text,text,uuid)"
-F2="public.acoes_massivas_exportar_emails_do_lote(uuid,text)"
-# Papeis: TODOS os roles do banco (pg_roles), nao uma lista fixa. has_function_privilege herda memberships.
-# PUBLIC nao e role: has_function_privilege('public',...) nao e valido. Efetivo de PUBLIC = EXECUTE na ACL
-# com grantee 0 (aclexplode) ou, com proacl NULL, o padrao do Postgres (EXECUTE para PUBLIC).
+# B1: permissoes EFETIVAS de TODAS as funcoes tocadas pelas migrations pendentes, medidas em cada etapa.
+# Efetivo = has_function_privilege por papel de pg_roles + PUBLIC pela ACL (aclexplode; proacl NULL = padrao).
+# Funcao ausente aparece como ABSENTE. Nunca se usa o estado posterior a um rollback como referencia.
+F_EXP="public.acoes_massivas_exportar(text[],text,text,text,text,uuid)"
+F_EML="public.acoes_massivas_exportar_emails_do_lote(uuid,text)"
+F_LOT="public.acoes_massivas_concluir_lote(uuid,text)"
+F_ENV="public.acoes_massivas_concluir_envio(uuid,text,text[])"
+F_DST="public.acoes_massivas_lote_destinatarios(uuid)"
+F1="$F_EXP"; F2="$F_EML"
+PROT_F="$D/20261113100100_acoes_massivas_email_so_apos_tabulacao.sql.pendente"
+CONF_F="$D/20261113100000_acoes_massivas_confirmar_envio.sql.pendente"
+NOVA_F="$D/20261113100200_acoes_massivas_concluir_lote_bloqueia_pendente.sql.pendente"
+NOVA_RB="$D/20261113100200_acoes_massivas_concluir_lote_bloqueia_pendente.rollback.sql"
+# efetivas FUNC... : uma linha por funcao x papel (todos de pg_roles) + uma linha PUBLIC por funcao.
 efetivas() {
+  local vals="" f
+  for f in "$@"; do vals="$vals ('$f'),"; done
+  vals="${vals%,}"
   P -tA -c "select string_agg(x, ';' order by x) from (
-      select f||':'||r.rolname||'='||has_function_privilege(r.rolname, f, 'EXECUTE')::text as x
-        from (values ('$F1'),('$F2')) as fx(f), pg_roles r
+      select f||':'||r.rolname||'='||case when to_regprocedure(f) is null then 'ABSENTE'
+             else has_function_privilege(r.rolname, f, 'EXECUTE')::text end as x
+        from (values $vals) as fx(f), pg_roles r
       union all
-      select p.oid::regprocedure::text||':PUBLIC='||(p.proacl is null or exists (select 1 from aclexplode(p.proacl) a where a.grantee=0 and a.privilege_type='EXECUTE'))::text
-        from pg_proc p where p.oid in ('$F1'::regprocedure,'$F2'::regprocedure)
+      select f||':PUBLIC='||case when to_regprocedure(f) is null then 'ABSENTE' else
+             (select (p.proacl is null or exists (select 1 from aclexplode(p.proacl) a
+                       where a.grantee=0 and a.privilege_type='EXECUTE'))::text
+                from pg_proc p where p.oid = to_regprocedure(f)) end
+        from (values $vals) as fx(f)
   ) t"
 }
+TODAS=("$F_EXP" "$F_EML" "$F_LOT" "$F_ENV" "$F_DST")
 catalogo() { P -tA -c "select string_agg(coalesce(proacl::text,'NULL'), ' | ' order by proname) from pg_proc where oid in ('$F1'::regprocedure,'$F2'::regprocedure)"; }
-[ -f "${FIN_SQL:-}" ] || falha "B1: defina FIN_SQL (arquivo da 20261113100000 gerado pelo CI)"
-M_PRE=$(md5_exp); E_PRE=$(efetivas)
-[ -n "$E_PRE" ] || falha "B1: snapshot de permissoes ANTES vazio (consulta falhou)"
-P -f "$FIN_SQL" >"$LOG/b1_aplica" 2>&1 || falha "B1: aplicacao da 20261113100000 falhou (log: $LOG/b1_aplica)"
-[ "$(md5_exp)" != "$M_PRE" ] || falha "B1: aplicacao nao alterou o corpo de exportar (esperado)"
-E_APL=$(efetivas)
-[ "$E_APL" = "$E_PRE" ] || falha "B1: aplicacao ALTEROU permissoes efetivas: antes=[$E_PRE] depois=[$E_APL]"
-echo "B1 ok: aplicacao da 100000 preservou permissoes efetivas (por papel, incluindo PUBLIC)"
+
+# Passo 0: o banco nasce ANTES da 100100 (corpo publicado de e-mail, 00d3370a). Referencia = esse estado.
+E_ANTES_100100=$(efetivas "$F_EML")
+[ -n "$E_ANTES_100100" ] || falha "B1: snapshot vazio antes da 100100"
+
+# Passo 1: aplica a 100100 (protecao de e-mail). Efetivo de exportar_emails deve ser o mesmo de antes? NAO exigido:
+# a 100100 so muda o corpo; medimos e comparamos apos cada etapa abaixo.
+P -f "$PROT_F" >"$LOG/b1_100100" 2>&1 || falha "B1: aplicacao da 100100 falhou (log: $LOG/b1_100100)"
+[ "$(efetivas "$F_EML")" = "$E_ANTES_100100" ] || falha "B1: aplicacao da 100100 ALTEROU permissoes efetivas de exportar_emails"
+E_PRE=$(efetivas "${TODAS[@]}")   # referencia ANTES da 100000 (FC/FD ABSENTE)
+
+# Passo 2: aplica a 100000. Existentes: iguais. Novas (concluir_envio, lote_destinatarios): so anon=f, PUBLIC=f.
+P -f "$CONF_F" >"$LOG/b1_100000" 2>&1 || falha "B1: aplicacao da 100000 falhou (log: $LOG/b1_100000)"
+E_100000=$(efetivas "${TODAS[@]}")
+# Existentes (exportar, emails, concluir_lote): efetivo identico ao de antes da 100000.
+[ "$(efetivas "$F_EXP" "$F_EML" "$F_LOT")" = "$(printf '%s' "$E_PRE" | tr ';' '\n' | grep -E '^(public\.acoes_massivas_(exportar|exportar_emails_do_lote|concluir_lote)\()' | tr '\n' ';' | sed 's/;$//')" ] || falha "B1: 100000 alterou permissoes efetivas de funcao existente"
+for f in "$F_ENV" "$F_DST"; do
+  for r in anon PUBLIC; do
+    [ "$(printf '%s' "$E_100000" | tr ';' '\n' | grep -E "^$f:$r=" | cut -d= -f2)" = "false" ] || falha "B1: 100000 expos $f a $r (esperado: nao)"
+  done
+  for r in authenticated service_role; do
+    [ "$(P -tA -c "select has_function_privilege('$r','$f','EXECUTE')::text")" = "true" ] || falha "B1: 100000 nao concede $f a $r"
+  done
+done
+echo "B1 ok: 100000 aplicada; novas funcoes concedidas so a authenticated e service_role"
+
+# Passo 3: aplica a 100200 (recusa de CONFIRMAR de lote pendente). So corpo: efetivo nao muda.
+E_ANTES_200=$(efetivas "${TODAS[@]}")
+P -f "$NOVA_F" >"$LOG/b1_100200" 2>&1 || falha "B1: aplicacao da 100200 falhou (log: $LOG/b1_100200)"
+[ "$(efetivas "${TODAS[@]}")" = "$E_ANTES_200" ] || falha "B1: aplicacao da 100200 ALTEROU permissoes efetivas"
+echo "B1 ok: 100200 aplicada sem alterar permissoes efetivas"
+
+# Passo 4: rollback da 100200 -> efetivo volta ao de antes dela.
+P -f "$NOVA_RB" >"$LOG/b1_rb100200" 2>&1 || falha "B1: rollback da 100200 falhou (log: $LOG/b1_rb100200)"
+[ "$(efetivas "${TODAS[@]}")" = "$E_ANTES_200" ] || falha "B1: rollback da 100200 NAO restaurou o efetivo anterior"
+echo "B1 ok: rollback da 100200 restaurou o efetivo anterior"
 
 # C1: trava ocupada -> reversao RECUSADA por lock timeout (55P03); nada muda.
 ANTES=$(md5_exp)
@@ -73,8 +116,9 @@ echo "C1 ok: trava ocupada -> lock timeout; nada mudou"
 # C2: trava livre -> reversao da confirmacao CONCLUI.
 P -f "$RB_CONF" >"$LOG/c2" 2>&1 || falha "C2: deveria concluir com a trava livre"
 [ "$(md5_exp)" != "$ANTES" ] || falha "C2: concluiu mas a funcao nao mudou"
-[ "$(efetivas)" = "$E_PRE" ] || falha "C2: rollback NAO restaurou as permissoes efetivas anteriores a 100000"
-echo "C2 ok: reversao da confirmacao concluiu e restaurou o efetivo anterior"
+[ "$(efetivas "${TODAS[@]}")" = "$E_PRE" ] || falha "C2: rollback NAO restaurou as permissoes efetivas anteriores a 100000 (incluindo ausencia das funcoes novas)"
+echo "B1 ok: rollback da 100000 restaurou o efetivo anterior (incluindo a ausencia de concluir_envio e lote_destinatarios)"
+echo "C2 ok: reversao da confirmacao concluiu"
 
 # C3: exportacao (INSERT = ROW EXCLUSIVE) aberta e nao commitada -> reversao da protecao RECUSADA.
 P -c "BEGIN; INSERT INTO public.acoes_massivas_lotes (canal,arquivo,aluno_ids,total,exportado_por_email,tipo_cobranca,recencia_dias) SELECT 'WHATSAPP','c3.xlsx','{}'::text[],0,'teste@x',NULL,10; SELECT pg_sleep(20); ROLLBACK;" >"$LOG/h3" 2>&1 & H3=$!
@@ -89,7 +133,7 @@ echo "C3 ok: reversao da protecao recusada com a exportacao em andamento"
 # C4: permissoes EFETIVAS. Mecanismos suportados apenas: REVOKE/GRANT. Nao escreve em pg_proc.
 # Catalogo (proacl) e registrado so como informacao: GRANT pode trocar NULL por ACL explicita sem mudar
 # quem executa. A comparacao que vale e has_function_privilege por papel, antes e depois.
-E_ANTES=$(efetivas); C_ANTES=$(catalogo)
+E_ANTES=$(efetivas "$F1" "$F2"); C_ANTES=$(catalogo)
 [ -n "$E_ANTES" ] || falha "C4: snapshot de permissoes efetivas vazio (consulta falhou)"
 # Limpeza: tenta reconceder EXECUTE a authenticated. Falha de recuperacao e sinalizada a parte (nao engole).
 restaurar() {
@@ -103,12 +147,17 @@ P -c "revoke execute on function $F1 from authenticated; revoke execute on funct
 [ "$(P -tA -c "select has_function_privilege('authenticated','$F1','EXECUTE')")" = "f" ] || falha "C4: revoke nao aplicado"
 [ "$(P -tA -c "select has_function_privilege('service_role','$F1','EXECUTE')")" = "t" ] || falha "C4: service_role foi afetado pelo revoke de authenticated (inesperado)"
 restaurar
-E_DEPOIS=$(efetivas)
+E_DEPOIS=$(efetivas "$F1" "$F2")
 [ "$E_DEPOIS" = "$E_ANTES" ] || falha "C4: permissoes efetivas divergentes apos restauracao: antes=[$E_ANTES] depois=[$E_DEPOIS]"
 trap - EXIT
 C_DEPOIS=$(catalogo)
 if [ "$C_DEPOIS" != "$C_ANTES" ]; then echo "C4 info: representacao do catalogo difere (esperado pelo GRANT): antes=[$C_ANTES] depois=[$C_DEPOIS]"; fi
 echo "C4 ok: permissoes efetivas identicas por papel apos REVOKE/GRANT (sem ampliar nem perder acesso)"
+
+# C5: rollback da 100100 CONCLUI (sem concluir_envio e sem pendentes) e volta ao efetivo de antes da 100100.
+P -f "$RB_PROT" >"$LOG/c5" 2>&1 || falha "C5: rollback da 100100 deveria concluir (log: $LOG/c5)"
+[ "$(efetivas "$F_EML")" = "$E_ANTES_100100" ] || falha "C5: rollback da 100100 NAO restaurou o efetivo de exportar_emails"
+echo "C5 ok: rollback da 100100 concluiu e restaurou o efetivo anterior"
 
 # Residuos: nenhum lote pendente, nenhuma transacao aberta deixada pelos cenarios.
 [ "$(P -tA -c "select count(*) from public.acoes_massivas_lotes where confirmado_em is null and descartado_em is null")" = "0" ] || falha "residuo: lote pendente restou"

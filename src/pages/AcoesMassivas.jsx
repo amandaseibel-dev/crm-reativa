@@ -558,10 +558,11 @@ export default function AcoesMassivas() {
   // EXPORTAR NÃO É CONTATO REALIZADO. O disparo acontece numa ferramenta
   // externa; baixar a planilha não muda nada no aluno (tabulação, retorno,
   // fidelização, acionamento). O banco revalida, devolve os contatos e guarda um
-  // LOTE de auditoria. Desde 02/10 a própria exportação REGISTRA e já fecha o
-  // lote (confirmado_em = now()), então não existe mais etapa de confirmar: o
-  // painel de lotes pendentes só aparece para lotes antigos ainda abertos.
-  // Desde 19/10 esse registro também TABULA o caso, com retorno em 10 dias.
+  // LOTE de auditoria. Na versão publicada em produção, a exportação ainda
+  // REGISTRA e fecha o lote (confirmado_em = now()). Na versão desta PR (quando a
+  // migration 20261113100000 estiver aplicada), a exportação só PREPARA o lote como
+  // pendente de envio: quem registra o envio é a confirmação por destinatário.
+  // Desde 19/10 o registro automático também TABULA o caso, com retorno em 10 dias.
   async function exportarPlanilha() {
     if (!resultados || resultados.length === 0) return;
 
@@ -779,8 +780,8 @@ export default function AcoesMassivas() {
   // CONFIRMAR ENVIO — TOTAL, PARCIAL (só os marcados) ou DESCARTAR. Só aqui o
   // aluno passa a contar como acionado: o banco revalida e grava a movimentação
   // pelo registro de sempre, com data/hora e quem confirmou. Um lote confirma
-  // uma vez só. Sem a migration 20261113100000 no banco, TOTAL e DESCARTAR caem
-  // no acoes_massivas_concluir_lote de sempre; PARCIAL não tem equivalente.
+  // uma vez só. Sem a função acoes_massivas_concluir_envio no banco, a ação é
+  // BLOQUEADA com mensagem: não há substituto que registre só o envio confirmado.
   async function concluirLote(lote, acao) {
     if (concluindoRef.current) return;
     concluindoRef.current = true;
