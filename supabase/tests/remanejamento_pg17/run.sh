@@ -94,6 +94,11 @@ banco_novo rem_com936
 psqlt "$LOGS/s2_base.log" rem_com936 "$FIX" || falha "base (fixture) nao carrega"
 psqlt "$LOGS/s2_acl.log" rem_com936 "$ACL" || falha "ACL nao aplicou"
 psqlt "$LOGS/s2_seed.log" rem_com936 "$TD/seed.sql" || falha "seed"
+# camada real de producao: estruturas (colunas, indice unico), auth reproduzido e funcoes reais
+PROT="$RAIZ/supabase/tests/fixtures/protecao_prod_20261118"
+psqlt "$LOGS/s2_estr.log" rem_com936 "$PROT/estruturas_prod.sql" || falha "estruturas reais nao aplicaram"
+psqlt "$LOGS/s2_auth.log" rem_com936 "$TD/auth_reproducao.sql" || falha "auth reproduzido nao aplicou"
+psqlt "$LOGS/s2_funcs.log" rem_com936 "$PROT/funcoes_prod.sql" || falha "funcoes reais nao aplicaram"
 if ! psqlt "$LOGS/s2_936.log" rem_com936 "$MIG936"; then
   echo "  #936 NAO aplica sobre a bancada de producao de 17/11: ver $LOGS/s2_936.log"
   exit 2
@@ -103,7 +108,7 @@ psqlt "$LOGS/s2_migration.log" rem_com936 "$OURS" || falha "migration nao aplico
 echo "  ok: migration aplicada sobre a #936"
 
 passo "3. Testes sequenciais (um banco, mesma sessao de cada arquivo)"
-for t in p_destinos p_perfis p_prazo p_saldo_capacidade p_terceiros; do
+for t in p_destinos p_perfis p_prazo p_saldo_capacidade p_terceiros p_protecao_real p_perfis_extra; do
   psqlt "$LOGS/$t.log" rem_com936 "$TD/$t.sql" || falha "$t: ver $LOGS/$t.log"
   echo "  ok: $t"
 done
