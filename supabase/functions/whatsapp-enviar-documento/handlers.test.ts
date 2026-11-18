@@ -209,7 +209,7 @@ describe("whatsapp-enviar-documento: flag JURIDICO_BLOQUEIO_ENVIO_ATIVO desligad
     expect(estado.gatewayChamadas).toBe(1);
   });
 
-  it("flag desligada + caso jurídico aberto (JUR01 no RPC): envia normalmente, sem bloquear", async () => {
+  it("flag desligada + caso jurídico aberto (JUR01 no RPC): envia normalmente — juridico_checar_envio nunca chamado (env var off)", async () => {
     estado.checar = { code: "JUR01", message: "Envio bloqueado: aluno com bloqueio jurídico." };
     const r = await estado.handler!(pedido());
     expect(r.status).toBe(200);
@@ -225,5 +225,28 @@ describe("whatsapp-enviar-documento: flag JURIDICO_BLOQUEIO_ENVIO_ATIVO desligad
     expect(nomes()).not.toContain("juridico_checar_envio");
     expect(estado.uploads).toBe(1);
     expect(estado.gatewayChamadas).toBe(1);
+  });
+});
+
+describe("whatsapp-enviar-documento: módulo DB desligado (JURIDICO_BLOQUEIO_ENVIO_ATIVO ligado, juridico_modulo_ativo()=false)", () => {
+  // bloqueioAtivo=true (default). Simula módulo off no banco:
+  // juridico_checar_envio É chamado, mas opera em modo leve (retorna sem erro quando sem bloqueio efetivo).
+
+  it("sem bloqueio efetivo: juridico_checar_envio chamado, passa, envio permitido", async () => {
+    // checar=null simula módulo off + sem bloqueio (juridico_checar_envio retorna sem erro)
+    const r = await estado.handler!(pedido());
+    expect(r.status).toBe(200);
+    expect(nomes()).toContain("juridico_checar_envio");
+    expect(estado.uploads).toBe(1);
+    expect(estado.gatewayChamadas).toBe(1);
+  });
+
+  it("com bloqueio efetivo (caso aprovado): proteção preservada — JUR01 retornado pelo modo leve", async () => {
+    estado.checar = { code: "JUR01", message: "Aluno com encaminhamento jurídico ativo: envio bloqueado (módulo inativo — proteção preservada)." };
+    const r = await estado.handler!(pedido());
+    expect(r.status).toBe(403);
+    expect(nomes()).toContain("juridico_checar_envio");
+    expect(estado.uploads).toBe(0);
+    expect(estado.gatewayChamadas).toBe(0);
   });
 });

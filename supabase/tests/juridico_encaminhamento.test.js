@@ -1782,3 +1782,59 @@ describe("vinculo de conversa e identificacao confiavel", () => {
     await db.close();
   });
 });
+
+describe("módulo jurídico: controle por banco (juridico_config.modulo_ativo)", () => {
+  it("módulo desligado: juridico_caso_aprovar recusa nova aprovação (42501)", async () => {
+    const db = await novo();
+    await db.query("update public.juridico_config set valor=false where chave='modulo_ativo'");
+    const { al } = await mk(db);
+    await gerar(db, 100);
+    const caso = await casoDe(db, al);
+    const e = await falha(rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]));
+    expect(e?.code).toBe("42501");
+    await db.close();
+  });
+
+  it("módulo desligado + sem bloqueio efetivo: juridico_checar_envio passa (fluxo legado)", async () => {
+    const db = await novo();
+    await db.query("update public.juridico_config set valor=false where chave='modulo_ativo'");
+    const { al } = await mk(db);
+    const conv = (await db.query("select id from whatsapp_conversas where aluno_id=$1 limit 1", [al])).rows[0]?.id;
+    expect(conv).toBeTruthy();
+    await expect(
+      db.query("select public.juridico_checar_envio($1,$2,'op@x','MENSAGEM','aaaaaaaaaaaaaaaa')", [al, conv])
+    ).resolves.toBeDefined();
+    await db.close();
+  });
+
+  it("módulo desligado após aprovação: proteção preservada no envio (JUR01)", async () => {
+    const db = await novo();
+    const { al } = await mk(db);
+    await gerar(db, 100);
+    const caso = await casoDe(db, al);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    await db.query("update public.juridico_config set valor=false where chave='modulo_ativo'");
+    const conv = (await db.query("select id from whatsapp_conversas where aluno_id=$1 limit 1", [al])).rows[0]?.id;
+    const e = await falha(
+      db.query("select public.juridico_checar_envio($1,$2,'op@x','MENSAGEM','aaaaaaaaaaaaaaaa')", [al, conv])
+    );
+    expect(e?.code).toBe("JUR01");
+    await db.close();
+  });
+
+  it("módulo desligado após aprovação: troca de aluno_id na conversa levanta JUR02", async () => {
+    const db = await novo();
+    const { al } = await mk(db);
+    const outro = await mk(db);
+    await gerar(db, 100);
+    const caso = await casoDe(db, al);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    await db.query("update public.juridico_config set valor=false where chave='modulo_ativo'");
+    const conv = (await db.query("select id from whatsapp_conversas where aluno_id=$1 limit 1", [al])).rows[0]?.id;
+    const e = await falha(
+      db.query("update whatsapp_conversas set aluno_id=$1 where id=$2", [outro.al, conv])
+    );
+    expect(e?.code).toBe("JUR02");
+    await db.close();
+  });
+});

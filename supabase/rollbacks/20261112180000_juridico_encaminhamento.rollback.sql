@@ -7,7 +7,7 @@
 --   2. guarda copia das seis tabelas em `_backup_juridico_*_20261112` (RLS ligada,
 --      sem grant) antes de remover;
 --   3. solta, nesta ordem: triggers nas tabelas do sistema, funcoes (lista
---      explicita de 41 assinaturas), tabelas, sequences. Nenhum titulo, parcela
+--      explicita de 42 assinaturas), tabelas (incluindo juridico_config), sequences. Nenhum titulo, parcela
 --      ou acordo e tocado -- a migration tambem nao os tocou.
 
 begin;
@@ -98,6 +98,8 @@ drop function public.juridico_autorizar_envio(uuid,uuid,text,text,text);
 drop function public.juridico_checar_envio(uuid,uuid,text,text,text);
 drop function public._juridico_bloqueio_efetivo(uuid);
 drop function public.juridico_registrar_recusa_envio(uuid,uuid,text);
+drop function public.juridico_modulo_ativo();
+drop table public.juridico_config;
 drop table public.juridico_envio_autorizacoes;
 drop function public.juridico_varrer_alertas();
 

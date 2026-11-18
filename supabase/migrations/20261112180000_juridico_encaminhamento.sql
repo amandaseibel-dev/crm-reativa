@@ -1175,6 +1175,9 @@ declare
 begin
   -- espera LIMITADA: nenhum conflito de trava fica pendurado; o erro reverte a transacao inteira
   set local lock_timeout = '3s';
+  if not public.juridico_modulo_ativo() then
+    raise exception 'Módulo jurídico inativo: habilite o módulo antes de aprovar casos.' using errcode = '42501';
+  end if;
   begin
   select * into v_caso from public.juridico_casos where id = p_caso_id for update;
   if not found then raise exception 'Caso não encontrado.' using errcode = 'P0002'; end if;
@@ -1490,6 +1493,28 @@ as $function$
                     and exists (select 1 from public.casos c where c.aluno_id = jc.aluno_id and c.nao_acionar is true));
 $function$;
 
+-- CONFIGURACAO DO MODULO JURIDICO. Lida por funcoes security definer; sem acesso direto.
+create table public.juridico_config (
+  chave text primary key,
+  valor boolean not null default false,
+  alterado_em timestamptz not null default now(),
+  alterado_por text
+);
+alter table public.juridico_config enable row level security;
+revoke all on public.juridico_config from public, anon, authenticated;
+-- Modulo ativo por padrao: a migration implanta o modulo pronto para uso.
+-- Para rollback: UPDATE juridico_config SET valor=false WHERE chave='modulo_ativo'.
+-- Com modulo inativo: novas aprovacoes sao recusadas; alunos ja aprovados/financeiro/juridico permanecem bloqueados.
+insert into public.juridico_config (chave, valor) values ('modulo_ativo', true);
+
+-- Flag de modulo. Usada por juridico_caso_aprovar e juridico_checar_envio.
+create function public.juridico_modulo_ativo()
+returns boolean
+language sql stable security definer set search_path to 'public'
+as $function$
+  select coalesce((select valor from public.juridico_config where chave = 'modulo_ativo'), false);
+$function$;
+
 -- Checagem do envio (mensagem ou documento). FAIL-CLOSED: qualquer erro aqui impede o envio.
 --  * sem aluno identificado: recusa (nao cria vinculo automatico)
 --  * sem bloqueio efetivo: passa
@@ -1500,6 +1525,14 @@ language plpgsql security definer set search_path to 'public'
 as $function$
 declare v_id uuid; v_tel text; v_sit text; v_ident uuid; v_cand jsonb; v_envolvido boolean;
 begin
+  -- Modulo inativo: modo leve. Protege apenas bloqueio efetivo; demais passam sem checagem completa.
+  if not public.juridico_modulo_ativo() then
+    if public._juridico_bloqueio_efetivo(p_aluno) then
+      raise exception 'Aluno com encaminhamento jurídico ativo: envio bloqueado (módulo inativo — proteção preservada).'
+        using errcode = 'JUR01';
+    end if;
+    return;
+  end if;
   if p_aluno is null or not exists (select 1 from public.alunos al where al.id = p_aluno) then
     raise exception 'Contato sem vínculo confiável com um aluno: o envio por este fluxo não é permitido. Nenhum vínculo é criado automaticamente.' using errcode = 'JUR01';
   end if;
@@ -2024,7 +2057,8 @@ begin
   'public.juridico_painel()',
   'public.juridico_varrer_alertas()',
   'public.juridico_bloqueio_ids(uuid[])',
-  'public.juridico_autorizar_envio(uuid,uuid,text,text,text)'
+  'public.juridico_autorizar_envio(uuid,uuid,text,text,text)',
+  'public.juridico_modulo_ativo()'
   ] loop
     execute format('revoke all on function %s from public, anon, authenticated', sig);
     execute format('grant execute on function %s to authenticated', sig);
@@ -2075,8 +2109,8 @@ begin
   select count(*) into v_n from pg_proc p
    where p.pronamespace = 'public'::regnamespace
      and (p.proname like 'juridico\_%' or p.proname like '\_juridico\_%');
-  if v_n <> 41 then
-    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 41 esperadas).', v_n;
+  if v_n <> 42 then
+    raise exception 'juridico: inventario de funcoes diverge (% encontradas, 42 esperadas).', v_n;
   end if;
 
   select count(*) into v_n
@@ -2094,7 +2128,7 @@ begin
   select count(*) into v_n
     from pg_class c
    where c.relnamespace = 'public'::regnamespace
-     and c.relname in ('juridico_lotes','juridico_casos','juridico_casos_titulos','juridico_historico','juridico_documentos','juridico_envio_autorizacoes')
+     and c.relname in ('juridico_lotes','juridico_casos','juridico_casos_titulos','juridico_historico','juridico_documentos','juridico_envio_autorizacoes','juridico_config')
      and (not c.relrowsecurity
        or has_table_privilege('authenticated', c.oid, 'select,insert,update,delete,truncate')
        or has_table_privilege('anon', c.oid, 'select,insert,update,delete,truncate'));
