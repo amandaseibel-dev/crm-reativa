@@ -25,3 +25,7 @@ create table if not exists whatsapp_mensagens (id uuid primary key default gen_r
   direcao text, status text, timestamp_wa timestamptz, criado_em timestamptz);
 create table if not exists acoes_massivas_lotes (id uuid primary key default gen_random_uuid(), aluno_ids text[],
   confirmado_em timestamptz, descartado_em timestamptz);
+
+-- Default privileges do Supabase: funcoes novas em public herdam EXECUTE para PUBLIC.
+-- Reproduz o ambiente real antes da migration, para o teste de grants ser honesto.
+alter default privileges in schema public grant execute on functions to anon, authenticated, service_role;

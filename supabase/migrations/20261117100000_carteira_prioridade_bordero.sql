@@ -186,6 +186,7 @@ $function$;
 
 revoke all on function public.carteira_prioridade_bordero(uuid[]) from public;
 revoke all on function public.carteira_prioridade_bordero(uuid[]) from anon;
+revoke all on function public.carteira_prioridade_bordero(uuid[]) from service_role;
 grant execute on function public.carteira_prioridade_bordero(uuid[]) to authenticated;
 
 -- ROLLBACK (somente se aplicada e precisar ser revertida; não altera dado):

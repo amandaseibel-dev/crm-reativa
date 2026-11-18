@@ -16,6 +16,7 @@ do $$ begin
   perform pg_temp.afirma(not has_function_privilege('anon', 'public.carteira_prioridade_bordero(uuid[])', 'EXECUTE'), 'anon nao executa');
   perform pg_temp.afirma(has_function_privilege('authenticated', 'public.carteira_prioridade_bordero(uuid[])', 'EXECUTE'), 'authenticated executa');
   perform pg_temp.afirma(not has_function_privilege('public', 'public.carteira_prioridade_bordero(uuid[])', 'EXECUTE'), 'PUBLIC nao executa');
+  perform pg_temp.afirma(not has_function_privilege('service_role', 'public.carteira_prioridade_bordero(uuid[])', 'EXECUTE'), 'service_role nao executa');
 end $$;
 
 -- 3) dados sinteticos
