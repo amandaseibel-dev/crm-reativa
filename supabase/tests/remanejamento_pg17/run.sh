@@ -139,6 +139,17 @@ psqlt "$LOGS/conc_cap_b.log" rem_com936 "$TD/p_conc_cap_b.sql" &
 cb=$!
 wait $ca $cb || true
 psqlt "$LOGS/conc_check.log" rem_com936 "$TD/p_conc_check.sql" || falha "veredito da concorrencia: ver $LOGS/conc_check.log"
+
+# B4: DOIS destinos diferentes (Luana x Mauricio), cada um com 1 vaga, sessoes sincronizadas por barreira.
+psqlt "$LOGS/conc2_setup.log" rem_com936 "$TD/p_conc2_setup.sql" || falha "preparo da concorrencia B4: ver $LOGS/conc2_setup.log"
+( psqlt "$LOGS/conc2_a.log" rem_com936 "$TD/p_conc2_a.sql"; echo $? > "$LOGS/conc2_a.rc" ) &
+pa2=$!
+( psqlt "$LOGS/conc2_b.log" rem_com936 "$TD/p_conc2_b.sql"; echo $? > "$LOGS/conc2_b.rc" ) &
+pb2=$!
+wait $pa2 $pb2 || true
+[ "$(cat "$LOGS/conc2_a.rc")" = 0 ] || falha "B4 sessao A: ver $LOGS/conc2_a.log"
+[ "$(cat "$LOGS/conc2_b.rc")" = 0 ] || falha "B4 sessao B: ver $LOGS/conc2_b.log"
+psqlt "$LOGS/conc2_check.log" rem_com936 "$TD/p_conc2_check.sql" || falha "veredito B4 (destinos diferentes): ver $LOGS/conc2_check.log"
 echo "  ok: concorrencia (mesmo caso e teto)"
 
 # ----------------------------------------------------------------- ROLLBACK
