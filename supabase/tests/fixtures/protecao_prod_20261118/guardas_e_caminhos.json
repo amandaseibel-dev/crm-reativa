@@ -1,0 +1,20 @@
+{
+ "origem": "Supabase ahattpqrjmhkzsmnbdzs (producao), leitura somente, 2026-11-18",
+ "triggers": {
+  "alunos.trg_guard_resp_aluno": "BEFORE UPDATE FOR EACH ROW -> _guard_resp_aluno (postgres, secdef=false). Bloqueia troca de responsavel salvo: current_user=reativa_responsavel_executor; ou set_config reativa.dono_por_acordo='1'; ou atribuicao de caso livre (antes NULL e novo = jwt email).",
+  "acordos.trg_guard_resp_acordo": "BEFORE UPDATE FOR EACH ROW -> _guard_resp_acordo. Bloqueia troca de operador_responsavel_email salvo: current_user=reativa_responsavel_executor ou app.vinculo_resp_acordo_ok='on'.",
+  "acordos.trg_aluno_segue_dono_do_acordo": "AFTER INSERT OR UPDATE OF operador_responsavel_email,status -> _aluno_segue_dono_do_acordo (postgres, secdef=true). Com acordo ATIVO de OPERADOR ativo e mensalidade em aberto = 0, troca o responsavel do aluno para o dono do acordo (via flag reativa.dono_por_acordo). Exceto se o remanejamento de acordo estiver em curso (flag reativa.remanejando_acordo + pg_context).",
+  "alunos.trg_sync_casos_resp_aluno": "AFTER UPDATE OF responsavel_atual_email -> _sync_casos_resp_aluno (secdef=true): propaga para casos.",
+  "casos.trg_sync_alunos_apos_casos": "AFTER UPDATE WHEN operador_email muda -> trg_sincronizar_alunos_apos_casos (NAO extraida ainda).",
+  "acordos.trg_acordo_herda_responsavel": "BEFORE INSERT -> _acordo_herda_responsavel_do_aluno (NAO extraida ainda).",
+  "acordos.trg_atribuir_responsavel_por_acordo": "AFTER INSERT OR UPDATE OF operador_responsavel_email,status -> atribuir_responsavel_por_acordo (secdef=true): insere em public.notificacoes (tabela ausente na fixture) e, se o aluno nao tem responsavel e o dono e operador, chama internal.set_resp_aluno.",
+  "alunos.trg_nome_do_operador_no_aluno": "BEFORE INSERT OR UPDATE OF ... responsavel_atual_email ... -> _nome_do_operador_no_aluno (usa public.nome_do_operador, NAO extraida)."
+ },
+ "papeis": {
+  "postgres": "membro de reativa_responsavel_executor, authenticated, anon, service_role (em producao; no CI e superusuario)",
+  "reativa_responsavel_executor": "NOLOGIN, nao superuser",
+  "owners": "internal.set_resp_aluno e internal.set_resp_acordo: owner reativa_responsavel_executor, secdef=true, ACL so o executor",
+  "authenticated": "tem SELECT/INSERT/UPDATE/DELETE em alunos, casos, acordos, usuarios, aluno_movimentacoes (sem RLS na fixture)"
+ },
+ "consequencia": "Escrita direta de responsavel em alunos por authenticated e BARRADA por trg_guard_resp_aluno. A fixture atual nao carrega o guard: o teste p_terceiros.sql (c) escreve responsavel diretamente e passa por motivo que nao existe em producao."
+}
