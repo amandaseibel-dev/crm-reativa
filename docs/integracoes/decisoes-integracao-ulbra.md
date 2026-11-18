@@ -40,3 +40,10 @@ a aprovação específica de cada etapa. Este registro é referenciado pela PR #
 - **Contenção da v1 `ulbra-historico` está CONTIDA** (nos registros de 16/11 aparece como "A2" de v1; NÃO confundir com o "A2" de divergência de identidade do pacote). Função excluída, ausente da listagem, HTTP 404. Evidência preservada; não é pendência.
 - **A3 (INSERT em `auditoria`)**: grant de INSERT para `authenticated` existe, mas a RLS nega a inserção direta (não há política permissiva de INSERT). Não bloqueia o piloto. A revogação do grant exige inventário completo dos inserts (até agora nenhum insert por sessão de usuário foi encontrado; `ProjecaoHoraHora.jsx` só lê). Correção mínima preparada para revisão, NÃO aplicada.
 - **B5** (ordem de envio vs confirmação): a ordem ENVIANDO → enviar → gravar está em `envio.ts:215-237`; uma falha depois do envio deixa a linha em `FALHA_INCERTA`. É bloqueio obrigatório do envio real, separado do piloto de leitura. Não alterado nesta rodada; flags de envio continuam desligadas.
+
+## Aceite pendente (registro formal; não aceito ainda)
+
+- **Regra dos cinco — alcance.** Texto exato para aceite formal:
+  > "Mensageria não exige atualização artificial dos artefatos Prime (prime-api.md, prime-api-catalog.json, prime-mapa-fontes-verdade.md, prime-mapa-identificadores.md, prime-gaps.md). Mudanças Prime continuam sujeitas à regra dos cinco e à revisão de coerência."
+  - Origem: decisão da gestão nesta sessão de trabalho. Aceite formal da gestão: PENDENTE.
+  - Conversa não é fonte primária pelo CLAUDE.md, item 4. Por isso a decisão precisa de registro formal assinado pela gestão antes de ser tratada como definitiva.
