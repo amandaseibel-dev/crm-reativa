@@ -479,3 +479,22 @@ está na seção "Critério de data do pagamento no extrato Prime" acima.
   responsável a qualquer operador ativo. Nesse caso, a diferença entre "recusa genérica" (aluno bloqueado) e
   "envio realizado" (aluno sem bloqueio) ainda revela o bloqueio a quem não é responsável. Só se fecha mudando a regra
   de conversa sem responsável no módulo de WhatsApp. Não alterado nesta entrega.
+
+### Risco de bloqueio do atendimento: conversas sem aluno_id (medido em 18/11/2026, leitura)
+
+- Medição (somente leitura, `whatsapp_mensagens` com `direcao = 'SAIDA'` nos últimos 7 dias, join com `whatsapp_conversas`):
+  132 conversas com envio; 28 sem `aluno_id` (21,2%).
+- Efeito do código: a checagem jurídica recusa TODO envio de conversa sem `aluno_id`, com ou sem bloqueio. Logo, essas
+  28 conversas ficam sem envio pelo fluxo protegido até alguém vincular o aluno.
+- Isto é RISCO DE BLOQUEIO DO ATENDIMENTO. Não é consequência jurídica prevista pela gestão. Decisão pendente: manter
+  a recusa total (e vincular antes do envio) ou permitir envio sem aluno quando não há bloqueio conhecido. Enquanto
+  isso não for decidido, a aba segue indisponível e o envio pelo fluxo segue sujeito a essa recusa.
+- Não medido: se as conversas sem aluno_id têm telefone que identificaria um aluno (`whatsapp_identificar_aluno`).
+  Essa medição mudaria a ação de vinculação, não a decisão.
+
+### Valores de ENVIO_WHATSAPP_DESLIGADO
+
+- Vazio (ou só espaços): envio LIGADO (estado normal).
+- Qualquer outro valor desliga o envio, EXCETO os falsos explícitos abaixo (comparados após trim e minúsculas):
+  `false`, `0`, `no`, `off`, `nao`, `não`.
+- Exemplos: `true`, `TRUE`, `1`, `sim`, `on`, `yes`, `x`, `falso` (digitação errada) desligam o envio.
