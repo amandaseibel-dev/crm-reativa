@@ -1498,7 +1498,7 @@ create function public.juridico_checar_envio(p_aluno uuid, p_conversa uuid, p_op
 returns void
 language plpgsql security definer set search_path to 'public'
 as $function$
-declare v_id uuid; v_tel text;
+declare v_id uuid; v_tel text; v_sit text; v_ident uuid; v_cand jsonb; v_envolvido boolean;
 begin
   if p_aluno is null or not exists (select 1 from public.alunos al where al.id = p_aluno) then
     raise exception 'Contato sem vínculo confiável com um aluno: o envio por este fluxo não é permitido. Nenhum vínculo é criado automaticamente.' using errcode = 'JUR01';
@@ -1506,13 +1506,19 @@ begin
   if p_tipo is null or p_tipo not in ('MENSAGEM','DOCUMENTO') or nullif(btrim(coalesce(p_conteudo_hash,'')), '') is null then
     raise exception 'Envio recusado: tipo ou conteúdo não informado para a checagem.' using errcode = '22023';
   end if;
-  -- Identificacao CONFIAVEL pelo mecanismo existente, para TODO envio deste fluxo: o telefone da propria
-  -- conversa tem de identificar ESTE aluno de forma unica (whatsapp_identificar_aluno -> IDENTIFICADO).
-  -- A escolha do operador (vinculo manual) nao basta. Sem prova: recusa, sem bloqueio e sem vinculo automatico.
+  -- Identificacao CONFIAVEL pelo mecanismo existente (whatsapp_identificar_aluno), SO quando um aluno BLOQUEADO
+  -- esta envolvido: o aluno vinculado ou um aluno que o telefone da conversa identifica (inclusive entre os
+  -- candidatos de um telefone ambiguo). Sem isso, a conversa de um aluno bloqueado poderia ser enviada por
+  -- vinculo de outro aluno (contorno por alias). Envio comum, sem bloqueio envolvido, nao muda.
   select c.telefone_e164 into v_tel from public.whatsapp_conversas c where c.id = p_conversa;
-  if not exists (select 1 from public.whatsapp_identificar_aluno(v_tel) i
-                  where i.situacao = 'IDENTIFICADO' and i.aluno_id = p_aluno) then
-    raise exception 'Contato sem identificação confiável do aluno pelo telefone da conversa: envio não permitido por este fluxo. Nenhum vínculo é criado automaticamente.'
+  select i.situacao, i.aluno_id, i.candidatos into v_sit, v_ident, v_cand
+    from public.whatsapp_identificar_aluno(v_tel) i limit 1;
+  v_envolvido := public._juridico_bloqueio_efetivo(p_aluno)
+    or (v_sit = 'IDENTIFICADO' and public._juridico_bloqueio_efetivo(v_ident))
+    or (v_sit = 'AMBIGUO' and exists (select 1 from jsonb_array_elements(coalesce(v_cand, '[]'::jsonb)) x
+                                       where public._juridico_bloqueio_efetivo((x->>'id')::uuid)));
+  if v_envolvido and not (v_sit = 'IDENTIFICADO' and v_ident = p_aluno) then
+    raise exception 'Contato sem identificação confiável do aluno bloqueado pelo telefone da conversa: envio não permitido por este fluxo. Nenhum vínculo é criado automaticamente.'
       using errcode = 'JUR01';
   end if;
   if not public._juridico_bloqueio_efetivo(p_aluno) then return; end if;

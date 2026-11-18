@@ -1731,12 +1731,26 @@ describe("vinculo de conversa e identificacao confiavel", () => {
     await db.close();
   });
 
-  it("identificacao: telefone da conversa que nao identifica o aluno recusa o envio mesmo sem bloqueio", async () => {
+  it("identificacao: telefone que identifica um aluno BLOQUEADO recusa a conversa vinculada a outro aluno (alias)", async () => {
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    const x = await mk(db, { valores: [500] });
+    const telA = (await db.query("select telefone from alunos where id=$1", [a.al])).rows[0].telefone;
+    // Vinculo feito ANTES da aprovacao (o gatilho JUR02 so age sobre aluno ja bloqueado).
+    await db.query("update whatsapp_conversas set telefone_e164=$1, aluno_id=$2 where id=$3", [telA, x.al, U(970, 1)]);
+    await rpc(db, "public.juridico_lote_gerar(1)");
+    const caso = await casoDe(db, a.al);
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    const e = await falha(db.query("select public.juridico_checar_envio($1,$2,'op','MENSAGEM','hash-alias-0001')", [x.al, U(970, 1)]));
+    expect(e?.code).toBe("JUR01");
+    await db.close();
+  });
+
+  it("identificacao: envio comum (sem bloqueio envolvido) nao exige identificacao pelo telefone", async () => {
     const db = await novo();
     const c = await mk(db, { valores: [500] });
     await db.query("update whatsapp_conversas set telefone_e164=$1 where id=$2", ["5500000000000", U(970, 1)]);
-    const e = await falha(db.query("select public.juridico_checar_envio($1,$2,'op','MENSAGEM','hash-identificacao-0001')", [c.al, U(970, 1)]));
-    expect(e?.code).toBe("JUR01");
+    await db.query("select public.juridico_checar_envio($1,$2,'op','MENSAGEM','hash-comum-0001')", [c.al, U(970, 1)]);
     await db.close();
   });
 });

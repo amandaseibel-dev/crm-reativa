@@ -66,6 +66,62 @@ Exceção (implementada no banco e ligada aos caminhos de envio de texto e docum
 - Ligação feita: `whatsapp-send` (texto) chama a checagem antes do preparo; `whatsapp-enviar-documento`
   (documento) antes do preparo e do upload. A prova de execução é o CI, não o helper.
 
+## IMPLANTAÇÃO E RECUPERAÇÃO (contagens do código e versões de produção medidas em 18/11/2026)
+
+Conteúdo da migration `supabase/migrations/20261112180000_juridico_encaminhamento.sql` (contado no arquivo):
+- 40 funções do módulo (a própria migration confere `v_n <> 40`).
+- 6 tabelas `public.juridico_*` (lotes, casos, casos_titulos, historico, documentos, envio_autorizacoes).
+- Gatilhos do módulo: `trg_juridico_so_anexa_historico`, `trg_juridico_so_anexa_documentos`,
+  `trg_juridico_so_anexa_truncate_historico`, `trg_juridico_so_anexa_truncate_documentos`,
+  `trg_juridico_acordo_status` (acordos), `trg_juridico_parcela_historico` (parcelas),
+  `trg_juridico_marca_bloqueio_compartilhado` e `trg_juridico_guarda_nao_acionar` (casos),
+  `trg_juridico_guarda_bloqueio` (alunos e casos), `trg_juridico_guarda_caso_novo` (casos),
+  `trg_juridico_guarda_troca_aluno` (whatsapp_conversas; criado só se a tabela existir).
+
+Versões de produção, por leitura (`list_edge_functions`, projeto ahattpqrjmhkzsmnbdzs):
+- `whatsapp-send`: versão 23, última atualização em 2026-10-26, sem checagem jurídica.
+- `whatsapp-enviar-documento`: versão 10, última atualização em 2026-08-22, sem checagem jurídica.
+- O vínculo entre essas versões e um commit do git NÃO foi identificado por leitura. Precisa ser confirmado
+  antes de qualquer rollback.
+- Projetos visíveis nesta conta: um só (produção). Staging NÃO identificado; não foi usado.
+
+Versões que andam juntas: a migration acima e as duas edges da MESMA revisão do branch, que chamam
+`juridico_checar_envio` e `juridico_registrar_recusa_envio`. Com a #754, a revisão de integração fica no branch
+local `feat/juridico-754-compat` (ainda não publicado), integrando a #754 (`wpp/v18-e-limites`, head 30c4e288).
+
+Ordem de implantação (cada passo só com autorização):
+1. Conferir por leitura, em cada ambiente: `schema_migrations` (versão ausente), `pg_proc` (contagem e
+   `prosecdef`), `pg_trigger` (gatilhos acima) e o grant de `juridico_checar_envio` só para `service_role`.
+2. Aplicar a migration.
+3. Reconferir: 40 funções, os gatilhos listados e os grants.
+4. Publicar `whatsapp-send` e `whatsapp-enviar-documento` JUNTAS, da revisão acima.
+5. Validar os caminhos de envio em ambiente de teste (os handlers reais estão testados no CI em
+   `supabase/functions/*/handlers.test.ts`, com transporte simulado).
+6. Só então liberar a aba (`JURIDICO_LIBERADO`).
+
+Recuperação:
+- Edges novas no ar ANTES da migration: todo envio é recusado (RPC inexistente, fail-closed). Sem perda de dados.
+  Recuperação: aplicar a migration e reconferir o passo 3.
+- Migration aplicada e edges novas no ar: o bloqueio vale. Nenhum aluno bloqueado recebe envio sem autorização.
+- Rollback da migration: NÃO executar com as edges novas no ar, porque `juridico_checar_envio` some e todo envio é
+  recusado. Ordem obrigatória:
+  (a) decisão da gestão sobre os alunos com bloqueio ativo;
+  (b) republicar `whatsapp-send` na versão 23 e `whatsapp-enviar-documento` na versão 10 (o que está no ar hoje,
+      sem checagem), após confirmar o vínculo com o código no git;
+  (c) só então executar o rollback da migration.
+  O rollback foi validado no banco de teste PGlite (describe "rollback"). Não validado em produção.
+- Resultado incerto no gateway: a autorização já foi consumida. Não há reenvio automático. Nova autorização exige a gestão.
+
+Identificação pelo telefone (medida em produção, leitura, 500 conversas mais recentes com `whatsapp_identificar_aluno`):
+- 401 com `aluno_id`: 344 confirmadas pelo telefone; 52 sem prova (3 IDENTIFICADO com outro aluno, 41 de 46 MANUAL,
+  6 NAO_ENCONTRADO, 2 AMBIGUO).
+- Exigir prova para TODO envio afetaria essas 52 conversas, inclusive envio comum. Por isso a checagem exige prova
+  só quando um aluno BLOQUEADO está envolvido (o vinculado, ou um que o telefone identifica, inclusive entre os
+  candidatos de telefone ambíguo). Envio comum não muda. Essa garantia é do código; produção não foi reexecutada com
+  a regra nova.
+- Não provado por teste: a normalização de telefone e os telefones de responsáveis em produção. A fixture do
+  banco de teste casa só `alunos.telefone`.
+
 ## ENVIO COM BLOQUEIO: ORDEM, RECUSA, RESULTADO INCERTO E #754 (18/11/2026)
 
 - Ordem: a checagem roda ANTES do preparo (que assume a conversa e pode reatribuir aluno). O aluno vem
