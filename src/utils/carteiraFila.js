@@ -472,6 +472,25 @@ export function finAlunosDoSemestre(finAlunos, mapa, semestre) {
   return out;
 }
 
+// Prioridade e exclusão do guiado vêm do BANCO (RPC carteira_prioridade_bordero),
+// indexadas pelo aluno_id. O cliente não decide regra: só lê a decisão.
+//   mapa === undefined  -> teste/compatibilidade: sem decisão de banco ainda
+//   mapa === null       -> dados não carregaram ou falharam: NADA libera
+//   mapa[id] ausente    -> não autorizado ou não consultado: EXCLUÍDO
+export function decisaoBorderoDe(a, mapa) {
+  if (!mapa || !a) return null;
+  return mapa[String(a.id)] || null;
+}
+export function ehPrioridadeBordero(a, mapa) {
+  const d = decisaoBorderoDe(a, mapa);
+  return Boolean(d && d.prioridade);
+}
+export function excluidoDoGuiado(a, mapa) {
+  if (mapa === undefined) return false;
+  const d = decisaoBorderoDe(a, mapa);
+  return !d || Boolean(d.exclui_guiado);
+}
+
 export const ORDENACOES = [
   "inteligente",
   "prioridade",
@@ -628,6 +647,7 @@ export function ordenarCasos(lista, entrada) {
     finAlunos = {},
     hoje = hojeLocalBR(),
     agoraMs = Date.now(),
+    prioridadeBordero = null,
   } = entrada || {};
 
   // Chave de ordenacao precisa (milissegundos), nao em dias inteiros -- com
@@ -675,6 +695,7 @@ export function ordenarCasos(lista, entrada) {
     arr.sort((a, b) =>
       (rankPrioridade(a) - rankPrioridade(b)) ||
       (faixa(a) - faixa(b)) ||
+      ((ehPrioridadeBordero(a, prioridadeBordero) ? 0 : 1) - (ehPrioridadeBordero(b, prioridadeBordero) ? 0 : 1)) ||
       (rankSemestre(a) - rankSemestre(b)) ||
       (critRank(a) - critRank(b)) ||
       (diasParado(b) - diasParado(a)) ||
@@ -761,6 +782,7 @@ export function montarListaFiltrada(entrada) {
 //     carrega, a lista ou esta vazia ou ainda mostra o recorte do card
 //     ANTERIOR -- abrir o guiado ali percorreria o card errado.
 export function recorteProntoParaGuiado({
+  prioridadeCarregada = true,
   filtroAnoVencimento = "",
   alunosDoAnoVencimento = null,
   filtroCurso = "TODOS",
@@ -773,6 +795,9 @@ export function recorteProntoParaGuiado({
   carregando = false,
 } = {}) {
   if (carregando) return false;
+  // Prioridade por borderô ainda não carregou (ou falhou): sem ela, a
+  // exclusão de bloqueados e pagamentos pendentes não existe. Não libera.
+  if (!prioridadeCarregada) return false;
   if (String(filtroAnoVencimento || "").trim() && alunosDoAnoVencimento === null) return false;
   // Curso e semestre entram aqui pelo mesmo motivo do ano: com o filtro
   // escolhido e o Set ainda null, a lista mostra a carteira inteira -- comecar
@@ -786,11 +811,15 @@ export function recorteProntoParaGuiado({
 // A FOTO: ids visiveis, na ordem visivel, no instante do clique. Nada de
 // objeto -- so o id, porque o estado de cada aluno e reconferido no banco
 // antes de abrir.
-export function snapshotDoGuiado(listaVisivel) {
+export function snapshotDoGuiado(listaVisivel, prioridadeBordero) {
+  // null = dados de prioridade ainda não carregaram ou falharam: NÃO é
+  // liberação. Sem foto, o guiado não abre. Ausência de linha = excluído.
+  if (prioridadeBordero === null) return [];
   const vistos = new Set();
   const ids = [];
   for (const a of listaVisivel || []) {
     if (!a?.id) continue;
+    if (excluidoDoGuiado(a, prioridadeBordero)) continue;
     const id = String(a.id);
     if (vistos.has(id)) continue;
     vistos.add(id);

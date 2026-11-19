@@ -1,0 +1,198 @@
+-- Decisão de prioridade e de exclusão do Acionamento Guiado, no banco.
+--
+-- Chave: aluno_id. Sem CPF nem nome no retorno.
+-- Entrada: lista de aluno_id da carteira visível (o cliente envia em lotes de até 500).
+-- Saída: UMA linha por aluno autorizado. Aluno sem linha = não autorizado ou não
+--   consultado: o cliente trata como EXCLUÍDO (ausência nunca libera).
+--
+-- Autorização interna (SECURITY DEFINER, search_path fixo):
+--   - o chamador precisa estar ATIVO em public.usuarios (pelo JWT);
+--   - operador: só alunos cujo responsável atual (alunos.responsavel_atual_email,
+--     a mesma chave usada pela tela) é o próprio chamador;
+--   - gestora total (amanda.seibel@aelbra.com.br, PREMISSA §2): consulta qualquer id.
+--     Demais perfis de gestão (cobranca04, cobranca07) ficam só com a própria carteira.
+--   A tabela de lotes não é aberta: é lida aqui dentro, só para os alunos autorizados.
+--
+-- Regras (PREMISSAS §9 e §12):
+--   - PRIORIDADE (sobe na Fila inteligente): população 2026 (títulos abertos de
+--     borderô com vencimento em 2026, saldo > 0), elegível pela elegibilidade
+--     canônica, sem bloqueio, sem pagamento pendente, sem lote pendente e SEM
+--     acionamento desde a entrada mais recente do aluno. "Acionamento" = somente
+--     os três tipos da PREMISSAS §9 (FINALIZACAO_ATENDIMENTO, ACAO_MASSIVA_EXTERNA,
+--     ACAO_MASSIVA_EXTERNA_EMAIL).
+--   - INFORMATIVOS (não alteram a prioridade): envio_realizado (WhatsApp de saída
+--     com status ENVIADO) e resposta_recebida (WhatsApp de entrada). Ficam
+--     separados para a tela e a gestão; não são tipos de §9.
+--   - EXCLUSÃO DO GUIADO (a ficha não abre): qualquer motivo da elegibilidade canônica
+--     (inelegível por qualquer motivo); bloqueio efetivo; pagamento ou
+--     confirmação PENDENTE (estado atual, não evento histórico); lote de exportação
+--     não confirmado nem descartado (contato duplicado). Lote pendente não conta
+--     como envio realizado.
+--   - Quitação NÃO é contato. eh_tipo_acionamento NÃO é alterada por esta migration.
+--   - Exceção registrada à §12: a ORDEM da lista visível continua no cliente; as
+--     decisões de quem é prioridade, quem é excluído e de que população são
+--     calculadas aqui. Ver docs/seguranca/propostas/carteira-prioridade-dependencias.md.
+--
+-- Fuso (evidência em produção, 18/11/2026): importacoes.created_at é timestamp
+-- SEM fuso com default now(), e o fuso da sessão do servidor é UTC. Por isso o
+-- valor armazenado é UTC, e a conversão usada é `at time zone 'UTC'`.
+--
+-- Dependências lidas em produção (corpos e md5 em
+-- supabase/tests/fixtures/carteira_prioridade/dependencias_prod_20261118.sql):
+--   aluno_elegibilidade_cobranca(uuid), usuario_e_gestao(), saldo_cobravel_aluno(uuid),
+--   aluno_bloqueio_administrativo(uuid), aluno_pendencia_operacional(uuid),
+--   normalizar_status_acionamento(text), parcela_viva(text).
+--   Tipos reais confirmados: aluno_movimentacoes.aluno_id text;
+--   solicitacoes_confirmacao_pagamento.aluno_id text; whatsapp_mensagens com
+--   timestamptz; acoes_massivas_lotes.aluno_ids text[].
+--
+-- Não aplicar em produção sem aprovação. Rollback: supabase/rollbacks/
+-- 20261117100000_carteira_prioridade_bordero.rollback.sql.
+
+create or replace function public.carteira_prioridade_bordero(p_aluno_ids uuid[])
+returns table (
+  aluno_id uuid,
+  em_populacao_2026 boolean,
+  prioridade boolean,
+  exclui_guiado boolean,
+  motivo_exclusao text,
+  entrada_bordero timestamptz,
+  saldo_bordero_2026 numeric,
+  acionado_desde_entrada boolean,
+  envio_realizado boolean,
+  resposta_recebida boolean
+)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $function$
+#variable_conflict use_column
+declare
+  v_email text := lower(coalesce(auth.email(), ''));
+  -- Escopo amplo só para a gestora total (PREMISSA_SEGURANCA §2). usuario_e_gestao()
+  -- também inclui perfis limitados (cobranca04 e cobranca07): para eles o escopo é
+  -- a própria carteira, sem exceção.
+  v_gestao boolean := public.usuario_e_gestao() and v_email = 'amanda.seibel@aelbra.com.br';
+  v_ativo boolean;
+begin
+  if coalesce(cardinality(p_aluno_ids), 0) > 500 then
+    raise exception 'lote acima de 500 ids: consulte em partes' using errcode = '22023';
+  end if;
+  select coalesce(bool_or(u.ativo), false) into v_ativo
+    from public.usuarios u
+   where lower(u.email) = v_email;
+  if v_email = '' or not coalesce(v_ativo, false) then
+    raise exception 'acesso negado: usuario inativo ou sem cadastro' using errcode = '42501';
+  end if;
+
+  return query
+  with ids as (
+    select distinct x as id from unnest(coalesce(p_aluno_ids, '{}'::uuid[])) x where x is not null
+  ),
+  autorizados as (
+    select i.id
+      from ids i
+     where v_gestao
+        or exists (
+             select 1 from public.alunos a
+              where a.id = i.id
+                and lower(coalesce(a.responsavel_atual_email, '')) = v_email)
+  ),
+  titulos as (
+    select t.aluno_id as tid,
+           max((i.created_at at time zone 'UTC')) as entrada,
+           sum(coalesce(t.valor_em_aberto, t.saldo_corrigido, 0)) as saldo
+      from public.acordos_titulos t
+      join public.importacoes i on i.id = t.importacao_id
+     where i.tipo = 'BORDERO'
+       and t.situacao = 'ABERTO'
+       and t.vencimento between date '2026-01-01' and date '2026-12-31'
+       and t.aluno_id in (select au.id from autorizados au)
+     group by t.aluno_id
+    having sum(coalesce(t.valor_em_aberto, t.saldo_corrigido, 0)) > 0
+  ),
+  base as (
+    select au.id as bid,
+           e.motivo_principal as motivo,
+           coalesce(e.elegivel, false) as canon,
+           tt.entrada as ent,
+           coalesce(tt.saldo, 0) as saldo,
+           (tt.tid is not null) as pop
+      from autorizados au
+      left join titulos tt on tt.tid = au.id
+      left join lateral public.aluno_elegibilidade_cobranca(au.id) e on true
+  ),
+  flags as (
+    select b.bid,
+           b.pop,
+           b.canon,
+           b.motivo,
+           b.ent,
+           b.saldo,
+           coalesce(b.motivo in ('SUSPENSAO_COBRANCA', 'CANCELAMENTO_COBRANCA', 'JURIDICO', 'NAO_ACIONAR_EXPLICITO'), false) as bloq,
+           (
+             coalesce(b.motivo = 'CONFIRMACAO_PAGAMENTO_PENDENTE', false)
+             or exists (
+               select 1 from public.solicitacoes_confirmacao_pagamento s
+                where s.aluno_id = b.bid::text
+                  and s.status in ('AGUARDANDO_CONFIRMACAO', 'PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO'))
+           ) as pagto,
+           exists (
+             select 1 from public.acoes_massivas_lotes l
+              where l.confirmado_em is null
+                and l.descartado_em is null
+                and b.bid::text = any (l.aluno_ids)
+           ) as lote,
+           exists (
+             select 1 from public.aluno_movimentacoes m
+              where m.aluno_id = b.bid::text
+                and m.registrado_em >= b.ent
+                and m.tipo in ('FINALIZACAO_ATENDIMENTO', 'ACAO_MASSIVA_EXTERNA', 'ACAO_MASSIVA_EXTERNA_EMAIL')
+           ) as acion,
+           exists (
+             select 1 from public.whatsapp_conversas wc
+               join public.whatsapp_mensagens wm on wm.conversa_id = wc.id
+              where wc.aluno_id = b.bid
+                and coalesce(wm.timestamp_wa, wm.criado_em) >= b.ent
+                and wm.direcao = 'SAIDA' and wm.status = 'ENVIADO'
+           ) as envio_wa,
+           exists (
+             select 1 from public.whatsapp_conversas wc
+               join public.whatsapp_mensagens wm on wm.conversa_id = wc.id
+              where wc.aluno_id = b.bid
+                and coalesce(wm.timestamp_wa, wm.criado_em) >= b.ent
+                and wm.direcao = 'ENTRADA'
+           ) as resp_wa
+      from base b
+  )
+  select f.bid,
+         f.pop,
+         (f.pop and f.canon and f.motivo is null and not f.bloq and not f.pagto and not f.lote
+            and f.saldo > 0 and not f.acion) as prioridade,
+         (f.bloq or f.pagto or f.lote or f.motivo is not null) as exclui_guiado,
+         case
+           when f.bloq then 'BLOQUEADO'
+           when f.pagto then 'PAGAMENTO_PENDENTE'
+           when f.lote then 'LOTE_PENDENTE'
+           when f.motivo is not null then 'INELEGIVEL:' || f.motivo
+           else null
+         end as motivo_exclusao,
+         f.ent,
+         case when f.pop then f.saldo else null end,
+         (f.acion or f.envio_wa or f.resp_wa) as acionado_desde_entrada,
+         (f.envio_wa) as envio_realizado,
+         (f.resp_wa) as resposta_recebida
+    from flags f;
+end;
+$function$;
+
+revoke all on function public.carteira_prioridade_bordero(uuid[]) from public;
+revoke all on function public.carteira_prioridade_bordero(uuid[]) from anon;
+revoke all on function public.carteira_prioridade_bordero(uuid[]) from service_role;
+do $$ begin
+  if exists (select 1 from pg_roles where rolname = 'reativa_responsavel_executor') then
+    execute 'revoke all on function public.carteira_prioridade_bordero(uuid[]) from reativa_responsavel_executor';
+  end if;
+end $$;
+grant execute on function public.carteira_prioridade_bordero(uuid[]) to authenticated;

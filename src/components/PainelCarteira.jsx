@@ -791,6 +791,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // Financeiro consolidado por aluno (valor em aberto sem duplicidade).
   // { [aluno_id]: { mensalidades, acordos, total, temDetalhe, temAtraso, acordoDonos, acordoSemResponsavel } }
   const [finAlunos, setFinAlunos] = useState({});
+  // Prioridade do guiado por borderô (null = não carregou ou falhou).
+  const [prioridadeBordero, setPrioridadeBordero] = useState(null);
   const finAlunosRef = useRef({});
   useEffect(() => { finAlunosRef.current = finAlunos; }, [finAlunos]);
   // Linhas com o detalhamento das mensalidades aberto. Set, nao um id so: o
@@ -1862,6 +1864,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // do card ainda estao carregando, o botao fica indisponivel -- comecar ali
   // percorreria a carteira inteira (ano) ou o card ANTERIOR (KPI).
   const guiadoLiberado = recorteProntoParaGuiado({
+    prioridadeCarregada: prioridadeBordero !== null,
     filtroAnoVencimento,
     alunosDoAnoVencimento,
     filtroCurso,
@@ -1878,7 +1881,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     // NAO troca a ordenacao escolhida pela operadora. A sequencia do guiado e a
     // sequencia que ela ja esta vendo.
     if (!guiadoLiberado) return;
-    guiadoSnapshotRef.current = snapshotDoGuiado(listaFiltradaRef.current);
+    guiadoSnapshotRef.current = snapshotDoGuiado(listaFiltradaRef.current, prioridadeBordero);
     if (!guiadoSnapshotRef.current.length) return;
     guiadoFeitosRef.current = new Set();
     setGuiadoAcionados(0);
@@ -1919,6 +1922,21 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       if (!veredito.ok) {
         // saiu por fora (nao e meu / nao acionavel / ja acionado / sumiu):
         // marca e vai pro proximo DA FOTO.
+        guiadoFeitosRef.current.add(candId);
+        continue;
+      }
+      // Revalidação no banco, ANTES de abrir: decisão por aluno_id. Ausência de
+      // linha = não autorizado/não consultado = NÃO abre. Erro encerra o guiado.
+      let decisao;
+      try {
+        const { data, error } = await supabase.rpc("carteira_prioridade_bordero", { p_aluno_ids: [candId] });
+        if (error) throw error;
+        decisao = (data || []).find((r) => String(r.aluno_id) === String(candId)) || null;
+      } catch {
+        encerrarGuiadoSemProximo(true);
+        return;
+      }
+      if (!decisao || decisao.exclui_guiado) {
         guiadoFeitosRef.current.add(candId);
         continue;
       }
@@ -2782,6 +2800,36 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     })();
     return () => { ativo = false; };
   }, [casos, email, veTudo, operadorFiltro]);
+  // Decisão de prioridade e exclusão do guiado: RPC carteira_prioridade_bordero,
+  // por aluno_id da lista visível, em lotes de 500. Falha = null = guiado fechado.
+  // A chave do último conjunto CARREGADO com sucesso. Gravada só quando a resposta
+  // é aplicada; uma busca cancelada (mudança de casos no meio) não marca a chave.
+  const ultimaChaveDecisaoRef = useRef(null);
+  useEffect(() => {
+    let ativo = true;
+    (async () => {
+      const ids = [...new Set((casos || []).map((c) => c && c.id).filter(Boolean))];
+      const chave = ids.slice().sort().join(',');
+      if (chave === ultimaChaveDecisaoRef.current && prioridadeBordero !== null) return;
+      if (!ids.length) {
+        if (ativo) { ultimaChaveDecisaoRef.current = chave; setPrioridadeBordero({}); }
+        return;
+      }
+      try {
+        const mapa = {};
+        for (let i = 0; i < ids.length; i += 500) {
+          const { data, error } = await supabase.rpc("carteira_prioridade_bordero", { p_aluno_ids: ids.slice(i, i + 500) });
+          if (error) throw error;
+          if (!ativo) return;
+          (data || []).forEach((r) => { mapa[String(r.aluno_id)] = r; });
+        }
+        if (ativo) { ultimaChaveDecisaoRef.current = chave; setPrioridadeBordero(mapa); }
+      } catch {
+        if (ativo) { ultimaChaveDecisaoRef.current = null; setPrioridadeBordero(null); }
+      }
+    })();
+    return () => { ativo = false; };
+  }, [casos, prioridadeBordero]);
   const saldoDe = (a) => {
     const v = saldoView[normCpf(a && a.cpf)];
     if (v && Number.isFinite(v.saldo)) return v.saldo;
@@ -2830,11 +2878,12 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     // passa a ser o DAQUELE semestre -- num lugar so, para os tres
     // concordarem. Em "Ambos" e o proprio `finAlunos`, por identidade.
     finAlunos: finAlunosDoRecorte,
+    prioridadeBordero,
   };
   const listaFiltrada = useMemo(
     () => (recorteSemDados ? [] : montarListaFiltrada(recorteAtual)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [recorteSemDados, casos, casosForaDaFila, casosEspeciais, filtroStatus, filtroPrioridade, filtroTabulacao, busca, filtroKpi, ordenacao, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, alunosDoCurso, alunosDoSemestre, finAlunosDoRecorte]
+    [recorteSemDados, casos, casosForaDaFila, casosEspeciais, filtroStatus, filtroPrioridade, filtroTabulacao, busca, filtroKpi, ordenacao, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, alunosDoCurso, alunosDoSemestre, finAlunosDoRecorte, prioridadeBordero]
   );
   listaFiltradaRef.current = listaFiltrada;
 
