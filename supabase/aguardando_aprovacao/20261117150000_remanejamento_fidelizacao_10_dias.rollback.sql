@@ -78,6 +78,17 @@ begin
     raise exception 'A liberacao de fidelizacao vale para um unico responsavel: o que esta filtrado na lista.'
       using errcode = '22023';
   end if;
+  -- P12: liberacao so para OPERADOR ATIVO (perfil operador, ativo). Carteira Geral (inativa), operador
+  -- inativo e gerencia sao recusados ANTES de gravar a previa.
+  if exists (select 1 from unnest(internal.cg_liberar_de(p_filtros)) x
+              where not exists (select 1 from public.usuarios u
+                                 where lower(u.email) = x and u.ativo and u.perfil = 'operador')) then
+    raise exception 'A liberacao de fidelizacao so vale para operador ativo: %.',
+      (select string_agg(x, ', ') from unnest(internal.cg_liberar_de(p_filtros)) x
+        where not exists (select 1 from public.usuarios u
+                           where lower(u.email) = x and u.ativo and u.perfil = 'operador'))
+      using errcode = '22023';
+  end if;
   if p_destino_tipo not in ('CARTEIRA_GERAL','OPERADOR','FILA_LIVRE') then$novo$, ''))) / length($novo$  -- Um unico responsavel por lote: o que esta filtrado na lista, nada mais.
   if coalesce(array_length(internal.cg_liberar_de(p_filtros),1),0) > 1
      or (internal.cg_liberar_de(p_filtros) is not null
@@ -85,6 +96,17 @@ begin
          and lower(coalesce(p_filtros->>'responsavel',''))
              is distinct from (internal.cg_liberar_de(p_filtros))[1]) then
     raise exception 'A liberacao de fidelizacao vale para um unico responsavel: o que esta filtrado na lista.'
+      using errcode = '22023';
+  end if;
+  -- P12: liberacao so para OPERADOR ATIVO (perfil operador, ativo). Carteira Geral (inativa), operador
+  -- inativo e gerencia sao recusados ANTES de gravar a previa.
+  if exists (select 1 from unnest(internal.cg_liberar_de(p_filtros)) x
+              where not exists (select 1 from public.usuarios u
+                                 where lower(u.email) = x and u.ativo and u.perfil = 'operador')) then
+    raise exception 'A liberacao de fidelizacao so vale para operador ativo: %.',
+      (select string_agg(x, ', ') from unnest(internal.cg_liberar_de(p_filtros)) x
+        where not exists (select 1 from public.usuarios u
+                           where lower(u.email) = x and u.ativo and u.perfil = 'operador'))
       using errcode = '22023';
   end if;
   if p_destino_tipo not in ('CARTEIRA_GERAL','OPERADOR','FILA_LIVRE') then$novo$);
@@ -98,13 +120,30 @@ begin
     raise exception 'A liberacao de fidelizacao vale para um unico responsavel: o que esta filtrado na lista.'
       using errcode = '22023';
   end if;
+  -- P12: liberacao so para OPERADOR ATIVO (perfil operador, ativo). Carteira Geral (inativa), operador
+  -- inativo e gerencia sao recusados ANTES de gravar a previa.
+  if exists (select 1 from unnest(internal.cg_liberar_de(p_filtros)) x
+              where not exists (select 1 from public.usuarios u
+                                 where lower(u.email) = x and u.ativo and u.perfil = 'operador')) then
+    raise exception 'A liberacao de fidelizacao so vale para operador ativo: %.',
+      (select string_agg(x, ', ') from unnest(internal.cg_liberar_de(p_filtros)) x
+        where not exists (select 1 from public.usuarios u
+                           where lower(u.email) = x and u.ativo and u.perfil = 'operador'))
+      using errcode = '22023';
+  end if;
   if p_destino_tipo not in ('CARTEIRA_GERAL','OPERADOR','FILA_LIVRE') then$novo$, $ancora$  if p_destino_tipo not in ('CARTEIRA_GERAL','OPERADOR','FILA_LIVRE') then$ancora$);
   v_n := (length(v_src) - length(replace(v_src, $novo$    'itens', v_itens,
     'conflitos', v_conflitos,
     -- Remanejamento com fidelizacao: o que a execucao vai encontrar.
     'total_bloqueados', (select count(*)::int from jsonb_array_elements(v_itens) it
                           where nullif(it->>'bloqueio','') is not null),
-    'liberar_fidelizacao_de', to_jsonb(v_liberar),
+    -- So informa a liberacao que tem efeito: dono liberado com caso fidelizado nesta previa.
+    'liberar_fidelizacao_de', (select coalesce(jsonb_agg(x order by x), '[]'::jsonb)
+        from unnest(v_liberar) x
+       where exists (select 1 from jsonb_array_elements(v_itens) it
+                      where lower(coalesce(it->>'caso_de_email','')) = x
+                        and nullif(it->>'caso_id','') is not null
+                        and internal.cg_tem_fidelizacao((it->>'caso_id')::uuid))),
     'protecao_ate', case when p_destino_tipo = 'OPERADOR' then internal.cg_protecao_ate() end,
     'capacidade', case when p_destino_tipo = 'OPERADOR'
         then internal.cg_capacidade_sequencial(v_itens, v_destino_email) end
@@ -113,7 +152,13 @@ begin
     -- Remanejamento com fidelizacao: o que a execucao vai encontrar.
     'total_bloqueados', (select count(*)::int from jsonb_array_elements(v_itens) it
                           where nullif(it->>'bloqueio','') is not null),
-    'liberar_fidelizacao_de', to_jsonb(v_liberar),
+    -- So informa a liberacao que tem efeito: dono liberado com caso fidelizado nesta previa.
+    'liberar_fidelizacao_de', (select coalesce(jsonb_agg(x order by x), '[]'::jsonb)
+        from unnest(v_liberar) x
+       where exists (select 1 from jsonb_array_elements(v_itens) it
+                      where lower(coalesce(it->>'caso_de_email','')) = x
+                        and nullif(it->>'caso_id','') is not null
+                        and internal.cg_tem_fidelizacao((it->>'caso_id')::uuid))),
     'protecao_ate', case when p_destino_tipo = 'OPERADOR' then internal.cg_protecao_ate() end,
     'capacidade', case when p_destino_tipo = 'OPERADOR'
         then internal.cg_capacidade_sequencial(v_itens, v_destino_email) end
@@ -124,7 +169,13 @@ begin
     -- Remanejamento com fidelizacao: o que a execucao vai encontrar.
     'total_bloqueados', (select count(*)::int from jsonb_array_elements(v_itens) it
                           where nullif(it->>'bloqueio','') is not null),
-    'liberar_fidelizacao_de', to_jsonb(v_liberar),
+    -- So informa a liberacao que tem efeito: dono liberado com caso fidelizado nesta previa.
+    'liberar_fidelizacao_de', (select coalesce(jsonb_agg(x order by x), '[]'::jsonb)
+        from unnest(v_liberar) x
+       where exists (select 1 from jsonb_array_elements(v_itens) it
+                      where lower(coalesce(it->>'caso_de_email','')) = x
+                        and nullif(it->>'caso_id','') is not null
+                        and internal.cg_tem_fidelizacao((it->>'caso_id')::uuid))),
     'protecao_ate', case when p_destino_tipo = 'OPERADOR' then internal.cg_protecao_ate() end,
     'capacidade', case when p_destino_tipo = 'OPERADOR'
         then internal.cg_capacidade_sequencial(v_itens, v_destino_email) end
@@ -567,6 +618,7 @@ drop function if exists internal.cg_capacidade_sequencial(jsonb, text);
 drop function if exists internal.cg_bloqueio_remanejamento(uuid, text, text, text[], numeric);
 drop function if exists internal.cg_bloqueio_texto(text);
 drop function if exists internal.cg_ocupacao_teto(text);
+drop function if exists internal.cg_tem_fidelizacao(uuid);
 drop function if exists internal.cg_liberar_de(jsonb);
 drop function if exists internal.cg_protecao_ate();
 

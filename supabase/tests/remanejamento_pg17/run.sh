@@ -186,13 +186,26 @@ psqlt "$LOGS/rb_obrig.log" rem_rollback "$PROT/gatilhos_obrigatorios_prod.sql" |
 n_dml=$(psql -X -A -t -d rem_rollback -c "select count(*) from pg_trigger t join pg_class c on c.oid = t.tgrelid where not t.tgisinternal and c.relname = 'casos' and t.tgname in ('trigger_repor_caso_operador','trg_casos_set_encerrado_operacional')")
 [ "$n_dml" = 2 ] || falha "rollback: gatilhos do DML carregados = $n_dml de 2"
 psqlt "$LOGS/rb_936.log" rem_rollback "$MIG936" || falha "#936 (rollback)"
+psql -X -A -t -d rem_rollback -c "select p.proname||' '||md5(pg_get_functiondef(p.oid)) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('carteira_geral_previa','carteira_geral_mover','calibragem_executar_simulacao') order by 1" > "$LOGS/rb_md5_antes.txt" || falha "md5 antes (rollback)"
 psqlt "$LOGS/rb_mig.log" rem_rollback "$OURS" || falha "migration (rollback)"
 psqlt "$LOGS/rb_a.log" rem_rollback "$TD/p_rollback_a.sql" || falha "rollback parte A: ver $LOGS/rb_a.log"
 psqlt "$LOGS/rb_orfao.log" rem_rollback "$TD/p_marcador_orfao.sql" || falha "marcador orfao: ver $LOGS/rb_orfao.log"
 psqlt "$LOGS/rb_roll.log" rem_rollback "$ROLL" || falha "rollback nao aplicou (recusou ou erro): ver $LOGS/rb_roll.log"
+psql -X -A -t -d rem_rollback -c "select p.proname||' '||md5(pg_get_functiondef(p.oid)) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('carteira_geral_previa','carteira_geral_mover','calibragem_executar_simulacao') order by 1" > "$LOGS/rb_md5_depois.txt"
+diff -q "$LOGS/rb_md5_antes.txt" "$LOGS/rb_md5_depois.txt" >/dev/null || falha "rollback nao restaurou a definicao anterior (ver $LOGS/rb_md5_antes.txt x rb_md5_depois.txt)"
+echo "  ok: rollback restaura a definicao anterior (md5 de carteira_geral_previa/mover/calibragem)"
 psqlt "$LOGS/rb_b.log" rem_rollback "$TD/p_rollback_b.sql" || falha "rollback parte B: ver $LOGS/rb_b.log"
 psqlt "$LOGS/rb_orfao_b.log" rem_rollback "$TD/p_orfao_rollback_b.sql" || falha "orfao apos rollback"
 echo "  ok: rollback"
+
+# negativo: funcao alterada DEPOIS da aplicacao -> rollback recusa, sem reverter por cima
+psqlt "$LOGS/rb_mig_neg.log" rem_rollback "$OURS" || falha "migration (negativo)"
+psql -X -q -d rem_rollback -v ON_ERROR_STOP=1 -c "do \$t\$ begin execute replace(pg_get_functiondef('public.carteira_geral_previa'::regproc), '''total_bloqueados''', '''total_bloqueados_alterado'''); end \$t\$" > "$LOGS/rb_alterar.log" 2>&1 || falha "nao consegui alterar a funcao para o teste negativo: ver $LOGS/rb_alterar.log"
+if timeout "$T" psql -X -q -v ON_ERROR_STOP=1 -d rem_rollback -f "$ROLL" > "$LOGS/rb_neg.log" 2>&1; then
+  falha "rollback deveria RECUSAR com a funcao alterada depois da aplicacao"
+fi
+grep -q "nao reverto por cima" "$LOGS/rb_neg.log" || falha "rollback recusou, mas por outro motivo: ver $LOGS/rb_neg.log"
+echo "  ok: rollback recusa quando a funcao foi alterada depois da aplicacao"
 
 echo
 echo "TODAS AS VERIFICACOES PASSARAM"
