@@ -15,7 +15,7 @@ Hashes completos (sha256) e tamanhos estao em `docs/seguranca/propostas/migracoe
 **O que NAO garantem:** nao ha guarda que identifique, por consulta a `pg_stat_activity`, uma exportacao em andamento. Tentamos e removemos: detecta por texto e nao foi testada. A protecao contra exportacao em andamento e **operacional** (pausa abaixo).
 
 ## Residual (honesto)
-Uma exportacao que **comece depois da checagem e antes do COMMIT** nao e vista pelo banco. Se ela inserir lote pendente depois da checagem, o rollback ja terminou; o lote fica pendente e a protecao de e-mail ja foi revertida. Por isso a pausa e obrigatoria e a verificacao pos-COMMIT (passo 6) e necessaria.
+O `LOCK SHARE ROW EXCLUSIVE` faz um INSERT concorrente em `acoes_massivas_lotes` **esperar a liberacao do lock no COMMIT**. O que pode restar e uma sessao que ja carregou a definicao antiga da funcao antes do COMMIT e completa a execucao com ela: essa sessao nao e vista pela checagem. Se ela inserir lote pendente depois da checagem, o rollback ja terminou; o lote fica pendente e a protecao de e-mail ja foi revertida. Por isso a pausa e obrigatoria e a verificacao pos-COMMIT (passo 8) e necessaria. O teste de concorrencia cobre esse caso (H3, `scripts/ci/teste-reversao-concorrencia.sh`).
 
 ## Passos (operacionais; cada um depende de autorizacao)
 1. **Backup** do banco antes da janela. PITR nao esta confirmado como habilitado: confirmar antes.
@@ -46,12 +46,13 @@ Uma exportacao que **comece depois da checagem e antes do COMMIT** nao e vista p
 - **Chamadores no front:** somente `src/pages/AcoesMassivas.jsx`.
 
 ## Tratamento de lote PENDENTE_ENVIO (decisao de negocio, nao automatica)
-- `acoes_massivas_concluir_lote(lote, 'CONFIRMAR')` **aceita** lote pendente (testado em banco descartavel) **antes da `20261113100200`**: registra todos os destinatarios do lote como acionados (equivale a TOTAL). **Isso presume que o disparo ocorreu para todos.** Com a `20261113100200` aplicada, CONFIRMAR de lote pendente e recusado.
+- `acoes_massivas_concluir_lote(lote, 'CONFIRMAR')` **aceita** lote pendente **antes da `20261113100200`** (provado em PGlite: `supabase/tests/acoes_massivas_exportar_sem_registrar_comportamento.test.js:141-167`, "confirmar grava tabulacao, retorno +10, acionamento e movimentacao -- e fecha o lote"): registra todos os destinatarios do lote como acionados (equivale a TOTAL).
+- `DESCARTAR` de lote **ja confirmado** lanca 55000 (ja existente, antes desta migration): `supabase/tests/fixtures/producao/concluir_lote_2026-11-17.sql:38-42`. Nao devolve resposta guardada. **Isso presume que o disparo ocorreu para todos.** Com a `20261113100200` aplicada, CONFIRMAR de lote pendente e recusado.
 - `DESCARTAR` marca o lote como descartado, sem registro.
 - Nao existe tratamento parcial por `acoes_massivas_concluir_lote`; a confirmacao parcial e da funcao `acoes_massivas_concluir_envio`, que e removida pelo rollback da confirmacao.
 - **Derivacao de e-mail apos confirmacao parcial** (`20261113100100`, patch 2c): so entram no lote de e-mail os destinatarios informados como enviados. Nao enviados nao recebem registro, nem tabulacao, nem entram no e-mail. Isso **nao comprova envio de e-mail**; define apenas quem entra no lote de e-mail.
 - **Escolha a fazer pela gestao, por lote:** (a) confirmar como enviado para todos, se o disparo ocorreu; (b) descartar, se nao ocorreu; (c) manter pendente e adiar a janela. Nao ha regra automatica no procedimento.
 
 ## Testes e evidencias
-- Local (PGlite, conexao unica): `supabase/tests/acoes_massivas_ordem_aplicacao.test.js`, `acoes_massivas_confirmar_envio.test.js` e `acoes_massivas_email_so_apos_tabulacao.test.js` (quatro arquivos, 52 casos no total, incluindo `acoes_massivas_concluir_lote_bloqueia_pendente.test.js`). Cobrem logica, ordem e preservacao; **nao cobrem concorrencia**.
-- Concorrencia (duas conexoes): `scripts/ci/teste-reversao-concorrencia.sh`. **Executado no CI** (job `reversao concorrencia`, head `c73dc1b8`): B1 e C1 a C5 OK. Sem PostgreSQL no ambiente local, por isso o teste roda so no CI, em banco descartavel.
+- Local (PGlite, conexao unica): `supabase/tests/acoes_massivas_ordem_aplicacao.test.js`, `acoes_massivas_confirmar_envio.test.js` e `acoes_massivas_email_so_apos_tabulacao.test.js` (quatro arquivos, 58 casos no total: 8 + 27 + 12 + 11, incluindo `acoes_massivas_concluir_lote_bloqueia_pendente.test.js`). Cobrem logica, ordem e preservacao; **nao cobrem concorrencia**.
+- Concorrencia (duas conexoes): `scripts/ci/teste-reversao-concorrencia.sh`, executado no job `reversao concorrencia` do CI, em PostgreSQL descartavel. Sem PostgreSQL no ambiente local, o teste roda so no CI. O run e o head da execucao estao registrados na descricao da PR.

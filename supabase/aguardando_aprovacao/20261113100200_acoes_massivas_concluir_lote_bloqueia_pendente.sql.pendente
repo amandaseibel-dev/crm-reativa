@@ -12,15 +12,26 @@
 -- confirmado_em, sem descartado_em, registro_automatico falso) essa chamada direta
 -- contornaria a regra de envio confirmado.
 --
--- Regra nova (valida para QUALQUER chamador): CONFIRMAR em lote pendente e recusado
--- (errcode 55000) ANTES de qualquer gravacao. Preservados: DESCARTAR de pendente;
--- CONFIRMAR/DESCARTAR de lote ja confirmado (resposta guardada, sem escrita); descarte
--- de lote ja descartado; demais caminhos da funcao.
+-- Regra nova: no ramo registro_automatico = false (lote pendente de envio), CONFIRMAR
+-- e recusado (errcode 55000) ANTES de qualquer gravacao. A recusa vale para qualquer
+-- chamador da funcao (gestao, sistema ou chamada direta); quem confirma um lote
+-- pendente e acoes_massivas_concluir_envio.
 --
--- Producao (17/11/2026, leitura): nenhum lote pendente; os 19 lotes de WhatsApp com
--- registro_automatico falso ja estao confirmados. Esta migration nao altera dado.
+-- Comportamento preservado, sem alteracao:
+--   - DESCARTAR de lote pendente: permitido.
+--   - CONFIRMAR de lote ja confirmado: devolve a resposta guardada, sem escrita.
+--   - DESCARTAR de lote ja confirmado: lanca 55000 (ja existente: "ja foi registrado
+--     em ... e nao pode ser descartado"; ver tests/fixtures/producao/concluir_lote_2026-11-17.sql:38-42).
+--   - DESCARTAR de lote ja descartado: lanca 55000 (ja existente).
+--   - demais caminhos da funcao.
+--
+-- Estado de producao: NAO verificado nesta versao. Esta migration nao altera dado.
 --
 -- Mudanca: patch ancorado com guarda de MD5 da definicao publicada (3a940022...).
+-- O md5 final 57818ede179b6a1cf82a0bdd343f27d3 foi MEDIDO EM PGlite
+-- (supabase/tests/acoes_massivas_concluir_lote_bloqueia_pendente.test.js). Na aplicacao
+-- em producao, o bloco $f$ (abaixo) confere o md5 final e aborta a transacao se
+-- diferir; o bloco $g$ confere o md5 de origem e aborta antes de qualquer patch.
 
 BEGIN;
 

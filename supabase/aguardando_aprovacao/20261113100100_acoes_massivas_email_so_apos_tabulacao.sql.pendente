@@ -28,8 +28,7 @@
 --
 -- Nao altera o contrato de retorno, nao toca lote de WhatsApp e nao toca a tela.
 --
--- Em producao (16/11/2026) nao ha nenhum lote de WhatsApp pendente: 54 de 54
--- estao confirmados ou descartados. A regra nao muda dado existente.
+-- Estado de producao: NAO verificado nesta versao. A regra nao muda dado existente.
 
 BEGIN;
 

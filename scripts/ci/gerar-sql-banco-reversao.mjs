@@ -1,6 +1,9 @@
 // Gera o SQL completo do banco DESCARTAVEL de teste da reversao (PostgreSQL real, CI).
-// Ordem = a mesma do teste de ordem (supabase/tests/acoes_massivas_ordem_aplicacao.test.js):
-// base + repo + colunas + fidelizacao/exportar de producao + protecao (100100) + confirmacao (100000).
+// Inclui, nesta ordem: sqlBase (papeis e schema de teste) + migration 20261006160000 + colunas
+// + corpos publicados de producao (fidelizacao, exportar_emails, exportar, registrar, concluir_lote)
+// + tabela ambiente_descartavel com o token.
+// NAO inclui 20261113100100, 20261113100000 nem 20261113100200: essas sao aplicadas pelo teste
+// de reversao (scripts/ci/teste-reversao-concorrencia.sh), na ordem de aplicacao.
 // Uso: node scripts/ci/gerar-sql-banco-reversao.mjs <token> > banco.sql
 // Gera o estado ANTES da 20261113100100 (corpo publicado de e-mail, 00d3370a), com os papeis
 // de sistema e os corpos publicados de concluir_lote. As migrations
