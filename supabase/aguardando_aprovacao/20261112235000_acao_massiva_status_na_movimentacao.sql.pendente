@@ -1,0 +1,81 @@
+-- ACAO MASSIVA: a movimentacao passa a carregar o status da tabulacao.
+--
+-- PROBLEMA (medido em producao, leitura, 12/11/2026)
+-- Desde a regra de 19/10 (20261019132433) a acao massiva tabula o ALUNO:
+-- status_acionamento = 'Ação massiva externa enviada — aguardando retorno' e
+-- retorno em 10 dias. A linha gravada em aluno_movimentacoes, porem, sai com
+-- status_novo NULO -- em 9 de 9 lotes de 22/10 a 12/11 (3.400 movimentacoes).
+-- O historico da ficha e da carteira mostra a tabulacao a partir de status_novo,
+-- entao a acao aparece sem tabulacao, embora o aluno esteja tabulado.
+--
+-- O QUE MUDA (e somente isto)
+--   * public.registrar_acao_massiva: os dois INSERT em aluno_movimentacoes
+--     gravam status_novo com o mesmo texto que ja vai para o aluno;
+--   * public.acoes_massivas_exportar_emails_do_lote: o INSERT do lote de
+--     e-mail grava o mesmo status_novo.
+--
+-- O QUE NAO MUDA: a regra de 19/10 (status do aluno, retorno +10 dias, retorno
+-- do operador preservado), status_jornada e status_atual (intocados -- e a
+-- guarda que impede efeito financeiro e encaminhamento), fidelizacao, universo,
+-- previa, exportacao, grants e search_path. status_anterior fica nulo.
+-- Lotes ja registrados NAO sao reprocessados: vale do proximo envio em diante.
+--
+-- QUEM LE status_novo (conferido em producao): os gatilhos da tabela so agem em
+-- FINALIZACAO_ATENDIMENTO e ELOGIO_ATENDIMENTO; os relatorios filtram por tipo
+-- ou por codigos que este texto nao casa (MENSAGEM_ENVIADA, ACORDO_FECHADO...).
+--
+-- Parte das definicoes PUBLICADAS (MD5 de pg_get_functiondef):
+--   registrar_acao_massiva                  6eb41bf1dd68fcfb4eb44b9022b43e44
+--   acoes_massivas_exportar_emails_do_lote  00d3370a7800bd334292808e1573a57d
+-- Executar em UMA transacao (BEGIN; ... COMMIT;). Rollback no arquivo ao lado.
+
+-- 0. GUARDA -------------------------------------------------------------------
+DO $g$
+BEGIN
+  IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public' AND p.proname = 'registrar_acao_massiva') <> '6eb41bf1dd68fcfb4eb44b9022b43e44' THEN
+    RAISE EXCEPTION 'registrar_acao_massiva mudou desde a validacao (esperado 6eb41bf1...). Nada aplicado.';
+  END IF;
+  IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar_emails_do_lote') <> '00d3370a7800bd334292808e1573a57d' THEN
+    RAISE EXCEPTION 'acoes_massivas_exportar_emails_do_lote mudou desde a validacao (esperado 00d3370a...). Nada aplicado.';
+  END IF;
+END $g$;
+
+-- 1. registrar_acao_massiva: lista de colunas dos dois INSERT ------------------
+SELECT internal.patch_funcao_ancorada('public', 'registrar_acao_massiva',
+$a1$        (aluno_id, tipo, descricao, registrado_por_nome, registrado_por_email, registrado_em, lote_id)$a1$,
+$n1$        (aluno_id, tipo, descricao, registrado_por_nome, registrado_por_email, registrado_em, lote_id, status_novo)$n1$, 2);
+
+-- 2. registrar_acao_massiva: INSERT sem lote -----------------------------------
+SELECT internal.patch_funcao_ancorada('public', 'registrar_acao_massiva',
+$a2$      values (v_id, v_tipo, v_desc, v_autor_nome, v_autor_email, v_agora, null);$a2$,
+$n2$      values (v_id, v_tipo, v_desc, v_autor_nome, v_autor_email, v_agora, null,
+              'Ação massiva externa enviada — aguardando retorno');$n2$, 1);
+
+-- 3. registrar_acao_massiva: INSERT com lote -----------------------------------
+SELECT internal.patch_funcao_ancorada('public', 'registrar_acao_massiva',
+$a3$      values (v_id, v_tipo, v_desc, v_autor_nome, v_autor_email, v_agora, p_lote_id)$a3$,
+$n3$      values (v_id, v_tipo, v_desc, v_autor_nome, v_autor_email, v_agora, p_lote_id,
+              'Ação massiva externa enviada — aguardando retorno')$n3$, 1);
+
+-- 4. acoes_massivas_exportar_emails_do_lote: INSERT do lote de e-mail ----------
+SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_exportar_emails_do_lote',
+$a4$    (aluno_id, tipo, descricao, registrado_por_nome, registrado_por_email, registrado_em, lote_id)
+  select x.id_txt, 'ACAO_MASSIVA_EXTERNA_EMAIL', v_desc, v_autor_nome, v_autor_email, v_agora, v_lote$a4$,
+$n4$    (aluno_id, tipo, descricao, registrado_por_nome, registrado_por_email, registrado_em, lote_id, status_novo)
+  select x.id_txt, 'ACAO_MASSIVA_EXTERNA_EMAIL', v_desc, v_autor_nome, v_autor_email, v_agora, v_lote,
+         'Ação massiva externa enviada — aguardando retorno'$n4$, 1);
+
+-- 5. MD5 FINAL ------------------------------------------------------------------
+DO $m$
+BEGIN
+  IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public' AND p.proname = 'registrar_acao_massiva') <> 'a7309034dd1e07e27b4164b7c11d91b3' THEN
+    RAISE EXCEPTION 'MD5 final de registrar_acao_massiva diferente do validado.';
+  END IF;
+  IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar_emails_do_lote') <> 'a8ca35582ae84e7038417d622e54b693' THEN
+    RAISE EXCEPTION 'MD5 final de acoes_massivas_exportar_emails_do_lote diferente do validado.';
+  END IF;
+END $m$;
