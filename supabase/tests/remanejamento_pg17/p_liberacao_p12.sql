@@ -88,10 +88,14 @@ end $$;
 do $$
 declare q record; p jsonb;
 begin
-  select * into q from pg_temp.semear('cobranca06@aelbra.com.br', 400, 3, 40, p_status => 'ACORDO FECHADO');
+  -- acionamento JURIDICO e protegido pela regra de producao (caso_protegido_redistribuicao). O semear
+  -- grava p_acion em status_acionamento (o que a regra le); p_status vai para status_atual (nao protege).
+  select * into q from pg_temp.semear('cobranca06@aelbra.com.br', 400, 3, 40, p_acion => 'JURIDICO');
   p := pg_temp.previa(array[q.aluno], 'OPERADOR', 'cobranca05@aelbra.com.br',
     '{"responsavel":"cobranca06@aelbra.com.br","liberar_fidelizacao_de":["cobranca06@aelbra.com.br"]}');
-  perform pg_temp.afirma(p->'itens'->0->>'bloqueio' is not null,
+  raise notice 'bloqueio do caso protegido: %', p->'itens'->0->>'bloqueio';
+  perform pg_temp.afirma(p->'itens'->0->>'bloqueio' is not null
+                         and p->'itens'->0->>'bloqueio' <> 'FIDELIZACAO_VIGENTE',
     'fidelizado bloqueado por OUTRO motivo (protegido) segue bloqueado com a liberacao');
   perform pg_temp.afirma(p->'liberar_fidelizacao_de' = '[]'::jsonb,
     'sem efeito: caso bloqueado por outro motivo nao informa liberacao');
