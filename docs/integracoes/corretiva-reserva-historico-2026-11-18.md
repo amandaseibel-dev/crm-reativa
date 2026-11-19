@@ -22,8 +22,8 @@ A `ulbra-conversa` chama a RPC com o cliente de `service_role`. Com o portão, `
 ## 4. Hashes (sha256 completo, do blob `HEAD` desta revisão)
 | Arquivo | sha256 |
 | --- | --- |
-| `20261116150000_ulbra_historico_reservar_portao_interno.sql.pendente` | `1b448d8b0c2be6b5feca9e1900fa772b919c22da62d0752540e20cbd02f58402` |
-| `20261116150000_ulbra_historico_reservar_portao_interno.rollback.sql` | `be7b2c64ad7d7e0c4dddb1627a3989678dcbd80537edfd59814f2538e2517113` |
+| `20261116150000_ulbra_historico_reservar_portao_interno.sql.pendente` | `14c8a3a0f50b32023e05a28ec1db94b9419b8bbef89845fb9e35fff5eec6f9ff` |
+| `20261116150000_ulbra_historico_reservar_portao_interno.rollback.sql` | `0ce5817536e8ff0fddf62ecb19d5611602741228d2a318ab799f8d0fd58c2d95` |
 
 ## 5. Verificações
 - **Local, banco descartável em memória (PGlite), nesta revisão:** `node supabase/tests/ulbra_historico_portao/run.mjs <raiz>`: todas as asserções passaram. Resultado observado: `service_role` permitido; `authenticated` negado; `anon` negado; portão recusa `authenticated` mesmo com EXECUTE concedido; grants de `anon` e `authenticated` sem EXECUTE.

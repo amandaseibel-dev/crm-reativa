@@ -57,6 +57,11 @@ await db.exec("revoke execute on function public.ulbra_historico_reservar(text,d
 const permitido = await tentativa("service_role", "service_role");
 afirma("DEPOIS: service_role é permitido", permitido === "ok");
 
+// search_path fixo (PREMISSA_SEGURANCA_PROJETO §4): exatamente search_path=public
+const cfg = await db.query(`select proconfig from pg_proc where oid = 'public.ulbra_historico_reservar(text,date,integer,integer,integer)'::regprocedure`);
+const pc = cfg.rows[0]?.proconfig;
+afirma("SEARCH_PATH: função fixa em search_path=public (sem pg_temp)", Array.isArray(pc) && pc.length === 1 && pc[0] === "search_path=public");
+
 // Grants finais: sem EXECUTE para anon/authenticated
 const priv = await db.query(`select has_function_privilege('authenticated','public.ulbra_historico_reservar(text,date,integer,integer,integer)','EXECUTE') a,
   has_function_privilege('anon','public.ulbra_historico_reservar(text,date,integer,integer,integer)','EXECUTE') n`);

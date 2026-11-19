@@ -1,4 +1,4 @@
--- ROLLBACK da 20261116150000 — NÃO APLICADO. Restaura a definição aplicada em 20261112111006 (sem portão).
+-- ROLLBACK da 20261116150000 — NÃO APLICADO. Restaura o corpo aplicado em 20261112111006 (sem portão), com search_path=public (premissa §4; a aplicada tinha public, pg_temp).
 -- Só use se o portão causar problema comprovado; a versão sem portão não tem o portão interno (exposição em produção não comprovada).
 do $$
 begin
@@ -17,7 +17,7 @@ create or replace function public.ulbra_historico_reservar(
 returns table (permitido boolean, usadas_operador integer, usadas_global integer)
 language plpgsql
 security definer
-set search_path = public, pg_temp
+set search_path = public
 as $$
 declare
   uo integer;
