@@ -136,6 +136,12 @@ Deno.serve(async (req) => {
   // BLOQUEIO JURÍDICO (decisão da gestão). ANTES de preparar o envio e antes do upload. Aluno SOMENTE da
   // conversa existente. Hash = bytes + nome + mime: é o que vai ao gateway. Falha = nada é preparado nem enviado.
   const alunoRes = await alunoDaConversa(admin, conversaId);
+  // Opção B: conversa sem aluno vinculado recusa o envio quando o módulo está ativo.
+  // aluno_id=null significa identificação não confirmada — juridico_checar_envio passaria
+  // sem check (_juridico_bloqueio_efetivo(NULL)=false). A recusa é antes do check jurídico.
+  if (alunoRes.ok && alunoRes.alunoId === null) {
+    return jsonResp({ erro: "Conversa sem aluno vinculado: identifique o aluno antes de enviar o documento." }, 403);
+  }
   const operadorEmail = (await comoOperador.auth.getUser()).data.user?.email ?? "desconhecido";
   const checagem = alunoRes.ok
     ? await checarEnvioJuridico((nome, args) => admin.rpc(nome, args), {

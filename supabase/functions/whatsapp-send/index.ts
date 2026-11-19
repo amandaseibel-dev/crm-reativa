@@ -141,6 +141,12 @@ Deno.serve(async (req) => {
     return jsonResp({ erro: "Contato sem vínculo confiável com um aluno: o envio por este fluxo não é permitido. Nenhum vínculo é criado automaticamente." }, 403);
   }
   const alunoRes = await alunoDaConversa(admin, corpo.conversa_id!);
+  // Opção B: conversa sem aluno vinculado recusa o envio quando o módulo está ativo.
+  // aluno_id=null significa identificação não confirmada — juridico_checar_envio passaria
+  // sem check (_juridico_bloqueio_efetivo(NULL)=false). A recusa é antes do check jurídico.
+  if (alunoRes.ok && alunoRes.alunoId === null) {
+    return jsonResp({ erro: "Conversa sem aluno vinculado: identifique o aluno antes de enviar." }, 403);
+  }
   const operadorEmail = (await comoOperador.auth.getUser()).data.user?.email ?? "desconhecido";
   const checagem = alunoRes.ok
     ? await checarEnvioJuridico((nome, args) => admin.rpc(nome, args), {
