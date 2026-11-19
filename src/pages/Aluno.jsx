@@ -2484,20 +2484,45 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                                   resumo={`${moeda(somaTitulos(a._titulos))} — já representadas pelas parcelas; não somam ao total em aberto`}
                                   style={{ marginTop: 6 }}
                                 >
-                                  <div style={tabNegHead}>
-                                    <span>Documento</span>
-                                    <span>Competência</span>
-                                    <span>Vencimento</span>
-                                    <span>Situação</span>
+                                  <style>{`
+                                    @media (max-width: 540px) {
+                                      .tn-cab { display: none !important; }
+                                      .tn-lin {
+                                        display: grid !important;
+                                        grid-template-columns: 1fr 1fr !important;
+                                        gap: 6px 8px !important;
+                                        padding: 8px 0 !important;
+                                      }
+                                      .tn-cel::before {
+                                        content: attr(data-rotulo);
+                                        display: block;
+                                        font-size: 10px;
+                                        font-weight: 700;
+                                        color: var(--rv-texto-suave, #6b7280);
+                                        text-transform: uppercase;
+                                        letter-spacing: 0.04em;
+                                        margin-bottom: 1px;
+                                      }
+                                      .tn-val {
+                                        grid-column: 1 / -1;
+                                        text-align: right !important;
+                                      }
+                                    }
+                                  `}</style>
+                                  <div className="tn-cab" style={tabNegHead}>
+                                    <span style={tabNegCelula}>Documento</span>
+                                    <span style={tabNegCelula}>Competência</span>
+                                    <span style={tabNegCelula}>Vencimento</span>
+                                    <span style={tabNegCelula}>Situação</span>
                                     <span style={{ textAlign: "right" }}>Valor</span>
                                   </div>
                                   {a._titulos.map((t) => (
-                                    <div key={t.id} style={tabNegLinha}>
-                                      <span>{t.documento || "—"}</span>
-                                      <span>{t.competencia || "—"}</span>
-                                      <span>{dataCurta(t.vencimento)}</span>
-                                      <span>{t.situacao || "—"}</span>
-                                      <span style={{ textAlign: "right", fontWeight: 600 }}>
+                                    <div key={t.id} className="tn-lin" style={tabNegLinha}>
+                                      <span className="tn-cel" data-rotulo="Documento" style={tabNegCelula}>{t.documento || "—"}</span>
+                                      <span className="tn-cel" data-rotulo="Competência" style={tabNegCelula}>{t.competencia || "—"}</span>
+                                      <span className="tn-cel" data-rotulo="Vencimento" style={tabNegCelula}>{dataCurta(t.vencimento)}</span>
+                                      <span className="tn-cel" data-rotulo="Situação" style={tabNegCelula}>{t.situacao || "—"}</span>
+                                      <span className="tn-cel tn-val" data-rotulo="Valor" style={{ textAlign: "right", fontWeight: 600 }}>
                                         {moeda(valorTitulo(t))}
                                       </span>
                                     </div>
@@ -2950,10 +2975,17 @@ const gradeCards = {
 // alinhado a direita porque e o que se le em coluna.
 const tabNegGrade = {
   display: "grid",
-  gridTemplateColumns: "1.4fr 0.8fr 0.9fr 0.9fr 1fr",
+  gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 0.8fr) minmax(0, 0.9fr) minmax(0, 0.9fr) minmax(0, 1fr)",
   gap: 8,
   fontSize: 12.5,
   alignItems: "center",
+};
+// Quebra a linha em vez de cortar: status longo e valor alto aparecem por inteiro
+// em tela estreita. minWidth 0 deixa a coluna encolher dentro da grade.
+const tabNegCelula = {
+  minWidth: 0,
+  overflowWrap: "anywhere",
+  lineHeight: 1.3,
 };
 const tabNegHead = {
   ...tabNegGrade,
