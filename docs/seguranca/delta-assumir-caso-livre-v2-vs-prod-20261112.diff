@@ -1,0 +1,84 @@
+2,6c2,4
+<   v_email text; v_nome text; v_upper text; v_new record; v_new_saldo numeric; v_count int;
+<   v_rel record; v_liberado uuid := null;
+<   -- v_teto: teto oficial da gestao. v_pool: qual das tres carteiras de livre
+<   -- assuncao cedeu o caso (nulo quando veio da fila livre ou de um caso de giro).
+<   v_teto int; v_pool text;
+---
+>   v_email text; v_nome text; v_upper text; v_new record; v_new_centavos bigint;
+>   v_count int; v_rel uuid := null; v_liberado uuid := null; v_teto int; v_pool text;
+>   v_troca uuid := gen_random_uuid();
+14,15c12
+<   select c.*, public.saldo_titulos_aberto(c.cpf_limpo) AS _saldo into v_new
+<     from public.casos c where c.id = p_caso_id for update;
+---
+>   select c.* into v_new from public.casos c where c.id = p_caso_id for update;
+18,20d14
+<     -- Artigo 2: Carteira Geral, carteira da gestao e antiga carteira da Olga
+<     -- sao de LIVRE ASSUNCAO -- qualquer operador assume na hora, sem esperar os
+<     -- 10 dias. O criterio e estrutural: o dono atual nao e operador ativo.
+31d24
+< 
+38d30
+<     -- Caso de giro com a fidelizacao ja vencida: segue adiante e troca o dono.
+39a32
+>   v_new_centavos := public.nivelamento_saldo_caso_centavos(p_caso_id);
+42c35
+<      or coalesce(v_new._saldo,0) <= 0 then
+---
+>      or v_new_centavos <= 0 then
+45,46c38
+<   v_new_saldo := v_new._saldo;
+<   -- Teto oficial da gestao, nao numero literal.
+---
+> 
+48,53c40
+<   -- MESMA base que `trg_impor_teto_operador` cobra: nao protegido e nao
+<   -- encerrado. A base antiga (carteira inteira menos confirmacao financeira)
+<   -- dava ~1.000 por operador e por isso recusava toda assuncao.
+<   v_count := (select count(*) from public.casos c where c.operador_email = v_email
+<                  and not public.caso_protegido_redistribuicao(c.cpf_limpo,c.status_acionamento,c.nao_acionar,c.status_financeiro,c.valor_pago,c.quitado_em,c.valor_quitado)
+<                  and not public.caso_encerrado_operacional(c.cpf_limpo,c.status_atual,c.status_acionamento,c.status_financeiro,c.status_jornada));
+---
+>   v_count := public.nivelamento_ocupacao(v_email);
+55,62c42,48
+<     select c.id into v_rel from public.casos c
+<     where c.operador_email = v_email and c.ultima_tabulacao_em is null
+<       and not public.caso_protegido_redistribuicao(c.cpf_limpo,c.status_acionamento,c.nao_acionar,c.status_financeiro,c.valor_pago,c.quitado_em,c.valor_quitado)
+<       and not public.caso_encerrado_operacional(c.cpf_limpo,c.status_atual,c.status_acionamento,c.status_financeiro,c.status_jornada)
+<     order by abs(public.saldo_titulos_aberto(c.cpf_limpo) - v_new_saldo) asc, c.caso_atualizado_em desc nulls last
+<     limit 1 for update skip locked;
+<     if v_rel.id is null then
+<       return query select false,'Carteira cheia ('||v_teto||' casos) e nenhum caso livre para trocar. Assuncao nao realizada.',null::uuid; return;
+---
+>     -- No teto ou acima: troca exata de mesmo saldo, ou recusa total.
+>     v_rel := public.nivelamento_escolher_troca(p_caso_id, v_email, v_troca);
+>     if v_rel is null then
+>       return query select false,
+>         'Carteira em '||v_count||' de '||v_teto||' casos e nenhum caso seu elegivel com o mesmo saldo cobravel ('||v_new_centavos||' centavos). Nada foi alterado; a gestao deve decidir.',
+>         null::uuid;
+>       return;
+64,65c50
+<     v_liberado := v_rel.id;
+<     update public.casos set operador_email=null, operador_nome=null, operador=null where id = v_liberado;
+---
+>     v_liberado := v_rel;
+67c52,53
+<     select chave_unificacao,nome,cpf,'LIBERACAO_TROCA_ASSUMIR',v_nome,v_email,'Liberado por troca ao assumir caso '||p_caso_id::text||'.',now()
+---
+>     select chave_unificacao,nome,cpf,'LIBERACAO_TROCA_ASSUMIR',v_nome,v_email,
+>       'Liberado por troca de mesmo saldo ao assumir caso '||p_caso_id::text||'. troca_id='||v_troca::text,now()
+69a56,57
+> 
+>   perform set_config('calibragem.bypass_teto','on',true);
+75c63
+<     'Assumido de '||coalesce(v_pool,'fila livre')||'. assumido_por='||v_email||' assumido_em='||now()::text||'. Fidelizacao inicia apenas apos acionamento valido.', now()
+---
+>     'Assumido de '||coalesce(v_pool,'fila livre')||'. assumido_por='||v_email||' assumido_em='||now()::text||'. troca_id='||coalesce(v_troca::text,'-')||'. Fidelizacao inicia apenas apos acionamento valido.', now()
+77,79c65,66
+<   if (select count(*) from public.casos c where c.operador_email = v_email
+<                  and not public.caso_protegido_redistribuicao(c.cpf_limpo,c.status_acionamento,c.nao_acionar,c.status_financeiro,c.valor_pago,c.quitado_em,c.valor_quitado)
+<                  and not public.caso_encerrado_operacional(c.cpf_limpo,c.status_atual,c.status_acionamento,c.status_financeiro,c.status_jornada)) > v_teto then
+---
+> 
+>   if public.nivelamento_ocupacao(v_email) > v_teto then

@@ -1,0 +1,113 @@
+-- GATE (sessao autenticada). Roda POR ULTIMO na suite: SET SESSION AUTHORIZATION
+-- nao muda a sessao de volta no PGlite; no Postgres real o reset funciona.
+\set ON_ERROR_STOP on
+-- NUCLEO: so o dono (cron) executa internal.nivelamento_reposicao_core. Catalogo.
+do $$
+begin
+  if has_function_privilege('authenticated', 'internal.nivelamento_reposicao_core(int)', 'EXECUTE')
+     or has_function_privilege('service_role', 'internal.nivelamento_reposicao_core(int)', 'EXECUTE')
+     or has_function_privilege('anon', 'internal.nivelamento_reposicao_core(int)', 'EXECUTE') then
+    raise exception 'FALHOU: nucleo da reposicao executavel por papel nao-dono';
+  end if;
+  raise notice 'OK: nucleo da reposicao sem EXECUTE para anon/authenticated/service_role';
+end $$;
+
+
+-- ---------------------------------------- 8. GATE: SEM JWT NAO AUTORIZA ----
+-- Sessao muda em comandos de nivel superior (nao dentro de DO/funcao).
+-- anon: sem privilegio de EXECUTE; se chegar ao gate, o gate recusa (42501).
+set session authorization anon;
+do $$
+begin
+  begin
+    perform public.nivelamento_reposicao_por_baixas(1);
+    raise exception 'FALHOU: anon executou a reposicao';
+  exception when sqlstate '42501' then
+    raise notice 'OK: anon recusado (42501)';
+  end;
+end $$;
+reset session authorization;
+
+-- authenticated sem gestao (JWT de operador): recusado pelo gate.
+set session authorization authenticated;
+select set_config('teste.email', 'opa@t.local', false);
+do $$
+begin
+  begin
+    perform public.nivelamento_reposicao_por_baixas(1);
+    raise exception 'FALHOU: operador comum executou a reposicao';
+  exception when sqlstate '42501' then
+    raise notice 'OK: operador autenticado sem gestao recusado (42501)';
+  end;
+end $$;
+select set_config('teste.email', '', false);
+reset session authorization;
+
+-- authenticated com gestao (JWT amanda): passa o gate.
+set session authorization authenticated;
+select set_config('teste.email', 'amanda.seibel@aelbra.com.br', false);
+select public.nivelamento_reposicao_por_baixas(1);
+select set_config('teste.email', '', false);
+reset session authorization;
+do $$ begin raise notice 'OK: gestao autenticada passa o gate'; end $$;
+
+-- ------------------------------ 13. GATE DAS calibragem_* (familia alterada) --
+set session authorization anon;
+do $$
+begin
+  begin
+    perform public.calibragem_teste_gate();
+    raise exception 'FALHOU: calibragem sem JWT passou';
+  exception when sqlstate '42501' then
+    raise notice 'OK: calibragem_* sem JWT agora e recusada (gate corrigido)';
+  end;
+end $$;
+reset session authorization;
+
+
+-- B1: helpers internos NAO executam por authenticated (nem por service_role).
+-- Chamada direta de operador/app tem de ser recusada por PERMISSAO (42501), nao por gate.
+set session authorization authenticated;
+do $$
+begin
+  begin
+    perform public.nivelamento_saldo_caso_centavos('10000000-0000-0000-0000-000000000001'::uuid);
+    raise exception 'FALHOU: authenticated executou o helper de saldo';
+  exception when sqlstate '42501' then
+    raise notice 'OK: helper de saldo negado para authenticated (permissao)';
+  end;
+end $$;
+reset session authorization;
+set session authorization service_role;
+do $$
+begin
+  begin
+    perform public.nivelamento_escolher_troca('10000000-0000-0000-0000-000000000001'::uuid, 'opa@t.local', gen_random_uuid());
+    raise exception 'FALHOU: service_role executou escolher_troca';
+  exception when sqlstate '42501' then
+    raise notice 'OK: escolher_troca negada para service_role (permissao)';
+  end;
+end $$;
+reset session authorization;
+set session authorization service_role;
+do $$
+begin
+  begin
+    perform public.nivelamento_reposicao_por_baixas(1);
+    raise exception 'FALHOU: service_role executou reposicao';
+  exception when sqlstate '42501' then
+    raise notice 'OK: reposicao negada para service_role (permissao)';
+  end;
+end $$;
+reset session authorization;
+-- B1: prova por catalogo (nao pelo gate): service_role sem EXECUTE na reposicao.
+do $$
+begin
+  if has_function_privilege('service_role', 'public.nivelamento_reposicao_por_baixas(int)', 'EXECUTE') then
+    raise exception 'FALHOU: service_role tem EXECUTE na reposicao (catalogo)';
+  end if;
+  if not has_function_privilege('authenticated', 'public.nivelamento_reposicao_por_baixas(int)', 'EXECUTE') then
+    raise exception 'FALHOU: authenticated sem EXECUTE na reposicao (gestao nao chama)';
+  end if;
+  raise notice 'OK: catalogo - reposicao so para authenticated';
+end $$;

@@ -1,0 +1,115 @@
+{
+    "tipos": [
+    ],
+    "funcoes": [
+        {
+            "def": "CREATE OR REPLACE FUNCTION internal.carteira_geral_email()\n RETURNS text\n LANGUAGE sql\n IMMUTABLE\nAS $function$ select 'carteira.geral@reativa.local'::text; $function$\n",
+            "args": "",
+            "nome": "carteira_geral_email",
+            "schema": "internal",
+            "sha256": "5bf79859114273b808faf4f89292b66d879e765e58890214365d7eebec686cdf"
+        },
+        {
+            "def": "CREATE OR REPLACE FUNCTION internal.matricula_em_fidelizacao(p_aluno uuid, p_matricula text)\n RETURNS boolean\n LANGUAGE sql\n IMMUTABLE\nAS $function$ select false; $function$\n",
+            "args": "p_aluno uuid, p_matricula text",
+            "nome": "matricula_em_fidelizacao",
+            "schema": "internal",
+            "sha256": "3ceafd91bfeca035d507c0f2e01fee5f5589c08700b6dc02ad3933c2c8ffe86c"
+        },
+        {
+            "def": "CREATE OR REPLACE FUNCTION internal.operador_pode_receber_caso(p_email text)\n RETURNS boolean\n LANGUAGE sql\n STABLE\nAS $function$ select true; $function$\n",
+            "args": "p_email text",
+            "nome": "operador_pode_receber_caso",
+            "schema": "internal",
+            "sha256": "2856d6b1e6c0a01021e048f2de6a5260c578193d49c5f12af265e78f8ccacca5"
+        },
+        {
+            "def": "CREATE OR REPLACE FUNCTION public.aluno_saldo_pendente_detalhe(p_aluno uuid)\n RETURNS jsonb\n LANGUAGE sql\n STABLE\nAS $function$\n  select jsonb_build_object('total', round(coalesce(sum(\n           coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0)\n         ), 0), 2))\n    from public.acordos_titulos t\n   where t.aluno_id = p_aluno and upper(coalesce(t.situacao,'')) = 'ABERTO';\n$function$\n",
+            "args": "p_aluno uuid",
+            "nome": "aluno_saldo_pendente_detalhe",
+            "schema": "public",
+            "sha256": "0d79474c0c2c06f5c46d57aa362462e05b6f53356d0a85292b33005a09c0d960"
+        },
+        {
+            "def": "CREATE OR REPLACE FUNCTION public.assumir_caso_livre(p_caso_id uuid)\n RETURNS TABLE(sucesso boolean, mensagem text, caso_liberado uuid)\n LANGUAGE sql\n SECURITY DEFINER\n SET search_path TO 'public', 'internal'\nAS $function$\n  select false, 'versao anterior (stub de teste)'::text, null::uuid;\n$function$\n",
+            "args": "p_caso_id uuid",
+            "nome": "assumir_caso_livre",
+            "schema": "public",
+            "sha256": "8d2b0bcc5911902d8b92d3d786589d3647546d685b58223cac69f37cc2949b23"
+        },
+        {
+            "def": "CREATE OR REPLACE FUNCTION public.calibragem_e_gestao()\n RETURNS boolean\n LANGUAGE sql\n STABLE\nAS $function$\n  select lower(coalesce(current_setting('teste.email', true), '')) in\n         ('amanda.seibel@aelbra.com.br','cobranca04@aelbra.com.br','cobranca07@aelbra.com.br');\n$function$\n",
+            "args": "",
+            "nome": "calibragem_e_gestao",
+            "schema": "public",
+            "sha256": "e63488da8e038006147c653d906ff87c5f65ba10cdcd3ea33b202eba95101009"
+        },
+        {
+            "def": "CREATE OR REPLACE FUNCTION public.calibragem_teto_operador(p_email text)\n RETURNS integer\n LANGUAGE sql\n STABLE\nAS $function$\n  select coalesce(nullif(p.valor #>> '{}', '')::int, 500)\n    from public.calibragem_parametros p where p.chave = 'limite_carteira'\n  union all select 500 limit 1;\n$function$\n",
+            "args": "p_email text",
+            "nome": "calibragem_teto_operador",
+            "schema": "public",
+            "sha256": "43734a13f8f5016895d675fc0ac8b53374d0105689bdb4a2b4636e5179ee7588"
+        },
+        {
+            "def": "CREATE OR REPLACE FUNCTION public.caso_dentro_prazo_fidelizacao(p_data date)\n RETURNS boolean\n LANGUAGE sql\n IMMUTABLE\nAS $function$ select false; $function$\n",
+            "args": "p_data date",
+            "nome": "caso_dentro_prazo_fidelizacao",
+            "schema": "public",
+            "sha256": "98c4e34c8df22bca3d37187acd4de8a7a11bd69117301096c2a8eae5a2bf9c91"
+        },
+        {
+            "def": "CREATE OR REPLACE FUNCTION public.caso_em_giro_fidelizacao(p_data date)\n RETURNS boolean\n LANGUAGE sql\n STABLE\nAS $function$\n  select p_data is not null and p_data >= current_date;\n$function$\n",
+            "args": "p_data date",
+            "nome": "caso_em_giro_fidelizacao",
+            "schema": "public",
+            "sha256": "f596d9cb30fc2ec6ee08482cecf0d9aed069c81e916d159cadead7f6c7cd8276"
+        },
+        {
+            "def": "CREATE OR REPLACE FUNCTION public.caso_encerrado_operacional(p_cpf text, p_status_atual text, p_status_acionamento text, p_status_financeiro text, p_status_jornada text)\n RETURNS boolean\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n  select coalesce(p_status_atual,'') = 'ENCERRADO';\n$function$\n",
+            "args": "p_cpf text, p_status_atual text, p_status_acionamento text, p_status_financeiro text, p_status_jornada text",
+            "nome": "caso_encerrado_operacional",
+            "schema": "public",
+            "sha256": "67b873b7d1e0e9963d7bcc4698891e90a31aa82588106c49e068cc23dde64abc"
+        },
+        {
+            "def": "CREATE OR REPLACE FUNCTION public.caso_protegido_redistribuicao(p_cpf text, p_status_acionamento text, p_nao_acionar boolean, p_status_financeiro text, p_valor_pago numeric, p_quitado_em date, p_valor_quitado numeric)\n RETURNS boolean\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n  select coalesce(p_nao_acionar,false)\n      or coalesce(p_status_acionamento,'') = 'ACORDO FECHADO'\n      or coalesce(p_valor_pago,0) > 0;\n$function$\n",
+            "args": "p_cpf text, p_status_acionamento text, p_nao_acionar boolean, p_status_financeiro text, p_valor_pago numeric, p_quitado_em date, p_valor_quitado numeric",
+            "nome": "caso_protegido_redistribuicao",
+            "schema": "public",
+            "sha256": "bc89cd7e4af600c973c397e06115cc3f774755329fba9884dd3506354bb4d4ce"
+        },
+        {
+            "def": "CREATE OR REPLACE FUNCTION public.nome_operador_por_email(p_email text)\n RETURNS text\n LANGUAGE sql\n STABLE\nAS $function$\n  select u.nome from public.usuarios u where lower(u.email) = lower(p_email) and u.ativo limit 1;\n$function$\n",
+            "args": "p_email text",
+            "nome": "nome_operador_por_email",
+            "schema": "public",
+            "sha256": "45c7ff974c3f0a5d362ae5e867f85f236eb04902e3ad954cc1d67759fa5cf3ee"
+        },
+        {
+            "def": "CREATE OR REPLACE FUNCTION public.saldo_titulos_aberto(p_cpf text)\n RETURNS numeric\n LANGUAGE sql\n STABLE\nAS $function$ select 0::numeric; $function$\n",
+            "args": "p_cpf text",
+            "nome": "saldo_titulos_aberto",
+            "schema": "public",
+            "sha256": "65facd1a40d2ec6d0dd1880f6dd51f181948acf3b7dc53c96262a9716c3e2b42"
+        }
+    ],
+    "tabelas": [
+        {
+            "ddl": "create table public.acordos_titulos (\n  id uuid default gen_random_uuid() not null,\n  aluno_id uuid,\n  situacao text default 'ABERTO'::text,\n  valor_original numeric,\n  valor_em_aberto numeric,\n  saldo_corrigido numeric,\n  valor_cobranca_ajustado numeric,\n  primary key (id)\n);",
+            "nome": "acordos_titulos",
+            "sha256": "3abc454bd6c0fc0efdad4ec44cded86eedea6a4f85f28f39627651b0ec647520"
+        },
+        {
+            "ddl": "create table public.calibragem_parametros (\n  chave text not null,\n  valor jsonb,\n  descricao text,\n  atualizado_em timestamp with time zone,\n  atualizado_por text,\n  primary key (chave)\n);",
+            "nome": "calibragem_parametros",
+            "sha256": "2ccecea2703227640edc55e6fb189016ca77e2066f0494e193fbc2ebce73992c"
+        },
+        {
+            "ddl": "create table public.usuarios (\n  email text not null,\n  nome text,\n  perfil text default 'operador'::text,\n  ativo boolean default true,\n  recebe_novos_casos boolean default true,\n  primary key (email)\n);",
+            "nome": "usuarios",
+            "sha256": "7495a0572e23da5b762ff9fb7d2f35f36b47c0d50d83eda662a7a5e4c3cda850"
+        }
+    ],
+    "versao_export": 2
+}
