@@ -81,6 +81,7 @@ export function encerrarSocket(anterior) {
 }
 import { logSessao } from "./log.js";
 import { enfileirar } from "./outbox.js";
+import { statusDoAck, statusDoRecibo, eventoDeStatus } from "./recibos.js";
 import { baixarMidia, TIPOS_ACEITOS } from "./midia.js";
 import {
   VinculosLid, criarContadores, formatoDoJid, resolverEndereco, resumoDescartes,
@@ -788,17 +789,21 @@ export function criarSessao({ chave }) {
     sock.ev.on("creds.update", () => auth.salvarCredenciais());
 
     // -------------------------------------------------------------------
-    // INSTRUMENTAÇÃO DE ACK — fase 1: SÓ OBSERVA.
+    // ACK DE ENTREGA E DE LEITURA — observa E avisa o CRM.
     //
-    // Hoje o status de saída é gravado uma vez, no momento em que a mensagem
-    // entra na fila, e nunca mais muda. "ENVIADO" na Central significa apenas
-    // "nós enfileiramos" — o operador lê isso como "o aluno recebeu", e não é.
+    // O log abaixo continua (é a prova do que o WhatsApp realmente manda para
+    // este número). Além dele, entrega e leitura seguem para o CRM pela mesma
+    // fila em disco das mensagens: como a fila é em ordem, o recibo nunca
+    // chega antes do eco da mensagem a que se refere. A tradução está em
+    // `recibos.js`; a regra de não regredir status mora no banco.
     //
-    // Antes de trocar o modelo de status em produção, é preciso PROVAR quais
-    // valores esta sessão realmente entrega. O mapa do enum do Baileys
-    // (PENDING=1, SERVER_ACK=2, DELIVERY_ACK=3, READ=4, PLAYED=5) é o que a
-    // biblioteca promete; o que o WhatsApp de fato manda para ESTE número, com
-    // ESTE aparelho, é o que estas duas linhas vão registrar.
+    // "ENVIADO" continua significando apenas "nós enfileiramos" — é gravado
+    // no eco da mensagem. ENTREGUE e LIDO só aparecem quando o WhatsApp manda
+    // o recibo; se o aluno desligou a confirmação de leitura, LIDO não vem.
+    //
+    // O mapa do enum do Baileys (PENDING=1, SERVER_ACK=2, DELIVERY_ACK=3,
+    // READ=4, PLAYED=5) é o que a biblioteca promete; o que o WhatsApp de fato
+    // manda para ESTE número, com ESTE aparelho, é o que o log registra.
     //
     // Correlação exclusivamente por `wamid` (`key.id`), como pedido: é a única
     // chave estável entre o envio e o ack.
@@ -820,6 +825,10 @@ export function criarSessao({ chave }) {
           },
           "ack observado",
         );
+        const evento = eventoDeStatus({
+          sessao: chave, wamid: u.key.id, status: statusDoAck(u.update?.status),
+        });
+        if (evento) enfileirar("mensagem.status", evento);
       }
     });
 
@@ -838,6 +847,10 @@ export function criarSessao({ chave }) {
           },
           "recibo observado",
         );
+        const evento = eventoDeStatus({
+          sessao: chave, wamid: r.key.id, status: statusDoRecibo(r.receipt),
+        });
+        if (evento) enfileirar("mensagem.status", evento);
       }
     });
 

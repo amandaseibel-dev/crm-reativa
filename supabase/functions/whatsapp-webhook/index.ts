@@ -148,6 +148,29 @@ Deno.serve(async (req) => {
         break;
       }
 
+      // ---------------------------------------------------------------------
+      // Recibo de entrega/leitura de uma mensagem que NÓS enviamos. Entrada
+      // inválida é recusa (400), não erro (500): 500 faria o gateway tentar
+      // de novo para sempre um evento que nunca vai ser aceito.
+      // Wamid que o CRM não conhece NÃO é erro: é recibo de mensagem que não
+      // registramos (enviada antes do pareamento, por exemplo).
+      // ---------------------------------------------------------------------
+      case "mensagem.status": {
+        const wamid = typeof d.wamid === "string" ? d.wamid.trim() : "";
+        const status = String(d.status || "");
+        if (!wamid || !["ENTREGUE", "LIDO"].includes(status)) {
+          await concluir("mensagem.status invalido");
+          return jsonResp({ erro: "mensagem.status invalido" }, 400);
+        }
+        const { data, error } = await admin.rpc("whatsapp_mensagem_atualizar_status", {
+          p_wamid: wamid,
+          p_status: status,
+        });
+        if (error) throw new Error(error.message);
+        await concluir(null);
+        return jsonResp({ ok: true, atualizada: data === true });
+      }
+
       case "conexao": {
         const { error } = await admin.rpc("whatsapp_conexao_reportar", {
           p_sessao_chave: d.sessao,

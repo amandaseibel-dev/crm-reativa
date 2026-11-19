@@ -41,6 +41,27 @@ export const ROTULO_CONEXAO = {
   ERRO: "Erro de conexão",
 };
 
+// Os "tracinhos" de uma mensagem que saiu. O status vem do recibo que o
+// WhatsApp devolve ao gateway:
+//   ENVIADO  = saiu do CRM (um tracinho) — NÃO quer dizer que o aluno recebeu
+//   ENTREGUE = chegou ao aparelho do aluno (dois tracinhos)
+//   LIDO     = o aluno abriu a conversa (dois tracinhos azuis)
+// LIDO só existe se o aluno mantém a confirmação de leitura ligada: ausência
+// de LIDO não prova que ele não leu. FALHOU não tem tracinho — é erro e
+// aparece por extenso. Status desconhecido devolve null (não inventa marca).
+export function marcaDeEntrega(status) {
+  switch (status) {
+    case "ENVIADO":
+      return { marca: "✓", rotulo: "Enviada — ainda sem confirmação de entrega", lida: false };
+    case "ENTREGUE":
+      return { marca: "✓✓", rotulo: "Entregue ao aparelho do aluno", lida: false };
+    case "LIDO":
+      return { marca: "✓✓", rotulo: "Lida pelo aluno", lida: true };
+    default:
+      return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Painéis
 // ---------------------------------------------------------------------------

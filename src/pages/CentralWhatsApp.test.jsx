@@ -1767,7 +1767,8 @@ describe("Central WhatsApp — anexar PDF", () => {
 
     expect(await screen.findByText(/acordo\.pdf/)).toBeDefined();
     expect(screen.getByText(/240 KB/)).toBeDefined();
-    expect(screen.getByText(/enviado/)).toBeDefined();
+    // O status deixou de ser a palavra "enviado" e virou o tracinho.
+    expect(screen.getByLabelText(/Enviada — ainda sem confirmação de entrega/).textContent).toBe("✓");
   });
 
   it("7b. tentativa FALHOU aparece como falhou, com o anexo que não saiu", async () => {
@@ -1921,5 +1922,45 @@ describe("Fila de Receptivo na Central WhatsApp", () => {
     expect(assumirConversa).toHaveBeenCalledTimes(1);
     expect(marcarAtendidoReceptivoWhatsApp).toHaveBeenCalledTimes(1);
     expect(marcarAtendidoReceptivoWhatsApp).toHaveBeenCalledWith("teste@reativa.com.br", "k1");
+  });
+});
+
+// "Enviado" queria dizer só "saiu do CRM", e o operador lia como "o aluno
+// recebeu". Os tracinhos separam as três coisas: saiu, chegou, foi lida.
+describe("Central WhatsApp — tracinhos de entrega e leitura", () => {
+  const abrirCom = async (mensagens) => {
+    servico.conversas = [conversa({ aguardando_resposta: false, nao_lidas: 0 })];
+    servico.mensagens = mensagens;
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Fulano"));
+  };
+  const saida = (id, status) => ({
+    id, direcao: "SAIDA", texto: `msg ${id}`, status, timestamp_wa: new Date().toISOString(),
+  });
+
+  it("mostra um tracinho, dois e dois de lida — cada um com o significado por extenso", async () => {
+    await abrirCom([saida("m1", "ENVIADO"), saida("m2", "ENTREGUE"), saida("m3", "LIDO")]);
+    const enviada = await screen.findByLabelText(/sem confirmação de entrega/);
+    const entregue = screen.getByLabelText("Entregue ao aparelho do aluno");
+    const lida = screen.getByLabelText("Lida pelo aluno");
+    expect(enviada.textContent).toBe("✓");
+    expect(entregue.textContent).toBe("✓✓");
+    expect(lida.textContent).toBe("✓✓");
+    expect(lida.getAttribute("data-status-entrega")).toBe("LIDO");
+    expect(entregue.getAttribute("data-status-entrega")).toBe("ENTREGUE");
+  });
+
+  it("falha continua por extenso, sem tracinho", async () => {
+    await abrirCom([saida("m1", "FALHOU")]);
+    expect(await screen.findByText(/· falhou/)).toBeDefined();
+    expect(document.querySelector("[data-status-entrega]")).toBeNull();
+  });
+
+  it("mensagem recebida do aluno não tem tracinho", async () => {
+    await abrirCom([
+      { id: "m1", direcao: "ENTRADA", texto: "Oi", status: "LIDO", timestamp_wa: new Date().toISOString() },
+    ]);
+    await screen.findByText("Oi");
+    expect(document.querySelector("[data-status-entrega]")).toBeNull();
   });
 });

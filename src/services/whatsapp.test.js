@@ -11,7 +11,7 @@ vi.mock("./supabase", () => ({
   },
 }));
 
-import { esperaDesde, linkWhatsApp, procurarConversaPorTelefone } from "./whatsapp";
+import { esperaDesde, linkWhatsApp, procurarConversaPorTelefone, marcaDeEntrega } from "./whatsapp";
 
 const MIN = 60 * 1000;
 const HORA = 60 * MIN;
@@ -121,5 +121,24 @@ describe("procurarConversaPorTelefone — não bate no banco à toa", () => {
   it("erro do banco sobe — a tela não pode achar que o número está livre", async () => {
     espiao.resposta = { data: null, error: { message: "acesso negado" } };
     await expect(procurarConversaPorTelefone("c1", "51999998888")).rejects.toThrow("acesso negado");
+  });
+});
+
+describe("marcaDeEntrega — os tracinhos da mensagem enviada", () => {
+  it("um tracinho para enviada, dois para entregue, dois azuis para lida", () => {
+    expect(marcaDeEntrega("ENVIADO")).toMatchObject({ marca: "✓", lida: false });
+    expect(marcaDeEntrega("ENTREGUE")).toMatchObject({ marca: "✓✓", lida: false });
+    expect(marcaDeEntrega("LIDO")).toMatchObject({ marca: "✓✓", lida: true });
+  });
+
+  it("enviada não promete entrega no texto de ajuda", () => {
+    expect(marcaDeEntrega("ENVIADO").rotulo).toMatch(/sem confirmação de entrega/);
+  });
+
+  it("falha e status desconhecido não ganham tracinho", () => {
+    expect(marcaDeEntrega("FALHOU")).toBeNull();
+    expect(marcaDeEntrega("QUALQUER")).toBeNull();
+    expect(marcaDeEntrega(null)).toBeNull();
+    expect(marcaDeEntrega(undefined)).toBeNull();
   });
 });
