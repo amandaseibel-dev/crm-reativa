@@ -16,7 +16,35 @@ import CentralUlbra from "./CentralUlbra";
 
 const rpc = vi.fn();
 const fromMock = vi.fn();
+// Porta HISTORICO_DISPONIVEL (#969): desligada por padrão; o bloco sob demanda liga por globalThis.__HIST_ON.
+vi.mock("../utils/ulbraHistorico", async (orig) => {
+  const m = await orig();
+  return { ...m, get HISTORICO_DISPONIVEL() { return globalThis.__HIST_ON === true; } };
+});
 vi.mock("../services/supabase", () => ({ supabase: { rpc: (...a) => rpc(...a), from: (...a) => fromMock(...a) } }));
+// Cliente das funções de conversa: simulado por nome. Nada chega à rede.
+const cliente = {
+  conexaoEstado: vi.fn(), conexaoIniciar: vi.fn(), conexaoDesconectar: vi.fn(),
+  lerHistorico: vi.fn(), envioPrevia: vi.fn(), envioConfirmar: vi.fn(),
+  historicoCapacidade: vi.fn(async () => ({ ok: true, pode: true })),
+  // Resposta: capacidade do servidor por conversa. Padrão: pode (os testes de composer dependem disso).
+  envioCapacidade: vi.fn(async () => ({ ok: true, pode: true })),
+};
+vi.mock("../utils/ulbraConversaCliente", async () => {
+  const real = await vi.importActual("../utils/ulbraConversaCliente");
+  return {
+    ...real,
+    conexaoEstado: (...a) => cliente.conexaoEstado(...a),
+    conexaoIniciar: (...a) => cliente.conexaoIniciar(...a),
+    conexaoDesconectar: (...a) => cliente.conexaoDesconectar(...a),
+    lerHistorico: (...a) => cliente.lerHistorico(...a),
+    envioPrevia: (...a) => cliente.envioPrevia(...a),
+    envioConfirmar: (...a) => cliente.envioConfirmar(...a),
+    // Capacidade do servidor: nos testes do bloco sob demanda, a gestão de teste pode ler.
+    historicoCapacidade: (...a) => cliente.historicoCapacidade(...a),
+    envioCapacidade: (...a) => cliente.envioCapacidade(...a),
+  };
+});
 
 // Consulta da carteira falsa: registra os filtros e devolve as linhas dadas.
 const DIA = 86400000;
@@ -36,6 +64,8 @@ const fetchMock = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
   fromMock.mockImplementation(() => carteiraCom(CARTEIRA_OPERADOR));
+  cliente.conexaoEstado.mockResolvedValue({ ok: true, estado: "SEM_CONEXAO", pessoa: null, envio_real: false });
+  cliente.lerHistorico.mockResolvedValue({ ok: true, origem: "ulbra", chamadas: 1, pagina: { mensagens: [], antes_de: null } });
   sessionStorage.clear();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -452,6 +482,94 @@ describe("recorte da carteira não muda pelo filtro nem pela URL", () => {
     await waitFor(() => expect(eqs.length).toBeGreaterThan(0));
     expect(eqs.every(([campo, valor]) => campo === "operador_email" && valor === "cobranca10@aelbra.com.br")).toBe(true);
     expect(eqs.some(([, valor]) => valor === "cobranca05@aelbra.com.br")).toBe(false);
+  });
+});
+
+describe("histórico sob demanda, conexão individual e resposta em duas etapas", () => {
+  beforeEach(() => { globalThis.__HIST_ON = true; });
+  afterEach(() => { globalThis.__HIST_ON = false; });
+  it("capacidade negada pelo servidor: sem botão de histórico e sem chamada, mesmo com a porta ligada", async () => {
+    cliente.historicoCapacidade.mockResolvedValueOnce({ ok: true, pode: false, motivo: "SEM_PERMISSAO_NA_CONVERSA" });
+    rpc.mockResolvedValue({ data: resposta(), error: null });
+    const conv = resposta().respostas[0].conversa_id;
+    montar(OPERADOR, `/central-ulbra?visao=conversas&conv=r%3A${conv}`);
+    const painel = await screen.findByLabelText("Conversa selecionada");
+    await waitFor(() => expect(cliente.historicoCapacidade).toHaveBeenCalled());
+    expect(painel.querySelector("[data-campo='carregar-historico']")).toBeNull();
+    expect(cliente.lerHistorico).not.toHaveBeenCalled();
+  });
+  it("porta desligada: sem botão Carregar histórico e sem chamada à Mensageria", async () => {
+    globalThis.__HIST_ON = false;
+    rpc.mockResolvedValue({ data: resposta(), error: null });
+    const conv = resposta().respostas[0].conversa_id;
+    montar(OPERADOR, `/central-ulbra?visao=conversas&conv=r%3A${conv}`);
+    const painel = await screen.findByLabelText("Conversa selecionada");
+    expect(painel.querySelector("[data-campo='carregar-historico']")).toBeNull();
+    expect(cliente.lerHistorico).not.toHaveBeenCalled();
+  });
+  const RESP = () => resposta();
+  it("selecionar a conversa NÃO lê a Mensageria; o botão 'Carregar histórico' lê uma vez e mostra as mensagens", async () => {
+    rpc.mockResolvedValue({ data: RESP(), error: null });
+    cliente.lerHistorico.mockResolvedValue({ ok: true, origem: "ulbra", chamadas: 1, pagina: { mensagens: [{ direcao: "ENTRADA", em: "2026-11-10T13:00:00Z", texto: "pode me ligar?", autor: null, anexos: [] }], antes_de: null } });
+    const conv = RESP().respostas[0].conversa_id;
+    montar(OPERADOR, `/central-ulbra?visao=conversas&conv=r%3A${conv}`);
+    const painel = await screen.findByLabelText("Conversa selecionada");
+    expect(cliente.lerHistorico).not.toHaveBeenCalled();
+    expect(painel.querySelector("[data-estado='indisponivel']")).toBeTruthy();
+    // O botão só aparece depois que o servidor concede a capacidade (historico_capacidade).
+    await waitFor(() => expect(painel.querySelector("[data-campo='carregar-historico']")).toBeTruthy());
+    fireEvent.click(painel.querySelector("[data-campo='carregar-historico']"));
+    await waitFor(() => expect(cliente.lerHistorico).toHaveBeenCalledTimes(1));
+    expect(cliente.lerHistorico).toHaveBeenCalledWith(conv, null);
+    expect(await screen.findByText("pode me ligar?")).toBeTruthy();
+    // sem conexão individual: envio bloqueado, com o botão de conectar
+    expect(painel.querySelector("[data-campo='envio-bloqueado']").textContent).toMatch(/não há conexão individual/);
+    expect(painel.querySelector("[data-campo='conectar']")).toBeTruthy();
+    expect(screen.getByLabelText("Resposta").disabled).toBe(true);
+    expect(screen.queryByText(/Ver prévia/)?.disabled ?? true).toBe(true);
+  });
+  it("conectar abre a URL de autorização da Mensageria em nova aba (autoria do operador)", async () => {
+    rpc.mockResolvedValue({ data: RESP(), error: null });
+    cliente.conexaoIniciar.mockResolvedValue({ ok: true, url: "https://crm.ulbra.ai/api/oauth/auth?client_id=reativa&state=s1" });
+    const abrir = vi.fn();
+    vi.stubGlobal("open", abrir);
+    const conv = RESP().respostas[0].conversa_id;
+    montar(OPERADOR, `/central-ulbra?visao=conversas&conv=r%3A${conv}`);
+    const painel = await screen.findByLabelText("Conversa selecionada");
+    fireEvent.click(painel.querySelector("[data-campo='conectar']"));
+    await waitFor(() => expect(abrir).toHaveBeenCalledWith("https://crm.ulbra.ai/api/oauth/auth?client_id=reativa&state=s1", "_blank", "noopener,noreferrer"));
+  });
+  it("com conexão ATIVA: histórico carregado, prévia e confirmação chamam a função com a conversa, a chave e a prévia", async () => {
+    rpc.mockResolvedValue({ data: RESP(), error: null });
+    cliente.conexaoEstado.mockResolvedValue({ ok: true, estado: "ATIVA", pessoa: "Maria Operadora", envio_real: true });
+    cliente.envioPrevia.mockResolvedValue({ ok: true, situacao: "CRIADA", previa_id: "prev-9", expira_em_ms: 9999999999999, janela_aberta: true });
+    cliente.envioConfirmar.mockResolvedValue({ ok: true, situacao: "PROCESSADO", envio: { status: "ENVIADO" } });
+    const conv = RESP().respostas[0].conversa_id;
+    montar(OPERADOR, `/central-ulbra?visao=conversas&conv=r%3A${conv}`);
+    const painel = await screen.findByLabelText("Conversa selecionada");
+    await waitFor(() => expect(painel.querySelector("[data-campo='conexao-ativa']").textContent).toMatch(/Maria Operadora/));
+    fireEvent.click(painel.querySelector("[data-campo='carregar-historico']"));
+    const caixa = await screen.findByLabelText("Resposta");
+    fireEvent.change(caixa, { target: { value: "Bom dia" } });
+    fireEvent.click(screen.getByText(/Ver prévia/));
+    await waitFor(() => expect(cliente.envioPrevia).toHaveBeenCalledWith(conv, "Bom dia"));
+    expect(cliente.envioConfirmar).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByText("Confirmar envio"));
+    await waitFor(() => expect(cliente.envioConfirmar).toHaveBeenCalledTimes(1));
+    const [pid, texto, chave] = cliente.envioConfirmar.mock.calls[0];
+    expect(pid).toBe("prev-9");
+    expect(texto).toBe("Bom dia");
+    expect(chave.length).toBeGreaterThanOrEqual(8);
+    expect((await screen.findAllByText(/Mensagem enviada em seu nome/)).length).toBeGreaterThan(0);
+  });
+  it("linha da carteira interna (sem conversa na Mensageria) não tem histórico nem envio", async () => {
+    rpc.mockResolvedValue({ data: RESP(), error: null });
+    cliente.conexaoEstado.mockResolvedValue({ ok: true, estado: "ATIVA", pessoa: "Maria", envio_real: true });
+    montar(OPERADOR, "/central-ulbra?visao=conversas&conv=s%3Aal-1");
+    const painel = await screen.findByLabelText("Conversa selecionada");
+    // Linha só de carteira interna: sem leitura de conversa, sem botão de histórico (regra da #969).
+    expect(painel.querySelector("[data-campo='carregar-historico']")).toBeNull();
+    expect(cliente.lerHistorico).not.toHaveBeenCalled();
   });
 });
 

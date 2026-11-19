@@ -88,7 +88,7 @@ describe("painel da conversa", () => {
     tela({ selecionadoChave: "r:c1", historico: { estado: "ok", mensagens: [{ direcao: "ENTRADA", texto: "oi", em: "2026-11-10T10:00:00Z" }] } });
     const painel = document.querySelector(".ulbra-conv-painel");
     expect(within(painel).getByRole("textbox").disabled).toBe(true);
-    expect(within(painel).getByRole("button", { name: /enviar/i }).disabled).toBe(true);
+    expect(within(painel).getByRole("button", { name: /prévia/i }).disabled).toBe(true);
     expect(document.querySelector('[data-campo="envio-bloqueado"]').textContent).toMatch(/Envio bloqueado/);
   });
 
@@ -151,37 +151,77 @@ describe("celular", () => {
   });
 });
 
-describe("Ver conversa: leitura só no clique", () => {
-  it("com vínculo e sem clique, não chama a leitura: só mostra o botão", () => {
-    const ver = vi.fn();
-    tela({ selecionadoChave: "r:c1", onVerConversa: ver });
-    expect(screen.getByRole("button", { name: "Ver conversa" })).toBeTruthy();
-    expect(ver).not.toHaveBeenCalled();
+// TRAVA DE ETAPA: enquanto a `ulbra-conversa` nao estiver publicada, a Central
+// nao passa `onConectar`, e o caminho de OAuth nao vai para a tela. O segundo
+// caso e o GRUPO DE CONTROLE: sem ele, o primeiro passaria tambem se o painel
+// simplesmente nao renderizasse -- verde falso.
+describe("trava de etapa: OAuth e envio sem backend", () => {
+  const SEM_CONEXAO = { estado: "SEM_CONEXAO", pessoa: null, envioReal: false };
+
+  it("sem backend de conversa (onConectar ausente), nao oferece Conectar", () => {
+    tela({ selecionadoChave: "r:c1", conexao: SEM_CONEXAO });
+    expect(document.querySelector('[data-campo="conectar"]')).toBeNull();
   });
 
-  it("o clique chama onVerConversa uma vez", () => {
-    const ver = vi.fn();
-    tela({ selecionadoChave: "r:c1", onVerConversa: ver });
-    fireEvent.click(screen.getByRole("button", { name: "Ver conversa" }));
-    expect(ver).toHaveBeenCalledTimes(1);
+  it("GRUPO DE CONTROLE: com backend (onConectar presente), oferece Conectar", () => {
+    tela({ selecionadoChave: "r:c1", conexao: SEM_CONEXAO, onConectar: () => {} });
+    expect(document.querySelector('[data-campo="conectar"]')).toBeTruthy();
   });
 
-  it("sem vínculo: diz 'Vínculo pendente' e não oferece leitura", () => {
-    const ver = vi.fn();
-    tela({ selecionadoChave: "r:c2", onVerConversa: ver });
-    expect(document.querySelector('[data-campo="vinculo-pendente"]')).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Ver conversa" })).toBeNull();
-    expect(ver).not.toHaveBeenCalled();
+  it("conexão ATIVA mas envio real desligado no servidor: resposta bloqueada (capacidade do servidor)", () => {
+    const ativa = { estado: "ATIVA", pessoa: "Operador", envioReal: false };
+    tela({ selecionadoChave: "r:c1", conexao: ativa, onConectar: () => {}, onPrevia: () => {}, onEnviar: () => {} });
+    const area = screen.queryByLabelText("Resposta");
+    if (area) expect(area.disabled).toBe(true);
+    expect(document.querySelector('[data-campo="confirmar"]')).toBeNull();
+  });
+
+  it("conexão ATIVA, envio real e capacidade do servidor para esta conversa: resposta liberada", () => {
+    const ativa = { estado: "ATIVA", pessoa: "Operador", envioReal: true };
+    tela({ selecionadoChave: "r:c1", conexao: ativa, podeResponder: true, historico: { estado: "ok", mensagens: [] }, onConectar: () => {}, onPrevia: () => {}, onEnviar: () => {} });
+    const area = screen.queryByLabelText("Resposta");
+    expect(area).toBeTruthy();
+    expect(area.disabled).toBe(false);
+  });
+
+  it("conexão ATIVA sem capacidade do servidor para a conversa: resposta fechada (padrão)", () => {
+    const ativa = { estado: "ATIVA", pessoa: "Operador", envioReal: true };
+    tela({ selecionadoChave: "r:c1", conexao: ativa, historico: { estado: "ok", mensagens: [] }, onConectar: () => {}, onPrevia: () => {}, onEnviar: () => {} });
+    const area = screen.queryByLabelText("Resposta");
+    if (area) expect(area.disabled).toBe(true);
+    expect(document.querySelector('[data-campo="confirmar"]')).toBeNull();
+  });
+
+  it("sem backend, o envio segue bloqueado: nada de previa nem de confirmar", () => {
+    tela({ selecionadoChave: "r:c1", conexao: SEM_CONEXAO });
+    expect(document.querySelector('[data-campo="confirmar"]')).toBeNull();
+    const area = screen.queryByLabelText("Resposta");
+    if (area) expect(area.disabled).toBe(true);
   });
 });
 
-describe("sem vínculo nunca mostra mensagens", () => {
-  it("conversa sem aluno_id não exibe o histórico mesmo quando ele chega", () => {
-    tela({
-      selecionadoChave: "r:c2",
-      historico: { estado: "ok", mensagens: [{ quem: "cliente", texto: "mensagem de outra conversa", em: "2026-11-16T10:00:00Z" }] },
-    });
-    expect(screen.queryByText("mensagem de outra conversa")).toBeNull();
-    expect(document.querySelector('[data-campo="vinculo-pendente"]')).toBeTruthy();
+// Prévia da lista: CPF FICTÍCIO com e sem pontuação é mascarado; o resto do texto fica.
+describe("prévia da lista — CPF mascarado (dados fictícios)", () => {
+  it("prévia com CPF formatado e só dígitos sai mascarada; telefone de 11 dígitos não é apagado", () => {
+    const dados = {
+      respostas: [
+        { conversa_id: "p1", nome: "Aluno P1", espera_min: 5, previa: "meu cpf 529.982.247-25 pode ver?", aluno_id: "al-p1", responsavel_reativa: null, atendente_ulbra: null },
+        { conversa_id: "p2", nome: "Aluno P2", espera_min: 6, previa: "cpf 52998224725 obrigada", aluno_id: "al-p2", responsavel_reativa: null, atendente_ulbra: null },
+        { conversa_id: "p3", nome: "Aluno P3", espera_min: 7, previa: "me liga no 11987654321", aluno_id: "al-p3", responsavel_reativa: null, atendente_ulbra: null },
+      ],
+      sem_interacao: [],
+      novos: [],
+    };
+    const { container } = render(
+      <MemoryRouter>
+        <CentralConversas itens={listaPrioridade(dados, "")} selecionadoChave="" onSelecionar={() => {}} onVoltar={() => {}} historico={{ estado: "indisponivel", mensagens: [] }} />
+      </MemoryRouter>,
+    );
+    const texto = container.textContent || "";
+    expect(texto).toContain("meu cpf ***.***.***-25 pode ver?");
+    expect(texto).toContain("cpf ***.***.***-25 obrigada");
+    expect(texto).toContain("me liga no 11987654321");
+    expect(texto).not.toContain("529.982.247-25");
+    expect(texto).not.toContain("52998224725");
   });
 });

@@ -34,6 +34,21 @@ verdade nova for descoberta**, atualizar **na mesma alteração**:
 `prime-mapa-identificadores.md` (quando aplicável) + `prime-gaps.md` (quando
 aplicável). Nunca só um dos cinco.
 
+**Alcance da regra dos cinco (decisão de gestão).** Ela vale para descobertas e alterações relevantes da
+integração **Prime**, nos caminhos `docs/integracoes/prime-*`, `supabase/functions/prime-*`, `src/utils/prime*` e
+migrações/ledger com `prime` no nome, além dos compartilhados com regra Prime (`docs/PREMISSAS.md`,
+`docs/BACKLOG-TECNICO.md`, este README). Documentação exclusiva da Mensageria não exige atualização dos cinco.
+Mudança mista com impacto Prime aciona a regra. Quando o script não consegue distinguir descoberta de ajuste
+(código ou compartilhado sem os três obrigatórios), o resultado é `REVISAO_HUMANA`, nunca `COMPLETO`.
+(`plugins/reativa-one/scripts/integracoes-cinco.sh` aplica este alcance.)
+
+**Revisão humana dos cinco (onde e como se resolve).** O seletor devolve `REVISAO_HUMANA` (saída 3) quando há
+código, migração ou compartilhado Prime alterado sem os três obrigatórios, ou só documento Prime auxiliar. Isso é uma
+pendência, não aprovação. Resolve-se na revisão da PR: o Guardião a reporta como pendente, e um humano registra a decisão
+(descoberta documentada nos cinco, ou ajuste sem descoberta com justificativa) no próprio texto da PR. `PRESENCA_VERIFICADA`
+(saída 0) confere só presença dos três e toque de pelo menos um; conteúdo e necessidade de atualização não são verificados, e a revisão de
+coerência continua obrigatória quando houver possível descoberta Prime.
+
 ## Documentos
 
 | Arquivo | Para que serve |
@@ -132,3 +147,5 @@ classificado como teste de verificação, não regra de reconstrução.
 - Não chamou a API Prime diretamente a partir desta sessão. Toda evidência
   usada aqui vem de código já em produção, memórias de sessões anteriores
   (medições já feitas, citadas com data) e `docs/PREMISSAS.md`.
+
+> Procedimento VIGENTE de implantação da leitura do histórico: `docs/integracoes/implantacao-leitura-historico-VIGENTE.md`. Os demais documentos da integração que tratam de implantação são histórico de revisão.

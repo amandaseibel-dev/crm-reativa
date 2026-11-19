@@ -26,6 +26,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { descreverColeta, fmtDataHora, fmtEspera, hrefFicha, nomeCurto, rotuloPeriodo } from "../utils/ulbraCentral";
+import { mascararCpfEmTexto } from "../utils/mascararCpf";
 import { HISTORICO_DISPONIVEL, podeVerHistorico } from "../utils/ulbraHistorico";
 import { lerHistorico } from "../utils/ulbraHistoricoCliente";
 import HistoricoUlbraLeitura from "./HistoricoUlbraLeitura";
@@ -128,6 +129,8 @@ export default function MensageriaPeriodo({
   const totais = cabecalho?.totais || {};
   const demais = linhas.filter((c) => !c.aguardando);
   const temMais = typeof totais.conversas === "number" && linhas.length < totais.conversas;
+  // A copy só promete histórico clicável se o SERVIDOR marcou ao menos uma linha (fail-closed: sem o campo, a tela fecha).
+  const historicoLiberado = historicoDisponivel && [...linhas, ...respostas].some((l) => l.capacidade_historico === true);
   const periodo = rotuloPeriodo(cabecalho?.desde);
   const desdeBr = dataBr(cabecalho?.desde);
   const ultimaColeta = coleta?.ultima_execucao ? fmtDataHora(coleta.ultima_execucao) : "nenhuma";
@@ -147,7 +150,7 @@ export default function MensageriaPeriodo({
         ) : null}
         {" "}<strong>Não é o histórico completo de novembro:</strong> só conversas ativas no WhatsApp, só a última mensagem de cada uma, e só
         alunos com CPF confirmado.{" "}
-        {historicoDisponivel ? (
+        {historicoLiberado ? (
           <>
             <strong>Histórico só por clique:</strong> cada "Carregar histórico" faz 1 consulta à Mensageria, dentro da cota.{" "}
             <strong>Resposta pelo CRM ainda não está disponível:</strong>{" "}
@@ -175,7 +178,7 @@ export default function MensageriaPeriodo({
                   <Selo tom="verde">recebida do aluno</Selo>
                   <span className="ulbra-linha-tempo">esperando {fmtEspera(r.espera_min)}</span>
                 </div>
-                {r.previa ? <div className="ulbra-linha-previa">“{r.previa}”</div> : null}
+                {r.previa ? <div className="ulbra-linha-previa">“{mascararCpfEmTexto(r.previa)}”</div> : null}
                 <div className="ulbra-linha-meta">
                   <span>atendente na Mensageria: <strong>{r.atendente_ulbra || "não informado"}</strong></span>
                   <span>responsável no ReATIVA: <strong>{nomeCurto(r.responsavel_reativa) || (r.responsabilidade === "A_DEFINIR" ? "a definir" : "ninguém")}</strong></span>
@@ -219,7 +222,7 @@ export default function MensageriaPeriodo({
                   {c.direcao === "recebida" ? <Selo tom="verde">recebida do aluno</Selo> : <Selo tom="cinza">enviada pela equipe</Selo>}
                   <span className="ulbra-linha-tempo">{fmtDataHora(c.mensagem_em)}</span>
                 </div>
-                {c.previa ? <div className="ulbra-linha-previa">“{c.previa}”</div> : null}
+                {c.previa ? <div className="ulbra-linha-previa">“{mascararCpfEmTexto(c.previa)}”</div> : null}
                 <div className="ulbra-linha-meta">
                   <span>atendente na Mensageria: <strong>{c.atendente_ulbra || "não informado"}</strong></span>
                   <span>responsável no ReATIVA: <strong>{nomeCurto(c.responsavel_reativa) || (c.responsabilidade === "A_DEFINIR" ? "a definir" : "ninguém")}</strong></span>

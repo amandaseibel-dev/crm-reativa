@@ -29,6 +29,10 @@ verify_jwt = true
 [functions.ulbra-consultar]
 verify_jwt = true
 
+# ulbra-conversa: conexão individual, envio e leitura do histórico (verify_jwt explícito).
+[functions.ulbra-conversa]
+verify_jwt = true
+
 # -----------------------------------------------------------------------------
 # ulbra-leads-pendentes -- lista leads receptivos em waiting na Mensageria Ulbra
 # -----------------------------------------------------------------------------

@@ -4,7 +4,7 @@
 // - Nada é lido ao selecionar ou abrir a Central.
 // - Conversa sem vínculo (sem aluno_id) nunca é lida.
 // - Ao trocar de seleção, o histórico anterior some e respostas atrasadas são ignoradas.
-// A permissão continua no servidor (ulbra-historico); aqui só controlamos a chamada.
+// A permissão continua no servidor (ação historico_ler da ulbra-conversa); aqui só controlamos a chamada.
 import { lerHistorico as lerPadrao, mapearHistorico } from "./ulbraHistoricoCliente";
 import { HISTORICO_DISPONIVEL } from "./ulbraHistorico";
 

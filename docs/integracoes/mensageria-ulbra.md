@@ -82,6 +82,7 @@ prova de cadastro (tratado como `NAO_ENCONTRADO`).
 | Função | Ferramenta usada | Portão |
 |---|---|---|
 | `ulbra-consultar` | `conferir_duplicidade` (1 chamada, **telefone e CPF nas duas posições**) | JWT + usuário ativo; operador só aluno da própria carteira; grava `ulbra_vinculos` e `auditoria` (`ULBRA_CONSULTA`, `ULBRA_VINCULO_CRIADO`, `ULBRA_VINCULO_BLOQUEADO`) |
+| `ulbra-conversa` | conexão individual (OAuth por operador), histórico sob demanda, prévia e envio de texto livre (PENDENTE; migration `20261111140000` não aplicada) | JWT + usuário ativo; conexão e envio só da própria conta do operador; envio desligado por `ULBRA_ENVIO_REAL` e `ULBRA_CONTRATO_PREVIA_CONFIRMADO`; grava `ulbra_envios`, `ulbra_envio_previas`, `ulbra_conexoes_operador` e `auditoria` (`ULBRA_ENVIO_CONFERIDO`) |
 | `ulbra-leads-pendentes` | `listar_atendimentos {situacao:"waiting"}` | JWT; `receptivo` da própria linha ou `usuario_e_gestao()`; filtra equipe `"Reativa"`; devolve só id, nome, data |
 
 Componente da ficha: `src/components/BlocoUlbra.jsx` (botão "Abrir na
@@ -603,3 +604,45 @@ trecho já processado, até 12 páginas. Acima de cerca de 600 conversas pendent
 o backlog para em INCOMPLETO e não drena. Para drenar, é preciso guardar o
 deslocamento de leitura em `ulbra_sync_estado`. Isso exige migration, ainda não
 proposta para aplicação.
+
+## Catálogo por descoberta de esquemas (13/11/2026) — correção ao quadro acima
+
+Na descoberta de 13/11/2026, feita só pela leitura dos esquemas da conexão MCP de uma sessão (nenhuma ferramenta de atendimento ou envio foi chamada), a ferramenta de envio existe e tem estes contratos:
+
+| Ferramenta | Argumentos (esquema) | Comprovado pelo esquema | NÃO comprovado |
+|---|---|---|---|
+| `enviar_mensagem_whatsapp` | `atendimento` (24 hex, obrigatório); `texto` (1 a 4096); `chave` (8 a 80); `previa` (booleano); `legenda` (até 1024); `arquivo` (base64, até 5 MB) | Padrão de `previa` é VERDADEIRO: sem `previa: false` a ferramenta só faz prévia e não envia. A descrição da ferramenta afirma que repetir a mesma `chave` não manda de novo, e que sai com o nome de quem atende (afirmações do fabricante, não testadas). Só com janela de 24 h aberta; fora dela o caminho é `enviar_template_whatsapp`. | Formato da resposta (id da mensagem e situação); se a prévia consome cota ou tem custo para a ULBRA ("custo estimado" é o que a descrição diz, sem valor); se `chave` é aceita como idempotência de fato |
+| `meu_acesso` | nenhum | Retorna `pessoa` (com `nome`, `email`, `perfis`), `conexao`, `escopos`, `soLeitura`, `limites` | `pessoa.id` NÃO aparece no retorno observado. O código que lê `pessoa.id` deve ser ajustado |
+| `consultar_atendimento` | `id` (24 hex) | Mostra cliente, situação, coluna, equipe, atendente, datas e histórico (descrição) | Nome e formato exatos do campo de atendente (texto, id ou e-mail) |
+| `ler_conversa` | `id`, `limite` (até 50), `antesDe` | Lê as mensagens de uma conversa; não altera nada (descrição) | Não usado pelo envio; nunca executar sem autorização específica para conversas de alunos |
+| `listar_templates` | `busca` (opcional) | Lista templates aprovados pela Meta, com `id`, variáveis e cabeçalho | Não usado nesta entrega |
+
+Consequência para o envio: a fonte do atendente e a equivalência com a conta conectada continuam NÃO comprovadas. Até lá o envio fica bloqueado (fail-closed), e `responsavel_ulbra` não é tratado como equivalente.
+
+Evidência que falta, e forma mínima de obtê-la sem envio real:
+1. Prévia com `previa: true` num atendimento próprio do operador, sem texto de cliente: mostra o formato da resposta da prévia e o custo estimado, se houver.
+2. `consultar_atendimento` num atendimento próprio: só os nomes dos campos e o formato do campo de atendente, sem texto de conversa.
+3. Resposta do envio real (id e situação): só com contato de teste autorizado pela gestão. Não obtida nesta etapa.
+
+## Correções de 13/11/2026 (2): identidade, validações separadas e conta de chamadas
+
+**Identidade do operador.** `pessoa.id` NÃO aparece no retorno de `meu_acesso` e não é mais lido. O campo `pessoa.email` aparece no retorno de `meu_acesso` e o código passou a usá-lo como identificador. Que ele seja estável entre sessões e que seja o mesmo valor do atendente ainda NÃO está comprovado. Falta confirmar se ele é o mesmo valor que `consultar_atendimento` expõe no campo de atendente. Sem essa confirmação, a comparação continua fail-closed.
+
+**Pergunta objetiva à TI da ULBRA:** no campo de atendente de `consultar_atendimento`, qual valor é retornado: o e-mail do atendente, um id ou o nome? E esse valor é o mesmo que `meu_acesso` devolve em `pessoa.email`?
+
+**Duas validações separadas, que não se resolvem com o mesmo teste:**
+1. *Prévia* (`enviar_mensagem_whatsapp` com `previa: true`): comprova só que a ferramenta responde e qual é o formato da prévia. NÃO comprova que um envio efetivo chegou ao cliente, nem o id da mensagem enviada.
+2. *Envio efetivo* (`previa: false`): comprova o id e a situação da mensagem. Só pode ser feito com contato de teste autorizado pela gestão. Não está comprovado.
+
+**Chamadas necessárias, com consumo de cota separado:**
+- Descoberta de ferramentas (listagem de esquemas): 1 chamada de descoberta. Não está comprovado se ela consome cota de atendimento.
+- `meu_acesso`: 1 chamada de ferramenta. Consumo de cota NÃO comprovado.
+- `enviar_mensagem_whatsapp` com `previa: true`: 1 chamada de ferramenta. Consumo de cota e custo NÃO comprovados (a descrição fala em "custo estimado", sem valor).
+- `consultar_atendimento` num atendimento próprio: 1 chamada de ferramenta. Consumo de cota NÃO comprovado.
+- Total com consumo de cota: 3 chamadas, além da descoberta. Não há outras chamadas previstas nesta etapa.
+
+**Dependências do banco para a conferência (pré-condições de aplicação, verificadas por leitura de catálogo em 14/11/2026, sem escrita):** a função `ulbra_conferir_envio` é `security invoker` e grava em `public.auditoria`, então `service_role` precisa de INSERT nessa tabela (observado: `has_table_privilege` = true) e de `BYPASSRLS` (observado: `rolbypassrls` = true), porque as tabelas de envio têm RLS sem política. A migration aborta se qualquer uma faltar. Nenhuma das duas está concedida pela migration; ambas são estado de produção, e a fixture `supabase/tests/fixtures/auditoria_definicao_producao.json` registra a evidência. A suíte reproduz esse estado no servidor descartável e não concede nada fora dele.
+
+**Envio preso em `ENVIANDO`.** Se o processo cair entre marcar `ENVIANDO` e gravar o retorno, o envio fica em `ENVIANDO` e bloqueia qualquer reenvio. A conferência administrativa NÃO pode declarar "não enviado" nesse caso (`NAO_ENVIADO_SO_DE_PENDENTE`). As saídas são: `CONFIRMADO_ENVIADO` quando a gestão verificar a conversa na Mensageria, ou manter o bloqueio até essa verificação. Não há procedimento automático de reconciliação; a decisão é humana e fica auditada.
+
+**Limites.** Os limites observados em `meu_acesso` (15 por minuto na conexão, 30 por minuto por pessoa, 10.000 por dia por pessoa) pertencem à conta consultada na sessão, que não é a do piloto. Os limites da conta do piloto precisam ser lidos na própria conta, por `meu_acesso`, antes de qualquer teste.
