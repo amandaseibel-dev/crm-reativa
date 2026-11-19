@@ -4,6 +4,7 @@ import { buscarTudo } from "../utils/paginado";
 import { BotaoMensalidades, LinhaMensalidades } from "./MensalidadesDoAluno";
 import FaixaPrioridadeCarteira from "./FaixaPrioridadeCarteira";
 import { idsPendentesPrimeiroAcionamento, agruparPorAluno } from "../utils/primeiroAcionamento";
+import { filtroMovimentacoesCarteira, separarMovimentacoesCarteira } from "../utils/movimentacoesCarteira";
 import { carregarIndicadoresCarteira, TEXTO_APOIO } from "../utils/carteiraAcionada";
 import AlertasParcelaAcordo from "./AlertasParcelaAcordo";
 import PainelMeuDia from "./PainelMeuDia";
@@ -649,6 +650,10 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // Nao contam: cargas automaticas, retorno do ADM, alteracao de operador,
 // abertura/visualizacao da ficha, correcao de cadastro, observacao etc.
 const TIPOS_ACIONAMENTO = ["FINALIZACAO_ATENDIMENTO", "FINALIZACAO"];
+
+// O filtro unico e a reparticao nos dois conjuntos moram em
+// `src/utils/movimentacoesCarteira.js`: arquivo de componente que exporta
+// funcao solta quebra o fast refresh (react-refresh/only-export-components).
 
 // CPF normalizado: so digitos (remove pontos, tracos e espacos).
 function normalizarCpf(cpf) {
@@ -1546,12 +1551,31 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         // 16/10 3.566 casos mudaram de dono e o acionamento do operador
         // ANTERIOR seguia contando pelo novo.
         //
-        // Duas consultas, as duas em lote e PAGINADAS (`.in()` devolve no
-        // maximo 1.000 linhas por resposta e responde 206: com ~7 tabulacoes
-        // por aluno, um lote de 200 ja estourava o teto e alunos voltavam sem
-        // as tabulacoes deles -- aparecendo como pendentes sem ser).
-        // Ambas sao restritas aos e-mails dos responsaveis desta carteira, que
-        // e o unico autor que interessa aqui.
+        // UMA consulta por lote, PAGINADA, e os dois conjuntos saem dela.
+        //
+        // Eram duas consultas por lote (tabulacoes + transferencias). Com a
+        // carteira da gestao (13.694 alunos em 06/11/2026) isso dava
+        // 69 lotes x 2 = 138 requisicoes por carregamento, e as duas
+        // varriam a MESMA faixa da mesma tabela de 265.604 linhas.
+        //
+        // EXPLAIN em producao (06/11/2026, lote de 200 alunos):
+        //   tabulacoes isoladas .............. custo    783 (BitmapAnd)
+        //   transferencias isoladas .......... custo  3.896 (recheck no heap)
+        //   AS DUAS, unificadas aqui ......... custo  3.907
+        // Ou seja: a unificada custa o mesmo que a de transferencias sozinha
+        // -- as tabulacoes vem de graca --, e a metade das requisicoes.
+        //
+        // A transferencia e caro porque NAO existe indice em
+        // `operador_novo_email`: o banco pega o bitmap de `aluno_id` e
+        // confere o e-mail linha a linha no heap. Ver a recomendacao de
+        // indice na PR; ela nao depende desta mudanca.
+        //
+        // PAGINACAO: `.in()` devolve no maximo 1.000 linhas por resposta e
+        // responde 206, entao `buscarTudo` continua obrigatorio -- com ~7
+        // movimentacoes por aluno, um lote de 200 estoura o teto e alunos
+        // voltariam sem as tabulacoes deles, aparecendo como pendentes sem
+        // ser. A ordem por `id` fica: e desempate estavel para a paginacao e
+        // custa 1 unidade no plano (sort de ~270 linhas ja filtradas).
         const idsCarteira = listaAtiva.map((a) => String(a.id));
         const emailsResponsaveis = [...new Set(
           listaAtiva.map((a) => String(a.responsavel_atual_email || "").trim()).filter(Boolean)
@@ -1559,29 +1583,25 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         const tabulacoes = [];
         const transferencias = [];
         if (emailsResponsaveis.length) {
+          const filtroOu = filtroMovimentacoesCarteira(emailsResponsaveis, TIPOS_ACIONAMENTO);
           for (let i = 0; i < idsCarteira.length; i += LOTE_IN) {
             const lote = idsCarteira.slice(i, i + LOTE_IN);
-            const [tabLote, transfLote] = await Promise.all([
-              buscarTudo((de, ate) =>
-                supabase
-                  .from("aluno_movimentacoes")
-                  .select("aluno_id,registrado_por_email,registrado_em")
-                  .in("aluno_id", lote)
-                  .in("tipo", TIPOS_ACIONAMENTO)
-                  .in("registrado_por_email", emailsResponsaveis)
-                  .order("id", { ascending: true })
-                  .range(de, ate)
-              ),
-              buscarTudo((de, ate) =>
-                supabase
-                  .from("aluno_movimentacoes")
-                  .select("aluno_id,operador_novo_email,operador_anterior_email,registrado_em")
-                  .in("aluno_id", lote)
-                  .in("operador_novo_email", emailsResponsaveis)
-                  .order("id", { ascending: true })
-                  .range(de, ate)
-              ),
-            ]);
+            const linhas = await buscarTudo((de, ate) =>
+              supabase
+                .from("aluno_movimentacoes")
+                .select(
+                  "aluno_id,tipo,registrado_por_email,operador_novo_email,operador_anterior_email,registrado_em"
+                )
+                .in("aluno_id", lote)
+                .or(filtroOu)
+                .order("id", { ascending: true })
+                .range(de, ate)
+            );
+            // Separa o que veio. Uma linha pode servir aos dois lados (ex.:
+            // transferencia registrada pelo proprio operador que recebeu) --
+            // era assim quando eram duas consultas, e segue assim.
+            const { tabulacoes: tabLote, transferencias: transfLote } =
+              separarMovimentacoesCarteira(linhas, emailsResponsaveis, TIPOS_ACIONAMENTO);
             tabulacoes.push(...tabLote);
             transferencias.push(...transfLote);
           }
