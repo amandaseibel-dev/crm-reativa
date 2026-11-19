@@ -6,16 +6,28 @@ select pg_temp.como('amanda.seibel@aelbra.com.br');
 update public.calibragem_parametros set valor = '700'::jsonb where chave = 'limite_carteira';
 create temp table _pr on commit preserve rows as select * from pg_temp.semear('carteira.geral@reativa.local', 800, null, 2);
 grant select on _pr to authenticated;
+create table if not exists public.cg_perfil_previa (previa_id uuid);
+delete from public.cg_perfil_previa;
+grant select, insert on public.cg_perfil_previa to authenticated;
 
--- (a) Fernanda (gestao, nao e a Amanda) executa a RPC como authenticated
-set role authenticated;
-select pg_temp.como('cobranca04@aelbra.com.br');
+-- a previa e gerada antes (helper de teste, como postgres); so o REMANEJAMENTO roda como o perfil real
 do $$
-declare x record; p jsonb; r jsonb;
+declare x record; p jsonb;
 begin
   select * into x from _pr;
   p := pg_temp.previa(array[x.aluno], 'OPERADOR', 'cobranca06@aelbra.com.br');
-  r := public.carteira_geral_mover((p->>'previa_id')::uuid, 'perfil real: gestora Fernanda');
+  insert into public.cg_perfil_previa values ((p->>'previa_id')::uuid);
+end $$;
+
+-- (a) Fernanda (gestao, nao e a Amanda) executa a RPC como authenticated, com JWT dela
+set role authenticated;
+select pg_temp.como('cobranca04@aelbra.com.br');
+do $$
+declare x record; r jsonb; pid uuid;
+begin
+  select * into x from _pr;
+  select previa_id into pid from public.cg_perfil_previa limit 1;
+  r := public.carteira_geral_mover(pid, 'perfil real: gestora Fernanda');
   perform pg_temp.afirma((r->>'alunos_movidos')::int = 1,
     format('perfil real: gestora executa o remanejamento sem bloqueio do gatilho (alunos_movidos=%s)', r->>'alunos_movidos'));
 end $$;
@@ -33,6 +45,8 @@ begin
 end $$;
 
 -- (b) controle negativo: operador autenticado (Mauricio) tenta UPDATE direto mudando caso_atualizado_por
+-- o operador precisa de SELECT/UPDATE em casos para que a TENTATIVA chegue ao gatilho (senao o erro seria de ACL)
+grant select, update on public.casos to authenticated;
 select pg_temp.como('cobranca06@aelbra.com.br');
 set role authenticated;
 do $$
