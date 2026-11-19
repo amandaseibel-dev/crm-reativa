@@ -1,17 +1,71 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../services/supabase";
 
-// Indicadores de carteira do semestre. ÚNICO contrato: a RPC
-// `efetividade_caixa_resumo_semestre` (PR #966). Este componente só lê e exibe.
-// Nenhuma regra financeira, percentual ou soma é calculada aqui.
+// Indicadores de carteira do semestre, lidos das RPCs oficiais. Nenhuma regra
+// financeira é recalculada aqui: o componente lê, soma o que já vem pronto e
+// calcula o percentual com a MESMA regra nos dois semestres:
 //
-// Negociado NÃO é recebido. Caixa confirmado é o pagamento provado e baixado.
-// Pendente de classificação fica separado e visível. Dado indisponível aparece
-// como "—", nunca como R$ 0,00.
+//   Recuperado em pagamentos ÷ Entrou na carteira
+//
+// Negociado NÃO é recebimento: é um indicador separado e nunca entra na conta.
+//
+// Fontes:
+//  - 2026/1 (fotografia de efetividade): entrou = situacoes.entrou; recuperado =
+//    situacoes.pago (pagamentos da carteira).
+//  - 2026/2 (ao vivo): entrou = carteira_2026_2_contexto.carteira_valor
+//    (valor original da carteira do semestre); recuperado = recebido dos acordos
+//    de 2026/2 (carteira_2026_2_negociacoes). Ver a ressalva na tela: é só a
+//    parcela recebida por acordo, não todo pagamento da carteira.
 
-const BRL = (v) => (v == null ? "—" : Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
-const NUM = (v) => (v == null ? "—" : Number(v).toLocaleString("pt-BR"));
-const PCT = (v) => (v == null ? "—" : String(v).replace(".", ",") + "%");
+const BRL = (v) => (Number(v) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const NUM = (v) => (Number(v) || 0).toLocaleString("pt-BR");
+const PCT = (parte, todo) => (Number(todo) ? ((Number(parte) || 0) / Number(todo) * 100).toFixed(1).replace(".", ",") + "%" : "—");
+
+async function lerEfetividade(ano, semestre) {
+  const [seis, comp] = await Promise.all([
+    supabase.rpc("carteira_efetividade_ler", { p_bloco: "seis_linhas", p_ano: ano, p_semestre: semestre }),
+    supabase.rpc("carteira_efetividade_ler", { p_bloco: "composicao_academica", p_ano: ano, p_semestre: semestre }),
+  ]);
+  if (seis.error) throw seis.error;
+  if (comp.error) throw comp.error;
+  const s = seis.data?.situacoes;
+  if (!s) return null;
+  const oficial = comp.data && !comp.data.sem_snapshot && comp.data.total ? comp.data.total : null;
+  return {
+    tipo: "efetividade",
+    entrou: Number(s.entrou?.valor || 0),
+    alunosEntrou: s.entrou?.alunos,
+    titulosEntrou: s.entrou?.titulos,
+    recuperado: Number(s.pago?.valor || 0),
+    negociado: Number(s.negociado?.valor || 0),
+    emAberto: oficial ? Number(oficial.valor || 0) : null,
+    alunosEmAberto: oficial?.alunos,
+    titulosEmAberto: oficial?.titulos,
+    fotografia: seis.data?.snapshot?.gerado_em || null,
+  };
+}
+
+async function lerNegociacoes() {
+  const [neg, ctx] = await Promise.all([
+    supabase.rpc("carteira_2026_2_negociacoes"),
+    supabase.rpc("carteira_2026_2_contexto"),
+  ]);
+  if (neg.error) throw neg.error;
+  if (ctx.error) throw ctx.error;
+  const t = neg.data?.total;
+  if (!t) return null;
+  return {
+    tipo: "negociacoes",
+    entrou: Number(ctx.data?.carteira_valor || 0),
+    titulosEntrou: ctx.data?.carteira_titulos,
+    alunosEntrou: ctx.data?.carteira_cpfs,
+    recuperado: Number(t.recebido || 0),
+    negociado: Number(t.negociado || 0),
+    saldoNegociado: Number(t.saldo || 0),
+    acordos: t.acordos,
+    fotografia: ctx.data?.atualizado_em || null,
+  };
+}
 
 export default function IndicadoresCarteiraSemestre({ fonte }) {
   const [dados, setDados] = useState(null);
@@ -23,65 +77,63 @@ export default function IndicadoresCarteiraSemestre({ fonte }) {
     setCarregando(true);
     setErro("");
     setDados(null);
-    supabase.rpc("efetividade_caixa_resumo_semestre", { p_semestre: fonte.semestre })
-      .then(({ data, error }) => {
-        if (!ativo) return;
-        if (error) setErro("indisponível");
-        else setDados(data || null);
-      })
-      .catch(() => { if (ativo) setErro("indisponível"); })
+    const busca = fonte.tipo === "efetividade"
+      ? lerEfetividade(fonte.ano, fonte.semestre)
+      : lerNegociacoes();
+    busca
+      .then((d) => { if (ativo) setDados(d); })
+      .catch((e) => { if (ativo) setErro(e?.message || "Falha ao consultar os indicadores de carteira."); })
       .finally(() => { if (ativo) setCarregando(false); });
     return () => { ativo = false; };
-  }, [fonte.semestre]);
+  }, [fonte.tipo, fonte.ano, fonte.semestre]);
 
   if (carregando) return <Bloco><p style={textoSuave}>Carregando indicadores de carteira…</p></Bloco>;
-  if (erro) {
-    return <Bloco><p style={textoSuave}>
-      Indicadores de carteira indisponíveis para o seu acesso ou no momento.
-    </p></Bloco>;
-  }
-  if (!dados) return <Bloco><p style={textoSuave}>Sem dados de carteira para este semestre.</p></Bloco>;
+  if (erro) return <Bloco><p style={{ color: "var(--rv-vermelho-texto)", margin: 0 }}>{erro}</p></Bloco>;
+  if (!dados) return <Bloco><p style={textoSuave}>Sem fotografia de carteira para este semestre ainda.</p></Bloco>;
 
-  const s2 = dados.saldo_2026_2 || null;
-  const cards = [
-    { rotulo: "Carteira original", valor: BRL(dados.carteira_original),
-      apoio: NUM(dados.titulos_carteira) + " títulos" },
-    { rotulo: "Saldo em aberto", valor: BRL(dados.saldo_em_aberto),
-      apoio: s2?.saldo_em_conferencia != null
-        ? "inclui " + BRL(s2.saldo_em_conferencia) + " em conferência" : "fonte: " + (dados.carteira_fonte || "—") },
-    { rotulo: dados.negociado_definicao || "Negociado", valor: BRL(dados.negociado),
-      apoio: "ainda não é recebimento · não comparável entre semestres" },
-    { rotulo: "Caixa confirmado", valor: BRL(dados.caixa_confirmado),
-      apoio: NUM(dados.pagamentos_confirmados) + " pagamentos provados e baixados" },
-    { rotulo: "% recuperado por caixa", valor: PCT(dados.percentual_recuperado_caixa),
-      apoio: "caixa identificado ÷ carteira original" },
-    { rotulo: "Pendente de classificação", valor: BRL(dados.pendente_classificacao),
-      apoio: NUM(dados.pagamentos_pendentes) + " pagamentos, fora do caixa" },
+  const principais = [
+    { rotulo: "Entrou na carteira", valor: BRL(dados.entrou),
+      apoio: NUM(dados.alunosEntrou) + " alunos · " + NUM(dados.titulosEntrou) + " títulos" },
+    { rotulo: "Recuperado em pagamentos", valor: BRL(dados.recuperado),
+      apoio: PCT(dados.recuperado, dados.entrou) + " de entrou na carteira" },
   ];
+
+  const secundarios = dados.tipo === "efetividade"
+    ? [
+        { rotulo: "Negociado", valor: BRL(dados.negociado), apoio: "ainda não é recebimento" },
+        { rotulo: "Em aberto (oficial)", valor: dados.emAberto == null ? "—" : BRL(dados.emAberto),
+          apoio: dados.emAberto == null ? "sem fotografia oficial" : NUM(dados.alunosEmAberto) + " alunos · " + NUM(dados.titulosEmAberto) + " títulos" },
+      ]
+    : [
+        { rotulo: "Negociado", valor: BRL(dados.negociado), apoio: NUM(dados.acordos) + " acordos" },
+        { rotulo: "Saldo negociado a receber", valor: BRL(dados.saldoNegociado), apoio: "ainda a receber" },
+      ];
+
+  const nota = dados.tipo === "efetividade"
+    ? "Fotografia de efetividade (" + (dados.fotografia ? new Date(dados.fotografia).toLocaleString("pt-BR") : "sem data") + "). Entrou, recuperado, negociado e em aberto são indicadores separados: não se somam entre si."
+    : "2026/2 ao vivo (" + (dados.fotografia ? new Date(dados.fotografia).toLocaleString("pt-BR") : "sem data") + "). Em 2026/2, o recuperado é só o recebido dos acordos do semestre; pagamentos de títulos fora de acordo ainda não entram nesta visão.";
+
   return (
     <Bloco>
-      <h2 style={{ fontSize: 15, fontWeight: 700, margin: "0 0 10px" }}>Indicadores de carteira — {fonte.semestre}</h2>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
-        {cards.map((c) => (
-          <div key={c.rotulo} style={{ border: "1px solid var(--rv-borda)", borderRadius: 10, padding: "12px 14px" }}>
-            <div style={{ fontSize: 12, color: "var(--rv-texto-suave)" }}>{c.rotulo}</div>
-            <div style={{ fontSize: 20, fontWeight: 700 }}>{c.valor}</div>
-            <div style={{ fontSize: 12, color: "var(--rv-texto-suave)" }}>{c.apoio}</div>
-          </div>
-        ))}
+      <h2 style={{ fontSize: 15, fontWeight: 700, margin: "0 0 10px" }}>Indicadores de carteira</h2>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 12 }}>
+        {principais.map((c) => <Cartao key={c.rotulo} {...c} destaque />)}
       </div>
-      <p style={{ ...textoSuave, fontSize: 12, marginTop: 8, marginBottom: 0 }}>
-        Percentual é recuperação por caixa confirmado identificado, não recuperação total. Os valores não se somam entre si.
-        Base da carteira original: {dados.base_carteira || "—"}.
-        Data de referência: {dados.data_referencia || "—"}.
-      </p>
-      {dados.fotografia_atualizacao_pendente ? (
-        <p style={{ fontSize: 12, marginTop: 6, marginBottom: 0, color: "var(--rv-ambar-texto)" }}>
-          A fotografia de carteira deste semestre tem atualização pendente: carteira, saldo e negociado podem estar
-          defasados. Gerada em {dados.fotografia_gerada_em || "—"}. O caixa confirmado é lido na hora.
-        </p>
-      ) : null}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12, marginTop: 12 }}>
+        {secundarios.map((c) => <Cartao key={c.rotulo} {...c} />)}
+      </div>
+      <p style={{ ...textoSuave, fontSize: 12, marginTop: 8, marginBottom: 0 }}>{nota}</p>
     </Bloco>
+  );
+}
+
+function Cartao({ rotulo, valor, apoio, destaque }) {
+  return (
+    <div style={{ border: "1px solid var(--rv-borda)", borderRadius: 10, padding: "12px 14px", background: destaque ? "var(--rv-fundo-suave)" : "transparent" }}>
+      <div style={{ fontSize: 12, color: "var(--rv-texto-suave)" }}>{rotulo}</div>
+      <div style={{ fontSize: destaque ? 22 : 20, fontWeight: 700 }}>{valor}</div>
+      <div style={{ fontSize: 12, color: "var(--rv-texto-suave)" }}>{apoio}</div>
+    </div>
   );
 }
 
