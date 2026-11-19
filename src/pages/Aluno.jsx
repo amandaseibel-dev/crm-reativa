@@ -2497,7 +2497,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                                       <span style={tabNegCelula}>{t.competencia || "—"}</span>
                                       <span style={tabNegCelula}>{dataCurta(t.vencimento)}</span>
                                       <span style={tabNegCelula}>{t.situacao || "—"}</span>
-                                      <span style={{ textAlign: "right", fontWeight: 600 }}>
+                                      <span style={{ ...tabNegCelula, textAlign: "right", fontWeight: 600 }}>
                                         {moeda(valorTitulo(t))}
                                       </span>
                                     </div>
@@ -2955,10 +2955,12 @@ const tabNegGrade = {
   fontSize: 12.5,
   alignItems: "center",
 };
+// Quebra a linha em vez de cortar: status longo e valor alto aparecem por inteiro
+// em tela estreita. minWidth 0 deixa a coluna encolher dentro da grade.
 const tabNegCelula = {
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
+  minWidth: 0,
+  overflowWrap: "anywhere",
+  lineHeight: 1.3,
 };
 const tabNegHead = {
   ...tabNegGrade,
