@@ -349,10 +349,16 @@ describe("importação de acordos: quem esperava o acordo não espera a rodada d
     for (const pid of [entrada, segunda]) expect((await pagamento(db, pid)).status_conciliacao).toBe("AGUARDANDO_ACORDO");
     return { entrada, segunda };
   }
-  const importar = (db) => um(db, `select public.importar_acordos($1::jsonb, $2)`, [JSON.stringify(
+  // A 1a parcela importada mantem a data fixa (2026-10-18). As demais recebem "D+n" no JSON e o banco
+  // troca por current_date + n dias, usando a mesma referencia da regra de status (VENCIDA = vencimento < current_date).
+  // Assim a 3a parcela fica a vencer em qualquer data de execucao, sem depender do relogio do CI.
+  const importar = (db) => um(db, `select public.importar_acordos((
+      select jsonb_agg(case when e->>'venc' like 'D+%'
+               then jsonb_set(e, '{venc}', to_jsonb(to_char(current_date + substr(e->>'venc', 3)::int, 'YYYY-MM-DD')))
+               else e end order by ord)
+        from jsonb_array_elements($1::jsonb) with ordinality as t(e, ord)), $2)`, [JSON.stringify(
     CASOS["72113"].parcelas.map((valor, i) => ({ cpf: CASOS["72113"].cpf, nome: CASOS["72113"].nome, documento: "0" + boletoDe("72113", i + 2),
-      // parcelas 2 em diante vencem em 2030+: no futuro em qualquer data de execucao (o status VENCIDA e vencimento < current_date)
-      venc: `20${(i === 0 ? 26 : 30) + Math.floor((9 + i) / 12)}-${String(((9 + i) % 12) + 1).padStart(2, "0")}-18`, valor, unidade: "CANOAS", situacao: "Ativo" }))), IMPORTACAO]);
+      venc: i === 0 ? "2026-10-18" : `D+${30 * i}`, valor, unidade: "CANOAS", situacao: "Ativo" }))), IMPORTACAO]);
   const acordo72113 = (db) => um(db, `select id from public.acordos where numero_ulbra = '72113'`);
 
   it("etapa ligada: o próprio import do acordo baixa a 0002 e reconstrói a entrada", async () => {
