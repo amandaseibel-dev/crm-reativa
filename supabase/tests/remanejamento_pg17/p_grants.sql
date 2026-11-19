@@ -1,6 +1,6 @@
 -- GRANTS e SEARCH_PATH das funcoes criadas ou alteradas pela migracao (B6). Roda DEPOIS da migracao.
 -- Premissa de seguranca: CREATE OR REPLACE restaura grants padrao e search_path precisa ser reconferido.
--- Conjunto conferido (12): 8 internal.cg_* (criadas) e 4 RPCs publicas alteradas.
+-- Conjunto conferido (13): 9 internal.cg_* (criadas, inclui cg_tem_fidelizacao do P12) e 4 RPCs publicas alteradas.
 --  - search_path fixado em proconfig;
 --  - anon nao executa nenhuma delas;
 --  - internal.* nao executa para authenticated.
@@ -25,7 +25,7 @@ begin
         format('%s: authenticated NAO executa (funcao interna)', f.nome));
     end if;
   end loop;
-  raise notice 'grants/search_path: % funcoes conferidas (esperado 12)', n;
-  perform pg_temp.afirma(n = 12, format('grants: %s funcoes conferidas (esperado 12)', n));
+  raise notice 'grants/search_path: % funcoes conferidas (esperado 13)', n;
+  perform pg_temp.afirma(n = 13, format('grants: %s funcoes conferidas (esperado 13)', n));
 end $$;
 select 'GRANTS OK' as resultado;
