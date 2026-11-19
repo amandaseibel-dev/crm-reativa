@@ -38,6 +38,7 @@ import {
   ROTULO_CONEXAO,
   TEMPOS_SEM_INTERACAO,
   ROTULO_STATUS,
+  marcaDeEntrega,
   assumirConversa,
   marcarAtendidoReceptivoWhatsApp,
   buscarAluno,
@@ -291,6 +292,24 @@ export default function CentralWhatsApp() {
             // Usa ref para não recriar o canal quando filtros mudam.
             carregarConversasRef.current?.();
           }, 600);
+        },
+      )
+      // Recibo de entrega/leitura: o gateway avança o `status` de uma mensagem
+      // que já existe. Mesmo canal (nenhuma assinatura nova) e o mínimo de
+      // trabalho: só troca o status na thread ABERTA. Não recarrega a lista,
+      // não toca som, não mexe em contador — recibo não é mensagem nova.
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "whatsapp_mensagens" },
+        (payload) => {
+          const nova = payload?.new;
+          const atual = selecionadaRef.current;
+          if (!nova || !atual || nova.conversa_id !== atual.id) return;
+          setMensagens((antes) =>
+            antes.some((m) => m.id === nova.id && m.status !== nova.status)
+              ? antes.map((m) => (m.id === nova.id ? { ...m, status: nova.status } : m))
+              : antes,
+          );
         },
       )
       .subscribe();
@@ -1190,7 +1209,7 @@ export default function CentralWhatsApp() {
                             {saida && m.enviado_por_email ? ` · ${m.enviado_por_email}` : ""}
                             {saida && !m.enviado_por_email ? " · enviada pelo celular" : ""}
                             {m.origem === "SYNC_INICIAL" ? " · do histórico" : ""}
-                            {saida && m.status ? ` · ${m.status.toLowerCase()}` : ""}
+                            {saida ? <MarcaDeEntrega status={m.status} /> : null}
                           </div>
                           {m.erro_detalhe ? <div style={S.balaoErro}>{m.erro_detalhe}</div> : null}
                         </div>
@@ -1339,6 +1358,27 @@ export default function CentralWhatsApp() {
 // o que se pode fazer na ficha, se pode fazer daqui. O mesmo padrão já roda na
 // Agenda Operacional, na Saúde da Base e nas filas de confirmação.
 // ---------------------------------------------------------------------------
+// Tracinhos da mensagem enviada. Um = saiu do CRM; dois = chegou ao aparelho;
+// dois azuis = o aluno leu. O significado vai no `title` e no `aria-label`,
+// porque só a cor não diz nada a quem não a enxerga. Status sem tracinho
+// (FALHOU, ou qualquer outro) continua por extenso, como era.
+function MarcaDeEntrega({ status }) {
+  if (!status) return null;
+  const marca = marcaDeEntrega(status);
+  if (!marca) return ` · ${status.toLowerCase()}`;
+  return (
+    <span
+      role="img"
+      aria-label={marca.rotulo}
+      title={marca.rotulo}
+      data-status-entrega={status}
+      style={marca.lida ? S.marcaEntregaLida : S.marcaEntrega}
+    >
+      {marca.marca}
+    </span>
+  );
+}
+
 function FichaDoAluno({ alunoId, onFechar }) {
   // ESC fecha: o operador está com as mãos no teclado, no meio de uma resposta.
   useEffect(() => {
@@ -2049,6 +2089,8 @@ const S = {
   balaoEntrada: { ...balaoBase, background: "var(--rv-fundo-suave)", color: "var(--rv-tinta)" },
   balaoSaida: { ...balaoBase, background: "var(--rv-verde-ok-fundo)", color: "var(--rv-verde-ok-texto)" },
   balaoRodape: { fontSize: 10.5, color: CINZA, marginTop: 4 },
+  marcaEntrega: { marginLeft: 4, letterSpacing: -1 },
+  marcaEntregaLida: { marginLeft: 4, letterSpacing: -1, color: "var(--rv-azul)", fontWeight: 700 },
   balaoErro: { fontSize: 11, color: "var(--rv-vermelho-texto)", marginTop: 3 },
   midia: { color: CINZA },
 
