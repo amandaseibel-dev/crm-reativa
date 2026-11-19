@@ -1,0 +1,61 @@
+-- RESTAURACAO DE RETORNO A PARTIR DO BACKUP, SOMENTE POR ID
+-- ==============================================================================
+-- NAO APLICADO. Exige a lista de ids aprovada pela gestao. Nunca restaura "todos".
+-- Preencher v_ids com os ids aprovados ANTES de aplicar (array uuid). Se a lista
+-- estiver vazia, a transacao nao faz nada.
+--
+-- GARANTIAS
+--   * cada id precisa ter snapshot motivo = 'pre_20261114' (senao aborta);
+--   * restaura so os campos de retorno (data, hora, origem, confirmacao, prioridade);
+--   * nao toca em nenhum outro campo de alunos nem em casos;
+--   * NAO grava os valores anteriores: nao executar sem antes capturar em backup os valores atuais dos ids (senao a restauracao e irreversivel);
+--   * reexecutar com a mesma lista e idempotente (o valor ja e o do backup).
+begin;
+
+do $restaura$
+declare
+  v_ids uuid[] := array[]::uuid[];   -- PREENCHER com os ids aprovados
+  v_esperado int := coalesce(array_length(v_ids, 1), 0);
+  v_com_snapshot int;
+  v_restaurados int := 0;
+begin
+  if v_esperado = 0 then
+    raise notice 'lista de ids vazia: nada a restaurar.';
+    return;
+  end if;
+
+  select count(distinct aluno_id) into v_com_snapshot
+    from public.retorno_backup_20261114
+   where motivo = 'pre_20261114' and aluno_id = any(v_ids);
+  if v_com_snapshot <> v_esperado then
+    raise exception 'RESTAURACAO RECUSADA: % de % ids tem snapshot pre_20261114.', v_com_snapshot, v_esperado;
+  end if;
+
+  -- Restaura o snapshot inclusive "Ja falei" (pode voltar para nulo). Executa como o
+  -- deployer (dono), fora de papel authenticated: a trava B2 nao recusa.
+  with snap as (
+    select distinct on (aluno_id) aluno_id, data_retorno, hora_retorno, retorno_origem,
+           retorno_confirmado_em, retorno_prioritario
+      from public.retorno_backup_20261114
+     where motivo = 'pre_20261114' and aluno_id = any(v_ids)
+     order by aluno_id, id desc
+  ), upd as (
+    update public.alunos a
+       set data_retorno = s.data_retorno,
+           hora_retorno = s.hora_retorno,
+           retorno_origem = s.retorno_origem,
+           retorno_confirmado_em = s.retorno_confirmado_em,
+           retorno_prioritario = s.retorno_prioritario
+      from snap s
+     where a.id = s.aluno_id
+    returning a.id
+  )
+  select count(*) into v_restaurados from upd;
+
+  insert into public.auditoria (acao, tabela_afetada, detalhes)
+  values ('restauracao_retorno_20261114', 'alunos',
+          jsonb_build_object('ids', v_ids, 'restaurados', v_restaurados));
+  raise notice 'restaurados % alunos por id.', v_restaurados;
+end $restaura$;
+
+commit;

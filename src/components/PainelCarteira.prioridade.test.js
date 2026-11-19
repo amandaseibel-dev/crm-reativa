@@ -18,15 +18,12 @@ describe("PainelCarteira: prioridade do retorno", () => {
   });
 
   it("so grava prioridade em retorno DIGITADO pelo operador; prazo automatico nasce falso", () => {
-    // Ha DOIS caminhos de gravacao de retorno: o modal (atualizacaoAluno) e a
-    // tabulacao rapida da linha (camposAluno). Ancorar no primeiro `if
-    // (desfecho.data_retorno)` pegaria o caminho errado -- por isso a ancora e
-    // a variavel do modal.
-    const inicio = SRC.indexOf("atualizacaoAluno.data_retorno = desfecho.data_retorno;");
-    const bloco = SRC.slice(inicio, inicio + 1200);
-    expect(bloco).toMatch(/atualizacaoAluno\.retorno_prioritario = desfecho\.motivo === "DIGITADA" \? Boolean\(retornoPrioritario\) : false;/);
-    // Tabulou sem agendar: a marca cai.
-    expect(bloco).toMatch(/\} else \{[\s\S]{0,200}atualizacaoAluno\.retorno_prioritario = false;/);
+    // O atendimento grava pela RPC atendimento_reagendar_com_status. A regra de prioridade
+    // mora no argumento p_prioritario: so vale com retorno digitado pelo operador.
+    const inicio = SRC.indexOf("const { error: erroAtend } = await supabase.rpc(\"atendimento_reagendar_com_status\"");
+    const bloco = SRC.slice(inicio, inicio + 700);
+    expect(bloco).toMatch(/p_prioritario: desfecho\.motivo === "DIGITADA" \? Boolean\(retornoPrioritario\) : false,/);
+    expect(bloco).toMatch(/p_reagendar: reagendando,/);
   });
 
   it("na tabulacao rapida, prazo automatico tambem derruba a marca", () => {

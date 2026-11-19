@@ -454,6 +454,8 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   // contexto onde ela nao serve, em vez de perseguir um efeito por vez.
   const podeRolarSozinho = !fichaEmbedId;
   const [dataRetorno, setDataRetorno] = useState("");
+  // Reagendar EXPLICITO: so este checkbox usa a RPC agenda_reagendar_retorno (zera "Ja falei").
+  const [reagendarRetorno, setReagendarRetorno] = useState(false);
   const [numeroProcesso, setNumeroProcesso] = useState("");
   const [prazoTipo, setPrazoTipo] = useState("DATA");
   const [prazoData, setPrazoData] = useState("");
@@ -953,6 +955,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       ehOrigemDoOperador(aluno.retorno_origem) &&
       (paraDataLocalBR(aluno.data_retorno) || "") >= paraDataLocalBR(new Date());
     setDataRetorno(compromisso ? paraInputDateTime(aluno.data_retorno) : "");
+    setReagendarRetorno(false);
   }
   function abrirEdicaoCadastro() {
     if (!alunoSelecionado) return;
@@ -1146,6 +1149,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     observacaoAluno = null,
     extra = {},
     extraAluno = {},
+    reagendar = false,
   }) {
     if (!alunoId) {
       alert("Aluno sem ID. Não foi possível registrar.");
@@ -1176,14 +1180,6 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       data_retorno: retorno,
       ...extra,
     };
-    const { error: movError } = await supabase
-      .from("aluno_movimentacoes")
-      .insert(movimento);
-    if (movError) {
-      console.error("Erro ao registrar movimentação:", movError);
-      alert("Erro ao registrar movimentação: " + movError.message);
-      throw movError;
-    }
     const atualizacaoAluno = {
       registrado_por_nome: usuario.nome,
       registrado_por_email: usuario.email,
@@ -1233,6 +1229,56 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       atualizacaoAluno.responsavel_atual_nome = usuario.nome;
       atualizacaoAluno.responsavel_atual_email = usuario.email;
       atualizacaoAluno.responsavel_atual_em = agora;
+    }
+    // Gravacao comum NAO envia campos de retorno que nao mudaram em relacao a ficha
+    // carregada (ficha desatualizada nao sobrescreve reagendamento recente), e
+    // NAO antecipa reagendamento: esse caminho e so da RPC agenda_reagendar_retorno.
+    const dataAntiga = alunoSelecionado?.data_retorno ? String(alunoSelecionado.data_retorno).slice(0, 10) : "";
+    const horaAntiga = alunoSelecionado?.hora_retorno ? String(alunoSelecionado.hora_retorno).slice(0, 5) : "";
+    // Campo ausente no payload = nao mexe: sem isso, um caminho que so manda a data
+    // (tabulacao com data digitada) era lido como troca de hora e recusado.
+    const dataNova = "data_retorno" in atualizacaoAluno ? String(atualizacaoAluno.data_retorno || "").slice(0, 10) : dataAntiga;
+    const horaNova = "hora_retorno" in atualizacaoAluno ? String(atualizacaoAluno.hora_retorno || "").slice(0, 5) : horaAntiga;
+    const mudouRetorno = dataNova !== dataAntiga || horaNova !== horaAntiga;
+    // Contrato: mudanca comum de data/hora NAO zera "Ja falei" (o banco nao zera; so a RPC
+    // agenda_reagendar_retorno zera, com Reagendar). Nao ha recusa aqui.
+    if (reagendar || !mudouRetorno) {
+      delete atualizacaoAluno.data_retorno;
+      delete atualizacaoAluno.hora_retorno;
+      delete atualizacaoAluno.retorno_origem;
+      delete atualizacaoAluno.retorno_prioritario;
+    }
+    // Reagendar sem data e recusado ANTES de qualquer escrita (movimentacao ou ficha).
+    if (reagendar && !dataRetorno) {
+      const msgSemData = "Informe a data e a hora do retorno para reagendar. Nada foi salvo.";
+      alert(msgSemData);
+      throw new Error(msgSemData);
+    }
+    // RPC PRIMEIRO: se falhar, nada e gravado (sem movimentacao duplicada no reenvio).
+    // Reagendar explicito: a RPC e o unico caminho que zera "Ja falei" por reagendamento.
+    if (reagendar) {
+      if (!dataRetorno) throw new Error("Informe a data e a hora do retorno para reagendar.");
+      const [dataIso, horaIso] = String(dataRetorno).split("T");
+      const { error: erroReagendar } = await supabase.rpc("agenda_reagendar_retorno", {
+        p_aluno_id: alunoId,
+        p_data: dataIso,
+        p_hora: (horaIso || "").slice(0, 5) || null,
+        p_prioritario: false,
+      });
+      if (erroReagendar) {
+        alert("Reagendamento NAO foi aplicado. Nada foi salvo: " + erroReagendar.message);
+        throw erroReagendar;
+      }
+      setReagendarRetorno(false);
+    }
+    // Movimentacao so e gravada depois dessa checagem.
+    const { error: movError } = await supabase
+      .from("aluno_movimentacoes")
+      .insert(movimento);
+    if (movError) {
+      console.error("Erro ao registrar movimentação:", movError);
+      alert("Erro ao registrar movimentação: " + movError.message);
+      throw movError;
     }
     const { error: updateError } = await supabase
       .from("alunos")
@@ -1377,6 +1423,11 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   }
   async function finalizarAtendimento() {
     if (!alunoSelecionado?.id) return;
+    // Reagendar sem data: recusa ANTES de qualquer upload ou escrita (print, movimentacao, ficha).
+    if (reagendarRetorno && !dataRetorno) {
+      alert("Informe a data e a hora do retorno para reagendar. Nada foi salvo.");
+      return;
+    }
     if (!statusFinalizacao) {
       alert("Selecione o status da finalização.");
       return;
@@ -1457,6 +1508,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
         }
       }
       await registrarMovimentacao({
+        reagendar: reagendarRetorno,
         alunoId: alunoSelecionado.id,
         tipo: "FINALIZACAO_ATENDIMENTO",
         descricao:
@@ -1534,23 +1586,23 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   async function alterarOperadorResponsavel() {
     if (!alunoSelecionado?.id) {
       alert("Selecione um aluno antes de alterar o operador.");
-      return;
+      return false;
     }
     if (!novoOperadorEmail) {
       alert("Selecione o novo operador responsável.");
-      return;
+      return false;
     }
     const motivo = motivoAlteracaoOperador.trim();
     if (false) {
       alert("Informe o motivo da alteração.");
-      return;
+      return false;
     }
     const novoOperador = OPERADORES_REATIVA.find(
       (op) => op.email === novoOperadorEmail
     );
     if (!novoOperador) {
       alert("Operador não encontrado.");
-      return;
+      return false;
     }
     setSalvando(true);
     try {
@@ -1570,25 +1622,45 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       });
       if (updateError || !rResp?.ok) {
         alert("Nao foi possivel alterar o responsavel: " + (rResp?.erro || updateError?.message || "erro"));
-        return;
+        return false;
       }
       const extraAluno = {};
-      // A data digitada na troca de responsável é compromisso do operador --
-      // carimba OPERADOR para o "Meu dia" enxergar. Hora e prioridade ficam
-      // como estão: esta tela não tem os dois campos.
-      if (novaDataRetornoAlteracao) { Object.assign(extraAluno, camposDeRetorno(RETORNO_ORIGEM_OPERADOR, paraDataLocalBR(new Date(novaDataRetornoAlteracao).toISOString()))); }
       if (novaTabulacaoAlteracao) { extraAluno.status_jornada = novaTabulacaoAlteracao; extraAluno.status_atual = novaTabulacaoAlteracao; }
+      // Data digitada na troca de responsavel e compromisso humano: passa SO pela RPC
+      // (unico caminho que zera "Ja falei" por reagendamento). Nunca por gravacao comum.
+      let reagendamentoFalhou = false;
+      if (novaDataRetornoAlteracao) {
+        const [dataIso, horaIso] = String(novaDataRetornoAlteracao).split("T");
+        const { error: erroReag } = await supabase.rpc("agenda_reagendar_retorno", {
+          p_aluno_id: alunoSelecionado.id,
+          p_data: dataIso,
+          p_hora: (horaIso || "").slice(0, 5) || null,
+          p_prioritario: false,
+        });
+        if (erroReag) {
+          // Sem "sucesso": o operador mudou, mas a nova data NAO foi aplicada.
+          // Nao retorna antes: a tabulacao (extraAluno) ainda precisa ser gravada.
+          reagendamentoFalhou = true;
+          alert("Responsavel alterado, mas o reagendamento NAO foi aplicado: " + erroReag.message);
+        }
+      }
       if (Object.keys(extraAluno).length > 0) { await supabase.from("alunos").update(extraAluno).eq("id", alunoSelecionado.id); }
-      setNovoOperadorEmail("");
-      setMotivoAlteracaoOperador("");
-      setNovaDataRetornoAlteracao("");
-      setNovaTabulacaoAlteracao("");
+      // Na falha da RPC operador, motivo, data e tabulacao digitados ficam no formulario
+      // (aba ADM e editor rapido, que so fecha quando a funcao retorna true).
+      if (!reagendamentoFalhou) {
+        setNovoOperadorEmail("");
+        setMotivoAlteracaoOperador("");
+        setNovaDataRetornoAlteracao("");
+        setNovaTabulacaoAlteracao("");
+      }
       await recarregarAlunoSelecionado(alunoSelecionado.id);
       await carregarMovimentacoes(alunoSelecionado.id);
-      alert("Operador responsável alterado com sucesso.");
+      if (!reagendamentoFalhou) alert("Operador responsável alterado com sucesso.");
+      return !reagendamentoFalhou;
     } catch (e) {
       console.error(e);
       alert("Erro inesperado ao alterar operador.");
+      return false;
     } finally {
       setSalvando(false);
     }
@@ -2137,8 +2209,8 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                             <button
                               type="button"
                               onClick={async () => {
-                                await alterarOperadorResponsavel();
-                                setEditandoOperadorRapido(false);
+                                const ok = await alterarOperadorResponsavel();
+                                if (ok !== false) setEditandoOperadorRapido(false);
                               }}
                               disabled={salvando || !novoOperadorEmail}
                               style={{ border: "none", background: "#16a34a", color: "#fff", borderRadius: 6, padding: "4px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
@@ -2372,6 +2444,10 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                       onChange={(e) => setDataRetorno(e.target.value)}
                       style={{ ...inputCheio, marginBottom: 0 }}
                     />
+                    <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, marginTop: 6 }}>
+                      <input type="checkbox" checked={reagendarRetorno} onChange={(e) => setReagendarRetorno(e.target.checked)} />
+                      Reagendar (novo compromisso: reativa o aviso, mesmo com a mesma data e hora)
+                    </label>
                   </div>
                   <div>
                     <label style={label}>Observação da finalização</label>
