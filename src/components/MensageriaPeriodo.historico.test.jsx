@@ -62,6 +62,9 @@ describe("visão Mensageria — botão Histórico", () => {
     montar({ historicoDisponivel: true, leitorHistorico: leitor, respostas: RESPOSTAS_BASE });
     await waitFor(() => expect(screen.getByTestId("mensageria-conversas").querySelectorAll("li").length).toBe(3));
     expect(botoes()).toHaveLength(0);
+    // Trava de janela: sem capacidade do servidor, a copy NÃO promete histórico clicável.
+    expect(screen.getByTestId("mensageria-limites").textContent).not.toMatch(/Histórico só por clique/);
+    expect(screen.getByTestId("mensageria-limites").textContent).toMatch(/Histórico completo e resposta pelo CRM ainda não estão disponíveis/);
     expect(leitor).not.toHaveBeenCalled();
   });
 

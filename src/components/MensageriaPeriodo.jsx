@@ -128,6 +128,8 @@ export default function MensageriaPeriodo({
   const totais = cabecalho?.totais || {};
   const demais = linhas.filter((c) => !c.aguardando);
   const temMais = typeof totais.conversas === "number" && linhas.length < totais.conversas;
+  // A copy só promete histórico clicável se o SERVIDOR marcou ao menos uma linha (fail-closed: sem o campo, a tela fecha).
+  const historicoLiberado = historicoDisponivel && [...linhas, ...respostas].some((l) => l.capacidade_historico === true);
   const periodo = rotuloPeriodo(cabecalho?.desde);
   const desdeBr = dataBr(cabecalho?.desde);
   const ultimaColeta = coleta?.ultima_execucao ? fmtDataHora(coleta.ultima_execucao) : "nenhuma";
@@ -147,7 +149,7 @@ export default function MensageriaPeriodo({
         ) : null}
         {" "}<strong>Não é o histórico completo de novembro:</strong> só conversas ativas no WhatsApp, só a última mensagem de cada uma, e só
         alunos com CPF confirmado.{" "}
-        {historicoDisponivel ? (
+        {historicoLiberado ? (
           <>
             <strong>Histórico só por clique:</strong> cada "Carregar histórico" faz 1 consulta à Mensageria, dentro da cota.{" "}
             <strong>Resposta pelo CRM ainda não está disponível:</strong>{" "}
