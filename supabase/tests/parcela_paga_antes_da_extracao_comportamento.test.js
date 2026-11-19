@@ -351,7 +351,8 @@ describe("importação de acordos: quem esperava o acordo não espera a rodada d
   }
   const importar = (db) => um(db, `select public.importar_acordos($1::jsonb, $2)`, [JSON.stringify(
     CASOS["72113"].parcelas.map((valor, i) => ({ cpf: CASOS["72113"].cpf, nome: CASOS["72113"].nome, documento: "0" + boletoDe("72113", i + 2),
-      venc: `20${26 + Math.floor((9 + i) / 12)}-${String(((9 + i) % 12) + 1).padStart(2, "0")}-18`, valor, unidade: "CANOAS", situacao: "Ativo" }))), IMPORTACAO]);
+      // parcelas 2 em diante vencem em 2030+: no futuro em qualquer data de execucao (o status VENCIDA e vencimento < current_date)
+      venc: `20${(i === 0 ? 26 : 30) + Math.floor((9 + i) / 12)}-${String(((9 + i) % 12) + 1).padStart(2, "0")}-18`, valor, unidade: "CANOAS", situacao: "Ativo" }))), IMPORTACAO]);
   const acordo72113 = (db) => um(db, `select id from public.acordos where numero_ulbra = '72113'`);
 
   it("etapa ligada: o próprio import do acordo baixa a 0002 e reconstrói a entrada", async () => {
