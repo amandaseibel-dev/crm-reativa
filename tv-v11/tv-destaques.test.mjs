@@ -161,7 +161,10 @@ describe('tela: textos genéricos removidos e o que fica preservado', () => {
     expect(app).toMatch(/dz\.podio_mes/);
   });
   it('logo natalino continua no topo e na tela de acesso', () => {
-    expect(html.match(/logo-reativa-natal\.png/g)).toHaveLength(2);
+    // topo: logo limpo + gorro em SVG ancorado no próprio logo (encaixe proporcional)
+    expect(html).toMatch(/class="brand-logo"><img src="logo-reativa\.png"[^>]*><svg class="brand-gorro"/);
+    // tela de acesso: segue com a imagem natalina
+    expect(html.match(/logo-reativa-natal\.png/g)).toHaveLength(1);
   });
   it('argumentações (almanaque), resultados de hoje e fila do receptivo seguem ligados', () => {
     expect(app).toMatch(/kind:'treino'/);
