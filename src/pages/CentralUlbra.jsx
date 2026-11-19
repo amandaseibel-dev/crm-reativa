@@ -28,6 +28,7 @@ import { supabase } from "../services/supabase";
 import { buscarFilaCarteira } from "../utils/filaCarteiraServidor";
 import usePolling from "../utils/polling";
 import { normalizarEmail } from "../utils/ulbraRecebimento";
+import { conversaParaLer, criarLeituraHistorico, historicoInicial, podeLerHistoricoNaCentral } from "../utils/ulbraHistoricoSelecao";
 import {
   DESTINO,
   FAIXAS,
@@ -214,7 +215,30 @@ export default function CentralUlbra({ usuario }) {
   }
 
   // Seleção e voltar empilham histórico: o "voltar" do navegador desfaz a escolha.
+  // Histórico da conversa selecionada: lido só no clique "Ver conversa" (ver ulbraHistoricoSelecao).
+  // Nada é lido ao selecionar ou abrir a Central. Sem vínculo, nada é lido.
+  const [historicoSel, setHistoricoSel] = useState(historicoInicial);
+  const leituraRef = useRef(null);
+  if (leituraRef.current === null) leituraRef.current = criarLeituraHistorico();
+  const itensPrioridade = listaPrioridade({ ...dados, sem_interacao: carteira.linhas }, filtros.faixa);
+  const selItem = itensPrioridade.find((i) => i.chave === filtros.conv) || null;
+  const podeVerConversa = podeLerHistoricoNaCentral(selItem);
+  function verConversa() {
+    const id = conversaParaLer(selItem);
+    if (id) leituraRef.current.ver(id, setHistoricoSel);
+  }
+
+  // A seleção vem da URL: troca por qualquer caminho (clique, voltar/avançar) cancela a leitura
+  // pendente e limpa o histórico anterior. Não lê nada.
+  useEffect(() => {
+    leituraRef.current.cancelar();
+    setHistoricoSel(historicoInicial());
+  }, [filtros.conv]);
+
   function selecionarConversa(chave) {
+    // Trocar de seleção: cancela leitura pendente e limpa o histórico anterior.
+    leituraRef.current.cancelar();
+    setHistoricoSel(historicoInicial());
     setParams(new URLSearchParams(paraBusca({ ...filtros, conv: chave }).replace(/^\?/, "")));
   }
   function voltarParaLista() {
@@ -363,7 +387,8 @@ export default function CentralUlbra({ usuario }) {
           selecionadoChave={filtros.conv}
           onSelecionar={selecionarConversa}
           onVoltar={voltarParaLista}
-          historico={{ estado: "indisponivel", mensagens: [] }}
+          historico={historicoSel}
+          onVerConversa={podeVerConversa ? verConversa : undefined}
           aoAbrirFicha={aoAbrirFicha}
           vazio="nenhuma conversa nesta fila"
         />
