@@ -31,7 +31,7 @@
   "tabela": "alunos",
   "gatilho": "trg_tabulacao_redireciona",
   "decisao": "EXCLUIR",
-  "justificativa": "UPDATE OF status_jornada: o remanejamento (set_resp_aluno, trocar_dono) nao escreve status_jornada. Corpo nao lido nesta rodada; filtro de coluna da definicao em producao.",
+  "justificativa": "UPDATE OF status_jornada: o remanejamento (set_resp_aluno, trocar_dono) nao escreve status_jornada. Corpo lido em producao (md5 e3616eaf5cc3a43d381a9f08f4991778); filtro de coluna UPDATE OF status_jornada.",
   "evidencia": "definicao: UPDATE OF status_jornada; corpo md5 e3616eaf5cc3a43d381a9f08f4991778"
  },
  {
@@ -172,7 +172,7 @@
   "gatilho": "trg_acordo_alerta_resolve_acordo",
   "decisao": "EXCLUIR",
   "justificativa": "UPDATE OF status com WHEN status muda para QUITADO/CANCELADO (definicao em producao). O remanejamento nao escreve status de acordo.",
-  "evidencia": "definicao: UPDATE OF status + WHEN; md5_def 5278397827057691"
+  "evidencia": "definicao: UPDATE OF status + WHEN; md5_def 5278397827057691d3ffcc2d8d73a015"
  },
  {
   "tabela": "acordos",

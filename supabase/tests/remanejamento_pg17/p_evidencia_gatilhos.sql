@@ -11,7 +11,7 @@ select pg_temp.como('amanda.seibel@aelbra.com.br');
 
 create temp table esperado (tabela text, gatilho text, decisao text, evidencia text) on commit preserve rows;
 insert into esperado values
-('acordos', 'trg_acordo_alerta_resolve_acordo', 'EXCLUIR', 'definicao: UPDATE OF status + WHEN; md5_def 5278397827057691'),
+('acordos', 'trg_acordo_alerta_resolve_acordo', 'EXCLUIR', 'definicao: UPDATE OF status + WHEN; md5_def 5278397827057691d3ffcc2d8d73a015'),
 ('acordos', 'trg_acordo_bloquear_duplicado', 'EXCLUIR', 'corpo md5 ad2a92b434687861b88f41c7a011c156; UPDATE OF status,valor_total,qtd_parcelas,aluno_id'),
 ('acordos', 'trg_acordo_herda_responsavel', 'SEM_CLASSE', ''),
 ('acordos', 'trg_acordo_status_reavalia_titulos', 'EXCLUIR', 'definicao: UPDATE OF status + WHEN; corpo md5 66b6165312d0302c738c107cfd6b7cd8'),
@@ -73,7 +73,7 @@ begin
       n_ok := n_ok + 1;
     elsif ex.decisao = 'INCLUIR' then
       n_fal := n_fal + 1; raise notice 'FALHA: % (%) e INCLUIR e nao esta carregado', ex.gatilho, ex.tabela;
-    elsif ex.decisao = 'EXCLUIR' and coalesce(ex.evidencia, '') <> '' and ex.evidencia not like 'PENDENTE%' then
+    elsif ex.decisao = 'EXCLUIR' and (ex.evidencia like '%md5%' or ex.evidencia like '%definicao%') and ex.evidencia not like 'PENDENTE%' then
       n_ok := n_ok + 1;
     else
       n_fal := n_fal + 1; raise notice 'FALHA: % (%) sem classificacao valida (%)', ex.gatilho, ex.tabela, ex.decisao;

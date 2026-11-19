@@ -15,11 +15,13 @@ begin
   perform pg_temp.afirma((select count(*) from public.cg_teste3_bar) = 2, 'contencao barreira: as duas sessoes prontas');
   -- sincroniza no proprio lock: espera outra sessao segurar um advisory lock (o do destino)
   for i in 1..1000 loop
-    exit when exists (select 1 from pg_locks where locktype = 'advisory' and granted);
+    exit when exists (select 1 from pg_locks where locktype = 'advisory' and granted
+                      and objid::bigint = (hashtext('carteira_geral_mover:cobranca05@aelbra.com.br')::bigint & 4294967295));
     perform pg_sleep(0.01);
   end loop;
-  perform pg_temp.afirma(exists (select 1 from pg_locks where locktype = 'advisory' and granted),
-    'contencao: o lock do destino estava tomado por outra sessao antes de mover');
+  perform pg_temp.afirma(exists (select 1 from pg_locks where locktype = 'advisory' and granted
+                                 and objid::bigint = (hashtext('carteira_geral_mover:cobranca05@aelbra.com.br')::bigint & 4294967295)),
+    'contencao: o lock do DESTINO (chave de carteira_geral_mover) estava concedido a outra sessao antes de mover');
 end $$;
 do $$
 declare pid text; r jsonb; t0 timestamptz := clock_timestamp();

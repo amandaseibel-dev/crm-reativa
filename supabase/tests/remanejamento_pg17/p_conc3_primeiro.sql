@@ -25,5 +25,5 @@ begin
     on conflict (sessao) do update set resultado = excluded.resultado, inicio = excluded.inicio, fim = excluded.fim;
 end $$;
 select pg_sleep(2);
+insert into public.cg_teste3_flag values ('precommit_holder', clock_timestamp()) on conflict (nome) do nothing;
 COMMIT;
-insert into public.cg_teste3_flag values ('commit_holder', clock_timestamp()) on conflict (nome) do nothing;

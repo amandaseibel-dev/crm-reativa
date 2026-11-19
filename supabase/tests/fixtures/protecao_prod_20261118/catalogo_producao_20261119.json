@@ -1,0 +1,80 @@
+{
+ "coletado_em": "2026-11-19 09:35 UTC",
+ "projeto": "ahattpqrjmhkzsmnbdzs",
+ "modo": "somente SELECT em catalogo (pg_proc, pg_trigger, pg_get_functiondef); nenhum dado de aluno; nada aplicado",
+ "funcoes": [
+  {
+   "funcao": "carteira_geral_mover(uuid,text)",
+   "dono": "postgres",
+   "security_definer": true,
+   "config": [
+    "search_path=public, internal",
+    "statement_timeout=300s"
+   ]
+  },
+  {
+   "funcao": "bloquear_alteracoes_restritas_casos()",
+   "dono": "postgres",
+   "security_definer": false,
+   "md5_def": "06edb22723aa1ee3206d1f495ec141cd"
+  },
+  {
+   "funcao": "crm_usuario_acesso_restrito_amanda()",
+   "dono": "postgres",
+   "security_definer": false,
+   "md5_def": "ff37a4b6df151b2a03a7ec174b166b6e"
+  },
+  {
+   "funcao": "eh_tipo_acionamento(text)",
+   "dono": "postgres",
+   "security_definer": false,
+   "md5_def": "ee7f78b44625daba48a78601fa95a4f0"
+  },
+  {
+   "funcao": "fn_atualizar_ultimo_acionamento()",
+   "dono": "postgres",
+   "security_definer": true,
+   "md5_def": "400a73f7cf8402fab2f171ebe9e65c0a"
+  },
+  {
+   "funcao": "_sync_casos_resp_aluno()",
+   "dono": "postgres",
+   "security_definer": true,
+   "config": [
+    "search_path=public"
+   ]
+  },
+  {
+   "funcao": "internal.set_resp_aluno(uuid,text,text,text,text,text,text)",
+   "dono": "reativa_responsavel_executor",
+   "security_definer": true,
+   "md5_def": "3df6baeb68f4a63844780b8b9a22ca25"
+  },
+  {
+   "funcao": "internal.carteira_geral_trocar_dono(uuid,text,text,text,text,text,text)",
+   "dono": "postgres",
+   "security_definer": true,
+   "md5_def": "d7b92b6d9ecbd53523e08d1d0f4438a3"
+  }
+ ],
+ "gatilhos": [
+  {
+   "gatilho": "trg_bloquear_alteracoes_restritas_casos",
+   "tabela": "casos",
+   "definicao": "BEFORE UPDATE ... FOR EACH ROW",
+   "md5_def": "49af8ba2fe92dea3ea13adf7181b9216"
+  },
+  {
+   "gatilho": "trg_atualizar_ultimo_acionamento",
+   "tabela": "aluno_movimentacoes",
+   "definicao": "AFTER INSERT ... FOR EACH ROW",
+   "md5_def": "701c5e95de01efb943acfe65b6474f63"
+  },
+  {
+   "gatilho": "trigger_repor_caso_operador",
+   "tabela": "casos",
+   "definicao": "AFTER UPDATE ... WHEN (new.operador_email IS NOT NULL AND new.operador_email = old.operador_email)"
+  }
+ ],
+ "observacao": "tgenabled e ACL nao coletados nesta rodada (somente definicao, dono e modo); declarado como limite."
+}

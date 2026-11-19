@@ -1,6 +1,8 @@
 -- PERFIL REAL (B1): o remanejamento executado por GESTORA AUTENTICADA (role authenticated, JWT real) nao
 -- pode ser barrado pelo gatilho bloquear_alteracoes_restritas_casos (producao, carregado aqui).
 -- Controle negativo: um OPERADOR autenticado que tenta o mesmo UPDATE direto em casos TEM que ser barrado.
+-- LIMITE DECLARADO: a PREVIA e gerada como postgres (helper de teste), fora do papel autenticado. A previa sob
+-- authenticated nao e coberta por este teste.
 \i lib.sql
 select pg_temp.como('amanda.seibel@aelbra.com.br');
 update public.calibragem_parametros set valor = '700'::jsonb where chave = 'limite_carteira';

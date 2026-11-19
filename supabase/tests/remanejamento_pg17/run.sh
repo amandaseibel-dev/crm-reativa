@@ -134,11 +134,13 @@ pb=$!
 wait $pa $pb || true
 [ "$(cat "$LOGS/conc_a.rc")" = 0 ] || falha "sessao A: ver $LOGS/conc_a.log"
 [ "$(cat "$LOGS/conc_b.rc")" = 0 ] || falha "sessao B: ver $LOGS/conc_b.log"
-psqlt "$LOGS/conc_cap_a.log" rem_com936 "$TD/p_conc_cap_a.sql" &
+( psqlt "$LOGS/conc_cap_a.log" rem_com936 "$TD/p_conc_cap_a.sql"; echo $? > "$LOGS/conc_cap_a.rc" ) &
 ca=$!
-psqlt "$LOGS/conc_cap_b.log" rem_com936 "$TD/p_conc_cap_b.sql" &
+( psqlt "$LOGS/conc_cap_b.log" rem_com936 "$TD/p_conc_cap_b.sql"; echo $? > "$LOGS/conc_cap_b.rc" ) &
 cb=$!
 wait $ca $cb || true
+[ "$(cat "$LOGS/conc_cap_a.rc")" = 0 ] || falha "capacidade sessao A: ver $LOGS/conc_cap_a.log"
+[ "$(cat "$LOGS/conc_cap_b.rc")" = 0 ] || falha "capacidade sessao B: ver $LOGS/conc_cap_b.log"
 psqlt "$LOGS/conc_check.log" rem_com936 "$TD/p_conc_check.sql" || falha "veredito da concorrencia: ver $LOGS/conc_check.log"
 
 # B4: DOIS destinos diferentes (Luana x Mauricio), cada um com 1 vaga, sessoes sincronizadas por barreira.

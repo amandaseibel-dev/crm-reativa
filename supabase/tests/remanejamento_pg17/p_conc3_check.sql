@@ -14,7 +14,7 @@ begin
   other := case when holder = 'primeiro' then 'segundo' else 'primeiro' end;
   select resultado, inicio, fim into rp, ip, fp from public.cg_teste3_res where sessao = holder;
   select resultado, inicio, fim into rs, isg, fsg from public.cg_teste3_res where sessao = other;
-  select ts into commit_p from public.cg_teste3_flag where nome = 'commit_holder';
+  select ts into commit_p from public.cg_teste3_flag where nome = 'precommit_holder';
   perform pg_temp.afirma(holder is not null, 'contencao: titular do lock identificado (' || coalesce(holder,'-') || ')');
   perform pg_temp.afirma(rp is not null and rs is not null, 'contencao: as duas sessoes registraram resultado');
   perform pg_temp.afirma(commit_p is not null, 'contencao: commit do titular registrado');
@@ -22,7 +22,7 @@ begin
   perform pg_temp.afirma(mov_p + mov_s = 1,
     format('contencao: UMA movimentacao ocupa a vaga (titular=%s, outro=%s)', mov_p, mov_s));
   perform pg_temp.afirma(coalesce((rp->>'total_recusados')::int,0) + coalesce((rs->>'total_recusados')::int,0) = 1,
-    'contencao: a outra sessao foi recusada pela capacidade (registrado em recusados)');
+    'contencao: a outra sessao ficou com 1 aluno em recusados (o registro da recusa, nao a causa)');
   select count(*) into v_luana from public.casos where operador_email = 'cobranca05@aelbra.com.br' and not coalesce(encerrado_operacional,false);
   perform pg_temp.afirma(v_luana = 3, format('contencao: destino no teto exato 3 (ocupacao=%s, nao passou)', v_luana));
   select aluno into xid from public.cg_teste3_ids where nome = 'X';
@@ -32,8 +32,8 @@ begin
   perform pg_temp.afirma((v_x = 'cobranca05@aelbra.com.br') <> (v_y = 'cobranca05@aelbra.com.br'),
     format('contencao: exatamente um aluno com a Luana (X=%s, Y=%s)', v_x, v_y));
   perform pg_temp.afirma(isg < commit_p and fsg >= commit_p,
-    format('contencao: SOBREPOSICAO comprovada (segundo iniciou %s, primeiro commitou %s, segundo terminou %s)', isg, commit_p, fsg));
+    format('contencao: SOBREPOSICAO comprovada (nao-titular iniciou %s; titular em pre-commit %s; nao-titular terminou %s)', isg, commit_p, fsg));
   perform pg_temp.afirma(extract(epoch from (fsg - isg)) >= 1.5,
-    format('contencao: o segundo ficou esperando o lock (%s s)', round(extract(epoch from (fsg - isg))::numeric, 2)));
+    format('contencao: o nao-titular ficou esperando o lock (%s s)', round(extract(epoch from (fsg - isg))::numeric, 2)));
 end $$;
 select 'CONT CHECK OK' as resultado;
