@@ -2,6 +2,7 @@
 // Consulta somente por clique: montar ou selecionar a conversa NÃO chama a função.
 import { useState } from "react";
 import { lerHistorico, mapearHistorico } from "../utils/ulbraHistoricoCliente";
+import { mascararCpfEmTexto } from "../utils/mascararCpf";
 
 export default function HistoricoUlbraLeitura({ conversaId, leitor = lerHistorico }) {
   const [historico, setHistorico] = useState(null);
@@ -37,7 +38,7 @@ export default function HistoricoUlbraLeitura({ conversaId, leitor = lerHistoric
         {historico.mensagens.map((m, i) => (
           <li key={i}>
             <small>{m.em} · {m.autor || m.direcao}</small>
-            <div>{m.texto}</div>
+            <div>{mascararCpfEmTexto(m.texto)}</div>
           </li>
         ))}
       </ul>
