@@ -165,6 +165,25 @@ async function main() {
   await montar(setup);
   await setup.end();
 
+  // ---- 0. MODULO DESLIGADO (estado da implantacao) recusa novas aprovacoes -------------
+  await caso("modulo desligado: nova aprovacao e recusada com 42501 e nada muda", async () => {
+    const s = await cliente(); await comoGestao(s);
+    const x = await criarAlunoComCaso(s);
+    const antes = await foto(s, x);
+    let err = null;
+    try { await s.query("select public.juridico_caso_aprovar($1)", [x.caso]); } catch (e) { err = e; }
+    assert.ok(err, "a aprovacao devia ser recusada com o modulo desligado");
+    assert.equal(err.code, "42501");
+    assert.match(err.message, /Módulo jurídico inativo/);
+    assert.deepEqual(await foto(s, x), antes, "nenhuma alteracao parcial");
+    await s.end();
+  });
+
+  // Os cenarios seguintes aprovam casos: habilitam o modulo somente aqui, no setup deles.
+  const habilita = await cliente();
+  await habilita.query("update public.juridico_config set valor = true where chave = 'modulo_ativo'");
+  await habilita.end();
+
   // ---- 1. NOWAIT do ALUNO -------------------------------------------------------------
   await caso("NOWAIT aluno: aprovacao falha rapido com 40001, sem alteracao parcial, e a nova tentativa passa", async () => {
     const s = await cliente(); await comoGestao(s);
