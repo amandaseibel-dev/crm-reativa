@@ -1,0 +1,598 @@
+-- REMANEJAMENTO OFICIAL (tela Carteira Geral): PROTEGE O NOVO RESPONSAVEL POR
+-- 10 DIAS DENTRO DO PRAZO, E MEDE A CAPACIDADE COM A REGUA DO GATILHO DE TETO.
+-- A PROTECAO DEPOIS DO 10o DIA DEPENDE DA PR #936 (ver abaixo).
+--
+-- PENDENTE. NAO APLICADA EM BANCO NENHUM. So o teste
+-- supabase/tests/remanejamento_fidelizacao_10_dias.test.js a executa, em banco
+-- efemero (PGlite), sobre os corpos de producao lidos em 17/11/2026.
+--
+-- O FURO, MEDIDO EM 17/11/2026 (somente leitura)
+--
+-- `carteira_geral_mover` troca o dono e nao deixa protecao nenhuma para quem
+-- recebe. As duas fidelizacoes que as rotinas leem sao a de 10 dias por
+-- ACIONAMENTO (`caso_dentro_prazo_fidelizacao`, pela data do ultimo
+-- acionamento) e a de LOTE (`caso_em_giro_fidelizacao`, pela marca
+-- `casos.giro_fidelizacao_ate`). O remanejamento nao grava a segunda, e a troca
+-- de dono ainda apaga a marca que o caso tivesse (`trg_giro_limpar_marca`).
+-- Resultado: caso remanejado sem acionamento recente e solto para a fila livre
+-- pela rotina das 05:20 (`fidelizacao_liberar_vencidos`) assim que passa o
+-- hold de 24 horas.
+--
+-- Segundo furo: a previa avisava de teto contando TODO caso nao encerrado do
+-- destino, protegidos inclusive, enquanto o gatilho `trg_impor_teto_operador`
+-- conta so caso nao protegido e nao encerrado. A previa contava outra base. E quando o teto de fato
+-- estourava, quem pagava era o destino: o gatilho soltava casos DELE.
+--
+-- O QUE MUDA
+--
+--  1. Destino OPERADOR: o caso recebido ganha a marca de lote que ja existe,
+--     `giro_fidelizacao_ate = hoje (Sao Paulo) + 10`. Nenhuma regra nova: e a
+--     mesma coluna e a mesma funcao de leitura do giro. NAO simula acionamento,
+--     NAO toca `data_ultimo_acionamento`, tabulacao, retorno nem historico.
+--  2. A previa e a execucao passam a usar o MESMO contador do gatilho de teto
+--     (`internal.cg_ocupacao_teto`). A execucao recusa o que nao cabe em vez de
+--     deixar o gatilho soltar caso do destino.
+--  3. Destino OPERADOR: cada caso e revalidado NA HORA da transferencia --
+--     encerrado, congelado, "nao acionar", protegido (negociacao, link, termo,
+--     pagamento), sem saldo, ficha com outro operador ativo e fidelizacao
+--     vigente de outro operador ativo. O que nao passa fica onde esta, com o
+--     motivo na resposta. A fidelizacao de um dono so e ignorada se a gestao
+--     listar esse dono em `p_filtros.liberar_fidelizacao_de`, o que fica
+--     gravado na previa.
+--  4. As linhas do aluno (casos e ficha) sao travadas durante a escrita, e dois
+--     lotes para o mesmo destino sao serializados por trava de transacao.
+--  5. A auditoria ganha a coluna `protecao_ate`; a movimentacao da ficha passa
+--     a dizer ate quando vai a fidelizacao.
+--  6. O nivelamento manual da Calibragem (`calibragem_executar_simulacao`)
+--     passa a respeitar a marca de lote, como o automatico ja respeita desde a
+--     M3 (20261021155319).
+--
+-- O QUE NAO MUDA
+--
+--  * Destinos CARTEIRA GERAL e FILA LIVRE: mesma decisao de hoje. A saida JSON
+--    ganha campos novos (bloqueio, protecao_ate, capacidade), que a tela ignora
+--    para esses destinos.
+--  * Portao de gestao, motivo obrigatorio, expiracao da previa, revalidacao de
+--    dono, de ficha e de acordo, preservacao do retorno, desfazer por lote.
+--  * `liberar_fidelizacao_caso`, `trg_impor_teto_operador`, `assumir_caso_livre`
+--    e `nivelamento_automatico_gestao`: NAO sao tocadas aqui. As tres primeiras
+--    estao sendo alteradas pela PR #936 (fidelizacao do giro segue os 10 dias);
+--    esta migration nao concorre com ela.
+--  * Cadastro de usuarios, agendamentos (cron), grants das funcoes existentes.
+--
+-- DEPENDENCIA DECLARADA (PRE-REQUISITO: PR #936)
+--
+-- Com os corpos de HOJE em producao, liberar_fidelizacao_caso e
+-- trg_impor_teto_operador leem a EXISTENCIA da marca, nao a data. Um caso
+-- remanejado fica preso ao responsavel depois do 10o dia. Isto e o defeito que
+-- a PR #936 corrige (leitura pela data). Esta migration NAO altera essas duas
+-- funcoes: nao concorre com a #936. Sem a #936 aplicada antes, a regra de 10
+-- dias NAO se cumpre depois do 10o dia. Dentro dos 10 dias, a protecao vale.
+-- Ordem de aplicacao: #936, depois esta migration.
+--
+-- DUAS colunas novas (nullable, sem default), NOVE funcoes auxiliares novas em
+-- `internal`, TRES funcoes alteradas por patch ancorado. ZERO DML de dado.
+--
+-- Reversivel: supabase/aguardando_aprovacao/20261117150000_*.rollback.sql
+
+begin;
+-- GATE DA PR #936: esta migration depende da leitura da fidelizacao POR DATA em
+-- liberar_fidelizacao_caso (a #936 troca a existencia da marca pela data). Sem
+-- ela, o caso remanejado fica preso ao responsavel depois do 10o dia. Recusa.
+do $gate$
+begin
+  if position('caso_em_giro_fidelizacao(v_c.giro_fidelizacao_ate)'
+              in (select p.prosrc from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                   where n.nspname = 'public' and p.proname = 'liberar_fidelizacao_caso' limit 1)) = 0
+  then
+    raise exception 'remanejamento: requer a PR #936 aplicada antes (liberar_fidelizacao_caso ainda le so a existencia da marca de giro).';
+  end if;
+end $gate$;
+
+-- ------------------------------------------------------------- estrutura ---
+alter table public.carteira_geral_auditoria
+  add column if not exists protecao_ate date;
+comment on column public.carteira_geral_auditoria.protecao_ate is
+  'Ate que dia (inclusive) o caso fica fidelizado ao novo responsavel por este remanejamento. Nulo quando o destino nao e operador.';
+
+-- ------------------------------------------------------------ auxiliares ---
+-- Prazo da protecao: hoje em Sao Paulo + 10, o mesmo intervalo da fidelizacao
+-- por acionamento (data + 10, inclusive) e o mesmo relogio de
+-- caso_em_giro_fidelizacao.
+create or replace function internal.cg_protecao_ate() returns date
+language sql stable set search_path = public as $fn$
+  select (now() at time zone 'America/Sao_Paulo')::date + 10
+$fn$;
+
+-- Donos cuja fidelizacao a gestao libera neste lote.
+create or replace function internal.cg_liberar_de(p_filtros jsonb) returns text[]
+language sql immutable set search_path = public as $fn$
+  select coalesce(
+    (select array_agg(distinct lower(btrim(x)))
+       from jsonb_array_elements_text(
+              case when jsonb_typeof(p_filtros->'liberar_fidelizacao_de') = 'array'
+                   then p_filtros->'liberar_fidelizacao_de' else '[]'::jsonb end) x
+      where nullif(btrim(x),'') is not null),
+    '{}'::text[])
+$fn$;
+
+-- Ocupacao do operador PELA REGUA DO GATILHO DE TETO (trg_impor_teto_operador):
+-- caso nao protegido e nao encerrado. E a unica conta de capacidade.
+create or replace function internal.cg_ocupacao_teto(p_email text) returns integer
+language sql stable set search_path = public as $fn$
+  select count(*)::int
+    from public.casos c
+   where lower(c.operador_email) = lower(btrim(coalesce(p_email,'')))
+     and not public.caso_protegido_redistribuicao(c.cpf_limpo, c.status_acionamento, c.nao_acionar,
+           c.status_financeiro, c.valor_pago, c.quitado_em, c.valor_quitado)
+     and not public.caso_encerrado_operacional(c.cpf_limpo, c.status_atual, c.status_acionamento,
+           c.status_financeiro, c.status_jornada)
+$fn$;
+
+-- Por que ESTE caso nao pode ir para um operador. Nulo = pode. So decide para
+-- destino OPERADOR; Carteira Geral e fila livre seguem como sempre.
+-- Reusa os predicados oficiais; nao ha regra de fidelizacao nova aqui.
+create or replace function internal.cg_bloqueio_remanejamento(
+  p_caso_id uuid, p_destino_tipo text, p_destino_email text, p_liberar text[], p_saldo_total numeric
+) returns text
+language plpgsql stable set search_path = public, internal as $fn$
+declare
+  c public.casos;
+  v_dono text; v_ficha text; v_destino text := lower(btrim(coalesce(p_destino_email,'')));
+begin
+  if coalesce(p_destino_tipo,'') <> 'OPERADOR' then return null; end if;
+
+  select * into c from public.casos where id = p_caso_id;
+  if not found then return 'CASO_INEXISTENTE'; end if;
+
+  v_dono := lower(nullif(btrim(coalesce(c.operador_email,'')),''));
+  if v_dono is not distinct from v_destino then return 'JA_E_DO_DESTINO'; end if;
+
+  if coalesce(c.encerrado_operacional, false)
+     or public.caso_encerrado_operacional(c.cpf_limpo, c.status_atual, c.status_acionamento,
+          c.status_financeiro, c.status_jornada) then
+    return 'ENCERRADO';
+  end if;
+  if public.caso_encerramento_congelado(c.id) then return 'CONGELADO'; end if;
+  if coalesce(c.nao_acionar, false) then return 'NAO_ACIONAR'; end if;
+  if public.caso_protegido_redistribuicao(c.cpf_limpo, c.status_acionamento, c.nao_acionar,
+       c.status_financeiro, c.valor_pago, c.quitado_em, c.valor_quitado) then
+    return 'PROTEGIDO';
+  end if;
+  if coalesce(p_saldo_total, 0) <= 0 then return 'SEM_SALDO'; end if;
+
+  -- a ficha ja esta com outro operador ativo: o caso nao e de quem parece
+  select lower(nullif(btrim(coalesce(al.responsavel_atual_email,'')),''))
+    into v_ficha from public.alunos al where al.id = c.aluno_id;
+  if v_ficha is not null and v_ficha is distinct from v_dono and v_ficha <> v_destino
+     and exists (select 1 from public.usuarios u
+                  where lower(u.email) = v_ficha and u.ativo and u.perfil = 'operador') then
+    return 'FICHA_COM_OUTRO_OPERADOR';
+  end if;
+
+  -- fidelizacao vigente de OUTRO operador ativo: so sai se a gestao liberou
+  -- esse dono neste lote.
+  if v_dono is not null
+     and not (v_dono = any(coalesce(p_liberar, '{}'::text[])))
+     and exists (select 1 from public.usuarios u
+                  where lower(u.email) = v_dono and u.ativo and u.perfil = 'operador')
+     and (public.caso_dentro_prazo_fidelizacao(c.data_ultimo_acionamento)
+          or public.caso_em_giro_fidelizacao(c.giro_fidelizacao_ate)
+          or internal.matricula_em_fidelizacao(c.aluno_id, c.matricula)) then
+    return 'FIDELIZACAO_VIGENTE';
+  end if;
+
+  return null;
+end;
+$fn$;
+
+create or replace function internal.cg_bloqueio_texto(p_codigo text) returns text
+language sql immutable set search_path = public as $fn$
+  select case p_codigo
+    when 'CASO_INEXISTENTE'         then 'o caso nao existe mais'
+    when 'JA_E_DO_DESTINO'          then 'o caso ja e do operador de destino'
+    when 'ENCERRADO'                then 'caso encerrado operacionalmente'
+    when 'CONGELADO'                then 'encerramento congelado'
+    when 'NAO_ACIONAR'              then 'caso marcado como nao acionar'
+    when 'PROTEGIDO'                then 'caso protegido (negociacao, link, termo ou pagamento em andamento)'
+    when 'SEM_SALDO'                then 'aluno sem saldo em aberto'
+    when 'FICHA_COM_OUTRO_OPERADOR' then 'a ficha do aluno ja esta com outro operador ativo'
+    when 'FIDELIZACAO_VIGENTE'      then 'dentro da fidelizacao de 10 dias do responsavel atual, que nao foi liberada neste lote'
+    else coalesce(p_codigo, 'motivo nao informado')
+  end
+$fn$;
+
+
+-- Capacidade pela MESMA regra sequencial da execucao (carteira_geral_mover):
+-- alunos em ordem de saldo, do maior para o menor; aluno com qualquer caso
+-- bloqueado sai inteiro; aluno que nao cabe inteiro na ocupacao atual sai
+-- inteiro. A previa mostra este numero; a execucao o recalcula.
+create or replace function internal.cg_capacidade_sequencial(p_itens jsonb, p_email text)
+returns jsonb
+language plpgsql stable set search_path = public as $fn$
+declare
+  v_teto int := public.calibragem_teto_operador(p_email);
+  v_ocup0 int := internal.cg_ocupacao_teto(p_email);
+  v_ocup int := v_ocup0;
+  v_cabem int := 0; v_sobram int := 0; v_recus_alunos int := 0; r record;
+begin
+  for r in
+    select i->>'aluno_id' aid, count(*)::int n,
+           bool_or(nullif(i->>'bloqueio','') is not null) tem_bloq,
+           max(coalesce((i->>'saldo_total')::numeric,0)) s
+      from jsonb_array_elements(coalesce(p_itens,'[]'::jsonb)) i
+     group by 1 order by 4 desc, 1
+  loop
+    if r.tem_bloq then v_recus_alunos := v_recus_alunos + 1; continue; end if;
+    if v_ocup + r.n > v_teto then
+      v_sobram := v_sobram + r.n; v_recus_alunos := v_recus_alunos + 1;
+    else
+      v_ocup := v_ocup + r.n; v_cabem := v_cabem + r.n;
+    end if;
+  end loop;
+  return jsonb_build_object('teto', v_teto, 'ocupacao', v_ocup0,
+    'vagas', greatest(0, v_teto - v_ocup0), 'cabem', v_cabem, 'sobram', v_sobram,
+    'alunos_recusados', v_recus_alunos);
+end;
+$fn$;
+revoke all on function internal.cg_capacidade_sequencial(jsonb, text) from public, anon, authenticated;
+
+-- Marcador do lote no caso: liga a marca de protecao a ESTE remanejamento. O
+-- rollback so apaga marca com este marcador e com a data que o lote gravou.
+alter table public.casos add column if not exists remanejamento_lote_id uuid;
+comment on column public.casos.remanejamento_lote_id is
+  'Lote do remanejamento que gravou giro_fidelizacao_ate neste caso. Usado so pelo rollback do remanejamento.';
+
+-- Destinos que o remanejamento NAO aceita. Olga e Diego: decisao da gestao de
+-- 17/11/2026 para ESTA operacao. Nao altera o cadastro; retirar a vedacao exige
+-- nova decisao registrada.
+create or replace function internal.cg_destino_recusado(p_email text) returns text
+language sql stable set search_path = public as $fn$
+  select case
+    when lower(btrim(coalesce(p_email,''))) in ('cobranca03@aelbra.com.br','cobranca13@aelbra.com.br')
+      then 'VEDADO_NESTA_OPERACAO'
+    when not exists (select 1 from public.usuarios u
+                      where lower(u.email) = lower(btrim(coalesce(p_email,'')))
+                        and u.ativo and u.perfil = 'operador') then 'INATIVO_OU_NAO_OPERADOR'
+    when not coalesce((select u.recebe_novos_casos from public.usuarios u
+                        where lower(u.email) = lower(btrim(coalesce(p_email,'')))), false)
+      then 'RECEBIMENTO_DE_NOVOS_CASOS_DESLIGADO'
+    else null end
+$fn$;
+revoke all on function internal.cg_destino_recusado(text) from public, anon, authenticated;
+
+-- O marcador so vale enquanto a MARCA foi gravada pelo proprio remanejamento.
+-- Qualquer outra gravacao em giro_fidelizacao_ate (outra rotina, mesmo com a
+-- MESMA data e o MESMO valor) que nao traga um marcador novo SOLTA o marcador. Assim, o
+-- rollback nunca enxerga como "nossa" uma marca que outra rotina reescreveu.
+create or replace function internal.cg_marcador_segue_a_marca() returns trigger
+language plpgsql set search_path = public as $fn$
+begin
+  -- UPDATE OF giro dispara quando a COLUNA e escrita, mesmo com o mesmo valor.
+  -- Quem escreve o marcador junto (o remanejamento) nao cai aqui.
+  if new.remanejamento_lote_id is not distinct from old.remanejamento_lote_id then
+    new.remanejamento_lote_id := null;
+  end if;
+  return new;
+end;
+$fn$;
+revoke all on function internal.cg_marcador_segue_a_marca() from public, anon, authenticated;
+drop trigger if exists trg_cg_marcador_segue_a_marca on public.casos;
+create trigger trg_cg_marcador_segue_a_marca
+  before update of giro_fidelizacao_ate on public.casos
+  for each row execute function internal.cg_marcador_segue_a_marca();
+
+-- Funcao nova NAO herda os grants de ninguem: nasce executavel por PUBLIC.
+-- Estas cinco so servem de dentro das funcoes de gestao (SECURITY DEFINER).
+revoke all on function internal.cg_protecao_ate() from public, anon, authenticated;
+revoke all on function internal.cg_liberar_de(jsonb) from public, anon, authenticated;
+revoke all on function internal.cg_ocupacao_teto(text) from public, anon, authenticated;
+revoke all on function internal.cg_bloqueio_remanejamento(uuid, text, text, text[], numeric) from public, anon, authenticated;
+revoke all on function internal.cg_bloqueio_texto(text) from public, anon, authenticated;
+
+-- PRECONDICAO: os tres corpos tem de ser os de producao lidos em 17/11/2026
+-- (ou ja trazer esta migration: reaplicar e idempotente). Se outra frente
+-- mexeu em algum deles, recusa em vez de escrever por cima.
+do $pre$
+declare r record; v_src text;
+begin
+  for r in select * from (values
+    ('carteira_geral_previa','774a8b340beb389706c66febc14db485','20261117150000'),
+    ('carteira_geral_mover','a2223d068d8154258e5f1a8450911bea','20261117150000'),
+    ('calibragem_executar_simulacao','9f5ff16f64b5efbd4b0ae58b32c8bac6','nivelamento manual tambem nao o desfaz')
+  ) t(f, h, marca) loop
+    select p.prosrc into v_src from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.proname = r.f;
+    if v_src is null then raise exception 'remanejamento: public.% nao existe.', r.f; end if;
+    if md5(v_src) <> r.h and position(r.marca in v_src) = 0 then
+      raise exception 'remanejamento: public.% mudou (md5 %, esperado %). Revise os patches.', r.f, md5(v_src), r.h;
+    end if;
+  end loop;
+end $pre$;
+
+-- patch 01 · carteira_geral_previa
+select internal.patch_funcao_ancorada('public','carteira_geral_previa',
+$ancora$  v_sel uuid[] := coalesce(p_acordo_ids, '{}'::uuid[]);$ancora$,
+$novo$  v_sel uuid[] := coalesce(p_acordo_ids, '{}'::uuid[]);
+  -- Remanejamento com fidelizacao (20261117150000): donos cuja fidelizacao
+  -- vigente a gestao LIBERA de proposito neste lote. Vem em
+  -- p_filtros.liberar_fidelizacao_de e fica gravado na previa.
+  v_liberar text[] := internal.cg_liberar_de(p_filtros);$novo$, 1);
+
+-- patch 02 · carteira_geral_previa
+select internal.patch_funcao_ancorada('public','carteira_geral_previa',
+$ancora$             c.encerrado_operacional as encerrado,$ancora$,
+$novo$             c.encerrado_operacional as encerrado,
+             -- Motivo que impede levar ESTE caso para um operador (nulo = pode).
+             -- Congelado aqui; a execucao recalcula na hora e compara.
+             internal.cg_bloqueio_remanejamento(c.id, p_destino_tipo, v_destino_email,
+                                                v_liberar, coalesce(s.saldo_total,0)) as bloqueio,$novo$, 1);
+
+-- patch 03 · carteira_geral_previa
+select internal.patch_funcao_ancorada('public','carteira_geral_previa',
+$ancora$      select count(*) into v_carga from public.casos c
+       where lower(c.operador_email) = v_destino_email
+         and not c.encerrado_operacional;
+      v_depois := v_carga + jsonb_array_length(v_itens);$ancora$,
+$novo$      -- O MESMO contador do gatilho de teto (trg_impor_teto_operador): caso
+      -- nao protegido e nao encerrado. Antes a previa contava todo caso nao
+      -- encerrado, protegidos inclusive, e avisava de um estouro que a
+      -- execucao nao via.
+      v_carga := internal.cg_ocupacao_teto(v_destino_email);
+      v_depois := v_carga + (select count(*)::int from jsonb_array_elements(v_itens) it
+                              where nullif(it->>'bloqueio','') is null);$novo$, 1);
+
+-- patch 04 · carteira_geral_previa
+select internal.patch_funcao_ancorada('public','carteira_geral_previa',
+$ancora$', acima do teto de '||v_teto||'. O gatilho de teto vai soltar '||
+                     (v_depois - v_teto)||' caso(s) para a fila livre, do menor valor para cima.');$ancora$,
+$novo$', acima do teto de '||v_teto||'. A execucao RECUSA os '||
+                     (v_depois - v_teto)||' que nao cabem, do menor saldo para cima; nenhum caso que ja e de '||
+                     v_destino_nome||' e solto.');$novo$, 1);
+
+-- patch 05 · carteira_geral_previa
+select internal.patch_funcao_ancorada('public','carteira_geral_previa',
+$ancora$    union all
+    select jsonb_build_object(
+             'tipo', 'CASO_ENCERRADO',$ancora$,
+$novo$    union all
+    -- Caso que NAO vai para o operador de destino, com o motivo. Um por caso.
+    select jsonb_build_object(
+             'tipo', 'BLOQUEADO_PARA_OPERADOR',
+             'aluno_id', it->>'aluno_id', 'nome', it->>'nome',
+             'motivo', it->>'bloqueio',
+             'detalhe', 'Nao sera movido: '||internal.cg_bloqueio_texto(it->>'bloqueio')||'.')
+      from jsonb_array_elements(v_itens) it
+     where nullif(it->>'bloqueio','') is not null
+
+    union all
+    select jsonb_build_object(
+             'tipo', 'CASO_ENCERRADO',$novo$, 1);
+
+-- Helper P12: o caso tem fidelizacao vigente (mesmo predicado de cg_bloqueio_remanejamento).
+create or replace function internal.cg_tem_fidelizacao(p_caso uuid) returns boolean
+language sql stable set search_path = public as $fn$
+  select exists (select 1 from public.casos c where c.id = p_caso
+     and (public.caso_dentro_prazo_fidelizacao(c.data_ultimo_acionamento)
+          or public.caso_em_giro_fidelizacao(c.giro_fidelizacao_ate)
+          or internal.matricula_em_fidelizacao(c.aluno_id, c.matricula)));
+$fn$;
+revoke all on function internal.cg_tem_fidelizacao(uuid) from public, anon, authenticated;
+
+-- patch 06 · carteira_geral_previa
+select internal.patch_funcao_ancorada('public','carteira_geral_previa',
+$ancora$    'itens', v_itens,
+    'conflitos', v_conflitos
+  ) into v_res;$ancora$,
+$novo$    'itens', v_itens,
+    'conflitos', v_conflitos,
+    -- Remanejamento com fidelizacao: o que a execucao vai encontrar.
+    'total_bloqueados', (select count(*)::int from jsonb_array_elements(v_itens) it
+                          where nullif(it->>'bloqueio','') is not null),
+    -- So informa a liberacao que TEM EFEITO: destino OPERADOR, dono liberado, caso que sem a liberacao
+    -- estaria bloqueado por fidelizacao vigente e com a liberacao ficou livre (bloqueio nulo).
+    'liberar_fidelizacao_de', (select coalesce(jsonb_agg(x order by x), '[]'::jsonb)
+        from unnest(v_liberar) x
+       where p_destino_tipo = 'OPERADOR'
+         and exists (select 1 from jsonb_array_elements(v_itens) it
+                      where lower(coalesce(it->>'caso_de_email','')) = x
+                        and nullif(it->>'caso_id','') is not null
+                        and nullif(it->>'bloqueio','') is null
+                        and internal.cg_tem_fidelizacao((it->>'caso_id')::uuid))),
+    'protecao_ate', case when p_destino_tipo = 'OPERADOR' then internal.cg_protecao_ate() end,
+    'capacidade', case when p_destino_tipo = 'OPERADOR'
+        then internal.cg_capacidade_sequencial(v_itens, v_destino_email) end
+  ) into v_res;$novo$, 1);
+
+-- patch 07 · carteira_geral_mover
+select internal.patch_funcao_ancorada('public','carteira_geral_mover',
+$ancora$     order by max(coalesce((i.value->>'saldo_total')::numeric,0)) desc
+  loop$ancora$,
+$novo$     order by max(coalesce((i.value->>'saldo_total')::numeric,0)) desc,
+              (i.value->>'aluno_id')::uuid
+  loop$novo$, 1);
+
+-- patch 08 · carteira_geral_previa
+select internal.patch_funcao_ancorada('public','carteira_geral_previa',
+$ancora$  if p_destino_tipo not in ('CARTEIRA_GERAL','OPERADOR','FILA_LIVRE') then$ancora$,
+$novo$  -- Um unico responsavel por lote: o que esta filtrado na lista, nada mais.
+  if coalesce(array_length(internal.cg_liberar_de(p_filtros),1),0) > 1
+     or (internal.cg_liberar_de(p_filtros) is not null
+         and array_length(internal.cg_liberar_de(p_filtros),1) = 1
+         and lower(coalesce(p_filtros->>'responsavel',''))
+             is distinct from (internal.cg_liberar_de(p_filtros))[1]) then
+    raise exception 'A liberacao de fidelizacao vale para um unico responsavel: o que esta filtrado na lista.'
+      using errcode = '22023';
+  end if;
+  -- P12: liberacao so para OPERADOR ATIVO (perfil operador, ativo). Carteira Geral (inativa), operador
+  -- inativo e gerencia sao recusados ANTES de gravar a previa.
+  if exists (select 1 from unnest(internal.cg_liberar_de(p_filtros)) x
+              where not exists (select 1 from public.usuarios u
+                                 where lower(u.email) = x and u.ativo and u.perfil = 'operador')) then
+    raise exception 'A liberacao de fidelizacao so vale para operador ativo: %.',
+      (select string_agg(x, ', ') from unnest(internal.cg_liberar_de(p_filtros)) x
+        where not exists (select 1 from public.usuarios u
+                           where lower(u.email) = x and u.ativo and u.perfil = 'operador'))
+      using errcode = '22023';
+  end if;
+  if p_destino_tipo not in ('CARTEIRA_GERAL','OPERADOR','FILA_LIVRE') then$novo$, 1);
+
+-- patch 09 · carteira_geral_previa
+select internal.patch_funcao_ancorada('public','carteira_geral_previa',
+$ancora$    if v_destino_nome is null then
+      raise exception 'Operador de destino invalido ou inativo: %', p_destino_email;
+    end if;$ancora$,
+$novo$    if v_destino_nome is null then
+      raise exception 'Operador de destino invalido ou inativo: %', p_destino_email;
+    end if;
+    -- Destino recusado: inativo, sem recebimento de novos casos, ou vedado nesta operacao.
+    if internal.cg_destino_recusado(v_destino_email) is not null then
+      raise exception 'Destino recusado (%): %', internal.cg_destino_recusado(v_destino_email), v_destino_nome
+        using errcode = '22023';
+    end if;$novo$, 1);
+
+-- patch 10 · carteira_geral_mover
+select internal.patch_funcao_ancorada('public','carteira_geral_mover',
+$ancora$  v_primeira     boolean;
+begin$ancora$,
+$novo$  v_primeira     boolean;
+  -- Remanejamento com fidelizacao (20261117150000)
+  v_liberar      text[];
+  v_teto         int;
+  v_ocup         int;
+  v_n_casos      int;
+  v_bloq         text;
+  v_protecao_ate date;
+  v_bloqueados   int := 0;
+begin$novo$, 1);
+
+-- patch 11 · carteira_geral_mover
+select internal.patch_funcao_ancorada('public','carteira_geral_mover',
+$ancora$  -- Laco por ALUNO, nao por item: a escrita sempre foi por aluno, e percorrer$ancora$,
+$novo$  -- Destino OPERADOR: capacidade e protecao medidas AGORA, nao na previa.
+  -- A trava por destino serializa dois lotes para a mesma pessoa -- sem ela os
+  -- dois leriam a mesma ocupacao e somados passariam do teto.
+  v_liberar := internal.cg_liberar_de(v_previa.filtros);
+  if v_previa.destino_tipo = 'OPERADOR' then
+    perform pg_advisory_xact_lock(hashtext('carteira_geral_mover:'||lower(v_destino_email)));
+    if internal.cg_destino_recusado(v_destino_email) is not null then
+      raise exception 'Destino recusado na execucao (%). Gere uma nova previa.',
+        internal.cg_destino_recusado(v_destino_email) using errcode = '22023';
+    end if;
+    v_teto := public.calibragem_teto_operador(v_destino_email);
+    v_ocup := internal.cg_ocupacao_teto(v_destino_email);
+    v_protecao_ate := internal.cg_protecao_ate();
+  end if;
+
+  -- Laco por ALUNO, nao por item: a escrita sempre foi por aluno, e percorrer$novo$, 1);
+
+-- patch 12 · carteira_geral_mover
+select internal.patch_funcao_ancorada('public','carteira_geral_mover',
+$ancora$    v_falha := null;
+
+    -- ---------------- revalidacao: TODOS os casos, um por um ----------------$ancora$,
+$novo$    v_falha := null;
+
+    -- Trava as linhas do aluno ate o fim do lote: acionamento, assuncao ou
+    -- liberacao que chegue no meio espera, e a revalidacao abaixo enxerga o
+    -- estado que vai de fato ser escrito. Caso antes da ficha, na mesma ordem
+    -- de liberar_fidelizacao_caso.
+    perform 1 from public.casos c where c.aluno_id = r_al.aluno_id order by c.id for update;
+    perform 1 from public.alunos al where al.id = r_al.aluno_id for update;
+
+    -- ---------------- revalidacao: TODOS os casos, um por um ----------------$novo$, 1);
+
+-- patch 13 · carteira_geral_mover
+select internal.patch_funcao_ancorada('public','carteira_geral_mover',
+$ancora$    if v_falha is not null then
+      v_recusados := v_recusados || jsonb_build_object($ancora$,
+$novo$    -- Destino OPERADOR: elegibilidade, protecao de terceiros e vaga, na hora.
+    if v_falha is null and v_previa.destino_tipo = 'OPERADOR' then
+      select min(x.b), count(*)::int into v_bloq, v_n_casos
+        from (select coalesce(
+                       nullif(i.value->>'bloqueio',''),
+                       internal.cg_bloqueio_remanejamento(
+                         (i.value->>'caso_id')::uuid, 'OPERADOR', v_destino_email, v_liberar,
+                         coalesce((select round(s.saldo_total,2) from public.calibragem_saldo_aluno s
+                                    where s.aluno_id = r_al.aluno_id), 0))) as b
+                from jsonb_array_elements(v_previa.itens) i
+               where (i.value->>'aluno_id')::uuid = r_al.aluno_id) x;
+      if v_bloq is not null then
+        v_falha := internal.cg_bloqueio_texto(v_bloq);
+        v_bloqueados := v_bloqueados + 1;
+      elsif v_ocup + v_n_casos > v_teto then
+        v_falha := 'sem vaga no teto de '||coalesce(v_destino_nome, v_destino_email)||
+                   ' (teto '||v_teto||', ocupacao '||v_ocup||')';
+        v_bloqueados := v_bloqueados + 1;
+      end if;
+    end if;
+
+    if v_falha is not null then
+      v_recusados := v_recusados || jsonb_build_object($novo$, 1);
+
+-- patch 14 · carteira_geral_mover
+select internal.patch_funcao_ancorada('public','carteira_geral_mover',
+$ancora$     where aluno_id = r_al.aluno_id;
+
+    if r_al.retorno_data is not null then$ancora$,
+$novo$     where aluno_id = r_al.aluno_id;
+
+    -- Fidelizacao do novo responsavel: a marca de lote que ja existe
+    -- (casos.giro_fidelizacao_ate), lida por caso_em_giro_fidelizacao. Em
+    -- UPDATE separado e DEPOIS da troca de dono, de proposito: o gatilho
+    -- trg_giro_limpar_marca apaga a marca quando o dono muda. Nao toca
+    -- data_ultimo_acionamento, tabulacao, retorno nem historico.
+    if v_previa.destino_tipo = 'OPERADOR' then
+      update public.casos
+         set giro_fidelizacao_ate = v_protecao_ate,
+             remanejamento_lote_id = v_lote
+       where aluno_id = r_al.aluno_id;
+      v_ocup := v_ocup + v_n_casos;
+    end if;
+
+    if r_al.retorno_data is not null then$novo$, 1);
+
+-- patch 15 · carteira_geral_mover
+select internal.patch_funcao_ancorada('public','carteira_geral_mover',
+$ancora$'. Lote: '||v_lote::text||'. Agendamento de retorno preservado.',$ancora$,
+$novo$'. Lote: '||v_lote::text||'. Agendamento de retorno preservado.'||
+      case when v_protecao_ate is not null
+           then ' Fidelizacao do novo responsavel ate '||to_char(v_protecao_ate,'DD/MM/YYYY')||'.'
+           else '' end,$novo$, 1);
+
+-- patch 16 · carteira_geral_mover
+select internal.patch_funcao_ancorada('public','carteira_geral_mover',
+$ancora$         acordos_movidos, acordos_detalhe, valor_mensalidade, valor_acordo)
+      values$ancora$,
+$novo$         acordos_movidos, acordos_detalhe, valor_mensalidade, valor_acordo, protecao_ate)
+      values$novo$, 1);
+
+-- patch 17 · carteira_geral_mover
+select internal.patch_funcao_ancorada('public','carteira_geral_mover',
+$ancora$         case when v_primeira then coalesce((it->>'saldo_acordo')::numeric,0) else 0 end);$ancora$,
+$novo$         case when v_primeira then coalesce((it->>'saldo_acordo')::numeric,0) else 0 end,
+         v_protecao_ate);$novo$, 1);
+
+-- patch 18 · carteira_geral_mover
+select internal.patch_funcao_ancorada('public','carteira_geral_mover',
+$ancora$    'retornos_preservados', v_retornos,$ancora$,
+$novo$    'retornos_preservados', v_retornos,
+    'protecao_ate', v_protecao_ate,
+    'recusados_por_bloqueio_ou_teto', v_bloqueados,
+    'ocupacao_final', v_ocup,
+    'teto', v_teto,$novo$, 1);
+
+-- patch 19 · calibragem_executar_simulacao
+select internal.patch_funcao_ancorada('public','calibragem_executar_simulacao',
+$ancora$    and not public.caso_dentro_prazo_fidelizacao(c.data_ultimo_acionamento);$ancora$,
+$novo$    and not public.caso_dentro_prazo_fidelizacao(c.data_ultimo_acionamento)
+    -- Lote recem remanejado ou girado tem fidelizacao propria (a marca
+    -- giro_fidelizacao_ate): o nivelamento manual tambem nao o desfaz.
+    and not public.caso_em_giro_fidelizacao(c.giro_fidelizacao_ate);$novo$, 1);
+
+comment on function public.carteira_geral_mover(uuid, text) is
+  'Remanejamento em lote da gestao. Destino OPERADOR: revalida na hora dono, ficha, acordos, elegibilidade, fidelizacao de terceiros e vaga no teto (regua do gatilho), e grava a fidelizacao de 10 dias do novo responsavel em casos.giro_fidelizacao_ate. Nao toca data_ultimo_acionamento. Preserva retorno e historico.';
+comment on function public.carteira_geral_previa(uuid[], text, text, boolean, jsonb, uuid[]) is
+  'Previa do remanejamento. Congela por item o motivo que impede levar o caso a um operador e devolve a capacidade real do destino (mesma regua do gatilho de teto). p_filtros.liberar_fidelizacao_de lista os donos cuja fidelizacao a gestao libera neste lote.';
+
+commit;

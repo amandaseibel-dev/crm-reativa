@@ -12,6 +12,10 @@ import {
   classeEmAlerta,
   opcoesResponsavel,
   rotuloResponsavel,
+  filtrosDaPrevia,
+  CARTEIRA_GERAL_EMAIL,
+  resumoCapacidade,
+  dataCurta,
   resumoDeLinhas,
   casosPorAluno,
   casosNaoMarcados,
@@ -68,6 +72,9 @@ export default function CarteiraGeral() {
   const [destinoTipo, setDestinoTipo] = useState("CARTEIRA_GERAL");
   const [destinoEmail, setDestinoEmail] = useState("");
   const [moverAcordos, setMoverAcordos] = useState(true);
+  // Libera a fidelização vigente do responsável FILTRADO, só neste lote e só
+  // para destino operador. Desligado por padrão: é exceção, não rotina.
+  const [liberarFidelizacao, setLiberarFidelizacao] = useState(false);
   // Acordo de terceiro só vai se o id estiver aqui. Decisão item a item.
   const [acordosEscolhidos, setAcordosEscolhidos] = useState(() => new Set());
   const [motivo, setMotivo] = useState("");
@@ -187,6 +194,7 @@ export default function CarteiraGeral() {
   const porAno = useMemo(() => consolidarPorAno(painel?.por_ano), [painel]);
   const conflitos = useMemo(() => agruparConflitos(previa?.conflitos), [previa]);
   const terceiros = useMemo(() => acordosDeTerceiros(previa?.conflitos), [previa]);
+  const capacidade = useMemo(() => resumoCapacidade(previa), [previa]);
 
   function alternarAcordo(acordoId) {
     setAcordosEscolhidos((atual) => {
@@ -205,6 +213,8 @@ export default function CarteiraGeral() {
     setPaginaAtual(0);
     setSelecionados(new Map());
     setPrevia(null);
+    // A liberação vale para UM responsável filtrado: trocou o filtro, desliga.
+    setLiberarFidelizacao(false);
   }
 
   function alternar(alunoId) {
@@ -254,7 +264,11 @@ export default function CarteiraGeral() {
       p_destino_tipo: destinoTipo,
       p_destino_email: destinoTipo === "OPERADOR" ? destinoEmail : null,
       p_mover_acordos: moverAcordos,
-      p_filtros: filtrosRpc,
+      p_filtros: filtrosDaPrevia(filtrosRpc, {
+        destinoTipo,
+        liberarFidelizacao,
+        responsavel: filtros.responsavel,
+      }),
       p_acordo_ids: [...acordosEscolhidos],
     });
     setOcupado(false);
@@ -301,7 +315,17 @@ export default function CarteiraGeral() {
         (previa.acordos_de_terceiros
           ? ` (${previa.acordos_de_terceiros_selecionados} de ${previa.acordos_de_terceiros} de terceiros, selecionados por você)`
           : "") + ".\n" +
-        `Retornos agendados preservados: ${previa.retornos_preservados}.\n\n` +
+        `Retornos agendados preservados: ${previa.retornos_preservados}.\n` +
+        (Number(previa.total_bloqueados || 0)
+          ? `${previa.total_bloqueados} caso(s) bloqueado(s) NÃO serão movidos (veja os avisos).\n`
+          : "") +
+        (capacidade?.sobram
+          ? `O destino só tem ${capacidade.vagas} vaga(s): ${capacidade.sobram} caso(s) serão recusados.\n`
+          : "") +
+        (previa.protecao_ate
+          ? `Os casos recebidos ficam fidelizados ao novo responsável até ${dataCurta(previa.protecao_ate)}.\n`
+          : "") +
+        "\n" +
         "Isso muda de quem é o caso. Não muda pagamento, baixa, valor nem quem negociou."
     );
     if (!ok) return;
@@ -324,8 +348,10 @@ export default function CarteiraGeral() {
         `${data?.destino_nome}. ${data?.retornos_preservados || 0} retorno(s) preservado(s). ` +
         `Lote ${data?.lote_id}.` +
         (recusados
-          ? ` ${recusados} aluno(s) recusado(s) — nada deles foi movido, porque algo mudou depois da prévia.`
-          : "")
+          ? ` ${recusados} aluno(s) recusado(s) — nada deles foi movido: bloqueio, falta de vaga no teto ou ` +
+            `mudança depois da prévia.`
+          : "") +
+        (data?.protecao_ate ? ` Fidelização do novo responsável até ${dataCurta(data.protecao_ate)}.` : "")
     );
     setMotivo("");
     setAcordosEscolhidos(new Set());
@@ -753,6 +779,25 @@ export default function CarteiraGeral() {
             />
             <span style={rotulo}>Levar os acordos do próprio dono</span>
           </label>
+
+          {destinoTipo === "OPERADOR" &&
+            String(filtros.responsavel || "").includes("@") &&
+            filtros.responsavel !== CARTEIRA_GERAL_EMAIL && (
+              <label style={{ ...campo, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={liberarFidelizacao}
+                  onChange={(e) => { setLiberarFidelizacao(e.target.checked); setPrevia(null); }}
+                />
+                <span style={rotulo}>
+                  Liberar a fidelização vigente de{" "}
+                  {operadores.find(
+                    (o) => String(o.email || "").toLowerCase() === String(filtros.responsavel).toLowerCase()
+                  )?.nome || filtros.responsavel}{" "}
+                  neste lote
+                </span>
+              </label>
+            )}
         </div>
 
         <p style={nota}>
@@ -823,6 +868,29 @@ export default function CarteiraGeral() {
               alerta={Number(previa.acordos_de_terceiros || 0) > 0}
             />
             <Bloco titulo="Retornos preservados" valor={String(previa.retornos_preservados || 0)} />
+            {previa.total_bloqueados != null && (
+              <Bloco
+                titulo="Não serão movidos"
+                valor={String(previa.total_bloqueados || 0)}
+                nota="bloqueados para operador"
+                alerta={Number(previa.total_bloqueados || 0) > 0}
+              />
+            )}
+            {capacidade && (
+              <Bloco
+                titulo="Vagas no teto do destino"
+                valor={`${capacidade.vagas} de ${capacidade.teto}`}
+                nota={
+                  capacidade.sobram
+                    ? `entram ${capacidade.cabem}; ${capacidade.sobram} sem vaga`
+                    : `entram ${capacidade.cabem}`
+                }
+                alerta={capacidade.sobram > 0}
+              />
+            )}
+            {previa.protecao_ate && (
+              <Bloco titulo="Fidelização até" valor={dataCurta(previa.protecao_ate)} nota="10 dias para quem recebe" />
+            )}
             <Bloco titulo="Valor total" valor={moeda(previa.total_valor)} />
             <Bloco titulo="Destino" valor={previa.destino_nome} />
           </div>

@@ -1,0 +1,4401 @@
+{
+ "meta": {
+  "origem": "Supabase ahattpqrjmhkzsmnbdzs (producao), leitura somente",
+  "data_leitura": "2026-11-18",
+  "conteudo": "colunas (information_schema), indices (pg_indexes) e gatilhos (pg_trigger) das tabelas da protecao; sem dados de linhas"
+ },
+ "estruturas": {
+  "colunas": [
+   {
+    "tabela": "acordo_titulo_vinculo",
+    "cols": [
+     {
+      "c": "id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": true,
+      "def": "gen_random_uuid()"
+     },
+     {
+      "c": "acordo_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": true,
+      "def": null
+     },
+     {
+      "c": "titulo_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": true,
+      "def": null
+     },
+     {
+      "c": "ativo",
+      "t": "boolean",
+      "udt": "bool",
+      "nn": true,
+      "def": "true"
+     },
+     {
+      "c": "vinculado_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "motivo_desvinculo",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "criado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": true,
+      "def": "now()"
+     },
+     {
+      "c": "origem",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     }
+    ]
+   },
+   {
+    "tabela": "acordos",
+    "cols": [
+     {
+      "c": "id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": true,
+      "def": "gen_random_uuid()"
+     },
+     {
+      "c": "aluno_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "cpf",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "tipo",
+      "t": "text",
+      "udt": "text",
+      "nn": true,
+      "def": "'ACORDO'::text"
+     },
+     {
+      "c": "forma_pagamento",
+      "t": "text",
+      "udt": "text",
+      "nn": true,
+      "def": "'PARCELADO'::text"
+     },
+     {
+      "c": "valor_total",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "qtd_parcelas",
+      "t": "integer",
+      "udt": "int4",
+      "nn": true,
+      "def": "1"
+     },
+     {
+      "c": "valor_entrada",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "entrada_paga",
+      "t": "boolean",
+      "udt": "bool",
+      "nn": true,
+      "def": "false"
+     },
+     {
+      "c": "data_entrada",
+      "t": "date",
+      "udt": "date",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "status",
+      "t": "text",
+      "udt": "text",
+      "nn": true,
+      "def": "'ATIVO'::text"
+     },
+     {
+      "c": "observacao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "criado_por_nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "criado_por_email",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "confirmado_por_email",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "confirmado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "criado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": true,
+      "def": "now()"
+     },
+     {
+      "c": "atualizado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": true,
+      "def": "now()"
+     },
+     {
+      "c": "numero_acordo",
+      "t": "bigint",
+      "udt": "int8",
+      "nn": true,
+      "def": "nextval('acordos_numero_acordo_seq'::regclass)"
+     },
+     {
+      "c": "operador_responsavel_email",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "unidade",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "entrada_percentual",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "honorarios_percentual",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "honorarios_valor",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "saldo",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "motivo_ajuste",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "operador_responsavel_nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "duplicado_de",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "duplicado_marcado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "numero_ulbra",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     }
+    ]
+   },
+   {
+    "tabela": "acordos_titulos",
+    "cols": [
+     {
+      "c": "id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": true,
+      "def": "uuid_generate_v4()"
+     },
+     {
+      "c": "aluno_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "cpf",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "documento",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "vencimento",
+      "t": "date",
+      "udt": "date",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "valor_original",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "saldo_corrigido",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "situacao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "tipo_boleto",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "dados",
+      "t": "jsonb",
+      "udt": "jsonb",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "importacao_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "created_at",
+      "t": "timestamp without time zone",
+      "udt": "timestamp",
+      "nn": false,
+      "def": "now()"
+     },
+     {
+      "c": "status",
+      "t": "text",
+      "udt": "text",
+      "nn": true,
+      "def": "'em_aberto'::text"
+     },
+     {
+      "c": "valor_em_aberto",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "competencia",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "motivo_ajuste",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "atualizado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": "now()"
+     },
+     {
+      "c": "acordo_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "vinculado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "vinculado_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "valor_cobranca_ajustado",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "motivo_ajuste_valor",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "valor_ajustado_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "valor_ajustado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "origem_liquidacao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "origem_liquidacao_ref",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "origem_liquidacao_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "origem_encerramento",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "origem_encerramento_ref",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "origem_encerramento_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "devolucao_origem",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "devolucao_ref",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "devolucao_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "devolucao_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "devolucao_situacao_anterior",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     }
+    ]
+   },
+   {
+    "tabela": "aluno_movimentacoes",
+    "cols": [
+     {
+      "c": "id",
+      "t": "bigint",
+      "udt": "int8",
+      "nn": true,
+      "def": "nextval('aluno_movimentacoes_id_seq'::regclass)"
+     },
+     {
+      "c": "aluno_id",
+      "t": "text",
+      "udt": "text",
+      "nn": true,
+      "def": null
+     },
+     {
+      "c": "tipo",
+      "t": "text",
+      "udt": "text",
+      "nn": true,
+      "def": null
+     },
+     {
+      "c": "descricao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "status_anterior",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "status_novo",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "registrado_por_nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "registrado_por_email",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "registrado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": true,
+      "def": "now()"
+     },
+     {
+      "c": "operador_anterior_nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "operador_anterior_email",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "operador_novo_nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "operador_novo_email",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "data_retorno",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "solicitacao_link_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "baixa_pagamento_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "link_pagamento",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "motivo_devolucao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "valor_movimentacao",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "elogio_print_path",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "elogio_print_nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "elogio_aprovado_tv",
+      "t": "boolean",
+      "udt": "bool",
+      "nn": false,
+      "def": "false"
+     },
+     {
+      "c": "elogio_aprovado_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "elogio_aprovado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "elogio_rejeitado_tv",
+      "t": "boolean",
+      "udt": "bool",
+      "nn": false,
+      "def": "false"
+     },
+     {
+      "c": "elogio_rejeitado_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "elogio_rejeitado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "lote_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     }
+    ]
+   },
+   {
+    "tabela": "alunos",
+    "cols": [
+     {
+      "c": "id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": true,
+      "def": "uuid_generate_v4()"
+     },
+     {
+      "c": "cpf",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "cpf_mascarado",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "matricula",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "nome",
+      "t": "text",
+      "udt": "text",
+      "nn": true,
+      "def": null
+     },
+     {
+      "c": "email",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "telefone",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "curso",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "unidade",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "semestre",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "situacao_academica",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "status_jornada",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": "'Em cobrança'::text"
+     },
+     {
+      "c": "origem",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "aluno_novo",
+      "t": "boolean",
+      "udt": "bool",
+      "nn": false,
+      "def": "false"
+     },
+     {
+      "c": "sem_telefone",
+      "t": "boolean",
+      "udt": "bool",
+      "nn": false,
+      "def": "false"
+     },
+     {
+      "c": "sem_email",
+      "t": "boolean",
+      "udt": "bool",
+      "nn": false,
+      "def": "false"
+     },
+     {
+      "c": "created_at",
+      "t": "timestamp without time zone",
+      "udt": "timestamp",
+      "nn": false,
+      "def": "now()"
+     },
+     {
+      "c": "updated_at",
+      "t": "timestamp without time zone",
+      "udt": "timestamp",
+      "nn": false,
+      "def": "now()"
+     },
+     {
+      "c": "nome_normalizado",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "operador",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "status_atual",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "ultimo_contato",
+      "t": "date",
+      "udt": "date",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "data_retorno",
+      "t": "date",
+      "udt": "date",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "valor_em_aberto",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": "0"
+     },
+     {
+      "c": "hora_retorno",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "atualizado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": "now()"
+     },
+     {
+      "c": "operador_nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "operador_email",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "observacao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "tipo_base",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "nome_aluno",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "nome_referencia",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "cpf_corrigido",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "cpf_status_correcao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "registro_unico",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": "gen_random_uuid()"
+     },
+     {
+      "c": "chave_unificacao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "unificacao_status",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "registrado_por_nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "registrado_por_email",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "registrado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "responsavel_atual_nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "responsavel_atual_email",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "responsavel_atual_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "status_acionamento",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "proxima_acao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "data_ultimo_acionamento",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "status_link_pagamento",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "status_baixa_pagamento",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "fila_destino",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "ultimo_link_pagamento_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "ultima_baixa_pagamento_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "nivel_criticidade",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "processo_numero",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "processo_prazo_tipo",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "processo_prazo_data",
+      "t": "date",
+      "udt": "date",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "nome_resp1",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "telefone_resp1",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "nome_resp2",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "telefone_resp2",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "situacao_operacional",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "saldo_vencido",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "saldo_total",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "curso_real",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "academico_codigo",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "academico_fonte",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "academico_atualizado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "retorno_confirmado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "retorno_origem",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "semestre_divida",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "semestre_divida_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "retorno_prioritario",
+      "t": "boolean",
+      "udt": "bool",
+      "nn": true,
+      "def": "false"
+     }
+    ]
+   },
+   {
+    "tabela": "baixas_pagamento",
+    "cols": [
+     {
+      "c": "id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": true,
+      "def": "gen_random_uuid()"
+     },
+     {
+      "c": "aluno_id",
+      "t": "text",
+      "udt": "text",
+      "nn": true,
+      "def": null
+     },
+     {
+      "c": "solicitacao_link_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "aluno_nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "aluno_cpf",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "valor_pago",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "comprovante_url",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "comprovante_nome_arquivo",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "observacao_operador",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "status_baixa",
+      "t": "text",
+      "udt": "text",
+      "nn": true,
+      "def": "'AGUARDANDO_BAIXA'::text"
+     },
+     {
+      "c": "operador_origem_nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "operador_origem_email",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "responsavel_baixa_nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": "'Amanda Seibel'::text"
+     },
+     {
+      "c": "responsavel_baixa_email",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": "'amanda.seibel@aelbra.com.br'::text"
+     },
+     {
+      "c": "recebido_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": true,
+      "def": "now()"
+     },
+     {
+      "c": "atualizado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": true,
+      "def": "now()"
+     },
+     {
+      "c": "baixado_por_nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "baixado_por_email",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "baixado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "devolvido_por_nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "devolvido_por_email",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "devolvido_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "motivo_devolucao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "parcela_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "acordo_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "honorarios_recebidos",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "data_pagamento",
+      "t": "date",
+      "udt": "date",
+      "nn": false,
+      "def": null
+     }
+    ]
+   },
+   {
+    "tabela": "calibragem_parametros",
+    "cols": [
+     {
+      "c": "chave",
+      "t": "text",
+      "udt": "text",
+      "nn": true,
+      "def": null
+     },
+     {
+      "c": "valor",
+      "t": "jsonb",
+      "udt": "jsonb",
+      "nn": true,
+      "def": null
+     },
+     {
+      "c": "descricao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "atualizado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": true,
+      "def": "now()"
+     },
+     {
+      "c": "atualizado_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     }
+    ]
+   },
+   {
+    "tabela": "caso_encerramento_sem_saldo",
+    "cols": [
+     {
+      "c": "id",
+      "t": "bigint",
+      "udt": "int8",
+      "nn": true,
+      "def": "nextval('caso_encerramento_sem_saldo_id_seq'::regclass)"
+     },
+     {
+      "c": "escopo",
+      "t": "text",
+      "udt": "text",
+      "nn": true,
+      "def": null
+     },
+     {
+      "c": "caso_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "aluno_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "cpf_congelado",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "classificacao",
+      "t": "text",
+      "udt": "text",
+      "nn": true,
+      "def": null
+     },
+     {
+      "c": "saldo_no_momento",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "estado_anterior",
+      "t": "jsonb",
+      "udt": "jsonb",
+      "nn": true,
+      "def": null
+     },
+     {
+      "c": "justificativa",
+      "t": "text",
+      "udt": "text",
+      "nn": true,
+      "def": null
+     },
+     {
+      "c": "decidido_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "decidido_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "origem",
+      "t": "text",
+      "udt": "text",
+      "nn": true,
+      "def": null
+     },
+     {
+      "c": "evidencia",
+      "t": "jsonb",
+      "udt": "jsonb",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "resolvido_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "resolvido_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "registrado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": true,
+      "def": "now()"
+     }
+    ]
+   },
+   {
+    "tabela": "casos",
+    "cols": [
+     {
+      "c": "id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": true,
+      "def": "gen_random_uuid()"
+     },
+     {
+      "c": "caso_codigo",
+      "t": "integer",
+      "udt": "int4",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "cpf_original",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "cpf_limpo",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "cpf_mascarado",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "matricula",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "nome_normalizado",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "operador_base",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "operador_mensalidade",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "operador_acordo",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "operador_acordo_planilha",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "status_atual",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "data_ultimo_acionamento",
+      "t": "date",
+      "udt": "date",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "status_acionamento",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "criticidade",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "proxima_acao_automatica",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "total_em_aberto",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "data_retorno",
+      "t": "date",
+      "udt": "date",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "dias_atraso",
+      "t": "integer",
+      "udt": "int4",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "nivel_carteira",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "sla_operacional",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "urgencia",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "observacoes",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "mensalidades_em_aberto",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "acordo_em_aberto",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "parcela_a_vencer",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "parcelas_vencidas",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "proximo_vencimento",
+      "t": "date",
+      "udt": "date",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "valor_pago",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "honorario",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "data_pagamento",
+      "t": "date",
+      "udt": "date",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "status_financeiro",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "observacao_financeira",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "created_at",
+      "t": "timestamp without time zone",
+      "udt": "timestamp",
+      "nn": false,
+      "def": "now()"
+     },
+     {
+      "c": "data_retorno_nova",
+      "t": "date",
+      "udt": "date",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "ultima_tabulacao_em",
+      "t": "timestamp without time zone",
+      "udt": "timestamp",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "fila_responsavel",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "hora_retorno",
+      "t": "time without time zone",
+      "udt": "time",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "observacao_operacional",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "status_termo",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": "'Sem termo'::text"
+     },
+     {
+      "c": "termo_status_validacao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "termo_url",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "termo_nome_arquivo",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "termo_observacao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "termo_motivo_rejeicao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "termo_enviado_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "termo_validado_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "termo_validado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "nome_aluno",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "cpf",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "status_jornada",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "operador",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "observacao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "aluno",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "nome_completo",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "email",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "telefone",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "curso",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "unidade",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "semestre",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "ultimo_acionamento",
+      "t": "date",
+      "udt": "date",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "valor_em_aberto",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "valor_aberto",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "valor_total",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "valor_divida",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "saldo_devedor",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "valor",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "origem",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "operador_nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "operador_email",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "nome_referencia",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "cpf_corrigido",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "cpf_status_correcao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "registro_unico",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": "gen_random_uuid()"
+     },
+     {
+      "c": "chave_unificacao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "unificacao_status",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "origem_quitacao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "quitado_em",
+      "t": "date",
+      "udt": "date",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "valor_quitado",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": "0"
+     },
+     {
+      "c": "baixa_importada_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "valor_cobranca_ajustado",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "motivo_ajuste_valor",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "valor_ajustado_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "valor_ajustado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "cadastro_caso_observacao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "caso_atualizado_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "caso_atualizado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "nao_acionar",
+      "t": "boolean",
+      "udt": "bool",
+      "nn": true,
+      "def": "false"
+     },
+     {
+      "c": "aluno_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "nivelamento_marcador",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "nivelamento_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "nivelamento_simulacao_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "situacao_operacional",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "saldo_vencido",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "saldo_total",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "encerrado_operacional",
+      "t": "boolean",
+      "udt": "bool",
+      "nn": true,
+      "def": "false"
+     },
+     {
+      "c": "operador_mensalidade_email",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "operador_mensalidade_nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "mensalidade_girada_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "giro_fidelizacao_ate",
+      "t": "date",
+      "udt": "date",
+      "nn": false,
+      "def": null
+     }
+    ]
+   },
+   {
+    "tabela": "links_pagamento",
+    "cols": [
+     {
+      "c": "id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": true,
+      "def": "gen_random_uuid()"
+     },
+     {
+      "c": "aluno_id",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "aluno_nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "aluno_cpf",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "operador_nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "operador_email",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "tipo_pagamento",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": "'Cartão'::text"
+     },
+     {
+      "c": "parcelas",
+      "t": "integer",
+      "udt": "int4",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "valor",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "vencimento",
+      "t": "date",
+      "udt": "date",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "link_url",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "status",
+      "t": "text",
+      "udt": "text",
+      "nn": true,
+      "def": "'SOLICITADO'::text"
+     },
+     {
+      "c": "observacao_operador",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "observacao_adm",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "solicitado_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "solicitado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": "now()"
+     },
+     {
+      "c": "gerado_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "gerado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "enviado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "pago_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "cancelado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "atualizado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": "now()"
+     },
+     {
+      "c": "baixado_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "baixado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "divergencia_motivo",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "divergencia_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "comprovante_url",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "comprovante_nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "pagamento_identificado_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "pagamento_identificado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "nome_referencia",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "cpf_corrigido",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "cpf_status_correcao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "registro_unico",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": "gen_random_uuid()"
+     },
+     {
+      "c": "chave_unificacao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "unificacao_status",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "nome_aluno",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "cpf_referencia",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "forma_pagamento",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "observacao_solicitacao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "link_gerado",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "link_gerado_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "link_gerado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "enviado_ao_aluno_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "comprovante_anexado_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "comprovante_anexado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "baixa_realizada_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "baixa_realizada_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "motivo_divergencia",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "criado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": "now()"
+     },
+     {
+      "c": "operador_solicitante",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "data_vencimento",
+      "t": "date",
+      "udt": "date",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "observacao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "link_pagamento",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "mensagem_pronta",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "adm_responsavel",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "assumido_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "respondido_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "enviado_operador_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "alerta_7min",
+      "t": "boolean",
+      "udt": "bool",
+      "nn": false,
+      "def": "false"
+     },
+     {
+      "c": "observacao_comprovante",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "baixa_devolvida_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "baixa_devolvida_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "valor_pago",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     }
+    ]
+   },
+   {
+    "tabela": "parcelas",
+    "cols": [
+     {
+      "c": "id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": true,
+      "def": "gen_random_uuid()"
+     },
+     {
+      "c": "acordo_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": true,
+      "def": null
+     },
+     {
+      "c": "numero",
+      "t": "integer",
+      "udt": "int4",
+      "nn": true,
+      "def": "1"
+     },
+     {
+      "c": "valor",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "vencimento",
+      "t": "date",
+      "udt": "date",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "status",
+      "t": "text",
+      "udt": "text",
+      "nn": true,
+      "def": "'A_VENCER'::text"
+     },
+     {
+      "c": "pago_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "confirmado_por_email",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "observacao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "solicitacao_confirmacao_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "criado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": true,
+      "def": "now()"
+     },
+     {
+      "c": "atualizado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": true,
+      "def": "now()"
+     },
+     {
+      "c": "honorarios",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "forma_pagamento",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "is_entrada",
+      "t": "boolean",
+      "udt": "bool",
+      "nn": false,
+      "def": "false"
+     },
+     {
+      "c": "boleto",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "titulos_origem",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "boleto_confiavel",
+      "t": "boolean",
+      "udt": "bool",
+      "nn": true,
+      "def": "false"
+     },
+     {
+      "c": "renegociada_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "renegociada_no_acordo_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "origem_baixa",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "origem_baixa_ref",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "origem_baixa_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "efeito_sem_pagamento",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "efeito_sem_pagamento_origem",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "efeito_sem_pagamento_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "efeito_sem_pagamento_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     }
+    ]
+   },
+   {
+    "tabela": "solicitacoes_confirmacao_pagamento",
+    "cols": [
+     {
+      "c": "id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": true,
+      "def": "gen_random_uuid()"
+     },
+     {
+      "c": "aluno_id",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "aluno_nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "aluno_cpf",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "operador_email",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "operador_nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "valor_informado",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "motivo",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "status",
+      "t": "text",
+      "udt": "text",
+      "nn": true,
+      "def": "'AGUARDANDO_CONFIRMACAO'::text"
+     },
+     {
+      "c": "observacao_adm",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "confirmado_por",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "confirmado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "criado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": true,
+      "def": "now()"
+     },
+     {
+      "c": "atualizado_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": true,
+      "def": "now()"
+     },
+     {
+      "c": "acordo_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "parcela_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "forma_pagamento",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "qtd_parcelas",
+      "t": "integer",
+      "udt": "int4",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "valor_entrada",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "entrada_paga",
+      "t": "boolean",
+      "udt": "bool",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "titulo_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "data_pagamento",
+      "t": "date",
+      "udt": "date",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "tipo_pagamento",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "comprovante_link_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "dados_vinculados_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "dados_vinculados_por_email",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "principal_referencia",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "juros",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "multa",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "honorarios",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "total_negociado",
+      "t": "numeric",
+      "udt": "numeric",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "composicao_validada_em",
+      "t": "timestamp with time zone",
+      "udt": "timestamptz",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "composicao_validada_por_email",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "pagamento_id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "origem_divida",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     }
+    ]
+   },
+   {
+    "tabela": "usuarios",
+    "cols": [
+     {
+      "c": "id",
+      "t": "uuid",
+      "udt": "uuid",
+      "nn": true,
+      "def": "uuid_generate_v4()"
+     },
+     {
+      "c": "nome",
+      "t": "text",
+      "udt": "text",
+      "nn": true,
+      "def": null
+     },
+     {
+      "c": "email",
+      "t": "text",
+      "udt": "text",
+      "nn": true,
+      "def": null
+     },
+     {
+      "c": "perfil",
+      "t": "text",
+      "udt": "text",
+      "nn": true,
+      "def": null
+     },
+     {
+      "c": "ativo",
+      "t": "boolean",
+      "udt": "bool",
+      "nn": false,
+      "def": "true"
+     },
+     {
+      "c": "created_at",
+      "t": "timestamp without time zone",
+      "udt": "timestamp",
+      "nn": false,
+      "def": "now()"
+     },
+     {
+      "c": "operador_nome",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "operador",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "foto_url",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "apelido",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "aniversario",
+      "t": "date",
+      "udt": "date",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "receptivo",
+      "t": "boolean",
+      "udt": "bool",
+      "nn": false,
+      "def": "false"
+     },
+     {
+      "c": "pode_gerir_confirmacao_pagamento",
+      "t": "boolean",
+      "udt": "bool",
+      "nn": true,
+      "def": "false"
+     },
+     {
+      "c": "pode_alterar_responsavel",
+      "t": "boolean",
+      "udt": "bool",
+      "nn": true,
+      "def": "false"
+     },
+     {
+      "c": "deve_trocar_senha",
+      "t": "boolean",
+      "udt": "bool",
+      "nn": false,
+      "def": "false"
+     },
+     {
+      "c": "turno",
+      "t": "text",
+      "udt": "text",
+      "nn": true,
+      "def": "'livre'::text"
+     },
+     {
+      "c": "foto_path",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "nome_exibicao",
+      "t": "text",
+      "udt": "text",
+      "nn": false,
+      "def": null
+     },
+     {
+      "c": "recebe_novos_casos",
+      "t": "boolean",
+      "udt": "bool",
+      "nn": true,
+      "def": "true"
+     }
+    ]
+   }
+  ],
+  "indices": [
+   {
+    "nome": "acordo_titulo_vinculo_pkey",
+    "def": "CREATE UNIQUE INDEX acordo_titulo_vinculo_pkey ON public.acordo_titulo_vinculo USING btree (id)"
+   },
+   {
+    "nome": "acordos_aluno_id_idx",
+    "def": "CREATE INDEX acordos_aluno_id_idx ON public.acordos USING btree (aluno_id)"
+   },
+   {
+    "nome": "acordos_duplicado_de_idx",
+    "def": "CREATE INDEX acordos_duplicado_de_idx ON public.acordos USING btree (duplicado_de) WHERE (duplicado_de IS NOT NULL)"
+   },
+   {
+    "nome": "acordos_pkey",
+    "def": "CREATE UNIQUE INDEX acordos_pkey ON public.acordos USING btree (id)"
+   },
+   {
+    "nome": "acordos_status_idx",
+    "def": "CREATE INDEX acordos_status_idx ON public.acordos USING btree (status)"
+   },
+   {
+    "nome": "acordos_titulos_documento_key",
+    "def": "CREATE UNIQUE INDEX acordos_titulos_documento_key ON public.acordos_titulos USING btree (documento)"
+   },
+   {
+    "nome": "acordos_titulos_pkey",
+    "def": "CREATE UNIQUE INDEX acordos_titulos_pkey ON public.acordos_titulos USING btree (id)"
+   },
+   {
+    "nome": "aluno_movimentacoes_pkey",
+    "def": "CREATE UNIQUE INDEX aluno_movimentacoes_pkey ON public.aluno_movimentacoes USING btree (id)"
+   },
+   {
+    "nome": "alunos_pkey",
+    "def": "CREATE UNIQUE INDEX alunos_pkey ON public.alunos USING btree (id)"
+   },
+   {
+    "nome": "baixas_pagamento_pkey",
+    "def": "CREATE UNIQUE INDEX baixas_pagamento_pkey ON public.baixas_pagamento USING btree (id)"
+   },
+   {
+    "nome": "calibragem_parametros_pkey",
+    "def": "CREATE UNIQUE INDEX calibragem_parametros_pkey ON public.calibragem_parametros USING btree (chave)"
+   },
+   {
+    "nome": "caso_encerramento_sem_saldo_cpf_vigente",
+    "def": "CREATE INDEX caso_encerramento_sem_saldo_cpf_vigente ON public.caso_encerramento_sem_saldo USING btree (cpf_congelado) WHERE ((resolvido_em IS NULL) AND (cpf_congelado IS NOT NULL))"
+   },
+   {
+    "nome": "caso_encerramento_sem_saldo_pendente_idx",
+    "def": "CREATE INDEX caso_encerramento_sem_saldo_pendente_idx ON public.caso_encerramento_sem_saldo USING btree (classificacao, registrado_em DESC) WHERE (resolvido_em IS NULL)"
+   },
+   {
+    "nome": "caso_encerramento_sem_saldo_pkey",
+    "def": "CREATE UNIQUE INDEX caso_encerramento_sem_saldo_pkey ON public.caso_encerramento_sem_saldo USING btree (id)"
+   },
+   {
+    "nome": "caso_encerramento_sem_saldo_vigente_aluno",
+    "def": "CREATE UNIQUE INDEX caso_encerramento_sem_saldo_vigente_aluno ON public.caso_encerramento_sem_saldo USING btree (aluno_id) WHERE ((resolvido_em IS NULL) AND (escopo = 'ALUNO'::text))"
+   },
+   {
+    "nome": "caso_encerramento_sem_saldo_vigente_caso",
+    "def": "CREATE UNIQUE INDEX caso_encerramento_sem_saldo_vigente_caso ON public.caso_encerramento_sem_saldo USING btree (caso_id) WHERE ((resolvido_em IS NULL) AND (caso_id IS NOT NULL))"
+   },
+   {
+    "nome": "casos_pkey",
+    "def": "CREATE UNIQUE INDEX casos_pkey ON public.casos USING btree (id)"
+   },
+   {
+    "nome": "idx_acordo_titulo_vinculo_titulo",
+    "def": "CREATE INDEX idx_acordo_titulo_vinculo_titulo ON public.acordo_titulo_vinculo USING btree (titulo_id)"
+   },
+   {
+    "nome": "idx_acordos_aluno_operador",
+    "def": "CREATE INDEX idx_acordos_aluno_operador ON public.acordos USING btree (aluno_id, lower(operador_responsavel_email))"
+   },
+   {
+    "nome": "idx_acordos_cpf",
+    "def": "CREATE INDEX idx_acordos_cpf ON public.acordos USING btree (cpf)"
+   },
+   {
+    "nome": "idx_acordos_sem_responsavel_ativo",
+    "def": "CREATE INDEX idx_acordos_sem_responsavel_ativo ON public.acordos USING btree (status) WHERE (operador_responsavel_email IS NULL)"
+   },
+   {
+    "nome": "idx_acordos_titulos_acordo_id",
+    "def": "CREATE INDEX idx_acordos_titulos_acordo_id ON public.acordos_titulos USING btree (acordo_id) WHERE (acordo_id IS NOT NULL)"
+   },
+   {
+    "nome": "idx_acordos_titulos_aluno_id",
+    "def": "CREATE INDEX idx_acordos_titulos_aluno_id ON public.acordos_titulos USING btree (aluno_id) WHERE (aluno_id IS NOT NULL)"
+   },
+   {
+    "nome": "idx_acordos_titulos_cpf",
+    "def": "CREATE INDEX idx_acordos_titulos_cpf ON public.acordos_titulos USING btree (cpf)"
+   },
+   {
+    "nome": "idx_acordos_titulos_cpf_aberto",
+    "def": "CREATE INDEX idx_acordos_titulos_cpf_aberto ON public.acordos_titulos USING btree (cpf) WHERE ((upper(COALESCE(situacao, ''::text)) = 'ABERTO'::text) AND (lower(COALESCE(status, ''::text)) <> 'quitada'::text))"
+   },
+   {
+    "nome": "idx_acordos_titulos_cpf_cobre_aberto",
+    "def": "CREATE INDEX idx_acordos_titulos_cpf_cobre_aberto ON public.acordos_titulos USING btree (cpf, id, saldo_corrigido) WHERE ((upper(COALESCE(situacao, ''::text)) = 'ABERTO'::text) AND (lower(COALESCE(status, ''::text)) <> 'quitada'::text))"
+   },
+   {
+    "nome": "idx_acordos_titulos_devolucao",
+    "def": "CREATE INDEX idx_acordos_titulos_devolucao ON public.acordos_titulos USING btree (devolucao_origem, devolucao_em DESC) WHERE (devolucao_origem IS NOT NULL)"
+   },
+   {
+    "nome": "idx_acordos_titulos_documento",
+    "def": "CREATE INDEX idx_acordos_titulos_documento ON public.acordos_titulos USING btree (documento)"
+   },
+   {
+    "nome": "idx_acordos_titulos_importacao_id",
+    "def": "CREATE INDEX idx_acordos_titulos_importacao_id ON public.acordos_titulos USING btree (importacao_id)"
+   },
+   {
+    "nome": "idx_aluno_mov_reg_por",
+    "def": "CREATE INDEX idx_aluno_mov_reg_por ON public.aluno_movimentacoes USING btree (registrado_por_email, registrado_em)"
+   },
+   {
+    "nome": "idx_aluno_mov_registrado_em",
+    "def": "CREATE INDEX idx_aluno_mov_registrado_em ON public.aluno_movimentacoes USING btree (registrado_em)"
+   },
+   {
+    "nome": "idx_aluno_movimentacoes_aluno_id",
+    "def": "CREATE INDEX idx_aluno_movimentacoes_aluno_id ON public.aluno_movimentacoes USING btree (aluno_id)"
+   },
+   {
+    "nome": "idx_alunos_cpf",
+    "def": "CREATE INDEX idx_alunos_cpf ON public.alunos USING btree (cpf)"
+   },
+   {
+    "nome": "idx_alunos_cpf_normalizado",
+    "def": "CREATE INDEX idx_alunos_cpf_normalizado ON public.alunos USING btree (lpad(regexp_replace(COALESCE(cpf, ''::text), '\\D'::text, ''::text, 'g'::text), 11, '0'::text))"
+   },
+   {
+    "nome": "idx_alunos_cpf_trgm",
+    "def": "CREATE INDEX idx_alunos_cpf_trgm ON public.alunos USING gin (cpf gin_trgm_ops)"
+   },
+   {
+    "nome": "idx_alunos_curso",
+    "def": "CREATE INDEX idx_alunos_curso ON public.alunos USING btree (curso)"
+   },
+   {
+    "nome": "idx_alunos_data_retorno",
+    "def": "CREATE INDEX idx_alunos_data_retorno ON public.alunos USING btree (data_retorno)"
+   },
+   {
+    "nome": "idx_alunos_data_ultimo_acionamento",
+    "def": "CREATE INDEX idx_alunos_data_ultimo_acionamento ON public.alunos USING btree (data_ultimo_acionamento)"
+   },
+   {
+    "nome": "idx_alunos_minha_fila",
+    "def": "CREATE INDEX idx_alunos_minha_fila ON public.alunos USING btree (responsavel_atual_email, data_ultimo_acionamento)"
+   },
+   {
+    "nome": "idx_alunos_nivel_criticidade",
+    "def": "CREATE INDEX idx_alunos_nivel_criticidade ON public.alunos USING btree (nivel_criticidade)"
+   },
+   {
+    "nome": "idx_alunos_nome",
+    "def": "CREATE INDEX idx_alunos_nome ON public.alunos USING btree (nome)"
+   },
+   {
+    "nome": "idx_alunos_nome_norm_trgm",
+    "def": "CREATE INDEX idx_alunos_nome_norm_trgm ON public.alunos USING gin (nome_normalizado gin_trgm_ops)"
+   },
+   {
+    "nome": "idx_alunos_processo_prazo_tipo",
+    "def": "CREATE INDEX idx_alunos_processo_prazo_tipo ON public.alunos USING btree (processo_prazo_tipo)"
+   },
+   {
+    "nome": "idx_alunos_responsavel_atual_email",
+    "def": "CREATE INDEX idx_alunos_responsavel_atual_email ON public.alunos USING btree (responsavel_atual_email)"
+   },
+   {
+    "nome": "idx_alunos_semestre_divida",
+    "def": "CREATE INDEX idx_alunos_semestre_divida ON public.alunos USING btree (semestre_divida) WHERE (semestre_divida IS NOT NULL)"
+   },
+   {
+    "nome": "idx_alunos_situacao_academica",
+    "def": "CREATE INDEX idx_alunos_situacao_academica ON public.alunos USING btree (situacao_academica)"
+   },
+   {
+    "nome": "idx_alunos_status_jornada",
+    "def": "CREATE INDEX idx_alunos_status_jornada ON public.alunos USING btree (status_jornada)"
+   },
+   {
+    "nome": "idx_alunos_unidade",
+    "def": "CREATE INDEX idx_alunos_unidade ON public.alunos USING btree (unidade)"
+   },
+   {
+    "nome": "idx_baixas_pagamento_acordo_id",
+    "def": "CREATE INDEX idx_baixas_pagamento_acordo_id ON public.baixas_pagamento USING btree (acordo_id)"
+   },
+   {
+    "nome": "idx_baixas_pagamento_aluno_id",
+    "def": "CREATE INDEX idx_baixas_pagamento_aluno_id ON public.baixas_pagamento USING btree (aluno_id)"
+   },
+   {
+    "nome": "idx_baixas_pagamento_cpf",
+    "def": "CREATE INDEX idx_baixas_pagamento_cpf ON public.baixas_pagamento USING btree (aluno_cpf)"
+   },
+   {
+    "nome": "idx_baixas_pagamento_operador",
+    "def": "CREATE INDEX idx_baixas_pagamento_operador ON public.baixas_pagamento USING btree (operador_origem_email)"
+   },
+   {
+    "nome": "idx_baixas_pagamento_parcela_id",
+    "def": "CREATE INDEX idx_baixas_pagamento_parcela_id ON public.baixas_pagamento USING btree (parcela_id)"
+   },
+   {
+    "nome": "idx_baixas_pagamento_status",
+    "def": "CREATE INDEX idx_baixas_pagamento_status ON public.baixas_pagamento USING btree (status_baixa)"
+   },
+   {
+    "nome": "idx_casos_aluno_id",
+    "def": "CREATE INDEX idx_casos_aluno_id ON public.casos USING btree (aluno_id)"
+   },
+   {
+    "nome": "idx_casos_baixa_importada_id",
+    "def": "CREATE INDEX idx_casos_baixa_importada_id ON public.casos USING btree (baixa_importada_id)"
+   },
+   {
+    "nome": "idx_casos_chave_unificacao",
+    "def": "CREATE INDEX idx_casos_chave_unificacao ON public.casos USING btree (chave_unificacao)"
+   },
+   {
+    "nome": "idx_casos_cpf_corrigido",
+    "def": "CREATE INDEX idx_casos_cpf_corrigido ON public.casos USING btree (cpf_corrigido)"
+   },
+   {
+    "nome": "idx_casos_cpf_normalizado",
+    "def": "CREATE INDEX idx_casos_cpf_normalizado ON public.casos USING btree (lpad(regexp_replace(COALESCE(cpf_limpo, ''::text), '\\D'::text, ''::text, 'g'::text), 11, '0'::text))"
+   },
+   {
+    "nome": "idx_casos_giro_fidelizacao_ate",
+    "def": "CREATE INDEX idx_casos_giro_fidelizacao_ate ON public.casos USING btree (giro_fidelizacao_ate) WHERE (giro_fidelizacao_ate IS NOT NULL)"
+   },
+   {
+    "nome": "idx_casos_nome_referencia",
+    "def": "CREATE INDEX idx_casos_nome_referencia ON public.casos USING btree (nome_referencia)"
+   },
+   {
+    "nome": "idx_casos_operador_email",
+    "def": "CREATE INDEX idx_casos_operador_email ON public.casos USING btree (operador_email)"
+   },
+   {
+    "nome": "idx_casos_operador_mensalidade",
+    "def": "CREATE INDEX idx_casos_operador_mensalidade ON public.casos USING btree (operador_mensalidade_email) WHERE (operador_mensalidade_email IS NOT NULL)"
+   },
+   {
+    "nome": "idx_casos_status_financeiro",
+    "def": "CREATE INDEX idx_casos_status_financeiro ON public.casos USING btree (status_financeiro)"
+   },
+   {
+    "nome": "idx_casos_valor_ajustado",
+    "def": "CREATE INDEX idx_casos_valor_ajustado ON public.casos USING btree (valor_cobranca_ajustado)"
+   },
+   {
+    "nome": "idx_links_pagamento_chave_unificacao",
+    "def": "CREATE INDEX idx_links_pagamento_chave_unificacao ON public.links_pagamento USING btree (chave_unificacao)"
+   },
+   {
+    "nome": "idx_links_pagamento_cpf",
+    "def": "CREATE INDEX idx_links_pagamento_cpf ON public.links_pagamento USING btree (aluno_cpf)"
+   },
+   {
+    "nome": "idx_links_pagamento_criado_em",
+    "def": "CREATE INDEX idx_links_pagamento_criado_em ON public.links_pagamento USING btree (criado_em DESC)"
+   },
+   {
+    "nome": "idx_links_pagamento_operador_email",
+    "def": "CREATE INDEX idx_links_pagamento_operador_email ON public.links_pagamento USING btree (operador_email)"
+   },
+   {
+    "nome": "idx_links_pagamento_status",
+    "def": "CREATE INDEX idx_links_pagamento_status ON public.links_pagamento USING btree (status)"
+   },
+   {
+    "nome": "idx_sol_conf_cpf",
+    "def": "CREATE INDEX idx_sol_conf_cpf ON public.solicitacoes_confirmacao_pagamento USING btree (aluno_cpf)"
+   },
+   {
+    "nome": "idx_solic_conf_origem_divida_aberta",
+    "def": "CREATE INDEX idx_solic_conf_origem_divida_aberta ON public.solicitacoes_confirmacao_pagamento USING btree (origem_divida) WHERE (status = ANY (ARRAY['AGUARDANDO_CONFIRMACAO'::text, 'PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO'::text]))"
+   },
+   {
+    "nome": "idx_solic_conf_pagto_acordo_id",
+    "def": "CREATE INDEX idx_solic_conf_pagto_acordo_id ON public.solicitacoes_confirmacao_pagamento USING btree (acordo_id)"
+   },
+   {
+    "nome": "idx_solic_conf_pagto_parcela_id",
+    "def": "CREATE INDEX idx_solic_conf_pagto_parcela_id ON public.solicitacoes_confirmacao_pagamento USING btree (parcela_id)"
+   },
+   {
+    "nome": "idx_solic_conf_pagto_titulo_id",
+    "def": "CREATE INDEX idx_solic_conf_pagto_titulo_id ON public.solicitacoes_confirmacao_pagamento USING btree (titulo_id)"
+   },
+   {
+    "nome": "idx_solic_confirm_pagamento_aluno_id",
+    "def": "CREATE INDEX idx_solic_confirm_pagamento_aluno_id ON public.solicitacoes_confirmacao_pagamento USING btree (aluno_id)"
+   },
+   {
+    "nome": "idx_solic_confirm_pagamento_status",
+    "def": "CREATE INDEX idx_solic_confirm_pagamento_status ON public.solicitacoes_confirmacao_pagamento USING btree (status)"
+   },
+   {
+    "nome": "ix_acordos_numero_ulbra",
+    "def": "CREATE INDEX ix_acordos_numero_ulbra ON public.acordos USING btree (numero_ulbra) WHERE (numero_ulbra IS NOT NULL)"
+   },
+   {
+    "nome": "ix_acordos_titulos_aluno_venc",
+    "def": "CREATE INDEX ix_acordos_titulos_aluno_venc ON public.acordos_titulos USING btree (aluno_id, vencimento)"
+   },
+   {
+    "nome": "ix_acordos_titulos_em_confirmacao_aluno",
+    "def": "CREATE INDEX ix_acordos_titulos_em_confirmacao_aluno ON public.acordos_titulos USING btree (aluno_id) WHERE (upper(COALESCE(situacao, ''::text)) = 'EM_CONFIRMACAO'::text)"
+   },
+   {
+    "nome": "ix_aluno_mov_lote",
+    "def": "CREATE INDEX ix_aluno_mov_lote ON public.aluno_movimentacoes USING btree (lote_id) WHERE (lote_id IS NOT NULL)"
+   },
+   {
+    "nome": "ix_aluno_mov_tipo_data",
+    "def": "CREATE INDEX ix_aluno_mov_tipo_data ON public.aluno_movimentacoes USING btree (tipo, registrado_em)"
+   },
+   {
+    "nome": "ix_alunos_nome_normalizado",
+    "def": "CREATE INDEX ix_alunos_nome_normalizado ON public.alunos USING btree (translate(upper(regexp_replace(TRIM(BOTH FROM nome), '\\s+'::text, ' '::text, 'g'::text)), 'ÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ'::text, 'AAAAAEEEEIIIIOOOOOUUUUC'::text))"
+   },
+   {
+    "nome": "ix_alunos_wa_chave_resp1",
+    "def": "CREATE INDEX ix_alunos_wa_chave_resp1 ON public.alunos USING btree (whatsapp_chave_telefone(telefone_resp1))"
+   },
+   {
+    "nome": "ix_alunos_wa_chave_resp2",
+    "def": "CREATE INDEX ix_alunos_wa_chave_resp2 ON public.alunos USING btree (whatsapp_chave_telefone(telefone_resp2))"
+   },
+   {
+    "nome": "ix_alunos_wa_chave_telefone",
+    "def": "CREATE INDEX ix_alunos_wa_chave_telefone ON public.alunos USING btree (whatsapp_chave_telefone(telefone))"
+   },
+   {
+    "nome": "ix_casos_operador_ativo",
+    "def": "CREATE INDEX ix_casos_operador_ativo ON public.casos USING btree (operador_email) WHERE (encerrado_operacional = false)"
+   },
+   {
+    "nome": "ix_parcelas_acordo_status_venc",
+    "def": "CREATE INDEX ix_parcelas_acordo_status_venc ON public.parcelas USING btree (acordo_id, status, vencimento)"
+   },
+   {
+    "nome": "ix_parcelas_origem_baixa",
+    "def": "CREATE INDEX ix_parcelas_origem_baixa ON public.parcelas USING btree (origem_baixa) WHERE (origem_baixa IS NOT NULL)"
+   },
+   {
+    "nome": "ix_vinculo_acordo",
+    "def": "CREATE INDEX ix_vinculo_acordo ON public.acordo_titulo_vinculo USING btree (acordo_id)"
+   },
+   {
+    "nome": "links_pagamento_pkey",
+    "def": "CREATE UNIQUE INDEX links_pagamento_pkey ON public.links_pagamento USING btree (id)"
+   },
+   {
+    "nome": "parcelas_acordo_id_idx",
+    "def": "CREATE INDEX parcelas_acordo_id_idx ON public.parcelas USING btree (acordo_id)"
+   },
+   {
+    "nome": "parcelas_pkey",
+    "def": "CREATE UNIQUE INDEX parcelas_pkey ON public.parcelas USING btree (id)"
+   },
+   {
+    "nome": "parcelas_status_idx",
+    "def": "CREATE INDEX parcelas_status_idx ON public.parcelas USING btree (status)"
+   },
+   {
+    "nome": "parcelas_vencimento_idx",
+    "def": "CREATE INDEX parcelas_vencimento_idx ON public.parcelas USING btree (vencimento)"
+   },
+   {
+    "nome": "solicitacoes_confirmacao_pagamento_pagamento_id_key",
+    "def": "CREATE UNIQUE INDEX solicitacoes_confirmacao_pagamento_pagamento_id_key ON public.solicitacoes_confirmacao_pagamento USING btree (pagamento_id) WHERE (pagamento_id IS NOT NULL)"
+   },
+   {
+    "nome": "solicitacoes_confirmacao_pagamento_pkey",
+    "def": "CREATE UNIQUE INDEX solicitacoes_confirmacao_pagamento_pkey ON public.solicitacoes_confirmacao_pagamento USING btree (id)"
+   },
+   {
+    "nome": "uq_solic_confirmacao_por_comprovante_link",
+    "def": "CREATE UNIQUE INDEX uq_solic_confirmacao_por_comprovante_link ON public.solicitacoes_confirmacao_pagamento USING btree (comprovante_link_id) WHERE (comprovante_link_id IS NOT NULL)"
+   },
+   {
+    "nome": "uq_solic_saldo_zerado_aberto",
+    "def": "CREATE UNIQUE INDEX uq_solic_saldo_zerado_aberto ON public.solicitacoes_confirmacao_pagamento USING btree (aluno_id) WHERE ((motivo = 'SALDO_ZERADO_IDENTIFICADO'::text) AND (status = 'AGUARDANDO_CONFIRMACAO'::text))"
+   },
+   {
+    "nome": "usuarios_email_key",
+    "def": "CREATE UNIQUE INDEX usuarios_email_key ON public.usuarios USING btree (email)"
+   },
+   {
+    "nome": "usuarios_pkey",
+    "def": "CREATE UNIQUE INDEX usuarios_pkey ON public.usuarios USING btree (id)"
+   },
+   {
+    "nome": "ux_acordos_import_dedupe",
+    "def": "CREATE UNIQUE INDEX ux_acordos_import_dedupe ON public.acordos USING btree (aluno_id, round(valor_total, 2), qtd_parcelas, \"substring\"(observacao, 'lote ([0-9a-f-]{36})'::text)) WHERE ((criado_por_email = 'importacao@sistema'::text) AND (\"substring\"(observacao, 'lote ([0-9a-f-]{36})'::text) IS NOT NULL))"
+   },
+   {
+    "nome": "ux_aluno_mov_lote_aluno",
+    "def": "CREATE UNIQUE INDEX ux_aluno_mov_lote_aluno ON public.aluno_movimentacoes USING btree (lote_id, aluno_id) WHERE (lote_id IS NOT NULL)"
+   },
+   {
+    "nome": "ux_casos_uma_ficha_aberta_por_aluno",
+    "def": "CREATE UNIQUE INDEX ux_casos_uma_ficha_aberta_por_aluno ON public.casos USING btree (aluno_id) WHERE ((aluno_id IS NOT NULL) AND (NOT COALESCE(encerrado_operacional, false)))"
+   },
+   {
+    "nome": "ux_parcelas_boleto",
+    "def": "CREATE UNIQUE INDEX ux_parcelas_boleto ON public.parcelas USING btree (boleto) WHERE (boleto IS NOT NULL)"
+   },
+   {
+    "nome": "ux_titulo_vinculo_ativo",
+    "def": "CREATE UNIQUE INDEX ux_titulo_vinculo_ativo ON public.acordo_titulo_vinculo USING btree (titulo_id) WHERE ativo"
+   }
+  ],
+  "gatilhos": [
+   {
+    "tabela": "acordo_titulo_vinculo",
+    "nome": "trg_parcela_guarda_titulo_origem",
+    "def": "CREATE TRIGGER trg_parcela_guarda_titulo_origem AFTER INSERT OR DELETE OR UPDATE ON public.acordo_titulo_vinculo FOR EACH ROW EXECUTE FUNCTION _parcela_guarda_titulo_origem()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordo_titulo_vinculo",
+    "nome": "trg_recalc_vinculo_ins",
+    "def": "CREATE TRIGGER trg_recalc_vinculo_ins AFTER INSERT ON public.acordo_titulo_vinculo REFERENCING NEW TABLE AS novas FOR EACH STATEMENT EXECUTE FUNCTION _trg_recalc_por_vinculo_novo()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordo_titulo_vinculo",
+    "nome": "trg_recalc_vinculo_upd",
+    "def": "CREATE TRIGGER trg_recalc_vinculo_upd AFTER UPDATE ON public.acordo_titulo_vinculo REFERENCING NEW TABLE AS novas FOR EACH STATEMENT EXECUTE FUNCTION _trg_recalc_por_vinculo_novo()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordo_titulo_vinculo",
+    "nome": "trg_titulo_situacao_por_vinculo",
+    "def": "CREATE TRIGGER trg_titulo_situacao_por_vinculo AFTER INSERT OR DELETE OR UPDATE ON public.acordo_titulo_vinculo FOR EACH ROW EXECUTE FUNCTION titulo_situacao_por_vinculo()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordo_titulo_vinculo",
+    "nome": "trg_vinculo_titulo_em_confirmacao_bloqueia",
+    "def": "CREATE TRIGGER trg_vinculo_titulo_em_confirmacao_bloqueia BEFORE INSERT ON public.acordo_titulo_vinculo FOR EACH ROW EXECUTE FUNCTION _vinculo_titulo_em_confirmacao_bloqueia()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos",
+    "nome": "trg_acordo_alerta_resolve_acordo",
+    "def": "CREATE TRIGGER trg_acordo_alerta_resolve_acordo AFTER UPDATE OF status ON public.acordos FOR EACH ROW WHEN (((upper(COALESCE(new.status, ''::text)) = ANY (ARRAY['QUITADO'::text, 'CANCELADO'::text, 'CANCELADA'::text])) AND (new.status IS DISTINCT FROM old.status))) EXECUTE FUNCTION tg_acordo_alerta_resolve_acordo()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos",
+    "nome": "trg_acordo_bloquear_duplicado",
+    "def": "CREATE TRIGGER trg_acordo_bloquear_duplicado BEFORE INSERT OR UPDATE OF status, valor_total, qtd_parcelas, aluno_id ON public.acordos FOR EACH ROW EXECUTE FUNCTION tg_acordo_bloquear_duplicado()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos",
+    "nome": "trg_acordo_herda_responsavel",
+    "def": "CREATE TRIGGER trg_acordo_herda_responsavel BEFORE INSERT ON public.acordos FOR EACH ROW EXECUTE FUNCTION _acordo_herda_responsavel_do_aluno()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos",
+    "nome": "trg_acordo_status_reavalia_titulos",
+    "def": "CREATE TRIGGER trg_acordo_status_reavalia_titulos AFTER UPDATE OF status ON public.acordos FOR EACH ROW WHEN ((upper(COALESCE(old.status, ''::text)) IS DISTINCT FROM upper(COALESCE(new.status, ''::text)))) EXECUTE FUNCTION _acordo_status_reavalia_titulos()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos",
+    "nome": "trg_aluno_segue_dono_do_acordo",
+    "def": "CREATE TRIGGER trg_aluno_segue_dono_do_acordo AFTER INSERT OR UPDATE OF operador_responsavel_email, status ON public.acordos FOR EACH ROW EXECUTE FUNCTION _aluno_segue_dono_do_acordo()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos",
+    "nome": "trg_atribuir_responsavel_por_acordo",
+    "def": "CREATE TRIGGER trg_atribuir_responsavel_por_acordo AFTER INSERT OR UPDATE OF operador_responsavel_email, status ON public.acordos FOR EACH ROW EXECUTE FUNCTION atribuir_responsavel_por_acordo()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos",
+    "nome": "trg_audit",
+    "def": "CREATE TRIGGER trg_audit AFTER INSERT OR DELETE OR UPDATE ON public.acordos FOR EACH ROW EXECUTE FUNCTION fn_audit_generic()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos",
+    "nome": "trg_efetividade_invalidar_acordos",
+    "def": "CREATE TRIGGER trg_efetividade_invalidar_acordos AFTER INSERT OR DELETE OR UPDATE ON public.acordos FOR EACH STATEMENT EXECUTE FUNCTION tg_carteira_efetividade_invalidar()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos",
+    "nome": "trg_fila_acordo_fecha_ao_encerrar",
+    "def": "CREATE TRIGGER trg_fila_acordo_fecha_ao_encerrar AFTER UPDATE OF status ON public.acordos FOR EACH ROW EXECUTE FUNCTION _fila_acordo_fecha_ao_encerrar_acordo()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos",
+    "nome": "trg_guard_resp_acordo",
+    "def": "CREATE TRIGGER trg_guard_resp_acordo BEFORE UPDATE ON public.acordos FOR EACH ROW EXECUTE FUNCTION _guard_resp_acordo()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos",
+    "nome": "trg_recalc_acordo",
+    "def": "CREATE TRIGGER trg_recalc_acordo AFTER INSERT OR UPDATE ON public.acordos FOR EACH ROW EXECUTE FUNCTION _trg_recalc_por_aluno_uuid('trg_acordo')",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos",
+    "nome": "trg_titulo_quita_com_o_acordo",
+    "def": "CREATE TRIGGER trg_titulo_quita_com_o_acordo AFTER UPDATE OF status ON public.acordos FOR EACH ROW EXECUTE FUNCTION _titulo_quita_com_o_acordo()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos",
+    "nome": "trg_titulos_por_status_acordo",
+    "def": "CREATE TRIGGER trg_titulos_por_status_acordo AFTER UPDATE OF status ON public.acordos FOR EACH ROW EXECUTE FUNCTION titulos_por_status_acordo()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos_titulos",
+    "nome": "trg_audit",
+    "def": "CREATE TRIGGER trg_audit AFTER DELETE OR UPDATE ON public.acordos_titulos FOR EACH ROW EXECUTE FUNCTION fn_audit_generic()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos_titulos",
+    "nome": "trg_auto_quitar_titulo",
+    "def": "CREATE TRIGGER trg_auto_quitar_titulo AFTER UPDATE OF situacao ON public.acordos_titulos FOR EACH ROW EXECUTE FUNCTION _trg_auto_quitar_titulo()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos_titulos",
+    "nome": "trg_efetividade_invalidar_titulos",
+    "def": "CREATE TRIGGER trg_efetividade_invalidar_titulos AFTER INSERT OR DELETE OR UPDATE ON public.acordos_titulos FOR EACH STATEMENT EXECUTE FUNCTION tg_carteira_efetividade_invalidar()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos_titulos",
+    "nome": "trg_fechar_confirmacao_titulo",
+    "def": "CREATE TRIGGER trg_fechar_confirmacao_titulo AFTER UPDATE ON public.acordos_titulos FOR EACH ROW WHEN ((((upper(COALESCE(new.situacao, ''::text)) = ANY (ARRAY['PAGO'::text, 'QUITADO'::text])) AND (upper(COALESCE(old.situacao, ''::text)) <> ALL (ARRAY['PAGO'::text, 'QUITADO'::text]))) OR ((lower(COALESCE(new.status, ''::text)) = ANY (ARRAY['quitada'::text, 'quitado'::text, 'paga'::text, 'pago'::text])) AND (lower(COALESCE(old.status, ''::text)) <> ALL (ARRAY['quitada'::text, 'quitado'::text, 'paga'::text, 'pago'::text]))))) EXECUTE FUNCTION _fechar_confirmacao_ao_zerar_saldo()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos_titulos",
+    "nome": "trg_reabrir_quitado_titulo",
+    "def": "CREATE TRIGGER trg_reabrir_quitado_titulo AFTER INSERT ON public.acordos_titulos FOR EACH ROW EXECUTE FUNCTION _reabrir_quitado_ao_incluir_titulo()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos_titulos",
+    "nome": "trg_titulo_ajuste_valor_protegido",
+    "def": "CREATE TRIGGER trg_titulo_ajuste_valor_protegido BEFORE INSERT OR UPDATE OF valor_cobranca_ajustado, motivo_ajuste_valor, valor_ajustado_por, valor_ajustado_em ON public.acordos_titulos FOR EACH ROW EXECUTE FUNCTION tg_titulo_ajuste_valor_protegido()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos_titulos",
+    "nome": "trg_titulo_devolvido_terminal",
+    "def": "CREATE TRIGGER trg_titulo_devolvido_terminal BEFORE UPDATE ON public.acordos_titulos FOR EACH ROW EXECUTE FUNCTION _titulo_devolvido_e_terminal()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos_titulos",
+    "nome": "trg_titulo_em_confirmacao_protegido",
+    "def": "CREATE TRIGGER trg_titulo_em_confirmacao_protegido BEFORE INSERT OR UPDATE ON public.acordos_titulos FOR EACH ROW EXECUTE FUNCTION _titulo_em_confirmacao_protegido()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos_titulos",
+    "nome": "trg_titulo_encerrado_administrativo_protegido",
+    "def": "CREATE TRIGGER trg_titulo_encerrado_administrativo_protegido BEFORE UPDATE ON public.acordos_titulos FOR EACH ROW EXECUTE FUNCTION _titulo_encerrado_administrativo_protegido()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos_titulos",
+    "nome": "trg_titulo_liquidado_na_origem_e_terminal",
+    "def": "CREATE TRIGGER trg_titulo_liquidado_na_origem_e_terminal BEFORE UPDATE ON public.acordos_titulos FOR EACH ROW EXECUTE FUNCTION titulo_liquidado_na_origem_e_terminal()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos_titulos",
+    "nome": "trg_titulo_normaliza_vinculo_incoerente",
+    "def": "CREATE TRIGGER trg_titulo_normaliza_vinculo_incoerente BEFORE INSERT OR UPDATE ON public.acordos_titulos FOR EACH ROW EXECUTE FUNCTION tg_titulo_normaliza_vinculo_incoerente()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "acordos_titulos",
+    "nome": "trg_titulo_situacao_status_coerentes",
+    "def": "CREATE TRIGGER trg_titulo_situacao_status_coerentes BEFORE INSERT OR UPDATE OF situacao, status ON public.acordos_titulos FOR EACH ROW EXECUTE FUNCTION _titulo_situacao_e_status_coerentes()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "aluno_movimentacoes",
+    "nome": "trg_atualizar_ultimo_acionamento",
+    "def": "CREATE TRIGGER trg_atualizar_ultimo_acionamento AFTER INSERT ON public.aluno_movimentacoes FOR EACH ROW EXECUTE FUNCTION fn_atualizar_ultimo_acionamento()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "aluno_movimentacoes",
+    "nome": "trg_sincronizar_elogio_da_movimentacao",
+    "def": "CREATE TRIGGER trg_sincronizar_elogio_da_movimentacao AFTER INSERT OR UPDATE OF elogio_print_path, elogio_aprovado_tv, elogio_rejeitado_tv ON public.aluno_movimentacoes FOR EACH ROW EXECUTE FUNCTION sincronizar_elogio_da_movimentacao()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "aluno_movimentacoes",
+    "nome": "trg_zz_desfazer_cartao_tabulacao",
+    "def": "CREATE TRIGGER trg_zz_desfazer_cartao_tabulacao AFTER INSERT ON public.aluno_movimentacoes FOR EACH ROW EXECUTE FUNCTION _trg_desfazer_cartao_tabulacao()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "alunos",
+    "nome": "trg_acionamento_nao_volta_para_nulo",
+    "def": "CREATE TRIGGER trg_acionamento_nao_volta_para_nulo BEFORE UPDATE OF data_ultimo_acionamento, status_acionamento ON public.alunos FOR EACH ROW EXECUTE FUNCTION _acionamento_nao_volta_para_nulo()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "alunos",
+    "nome": "trg_aluno_concluir_retorno_adm_link",
+    "def": "CREATE TRIGGER trg_aluno_concluir_retorno_adm_link AFTER UPDATE OF status_atual ON public.alunos FOR EACH ROW WHEN (((old.status_atual = 'LINK_PRONTO_PARA_ENVIO'::text) AND (new.status_atual IS DISTINCT FROM 'LINK_PRONTO_PARA_ENVIO'::text))) EXECUTE FUNCTION tg_aluno_concluir_retorno_adm_link()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "alunos",
+    "nome": "trg_aluno_encerramento_propaga",
+    "def": "CREATE TRIGGER trg_aluno_encerramento_propaga AFTER UPDATE OF status_atual ON public.alunos FOR EACH ROW EXECUTE FUNCTION alunos_propaga_encerramento_para_caso()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "alunos",
+    "nome": "trg_aluno_estado_anterior",
+    "def": "CREATE TRIGGER trg_aluno_estado_anterior BEFORE UPDATE ON public.alunos FOR EACH ROW WHEN ((old.status_atual IS DISTINCT FROM new.status_atual)) EXECUTE FUNCTION _trg_aluno_estado_anterior()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "alunos",
+    "nome": "trg_aluno_reset_retorno_confirmado",
+    "def": "CREATE TRIGGER trg_aluno_reset_retorno_confirmado BEFORE UPDATE OF data_retorno ON public.alunos FOR EACH ROW WHEN ((new.data_retorno IS DISTINCT FROM old.data_retorno)) EXECUTE FUNCTION tg_aluno_reset_retorno_confirmado()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "alunos",
+    "nome": "trg_alunos_retorno_origem",
+    "def": "CREATE TRIGGER trg_alunos_retorno_origem BEFORE INSERT OR UPDATE OF data_retorno, retorno_origem ON public.alunos FOR EACH ROW EXECUTE FUNCTION limpar_retorno_origem()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "alunos",
+    "nome": "trg_atualizar_nome_normalizado",
+    "def": "CREATE TRIGGER trg_atualizar_nome_normalizado BEFORE INSERT OR UPDATE OF nome ON public.alunos FOR EACH ROW EXECUTE FUNCTION atualizar_nome_normalizado()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "alunos",
+    "nome": "trg_audit_del",
+    "def": "CREATE TRIGGER trg_audit_del AFTER DELETE ON public.alunos FOR EACH ROW EXECUTE FUNCTION fn_audit_generic()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "alunos",
+    "nome": "trg_audit_responsavel_aluno",
+    "def": "CREATE TRIGGER trg_audit_responsavel_aluno AFTER UPDATE OF responsavel_atual_email ON public.alunos FOR EACH ROW EXECUTE FUNCTION fn_audit_responsavel_aluno()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "alunos",
+    "nome": "trg_encerramento_so_gestao",
+    "def": "CREATE TRIGGER trg_encerramento_so_gestao BEFORE UPDATE OF status_atual, status_jornada, status_acionamento ON public.alunos FOR EACH ROW EXECUTE FUNCTION _encerramento_so_gestao()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "alunos",
+    "nome": "trg_fechar_confirmacao_ao_quitar",
+    "def": "CREATE TRIGGER trg_fechar_confirmacao_ao_quitar AFTER UPDATE OF status_atual, status_jornada ON public.alunos FOR EACH ROW EXECUTE FUNCTION fechar_confirmacao_ao_quitar()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "alunos",
+    "nome": "trg_guard_resp_aluno",
+    "def": "CREATE TRIGGER trg_guard_resp_aluno BEFORE UPDATE ON public.alunos FOR EACH ROW EXECUTE FUNCTION _guard_resp_aluno()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "alunos",
+    "nome": "trg_nome_do_operador_no_aluno",
+    "def": "CREATE TRIGGER trg_nome_do_operador_no_aluno BEFORE INSERT OR UPDATE OF operador_email, operador_nome, responsavel_atual_email, responsavel_atual_nome ON public.alunos FOR EACH ROW EXECUTE FUNCTION _nome_do_operador_no_aluno()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "alunos",
+    "nome": "trg_sincronizar_alunos_unificados",
+    "def": "CREATE TRIGGER trg_sincronizar_alunos_unificados AFTER INSERT OR UPDATE OF data_retorno, retorno_origem, hora_retorno, status_jornada, operador_nome, operador_email, operador, responsavel_atual_nome, responsavel_atual_email ON public.alunos FOR EACH ROW EXECUTE FUNCTION sincronizar_alunos_unificados()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "alunos",
+    "nome": "trg_sync_acionamento_alunos_para_casos",
+    "def": "CREATE TRIGGER trg_sync_acionamento_alunos_para_casos AFTER UPDATE OF data_ultimo_acionamento ON public.alunos FOR EACH ROW EXECUTE FUNCTION fn_sync_acionamento_alunos_para_casos()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "alunos",
+    "nome": "trg_sync_casos_resp_aluno",
+    "def": "CREATE TRIGGER trg_sync_casos_resp_aluno AFTER UPDATE OF responsavel_atual_email ON public.alunos FOR EACH ROW EXECUTE FUNCTION _sync_casos_resp_aluno()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "alunos",
+    "nome": "trg_tabulacao_efeito_financeiro",
+    "def": "CREATE TRIGGER trg_tabulacao_efeito_financeiro AFTER UPDATE OF status_jornada ON public.alunos FOR EACH ROW EXECUTE FUNCTION trg_tabulacao_efeito_financeiro()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "alunos",
+    "nome": "trg_tabulacao_redireciona",
+    "def": "CREATE TRIGGER trg_tabulacao_redireciona AFTER UPDATE OF status_jornada ON public.alunos FOR EACH ROW EXECUTE FUNCTION trg_tabulacao_redireciona()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "alunos",
+    "nome": "trg_tabulacao_so_gestao_insert",
+    "def": "CREATE TRIGGER trg_tabulacao_so_gestao_insert BEFORE INSERT ON public.alunos FOR EACH ROW EXECUTE FUNCTION _encerramento_so_gestao()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "baixas_pagamento",
+    "nome": "trg_baixa_viva_unica_por_parcela",
+    "def": "CREATE TRIGGER trg_baixa_viva_unica_por_parcela BEFORE INSERT ON public.baixas_pagamento FOR EACH ROW EXECUTE FUNCTION _baixa_viva_unica_por_parcela()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "baixas_pagamento",
+    "nome": "trg_bloquear_baixa_acordo_encerrado",
+    "def": "CREATE TRIGGER trg_bloquear_baixa_acordo_encerrado BEFORE INSERT OR UPDATE ON public.baixas_pagamento FOR EACH ROW EXECUTE FUNCTION _bloquear_baixa_acordo_encerrado()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "baixas_pagamento",
+    "nome": "trg_notif_divergencia_cartao",
+    "def": "CREATE TRIGGER trg_notif_divergencia_cartao AFTER INSERT OR UPDATE OF devolvido_em ON public.baixas_pagamento FOR EACH ROW EXECUTE FUNCTION tg_notif_divergencia_cartao()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "baixas_pagamento",
+    "nome": "trg_recalc_baixa",
+    "def": "CREATE TRIGGER trg_recalc_baixa AFTER INSERT OR UPDATE ON public.baixas_pagamento FOR EACH ROW EXECUTE FUNCTION _trg_recalc_por_aluno_text('trg_baixa')",
+    "enabled": "O"
+   },
+   {
+    "tabela": "caso_encerramento_sem_saldo",
+    "nome": "trg_caso_encerramento_sem_saldo_imutavel",
+    "def": "CREATE TRIGGER trg_caso_encerramento_sem_saldo_imutavel BEFORE DELETE OR UPDATE ON public.caso_encerramento_sem_saldo FOR EACH ROW EXECUTE FUNCTION _caso_encerramento_sem_saldo_imutavel()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "casos",
+    "nome": "trg_audit_del",
+    "def": "CREATE TRIGGER trg_audit_del AFTER DELETE ON public.casos FOR EACH ROW EXECUTE FUNCTION fn_audit_generic()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "casos",
+    "nome": "trg_auditar_encerramento_operacional",
+    "def": "CREATE TRIGGER trg_auditar_encerramento_operacional AFTER INSERT OR UPDATE ON public.casos FOR EACH ROW EXECUTE FUNCTION trg_auditar_encerramento_operacional()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "casos",
+    "nome": "trg_auditar_nao_acionar",
+    "def": "CREATE TRIGGER trg_auditar_nao_acionar AFTER INSERT OR UPDATE OF nao_acionar ON public.casos FOR EACH ROW EXECUTE FUNCTION trg_auditar_nao_acionar()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "casos",
+    "nome": "trg_bloquear_alteracoes_restritas_casos",
+    "def": "CREATE TRIGGER trg_bloquear_alteracoes_restritas_casos BEFORE UPDATE ON public.casos FOR EACH ROW EXECUTE FUNCTION bloquear_alteracoes_restritas_casos()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "casos",
+    "nome": "trg_casos_set_encerrado_operacional",
+    "def": "CREATE TRIGGER trg_casos_set_encerrado_operacional BEFORE INSERT OR UPDATE ON public.casos FOR EACH ROW EXECUTE FUNCTION casos_set_encerrado_operacional()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "casos",
+    "nome": "trg_fechar_confirmacao_ao_quitar_caso",
+    "def": "CREATE TRIGGER trg_fechar_confirmacao_ao_quitar_caso AFTER UPDATE OF status_atual, quitado_em, origem_quitacao ON public.casos FOR EACH ROW EXECUTE FUNCTION fechar_confirmacao_ao_quitar_caso()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "casos",
+    "nome": "trg_giro_limpar_marca",
+    "def": "CREATE TRIGGER trg_giro_limpar_marca BEFORE UPDATE ON public.casos FOR EACH ROW WHEN ((new.operador_email IS DISTINCT FROM old.operador_email)) EXECUTE FUNCTION giro_limpar_marca_ao_trocar_dono()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "casos",
+    "nome": "trg_nome_do_operador_no_caso",
+    "def": "CREATE TRIGGER trg_nome_do_operador_no_caso BEFORE INSERT OR UPDATE OF operador_email, operador_nome, operador ON public.casos FOR EACH ROW EXECUTE FUNCTION _nome_do_operador_no_caso()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "casos",
+    "nome": "trg_sync_alunos_apos_casos",
+    "def": "CREATE TRIGGER trg_sync_alunos_apos_casos AFTER UPDATE ON public.casos FOR EACH ROW WHEN ((new.operador_email IS DISTINCT FROM old.operador_email)) EXECUTE FUNCTION trg_sincronizar_alunos_apos_casos()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "casos",
+    "nome": "trg_zz_caso_nao_duplica_aluno",
+    "def": "CREATE CONSTRAINT TRIGGER trg_zz_caso_nao_duplica_aluno AFTER INSERT OR UPDATE ON public.casos DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW EXECUTE FUNCTION _caso_nao_duplica_aluno()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "casos",
+    "nome": "trg_zz_caso_nao_duplica_aluno_before",
+    "def": "CREATE TRIGGER trg_zz_caso_nao_duplica_aluno_before BEFORE INSERT OR UPDATE ON public.casos FOR EACH ROW EXECUTE FUNCTION _caso_nao_duplica_aluno()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "casos",
+    "nome": "trigger_impor_teto_operador",
+    "def": "CREATE TRIGGER trigger_impor_teto_operador AFTER UPDATE ON public.casos FOR EACH ROW WHEN (((new.operador_email IS NOT NULL) AND (new.operador_email IS DISTINCT FROM old.operador_email))) EXECUTE FUNCTION trg_impor_teto_operador()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "casos",
+    "nome": "trigger_repor_caso_operador",
+    "def": "CREATE TRIGGER trigger_repor_caso_operador AFTER UPDATE ON public.casos FOR EACH ROW WHEN (((new.operador_email IS NOT NULL) AND (new.operador_email = old.operador_email))) EXECUTE FUNCTION trg_repor_caso_operador()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "links_pagamento",
+    "nome": "trg_audit",
+    "def": "CREATE TRIGGER trg_audit AFTER INSERT OR DELETE OR UPDATE ON public.links_pagamento FOR EACH ROW EXECUTE FUNCTION fn_audit_generic()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "links_pagamento",
+    "nome": "trg_avisar_fila_baixa_zerada",
+    "def": "CREATE TRIGGER trg_avisar_fila_baixa_zerada AFTER UPDATE ON public.links_pagamento FOR EACH ROW EXECUTE FUNCTION tg_avisar_fila_baixa_zerada()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "links_pagamento",
+    "nome": "trg_bloquear_baixa_pagamento",
+    "def": "CREATE TRIGGER trg_bloquear_baixa_pagamento BEFORE UPDATE ON public.links_pagamento FOR EACH ROW EXECUTE FUNCTION bloquear_baixa_pagamento()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "links_pagamento",
+    "nome": "trg_bloquear_link_pagamento_incompleto",
+    "def": "CREATE TRIGGER trg_bloquear_link_pagamento_incompleto BEFORE INSERT OR UPDATE ON public.links_pagamento FOR EACH ROW EXECUTE FUNCTION bloquear_link_pagamento_incompleto()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "links_pagamento",
+    "nome": "trg_criar_solicitacao_confirmacao_por_comprovante",
+    "def": "CREATE TRIGGER trg_criar_solicitacao_confirmacao_por_comprovante AFTER INSERT OR UPDATE OF comprovante_url ON public.links_pagamento FOR EACH ROW EXECUTE FUNCTION tg_criar_solicitacao_confirmacao_por_comprovante()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "links_pagamento",
+    "nome": "trg_links_concluir_retorno_adm",
+    "def": "CREATE TRIGGER trg_links_concluir_retorno_adm AFTER UPDATE OF status ON public.links_pagamento FOR EACH ROW EXECUTE FUNCTION tg_links_concluir_retorno_adm()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "links_pagamento",
+    "nome": "trg_links_criar_retorno_adm",
+    "def": "CREATE TRIGGER trg_links_criar_retorno_adm AFTER INSERT OR UPDATE OF status ON public.links_pagamento FOR EACH ROW EXECUTE FUNCTION tg_links_criar_retorno_adm()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "links_pagamento",
+    "nome": "trg_links_pagamento_atualizado_em",
+    "def": "CREATE TRIGGER trg_links_pagamento_atualizado_em BEFORE UPDATE ON public.links_pagamento FOR EACH ROW EXECUTE FUNCTION set_links_pagamento_atualizado_em()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "links_pagamento",
+    "nome": "trg_links_pagamento_historico_insert",
+    "def": "CREATE TRIGGER trg_links_pagamento_historico_insert AFTER INSERT ON public.links_pagamento FOR EACH ROW EXECUTE FUNCTION registrar_historico_link_insert()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "links_pagamento",
+    "nome": "trg_links_pagamento_historico_update",
+    "def": "CREATE TRIGGER trg_links_pagamento_historico_update AFTER UPDATE ON public.links_pagamento FOR EACH ROW EXECUTE FUNCTION registrar_historico_link_update()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "links_pagamento",
+    "nome": "trg_normalizar_link_gerado_para_prioridade",
+    "def": "CREATE TRIGGER trg_normalizar_link_gerado_para_prioridade BEFORE INSERT OR UPDATE ON public.links_pagamento FOR EACH ROW EXECUTE FUNCTION normalizar_link_gerado_para_prioridade()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "links_pagamento",
+    "nome": "trg_sincronizar_aluno_com_link",
+    "def": "CREATE TRIGGER trg_sincronizar_aluno_com_link AFTER INSERT OR UPDATE ON public.links_pagamento FOR EACH ROW EXECUTE FUNCTION sincronizar_aluno_com_link()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "parcelas",
+    "nome": "trg_acordo_alerta_resolve_parcela",
+    "def": "CREATE TRIGGER trg_acordo_alerta_resolve_parcela AFTER UPDATE OF status ON public.parcelas FOR EACH ROW WHEN (((upper(COALESCE(new.status, ''::text)) = ANY (ARRAY['PAGO'::text, 'CANCELADA'::text, 'CANCELADO'::text, 'ESTORNADA'::text, 'ESTORNADO'::text, 'DEVOLVIDA'::text, 'SUSPENSA'::text])) AND (new.status IS DISTINCT FROM old.status))) EXECUTE FUNCTION tg_acordo_alerta_resolve_parcela()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "parcelas",
+    "nome": "trg_acordo_fecha_com_a_ultima_parcela",
+    "def": "CREATE TRIGGER trg_acordo_fecha_com_a_ultima_parcela AFTER UPDATE OF status ON public.parcelas FOR EACH ROW EXECUTE FUNCTION _acordo_fecha_com_a_ultima_parcela()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "parcelas",
+    "nome": "trg_auto_quitar_parcela",
+    "def": "CREATE TRIGGER trg_auto_quitar_parcela AFTER UPDATE OF status ON public.parcelas FOR EACH ROW EXECUTE FUNCTION _trg_auto_quitar_parcela()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "parcelas",
+    "nome": "trg_bloquear_parcela_baixa_acordo_encerrado",
+    "def": "CREATE TRIGGER trg_bloquear_parcela_baixa_acordo_encerrado BEFORE UPDATE ON public.parcelas FOR EACH ROW EXECUTE FUNCTION _bloquear_parcela_baixa_acordo_encerrado()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "parcelas",
+    "nome": "trg_efetividade_invalidar_parcelas",
+    "def": "CREATE TRIGGER trg_efetividade_invalidar_parcelas AFTER INSERT OR DELETE OR UPDATE ON public.parcelas FOR EACH STATEMENT EXECUTE FUNCTION tg_carteira_efetividade_invalidar()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "parcelas",
+    "nome": "trg_fechar_confirmacao_parcela",
+    "def": "CREATE TRIGGER trg_fechar_confirmacao_parcela AFTER UPDATE OF status ON public.parcelas FOR EACH ROW WHEN (((upper(COALESCE(new.status, ''::text)) = 'PAGO'::text) AND (upper(COALESCE(old.status, ''::text)) <> 'PAGO'::text))) EXECUTE FUNCTION _fechar_confirmacao_ao_zerar_saldo()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "parcelas",
+    "nome": "trg_parcela_pago_em_automatico",
+    "def": "CREATE TRIGGER trg_parcela_pago_em_automatico BEFORE INSERT OR UPDATE ON public.parcelas FOR EACH ROW EXECUTE FUNCTION _parcela_pago_em_automatico()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "parcelas",
+    "nome": "trg_reabrir_aluno_divida_nova_ins",
+    "def": "CREATE TRIGGER trg_reabrir_aluno_divida_nova_ins AFTER INSERT ON public.parcelas FOR EACH ROW EXECUTE FUNCTION _reabrir_aluno_com_divida_nova()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "parcelas",
+    "nome": "trg_reabrir_aluno_divida_nova_upd",
+    "def": "CREATE TRIGGER trg_reabrir_aluno_divida_nova_upd AFTER UPDATE OF status ON public.parcelas FOR EACH ROW WHEN (((upper(COALESCE(new.status, ''::text)) = ANY (ARRAY['A_VENCER'::text, 'VENCIDA'::text])) AND (upper(COALESCE(old.status, ''::text)) IS DISTINCT FROM upper(COALESCE(new.status, ''::text))))) EXECUTE FUNCTION _reabrir_aluno_com_divida_nova()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "parcelas",
+    "nome": "trg_recalc_parcela",
+    "def": "CREATE TRIGGER trg_recalc_parcela AFTER INSERT OR DELETE OR UPDATE ON public.parcelas FOR EACH ROW EXECUTE FUNCTION _trg_recalc_por_parcela()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "solicitacoes_confirmacao_pagamento",
+    "nome": "trg_aluno_aguardando_baixa",
+    "def": "CREATE TRIGGER trg_aluno_aguardando_baixa AFTER INSERT ON public.solicitacoes_confirmacao_pagamento FOR EACH ROW EXECUTE FUNCTION _aluno_aguardando_baixa_ao_confirmar()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "solicitacoes_confirmacao_pagamento",
+    "nome": "trg_audit",
+    "def": "CREATE TRIGGER trg_audit AFTER INSERT OR DELETE OR UPDATE ON public.solicitacoes_confirmacao_pagamento FOR EACH ROW EXECUTE FUNCTION fn_audit_generic()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "solicitacoes_confirmacao_pagamento",
+    "nome": "trg_conf_pagamento_agenda",
+    "def": "CREATE TRIGGER trg_conf_pagamento_agenda AFTER INSERT OR UPDATE OF status ON public.solicitacoes_confirmacao_pagamento FOR EACH ROW EXECUTE FUNCTION tg_conf_pagamento_agenda()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "solicitacoes_confirmacao_pagamento",
+    "nome": "trg_confirmacao_origem_divida",
+    "def": "CREATE TRIGGER trg_confirmacao_origem_divida BEFORE INSERT ON public.solicitacoes_confirmacao_pagamento FOR EACH ROW EXECUTE FUNCTION tg_confirmacao_origem_divida()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "solicitacoes_confirmacao_pagamento",
+    "nome": "trg_confirmacao_sem_valor",
+    "def": "CREATE TRIGGER trg_confirmacao_sem_valor AFTER INSERT OR UPDATE OF valor_informado, status, origem_divida ON public.solicitacoes_confirmacao_pagamento FOR EACH ROW EXECUTE FUNCTION _confirmacao_sem_valor_sai_da_fila()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "solicitacoes_confirmacao_pagamento",
+    "nome": "trg_devolver_operador_ao_rejeitar",
+    "def": "CREATE TRIGGER trg_devolver_operador_ao_rejeitar AFTER UPDATE ON public.solicitacoes_confirmacao_pagamento FOR EACH ROW EXECUTE FUNCTION devolver_operador_ao_rejeitar_confirmacao()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "solicitacoes_confirmacao_pagamento",
+    "nome": "trg_nao_confirmar_se_ja_quitado",
+    "def": "CREATE TRIGGER trg_nao_confirmar_se_ja_quitado BEFORE INSERT ON public.solicitacoes_confirmacao_pagamento FOR EACH ROW EXECUTE FUNCTION _nao_confirmar_se_ja_quitado()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "solicitacoes_confirmacao_pagamento",
+    "nome": "trg_recalc_conf",
+    "def": "CREATE TRIGGER trg_recalc_conf AFTER INSERT OR UPDATE ON public.solicitacoes_confirmacao_pagamento FOR EACH ROW EXECUTE FUNCTION _trg_recalc_por_aluno_text('trg_confirmacao')",
+    "enabled": "O"
+   },
+   {
+    "tabela": "usuarios",
+    "nome": "trg_audit_usuarios",
+    "def": "CREATE TRIGGER trg_audit_usuarios AFTER INSERT OR DELETE OR UPDATE ON public.usuarios FOR EACH ROW EXECUTE FUNCTION fn_audit_generic()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "usuarios",
+    "nome": "trg_usuarios_guard_self_update",
+    "def": "CREATE TRIGGER trg_usuarios_guard_self_update BEFORE UPDATE ON public.usuarios FOR EACH ROW EXECUTE FUNCTION fn_guard_usuarios_self_update()",
+    "enabled": "O"
+   },
+   {
+    "tabela": "usuarios",
+    "nome": "trg_usuarios_sincronizar_nome",
+    "def": "CREATE TRIGGER trg_usuarios_sincronizar_nome AFTER UPDATE OF nome ON public.usuarios FOR EACH ROW EXECUTE FUNCTION trg_sincronizar_nome_usuario()",
+    "enabled": "O"
+   }
+  ],
+  "extensoes": [
+   {
+    "nome": "uuid-ossp",
+    "versao": "1.1",
+    "schema": "extensions"
+   },
+   {
+    "nome": "pgcrypto",
+    "versao": "1.3",
+    "schema": "extensions"
+   },
+   {
+    "nome": "unaccent",
+    "versao": "1.1",
+    "schema": "public"
+   }
+  ]
+ }
+}

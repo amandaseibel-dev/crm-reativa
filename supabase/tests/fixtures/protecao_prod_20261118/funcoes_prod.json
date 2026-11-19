@@ -1,0 +1,168 @@
+{
+ "meta": {
+  "origem": "Supabase ahattpqrjmhkzsmnbdzs (producao), leitura somente",
+  "data_leitura": "2026-11-18",
+  "metodo": "pg_get_functiondef e md5(prosrc) das funcoes public referenciadas, fecho por nome no corpo a partir das 13 raizes da protecao",
+  "raizes": [
+   "caso_protegido_redistribuicao",
+   "caso_encerrado_operacional",
+   "caso_encerramento_congelado",
+   "calibragem_e_gestao",
+   "caso_aguarda_confirmacao_financeira",
+   "normalizar_status_acionamento",
+   "parcela_viva",
+   "aluno_saldo_pendente_detalhe",
+   "_cpf11",
+   "_caso_sem_saldo_conferido",
+   "_encerramento_congelado",
+   "_caso_encerrado_operacional_regra",
+   "saldo_titulos_aberto"
+  ],
+  "extensoes": {
+   "unaccent": "funcoes unaccent(text) e unaccent(regdictionary,text) pertencem a supabase_admin em producao; no CI sao criadas pela extensao, com dono do usuario de teste (diferenca declarada)"
+  },
+  "fora_do_escopo": "nao contem dados de tabelas nem linhas; colunas em extracao_colunas.json (pendente)"
+ },
+ "funcoes": [
+  {
+   "nome": "public._caso_encerrado_operacional_regra(p_aluno_id uuid, p_caso_id uuid, p_cpf text, p_status_atual text, p_status_acionamento text, p_status_financeiro text, p_status_jornada text)",
+   "def": "CREATE OR REPLACE FUNCTION public._caso_encerrado_operacional_regra(p_aluno_id uuid, p_caso_id uuid, p_cpf text, p_status_atual text, p_status_acionamento text, p_status_financeiro text, p_status_jornada text)\n RETURNS boolean\n LANGUAGE plpgsql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\ndeclare\n  bloq text[] := array['CANCELADO','CANCELAMENTO COBRANCA','JURIDICO',\n                       'SUSPENSAO COBRANCA','SUSPENSAO DE COBRANCA'];\n  bloq_acion text[] := array['CANCELAMENTO COBRANCA','JURIDICO',\n                             'SUSPENSAO COBRANCA','SUSPENSAO DE COBRANCA'];\n  quit text[] := array['PAGO','QUITADO','QUITACAO','QUITADO MANUAL','QUITADO AUTOMATICO',\n                       'SEM SALDO EM ABERTO','ANTECIPACAO SEMESTRE','ALEGA FIES CONFIRMADO',\n                       'ALEGA CREDIES CONFIRMADO','ALEGA FINANCIAMENTO CONFIRMADO',\n                       'SALDO ZERO CONFIRMADO'];\n  nat text := public.normalizar_status_acionamento(p_status_atual);\n  nac text := public.normalizar_status_acionamento(p_status_acionamento);\n  nfi text := public.normalizar_status_acionamento(p_status_financeiro);\n  njo text := public.normalizar_status_acionamento(p_status_jornada);\nbegin\n  if nat = any(bloq) or nac = any(bloq_acion) or nfi = any(bloq) or njo = any(bloq) then return true; end if;\n\n  if public._encerramento_congelado(p_aluno_id, p_caso_id, p_cpf, nat, nac, nfi, njo) then return true; end if;\n\n  if (nat = any(quit) or nac = any(quit) or nfi = any(quit) or njo = any(quit))\n     and public._caso_sem_saldo_conferido(p_aluno_id, p_cpf) then return true; end if;\n\n  return false;\nend;\n$function$\n",
+   "md5": "9472634d1c8adde3a5906fbaebbb8486",
+   "owner": "postgres",
+   "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "secdef": true,
+   "cfg": "{search_path=public}",
+   "md5_def": "4a45f053145276474e018f340ba096dd"
+  },
+  {
+   "nome": "public._caso_sem_saldo_conferido(p_aluno_id uuid, p_cpf text)",
+   "def": "CREATE OR REPLACE FUNCTION public._caso_sem_saldo_conferido(p_aluno_id uuid, p_cpf text)\n RETURNS boolean\n LANGUAGE plpgsql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\ndeclare\n  v_cpf  text := public._cpf11(p_cpf);\n  v_aid  uuid := p_aluno_id;\n  v_n    int;\nbegin\n  if v_aid is null then\n    if v_cpf is null then\n      return false;\n    end if;\n    select count(*) into v_n\n      from public.alunos al\n     where lpad(regexp_replace(coalesce(al.cpf,''), '\\D', '', 'g'), 11, '0') = v_cpf;\n    if coalesce(v_n,0) <> 1 then\n      return false;\n    end if;\n    select al.id into v_aid\n      from public.alunos al\n     where lpad(regexp_replace(coalesce(al.cpf,''), '\\D', '', 'g'), 11, '0') = v_cpf\n     limit 1;\n  end if;\n  return coalesce((public.aluno_saldo_pendente_detalhe(v_aid)->>'total')::numeric, -1) <= 0.005;\nend;\n$function$\n",
+   "md5": "d72413941a1fc042a46af618239462ed",
+   "owner": "postgres",
+   "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "secdef": true,
+   "cfg": "{search_path=public}",
+   "md5_def": "a4f76b2fdef4dcb852601bdbc893dad0"
+  },
+  {
+   "nome": "public._cpf11(p_cpf text)",
+   "def": "CREATE OR REPLACE FUNCTION public._cpf11(p_cpf text)\n RETURNS text\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n  select nullif(lpad(regexp_replace(coalesce(p_cpf,''), '\\D', '', 'g'), 11, '0'), '00000000000');\n$function$\n",
+   "md5": "09e6a3d7df4915eb9cbb20b8d97445e6",
+   "owner": "postgres",
+   "acl": "{=X/postgres,postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "secdef": false,
+   "cfg": "NULL",
+   "md5_def": "da64285ccca596ffd7ddde2790c98d88"
+  },
+  {
+   "nome": "public._encerramento_congelado(p_aluno_id uuid, p_caso_id uuid, p_cpf text, p_nat text, p_nac text, p_nfi text, p_njo text)",
+   "def": "CREATE OR REPLACE FUNCTION public._encerramento_congelado(p_aluno_id uuid, p_caso_id uuid, p_cpf text, p_nat text DEFAULT NULL::text, p_nac text DEFAULT NULL::text, p_nfi text DEFAULT NULL::text, p_njo text DEFAULT NULL::text)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  select exists (\n    select 1 from public.caso_encerramento_sem_saldo e\n     where e.resolvido_em is null\n       and (\n         e.caso_id = p_caso_id\n         or (p_caso_id is null and e.escopo = 'ALUNO' and e.aluno_id = p_aluno_id)\n         or (e.cpf_congelado is not null\n             and e.cpf_congelado = public._cpf11(p_cpf)\n             and public.normalizar_status_acionamento(coalesce(e.estado_anterior->>'status_atual','')) = coalesce(p_nat,'')\n             and public.normalizar_status_acionamento(coalesce(e.estado_anterior->>'status_acionamento','')) = coalesce(p_nac,'')\n             and public.normalizar_status_acionamento(coalesce(e.estado_anterior->>'status_jornada','')) = coalesce(p_njo,'')\n             and (e.escopo = 'ALUNO'\n                  or public.normalizar_status_acionamento(coalesce(e.estado_anterior->>'status_financeiro','')) = coalesce(p_nfi,'')))));\n$function$\n",
+   "md5": "8d3f4963997789ad94f28d571d310fb9",
+   "owner": "postgres",
+   "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "secdef": true,
+   "cfg": "{search_path=public}",
+   "md5_def": "42eed08a605aebd1f6d1deab9ee4a5b7"
+  },
+  {
+   "nome": "public.aluno_saldo_pendente_detalhe(p_aluno_id uuid, p_ignorar_confirmacao_id uuid)",
+   "def": "CREATE OR REPLACE FUNCTION public.aluno_saldo_pendente_detalhe(p_aluno_id uuid, p_ignorar_confirmacao_id uuid DEFAULT NULL::uuid)\n RETURNS jsonb\n LANGUAGE plpgsql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\ndeclare\n  v_titulos_abertos numeric := 0;\n  v_titulos_orfaos  numeric := 0;\n  v_parcelas_valor  numeric := 0;\n  v_parcelas_qtd    int := 0;\n  v_conf_pendentes  int := 0;\n  v_tit_conf       int := 0;\n  v_total           numeric := 0;\n  v_req_claims text := current_setting('request.jwt.claims', true);\n  v_role       text := lower(coalesce(auth.jwt() ->> 'role', ''));\n  v_uid        uuid := auth.uid();\n  v_interno    boolean;\nbegin\n  v_interno := (v_req_claims is null) or (v_role = 'service_role');\n  if not v_interno then\n    if v_uid is null or v_role = 'anon' then\n      raise exception 'Acesso negado.' using errcode = '42501';\n    end if;\n  end if;\n\n  -- Mensalidade sai da conta SO quando vinculada a um acordo nao cancelado.\n  -- Nada de deducao por data.\n  select\n    coalesce(sum(coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0))\n             filter (where upper(coalesce(t.situacao,'')) = 'ABERTO'), 0),\n    coalesce(sum(coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0))\n             filter (where upper(coalesce(t.situacao,'')) = 'NEGOCIADO'), 0)\n    into v_titulos_abertos, v_titulos_orfaos\n    from public.acordos_titulos t\n   where t.aluno_id = p_aluno_id\n     and upper(coalesce(t.situacao,'')) in ('ABERTO','NEGOCIADO')\n     and coalesce(lower(t.status),'') not in ('quitada')\n    -- Amanda, 01/09: \"elas nao podem contabilizar no saldo de carteira\".\n    -- A divida do acordo sao as PARCELAS dele; o titulo do acordo e so o\n    -- numero do boleto. Contar os dois e cobrar duas vezes.\n    and coalesce(t.tipo_boleto,'') <> 'Acordo'\n     and not exists (\n       select 1 from public.acordo_titulo_vinculo v\n         join public.acordos a on a.id = v.acordo_id\n        where v.titulo_id = t.id and coalesce(v.ativo, true)\n          and upper(coalesce(a.status,'')) not in ('CANCELADO','CANCELADA'));\n\n  select count(*), coalesce(sum(coalesce(p.valor,0)),0)\n    into v_parcelas_qtd, v_parcelas_valor\n    from public.parcelas p\n    join public.acordos a on a.id = p.acordo_id\n   where a.aluno_id = p_aluno_id\n     and upper(coalesce(a.status,'')) not in ('CANCELADO','CANCELADA')\n     and public.parcela_viva(p.status);\n\n  select count(*)\n    into v_conf_pendentes\n    from public.solicitacoes_confirmacao_pagamento s\n   where s.aluno_id = p_aluno_id::text\n     and s.status = 'AGUARDANDO_CONFIRMACAO'\n     and (p_ignorar_confirmacao_id is null or s.id <> p_ignorar_confirmacao_id);\n\n  -- Titulo aguardando a Conferencia Prime: fora do total exigivel (nao e\n  -- cobrado), mas e pendencia -- ninguem quita nem encerra o aluno por ele.\n  select count(*)\n    into v_tit_conf\n    from public.acordos_titulos t\n   where t.aluno_id = p_aluno_id\n     and upper(coalesce(t.situacao,'')) = 'EM_CONFIRMACAO';\n\n  v_total := v_titulos_abertos + v_titulos_orfaos + v_parcelas_valor;\n\n  return jsonb_build_object(\n    'aluno_id', p_aluno_id,\n    'titulos_abertos', round(v_titulos_abertos, 2),\n    'titulos_negociados_orfaos', round(v_titulos_orfaos, 2),\n    -- Mantidos por compatibilidade; a deducao por data nao existe mais.\n    'titulos_superados_valor', 0,\n    'titulos_superados_qtd', 0,\n    'parcelas_abertas_qtd', v_parcelas_qtd,\n    'parcelas_abertas_valor', round(v_parcelas_valor, 2),\n    'confirmacoes_pendentes', v_conf_pendentes,\n    'confirmacao_ignorada', p_ignorar_confirmacao_id,\n    'total', round(v_total, 2),\n    'titulos_em_confirmacao', v_tit_conf,\n    'tem_pendencia', (v_total > 0.005 or v_conf_pendentes > 0 or v_tit_conf > 0)\n  );\nend;\n$function$\n",
+   "md5": "1f676604ebeba3561eafc6306e187ba2",
+   "owner": "postgres",
+   "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "secdef": true,
+   "cfg": "{search_path=public}",
+   "md5_def": "150e93807a5f2748d06d7c63182138d0"
+  },
+  {
+   "nome": "public.calibragem_e_gestao()",
+   "def": "CREATE OR REPLACE FUNCTION public.calibragem_e_gestao()\n RETURNS boolean\n LANGUAGE plpgsql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\ndeclare v_email text := lower(coalesce(auth.jwt() ->> 'email', ''));\nbegin\n  if v_email = '' then return false; end if;\n  if v_email in ('amanda.seibel@aelbra.com.br','cobranca04@aelbra.com.br','cobranca07@aelbra.com.br') then return true; end if;\n  return false;\nend; $function$\n",
+   "md5": "cee6783831836f9fccdbd20b63cf4296",
+   "owner": "postgres",
+   "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "secdef": true,
+   "cfg": "{search_path=public}",
+   "md5_def": "cccc0ce37e7682f1177bd0ab01fb1602"
+  },
+  {
+   "nome": "public.caso_aguarda_confirmacao_financeira(p_aluno_id uuid)",
+   "def": "CREATE OR REPLACE FUNCTION public.caso_aguarda_confirmacao_financeira(p_aluno_id uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  select p_aluno_id is not null\n     and exists (select 1 from public.acordos_titulos t\n                  where t.aluno_id = p_aluno_id\n                    and upper(coalesce(t.situacao,'')) = 'EM_CONFIRMACAO')\n     and coalesce((select sum(coalesce(t.valor_cobranca_ajustado, t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0))\n                     from public.acordos_titulos t\n                    where t.aluno_id = p_aluno_id\n                      and upper(coalesce(t.situacao,'')) in ('ABERTO','NEGOCIADO')\n                      and coalesce(lower(t.status),'') <> 'quitada'\n                      and coalesce(t.tipo_boleto,'') <> 'Acordo'\n                      and not exists (select 1 from public.acordo_titulo_vinculo v\n                                        join public.acordos a on a.id = v.acordo_id\n                                       where v.titulo_id = t.id and coalesce(v.ativo, true)\n                                         and upper(coalesce(a.status,'')) not in ('CANCELADO','CANCELADA'))), 0) <= 0.005\n     and not exists (select 1 from public.parcelas p\n                       join public.acordos a on a.id = p.acordo_id\n                      where a.aluno_id = p_aluno_id\n                        and upper(coalesce(a.status,'')) not in ('CANCELADO','CANCELADA')\n                        and public.parcela_viva(p.status));\n$function$\n",
+   "md5": "de84992ce76af33281ef09f8505bcfc3",
+   "owner": "postgres",
+   "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "secdef": true,
+   "cfg": "{search_path=public}",
+   "md5_def": "2d590aeb74ba603de2b6073571ee8b60"
+  },
+  {
+   "nome": "public.caso_encerrado_operacional(p_aluno_id uuid, p_caso_id uuid, p_cpf text, p_status_atual text, p_status_acionamento text, p_status_financeiro text, p_status_jornada text)",
+   "def": "CREATE OR REPLACE FUNCTION public.caso_encerrado_operacional(p_aluno_id uuid, p_caso_id uuid, p_cpf text, p_status_atual text, p_status_acionamento text, p_status_financeiro text, p_status_jornada text)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  select public._caso_encerrado_operacional_regra(\n    p_aluno_id, p_caso_id, p_cpf, p_status_atual, p_status_acionamento, p_status_financeiro, p_status_jornada);\n$function$\n",
+   "md5": "fddf04c759aba2bec730cc7da24ec68a",
+   "owner": "postgres",
+   "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "secdef": true,
+   "cfg": "{search_path=public}",
+   "md5_def": "1e2cce2b198cad0e21589f167bc7afa4"
+  },
+  {
+   "nome": "public.caso_encerrado_operacional(p_cpf text, p_status_atual text, p_status_acionamento text, p_status_financeiro text, p_status_jornada text)",
+   "def": "CREATE OR REPLACE FUNCTION public.caso_encerrado_operacional(p_cpf text, p_status_atual text, p_status_acionamento text, p_status_financeiro text, p_status_jornada text)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  select public._caso_encerrado_operacional_regra(\n    null::uuid, null::uuid, p_cpf, p_status_atual, p_status_acionamento, p_status_financeiro, p_status_jornada);\n$function$\n",
+   "md5": "b65a36744bd71fe8837d59f378892944",
+   "owner": "postgres",
+   "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "secdef": true,
+   "cfg": "{search_path=public}",
+   "md5_def": "e73214c7deeadd76710b9c0bee4945fd"
+  },
+  {
+   "nome": "public.caso_encerramento_congelado(p_caso_id uuid)",
+   "def": "CREATE OR REPLACE FUNCTION public.caso_encerramento_congelado(p_caso_id uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  select exists (select 1 from public.caso_encerramento_sem_saldo e\n                  where e.resolvido_em is null and e.caso_id = p_caso_id);\n$function$\n",
+   "md5": "1de50b10708f8cc6ec8dd5bada214987",
+   "owner": "postgres",
+   "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "secdef": true,
+   "cfg": "{search_path=public}",
+   "md5_def": "e7b5ecc963578ac1e665ebd4522c6415"
+  },
+  {
+   "nome": "public.caso_protegido_redistribuicao(p_cpf_limpo text, p_status_acionamento text, p_nao_acionar boolean, p_status_financeiro text, p_valor_pago numeric, p_quitado_em date, p_valor_quitado numeric)",
+   "def": "CREATE OR REPLACE FUNCTION public.caso_protegido_redistribuicao(p_cpf_limpo text, p_status_acionamento text, p_nao_acionar boolean, p_status_financeiro text DEFAULT NULL::text, p_valor_pago numeric DEFAULT NULL::numeric, p_quitado_em date DEFAULT NULL::date, p_valor_quitado numeric DEFAULT NULL::numeric)\n RETURNS boolean\n LANGUAGE plpgsql\n STABLE\n SET search_path TO 'public'\nAS $function$\ndeclare\n  v_status_norm text := public.normalizar_status_acionamento(p_status_acionamento);\n  v_status_fin_norm text := public.normalizar_status_acionamento(p_status_financeiro);\n  v_cpf text := lpad(regexp_replace(coalesce(p_cpf_limpo,''), '\\D', '', 'g'), 11, '0');\n  bloq text[] := array['CANCELADO','CANCELAMENTO COBRANCA','JURIDICO'];\n  quit text[] := array['PAGO','QUITADO','QUITACAO','QUITADO MANUAL'];\nbegin\n  if coalesce(p_nao_acionar, false) then return true; end if;\n\n  if v_status_norm = any(bloq) or v_status_fin_norm = any(bloq) then\n    return true;\n  end if;\n\n  -- Caso cujo unico saldo esta em titulo aguardando a Conferencia Prime: nao\n  -- ocupa vaga (teto, reposicao, nivelamento), nao e redistribuido e nao e\n  -- solto pela fidelizacao -- o responsavel fica para quando houver decisao.\n  -- (o aluno e achado pelo CPF normalizado da ficha -- indice\n  -- idx_alunos_cpf_normalizado; o CPF gravado no titulo pode divergir)\n  if v_cpf <> '00000000000' and v_cpf <> '' and exists (\n       select 1 from public.alunos al\n        where lpad(regexp_replace(coalesce(al.cpf, ''), '\\D', '', 'g'), 11, '0') = v_cpf\n          and exists (select 1 from public.acordos_titulos t\n                       where t.aluno_id = al.id\n                         and upper(coalesce(t.situacao,'')) = 'EM_CONFIRMACAO')\n          and public.caso_aguarda_confirmacao_financeira(al.id)) then\n    return true;\n  end if;\n\n  -- CONFIRMACAO FINANCEIRA ABERTA (solicitacoes_confirmacao_pagamento), pelo\n  -- aluno_id da solicitacao -- NAO por solicitacoes.aluno_cpf, que e nulo em\n  -- 345 das 351 abertas. Os dois estados abertos protegem. Sem nome, sem\n  -- aproximacao: aluno pelo CPF normalizado da ficha (mesma chave do bloco acima),\n  -- solicitacao por aluno_id (texto, indexado).\n  if v_cpf <> '00000000000' and v_cpf <> '' and exists (\n       select 1 from public.alunos al\n        where lpad(regexp_replace(coalesce(al.cpf, ''), '\\D', '', 'g'), 11, '0') = v_cpf\n          and exists (select 1 from public.solicitacoes_confirmacao_pagamento s\n                       where s.aluno_id = al.id::text\n                         and s.status in ('AGUARDANDO_CONFIRMACAO','PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO'))) then\n    return true;\n  end if;\n\n  if v_cpf = '00000000000' or v_cpf = '' then\n    null;\n  elsif exists (select 1 from public.acordos a where a.cpf = v_cpf and a.status = 'ATIVO')\n     or exists (select 1 from public.baixas_pagamento b where b.aluno_cpf = v_cpf and b.status_baixa = 'AGUARDANDO_BAIXA')\n     -- pagamento em transito: protege sempre\n     or exists (select 1 from public.links_pagamento l where l.aluno_cpf = v_cpf and l.status = 'AGUARDANDO_BAIXA')\n     -- link vivo: protege por um dia\n     or exists (select 1 from public.links_pagamento l\n                 where l.aluno_cpf = v_cpf\n                   and l.status in ('LINK_ENVIADO_AO_ALUNO','LINK_PRONTO_PARA_ENVIO')\n                   and coalesce(l.enviado_ao_aluno_em, l.enviado_em, l.criado_em)::date >= current_date - 1)\n     or exists (select 1 from public.solicitacoes_confirmacao_pagamento s where s.aluno_cpf = v_cpf and s.status = 'AGUARDANDO_CONFIRMACAO')\n  then\n    return true;\n  end if;\n\n  if (v_status_norm = any(quit) or v_status_fin_norm = any(quit)\n      or coalesce(p_valor_pago,0) > 0 or p_quitado_em is not null or coalesce(p_valor_quitado,0) > 0)\n     and public.saldo_titulos_aberto(v_cpf) = 0\n  then\n    return true;\n  end if;\n\n  if v_status_norm in (\n    'ACORDO FECHADO','ACORDO EM ANDAMENTO','EM NEGOCIACAO',\n    'AGUARDANDO PAGAMENTO','AGUARDANDO FINANCEIRO','EMAIL ENVIADO AO FINANCEIRO','E MAIL ENVIADO FINANC',\n    'LINK CARTAO ENVIADO','PAGO PARCIAL','VALORES ENVIADOS','PROPOSTA ENVIADA','PROPOSTA DE EXCECAO',\n    'TERMO ENVIADO','TERMO RECEBIDO','EM TRATATIVA','RETORNO AGENDADO'\n  ) then\n    return true;\n  end if;\n\n  return false;\nend;\n$function$\n",
+   "md5": "1c00d3fb6b87d3e1a3e2ab4efa6e59ed",
+   "owner": "postgres",
+   "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "secdef": false,
+   "cfg": "{search_path=public}",
+   "md5_def": "c0fd2a469d40f1a087f00315209a2d0c"
+  },
+  {
+   "nome": "public.normalizar_status_acionamento(p_status text)",
+   "def": "CREATE OR REPLACE FUNCTION public.normalizar_status_acionamento(p_status text)\n RETURNS text\n LANGUAGE sql\n IMMUTABLE\n SET search_path TO 'public'\nAS $function$\n  SELECT trim(regexp_replace(\n    upper(unaccent(coalesce(p_status, ''))),\n    '[_\\-]+', ' ', 'g'\n  ));\n$function$\n",
+   "md5": "111639f9c4227e11b2f31fc7204ed64d",
+   "owner": "postgres",
+   "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "secdef": false,
+   "cfg": "{search_path=public}",
+   "md5_def": "5e37ad78f61f9d1853819de6ce18b65c"
+  },
+  {
+   "nome": "public.parcela_viva(p_status text)",
+   "def": "CREATE OR REPLACE FUNCTION public.parcela_viva(p_status text)\n RETURNS boolean\n LANGUAGE sql\n IMMUTABLE\n SET search_path TO 'public'\nAS $function$\n  select upper(coalesce(p_status, '')) not in (\n    -- pagamento real (regra 1: so aqui entra dinheiro)\n    'PAGO', 'PAGA',\n    -- saida por cancelamento/estorno\n    'CANCELADA', 'CANCELADO', 'ESTORNADA', 'ESTORNADO',\n    -- regra 2: saiu definitivamente da nossa responsabilidade, SEM pagamento\n    'DEVOLVIDA',\n    -- regra 3: cobranca suspensa temporariamente, SEM pagamento\n    'SUSPENSA'\n  );\n$function$\n",
+   "md5": "df5e77b776af5f1360ac0f7d0ec500f2",
+   "owner": "postgres",
+   "acl": "{=X/postgres,postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "secdef": false,
+   "cfg": "{search_path=public}",
+   "md5_def": "21d1dd16ff680c8bf0d13523d5780202"
+  },
+  {
+   "nome": "public.saldo_titulos_aberto(p_cpf text)",
+   "def": "CREATE OR REPLACE FUNCTION public.saldo_titulos_aberto(p_cpf text)\n RETURNS numeric\n LANGUAGE sql\n STABLE\n SET search_path TO 'public'\nAS $function$\n  select coalesce(sum(t.saldo_corrigido),0)\n  from public.acordos_titulos t\n  where t.cpf = lpad(regexp_replace(coalesce(p_cpf,''),'\\D','','g'),11,'0')\n    and coalesce(upper(t.situacao),'') = 'ABERTO'\n    and coalesce(lower(t.status),'') <> 'quitada'\n    and not exists (select 1 from public.acordo_titulo_vinculo v where v.titulo_id = t.id);\n$function$\n",
+   "md5": "ee0d3a1f54b4785e57e0abd86157342f",
+   "owner": "postgres",
+   "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "secdef": false,
+   "cfg": "{search_path=public}",
+   "md5_def": "56a6be478421754ec237680a9c4d1fad"
+  }
+ ]
+}

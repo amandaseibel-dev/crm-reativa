@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   CARTEIRA_GERAL_EMAIL,
+  filtrosDaPrevia,
+  resumoCapacidade,
+  dataCurta,
   acordosDeTerceiros,
   agruparConflitos,
   classeEmAlerta,
@@ -349,5 +352,44 @@ describe("contagem de páginas", () => {
     expect(totalPaginas(0, 200)).toBe(1);
     expect(totalPaginas(null, 200)).toBe(1);
     expect(totalPaginas(100, 0)).toBe(1);
+  });
+});
+
+describe("remanejamento com fidelização", () => {
+  const base = { responsavel: "cobranca13@aelbra.com.br", ano: null };
+
+  it("só pede a liberação para destino OPERADOR, com a caixa marcada e um dono filtrado", () => {
+    expect(
+      filtrosDaPrevia(base, { destinoTipo: "OPERADOR", liberarFidelizacao: true, responsavel: " Cobranca13@aelbra.com.br " })
+    ).toEqual({ ...base, liberar_fidelizacao_de: ["cobranca13@aelbra.com.br"] });
+    expect(filtrosDaPrevia(base, { destinoTipo: "OPERADOR", liberarFidelizacao: false, responsavel: base.responsavel })).toEqual(base);
+    expect(filtrosDaPrevia(base, { destinoTipo: "CARTEIRA_GERAL", liberarFidelizacao: true, responsavel: base.responsavel })).toEqual(base);
+    expect(filtrosDaPrevia(base, { destinoTipo: "OPERADOR", liberarFidelizacao: true, responsavel: "SEM_DONO_ATIVO" })).toEqual(base);
+    expect(filtrosDaPrevia(base, { destinoTipo: "OPERADOR", liberarFidelizacao: true, responsavel: "" })).toEqual(base);
+    expect(
+      filtrosDaPrevia(base, { destinoTipo: "OPERADOR", liberarFidelizacao: true, responsavel: "carteira.geral@reativa.local" })
+    ).toEqual(base);
+  });
+
+  it("não altera o objeto de filtros recebido", () => {
+    const original = { ...base };
+    filtrosDaPrevia(base, { destinoTipo: "OPERADOR", liberarFidelizacao: true, responsavel: base.responsavel });
+    expect(base).toEqual(original);
+  });
+
+  it("capacidade: exibe o que o servidor calculou, sem recalcular", () => {
+    expect(resumoCapacidade({ capacidade: { teto: 700, ocupacao: 557, vagas: 143, cabem: 86, sobram: 0, alunos_recusados: 0 } })).toEqual({
+      teto: 700, ocupacao: 557, vagas: 143, cabem: 86, sobram: 0, alunosRecusados: 0,
+    });
+    // um aluno de 2 casos com 1 vaga: o servidor diz 0 e 2; a tela não inventa 1
+    expect(resumoCapacidade({ capacidade: { teto: 5, ocupacao: 4, vagas: 1, cabem: 0, sobram: 2, alunos_recusados: 1 } }))
+      .toMatchObject({ cabem: 0, sobram: 2 });
+    expect(resumoCapacidade({ capacidade: null })).toBeNull();
+    expect(resumoCapacidade({})).toBeNull();
+  });
+
+  it("data curta não desloca o dia", () => {
+    expect(dataCurta("2026-11-27")).toBe("27/11/2026");
+    expect(dataCurta(null)).toBe("");
   });
 });
