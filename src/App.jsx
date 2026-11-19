@@ -1,5 +1,5 @@
 import { useEffect, useState, lazy, Suspense } from "react";
-import { BrowserRouter, Routes, Route, NavLink, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Zap, Folder, Calendar, User, Phone, Heart,
   DollarSign, CreditCard, CheckCircle2, FileStack, Lock,
@@ -116,10 +116,56 @@ const Efetividade = lazy(() => import("./pages/Efetividade"));
 const PainelGeral = lazy(() => import("./pages/PainelGeral"));
 const CentralWhatsApp = lazy(() => import("./pages/CentralWhatsApp"));
 const LeadsWhatsApp = lazy(() => import("./pages/LeadsWhatsApp"));
+const UsoCrm = lazy(() => import("./pages/UsoCrm"));
 import NotificacoesPopup from "./components/NotificacoesPopup";
 import { AvatarFoto } from "./components/AvatarFoto";
 import { useAbaLider } from "./context/AbaLiderContext";
 import AbaBloqueada from "./components/AbaBloqueada";
+// Rastreia trocas de rota sem polling: 1 incremento por (email, rota, dia).
+// Deve ser montado dentro de <BrowserRouter> para ter acesso ao useLocation.
+// Silencioso: nunca exibe erro, não bloqueia navegação.
+const ROTAS_VALIDAS = new Set([
+  "/", "/a-entrar", "/acoes-massivas", "/acordos-duplicados",
+  "/acordos-operador", "/acordos-sem-vinculo", "/aluno", "/avisos",
+  "/base-analitica", "/borderos", "/calibragem", "/calibragem-detalhada",
+  "/carteira-2026-1", "/carteira-geral", "/central-pagamentos",
+  "/central-ulbra", "/central-whatsapp", "/conferencia-prime",
+  "/configuracoes", "/crm", "/diagnostico-portador-166", "/dre",
+  "/efetividade", "/elogios-atendimento", "/envio-gmail", "/executivo",
+  "/exportar-contatos", "/fechamento-remuneracao", "/ferramentas",
+  "/fila-acordos", "/fila-operacional", "/fila-unica-confirmacao",
+  "/financeiro", "/financeiro-hub", "/financeiro-operadores",
+  "/historico-recuperacao", "/importacoes", "/importar-academico",
+  "/importar-acordos", "/importar-recuperacao", "/leads-whatsapp",
+  "/log-nivelamento", "/mensageria-ulbra", "/meu-dashboard", "/meu-perfil",
+  "/minha-agenda", "/minha-fila", "/minha-fila-pagamentos",
+  "/minhas-solicitacoes", "/pagamentos-sem-aluno", "/painel-adm",
+  "/painel-carteira", "/painel-geral", "/portal-operacional", "/preventivo",
+  "/produtividade", "/projecao-hora-a-hora", "/quitacao-sugerida",
+  "/relatorio-receptivo", "/relatorios", "/relatorios-2026-1-sem-negociacao",
+  "/revisao-cadastral", "/revisao-prime", "/saude-completa-carteira",
+  "/saude-da-base", "/sugestoes-recebidas", "/taxa-conversao", "/termos-adm",
+  "/tv-mensagem", "/ulbra-diagnostico", "/uso-crm", "/usuarios",
+  "/vincular-operadores",
+]);
+
+function RastreadorRota({ usuario }) {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    if (!ROTAS_VALIDAS.has(pathname)) return;
+    const email = String(
+      usuario?.perfil?.email || usuario?.auth?.email || ""
+    )
+      .toLowerCase()
+      .trim();
+    if (!email) return;
+    supabase
+      .rpc("registrar_acesso_tela", { p_rota: pathname })
+      .then(() => {});
+  }, [pathname, usuario]);
+  return null;
+}
+
 function EmDesenvolvimento({ titulo }) {
   return (
     <div className="main">
@@ -912,6 +958,7 @@ export default function App() {
   });
   return (
     <BrowserRouter>
+      <RastreadorRota usuario={usuario} />
       <div className="app" data-tema={tema}>
         <HeartbeatReceptivo usuario={usuario} />
         <AutoLogout usuario={usuario} />
@@ -1344,6 +1391,7 @@ export default function App() {
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} /> <Route path="/tv-mensagem" element={<RotaProtegida usuario={usuario} rota="/tv-mensagem"><TvMensagem /></RotaProtegida>} /> <Route path="/relatorio-receptivo" element={<RelatorioReceptivo />} /> <Route path="/central-whatsapp" element={<RotaProtegida usuario={usuario} rota="/central-whatsapp"><CentralWhatsApp /></RotaProtegida>} /> <Route path="/leads-whatsapp" element={<RotaProtegida usuario={usuario} rota="/leads-whatsapp"><LeadsWhatsApp /></RotaProtegida>} />
               <Route path="/dre" element={(["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) || perfil === "diretoria") ? <DRE /> : <Navigate to="/" replace />} />
               <Route path="/fechamento-remuneracao" element={["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) ? <FechamentoRemuneracao /> : <Navigate to="/" replace />} />
+              <Route path="/uso-crm" element={podeVerTudo(usuario?.perfil?.email || usuario?.auth?.email || "") ? <UsoCrm usuario={usuario} /> : <Navigate to="/" replace />} />
               <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} /> <Route path="/a-entrar" element={<HonorariosAEntrar />} /> <Route path="/envio-gmail" element={<EnvioGmailLote />} /> <Route path="/importar-acordos" element={<ImportacaoAcordos />} /> <Route path="/fila-acordos" element={<FilaAcordosConfirmar />} /> <Route path="/acordos-duplicados" element={<AcordosDuplicados />} /> <Route path="/acordos-sem-vinculo" element={<AcordosSemVinculo />} /> <Route path="/pagamentos-sem-aluno" element={<RotaProtegida usuario={usuario} rota="/pagamentos-sem-aluno"><PagamentosSemAluno /></RotaProtegida>} /> <Route path="/quitacao-sugerida" element={<QuitacaoSugerida />} /> <Route path="/conferencia-prime" element={<ConferenciaPrime />} /> <Route path="/ferramentas" element={<Ferramentas />} /> <Route path="/importar-academico" element={<ImportarAcademico />} />
       </Routes>
       </Suspense>
