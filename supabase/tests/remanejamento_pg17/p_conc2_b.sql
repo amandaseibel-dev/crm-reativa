@@ -9,6 +9,8 @@ begin
     exit when (select count(*) from public.cg_teste2_bar) = 2;
     perform pg_sleep(0.01);
   end loop;
+  -- sem as duas sessoes prontas o teste NAO roda: nao ha timeout silencioso
+  perform pg_temp.afirma((select count(*) from public.cg_teste2_bar) = 2, 'B4 barreira: as duas sessoes chegaram ao ponto de sincronizacao');
 end $$;
 do $$
 declare pid text; r jsonb;

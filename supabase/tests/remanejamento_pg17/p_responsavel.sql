@@ -79,7 +79,7 @@ begin
   perform pg_temp.afirma((select responsavel_atual_email from public.alunos where id = x.aluno) = 'cobranca06@aelbra.com.br',
     'preservacao: o aluno de fato trocou de dono');
   perform pg_temp.afirma((select operador_responsavel_email from public.acordos where aluno_id = x.aluno limit 1) = antes,
-    'preservacao: responsavel do acordo nao mudou com a movimentacao do aluno');
+    'preservacao: acordo CANCELADO do aluno movido mantem o responsavel (acordo ATIVO nao e coberto aqui: o mover recusa por protecao)');
 end $$;
 
 select 'RESPONSAVEL OK' as resultado;
