@@ -8,6 +8,7 @@ import makeWASocket, {
   makeCacheableSignalKeyStore,
   proto,
 } from "baileys";
+import { Buffer } from "node:buffer";
 import QRCode from "qrcode";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";

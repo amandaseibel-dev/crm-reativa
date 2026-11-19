@@ -3,6 +3,7 @@
 //
 // SEM TLS AQUI DE PROPÓSITO: o container publica só em 127.0.0.1 e quem termina
 // HTTPS é o proxy reverso da VPS (Caddy/nginx). Ver README.
+import { Buffer } from "node:buffer";
 import { createServer } from "node:http";
 import { config } from "./config.js";
 import { tokenDeComandoConfere } from "./crm.js";

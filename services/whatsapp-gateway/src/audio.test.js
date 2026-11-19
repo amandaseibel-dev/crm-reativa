@@ -12,6 +12,9 @@
 //   3. O TIPO É DECIDIDO PELOS BYTES, e o teto é o mesmo 1 MB dos dois lados.
 import { test, describe, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
+import process from "node:process";
+import { setImmediate } from "node:timers";
 import { createServer } from "node:http";
 import { EventEmitter } from "node:events";
 import { mkdtempSync } from "node:fs";

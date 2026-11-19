@@ -11,6 +11,7 @@
 // recebeu, não o rascunho do navegador. Um áudio de voz de 2 minutos tem
 // algumas centenas de KB — cabe no mesmo teto de 1 MB que a API de controle já
 // impõe a todo corpo.
+import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
 
 // Mesmo número do `lerCorpo` do servidor e do validador da Edge
