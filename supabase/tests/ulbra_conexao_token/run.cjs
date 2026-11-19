@@ -275,14 +275,14 @@ async function main() {
     esperar(x.public_exec === false, "PUBLIC tem execute");
   });
 
-  await teste("função: SECURITY INVOKER e search_path fixo (public, pg_temp)", async () => {
+  await teste("função: SECURITY INVOKER e search_path fixo (public)", async () => {
     const r = await admin.query(
       `select p.prosecdef as definer, p.proconfig as config from pg_proc p where p.oid = to_regprocedure($1)`,
       [ASSINATURA],
     );
     esperar(r.rowCount === 1, "função não encontrada");
     esperar(r.rows[0].definer === false, "função é SECURITY DEFINER (deveria ser INVOKER)");
-    esperar((r.rows[0].config || []).some((c) => c.replace(/\s/g, "") === "search_path=public,pg_temp"), "search_path não fixado em public, pg_temp");
+    esperar((r.rows[0].config || []).some((c) => c.replace(/\s/g, "") === "search_path=public"), "search_path não fixado em public");
   });
 
   await teste("ROLLBACK da 20261117120000 remove SÓ a função e preserva a tabela (transação descartada)", async () => {

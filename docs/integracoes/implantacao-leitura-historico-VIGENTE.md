@@ -13,7 +13,7 @@ Pasta: `supabase/aguardando_aprovacao/` (não `supabase/migrations/`). sha256 do
 |---|---|---|---|
 | 1 | `20261111140000_ulbra_conexao_individual_e_envio.sql.pendente` | `fcd270305358c69db33e25072c1c0288fd0cbf7dc129bd1b6147fef1dbb6e691` | `ulbra_conexao_individual_e_envio` |
 | 2 | `20261116150000_ulbra_historico_reservar_portao_interno.sql.pendente` | `14c8a3a0f50b32023e05a28ec1db94b9419b8bbef89845fb9e35fff5eec6f9ff` | `ulbra_historico_reservar_portao_interno` |
-| 3 | `20261117120000_ulbra_gravar_conexao_atomica.sql.pendente` | `3f0b41a28857a1f765a0f4d36606d8f9c2f0909f56ff05527360afacce54d6c9` | `ulbra_gravar_conexao_atomica` |
+| 3 | `20261117120000_ulbra_gravar_conexao_atomica.sql.pendente` | `a7d6f18375f6ee2408189f935906e6205ba805f345a4cef7f5a38dbd35dbd77a` | `ulbra_gravar_conexao_atomica` |
 
 Rollbacks (mesma pasta, nomes completos `<versão>_<name>.rollback.sql`):
 - `20261111140000_ulbra_conexao_individual_e_envio.rollback.sql` — `f6b8013e8c43ff2f917dbf8839ac103b93e53c991b299b1cd1bc83e09d8e760f`
@@ -22,7 +22,7 @@ Rollbacks (mesma pasta, nomes completos `<versão>_<name>.rollback.sql`):
 
 **Ordem (dependências verificadas pelo texto):** a 3 usa `ulbra_conexoes_operador`, criada pela 1 → 3 depois de 1. A 2 usa `ulbra_historico_reservar` e `ulbra_historico_uso`, criadas por `20261110100000` e sem dependência com 1 ou 3 → ordem cronológica 1 → 2 → 3.
 
-**search_path (resolvido nesta revisão):** a migration 2 e o rollback usam `SET search_path = public` fixo, conforme `PREMISSA_SEGURANCA_PROJETO.md` §4. A versão aplicada tinha `public, pg_temp`; a diferença é deliberada e registrada na seção 9.
+**search_path (resolvido):** as migrations 2 e 3 e o rollback da 2 usam `SET search_path = public` fixo, conforme `PREMISSA_SEGURANCA_PROJETO.md` §4 (a 3 foi alinhada depois de decisão da gestão; a aplicada da 2 tinha `public, pg_temp`).
 
 ## 2. Pré-condições de produção [PRÉ] (não são hash de arquivo)
 - `20261110100000_ulbra_historico_orcamento` aplicada (ledger `20261112111006`, `supabase/ledger/2026-11/INDICE.tsv`).
@@ -79,11 +79,11 @@ Executor: a sessão principal (CLAUDE.md, item 2). Aceite específico em cada et
 |---|---|---|---|---|---|---|
 | 1 | 20261111140000 | fcd27030… | ulbra_conexao_individual_e_envio | (após aplicar) | (obter antes do passo 3) | (após aplicar) |
 | 2 | 20261116150000 | 14c8a3a0… | ulbra_historico_reservar_portao_interno | (após aplicar) | (obter antes do passo 4) | (após aplicar) |
-| 3 | 20261117120000 | 3f0b41a2… | ulbra_gravar_conexao_atomica | (após aplicar) | (obter antes do passo 5) | (após aplicar) |
+| 3 | 20261117120000 | a7d6f183… | ulbra_gravar_conexao_atomica | (após aplicar) | (obter antes do passo 5) | (após aplicar) |
 
 ## 9. Decisões e aceites exigidos (uma solicitação)
 1. **Contas com leitura global** (`leitura.ts`: `amanda.seibel`, `cobranca04`): hoje dependem da lista do piloto para ler, porque a flag exige o piloto. Decidir se entram em `ULBRA_HISTORICO_PILOTO_EMAILS` (e, se sim, com aceite) ou se ficam fora desta etapa.
-2. **search_path da migration 2 (resolvido):** alinhado a `public` (premissa §4) com novo hash. Decisão pendente só se a gestão quiser manter `public, pg_temp` como exceção registrada; hoje não é o caso.
+2. **search_path das migrations 2 e 3 (resolvido):** alinhadas a `public` (premissa §4), com novos hashes. A função da 3 é `SECURITY INVOKER`, mas a premissa §4 foi aplicada por inteiro, para não abrir exceção.
 3. **Janela da tela de período** (`MensageriaPeriodo.jsx`): confirmar que a trava de etapa aplica-se à tela antes do passo 8.
 4. **Regra dos cinco:** o aceite formal da gestão ainda não está registrado como ata. Decidir se o registro atual basta ou se a gestão assina o texto de `decisoes-integracao-ulbra.md`.
 5. Aceites das etapas 1 a 12 (seção 4), cada um específico.
