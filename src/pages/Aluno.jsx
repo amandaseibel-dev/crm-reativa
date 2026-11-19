@@ -2484,7 +2484,32 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                                   resumo={`${moeda(somaTitulos(a._titulos))} — já representadas pelas parcelas; não somam ao total em aberto`}
                                   style={{ marginTop: 6 }}
                                 >
-                                  <div style={tabNegHead}>
+                                  <style>{`
+                                    @media (max-width: 540px) {
+                                      .tn-cab { display: none !important; }
+                                      .tn-lin {
+                                        display: grid !important;
+                                        grid-template-columns: 1fr 1fr !important;
+                                        gap: 6px 8px !important;
+                                        padding: 8px 0 !important;
+                                      }
+                                      .tn-cel::before {
+                                        content: attr(data-rotulo);
+                                        display: block;
+                                        font-size: 10px;
+                                        font-weight: 700;
+                                        color: var(--rv-texto-suave, #6b7280);
+                                        text-transform: uppercase;
+                                        letter-spacing: 0.04em;
+                                        margin-bottom: 1px;
+                                      }
+                                      .tn-val {
+                                        grid-column: 1 / -1;
+                                        text-align: right !important;
+                                      }
+                                    }
+                                  `}</style>
+                                  <div className="tn-cab" style={tabNegHead}>
                                     <span style={tabNegCelula}>Documento</span>
                                     <span style={tabNegCelula}>Competência</span>
                                     <span style={tabNegCelula}>Vencimento</span>
@@ -2492,12 +2517,12 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                                     <span style={{ textAlign: "right" }}>Valor</span>
                                   </div>
                                   {a._titulos.map((t) => (
-                                    <div key={t.id} style={tabNegLinha}>
-                                      <span style={tabNegCelula}>{t.documento || "—"}</span>
-                                      <span style={tabNegCelula}>{t.competencia || "—"}</span>
-                                      <span style={tabNegCelula}>{dataCurta(t.vencimento)}</span>
-                                      <span style={tabNegCelula}>{t.situacao || "—"}</span>
-                                      <span style={{ ...tabNegCelula, textAlign: "right", fontWeight: 600 }}>
+                                    <div key={t.id} className="tn-lin" style={tabNegLinha}>
+                                      <span className="tn-cel" data-rotulo="Documento" style={tabNegCelula}>{t.documento || "—"}</span>
+                                      <span className="tn-cel" data-rotulo="Competência" style={tabNegCelula}>{t.competencia || "—"}</span>
+                                      <span className="tn-cel" data-rotulo="Vencimento" style={tabNegCelula}>{dataCurta(t.vencimento)}</span>
+                                      <span className="tn-cel" data-rotulo="Situação" style={tabNegCelula}>{t.situacao || "—"}</span>
+                                      <span className="tn-cel tn-val" data-rotulo="Valor" style={{ textAlign: "right", fontWeight: 600 }}>
                                         {moeda(valorTitulo(t))}
                                       </span>
                                     </div>
