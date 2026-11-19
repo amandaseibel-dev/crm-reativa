@@ -1,0 +1,183 @@
+-- Duas tabulações de termo físico, RESTRITAS À GESTÃO, no catálogo existente.
+BEGIN;
+-- NÃO APLICAR sem aprovação final. Mudança mínima:
+--   1. duas linhas em public.tabulacoes (somente_gestao = true);
+--   2. trigger em aluno_movimentacoes que recusa, no servidor, qualquer gravação
+--      de código somente_gestao por quem não é gestão.
+-- Não cria tabela nem RPC. Não altera alunos, baixa, contato, fidelização,
+-- retorno, fila nem efeito financeiro (efeito_desfecho fica NULL).
+
+-- 1. Catálogo existente.
+do $$
+begin
+  -- Guarda: se já existir linha com estes códigos mas com flags diferentes do esperado,
+  -- NÃO seguir em silêncio (o 'not exists' abaixo não corrigiria). Aborta.
+  if exists (select 1 from public.tabulacoes
+              where codigo in ('TERMO_FISICO_EM_ANDAMENTO','TERMO_FISICO_ARQUIVADO')
+                and (ativa is distinct from true or somente_gestao is distinct from true
+                     or efeito_desfecho is not null or retorno_modo is distinct from 'NENHUM'
+                     or proxima_acao is distinct from 'CONTATAR')) then
+    raise exception 'pré-condição: tabulação de termo físico já existe com flags divergentes; não aplicar sem decisão';
+  end if;
+  if exists (select 1 from pg_trigger where tgname = 'aluno_mov_tabulacao_so_gestao'
+                and tgrelid = 'public.aluno_movimentacoes'::regclass) then
+    raise exception 'pré-condição: trigger aluno_mov_tabulacao_so_gestao já existe';
+  end if;
+  -- Objetos novos: o rollback só os remove se esta migração foi quem os criou.
+  if to_regclass('public.termo_fisico_contencao') is not null then
+    raise exception 'pré-condição: public.termo_fisico_contencao já existe';
+  end if;
+  if to_regprocedure('public.aluno_movimentacao_tabulacao_so_gestao()') is not null then
+    raise exception 'pré-condição: função aluno_movimentacao_tabulacao_so_gestao já existe';
+  end if;
+  if to_regprocedure('public.registrar_administrativo_termo_fisico(text,text)') is not null then
+    raise exception 'pré-condição: função registrar_administrativo_termo_fisico já existe';
+  end if;
+end $$;
+insert into public.tabulacoes (
+  codigo, rotulo, ativa, ordem, grupo, retorno_modo, retorno_dias_uteis, proxima_acao,
+  bloco_ficha, exige_processo, bloqueia_acionamento, sistema, criado_em, criado_por,
+  somente_gestao, redireciona_para_email, efeito_desfecho
+)
+select v.codigo, v.rotulo, true, v.ordem, 'ADMINISTRATIVO', 'NENHUM', null, 'CONTATAR',
+       null, false, false, false, timestamptz '2026-11-14 00:00:00-03', 'migration_termo_fisico',
+       true, null, null
+  from (values
+    ('TERMO_FISICO_EM_ANDAMENTO', 'Possui termo físico assinado, em andamento', 355),
+    ('TERMO_FISICO_ARQUIVADO',    'Termo físico arquivado, quitado',            356)
+  ) as v(codigo, rotulo, ordem)
+ where not exists (select 1 from public.tabulacoes t where t.codigo = v.codigo);
+
+-- 1b. Contenção por flag (controle único). Uma linha; RLS deny-all; sem grants a usuários.
+-- contencao_ativa = false: registros abertos (estado inicial). Ausente ou inválida = CONTIDO (fecha).
+create table if not exists public.termo_fisico_contencao (
+  id boolean primary key default true check (id),
+  contencao_ativa boolean not null default true,
+  alterado_em timestamptz not null default clock_timestamp(),
+  alterado_por text not null default 'migration_termo_fisico'
+);
+alter table public.termo_fisico_contencao enable row level security;
+alter table public.termo_fisico_contencao force row level security;
+-- FORCE mantido (defesa em profundidade). Evidência de produção (leitura, 2026-11-15): a função
+-- SECURITY DEFINER tem dono postgres com rolsuper=false e rolbypassrls=true; logo o dono contorna a RLS
+-- mesmo com FORCE. Sem policy, usuários não leem nem gravam a flag.
+revoke all on public.termo_fisico_contencao from public, anon, authenticated, service_role;
+insert into public.termo_fisico_contencao (id, contencao_ativa, alterado_por)
+  values (true, false, 'migration_termo_fisico') on conflict (id) do nothing;
+
+-- 2. Proteção no servidor. Só a gestão grava estes dois códigos no histórico.
+-- Bypass: somente session_user postgres/supabase_admin (identidade de login); nenhum bypass por claim role. Gestão é a
+-- mesma função usuario_e_gestao() usada no resto do sistema.
+create or replace function public.aluno_movimentacao_tabulacao_so_gestao()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  -- Só os dois códigos de termo físico. Outros códigos somente_gestao (ex.: RETORNO_FINANCEIRO)
+  -- NÃO são tocados: o desfazer do operador pode regravar o status restaurado.
+  v_restritos constant text[] := array['TERMO_FISICO_EM_ANDAMENTO','TERMO_FISICO_ARQUIVADO'];
+  -- Mesma normalização do rollback: ASCII antes do upper, COLLATE "C" (locale determinístico).
+  v_codigo text := upper(regexp_replace(coalesce(new.status_novo, ''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C");
+  v_tipo text := upper(regexp_replace(coalesce(new.tipo, ''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C");
+begin
+  -- Bypass ÚNICO e explícito: identidade de LOGIN da conexão (session_user), que não muda com
+  -- SET ROLE nem com SECURITY DEFINER e não é forjável por claim. Ausência de SET ROLE NUNCA
+  -- concede acesso: a conexão authenticator (login do PostgREST) é recusada e cai na regra.
+  -- postgres/supabase_admin: manutenção da plataforma. Nenhum caminho de serviço por claim.
+  if session_user in ('postgres', 'supabase_admin') then
+    return new;
+  end if;
+
+  -- Contenção por flag (B1): vale para INSERT e UPDATE, inclusive para a gestão. Ausente = contido.
+  if v_codigo = any(v_restritos) or v_tipo = 'REGISTRO_ADMINISTRATIVO' then
+    if not exists (select 1 from public.termo_fisico_contencao where id and contencao_ativa is false) then
+      raise exception 'Registro de termo físico suspenso pela gestão (contenção). Nada foi gravado.' using errcode = '42501';
+    end if;
+  end if;
+
+  -- REGISTRO_ADMINISTRATIVO (autorização e ausência de efeitos IMPOSTAS NO BANCO):
+  if v_tipo = 'REGISTRO_ADMINISTRATIVO' then
+    if not public.usuario_e_gestao() then
+      raise exception 'Registro administrativo é restrito à gestão. Nada foi gravado.' using errcode = '42501';
+    end if;
+    if not (v_codigo = any(v_restritos)) then
+      raise exception 'Registro administrativo exige um dos dois códigos de termo físico. Nada foi gravado.' using errcode = '42501';
+    end if;
+    -- Sem efeito operacional: nenhum campo que dispare fluxo de cobrança, retorno, pagamento ou status.
+    if new.status_anterior is not null
+       or new.data_retorno is not null
+       or new.valor_movimentacao is not null
+       or new.baixa_pagamento_id is not null
+       or new.solicitacao_link_id is not null
+       or new.link_pagamento is not null
+       or new.motivo_devolucao is not null then
+      raise exception 'Registro administrativo não aceita campos operacionais (status anterior, retorno, valor, baixa, link ou devolução). Nada foi gravado.' using errcode = '42501';
+    end if;
+    return new;
+  end if;
+
+  if v_codigo = '' or not (v_codigo = any(v_restritos)) then
+    return new;
+  end if;
+
+  if public.usuario_e_gestao() then
+    return new;
+  end if;
+
+  -- Desfazer do operador que restauraria código restrito: recusado INTEIRO.
+  if v_tipo = 'ACAO_DESFEITA' then
+    raise exception 'Não é possível desfazer esta ação: o status anterior ("%") é restrito à gestão. Nada foi desfeito. A gestão trata pelo fluxo autorizado.', v_codigo
+      using errcode = '42501';
+  end if;
+  raise exception 'A tabulação "%" é restrita à gestão. Registre a solicitação para Amanda, Fernanda ou Amanda ADM.', v_codigo
+    using errcode = '42501';
+end;
+$$;
+
+revoke all on function public.aluno_movimentacao_tabulacao_so_gestao() from public, anon, authenticated, service_role;
+
+drop trigger if exists aluno_mov_tabulacao_so_gestao on public.aluno_movimentacoes;
+create trigger aluno_mov_tabulacao_so_gestao
+  before insert or update on public.aluno_movimentacoes
+  for each row execute function public.aluno_movimentacao_tabulacao_so_gestao();
+
+-- Operação de registro administrativo (Premissa 12): forma de gravar pelo front (o INSERT direto da gestão continua permitido pela RLS e pelo trigger).
+-- Imposta no banco: gestão (usuario_e_gestao), dois códigos, histórico apenas. Não toca em
+-- alunos, acionamento, retorno, fidelização, fila nem saldo. O front apenas chama esta função.
+create or replace function public.registrar_administrativo_termo_fisico(p_aluno_id text, p_codigo text)
+returns jsonb
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  v_codigo text := upper(regexp_replace(coalesce(p_codigo, ''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C");
+  v_aluno text := btrim(coalesce(p_aluno_id, ''));
+  v_email text := lower(coalesce(auth.jwt() ->> 'email', ''));
+  v_id bigint;
+begin
+  -- Gestão E usuário ativo (a RLS de INSERT exige app_usuario_ativo; a função é DEFINER e o owner ignora RLS).
+  if not (public.app_usuario_ativo() and public.usuario_e_gestao()) then
+    raise exception 'Registro administrativo é restrito à gestão ativa. Nada foi gravado.' using errcode = '42501';
+  end if;
+  if not (v_codigo = any (array['TERMO_FISICO_EM_ANDAMENTO', 'TERMO_FISICO_ARQUIVADO'])) then
+    raise exception 'Registro administrativo exige um dos dois códigos de termo físico. Nada foi gravado.' using errcode = '42501';
+  end if;
+  if v_aluno = '' or not exists (select 1 from public.alunos a where a.id::text = v_aluno) then
+    raise exception 'aluno não encontrado. Nada foi gravado.' using errcode = '22023';
+  end if;
+  insert into public.aluno_movimentacoes
+    (aluno_id, tipo, status_novo, descricao, registrado_por_email, registrado_por_nome, registrado_em)
+  values
+    (v_aluno, 'REGISTRO_ADMINISTRATIVO', v_codigo, 'Registro administrativo do termo físico.', v_email, null, now())
+  returning id into v_id;
+  return jsonb_build_object('ok', true, 'id', v_id, 'codigo', v_codigo, 'autor', v_email);
+end;
+$$;
+
+revoke all on function public.registrar_administrativo_termo_fisico(text, text) from public, anon, service_role;
+grant execute on function public.registrar_administrativo_termo_fisico(text, text) to authenticated;
+
+COMMIT;

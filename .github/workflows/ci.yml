@@ -1134,3 +1134,153 @@ jobs:
       # Duas conexoes reais: captura antes do lock, rollback, captura concorrente, reinstalacao.
       - name: Rodar rollback concorrente e reinstalacao (duas conexoes)
         run: bash "$DIR/run.sh"
+
+  tabulacao-termo-fisico-gestao-sql:
+    name: tabulação termo físico — gestão permitida, operador recusado, sem efeitos (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/tabulacao_termo_fisico_gestao
+      MIGRATION: supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261114120000_tabulacao_termo_fisico_restrita_gestao.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: "Caminho A (com histórico): contrato do teste, barreira, registro, rollback recusado, preservação"
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          psql -v ON_ERROR_STOP=1 -c "do \$\$ begin if not exists (select 1 from pg_roles where rolname='app_teste') then create role app_teste login noinherit password 'app_teste_pw'; end if; end \$\$;"
+          psql -v ON_ERROR_STOP=1 -c "alter role app_teste noinherit; grant anon, authenticated, service_role to app_teste with inherit false, set true, admin false; grant usage on schema public to app_teste; grant select on public.tabulacoes, public.alunos, public.usuarios to app_teste; grant update on public.alunos to app_teste; grant select, insert on public.aluno_movimentacoes to app_teste;"
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/02_tabulacao.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/prep_gestao_inativa_off.sql"
+          set +e
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/02i_gestao_inativa.sql"
+          rc=$?
+          set -e
+          psql -v ON_ERROR_STOP=1 -f "$DIR/prep_gestao_inativa_on.sql"
+          [ "$rc" -eq 0 ] || exit "$rc"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/00_barreira_producao.sql"
+          # (sem proposta de trava nesta #954)
+          psql -v ON_ERROR_STOP=1 -f "supabase/aguardando_aprovacao/20261106120000_tabulacao_retorno_financeiro.sql.pendente"
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/05_barreira_alunos.sql"
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/09_login_nao_privilegiado.sql"
+          psql -v ON_ERROR_STOP=1 -c "do \$\$ begin if not exists (select 1 from pg_roles where rolname='app_teste_inh') then create role app_teste_inh login inherit password 'app_teste_inh_pw'; end if; end \$\$; grant anon, authenticated, service_role to app_teste_inh; grant usage on schema public to app_teste_inh; grant select on public.tabulacoes, public.alunos, public.usuarios to app_teste_inh; grant select, insert on public.aluno_movimentacoes to app_teste_inh;"
+          PGUSER=app_teste_inh PGPASSWORD=app_teste_inh_pw psql -v ON_ERROR_STOP=1 -f "$DIR/10_login_inherit_defensivo.sql"
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/07_registro_administrativo.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/prep_gestao_inativa_off.sql"
+          set +e
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/07i_gestao_inativa.sql"
+          rc=$?
+          set -e
+          psql -v ON_ERROR_STOP=1 -f "$DIR/prep_gestao_inativa_on.sql"
+          [ "$rc" -eq 0 ] || exit "$rc"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/11p_prep_contencao_on.sql"
+          set +e
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/11_contencao_b4.sql"
+          rc=$?
+          set -e
+          psql -v ON_ERROR_STOP=1 -f "$DIR/11p_prep_contencao_off.sql"
+          [ "$rc" -eq 0 ] || exit "$rc"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/13p_rls_role.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/12p_on.sql"
+          set +e
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/12_contencao_flag.sql"
+          rc=$?
+          PGUSER=app_teste_rls PGPASSWORD=app_teste_rls_pw psql -v ON_ERROR_STOP=1 -f "$DIR/13_update_direto_rls.sql" || rc=$?
+          set -e
+          psql -v ON_ERROR_STOP=1 -f "$DIR/12p_off.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/12n_contencao_flag_fixture.sql"
+          [ "$rc" -eq 0 ] || exit "$rc"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/12p_ausente_off.sql"
+          set +e
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/12u_ausente.sql"
+          rc=$?
+          set -e
+          psql -v ON_ERROR_STOP=1 -f "$DIR/12p_ausente_restore.sql"
+          [ "$rc" -eq 0 ] || exit "$rc"
+          set +e
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/14_nao_relacionados_e_definer.sql"
+          rc=$?
+          set -e
+          [ "$rc" -eq 0 ] || exit "$rc"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/15p_dono_teste.sql"
+          set +e
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/15_dono_teste_flag.sql"
+          rc=$?
+          psql -v ON_ERROR_STOP=1 -f "$DIR/12p_on.sql"
+          set -e  # a partir daqui, falha de restauração aborta o caminho (o teste 15b é o que pega a falha de ligar a contenção)
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/15b_dono_contido.sql" || rc=$?
+          PGUSER=app_teste_rls PGPASSWORD=app_teste_rls_pw psql -v ON_ERROR_STOP=1 -f "$DIR/15c_update_dono.sql" || rc=$?
+          set -e
+          psql -v ON_ERROR_STOP=1 -f "$DIR/12p_off.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/15p_dono_restore.sql"
+          [ "$rc" -eq 0 ] || exit "$rc"
+          set -e
+          [ "$rc" -eq 0 ] || { psql -v ON_ERROR_STOP=1 -f "$DIR/15p_dono_restore.sql"; exit "$rc"; }
+          set +e
+          out=$(psql -v ON_ERROR_STOP=1 -f "$ROLLBACK" 2>&1)
+          code=$?
+          set -e
+          echo "$out"
+          [ "$code" -ne 0 ] && echo "$out" | grep -qF "ERROR:  P0001: rollback recusado: " || { echo "contrato do rollback violado (SQLSTATE P0001 e mensagem exatos)"; exit 1; }
+          psql -v ON_ERROR_STOP=1 -f "$DIR/03_rollback_recusado.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/06_preservacao_rollback.sql"
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/05_barreira_alunos.sql"
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/09_login_nao_privilegiado.sql"
+
+      - name: "Dependências Node e PostgREST 16.5 oficial (SHA-256 conferido)"
+        run: |
+          mkdir -p "$RUNNER_TEMP/deps" "$RUNNER_TEMP/postgrest"
+          (cd "$RUNNER_TEMP/deps" && npm init -y >/dev/null && npm install --no-audit --no-fund pg@8)
+          curl -fsSL -o "$RUNNER_TEMP/postgrest/pgrst.tar.xz" https://github.com/PostgREST/postgrest/releases/download/v16.5/postgrest-v16.5-linux-static-x86-64.tar.xz
+          echo "5099e7ada38f9f6846cd87c14c5f158b7c165f1e9959665ad412e61f4dceba95  $RUNNER_TEMP/postgrest/pgrst.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/postgrest/pgrst.tar.xz" -C "$RUNNER_TEMP/postgrest"
+
+      - name: "PostgREST 16.5 real: operador por JWT recusado, gestão aceita, claims forjadas recusadas"
+        env:
+          NODE_PATH: '${{ runner.temp }}/deps/node_modules'
+          POSTGREST_BIN: '${{ runner.temp }}/postgrest/postgrest'
+          TERMO_TESTE_DESCARTAVEL: 'sim'
+        run: node "$DIR/postgrest_termo_fisico.cjs"
+
+      - name: "Caminho B (banco limpo): rollback reversível com igualdade de estado de termo, barreira, ACL e RLS antes/depois"
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -c "drop schema public cascade; create schema public;"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/00_barreira_producao.sql"
+          psql -v ON_ERROR_STOP=1 -f "supabase/aguardando_aprovacao/20261106120000_tabulacao_retorno_financeiro.sql.pendente"
+          psql -v ON_ERROR_STOP=1 -c "do \$\$ begin if not exists (select 1 from pg_roles where rolname='app_teste') then create role app_teste login noinherit password 'app_teste_pw'; end if; end \$\$;"
+          psql -v ON_ERROR_STOP=1 -c "alter role app_teste noinherit; grant anon, authenticated, service_role to app_teste with inherit false, set true, admin false; grant usage on schema public to app_teste; grant select on public.tabulacoes, public.alunos, public.usuarios to app_teste; grant update on public.alunos to app_teste; grant select, insert on public.aluno_movimentacoes to app_teste;"
+          psql -tA -v ON_ERROR_STOP=1 -f "$DIR/snapshot_termo_fisico.sql" > "$RUNNER_TEMP/termo_pre.txt"
+          test -s "$RUNNER_TEMP/termo_pre.txt"
+          psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/05_barreira_alunos.sql"
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/09_login_nao_privilegiado.sql"
+          TERMO_TESTE_DESCARTAVEL=sim ROLLBACK="$ROLLBACK" bash "$DIR/recusas_rollback.sh"
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          psql -tA -v ON_ERROR_STOP=1 -f "$DIR/snapshot_termo_fisico.sql" > "$RUNNER_TEMP/termo_post.txt"
+          cmp -s "$RUNNER_TEMP/termo_pre.txt" "$RUNNER_TEMP/termo_post.txt" || { echo "rollback nao volta ao estado anterior"; diff "$RUNNER_TEMP/termo_pre.txt" "$RUNNER_TEMP/termo_post.txt"; exit 1; }
+          psql -v ON_ERROR_STOP=1 -f "$DIR/04_rollback_limpo.sql"
