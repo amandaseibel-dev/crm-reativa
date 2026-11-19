@@ -55,6 +55,11 @@ begin
   perform pg_temp.afirma((select status from public.operador_agenda where aluno_id = x.aluno::text) = 'PENDENTE',
     'agenda: compromisso continua PENDENTE (nao foi cancelado)');
 
+  -- (d0) o gatilho de aluno_movimentacoes (trg_atualizar_ultimo_acionamento, carregado) avalia a movimentacao
+  -- gravada pelo mover: tipo CARTEIRA_GERAL_REMANEJAMENTO, que NAO esta em eh_tipo_acionamento -> nao age.
+  perform pg_temp.afirma(exists (select 1 from public.aluno_movimentacoes
+                                  where aluno_id = x.aluno::text and tipo = 'CARTEIRA_GERAL_REMANEJAMENTO'),
+    'movimentacao do remanejamento gravada com o tipo CARTEIRA_GERAL_REMANEJAMENTO (avaliada pelo gatilho)');
   -- (d) acionamento PRESERVADO na troca de dono: trg_acionamento_nao_volta_para_nulo (corpo lido em
   -- producao) restaura o valor antigo quando o novo e nulo. A premissa anterior (zerar) nao se confirmou.
   perform pg_temp.afirma((select data_ultimo_acionamento::date from public.alunos where id = x.aluno) = (now() - interval '12 days')::date,

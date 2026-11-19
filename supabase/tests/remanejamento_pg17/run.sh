@@ -106,6 +106,7 @@ psqlt "$LOGS/s2_resp_funcs.log" rem_com936 "$PROT/funcoes_responsavel_prod.sql" 
 psqlt "$LOGS/s2_resp.log" rem_com936 "$PROT/responsavel_prod.sql" || falha "camada de responsavel e acordo nao aplicou"
 psqlt "$LOGS/s2_gat.log" rem_com936 "$PROT/gatilhos_alunos_prod.sql" || falha "gatilhos de alunos (retorno/acionamento) nao aplicaram"
 psqlt "$LOGS/s2_obrig.log" rem_com936 "$PROT/gatilhos_obrigatorios_prod.sql" || falha "gatilhos obrigatorios nao aplicaram"
+psqlt "$LOGS/s2_casos_fn.log" rem_com936 "$TD/gatilhos_casos_fn_prod.sql" || falha "gatilho do casos (B1) e de aluno_movimentacoes nao reproduziram o md5 de producao: ver $LOGS/s2_casos_fn.log"
 if ! psqlt "$LOGS/s2_936.log" rem_com936 "$MIG936"; then
   echo "  #936 NAO aplica sobre a bancada de producao de 17/11: ver $LOGS/s2_936.log"
   exit 2
@@ -115,7 +116,7 @@ psqlt "$LOGS/s2_migration.log" rem_com936 "$OURS" || falha "migration nao aplico
 echo "  ok: migration aplicada sobre a #936"
 
 passo "3. Testes sequenciais (um banco, mesma sessao de cada arquivo)"
-for t in p_destinos p_perfis p_prazo p_trocadono p_saldo_capacidade p_terceiros p_protecao_real p_perfis_extra p_responsavel p_gatilhos_obrigatorios p_grants p_evidencia_gatilhos; do
+for t in p_destinos p_perfis p_prazo p_trocadono p_saldo_capacidade p_terceiros p_protecao_real p_perfis_extra p_responsavel p_gatilhos_obrigatorios p_grants p_perfil_real p_evidencia_gatilhos; do
   psqlt "$LOGS/$t.log" rem_com936 "$TD/$t.sql" || falha "$t: ver $LOGS/$t.log"
   echo "  ok: $t"
 done
@@ -150,6 +151,20 @@ wait $pa2 $pb2 || true
 [ "$(cat "$LOGS/conc2_a.rc")" = 0 ] || falha "B4 sessao A: ver $LOGS/conc2_a.log"
 [ "$(cat "$LOGS/conc2_b.rc")" = 0 ] || falha "B4 sessao B: ver $LOGS/conc2_b.log"
 psqlt "$LOGS/conc2_check.log" rem_com936 "$TD/p_conc2_check.sql" || falha "veredito B4 (destinos diferentes): ver $LOGS/conc2_check.log"
+
+# B4 contencao REAL: mesmo destino, 1 vaga, 2 alunos. Duas ordens: o titular do lock muda de sessao.
+for v in 1 2; do
+  if [ "$v" = 1 ]; then H=primeiro; O=segundo; PH=X; PO=Y; else H=segundo; O=primeiro; PH=Y; PO=X; fi
+  psqlt "$LOGS/cont${v}_setup.log" rem_com936 "$TD/p_conc3_setup.sql" || falha "preparo da contencao (ordem $v): ver $LOGS/cont${v}_setup.log"
+  ( psqlt "$LOGS/cont${v}_h.log" rem_com936 "$TD/p_conc3_primeiro.sql" -v nome="$H" -v prev="$PH"; echo $? > "$LOGS/cont${v}_h.rc" ) &
+  ph=$!
+  ( psqlt "$LOGS/cont${v}_o.log" rem_com936 "$TD/p_conc3_segundo.sql" -v nome2="$O" -v prev2="$PO"; echo $? > "$LOGS/cont${v}_o.rc" ) &
+  po=$!
+  wait $ph $po || true
+  [ "$(cat "$LOGS/cont${v}_h.rc")" = 0 ] || falha "contencao (ordem $v) titular: ver $LOGS/cont${v}_h.log"
+  [ "$(cat "$LOGS/cont${v}_o.rc")" = 0 ] || falha "contencao (ordem $v) nao-titular: ver $LOGS/cont${v}_o.log"
+  psqlt "$LOGS/cont${v}_check.log" rem_com936 "$TD/p_conc3_check.sql" || falha "veredito da contencao (ordem $v): ver $LOGS/cont${v}_check.log"
+done
 echo "  ok: concorrencia (mesmo caso e teto)"
 
 # ----------------------------------------------------------------- ROLLBACK

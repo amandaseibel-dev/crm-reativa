@@ -46,7 +46,7 @@ insert into esperado values
 ('casos', 'trg_audit_del', 'EXCLUIR', 'definicao: AFTER DELETE; corpo md5 8cda58d54687edf35bde9280269141df'),
 ('casos', 'trg_auditar_encerramento_operacional', 'EXCLUIR', 'corpo md5 c84584c051600365c5dd5c56ac735a71 (producao, consulta 18/11; so casos_encerramento_auditoria)'),
 ('casos', 'trg_auditar_nao_acionar', 'EXCLUIR', 'definicao: UPDATE OF nao_acionar; corpo md5 d9481f2ee95ad12936a79f61e8209358'),
-('casos', 'trg_bloquear_alteracoes_restritas_casos', 'EXCLUIR', 'PENDENTE: corpo md5 06edb22723aa1ee3206d1f495ec141cd; caminho do mover (dono do mover) NAO COMPROVADO'),
+('casos', 'trg_bloquear_alteracoes_restritas_casos', 'INCLUIR', 'carregado no CI; md5 trigger 49af8ba2fe92dea3ea13adf7181b9216 = producao (coletado 2026-11-19 09:35 UTC)'),
 ('casos', 'trg_casos_set_encerrado_operacional', 'INCLUIR', 'carregado no CI'),
 ('casos', 'trg_fechar_confirmacao_ao_quitar_caso', 'EXCLUIR', 'definicao: UPDATE OF status_atual,quitado_em,origem_quitacao; corpo md5 d9e8b64578408c46d9df1d09ccbbe717'),
 ('casos', 'trg_giro_limpar_marca', 'SEM_CLASSE', ''),

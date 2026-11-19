@@ -142,9 +142,9 @@
  {
   "tabela": "casos",
   "gatilho": "trg_bloquear_alteracoes_restritas_casos",
-  "decisao": "EXCLUIR",
-  "justificativa": "BEFORE UPDATE sem filtro de coluna: dispara em todo UPDATE de casos. Corpo lido em producao (md5 06edb227): levanta excecao so se mudam colunas de ajuste, financeiras ou caso_atualizado_por/em, e retorna cedo se crm_usuario_acesso_restrito_amanda() (true para postgres, supabase_admin, service_role e a Amanda). No caminho do remanejamento, caso_atualizado_por/em sao gravados por _sync_casos_resp_aluno (SECURITY DEFINER, dono postgres), que roda como postgres. Justificado por leitura de codigo; nao coberto por teste (gatilho nao carregado).",
-  "evidencia": "PENDENTE: corpo md5 06edb22723aa1ee3206d1f495ec141cd; caminho do mover (dono do mover) NAO COMPROVADO"
+  "decisao": "INCLUIR",
+  "justificativa": "Reproduzido no CI com md5 igual ao de producao (gatilhos_casos_fn_prod.sql). Executor real do UPDATE de casos no remanejamento: carteira_geral_mover, SECURITY DEFINER, dono postgres; o gatilho avalia crm_usuario_acesso_restrito_amanda() com current_user = postgres -> retorna cedo. Controle negativo: operador autenticado e barrado (p_perfil_real).",
+  "evidencia": "carregado no CI; md5 trigger 49af8ba2fe92dea3ea13adf7181b9216 = producao (coletado 2026-11-19 09:35 UTC)"
  },
  {
   "tabela": "casos",
