@@ -73,7 +73,7 @@ begin
 end $$;
 
 
--- EFEITO (critério P12): destino que nao e OPERADOR e caso fidelizado ja bloqueado por OUTRO motivo
+-- EFEITO (critério P12): destino que nao e OPERADOR, e caso fidelizado ja bloqueado por outro motivo (ENCERRADO)
 -- nao produzem efeito: a previa NAO pode informar a liberacao.
 do $$
 declare m record; p jsonb;
@@ -88,15 +88,15 @@ end $$;
 do $$
 declare q record; p jsonb;
 begin
-  -- acionamento JURIDICO e protegido pela regra de producao (caso_protegido_redistribuicao). O semear
+  -- acionamento JURIDICO: o caso e ENCERRADO (encerrado_operacional, verificado antes de PROTEGIDO em cg_bloqueio).
+-- A proteção de producao tambem cobre JURIDICO; o motivo reportado e ENCERRADO. O semear
   -- grava p_acion em status_acionamento (o que a regra le); p_status vai para status_atual (nao protege).
   select * into q from pg_temp.semear('cobranca06@aelbra.com.br', 400, 3, 40, p_acion => 'JURIDICO');
   p := pg_temp.previa(array[q.aluno], 'OPERADOR', 'cobranca05@aelbra.com.br',
     '{"responsavel":"cobranca06@aelbra.com.br","liberar_fidelizacao_de":["cobranca06@aelbra.com.br"]}');
   raise notice 'bloqueio do caso protegido: %', p->'itens'->0->>'bloqueio';
-  perform pg_temp.afirma(p->'itens'->0->>'bloqueio' is not null
-                         and p->'itens'->0->>'bloqueio' <> 'FIDELIZACAO_VIGENTE',
-    'fidelizado bloqueado por OUTRO motivo (protegido) segue bloqueado com a liberacao');
+  perform pg_temp.afirma(p->'itens'->0->>'bloqueio' = 'ENCERRADO',
+    'fidelizado com acionamento JURIDICO segue bloqueado (motivo ENCERRADO) com a liberacao');
   perform pg_temp.afirma(p->'liberar_fidelizacao_de' = '[]'::jsonb,
     'sem efeito: caso bloqueado por outro motivo nao informa liberacao');
 end $$;

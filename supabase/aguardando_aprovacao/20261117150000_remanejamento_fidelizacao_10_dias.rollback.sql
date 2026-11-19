@@ -16,6 +16,8 @@
 -- nenhuma outra escrita de giro a tiver regravado (o gatilho solta o marcador).
 --
 -- O que NAO e desfeito, de proposito:
+--   * o COMMENT ON COLUMN de carteira_geral_auditoria.protecao_ate PERMANECE apos o rollback
+--     (a migracao o criou; o rollback nao o remove).
 --   * a coluna carteira_geral_auditoria.protecao_ate fica (e registro do que
 --     aconteceu; a funcao restaurada nao a le nem a escreve).
 --   * a coluna casos.remanejamento_lote_id FICA (nula apos o rollback; nenhuma funcao
@@ -24,8 +26,9 @@
 --     troca o comentario; o rollback NAO restaura o comentario anterior, porque a leitura
 --     de producao nao foi feita nesta rodada. Comentario de producao: NAO CONFERIDO.
 --
--- DML: somente o UPDATE de giro_fidelizacao_ate descrito acima, nas marcas
--- casadas pelo predicado. Nenhuma outra linha de dado e escrita.
+-- DML: o UPDATE de giro_fidelizacao_ate descrito acima, nas marcas casadas pelo
+-- predicado, e o zeramento de casos.remanejamento_lote_id nessas mesmas linhas (a coluna
+-- fica, nula). Nenhuma outra linha de dado e escrita.
 
 begin;
 
