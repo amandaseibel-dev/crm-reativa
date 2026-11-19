@@ -21,6 +21,14 @@ describe("ConversaUlbra — apresentação", () => {
     expect(screen.getByLabelText("Resposta").disabled).toBe(true);
   });
 
+  it("exibe o texto já protegido pelo servidor (CPF mascarado) sem reconstruir o número", () => {
+    // Fixture sintetica: o servidor (historico-leitura.ts) ja devolve o texto mascarado.
+    const protegido = [{ direcao: "ENTRADA", em: "2026-11-10T13:00:00Z", texto: "meu CPF ***.***.***-25 pode conferir?", autor: null, anexos: [] }];
+    render(<ConversaUlbra mensagens={protegido} podeEnviar={false} />);
+    expect(screen.getByText("meu CPF ***.***.***-25 pode conferir?")).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/\d{3}\.\d{3}\.\d{3}-\d{2}/);
+  });
+
   it("com cursor, oferece carregar anteriores", () => {
     const onAnt = vi.fn();
     render(<ConversaUlbra mensagens={MSGS} antesDe="c9" onCarregarAnteriores={onAnt} />);
