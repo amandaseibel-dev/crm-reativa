@@ -34,6 +34,6 @@ begin
   perform pg_temp.afirma(isg < commit_p and fsg >= commit_p,
     format('contencao: SOBREPOSICAO comprovada (segundo iniciou %s, primeiro commitou %s, segundo terminou %s)', isg, commit_p, fsg));
   perform pg_temp.afirma(extract(epoch from (fsg - isg)) >= 1.5,
-    format('contencao: o segundo ficou esperando o lock (%.2f s)', extract(epoch from (fsg - isg))));
+    format('contencao: o segundo ficou esperando o lock (%s s)', round(extract(epoch from (fsg - isg))::numeric, 2)));
 end $$;
 select 'CONT CHECK OK' as resultado;
