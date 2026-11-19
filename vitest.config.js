@@ -13,7 +13,7 @@ export default defineConfig({
     // (rodam com `npm test` DENTRO de services/whatsapp-gateway). O vitest da
     // raiz nao sabe executa-los e os marcaria como falha — ruido que esconderia
     // falha de verdade.
-    exclude: ["**/node_modules/**", "**/dist/**", "services/**"],
+    exclude: ["**/node_modules/**", "**/dist/**", "services/**", "e2e/**"], // e2e/ e do Playwright (npm run e2e)
     // Variaveis do Supabase com valor INERTE e LOCAL. Nao e configuracao de
     // verdade: e o mesmo placeholder que src/services/supabase.js ja usa fora
     // do browser. Sem isto o teste depende do .env.local da maquina de quem

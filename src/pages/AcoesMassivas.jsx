@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
+import { classificarFalhaExportacao, montarLinhasContatos, gerarArquivoExportacao } from "../utils/exportacaoMassiva.js";
+import { FASE, bloqueiaNovaExportacao, mensagemDaFase } from "../utils/exportacaoFluxo.js";
 import { supabase } from "../services/supabase";
 import {
   detalheSelecao,
@@ -252,6 +254,9 @@ export default function AcoesMassivas() {
   const [soSemTelefone, setSoSemTelefone] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [gerando, setGerando] = useState(false);
+  // Fase do ultimo registro: incerta bloqueia nova exportacao nesta tela. Consultar o historico NAO libera; so recarregar a pagina remove o bloqueio local.
+  const [faseExport, setFaseExport] = useState(FASE.OCIOSO);
+  const [erroHistorico, setErroHistorico] = useState("");
   const [resultados, setResultados] = useState(null);
   const [erro, setErro] = useState("");
   const [sucesso, setSucesso] = useState("");
@@ -340,16 +345,18 @@ export default function AcoesMassivas() {
     })();
   }, []);
 
+  // Devolve { ok }. ok=true SOMENTE quando a consulta de registro concluiu sem erro.
+  // Lista vazia com ok=true e ausencia de resultados; erro = conferencia indisponivel.
+  // O fallback (so pendentes) serve para exibir, nunca como conferencia: nao mostra lote recem-fechado.
   async function carregarLotesRegistro() {
     const { data, error } = await supabase.rpc("acoes_massivas_lotes_registro", { p_dias: 7 });
     if (!error && Array.isArray(data)) {
       setLotesRegistro(data);
-      return;
+      return { ok: true };
     }
-    // Enquanto a função do painel não estiver no banco, cai na antiga: ela só
-    // conhece pendentes. Melhor um painel incompleto do que a tela sem painel.
-    const { data: pend } = await supabase.rpc("acoes_massivas_lotes_pendentes");
-    setLotesRegistro((Array.isArray(pend) ? pend : []).map((l) => ({ ...l, situacao: "PENDENTE" })));
+    const { data: pend, error: errPend } = await supabase.rpc("acoes_massivas_lotes_pendentes");
+    setLotesRegistro(errPend ? [] : (Array.isArray(pend) ? pend : []).map((l) => ({ ...l, situacao: "PENDENTE" })));
+    return { ok: false };
   }
 
   async function carregarLotesWhats() {
@@ -381,7 +388,11 @@ export default function AcoesMassivas() {
     setContagemTipo(null);
     setResumoPrevia(null);
     setPreviaId(null);
-    setRelatorioPronto(null);
+    // Lote registrado com arquivo que nao foi baixado: o arquivo e a unica forma de recupera-lo. Nao descartar.
+    if (faseExport !== FASE.ARQUIVO_FALHOU) {
+      setRelatorioPronto(null);
+      setRelatorioEmailLote(null);
+    }
     setExcluidosConfirmacao([]);
     setPrimeExtratoEm(null);
     setMostrarExcluidos(false);
@@ -407,6 +418,8 @@ export default function AcoesMassivas() {
   async function buscar(over = {}) {
     setErro("");
     setSucesso("");
+    // NAO libera a exportacao aqui. Busca invalida ou malsucedida nao e nova previa:
+    // so uma previa aceita (abaixo) libera a fase CONCLUIDA.
     const min = valorMin.trim() ? converterValor(valorMin) : 0;
     const max = valorMax.trim() ? converterValor(valorMax) : null;
     const qtd = Math.max(1, Math.min(5000, Number(quantidade) || 100));
@@ -427,6 +440,8 @@ export default function AcoesMassivas() {
 
     setCarregando(true);
     setResultados(null);
+    setRelatorioPronto((r) => (faseExport === FASE.ARQUIVO_FALHOU ? r : null));
+    setRelatorioEmailLote((r) => (faseExport === FASE.ARQUIVO_FALHOU ? r : null));
     setOperadorDaPrevia(null);
     setTipoDaPrevia(null);
     setContagemTipo(null);
@@ -501,6 +516,8 @@ export default function AcoesMassivas() {
       setResumoPrevia(previa?.resumo || null);
       setPorResponsavel(previa?.por_responsavel || []);
       setPreviaId(previa?.previa_id || null);
+      // So a previa aceita (validada acima) libera a exportacao depois de um lote concluido.
+      setFaseExport((f) => (f === FASE.CONCLUIDA ? FASE.OCIOSO : f));
 
       setExcluidosConfirmacao(previa?.excluidos_confirmacao || []);
       setPrimeExtratoEm(previa?.prime_extrato_em || null);
@@ -538,10 +555,21 @@ export default function AcoesMassivas() {
   // registrar) quanto pelo botão manual (gesto novo do usuário) de fallback.
   function baixarPlanilha(rel) {
     if (!rel || !rel.linhas || rel.linhas.length === 0) return;
-    const planilha = XLSX.utils.json_to_sheet(rel.linhas);
-    const livro = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(livro, planilha, "Ação Massiva");
-    XLSX.writeFile(livro, rel.nomeArquivo);
+    gerarArquivoExportacao(XLSX, rel);
+  }
+
+  // Baixa de novo o arquivo ja gerado. Nao chama a RPC: o lote ja foi registrado.
+  function baixarNovamenteArquivo() {
+    try {
+      baixarPlanilha(relatorioPronto);
+      setFaseExport(FASE.CONCLUIDA);
+      setErro("");
+    } catch {
+      // Nao deixar "Lote registrado: ..." de um sucesso anterior ao lado do erro.
+      setSucesso("");
+      setFaseExport(FASE.ARQUIVO_FALHOU);
+      setErro(mensagemDaFase(FASE.ARQUIVO_FALHOU));
+    }
   }
 
   // EXPORTAR NÃO É CONTATO REALIZADO. O disparo acontece numa ferramenta
@@ -553,12 +581,17 @@ export default function AcoesMassivas() {
   // Desde 19/10 esse registro também TABULA o caso, com retorno em 10 dias.
   async function exportarPlanilha() {
     if (!resultados || resultados.length === 0) return;
+    if (bloqueiaNovaExportacao(faseExport)) return;
 
     setGerando(true);
     setErro("");
     setSucesso("");
     setExcluidosNoEnvio(0);
 
+    // Fases bloqueantes ja foram recusadas acima; aqui o arquivo anterior nao pertence a nova exportacao.
+    setRelatorioPronto((r) => (faseExport === FASE.ARQUIVO_FALHOU ? r : null));
+    setRelatorioEmailLote((r) => (faseExport === FASE.ARQUIVO_FALHOU ? r : null));
+    let loteRegistrado = false;
     try {
       const sufixoOperador = /^CASO:/i.test(String(operadorDaPrevia ?? ""))
         ? sufixoArquivoResponsavel(operadorDaPrevia)
@@ -577,8 +610,20 @@ export default function AcoesMassivas() {
       if (previaId) argsExportar.p_previa_id = previaId;
       // O banco revalida o tipo e o grava no lote; a confirmação revalida de novo.
       if (tipoLote) argsExportar.p_tipo_cobranca = tipoLote;
-      const { data: exp, error: erroExp } = await supabase.rpc("acoes_massivas_exportar", argsExportar);
-      if (erroExp) throw erroExp;
+      let exp;
+      try {
+        const { data, error: erroExp } = await supabase.rpc("acoes_massivas_exportar", argsExportar);
+        if (erroExp) throw erroExp;
+        exp = data;
+        loteRegistrado = true;
+      } catch (e) {
+        const f = classificarFalhaExportacao("rpc", e);
+        console.error("Exportacao da acao massiva falhou", { etapa: f.etapa, codigo: f.codigo });
+        // Validacao recusada: nada registrado, pode tentar. Demais: resultado desconhecido, bloqueia.
+        setFaseExport(f.etapa === "validacao" ? FASE.RECUSADA : FASE.INCERTA);
+        setErro(f.etapa === "validacao" ? f.mensagem : mensagemDaFase(FASE.INCERTA));
+        return;
+      }
 
       const excluidosEnvio = Number(exp?.excluidos_confirmacao || 0);
       const excluidosPrime = Number(exp?.excluidos_liquidados_prime || 0);
@@ -590,19 +635,15 @@ export default function AcoesMassivas() {
       // Os contatos completos só vêm desta RPC (gestão, auditada pelo lote); a
       // prévia nunca os expõe.
       const contatos = exp?.contatos || [];
+      let falhaArquivo = false;
       if (contatos.length > 0) {
-        const linhas = contatos.map((c) => {
-          const telFmt = normalizarTelefone(c.telefone);
-          return canal === "WHATSAPP"
-            ? { "Nome do aluno": c.nome, Telefone: telFmt }
-            : { "Nome do aluno": c.nome, "E-mail": (c.email || "").trim(), Telefone: telFmt || "" };
-        });
-        const relGerado = { linhas, nomeArquivo };
+        const relGerado = { linhas: montarLinhasContatos(contatos, canal, normalizarTelefone), nomeArquivo };
         setRelatorioPronto(relGerado);
         try {
           baixarPlanilha(relGerado);
-        } catch (e) {
-          console.warn("Download automático falhou; use o botão Baixar planilha.", e);
+        } catch {
+          falhaArquivo = true;
+          console.warn("Falha ao gerar o arquivo da acao massiva", { etapa: "arquivo" });
         }
       }
 
@@ -633,17 +674,35 @@ export default function AcoesMassivas() {
         automatico: !!exp?.registro_automatico,
       });
 
+      // O lote ja foi registrado pela RPC. Sem arquivo, nao dizer que a planilha foi exportada.
+      if (falhaArquivo) {
+        setFaseExport(FASE.ARQUIVO_FALHOU);
+        setErro(mensagemDaFase(FASE.ARQUIVO_FALHOU));
+        carregarLotesRegistro();
+        return;
+      }
       if (contatos.length === 0) {
         setSucesso(`Nenhum aluno na planilha.${sufixoExcluidos}`);
       } else {
         setSucesso(
-          `Planilha exportada com ${selecionados} aluno(s) selecionados e ${registrados} registrado(s) no CRM como ação massiva, com data, hora e canal no histórico de cada aluno. Esses registros contam como último acionamento e tabulam o caso, com retorno agendado para 10 dias. Se o download não abriu, use o botão “Baixar planilha novamente” abaixo.${sufixoExcluidos}`
+          `Lote registrado: ${selecionados} aluno(s) selecionados e ${registrados} registrado(s) no CRM como ação massiva, com data, hora e canal no histórico de cada aluno. Esses registros contam como último acionamento e tabulam o caso, com retorno agendado para 10 dias. Se o download não abriu, use o botão “Baixar planilha novamente” abaixo.${sufixoExcluidos}`
         );
       }
+      setFaseExport(FASE.CONCLUIDA);
       carregarLotesRegistro();
-    } catch (e) {
-      console.error("Erro ao exportar planilha da ação massiva:", e);
-      setErro("Erro ao exportar planilha: " + (e.message || "tente novamente"));
+    } catch {
+      // Nada de sucesso antigo ao lado da falha: a mensagem atual e a unica.
+      setSucesso("");
+      // Depois da RPC bem-sucedida o lote JA foi registrado: nao dizer que o servidor nao confirmou.
+      if (loteRegistrado) {
+        console.error("Falha depois do registro da acao massiva", { etapa: "arquivo" });
+        setFaseExport(FASE.ARQUIVO_FALHOU);
+        setErro("Lote registrado, mas a planilha não foi gerada. Confira o histórico de lotes antes de exportar de novo.");
+      } else {
+        console.error("Erro ao preparar a exportacao da acao massiva", { etapa: "validacao" });
+        setFaseExport(FASE.RECUSADA);
+        setErro("Não foi possível preparar a exportação. Nada foi registrado.");
+      }
     } finally {
       setGerando(false);
     }
@@ -654,16 +713,35 @@ export default function AcoesMassivas() {
   // não depende de "Acionados hoje" e não encosta no lote de WhatsApp — a ação
   // nova nasce como um lote próprio de canal E-mail.
   async function exportarEmailsDoLote(lote) {
+    if (bloqueiaNovaExportacao(faseExport)) return;
     setDerivandoEmail(true);
     setErro("");
     setSucesso("");
+    let loteRegistrado = false;
+    // O arquivo da tentativa anterior nao pertence a esta: descarta antes de tentar.
+    setRelatorioEmailLote(null);
     try {
       const nomeArquivo = `acao-massiva-email-do-lote-whatsapp-${new Date().toISOString().slice(0, 10)}.xlsx`;
-      const { data: res, error } = await supabase.rpc("acoes_massivas_exportar_emails_do_lote", {
-        p_lote_id: lote.id,
-        p_arquivo: nomeArquivo,
-      });
-      if (error) throw error;
+      let res;
+      let error = null;
+      try {
+        ({ data: res, error } = await supabase.rpc("acoes_massivas_exportar_emails_do_lote", {
+          p_lote_id: lote.id,
+          p_arquivo: nomeArquivo,
+        }));
+      } catch (excecao) {
+        // Falha de transporte: sem codigo de validacao = resultado incerto (nao "nada registrado").
+        error = excecao;
+      }
+      if (error) {
+        // Mesma regra da planilha: validacao recusada nao registra; qualquer outra falha e resultado incerto.
+        const f = classificarFalhaExportacao("rpc", error);
+        console.error("Exportacao de e-mails do lote falhou", { etapa: f.etapa, codigo: f.codigo });
+        setFaseExport(f.etapa === "validacao" ? FASE.RECUSADA : FASE.INCERTA);
+        setErro(f.etapa === "validacao" ? f.mensagem : mensagemDaFase(FASE.INCERTA));
+        return;
+      }
+      loteRegistrado = true;
 
       const contatos = res?.contatos || [];
       const total = Number(res?.total_lote_whatsapp || 0);
@@ -683,7 +761,12 @@ export default function AcoesMassivas() {
         try {
           baixarPlanilha(relGerado);
         } catch (e) {
-          console.warn("Download automático falhou; use o botão Baixar planilha.", e);
+          console.warn(`[acoes-massivas] etapa=arquivo codigo=${e?.code ?? "-"} tipo=${e?.name ?? "-"} (e-mail do lote)`);
+          // Lote JA registrado: nao dizer que a planilha foi gerada.
+          setFaseExport(FASE.ARQUIVO_FALHOU);
+          setErro(mensagemDaFase(FASE.ARQUIVO_FALHOU));
+          carregarLotesWhats();
+          return;
         }
       }
 
@@ -699,10 +782,21 @@ export default function AcoesMassivas() {
           `Planilha de e-mail gerada a partir do lote de WhatsApp: ${comEmail} de ${total} aluno(s) com e-mail válido e ${registrados} registrado(s) no CRM como ação massiva de e-mail.${semEmailTexto} O lote de WhatsApp não foi alterado. O disparo é externo; se o download não abriu, use o botão “Baixar planilha novamente” abaixo.`
         );
       }
+      if (contatos.length > 0) setFaseExport(FASE.CONCLUIDA);
       carregarLotesWhats();
-    } catch (e) {
-      console.error("Erro ao exportar e-mails do lote de WhatsApp:", e);
-      setErro("Erro ao exportar e-mails do lote: " + (e.message || "tente novamente"));
+    } catch {
+      // Nada de sucesso antigo ao lado da falha: a mensagem atual e a unica.
+      setSucesso("");
+      // Depois do registro bem-sucedido, o erro nao pode virar "nao exportado".
+      if (loteRegistrado) {
+        console.error("Falha depois do registro do e-mail do lote", { etapa: "arquivo" });
+        setFaseExport(FASE.ARQUIVO_FALHOU);
+        setErro(mensagemDaFase(FASE.ARQUIVO_FALHOU));
+      } else {
+        console.error("Erro ao preparar a exportacao de e-mails do lote", { etapa: "validacao" });
+        setFaseExport(FASE.RECUSADA);
+        setErro("Não foi possível preparar a exportação. Nada foi registrado.");
+      }
     } finally {
       setLoteEmailConfirmar(null);
       setDerivandoEmail(false);
@@ -843,6 +937,8 @@ export default function AcoesMassivas() {
           onClick={() => {
             setCanal("WHATSAPP");
             setResultados(null);
+            setRelatorioPronto((r) => (faseExport === FASE.ARQUIVO_FALHOU ? r : null));
+            setRelatorioEmailLote((r) => (faseExport === FASE.ARQUIVO_FALHOU ? r : null));
           }}
         >
           📱 WhatsApp
@@ -852,6 +948,8 @@ export default function AcoesMassivas() {
           onClick={() => {
             setCanal("EMAIL");
             setResultados(null);
+            setRelatorioPronto((r) => (faseExport === FASE.ARQUIVO_FALHOU ? r : null));
+            setRelatorioEmailLote((r) => (faseExport === FASE.ARQUIVO_FALHOU ? r : null));
           }}
         >
           📧 E-mail
@@ -1380,7 +1478,7 @@ export default function AcoesMassivas() {
                           <div style={{ display: "flex", gap: 6 }}>
                             <button
                               style={estilos.botaoGerar}
-                              disabled={derivandoEmail}
+                              disabled={derivandoEmail || bloqueiaNovaExportacao(faseExport)}
                               onClick={() => exportarEmailsDoLote(l)}
                             >
                               {derivandoEmail ? "Exportando..." : "Sim, exportar e registrar"}
@@ -1419,7 +1517,17 @@ export default function AcoesMassivas() {
               </div>
               <button
                 style={{ ...estilos.botaoGerar, background: "#16a34a" }}
-                onClick={() => baixarPlanilha(relatorioEmailLote)}
+                disabled={faseExport === FASE.INCERTA}
+                onClick={() => {
+                  try {
+                    // Sucesso NAO muda a fase: ARQUIVO_FALHOU pode vir do arquivo do WhatsApp.
+                    baixarPlanilha(relatorioEmailLote);
+                  } catch {
+                    setSucesso("");
+                    setFaseExport(FASE.ARQUIVO_FALHOU);
+                    setErro(mensagemDaFase(FASE.ARQUIVO_FALHOU));
+                  }
+                }}
               >
                 ⬇️ Baixar planilha novamente
               </button>
@@ -1525,7 +1633,7 @@ export default function AcoesMassivas() {
                           <div style={{ display: "flex", gap: 6 }}>
                             <button
                               style={estilos.botaoGerar}
-                              disabled={concluindoLote}
+                              disabled={concluindoLote || faseExport === FASE.INCERTA}
                               onClick={() => concluirLote(l, acaoLote.acao)}
                             >
                               {acaoLote.acao === "CONFIRMAR" ? "Sim, o disparo foi concluído" : "Sim, descartar"}
@@ -1700,6 +1808,23 @@ export default function AcoesMassivas() {
         </div>
       )}
 
+      {relatorioPronto && relatorioPronto.linhas?.length > 0 && (
+        <div style={{ marginTop: 12, padding: "12px 14px", border: "1px solid #1e6b3a", borderRadius: 12, background: "#0e2318", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <div style={{ color: "#bbf7d0", fontSize: 13 }}>
+            Planilha de <strong>{relatorioPronto.linhas.length}</strong> aluno(s) pronta
+            (<span style={{ color: "var(--rv-texto-fraco)" }}>{relatorioPronto.nomeArquivo}</span>).
+            {" "}Se o download não abriu sozinho, clique aqui:
+          </div>
+          <button
+            style={{ ...estilos.botaoGerar, background: "#16a34a" }}
+            onClick={baixarNovamenteArquivo}
+            disabled={faseExport === FASE.INCERTA}
+          >
+            ⬇️ Baixar planilha novamente
+          </button>
+        </div>
+      )}
+
       {resultados && (
         <div style={estilos.card}>
           <div style={estilos.resumoTopo}>
@@ -1739,27 +1864,29 @@ export default function AcoesMassivas() {
               )}
             </div>
             {resultados.length > 0 && (
-              <button style={estilos.botaoGerar} onClick={exportarPlanilha} disabled={gerando}>
+              <>
+              <button style={estilos.botaoGerar} onClick={exportarPlanilha} disabled={gerando || bloqueiaNovaExportacao(faseExport)}>
                 {gerando ? "Exportando..." : "⬇️ Exportar planilha (não registra contato)"}
               </button>
+              {faseExport === FASE.INCERTA && (
+                <div style={{ marginTop: 8 }}>
+                  <p style={{ margin: "0 0 6px" }}>{mensagemDaFase(FASE.INCERTA)} Recarregar a página remove só o bloqueio local: não confirma o registro nem dispensa a conferência do histórico de lotes.</p>
+                  <button
+                    style={{ ...estilos.botaoGerar, background: "#64748b" }}
+                    onClick={async () => {
+                      setErroHistorico("");
+                      const r = await carregarLotesRegistro();
+                      if (!r.ok) setErroHistorico("Histórico indisponível: a conferência não foi concluída. A exportação segue bloqueada.");
+                    }}
+                  >
+                    Consultar histórico de lotes
+                  </button>
+                  {erroHistorico && <p style={{ margin: "6px 0", color: "#b91c1c" }}>{erroHistorico}</p>}
+                </div>
+              )}
+              </>
             )}
           </div>
-
-          {relatorioPronto && relatorioPronto.linhas?.length > 0 && (
-            <div style={{ marginTop: 12, padding: "12px 14px", border: "1px solid #1e6b3a", borderRadius: 12, background: "#0e2318", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-              <div style={{ color: "#bbf7d0", fontSize: 13 }}>
-                Planilha de <strong>{relatorioPronto.linhas.length}</strong> aluno(s) pronta
-                (<span style={{ color: "var(--rv-texto-fraco)" }}>{relatorioPronto.nomeArquivo}</span>).
-                {" "}Se o download não abriu sozinho, clique aqui:
-              </div>
-              <button
-                style={{ ...estilos.botaoGerar, background: "#16a34a" }}
-                onClick={() => baixarPlanilha(relatorioPronto)}
-              >
-                ⬇️ Baixar planilha novamente
-              </button>
-            </div>
-          )}
 
 
           {resultados.length === 0 ? (

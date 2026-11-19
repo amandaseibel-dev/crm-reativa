@@ -1134,3 +1134,29 @@ jobs:
       # Duas conexoes reais: captura antes do lock, rollback, captura concorrente, reinstalacao.
       - name: Rodar rollback concorrente e reinstalacao (duas conexoes)
         run: bash "$DIR/run.sh"
+
+  e2e-exportacao:
+    # Job ISOLADO da exportação de Ações Massivas. Sem segredo, sem Supabase real:
+    # o host do Supabase é fictício e interceptado pelo teste; qualquer outra origem é reprovada.
+    name: e2e exportacao (navegador, dados ficticios)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Instalar dependências
+        run: npm ci
+      - name: Instalar Chromium (Playwright 1.64.1 fixado)
+        run: npx playwright install --with-deps chromium
+      - name: Testes de navegador (sem producao)
+        run: npx playwright test --reporter=list
+      - name: Relatorio de falhas (trace)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-trace
+          path: test-results/
+          retention-days: 7
