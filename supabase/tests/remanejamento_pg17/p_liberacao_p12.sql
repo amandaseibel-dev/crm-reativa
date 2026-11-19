@@ -73,7 +73,8 @@ begin
 end $$;
 
 
--- EFEITO (critério P12): destino que nao e OPERADOR, e caso fidelizado ja bloqueado por outro motivo (ENCERRADO)
+-- EFEITO (critério P12): (a) destino que nao e OPERADOR nao informa liberacao;
+--   (b) caso fidelizado ja bloqueado por outro motivo (ENCERRADO) nao informa liberacao.
 -- nao produzem efeito: a previa NAO pode informar a liberacao.
 do $$
 declare m record; p jsonb;

@@ -11,24 +11,32 @@
 -- 17/11/2026. Se outra frente alterou a funcao depois, o trecho nao bate ou o
 -- md5 final diverge, e o rollback aborta inteiro sem escrever por cima.
 --
--- Marcas: o rollback apaga SOMENTE as marcas cujo MARCADOR e o deste lote E cuja
--- data e a que o lote gravou. Nao olha o dono atual: a marca e do lote enquanto
--- nenhuma outra escrita de giro a tiver regravado (o gatilho solta o marcador).
+-- Marcas, em DOIS conjuntos disjuntos:
+--   (1) marcas do lote: o MARCADOR e o deste lote E a data e a que o lote gravou
+--       (casamento com carteira_geral_auditoria). Zera giro e marcador.
+--   (2) marcadores orfaos: casos com remanejamento_lote_id preenchido e
+--       giro_fidelizacao_ate nulo (a marca saiu por troca de dono ou outra escrita
+--       de giro). Zera SOMENTE o marcador. NAO filtra por lote: qualquer marcador
+--       orfao e zerado. Se a gestao quiser restringir por lote, isso muda a logica
+--       e exige nova rodada de CI e de md5.
+-- Nao olha o dono atual.
 --
 -- O que NAO e desfeito, de proposito:
 --   * o COMMENT ON COLUMN de carteira_geral_auditoria.protecao_ate PERMANECE apos o rollback
 --     (a migracao o criou; o rollback nao o remove).
---   * a coluna carteira_geral_auditoria.protecao_ate fica (e registro do que
---     aconteceu; a funcao restaurada nao a le nem a escreve).
---   * a coluna casos.remanejamento_lote_id FICA (nula apos o rollback; nenhuma funcao
---     restaurada a le). Remover a coluna exigiria DROP COLUMN, fora do escopo deste rollback.
+--   * a coluna carteira_geral_auditoria.protecao_ate fica (registro do que aconteceu;
+--     a funcao restaurada nao a le nem a escreve).
+--   * a coluna casos.remanejamento_lote_id FICA (nula nas linhas que o rollback alcanca;
+--     nenhuma funcao restaurada a le). Remover a coluna exigiria DROP COLUMN, fora do escopo.
+--   * o COMMENT ON COLUMN de casos.remanejamento_lote_id tambem PERMANECE apos o rollback.
 --   * COMMENT ON FUNCTION de carteira_geral_previa e carteira_geral_mover: a migracao
 --     troca o comentario; o rollback NAO restaura o comentario anterior, porque a leitura
 --     de producao nao foi feita nesta rodada. Comentario de producao: NAO CONFERIDO.
 --
--- DML: o UPDATE de giro_fidelizacao_ate descrito acima, nas marcas casadas pelo
--- predicado, e o zeramento de casos.remanejamento_lote_id nessas mesmas linhas (a coluna
--- fica, nula). Nenhuma outra linha de dado e escrita.
+-- DML (exatamente estes dois UPDATE em public.casos, nada mais):
+--   (1) giro_fidelizacao_ate e remanejamento_lote_id nas marcas do lote;
+--   (2) remanejamento_lote_id nos marcadores orfaos (giro nulo), sem filtro de lote.
+-- Nenhuma outra tabela de dado e escrita, e o rollback nao apaga linha.
 
 begin;
 
