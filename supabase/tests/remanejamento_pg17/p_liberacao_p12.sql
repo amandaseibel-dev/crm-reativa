@@ -72,4 +72,28 @@ begin
   perform pg_temp.afirma(p->'liberar_fidelizacao_de' = '[]'::jsonb, 'sem liberacao: nada informado');
 end $$;
 
+
+-- EFEITO (critério P12): destino que nao e OPERADOR e caso fidelizado ja bloqueado por OUTRO motivo
+-- nao produzem efeito: a previa NAO pode informar a liberacao.
+do $$
+declare m record; p jsonb;
+begin
+  select * into m from _pm;
+  p := pg_temp.previa(array[m.aluno], 'CARTEIRA_GERAL', null,
+    '{"responsavel":"cobranca06@aelbra.com.br","liberar_fidelizacao_de":["cobranca06@aelbra.com.br"]}');
+  perform pg_temp.afirma(p->'liberar_fidelizacao_de' = '[]'::jsonb,
+    'sem efeito: destino CARTEIRA_GERAL nao informa liberacao');
+end $$;
+
+do $$
+declare q record; p jsonb;
+begin
+  select * into q from pg_temp.semear('cobranca06@aelbra.com.br', 400, 3, 40, p_status => 'ACORDO FECHADO');
+  p := pg_temp.previa(array[q.aluno], 'OPERADOR', 'cobranca05@aelbra.com.br',
+    '{"responsavel":"cobranca06@aelbra.com.br","liberar_fidelizacao_de":["cobranca06@aelbra.com.br"]}');
+  perform pg_temp.afirma(p->'itens'->0->>'bloqueio' is not null,
+    'fidelizado bloqueado por OUTRO motivo (protegido) segue bloqueado com a liberacao');
+  perform pg_temp.afirma(p->'liberar_fidelizacao_de' = '[]'::jsonb,
+    'sem efeito: caso bloqueado por outro motivo nao informa liberacao');
+end $$;
 select 'LIBERACAO P12 OK' as resultado;

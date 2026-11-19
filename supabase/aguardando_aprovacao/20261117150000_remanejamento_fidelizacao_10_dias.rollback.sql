@@ -18,6 +18,11 @@
 -- O que NAO e desfeito, de proposito:
 --   * a coluna carteira_geral_auditoria.protecao_ate fica (e registro do que
 --     aconteceu; a funcao restaurada nao a le nem a escreve).
+--   * a coluna casos.remanejamento_lote_id FICA (nula apos o rollback; nenhuma funcao
+--     restaurada a le). Remover a coluna exigiria DROP COLUMN, fora do escopo deste rollback.
+--   * COMMENT ON FUNCTION de carteira_geral_previa e carteira_geral_mover: a migracao
+--     troca o comentario; o rollback NAO restaura o comentario anterior, porque a leitura
+--     de producao nao foi feita nesta rodada. Comentario de producao: NAO CONFERIDO.
 --
 -- DML: somente o UPDATE de giro_fidelizacao_ate descrito acima, nas marcas
 -- casadas pelo predicado. Nenhuma outra linha de dado e escrita.
@@ -137,12 +142,15 @@ begin
     -- Remanejamento com fidelizacao: o que a execucao vai encontrar.
     'total_bloqueados', (select count(*)::int from jsonb_array_elements(v_itens) it
                           where nullif(it->>'bloqueio','') is not null),
-    -- So informa a liberacao que tem efeito: dono liberado com caso fidelizado nesta previa.
+    -- So informa a liberacao que TEM EFEITO: destino OPERADOR, dono liberado, caso que sem a liberacao
+    -- estaria bloqueado por fidelizacao vigente e com a liberacao ficou livre (bloqueio nulo).
     'liberar_fidelizacao_de', (select coalesce(jsonb_agg(x order by x), '[]'::jsonb)
         from unnest(v_liberar) x
-       where exists (select 1 from jsonb_array_elements(v_itens) it
+       where p_destino_tipo = 'OPERADOR'
+         and exists (select 1 from jsonb_array_elements(v_itens) it
                       where lower(coalesce(it->>'caso_de_email','')) = x
                         and nullif(it->>'caso_id','') is not null
+                        and nullif(it->>'bloqueio','') is null
                         and internal.cg_tem_fidelizacao((it->>'caso_id')::uuid))),
     'protecao_ate', case when p_destino_tipo = 'OPERADOR' then internal.cg_protecao_ate() end,
     'capacidade', case when p_destino_tipo = 'OPERADOR'
@@ -152,12 +160,15 @@ begin
     -- Remanejamento com fidelizacao: o que a execucao vai encontrar.
     'total_bloqueados', (select count(*)::int from jsonb_array_elements(v_itens) it
                           where nullif(it->>'bloqueio','') is not null),
-    -- So informa a liberacao que tem efeito: dono liberado com caso fidelizado nesta previa.
+    -- So informa a liberacao que TEM EFEITO: destino OPERADOR, dono liberado, caso que sem a liberacao
+    -- estaria bloqueado por fidelizacao vigente e com a liberacao ficou livre (bloqueio nulo).
     'liberar_fidelizacao_de', (select coalesce(jsonb_agg(x order by x), '[]'::jsonb)
         from unnest(v_liberar) x
-       where exists (select 1 from jsonb_array_elements(v_itens) it
+       where p_destino_tipo = 'OPERADOR'
+         and exists (select 1 from jsonb_array_elements(v_itens) it
                       where lower(coalesce(it->>'caso_de_email','')) = x
                         and nullif(it->>'caso_id','') is not null
+                        and nullif(it->>'bloqueio','') is null
                         and internal.cg_tem_fidelizacao((it->>'caso_id')::uuid))),
     'protecao_ate', case when p_destino_tipo = 'OPERADOR' then internal.cg_protecao_ate() end,
     'capacidade', case when p_destino_tipo = 'OPERADOR'
@@ -169,12 +180,15 @@ begin
     -- Remanejamento com fidelizacao: o que a execucao vai encontrar.
     'total_bloqueados', (select count(*)::int from jsonb_array_elements(v_itens) it
                           where nullif(it->>'bloqueio','') is not null),
-    -- So informa a liberacao que tem efeito: dono liberado com caso fidelizado nesta previa.
+    -- So informa a liberacao que TEM EFEITO: destino OPERADOR, dono liberado, caso que sem a liberacao
+    -- estaria bloqueado por fidelizacao vigente e com a liberacao ficou livre (bloqueio nulo).
     'liberar_fidelizacao_de', (select coalesce(jsonb_agg(x order by x), '[]'::jsonb)
         from unnest(v_liberar) x
-       where exists (select 1 from jsonb_array_elements(v_itens) it
+       where p_destino_tipo = 'OPERADOR'
+         and exists (select 1 from jsonb_array_elements(v_itens) it
                       where lower(coalesce(it->>'caso_de_email','')) = x
                         and nullif(it->>'caso_id','') is not null
+                        and nullif(it->>'bloqueio','') is null
                         and internal.cg_tem_fidelizacao((it->>'caso_id')::uuid))),
     'protecao_ate', case when p_destino_tipo = 'OPERADOR' then internal.cg_protecao_ate() end,
     'capacidade', case when p_destino_tipo = 'OPERADOR'
