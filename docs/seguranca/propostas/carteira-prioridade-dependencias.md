@@ -18,6 +18,7 @@ Saída bruta (consultas, resultados e md5 dos sete corpos): `docs/seguranca/evid
 
 - Colunas confirmadas: `casos.operador_email` existe e `casos.responsavel_atual_email` NÃO existe; `alunos.responsavel_atual_email` existe; `aluno_movimentacoes.aluno_id` é text; `solicitacoes_confirmacao_pagamento.aluno_id` é text; `whatsapp_mensagens.timestamp_wa` e `criado_em` são timestamptz; `acoes_massivas_lotes.aluno_ids` é text[].
 - Fuso: fuso da sessão do servidor = UTC; `importacoes.created_at` é timestamp sem fuso com default `now()`.
+- Ver saída bruta da seção 4 da evidência (ACL padrão, fuso configurado, lote pendente = 0, campos de `elegibilidade_cobranca`, ids de `importacoes` e `whatsapp_conversas`).
 - Default de privilégio para funções criadas por `postgres` em `public`: EXECUTE para authenticated e service_role (não para PUBLIC, anon ou `reativa_responsavel_executor`). A migration revoga service_role e reativa_responsavel_executor e concede só a authenticated.
 - Titularidade: a autorização usa a chave da tela (`alunos.responsavel_atual_email`). A divergência com `casos.operador_email` e a medida de carga foram removidas desta proposta por não estarem versionadas com saída; voltam só com consulta e saída bruta arquivadas.
 
@@ -28,7 +29,7 @@ A ordem da lista visível (Fila inteligente) continua calculada no cliente, a pa
 ## Pendências conhecidas (não bloqueiam a prioridade, mas ficam explícitas)
 
 - `lote_pendente` não exclui nada hoje: não há lote pendente em produção (0), porque a exportação confirma no envio. Só passa a valer com a #944.
-- Grupo B: sem referência no CRM. Nenhum aluno do grupo B é excluído automaticamente.
+- Grupo B (lista de preparação fora do CRM): a RPC e o cliente não consultam essa lista, então nenhum aluno é excluído por ela. Não é medição de produção.
 - Acionado hoje: a revalidação antes de abrir a ficha continua usando a regra existente (`candidatoSegueValido`); a prioridade não usa janela de contato recente.
 - Escopo de `usuario_e_gestao()`: inclui a cobranca07, cujo perfil é administrativo. Decisão de gestão, já registrada como pendência.
 

@@ -143,3 +143,51 @@ Colunas adicionais verificadas (mesma data, SELECT somente leitura):
 | acordos_titulos.id | uuid |
 
 Leitura: a ausência de `casos.responsavel_atual_email` é verificada em `pg_attribute`, que enxerga o catálogo independentemente de grants de leitura. Com as seções 1 e 3, a migration `20261117100000_carteira_prioridade_bordero.sql` tem todas as colunas de tabela que referencia cobertas por saída: `importacoes`, `acordos_titulos`, `aluno_movimentacoes`, `alunos`, `whatsapp_conversas`, `whatsapp_mensagens`, `solicitacoes_confirmacao_pagamento`, `acoes_massivas_lotes`, `usuarios`.
+
+## 4. Lacunas fechadas: ids, tipo de retorno, casos.operador_email, lote pendente, ACL padrão e fuso dos gravadores
+
+Leitura somente (SELECT), mesmo projeto e data. Saída bruta, sem resumo:
+
+Consulta A (colunas e lote):
+
+```sql
+select 'col' as tipo, c.table_name||'.'||c.column_name as objeto, c.data_type as detalhe
+  from information_schema.columns c where c.table_schema='public'
+   and (c.table_name, c.column_name) in (('importacoes','id'),('whatsapp_conversas','id'),('casos','operador_email'))
+union all select 'lote_pendente', 'acoes_massivas_lotes', count(*)::text
+  from acoes_massivas_lotes where confirmado_em is null and descartado_em is null;
+```
+
+Saída: `col | importacoes.id | uuid`; `col | whatsapp_conversas.id | uuid`; `col | casos.operador_email | text`; `lote_pendente | acoes_massivas_lotes | 0`.
+
+Consulta B (retorno da elegibilidade, campos):
+
+```sql
+select 'retorno' as tipo, pg_get_function_result('aluno_elegibilidade_cobranca(uuid)'::regprocedure) as detalhe
+union all
+select 'campo', a.attname||' '||format_type(a.atttypid,a.atttypmod)
+  from pg_attribute a
+ where a.attrelid = (select typrelid from pg_type where oid =
+         (select prorettype from pg_proc where oid='aluno_elegibilidade_cobranca(uuid)'::regprocedure))
+   and a.attnum>0 and not a.attisdropped
+ order by 1,2;
+```
+
+Saída: `retorno | elegibilidade_cobranca`; campos incluem `elegivel boolean` e `motivo_principal text`, além de `aluno_id uuid`, `motivos_secundarios text[]` e os demais booleanos.
+
+Consulta C (ACL padrão e fuso configurado):
+
+```sql
+select 'default_acl' as tipo, defaclrole::regrole::text||' '||defaclobjtype::text as objeto, defaclacl::text as detalhe
+  from pg_default_acl;
+select 'timezone', name||' fonte='||source, setting from pg_settings where name='TimeZone';
+select 'timezone_role_db', coalesce(d.datname,'-')||' '||coalesce(r.rolname,'-'), array_to_string(s.setconfig, ',')
+  from pg_db_role_setting s left join pg_database d on d.oid=s.setdatabase
+  left join pg_roles r on r.oid=s.setrole where s.setconfig::text like '%TimeZone%';
+```
+
+Saída relevante:
+- `default_acl | postgres f | {postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}`: funções criadas por `postgres` concedem EXECUTE a authenticated e service_role, e não a PUBLIC, anon nem `reativa_responsavel_executor`. Por isso a migration revoga service_role e reativa_responsavel_executor e concede só a authenticated.
+- `timezone | TimeZone fonte=configuration file | UTC`.
+- `timezone_role_db`: nenhuma linha. Não há override de fuso por banco nem por papel. Logo as sessões que gravam `importacoes.created_at` com `now()` usam UTC, e a conversão `at time zone 'UTC'` da migration é a correta.
+- Há outras linhas de `default_acl` para schemas e tipos de outros papéis. Não são usadas pela migration.
