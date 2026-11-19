@@ -6,6 +6,7 @@ import {
 import jsPDF from "jspdf";
 import { supabase } from "../../services/supabase";
 import { cartao } from "../../ui/cards";
+import IndicadoresCarteiraSemestre from "./IndicadoresCarteiraSemestre";
 
 const BRL = (v) => (Number(v) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const NUM = (v) => (Number(v) || 0).toLocaleString("pt-BR");
@@ -236,6 +237,8 @@ export default function RelatorioMensalidadesSemNegociacao({ config }) {
         <Tot label="Mensalidades sem negociação" val={NUM(dados.mensalidades_total)} />
         <Tot label="Saldo total sem negociação" val={BRL(dados.saldo_total)} />
       </div>
+
+      <IndicadoresCarteiraSemestre fonte={config.fonteCarteira} />
 
       {config.mostrarDiagnosticoCpf && dados.cpf_diagnostico && (
         <>
