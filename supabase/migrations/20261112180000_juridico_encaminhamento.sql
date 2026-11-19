@@ -1260,8 +1260,9 @@ begin
   -- NAO mexe em responsavel, carteira, status do aluno nem do caso. Nao se grava JURIDICO em status.
   update public.casos set nao_acionar = true where aluno_id = v_caso.aluno_id;
 
-  -- VALIDACAO CENTRAL: o portao canonico tem que acusar bloqueio depois da gravacao.
-  if public.aluno_bloqueio_administrativo(v_caso.aluno_id) is null then
+  -- VALIDACAO CENTRAL: nao_acionar deve estar ligado em pelo menos um caso do aluno.
+  -- Leitura direta — independe da prioridade do portao (suspensao mascararia NAO_ACIONAR_EXPLICITO).
+  if not exists (select 1 from public.casos where aluno_id = v_caso.aluno_id and nao_acionar = true) then
     raise exception 'O bloqueio de cobrança não foi efetivado para o aluno %. Aprovação desfeita.', v_caso.aluno_id
       using errcode = 'P0001';
   end if;
@@ -1502,10 +1503,11 @@ create table public.juridico_config (
 );
 alter table public.juridico_config enable row level security;
 revoke all on public.juridico_config from public, anon, authenticated;
--- Modulo ativo por padrao: a migration implanta o modulo pronto para uso.
--- Para rollback: UPDATE juridico_config SET valor=false WHERE chave='modulo_ativo'.
--- Com modulo inativo: novas aprovacoes sao recusadas; alunos ja aprovados/financeiro/juridico permanecem bloqueados.
-insert into public.juridico_config (chave, valor) values ('modulo_ativo', true);
+-- Modulo DESLIGADO na implantacao: habilitar somente apos validar JURIDICO_BLOQUEIO_ENVIO_ATIVO=true.
+-- Para ativar: UPDATE juridico_config SET valor=true WHERE chave='modulo_ativo'.
+-- Para desativar: UPDATE juridico_config SET valor=false WHERE chave='modulo_ativo'.
+-- Com modulo inativo: novas aprovacoes sao recusadas; alunos ja aprovados/financeiro/juridico permanecem bloqueados pela checagem de envio e pelos triggers.
+insert into public.juridico_config (chave, valor) values ('modulo_ativo', false);
 
 -- Flag de modulo. Usada por juridico_caso_aprovar e juridico_checar_envio.
 create function public.juridico_modulo_ativo()

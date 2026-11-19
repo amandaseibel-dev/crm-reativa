@@ -49,6 +49,8 @@ beforeAll(async () => {
 const novo = async (email = H.GESTAO) => {
   const db = H.abrir(BASE);
   await db.exec("set timezone = 'UTC';");
+  // Migration implanta com modulo_ativo=false; nos testes, simulamos o estado pos-ativacao.
+  await db.query("update public.juridico_config set valor=true where chave='modulo_ativo'");
   await H.como(db, email);
   return db;
 };
@@ -392,6 +394,32 @@ describe("aprovacao bloqueia a cobranca sem tocar em titulo", () => {
     // e o aluno volta a ser candidato
     const ids = (await db.query("select aluno_id from public.juridico_candidatos(50)")).rows.map((l) => l.aluno_id);
     expect(ids).toContain(a.al);
+    await db.close();
+  });
+
+  it("suspensao posterior a aprovacao: nao_acionar preservado; portao muda para SUSPENSAO_COBRANCA mas juridico permanece", async () => {
+    // Prova que a validacao de nao_acionar e direta (nao passa pelo portao).
+    // Fluxo: aprovacao normal → suspensao externa → portao mascara NAO_ACIONAR_EXPLICITO, mas o
+    // bloqueio juridico continua na tabela casos. Ao remover a suspensao, NAO_ACIONAR_EXPLICITO volta.
+    const db = await novo();
+    const a = await mk(db, { valores: [1000] });
+    await gerar(db, 1);
+    const caso = await casoDe(db, a.al);
+    // Aprovacao normal (sem suspensao): portao deve retornar NAO_ACIONAR_EXPLICITO.
+    await rpc(db, "public.juridico_caso_aprovar($1)", [caso.id]);
+    expect(await bloqueio(db, a.al)).toBe("NAO_ACIONAR_EXPLICITO");
+    const naoAcionar1 = (await db.query("select bool_or(nao_acionar) v from casos where aluno_id=$1", [a.al])).rows[0].v;
+    expect(naoAcionar1).toBe(true);
+    // Simula suspensao adicionada depois (outra acao administrativa).
+    await db.query("update alunos set status_atual='SUSPENSAO COBRANCA' where id=$1", [a.al]);
+    // Portao muda para SUSPENSAO_COBRANCA (mascara NAO_ACIONAR_EXPLICITO — esperado).
+    expect(await bloqueio(db, a.al)).toBe("SUSPENSAO_COBRANCA");
+    // Bloqueio juridico permanece na tabela casos.
+    const naoAcionar2 = (await db.query("select bool_or(nao_acionar) v from casos where aluno_id=$1", [a.al])).rows[0].v;
+    expect(naoAcionar2).toBe(true);
+    // Remover suspensao: portao deve agora retornar NAO_ACIONAR_EXPLICITO (o bloqueio juridico permanece).
+    await db.query("update alunos set status_atual='CONTATAR' where id=$1", [a.al]);
+    expect(await bloqueio(db, a.al)).toBe("NAO_ACIONAR_EXPLICITO");
     await db.close();
   });
 });
