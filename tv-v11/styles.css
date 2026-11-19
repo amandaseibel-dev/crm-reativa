@@ -110,3 +110,34 @@
 
 .board-criterio{margin:-.4vw 0 .2vw;font-size:clamp(13px,1.1vw,23px);color:#c7e5ff;font-weight:700}
 .team-tag{font-size:clamp(9px,.7vw,14px);font-weight:900;letter-spacing:.1em;color:#5fd6ff}
+
+/* ---- Coluna de resultados: cabe na altura da tela e bloco do mês legível no telão ----
+   --u acompanha a largura E a altura (1vw = 1.78vh em 16:9), para a última linha
+   (recuperado e projeção do mês) nunca ser cortada quando a janela é mais baixa. */
+.result-panel{--u:min(1vw,1.78vh);gap:calc(var(--u)*.45);padding:calc(var(--u)*.4) .65vw calc(var(--u)*.5)}
+.result-panel .panel-title{padding:calc(var(--u)*.6) .8vw calc(var(--u)*.35)}
+.result-panel .panel-title h2{font-size:clamp(11px,calc(var(--u)*1.28),28px)}
+.result-panel .panel-title p{font-size:clamp(7px,calc(var(--u)*.72),15px);margin-top:calc(var(--u)*.25)}
+.result-panel .mini-symbol{font-size:clamp(16px,calc(var(--u)*2.1),42px)}
+.result-panel .corner-pill{padding:calc(var(--u)*.4) .8vw;font-size:clamp(8px,calc(var(--u)*.85),16px)}
+.result-panel .gold-card,.result-panel .small-card{padding:calc(var(--u)*.3) .65vw}
+.result-panel .mini-icon{height:clamp(24px,calc(var(--u)*3),64px);width:clamp(24px,calc(var(--u)*3),64px);font-size:clamp(13px,calc(var(--u)*1.7),36px)}
+.result-panel .metric-copy span{font-size:clamp(9px,calc(var(--u)*1.05),22px)}
+.result-panel .metric-copy strong{font-size:clamp(14px,calc(var(--u)*1.95),38px);margin-top:0}
+.result-panel .metric-copy small{font-size:clamp(7px,calc(var(--u)*.65),13px);margin-top:calc(var(--u)*.1)}
+.result-panel .month-panel{flex:1 1 auto;justify-content:space-evenly;gap:calc(var(--u)*.25);padding:calc(var(--u)*.45) .75vw;background:#061a3e;border-color:#1f86e6}
+.month-head{display:flex;align-items:baseline;justify-content:space-between;gap:.6vw}
+.month-head>span{color:#cfeaff;font-weight:800;font-size:clamp(9px,calc(var(--u)*1.05),22px);line-height:1.15}
+.month-head .team-tag{font-size:clamp(7px,calc(var(--u)*.66),14px);white-space:nowrap}
+.month-main{display:flex;align-items:flex-end;justify-content:space-between;gap:.8vw}
+.month-main>strong{font-size:clamp(17px,calc(var(--u)*2.5),52px);font-weight:900;letter-spacing:-.02em;line-height:1.05;white-space:nowrap;color:#fff}
+.month-main .meta-line{flex-direction:column;align-items:flex-end;gap:0;margin:0;text-align:right;min-width:0}
+.month-main .meta-line strong{font-size:clamp(13px,calc(var(--u)*1.75),36px)}
+.month-main .meta-line span{font-size:clamp(8px,calc(var(--u)*.82),17px);color:#d6e8fa;white-space:nowrap}
+.result-panel .month-bar{height:clamp(5px,calc(var(--u)*.7),14px);margin:calc(var(--u)*.2) 0}
+.result-panel .pace{font-size:clamp(8px,calc(var(--u)*.9),19px);line-height:1.22;margin:0}
+.result-panel .month-sub{flex-direction:column;gap:calc(var(--u)*.3)}
+.result-panel .month-sub>span{flex-direction:row;align-items:baseline;justify-content:space-between;gap:.8vw;padding:calc(var(--u)*.28) .6vw;border-radius:.5vw;background:#0b2f66;border:1px solid #1a5fae;font-size:clamp(8px,calc(var(--u)*.85),17px);font-weight:800;letter-spacing:.03em;color:#d6ebff;white-space:nowrap}
+.result-panel .month-sub strong{font-size:clamp(12px,calc(var(--u)*1.6),32px);font-weight:900;color:#fff;white-space:nowrap;overflow-wrap:normal}
+.result-panel .month-sub>span+span strong{color:#ffd57b}
+.month-head{flex-wrap:wrap;row-gap:.2vw}.month-head>span{white-space:nowrap}
