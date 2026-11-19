@@ -199,3 +199,29 @@ describe("trava de etapa: OAuth e envio sem backend", () => {
     if (area) expect(area.disabled).toBe(true);
   });
 });
+
+// Prévia da lista: CPF FICTÍCIO com e sem pontuação é mascarado; o resto do texto fica.
+describe("prévia da lista — CPF mascarado (dados fictícios)", () => {
+  it("prévia com CPF formatado e só dígitos sai mascarada; telefone de 11 dígitos não é apagado", () => {
+    const dados = {
+      respostas: [
+        { conversa_id: "p1", nome: "Aluno P1", espera_min: 5, previa: "meu cpf 529.982.247-25 pode ver?", aluno_id: "al-p1", responsavel_reativa: null, atendente_ulbra: null },
+        { conversa_id: "p2", nome: "Aluno P2", espera_min: 6, previa: "cpf 52998224725 obrigada", aluno_id: "al-p2", responsavel_reativa: null, atendente_ulbra: null },
+        { conversa_id: "p3", nome: "Aluno P3", espera_min: 7, previa: "me liga no 11987654321", aluno_id: "al-p3", responsavel_reativa: null, atendente_ulbra: null },
+      ],
+      sem_interacao: [],
+      novos: [],
+    };
+    const { container } = render(
+      <MemoryRouter>
+        <CentralConversas itens={listaPrioridade(dados, "")} selecionadoChave="" onSelecionar={() => {}} onVoltar={() => {}} historico={{ estado: "indisponivel", mensagens: [] }} />
+      </MemoryRouter>,
+    );
+    const texto = container.textContent || "";
+    expect(texto).toContain("meu cpf ***.***.***-25 pode ver?");
+    expect(texto).toContain("cpf ***.***.***-25 obrigada");
+    expect(texto).toContain("me liga no 11987654321");
+    expect(texto).not.toContain("529.982.247-25");
+    expect(texto).not.toContain("52998224725");
+  });
+});

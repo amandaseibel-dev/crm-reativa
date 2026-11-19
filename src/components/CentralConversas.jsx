@@ -7,6 +7,7 @@ import { Link } from "react-router-dom";
 import ConversaUlbra from "./ConversaUlbra";
 import ConexaoTokenPessoal from "./ConexaoTokenPessoal";
 import { fmtEspera, hrefFicha, nomeCurto } from "../utils/ulbraCentral";
+import { mascararCpfEmTexto } from "../utils/mascararCpf";
 
 const ROTULO_TIPO = {
   resposta: "Resposta aguardando ação",
@@ -122,7 +123,7 @@ export default function CentralConversas({
                     <span className="ulbra-conv-item-nome">{i.nome}</span>
                     <span className="ulbra-conv-item-tempo">{rotuloTempo(i)}</span>
                   </span>
-                  {i.previa ? <span className="ulbra-conv-item-previa">“{i.previa}”</span> : null}
+                  {i.previa ? <span className="ulbra-conv-item-previa">“{mascararCpfEmTexto(i.previa)}”</span> : null}
                   <span className="ulbra-conv-item-meta">
                     <Selo tom={TOM_TIPO[i.tipo]}>{ROTULO_TIPO[i.tipo]}</Selo>
                     <span>Reativa: {nomeCurto(i.responsavelReativa) || "sem responsável"}</span>
