@@ -36,6 +36,8 @@ ainda assim amplia acesso, é você que tem de ver.
    passos de lá. Não inicie descoberta nova sem conferir o catálogo. E
    descoberta nova atualiza os 5 arquivos juntos — confira com
    `bash "${CLAUDE_PLUGIN_ROOT}/scripts/integracoes-cinco.sh"` quando existir.
+   Saída 3 (REVISAO_HUMANA) é pendência de revisão humana: reporte como pendente, nunca como aprovação. Saída 0 com
+   PRESENCA_VERIFICADA confere só presença dos três e toque de pelo menos um, não o conteúdo; a coerência dos cinco continua sendo revisada.
 6. **Se o diff toca tela** (`.jsx`): regra de negócio nova em tela é Premissa
    12 violada. Lista longa sem `buscarTudo` e sem `.order("id")` é Premissa 13.
    Aponte, com o número da premissa.
