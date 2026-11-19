@@ -44,3 +44,30 @@ describe("tela de período — máscara de CPF (dados fictícios)", () => {
     expect(texto).toContain("Aluno Fictício");
   });
 });
+
+describe("tela de período — CPF na prévia de texto livre (dados fictícios)", () => {
+  it("prévia com CPF (com e sem pontuação) sai mascarada; o resto do texto fica", async () => {
+    rpc.mockResolvedValue({
+      data: {
+        ...PERIODO_FICTICIO,
+        conversas: [
+          { ...PERIODO_FICTICIO.conversas[0], conversa_id: "c-p1", previa: "meu cpf 529.982.247-25 pode ver?", cpf: undefined, documento: undefined },
+          { ...PERIODO_FICTICIO.conversas[0], conversa_id: "c-p2", aluno_id: "aluno-fict-2", nome: "Outro Fictício", previa: "cpf 52998224725 obrigada", cpf: undefined, documento: undefined },
+        ],
+        totais: { conversas: 2, aguardando: 0, sem_cpf: 0 },
+      },
+      error: null,
+    });
+    const { container } = render(
+      <MemoryRouter>
+        <MensageriaPeriodo respostas={[]} coleta={null} aoAbrirFicha={() => {}} historicoDisponivel={false} />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByTestId("mensageria-conversas").querySelectorAll("li").length).toBe(2));
+    const texto = container.textContent || "";
+    expect(texto).toContain("meu cpf ***.***.***-25 pode ver?");
+    expect(texto).toContain("cpf ***.***.***-25 obrigada");
+    expect(texto).not.toContain("529.982.247-25");
+    expect(texto).not.toContain("52998224725");
+  });
+});

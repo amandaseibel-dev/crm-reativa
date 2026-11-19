@@ -140,3 +140,58 @@ describe("histórico: capacidade calculada no servidor (sem ler a Mensageria)", 
     expect(await capacidadeHistorico(deps)).toEqual({ pode: false, motivo: "HISTORICO_DESLIGADO" });
   });
 });
+
+// Auditoria em duas fases (TENTATIVA antes da consulta; RESULTADO antes da entrega).
+// Mensagens FICTÍCIAS: o teste garante que o conteúdo nunca entra no registro de auditoria.
+const TEXTO_FICTICIO = "mensagem fictícia com CPF 000.000.000-00";
+function montaFases(falha: "TENTATIVA" | "RESULTADO" | null) {
+  const base = monta({ donos: ["operador@aelbra.com.br"] });
+  const registros: Record<string, unknown>[] = [];
+  const auditar = vi.fn(async (d: Record<string, unknown>) => {
+    registros.push(d);
+    return d.fase !== falha;
+  });
+  const lerConversa = vi.fn(async () => ({ dados: { mensagens: [{ quem: "cliente", em: "2026-11-16T10:00:00Z", texto: TEXTO_FICTICIO }], paginacao: { maisAntigas: false } } }));
+  const reservarCota = vi.fn(async () => "OK" as const);
+  const deps: DepsHistorico = { ...base.deps, auditar, lerConversa: lerConversa as unknown as DepsHistorico["lerConversa"], reservarCota };
+  return { deps, auditar, lerConversa, reservarCota, registros };
+}
+
+describe("histórico: auditoria em duas fases", () => {
+  it("tentativa NÃO gravada: não reserva cota, não consulta a Mensageria, responde 500", async () => {
+    const { deps, lerConversa, reservarCota } = montaFases("TENTATIVA");
+    const r = await lerHistoricoAutorizado(deps);
+    expect(r.status).toBe(500);
+    expect(r.corpo).toMatchObject({ motivo: "AUDITORIA_NAO_GRAVADA" });
+    expect(reservarCota).not.toHaveBeenCalled();
+    expect(lerConversa).not.toHaveBeenCalled();
+  });
+
+  it("tentativa gravada ANTES da reserva e da consulta, na ordem certa", async () => {
+    const { deps, lerConversa, reservarCota, registros } = montaFases(null);
+    const ordem: string[] = [];
+    (deps.auditar as unknown as { mockImplementation: (f: (d: Record<string, unknown>) => Promise<boolean>) => void }).mockImplementation(async (d) => { ordem.push(`audit:${String(d.fase)}`); return true; });
+    (reservarCota as unknown as { mockImplementation: (f: () => Promise<"OK">) => void }).mockImplementation(async () => { ordem.push("cota"); return "OK" as const; });
+    (lerConversa as unknown as { mockImplementation: (f: () => Promise<unknown>) => void }).mockImplementation(async () => { ordem.push("mensageria"); return { dados: { mensagens: [], paginacao: { maisAntigas: false } } }; });
+    const r = await lerHistoricoAutorizado(deps);
+    expect(r.status).toBe(200);
+    expect(ordem).toEqual(["audit:TENTATIVA", "cota", "mensageria", "audit:RESULTADO"]);
+  });
+
+  it("resultado NÃO gravado após a consulta: texto descartado, tentativa preservada, cota consumida", async () => {
+    const { deps, lerConversa, reservarCota, registros } = montaFases("RESULTADO");
+    const r = await lerHistoricoAutorizado(deps);
+    expect(r.status).toBe(500);
+    expect(JSON.stringify(r.corpo)).not.toContain(TEXTO_FICTICIO);
+    expect(r.corpo.pagina).toBeUndefined();
+    expect(lerConversa).toHaveBeenCalledTimes(1);
+    expect(reservarCota).toHaveBeenCalledTimes(1);
+    expect(registros.map((x) => x.fase)).toEqual(["TENTATIVA", "RESULTADO"]);
+  });
+
+  it("nenhum registro de auditoria contém o texto da mensagem (dados fictícios)", async () => {
+    const { deps, registros } = montaFases(null);
+    await lerHistoricoAutorizado(deps);
+    for (const reg of registros) expect(JSON.stringify(reg)).not.toContain(TEXTO_FICTICIO);
+  });
+});

@@ -101,7 +101,8 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  fetchMock.mockClear();
+  fetchMock.mockReset();
+  fetchMock.mockImplementation(async () => new Response("{}", { status: 500 }));
   estado.env = {
     SUPABASE_URL: "https://banco.test",
     SUPABASE_ANON_KEY: "anon",
@@ -238,6 +239,7 @@ describe("handler real (index.ts): caminhos negados do histórico", () => {
     expect(r.status).toBe(500);
     expect(r.corpo.motivo).toBe("AUDITORIA_NAO_GRAVADA");
     expect(JSON.stringify(r.corpo)).not.toContain("TEXTO-SECRETO");
+    expect(fetchMock).not.toHaveBeenCalled(); // tentativa não gravada: nenhuma consulta à Mensageria
   });
 
   it("(g) caso ENCERRADO de antigo dono, sem responsabilidade atual: SEM_PERMISSAO_NA_CONVERSA, sem chamada e sem auditoria", async () => {
@@ -299,8 +301,8 @@ describe("handler real (index.ts): caminho positivo completo", () => {
     expect(r.status).toBe(200);
     expect(JSON.stringify(r.corpo)).toContain("TEXTO-SECRETO");
     const leituras = estado.auditorias.filter((a) => a.acao === "ULBRA_HISTORICO_LEITURA");
-    expect(leituras).toHaveLength(1);
-    expect(JSON.stringify(leituras[0])).not.toContain("TEXTO-SECRETO");
+    expect(leituras.map((a) => (a.detalhes as { fase?: string }).fase)).toEqual(["TENTATIVA", "RESULTADO"]);
+    for (const reg of leituras) expect(JSON.stringify(reg)).not.toContain("TEXTO-SECRETO");
   });
 });
 

@@ -86,7 +86,11 @@ export async function lerHistoricoAutorizado(d: DepsHistorico): Promise<Saida> {
   const args: Record<string, unknown> = d.antesDe
     ? { id: d.conversaId, limite: 20, antesDe: d.antesDe }
     : { id: d.conversaId, limite: 20 };
-  // Cota ANTES da chamada externa: esgotada ou indisponível = nada sai da Mensageria.
+  // 1) TENTATIVA registrada ANTES da chamada externa. Sem registro, não há consulta à Mensageria.
+  // Só metadados: nenhum texto de mensagem entra na auditoria.
+  const tentativaOk = await d.auditar({ acao: ACAO_LEITURA, fase: "TENTATIVA", conversa_id: d.conversaId });
+  if (!tentativaOk) return { status: 500, corpo: { ok: false, motivo: "AUDITORIA_NAO_GRAVADA" } };
+  // 2) Cota ANTES da chamada externa: esgotada ou indisponível = nada sai da Mensageria.
   // Sem adaptador de cota, nega (fail-closed): a leitura nunca ocorre sem reserva.
   const cota = d.reservarCota ? await d.reservarCota() : "INDISPONIVEL";
   if (cota === "ESGOTADA") return { status: 429, corpo: { ok: false, motivo: "COTA_ESGOTADA" } };
@@ -100,8 +104,9 @@ export async function lerHistoricoAutorizado(d: DepsHistorico): Promise<Saida> {
   if (resultado.erro) return { status: 502, corpo: { ok: false, motivo: "ULBRA_INDISPONIVEL" } };
   const pagina: PaginaMensagens = mapearPagina(resultado.dados);
 
-  // Auditoria ANTES de devolver o texto. Sem registro gravado, o texto não sai.
-  const auditoriaOk = await d.auditar({ acao: ACAO_LEITURA, conversa_id: d.conversaId, mensagens: pagina.mensagens.length });
+  // 3) RESULTADO registrado ANTES de devolver o texto. Se falhar após a consulta, o texto é descartado;
+  // a tentativa já gravada permanece e a cota fica consumida (a Mensageria já foi consultada).
+  const auditoriaOk = await d.auditar({ acao: ACAO_LEITURA, fase: "RESULTADO", conversa_id: d.conversaId, mensagens: pagina.mensagens.length });
   if (!auditoriaOk) return { status: 500, corpo: { ok: false, motivo: "AUDITORIA_NAO_GRAVADA" } };
   return { status: 200, corpo: { ok: true, pagina } };
 }
