@@ -16,8 +16,9 @@
 //      1 MB — o mesmo de todo corpo da API de controle.
 //
 //   2. O QUE FICA GUARDADO É O OGG QUE O ALUNO RECEBEU, não o rascunho. Por isso
-//      o upload vem DEPOIS do envio. Envio que falha fica registrado como
-//      FALHOU, sem arquivo: o operador grava de novo.
+//      o upload vem DEPOIS do envio — e o REGISTRO da mensagem vem antes do
+//      upload, para não perder a corrida com o eco do gateway (ver abaixo).
+//      Envio que falha fica registrado como FALHOU, sem arquivo.
 //
 //   3. SESSÃO E TELEFONE VÃO EM CABEÇALHO, nunca na URL.
 //
@@ -141,15 +142,21 @@ Deno.serve(async (req) => {
     { auth: { persistSession: false } },
   );
 
-  // Mensagem + metadados do anexo, pelas mesmas duas RPCs do documento.
-  // `caminho` nulo = não há cópia guardada (envio falhou, ou o upload falhou).
-  const registrar = async (
+  // Mensagem e metadados do anexo, pelas mesmas duas RPCs do documento — mas
+  // em DOIS PASSOS SEPARADOS, e a ordem importa.
+  //
+  // O gateway devolve toda mensagem enviada como ECO, pelo webhook, sem autor
+  // (`p_enviado_por` nulo), e `whatsapp_registrar_mensagem` é
+  // `ON CONFLICT (wamid) DO NOTHING`: quem grava primeiro fica. Se o eco
+  // chegar antes deste registro, o áudio aparece como "enviado pelo celular",
+  // sai da contagem de ritmo do operador e este registro vira no-op. Por isso
+  // a MENSAGEM é registrada no instante em que o gateway confirma, ANTES de
+  // decodificar e subir o OGG; a mídia é anexada depois.
+  const registrarMensagem = async (
     status: string,
     wamid: string | null,
     erro: string | null,
-    caminho: string | null,
-    tamanho: number | null,
-  ) => {
+  ): Promise<string> => {
     const chave = wamid ?? `falha:${conversaId}:${Date.now()}`;
     await admin.rpc("whatsapp_registrar_mensagem", {
       p_sessao_chave: dados.sessao_chave,
@@ -167,6 +174,16 @@ Deno.serve(async (req) => {
       p_enviado_por: dados.operador_email,
       p_status: status,
     });
+    return chave;
+  };
+
+  // `caminho` nulo = não há cópia guardada (envio falhou, ou o upload falhou).
+  const registrarMidia = async (
+    chave: string,
+    caminho: string | null,
+    tamanho: number | null,
+    erro: string | null,
+  ) => {
     await admin.rpc("whatsapp_midia_registrar", {
       p_wamid: chave,
       p_path: caminho,
@@ -177,8 +194,18 @@ Deno.serve(async (req) => {
     });
   };
 
+  const registrarFalha = async (detalhe: string) => {
+    const erro = `áudio não enviado: ${detalhe}`;
+    const chave = await registrarMensagem("FALHOU", null, erro);
+    await registrarMidia(chave, null, null, erro);
+  };
+
+  // ---------------------------------------------------------------------------
+  // 1. ENVIO. Só o que acontece AQUI pode virar "FALHOU".
+  // ---------------------------------------------------------------------------
+  let resposta: Response;
   try {
-    const resposta = await fetch(`${gatewayUrl}/enviar-audio`, {
+    resposta = await fetch(`${gatewayUrl}/enviar-audio`, {
       method: "POST",
       headers: {
         "content-type": "application/octet-stream",
@@ -190,53 +217,81 @@ Deno.serve(async (req) => {
       // Há conversão do lado do gateway antes de o WhatsApp aceitar.
       signal: AbortSignal.timeout(60_000),
     });
-
-    const resultado = await resposta.json().catch(() => ({}));
-
-    if (!resposta.ok || !resultado?.ok) {
-      const detalhe = resultado?.erro || `gateway respondeu ${resposta.status}`;
-      await registrar("FALHOU", null, `áudio não enviado: ${detalhe}`, null, null);
-      return jsonResp({ erro: detalhe, conversa_id: conversaId }, 502);
-    }
-
-    // A MENSAGEM JÁ SAIU. Daqui para baixo, nada pode transformar isso em
-    // "falhou": se a cópia não for guardada, o registro continua ENVIADO e a
-    // observação diz que o áudio não ficou disponível para ouvir depois.
-    const ogg = bytesDeBase64(resultado.ogg_base64);
-    let caminho: string | null = null;
-    let aviso: string | null = null;
-
-    if (ogg && formatoDoAudio(ogg) === "ogg") {
-      const destino = caminhoNovoAudio(aleatorio());
-      // try próprio: uma exceção aqui cairia no `catch` de baixo e registraria
-      // FALHOU para uma mensagem que o aluno já recebeu.
-      try {
-        const { error: erroUpload } = await admin.storage
-          .from(BUCKET)
-          .upload(destino, ogg, { contentType: MIME_GUARDADO, upsert: false });
-        if (erroUpload) aviso = "áudio enviado, mas a cópia não foi guardada";
-        else caminho = destino;
-      } catch {
-        aviso = "áudio enviado, mas a cópia não foi guardada";
-      }
-    } else {
-      aviso = "áudio enviado, mas a cópia não foi guardada";
-    }
-
-    await registrar("ENVIADO", resultado.wamid ?? null, aviso, caminho, caminho ? ogg!.length : null);
-    return jsonResp({
-      ok: true,
-      wamid: resultado.wamid ?? null,
-      conversa_id: conversaId,
-      segundos: resultado.segundos ?? null,
-      aviso,
-    });
   } catch (erro) {
     const detalhe = String((erro as Error)?.message || erro);
-    await registrar("FALHOU", null, `áudio não enviado: ${detalhe}`, null, null);
+    await registrarFalha(detalhe).catch(() => {});
     return jsonResp(
       { erro: `nao foi possivel falar com o WhatsApp: ${detalhe}`, conversa_id: conversaId },
       502,
     );
   }
+
+  // deno-lint-ignore no-explicit-any
+  const resultado: any = await resposta.json().catch(() => null);
+
+  // O gateway só responde 200 DEPOIS de o WhatsApp aceitar. Um 200 que não dá
+  // para ler (a resposta carrega o OGG, até ~1,3 MB) significa "provavelmente
+  // saiu". Registrar FALHOU aqui convidaria o operador a mandar o mesmo áudio
+  // duas vezes; a mensagem entra na conversa pelo eco do gateway.
+  if (resposta.ok && !resultado) {
+    return jsonResp(
+      {
+        erro: "não foi possível confirmar o envio — o áudio pode ter saído. Confira a conversa antes de gravar de novo.",
+        conversa_id: conversaId,
+      },
+      502,
+    );
+  }
+
+  if (!resposta.ok || !resultado?.ok) {
+    const detalhe = resultado?.erro || `gateway respondeu ${resposta.status}`;
+    await registrarFalha(detalhe).catch(() => {});
+    return jsonResp({ erro: detalhe, conversa_id: conversaId }, 502);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 2. A MENSAGEM JÁ SAIU. Registra IMEDIATAMENTE, com o operador como autor,
+  //    antes de qualquer outra coisa. Daqui para baixo nada transforma isso em
+  //    "falhou": cada passo tem o seu próprio try.
+  // ---------------------------------------------------------------------------
+  let chave: string | null = null;
+  try {
+    chave = await registrarMensagem("ENVIADO", resultado.wamid ?? null, null);
+  } catch { /* a mensagem ainda entra pelo eco do gateway */ }
+
+  // ---------------------------------------------------------------------------
+  // 3. Cópia do OGG no bucket — o que o aluno recebeu.
+  // ---------------------------------------------------------------------------
+  const ogg = bytesDeBase64(resultado.ogg_base64);
+  let caminho: string | null = null;
+  let aviso: string | null = null;
+
+  if (ogg && formatoDoAudio(ogg) === "ogg") {
+    const destino = caminhoNovoAudio(aleatorio());
+    try {
+      const { error: erroUpload } = await admin.storage
+        .from(BUCKET)
+        .upload(destino, ogg, { contentType: MIME_GUARDADO, upsert: false });
+      if (erroUpload) aviso = "áudio enviado, mas a cópia não foi guardada";
+      else caminho = destino;
+    } catch {
+      aviso = "áudio enviado, mas a cópia não foi guardada";
+    }
+  } else {
+    aviso = "áudio enviado, mas a cópia não foi guardada";
+  }
+
+  if (chave) {
+    try {
+      await registrarMidia(chave, caminho, caminho ? ogg!.length : null, aviso);
+    } catch { /* a mensagem ja esta registrada; so a copia fica sem vinculo */ }
+  }
+
+  return jsonResp({
+    ok: true,
+    wamid: resultado.wamid ?? null,
+    conversa_id: conversaId,
+    segundos: resultado.segundos ?? null,
+    aviso,
+  });
 });

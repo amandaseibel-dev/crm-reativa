@@ -13,6 +13,7 @@
 // impõe a todo corpo.
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
+import process from "node:process";
 
 // Mesmo número do `lerCorpo` do servidor e do validador da Edge
 // (supabase/functions/_shared/audio.ts). Repetido de propósito: são processos
@@ -77,7 +78,13 @@ export function converterParaOggOpus(dados, { gerar = spawn, tempoLimiteMs = 20_
   return new Promise((resolver, rejeitar) => {
     let processo;
     try {
-      processo = gerar("ffmpeg", ARGUMENTOS, { stdio: ["pipe", "pipe", "pipe"] });
+      // AMBIENTE MINIMO. O filho herdaria tudo do gateway, inclusive o token
+      // de comando e o segredo do CRM — e ele processa bytes que vieram de
+      // fora. So o PATH, que e o que ele precisa para existir.
+      processo = gerar("ffmpeg", ARGUMENTOS, {
+        stdio: ["pipe", "pipe", "pipe"],
+        env: { PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin" },
+      });
     } catch (erro) {
       rejeitar(new Error(`conversor de audio indisponivel: ${erro?.message || erro}`));
       return;
@@ -99,7 +106,11 @@ export function converterParaOggOpus(dados, { gerar = spawn, tempoLimiteMs = 20_
     }, tempoLimiteMs);
 
     processo.stdout.on("data", (parte) => saida.push(parte));
-    processo.stderr.on("data", (parte) => { queixa += String(parte).slice(0, 500); });
+    // Teto de 300 caracteres no TOTAL: isto vai para a tela do operador e para
+    // o banco, e o ffmpeg pode reclamar a cada pacote.
+    processo.stderr.on("data", (parte) => {
+      if (queixa.length < 300) queixa += String(parte).slice(0, 300 - queixa.length);
+    });
     processo.on("error", (erro) => {
       fim(rejeitar, new Error(`conversor de audio indisponivel: ${erro?.message || erro}`));
     });

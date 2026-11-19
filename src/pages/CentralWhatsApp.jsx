@@ -457,7 +457,9 @@ export default function CentralWhatsApp() {
   // RELANÇA O ERRO de propósito: é assim que o gravador sabe que não saiu e
   // mantém a gravação na tela, para o operador tentar de novo sem regravar.
   async function enviarAudioGravado(gravacao) {
-    if (!gravacao || !selecionada) return;
+    // Lança em vez de retornar: retorno limpo faria o gravador descartar a
+    // gravação como se ela tivesse saído.
+    if (!gravacao || !selecionada) throw new Error("abra uma conversa para enviar o áudio");
     if (enviando) throw new Error("aguarde o envio anterior terminar");
     setErro("");
     setAnexo({ nome: "Áudio", estado: "ENVIANDO" });

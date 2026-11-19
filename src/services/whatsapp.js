@@ -379,7 +379,9 @@ export async function enviarDocumento(conversaId, arquivo) {
 // áudio sai como mensagem de voz, pelo número da conversa.
 // ---------------------------------------------------------------------------
 
-// 1 MB — cerca de 4 minutos de voz na taxa que a tela grava; a tela para em 2.
+// 1 MB. A tela para a gravação em 2 minutos, que nessa taxa dão cerca de
+// 480 KB; o teto fica acima disso de propósito, para a gravação normal nunca
+// esbarrar nele.
 // Conveniência, como no PDF: o número que vale é o do servidor.
 export const LIMITE_AUDIO_BYTES = 1_000_000;
 

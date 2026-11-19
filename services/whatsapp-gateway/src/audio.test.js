@@ -133,6 +133,29 @@ describe("conversao", () => {
     assert.equal(formatoDoAudio(r), "ogg");
   });
 
+  test("o conversor nao herda os segredos do gateway", async () => {
+    let opcoes;
+    const fabrica = processoFalso({ saida: ogg() });
+    await converterParaOggOpus(WEBM, { gerar: (_c, _a, o) => { opcoes = o; return fabrica(); } });
+    assert.deepEqual(Object.keys(opcoes.env), ["PATH"]);
+    assert.ok(process.env.GATEWAY_TOKEN, "o teste so vale se o segredo existir no pai");
+  });
+
+  test("a queixa do conversor tem teto, por mais que ele reclame", async () => {
+    const gerar = () => {
+      const p = processoFalso({ nuncaTermina: true })();
+      p.stdin.end = () => setImmediate(() => {
+        for (let i = 0; i < 50; i++) p.stderr.emit("data", Buffer.from("x".repeat(200)));
+        p.emit("close", 1);
+      });
+      return p;
+    };
+    await assert.rejects(
+      () => converterParaOggOpus(WEBM, { gerar }),
+      (erro) => erro.message.length < 400,
+    );
+  });
+
   test("conversor que sai com erro vira ERRO, com o motivo", async () => {
     await assert.rejects(
       () => converterParaOggOpus(WEBM, {
