@@ -14,6 +14,7 @@
 //  6. leitura pela conexão individual; auditoria OBRIGATÓRIA antes de devolver texto.
 // ===========================================================================
 import { mapearPagina, permitirLeitura, temLeituraGlobal, type ContextoLeitura, type PaginaMensagens } from "./leitura.ts";
+import { mascararCpfEmTexto } from "./mascara-cpf.ts";
 
 export interface DepsHistorico {
   email: string;
@@ -108,5 +109,7 @@ export async function lerHistoricoAutorizado(d: DepsHistorico): Promise<Saida> {
   // a tentativa já gravada permanece e a cota fica consumida (a Mensageria já foi consultada).
   const auditoriaOk = await d.auditar({ acao: ACAO_LEITURA, fase: "RESULTADO", conversa_id: d.conversaId, mensagens: pagina.mensagens.length });
   if (!auditoriaOk) return { status: 500, corpo: { ok: false, motivo: "AUDITORIA_NAO_GRAVADA" } };
-  return { status: 200, corpo: { ok: true, pagina } };
+  // CPF mascarado no servidor antes de sair: a tela não é a única barreira (mesmos critérios da UI).
+  const paginaMascarada: PaginaMensagens = { ...pagina, mensagens: pagina.mensagens.map((m) => ({ ...m, texto: mascararCpfEmTexto(m.texto) })) };
+  return { status: 200, corpo: { ok: true, pagina: paginaMascarada } };
 }

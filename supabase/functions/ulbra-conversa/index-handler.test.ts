@@ -417,3 +417,48 @@ describe("handler real (index.ts): falha de banco na consulta do usuário e na c
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+// Resposta do handler com mensagens FICTÍCIAS: CPF com e sem pontuação e telefone de 11 dígitos.
+// O CPF sai mascarado da resposta; a auditoria não recebe o conteúdo.
+describe("handler real (index.ts): CPF mascarado na resposta do histórico (dados fictícios)", () => {
+  const LEITURA_CPF = () =>
+    new Response(
+      JSON.stringify({
+        result: {
+          content: [
+            {
+              text: JSON.stringify({
+                mensagens: [
+                  { quem: "cliente", em: "2026-11-16T10:00:00Z", texto: "meu CPF 529.982.247-25 pode conferir?" },
+                  { quem: "operador", em: "2026-11-16T10:05:00Z", texto: "cpf 52998224725 obrigada" },
+                  { quem: "cliente", em: "2026-11-16T10:10:00Z", texto: "me liga no 11987654321" },
+                ],
+                paginacao: {},
+              }),
+            },
+          ],
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+
+  it("resposta sai com CPF mascarado; telefone preservado; nenhum registro de auditoria tem o texto", async () => {
+    estado.conexao = await conexaoIndividual("token-individual-do-operador");
+    fetchMock.mockResolvedValueOnce(LEITURA_CPF());
+    const r = await chamar({ acao: "historico_ler", conversa_id: CONV });
+    expect(r.status).toBe(200);
+    const corpo = JSON.stringify(r.corpo);
+    expect(corpo).toContain("meu CPF ***.***.***-25 pode conferir?");
+    expect(corpo).toContain("cpf ***.***.***-25 obrigada");
+    expect(corpo).toContain("me liga no 11987654321");
+    expect(corpo).not.toContain("529.982.247-25");
+    expect(corpo).not.toContain("52998224725");
+    for (const reg of estado.auditorias) {
+      const s = JSON.stringify(reg);
+      expect(s).not.toContain("529.982.247-25");
+      expect(s).not.toContain("52998224725");
+      expect(s).not.toContain("me liga no");
+      expect(s).not.toContain("pode conferir");
+    }
+  });
+});
