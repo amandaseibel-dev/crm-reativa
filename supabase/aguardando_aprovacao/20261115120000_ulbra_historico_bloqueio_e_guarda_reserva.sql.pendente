@@ -1,0 +1,77 @@
+-- =============================================================================
+-- PENDENTE. NÃO APLICAR sem autorização expressa da gestão.
+-- Versão instalada da reserva: 20261112111006 (ledger). NÃO é reaplicada aqui.
+--
+-- 1) Bloqueio compartilhado após 429 (colunas em ulbra_sync_estado).
+--    Sem Retry-After, historico_bloqueado_sem_prazo = true: não há prazo inventado; a gestão libera.
+-- 2) Guarda de chamador dentro da reserva (SECURITY DEFINER): só o papel de serviço reserva.
+--    O grant já era só service_role; a guarda faz a regra valer dentro da função também.
+-- Grants: recriados depois do CREATE OR REPLACE (que restaura o padrão). Nada é ampliado.
+-- =============================================================================
+
+do $$
+begin
+  if to_regclass('public.ulbra_sync_estado') is null or to_regclass('public.ulbra_historico_uso') is null then
+    raise exception 'HISTORICO_BLOQUEIO_20261115: pré-requisitos ausentes; não aplicar sobre estado desconhecido';
+  end if;
+end $$;
+
+alter table public.ulbra_sync_estado
+  add column if not exists historico_bloqueado_ate timestamptz,
+  add column if not exists historico_bloqueado_sem_prazo boolean not null default false;
+
+create or replace function public.ulbra_historico_reservar(
+  p_operador text,
+  p_dia date,
+  p_quantidade integer,
+  p_teto_operador integer,
+  p_teto_global integer
+)
+returns table (permitido boolean, usadas_operador integer, usadas_global integer)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  uo integer;
+  ug integer;
+begin
+  -- Contexto do chamador: helper OFICIAL da plataforma auth.role() (lê claim.role e claims JSON; definição em produção, 15/11/2026).
+  if coalesce(auth.role(), '') <> 'service_role' then
+    raise exception 'RESERVA_NAO_AUTORIZADA';
+  end if;
+  if p_quantidade is null or p_quantidade < 1 then
+    raise exception 'quantidade inválida';
+  end if;
+  perform pg_advisory_xact_lock(hashtext('ulbra_historico_' || p_dia::text));
+  insert into public.ulbra_historico_uso (escopo, dia)
+       values (p_operador, p_dia), ('*', p_dia)
+  on conflict do nothing;
+  select usadas into uo from public.ulbra_historico_uso where escopo = p_operador and dia = p_dia;
+  select usadas into ug from public.ulbra_historico_uso where escopo = '*' and dia = p_dia;
+  if uo + p_quantidade > p_teto_operador or ug + p_quantidade > p_teto_global then
+    return query select false, uo, ug;
+    return;
+  end if;
+  update public.ulbra_historico_uso
+     set usadas = usadas + p_quantidade
+   where dia = p_dia and escopo in (p_operador, '*');
+  return query select true, uo + p_quantidade, ug + p_quantidade;
+end;
+$$;
+
+revoke all on function public.ulbra_historico_reservar(text, date, integer, integer, integer) from public, anon, authenticated;
+grant execute on function public.ulbra_historico_reservar(text, date, integer, integer, integer) to service_role;
+
+-- Asserção de grant no próprio arquivo (skill seguranca-rls): falha a migração se o privilégio não ficou como previsto.
+do $$
+begin
+  if has_function_privilege('anon', 'public.ulbra_historico_reservar(text,date,integer,integer,integer)', 'EXECUTE')
+     or has_function_privilege('authenticated', 'public.ulbra_historico_reservar(text,date,integer,integer,integer)', 'EXECUTE') then
+    raise exception 'GRANT_ASSERT_FALHOU: anon ou authenticated com EXECUTE em ulbra_historico_reservar';
+  end if;
+  if not has_function_privilege('service_role', 'public.ulbra_historico_reservar(text,date,integer,integer,integer)', 'EXECUTE') then
+    raise exception 'GRANT_ASSERT_FALHOU: service_role sem EXECUTE em ulbra_historico_reservar';
+  end if;
+end
+$$;

@@ -41,7 +41,7 @@ BRANCH/COMMIT: ____________________   AMBIENTE ALVO: [ ] staging  [ ] prod
 | authenticated sem perfil | | | | bloqueado | [ ] |
 | operador | própria carteira | própria | gated | não vê alheio | [ ] |
 | Amanda ADM (cobranca07) | | | | limitada | [ ] |
-| Fernanda (cobranca04) | | | | limitada | [ ] |
+| Fernanda (cobranca04) | | | | global (definição da gestora) | [ ] |
 | Amanda gestora (amanda.seibel) | | | | validada | [ ] |
 
 ## E. Dados pessoais / Storage

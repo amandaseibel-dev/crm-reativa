@@ -19,3 +19,12 @@ export function podeVerHistorico(linha, ehGestao = false) {
   if (ehGestao === true) return true;
   return linha.minha === true;
 }
+
+// ---------------------------------------------------------------------------
+// Histórico na FICHA do aluno: para qualquer operador ativo. Sem lista nominal.
+// Quem vê o botão é decidido pelo servidor (CPF confirmado, carteira ou
+// responsável, perfil amplo para gestão). Aqui só há a checagem de sessão.
+// ---------------------------------------------------------------------------
+export function podeVerHistoricoNaFicha(email) {
+  return typeof email === "string" && email.trim() !== "";
+}

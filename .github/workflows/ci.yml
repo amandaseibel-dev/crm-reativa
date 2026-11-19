@@ -1134,3 +1134,100 @@ jobs:
       # Duas conexoes reais: captura antes do lock, rollback, captura concorrente, reinstalacao.
       - name: Rodar rollback concorrente e reinstalacao (duas conexoes)
         run: bash "$DIR/run.sh"
+
+  ulbra-historico-deno-check:
+    name: ulbra-historico — deno check (versão fixada)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Instalar Deno (versão fixada)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.1.4
+
+      - name: deno check da função e de tudo que ela importa
+        env:
+          DENO_NO_PACKAGE_JSON: '1'
+        run: deno check supabase/functions/ulbra-historico/index.ts
+
+  ulbra-historico-teto-postgres:
+    name: ulbra-historico — teto de 3 do piloto (cópia de teste da migração de piloto, postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Reservas simultâneas no teto de 3
+        run: bash supabase/tests/ulbra_historico_teto/reservas_simultaneas.sh
+
+  ulbra-historico-orcamento-postgres:
+    name: ulbra-historico — orçamento, bloqueio após 429, concorrência e guarda da RPC (postgres 17 descartável)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      # O runner apaga bancos: só roda contra o postgres descartável deste job.
+      ULBRA_TESTE_DESCARTAVEL: 'sim'
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Dependências dos testes (pg e vitest, versões fixadas)
+        run: |
+          mkdir -p "$RUNNER_TEMP/deps"
+          npm install --prefix "$RUNNER_TEMP/deps" pg@8.16.3 vitest@2.1.9 --no-audit --no-fund
+          # vitest.config.js da raiz importa "vitest/config": o link faz a raiz enxergar as dependências.
+          ln -sfn "$RUNNER_TEMP/deps/node_modules" node_modules
+
+      - name: Testes do servidor (orçamento, bloqueio após 429, dia de São Paulo, Retry-After)
+        run: "$RUNNER_TEMP/deps/node_modules/.bin/vitest run supabase/functions/ulbra-historico"
+
+      - name: Migration pendente, guarda da RPC e concorrência (contador inicial conhecido)
+        env:
+          NODE_PATH: '${{ runner.temp }}/deps/node_modules'
+        run: node supabase/tests/ulbra_historico_bloqueio/run.cjs
+
+      - name: PostgREST 16.5 real (binário oficial, SHA-256 conferido) — guarda da RPC com JWTs de teste
+        env:
+          NODE_PATH: '${{ runner.temp }}/deps/node_modules'
+          POSTGREST_BIN: '${{ runner.temp }}/postgrest/postgrest'
+        run: |
+          mkdir -p "$RUNNER_TEMP/postgrest"
+          curl -fsSL -o "$RUNNER_TEMP/postgrest/pgrst.tar.xz" https://github.com/PostgREST/postgrest/releases/download/v16.5/postgrest-v16.5-linux-static-x86-64.tar.xz
+          echo "5099e7ada38f9f6846cd87c14c5f158b7c165f1e9959665ad412e61f4dceba95  $RUNNER_TEMP/postgrest/pgrst.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/postgrest/pgrst.tar.xz" -C "$RUNNER_TEMP/postgrest"
+          node supabase/tests/ulbra_historico_bloqueio/postgrest_guarda.cjs

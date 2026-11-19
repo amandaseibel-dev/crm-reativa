@@ -5,6 +5,7 @@ import AlterarOperadorResponsavel from "./AlterarOperadorResponsavel";
 import EmailAlunoUnificado from "./EmailAlunoUnificado";
 import TelefonesAluno from "./TelefonesAluno";
 import BlocoUlbra from "./BlocoUlbra";
+import HistoricoFichaAluno from "./HistoricoFichaAluno";
 import AtendimentoUlbra from "./AtendimentoUlbra";
 import RelatorioAcionamentosBtn from "./RelatorioAcionamentosBtn";
 import { parcelaViva } from "../utils/parcelaStatus";
@@ -284,6 +285,7 @@ export default function FichaAlunoUnificada({
               duas fichas usam os mesmos componentes e precisam combinar. */}
           <TelefonesAluno aluno={aluno}>
             <BlocoUlbra aluno={aluno} />
+            <HistoricoFichaAluno alunoId={aluno?.id} />
           </TelefonesAluno>
           <AtendimentoUlbra aluno={aluno} />
         <RelatorioAcionamentosBtn aluno={aluno} />

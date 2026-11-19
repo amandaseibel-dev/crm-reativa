@@ -1,17 +1,20 @@
 // Garantias do histórico somente leitura, sem rede e sem chamada real.
 import { describe, it, expect, beforeEach } from "vitest";
 import {
+  parseRetryAfter,
   ALCANCE,
   CACHE_VALIDADE_MS,
   LIMITE_OPERADOR_DIA,
   RESERVA_GLOBAL,
   SALDO_VALIDADE_MS,
+  TETO_HISTORICO_DIA,
   avaliarSaldo,
   autorizarHistorico,
   limparCacheParaTeste,
   lerHistoricoSomenteLeitura,
   type DependenciasHistorico,
   type FotografiaSaldo,
+  diaDoOrcamento, guardarCache, CACHE_MAX_ENTRADAS, cacheTamanhoParaTeste,
 } from "./historico.ts";
 import type { ContextoLeitura } from "./leitura.ts";
 
@@ -25,10 +28,15 @@ function fabrica(over: Partial<DependenciasHistorico> & { usadosOperador?: numbe
   let usadoGl = over.usadosGlobal ?? 0;
   const reservas: Array<{ operador: string; tetoOp: number; tetoGl: number }> = [];
   const chamadas: Array<{ id: string; antes: string | null; limite: number }> = [];
+  const bloqueios: Array<number | null> = [];
   let agora = AGORA;
   const deps: DependenciasHistorico = {
     consultarPermissao: over.consultarPermissao ?? (async () => DONO),
     lerSaldo: over.lerSaldo ?? (async () => SALDO_FRESCO),
+    renovarSaldo: over.renovarSaldo ?? (async () => ({ restam: 300, em: new Date(agora).toISOString() })),
+    lerBloqueio: over.lerBloqueio ?? (async () => ({ ativo: false, ateMs: null, semPrazo: false })),
+    registrarBloqueio: over.registrarBloqueio ?? (async (ra) => { bloqueios.push(ra); }),
+    usoTotal: over.usoTotal ?? (async () => 0),
     reservar: async (operador, quantidade, tetoOp, tetoGl) => {
       reservas.push({ operador, tetoOp, tetoGl });
       if (usadoOp + quantidade > tetoOp || usadoGl + quantidade > tetoGl) {
@@ -44,7 +52,7 @@ function fabrica(over: Partial<DependenciasHistorico> & { usadosOperador?: numbe
     }),
     agora: () => agora,
   };
-  return { deps, reservas, chamadas, avancar: (ms: number) => { agora += ms; } };
+  return { deps, reservas, chamadas, bloqueios, avancar: (ms: number) => { agora += ms; } };
 }
 
 beforeEach(() => limparCacheParaTeste());
@@ -94,6 +102,11 @@ describe("orçamento: cada chamada externa conta, inclusive 'Carregar anteriores
     const f = fabrica({ lerSaldo: async () => ({ restam: 150, em: SALDO_FRESCO.em }) });
     await lerHistoricoSomenteLeitura(DONO.operador, "c1", null, f.deps);
     expect(f.reservas[0]).toEqual({ operador: DONO.operador, tetoOp: LIMITE_OPERADOR_DIA, tetoGl: 150 - RESERVA_GLOBAL });
+  });
+  it("teto diário fixo: com saldo alto, o teto global do histórico é TETO_HISTORICO_DIA, não o saldo menos a reserva", async () => {
+    const f = fabrica({ lerSaldo: async () => ({ restam: 9821, em: SALDO_FRESCO.em }) });
+    await lerHistoricoSomenteLeitura(DONO.operador, "c1", null, f.deps);
+    expect(f.reservas[0]).toEqual({ operador: DONO.operador, tetoOp: LIMITE_OPERADOR_DIA, tetoGl: TETO_HISTORICO_DIA });
   });
   it("limite por operador bloqueia sem chamar a ULBRA", async () => {
     const f = fabrica({ usadosOperador: LIMITE_OPERADOR_DIA, usadosGlobal: LIMITE_OPERADOR_DIA });
@@ -165,5 +178,184 @@ describe("resposta declara o que prova", () => {
     const f = fabrica();
     await lerHistoricoSomenteLeitura(DONO.operador, "c1", null, f.deps);
     expect(f.chamadas[0].limite).toBe(20);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Orçamento antes da chamada, bloqueio após 429 e dia de Brasília.
+// Expectativas escritas à mão, com relógio fixo (AGORA = 2026-11-10T12:00:00Z).
+// ---------------------------------------------------------------------------
+const VENCIDO = () => ({ restam: 300, em: new Date(AGORA - 20 * 60_000).toISOString() });
+
+describe("saldo vencido: a renovação é reservada ANTES da chamada e conta como tentativa", () => {
+  it("reserva 2 unidades (renovação + leitura) antes de qualquer chamada externa", async () => {
+    let reservasAntesDaRenovacao = -1;
+    const f = fabrica({
+      lerSaldo: async () => VENCIDO(),
+      renovarSaldo: async () => { reservasAntesDaRenovacao = f.reservas.length; return { restam: 300, em: new Date(AGORA).toISOString() }; },
+    });
+    const r = await lerHistoricoSomenteLeitura(DONO.operador, "c1", null, f.deps);
+    expect(reservasAntesDaRenovacao).toBe(1);
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.chamadas).toBe(2);
+  });
+  it("com 19 de 20 usadas, saldo vencido NÃO renova: a renovação não cabe e nada sai", async () => {
+    let renovou = false;
+    const f = fabrica({
+      usadosOperador: 19, lerSaldo: async () => VENCIDO(),
+      renovarSaldo: async () => { renovou = true; return null; },
+    });
+    const r = await lerHistoricoSomenteLeitura(DONO.operador, "c1", null, f.deps);
+    expect(r).toEqual({ ok: false, motivo: "LIMITE_OPERADOR_DIA" });
+    expect(renovou).toBe(false);
+    expect(f.chamadas).toHaveLength(0);
+  });
+});
+
+describe("bloqueio compartilhado após 429", () => {
+  function fabricaComBloqueio(extra: Partial<DependenciasHistorico> = {}) {
+    let bloqueio = { ativo: false, ateMs: null as number | null, semPrazo: false };
+    const f = fabrica({
+      lerBloqueio: async () => bloqueio,
+      registrarBloqueio: async (ra) => {
+        f.bloqueios.push(ra);
+        bloqueio = ra === null
+          ? { ativo: true, ateMs: null, semPrazo: true }
+          : { ativo: true, ateMs: AGORA + ra * 1000, semPrazo: false };
+      },
+      ...extra,
+    });
+    return f;
+  }
+  it("429 com Retry-After de 120 s: registra esse prazo; o próximo clique é barrado sem chamada nem reserva", async () => {
+    const f = fabricaComBloqueio({
+      lerConversa: async () => { throw Object.assign(new Error("ULBRA_LIMITE"), { retryAfterSegundos: 120 }); },
+    });
+    const primeiro = await lerHistoricoSomenteLeitura(DONO.operador, "c1", null, f.deps);
+    expect(primeiro).toEqual({ ok: false, motivo: "ULBRA_LIMITE" });
+    expect(f.bloqueios).toEqual([120]);
+    const reservasAntes = f.reservas.length;
+    const segundo = await lerHistoricoSomenteLeitura(DONO.operador, "c2", null, f.deps);
+    expect(segundo).toEqual({ ok: false, motivo: "ULBRA_BLOQUEADA" });
+    expect(f.reservas.length).toBe(reservasAntes);
+  });
+  it("429 SEM Retry-After: não inventa prazo; o bloqueio continua mesmo depois de muito tempo", async () => {
+    const f = fabricaComBloqueio({
+      lerConversa: async () => { throw Object.assign(new Error("ULBRA_LIMITE"), { retryAfterSegundos: null }); },
+    });
+    await lerHistoricoSomenteLeitura(DONO.operador, "c1", null, f.deps);
+    expect(f.bloqueios).toEqual([null]);
+    f.avancar(7 * 24 * 60 * 60 * 1000);
+    const depois = await lerHistoricoSomenteLeitura(DONO.operador, "c2", null, f.deps);
+    expect(depois).toEqual({ ok: false, motivo: "ULBRA_BLOQUEADA" });
+  });
+  it("passado o Retry-After, a leitura volta a ser permitida", async () => {
+    let chamadas = 0;
+    const f = fabricaComBloqueio({
+      lerConversa: async () => {
+        chamadas++;
+        if (chamadas === 1) throw Object.assign(new Error("ULBRA_LIMITE"), { retryAfterSegundos: 120 });
+        return { mensagens: [], paginacao: { maisAntigas: false } };
+      },
+    });
+    await lerHistoricoSomenteLeitura(DONO.operador, "c1", null, f.deps);
+    f.avancar(121_000);
+    const r = await lerHistoricoSomenteLeitura(DONO.operador, "c2", null, f.deps);
+    expect(r.ok).toBe(true);
+  });
+  it("429 na renovação de saldo também registra o bloqueio (e a tentativa conta)", async () => {
+    const f = fabricaComBloqueio({
+      lerSaldo: async () => VENCIDO(),
+      renovarSaldo: async () => { throw Object.assign(new Error("ULBRA_LIMITE"), { retryAfterSegundos: 60 }); },
+    });
+    const r = await lerHistoricoSomenteLeitura(DONO.operador, "c1", null, f.deps);
+    expect(r).toEqual({ ok: false, motivo: "ULBRA_LIMITE" });
+    expect(f.bloqueios).toEqual([60]);
+    expect(f.reservas[0]).toBeDefined();
+  });
+});
+
+describe("tetos e dia de Brasília (valores fixos da especificação)", () => {
+  it("teto compartilhado de 150: com 150 já usadas no dia, nada sai (RESERVA_GLOBAL)", async () => {
+    const f = fabrica({ usadosGlobal: 150, lerSaldo: async () => ({ restam: 9821, em: new Date(AGORA - 60_000).toISOString() }) });
+    const r = await lerHistoricoSomenteLeitura(DONO.operador, "c1", null, f.deps);
+    expect(r).toEqual({ ok: false, motivo: "RESERVA_GLOBAL" });
+    expect(f.chamadas).toHaveLength(0);
+  });
+  it("20 por usuário: a 21ª leitura do dia é barrada sem chamada", async () => {
+    const f = fabrica({ usadosOperador: 20 });
+    const r = await lerHistoricoSomenteLeitura(DONO.operador, "c1", null, f.deps);
+    expect(r).toEqual({ ok: false, motivo: "LIMITE_OPERADOR_DIA" });
+    expect(f.chamadas).toHaveLength(0);
+  });
+  it("virada do dia: 2026-11-15T02:59:59Z ainda é 14 em São Paulo; 03:00:00Z já é 15", () => {
+    expect(diaDoOrcamento(Date.parse("2026-11-15T02:59:59Z"))).toBe("2026-11-14");
+    expect(diaDoOrcamento(Date.parse("2026-11-15T03:00:00Z"))).toBe("2026-11-15");
+  });
+});
+
+describe("Retry-After: segundos ou data HTTP; sem prazo quando não interpretável", () => {
+  const AGORA_MS = Date.parse("2026-11-15T12:00:00Z");
+  it("segundos inteiros valem como estão", () => {
+    expect(parseRetryAfter("120", AGORA_MS)).toBe(120);
+  });
+  it("data HTTP vira segundos restantes (60 s à frente)", () => {
+    expect(parseRetryAfter("Sun, 15 Nov 2026 12:01:00 GMT", AGORA_MS)).toBe(60);
+  });
+  it("data HTTP já passada vira zero (não bloqueia)", () => {
+    expect(parseRetryAfter("Sun, 15 Nov 2026 11:00:00 GMT", AGORA_MS)).toBe(0);
+  });
+  it("ausente ou não interpretável vira null (sem prazo, nunca inventado)", () => {
+    expect(parseRetryAfter(null, AGORA_MS)).toBeNull();
+    expect(parseRetryAfter("amanhã cedo", AGORA_MS)).toBeNull();
+  });
+});
+
+describe("429 com falha ao gravar o bloqueio: a memória da instância ainda bloqueia", () => {
+  it("gravação do bloqueio falha; o próximo clique é barrado sem chamar a ULBRA", async () => {
+    const f = fabrica({
+      lerConversa: async () => { throw Object.assign(new Error("ULBRA_LIMITE"), { retryAfterSegundos: 300 }); },
+      registrarBloqueio: async () => { throw new Error("BLOQUEIO_GRAVACAO_FALHOU"); },
+    });
+    // A gravação falha: a chamada do operador sobe como erro (502 na função); nada mais sai.
+    await expect(lerHistoricoSomenteLeitura(DONO.operador, "c1", null, f.deps)).rejects.toThrow("BLOQUEIO_GRAVACAO_FALHOU");
+    const chamadasAntes = f.chamadas.length;
+    const segundo = await lerHistoricoSomenteLeitura(DONO.operador, "c2", null, f.deps);
+    expect(segundo).toEqual({ ok: false, motivo: "ULBRA_BLOQUEADA" });
+    expect(f.chamadas.length).toBe(chamadasAntes);
+  });
+  it("revogação: quem perdeu a carteira não lê nem do cache", async () => {
+    let dono = DONO;
+    const f = fabrica({ consultarPermissao: async () => dono });
+    await lerHistoricoSomenteLeitura(DONO.operador, "c1", null, f.deps);
+    dono = SO_VE;
+    const r = await lerHistoricoSomenteLeitura(DONO.operador, "c1", null, f.deps);
+    expect(r).toEqual({ ok: false, motivo: "SEM_PERMISSAO_NA_CONVERSA" });
+  });
+});
+
+describe("liberação pelo banco vale em instância quente; cache com retenção limitada", () => {
+  it("429 gravado; a gestão libera no banco; a MESMA instância volta a chamar a ULBRA", async () => {
+    let banco = { ativo: false, ateMs: null as number | null, semPrazo: false };
+    let chamadas = 0;
+    const f = fabrica({
+      lerBloqueio: async () => banco,
+      registrarBloqueio: async (ra) => { banco = ra === null ? { ativo: true, ateMs: null, semPrazo: true } : { ativo: true, ateMs: AGORA + ra * 1000, semPrazo: false }; },
+      lerConversa: async () => { chamadas++; if (chamadas === 1) throw Object.assign(new Error("ULBRA_LIMITE"), { retryAfterSegundos: null }); return { mensagens: [], paginacao: { maisAntigas: false } }; },
+    });
+    await expect(lerHistoricoSomenteLeitura(DONO.operador, "c1", null, f.deps)).resolves.toEqual({ ok: false, motivo: "ULBRA_LIMITE" });
+    expect(await lerHistoricoSomenteLeitura(DONO.operador, "c2", null, f.deps)).toEqual({ ok: false, motivo: "ULBRA_BLOQUEADA" });
+    banco = { ativo: false, ateMs: null, semPrazo: false }; // gestão limpou no banco
+    const r = await lerHistoricoSomenteLeitura(DONO.operador, "c3", null, f.deps);
+    expect(r.ok).toBe(true);
+    expect(chamadas).toBe(2);
+  });
+  it("cache: entradas vencidas saem e o total nunca passa de CACHE_MAX_ENTRADAS", async () => {
+    const h = await import("./historico.ts");
+    limparCacheParaTeste();
+    const pag = { mensagens: [], paginacao: { maisAntigas: false } } as any;
+    for (let i = 0; i < h.CACHE_MAX_ENTRADAS + 50; i++) h.guardarCache("k" + i, { expira: AGORA + 1000, pagina: pag }, AGORA);
+    h.guardarCache("velha", { expira: AGORA - 1, pagina: pag }, AGORA + 10);
+    expect(h.cacheTamanhoParaTeste()).toBeLessThanOrEqual(h.CACHE_MAX_ENTRADAS);
   });
 });

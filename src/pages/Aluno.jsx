@@ -21,6 +21,7 @@ import { consultaMensageriaNaFicha } from "../utils/ulbraCentral";
 import AtendimentoUlbra from "../components/AtendimentoUlbra";
 import PainelDesfazer from "../components/PainelDesfazer";
 import Dobra from "../ui/blocos";
+import HistoricoFichaAluno from "../components/HistoricoFichaAluno";
 import {
   superficie,
   cartao,
@@ -2419,6 +2420,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   ["dados", "Resumo e tabulação"],
                   ...(emailLiberadoAluno ? [["email", "📧 E-mail"]] : []),
                   ["financeiro", "Financeiro"],
+                  ["conversa", "💬 Conversa ULBRA"],
                   ["adm", "ADM"],
                 ].map(([chave, rotulo]) => (
                   <button
@@ -2697,6 +2699,11 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                 <>
                   <FinanceiroAluno aluno={alunoSelecionado} />
                 </>
+              )}
+              {abaFicha === "conversa" && alunoSelecionado && (
+                <div style={caixaInterna}>
+                  <HistoricoFichaAluno key={alunoSelecionado.id} alunoId={alunoSelecionado.id} emailUsuario={usuarioLogado?.email} />
+                </div>
               )}
               {abaFicha === "email" && emailLiberadoAluno && (
                 <div style={caixaInterna}>
