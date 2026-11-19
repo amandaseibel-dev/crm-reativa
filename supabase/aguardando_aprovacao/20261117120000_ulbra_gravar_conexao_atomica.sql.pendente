@@ -64,7 +64,7 @@ $$;
 revoke all on function public.ulbra_gravar_conexao(text, text, text, timestamptz, text, text, jsonb, boolean) from public, anon, authenticated;
 grant execute on function public.ulbra_gravar_conexao(text, text, text, timestamptz, text, text, jsonb, boolean) to service_role;
 
--- Pós-checagem: grants e search_path conferidos (lista da skill seguranca-rls).
+-- Pós-checagem: grants conferidos (lista da skill seguranca-rls). O search_path NÃO é conferido aqui: está em `public, pg_temp` (decisão da gestão pendente, VIGENTE §9).
 do $$
 begin
   if has_function_privilege('authenticated', 'public.ulbra_gravar_conexao(text, text, text, timestamptz, text, text, jsonb, boolean)', 'EXECUTE') then

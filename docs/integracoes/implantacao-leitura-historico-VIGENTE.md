@@ -13,7 +13,7 @@ Pasta: `supabase/aguardando_aprovacao/` (não `supabase/migrations/`). sha256 do
 |---|---|---|---|
 | 1 | `20261111140000_ulbra_conexao_individual_e_envio.sql.pendente` | `fcd270305358c69db33e25072c1c0288fd0cbf7dc129bd1b6147fef1dbb6e691` | `ulbra_conexao_individual_e_envio` |
 | 2 | `20261116150000_ulbra_historico_reservar_portao_interno.sql.pendente` | `14c8a3a0f50b32023e05a28ec1db94b9419b8bbef89845fb9e35fff5eec6f9ff` | `ulbra_historico_reservar_portao_interno` |
-| 3 | `20261117120000_ulbra_gravar_conexao_atomica.sql.pendente` | `dcd8df5388cbdc5e2c20576b0dd9044b23dcd9667ad8f230f2e653b461671ed8` | `ulbra_gravar_conexao_atomica` |
+| 3 | `20261117120000_ulbra_gravar_conexao_atomica.sql.pendente` | `3f0b41a28857a1f765a0f4d36606d8f9c2f0909f56ff05527360afacce54d6c9` | `ulbra_gravar_conexao_atomica` |
 
 Rollbacks (mesma pasta, nomes completos `<versão>_<name>.rollback.sql`):
 - `20261111140000_ulbra_conexao_individual_e_envio.rollback.sql` — `f6b8013e8c43ff2f917dbf8839ac103b93e53c991b299b1cd1bc83e09d8e760f`
@@ -78,8 +78,8 @@ Executor: a sessão principal (CLAUDE.md, item 2). Aceite específico em cada et
 | Ordem | Arquivo | sha256 | name | versão gerada | md5 de referência | verificado em |
 |---|---|---|---|---|---|---|
 | 1 | 20261111140000 | fcd27030… | ulbra_conexao_individual_e_envio | (após aplicar) | (obter antes do passo 3) | (após aplicar) |
-| 2 | 20261116150000 | 1b448d8b… | ulbra_historico_reservar_portao_interno | (após aplicar) | (obter antes do passo 4) | (após aplicar) |
-| 3 | 20261117120000 | dcd8df53… | ulbra_gravar_conexao_atomica | (após aplicar) | (obter antes do passo 5) | (após aplicar) |
+| 2 | 20261116150000 | 14c8a3a0… | ulbra_historico_reservar_portao_interno | (após aplicar) | (obter antes do passo 4) | (após aplicar) |
+| 3 | 20261117120000 | 3f0b41a2… | ulbra_gravar_conexao_atomica | (após aplicar) | (obter antes do passo 5) | (após aplicar) |
 
 ## 9. Decisões e aceites exigidos (uma solicitação)
 1. **Contas com leitura global** (`leitura.ts`: `amanda.seibel`, `cobranca04`): hoje dependem da lista do piloto para ler, porque a flag exige o piloto. Decidir se entram em `ULBRA_HISTORICO_PILOTO_EMAILS` (e, se sim, com aceite) ou se ficam fora desta etapa.
