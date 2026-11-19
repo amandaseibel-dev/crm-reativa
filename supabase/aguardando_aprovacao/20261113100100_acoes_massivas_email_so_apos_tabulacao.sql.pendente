@@ -1,0 +1,81 @@
+-- ACOES MASSIVAS: E-MAIL DO LOTE DE WHATSAPP SO DEPOIS DA TABULACAO DO ENVIO.
+--
+-- ORDEM DE APLICACAO: esta migration ANTES (ou junto, nesta ordem) de 20261113100000.
+--
+-- PENDENTE. Nao aplicar sem autorizacao expressa e sem linha em
+-- docs/seguranca/migracoes-aprovadas.tsv. Depende de 20261113100000 apenas no
+-- pacote; o patch aqui nao usa nada daquela migration.
+--
+-- Decisao da gestao em 16/11/2026: a regra fica no BANCO, nao so na tela.
+-- Problema (Guardiao, B1): acoes_massivas_exportar_emails_do_lote registra a
+-- acao de e-mail no clique. Se o lote de WhatsApp ainda estiver PENDENTE de
+-- envio, esse registro conta como acionamento mais novo, e a tabulacao do
+-- WhatsApp depois excluiria esses alunos (sem status e sem retorno de 10 dias).
+--
+-- Regra nova, valida para QUALQUER chamador (gestao, sistema ou chamada direta
+-- a RPC): lote de WhatsApp sem confirmado_em e sem descartado_em nao deriva
+-- e-mail. Lote ja confirmado segue exatamente como antes.
+--
+-- Mudancas (patch ancorado com guarda de MD5; nada de tabela, grant ou dado):
+--   1. a leitura do lote de origem passa a segurar a linha (FOR SHARE): a
+--      exportacao espera a confirmacao em curso (que faz FOR UPDATE na mesma
+--      linha) e so le o estado ja confirmado;
+--   2. antes da checagem de derivado, recusa lote pendente (errcode 55000).
+--
+--   3. (patch 2c) em confirmacao PARCIAL, a derivacao usa so
+--      resultado.ids_enviados_informados; TOTAL e lote antigo seguem com aluno_ids.
+--      Isso define quem entra no lote de e-mail; NAO comprova envio de e-mail.
+--
+-- Nao altera o contrato de retorno, nao toca lote de WhatsApp e nao toca a tela.
+--
+-- Estado de producao: NAO verificado nesta versao. A regra nao muda dado existente.
+
+BEGIN;
+
+-- 0. GUARDA DE ORIGEM ------------------------------------------------------------
+DO $g$
+BEGIN
+  IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar_emails_do_lote') IS DISTINCT FROM '00d3370a7800bd334292808e1573a57d' THEN
+    RAISE EXCEPTION 'acoes_massivas_exportar_emails_do_lote mudou desde a validacao (esperado 00d3370a...). Nada aplicado.';
+  END IF;
+END $g$;
+
+-- 1. LEITURA DO LOTE SEGURADA -----------------------------------------------------
+SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_exportar_emails_do_lote',
+$a1$  select * into v_origem from public.acoes_massivas_lotes where id = p_lote_id;$a1$,
+$n1$  select * into v_origem from public.acoes_massivas_lotes where id = p_lote_id for share;$n1$, 1);
+
+-- 2. RECUSA LOTE PENDENTE DE ENVIO --------------------------------------------------
+SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_exportar_emails_do_lote',
+$a2$  select o.id, o.exportado_em into v_derivado, v_derivado_em$a2$,
+$n2$  -- 16/11/2026: lote de WhatsApp ainda PENDENTE de envio nao deriva e-mail.
+  -- Vale para qualquer chamador. Quem confirma e acoes_massivas_concluir_envio.
+  if v_origem.confirmado_em is null then
+    raise exception 'Este lote de WhatsApp ainda esta pendente de envio. Tabule o envio antes de exportar os e-mails.'
+      using errcode = '55000';
+  end if;
+
+  select o.id, o.exportado_em into v_derivado, v_derivado_em$n2$, 1);
+
+-- 2c. CONFIRMACAO PARCIAL: DERIVA E-MAIL SO PARA QUEM FOI ENVIADO ----------------
+-- Em lote confirmado como PARCIAL (resultado.confirmacao = 'PARCIAL'), a derivacao usa
+-- exclusivamente resultado.ids_enviados_informados. Quem foi marcado como nao enviado
+-- nao recebe e-mail, nem registro, nem tabulacao. TOTAL e lote antigo seguem com aluno_ids.
+-- Isso NAO comprova envio de e-mail: e so a lista de quem recebeu o disparo do WhatsApp.
+SELECT internal.patch_funcao_ancorada('public', 'acoes_massivas_exportar_emails_do_lote',
+$a4$            from unnest(v_origem.aluno_ids) with ordinality as t(id_txt, ord)$a4$,
+$n4$            from unnest(case when v_origem.resultado ->> 'confirmacao' = 'PARCIAL'
+                             then array(select jsonb_array_elements_text(v_origem.resultado -> 'ids_enviados_informados'))
+                             else v_origem.aluno_ids end) with ordinality as t(id_txt, ord)$n4$, 1);
+
+-- 3. MD5 FINAL ----------------------------------------------------------------------
+DO $f$
+BEGIN
+  IF (SELECT md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public' AND p.proname = 'acoes_massivas_exportar_emails_do_lote') IS DISTINCT FROM '23664a52cf92257c25a5a837006db582' THEN
+    RAISE EXCEPTION 'MD5 final de acoes_massivas_exportar_emails_do_lote diferente do validado.';
+  END IF;
+END $f$;
+
+COMMIT;

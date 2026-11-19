@@ -1,0 +1,14 @@
+# PROPOSTA — NAO REGISTRADA. O registro em docs/seguranca/migracoes-aprovadas.tsv
+# exige autorizacao da gestao no momento da aprovacao (ver RUNBOOK-MIGRATIONS):
+# a linha e publicada com status=pendente e expira_em de 30 min a partir da aprovacao.
+# 20261113100100 inclui a derivacao de e-mail so para quem foi enviado em confirmacao PARCIAL (nao comprova envio de e-mail).
+# Ordem de APLICACAO: 20261113100100 -> 20261113100000 -> 20261113100200 (o banco impoe; ver guardas).
+projeto	nome	sha256	executor	expira_em	status
+ahattpqrjmhkzsmnbdzs	20261113100100_acoes_massivas_email_so_apos_tabulacao	4fcce722aebc637b3f9ae86777aeb1a3695ca305d0e9f0b013beb07b5d6f8980amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente
+ahattpqrjmhkzsmnbdzs	20261113100000_acoes_massivas_confirmar_envio	627d479bbcb477d75c6e2a34dcb6ecd1a5233c7b6f1138147b58ef4a7c1f6199	amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente
+# ROLLBACKS (proposta; nao registrados). Tamanhos em bytes: 20261113100000.rollback.sql=3759; 20261113100100.rollback.sql=4691.
+ahattpqrjmhkzsmnbdzs	20261113100000_acoes_massivas_confirmar_envio.rollback	538aa2bfc989d88a0e2b6e1465385214875e5daaa72a50d413023c980ab2d5b2	amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente
+ahattpqrjmhkzsmnbdzs	20261113100100_acoes_massivas_email_so_apos_tabulacao.rollback	bcd7a39d639ba4d3c44bca1b03649598a7d1e153c1f6962079c2d28007a12dee	amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente
+# 20261113100200 (recusa de CONFIRMAR de lote pendente em concluir_lote; ordem com 20261113100000). Tamanhos: rollback=2942; sql.pendente=4021. md5 de concluir_lote apos a 100200: 57818ede179b6a1cf82a0bdd343f27d3 (medido em PGlite; a migration confere no bloco $f$).
+ahattpqrjmhkzsmnbdzs	20261113100200_acoes_massivas_concluir_lote_bloqueia_pendente	e810afa98e3bf827284370f401b01154d6bf3d8cc8778d17a86acab50a56ca49amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente
+ahattpqrjmhkzsmnbdzs	20261113100200_acoes_massivas_concluir_lote_bloqueia_pendente.rollback	88f5f11cf0a2ed2d38ef551c2b6ce077baa082397abe04a1e25a357ec36af955	amanda.seibel@aelbra.com.br	<A PREENCHER NA APROVACAO>	pendente
