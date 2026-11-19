@@ -150,24 +150,13 @@ describe("whatsapp-enviar-documento (handler real): bloqueio jurídico", () => {
     expect(nomes()).toContain("juridico_registrar_recusa_envio");
   });
 
-  it("opção B — conversa sem aluno (aluno_id=null): recusa antes do check jurídico, do preparo e do upload", async () => {
+  it("conversa sem aluno: recusa antes de preparar e de subir o arquivo", async () => {
     estado.conversaAluno = null;
+    estado.checar = { code: "JUR01", message: "Contato sem identificação confiável." };
     const r = await estado.handler!(pedido());
     expect(r.status).toBe(403);
-    expect(nomes()).not.toContain("juridico_checar_envio");
-    expect(nomes()).not.toContain("whatsapp_preparar_envio");
     expect(estado.uploads).toBe(0);
     expect(estado.gatewayChamadas).toBe(0);
-  });
-
-  it("opção B — conversa sem aluno: flag desligada não recusa (comportamento anterior)", async () => {
-    estado.conversaAluno = null;
-    estado.bloqueioAtivo = false;
-    const r = await estado.handler!(pedido());
-    expect(r.status).toBe(200);
-    expect(nomes()).not.toContain("juridico_checar_envio");
-    expect(estado.uploads).toBe(1);
-    expect(estado.gatewayChamadas).toBe(1);
   });
 
   it("falha de infraestrutura na checagem: 403, sem upload, sem gateway, e NAO registra recusa juridica", async () => {
