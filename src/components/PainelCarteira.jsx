@@ -820,6 +820,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // que nem sempre reflete o "pago". Fonte de verdade =
   // solicitacoes_confirmacao_pagamento (ver [[auto-sair-fila-quitou-ou-confirmacao]]).
   const idsEmConfirmacaoRef = useRef(new Set());
+  // Alunos com bloqueio jurídico EFETIVO no servidor (juridico_bloqueio_ids). Só marca na tela:
+  // não tira o aluno da carteira nem muda responsável ou encerramento.
+  const bloqueioJuridicoRef = useRef(new Set());
   // Alunos do card "risco de perder", na ordem que o backend devolve (nunca
   // acionado primeiro). Fonte: RPC casos_risco_perder.
   const riscoPerderIdsRef = useRef([]);
@@ -1272,6 +1275,20 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         console.error("Erro ao carregar confirmacoes pendentes (fila):", e);
       }
       idsEmConfirmacaoRef.current = idsEmConfirmacao;
+
+      // Bloqueio jurídico efetivo, lido do servidor em lotes. Falha = nenhum marcador (não bloqueia a tela).
+      const bloqueioJur = new Set();
+      try {
+        const ids = todas.map((l) => l.id).filter(Boolean);
+        for (let i = 0; i < ids.length; i += 1000) {
+          const { data: bj, error: erroBj } = await supabase.rpc("juridico_bloqueio_ids", { p_ids: ids.slice(i, i + 1000) });
+          if (erroBj) throw erroBj;
+          for (const x of bj || []) bloqueioJur.add(String(x));
+        }
+      } catch (e) {
+        console.error("Erro ao carregar bloqueio jurídico (carteira):", e);
+      }
+      bloqueioJuridicoRef.current = bloqueioJur;
 
       // Lista operacional: fora quitados e demais nao-acionaveis (status
       // existentes). Casos continuam no banco para consulta/historico.
@@ -4089,6 +4106,18 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                               }}
                             >
                               {SITUACAO_OPERACIONAL_LABEL[a.situacao_operacional].texto}
+                            </div>
+                          )}
+                          {bloqueioJuridicoRef.current.has(String(a.id)) && (
+                            <div
+                              title="Cobrança bloqueada pelo encaminhamento jurídico. O aluno continua na carteira com o responsável."
+                              style={{
+                                display: "inline-block", marginTop: 4, marginLeft: 4,
+                                background: "rgba(124,58,237,0.18)", color: "#c4b5fd",
+                                borderRadius: 6, padding: "2px 7px", fontSize: 11, fontWeight: 700,
+                              }}
+                            >
+                              Bloqueio jurídico
                             </div>
                           )}
                           {a.proxima_acao && (

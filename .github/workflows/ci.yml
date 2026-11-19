@@ -47,7 +47,7 @@ jobs:
     # saída que este comentário sugeria acima — "separar os testes de banco em
     # outro job" — renderia um job de 2,3% e outro de 97,7%. O ganho real está em
     # repartir o PRÓPRIO grupo de Postgres em vários jobs paralelos.
-    timeout-minutes: 40
+    timeout-minutes: 60
 
     steps:
       # fetch-depth: 0 porque a catraca das migrations compara este ramo com o
@@ -1134,3 +1134,48 @@ jobs:
       # Duas conexoes reais: captura antes do lock, rollback, captura concorrente, reinstalacao.
       - name: Rodar rollback concorrente e reinstalacao (duas conexoes)
         run: bash "$DIR/run.sh"
+
+  # ---------------------------------------------------------------------------
+  # JURÍDICO — concorrência REAL (postgres 17, duas conexões, banco descartável).
+  #
+  # Prova o NOWAIT de aluno, de acordos e de parcelas na aprovação (falha rápido com
+  # 40001, sem alteração parcial, nova tentativa passa), e a troca simultânea de
+  # parcelas vencidas do mesmo acordo (sem erro). O PGlite, sessão única,
+  # não consegue provar isso. Dados 100% sintéticos.
+  # ---------------------------------------------------------------------------
+  juridico-concorrencia:
+    name: juridico — concorrência com duas conexões (postgres 17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Cliente pg (versão fixada, sem alterar o package-lock)
+        run: npm i --no-save pg@8.16.3
+
+      - name: "Duas conexões reais: NOWAIT e troca simultânea"
+        run: node supabase/tests/juridico_concorrencia/run.mjs

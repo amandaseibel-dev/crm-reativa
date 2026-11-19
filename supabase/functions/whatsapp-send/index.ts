@@ -49,6 +49,7 @@
 //
 // Secrets: WHATSAPP_GATEWAY_URL, WHATSAPP_GATEWAY_TOKEN.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { alunoDaConversa, checarEnvioJuridico, sha256Hex, temAcessoConversa, MENSAGEM_RECUSA_GENERICA, envioDesligado, bloqueioJuridicoAtivo } from "../_shared/juridico-envio.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -77,6 +78,10 @@ const MOTIVOS_DE_BLOQUEIO = new Set([
 ]);
 
 Deno.serve(async (req) => {
+  // Recuperacao: envio desligado recusa tudo, antes de qualquer acesso a banco.
+  if (envioDesligado(Deno.env.get("ENVIO_WHATSAPP_DESLIGADO"))) {
+    return jsonResp({ erro: "Envio do WhatsApp desligado pela operação." }, 503);
+  }
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return jsonResp({ erro: "metodo nao suportado" }, 405);
 
@@ -119,6 +124,49 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_ANON_KEY")!,
     { global: { headers: { Authorization: autorizacao } }, auth: { persistSession: false } },
   );
+
+  const admin = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    { auth: { persistSession: false } },
+  );
+
+  // Flag JURIDICO_BLOQUEIO_ENVIO_ATIVO: desligada => não chama a checagem jurídica (envio como antes).
+  if (bloqueioJuridicoAtivo(Deno.env.get("JURIDICO_BLOQUEIO_ENVIO_ATIVO"))) {
+  // BLOQUEIO JURÍDICO (decisão da gestão). ANTES de preparar: o preparo assume a conversa e pode
+  // reatribuir aluno_id no banco (só o caminho de conversa nova faz isso). O aluno vem SOMENTE da conversa existente (nunca do corpo do pedido).
+  // Conversa nova sem aluno confirmado é recusada: identificação não confiável não libera envio.
+  // Falha em qualquer etapa = nada é preparado nem enviado (fail-closed).
+  if (conversaNova) {
+    return jsonResp({ erro: "Contato sem vínculo confiável com um aluno: o envio por este fluxo não é permitido. Nenhum vínculo é criado automaticamente." }, 403);
+  }
+  const alunoRes = await alunoDaConversa(admin, corpo.conversa_id!);
+  const operadorEmail = (await comoOperador.auth.getUser()).data.user?.email ?? "desconhecido";
+  const checagem = alunoRes.ok
+    ? await checarEnvioJuridico((nome, args) => admin.rpc(nome, args), {
+        alunoId: alunoRes.alunoId,
+        conversaId: corpo.conversa_id!,
+        operador: operadorEmail,
+        tipo: "MENSAGEM",
+        hash: await sha256Hex(texto),
+      })
+    : alunoRes;
+  if (!checagem.ok) {
+    // Recusa JURÍDICA: registrada na trilha do aluno como bloqueio (não é falha do gateway).
+    if (checagem.bloqueio && alunoRes.ok) {
+      const { error: erroReg } = await admin.rpc("juridico_registrar_recusa_envio", {
+        p_aluno: alunoRes.alunoId,
+        p_conversa: corpo.conversa_id!,
+        p_tipo: "MENSAGEM",
+      });
+      if (erroReg) console.error("recusa juridica nao registrada", erroReg.code);
+    }
+    // Detalhe SO para quem tem acesso (usuario ativo + conversa visivel). Quem nao tem: recusa generica.
+    const acesso = await temAcessoConversa(comoOperador, corpo.conversa_id ?? null, operadorEmail);
+    const msg = checagem.bloqueio && !acesso ? MENSAGEM_RECUSA_GENERICA : checagem.erro;
+    return jsonResp({ erro: msg, conversa_id: corpo.conversa_id }, 403);
+  }
+  }
 
   // Qual RPC prepara o envio depende de a conversa já existir. As duas aplicam
   // as MESMAS travas (usuário ativo, canal ativo e conectado, dono da conversa)
@@ -172,12 +220,6 @@ Deno.serve(async (req) => {
   // conversa existente ele já é conhecido, mas devolver sempre mantém o
   // contrato igual nos dois caminhos.
   const conversaId: string = dados.conversa_id ?? corpo.conversa_id!;
-
-  const admin = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    { auth: { persistSession: false } },
-  );
 
   const registrar = (status: string, wamid: string | null, erro: string | null) =>
     admin.rpc("whatsapp_registrar_mensagem", {
