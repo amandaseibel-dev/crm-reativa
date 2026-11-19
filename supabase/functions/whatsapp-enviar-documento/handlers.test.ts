@@ -9,6 +9,7 @@ const estado = {
   chamadas: [] as Chamada[],
   checar: null as null | { code: string; message: string },
   conversaAluno: "aluno-1" as string | null,
+  canalTipo: "COBRANCA" as string | null,
   acesso: true,
   ativo: true,
   desligado: false,
@@ -39,6 +40,7 @@ vi.mock("https://esm.sh/@supabase/supabase-js@2", () => ({
           maybeSingle: async () => {
             estado.chamadas.push({ nome: `from:${tabela}` });
             if (campo === "responsavel_email") return { data: { responsavel_email: estado.acesso ? "op1@x" : "outro@x" }, error: null };
+            if (campo === "whatsapp_canais(tipo)") return { data: estado.canalTipo !== null ? { whatsapp_canais: { tipo: estado.canalTipo } } : null, error: null };
             return { data: { aluno_id: estado.conversaAluno }, error: null };
           },
         }),
@@ -79,6 +81,7 @@ beforeEach(async () => {
   estado.chamadas = [];
   estado.checar = null;
   estado.conversaAluno = "aluno-1";
+  estado.canalTipo = "COBRANCA";
   estado.acesso = true;
   estado.ativo = true;
   estado.desligado = false;
@@ -225,6 +228,54 @@ describe("whatsapp-enviar-documento: flag JURIDICO_BLOQUEIO_ENVIO_ATIVO desligad
     expect(nomes()).not.toContain("juridico_checar_envio");
     expect(estado.uploads).toBe(1);
     expect(estado.gatewayChamadas).toBe(1);
+  });
+});
+
+describe("whatsapp-enviar-documento: Opção B — tipo de canal COBRANCA vs OUTRO", () => {
+  // Cenário 1: Cobrança sem vínculo → recusado pela guarda de tipo
+  it("canal COBRANCA sem aluno_id: 403 antes do JUR01, sem upload, sem gateway", async () => {
+    estado.canalTipo = "COBRANCA";
+    estado.conversaAluno = null;
+    const r = await estado.handler!(pedido());
+    expect(r.status).toBe(403);
+    expect(nomes()).not.toContain("juridico_checar_envio");
+    expect(estado.uploads).toBe(0);
+    expect(estado.gatewayChamadas).toBe(0);
+  });
+
+  // Cenário 2: Cobrança com vínculo e bloqueio jurídico → JUR01 recusa
+  it("canal COBRANCA com aluno vinculado e JUR01: 403, sem upload, sem gateway", async () => {
+    estado.canalTipo = "COBRANCA";
+    estado.conversaAluno = "aluno-1";
+    estado.checar = { code: "JUR01", message: "Aluno com bloqueio jurídico." };
+    const r = await estado.handler!(pedido());
+    expect(r.status).toBe(403);
+    expect(nomes()).toContain("juridico_checar_envio");
+    expect(nomes()).toContain("juridico_registrar_recusa_envio");
+    expect(estado.uploads).toBe(0);
+    expect(estado.gatewayChamadas).toBe(0);
+  });
+
+  // Cenário 3: Comercial e Piloto sem vínculo → não recusados pela guarda de tipo
+  it("canal OUTRO (Comercial/Piloto) sem aluno_id: não recusado pela guarda de tipo, upload e gateway chamados", async () => {
+    estado.canalTipo = "OUTRO";
+    estado.conversaAluno = null;
+    const r = await estado.handler!(pedido());
+    expect(r.status).toBe(200);
+    expect(estado.uploads).toBe(1);
+    expect(estado.gatewayChamadas).toBe(1);
+  });
+
+  // Cenário 4: Comercial vinculado com bloqueio jurídico → JUR01 recusa
+  it("canal OUTRO com aluno vinculado e JUR01: 403, sem upload, sem gateway", async () => {
+    estado.canalTipo = "OUTRO";
+    estado.conversaAluno = "aluno-1";
+    estado.checar = { code: "JUR01", message: "Aluno com bloqueio jurídico." };
+    const r = await estado.handler!(pedido());
+    expect(r.status).toBe(403);
+    expect(nomes()).toContain("juridico_checar_envio");
+    expect(estado.uploads).toBe(0);
+    expect(estado.gatewayChamadas).toBe(0);
   });
 });
 

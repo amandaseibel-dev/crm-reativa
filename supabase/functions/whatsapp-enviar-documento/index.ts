@@ -37,7 +37,7 @@
 //
 // Secrets: WHATSAPP_GATEWAY_URL, WHATSAPP_GATEWAY_TOKEN.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { alunoDaConversa, checarEnvioJuridico, hashDocumento, temAcessoConversa, MENSAGEM_RECUSA_GENERICA, envioDesligado, bloqueioJuridicoAtivo } from "../_shared/juridico-envio.ts";
+import { alunoDaConversa, canalTipoDeConversa, checarEnvioJuridico, hashDocumento, temAcessoConversa, MENSAGEM_RECUSA_GENERICA, envioDesligado, bloqueioJuridicoAtivo } from "../_shared/juridico-envio.ts";
 import { LIMITE_BYTES, caminhoNovo, validarPdf } from "../_shared/pdf.ts";
 
 const BUCKET = "whatsapp-midia";
@@ -136,6 +136,11 @@ Deno.serve(async (req) => {
   // BLOQUEIO JURÍDICO (decisão da gestão). ANTES de preparar o envio e antes do upload. Aluno SOMENTE da
   // conversa existente. Hash = bytes + nome + mime: é o que vai ao gateway. Falha = nada é preparado nem enviado.
   const alunoRes = await alunoDaConversa(admin, conversaId);
+  // Opção B: canal COBRANCA exige aluno_id confirmado antes do JUR01.
+  const tipoCanalDoc = await canalTipoDeConversa(admin, conversaId);
+  if (tipoCanalDoc !== "OUTRO" && !alunoRes.alunoId) {
+    return jsonResp({ erro: "Canal de cobrança sem vínculo confirmado com um aluno: envio não permitido." }, 403);
+  }
   const operadorEmail = (await comoOperador.auth.getUser()).data.user?.email ?? "desconhecido";
   const checagem = alunoRes.ok
     ? await checarEnvioJuridico((nome, args) => admin.rpc(nome, args), {

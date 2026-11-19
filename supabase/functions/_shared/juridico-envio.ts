@@ -128,3 +128,41 @@ export function bloqueioJuridicoAtivo(valor: string | undefined): boolean {
   const v = (valor ?? "").trim().toLowerCase();
   return ["true", "1", "on", "yes", "sim"].includes(v);
 }
+
+// Tipo do canal de uma conversa existente (via JOIN whatsapp_conversas → whatsapp_canais).
+// Retorna null quando a conversa não existe ou o banco está indisponível (fail-closed: chamador trata como desconhecido).
+export async function canalTipoDeConversa(
+  admin: { from: (t: string) => any },
+  conversaId: string,
+): Promise<string | null> {
+  try {
+    const { data, error } = await admin
+      .from("whatsapp_conversas")
+      .select("whatsapp_canais(tipo)")
+      .eq("id", conversaId)
+      .maybeSingle();
+    if (error || !data) return null;
+    return (data as any)?.whatsapp_canais?.tipo ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Tipo do canal por id direto (usado no caminho de conversa nova, onde canal_id vem do corpo).
+// Retorna null quando o canal não existe ou o banco está indisponível.
+export async function canalTipoPorId(
+  admin: { from: (t: string) => any },
+  canalId: string,
+): Promise<string | null> {
+  try {
+    const { data, error } = await admin
+      .from("whatsapp_canais")
+      .select("tipo")
+      .eq("id", canalId)
+      .maybeSingle();
+    if (error || !data) return null;
+    return (data as any)?.tipo ?? null;
+  } catch {
+    return null;
+  }
+}

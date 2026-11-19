@@ -49,7 +49,7 @@
 //
 // Secrets: WHATSAPP_GATEWAY_URL, WHATSAPP_GATEWAY_TOKEN.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { alunoDaConversa, checarEnvioJuridico, sha256Hex, temAcessoConversa, MENSAGEM_RECUSA_GENERICA, envioDesligado, bloqueioJuridicoAtivo } from "../_shared/juridico-envio.ts";
+import { alunoDaConversa, canalTipoDeConversa, canalTipoPorId, checarEnvioJuridico, sha256Hex, temAcessoConversa, MENSAGEM_RECUSA_GENERICA, envioDesligado, bloqueioJuridicoAtivo } from "../_shared/juridico-envio.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -138,33 +138,45 @@ Deno.serve(async (req) => {
   // Conversa nova sem aluno confirmado é recusada: identificação não confiável não libera envio.
   // Falha em qualquer etapa = nada é preparado nem enviado (fail-closed).
   if (conversaNova) {
-    return jsonResp({ erro: "Contato sem vínculo confiável com um aluno: o envio por este fluxo não é permitido. Nenhum vínculo é criado automaticamente." }, 403);
-  }
-  const alunoRes = await alunoDaConversa(admin, corpo.conversa_id!);
-  const operadorEmail = (await comoOperador.auth.getUser()).data.user?.email ?? "desconhecido";
-  const checagem = alunoRes.ok
-    ? await checarEnvioJuridico((nome, args) => admin.rpc(nome, args), {
-        alunoId: alunoRes.alunoId,
-        conversaId: corpo.conversa_id!,
-        operador: operadorEmail,
-        tipo: "MENSAGEM",
-        hash: await sha256Hex(texto),
-      })
-    : alunoRes;
-  if (!checagem.ok) {
-    // Recusa JURÍDICA: registrada na trilha do aluno como bloqueio (não é falha do gateway).
-    if (checagem.bloqueio && alunoRes.ok) {
-      const { error: erroReg } = await admin.rpc("juridico_registrar_recusa_envio", {
-        p_aluno: alunoRes.alunoId,
-        p_conversa: corpo.conversa_id!,
-        p_tipo: "MENSAGEM",
-      });
-      if (erroReg) console.error("recusa juridica nao registrada", erroReg.code);
+    // Opção B: canal COBRANCA exige aluno confirmado. OUTRO (Comercial, Piloto) sem exigência nova.
+    // null = canal desconhecido = fail-closed: bloqueado como COBRANCA.
+    const tipoCanalNovo = await canalTipoPorId(admin, corpo.canal_id!);
+    if (tipoCanalNovo !== "OUTRO") {
+      return jsonResp({ erro: "Canal de cobrança: contato sem vínculo confirmado. Nenhum vínculo é criado automaticamente." }, 403);
     }
-    // Detalhe SO para quem tem acesso (usuario ativo + conversa visivel). Quem nao tem: recusa generica.
-    const acesso = await temAcessoConversa(comoOperador, corpo.conversa_id ?? null, operadorEmail);
-    const msg = checagem.bloqueio && !acesso ? MENSAGEM_RECUSA_GENERICA : checagem.erro;
-    return jsonResp({ erro: msg, conversa_id: corpo.conversa_id }, 403);
+    // OUTRO sem aluno: JUR01 não se aplica a conversa nova sem identificação. Segue para preparo.
+  } else {
+    const alunoRes = await alunoDaConversa(admin, corpo.conversa_id!);
+    // Opção B: canal COBRANCA exige aluno_id confirmado antes do JUR01.
+    const tipoCanalExist = await canalTipoDeConversa(admin, corpo.conversa_id!);
+    if (tipoCanalExist !== "OUTRO" && !alunoRes.alunoId) {
+      return jsonResp({ erro: "Canal de cobrança sem vínculo confirmado com um aluno: envio não permitido." }, 403);
+    }
+    const operadorEmail = (await comoOperador.auth.getUser()).data.user?.email ?? "desconhecido";
+    const checagem = alunoRes.ok
+      ? await checarEnvioJuridico((nome, args) => admin.rpc(nome, args), {
+          alunoId: alunoRes.alunoId,
+          conversaId: corpo.conversa_id!,
+          operador: operadorEmail,
+          tipo: "MENSAGEM",
+          hash: await sha256Hex(texto),
+        })
+      : alunoRes;
+    if (!checagem.ok) {
+      // Recusa JURÍDICA: registrada na trilha do aluno como bloqueio (não é falha do gateway).
+      if (checagem.bloqueio && alunoRes.ok) {
+        const { error: erroReg } = await admin.rpc("juridico_registrar_recusa_envio", {
+          p_aluno: alunoRes.alunoId,
+          p_conversa: corpo.conversa_id!,
+          p_tipo: "MENSAGEM",
+        });
+        if (erroReg) console.error("recusa juridica nao registrada", erroReg.code);
+      }
+      // Detalhe SO para quem tem acesso (usuario ativo + conversa visivel). Quem nao tem: recusa generica.
+      const acesso = await temAcessoConversa(comoOperador, corpo.conversa_id ?? null, operadorEmail);
+      const msg = checagem.bloqueio && !acesso ? MENSAGEM_RECUSA_GENERICA : checagem.erro;
+      return jsonResp({ erro: msg, conversa_id: corpo.conversa_id }, 403);
+    }
   }
   }
 
