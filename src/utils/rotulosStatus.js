@@ -30,6 +30,8 @@ export const MAPA_SITUACAO = {
   // pode escolher esta tabulação: esconder a opção é uma coisa, deixar
   // `RETORNO_FINANCEIRO` cru na ficha é outra.
   RETORNO_FINANCEIRO: "Retorno do financeiro",
+  TERMO_FISICO_EM_ANDAMENTO: "Possui termo físico assinado, em andamento",
+  TERMO_FISICO_ARQUIVADO: "Termo físico arquivado, quitado",
   ACORDO_FECHADO: "Acordo fechado",
   // Estado operacional escrito pelo encerramento de confirmacao processada (acordo ativo, parcela futura, nada vencido).
   // Nao e tabulacao: o operador nao escolhe este status.

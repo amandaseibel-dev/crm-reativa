@@ -11,7 +11,7 @@ import DadosAcademicos from "../components/DadosAcademicos";
 import ConfirmarPagamento from "../components/ConfirmarPagamento";
 import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 import EmailAlunoUnificado from "../components/EmailAlunoUnificado";
-import { carregarTabulacoes, desfechoDaTabulacao, retornoEhManual, camposDeRetorno, lerRetornoAtual, RETORNO_ORIGEM_OPERADOR, tabulacaoDisponivel } from "../utils/tabulacoes";
+import { carregarTabulacoes, desfechoDaTabulacao, retornoEhManual, camposDeRetorno, lerRetornoAtual, RETORNO_ORIGEM_OPERADOR, tabulacaoDisponivel, tabulacaoEhRegistroAdministrativo, registrarAdministrativoNoHistorico } from "../utils/tabulacoes";
 import { ehOrigemDoOperador } from "../utils/retornoOrigem";
 import { corMovimentacao, recortarMovimentacoes } from "../utils/movimentacoes";
 import LinhaMovimentacao from "../components/LinhaMovimentacao";
@@ -64,6 +64,9 @@ const STATUS_FINALIZACAO = [
   // <select> usa `tabulacaoDisponivel`, a régua de quem é só-gestão mora em
   // src/utils/tabulacoes.js, e a trava de verdade está no banco
   // (`_encerramento_so_gestao`, que lê `tabulacoes.somente_gestao`).
+  // Registro administrativo do termo físico (só gestão; ver tabulacoes.js).
+  "TERMO_FISICO_EM_ANDAMENTO",
+  "TERMO_FISICO_ARQUIVADO",
   "RETORNO_FINANCEIRO",
   "TERMO_ENVIADO_ALUNO",
   "TERMO_ENVIADO_ADM",
@@ -1379,6 +1382,19 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     if (!alunoSelecionado?.id) return;
     if (!statusFinalizacao) {
       alert("Selecione o status da finalização.");
+      return;
+    }
+    if (tabulacaoEhRegistroAdministrativo(statusFinalizacao)) {
+      try {
+        await registrarAdministrativoNoHistorico({
+          alunoId: alunoSelecionado.id,
+          codigo: statusFinalizacao,
+        });
+        alert("Registro administrativo gravado no histórico.");
+      } catch (err) {
+        console.error("Registro administrativo:", err);
+        alert("Não foi possível confirmar o registro. Confira o histórico antes de repetir.");
+      }
       return;
     }
     const precisaRetorno = retornoEhManual(await carregarTabulacoes(), statusFinalizacao);
@@ -2749,6 +2765,9 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                       sem RPC de tabulação e sem validação de catálogo. Sem o
                       filtro, a tabulação só-gestão vazaria por aqui. */}
                   {STATUS_FINALIZACAO.filter((s) =>
+                    // Códigos de registro administrativo NÃO entram no estado do aluno
+                    // por esta aba (gravariam status sem histórico). Só pela tabulação.
+                    !tabulacaoEhRegistroAdministrativo(s) &&
                     tabulacaoDisponivel(
                       s,
                       podeVerTudo(usuarioLogado?.email),

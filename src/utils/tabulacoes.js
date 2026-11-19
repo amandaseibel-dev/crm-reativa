@@ -191,7 +191,40 @@ export function useTabulacoes() {
 // (`trg_tabulacao_efeito_financeiro`), a saída da cobrança, o borderô e a fila
 // continuam exatamente como estavam -- suspensão continua suspendendo e
 // cancelamento continua cancelando, quando a gestão escolhe.
+// Registro administrativo do termo físico (gestão, 14/11/2026). São tabulações
+// do catálogo `public.tabulacoes` com `somente_gestao = true`. Quem grava é só a
+// gestão, e o banco também recusa (trigger em aluno_movimentacoes). Gravam
+// apenas no histórico, com tipo REGISTRO_ADMINISTRATIVO, que NÃO é acionamento:
+// não atualizam contato, fidelização, retorno, fila nem situação financeira.
+export const TABULACOES_REGISTRO_ADMINISTRATIVO = Object.freeze([
+  "TERMO_FISICO_EM_ANDAMENTO",
+  "TERMO_FISICO_ARQUIVADO",
+]);
+export const TIPO_REGISTRO_ADMINISTRATIVO = "REGISTRO_ADMINISTRATIVO";
+export function tabulacaoEhRegistroAdministrativo(codigo) {
+  return TABULACOES_REGISTRO_ADMINISTRATIVO.includes(String(codigo || "").trim().toUpperCase());
+}
+
+// Descrição FIXA do registro administrativo. Não recebe observação livre: o texto
+// de movimentações é lido pela triagem Prime (palavras como fies, isen, bolsa,
+// tranc, desist), e um texto livre poderia alterar essa leitura.
+export const DESCRICAO_REGISTRO_ADMINISTRATIVO = "Registro administrativo do termo físico.";
+
+// Registro administrativo: o front APENAS SOLICITA. A operação do banco
+// (registrar_administrativo_termo_fisico) verifica a gestão, os dois códigos e grava
+// só no histórico, com autor e data do servidor. Nada é escrito em alunos.
+export async function registrarAdministrativoNoHistorico({ alunoId, codigo }) {
+  const { data, error } = await supabase.rpc("registrar_administrativo_termo_fisico", {
+    p_aluno_id: String(alunoId),
+    p_codigo: String(codigo || "").trim().toUpperCase(),
+  });
+  if (error) throw error;
+  return data;
+}
+
 export const TABULACOES_SO_GESTAO = Object.freeze([
+  "TERMO_FISICO_EM_ANDAMENTO",
+  "TERMO_FISICO_ARQUIVADO",
   "RETORNO_FINANCEIRO",
   "ALEGA_FINANCIAMENTO_CONFIRMADO",
   "CANCELAMENTO_COBRANCA",
