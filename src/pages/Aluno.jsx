@@ -14,6 +14,10 @@ import EmailAlunoUnificado from "../components/EmailAlunoUnificado";
 import { carregarTabulacoes, desfechoDaTabulacao, retornoEhManual, camposDeRetorno, lerRetornoAtual, RETORNO_ORIGEM_OPERADOR, tabulacaoDisponivel } from "../utils/tabulacoes";
 import { ehOrigemDoOperador } from "../utils/retornoOrigem";
 import { corMovimentacao, recortarMovimentacoes } from "../utils/movimentacoes";
+import {
+  podeRegistrarTermoArquivado,
+  montarMovimentoTermoArquivado,
+} from "../utils/registroTermo";
 import LinhaMovimentacao from "../components/LinhaMovimentacao";
 import TelefonesAluno from "../components/TelefonesAluno";
 import BlocoUlbra from "../components/BlocoUlbra";
@@ -319,6 +323,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   const [emailEditado, setEmailEditado] = useState("");
   const [salvandoCadastro, setSalvandoCadastro] = useState(false);
   const [movimentacoes, setMovimentacoes] = useState([]);
+  const [registrandoTermo, setRegistrandoTermo] = useState(false);
   // Recorte visual do histórico: as 10 mais recentes por padrão. O array
   // completo segue intacto em `movimentacoes` — é dele que o PDF é gerado.
   const [movimentacoesExpandidas, setMovimentacoesExpandidas] = useState(false);
@@ -1110,6 +1115,41 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       setSalvando(false);
     }
   }
+  // Registro administrativo informativo (só gestão). Só insere uma linha de histórico:
+  // não atualiza alunos, não tabula, não altera prazo, próxima ação nem acionamento.
+  async function registrarTermoArquivado() {
+    if (!alunoSelecionado?.id || registrandoTermo) return;
+    if (!window.confirm("Registrar no histórico do aluno: \"Termo físico assinado pelo aluno e arquivado com a gestão\"? Isto não altera status, prazo, próxima ação nem acionamento.")) {
+      return;
+    }
+    setRegistrandoTermo(true);
+    try {
+      try {
+        await supabase.auth.getSession();
+      } catch {
+        // Segue; o erro real aparece no insert, se houver.
+      }
+      const usuario = await pegarUsuarioLogado();
+      const { error } = await supabase
+        .from("aluno_movimentacoes")
+        .insert(
+          montarMovimentoTermoArquivado({
+            alunoId: alunoSelecionado.id,
+            usuario,
+            agora: new Date().toISOString(),
+          })
+        );
+      if (error) {
+        console.error("Erro ao registrar termo arquivado:", error);
+        alert("Erro ao registrar termo: " + error.message);
+        return;
+      }
+      await carregarMovimentacoes(alunoSelecionado.id);
+    } finally {
+      setRegistrandoTermo(false);
+    }
+  }
+
   async function carregarMovimentacoes(alunoId) {
     if (!alunoId) return;
     const { data, error } = await supabase
@@ -2629,6 +2669,27 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
               <div style={caixaInterna}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <h3 style={tituloSecao}>Movimentações</h3>
+                  <div style={{ display: "flex", gap: 8 }}>
+                  {podeRegistrarTermoArquivado(usuarioLogado?.email) && (
+                    <button
+                      type="button"
+                      onClick={registrarTermoArquivado}
+                      disabled={registrandoTermo}
+                      title="Registra no histórico do aluno: termo físico assinado e arquivado com a gestão. Não altera status, prazo, próxima ação nem acionamento."
+                      style={{
+                        background: "var(--rv-superficie)",
+                        border: "1px solid var(--rv-borda-forte)",
+                        borderRadius: 8,
+                        padding: "6px 12px",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: "var(--rv-texto-forte)",
+                        cursor: registrandoTermo ? "wait" : "pointer",
+                      }}
+                    >
+                      {registrandoTermo ? "Registrando…" : "🗂️ Registrar termo arquivado"}
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={exportarHistoricoPDF}
@@ -2645,6 +2706,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   >
                     📄 Exportar PDF
                   </button>
+                  </div>
                 </div>
                 {movimentacoes.length === 0 ? (
                   <p style={textoCinza}>Nenhuma movimentação registrada.</p>
