@@ -1,0 +1,85 @@
+-- REGULARIZAÇÃO de public.usuario_e_gestao() — PENDENTE, NÃO APLICADA.
+--
+-- Por que existe: a função está em produção sem migration que a crie (evidência de leitura em
+-- docs/seguranca/evidencias/catalogo_usuario_e_gestao_20261116.md). A migration
+-- 20261114120000 a chama, então um banco novo não reproduz a instalação.
+--
+-- Referência (produção, somente leitura): corpo em docs/seguranca/evidencias/prod_usuario_e_gestao.sql,
+-- md5(prosrc) = 889cfa4a82e9046b4322e8c85ee07b7d, dono postgres, SECURITY DEFINER, STABLE,
+-- search_path=public, ACL sem PUBLIC e sem anon.
+--
+-- Regras:
+--   1. Se a função NÃO existe: cria com o corpo de referência e concede EXECUTE a authenticated e
+--      service_role. NÃO concede EXECUTE a reativa_responsavel_executor (decisão da gestão, ver v2).
+--      Revoga PUBLIC e anon.
+--   2. Se a função EXISTE e diverge da referência (corpo, dono, SECURITY DEFINER, STABLE, search_path,
+--      ou EXECUTE para PUBLIC/anon): ABORTA com exceção. Nada é alterado. NUNCA sobrescreve.
+--   3. Se existe e confere: não altera nada (idempotente).
+--
+-- Não usa CREATE OR REPLACE (restauraria grants padrão). Não altera o alcance de cobranca07 nem
+-- as permissões de reativa_responsavel_executor (nem na criação: ver a nota no ramo de criação).
+-- A lista de e-mails é a de produção, copiada como está (necessária para reproduzir a função).
+
+begin;
+
+do $$
+declare
+  v_md5 text;
+  v_secdef boolean;
+  v_vol "char";
+  v_cfg text[];
+  v_owner text;
+  v_acl aclitem[];
+begin
+  select md5(p.prosrc), p.prosecdef, p.provolatile, p.proconfig, pg_get_userbyid(p.proowner),
+         coalesce(p.proacl, acldefault('f', p.proowner))
+    into v_md5, v_secdef, v_vol, v_cfg, v_owner, v_acl
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'usuario_e_gestao' and p.pronargs = 0;
+
+  if v_md5 is null then
+    execute $f$
+      create function public.usuario_e_gestao() returns boolean
+      language sql stable security definer set search_path to 'public'
+      as $body$
+  select lower(coalesce(auth.jwt()->>'email','')) in (
+    'amanda.seibel@aelbra.com.br',
+    'cobranca04@aelbra.com.br',
+    'cobranca07@aelbra.com.br'
+  );
+$body$
+    $f$;
+    revoke all on function public.usuario_e_gestao() from public, anon;
+    grant execute on function public.usuario_e_gestao() to authenticated, service_role;
+    -- EXECUTE para reativa_responsavel_executor NÃO é concedido aqui: a ACL de produção o inclui, mas a
+    -- decisão sobre esse papel é da gestão (ver catálogo). Divergência de ACL registrada na v2.
+    raise notice 'regularização: reativa_responsavel_executor sem EXECUTE nesta criação (decisão pendente da gestão)';
+    raise notice 'regularização: usuario_e_gestao() criada a partir da referência';
+    return;
+  end if;
+
+  if v_md5 <> '889cfa4a82e9046b4322e8c85ee07b7d'
+     or (select l.lanname from pg_proc p join pg_language l on l.oid = p.prolang
+          join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public' and p.proname = 'usuario_e_gestao' and p.pronargs = 0) <> 'sql'
+     or (select p.prorettype from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname = 'public' and p.proname = 'usuario_e_gestao' and p.pronargs = 0) <> 'boolean'::regtype
+     or not v_secdef
+     or v_vol <> 's'
+     or v_cfg is distinct from array['search_path=public']
+     or v_owner <> 'postgres' then
+    raise exception 'regularização ABORTADA: usuario_e_gestao() existe e diverge da referência (md5=%, secdef=%, volatilidade=%, config=%, dono=%). Nada foi alterado.',
+      v_md5, v_secdef, v_vol, v_cfg, v_owner;
+  end if;
+
+  if exists (select 1 from aclexplode(v_acl) a where a.grantee = 0 and a.privilege_type = 'EXECUTE')
+     or exists (select 1 from aclexplode(v_acl) a join pg_roles r on r.oid = a.grantee
+                 where r.rolname = 'anon' and a.privilege_type = 'EXECUTE') then
+    raise exception 'regularização ABORTADA: usuario_e_gestao() tem EXECUTE para PUBLIC ou anon. Nada foi alterado.';
+  end if;
+
+  raise notice 'regularização: usuario_e_gestao() já existe e confere com a referência; nada alterado';
+end
+$$;
+
+commit;
