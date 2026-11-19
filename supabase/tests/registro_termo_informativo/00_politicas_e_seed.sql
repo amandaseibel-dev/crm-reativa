@@ -12,6 +12,10 @@ grant usage, select on sequence aluno_movimentacoes_id_seq to authenticated;
 grant select, update on alunos to authenticated;
 grant select on casos to authenticated;
 grant execute on function app_email(), app_usuario_ativo(), usuario_e_gestao() to authenticated;
+-- Só o necessário para as funções de identidade lerem o JWT: acesso ao schema auth e execução do mock auth.jwt().
+-- Não concede nada além disso; não altera permissões de produção.
+grant usage on schema auth to authenticated;
+grant execute on function auth.jwt() to authenticated;
 
 -- Helper de asserção: executa SQL e devolve o SQLSTATE esperado, ou aponta erro inesperado.
 create or replace function esperar_erro(p_sql text, p_estado text) returns text language plpgsql as $$
