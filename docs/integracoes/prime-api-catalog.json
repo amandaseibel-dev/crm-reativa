@@ -470,5 +470,15 @@
       "isAgreementInstallment permanece false em todas as linhas observadas e nao permite identificar parcela de acordo"
     ],
     "rota_por_numero_de_acordo": "NAO EXISTE rota documentada e funcional. Cinco candidatas testadas com numero de acordo real (71903): todas 404, nenhuma 405"
+  },
+  "derivados_crm": {
+    "prime_titulo_semestre.semestre": {
+      "origem": "CRM, derivado; não é campo da API Prime",
+      "codigo": "supabase/functions/prime-cadastro/index.ts (semestreDe, votação por série)",
+      "gravacao": "migrations 20260825001000_prime_cadastro_contratos.sql e 20260902230000_o_nome_vem_do_prime.sql",
+      "documento": "docs/integracoes/prime-titulo-semestre-origem.md",
+      "confiavel_para_automacao": "CONDICIONAL",
+      "verificado_em": "2026-11-15"
+    }
   }
 }

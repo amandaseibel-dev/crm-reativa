@@ -738,3 +738,38 @@ Acrescentar linha em `supabase/ledger/YYYY-MM/INDICE.tsv`:
 - Ledger sem a verificação do Passo 4
 - Mais de uma migration por autorização
 - Qualquer migration não nomeada na autorização
+
+## Conferência do `version` efetivamente aplicado (antes do registro no ledger)
+
+Objetivo: registrar no ledger o `version` que o servidor gerou de fato, e não o nome do arquivo.
+Esta seção descreve o procedimento. Não é uma aplicação.
+
+1. Logo após a aplicação, na mesma janela de 30 minutos, ler o histórico de migrações (somente leitura):
+   `select version, name from supabase_migrations.schema_migrations order by version desc limit 5;`
+2. Localizar a linha cujo `name` corresponde ao nome do arquivo da migration (sem a versão).
+3. Comparar o `version` encontrado com o prefixo do arquivo (`20261115130000`). Se forem diferentes, o
+   registro no ledger usa o `version` do servidor e a correspondência é anotada na PR que muda o status.
+4. Confirmar o hash: a função `public.efetividade_caixa_resumo_semestre` existe e o texto do corpo
+   corresponde ao aprovado (SHA-256 da migration registrada no TSV).
+5. Só então criar a linha no ledger, em PR própria. Nada disso é feito antes da autorização.
+
+## Validação pós-aplicação: `efetividade_caixa_resumo_semestre` (somente após autorização)
+
+Escopo: validar a RPC criada pela migration `20261115130000_efetividade_caixa_resumo_semestre`.
+Esta seção descreve o procedimento. Não aplica nada.
+
+Pré-requisitos: aplicação autorizada e registrada; hash da migration igual ao aprovado.
+
+Passos (leitura, com `statement_timeout` de 8 s, exceto onde indicado):
+1. Confirmar existência e hash do corpo da função (`pg_get_functiondef`), igual à migration aprovada.
+2. Confirmar grants: `authenticated` com EXECUTE; `anon`, `PUBLIC` e `service_role` sem EXECUTE.
+3. Confirmar `provolatile = 'v'` e `proconfig` com `search_path=public, pg_temp`.
+4. Executar a RPC como gestão ativa e como conta sem acesso, com JWT real, para 2026/1 e 2026/2. A conta sem
+   acesso deve receber 42501. Registrar duração.
+5. Comparar os agregados com a medição (Anexo L e Anexo M). Divergência acima de R$ 0,01 ou de contagem é parada.
+
+Critério de parada: qualquer falha em 1 a 5, duração acima de 8 s, ou divergência de agregado. Nesse caso a
+RPC não é liberada para a tela, e a #965 não é publicada. Reverter com o rollback do repositório
+(`docs/rollbacks/efetividade-caixa-resumo-semestre-rollback.sql`).
+
+Sem autorização específica, nenhum desses passos é executado.

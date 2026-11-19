@@ -552,3 +552,16 @@ Toda descoberta nova sobre a API deve atualizar, no mesmo commit:
 [`prime-api.md`](prime-api.md) (este arquivo) + [`prime-api-catalog.json`](prime-api-catalog.json)
 + [`prime-mapa-fontes-verdade.md`](prime-mapa-fontes-verdade.md). Ver
 [README.md](README.md) para o processo completo.
+
+## Origem derivada: semestre do título (`prime_titulo_semestre`)
+
+Não é um campo da API Prime. O CRM deriva o semestre de cada título no coletor
+`supabase/functions/prime-cadastro/index.ts`:
+
+1. Cada contrato (`contracts[].validFrom`) gera um semestre: mês até 6 é `/1`, senão `/2` (`semestreDe()`).
+2. Os títulos são agrupados por série (prefixo do `documentNumber`).
+3. Cada vencimento da série é associado ao contrato que o cobre. O semestre da série é o mais votado.
+   Em empate, vale o primeiro contado. Série sem votos fica `null`.
+
+Consequências: o semestre depende do contrato Prime ser correto. Isso é usado pela separação de caixa
+por semestre (`efetividade_caixa_resumo_semestre`). Detalhes em [`prime-titulo-semestre-origem.md`](prime-titulo-semestre-origem.md).
