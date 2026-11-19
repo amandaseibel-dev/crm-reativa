@@ -1134,3 +1134,66 @@ jobs:
       # Duas conexoes reais: captura antes do lock, rollback, captura concorrente, reinstalacao.
       - name: Rodar rollback concorrente e reinstalacao (duas conexoes)
         run: bash "$DIR/run.sh"
+
+  registro-termo-informativo-sql:
+    name: registro termo informativo — gestão grava, operador recusado, UPDATE protegido, rollback reversível (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/registro_termo_informativo
+      MIGRATION: supabase/aguardando_aprovacao/20261119120000_registro_termo_informativo_so_gestao.sql.pendente
+      ROLLBACK: supabase/aguardando_aprovacao/20261119120000_registro_termo_informativo_so_gestao.rollback.sql
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: "Ambiente, papéis e políticas como em produção (banco descartável)"
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -c "do \$\$ begin if not exists (select 1 from pg_roles where rolname='app_teste') then create role app_teste login noinherit password 'app_teste_pw'; end if; end \$\$;"
+          psql -v ON_ERROR_STOP=1 -c "alter role app_teste noinherit; grant authenticated to app_teste with inherit false, set true, admin false;"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/00_politicas_e_seed.sql"
+
+      - name: "Migration pendente aplicada no banco descartável"
+        run: psql -v ON_ERROR_STOP=1 -f "$MIGRATION"
+
+      - name: "Gestão grava; operador recusado pelo banco (inclui variante); demais tipos preservados; autor e data/hora; aluno e caso inalterados"
+        run: |
+          set -euo pipefail
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/02_testes_gestao_e_operador.sql"
+
+      - name: "UPDATE: sem policy o operador não muda; com policy de teste, o gatilho recusa o operador e permite a gestão"
+        run: |
+          set -euo pipefail
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/03_update_sem_policy_operador.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/04_politica_update_de_teste.sql"
+          rc=0
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/05_update_com_policy_de_teste.sql" || rc=$?
+          psql -v ON_ERROR_STOP=1 -f "$DIR/06_remove_politica_de_teste.sql"
+          exit "$rc"
+
+      - name: "Rollback reversível: após reverter, o operador volta a gravar o tipo"
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
+          PGUSER=app_teste PGPASSWORD=app_teste_pw psql -v ON_ERROR_STOP=1 -f "$DIR/07_rollback_reversivel.sql"

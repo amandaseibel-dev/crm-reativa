@@ -50,6 +50,7 @@ export const TIPOS_ACIONAMENTO_INDIVIDUAL = [
 //   BAIXA_CONFERENCIA_PRIME        rotina de sistema / Prime
 //   CADASTRO_NOVO_ALUNO,
 //   CORRECAO_CADASTRO              cadastro, nao cobranca
+//   REGISTRO_TERMO_FISICO_INFORMATIVO  registro administrativo do termo (so historico; nao e acionamento)
 //
 // LIMITE CONHECIDO: `ACAO_DESFEITA` e `FINALIZACAO_ATENDIMENTO_DESFEITA`
 // (29 linhas cada em 29/09/2026) desfazem uma finalizacao, e este modulo NAO
