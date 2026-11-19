@@ -3,11 +3,13 @@
 //
 // SEM TLS AQUI DE PROPÓSITO: o container publica só em 127.0.0.1 e quem termina
 // HTTPS é o proxy reverso da VPS (Caddy/nginx). Ver README.
+import { Buffer } from "node:buffer";
 import { createServer } from "node:http";
 import { config } from "./config.js";
 import { tokenDeComandoConfere } from "./crm.js";
 import { log } from "./log.js";
 import { tamanhoDaFila, tamanhoDaQuarentena } from "./outbox.js";
+import { LIMITE_AUDIO_BYTES } from "./audio.js";
 
 function json(res, status, corpo) {
   const texto = JSON.stringify(corpo);
@@ -25,6 +27,19 @@ async function lerCorpo(req) {
   }
   const bruto = Buffer.concat(partes).toString("utf8");
   return bruto ? JSON.parse(bruto) : {};
+}
+
+// Corpo BINARIO, para o audio. Mesmo teto de 1 MB do `lerCorpo` — a diferenca
+// e so que os bytes nao sao JSON.
+async function lerBytes(req, limite) {
+  const partes = [];
+  let bytes = 0;
+  for await (const parte of req) {
+    bytes += parte.length;
+    if (bytes > limite) throw new Error("audio grande demais");
+    partes.push(parte);
+  }
+  return Buffer.concat(partes);
 }
 
 export function iniciarServidor(sessoes) {
@@ -76,6 +91,29 @@ export function iniciarServidor(sessoes) {
           limiteBytes: corpo.limite_bytes,
         });
         return json(res, 200, { ok: true, wamid: r.wamid });
+      }
+
+      // Audio gravado na Central. Os bytes vem no corpo; sessao e telefone vem
+      // em CABECALHO, nunca na URL — endereco acaba em log de proxy, e telefone
+      // de aluno nao pode ir junto.
+      //
+      // A resposta leva o OGG convertido de volta, para a Edge guardar no
+      // bucket o que de fato foi entregue.
+      if (caminho === "/enviar-audio" && req.method === "POST") {
+        const sessao = porChave.get(String(req.headers["x-sessao"] || "").toLowerCase());
+        if (!sessao) return json(res, 404, { erro: "sessao desconhecida" });
+        const telefone = String(req.headers["x-telefone"] || "").trim();
+        if (!telefone) return json(res, 400, { erro: "telefone e obrigatorio" });
+
+        const dados = await lerBytes(req, LIMITE_AUDIO_BYTES);
+        const r = await sessao.enviarAudio(telefone, { dados });
+        return json(res, 200, {
+          ok: true,
+          wamid: r.wamid,
+          mime: "audio/ogg",
+          segundos: r.segundos,
+          ogg_base64: r.ogg.toString("base64"),
+        });
       }
 
       if (caminho === "/enviar" && req.method === "POST") {

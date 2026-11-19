@@ -5,7 +5,11 @@ FROM node:20-alpine
 
 # tini garante que sinal de parada chegue ao processo e a sessão feche limpa,
 # em vez de morrer no meio de uma escrita de credencial.
-RUN apk add --no-cache tini
+#
+# ffmpeg converte o audio que o operador grava na Central (WebM no Chrome) em
+# OGG/Opus, o unico formato que o WhatsApp mostra como mensagem de voz. Sem ele
+# o envio de audio falha com "conversor de audio indisponivel".
+RUN apk add --no-cache tini ffmpeg
 
 WORKDIR /app
 
