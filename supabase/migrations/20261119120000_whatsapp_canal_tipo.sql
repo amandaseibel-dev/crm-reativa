@@ -10,3 +10,18 @@ ALTER TABLE public.whatsapp_canais
 
 -- Canal de cobrança existente
 UPDATE public.whatsapp_canais SET tipo = 'COBRANCA' WHERE sessao_chave = 'cobranca';
+
+-- Garantia: se o canal não existir no ambiente, o apply aborta em vez de deixar
+-- tipo='OUTRO' para todos (fail-open silencioso). Detecta restore incompleto ou
+-- nome diferente no ambiente.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.whatsapp_canais
+    WHERE sessao_chave = 'cobranca' AND tipo = 'COBRANCA'
+  ) THEN
+    RAISE EXCEPTION
+      'Canal cobranca nao classificado: apply abortado. '
+      'Verifique se whatsapp_canais contém sessao_chave=cobranca antes de aplicar.';
+  END IF;
+END $$;
