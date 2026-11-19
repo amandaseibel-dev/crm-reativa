@@ -13,6 +13,9 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { config } from "./config.js";
 import { chamar, enviarMidia } from "./crm.js";
+import {
+  LIMITE_AUDIO_BYTES, MIME_VOZ, converterParaOggOpus, duracaoOggSegundos, formatoDoAudio,
+} from "./audio.js";
 
 // Quem fala com o CRM. A indireção existe para o teste poder substituir sem
 // rede. `tratarHistorico` é a função que já custou dois históricos: ela precisa
@@ -28,6 +31,14 @@ export function _usarCrmParaTeste(fn) {
 let buscar = fetch;
 export function _usarFetchParaTeste(fn) {
   buscar = fn || fetch;
+}
+
+// Quem converte o audio gravado em OGG/Opus. Costura de teste: a conversao real
+// depende do ffmpeg da imagem; o que se prova aqui e que falha de conversao
+// nao vira mensagem, e que o que sai e mensagem de VOZ pelo numero certo.
+let converterAudio = converterParaOggOpus;
+export function _usarConversorParaTeste(fn) {
+  converterAudio = fn || converterParaOggOpus;
 }
 
 // Teto do documento de SAIDA. Espelha o `LIMITE_BYTES` do validador da Edge
@@ -1069,6 +1080,38 @@ export function criarSessao({ chave }) {
         mimetype: mime || "application/pdf",
       });
       return { wamid: enviada?.key?.id || null };
+    },
+
+    // Audio que o operador GRAVOU na Central. Sai como mensagem de voz.
+    //
+    // CONFERIDO AQUI TAMBEM, pelo mesmo motivo do documento: este e o ultimo
+    // ponto antes do telefone do aluno. Vazio, grande demais ou que nao e uma
+    // gravacao (OGG ou WebM) nao sai. E a CONVERSAO vem antes do envio: se o
+    // ffmpeg falhar, quem chama recebe ERRO e a Edge registra FALHOU.
+    //
+    // DEVOLVE O OGG. E ele que a Edge guarda no bucket — o que o aluno recebeu,
+    // nao o rascunho do navegador.
+    enviarAudio: async (telefone, { dados } = {}) => {
+      if (estadoAtual !== "CONECTADO" || !sock) {
+        throw new Error(`sessao ${chave} nao esta conectada (${estadoAtual})`);
+      }
+      if (!Buffer.isBuffer(dados) || dados.length === 0) throw new Error("audio vazio");
+      if (dados.length > LIMITE_AUDIO_BYTES) {
+        throw new Error(`audio de ${dados.length} bytes acima do limite (${LIMITE_AUDIO_BYTES})`);
+      }
+      if (!formatoDoAudio(dados)) throw new Error("o arquivo nao e um audio gravado");
+
+      const ogg = await converterAudio(dados);
+      const segundos = duracaoOggSegundos(ogg);
+
+      const jid = await resolverJid(sock, telefone, jidsResolvidos);
+      const enviada = await sock.sendMessage(jid, {
+        audio: ogg,
+        mimetype: MIME_VOZ,
+        ptt: true,
+        ...(segundos ? { seconds: segundos } : {}),
+      });
+      return { wamid: enviada?.key?.id || null, ogg, segundos };
     },
 
     desconectar: async () => {

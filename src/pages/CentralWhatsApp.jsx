@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { formatarTelefone, normalizarE164 } from "../utils/telefone";
 import AnexoWhatsApp from "../components/AnexoWhatsApp";
+import GravadorAudioWhatsApp from "../components/GravadorAudioWhatsApp";
 // A fila do receptivo. A main ja a trouxe para esta tela (#792, #801); esta
 // branch so troca a FORMA: a mesma fila na variante "barra", de uma linha.
 import FilaReceptivo from "../components/FilaReceptivo";
@@ -52,6 +53,7 @@ import {
   arquivarConversa,
   desarquivarConversa,
   encerrarConversa,
+  enviarAudio,
   enviarDocumento,
   enviarMensagem,
   esperaDesde,
@@ -172,6 +174,9 @@ export default function CentralWhatsApp() {
   // QUE está subindo não ajuda quem mandou o arquivo errado.
   const [anexo, setAnexo] = useState(null); // { nome, estado: ENVIANDO|ENVIADO|ERRO, erro }
   const seletorArquivoRef = useRef(null);
+  // Enquanto há gravação em curso (ou pronta para ouvir), o campo de texto sai
+  // de cena: duas coisas a enviar ao mesmo tempo é como se manda a errada.
+  const [gravandoAudio, setGravandoAudio] = useState(false);
   const [erro, setErro] = useState("");
   const [avisoFila, setAvisoFila] = useState(null);
   const [prefsAberto, setPrefsAberto] = useState(false);
@@ -444,6 +449,30 @@ export default function CentralWhatsApp() {
     } finally {
       setEnviando(false);
       if (seletorArquivoRef.current) seletorArquivoRef.current.value = "";
+    }
+  }
+
+  // Enviar o áudio gravado. Mesmo estado visível do PDF.
+  //
+  // RELANÇA O ERRO de propósito: é assim que o gravador sabe que não saiu e
+  // mantém a gravação na tela, para o operador tentar de novo sem regravar.
+  async function enviarAudioGravado(gravacao) {
+    if (!gravacao || !selecionada) return;
+    if (enviando) throw new Error("aguarde o envio anterior terminar");
+    setErro("");
+    setAnexo({ nome: "Áudio", estado: "ENVIANDO" });
+    setEnviando(true);
+    try {
+      await enviarAudio(selecionada.id, gravacao);
+      setAnexo({ nome: "Áudio", estado: "ENVIADO" });
+      setMensagens(await listarMensagens(selecionada.id));
+      carregarConversas();
+    } catch (e) {
+      setAnexo({ nome: "Áudio", estado: "ERRO", erro: e.message });
+      setMensagens(await listarMensagens(selecionada.id).catch(() => mensagens));
+      throw e;
+    } finally {
+      setEnviando(false);
     }
   }
 
@@ -1226,6 +1255,17 @@ export default function CentralWhatsApp() {
                     >
                       📎 PDF
                     </button>
+                    {/* `key` pela conversa: trocar de conversa desmonta o
+                        gravador, solta o microfone e joga fora a gravação —
+                        áudio gravado para um aluno nunca sobra para o próximo. */}
+                    <GravadorAudioWhatsApp
+                      key={selecionada.id}
+                      desabilitado={enviando}
+                      onEnviar={enviarAudioGravado}
+                      onOcupado={setGravandoAudio}
+                      estilos={{ botao: S.botao, botaoSec: S.botaoSec, botaoOff: S.botaoOff }}
+                    />
+                    {gravandoAudio ? null : (<>
                     <textarea
                       style={S.campo}
                       rows={2}
@@ -1243,6 +1283,7 @@ export default function CentralWhatsApp() {
                     >
                       {enviando ? "Enviando…" : "Enviar"}
                     </button>
+                    </>)}
                   </div>
                 )}
                 {anexo ? (

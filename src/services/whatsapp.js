@@ -372,6 +372,44 @@ export async function enviarDocumento(conversaId, arquivo) {
 }
 
 // ---------------------------------------------------------------------------
+// ENVIAR ÁUDIO GRAVADO
+//
+// Mesmo trilho do PDF: os bytes vão para a Edge Function, que confere o
+// conteúdo, pergunta ao banco se pode enviar e só então fala com o gateway. O
+// áudio sai como mensagem de voz, pelo número da conversa.
+// ---------------------------------------------------------------------------
+
+// 1 MB — cerca de 4 minutos de voz na taxa que a tela grava; a tela para em 2.
+// Conveniência, como no PDF: o número que vale é o do servidor.
+export const LIMITE_AUDIO_BYTES = 1_000_000;
+
+export function recusaLocalDoAudio(gravacao) {
+  if (!gravacao || !gravacao.size) return "a gravação está vazia";
+  if (gravacao.size > LIMITE_AUDIO_BYTES) {
+    return `áudio de ${Math.round(gravacao.size / 1000)} KB — o limite é ${LIMITE_AUDIO_BYTES / 1000} KB (cerca de 2 minutos)`;
+  }
+  return null;
+}
+
+export async function enviarAudio(conversaId, gravacao) {
+  const recusa = recusaLocalDoAudio(gravacao);
+  if (recusa) throw new Error(recusa);
+
+  // O nome é só rótulo do multipart: quem decide o formato são os bytes.
+  const nome = /ogg/i.test(gravacao.type || "") ? "audio.ogg" : "audio.webm";
+  const formulario = new FormData();
+  formulario.append("conversa_id", conversaId);
+  formulario.append("arquivo", gravacao, nome);
+
+  const { data, error } = await supabase.functions.invoke("whatsapp-enviar-audio", {
+    body: formulario,
+  });
+  if (error) throw new Error(await detalharErro(error));
+  if (data?.erro) throw new Error(data.erro);
+  return data;
+}
+
+// ---------------------------------------------------------------------------
 // NOVA CONVERSA — o operador inicia o contato
 //
 // Sem isto, iniciar contato obrigava o operador a sair da Central para o
