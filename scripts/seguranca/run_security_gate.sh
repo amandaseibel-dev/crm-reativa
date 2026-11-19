@@ -31,10 +31,17 @@ if ! command -v psql >/dev/null 2>&1; then
 fi
 
 # Executa o script e captura as linhas de achado.
-OUT="$(psql "$DB" -X -A -F $'\t' -t -f "$SQL" 2>&1)"
+# ON_ERROR_STOP=1: sem ele, psql -f sai com 0 mesmo quando o SQL falha.
+# Falha do psql (codigo != 0) OU qualquer "ERROR:" na saida = a auditoria NAO
+# rodou: REPROVA. Nunca aprova um resultado que nao foi medido.
+OUT="$(psql -v ON_ERROR_STOP=1 "$DB" -X -A -F $'\t' -t -f "$SQL" 2>&1)"
+PSQL_RC=$?
 echo "$OUT"
 
-if grep -q "BLOQUEIA" <<<"$OUT"; then
+if [[ "$PSQL_RC" -ne 0 ]] || grep -q "ERROR:" <<<"$OUT"; then
+  echo ">> REPROVADO: a auditoria SQL NÃO rodou (psql rc=$PSQL_RC ou ERROR na saída). Sem medição não há aprovação." >&2
+  fail=1
+elif grep -q "BLOQUEIA" <<<"$OUT"; then
   echo ">> REPROVADO: há achados de gravidade BLOQUEIA." >&2
   fail=1
 else

@@ -35,8 +35,37 @@ create table public.acordos_titulos (
   situacao  text,
   valor     numeric
 );
+-- A origem operacional tem RLS. O fixture anterior a omitia e o gate
+-- corretamente reprovava TABELA_SEM_RLS. Nao inventar policy permissiva:
+-- esta bancada exercita a copia como dono pela RPC SECURITY DEFINER.
+-- Policies de escrita versionadas: 20260726201500_restringir_escrita_cruzada_operacional.sql.
+-- As colunas/policies completas e os perfis da origem NAO sao simulados aqui.
+alter table public.acordos_titulos enable row level security;
 insert into public.acordos_titulos (documento, situacao, valor)
 values ('000000000001','ABERTO', 10.00), ('000000000002','ABERTO', 20.00);
+
+do $$
+declare v_total integer; v_erro text;
+begin
+  if not (select relrowsecurity from pg_class
+           where oid = 'public.acordos_titulos'::regclass)
+     or not has_table_privilege('authenticated', 'public.acordos_titulos', 'TRUNCATE') then
+    raise exception 'origem infiel: RLS ativa e default privilege devem coexistir';
+  end if;
+  set local role authenticated;
+  select count(*) into v_total from public.acordos_titulos;
+  begin
+    insert into public.acordos_titulos (id, documento) overriding system value
+    values (999, 'teste-negado');
+  exception when insufficient_privilege then
+    v_erro := sqlstate;
+  end;
+  reset role;
+  if v_total <> 0 or v_erro is distinct from '42501' then
+    raise exception 'origem infiel: RLS nao negou leitura/escrita (linhas %, erro %)', v_total, v_erro;
+  end if;
+end
+$$;
 
 -- Confere que o ambiente é fiel: tabela nova nasce com o `D`.
 do $$

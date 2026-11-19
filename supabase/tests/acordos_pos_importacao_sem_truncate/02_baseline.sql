@@ -110,5 +110,10 @@ begin
 
   -- guarda o nome para o caso 4 conferir que o patch NAO mexe nela
   create table public._teste_tabela_do_baseline as select v_tab as nome;
+  -- Auxiliar de controle do teste, nao um cenario negativo de seguranca.
+  -- O default privilege a expunha acidentalmente. Guardar o nome nao exige
+  -- nenhum acesso dos papeis da aplicacao.
+  alter table public._teste_tabela_do_baseline enable row level security;
+  revoke all on public._teste_tabela_do_baseline from public, anon, authenticated, service_role;
 end
 $$;

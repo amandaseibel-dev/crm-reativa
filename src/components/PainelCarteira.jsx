@@ -2056,6 +2056,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       const { error: erroMov } = await supabase.from("aluno_movimentacoes").insert({
         aluno_id: String(aluno.id),
         tipo: "FINALIZACAO_ATENDIMENTO",
+        // Vinculo do retorno (13/11): mesma data que foi gravada no aluno. Meio-dia em
+        // Sao Paulo para o dia nao mudar ao converter o fuso.
+        data_retorno: desfecho.data_retorno ? `${desfecho.data_retorno}T12:00:00-03:00` : null,
         descricao: `${rotuloStatus} — ação rápida direto na Minha Carteira.${textoRetorno}`,
         status_anterior: statusAntigo,
         status_novo: statusNovo,
@@ -2317,6 +2320,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       const { error: erroMov } = await supabase.from("aluno_movimentacoes").insert({
         aluno_id: String(a.id),
         tipo: "FINALIZACAO_ATENDIMENTO",
+        // Vinculo do retorno (13/11): mesma data que foi gravada no aluno (ver acima).
+        data_retorno: desfecho.data_retorno ? `${desfecho.data_retorno}T12:00:00-03:00` : null,
         descricao:
           (resumoConversa.trim() ? resumoConversa.trim() + " " : "") +
           `Atendimento finalizado como "${labelStatus(statusNovo)}".` +

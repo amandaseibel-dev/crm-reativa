@@ -1,0 +1,757 @@
+{
+ "acl_relacoes": [
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "relacao": "_tmp_fila2",
+   "security_invoker": "off"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "relacao": "vw_extracao_calibragem",
+   "security_invoker": "off"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "relacao": "vw_extracao_observabilidade",
+   "security_invoker": "off"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "relacao": "vw_extracao_validacao_trilha",
+   "security_invoker": "off"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "security_invoker": "off"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "relacao": "vw_titulo_presenca_historico",
+   "security_invoker": "off"
+  }
+ ],
+ "privilegios_expandidos": [
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "authenticated",
+   "priv": "DELETE"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "authenticated",
+   "priv": "INSERT"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "authenticated",
+   "priv": "MAINTAIN"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "authenticated",
+   "priv": "REFERENCES"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "authenticated",
+   "priv": "SELECT"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "authenticated",
+   "priv": "TRIGGER"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "authenticated",
+   "priv": "TRUNCATE"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "authenticated",
+   "priv": "UPDATE"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "postgres",
+   "priv": "DELETE"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "postgres",
+   "priv": "INSERT"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "postgres",
+   "priv": "MAINTAIN"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "postgres",
+   "priv": "REFERENCES"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "postgres",
+   "priv": "SELECT"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "postgres",
+   "priv": "TRIGGER"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "postgres",
+   "priv": "TRUNCATE"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "postgres",
+   "priv": "UPDATE"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "service_role",
+   "priv": "DELETE"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "service_role",
+   "priv": "INSERT"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "service_role",
+   "priv": "MAINTAIN"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "service_role",
+   "priv": "REFERENCES"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "service_role",
+   "priv": "SELECT"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "service_role",
+   "priv": "TRIGGER"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "service_role",
+   "priv": "TRUNCATE"
+  },
+  {
+   "relacao": "_tmp_fila2",
+   "papel": "service_role",
+   "priv": "UPDATE"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "authenticated",
+   "priv": "DELETE"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "authenticated",
+   "priv": "INSERT"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "authenticated",
+   "priv": "MAINTAIN"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "authenticated",
+   "priv": "REFERENCES"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "authenticated",
+   "priv": "SELECT"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "authenticated",
+   "priv": "TRIGGER"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "authenticated",
+   "priv": "TRUNCATE"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "authenticated",
+   "priv": "UPDATE"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "postgres",
+   "priv": "DELETE"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "postgres",
+   "priv": "INSERT"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "postgres",
+   "priv": "MAINTAIN"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "postgres",
+   "priv": "REFERENCES"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "postgres",
+   "priv": "SELECT"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "postgres",
+   "priv": "TRIGGER"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "postgres",
+   "priv": "TRUNCATE"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "postgres",
+   "priv": "UPDATE"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "service_role",
+   "priv": "DELETE"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "service_role",
+   "priv": "INSERT"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "service_role",
+   "priv": "MAINTAIN"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "service_role",
+   "priv": "REFERENCES"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "service_role",
+   "priv": "SELECT"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "service_role",
+   "priv": "TRIGGER"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "service_role",
+   "priv": "TRUNCATE"
+  },
+  {
+   "relacao": "vw_extracao_calibragem",
+   "papel": "service_role",
+   "priv": "UPDATE"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "authenticated",
+   "priv": "DELETE"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "authenticated",
+   "priv": "INSERT"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "authenticated",
+   "priv": "MAINTAIN"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "authenticated",
+   "priv": "REFERENCES"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "authenticated",
+   "priv": "SELECT"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "authenticated",
+   "priv": "TRIGGER"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "authenticated",
+   "priv": "TRUNCATE"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "authenticated",
+   "priv": "UPDATE"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "postgres",
+   "priv": "DELETE"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "postgres",
+   "priv": "INSERT"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "postgres",
+   "priv": "MAINTAIN"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "postgres",
+   "priv": "REFERENCES"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "postgres",
+   "priv": "SELECT"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "postgres",
+   "priv": "TRIGGER"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "postgres",
+   "priv": "TRUNCATE"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "postgres",
+   "priv": "UPDATE"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "service_role",
+   "priv": "DELETE"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "service_role",
+   "priv": "INSERT"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "service_role",
+   "priv": "MAINTAIN"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "service_role",
+   "priv": "REFERENCES"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "service_role",
+   "priv": "SELECT"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "service_role",
+   "priv": "TRIGGER"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "service_role",
+   "priv": "TRUNCATE"
+  },
+  {
+   "relacao": "vw_extracao_observabilidade",
+   "papel": "service_role",
+   "priv": "UPDATE"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "authenticated",
+   "priv": "DELETE"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "authenticated",
+   "priv": "INSERT"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "authenticated",
+   "priv": "MAINTAIN"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "authenticated",
+   "priv": "REFERENCES"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "authenticated",
+   "priv": "SELECT"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "authenticated",
+   "priv": "TRIGGER"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "authenticated",
+   "priv": "TRUNCATE"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "authenticated",
+   "priv": "UPDATE"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "postgres",
+   "priv": "DELETE"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "postgres",
+   "priv": "INSERT"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "postgres",
+   "priv": "MAINTAIN"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "postgres",
+   "priv": "REFERENCES"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "postgres",
+   "priv": "SELECT"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "postgres",
+   "priv": "TRIGGER"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "postgres",
+   "priv": "TRUNCATE"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "postgres",
+   "priv": "UPDATE"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "service_role",
+   "priv": "DELETE"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "service_role",
+   "priv": "INSERT"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "service_role",
+   "priv": "MAINTAIN"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "service_role",
+   "priv": "REFERENCES"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "service_role",
+   "priv": "SELECT"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "service_role",
+   "priv": "TRIGGER"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "service_role",
+   "priv": "TRUNCATE"
+  },
+  {
+   "relacao": "vw_extracao_validacao_trilha",
+   "papel": "service_role",
+   "priv": "UPDATE"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "authenticated",
+   "priv": "DELETE"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "authenticated",
+   "priv": "INSERT"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "authenticated",
+   "priv": "MAINTAIN"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "authenticated",
+   "priv": "REFERENCES"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "authenticated",
+   "priv": "SELECT"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "authenticated",
+   "priv": "TRIGGER"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "authenticated",
+   "priv": "TRUNCATE"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "authenticated",
+   "priv": "UPDATE"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "postgres",
+   "priv": "DELETE"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "postgres",
+   "priv": "INSERT"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "postgres",
+   "priv": "MAINTAIN"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "postgres",
+   "priv": "REFERENCES"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "postgres",
+   "priv": "SELECT"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "postgres",
+   "priv": "TRIGGER"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "postgres",
+   "priv": "TRUNCATE"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "postgres",
+   "priv": "UPDATE"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "service_role",
+   "priv": "DELETE"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "service_role",
+   "priv": "INSERT"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "service_role",
+   "priv": "MAINTAIN"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "service_role",
+   "priv": "REFERENCES"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "service_role",
+   "priv": "SELECT"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "service_role",
+   "priv": "TRIGGER"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "service_role",
+   "priv": "TRUNCATE"
+  },
+  {
+   "relacao": "vw_pagamento_suspeita_pendente",
+   "papel": "service_role",
+   "priv": "UPDATE"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "authenticated",
+   "priv": "DELETE"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "authenticated",
+   "priv": "INSERT"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "authenticated",
+   "priv": "MAINTAIN"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "authenticated",
+   "priv": "REFERENCES"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "authenticated",
+   "priv": "SELECT"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "authenticated",
+   "priv": "TRIGGER"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "authenticated",
+   "priv": "TRUNCATE"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "authenticated",
+   "priv": "UPDATE"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "postgres",
+   "priv": "DELETE"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "postgres",
+   "priv": "INSERT"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "postgres",
+   "priv": "MAINTAIN"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "postgres",
+   "priv": "REFERENCES"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "postgres",
+   "priv": "SELECT"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "postgres",
+   "priv": "TRIGGER"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "postgres",
+   "priv": "TRUNCATE"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "postgres",
+   "priv": "UPDATE"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "service_role",
+   "priv": "DELETE"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "service_role",
+   "priv": "INSERT"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "service_role",
+   "priv": "MAINTAIN"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "service_role",
+   "priv": "REFERENCES"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "service_role",
+   "priv": "SELECT"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "service_role",
+   "priv": "TRIGGER"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "service_role",
+   "priv": "TRUNCATE"
+  },
+  {
+   "relacao": "vw_titulo_presenca_historico",
+   "papel": "service_role",
+   "priv": "UPDATE"
+  }
+ ],
+ "usuario_e_gestao_definicao": "CREATE OR REPLACE FUNCTION public.usuario_e_gestao()\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  select lower(coalesce(auth.jwt()->>'email','')) in (\n    'amanda.seibel@aelbra.com.br',\n    'cobranca04@aelbra.com.br',\n    'cobranca07@aelbra.com.br'\n  );\n$function$\n"
+}
