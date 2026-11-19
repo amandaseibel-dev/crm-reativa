@@ -1,0 +1,50 @@
+-- SERIALIZAR O TETO POR OPERADOR NOS CAMINHOS LISTADOS ABAIXO (nao em todos). STATUS: PENDENTE, NAO APLICAR.
+--
+-- Mesmo mecanismo de todas as tomadas da #953: pg_advisory_xact_lock(hashtext('assumir_teto:' || email)),
+-- tomado ANTES de contar o teto. Sem ele, duas transacoes que atribuem casos ao mesmo operador
+-- contam o teto antes de qualquer uma gravar, e as duas passam.
+--
+-- CAMINHOS COBERTOS (com esta migration + a #953). NAO COBERTOS: INSERT com operador (o trigger e so
+-- AFTER UPDATE) e qualquer atribuicao feita com calibragem.bypass_teto='on' (o trigger sai antes do lock).
+--   * assumir_caso_fidelizacao_vencida (#953): ja toma o lock.
+--   * reverter_assumir_fidelizacao (#953): ja toma o lock do anterior.
+--   * assumir_caso_livre: este arquivo (patch ancorado).
+--   * trg_impor_teto_operador (trigger AFTER UPDATE em casos, quando o operador muda): este arquivo.
+--
+-- DEPENDENCIA: a #936 altera assumir_caso_livre e trg_impor_teto_operador. Esta migration
+-- so pode ser aplicada DEPOIS da #936 em producao e conferida. As ancoras abaixo foram
+-- verificadas contra o corpo ATUAL de producao (assumir_caso_livre md5 607a8b4f...,
+-- trg_impor_teto_operador md5 3d01bbd1..., medido na fixture; producao de 14/11 NAO CONFERIDA). Depois da #936 as ancoras precisam ser revalidadas:
+-- se nao baterem, a migration FALHA (patch_funcao_ancorada, falha fechada), sem aplicar pela metade.
+--
+-- Chave do lock: lower(email). A #953 usa lower(p_email) na tomada e na reversao; o trigger usa lower(NEW.operador_email).
+
+do $teto$
+begin
+-- GUARDA DE ORDEM (#936 -> teto -> prazo -> #953): recusa ANTES de alterar qualquer objeto.
+do $g$ begin
+  if to_regprocedure('public.aluno_retorno_operador_vigente(uuid)') is null then
+    raise exception 'ORDEM: #936 ausente (aluno_retorno_operador_vigente). Aplicar a #936 antes do teto.';
+  end if;
+  if obj_description(to_regprocedure('public.trg_impor_teto_operador()'), 'pg_proc') is not null then
+    raise exception 'ORDEM: teto ja marcado como aplicado; migration nao reexecutavel.';
+  end if;
+end $g$;
+  perform internal.patch_funcao_ancorada(
+    'public', 'assumir_caso_livre',
+    '  v_teto := public.calibragem_teto_operador(v_email);',
+    '  perform pg_advisory_xact_lock(hashtext(''assumir_teto:'' || v_email));' || E'\n' ||
+    '  v_teto := public.calibragem_teto_operador(v_email);',
+    1);
+
+  perform internal.patch_funcao_ancorada(
+    'public', 'trg_impor_teto_operador',
+    '  v_meta := public.calibragem_teto_operador(v_email);',
+    '  PERFORM pg_advisory_xact_lock(hashtext(''assumir_teto:'' || lower(v_email)));' || E'\n' ||
+    '  v_meta := public.calibragem_teto_operador(v_email);',
+    1);
+end
+$teto$;
+
+-- MARCADOR DE ORDEM (lido pelas guardas do prazo e da #953).
+comment on function public.trg_impor_teto_operador() is 'ordem-953:teto-20261114110000';

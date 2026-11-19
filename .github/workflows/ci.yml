@@ -175,6 +175,52 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
 
   # ---------------------------------------------------------------------------
+  # assumir caso com fidelizacao vencida -- concorrencia REAL (2 sessoes psql)
+  # Carrega as fixtures de producao (md5) e a migration pendente num Postgres
+  # descartavel e roda os cenarios C1 (disputa), C2 (acionamento so no aluno) e
+  # C3 (acionamento so no caso). Ver supabase/tests/concorrencia_assumir_fidelizacao/.
+  # ---------------------------------------------------------------------------
+  assumir-fidelizacao-concorrencia:
+    name: assumir caso fidelizacao vencida (postgres real, concorrencia)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+
+    steps:
+      - uses: actions/checkout@v5
+      - name: Cenarios de concorrencia
+        run: bash supabase/tests/concorrencia_assumir_fidelizacao/cenarios.sh
+      - name: Security gate sobre o banco com a migration aplicada no ambiente de teste
+        run: |
+          set -uo pipefail
+          # O gate consulta storage.buckets: no banco de teste o schema nao existe e o SELECT inteiro
+          # abortava sem checagem. Criamos o schema minimo para o check de buckets rodar.
+          psql -v ON_ERROR_STOP=1 -d teste_c3 -q -c "create schema if not exists storage; create table if not exists storage.buckets (id text primary key, name text, public boolean);"
+          OUT=$(bash scripts/seguranca/run_security_gate.sh "postgres://postgres:postgres@localhost:5432/teste_c3" 2>&1); RC=$?
+          echo "$OUT"
+          # O gate nao le o proprio erro de SQL: qualquer ERROR no output reprova este step.
+          if [ "$RC" -ne 0 ] || grep -q "ERROR:" <<<"$OUT"; then echo "GATE NAO EXECUTOU LIMPO"; exit 1; fi
+
+  # ---------------------------------------------------------------------------
   # migration 20261030090000 — CONTINUIDADE de 48h e limite 5 por operador
   #
   # Aplica a migration num Postgres descartável e roda os 11 cenários:
@@ -1099,6 +1145,42 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/04_depois_da_correcao.sql"
           psql -v ON_ERROR_STOP=1 -f "$ROLLBACK"
           psql -v ON_ERROR_STOP=1 -f "$DIR/05_apos_rollback.sql"
+
+
+  ordem-dependencias-953:
+    name: ordem #936 -> teto -> prazo -> #953 (artefato da #936 pelo SHA 9e840586; recusa de ordem errada)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Fixar o artefato da #936 pelo SHA (não por branch)
+        run: |
+          git fetch --no-tags origin 9e8405869d3fe20ce24f6c50be890076a231a0c1
+          test "$(git rev-parse 9e8405869d3fe20ce24f6c50be890076a231a0c1^{commit})" = "9e8405869d3fe20ce24f6c50be890076a231a0c1"
+          git worktree add --detach "$RUNNER_TEMP/a936" 9e8405869d3fe20ce24f6c50be890076a231a0c1
+
+      - name: Ordem de dependências e recusa fora de ordem
+        run: bash supabase/tests/ordem_dependencias_953/cenarios.sh "$RUNNER_TEMP/a936" "$GITHUB_WORKSPACE"
 
   relatorio-2026-2-rollback-concorrencia:
     name: relatorio 2026/2 — rollback concorrente e reinstalacao (postgres isolado)

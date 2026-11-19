@@ -9,6 +9,10 @@ export default defineConfig({
   esbuild: { jsx: "automatic", jsxImportSource: "react" },
   test: {
     environment: "node",
+    // Limite de workers (reuso da PR #934, mesmo motivo): cada suite com PGlite pesa ~1 GB de pico.
+    // Com o padrao de workers o runner do GitHub Actions esgota memoria e encerra o job no meio do
+    // `npm run test` (sinal de desligamento, sem erro de teste). Dois forks bastam para a suite.
+    poolOptions: { forks: { maxForks: 2, minForks: 1 } },
     // O gateway do WhatsApp tem testes proprios, escritos para `node --test`
     // (rodam com `npm test` DENTRO de services/whatsapp-gateway). O vitest da
     // raiz nao sabe executa-los e os marcaria como falha — ruido que esconderia
