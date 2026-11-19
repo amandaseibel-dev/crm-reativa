@@ -1,0 +1,66 @@
+-- REGISTRO TERMO INFORMATIVO — SÓ GESTÃO (PENDENTE DE APROVAÇÃO; NÃO APLICADA)
+--
+-- Gatilho BEFORE INSERT OR UPDATE OF tipo em aluno_movimentacoes, restrito ao tipo
+-- REGISTRO_TERMO_FISICO_INFORMATIVO. Gravar esse tipo (INSERT) ou mudar uma movimentação
+-- existente para ele (UPDATE) exige gestão ativa com confirmação positiva:
+--   app_usuario_ativo() IS TRUE AND usuario_e_gestao() IS TRUE
+-- Não toca alunos, casos, tabulacoes nem outros tipos de movimentação.
+-- Bypass somente para manutenção (session_user postgres/supabase_admin), como em 20261114120000.
+-- Não altera grants nem policies existentes. Reversível: ver o arquivo .rollback.sql.
+
+begin;
+
+do $$
+begin
+  if to_regprocedure('public.usuario_e_gestao()') is null then
+    raise exception 'pré-condição: public.usuario_e_gestao() ausente (dependência de produção; não é criada aqui)';
+  end if;
+  if to_regprocedure('public.app_usuario_ativo()') is null then
+    raise exception 'pré-condição: public.app_usuario_ativo() ausente (dependência de produção; não é criada aqui)';
+  end if;
+  if to_regprocedure('public.registro_termo_informativo_so_gestao()') is not null then
+    raise exception 'pré-condição: public.registro_termo_informativo_so_gestao() já existe';
+  end if;
+  if exists (select 1 from pg_trigger where tgname = 'trg_registro_termo_informativo_so_gestao' and not tgisinternal) then
+    raise exception 'pré-condição: trigger trg_registro_termo_informativo_so_gestao já existe';
+  end if;
+end $$;
+
+create function public.registro_termo_informativo_so_gestao()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  -- Manutenção da plataforma: mesma regra de bypass da migration 20261114120000.
+  if session_user in ('postgres', 'supabase_admin') then
+    return new;
+  end if;
+
+  -- Só interessa o tipo deste registro.
+  if upper(regexp_replace(coalesce(new.tipo, ''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C") is distinct from 'REGISTRO_TERMO_FISICO_INFORMATIVO' then
+    return new;
+  end if;
+
+  -- UPDATE que não muda o tipo para este registro não é uma transição: segue.
+  if tg_op = 'UPDATE' and upper(regexp_replace(coalesce(old.tipo, ''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C") is not distinct from upper(regexp_replace(coalesce(new.tipo, ''), '[^A-Za-z0-9_]', '', 'g') COLLATE "C") then
+    return new;
+  end if;
+
+  -- Confirmação positiva: NULL ou FALSE não passam.
+  if not (public.app_usuario_ativo() is true and public.usuario_e_gestao() is true) then
+    raise exception 'Registro de termo arquivado é restrito à gestão ativa. Nada foi gravado.'
+      using errcode = '42501';
+  end if;
+
+  return new;
+end
+$$;
+
+revoke all on function public.registro_termo_informativo_so_gestao() from public, anon, authenticated, service_role;
+
+create trigger trg_registro_termo_informativo_so_gestao
+  before insert or update of tipo on public.aluno_movimentacoes
+  for each row execute function public.registro_termo_informativo_so_gestao();
+
+commit;
