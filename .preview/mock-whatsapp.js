@@ -144,6 +144,26 @@ export const enviarDocumento = async (conversaId, arquivo) => {
   return { ok: true, wamid: "wamid-preview", nome: arquivo.name };
 };
 
+// Audio gravado no preview: mesmos tres estados do PDF. `window.__anexoFalha`
+// tambem derruba este envio -- e o caso em que a gravacao precisa FICAR na tela.
+export const LIMITE_AUDIO_BYTES = real.LIMITE_AUDIO_BYTES;
+export const recusaLocalDoAudio = real.recusaLocalDoAudio;
+export const enviarAudio = async (conversaId, gravacao) => {
+  const recusa = real.recusaLocalDoAudio(gravacao);
+  if (recusa) throw new Error(recusa);
+  await espera(true);
+  if (window.__anexoFalha) throw new Error(window.__anexoFalha);
+  const msgs = estado.mensagens[conversaId] || (estado.mensagens[conversaId] = []);
+  msgs.push({
+    id: `audio-${msgs.length + 1}`, direcao: "SAIDA", tipo: "audio_voz", texto: null,
+    status: "ENVIADO", enviado_por_email: "op@aelbra.com.br",
+    midia_path: `saida/2026/11/${msgs.length}.ogg`, midia_mime: "audio/ogg",
+    midia_nome: "audio.ogg", midia_tamanho: gravacao.size,
+    timestamp_wa: new Date().toISOString(),
+  });
+  return { ok: true, wamid: "wamid-preview" };
+};
+
 export const carregarQr = async () => espera({
   qr_code:
     "data:image/svg+xml;utf8," +
