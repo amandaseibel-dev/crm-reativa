@@ -1,3 +1,4 @@
+import { emailParaIlike } from "./ilike_email.ts";
 // ===========================================================================
 // HISTÓRICO SOMENTE LEITURA de uma conversa da Mensageria — Edge Function.
 // PREPARADA, NÃO PUBLICADA. Lógica em historico.ts (pura, testada).
@@ -73,7 +74,9 @@ Deno.serve(async (req: Request) => {
   const { data: { user } } = await sbUser.auth.getUser();
   if (!user?.email) return responder({ erro: "ACESSO_NEGADO" }, 403);
   const email = user.email.toLowerCase();
-  const { data: usuario } = await sb.from("usuarios").select("email, perfil, ativo").ilike("email", email).eq("ativo", true).limit(1).maybeSingle();
+  const emailLike = emailParaIlike(email);
+  if (emailLike === null) return responder({ erro: "ACESSO_NEGADO" }, 403);
+  const { data: usuario } = await sb.from("usuarios").select("email, perfil, ativo").ilike("email", emailLike).eq("ativo", true).limit(1).maybeSingle();
   if (!usuario) return responder({ erro: "ACESSO_NEGADO" }, 403);
   const gestao = PERFIS_AMPLOS.includes(String(usuario.perfil));
 
