@@ -24,11 +24,13 @@ import crmCpfAluno from "../assets/manual-mensageria/02b-cpf-aluno.webp";
 import crmAcessoGestaoLeads from "../assets/manual-mensageria/03a-acesso-gestao-leads.webp";
 import crmAcoesGestaoLeads from "../assets/manual-mensageria/03b-acoes-gestao-leads.webp";
 import { OBJECOES } from "../conteudo/objecoesNegociacao";
+import VotacaoLogotipo from "../components/portal/VotacaoLogotipo";
 
 
 
 const SECOES = [
   { grupo: "Início", itens: [{ id: "inicio", label: "🏠 Visão Geral", keywords: "início home resumo começo portal" }] },
+  { grupo: "Equipe", itens: [{ id: "votacao", label: "🗳️ Votação do Logotipo", keywords: "logotipo logo marca identidade visual votação voto reativa institucional proposta" }] },
   {
     grupo: "Atendimento",
     itens: [
@@ -227,6 +229,7 @@ export default function PortalOperacional() {
           {secao === "lgpd" && <SecaoLgpd />}
           {secao === "cultura" && <SecaoCultura />}
           {secao === "elogios" && <SecaoElogios />}
+          {secao === "votacao" && <SecaoVotacaoLogotipo />}
           {secao === "historia" && <SecaoHistoria />}
         </main>
       </div>
@@ -2654,6 +2657,21 @@ function SecaoCultura() {
           </Card>
         ))}
       </div>
+    </>
+  );
+}
+
+/* ===================== Votação do Logotipo ===================== */
+
+function SecaoVotacaoLogotipo() {
+  return (
+    <>
+      <TituloSecao
+        emoji="🗳️"
+        titulo="Votação do Logotipo"
+        sub="Escolha a nova marca institucional da ReATIVA. Um voto por operador."
+      />
+      <VotacaoLogotipo />
     </>
   );
 }
