@@ -1,0 +1,14 @@
+{
+  "name": "reativa-readonly-mcp",
+  "version": "2.0.0",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "auth": "node auth.mjs",
+    "test": "node test_estrutural.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.15.0",
+    "@supabase/supabase-js": "2.49.4"
+  }
+}
